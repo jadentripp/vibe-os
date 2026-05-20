@@ -415,7 +415,10 @@ static void checkpoint_save_slot_if_needed(void)
     if (!save_checkpoint_requested_once())
         return;
 
-    G_SaveGame(save_checkpoint_slot, description);
+    savegameslot = save_checkpoint_slot;
+    strcpy(savedescription, description);
+    sendsave = false;
+    gameaction = ga_savegame;
     save_checkpoint_done = 1;
 }
 
