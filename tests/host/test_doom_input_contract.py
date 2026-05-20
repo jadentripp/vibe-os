@@ -114,18 +114,23 @@ class DoomInputContractTests(unittest.TestCase):
             '"VIBE_LOAD_"',
             '"SAVEREQ.CHK"',
             '"LOADREQ.CHK"',
+            "stat(path, &info)",
+            "*slot = (int)info.st_size - 1;",
             "default_config_checkpoint_ready()",
             "gamestate == GS_LEVEL",
             "gameepisode > 0",
             "gametic > 0",
             "VIBE_PERSISTENCE_MIN_LEVELTIME",
             "leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME",
+            "if (save_checkpoint_requested)",
+            "if (load_checkpoint_requested)",
+            "if (!default_config_checkpoint_ready() || !persistence_checkpoint_requested())",
+            "if (!save_checkpoint_requested_once())",
+            "if (!load_checkpoint_requested_once())",
             "default_config_needs_checkpoint()",
             'default_config_contains_marker(length, "chatmacro0")',
             "M_SaveDefaults();",
-            "savegameslot = save_checkpoint_slot;",
-            'strcpy(savedescription, "VIBE SAVE");',
-            "gameaction = ga_savegame;",
+            "G_SaveGame(save_checkpoint_slot, description);",
             "G_LoadGame(path);",
             "VIBE_DOOM_INPUT_KEYDOWN",
             "ev_keydown",
@@ -135,6 +140,12 @@ class DoomInputContractTests(unittest.TestCase):
         ):
             with self.subTest(source=source):
                 self.assertIn(source, platform)
+
+        slot_request = platform.split("static int read_persistence_slot_request", 1)[1].split(
+            "static int save_checkpoint_requested_once", 1
+        )[0]
+        self.assertIn("stat(path, &info)", slot_request)
+        self.assertNotIn("fread", slot_request)
 
         self.assertIn("doom_port/input.c", makefile)
 

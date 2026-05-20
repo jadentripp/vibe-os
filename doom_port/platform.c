@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 
 #include "d_event.h"
 #include "d_main.h"
@@ -28,6 +29,7 @@ extern int savegameslot;
 extern char savedescription[32];
 void doom_original_G_BuildTiccmd(ticcmd_t* cmd);
 void doom_original_G_Ticker(void);
+void G_SaveGame(int slot, char* description);
 void G_DoSaveGame(void);
 void G_LoadGame(char* name);
 
@@ -73,8 +75,8 @@ static int load_checkpoint_done;
 #define VIBE_MUSIC_STREAM_TICS \
     ((int)((VIBE_MUSIC_STREAM_BYTES * 35u) / VIBE_MUSIC_DEFAULT_SAMPLE_RATE) / 16)
 #define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x2c000u
-#define VIBE_PERSISTENCE_MIN_LEVELTIME 1
 #define VIBE_PERSISTENCE_SLOT_COUNT 6
+#define VIBE_PERSISTENCE_MIN_LEVELTIME 32
 
 static void report_doom_init_status(unsigned long flags)
 {
@@ -345,7 +347,7 @@ static int persistence_checkpoint_requested(void)
 {
     FILE* marker;
 
-    if (default_config_checkpoint_request_checked)
+    if (default_config_checkpoint_requested)
         return default_config_checkpoint_requested;
 
     default_config_checkpoint_request_checked = 1;
@@ -399,29 +401,25 @@ static int read_save_slot_marker_request(const char* prefix, int* slot)
 
 static int read_persistence_slot_request(const char* path, int* slot)
 {
-    FILE* marker;
-    char buffer[4];
-    size_t length;
+    struct stat info;
 
     if (!slot)
         return 0;
 
     *slot = 0;
-    marker = fopen(path, "r");
-    if (!marker)
+    if (stat(path, &info) < 0)
         return 0;
 
-    length = fread(buffer, 1, sizeof(buffer), marker);
-    fclose(marker);
-    if (length > 0 && buffer[0] >= '0' && buffer[0] <= '5')
-        *slot = buffer[0] - '0';
+    if (info.st_size < 1 || info.st_size > 6)
+        return 0;
 
+    *slot = (int)info.st_size - 1;
     return 1;
 }
 
 static int save_checkpoint_requested_once(void)
 {
-    if (save_checkpoint_request_checked)
+    if (save_checkpoint_requested)
         return save_checkpoint_requested;
 
     save_checkpoint_request_checked = 1;
@@ -438,7 +436,7 @@ static int save_checkpoint_requested_once(void)
 
 static int load_checkpoint_requested_once(void)
 {
-    if (load_checkpoint_request_checked)
+    if (load_checkpoint_requested)
         return load_checkpoint_requested;
 
     load_checkpoint_request_checked = 1;
@@ -471,7 +469,7 @@ static void checkpoint_default_config_if_needed(void)
     if (default_config_checkpoint_checked || !defaultfile)
         return;
 
-    if (!persistence_checkpoint_requested() || !default_config_checkpoint_ready())
+    if (!default_config_checkpoint_ready() || !persistence_checkpoint_requested())
         return;
 
     default_config_checkpoint_checked = 1;
@@ -481,7 +479,9 @@ static void checkpoint_default_config_if_needed(void)
 
 static void checkpoint_save_slot_if_needed(void)
 {
-    if (save_checkpoint_done || !save_checkpoint_requested_once())
+    static char description[] = "VIBE SAVE";
+
+    if (save_checkpoint_done)
         return;
     if (!default_config_checkpoint_ready()
         || menuactive
@@ -490,11 +490,10 @@ static void checkpoint_save_slot_if_needed(void)
         || gameaction != ga_nothing) {
         return;
     }
+    if (!save_checkpoint_requested_once())
+        return;
 
-    savegameslot = save_checkpoint_slot;
-    strcpy(savedescription, "VIBE SAVE");
-    sendsave = false;
-    gameaction = ga_savegame;
+    G_SaveGame(save_checkpoint_slot, description);
     save_checkpoint_done = 1;
 }
 
@@ -502,7 +501,7 @@ static void checkpoint_load_slot_if_needed(void)
 {
     char path[] = "doomsav0.dsg";
 
-    if (load_checkpoint_done || !load_checkpoint_requested_once())
+    if (load_checkpoint_done)
         return;
     if (!default_config_checkpoint_ready()
         || menuactive
@@ -511,6 +510,8 @@ static void checkpoint_load_slot_if_needed(void)
         || gameaction != ga_nothing) {
         return;
     }
+    if (!load_checkpoint_requested_once())
+        return;
 
     path[7] = (char)('0' + load_checkpoint_slot);
     G_LoadGame(path);
@@ -762,6 +763,7 @@ void G_BuildTiccmd(ticcmd_t* cmd)
     int target_tic;
     int divisor;
 
+    checkpoint_save_slot_if_needed();
     doom_original_G_BuildTiccmd(cmd);
 
     if (!singletics || !cmd)
@@ -781,8 +783,6 @@ void G_BuildTiccmd(ticcmd_t* cmd)
 
 void G_Ticker(void)
 {
-    checkpoint_save_slot_if_needed();
-    checkpoint_load_slot_if_needed();
     doom_original_G_Ticker();
 
     if (gameaction == ga_savegame && savedescription[0])
@@ -877,6 +877,7 @@ void I_FinishUpdate(void)
     report_doom_init_status(VIBE_DOOM_INIT_FRAME);
     pump_music_stream();
     report_gameplay_status();
+    checkpoint_load_slot_if_needed();
     report_save_action_status();
     report_playability_status();
     report_player_detail_status();

@@ -144,6 +144,13 @@ proof path skips the marker so `DOOMSAV*.DSG` runs boot from the clean captured
 baseline. `--write-status` keeps the wait honest by rejecting a `DEFAULT.CFG`
 proof until the defaults file has been opened with `O_TRUNC` and closed.
 
+The save/load cloud proof uses `SAVEREQ.CHK` and `LOADREQ.CHK` marker files to
+request a Doom save slot. The marker file size is `slot + 1`, so the Doom port
+can learn the requested slot with `stat()` instead of reading marker file data
+from the live gameplay loop. That keeps the proof focused on the real
+`DOOMSAV*.DSG` write/read path instead of spending the critical window on a
+throwaway marker payload read.
+
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,
 resize-to-zero, delete, deleted root-slot reuse, zero-fill checks, FAT-copy

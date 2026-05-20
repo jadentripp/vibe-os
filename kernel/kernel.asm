@@ -5408,7 +5408,10 @@ ata_read_sector:
     cld
     mov dx, ATA_DATA
     mov ecx, 256
-    rep insw
+.read_word:
+    in ax, dx
+    stosw
+    loop .read_word
     mov byte [ata_status], 1
     clc
     jmp .done
@@ -5471,7 +5474,10 @@ ata_write_sector:
     cld
     mov dx, ATA_DATA
     mov ecx, 256
-    rep outsw
+.write_word:
+    lodsw
+    out dx, ax
+    loop .write_word
     call ata_wait_not_busy
     jc .fail
     mov byte [ata_status], 1
