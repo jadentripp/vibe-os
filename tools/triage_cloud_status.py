@@ -261,7 +261,7 @@ TRIAGE_RULES = (
         "ata-storage-stalled",
         ("ata", "ataop", "atawait", "atalba", "atastat", "ataerr", "atafail", "atatmo"),
         "The kernel is stuck in or has failed an ATA PIO wait before Doom produced frames.",
-        "Inspect ata_wait_not_busy/ata_wait_drq, the last LBA, and the command/status bits before widening to Doom startup.",
+        "Inspect ata_wait_ready/ata_wait_drq, the last LBA, and the command/status bits before widening to Doom startup.",
     ),
     TriageRule(
         "artifact-proof-failure",
@@ -589,7 +589,7 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
     ata_failures = _hex(fields, "atafail") or 0
     ata_timeouts = _hex(fields, "atatmo") or 0
     ata_active_before_frames = (
-        ata_wait in ("BUSY", "DRQ")
+        ata_wait in ("BUSY", "DRQ", "READY")
         and fields.get("gameplay") != "OK"
         and not _hex_nonzero(fields, "doompresent", "doompal", "doomframe")
     )
