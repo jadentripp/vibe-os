@@ -71,6 +71,10 @@ descriptor contains the raw unsigned 8-bit PCM sample pointer, length, volume,
 separation, pitch, Doom sound id, and flags. Normal SFX submit zero flags. The
 music bridge submits `VIBE_AUDIO_FLAG_MUSIC`; looping is now handled by the
 port-owned song cursor instead of by looping a short kernel sample window.
+Doom audio assets come from WAD lumps selected at runtime. The repo does not
+ship Doom SFX, MUS, MIDI, WAD bytes, or pre-rendered audio assets for this
+proof lane; `ds*` SFX lumps and MUS/MIDI song lumps are loaded from the caller's
+real WAD, then reduced to status counters and aggregate proof metadata.
 
 The kernel validates the descriptor and sample range against the current Doom
 process memory map, then registers the sound in the active voice table. Each
@@ -180,19 +184,27 @@ That makes QEMU write the host-side output it would have sent to a speaker. The
 workflow then analyzes the temporary WAV on the runner, writes only
 `build/audio-proof.json`, validates that manifest, and must delete the temporary WAV
 with `rm -f build/doom-audio.wav` before artifact upload.
+VNC does not carry audio by default. The quick cloud play path is therefore a
+visual/input path plus status proof; audible proof comes from aggregate cloud
+output/status in `audio-proof.json`, not from the VNC session itself. The rule
+is simple: raw audio must not be uploaded, and the manifest now records that the
+temporary WAV is runner-local and deleted before artifact upload.
 
 The aggregate JSON manifest is intentionally aggregate-only: sample format, duration,
 active-window counts, RMS/peak summaries, zero-crossing count, listener-quality metadata,
 stream-health summary, the matching final `audio=SB16` / SB16 version
 / DMA / playback / voice queue / IRQ / refill / non-music SFX / music status
-counters, and a status-only SB16 continuity summary from the same phase
+counters, WAD-lump asset provenance, and a status-only SB16 continuity summary
+from the same phase
 snapshots. The audible checker refuses to write or
 validate the manifest if only the music path progresses while `sfxmix=` stays
 flat, and its continuity summary now records separate `mix_lanes` deltas for
 non-music SFX, music, stream updates, music position, and shared SB16 IRQ/refill
 progress plus a `stream_health` object with buffer floor/peak/final values,
 under/drop deltas, and position-per-update metadata. It also records
-`mixer_safety` thresholds for clip-free, underrun-free, and drop-free playback.
+`mixer_safety` thresholds for clip-free, underrun-free, and drop-free playback,
+plus a scripted fire-phase proof so a manifest cannot pass on carrier or music
+activity alone.
 The listener-quality metadata is still aggregate only: active span,
 leading/trailing inactive windows, clipping ratio, crest factor, zero-crossing
 rate, machine-audible thresholds, and an explicit note that subjective human

@@ -75,32 +75,36 @@ Current kernel contract:
 without launching QEMU locally. Use `--require-default` to require Doom-shaped
 defaults text in `DEFAULT.CFG`: ASCII, newline-terminated assignments for
 `mouse_sensitivity`, `use_mouse`, `screenblocks`, and quoted `chatmacro0`, with
-the numeric fields inside Doom-plausible ranges. Use `--require-save-slot N` to
-require a `DOOMSAVN.DSG` file with Doom's 24-byte printable save description,
-16-byte `version 110` marker, player 1 marked active, plausible game-state
-header bytes, and nonzero serialized game-state payload beyond the tiny header.
+the numeric fields inside Doom-plausible ranges. Use `--require-save-slot N`
+only with a fresh `--baseline-image`; save-slot proof is rejected unless the
+baseline `DOOMSAVN.DSG` root entry is still empty, so preseeded saves cannot be
+mistaken for Doom-written persistence. The save validator requires Doom's
+24-byte NUL-terminated printable description, exact zero-padded 16-byte
+`version 110` marker, plausible skill/episode/map bytes, single-player
+`playeringame` flags, nonzero `leveltime`, a plausible archived i386
+`player_t` record, enough non-uniform serialized world/game-state bytes, and
+the final `0x1d` consistency marker written by `G_DoSaveGame`.
+
 For real proof, copy the fresh remote `disk.img` before boot and pass it back
-with `--baseline-image`; requested entries must differ from the baseline image,
-so preseeded host bytes do not count as Doom persistence. For reboot proof, copy
-an after-write snapshot of the same disk image and pass it with
-`--reboot-baseline-image` after booting the image again; requested entries must
-still have the same FAT root cluster, size, and bytes. Add `--reboot-status`
-with the second boot's decoded status so the same proof also requires a live
-Doom runtime: no user fault, panic, shutdown, or failed `usr`/`wad`/runtime
-health fields. Add `--write-status` when `DEFAULT.CFG` is proved through the
-runtime defaults checkpoint; the checker then requires the write boot to report
-the last `O_WRONLY|O_CREAT|O_TRUNC` defaults open, a completed defaults close,
-and no user fault before accepting the disk bytes. The reboot comparison
-requires `--baseline-image` too, so a
-preseeded image can never be reported as a reboot persistence proof without also
-proving the requested bytes changed from the fresh image. With a baseline image
-present, the checker also verifies both FAT copies agree, every allocated data
-cluster is owned by exactly one live root entry, and protected `DOOM1.WAD`,
-`USERPROB.ELF`, and `DOOM.ELF` entries have unchanged metadata and bytes. The
-checker-side FAT reader can list the root directory and follow simple read-only
-8.3 subdirectory entries for lookup/readback proof; this is deliberately a
-validation/tooling capability until the kernel grows a real directory syscall
-contract.
+with `--baseline-image`; requested entries must differ from the baseline image.
+For reboot proof, copy an after-write snapshot of the same disk image and pass
+it with `--reboot-baseline-image` after booting the image again; requested
+entries must still have the same FAT root cluster, size, and bytes. Add
+`--reboot-status` with the second boot's decoded status so the same proof also
+requires a live Doom runtime: no user fault, panic, shutdown, or failed
+`usr`/`wad`/runtime health fields. Add `--write-status` when `DEFAULT.CFG` is
+proved through the runtime defaults checkpoint; the checker then requires the
+write boot to report the last `O_WRONLY|O_CREAT|O_TRUNC` defaults open, a
+completed defaults close, and no user fault before accepting the disk bytes.
+The reboot comparison requires `--baseline-image` too, so a preseeded image can
+never be reported as a reboot persistence proof without also proving the
+requested bytes changed from the fresh image. With a baseline image present, the
+checker also verifies both FAT copies agree, every allocated data cluster is
+owned by exactly one live root entry, and protected `DOOM1.WAD`, `USERPROB.ELF`,
+and `DOOM.ELF` entries have unchanged metadata and bytes. The checker-side FAT
+reader can list the root directory and follow simple read-only 8.3 subdirectory
+entries for lookup/readback proof; this is deliberately a validation/tooling
+capability until the kernel grows a real directory syscall contract.
 
 Add `--require-dynamic-fat-proof` when the artifact should also prove the image
 still supports dynamic filesystem behavior. That option mutates an in-memory
@@ -144,9 +148,8 @@ Remaining storage gaps before a broad Doom-capable claim:
   the generated FAT16 disk image, but there is not yet a broader storage boot
   path story for installing, selecting, or safely recovering persistent media
   outside this generated image workflow.
-- The archived real-WAD cloud run `26156172979` proves save-slot reboot
-  persistence for this commit: `DOOMSAV0.DSG` is changed from the fresh baseline with
-  description `VIBESAVE`, keeps Doom's `version 110` marker, and survives a
-  second boot of the same remote image with `reboot status runtime=OK`. Future
-  storage or workflow changes must rerun that executable proof gate before
-  making a fresh persistence claim.
+- The archived real-WAD cloud run `26156172979` is historical context for an
+  older save-slot lane: it showed a changed `DOOMSAV0.DSG` description and a
+  reboot comparison, but it predates the stricter Doom-shaped save payload
+  checker. Future storage or workflow changes must rerun the current executable
+  proof gate before making a fresh save/load persistence claim.

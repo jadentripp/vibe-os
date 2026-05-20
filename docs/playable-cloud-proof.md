@@ -44,6 +44,34 @@ The `after-start` snapshot is the clean pre-input checkpoint: the port starts
 Doom directly in E1M1, the checker verifies it is already `GS_LEVEL`, and later
 phases must mutate state from that baseline.
 
+## Repeated Cloud Soak
+
+The manual **Real WAD soak** workflow repeats the same cloud proof without
+uploading WADs, disk images, logs, status text, rendered pixels, or raw audio.
+Each attempt runs the real-WAD, scripted human-playability, and SB16 continuity
+gates. When `audible_audio_proof=true`, each attempt must also reduce the
+temporary QEMU WAV to aggregate audio metadata and delete the WAV before any
+artifact upload.
+
+The only uploaded soak artifact is JSON metadata:
+`real-wad-soak-summary.json` plus per-attempt JSON files. The summary records
+the requested attempt count, required pass threshold, pass/flake counts,
+per-phase status SHA-256 hashes, compact status field summaries, gate outcomes,
+and the artifact policy. It is intentionally not a replacement for the
+single-run diagnostic artifact when a new failure needs deep triage.
+
+A soak is green only when the configured threshold passes the same repeated
+criteria every successful attempt: playability, input state changes, SB16
+continuity, and optional audible aggregate proof. The default threshold requires
+every attempt to pass; lowering `min_passes` is useful for measuring flakes but
+records the failed attempts in the summary. Validate a downloaded soak artifact
+locally with:
+
+```sh
+python3 tools/check_cloud_playability_artifacts.py \
+  --soak-summary path/to/real-wad-soak-metadata
+```
+
 ## Non-Pixel Evidence
 
 The cloud proof requires these status families:

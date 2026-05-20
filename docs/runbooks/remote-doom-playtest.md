@@ -4,6 +4,20 @@ This is the safe human-run path for playing vibe-os Doom without running QEMU on
 the laptop and without committing or uploading WAD data, disk images, or Doom
 pixels to the repository.
 
+For the copy-paste cloud path, including noVNC and SPICE options, use
+`docs/runbooks/cloud-interactive-playtest.md`. The safety rail is the same here:
+
+- `CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC`: do not run QEMU, `make run`,
+  `make run-headless`, `make smoke`, or `ALLOW_LOCAL_VM=1` on the Mac.
+- `CLOUD_PLAYTEST_REMOTE_QEMU_ONLY`: QEMU commands in this runbook are for the
+  disposable remote host only.
+- `CLOUD_PLAYTEST_FORBIDDEN_UPLOADS`: never upload or copy WADs, `disk.img`,
+  raw disk images, raw audio, screenshots, framebuffer dumps, rendered pixels,
+  or `status.*.bin` files off the disposable host.
+- `CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST`: only status text, logs, ELF diagnostics,
+  `doom.symbols`, human-playtest notes/session/manifest files, and optional
+  aggregate `audio-proof.json` may leave the disposable host.
+
 Use a disposable remote Ubuntu VM, Codespace, or throwaway remote host that runs
 QEMU. The host only needs CPU emulation; hardware virtualization is helpful but
 not required because the runbook uses QEMU TCG. This does not prove vibe-os boots
@@ -46,6 +60,8 @@ Start QEMU on the remote host with a loopback-only VNC display and monitor
 socket:
 
 ```sh
+# CLOUD_PLAYTEST_REMOTE_QEMU_ONLY: run this block on the disposable remote host,
+# never on macOS.
 mkdir -p build
 qemu-system-x86_64 \
   -machine pc,accel=tcg \
@@ -270,6 +286,31 @@ workflow instead of this manual VNC path. It captures:
 It deliberately does not upload `disk.img`, `gfx.bin`, `vga*.txt`, WAD files, or
 rendered Doom pixels.
 
+For repeated flake detection, use the GitHub Actions **Real WAD soak** workflow.
+It runs the same real-WAD cloud proof multiple times and uploads only JSON
+metadata: per-attempt status summaries plus `real-wad-soak-summary.json`. The
+soak summary is the aggregate proof artifact; it does not contain WAD bytes,
+disk images, logs, framebuffer data, raw status text, rendered pixels, or raw
+audio. The default `min_passes` value equals `attempts`, so any failed attempt
+marks the run red while still leaving a JSON flake record. Lower `min_passes`
+only when intentionally measuring intermittent behavior.
+
+The repeated pass criteria are explicit in the summary and in
+`tools/check_cloud_playability_artifacts.py`: playability, input state changes, SB16 continuity, and optional audible aggregate proof.
+In concrete terms, every successful attempt must have passed the real-WAD proof, the scripted
+human-playability gate that checks fire/move/use/mouse/menu state deltas, and
+the status-only SB16 continuity gate. If `audible_audio_proof=true`, every
+successful attempt must also include a validated aggregate `audio-proof.json`
+reduced from a temporary remote WAV; the soak artifact keeps only the JSON
+summary and never uploads the WAV.
+
+After downloading the `real-wad-soak-metadata` artifact, validate it locally:
+
+```sh
+python3 tools/check_cloud_playability_artifacts.py \
+  --soak-summary path/to/real-wad-soak-metadata
+```
+
 After downloading the diagnostic artifact, validate it locally without WAD data
 or QEMU. The artifact checker also rejects duplicate status basenames and
 renamed WAD/disk/image payload signatures, so do not add extra binaries to the
@@ -389,35 +430,48 @@ Call a remote human playtest credible only after checking all of this:
   baseline or the requested `DOOMSAVN.DSG` slot changed, captures an after-write
   image snapshot, boots the same image again, and checks that the requested FAT
   entries still match the after-write snapshot. The checker summary is saved as
-  status text; the disk image and WAD are not uploaded. If your input script
-  creates a save, set `persistence_save_slot` to require the matching
-  `DOOMSAVN.DSG`. For scripted save names, prefer the
+  status text; the disk image and WAD are not uploaded.
+
+  If your input script creates a save, set `persistence_save_slot` to require
+  the matching `DOOMSAVN.DSG`. The save-slot checker now rejects proof without a
+  fresh baseline whose requested slot is empty, then requires a Doom-shaped save
+  payload: NUL-terminated description, exact `version 110`, single-player
+  header, nonzero leveltime, plausible archived player/world state, and Doom's
+  final `0x1d` consistency marker. For scripted save names, prefer the
   smoke-runner `text=NAME` action over one `sendkey` action per letter so the
   QEMU monitor connection latency does not consume the proof timeout.
 
-  For a manual remote proof, copy a baseline before booting, quit Doom through
-  its menu so `I_Quit` writes defaults, optionally create a save, boot the same
-  image again, and run the image-local checker on the disposable host, not on
-  the laptop:
+  For a manual remote proof, copy a fresh baseline before booting, create the
+  save in Doom, snapshot the after-write image, reboot the same image, capture
+  the reboot status text, and run the image-local checker on the disposable host,
+  not on the laptop:
 
   ```sh
   cp build/disk.img /tmp/vibe-os-disk.before-persistence.img
-  # Boot remotely, quit Doom or create a save.
+  # Boot remotely, create save slot 0 from Doom, then stop QEMU through monitor quit.
   cp build/disk.img /tmp/vibe-os-disk.after-persistence-write.img
-  # Boot the same build/disk.img again.
+  python3 tools/check_doom_persistence_image.py \
+    --baseline-image /tmp/vibe-os-disk.before-persistence.img \
+    --require-save-slot 0 \
+    build/disk.img | tee build/status.persistence-write-proof.txt
+
+  # Boot the same build/disk.img again and capture build/status.persistence-reboot.txt.
   python3 tools/check_doom_persistence_image.py \
     --baseline-image /tmp/vibe-os-disk.before-persistence.img \
     --reboot-baseline-image /tmp/vibe-os-disk.after-persistence-write.img \
-    --require-default \
+    --reboot-status build/status.persistence-reboot.txt \
     --require-save-slot 0 \
-    build/disk.img
+    build/disk.img | tee build/status.persistence-reboot-proof.txt
   ```
 
-  The checker reads `DEFAULT.CFG` and `DOOMSAV0.DSG` through the FAT parser,
-  requires a fresh baseline for reboot claims, and prints only compact metadata,
-  save description, version text, and whether the requested entry changed from
-  the baseline and survived the reboot comparison. Do not upload `build/disk.img`
-  because it contains the WAD.
+  For a defaults-only proof, use `--require-default` and add `--write-status
+  build/status.persistence-write.txt` to the first checker invocation after
+  quitting Doom through its menu. The checker reads `DEFAULT.CFG` and
+  `DOOMSAV0.DSG` through the FAT parser and prints only compact metadata, save
+  description, version text, leveltime, and whether the requested entry changed
+  from the baseline and survived the reboot comparison. Do not upload
+  `build/disk.img`, the baseline, or the after-write snapshot because those
+  images contain the WAD; keep only status/checker text when preserving proof.
 - Audio is described honestly: `audio=SB16` plus the audio continuity checker
   proves the guest SB16 path advanced through IRQ/refill, SFX, and looped
   music-carrier counters; audible remote sound requires separate host audio

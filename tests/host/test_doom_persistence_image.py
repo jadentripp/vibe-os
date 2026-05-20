@@ -25,12 +25,50 @@ check_persistence = load_tool(
 )
 
 
-def doom_save_payload(description="VIBE SAVE", version="version 110", tail_size=1024):
+def doom_player_record():
+    record = bytearray(check_persistence.DOOM_PLAYER_RECORD_BYTES)
+
+    def u32(offset, value):
+        struct.pack_into("<I", record, offset, value)
+
+    def s32(offset, value):
+        struct.pack_into("<i", record, offset, value)
+
+    u32(4, 0)  # PST_LIVE
+    s32(16, 41 << 16)
+    s32(20, 41 << 16)
+    s32(24, 0)
+    s32(28, 0)
+    s32(32, 100)
+    s32(36, 0)
+    s32(40, 0)
+    u32(112, 1)  # wp_pistol
+    u32(116, 10)  # wp_nochange
+    u32(120, 1)  # fist
+    u32(124, 1)  # pistol
+    s32(156, 50)
+    s32(160, 0)
+    s32(164, 0)
+    s32(168, 0)
+    s32(172, 200)
+    s32(176, 50)
+    s32(180, 300)
+    s32(184, 50)
+    u32(244, 1)
+    s32(248, 1)
+    return bytes(record)
+
+
+def doom_save_payload(description="VIBE SAVE", version="version 110", tail_size=4096):
     payload = bytearray()
     payload.extend(description.encode("ascii")[:23].ljust(24, b"\0"))
     payload.extend(version.encode("ascii")[:15].ljust(16, b"\0"))
-    payload.extend(b"\x03\x01\x01\x01\x00\x00\x00")
-    payload.extend(bytes((index & 0xFF for index in range(tail_size))))
+    payload.extend(b"\x03\x01\x01\x01\x00\x00\x00\x00\x00\x46")
+    while len(payload) % 4:
+        payload.append(0)
+    payload.extend(doom_player_record())
+    payload.extend(bytes(((index * 37 + 11) & 0xFF for index in range(tail_size))))
+    payload.append(check_persistence.SAVE_CONSISTENCY_MARKER)
     return bytes(payload)
 
 
@@ -146,22 +184,28 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertEqual(summary, ["persistence entries present"])
 
     def test_checker_accepts_doom_shaped_defaults_and_save_slot(self):
-        image = bytearray((BUILD / "disk.img").read_bytes())
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        image = bytearray(baseline)
         fs = make_wad_image.Fat16Image(image)
         fs.write_root_file(make_wad_image.WRITABLE_DEFAULT_NAME, doom_default_payload())
         fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[2], doom_save_payload())
 
+        baseline_path = self.write_temp_image(baseline)
         path = self.write_temp_image(image)
         summary = check_persistence.validate_image(
             path,
+            baseline_image=baseline_path,
             require_default=True,
             require_save_slots=[2],
         )
 
         self.assertIn("DEFAULT.CFG bytes=", summary[0])
+        self.assertIn("changed-from-baseline", summary[0])
         self.assertIn("DOOMSAV2.DSG bytes=", summary[1])
+        self.assertIn("changed-from-baseline", summary[1])
         self.assertIn("description='VIBE SAVE'", summary[1])
         self.assertIn("version='version 110'", summary[1])
+        self.assertIn("leveltime=70", summary[1])
 
     def test_checker_can_require_dynamic_fat_mutation_proof_on_image_copy(self):
         summary = check_persistence.validate_image(
@@ -237,6 +281,38 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertIn("DOOMSAV3.DSG bytes=", summary[1])
         self.assertIn("survived-reboot", summary[1])
         self.assertIn("STILL HERE", summary[1])
+
+    def test_checker_rejects_save_slot_proof_without_fresh_baseline(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], doom_save_payload("NO BASELINE"))
+        path = self.write_temp_image(image)
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "requires --baseline-image"):
+            check_persistence.validate_image(path, require_save_slots=[0])
+
+    def test_checker_rejects_preseeded_save_slot_baseline(self):
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        baseline_fs = make_wad_image.Fat16Image(baseline)
+        baseline_fs.write_root_file(
+            make_wad_image.WRITABLE_SAVE_NAMES[0],
+            doom_save_payload("PRESEEDED"),
+        )
+        image = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(image)
+        fs.write_root_file(
+            make_wad_image.WRITABLE_SAVE_NAMES[0],
+            doom_save_payload("AFTER WRITE"),
+        )
+
+        baseline_path = self.write_temp_image(baseline)
+        image_path = self.write_temp_image(image)
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "preseeded evidence"):
+            check_persistence.validate_image(
+                image_path,
+                baseline_image=baseline_path,
+                require_save_slots=[0],
+            )
 
     def test_checker_gates_reboot_status_when_claiming_reboot_image(self):
         baseline = bytearray((BUILD / "disk.img").read_bytes())
@@ -343,6 +419,31 @@ class DoomPersistenceImageTests(unittest.TestCase):
                 baseline_image=baseline_path,
                 reboot_baseline_image=write_path,
                 require_default=True,
+            )
+
+    def test_checker_rejects_save_slot_that_changed_during_reboot(self):
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        after_write = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(after_write)
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], doom_save_payload("WRITE BOOT"))
+
+        after_reboot = bytearray(after_write)
+        reboot_fs = make_wad_image.Fat16Image(after_reboot)
+        reboot_fs.write_root_file(
+            make_wad_image.WRITABLE_SAVE_NAMES[0],
+            doom_save_payload("REBOOT MUTATE"),
+        )
+
+        baseline_path = self.write_temp_image(baseline)
+        write_path = self.write_temp_image(after_write)
+        reboot_path = self.write_temp_image(after_reboot)
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "did not survive reboot"):
+            check_persistence.validate_image(
+                reboot_path,
+                baseline_image=baseline_path,
+                reboot_baseline_image=write_path,
+                require_save_slots=[0],
             )
 
     def test_checker_rejects_protected_wad_or_elf_mutation_from_baseline(self):
@@ -666,15 +767,43 @@ class DoomPersistenceImageTests(unittest.TestCase):
     def test_checker_rejects_save_header_without_serialized_game_state(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
         fs = make_wad_image.Fat16Image(image)
-        payload = bytearray()
-        payload.extend(b"EMPTY STATE".ljust(24, b"\0"))
-        payload.extend(b"version 110".ljust(16, b"\0"))
-        payload.extend(b"\x03\x01\x01\x01\x00\x00\x00")
-        payload.extend(b"\0" * (check_persistence.MIN_SAVE_BYTES - len(payload)))
+        payload = bytearray(doom_save_payload("EMPTY STATE"))
+        player_end = (
+            check_persistence.SAVE_GAMESTATE_OFFSET
+            + 2
+            + check_persistence.DOOM_PLAYER_RECORD_BYTES
+        )
+        payload[player_end:-1] = b"\0" * (len(payload) - player_end - 1)
         fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], bytes(payload))
         path = self.write_temp_image(image)
 
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "serialized game-state"):
+            check_persistence.validate_image(path, require_save_slots=[0])
+
+    def test_checker_rejects_fake_save_header_with_arbitrary_tail_bytes(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        payload = bytearray()
+        payload.extend(b"FAKE SAVE".ljust(24, b"\0"))
+        payload.extend(b"version 110".ljust(16, b"\0"))
+        payload.extend(b"\x03\x01\x01\x01\x00\x00\x00\x00\x00\x46")
+        payload.extend(bytes((index & 0xFF for index in range(check_persistence.MIN_SAVE_BYTES))))
+        payload[-1] = check_persistence.SAVE_CONSISTENCY_MARKER
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], bytes(payload))
+        path = self.write_temp_image(image)
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "plausible archived Doom player"):
+            check_persistence.validate_image(path, require_save_slots=[0])
+
+    def test_checker_rejects_save_without_final_consistency_marker(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        payload = bytearray(doom_save_payload())
+        payload[-1] = 0
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], bytes(payload))
+        path = self.write_temp_image(image)
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "consistency marker"):
             check_persistence.validate_image(path, require_save_slots=[0])
 
     def test_checker_rejects_save_without_player_one_active(self):

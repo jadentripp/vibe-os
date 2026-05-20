@@ -9,6 +9,7 @@ import gzip
 import hashlib
 import io
 import json
+import os
 import re
 import sys
 import zipfile
@@ -28,6 +29,7 @@ import check_human_playability_proof  # noqa: E402
 RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
 PLAYABLE_DOC = ROOT / "docs" / "playable-cloud-proof.md"
 WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
+SOAK_WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-soak.yml"
 README = ROOT / "README.md"
 TESTS_README = ROOT / "tests" / "README.md"
 MAKEFILE = ROOT / "Makefile"
@@ -54,6 +56,9 @@ REQUIRED_SYMBOL_FILES = (
 )
 
 OPTIONAL_AUDIO_PROOF_FILE = "audio-proof.json"
+SOAK_SUMMARY_FILE = "real-wad-soak-summary.json"
+SOAK_SUMMARY_SCHEMA = "real-wad-soak-summary-v1"
+SOAK_ATTEMPT_SCHEMA = "real-wad-soak-attempt-v1"
 HUMAN_NOTES_FILE = "human-playtest-notes.txt"
 HUMAN_NOTES_SCHEMA = "human-playtest-notes-v2"
 HUMAN_MANIFEST_FILE = "human-playtest-manifest.json"
@@ -231,10 +236,130 @@ CONTENT_SIGNATURES = (
     (b"FORM", "AIFF audio"),
 )
 
+SOAK_ARTIFACT_POLICY = {
+    "aggregate_status_json_only": True,
+    "contains_wad_data": False,
+    "contains_disk_image": False,
+    "contains_pixels": False,
+    "contains_raw_audio": False,
+    "contains_raw_status_text": False,
+    "contains_qemu_logs": False,
+    "upload_only_json": True,
+}
+
+SOAK_PASS_CRITERIA = {
+    "playability": {
+        "real_wad_proof_passed": True,
+        "doomrun_run": True,
+        "gameplay_ok": True,
+        "e1m1": True,
+        "gtic_and_leveltime_progress": True,
+    },
+    "input_state_changes": {
+        "scripted_human_playability_passed": True,
+        "key_counters_progress": True,
+        "fire_ammo_or_refire_changed": True,
+        "movement_position_changed": True,
+        "use_action_seen": True,
+        "mouse_state_changed": True,
+        "menu_toggled": True,
+    },
+    "sb16_continuity": {
+        "audio_sb16": True,
+        "dma_programmed": True,
+        "playback_started": True,
+        "irq_refill_progress": True,
+        "sfxmix_progress": True,
+        "music_stream_progress": True,
+    },
+    "audible_aggregate_proof": {
+        "aggregate_json_only": True,
+        "no_raw_audio_uploaded": True,
+        "same_sb16_continuity_snapshots": True,
+    },
+}
+
+SOAK_PHASE_FILES = (
+    ("early", "status.early.txt"),
+    ("after-start", "status.after-start.txt"),
+    ("after-fire", "status.after-fire.txt"),
+    ("after-move", "status.after-move.txt"),
+    ("after-use", "status.after-use.txt"),
+    ("after-mouse", "status.after-mouse.txt"),
+    ("after-menu", "status.after-menu.txt"),
+    ("final", "status.txt"),
+)
+
+SOAK_STATUS_SUMMARY_FIELDS = (
+    "doomrun",
+    "gameplay",
+    "gstate",
+    "gmap",
+    "gtic",
+    "leveltime",
+    "gflags",
+    "pflags",
+    "pbuttons",
+    "ppos",
+    "pdelta",
+    "keyirq",
+    "keyqueue",
+    "keypoll",
+    "keyseen",
+    "keylast",
+    "mouse",
+    "mouseirq",
+    "mousepkt",
+    "mousepoll",
+    "mousebtn",
+    "mousedelta",
+    "audio",
+    "doomsound",
+    "sfxmix",
+    "musicmix",
+    "musicpos",
+    "musicbuf",
+    "audioirq",
+    "ack8",
+    "ack16",
+    "refill",
+    "sb16",
+    "dma",
+    "play",
+    "voiceq",
+    "musicq",
+    "doomopen",
+    "doomread",
+    "doomerr",
+    "doomfault",
+    "panic",
+    "shutdown",
+)
+
+SOAK_SUCCESS_GATES = (
+    "real_wad_proof",
+    "scripted_human_playability",
+    "playability",
+    "input_state_changes",
+    "sb16_continuity",
+)
+
 FORBIDDEN_ARCHIVE_SUFFIXES = (
     ".wad",
     ".iwad",
     ".pwad",
+    ".img",
+    ".iso",
+    ".raw",
+    ".qcow2",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".bmp",
+    ".ppm",
+    ".pgm",
     ".wav",
     ".wave",
     ".mp3",
@@ -278,10 +403,39 @@ def _assert_no_forbidden_uploads(workflow: str) -> None:
             raise AssertionError(f"workflow upload block includes forbidden artifact {forbidden}")
 
 
+def _assert_soak_uploads_only_json(workflow: str) -> None:
+    if "uses: actions/upload-artifact@v4" not in workflow:
+        raise AssertionError("real-WAD soak workflow must upload metadata artifacts")
+    upload_block = workflow.split("uses: actions/upload-artifact@v4", 1)[1]
+    _require(upload_block, "real-wad-soak-metadata", "real-WAD soak upload block")
+    _require(upload_block, "real-wad-soak/*.json", "real-WAD soak upload block")
+    for forbidden in (
+        "build/",
+        "status*.txt",
+        "*.log",
+        "*.bin",
+        "*.elf",
+        "*.symbols",
+        "audio-proof.json",
+        "doom-audio.wav",
+        "disk.img",
+        "DOOM1.WAD",
+        "*.WAD",
+        "*.wad",
+        "*.wav",
+        "*.png",
+    ):
+        if forbidden in upload_block:
+            raise AssertionError(
+                f"real-WAD soak upload block includes non-JSON/raw artifact {forbidden}"
+            )
+
+
 def validate_repo_contract() -> None:
     runbook = _read(RUNBOOK)
     playable = _read(PLAYABLE_DOC)
     workflow = _read(WORKFLOW)
+    soak_workflow = _read(SOAK_WORKFLOW)
     readme = _read(README)
     tests_readme = _read(TESTS_README)
     makefile = _read(MAKEFILE)
@@ -292,6 +446,7 @@ def validate_repo_contract() -> None:
         "ssh -L 5901:127.0.0.1:5901",
         "tools/prepare_shareware_wad.py",
         "tools/check_cloud_playability_artifacts.py",
+        "real-wad-soak-summary.json",
         "tools/collect_human_playtest_bundle.py",
         "tools/check_real_wad_proof.py",
         "tools/check_human_playability_proof.py",
@@ -342,6 +497,9 @@ def validate_repo_contract() -> None:
         "no_local_qemu=yes",
         "doom.symbols",
         "audio-proof.json",
+        "Real WAD soak",
+        "soak summary",
+        "playability, input state changes, SB16 continuity, and optional audible aggregate proof",
         "status.after-fire.txt",
         "status.after-start.txt",
         "status.after-move.txt",
@@ -446,6 +604,31 @@ def validate_repo_contract() -> None:
     ):
         _require(workflow, needle, "real-WAD workflow")
     _assert_no_forbidden_uploads(workflow)
+
+    for needle in (
+        "workflow_dispatch:",
+        "attempts:",
+        "min_passes:",
+        "audible_audio_proof:",
+        "tools/prepare_shareware_wad.py",
+        "SOAK_ATTEMPTS",
+        "SOAK_MIN_PASSES",
+        "SMOKE_CAPTURE_GFX=0",
+        "SMOKE_SKIP_ASSERTIONS=1",
+        "SMOKE_INPUT_SCRIPT=\"after-start:wait=2,snapshot after-fire:hold=ctrl:800",
+        "python3 tools/check_real_wad_proof.py",
+        "python3 tools/check_human_playability_proof.py",
+        "python3 tools/check_audio_continuity_proof.py",
+        "python3 tools/check_audible_audio_proof.py",
+        "--write-soak-attempt",
+        "--write-soak-summary",
+        "--soak-summary",
+        "real-wad-soak-summary.json",
+        "real-wad-soak-metadata",
+        "rm -f \"$WAD_PATH\"",
+    ):
+        _require(soak_workflow, needle, "real-WAD soak workflow")
+    _assert_soak_uploads_only_json(soak_workflow)
 
 
 def _relative_names(root: Path) -> list[str]:
@@ -882,6 +1065,10 @@ def _forbidden_content_reason(path: Path, data: bytes) -> str | None:
         for signature, label in CONTENT_SIGNATURES:
             if inflated.startswith(signature):
                 return f"gzip-compressed {label}"
+        if len(inflated) >= 0x8006 and inflated[0x8001:0x8006] == b"CD001":
+            return "gzip-compressed ISO image"
+        if len(inflated) >= 512 and inflated[510:512] == b"\x55\xaa" and b"FAT" in inflated[:512]:
+            return "gzip-compressed raw FAT disk image"
     if data.startswith(b"PK\x03\x04"):
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as archive:
@@ -1010,6 +1197,349 @@ def _assert_human_session_allowlist(names: list[str]) -> None:
         raise AssertionError(f"unexpected human session artifact: {name}")
 
 
+def _load_json_object(path: Path, label: str) -> dict:
+    try:
+        parsed = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise AssertionError(f"{label} must be valid JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise AssertionError(f"{label} must be a JSON object")
+    return parsed
+
+
+def _assert_soak_metadata_dir_json_only(path: Path) -> None:
+    names = _relative_names(path)
+    if not names:
+        raise AssertionError("real-WAD soak metadata directory is empty")
+    for name in names:
+        basename = Path(name).name
+        if name != basename:
+            raise AssertionError(f"real-WAD soak metadata must be flat JSON; nested path found: {name}")
+        if not basename.endswith(".json"):
+            raise AssertionError(f"real-WAD soak metadata must contain only JSON files: {name}")
+    _assert_no_forbidden_contents(path, names)
+
+
+def _assert_soak_policy(policy: object, label: str) -> None:
+    if not isinstance(policy, dict):
+        raise AssertionError(f"{label} artifact_policy must be an object")
+    for key, expected in SOAK_ARTIFACT_POLICY.items():
+        if policy.get(key) is not expected:
+            raise AssertionError(f"{label} artifact_policy.{key} must be {expected}")
+
+
+def _assert_soak_pass_criteria(criteria: object, audible_required: bool) -> None:
+    if not isinstance(criteria, dict):
+        raise AssertionError("real-WAD soak pass_criteria must be an object")
+    for group, required_fields in SOAK_PASS_CRITERIA.items():
+        values = criteria.get(group)
+        if not isinstance(values, dict):
+            raise AssertionError(f"real-WAD soak pass_criteria.{group} must be an object")
+        for key, expected in required_fields.items():
+            if values.get(key) is not expected:
+                raise AssertionError(
+                    f"real-WAD soak pass_criteria.{group}.{key} must be {expected}"
+                )
+    audible = criteria["audible_aggregate_proof"]
+    if audible.get("required") is not audible_required:
+        raise AssertionError(
+            "real-WAD soak pass_criteria.audible_aggregate_proof.required "
+            f"must be {audible_required}"
+        )
+
+
+def _status_summary_from_path(path: Path) -> dict[str, str]:
+    fields = _status_fields(path.read_text())
+    return {name: fields.get(name, "<missing>") for name in SOAK_STATUS_SUMMARY_FIELDS}
+
+
+def _soak_audio_proof_summary(path: Path) -> dict:
+    manifest = check_audible_audio_proof._load_manifest(path)
+    check_audible_audio_proof.validate_manifest(manifest)
+    listener = manifest.get("listener_quality", {})
+    analysis = manifest.get("analysis", {})
+    policy = manifest.get("artifact_policy", {})
+    continuity = manifest.get("continuity", {})
+    return {
+        "schema": manifest.get("schema", ""),
+        "source": manifest.get("source", ""),
+        "machine_audible": bool(listener.get("machine_audible")),
+        "active_windows": analysis.get("active_windows"),
+        "active_window_ratio": analysis.get("active_window_ratio"),
+        "peak_abs_norm": analysis.get("peak_abs_norm"),
+        "upload_only_aggregate_json": policy.get("upload_only_aggregate_json") is True,
+        "contains_raw_audio": policy.get("contains_raw_audio") is True,
+        "sb16_continuity": continuity.get("sb16_continuity") is True,
+        "non_music_sfx_progress": continuity.get("non_music_sfx_progress") is True,
+        "music_stream_progress": continuity.get("music_stream_progress") is True,
+    }
+
+
+def _soak_run_identity() -> dict[str, str]:
+    return {
+        "workflow": "real-wad-soak.yml",
+        "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+        "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+        "commit": os.environ.get("GITHUB_SHA", ""),
+    }
+
+
+def build_soak_attempt_metadata(
+    artifact_dir: Path,
+    attempt_index: int,
+    audible_required: bool = False,
+) -> dict:
+    if attempt_index < 1:
+        raise AssertionError("soak attempt index must be positive")
+    validate_artifact_dir(artifact_dir)
+    names = _relative_names(artifact_dir)
+
+    phase_hashes: dict[str, str] = {}
+    phase_summaries: dict[str, dict[str, str]] = {}
+    for phase, status_file in SOAK_PHASE_FILES:
+        status_name = _find_one(names, status_file)
+        if status_name is None:
+            raise AssertionError(f"missing expected soak status file: {status_file}")
+        status_path = artifact_dir / status_name
+        phase_hashes[phase] = _sha256_file(status_path)
+        phase_summaries[phase] = _status_summary_from_path(status_path)
+
+    audio_proof_name = _find_one(names, OPTIONAL_AUDIO_PROOF_FILE)
+    if audible_required and audio_proof_name is None:
+        raise AssertionError(f"audible soak attempt requires {OPTIONAL_AUDIO_PROOF_FILE}")
+    audio_summary = (
+        _soak_audio_proof_summary(artifact_dir / audio_proof_name)
+        if audio_proof_name is not None
+        else None
+    )
+
+    gates = {
+        "real_wad_proof": "pass",
+        "scripted_human_playability": "pass",
+        "playability": "pass",
+        "input_state_changes": "pass",
+        "sb16_continuity": "pass",
+        "audible_aggregate_proof": "pass" if audible_required else "not-requested",
+    }
+    return {
+        "schema": SOAK_ATTEMPT_SCHEMA,
+        "source": "real-wad-cloud-proof-attempt",
+        "attempt_index": attempt_index,
+        "conclusion": "success",
+        "run": _soak_run_identity(),
+        "artifact_policy": dict(SOAK_ARTIFACT_POLICY),
+        "status_source": "required-status-snapshot-summaries",
+        "phase_hashes": phase_hashes,
+        "phase_summaries": phase_summaries,
+        "gates": gates,
+        "audio_proof": audio_summary,
+    }
+
+
+def _validate_soak_attempt(attempt: object, audible_required: bool) -> bool:
+    if not isinstance(attempt, dict):
+        raise AssertionError("real-WAD soak attempt must be an object")
+    if attempt.get("schema") != SOAK_ATTEMPT_SCHEMA:
+        raise AssertionError(f"real-WAD soak attempt schema must be {SOAK_ATTEMPT_SCHEMA}")
+    index = attempt.get("attempt_index")
+    if not isinstance(index, int) or index < 1:
+        raise AssertionError("real-WAD soak attempt_index must be a positive integer")
+    _assert_soak_policy(attempt.get("artifact_policy"), f"real-WAD soak attempt {index}")
+
+    conclusion = attempt.get("conclusion")
+    if conclusion == "failure":
+        if not attempt.get("failure_stage"):
+            raise AssertionError(f"real-WAD soak attempt {index} failure_stage is required")
+        return False
+    if conclusion != "success":
+        raise AssertionError(f"real-WAD soak attempt {index} conclusion must be success or failure")
+
+    gates = attempt.get("gates")
+    if not isinstance(gates, dict):
+        raise AssertionError(f"real-WAD soak attempt {index} gates must be an object")
+    for gate in SOAK_SUCCESS_GATES:
+        if gates.get(gate) != "pass":
+            raise AssertionError(f"real-WAD soak attempt {index} gate {gate} must be pass")
+    expected_audible_gate = "pass" if audible_required else "not-requested"
+    if gates.get("audible_aggregate_proof") != expected_audible_gate:
+        raise AssertionError(
+            f"real-WAD soak attempt {index} audible_aggregate_proof gate must be "
+            f"{expected_audible_gate}"
+        )
+
+    phase_hashes = attempt.get("phase_hashes")
+    summaries = attempt.get("phase_summaries")
+    if not isinstance(phase_hashes, dict) or not isinstance(summaries, dict):
+        raise AssertionError(f"real-WAD soak attempt {index} must include phase hashes and summaries")
+    for phase, _status_file in SOAK_PHASE_FILES:
+        digest = phase_hashes.get(phase)
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9A-Fa-f]{64}", digest):
+            raise AssertionError(f"real-WAD soak attempt {index} phase {phase} needs a sha256")
+        summary = summaries.get(phase)
+        if not isinstance(summary, dict):
+            raise AssertionError(f"real-WAD soak attempt {index} phase {phase} summary is required")
+        for field in SOAK_STATUS_SUMMARY_FIELDS:
+            if field not in summary:
+                raise AssertionError(
+                    f"real-WAD soak attempt {index} phase {phase} summary missing {field}"
+                )
+    final = summaries["final"]
+    for field, expected in (
+        ("doomrun", "RUN"),
+        ("gameplay", "OK"),
+        ("gstate", "00000000"),
+        ("gmap", "00000101"),
+        ("audio", "SB16"),
+        ("panic", "NONE"),
+        ("shutdown", "NONE"),
+    ):
+        if final.get(field) != expected:
+            raise AssertionError(
+                f"real-WAD soak attempt {index} final {field}= must be {expected}"
+            )
+
+    audio_proof = attempt.get("audio_proof")
+    if audible_required:
+        if not isinstance(audio_proof, dict):
+            raise AssertionError(f"real-WAD soak attempt {index} needs audio_proof metadata")
+        for key in (
+            "machine_audible",
+            "upload_only_aggregate_json",
+            "sb16_continuity",
+            "non_music_sfx_progress",
+            "music_stream_progress",
+        ):
+            if audio_proof.get(key) is not True:
+                raise AssertionError(f"real-WAD soak attempt {index} audio_proof.{key} must be true")
+        if audio_proof.get("contains_raw_audio") is not False:
+            raise AssertionError(
+                f"real-WAD soak attempt {index} audio_proof.contains_raw_audio must be false"
+            )
+    elif audio_proof is not None:
+        raise AssertionError(
+            f"real-WAD soak attempt {index} must not include audio_proof unless audible proof is required"
+        )
+    return True
+
+
+def build_soak_summary(
+    attempt_dir: Path,
+    requested_attempts: int,
+    required_successes: int,
+    audible_required: bool = False,
+) -> dict:
+    if requested_attempts < 1:
+        raise AssertionError("soak requested attempts must be positive")
+    if required_successes < 1 or required_successes > requested_attempts:
+        raise AssertionError("soak required successes must be between 1 and requested attempts")
+    attempt_paths = sorted(
+        path for path in attempt_dir.glob("attempt-*.json") if path.name != SOAK_SUMMARY_FILE
+    )
+    attempts = [
+        _load_json_object(path, f"real-WAD soak attempt {path.name}")
+        for path in attempt_paths
+    ]
+    pass_count = sum(1 for attempt in attempts if attempt.get("conclusion") == "success")
+    criteria = json.loads(json.dumps(SOAK_PASS_CRITERIA))
+    criteria["audible_aggregate_proof"]["required"] = audible_required
+    return {
+        "schema": SOAK_SUMMARY_SCHEMA,
+        "generated_by": ".github/workflows/real-wad-soak.yml",
+        "source": "repeated-real-wad-cloud-proof",
+        "run": _soak_run_identity(),
+        "requested_attempts": requested_attempts,
+        "required_successes": required_successes,
+        "pass_count": pass_count,
+        "flake_count": requested_attempts - pass_count,
+        "audible_audio_proof": audible_required,
+        "artifact_policy": dict(SOAK_ARTIFACT_POLICY),
+        "pass_criteria": criteria,
+        "attempts": attempts,
+    }
+
+
+def validate_soak_summary(summary: dict) -> None:
+    if summary.get("schema") != SOAK_SUMMARY_SCHEMA:
+        raise AssertionError(f"real-WAD soak summary schema must be {SOAK_SUMMARY_SCHEMA}")
+    if summary.get("generated_by") != ".github/workflows/real-wad-soak.yml":
+        raise AssertionError("real-WAD soak summary generated_by must name the soak workflow")
+    _assert_soak_policy(summary.get("artifact_policy"), "real-WAD soak summary")
+
+    audible_required = summary.get("audible_audio_proof")
+    if not isinstance(audible_required, bool):
+        raise AssertionError("real-WAD soak summary audible_audio_proof must be a boolean")
+    _assert_soak_pass_criteria(summary.get("pass_criteria"), audible_required)
+
+    requested_attempts = summary.get("requested_attempts")
+    required_successes = summary.get("required_successes")
+    pass_count = summary.get("pass_count")
+    flake_count = summary.get("flake_count")
+    attempts = summary.get("attempts")
+    if not isinstance(requested_attempts, int) or requested_attempts < 1:
+        raise AssertionError("real-WAD soak summary requested_attempts must be positive")
+    if not isinstance(required_successes, int) or not (1 <= required_successes <= requested_attempts):
+        raise AssertionError("real-WAD soak summary required_successes is out of range")
+    if not isinstance(attempts, list):
+        raise AssertionError("real-WAD soak summary attempts must be a list")
+    if len(attempts) != requested_attempts:
+        raise AssertionError(
+            f"real-WAD soak summary expected {requested_attempts} attempts, got {len(attempts)}"
+        )
+    seen_indices: set[int] = set()
+    computed_pass_count = 0
+    for attempt in attempts:
+        if _validate_soak_attempt(attempt, audible_required):
+            computed_pass_count += 1
+        index = attempt["attempt_index"]
+        if index in seen_indices:
+            raise AssertionError(f"real-WAD soak summary duplicates attempt_index {index}")
+        seen_indices.add(index)
+    if seen_indices != set(range(1, requested_attempts + 1)):
+        raise AssertionError("real-WAD soak summary attempt indexes must be contiguous from 1")
+    if pass_count != computed_pass_count:
+        raise AssertionError("real-WAD soak summary pass_count does not match attempts")
+    if flake_count != requested_attempts - computed_pass_count:
+        raise AssertionError("real-WAD soak summary flake_count does not match attempts")
+    if computed_pass_count < required_successes:
+        raise AssertionError(
+            f"real-WAD soak failed repeated pass threshold: "
+            f"{computed_pass_count}/{requested_attempts} passed, required {required_successes}"
+        )
+
+
+def validate_soak_summary_path(path: Path) -> None:
+    if path.is_dir():
+        _assert_soak_metadata_dir_json_only(path)
+        summary_path = path / SOAK_SUMMARY_FILE
+        if not summary_path.exists():
+            raise AssertionError(f"missing expected soak summary file: {SOAK_SUMMARY_FILE}")
+        names = sorted(_relative_names(path))
+        for name in names:
+            if name == SOAK_SUMMARY_FILE:
+                continue
+            if not re.fullmatch(r"attempt-[0-9]+\.json", name):
+                raise AssertionError(f"unexpected real-WAD soak metadata JSON file: {name}")
+        summary = _load_json_object(summary_path, SOAK_SUMMARY_FILE)
+        validate_soak_summary(summary)
+        attempts_by_file = {
+            f"attempt-{attempt['attempt_index']:03d}.json": attempt
+            for attempt in summary["attempts"]
+        }
+        expected_names = sorted([SOAK_SUMMARY_FILE, *attempts_by_file])
+        if names != expected_names:
+            raise AssertionError("real-WAD soak metadata file inventory does not match summary")
+        for name in names:
+            if name == SOAK_SUMMARY_FILE:
+                continue
+            attempt = _load_json_object(path / name, f"real-WAD soak attempt {name}")
+            expected = attempts_by_file.get(name)
+            if expected is None or attempt != expected:
+                raise AssertionError(f"real-WAD soak attempt file does not match summary: {name}")
+    else:
+        summary_path = path
+        validate_soak_summary(_load_json_object(summary_path, SOAK_SUMMARY_FILE))
+
+
 def validate_artifact_dir(artifact_dir: Path, require_human_notes: bool = False) -> None:
     if not artifact_dir.exists():
         raise AssertionError(f"artifact directory does not exist: {artifact_dir}")
@@ -1123,11 +1653,86 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help=f"require and validate {HUMAN_NOTES_FILE} for a manual remote playtest",
     )
+    parser.add_argument(
+        "--soak-summary",
+        type=Path,
+        help="validate a real-wad-soak metadata directory or real-wad-soak-summary.json",
+    )
+    parser.add_argument(
+        "--write-soak-attempt",
+        type=Path,
+        help="write status-summary JSON for one already-validated real-WAD proof attempt",
+    )
+    parser.add_argument(
+        "--soak-attempt-index",
+        type=int,
+        default=1,
+        help="positive attempt number used with --write-soak-attempt",
+    )
+    parser.add_argument(
+        "--require-audible-proof",
+        action="store_true",
+        help="require aggregate audio-proof.json metadata for soak attempt/summary validation",
+    )
+    parser.add_argument(
+        "--write-soak-summary",
+        type=Path,
+        help="write and validate real-wad-soak-summary.json from attempt-*.json files",
+    )
+    parser.add_argument(
+        "--soak-attempt-dir",
+        type=Path,
+        help="directory containing attempt-*.json files for --write-soak-summary",
+    )
+    parser.add_argument(
+        "--soak-attempts",
+        type=int,
+        help="requested attempt count for --write-soak-summary",
+    )
+    parser.add_argument(
+        "--soak-required-passes",
+        type=int,
+        help="required successful attempts for --write-soak-summary",
+    )
     args = parser.parse_args(argv)
 
     try:
         verification = None
-        if args.repo_contract or args.artifact_dir is None:
+        if args.soak_summary is not None:
+            validate_soak_summary_path(args.soak_summary)
+        if args.write_soak_attempt is not None:
+            if args.artifact_dir is None:
+                raise AssertionError("--write-soak-attempt requires artifact_dir")
+            attempt = build_soak_attempt_metadata(
+                args.artifact_dir,
+                args.soak_attempt_index,
+                audible_required=args.require_audible_proof,
+            )
+            args.write_soak_attempt.parent.mkdir(parents=True, exist_ok=True)
+            args.write_soak_attempt.write_text(json.dumps(attempt, indent=2, sort_keys=True) + "\n")
+        if args.write_soak_summary is not None:
+            if args.soak_attempt_dir is None:
+                raise AssertionError("--write-soak-summary requires --soak-attempt-dir")
+            if args.soak_attempts is None:
+                raise AssertionError("--write-soak-summary requires --soak-attempts")
+            if args.soak_required_passes is None:
+                raise AssertionError("--write-soak-summary requires --soak-required-passes")
+            summary = build_soak_summary(
+                args.soak_attempt_dir,
+                args.soak_attempts,
+                args.soak_required_passes,
+                audible_required=args.require_audible_proof,
+            )
+            args.write_soak_summary.parent.mkdir(parents=True, exist_ok=True)
+            args.write_soak_summary.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
+            validate_soak_summary(summary)
+        default_repo_contract = (
+            args.artifact_dir is None
+            and args.soak_summary is None
+            and args.write_soak_attempt is None
+            and args.write_soak_summary is None
+        )
+        if args.repo_contract or default_repo_contract:
             validate_repo_contract()
         if args.artifact_dir is not None:
             validate_artifact_dir(args.artifact_dir, require_human_notes=args.human_session)

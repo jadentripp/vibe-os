@@ -25,6 +25,14 @@ Current behavior:
 - uses only freestanding integer code and does not call host audio, MIDI, math,
   or operating-system libraries
 
+Asset provenance:
+
+MUS/MIDI song lumps from the selected WAD are the only Doom music asset source.
+The repo does not ship Doom songs, sound effects, WAD bytes, rendered music, or
+other prebuilt Doom audio assets. The proof surface records parser/mixer status
+and aggregate output health only; it does not upload MUS, MIDI, SFX, PCM, or WAV
+payloads.
+
 Integration:
 
 The Doom platform hooks in `doom_port/platform.c` now register song lump
@@ -73,9 +81,11 @@ lane progress, the music lane must be active in at least one snapshot, and at
 least one music snapshot must show a buffered stream window. It now also
 requires more than one stream update and changing `musicbuf=` values so the
 proof includes stream-health movement instead of a static carrier. The gate also
-requires no new `mixclip=`, `musicunder=`, or `musicdrops=` deltas during the
-scripted proof. That is still push-fed song-position progress, not a claim that
-the kernel owns the final pull stream.
+requires the scripted fire phase to advance Doom sound calls and non-music SFX
+mixing, so music-only or carrier-only output cannot stand in for firing the
+shotgun in the play proof. It also requires no new `mixclip=`, `musicunder=`, or
+`musicdrops=` deltas during the scripted proof. That is still push-fed
+song-position progress, not a claim that the kernel owns the final pull stream.
 The checker treats this lane as separate from normal Doom SFX even if the final
 snapshot lands after the active music voice drained.
 A later kernel milestone can replace the push-style `VIBE_AUDIO_UPDATE_SFX`

@@ -418,6 +418,18 @@ class AudioContinuityProofTests(unittest.TestCase):
                 menu_status=snapshots["menu"],
             )
 
+        snapshots = snapshot_statuses()
+        snapshots["fire"] = snapshots["fire"].replace("sfxmix=00000003", "sfxmix=00000001")
+        with self.assertRaisesRegex(AssertionError, "sfxmix=.*scripted fire SFX"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+            )
+
     def test_rejects_new_clip_underrun_or_drop_counters(self):
         for field, message in (
             ("mixclip", "mixclip=.*audio safety"),

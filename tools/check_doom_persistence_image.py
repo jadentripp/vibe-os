@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MAKE_WAD_IMAGE = ROOT / "tools" / "make_wad_image.py"
 SAVE_DESCRIPTION_BYTES = 24
 SAVE_VERSION_BYTES = 16
+SAVE_GAME_HEADER_BYTES = 10
+SAVE_GAMESTATE_OFFSET = SAVE_DESCRIPTION_BYTES + SAVE_VERSION_BYTES + SAVE_GAME_HEADER_BYTES
 DEFAULT_MARKERS = (
     b"mouse_sensitivity",
     b"screenblocks",
@@ -29,8 +31,13 @@ DEFAULT_NUMERIC_FIELDS = {
 }
 DEFAULT_STRING_FIELDS = ("chatmacro0",)
 EXPECTED_SAVE_VERSION = b"version 110"
-MIN_SAVE_BYTES = 512
-SAVE_HEADER_BYTES = SAVE_DESCRIPTION_BYTES + SAVE_VERSION_BYTES + 7
+MIN_SAVE_BYTES = 4096
+SAVE_CONSISTENCY_MARKER = 0x1D
+DOOM_PLAYER_RECORD_BYTES = 280
+DOOM_PLAYER_RECORD_SCAN_BYTES = 4
+MIN_ARCHIVED_WORLD_BYTES = 1024
+MIN_SERIALIZED_NONZERO_BYTES = 64
+MIN_SERIALIZED_DISTINCT_BYTES = 8
 REQUIRED_DOOM_INIT_FLAGS = 0x000001FF
 FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
 DEFAULT_ASSIGNMENT_PATTERN = re.compile(r"^([A-Za-z0-9_]+)\s+(.+)$")
@@ -111,6 +118,14 @@ class PersistenceProofError(AssertionError):
 
 def _trim_c_string(raw):
     return raw.split(b"\0", 1)[0].strip()
+
+
+def _u32le(raw, offset):
+    return int.from_bytes(raw[offset:offset + 4], "little", signed=False)
+
+
+def _s32le(raw, offset):
+    return int.from_bytes(raw[offset:offset + 4], "little", signed=True)
 
 
 def _read_image(path):
@@ -229,6 +244,75 @@ def _validate_default(fs):
     return len(data)
 
 
+def _boolean_words(data, offset, count):
+    return [_u32le(data, offset + index * 4) for index in range(count)]
+
+
+def _validate_plausible_player_record(data, offset):
+    if offset + DOOM_PLAYER_RECORD_BYTES >= len(data):
+        return False, "record would run past save payload"
+
+    checks = []
+    playerstate = _u32le(data, offset + 4)
+    viewheight = _s32le(data, offset + 20)
+    health = _s32le(data, offset + 32)
+    armorpoints = _s32le(data, offset + 36)
+    armortype = _s32le(data, offset + 40)
+    powers = [_s32le(data, offset + 44 + index * 4) for index in range(6)]
+    cards = _boolean_words(data, offset + 68, 6)
+    backpack = _u32le(data, offset + 92)
+    readyweapon = _u32le(data, offset + 112)
+    pendingweapon = _u32le(data, offset + 116)
+    weaponowned = _boolean_words(data, offset + 120, 9)
+    ammo = [_s32le(data, offset + 156 + index * 4) for index in range(4)]
+    maxammo = [_s32le(data, offset + 172 + index * 4) for index in range(4)]
+    cheats = _s32le(data, offset + 196)
+    refire = _s32le(data, offset + 200)
+    colormap = _s32le(data, offset + 240)
+    didsecret = _u32le(data, offset + 276)
+    psprite_states = [_u32le(data, offset + 244 + index * 16) for index in range(2)]
+
+    checks.append((playerstate in (0, 1, 2), f"playerstate={playerstate}"))
+    checks.append((0 <= viewheight <= 64 * 65536, f"viewheight={viewheight}"))
+    checks.append((-100 <= health <= 300, f"health={health}"))
+    checks.append((0 <= armorpoints <= 300, f"armorpoints={armorpoints}"))
+    checks.append((0 <= armortype <= 2, f"armortype={armortype}"))
+    checks.append((all(0 <= value <= 200000 for value in powers), f"powers={powers}"))
+    checks.append((all(value in (0, 1) for value in cards), f"cards={cards}"))
+    checks.append((backpack in (0, 1), f"backpack={backpack}"))
+    checks.append((0 <= readyweapon <= 8, f"readyweapon={readyweapon}"))
+    checks.append((0 <= pendingweapon <= 10, f"pendingweapon={pendingweapon}"))
+    checks.append((all(value in (0, 1) for value in weaponowned), f"weaponowned={weaponowned}"))
+    checks.append((weaponowned[0] == 1 and weaponowned[1] == 1, "missing fist/pistol ownership"))
+    checks.append((all(0 <= value <= 1000 for value in ammo), f"ammo={ammo}"))
+    checks.append((all(1 <= value <= 1000 for value in maxammo), f"maxammo={maxammo}"))
+    checks.append((all(value <= limit for value, limit in zip(ammo, maxammo)), "ammo exceeds maxammo"))
+    checks.append((0 <= cheats <= 7, f"cheats={cheats}"))
+    checks.append((0 <= refire <= 255, f"refire={refire}"))
+    checks.append((0 <= colormap <= 3, f"colormap={colormap}"))
+    checks.append((didsecret in (0, 1), f"didsecret={didsecret}"))
+    checks.append((all(value <= 2048 for value in psprite_states), f"psprite states={psprite_states}"))
+
+    for ok, reason in checks:
+        if not ok:
+            return False, reason
+    return True, "OK"
+
+
+def _find_plausible_player_record(data, slot):
+    reasons = []
+    for pad in range(DOOM_PLAYER_RECORD_SCAN_BYTES):
+        offset = SAVE_GAMESTATE_OFFSET + pad
+        ok, reason = _validate_plausible_player_record(data, offset)
+        if ok:
+            return offset
+        reasons.append(f"+{pad}: {reason}")
+    raise PersistenceProofError(
+        f"DOOMSAV{slot}.DSG does not contain a plausible archived Doom player record "
+        f"after the save header ({'; '.join(reasons)})"
+    )
+
+
 def _validate_save_slot(fs, slot):
     if slot < 0 or slot >= len(make_wad_image.WRITABLE_SAVE_NAMES):
         raise PersistenceProofError(f"save slot {slot} is outside DOOMSAV0.DSG..DOOMSAV5.DSG")
@@ -236,39 +320,92 @@ def _validate_save_slot(fs, slot):
     name = make_wad_image.WRITABLE_SAVE_NAMES[slot]
     meta = _require_entry(fs, name)
     data = fs.read_root_file(name)
-    minimum = SAVE_DESCRIPTION_BYTES + SAVE_VERSION_BYTES
     if meta["size"] != len(data):
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG metadata size does not match readable bytes")
     if len(data) > make_wad_image.WRITABLE_SAVE_BYTES:
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG exceeds the configured Doom save capacity")
-    if len(data) < minimum:
+    if len(data) < SAVE_GAMESTATE_OFFSET:
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG is too small for a Doom save header")
     if len(data) < MIN_SAVE_BYTES:
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG is too small for a real Doom save payload")
+    if data[-1] != SAVE_CONSISTENCY_MARKER:
+        raise PersistenceProofError(
+            f"DOOMSAV{slot}.DSG is missing Doom's final 0x{SAVE_CONSISTENCY_MARKER:02X} consistency marker"
+        )
 
     description = _trim_c_string(data[:SAVE_DESCRIPTION_BYTES])
-    version = _trim_c_string(data[SAVE_DESCRIPTION_BYTES:minimum])
+    version_bytes = data[SAVE_DESCRIPTION_BYTES:SAVE_DESCRIPTION_BYTES + SAVE_VERSION_BYTES]
     if not description:
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG has an empty save description")
     if any(ch < 0x20 or ch > 0x7E for ch in description):
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG has a non-printable save description")
+    if b"\0" not in data[:SAVE_DESCRIPTION_BYTES]:
+        raise PersistenceProofError(f"DOOMSAV{slot}.DSG save description is not NUL-terminated")
+    if (
+        version_bytes[:len(EXPECTED_SAVE_VERSION)] != EXPECTED_SAVE_VERSION
+        or any(version_bytes[len(EXPECTED_SAVE_VERSION):])
+    ):
+        version = _trim_c_string(version_bytes)
+        raise PersistenceProofError(f"DOOMSAV{slot}.DSG has unexpected Doom version {version!r}")
+    version = EXPECTED_SAVE_VERSION
     if version != EXPECTED_SAVE_VERSION:
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG has unexpected Doom version {version!r}")
-    skill = data[minimum]
-    episode = data[minimum + 1]
-    game_map = data[minimum + 2]
-    player_flags = data[minimum + 3:minimum + 7]
+    skill = data[SAVE_DESCRIPTION_BYTES + SAVE_VERSION_BYTES]
+    episode = data[SAVE_DESCRIPTION_BYTES + SAVE_VERSION_BYTES + 1]
+    game_map = data[SAVE_DESCRIPTION_BYTES + SAVE_VERSION_BYTES + 2]
+    player_flags = data[
+        SAVE_DESCRIPTION_BYTES + SAVE_VERSION_BYTES + 3:
+        SAVE_DESCRIPTION_BYTES + SAVE_VERSION_BYTES + 7
+    ]
+    leveltime = (
+        (data[SAVE_DESCRIPTION_BYTES + SAVE_VERSION_BYTES + 7] << 16)
+        | (data[SAVE_DESCRIPTION_BYTES + SAVE_VERSION_BYTES + 8] << 8)
+        | data[SAVE_DESCRIPTION_BYTES + SAVE_VERSION_BYTES + 9]
+    )
     if skill > 4:
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG has an invalid skill byte")
     if not (1 <= episode <= 4 and 1 <= game_map <= 9):
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG has an invalid episode/map header")
-    if not player_flags[0]:
-        raise PersistenceProofError(f"DOOMSAV{slot}.DSG does not mark player 1 active")
-    if not any(player_flags):
-        raise PersistenceProofError(f"DOOMSAV{slot}.DSG has no active player flags")
-    if not any(data[SAVE_HEADER_BYTES:]):
+    if tuple(player_flags) != (1, 0, 0, 0):
+        raise PersistenceProofError(
+            f"DOOMSAV{slot}.DSG must be a single-player save with only player 1 active"
+        )
+    if leveltime == 0:
+        raise PersistenceProofError(f"DOOMSAV{slot}.DSG has zero leveltime in the save header")
+
+    player_record_offset = _find_plausible_player_record(data, slot)
+    serialized = data[SAVE_GAMESTATE_OFFSET:-1]
+    archived_world = data[player_record_offset + DOOM_PLAYER_RECORD_BYTES:-1]
+    if len(archived_world) < MIN_ARCHIVED_WORLD_BYTES:
+        raise PersistenceProofError(
+            f"DOOMSAV{slot}.DSG does not contain enough archived Doom world state"
+        )
+    if sum(byte != 0 for byte in serialized) < MIN_SERIALIZED_NONZERO_BYTES:
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG does not contain serialized game-state bytes")
-    return len(data), description.decode("ascii", "replace"), version.decode("ascii", "replace")
+    if len(set(serialized)) < MIN_SERIALIZED_DISTINCT_BYTES:
+        raise PersistenceProofError(
+            f"DOOMSAV{slot}.DSG serialized game-state bytes are too uniform for a Doom save"
+        )
+    return (
+        len(data),
+        description.decode("ascii", "replace"),
+        version.decode("ascii", "replace"),
+        leveltime,
+    )
+
+
+def _require_fresh_save_baseline(baseline_fs, name, label):
+    if baseline_fs is None:
+        raise PersistenceProofError(
+            f"{label} save-slot proof requires --baseline-image with a fresh empty slot"
+        )
+    baseline_meta = _require_entry(baseline_fs, name)
+    baseline = baseline_fs.read_root_file(name)
+    if baseline_meta["cluster"] != 0 or baseline_meta["size"] != 0 or baseline:
+        raise PersistenceProofError(
+            f"{label} baseline image is already populated; save-slot proof requires "
+            "a fresh empty baseline so preseeded evidence cannot pass"
+        )
 
 
 def _require_changed(fs, baseline_fs, name, label):
@@ -524,7 +661,12 @@ def validate_image(
         summary.append(f"DEFAULT.CFG bytes={default_size}{suffix}")
 
     for slot in require_save_slots:
-        size, description, version = _validate_save_slot(fs, slot)
+        size, description, version, leveltime = _validate_save_slot(fs, slot)
+        _require_fresh_save_baseline(
+            baseline_fs,
+            make_wad_image.WRITABLE_SAVE_NAMES[slot],
+            f"DOOMSAV{slot}.DSG",
+        )
         _require_changed(
             fs,
             baseline_fs,
@@ -541,7 +683,8 @@ def validate_image(
         if reboot_fs is not None:
             suffix += " survived-reboot"
         summary.append(
-            f"DOOMSAV{slot}.DSG bytes={size}{suffix} description={description!r} version={version!r}"
+            f"DOOMSAV{slot}.DSG bytes={size}{suffix} "
+            f"description={description!r} version={version!r} leveltime={leveltime}"
         )
 
     if reboot_status_path is not None:

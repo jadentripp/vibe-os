@@ -55,6 +55,11 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
 
 ## Legitimacy Boundary
 
+The project stance is "legit but playable first": keep the Doom source
+provenance, OS boot/runtime boundary, and asset handling honest, while making
+the fastest playable path a disposable remote run instead of a local Mac QEMU
+or asset-sprawl workflow.
+
 - The kernel runs in 32-bit protected mode with its own flat-memory setup.
 - The boot path does not use GRUB or Multiboot. `boot/stage1.asm` is the MBR
   sector, and `boot/stage2.asm` is loaded from raw LBAs before the FAT
@@ -95,6 +100,28 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
   and host tests reject dirty vendor-tree state, wrapper engines, tracked WADs,
   disk images, logs, rendered pixel artifacts, and runtime/build references to
   shortcut source ports or host display/audio APIs.
+
+## Fastest Safe Play Path
+
+If you just want to play Doom as fast as possible, use a disposable remote Linux
+host or GitHub Codespace and run:
+
+```sh
+./tools/play_now_remote.sh
+```
+
+Do not run local Mac QEMU for the quick path. The script is meant to keep QEMU,
+the downloaded shareware WAD, disk images, pixels, and raw audio on the
+throwaway host. See `docs/runbooks/play-now-cloud.md` for the shortest
+copy/paste path and `docs/runbooks/cloud-interactive-playtest.md` for the fuller
+remote VNC playtest and proof-capture flow.
+
+Current cloud status at a high level: scripted real-WAD playability/input and
+aggregate audible-audio proof are cloud-proven in the run recorded below.
+Persistence/save-load should only be claimed for a matching green cloud
+persistence run; the current proof status below records a rebooted
+`DOOMSAV0.DSG` save-slot proof for that baseline, and later runtime, workflow,
+or checker changes must rerun the relevant cloud gates.
 
 ## Requirements
 

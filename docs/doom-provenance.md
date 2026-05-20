@@ -5,6 +5,11 @@ or a source port under a thin wrapper. The rule is simple: the original Doom
 engine drop stays original, and vibe-os owns the boot path, kernel, drivers,
 runtime, and platform boundary around it.
 
+The stance is "legit but playable first": document the lawful public Doom
+source base and repo-owned OS boundary plainly, keep proprietary game data and
+rendered proof assets out of git, and make the fastest human path a disposable
+remote run rather than a local asset-sprawl shortcut.
+
 ## Original Doom
 
 - Upstream source: `https://github.com/id-Software/DOOM`
@@ -74,11 +79,23 @@ Honest:
 - The manual real-WAD cloud workflow is the current truth-serum path because it
   fetches a validated shareware `DOOM1.WAD` in a disposable runner, boots the OS,
   and uploads only non-WAD diagnostics.
+- The fastest safe human try path is `docs/runbooks/play-now-cloud.md`: use a
+  disposable remote Linux host or GitHub Codespace and run
+  `./tools/play_now_remote.sh` there, not local Mac QEMU. The longer interactive
+  proof flow lives in `docs/runbooks/cloud-interactive-playtest.md`.
+- The current cloud status may honestly say scripted playability/input and
+  aggregate audible audio have been cloud-proven. Persistence/save-load should
+  only be claimed when the matching cloud persistence lane is green; the current
+  baseline docs record a rebooted `DOOMSAV0.DSG` save-slot proof, and later
+  runtime, workflow, or checker changes need a fresh cloud run before updating
+  that claim.
 
 Not honest yet:
 
 - claiming the OS is fully Doom-capable without a current passing real-WAD cloud
   run on the exact commit being claimed
+- treating `./tools/play_now_remote.sh` as a local Mac QEMU path instead of a
+  disposable remote-host path
 - claiming human playability from framebuffer dumps or WAD-derived screenshots
   committed to the repo
 - claiming this is the original DOS Doom source; it is the public GPL

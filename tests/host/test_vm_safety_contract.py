@@ -28,6 +28,80 @@ class VmSafetyContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("VM safety contract OK", result.stdout)
 
+    def test_cloud_interactive_runbooks_are_machine_checked(self):
+        check_vm_safety_contract.validate_cloud_interactive_runbooks(ROOT)
+        cloud = (ROOT / "docs" / "runbooks" / "cloud-interactive-playtest.md").read_text()
+
+        for needle in (
+            "CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC",
+            "CLOUD_PLAYTEST_REMOTE_QEMU_ONLY",
+            "CLOUD_PLAYTEST_FORBIDDEN_UPLOADS",
+            "CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST",
+            "./tools/play_now_remote.sh",
+            "http://127.0.0.1:6080/vnc.html?autoconnect=1",
+            "Never transfer these from the remote host",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, cloud)
+
+        script = (ROOT / "tools" / "play_now_remote.sh").read_text()
+        for needle in (
+            "Refusing to run QEMU on macOS",
+            'ALLOW_LOCAL_VM:-0',
+            "qemu-system-x86_64",
+            'websockify --web=/usr/share/novnc',
+            'VNC_DISPLAY="${VNC_DISPLAY:-1}"',
+            'NOVNC_PORT="${NOVNC_PORT:-6080}"',
+            '-display "vnc=127.0.0.1:$VNC_DISPLAY"',
+            '127.0.0.1:$((5900 + VNC_DISPLAY))',
+            '/vnc.html?autoconnect=1',
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, script)
+
+    def test_cloud_runbook_rejects_unmarked_qemu_commands(self):
+        bad = """
+CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC
+CLOUD_PLAYTEST_REMOTE_QEMU_ONLY
+CLOUD_PLAYTEST_FORBIDDEN_UPLOADS
+CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST
+
+```sh
+qemu-system-x86_64 -drive file=build/disk.img
+```
+"""
+        with self.assertRaisesRegex(AssertionError, "remote-only sentinel"):
+            check_vm_safety_contract.validate_cloud_runbook_text(bad, "bad runbook")
+
+    def test_cloud_runbook_rejects_local_mac_qemu_opt_in_commands(self):
+        bad = """
+CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC
+CLOUD_PLAYTEST_REMOTE_QEMU_ONLY
+CLOUD_PLAYTEST_FORBIDDEN_UPLOADS
+CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST
+
+```sh
+make ALLOW_LOCAL_VM=1 smoke
+```
+"""
+        with self.assertRaisesRegex(AssertionError, "local Mac QEMU"):
+            check_vm_safety_contract.validate_cloud_runbook_text(bad, "bad runbook")
+
+    def test_cloud_runbook_rejects_forbidden_payload_transfers(self):
+        bad = """
+CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC
+CLOUD_PLAYTEST_REMOTE_QEMU_ONLY
+CLOUD_PLAYTEST_FORBIDDEN_UPLOADS
+CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST
+
+```sh
+scp "$VIBE_CLOUD_HOST:/tmp/DOOM1.WAD" ./DOOM1.WAD
+rsync -av "$VIBE_CLOUD_HOST:~/vibe-os-cloud-playtest/build/disk.img" .
+```
+"""
+        with self.assertRaisesRegex(AssertionError, "forbidden WAD/disk/pixel/raw-audio"):
+            check_vm_safety_contract.validate_cloud_runbook_text(bad, "bad runbook")
+
     def test_kernel_writes_panic_and_shutdown_status_before_stopping(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
         panic_path = kernel.split(".not_expected_user_fault:", 1)[1].split("doom_user_fault:", 1)[0]

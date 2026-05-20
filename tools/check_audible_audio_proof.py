@@ -28,14 +28,19 @@ PLAYABLE_DOC = ROOT / "docs" / "playable-cloud-proof.md"
 RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
 ARTIFACT_CHECKER = ROOT / "tools" / "check_cloud_playability_artifacts.py"
 
-SCHEMA = "vibe-os-audible-audio-proof-v3"
+SCHEMA = "vibe-os-audible-audio-proof-v4"
 FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
 FORBIDDEN_MANIFEST_KEYS = {
+    "asset_bytes",
     "audio_bytes",
     "base64",
+    "lump_bytes",
+    "music_bytes",
     "pcm",
     "raw_audio",
     "samples",
+    "sfx_bytes",
+    "wad_bytes",
     "waveform",
 }
 
@@ -49,6 +54,21 @@ DEFAULT_MAX_CLIPPED_SAMPLE_RATIO = 0.05
 MAX_MIX_CLIP_DELTA = 0
 MAX_MUSIC_UNDERRUN_DELTA = 0
 MAX_MUSIC_DROP_DELTA = 0
+
+
+def _asset_provenance() -> dict[str, Any]:
+    return {
+        "sfx_source": "runtime-wad-ds-lumps",
+        "music_source": "runtime-wad-mus-or-midi-lumps",
+        "repo_shipped_audio_assets": False,
+        "repo_shipped_wad_assets": False,
+        "manifest_contains_asset_bytes": False,
+        "raw_audio_uploaded": False,
+        "notes": (
+            "Doom SFX and MUS/MIDI bytes come from the selected WAD at runtime; "
+            "the repo and this manifest do not ship or upload those assets."
+        ),
+    }
 
 
 def _status_fields(status: str) -> dict[str, str]:
@@ -204,7 +224,34 @@ def _continuity_summary(
         name: _counter_delta(baseline_fields, final_fields, name)
         for name in ("mixclip", "musicunder", "musicdrops")
     }
-    ordered_fields = [snapshot_fields[label] for label in ("baseline", "fire", "movement", "use", "menu", "final")]
+    fire_phase = {
+        "baseline_snapshot": "baseline",
+        "fire_snapshot": "fire",
+        "requires_scripted_fire_sfx": True,
+        "doomsound_delta": _counter_delta(
+            baseline_fields,
+            snapshot_fields["fire"],
+            "doomsound",
+        )["delta"],
+        "sfxmix_delta": _counter_delta(
+            baseline_fields,
+            snapshot_fields["fire"],
+            "sfxmix",
+        )["delta"],
+        "musicmix_delta": _counter_delta(
+            baseline_fields,
+            snapshot_fields["fire"],
+            "musicmix",
+        )["delta"],
+        "claim": (
+            "scripted fire must advance Doom sound calls and non-music SFX "
+            "mixing, not music alone"
+        ),
+    }
+    ordered_fields = [
+        snapshot_fields[label]
+        for label in ("baseline", "fire", "movement", "use", "menu", "final")
+    ]
     music_buffers = [_hex_value(fields, "musicbuf") for fields in ordered_fields]
     update_delta = int(progress["voiceq_update"]["delta"], 16)
     position_delta = int(progress["musicpos"]["delta"], 16)
@@ -271,6 +318,7 @@ def _continuity_summary(
         },
         "stream_health": stream_health,
         "mixer_safety": mixer_safety,
+        "scripted_phase_proof": fire_phase,
         "progress": progress,
         "claim": (
             "non-silent remote QEMU output plus status-only SB16 continuity; "
@@ -477,16 +525,22 @@ def analyze_wav(
             },
             "notes": (
                 "This proof validates aggregate machine-audible output and SB16 "
-                "continuity only; it is not a human listening pass."
+                "continuity only; VNC does not carry audio by default, and this "
+                "is not a human listening pass."
             ),
         },
         "status": _status_summary(status_path),
         "continuity": continuity,
+        "asset_provenance": _asset_provenance(),
         "artifact_policy": {
             "contains_raw_audio": False,
             "contains_wad_data": False,
             "contains_pixels": False,
             "upload_only_aggregate_json": True,
+            "raw_audio_upload_allowed": False,
+            "temporary_wav_deleted_before_upload": True,
+            "vnc_carries_audio_by_default": False,
+            "audible_evidence": "aggregate-cloud-output-status",
         },
     }
 
@@ -527,6 +581,7 @@ def validate_manifest(
     listener_quality = manifest.get("listener_quality")
     status = manifest.get("status")
     continuity = manifest.get("continuity")
+    asset_provenance = manifest.get("asset_provenance")
     policy = manifest.get("artifact_policy")
     if not isinstance(fmt, dict) or not isinstance(analysis, dict):
         raise AssertionError("manifest must contain format and analysis objects")
@@ -536,6 +591,8 @@ def validate_manifest(
         raise AssertionError("manifest must contain listener_quality object")
     if not isinstance(status, dict) or not isinstance(continuity, dict) or not isinstance(policy, dict):
         raise AssertionError("manifest must contain status, continuity, and artifact_policy objects")
+    if not isinstance(asset_provenance, dict):
+        raise AssertionError("manifest must contain asset_provenance object")
 
     if fmt.get("duration_ms", 0) < min_duration_ms:
         raise AssertionError("captured audio duration is too short for audible proof")
@@ -596,6 +653,14 @@ def validate_manifest(
     notes = listener_quality.get("notes")
     if not isinstance(notes, str) or "not a human listening pass" not in notes:
         raise AssertionError("manifest listener_quality.notes must state that this is not a human listening pass")
+    if "VNC does not carry audio by default" not in notes:
+        raise AssertionError("manifest listener_quality.notes must state that VNC does not carry audio by default")
+
+    expected_provenance = _asset_provenance()
+    for key, expected in expected_provenance.items():
+        value = asset_provenance.get(key)
+        if value != expected:
+            raise AssertionError(f"manifest asset_provenance.{key} must be {expected!r}")
 
     if status.get("audio") != "SB16":
         raise AssertionError("manifest status.audio must be SB16")
@@ -666,6 +731,9 @@ def validate_manifest(
     mixer_safety = continuity.get("mixer_safety")
     if not isinstance(mixer_safety, dict):
         raise AssertionError("manifest continuity.mixer_safety must be an object")
+    scripted_phase_proof = continuity.get("scripted_phase_proof")
+    if not isinstance(scripted_phase_proof, dict):
+        raise AssertionError("manifest continuity.scripted_phase_proof must be an object")
     for lane_name in ("non_music_sfx", "music", "shared_sb16_refill"):
         if not isinstance(mix_lanes.get(lane_name), dict):
             raise AssertionError(f"manifest continuity.mix_lanes.{lane_name} must be an object")
@@ -753,11 +821,38 @@ def validate_manifest(
     if mixer_safety.get("drop_free") is not True:
         raise AssertionError("manifest mixer safety drop_free must be true")
 
+    if scripted_phase_proof.get("requires_scripted_fire_sfx") is not True:
+        raise AssertionError("manifest scripted phase proof must require scripted fire SFX")
+    if scripted_phase_proof.get("baseline_snapshot") != "baseline":
+        raise AssertionError("manifest scripted phase proof baseline snapshot must be baseline")
+    if scripted_phase_proof.get("fire_snapshot") != "fire":
+        raise AssertionError("manifest scripted phase proof fire snapshot must be fire")
+    for key in ("doomsound_delta", "sfxmix_delta", "musicmix_delta"):
+        value = scripted_phase_proof.get(key)
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
+            raise AssertionError(f"manifest continuity.scripted_phase_proof.{key} must be eight hex digits")
+    for key in ("doomsound_delta", "sfxmix_delta"):
+        if int(scripted_phase_proof[key], 16) <= 0:
+            raise AssertionError(
+                f"manifest continuity.scripted_phase_proof.{key} must prove scripted fire SFX"
+            )
+    claim = scripted_phase_proof.get("claim")
+    if not isinstance(claim, str) or "not music alone" not in claim:
+        raise AssertionError("manifest scripted phase proof must reject music alone")
+
     for key in ("contains_raw_audio", "contains_wad_data", "contains_pixels"):
         if policy.get(key) is not False:
             raise AssertionError(f"manifest artifact_policy.{key} must be false")
     if policy.get("upload_only_aggregate_json") is not True:
         raise AssertionError("manifest must declare upload_only_aggregate_json=true")
+    if policy.get("raw_audio_upload_allowed") is not False:
+        raise AssertionError("manifest artifact_policy.raw_audio_upload_allowed must be false")
+    if policy.get("temporary_wav_deleted_before_upload") is not True:
+        raise AssertionError("manifest artifact_policy.temporary_wav_deleted_before_upload must be true")
+    if policy.get("vnc_carries_audio_by_default") is not False:
+        raise AssertionError("manifest artifact_policy.vnc_carries_audio_by_default must be false")
+    if policy.get("audible_evidence") != "aggregate-cloud-output-status":
+        raise AssertionError("manifest artifact_policy.audible_evidence must be aggregate-cloud-output-status")
 
 
 def validate_repo_contract() -> None:
@@ -807,6 +902,9 @@ def validate_repo_contract() -> None:
                 "musicbuf=",
                 "listener-quality metadata",
                 "stream-health",
+                "Doom audio assets come from WAD lumps",
+                "VNC does not carry audio by default",
+                "raw audio must not be uploaded",
             ),
         ),
         (

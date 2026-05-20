@@ -205,10 +205,26 @@ class AudibleAudioProofTests(unittest.TestCase):
         self.assertGreater(manifest["quality"]["zero_crossing_rate_per_sec"], 0)
         self.assertTrue(manifest["listener_quality"]["machine_audible"])
         self.assertFalse(manifest["listener_quality"]["subjective_listener_approved"])
+        self.assertIn("VNC does not carry audio by default", manifest["listener_quality"]["notes"])
+        self.assertEqual(manifest["asset_provenance"]["sfx_source"], "runtime-wad-ds-lumps")
+        self.assertEqual(manifest["asset_provenance"]["music_source"], "runtime-wad-mus-or-midi-lumps")
+        self.assertFalse(manifest["asset_provenance"]["repo_shipped_audio_assets"])
+        self.assertFalse(manifest["asset_provenance"]["repo_shipped_wad_assets"])
+        self.assertFalse(manifest["asset_provenance"]["manifest_contains_asset_bytes"])
+        self.assertFalse(manifest["asset_provenance"]["raw_audio_uploaded"])
         self.assertTrue(manifest["continuity"]["mixer_safety"]["clip_free"])
         self.assertTrue(manifest["continuity"]["mixer_safety"]["underrun_free"])
         self.assertTrue(manifest["continuity"]["mixer_safety"]["drop_free"])
+        self.assertEqual(manifest["continuity"]["scripted_phase_proof"]["baseline_snapshot"], "baseline")
+        self.assertEqual(manifest["continuity"]["scripted_phase_proof"]["fire_snapshot"], "fire")
+        self.assertTrue(manifest["continuity"]["scripted_phase_proof"]["requires_scripted_fire_sfx"])
+        self.assertGreater(int(manifest["continuity"]["scripted_phase_proof"]["doomsound_delta"], 16), 0)
+        self.assertGreater(int(manifest["continuity"]["scripted_phase_proof"]["sfxmix_delta"], 16), 0)
         self.assertFalse(manifest["artifact_policy"]["contains_raw_audio"])
+        self.assertFalse(manifest["artifact_policy"]["raw_audio_upload_allowed"])
+        self.assertFalse(manifest["artifact_policy"]["vnc_carries_audio_by_default"])
+        self.assertTrue(manifest["artifact_policy"]["temporary_wav_deleted_before_upload"])
+        self.assertEqual(manifest["artifact_policy"]["audible_evidence"], "aggregate-cloud-output-status")
         serialized = json.dumps(manifest)
         self.assertNotIn("audio_bytes", serialized)
         self.assertNotIn("base64", serialized)
@@ -249,6 +265,57 @@ class AudibleAudioProofTests(unittest.TestCase):
                     paths["final"],
                     **analyze_args(paths),
                 )
+
+    def test_manifest_rejects_missing_or_false_asset_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            wav_path = tmpdir / "doom-audio.wav"
+            write_tone_wav(wav_path)
+            paths = write_status_files(tmpdir)
+
+            manifest = check_audible_audio_proof.analyze_wav(
+                wav_path,
+                paths["final"],
+                **analyze_args(paths),
+            )
+
+        missing = dict(manifest)
+        del missing["asset_provenance"]
+        with self.assertRaisesRegex(AssertionError, "asset_provenance"):
+            check_audible_audio_proof.validate_manifest(missing)
+
+        wrong_source = json.loads(json.dumps(manifest))
+        wrong_source["asset_provenance"]["sfx_source"] = "repo-shipped-audio"
+        with self.assertRaisesRegex(AssertionError, "asset_provenance.sfx_source"):
+            check_audible_audio_proof.validate_manifest(wrong_source)
+
+        repo_assets = json.loads(json.dumps(manifest))
+        repo_assets["asset_provenance"]["repo_shipped_audio_assets"] = True
+        with self.assertRaisesRegex(AssertionError, "asset_provenance.repo_shipped_audio_assets"):
+            check_audible_audio_proof.validate_manifest(repo_assets)
+
+    def test_manifest_rejects_missing_scripted_fire_phase_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            wav_path = tmpdir / "doom-audio.wav"
+            write_tone_wav(wav_path)
+            paths = write_status_files(tmpdir)
+
+            manifest = check_audible_audio_proof.analyze_wav(
+                wav_path,
+                paths["final"],
+                **analyze_args(paths),
+            )
+
+        missing = json.loads(json.dumps(manifest))
+        del missing["continuity"]["scripted_phase_proof"]
+        with self.assertRaisesRegex(AssertionError, "scripted_phase_proof"):
+            check_audible_audio_proof.validate_manifest(missing)
+
+        music_only_fire = json.loads(json.dumps(manifest))
+        music_only_fire["continuity"]["scripted_phase_proof"]["sfxmix_delta"] = "00000000"
+        with self.assertRaisesRegex(AssertionError, "scripted fire SFX"):
+            check_audible_audio_proof.validate_manifest(music_only_fire)
 
     def test_cli_writes_and_validates_manifest_without_uploading_wav(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -498,6 +565,18 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "underrun_free": True,
                     "drop_free": True,
                 },
+                "scripted_phase_proof": {
+                    "baseline_snapshot": "baseline",
+                    "fire_snapshot": "fire",
+                    "requires_scripted_fire_sfx": True,
+                    "doomsound_delta": "00000001",
+                    "sfxmix_delta": "00000001",
+                    "musicmix_delta": "00000001",
+                    "claim": (
+                        "scripted fire must advance Doom sound calls and "
+                        "non-music SFX mixing, not music alone"
+                    ),
+                },
                 "claim": "non-silent remote QEMU output plus status-only SB16 continuity",
             },
             "listener_quality": {
@@ -516,13 +595,21 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "max_musicunder_delta": check_audible_audio_proof.MAX_MUSIC_UNDERRUN_DELTA,
                     "max_musicdrop_delta": check_audible_audio_proof.MAX_MUSIC_DROP_DELTA,
                 },
-                "notes": "aggregate metrics only; not a human listening pass",
+                "notes": (
+                    "aggregate metrics only; VNC does not carry audio by default, "
+                    "not a human listening pass"
+                ),
             },
+            "asset_provenance": check_audible_audio_proof._asset_provenance(),
             "artifact_policy": {
                 "contains_raw_audio": False,
                 "contains_wad_data": False,
                 "contains_pixels": False,
                 "upload_only_aggregate_json": True,
+                "raw_audio_upload_allowed": False,
+                "temporary_wav_deleted_before_upload": True,
+                "vnc_carries_audio_by_default": False,
+                "audible_evidence": "aggregate-cloud-output-status",
             },
         }
 

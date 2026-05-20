@@ -185,6 +185,30 @@ class DoomRuntimeContractTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, libc)
 
+    def test_real_doom_assets_are_runtime_inputs_not_repo_payloads(self):
+        docs = (ROOT / "docs" / "doom-libc-runtime.md").read_text()
+        docs_words = " ".join(docs.split())
+        hygiene = (ROOT / "tools" / "check_repo_hygiene.py").read_text()
+
+        for token in (
+            "The repository carries source code, tests, docs, and generated storage fixtures",
+            "The WAD is runtime input, not port source.",
+            "user-owned or validated shareware WAD outside git",
+            "Do not track or upload",
+            "WAD files, disk images, raw audio captures, screenshots, framebuffer dumps",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, docs_words)
+        for token in (
+            "FORBIDDEN_TRACKED_MAGIC",
+            "FORBIDDEN_UPLOAD_PATTERNS",
+            "FORBIDDEN_REAL_WAD_UPLOAD_PATTERNS",
+            "REAL_WAD_ALLOWED_UPLOAD_PATTERNS",
+            "workflow_upload_violations",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, hygiene)
+
     def test_port_quit_preserves_original_defaults_save_behavior(self):
         original = (ROOT / "third_party" / "doom" / "linuxdoom-1.10" / "i_system.c").read_text()
         platform = (ROOT / "doom_port" / "platform.c").read_text()

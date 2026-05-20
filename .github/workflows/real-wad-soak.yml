@@ -1,0 +1,306 @@
+name: Real WAD soak
+
+on:
+  workflow_dispatch:
+    inputs:
+      attempts:
+        description: Number of real-WAD cloud proof attempts to run in this soak.
+        required: false
+        type: string
+        default: "3"
+      min_passes:
+        description: Required passing attempts. Empty means every requested attempt must pass.
+        required: false
+        type: string
+      wad_url:
+        description: Optional URL to a DOOM1.WAD, DOOM1.WAD.gz, or zip containing DOOM1.WAD. Empty uses REAL_DOOM_WAD_URL, then the public Archive.org shareware fallback.
+        required: false
+        type: string
+      audible_audio_proof:
+        description: Also require each attempt to reduce temporary QEMU WAV output to aggregate audio-proof metadata before deleting the WAV.
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    name: Repeat real-WAD cloud proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    env:
+      INPUT_DOOM_WAD_URL: ${{ inputs.wad_url }}
+      INPUT_SOAK_ATTEMPTS: ${{ inputs.attempts }}
+      INPUT_SOAK_MIN_PASSES: ${{ inputs.min_passes }}
+      AUDIBLE_AUDIO_PROOF: ${{ inputs.audible_audio_proof }}
+      REAL_DOOM_WAD_URL: ${{ secrets.REAL_DOOM_WAD_URL }}
+      PUBLIC_SHAREWARE_WAD_GZ_URL: https://archive.org/download/wadarchive/DATA/5b.zip/5b%2F2e249b9c5133ec987b3ea77596381dc0d6bc1d%2F5b2e249b9c5133ec987b3ea77596381dc0d6bc1d.wad.gz
+      WAD_PATH: /tmp/DOOM1.WAD
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install OS toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm qemu-system-x86 clang make netcat-openbsd curl
+
+      - name: Normalize soak inputs
+        run: |
+          set -euo pipefail
+
+          attempts="${INPUT_SOAK_ATTEMPTS:-3}"
+          min_passes="${INPUT_SOAK_MIN_PASSES:-}"
+          if ! [[ "$attempts" =~ ^[1-9][0-9]*$ ]]; then
+            echo "attempts must be a positive integer" >&2
+            exit 1
+          fi
+          if [ "$attempts" -gt 20 ]; then
+            echo "attempts is capped at 20 for a manual soak" >&2
+            exit 1
+          fi
+          if [ -z "$min_passes" ]; then
+            min_passes="$attempts"
+          fi
+          if ! [[ "$min_passes" =~ ^[1-9][0-9]*$ ]]; then
+            echo "min_passes must be a positive integer" >&2
+            exit 1
+          fi
+          if [ "$min_passes" -gt "$attempts" ]; then
+            echo "min_passes cannot exceed attempts" >&2
+            exit 1
+          fi
+
+          echo "SOAK_ATTEMPTS=$attempts" >> "$GITHUB_ENV"
+          echo "SOAK_MIN_PASSES=$min_passes" >> "$GITHUB_ENV"
+          echo "SOAK_DIR=$RUNNER_TEMP/real-wad-soak" >> "$GITHUB_ENV"
+
+      - name: Fetch and validate shareware WAD
+        run: |
+          set -euo pipefail
+
+          url="${INPUT_DOOM_WAD_URL:-}"
+          source_label="workflow input"
+          if [ -z "$url" ]; then
+            url="${REAL_DOOM_WAD_URL:-}"
+            source_label="REAL_DOOM_WAD_URL secret"
+          fi
+          if [ -z "$url" ]; then
+            url="$PUBLIC_SHAREWARE_WAD_GZ_URL"
+            source_label="public Archive.org shareware fallback"
+          fi
+
+          echo "Fetching DOOM1.WAD source from ${source_label}."
+          python3 tools/prepare_shareware_wad.py --url "$url" --output "$WAD_PATH"
+
+      - name: Run repeated proof attempts
+        run: |
+          set -euo pipefail
+          mkdir -p "$SOAK_DIR"
+
+          write_failed_attempt() {
+            local output="$1"
+            local attempt="$2"
+            local stage="$3"
+            python3 - "$output" "$attempt" "$stage" "$AUDIBLE_AUDIO_PROOF" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          output = Path(sys.argv[1])
+          attempt = int(sys.argv[2])
+          stage = sys.argv[3]
+          audible = sys.argv[4] == "true"
+          policy = {
+              "aggregate_status_json_only": True,
+              "contains_wad_data": False,
+              "contains_disk_image": False,
+              "contains_pixels": False,
+              "contains_raw_audio": False,
+              "contains_raw_status_text": False,
+              "contains_qemu_logs": False,
+              "upload_only_json": True,
+          }
+          failed = {
+              "schema": "real-wad-soak-attempt-v1",
+              "source": "real-wad-cloud-proof-attempt",
+              "attempt_index": attempt,
+              "conclusion": "failure",
+              "failure_stage": stage,
+              "run": {
+                  "workflow": "real-wad-soak.yml",
+                  "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+                  "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+                  "commit": os.environ.get("GITHUB_SHA", ""),
+              },
+              "artifact_policy": policy,
+              "gates": {
+                  "real_wad_proof": "fail",
+                  "scripted_human_playability": "fail",
+                  "playability": "fail",
+                  "input_state_changes": "fail",
+                  "sb16_continuity": "fail",
+                  "audible_aggregate_proof": "fail" if audible else "not-requested",
+              },
+          }
+          output.write_text(json.dumps(failed, indent=2, sort_keys=True) + "\n")
+          PY
+          }
+
+          for attempt in $(seq 1 "$SOAK_ATTEMPTS"); do
+            echo "::group::real-WAD proof attempt ${attempt}/${SOAK_ATTEMPTS}"
+            attempt_json="$SOAK_DIR/attempt-$(printf '%03d' "$attempt").json"
+            failure_stage=""
+            audio_backend="-audiodev none,id=snd0 -device sb16,audiodev=snd0"
+            if [ "$AUDIBLE_AUDIO_PROOF" = "true" ]; then
+              audio_backend="-audiodev wav,id=snd0,path=build/doom-audio.wav -device sb16,audiodev=snd0"
+            fi
+
+            set +e
+            make clean
+            rc=$?
+            if [ "$rc" -ne 0 ]; then failure_stage="make-clean"; fi
+
+            if [ -z "$failure_stage" ]; then
+              make DOOM_WAD="$WAD_PATH"
+              rc=$?
+              if [ "$rc" -ne 0 ]; then failure_stage="build-real-wad-image"; fi
+            fi
+
+            if [ -z "$failure_stage" ]; then
+              make \
+                DOOM_WAD="$WAD_PATH" \
+                ALLOW_LOCAL_VM=1 \
+                QEMU_EXTRA_ARGS="$audio_backend" \
+                SMOKE_EXPECT_PROBE_GFX=0 \
+                SMOKE_CAPTURE_GFX=0 \
+                SMOKE_QEMU_TIMEOUT=120 \
+                SMOKE_EARLY_SECONDS=2 \
+                SMOKE_SETTLE_SECONDS=20 \
+                SMOKE_SKIP_ASSERTIONS=1 \
+                SMOKE_INPUT_SCRIPT="after-start:wait=2,snapshot after-fire:hold=ctrl:800,wait=2,snapshot after-move:hold=up:1200,wait=3,snapshot after-use:hold=spc:3000,snapshot,wait=2 after-mouse:mouse=24:-12,mouse=0:-12,mousebtn=1,wait=1,mousebtn=0,wait=2,snapshot after-menu:esc,wait=2,snapshot" \
+                smoke
+              rc=$?
+              if [ "$rc" -ne 0 ]; then failure_stage="cloud-smoke"; fi
+            fi
+
+            if [ -z "$failure_stage" ] && [ "$AUDIBLE_AUDIO_PROOF" = "true" ]; then
+              python3 tools/check_audible_audio_proof.py \
+                --analyze-wav build/doom-audio.wav \
+                --status build/status.txt \
+                --baseline build/status.after-start.txt \
+                --fire build/status.after-fire.txt \
+                --movement build/status.after-move.txt \
+                --use build/status.after-use.txt \
+                --menu build/status.after-menu.txt \
+                --output build/audio-proof.json
+              rc=$?
+              rm -f build/doom-audio.wav
+              if [ "$rc" -ne 0 ]; then failure_stage="audible-audio-proof"; fi
+            else
+              rm -f build/doom-audio.wav
+            fi
+
+            if [ -z "$failure_stage" ]; then
+              python3 tools/check_real_wad_proof.py \
+                --baseline build/status.after-start.txt \
+                --start build/status.after-start.txt \
+                --fire build/status.after-fire.txt \
+                --movement build/status.after-move.txt \
+                --use build/status.after-use.txt \
+                --mouse build/status.after-mouse.txt \
+                --menu build/status.after-menu.txt \
+                build/status.txt
+              rc=$?
+              if [ "$rc" -ne 0 ]; then failure_stage="real-wad-proof"; fi
+            fi
+
+            if [ -z "$failure_stage" ]; then
+              python3 tools/check_human_playability_proof.py \
+                --baseline build/status.after-start.txt \
+                --start build/status.after-start.txt \
+                --fire build/status.after-fire.txt \
+                --movement build/status.after-move.txt \
+                --use build/status.after-use.txt \
+                --mouse build/status.after-mouse.txt \
+                --menu build/status.after-menu.txt \
+                build/status.txt
+              rc=$?
+              if [ "$rc" -ne 0 ]; then failure_stage="scripted-human-playability"; fi
+            fi
+
+            if [ -z "$failure_stage" ]; then
+              python3 tools/check_audio_continuity_proof.py \
+                --baseline build/status.after-start.txt \
+                --fire build/status.after-fire.txt \
+                --movement build/status.after-move.txt \
+                --use build/status.after-use.txt \
+                --menu build/status.after-menu.txt \
+                build/status.txt
+              rc=$?
+              if [ "$rc" -ne 0 ]; then failure_stage="sb16-continuity"; fi
+            fi
+
+            if [ -z "$failure_stage" ] && [ "$AUDIBLE_AUDIO_PROOF" = "true" ]; then
+              python3 tools/check_audible_audio_proof.py build/audio-proof.json
+              rc=$?
+              if [ "$rc" -ne 0 ]; then failure_stage="audible-audio-manifest"; fi
+            fi
+
+            if [ -z "$failure_stage" ]; then
+              extra_args=()
+              if [ "$AUDIBLE_AUDIO_PROOF" = "true" ]; then
+                extra_args+=(--require-audible-proof)
+              fi
+              python3 tools/check_cloud_playability_artifacts.py \
+                build \
+                --write-soak-attempt "$attempt_json" \
+                --soak-attempt-index "$attempt" \
+                "${extra_args[@]}"
+              rc=$?
+              if [ "$rc" -ne 0 ]; then failure_stage="soak-attempt-metadata"; fi
+            fi
+
+            set -e
+            if [ -n "$failure_stage" ]; then
+              write_failed_attempt "$attempt_json" "$attempt" "$failure_stage"
+            fi
+
+            rm -rf build
+            echo "::endgroup::"
+          done
+
+      - name: Aggregate soak metadata and enforce pass threshold
+        if: always()
+        run: |
+          set -euo pipefail
+          extra_args=()
+          if [ "$AUDIBLE_AUDIO_PROOF" = "true" ]; then
+            extra_args+=(--require-audible-proof)
+          fi
+          python3 tools/check_cloud_playability_artifacts.py \
+            --write-soak-summary "$SOAK_DIR/real-wad-soak-summary.json" \
+            --soak-attempt-dir "$SOAK_DIR" \
+            --soak-attempts "$SOAK_ATTEMPTS" \
+            --soak-required-passes "$SOAK_MIN_PASSES" \
+            "${extra_args[@]}"
+          python3 tools/check_cloud_playability_artifacts.py --soak-summary "$SOAK_DIR"
+
+      - name: Delete remote-only WAD
+        if: always()
+        run: |
+          rm -f "$WAD_PATH"
+
+      - name: Upload aggregate soak metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-wad-soak-metadata
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/real-wad-soak/*.json

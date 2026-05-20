@@ -497,8 +497,12 @@ def valid_audio_proof_manifest():
                 "max_musicunder_delta": check_cloud_playability_artifacts.check_audible_audio_proof.MAX_MUSIC_UNDERRUN_DELTA,
                 "max_musicdrop_delta": check_cloud_playability_artifacts.check_audible_audio_proof.MAX_MUSIC_DROP_DELTA,
             },
-            "notes": "aggregate metrics only; not a human listening pass",
+            "notes": (
+                "aggregate metrics only; not a human listening pass; "
+                "VNC does not carry audio by default"
+            ),
         },
+        "asset_provenance": check_cloud_playability_artifacts.check_audible_audio_proof._asset_provenance(),
         "status": {
             "audio": "SB16",
             "doomrun": "RUN",
@@ -583,6 +587,15 @@ def valid_audio_proof_manifest():
                 "underrun_free": True,
                 "drop_free": True,
             },
+            "scripted_phase_proof": {
+                "baseline_snapshot": "baseline",
+                "fire_snapshot": "fire",
+                "requires_scripted_fire_sfx": True,
+                "doomsound_delta": "00000002",
+                "sfxmix_delta": "00000002",
+                "musicmix_delta": "00000001",
+                "claim": "scripted fire proves non-music SFX, not music alone",
+            },
             "claim": "non-silent remote QEMU output plus status-only SB16 continuity with streamed music chunks",
         },
         "artifact_policy": {
@@ -590,8 +603,39 @@ def valid_audio_proof_manifest():
             "contains_wad_data": False,
             "contains_pixels": False,
             "upload_only_aggregate_json": True,
+            "raw_audio_upload_allowed": False,
+            "temporary_wav_deleted_before_upload": True,
+            "vnc_carries_audio_by_default": False,
+            "audible_evidence": "aggregate-cloud-output-status",
         },
     }
+
+
+def write_valid_soak_metadata(metadata, artifact, attempts=2, audible=False):
+    metadata.mkdir(parents=True, exist_ok=True)
+    if audible:
+        (artifact / "audio-proof.json").write_text(
+            json.dumps(valid_audio_proof_manifest(), sort_keys=True)
+        )
+    for index in range(1, attempts + 1):
+        attempt = check_cloud_playability_artifacts.build_soak_attempt_metadata(
+            artifact,
+            index,
+            audible_required=audible,
+        )
+        (metadata / f"attempt-{index:03d}.json").write_text(
+            json.dumps(attempt, indent=2, sort_keys=True) + "\n"
+        )
+    summary = check_cloud_playability_artifacts.build_soak_summary(
+        metadata,
+        attempts,
+        attempts,
+        audible_required=audible,
+    )
+    (metadata / "real-wad-soak-summary.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n"
+    )
+    return summary
 
 
 class RemotePlayabilityRunbookTests(unittest.TestCase):
@@ -645,6 +689,13 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             with self.assertRaisesRegex(AssertionError, "gzip-compressed WAD"):
                 check_cloud_playability_artifacts.validate_artifact_dir(artifact)
 
+            fat_header = bytearray(512)
+            fat_header[54:57] = b"FAT"
+            fat_header[510:512] = b"\x55\xaa"
+            (artifact / "harmless.log").write_bytes(gzip.compress(bytes(fat_header)))
+            with self.assertRaisesRegex(AssertionError, "gzip-compressed raw FAT disk image"):
+                check_cloud_playability_artifacts.validate_artifact_dir(artifact)
+
         with tempfile.TemporaryDirectory() as tmp:
             artifact = Path(tmp)
             write_valid_artifact(artifact)
@@ -652,6 +703,11 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             archive_path = artifact / "diagnostics.log"
             with zipfile.ZipFile(archive_path, "w") as archive:
                 archive.writestr("nested/DOOM1.WAD", b"IWAD" + b"\0" * 64)
+            with self.assertRaisesRegex(AssertionError, "zip archive containing forbidden payload"):
+                check_cloud_playability_artifacts.validate_artifact_dir(artifact)
+
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("nested/disk.img", b"diagnostic name is enough")
             with self.assertRaisesRegex(AssertionError, "zip archive containing forbidden payload"):
                 check_cloud_playability_artifacts.validate_artifact_dir(artifact)
 
@@ -679,6 +735,172 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             (artifact / "audio-proof.json").write_text(json.dumps(manifest, sort_keys=True))
             with self.assertRaisesRegex(AssertionError, "audible audio proof manifest failed"):
                 check_cloud_playability_artifacts.validate_artifact_dir(artifact)
+
+    def test_soak_summary_accepts_repeated_status_json_metadata_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            artifact = tmpdir / "artifact"
+            metadata = tmpdir / "soak-metadata"
+            artifact.mkdir()
+            write_valid_artifact(artifact)
+
+            summary = write_valid_soak_metadata(metadata, artifact, attempts=2)
+
+            check_cloud_playability_artifacts.validate_soak_summary(summary)
+            check_cloud_playability_artifacts.validate_soak_summary_path(metadata)
+            self.assertEqual(summary["pass_count"], 2)
+            self.assertEqual(summary["flake_count"], 0)
+            self.assertTrue(summary["pass_criteria"]["playability"]["gameplay_ok"])
+            self.assertTrue(summary["pass_criteria"]["input_state_changes"]["menu_toggled"])
+            self.assertTrue(summary["pass_criteria"]["sb16_continuity"]["sfxmix_progress"])
+            self.assertFalse(summary["pass_criteria"]["audible_aggregate_proof"]["required"])
+            self.assertFalse(summary["artifact_policy"]["contains_raw_status_text"])
+
+    def test_soak_summary_requires_audible_aggregate_metadata_when_enabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            artifact = tmpdir / "artifact"
+            metadata = tmpdir / "soak-metadata"
+            artifact.mkdir()
+            write_valid_artifact(artifact)
+
+            with self.assertRaisesRegex(AssertionError, "requires audio-proof.json"):
+                check_cloud_playability_artifacts.build_soak_attempt_metadata(
+                    artifact,
+                    1,
+                    audible_required=True,
+                )
+
+            summary = write_valid_soak_metadata(metadata, artifact, attempts=1, audible=True)
+
+            check_cloud_playability_artifacts.validate_soak_summary(summary)
+            attempt = summary["attempts"][0]
+            self.assertEqual(attempt["gates"]["audible_aggregate_proof"], "pass")
+            self.assertTrue(attempt["audio_proof"]["machine_audible"])
+            self.assertFalse(attempt["audio_proof"]["contains_raw_audio"])
+
+    def test_soak_summary_detects_failed_repeated_attempts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            artifact = tmpdir / "artifact"
+            metadata = tmpdir / "soak-metadata"
+            artifact.mkdir()
+            metadata.mkdir()
+            write_valid_artifact(artifact)
+
+            passing = check_cloud_playability_artifacts.build_soak_attempt_metadata(
+                artifact,
+                1,
+            )
+            failed = {
+                "schema": check_cloud_playability_artifacts.SOAK_ATTEMPT_SCHEMA,
+                "source": "real-wad-cloud-proof-attempt",
+                "attempt_index": 2,
+                "conclusion": "failure",
+                "failure_stage": "cloud-smoke",
+                "artifact_policy": dict(check_cloud_playability_artifacts.SOAK_ARTIFACT_POLICY),
+                "gates": {
+                    "real_wad_proof": "fail",
+                    "scripted_human_playability": "fail",
+                    "playability": "fail",
+                    "input_state_changes": "fail",
+                    "sb16_continuity": "fail",
+                    "audible_aggregate_proof": "not-requested",
+                },
+            }
+            (metadata / "attempt-001.json").write_text(json.dumps(passing, sort_keys=True))
+            (metadata / "attempt-002.json").write_text(json.dumps(failed, sort_keys=True))
+            summary = check_cloud_playability_artifacts.build_soak_summary(
+                metadata,
+                requested_attempts=2,
+                required_successes=2,
+            )
+
+            with self.assertRaisesRegex(AssertionError, "repeated pass threshold"):
+                check_cloud_playability_artifacts.validate_soak_summary(summary)
+
+            relaxed = dict(summary)
+            relaxed["required_successes"] = 1
+            check_cloud_playability_artifacts.validate_soak_summary(relaxed)
+            self.assertEqual(relaxed["flake_count"], 1)
+
+    def test_soak_metadata_artifact_rejects_non_json_or_raw_payloads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            artifact = tmpdir / "artifact"
+            metadata = tmpdir / "soak-metadata"
+            artifact.mkdir()
+            write_valid_artifact(artifact)
+            write_valid_soak_metadata(metadata, artifact, attempts=1)
+
+            (metadata / "status.txt").write_text(valid_status())
+            with self.assertRaisesRegex(AssertionError, "only JSON"):
+                check_cloud_playability_artifacts.validate_soak_summary_path(metadata)
+
+            (metadata / "status.txt").unlink()
+            (metadata / "raw-audio.json").write_bytes(b"RIFF" + b"\0" * 64)
+            with self.assertRaisesRegex(AssertionError, "forbidden artifact content"):
+                check_cloud_playability_artifacts.validate_soak_summary_path(metadata)
+            (metadata / "raw-audio.json").unlink()
+
+            (metadata / "extra.json").write_text(json.dumps({"not": "part of the contract"}))
+            with self.assertRaisesRegex(AssertionError, "unexpected real-WAD soak metadata JSON"):
+                check_cloud_playability_artifacts.validate_soak_summary_path(metadata)
+
+    def test_cli_writes_and_validates_soak_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            artifact = tmpdir / "artifact"
+            metadata = tmpdir / "soak-metadata"
+            artifact.mkdir()
+            metadata.mkdir()
+            write_valid_artifact(artifact)
+
+            for index in (1, 2):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(CHECKER),
+                        str(artifact),
+                        "--write-soak-attempt",
+                        str(metadata / f"attempt-{index:03d}.json"),
+                        "--soak-attempt-index",
+                        str(index),
+                    ],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(CHECKER),
+                    "--write-soak-summary",
+                    str(metadata / "real-wad-soak-summary.json"),
+                    "--soak-attempt-dir",
+                    str(metadata),
+                    "--soak-attempts",
+                    "2",
+                    "--soak-required-passes",
+                    "2",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            result = subprocess.run(
+                [sys.executable, str(CHECKER), "--soak-summary", str(metadata)],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("cloud playability artifact check OK", result.stdout)
 
     def test_downloaded_human_session_requires_structured_notes(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -4,6 +4,22 @@ The Doom tree under `third_party/doom` stays pristine. The OS-facing runtime
 contract lives in `doom_port` and exposes enough POSIX-shaped behavior for
 linuxdoom file and stdio use without patching original engine sources.
 
+## Runtime Asset Boundary
+
+The repository carries source code, tests, docs, and generated storage
+fixtures, not real Doom game assets. The original engine looks up
+`DOOM1.WAD` at runtime through the libc/file syscall path; public builds use a
+generated IWAD-shaped fixture, while real-Doom proof runs must provide a local
+user-owned or validated shareware WAD outside git with `DOOM_WAD` or the
+real-WAD workflow input. The WAD is runtime input, not port source.
+Compressed WAD archives such as `*.wad.gz`, `*.wad.zip`, `*.iwad.zip`, and
+`*.pwad.zip` are treated as game assets too.
+
+Real-WAD diagnostics must stay copyright-safe: upload status text/binaries,
+logs, ELF files, symbols, and aggregate JSON proof only. Do not track or upload
+WAD files, disk images, raw audio captures, screenshots, framebuffer dumps, or
+rendered pixel artifacts.
+
 ## File ABI
 
 User mode calls `vibe_syscall3` with the syscall numbers in

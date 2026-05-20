@@ -9,6 +9,62 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+CLOUD_RUNBOOKS = (
+    "docs/runbooks/cloud-interactive-playtest.md",
+    "docs/runbooks/remote-doom-playtest.md",
+)
+CLOUD_POLICY_MARKERS = (
+    "CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC",
+    "CLOUD_PLAYTEST_REMOTE_QEMU_ONLY",
+    "CLOUD_PLAYTEST_FORBIDDEN_UPLOADS",
+    "CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST",
+)
+CLOUD_FORBIDDEN_PAYLOAD_PATTERN = re.compile(
+    r"("
+    r"DOOM1\.WAD|"
+    r"\*\.WAD|\*\.wad|"
+    r"\b[\w.-]+\.wad\b|\b[\w.-]+\.WAD\b|"
+    r"build/disk\.img|disk\.img|"
+    r"\b[\w.-]+\.(?:img|iso|raw|qcow2)\b|"
+    r"status\.\*\.bin|status\.[\w.-]+\.bin|"
+    r"gfx\.bin|gfx\*\.txt|vga\*\.txt|"
+    r"\b[\w.-]+\.(?:png|ppm|pgm|bmp)\b|"
+    r"doom-audio\.wav|"
+    r"\b[\w.-]+\.(?:wav|wave|mp3|ogg|oga|flac|aiff|aif|au)\b"
+    r")",
+    re.IGNORECASE,
+)
+CLOUD_FORBIDDEN_TRANSFER_PATTERN = re.compile(
+    r"\b("
+    r"scp|rsync|"
+    r"curl\s+(?:--upload-file|-T)|"
+    r"aws\s+s3\s+cp|gsutil\s+cp|rclone\s+copy|"
+    r"gh\s+(?:release|run)\s+upload|"
+    r"tar\s+.*(?:-c|--create)|"
+    r"zip"
+    r")\b",
+    re.IGNORECASE,
+)
+CLOUD_LOCAL_QEMU_COMMAND_PATTERNS = (
+    (re.compile(r"\bbrew\s+install\s+qemu\b", re.IGNORECASE), "brew install qemu"),
+    (
+        re.compile(
+            r"\bmake\b[^\n#]*\bALLOW_LOCAL_VM=1\b[^\n#]*(?:\brun\b|\brun-headless\b|\bsmoke\b)",
+            re.IGNORECASE,
+        ),
+        "make ALLOW_LOCAL_VM=1 VM target",
+    ),
+    (
+        re.compile(
+            r"\bALLOW_LOCAL_VM=1\b[^\n#]*\bmake\b[^\n#]*(?:\brun\b|\brun-headless\b|\bsmoke\b)",
+            re.IGNORECASE,
+        ),
+        "ALLOW_LOCAL_VM=1 make VM target",
+    ),
+    (re.compile(r"\btests/run_smoke_qemu\.sh\b"), "tests/run_smoke_qemu.sh"),
+    (re.compile(r"\bQEMU\s*=\s*qemu-system", re.IGNORECASE), "QEMU=qemu-system"),
+)
+CLOUD_QEMU_COMMAND_PATTERN = re.compile(r"^\s*qemu-system-[A-Za-z0-9_+.-]+\b", re.MULTILINE)
 
 
 def _read(root: Path, relative: str) -> str:
@@ -43,6 +99,104 @@ def _upload_block(workflow: str) -> str:
     return workflow.split(marker, 1)[1]
 
 
+def _fenced_blocks(text: str) -> list[str]:
+    return [
+        match.group("body")
+        for match in re.finditer(
+            r"```(?P<lang>[^\n]*)\n(?P<body>.*?)```",
+            text,
+            re.DOTALL,
+        )
+    ]
+
+
+def _non_comment_lines(block: str) -> list[str]:
+    return [
+        line
+        for line in block.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+def validate_cloud_runbook_text(text: str, label: str) -> None:
+    for marker in CLOUD_POLICY_MARKERS:
+        _require(text, marker, label)
+
+    for block in _fenced_blocks(text):
+        if (
+            CLOUD_QEMU_COMMAND_PATTERN.search(block)
+            and "CLOUD_PLAYTEST_REMOTE_QEMU_ONLY" not in block
+        ):
+            raise AssertionError(f"{label} QEMU command block missing remote-only sentinel")
+
+        for line in _non_comment_lines(block):
+            for pattern, description in CLOUD_LOCAL_QEMU_COMMAND_PATTERNS:
+                if pattern.search(line):
+                    raise AssertionError(f"{label} instructs local Mac QEMU path: {description}")
+
+            if (
+                CLOUD_FORBIDDEN_TRANSFER_PATTERN.search(line)
+                and CLOUD_FORBIDDEN_PAYLOAD_PATTERN.search(line)
+            ):
+                raise AssertionError(
+                    f"{label} transfers forbidden WAD/disk/pixel/raw-audio payload: {line.strip()}"
+                )
+
+
+def validate_cloud_interactive_runbooks(root: Path = ROOT) -> None:
+    runbooks = {relative: _read(root, relative) for relative in CLOUD_RUNBOOKS}
+    cloud = runbooks["docs/runbooks/cloud-interactive-playtest.md"]
+    remote = runbooks["docs/runbooks/remote-doom-playtest.md"]
+    play_now_script = _read(root, "tools/play_now_remote.sh")
+
+    for text, label in (
+        (cloud, "cloud interactive playtest runbook"),
+        (remote, "remote Doom playtest runbook"),
+    ):
+        validate_cloud_runbook_text(text, label)
+
+    for needle in (
+        "No local VM/QEMU on the Mac",
+        "disposable remote Ubuntu",
+        "GitHub Codespace",
+        "tools/prepare_shareware_wad.py",
+        "--output /tmp/DOOM1.WAD",
+        "make DOOM_WAD=/tmp/DOOM1.WAD",
+        "ssh -N -L 5901:127.0.0.1:5901",
+        "http://127.0.0.1:6080/vnc.html?autoconnect=1",
+        "tools/collect_human_playtest_bundle.py",
+        "tools/check_cloud_playability_artifacts.py --human-session",
+        "CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST",
+        "Never transfer these from the remote host",
+        "rm -f /tmp/vibe-os-DOOM1.WAD",
+        "rm -f ~/vibe-os-cloud-playtest/build/doom-audio.wav",
+        "destroy the disposable",
+    ):
+        _require(cloud, needle, "cloud interactive playtest runbook")
+
+    for needle in (
+        "Refusing to run QEMU on macOS",
+        'ALLOW_LOCAL_VM:-0',
+        "qemu-system-x86_64",
+        'websockify --web=/usr/share/novnc',
+        'VNC_DISPLAY="${VNC_DISPLAY:-1}"',
+        'NOVNC_PORT="${NOVNC_PORT:-6080}"',
+        '-display "vnc=127.0.0.1:$VNC_DISPLAY"',
+        '127.0.0.1:$((5900 + VNC_DISPLAY))',
+        '/vnc.html?autoconnect=1',
+    ):
+        _require(play_now_script, needle, "play-now remote script")
+
+    for needle in (
+        "docs/runbooks/cloud-interactive-playtest.md",
+        "CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC",
+        "CLOUD_PLAYTEST_REMOTE_QEMU_ONLY",
+        "CLOUD_PLAYTEST_FORBIDDEN_UPLOADS",
+        "CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST",
+    ):
+        _require(remote, needle, "remote Doom playtest runbook")
+
+
 def validate_repo_contract(root: Path = ROOT) -> None:
     makefile = _read(root, "Makefile")
     smoke_runner = _read(root, "tests/run_smoke_qemu.sh")
@@ -53,6 +207,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     process_doc = _read(root, "docs/process-exec.md")
     gap_doc = _read(root, "docs/post-checkpoint-gaps.md")
     tests_readme = _read(root, "tests/README.md")
+
+    validate_cloud_interactive_runbooks(root)
 
     _require(makefile, "ALLOW_LOCAL_VM ?= 0", "Makefile")
     _require(makefile, "vm-consent:", "Makefile")
@@ -306,7 +462,7 @@ def main() -> int:
         print(f"VM safety contract failed: {exc}", file=sys.stderr)
         return 1
 
-    print("VM safety contract OK: local QEMU opt-in, cloud diagnostics, panic/shutdown status, and dynamic high VMM mapping are machine-checkable")
+    print("VM safety contract OK: local QEMU opt-in, cloud diagnostics, safe cloud interactive playtest docs, panic/shutdown status, and dynamic high VMM mapping are machine-checkable")
     return 0
 
 

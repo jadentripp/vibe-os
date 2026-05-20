@@ -1,0 +1,22 @@
+{
+  "name": "vibe-os Doom fast play",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "forwardPorts": [
+    6080
+  ],
+  "portsAttributes": {
+    "6080": {
+      "label": "vibe-os Doom noVNC",
+      "onAutoForward": "notify",
+      "protocol": "http"
+    }
+  },
+  "postCreateCommand": "command -v python3 && command -v nasm && command -v qemu-system-x86_64 && command -v clang && command -v make && command -v nc && command -v curl && command -v websockify && test -d /usr/share/novnc",
+  "customizations": {
+    "vscode": {
+      "extensions": []
+    }
+  }
+}
