@@ -4998,6 +4998,8 @@ storage_init:
     mov dword [fat_lba_logical_sectors], 0
     mov dword [fat_lba_tail_free_cluster], 0
     mov dword [fat_lba_tail_free_count], 0
+    mov dword [fat_lba_walked_sectors], 0
+    mov dword [fat_lba_next_boundary], 0
     mov dword [wad_size], 0
     mov dword [wad_sectors_read], 0
     mov dword [wad_lump_count], 0
@@ -7401,11 +7403,17 @@ fat_file_lba_for_write:
     mov dword [fat_lba_logical_sectors], 0
     mov dword [fat_lba_tail_free_cluster], 0
     mov dword [fat_lba_tail_free_count], 0
+    mov dword [fat_lba_walked_sectors], 0
+    mov dword [fat_lba_next_boundary], 0
     mov esi, ebx
     mov ebx, edx
     and ebx, 511
     shr edx, 9
     mov [fat_lba_sector_index], edx
+    mov eax, [writable_sizes + esi * 4]
+    add eax, 511
+    shr eax, 9
+    mov [fat_lba_logical_sectors], eax
     mov ax, [writable_first_clusters + esi * 2]
     cmp ax, 2
     jae .have_first_cluster
@@ -7424,25 +7432,39 @@ fat_file_lba_for_write:
     movzx ecx, byte [fat_sectors_per_cluster]
     cmp edx, ecx
     jb .have_cluster
+    mov eax, [fat_lba_walked_sectors]
+    add eax, ecx
+    mov [fat_lba_next_boundary], eax
+    mov eax, [fat_lba_sector_index]
+    cmp eax, [fat_lba_logical_sectors]
+    jb .follow_existing_chain
+    mov eax, [fat_lba_logical_sectors]
+    cmp eax, [fat_lba_next_boundary]
+    jbe .extend_after_current
+
+.follow_existing_chain:
     sub edx, ecx
+    add [fat_lba_walked_sectors], ecx
     movzx eax, word [fat_current_cluster]
     mov [fat_lba_current_cluster], eax
     mov dword [fat_lba_fail_stage], 2
     call fat_next_cluster
     jc .fail
     mov [fat_lba_next_cluster], eax
-    push eax
-    mov eax, [writable_sizes + esi * 4]
-    add eax, 511
-    shr eax, 9
-    mov [fat_lba_logical_sectors], eax
-    cmp [fat_lba_sector_index], eax
-    pop eax
-    jae .free_stale_tail_before_growth
     cmp eax, 0
     je .allocate_next_cluster
     cmp eax, 0xfff8
     jb .next_exists
+
+.extend_after_current:
+    sub edx, ecx
+    add [fat_lba_walked_sectors], ecx
+    movzx eax, word [fat_current_cluster]
+    mov [fat_lba_current_cluster], eax
+    mov dword [fat_lba_fail_stage], 2
+    call fat_next_cluster
+    jc .fail
+    mov [fat_lba_next_cluster], eax
 
 .free_stale_tail_before_growth:
     cmp eax, 2
@@ -14049,6 +14071,14 @@ write_smoke_status:
     stosb
     mov edx, [fat_lba_logical_sectors]
     call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_lba_walked_sectors]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_lba_next_boundary]
+    call smoke_write_hex32
 
     mov esi, smoke_saveact_text
     call smoke_copy_string
@@ -16310,6 +16340,8 @@ fat_lba_result_lba dd 0
 fat_lba_logical_sectors dd 0
 fat_lba_tail_free_cluster dd 0
 fat_lba_tail_free_count dd 0
+fat_lba_walked_sectors dd 0
+fat_lba_next_boundary dd 0
 fat_alloc_fail_stage dd 0
 fat_alloc_scan_start_snapshot dd 0
 fat_alloc_scan_cluster dd 0
