@@ -82,8 +82,9 @@ running kernel yet.
 The status proof is now executable:
 `tools/check_vm_status_proof.py --require-exec --require-preempt status.txt`
 requires that `vmmhfree` match the reclaimed dynamic page table, that the Doom
-handoff report `argvsrc=2`, and that `peip` show an IRQ switch between Doom and
-the preempt probe. It is a cloud artifact checker, not a claim that the running
+handoff report `argvsrc=2`, and that `pkind`/`peip`/`pcr3`/`pkstk` show an IRQ
+switch between Doom and the preempt probe with distinct address spaces and
+kernel stacks. It is a cloud artifact checker, not a claim that the running
 kernel has already moved to higher-half virtual addresses.
 
 User processes get separate page directories. Those directories start as clones

@@ -326,7 +326,8 @@ process/exec, storage, VM, audio, mouse, scheduler, and Doom file I/O telemetry
 so a green run is diagnosable from text artifacts alone. The cloud workflows
 also run `tools/check_vm_status_proof.py`, which requires `vmmhfree` to prove
 dynamic page-table reclaim, `argvsrc=2` for the user-vector Doom exec path, and
-`peip` evidence for timer preemption between Doom and the preempt probe.
+`pkind`/`peip`/`pcr3`/`pkstk` evidence for timer preemption between Doom and the
+preempt probe.
 The same workflow has an opt-in `audible_audio_proof` mode that uses a
 temporary QEMU WAV backend on the disposable runner, reduces it to aggregate
 `audio-proof.json`, validates that manifest against the same status-only SB16

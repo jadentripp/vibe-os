@@ -413,8 +413,9 @@ Current state:
 - Timer preemption has a real Ring 3 IRQ-frame switch path: it saves the
   interrupted task, selects a different READY process record, switches CR3/TSS,
   rewrites the live interrupt frame, and reports `pirq` plus
-  `pfrom`/`pto`/`peip`/`pspin` status. The preempt probe's stack sampler is
-  guarded to run only while that process address space is active.
+  `pfrom`/`pto`/`pkind`/`peip`/`pcr3`/`pkstk`/`pspin` status. The preempt
+  probe's stack sampler is guarded to run only while that process address space
+  is active.
 - The VMM has a checked higher-half seed contract: `KERNEL_HIGHER_HALF_BASE` is
   `0xc0000000`, `vmm_map_page` can allocate a missing page table from PMM after
   PMM is online, and `vmm_unmap_page` returns an empty PMM-backed page-table
@@ -426,8 +427,8 @@ Current state:
   legitimate non-identity mapping capability, not a relocated running kernel.
   `tools/check_vm_status_proof.py` turns those fields into a cloud gate: it
   requires `vmmhfree` to match the reclaimed `vmmhpt` frame, `argvsrc=2` for
-  user-vector exec, and `peip` for the timer IRQ switch between Doom and the
-  preempt probe.
+  user-vector exec, and `pkind`/`peip`/`pcr3`/`pkstk` for the timer IRQ switch
+  between Doom and the preempt probe.
 
 Still missing:
 

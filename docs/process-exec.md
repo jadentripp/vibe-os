@@ -102,7 +102,10 @@ self-test. It marks the seeded context READY with a valid Ring 3 frame, so the
 round-robin selector can pick it just like a timer-saved task. The exec path also
 records the selected target in `scheduler_next_process_ptr`/`scheduler_next_pid`
 before activation, giving host contracts a concrete scheduler integration point
-instead of only proving that bytes were loaded.
+instead of only proving that bytes were loaded. The preemption proof now records
+the switched process kinds (`pkind`), EIPs (`peip`), page directories (`pcr3`),
+and kernel stacks (`pkstk`) so the cloud gate has to prove a Doom/preempt-probe
+CR3/TSS switch, not only scheduler counter increments.
 
 ## Status And Rollback Counters
 
