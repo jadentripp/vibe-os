@@ -136,6 +136,7 @@ class CloudStatusTriageTests(unittest.TestCase):
             "doom-user-fault",
             "missing-wad-open-read",
             "persistence-save-write-failed",
+            "persistence-save-growth-allocation-partial",
             "doom-init-stalled",
             "frames-no-gameplay",
             "input-no-effect",
@@ -411,6 +412,59 @@ class CloudStatusTriageTests(unittest.TestCase):
         self.assertIn("persistence-save: doomerrno=FFFFFFFB", rendered)
         self.assertIn("FAT allocation exhausted", rendered)
         self.assertIn("next: Inspect the persistence status", rendered)
+
+    def test_classifies_one_cluster_partial_save_growth_allocation_failure(self):
+        primary, notes = self.classify(
+            doomerrno="FFFFFFFE",
+            doommode="00000301:000001B6",
+            doomsav="0000000D/00000000",
+            savewr="00000400/00000001",
+            saveclose="00000001",
+            savemode="00000301:000001B6",
+            fwr="0000000B/00000400/00000001/00000003/00006076/00000400/00000200/00007048/00000000/00040000/00000001",
+            fal="000000E0/00000002/0000FAF0/00000001",
+            fio="00000004/00000001/00000003/00006476/00040000/00006076/00000400/00007048/00000003/00000002/0000FAF0/0000FFFF/0000FAF0/00007048/00000002/00000002/0000FAF0/00000000/0000FFFF/0000FAF0",
+            keyseen="00000001",
+            pflags="00000023",
+            pangledelta="00000000",
+            mousepkt="00000000",
+            mousepoll="00000000",
+            mousebtn="00000000",
+            mousedelta="00000000:00000000",
+        )
+
+        self.assertEqual(primary, "persistence-save-growth-allocation-partial")
+        rendered = "\n".join(notes)
+        self.assertIn("savewr=00000400/00000001", rendered)
+        self.assertIn("fal=000000E0/00000002/0000FAF0/00000001", rendered)
+
+    def test_render_diagnosis_adds_one_cluster_partial_save_context(self):
+        rendered = triage_cloud_status.render_diagnosis(
+            status_line(
+                doomerrno="FFFFFFFE",
+                doommode="00000301:000001B6",
+                doomsav="0000000D/00000000",
+                savewr="00000400/00000001",
+                saveclose="00000001",
+                savemode="00000301:000001B6",
+                fwr="0000000B/00000400/00000001/00000003/00006076/00000400/00000200/00007048/00000000/00040000/00000001",
+                fal="000000E0/00000002/0000FAF0/00000001",
+                fio="00000004/00000001/00000003/00006476/00040000/00006076/00000400/00007048/00000003/00000002/0000FAF0/0000FFFF/0000FAF0/00007048/00000002/00000002/0000FAF0/00000000/0000FFFF/0000FAF0",
+                keyseen="00000001",
+                pflags="00000023",
+                pangledelta="00000000",
+                mousepkt="00000000",
+                mousepoll="00000000",
+                mousebtn="00000000",
+                mousedelta="00000000:00000000",
+            )
+        )
+
+        self.assertIn("primary: persistence-save-growth-allocation-partial", rendered)
+        self.assertIn("persistence-partial-save: wrote=0x400", rendered)
+        self.assertIn("requested=0x40000", rendered)
+        self.assertIn("FAT allocation exhausted", rendered)
+        self.assertIn("next: Hand off to FAT save-growth allocation", rendered)
 
     def test_classifies_frames_without_gameplay(self):
         primary, notes = self.classify(gameplay="WAIT", leveltime="00000000")

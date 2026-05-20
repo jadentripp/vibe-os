@@ -1142,10 +1142,13 @@ class SourceContractTests(unittest.TestCase):
             "ATA_CMD_WRITE_SECTORS equ 0x30",
             "FAT_ROOT_CACHE_SECTORS equ 32",
             "FAT_TABLE_CACHE_SECTORS equ 256",
+            "FAT_ALLOC_MAP_BYTES equ FAT_TABLE_CACHE_SECTORS * 512 / 2",
             "FAT_TABLE_CACHE_ADDR equ WAD_LOAD_ADDR + WAD_MAX_BYTES",
             "FAT_ROOT_CACHE_ADDR equ FAT_TABLE_CACHE_ADDR + FAT_TABLE_CACHE_SECTORS * 512",
+            "FAT_ALLOC_MAP_ADDR equ FAT_ROOT_CACHE_ADDR + FAT_ROOT_CACHE_SECTORS * 512",
             "fat_table_cache equ FAT_TABLE_CACHE_ADDR",
             "fat_root_cache equ FAT_ROOT_CACHE_ADDR",
+            "fat_alloc_map equ FAT_ALLOC_MAP_ADDR",
             "PERSISTENCE_MARKER_COUNT equ 3",
             "ata_write_sector:",
             "fat_cache_table:",
@@ -1162,6 +1165,7 @@ class SourceContractTests(unittest.TestCase):
             "fat_find_writable_slot_for_found:",
             "fat_close_writable_fds_for_slot:",
             "fat_clear_writable_slot:",
+            "fat_build_alloc_map:",
             "fat_alloc_cluster:",
             "fat_write_cluster_entry:",
             "fat_free_chain:",
@@ -1246,6 +1250,10 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("fat_next_free_hint", allocator)
         self.assertIn(".wrap_scan:", allocator)
         self.assertIn("fat_alloc_zero_policy", allocator)
+        self.assertIn("fat_alloc_map", allocator)
+        self.assertIn("mov byte [fat_alloc_map + ebx], 1", allocator)
+        self.assertIn("mov byte [fat_alloc_map + ebx], 0", allocator)
+        self.assertNotIn("cmp ax, 0", allocator)
         self.assertIn(".rollback_alloc:", allocator)
         free_chain = kernel.split("fat_free_chain:", 1)[1].split("fat_create_root_file:", 1)[0]
         self.assertIn("cmp ax, 0", free_chain)
@@ -1253,6 +1261,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn(".validated:", free_chain)
         self.assertIn(".free_loop:", free_chain)
         self.assertIn("mov dword [fat_next_free_hint], 2", free_chain)
+        self.assertIn("mov byte [fat_alloc_map + ebx], 0", free_chain)
         self.assertLess(free_chain.index(".validate_loop:"), free_chain.index(".validated:"))
         self.assertLess(free_chain.index(".validated:"), free_chain.index(".free_loop:"))
         validate_pass = free_chain.split(".validate_loop:", 1)[1].split(".validated:", 1)[0]
@@ -1274,12 +1283,18 @@ class SourceContractTests(unittest.TestCase):
         self.assertLess(cluster_growth.index(".allocate_next_cluster:"), cluster_growth.index("call fat_alloc_cluster"))
         storage_init = kernel.split("storage_init:", 1)[1].split("fat_find_file:", 1)[0]
         self.assertLess(storage_init.index("call fat_cache_table"), storage_init.index("call fat_cache_root_dir"))
+        self.assertLess(storage_init.index("call fat_cache_table"), storage_init.index("call fat_build_alloc_map"))
+        self.assertLess(storage_init.index("call fat_build_alloc_map"), storage_init.index("call fat_cache_root_dir"))
         pmm_init = kernel.split("pmm_init:", 1)[1].split("pmm_reserve_pages:", 1)[0]
         self.assertIn("mov eax, FAT_TABLE_CACHE_ADDR", pmm_init)
         self.assertIn("mov ecx, (FAT_CACHE_BYTES + PAGE_SIZE - 1) / PAGE_SIZE", pmm_init)
         fat_next = kernel.split("fat_next_cluster:", 1)[1].split("fat_write_cluster_entry:", 1)[0]
         self.assertIn("fat_table_cache", fat_next)
         self.assertNotIn("call ata_read_sector", fat_next)
+        alloc_map_builder = kernel.split("fat_build_alloc_map:", 1)[1].split("fat_name_match:", 1)[0]
+        self.assertIn("mov edi, fat_alloc_map", alloc_map_builder)
+        self.assertIn("call fat_next_cluster", alloc_map_builder)
+        self.assertIn("mov byte [fat_alloc_map + ebx], 0", alloc_map_builder)
         fat_writer = kernel.split("fat_write_cluster_entry:", 1)[1].split("fat_zero_cluster:", 1)[0]
         self.assertIn("fat_table_cache", fat_writer)
         self.assertIn("call ata_write_sector", fat_writer)

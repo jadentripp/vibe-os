@@ -137,14 +137,17 @@ HEAP_BLOCK_MAGIC_FREE equ 0x46524545
 HEAP_BLOCK_MAGIC_USED equ 0x55534544
 FAT_ROOT_CACHE_SECTORS equ 32
 FAT_TABLE_CACHE_SECTORS equ 256
-FAT_CACHE_BYTES equ FAT_TABLE_CACHE_SECTORS * 512 + FAT_ROOT_CACHE_SECTORS * 512
+FAT_ALLOC_MAP_BYTES equ FAT_TABLE_CACHE_SECTORS * 512 / 2
+FAT_CACHE_BYTES equ FAT_TABLE_CACHE_SECTORS * 512 + FAT_ROOT_CACHE_SECTORS * 512 + FAT_ALLOC_MAP_BYTES
 SECTOR_BUFFER_ADDR equ 0x0009b000
 WAD_LOAD_ADDR equ 0x00900000
 WAD_MAX_BYTES equ 0x00500000
 FAT_TABLE_CACHE_ADDR equ WAD_LOAD_ADDR + WAD_MAX_BYTES
 FAT_ROOT_CACHE_ADDR equ FAT_TABLE_CACHE_ADDR + FAT_TABLE_CACHE_SECTORS * 512
+FAT_ALLOC_MAP_ADDR equ FAT_ROOT_CACHE_ADDR + FAT_ROOT_CACHE_SECTORS * 512
 fat_table_cache equ FAT_TABLE_CACHE_ADDR
 fat_root_cache equ FAT_ROOT_CACHE_ADDR
+fat_alloc_map equ FAT_ALLOC_MAP_ADDR
 DOOM_ELF_LOAD_ADDR equ 0x01000000
 DOOM_ELF_LIMIT equ 0x02000000
 DOOM_ELF_MAX_BYTES equ DOOM_ELF_LIMIT - DOOM_ELF_LOAD_ADDR
@@ -5257,6 +5260,8 @@ storage_init:
     ja .fat_fail
     call fat_cache_table
     jc .fat_fail
+    call fat_build_alloc_map
+    jc .fat_fail
     cmp dword [fat_root_sectors], FAT_ROOT_CACHE_SECTORS
     ja .fat_fail
     call fat_cache_root_dir
@@ -5688,6 +5693,50 @@ fat_cache_table:
     pop ebx
     ret
 
+fat_build_alloc_map:
+    push eax
+    push ebx
+    push ecx
+    push edi
+
+    mov edi, fat_alloc_map
+    mov al, 1
+    mov ecx, FAT_ALLOC_MAP_BYTES
+    cld
+    rep stosb
+    mov ebx, 2
+
+.loop:
+    cmp ebx, [fat_last_data_cluster]
+    ja .ok
+    cmp ebx, FAT_ALLOC_MAP_BYTES
+    jae .fail
+    mov eax, ebx
+    call fat_next_cluster
+    jc .fail
+    mov byte [fat_alloc_map + ebx], 1
+    cmp ax, 0
+    jne .next
+    mov byte [fat_alloc_map + ebx], 0
+
+.next:
+    inc ebx
+    jmp .loop
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
 fat_name_match:
     push ecx
     push esi
@@ -5977,7 +6026,7 @@ fat_alloc_cluster:
     call fat_next_cluster
     jc .fat_read_fail
     mov [fat_alloc_last_entry], eax
-    cmp ax, 0
+    cmp byte [fat_alloc_map + ebx], 0
     je .found
     inc ebx
     jmp .scan_loop
@@ -6023,7 +6072,7 @@ fat_alloc_cluster:
     call fat_next_cluster
     jc .wrap_read_fail
     mov [fat_alloc_last_entry], eax
-    cmp ax, 0
+    cmp byte [fat_alloc_map + ebx], 0
     je .found
     inc ebx
     jmp .wrap_loop
@@ -6043,6 +6092,7 @@ fat_alloc_cluster:
     jc .zero_fail
 
 .allocated:
+    mov byte [fat_alloc_map + ebx], 1
     mov dword [fat_alloc_debug_stage], 3
     mov edx, ebx
     inc edx
@@ -6062,6 +6112,7 @@ fat_alloc_cluster:
     xor edx, edx
     call fat_write_cluster_entry
     jc .rollback_write_fail
+    mov byte [fat_alloc_map + ebx], 0
     stc
     jmp .done
 
@@ -6137,6 +6188,7 @@ fat_free_chain:
     xor edx, edx
     call fat_write_cluster_entry
     jc .fail
+    mov byte [fat_alloc_map + ebx], 0
     movzx ebx, word [fat_free_next_cluster]
     jmp .free_loop
 

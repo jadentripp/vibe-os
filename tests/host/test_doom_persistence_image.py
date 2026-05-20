@@ -80,6 +80,47 @@ def doom_save_payload_at_size(size):
     return doom_save_payload(tail_size=size - base_size)
 
 
+def append_root_file_in_place(fs, name, data):
+    """Append to a root file by extending its FAT chain, not by rewriting it."""
+
+    if not data:
+        meta = fs.root_file_metadata(name)
+        return fs.cluster_chain(meta["cluster"]) if meta and meta["cluster"] else ()
+
+    entry = fs.create_or_reuse_root_entry(name)
+    meta = fs.root_file_metadata(name)
+    if meta["is_directory"]:
+        raise IsADirectoryError(name)
+
+    old_size = meta["size"]
+    new_size = old_size + len(data)
+    chain = fs.cluster_chain(meta["cluster"]) if meta["cluster"] else ()
+    required_clusters = make_wad_image.clusters_for_size(new_size)
+
+    while len(chain) < required_clusters:
+        new_cluster = fs.allocate_clusters(1)[0]
+        if chain:
+            fs.set_fat_entry(chain[-1], new_cluster)
+        else:
+            make_wad_image.write_le16(fs.image, entry + 26, new_cluster)
+        chain = chain + (new_cluster,)
+
+    cursor = old_size
+    remaining = memoryview(data)
+    cluster_bytes = make_wad_image.cluster_size()
+    while remaining:
+        cluster_index = cursor // cluster_bytes
+        offset_in_cluster = cursor % cluster_bytes
+        writable = min(len(remaining), cluster_bytes - offset_in_cluster)
+        start = fs.cluster_offset(chain[cluster_index]) + offset_in_cluster
+        fs.image[start:start + writable] = remaining[:writable]
+        cursor += writable
+        remaining = remaining[writable:]
+
+    make_wad_image.write_le32(fs.image, entry + 28, new_size)
+    return chain
+
+
 def wad_like_payload(total_size=REAL_SHAREWARE_WAD_SIZE):
     wad = bytearray(total_size)
     lumps = [
@@ -999,7 +1040,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertEqual(fs.free_data_clusters(), before_free - len(replacement_chain))
         fs.validate_fat_copies_match()
 
-    def test_real_wad_sized_image_can_request_and_grow_save_slot_zero(self):
+    def test_real_wad_sized_image_can_request_and_grow_save_slot_zero_by_cluster(self):
         image = self.build_temp_image_with_wad(wad_like_payload())
         baseline = bytearray(image)
         fs = make_wad_image.Fat16Image(image)
@@ -1036,37 +1077,48 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertEqual(remounted.root_file_metadata(save_name)["cluster"], 0)
         self.assertEqual(remounted.root_file_metadata(save_name)["size"], 0)
 
-        first_chain = fs.write_root_file_at(save_name, 0, save_payload[:cluster_bytes])
-        self.assertEqual(len(first_chain), 1)
-        self.assertEqual(fs.root_file_metadata(save_name)["size"], cluster_bytes)
-        self.assertEqual(fs.read_root_file(save_name), save_payload[:cluster_bytes])
-        self.assertEqual(
-            fs.free_data_clusters(),
-            before_free - len(marker_chain) - len(first_chain),
-        )
+        previous_chain = ()
+        written = 0
+        remount_checkpoints = {1, 2, 3, 8, 64, 128}
+        total_clusters = make_wad_image.clusters_for_size(len(save_payload))
+        remount_checkpoints.add(total_clusters)
+        for cluster_number in range(1, total_clusters + 1):
+            chunk = save_payload[written:written + cluster_bytes]
+            grown_chain = append_root_file_in_place(fs, save_name, chunk)
+            written += len(chunk)
+            expected_clusters = make_wad_image.clusters_for_size(written)
+            save_meta = fs.root_file_metadata(save_name)
 
-        grown_chain = fs.write_root_file_at(save_name, cluster_bytes, save_payload[cluster_bytes:])
-        grown_meta = fs.root_file_metadata(save_name)
-        self.assertEqual(grown_meta["size"], len(save_payload))
-        self.assertGreater(len(grown_chain), len(first_chain))
-        self.assertEqual(len(grown_chain), make_wad_image.clusters_for_size(len(save_payload)))
+            self.assertEqual(len(grown_chain), expected_clusters)
+            self.assertEqual(grown_chain[:len(previous_chain)], previous_chain)
+            self.assertTrue(set(grown_chain).isdisjoint(marker_chain))
+            self.assertEqual(save_meta["cluster"], grown_chain[0])
+            self.assertEqual(save_meta["size"], written)
+            self.assertEqual(
+                fs.free_data_clusters(),
+                before_free - len(marker_chain) - len(grown_chain),
+            )
+            fs.validate_fat_copies_match()
+
+            if cluster_number in remount_checkpoints:
+                remounted = make_wad_image.Fat16Image(image)
+                remounted.validate_fat_copies_match()
+                remounted.validate_allocated_clusters_reachable()
+                self.assertEqual(remounted.read_root_file(make_wad_image.SAVE_REQUEST_NAME), b"X")
+                self.assertEqual(
+                    remounted.read_root_file(save_name),
+                    save_payload[:written],
+                )
+
+            previous_chain = grown_chain
+
+        self.assertEqual(written, len(save_payload))
+        self.assertEqual(len(previous_chain), total_clusters)
         self.assertEqual(fs.read_root_file(save_name), save_payload)
         self.assertEqual(
             fs.free_data_clusters(),
-            before_free - len(marker_chain) - len(grown_chain),
+            before_free - len(marker_chain) - len(previous_chain),
         )
-
-        remounted = make_wad_image.Fat16Image(image)
-        remounted.validate_fat_copies_match()
-        remounted.validate_allocated_clusters_reachable()
-        self.assertEqual(remounted.read_root_file(make_wad_image.SAVE_REQUEST_NAME), b"X")
-        self.assertEqual(remounted.read_root_file(save_name), save_payload)
-
-        deleted_marker = fs.delete_root_file(make_wad_image.SAVE_REQUEST_NAME)
-        self.assertEqual(deleted_marker, marker_chain)
-        self.assertIsNone(fs.root_file_metadata(make_wad_image.SAVE_REQUEST_NAME))
-        self.assertEqual(fs.read_root_file(save_name), save_payload)
-        self.assertEqual(fs.free_data_clusters(), before_free - len(grown_chain))
 
         baseline_path = self.write_temp_image(baseline)
         image_path = self.write_temp_image(image)

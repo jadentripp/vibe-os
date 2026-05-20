@@ -220,6 +220,12 @@ TRIAGE_RULES = (
         "Inspect the persistence status, then hand off to FAT allocation/free-space or write-path repair with the fwr/fio/fal fields.",
     ),
     TriageRule(
+        "persistence-save-growth-allocation-partial",
+        ("doomsav", "savewr", "saveclose", "savemode", "fwr", "fal", "fio"),
+        "Doom reached the save path and wrote one cluster, but save-file growth stopped at the next FAT allocation.",
+        "Hand off to FAT save-growth allocation: inspect the last data cluster/free scan and why the allocator returned E0 after a short positive write.",
+    ),
+    TriageRule(
         "doom-init-stalled",
         ("doominit", "doomlog", "doomopen", "doomread", "doomwad", "gameplay", "doompresent"),
         "Doom entered user mode but did not report all first initialization milestones.",
@@ -593,6 +599,7 @@ def _persistence_save_write_failed(fields: dict[str, str]) -> bool:
 
     save_slot_seen = doomsav is not None and doomsav[1] != 0xFFFFFFFF
     save_write_missing = savewr is not None and (savewr[0] == 0 or savewr[1] == 0)
+    partial_save_growth_failed = _persistence_save_growth_allocation_partial(fields)
     file_write_failed = (
         fwr is not None
         and (fwr[1] & 0x80000000) != 0
@@ -603,7 +610,7 @@ def _persistence_save_write_failed(fields: dict[str, str]) -> bool:
 
     return (
         save_slot_seen
-        and save_write_missing
+        and (save_write_missing or partial_save_growth_failed)
         and (
             _status_nonzero_or_error(fields, "doomerrno")
             or file_write_failed
@@ -612,6 +619,31 @@ def _persistence_save_write_failed(fields: dict[str, str]) -> bool:
             or (saveclose is not None and saveclose != 0)
         )
     )
+
+
+def _persistence_save_growth_allocation_partial(fields: dict[str, str]) -> bool:
+    doomsav = _hex_tuple(fields, "doomsav", 2)
+    savewr = _hex_tuple(fields, "savewr", 2)
+    fwr = _hex_tuple(fields, "fwr", 11)
+    fal = _hex_tuple(fields, "fal", 4)
+    fio = _hex_tuple(fields, "fio", 20)
+    if doomsav is None or doomsav[1] == 0xFFFFFFFF:
+        return False
+    if savewr is None or savewr[0] == 0 or savewr[1] == 0:
+        return False
+    if fwr is None or fal is None or fio is None:
+        return False
+
+    write_result = fwr[1]
+    requested = fwr[9]
+    if write_result == 0 or write_result >= requested:
+        return False
+    if write_result != savewr[0]:
+        return False
+
+    fat_allocator_failed_after_refresh = fal[0] == 0xE0 and fal[3] != 0
+    file_io_reached_allocation = fio[14] != 0
+    return fat_allocator_failed_after_refresh and file_io_reached_allocation
 
 
 def render_persistence_save_context(fields: dict[str, str]) -> list[str]:
@@ -626,6 +658,14 @@ def render_persistence_save_context(fields: dict[str, str]) -> list[str]:
     ]
     fal = _hex_tuple(fields, "fal", 4)
     fio = _hex_tuple(fields, "fio", 20)
+    fwr = _hex_tuple(fields, "fwr", 11)
+    savewr = _hex_tuple(fields, "savewr", 2)
+    if _persistence_save_growth_allocation_partial(fields) and fwr is not None and savewr is not None:
+        lines.append(
+            "persistence-partial-save: "
+            f"wrote={savewr[0]:#x} write_count={savewr[1]:#x} requested={fwr[9]:#x} "
+            f"short_write={fwr[1]:#x}"
+        )
     if fal is not None and fal[0] == 0xE0:
         lines.append(
             "persistence-hint: FAT allocation exhausted after a cache refresh while growing the save file"
@@ -773,6 +813,14 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         return "doom-init-stalled", notes
 
     if _persistence_save_write_failed(fields):
+        if _persistence_save_growth_allocation_partial(fields):
+            notes.append(
+                "persistence-save-growth-allocation-partial: "
+                f"doomsav={_field(fields, 'doomsav')} savewr={_field(fields, 'savewr')} "
+                f"saveclose={_field(fields, 'saveclose')} savemode={_field(fields, 'savemode')} "
+                f"fwr={_field(fields, 'fwr')} fal={_field(fields, 'fal')} fio={_field(fields, 'fio')}"
+            )
+            return "persistence-save-growth-allocation-partial", notes
         notes.append(
             "persistence-save-write-failed: "
             f"doomerrno={_field(fields, 'doomerrno')} doommode={_field(fields, 'doommode')} "
@@ -924,6 +972,8 @@ def render_diagnosis(
     if primary == "missing-wad-open-read":
         lines.extend(f"- {note}" for note in render_wad_io_context(fields))
     if primary == "persistence-save-write-failed":
+        lines.extend(f"- {note}" for note in render_persistence_save_context(fields))
+    if primary == "persistence-save-growth-allocation-partial":
         lines.extend(f"- {note}" for note in render_persistence_save_context(fields))
     if primary == "doom-init-stalled":
         lines.extend(f"- {note}" for note in render_doom_init_context(fields))
