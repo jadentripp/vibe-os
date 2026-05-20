@@ -44,7 +44,7 @@ static int playable_initial_clip = -1;
 #define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
 #define VIBE_MUSIC_STREAM_TICS \
     ((int)((VIBE_MUSIC_STREAM_BYTES * 35u) / VIBE_MUSIC_DEFAULT_SAMPLE_RATE) - 2)
-#define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x4000u
+#define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x2c000u
 
 static void report_doom_init_status(unsigned long flags)
 {

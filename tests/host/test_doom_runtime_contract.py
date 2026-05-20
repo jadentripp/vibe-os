@@ -221,7 +221,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
             self.assertIn(token, source)
 
         for token in (
-            "#define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x4000u",
+            "#define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x2c000u",
             "bytes = (size_t)length + VIBE_DOOM_SAVE_SCRATCH_BYTES;",
             "memset(mem, 0, bytes);",
         ):
