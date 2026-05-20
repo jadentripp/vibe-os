@@ -7512,13 +7512,17 @@ fat_file_lba_for_write:
     mov [fat_lba_new_cluster], eax
     mov dword [fat_file_lba_was_new_cluster], 1
     movzx eax, word [fat_current_cluster]
+    push edx
     mov dx, [fat_new_cluster]
     mov dword [fat_lba_fail_stage], 4
     call fat_write_cluster_entry
+    pop edx
     jnc .linked_new_cluster
     movzx eax, word [fat_new_cluster]
+    push edx
     xor edx, edx
     call fat_write_cluster_entry
+    pop edx
     jmp .fail
 
 .linked_new_cluster:

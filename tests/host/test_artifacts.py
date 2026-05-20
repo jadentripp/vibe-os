@@ -1316,6 +1316,23 @@ class SourceContractTests(unittest.TestCase):
         self.assertLess(cluster_growth.index("je .allocate_next_cluster"), cluster_growth.index("cmp eax, 0xfff8"))
         self.assertLess(cluster_growth.index("cmp eax, 0xfff8"), cluster_growth.index("jb .next_exists"))
         self.assertLess(cluster_growth.index(".allocate_next_cluster:"), cluster_growth.index("call fat_alloc_cluster"))
+        allocation_link = cluster_growth.split(".allocate_next_cluster:", 1)[1].split(".linked_new_cluster:", 1)[0]
+        self.assertIn(
+            "push edx\n"
+            "    mov dx, [fat_new_cluster]\n"
+            "    mov dword [fat_lba_fail_stage], 4\n"
+            "    call fat_write_cluster_entry\n"
+            "    pop edx",
+            allocation_link,
+        )
+        self.assertIn(
+            "movzx eax, word [fat_new_cluster]\n"
+            "    push edx\n"
+            "    xor edx, edx\n"
+            "    call fat_write_cluster_entry\n"
+            "    pop edx",
+            allocation_link,
+        )
         storage_init = kernel.split("storage_init:", 1)[1].split("fat_find_file:", 1)[0]
         self.assertLess(storage_init.index("call fat_cache_table"), storage_init.index("call fat_cache_root_dir"))
         self.assertLess(storage_init.index("call fat_cache_table"), storage_init.index("call fat_build_alloc_map"))
