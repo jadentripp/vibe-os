@@ -7,7 +7,8 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
 - Stage 2 loader read from raw disk sectors with BIOS EDD `INT 0x13`
 - Stage 2-owned A20 enable, GDT setup, and protected-mode transition
 - Stage 2 ELF32 executable parser that loads kernel `PT_LOAD` segments
-- repo-owned ELF32 linker for NASM and freestanding C object files
+- repo-owned ELF32 linker for NASM and freestanding C object files, including
+  separate executable/read-only and writable `PT_LOAD` segment flags
 - 32-bit protected-mode kernel entered through its ELF entry point at `0x10000`
 - own VGA text console, PS/2 keyboard polling, and PS/2 auxiliary mouse packet
   decode for Doom input
@@ -20,10 +21,13 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
   `int 0x80`, and proving supervisor pages fault
 - tiny user-space C runtime entrypoint that links a freestanding C probe into
   `USERPROB.ELF`
-- user-mode syscall smoke coverage for `sbrk`, `open`, `read`, `lseek`, and
-  console `write`
+- user-mode syscall smoke coverage for `sbrk`, `mmap`, `ioctl`, `open`,
+  `read`, `lseek`, classified `fork`/`waitpid`, and console `write`
 - syscall pointer validation walks the current process VM region table, so the
   tiny probe and the larger Doom image have different valid mapped regions
+- table-backed `SYS_EXEC` handoff that validates a user path, loads a supported
+  image, seeds a scheduler-visible Ring 3 context with an argv-shaped stack,
+  marks the caller exited, and switches to the target process record
 - physical frame accounting for the first managed 32 MiB
 - 8 MiB free-list heap with `kalloc`/`kfree` and boot-time high-memory self-test
 - freestanding cdecl-style libc subset: strings, memory helpers, integer math, x87 init/test, and `kprintf`
@@ -38,8 +42,9 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
   program-header validation
 - hard-path WAD loading through an ATA PIO IDE driver and a FAT16 reader
 - dynamic FAT16 writable files for Doom defaults, save slots, and bounded
-  root-level 8.3 user-created files, with kernel read/write/lseek/truncate
-  support over allocated cluster chains
+  root-level 8.3 user-created files, with kernel
+  read/write/lseek/truncate/unlink/stat support over allocated cluster chains
+  and shared per-descriptor offsets for WAD and writable file descriptors
 - WAD header/directory parsing with named-lump lookup for Doom assets
 - text UI with an interactive shell
 - local QEMU targets guarded behind an explicit opt-in
@@ -76,6 +81,11 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
   `third_party/doom/ORIGIN.md` records the upstream repository and commit, and
   host tests hash the original files used by the compile smoke so port work
   stays outside the vendor tree.
+- The detailed source-integrity contract lives in `docs/doom-provenance.md`.
+  In short: `third_party/doom` is read-only vendor code, the build compiles the
+  original `linuxdoom-1.10` engine objects plus isolated `doom_port/*` shims,
+  and host tests reject wrapper engines, tracked WADs, disk images, logs, and
+  rendered pixel artifacts.
 
 ## Requirements
 
@@ -124,7 +134,7 @@ Current disk layout:
 
 - LBA 0: Stage 1 MBR and partition table
 - LBA 1-16: Stage 2 bootloader
-- LBA 17-112: protected-mode kernel ELF image
+- LBA 17-144: protected-mode kernel ELF image
 - LBA 2048+: FAT16 partition containing `DOOM1.WAD`, `USERPROB.ELF`, and
   `DOOM.ELF`, plus empty dynamic `DEFAULT.CFG` and `DOOMSAV0.DSG` through
   `DOOMSAV5.DSG` writable root entries
@@ -132,8 +142,14 @@ Current disk layout:
 See `docs/persistent-fat16.md` for the bounded root-level persistence contract
 and the remaining gap to general FAT coverage.
 
+See `docs/boot-loader-vm.md` for the raw-sector boot chain, protected-mode ELF
+handoff, fixed low-memory reservations, paging contract, and VM gaps.
+
 See `docs/process-vm.md` for the current process address-space contract,
 including per-process page directories, VM regions, and remaining VM gaps.
+
+See `docs/process-exec.md` for the current table-backed exec handoff,
+process-replacement, argv-stack, and scheduler integration contract.
 
 See `docs/graphics.md` for the VBE/Mode 13h framebuffer contract and current
 scaler limits.
@@ -162,12 +178,19 @@ secret is set, otherwise the workflow falls back to the public Archive.org
 shareware WAD gzip. In the disposable runner it extracts `DOOM1.WAD`, validates
 the expected shareware v1.9 size (`4196020` bytes) and SHA-1
 (`5b2e249b9c5133ec987b3ea77596381dc0d6bc1d`), builds `disk.img` with
-`DOOM_WAD`, boots it in cloud QEMU, requires Doom framebuffer presentation, sends
-a key through the QEMU monitor, and requires kernel status counters showing Doom
-autostarted E1M1 and advanced level time in `GS_LEVEL`. It uploads only non-WAD
-diagnostics (`status.txt`, `status.bin`, `vga.txt`, and ELF files). It
-deliberately does not upload `disk.img` or `gfx.bin`, since those may contain
-Doom game data or rendered pixels.
+`DOOM_WAD`, boots it in cloud QEMU, requires Doom framebuffer presentation, runs
+a deterministic input script through the QEMU monitor, and requires kernel
+status counters showing Doom autostarted E1M1, advanced level time in
+`GS_LEVEL`, accepted fire/use/move/menu input, and changed player/menu state. It
+uploads only non-WAD diagnostics (`status*.txt`, `status*.bin`, logs, and ELF
+files). It deliberately does not upload `disk.img`, `gfx.bin`, `vga*.txt`, or
+WAD paths, since those may contain Doom game data or rendered pixels.
+
+For the stronger cloud-safe playable proof, see
+`docs/playable-cloud-proof.md`. The real-WAD workflow now uses a deterministic
+fire/move/use/menu input script and validates non-pixel status fields for
+keyboard delivery, player movement, action commands, menu activation, and
+visual activity summaries.
 
 ## Shell Commands
 
@@ -201,8 +224,10 @@ Already implemented:
   Ring 3 entry from the loaded executable
 - freestanding C user program linked through a tiny `crt0` instead of a
   hand-written assembly-only probe
-- first POSIX-shaped user syscall slice: `sbrk`, `open`, `read`, `lseek`, and
-  `write`, exercised by the user ELF against the WAD header
+- first POSIX-shaped user syscall slice: `sbrk`, `open`, `read`, `write`,
+  `lseek`, `close`, `unlink`, `stat`, `fstat`, anonymous/private `mmap`,
+  display `ioctl`, classified `fork`/`waitpid`, and table-backed `exec`,
+  exercised by the user ELF and host lifecycle contracts
 - paging, PMM/VMM self-tests, and kernel heap
 - kernel libc subset and a freestanding C probe linked from a clang ELF object
 - ATA PIO, MBR partition parsing, FAT16 root/cluster loading, and WAD parsing
@@ -215,8 +240,8 @@ Already implemented:
   executable into its `0x01000000` image window for ELF validation
 - Doom's platform `I_GetTime` now calls a kernel 35 Hz time syscall instead of
   using a fake local counter
-- Doom's platform `I_FinishUpdate` calls a kernel `SYS_PRESENT` path for a
-  320x200 8-bit indexed frame plus RGB palette, and CI verifies bytes written
+- Doom's platform `I_FinishUpdate` calls the display `ioctl` present path for
+  a 320x200 8-bit indexed frame plus RGB palette, and CI verifies bytes written
   to the VGA graphics aperture at `0xA0000`
 - Stage 2 attempts VBE 32-bpp linear-framebuffer discovery/set, passes the
   framebuffer contract through the boot info block, and the kernel maps that
@@ -245,15 +270,20 @@ Already implemented:
 
 Still required before this is actually Doom-capable:
 
-- higher-half kernel mapping and real user address spaces
+- a current passing manual real-WAD cloud workflow on the exact commit being
+  claimed, followed by review of the non-WAD status diagnostics
+- higher-half kernel mapping or another non-identity kernel layout, plus
+  dynamically allocated page tables and non-identity user frame backing
 - a second fully launched long-lived user task to exercise the timer
   preemption path continuously under Doom
-- a broader syscall ABI: `exec`, `mmap`, fuller file I/O, and richer drawing
+- a broader syscall ABI: arbitrary-path `exec`, real process cloning/waiting,
+  file-backed mappings, descriptor duplication, and richer drawing controls
 - run and analyze the manual cloud smoke with an actual user-supplied shareware
   `DOOM1.WAD`
 - enough syscall/libc/file coverage for the original engine to progress past
   startup errors from the current generated WAD fixture
-- POSIX-ish libc and file syscalls for Doom
+- more complete POSIX libc coverage for Doom ports beyond the current file,
+  heap, mmap, ioctl, and classified process-lifecycle slice
 - broader framebuffer mode support, aspect policy, and dirty-rect presentation
   beyond the current XRGB8888 VBE path
 - sound stack, or an explicit first Doom milestone that runs video/input with

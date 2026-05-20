@@ -10,6 +10,11 @@ enum {
     SYS_READ = 7,
     SYS_LSEEK = 8,
     SYS_PRESENT = 10,
+    SYS_MMAP = 20,
+    SYS_MUNMAP = 21,
+    SYS_IOCTL = 22,
+    SYS_FORK = 23,
+    SYS_WAITPID = 24,
 };
 
 enum {
@@ -22,11 +27,40 @@ enum {
     PROBE_FLAG_LSEEK = 0x10u,
     PROBE_FLAG_PRESENT = 0x20u,
     PROBE_FLAG_WRITABLE_FILE = 0x40u,
+    PROBE_FLAG_MMAP = 0x80u,
+    PROBE_FLAG_IOCTL_FBINFO = 0x100u,
+    PROBE_FLAG_IOCTL_PRESENT = 0x200u,
+    PROBE_FLAG_FORK_WAIT = 0x400u,
 };
 
 enum {
     DOOM_FRAME_BYTES = 320u * 200u,
     DOOM_PALETTE_BYTES = 256u * 3u,
+    PROT_READ = 0x1u,
+    PROT_WRITE = 0x2u,
+    MAP_PRIVATE = 0x2u,
+    MAP_ANONYMOUS = 0x20u,
+    VIBE_DISPLAY_FD = 1u,
+    VIBE_IOCTL_FBINFO = 0x00005601u,
+    VIBE_IOCTL_PRESENT_INDEXED = 0x00005602u,
+    ERRNO_ECHILD = 10,
+    ERRNO_ENOSYS = 38,
+};
+
+struct vibe_fb_info {
+    uint32_t width;
+    uint32_t height;
+    uint32_t pitch;
+    uint32_t backend;
+    uint32_t frame_bytes;
+    uint32_t palette_bytes;
+};
+
+struct vibe_present_indexed {
+    const void *frame;
+    const void *palette;
+    uint32_t width;
+    uint32_t height;
 };
 
 static inline int syscall3(uint32_t number, uint32_t arg0, uint32_t arg1, uint32_t arg2) {
@@ -64,6 +98,20 @@ static int sys_present(const void *frame, const void *palette) {
     return syscall3(SYS_PRESENT, (uint32_t)frame, (uint32_t)palette, 0);
 }
 
+static void *sys_mmap(size_t length, uint32_t prot, uint32_t flags) {
+    uint32_t packed = ((flags & 0xffffu) << 16) | (prot & 0xffffu);
+    int result = syscall3(SYS_MMAP, 0, (uint32_t)length, packed);
+    return result < 0 ? (void *)0 : (void *)(uint32_t)result;
+}
+
+static int sys_munmap(void *addr, size_t length) {
+    return syscall3(SYS_MUNMAP, (uint32_t)addr, (uint32_t)length, 0);
+}
+
+static int sys_ioctl(uint32_t fd, uint32_t request, void *arg) {
+    return syscall3(SYS_IOCTL, fd, request, (uint32_t)arg);
+}
+
 static void sys_user_probe(uint32_t flags) {
     (void)syscall3(SYS_USER_PROBE, USER_PROBE_MAGIC, flags, 0);
 }
@@ -79,6 +127,8 @@ int user_main(void) {
     const char wad_path[] = "DOOM1.WAD";
     const char default_path[] = "DEFAULT.CFG";
     const char writable_payload[] = "persist-ok\n";
+    static struct vibe_fb_info fbinfo;
+    static struct vibe_present_indexed present;
     uint32_t flags = 0;
 
     if (sys_write(1, hello, sizeof(hello) - 1) == (int)(sizeof(hello) - 1)) {
@@ -125,10 +175,11 @@ int user_main(void) {
         }
     }
 
-    unsigned char *video = sys_sbrk(DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES);
+    unsigned char *video = sys_mmap(DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS);
     if (video) {
         unsigned char *frame = video;
         unsigned char *palette = video + DOOM_FRAME_BYTES;
+        flags |= PROBE_FLAG_MMAP;
         for (uint32_t i = 0; i < DOOM_FRAME_BYTES; ++i) {
             frame[i] = (unsigned char)i;
         }
@@ -140,6 +191,24 @@ int user_main(void) {
         if (sys_present(frame, palette) == 0) {
             flags |= PROBE_FLAG_PRESENT;
         }
+        if (sys_ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_FBINFO, &fbinfo) == 0
+            && fbinfo.frame_bytes == DOOM_FRAME_BYTES
+            && fbinfo.palette_bytes == DOOM_PALETTE_BYTES) {
+            flags |= PROBE_FLAG_IOCTL_FBINFO;
+        }
+        present.frame = frame;
+        present.palette = palette;
+        present.width = 320;
+        present.height = 200;
+        if (sys_ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_PRESENT_INDEXED, &present) == 0) {
+            flags |= PROBE_FLAG_IOCTL_PRESENT;
+        }
+        (void)sys_munmap(video, DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES);
+    }
+
+    if (syscall3(SYS_FORK, 0, 0, 0) == -ERRNO_ENOSYS
+        && syscall3(SYS_WAITPID, (uint32_t)-1, 0, 0) == -ERRNO_ECHILD) {
+        flags |= PROBE_FLAG_FORK_WAIT;
     }
 
     sys_user_probe(flags);

@@ -20,9 +20,21 @@ selects one of two present backends:
   the VBE framebuffer. A 640x480 target is vertically centered with 40 blank
   rows above and below the 640x400 Doom image.
 
+Userland can drive the same path through a small device-control ABI on
+`VIBE_DISPLAY_FD`. `VIBE_IOCTL_FBINFO` reports the active dimensions, pitch,
+backend, and indexed-frame byte counts. `VIBE_IOCTL_PRESENT_INDEXED` validates a
+`vibe_present_indexed_t` descriptor, then presents the described 320x200 indexed
+frame through the same backend as `SYS_PRESENT`. Doom now uses this ioctl path;
+the syscall is kept as a low-level compatibility/probe entrypoint.
+
 CI still may capture `build/gfx.bin` locally inside the runner as a byte-level
 contract check, but uploaded artifacts exclude rendered Doom pixels. Real-WAD
-smoke also excludes `disk.img` and WAD data.
+smoke disables framebuffer capture and gates visual correctness through status
+fields only: presented-frame count, palette/frame hashes, nonzero indexed
+pixels, and color-transition count. The host reference in
+`tools/framebuffer_contract.py` mirrors the scaler and aggregate proof fields so
+the contract can be tested without WAD data, local QEMU, or rendered Doom pixel
+artifacts. Real-WAD smoke also excludes `disk.img` and WAD data.
 
 Remaining graphics gaps:
 

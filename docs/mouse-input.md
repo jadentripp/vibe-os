@@ -10,7 +10,8 @@ Runtime flow:
 - The decoder resynchronizes on packet byte 0 bit 3, rejects overflow packets,
   and packs valid 3-byte packets as buttons plus signed X/Y deltas.
 - `SYS_POLL_MOUSE` returns one packed event at a time from a bounded queue.
-- `doom_port/platform.c` drains that syscall in `I_StartTic` and posts Doom
+- `doom_port/platform.c` drains that syscall in `I_StartTic`, uses
+  `doom_port/input.c` to translate the packed PS/2 packet, and posts Doom
   `ev_mouse` events without modifying `third_party/doom`.
 
 Smoke counters:
@@ -19,7 +20,12 @@ Smoke counters:
 - `mousepkt=` counts decoded non-overflow 3-byte packets.
 - `mousepoll=` counts mouse events consumed by the Doom user process.
 
-The bridge currently exposes relative movement and the first three PS/2 buttons.
+The bridge exposes relative movement and the first three PS/2 buttons. PS/2
+reports left/right/middle, while Doom's original X11 path treats buttons as
+left/middle/right, so the port remaps those bits before posting the event. Raw
+signed deltas are scaled by 4 to match the coarser feel of the original Linux
+mouse path.
+
 It does not yet provide host-side smoke injection for mouse movement, cursor
 grabbing policy, wheel packets, or acceleration tuning beyond Doom's own
 `mouse_sensitivity`.

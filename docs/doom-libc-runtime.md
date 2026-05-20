@@ -19,6 +19,38 @@ User mode calls `vibe_syscall3` with the syscall numbers in
 The libc shim validates impossible access modes before entering the kernel.
 This keeps stdio mode parsing deterministic for Doom's `fopen("r")`,
 `fopen("w")`, response-file `rb`, save/config writes, and append/update modes.
+The kernel now classifies the obvious Doom file syscall failures as `ENOENT`,
+`EINVAL`, `EBADF`, `ENOMEM`, `EACCES`, `EIO`, or `ENOSYS` before libc maps them
+to `errno`.
+
+`unlink`, `stat`, and `fstat` are real syscall-backed libc wrappers. The FAT16
+layer reports regular-file size/mode metadata for WAD/ELF artifacts and writable
+root files, refuses deletion of protected `DOOM1.WAD`, `USERPROB.ELF`, and
+`DOOM.ELF`, and invalidates writable descriptors whose root entry is deleted.
+
+## Memory, Device, And Process ABI
+
+`mmap()` is syscall-backed for the practical porting case Doom-adjacent code
+usually wants: anonymous, private memory with `fd == -1` and `offset == 0`.
+The kernel implements it as a page-rounded allocation from the current
+process heap, maps the new pages with user permissions derived from `prot`, and
+returns a zero-filled range. `munmap()` validates the supplied user range but is
+currently non-reclaiming because the kernel heap window is still monotonic.
+File-backed mappings, `MAP_FIXED`, and shared mappings are rejected before libc
+enters the kernel.
+
+Display device control is exposed through `ioctl(VIBE_DISPLAY_FD, ...)`.
+`VIBE_IOCTL_FBINFO` fills a `vibe_fb_info_t` with the active framebuffer
+contract, and `VIBE_IOCTL_PRESENT_INDEXED` accepts a `vibe_present_indexed_t`
+describing a 320x200 indexed frame plus 256-entry RGB palette. Doom's
+`I_FinishUpdate` now uses this ioctl path while the older `SYS_PRESENT` remains
+available for the low-level probe.
+
+`fork()` and `wait()/waitpid()` are deliberately classified rather than faked:
+`fork()` returns `ENOSYS` until process cloning has real address-space and file
+descriptor semantics, and `wait()/waitpid()` return `ECHILD` because no child
+process table exists yet. This gives POSIX-looking ports stable errno behavior
+without pretending that clone/wait lifecycle semantics are implemented.
 
 ## Runtime proof
 

@@ -8,8 +8,8 @@ SECTOR_SIZE = 512
 IMAGE_SECTORS = 65536
 STAGE2_LBA = 1
 STAGE2_SECTORS = 16
-KERNEL_LBA = STAGE2_LBA + STAGE2_SECTORS
-KERNEL_SECTORS = 96
+KERNEL_LBA = 17
+KERNEL_SECTORS = 128
 PARTITION_START = 2048
 PARTITION_SECTORS = IMAGE_SECTORS - PARTITION_START
 RESERVED_SECTORS = 1
@@ -214,6 +214,8 @@ class Fat16Image:
         return bytes(name)
 
     def fat_entry(self, cluster):
+        if cluster < 0 or cluster * 2 + 1 >= self.sectors_per_fat * SECTOR_SIZE:
+            raise ValueError("FAT16 cluster index is outside the FAT")
         fat_lba = self.partition_lba + self.reserved
         return read_le16(self.image, fat_lba * SECTOR_SIZE + cluster * 2)
 
@@ -270,6 +272,8 @@ class Fat16Image:
         freed = []
         cluster = first_cluster
         while 2 <= cluster < 0xFFF8:
+            if cluster > last_data_cluster():
+                raise ValueError("FAT16 chain points outside the data area")
             next_cluster = self.fat_entry(cluster)
             self.set_fat_entry(cluster, 0)
             freed.append(cluster)
@@ -277,6 +281,38 @@ class Fat16Image:
             if len(freed) > data_cluster_count():
                 raise ValueError("FAT16 chain did not terminate")
         return tuple(freed)
+
+    def root_file_metadata(self, name):
+        entry = self.root_entry_offset(name)
+        if entry is None:
+            return None
+        return {
+            "entry": entry,
+            "name": bytes(self.image[entry:entry + 11]),
+            "attr": self.image[entry + 11],
+            "cluster": read_le16(self.image, entry + 26),
+            "size": read_le32(self.image, entry + 28),
+            "protected": bytes(self.image[entry:entry + 11]) in PROTECTED_ROOT_NAMES,
+        }
+
+    def read_root_file(self, name):
+        meta = self.root_file_metadata(name)
+        if meta is None:
+            raise FileNotFoundError(name)
+        remaining = meta["size"]
+        cluster = meta["cluster"]
+        data = bytearray()
+        while remaining:
+            if cluster < 2 or cluster >= 0xFFF8 or cluster > last_data_cluster():
+                raise ValueError("FAT16 chain ended before the root file size")
+            lba = self.data_lba + (cluster - 2) * SECTORS_PER_CLUSTER
+            start = sector_offset(lba)
+            chunk_size = min(remaining, cluster_size())
+            data.extend(self.image[start:start + chunk_size])
+            remaining -= chunk_size
+            if remaining:
+                cluster = self.fat_entry(cluster)
+        return bytes(data)
 
     def write_root_file(self, name, data):
         entry = self.create_or_reuse_root_entry(name)
@@ -297,6 +333,18 @@ class Fat16Image:
         entry = self.create_or_reuse_root_entry(name)
         first_cluster = read_le16(self.image, entry + 26)
         freed = self.free_chain(first_cluster) if first_cluster else ()
+        write_le16(self.image, entry + 26, 0)
+        write_le32(self.image, entry + 28, 0)
+        return freed
+
+    def delete_root_file(self, name):
+        name = self.validate_root_83_name(name)
+        entry = self.root_entry_offset(name)
+        if entry is None:
+            raise FileNotFoundError(name)
+        first_cluster = read_le16(self.image, entry + 26)
+        freed = self.free_chain(first_cluster) if first_cluster else ()
+        self.image[entry] = 0xE5
         write_le16(self.image, entry + 26, 0)
         write_le32(self.image, entry + 28, 0)
         return freed

@@ -10,10 +10,12 @@ DOOM_WAD ?=
 SMOKE_EXPECT_PROBE_GFX ?= 1
 SMOKE_REJECT_DOOMLOG ?=
 SMOKE_SENDKEYS ?=
+SMOKE_INPUT_SCRIPT ?=
 SMOKE_REQUIRE_DOOM_PRESENT ?= 0
 SMOKE_REQUIRE_KEY_EVENT ?= 0
 SMOKE_REQUIRE_DOOM_GAMEPLAY ?= 0
 SMOKE_REQUIRE_REAL_WAD_PROOF ?= 0
+SMOKE_REQUIRE_HUMAN_PLAYABILITY_PROOF ?= 0
 SMOKE_NC_TIMEOUT ?= 3
 SMOKE_QEMU_TIMEOUT ?= 30
 SMOKE_EARLY_SECONDS ?= 2
@@ -40,14 +42,14 @@ DOOM_ELF := $(BUILD_DIR)/doom.elf
 DOOM_BASE := 0x01000000
 DOOM_ORIGINAL_SRCS := $(filter-out $(DOOM_SRC_DIR)/i_%.c,$(wildcard $(DOOM_SRC_DIR)/*.c))
 DOOM_ORIGINAL_OBJS := $(DOOM_ORIGINAL_SRCS:$(DOOM_SRC_DIR)/%.c=$(DOOM_PORT_BUILD_DIR)/%.o)
-DOOM_PORT_SRCS := doom_port/libc.c doom_port/platform.c doom_port/start.c
+DOOM_PORT_SRCS := doom_port/input.c doom_port/libc.c doom_port/music.c doom_port/platform.c doom_port/start.c
 DOOM_PORT_OBJS := $(DOOM_PORT_SRCS:doom_port/%.c=$(DOOM_PORT_BUILD_DIR)/port_%.o)
 FREESTANDING_I386_CFLAGS := -target i386-unknown-elf -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m32 -march=i386 -mno-sse -mno-mmx -msoft-float -O2
 DOOM_ORIGINAL_CFLAGS := $(FREESTANDING_I386_CFLAGS) -std=gnu89 -DNORMALUNIX -DLINUX -I$(DOOM_PORT_INCLUDE_DIR) -I$(DOOM_SRC_DIR)
 
 STAGE2_MAX_BYTES := 8192
-KERNEL_ELF_MAX_BYTES := 49152
-USER_PROBE_ELF_MAX_BYTES := 8192
+KERNEL_ELF_MAX_BYTES := 65536
+USER_PROBE_ELF_MAX_BYTES := 12288
 
 .PHONY: all build-only test doom-compile doom-link run run-headless smoke clean check-tools vm-consent
 
@@ -148,14 +150,16 @@ smoke: vm-consent check-tools $(IMAGE)
 		SMOKE_SHUTDOWN_TIMEOUT="$(SMOKE_SHUTDOWN_TIMEOUT)" \
 		SMOKE_CAPTURE_GFX="$(SMOKE_CAPTURE_GFX)" \
 		SMOKE_SENDKEYS="$(SMOKE_SENDKEYS)" \
+		SMOKE_INPUT_SCRIPT="$(SMOKE_INPUT_SCRIPT)" \
 		tests/run_smoke_qemu.sh
 	@set -e; \
 	dump_diagnostics() { \
 		rc=$$?; \
 		if [ $$rc -ne 0 ]; then \
 			echo "Smoke assertion failed with status $$rc."; \
-			if [ -f "$(BUILD_DIR)/status.txt" ]; then echo "---- final status.txt ----"; cat "$(BUILD_DIR)/status.txt"; fi; \
-			if [ -f "$(BUILD_DIR)/status.early.txt" ]; then echo "---- early status.early.txt ----"; cat "$(BUILD_DIR)/status.early.txt"; fi; \
+			for status_file in "$(BUILD_DIR)"/status*.txt; do \
+				if [ -f "$$status_file" ]; then echo "---- $$status_file ----"; cat "$$status_file"; fi; \
+			done; \
 			if [ -f "$(BUILD_DIR)/smoke.log" ]; then echo "---- smoke.log ----"; tail -200 "$(BUILD_DIR)/smoke.log"; fi; \
 			if [ -f "$(BUILD_DIR)/qemu.log" ]; then echo "---- qemu.log ----"; tail -200 "$(BUILD_DIR)/qemu.log"; fi; \
 			if [ -f "$(BUILD_DIR)/serial.log" ]; then echo "---- serial.log ----"; tail -200 "$(BUILD_DIR)/serial.log"; fi; \
@@ -187,12 +191,37 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "doommode=" $(BUILD_DIR)/status.txt; \
 	grep -q "doomlog=" $(BUILD_DIR)/status.txt; \
 	grep -q "doompresent=" $(BUILD_DIR)/status.txt; \
+	grep -q "doompal=" $(BUILD_DIR)/status.txt; \
+	grep -q "doomframe=" $(BUILD_DIR)/status.txt; \
+	grep -q "doomnonzero=" $(BUILD_DIR)/status.txt; \
+	grep -q "doomcolors=" $(BUILD_DIR)/status.txt; \
+	grep -q "doomsamp=" $(BUILD_DIR)/status.txt; \
 	grep -q "gameplay=" $(BUILD_DIR)/status.txt; \
 	grep -q "gstate=" $(BUILD_DIR)/status.txt; \
 	grep -q "gmap=" $(BUILD_DIR)/status.txt; \
 	grep -q "gtic=" $(BUILD_DIR)/status.txt; \
 	grep -q "leveltime=" $(BUILD_DIR)/status.txt; \
+	grep -q "gflags=" $(BUILD_DIR)/status.txt; \
+	grep -q "gaction=" $(BUILD_DIR)/status.txt; \
+	grep -q "pflags=" $(BUILD_DIR)/status.txt; \
+	grep -q "pbuttons=" $(BUILD_DIR)/status.txt; \
+	grep -q "ppos=" $(BUILD_DIR)/status.txt; \
+	grep -q "pdelta=" $(BUILD_DIR)/status.txt; \
 	grep -q "doomsound=" $(BUILD_DIR)/status.txt; \
+	grep -q "sfxmix=" $(BUILD_DIR)/status.txt; \
+	grep -q "voices=" $(BUILD_DIR)/status.txt; \
+	grep -q "audioirq=" $(BUILD_DIR)/status.txt; \
+	grep -q "ack8=" $(BUILD_DIR)/status.txt; \
+	grep -q "ack16=" $(BUILD_DIR)/status.txt; \
+	grep -q "refill=" $(BUILD_DIR)/status.txt; \
+	grep -q "half=" $(BUILD_DIR)/status.txt; \
+	grep -q "mixwrap=" $(BUILD_DIR)/status.txt; \
+	grep -q "mixover=" $(BUILD_DIR)/status.txt; \
+	grep -q "mixunder=" $(BUILD_DIR)/status.txt; \
+	grep -q "mixclip=" $(BUILD_DIR)/status.txt; \
+	grep -q "steal=" $(BUILD_DIR)/status.txt; \
+	grep -q "pitchclamp=" $(BUILD_DIR)/status.txt; \
+	grep -q "panclamp=" $(BUILD_DIR)/status.txt; \
 	grep -Eq "audio=(SB16|NONE)" $(BUILD_DIR)/status.txt; \
 	grep -q "keyirq=" $(BUILD_DIR)/status.txt; \
 	grep -q "keyqueue=" $(BUILD_DIR)/status.txt; \
@@ -231,6 +260,14 @@ smoke: vm-consent check-tools $(IMAGE)
 	fi; \
 	if [ "$(SMOKE_REQUIRE_REAL_WAD_PROOF)" = "1" ]; then \
 		$(PYTHON) tools/check_real_wad_proof.py $(BUILD_DIR)/status.txt; \
+	fi; \
+	if [ "$(SMOKE_REQUIRE_HUMAN_PLAYABILITY_PROOF)" = "1" ]; then \
+		human_args="--baseline $(BUILD_DIR)/status.early.txt"; \
+		if [ -f "$(BUILD_DIR)/status.after-fire.txt" ]; then human_args="$$human_args --fire $(BUILD_DIR)/status.after-fire.txt"; fi; \
+		if [ -f "$(BUILD_DIR)/status.after-move.txt" ]; then human_args="$$human_args --movement $(BUILD_DIR)/status.after-move.txt"; fi; \
+		if [ -f "$(BUILD_DIR)/status.after-use.txt" ]; then human_args="$$human_args --use $(BUILD_DIR)/status.after-use.txt"; fi; \
+		if [ -f "$(BUILD_DIR)/status.after-menu.txt" ]; then human_args="$$human_args --menu $(BUILD_DIR)/status.after-menu.txt"; fi; \
+		$(PYTHON) tools/check_human_playability_proof.py $$human_args $(BUILD_DIR)/status.txt; \
 	fi; \
 	if [ -n "$(SMOKE_SENDKEYS)" ] || [ "$(SMOKE_REQUIRE_KEY_EVENT)" = "1" ]; then \
 		perl -ne '$$ok = 1 if /keyirq=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \

@@ -37,6 +37,12 @@
 #define lseek vibe_test_lseek
 #define access vibe_test_access
 #define unlink vibe_test_unlink
+#define mmap vibe_test_mmap
+#define munmap vibe_test_munmap
+#define ioctl vibe_test_ioctl
+#define fork vibe_test_fork
+#define wait vibe_test_wait
+#define waitpid vibe_test_waitpid
 #define mkdir vibe_test_mkdir
 #define fstat vibe_test_fstat
 #define stat vibe_test_stat
@@ -92,6 +98,11 @@ static int mock_read_syscalls;
 static int mock_write_syscalls;
 static int mock_lseek_syscalls;
 static int mock_close_syscalls;
+static int mock_unlink_syscalls;
+static int mock_stat_syscalls;
+static int mock_fstat_syscalls;
+static int mock_ioctl_syscalls;
+static int mock_present_count;
 
 static void mock_copy_text(char* dest, const char* src, int capacity)
 {
@@ -112,6 +123,11 @@ static void mock_reset(void)
     mock_write_syscalls = 0;
     mock_lseek_syscalls = 0;
     mock_close_syscalls = 0;
+    mock_unlink_syscalls = 0;
+    mock_stat_syscalls = 0;
+    mock_fstat_syscalls = 0;
+    mock_ioctl_syscalls = 0;
+    mock_present_count = 0;
     errno = 0;
 }
 
@@ -147,6 +163,23 @@ static int mock_seed_file(const char* path, const char* content)
     memcpy(mock_files[file_index].data, content, (size_t)len);
     mock_files[file_index].size = len;
     return file_index;
+}
+
+static int mock_is_protected_file(const char* path)
+{
+    return !strcasecmp(path, "DOOM1.WAD")
+        || !strcasecmp(path, "USERPROB.ELF")
+        || !strcasecmp(path, "DOOM.ELF");
+}
+
+static void mock_fill_stat(struct stat* out, const struct mock_file* file)
+{
+    memset(out, 0, sizeof(*out));
+    out->st_size = file->size;
+    out->st_mode = S_IFREG | S_IRUSR;
+    if (!mock_is_protected_file(file->path))
+        out->st_mode |= S_IWUSR;
+    out->st_nlink = 1;
 }
 
 static int mock_alloc_fd(int file_index, int flags)
@@ -277,6 +310,80 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
         mock_fds[fd].used = 0;
         return 0;
     }
+
+    if (number == VIBE_SYS_UNLINK) {
+        const char* path = (const char*)arg0;
+        int file_index;
+        int fd;
+        ++mock_unlink_syscalls;
+        if (mock_is_protected_file(path))
+            return -EACCES;
+        file_index = mock_find_file(path);
+        if (file_index < 0)
+            return -ENOENT;
+        mock_files[file_index].exists = 0;
+        mock_files[file_index].size = 0;
+        for (fd = 3; fd < MOCK_MAX_FDS; ++fd)
+            if (mock_fds[fd].used && mock_fds[fd].file_index == file_index)
+                mock_fds[fd].used = 0;
+        return 0;
+    }
+
+    if (number == VIBE_SYS_STAT) {
+        const char* path = (const char*)arg0;
+        struct stat* out = (struct stat*)arg1;
+        int file_index;
+        ++mock_stat_syscalls;
+        file_index = mock_find_file(path);
+        if (file_index < 0)
+            return -ENOENT;
+        mock_fill_stat(out, &mock_files[file_index]);
+        return 0;
+    }
+
+    if (number == VIBE_SYS_FSTAT) {
+        int fd = (int)arg0;
+        struct stat* out = (struct stat*)arg1;
+        ++mock_fstat_syscalls;
+        if (fd < 0 || fd >= MOCK_MAX_FDS || !mock_fds[fd].used)
+            return -EBADF;
+        mock_fill_stat(out, &mock_files[mock_fds[fd].file_index]);
+        return 0;
+    }
+
+    if (number == VIBE_SYS_IOCTL) {
+        int fd = (int)arg0;
+        unsigned long request = arg1;
+        ++mock_ioctl_syscalls;
+        if (fd != VIBE_DISPLAY_FD)
+            return -ENOTTY;
+        if (request == VIBE_IOCTL_FBINFO) {
+            vibe_fb_info_t* info = (vibe_fb_info_t*)arg2;
+            info->width = 640;
+            info->height = 400;
+            info->pitch = 640 * 4;
+            info->backend = 2;
+            info->frame_bytes = 320 * 200;
+            info->palette_bytes = 256 * 3;
+            return 0;
+        }
+        if (request == VIBE_IOCTL_PRESENT_INDEXED) {
+            const vibe_present_indexed_t* present = (const vibe_present_indexed_t*)arg2;
+            if (!present || !present->frame || !present->palette)
+                return -EINVAL;
+            if (present->width != 320 || present->height != 200)
+                return -EINVAL;
+            ++mock_present_count;
+            return 0;
+        }
+        return -ENOTTY;
+    }
+
+    if (number == VIBE_SYS_FORK)
+        return -ENOSYS;
+
+    if (number == VIBE_SYS_WAITPID)
+        return -ECHILD;
 
     return -ENOSYS;
 }
@@ -511,6 +618,10 @@ int main(void)
             return 60;
         if (stat("readme.txt", &st) != 0 || st.st_size != 3)
             return 61;
+        if ((st.st_mode & (S_IFREG | S_IRUSR | S_IWUSR)) != (S_IFREG | S_IRUSR | S_IWUSR))
+            return 108;
+        if (mock_stat_syscalls != 1)
+            return 109;
         fd = open("readme.txt", O_RDONLY);
         if (fd < 0)
             return 62;
@@ -520,6 +631,8 @@ int main(void)
             return 64;
         if (lseek(fd, 0, SEEK_CUR) != 2)
             return 65;
+        if (mock_fstat_syscalls != 1)
+            return 110;
         if (close(fd) != 0)
             return 66;
     }
@@ -578,6 +691,123 @@ int main(void)
             return 85;
         if (fclose(f) != 0)
             return 86;
+    }
+
+    mock_reset();
+    {
+        char ch = 0;
+        int fd;
+        if (read(99, &ch, 1) != -1 || errno != EBADF)
+            return 87;
+        if (write(99, "x", 1) != -1 || errno != EBADF)
+            return 88;
+        if (lseek(99, 0, SEEK_SET) != -1 || errno != EBADF)
+            return 89;
+        if (mock_seed_file("readme.txt", "hello") < 0)
+            return 90;
+        fd = open("readme.txt", O_RDONLY);
+        if (fd < 0)
+            return 91;
+        if (lseek(fd, 0, 99) != -1 || errno != EINVAL)
+            return 92;
+        if (close(fd) != 0)
+            return 93;
+        if (close(fd) != -1 || errno != EBADF)
+            return 94;
+    }
+
+    mock_reset();
+    if (mock_seed_file("readme.txt", "hello") < 0)
+        return 111;
+    if (mock_seed_file("DOOM1.WAD", "IWAD") < 0)
+        return 112;
+    {
+        char ch = 0;
+        int fd = open("readme.txt", O_RDWR);
+        struct stat st;
+        if (fd < 0)
+            return 113;
+        if (unlink("DOOM1.WAD") != -1 || errno != EACCES)
+            return 114;
+        if (unlink("missing.txt") != -1 || errno != ENOENT)
+            return 115;
+        if (unlink("readme.txt") != 0)
+            return 116;
+        if (mock_unlink_syscalls != 3)
+            return 117;
+        if (stat("readme.txt", &st) != -1 || errno != ENOENT)
+            return 118;
+        if (read(fd, &ch, 1) != -1 || errno != EBADF)
+            return 119;
+        fd = open("readme.txt", O_RDWR | O_CREAT | O_TRUNC, 0666);
+        if (fd < 0)
+            return 120;
+        if (write(fd, "new", 3) != 3)
+            return 121;
+        if (fstat(fd, &st) != 0 || st.st_size != 3)
+            return 122;
+        if (close(fd) != 0)
+            return 123;
+    }
+
+    mock_reset();
+    vibe_libc_host_heap_reset();
+    {
+        unsigned char* mapped = mmap(0, 8192, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (mapped == MAP_FAILED)
+            return 124;
+        if (mapped[0] != 0 || mapped[4096] != 0)
+            return 125;
+        mapped[0] = 0xaa;
+        mapped[4096] = 0xbb;
+        if (munmap(mapped, 8192) != 0)
+            return 126;
+        if (munmap(0, 8192) != -1 || errno != EINVAL)
+            return 127;
+        if (mmap((void*)1, 4096, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0) != MAP_FAILED || errno != EINVAL)
+            return 128;
+        if (mmap(0, 4096, PROT_READ, MAP_PRIVATE, -1, 0) != MAP_FAILED || errno != ENOSYS)
+            return 129;
+        if (mmap(0, 4096, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, 3, 0) != MAP_FAILED || errno != ENOSYS)
+            return 130;
+    }
+
+    mock_reset();
+    {
+        vibe_fb_info_t info;
+        vibe_present_indexed_t present;
+        unsigned char frame = 0;
+        unsigned char palette = 0;
+        if (ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_FBINFO, &info) != 0)
+            return 131;
+        if (info.width != 640 || info.height != 400 || info.frame_bytes != 320 * 200 || info.palette_bytes != 256 * 3)
+            return 132;
+        present.frame = &frame;
+        present.palette = &palette;
+        present.width = 320;
+        present.height = 200;
+        if (ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_PRESENT_INDEXED, &present) != 0)
+            return 133;
+        if (mock_present_count != 1 || mock_ioctl_syscalls != 2)
+            return 134;
+        present.width = 319;
+        if (ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_PRESENT_INDEXED, &present) != -1 || errno != EINVAL)
+            return 135;
+        if (ioctl(99, VIBE_IOCTL_FBINFO, &info) != -1 || errno != ENOTTY)
+            return 136;
+        if (ioctl(VIBE_DISPLAY_FD, 0xdead, &info) != -1 || errno != ENOTTY)
+            return 137;
+    }
+
+    mock_reset();
+    {
+        int status = 0;
+        if (fork() != -1 || errno != ENOSYS)
+            return 138;
+        if (waitpid((pid_t)-1, &status, 0) != -1 || errno != ECHILD)
+            return 139;
+        if (wait(&status) != -1 || errno != ECHILD)
+            return 140;
     }
 
     return 0;

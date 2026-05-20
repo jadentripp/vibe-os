@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 
 #include "d_event.h"
 #include "d_main.h"
@@ -11,6 +12,9 @@
 #include "i_sound.h"
 #include "i_system.h"
 #include "i_video.h"
+#include "input.h"
+#include "music.h"
+#include "p_mobj.h"
 #include "vibe_os.h"
 #include "v_video.h"
 #include "w_wad.h"
@@ -23,10 +27,55 @@ static doomcom_t local_doomcom;
 static ticcmd_t empty_ticcmd;
 static byte active_palette[256 * 3];
 static int next_sound_handle = 1;
+static unsigned char music_pcm[VIBE_MUSIC_RENDER_BYTES];
+static int current_music_handle;
+static int current_music_looping;
+static int current_music_paused;
+static int current_music_volume = 127;
+static unsigned long playable_proof_flags;
+static int playable_origin_set;
+static int playable_origin_x;
+static int playable_origin_y;
+static int playable_initial_clip = -1;
 
-static int vibe_mouse_delta(unsigned int packed, int shift)
+#define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
+
+static int vibe_music_audio_handle(int handle)
 {
-    return (int)(signed char)((packed >> shift) & 0xffu);
+    return (int)(VIBE_MUSIC_AUDIO_HANDLE_BASE | ((unsigned int)handle & 0xffffu));
+}
+
+static void submit_music_pcm(int handle, int looping)
+{
+    vibe_audio_sfx_desc_t desc;
+    vibe_music_render_stats_t stats;
+    unsigned long rendered;
+
+    rendered = vibe_music_render_song(
+        handle,
+        music_pcm,
+        sizeof(music_pcm),
+        VIBE_MUSIC_DEFAULT_SAMPLE_RATE,
+        (unsigned long)current_music_volume,
+        looping,
+        &stats);
+
+    if (!rendered)
+        return;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.samples = music_pcm;
+    desc.length = rendered;
+    desc.volume = 127;
+    desc.separation = 128;
+    desc.pitch = 128;
+    desc.sound_id = 0x4d555349u;
+
+    (void)vibe_syscall3(
+        VIBE_SYS_AUDIO,
+        VIBE_AUDIO_START_SFX,
+        (unsigned long)vibe_music_audio_handle(handle),
+        (unsigned long)&desc);
 }
 
 int mb_used = 8;
@@ -57,28 +106,29 @@ void I_StartTic(void)
     int i;
     int packed;
     event_t event;
+    vibe_doom_input_event_t translated;
 
     for (i = 0; i < 32; ++i) {
         packed = vibe_syscall3(VIBE_SYS_POLL_KEY, 0, 0, 0);
-        if (!(packed & VIBE_KEY_EVENT_VALID))
+        if (!vibe_doom_translate_key_event((unsigned int)packed, &translated))
             break;
 
-        event.type = (packed & VIBE_KEY_EVENT_DOWN) ? ev_keydown : ev_keyup;
-        event.data1 = packed & 0xff;
-        event.data2 = 0;
-        event.data3 = 0;
+        event.type = translated.type == VIBE_DOOM_INPUT_KEYDOWN ? ev_keydown : ev_keyup;
+        event.data1 = translated.data1;
+        event.data2 = translated.data2;
+        event.data3 = translated.data3;
         D_PostEvent(&event);
     }
 
     for (i = 0; i < 32; ++i) {
         packed = vibe_syscall3(VIBE_SYS_POLL_MOUSE, 0, 0, 0);
-        if (!((unsigned int)packed & VIBE_MOUSE_EVENT_VALID))
+        if (!vibe_doom_translate_mouse_event((unsigned int)packed, &translated))
             break;
 
         event.type = ev_mouse;
-        event.data1 = packed & 0x07;
-        event.data2 = vibe_mouse_delta((unsigned int)packed, 8);
-        event.data3 = vibe_mouse_delta((unsigned int)packed, 16);
+        event.data1 = translated.data1;
+        event.data2 = translated.data2;
+        event.data3 = translated.data3;
         D_PostEvent(&event);
     }
 }
@@ -152,11 +202,72 @@ static void report_gameplay_status(void)
         (unsigned long)leveltime);
 }
 
+static void report_playability_status(void)
+{
+    unsigned long buttons = 0;
+    unsigned long action = (unsigned long)gameaction & 0x7fu;
+    int x = 0;
+    int y = 0;
+
+    if (menuactive)
+        playable_proof_flags |= VIBE_PLAYABLE_SEEN_MENU;
+
+    if (consoleplayer >= 0 && consoleplayer < MAXPLAYERS && playeringame[consoleplayer]) {
+        player_t* player = &players[consoleplayer];
+
+        playable_proof_flags |= VIBE_PLAYABLE_SEEN_PLAYER;
+        buttons = (unsigned long)player->cmd.buttons & 0xffu;
+
+        if (player->cmd.forwardmove || player->cmd.sidemove || player->cmd.angleturn)
+            playable_proof_flags |= VIBE_PLAYABLE_SEEN_MOVE_CMD;
+        if (player->cmd.buttons & BT_ATTACK)
+            playable_proof_flags |= VIBE_PLAYABLE_SEEN_ATTACK_CMD;
+        if (player->cmd.buttons & BT_USE)
+            playable_proof_flags |= VIBE_PLAYABLE_SEEN_USE_CMD;
+        if (player->refire > 0)
+            playable_proof_flags |= VIBE_PLAYABLE_SEEN_REFIRE;
+
+        if (playable_initial_clip < 0)
+            playable_initial_clip = player->ammo[am_clip];
+        else if (player->ammo[am_clip] != playable_initial_clip)
+            playable_proof_flags |= VIBE_PLAYABLE_SEEN_AMMO_DELTA;
+
+        if (player->mo) {
+            x = player->mo->x;
+            y = player->mo->y;
+            if (!playable_origin_set) {
+                playable_origin_set = 1;
+                playable_origin_x = x;
+                playable_origin_y = y;
+            } else if (x != playable_origin_x || y != playable_origin_y) {
+                playable_proof_flags |= VIBE_PLAYABLE_SEEN_POS_DELTA;
+            }
+        }
+    }
+
+    (void)vibe_syscall3(
+        VIBE_SYS_GAMEPLAY_STATUS,
+        VIBE_PLAYABLE_STATUS
+            | (playable_proof_flags & 0xffffu)
+            | ((buttons & 0xffu) << 16)
+            | ((action & 0x7fu) << 24),
+        (unsigned long)x,
+        (unsigned long)y);
+}
+
 void I_FinishUpdate(void)
 {
+    vibe_present_indexed_t present;
+
     report_gameplay_status();
-    if (screens[0])
-        (void)vibe_syscall3(VIBE_SYS_PRESENT, (unsigned int)screens[0], (unsigned int)active_palette, 0);
+    report_playability_status();
+    if (screens[0]) {
+        present.frame = screens[0];
+        present.palette = active_palette;
+        present.width = SCREENWIDTH;
+        present.height = SCREENHEIGHT;
+        (void)ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_PRESENT_INDEXED, &present);
+    }
 }
 
 void I_WaitVBL(int count)
@@ -199,6 +310,7 @@ void I_NetCmd(void)
 
 void I_InitSound(void)
 {
+    vibe_music_init();
     (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_INIT, 0, 0);
 }
 
@@ -299,45 +411,85 @@ void I_UpdateSoundParams(int handle, int vol, int sep, int pitch)
 
 void I_InitMusic(void)
 {
+    vibe_music_init();
 }
 
 void I_ShutdownMusic(void)
 {
+    if (current_music_handle)
+        (void)vibe_syscall3(
+            VIBE_SYS_AUDIO,
+            VIBE_AUDIO_STOP_SFX,
+            (unsigned long)vibe_music_audio_handle(current_music_handle),
+            0);
+    current_music_handle = 0;
+    current_music_looping = 0;
+    current_music_paused = 0;
 }
 
 void I_SetMusicVolume(int volume)
 {
-    (void)volume;
+    if (volume < 0)
+        volume = 0;
+    if (volume <= 15)
+        volume = volume * 8 + 7;
+    if (volume > 127)
+        volume = 127;
+    current_music_volume = volume;
 }
 
 void I_PauseSong(int handle)
 {
-    (void)handle;
+    if (handle <= 0)
+        return;
+    current_music_paused = 1;
+    (void)vibe_syscall3(
+        VIBE_SYS_AUDIO,
+        VIBE_AUDIO_STOP_SFX,
+        (unsigned long)vibe_music_audio_handle(handle),
+        0);
 }
 
 void I_ResumeSong(int handle)
 {
-    (void)handle;
+    if (handle <= 0 || !current_music_paused)
+        return;
+    current_music_paused = 0;
+    submit_music_pcm(handle, current_music_looping);
 }
 
 int I_RegisterSong(void* data)
 {
-    (void)data;
-    return 1;
+    return vibe_music_register_song(data);
 }
 
 void I_PlaySong(int handle, int looping)
 {
-    (void)handle;
-    (void)looping;
+    if (handle <= 0)
+        return;
+    current_music_handle = handle;
+    current_music_looping = looping;
+    current_music_paused = 0;
+    submit_music_pcm(handle, looping);
 }
 
 void I_StopSong(int handle)
 {
-    (void)handle;
+    if (handle <= 0)
+        return;
+    (void)vibe_syscall3(
+        VIBE_SYS_AUDIO,
+        VIBE_AUDIO_STOP_SFX,
+        (unsigned long)vibe_music_audio_handle(handle),
+        0);
+    if (current_music_handle == handle) {
+        current_music_handle = 0;
+        current_music_looping = 0;
+        current_music_paused = 0;
+    }
 }
 
 void I_UnRegisterSong(int handle)
 {
-    (void)handle;
+    vibe_music_unregister_song(handle);
 }

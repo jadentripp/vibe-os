@@ -11,6 +11,8 @@ DOOM_HEIGHT = 200
 DOOM_FRAME_BYTES = DOOM_WIDTH * DOOM_HEIGHT
 PALETTE_BYTES = 256 * 3
 XRGB_BYTES_PER_PIXEL = 4
+VISUAL_PROOF_SEED = 0x811C9DC5
+VISUAL_PROOF_ADD = 0x01000193
 
 
 def validate_indexed_inputs(frame: bytes, palette: bytes) -> None:
@@ -26,6 +28,52 @@ def xrgb8888_pixel(index: int, palette: bytes) -> bytes:
     return bytes((blue, green, red, 0))
 
 
+def _rol32(value: int, bits: int) -> int:
+    return ((value << bits) | (value >> (32 - bits))) & 0xFFFFFFFF
+
+
+def _proof_hash(data: bytes) -> int:
+    value = VISUAL_PROOF_SEED
+    for byte in data:
+        value = _rol32(value, 5)
+        value ^= byte
+        value = (value + VISUAL_PROOF_ADD) & 0xFFFFFFFF
+    return value
+
+
+def visual_proof_fields(frame: bytes, palette: bytes) -> dict[str, int]:
+    validate_indexed_inputs(frame, palette)
+    transitions = 0
+    previous = frame[0]
+
+    for index in frame[1:]:
+        if index != previous:
+            transitions += 1
+        previous = index
+
+    return {
+        "doompal": _proof_hash(palette),
+        "doomframe": _proof_hash(frame),
+        "doomnonzero": sum(1 for index in frame if index != 0),
+        "doomcolors": transitions,
+    }
+
+
+def scale_2x_geometry(width: int, height: int) -> dict[str, int]:
+    if width < DOOM_WIDTH * 2 or height < DOOM_HEIGHT * 2:
+        raise ValueError("framebuffer must fit a 2x Doom frame")
+
+    return {
+        "width": width,
+        "height": height,
+        "pitch": width * XRGB_BYTES_PER_PIXEL,
+        "x": (width - DOOM_WIDTH * 2) // 2,
+        "y": (height - DOOM_HEIGHT * 2) // 2,
+        "scaled_width": DOOM_WIDTH * 2,
+        "scaled_height": DOOM_HEIGHT * 2,
+    }
+
+
 def indexed_shadow(frame: bytes, palette: bytes) -> bytes:
     validate_indexed_inputs(frame, palette)
     return bytes(frame)
@@ -38,13 +86,11 @@ def scale_2x_xrgb8888_centered(
     height: int = 480,
 ) -> bytes:
     validate_indexed_inputs(frame, palette)
-    if width < DOOM_WIDTH * 2 or height < DOOM_HEIGHT * 2:
-        raise ValueError("framebuffer must fit a 2x Doom frame")
-
-    pitch = width * XRGB_BYTES_PER_PIXEL
+    geometry = scale_2x_geometry(width, height)
+    pitch = geometry["pitch"]
     out = bytearray(pitch * height)
-    x0 = ((width - DOOM_WIDTH * 2) // 2) * XRGB_BYTES_PER_PIXEL
-    y0 = (height - DOOM_HEIGHT * 2) // 2
+    x0 = geometry["x"] * XRGB_BYTES_PER_PIXEL
+    y0 = geometry["y"]
 
     for y in range(DOOM_HEIGHT):
         row = frame[y * DOOM_WIDTH:(y + 1) * DOOM_WIDTH]
@@ -66,7 +112,7 @@ def scale_2x_xrgb8888_centered(
 
 def present_contract(frame: bytes, palette: bytes, backend: str = "lfb") -> dict[str, bytes]:
     shadow = indexed_shadow(frame, palette)
-    result = {"indexed_shadow": shadow}
+    result = {"indexed_shadow": shadow, "visual_proof": visual_proof_fields(frame, palette)}
     if backend == "lfb":
         result["xrgb8888"] = scale_2x_xrgb8888_centered(frame, palette)
     elif backend != "mode13":

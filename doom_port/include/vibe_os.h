@@ -16,6 +16,14 @@ enum {
     VIBE_SYS_POLL_MOUSE = 14,
     VIBE_SYS_GAMEPLAY_STATUS = 15,
     VIBE_SYS_EXEC = 16,
+    VIBE_SYS_UNLINK = 17,
+    VIBE_SYS_STAT = 18,
+    VIBE_SYS_FSTAT = 19,
+    VIBE_SYS_MMAP = 20,
+    VIBE_SYS_MUNMAP = 21,
+    VIBE_SYS_IOCTL = 22,
+    VIBE_SYS_FORK = 23,
+    VIBE_SYS_WAITPID = 24,
 };
 
 enum {
@@ -44,6 +52,40 @@ enum {
     VIBE_MOUSE_EVENT_VALID = 0x01000000u,
 };
 
+enum {
+    VIBE_PLAYABLE_STATUS = 0x80000000u,
+    VIBE_PLAYABLE_SEEN_PLAYER = 0x0001u,
+    VIBE_PLAYABLE_SEEN_MOVE_CMD = 0x0002u,
+    VIBE_PLAYABLE_SEEN_ATTACK_CMD = 0x0004u,
+    VIBE_PLAYABLE_SEEN_USE_CMD = 0x0008u,
+    VIBE_PLAYABLE_SEEN_MENU = 0x0010u,
+    VIBE_PLAYABLE_SEEN_POS_DELTA = 0x0020u,
+    VIBE_PLAYABLE_SEEN_AMMO_DELTA = 0x0040u,
+    VIBE_PLAYABLE_SEEN_REFIRE = 0x0080u,
+};
+
+enum {
+    VIBE_DISPLAY_FD = 1,
+    VIBE_IOCTL_FBINFO = 0x00005601u,
+    VIBE_IOCTL_PRESENT_INDEXED = 0x00005602u,
+};
+
+typedef struct vibe_fb_info {
+    unsigned long width;
+    unsigned long height;
+    unsigned long pitch;
+    unsigned long backend;
+    unsigned long frame_bytes;
+    unsigned long palette_bytes;
+} vibe_fb_info_t;
+
+typedef struct vibe_present_indexed {
+    const void* frame;
+    const void* palette;
+    unsigned long width;
+    unsigned long height;
+} vibe_present_indexed_t;
+
 int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, unsigned long arg2);
 
 /*
@@ -53,6 +95,10 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
  * - Legacy kernel paths may still return -1; libc maps those through the
  *   operation-specific fallback errno.
  * - File flags use the O_* constants from fcntl.h, including O_ACCMODE.
+ * - mmap is currently anonymous/private and brk-backed; munmap validates the
+ *   mapping range but does not reclaim heap pages.
+ * - fork returns ENOSYS until address-space cloning exists; wait/waitpid
+ *   return ECHILD because this kernel has no child-process table yet.
  */
 
 #endif

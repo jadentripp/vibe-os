@@ -6,7 +6,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "vibe_os.h"
@@ -635,9 +638,13 @@ int access(const char* path, int mode)
 
 int unlink(const char* path)
 {
-    (void)path;
-    errno = ENOSYS;
-    return -1;
+    int raw;
+    if (!path) {
+        errno = EINVAL;
+        return -1;
+    }
+    raw = vibe_syscall3(VIBE_SYS_UNLINK, (unsigned long)mapped_path(path), 0, 0);
+    return raw < 0 ? syscall_failed(raw, ENOSYS) : raw;
 }
 
 int mkdir(const char* path, mode_t mode)
@@ -649,37 +656,119 @@ int mkdir(const char* path, mode_t mode)
 
 int fstat(int fd, struct stat* out)
 {
-    off_t current;
-    off_t end;
+    int raw;
     if (!out) {
         errno = EINVAL;
         return -1;
     }
-    current = lseek(fd, 0, SEEK_CUR);
-    end = lseek(fd, 0, SEEK_END);
-    if (current < 0 || end < 0)
-        return -1;
-    (void)lseek(fd, current, SEEK_SET);
-    memset(out, 0, sizeof(*out));
-    out->st_size = end;
-    out->st_mode = S_IFREG | S_IRUSR;
-    return 0;
+    raw = vibe_syscall3(VIBE_SYS_FSTAT, (unsigned long)fd, (unsigned long)out, 0);
+    return raw < 0 ? syscall_failed(raw, EBADF) : raw;
 }
 
 int stat(const char* path, struct stat* out)
 {
-    int fd;
-    int result;
+    int raw;
+    if (!path) {
+        errno = EINVAL;
+        return -1;
+    }
     if (!out) {
         errno = EINVAL;
         return -1;
     }
-    fd = open(path, O_RDONLY);
-    if (fd < 0)
+    raw = vibe_syscall3(VIBE_SYS_STAT, (unsigned long)mapped_path(path), (unsigned long)out, 0);
+    return raw < 0 ? syscall_failed(raw, ENOENT) : raw;
+}
+
+void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t offset)
+{
+#ifdef VIBE_LIBC_HOST_TEST
+    size_t rounded;
+    void* raw;
+#else
+    int raw;
+    unsigned long packed;
+#endif
+
+    if (addr || !length || (flags & MAP_FIXED) || offset != 0) {
+        errno = EINVAL;
+        return MAP_FAILED;
+    }
+
+    if (!prot
+        || (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC))
+        || (flags & ~(MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_SHARED))) {
+        errno = EINVAL;
+        return MAP_FAILED;
+    }
+
+    if (!(flags & MAP_ANONYMOUS) || fd != -1 || !(flags & MAP_PRIVATE) || (flags & MAP_SHARED)) {
+        errno = ENOSYS;
+        return MAP_FAILED;
+    }
+
+#ifdef VIBE_LIBC_HOST_TEST
+    if (length > (size_t)-1 - 4095) {
+        errno = ENOMEM;
+        return MAP_FAILED;
+    }
+    rounded = (length + 4095) & ~(size_t)4095;
+    raw = alloc_sbrk(rounded);
+    if (!raw) {
+        errno = ENOMEM;
+        return MAP_FAILED;
+    }
+    memset(raw, 0, rounded);
+    return raw;
+#else
+    packed = ((unsigned long)(flags & 0xffff) << 16) | (unsigned long)(prot & 0xffff);
+    raw = vibe_syscall3(VIBE_SYS_MMAP, 0, (unsigned long)length, packed);
+    if (raw < 0) {
+        (void)syscall_failed(raw, ENOMEM);
+        return MAP_FAILED;
+    }
+    return (void*)(unsigned int)raw;
+#endif
+}
+
+int munmap(void* addr, size_t length)
+{
+#ifndef VIBE_LIBC_HOST_TEST
+    int raw;
+#endif
+    if (!addr || addr == MAP_FAILED || !length) {
+        errno = EINVAL;
         return -1;
-    result = fstat(fd, out);
-    close(fd);
-    return result;
+    }
+#ifdef VIBE_LIBC_HOST_TEST
+    return 0;
+#else
+    raw = vibe_syscall3(VIBE_SYS_MUNMAP, (unsigned long)addr, (unsigned long)length, 0);
+    return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
+#endif
+}
+
+int ioctl(int fd, unsigned long request, void* arg)
+{
+    int raw = vibe_syscall3(VIBE_SYS_IOCTL, (unsigned long)fd, request, (unsigned long)arg);
+    return raw < 0 ? syscall_failed(raw, ENOTTY) : raw;
+}
+
+pid_t fork(void)
+{
+    int raw = vibe_syscall3(VIBE_SYS_FORK, 0, 0, 0);
+    return raw < 0 ? syscall_failed(raw, ENOSYS) : raw;
+}
+
+pid_t waitpid(pid_t pid, int* status, int options)
+{
+    int raw = vibe_syscall3(VIBE_SYS_WAITPID, (unsigned long)pid, (unsigned long)status, (unsigned long)options);
+    return raw < 0 ? syscall_failed(raw, ECHILD) : raw;
+}
+
+pid_t wait(int* status)
+{
+    return waitpid((pid_t)-1, status, 0);
 }
 
 static int parse_fopen_mode(const char* mode, int* flags, int* readable, int* writable, int* append)

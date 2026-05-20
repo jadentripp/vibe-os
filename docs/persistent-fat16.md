@@ -9,31 +9,45 @@ persistent state:
 
 Each pre-created file starts with root-directory size 0 and first cluster 0.
 The kernel also accepts small root-level 8.3 create/open requests from user
-processes when write/create/truncate-style flags are present. It keeps a
-per-file seek offset, allocates free clusters as writes extend a file, updates
-both FAT copies, and writes the root entry's first-cluster and size fields.
-Reads use the persisted root-entry size, so a fresh image behaves like empty
-defaults/save slots while later boots can read back data written into the
-image.
+processes. It keeps a per-descriptor seek offset in a small reusable fd table,
+allocates free clusters as writes extend a file, updates both FAT copies, and
+writes the root entry's first-cluster and size fields. Reads use the persisted
+root-entry size, so a fresh image behaves like empty defaults/save slots while
+later boots can read back data written into the image.
 
 Current kernel contract:
 
-- Supported syscalls: `open`, `read`, `write`, `lseek`, and `close`.
+- Supported syscalls: `open`, `read`, `write`, `lseek`, `close`, `unlink`,
+  `stat`, and `fstat`.
 - Supported writable paths: `DEFAULT.CFG` and `doomsav0.dsg` through
   `doomsav5.dsg`, plus arbitrary valid root-level 8.3 names opened with
-  write/create/truncate-style flags.
+  write/create/truncate-style flags. Existing dynamic root files can be opened
+  read-only for readback.
 - Supported persistence model: dynamic root-level FAT16 allocation for the
   known 8.3 Doom defaults/save files and a bounded dynamic file table for
   additional root entries.
+- Supported descriptor model: WAD reads and writable root files share the same
+  open fd table, so duplicate opens get independent offsets and `close`
+  releases the descriptor slot.
 - Supported growth: file size can grow up to the per-file guard capacity.
 - Supported truncation: `O_TRUNC` frees the old cluster chain, resets first
   cluster to 0, and persists size 0.
-- Supported creation: missing known root entries are created on storage init.
+- Supported deletion: `unlink` frees the FAT cluster chain, marks the root entry
+  deleted (`0xe5`), clears the in-kernel writable slot, and invalidates open
+  descriptors for that file. Later `O_CREAT` can reuse the deleted root slot.
+- Supported creation: missing known root entries are created on storage init and
+  can be recreated with `O_CREAT` after deletion.
+- Supported metadata: `stat` and `fstat` report regular-file mode, one link, and
+  size for protected WAD/ELF files and writable root files. Timestamps, owners,
+  and device fields are zero.
 - Supported validation: subdirectories, path traversal, empty names, long
   filenames, and unsupported characters are rejected; `DOOM1.WAD`,
-  `USERPROB.ELF`, and `DOOM.ELF` remain read-only protected entries.
-- Unsupported: subdirectories, long filenames, timestamps, permissions, file
-  deletion, and a fully reusable POSIX descriptor table.
+  `USERPROB.ELF`, and `DOOM.ELF` remain protected read-only entries and cannot
+  be deleted, truncated, or opened writable.
+- Unsupported: subdirectories, long filenames, rename, timestamps, ownership,
+  permissions beyond read-only versus writable regular-file mode, and POSIX
+  delete-while-open behavior. This kernel deliberately invalidates descriptors
+  when their root entry is unlinked.
 
 This is enough for Doom defaults and save slots without turning the kernel into
 a general-purpose FAT filesystem.

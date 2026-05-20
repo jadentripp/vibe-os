@@ -15,5 +15,6 @@ int close(int fd);
 off_t lseek(int fd, off_t offset, int whence);
 int access(const char* path, int mode);
 int unlink(const char* path);
+pid_t fork(void);
 
 #endif

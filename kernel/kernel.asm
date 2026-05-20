@@ -28,7 +28,7 @@ VGA_COLS equ 80
 VGA_ROWS equ 25
 VGA_ATTR equ 0x0f
 SMOKE_STATUS_ADDR equ 0x0009d000
-SMOKE_STATUS_BYTES equ 1024
+SMOKE_STATUS_BYTES equ 2048
 DOOM_LOG_BYTES equ 160
 KEY_QUEUE_SIZE equ 32
 KEY_QUEUE_MASK equ KEY_QUEUE_SIZE - 1
@@ -134,12 +134,13 @@ PROC_STATE_EXITED equ 3
 PROC_STATE_FAULTED equ 4
 PROCESS_SLOT_COUNT equ 4
 PROCESS_RECORD_BYTES equ 128
-PROCESS_EXEC_TABLE_COUNT equ 1
-PROCESS_EXEC_ENTRY_BYTES equ 16
+PROCESS_EXEC_TABLE_COUNT equ 2
+PROCESS_EXEC_ENTRY_BYTES equ 20
 PROCESS_EXEC_PATH equ 0
 PROCESS_EXEC_NAME83 equ 4
 PROCESS_EXEC_LOAD_ADDR equ 8
 PROCESS_EXEC_MAX_BYTES equ 12
+PROCESS_EXEC_TARGET equ 16
 PROC_PID equ 0
 PROC_KIND equ 4
 PROC_STATE equ 8
@@ -201,7 +202,7 @@ USER_STACK_BOTTOM equ 0x00e81000
 USER_STACK_TOP equ 0x00e82000
 USER_HEAP_START equ USER_STACK_TOP
 USER_HEAP_END equ 0x00f00000
-USER_PROBE_EXPECTED_FLAGS equ 0x0000007f
+USER_PROBE_EXPECTED_FLAGS equ 0x000007ff
 USER_PROBE_MAGIC equ 0x13579BDF
 USER_FAULT_ADDR equ 0x00010000
 USER_FD_BASE equ 3
@@ -216,6 +217,7 @@ WRITABLE_SAVE_CAPACITY equ 0x00040000
 WRITABLE_GENERIC_CAPACITY equ 0x00040000
 O_WRONLY equ 0x0001
 O_RDWR equ 0x0002
+O_ACCMODE equ 0x0003
 O_CREAT equ 0x0100
 O_TRUNC equ 0x0200
 O_APPEND equ 0x0400
@@ -235,13 +237,71 @@ SYS_AUDIO equ 13
 SYS_POLL_MOUSE equ 14
 SYS_GAMEPLAY_STATUS equ 15
 SYS_EXEC equ 16
+SYS_UNLINK equ 17
+SYS_STAT equ 18
+SYS_FSTAT equ 19
+SYS_MMAP equ 20
+SYS_MUNMAP equ 21
+SYS_IOCTL equ 22
+SYS_FORK equ 23
+SYS_WAITPID equ 24
+PLAYABLE_STATUS_FLAG equ 0x80000000
 SYS_EXEC_PATH_MAX equ 16
+MMAP_PROT_MASK equ 0x0000ffff
+MMAP_FLAGS_SHIFT equ 16
+MMAP_PROT_READ equ 0x00000001
+MMAP_PROT_WRITE equ 0x00000002
+MMAP_PROT_EXEC equ 0x00000004
+MMAP_SUPPORTED_PROT equ MMAP_PROT_READ | MMAP_PROT_WRITE | MMAP_PROT_EXEC
+MMAP_MAP_PRIVATE equ 0x00000002
+MMAP_MAP_FIXED equ 0x00000010
+MMAP_MAP_ANONYMOUS equ 0x00000020
+MMAP_SUPPORTED_FLAGS equ MMAP_MAP_PRIVATE | MMAP_MAP_ANONYMOUS
+IOCTL_DISPLAY_FD equ 1
+VIBE_IOCTL_FBINFO equ 0x00005601
+VIBE_IOCTL_PRESENT_INDEXED equ 0x00005602
+VIBE_FB_INFO_WIDTH equ 0
+VIBE_FB_INFO_HEIGHT equ 4
+VIBE_FB_INFO_PITCH equ 8
+VIBE_FB_INFO_BACKEND equ 12
+VIBE_FB_INFO_FRAME_BYTES equ 16
+VIBE_FB_INFO_PALETTE_BYTES equ 20
+VIBE_FB_INFO_BYTES equ 24
+VIBE_PRESENT_DESC_FRAME equ 0
+VIBE_PRESENT_DESC_PALETTE equ 4
+VIBE_PRESENT_DESC_WIDTH equ 8
+VIBE_PRESENT_DESC_HEIGHT equ 12
+VIBE_PRESENT_DESC_BYTES equ 16
+SYS_EXEC_ARGC_DEFAULT equ 1
+SYS_EXEC_ARGV_SLOT_BYTES equ 12
+SYSCALL_FRAME_EBP equ 0
+SYSCALL_FRAME_EDI equ 4
+SYSCALL_FRAME_ESI equ 8
+SYSCALL_FRAME_EDX equ 12
+SYSCALL_FRAME_ECX equ 16
+SYSCALL_FRAME_EBX equ 20
+SYSCALL_FRAME_EIP equ 24
+SYSCALL_FRAME_CS equ 28
+SYSCALL_FRAME_EFLAGS equ 32
+SYSCALL_FRAME_ESP equ 36
+SYSCALL_FRAME_SS equ 40
+STAT_ST_MODE equ 8
+STAT_ST_NLINK equ 12
+STAT_ST_SIZE equ 28
+STAT_BYTES equ 44
+STAT_S_IFREG equ 0x00008000
+STAT_S_IRUSR equ 0x00000100
+STAT_S_IWUSR equ 0x00000080
+STAT_MODE_READONLY_REG equ STAT_S_IFREG | STAT_S_IRUSR
+STAT_MODE_WRITABLE_REG equ STAT_S_IFREG | STAT_S_IRUSR | STAT_S_IWUSR
 ERRNO_ENOENT equ 2
 ERRNO_EIO equ 5
 ERRNO_EBADF equ 9
+ERRNO_ECHILD equ 10
 ERRNO_ENOMEM equ 12
 ERRNO_EACCES equ 13
 ERRNO_EINVAL equ 22
+ERRNO_ENOTTY equ 25
 ERRNO_ENOSYS equ 38
 AUDIO_CMD_INIT equ 1
 AUDIO_CMD_START_SFX equ 2
@@ -255,6 +315,10 @@ AUDIO_SFX_DESC_SEPARATION equ 12
 AUDIO_SFX_DESC_PITCH equ 16
 AUDIO_SFX_DESC_SOUND_ID equ 20
 AUDIO_SFX_DESC_BYTES equ 24
+AUDIO_MAX_SFX_VOICES equ 8
+AUDIO_PITCH_NORMAL equ 128
+AUDIO_PITCH_STEP_NORMAL equ 0x00010000
+AUDIO_PITCH_STEP_MIN equ 0x00004000
 VGA_DAC_WRITE_INDEX equ 0x03c8
 VGA_DAC_DATA equ 0x03c9
 SB16_BASE equ 0x0220
@@ -272,12 +336,16 @@ SB16_DSP_SPEAKER_ON equ 0xd1
 SB16_DSP_SPEAKER_OFF equ 0xd3
 SB16_DSP_EXIT_8BIT_AUTO equ 0xda
 SB16_DSP_SET_TIME_CONSTANT equ 0x40
+SB16_DSP_SET_OUTPUT_RATE equ 0x41
 SB16_DSP_SET_BLOCK_SIZE equ 0x48
-SB16_DSP_8BIT_AUTO_OUT equ 0x1c
+SB16_DSP_8BIT_AUTO_OUT equ 0xc6
+SB16_DSP_MODE_UNSIGNED_STEREO equ 0x20
 SB16_DMA8_CHANNEL equ 1
 SB16_DMA16_CHANNEL equ 5
 SB16_IRQ_LINE equ 5
 SB16_SAMPLE_RATE equ 11025
+SB16_SAMPLE_RATE_HIGH equ SB16_SAMPLE_RATE / 256
+SB16_SAMPLE_RATE_LOW equ SB16_SAMPLE_RATE & 0xff
 SB16_TIME_CONSTANT equ 256 - (1000000 / SB16_SAMPLE_RATE)
 SB16_DMA_BUFFER_BYTES equ 4096
 SB16_DMA_BLOCK_BYTES equ SB16_DMA_BUFFER_BYTES / 2
@@ -996,11 +1064,38 @@ handle_command:
     mov esi, [process_exec_path_ptr]
     call print_string
     call newline
-    jmp .wad_load_address
+    jmp .process_exec_syscall_status
 
 .process_exec_path_empty:
     mov esi, null_text
     call print_string
+    call newline
+
+.process_exec_syscall_status:
+    mov esi, process_exec_syscall_prefix
+    call print_string
+    mov eax, [sys_exec_attempts]
+    call print_dec
+    mov al, '/'
+    call put_char
+    mov eax, [sys_exec_successes]
+    call print_dec
+    mov al, '/'
+    call put_char
+    mov eax, [sys_exec_failures]
+    call print_dec
+    mov al, '/'
+    call put_char
+    mov eax, [sys_exec_handoffs]
+    call print_dec
+    mov al, '/'
+    call put_char
+    mov eax, [sys_exec_scheduled]
+    call print_dec
+    mov al, '/'
+    call put_char
+    mov eax, [sys_exec_rollbacks]
+    call print_dec
     call newline
 
 .wad_load_address:
@@ -2702,11 +2797,30 @@ audio_init:
     mov dword [sb16_playback_start_count], 0
     mov dword [sb16_playback_stop_count], 0
     mov dword [sb16_dma_program_count], 0
+    mov dword [sb16_active_voice_count], 0
+    mov dword [sb16_voice_start_count], 0
+    mov dword [sb16_voice_stop_count], 0
+    mov dword [sb16_voice_update_count], 0
+    mov dword [sb16_voice_refill_count], 0
+    mov dword [sb16_voice_finished_count], 0
+    mov dword [sb16_voice_steal_count], 0
+    mov dword [sb16_voice_age_counter], 0
+    mov dword [sb16_pitch_clamp_count], 0
+    mov dword [sb16_pan_clamp_count], 0
+    mov dword [sb16_pan_left_arg], 0
+    mov dword [sb16_pan_right_arg], 0
+    mov dword [sb16_mix_source_pos], 0
+    mov dword [sb16_mix_source_step], AUDIO_PITCH_STEP_NORMAL
+    mov dword [sb16_mix_left_volume], 0
+    mov dword [sb16_mix_right_volume], 0
+    mov dword [sb16_mix_frames_mixed], 0
+    mov dword [sb16_mix_voice_slot], 0
     mov dword [sb16_dma_buffer_phys], sb16_dma_buffer
     mov dword [sb16_dma_buffer_size], SB16_DMA_BUFFER_BYTES
     mov dword [sb16_dma_block_size], SB16_DMA_BLOCK_BYTES
     mov byte [sb16_playback_active], 0
     call sb16_clear_dma_buffer
+    call sb16_clear_active_voices
     call sb16_probe
     ret
 
@@ -2939,6 +3053,255 @@ sb16_clear_dma_buffer:
     pop eax
     ret
 
+sb16_clear_active_voices:
+    push eax
+    push ecx
+    push edi
+
+    mov edi, sb16_voice_active
+    xor eax, eax
+    mov ecx, AUDIO_MAX_SFX_VOICES
+    cld
+    rep stosb
+
+    mov edi, sb16_voice_handles
+    mov ecx, AUDIO_MAX_SFX_VOICES * 11
+    cld
+    rep stosd
+
+    mov dword [sb16_active_voice_count], 0
+    mov dword [sb16_voice_age_counter], 0
+
+    pop edi
+    pop ecx
+    pop eax
+    ret
+
+sb16_recount_active_voices:
+    push eax
+    push ebx
+    push ecx
+
+    xor eax, eax
+    xor ebx, ebx
+    mov ecx, AUDIO_MAX_SFX_VOICES
+
+.next:
+    cmp byte [sb16_voice_active + ebx], 1
+    jne .skip
+    inc eax
+
+.skip:
+    inc ebx
+    loop .next
+    mov [sb16_active_voice_count], eax
+
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+sb16_find_voice_by_handle:
+    push ebx
+    push ecx
+
+    mov eax, [audio_sfx_handle_arg]
+    xor ebx, ebx
+    mov ecx, AUDIO_MAX_SFX_VOICES
+
+.next:
+    cmp byte [sb16_voice_active + ebx], 1
+    jne .skip
+    cmp [sb16_voice_handles + ebx * 4], eax
+    je .found
+
+.skip:
+    inc ebx
+    loop .next
+    stc
+    jmp .done
+
+.found:
+    mov eax, ebx
+    clc
+
+.done:
+    pop ecx
+    pop ebx
+    ret
+
+sb16_find_free_voice:
+    push ebx
+    push ecx
+
+    xor ebx, ebx
+    mov ecx, AUDIO_MAX_SFX_VOICES
+
+.next:
+    cmp byte [sb16_voice_active + ebx], 0
+    je .found
+    inc ebx
+    loop .next
+    stc
+    jmp .done
+
+.found:
+    mov eax, ebx
+    clc
+
+.done:
+    pop ecx
+    pop ebx
+    ret
+
+sb16_find_steal_voice:
+    push ebx
+    push ecx
+    push edx
+
+    xor eax, eax
+    xor ebx, ebx
+    mov edx, [sb16_voice_started_at]
+    mov ecx, AUDIO_MAX_SFX_VOICES
+
+.next:
+    cmp [sb16_voice_started_at + ebx * 4], edx
+    jae .skip
+    mov edx, [sb16_voice_started_at + ebx * 4]
+    mov eax, ebx
+
+.skip:
+    inc ebx
+    loop .next
+    inc dword [sb16_voice_steal_count]
+    clc
+
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+sb16_pitch_to_step:
+    push ebx
+
+    and eax, 0xff
+    cmp eax, AUDIO_PITCH_NORMAL
+    jae .high_pitch
+
+    mov ebx, AUDIO_PITCH_NORMAL
+    sub ebx, eax
+    cmp ebx, 64
+    ja .low_outer_octave
+    mov eax, ebx
+    shl eax, 9
+    mov ebx, AUDIO_PITCH_STEP_NORMAL
+    sub ebx, eax
+    mov eax, ebx
+    jmp .done
+
+.low_outer_octave:
+    sub ebx, 64
+    mov eax, ebx
+    shl eax, 8
+    mov ebx, 0x00008000
+    sub ebx, eax
+    cmp ebx, AUDIO_PITCH_STEP_MIN
+    jae .low_ready
+    mov ebx, AUDIO_PITCH_STEP_MIN
+    inc dword [sb16_pitch_clamp_count]
+
+.low_ready:
+    mov eax, ebx
+    jmp .done
+
+.high_pitch:
+    sub eax, AUDIO_PITCH_NORMAL
+    cmp eax, 64
+    ja .high_outer_octave
+    shl eax, 10
+    add eax, AUDIO_PITCH_STEP_NORMAL
+    jmp .done
+
+.high_outer_octave:
+    sub eax, 64
+    shl eax, 11
+    add eax, 0x00020000
+
+.done:
+    pop ebx
+    ret
+
+sb16_compute_pan_from_args:
+    push eax
+    push ebx
+    push ecx
+    push edx
+
+    mov ecx, [audio_sfx_volume_arg]
+    and ecx, 0xff
+    cmp ecx, 127
+    jbe .volume_ready
+    mov ecx, 127
+    inc dword [sb16_pan_clamp_count]
+
+.volume_ready:
+    mov eax, [audio_sfx_separation_arg]
+    and eax, 0xff
+    inc eax
+    mov ebx, eax
+    imul ebx, ebx
+    mov eax, ecx
+    imul eax, ebx
+    shr eax, 16
+    mov edx, ecx
+    sub edx, eax
+    cmp edx, 127
+    jle .left_low_check
+    mov edx, 127
+    inc dword [sb16_pan_clamp_count]
+    jmp .left_ready
+
+.left_low_check:
+    cmp edx, 0
+    jge .left_ready
+    xor edx, edx
+    inc dword [sb16_pan_clamp_count]
+
+.left_ready:
+    mov [sb16_pan_left_arg], edx
+
+    mov eax, [audio_sfx_separation_arg]
+    and eax, 0xff
+    inc eax
+    sub eax, 257
+    imul eax, eax
+    mov ebx, eax
+    mov eax, ecx
+    imul eax, ebx
+    shr eax, 16
+    mov edx, ecx
+    sub edx, eax
+    cmp edx, 127
+    jle .right_low_check
+    mov edx, 127
+    inc dword [sb16_pan_clamp_count]
+    jmp .right_ready
+
+.right_low_check:
+    cmp edx, 0
+    jge .right_ready
+    xor edx, edx
+    inc dword [sb16_pan_clamp_count]
+
+.right_ready:
+    mov [sb16_pan_right_arg], edx
+
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
 audio_mix_sfx_descriptor:
     push eax
     push ebx
@@ -3068,6 +3431,286 @@ audio_mix_sfx_descriptor:
     pop eax
     ret
 
+audio_register_sfx_voice:
+    push eax
+    push ebx
+    push ecx
+    push esi
+
+    mov eax, [audio_sfx_desc_arg]
+    mov ebx, AUDIO_SFX_DESC_BYTES
+    call user_range_validate
+    jc .underrun
+
+    mov esi, [audio_sfx_desc_arg]
+    mov eax, [esi + AUDIO_SFX_DESC_SAMPLES]
+    mov ebx, [esi + AUDIO_SFX_DESC_LENGTH]
+    mov [audio_sfx_sample_arg], eax
+    mov [audio_sfx_length_arg], ebx
+    mov eax, [esi + AUDIO_SFX_DESC_VOLUME]
+    and eax, 0xff
+    mov [audio_sfx_volume_arg], eax
+    mov eax, [esi + AUDIO_SFX_DESC_SEPARATION]
+    and eax, 0xff
+    mov [audio_sfx_separation_arg], eax
+    mov eax, [esi + AUDIO_SFX_DESC_PITCH]
+    and eax, 0xff
+    mov [audio_sfx_pitch_arg], eax
+    mov eax, [esi + AUDIO_SFX_DESC_SOUND_ID]
+    mov [audio_sfx_id_arg], eax
+
+    mov eax, [audio_sfx_sample_arg]
+    mov ebx, [audio_sfx_length_arg]
+    cmp ebx, 0
+    je .underrun
+    call user_range_validate
+    jc .underrun
+
+    call sb16_find_voice_by_handle
+    jnc .slot_ready
+    call sb16_find_free_voice
+    jnc .slot_ready
+    call sb16_find_steal_voice
+
+.slot_ready:
+    mov [audio_sfx_voice_slot], eax
+    mov ebx, eax
+    mov byte [sb16_voice_active + ebx], 1
+    mov eax, [audio_sfx_handle_arg]
+    mov [sb16_voice_handles + ebx * 4], eax
+    mov eax, [audio_sfx_sample_arg]
+    mov [sb16_voice_samples + ebx * 4], eax
+    mov eax, [audio_sfx_length_arg]
+    mov [sb16_voice_lengths + ebx * 4], eax
+    mov dword [sb16_voice_positions + ebx * 4], 0
+    mov eax, [audio_sfx_volume_arg]
+    mov [sb16_voice_volumes + ebx * 4], eax
+    mov eax, [audio_sfx_separation_arg]
+    mov [sb16_voice_separations + ebx * 4], eax
+    mov eax, [audio_sfx_pitch_arg]
+    mov [sb16_voice_pitches + ebx * 4], eax
+    call sb16_pitch_to_step
+    mov [sb16_voice_steps + ebx * 4], eax
+    call sb16_compute_pan_from_args
+    mov eax, [sb16_pan_left_arg]
+    mov [sb16_voice_left_volumes + ebx * 4], eax
+    mov eax, [sb16_pan_right_arg]
+    mov [sb16_voice_right_volumes + ebx * 4], eax
+    inc dword [sb16_voice_age_counter]
+    mov eax, [sb16_voice_age_counter]
+    mov [sb16_voice_started_at + ebx * 4], eax
+    inc dword [sb16_voice_start_count]
+    call sb16_recount_active_voices
+    jmp .done
+
+.underrun:
+    inc dword [sb16_mix_underrun_count]
+
+.done:
+    pop esi
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+audio_stop_sfx_voice:
+    push eax
+    push ebx
+
+    call sb16_find_voice_by_handle
+    jc .done
+    mov ebx, eax
+    mov byte [sb16_voice_active + ebx], 0
+    mov dword [sb16_voice_handles + ebx * 4], 0
+    mov dword [sb16_voice_positions + ebx * 4], 0
+    mov dword [sb16_voice_started_at + ebx * 4], 0
+    inc dword [sb16_voice_stop_count]
+    call sb16_recount_active_voices
+
+.done:
+    pop ebx
+    pop eax
+    ret
+
+audio_update_sfx_voice:
+    push eax
+    push ebx
+    push esi
+
+    mov eax, [audio_sfx_desc_arg]
+    mov ebx, AUDIO_SFX_DESC_BYTES
+    call user_range_validate
+    jc .done
+    call sb16_find_voice_by_handle
+    jc .done
+    mov ebx, eax
+    mov esi, [audio_sfx_desc_arg]
+    mov eax, [esi + AUDIO_SFX_DESC_VOLUME]
+    and eax, 0xff
+    mov [sb16_voice_volumes + ebx * 4], eax
+    mov eax, [esi + AUDIO_SFX_DESC_SEPARATION]
+    and eax, 0xff
+    mov [sb16_voice_separations + ebx * 4], eax
+    mov eax, [esi + AUDIO_SFX_DESC_PITCH]
+    and eax, 0xff
+    mov [sb16_voice_pitches + ebx * 4], eax
+    call sb16_pitch_to_step
+    mov [sb16_voice_steps + ebx * 4], eax
+    call sb16_compute_pan_from_args
+    mov eax, [sb16_pan_left_arg]
+    mov [sb16_voice_left_volumes + ebx * 4], eax
+    mov eax, [sb16_pan_right_arg]
+    mov [sb16_voice_right_volumes + ebx * 4], eax
+    inc dword [sb16_voice_update_count]
+
+.done:
+    pop esi
+    pop ebx
+    pop eax
+    ret
+
+sb16_refill_active_half:
+    pushad
+
+    mov edi, sb16_dma_buffer
+    cmp dword [sb16_irq_half_index], 0
+    je .dest_ready
+    add edi, SB16_DMA_BLOCK_BYTES
+
+.dest_ready:
+    mov [sb16_refill_dest_base], edi
+    mov eax, 0x80808080
+    mov ecx, SB16_DMA_BLOCK_BYTES / 4
+    cld
+    rep stosd
+
+    cmp dword [sb16_active_voice_count], 0
+    jne .have_voices
+    inc dword [sb16_mix_underrun_count]
+
+.have_voices:
+    xor ebx, ebx
+
+.voice_next:
+    cmp ebx, AUDIO_MAX_SFX_VOICES
+    jae .done_voices
+    cmp byte [sb16_voice_active + ebx], 1
+    jne .advance_voice
+
+    mov [sb16_mix_voice_slot], ebx
+    mov eax, [sb16_voice_positions + ebx * 4]
+    mov edx, eax
+    shr edx, 16
+    cmp edx, [sb16_voice_lengths + ebx * 4]
+    jae .finish_voice
+    mov [sb16_mix_source_pos], eax
+    mov eax, [sb16_voice_steps + ebx * 4]
+    mov [sb16_mix_source_step], eax
+    mov eax, [sb16_voice_left_volumes + ebx * 4]
+    mov [sb16_mix_left_volume], eax
+    mov eax, [sb16_voice_right_volumes + ebx * 4]
+    mov [sb16_mix_right_volume], eax
+    mov edi, [sb16_refill_dest_base]
+    mov ecx, SB16_DMA_BLOCK_BYTES / 2
+    mov dword [sb16_mix_frames_mixed], 0
+
+.mix_next:
+    cmp ecx, 0
+    je .voice_mixed
+    mov eax, [sb16_mix_source_pos]
+    mov edx, eax
+    shr edx, 16
+    mov ebx, [sb16_mix_voice_slot]
+    cmp edx, [sb16_voice_lengths + ebx * 4]
+    jae .voice_mixed
+    mov esi, [sb16_voice_samples + ebx * 4]
+    add esi, edx
+    movzx eax, byte [esi]
+    sub eax, 128
+    mov ebp, eax
+    mov edx, [sb16_mix_left_volume]
+    imul eax, edx
+    sar eax, 7
+    movzx edx, byte [edi]
+    sub edx, 128
+    add eax, edx
+    cmp eax, 127
+    jle .check_low
+    mov eax, 127
+    inc dword [sb16_mix_clip_count]
+    jmp .store
+
+.check_low:
+    cmp eax, -128
+    jge .store
+    mov eax, -128
+    inc dword [sb16_mix_clip_count]
+
+.store:
+    add eax, 128
+    mov [edi], al
+    mov eax, ebp
+    mov edx, [sb16_mix_right_volume]
+    imul eax, edx
+    sar eax, 7
+    movzx edx, byte [edi + 1]
+    sub edx, 128
+    add eax, edx
+    cmp eax, 127
+    jle .right_check_low
+    mov eax, 127
+    inc dword [sb16_mix_clip_count]
+    jmp .right_store
+
+.right_check_low:
+    cmp eax, -128
+    jge .right_store
+    mov eax, -128
+    inc dword [sb16_mix_clip_count]
+
+.right_store:
+    add eax, 128
+    mov [edi + 1], al
+    add edi, 2
+    mov eax, [sb16_mix_source_step]
+    add [sb16_mix_source_pos], eax
+    inc dword [sb16_mix_frames_mixed]
+    dec ecx
+    jmp .mix_next
+
+.voice_mixed:
+    mov ebx, [sb16_mix_voice_slot]
+    mov eax, [sb16_mix_source_pos]
+    mov [sb16_voice_positions + ebx * 4], eax
+    mov eax, [sb16_mix_frames_mixed]
+    cmp eax, 0
+    je .check_finished
+    inc dword [sb16_sfx_mix_count]
+    shl eax, 1
+    add [sb16_sfx_mix_bytes], eax
+
+.check_finished:
+    mov eax, [sb16_voice_positions + ebx * 4]
+    shr eax, 16
+    cmp eax, [sb16_voice_lengths + ebx * 4]
+    jb .advance_voice
+
+.finish_voice:
+    mov byte [sb16_voice_active + ebx], 0
+    mov dword [sb16_voice_handles + ebx * 4], 0
+    mov dword [sb16_voice_started_at + ebx * 4], 0
+    inc dword [sb16_voice_finished_count]
+
+.advance_voice:
+    inc ebx
+    jmp .voice_next
+
+.done_voices:
+    inc dword [sb16_voice_refill_count]
+    call sb16_recount_active_voices
+    popad
+    ret
+
 sb16_program_dma8:
     push eax
     push ecx
@@ -3108,6 +3751,8 @@ sb16_program_dma8:
 sb16_start_playback:
     cmp byte [audio_status], 1
     jne .not_ready
+    cmp byte [sb16_playback_active], 1
+    je .not_ready
     call sb16_clear_dma_buffer
     call sb16_program_dma8
 
@@ -3120,6 +3765,15 @@ sb16_start_playback:
     mov al, SB16_TIME_CONSTANT
     call sb16_write_dsp
     jc .fail
+    mov al, SB16_DSP_SET_OUTPUT_RATE
+    call sb16_write_dsp
+    jc .fail
+    mov al, SB16_SAMPLE_RATE_HIGH
+    call sb16_write_dsp
+    jc .fail
+    mov al, SB16_SAMPLE_RATE_LOW
+    call sb16_write_dsp
+    jc .fail
     mov al, SB16_DSP_SET_BLOCK_SIZE
     call sb16_write_dsp
     jc .fail
@@ -3130,6 +3784,15 @@ sb16_start_playback:
     call sb16_write_dsp
     jc .fail
     mov al, SB16_DSP_8BIT_AUTO_OUT
+    call sb16_write_dsp
+    jc .fail
+    mov al, SB16_DSP_MODE_UNSIGNED_STEREO
+    call sb16_write_dsp
+    jc .fail
+    mov ax, SB16_DMA_BLOCK_BYTES - 1
+    call sb16_write_dsp
+    jc .fail
+    mov al, ah
     call sb16_write_dsp
     jc .fail
 
@@ -3158,6 +3821,7 @@ sb16_stop_playback:
     out DMA8_MASK_REG, al
     mov byte [sb16_playback_active], 0
     inc dword [sb16_playback_stop_count]
+    call sb16_clear_active_voices
 
 .not_ready:
     clc
@@ -3281,6 +3945,16 @@ storage_init:
     mov dword [current_user_entry], 0
     mov dword [current_syscall_number], 0
     mov dword [syscall_return_value], 0
+    mov dword [syscall_stat_ptr], 0
+    mov dword [fat_unlink_slot], 0xffffffff
+    mov dword [stat_size_arg], 0
+    mov dword [stat_mode_arg], 0
+    mov dword [mmap_addr_arg], 0
+    mov dword [mmap_len_arg], 0
+    mov dword [mmap_prot_arg], 0
+    mov dword [mmap_flags_arg], 0
+    mov dword [mmap_base_arg], 0
+    mov dword [mmap_end_arg], 0
     mov byte [current_user_kind], USER_KIND_NONE
     mov byte [doom_run_status], 0
     mov dword [doom_exit_code], 0
@@ -3306,6 +3980,15 @@ storage_init:
     mov dword [doom_game_flags], 0
     mov dword [doom_game_tic], 0
     mov dword [doom_level_time], 0
+    mov dword [doom_player_flags], 0
+    mov dword [doom_player_buttons], 0
+    mov dword [doom_game_action], 0
+    mov dword [doom_player_x], 0
+    mov dword [doom_player_y], 0
+    mov dword [doom_player_origin_set], 0
+    mov dword [doom_player_origin_x], 0
+    mov dword [doom_player_origin_y], 0
+    mov dword [doom_player_delta], 0
     mov dword [doom_mouse_event_count], 0
     mov dword [doom_sound_call_count], 0
     mov dword [doom_sound_start_count], 0
@@ -3323,7 +4006,35 @@ storage_init:
     mov dword [present_sample_first], 0
     mov dword [present_sample_mid], 0
     mov dword [present_sample_last], 0
+    mov dword [present_palette_hash], 0
+    mov dword [present_frame_hash], 0
+    mov dword [present_nonzero_count], 0
+    mov dword [present_color_transition_count], 0
+    mov byte [present_previous_index], 0
     call mouse_reset_queue
+
+    mov dword [sys_exec_attempts], 0
+    mov dword [sys_exec_successes], 0
+    mov dword [sys_exec_failures], 0
+    mov dword [sys_exec_handoffs], 0
+    mov dword [sys_exec_scheduled], 0
+    mov dword [sys_exec_rollbacks], 0
+    mov dword [sys_exec_last_result], 0
+    mov dword [sys_exec_last_caller_pid], 0xffffffff
+    mov dword [sys_exec_last_target_pid], 0xffffffff
+    mov dword [sys_exec_last_target_entry], 0
+    mov dword [sys_exec_last_target_stack], 0
+    mov dword [sys_exec_last_argc], 0
+    mov dword [sys_exec_last_argv], 0
+    mov dword [sys_exec_last_argv0], 0
+    mov dword [sys_exec_user_argv_arg], 0
+    mov dword [sys_exec_flags_arg], 0
+    mov dword [sys_exec_frame_ptr], 0
+    mov dword [sys_exec_user_stack_ptr], 0
+    mov dword [sys_exec_argv0_ptr], 0
+    mov dword [process_exec_last_error], 0
+    mov byte [process_exec_reject_active_target], 0
+    mov byte [sys_exec_path_buffer], 0
 
     xor eax, eax
     mov edi, SECTOR_BUFFER_ADDR
@@ -4469,6 +5180,140 @@ fat_bind_found_writable_slot:
     pop ebx
     ret
 
+fat_bind_found_to_writable_slot:
+    push ebx
+
+    cmp ebx, WRITABLE_FILE_COUNT
+    jae .fail
+    mov eax, [fat_found_size]
+    cmp eax, [writable_capacity_table + ebx * 4]
+    ja .fail
+    mov ax, [fat_found_first_cluster]
+    mov [writable_first_clusters + ebx * 2], ax
+    mov eax, [fat_found_size]
+    mov [writable_sizes + ebx * 4], eax
+    mov eax, [fat_found_root_lba]
+    mov [writable_root_lbas + ebx * 4], eax
+    mov eax, [fat_found_root_offset]
+    mov [writable_root_offsets + ebx * 4], eax
+    mov dword [writable_offsets + ebx * 4], 0
+    mov byte [writable_status + ebx], 1
+    mov [fat_open_slot], ebx
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop ebx
+    ret
+
+fat_find_writable_slot_for_found:
+    push ebx
+
+    xor ebx, ebx
+
+.loop:
+    cmp ebx, WRITABLE_FILE_COUNT
+    jae .fail
+    cmp byte [writable_status + ebx], 1
+    jne .next
+    mov eax, [fat_found_root_lba]
+    cmp eax, [writable_root_lbas + ebx * 4]
+    jne .next
+    mov eax, [fat_found_root_offset]
+    cmp eax, [writable_root_offsets + ebx * 4]
+    je .found
+
+.next:
+    inc ebx
+    jmp .loop
+
+.found:
+    mov eax, ebx
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop ebx
+    ret
+
+fat_close_writable_fds_for_slot:
+    push eax
+    push ebx
+    push ecx
+    push edx
+
+    mov edx, eax
+    mov ecx, USER_FD_COUNT
+    xor ebx, ebx
+
+.loop:
+    cmp byte [fd_status + ebx], 1
+    jne .next
+    cmp byte [fd_kinds + ebx], FD_KIND_WRITABLE
+    jne .next
+    cmp [fd_indices + ebx * 4], edx
+    jne .next
+    mov byte [fd_status + ebx], FD_KIND_FREE
+    mov byte [fd_kinds + ebx], FD_KIND_FREE
+    mov dword [fd_indices + ebx * 4], 0
+    mov dword [fd_offsets + ebx * 4], 0
+    mov dword [fd_flags + ebx * 4], 0
+
+.next:
+    inc ebx
+    loop .loop
+
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+fat_clear_writable_slot:
+    push eax
+    push ebx
+
+    mov ebx, eax
+    cmp ebx, WRITABLE_FILE_COUNT
+    jae .done
+    mov byte [writable_status + ebx], 0
+    mov word [writable_first_clusters + ebx * 2], 0
+    mov dword [writable_sizes + ebx * 4], 0
+    mov dword [writable_root_lbas + ebx * 4], 0
+    mov dword [writable_root_offsets + ebx * 4], 0
+    mov dword [writable_offsets + ebx * 4], 0
+
+.done:
+    pop ebx
+    pop eax
+    ret
+
+fd_reset_all:
+    push ebx
+    push ecx
+
+    mov ecx, USER_FD_COUNT
+    xor ebx, ebx
+
+.loop:
+    mov byte [fd_status + ebx], FD_KIND_FREE
+    mov byte [fd_kinds + ebx], FD_KIND_FREE
+    mov dword [fd_indices + ebx * 4], 0
+    mov dword [fd_offsets + ebx * 4], 0
+    mov dword [fd_flags + ebx * 4], 0
+    inc ebx
+    loop .loop
+
+    pop ecx
+    pop ebx
+    ret
+
 fd_alloc:
     push ebx
 
@@ -4707,16 +5552,97 @@ fat_truncate_writable_file:
     pop ebx
     ret
 
+fat_delete_found_file:
+    push eax
+    push edx
+    push esi
+    push edi
+
+    mov ax, [fat_found_first_cluster]
+    cmp ax, 2
+    jb .clear_root_entry
+    call fat_free_chain
+    jc .fail
+
+.clear_root_entry:
+    mov eax, [fat_found_root_lba]
+    mov edi, SECTOR_BUFFER_ADDR
+    call ata_read_sector
+    jc .fail
+    mov edx, [fat_found_root_offset]
+    mov byte [SECTOR_BUFFER_ADDR + edx], 0xe5
+    mov word [SECTOR_BUFFER_ADDR + edx + 26], 0
+    mov dword [SECTOR_BUFFER_ADDR + edx + 28], 0
+    mov eax, [fat_found_root_lba]
+    mov esi, SECTOR_BUFFER_ADDR
+    call ata_write_sector
+    jc .fail
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop eax
+    ret
+
+stat_fill_user:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push edi
+
+    mov [stat_size_arg], eax
+    mov [stat_mode_arg], edx
+    mov eax, [syscall_stat_ptr]
+    mov ebx, STAT_BYTES
+    call user_range_validate
+    jc .fail
+    mov edi, [syscall_stat_ptr]
+    xor eax, eax
+    mov ecx, STAT_BYTES / 4
+    cld
+    rep stosd
+    mov edi, [syscall_stat_ptr]
+    mov eax, [stat_mode_arg]
+    mov [edi + STAT_ST_MODE], eax
+    mov dword [edi + STAT_ST_NLINK], 1
+    mov eax, [stat_size_arg]
+    mov [edi + STAT_ST_SIZE], eax
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
 user_file_read:
     call writable_fd_index
-    jc .fail
+    jc .fail_badfd
+    mov esi, [file_io_fd_slot]
+    mov eax, [fd_flags + esi * 4]
+    and eax, O_ACCMODE
+    cmp eax, O_WRONLY
+    je .fail_badfd
     mov [file_io_user_ptr], ecx
     mov [file_io_remaining], edx
     mov dword [file_io_done], 0
     mov eax, ecx
     mov ebx, edx
     call user_range_validate
-    jc .fail
+    jc .fail_inval
     mov ebx, [file_io_index]
     mov eax, [writable_sizes + ebx * 4]
     mov esi, [file_io_fd_slot]
@@ -4737,12 +5663,13 @@ user_file_read:
     mov ebx, [file_io_index]
     mov esi, [file_io_fd_slot]
     mov edx, [fd_offsets + esi * 4]
-    call fat_file_lba_for_write
-    jc .fail
+    mov ax, [writable_first_clusters + ebx * 2]
+    call fat_file_lba_for_offset
+    jc .fail_io
     mov [file_io_sector_offset], ebx
     mov edi, SECTOR_BUFFER_ADDR
     call ata_read_sector
-    jc .fail
+    jc .fail_io
     mov eax, 512
     sub eax, [file_io_sector_offset]
     cmp eax, [file_io_remaining]
@@ -4770,21 +5697,47 @@ user_file_read:
     clc
     ret
 
-.fail:
-    mov eax, 0xffffffff
+.fail_badfd:
+    mov eax, -ERRNO_EBADF
+    stc
+    ret
+
+.fail_inval:
+    mov eax, -ERRNO_EINVAL
+    stc
+    ret
+
+.fail_io:
+    mov eax, -ERRNO_EIO
     stc
     ret
 
 user_file_write:
     call writable_fd_index
-    jc .fail
+    jc .fail_badfd
+    mov esi, [file_io_fd_slot]
+    mov eax, [fd_flags + esi * 4]
+    and eax, O_ACCMODE
+    cmp eax, O_WRONLY
+    je .write_mode_ok
+    cmp eax, O_RDWR
+    jne .fail_badfd
+
+.write_mode_ok:
+    test dword [fd_flags + esi * 4], O_APPEND
+    jz .write_offset_ready
+    mov ebx, [file_io_index]
+    mov eax, [writable_sizes + ebx * 4]
+    mov [fd_offsets + esi * 4], eax
+
+.write_offset_ready:
     mov [file_io_user_ptr], ecx
     mov [file_io_remaining], edx
     mov dword [file_io_done], 0
     mov eax, ecx
     mov ebx, edx
     call user_range_validate
-    jc .fail
+    jc .fail_inval
     mov ebx, [file_io_index]
     mov esi, [file_io_fd_slot]
     mov eax, [writable_capacity_table + ebx * 4]
@@ -4800,12 +5753,12 @@ user_file_write:
     mov esi, [file_io_fd_slot]
     mov edx, [fd_offsets + esi * 4]
     call fat_file_lba_for_write
-    jc .fail
+    jc .fail_io
     mov [file_io_sector_lba], eax
     mov [file_io_sector_offset], ebx
     mov edi, SECTOR_BUFFER_ADDR
     call ata_read_sector
-    jc .fail
+    jc .fail_io
     mov eax, 512
     sub eax, [file_io_sector_offset]
     cmp eax, [file_io_remaining]
@@ -4824,7 +5777,7 @@ user_file_write:
     mov eax, [file_io_sector_lba]
     mov esi, SECTOR_BUFFER_ADDR
     call ata_write_sector
-    jc .fail
+    jc .fail_io
     mov eax, [file_io_chunk]
     add [file_io_done], eax
     sub [file_io_remaining], eax
@@ -4840,19 +5793,29 @@ user_file_write:
 .ok:
     mov eax, [file_io_index]
     call fat_update_writable_size
-    jc .fail
+    jc .fail_io
     mov eax, [file_io_done]
     clc
     ret
 
-.fail:
-    mov eax, 0xffffffff
+.fail_badfd:
+    mov eax, -ERRNO_EBADF
+    stc
+    ret
+
+.fail_inval:
+    mov eax, -ERRNO_EINVAL
+    stc
+    ret
+
+.fail_io:
+    mov eax, -ERRNO_EIO
     stc
     ret
 
 user_file_lseek:
     call writable_fd_index
-    jc .fail
+    jc .fail_badfd
     mov ebx, [file_io_index]
     mov esi, [file_io_fd_slot]
     cmp edx, 0
@@ -4861,7 +5824,7 @@ user_file_lseek:
     je .seek_cur
     cmp edx, 2
     je .seek_end
-    jmp .fail
+    jmp .fail_inval
 
 .seek_set:
     mov eax, ecx
@@ -4870,23 +5833,28 @@ user_file_lseek:
 .seek_cur:
     mov eax, [fd_offsets + esi * 4]
     add eax, ecx
-    jc .fail
+    jc .fail_inval
     jmp .seek_validate
 
 .seek_end:
     mov eax, [writable_sizes + ebx * 4]
     add eax, ecx
-    jc .fail
+    jc .fail_inval
 
 .seek_validate:
     cmp eax, [writable_capacity_table + ebx * 4]
-    ja .fail
+    ja .fail_inval
     mov [fd_offsets + esi * 4], eax
     clc
     ret
 
-.fail:
-    mov eax, 0xffffffff
+.fail_badfd:
+    mov eax, -ERRNO_EBADF
+    stc
+    ret
+
+.fail_inval:
+    mov eax, -ERRNO_EINVAL
     stc
     ret
 
@@ -5156,6 +6124,30 @@ process_reset_accounting:
     xor eax, eax
     mov ecx, 12
     rep stosd
+    pop edi
+    pop ecx
+    pop eax
+    ret
+
+process_seed_initial_user_context:
+    push eax
+    push ecx
+    push edi
+    lea edi, [esi + PROC_SAVED_EAX]
+    xor eax, eax
+    mov ecx, 12
+    cld
+    rep stosd
+    mov eax, [esi + PROC_ENTRY]
+    mov [esi + PROC_SAVED_EIP], eax
+    mov eax, [esi + PROC_STACK_TOP]
+    mov [esi + PROC_SAVED_ESP], eax
+    mov dword [esi + PROC_SAVED_EFLAGS], 0x00000202
+    mov dword [esi + PROC_SAVED_CS], USER_CODE_SEG
+    mov dword [esi + PROC_SAVED_SS], USER_DATA_SEG
+    mov dword [esi + PROC_STATE], PROC_STATE_READY
+    mov dword [esi + PROC_QUANTUM_TICKS], 0
+    or dword [esi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID
     pop edi
     pop ecx
     pop eax
@@ -5451,13 +6443,8 @@ scheduler_preempt_self_test:
     or dword [esi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID
 
     mov esi, process_preempt_probe
-    mov dword [esi + PROC_STATE], PROC_STATE_READY
-    mov dword [esi + PROC_SAVED_ESP], USER_STACK_TOP - 32
-    mov dword [esi + PROC_SAVED_EIP], USER_CODE_ADDR
-    mov dword [esi + PROC_SAVED_EFLAGS], 0x00000202
-    mov dword [esi + PROC_SAVED_CS], USER_CODE_SEG
-    mov dword [esi + PROC_SAVED_SS], USER_DATA_SEG
-    or dword [esi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID
+    mov dword [esi + PROC_ENTRY], USER_CODE_ADDR
+    call process_seed_initial_user_context
 
     mov edi, scheduler_preempt_selftest_frame
     xor eax, eax
@@ -5531,15 +6518,33 @@ process_exec_path:
     push edi
 
     mov byte [process_exec_status], 0
+    mov dword [process_exec_last_error], 0
     mov dword [process_exec_entry], 0
     mov dword [process_exec_path_ptr], esi
     mov dword [process_exec_target], edi
     call process_exec_resolve_path
-    jc .fail
+    jnc .resolved
+    mov dword [process_exec_last_error], -ERRNO_ENOENT
+    jmp .fail
+
+.resolved:
+    cmp byte [process_exec_reject_active_target], 1
+    jne .target_safe
+    mov eax, [current_process_ptr]
+    cmp eax, [process_exec_target]
+    jne .target_safe
+    mov dword [process_exec_last_error], -ERRNO_EACCES
+    jmp .fail
+
+.target_safe:
 
     mov edi, [process_exec_name83]
     call fat_find_file
-    jc .fail
+    jnc .fat_found
+    mov dword [process_exec_last_error], -ERRNO_ENOENT
+    jmp .fail
+
+.fat_found:
 
     mov ax, [fat_found_first_cluster]
     mov [process_exec_first_cluster], ax
@@ -5547,12 +6552,25 @@ process_exec_path:
     mov [process_exec_size], eax
 
     cmp dword [process_exec_target], process_doom
-    jne .reserve
+    je .bind_doom_artifact
+    cmp dword [process_exec_target], process_user_probe
+    je .bind_user_artifact
+    jmp .reserve
+
+.bind_doom_artifact:
     mov ax, [process_exec_first_cluster]
     mov [doom_elf_first_cluster], ax
     mov eax, [process_exec_size]
     mov [doom_elf_size], eax
     mov byte [doom_elf_status], 1
+    jmp .reserve
+
+.bind_user_artifact:
+    mov ax, [process_exec_first_cluster]
+    mov [user_elf_first_cluster], ax
+    mov eax, [process_exec_size]
+    mov [user_elf_size], eax
+    mov byte [user_elf_status], 1
 
 .reserve:
     mov eax, [process_exec_size]
@@ -5576,13 +6594,29 @@ process_exec_path:
     jne .load_fail
 
     cmp dword [process_exec_target], process_doom
-    jne .unsupported
+    je .loaded_doom
+    cmp dword [process_exec_target], process_user_probe
+    je .loaded_user_probe
+    jmp .unsupported
+
+.loaded_doom:
     mov eax, [process_exec_sectors_read]
     mov [doom_elf_sectors_read], eax
     mov byte [doom_elf_load_status], 1
-    call process_exec_prepare_elf_image
-    jc .fail
+    jmp .prepare
 
+.loaded_user_probe:
+    mov eax, [process_exec_sectors_read]
+    mov [user_elf_sectors_read], eax
+    mov byte [user_elf_status], 1
+
+.prepare:
+    call process_exec_prepare_elf_image
+    jnc .prepared
+    mov dword [process_exec_last_error], -ERRNO_EIO
+    jmp .fail
+
+.prepared:
     mov esi, [process_exec_target]
     mov eax, [process_exec_entry]
     mov [esi + PROC_ENTRY], eax
@@ -5591,12 +6625,20 @@ process_exec_path:
     jmp .done
 
 .unsupported:
+    mov dword [process_exec_last_error], -ERRNO_EINVAL
     stc
     jmp .fail
 
 .load_fail:
+    mov dword [process_exec_last_error], -ERRNO_EIO
     cmp dword [process_exec_target], process_doom
+    je .load_fail_doom
+    cmp dword [process_exec_target], process_user_probe
     jne .fail
+    mov byte [user_elf_status], 2
+    jmp .fail
+
+.load_fail_doom:
     mov byte [doom_elf_load_status], 2
 
 .fail:
@@ -5640,6 +6682,8 @@ process_exec_resolve_path:
     mov [process_exec_load_addr], eax
     mov eax, [ebx + PROCESS_EXEC_MAX_BYTES]
     mov [process_exec_max_bytes], eax
+    mov eax, [ebx + PROCESS_EXEC_TARGET]
+    mov [process_exec_target], eax
     clc
     jmp .done
 
@@ -5656,7 +6700,12 @@ process_exec_resolve_path:
 
 process_exec_prepare_elf_image:
     cmp dword [process_exec_target], process_doom
-    jne .fail
+    je .prepare_doom
+    cmp dword [process_exec_target], process_user_probe
+    je .prepare_user_probe
+    jmp .fail
+
+.prepare_doom:
     call doom_elf_prepare
     jc .fail
     mov eax, [doom_entry_addr]
@@ -5664,8 +6713,195 @@ process_exec_prepare_elf_image:
     clc
     ret
 
+.prepare_user_probe:
+    call user_elf_prepare
+    jc .fail
+    mov eax, [user_entry_addr]
+    mov [process_exec_entry], eax
+    clc
+    ret
+
 .fail:
     stc
+    ret
+
+process_exec_handoff_current:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov esi, [process_exec_target]
+    cmp esi, 0
+    je .einval
+    mov edi, [current_process_ptr]
+    cmp edi, 0
+    je .einval
+    cmp edi, esi
+    je .eacces
+    cmp dword [process_exec_entry], 0
+    je .eio
+
+    cmp esi, process_doom
+    je .reset_doom_target
+    cmp esi, process_user_probe
+    je .reset_user_probe_target
+    jmp .einval
+
+.reset_doom_target:
+    call process_reset_doom
+    mov eax, [process_exec_entry]
+    mov [esi + PROC_ENTRY], eax
+    mov byte [doom_run_status], 1
+    mov dword [doom_exit_code], 0
+    mov dword [doom_fault_addr], 0
+    mov dword [doom_last_syscall], 0
+    mov dword [doom_error_count], 0
+    mov dword [doom_log_len], 0
+    mov byte [doom_log_buffer], 0
+    jmp .seed_context
+
+.reset_user_probe_target:
+    call process_reset_user_probe
+    mov eax, [process_exec_entry]
+    mov [esi + PROC_ENTRY], eax
+    mov byte [user_probe_status], 0
+    mov byte [user_fault_expected], 0
+    mov byte [user_fault_status], 0
+    mov dword [user_probe_magic_seen], 0
+    mov dword [user_probe_flags_seen], 0
+    mov dword [user_fault_addr], 0
+
+.seed_context:
+    call fd_reset_all
+    call keyboard_reset_queue
+    call mouse_reset_queue
+    call process_seed_initial_user_context
+    call process_exec_seed_argv_stack
+
+    mov eax, [edi + PROC_PID]
+    mov [sys_exec_last_caller_pid], eax
+    mov eax, [esi + PROC_PID]
+    mov [sys_exec_last_target_pid], eax
+    mov eax, [esi + PROC_ENTRY]
+    mov [sys_exec_last_target_entry], eax
+    mov eax, [esi + PROC_SAVED_ESP]
+    mov [sys_exec_last_target_stack], eax
+    call process_exec_patch_syscall_frame
+    jc .eio
+    mov dword [edi + PROC_STATE], PROC_STATE_EXITED
+    and dword [edi + PROC_VM_FLAGS], 0xfffffffe
+
+    mov eax, [esi + PROC_PID]
+    mov [scheduler_next_pid], eax
+    mov [scheduler_next_process_ptr], esi
+    inc dword [sys_exec_scheduled]
+    call process_activate
+    inc dword [sys_exec_handoffs]
+    clc
+    jmp .done
+
+.eacces:
+    mov dword [process_exec_last_error], -ERRNO_EACCES
+    stc
+    jmp .done
+
+.einval:
+    mov dword [process_exec_last_error], -ERRNO_EINVAL
+    stc
+    jmp .done
+
+.eio:
+    mov dword [process_exec_last_error], -ERRNO_EIO
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+process_exec_seed_argv_stack:
+    push eax
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov edx, esi
+    mov eax, [edx + PROC_STACK_TOP]
+    sub eax, SYS_EXEC_PATH_MAX
+    and eax, 0xfffffffc
+    mov [sys_exec_argv0_ptr], eax
+    mov edi, eax
+    mov esi, sys_exec_path_buffer
+    mov ecx, SYS_EXEC_PATH_MAX
+    cld
+    rep movsb
+
+    mov eax, [sys_exec_argv0_ptr]
+    sub eax, SYS_EXEC_ARGV_SLOT_BYTES
+    and eax, 0xfffffffc
+    mov [sys_exec_user_stack_ptr], eax
+    mov edi, eax
+    mov dword [edi], SYS_EXEC_ARGC_DEFAULT
+    mov eax, [sys_exec_argv0_ptr]
+    mov [edi + 4], eax
+    mov dword [edi + 8], 0
+
+    mov dword [sys_exec_last_argc], SYS_EXEC_ARGC_DEFAULT
+    mov eax, [sys_exec_user_stack_ptr]
+    lea ecx, [eax + 4]
+    mov [sys_exec_last_argv], ecx
+    mov eax, [sys_exec_argv0_ptr]
+    mov [sys_exec_last_argv0], eax
+    mov eax, [sys_exec_user_stack_ptr]
+    mov [edx + PROC_SAVED_ESP], eax
+
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop eax
+    ret
+
+process_exec_patch_syscall_frame:
+    push eax
+    push ebx
+
+    mov ebx, [sys_exec_frame_ptr]
+    cmp ebx, 0
+    je .fail
+    mov dword [ebx + SYSCALL_FRAME_EBP], 0
+    mov dword [ebx + SYSCALL_FRAME_EDI], 0
+    mov dword [ebx + SYSCALL_FRAME_ESI], 0
+    mov dword [ebx + SYSCALL_FRAME_EDX], 0
+    mov dword [ebx + SYSCALL_FRAME_ECX], 0
+    mov dword [ebx + SYSCALL_FRAME_EBX], 0
+    mov eax, [esi + PROC_SAVED_EIP]
+    mov [ebx + SYSCALL_FRAME_EIP], eax
+    mov eax, [esi + PROC_SAVED_CS]
+    mov [ebx + SYSCALL_FRAME_CS], eax
+    mov eax, [esi + PROC_SAVED_EFLAGS]
+    mov [ebx + SYSCALL_FRAME_EFLAGS], eax
+    mov eax, [esi + PROC_SAVED_ESP]
+    mov [ebx + SYSCALL_FRAME_ESP], eax
+    mov eax, [esi + PROC_SAVED_SS]
+    mov [ebx + SYSCALL_FRAME_SS], eax
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop ebx
+    pop eax
     ret
 
 kernel_streq:
@@ -5705,11 +6941,16 @@ user_probe_run:
     mov dword [user_probe_flags_seen], 0
     mov dword [user_fault_addr], 0
     mov dword [user_wad_magic_seen], 0
-    mov dword [user_wad_fd_offset], 0
+    call fd_reset_all
     mov byte [present_status], 0
     mov dword [present_sample_first], 0
     mov dword [present_sample_mid], 0
     mov dword [present_sample_last], 0
+    mov dword [present_palette_hash], 0
+    mov dword [present_frame_hash], 0
+    mov dword [present_nonzero_count], 0
+    mov dword [present_color_transition_count], 0
+    mov byte [present_previous_index], 0
     mov word [user_probe_cs], 0
     mov word [user_probe_ss], 0
 
@@ -5774,6 +7015,15 @@ doom_user_run:
     mov dword [doom_game_flags], 0
     mov dword [doom_game_tic], 0
     mov dword [doom_level_time], 0
+    mov dword [doom_player_flags], 0
+    mov dword [doom_player_buttons], 0
+    mov dword [doom_game_action], 0
+    mov dword [doom_player_x], 0
+    mov dword [doom_player_y], 0
+    mov dword [doom_player_origin_set], 0
+    mov dword [doom_player_origin_x], 0
+    mov dword [doom_player_origin_y], 0
+    mov dword [doom_player_delta], 0
     mov dword [doom_sound_call_count], 0
     mov dword [doom_sound_start_count], 0
     mov dword [doom_sound_stop_count], 0
@@ -5788,9 +7038,14 @@ doom_user_run:
     mov dword [present_sample_first], 0
     mov dword [present_sample_mid], 0
     mov dword [present_sample_last], 0
+    mov dword [present_palette_hash], 0
+    mov dword [present_frame_hash], 0
+    mov dword [present_nonzero_count], 0
+    mov dword [present_color_transition_count], 0
+    mov byte [present_previous_index], 0
     call keyboard_reset_queue
     call mouse_reset_queue
-    mov dword [user_wad_fd_offset], 0
+    call fd_reset_all
 
     cmp byte [doom_elf_parse_status], 1
     jne .fail
@@ -5995,12 +7250,17 @@ doom_elf_prepare:
     jne .fail
     cmp word [esi + 42], 32
     jne .fail
-    cmp word [esi + 44], 1
-    jne .fail
+    movzx ecx, word [esi + 44]
+    cmp ecx, 0
+    je .fail
+    cmp ecx, 16
+    ja .fail
 
     mov eax, [esi + 28]
     mov ebx, eax
-    add ebx, 32
+    mov edx, ecx
+    shl edx, 5
+    add ebx, edx
     jc .fail
     cmp ebx, [doom_elf_size]
     ja .fail
@@ -6010,9 +7270,15 @@ doom_elf_prepare:
 
     mov eax, [esi + 28]
     add eax, DOOM_ELF_LOAD_ADDR
-    mov esi, eax
+    mov [doom_phdr_ptr], eax
+    mov [doom_phdr_remaining], ecx
+
+.phdr_loop:
+    cmp dword [doom_phdr_remaining], 0
+    je .segments_done
+    mov esi, [doom_phdr_ptr]
     cmp dword [esi], PT_LOAD
-    jne .fail
+    jne .next_phdr
 
     mov eax, [esi + 16]
     cmp eax, [esi + 20]
@@ -6038,15 +7304,13 @@ doom_elf_prepare:
     jc .fail
     cmp ebx, DOOM_ELF_LIMIT
     ja .fail
-    mov [doom_segment_end], ebx
     cmp ebx, DOOM_USER_HEAP_START
     ja .fail
+    cmp ebx, [doom_segment_end]
+    jbe .doom_segment_end_ok
+    mov [doom_segment_end], ebx
 
-    mov eax, [doom_entry_addr]
-    cmp eax, [doom_segment_dest]
-    jb .fail
-    cmp eax, ebx
-    jae .fail
+.doom_segment_end_ok:
 
     mov eax, [esi + 4]
     add eax, DOOM_ELF_LOAD_ADDR
@@ -6091,6 +7355,23 @@ doom_elf_prepare:
 
 .doom_segment_permissions_done:
     inc byte [doom_load_segment_count]
+
+.next_phdr:
+    add dword [doom_phdr_ptr], 32
+    dec dword [doom_phdr_remaining]
+    jmp .phdr_loop
+
+.segments_done:
+    cmp byte [doom_load_segment_count], 0
+    je .fail
+    mov eax, [doom_entry_addr]
+    cmp eax, DOOM_ELF_LOAD_ADDR
+    jb .fail
+    cmp eax, [doom_segment_end]
+    jae .fail
+    mov eax, [doom_segment_end]
+    sub eax, DOOM_ELF_LOAD_ADDR
+    mov [doom_segment_memsz], eax
     mov byte [doom_user_window_status], 1
     mov byte [doom_elf_parse_status], 1
     clc
@@ -6147,6 +7428,22 @@ syscall_handler:
     je .gameplay_status
     cmp eax, SYS_EXEC
     je .exec
+    cmp eax, SYS_UNLINK
+    je .unlink
+    cmp eax, SYS_STAT
+    je .stat
+    cmp eax, SYS_FSTAT
+    je .fstat
+    cmp eax, SYS_MMAP
+    je .mmap
+    cmp eax, SYS_MUNMAP
+    je .munmap
+    cmp eax, SYS_IOCTL
+    je .ioctl
+    cmp eax, SYS_FORK
+    je .fork
+    cmp eax, SYS_WAITPID
+    je .waitpid
     jmp .bad_syscall_enosys
 
 .user_probe:
@@ -6252,6 +7549,18 @@ syscall_handler:
     mov [doom_last_open_mode], edx
 
 .open_skip_status:
+    mov eax, [syscall_open_flags]
+    and eax, O_ACCMODE
+    cmp eax, O_ACCMODE
+    je .bad_syscall_einval
+    test dword [syscall_open_flags], O_TRUNC | O_APPEND
+    jz .open_flags_ok
+    cmp eax, O_WRONLY
+    je .open_flags_ok
+    cmp eax, O_RDWR
+    jne .bad_syscall_einval
+
+.open_flags_ok:
     mov eax, ebx
     mov ebx, user_path_doom_wad_end - user_path_doom_wad
     mov edi, user_path_doom_wad
@@ -6261,8 +7570,14 @@ syscall_handler:
     jnz .bad_syscall_einval
     cmp byte [wad_status], 1
     jne .bad_syscall_enoent
-    mov dword [user_wad_fd_offset], 0
-    mov eax, USER_FD_WAD
+    call fd_alloc
+    jc .bad_syscall_enomem
+    mov byte [fd_kinds + eax], FD_KIND_WAD
+    mov dword [fd_indices + eax * 4], 0
+    mov dword [fd_offsets + eax * 4], 0
+    mov edx, [syscall_open_flags]
+    mov [fd_flags + eax * 4], edx
+    add eax, USER_FD_BASE
     cmp byte [current_user_kind], USER_KIND_DOOM
     jne .open_return
     inc dword [doom_open_count]
@@ -6288,8 +7603,26 @@ syscall_handler:
 
 .open_writable_found:
     cmp byte [writable_status + edx], 1
-    jne .bad_syscall_enoent
-    mov dword [writable_offsets + edx * 4], 0
+    je .open_writable_ready
+    test dword [syscall_open_flags], O_CREAT
+    jz .bad_syscall_enoent
+    mov edi, [writable_name_table + edx * 4]
+    push edx
+    call fat_find_file
+    pop edx
+    jnc .open_writable_bind_known
+    mov edi, [writable_name_table + edx * 4]
+    push edx
+    call fat_create_root_file
+    pop edx
+    jc .bad_syscall_enomem
+
+.open_writable_bind_known:
+    mov ebx, edx
+    call fat_bind_found_to_writable_slot
+    jc .bad_syscall_enomem
+
+.open_writable_ready:
     test dword [syscall_open_flags], O_TRUNC
     jz .open_writable_append
     mov eax, edx
@@ -6297,20 +7630,26 @@ syscall_handler:
     jc .bad_syscall_eio
 
 .open_writable_append:
-    test dword [syscall_open_flags], O_APPEND
-    jz .open_writable_return
-    mov eax, [writable_sizes + edx * 4]
-    mov [writable_offsets + edx * 4], eax
-
 .open_writable_return:
-    mov eax, USER_FD_WRITABLE_BASE
-    add eax, edx
+    mov [fat_open_slot], edx
+    call fd_alloc
+    jc .bad_syscall_enomem
+    mov byte [fd_kinds + eax], FD_KIND_WRITABLE
+    mov edx, [fat_open_slot]
+    mov [fd_indices + eax * 4], edx
+    mov dword [fd_offsets + eax * 4], 0
+    test dword [syscall_open_flags], O_APPEND
+    jz .open_writable_bind_flags
+    mov ecx, [writable_sizes + edx * 4]
+    mov [fd_offsets + eax * 4], ecx
+
+.open_writable_bind_flags:
+    mov ecx, [syscall_open_flags]
+    mov [fd_flags + eax * 4], ecx
+    add eax, USER_FD_BASE
     jmp .return
 
 .open_generic_root83:
-    mov eax, [syscall_open_flags]
-    test eax, O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND
-    jz .bad_syscall_enoent
     call fat_parse_user_root83
     jc .bad_syscall_einval
     call fat_open_name_is_protected
@@ -6336,7 +7675,9 @@ syscall_handler:
     jmp .open_writable_append
 
 .read:
-    cmp ebx, USER_FD_WAD
+    call fd_lookup
+    jc .bad_syscall_ebadf
+    cmp byte [fd_kinds + eax], FD_KIND_WAD
     je .read_wad
     call user_file_read
     jc .bad_syscall_from_eax
@@ -6350,7 +7691,8 @@ syscall_handler:
     call user_range_validate
     jc .bad_syscall_einval
     mov eax, [wad_size]
-    sub eax, [user_wad_fd_offset]
+    mov esi, [file_io_fd_slot]
+    sub eax, [fd_offsets + esi * 4]
     cmp edx, eax
     jbe .read_len_ok
     mov edx, eax
@@ -6358,13 +7700,15 @@ syscall_handler:
 
 .read_len_ok:
     mov esi, WAD_LOAD_ADDR
-    add esi, [user_wad_fd_offset]
+    mov eax, [file_io_fd_slot]
+    add esi, [fd_offsets + eax * 4]
     mov edi, [syscall_ptr_arg]
     mov ecx, [syscall_len_arg]
     cld
     rep movsb
     mov eax, [syscall_len_arg]
-    add dword [user_wad_fd_offset], eax
+    mov esi, [file_io_fd_slot]
+    add [fd_offsets + esi * 4], eax
     cmp eax, 4
     jb .read_done
     mov edi, [syscall_ptr_arg]
@@ -6387,7 +7731,9 @@ syscall_handler:
     jmp .return
 
 .lseek:
-    cmp ebx, USER_FD_WAD
+    call fd_lookup
+    jc .bad_syscall_ebadf
+    cmp byte [fd_kinds + eax], FD_KIND_WAD
     je .lseek_wad
     call user_file_lseek
     jc .bad_syscall_from_eax
@@ -6407,7 +7753,8 @@ syscall_handler:
     jmp .seek_validate
 
 .seek_cur:
-    mov eax, [user_wad_fd_offset]
+    mov esi, [file_io_fd_slot]
+    mov eax, [fd_offsets + esi * 4]
     add eax, ecx
     jc .bad_syscall_einval
     jmp .seek_validate
@@ -6420,7 +7767,8 @@ syscall_handler:
 .seek_validate:
     cmp eax, [wad_size]
     ja .bad_syscall_einval
-    mov [user_wad_fd_offset], eax
+    mov esi, [file_io_fd_slot]
+    mov [fd_offsets + esi * 4], eax
     cmp byte [current_user_kind], USER_KIND_DOOM
     jne .seek_return
     inc dword [doom_lseek_count]
@@ -6494,10 +7842,13 @@ syscall_handler:
     jmp .return
 
 .close:
-    cmp ebx, USER_FD_WAD
-    je .close_ok
-    call writable_fd_index
+    call fd_lookup
     jc .bad_syscall_ebadf
+    mov byte [fd_status + eax], FD_KIND_FREE
+    mov byte [fd_kinds + eax], FD_KIND_FREE
+    mov dword [fd_indices + eax * 4], 0
+    mov dword [fd_offsets + eax * 4], 0
+    mov dword [fd_flags + eax * 4], 0
 
 .close_ok:
     cmp byte [current_user_kind], USER_KIND_DOOM
@@ -6533,17 +7884,23 @@ syscall_handler:
 
 .audio_start_sfx:
     inc dword [doom_sound_start_count]
+    mov [audio_sfx_handle_arg], ecx
     mov [audio_sfx_desc_arg], edx
     call sb16_start_playback
-    call audio_mix_sfx_descriptor
+    call audio_register_sfx_voice
     jmp .audio_status
 
 .audio_stop_sfx:
     inc dword [doom_sound_stop_count]
+    mov [audio_sfx_handle_arg], ecx
+    call audio_stop_sfx_voice
     jmp .audio_status
 
 .audio_update_sfx:
     inc dword [doom_sound_update_count]
+    mov [audio_sfx_handle_arg], ecx
+    mov [audio_sfx_desc_arg], edx
+    call audio_update_sfx_voice
     jmp .audio_status
 
 .audio_shutdown_cmd:
@@ -6556,6 +7913,8 @@ syscall_handler:
 .gameplay_status:
     cmp byte [current_user_kind], USER_KIND_DOOM
     jne .gameplay_return
+    test ebx, PLAYABLE_STATUS_FLAG
+    jnz .playable_status
     inc dword [doom_gameplay_report_count]
     mov [doom_game_state_packed], ebx
     mov eax, ebx
@@ -6590,17 +7949,380 @@ syscall_handler:
     je .gameplay_return
     mov byte [doom_gameplay_status], 1
 
+.playable_status:
+    mov eax, ebx
+    and eax, 0x0000ffff
+    mov [doom_player_flags], eax
+    mov eax, ebx
+    shr eax, 16
+    and eax, 0xff
+    mov [doom_player_buttons], eax
+    mov eax, ebx
+    shr eax, 24
+    and eax, 0x7f
+    mov [doom_game_action], eax
+    mov [doom_player_x], ecx
+    mov [doom_player_y], edx
+    cmp dword [doom_player_origin_set], 0
+    jne .playable_delta
+    mov dword [doom_player_origin_set], 1
+    mov [doom_player_origin_x], ecx
+    mov [doom_player_origin_y], edx
+
+.playable_delta:
+    mov eax, ecx
+    sub eax, [doom_player_origin_x]
+    jns .playable_dx_ok
+    neg eax
+
+.playable_dx_ok:
+    mov esi, eax
+    mov eax, edx
+    sub eax, [doom_player_origin_y]
+    jns .playable_dy_ok
+    neg eax
+
+.playable_dy_ok:
+    add eax, esi
+    cmp eax, [doom_player_delta]
+    jbe .gameplay_return
+    mov [doom_player_delta], eax
+
 .gameplay_return:
     xor eax, eax
     jmp .return
 
-.exec:
+.unlink:
     mov [syscall_ptr_arg], ebx
+    call fat_parse_user_root83
+    jc .bad_syscall_einval
+    call fat_open_name_is_protected
+    jc .bad_syscall_eacces
+    mov edi, fat_open_name_buffer
+    call fat_find_file
+    jc .bad_syscall_enoent
+    mov dword [fat_unlink_slot], 0xffffffff
+    call fat_find_writable_slot_for_found
+    jc .unlink_delete
+    mov [fat_unlink_slot], eax
+
+.unlink_delete:
+    call fat_delete_found_file
+    jc .bad_syscall_eio
+    mov eax, [fat_unlink_slot]
+    cmp eax, 0xffffffff
+    je .unlink_ok
+    call fat_close_writable_fds_for_slot
+    mov eax, [fat_unlink_slot]
+    call fat_clear_writable_slot
+
+.unlink_ok:
+    xor eax, eax
+    jmp .return
+
+.stat:
+    mov [syscall_ptr_arg], ebx
+    mov [syscall_stat_ptr], ecx
     mov eax, ebx
-    mov ebx, 1
+    mov ebx, user_path_doom_wad_end - user_path_doom_wad
+    mov edi, user_path_doom_wad
+    call user_path_equals
+    jnc .stat_wad
+    call fat_parse_user_root83
+    jc .bad_syscall_einval
+    mov esi, fat_open_name_buffer
+    mov edi, wad_name_83
+    call fat_name_match
+    cmp al, 1
+    je .stat_wad
+    mov esi, fat_open_name_buffer
+    mov edi, user_elf_name_83
+    call fat_name_match
+    cmp al, 1
+    je .stat_user_elf
+    mov esi, fat_open_name_buffer
+    mov edi, doom_elf_name_83
+    call fat_name_match
+    cmp al, 1
+    je .stat_doom_elf
+    mov edi, fat_open_name_buffer
+    call fat_find_file
+    jc .bad_syscall_enoent
+    mov eax, [fat_found_size]
+    mov edx, STAT_MODE_WRITABLE_REG
+    call stat_fill_user
+    jc .bad_syscall_einval
+    xor eax, eax
+    jmp .return
+
+.stat_wad:
+    mov edi, wad_name_83
+    call fat_find_file
+    jc .bad_syscall_enoent
+    mov eax, [fat_found_size]
+    mov edx, STAT_MODE_READONLY_REG
+    call stat_fill_user
+    jc .bad_syscall_einval
+    xor eax, eax
+    jmp .return
+
+.stat_user_elf:
+    mov edi, user_elf_name_83
+    call fat_find_file
+    jc .bad_syscall_enoent
+    mov eax, [fat_found_size]
+    mov edx, STAT_MODE_READONLY_REG
+    call stat_fill_user
+    jc .bad_syscall_einval
+    xor eax, eax
+    jmp .return
+
+.stat_doom_elf:
+    mov edi, doom_elf_name_83
+    call fat_find_file
+    jc .bad_syscall_enoent
+    mov eax, [fat_found_size]
+    mov edx, STAT_MODE_READONLY_REG
+    call stat_fill_user
+    jc .bad_syscall_einval
+    xor eax, eax
+    jmp .return
+
+.fstat:
+    mov [syscall_stat_ptr], ecx
+    call fd_lookup
+    jc .bad_syscall_ebadf
+    cmp byte [fd_kinds + eax], FD_KIND_WAD
+    je .fstat_wad
+    cmp byte [fd_kinds + eax], FD_KIND_WRITABLE
+    jne .bad_syscall_ebadf
+    mov ebx, [fd_indices + eax * 4]
+    cmp ebx, WRITABLE_FILE_COUNT
+    jae .bad_syscall_ebadf
+    cmp byte [writable_status + ebx], 1
+    jne .bad_syscall_ebadf
+    mov eax, [writable_sizes + ebx * 4]
+    mov edx, STAT_MODE_WRITABLE_REG
+    call stat_fill_user
+    jc .bad_syscall_einval
+    xor eax, eax
+    jmp .return
+
+.fstat_wad:
+    mov eax, [wad_size]
+    mov edx, STAT_MODE_READONLY_REG
+    call stat_fill_user
+    jc .bad_syscall_einval
+    xor eax, eax
+    jmp .return
+
+.mmap:
+    mov [mmap_addr_arg], ebx
+    mov [mmap_len_arg], ecx
+    mov eax, edx
+    and eax, MMAP_PROT_MASK
+    mov [mmap_prot_arg], eax
+    mov eax, edx
+    shr eax, MMAP_FLAGS_SHIFT
+    mov [mmap_flags_arg], eax
+    cmp dword [mmap_addr_arg], 0
+    jne .bad_syscall_einval
+    cmp dword [mmap_len_arg], 0
+    je .bad_syscall_einval
+    cmp dword [mmap_prot_arg], 0
+    je .bad_syscall_einval
+    mov eax, [mmap_prot_arg]
+    and eax, 0xfffffff8
+    jnz .bad_syscall_einval
+    test dword [mmap_flags_arg], MMAP_MAP_FIXED
+    jnz .bad_syscall_einval
+    test dword [mmap_flags_arg], MMAP_MAP_ANONYMOUS
+    jz .bad_syscall_einval
+    test dword [mmap_flags_arg], MMAP_MAP_PRIVATE
+    jz .bad_syscall_einval
+    mov eax, [mmap_flags_arg]
+    and eax, 0xffffffdd
+    jnz .bad_syscall_einval
+    mov eax, [mmap_len_arg]
+    add eax, PAGE_SIZE - 1
+    jc .bad_syscall_enomem
+    and eax, 0xfffff000
+    mov [mmap_len_arg], eax
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .bad_syscall_enomem
+    mov eax, [esi + PROC_BRK]
+    mov [mmap_base_arg], eax
+    mov edx, eax
+    add edx, [mmap_len_arg]
+    jc .bad_syscall_enomem
+    cmp edx, [esi + PROC_HEAP_END]
+    ja .bad_syscall_enomem
+    mov [mmap_end_arg], edx
+    mov ebx, [esi + PROC_PAGE_DIR]
+    test ebx, ebx
+    jnz .mmap_have_page_dir
+    mov ebx, PAGING_DIR_ADDR
+
+.mmap_have_page_dir:
+    test dword [mmap_prot_arg], MMAP_PROT_WRITE
+    jz .mmap_readonly
+    call vmm_mark_process_user_write_range
+    jmp .mmap_flush
+
+.mmap_readonly:
+    call vmm_mark_process_user_read_range
+
+.mmap_flush:
+    mov ebx, [esi + PROC_PAGE_DIR]
+    test ebx, ebx
+    jz .mmap_zero
+    mov cr3, ebx
+
+.mmap_zero:
+    mov edi, [mmap_base_arg]
+    mov ecx, [mmap_len_arg]
+    shr ecx, 2
+    xor eax, eax
+    cld
+    rep stosd
+    mov edx, [mmap_end_arg]
+    mov [esi + PROC_BRK], edx
+    mov [current_user_brk], edx
+    mov [user_brk_current], edx
+    mov eax, [mmap_base_arg]
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    jne .return
+    inc dword [doom_sbrk_count]
+    jmp .return
+
+.munmap:
+    cmp ebx, 0
+    je .bad_syscall_einval
+    cmp ecx, 0
+    je .bad_syscall_einval
+    mov eax, ebx
+    mov ebx, ecx
     call user_range_validate
     jc .bad_syscall_einval
+    xor eax, eax
+    jmp .return
+
+.ioctl:
+    cmp ebx, IOCTL_DISPLAY_FD
+    jne .bad_syscall_enotty
+    cmp ecx, VIBE_IOCTL_FBINFO
+    je .ioctl_fbinfo
+    cmp ecx, VIBE_IOCTL_PRESENT_INDEXED
+    je .ioctl_present_indexed
+    jmp .bad_syscall_enotty
+
+.ioctl_fbinfo:
+    mov [syscall_ptr_arg], edx
+    mov eax, edx
+    mov ebx, VIBE_FB_INFO_BYTES
+    call user_range_validate
+    jc .bad_syscall_einval
+    mov edi, [syscall_ptr_arg]
+    mov eax, [framebuffer_width]
+    mov [edi + VIBE_FB_INFO_WIDTH], eax
+    mov eax, [framebuffer_height]
+    mov [edi + VIBE_FB_INFO_HEIGHT], eax
+    mov eax, [framebuffer_pitch]
+    mov [edi + VIBE_FB_INFO_PITCH], eax
+    movzx eax, byte [video_backend]
+    mov [edi + VIBE_FB_INFO_BACKEND], eax
+    mov dword [edi + VIBE_FB_INFO_FRAME_BYTES], DOOM_FRAME_BYTES
+    mov dword [edi + VIBE_FB_INFO_PALETTE_BYTES], DOOM_PALETTE_BYTES
+    xor eax, eax
+    jmp .return
+
+.ioctl_present_indexed:
+    mov [syscall_ptr_arg], edx
+    mov eax, edx
+    mov ebx, VIBE_PRESENT_DESC_BYTES
+    call user_range_validate
+    jc .bad_syscall_einval
+    mov esi, [syscall_ptr_arg]
+    cmp dword [esi + VIBE_PRESENT_DESC_WIDTH], DOOM_SCREEN_WIDTH
+    jne .bad_syscall_einval
+    cmp dword [esi + VIBE_PRESENT_DESC_HEIGHT], DOOM_SCREEN_HEIGHT
+    jne .bad_syscall_einval
+    mov eax, [esi + VIBE_PRESENT_DESC_FRAME]
+    mov [present_frame_arg], eax
+    mov eax, [esi + VIBE_PRESENT_DESC_PALETTE]
+    mov [present_palette_arg], eax
+    mov eax, [present_frame_arg]
+    mov ebx, DOOM_FRAME_BYTES
+    call user_range_validate
+    jc .bad_syscall_einval
+    mov eax, [present_palette_arg]
+    mov ebx, DOOM_PALETTE_BYTES
+    call user_range_validate
+    jc .bad_syscall_einval
+    call present_indexed_frame
+    jc .bad_syscall_eio
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    jne .ioctl_present_return
+    inc dword [doom_present_count]
+
+.ioctl_present_return:
+    xor eax, eax
+    jmp .return
+
+.fork:
     jmp .bad_syscall_enosys
+
+.waitpid:
+    jmp .bad_syscall_echild
+
+.exec:
+    mov [syscall_ptr_arg], ebx
+    mov [sys_exec_user_argv_arg], ecx
+    mov [sys_exec_flags_arg], edx
+    mov [sys_exec_frame_ptr], esp
+    inc dword [sys_exec_attempts]
+    call sys_exec_copy_user_path
+    jc .exec_einval
+    mov esi, sys_exec_path_buffer
+    xor edi, edi
+    mov byte [process_exec_reject_active_target], 1
+    call process_exec_path
+    mov byte [process_exec_reject_active_target], 0
+    jc .exec_path_failed
+    call process_exec_handoff_current
+    jc .exec_path_failed
+    inc dword [sys_exec_successes]
+    xor eax, eax
+    mov [sys_exec_last_result], eax
+    jmp .exec_handoff_return
+
+.exec_einval:
+    mov eax, -ERRNO_EINVAL
+    jmp .exec_fail
+
+.exec_path_failed:
+    mov byte [process_exec_reject_active_target], 0
+    mov eax, [process_exec_last_error]
+    cmp eax, 0
+    jne .exec_fail
+    mov eax, -ERRNO_ENOENT
+
+.exec_fail:
+    inc dword [sys_exec_failures]
+    inc dword [sys_exec_rollbacks]
+    mov [sys_exec_last_result], eax
+    jmp .bad_syscall_return
+
+.exec_handoff_return:
+    xor eax, eax
+    pop ebp
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    iretd
 
 .bad_syscall:
     mov eax, 0xffffffff
@@ -6631,6 +8353,14 @@ syscall_handler:
 
 .bad_syscall_einval:
     mov eax, -ERRNO_EINVAL
+    jmp .bad_syscall_return
+
+.bad_syscall_enotty:
+    mov eax, -ERRNO_ENOTTY
+    jmp .bad_syscall_return
+
+.bad_syscall_echild:
+    mov eax, -ERRNO_ECHILD
     jmp .bad_syscall_return
 
 .bad_syscall_enosys:
@@ -6681,6 +8411,50 @@ syscall_handler:
     pop ecx
     pop ebx
     iretd
+
+sys_exec_copy_user_path:
+    push eax
+    push ebx
+    push ecx
+    push esi
+    push edi
+
+    mov esi, [syscall_ptr_arg]
+    cmp esi, 0
+    je .fail
+    mov edi, sys_exec_path_buffer
+    xor ecx, ecx
+
+.next:
+    mov eax, esi
+    add eax, ecx
+    jc .fail
+    mov ebx, 1
+    call user_range_validate
+    jc .fail
+    mov al, [esi + ecx]
+    mov [edi + ecx], al
+    test al, al
+    jz .ok
+    inc ecx
+    cmp ecx, SYS_EXEC_PATH_MAX - 1
+    jb .next
+    mov byte [sys_exec_path_buffer + SYS_EXEC_PATH_MAX - 1], 0
+
+.fail:
+    stc
+    jmp .done
+
+.ok:
+    clc
+
+.done:
+    pop edi
+    pop esi
+    pop ecx
+    pop ebx
+    pop eax
+    ret
 
 user_range_validate:
     push eax
@@ -6812,10 +8586,12 @@ present_indexed_frame:
 
 .mode13_present:
     call present_copy_indexed_shadow
+    call present_update_visual_proof
     jmp .success
 
 .lfb_present:
     call present_copy_indexed_shadow
+    call present_update_visual_proof
     call present_lfb_xrgb8888
     jc .fail
 
@@ -6858,6 +8634,57 @@ present_copy_indexed_shadow:
     pop esi
     pop ecx
     pop eax
+    ret
+
+present_update_visual_proof:
+    pushad
+
+    mov esi, [present_palette_arg]
+    mov ecx, DOOM_PALETTE_BYTES
+    mov eax, 0x811c9dc5
+
+.palette_hash_next:
+    rol eax, 5
+    movzx ebx, byte [esi]
+    xor eax, ebx
+    add eax, 0x01000193
+    inc esi
+    loop .palette_hash_next
+    mov [present_palette_hash], eax
+
+    mov esi, [present_frame_arg]
+    mov ecx, DOOM_FRAME_BYTES
+    mov eax, 0x811c9dc5
+    xor edx, edx
+    xor edi, edi
+    mov byte [present_previous_index], 0
+
+.frame_hash_next:
+    rol eax, 5
+    movzx ebx, byte [esi]
+    xor eax, ebx
+    add eax, 0x01000193
+    cmp bl, 0
+    je .nonzero_done
+    inc edx
+
+.nonzero_done:
+    cmp ecx, DOOM_FRAME_BYTES
+    je .transition_done
+    cmp bl, byte [present_previous_index]
+    je .transition_done
+    inc edi
+
+.transition_done:
+    mov [present_previous_index], bl
+    inc esi
+    loop .frame_hash_next
+
+    mov [present_frame_hash], eax
+    mov [present_nonzero_count], edx
+    mov [present_color_transition_count], edi
+
+    popad
     ret
 
 present_lfb_xrgb8888:
@@ -7287,6 +9114,7 @@ irq_audio:
     jne .send_eoi
     inc dword [sb16_irq_refill_count]
     xor dword [sb16_irq_half_index], 1
+    call sb16_refill_active_half
 
 .send_eoi:
     mov al, 0x20
@@ -7395,6 +9223,38 @@ write_smoke_status:
 
 .exec_path_write:
     call smoke_copy_string
+    mov esi, smoke_execsys_text
+    call smoke_copy_string
+    mov edx, [sys_exec_attempts]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [sys_exec_successes]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [sys_exec_failures]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [sys_exec_handoffs]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [sys_exec_scheduled]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [sys_exec_rollbacks]
+    call smoke_write_hex32
+    mov esi, smoke_exec_target_text
+    call smoke_copy_string
+    mov edx, [sys_exec_last_target_pid]
+    call smoke_write_hex32
+    mov esi, smoke_exec_argv_text
+    call smoke_copy_string
+    mov edx, [sys_exec_last_argv0]
+    call smoke_write_hex32
     mov al, ' '
     stosb
 
@@ -7529,6 +9389,34 @@ write_smoke_status:
     call smoke_copy_string
     mov edx, [doom_present_count]
     call smoke_write_hex32
+    mov esi, smoke_doompal_text
+    call smoke_copy_string
+    mov edx, [present_palette_hash]
+    call smoke_write_hex32
+    mov esi, smoke_doomframe_text
+    call smoke_copy_string
+    mov edx, [present_frame_hash]
+    call smoke_write_hex32
+    mov esi, smoke_doomnonzero_text
+    call smoke_copy_string
+    mov edx, [present_nonzero_count]
+    call smoke_write_hex32
+    mov esi, smoke_doomcolors_text
+    call smoke_copy_string
+    mov edx, [present_color_transition_count]
+    call smoke_write_hex32
+    mov esi, smoke_doomsamp_text
+    call smoke_copy_string
+    mov edx, [present_sample_first]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [present_sample_mid]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [present_sample_last]
+    call smoke_write_hex32
 
     mov esi, smoke_gameplay_text
     call smoke_copy_string
@@ -7563,6 +9451,40 @@ write_smoke_status:
     mov edx, [doom_level_time]
     call smoke_write_hex32
 
+    mov esi, smoke_gflags_text
+    call smoke_copy_string
+    mov edx, [doom_game_flags]
+    call smoke_write_hex32
+
+    mov esi, smoke_gaction_text
+    call smoke_copy_string
+    mov edx, [doom_game_action]
+    call smoke_write_hex32
+
+    mov esi, smoke_pflags_text
+    call smoke_copy_string
+    mov edx, [doom_player_flags]
+    call smoke_write_hex32
+
+    mov esi, smoke_pbuttons_text
+    call smoke_copy_string
+    mov edx, [doom_player_buttons]
+    call smoke_write_hex32
+
+    mov esi, smoke_ppos_text
+    call smoke_copy_string
+    mov edx, [doom_player_x]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [doom_player_y]
+    call smoke_write_hex32
+
+    mov esi, smoke_pdelta_text
+    call smoke_copy_string
+    mov edx, [doom_player_delta]
+    call smoke_write_hex32
+
     mov esi, smoke_doomsound_text
     call smoke_copy_string
     mov edx, [doom_sound_call_count]
@@ -7571,6 +9493,71 @@ write_smoke_status:
     mov esi, smoke_sfxmix_text
     call smoke_copy_string
     mov edx, [sb16_sfx_mix_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_audiovoices_text
+    call smoke_copy_string
+    mov edx, [sb16_active_voice_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_audioirq_text
+    call smoke_copy_string
+    mov edx, [sb16_irq_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_audioack8_text
+    call smoke_copy_string
+    mov edx, [sb16_irq_ack8_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_audioack16_text
+    call smoke_copy_string
+    mov edx, [sb16_irq_ack16_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_audiorefill_text
+    call smoke_copy_string
+    mov edx, [sb16_irq_refill_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_audiohalf_text
+    call smoke_copy_string
+    mov edx, [sb16_irq_half_index]
+    call smoke_write_hex32
+
+    mov esi, smoke_mixwrap_text
+    call smoke_copy_string
+    mov edx, [sb16_mix_wrap_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_mixover_text
+    call smoke_copy_string
+    mov edx, [sb16_mix_overwrite_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_mixunder_text
+    call smoke_copy_string
+    mov edx, [sb16_mix_underrun_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_mixclip_text
+    call smoke_copy_string
+    mov edx, [sb16_mix_clip_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_voicesteal_text
+    call smoke_copy_string
+    mov edx, [sb16_voice_steal_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_pitchclamp_text
+    call smoke_copy_string
+    mov edx, [sb16_pitch_clamp_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_panclamp_text
+    call smoke_copy_string
+    mov edx, [sb16_pan_clamp_count]
     call smoke_write_hex32
 
     mov esi, smoke_audio_text
@@ -8295,6 +10282,7 @@ doom_elf_end_prefix db "DOOM.ELF segment end: ", 0
 doom_user_window_prefix db "DOOM user window: ", 0
 process_exec_prefix db "Process exec: ", 0
 process_exec_path_prefix db "Exec path: ", 0
+process_exec_syscall_prefix db "Exec syscall attempts/success/failure/handoff/scheduled/rollback: ", 0
 wad_load_prefix db "WAD load address: ", 0
 bytes_suffix db " bytes", 13, 10, 0
 pages_suffix db " pages", 13, 10, 0
@@ -8316,6 +10304,9 @@ gfx_status_label db " gfx=", 0
 smoke_banner_text db "Aurora OS v0.2 ", 0
 smoke_exec_text db "exec=", 0
 smoke_exec_path_text db " path=", 0
+smoke_execsys_text db " execsys=", 0
+smoke_exec_target_text db " target=", 0
+smoke_exec_argv_text db " argv0=", 0
 smoke_doom_text db "doom=", 0
 smoke_doomrun_text db " doomrun=", 0
 smoke_doomopen_text db " doomopen=", 0
@@ -8328,13 +10319,37 @@ smoke_doomerr_text db " doomerr=", 0
 smoke_doommode_text db " doommode=", 0
 smoke_doomlog_text db " doomlog=", 0
 smoke_doompresent_text db " doompresent=", 0
+smoke_doompal_text db " doompal=", 0
+smoke_doomframe_text db " doomframe=", 0
+smoke_doomnonzero_text db " doomnonzero=", 0
+smoke_doomcolors_text db " doomcolors=", 0
+smoke_doomsamp_text db " doomsamp=", 0
 smoke_gameplay_text db " gameplay=", 0
 smoke_gstate_text db " gstate=", 0
 smoke_gmap_text db " gmap=", 0
 smoke_gtic_text db " gtic=", 0
 smoke_leveltime_text db " leveltime=", 0
+smoke_gflags_text db " gflags=", 0
+smoke_gaction_text db " gaction=", 0
+smoke_pflags_text db " pflags=", 0
+smoke_pbuttons_text db " pbuttons=", 0
+smoke_ppos_text db " ppos=", 0
+smoke_pdelta_text db " pdelta=", 0
 smoke_doomsound_text db " doomsound=", 0
 smoke_sfxmix_text db " sfxmix=", 0
+smoke_audiovoices_text db " voices=", 0
+smoke_audioirq_text db " audioirq=", 0
+smoke_audioack8_text db " ack8=", 0
+smoke_audioack16_text db " ack16=", 0
+smoke_audiorefill_text db " refill=", 0
+smoke_audiohalf_text db " half=", 0
+smoke_mixwrap_text db " mixwrap=", 0
+smoke_mixover_text db " mixover=", 0
+smoke_mixunder_text db " mixunder=", 0
+smoke_mixclip_text db " mixclip=", 0
+smoke_voicesteal_text db " steal=", 0
+smoke_pitchclamp_text db " pitchclamp=", 0
+smoke_panclamp_text db " panclamp=", 0
 smoke_audio_text db " audio=", 0
 smoke_keyirq_text db " keyirq=", 0
 smoke_keyqueue_text db " keyqueue=", 0
@@ -8397,6 +10412,7 @@ wad_name_83 db "DOOM1   WAD"
 user_elf_name_83 db "USERPROBELF"
 doom_elf_name_83 db "DOOM    ELF"
 exec_path_doom db "DOOM.ELF", 0
+exec_path_user_probe db "USERPROB.ELF", 0
 default_cfg_name_83 db "DEFAULT CFG"
 doomsav0_name_83 db "DOOMSAV0DSG"
 doomsav1_name_83 db "DOOMSAV1DSG"
@@ -8429,7 +10445,8 @@ writable_path_table dd user_path_default_cfg, user_path_doomsav0, user_path_doom
 writable_path_len_table dd user_path_default_cfg_end - user_path_default_cfg, user_path_doomsav0_end - user_path_doomsav0, user_path_doomsav1_end - user_path_doomsav1, user_path_doomsav2_end - user_path_doomsav2, user_path_doomsav3_end - user_path_doomsav3, user_path_doomsav4_end - user_path_doomsav4, user_path_doomsav5_end - user_path_doomsav5
 writable_capacity_table dd WRITABLE_DEFAULT_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY
 process_exec_table:
-    dd exec_path_doom, doom_elf_name_83, DOOM_ELF_LOAD_ADDR, DOOM_ELF_MAX_BYTES
+    dd exec_path_doom, doom_elf_name_83, DOOM_ELF_LOAD_ADDR, DOOM_ELF_MAX_BYTES, process_doom
+    dd exec_path_user_probe, user_elf_name_83, USER_ELF_LOAD_ADDR, USER_ELF_MAX_BYTES, process_user_probe
 user_elf_prefix db "User ELF loader: ", 0
 user_entry_prefix db "User entry: ", 0
 user_flags_prefix db "User syscall flags: ", 0
@@ -8624,6 +10641,8 @@ doom_segment_filesz dd 0
 doom_segment_memsz dd 0
 doom_segment_end dd 0
 doom_segment_flags dd 0
+doom_phdr_ptr dd 0
+doom_phdr_remaining dd 0
 user_phdr_ptr dd 0
 user_phdr_remaining dd 0
 user_segment_dest dd 0
@@ -8640,10 +10659,50 @@ process_exec_first_cluster dw 0
 align 4
 process_exec_sectors_read dd 0
 process_exec_entry dd 0
+process_exec_last_error dd 0
+process_exec_reject_active_target db 0
+align 4
+sys_exec_attempts dd 0
+sys_exec_successes dd 0
+sys_exec_failures dd 0
+sys_exec_handoffs dd 0
+sys_exec_scheduled dd 0
+sys_exec_rollbacks dd 0
+sys_exec_last_result dd 0
+sys_exec_last_caller_pid dd 0xffffffff
+sys_exec_last_target_pid dd 0xffffffff
+sys_exec_last_target_entry dd 0
+sys_exec_last_target_stack dd 0
+sys_exec_last_argc dd 0
+sys_exec_last_argv dd 0
+sys_exec_last_argv0 dd 0
+sys_exec_user_argv_arg dd 0
+sys_exec_flags_arg dd 0
+sys_exec_frame_ptr dd 0
+sys_exec_user_stack_ptr dd 0
+sys_exec_argv0_ptr dd 0
+sys_exec_path_buffer times SYS_EXEC_PATH_MAX db 0
 syscall_ptr_arg dd 0
 syscall_len_arg dd 0
+syscall_stat_ptr dd 0
 syscall_open_flags dd 0
 fat_open_slot dd 0
+fat_unlink_slot dd 0
+stat_size_arg dd 0
+stat_mode_arg dd 0
+mmap_addr_arg dd 0
+mmap_len_arg dd 0
+mmap_prot_arg dd 0
+mmap_flags_arg dd 0
+mmap_base_arg dd 0
+mmap_end_arg dd 0
+file_io_fd_slot dd 0
+fd_status times USER_FD_COUNT db 0
+fd_kinds times USER_FD_COUNT db 0
+align 4
+fd_indices times USER_FD_COUNT dd 0
+fd_offsets times USER_FD_COUNT dd 0
+fd_flags times USER_FD_COUNT dd 0
 file_io_index dd 0
 file_io_user_ptr dd 0
 file_io_remaining dd 0
@@ -8655,7 +10714,6 @@ user_probe_magic_seen dd 0
 user_probe_flags_seen dd 0
 user_fault_addr dd 0
 user_wad_magic_seen dd 0
-user_wad_fd_offset dd 0
 user_brk_current dd 0
 current_pid dd 0
 current_process_ptr dd 0
@@ -8705,6 +10763,15 @@ doom_game_map_pair dd 0
 doom_game_flags dd 0
 doom_game_tic dd 0
 doom_level_time dd 0
+doom_player_flags dd 0
+doom_player_buttons dd 0
+doom_game_action dd 0
+doom_player_x dd 0
+doom_player_y dd 0
+doom_player_origin_set dd 0
+doom_player_origin_x dd 0
+doom_player_origin_y dd 0
+doom_player_delta dd 0
 doom_sound_call_count dd 0
 doom_sound_start_count dd 0
 doom_sound_stop_count dd 0
@@ -8728,6 +10795,12 @@ present_palette_arg dd 0
 present_sample_first dd 0
 present_sample_mid dd 0
 present_sample_last dd 0
+present_palette_hash dd 0
+present_frame_hash dd 0
+present_nonzero_count dd 0
+present_color_transition_count dd 0
+present_previous_index db 0
+align 4
 framebuffer_addr dd 0
 framebuffer_pitch dd 0
 framebuffer_width dd 0
@@ -8744,6 +10817,10 @@ sb16_minor_version db 0
 sb16_playback_active db 0
 align 4
 sb16_irq_count dd 0
+sb16_irq_ack8_count dd 0
+sb16_irq_ack16_count dd 0
+sb16_irq_refill_count dd 0
+sb16_irq_half_index dd 0
 sb16_playback_start_count dd 0
 sb16_playback_stop_count dd 0
 sb16_dma_program_count dd 0
@@ -8752,13 +10829,50 @@ sb16_sfx_mix_bytes dd 0
 sb16_dma_write_pos dd 0
 sb16_mix_clip_count dd 0
 sb16_mix_underrun_count dd 0
+sb16_mix_wrap_count dd 0
+sb16_mix_overwrite_count dd 0
+sb16_active_voice_count dd 0
+sb16_voice_start_count dd 0
+sb16_voice_stop_count dd 0
+sb16_voice_update_count dd 0
+sb16_voice_refill_count dd 0
+sb16_voice_finished_count dd 0
+sb16_voice_steal_count dd 0
+sb16_voice_age_counter dd 0
+sb16_pitch_clamp_count dd 0
+sb16_pan_clamp_count dd 0
 audio_sfx_desc_arg dd 0
+audio_sfx_handle_arg dd 0
 audio_sfx_sample_arg dd 0
 audio_sfx_length_arg dd 0
 audio_sfx_volume_arg dd 0
 audio_sfx_separation_arg dd 0
 audio_sfx_pitch_arg dd 0
 audio_sfx_id_arg dd 0
+audio_sfx_voice_slot dd 0
+sb16_pan_left_arg dd 0
+sb16_pan_right_arg dd 0
+sb16_mix_source_pos dd 0
+sb16_mix_source_step dd AUDIO_PITCH_STEP_NORMAL
+sb16_mix_left_volume dd 0
+sb16_mix_right_volume dd 0
+sb16_mix_frames_mixed dd 0
+sb16_mix_voice_slot dd 0
+sb16_refill_dest_base dd 0
+sb16_refill_chunk_bytes dd 0
+sb16_voice_active times AUDIO_MAX_SFX_VOICES db 0
+align 4
+sb16_voice_handles times AUDIO_MAX_SFX_VOICES dd 0
+sb16_voice_samples times AUDIO_MAX_SFX_VOICES dd 0
+sb16_voice_lengths times AUDIO_MAX_SFX_VOICES dd 0
+sb16_voice_positions times AUDIO_MAX_SFX_VOICES dd 0
+sb16_voice_volumes times AUDIO_MAX_SFX_VOICES dd 0
+sb16_voice_separations times AUDIO_MAX_SFX_VOICES dd 0
+sb16_voice_pitches times AUDIO_MAX_SFX_VOICES dd 0
+sb16_voice_steps times AUDIO_MAX_SFX_VOICES dd 0
+sb16_voice_left_volumes times AUDIO_MAX_SFX_VOICES dd 0
+sb16_voice_right_volumes times AUDIO_MAX_SFX_VOICES dd 0
+sb16_voice_started_at times AUDIO_MAX_SFX_VOICES dd 0
 sb16_dma_buffer_phys dd 0
 sb16_dma_buffer_size dd 0
 sb16_dma_block_size dd 0

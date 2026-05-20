@@ -19,6 +19,10 @@ DOOM_BASE = 0x01000000
 DOOM_HEAP_START = 0x01900000
 DOOM_LIMIT = 0x02000000
 MAX_KERNEL_WAD_BYTES = 0x00500000
+PT_LOAD = 1
+PF_X = 0x1
+PF_W = 0x2
+PF_R = 0x4
 
 
 def u16(data, offset):
@@ -83,6 +87,9 @@ class Elf32:
             headers.append(struct.unpack_from("<IIIIIIII", self.data, off))
         return headers
 
+    def load_segments(self):
+        return [ph for ph in self.program_headers() if ph[0] == PT_LOAD]
+
     def section_headers(self):
         headers = []
         for index in range(self.shnum):
@@ -112,38 +119,43 @@ class BuildArtifactTests(unittest.TestCase):
 
     def test_stage2_and_kernel_fit_reserved_raw_lbas(self):
         self.assertLessEqual((BUILD / "stage2.bin").stat().st_size, 16 * SECTOR_SIZE)
-        self.assertLessEqual((BUILD / "kernel.elf").stat().st_size, 96 * SECTOR_SIZE)
+        self.assertLessEqual((BUILD / "kernel.elf").stat().st_size, 128 * SECTOR_SIZE)
 
-    def test_kernel_elf32_load_segment(self):
+    def test_kernel_elf32_load_segments(self):
         elf = Elf32(read(BUILD / "kernel.elf"))
         self.assertEqual(elf.kind, 2)
         self.assertEqual(elf.machine, 3)
         self.assertEqual(elf.entry, 0x10000)
-        self.assertEqual(elf.phnum, 1)
-        p_type, p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, p_flags, p_align = elf.program_headers()[0]
-        self.assertEqual(p_type, 1)
-        self.assertEqual(p_offset, 0x1000)
-        self.assertEqual(p_vaddr, 0x10000)
-        self.assertEqual(p_paddr, 0x10000)
-        self.assertEqual(p_filesz, p_memsz)
-        self.assertEqual(p_flags, 0x7)
-        self.assertEqual(p_align, 0x1000)
+        load_segments = elf.load_segments()
+        self.assertGreaterEqual(len(load_segments), 2)
+        self.assertEqual(load_segments[0][2], 0x10000)
+        for p_type, p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, _p_flags, p_align in load_segments:
+            self.assertEqual(p_type, PT_LOAD)
+            self.assertEqual(p_offset % 0x1000, 0)
+            self.assertEqual(p_vaddr, p_paddr)
+            self.assertLessEqual(p_filesz, p_memsz)
+            self.assertEqual(p_align, 0x1000)
+        self.assertTrue(any((ph[6] & (PF_R | PF_X | PF_W)) == (PF_R | PF_X) for ph in load_segments))
+        self.assertTrue(all((ph[6] & PF_R) for ph in load_segments))
 
     def test_user_probe_is_small_c_backed_user_elf(self):
         elf = Elf32(read(BUILD / "user_probe.elf"))
         self.assertEqual(elf.kind, 2)
         self.assertEqual(elf.machine, 3)
         self.assertEqual(elf.entry, USER_BASE)
-        self.assertEqual(elf.phnum, 1)
-        p_type, p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, p_flags, p_align = elf.program_headers()[0]
-        self.assertEqual(p_type, 1)
-        self.assertEqual(p_offset, 0x1000)
-        self.assertEqual(p_vaddr, USER_BASE)
-        self.assertEqual(p_paddr, USER_BASE)
-        self.assertLessEqual(p_memsz, 0x1000)
-        self.assertEqual(p_filesz, p_memsz)
-        self.assertEqual(p_flags, 0x7)
-        self.assertEqual(p_align, 0x1000)
+        load_segments = elf.load_segments()
+        self.assertGreaterEqual(len(load_segments), 2)
+        self.assertEqual(load_segments[0][2], USER_BASE)
+        text_segments = [ph for ph in load_segments if ph[6] & PF_X]
+        writable_segments = [ph for ph in load_segments if ph[6] & PF_W]
+        self.assertTrue(text_segments)
+        self.assertTrue(writable_segments)
+        self.assertTrue(all((ph[6] & PF_W) == 0 for ph in text_segments))
+        for _p_type, _p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, p_flags, p_align in load_segments:
+            self.assertEqual(p_vaddr, p_paddr)
+            self.assertLessEqual(p_filesz, p_memsz)
+            self.assertTrue(p_flags & PF_R)
+            self.assertEqual(p_align, 0x1000)
 
     def test_user_c_object_contains_bss_for_linker_nobits_coverage(self):
         obj = Elf32(read(BUILD / "user_probe_c.o"))
@@ -160,17 +172,22 @@ class BuildArtifactTests(unittest.TestCase):
         self.assertEqual(elf.machine, 3)
         self.assertGreaterEqual(elf.entry, DOOM_BASE)
         self.assertLess(elf.entry, DOOM_LIMIT)
-        self.assertEqual(elf.phnum, 1)
-        p_type, p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, p_flags, p_align = elf.program_headers()[0]
-        self.assertEqual(p_type, 1)
-        self.assertEqual(p_offset, 0x1000)
-        self.assertEqual(p_vaddr, DOOM_BASE)
-        self.assertEqual(p_paddr, DOOM_BASE)
-        self.assertEqual(p_filesz, p_memsz)
-        self.assertLessEqual(p_paddr + p_memsz, DOOM_HEAP_START)
-        self.assertLessEqual(p_paddr + p_memsz, DOOM_LIMIT)
-        self.assertEqual(p_flags, 0x7)
-        self.assertEqual(p_align, 0x1000)
+        load_segments = elf.load_segments()
+        self.assertGreaterEqual(len(load_segments), 2)
+        self.assertEqual(load_segments[0][2], DOOM_BASE)
+        text_segments = [ph for ph in load_segments if ph[6] & PF_X]
+        writable_segments = [ph for ph in load_segments if ph[6] & PF_W]
+        self.assertTrue(text_segments)
+        self.assertTrue(writable_segments)
+        self.assertTrue(all((ph[6] & PF_W) == 0 for ph in text_segments))
+        for _p_type, p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, p_flags, p_align in load_segments:
+            self.assertEqual(p_offset % 0x1000, 0)
+            self.assertEqual(p_vaddr, p_paddr)
+            self.assertLessEqual(p_filesz, p_memsz)
+            self.assertLessEqual(p_paddr + p_memsz, DOOM_HEAP_START)
+            self.assertLessEqual(p_paddr + p_memsz, DOOM_LIMIT)
+            self.assertTrue(p_flags & PF_R)
+            self.assertEqual(p_align, 0x1000)
 
 
 class DiskImageTests(unittest.TestCase):
@@ -261,7 +278,7 @@ class DiskImageTests(unittest.TestCase):
             make_wad_image.MIN_OS_CREATED_FILE_CLUSTERS,
         )
 
-    def test_fat16_mutator_allocates_reuses_and_truncates_root_83_file(self):
+    def test_fat16_mutator_allocates_reads_truncates_and_deletes_root_83_file(self):
         image = bytearray(self.image)
         fs = make_wad_image.Fat16Image(image)
         name = b"DYNTEST TXT"
@@ -278,6 +295,9 @@ class DiskImageTests(unittest.TestCase):
         self.assertEqual(fs.fat_entry(chain[-1]), 0xFFFF)
         first_data = fs.data_lba * SECTOR_SIZE + (chain[0] - 2) * SECTOR_SIZE
         self.assertEqual(image[first_data:first_data + len(payload[:SECTOR_SIZE])], payload[:SECTOR_SIZE])
+        self.assertEqual(fs.root_file_metadata(name)["size"], len(payload))
+        self.assertFalse(fs.root_file_metadata(name)["protected"])
+        self.assertEqual(fs.read_root_file(name), payload)
         self.assertEqual(fs.free_data_clusters(), before_free - len(chain))
 
         reused = fs.create_or_reuse_root_entry(name)
@@ -291,8 +311,22 @@ class DiskImageTests(unittest.TestCase):
             self.assertEqual(fs.fat_entry(cluster), 0)
         self.assertEqual(fs.free_data_clusters(), before_free)
 
+        second_payload = b"second lifecycle payload" * 32
+        second_chain = fs.write_root_file(name, second_payload)
+        self.assertEqual(fs.read_root_file(name), second_payload)
+        deleted = fs.delete_root_file(name)
+        self.assertEqual(deleted, second_chain)
+        self.assertEqual(image[entry], 0xE5)
+        self.assertIsNone(fs.root_entry_offset(name))
+        for cluster in second_chain:
+            self.assertEqual(fs.fat_entry(cluster), 0)
+        self.assertEqual(fs.free_data_clusters(), before_free)
+        recreated = fs.create_or_reuse_root_entry(name)
+        self.assertEqual(recreated, entry)
+
     def test_fat16_mutator_rejects_invalid_and_protected_root_names(self):
         fs = make_wad_image.Fat16Image(bytearray(self.image))
+        self.assertTrue(fs.root_file_metadata(b"DOOM1   WAD")["protected"])
         for name in (
             b"TOO-LONG-NAME",
             b"BAD/NAMEEXT",
@@ -305,6 +339,8 @@ class DiskImageTests(unittest.TestCase):
             with self.subTest(name=name):
                 with self.assertRaises(ValueError):
                     fs.create_or_reuse_root_entry(name)
+                with self.assertRaises(ValueError):
+                    fs.delete_root_file(name)
 
     def test_wad_fixture_header_and_lumps(self):
         wad = self.cluster_bytes(2, 1024 * 1024)
@@ -434,10 +470,12 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("SMOKE_EXPECT_PROBE_GFX ?= 1", makefile)
         self.assertIn("SMOKE_REJECT_DOOMLOG ?=", makefile)
         self.assertIn("SMOKE_SENDKEYS ?=", makefile)
+        self.assertIn("SMOKE_INPUT_SCRIPT ?=", makefile)
         self.assertIn("SMOKE_REQUIRE_DOOM_PRESENT ?= 0", makefile)
         self.assertIn("SMOKE_REQUIRE_KEY_EVENT ?= 0", makefile)
         self.assertIn("SMOKE_REQUIRE_DOOM_GAMEPLAY ?= 0", makefile)
         self.assertIn("SMOKE_REQUIRE_REAL_WAD_PROOF ?= 0", makefile)
+        self.assertIn("SMOKE_REQUIRE_HUMAN_PLAYABILITY_PROOF ?= 0", makefile)
         self.assertIn("SMOKE_NC_TIMEOUT ?= 3", makefile)
         self.assertIn("SMOKE_QEMU_TIMEOUT ?= 30", makefile)
         self.assertIn("SMOKE_EARLY_SECONDS ?= 2", makefile)
@@ -466,17 +504,30 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("hashlib.sha1", real_wad_workflow)
         self.assertIn("SMOKE_EXPECT_PROBE_GFX=0", real_wad_workflow)
         self.assertIn("SMOKE_CAPTURE_GFX=0", real_wad_workflow)
-        self.assertIn("SMOKE_QEMU_TIMEOUT=45", real_wad_workflow)
+        self.assertIn("SMOKE_QEMU_TIMEOUT=75", real_wad_workflow)
         self.assertIn("SMOKE_EARLY_SECONDS=2", real_wad_workflow)
         self.assertIn("SMOKE_SETTLE_SECONDS=20", real_wad_workflow)
         self.assertIn("SMOKE_REQUIRE_DOOM_PRESENT=1", real_wad_workflow)
         self.assertIn("SMOKE_REQUIRE_DOOM_GAMEPLAY=1", real_wad_workflow)
         self.assertIn("SMOKE_REQUIRE_REAL_WAD_PROOF=1", real_wad_workflow)
+        self.assertIn("SMOKE_REQUIRE_HUMAN_PLAYABILITY_PROOF=1", real_wad_workflow)
         self.assertIn("SMOKE_REQUIRE_KEY_EVENT=1", real_wad_workflow)
-        self.assertIn('SMOKE_SENDKEYS="spc"', real_wad_workflow)
+        self.assertIn('SMOKE_INPUT_SCRIPT="after-fire:hold=ctrl:800', real_wad_workflow)
+        self.assertIn("after-move:hold=up:1200", real_wad_workflow)
+        self.assertIn("after-use:spc", real_wad_workflow)
+        self.assertIn("after-menu:esc", real_wad_workflow)
         self.assertIn("SMOKE_REJECT_DOOMLOG=", real_wad_workflow)
         self.assertIn("Assert real-WAD proof gates", real_wad_workflow)
-        self.assertIn("python3 tools/check_real_wad_proof.py build/status.txt", real_wad_workflow)
+        self.assertIn("Assert scripted human-playability gates", real_wad_workflow)
+        self.assertIn("python3 tools/check_real_wad_proof.py \\", real_wad_workflow)
+        self.assertIn("--baseline build/status.early.txt", real_wad_workflow)
+        self.assertIn("--fire build/status.after-fire.txt", real_wad_workflow)
+        self.assertIn("--movement build/status.after-move.txt", real_wad_workflow)
+        self.assertIn("--use build/status.after-use.txt", real_wad_workflow)
+        self.assertIn("--menu build/status.after-menu.txt", real_wad_workflow)
+        self.assertIn("build/status.txt", real_wad_workflow)
+        self.assertIn("python3 tools/check_human_playability_proof.py", real_wad_workflow)
+        self.assertIn('rm -f "$WAD_PATH"', real_wad_workflow)
         self.assertIn("timeout-minutes: 2", real_wad_workflow)
         self.assertIn("Show smoke diagnostics", real_wad_workflow)
         self.assertIn("build/status*.bin", real_wad_workflow)
@@ -488,6 +539,33 @@ class SourceContractTests(unittest.TestCase):
         self.assertNotIn("build/private", real_wad_workflow)
         os_upload_block = os_smoke_workflow.split("uses: actions/upload-artifact@v4", 1)[1]
         self.assertNotIn("build/gfx.bin", os_upload_block)
+
+    def test_real_wad_visual_proof_is_status_only(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        makefile = (ROOT / "Makefile").read_text()
+        checker = (ROOT / "tools" / "check_real_wad_proof.py").read_text()
+        workflow = (ROOT / ".github" / "workflows" / "real-wad-smoke.yml").read_text()
+
+        for source in (
+            "present_update_visual_proof:",
+            "present_palette_hash dd 0",
+            "present_frame_hash dd 0",
+            "present_nonzero_count dd 0",
+            "present_color_transition_count dd 0",
+            'smoke_doompal_text db " doompal="',
+            'smoke_doomframe_text db " doomframe="',
+            'smoke_doomnonzero_text db " doomnonzero="',
+            'smoke_doomcolors_text db " doomcolors="',
+            'smoke_doomsamp_text db " doomsamp="',
+        ):
+            self.assertIn(source, kernel)
+        for source in ("doompal=", "doomframe=", "doomnonzero=", "doomcolors=", "doomsamp="):
+            self.assertIn(f'grep -q "{source}"', makefile)
+        for source in ('"doompal"', '"doomframe"', '"doomnonzero"', '"doomcolors"', '"doomsamp"'):
+            self.assertIn(source, checker)
+        self.assertIn("_sample_field", checker)
+        self.assertIn("SMOKE_CAPTURE_GFX=0", workflow)
+        self.assertNotIn("build/gfx.bin", workflow)
 
     def test_user_probe_is_c_not_assembly_only(self):
         self.assertTrue((ROOT / "user" / "probe.c").exists())
@@ -601,15 +679,34 @@ class SourceContractTests(unittest.TestCase):
         finally:
             sys.path.pop(0)
 
-        valid = "Aurora OS v0.2 gameplay=OK gmap=00000101 leveltime=00000001 doompresent=00000002 doomlog=ready"
+        visual = "doompal=89ABCDEF doomframe=13572468 doomnonzero=00002000 doomcolors=00000080 doomsamp=00000001:00000002:00000003"
+        core = (
+            "exec=OK path=DOOM.ELF doom=OK doomrun=RUN doomopen=OK doomread=OK "
+            "gfx=OK pself=OK pg=ON pmm=OK vmm=OK libc=OK c=OK usr=OK wad=OK lmp=OK heap=OK "
+            "fb=LFB audio=NONE mouse=NONE doommode=00000000:00000000 "
+            "target=00000001 argv0=00000001 execsys=00000001/00000001/00000000/00000001/00000001/00000000 "
+            "doomwrite=00000000 doomseek=00000001 doomclose=00000000 doomsbrk=00000001 doomerr=00000000 "
+            "doomsound=00000000 sfxmix=00000000 voices=00000000 audioirq=00000000 ack8=00000000 ack16=00000000 "
+            "refill=00000000 half=00000000 mixwrap=00000000 mixover=00000000 mixunder=00000000 mixclip=00000000 "
+            "steal=00000000 pitchclamp=00000000 panclamp=00000000 mouseirq=00000000 mousepkt=00000000 mousepoll=00000000 "
+            "preempt=00000001 pattempt=00000001 pskip=00000000 free=00700000 ticks=00000001"
+        )
+        playable = "gstate=00000000 gtic=00000001 gflags=00000001 gaction=00000000 pflags=0000003F pbuttons=00000000 ppos=00010000:00020000 pdelta=00000100 keyirq=00000001 keyqueue=00000001 keypoll=00000001"
+        valid = f"Aurora OS v0.2 {core} gameplay=OK gmap=00000101 leveltime=00000001 doompresent=00000002 {visual} {playable} doomlog=ready"
         check_real_wad_proof.validate_status(valid)
 
         invalid_cases = (
-            "Aurora OS v0.2 gameplay=NO gmap=00000101 leveltime=00000001 doompresent=00000002",
-            "Aurora OS v0.2 gameplay=OK gmap=00000102 leveltime=00000001 doompresent=00000002",
-            "Aurora OS v0.2 gameplay=OK gmap=00000101 leveltime=00000000 doompresent=00000002",
-            "Aurora OS v0.2 gameplay=OK gmap=00000101 leveltime=00000001 doompresent=00000000",
-            "Aurora OS v0.2 gameplay=OK gmap=00000101 leveltime=00000001 doompresent=00000002 doomlog=PNAMES not found",
+            valid.replace("gameplay=OK", "gameplay=NO"),
+            valid.replace("gmap=00000101", "gmap=00000102"),
+            valid.replace("leveltime=00000001", "leveltime=00000000"),
+            valid.replace("doompresent=00000002", "doompresent=00000000"),
+            valid.replace("doompal=89ABCDEF", "doompal=00000000"),
+            valid.replace("doomframe=13572468", "doomframe=00000000"),
+            valid.replace("doomnonzero=00002000", "doomnonzero=00000400"),
+            valid.replace("doomcolors=00000080", "doomcolors=00000040"),
+            valid.replace("doomsamp=00000001:00000002:00000003", "doomsamp=00000100:00000002:00000003"),
+            valid.replace("doomlog=ready", "doomlog=PNAMES not found"),
+            valid.replace("pdelta=00000100", "pdelta=00000000"),
         )
         for status in invalid_cases:
             with self.subTest(status=status):
@@ -639,6 +736,7 @@ class SourceContractTests(unittest.TestCase):
     def test_kernel_has_dynamic_fat16_writable_file_path(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
         probe = (ROOT / "user" / "probe.c").read_text()
+        header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
         libc = (ROOT / "doom_port" / "libc.c").read_text()
         image_tool = (ROOT / "tools" / "make_wad_image.py").read_text()
         for source in (
@@ -648,14 +746,26 @@ class SourceContractTests(unittest.TestCase):
             "MIN_OS_CREATED_FILE_CLUSTERS",
             "allocate_cluster_chain",
             "free_cluster_chain",
+            "read_root_file",
+            "delete_root_file",
+            "root_file_metadata",
             "truncate_root_file",
         ):
             self.assertIn(source, image_tool)
         for source in (
-            "USER_FD_WRITABLE_BASE equ 4",
+            "USER_FD_BASE equ 3",
+            "USER_FD_COUNT equ 16",
+            "FD_KIND_WAD equ 1",
+            "FD_KIND_WRITABLE equ 2",
+            "O_ACCMODE equ 0x0003",
             "WRITABLE_KNOWN_FILE_COUNT equ 7",
             "WRITABLE_FILE_COUNT equ 16",
             "WRITABLE_GENERIC_CAPACITY equ 0x00040000",
+            "SYS_UNLINK equ 17",
+            "SYS_STAT equ 18",
+            "SYS_FSTAT equ 19",
+            "STAT_MODE_READONLY_REG equ STAT_S_IFREG | STAT_S_IRUSR",
+            "STAT_MODE_WRITABLE_REG equ STAT_S_IFREG | STAT_S_IRUSR | STAT_S_IWUSR",
             "ATA_CMD_WRITE_SECTORS equ 0x30",
             "ata_write_sector:",
             "fat_find_writable_files:",
@@ -663,32 +773,81 @@ class SourceContractTests(unittest.TestCase):
             "fat_parse_user_root83:",
             "fat_open_name_is_protected:",
             "fat_bind_found_writable_slot:",
+            "fat_bind_found_to_writable_slot:",
+            "fat_find_writable_slot_for_found:",
+            "fat_close_writable_fds_for_slot:",
+            "fat_clear_writable_slot:",
             "fat_alloc_cluster:",
             "fat_write_cluster_entry:",
             "fat_free_chain:",
             "fat_file_lba_for_write:",
+            "fat_file_lba_for_offset:",
+            "fat_delete_found_file:",
             "fat_truncate_writable_file:",
             "fat_update_writable_size:",
+            "stat_fill_user:",
+            "fd_reset_all:",
+            "fd_alloc:",
+            "fd_lookup:",
             "user_file_read:",
             "user_file_write:",
             "user_file_lseek:",
             "DEFAULT CFG",
             "DOOMSAV0DSG",
             "fat_open_name_buffer times 11 db 0",
+            "fd_offsets times USER_FD_COUNT dd 0",
+            "fd_kinds times USER_FD_COUNT db 0",
             "SYS_CLOSE equ 12",
         ):
             self.assertIn(source, kernel)
         open_path = kernel.split(".open:", 1)[1].split(".read:", 1)[0]
+        self.assertIn("and eax, O_ACCMODE", open_path)
+        self.assertIn("cmp eax, O_ACCMODE", open_path)
+        self.assertIn("test dword [syscall_open_flags], O_TRUNC | O_APPEND", open_path)
         self.assertIn("test dword [syscall_open_flags], O_WRONLY | O_RDWR | O_TRUNC | O_APPEND", open_path)
         self.assertIn("cmp edx, WRITABLE_KNOWN_FILE_COUNT", open_path)
-        self.assertIn("test eax, O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND", open_path)
         self.assertIn("call fat_parse_user_root83", open_path)
         self.assertIn("call fat_open_name_is_protected", open_path)
         self.assertIn("call fat_create_root_file", open_path)
         self.assertIn("call fat_bind_found_writable_slot", open_path)
+        self.assertIn("call fat_bind_found_to_writable_slot", open_path)
+        self.assertIn("call fd_alloc", open_path)
+        self.assertIn("mov byte [fd_kinds + eax], FD_KIND_WAD", open_path)
+        self.assertIn("mov byte [fd_kinds + eax], FD_KIND_WRITABLE", open_path)
+        self.assertNotIn("USER_FD_WRITABLE_BASE", kernel)
         writer = kernel.split("user_file_write:", 1)[1].split("user_file_lseek:", 1)[0]
         self.assertIn("call fat_file_lba_for_write", writer)
         self.assertNotIn("call fat_file_lba_for_offset", writer)
+        self.assertIn("and eax, O_ACCMODE", writer)
+        self.assertIn("test dword [fd_flags + esi * 4], O_APPEND", writer)
+        self.assertIn("fd_offsets", writer)
+        reader = kernel.split(".read:", 1)[1].split(".lseek:", 1)[0]
+        self.assertIn("call fd_lookup", reader)
+        self.assertIn("cmp byte [fd_kinds + eax], FD_KIND_WAD", reader)
+        user_reader = kernel.split("user_file_read:", 1)[1].split("user_file_write:", 1)[0]
+        self.assertIn("call fat_file_lba_for_offset", user_reader)
+        self.assertNotIn("call fat_file_lba_for_write", user_reader)
+        unlink_path = kernel.split(".unlink:", 1)[1].split(".stat:", 1)[0]
+        self.assertIn("call fat_open_name_is_protected", unlink_path)
+        self.assertIn("call fat_find_file", unlink_path)
+        self.assertIn("call fat_find_writable_slot_for_found", unlink_path)
+        self.assertIn("call fat_delete_found_file", unlink_path)
+        self.assertIn("call fat_close_writable_fds_for_slot", unlink_path)
+        self.assertIn("call fat_clear_writable_slot", unlink_path)
+        stat_path = kernel.split(".stat:", 1)[1].split(".fstat:", 1)[0]
+        self.assertIn("call stat_fill_user", stat_path)
+        self.assertIn("STAT_MODE_READONLY_REG", stat_path)
+        self.assertIn("STAT_MODE_WRITABLE_REG", stat_path)
+        fstat_path = kernel.split(".fstat:", 1)[1].split(".exec:", 1)[0]
+        self.assertIn("call fd_lookup", fstat_path)
+        self.assertIn("call stat_fill_user", fstat_path)
+        self.assertIn("cmp byte [fd_kinds + eax], FD_KIND_WAD", fstat_path)
+        self.assertIn("VIBE_SYS_UNLINK = 17", header)
+        self.assertIn("VIBE_SYS_STAT = 18", header)
+        self.assertIn("VIBE_SYS_FSTAT = 19", header)
+        self.assertIn("vibe_syscall3(VIBE_SYS_UNLINK", libc)
+        self.assertIn("vibe_syscall3(VIBE_SYS_STAT", libc)
+        self.assertIn("vibe_syscall3(VIBE_SYS_FSTAT", libc)
         self.assertIn("PROBE_FLAG_WRITABLE_FILE = 0x40u", probe)
         self.assertIn("DEFAULT.CFG", probe)
         self.assertIn('return "DEFAULT.CFG";', libc)
@@ -904,7 +1063,11 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("mov edx, [doom_present_count]", kernel)
         self.assertIn("write_smoke_status:", kernel)
         self.assertIn("VIBE_SYS_PRESENT = 10", header)
-        self.assertIn("vibe_syscall3(VIBE_SYS_PRESENT", platform)
+        self.assertIn("VIBE_DISPLAY_FD = 1", header)
+        self.assertIn("VIBE_IOCTL_PRESENT_INDEXED = 0x00005602u", header)
+        self.assertIn("typedef struct vibe_present_indexed", header)
+        self.assertIn("vibe_present_indexed_t present", platform)
+        self.assertIn("ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_PRESENT_INDEXED", platform)
         self.assertIn("PROBE_FLAG_PRESENT = 0x20u", probe)
         self.assertIn("SYS_PRESENT = 10", probe)
         self.assertIn('grep -q "gfx=OK"', makefile)
@@ -912,7 +1075,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('if [ "$(SMOKE_REQUIRE_DOOM_PRESENT)" = "1" ]; then', makefile)
         self.assertIn("/doompresent=([0-9A-F]{8})/", makefile)
         self.assertIn('hex($$1) > 0; END { exit($$ok ? 0 : 1) }', makefile)
-        self.assertIn("pmemsave 0x9d000 1024", smoke_runner)
+        self.assertIn("pmemsave 0x9d000 2048", smoke_runner)
         self.assertIn("pmemsave 0xa0000 64000", smoke_runner)
 
     def test_doom_keyboard_events_flow_through_kernel_syscall(self):
@@ -999,7 +1162,8 @@ class SourceContractTests(unittest.TestCase):
             self.assertIn(source, header)
         self.assertIn("vibe_syscall3(VIBE_SYS_POLL_MOUSE", platform)
         self.assertIn("event.type = ev_mouse", platform)
-        self.assertIn("vibe_mouse_delta", platform)
+        self.assertIn("vibe_doom_translate_mouse_event", platform)
+        self.assertIn("doom_port/input.c", makefile)
         self.assertIn('grep -Eq "mouse=(OK|NONE)"', makefile)
         self.assertIn('grep -q "mouseirq="', makefile)
         self.assertIn('grep -q "mousepkt="', makefile)
@@ -1022,8 +1186,10 @@ class SourceContractTests(unittest.TestCase):
             "SB16_DSP_SPEAKER_ON equ 0xd1",
             "SB16_DSP_EXIT_8BIT_AUTO equ 0xda",
             "SB16_DSP_SET_TIME_CONSTANT equ 0x40",
+            "SB16_DSP_SET_OUTPUT_RATE equ 0x41",
             "SB16_DSP_SET_BLOCK_SIZE equ 0x48",
-            "SB16_DSP_8BIT_AUTO_OUT equ 0x1c",
+            "SB16_DSP_8BIT_AUTO_OUT equ 0xc6",
+            "SB16_DSP_MODE_UNSIGNED_STEREO equ 0x20",
             "SB16_DMA8_CHANNEL equ 1",
             "SB16_DMA16_CHANNEL equ 5",
             "SB16_IRQ_LINE equ 5",
@@ -1064,8 +1230,10 @@ class SourceContractTests(unittest.TestCase):
             "mov al, DMA8_CH1_AUTO_READ_MODE",
             "mov al, SB16_DSP_SPEAKER_ON",
             "mov al, SB16_DSP_SET_TIME_CONSTANT",
+            "mov al, SB16_DSP_SET_OUTPUT_RATE",
             "mov al, SB16_DSP_SET_BLOCK_SIZE",
             "mov al, SB16_DSP_8BIT_AUTO_OUT",
+            "mov al, SB16_DSP_MODE_UNSIGNED_STEREO",
             "mov dx, SB16_DSP_READ_STATUS",
             "mov dx, SB16_DSP_ACK16",
             'smoke_doomsound_text db " doomsound="',

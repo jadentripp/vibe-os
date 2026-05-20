@@ -49,6 +49,25 @@ to Ring 3 at process start. `SYS_SBRK` marks the newly covered heap pages with
 the user bit and flushes the active CR3 before returning to user mode. The
 syscall validator also checks heap pointers against the current process `brk`.
 
+`SYS_MMAP` currently shares that heap window rather than allocating independent
+VM objects. It accepts only anonymous/private mappings, rounds the requested
+length to whole pages, marks the new pages in the current process page
+directory, zero-fills the returned range, and advances `brk`. `SYS_MUNMAP`
+validates that the range belongs to the current process, then returns success
+without reclaiming pages. That keeps the ABI useful for ports that expect
+`mmap` as an allocator while avoiding fake file mapping or clone-era lifetime
+semantics.
+
+## Process Lifecycle
+
+Process records now carry enough saved-frame state for both timer preemption
+and syscall-driven exec handoff. `process_seed_initial_user_context` initializes
+the saved Ring 3 frame for a fresh target, marks it READY, and sets
+`PROC_FLAG_IRQ_FRAME_VALID`. `SYS_EXEC` uses that helper, writes an argv-shaped
+stack, patches the interrupted syscall frame, marks the caller EXITED, and then
+activates the target process record. Failure paths before frame patch leave the
+current process in place.
+
 ## Permissions
 
 The kernel records source-level region intent with `VM_REGION_READ`,
@@ -58,10 +77,12 @@ ELF prepare path reads each `PT_LOAD` program header's `p_flags` and marks pages
 without `ELF_PF_W` as user-readable but not writable. Writable segments, stacks,
 and pages newly exposed by `SYS_SBRK` are marked with `PTE_WRITE`.
 
-The current repo linker still emits one `PF_R|PF_W|PF_X` load segment for both
-the C probe and Doom. That keeps today's packed image/data pages writable by
-necessity, while preserving the page-table contract needed for a future
-multi-segment linker or loader to make text pages read/execute-only.
+The repo linker emits separate `PT_LOAD` groups for executable, read-only, and
+writable allocated sections where those groups exist. Text-bearing segments are
+`PF_R|PF_X` and omit `PF_W`, while data and bss are carried by `PF_R|PF_W`
+segments. The user ELF prepare paths honor those flags when marking process
+pages, so text pages no longer need to remain writable just because data exists
+in the same executable.
 
 ## Guards
 
@@ -79,11 +100,11 @@ are adjacent and the Doom heap grows up to the stack bottom.
   interrupt frames: the scheduler can save the interrupted task, pick another
   READY task with a valid saved frame, switch CR3 through `process_activate`,
   load that task's kernel stack into `tss_esp0`, rewrite the live IRQ frame,
-  and resume it with `iretd`. The source-level self-test seeds two non-Doom
-  probe frames so the selector must prove a legitimate alternate preemption
-  target.
-- Page-table structures are fixed low-memory pages, not dynamically allocated
-  or reclaimed with process lifetime.
-- Exact Doom text/data separation is blocked by the current repo linker, which
-  emits a single writable/executable `PT_LOAD` instead of separate text and data
-  program headers.
+  and resume it with `iretd`. The source-level self-test now uses the same
+  seeded-context helper as exec for the alternate probe, so a process that was
+  launched rather than timer-saved has the same scheduler-visible frame shape.
+- Page-table structures are fixed low-memory page-table pages, not dynamically
+  allocated or reclaimed with process lifetime.
+- Exact execute-disable enforcement is still blocked by the current 32-bit x86
+  paging mode: `VM_REGION_EXEC` and `PF_X` are metadata until the kernel grows
+  hardware NX or a different paging mode. Write protection is enforced today.
