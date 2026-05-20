@@ -737,6 +737,12 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
     if fs.root_file_metadata(proof_name) is not None:
         raise ValueError("dynamic FAT proof scratch file already exists")
 
+    def remount_and_validate():
+        mounted = Fat16Image(fs.image)
+        mounted.validate_fat_copies_match()
+        mounted.validate_allocated_clusters_reachable()
+        return mounted
+
     fs.validate_fat_copies_match()
     fs.validate_allocated_clusters_reachable()
     before_free = fs.free_data_clusters()
@@ -756,8 +762,12 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
         raise ValueError("dynamic FAT proof initial write did not round-trip")
     if fs.free_data_clusters() != before_free - len(first_chain):
         raise ValueError("dynamic FAT proof initial allocation did not consume the expected clusters")
-    fs.validate_fat_copies_match()
-    fs.validate_allocated_clusters_reachable()
+    remounted = remount_and_validate()
+    remounted_meta = remounted.root_file_metadata(proof_name)
+    if remounted_meta is None or remounted_meta["cluster"] != first_chain[0]:
+        raise ValueError("dynamic FAT proof initial write did not survive remount metadata")
+    if remounted.read_root_file(proof_name) != payload:
+        raise ValueError("dynamic FAT proof initial write did not survive remount readback")
 
     sparse_offset = cluster_bytes * 3 + 17
     grown_chain = fs.write_root_file_at(proof_name, sparse_offset, b"END")
@@ -774,8 +784,11 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
         raise ValueError("dynamic FAT proof sparse write did not grow the FAT chain")
     if fs.free_data_clusters() != before_free - len(grown_chain):
         raise ValueError("dynamic FAT proof sparse growth did not consume the expected clusters")
-    fs.validate_fat_copies_match()
-    fs.validate_allocated_clusters_reachable()
+    remounted = remount_and_validate()
+    if remounted.root_file_metadata(proof_name)["size"] != len(grown):
+        raise ValueError("dynamic FAT proof sparse write did not survive remount size")
+    if remounted.read_root_file(proof_name) != grown:
+        raise ValueError("dynamic FAT proof sparse write did not survive remount readback")
 
     shrunk_size = cluster_bytes + 1
     shrunk_chain = fs.resize_root_file(proof_name, shrunk_size)
@@ -793,8 +806,11 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
     clear_end = fs.cluster_offset(shrunk_chain[-1]) + cluster_bytes
     if fs.image[clear_start:clear_end] != b"\0" * (cluster_bytes - 1):
         raise ValueError("dynamic FAT proof shrink did not zero the truncated tail bytes")
-    fs.validate_fat_copies_match()
-    fs.validate_allocated_clusters_reachable()
+    remounted = remount_and_validate()
+    if remounted.cluster_chain(remounted.root_file_metadata(proof_name)["cluster"]) != shrunk_chain:
+        raise ValueError("dynamic FAT proof shrink did not survive remount chain")
+    if remounted.read_root_file(proof_name) != shrunk:
+        raise ValueError("dynamic FAT proof shrink did not survive remount readback")
 
     truncated = fs.truncate_root_file(proof_name)
     if truncated != shrunk_chain:
@@ -806,8 +822,12 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
         raise ValueError("dynamic FAT proof truncate did not leave an empty file")
     if fs.free_data_clusters() != before_free:
         raise ValueError("dynamic FAT proof truncate did not restore the free-cluster budget")
-    fs.validate_fat_copies_match()
-    fs.validate_allocated_clusters_reachable()
+    remounted = remount_and_validate()
+    remounted_meta = remounted.root_file_metadata(proof_name)
+    if remounted_meta is None or remounted_meta["cluster"] != 0 or remounted_meta["size"] != 0:
+        raise ValueError("dynamic FAT proof truncate did not survive remount metadata")
+    if remounted.read_root_file(proof_name) != b"":
+        raise ValueError("dynamic FAT proof truncate did not survive remount readback")
 
     replacement = b"recreated after truncate\n"
     replacement_chain = fs.write_root_file(proof_name, replacement)
@@ -815,6 +835,11 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
         raise ValueError("dynamic FAT proof rewrite did not reuse the same live root entry")
     if fs.read_root_file(proof_name) != replacement:
         raise ValueError("dynamic FAT proof rewrite did not round-trip")
+    remounted = remount_and_validate()
+    if remounted.root_file_metadata(proof_name)["entry"] != first_entry:
+        raise ValueError("dynamic FAT proof rewrite did not survive remount root-slot reuse")
+    if remounted.read_root_file(proof_name) != replacement:
+        raise ValueError("dynamic FAT proof rewrite did not survive remount readback")
     deleted = fs.delete_root_file(proof_name)
     if deleted != replacement_chain:
         raise ValueError("dynamic FAT proof delete did not free the replacement chain")
@@ -822,6 +847,9 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
         raise ValueError("dynamic FAT proof delete left a live root entry")
     if fs.free_data_clusters() != before_free:
         raise ValueError("dynamic FAT proof delete did not restore the free-cluster budget")
+    remounted = remount_and_validate()
+    if remounted.root_file_metadata(proof_name) is not None:
+        raise ValueError("dynamic FAT proof delete did not survive remount")
     reused_entry = fs.create_or_reuse_root_entry(proof_name)
     if reused_entry != first_entry:
         raise ValueError("dynamic FAT proof create did not reuse the deleted root slot")
@@ -836,6 +864,7 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
         "grown_clusters": len(grown_chain),
         "shrunk_clusters": len(shrunk_chain),
         "free_clusters": before_free,
+        "remount_readback": True,
     }
 
 

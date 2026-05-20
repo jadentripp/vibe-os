@@ -265,6 +265,29 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertIn("dynamic FAT allocation/free/truncate proof=OK", summary[0])
         self.assertIn("scratch=FATPROOF.TMP", summary[0])
         self.assertIn("clusters=2/4/2", summary[0])
+        self.assertIn("remount=OK", summary[0])
+
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        self.assertIsNone(fs.root_file_metadata(make_wad_image.DYNAMIC_FAT_PROOF_NAME))
+
+    def test_fresh_doom_state_entries_are_unallocated_not_preallocated(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+
+        for name in (
+            make_wad_image.WRITABLE_DEFAULT_NAME,
+            *make_wad_image.WRITABLE_SAVE_NAMES,
+        ):
+            with self.subTest(name=name):
+                meta = fs.root_file_metadata(name)
+                self.assertIsNotNone(meta)
+                self.assertEqual(meta["cluster"], 0)
+                self.assertEqual(meta["size"], 0)
+                self.assertEqual(fs.read_root_file(name), b"")
+
+        fs.validate_fat_copies_match()
+        fs.validate_allocated_clusters_reachable()
 
     def test_checker_rejects_dynamic_fat_proof_when_root_directory_is_full(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
@@ -1097,6 +1120,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertIn("DEFAULT.CFG bytes=", result.stdout)
         self.assertIn("DOOMSAV1.DSG bytes=", result.stdout)
         self.assertIn("dynamic FAT allocation/free/truncate proof=OK", result.stdout)
+        self.assertIn("remount=OK", result.stdout)
         self.assertIn("survived-reboot", result.stdout)
         self.assertIn("reboot status runtime=OK", result.stdout)
         self.assertIn("default write status closed=OK", result.stdout)

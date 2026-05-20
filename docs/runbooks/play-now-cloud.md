@@ -8,15 +8,31 @@ to play from the local checkout:
 ./tools/play_now_codespaces.sh
 ```
 
-The launcher checks GitHub CLI auth, repo/ref selection, git cleanliness,
-upstream sync, machine selection, and port `6080`, then creates or reuses a
-disposable GitHub Codespace for the current branch. It starts
+When the local checkout is dirty, or when another worker owns the current
+workspace, launch from a pushed repo/ref instead:
+
+```sh
+VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/doom-gameplay-proof \
+  ./tools/play_now_codespaces.sh
+```
+
+or:
+
+```sh
+./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref jt/doom-gameplay-proof
+```
+
+Explicit repo/ref mode verifies the GitHub repo and branch before Codespaces
+creation and ignores unrelated local dirt. Inferred current-branch mode still
+requires a clean checkout synced with upstream, because that mode uses local git
+state as proof of what will run remotely.
+
+The launcher checks GitHub CLI auth, repo/ref selection, machine selection, and
+port `6080`, then creates or reuses a disposable GitHub Codespace. It starts
 `./tools/play_now_remote.sh` inside the Codespace, waits for noVNC, makes port
 `6080` private, and opens/prints the noVNC URL. The Mac only controls
 Codespaces and opens a browser; it does not run QEMU, fetch the WAD, build
-`disk.img`, or copy play artifacts back. The launcher refuses a dirty checkout
-or unpushed current branch because the remote Codespace can only run pushed git
-state.
+`disk.img`, or copy play artifacts back.
 
 If the launcher reports that GitHub CLI cannot access Codespaces, run:
 
@@ -28,6 +44,8 @@ Optional dry run:
 
 ```sh
 ./tools/play_now_codespaces.sh --preflight
+VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/doom-gameplay-proof \
+  ./tools/play_now_codespaces.sh --preflight --no-open
 ```
 
 To use a different noVNC port, set `NOVNC_PORT` on the Mac before the launch

@@ -20,6 +20,7 @@ class PlayNowRemoteTests(unittest.TestCase):
         bin_dir = Path(tmp) / "bin"
         bin_dir.mkdir()
         gh_log = Path(tmp) / "gh.log"
+        git_log = Path(tmp) / "git.log"
         self._write_stub_tool(
             bin_dir,
             "gh",
@@ -29,6 +30,14 @@ class PlayNowRemoteTests(unittest.TestCase):
                 set -euo pipefail
                 echo "$*" >> "$GH_LOG"
                 if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+                  exit 0
+                fi
+                if [ "$1" = "repo" ] && [ "$2" = "view" ]; then
+                  if [ "${FAKE_REPO_MISSING:-0}" = "1" ]; then
+                    echo "repository not found" >&2
+                    exit 1
+                  fi
+                  echo "jadentripp/vibe-os"
                   exit 0
                 fi
                 if [ "$1" = "api" ]; then
@@ -86,7 +95,16 @@ class PlayNowRemoteTests(unittest.TestCase):
                 """\
                 #!/usr/bin/env bash
                 set -euo pipefail
+                echo "$*" >> "$GIT_LOG"
                 mode="${FAKE_GIT_MODE:-clean}"
+                if [ "$1" = "ls-remote" ]; then
+                  if [ "${FAKE_REF_MISSING:-0}" = "1" ]; then
+                    exit 2
+                  fi
+                  ref="${@: -1}"
+                  printf '0123456789abcdef0123456789abcdef01234567\\trefs/heads/%s\\n' "$ref"
+                  exit 0
+                fi
                 case "$*" in
                   "rev-parse --is-inside-work-tree")
                     exit 0
@@ -124,10 +142,11 @@ class PlayNowRemoteTests(unittest.TestCase):
             {
                 "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
                 "GH_LOG": str(gh_log),
+                "GIT_LOG": str(git_log),
                 "FAKE_GIT_MODE": git_mode,
             }
         )
-        return env, gh_log
+        return env, gh_log, git_log
 
     def test_codespaces_launcher_is_one_command_and_mac_safe(self):
         script = (ROOT / "tools" / "play_now_codespaces.sh").read_text()
@@ -152,6 +171,9 @@ class PlayNowRemoteTests(unittest.TestCase):
             "machine: ${CODESPACE_MACHINE:-default}",
             "noVNC port: $NOVNC_PORT (private)",
             "GitHub Codespaces API: accessible",
+            "GitHub repo/ref: verified",
+            "explicit GitHub repo/ref selected; local checkout dirt is ignored",
+            "clean and pushed for the inferred current branch",
             "local artifact transfer: none",
             "dry-run: Codespace was not created or modified",
             "gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" NOVNC_PORT=\"$NOVNC_PORT\" bash -lc \"$payload\"",
@@ -188,7 +210,7 @@ class PlayNowRemoteTests(unittest.TestCase):
 
     def test_codespaces_launcher_dry_run_does_not_create_or_mutate_codespaces(self):
         with tempfile.TemporaryDirectory() as tmp:
-            env, gh_log = self._codespaces_stub_env(tmp)
+            env, gh_log, git_log = self._codespaces_stub_env(tmp)
             result = subprocess.run(
                 [
                     "bash",
@@ -214,20 +236,24 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("ref: jt/doom-gameplay-proof", result.stdout)
             self.assertIn("machine: basicLinux32gb", result.stdout)
             self.assertIn("noVNC port: 6080 (private)", result.stdout)
+            self.assertIn("GitHub repo/ref: verified", result.stdout)
+            self.assertIn("git state: explicit GitHub repo/ref selected; local checkout dirt is ignored", result.stdout)
             self.assertIn("local artifact transfer: none", result.stdout)
             self.assertIn("dry-run: Codespace was not created or modified", result.stdout)
             self.assertEqual(result.stderr, "")
 
             log = gh_log.read_text()
             self.assertIn("auth status -h github.com", log)
+            self.assertIn("repo view jadentripp/vibe-os --json nameWithOwner -q .nameWithOwner", log)
             self.assertIn("api -H Accept: application/vnd.github+json /user/codespaces?per_page=1", log)
             self.assertNotIn("codespace create", log)
             self.assertNotIn("codespace ssh", log)
             self.assertNotIn("codespace ports", log)
+            self.assertIn("ls-remote --heads https://github.com/jadentripp/vibe-os.git jt/doom-gameplay-proof", git_log.read_text())
 
     def test_codespaces_launcher_requires_codespaces_api_scope_before_create(self):
         with tempfile.TemporaryDirectory() as tmp:
-            env, gh_log = self._codespaces_stub_env(tmp)
+            env, gh_log, _ = self._codespaces_stub_env(tmp)
             env["FAKE_CODESPACE_SCOPE_FAIL"] = "1"
             result = subprocess.run(
                 [
@@ -254,7 +280,7 @@ class PlayNowRemoteTests(unittest.TestCase):
 
     def test_codespaces_launcher_default_display_name_fits_gh_limit(self):
         with tempfile.TemporaryDirectory() as tmp:
-            env, _ = self._codespaces_stub_env(tmp)
+            env, _, _ = self._codespaces_stub_env(tmp)
             result = subprocess.run(
                 [
                     "bash",
@@ -282,7 +308,7 @@ class PlayNowRemoteTests(unittest.TestCase):
 
     def test_codespaces_launcher_passes_custom_novnc_port_and_opens_private_vnc_path(self):
         with tempfile.TemporaryDirectory() as tmp:
-            env, gh_log = self._codespaces_stub_env(tmp)
+            env, gh_log, _ = self._codespaces_stub_env(tmp)
             env.update(
                 {
                     "NOVNC_PORT": "6173",
@@ -331,7 +357,7 @@ class PlayNowRemoteTests(unittest.TestCase):
 
     def test_codespaces_launcher_fails_closed_when_novnc_port_cannot_be_marked_private(self):
         with tempfile.TemporaryDirectory() as tmp:
-            env, gh_log = self._codespaces_stub_env(tmp)
+            env, gh_log, _ = self._codespaces_stub_env(tmp)
             env.update(
                 {
                     "EXPECTED_NOVNC_PORT": "6080",
@@ -361,13 +387,10 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertNotIn("Open Doom noVNC", result.stdout)
             self.assertIn("codespace ports visibility 6080:private", gh_log.read_text())
 
-    def test_codespaces_launcher_refuses_dirty_or_unpushed_state_before_codespaces(self):
-        for mode, message in (
-            ("dirty", "local git working tree is dirty"),
-            ("ahead", "differs from upstream"),
-        ):
+    def test_codespaces_launcher_explicit_repo_ref_ignores_dirty_or_unpushed_local_checkout(self):
+        for mode in ("dirty", "ahead"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
-                env, gh_log = self._codespaces_stub_env(tmp, git_mode=mode)
+                env, gh_log, git_log = self._codespaces_stub_env(tmp, git_mode=mode)
                 result = subprocess.run(
                     [
                         "bash",
@@ -377,6 +400,101 @@ class PlayNowRemoteTests(unittest.TestCase):
                         "jadentripp/vibe-os",
                         "--ref",
                         "jt/doom-gameplay-proof",
+                        "--no-open",
+                    ],
+                    cwd=ROOT,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                )
+
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(
+                    "git state: explicit GitHub repo/ref selected; local checkout dirt is ignored",
+                    result.stdout,
+                )
+                self.assertEqual(result.stderr, "")
+                self.assertIn(
+                    "ls-remote --heads https://github.com/jadentripp/vibe-os.git jt/doom-gameplay-proof",
+                    git_log.read_text(),
+                )
+                log = gh_log.read_text()
+                self.assertIn("repo view jadentripp/vibe-os", log)
+                self.assertNotIn("codespace create", log)
+                self.assertNotIn("codespace ssh", log)
+
+    def test_codespaces_launcher_env_repo_ref_ignores_dirty_local_checkout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env, _, _ = self._codespaces_stub_env(tmp, git_mode="dirty")
+            env.update(
+                {
+                    "VIBE_REPO": "jadentripp/vibe-os",
+                    "VIBE_REF": "jt/doom-gameplay-proof",
+                }
+            )
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "tools" / "play_now_codespaces.sh"),
+                    "--dry-run",
+                    "--no-open",
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("repo: jadentripp/vibe-os", result.stdout)
+            self.assertIn("ref: jt/doom-gameplay-proof", result.stdout)
+            self.assertIn(
+                "git state: explicit GitHub repo/ref selected; local checkout dirt is ignored",
+                result.stdout,
+            )
+
+    def test_codespaces_launcher_refuses_missing_remote_branch_before_codespaces(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env, gh_log, _ = self._codespaces_stub_env(tmp)
+            env["FAKE_REF_MISSING"] = "1"
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "tools" / "play_now_codespaces.sh"),
+                    "--dry-run",
+                    "--repo",
+                    "jadentripp/vibe-os",
+                    "--ref",
+                    "jt/not-pushed",
+                    "--no-open",
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("GitHub branch 'jt/not-pushed' was not found", result.stderr)
+            log = gh_log.read_text()
+            self.assertIn("repo view jadentripp/vibe-os", log)
+            self.assertNotIn("/user/codespaces?per_page=1", log)
+            self.assertNotIn("codespace create", log)
+
+    def test_codespaces_launcher_refuses_dirty_or_unpushed_inferred_branch_before_codespaces(self):
+        for mode, message in (
+            ("dirty", "local git working tree is dirty"),
+            ("ahead", "differs from upstream"),
+        ):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                env, gh_log, _ = self._codespaces_stub_env(tmp, git_mode=mode)
+                result = subprocess.run(
+                    [
+                        "bash",
+                        str(ROOT / "tools" / "play_now_codespaces.sh"),
+                        "--dry-run",
+                        "--repo",
+                        "jadentripp/vibe-os",
                     ],
                     cwd=ROOT,
                     env=env,
