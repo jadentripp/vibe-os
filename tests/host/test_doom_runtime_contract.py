@@ -161,6 +161,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn('raise ValueError("missing kernel entry symbol: start")', linker)
         self.assertIn('globals_by_name["start"].address()', linker)
         self.assertIn("doom_port/start.c", makefile)
+        self.assertIn("-fno-strict-aliasing", makefile)
 
         entry = u32(elf, 24)
         self.assertGreaterEqual(entry, DOOM_BASE)
