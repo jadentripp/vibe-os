@@ -295,12 +295,22 @@ jobs:
             fi
 
             if [ -z "$failure_stage" ]; then
+              proof_dir="$RUNNER_TEMP/real-wad-soak-proof-$attempt"
+              rm -rf "$proof_dir"
+              mkdir -p "$proof_dir"
+              cp build/kernel.elf build/user_probe.elf build/doom.elf build/doom.symbols "$proof_dir"/
+              cp build/status*.txt build/status*.bin "$proof_dir"/
+              cp build/*.log "$proof_dir"/ 2>/dev/null || true
+              cp build/gameplay-proof.json "$proof_dir"/
+              if [ -f build/audio-proof.json ]; then
+                cp build/audio-proof.json "$proof_dir"/
+              fi
               extra_args=(--require-gameplay-proof)
               if [ "$AUDIBLE_AUDIO_PROOF" = "true" ]; then
                 extra_args+=(--require-audible-proof)
               fi
               python3 tools/check_cloud_playability_artifacts.py \
-                build \
+                "$proof_dir" \
                 --write-soak-attempt "$attempt_json" \
                 --soak-attempt-index "$attempt" \
                 "${extra_args[@]}"
