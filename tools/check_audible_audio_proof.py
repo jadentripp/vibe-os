@@ -118,8 +118,9 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         raise AssertionError(f"status gameplay=OK is required, got {fields.get('gameplay')!r}")
     if fields.get("doomrun") not in ("RUN", "EXIT"):
         raise AssertionError(f"status doomrun=RUN or EXIT is required, got {fields.get('doomrun')!r}")
-    for counter in ("doomsound", "audioirq", "refill", "sfxmix", "musicmix", "musicpos"):
+    for counter in ("doomsound", "audioirq", "refill", "sfxmix", "sfxsrc", "musicmix", "musicpos"):
         _hex_positive(fields, counter)
+    _hex_positive(fields, "sfxsrc")
     for counter in ("musicbuf", "musicunder", "musicdrops"):
         _hex_value(fields, counter)
     _hex_positive(fields, "dma")
@@ -132,6 +133,14 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         raise AssertionError("status play= must prove SB16 playback was started")
     if _hex_tuple(fields, "voiceq", 3)[0] == 0:
         raise AssertionError("status voiceq= must prove at least one audio voice was queued")
+    if _hex_tuple(fields, "sfxq", 4)[0] == 0:
+        raise AssertionError("status sfxq= must prove at least one non-music Doom SFX was submitted")
+    sfx_submit, sfx_output = _hex_tuple(fields, "sfxbytes", 2)
+    if sfx_submit == 0 or sfx_output == 0:
+        raise AssertionError("status sfxbytes= must prove submitted and output SFX PCM bytes")
+    _, sfx_rate, sfx_length = _hex_tuple(fields, "sfxlast", 3)
+    if sfx_rate == 0 or sfx_length == 0:
+        raise AssertionError("status sfxlast= must expose a nonzero SFX sample rate and padded length")
     if _hex_tuple(fields, "musicq", 2)[0] == 0:
         raise AssertionError("status musicq= must prove the music voice was queued")
     if fields.get("musicstream") not in check_audio_continuity_proof.MUSIC_STREAM_MODES:
@@ -152,6 +161,10 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         "ack16": fields.get("ack16", "00000000"),
         "refill": fields["refill"],
         "sfxmix": fields["sfxmix"],
+        "sfxq": fields["sfxq"],
+        "sfxbytes": fields["sfxbytes"],
+        "sfxsrc": fields["sfxsrc"],
+        "sfxlast": fields["sfxlast"],
         "sfxvoices": fields["sfxvoices"],
         "musicmix": fields["musicmix"],
         "musicloop": fields.get("musicloop", "00000000"),
@@ -220,8 +233,17 @@ def _continuity_summary(
     final_fields = snapshot_fields["final"]
     progress = {
         name: _counter_delta(baseline_fields, final_fields, name)
-        for name in ("doomsound", "audioirq", "refill", "sfxmix", "musicmix", "musicpos")
+        for name in ("doomsound", "audioirq", "refill", "sfxmix", "sfxsrc", "musicmix", "musicpos")
     }
+    progress["sfxq_submit"] = _tuple_counter_delta(
+        baseline_fields, final_fields, "sfxq", 4, 0
+    )
+    progress["sfxbytes_submit"] = _tuple_counter_delta(
+        baseline_fields, final_fields, "sfxbytes", 2, 0
+    )
+    progress["sfxbytes_output"] = _tuple_counter_delta(
+        baseline_fields, final_fields, "sfxbytes", 2, 1
+    )
     progress["voiceq_update"] = _tuple_counter_delta(
         baseline_fields, final_fields, "voiceq", 3, 2
     )
@@ -248,6 +270,25 @@ def _continuity_summary(
             baseline_fields,
             snapshot_fields["fire"],
             "sfxmix",
+        )["delta"],
+        "sfxsrc_delta": _counter_delta(
+            baseline_fields,
+            snapshot_fields["fire"],
+            "sfxsrc",
+        )["delta"],
+        "sfxsubmit_delta": _tuple_counter_delta(
+            baseline_fields,
+            snapshot_fields["fire"],
+            "sfxq",
+            4,
+            0,
+        )["delta"],
+        "sfxoutput_delta": _tuple_counter_delta(
+            baseline_fields,
+            snapshot_fields["fire"],
+            "sfxbytes",
+            2,
+            1,
         )["delta"],
         "musicmix_delta": _counter_delta(
             baseline_fields,
@@ -326,6 +367,12 @@ def _continuity_summary(
             "non_music_sfx": {
                 "counter": "sfxmix",
                 "delta": progress["sfxmix"]["delta"],
+                "source_counter": "sfxsrc",
+                "source_delta": progress["sfxsrc"]["delta"],
+                "submit_counter": "sfxq[0]",
+                "submit_delta": progress["sfxq_submit"]["delta"],
+                "submit_bytes_delta": progress["sfxbytes_submit"]["delta"],
+                "output_bytes_delta": progress["sfxbytes_output"]["delta"],
                 "active_voice_snapshots": sum(
                     1 for fields in snapshot_fields.values() if _hex_value(fields, "sfxvoices") > 0
                 ),
@@ -715,7 +762,16 @@ def validate_manifest(
         raise AssertionError("manifest status.dma must be nonzero")
     if status.get("musicstream") not in check_audio_continuity_proof.MUSIC_STREAM_MODES:
         raise AssertionError("manifest status.musicstream must be a known music stream mode")
-    for name, count in (("sb16", 2), ("play", 2), ("voiceq", 3), ("musicq", 2), ("musicpull", 2)):
+    for name, count in (
+        ("sb16", 2),
+        ("play", 2),
+        ("voiceq", 3),
+        ("sfxq", 4),
+        ("sfxbytes", 2),
+        ("sfxlast", 3),
+        ("musicq", 2),
+        ("musicpull", 2),
+    ):
         value = status.get(name)
         if not isinstance(value, str):
             raise AssertionError(f"manifest status.{name} must be present")
@@ -724,6 +780,8 @@ def validate_manifest(
             raise AssertionError(f"manifest status.{name} must have {count} colon-separated hex parts")
         if name != "musicpull" and int(parts[0], 16) <= 0:
             raise AssertionError(f"manifest status.{name} first counter must be nonzero")
+        if name in ("sfxbytes", "sfxlast") and int(parts[1], 16) <= 0:
+            raise AssertionError(f"manifest status.{name} second counter must be nonzero")
 
     if continuity.get("gate") != "tools/check_audio_continuity_proof.py":
         raise AssertionError("manifest continuity.gate must name the audio continuity checker")
@@ -746,6 +804,10 @@ def validate_manifest(
         "audioirq",
         "refill",
         "sfxmix",
+        "sfxsrc",
+        "sfxq_submit",
+        "sfxbytes_submit",
+        "sfxbytes_output",
         "musicmix",
         "musicpos",
         "voiceq_update",
@@ -796,7 +858,11 @@ def validate_manifest(
     if music_lane.get("counter") != "musicmix":
         raise AssertionError("manifest music lane must name musicmix")
     for lane_name, lane, keys in (
-        ("non_music_sfx", sfx_lane, ("delta",)),
+        (
+            "non_music_sfx",
+            sfx_lane,
+            ("delta", "source_delta", "submit_delta", "submit_bytes_delta", "output_bytes_delta"),
+        ),
         ("music", music_lane, ("delta", "stream_update_delta", "position_delta")),
         ("shared_sb16_refill", refill_lane, ("irq_delta", "refill_delta")),
     ):
@@ -897,11 +963,18 @@ def validate_manifest(
         raise AssertionError("manifest scripted phase proof baseline snapshot must be baseline")
     if scripted_phase_proof.get("fire_snapshot") != "fire":
         raise AssertionError("manifest scripted phase proof fire snapshot must be fire")
-    for key in ("doomsound_delta", "sfxmix_delta", "musicmix_delta"):
+    for key in (
+        "doomsound_delta",
+        "sfxmix_delta",
+        "sfxsrc_delta",
+        "sfxsubmit_delta",
+        "sfxoutput_delta",
+        "musicmix_delta",
+    ):
         value = scripted_phase_proof.get(key)
         if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
             raise AssertionError(f"manifest continuity.scripted_phase_proof.{key} must be eight hex digits")
-    for key in ("doomsound_delta", "sfxmix_delta"):
+    for key in ("doomsound_delta", "sfxmix_delta", "sfxsrc_delta", "sfxsubmit_delta", "sfxoutput_delta"):
         if int(scripted_phase_proof[key], 16) <= 0:
             raise AssertionError(
                 f"manifest continuity.scripted_phase_proof.{key} must prove scripted fire SFX"
@@ -964,6 +1037,9 @@ def validate_repo_contract() -> None:
             (
                 "tools/check_audible_audio_proof.py",
                 "sfxmix= counts non-music Doom SFX only",
+                "sfxbytes=",
+                "sfxsrc=",
+                "sfxlast=",
                 "QEMU WAV backend",
                 "aggregate JSON",
                 "delete the temporary WAV",

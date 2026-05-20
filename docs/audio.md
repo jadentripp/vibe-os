@@ -26,6 +26,9 @@ Current kernel behavior:
   and packed parameters in kernel memory
 - accepts Doom SFX descriptors from the platform layer and reports real,
   non-music Doom SFX mixing as `sfxmix=<hex count>`
+- reports non-music SFX queue and asset-source proof as `sfxq=`,
+  `sfxbytes=`, `sfxsrc=`, and `sfxlast=`, so the cloud gate can distinguish
+  runtime WAD `DS*` SFX submits and SB16 output bytes from generic audio calls
 - keeps a fixed eight-slot active voice table keyed by Doom sound handle, with
   sample pointer, length, fixed-point current position, volume, separation,
   pitch, panned left/right gains, pitch step, start order, and explicit voice
@@ -38,10 +41,10 @@ Current kernel behavior:
   back to the oldest music voice only if every slot is music, so new SFX stay
   bounded without usually cutting the music bed
 - reports audio init, playback, voice queue, IRQ, and mixer ring health in smoke status:
-  `sb16=`, `dma=`, `play=`, `voiceq=`, `musicq=`,
-  `voices=`, `sfxvoices=`, `audioirq=`, `ack8=`, `ack16=`, `refill=`,
-  `half=`, `mixwrap=`, `mixover=`, `mixunder=`, `mixclip=`, `steal=`,
-  `pitchclamp=`, and `panclamp=`
+  `sb16=`, `dma=`, `play=`, `voiceq=`, `sfxq=`, `sfxbytes=`, `sfxsrc=`,
+  `sfxlast=`, `musicq=`, `voices=`, `sfxvoices=`, `audioirq=`, `ack8=`,
+  `ack16=`, `refill=`, `half=`, `mixwrap=`, `mixover=`, `mixunder=`,
+  `mixclip=`, `steal=`, `pitchclamp=`, and `panclamp=`
 - reports music-carrier and stream-window health separately as `musicvoices=`,
   `musicmix=`, `musicloop=`, `musicpos=`, `musicbuf=`, `musicunder=`,
   `musicdrops=`, `musicstream=`, and `musicpull=`
@@ -78,9 +81,12 @@ The Doom platform layer keeps original Doom source pristine, resolves the `ds*`
 sound lump for `I_StartSound`, caches the lump, strips the 8-byte Doom sound
 header, and passes a small `vibe_audio_sfx_desc_t` through `SYS_AUDIO`. The
 descriptor contains the raw unsigned 8-bit PCM sample pointer, length, volume,
-separation, pitch, Doom sound id, and flags. Normal SFX submit zero flags. The
-music bridge submits `VIBE_AUDIO_FLAG_MUSIC`; looping is now handled by the
-port-owned song cursor instead of by looping a short kernel sample window.
+separation, pitch, Doom sound id, flags, and source sample rate. Normal SFX are
+tagged with `VIBE_AUDIO_FLAG_WAD_SFX` after the platform validates the Doom
+sound header and pads the sample data with unsigned silence to the original
+Linux Doom mixer quantum. The music bridge submits `VIBE_AUDIO_FLAG_MUSIC`;
+looping is now handled by the port-owned song cursor instead of by looping a
+short kernel sample window.
 Doom audio assets come from WAD lumps selected at runtime. The repo does not
 ship Doom SFX, MUS, MIDI, WAD bytes, or pre-rendered audio assets for this
 proof lane; `ds*` SFX lumps and MUS/MIDI song lumps are loaded from the caller's
@@ -100,6 +106,14 @@ mixer but increment `musicmix=` instead, and `sfxvoices=` exposes the current
 non-music voice count separately from total `voices=` and `musicvoices=`. This
 keeps the proof honest: streamed music chunks can no longer make the SFX lane
 look alive by themselves.
+
+`sfxq=<starts>:<stops>:<updates>:<finished>` counts only non-music Doom SFX
+voices, `sfxbytes=<submitted>:<output>` compares WAD-sourced PCM submitted by
+the platform with bytes mixed into SB16 half-buffer refills, `sfxsrc=` counts
+runtime WAD `DS*` sound submits, and `sfxlast=<id>:<rate>:<length>` records the
+latest non-music Doom SFX id, source sample rate, and padded sample length. The
+status-only cloud proof requires these to progress during scripted fire input,
+so a music-only or generic beep path cannot satisfy the SFX gate.
 
 Separation follows Doom's original squared pan law in source-contract form:
 `left = volume - ((volume * (sep + 1)^2) >> 16)` and
@@ -176,20 +190,23 @@ Remote-safe continuity proof:
 `status.after-use.txt`, `status.after-menu.txt`, and `status.txt`. It requires
 `audio=SB16` in every snapshot, a nonzero `sb16=` DSP version, nonzero `dma=`
 programming and `play=` start counters, nonzero `voiceq=` and `musicq=` queue
-counters, monotonic audio counters, increasing IRQ/refill, non-music SFX
-`sfxmix=`, music `musicmix=` counters, increasing `musicpos=`, a progressing
-`voiceq=` stream-update component, visible `musicbuf=` / `musicunder=` /
-`musicdrops=` health fields, `musicstream=PULL` for the current
+counters, nonzero `sfxq=`, `sfxbytes=`, `sfxsrc=`, and `sfxlast=` SFX-source
+proof, monotonic audio counters, increasing IRQ/refill, non-music SFX
+`sfxmix=`, runtime WAD SFX source `sfxsrc=`, music `musicmix=` counters,
+increasing `musicpos=`, a progressing `voiceq=` stream-update component,
+visible `musicbuf=` / `musicunder=` / `musicdrops=` health fields,
+`musicstream=PULL` for the current
 SB16-refill-requested music proof, monotonic and advancing `musicpull=` counters
 for hardware-paced request/service evidence, coherent lane accounting where
 `voices=` equals `sfxvoices=` plus
 `musicvoices=`, at least one active music voice snapshot, at least one buffered
 music-window snapshot, and nonzero SB16 ACK accounting. SFX
 lane proof is cumulative: `sfxmix=` must progress even if every captured
-snapshot lands after the short SFX voice has drained. That proves the emulated
-SB16 guest path was initialized, DMA-programmed, started, queued, and continued
-to refill and mix both Doom SFX and streamed music chunks across time without
-uploading proprietary WAD data, PCM samples, or rendered pixels. A run with
+snapshot lands after the short SFX voice has drained, and `sfxbytes=` must show
+both submitted and output PCM byte progress. That proves the emulated SB16 guest
+path was initialized, DMA-programmed, started, queued, and continued to refill
+and mix both Doom SFX and streamed music chunks across time without uploading
+proprietary WAD data, PCM samples, or rendered pixels. A run with
 `audio=NONE` is still useful diagnostics, but it is not an audible/streaming
 audio proof.
 

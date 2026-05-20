@@ -408,9 +408,11 @@ AUDIO_SFX_DESC_SEPARATION equ 12
 AUDIO_SFX_DESC_PITCH equ 16
 AUDIO_SFX_DESC_SOUND_ID equ 20
 AUDIO_SFX_DESC_FLAGS equ 24
-AUDIO_SFX_DESC_BYTES equ 28
+AUDIO_SFX_DESC_SAMPLE_RATE equ 28
+AUDIO_SFX_DESC_BYTES equ 32
 AUDIO_FLAG_LOOP equ 0x00000001
 AUDIO_FLAG_MUSIC equ 0x00000002
+AUDIO_FLAG_WAD_SFX equ 0x00000004
 AUDIO_MUSIC_HANDLE_MASK equ 0xffff0000
 AUDIO_MUSIC_HANDLE_BASE equ 0x4d550000
 AUDIO_MUSIC_STREAM_NONE equ 0
@@ -3380,6 +3382,16 @@ audio_init:
     mov dword [doom_sound_last_command], 0
     mov dword [doom_sound_last_handle], 0
     mov dword [doom_sound_last_packed], 0
+    mov dword [sb16_sfx_voice_start_count], 0
+    mov dword [sb16_sfx_voice_stop_count], 0
+    mov dword [sb16_sfx_voice_update_count], 0
+    mov dword [sb16_sfx_voice_finished_count], 0
+    mov dword [sb16_sfx_wad_start_count], 0
+    mov dword [sb16_sfx_submit_bytes], 0
+    mov dword [sb16_sfx_output_bytes], 0
+    mov dword [sb16_sfx_last_id], 0
+    mov dword [sb16_sfx_last_rate], 0
+    mov dword [sb16_sfx_last_length], 0
     mov dword [sb16_sfx_mix_count], 0
     mov dword [sb16_sfx_mix_bytes], 0
     mov dword [sb16_dma_write_pos], 0
@@ -3427,6 +3439,7 @@ audio_init:
     mov dword [sb16_mix_right_volume], 0
     mov dword [sb16_mix_frames_mixed], 0
     mov dword [sb16_mix_voice_slot], 0
+    mov dword [audio_sfx_rate_arg], 0
     mov dword [sb16_dma_buffer_phys], sb16_dma_buffer
     mov dword [sb16_dma_buffer_size], SB16_DMA_BUFFER_BYTES
     mov dword [sb16_dma_block_size], SB16_DMA_BLOCK_BYTES
@@ -4007,6 +4020,10 @@ audio_mix_sfx_descriptor:
     mov [audio_sfx_pitch_arg], eax
     mov eax, [esi + AUDIO_SFX_DESC_SOUND_ID]
     mov [audio_sfx_id_arg], eax
+    mov eax, [esi + AUDIO_SFX_DESC_FLAGS]
+    mov [audio_sfx_flags_arg], eax
+    mov eax, [esi + AUDIO_SFX_DESC_SAMPLE_RATE]
+    mov [audio_sfx_rate_arg], eax
 
     mov eax, [audio_sfx_sample_arg]
     mov ebx, [audio_sfx_length_arg]
@@ -4136,6 +4153,8 @@ audio_register_sfx_voice:
     mov [audio_sfx_id_arg], eax
     mov eax, [esi + AUDIO_SFX_DESC_FLAGS]
     mov [audio_sfx_flags_arg], eax
+    mov eax, [esi + AUDIO_SFX_DESC_SAMPLE_RATE]
+    mov [audio_sfx_rate_arg], eax
     mov eax, [audio_sfx_handle_arg]
     and eax, AUDIO_MUSIC_HANDLE_MASK
     cmp eax, AUDIO_MUSIC_HANDLE_BASE
@@ -4191,11 +4210,26 @@ audio_register_sfx_voice:
     mov [sb16_voice_started_at + ebx * 4], eax
     inc dword [sb16_voice_start_count]
     test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
-    jz .recount
+    jz .sfx_started
     inc dword [sb16_music_start_count]
     mov dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_PULL
     mov eax, [audio_sfx_length_arg]
     mov [sb16_music_stream_buffer_bytes], eax
+    jmp .recount
+
+.sfx_started:
+    inc dword [sb16_sfx_voice_start_count]
+    mov eax, [audio_sfx_length_arg]
+    add [sb16_sfx_submit_bytes], eax
+    mov eax, [audio_sfx_id_arg]
+    mov [sb16_sfx_last_id], eax
+    mov eax, [audio_sfx_rate_arg]
+    mov [sb16_sfx_last_rate], eax
+    mov eax, [audio_sfx_length_arg]
+    mov [sb16_sfx_last_length], eax
+    test dword [audio_sfx_flags_arg], AUDIO_FLAG_WAD_SFX
+    jz .recount
+    inc dword [sb16_sfx_wad_start_count]
 
 .recount:
     call sb16_recount_active_voices
@@ -4224,9 +4258,13 @@ audio_stop_sfx_voice:
     mov dword [sb16_voice_positions + ebx * 4], 0
     mov dword [sb16_voice_started_at + ebx * 4], 0
     test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
-    jz .clear_flags
+    jz .count_sfx_stop
     inc dword [sb16_music_stop_count]
     mov dword [sb16_music_stream_buffer_bytes], 0
+    jmp .clear_flags
+
+.count_sfx_stop:
+    inc dword [sb16_sfx_voice_stop_count]
 
 .clear_flags:
     mov dword [sb16_voice_flags + ebx * 4], 0
@@ -4261,6 +4299,8 @@ audio_update_sfx_voice:
     mov [audio_sfx_length_arg], eax
     mov eax, [esi + AUDIO_SFX_DESC_FLAGS]
     mov [audio_sfx_flags_arg], eax
+    mov eax, [esi + AUDIO_SFX_DESC_SAMPLE_RATE]
+    mov [audio_sfx_rate_arg], eax
     mov eax, [audio_sfx_handle_arg]
     and eax, AUDIO_MUSIC_HANDLE_MASK
     cmp eax, AUDIO_MUSIC_HANDLE_BASE
@@ -4353,6 +4393,11 @@ audio_update_sfx_voice:
     inc dword [sb16_music_stream_drop_count]
 
 .count_update:
+    test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
+    jnz .count_global_update
+    inc dword [sb16_sfx_voice_update_count]
+
+.count_global_update:
     inc dword [sb16_voice_update_count]
 
 .done:
@@ -4570,6 +4615,7 @@ sb16_refill_active_half:
     shl eax, 1
     inc dword [sb16_sfx_mix_count]
     add [sb16_sfx_mix_bytes], eax
+    add [sb16_sfx_output_bytes], eax
 
 .check_finished:
     mov eax, [sb16_voice_positions + ebx * 4]
@@ -4594,9 +4640,13 @@ sb16_refill_active_half:
 
 .finish_voice:
     test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
-    jz .finish_clear
+    jz .finish_sfx
     inc dword [sb16_music_stream_under_count]
     mov dword [sb16_music_stream_buffer_bytes], 0
+    jmp .finish_clear
+
+.finish_sfx:
+    inc dword [sb16_sfx_voice_finished_count]
 
 .finish_clear:
     mov byte [sb16_voice_active + ebx], 0
@@ -12932,6 +12982,50 @@ write_smoke_status:
     mov edx, [sb16_sfx_mix_count]
     call smoke_write_hex32
 
+    mov esi, smoke_sfxq_text
+    call smoke_copy_string
+    mov edx, [sb16_sfx_voice_start_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_sfx_voice_stop_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_sfx_voice_update_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_sfx_voice_finished_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_sfxbytes_text
+    call smoke_copy_string
+    mov edx, [sb16_sfx_submit_bytes]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_sfx_output_bytes]
+    call smoke_write_hex32
+
+    mov esi, smoke_sfxsrc_text
+    call smoke_copy_string
+    mov edx, [sb16_sfx_wad_start_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_sfxlast_text
+    call smoke_copy_string
+    mov edx, [sb16_sfx_last_id]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_sfx_last_rate]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_sfx_last_length]
+    call smoke_write_hex32
+
     mov esi, smoke_audiovoices_text
     call smoke_copy_string
     mov edx, [sb16_active_voice_count]
@@ -14223,6 +14317,10 @@ smoke_ppos_text db " ppos=", 0
 smoke_pdelta_text db " pdelta=", 0
 smoke_doomsound_text db " doomsound=", 0
 smoke_sfxmix_text db " sfxmix=", 0
+smoke_sfxq_text db " sfxq=", 0
+smoke_sfxbytes_text db " sfxbytes=", 0
+smoke_sfxsrc_text db " sfxsrc=", 0
+smoke_sfxlast_text db " sfxlast=", 0
 smoke_audiovoices_text db " voices=", 0
 smoke_sfxvoices_text db " sfxvoices=", 0
 smoke_audioirq_text db " audioirq=", 0
@@ -14891,6 +14989,16 @@ doom_sound_update_count dd 0
 doom_sound_last_command dd 0
 doom_sound_last_handle dd 0
 doom_sound_last_packed dd 0
+sb16_sfx_voice_start_count dd 0
+sb16_sfx_voice_stop_count dd 0
+sb16_sfx_voice_update_count dd 0
+sb16_sfx_voice_finished_count dd 0
+sb16_sfx_wad_start_count dd 0
+sb16_sfx_submit_bytes dd 0
+sb16_sfx_output_bytes dd 0
+sb16_sfx_last_id dd 0
+sb16_sfx_last_rate dd 0
+sb16_sfx_last_length dd 0
 doom_wad_magic_seen dd 0
 doom_log_len dd 0
 key_event_head dd 0
@@ -15007,6 +15115,7 @@ audio_sfx_separation_arg dd 0
 audio_sfx_pitch_arg dd 0
 audio_sfx_id_arg dd 0
 audio_sfx_flags_arg dd 0
+audio_sfx_rate_arg dd 0
 audio_sfx_voice_slot dd 0
 sb16_pan_left_arg dd 0
 sb16_pan_right_arg dd 0

@@ -24,6 +24,10 @@ REQUIRED_AUDIO_FIELDS = (
     "audio",
     "doomsound",
     "sfxmix",
+    "sfxq",
+    "sfxbytes",
+    "sfxsrc",
+    "sfxlast",
     "voices",
     "sfxvoices",
     "audioirq",
@@ -56,6 +60,7 @@ REQUIRED_AUDIO_FIELDS = (
 MONOTONIC_COUNTERS = (
     "doomsound",
     "sfxmix",
+    "sfxsrc",
     "audioirq",
     "ack8",
     "ack16",
@@ -77,6 +82,7 @@ MONOTONIC_COUNTERS = (
 FINAL_POSITIVE_COUNTERS = (
     "doomsound",
     "sfxmix",
+    "sfxsrc",
     "audioirq",
     "refill",
     "musicmix",
@@ -101,6 +107,9 @@ TUPLE_FIELDS = {
     "sb16": 2,
     "play": 2,
     "voiceq": 3,
+    "sfxq": 4,
+    "sfxbytes": 2,
+    "sfxlast": 3,
     "musicq": 2,
     "musicpull": 2,
 }
@@ -109,6 +118,10 @@ SUMMARY_FIELDS = (
     "audio",
     "doomsound",
     "sfxmix",
+    "sfxq",
+    "sfxbytes",
+    "sfxsrc",
+    "sfxlast",
     "voices",
     "sfxvoices",
     "audioirq",
@@ -499,6 +512,14 @@ def validate_status(
         raise AssertionError("final play= must prove SB16 playback was started")
     if _hex_tuple(final_fields, "voiceq", "final", 3)[0] == 0:
         raise AssertionError("final voiceq= must prove at least one audio voice was queued")
+    if _hex_tuple(final_fields, "sfxq", "final", 4)[0] == 0:
+        raise AssertionError("final sfxq= must prove at least one non-music Doom SFX was submitted")
+    sfx_submit, sfx_output = _hex_tuple(final_fields, "sfxbytes", "final", 2)
+    if sfx_submit == 0 or sfx_output == 0:
+        raise AssertionError("final sfxbytes= must prove submitted and SB16-output SFX PCM bytes")
+    _, sfx_rate, sfx_length = _hex_tuple(final_fields, "sfxlast", "final", 3)
+    if sfx_rate == 0 or sfx_length == 0:
+        raise AssertionError("final sfxlast= must expose a nonzero SFX sample rate and padded length")
     if _hex_tuple(final_fields, "musicq", "final", 2)[0] == 0:
         raise AssertionError("final musicq= must prove the music voice was queued")
 
@@ -507,7 +528,7 @@ def validate_status(
     _assert_voice_lane_consistency(snapshots)
     for name in MONOTONIC_COUNTERS:
         _assert_nondecreasing(snapshots, name)
-    for name, count in (("play", 2), ("voiceq", 3), ("musicq", 2)):
+    for name, count in (("play", 2), ("voiceq", 3), ("sfxq", 4), ("sfxbytes", 2), ("musicq", 2)):
         _assert_tuple_nondecreasing(snapshots, name, count)
     _assert_tuple_nondecreasing(snapshots, "musicpull", 2)
     for name in PROGRESS_COUNTERS:
@@ -516,6 +537,10 @@ def validate_status(
         _assert_min_delta(snapshots, name, minimum)
     _assert_phase_progress(snapshots, "baseline", "fire", "doomsound", "scripted fire SFX")
     _assert_phase_progress(snapshots, "baseline", "fire", "sfxmix", "scripted fire SFX")
+    _assert_phase_progress(snapshots, "baseline", "fire", "sfxsrc", "scripted fire WAD SFX")
+    _assert_tuple_component_progress(snapshots, "sfxq", 4, 0, "scripted fire SFX submit")
+    _assert_tuple_component_progress(snapshots, "sfxbytes", 2, 0, "scripted fire SFX submit bytes")
+    _assert_tuple_component_progress(snapshots, "sfxbytes", 2, 1, "scripted fire SFX output bytes")
     for name, maximum in MAX_SAFETY_DELTAS.items():
         _assert_max_delta(snapshots, name, maximum, "audio safety")
     _assert_music_stream_mode(snapshots, require_pull_stream=require_pull_stream)
@@ -574,6 +599,11 @@ def validate_repo_contract() -> None:
                 "tools/check_audio_continuity_proof.py",
                 "audio=SB16",
                 "sfxmix= counts non-music Doom SFX only",
+                "sfxq=",
+                "sfxbytes=",
+                "sfxsrc=",
+                "sfxlast=",
+                "VIBE_AUDIO_FLAG_WAD_SFX",
                 "VIBE_AUDIO_MUSIC_PULL_STATE",
                 "hardware-paced pull request",
                 "musicpos=",
