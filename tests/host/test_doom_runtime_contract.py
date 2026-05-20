@@ -287,13 +287,12 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("void doom_original_G_BuildTiccmd(ticcmd_t* cmd);", platform)
         self.assertIn("void doom_original_G_Ticker(void);", platform)
         self.assertIn("void G_SaveGame(int slot, char* description);", platform)
-        self.assertIn("void G_DoSaveGame(void);", platform)
         self.assertIn("#define VIBE_PERSISTENCE_MIN_LEVELTIME 1", platform)
         self.assertIn("leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME", platform)
         self.assertIn("G_SaveGame(save_checkpoint_slot, description);", platform)
         self.assertIn("sendsave = false;", platform)
         self.assertIn("static void promote_save_checkpoint_action(void)", platform)
-        self.assertIn("static void flush_save_checkpoint_if_needed(void)", platform)
+        self.assertIn("static void tick_save_checkpoint_if_needed(void)", platform)
         self.assertIn("gameaction = ga_savegame;", platform)
         save_checkpoint = platform.split(
             "static void checkpoint_save_slot_if_needed(void)", 1
@@ -319,14 +318,17 @@ class DoomRuntimeContractTests(unittest.TestCase):
             build_ticcmd.index("doom_original_G_BuildTiccmd(cmd);"),
         )
         self.assertIn("void G_Ticker(void)", platform)
+        ticker = platform.split("void G_Ticker(void)", 1)[1].split(
+            "static void report_playability_status(void)", 1
+        )[0]
         self.assertLess(
-            platform.index("promote_save_checkpoint_action();"),
-            platform.index("doom_original_G_Ticker();"),
+            ticker.index("promote_save_checkpoint_action();"),
+            ticker.index("doom_original_G_Ticker();"),
         )
-        self.assertIn("doom_original_G_Ticker();", platform)
+        self.assertIn("doom_original_G_Ticker();", ticker)
         self.assertIn("if (gameaction != ga_savegame)", platform)
         self.assertIn("save_checkpoint_pending_special = 0;", platform)
-        self.assertIn("G_DoSaveGame();", platform)
+        self.assertNotIn("G_DoSaveGame();", platform)
         finish_update = platform.split("void I_FinishUpdate(void)", 1)[1].split(
             "void I_WaitVBL", 1
         )[0]
@@ -336,10 +338,10 @@ class DoomRuntimeContractTests(unittest.TestCase):
         )
         self.assertLess(
             finish_update.index("checkpoint_save_slot_if_needed();"),
-            finish_update.index("flush_save_checkpoint_if_needed();"),
+            finish_update.index("tick_save_checkpoint_if_needed();"),
         )
         self.assertLess(
-            finish_update.index("flush_save_checkpoint_if_needed();"),
+            finish_update.index("tick_save_checkpoint_if_needed();"),
             finish_update.index("report_save_action_status();"),
         )
         self.assertIn("if (sendsave)", original)

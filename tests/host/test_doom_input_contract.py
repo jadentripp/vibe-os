@@ -120,7 +120,7 @@ class DoomInputContractTests(unittest.TestCase):
             "M_SaveDefaults();",
             "G_SaveGame(save_checkpoint_slot, description);",
             "promote_save_checkpoint_action();",
-            "flush_save_checkpoint_if_needed();",
+            "tick_save_checkpoint_if_needed();",
             "G_LoadGame(path);",
             "VIBE_DOOM_INPUT_KEYDOWN",
             "ev_keydown",
@@ -137,6 +137,7 @@ class DoomInputContractTests(unittest.TestCase):
         )[1].split("static void promote_save_checkpoint_action(void)", 1)[0]
         self.assertNotIn("gameaction = ga_savegame;", save_checkpoint)
         self.assertNotIn("G_DoSaveGame();", save_checkpoint)
+        self.assertNotIn("G_DoSaveGame();", platform)
 
     def test_raw_player_detail_status_exports_gameplay_state(self):
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()

@@ -29,7 +29,6 @@ extern char savedescription[32];
 void doom_original_G_BuildTiccmd(ticcmd_t* cmd);
 void doom_original_G_Ticker(void);
 void G_SaveGame(int slot, char* description);
-void G_DoSaveGame(void);
 void G_LoadGame(char* name);
 
 static byte doom_zone[8 * 1024 * 1024];
@@ -424,7 +423,7 @@ static void promote_save_checkpoint_action(void)
     gameaction = ga_savegame;
 }
 
-static void flush_save_checkpoint_if_needed(void)
+static void tick_save_checkpoint_if_needed(void)
 {
     if (!save_checkpoint_pending_special || !savedescription[0])
         return;
@@ -436,8 +435,9 @@ static void flush_save_checkpoint_if_needed(void)
         return;
 
     sendsave = false;
-    save_checkpoint_pending_special = 0;
-    G_DoSaveGame();
+    doom_original_G_Ticker();
+    if (!savedescription[0])
+        save_checkpoint_pending_special = 0;
 }
 
 static void checkpoint_load_slot_if_needed(void)
@@ -712,7 +712,6 @@ void G_Ticker(void)
     promote_save_checkpoint_action();
     doom_original_G_Ticker();
 
-    flush_save_checkpoint_if_needed();
     if (!savedescription[0])
         save_checkpoint_pending_special = 0;
 }
@@ -807,7 +806,7 @@ void I_FinishUpdate(void)
     report_gameplay_status();
     checkpoint_load_slot_if_needed();
     checkpoint_save_slot_if_needed();
-    flush_save_checkpoint_if_needed();
+    tick_save_checkpoint_if_needed();
     report_save_action_status();
     report_playability_status();
     report_player_detail_status();
