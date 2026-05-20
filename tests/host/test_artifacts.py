@@ -1299,6 +1299,10 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("fat_lba_new_cluster", fat_write_locator)
         self.assertIn("fat_lba_result_lba", fat_write_locator)
         cluster_growth = fat_write_locator.split(".cluster_loop:", 1)[1].split(".have_cluster:", 1)[0]
+        eof_guard = cluster_growth.split(".follow_existing_chain:", 1)[1].split("sub edx, ecx", 1)[0]
+        self.assertIn("mov eax, [fat_lba_sector_index]", eof_guard)
+        self.assertIn("cmp eax, [fat_lba_logical_sectors]", eof_guard)
+        self.assertIn("jae .extend_after_current", eof_guard)
         self.assertLess(cluster_growth.index("call fat_next_cluster"), cluster_growth.index("cmp eax, 0"))
         self.assertLess(cluster_growth.index("cmp eax, 0"), cluster_growth.index("je .allocate_next_cluster"))
         self.assertLess(cluster_growth.index("je .allocate_next_cluster"), cluster_growth.index("cmp eax, 0xfff8"))

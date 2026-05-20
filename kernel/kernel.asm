@@ -7443,6 +7443,9 @@ fat_file_lba_for_write:
     jbe .extend_after_current
 
 .follow_existing_chain:
+    mov eax, [fat_lba_sector_index]
+    cmp eax, [fat_lba_logical_sectors]
+    jae .extend_after_current
     sub edx, ecx
     add [fat_lba_walked_sectors], ecx
     movzx eax, word [fat_current_cluster]
