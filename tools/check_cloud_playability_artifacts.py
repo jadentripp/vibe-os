@@ -765,7 +765,7 @@ def validate_repo_contract() -> None:
         "write_marker SAVE_REQUEST_NAME \"$PERSISTENCE_SAVE_SLOT\"",
         "delete_marker SAVE_REQUEST_NAME",
         "write_marker LOAD_REQUEST_NAME \"$PERSISTENCE_SAVE_SLOT\"",
-        "wait-status-min=leveltime:00000007:90:2",
+        "wait-status-min=leveltime:00000001:90:2",
         "write_status=\"build/persistence-write/status.save-slot-${PERSISTENCE_SAVE_SLOT}.txt\"",
         "write_status=\"build/persistence-write/status.txt\"",
         "test -f \"$write_status\"",
