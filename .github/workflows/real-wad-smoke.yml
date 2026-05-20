@@ -299,8 +299,6 @@ jobs:
         timeout-minutes: 15
         run: |
           set -euo pipefail
-          trap 'rm -f "$RUNNER_TEMP"/persistence-*-audio.wav' EXIT
-
           baseline="$RUNNER_TEMP/disk.before-persistence.img"
           after_write="$RUNNER_TEMP/disk.after-persistence-write.img"
           check_args=(--baseline-image "$baseline")
@@ -408,7 +406,7 @@ jobs:
           mkdir -p build/persistence-write
           QEMU=qemu-system-x86_64 \
             QEMU_MACHINE=pc,accel=tcg \
-            QEMU_EXTRA_ARGS="-audiodev wav,id=snd0,path=$RUNNER_TEMP/persistence-write-audio.wav -device sb16,audiodev=snd0" \
+            QEMU_EXTRA_ARGS="-audiodev none,id=snd0 -device sb16,audiodev=snd0" \
             IMAGE=build/disk.img \
             BUILD_DIR=build/persistence-write \
             NC=nc \
@@ -435,7 +433,7 @@ jobs:
             mkdir -p build/persistence-default
             QEMU=qemu-system-x86_64 \
               QEMU_MACHINE=pc,accel=tcg \
-              QEMU_EXTRA_ARGS="-audiodev wav,id=snd0,path=$RUNNER_TEMP/persistence-default-audio.wav -device sb16,audiodev=snd0" \
+              QEMU_EXTRA_ARGS="-audiodev none,id=snd0 -device sb16,audiodev=snd0" \
               IMAGE=build/disk.img \
               BUILD_DIR=build/persistence-default \
               NC=nc \
@@ -456,7 +454,7 @@ jobs:
             mkdir -p build/persistence-load
             QEMU=qemu-system-x86_64 \
               QEMU_MACHINE=pc,accel=tcg \
-              QEMU_EXTRA_ARGS="-audiodev wav,id=snd0,path=$RUNNER_TEMP/persistence-load-audio.wav -device sb16,audiodev=snd0" \
+              QEMU_EXTRA_ARGS="-audiodev none,id=snd0 -device sb16,audiodev=snd0" \
               IMAGE=build/disk.img \
               BUILD_DIR=build/persistence-load \
               NC=nc \
@@ -482,7 +480,7 @@ jobs:
             mkdir -p build/persistence-reboot
             QEMU=qemu-system-x86_64 \
               QEMU_MACHINE=pc,accel=tcg \
-              QEMU_EXTRA_ARGS="-audiodev wav,id=snd0,path=$RUNNER_TEMP/persistence-reboot-audio.wav -device sb16,audiodev=snd0" \
+              QEMU_EXTRA_ARGS="-audiodev none,id=snd0 -device sb16,audiodev=snd0" \
               IMAGE=build/disk.img \
               BUILD_DIR=build/persistence-reboot \
               NC=nc \
