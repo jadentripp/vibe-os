@@ -30,6 +30,10 @@ VGA_ATTR equ 0x0f
 SMOKE_STATUS_ADDR equ 0x0009d000
 SMOKE_STATUS_BYTES equ 1024
 DOOM_LOG_BYTES equ 160
+KEY_QUEUE_SIZE equ 32
+KEY_QUEUE_MASK equ KEY_QUEUE_SIZE - 1
+KEY_EVENT_DOWN equ 0x00000100
+KEY_EVENT_VALID equ 0x00010000
 DOOM_SCREEN_WIDTH equ 320
 DOOM_SCREEN_HEIGHT equ 200
 DOOM_FRAME_BYTES equ DOOM_SCREEN_WIDTH * DOOM_SCREEN_HEIGHT
@@ -108,6 +112,7 @@ SYS_READ equ 7
 SYS_LSEEK equ 8
 SYS_TIME equ 9
 SYS_PRESENT equ 10
+SYS_POLL_KEY equ 11
 VGA_DAC_WRITE_INDEX equ 0x03c8
 VGA_DAC_DATA equ 0x03c9
 ATA_DATA equ 0x01f0
@@ -121,6 +126,32 @@ ATA_CMD_READ_SECTORS equ 0x20
 
 SC_LSHIFT equ 0x2a
 SC_RSHIFT equ 0x36
+DOOM_KEY_RIGHTARROW equ 0xae
+DOOM_KEY_LEFTARROW equ 0xac
+DOOM_KEY_UPARROW equ 0xad
+DOOM_KEY_DOWNARROW equ 0xaf
+DOOM_KEY_ESCAPE equ 27
+DOOM_KEY_ENTER equ 13
+DOOM_KEY_TAB equ 9
+DOOM_KEY_F1 equ 0xbb
+DOOM_KEY_F2 equ 0xbc
+DOOM_KEY_F3 equ 0xbd
+DOOM_KEY_F4 equ 0xbe
+DOOM_KEY_F5 equ 0xbf
+DOOM_KEY_F6 equ 0xc0
+DOOM_KEY_F7 equ 0xc1
+DOOM_KEY_F8 equ 0xc2
+DOOM_KEY_F9 equ 0xc3
+DOOM_KEY_F10 equ 0xc4
+DOOM_KEY_F11 equ 0xd7
+DOOM_KEY_F12 equ 0xd8
+DOOM_KEY_BACKSPACE equ 127
+DOOM_KEY_PAUSE equ 0xff
+DOOM_KEY_EQUALS equ 0x3d
+DOOM_KEY_MINUS equ 0x2d
+DOOM_KEY_RSHIFT equ 0xb6
+DOOM_KEY_RCTRL equ 0x9d
+DOOM_KEY_RALT equ 0xb8
 
 start:
     cli
@@ -1170,6 +1201,15 @@ pic_remap_and_mask:
 
 pic_unmask_timer:
     mov al, 0xfe
+    out 0x21, al
+    call io_wait
+    mov al, 0xff
+    out 0xa1, al
+    call io_wait
+    ret
+
+pic_unmask_timer_keyboard:
+    mov al, 0xfc
     out 0x21, al
     call io_wait
     mov al, 0xff
@@ -2820,8 +2860,11 @@ idt_init:
     mov eax, irq_timer
     call idt_set_gate
 
+    mov eax, irq_keyboard
+    call idt_set_gate
+
     mov eax, irq_ignore_master
-    mov ecx, 7
+    mov ecx, 6
 
 .master_irqs:
     call idt_set_gate
@@ -2941,6 +2984,7 @@ doom_user_run:
     mov dword [doom_wad_magic_seen], 0
     mov dword [doom_log_len], 0
     mov byte [doom_log_buffer], 0
+    call keyboard_reset_queue
     mov dword [user_wad_fd_offset], 0
     mov dword [user_brk_current], DOOM_USER_HEAP_START
     mov dword [current_user_base], DOOM_USER_BASE
@@ -2962,7 +3006,7 @@ doom_user_run:
     mov byte [current_user_kind], USER_KIND_DOOM
     mov byte [doom_run_status], 1
 
-    call pic_unmask_timer
+    call pic_unmask_timer_keyboard
 
     mov ax, USER_DATA_SEG
     mov ds, ax
@@ -3253,6 +3297,8 @@ syscall_handler:
     je .time
     cmp eax, SYS_PRESENT
     je .present
+    cmp eax, SYS_POLL_KEY
+    je .poll_key
     jmp .bad_syscall
 
 .user_probe:
@@ -3459,6 +3505,24 @@ syscall_handler:
     xor eax, eax
     jmp .return
 
+.poll_key:
+    mov ebx, [key_event_tail]
+    cmp ebx, [key_event_head]
+    je .poll_key_empty
+    mov edi, key_event_queue
+    mov eax, [edi + ebx * 4]
+    inc ebx
+    and ebx, KEY_QUEUE_MASK
+    mov [key_event_tail], ebx
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    jne .return
+    inc dword [doom_key_event_count]
+    jmp .return
+
+.poll_key_empty:
+    xor eax, eax
+    jmp .return
+
 .bad_syscall:
     mov eax, 0xffffffff
     jmp .return
@@ -3614,6 +3678,145 @@ present_indexed_frame:
     pop ebx
     ret
 
+keyboard_reset_queue:
+    mov dword [key_event_head], 0
+    mov dword [key_event_tail], 0
+    mov dword [keyboard_event_count], 0
+    mov dword [doom_key_event_count], 0
+    mov byte [keyboard_extended], 0
+    ret
+
+keyboard_queue_scancode:
+    push eax
+    push ebx
+    push edx
+
+    cmp al, 0xe0
+    je .extended_prefix
+    cmp al, 0xe1
+    je .ignore
+
+    mov bl, al
+    mov dl, 1
+    test bl, 0x80
+    jz .translate
+    and bl, 0x7f
+    xor dl, dl
+
+.translate:
+    cmp byte [keyboard_extended], 0
+    jne .translate_extended
+    movzx ebx, bl
+    mov al, [doom_scancode_map + ebx]
+    jmp .queue
+
+.translate_extended:
+    mov byte [keyboard_extended], 0
+    xor al, al
+    cmp bl, 0x48
+    je .ext_up
+    cmp bl, 0x50
+    je .ext_down
+    cmp bl, 0x4b
+    je .ext_left
+    cmp bl, 0x4d
+    je .ext_right
+    cmp bl, 0x1c
+    je .ext_enter
+    cmp bl, 0x1d
+    je .ext_ctrl
+    cmp bl, 0x38
+    je .ext_alt
+    cmp bl, 0x53
+    je .ext_backspace
+    jmp .queue
+
+.ext_up:
+    mov al, DOOM_KEY_UPARROW
+    jmp .queue
+
+.ext_down:
+    mov al, DOOM_KEY_DOWNARROW
+    jmp .queue
+
+.ext_left:
+    mov al, DOOM_KEY_LEFTARROW
+    jmp .queue
+
+.ext_right:
+    mov al, DOOM_KEY_RIGHTARROW
+    jmp .queue
+
+.ext_enter:
+    mov al, DOOM_KEY_ENTER
+    jmp .queue
+
+.ext_ctrl:
+    mov al, DOOM_KEY_RCTRL
+    jmp .queue
+
+.ext_alt:
+    mov al, DOOM_KEY_RALT
+    jmp .queue
+
+.ext_backspace:
+    mov al, DOOM_KEY_BACKSPACE
+
+.queue:
+    call keyboard_queue_event
+    jmp .done
+
+.extended_prefix:
+    mov byte [keyboard_extended], 1
+    jmp .done
+
+.ignore:
+    mov byte [keyboard_extended], 0
+
+.done:
+    pop edx
+    pop ebx
+    pop eax
+    ret
+
+keyboard_queue_event:
+    test al, al
+    jz .done
+    push ebx
+    push edx
+    push edi
+
+    movzx eax, al
+    or eax, KEY_EVENT_VALID
+    test dl, dl
+    jz .have_packed
+    or eax, KEY_EVENT_DOWN
+
+.have_packed:
+    mov ebx, [key_event_head]
+    mov edx, ebx
+    inc edx
+    and edx, KEY_QUEUE_MASK
+    cmp edx, [key_event_tail]
+    jne .space_available
+    mov edi, [key_event_tail]
+    inc edi
+    and edi, KEY_QUEUE_MASK
+    mov [key_event_tail], edi
+
+.space_available:
+    mov edi, key_event_queue
+    mov [edi + ebx * 4], eax
+    mov [key_event_head], edx
+    inc dword [keyboard_event_count]
+
+    pop edi
+    pop edx
+    pop ebx
+
+.done:
+    ret
+
 page_fault_handler:
     cmp byte [user_fault_expected], 1
     jne exception_halt
@@ -3659,6 +3862,15 @@ irq_timer:
     inc dword [timer_ticks]
     call draw_timer_status
     call write_smoke_status
+    mov al, 0x20
+    out 0x20, al
+    popad
+    iretd
+
+irq_keyboard:
+    pushad
+    in al, 0x60
+    call keyboard_queue_scancode
     mov al, 0x20
     out 0x20, al
     popad
@@ -4583,6 +4795,33 @@ keymap_shift:
     db ' '
     times 128 - ($ - keymap_shift) db 0
 
+doom_scancode_map:
+    times 0x01 - ($ - doom_scancode_map) db 0
+    db DOOM_KEY_ESCAPE
+    db '1','2','3','4','5','6','7','8','9','0'
+    db DOOM_KEY_MINUS, DOOM_KEY_EQUALS, DOOM_KEY_BACKSPACE, DOOM_KEY_TAB
+    db 'q','w','e','r','t','y','u','i','o','p'
+    db '[',']',DOOM_KEY_ENTER,DOOM_KEY_RCTRL
+    db 'a','s','d','f','g','h','j','k','l'
+    db ';',39,'`',DOOM_KEY_RSHIFT,92
+    db 'z','x','c','v','b','n','m'
+    db ',','.','/',DOOM_KEY_RSHIFT
+    times 0x38 - ($ - doom_scancode_map) db 0
+    db DOOM_KEY_RALT
+    db ' '
+    times 0x3b - ($ - doom_scancode_map) db 0
+    db DOOM_KEY_F1,DOOM_KEY_F2,DOOM_KEY_F3,DOOM_KEY_F4,DOOM_KEY_F5
+    db DOOM_KEY_F6,DOOM_KEY_F7,DOOM_KEY_F8,DOOM_KEY_F9,DOOM_KEY_F10
+    times 0x48 - ($ - doom_scancode_map) db 0
+    db DOOM_KEY_UPARROW
+    times 0x4a - ($ - doom_scancode_map) db 0
+    db DOOM_KEY_MINUS,DOOM_KEY_LEFTARROW,0,DOOM_KEY_RIGHTARROW,DOOM_KEY_EQUALS,0,DOOM_KEY_DOWNARROW
+    times 0x53 - ($ - doom_scancode_map) db 0
+    db DOOM_KEY_BACKSPACE
+    times 0x57 - ($ - doom_scancode_map) db 0
+    db DOOM_KEY_F11,DOOM_KEY_F12
+    times 128 - ($ - doom_scancode_map) db 0
+
 cursor_row dd 0
 cursor_col dd 0
 timer_ticks dd 0
@@ -4676,8 +4915,12 @@ doom_lseek_count dd 0
 doom_write_count dd 0
 doom_sbrk_count dd 0
 doom_present_count dd 0
+doom_key_event_count dd 0
 doom_wad_magic_seen dd 0
 doom_log_len dd 0
+key_event_head dd 0
+key_event_tail dd 0
+keyboard_event_count dd 0
 present_frame_arg dd 0
 present_palette_arg dd 0
 present_sample_first dd 0
@@ -4702,7 +4945,9 @@ user_load_segment_count db 0
 doom_load_segment_count db 0
 present_status db 0
 shift_down db 0
+keyboard_extended db 0
 doom_log_buffer times DOOM_LOG_BYTES db 0
+key_event_queue times KEY_QUEUE_SIZE dd 0
 input_buffer times INPUT_MAX db 0
 
 align 8

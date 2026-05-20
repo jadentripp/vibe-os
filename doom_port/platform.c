@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "d_event.h"
+#include "d_main.h"
 #include "d_net.h"
 #include "doomstat.h"
 #include "i_net.h"
@@ -45,6 +47,21 @@ void I_StartFrame(void)
 
 void I_StartTic(void)
 {
+    int i;
+    int packed;
+    event_t event;
+
+    for (i = 0; i < 32; ++i) {
+        packed = vibe_syscall3(VIBE_SYS_POLL_KEY, 0, 0, 0);
+        if (!(packed & VIBE_KEY_EVENT_VALID))
+            break;
+
+        event.type = (packed & VIBE_KEY_EVENT_DOWN) ? ev_keydown : ev_keyup;
+        event.data1 = packed & 0xff;
+        event.data2 = 0;
+        event.data3 = 0;
+        D_PostEvent(&event);
+    }
 }
 
 ticcmd_t* I_BaseTiccmd(void)

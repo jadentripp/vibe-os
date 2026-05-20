@@ -447,6 +447,32 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("pmemsave 0x9d000 1024", makefile)
         self.assertIn("pmemsave 0xa0000 64000", makefile)
 
+    def test_doom_keyboard_events_flow_through_kernel_syscall(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        platform = (ROOT / "doom_port" / "platform.c").read_text()
+        header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
+        self.assertIn("SYS_POLL_KEY equ 11", kernel)
+        self.assertIn("SYS_POLL_KEY", kernel)
+        self.assertIn("KEY_EVENT_VALID equ 0x00010000", kernel)
+        self.assertIn("key_event_queue times KEY_QUEUE_SIZE dd 0", kernel)
+        self.assertIn("keyboard_queue_scancode:", kernel)
+        self.assertIn("doom_scancode_map:", kernel)
+        self.assertIn("irq_keyboard:", kernel)
+        self.assertIn("pic_unmask_timer_keyboard:", kernel)
+        self.assertIn("mov eax, irq_keyboard", kernel)
+        self.assertIn("call pic_unmask_timer_keyboard", kernel)
+        self.assertIn("DOOM_KEY_UPARROW", kernel)
+        self.assertIn("DOOM_KEY_RCTRL", kernel)
+        self.assertIn("VIBE_SYS_POLL_KEY = 11", header)
+        self.assertIn("VIBE_KEY_EVENT_VALID", header)
+        self.assertIn("VIBE_KEY_EVENT_DOWN", header)
+        self.assertIn("#include \"d_event.h\"", platform)
+        self.assertIn("#include \"d_main.h\"", platform)
+        self.assertIn("vibe_syscall3(VIBE_SYS_POLL_KEY", platform)
+        self.assertIn("ev_keydown", platform)
+        self.assertIn("ev_keyup", platform)
+        self.assertIn("D_PostEvent(&event)", platform)
+
 
 if __name__ == "__main__":
     unittest.main()

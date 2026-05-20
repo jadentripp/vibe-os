@@ -196,6 +196,9 @@ Already implemented:
 - Doom's platform `I_FinishUpdate` calls a kernel `SYS_PRESENT` path for a
   320x200 8-bit indexed frame plus RGB palette, and CI verifies bytes written
   to the VGA graphics aperture at `0xA0000`
+- Doom's platform `I_StartTic` drains a kernel `SYS_POLL_KEY` queue fed by a
+  PS/2 IRQ1 scancode handler and posts normal Doom `ev_keydown`/`ev_keyup`
+  events without modifying the original engine source
 - Stage 2 enters VGA mode 13h before protected mode, while the cloud smoke
   reads kernel status from a normal RAM status block so graphics memory and
   boot status can be verified separately
@@ -215,7 +218,7 @@ Still required before this is actually Doom-capable:
 
 - higher-half kernel mapping and real user address spaces
 - scheduler, process table, per-process kernel stacks, and context switching
-- a broader syscall ABI: `exec`, `mmap`, fuller file I/O, input, and drawing
+- a broader syscall ABI: `exec`, `mmap`, fuller file I/O, and richer drawing
 - run and analyze the manual cloud smoke with an actual user-supplied shareware
   `DOOM1.WAD`
 - enough syscall/libc/file coverage for the original engine to progress past
