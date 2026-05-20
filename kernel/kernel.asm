@@ -5944,9 +5944,16 @@ fat_alloc_cluster:
     push edi
 
     mov dword [fat_alloc_scan_refreshed], 0
+    mov dword [fat_alloc_fail_stage], 0
+    mov dword [fat_alloc_scan_cluster], 0
+    mov dword [fat_alloc_found_cluster], 0
+    mov dword [fat_alloc_last_entry], 0
+    mov eax, [fat_last_data_cluster]
+    mov [fat_alloc_last_data_snapshot], eax
 
 .start_scan:
     mov dword [fat_alloc_debug_stage], 1
+    mov dword [fat_alloc_fail_stage], 0
     mov ebx, [fat_next_free_hint]
     mov [fat_alloc_debug_hint], ebx
     cmp ebx, 2
@@ -5960,29 +5967,62 @@ fat_alloc_cluster:
 
 .hint_ready:
     mov [fat_scan_start], ebx
+    mov [fat_alloc_scan_start_snapshot], ebx
 
 .scan_loop:
     cmp ebx, [fat_last_data_cluster]
     ja .wrap_scan
+    mov [fat_alloc_scan_cluster], ebx
     mov eax, ebx
     call fat_next_cluster
-    jc .fail
+    jc .fat_read_fail
+    mov [fat_alloc_last_entry], eax
     cmp ax, 0
     je .found
     inc ebx
     jmp .scan_loop
 
+.fat_read_fail:
+    mov dword [fat_alloc_fail_stage], 1
+    jmp .fail
+
+.scan_exhausted:
+    mov dword [fat_alloc_fail_stage], 2
+    jmp .retry_or_fail
+
+.wrap_exhausted:
+    mov dword [fat_alloc_fail_stage], 3
+    jmp .retry_or_fail
+
+.wrap_read_fail:
+    mov dword [fat_alloc_fail_stage], 4
+    jmp .fail
+
+.write_fail:
+    mov dword [fat_alloc_fail_stage], 5
+    jmp .fail
+
+.zero_fail:
+    mov dword [fat_alloc_fail_stage], 6
+    jmp .rollback_alloc
+
+.rollback_write_fail:
+    mov dword [fat_alloc_fail_stage], 7
+    jmp .fail
+
 .wrap_scan:
     mov ebx, 2
     cmp ebx, [fat_scan_start]
-    jae .retry_or_fail
+    jae .scan_exhausted
 
 .wrap_loop:
     cmp ebx, [fat_scan_start]
-    jae .retry_or_fail
+    jae .wrap_exhausted
+    mov [fat_alloc_scan_cluster], ebx
     mov eax, ebx
     call fat_next_cluster
-    jc .fail
+    jc .wrap_read_fail
+    mov [fat_alloc_last_entry], eax
     cmp ax, 0
     je .found
     inc ebx
@@ -5992,14 +6032,15 @@ fat_alloc_cluster:
     mov dword [fat_alloc_debug_stage], 2
     mov [fat_alloc_debug_cluster], ebx
     mov eax, ebx
+    mov [fat_alloc_found_cluster], ebx
     mov dx, 0xffff
     call fat_write_cluster_entry
-    jc .fail
+    jc .write_fail
     mov eax, ebx
     cmp dword [fat_alloc_zero_policy], 0
     je .allocated
     call fat_zero_cluster
-    jc .rollback_alloc
+    jc .zero_fail
 
 .allocated:
     mov dword [fat_alloc_debug_stage], 3
@@ -6020,6 +6061,7 @@ fat_alloc_cluster:
     mov eax, ebx
     xor edx, edx
     call fat_write_cluster_entry
+    jc .rollback_write_fail
     stc
     jmp .done
 
@@ -13679,6 +13721,30 @@ write_smoke_status:
     stosb
     mov edx, [fat_lba_result_lba]
     call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_alloc_fail_stage]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_alloc_scan_start_snapshot]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_alloc_scan_cluster]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_alloc_found_cluster]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_alloc_last_entry]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_alloc_last_data_snapshot]
+    call smoke_write_hex32
 
     mov esi, smoke_doomlog_text
     call smoke_copy_string
@@ -15821,6 +15887,12 @@ fat_lba_current_cluster dd 0
 fat_lba_next_cluster dd 0
 fat_lba_new_cluster dd 0
 fat_lba_result_lba dd 0
+fat_alloc_fail_stage dd 0
+fat_alloc_scan_start_snapshot dd 0
+fat_alloc_scan_cluster dd 0
+fat_alloc_found_cluster dd 0
+fat_alloc_last_entry dd 0
+fat_alloc_last_data_snapshot dd 0
 user_probe_magic_seen dd 0
 user_probe_flags_seen dd 0
 user_fault_addr dd 0
