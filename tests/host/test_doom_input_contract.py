@@ -113,7 +113,7 @@ class DoomInputContractTests(unittest.TestCase):
             "gamestate == GS_LEVEL",
             "gameepisode > 0",
             "gametic > 0",
-            "#define VIBE_PERSISTENCE_MIN_LEVELTIME 32",
+            "#define VIBE_PERSISTENCE_MIN_LEVELTIME 16",
             "leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME",
             "default_config_needs_checkpoint()",
             'default_config_contains_marker(length, "chatmacro0")',
