@@ -18,17 +18,30 @@ USER_PROBE_ELF := $(BUILD_DIR)/user_probe.elf
 IMAGE := $(BUILD_DIR)/disk.img
 C_RUNTIME_SRC := kernel/c_runtime_probe.c
 USER_PROBE_C_SRC := user/probe.c
+DOOM_SRC_DIR := third_party/doom/linuxdoom-1.10
+DOOM_PORT_INCLUDE_DIR := doom_port/include
+DOOM_PORT_BUILD_DIR := $(BUILD_DIR)/doom
+DOOM_ORIGINAL_SRCS := \
+	$(DOOM_SRC_DIR)/m_bbox.c \
+	$(DOOM_SRC_DIR)/m_fixed.c \
+	$(DOOM_SRC_DIR)/m_random.c \
+	$(DOOM_SRC_DIR)/m_swap.c
+DOOM_ORIGINAL_OBJS := $(DOOM_ORIGINAL_SRCS:$(DOOM_SRC_DIR)/%.c=$(DOOM_PORT_BUILD_DIR)/%.o)
+FREESTANDING_I386_CFLAGS := -target i386-unknown-elf -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m32 -march=i386 -mno-sse -mno-mmx -msoft-float -O2
 
 STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 49152
 USER_PROBE_ELF_MAX_BYTES := 8192
 
-.PHONY: all test run run-headless smoke clean check-tools vm-consent
+.PHONY: all test doom-compile run run-headless smoke clean check-tools vm-consent
 
 all: $(IMAGE)
 
-test: $(IMAGE)
+test: $(IMAGE) doom-compile
 	$(PYTHON) -m unittest discover -s tests/host -p 'test_*.py'
+
+doom-compile: $(DOOM_ORIGINAL_OBJS)
+	@printf "Compiled %s original Doom source files for freestanding i386.\n" "$$(printf '%s\n' $(DOOM_ORIGINAL_OBJS) | wc -l | tr -d ' ')"
 
 check-tools:
 	@command -v $(NASM) >/dev/null || { echo "missing nasm"; exit 1; }
@@ -47,6 +60,9 @@ vm-consent:
 $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
 
+$(DOOM_PORT_BUILD_DIR):
+	@mkdir -p $(DOOM_PORT_BUILD_DIR)
+
 $(STAGE1_BIN): boot/stage1.asm | $(BUILD_DIR)
 	$(NASM) -f bin $< -o $@
 
@@ -58,7 +74,7 @@ $(KERNEL_OBJ): kernel/kernel.asm | $(BUILD_DIR)
 	$(NASM) -f elf32 -D ELF_KERNEL $< -o $@
 
 $(C_RUNTIME_OBJ): $(C_RUNTIME_SRC) | $(BUILD_DIR)
-	$(CLANG) -target i386-unknown-elf -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m32 -march=i386 -mno-sse -mno-mmx -msoft-float -O2 -c $< -o $@
+	$(CLANG) $(FREESTANDING_I386_CFLAGS) -c $< -o $@
 
 $(KERNEL_ELF): $(KERNEL_OBJ) $(C_RUNTIME_OBJ) tools/link_elf32.py | $(BUILD_DIR)
 	$(PYTHON) tools/link_elf32.py -o $@ --base 0x10000 $(KERNEL_OBJ) $(C_RUNTIME_OBJ)
@@ -68,7 +84,10 @@ $(USER_CRT0_OBJ): user/crt0.asm | $(BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
 
 $(USER_PROBE_C_OBJ): $(USER_PROBE_C_SRC) | $(BUILD_DIR)
-	$(CLANG) -target i386-unknown-elf -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m32 -march=i386 -mno-sse -mno-mmx -msoft-float -O2 -c $< -o $@
+	$(CLANG) $(FREESTANDING_I386_CFLAGS) -c $< -o $@
+
+$(DOOM_PORT_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c | $(DOOM_PORT_BUILD_DIR)
+	$(CLANG) $(FREESTANDING_I386_CFLAGS) -std=gnu89 -DNORMALUNIX -I$(DOOM_PORT_INCLUDE_DIR) -I$(DOOM_SRC_DIR) -c $< -o $@
 
 $(USER_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_PROBE_C_OBJ) tools/link_elf32.py | $(BUILD_DIR)
 	$(PYTHON) tools/link_elf32.py -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_PROBE_C_OBJ)

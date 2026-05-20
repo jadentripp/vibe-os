@@ -23,6 +23,10 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
 - 8 MiB free-list heap with `kalloc`/`kfree` and boot-time high-memory self-test
 - freestanding cdecl-style libc subset: strings, memory helpers, integer math, x87 init/test, and `kprintf`
 - freestanding C build path that compiles C into the booted kernel image
+- vendored official id Software Doom source release at
+  `third_party/doom/linuxdoom-1.10`
+- freestanding i386 compile smoke for selected unmodified original Doom engine
+  modules
 - hard-path WAD loading through an ATA PIO IDE driver and a FAT16 reader
 - WAD header/directory parsing with named-lump lookup for Doom assets
 - text UI with an interactive shell
@@ -55,6 +59,10 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
   shareware WAD without changing the kernel storage path.
 - External programs here are build/test tools: assembler, C compiler, image
   generator, and emulator. They are not runtime OS services.
+- Doom source legitimacy is pinned to the official id Software public release:
+  `third_party/doom/ORIGIN.md` records the upstream repository and commit, and
+  host tests hash the original files used by the compile smoke so port work
+  stays outside the vendor tree.
 
 ## Requirements
 
@@ -147,6 +155,8 @@ Already implemented:
 - paging, PMM/VMM self-tests, and kernel heap
 - kernel libc subset and a freestanding C probe linked from a clang ELF object
 - ATA PIO, MBR partition parsing, FAT16 root/cluster loading, and WAD parsing
+- official `linuxdoom-1.10` source import, with a no-modification provenance
+  policy and a freestanding compile smoke for unmodified engine support modules
 
 Still required before this is actually Doom-capable:
 
