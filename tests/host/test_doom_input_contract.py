@@ -113,10 +113,12 @@ class DoomInputContractTests(unittest.TestCase):
             "gamestate == GS_LEVEL",
             "gameepisode > 0",
             "gametic > 0",
+            "#define VIBE_PERSISTENCE_MIN_LEVELTIME 70",
+            "leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME",
             "default_config_needs_checkpoint()",
             'default_config_contains_marker(length, "chatmacro0")',
             "M_SaveDefaults();",
-            "gameaction = ga_savegame;",
+            "G_SaveGame(save_checkpoint_slot, description);",
             "G_LoadGame(path);",
             "VIBE_DOOM_INPUT_KEYDOWN",
             "ev_keydown",
@@ -128,6 +130,11 @@ class DoomInputContractTests(unittest.TestCase):
                 self.assertIn(source, platform)
 
         self.assertIn("doom_port/input.c", makefile)
+        save_checkpoint = platform.split(
+            "static void checkpoint_save_slot_if_needed(void)", 1
+        )[1].split("static void checkpoint_load_slot_if_needed(void)", 1)[0]
+        self.assertNotIn("gameaction = ga_savegame;", save_checkpoint)
+        self.assertNotIn("G_DoSaveGame();", save_checkpoint)
 
     def test_raw_player_detail_status_exports_gameplay_state(self):
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()

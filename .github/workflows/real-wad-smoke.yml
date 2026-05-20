@@ -13,17 +13,17 @@ on:
         type: boolean
         default: false
       persistence_input_script:
-        description: QEMU input script for the first persistence boot. Use auto to wait for DEFAULT.CFG, Use text=NAME for batched save-name typing, or create the requested DOOMSAV slot when persistence_save_slot is set.
+        description: QEMU input script for the first persistence boot. Use auto to wait for DEFAULT.CFG, or for the marker-requested DOOMSAV slot when persistence_save_slot is set.
         required: false
         type: string
         default: "auto"
       persistence_load_input_script:
-        description: QEMU input script for the reboot/load boot. Use auto with persistence_save_slot to load the saved slot through Doom's menu.
+        description: QEMU input script for the reboot/load boot. Use auto with persistence_save_slot to wait for the marker-requested load proof.
         required: false
         type: string
         default: "auto"
       persistence_save_slot:
-        description: Optional DOOMSAV slot number to require if the input script creates a save.
+        description: Optional DOOMSAV slot number to require. Providing this also enables the marker-driven reboot save/load persistence proof.
         required: false
         type: string
       audible_audio_proof:
@@ -148,7 +148,7 @@ jobs:
           make DOOM_WAD="$WAD_PATH"
 
       - name: Capture fresh persistence baseline
-        if: ${{ inputs.persistence_proof }}
+        if: ${{ inputs.persistence_proof || inputs.persistence_save_slot != '' }}
         run: |
           set -euo pipefail
           cp build/disk.img "$RUNNER_TEMP/disk.before-persistence.img"
@@ -295,7 +295,7 @@ jobs:
           done
 
       - name: Attempt reboot persistence proof
-        if: ${{ always() && inputs.persistence_proof }}
+        if: ${{ always() && (inputs.persistence_proof || inputs.persistence_save_slot != '') }}
         timeout-minutes: 15
         run: |
           set -euo pipefail
@@ -316,17 +316,17 @@ jobs:
                 ;;
             esac
             if [ "$persistence_write_script" = "auto" ]; then
-              persistence_write_script="save-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,wait-status-part-min=savewr:1:00000001:180:2,wait-status-min=saveclose:00000001:120:2,snapshot"
+              persistence_write_script="save-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,wait-status-min=leveltime:00000046:90:2,wait-status-part-min=savewr:1:00000001:180:2,wait-status-min=saveclose:00000001:120:2,snapshot"
             fi
             if [ "$persistence_load_script" = "auto" ]; then
-              persistence_load_script="load-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,wait-status-part-min=saverd:1:00000001:120:2,wait=2,wait-status=gameplay:OK:60:2,snapshot"
+              persistence_load_script="load-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,wait-status-min=leveltime:00000046:90:2,wait-status-part-min=saverd:1:00000001:120:2,wait=2,wait-status=gameplay:OK:60:2,snapshot"
             fi
-            persistence_default_script="persist-default:wait-status=gameplay:OK:150:5,wait-status-min=doomwrite:00000001:120:2,wait-status-min=doomclose:00000003:120:2,snapshot"
+            persistence_default_script="persist-default:wait-status=gameplay:OK:150:5,wait-status-min=leveltime:00000046:90:2,wait-status-min=doomwrite:00000001:120:2,wait-status-min=doomclose:00000003:120:2,snapshot"
             check_args+=(--require-save-slot "$PERSISTENCE_SAVE_SLOT")
             check_args+=(--save-write-status build/status.persistence-write.txt)
           else
             if [ "$persistence_write_script" = "auto" ]; then
-              persistence_write_script="persist-default:wait-status=gameplay:OK:150:5,wait-status-min=doomwrite:00000001:120:2,wait-status-min=doomclose:00000003:120:2,snapshot"
+              persistence_write_script="persist-default:wait-status=gameplay:OK:150:5,wait-status-min=leveltime:00000046:90:2,wait-status-min=doomwrite:00000001:120:2,wait-status-min=doomclose:00000003:120:2,snapshot"
             fi
             if [ "$persistence_load_script" = "auto" ]; then
               persistence_load_script=""
