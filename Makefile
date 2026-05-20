@@ -128,13 +128,13 @@ $(USER_CRT0_OBJ): user/crt0.asm | $(BUILD_DIR)
 $(USER_PROBE_C_OBJ): $(USER_PROBE_C_SRC) | $(BUILD_DIR)
 	$(CLANG) $(FREESTANDING_I386_CFLAGS) -c $< -o $@
 
-$(DOOM_PORT_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c | $(DOOM_PORT_BUILD_DIR)
+$(DOOM_PORT_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c Makefile | $(DOOM_PORT_BUILD_DIR)
 	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) -c $< -o $@
 
 $(DOOM_PORT_BUILD_DIR)/g_game.o: $(DOOM_SRC_DIR)/g_game.c Makefile | $(DOOM_PORT_BUILD_DIR)
 	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) $(DOOM_G_GAME_CFLAGS) -c $< -o $@
 
-$(DOOM_PORT_BUILD_DIR)/port_%.o: doom_port/%.c | $(DOOM_PORT_BUILD_DIR)
+$(DOOM_PORT_BUILD_DIR)/port_%.o: doom_port/%.c Makefile | $(DOOM_PORT_BUILD_DIR)
 	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) -c $< -o $@
 
 $(DOOM_ELF): $(DOOM_ORIGINAL_OBJS) $(DOOM_PORT_OBJS) tools/link_elf32.py | $(BUILD_DIR)
@@ -262,6 +262,12 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "pbuttons=" $(BUILD_DIR)/status.txt; \
 	grep -q "ppos=" $(BUILD_DIR)/status.txt; \
 	grep -q "pdelta=" $(BUILD_DIR)/status.txt; \
+	grep -q "pcmd=" $(BUILD_DIR)/status.txt; \
+	grep -q "pangle=" $(BUILD_DIR)/status.txt; \
+	grep -q "pangledelta=" $(BUILD_DIR)/status.txt; \
+	grep -q "pammo=" $(BUILD_DIR)/status.txt; \
+	grep -q "prefire=" $(BUILD_DIR)/status.txt; \
+	grep -q "pweapon=" $(BUILD_DIR)/status.txt; \
 	grep -q "doomsound=" $(BUILD_DIR)/status.txt; \
 	grep -q "sfxmix=" $(BUILD_DIR)/status.txt; \
 	grep -q "voices=" $(BUILD_DIR)/status.txt; \

@@ -25,6 +25,7 @@ enum {
     VIBE_SYS_FORK = 23,
     VIBE_SYS_WAITPID = 24,
     VIBE_SYS_GETPID = 25,
+    VIBE_SYS_PLAYER_DETAIL_STATUS = 26,
 };
 
 enum {

@@ -294,6 +294,7 @@ SYS_IOCTL equ 22
 SYS_FORK equ 23
 SYS_WAITPID equ 24
 SYS_GETPID equ 25
+SYS_PLAYER_DETAIL_STATUS equ 26
 PLAYABLE_STATUS_FLAG equ 0x80000000
 DOOM_INIT_STATUS_FLAG equ 0x40000000
 SAVELOAD_STATUS_FLAG equ 0x20000000
@@ -4931,6 +4932,14 @@ storage_init:
     mov dword [doom_player_origin_x], 0
     mov dword [doom_player_origin_y], 0
     mov dword [doom_player_delta], 0
+    mov dword [doom_player_cmd], 0
+    mov dword [doom_player_angle], 0
+    mov dword [doom_player_angle_origin_set], 0
+    mov dword [doom_player_origin_angle], 0
+    mov dword [doom_player_angle_delta], 0
+    mov dword [doom_player_ammo], 0
+    mov dword [doom_player_refire], 0
+    mov dword [doom_player_weapon], 0
     mov dword [doom_key_down_seen], 0
     mov dword [doom_key_last_event], 0
     mov dword [doom_mouse_event_count], 0
@@ -9123,6 +9132,14 @@ doom_user_run:
     mov dword [doom_player_origin_x], 0
     mov dword [doom_player_origin_y], 0
     mov dword [doom_player_delta], 0
+    mov dword [doom_player_cmd], 0
+    mov dword [doom_player_angle], 0
+    mov dword [doom_player_angle_origin_set], 0
+    mov dword [doom_player_origin_angle], 0
+    mov dword [doom_player_angle_delta], 0
+    mov dword [doom_player_ammo], 0
+    mov dword [doom_player_refire], 0
+    mov dword [doom_player_weapon], 0
     mov dword [doom_key_down_seen], 0
     mov dword [doom_key_last_event], 0
     mov dword [doom_mouse_buttons_seen], 0
@@ -9576,6 +9593,8 @@ syscall_handler:
     je .waitpid
     cmp eax, SYS_GETPID
     je .getpid
+    cmp eax, SYS_PLAYER_DETAIL_STATUS
+    je .player_detail_status
     jmp .bad_syscall_enosys
 
 .user_probe:
@@ -10267,6 +10286,34 @@ syscall_handler:
     cmp eax, [doom_player_delta]
     jbe .gameplay_return
     mov [doom_player_delta], eax
+    jmp .gameplay_return
+
+.player_detail_status:
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    jne .gameplay_return
+    mov [doom_player_cmd], ebx
+    mov [doom_player_angle], ecx
+    mov eax, edx
+    and eax, 0x0000ffff
+    mov [doom_player_ammo], eax
+    mov eax, edx
+    shr eax, 16
+    and eax, 0xff
+    mov [doom_player_refire], eax
+    mov eax, edx
+    shr eax, 24
+    and eax, 0xff
+    mov [doom_player_weapon], eax
+    cmp dword [doom_player_angle_origin_set], 0
+    jne .player_angle_delta
+    mov dword [doom_player_angle_origin_set], 1
+    mov [doom_player_origin_angle], ecx
+
+.player_angle_delta:
+    mov eax, ecx
+    xor eax, [doom_player_origin_angle]
+    or [doom_player_angle_delta], eax
+    jmp .gameplay_return
 
 .gameplay_return:
     xor eax, eax
@@ -12922,6 +12969,36 @@ write_smoke_status:
     mov edx, [doom_player_delta]
     call smoke_write_hex32
 
+    mov esi, smoke_pcmd_text
+    call smoke_copy_string
+    mov edx, [doom_player_cmd]
+    call smoke_write_hex32
+
+    mov esi, smoke_pangle_text
+    call smoke_copy_string
+    mov edx, [doom_player_angle]
+    call smoke_write_hex32
+
+    mov esi, smoke_pangledelta_text
+    call smoke_copy_string
+    mov edx, [doom_player_angle_delta]
+    call smoke_write_hex32
+
+    mov esi, smoke_pammo_text
+    call smoke_copy_string
+    mov edx, [doom_player_ammo]
+    call smoke_write_hex32
+
+    mov esi, smoke_prefire_text
+    call smoke_copy_string
+    mov edx, [doom_player_refire]
+    call smoke_write_hex32
+
+    mov esi, smoke_pweapon_text
+    call smoke_copy_string
+    mov edx, [doom_player_weapon]
+    call smoke_write_hex32
+
     mov esi, smoke_doomsound_text
     call smoke_copy_string
     mov edx, [doom_sound_call_count]
@@ -14221,6 +14298,12 @@ smoke_pflags_text db " pflags=", 0
 smoke_pbuttons_text db " pbuttons=", 0
 smoke_ppos_text db " ppos=", 0
 smoke_pdelta_text db " pdelta=", 0
+smoke_pcmd_text db " pcmd=", 0
+smoke_pangle_text db " pangle=", 0
+smoke_pangledelta_text db " pangledelta=", 0
+smoke_pammo_text db " pammo=", 0
+smoke_prefire_text db " prefire=", 0
+smoke_pweapon_text db " pweapon=", 0
 smoke_doomsound_text db " doomsound=", 0
 smoke_sfxmix_text db " sfxmix=", 0
 smoke_audiovoices_text db " voices=", 0
@@ -14884,6 +14967,14 @@ doom_player_origin_set dd 0
 doom_player_origin_x dd 0
 doom_player_origin_y dd 0
 doom_player_delta dd 0
+doom_player_cmd dd 0
+doom_player_angle dd 0
+doom_player_angle_origin_set dd 0
+doom_player_origin_angle dd 0
+doom_player_angle_delta dd 0
+doom_player_ammo dd 0
+doom_player_refire dd 0
+doom_player_weapon dd 0
 doom_sound_call_count dd 0
 doom_sound_start_count dd 0
 doom_sound_stop_count dd 0

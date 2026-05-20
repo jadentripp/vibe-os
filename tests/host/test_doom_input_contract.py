@@ -133,6 +133,57 @@ class DoomInputContractTests(unittest.TestCase):
 
         self.assertIn("doom_port/input.c", makefile)
 
+    def test_raw_player_detail_status_exports_gameplay_state(self):
+        header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
+        platform = (ROOT / "doom_port" / "platform.c").read_text()
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        makefile = (ROOT / "Makefile").read_text()
+
+        for source in (
+            "VIBE_SYS_PLAYER_DETAIL_STATUS = 26",
+            "static void report_player_detail_status(void)",
+            "player->cmd.forwardmove",
+            "player->cmd.sidemove",
+            "player->ammo[am_clip]",
+            "player->refire",
+            "player->readyweapon",
+            "player->mo->angle",
+            "report_player_detail_status();",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, header + platform)
+
+        for source in (
+            "SYS_PLAYER_DETAIL_STATUS equ 26",
+            "cmp eax, SYS_PLAYER_DETAIL_STATUS",
+            ".player_detail_status:",
+            "doom_player_cmd",
+            "doom_player_angle",
+            "doom_player_angle_delta",
+            "doom_player_ammo",
+            "doom_player_refire",
+            "doom_player_weapon",
+            'smoke_pcmd_text db " pcmd="',
+            'smoke_pangle_text db " pangle="',
+            'smoke_pangledelta_text db " pangledelta="',
+            'smoke_pammo_text db " pammo="',
+            'smoke_prefire_text db " prefire="',
+            'smoke_pweapon_text db " pweapon="',
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, kernel)
+
+        for source in (
+            'grep -q "pcmd="',
+            'grep -q "pangle="',
+            'grep -q "pangledelta="',
+            'grep -q "pammo="',
+            'grep -q "prefire="',
+            'grep -q "pweapon="',
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, makefile)
+
 
 if __name__ == "__main__":
     unittest.main()
