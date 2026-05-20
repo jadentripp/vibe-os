@@ -46,6 +46,27 @@ If the launcher reports that GitHub CLI cannot access Codespaces, run:
 gh auth refresh -h github.com -s codespace
 ```
 
+If you do not want to grant that local scope right now, ask the launcher for the
+browser-only Codespaces path instead:
+
+```sh
+./tools/play_now_codespaces.sh --web-url \
+  --repo jadentripp/vibe-os \
+  --ref jt/doom-gameplay-proof
+```
+
+That verifies the pushed repo/ref and required play files, then prints a
+GitHub `codespaces/new` URL plus the exact in-Codespace commands. Open the URL
+in the browser, create the Codespace, and run:
+
+```sh
+./tools/play_now_remote.sh --preflight --require-novnc
+./tools/play_now_remote.sh --require-novnc
+```
+
+The devcontainer prints those commands when you attach, so a Codespace created
+from the GitHub web UI has the same path as the CLI-created one.
+
 Optional dry run:
 
 ```sh
@@ -75,6 +96,22 @@ sudo apt-get update
 sudo apt-get install -y nasm qemu-system-x86 clang make netcat-openbsd curl novnc websockify
 ./tools/play_now_remote.sh --preflight
 ./tools/play_now_remote.sh
+```
+
+For a fresh disposable Ubuntu shell, the bootstrap helper performs that setup
+and then starts the same remote play script:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/jt/doom-gameplay-proof/tools/play_now_cloud_shell.sh \
+  | VIBE_REF=jt/doom-gameplay-proof bash
+```
+
+Use `--preflight-only` when you want it to stop after dependency and noVNC
+checks:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/jt/doom-gameplay-proof/tools/play_now_cloud_shell.sh \
+  | bash -s -- --preflight-only
 ```
 
 The preflight is a dry run: it checks the remote host and exits before fetching

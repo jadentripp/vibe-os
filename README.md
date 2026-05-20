@@ -137,6 +137,19 @@ Codespaces scope, run `gh auth refresh -h github.com -s codespace` once. To
 check the plan without creating or modifying a Codespace, run
 `./tools/play_now_codespaces.sh --preflight` first.
 
+If local `gh` is authenticated for the repo but does not have the Codespaces
+API scope, print the browser-only creation URL instead:
+
+```sh
+./tools/play_now_codespaces.sh --web-url \
+  --repo jadentripp/vibe-os \
+  --ref jt/doom-gameplay-proof
+```
+
+Open that URL, create the Codespace in the GitHub web UI, and use the terminal
+welcome command it prints. The devcontainer also prints the same play commands
+when you attach to a browser-created Codespace.
+
 The launcher also verifies that the selected pushed branch contains the
 devcontainer and remote play scripts before it creates a Codespace. If you want
 a GitHub-hosted prerequisite check without opening an interactive session, run
@@ -150,6 +163,14 @@ Codespace, run:
 
 ```sh
 ./tools/play_now_remote.sh
+```
+
+For a fresh remote Ubuntu shell with no local `gh` involvement, use the remote
+bootstrap helper from inside that disposable shell:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/jt/doom-gameplay-proof/tools/play_now_cloud_shell.sh \
+  | VIBE_REF=jt/doom-gameplay-proof bash
 ```
 
 Do not run local Mac QEMU for the quick path. See
