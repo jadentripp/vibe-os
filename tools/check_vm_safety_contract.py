@@ -211,13 +211,16 @@ def validate_cloud_interactive_runbooks(root: Path = ROOT) -> None:
         "gh codespace ports visibility \"$NOVNC_PORT:private\"",
         "noVNC port $NOVNC_PORT is private",
         "vnc.html?autoconnect=1",
+        "Makefile",
+        "tools/prepare_shareware_wad.py",
+        "tools/make_wad_image.py",
     ):
         _require(codespaces_script, needle, "Codespaces play-now launcher")
 
     for forbidden in (
         "qemu-system-x86_64",
         "make DOOM_WAD",
-        "prepare_shareware_wad.py",
+        "python3 tools/prepare_shareware_wad.py",
         "gh codespace cp",
         "scp ",
         "build/disk.img",

@@ -361,10 +361,9 @@ jobs:
           image = bytearray(path.read_bytes())
           fs = make_wad_image.Fat16Image(image)
           name = getattr(make_wad_image, os.environ["PERSISTENCE_MARKER_NAME"])
-          fs.write_root_file(
-              name,
-              os.environ["PERSISTENCE_MARKER_PAYLOAD"].encode("ascii"),
-          )
+          data = os.environ["PERSISTENCE_MARKER_PAYLOAD"].encode("ascii")
+
+          fs.write_root_file(name, data)
           path.write_bytes(image)
           PY
           }

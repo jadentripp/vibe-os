@@ -168,11 +168,9 @@ semantics today.
 This is enough for Doom defaults and save slots without turning the kernel into
 a general-purpose FAT filesystem.
 
-ATA PIO waits are bounded and status-reported. The ATA path makes sure commands
-only start once stale `DRQ` is clear, labels the explicit 256-word PIO loops as
+ATA PIO waits are bounded and status-reported. The ATA path makes sure commands only start once stale `DRQ` is clear, labels the explicit 256-word PIO loops as
 `atawait=DATA`, and waits for the data-request phase to drain after the loop.
-The smoke line includes `ataop`, `atawait`, `atalba`, `atastat`, `ataerr`,
-`atafail`, and `atatmo` so a cloud persistence write boot that parks in
+The smoke line includes `ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo` so a cloud persistence write boot that parks in
 `ata_wait_drq`, `ata_wait_ready`, or the data transfer reports the last
 operation and command-status byte instead of silently looking like a Doom
 startup/gameplay wait.

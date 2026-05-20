@@ -23,9 +23,12 @@ REMOTE_PLAY_PATHS=(
   ".devcontainer/devcontainer.json"
   ".devcontainer/Dockerfile"
   ".devcontainer/play-now-welcome.sh"
+  "Makefile"
   "tools/play_now_remote.sh"
   "tools/play_now_cloud_shell.sh"
   "tools/check_play_now_remote.py"
+  "tools/prepare_shareware_wad.py"
+  "tools/make_wad_image.py"
 )
 
 if [ -n "${VIBE_REPO:-}" ]; then
@@ -94,25 +97,35 @@ require_gh_codespaces_access() {
   }
 }
 
-require_remote_play_path() {
-  local path="$1"
-
-  gh api \
-    --method GET \
-    -H "Accept: application/vnd.github+json" \
-    "/repos/$REPO/contents/$path" \
-    -f "ref=$REF" \
-    --jq .type >/dev/null 2>&1 || {
-      die "GitHub branch '$REF' in '$REPO' is missing required play-now path '$path'; push the devcontainer and remote play launcher before starting Codespaces"
-    }
-}
-
 verify_remote_play_payload() {
   local path
+  local payload_tmp
+  local remote_url
+  local missing=()
+
+  payload_tmp="$(mktemp -d "${TMPDIR:-/tmp}/vibe-os-play-now-payload.XXXXXX")" || die "could not create temporary payload check directory"
+  remote_url="https://github.com/${REPO}.git"
+
+  (
+    cd "$payload_tmp"
+    git init -q
+    git remote add origin "$remote_url"
+    GIT_TERMINAL_PROMPT=0 git fetch --depth=1 --filter=blob:none origin "refs/heads/$REF" >/dev/null 2>&1
+  ) || {
+    rm -rf "$payload_tmp"
+    die "could not fetch GitHub branch '$REF' from '$REPO' for play-now payload verification"
+  }
 
   for path in "${REMOTE_PLAY_PATHS[@]}"; do
-    require_remote_play_path "$path"
+    if ! (cd "$payload_tmp" && git cat-file -e "FETCH_HEAD:$path" >/dev/null 2>&1); then
+      missing+=("$path")
+    fi
   done
+
+  rm -rf "$payload_tmp"
+  if [ "${#missing[@]}" -gt 0 ]; then
+    die "GitHub branch '$REF' in '$REPO' is missing required play-now path '${missing[0]}'; push the devcontainer, remote play launcher, and WAD prep helpers before starting Codespaces"
+  fi
 }
 
 validate_repo_slug() {
@@ -152,13 +165,6 @@ verify_github_remote_ref() {
   validate_repo_slug "$REPO"
   validate_ref_name "$REF"
 
-  gh repo view "$REPO" --json nameWithOwner -q .nameWithOwner >/dev/null 2>&1 || {
-    die "GitHub repo '$REPO' is not accessible with the current gh auth"
-  }
-  REPO_DATABASE_ID="$(
-    gh api -H "Accept: application/vnd.github+json" "/repos/$REPO" --jq .id 2>/dev/null || true
-  )"
-
   local remote_url
   local refs
   local expected_ref
@@ -171,6 +177,15 @@ verify_github_remote_ref() {
   if ! printf "%s\n" "$refs" | awk '{print $2}' | grep -Fx "$expected_ref" >/dev/null 2>&1; then
     die "GitHub branch '$REF' was not found in '$REPO'; push it first or pass a branch that exists remotely"
   fi
+
+  REPO_DATABASE_ID="$(
+    gh api -H "Accept: application/vnd.github+json" "/repos/$REPO" --jq .id 2>/dev/null || true
+  )"
+  case "$REPO_DATABASE_ID" in
+    ''|*[!0-9]*)
+      REPO_DATABASE_ID=""
+      ;;
+  esac
 }
 
 urlencode() {
@@ -235,7 +250,22 @@ sanitize_display_part() {
 }
 
 current_repo() {
-  gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null
+  local url
+
+  url="$(git remote get-url origin 2>/dev/null || true)"
+  case "$url" in
+    https://github.com/*.git)
+      url="${url#https://github.com/}"
+      printf "%s\n" "${url%.git}"
+      ;;
+    git@github.com:*.git)
+      url="${url#git@github.com:}"
+      printf "%s\n" "${url%.git}"
+      ;;
+    *)
+      gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null
+      ;;
+  esac
 }
 
 current_ref() {

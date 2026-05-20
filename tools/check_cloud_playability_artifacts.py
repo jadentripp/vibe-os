@@ -643,6 +643,9 @@ def validate_repo_contract() -> None:
         "gh codespace ports visibility \"$NOVNC_PORT:private\"",
         "noVNC port $NOVNC_PORT is private",
         "vnc.html?autoconnect=1",
+        "Makefile",
+        "tools/prepare_shareware_wad.py",
+        "tools/make_wad_image.py",
         "Delete when done: gh codespace delete -c \\\"$CODESPACE_NAME\\\" --force",
     ):
         _require(codespaces_script, needle, "Codespaces play-now launcher")
@@ -650,7 +653,7 @@ def validate_repo_contract() -> None:
     for forbidden in (
         "qemu-system-x86_64",
         "make DOOM_WAD",
-        "prepare_shareware_wad.py",
+        "python3 tools/prepare_shareware_wad.py",
         "gh codespace cp",
         "scp ",
         "build/disk.img",
@@ -768,6 +771,8 @@ def validate_repo_contract() -> None:
         "if [ -z \"${PERSISTENCE_SAVE_SLOT:-}\" ]; then",
         "write_marker PERSISTENCE_CHECKPOINT_NAME \"\"",
         "write_marker SAVE_REQUEST_NAME \"$slot_marker_payload\"",
+        "name = getattr(make_wad_image, os.environ[\"PERSISTENCE_MARKER_NAME\"])",
+        "data = os.environ[\"PERSISTENCE_MARKER_PAYLOAD\"].encode(\"ascii\")",
         "delete_marker SAVE_REQUEST_NAME",
         "write_marker LOAD_REQUEST_NAME \"$slot_marker_payload\"",
         "write_status=\"build/persistence-write/status.save-slot-${PERSISTENCE_SAVE_SLOT}.txt\"",

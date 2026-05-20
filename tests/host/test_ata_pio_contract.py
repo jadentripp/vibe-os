@@ -53,25 +53,34 @@ class AtaPioContractTests(unittest.TestCase):
             drq.index("test al, ATA_STATUS_DRQ"),
         )
 
-    def test_commands_wait_for_drq_to_clear_around_transfers(self):
-        ready = self.kernel.split("ata_wait_ready:", 1)[1].split("ata_read_sector:", 1)[0]
-        read_sector = self.kernel.split("ata_read_sector:", 1)[1].split("ata_write_sector:", 1)[0]
-        write_sector = self.kernel.split("ata_write_sector:", 1)[1].split("fat_name_match:", 1)[0]
+    def test_pio_data_transfers_use_explicit_word_loops(self):
+        read = self.kernel.split("ata_read_sector:", 1)[1].split("ata_write_sector:", 1)[0]
+        write = self.kernel.split("ata_write_sector:", 1)[1].split("fat_name_match:", 1)[0]
 
-        self.assertIn("mov dword [ata_wait_phase], ATA_WAIT_READY", ready)
-        self.assertIn("test al, ATA_STATUS_DRQ", ready)
-        self.assertIn("jz .ok", ready)
+        for instruction in ("rep insw", "rep outsw"):
+            with self.subTest(instruction=instruction):
+                self.assertNotIn(instruction, read)
+                self.assertNotIn(instruction, write)
 
-        self.assertGreaterEqual(read_sector.count("call ata_wait_ready"), 2)
-        self.assertGreaterEqual(write_sector.count("call ata_wait_ready"), 2)
-        self.assertIn("out dx, al\n    call ata_io_delay\n\n    call ata_wait_drq", read_sector)
-        self.assertIn("mov ecx, 256\n.read_word:\n    in ax, dx", read_sector)
-        self.assertIn("mov [edi], ax\n    add edi, 2\n    loop .read_word", read_sector)
-        self.assertIn("out dx, al\n    call ata_io_delay\n\n    call ata_wait_drq", write_sector)
-        self.assertIn("mov ecx, 256\n.write_word:\n    mov ax, [esi]", write_sector)
-        self.assertIn("out dx, ax\n    add esi, 2\n    loop .write_word", write_sector)
-        self.assertNotIn("rep insw", read_sector)
-        self.assertNotIn("rep outsw", write_sector)
+        for source in (
+            ".read_word:",
+            "in ax, dx",
+            "mov [edi], ax",
+            "add edi, 2",
+            "loop .read_word",
+        ):
+            with self.subTest(read_source=source):
+                self.assertIn(source, read)
+
+        for source in (
+            ".write_word:",
+            "mov ax, [esi]",
+            "out dx, ax",
+            "add esi, 2",
+            "loop .write_word",
+        ):
+            with self.subTest(write_source=source):
+                self.assertIn(source, write)
 
     def test_commands_wait_for_drq_to_clear_around_transfers(self):
         ready = self.kernel.split("ata_wait_ready:", 1)[1].split("ata_read_sector:", 1)[0]
