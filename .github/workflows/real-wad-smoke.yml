@@ -237,9 +237,11 @@ jobs:
 
           baseline="$RUNNER_TEMP/disk.before-persistence.img"
           after_write="$RUNNER_TEMP/disk.after-persistence-write.img"
-          check_args=(--baseline-image "$baseline" --require-default)
+          check_args=(--baseline-image "$baseline")
           if [ -n "${PERSISTENCE_SAVE_SLOT:-}" ]; then
             check_args+=(--require-save-slot "$PERSISTENCE_SAVE_SLOT")
+          else
+            check_args+=(--require-default)
           fi
 
           test -f "$baseline"
