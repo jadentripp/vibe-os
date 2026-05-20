@@ -115,6 +115,8 @@ SUMMARY_FIELDS = (
     "savedesc",
     "fwr",
     "fal",
+    "fam",
+    "fac",
     "fio",
 )
 EXECSYS_NAMES = (
@@ -215,13 +217,13 @@ TRIAGE_RULES = (
     ),
     TriageRule(
         "persistence-save-write-failed",
-        ("doomerrno", "doommode", "doomsav", "savewr", "saveclose", "savemode", "fwr", "fal", "fio"),
+        ("doomerrno", "doommode", "doomsav", "savewr", "saveclose", "savemode", "fwr", "fal", "fam", "fac", "fio"),
         "Doom reached the save path, but the DOOMSAV write did not complete.",
         "Inspect the persistence status, then hand off to FAT allocation/free-space or write-path repair with the fwr/fio/fal fields.",
     ),
     TriageRule(
         "persistence-save-growth-allocation-partial",
-        ("doomsav", "savewr", "saveclose", "savemode", "fwr", "fal", "fio"),
+        ("doomsav", "savewr", "saveclose", "savemode", "fwr", "fal", "fam", "fac", "fio"),
         "Doom reached the save path and wrote one cluster, but save-file growth stopped at the next FAT allocation.",
         "Hand off to FAT save-growth allocation: inspect the last data cluster/free scan and why the allocator returned E0 after a short positive write.",
     ),
@@ -654,7 +656,8 @@ def render_persistence_save_context(fields: dict[str, str]) -> list[str]:
         f"saveclose={_field(fields, 'saveclose')} savemode={_field(fields, 'savemode')} "
         f"saveact={_field(fields, 'saveact')} savedesc={_field(fields, 'savedesc')}",
         "persistence-write-debug: "
-        f"fwr={_field(fields, 'fwr')} fio={_field(fields, 'fio')} fal={_field(fields, 'fal')}",
+        f"fwr={_field(fields, 'fwr')} fio={_field(fields, 'fio')} "
+        f"fal={_field(fields, 'fal')} fam={_field(fields, 'fam')} fac={_field(fields, 'fac')}",
     ]
     fal = _hex_tuple(fields, "fal", 4)
     fio = _hex_tuple(fields, "fio", 20)
@@ -818,7 +821,8 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
                 "persistence-save-growth-allocation-partial: "
                 f"doomsav={_field(fields, 'doomsav')} savewr={_field(fields, 'savewr')} "
                 f"saveclose={_field(fields, 'saveclose')} savemode={_field(fields, 'savemode')} "
-                f"fwr={_field(fields, 'fwr')} fal={_field(fields, 'fal')} fio={_field(fields, 'fio')}"
+                f"fwr={_field(fields, 'fwr')} fal={_field(fields, 'fal')} "
+                f"fam={_field(fields, 'fam')} fac={_field(fields, 'fac')} fio={_field(fields, 'fio')}"
             )
             return "persistence-save-growth-allocation-partial", notes
         notes.append(
@@ -826,7 +830,8 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
             f"doomerrno={_field(fields, 'doomerrno')} doommode={_field(fields, 'doommode')} "
             f"doomsav={_field(fields, 'doomsav')} savewr={_field(fields, 'savewr')} "
             f"saveclose={_field(fields, 'saveclose')} savemode={_field(fields, 'savemode')} "
-            f"fwr={_field(fields, 'fwr')} fal={_field(fields, 'fal')} fio={_field(fields, 'fio')}"
+            f"fwr={_field(fields, 'fwr')} fal={_field(fields, 'fal')} "
+            f"fam={_field(fields, 'fam')} fac={_field(fields, 'fac')} fio={_field(fields, 'fio')}"
         )
         return "persistence-save-write-failed", notes
 

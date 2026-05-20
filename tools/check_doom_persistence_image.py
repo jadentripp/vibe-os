@@ -469,6 +469,65 @@ def _require_changed(fs, baseline_fs, name, label):
         raise PersistenceProofError(f"{label} did not change from baseline image")
 
 
+def _format_save_status_diagnostics(status):
+    if status is None:
+        return ""
+    try:
+        fields = _status_fields(status)
+    except PersistenceProofError as exc:
+        return f" status=unparseable({exc})"
+
+    interesting = (
+        "doomsav",
+        "saverd",
+        "savewr",
+        "saveclose",
+        "savemode",
+        "saveact",
+        "savedesc",
+        "doomwrite",
+        "doomclose",
+        "doommode",
+        "fwr",
+        "fio",
+        "fal",
+        "fam",
+        "fac",
+        "fault",
+    )
+    present = [f"{name}={fields[name]}" for name in interesting if name in fields]
+    return f" status: {' '.join(present)}" if present else ""
+
+
+def _format_save_slot_diagnostics(fs, slot, status=None):
+    name = make_wad_image.WRITABLE_SAVE_NAMES[slot]
+    label = f"DOOMSAV{slot}.DSG"
+    pieces = []
+    try:
+        meta = _require_entry(fs, name)
+        pieces.append(f"size={meta['size']}")
+        pieces.append(f"cluster={meta['cluster']}")
+        if meta["cluster"]:
+            try:
+                chain = fs.cluster_chain(meta["cluster"])
+                pieces.append(f"clusters={len(chain)}")
+            except ValueError as exc:
+                pieces.append(f"chain_error={exc}")
+        try:
+            data = fs.read_root_file(name)
+            pieces.append(f"readable={len(data)}")
+            if data:
+                pieces.append(f"last=0x{data[-1]:02X}")
+        except ValueError as exc:
+            pieces.append(f"read_error={exc}")
+    except PersistenceProofError as exc:
+        pieces.append(f"entry_error={exc}")
+    return (
+        f"{label} diagnostics: {', '.join(pieces)}"
+        f"{_format_save_status_diagnostics(status)}"
+    )
+
+
 def _require_reboot_survived(fs, reboot_fs, name, label):
     if reboot_fs is None:
         return
@@ -842,10 +901,12 @@ def validate_image(
         validate_default_write_status(Path(write_status_path).read_text())
         write_status_ok = True
     save_write_status_ok = False
+    save_write_status_text = None
     if save_write_status_path is not None:
         expected_save_slot = require_save_slots[0] if len(require_save_slots) == 1 else None
+        save_write_status_text = Path(save_write_status_path).read_text()
         validate_save_write_status(
-            Path(save_write_status_path).read_text(),
+            save_write_status_text,
             expected_slot=expected_save_slot,
         )
         save_write_status_ok = True
@@ -871,7 +932,13 @@ def validate_image(
 
     save_slot_infos = {}
     for slot in require_save_slots:
-        size, description, version, skill, episode, game_map, leveltime = _validate_save_slot(fs, slot)
+        try:
+            size, description, version, skill, episode, game_map, leveltime = (
+                _validate_save_slot(fs, slot)
+            )
+        except PersistenceProofError as exc:
+            diagnostics = _format_save_slot_diagnostics(fs, slot, save_write_status_text)
+            raise PersistenceProofError(f"{exc}; {diagnostics}") from exc
         if slot in require_save_descriptions:
             _validate_expected_save_description(slot, description, require_save_descriptions[slot])
         save_slot_infos[slot] = {

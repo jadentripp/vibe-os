@@ -580,6 +580,12 @@ jobs:
             fi
           done
 
+          find build -maxdepth 2 -type f -path 'build/persistence-*/*.txt' | sort | while IFS= read -r file; do
+            phase="$(basename "$(dirname "$file")")"
+            name="$(basename "$file")"
+            cp "$file" "build/status.${phase}.${name}"
+          done
+
       - name: Re-check validated WAD after smoke
         if: always()
         run: |

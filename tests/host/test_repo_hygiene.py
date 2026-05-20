@@ -280,6 +280,14 @@ jobs:
         ]
         self.assertEqual(check_repo_hygiene.workflow_upload_violations(workflows), [])
 
+    def test_real_wad_workflow_mirrors_persistence_phase_text_to_status_uploads(self):
+        workflow = (ROOT / ".github" / "workflows" / "real-wad-smoke.yml").read_text()
+        self.assertIn("triage_file=\"${file%.txt}.triage.txt\"", workflow)
+        self.assertIn("python3 tools/triage_cloud_status.py \"$file\" | tee \"$triage_file\"", workflow)
+        self.assertIn("cp \"$file\" \"build/status.${phase}.${name}\"", workflow)
+        self.assertIn("build/status*.txt", workflow)
+        self.assertNotIn("build/persistence-*/*.txt", check_repo_hygiene.upload_path_lines(workflow))
+
     def test_docs_keep_legit_but_playable_first_positioning(self):
         readme = " ".join((ROOT / "README.md").read_text().split())
         provenance = " ".join((ROOT / "docs" / "doom-provenance.md").read_text().split())

@@ -659,6 +659,41 @@ class DoomPersistenceImageTests(unittest.TestCase):
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "savedesc"):
             check_persistence.validate_save_write_status(save_write_status(savedesc="00000000/00000000"))
 
+    def test_checker_reports_partial_save_write_signature_on_short_save_slot(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        one_cluster_save = doom_save_payload_at_size(make_wad_image.cluster_size())
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], one_cluster_save)
+
+        image_path = self.write_temp_image(image)
+        status_path = self.write_temp_text(
+            save_write_status(
+                slot=0,
+                doomwrite="00000400",
+                savewr="00000400/00000001",
+                fwr="00000400/00000001",
+                fio="00000001/00000001",
+                fal="00000000/00000000/FAF0FAF0/00000000",
+            )
+        )
+
+        with self.assertRaises(check_persistence.PersistenceProofError) as raised:
+            check_persistence.validate_image(
+                image_path,
+                save_write_status_path=status_path,
+                require_save_slots=[0],
+            )
+
+        message = str(raised.exception)
+        self.assertIn("real Doom save payload", message)
+        self.assertIn("DOOMSAV0.DSG diagnostics", message)
+        self.assertIn("size=1024", message)
+        self.assertIn("clusters=1", message)
+        self.assertIn("savewr=00000400/00000001", message)
+        self.assertIn("fwr=00000400/00000001", message)
+        self.assertIn("fio=00000001/00000001", message)
+        self.assertIn("fal=00000000/00000000/FAF0FAF0/00000000", message)
+
     def test_checker_rejects_save_load_status_without_full_payload_read(self):
         save_payload = doom_save_payload("MENU ONLY")
         baseline = bytearray((BUILD / "disk.img").read_bytes())

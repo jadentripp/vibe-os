@@ -4989,6 +4989,12 @@ storage_init:
     mov dword [fat_alloc_debug_refreshes], 0
     mov dword [fat_alloc_scan_refreshed], 0
     mov dword [fat_alloc_map_repairs], 0
+    mov dword [fat_cache_copy_index], 0
+    mov dword [fat_cache_copy_lba], 0
+    mov dword [fat_alloc_copy_retry_done], 0
+    mov dword [fat_alloc_retry_copy_index], 0
+    mov dword [fat_alloc_probe_first_free], 0
+    mov dword [fat_alloc_probe_free_count], 0
     mov dword [wad_size], 0
     mov dword [wad_sectors_read], 0
     mov dword [wad_lump_count], 0
@@ -5686,16 +5692,27 @@ fat_cache_root_dir:
     ret
 
 fat_cache_table:
+    xor eax, eax
+    call fat_cache_table_copy
+    ret
+
+fat_cache_table_copy:
     push ebx
     push ecx
+    push edx
     push edi
 
+    mov [fat_cache_copy_index], eax
+    mov ecx, [fat_sectors_per_fat]
+    mul ecx
+    add eax, [fat_start_lba]
+    mov [fat_cache_copy_lba], eax
     xor ebx, ebx
 
 .sector_loop:
     cmp ebx, [fat_sectors_per_fat]
     jae .ok
-    mov eax, [fat_start_lba]
+    mov eax, [fat_cache_copy_lba]
     add eax, ebx
     mov edi, ebx
     shl edi, 9
@@ -5714,8 +5731,49 @@ fat_cache_table:
 
 .done:
     pop edi
+    pop edx
     pop ecx
     pop ebx
+    ret
+
+fat_probe_free_clusters:
+    push eax
+    push ebx
+    push ecx
+
+    mov dword [fat_alloc_probe_free_count], 0
+    mov dword [fat_alloc_probe_first_free], 0
+    mov ebx, 2
+
+.probe_loop:
+    cmp ebx, [fat_last_data_cluster]
+    ja .ok
+    mov eax, ebx
+    call fat_next_cluster
+    jc .fail
+    cmp ax, 0
+    jne .next
+    inc dword [fat_alloc_probe_free_count]
+    cmp dword [fat_alloc_probe_first_free], 0
+    jne .next
+    mov [fat_alloc_probe_first_free], ebx
+
+.next:
+    inc ebx
+    jmp .probe_loop
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    mov dword [fat_alloc_probe_first_free], 0xffffffff
+    stc
+
+.done:
+    pop ecx
+    pop ebx
+    pop eax
     ret
 
 fat_build_alloc_map:
@@ -6022,6 +6080,10 @@ fat_alloc_cluster:
     mov dword [fat_alloc_scan_cluster], 0
     mov dword [fat_alloc_found_cluster], 0
     mov dword [fat_alloc_last_entry], 0
+    mov dword [fat_alloc_copy_retry_done], 0
+    mov dword [fat_alloc_retry_copy_index], 0
+    mov dword [fat_alloc_probe_first_free], 0
+    mov dword [fat_alloc_probe_free_count], 0
     mov eax, [fat_last_data_cluster]
     mov [fat_alloc_last_data_snapshot], eax
 
@@ -6158,8 +6220,9 @@ fat_alloc_cluster:
     jmp .done
 
 .retry_or_fail:
+    call fat_probe_free_clusters
     cmp dword [fat_alloc_scan_refreshed], 0
-    jne .fail
+    jne .try_fat_copy_1
     mov dword [fat_alloc_scan_refreshed], 1
     inc dword [fat_alloc_debug_refreshes]
     mov dword [fat_alloc_debug_stage], 0xd0
@@ -6169,7 +6232,25 @@ fat_alloc_cluster:
     jc .fail
     jmp .start_scan
 
+.try_fat_copy_1:
+    cmp dword [fat_alloc_copy_retry_done], 0
+    jne .fail
+    cmp dword [fat_count], 1
+    jbe .fail
+    mov dword [fat_alloc_copy_retry_done], 1
+    mov dword [fat_alloc_retry_copy_index], 1
+    inc dword [fat_alloc_debug_refreshes]
+    mov dword [fat_alloc_debug_stage], 0xd1
+    mov eax, 1
+    call fat_cache_table_copy
+    jc .fail
+    call fat_build_alloc_map
+    jc .fail
+    mov dword [fat_next_free_hint], 2
+    jmp .start_scan
+
 .fail:
+    call fat_probe_free_clusters
     mov dword [fat_alloc_debug_stage], 0xe0
     stc
 
@@ -13771,6 +13852,27 @@ write_smoke_status:
     mov edx, [fat_alloc_map_repairs]
     call smoke_write_hex32
 
+    mov esi, smoke_fatcopy_text
+    call smoke_copy_string
+    mov edx, [fat_cache_copy_index]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_alloc_copy_retry_done]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_alloc_retry_copy_index]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_alloc_probe_first_free]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_alloc_probe_free_count]
+    call smoke_write_hex32
+
     mov esi, smoke_saveact_text
     call smoke_copy_string
     mov edx, [doom_saveaction_flags]
@@ -15434,6 +15536,7 @@ smoke_savemode_text db " savemode=", 0
 smoke_filewrite_text db " fwr=", 0
 smoke_fatalloc_text db " fal=", 0
 smoke_fatmap_text db " fam=", 0
+smoke_fatcopy_text db " fac=", 0
 smoke_saveact_text db " saveact=", 0
 smoke_savedesc_text db " savedesc=", 0
 smoke_fio_text db " fio=", 0
@@ -15866,6 +15969,8 @@ fat_lba_base dd 0
 fat_total_sectors dd 0
 fat_last_data_cluster dd 0
 fat_next_free_hint dd 0
+fat_cache_copy_index dd 0
+fat_cache_copy_lba dd 0
 fat_scan_start dd 0
 fat_alloc_zero_policy dd 0
 fat_file_lba_was_new_cluster dd 0
@@ -15875,6 +15980,10 @@ fat_alloc_debug_cluster dd 0
 fat_alloc_debug_refreshes dd 0
 fat_alloc_scan_refreshed dd 0
 fat_alloc_map_repairs dd 0
+fat_alloc_copy_retry_done dd 0
+fat_alloc_retry_copy_index dd 0
+fat_alloc_probe_first_free dd 0
+fat_alloc_probe_free_count dd 0
 fat_reserved_sectors dd 0
 fat_count dd 0
 fat_root_entries dd 0
