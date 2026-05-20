@@ -94,8 +94,10 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         raise AssertionError(f"status gameplay=OK is required, got {fields.get('gameplay')!r}")
     if fields.get("doomrun") not in ("RUN", "EXIT"):
         raise AssertionError(f"status doomrun=RUN or EXIT is required, got {fields.get('doomrun')!r}")
-    for counter in ("audioirq", "refill", "sfxmix", "musicmix"):
+    for counter in ("audioirq", "refill", "sfxmix", "musicmix", "musicpos"):
         _hex_positive(fields, counter)
+    for counter in ("musicbuf", "musicunder", "musicdrops"):
+        _hex_value(fields, counter)
     _hex_positive(fields, "dma")
     _hex_value(fields, "sfxvoices")
     if _hex_value(fields, "ack8") + _hex_value(fields, "ack16") <= 0:
@@ -125,6 +127,10 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         "sfxvoices": fields["sfxvoices"],
         "musicmix": fields["musicmix"],
         "musicloop": fields.get("musicloop", "00000000"),
+        "musicpos": fields["musicpos"],
+        "musicbuf": fields["musicbuf"],
+        "musicunder": fields["musicunder"],
+        "musicdrops": fields["musicdrops"],
     }
 
 
@@ -175,7 +181,7 @@ def _continuity_summary(
     final_fields = _status_fields(final_status)
     progress = {
         name: _counter_delta(baseline_fields, final_fields, name)
-        for name in ("audioirq", "refill", "sfxmix", "musicmix")
+        for name in ("audioirq", "refill", "sfxmix", "musicmix", "musicpos")
     }
     progress["voiceq_update"] = _tuple_counter_delta(
         baseline_fields, final_fields, "voiceq", 3, 2
@@ -186,6 +192,7 @@ def _continuity_summary(
         "sb16_continuity": True,
         "non_music_sfx_progress": int(progress["sfxmix"]["delta"], 16) > 0,
         "music_stream_progress": int(progress["musicmix"]["delta"], 16) > 0,
+        "music_position_progress": int(progress["musicpos"]["delta"], 16) > 0,
         "music_stream_update_progress": int(progress["voiceq_update"]["delta"], 16) > 0,
         "irq_refill_progress": (
             int(progress["audioirq"]["delta"], 16) > 0
@@ -194,7 +201,7 @@ def _continuity_summary(
         "progress": progress,
         "claim": (
             "non-silent remote QEMU output plus status-only SB16 continuity; "
-            "music chunks are advanced by a port-owned song-position stream, "
+            "music chunks are advanced by a kernel-visible stream-position contract, "
             "but human listener quality is still unproven"
         ),
     }
@@ -410,13 +417,13 @@ def validate_manifest(
         raise AssertionError("manifest status.gameplay must be OK")
     if status.get("doomrun") not in ("RUN", "EXIT"):
         raise AssertionError("manifest status.doomrun must be RUN or EXIT")
-    for counter in ("audioirq", "refill", "sfxmix", "musicmix"):
+    for counter in ("audioirq", "refill", "sfxmix", "musicmix", "musicpos"):
         value = status.get(counter)
         if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
             raise AssertionError(f"manifest status.{counter} must be eight hex digits")
         if int(value, 16) <= 0:
             raise AssertionError(f"manifest status.{counter} must be nonzero")
-    for counter in ("dma", "sfxvoices"):
+    for counter in ("dma", "sfxvoices", "musicbuf", "musicunder", "musicdrops"):
         value = status.get(counter)
         if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
             raise AssertionError(f"manifest status.{counter} must be eight hex digits")
@@ -438,6 +445,7 @@ def validate_manifest(
         "sb16_continuity",
         "non_music_sfx_progress",
         "music_stream_progress",
+        "music_position_progress",
         "music_stream_update_progress",
         "irq_refill_progress",
     ):
@@ -446,7 +454,7 @@ def validate_manifest(
     progress = continuity.get("progress")
     if not isinstance(progress, dict):
         raise AssertionError("manifest continuity.progress must be an object")
-    for name in ("audioirq", "refill", "sfxmix", "musicmix", "voiceq_update"):
+    for name in ("audioirq", "refill", "sfxmix", "musicmix", "musicpos", "voiceq_update"):
         entry = progress.get(name)
         if not isinstance(entry, dict):
             raise AssertionError(f"manifest continuity.progress.{name} must be an object")
@@ -507,6 +515,8 @@ def validate_repo_contract() -> None:
                 "aggregate JSON",
                 "delete the temporary WAV",
                 "status-only SB16 continuity",
+                "musicpos=",
+                "musicbuf=",
             ),
         ),
         (

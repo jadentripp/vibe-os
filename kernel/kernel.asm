@@ -325,6 +325,7 @@ PANIC_UNHANDLED_EXCEPTION equ 1
 SHUTDOWN_NONE equ 0
 SHUTDOWN_HALT equ 1
 SHUTDOWN_REBOOT equ 2
+SHUTDOWN_POWEROFF equ 3
 STAT_ST_MODE equ 8
 STAT_ST_NLINK equ 12
 STAT_ST_SIZE equ 28
@@ -431,6 +432,11 @@ ATA_DRIVE_HEAD equ 0x01f6
 ATA_COMMAND_STATUS equ 0x01f7
 ATA_CMD_READ_SECTORS equ 0x20
 ATA_CMD_WRITE_SECTORS equ 0x30
+ACPI_PM1A_CNT_PORT equ 0x0604
+ACPI_PM1_CNT_S5_ENABLE equ 0x2000
+BOCHS_PM1A_CNT_PORT equ 0xb004
+VIRTUALBOX_PM1A_CNT_PORT equ 0x4004
+VIRTUALBOX_PM1_CNT_S5_ENABLE equ 0x3400
 
 SC_LSHIFT equ 0x2a
 SC_RSHIFT equ 0x36
@@ -517,10 +523,14 @@ start:
 %ifdef SHUTDOWN_PANIC_PROOF_REBOOT
     mov dword [shutdown_state], SHUTDOWN_REBOOT
     call write_smoke_status
-.proof_reboot_status_loop:
-    cli
-    hlt
-    jmp .proof_reboot_status_loop
+    call shutdown_proof_wait_for_key
+    call keyboard_controller_reboot
+%endif
+%ifdef SHUTDOWN_PANIC_PROOF_POWEROFF
+    mov dword [shutdown_state], SHUTDOWN_POWEROFF
+    call write_smoke_status
+    call shutdown_proof_wait_for_key
+    call acpi_poweroff
 %endif
     call user_probe_run
 
@@ -651,6 +661,12 @@ handle_command:
     call match_exact
     cmp al, 1
     je .halt
+
+    mov esi, [command_start]
+    mov edi, cmd_poweroff
+    call match_exact
+    cmp al, 1
+    je .poweroff
 
     mov esi, [command_start]
     mov edi, cmd_echo
@@ -1192,6 +1208,14 @@ handle_command:
     hlt
     jmp .halt_loop
 
+.poweroff:
+    mov esi, poweroff_message
+    call print_string
+    mov dword [shutdown_state], SHUTDOWN_POWEROFF
+    call write_smoke_status
+    call acpi_poweroff
+    ret
+
 .echo:
     mov esi, ebx
     call print_string
@@ -1309,6 +1333,25 @@ keyboard_controller_reboot:
     cli
     hlt
     jmp .wait
+
+acpi_poweroff:
+    mov dx, ACPI_PM1A_CNT_PORT
+    mov ax, ACPI_PM1_CNT_S5_ENABLE
+    out dx, ax
+    mov dx, BOCHS_PM1A_CNT_PORT
+    out dx, ax
+    mov dx, VIRTUALBOX_PM1A_CNT_PORT
+    mov ax, VIRTUALBOX_PM1_CNT_S5_ENABLE
+    out dx, ax
+
+.wait:
+    cli
+    hlt
+    jmp .wait
+
+shutdown_proof_wait_for_key:
+    call wait_scancode
+    ret
 
 skip_spaces:
     cmp byte [esi], ' '
@@ -2911,6 +2954,10 @@ audio_init:
     mov dword [sb16_music_mix_count], 0
     mov dword [sb16_music_mix_bytes], 0
     mov dword [sb16_music_loop_count], 0
+    mov dword [sb16_music_stream_pos_bytes], 0
+    mov dword [sb16_music_stream_buffer_bytes], 0
+    mov dword [sb16_music_stream_under_count], 0
+    mov dword [sb16_music_stream_drop_count], 0
     mov dword [sb16_pan_left_arg], 0
     mov dword [sb16_pan_right_arg], 0
     mov dword [sb16_mix_source_pos], 0
@@ -3189,11 +3236,14 @@ sb16_recount_active_voices:
     push ecx
     push edx
     push esi
+    push edi
+    push ebp
 
     xor eax, eax
     xor ebx, ebx
     xor edx, edx
     xor esi, esi
+    xor ebp, ebp
     mov ecx, AUDIO_MAX_SFX_VOICES
 
 .next:
@@ -3201,12 +3251,21 @@ sb16_recount_active_voices:
     jne .skip
     inc eax
     test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
-    jz .count_sfx
-    inc edx
+    jnz .count_music
+    inc esi
     jmp .skip
 
-.count_sfx:
-    inc esi
+.count_music:
+    inc edx
+    mov edi, [sb16_voice_positions + ebx * 4]
+    shr edi, 16
+    mov [sb16_music_stream_calc_pos], edi
+    mov edi, [sb16_voice_lengths + ebx * 4]
+    cmp edi, [sb16_music_stream_calc_pos]
+    jbe .skip
+    sub edi, [sb16_music_stream_calc_pos]
+    add ebp, edi
+    jmp .skip
 
 .skip:
     inc ebx
@@ -3214,7 +3273,10 @@ sb16_recount_active_voices:
     mov [sb16_active_voice_count], eax
     mov [sb16_active_sfx_voice_count], esi
     mov [sb16_active_music_voice_count], edx
+    mov [sb16_music_stream_buffer_bytes], ebp
 
+    pop ebp
+    pop edi
     pop esi
     pop edx
     pop ecx
@@ -3664,6 +3726,8 @@ audio_register_sfx_voice:
     test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
     jz .recount
     inc dword [sb16_music_start_count]
+    mov eax, [audio_sfx_length_arg]
+    mov [sb16_music_stream_buffer_bytes], eax
 
 .recount:
     call sb16_recount_active_voices
@@ -3694,6 +3758,7 @@ audio_stop_sfx_voice:
     test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
     jz .clear_flags
     inc dword [sb16_music_stop_count]
+    mov dword [sb16_music_stream_buffer_bytes], 0
 
 .clear_flags:
     mov dword [sb16_voice_flags + ebx * 4], 0
@@ -3715,9 +3780,9 @@ audio_update_sfx_voice:
     mov eax, [audio_sfx_desc_arg]
     mov ebx, AUDIO_SFX_DESC_BYTES
     call user_range_validate
-    jc .done
+    jc .maybe_drop_music
     call sb16_find_voice_by_handle
-    jc .done
+    jc .maybe_drop_music
     mov ebx, eax
     mov esi, [audio_sfx_desc_arg]
     mov eax, [esi + AUDIO_SFX_DESC_SAMPLES]
@@ -3771,10 +3836,18 @@ audio_update_sfx_voice:
     call user_range_validate
     pop ebx
     jc .stream_underrun
+    mov eax, [sb16_voice_positions + ebx * 4]
+    shr eax, 16
+    cmp eax, [sb16_voice_lengths + ebx * 4]
+    jae .store_stream_window
+    inc dword [sb16_music_stream_drop_count]
+
+.store_stream_window:
     mov eax, [audio_sfx_sample_arg]
     mov [sb16_voice_samples + ebx * 4], eax
     mov eax, [audio_sfx_length_arg]
     mov [sb16_voice_lengths + ebx * 4], eax
+    mov [sb16_music_stream_buffer_bytes], eax
     mov dword [sb16_voice_positions + ebx * 4], 0
     mov eax, [audio_sfx_flags_arg]
     or eax, AUDIO_FLAG_MUSIC
@@ -3783,6 +3856,8 @@ audio_update_sfx_voice:
 
 .stream_underrun:
     inc dword [sb16_mix_underrun_count]
+    inc dword [sb16_music_stream_under_count]
+    inc dword [sb16_music_stream_drop_count]
 
 .count_update:
     inc dword [sb16_voice_update_count]
@@ -3793,6 +3868,14 @@ audio_update_sfx_voice:
     pop ebx
     pop eax
     ret
+
+.maybe_drop_music:
+    mov eax, [audio_sfx_handle_arg]
+    and eax, AUDIO_MUSIC_HANDLE_MASK
+    cmp eax, AUDIO_MUSIC_HANDLE_BASE
+    jne .done
+    inc dword [sb16_music_stream_drop_count]
+    jmp .done
 
 sb16_refill_active_half:
     pushad
@@ -3922,14 +4005,16 @@ sb16_refill_active_half:
     mov eax, [sb16_mix_frames_mixed]
     cmp eax, 0
     je .check_finished
-    shl eax, 1
     test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
     jz .count_sfx_mix
+    add [sb16_music_stream_pos_bytes], eax
+    shl eax, 1
     inc dword [sb16_music_mix_count]
     add [sb16_music_mix_bytes], eax
     jmp .check_finished
 
 .count_sfx_mix:
+    shl eax, 1
     inc dword [sb16_sfx_mix_count]
     add [sb16_sfx_mix_bytes], eax
 
@@ -3950,6 +4035,12 @@ sb16_refill_active_half:
     jmp .advance_voice
 
 .finish_voice:
+    test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
+    jz .finish_clear
+    inc dword [sb16_music_stream_under_count]
+    mov dword [sb16_music_stream_buffer_bytes], 0
+
+.finish_clear:
     mov byte [sb16_voice_active + ebx], 0
     mov dword [sb16_voice_handles + ebx * 4], 0
     mov dword [sb16_voice_started_at + ebx * 4], 0
@@ -10703,6 +10794,8 @@ write_smoke_status:
     je .shutdown_halt
     cmp dword [shutdown_state], SHUTDOWN_REBOOT
     je .shutdown_reboot
+    cmp dword [shutdown_state], SHUTDOWN_POWEROFF
+    je .shutdown_poweroff
     mov esi, smoke_none_text
     jmp .shutdown_write
 
@@ -10712,6 +10805,10 @@ write_smoke_status:
 
 .shutdown_reboot:
     mov esi, smoke_reboot_text
+    jmp .shutdown_write
+
+.shutdown_poweroff:
+    mov esi, smoke_poweroff_text
 
 .shutdown_write:
     call smoke_copy_string
@@ -11025,6 +11122,26 @@ write_smoke_status:
     mov esi, smoke_musicloop_text
     call smoke_copy_string
     mov edx, [sb16_music_loop_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_musicpos_text
+    call smoke_copy_string
+    mov edx, [sb16_music_stream_pos_bytes]
+    call smoke_write_hex32
+
+    mov esi, smoke_musicbuf_text
+    call smoke_copy_string
+    mov edx, [sb16_music_stream_buffer_bytes]
+    call smoke_write_hex32
+
+    mov esi, smoke_musicunder_text
+    call smoke_copy_string
+    mov edx, [sb16_music_stream_under_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_musicdrops_text
+    call smoke_copy_string
+    mov edx, [sb16_music_stream_drop_count]
     call smoke_write_hex32
 
     mov esi, smoke_sb16ver_text
@@ -11861,7 +11978,8 @@ help_text db "Commands:", 13, 10
           db "  user    show Ring 3 syscall probe status", 13, 10
           db "  wad     show IDE/FAT16 WAD loader status", 13, 10
           db "  reboot  restart via keyboard controller", 13, 10
-          db "  halt    stop the CPU", 13, 10, 0
+          db "  halt    stop the CPU", 13, 10
+          db "  poweroff request ACPI/QEMU poweroff", 13, 10, 0
 
 about_text db "Aurora now runs outside BIOS services with its own VGA text and keyboard IO.", 13, 10
            db "The kernel owns IDT, PIC, PIT ticks, paging, frame accounting, heap, libc, and IDE/FAT WAD loading.", 13, 10, 0
@@ -12006,6 +12124,10 @@ smoke_panclamp_text db " panclamp=", 0
 smoke_musicvoices_text db " musicvoices=", 0
 smoke_musicmix_text db " musicmix=", 0
 smoke_musicloop_text db " musicloop=", 0
+smoke_musicpos_text db " musicpos=", 0
+smoke_musicbuf_text db " musicbuf=", 0
+smoke_musicunder_text db " musicunder=", 0
+smoke_musicdrops_text db " musicdrops=", 0
 smoke_sb16ver_text db " sb16=", 0
 smoke_dmaprog_text db " dma=", 0
 smoke_play_text db " play=", 0
@@ -12052,6 +12174,7 @@ smoke_none_text db "NONE", 0
 smoke_kexc_text db "KEXC", 0
 smoke_halt_text db "HALT", 0
 smoke_reboot_text db "REBOOT", 0
+smoke_poweroff_text db "POWEROFF", 0
 heap_status_gap db " ", 0
 ok_text db "OK", 13, 10, 0
 fail_text db "FAIL", 13, 10, 0
@@ -12067,6 +12190,7 @@ off_status_text db "OFF", 0
 hex_digits db "0123456789ABCDEF"
 reboot_message db "Rebooting through the PS/2 controller...", 13, 10, 0
 halt_message db "CPU halted. Close QEMU to exit.", 13, 10, 0
+poweroff_message db "Requesting ACPI/QEMU poweroff...", 13, 10, 0
 
 cmd_help db "help", 0
 cmd_about db "about", 0
@@ -12083,6 +12207,7 @@ cmd_user db "user", 0
 cmd_wad db "wad", 0
 cmd_reboot db "reboot", 0
 cmd_halt db "halt", 0
+cmd_poweroff db "poweroff", 0
 
 wad_name_83 db "DOOM1   WAD"
 user_elf_name_83 db "USERPROBELF"
@@ -12590,6 +12715,11 @@ sb16_music_stop_count dd 0
 sb16_music_mix_count dd 0
 sb16_music_mix_bytes dd 0
 sb16_music_loop_count dd 0
+sb16_music_stream_pos_bytes dd 0
+sb16_music_stream_buffer_bytes dd 0
+sb16_music_stream_under_count dd 0
+sb16_music_stream_drop_count dd 0
+sb16_music_stream_calc_pos dd 0
 audio_sfx_desc_arg dd 0
 audio_sfx_handle_arg dd 0
 audio_sfx_sample_arg dd 0

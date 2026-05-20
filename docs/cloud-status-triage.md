@@ -48,7 +48,7 @@ python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
 | `exec-failed` | `exec!=OK`, `path!=DOOM.ELF`, `doom!=OK`, nonzero `execerr` or `execres`, `execsys` failures or rollbacks nonzero, successes/handoffs/scheduled zero, bad `target`, `ppid`, `entry`, `stack`, `argc`, `argv`, `envp`, `argv0`, or `envp0` | The kernel attempted exec but did not complete the process/ELF/argv/envp handoff. | `process_exec_path`, ELF lookup/load checks, argv stack seeding, rollback path. |
 | `doom-user-fault` | `doomrun=FAULT`, nonzero `doomfault`, `doomfaultip`, `doomfaultv`, `doomfaulterr`, or nonzero compact `fault=` tuple | Doom entered user mode and faulted. `doomfault` is CR2, `doomfaultip` is EIP, `doomfaultv` is the exception vector, and `doomfaulterr` is the x86 error code. | Resolve `doomfaultip` with `doom.symbols`; decode vector/error/CR2; inspect stack, paging, segment, and syscall ABI. |
 | `kernel-panic` | `panic=KEXC`, usually with a nonzero compact `fault=` tuple | The kernel recorded an unhandled non-Doom exception before halting. | Decode `fault=vector/error/eip/cs/esp/ss/cr2/pid/kind/state/syscall`, then inspect the matching kernel path. |
-| `os-shutdown-requested` | `shutdown=HALT` or `shutdown=REBOOT` | The OS recorded a halt or reboot request in the status block. | Verify this came from an intentional shutdown/reboot proof lane before treating QEMU exit as a failure. |
+| `os-shutdown-requested` | `shutdown=HALT`, `shutdown=REBOOT`, or `shutdown=POWEROFF` | The OS recorded a halt, reboot, or poweroff request in the status block. | Verify this came from an intentional shutdown/reboot/poweroff proof lane before treating QEMU exit as a failure. |
 | `missing-wad-open-read` | `doomopen!=OK`, `doomread!=OK`, weak `doomwad=open/read/seek/magic`, nonzero `doomerr`, nonzero `doomerrno`, suspicious `doommode`, or Doom error text in `doomlog` | Doom did not successfully open/read/seek the WAD through the libc/syscall/FAT path. If `doomrun=FAULT` is also present, fix the fault first because WAD I/O may simply not have been reached. | Doom libc path mapping, `open/read/lseek`, FAT file lookup, WAD protection rules. |
 | `doom-init-stalled` | `doominit` is missing, malformed, has missing milestone bits, or has a zero report count after WAD I/O is green | Doom entered user mode and WAD I/O is visible, but the port did not report all first startup milestones. | Decode `doominit`, then inspect the last reported platform hook and nearby Doom startup log text. |
 | `frames-no-gameplay` | Nonzero `doompresent`, `doompal`, or `doomframe`, but `gameplay!=OK`, `gstate!=00000000`, `gmap!=00000101`, or `leveltime=00000000` | The renderer is alive, but the engine has not proved E1M1 `GS_LEVEL` gameplay. | Doom startup state, WAD/game mode selection, title/menu/error path, gameplay status reporting. |
@@ -72,8 +72,10 @@ python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
   or privilege-transition bugs.
 - `panic=KEXC` is a kernel-side panic record, not a Doom user fault. Pair it
   with `fault=` first.
-- `shutdown=HALT` or `shutdown=REBOOT` means the OS shutdown path ran; that is
-  only proof when the cloud run intentionally requested it.
+- `shutdown=HALT`, `shutdown=REBOOT`, or `shutdown=POWEROFF` means the OS
+  shutdown path ran; that is only proof when the cloud run intentionally
+  requested it. Reboot/poweroff claims also need observed guest-requested QEMU
+  exit in the shutdown proof manifest.
 - Shutdown/panic claims need `tools/check_shutdown_panic_proof.py` on the
   opt-in artifact set; a normal smoke artifact that merely reaches monitor
   `quit` is cleanup evidence, not guest shutdown evidence.

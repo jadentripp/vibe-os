@@ -18,10 +18,11 @@ boot:
   display/audio APIs.
 - Host storage tests cover root-level 8.3 lifecycle behavior: create, readback,
   sparse growth, truncate/resize-to-zero, delete, cluster-chain freeing/reuse,
-  corrupt-chain validation before mutation, protected WAD/ELF refusal, and
-  syscall-backed `unlink`/`stat`/`fstat` libc wrappers. They also pin kernel
-  rejection of unknown `open` flags, `EMFILE` fd exhaustion, and the Doom-only
-  `c:\doomdata` `mkdir` shim.
+  corrupt-chain validation before mutation, FAT-copy agreement,
+  duplicate-root/cross-link/orphaned-cluster rejection, protected WAD/ELF
+  refusal, and syscall-backed `unlink`/`stat`/`fstat` libc wrappers. They also
+  pin kernel rejection of unknown `open` flags, `EMFILE` fd exhaustion, and the
+  Doom-only `c:\doomdata` `mkdir` shim.
 - `tests/host/test_doom_persistence_image.py` and
   `tools/check_doom_persistence_image.py` prove the non-QEMU image-inspection
   path for Doom defaults and saves: `DEFAULT.CFG` must contain complete
@@ -30,7 +31,8 @@ boot:
   payload to rule out tiny fake headers. With `--baseline-image`, requested
   entries must also differ from the fresh pre-boot image; reboot comparison
   requires that fresh baseline plus a clean `--reboot-status` runtime/fault gate
-  before it can claim persistence.
+  before it can claim persistence. The checker also rejects storage leaks where
+  allocated FAT clusters are not owned by exactly one live root entry.
 - Host process tests prove that `SYS_EXEC` is more than a fixed string loader:
   the path resolves Doom/probe table entries, parses arbitrary root-level FAT16
   `.ELF` names into the reusable probe-class slot, rejects unsafe active-slot
@@ -72,9 +74,9 @@ boot:
   framebuffer artifacts.
 - `tools/check_audio_continuity_proof.py` is the remote-safe SB16 audio gate. It
   compares the same decoded status snapshots, requires `audio=SB16`, and proves
-  IRQ/refill, non-music SFX, music mixing, and `voiceq=` stream-update counters
-  progressed without storing audio samples. This is still not a full
-  hardware-paced MUS/MIDI pull-stream proof.
+  IRQ/refill, non-music SFX, music mixing, `voiceq=` stream-update counters,
+  and kernel-visible `musicpos=` progress without storing audio samples. This
+  is still not a full hardware-paced MUS/MIDI pull-stream proof.
 - `tools/check_audible_audio_proof.py` is the optional remote audible-output
   gate. In cloud it analyzes a temporary QEMU WAV capture into aggregate
   `audio-proof.json`, validates non-silent duration/window/RMS/peak metrics tied
@@ -102,8 +104,9 @@ boot:
   fields without launching QEMU.
 - `tools/check_shutdown_panic_proof.py` validates the opt-in disposable-cloud
   shutdown/panic proof contract and any downloaded proof artifact. It requires
-  `shutdown-panic-proof.json` plus dedicated panic, halt, and reboot-request
-  status files, and rejects missing status or monitor-quit-only evidence.
+  `shutdown-panic-proof.json` plus dedicated panic, halt, reboot-request, and
+  poweroff-request status files, rejects missing status or monitor-quit-only
+  evidence, and requires observed guest exit for reboot/poweroff phases.
 - `tools/check_cloud_playability_artifacts.py` validates the remote human-run
   runbook, workflow upload hygiene, expected non-WAD diagnostic files, and
   downloaded real-WAD status artifacts without requiring a WAD or local QEMU.

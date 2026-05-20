@@ -192,6 +192,10 @@ class AudioContractTests(unittest.TestCase):
             "smoke_musicvoices_text db \" musicvoices=\"",
             "smoke_musicmix_text db \" musicmix=\"",
             "smoke_musicloop_text db \" musicloop=\"",
+            "smoke_musicpos_text db \" musicpos=\"",
+            "smoke_musicbuf_text db \" musicbuf=\"",
+            "smoke_musicunder_text db \" musicunder=\"",
+            "smoke_musicdrops_text db \" musicdrops=\"",
             "smoke_sb16ver_text db \" sb16=\"",
             "smoke_dmaprog_text db \" dma=\"",
             "smoke_play_text db \" play=\"",
@@ -205,6 +209,10 @@ class AudioContractTests(unittest.TestCase):
             "mov edx, [sb16_active_music_voice_count]",
             "mov edx, [sb16_music_mix_count]",
             "mov edx, [sb16_music_loop_count]",
+            "mov edx, [sb16_music_stream_pos_bytes]",
+            "mov edx, [sb16_music_stream_buffer_bytes]",
+            "mov edx, [sb16_music_stream_under_count]",
+            "mov edx, [sb16_music_stream_drop_count]",
             "mov edx, [sb16_dma_program_count]",
             "mov edx, [sb16_playback_start_count]",
             "mov edx, [sb16_voice_start_count]",
@@ -224,6 +232,10 @@ class AudioContractTests(unittest.TestCase):
             'grep -q "musicvoices="',
             'grep -q "musicmix="',
             'grep -q "musicloop="',
+            'grep -q "musicpos="',
+            'grep -q "musicbuf="',
+            'grep -q "musicunder="',
+            'grep -q "musicdrops="',
             'grep -q "sb16="',
             'grep -q "dma="',
             'grep -q "play="',
@@ -255,6 +267,10 @@ class AudioContractTests(unittest.TestCase):
             "sb16_active_music_voice_count dd 0",
             "sb16_music_start_count dd 0",
             "sb16_music_stop_count dd 0",
+            "sb16_music_stream_pos_bytes dd 0",
+            "sb16_music_stream_buffer_bytes dd 0",
+            "sb16_music_stream_under_count dd 0",
+            "sb16_music_stream_drop_count dd 0",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, kernel)
@@ -300,6 +316,10 @@ class AudioContractTests(unittest.TestCase):
         self.assertIn("musicvoices", audio_doc)
         self.assertIn("musicmix", audio_doc)
         self.assertIn("musicloop", audio_doc)
+        self.assertIn("musicpos", audio_doc)
+        self.assertIn("musicbuf", audio_doc)
+        self.assertIn("musicunder", audio_doc)
+        self.assertIn("musicdrops", audio_doc)
         self.assertIn("active voice table", audio_doc)
         self.assertIn("Doom music:", audio_doc)
         self.assertIn("deterministic unsigned 8-bit PCM", audio_doc)

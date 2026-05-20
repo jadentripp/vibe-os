@@ -41,7 +41,10 @@ Current kernel contract:
   or saves.
 - Supported allocation hygiene: newly allocated clusters are zero-filled before
   they become file data, FAT updates are written to both FAT copies, and root
-  entry size/first-cluster metadata is updated after successful writes.
+  entry size/first-cluster metadata is updated after successful writes. The
+  host image checker now rejects duplicate live root entries, cross-linked file
+  chains, and allocated data clusters that are not reachable from any live root
+  entry, so leaked clusters cannot pass as healthy persistence evidence.
 - Supported deletion: `unlink`/`remove` frees the FAT cluster chain, marks the
   root entry deleted (`0xe5`), clears the in-kernel writable slot, and
   invalidates open descriptors for that file. Later `O_CREAT` can reuse the
@@ -82,9 +85,9 @@ Doom runtime: no user fault, panic, shutdown, or failed `usr`/`wad`/runtime
 health fields. The reboot comparison requires `--baseline-image` too, so a
 preseeded image can never be reported as a reboot persistence proof without also
 proving the requested bytes changed from the fresh image. With a baseline image
-present, the checker also verifies both FAT copies agree and protected
-`DOOM1.WAD`, `USERPROB.ELF`, and `DOOM.ELF` entries have unchanged metadata and
-bytes.
+present, the checker also verifies both FAT copies agree, every allocated data
+cluster is owned by exactly one live root entry, and protected `DOOM1.WAD`,
+`USERPROB.ELF`, and `DOOM.ELF` entries have unchanged metadata and bytes.
 
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,

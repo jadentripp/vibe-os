@@ -104,6 +104,7 @@ def _require_entry(fs, name):
 def _validate_fat_layout(fs):
     try:
         fs.validate_fat_copies_match()
+        fs.validate_allocated_clusters_reachable()
     except ValueError as exc:
         raise PersistenceProofError(str(exc)) from exc
 

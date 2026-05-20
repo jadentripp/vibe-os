@@ -67,10 +67,11 @@ The cloud proof requires these status families:
   is the x86 error code. The compact `fault=` tuple records
   vector/error/eip/cs/esp/ss/cr2/pid/kind/state/last-syscall for the most
   recent fault frame. `panic=KEXC` is reserved for unhandled non-Doom kernel
-  exceptions, and `shutdown=HALT`/`shutdown=REBOOT` mark intentional OS shutdown
-  paths. Those shutdown/panic values only become proof when paired with the
-  opt-in `shutdown-panic-proof.json` artifact and
-  `tools/check_shutdown_panic_proof.py`; monitor `quit` cleanup does not count.
+  exceptions, and `shutdown=HALT`/`shutdown=REBOOT`/`shutdown=POWEROFF` mark
+  intentional OS shutdown paths. Those shutdown/panic values only become proof
+  when paired with the opt-in `shutdown-panic-proof.json` artifact and
+  `tools/check_shutdown_panic_proof.py`; monitor `quit` cleanup does not count,
+  and reboot/poweroff proof must observe QEMU exit from the guest request.
 - Runtime: `gameplay=OK`, `gstate=00000000`, `gmap=00000101`, `gtic>0`, and
   `leveltime>0` prove the real engine reached E1M1 gameplay.
 - Input pipeline: `keyirq`, `keyqueue`, and `keypoll` increase from the early
@@ -94,8 +95,9 @@ The cloud proof requires these status families:
   equal `floor(ticks * 35 / 100)`, so the real-WAD checker can distinguish PIT
   progress from Doom's expected tic rate.
 - Audio/mouse observability: `audio`, `doomsound`, `sfxmix`, `voices`,
-  `sfxvoices`, `musicvoices`, `musicmix`, `musicloop`, `sb16`, `dma`, `play`,
-  `voiceq`, `musicq`, `audioirq`, `ack8`,
+  `sfxvoices`, `musicvoices`, `musicmix`, `musicloop`, `musicpos`, `musicbuf`,
+  `musicunder`, `musicdrops`, `sb16`, `dma`, `play`, `voiceq`, `musicq`,
+  `audioirq`, `ack8`,
   `ack16`, `refill`, mixer safety counters, `mouse`,
   `mouseirq`, `mousepkt`, and `mousepoll` are required to be present and
   well-formed. The automated mouse phase requires `mouse=OK` and proves IRQ12,
@@ -104,8 +106,9 @@ The cloud proof requires these status families:
   `tools/check_audio_continuity_proof.py` is the stricter SB16 path: it compares
   the phase snapshots using status snapshots only, requires `audio=SB16`, and
   proves SB16 version, DMA programming, playback start, voice queue, IRQ/refill,
-  non-music SFX, music mixing, and streamed music chunk updates progressed
-  without uploading audio samples. It does not upload audio samples.
+  non-music SFX, music mixing, kernel-visible `musicpos=` progress, and
+  streamed music chunk updates progressed without uploading audio samples. It
+  does not upload audio samples.
   `tools/check_audio_continuity_proof.py` checks status snapshots only and
   does not upload audio samples.
 - Optional audible-output proof: when the manual workflow is run with

@@ -26,6 +26,10 @@ SMOKE_EARLY_SECONDS ?= 2
 SMOKE_SETTLE_SECONDS ?= 5
 SMOKE_SHUTDOWN_TIMEOUT ?= 5
 SMOKE_CAPTURE_GFX ?= 1
+SMOKE_EXPECT_GUEST_EXIT ?= 0
+SMOKE_GUEST_EXIT_KEYS ?=
+SMOKE_NO_REBOOT ?= 1
+SMOKE_NO_SHUTDOWN ?= 1
 PERSISTENCE_BASELINE_IMAGE ?=
 PERSISTENCE_REQUIRE_DEFAULT ?= 0
 PERSISTENCE_REQUIRE_SAVE_SLOT ?=
@@ -158,6 +162,10 @@ smoke: vm-consent check-tools $(IMAGE)
 		SMOKE_SETTLE_SECONDS="$(SMOKE_SETTLE_SECONDS)" \
 		SMOKE_SHUTDOWN_TIMEOUT="$(SMOKE_SHUTDOWN_TIMEOUT)" \
 		SMOKE_CAPTURE_GFX="$(SMOKE_CAPTURE_GFX)" \
+		SMOKE_EXPECT_GUEST_EXIT="$(SMOKE_EXPECT_GUEST_EXIT)" \
+		SMOKE_GUEST_EXIT_KEYS="$(SMOKE_GUEST_EXIT_KEYS)" \
+		SMOKE_NO_REBOOT="$(SMOKE_NO_REBOOT)" \
+		SMOKE_NO_SHUTDOWN="$(SMOKE_NO_SHUTDOWN)" \
 		SMOKE_SENDKEYS="$(SMOKE_SENDKEYS)" \
 		SMOKE_INPUT_SCRIPT="$(SMOKE_INPUT_SCRIPT)" \
 		tests/run_smoke_qemu.sh
@@ -202,7 +210,7 @@ smoke: vm-consent check-tools $(IMAGE)
 		grep -q "doomfaulterr=" $(BUILD_DIR)/status.txt; \
 		grep -q " fault=" $(BUILD_DIR)/status.txt; \
 		grep -Eq "panic=(NONE|KEXC)" $(BUILD_DIR)/status.txt; \
-		grep -Eq "shutdown=(NONE|HALT|REBOOT)" $(BUILD_DIR)/status.txt; \
+			grep -Eq "shutdown=(NONE|HALT|REBOOT|POWEROFF)" $(BUILD_DIR)/status.txt; \
 	grep -q "doomopen=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "doomread=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "doomwrite=" $(BUILD_DIR)/status.txt; \
@@ -252,6 +260,10 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "musicvoices=" $(BUILD_DIR)/status.txt; \
 	grep -q "musicmix=" $(BUILD_DIR)/status.txt; \
 	grep -q "musicloop=" $(BUILD_DIR)/status.txt; \
+	grep -q "musicpos=" $(BUILD_DIR)/status.txt; \
+	grep -q "musicbuf=" $(BUILD_DIR)/status.txt; \
+	grep -q "musicunder=" $(BUILD_DIR)/status.txt; \
+	grep -q "musicdrops=" $(BUILD_DIR)/status.txt; \
 	grep -q "sb16=" $(BUILD_DIR)/status.txt; \
 	grep -q "dma=" $(BUILD_DIR)/status.txt; \
 	grep -q "play=" $(BUILD_DIR)/status.txt; \

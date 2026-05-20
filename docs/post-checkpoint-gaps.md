@@ -188,7 +188,8 @@ Current state:
 - The FAT16 image has root entries for Doom config and save files.
 - Host tests prove allocation, readback, sparse growth, shrink/zero truncation,
   deletion, protected-file refusal, corrupt-chain rejection before mutation,
-  FAT-copy agreement, and libc save/config file modes without launching QEMU.
+  FAT-copy agreement, duplicate-root/cross-link/orphaned-cluster rejection, and
+  libc save/config file modes without launching QEMU.
 - `tools/check_doom_persistence_image.py` can inspect a mutated remote image and
   require complete Doom-shaped `DEFAULT.CFG` markers plus a `DOOMSAVN.DSG` save
   header with Doom 1.10 version text, plausible game-state bytes, and enough
@@ -199,7 +200,9 @@ Current state:
   after-write snapshot and requires the requested entries to keep the same FAT
   root cluster, size, and bytes; that reboot comparison now requires the fresh
   baseline too.
-  The same baseline comparison rejects protected WAD/ELF mutation.
+  The same checker gate rejects divergent FAT copies, duplicate live root
+  entries, cross-linked chains, orphaned allocated clusters, and protected
+  WAD/ELF mutation.
 - The kernel implements FAT16 cluster allocation/free/truncate over the disk
   image, with validate-before-free chain hardening, so the storage layer is no
   longer a read-only WAD loader.
@@ -332,44 +335,48 @@ Current state:
   visible through `doomfault=`, `doomfaultip=`, `doomfaultv=`, and
   `doomfaulterr=`, the latest trap frame is visible through `fault=`, and Doom
   startup text is tailed into `doomlog=`.
-- The interactive shell has `halt` and PS/2-controller `reboot` commands.
+- The interactive shell has `halt`, PS/2-controller `reboot`, and
+  ACPI/QEMU-oriented `poweroff` commands.
 - Unhandled non-Doom exceptions set `panic=KEXC`, preserve the latest
   `fault=vector/error/eip/cs/esp/ss/cr2/pid/kind/state/syscall` tuple, write the
   smoke status block, and then halt. Shell `halt` and `reboot` record
-  `shutdown=HALT` or `shutdown=REBOOT` before stopping/rebooting.
+  `shutdown=HALT` or `shutdown=REBOOT`; shell `poweroff` records
+  `shutdown=POWEROFF` before requesting poweroff.
 - `tools/check_vm_safety_contract.py` machine-checks the local-QEMU opt-in,
-  cloud diagnostic upload hygiene, panic status fields, and shutdown status
-  fields without launching QEMU.
-- `tools/check_shutdown_panic_proof.py` now defines the stricter status-only
-  artifact contract for the opt-in disposable-cloud proof lane. It requires
+  cloud diagnostic upload hygiene, panic status fields, shutdown status fields,
+  and proof-only guest-exit harness knobs without launching QEMU.
+- `tools/check_shutdown_panic_proof.py` now defines the stricter artifact
+  contract for the opt-in disposable-cloud proof lane. It requires
   `status.panic.txt`, `status.shutdown-halt.txt`, `status.shutdown-reboot.txt`,
-  a `shutdown-panic-proof.json` manifest, explicit `status-before-cleanup`
-  evidence, and no WAD, disk, pixel, or raw-audio artifacts.
+  `status.shutdown-poweroff.txt`, a `shutdown-panic-proof.json` manifest,
+  explicit `status-before-cleanup` halt/panic evidence, `status-before-reset`
+  reboot evidence, `status-before-poweroff` poweroff evidence, observed guest
+  exit for reboot/poweroff phases, and no WAD, disk, pixel, or raw-audio
+  artifacts.
 - The OS smoke workflow now has an opt-in `shutdown_panic_proof` mode that builds
   proof kernels with `SHUTDOWN_PANIC_PROOF_PANIC`,
-  `SHUTDOWN_PANIC_PROOF_HALT`, and `SHUTDOWN_PANIC_PROOF_REBOOT` on the
-  disposable runner and then runs the checker against the uploaded-status
-  contract.
+  `SHUTDOWN_PANIC_PROOF_HALT`, `SHUTDOWN_PANIC_PROOF_REBOOT`, and
+  `SHUTDOWN_PANIC_PROOF_POWEROFF` on the disposable runner. The reboot phase
+  captures status, sends a guest key to release the proof path, and uses
+  `-no-reboot` so the PS/2 reset exits QEMU; the poweroff phase captures status,
+  releases the guest, omits `-no-shutdown`, and requires the ACPI/QEMU poweroff
+  request to exit QEMU.
 
 Still missing:
 
-- The cloud smoke runner uses QEMU `-no-reboot -no-shutdown` and exits through
-  the QEMU monitor `quit` command. There is no cloud proof that an OS-requested
-  reboot, shutdown, or ACPI poweroff works end to end.
-- The opt-in proof lane records status before monitor cleanup, so monitor quit
-  is not accepted as proof evidence, but guest reset/poweroff is still open
-  until a cloud run proves QEMU exits for an OS-requested reason. A fatal crash
-  before the exception handler can update status may only be visible through
-  serial/QEMU logs.
+- A current claim still requires running the opt-in disposable cloud
+  `shutdown_panic_proof` workflow on the exact commit being claimed, downloading
+  its status-only artifact, and passing `tools/check_shutdown_panic_proof.py`.
+- The halt phase remains `status-before-cleanup` because `hlt` intentionally
+  stops the CPU without making QEMU exit. A fatal crash before the exception
+  handler can update status may only be visible through serial/QEMU logs.
 
 Executable gate:
 
 - Run the opt-in disposable cloud `shutdown_panic_proof` workflow mode on the
   exact commit being claimed, download its status-only artifact, and pass
-  `tools/check_shutdown_panic_proof.py /path/to/artifact`.
-- Add a true guest reset or ACPI poweroff path, then extend the checker to
-  assert QEMU exits for that guest reason rather than only preserving
-  status-before-cleanup evidence.
+  `tools/check_shutdown_panic_proof.py /path/to/artifact`. The manifest must
+  include `guest_exit_observed=true` for the reboot and poweroff phases.
 
 - `GAP[HARDWARE_LIMITS] status=open category=hardware-limits gate=check_hardware_support_matrix.py evidence=support-matrix`
 

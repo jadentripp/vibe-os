@@ -105,6 +105,10 @@ def valid_status(**overrides):
         "musicvoices": "00000001",
         "musicmix": "00000001",
         "musicloop": "00000001",
+        "musicpos": "00001400",
+        "musicbuf": "00000C00",
+        "musicunder": "00000000",
+        "musicdrops": "00000000",
         "sb16": "00000004:00000005",
         "dma": "00000001",
         "play": "00000001:00000000",
@@ -172,6 +176,7 @@ def audio_phase_statuses():
             refill="00000001",
             musicmix="00000001",
             musicloop="00000000",
+            musicpos="00000001",
             voiceq="00000001:00000000:00000000",
             pflags="00000001",
             gflags="00000000",
@@ -197,6 +202,7 @@ def audio_phase_statuses():
             refill="00000001",
             musicmix="00000001",
             musicloop="00000000",
+            musicpos="00000001",
             voiceq="00000001:00000000:00000000",
             pflags="00000001",
             gflags="00000000",
@@ -224,6 +230,7 @@ def audio_phase_statuses():
             refill="00000002",
             musicmix="00000002",
             musicloop="00000000",
+            musicpos="00000400",
             voiceq="00000001:00000000:00000001",
         ),
         "status.after-move.txt": valid_status(
@@ -247,6 +254,7 @@ def audio_phase_statuses():
             refill="00000003",
             musicmix="00000003",
             musicloop="00000000",
+            musicpos="00000800",
             voiceq="00000001:00000000:00000002",
         ),
         "status.after-use.txt": valid_status(
@@ -269,6 +277,7 @@ def audio_phase_statuses():
             refill="00000004",
             musicmix="00000004",
             musicloop="00000000",
+            musicpos="00000C00",
             voiceq="00000001:00000000:00000003",
         ),
         "status.after-mouse.txt": valid_status(
@@ -293,6 +302,7 @@ def audio_phase_statuses():
             refill="00000004",
             musicmix="00000004",
             musicloop="00000000",
+            musicpos="00000C00",
             voiceq="00000001:00000000:00000003",
         ),
         "status.after-menu.txt": valid_status(
@@ -313,6 +323,7 @@ def audio_phase_statuses():
             refill="00000005",
             musicmix="00000005",
             musicloop="00000001",
+            musicpos="00001000",
             voiceq="00000001:00000000:00000004",
         ),
         "status.txt": valid_status(
@@ -325,6 +336,7 @@ def audio_phase_statuses():
             refill="00000006",
             musicmix="00000006",
             musicloop="00000001",
+            musicpos="00001400",
             voiceq="00000001:00000000:00000005",
         ),
     }
@@ -414,6 +426,10 @@ def valid_audio_proof_manifest():
             "sfxvoices": "00000001",
             "musicmix": "00000006",
             "musicloop": "00000001",
+            "musicpos": "00001400",
+            "musicbuf": "00000C00",
+            "musicunder": "00000000",
+            "musicdrops": "00000000",
         },
         "continuity": {
             "gate": "tools/check_audio_continuity_proof.py",
@@ -421,6 +437,7 @@ def valid_audio_proof_manifest():
             "sb16_continuity": True,
             "non_music_sfx_progress": True,
             "music_stream_progress": True,
+            "music_position_progress": True,
             "music_stream_update_progress": True,
             "irq_refill_progress": True,
             "progress": {
@@ -428,6 +445,7 @@ def valid_audio_proof_manifest():
                 "refill": {"start": "00000001", "final": "00000006", "delta": "00000005"},
                 "sfxmix": {"start": "00000001", "final": "00000008", "delta": "00000007"},
                 "musicmix": {"start": "00000001", "final": "00000006", "delta": "00000005"},
+                "musicpos": {"start": "00000001", "final": "00001400", "delta": "000013FF"},
                 "voiceq_update": {"start": "00000000", "final": "00000005", "delta": "00000005"},
             },
             "claim": "non-silent remote QEMU output plus status-only SB16 continuity with streamed music chunks",

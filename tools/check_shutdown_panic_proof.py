@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate shutdown, reboot-request, and panic proof status artifacts."""
+"""Validate shutdown, reboot, poweroff, and panic proof status artifacts."""
 
 from __future__ import annotations
 
@@ -68,9 +68,19 @@ PHASES = {
         "status": "status.shutdown-reboot.txt",
         "panic": "NONE",
         "shutdown": "REBOOT",
-        "triggers": ("kernel-proof-reboot-request", "shell-reboot"),
-        "evidence": ("status-before-reset", "status-before-cleanup"),
+        "triggers": ("kernel-proof-reboot-request",),
+        "evidence": ("status-before-reset",),
         "requires_fault": False,
+        "requires_guest_exit": True,
+    },
+    "shutdown-poweroff": {
+        "status": "status.shutdown-poweroff.txt",
+        "panic": "NONE",
+        "shutdown": "POWEROFF",
+        "triggers": ("kernel-proof-acpi-poweroff",),
+        "evidence": ("status-before-poweroff",),
+        "requires_fault": False,
+        "requires_guest_exit": True,
     },
 }
 
@@ -231,6 +241,18 @@ def validate_manifest(manifest: dict[str, Any], artifact_dir: Path) -> None:
             raise AssertionError(f"{phase} cleanup must describe post-evidence cleanup")
         if "monitor-quit" in str(trigger) or evidence == "monitor-quit":
             raise AssertionError(f"{phase} proof must not use QEMU monitor quit as evidence")
+        if spec.get("requires_guest_exit"):
+            if cleanup != "guest-reset-or-exit-after-evidence":
+                raise AssertionError(f"{phase} cleanup must be guest-reset-or-exit-after-evidence")
+            if entry.get("guest_exit_expected") is not True:
+                raise AssertionError(f"{phase} guest_exit_expected must be true")
+            if entry.get("guest_exit_observed") is not True:
+                raise AssertionError(f"{phase} guest_exit_observed must be true")
+        else:
+            if entry.get("guest_exit_expected") not in (None, False):
+                raise AssertionError(f"{phase} guest_exit_expected must be false or omitted")
+            if entry.get("guest_exit_observed") not in (None, False):
+                raise AssertionError(f"{phase} guest_exit_observed must be false or omitted")
 
         found = _find_one(names, status_name)
         if found is None:
@@ -272,10 +294,13 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "SHUTDOWN_PANIC_PROOF_PANIC",
         "SHUTDOWN_PANIC_PROOF_HALT",
         "SHUTDOWN_PANIC_PROOF_REBOOT",
+        "SHUTDOWN_PANIC_PROOF_POWEROFF",
         "ud2",
         "mov dword [shutdown_state], SHUTDOWN_HALT",
         "mov dword [shutdown_state], SHUTDOWN_REBOOT",
-        ".proof_reboot_status_loop:",
+        "mov dword [shutdown_state], SHUTDOWN_POWEROFF",
+        "shutdown_proof_wait_for_key:",
+        "acpi_poweroff:",
     ):
         _require(kernel, needle, "kernel")
 
@@ -284,13 +309,17 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "KERNEL_EXTRA_NASMFLAGS=\"-D ${define}\"",
         "run_phase panic SHUTDOWN_PANIC_PROOF_PANIC status.panic.txt",
         "run_phase shutdown-halt SHUTDOWN_PANIC_PROOF_HALT status.shutdown-halt.txt",
-        "run_phase shutdown-reboot SHUTDOWN_PANIC_PROOF_REBOOT status.shutdown-reboot.txt",
+        "run_phase shutdown-reboot SHUTDOWN_PANIC_PROOF_REBOOT status.shutdown-reboot.txt status-before-reset",
+        "run_phase shutdown-poweroff SHUTDOWN_PANIC_PROOF_POWEROFF status.shutdown-poweroff.txt status-before-poweroff",
+        "SMOKE_EXPECT_GUEST_EXIT=\"$expect_guest_exit\"",
+        "SMOKE_NO_SHUTDOWN=\"$no_shutdown\"",
         "shutdown-panic-proof.json",
         "--manifest build/shutdown-panic-proof/shutdown-panic-proof.json",
         "build/shutdown-panic-proof",
         "status.panic.txt",
         "status.shutdown-halt.txt",
         "status.shutdown-reboot.txt",
+        "status.shutdown-poweroff.txt",
     ):
         _require(workflow, needle, "OS smoke workflow")
 
@@ -308,7 +337,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     _require(vm_checker, "tools/check_shutdown_panic_proof.py", "VM safety checker")
     _require(gap_doc, "tools/check_shutdown_panic_proof.py", "gap ledger")
     _require(gap_doc, "status-before-cleanup", "gap ledger")
-    _require(gap_doc, "guest reset/poweroff is still open", "gap ledger")
+    _require(gap_doc, "status-before-reset", "gap ledger")
+    _require(gap_doc, "status-before-poweroff", "gap ledger")
     _require(readme, "shutdown_panic_proof", "README")
     _require(tests_readme, "check_shutdown_panic_proof.py", "tests README")
 

@@ -68,7 +68,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     _require(makefile, "tools/check_shutdown_panic_proof.py --repo-contract", "Makefile")
     _require(makefile, "KERNEL_EXTRA_NASMFLAGS ?=", "Makefile")
     _require(makefile, 'grep -Eq "panic=(NONE|KEXC)"', "Makefile")
-    _require(makefile, 'grep -Eq "shutdown=(NONE|HALT|REBOOT)"', "Makefile")
+    _require(makefile, 'grep -Eq "shutdown=(NONE|HALT|REBOOT|POWEROFF)"', "Makefile")
 
     for needle in (
         "trap cleanup EXIT INT TERM",
@@ -78,6 +78,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "-monitor \"unix:$monitor_sock,server,nowait\"",
         "-no-reboot",
         "-no-shutdown",
+        "SMOKE_EXPECT_GUEST_EXIT",
+        "wait_for_guest_exit",
         "SMOKE_SHUTDOWN_TIMEOUT",
         "wait_for_shutdown",
         "kill -9 \"$qemu_pid\"",
@@ -89,6 +91,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "SHUTDOWN_PANIC_PROOF_PANIC",
         "SHUTDOWN_PANIC_PROOF_HALT",
         "SHUTDOWN_PANIC_PROOF_REBOOT",
+        "SHUTDOWN_PANIC_PROOF_POWEROFF",
         "--manifest build/shutdown-panic-proof/shutdown-panic-proof.json",
         "build/shutdown-panic-proof/**",
         "build/proof-*/*.log",
@@ -124,17 +127,21 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "PANIC_UNHANDLED_EXCEPTION equ 1",
         "SHUTDOWN_HALT equ 1",
         "SHUTDOWN_REBOOT equ 2",
+        "SHUTDOWN_POWEROFF equ 3",
         "panic_status dd 0",
         "shutdown_state dd 0",
         "SHUTDOWN_PANIC_PROOF_PANIC",
         "SHUTDOWN_PANIC_PROOF_HALT",
         "SHUTDOWN_PANIC_PROOF_REBOOT",
+        "SHUTDOWN_PANIC_PROOF_POWEROFF",
         'smoke_panic_text db " panic="',
         'smoke_shutdown_text db " shutdown="',
         "mov dword [panic_status], PANIC_UNHANDLED_EXCEPTION",
         "call write_smoke_status",
         "mov dword [shutdown_state], SHUTDOWN_HALT",
         "mov dword [shutdown_state], SHUTDOWN_REBOOT",
+        "mov dword [shutdown_state], SHUTDOWN_POWEROFF",
+        "acpi_poweroff:",
     ):
         _require(kernel, needle, "kernel")
 
@@ -148,9 +155,11 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "panic=KEXC",
         "shutdown=HALT",
         "shutdown=REBOOT",
+        "shutdown=POWEROFF",
         "tools/check_shutdown_panic_proof.py",
         "status-before-cleanup",
-        "guest reset/poweroff is still open",
+        "status-before-reset",
+        "status-before-poweroff",
         "tools/check_vm_safety_contract.py",
     ):
         _require(gap_doc, needle, "gap ledger")

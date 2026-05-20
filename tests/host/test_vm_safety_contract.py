@@ -45,6 +45,8 @@ class VmSafetyContractTests(unittest.TestCase):
         self.assertIn("call write_smoke_status", reboot_path)
         self.assertIn("mov dword [shutdown_state], SHUTDOWN_HALT", halt_path)
         self.assertIn("call write_smoke_status", halt_path)
+        self.assertIn("mov dword [shutdown_state], SHUTDOWN_POWEROFF", kernel)
+        self.assertIn("acpi_poweroff:", kernel)
         self.assertIn('smoke_panic_text db " panic="', kernel)
         self.assertIn('smoke_shutdown_text db " shutdown="', kernel)
         self.assertIn("mov edx, [fault_eip]", status_writer)
@@ -83,7 +85,9 @@ class VmSafetyContractTests(unittest.TestCase):
             "KERNEL_EXTRA_NASMFLAGS=\"-D ${define}\"",
             "run_phase panic SHUTDOWN_PANIC_PROOF_PANIC status.panic.txt",
             "run_phase shutdown-halt SHUTDOWN_PANIC_PROOF_HALT status.shutdown-halt.txt",
-            "run_phase shutdown-reboot SHUTDOWN_PANIC_PROOF_REBOOT status.shutdown-reboot.txt",
+            "run_phase shutdown-reboot SHUTDOWN_PANIC_PROOF_REBOOT status.shutdown-reboot.txt status-before-reset",
+            "run_phase shutdown-poweroff SHUTDOWN_PANIC_PROOF_POWEROFF status.shutdown-poweroff.txt status-before-poweroff",
+            "SMOKE_EXPECT_GUEST_EXIT=\"$expect_guest_exit\"",
             "shutdown-panic-proof.json",
             "--manifest build/shutdown-panic-proof/shutdown-panic-proof.json",
             "build/shutdown-panic-proof",

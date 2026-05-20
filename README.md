@@ -197,16 +197,19 @@ The normal smoke path still exits QEMU through the monitor after collecting
 status. For the shutdown/panic slice, the OS smoke workflow has an opt-in
 `shutdown_panic_proof` mode that builds disposable proof kernels on the GitHub
 runner and emits `shutdown-panic-proof.json` plus `status.panic.txt`,
-`status.shutdown-halt.txt`, and `status.shutdown-reboot.txt`. Validate a
-downloaded artifact with:
+`status.shutdown-halt.txt`, `status.shutdown-reboot.txt`, and
+`status.shutdown-poweroff.txt`. The reboot and poweroff phases capture status
+before releasing the guest to request a PS/2 reset or ACPI/QEMU poweroff, then
+require QEMU to exit from that guest request. Validate a downloaded artifact
+with:
 
 ```sh
 python3 tools/check_shutdown_panic_proof.py /path/to/artifact
 ```
 
-This is status-only proof groundwork: it rejects missing artifacts and monitor
-quit as evidence, but a true guest reset/poweroff cloud proof is still tracked
-as an open gate.
+The checker rejects missing artifacts, monitor `quit` as evidence, and
+reboot/poweroff manifests that do not record an observed guest-requested QEMU
+exit.
 
 For a real-WAD test, run the **Real WAD smoke** workflow manually.
 You can paste a URL to `DOOM1.WAD`, `DOOM1.WAD.gz`, or a zip containing
@@ -276,6 +279,7 @@ with `tools/check_cloud_playability_artifacts.py --human-session`.
 - `wad`
 - `reboot`
 - `halt`
+- `poweroff`
 
 ## Hard-Way Doom Roadmap
 

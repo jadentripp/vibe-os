@@ -102,6 +102,10 @@ HEX_FIELDS = (
     "musicvoices",
     "musicmix",
     "musicloop",
+    "musicpos",
+    "musicbuf",
+    "musicunder",
+    "musicdrops",
     "dma",
     "keyirq",
     "keyqueue",
@@ -173,6 +177,10 @@ SUMMARY_FIELDS = (
     "musicvoices",
     "musicmix",
     "musicloop",
+    "musicpos",
+    "musicbuf",
+    "musicunder",
+    "musicdrops",
     "sb16",
     "dma",
     "play",
@@ -459,6 +467,7 @@ def _validate_core_status(status: str) -> None:
             raise AssertionError("voiceq= must prove an audio voice was queued when audio=SB16")
         if musicq[0] == 0:
             raise AssertionError("musicq= must prove the music voice was queued when audio=SB16")
+        _hex_field_gt(status, "musicpos", 0)
     preempt_switches = _hex_field_gt(status, "preempt", 0)
     irq_switches = _hex_field_gt(status, "pirq", 0)
     if irq_switches != preempt_switches:

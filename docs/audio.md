@@ -42,8 +42,9 @@ Current kernel behavior:
   `voices=`, `sfxvoices=`, `audioirq=`, `ack8=`, `ack16=`, `refill=`,
   `half=`, `mixwrap=`, `mixover=`, `mixunder=`, `mixclip=`, `steal=`,
   `pitchclamp=`, and `panclamp=`
-- reports music-carrier health separately as `musicvoices=`, `musicmix=`, and
-  `musicloop=`
+- reports music-carrier and stream-window health separately as `musicvoices=`,
+  `musicmix=`, `musicloop=`, `musicpos=`, `musicbuf=`, `musicunder=`, and
+  `musicdrops=`
 
 SB16 constants in `kernel/kernel.asm`:
 
@@ -113,6 +114,14 @@ than by looping one bounded carrier.
 Doom's `I_SoundIsPlaying` now calls back into the audio syscall and returns true
 only while that handle is still active in the mixer voice table.
 
+The kernel now exposes a stream-visible music contract even though the port
+still pushes chunks. `musicpos=` is the cumulative music source bytes consumed
+by the IRQ refill mixer, `musicbuf=` is the currently buffered music window
+remaining in the active voice table, `musicunder=` counts music voices that ran
+dry before replacement, and `musicdrops=` counts invalid or early replacement
+stream windows. These fields let the proof checker distinguish a progressing
+kernel-mixed stream from a single queued music sample.
+
 Mixer safety is smoke-visible. `mixclip` counts left/right output clipping,
 `mixunder` counts invalid/empty SFX or active refills with no voices, `steal`
 counts bounded voice replacement, and the clamp counters show bad or extreme
@@ -126,10 +135,12 @@ Remote-safe continuity proof:
 `audio=SB16` in every snapshot, a nonzero `sb16=` DSP version, nonzero `dma=`
 programming and `play=` start counters, nonzero `voiceq=` and `musicq=` queue
 counters, monotonic audio counters, increasing IRQ/refill, non-music SFX
-`sfxmix=`, music `musicmix=` counters, a progressing `voiceq=` stream-update
-component, and nonzero SB16 ACK accounting. That proves the emulated SB16 guest
-path was initialized, DMA-programmed, started, queued, and continued to refill
-and mix both Doom SFX and streamed music chunks across time without uploading
+`sfxmix=`, music `musicmix=` counters, increasing `musicpos=`, a progressing
+`voiceq=` stream-update component, visible `musicbuf=` / `musicunder=` /
+`musicdrops=` health fields, and nonzero SB16 ACK accounting. That proves the
+emulated SB16 guest path was initialized, DMA-programmed, started, queued, and
+continued to refill and mix both Doom SFX and streamed music chunks across time
+without uploading
 proprietary WAD data, PCM samples, or rendered pixels. A run with `audio=NONE`
 is still useful diagnostics, but it is not an audible/streaming audio proof.
 
@@ -175,7 +186,8 @@ Doom sound ticks call `VIBE_AUDIO_UPDATE_SFX` to push the next chunk through the
 same SB16 voice. The music architecture keeps targeting the same SB16
 DMA/refill output path, so the parser/renderer work shares SFX voice stealing,
 clipping, silence, and status accounting. The extra `musicvoices=`, `musicmix=`,
-and `voiceq=` update counter make that contract visible in cloud smoke status.
+`musicpos=`, `musicbuf=`, `musicunder=`, `musicdrops=`, and `voiceq=` update
+counter make that contract visible in cloud smoke status.
 The kernel can later grow a first-class pull/refill command without changing the
 MUS/MIDI parser or Doom's original sources. See `docs/doom-music.md` for the
 full pipeline and fallback design.
@@ -183,9 +195,10 @@ full pipeline and fallback design.
 Remaining gaps:
 
 - Music now advances a stateful song-position cursor in the Doom port and pushes
-  bounded chunks with `VIBE_AUDIO_UPDATE_SFX`, but the kernel still has no
-  first-class hardware-paced pull stream, ring-buffer health fields, or
-  `musicpos=` status field.
+  bounded chunks with `VIBE_AUDIO_UPDATE_SFX`. The kernel now exposes
+  stream-position and stream-window health status, but it still has no
+  first-class hardware-paced pull command that asks the renderer for more PCM
+  directly from the IRQ/refill path.
 - The audible proof is a remote aggregate-output proof, not a listener recording
   or subjective quality proof. A human playtest can still use remote audio
   forwarding for listening notes, but those notes should not upload captured Doom
@@ -200,7 +213,8 @@ Remaining gaps:
 The cloud-safe continuity gate is `tools/check_audio_continuity_proof.py`. It
 checks status snapshots only: `audio=SB16`, `sb16=`, `dma=`, `play=`,
 `voiceq=`, `musicq=`, IRQ/refill progress, non-music SFX mixing, streamed music
-chunks, and music mixer counters must move across the scripted cloud phases.
+chunks, music mixer counters, and `musicpos=` stream position must move across
+the scripted cloud phases.
 
 Fallback plan:
 

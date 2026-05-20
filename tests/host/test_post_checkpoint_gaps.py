@@ -149,9 +149,10 @@ class PostCheckpointGapTests(unittest.TestCase):
         self.assertIn("tools/check_playability_gap_ledger.py", tests_readme)
         self.assertIn("not a claim that the current branch is playable", playable_doc)
         for claim_boundary in (
-            "There is no cloud proof that an OS-requested",
+            "A current claim still requires running",
             "panic=KEXC",
             "shutdown=HALT",
+            "shutdown=POWEROFF",
             "This is not a full POSIX environment",
             "Future kernel/runtime, workflow, or checker changes",
             "current passing manual real-WAD cloud workflow",

@@ -15,6 +15,10 @@ SMOKE_SHUTDOWN_TIMEOUT="${SMOKE_SHUTDOWN_TIMEOUT:-5}"
 SMOKE_CAPTURE_GFX="${SMOKE_CAPTURE_GFX:-1}"
 SMOKE_SENDKEYS="${SMOKE_SENDKEYS:-}"
 SMOKE_INPUT_SCRIPT="${SMOKE_INPUT_SCRIPT:-}"
+SMOKE_EXPECT_GUEST_EXIT="${SMOKE_EXPECT_GUEST_EXIT:-0}"
+SMOKE_GUEST_EXIT_KEYS="${SMOKE_GUEST_EXIT_KEYS:-}"
+SMOKE_NO_REBOOT="${SMOKE_NO_REBOOT:-1}"
+SMOKE_NO_SHUTDOWN="${SMOKE_NO_SHUTDOWN:-1}"
 
 monitor_sock="$BUILD_DIR/monitor.sock"
 smoke_log="$BUILD_DIR/smoke.log"
@@ -23,6 +27,7 @@ qemu_log="$BUILD_DIR/qemu.log"
 serial_log="$BUILD_DIR/serial.log"
 qemu_pid=""
 qemu_extra_args=()
+qemu_control_args=()
 deadline=0
 failing=0
 
@@ -405,6 +410,29 @@ wait_for_shutdown() {
   wait_qemu_status || true
 }
 
+wait_for_guest_exit() {
+  local end
+  end=$(( $(now_s) + SMOKE_SHUTDOWN_TIMEOUT ))
+  while qemu_is_running; do
+    if [ "$(now_s)" -ge "$end" ]; then
+      fail_smoke "QEMU did not exit after the guest-requested shutdown/reboot within ${SMOKE_SHUTDOWN_TIMEOUT}s."
+    fi
+    sleep 1
+  done
+  wait_qemu_status || true
+}
+
+send_guest_exit_keys() {
+  local key
+  for key in $SMOKE_GUEST_EXIT_KEYS; do
+    if ! qemu_is_running; then
+      wait_qemu_status
+      fail_smoke "QEMU exited before guest-exit key injection."
+    fi
+    send_monitor "guest-exit sendkey $key" "sendkey $key\n" || fail_smoke "failed to send guest-exit key $key"
+  done
+}
+
 trap cleanup EXIT INT TERM
 
 deadline=$(( $(now_s) + SMOKE_QEMU_TIMEOUT ))
@@ -412,7 +440,13 @@ if [ -n "$QEMU_EXTRA_ARGS" ]; then
   # Extra smoke arguments are repo-owned cloud knobs such as the SB16 no-audio backend.
   qemu_extra_args=( $QEMU_EXTRA_ARGS )
 fi
-log "Starting QEMU smoke: timeout=${SMOKE_QEMU_TIMEOUT}s early=${SMOKE_EARLY_SECONDS}s settle=${SMOKE_SETTLE_SECONDS}s capture_gfx=${SMOKE_CAPTURE_GFX} extra_args=${QEMU_EXTRA_ARGS:-<none>}."
+if [ "$SMOKE_NO_REBOOT" = "1" ]; then
+  qemu_control_args+=( -no-reboot )
+fi
+if [ "$SMOKE_NO_SHUTDOWN" = "1" ]; then
+  qemu_control_args+=( -no-shutdown )
+fi
+log "Starting QEMU smoke: timeout=${SMOKE_QEMU_TIMEOUT}s early=${SMOKE_EARLY_SECONDS}s settle=${SMOKE_SETTLE_SECONDS}s capture_gfx=${SMOKE_CAPTURE_GFX} expect_guest_exit=${SMOKE_EXPECT_GUEST_EXIT} extra_args=${QEMU_EXTRA_ARGS:-<none>}."
 "$QEMU" \
   -machine "$QEMU_MACHINE" \
   -drive "file=$IMAGE,format=raw,if=ide,index=0,media=disk" \
@@ -420,8 +454,7 @@ log "Starting QEMU smoke: timeout=${SMOKE_QEMU_TIMEOUT}s early=${SMOKE_EARLY_SEC
   -display none \
   -serial "file:$serial_log" \
   -monitor "unix:$monitor_sock,server,nowait" \
-  -no-reboot \
-  -no-shutdown \
+  "${qemu_control_args[@]}" \
   "${qemu_extra_args[@]}" \
   > "$qemu_log" 2>&1 &
 qemu_pid=$!
@@ -450,8 +483,13 @@ elif [ -n "$SMOKE_SENDKEYS" ]; then
 fi
 
 capture_snapshot final 1 || fail_smoke "failed to capture final status snapshot"
-send_monitor quit "quit\n" || log "QEMU monitor quit command failed; cleanup will terminate the process if needed."
-wait_for_shutdown
+if [ "$SMOKE_EXPECT_GUEST_EXIT" = "1" ]; then
+  send_guest_exit_keys
+  wait_for_guest_exit
+else
+  send_monitor quit "quit\n" || log "QEMU monitor quit command failed; cleanup will terminate the process if needed."
+  wait_for_shutdown
+fi
 trap - EXIT INT TERM
 cleanup
 log "QEMU smoke runner completed."

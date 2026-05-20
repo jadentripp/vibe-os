@@ -257,6 +257,67 @@ class Fat16Image:
                 return entry
         return None
 
+    def live_root_entries(self):
+        root_start = self.root_lba * SECTOR_SIZE
+        entries = []
+        for offset in range(0, self.root_size, 32):
+            entry = root_start + offset
+            first = self.image[entry]
+            if first == 0:
+                break
+            if first == 0xE5:
+                continue
+            attr = self.image[entry + 11]
+            if attr & 0x18:
+                continue
+            entries.append(
+                {
+                    "entry": entry,
+                    "name": bytes(self.image[entry:entry + 11]),
+                    "attr": attr,
+                    "cluster": read_le16(self.image, entry + 26),
+                    "size": read_le32(self.image, entry + 28),
+                    "protected": bytes(self.image[entry:entry + 11]) in PROTECTED_ROOT_NAMES,
+                }
+            )
+        return entries
+
+    def validate_allocated_clusters_reachable(self):
+        owners = {}
+        names = set()
+        for meta in self.live_root_entries():
+            name = meta["name"]
+            label = name.decode("ascii", "replace").strip()
+            if name in names:
+                raise ValueError(f"duplicate live FAT16 root entry {label}")
+            names.add(name)
+
+            size = meta["size"]
+            first_cluster = meta["cluster"]
+            if size == 0:
+                if first_cluster != 0:
+                    raise ValueError(f"zero-size FAT16 root file {label} has a cluster chain")
+                continue
+            if first_cluster < 2:
+                raise ValueError(f"non-empty FAT16 root file {label} has no data cluster")
+
+            chain = self.cluster_chain(first_cluster)
+            if len(chain) < clusters_for_size(size):
+                raise ValueError(f"FAT16 chain for {label} ended before the root file size")
+            for cluster in chain:
+                owner = owners.get(cluster)
+                if owner is not None:
+                    raise ValueError(
+                        f"FAT16 cluster {cluster} is shared by {owner} and {label}"
+                    )
+                owners[cluster] = label
+
+        for cluster in range(2, last_data_cluster() + 1):
+            if self.fat_entry(cluster) != 0 and cluster not in owners:
+                raise ValueError(
+                    f"allocated FAT16 cluster {cluster} is not reachable from any live root entry"
+                )
+
     def create_or_reuse_root_entry(self, name):
         name = self.validate_root_83_name(name)
         root_start = self.root_lba * SECTOR_SIZE

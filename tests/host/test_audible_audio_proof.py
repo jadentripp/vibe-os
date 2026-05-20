@@ -43,6 +43,10 @@ def status_line(**overrides):
         "panclamp": "00000000",
         "musicvoices": "00000001",
         "sb16": "00000004:00000005",
+        "musicpos": "00001400",
+        "musicbuf": "00000C00",
+        "musicunder": "00000000",
+        "musicdrops": "00000000",
         "dma": "00000001",
         "play": "00000001:00000000",
         "voiceq": "00000002:00000000:00000001",
@@ -85,6 +89,7 @@ def phase_statuses(*, carrier_only=False):
             refill="00000001",
             musicmix="00000001",
             musicloop="00000000",
+            musicpos="00000001",
         ),
         "fire": status_line(
             doomsound="00000002",
@@ -94,6 +99,7 @@ def phase_statuses(*, carrier_only=False):
             refill="00000002",
             musicmix="00000002",
             musicloop="00000000",
+            musicpos="00000400",
             voiceq="00000002:00000000:00000002",
         ),
         "movement": status_line(
@@ -104,6 +110,7 @@ def phase_statuses(*, carrier_only=False):
             refill="00000003",
             musicmix="00000003",
             musicloop="00000000",
+            musicpos="00000800",
             voiceq="00000002:00000000:00000003",
         ),
         "use": status_line(
@@ -114,6 +121,7 @@ def phase_statuses(*, carrier_only=False):
             refill="00000004",
             musicmix="00000004",
             musicloop="00000000",
+            musicpos="00000C00",
             voiceq="00000002:00000000:00000004",
         ),
         "menu": status_line(
@@ -124,6 +132,7 @@ def phase_statuses(*, carrier_only=False):
             refill="00000005",
             musicmix="00000005",
             musicloop="00000001",
+            musicpos="00001000",
             voiceq="00000002:00000000:00000005",
         ),
         "final": status_line(
@@ -134,6 +143,7 @@ def phase_statuses(*, carrier_only=False):
             refill="00000006",
             musicmix="00000006",
             musicloop="00000001",
+            musicpos="00001400",
             voiceq="00000002:00000000:00000006",
         ),
     }
@@ -295,6 +305,10 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "sfxmix": "00000001",
                 "sfxvoices": "00000001",
                 "musicmix": "00000001",
+                "musicpos": "00000001",
+                "musicbuf": "00002000",
+                "musicunder": "00000000",
+                "musicdrops": "00000000",
             },
             "continuity": {
                 "gate": "tools/check_audio_continuity_proof.py",
@@ -302,12 +316,16 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "sb16_continuity": True,
                 "non_music_sfx_progress": True,
                 "music_stream_progress": True,
+                "music_position_progress": True,
+                "music_stream_update_progress": True,
                 "irq_refill_progress": True,
                 "progress": {
                     "audioirq": {"start": "00000001", "final": "00000002", "delta": "00000001"},
                     "refill": {"start": "00000001", "final": "00000002", "delta": "00000001"},
                     "sfxmix": {"start": "00000001", "final": "00000002", "delta": "00000001"},
                     "musicmix": {"start": "00000001", "final": "00000002", "delta": "00000001"},
+                    "musicpos": {"start": "00000001", "final": "00000400", "delta": "000003FF"},
+                    "voiceq_update": {"start": "00000000", "final": "00000001", "delta": "00000001"},
                 },
                 "claim": "non-silent remote QEMU output plus status-only SB16 continuity",
             },

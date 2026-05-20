@@ -36,6 +36,10 @@ def status_line(**overrides):
         "musicvoices": "00000001",
         "musicmix": "00000001",
         "musicloop": "00000000",
+        "musicpos": "00000001",
+        "musicbuf": "00002000",
+        "musicunder": "00000000",
+        "musicdrops": "00000000",
         "sb16": "00000004:00000005",
         "dma": "00000001",
         "play": "00000001:00000000",
@@ -60,6 +64,8 @@ def snapshot_statuses():
             ack8="00000002",
             refill="00000002",
             musicmix="00000002",
+            musicpos="00000400",
+            musicbuf="00001C00",
             voiceq="00000001:00000000:00000001",
         ),
         "movement": status_line(
@@ -69,6 +75,8 @@ def snapshot_statuses():
             ack8="00000003",
             refill="00000003",
             musicmix="00000003",
+            musicpos="00000800",
+            musicbuf="00001800",
             voiceq="00000001:00000000:00000002",
         ),
         "use": status_line(
@@ -78,6 +86,8 @@ def snapshot_statuses():
             ack8="00000004",
             refill="00000004",
             musicmix="00000004",
+            musicpos="00000C00",
+            musicbuf="00001400",
             voiceq="00000001:00000000:00000003",
         ),
         "menu": status_line(
@@ -88,6 +98,8 @@ def snapshot_statuses():
             refill="00000005",
             musicmix="00000005",
             musicloop="00000001",
+            musicpos="00001000",
+            musicbuf="00001000",
             voiceq="00000001:00000000:00000004",
         ),
         "final": status_line(
@@ -98,6 +110,8 @@ def snapshot_statuses():
             refill="00000006",
             musicmix="00000006",
             musicloop="00000001",
+            musicpos="00001400",
+            musicbuf="00000C00",
             voiceq="00000001:00000000:00000005",
         ),
     }
@@ -106,6 +120,21 @@ def snapshot_statuses():
 class AudioContinuityProofTests(unittest.TestCase):
     def test_accepts_sb16_counter_progression_across_snapshots(self):
         snapshots = snapshot_statuses()
+        check_audio_continuity_proof.validate_status(
+            snapshots["final"],
+            baseline_status=snapshots["baseline"],
+            fire_status=snapshots["fire"],
+            movement_status=snapshots["movement"],
+            use_status=snapshots["use"],
+            menu_status=snapshots["menu"],
+        )
+
+    def test_accepts_final_snapshot_after_stream_voice_drained(self):
+        snapshots = snapshot_statuses()
+        snapshots["final"] = snapshots["final"].replace("musicvoices=00000001", "musicvoices=00000000")
+        snapshots["final"] = snapshots["final"].replace("voices=00000001", "voices=00000000")
+        snapshots["final"] = snapshots["final"].replace("musicbuf=00000C00", "musicbuf=00000000")
+
         check_audio_continuity_proof.validate_status(
             snapshots["final"],
             baseline_status=snapshots["baseline"],
@@ -228,6 +257,40 @@ class AudioContinuityProofTests(unittest.TestCase):
             snapshots[label] = snapshots[label].replace("voiceq=00000001:00000000:00000005", "voiceq=00000001:00000000:00000000")
 
         with self.assertRaisesRegex(AssertionError, "voiceq=.*stream update"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+            )
+
+    def test_rejects_never_active_music_voice(self):
+        snapshots = snapshot_statuses()
+        for label, status in list(snapshots.items()):
+            snapshots[label] = status.replace("musicvoices=00000001", "musicvoices=00000000")
+
+        with self.assertRaisesRegex(AssertionError, "musicvoices=.*at least one snapshot"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+            )
+
+    def test_rejects_stream_updates_without_kernel_music_position_progress(self):
+        snapshots = snapshot_statuses()
+        for label, status in list(snapshots.items()):
+            snapshots[label] = status.replace("musicpos=00000400", "musicpos=00000001")
+            snapshots[label] = snapshots[label].replace("musicpos=00000800", "musicpos=00000001")
+            snapshots[label] = snapshots[label].replace("musicpos=00000C00", "musicpos=00000001")
+            snapshots[label] = snapshots[label].replace("musicpos=00001000", "musicpos=00000001")
+            snapshots[label] = snapshots[label].replace("musicpos=00001400", "musicpos=00000001")
+
+        with self.assertRaisesRegex(AssertionError, "musicpos=.*increase"):
             check_audio_continuity_proof.validate_status(
                 snapshots["final"],
                 baseline_status=snapshots["baseline"],

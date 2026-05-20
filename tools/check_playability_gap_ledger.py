@@ -59,9 +59,10 @@ REQUIRED_GAPS = {
     "SHUTDOWN_PANIC": {
         "category": "shutdown-panic",
         "phrases": (
-            "There is no cloud proof that an OS-requested",
+            "A current claim still requires running",
             "panic=KEXC",
             "shutdown=HALT",
+            "shutdown=POWEROFF",
         ),
     },
     "HARDWARE_LIMITS": {

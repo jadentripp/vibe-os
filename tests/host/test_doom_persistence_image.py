@@ -274,6 +274,43 @@ class DoomPersistenceImageTests(unittest.TestCase):
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "FAT copy 1 differs"):
             check_persistence.validate_image(path)
 
+    def test_checker_rejects_orphaned_shared_or_duplicate_root_storage(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        leaked_chain = fs.write_root_file(b"LEAK    BIN", b"L" * 700)
+        leaked_entry = fs.root_entry_offset(b"LEAK    BIN")
+        image[leaked_entry] = 0xE5
+        path = self.write_temp_image(image)
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "not reachable"):
+            check_persistence.validate_image(path)
+        self.assertGreater(len(leaked_chain), 0)
+
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        first_chain = fs.write_root_file(b"ALPHA   TXT", b"A" * 700)
+        fs.write_root_file(b"BETA    TXT", b"B" * 700)
+        beta_entry = fs.root_entry_offset(b"BETA    TXT")
+        struct.pack_into("<H", image, beta_entry + 26, first_chain[0])
+        path = self.write_temp_image(image)
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "shared by"):
+            check_persistence.validate_image(path)
+
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        source_entry = fs.root_entry_offset(make_wad_image.WRITABLE_DEFAULT_NAME)
+        root_start = fs.root_lba * make_wad_image.SECTOR_SIZE
+        duplicate_entry = None
+        for offset in range(0, fs.root_size, 32):
+            entry = root_start + offset
+            if image[entry] == 0:
+                duplicate_entry = entry
+                break
+        self.assertIsNotNone(duplicate_entry)
+        image[duplicate_entry:duplicate_entry + 32] = image[source_entry:source_entry + 32]
+        path = self.write_temp_image(image)
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "duplicate live"):
+            check_persistence.validate_image(path)
+
     def test_fat_image_detects_corrupt_dynamic_chains(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
         fs = make_wad_image.Fat16Image(image)

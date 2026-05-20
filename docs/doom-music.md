@@ -39,20 +39,24 @@ chunks at 11025 Hz from the current song position and schedules the next chunk
 from Doom's regular sound hooks. The kernel still treats music as an SB16 active
 voice, so music and sound effects mix in the IRQ refill path instead of
 competing for a separate backend. Smoke status exposes `musicvoices=`,
-`musicmix=`, and the third `voiceq=` component so this continuity is testable
-and separate from normal Doom SFX. `sfxmix=` counts only non-music sound
-effects, while music increments `musicmix=`.
+`musicmix=`, `musicpos=`, `musicbuf=`, `musicunder=`, `musicdrops=`, and the
+third `voiceq=` component so this continuity is testable and separate from
+normal Doom SFX. `sfxmix=` counts only non-music sound effects, while music
+increments `musicmix=`.
 
 The remote-safe audio checker now proves that the SB16 path mixed non-music SFX,
-mixed music, and accepted streamed music chunk updates across status snapshots.
-That is song-position progress in the port-owned renderer, not a claim that the
-kernel owns the final pull stream.
+mixed music, accepted streamed music chunk updates, and advanced kernel-visible
+`musicpos=` across status snapshots. That is still push-fed song-position
+progress, not a claim that the kernel owns the final pull stream.
+The checker treats this lane as separate from normal Doom SFX even if the final
+snapshot lands after the active music voice drained.
 A later kernel milestone can replace the push-style `VIBE_AUDIO_UPDATE_SFX`
 refresh with a dedicated `START_MUSIC_STREAM` or pull-based ring-buffer command.
 
 Long-running music streaming contract:
 
-The long-running music streaming contract is partially open.
+The long-running music streaming contract now has status-visible kernel
+accounting, but the final pull model is still open.
 
 To fully close the music gap, the kernel should own hardware-paced stream
 refills instead of relying on Doom's sound tick to push the next chunk. The proof
@@ -60,16 +64,16 @@ should remain status-only and copyright-safe:
 
 - `musicstream=OK` when the active music path is a pull/refill stream rather
   than the current push-updated SB16 voice.
-- `songtick=` or `musicpos=` increasing across early/fire/move/use/menu/final
-  snapshots, proving the MUS/MIDI cursor advanced beyond the first rendered
+- `musicpos=` increasing across early/fire/move/use/menu/final snapshots,
+  proving the kernel refill path consumed music beyond the first rendered
   window.
-- `musicbuf=`, `musicunder=`, and `musicdrops=` to expose ring-buffer health
+- `musicbuf=`, `musicunder=`, and `musicdrops=` expose stream-window health
   without uploading PCM.
 - `musicloop=` increasing only when the parsed song loops, not when a short
   sample window wraps.
-- `tools/check_audio_continuity_proof.py` or a successor gate should compare
-  those fields across the same real-WAD snapshots before any doc calls music
-  streaming complete.
+- `tools/check_audio_continuity_proof.py` compares these fields across the same
+  real-WAD snapshots. A successor gate should additionally require a true
+  kernel pull/refill command before any doc calls music streaming complete.
 
 That contract preserves the current parser/renderer work: the port can keep
 parsing original Doom MUS/MIDI lumps outside `third_party/doom`, but rendering

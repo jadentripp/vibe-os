@@ -41,6 +41,10 @@ REQUIRED_AUDIO_FIELDS = (
     "musicvoices",
     "musicmix",
     "musicloop",
+    "musicpos",
+    "musicbuf",
+    "musicunder",
+    "musicdrops",
     "sb16",
     "dma",
     "play",
@@ -63,6 +67,9 @@ MONOTONIC_COUNTERS = (
     "panclamp",
     "musicmix",
     "musicloop",
+    "musicpos",
+    "musicunder",
+    "musicdrops",
     "dma",
 )
 FINAL_POSITIVE_COUNTERS = (
@@ -70,11 +77,11 @@ FINAL_POSITIVE_COUNTERS = (
     "sfxmix",
     "audioirq",
     "refill",
-    "musicvoices",
     "musicmix",
+    "musicpos",
     "dma",
 )
-PROGRESS_COUNTERS = ("audioirq", "refill", "sfxmix", "musicmix")
+PROGRESS_COUNTERS = ("audioirq", "refill", "sfxmix", "musicmix", "musicpos")
 PROGRESS_TUPLE_COMPONENTS = (
     ("voiceq", 3, 2, "stream update"),
 )
@@ -105,6 +112,10 @@ SUMMARY_FIELDS = (
     "musicvoices",
     "musicmix",
     "musicloop",
+    "musicpos",
+    "musicbuf",
+    "musicunder",
+    "musicdrops",
     "sb16",
     "dma",
     "play",
@@ -271,6 +282,8 @@ def validate_status(
     for name in FINAL_POSITIVE_COUNTERS:
         if _hex(final_fields, name, "final") == 0:
             raise AssertionError(f"final {name}= must be nonzero for audio continuity proof")
+    if all(_hex(fields, "musicvoices", label) == 0 for label, fields in snapshots):
+        raise AssertionError("musicvoices= must be nonzero in at least one snapshot")
 
     if _hex(final_fields, "ack8", "final") == 0 and _hex(final_fields, "ack16", "final") == 0:
         raise AssertionError("final ack8= or ack16= must be nonzero to prove SB16 IRQ ACKs")
@@ -335,6 +348,10 @@ def validate_repo_contract() -> None:
                 "sfxmix= counts non-music Doom SFX only",
                 "VIBE_AUDIO_UPDATE_SFX",
                 "streamed music chunks",
+                "musicpos=",
+                "musicbuf=",
+                "musicunder=",
+                "musicdrops=",
             ),
         ),
         (
@@ -345,7 +362,10 @@ def validate_repo_contract() -> None:
                 "VIBE_AUDIO_UPDATE_SFX",
                 "streamed music chunks",
                 "separate from normal Doom SFX",
-                "not final hardware-paced pull streaming",
+                "musicpos=",
+                "musicbuf=",
+                "musicunder=",
+                "musicdrops=",
             ),
         ),
         (
@@ -455,8 +475,8 @@ def main(argv: list[str]) -> int:
         return 1
 
     print(
-        "audio continuity proof OK: SB16 IRQ/refill, SFX, and streamed music "
-        "counters progressed across status snapshots"
+        "audio continuity proof OK: SB16 IRQ/refill, SFX, and kernel-visible "
+        "music stream counters progressed across status snapshots"
     )
     return 0
 

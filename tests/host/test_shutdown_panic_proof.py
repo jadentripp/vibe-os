@@ -49,9 +49,20 @@ def valid_manifest(**phase_overrides):
         "shutdown-reboot": {
             "status": "status.shutdown-reboot.txt",
             "trigger": "kernel-proof-reboot-request",
-            "evidence": "status-before-cleanup",
+            "evidence": "status-before-reset",
             "monitor_quit_evidence": False,
-            "cleanup": "monitor-quit-after-evidence",
+            "cleanup": "guest-reset-or-exit-after-evidence",
+            "guest_exit_expected": True,
+            "guest_exit_observed": True,
+        },
+        "shutdown-poweroff": {
+            "status": "status.shutdown-poweroff.txt",
+            "trigger": "kernel-proof-acpi-poweroff",
+            "evidence": "status-before-poweroff",
+            "monitor_quit_evidence": False,
+            "cleanup": "guest-reset-or-exit-after-evidence",
+            "guest_exit_expected": True,
+            "guest_exit_observed": True,
         },
     }
     for phase, overrides in phase_overrides.items():
@@ -83,6 +94,9 @@ def write_valid_artifact(path):
     )
     (path / "status.shutdown-reboot.txt").write_text(
         status_line(panic="NONE", shutdown="REBOOT")
+    )
+    (path / "status.shutdown-poweroff.txt").write_text(
+        status_line(panic="NONE", shutdown="POWEROFF")
     )
     (path / "shutdown-panic-proof.json").write_text(
         json.dumps(valid_manifest(), indent=2) + "\n"
@@ -165,6 +179,27 @@ class ShutdownPanicProofTests(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(AssertionError, "nonzero fault"):
+                check_shutdown_panic_proof.validate_artifact_dir(artifact)
+
+    def test_rejects_reboot_without_guest_exit_observed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            (artifact / "shutdown-panic-proof.json").write_text(
+                json.dumps(
+                    valid_manifest(
+                        **{
+                            "shutdown-reboot": {
+                                "guest_exit_observed": False,
+                            }
+                        }
+                    ),
+                    indent=2,
+                )
+                + "\n"
+            )
+
+            with self.assertRaisesRegex(AssertionError, "guest_exit_observed"):
                 check_shutdown_panic_proof.validate_artifact_dir(artifact)
 
     def test_rejects_forbidden_payload_artifacts(self):

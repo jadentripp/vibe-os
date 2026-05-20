@@ -335,7 +335,9 @@ Call a remote human playtest credible only after checking all of this:
 - Shutdown/panic evidence is a separate opt-in OS smoke lane. When
   `shutdown_panic_proof` is enabled, validate the downloaded artifact with
   `tools/check_shutdown_panic_proof.py`; do not count monitor `quit` cleanup as
-  a guest-requested halt, reboot, or panic proof.
+  a guest-requested halt, reboot, poweroff, or panic proof. The reboot and
+  poweroff proof phases must show status captured before the guest request and
+  an observed QEMU exit caused by that guest request.
 
 ## Honest Remaining Gaps
 
