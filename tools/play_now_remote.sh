@@ -63,6 +63,15 @@ if [ "$RUN_PREFLIGHT_ONLY" = "1" ]; then
   exit 0
 fi
 
+codespaces_novnc_url() {
+  if [ -n "${CODESPACE_NAME:-}" ] && [ -n "${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:-}" ]; then
+    printf 'https://%s-%s.%s/vnc.html?autoconnect=1\n' \
+      "$CODESPACE_NAME" \
+      "$NOVNC_PORT" \
+      "$GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN"
+  fi
+}
+
 cleanup() {
   if [ -n "${WEBSOCKIFY_PID:-}" ]; then
     kill "$WEBSOCKIFY_PID" >/dev/null 2>&1 || true
@@ -85,6 +94,9 @@ if command -v websockify >/dev/null 2>&1 && [ -d /usr/share/novnc ]; then
     >"$PLAY_BUILD_DIR/novnc.log" 2>&1 &
   WEBSOCKIFY_PID="$!"
   echo "noVNC tunnel/local URL: http://127.0.0.1:$NOVNC_PORT/vnc.html?autoconnect=1"
+  if codespaces_url="$(codespaces_novnc_url)" && [ -n "$codespaces_url" ]; then
+    echo "Codespaces noVNC URL: $codespaces_url"
+  fi
   echo "In Codespaces, forward port $NOVNC_PORT and open the forwarded URL with path /vnc.html?autoconnect=1."
 else
   echo "noVNC not found; use SSH VNC tunnel instead:"

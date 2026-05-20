@@ -6,6 +6,53 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PlayNowRemoteTests(unittest.TestCase):
+    def test_codespaces_launcher_is_one_command_and_mac_safe(self):
+        script = (ROOT / "tools" / "play_now_codespaces.sh").read_text()
+        docs = [
+            (ROOT / "README.md").read_text(),
+            (ROOT / "docs" / "runbooks" / "play-now-cloud.md").read_text(),
+            (ROOT / "docs" / "runbooks" / "codespaces-play-now.md").read_text(),
+        ]
+
+        for needle in (
+            "Usage: tools/play_now_codespaces.sh [options]",
+            "codespace create",
+            "gh \"${create_args[@]}\"",
+            "--devcontainer-path \".devcontainer/devcontainer.json\"",
+            "--idle-timeout \"$IDLE_TIMEOUT\"",
+            "--retention-period \"$RETENTION_PERIOD\"",
+            "gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" bash -lc \"$payload\"",
+            "./tools/play_now_remote.sh --preflight",
+            "nohup ./tools/play_now_remote.sh",
+            "gh codespace ports visibility \"$NOVNC_PORT:private\"",
+            "gh codespace ports",
+            "vnc.html?autoconnect=1",
+            "Delete when done: gh codespace delete -c \\\"$CODESPACE_NAME\\\" --force",
+            "Codespaces runs pushed git state",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, script)
+
+        for forbidden in (
+            "qemu-system-x86_64",
+            "make DOOM_WAD",
+            "prepare_shareware_wad.py",
+            "gh codespace cp",
+            "scp ",
+            "build/disk.img",
+            "DOOM1.WAD",
+            "doom-audio.wav",
+            "git add",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, script)
+
+        self.assertTrue((ROOT / "tools" / "play_now_codespaces.sh").stat().st_mode & 0o111)
+        for doc in docs:
+            self.assertIn("./tools/play_now_codespaces.sh", doc)
+            self.assertIn("disposable", doc)
+            self.assertIn("Codespace", doc)
+
     def test_play_now_script_is_remote_first_and_repo_safe(self):
         script = (ROOT / "tools" / "play_now_remote.sh").read_text()
         doc = (ROOT / "docs" / "runbooks" / "play-now-cloud.md").read_text()
@@ -23,6 +70,8 @@ class PlayNowRemoteTests(unittest.TestCase):
             'make DOOM_WAD="$WAD_PATH"',
             'websockify --web=/usr/share/novnc',
             '/vnc.html?autoconnect=1',
+            'codespaces_novnc_url()',
+            'Codespaces noVNC URL:',
             '-display "vnc=127.0.0.1:$VNC_DISPLAY"',
             '-drive file=build/disk.img,format=raw,if=ide,index=0,media=disk',
             '-audiodev none,id=snd0',

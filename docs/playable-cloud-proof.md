@@ -14,13 +14,14 @@ changes.
 The last published machine-checkable baseline is manual **Real WAD smoke** run
 `26165681561` on commit `c525952`: it proves the real shareware WAD path,
 gameplay, input, mouse, audio-counter, preemption, non-pixel visual diagnostics,
-the stricter scripted gameplay transition gate, including mouse turn-command proof,
+the stricter scripted gameplay transition gate, including mouse turn proof,
 and aggregate audible output
 from disposable runner artifacts. Persistence/save-load is deliberately not
 part of that current-head proof; it needs its own matching green opt-in
 persistence run before being claimed. Current save-slot proof must include the
 first boot's decoded `--save-write-status` runtime gate plus the rebooted image
-comparison, so changed `DOOMSAV*.DSG` bytes alone do not count. A human-facing
+comparison and `--load-status` evidence that Doom read the full `DOOMSAV*.DSG`
+payload back into gameplay, so changed save bytes alone do not count. A human-facing
 playable claim still needs
 a recorded remote VNC playtest bundle from `docs/runbooks/remote-doom-playtest.md`, with
 structured `human-playtest-notes-v2` notes, required operator confirmations,
@@ -55,6 +56,13 @@ gh workflow run real-wad-smoke.yml \
   -f expected_ref="$branch" \
   -f audible_audio_proof=true \
   -f persistence_proof=false
+
+gh workflow run real-wad-smoke.yml \
+  --ref "$branch" \
+  -f expected_ref="$branch" \
+  -f audible_audio_proof=true \
+  -f persistence_proof=true \
+  -f persistence_save_slot=0
 ```
 
 Once `.github/workflows/real-wad-soak.yml` is present on the repository default
@@ -192,15 +200,17 @@ The cloud proof requires these status families:
   and `keylast` prove the scripted Up/Ctrl/Space/Escape keys were the keys Doom
   consumed through `SYS_POLL_KEY`.
 - Player/action deltas: `pflags` records cumulative player, movement, attack,
-  use, menu, position-delta, ammo-delta, refire, and turn-command observations;
+  use, menu, position-delta, ammo-delta, refire, and turn observations;
   `pdelta>0`
   and a changed `ppos` between `status.after-start.txt` and
   `status.after-move.txt` prove the player moved in Doom state, not only that a
   key was delivered. The fire phase must also prove ammo/refire state changed,
   so Ctrl cannot pass as a key counter alone.
-- Mouse turn-command proof: `status.after-mouse.txt` must include both PS/2 mouse
-  IRQ/packet/poll counters and the `pflags` turn-command bit from Doom's own
-  `ticcmd.angleturn`, so mouse proof cannot pass on kernel delivery alone.
+- Mouse turn proof: `status.after-mouse.txt` must include both PS/2 mouse
+  IRQ/packet/poll counters and the `pflags` turn bit from Doom gameplay state.
+  The runtime sets that bit from Doom's live `ticcmd.angleturn` when sampled, or
+  from a durable player-angle delta after Doom has applied the command, so mouse
+  proof cannot pass on kernel delivery alone.
 - Menu state: `status.after-start.txt` must have the menu bit clear, and
   `status.after-menu.txt` plus final `gflags` must have it set after Escape,
   proving the scripted input toggled Doom UI state while remaining in
@@ -227,8 +237,8 @@ The cloud proof requires these status families:
   the phase snapshots using status snapshots only, requires `audio=SB16`, and
   proves SB16 version, DMA programming, playback start, voice queue, IRQ/refill,
   non-music SFX, music mixing, kernel-visible `musicpos=` progress, and
-  streamed music chunk updates progressed without uploading audio samples. It
-  does not upload audio samples.
+  pull-requested music chunk service with advancing `musicpull=` counters
+  progressed without uploading audio samples. It does not upload audio samples.
   `tools/check_audio_continuity_proof.py` checks status snapshots only and
   does not upload audio samples.
 - Optional audible-output proof: when the manual workflow is run with
@@ -263,7 +273,7 @@ new-game state with no scripted key bits, no action proof flags, no menu bit,
 and `pdelta=00000000`; later snapshots must retain cumulative key/player proof
 bits rather than merely showing a final aggregate. It then requires movement to
 change `ppos`, the mouse phase to advance IRQ/packet/poll counters and set
-Doom's `ticcmd.angleturn` proof bit while retaining button/motion proof, and
+Doom gameplay turn proof bit while retaining button/motion proof, and
 Escape to flip the menu bit while the game remains in `GS_LEVEL`.
 
 ## Safe Remote Runbook
@@ -307,6 +317,7 @@ Escape to flip the menu bit while the game remains in `GS_LEVEL`.
      build/status.txt
 
    python3 tools/check_audio_continuity_proof.py \
+     --require-pull-stream \
      --baseline build/status.after-start.txt \
      --fire build/status.after-fire.txt \
      --movement build/status.after-move.txt \

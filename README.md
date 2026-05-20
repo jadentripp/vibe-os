@@ -103,18 +103,30 @@ or asset-sprawl workflow.
 
 ## Fastest Safe Play Path
 
-If you just want to play Doom as fast as possible, use a disposable remote Linux
-host or GitHub Codespace and run:
+If you just want to play Doom as fast as possible, use the one-command
+Codespaces launcher from this Mac checkout:
+
+```sh
+./tools/play_now_codespaces.sh
+```
+
+That creates or reuses a disposable GitHub Codespace, starts the real vibe-os
+boot path there, marks noVNC private, and opens/prints the noVNC browser URL.
+QEMU, the downloaded shareware WAD, disk images, pixels, and raw audio stay in
+the Codespace.
+
+If you already have a disposable remote Linux host or are already inside a
+Codespace, run:
 
 ```sh
 ./tools/play_now_remote.sh
 ```
 
-Do not run local Mac QEMU for the quick path. The script is meant to keep QEMU,
-the downloaded shareware WAD, disk images, pixels, and raw audio on the
-throwaway host. See `docs/runbooks/play-now-cloud.md` for the shortest
-copy/paste path and `docs/runbooks/cloud-interactive-playtest.md` for the fuller
-remote VNC playtest and proof-capture flow.
+Do not run local Mac QEMU for the quick path. See
+`docs/runbooks/play-now-cloud.md` for the shortest copy/paste path,
+`docs/runbooks/codespaces-play-now.md` for the Codespaces launcher, and
+`docs/runbooks/cloud-interactive-playtest.md` for the fuller remote VNC
+playtest and proof-capture flow.
 
 For the quickest human proof, leave `./tools/play_now_remote.sh` running on the
 remote host and run this from a second remote SSH shell:
@@ -136,8 +148,9 @@ Persistence/save-load should only be claimed for a matching green cloud
 persistence run; the current proof status below intentionally does not claim a
 current-head rebooted `DOOMSAV0.DSG` save-slot proof. Later runtime, workflow,
 or checker changes must rerun the relevant cloud gates. Current save-slot proof
-also requires the write boot's decoded status via `--save-write-status`, so
-mutated `DOOMSAV*.DSG` bytes alone are not enough.
+also requires the write boot's decoded status via `--save-write-status` and a
+reboot/load `--load-status` proving Doom read the full save payload back into
+gameplay, so mutated `DOOMSAV*.DSG` bytes alone are not enough.
 
 ## Requirements
 
@@ -335,6 +348,13 @@ gh workflow run real-wad-smoke.yml \
   -f expected_ref="$branch" \
   -f audible_audio_proof=true \
   -f persistence_proof=false
+
+gh workflow run real-wad-smoke.yml \
+  --ref "$branch" \
+  -f expected_ref="$branch" \
+  -f audible_audio_proof=true \
+  -f persistence_proof=true \
+  -f persistence_save_slot=0
 ```
 
 Once `.github/workflows/real-wad-soak.yml` is present on the repository default
@@ -455,8 +475,8 @@ Still required before this is actually Doom-capable:
   more device/ioctl contracts
 - broader framebuffer mode support, aspect policy, fullscreen behavior, and
   dirty-rect presentation beyond the current XRGB8888 VBE path
-- human audio/listener validation and hardware-paced music streaming beyond the
-  current push-updated streamed chunks
+- human audio/listener validation and a stronger music stream ABI beyond the
+  current SB16-refill-requested, Doom-port-rendered PULL chunks
 - graceful Doom exit/reboot behavior for a human session
 - new device-class claims must update `docs/hardware-support.md` and pass the
   host support-matrix checker; current claims stay bounded to the QEMU

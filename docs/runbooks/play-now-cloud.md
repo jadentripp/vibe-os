@@ -1,6 +1,20 @@
 # Play Now In The Cloud
 
 Fastest safe path: run QEMU on a disposable Linux host, not on the Mac.
+With GitHub CLI authenticated on the Mac, this is one command from the local
+checkout:
+
+```sh
+./tools/play_now_codespaces.sh
+```
+
+That creates or reuses a disposable GitHub Codespace for the current branch,
+starts `./tools/play_now_remote.sh` inside the Codespace, makes port `6080`
+private, and opens/prints the noVNC URL. The Mac only controls Codespaces and
+opens a browser; it does not run QEMU, fetch the WAD, build `disk.img`, or copy
+play artifacts back.
+
+Use a plain remote Ubuntu host instead when you do not want Codespaces:
 
 ```sh
 git clone https://github.com/jadentripp/vibe-os.git

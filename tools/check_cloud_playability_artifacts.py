@@ -30,6 +30,7 @@ import check_scripted_gameplay_proof  # noqa: E402
 RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
 INTERACTIVE_RUNBOOK = ROOT / "docs" / "runbooks" / "cloud-interactive-playtest.md"
 PLAY_NOW_RUNBOOK = ROOT / "docs" / "runbooks" / "play-now-cloud.md"
+CODESPACES_RUNBOOK = ROOT / "docs" / "runbooks" / "codespaces-play-now.md"
 PLAYABLE_DOC = ROOT / "docs" / "playable-cloud-proof.md"
 OS_WORKFLOW = ROOT / ".github" / "workflows" / "os-smoke.yml"
 WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
@@ -38,6 +39,7 @@ README = ROOT / "README.md"
 TESTS_README = ROOT / "tests" / "README.md"
 MAKEFILE = ROOT / "Makefile"
 HUMAN_PLAYTEST_SCRIPT = ROOT / "tools" / "run_remote_human_playtest.sh"
+CODESPACES_PLAY_SCRIPT = ROOT / "tools" / "play_now_codespaces.sh"
 
 REQUIRED_STATUS_FILES = (
     "status.early.txt",
@@ -458,6 +460,7 @@ def validate_repo_contract() -> None:
     runbook = _read(RUNBOOK)
     interactive_runbook = _read(INTERACTIVE_RUNBOOK)
     play_now_runbook = _read(PLAY_NOW_RUNBOOK)
+    codespaces_runbook = _read(CODESPACES_RUNBOOK)
     playable = _read(PLAYABLE_DOC)
     os_workflow = _read(OS_WORKFLOW)
     workflow = _read(WORKFLOW)
@@ -466,6 +469,7 @@ def validate_repo_contract() -> None:
     tests_readme = _read(TESTS_README)
     makefile = _read(MAKEFILE)
     human_script = _read(HUMAN_PLAYTEST_SCRIPT)
+    codespaces_script = _read(CODESPACES_PLAY_SCRIPT)
 
     for needle in (
         "qemu-system-x86_64",
@@ -563,6 +567,15 @@ def validate_repo_contract() -> None:
         _require(text, "--scripted-proof-run-id", label)
         _require(text, "--playtester", label)
 
+    for text, label in (
+        (play_now_runbook, "play-now cloud runbook"),
+        (codespaces_runbook, "Codespaces play-now runbook"),
+        (readme, "README"),
+    ):
+        _require(text, "./tools/play_now_codespaces.sh", label)
+        _require(text, "disposable", label)
+        _require(text, "Codespace", label)
+
     for needle in (
         "Usage: tools/run_remote_human_playtest.sh --playtester NAME --scripted-proof-run-id RUN_ID",
         "Refusing to run the remote human playtest helper on macOS",
@@ -592,6 +605,36 @@ def validate_repo_contract() -> None:
         if forbidden in human_script:
             raise AssertionError(
                 f"remote human playtest helper should not mention forbidden operation/artifact {forbidden!r}"
+            )
+
+    for needle in (
+        "Usage: tools/play_now_codespaces.sh [options]",
+        "codespace create",
+        "gh \"${create_args[@]}\"",
+        "--devcontainer-path \".devcontainer/devcontainer.json\"",
+        "gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" bash -lc \"$payload\"",
+        "./tools/play_now_remote.sh --preflight",
+        "nohup ./tools/play_now_remote.sh",
+        "gh codespace ports visibility \"$NOVNC_PORT:private\"",
+        "vnc.html?autoconnect=1",
+        "Delete when done: gh codespace delete -c \\\"$CODESPACE_NAME\\\" --force",
+    ):
+        _require(codespaces_script, needle, "Codespaces play-now launcher")
+
+    for forbidden in (
+        "qemu-system-x86_64",
+        "make DOOM_WAD",
+        "prepare_shareware_wad.py",
+        "gh codespace cp",
+        "scp ",
+        "build/disk.img",
+        "DOOM1.WAD",
+        "doom-audio.wav",
+        "git add",
+    ):
+        if forbidden in codespaces_script:
+            raise AssertionError(
+                f"Codespaces launcher should not run/copy forbidden payload {forbidden!r}"
             )
 
     for forbidden in (
@@ -641,6 +684,7 @@ def validate_repo_contract() -> None:
     _require(makefile, "PERSISTENCE_REBOOT_STATUS", "Makefile")
     _require(makefile, "PERSISTENCE_WRITE_STATUS", "Makefile")
     _require(makefile, "PERSISTENCE_SAVE_WRITE_STATUS", "Makefile")
+    _require(makefile, "PERSISTENCE_LOAD_STATUS", "Makefile")
     _require(makefile, "tools/check_cloud_playability_artifacts.py --repo-contract", "Makefile")
 
     for needle in (
@@ -672,8 +716,13 @@ def validate_repo_contract() -> None:
         "after-start:wait=2,snapshot",
         "persistence_proof:",
         "persistence_input_script:",
+        "persistence_load_input_script:",
         "persistence_save_slot:",
-        "Use text=NAME",
+        "default: \"auto\"",
+        "Persistence write script:",
+        "Persistence load script:",
+        "save-slot-${PERSISTENCE_SAVE_SLOT}",
+        "load-slot-${PERSISTENCE_SAVE_SLOT}",
         "Capture fresh persistence baseline",
         "if: ${{ always() && inputs.persistence_proof }}",
         "cp build/disk.img \"$RUNNER_TEMP/disk.before-persistence.img\"",
@@ -684,13 +733,16 @@ def validate_repo_contract() -> None:
         "check_args+=(--save-write-status build/status.persistence-write.txt)",
         "cp \"$baseline\" build/disk.img",
         "build/status.persistence-write.txt",
+        "build/status.persistence-load.txt",
         "build/status.persistence-reboot.txt",
         "build/status.persistence-write-proof.txt",
+        "build/status.persistence-load-proof.txt",
         "build/status.persistence-reboot-proof.txt",
         "tools/check_doom_persistence_image.py",
         "--baseline-image \"$baseline\"",
         "--reboot-baseline-image \"$after_write\"",
         "--save-write-status",
+        "--load-status build/status.persistence-load.txt",
         "python3 tools/check_real_wad_proof.py \\",
         "--baseline build/status.after-start.txt",
         "--start build/status.after-start.txt",

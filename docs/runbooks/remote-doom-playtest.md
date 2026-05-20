@@ -119,9 +119,10 @@ Expected audio behavior:
   Doom's 35 Hz time base separately from raw PIT interrupt ticks.
 - VNC does not carry audio. Treat sound as status/counter proof unless you also
   configure remote audio forwarding on the disposable host.
-- Run `tools/check_audio_continuity_proof.py` on the downloaded status snapshots.
-  It proves SB16 version, DMA programming, playback start, voice queue,
-  IRQ/refill, SFX, music mixing, and streamed music chunk updates progressed; it
+- Run `tools/check_audio_continuity_proof.py --require-pull-stream` on the
+  downloaded status snapshots. It proves SB16 version, DMA programming,
+  playback start, voice queue, IRQ/refill, SFX, music mixing, pull-requested
+  music chunk service, and `musicpull=` request/refill counters progressed; it
   does not upload audio samples or prove a human heard sound.
 - For an audible remote proof that still avoids publishing copyrighted audio, run
   the GitHub workflow with `audible_audio_proof=true`. That uses QEMU's WAV
@@ -391,6 +392,7 @@ python3 tools/check_human_playability_proof.py \
   path/to/real-wad-smoke-status/status.txt
 
 python3 tools/check_audio_continuity_proof.py \
+  --require-pull-stream \
   --baseline path/to/real-wad-smoke-status/status.after-start.txt \
   --fire path/to/real-wad-smoke-status/status.after-fire.txt \
   --movement path/to/real-wad-smoke-status/status.after-move.txt \
@@ -471,9 +473,9 @@ Call a remote human playtest credible only after checking all of this:
   `keyqueue`, and `keypoll`, `keyseen` bits for Up/Ctrl/Space/Escape, nonzero
   `mouseirq`/`mousepkt`/`mousepoll` when mouse is expected, changed `ppos` from
   `status.after-start.txt` to
-  `status.after-move.txt`, fire ammo/refire evidence in `pflags`, mouse
-  turn-command evidence from Doom's `ticcmd.angleturn`, and menu inactive-to-active
-  evidence after Escape.
+  `status.after-move.txt`, fire ammo/refire evidence in `pflags`, mouse turn
+  evidence from Doom gameplay state, and menu inactive-to-active evidence after
+  Escape.
 - Save/config writes are attempted from Doom and then checked after a rebooted
   remote image before claiming persistence beyond the current host tests. The
   GitHub **Real WAD smoke** workflow has an opt-in `persistence_proof` input
@@ -483,8 +485,11 @@ Call a remote human playtest credible only after checking all of this:
   `persistence_input_script`, checks that either `DEFAULT.CFG` changed from that
   baseline or the requested `DOOMSAVN.DSG` slot changed, captures an after-write
   image snapshot, boots the same image again, and checks that the requested FAT
-  entries still match the after-write snapshot. The checker summary is saved as
-  status text; the disk image and WAD are not uploaded.
+  entries still match the after-write snapshot. When `persistence_save_slot=N`
+  is set, the workflow's `auto` scripts create that save through Doom's F2 menu
+  on the write boot and load it through Doom's F3 menu on the reboot boot. The
+  checker summary is saved as status text; the disk image and WAD are not
+  uploaded.
 
   If your input script creates a save, set `persistence_save_slot` to require
   the matching `DOOMSAVN.DSG`. The save-slot checker now rejects proof without a
@@ -494,7 +499,11 @@ Call a remote human playtest credible only after checking all of this:
   final `0x1d` consistency marker. The rebooted save-slot proof also requires
   `--save-write-status build/status.persistence-write.txt`, so the first boot
   has to show a fault-free live Doom run with write/close counters and an
-  `O_WRONLY|O_CREAT|O_TRUNC` save-file open. For scripted save names, prefer the
+  `O_WRONLY|O_CREAT|O_TRUNC` save-file open. It also requires
+  `--load-status build/status.persistence-load.txt` on the reboot/load boot:
+  `doomsav=` must name the requested slot, `saverd=` must cover the full
+  savegame payload rather than only the menu description, and the final status
+  must be back in matching gameplay. For scripted save names, prefer the
   smoke-runner `text=NAME` action over one `sendkey` action per letter so the
   QEMU monitor connection latency does not consume the proof timeout.
 
@@ -513,12 +522,14 @@ Call a remote human playtest credible only after checking all of this:
     --require-save-slot 0 \
     build/disk.img | tee build/status.persistence-write-proof.txt
 
-  # Boot the same build/disk.img again and capture build/status.persistence-reboot.txt.
+  # Boot the same build/disk.img again, load slot 0 from Doom's menu, and capture
+  # build/status.persistence-load.txt.
   python3 tools/check_doom_persistence_image.py \
     --baseline-image /tmp/vibe-os-disk.before-persistence.img \
     --reboot-baseline-image /tmp/vibe-os-disk.after-persistence-write.img \
-    --reboot-status build/status.persistence-reboot.txt \
+    --reboot-status build/status.persistence-load.txt \
     --save-write-status build/status.persistence-write.txt \
+    --load-status build/status.persistence-load.txt \
     --require-save-slot 0 \
     build/disk.img | tee build/status.persistence-reboot-proof.txt
   ```

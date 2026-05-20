@@ -7,6 +7,33 @@ other play artifacts to git.
 
 ## Create The Codespace
 
+Fastest path from the Mac, with GitHub CLI authenticated:
+
+```sh
+./tools/play_now_codespaces.sh
+```
+
+The launcher creates a disposable Codespace from the current repo and branch,
+starts `./tools/play_now_remote.sh` inside it, sets port `6080` private,
+opens/prints the noVNC URL, and prints the log and delete commands. Codespaces
+runs pushed git state, so push the branch first before treating the session as
+current-head proof. QEMU, the shareware WAD, `build/disk.img`, pixel output, and
+raw audio never run on or copy back to the Mac.
+
+To reuse a specific existing Codespace:
+
+```sh
+./tools/play_now_codespaces.sh --codespace "<codespace-name>"
+```
+
+Delete the disposable play environment when done:
+
+```sh
+gh codespace delete -c "<codespace-name>" --force
+```
+
+Manual browser path:
+
 1. Open the fork on GitHub.
 2. Select the branch that contains the Doom play work.
 3. Click `Code`.

@@ -37,10 +37,12 @@ static int current_music_paused;
 static int current_music_volume = 127;
 static unsigned int current_music_buffer;
 static int current_music_next_tic;
+static unsigned long current_music_pull_seen;
 static unsigned long playable_proof_flags;
 static int playable_origin_set;
 static int playable_origin_x;
 static int playable_origin_y;
+static unsigned int playable_origin_angle;
 static int playable_initial_clip = -1;
 static int default_config_checkpoint_checked;
 static int default_config_checkpoint_request_checked;
@@ -49,7 +51,6 @@ static int default_config_checkpoint_requested;
 #define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
 #define VIBE_MUSIC_STREAM_TICS \
     ((int)((VIBE_MUSIC_STREAM_BYTES * 35u) / VIBE_MUSIC_DEFAULT_SAMPLE_RATE) / 16)
-#define VIBE_MUSIC_BUFFER_LOW_WATER_BYTES ((VIBE_MUSIC_STREAM_BYTES * 3u) / 4u)
 #define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x2c000u
 
 static void report_doom_init_status(unsigned long flags)
@@ -219,7 +220,7 @@ static void pump_music_stream(void)
 {
     int now;
     int start_voice;
-    unsigned long buffered;
+    unsigned long pull_request;
 
     if (current_music_handle <= 0 || current_music_paused)
         return;
@@ -233,22 +234,36 @@ static void pump_music_stream(void)
         VIBE_AUDIO_IS_PLAYING,
         (unsigned long)vibe_music_audio_handle(current_music_handle),
         0) <= 0;
-    if (!start_voice) {
-        buffered = vibe_syscall3(
-            VIBE_SYS_AUDIO,
-            VIBE_AUDIO_BUFFERED_BYTES,
-            (unsigned long)vibe_music_audio_handle(current_music_handle),
-            0);
-        if (buffered > VIBE_MUSIC_BUFFER_LOW_WATER_BYTES) {
+    if (start_voice) {
+        if (submit_music_stream_chunk(current_music_handle, start_voice)) {
+            current_music_pull_seen = vibe_syscall3(
+                VIBE_SYS_AUDIO,
+                VIBE_AUDIO_MUSIC_PULL_STATE,
+                (unsigned long)vibe_music_audio_handle(current_music_handle),
+                0);
             current_music_next_tic = now + music_stream_tics();
-            return;
+        } else {
+            current_music_next_tic = 0;
         }
+        return;
     }
 
-    if (submit_music_stream_chunk(current_music_handle, start_voice))
+    pull_request = vibe_syscall3(
+        VIBE_SYS_AUDIO,
+        VIBE_AUDIO_MUSIC_PULL_STATE,
+        (unsigned long)vibe_music_audio_handle(current_music_handle),
+        0);
+    if (pull_request == current_music_pull_seen) {
+        current_music_next_tic = now + 1;
+        return;
+    }
+
+    if (submit_music_stream_chunk(current_music_handle, start_voice)) {
+        current_music_pull_seen = pull_request;
         current_music_next_tic = now + music_stream_tics();
-    else
+    } else {
         current_music_next_tic = 0;
+    }
 }
 
 int mb_used = 8;
@@ -437,9 +452,12 @@ static void report_playability_status(void)
                 playable_origin_set = 1;
                 playable_origin_x = x;
                 playable_origin_y = y;
+                playable_origin_angle = (unsigned int)player->mo->angle;
             } else if (x != playable_origin_x || y != playable_origin_y) {
                 playable_proof_flags |= VIBE_PLAYABLE_SEEN_POS_DELTA;
             }
+            if (playable_origin_set && (unsigned int)player->mo->angle != playable_origin_angle)
+                playable_proof_flags |= VIBE_PLAYABLE_SEEN_TURN_CMD;
         }
     }
 
@@ -628,6 +646,7 @@ void I_ShutdownMusic(void)
     current_music_looping = 0;
     current_music_paused = 0;
     current_music_next_tic = 0;
+    current_music_pull_seen = 0;
 }
 
 void I_SetMusicVolume(int volume)
@@ -679,6 +698,7 @@ void I_PlaySong(int handle, int looping)
     current_music_looping = looping;
     current_music_paused = 0;
     current_music_next_tic = 0;
+    current_music_pull_seen = 0;
     vibe_music_stream_begin(
         handle,
         VIBE_MUSIC_DEFAULT_SAMPLE_RATE,
@@ -697,6 +717,7 @@ void I_StopSong(int handle)
         current_music_looping = 0;
         current_music_paused = 0;
         current_music_next_tic = 0;
+        current_music_pull_seen = 0;
     }
 }
 

@@ -296,6 +296,12 @@ SYS_WAITPID equ 24
 SYS_GETPID equ 25
 PLAYABLE_STATUS_FLAG equ 0x80000000
 DOOM_INIT_STATUS_FLAG equ 0x40000000
+SAVELOAD_STATUS_FLAG equ 0x20000000
+SAVELOAD_EVENT_OPEN equ 0x0001
+SAVELOAD_EVENT_READ equ 0x0002
+SAVELOAD_EVENT_WRITE equ 0x0004
+SAVELOAD_EVENT_CLOSE equ 0x0008
+SAVELOAD_SLOT_SHIFT equ 16
 SYS_EXEC_PATH_MAX equ 16
 MMAP_PROT_MASK equ 0x0000ffff
 MMAP_FLAGS_SHIFT equ 16
@@ -391,6 +397,7 @@ AUDIO_CMD_UPDATE_SFX equ 4
 AUDIO_CMD_SHUTDOWN equ 5
 AUDIO_CMD_IS_PLAYING equ 6
 AUDIO_CMD_BUFFERED_BYTES equ 7
+AUDIO_CMD_MUSIC_PULL_STATE equ 8
 AUDIO_SFX_DESC_SAMPLES equ 0
 AUDIO_SFX_DESC_LENGTH equ 4
 AUDIO_SFX_DESC_VOLUME equ 8
@@ -407,6 +414,7 @@ AUDIO_MUSIC_STREAM_NONE equ 0
 AUDIO_MUSIC_STREAM_PUSH equ 1
 AUDIO_MUSIC_STREAM_PULL equ 2
 AUDIO_MAX_SFX_VOICES equ 8
+AUDIO_MUSIC_PULL_LOW_WATER_BYTES equ 24576
 AUDIO_PITCH_NORMAL equ 128
 AUDIO_PITCH_STEP_NORMAL equ 0x00010000
 AUDIO_PITCH_STEP_MIN equ 0x00004000
@@ -4170,7 +4178,7 @@ audio_register_sfx_voice:
     test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
     jz .recount
     inc dword [sb16_music_start_count]
-    mov dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_PUSH
+    mov dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_PULL
     mov eax, [audio_sfx_length_arg]
     mov [sb16_music_stream_buffer_bytes], eax
 
@@ -4286,7 +4294,7 @@ audio_update_sfx_voice:
     mov eax, [audio_sfx_flags_arg]
     or eax, AUDIO_FLAG_MUSIC
     mov [sb16_voice_flags + ebx * 4], eax
-    mov dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_PUSH
+    mov dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_PULL
     mov eax, [sb16_voice_positions + ebx * 4]
     shr eax, 16
     cmp eax, [sb16_voice_lengths + ebx * 4]
@@ -4297,6 +4305,7 @@ audio_update_sfx_voice:
     mov [sb16_voice_pending_samples + ebx * 4], eax
     mov eax, [audio_sfx_length_arg]
     mov [sb16_voice_pending_lengths + ebx * 4], eax
+    call sb16_mark_music_pull_refill
     call sb16_recount_active_voices
     jmp .count_update
 
@@ -4306,6 +4315,7 @@ audio_update_sfx_voice:
     mov [sb16_voice_pending_samples + ebx * 4], eax
     mov eax, [audio_sfx_length_arg]
     mov [sb16_voice_pending_lengths + ebx * 4], eax
+    call sb16_mark_music_pull_refill
     call sb16_recount_active_voices
     jmp .count_update
 
@@ -4318,6 +4328,7 @@ audio_update_sfx_voice:
     mov dword [sb16_voice_positions + ebx * 4], 0
     mov dword [sb16_voice_pending_samples + ebx * 4], 0
     mov dword [sb16_voice_pending_lengths + ebx * 4], 0
+    call sb16_mark_music_pull_refill
     call sb16_recount_active_voices
     jmp .count_update
 
@@ -4343,6 +4354,35 @@ audio_update_sfx_voice:
     jne .done
     inc dword [sb16_music_stream_drop_count]
     jmp .done
+
+sb16_mark_music_pull_refill:
+    push eax
+    mov eax, [sb16_music_pull_request_count]
+    cmp dword [sb16_music_pull_refill_count], eax
+    jae .done
+    inc dword [sb16_music_pull_refill_count]
+
+.done:
+    pop eax
+    ret
+
+sb16_note_music_pull_request:
+    push eax
+    cmp dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_PULL
+    jne .done
+    cmp dword [sb16_active_music_voice_count], 0
+    je .done
+    mov eax, [sb16_music_stream_buffer_bytes]
+    cmp eax, AUDIO_MUSIC_PULL_LOW_WATER_BYTES
+    ja .done
+    mov eax, [sb16_music_pull_request_count]
+    cmp eax, dword [sb16_music_pull_refill_count]
+    jne .done
+    inc dword [sb16_music_pull_request_count]
+
+.done:
+    pop eax
+    ret
 
 sb16_music_promote_pending_window:
     push eax
@@ -4560,6 +4600,7 @@ sb16_refill_active_half:
 .done_voices:
     inc dword [sb16_voice_refill_count]
     call sb16_recount_active_voices
+    call sb16_note_music_pull_request
     popad
     ret
 
@@ -4829,6 +4870,16 @@ storage_init:
     mov dword [doom_last_error], 0
     mov dword [doom_last_open_flags], 0
     mov dword [doom_last_open_mode], 0
+    mov dword [doom_saveload_flags], 0
+    mov dword [doom_saveload_slot], 0xffffffff
+    mov dword [doom_saveload_open_count], 0
+    mov dword [doom_saveload_read_count], 0
+    mov dword [doom_saveload_write_count], 0
+    mov dword [doom_saveload_close_count], 0
+    mov dword [doom_saveload_read_bytes], 0
+    mov dword [doom_saveload_write_bytes], 0
+    mov dword [doom_saveload_last_open_flags], 0
+    mov dword [doom_saveload_last_open_mode], 0
     mov dword [doom_present_count], 0
     mov dword [doom_init_flags], 0
     mov dword [doom_init_report_count], 0
@@ -9920,6 +9971,8 @@ syscall_handler:
     je .audio_is_playing
     cmp ebx, AUDIO_CMD_BUFFERED_BYTES
     je .audio_buffered_bytes
+    cmp ebx, AUDIO_CMD_MUSIC_PULL_STATE
+    je .audio_music_pull_state
     jmp .audio_status
 
 .audio_init_cmd:
@@ -9982,6 +10035,20 @@ syscall_handler:
     add eax, [sb16_voice_pending_lengths + ebx * 4]
     jmp .return
 
+.audio_music_pull_state:
+    mov [audio_sfx_handle_arg], ecx
+    call sb16_find_voice_by_handle
+    jc .audio_no_pull_state
+    mov ebx, eax
+    test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
+    jz .audio_no_pull_state
+    mov eax, [sb16_music_pull_request_count]
+    jmp .return
+
+.audio_no_pull_state:
+    xor eax, eax
+    jmp .return
+
 .audio_status:
     movzx eax, byte [audio_status]
     jmp .return
@@ -9991,6 +10058,8 @@ syscall_handler:
     jne .gameplay_return
     test ebx, DOOM_INIT_STATUS_FLAG
     jnz .doom_init_status
+    test ebx, SAVELOAD_STATUS_FLAG
+    jnz .saveload_status
     test ebx, PLAYABLE_STATUS_FLAG
     jnz .playable_status
     inc dword [doom_gameplay_report_count]
@@ -10033,6 +10102,38 @@ syscall_handler:
     and eax, 0x0000ffff
     or [doom_init_flags], eax
     inc dword [doom_init_report_count]
+    jmp .gameplay_return
+
+.saveload_status:
+    mov esi, ebx
+    and esi, 0x0000ffff
+    or [doom_saveload_flags], esi
+    mov eax, ebx
+    shr eax, SAVELOAD_SLOT_SHIFT
+    and eax, 0xff
+    mov [doom_saveload_slot], eax
+    test esi, SAVELOAD_EVENT_OPEN
+    jz .saveload_read
+    inc dword [doom_saveload_open_count]
+    mov [doom_saveload_last_open_flags], ecx
+    mov [doom_saveload_last_open_mode], edx
+
+.saveload_read:
+    test esi, SAVELOAD_EVENT_READ
+    jz .saveload_write
+    inc dword [doom_saveload_read_count]
+    add [doom_saveload_read_bytes], ecx
+
+.saveload_write:
+    test esi, SAVELOAD_EVENT_WRITE
+    jz .saveload_close
+    inc dword [doom_saveload_write_count]
+    add [doom_saveload_write_bytes], ecx
+
+.saveload_close:
+    test esi, SAVELOAD_EVENT_CLOSE
+    jz .gameplay_return
+    inc dword [doom_saveload_close_count]
     jmp .gameplay_return
 
 .playable_status:
@@ -12447,6 +12548,47 @@ write_smoke_status:
     mov edx, [doom_last_open_mode]
     call smoke_write_hex32
 
+    mov esi, smoke_doomsav_text
+    call smoke_copy_string
+    mov edx, [doom_saveload_flags]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_saveload_slot]
+    call smoke_write_hex32
+
+    mov esi, smoke_saverd_text
+    call smoke_copy_string
+    mov edx, [doom_saveload_read_bytes]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_saveload_read_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_savewr_text
+    call smoke_copy_string
+    mov edx, [doom_saveload_write_bytes]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_saveload_write_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_saveclose_text
+    call smoke_copy_string
+    mov edx, [doom_saveload_close_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_savemode_text
+    call smoke_copy_string
+    mov edx, [doom_saveload_last_open_flags]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [doom_saveload_last_open_mode]
+    call smoke_write_hex32
+
     mov esi, smoke_doomlog_text
     call smoke_copy_string
     cmp byte [doom_log_buffer], 0
@@ -13843,6 +13985,11 @@ smoke_doomsbrk_text db " doomsbrk=", 0
 smoke_doomerr_text db " doomerr=", 0
 smoke_doomerrno_text db " doomerrno=", 0
 smoke_doommode_text db " doommode=", 0
+smoke_doomsav_text db " doomsav=", 0
+smoke_saverd_text db " saverd=", 0
+smoke_savewr_text db " savewr=", 0
+smoke_saveclose_text db " saveclose=", 0
+smoke_savemode_text db " savemode=", 0
 smoke_doomlog_text db " doomlog=", 0
 smoke_doompresent_text db " doompresent=", 0
 smoke_doompal_text db " doompal=", 0
@@ -14468,6 +14615,16 @@ doom_error_count dd 0
 doom_last_error dd 0
 doom_last_open_flags dd 0
 doom_last_open_mode dd 0
+doom_saveload_flags dd 0
+doom_saveload_slot dd 0xffffffff
+doom_saveload_open_count dd 0
+doom_saveload_read_count dd 0
+doom_saveload_write_count dd 0
+doom_saveload_close_count dd 0
+doom_saveload_read_bytes dd 0
+doom_saveload_write_bytes dd 0
+doom_saveload_last_open_flags dd 0
+doom_saveload_last_open_mode dd 0
 doom_present_count dd 0
 doom_init_flags dd 0
 doom_init_report_count dd 0

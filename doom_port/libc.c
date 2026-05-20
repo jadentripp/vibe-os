@@ -15,6 +15,7 @@
 #include "vibe_os.h"
 
 #define VIBE_FILE_WRITE_BUFFER 4096
+#define VIBE_TRACKED_FDS 32
 
 struct vibe_doom_file {
     int fd;
@@ -44,6 +45,8 @@ static struct vibe_doom_file stdout_file = { 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, { 0 }
 static struct vibe_doom_file stderr_file = { 2, 0, 0, 1, 0, 1, 0, 0, 0, 0, { 0 } };
 static alloc_header_t* alloc_head;
 static alloc_header_t* alloc_tail;
+static unsigned char tracked_save_fd[VIBE_TRACKED_FDS];
+static unsigned char tracked_save_slot[VIBE_TRACKED_FDS];
 
 FILE* stdin = &stdin_file;
 FILE* stdout = &stdout_file;
@@ -216,6 +219,49 @@ static int is_doom_save_basename(const char* path)
         && path[7] >= '0'
         && path[7] <= '5'
         && !strcasecmp(path + 8, ".dsg");
+}
+
+static int doom_save_slot_for_basename(const char* path)
+{
+    if (!is_doom_save_basename(path))
+        return -1;
+    return path[7] - '0';
+}
+
+static void report_doom_save_event(int slot, unsigned long event, unsigned long value, unsigned long extra)
+{
+    unsigned long packed;
+
+    if (slot < 0 || slot > 5)
+        return;
+
+    packed = VIBE_DOOM_SAVELOAD_STATUS
+        | (event & 0xffffu)
+        | ((unsigned long)slot << VIBE_DOOM_SAVELOAD_SLOT_SHIFT);
+    (void)vibe_syscall3(VIBE_SYS_GAMEPLAY_STATUS, packed, value, extra);
+}
+
+static void track_save_fd(int fd, int slot)
+{
+    if (fd < 0 || fd >= VIBE_TRACKED_FDS)
+        return;
+    tracked_save_fd[fd] = 1;
+    tracked_save_slot[fd] = (unsigned char)slot;
+}
+
+static int tracked_save_slot_for_fd(int fd)
+{
+    if (fd < 0 || fd >= VIBE_TRACKED_FDS || !tracked_save_fd[fd])
+        return -1;
+    return tracked_save_slot[fd];
+}
+
+static void untrack_save_fd(int fd)
+{
+    if (fd < 0 || fd >= VIBE_TRACKED_FDS)
+        return;
+    tracked_save_fd[fd] = 0;
+    tracked_save_slot[fd] = 0;
 }
 
 static const char* mapped_path(const char* path)
@@ -602,7 +648,9 @@ void srand(unsigned int seed)
 int open(const char* path, int flags, ...)
 {
     int raw;
+    int slot;
     unsigned int mode = 0;
+    const char* mapped;
     va_list args;
 
     if (!path) {
@@ -619,35 +667,64 @@ int open(const char* path, int flags, ...)
         va_end(args);
     }
 
-    raw = vibe_syscall3(VIBE_SYS_OPEN, (unsigned long)mapped_path(path), (unsigned long)flags, mode);
+    mapped = mapped_path(path);
+    raw = vibe_syscall3(VIBE_SYS_OPEN, (unsigned long)mapped, (unsigned long)flags, mode);
+    if (raw >= 0) {
+        slot = doom_save_slot_for_basename(mapped);
+        if (slot >= 0) {
+            track_save_fd(raw, slot);
+            report_doom_save_event(
+                slot,
+                VIBE_DOOM_SAVELOAD_OPEN,
+                (unsigned long)flags,
+                mode);
+        }
+    }
     return raw < 0 ? syscall_failed(raw, ENOENT) : raw;
 }
 
 ssize_t read(int fd, void* buffer, size_t count)
 {
     int raw;
+    int slot;
     if (!buffer && count) {
         errno = EINVAL;
         return -1;
     }
     raw = vibe_syscall3(VIBE_SYS_READ, (unsigned long)fd, (unsigned long)buffer, (unsigned long)count);
+    if (raw > 0) {
+        slot = tracked_save_slot_for_fd(fd);
+        if (slot >= 0)
+            report_doom_save_event(slot, VIBE_DOOM_SAVELOAD_READ, (unsigned long)raw, 0);
+    }
     return raw < 0 ? syscall_failed(raw, EIO) : raw;
 }
 
 ssize_t write(int fd, const void* buffer, size_t count)
 {
     int raw;
+    int slot;
     if (!buffer && count) {
         errno = EINVAL;
         return -1;
     }
     raw = vibe_syscall3(VIBE_SYS_WRITE, (unsigned long)fd, (unsigned long)buffer, (unsigned long)count);
+    if (raw > 0) {
+        slot = tracked_save_slot_for_fd(fd);
+        if (slot >= 0)
+            report_doom_save_event(slot, VIBE_DOOM_SAVELOAD_WRITE, (unsigned long)raw, 0);
+    }
     return raw < 0 ? syscall_failed(raw, EIO) : raw;
 }
 
 int close(int fd)
 {
+    int slot = tracked_save_slot_for_fd(fd);
     int raw = vibe_syscall3(VIBE_SYS_CLOSE, (unsigned long)fd, 0, 0);
+    if (raw >= 0 && slot >= 0) {
+        report_doom_save_event(slot, VIBE_DOOM_SAVELOAD_CLOSE, 0, 0);
+        untrack_save_fd(fd);
+    }
     return raw < 0 ? syscall_failed(raw, EBADF) : raw;
 }
 

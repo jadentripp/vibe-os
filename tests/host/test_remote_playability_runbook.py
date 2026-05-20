@@ -117,8 +117,8 @@ def valid_status(**overrides):
         "musicbuf": "00000C00",
         "musicunder": "00000000",
         "musicdrops": "00000000",
-        "musicstream": "PUSH",
-        "musicpull": "00000000:00000000",
+        "musicstream": "PULL",
+        "musicpull": "00000005:00000005",
         "sb16": "00000004:00000005",
         "dma": "00000001",
         "play": "00000001:00000000",
@@ -191,6 +191,7 @@ def audio_phase_statuses():
             musicloop="00000000",
             musicpos="00000001",
             musicbuf="00000100",
+            musicpull="00000000:00000000",
             voiceq="00000001:00000000:00000000",
             pflags="00000001",
             gflags="00000000",
@@ -218,6 +219,7 @@ def audio_phase_statuses():
             musicloop="00000000",
             musicpos="00000001",
             musicbuf="00000100",
+            musicpull="00000000:00000000",
             voiceq="00000001:00000000:00000000",
             pflags="00000001",
             gflags="00000000",
@@ -247,6 +249,7 @@ def audio_phase_statuses():
             musicloop="00000000",
             musicpos="00000400",
             musicbuf="00000400",
+            musicpull="00000001:00000001",
             voiceq="00000001:00000000:00000001",
         ),
         "status.after-move.txt": valid_status(
@@ -272,6 +275,7 @@ def audio_phase_statuses():
             musicloop="00000000",
             musicpos="00000800",
             musicbuf="00000800",
+            musicpull="00000002:00000002",
             voiceq="00000001:00000000:00000002",
         ),
         "status.after-use.txt": valid_status(
@@ -296,6 +300,7 @@ def audio_phase_statuses():
             musicloop="00000000",
             musicpos="00000C00",
             musicbuf="00000C00",
+            musicpull="00000003:00000003",
             voiceq="00000001:00000000:00000003",
         ),
         "status.after-mouse.txt": valid_status(
@@ -322,6 +327,7 @@ def audio_phase_statuses():
             musicloop="00000000",
             musicpos="00000C00",
             musicbuf="00000C00",
+            musicpull="00000003:00000003",
             voiceq="00000001:00000000:00000003",
         ),
         "status.after-menu.txt": valid_status(
@@ -344,6 +350,7 @@ def audio_phase_statuses():
             musicloop="00000001",
             musicpos="00001000",
             musicbuf="00001000",
+            musicpull="00000004:00000004",
             voiceq="00000001:00000000:00000004",
         ),
         "status.txt": valid_status(
@@ -360,6 +367,7 @@ def audio_phase_statuses():
             musicloop="00000001",
             musicpos="00001400",
             musicbuf="00001400",
+            musicpull="00000005:00000005",
             voiceq="00000001:00000000:00000005",
         ),
     }
@@ -541,8 +549,8 @@ def valid_audio_proof_manifest():
             "musicbuf": "00000C00",
             "musicunder": "00000000",
             "musicdrops": "00000000",
-            "musicstream": "PUSH",
-            "musicpull": "00000000:00000000",
+            "musicstream": "PULL",
+            "musicpull": "00000005:00000005",
         },
         "continuity": {
             "gate": "tools/check_audio_continuity_proof.py",
@@ -562,6 +570,8 @@ def valid_audio_proof_manifest():
                 "musicmix": {"start": "00000001", "final": "00000006", "delta": "00000005"},
                 "musicpos": {"start": "00000001", "final": "00001400", "delta": "000013FF"},
                 "voiceq_update": {"start": "00000000", "final": "00000005", "delta": "00000005"},
+                "musicpull_request": {"start": "00000000", "final": "00000005", "delta": "00000005"},
+                "musicpull_refill": {"start": "00000000", "final": "00000005", "delta": "00000005"},
             },
             "mix_lanes": {
                 "non_music_sfx": {
@@ -591,18 +601,21 @@ def valid_audio_proof_manifest():
                 "under_delta": "00000000",
                 "drop_delta": "00000000",
                 "stream_update_delta": "00000005",
+                "voiceq_update_delta": "00000005",
+                "stream_update_counter": "musicpull_refill",
+                "pull_request_delta": "00000005",
+                "pull_refill_delta": "00000005",
                 "position_delta": "000013FF",
                 "position_delta_per_update_floor": "00000300",
             },
             "stream_contract": {
-                "mode": "PUSH",
+                "mode": "PULL",
                 "status_field": "musicstream",
-                "pull_counters": "00000000:00000000",
-                "hardware_paced": False,
-                "current_push_proof": True,
+                "pull_counters": "00000005:00000005",
+                "hardware_paced": True,
+                "current_push_proof": False,
                 "claim": (
-                    "musicstream=PUSH proves pushed chunk continuity; musicstream=PULL plus "
-                    "advancing musicpull= counters is required before claiming hardware-paced music"
+                    "musicstream=PULL proves SB16 refill requested chunk service"
                 ),
             },
             "mixer_safety": {

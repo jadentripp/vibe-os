@@ -110,16 +110,18 @@ global fd table before entering the new image.
 
 The kernel smoke status reports Doom file/runtime counters from the port ABI:
 `doomopen`, `doomread`, `doomwad`, `doomwrite`, `doomseek`, `doomclose`,
-`doomsbrk`, `doomerr`, `doomerrno`, `doommode`, `doominit`, `doomexit`,
-`doomfault`, `doomfaultip`, `doomfaultv`, `doomfaulterr`, the compact `fault`
-frame tuple, `panic`, and `shutdown`. These are counters, last-open mode/flag
-bits, the most recent negative kernel errno returned to Doom, first-init
-milestone bits, user-mode exit/fault diagnostics, and kernel stop-state
-markers, not filesystem internals. `doomwad` is a compact open/read/lseek/magic
-tuple for the real `DOOM1.WAD` path, and `doominit` records the port-reported
-startup milestones before gameplay. They prove the original Doom code reached
-the port-layer file contract while keeping FAT allocation and vendor Doom
-sources untouched.
+`doomsbrk`, `doomerr`, `doomerrno`, `doommode`, `doomsav`, `saverd`, `savewr`,
+`saveclose`, `savemode`, `doominit`, `doomexit`, `doomfault`, `doomfaultip`,
+`doomfaultv`, `doomfaulterr`, the compact `fault` frame tuple, `panic`, and
+`shutdown`. These are counters, last-open mode/flag bits, the most recent
+negative kernel errno returned to Doom, first-init milestone bits, user-mode
+exit/fault diagnostics, and kernel stop-state markers, not filesystem internals.
+`doomwad` is a compact open/read/lseek/magic tuple for the real `DOOM1.WAD`
+path, `doominit` records the port-reported startup milestones before gameplay,
+and the `doomsav`/`saverd`/`savewr` tuple family records port-reported
+`DOOMSAV*.DSG` open/read/write/close evidence. They prove the original Doom code
+reached the port-layer file contract while keeping FAT allocation and vendor
+Doom sources untouched.
 
 `tools/check_doom_persistence_image.py` is the non-QEMU persistence proof tool.
 After a remote/cloud run writes defaults or a save slot into a disposable
@@ -132,4 +134,7 @@ and requested entries that changed from the baseline. Reboot-survival claims add
 for the second boot's decoded status. The checker requires the fresh baseline in
 that mode too, and the status gate rejects user faults, panics, shutdowns, and
 failed Doom runtime health fields so persisted bytes alone cannot count as
-proof.
+proof. For save/load playability, add `--load-status` from a reboot boot after
+the scripted load menu path; the checker requires a full `DOOMSAVN.DSG` payload
+read and post-load `gameplay=OK` status whose map and leveltime match the saved
+header.

@@ -40,7 +40,7 @@ def status_line(**overrides):
         "musicbuf": "00002000",
         "musicunder": "00000000",
         "musicdrops": "00000000",
-        "musicstream": "PUSH",
+        "musicstream": "PULL",
         "musicpull": "00000000:00000000",
         "sb16": "00000004:00000005",
         "dma": "00000001",
@@ -68,6 +68,7 @@ def snapshot_statuses():
             musicmix="00000002",
             musicpos="00000400",
             musicbuf="00001C00",
+            musicpull="00000001:00000001",
             voiceq="00000001:00000000:00000001",
         ),
         "movement": status_line(
@@ -79,6 +80,7 @@ def snapshot_statuses():
             musicmix="00000003",
             musicpos="00000800",
             musicbuf="00001800",
+            musicpull="00000002:00000002",
             voiceq="00000001:00000000:00000002",
         ),
         "use": status_line(
@@ -90,6 +92,7 @@ def snapshot_statuses():
             musicmix="00000004",
             musicpos="00000C00",
             musicbuf="00001400",
+            musicpull="00000003:00000003",
             voiceq="00000001:00000000:00000003",
         ),
         "menu": status_line(
@@ -102,6 +105,7 @@ def snapshot_statuses():
             musicloop="00000001",
             musicpos="00001000",
             musicbuf="00001000",
+            musicpull="00000004:00000004",
             voiceq="00000001:00000000:00000004",
         ),
         "final": status_line(
@@ -114,26 +118,24 @@ def snapshot_statuses():
             musicloop="00000001",
             musicpos="00001400",
             musicbuf="00000C00",
+            musicpull="00000005:00000005",
             voiceq="00000001:00000000:00000005",
         ),
     }
 
 
 def pull_snapshot_statuses():
+    return snapshot_statuses()
+
+
+def push_snapshot_statuses():
     snapshots = snapshot_statuses()
-    pull_counts = {
-        "baseline": "00000000:00000000",
-        "fire": "00000001:00000001",
-        "movement": "00000002:00000002",
-        "use": "00000003:00000003",
-        "menu": "00000004:00000004",
-        "final": "00000005:00000005",
-    }
     for label, status in list(snapshots.items()):
-        snapshots[label] = status.replace("musicstream=PUSH", "musicstream=PULL")
+        current_pull = status.split("musicpull=")[1].split()[0]
+        snapshots[label] = status.replace("musicstream=PULL", "musicstream=PUSH")
         snapshots[label] = snapshots[label].replace(
+            f"musicpull={current_pull}",
             "musicpull=00000000:00000000",
-            f"musicpull={pull_counts[label]}",
         )
     return snapshots
 
@@ -277,7 +279,7 @@ class AudioContinuityProofTests(unittest.TestCase):
             snapshots[label] = snapshots[label].replace("voiceq=00000001:00000000:00000004", "voiceq=00000001:00000000:00000000")
             snapshots[label] = snapshots[label].replace("voiceq=00000001:00000000:00000005", "voiceq=00000001:00000000:00000000")
 
-        with self.assertRaisesRegex(AssertionError, "voiceq=.*stream update"):
+        with self.assertRaisesRegex(AssertionError, "voiceq=.*stream update service"):
             check_audio_continuity_proof.validate_status(
                 snapshots["final"],
                 baseline_status=snapshots["baseline"],
@@ -288,7 +290,7 @@ class AudioContinuityProofTests(unittest.TestCase):
             )
 
     def test_future_pull_stream_contract_requires_mode_and_pull_counters(self):
-        snapshots = snapshot_statuses()
+        snapshots = push_snapshot_statuses()
         with self.assertRaisesRegex(AssertionError, "musicstream=PULL is required"):
             check_audio_continuity_proof.validate_status(
                 snapshots["final"],
@@ -332,7 +334,7 @@ class AudioContinuityProofTests(unittest.TestCase):
 
     def test_rejects_missing_music_stream_mode_for_music_proof(self):
         snapshots = snapshot_statuses()
-        snapshots["final"] = snapshots["final"].replace("musicstream=PUSH", "musicstream=NONE")
+        snapshots["final"] = snapshots["final"].replace("musicstream=PULL", "musicstream=NONE")
 
         with self.assertRaisesRegex(AssertionError, "musicstream=.*PUSH or PULL"):
             check_audio_continuity_proof.validate_status(
@@ -346,11 +348,11 @@ class AudioContinuityProofTests(unittest.TestCase):
 
     def test_rejects_single_stream_update_as_too_little_long_playback_health(self):
         snapshots = snapshot_statuses()
-        snapshots["fire"] = snapshots["fire"].replace("voiceq=00000001:00000000:00000001", "voiceq=00000001:00000000:00000000")
-        snapshots["movement"] = snapshots["movement"].replace("voiceq=00000001:00000000:00000002", "voiceq=00000001:00000000:00000000")
-        snapshots["use"] = snapshots["use"].replace("voiceq=00000001:00000000:00000003", "voiceq=00000001:00000000:00000000")
-        snapshots["menu"] = snapshots["menu"].replace("voiceq=00000001:00000000:00000004", "voiceq=00000001:00000000:00000001")
-        snapshots["final"] = snapshots["final"].replace("voiceq=00000001:00000000:00000005", "voiceq=00000001:00000000:00000001")
+        snapshots["fire"] = snapshots["fire"].replace("musicpull=00000001:00000001", "musicpull=00000001:00000000")
+        snapshots["movement"] = snapshots["movement"].replace("musicpull=00000002:00000002", "musicpull=00000002:00000000")
+        snapshots["use"] = snapshots["use"].replace("musicpull=00000003:00000003", "musicpull=00000003:00000000")
+        snapshots["menu"] = snapshots["menu"].replace("musicpull=00000004:00000004", "musicpull=00000004:00000001")
+        snapshots["final"] = snapshots["final"].replace("musicpull=00000005:00000005", "musicpull=00000005:00000001")
 
         with self.assertRaisesRegex(AssertionError, "at least 2"):
             check_audio_continuity_proof.validate_status(

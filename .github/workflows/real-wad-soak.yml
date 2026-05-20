@@ -253,6 +253,7 @@ jobs:
 
             if [ -z "$failure_stage" ]; then
               python3 tools/check_audio_continuity_proof.py \
+                --require-pull-stream \
                 --baseline build/status.after-start.txt \
                 --fire build/status.after-fire.txt \
                 --movement build/status.after-move.txt \

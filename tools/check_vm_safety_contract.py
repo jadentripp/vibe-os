@@ -148,6 +148,7 @@ def validate_cloud_interactive_runbooks(root: Path = ROOT) -> None:
     cloud = runbooks["docs/runbooks/cloud-interactive-playtest.md"]
     remote = runbooks["docs/runbooks/remote-doom-playtest.md"]
     play_now_script = _read(root, "tools/play_now_remote.sh")
+    codespaces_script = _read(root, "tools/play_now_codespaces.sh")
     human_playtest_script = _read(root, "tools/run_remote_human_playtest.sh")
 
     for text, label in (
@@ -166,6 +167,7 @@ def validate_cloud_interactive_runbooks(root: Path = ROOT) -> None:
         "ssh -N -L 5901:127.0.0.1:5901",
         "http://127.0.0.1:6080/vnc.html?autoconnect=1",
         "tools/collect_human_playtest_bundle.py",
+        "tools/play_now_codespaces.sh",
         "tools/check_cloud_playability_artifacts.py --human-session",
         "CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST",
         "Never transfer these from the remote host",
@@ -187,6 +189,33 @@ def validate_cloud_interactive_runbooks(root: Path = ROOT) -> None:
         '/vnc.html?autoconnect=1',
     ):
         _require(play_now_script, needle, "play-now remote script")
+
+    for needle in (
+        "Usage: tools/play_now_codespaces.sh [options]",
+        "codespace create",
+        "gh \"${create_args[@]}\"",
+        "gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" bash -lc \"$payload\"",
+        "./tools/play_now_remote.sh --preflight",
+        "nohup ./tools/play_now_remote.sh",
+        "gh codespace ports visibility \"$NOVNC_PORT:private\"",
+        "vnc.html?autoconnect=1",
+    ):
+        _require(codespaces_script, needle, "Codespaces play-now launcher")
+
+    for forbidden in (
+        "qemu-system-x86_64",
+        "make DOOM_WAD",
+        "prepare_shareware_wad.py",
+        "gh codespace cp",
+        "scp ",
+        "build/disk.img",
+        "DOOM1.WAD",
+        "doom-audio.wav",
+    ):
+        if forbidden in codespaces_script:
+            raise AssertionError(
+                f"Codespaces launcher should not run/copy forbidden payload {forbidden!r}"
+            )
 
     for needle in (
         "Refusing to run the remote human playtest helper on macOS",

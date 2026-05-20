@@ -118,6 +118,11 @@ SAVE_WRITE_EXACT_FIELDS = {
 }
 SAVE_WRITE_ZERO_HEX_FIELDS = DEFAULT_WRITE_ZERO_HEX_FIELDS
 SAVE_WRITE_REQUIRED_OPEN_FLAGS = DEFAULT_WRITE_REQUIRED_OPEN_FLAGS
+SAVELOAD_EVENT_OPEN = 0x0001
+SAVELOAD_EVENT_READ = 0x0002
+SAVELOAD_EVENT_WRITE = 0x0004
+SAVELOAD_EVENT_CLOSE = 0x0008
+SAVELOAD_REQUIRED_LOAD_FLAGS = SAVELOAD_EVENT_OPEN | SAVELOAD_EVENT_READ | SAVELOAD_EVENT_CLOSE
 
 spec = importlib.util.spec_from_file_location("make_wad_image", MAKE_WAD_IMAGE)
 make_wad_image = importlib.util.module_from_spec(spec)
@@ -402,6 +407,9 @@ def _validate_save_slot(fs, slot):
         len(data),
         description.decode("ascii", "replace"),
         version.decode("ascii", "replace"),
+        skill,
+        episode,
+        game_map,
         leveltime,
     )
 
@@ -589,7 +597,7 @@ def validate_default_write_status(status):
         raise PersistenceProofError("default write status fault= must be all zero")
 
 
-def validate_save_write_status(status):
+def validate_save_write_status(status, expected_slot=None):
     if "Aurora OS v0.2" not in status:
         raise PersistenceProofError("save write status is missing Aurora OS banner")
 
@@ -628,8 +636,72 @@ def validate_save_write_status(status):
             f"O_WRONLY|O_CREAT|O_TRUNC, got {flags:#x}"
         )
 
+    saveload_flags, saveload_slot = _status_hex_tuple_field(fields, "doomsav", 2)
+    if expected_slot is not None and saveload_slot != expected_slot:
+        raise PersistenceProofError(
+            f"save write status doomsav= slot must be {expected_slot}, got {saveload_slot}"
+        )
+    if (saveload_flags & (SAVELOAD_EVENT_OPEN | SAVELOAD_EVENT_WRITE | SAVELOAD_EVENT_CLOSE)) != (
+        SAVELOAD_EVENT_OPEN | SAVELOAD_EVENT_WRITE | SAVELOAD_EVENT_CLOSE
+    ):
+        raise PersistenceProofError(
+            "save write status doomsav= must prove a DOOMSAV open/write/close path"
+        )
+    save_write_bytes, save_write_events = _status_hex_tuple_field(fields, "savewr", 2)
+    if save_write_bytes == 0 or save_write_events == 0:
+        raise PersistenceProofError("save write status savewr= must prove DOOMSAV payload bytes")
+    if _status_hex_field(fields, "saveclose") == 0:
+        raise PersistenceProofError("save write status saveclose= must prove a DOOMSAV close")
+    save_flags, _save_mode = _status_hex_tuple_field(fields, "savemode", 2, separator=":")
+    if save_flags != SAVE_WRITE_REQUIRED_OPEN_FLAGS:
+        raise PersistenceProofError(
+            "save write status savemode= must prove DOOMSAV was opened "
+            f"O_WRONLY|O_CREAT|O_TRUNC, got {save_flags:#x}"
+        )
+
     if any(_status_hex_tuple_field(fields, "fault", 11)):
         raise PersistenceProofError("save write status fault= must be all zero")
+
+
+def validate_save_load_status(status, *, slot, save_size, episode, game_map, leveltime):
+    validate_reboot_status(status)
+
+    fields = _status_fields(status)
+    saveload_flags, saveload_slot = _status_hex_tuple_field(fields, "doomsav", 2)
+    if saveload_slot != slot:
+        raise PersistenceProofError(
+            f"save load status doomsav= slot must be {slot}, got {saveload_slot}"
+        )
+    if (saveload_flags & SAVELOAD_REQUIRED_LOAD_FLAGS) != SAVELOAD_REQUIRED_LOAD_FLAGS:
+        raise PersistenceProofError(
+            "save load status doomsav= must prove a DOOMSAV open/read/close path"
+        )
+
+    read_bytes, read_events = _status_hex_tuple_field(fields, "saverd", 2)
+    if read_events == 0:
+        raise PersistenceProofError("save load status saverd= must prove at least one DOOMSAV read")
+    if read_bytes < save_size:
+        raise PersistenceProofError(
+            f"save load status saverd= must read the full DOOMSAV payload "
+            f"({read_bytes} < {save_size})"
+        )
+    if _status_hex_field(fields, "saveclose") == 0:
+        raise PersistenceProofError("save load status saveclose= must prove a DOOMSAV close")
+
+    expected_map = (episode << 8) | game_map
+    actual_map = _status_hex_field(fields, "gmap")
+    if actual_map != expected_map:
+        raise PersistenceProofError(
+            f"save load status gmap= must match the saved episode/map "
+            f"0x{expected_map:08X}, got 0x{actual_map:08X}"
+        )
+
+    actual_leveltime = _status_hex_field(fields, "leveltime")
+    if actual_leveltime < leveltime:
+        raise PersistenceProofError(
+            f"save load status leveltime= must be at least the saved leveltime "
+            f"({actual_leveltime} < {leveltime})"
+        )
 
 
 def validate_image(
@@ -640,6 +712,7 @@ def validate_image(
     reboot_status_path=None,
     write_status_path=None,
     save_write_status_path=None,
+    load_status_path=None,
     require_default=False,
     require_save_slots=(),
     require_dynamic_fat_proof=False,
@@ -672,6 +745,10 @@ def validate_image(
         raise PersistenceProofError("--write-status requires --require-default")
     if save_write_status_path is not None and not require_save_slots:
         raise PersistenceProofError("--save-write-status requires --require-save-slot")
+    if load_status_path is not None and len(require_save_slots) != 1:
+        raise PersistenceProofError("--load-status requires exactly one --require-save-slot")
+    if load_status_path is not None and reboot_fs is None:
+        raise PersistenceProofError("--load-status requires --reboot-baseline-image")
     if reboot_fs is not None and require_save_slots and save_write_status_path is None:
         raise PersistenceProofError(
             "save-slot reboot proof requires --save-write-status from the write boot"
@@ -704,7 +781,11 @@ def validate_image(
         write_status_ok = True
     save_write_status_ok = False
     if save_write_status_path is not None:
-        validate_save_write_status(Path(save_write_status_path).read_text())
+        expected_save_slot = require_save_slots[0] if len(require_save_slots) == 1 else None
+        validate_save_write_status(
+            Path(save_write_status_path).read_text(),
+            expected_slot=expected_save_slot,
+        )
         save_write_status_ok = True
 
     if require_default:
@@ -726,8 +807,18 @@ def validate_image(
             suffix += " survived-reboot"
         summary.append(f"DEFAULT.CFG bytes={default_size}{suffix}")
 
+    save_slot_infos = {}
     for slot in require_save_slots:
-        size, description, version, leveltime = _validate_save_slot(fs, slot)
+        size, description, version, skill, episode, game_map, leveltime = _validate_save_slot(fs, slot)
+        save_slot_infos[slot] = {
+            "size": size,
+            "description": description,
+            "version": version,
+            "skill": skill,
+            "episode": episode,
+            "game_map": game_map,
+            "leveltime": leveltime,
+        }
         _require_fresh_save_baseline(
             baseline_fs,
             make_wad_image.WRITABLE_SAVE_NAMES[slot],
@@ -756,6 +847,18 @@ def validate_image(
     if reboot_status_path is not None:
         validate_reboot_status(Path(reboot_status_path).read_text())
         summary.append("reboot status runtime=OK")
+    if load_status_path is not None:
+        slot = require_save_slots[0]
+        info = save_slot_infos[slot]
+        validate_save_load_status(
+            Path(load_status_path).read_text(),
+            slot=slot,
+            save_size=info["size"],
+            episode=info["episode"],
+            game_map=info["game_map"],
+            leveltime=info["leveltime"],
+        )
+        summary.append(f"save load status gameplay=OK slot={slot}")
     if write_status_ok:
         summary.append("default write status closed=OK")
     if save_write_status_ok:
@@ -797,6 +900,10 @@ def parse_args():
         help="decoded status.txt captured from the save-writing boot; Doom must have written and closed an O_TRUNC save file",
     )
     parser.add_argument(
+        "--load-status",
+        help="decoded status.txt captured after the reboot/load boot; Doom must read the full DOOMSAV payload and return to gameplay",
+    )
+    parser.add_argument(
         "--require-save-slot",
         action="append",
         type=int,
@@ -821,6 +928,7 @@ def main():
         reboot_status_path=args.reboot_status,
         write_status_path=args.write_status,
         save_write_status_path=args.save_write_status,
+        load_status_path=args.load_status,
         require_default=args.require_default,
         require_save_slots=args.require_save_slot,
         require_dynamic_fat_proof=args.require_dynamic_fat_proof,

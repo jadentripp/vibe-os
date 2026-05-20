@@ -225,6 +225,12 @@ def _continuity_summary(
     progress["voiceq_update"] = _tuple_counter_delta(
         baseline_fields, final_fields, "voiceq", 3, 2
     )
+    progress["musicpull_request"] = _tuple_counter_delta(
+        baseline_fields, final_fields, "musicpull", 2, 0
+    )
+    progress["musicpull_refill"] = _tuple_counter_delta(
+        baseline_fields, final_fields, "musicpull", 2, 1
+    )
     safety_progress = {
         name: _counter_delta(baseline_fields, final_fields, name)
         for name in ("mixclip", "musicunder", "musicdrops")
@@ -258,7 +264,11 @@ def _continuity_summary(
         for label in ("baseline", "fire", "movement", "use", "menu", "final")
     ]
     music_buffers = [_hex_value(fields, "musicbuf") for fields in ordered_fields]
-    update_delta = int(progress["voiceq_update"]["delta"], 16)
+    uses_pull_stream = any(fields["musicstream"] == "PULL" for fields in ordered_fields)
+    stream_update_progress = (
+        progress["musicpull_refill"] if uses_pull_stream else progress["voiceq_update"]
+    )
+    update_delta = int(stream_update_progress["delta"], 16)
     position_delta = int(progress["musicpos"]["delta"], 16)
     stream_health = {
         "buffer_floor": f"{min(music_buffers):08X}",
@@ -268,7 +278,11 @@ def _continuity_summary(
         "distinct_buffer_windows": len(set(music_buffers)),
         "under_delta": _counter_delta(baseline_fields, final_fields, "musicunder")["delta"],
         "drop_delta": _counter_delta(baseline_fields, final_fields, "musicdrops")["delta"],
-        "stream_update_delta": progress["voiceq_update"]["delta"],
+        "stream_update_counter": "musicpull_refill" if uses_pull_stream else "voiceq_update",
+        "stream_update_delta": stream_update_progress["delta"],
+        "voiceq_update_delta": progress["voiceq_update"]["delta"],
+        "pull_request_delta": progress["musicpull_request"]["delta"],
+        "pull_refill_delta": progress["musicpull_refill"]["delta"],
         "position_delta": progress["musicpos"]["delta"],
         "position_delta_per_update_floor": f"{(position_delta // update_delta) if update_delta else 0:08X}",
     }
@@ -290,8 +304,9 @@ def _continuity_summary(
         "hardware_paced": final_fields["musicstream"] == "PULL",
         "current_push_proof": final_fields["musicstream"] == "PUSH",
         "claim": (
-            "musicstream=PUSH proves pushed chunk continuity; musicstream=PULL plus "
-            "advancing musicpull= counters is required before claiming hardware-paced music"
+            "musicstream=PULL proves kernel SB16 refill requests drove music chunk service; "
+            "voiceq= still records the user-rendered buffer submissions and does not claim "
+            "kernel-owned MUS synthesis"
         ),
     }
     return {
@@ -302,7 +317,7 @@ def _continuity_summary(
         "non_music_sfx_progress": int(progress["sfxmix"]["delta"], 16) > 0,
         "music_stream_progress": int(progress["musicmix"]["delta"], 16) > 0,
         "music_position_progress": int(progress["musicpos"]["delta"], 16) > 0,
-        "music_stream_update_progress": int(progress["voiceq_update"]["delta"], 16) > 0,
+        "music_stream_update_progress": int(stream_update_progress["delta"], 16) > 0,
         "irq_refill_progress": (
             int(progress["audioirq"]["delta"], 16) > 0
             and int(progress["refill"]["delta"], 16) > 0
@@ -324,7 +339,7 @@ def _continuity_summary(
                 "buffered_window_snapshots": sum(
                     1 for fields in snapshot_fields.values() if _hex_value(fields, "musicbuf") > 0
                 ),
-                "stream_update_delta": progress["voiceq_update"]["delta"],
+                "stream_update_delta": stream_update_progress["delta"],
                 "position_delta": progress["musicpos"]["delta"],
             },
             "shared_sb16_refill": {
@@ -340,7 +355,7 @@ def _continuity_summary(
         "claim": (
             "non-silent remote QEMU output plus status-only SB16 continuity; "
             "music chunks are advanced by a kernel-visible stream-position contract, "
-            "musicstream= names whether that proof is PUSH or future PULL, "
+            "musicstream= names whether that proof is PUSH or PULL, "
             "aggregate listener-quality metadata is machine checked, but subjective "
             "human approval is still unproven"
         ),
@@ -726,7 +741,17 @@ def validate_manifest(
     progress = continuity.get("progress")
     if not isinstance(progress, dict):
         raise AssertionError("manifest continuity.progress must be an object")
-    for name in ("doomsound", "audioirq", "refill", "sfxmix", "musicmix", "musicpos", "voiceq_update"):
+    for name in (
+        "doomsound",
+        "audioirq",
+        "refill",
+        "sfxmix",
+        "musicmix",
+        "musicpos",
+        "voiceq_update",
+        "musicpull_request",
+        "musicpull_refill",
+    ):
         entry = progress.get(name)
         if not isinstance(entry, dict):
             raise AssertionError(f"manifest continuity.progress.{name} must be an object")
@@ -734,7 +759,10 @@ def validate_manifest(
             value = entry.get(key)
             if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
                 raise AssertionError(f"manifest continuity.progress.{name}.{key} must be eight hex digits")
-        if int(entry["delta"], 16) <= 0:
+        if (
+            int(entry["delta"], 16) <= 0
+            and not (name.startswith("musicpull_") and status.get("musicstream") != "PULL")
+        ):
             raise AssertionError(f"manifest continuity.progress.{name}.delta must be nonzero")
     for name, minimum in check_audio_continuity_proof.MIN_PHASED_PROGRESS.items():
         if int(progress[name]["delta"], 16) < minimum:
@@ -807,6 +835,12 @@ def validate_manifest(
         raise AssertionError("manifest stream contract must mark current PUSH proof")
     if stream_contract["mode"] == "PULL" and stream_contract.get("hardware_paced") is not True:
         raise AssertionError("manifest stream contract must mark PULL as hardware paced")
+    if stream_contract["mode"] == "PULL":
+        request, refill = stream_contract["pull_counters"].split(":")
+        if int(request, 16) <= 0 or int(refill, 16) <= 0:
+            raise AssertionError("manifest PULL stream contract must have nonzero musicpull counters")
+        if int(refill, 16) > int(request, 16):
+            raise AssertionError("manifest PULL stream contract cannot refill more chunks than requested")
     for key in (
         "buffer_floor",
         "buffer_peak",
@@ -814,6 +848,9 @@ def validate_manifest(
         "under_delta",
         "drop_delta",
         "stream_update_delta",
+        "voiceq_update_delta",
+        "pull_request_delta",
+        "pull_refill_delta",
         "position_delta",
         "position_delta_per_update_floor",
     ):
@@ -934,7 +971,7 @@ def validate_repo_contract() -> None:
                 "musicpos=",
                 "musicbuf=",
                 "stream_contract",
-                "musicstream=PUSH",
+                "musicstream=PULL",
                 "listener-quality metadata",
                 "stream-health",
                 "Doom audio assets come from WAD lumps",

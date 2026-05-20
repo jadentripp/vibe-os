@@ -665,6 +665,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             "player->cmd.buttons & BT_USE",
             "player->mo->x",
             "player->mo->y",
+            "player->mo->angle",
             "report_playability_status();",
         ):
             self.assertIn(source, platform)

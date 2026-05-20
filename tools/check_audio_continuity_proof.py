@@ -324,6 +324,26 @@ def _assert_tuple_component_progress(
         )
 
 
+def _assert_tuple_component_min_delta(
+    snapshots: list[tuple[str, dict[str, str]]],
+    name: str,
+    count: int,
+    index: int,
+    minimum: int,
+    reason: str,
+) -> None:
+    first_label, first_fields = snapshots[0]
+    last_label, last_fields = snapshots[-1]
+    first = _hex_tuple(first_fields, name, first_label, count)
+    last = _hex_tuple(last_fields, name, last_label, count)
+    delta = last[index] - first[index]
+    if delta < minimum:
+        raise AssertionError(
+            f"{name}= {reason} counter must advance by at least {minimum:08X}, "
+            f"got {delta:08X}"
+        )
+
+
 def _assert_tuple_component_nonzero(
     snapshots: list[tuple[str, dict[str, str]]],
     name: str,
@@ -378,6 +398,16 @@ def _assert_music_stream_health(
         raise AssertionError("musicbuf= must show changing stream-window health across snapshots")
 
 
+def _assert_pull_request_refill_consistency(snapshots: list[tuple[str, dict[str, str]]]) -> None:
+    for label, fields in snapshots:
+        request, refill = _hex_tuple(fields, "musicpull", label, 2)
+        if refill > request:
+            raise AssertionError(
+                f"{label} musicpull= refill counter cannot exceed request counter, "
+                f"got {request:08X}:{refill:08X}"
+            )
+
+
 def _assert_music_stream_mode(
     snapshots: list[tuple[str, dict[str, str]]],
     *,
@@ -393,15 +423,35 @@ def _assert_music_stream_mode(
                 "musicstream=PULL is required for a hardware-paced music proof; "
                 f"got {', '.join(sorted(modes))}"
             )
+        _assert_pull_request_refill_consistency(snapshots)
         _assert_tuple_component_progress(snapshots, "musicpull", 2, 0, "pull request")
         _assert_tuple_component_progress(snapshots, "musicpull", 2, 1, "pull refill")
+        _assert_tuple_component_min_delta(
+            snapshots,
+            "musicpull",
+            2,
+            0,
+            MIN_MUSIC_STREAM_UPDATE_DELTA,
+            "pull request",
+        )
+        _assert_tuple_component_min_delta(
+            snapshots,
+            "musicpull",
+            2,
+            1,
+            MIN_MUSIC_STREAM_UPDATE_DELTA,
+            "pull refill",
+        )
         _assert_tuple_component_nonzero(snapshots, "musicpull", 2, 0, "pull request")
         _assert_tuple_component_nonzero(snapshots, "musicpull", 2, 1, "pull refill")
+        _assert_tuple_component_progress(snapshots, "voiceq", 3, 2, "stream update service")
         return
 
     if "PULL" in modes:
+        _assert_pull_request_refill_consistency(snapshots)
         _assert_tuple_component_progress(snapshots, "musicpull", 2, 0, "pull request")
         _assert_tuple_component_progress(snapshots, "musicpull", 2, 1, "pull refill")
+        _assert_tuple_component_progress(snapshots, "voiceq", 3, 2, "stream update service")
 
 
 def validate_status(
@@ -497,6 +547,7 @@ def validate_repo_contract() -> None:
             (
                 "QEMU_EXTRA_ARGS=\"-audiodev none,id=snd0 -device sb16,audiodev=snd0\"",
                 "tools/check_audio_continuity_proof.py",
+                "--require-pull-stream",
                 "--baseline build/status.after-start.txt",
                 "--fire build/status.after-fire.txt",
                 "--movement build/status.after-move.txt",
@@ -510,6 +561,7 @@ def validate_repo_contract() -> None:
             (
                 "QEMU_EXTRA_ARGS ?=",
                 "SMOKE_REQUIRE_AUDIO_CONTINUITY ?= 0",
+                "--require-pull-stream $$audio_args",
                 "tools/check_audio_continuity_proof.py --repo-contract",
                 "SMOKE_REQUIRE_AUDIO_CONTINUITY",
             ),
@@ -521,13 +573,13 @@ def validate_repo_contract() -> None:
                 "tools/check_audio_continuity_proof.py",
                 "audio=SB16",
                 "sfxmix= counts non-music Doom SFX only",
-                "VIBE_AUDIO_UPDATE_SFX",
-                "streamed music chunks",
+                "VIBE_AUDIO_MUSIC_PULL_STATE",
+                "hardware-paced pull request",
                 "musicpos=",
                 "musicbuf=",
                 "musicunder=",
                 "musicdrops=",
-                "musicstream=PUSH",
+                "musicstream=PULL",
                 "musicpull=",
                 "stream-health evidence",
                 "single static music carrier",
@@ -539,14 +591,15 @@ def validate_repo_contract() -> None:
             music_doc,
             (
                 "stateful stream cursor",
+                "VIBE_AUDIO_MUSIC_PULL_STATE",
                 "VIBE_AUDIO_UPDATE_SFX",
-                "streamed music chunks",
+                "hardware-paced pull request",
                 "separate from normal Doom SFX",
                 "musicpos=",
                 "musicbuf=",
                 "musicunder=",
                 "musicdrops=",
-                "musicstream=PUSH",
+                "musicstream=PULL",
                 "musicpull=",
                 "long-playback wrap",
                 "static stream window",
@@ -608,7 +661,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--require-pull-stream",
         action="store_true",
-        help="Require the future hardware-paced musicstream=PULL contract.",
+        help="Require the hardware-paced musicstream=PULL request/refill contract.",
     )
     args = parser.parse_args(argv)
 

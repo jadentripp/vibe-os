@@ -47,7 +47,7 @@ def status_line(**overrides):
         "musicbuf": "00000C00",
         "musicunder": "00000000",
         "musicdrops": "00000000",
-        "musicstream": "PUSH",
+        "musicstream": "PULL",
         "musicpull": "00000000:00000000",
         "dma": "00000001",
         "play": "00000001:00000000",
@@ -104,6 +104,7 @@ def phase_statuses(*, carrier_only=False):
             musicloop="00000000",
             musicpos="00000400",
             musicbuf="00001C00",
+            musicpull="00000001:00000001",
             voiceq="00000002:00000000:00000002",
         ),
         "movement": status_line(
@@ -116,6 +117,7 @@ def phase_statuses(*, carrier_only=False):
             musicloop="00000000",
             musicpos="00000800",
             musicbuf="00001800",
+            musicpull="00000002:00000002",
             voiceq="00000002:00000000:00000003",
         ),
         "use": status_line(
@@ -128,6 +130,7 @@ def phase_statuses(*, carrier_only=False):
             musicloop="00000000",
             musicpos="00000C00",
             musicbuf="00001400",
+            musicpull="00000003:00000003",
             voiceq="00000002:00000000:00000004",
         ),
         "menu": status_line(
@@ -140,6 +143,7 @@ def phase_statuses(*, carrier_only=False):
             musicloop="00000001",
             musicpos="00001000",
             musicbuf="00001000",
+            musicpull="00000004:00000004",
             voiceq="00000002:00000000:00000005",
         ),
         "final": status_line(
@@ -151,6 +155,7 @@ def phase_statuses(*, carrier_only=False):
             musicmix="00000006",
             musicloop="00000001",
             musicpos="00001400",
+            musicpull="00000005:00000005",
             voiceq="00000002:00000000:00000006",
         ),
     }
@@ -217,8 +222,8 @@ class AudibleAudioProofTests(unittest.TestCase):
         self.assertTrue(manifest["continuity"]["mixer_safety"]["clip_free"])
         self.assertTrue(manifest["continuity"]["mixer_safety"]["underrun_free"])
         self.assertTrue(manifest["continuity"]["mixer_safety"]["drop_free"])
-        self.assertEqual(manifest["continuity"]["stream_contract"]["mode"], "PUSH")
-        self.assertFalse(manifest["continuity"]["stream_contract"]["hardware_paced"])
+        self.assertEqual(manifest["continuity"]["stream_contract"]["mode"], "PULL")
+        self.assertTrue(manifest["continuity"]["stream_contract"]["hardware_paced"])
         self.assertEqual(manifest["continuity"]["scripted_phase_proof"]["baseline_snapshot"], "baseline")
         self.assertEqual(manifest["continuity"]["scripted_phase_proof"]["fire_snapshot"], "fire")
         self.assertTrue(manifest["continuity"]["scripted_phase_proof"]["requires_scripted_fire_sfx"])
@@ -404,8 +409,8 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "musicbuf": "00002000",
                 "musicunder": "00000000",
                 "musicdrops": "00000000",
-                "musicstream": "PUSH",
-                "musicpull": "00000000:00000000",
+                "musicstream": "PULL",
+                "musicpull": "00000005:00000005",
             },
             "continuity": {
                 "gate": "tools/check_audio_continuity_proof.py",
@@ -423,6 +428,8 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "musicmix": {"start": "00000001", "final": "00000002", "delta": "00000001"},
                     "musicpos": {"start": "00000001", "final": "00000400", "delta": "000003FF"},
                     "voiceq_update": {"start": "00000000", "final": "00000001", "delta": "00000001"},
+                    "musicpull_request": {"start": "00000000", "final": "00000005", "delta": "00000005"},
+                    "musicpull_refill": {"start": "00000000", "final": "00000005", "delta": "00000005"},
                 },
                 "mix_lanes": {
                     "non_music_sfx": {
@@ -451,17 +458,21 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "distinct_buffer_windows": 2,
                     "under_delta": "00000000",
                     "drop_delta": "00000000",
+                    "stream_update_counter": "musicpull_refill",
                     "stream_update_delta": "00000001",
+                    "voiceq_update_delta": "00000001",
+                    "pull_request_delta": "00000001",
+                    "pull_refill_delta": "00000001",
                     "position_delta": "000003FF",
                     "position_delta_per_update_floor": "000003FF",
                 },
                 "stream_contract": {
-                    "mode": "PUSH",
+                    "mode": "PULL",
                     "status_field": "musicstream",
-                    "pull_counters": "00000000:00000000",
-                    "hardware_paced": False,
-                    "current_push_proof": True,
-                    "claim": "musicstream=PUSH proves pushed chunk continuity",
+                    "pull_counters": "00000001:00000001",
+                    "hardware_paced": True,
+                    "current_push_proof": False,
+                    "claim": "musicstream=PULL proves SB16 refill requested chunk service",
                 },
                 "claim": "non-silent remote QEMU output plus status-only SB16 continuity",
             },
@@ -517,8 +528,8 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "musicbuf": "00002000",
                 "musicunder": "00000000",
                 "musicdrops": "00000000",
-                "musicstream": "PUSH",
-                "musicpull": "00000000:00000000",
+                "musicstream": "PULL",
+                "musicpull": "00000005:00000005",
             },
             "continuity": {
                 "gate": "tools/check_audio_continuity_proof.py",
@@ -538,6 +549,8 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "musicmix": {"start": "00000001", "final": "00000002", "delta": "00000001"},
                     "musicpos": {"start": "00000001", "final": "00000400", "delta": "000003FF"},
                     "voiceq_update": {"start": "00000000", "final": "00000002", "delta": "00000002"},
+                    "musicpull_request": {"start": "00000000", "final": "00000005", "delta": "00000005"},
+                    "musicpull_refill": {"start": "00000000", "final": "00000005", "delta": "00000005"},
                 },
                 "mix_lanes": {
                     "non_music_sfx": {
@@ -550,7 +563,7 @@ class AudibleAudioProofTests(unittest.TestCase):
                         "delta": "00000001",
                         "active_voice_snapshots": 1,
                         "buffered_window_snapshots": 1,
-                        "stream_update_delta": "00000002",
+                        "stream_update_delta": "00000005",
                         "position_delta": "000003FF",
                     },
                     "shared_sb16_refill": {
@@ -566,17 +579,21 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "distinct_buffer_windows": 2,
                     "under_delta": "00000000",
                     "drop_delta": "00000000",
-                    "stream_update_delta": "00000002",
+                    "stream_update_counter": "musicpull_refill",
+                    "stream_update_delta": "00000005",
+                    "voiceq_update_delta": "00000002",
+                    "pull_request_delta": "00000005",
+                    "pull_refill_delta": "00000005",
                     "position_delta": "000003FF",
                     "position_delta_per_update_floor": "000003FF",
                 },
                 "stream_contract": {
-                    "mode": "PUSH",
+                    "mode": "PULL",
                     "status_field": "musicstream",
-                    "pull_counters": "00000000:00000000",
-                    "hardware_paced": False,
-                    "current_push_proof": True,
-                    "claim": "musicstream=PUSH proves pushed chunk continuity",
+                    "pull_counters": "00000005:00000005",
+                    "hardware_paced": True,
+                    "current_push_proof": False,
+                    "claim": "musicstream=PULL proves SB16 refill requested chunk service",
                 },
                 "mixer_safety": {
                     "mixclip_delta": "00000000",

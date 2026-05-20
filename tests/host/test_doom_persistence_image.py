@@ -107,6 +107,11 @@ def reboot_status(**overrides):
         "doomwad": "00000002/00000002/00000001/44415749",
         "doomsbrk": "00000010",
         "doominit": "000001FF/00000009",
+        "doomsav": "00000000/FFFFFFFF",
+        "saverd": "00000000/00000000",
+        "savewr": "00000000/00000000",
+        "saveclose": "00000000",
+        "savemode": "00000000:00000000",
         "doomexit": "00000000",
         "doomfault": "00000000",
         "doomfaultip": "00000000",
@@ -162,7 +167,7 @@ def default_write_status(**overrides):
     return "Aurora OS v0.2 " + " ".join(f"{name}={value}" for name, value in fields.items())
 
 
-def save_write_status(**overrides):
+def save_write_status(slot=1, **overrides):
     fields = {
         "doom": "OK",
         "doomrun": "RUN",
@@ -171,6 +176,11 @@ def save_write_status(**overrides):
         "doomwrite": "00000018",
         "doomclose": "00000001",
         "doommode": "00000301:000001B6",
+        "doomsav": f"0000000D/{slot:08X}",
+        "saverd": "00000000/00000000",
+        "savewr": "00001000/00000001",
+        "saveclose": "00000001",
+        "savemode": "00000301:000001B6",
         "doomexit": "00000000",
         "doomfault": "00000000",
         "doomfaultip": "00000000",
@@ -185,6 +195,20 @@ def save_write_status(**overrides):
     }
     fields.update(overrides)
     return "Aurora OS v0.2 " + " ".join(f"{name}={value}" for name, value in fields.items())
+
+
+def load_status(slot=1, read_bytes=0x1200, leveltime=0x60, **overrides):
+    fields = {
+        "doomsav": f"0000000B/{slot:08X}",
+        "saverd": f"{read_bytes:08X}/00000002",
+        "savewr": "00000000/00000000",
+        "saveclose": "00000002",
+        "savemode": "00000000:00000000",
+        "leveltime": f"{leveltime:08X}",
+        "gmap": "00000101",
+    }
+    fields.update(overrides)
+    return reboot_status(**fields)
 
 
 class DoomPersistenceImageTests(unittest.TestCase):
@@ -292,7 +316,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         baseline_path = self.write_temp_image(baseline)
         write_path = self.write_temp_image(after_write)
         reboot_path = self.write_temp_image(after_reboot)
-        save_status_path = self.write_temp_text(save_write_status())
+        save_status_path = self.write_temp_text(save_write_status(slot=3))
 
         summary = check_persistence.validate_image(
             reboot_path,
@@ -398,7 +422,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         baseline_path = self.write_temp_image(baseline)
         write_path = self.write_temp_image(after_write)
         reboot_path = self.write_temp_image(after_reboot)
-        status_path = self.write_temp_text(save_write_status())
+        status_path = self.write_temp_text(save_write_status(slot=1))
 
         summary = check_persistence.validate_image(
             reboot_path,
@@ -411,6 +435,37 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertIn("DOOMSAV1.DSG bytes=", summary[0])
         self.assertIn("survived-reboot", summary[0])
         self.assertIn("save write status closed=OK", summary)
+
+    def test_checker_gates_save_load_status_when_claiming_playable_save_slot(self):
+        save_payload = doom_save_payload("LOAD PROOF")
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        after_write = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(after_write)
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[1], save_payload)
+        after_reboot = bytearray(after_write)
+
+        baseline_path = self.write_temp_image(baseline)
+        write_path = self.write_temp_image(after_write)
+        reboot_path = self.write_temp_image(after_reboot)
+        status_path = self.write_temp_text(save_write_status(slot=1))
+        load_status_path = self.write_temp_text(
+            load_status(slot=1, read_bytes=len(save_payload), leveltime=71)
+        )
+
+        summary = check_persistence.validate_image(
+            reboot_path,
+            baseline_image=baseline_path,
+            reboot_baseline_image=write_path,
+            reboot_status_path=load_status_path,
+            save_write_status_path=status_path,
+            load_status_path=load_status_path,
+            require_save_slots=[1],
+        )
+
+        self.assertIn("DOOMSAV1.DSG bytes=", summary[0])
+        self.assertIn("survived-reboot", summary[0])
+        self.assertIn("reboot status runtime=OK", summary)
+        self.assertIn("save load status gameplay=OK slot=1", summary)
 
     def test_checker_requires_save_write_status_for_rebooted_save_slot(self):
         baseline = bytearray((BUILD / "disk.img").read_bytes())
@@ -437,6 +492,69 @@ class DoomPersistenceImageTests(unittest.TestCase):
             check_persistence.validate_save_write_status(save_write_status(doomclose="00000000"))
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "O_WRONLY"):
             check_persistence.validate_save_write_status(save_write_status(doommode="00000000:000001B6"))
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "doomsav"):
+            check_persistence.validate_save_write_status(save_write_status(doomsav="00000009/00000001"))
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "savewr"):
+            check_persistence.validate_save_write_status(save_write_status(savewr="00000000/00000000"))
+
+    def test_checker_rejects_save_load_status_without_full_payload_read(self):
+        save_payload = doom_save_payload("MENU ONLY")
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        after_write = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(after_write)
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], save_payload)
+
+        baseline_path = self.write_temp_image(baseline)
+        write_path = self.write_temp_image(after_write)
+        reboot_path = self.write_temp_image(bytearray(after_write))
+        status_path = self.write_temp_text(save_write_status(slot=0))
+        menu_only_path = self.write_temp_text(load_status(slot=0, read_bytes=24, leveltime=80))
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "full DOOMSAV payload"):
+            check_persistence.validate_image(
+                reboot_path,
+                baseline_image=baseline_path,
+                reboot_baseline_image=write_path,
+                reboot_status_path=menu_only_path,
+                save_write_status_path=status_path,
+                load_status_path=menu_only_path,
+                require_save_slots=[0],
+            )
+
+    def test_checker_rejects_save_load_status_before_saved_leveltime_or_wrong_slot(self):
+        save_payload = doom_save_payload("WRONG LOAD")
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        after_write = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(after_write)
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[2], save_payload)
+
+        baseline_path = self.write_temp_image(baseline)
+        write_path = self.write_temp_image(after_write)
+        reboot_path = self.write_temp_image(bytearray(after_write))
+        status_path = self.write_temp_text(save_write_status(slot=2))
+        low_time_path = self.write_temp_text(load_status(slot=2, read_bytes=len(save_payload), leveltime=1))
+        wrong_slot_path = self.write_temp_text(load_status(slot=1, read_bytes=len(save_payload), leveltime=80))
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "leveltime"):
+            check_persistence.validate_image(
+                reboot_path,
+                baseline_image=baseline_path,
+                reboot_baseline_image=write_path,
+                reboot_status_path=low_time_path,
+                save_write_status_path=status_path,
+                load_status_path=low_time_path,
+                require_save_slots=[2],
+            )
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "slot must be 2"):
+            check_persistence.validate_image(
+                reboot_path,
+                baseline_image=baseline_path,
+                reboot_baseline_image=write_path,
+                reboot_status_path=wrong_slot_path,
+                save_write_status_path=status_path,
+                load_status_path=wrong_slot_path,
+                require_save_slots=[2],
+            )
 
     def test_checker_rejects_default_write_status_before_default_close(self):
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "doomclose"):
@@ -515,7 +633,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         baseline_path = self.write_temp_image(baseline)
         write_path = self.write_temp_image(after_write)
         reboot_path = self.write_temp_image(after_reboot)
-        status_path = self.write_temp_text(save_write_status())
+        status_path = self.write_temp_text(save_write_status(slot=0))
 
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "did not survive reboot"):
             check_persistence.validate_image(

@@ -45,9 +45,16 @@ Current kernel behavior:
 - reports music-carrier and stream-window health separately as `musicvoices=`,
   `musicmix=`, `musicloop=`, `musicpos=`, `musicbuf=`, `musicunder=`,
   `musicdrops=`, `musicstream=`, and `musicpull=`
-- today `musicstream=PUSH` and `musicpull=00000000:00000000`, reserving
-  `musicstream=PULL` plus advancing `musicpull=<requests>:<refills>` for the
-  future hardware-paced pull/refill stream proof
+- exposes `VIBE_AUDIO_MUSIC_PULL_STATE` so Doom-port music service and SB16
+  refill-side pull requests have an explicit source-level contract; the older
+  `VIBE_AUDIO_BUFFERED_BYTES` query remains defined for diagnostic buffer
+  inspection, but the music proof follows pull request/refill state
+- records the current request-driven music stream as `musicstream=PULL`, with
+  `musicpull=<requests>:<refills>` advanced by SB16 refill-side low-water
+  requests and by Doom-port chunk service
+- keeps the older `musicstream=PUSH` proof label documented only as the prior
+  push-fed chunk mode; current hardware-paced music claims require PULL plus
+  advancing `musicpull=` counters
 - keeps one queued pending music window per active music voice, so an early
   `VIBE_AUDIO_UPDATE_SFX` can be promoted by the IRQ refill path when the current
   music window drains instead of replacing it or forcing a dry carrier
@@ -117,31 +124,35 @@ step for the existing handle. For music handles it can also replace the active
 sample pointer and length when the current window has already drained, or queue
 one pending streamed music chunk when the current window is still playing. The
 refill path promotes that pending window exactly at the source boundary and
-continues mixing without retiring the music voice. Doom's port layer can query
-`VIBE_AUDIO_BUFFERED_BYTES` and avoids rendering another chunk until the kernel
-music buffer falls below its low-water mark. The low-water mark is three
-quarters of one streamed chunk, and the port polls from sound, tic, and frame
-hooks so menu/display phases keep feeding the SB16 IRQ puller. Refill advances
+continues mixing without retiring the music voice. Doom's port layer now queries
+`VIBE_AUDIO_MUSIC_PULL_STATE` instead of using its own buffered-byte low-water
+policy. The kernel raises a hardware-paced pull request from the SB16 IRQ refill
+path when the active plus pending music buffer falls below the three-quarter
+stream-window low-water mark, and the port renders exactly the next bounded
+chunk to service that request. The port still owns MUS/MIDI parsing and PCM
+rendering; this is a pull-request audio stream, not kernel-owned MIDI synthesis.
+Refill advances
 each voice's 16.16 source position,
 supports repeated source samples for low pitch and skipped source samples for
 high pitch, and retires non-looping voices that reach the end of their sample.
 Loop-flagged voices still wrap their source position back to zero for fallback
-or non-streamed callers, but Doom music now advances by pushed chunks rather
-than by looping one bounded carrier.
+or non-streamed callers, but Doom music now advances by request-serviced chunks
+rather than by looping one bounded carrier.
 Doom's `I_SoundIsPlaying` now calls back into the audio syscall and returns true
 only while that handle is still active in the mixer voice table.
 
-The kernel now exposes a stream-visible music contract even though the port
-still pushes chunks. `musicpos=` is the cumulative music source bytes consumed
-by the IRQ refill mixer, `musicbuf=` is the active plus pending music window
-remaining in the voice table, `musicunder=` counts music voices that ran dry
-with no pending replacement, and `musicdrops=` counts invalid music updates or
-updates that arrive while the single pending slot is already occupied.
-`musicstream=PUSH` names the current mode, while `musicpull=` remains zero until
-a real pull/refill command exists. Normal early music refreshes are queued
-rather than counted as drops. These fields let the proof checker distinguish a
-progressing kernel-mixed stream from a single queued music sample without
-calling the current proof hardware-paced.
+The kernel now exposes a stream-visible music contract. `musicpos=` is the
+cumulative music source bytes consumed by the IRQ refill mixer, `musicbuf=` is
+the active plus pending music window remaining in the voice table, `musicunder=`
+counts music voices that ran dry with no pending replacement, and `musicdrops=`
+counts invalid music updates or updates that arrive while the single pending
+slot is already occupied. `musicstream=PULL` names the current mode, while
+`musicpull=` records `<requests>:<refills>` so the proof checker can reject a
+claimed pull stream that never received SB16-refill requests or never served
+them. Normal early music refreshes are queued rather than counted as drops.
+These fields let the proof checker distinguish a progressing kernel-mixed,
+request-driven stream from a single queued music sample without claiming
+kernel-owned music synthesis.
 The checker now treats `musicbuf=` as stream-health evidence: across the
 scripted snapshots it must move, and the stream-update counter must advance more
 than once, so a single static music carrier cannot satisfy the audio proof.
@@ -168,9 +179,10 @@ programming and `play=` start counters, nonzero `voiceq=` and `musicq=` queue
 counters, monotonic audio counters, increasing IRQ/refill, non-music SFX
 `sfxmix=`, music `musicmix=` counters, increasing `musicpos=`, a progressing
 `voiceq=` stream-update component, visible `musicbuf=` / `musicunder=` /
-`musicdrops=` health fields, `musicstream=PUSH` for the current pushed-chunk
-proof, monotonic `musicpull=` counters reserved for future hardware-paced pull
-proof, coherent lane accounting where `voices=` equals `sfxvoices=` plus
+`musicdrops=` health fields, `musicstream=PULL` for the current
+SB16-refill-requested music proof, monotonic and advancing `musicpull=` counters
+for hardware-paced request/service evidence, coherent lane accounting where
+`voices=` equals `sfxvoices=` plus
 `musicvoices=`, at least one active music voice snapshot, at least one buffered
 music-window snapshot, and nonzero SB16 ACK accounting. SFX
 lane proof is cumulative: `sfxmix=` must progress even if every captured
@@ -209,8 +221,8 @@ flat, and its continuity summary now records separate `mix_lanes` deltas for
 non-music SFX, music, stream updates, music position, and shared SB16 IRQ/refill
 progress plus a `stream_health` object with buffer floor/peak/final values,
 under/drop deltas, and position-per-update metadata. It also records
-`stream_contract` metadata that preserves `musicstream=PUSH` versus future
-`musicstream=PULL`, `mixer_safety` thresholds for clip-free, underrun-free, and
+`stream_contract` metadata that records `musicstream=PULL`, `mixer_safety`
+thresholds for clip-free, underrun-free, and
 drop-free playback, plus a scripted fire-phase proof so a manifest cannot pass
 on carrier or music activity alone.
 The listener-quality metadata is still aggregate only: active span,
@@ -238,18 +250,18 @@ does not call host MIDI, audio, math, or operating-system libraries.
 a port-owned stateful stream cursor instead of rendering one permanent carrier.
 The platform layer renders 32768-byte streamed music chunks from the current
 song position and submits the first chunk through `VIBE_AUDIO_START_SFX`; later
-Doom sound, tic, and frame hooks poll `VIBE_AUDIO_BUFFERED_BYTES` and call
-`VIBE_AUDIO_UPDATE_SFX` only after the kernel-visible music buffer reaches the
-three-quarter low-water mark. The music architecture keeps targeting the same SB16
+Doom sound, tic, and frame hooks poll `VIBE_AUDIO_MUSIC_PULL_STATE` and call
+`VIBE_AUDIO_UPDATE_SFX` only when the kernel has raised a hardware-paced pull
+request from the SB16 refill path. The music architecture keeps targeting the same SB16
 DMA/refill output path, so the parser/renderer work shares SFX voice stealing,
 clipping, silence, and status accounting. The extra `musicvoices=`, `musicmix=`,
 `musicpos=`, `musicbuf=`, `musicunder=`, `musicdrops=`, `musicstream=`,
 `musicpull=`, and `voiceq=` update counter make that contract visible in cloud
 smoke status.
-`musicstream=PUSH` and zeroed `musicpull=` counters make the current push-fed
-status explicit; `tools/check_audio_continuity_proof.py --require-pull-stream`
-is the host-only successor contract that will reject this mode until the kernel
-owns hardware-paced music refills.
+`musicstream=PULL` and advancing `musicpull=` counters make the current
+request-driven status explicit; `tools/check_audio_continuity_proof.py
+--require-pull-stream` is the host-only contract that rejects stale pushed-only
+proofs. This still does not mean the kernel parses MUS/MIDI itself.
 Runtime music volume updates feed `vibe_music_stream_set_volume`, so new chunks
 use Doom's latest music volume without restarting the song cursor.
 Looping songs measure one parsed song pass and wrap only the renderer's
@@ -261,14 +273,11 @@ full pipeline and fallback design.
 
 Remaining gaps:
 
-- Music now advances a stateful song-position cursor in the Doom port and pushes
-  bounded chunks with `VIBE_AUDIO_UPDATE_SFX`. The kernel now owns an active plus
-  pending music window and exposes buffered-byte status, but it still has no
-  first-class hardware-paced pull command that asks the renderer for more PCM
-  directly from the IRQ/refill path. The status contract now says this out loud:
-  `musicstream=PUSH` is acceptable for continuity proof, while
-  `musicstream=PULL` with advancing `musicpull=` counters is required for the
-  future hardware-paced proof.
+- Music now advances a stateful song-position cursor in the Doom port and
+  services kernel pull requests with `VIBE_AUDIO_UPDATE_SFX`. The SB16 IRQ
+  refill path owns request timing and `musicpull=` accounting, but the Doom port
+  still renders the MUS/MIDI chunk in response; kernel-owned synthesis remains a
+  future legitimacy step.
 - The audible proof is a remote aggregate-output proof, not a listener recording
   or subjective quality proof. It now records aggregate listener-quality
   metadata, but a human playtest should still use remote audio forwarding for
@@ -283,10 +292,10 @@ Remaining gaps:
 The cloud-safe continuity gate is `tools/check_audio_continuity_proof.py`. It
 checks status snapshots only: `audio=SB16`, `sb16=`, `dma=`, `play=`,
 `voiceq=`, `musicq=`, IRQ/refill progress, non-music SFX mixing, streamed music
-chunks, music mixer counters, changing `musicbuf=` stream-health windows, and
-`musicpos=` stream position must move across the scripted cloud phases. Passing
-`--require-pull-stream` additionally requires `musicstream=PULL` and advancing
-`musicpull=` counters.
+chunks, music mixer counters, changing `musicbuf=` stream-health windows,
+`musicpos=` stream position, `musicstream=PULL`, and advancing `musicpull=`
+request/refill counters must move across the scripted cloud phases. Passing
+`--require-pull-stream` keeps that contract explicit.
 
 Fallback plan:
 

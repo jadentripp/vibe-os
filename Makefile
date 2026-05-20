@@ -35,6 +35,7 @@ PERSISTENCE_REBOOT_BASELINE_IMAGE ?=
 PERSISTENCE_REBOOT_STATUS ?=
 PERSISTENCE_WRITE_STATUS ?=
 PERSISTENCE_SAVE_WRITE_STATUS ?=
+PERSISTENCE_LOAD_STATUS ?=
 PERSISTENCE_REQUIRE_DEFAULT ?= 0
 PERSISTENCE_REQUIRE_SAVE_SLOT ?=
 
@@ -227,10 +228,15 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "doomwad=" $(BUILD_DIR)/status.txt; \
 	grep -q "doomclose=" $(BUILD_DIR)/status.txt; \
 	grep -q "doomsbrk=" $(BUILD_DIR)/status.txt; \
-	grep -q "doomerr=" $(BUILD_DIR)/status.txt; \
-	grep -q "doomerrno=" $(BUILD_DIR)/status.txt; \
-	grep -q "doommode=" $(BUILD_DIR)/status.txt; \
-	grep -q "doomlog=" $(BUILD_DIR)/status.txt; \
+		grep -q "doomerr=" $(BUILD_DIR)/status.txt; \
+		grep -q "doomerrno=" $(BUILD_DIR)/status.txt; \
+		grep -q "doommode=" $(BUILD_DIR)/status.txt; \
+		grep -q "doomsav=" $(BUILD_DIR)/status.txt; \
+		grep -q "saverd=" $(BUILD_DIR)/status.txt; \
+		grep -q "savewr=" $(BUILD_DIR)/status.txt; \
+		grep -q "saveclose=" $(BUILD_DIR)/status.txt; \
+		grep -q "savemode=" $(BUILD_DIR)/status.txt; \
+		grep -q "doomlog=" $(BUILD_DIR)/status.txt; \
 	grep -q "doompresent=" $(BUILD_DIR)/status.txt; \
 	grep -q "doompal=" $(BUILD_DIR)/status.txt; \
 	grep -q "doomframe=" $(BUILD_DIR)/status.txt; \
@@ -347,7 +353,7 @@ smoke: vm-consent check-tools $(IMAGE)
 		if [ -f "$(BUILD_DIR)/status.after-move.txt" ]; then audio_args="$$audio_args --movement $(BUILD_DIR)/status.after-move.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-use.txt" ]; then audio_args="$$audio_args --use $(BUILD_DIR)/status.after-use.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-menu.txt" ]; then audio_args="$$audio_args --menu $(BUILD_DIR)/status.after-menu.txt"; fi; \
-		$(PYTHON) tools/check_audio_continuity_proof.py $$audio_args $(BUILD_DIR)/status.txt; \
+		$(PYTHON) tools/check_audio_continuity_proof.py --require-pull-stream $$audio_args $(BUILD_DIR)/status.txt; \
 	fi; \
 	if [ -n "$(SMOKE_SENDKEYS)" ] || [ "$(SMOKE_REQUIRE_KEY_EVENT)" = "1" ]; then \
 			perl -ne '$$ok = 1 if /keyirq=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
@@ -392,6 +398,7 @@ persistence-image-check: $(IMAGE)
 	if [ -n "$(PERSISTENCE_REBOOT_STATUS)" ]; then args="$$args --reboot-status $(PERSISTENCE_REBOOT_STATUS)"; fi; \
 	if [ -n "$(PERSISTENCE_WRITE_STATUS)" ]; then args="$$args --write-status $(PERSISTENCE_WRITE_STATUS)"; fi; \
 	if [ -n "$(PERSISTENCE_SAVE_WRITE_STATUS)" ]; then args="$$args --save-write-status $(PERSISTENCE_SAVE_WRITE_STATUS)"; fi; \
+	if [ -n "$(PERSISTENCE_LOAD_STATUS)" ]; then args="$$args --load-status $(PERSISTENCE_LOAD_STATUS)"; fi; \
 	if [ "$(PERSISTENCE_REQUIRE_DEFAULT)" = "1" ]; then args="$$args --require-default"; fi; \
 	for slot in $(PERSISTENCE_REQUIRE_SAVE_SLOT); do args="$$args --require-save-slot $$slot"; done; \
 	$(PYTHON) tools/check_doom_persistence_image.py $$args "$(IMAGE)"

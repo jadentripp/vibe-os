@@ -37,7 +37,9 @@ boot:
   requires that fresh baseline plus a clean `--reboot-status` runtime/fault gate
   before it can claim persistence. Rebooted `DOOMSAVN.DSG` proof additionally
   requires `--save-write-status` from the write boot, proving Doom reported file
-  output and a close before the mutated save bytes count. The checker also
+  output and a close before the mutated save bytes count, plus `--load-status`
+  from the reboot/load boot proving Doom read the full save payload back into
+  matching gameplay. The checker also
   rejects storage leaks where allocated FAT clusters are not owned by exactly
   one live root entry.
 - Host process tests prove that `SYS_EXEC` is more than a fixed string loader:
@@ -83,8 +85,9 @@ boot:
   advance during the mouse phase, Doom to remain in E1M1 gameplay, `keyseen` to
   record Up/Ctrl/Space/Escape, player movement/action/menu flags to be set,
   `pdelta>0`, `ppos` to change after the movement phase, fire to change
-  ammo/refire state, the mouse phase to set Doom's `ticcmd.angleturn` proof bit,
-  and Escape to flip the menu bit without reading WAD or framebuffer artifacts.
+  ammo/refire state, the mouse phase to set Doom's gameplay turn proof bit from
+  `ticcmd.angleturn` or the resulting player-angle delta, and Escape to flip the
+  menu bit without reading WAD or framebuffer artifacts.
 - `tools/check_audio_continuity_proof.py` is the remote-safe SB16 audio gate. It
   compares the same decoded status snapshots, requires `audio=SB16`, and proves
   IRQ/refill, non-music SFX, music mixing, `voiceq=` stream-update counters,
@@ -170,6 +173,12 @@ boot:
   `/tmp/vibe-os-human-proof.tgz`, and prints the local post-download checker
   commands. The normal remote invocation is
   `tools/run_remote_human_playtest.sh --playtester NAME --scripted-proof-run-id RUN_ID`.
+- `tools/play_now_codespaces.sh` is the one-command disposable play launcher.
+  It is safe to run from the Mac because it only drives GitHub Codespaces with
+  `gh`: create or reuse a disposable Codespace, start
+  `tools/play_now_remote.sh` inside it, mark noVNC port `6080` private, and
+  print/open the noVNC URL. It must not run QEMU locally or copy WAD, disk,
+  pixel, screenshot, log, or raw-audio artifacts back from Codespaces.
 - `tools/triage_cloud_status.py` classifies a downloaded real-WAD status line
   into the first repair lane. The custom linker also writes `build/doom.symbols`
   so cloud artifacts can symbolize `doomfaultip` and decode page-fault/WAD I/O

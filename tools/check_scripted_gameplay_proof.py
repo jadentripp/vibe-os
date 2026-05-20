@@ -558,7 +558,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "scripted-gameplay-proof-v1",
         "clean E1M1 start",
         "cumulative key/player proof",
-        "mouse turn-command proof",
+        "mouse turn proof",
         "gameplay-proof.json",
     ):
         _require(playable_doc, needle, "playable cloud proof doc")
@@ -619,7 +619,7 @@ def main(argv: list[str]) -> int:
 
     print(
         "scripted gameplay proof OK: clean E1M1 start, cumulative fire/move/use/menu "
-        "state, player-position delta, and Doom mouse turn-command input verified"
+        "state, player-position delta, and Doom mouse turn state verified"
     )
     return 0
 

@@ -23,6 +23,7 @@ class AudioContractTests(unittest.TestCase):
             "VIBE_AUDIO_FLAG_MUSIC",
             "VIBE_AUDIO_IS_PLAYING",
             "VIBE_AUDIO_BUFFERED_BYTES",
+            "VIBE_AUDIO_MUSIC_PULL_STATE",
             "VIBE_AUDIO_MUSIC_STREAM_PUSH",
             "VIBE_AUDIO_MUSIC_STREAM_PULL",
         ):
@@ -45,7 +46,7 @@ class AudioContractTests(unittest.TestCase):
             "VIBE_AUDIO_START_SFX",
             "VIBE_AUDIO_UPDATE_SFX",
             "VIBE_AUDIO_IS_PLAYING",
-            "VIBE_AUDIO_BUFFERED_BYTES",
+            "VIBE_AUDIO_MUSIC_PULL_STATE",
         ):
             self.assertIn(source, platform)
 
@@ -292,7 +293,11 @@ class AudioContractTests(unittest.TestCase):
             "sb16_music_stream_mode dd AUDIO_MUSIC_STREAM_NONE",
             "sb16_music_pull_request_count dd 0",
             "sb16_music_pull_refill_count dd 0",
+            "AUDIO_MUSIC_PULL_LOW_WATER_BYTES equ 24576",
+            "sb16_note_music_pull_request:",
+            "sb16_mark_music_pull_refill:",
             ".audio_buffered_bytes:",
+            ".audio_music_pull_state:",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, kernel)
@@ -301,13 +306,13 @@ class AudioContractTests(unittest.TestCase):
             "desc.flags = VIBE_AUDIO_FLAG_MUSIC;",
             "static unsigned char music_pcm[2][VIBE_MUSIC_STREAM_BYTES];",
             "VIBE_MUSIC_DEFAULT_SAMPLE_RATE) / 16)",
-            "#define VIBE_MUSIC_BUFFER_LOW_WATER_BYTES ((VIBE_MUSIC_STREAM_BYTES * 3u) / 4u)",
             "vibe_music_stream_begin(",
             "vibe_music_stream_render(",
             "vibe_music_audio_handle(handle)",
             "VIBE_AUDIO_START_SFX",
             "VIBE_AUDIO_UPDATE_SFX",
-            "VIBE_AUDIO_BUFFERED_BYTES",
+            "VIBE_AUDIO_MUSIC_PULL_STATE",
+            "current_music_pull_seen",
             "pump_music_stream",
             "report_doom_init_status(VIBE_DOOM_INIT_TIC);\n    pump_music_stream();",
             "report_doom_init_status(VIBE_DOOM_INIT_FRAME);\n    pump_music_stream();",
@@ -336,7 +341,7 @@ class AudioContractTests(unittest.TestCase):
         self.assertIn("sfxvoices=", audio_doc)
         self.assertIn("sfxmix=` counts only normal Doom SFX voices", audio_doc)
         self.assertIn("VIBE_AUDIO_IS_PLAYING", audio_doc)
-        self.assertIn("VIBE_AUDIO_BUFFERED_BYTES", audio_doc)
+        self.assertIn("VIBE_AUDIO_MUSIC_PULL_STATE", audio_doc)
         self.assertIn("pending music window", audio_doc)
         self.assertIn("mixwrap", audio_doc)
         self.assertIn("mixover", audio_doc)
@@ -349,7 +354,7 @@ class AudioContractTests(unittest.TestCase):
         self.assertIn("musicbuf", audio_doc)
         self.assertIn("musicunder", audio_doc)
         self.assertIn("musicdrops", audio_doc)
-        self.assertIn("musicstream=PUSH", audio_doc)
+        self.assertIn("musicstream=PULL", audio_doc)
         self.assertIn("musicpull=", audio_doc)
         self.assertIn("active voice table", audio_doc)
         self.assertIn("Doom music:", audio_doc)

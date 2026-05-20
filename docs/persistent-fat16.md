@@ -100,7 +100,13 @@ For save-slot proof, add `--save-write-status` with the first boot's decoded
 status; current save-slot reboot proof refuses to pass without that write-boot
 runtime evidence, and the checker requires Doom to be live, fault-free, writing,
 closing, and using an `O_WRONLY|O_CREAT|O_TRUNC` save-file open before the
-`DOOMSAVN.DSG` bytes and reboot comparison count.
+`DOOMSAVN.DSG` bytes and reboot comparison count. To claim save/load
+playability, add `--load-status` from the reboot boot after a scripted Doom
+load-menu path. That status must include `doomsav=` open/read/close bits for the
+requested slot, `saverd=` bytes at least as large as the saved payload, a
+`saveclose=` event, `gameplay=OK`, the saved episode/map in `gmap=`, and
+`leveltime=` at or beyond the save header leveltime. A 24-byte menu-string read
+does not count as loading the game.
 The reboot comparison requires `--baseline-image` too, so a preseeded image can
 never be reported as a reboot persistence proof without also proving the
 requested bytes changed from the fresh image. With a baseline image present, the

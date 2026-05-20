@@ -33,6 +33,17 @@ Recommended shape:
 - SSH access from the Mac.
 - No public VNC and no public noVNC.
 
+Fastest Codespaces option from the Mac repo checkout:
+
+```sh
+./tools/play_now_codespaces.sh
+```
+
+That one command creates or reuses a disposable Codespace, starts the existing
+remote play script there, marks the noVNC port private, and opens/prints the
+browser URL. The rest of this runbook is the manual remote-host equivalent and
+the optional human proof-capture flow.
+
 On the Mac, set only connection metadata:
 
 ```sh

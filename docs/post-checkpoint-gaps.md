@@ -265,7 +265,10 @@ Current state:
   baseline too. Save-slot reboot proof now also requires `--save-write-status`
   from the first boot, so a `DOOMSAVN.DSG` claim has to show a fault-free live
   Doom run with file output, a close, and an `O_WRONLY|O_CREAT|O_TRUNC` open
-  before the save bytes and reboot comparison can pass.
+  before the save bytes and reboot comparison can pass. Save/load playability
+  additionally requires `--load-status` from the reboot/load boot: Doom must
+  open, read the full `DOOMSAVN.DSG` payload, close it, and report gameplay on
+  the saved episode/map at or after the saved leveltime.
   The same checker gate rejects divergent FAT copies, duplicate live root
   entries, cross-linked chains, orphaned allocated clusters, malformed
   directory ownership, and protected WAD/ELF mutation.
@@ -308,8 +311,8 @@ Still missing:
 - Current-head persistence is not proven. The latest current-head real-WAD proof
   is run `26165681561` on commit `c525952`, and it intentionally skipped the
   opt-in persistence path. A new green `persistence_proof=true` cloud run must
-  prove `DEFAULT.CFG` and a matching `DOOMSAVN.DSG` save-slot before the current
-  branch can claim save/load persistence.
+  prove `DEFAULT.CFG` or a matching `DOOMSAVN.DSG` save-slot plus full save/load
+  gameplay before the current branch can claim save/load persistence.
 - The writable FAT path is still Doom-shaped, not full dynamic writable FS semantics:
   root-level 8.3 files, bounded dynamic entries, no subdirectories,
   no rename, no long filenames, and no POSIX delete-while-open behavior.
@@ -327,8 +330,9 @@ Executable gate:
   `python3 tools/check_doom_persistence_image.py --baseline-image
   /tmp/vibe-os-disk.before-persistence.img --reboot-baseline-image
   /tmp/vibe-os-disk.after-persistence-write.img --require-default build/disk.img`
-  or `--require-save-slot N --save-write-status build/status.persistence-write.txt`
-  on that remote image before deleting it.
+  or `--require-save-slot N --save-write-status build/status.persistence-write.txt
+  --load-status build/status.persistence-load.txt` on that remote image before
+  deleting it.
 
 - `GAP[AUDIO] status=open category=audio gate=remote-sb16-audible-proof evidence=audio-status`
 
