@@ -486,16 +486,15 @@ Call a remote human playtest credible only after checking all of this:
 - Save/config writes are attempted from Doom and then checked after a rebooted
   remote image before claiming persistence beyond the current host tests. The
   GitHub **Real WAD smoke** workflow has an opt-in `persistence_proof` input
-  for this path. It copies the fresh `build/disk.img` to a runner-local
-  baseline immediately after rebuilding the real-WAD image, restores that
-  baseline before the persistence boot, performs a first boot with
-  `persistence_input_script`, checks that either `DEFAULT.CFG` changed from that
-  baseline or the requested `DOOMSAVN.DSG` slot changed, captures an after-write
-  image snapshot, boots the same image again, and checks that the requested FAT
-  entries still match the after-write snapshot. When `persistence_save_slot=N`
-  is set, the workflow's `auto` scripts create that save through Doom's F2 menu
-  on the write boot and load it through Doom's F3 menu on the reboot boot. The
-  checker summary is saved as status text; the disk image and WAD are not
+  for this path, and setting `persistence_save_slot=N` also enables the same
+  path. It copies the fresh `build/disk.img` to a runner-local baseline
+  immediately after rebuilding the real-WAD image, restores that baseline before
+  the persistence boot, plants a marker file requesting either default-config
+  persistence or a specific `DOOMSAVN.DSG` save slot, checks that the requested
+  file changed from that baseline, captures an after-write image snapshot, boots
+  the same image again with a load marker when save-slot proof is requested, and
+  checks that the requested FAT entries still match the after-write snapshot.
+  The checker summary is saved as status text; the disk image and WAD are not
   uploaded.
 
   If your input script creates a save, set `persistence_save_slot` to require
@@ -510,9 +509,9 @@ Call a remote human playtest credible only after checking all of this:
   `--load-status build/status.persistence-load.txt` on the reboot/load boot:
   `doomsav=` must name the requested slot, `saverd=` must cover the full
   savegame payload rather than only the menu description, and the final status
-  must be back in matching gameplay. For scripted save names, prefer the
-  smoke-runner `text=NAME` action over one `sendkey` action per letter so the
-  QEMU monitor connection latency does not consume the proof timeout.
+  must be back in matching gameplay. The workflow slot path uses marker files
+  in the FAT image to request save and load work from Doom, so it does not rely
+  on a timed menu-key script.
 
   For a manual remote proof, copy a fresh baseline before booting, create the
   save in Doom, snapshot the after-write image, reboot the same image, capture
