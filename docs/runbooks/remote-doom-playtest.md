@@ -50,9 +50,13 @@ the output path. Keep `/tmp/DOOM1.WAD` outside git and delete it when finished.
 Build the raw disk image on the remote host:
 
 ```sh
-make clean
+rm -f build/disk.img
 make DOOM_WAD=/tmp/DOOM1.WAD
 ```
+
+That preserves valid cached compilation outputs on reruns but forces the boot
+image to bind the freshly validated WAD. The faster `tools/play_now_remote.sh`
+path does this for you.
 
 ## Interactive Boot
 

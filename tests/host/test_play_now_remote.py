@@ -30,6 +30,10 @@ class PlayNowRemoteTests(unittest.TestCase):
                 set -euo pipefail
                 echo "$*" >> "$GH_LOG"
                 if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+                  if [ "${FAKE_GH_AUTH_FAIL:-0}" = "1" ]; then
+                    echo "not logged in" >&2
+                    exit 1
+                  fi
                   exit 0
                 fi
                 if [ "$1" = "repo" ] && [ "$2" = "view" ]; then
@@ -215,6 +219,7 @@ class PlayNowRemoteTests(unittest.TestCase):
             "GitHub repo/ref: verified",
             "remote play payload: verified on selected ref",
             "local gh Codespaces API: not required for this browser path",
+            "local gh auth: optional for this browser path",
             "explicit GitHub repo/ref selected; local checkout dirt is ignored",
             "clean and pushed for the inferred current branch",
             "local artifact transfer: none",
@@ -354,6 +359,45 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertNotIn("codespace create", log)
             self.assertNotIn("codespace ssh", log)
             self.assertIn("ls-remote --heads https://github.com/jadentripp/vibe-os.git jt/play-now-access-next", git_log.read_text())
+
+    def test_codespaces_launcher_web_url_mode_does_not_need_gh_auth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env, gh_log, git_log = self._codespaces_stub_env(tmp)
+            env["FAKE_GH_AUTH_FAIL"] = "1"
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "tools" / "play_now_codespaces.sh"),
+                    "--web-url",
+                    "--repo",
+                    "jadentripp/vibe-os",
+                    "--ref",
+                    "main",
+                    "--no-open",
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("play-now browser Codespaces path", result.stdout)
+            self.assertIn("repo: jadentripp/vibe-os", result.stdout)
+            self.assertIn("ref: main", result.stdout)
+            self.assertIn("local gh auth: optional for this browser path", result.stdout)
+            self.assertIn("Codespaces create URL:\nhttps://github.com/codespaces/new", result.stdout)
+            self.assertIn("./tools/play_now_remote.sh --require-novnc", result.stdout)
+            self.assertEqual(result.stderr, "")
+
+            log = gh_log.read_text()
+            self.assertIn("auth status -h github.com", log)
+            self.assertNotIn("/user/codespaces?per_page=1", log)
+            self.assertNotIn("codespace create", log)
+            self.assertIn(
+                "ls-remote --heads https://github.com/jadentripp/vibe-os.git main",
+                git_log.read_text(),
+            )
 
     def test_codespaces_launcher_web_url_mode_falls_back_when_repo_id_api_is_limited(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -645,7 +689,7 @@ class PlayNowRemoteTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 1)
             self.assertIn("GitHub branch 'jt/not-pushed' was not found", result.stderr)
-            log = gh_log.read_text()
+            log = gh_log.read_text() if gh_log.exists() else ""
             self.assertNotIn("/user/codespaces?per_page=1", log)
             self.assertNotIn("codespace create", log)
 
@@ -672,7 +716,7 @@ class PlayNowRemoteTests(unittest.TestCase):
 
                 self.assertEqual(result.returncode, 1)
                 self.assertIn(message, result.stderr)
-                log = gh_log.read_text()
+                log = gh_log.read_text() if gh_log.exists() else ""
                 self.assertNotIn("codespace create", log)
                 self.assertNotIn("codespace ssh", log)
 
@@ -693,6 +737,25 @@ class PlayNowRemoteTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 1)
         self.assertIn("NOVNC_PORT must be between 1 and 65535", result.stderr)
+        self.assertNotIn("Fetching/validating", result.stdout)
+
+    def test_remote_script_rejects_invalid_vnc_display_before_any_play_action(self):
+        env = os.environ.copy()
+        env["VNC_DISPLAY"] = "bad"
+        result = subprocess.run(
+            [
+                "bash",
+                str(ROOT / "tools" / "play_now_remote.sh"),
+                "--preflight",
+            ],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("VNC_DISPLAY must be a non-negative integer", result.stderr)
         self.assertNotIn("Fetching/validating", result.stdout)
 
     def test_cloud_shell_bootstrap_refuses_macos_before_remote_setup(self):
@@ -735,11 +798,15 @@ class PlayNowRemoteTests(unittest.TestCase):
             'Refusing to run QEMU on macOS',
             'ALLOW_LOCAL_VM:-0',
             'validate_tcp_port NOVNC_PORT "$NOVNC_PORT"',
+            'validate_vnc_display "$VNC_DISPLAY"',
+            'ensure_wad_path_outside_repo',
+            'ensure_loopback_port_free "QEMU VNC" "$VNC_PORT"',
             'python3 tools/check_play_now_remote.py',
             'if [ "$RUN_PREFLIGHT_ONLY" = "1" ]; then',
             '/tmp/vibe-os-DOOM1.WAD',
             'tools/prepare_shareware_wad.py',
-            'make clean',
+            'rm -f build/disk.img',
+            'Reusing cached objects when valid',
             'make DOOM_WAD="$WAD_PATH"',
             'websockify --web=/usr/share/novnc',
             '/vnc.html?autoconnect=1',

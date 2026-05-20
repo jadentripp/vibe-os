@@ -62,8 +62,9 @@ Options:
   --preflight, --dry-run  Check gh/git/ref/port safety and print the plan
                           without creating, starting, or modifying a Codespace.
   --web-url               Print a browser-only Codespaces creation URL plus
-                          the in-Codespace play command, then exit. This does
-                          not require the gh codespace API scope.
+                          the in-Codespace play command, then exit. With
+                          --repo/--ref this does not require gh auth or the
+                          gh Codespaces API scope.
   --no-open               Do not open the noVNC URL automatically on macOS.
   -h, --help              Show this help.
 EOF
@@ -80,6 +81,10 @@ require_tool() {
 
 require_gh_auth() {
   gh auth status -h github.com >/dev/null 2>&1 || die "GitHub CLI is not authenticated for github.com; run gh auth login before launching Codespaces"
+}
+
+gh_auth_available() {
+  command -v gh >/dev/null 2>&1 && gh auth status -h github.com >/dev/null 2>&1
 }
 
 require_gh_codespaces_access() {
@@ -177,14 +182,17 @@ verify_github_remote_ref() {
     die "GitHub branch '$REF' was not found in '$REPO'; push it first or pass a branch that exists remotely"
   fi
 
-  REPO_DATABASE_ID="$(
-    gh api -H "Accept: application/vnd.github+json" "/repos/$REPO" --jq .id 2>/dev/null || true
-  )"
-  case "$REPO_DATABASE_ID" in
-    ''|*[!0-9]*)
-      REPO_DATABASE_ID=""
-      ;;
-  esac
+  REPO_DATABASE_ID=""
+  if gh_auth_available; then
+    REPO_DATABASE_ID="$(
+      gh api -H "Accept: application/vnd.github+json" "/repos/$REPO" --jq .id 2>/dev/null || true
+    )"
+    case "$REPO_DATABASE_ID" in
+      ''|*[!0-9]*)
+        REPO_DATABASE_ID=""
+        ;;
+    esac
+  fi
 }
 
 urlencode() {
@@ -262,7 +270,9 @@ current_repo() {
       printf "%s\n" "${url%.git}"
       ;;
     *)
-      gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null
+      if gh_auth_available; then
+        gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true
+      fi
       ;;
   esac
 }
@@ -431,6 +441,7 @@ print_web_url_summary() {
   echo "GitHub repo/ref: verified"
   echo "remote play payload: verified on selected ref"
   echo "local gh Codespaces API: not required for this browser path"
+  echo "local gh auth: optional for this browser path"
   echo "local artifact transfer: none (no WADs, disk images, pixels, raw audio, or logs copied to the Mac)"
   echo "Codespaces create URL:"
   echo "$(codespaces_create_url)"
@@ -551,9 +562,7 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-require_tool gh
 require_tool git
-require_gh_auth
 validate_novnc_port
 validate_positive_integer CODESPACES_PORT_WAIT_SECONDS "$CODESPACES_PORT_WAIT_SECONDS"
 validate_positive_integer CODESPACES_PORT_WAIT_INTERVAL "$CODESPACES_PORT_WAIT_INTERVAL"
@@ -583,6 +592,8 @@ if [ "$PRINT_WEB_URL_ONLY" = "1" ]; then
   exit 0
 fi
 
+require_tool gh
+require_gh_auth
 require_gh_codespaces_access
 
 if [ -z "$CODESPACE_NAME" ] && [ -z "$DISPLAY_NAME" ]; then

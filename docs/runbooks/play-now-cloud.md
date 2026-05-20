@@ -68,6 +68,9 @@ in the browser, create the Codespace, and run:
 
 The devcontainer prints those commands when you attach, so a Codespace created
 from the GitHub web UI has the same path as the CLI-created one.
+With explicit `--repo` and `--ref`, `--web-url` also works when local `gh` auth
+is unavailable; in that case it falls back to the generic Codespaces creation
+URL after verifying the branch and play payload with `git`.
 
 Optional dry run:
 
@@ -140,6 +143,9 @@ The script refuses to run QEMU on macOS. Use a disposable remote Linux host or
 Codespace for playtesting. It fetches the validated shareware `DOOM1.WAD` to
 `/tmp/vibe-os-DOOM1.WAD`, keeps WAD data outside the repo, and does not upload
 disk images, pixels, WADs, or raw audio.
+On repeated launches in the same remote checkout, it reuses cached object files
+but deletes and rebuilds `build/disk.img` so the boot image always binds the
+freshly validated WAD.
 
 The Mac-side Codespaces launcher does not download WADs, disk images, rendered
 pixels, raw audio, or remote logs. If you need a proof bundle later, use the

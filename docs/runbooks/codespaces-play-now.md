@@ -56,6 +56,10 @@ Open the printed `codespaces/new` URL, confirm the branch and
 `.devcontainer/devcontainer.json`, then click `Create codespace`. When the
 browser terminal attaches, `.devcontainer/play-now-welcome.sh` prints the two
 commands to start the real vibe-os boot path.
+With explicit `--repo` and `--ref`, this browser-only mode does not require
+local `gh` authentication. If authenticated `gh` is unavailable, the launcher
+still verifies the pushed branch and required play files with `git`, then falls
+back to the generic Codespaces creation URL.
 
 The launch creates a disposable Codespace from the current repo and branch,
 starts `./tools/play_now_remote.sh` inside it, waits for noVNC, sets port `6080`
@@ -153,6 +157,9 @@ of silently falling back to a raw VNC-only setup. The play script fetches and
 validates the shareware `DOOM1.WAD` into `/tmp/vibe-os-DOOM1.WAD`, outside the
 repository. Leave it outside git. The script refuses to run QEMU on macOS; this
 runbook uses remote Codespaces QEMU only.
+For fast retries, the play script preserves valid cached compilation outputs
+but removes and rebuilds `build/disk.img` on every launch. That keeps the
+image tied to the validated WAD without forcing a full clean rebuild.
 
 ## Open noVNC
 

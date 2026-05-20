@@ -7,6 +7,7 @@ WAD_PATH="${WAD_PATH:-/tmp/vibe-os-DOOM1.WAD}"
 VNC_DISPLAY="${VNC_DISPLAY:-1}"
 NOVNC_PORT="${NOVNC_PORT:-6080}"
 PLAY_BUILD_DIR="${PLAY_BUILD_DIR:-build/play-now}"
+VNC_PORT=""
 
 usage() {
   cat <<'EOF'
@@ -43,6 +44,80 @@ validate_tcp_port() {
   fi
 }
 
+validate_vnc_display() {
+  local value="$1"
+  local display
+
+  case "$value" in
+    ''|*[!0-9]*)
+      fail_remote "VNC_DISPLAY must be a non-negative integer, got '$value'"
+      ;;
+  esac
+  display=$((10#$value))
+  if [ "$display" -gt 59635 ]; then
+    fail_remote "VNC_DISPLAY must map to a TCP port between 5900 and 65535, got '$value'"
+  fi
+  # VNC_PORT is the validated form of 127.0.0.1:$((5900 + VNC_DISPLAY)).
+  VNC_PORT=$((5900 + display))
+}
+
+loopback_port_in_use() {
+  python3 - "$1" <<'PY'
+import socket
+import sys
+
+port = int(sys.argv[1])
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    sock.bind(("127.0.0.1", port))
+except OSError:
+    sys.exit(0)
+finally:
+    sock.close()
+sys.exit(1)
+PY
+}
+
+ensure_loopback_port_free() {
+  local label="$1"
+  local port="$2"
+
+  if loopback_port_in_use "$port"; then
+    fail_remote "$label port 127.0.0.1:$port is already in use; stop the old remote play session or choose another port"
+  fi
+}
+
+ensure_wad_path_outside_repo() {
+  python3 - "$WAD_PATH" <<'PY'
+from pathlib import Path
+import subprocess
+import sys
+
+wad_path = Path(sys.argv[1]).expanduser().resolve()
+try:
+    repo_root = Path(
+        subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    ).resolve()
+except Exception:
+    repo_root = Path.cwd().resolve()
+
+try:
+    wad_path.relative_to(repo_root)
+except ValueError:
+    sys.exit(0)
+
+print(
+    f"WAD_PATH must stay outside the git checkout; refusing repo-local path: {wad_path}",
+    file=sys.stderr,
+)
+sys.exit(1)
+PY
+}
+
 RUN_PREFLIGHT_ONLY=0
 REQUIRE_NOVNC=0
 while [ "$#" -gt 0 ]; do
@@ -67,6 +142,10 @@ while [ "$#" -gt 0 ]; do
 done
 
 validate_tcp_port NOVNC_PORT "$NOVNC_PORT"
+validate_vnc_display "$VNC_DISPLAY"
+if [ "$NOVNC_PORT" -eq "$VNC_PORT" ]; then
+  fail_remote "NOVNC_PORT and VNC_DISPLAY both map to 127.0.0.1:$NOVNC_PORT; choose different ports"
+fi
 
 if [ "$(uname -s)" = "Darwin" ] && [ "${ALLOW_LOCAL_VM:-0}" != "1" ]; then
   cat >&2 <<'EOF'
@@ -91,6 +170,12 @@ fi
 python3 tools/check_play_now_remote.py "${preflight_args[@]}"
 if [ "$RUN_PREFLIGHT_ONLY" = "1" ]; then
   exit 0
+fi
+
+ensure_wad_path_outside_repo
+ensure_loopback_port_free "QEMU VNC" "$VNC_PORT"
+if command -v websockify >/dev/null 2>&1 && [ -d /usr/share/novnc ]; then
+  ensure_loopback_port_free "noVNC" "$NOVNC_PORT"
 fi
 
 codespaces_novnc_url() {
@@ -126,14 +211,20 @@ python3 tools/prepare_shareware_wad.py \
   --output "$WAD_PATH"
 
 echo "Building vibe-os Doom disk image"
-make clean
+echo "Reusing cached objects when valid; forcing only build/disk.img to bind the validated WAD."
+rm -f build/disk.img
 make DOOM_WAD="$WAD_PATH"
 mkdir -p "$PLAY_BUILD_DIR"
 
 if command -v websockify >/dev/null 2>&1 && [ -d /usr/share/novnc ]; then
-  websockify --web=/usr/share/novnc "127.0.0.1:$NOVNC_PORT" "127.0.0.1:$((5900 + VNC_DISPLAY))" \
+  websockify --web=/usr/share/novnc "127.0.0.1:$NOVNC_PORT" "127.0.0.1:$VNC_PORT" \
     >"$PLAY_BUILD_DIR/novnc.log" 2>&1 &
   WEBSOCKIFY_PID="$!"
+  sleep 1
+  if ! kill -0 "$WEBSOCKIFY_PID" >/dev/null 2>&1; then
+    wait "$WEBSOCKIFY_PID" 2>/dev/null || true
+    fail_remote "websockify exited before noVNC was ready; see $PLAY_BUILD_DIR/novnc.log"
+  fi
   echo "noVNC tunnel/local URL: http://127.0.0.1:$NOVNC_PORT/vnc.html?autoconnect=1"
   if codespaces_url="$(codespaces_novnc_url)" && [ -n "$codespaces_url" ]; then
     echo "Codespaces noVNC URL: $codespaces_url"
@@ -144,11 +235,11 @@ else
     fail_remote "noVNC was required but websockify or /usr/share/novnc is unavailable"
   fi
   echo "noVNC not found; use SSH VNC tunnel instead:"
-  echo "  ssh -L $((5900 + VNC_DISPLAY)):127.0.0.1:$((5900 + VNC_DISPLAY)) user@remote-host"
-  echo "Then connect a VNC client to localhost:$((5900 + VNC_DISPLAY))."
+  echo "  ssh -L $VNC_PORT:127.0.0.1:$VNC_PORT user@remote-host"
+  echo "Then connect a VNC client to localhost:$VNC_PORT."
 fi
 
-echo "Starting remote QEMU VNC display :$VNC_DISPLAY on 127.0.0.1:$((5900 + VNC_DISPLAY))"
+echo "Starting remote QEMU VNC display :$VNC_DISPLAY on 127.0.0.1:$VNC_PORT"
 echo "Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu."
 qemu-system-x86_64 \
   -machine pc,accel=tcg \
@@ -163,4 +254,9 @@ qemu-system-x86_64 \
   -no-reboot \
   -no-shutdown &
 QEMU_PID="$!"
+sleep 1
+if ! kill -0 "$QEMU_PID" >/dev/null 2>&1; then
+  wait "$QEMU_PID" 2>/dev/null || true
+  fail_remote "QEMU exited immediately; see $PLAY_BUILD_DIR/serial.log and $PLAY_BUILD_DIR/novnc.log if present"
+fi
 wait "$QEMU_PID"
