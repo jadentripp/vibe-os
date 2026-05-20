@@ -59,6 +59,30 @@ class VmSafetyContractTests(unittest.TestCase):
             with self.subTest(needle=needle):
                 self.assertIn(needle, script)
 
+    def test_cloud_play_now_workflow_is_dry_run_only(self):
+        check_vm_safety_contract.validate_repo_contract(ROOT)
+        workflow = (ROOT / ".github" / "workflows" / "cloud-play-now-preflight.yml").read_text()
+
+        for needle in (
+            "workflow_dispatch:",
+            "NOVNC_PORT: ${{ inputs.novnc_port }}",
+            "./tools/play_now_remote.sh \"${args[@]}\"",
+            "dry-run: QEMU was not launched",
+            "python3 tools/check_vm_safety_contract.py",
+            "VIBE_REPO=${{ github.repository }} VIBE_REF=${{ github.ref_name }} ./tools/play_now_codespaces.sh",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, workflow)
+
+        for forbidden in (
+            "actions/upload-artifact",
+            "make DOOM_WAD",
+            "DOOM1.WAD",
+            "build/disk.img",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, workflow)
+
     def test_cloud_runbook_rejects_unmarked_qemu_commands(self):
         bad = """
 CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC

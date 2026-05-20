@@ -101,9 +101,10 @@ boot:
   menu bit without reading WAD or framebuffer artifacts.
 - `tools/check_audio_continuity_proof.py` is the remote-safe SB16 audio gate. It
   compares the same decoded status snapshots, requires `audio=SB16`, and proves
-  IRQ/refill, non-music SFX, music mixing, `voiceq=` stream-update counters,
-  and kernel-visible `musicpos=` progress without storing audio samples. This
-  is still not a full hardware-paced MUS/MIDI pull-stream proof.
+  IRQ/refill, non-music SFX, `sfxdma=` IRQ-refill SFX output, music mixing,
+  `voiceq=` stream-update counters, and kernel-visible `musicpos=` progress
+  without storing audio samples. This is still not a kernel-owned MUS/MIDI
+  renderer proof.
 - `tools/check_audible_audio_proof.py` is the optional remote audible-output
   gate. In cloud it analyzes a temporary QEMU WAV capture into aggregate
   `audio-proof.json`, validates non-silent duration/window/RMS/peak metrics tied
@@ -195,6 +196,11 @@ boot:
   `tools/play_now_remote.sh` inside it, mark noVNC port `6080` private, and
   print/open the noVNC URL. It must not run QEMU locally or copy WAD, disk,
   pixel, screenshot, log, or raw-audio artifacts back from Codespaces.
+- `.github/workflows/cloud-play-now-preflight.yml` is the manual cloud dry-run
+  for the play host shape. It installs the remote dependencies on
+  `ubuntu-latest`, runs `tools/play_now_remote.sh --preflight --require-novnc`,
+  checks the safety contract, and exits before QEMU, WAD fetch, image build, or
+  artifact upload.
 - `tools/triage_cloud_status.py` classifies a downloaded real-WAD status line
   into the first repair lane. The custom linker also writes `build/doom.symbols`
   so cloud artifacts can symbolize `doomfaultip` and decode page-fault/WAD I/O

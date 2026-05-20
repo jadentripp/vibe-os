@@ -239,7 +239,7 @@ The cloud proof requires these status families:
 - Doom timer proof: `dtick` is the kernel's 35 Hz Doom time conversion and must
   equal `floor(ticks * 35 / 100)`, so the real-WAD checker can distinguish PIT
   progress from Doom's expected tic rate.
-- Audio/mouse observability: `audio`, `doomsound`, `sfxmix`, `voices`,
+- Audio/mouse observability: `audio`, `doomsound`, `sfxmix`, `sfxdma`, `voices`,
   `sfxvoices`, `musicvoices`, `musicmix`, `musicloop`, `musicpos`, `musicbuf`,
   `musicunder`, `musicdrops`, `sb16`, `dma`, `play`, `voiceq`, `musicq`,
   `audioirq`, `ack8`,
@@ -251,9 +251,10 @@ The cloud proof requires these status families:
   `tools/check_audio_continuity_proof.py` is the stricter SB16 path: it compares
   the phase snapshots using status snapshots only, requires `audio=SB16`, and
   proves SB16 version, DMA programming, playback start, voice queue, IRQ/refill,
-  non-music SFX, music mixing, kernel-visible `musicpos=` progress, and
-  pull-requested music chunk service with advancing `musicpull=` counters
-  progressed without uploading audio samples. It does not upload audio samples.
+  non-music SFX, `sfxdma=` SFX bytes from the IRQ-driven DMA refill mixer,
+  music mixing, kernel-visible `musicpos=` progress, and pull-requested music
+  chunk service with advancing `musicpull=` counters progressed without
+  uploading audio samples. It does not upload audio samples.
   `tools/check_audio_continuity_proof.py` checks status snapshots only and
   does not upload audio samples.
 - Optional audible-output proof: when the manual workflow is run with
@@ -262,8 +263,9 @@ The cloud proof requires these status families:
   aggregate `audio-proof.json`, and the workflow deletes the WAV before upload.
   The manifest proves non-silent remote audio output tied to the final
   `audio=SB16` status counters and the same status-only SB16 continuity gate.
-  It fails if the music path moves but non-music `sfxmix=` does not progress,
-  and it does not upload the WAV or any captured samples.
+  It fails if the music path moves but non-music `sfxmix=` or IRQ-refill
+  `sfxdma=` does not progress, and it does not upload the WAV or any captured
+  samples.
 - Scheduler proof: `preempt`, `pirq`, `pattempt`, `pskip`, `puser`, `pround`,
   `pctx`, `pmask`, `pfrom`, `pto`, `pkind`, `peip`, `pcr3`, `pkstk`, `pspin`, and
   `pself=OK` expose live PIT preemption. A valid proof requires `pirq` to match

@@ -85,12 +85,17 @@ class AudioContractTests(unittest.TestCase):
             "inc dword [sb16_sfx_mix_count]",
             "add [sb16_sfx_mix_bytes], eax",
             "add [sb16_sfx_output_bytes], eax",
+            "inc dword [sb16_sfx_dma_mix_count]",
+            "add [sb16_sfx_dma_mix_bytes], eax",
             "inc dword [sb16_sfx_wad_start_count]",
             "sb16_sfx_last_rate dd 0",
+            "sb16_sfx_dma_mix_count dd 0",
+            "sb16_sfx_dma_mix_bytes dd 0",
             "inc dword [sb16_mix_underrun_count]",
             "smoke_sfxmix_text db \" sfxmix=\"",
             "smoke_sfxq_text db \" sfxq=\"",
             "smoke_sfxbytes_text db \" sfxbytes=\"",
+            "smoke_sfxdma_text db \" sfxdma=\"",
             "smoke_sfxsrc_text db \" sfxsrc=\"",
             "smoke_sfxlast_text db \" sfxlast=\"",
         ):
@@ -223,6 +228,7 @@ class AudioContractTests(unittest.TestCase):
             "smoke_musicpull_text db \" musicpull=\"",
             "smoke_sfxq_text db \" sfxq=\"",
             "smoke_sfxbytes_text db \" sfxbytes=\"",
+            "smoke_sfxdma_text db \" sfxdma=\"",
             "smoke_sfxsrc_text db \" sfxsrc=\"",
             "smoke_sfxlast_text db \" sfxlast=\"",
             "smoke_sb16ver_text db \" sb16=\"",
@@ -247,6 +253,8 @@ class AudioContractTests(unittest.TestCase):
             "mov edx, [sb16_music_pull_refill_count]",
             "mov edx, [sb16_sfx_voice_start_count]",
             "mov edx, [sb16_sfx_submit_bytes]",
+            "mov edx, [sb16_sfx_dma_mix_count]",
+            "mov edx, [sb16_sfx_dma_mix_bytes]",
             "mov edx, [sb16_sfx_wad_start_count]",
             "mov edx, [sb16_sfx_last_rate]",
             "mov edx, [sb16_dma_program_count]",
@@ -260,6 +268,7 @@ class AudioContractTests(unittest.TestCase):
             'grep -q "sfxmix="',
             'grep -q "sfxq="',
             'grep -q "sfxbytes="',
+            'grep -q "sfxdma="',
             'grep -q "sfxsrc="',
             'grep -q "sfxlast="',
             'grep -q "voices="',
@@ -369,6 +378,7 @@ class AudioContractTests(unittest.TestCase):
         self.assertIn("sfxvoices=", audio_doc)
         self.assertIn("sfxq=", audio_doc)
         self.assertIn("sfxbytes=", audio_doc)
+        self.assertIn("sfxdma=", audio_doc)
         self.assertIn("sfxsrc=", audio_doc)
         self.assertIn("sfxlast=", audio_doc)
         self.assertIn("sfxmix=` counts only normal Doom SFX voices", audio_doc)

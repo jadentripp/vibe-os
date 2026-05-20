@@ -404,6 +404,7 @@ static void checkpoint_save_slot_if_needed(void)
     strcpy(savedescription, "VIBE SAVE");
     sendsave = false;
     gameaction = ga_savegame;
+    G_DoSaveGame();
     save_checkpoint_done = 1;
 }
 

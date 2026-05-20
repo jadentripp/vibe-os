@@ -17,6 +17,12 @@ CODESPACES_PORT_WAIT_INTERVAL="${CODESPACES_PORT_WAIT_INTERVAL:-5}"
 MAX_DISPLAY_NAME_LENGTH=48
 RUN_PREFLIGHT_ONLY=0
 GIT_STATE_SUMMARY=""
+REMOTE_PLAY_PATHS=(
+  ".devcontainer/devcontainer.json"
+  ".devcontainer/Dockerfile"
+  "tools/play_now_remote.sh"
+  "tools/check_play_now_remote.py"
+)
 
 if [ -n "${VIBE_REPO:-}" ]; then
   REPO_EXPLICIT=1
@@ -34,7 +40,8 @@ tools/play_now_remote.sh, make noVNC private, and print the browser URL.
 
 This script is safe to run on the Mac: it uses gh to control Codespaces only.
 QEMU, the shareware WAD, disk image, pixels, and raw audio stay inside the
-Codespace.
+Codespace. The selected GitHub branch must already contain the devcontainer
+and remote play scripts; local uncommitted launcher edits are never copied.
 
 Options:
   --repo OWNER/REPO       Repository to create the Codespace from.
@@ -69,6 +76,27 @@ require_gh_codespaces_access() {
   gh api -H "Accept: application/vnd.github+json" "/user/codespaces?per_page=1" >/dev/null 2>&1 || {
     die "GitHub CLI token cannot access Codespaces; run: gh auth refresh -h github.com -s codespace"
   }
+}
+
+require_remote_play_path() {
+  local path="$1"
+
+  gh api \
+    --method GET \
+    -H "Accept: application/vnd.github+json" \
+    "/repos/$REPO/contents/$path" \
+    -f "ref=$REF" \
+    --jq .type >/dev/null 2>&1 || {
+      die "GitHub branch '$REF' in '$REPO' is missing required play-now path '$path'; push the devcontainer and remote play launcher before starting Codespaces"
+    }
+}
+
+verify_remote_play_payload() {
+  local path
+
+  for path in "${REMOTE_PLAY_PATHS[@]}"; do
+    require_remote_play_path "$path"
+  done
 }
 
 validate_repo_slug() {
@@ -281,6 +309,7 @@ print_preflight_summary() {
   echo "browser open: $OPEN_BROWSER"
   echo "GitHub Codespaces API: accessible"
   echo "GitHub repo/ref: verified"
+  echo "remote play payload: verified on selected ref"
   echo "git state: $GIT_STATE_SUMMARY"
   echo "local artifact transfer: none (no WADs, disk images, pixels, raw audio, or logs copied to the Mac)"
   echo "remote preflight command: ./tools/play_now_remote.sh --preflight --require-novnc"
@@ -423,6 +452,7 @@ else
 fi
 
 verify_github_remote_ref
+verify_remote_play_payload
 require_gh_codespaces_access
 
 if [ -z "$CODESPACE_NAME" ] && [ -z "$DISPLAY_NAME" ]; then

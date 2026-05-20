@@ -34,8 +34,9 @@ If you omit `--ref`/`VIBE_REF`, the launcher infers the current git branch and
 uses it as proof of what will run remotely. In that inferred-branch mode it
 refuses a dirty checkout or a current branch that differs from its upstream.
 
-The launcher checks GitHub CLI auth, the selected repo/ref, the chosen
-Codespaces machine, and the noVNC port before creating anything.
+The launcher checks GitHub CLI auth, the selected repo/ref, the required
+remote play files on that pushed ref, the chosen Codespaces machine, and the
+noVNC port before creating anything.
 If GitHub CLI reports a missing Codespaces API scope, refresh it once:
 
 ```sh
@@ -107,12 +108,20 @@ creating a Codespace:
 
 Expected successful output includes `play-now Codespaces preflight OK`, the
 repo, ref, selected machine, `noVNC port: 6080 (private)`, the noVNC wait
-timeout, `GitHub repo/ref: verified`, and `local artifact transfer: none`. The
-dry run also prints `dry-run: Codespace was not created or modified`. If it
-reports a dirty tree, missing upstream, or ahead/behind counts, either fix and
-push the current branch or rerun with explicit `--repo` and `--ref` for a branch
-that already exists on GitHub. Invalid noVNC ports and inaccessible GitHub
-repos/branches always fail before Codespaces creation.
+timeout, `GitHub repo/ref: verified`, `remote play payload: verified on
+selected ref`, and `local artifact transfer: none`. The dry run also prints
+`dry-run: Codespace was not created or modified`. If it reports a dirty tree,
+missing upstream, or ahead/behind counts, either fix and push the current branch
+or rerun with explicit `--repo` and `--ref` for a branch that already exists on
+GitHub. Invalid noVNC ports, inaccessible GitHub repos/branches, and branches
+missing the devcontainer or remote play scripts always fail before Codespaces
+creation.
+
+For a GitHub-hosted prerequisite check that does not create a Codespace, run
+the manual **Cloud play-now preflight** workflow on the same branch. It executes
+the remote runner preflight with `--require-novnc` on `ubuntu-latest`, checks
+the VM safety contract, and does not fetch a WAD, build `disk.img`, launch QEMU,
+or upload artifacts.
 
 ## Run The Play Script
 

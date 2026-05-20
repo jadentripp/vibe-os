@@ -78,7 +78,8 @@ this continuity is testable and separate from normal Doom SFX. It also exposes
 `musicpull=<requests>:<refills>` to make the current request/service contract
 explicit. This is hardware-paced pull service, not a claim that the kernel owns
 MUS/MIDI parsing or synthesis. `sfxmix=` counts only non-music sound effects,
-while music increments `musicmix=`.
+`sfxdma=` proves those sound effects reached the SB16 IRQ refill mixer, and
+music increments `musicmix=`.
 
 The remote-safe audio checker now proves that the SB16 path mixed non-music SFX,
 mixed music, accepted streamed music chunk updates, and advanced kernel-visible
@@ -89,9 +90,10 @@ least one music snapshot must show a buffered stream window. It now also
 requires more than one stream update and changing `musicbuf=` values so the
 proof includes stream-health movement instead of a static carrier. The gate also
 requires the scripted fire phase to advance Doom sound calls and non-music SFX
-mixing, so music-only or carrier-only output cannot stand in for firing the
-shotgun in the play proof. It also requires no new `mixclip=`, `musicunder=`, or
-`musicdrops=` deltas during the scripted proof. For PULL mode it requires
+mixing plus `sfxdma=` IRQ-refill output, so music-only, carrier-only, or
+submit-only output cannot stand in for firing the shotgun in the play proof. It
+also requires no new `mixclip=`, `musicunder=`, or `musicdrops=` deltas during
+the scripted proof. For PULL mode it requires
 advancing `musicpull=` request and refill counters, with the refill count never
 exceeding requests, plus `voiceq=` update-service evidence for the chunks the
 port rendered. The checker treats this lane as separate from normal Doom SFX

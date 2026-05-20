@@ -33,6 +33,7 @@ def status_line(**overrides):
         "sfxmix": "00000008",
         "sfxq": "00000004:00000000:00000001:00000001",
         "sfxbytes": "00001000:00002000",
+        "sfxdma": "00000008:00002000",
         "sfxsrc": "00000004",
         "sfxlast": "0000003E:00002B11:00000400",
         "sfxvoices": "00000001",
@@ -88,12 +89,14 @@ def phase_statuses(*, carrier_only=False):
     sfx_final = "00000001" if carrier_only else "00000008"
     sfx_src_final = "00000001" if carrier_only else "00000004"
     sfx_bytes_final = "00000400:00000400" if carrier_only else "00001000:00002000"
+    sfx_dma_final = "00000001:00000400" if carrier_only else "00000008:00002000"
     return {
         "baseline": status_line(
             doomsound="00000001",
             sfxmix="00000001",
             sfxq="00000001:00000000:00000000:00000000",
             sfxbytes="00000400:00000400",
+            sfxdma="00000001:00000400",
             sfxsrc="00000001",
             sfxlast="00000001:00002B11:00000400",
             audioirq="00000001",
@@ -111,6 +114,7 @@ def phase_statuses(*, carrier_only=False):
             if carrier_only
             else "00000002:00000000:00000000:00000000",
             sfxbytes="00000400:00000400" if carrier_only else "00000800:00000C00",
+            sfxdma="00000001:00000400" if carrier_only else "00000003:00000C00",
             sfxsrc="00000001" if carrier_only else "00000002",
             audioirq="00000002",
             ack8="00000002",
@@ -129,6 +133,7 @@ def phase_statuses(*, carrier_only=False):
             if carrier_only
             else "00000002:00000000:00000000:00000000",
             sfxbytes="00000400:00000400" if carrier_only else "00000800:00001000",
+            sfxdma="00000001:00000400" if carrier_only else "00000004:00001000",
             sfxsrc="00000001" if carrier_only else "00000002",
             audioirq="00000003",
             ack8="00000003",
@@ -147,6 +152,7 @@ def phase_statuses(*, carrier_only=False):
             if carrier_only
             else "00000003:00000000:00000001:00000000",
             sfxbytes="00000400:00000400" if carrier_only else "00000C00:00001400",
+            sfxdma="00000001:00000400" if carrier_only else "00000005:00001400",
             sfxsrc="00000001" if carrier_only else "00000003",
             audioirq="00000004",
             ack8="00000004",
@@ -165,6 +171,7 @@ def phase_statuses(*, carrier_only=False):
             if carrier_only
             else "00000004:00000000:00000001:00000000",
             sfxbytes="00000400:00000400" if carrier_only else "00001000:00001800",
+            sfxdma="00000001:00000400" if carrier_only else "00000006:00001800",
             sfxsrc="00000001" if carrier_only else "00000004",
             audioirq="00000005",
             ack8="00000005",
@@ -183,6 +190,7 @@ def phase_statuses(*, carrier_only=False):
             if carrier_only
             else "00000004:00000000:00000001:00000001",
             sfxbytes=sfx_bytes_final,
+            sfxdma=sfx_dma_final,
             sfxsrc=sfx_src_final,
             audioirq="00000006",
             ack8="00000006",
@@ -239,6 +247,7 @@ class AudibleAudioProofTests(unittest.TestCase):
         self.assertEqual(manifest["schema"], check_audible_audio_proof.SCHEMA)
         self.assertEqual(manifest["status"]["audio"], "SB16")
         self.assertTrue(manifest["continuity"]["non_music_sfx_progress"])
+        self.assertGreater(int(manifest["continuity"]["mix_lanes"]["non_music_sfx"]["dma_bytes_delta"], 16), 0)
         self.assertGreaterEqual(manifest["continuity"]["mix_lanes"]["non_music_sfx"]["active_voice_snapshots"], 0)
         self.assertGreater(manifest["continuity"]["mix_lanes"]["music"]["buffered_window_snapshots"], 0)
         self.assertGreaterEqual(manifest["continuity"]["stream_health"]["distinct_buffer_windows"], 2)
@@ -264,6 +273,7 @@ class AudibleAudioProofTests(unittest.TestCase):
         self.assertTrue(manifest["continuity"]["scripted_phase_proof"]["requires_scripted_fire_sfx"])
         self.assertGreater(int(manifest["continuity"]["scripted_phase_proof"]["doomsound_delta"], 16), 0)
         self.assertGreater(int(manifest["continuity"]["scripted_phase_proof"]["sfxmix_delta"], 16), 0)
+        self.assertGreater(int(manifest["continuity"]["scripted_phase_proof"]["sfxdma_delta"], 16), 0)
         self.assertFalse(manifest["artifact_policy"]["contains_raw_audio"])
         self.assertFalse(manifest["artifact_policy"]["raw_audio_upload_allowed"])
         self.assertFalse(manifest["artifact_policy"]["vnc_carries_audio_by_default"])
@@ -559,6 +569,7 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "sfxmix": "00000002",
                 "sfxq": "00000002:00000000:00000000:00000002",
                 "sfxbytes": "00000800:00001000",
+                "sfxdma": "00000002:00001000",
                 "sfxsrc": "00000002",
                 "sfxlast": "00000001:00002B11:00000400",
                 "sfxvoices": "00000000",
@@ -589,6 +600,8 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "sfxq_submit": {"start": "00000001", "final": "00000002", "delta": "00000001"},
                     "sfxbytes_submit": {"start": "00000400", "final": "00000800", "delta": "00000400"},
                     "sfxbytes_output": {"start": "00000400", "final": "00001000", "delta": "00000C00"},
+                    "sfxdma_mix": {"start": "00000001", "final": "00000002", "delta": "00000001"},
+                    "sfxdma_bytes": {"start": "00000400", "final": "00001000", "delta": "00000C00"},
                     "musicmix": {"start": "00000001", "final": "00000002", "delta": "00000001"},
                     "musicpos": {"start": "00000001", "final": "00000400", "delta": "000003FF"},
                     "voiceq_update": {"start": "00000000", "final": "00000002", "delta": "00000002"},
@@ -605,6 +618,9 @@ class AudibleAudioProofTests(unittest.TestCase):
                         "submit_delta": "00000001",
                         "submit_bytes_delta": "00000400",
                         "output_bytes_delta": "00000C00",
+                        "dma_counter": "sfxdma",
+                        "dma_mix_delta": "00000001",
+                        "dma_bytes_delta": "00000C00",
                         "active_voice_snapshots": 0,
                     },
                     "music": {
@@ -664,6 +680,7 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "sfxsrc_delta": "00000001",
                     "sfxsubmit_delta": "00000001",
                     "sfxoutput_delta": "00000400",
+                    "sfxdma_delta": "00000400",
                     "musicmix_delta": "00000001",
                     "claim": (
                         "scripted fire must advance Doom sound calls and "

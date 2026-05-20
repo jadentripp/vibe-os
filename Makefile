@@ -272,6 +272,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "sfxmix=" $(BUILD_DIR)/status.txt; \
 	grep -q "sfxq=" $(BUILD_DIR)/status.txt; \
 	grep -q "sfxbytes=" $(BUILD_DIR)/status.txt; \
+	grep -q "sfxdma=" $(BUILD_DIR)/status.txt; \
 	grep -q "sfxsrc=" $(BUILD_DIR)/status.txt; \
 	grep -q "sfxlast=" $(BUILD_DIR)/status.txt; \
 	grep -q "voices=" $(BUILD_DIR)/status.txt; \

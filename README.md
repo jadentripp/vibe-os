@@ -137,6 +137,14 @@ Codespaces scope, run `gh auth refresh -h github.com -s codespace` once. To
 check the plan without creating or modifying a Codespace, run
 `./tools/play_now_codespaces.sh --preflight` first.
 
+The launcher also verifies that the selected pushed branch contains the
+devcontainer and remote play scripts before it creates a Codespace. If you want
+a GitHub-hosted prerequisite check without opening an interactive session, run
+the manual **Cloud play-now preflight** workflow on the same branch. That
+workflow installs the remote play dependencies, runs
+`./tools/play_now_remote.sh --preflight --require-novnc`, checks the VM safety
+contract, and exits before QEMU, WAD fetch, image build, or artifact upload.
+
 If you already have a disposable remote Linux host or are already inside a
 Codespace, run:
 
