@@ -105,6 +105,52 @@ decode_status() {
   fi
 }
 
+status_field_value() {
+  local field="$1"
+  local path="$2"
+
+  awk -v key="$field" '
+    BEGIN { prefix = key "=" }
+    {
+      for (i = 1; i <= NF; i++) {
+        if (index($i, prefix) == 1) {
+          print substr($i, length(prefix) + 1)
+          found = 1
+          exit 0
+        }
+      }
+    }
+    END {
+      if (!found) {
+        exit 1
+      }
+    }
+  ' "$path"
+}
+
+status_field_matches() {
+  local path="$1"
+  local field="$2"
+  local expected="$3"
+  local value
+
+  value="$(status_field_value "$field" "$path" 2>/dev/null)" || return 1
+  [ "$value" = "$expected" ]
+}
+
+status_field_hex_at_least() {
+  local path="$1"
+  local field="$2"
+  local minimum="$3"
+  local value
+
+  value="$(status_field_value "$field" "$path" 2>/dev/null)" || return 1
+  case "$value" in
+    ""|*[!0123456789abcdefABCDEF]*) return 1 ;;
+  esac
+  [ $((16#$value)) -ge $((16#$minimum)) ]
+}
+
 decode_vga() {
   local input="$1"
   local output="$2"
@@ -221,6 +267,37 @@ validate_phase_label() {
   esac
 }
 
+validate_status_field_name() {
+  local field="$1"
+
+  case "$field" in
+    ""|*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_]*)
+      fail_smoke "status field names must use only letters, digits, or underscore: '$field'."
+      ;;
+  esac
+}
+
+validate_status_expected_value() {
+  local value="$1"
+
+  case "$value" in
+    ""|*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.\/:-]*)
+      fail_smoke "status expected values must not contain whitespace or shell metacharacters: '$value'."
+      ;;
+  esac
+}
+
+validate_hex_value() {
+  local value="$1"
+  local label="$2"
+
+  case "$value" in
+    ""|*[!0123456789abcdefABCDEF]*)
+      fail_smoke "$label must be a hexadecimal value, got '$value'."
+      ;;
+  esac
+}
+
 qemu_key_for_char() {
   local ch="$1"
 
@@ -304,6 +381,72 @@ send_mouse_button_action() {
   sleep_checked 1 "mouse button delivery"
 }
 
+wait_status_action() {
+  local label="$1"
+  local spec="$2"
+  local mode="$3"
+  local field
+  local expected
+  local timeout
+  local interval
+  local extra
+  local end
+  local now
+  local left
+  local sleep_for
+  local status_bin
+  local status_txt
+
+  IFS=':' read -r field expected timeout interval extra <<< "$spec"
+  if [ -z "$field" ] || [ -z "$expected" ] || [ -z "$timeout" ] || [ -n "$extra" ]; then
+    fail_smoke "$mode action must be ${mode}=FIELD:VALUE:SECONDS[:INTERVAL], got '$spec'."
+  fi
+  if [ -z "$interval" ]; then
+    interval=2
+  fi
+  validate_status_field_name "$field"
+  validate_seconds "$timeout" "timeout for $mode action in phase $label"
+  validate_seconds "$interval" "poll interval for $mode action in phase $label"
+  if [ "$interval" -eq 0 ]; then
+    fail_smoke "poll interval for $mode action in phase $label must be greater than zero."
+  fi
+  if [ "$mode" = "wait-status-min" ]; then
+    validate_hex_value "$expected" "minimum for $mode action in phase $label"
+  else
+    validate_status_expected_value "$expected"
+  fi
+
+  status_bin="$BUILD_DIR/status.$label.wait-$field.bin"
+  status_txt="$BUILD_DIR/status.$label.wait-$field.txt"
+  end=$(( $(now_s) + timeout ))
+
+  while :; do
+    rm -f "$status_bin" "$status_txt"
+    send_monitor "$mode $field=$expected" "pmemsave 0x9d000 4096 $status_bin\n" || fail_smoke "failed to capture status for $mode action in phase $label"
+    decode_status "$status_bin" "$status_txt"
+    if [ "$mode" = "wait-status-min" ]; then
+      if status_field_hex_at_least "$status_txt" "$field" "$expected"; then
+        log "Observed status field $field >= 0x$expected for phase $label."
+        return 0
+      fi
+    elif status_field_matches "$status_txt" "$field" "$expected"; then
+      log "Observed status field $field=$expected for phase $label."
+      return 0
+    fi
+
+    now="$(now_s)"
+    left=$((end - now))
+    if [ "$left" -le 0 ]; then
+      fail_smoke "Timed out waiting for $field to satisfy $mode target '$expected' in phase $label after ${timeout}s."
+    fi
+    sleep_for="$interval"
+    if [ "$sleep_for" -gt "$left" ]; then
+      sleep_for="$left"
+    fi
+    sleep_checked "$sleep_for" "$mode $field=$expected"
+  done
+}
+
 run_input_script() {
   local phase
   local label
@@ -329,6 +472,12 @@ run_input_script() {
           hold_ms="${action#wait=}"
           validate_seconds "$hold_ms" "wait duration for phase $label"
           sleep_checked "$hold_ms" "input script phase $label wait"
+          ;;
+        wait-status=*)
+          wait_status_action "$label" "${action#wait-status=}" "wait-status"
+          ;;
+        wait-status-min=*)
+          wait_status_action "$label" "${action#wait-status-min=}" "wait-status-min"
           ;;
         snapshot)
           capture_snapshot "$label" 0 || true
