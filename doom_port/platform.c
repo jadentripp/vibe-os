@@ -341,7 +341,7 @@ static int read_persistence_slot_request(const char* path, int* slot)
     if (length > 0 && buffer[0] >= '0' && buffer[0] <= '5')
         *slot = buffer[0] - '0';
 
-    return 1;
+    return length > 0;
 }
 
 static int save_checkpoint_requested_once(void)

@@ -7,6 +7,8 @@ persistent state:
   `default.cfg` by the Doom port libc, including Doom's `c:/doomdata` and
   `c:\doomdata` CD-ROM spellings.
 - `DOOMSAV0.DSG` through `DOOMSAV5.DSG`: 256 KiB per save slot.
+- `SAVEREQ.CHK` and `LOADREQ.CHK`: zero-size request markers that are only
+  active when the cloud proof writes a slot digit payload.
 
 Each pre-created file starts with root-directory size 0 and first cluster 0.
 The kernel also accepts small root-level 8.3 create/open requests from user
@@ -26,7 +28,7 @@ Current kernel contract:
   root-level 8.3 names can also be opened with write/create/truncate-style
   flags. Existing dynamic root files can be opened read-only for readback.
 - Supported persistence model: dynamic root-level FAT16 allocation for the
-  known 8.3 Doom defaults/save files and a bounded dynamic file table for
+  known 8.3 Doom defaults/save/marker files and a bounded dynamic file table for
   additional root entries.
 - Supported descriptor model: WAD reads and writable root files share the same
   open fd table, so duplicate opens get independent offsets and `close`

@@ -256,7 +256,7 @@ FD_KIND_WRITABLE equ 2
 FD_INHERIT_EXEC equ 0x1
 WAIT_OPTION_WNOHANG equ 0x1
 WAIT_SUPPORTED_OPTIONS equ WAIT_OPTION_WNOHANG
-WRITABLE_KNOWN_FILE_COUNT equ 7
+WRITABLE_KNOWN_FILE_COUNT equ 9
 WRITABLE_FILE_COUNT equ 16
 WRITABLE_DEFAULT_CAPACITY equ 0x00004000
 WRITABLE_SAVE_CAPACITY equ 0x00040000
@@ -14546,6 +14546,8 @@ doomsav2_name_83 db "DOOMSAV2DSG"
 doomsav3_name_83 db "DOOMSAV3DSG"
 doomsav4_name_83 db "DOOMSAV4DSG"
 doomsav5_name_83 db "DOOMSAV5DSG"
+savereq_name_83 db "SAVEREQ CHK"
+loadreq_name_83 db "LOADREQ CHK"
 wad_name_playpal db "PLAYPAL", 0
 wad_name_colormap db "COLORMAP"
 user_path_doom_wad db "DOOM1.WAD", 0
@@ -14566,9 +14568,13 @@ user_path_doomsav4 db "doomsav4.dsg", 0
 user_path_doomsav4_end:
 user_path_doomsav5 db "doomsav5.dsg", 0
 user_path_doomsav5_end:
-writable_name_table dd default_cfg_name_83, doomsav0_name_83, doomsav1_name_83, doomsav2_name_83, doomsav3_name_83, doomsav4_name_83, doomsav5_name_83
-writable_path_table dd user_path_default_cfg, user_path_doomsav0, user_path_doomsav1, user_path_doomsav2, user_path_doomsav3, user_path_doomsav4, user_path_doomsav5
-writable_path_len_table dd user_path_default_cfg_end - user_path_default_cfg, user_path_doomsav0_end - user_path_doomsav0, user_path_doomsav1_end - user_path_doomsav1, user_path_doomsav2_end - user_path_doomsav2, user_path_doomsav3_end - user_path_doomsav3, user_path_doomsav4_end - user_path_doomsav4, user_path_doomsav5_end - user_path_doomsav5
+user_path_savereq db "SAVEREQ.CHK", 0
+user_path_savereq_end:
+user_path_loadreq db "LOADREQ.CHK", 0
+user_path_loadreq_end:
+writable_name_table dd default_cfg_name_83, doomsav0_name_83, doomsav1_name_83, doomsav2_name_83, doomsav3_name_83, doomsav4_name_83, doomsav5_name_83, savereq_name_83, loadreq_name_83
+writable_path_table dd user_path_default_cfg, user_path_doomsav0, user_path_doomsav1, user_path_doomsav2, user_path_doomsav3, user_path_doomsav4, user_path_doomsav5, user_path_savereq, user_path_loadreq
+writable_path_len_table dd user_path_default_cfg_end - user_path_default_cfg, user_path_doomsav0_end - user_path_doomsav0, user_path_doomsav1_end - user_path_doomsav1, user_path_doomsav2_end - user_path_doomsav2, user_path_doomsav3_end - user_path_doomsav3, user_path_doomsav4_end - user_path_doomsav4, user_path_doomsav5_end - user_path_doomsav5, user_path_savereq_end - user_path_savereq, user_path_loadreq_end - user_path_loadreq
 writable_capacity_table dd WRITABLE_DEFAULT_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY
 process_exec_table:
     dd exec_path_doom, doom_elf_name_83, DOOM_ELF_LOAD_ADDR, DOOM_ELF_MAX_BYTES, process_doom

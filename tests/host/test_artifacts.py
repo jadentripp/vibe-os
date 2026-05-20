@@ -1079,6 +1079,8 @@ class SourceContractTests(unittest.TestCase):
             "LOAD_REQUEST_NAME = b\"LOADREQ CHK\"",
             "WRITABLE_SAVE_NAMES",
             "WRITABLE_DYNAMIC_FILES",
+            "(SAVE_REQUEST_NAME, SECTOR_SIZE)",
+            "(LOAD_REQUEST_NAME, SECTOR_SIZE)",
             "MIN_OS_CREATED_FILE_CLUSTERS",
             "allocate_cluster_chain",
             "free_cluster_chain",
@@ -1103,7 +1105,7 @@ class SourceContractTests(unittest.TestCase):
             "O_ACCMODE equ 0x0003",
             "O_CLOEXEC equ 0x0800",
             "O_KNOWN_MASK equ O_ACCMODE | O_CREAT | O_TRUNC | O_APPEND | O_CLOEXEC",
-            "WRITABLE_KNOWN_FILE_COUNT equ 7",
+            "WRITABLE_KNOWN_FILE_COUNT equ 9",
             "WRITABLE_FILE_COUNT equ 16",
             "WRITABLE_GENERIC_CAPACITY equ 0x00040000",
             "SYS_UNLINK equ 17",
@@ -1145,6 +1147,10 @@ class SourceContractTests(unittest.TestCase):
             "SYS_CLOSE equ 12",
         ):
             self.assertIn(source, kernel)
+        self.assertIn('savereq_name_83 db "SAVEREQ CHK"', kernel)
+        self.assertIn('loadreq_name_83 db "LOADREQ CHK"', kernel)
+        self.assertIn('user_path_savereq db "SAVEREQ.CHK", 0', kernel)
+        self.assertIn('user_path_loadreq db "LOADREQ.CHK", 0', kernel)
         open_path = kernel.split(".open:", 1)[1].split(".read:", 1)[0]
         self.assertIn("and eax, O_KNOWN_MASK", open_path)
         self.assertIn("cmp eax, [syscall_open_flags]", open_path)
