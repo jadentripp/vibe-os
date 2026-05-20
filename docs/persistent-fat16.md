@@ -83,7 +83,7 @@ mistaken for Doom-written persistence. The save validator requires Doom's
 `version 110` marker, plausible skill/episode/map bytes, single-player
 `playeringame` flags, nonzero `leveltime`, a plausible archived i386
 `player_t` record, enough non-uniform serialized world/game-state bytes, and
-the final `0x1d` consistency marker written by `G_DoSaveGame`.
+the final `0x1d` consistency marker from Doom's save serializer.
 
 For real proof, copy the fresh remote `disk.img` before boot and pass it back
 with `--baseline-image`; requested entries must differ from the baseline image.
@@ -136,10 +136,11 @@ syscall per default line. The port checkpoints defaults only when the cloud
 persistence proof has stamped a root-level `PERSIST.CHK` marker into the image,
 Doom is already in settled live gameplay, and the generated `DEFAULT.CFG` is
 still empty, partial, or missing core defaults markers. Marker-requested
-`DOOMSAV*.DSG` proof follows Doom's own `G_SaveGame` path from the platform
-ticcmd wrapper after the same settled gameplay guard instead of forcing
-`ga_savegame` directly. The default real-WAD cloud workflow waits for that
-checkpoint before snapshotting the disk; the
+`DOOMSAV*.DSG` proof uses the platform wrapper only after the same settled
+gameplay guard; it reuses Doom's `P_Archive*` serializers and `M_WriteFile`
+instead of forcing `ga_savegame` or calling `G_DoSaveGame` during boot/display
+setup. The default real-WAD cloud workflow waits for that checkpoint before
+snapshotting the disk; the
 save-slot proof path uses `SAVEREQ.CHK` from the clean captured baseline and
 waits for Doom-reported save-file write/close status. `--write-status` keeps the
 wait honest by rejecting a `DEFAULT.CFG` proof until the defaults file has been

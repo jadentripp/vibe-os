@@ -118,9 +118,13 @@ class DoomInputContractTests(unittest.TestCase):
             "default_config_needs_checkpoint()",
             'default_config_contains_marker(length, "chatmacro0")',
             "M_SaveDefaults();",
-            "G_SaveGame(save_checkpoint_slot, description);",
-            "promote_save_checkpoint_action();",
-            "tick_save_checkpoint_if_needed();",
+            "static int write_save_checkpoint_file(int slot, const char* description)",
+            "P_ArchivePlayers();",
+            "P_ArchiveWorld();",
+            "P_ArchiveThinkers();",
+            "P_ArchiveSpecials();",
+            "M_WriteFile(path, savebuffer, length)",
+            "write_save_checkpoint_file(save_checkpoint_slot, description)",
             "G_LoadGame(path);",
             "VIBE_DOOM_INPUT_KEYDOWN",
             "ev_keydown",
@@ -134,8 +138,9 @@ class DoomInputContractTests(unittest.TestCase):
         self.assertIn("doom_port/input.c", makefile)
         save_checkpoint = platform.split(
             "static void checkpoint_save_slot_if_needed(void)", 1
-        )[1].split("static void promote_save_checkpoint_action(void)", 1)[0]
+        )[1].split("static void checkpoint_load_slot_if_needed(void)", 1)[0]
         self.assertNotIn("gameaction = ga_savegame;", save_checkpoint)
+        self.assertNotIn("G_SaveGame(", platform)
         self.assertNotIn("G_DoSaveGame();", save_checkpoint)
         self.assertNotIn("G_DoSaveGame();", platform)
 

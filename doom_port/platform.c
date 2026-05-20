@@ -5,6 +5,7 @@
 #include <sys/ioctl.h>
 
 #include "d_event.h"
+#include "dstrings.h"
 #include "d_main.h"
 #include "d_net.h"
 #include "doomstat.h"
@@ -16,6 +17,7 @@
 #include "m_misc.h"
 #include "music.h"
 #include "p_mobj.h"
+#include "p_saveg.h"
 #include "vibe_os.h"
 #include "v_video.h"
 #include "w_wad.h"
@@ -26,9 +28,9 @@ extern char* defaultfile;
 extern boolean sendsave;
 extern int savegameslot;
 extern char savedescription[32];
+extern byte* savebuffer;
 void doom_original_G_BuildTiccmd(ticcmd_t* cmd);
 void doom_original_G_Ticker(void);
-void G_SaveGame(int slot, char* description);
 void G_LoadGame(char* name);
 
 static byte doom_zone[8 * 1024 * 1024];
@@ -62,7 +64,6 @@ static int save_checkpoint_request_checked;
 static int save_checkpoint_requested;
 static int save_checkpoint_slot;
 static int save_checkpoint_done;
-static int save_checkpoint_pending_special;
 static int load_checkpoint_request_checked;
 static int load_checkpoint_requested;
 static int load_checkpoint_slot;
@@ -75,6 +76,9 @@ static int load_checkpoint_done;
 #define VIBE_MUSIC_STREAM_TICS \
     ((int)((VIBE_MUSIC_STREAM_BYTES * 35u) / VIBE_MUSIC_DEFAULT_SAMPLE_RATE) / 16)
 #define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x2c000u
+#define VIBE_DOOM_SAVEGAME_BYTES 0x2c000
+#define VIBE_DOOM_SAVE_DESCRIPTION_BYTES 24
+#define VIBE_DOOM_SAVE_VERSION_BYTES 16
 
 static void report_doom_init_status(unsigned long flags)
 {
@@ -390,6 +394,62 @@ static void checkpoint_default_config_if_needed(void)
         M_SaveDefaults();
 }
 
+static int write_save_checkpoint_file(int slot, const char* description)
+{
+    char path[] = "doomsav0.dsg";
+    char version[VIBE_DOOM_SAVE_VERSION_BYTES];
+    int length;
+    int i;
+
+    if (slot < 0 || slot > 5 || !screens[1])
+        return 0;
+
+    path[7] = (char)('0' + slot);
+    savegameslot = slot;
+    sendsave = false;
+    savedescription[0] = 0;
+
+    save_p = savebuffer = screens[1] + 0x4000;
+
+    memset(save_p, 0, VIBE_DOOM_SAVE_DESCRIPTION_BYTES);
+    if (description) {
+        for (i = 0; i < VIBE_DOOM_SAVE_DESCRIPTION_BYTES - 1 && description[i]; ++i)
+            save_p[i] = (byte)description[i];
+    }
+    save_p += VIBE_DOOM_SAVE_DESCRIPTION_BYTES;
+
+    memset(version, 0, sizeof(version));
+    sprintf(version, "version %i", VERSION);
+    memcpy(save_p, version, VIBE_DOOM_SAVE_VERSION_BYTES);
+    save_p += VIBE_DOOM_SAVE_VERSION_BYTES;
+
+    *save_p++ = gameskill;
+    *save_p++ = gameepisode;
+    *save_p++ = gamemap;
+    for (i = 0; i < MAXPLAYERS; ++i)
+        *save_p++ = playeringame[i];
+    *save_p++ = leveltime >> 16;
+    *save_p++ = leveltime >> 8;
+    *save_p++ = leveltime;
+
+    P_ArchivePlayers();
+    P_ArchiveWorld();
+    P_ArchiveThinkers();
+    P_ArchiveSpecials();
+
+    *save_p++ = 0x1d;
+    length = save_p - savebuffer;
+    if (length <= 0 || length > VIBE_DOOM_SAVEGAME_BYTES)
+        return 0;
+    if (!M_WriteFile(path, savebuffer, length))
+        return 0;
+
+    gameaction = ga_nothing;
+    if (consoleplayer >= 0 && consoleplayer < MAXPLAYERS)
+        players[consoleplayer].message = GGSAVED;
+    return 1;
+}
+
 static void checkpoint_save_slot_if_needed(void)
 {
     static char description[] = "VIBE SAVE";
@@ -406,38 +466,8 @@ static void checkpoint_save_slot_if_needed(void)
     if (!save_checkpoint_requested_once())
         return;
 
-    G_SaveGame(save_checkpoint_slot, description);
-    sendsave = false;
-    save_checkpoint_pending_special = 1;
-    save_checkpoint_done = 1;
-}
-
-static void promote_save_checkpoint_action(void)
-{
-    if (!save_checkpoint_pending_special || !savedescription[0])
-        return;
-    if (gameaction != ga_nothing)
-        return;
-
-    sendsave = false;
-    gameaction = ga_savegame;
-}
-
-static void tick_save_checkpoint_if_needed(void)
-{
-    if (!save_checkpoint_pending_special || !savedescription[0])
-        return;
-    if (!default_config_checkpoint_ready())
-        return;
-    if (gameaction == ga_nothing)
-        gameaction = ga_savegame;
-    if (gameaction != ga_savegame)
-        return;
-
-    sendsave = false;
-    doom_original_G_Ticker();
-    if (!savedescription[0])
-        save_checkpoint_pending_special = 0;
+    if (write_save_checkpoint_file(save_checkpoint_slot, description))
+        save_checkpoint_done = 1;
 }
 
 static void checkpoint_load_slot_if_needed(void)
@@ -703,17 +733,12 @@ static void report_save_action_status(void)
 
 void G_BuildTiccmd(ticcmd_t* cmd)
 {
-    checkpoint_save_slot_if_needed();
     doom_original_G_BuildTiccmd(cmd);
 }
 
 void G_Ticker(void)
 {
-    promote_save_checkpoint_action();
     doom_original_G_Ticker();
-
-    if (!savedescription[0])
-        save_checkpoint_pending_special = 0;
 }
 
 static void report_playability_status(void)
@@ -806,7 +831,6 @@ void I_FinishUpdate(void)
     report_gameplay_status();
     checkpoint_load_slot_if_needed();
     checkpoint_save_slot_if_needed();
-    tick_save_checkpoint_if_needed();
     report_save_action_status();
     report_playability_status();
     report_player_detail_status();
