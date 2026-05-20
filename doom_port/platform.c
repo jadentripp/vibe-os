@@ -904,7 +904,6 @@ void G_BuildTiccmd(ticcmd_t* cmd)
 void G_Ticker(void)
 {
     doom_original_G_Ticker();
-    run_persistence_checkpoint_actions();
 }
 
 static void report_playability_status(void)

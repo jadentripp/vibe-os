@@ -311,9 +311,12 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("doom_original_G_BuildTiccmd(cmd);", platform)
         self.assertIn("void G_Ticker(void)", platform)
         self.assertIn("doom_original_G_Ticker();", platform)
-        self.assertLess(
-            platform.index("doom_original_G_Ticker();", platform.index("void G_Ticker(void)")),
-            platform.index("run_persistence_checkpoint_actions();", platform.index("void G_Ticker(void)")),
+        ticker_body = platform.split("void G_Ticker(void)", 1)[1].split(
+            "static void report_playability_status", 1
+        )[0]
+        self.assertNotIn(
+            "run_persistence_checkpoint_actions();",
+            ticker_body,
         )
         self.assertLess(
             platform.index("report_gameplay_status();", platform.index("void I_FinishUpdate(void)")),
