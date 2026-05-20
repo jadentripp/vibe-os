@@ -24,6 +24,12 @@ PROBE_USER_BASE = 0x00E80000
 PROBE_USER_END = 0x00F00000
 PREEMPT_PROBE_MAGIC = 0x50524545
 SYS_EXEC_ARGV_SOURCE_USER = 2
+USER_KIND_DOOM = 2
+USER_KIND_PREEMPT_PROBE = 3
+PROC_DOOM_PAGE_DIR_ADDR = 0x00082000
+PROC_PREEMPT_PAGE_DIR_ADDR = 0x00083000
+PROC_DOOM_KERNEL_STACK_TOP = 0x00073000
+PROC_PREEMPT_PROBE_KERNEL_STACK_TOP = 0x00072000
 
 
 def parse_status(text: str) -> dict[str, str]:
@@ -196,6 +202,10 @@ def validate_preemption(fields: dict[str, str]) -> None:
     if source_pid == target_pid:
         raise AssertionError("pfrom= and pto= must prove a switch between processes")
 
+    from_kind, to_kind = _hex_tuple(fields, "pkind", 2, ":")
+    if {from_kind, to_kind} != {USER_KIND_DOOM, USER_KIND_PREEMPT_PROBE}:
+        raise AssertionError("pkind= must prove switching between Doom and the preempt probe")
+
     from_eip, to_eip = _hex_tuple(fields, "peip", 2, ":")
     if from_eip == 0 or to_eip == 0:
         raise AssertionError("peip= must record nonzero source and target EIPs")
@@ -204,6 +214,21 @@ def validate_preemption(fields: dict[str, str]) -> None:
         or (_is_probe_addr(from_eip) and _is_doom_addr(to_eip))
     ):
         raise AssertionError("peip= must prove switching between Doom and the preempt probe")
+
+    from_cr3, to_cr3 = _hex_tuple(fields, "pcr3", 2, ":")
+    if {from_cr3, to_cr3} != {PROC_DOOM_PAGE_DIR_ADDR, PROC_PREEMPT_PAGE_DIR_ADDR}:
+        raise AssertionError("pcr3= must prove switching between Doom and preempt probe address spaces")
+    if from_cr3 == to_cr3:
+        raise AssertionError("pcr3= must contain distinct process page directories")
+
+    from_kstack, to_kstack = _hex_tuple(fields, "pkstk", 2, ":")
+    if {from_kstack, to_kstack} != {
+        PROC_DOOM_KERNEL_STACK_TOP,
+        PROC_PREEMPT_PROBE_KERNEL_STACK_TOP,
+    }:
+        raise AssertionError("pkstk= must prove switching TSS kernel stacks for Doom and preempt probe")
+    if from_kstack == to_kstack:
+        raise AssertionError("pkstk= must contain distinct kernel stacks")
 
     spin = _hex(fields, "pspin")
     if spin in (0, PREEMPT_PROBE_MAGIC):
@@ -261,6 +286,9 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         _require(text, "vmmhfree", label)
         _require(text, "argvsrc=2", label)
         _require(text, "peip", label)
+        _require(text, "pkind", label)
+        _require(text, "pcr3", label)
+        _require(text, "pkstk", label)
 
 
 def main(argv: list[str] | None = None) -> int:

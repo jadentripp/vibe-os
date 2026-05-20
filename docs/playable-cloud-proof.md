@@ -268,16 +268,18 @@ The cloud proof requires these status families:
   `sfxdma=` does not progress, and it does not upload the WAV or any captured
   samples.
 - Scheduler proof: `preempt`, `pirq`, `pattempt`, `pskip`, `puser`, `pround`,
-  `pctx`, `pfrom`, `pto`, `peip`, `pspin`, and `pself=OK` expose live PIT
-  preemption. A valid proof requires `pirq` to match `preempt`, Ring 3 timer
-  IRQs, a switch between different PIDs, nonzero source/target EIPs, and a
-  `pspin` value beyond the seeded
-  `50524545` magic from the alternate Ring 3 preempt probe.
+  `pctx`, `pfrom`, `pto`, `pkind`, `peip`, `pcr3`, `pkstk`, `pspin`, and
+  `pself=OK` expose live PIT preemption. A valid proof requires `pirq` to match
+  `preempt`, Ring 3 timer IRQs, a switch between different PIDs, Doom/preempt
+  probe kinds, nonzero source/target EIPs, distinct Doom/preempt-probe CR3s,
+  distinct Doom/preempt-probe kernel stacks, and a `pspin` value beyond the
+  seeded `50524545` magic from the alternate Ring 3 preempt probe.
 
 `tools/check_vm_status_proof.py` is the legitimacy ratchet for the VM/process
 status fields. It requires `vmmhfree` to match the reclaimed `vmmhpt` frame,
-`argvsrc=2` for the Doom exec path, and `peip` to cross the Doom/preempt-probe
-address spaces during timer IRQ preemption.
+`argvsrc=2` for the Doom exec path, and `pkind`/`peip`/`pcr3`/`pkstk` to cross
+the Doom/preempt-probe tasks, user windows, address spaces, and kernel stacks
+during timer IRQ preemption.
 
 `tools/check_real_wad_proof.py` gates the real-WAD status on both the non-pixel
 visual proof and the scripted playability proof, plus the system/process/storage

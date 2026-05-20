@@ -20,6 +20,12 @@ DEFAULT_REJECT_PATTERNS = (
     r"r_inittextures",
 )
 PREEMPT_PROBE_MAGIC = 0x50524545
+USER_KIND_DOOM = 2
+USER_KIND_PREEMPT_PROBE = 3
+PROC_DOOM_PAGE_DIR_ADDR = 0x00082000
+PROC_PREEMPT_PAGE_DIR_ADDR = 0x00083000
+PROC_DOOM_KERNEL_STACK_TOP = 0x00073000
+PROC_PREEMPT_PROBE_KERNEL_STACK_TOP = 0x00072000
 REQUIRED_DOOM_INIT_FLAGS = 0x000001FF
 
 EXACT_FIELDS = {
@@ -221,7 +227,10 @@ SUMMARY_FIELDS = (
     "pctx",
     "pfrom",
     "pto",
+    "pkind",
     "peip",
+    "pcr3",
+    "pkstk",
     "pspin",
 )
 
@@ -535,9 +544,18 @@ def _validate_core_status(status: str) -> None:
         raise AssertionError(f"pto= must record a live target PID, got {pto:#x}")
     if pfrom == pto:
         raise AssertionError("pfrom= and pto= must prove a switch between different processes")
+    pkind = _hex_tuple_field(status, "pkind", 2, separator=":")
+    if set(pkind) != {USER_KIND_DOOM, USER_KIND_PREEMPT_PROBE}:
+        raise AssertionError("pkind= must prove a Doom/preempt-probe scheduler switch")
     from_eip, to_eip = _hex_tuple_field(status, "peip", 2, separator=":")
     if from_eip == 0 or to_eip == 0:
         raise AssertionError("peip= must record nonzero source and target EIPs")
+    pcr3 = _hex_tuple_field(status, "pcr3", 2, separator=":")
+    if set(pcr3) != {PROC_DOOM_PAGE_DIR_ADDR, PROC_PREEMPT_PAGE_DIR_ADDR}:
+        raise AssertionError("pcr3= must prove distinct Doom/preempt-probe address spaces")
+    pkstk = _hex_tuple_field(status, "pkstk", 2, separator=":")
+    if set(pkstk) != {PROC_DOOM_KERNEL_STACK_TOP, PROC_PREEMPT_PROBE_KERNEL_STACK_TOP}:
+        raise AssertionError("pkstk= must prove distinct Doom/preempt-probe kernel stacks")
     spin = _hex_field(status, "pspin")
     if spin in (0, PREEMPT_PROBE_MAGIC):
         raise AssertionError("pspin= must prove the Ring 3 preempt probe executed after seeding")
