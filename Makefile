@@ -63,7 +63,7 @@ STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 98304
 USER_PROBE_ELF_MAX_BYTES := 12288
 
-.PHONY: all build-only test doom-compile doom-link run run-headless smoke playability-gap-check hardware-support-check vm-safety-check shutdown-panic-proof-check audio-continuity-check audible-audio-proof-check cloud-playability-check persistence-image-check clean check-tools vm-consent
+.PHONY: all build-only test doom-compile doom-link run run-headless smoke playability-gap-check hardware-support-check vm-safety-check shutdown-panic-proof-check scripted-gameplay-proof-check audio-continuity-check audible-audio-proof-check cloud-playability-check persistence-image-check clean check-tools vm-consent
 
 all: $(IMAGE)
 
@@ -361,13 +361,16 @@ vm-safety-check:
 shutdown-panic-proof-check:
 	$(PYTHON) tools/check_shutdown_panic_proof.py --repo-contract
 
+scripted-gameplay-proof-check:
+	$(PYTHON) tools/check_scripted_gameplay_proof.py --repo-contract
+
 audio-continuity-check:
 	$(PYTHON) tools/check_audio_continuity_proof.py --repo-contract
 
 audible-audio-proof-check:
 	$(PYTHON) tools/check_audible_audio_proof.py --repo-contract
 
-cloud-playability-check: playability-gap-check hardware-support-check vm-safety-check shutdown-panic-proof-check audio-continuity-check audible-audio-proof-check
+cloud-playability-check: playability-gap-check hardware-support-check vm-safety-check shutdown-panic-proof-check scripted-gameplay-proof-check audio-continuity-check audible-audio-proof-check
 	$(PYTHON) tools/check_cloud_playability_artifacts.py --repo-contract
 
 persistence-image-check: $(IMAGE)

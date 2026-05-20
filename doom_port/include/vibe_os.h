@@ -133,15 +133,19 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
  * - Failure returns -errno when the kernel can classify the error.
  * - Legacy kernel paths may still return -1; libc maps those through the
  *   operation-specific fallback errno.
- * - File flags use the O_* constants from fcntl.h, including O_ACCMODE.
+ * - File flags use the O_* constants from fcntl.h, including O_ACCMODE and
+ *   O_CLOEXEC.
  * - mmap is currently anonymous/private and brk-backed; munmap validates the
  *   mapping range but does not reclaim heap pages.
  * - execv passes a bounded argv vector to the process handoff. Table entries
- *   cover Doom/probe images; other root-level FAT16 .ELF names use the
- *   reusable probe-class slot. envp is intentionally empty for now.
+ *   cover Doom/probe images; other root-level FAT16 .ELF names use reusable
+ *   probe-class slots. File descriptors inherit across exec unless opened with
+ *   O_CLOEXEC. envp is intentionally empty for now.
  * - getpid returns the active static process id.
- * - fork returns ENOSYS until address-space cloning exists; wait/waitpid
- *   return ECHILD because this kernel has no child-process table yet.
+ * - fork returns ENOSYS until address-space cloning exists. wait/waitpid scan
+ *   parent-PID metadata, reap EXITED/FAULTED children, support WNOHANG, and
+ *   return ENOSYS for blocking waits on live children until a sleep queue
+ *   exists.
  */
 
 #endif

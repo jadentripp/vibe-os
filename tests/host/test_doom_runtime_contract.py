@@ -37,7 +37,9 @@ class DoomRuntimeContractTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, errno_h)
         self.assertIn("#define O_ACCMODE 0x0003", fcntl)
+        self.assertIn("#define O_CLOEXEC 0x0800", fcntl)
         self.assertIn("static int validate_open_flags", libc)
+        self.assertIn("O_CLOEXEC", libc)
         self.assertIn("access_mode == O_ACCMODE", libc)
         self.assertIn("raw < -1", libc)
         for token in (

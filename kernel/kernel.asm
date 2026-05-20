@@ -267,7 +267,8 @@ O_ACCMODE equ 0x0003
 O_CREAT equ 0x0100
 O_TRUNC equ 0x0200
 O_APPEND equ 0x0400
-O_KNOWN_MASK equ O_ACCMODE | O_CREAT | O_TRUNC | O_APPEND
+O_CLOEXEC equ 0x0800
+O_KNOWN_MASK equ O_ACCMODE | O_CREAT | O_TRUNC | O_APPEND | O_CLOEXEC
 SYS_USER_PROBE equ 1
 SYS_EXIT equ 2
 SYS_EXPECT_FAULT equ 3
@@ -6240,7 +6241,15 @@ fd_alloc:
     mov eax, [current_pid]
     mov [fd_owner_pids + ebx * 4], eax
     inc dword [fd_open_generations + ebx * 4]
+    test dword [syscall_open_flags], O_CLOEXEC
+    jnz .no_exec_inherit
     mov dword [fd_inherit_flags + ebx * 4], FD_INHERIT_EXEC
+    jmp .inherit_done
+
+.no_exec_inherit:
+    mov dword [fd_inherit_flags + ebx * 4], 0
+
+.inherit_done:
     mov eax, ebx
     clc
     jmp .done
@@ -7533,6 +7542,13 @@ process_reuse_exec_target_slot:
 
 .pid_ready:
     mov [process_next_pid], eax
+    mov dword [esi + PROC_PARENT_PID], 0xffffffff
+    mov dword [esi + PROC_EXIT_STATUS], 0
+    mov dword [esi + PROC_EXEC_COUNT], 0
+    mov dword [esi + PROC_ARGC], 0
+    mov dword [esi + PROC_ARGV], 0
+    mov dword [esi + PROC_ENVP], 0
+    mov dword [esi + PROC_ARGV0], 0
     inc dword [esi + PROC_SLOT_GENERATION]
     mov eax, [esi + PROC_SLOT_GENERATION]
     mov [process_last_slot_generation], eax

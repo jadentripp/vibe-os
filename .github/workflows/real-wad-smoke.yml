@@ -193,6 +193,19 @@ jobs:
             --menu build/status.after-menu.txt \
             build/status.txt
 
+      - name: Assert scripted gameplay transition gates
+        if: always()
+        run: |
+          python3 tools/check_scripted_gameplay_proof.py \
+            --start build/status.after-start.txt \
+            --fire build/status.after-fire.txt \
+            --movement build/status.after-move.txt \
+            --use build/status.after-use.txt \
+            --mouse build/status.after-mouse.txt \
+            --menu build/status.after-menu.txt \
+            --write-json build/gameplay-proof.json \
+            build/status.txt
+
       - name: Assert SB16 audio continuity gates
         if: always()
         run: |
@@ -339,6 +352,7 @@ jobs:
             build/doom.elf
             build/doom.symbols
             build/audio-proof.json
+            build/gameplay-proof.json
             build/status*.bin
             build/status*.txt
             build/*.log

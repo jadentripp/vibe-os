@@ -24,6 +24,7 @@ import check_real_wad_proof  # noqa: E402
 import check_audio_continuity_proof  # noqa: E402
 import check_audible_audio_proof  # noqa: E402
 import check_human_playability_proof  # noqa: E402
+import check_scripted_gameplay_proof  # noqa: E402
 
 
 RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
@@ -56,6 +57,7 @@ REQUIRED_SYMBOL_FILES = (
 )
 
 OPTIONAL_AUDIO_PROOF_FILE = "audio-proof.json"
+OPTIONAL_GAMEPLAY_PROOF_FILE = "gameplay-proof.json"
 SOAK_SUMMARY_FILE = "real-wad-soak-summary.json"
 SOAK_SUMMARY_SCHEMA = "real-wad-soak-summary-v1"
 SOAK_ATTEMPT_SCHEMA = "real-wad-soak-attempt-v1"
@@ -587,6 +589,8 @@ def validate_repo_contract() -> None:
         "--mouse build/status.after-mouse.txt",
         "--menu build/status.after-menu.txt",
         "python3 tools/check_human_playability_proof.py",
+        "python3 tools/check_scripted_gameplay_proof.py",
+        "--write-json build/gameplay-proof.json",
         "python3 tools/check_audio_continuity_proof.py",
         "python3 tools/check_audible_audio_proof.py",
         "Triage cloud status",
@@ -601,6 +605,7 @@ def validate_repo_contract() -> None:
         "build/doom.elf",
         "build/doom.symbols",
         "build/audio-proof.json",
+        "build/gameplay-proof.json",
     ):
         _require(workflow, needle, "real-WAD workflow")
     _assert_no_forbidden_uploads(workflow)
@@ -1563,29 +1568,57 @@ def validate_artifact_dir(artifact_dir: Path, require_human_notes: bool = False)
 
     status_path = artifact_dir / _find_one(names, "status.txt")
     status = status_path.read_text()
+    scripted_snapshots = {
+        "start": (artifact_dir / _find_one(names, "status.after-start.txt")).read_text(),
+        "fire": (artifact_dir / _find_one(names, "status.after-fire.txt")).read_text(),
+        "movement": (artifact_dir / _find_one(names, "status.after-move.txt")).read_text(),
+        "use": (artifact_dir / _find_one(names, "status.after-use.txt")).read_text(),
+        "mouse": (artifact_dir / _find_one(names, "status.after-mouse.txt")).read_text(),
+        "menu": (artifact_dir / _find_one(names, "status.after-menu.txt")).read_text(),
+        "final": status,
+    }
+    scripted_paths = {
+        "start": artifact_dir / _find_one(names, "status.after-start.txt"),
+        "fire": artifact_dir / _find_one(names, "status.after-fire.txt"),
+        "movement": artifact_dir / _find_one(names, "status.after-move.txt"),
+        "use": artifact_dir / _find_one(names, "status.after-use.txt"),
+        "mouse": artifact_dir / _find_one(names, "status.after-mouse.txt"),
+        "menu": artifact_dir / _find_one(names, "status.after-menu.txt"),
+        "final": status_path,
+    }
     try:
         check_real_wad_proof.validate_status(
             status,
-            baseline_status=(artifact_dir / _find_one(names, "status.after-start.txt")).read_text(),
-            start_status=(artifact_dir / _find_one(names, "status.after-start.txt")).read_text(),
-            fire_status=(artifact_dir / _find_one(names, "status.after-fire.txt")).read_text(),
-            movement_status=(artifact_dir / _find_one(names, "status.after-move.txt")).read_text(),
-            use_status=(artifact_dir / _find_one(names, "status.after-use.txt")).read_text(),
-            mouse_status=(artifact_dir / _find_one(names, "status.after-mouse.txt")).read_text(),
-            menu_status=(artifact_dir / _find_one(names, "status.after-menu.txt")).read_text(),
+            baseline_status=scripted_snapshots["start"],
+            start_status=scripted_snapshots["start"],
+            fire_status=scripted_snapshots["fire"],
+            movement_status=scripted_snapshots["movement"],
+            use_status=scripted_snapshots["use"],
+            mouse_status=scripted_snapshots["mouse"],
+            menu_status=scripted_snapshots["menu"],
         )
     except AssertionError as exc:
         raise AssertionError(
             f"{exc}; final status summary: {check_real_wad_proof.summarize_status(status)}"
         ) from exc
+    gameplay_proof = _find_one(names, OPTIONAL_GAMEPLAY_PROOF_FILE)
+    if gameplay_proof is not None:
+        try:
+            check_scripted_gameplay_proof.validate_manifest(
+                _load_json_object(artifact_dir / gameplay_proof, OPTIONAL_GAMEPLAY_PROOF_FILE),
+                snapshots=scripted_snapshots,
+                paths=scripted_paths,
+            )
+        except AssertionError as exc:
+            raise AssertionError(f"scripted gameplay proof manifest failed: {exc}") from exc
     try:
         check_audio_continuity_proof.validate_status(
             status,
-            baseline_status=(artifact_dir / _find_one(names, "status.after-start.txt")).read_text(),
-            fire_status=(artifact_dir / _find_one(names, "status.after-fire.txt")).read_text(),
-            movement_status=(artifact_dir / _find_one(names, "status.after-move.txt")).read_text(),
-            use_status=(artifact_dir / _find_one(names, "status.after-use.txt")).read_text(),
-            menu_status=(artifact_dir / _find_one(names, "status.after-menu.txt")).read_text(),
+            baseline_status=scripted_snapshots["start"],
+            fire_status=scripted_snapshots["fire"],
+            movement_status=scripted_snapshots["movement"],
+            use_status=scripted_snapshots["use"],
+            menu_status=scripted_snapshots["menu"],
         )
     except AssertionError as exc:
         raise AssertionError(

@@ -30,7 +30,8 @@ User mode calls `vibe_syscall3` with the syscall numbers in
 - legacy kernel paths may return `-1`, which libc maps to an operation-specific
   fallback errno;
 - open flags use `O_ACCMODE`, `O_RDONLY`, `O_WRONLY`, `O_RDWR`, `O_CREAT`,
-  `O_TRUNC`, `O_APPEND`, and no-op `O_BINARY` from `doom_port/include/fcntl.h`.
+  `O_TRUNC`, `O_APPEND`, `O_CLOEXEC`, and no-op `O_BINARY` from
+  `doom_port/include/fcntl.h`.
 
 The libc shim validates impossible access modes before entering the kernel.
 This keeps stdio mode parsing deterministic for Doom's `fopen("r")`,

@@ -51,10 +51,13 @@ class DoomMusicTests(unittest.TestCase):
             "VIBE_MUSIC_DEFAULT_SAMPLE_RATE) / 16)",
             "VIBE_MUSIC_BUFFER_LOW_WATER_BYTES ((VIBE_MUSIC_STREAM_BYTES * 3u) / 4u)",
             "vibe_music_audio_handle",
+            "stop_music_stream_handle",
+            "current_music_handle != handle",
             "pump_music_stream",
             "I_RegisterSong",
             "I_PlaySong",
             "I_StopSong",
+            "if (handle == current_music_handle)\n        I_StopSong(handle);",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, platform)

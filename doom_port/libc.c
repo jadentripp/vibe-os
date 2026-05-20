@@ -262,7 +262,7 @@ static int syscall_failed(int raw, int fallback_errno)
 static int validate_open_flags(int flags)
 {
     int access_mode = flags & O_ACCMODE;
-    int known_flags = O_ACCMODE | O_CREAT | O_TRUNC | O_APPEND | O_BINARY;
+    int known_flags = O_ACCMODE | O_CREAT | O_TRUNC | O_APPEND | O_CLOEXEC | O_BINARY;
 
     if ((flags & ~known_flags) || access_mode == O_ACCMODE) {
         errno = EINVAL;

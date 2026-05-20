@@ -44,6 +44,14 @@ The `after-start` snapshot is the clean pre-input checkpoint: the port starts
 Doom directly in E1M1, the checker verifies it is already `GS_LEVEL`, and later
 phases must mutate state from that baseline.
 
+`tools/check_scripted_gameplay_proof.py` is the disjoint runtime-transition
+gate for this script. It consumes only decoded status text, requires a clean E1M1 start
+before scripted input, verifies cumulative key/player proof across fire, move,
+use, mouse, and menu phases, and can write
+`gameplay-proof.json` with schema `scripted-gameplay-proof-v1`. The manifest
+contains status byte counts and SHA-256 hashes plus the compact transition
+fields, not WAD bytes, disk images, framebuffer dumps, screenshots, or audio.
+
 ## Repeated Cloud Soak
 
 The manual **Real WAD soak** workflow repeats the same cloud proof without
@@ -173,6 +181,14 @@ duplicate fields, malformed hex, weak synthetic exec counters, Doom error
 strings, failed self-tests, and status lines that only prove a boot banner.
 `tools/check_human_playability_proof.py` can also compare the phase snapshots
 directly.
+`tools/check_scripted_gameplay_proof.py` is stricter about ordering than the
+general playability checker: `status.after-start.txt` must be a clean E1M1
+new-game state with no scripted key bits, no action proof flags, no menu bit,
+and `pdelta=00000000`; later snapshots must retain cumulative key/player proof
+bits rather than merely showing a final aggregate. It then requires movement to
+change `ppos`, the mouse phase to advance IRQ/packet/poll counters and retain
+button/motion proof, and Escape to flip the menu bit while the game remains in
+`GS_LEVEL`.
 
 ## Safe Remote Runbook
 
@@ -202,6 +218,16 @@ directly.
      --use build/status.after-use.txt \
      --mouse build/status.after-mouse.txt \
      --menu build/status.after-menu.txt \
+     build/status.txt
+
+   python3 tools/check_scripted_gameplay_proof.py \
+     --start build/status.after-start.txt \
+     --fire build/status.after-fire.txt \
+     --movement build/status.after-move.txt \
+     --use build/status.after-use.txt \
+     --mouse build/status.after-mouse.txt \
+     --menu build/status.after-menu.txt \
+     --write-json build/gameplay-proof.json \
      build/status.txt
 
    python3 tools/check_audio_continuity_proof.py \

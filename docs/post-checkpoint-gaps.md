@@ -368,10 +368,10 @@ Current state:
 - File descriptor slots now carry owner PID, open-generation, and inheritance
   flag metadata. The kernel enforces owner PID on fd lookup, retags
   `FD_INHERIT_EXEC` slots from the exec caller to the target PID, closes
-  non-inheritable slots on exec, and sweeps process-owned descriptors during
-  exit, fault, target-slot reuse, and wait reaping. Descriptor duplication is
-  still absent, but future fork work now has concrete fd state to copy or close
-  instead of anonymous global slots.
+  `O_CLOEXEC` non-inheritable slots on exec, and sweeps process-owned
+  descriptors during exit, fault, target-slot reuse, and wait reaping.
+  Descriptor duplication is still absent, but future fork work now has concrete
+  fd state to copy or close instead of anonymous global slots.
 - The `SYS_EXEC` handoff now restores the caller if argv stack seeding or live
   syscall-frame patching fails after the target address space was activated, so
   the rollback counter no longer leaves a half-prepared target running.

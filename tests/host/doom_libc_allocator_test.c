@@ -867,10 +867,23 @@ int main(void)
         return 77;
     if (mock_open_syscalls != 0)
         return 78;
-    if (open("bad.txt", O_RDONLY | 0x8000) != -1 || errno != EINVAL)
+    if (open("bad.txt", O_RDONLY | 0x10000) != -1 || errno != EINVAL)
         return 192;
     if (mock_open_syscalls != 0)
         return 193;
+    if (mock_seed_file("cloexec.txt", "x") < 0)
+        return 204;
+    {
+        int fd = open("cloexec.txt", O_RDONLY | O_CLOEXEC);
+        int file_index = mock_find_file("cloexec.txt");
+        if (fd < 0)
+            return 205;
+        if (mock_files[file_index].last_flags != (O_RDONLY | O_CLOEXEC))
+            return 206;
+        if (close(fd) != 0)
+            return 207;
+    }
+    mock_reset();
     if (open("denied.txt", O_RDONLY) != -1 || errno != EACCES)
         return 79;
     if (mock_open_syscalls != 1)

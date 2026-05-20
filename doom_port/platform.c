@@ -114,6 +114,19 @@ static int submit_music_stream_chunk(int handle, int start_voice)
     return 1;
 }
 
+static void stop_music_stream_handle(int handle)
+{
+    if (handle <= 0)
+        return;
+
+    (void)vibe_syscall3(
+        VIBE_SYS_AUDIO,
+        VIBE_AUDIO_STOP_SFX,
+        (unsigned long)vibe_music_audio_handle(handle),
+        0);
+    vibe_music_stream_stop(handle);
+}
+
 static int default_config_contains_marker(size_t length, const char* marker)
 {
     size_t marker_length;
@@ -608,13 +621,7 @@ void I_InitMusic(void)
 void I_ShutdownMusic(void)
 {
     if (current_music_handle)
-        (void)vibe_syscall3(
-            VIBE_SYS_AUDIO,
-            VIBE_AUDIO_STOP_SFX,
-            (unsigned long)vibe_music_audio_handle(current_music_handle),
-            0);
-    if (current_music_handle)
-        vibe_music_stream_stop(current_music_handle);
+        stop_music_stream_handle(current_music_handle);
     current_music_handle = 0;
     current_music_looping = 0;
     current_music_paused = 0;
@@ -664,6 +671,8 @@ void I_PlaySong(int handle, int looping)
 {
     if (handle <= 0)
         return;
+    if (current_music_handle > 0 && current_music_handle != handle)
+        stop_music_stream_handle(current_music_handle);
     current_music_handle = handle;
     current_music_looping = looping;
     current_music_paused = 0;
@@ -680,21 +689,18 @@ void I_StopSong(int handle)
 {
     if (handle <= 0)
         return;
-    (void)vibe_syscall3(
-        VIBE_SYS_AUDIO,
-        VIBE_AUDIO_STOP_SFX,
-        (unsigned long)vibe_music_audio_handle(handle),
-        0);
+    stop_music_stream_handle(handle);
     if (current_music_handle == handle) {
         current_music_handle = 0;
         current_music_looping = 0;
         current_music_paused = 0;
         current_music_next_tic = 0;
-        vibe_music_stream_stop(handle);
     }
 }
 
 void I_UnRegisterSong(int handle)
 {
+    if (handle == current_music_handle)
+        I_StopSong(handle);
     vibe_music_unregister_song(handle);
 }

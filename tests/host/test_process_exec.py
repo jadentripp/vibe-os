@@ -426,6 +426,13 @@ class ProcessExecContractTests(unittest.TestCase):
             "mov [esi + PROC_PID], eax",
             "mov [process_last_reused_pid], eax",
             "mov [process_next_pid], eax",
+            "mov dword [esi + PROC_PARENT_PID], 0xffffffff",
+            "mov dword [esi + PROC_EXIT_STATUS], 0",
+            "mov dword [esi + PROC_EXEC_COUNT], 0",
+            "mov dword [esi + PROC_ARGC], 0",
+            "mov dword [esi + PROC_ARGV], 0",
+            "mov dword [esi + PROC_ENVP], 0",
+            "mov dword [esi + PROC_ARGV0], 0",
             "inc dword [esi + PROC_SLOT_GENERATION]",
             "mov dword [esi + PROC_STATE], PROC_STATE_UNUSED",
         ):
@@ -740,6 +747,7 @@ class ProcessExecContractTests(unittest.TestCase):
         close_handler = kernel.split(".close:", 1)[1].split(".audio:", 1)[0]
         for source in (
             "FD_INHERIT_EXEC equ 0x1",
+            "O_CLOEXEC equ 0x0800",
             "fd_owner_pids times USER_FD_COUNT dd 0xffffffff",
             "fd_open_generations times USER_FD_COUNT dd 0",
             "fd_inherit_flags times USER_FD_COUNT dd 0",
@@ -758,7 +766,12 @@ class ProcessExecContractTests(unittest.TestCase):
             "mov eax, [current_pid]",
             "mov [fd_owner_pids + ebx * 4], eax",
             "inc dword [fd_open_generations + ebx * 4]",
+            "test dword [syscall_open_flags], O_CLOEXEC",
+            "jnz .no_exec_inherit",
             "mov dword [fd_inherit_flags + ebx * 4], FD_INHERIT_EXEC",
+            ".no_exec_inherit:",
+            "mov dword [fd_inherit_flags + ebx * 4], 0",
+            ".inherit_done:",
         ):
             self.assertIn(source, fd_alloc)
         for source in (

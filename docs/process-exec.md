@@ -51,7 +51,8 @@ to the caller.
   process exit path is not a full shell/scheduler handoff yet.
 - Before loading the target image, the kernel tears down stale user PTEs for the
   target slot, restores only its writable stack window, assigns the slot a fresh
-  PID from `process_next_pid`, and increments the slot generation. Table targets
+  PID from `process_next_pid`, clears stale parent/exit/argv metadata before any
+  destructive load can fail, and increments the slot generation. Table targets
   keep their dedicated slots, while generic root `.ELF` targets are chosen from
   `process_generic_exec_slots` by scanning for `UNUSED` records or orphaned
   `EXITED`/`FAULTED` records.
@@ -72,11 +73,11 @@ to the caller.
   `0`; the blocking form still returns `ENOSYS` until there is a sleep queue.
 - Open fd slots are now process-owned. `fd_lookup` rejects descriptors whose
   owner PID does not match the running process, `exec` retags slots marked
-  `FD_INHERIT_EXEC` from the caller PID to the target PID, and slots without
-  that bit are closed on exec. Process teardown, fault handling, target-slot
-  reuse, and wait reaping all sweep descriptors owned by the retiring process.
-  This is real exec-time fd inheritance/close-on-exec behavior, not yet
-  fork-time descriptor duplication.
+  `FD_INHERIT_EXEC` from the caller PID to the target PID, and slots opened with
+  `O_CLOEXEC` leave that bit clear so the exec handoff closes them. Process
+  teardown, fault handling, target-slot reuse, and wait reaping all sweep
+  descriptors owned by the retiring process. This is real exec-time fd
+  inheritance/close-on-exec behavior, not yet fork-time descriptor duplication.
 - The initial Ring 3 probe is bootstrapped through the same stack builder before
   entering crt0. It receives `argc == 1`, `argv[0] == "USERPROB.ELF"`,
   `argv[1] == NULL`, and an empty `envp`, then verifies that `getpid()` reports

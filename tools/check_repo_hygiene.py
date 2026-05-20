@@ -192,6 +192,7 @@ REAL_WAD_ALLOWED_UPLOAD_PATTERNS = (
     "build/doom.elf",
     "build/doom.symbols",
     "build/audio-proof.json",
+    "build/gameplay-proof.json",
     "real-wad-soak/*.json",
     "*/real-wad-soak/*.json",
     "${{ runner.temp }}/real-wad-soak/*.json",
