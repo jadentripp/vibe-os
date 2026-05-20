@@ -138,13 +138,15 @@ counters, monotonic audio counters, increasing IRQ/refill, non-music SFX
 `sfxmix=`, music `musicmix=` counters, increasing `musicpos=`, a progressing
 `voiceq=` stream-update component, visible `musicbuf=` / `musicunder=` /
 `musicdrops=` health fields, coherent lane accounting where `voices=` equals
-`sfxvoices=` plus `musicvoices=`, at least one active SFX voice snapshot, at
-least one active music voice snapshot, at least one buffered music-window
-snapshot, and nonzero SB16 ACK accounting. That proves the emulated SB16 guest
-path was initialized, DMA-programmed, started, queued, and continued to refill
-and mix both Doom SFX and streamed music chunks across time without uploading
-proprietary WAD data, PCM samples, or rendered pixels. A run with `audio=NONE`
-is still useful diagnostics, but it is not an audible/streaming audio proof.
+`sfxvoices=` plus `musicvoices=`, at least one active music voice snapshot, at
+least one buffered music-window snapshot, and nonzero SB16 ACK accounting. SFX
+lane proof is cumulative: `sfxmix=` must progress even if every captured
+snapshot lands after the short SFX voice has drained. That proves the emulated
+SB16 guest path was initialized, DMA-programmed, started, queued, and continued
+to refill and mix both Doom SFX and streamed music chunks across time without
+uploading proprietary WAD data, PCM samples, or rendered pixels. A run with
+`audio=NONE` is still useful diagnostics, but it is not an audible/streaming
+audio proof.
 
 Human-audible remote proof:
 

@@ -54,10 +54,11 @@ increments `musicmix=`.
 The remote-safe audio checker now proves that the SB16 path mixed non-music SFX,
 mixed music, accepted streamed music chunk updates, and advanced kernel-visible
 `musicpos=` across status snapshots. It also rejects incoherent lane accounting:
-`voices=` must match `sfxvoices=` plus `musicvoices=`, both SFX and music lanes
-must be active in at least one snapshot, and at least one music snapshot must
-show a buffered stream window. That is still push-fed song-position progress,
-not a claim that the kernel owns the final pull stream.
+`voices=` must match `sfxvoices=` plus `musicvoices=`, `sfxmix=` must prove SFX
+lane progress, the music lane must be active in at least one snapshot, and at
+least one music snapshot must show a buffered stream window. That is still
+push-fed song-position progress, not a claim that the kernel owns the final pull
+stream.
 The checker treats this lane as separate from normal Doom SFX even if the final
 snapshot lands after the active music voice drained.
 A later kernel milestone can replace the push-style `VIBE_AUDIO_UPDATE_SFX`

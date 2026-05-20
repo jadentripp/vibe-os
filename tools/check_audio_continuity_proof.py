@@ -294,8 +294,6 @@ def validate_status(
     for name in FINAL_POSITIVE_COUNTERS:
         if _hex(final_fields, name, "final") == 0:
             raise AssertionError(f"final {name}= must be nonzero for audio continuity proof")
-    if all(_hex(fields, "sfxvoices", label) == 0 for label, fields in snapshots):
-        raise AssertionError("sfxvoices= must be nonzero in at least one snapshot")
     if all(_hex(fields, "musicvoices", label) == 0 for label, fields in snapshots):
         raise AssertionError("musicvoices= must be nonzero in at least one snapshot")
     if all(_hex(fields, "musicbuf", label) == 0 for label, fields in snapshots):

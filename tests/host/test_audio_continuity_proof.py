@@ -281,21 +281,20 @@ class AudioContinuityProofTests(unittest.TestCase):
                 menu_status=snapshots["menu"],
             )
 
-    def test_rejects_missing_sfx_voice_lane_or_incoherent_voice_total(self):
+    def test_accepts_drained_sfx_voice_lane_but_rejects_incoherent_voice_total(self):
         snapshots = snapshot_statuses()
         for label, status in list(snapshots.items()):
             snapshots[label] = status.replace("sfxvoices=00000001", "sfxvoices=00000000")
             snapshots[label] = snapshots[label].replace("voices=00000002", "voices=00000001")
 
-        with self.assertRaisesRegex(AssertionError, "sfxvoices=.*at least one snapshot"):
-            check_audio_continuity_proof.validate_status(
-                snapshots["final"],
-                baseline_status=snapshots["baseline"],
-                fire_status=snapshots["fire"],
-                movement_status=snapshots["movement"],
-                use_status=snapshots["use"],
-                menu_status=snapshots["menu"],
-            )
+        check_audio_continuity_proof.validate_status(
+            snapshots["final"],
+            baseline_status=snapshots["baseline"],
+            fire_status=snapshots["fire"],
+            movement_status=snapshots["movement"],
+            use_status=snapshots["use"],
+            menu_status=snapshots["menu"],
+        )
 
         snapshots = snapshot_statuses()
         snapshots["fire"] = snapshots["fire"].replace("voices=00000002", "voices=00000001")

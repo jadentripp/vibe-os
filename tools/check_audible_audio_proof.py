@@ -523,8 +523,10 @@ def validate_manifest(
                 raise AssertionError(f"manifest continuity.mix_lanes.{lane_name}.{key} must be eight hex digits")
             if int(value, 16) <= 0:
                 raise AssertionError(f"manifest continuity.mix_lanes.{lane_name}.{key} must be nonzero")
-    if sfx_lane.get("active_voice_snapshots", 0) <= 0:
-        raise AssertionError("manifest non_music_sfx lane must have active voice snapshots")
+    if not isinstance(sfx_lane.get("active_voice_snapshots"), int):
+        raise AssertionError("manifest non_music_sfx lane active voice snapshots must be an integer")
+    if sfx_lane["active_voice_snapshots"] < 0:
+        raise AssertionError("manifest non_music_sfx lane active voice snapshots cannot be negative")
     if music_lane.get("active_voice_snapshots", 0) <= 0:
         raise AssertionError("manifest music lane must have active voice snapshots")
     if music_lane.get("buffered_window_snapshots", 0) <= 0:
