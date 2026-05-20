@@ -23,6 +23,15 @@ MAX_KERNEL_WAD_BYTES = 0x00500000
 DOOM_WAD_CLUSTER = 2
 USER_PROBE_NAME = b"USERPROBELF"
 DOOM_ELF_NAME = b"DOOM    ELF"
+WRITABLE_DEFAULT_NAME = b"DEFAULT CFG"
+WRITABLE_DEFAULT_BYTES = 16 * 1024
+WRITABLE_SAVE_BYTES = 256 * 1024
+WRITABLE_SAVE_NAMES = tuple(f"DOOMSAV{i}DSG".encode("ascii") for i in range(6))
+WRITABLE_PREALLOCATED_FILES = (
+    (WRITABLE_DEFAULT_NAME, WRITABLE_DEFAULT_BYTES),
+    *((name, WRITABLE_SAVE_BYTES) for name in WRITABLE_SAVE_NAMES),
+)
+MIN_OS_CREATED_FILE_CLUSTERS = 4096
 SYNTHETIC_PATCH_NAME = "SYNTHPCH"
 SHAREWARE_SWITCH_TEXTURES = (
     "SW1BRCOM", "SW2BRCOM",
@@ -63,6 +72,24 @@ def read_le32(buf, offset):
     return struct.unpack_from("<I", buf, offset)[0]
 
 
+def cluster_size():
+    return SECTORS_PER_CLUSTER * SECTOR_SIZE
+
+
+def clusters_for_size(size):
+    return max(1, (size + cluster_size() - 1) // cluster_size())
+
+
+def data_cluster_count():
+    metadata_sectors = RESERVED_SECTORS + FAT_COUNT * SECTORS_PER_FAT + ROOT_DIR_SECTORS
+    data_sectors = PARTITION_SECTORS - metadata_sectors
+    return data_sectors // SECTORS_PER_CLUSTER
+
+
+def last_data_cluster():
+    return data_cluster_count() + 1
+
+
 def write_padded_file(image, lba, sectors, path, label):
     with open(path, "rb") as f:
         data = f.read()
@@ -84,10 +111,9 @@ def write_root_entry(root, index, name, first_cluster, size):
 
 
 def write_cluster_chain(image, fat_entries, data_start, start_cluster, data):
-    clusters_needed = (len(data) + SECTOR_SIZE - 1) // SECTOR_SIZE
-    if clusters_needed == 0:
-        clusters_needed = 1
-    if start_cluster + clusters_needed > len(fat_entries):
+    clusters_needed = clusters_for_size(len(data))
+    end_cluster = start_cluster + clusters_needed - 1
+    if end_cluster > last_data_cluster() or end_cluster >= len(fat_entries):
         raise ValueError("file does not fit in the FAT16 data area")
 
     for i in range(clusters_needed):
@@ -98,6 +124,23 @@ def write_cluster_chain(image, fat_entries, data_start, start_cluster, data):
     start = sector_offset(lba)
     image[start:start + len(data)] = data
     return clusters_needed
+
+
+def reserve_zeroed_cluster_chain(image, fat_entries, data_start, start_cluster, byte_capacity):
+    return write_cluster_chain(image, fat_entries, data_start, start_cluster, bytes(byte_capacity))
+
+
+def assert_free_cluster_budget(fat_entries):
+    free_clusters = 0
+    for cluster in range(2, last_data_cluster() + 1):
+        if fat_entries[cluster] == 0:
+            free_clusters += 1
+    if free_clusters < MIN_OS_CREATED_FILE_CLUSTERS:
+        raise ValueError(
+            "FAT16 image leaves only "
+            f"{free_clusters} free clusters, below the OS-created file budget "
+            f"of {MIN_OS_CREATED_FILE_CLUSTERS}"
+        )
 
 
 def wad_name(name):
@@ -325,20 +368,41 @@ def main():
     wad = load_external_wad(args.wad) if args.wad else build_wad()
     wad_clusters = write_cluster_chain(image, fat_entries, data_start, DOOM_WAD_CLUSTER, wad)
     write_root_entry(root, 0, b"DOOM1   WAD", DOOM_WAD_CLUSTER, len(wad))
+    next_cluster = DOOM_WAD_CLUSTER + wad_clusters
+    next_root_index = 1
 
     if user_elf_path:
         with open(user_elf_path, "rb") as f:
             user_elf = f.read()
-        user_cluster = DOOM_WAD_CLUSTER + wad_clusters
+        user_cluster = next_cluster
         user_clusters = write_cluster_chain(image, fat_entries, data_start, user_cluster, user_elf)
-        write_root_entry(root, 1, USER_PROBE_NAME, user_cluster, len(user_elf))
+        write_root_entry(root, next_root_index, USER_PROBE_NAME, user_cluster, len(user_elf))
+        next_cluster = user_cluster + user_clusters
+        next_root_index += 1
 
         if doom_elf_path:
             with open(doom_elf_path, "rb") as f:
                 doom_elf = f.read()
-            doom_cluster = user_cluster + user_clusters
-            write_cluster_chain(image, fat_entries, data_start, doom_cluster, doom_elf)
-            write_root_entry(root, 2, DOOM_ELF_NAME, doom_cluster, len(doom_elf))
+            doom_cluster = next_cluster
+            doom_clusters = write_cluster_chain(image, fat_entries, data_start, doom_cluster, doom_elf)
+            write_root_entry(root, next_root_index, DOOM_ELF_NAME, doom_cluster, len(doom_elf))
+            next_cluster = doom_cluster + doom_clusters
+            next_root_index += 1
+
+    for name, byte_capacity in WRITABLE_PREALLOCATED_FILES:
+        writable_cluster = next_cluster
+        writable_clusters = reserve_zeroed_cluster_chain(
+            image,
+            fat_entries,
+            data_start,
+            writable_cluster,
+            byte_capacity,
+        )
+        write_root_entry(root, next_root_index, name, writable_cluster, 0)
+        next_cluster = writable_cluster + writable_clusters
+        next_root_index += 1
+
+    assert_free_cluster_budget(fat_entries)
 
     fat_bytes = bytearray(SECTORS_PER_FAT * SECTOR_SIZE)
     for i, value in enumerate(fat_entries):

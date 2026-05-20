@@ -34,6 +34,8 @@ long ftell(FILE* stream);
 int fclose(FILE* stream);
 int fflush(FILE* stream);
 int feof(FILE* stream);
+int ferror(FILE* stream);
+void clearerr(FILE* stream);
 void setbuf(FILE* stream, char* buffer);
 int getchar(void);
 

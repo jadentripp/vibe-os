@@ -3,11 +3,16 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import importlib.util
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILD = ROOT / "build"
+TOOL = ROOT / "tools" / "make_wad_image.py"
+spec = importlib.util.spec_from_file_location("make_wad_image", TOOL)
+make_wad_image = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(make_wad_image)
 SECTOR_SIZE = 512
 USER_BASE = 0x00E80000
 DOOM_BASE = 0x01000000
@@ -147,7 +152,7 @@ class BuildArtifactTests(unittest.TestCase):
         for sh in obj.section_headers():
             name = cstr(shstr, sh[0]) if shstr else ""
             sections.append((name, sh[1], sh[5]))
-        self.assertIn((".bss", 8, 12), sections)
+        self.assertTrue(any(name == ".bss" and kind == 8 and size >= 12 for name, kind, size in sections))
 
     def test_doom_elf_fits_kernel_doom_load_window(self):
         elf = Elf32(read(BUILD / "doom.elf"))
@@ -204,6 +209,25 @@ class DiskImageTests(unittest.TestCase):
         fat_lba = self.partition_lba + self.reserved
         return u16(self.image, fat_lba * SECTOR_SIZE + cluster * 2)
 
+    def fat_chain(self, cluster, limit=8192):
+        chain = []
+        while cluster < 0xFFF8:
+            if cluster < 2:
+                raise AssertionError("invalid FAT16 cluster in chain")
+            chain.append(cluster)
+            if len(chain) > limit:
+                raise AssertionError("FAT16 chain did not terminate")
+            cluster = self.fat_entry(cluster)
+        return chain
+
+    def free_data_clusters(self):
+        boot = self.partition_lba * SECTOR_SIZE
+        total_sectors = u16(self.image, boot + 19) or u32(self.image, boot + 32)
+        root_sectors = (self.root_entries * 32 + SECTOR_SIZE - 1) // SECTOR_SIZE
+        data_sectors = total_sectors - self.reserved - self.fat_count * self.sectors_per_fat - root_sectors
+        clusters = data_sectors // self.image[boot + 13]
+        return sum(1 for cluster in range(2, clusters + 2) if self.fat_entry(cluster) == 0)
+
     def test_mbr_partition_and_fat_bpb(self):
         self.assertEqual(self.image[510:512], b"\x55\xaa")
         self.assertEqual(self.image[446 + 4], 0x06)
@@ -222,6 +246,22 @@ class DiskImageTests(unittest.TestCase):
         self.assertGreater(entries["USERPROBELF"]["cluster"], entries["DOOM1   WAD"]["cluster"])
         self.assertEqual(entries["DOOM    ELF"]["size"], (BUILD / "doom.elf").stat().st_size)
         self.assertGreater(entries["DOOM    ELF"]["cluster"], entries["USERPROBELF"]["cluster"])
+
+    def test_fat_root_contains_preallocated_writable_files(self):
+        entries = self.root_entries_by_name()
+        for raw_name, capacity in make_wad_image.WRITABLE_PREALLOCATED_FILES:
+            name = raw_name.decode("ascii")
+            with self.subTest(name=name):
+                entry = entries[name]
+                self.assertEqual(entry["size"], 0)
+                chain = self.fat_chain(entry["cluster"])
+                self.assertEqual(len(chain), clusters_for_size(capacity))
+                self.assertEqual(self.cluster_bytes(entry["cluster"], capacity), bytes(capacity))
+
+        self.assertGreaterEqual(
+            self.free_data_clusters(),
+            make_wad_image.MIN_OS_CREATED_FILE_CLUSTERS,
+        )
 
     def test_wad_fixture_header_and_lumps(self):
         wad = self.cluster_bytes(2, 1024 * 1024)
@@ -300,6 +340,19 @@ class ExternalWadImageTests(unittest.TestCase):
         self.assertEqual(u32(root, 28), len(wad))
         wad_start = data_lba * SECTOR_SIZE
         self.assertEqual(image[wad_start:wad_start + len(wad)], wad)
+        entries = {}
+        for off in range(0, root_size, 32):
+            name = root[off:off + 11]
+            if name[0] == 0:
+                break
+            entries[name.decode("ascii")] = {
+                "cluster": u16(root, off + 26),
+                "size": u32(root, off + 28),
+            }
+        self.assertIn("DEFAULT CFG", entries)
+        self.assertIn("DOOMSAV0DSG", entries)
+        self.assertEqual(entries["DEFAULT CFG"]["size"], 0)
+        self.assertEqual(entries["DOOMSAV0DSG"]["size"], 0)
 
     def test_image_builder_rejects_wads_larger_than_kernel_loader_limit(self):
         wad = make_test_wad(MAX_KERNEL_WAD_BYTES + 1)
@@ -406,8 +459,8 @@ class SourceContractTests(unittest.TestCase):
         makefile = (ROOT / "Makefile").read_text()
         self.assertIn("USER_KIND_DOOM equ 2", kernel)
         self.assertIn("call doom_user_run", kernel)
-        self.assertIn("push dword DOOM_USER_STACK_TOP", kernel)
-        self.assertIn("push dword [doom_entry_addr]", kernel)
+        self.assertIn("push dword [current_user_stack_top]", kernel)
+        self.assertIn("push dword [current_user_entry]", kernel)
         self.assertIn("mov byte [doom_run_status], 1", kernel)
         self.assertIn("mov byte [doom_run_status], 2", kernel)
         self.assertIn("doom_user_fault:", kernel)
@@ -429,13 +482,91 @@ class SourceContractTests(unittest.TestCase):
     def test_user_syscalls_validate_against_current_process_window(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
         validator = kernel.split("user_range_validate:", 1)[1].split("page_fault_handler:", 1)[0]
-        self.assertIn("cmp eax, [current_user_base]", validator)
-        self.assertIn("cmp edx, [current_user_end]", validator)
+        self.assertIn("mov esi, [current_process_ptr]", validator)
+        self.assertIn("cmp eax, [esi + PROC_BASE]", validator)
+        self.assertIn("cmp edx, [esi + PROC_END]", validator)
+        self.assertNotIn("cmp eax, [current_user_base]", validator)
+        self.assertNotIn("cmp edx, [current_user_end]", validator)
         self.assertNotIn("cmp eax, USER_CODE_ADDR", validator)
         self.assertNotIn("cmp edx, USER_HEAP_END", validator)
         sbrk = kernel.split(".sbrk:", 1)[1].split(".open:", 1)[0]
-        self.assertIn("mov eax, [current_user_brk]", sbrk)
-        self.assertIn("cmp edx, [current_user_heap_end]", sbrk)
+        self.assertIn("mov esi, [current_process_ptr]", sbrk)
+        self.assertIn("mov eax, [esi + PROC_BRK]", sbrk)
+        self.assertIn("cmp edx, [esi + PROC_HEAP_END]", sbrk)
+        self.assertIn("mov [esi + PROC_BRK], edx", sbrk)
+
+    def test_kernel_has_preallocated_fat16_writable_file_path(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        probe = (ROOT / "user" / "probe.c").read_text()
+        libc = (ROOT / "doom_port" / "libc.c").read_text()
+        image_tool = (ROOT / "tools" / "make_wad_image.py").read_text()
+        for source in (
+            "WRITABLE_DEFAULT_NAME = b\"DEFAULT CFG\"",
+            "WRITABLE_SAVE_NAMES",
+            "MIN_OS_CREATED_FILE_CLUSTERS",
+        ):
+            self.assertIn(source, image_tool)
+        for source in (
+            "USER_FD_WRITABLE_BASE equ 4",
+            "WRITABLE_FILE_COUNT equ 7",
+            "ATA_CMD_WRITE_SECTORS equ 0x30",
+            "ata_write_sector:",
+            "fat_find_writable_files:",
+            "fat_update_writable_size:",
+            "user_file_read:",
+            "user_file_write:",
+            "user_file_lseek:",
+            "DEFAULT CFG",
+            "DOOMSAV0DSG",
+            "SYS_CLOSE equ 12",
+        ):
+            self.assertIn(source, kernel)
+        self.assertIn("PROBE_FLAG_WRITABLE_FILE = 0x40u", probe)
+        self.assertIn("DEFAULT.CFG", probe)
+        self.assertIn('return "DEFAULT.CFG";', libc)
+
+    def test_kernel_has_real_process_table_and_scheduler_accounting(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        for source in (
+            "PROCESS_SLOT_COUNT equ 3",
+            "PROCESS_RECORD_BYTES equ 108",
+            "PROC_SAVED_EIP equ 76",
+            "PROC_QUANTUM_TICKS equ 100",
+            "SCHEDULER_QUANTUM_TICKS equ 5",
+            "process_table:",
+            "process_kernel:",
+            "process_user_probe:",
+            "process_doom:",
+            "scheduler_init:",
+            "process_activate:",
+            "process_return_to_kernel:",
+            "scheduler_tick:",
+            "scheduler_select_next_ready:",
+        ):
+            self.assertIn(source, kernel)
+        self.assertIn("dd 0, USER_KIND_NONE, PROC_STATE_READY", kernel)
+        self.assertIn("dd 1, USER_KIND_PROBE, PROC_STATE_READY", kernel)
+        self.assertIn("dd 2, USER_KIND_DOOM, PROC_STATE_READY", kernel)
+        self.assertIn("call scheduler_init", kernel)
+        self.assertIn("mov [current_process_ptr], esi", kernel)
+        self.assertIn("mov [current_pid], eax", kernel)
+        self.assertIn("inc dword [scheduler_context_switches]", kernel)
+
+    def test_timer_path_saves_task_context_and_round_robin_state(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        irq_timer = kernel.split("irq_timer:", 1)[1].split("irq_keyboard:", 1)[0]
+        scheduler = kernel.split("scheduler_tick:", 1)[1].split("process_save_irq_context:", 1)[0]
+        save_irq = kernel.split("process_save_irq_context:", 1)[1].split("process_save_syscall_return_context:", 1)[0]
+        save_syscall = kernel.split("process_save_syscall_return_context:", 1)[1].split("scheduler_select_next_ready:", 1)[0]
+        self.assertIn("mov ebx, esp", irq_timer)
+        self.assertIn("call scheduler_tick", irq_timer)
+        self.assertIn("inc dword [scheduler_tick_count]", scheduler)
+        self.assertIn("inc dword [esi + PROC_TICKS]", scheduler)
+        self.assertIn("inc dword [esi + PROC_QUANTUM_TICKS]", scheduler)
+        self.assertIn("call scheduler_select_next_ready", scheduler)
+        for field in ("PROC_SAVED_EAX", "PROC_SAVED_EIP", "PROC_SAVED_EFLAGS", "PROC_SAVED_CS", "PROC_SAVED_ESP", "PROC_SAVED_SS"):
+            self.assertIn(field, save_irq)
+            self.assertIn(field, save_syscall)
 
     def test_doom_port_uses_kernel_time_syscall(self):
         platform = (ROOT / "doom_port" / "platform.c").read_text()

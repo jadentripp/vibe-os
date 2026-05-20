@@ -21,6 +21,7 @@ enum {
     PROBE_FLAG_READ_IWAD = 0x08u,
     PROBE_FLAG_LSEEK = 0x10u,
     PROBE_FLAG_PRESENT = 0x20u,
+    PROBE_FLAG_WRITABLE_FILE = 0x40u,
 };
 
 enum {
@@ -73,8 +74,11 @@ static void sys_expect_fault(void) {
 
 int user_main(void) {
     static char header[12];
+    static char readback[12];
     const char hello[] = "user C probe\n";
     const char wad_path[] = "DOOM1.WAD";
+    const char default_path[] = "DEFAULT.CFG";
+    const char writable_payload[] = "persist-ok\n";
     uint32_t flags = 0;
 
     if (sys_write(1, hello, sizeof(hello) - 1) == (int)(sizeof(hello) - 1)) {
@@ -103,6 +107,22 @@ int user_main(void) {
 
     if (wad >= 0 && sys_lseek(wad, 4, 0) == 4) {
         flags |= PROBE_FLAG_LSEEK;
+    }
+
+    int defaults = sys_open(default_path);
+    if (defaults >= 0
+        && sys_write(defaults, writable_payload, sizeof(writable_payload) - 1) == (int)(sizeof(writable_payload) - 1)
+        && sys_lseek(defaults, 0, 0) == 0
+        && sys_read(defaults, readback, sizeof(writable_payload) - 1) == (int)(sizeof(writable_payload) - 1)) {
+        int matches = 1;
+        for (size_t i = 0; i < sizeof(writable_payload) - 1; ++i) {
+            if (readback[i] != writable_payload[i]) {
+                matches = 0;
+            }
+        }
+        if (matches) {
+            flags |= PROBE_FLAG_WRITABLE_FILE;
+        }
     }
 
     unsigned char *video = sys_sbrk(DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES);

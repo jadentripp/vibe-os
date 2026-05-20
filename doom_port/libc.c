@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stddef.h>
@@ -13,7 +14,13 @@
 struct vibe_doom_file {
     int fd;
     int eof;
+    int error;
     int used;
+    int readable;
+    int writable;
+    int append;
+    int has_pushback;
+    unsigned char pushback;
 };
 
 typedef struct alloc_header {
@@ -23,9 +30,11 @@ typedef struct alloc_header {
     struct alloc_header* next;
 } alloc_header_t;
 
-static struct vibe_doom_file stdin_file = { 0, 0, 1 };
-static struct vibe_doom_file stdout_file = { 1, 0, 1 };
-static struct vibe_doom_file stderr_file = { 2, 0, 1 };
+int errno;
+
+static struct vibe_doom_file stdin_file = { 0, 0, 0, 1, 1, 0, 0, 0, 0 };
+static struct vibe_doom_file stdout_file = { 1, 0, 0, 1, 0, 1, 0, 0, 0 };
+static struct vibe_doom_file stderr_file = { 2, 0, 0, 1, 0, 1, 0, 0, 0 };
 static alloc_header_t* alloc_head;
 static alloc_header_t* alloc_tail;
 
@@ -34,7 +43,7 @@ FILE* stdout = &stdout_file;
 FILE* stderr = &stderr_file;
 
 #ifndef VIBE_LIBC_HOST_TEST
-int vibe_syscall3(unsigned int number, unsigned int arg0, unsigned int arg1, unsigned int arg2)
+int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, unsigned long arg2)
 {
     unsigned int result;
     __asm__ volatile(
@@ -104,7 +113,7 @@ static void* alloc_sbrk(size_t total)
     if (total > (unsigned int)-1)
         return 0;
 
-    raw = vibe_syscall3(VIBE_SYS_SBRK, (unsigned int)total, 0, 0);
+    raw = vibe_syscall3(VIBE_SYS_SBRK, (unsigned long)total, 0, 0);
     if (raw < 0)
         return 0;
     return (void*)(unsigned int)raw;
@@ -200,7 +209,28 @@ static const char* mapped_path(const char* path)
 
     if (!strcasecmp(slash, "doom1.wad"))
         return "DOOM1.WAD";
+    if (!strcasecmp(slash, ".doomrc") || !strcasecmp(slash, "default.cfg"))
+        return "DEFAULT.CFG";
     return path;
+}
+
+static int syscall_failed(int raw, int fallback_errno)
+{
+    if (raw < -1)
+        errno = -raw;
+    else
+        errno = fallback_errno;
+    return -1;
+}
+
+static int checked_multiply_size(size_t left, size_t right, size_t* out)
+{
+    if (left && right > (size_t)-1 / left) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+    *out = left * right;
+    return 0;
 }
 
 void* memcpy(void* dest, const void* src, size_t count)
@@ -479,7 +509,7 @@ void free(void* ptr)
 
 void exit(int status)
 {
-    (void)vibe_syscall3(VIBE_SYS_EXIT, (unsigned int)status, 0, 0);
+    (void)vibe_syscall3(VIBE_SYS_EXIT, (unsigned long)status, 0, 0);
     for (;;) {
     }
 }
@@ -507,36 +537,70 @@ void srand(unsigned int seed)
 
 int open(const char* path, int flags, ...)
 {
-    (void)flags;
-    return vibe_syscall3(VIBE_SYS_OPEN, (unsigned int)mapped_path(path), 0, 0);
+    int raw;
+    unsigned int mode = 0;
+    va_list args;
+
+    if (!path) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (flags & O_CREAT) {
+        va_start(args, flags);
+        mode = (unsigned int)va_arg(args, int);
+        va_end(args);
+    }
+
+    raw = vibe_syscall3(VIBE_SYS_OPEN, (unsigned long)mapped_path(path), (unsigned long)flags, mode);
+    return raw < 0 ? syscall_failed(raw, ENOENT) : raw;
 }
 
 ssize_t read(int fd, void* buffer, size_t count)
 {
-    return vibe_syscall3(VIBE_SYS_READ, (unsigned int)fd, (unsigned int)buffer, (unsigned int)count);
+    int raw;
+    if (!buffer && count) {
+        errno = EINVAL;
+        return -1;
+    }
+    raw = vibe_syscall3(VIBE_SYS_READ, (unsigned long)fd, (unsigned long)buffer, (unsigned long)count);
+    return raw < 0 ? syscall_failed(raw, EIO) : raw;
 }
 
 ssize_t write(int fd, const void* buffer, size_t count)
 {
-    return vibe_syscall3(VIBE_SYS_WRITE, (unsigned int)fd, (unsigned int)buffer, (unsigned int)count);
+    int raw;
+    if (!buffer && count) {
+        errno = EINVAL;
+        return -1;
+    }
+    raw = vibe_syscall3(VIBE_SYS_WRITE, (unsigned long)fd, (unsigned long)buffer, (unsigned long)count);
+    return raw < 0 ? syscall_failed(raw, EIO) : raw;
 }
 
 int close(int fd)
 {
-    (void)fd;
-    return 0;
+    int raw = vibe_syscall3(VIBE_SYS_CLOSE, (unsigned long)fd, 0, 0);
+    return raw < 0 ? syscall_failed(raw, EBADF) : raw;
 }
 
 off_t lseek(int fd, off_t offset, int whence)
 {
-    return vibe_syscall3(VIBE_SYS_LSEEK, (unsigned int)fd, (unsigned int)offset, (unsigned int)whence);
+    int raw = vibe_syscall3(VIBE_SYS_LSEEK, (unsigned long)fd, (unsigned long)offset, (unsigned long)whence);
+    return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
 }
 
 int access(const char* path, int mode)
 {
     int fd;
-    (void)mode;
-    fd = open(path, O_RDONLY);
+    int flags = O_RDONLY;
+    if (mode & ~(F_OK | R_OK | W_OK | X_OK)) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (mode & W_OK)
+        flags = O_WRONLY;
+    fd = open(path, flags);
     if (fd < 0)
         return -1;
     close(fd);
@@ -546,6 +610,7 @@ int access(const char* path, int mode)
 int unlink(const char* path)
 {
     (void)path;
+    errno = ENOSYS;
     return -1;
 }
 
@@ -558,8 +623,14 @@ int mkdir(const char* path, mode_t mode)
 
 int fstat(int fd, struct stat* out)
 {
-    off_t current = lseek(fd, 0, SEEK_CUR);
-    off_t end = lseek(fd, 0, SEEK_END);
+    off_t current;
+    off_t end;
+    if (!out) {
+        errno = EINVAL;
+        return -1;
+    }
+    current = lseek(fd, 0, SEEK_CUR);
+    end = lseek(fd, 0, SEEK_END);
     if (current < 0 || end < 0)
         return -1;
     (void)lseek(fd, current, SEEK_SET);
@@ -571,8 +642,13 @@ int fstat(int fd, struct stat* out)
 
 int stat(const char* path, struct stat* out)
 {
-    int fd = open(path, O_RDONLY);
+    int fd;
     int result;
+    if (!out) {
+        errno = EINVAL;
+        return -1;
+    }
+    fd = open(path, O_RDONLY);
     if (fd < 0)
         return -1;
     result = fstat(fd, out);
@@ -580,13 +656,82 @@ int stat(const char* path, struct stat* out)
     return result;
 }
 
+static int parse_fopen_mode(const char* mode, int* flags, int* readable, int* writable, int* append)
+{
+    int saw_plus = 0;
+    int saw_binary = 0;
+
+    if (!mode || !*mode) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    *readable = 0;
+    *writable = 0;
+    *append = 0;
+
+    switch (*mode++) {
+    case 'r':
+        *flags = O_RDONLY;
+        *readable = 1;
+        break;
+    case 'w':
+        *flags = O_WRONLY | O_CREAT | O_TRUNC;
+        *writable = 1;
+        break;
+    case 'a':
+        *flags = O_WRONLY | O_CREAT | O_APPEND;
+        *writable = 1;
+        *append = 1;
+        break;
+    default:
+        errno = EINVAL;
+        return -1;
+    }
+
+    while (*mode) {
+        if (*mode == 'b') {
+            if (saw_binary) {
+                errno = EINVAL;
+                return -1;
+            }
+            saw_binary = 1;
+        } else if (*mode == '+') {
+            if (saw_plus) {
+                errno = EINVAL;
+                return -1;
+            }
+            saw_plus = 1;
+        } else {
+            errno = EINVAL;
+            return -1;
+        }
+        ++mode;
+    }
+
+    if (saw_plus) {
+        *flags = (*flags & ~(O_RDONLY | O_WRONLY)) | O_RDWR;
+        *readable = 1;
+        *writable = 1;
+    }
+
+    return 0;
+}
+
 FILE* fopen(const char* path, const char* mode)
 {
     static FILE file_pool[4];
     int fd;
     int i;
-    (void)mode;
-    fd = open(path, O_RDONLY);
+    int flags;
+    int readable;
+    int writable;
+    int append;
+
+    if (parse_fopen_mode(mode, &flags, &readable, &writable, &append) < 0)
+        return 0;
+
+    fd = open(path, flags, 0666);
     if (fd < 0)
         return 0;
     for (i = 0; i < 4; ++i) {
@@ -594,9 +739,18 @@ FILE* fopen(const char* path, const char* mode)
             file_pool[i].used = 1;
             file_pool[i].fd = fd;
             file_pool[i].eof = 0;
+            file_pool[i].error = 0;
+            file_pool[i].readable = readable;
+            file_pool[i].writable = writable;
+            file_pool[i].append = append;
+            file_pool[i].has_pushback = 0;
+            file_pool[i].pushback = 0;
+            if (append)
+                (void)lseek(fd, 0, SEEK_END);
             return &file_pool[i];
         }
     }
+    errno = EMFILE;
     close(fd);
     return 0;
 }
@@ -604,40 +758,101 @@ FILE* fopen(const char* path, const char* mode)
 size_t fread(void* ptr, size_t size, size_t count, FILE* stream)
 {
     int bytes;
+    size_t total;
     if (!size || !count)
         return 0;
-    bytes = read(stream->fd, ptr, size * count);
-    if (bytes <= 0) {
+    if (!stream || !stream->used || !stream->readable || checked_multiply_size(size, count, &total) < 0) {
+        if (stream)
+            stream->error = 1;
+        if (!stream || !stream->used || !stream->readable)
+            errno = EBADF;
+        return 0;
+    }
+    bytes = read(stream->fd, ptr, total);
+    if (bytes < 0) {
+        stream->error = 1;
+        return 0;
+    }
+    if (bytes == 0) {
         stream->eof = 1;
         return 0;
     }
-    if ((size_t)bytes < size * count)
+    if ((size_t)bytes < total)
         stream->eof = 1;
     return (size_t)bytes / size;
 }
 
 size_t fwrite(const void* ptr, size_t size, size_t count, FILE* stream)
 {
-    int bytes = write(stream->fd, ptr, size * count);
+    int bytes;
+    size_t total;
+    if (!size || !count)
+        return 0;
+    if (!stream || !stream->used || !stream->writable || checked_multiply_size(size, count, &total) < 0) {
+        if (stream)
+            stream->error = 1;
+        if (!stream || !stream->used || !stream->writable)
+            errno = EBADF;
+        return 0;
+    }
+    if (stream->append)
+        (void)lseek(stream->fd, 0, SEEK_END);
+    bytes = write(stream->fd, ptr, total);
+    if (bytes < 0) {
+        stream->error = 1;
+        return 0;
+    }
+    if ((size_t)bytes < total)
+        stream->error = 1;
     return bytes < 0 || !size ? 0 : (size_t)bytes / size;
 }
 
 int fseek(FILE* stream, long offset, int whence)
 {
-    return lseek(stream->fd, (off_t)offset, whence) < 0 ? -1 : 0;
+    if (!stream || !stream->used) {
+        errno = EBADF;
+        return -1;
+    }
+    if (lseek(stream->fd, (off_t)offset, whence) < 0) {
+        stream->error = 1;
+        return -1;
+    }
+    stream->eof = 0;
+    stream->has_pushback = 0;
+    return 0;
 }
 
 long ftell(FILE* stream)
 {
-    return (long)lseek(stream->fd, 0, SEEK_CUR);
+    off_t raw;
+    if (!stream || !stream->used) {
+        errno = EBADF;
+        return -1;
+    }
+    raw = lseek(stream->fd, 0, SEEK_CUR);
+    if (raw < 0) {
+        stream->error = 1;
+        return -1;
+    }
+    return (long)raw;
 }
 
 int fclose(FILE* stream)
 {
-    int result = close(stream->fd);
+    int result;
+    if (!stream || !stream->used) {
+        errno = EBADF;
+        return EOF;
+    }
+    result = close(stream->fd);
     stream->fd = -1;
     stream->eof = 1;
+    stream->error = result < 0;
     stream->used = 0;
+    stream->readable = 0;
+    stream->writable = 0;
+    stream->append = 0;
+    stream->has_pushback = 0;
     return result;
 }
 
@@ -649,7 +864,24 @@ int fflush(FILE* stream)
 
 int feof(FILE* stream)
 {
+    if (!stream)
+        return 0;
     return stream->eof;
+}
+
+int ferror(FILE* stream)
+{
+    if (!stream)
+        return 0;
+    return stream->error;
+}
+
+void clearerr(FILE* stream)
+{
+    if (!stream)
+        return;
+    stream->eof = 0;
+    stream->error = 0;
 }
 
 void setbuf(FILE* stream, char* buffer)
@@ -663,7 +895,7 @@ int getchar(void)
     return EOF;
 }
 
-static void out_char(char** out, size_t* left, int fd, char ch)
+static int out_char(char** out, size_t* left, int fd, char ch)
 {
     if (out) {
         if (*left > 1) {
@@ -672,22 +904,30 @@ static void out_char(char** out, size_t* left, int fd, char ch)
             --*left;
         }
     } else {
-        (void)write(fd, &ch, 1);
+        if (write(fd, &ch, 1) != 1)
+            return -1;
     }
+    return 0;
 }
 
-static void out_string(char** out, size_t* left, int fd, const char* text)
+static int out_string(char** out, size_t* left, int fd, const char* text)
 {
+    int count = 0;
     if (!text)
         text = "(null)";
-    while (*text)
-        out_char(out, left, fd, *text++);
+    while (*text) {
+        if (out_char(out, left, fd, *text++) < 0)
+            return -1;
+        ++count;
+    }
+    return count;
 }
 
-static void out_unsigned(char** out, size_t* left, int fd, unsigned int value, int base, int width, int pad_zero)
+static int out_unsigned(char** out, size_t* left, int fd, unsigned int value, int base, int width, int pad_zero)
 {
     char tmp[16];
     int pos = 0;
+    int count = 0;
     do {
         unsigned int digit = value % (unsigned int)base;
         tmp[pos++] = digit < 10 ? (char)('0' + digit) : (char)('a' + digit - 10);
@@ -695,8 +935,12 @@ static void out_unsigned(char** out, size_t* left, int fd, unsigned int value, i
     } while (value);
     while (pos < width)
         tmp[pos++] = pad_zero ? '0' : ' ';
-    while (pos--)
-        out_char(out, left, fd, tmp[pos]);
+    while (pos--) {
+        if (out_char(out, left, fd, tmp[pos]) < 0)
+            return -1;
+        ++count;
+    }
+    return count;
 }
 
 static int format_to(char* buffer, size_t size, int fd, const char* format, va_list args)
@@ -704,13 +948,17 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
     char* out = buffer;
     size_t left = size;
     const char* start = buffer;
+    int count = 0;
 
     while (*format) {
         int width = 0;
         int pad_zero = 0;
         int precision = -1;
+        int wrote = 0;
         if (*format != '%') {
-            out_char(buffer ? &out : 0, &left, fd, *format++);
+            if (out_char(buffer ? &out : 0, &left, fd, *format++) < 0)
+                return -1;
+            ++count;
             continue;
         }
         ++format;
@@ -731,10 +979,15 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
         }
         switch (*format++) {
         case 's':
-            out_string(buffer ? &out : 0, &left, fd, va_arg(args, const char*));
+            wrote = out_string(buffer ? &out : 0, &left, fd, va_arg(args, const char*));
+            if (wrote < 0)
+                return -1;
+            count += wrote;
             break;
         case 'c':
-            out_char(buffer ? &out : 0, &left, fd, (char)va_arg(args, int));
+            if (out_char(buffer ? &out : 0, &left, fd, (char)va_arg(args, int)) < 0)
+                return -1;
+            ++count;
             break;
         case 'd':
         case 'i': {
@@ -742,7 +995,9 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
             int digits_width = width;
             int digits_pad_zero = pad_zero;
             if (value < 0) {
-                out_char(buffer ? &out : 0, &left, fd, '-');
+                if (out_char(buffer ? &out : 0, &left, fd, '-') < 0)
+                    return -1;
+                ++count;
                 value = -value;
             }
             if (precision >= 0) {
@@ -750,7 +1005,10 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
                 if (precision > digits_width)
                     digits_width = precision;
             }
-            out_unsigned(buffer ? &out : 0, &left, fd, (unsigned int)value, 10, digits_width, digits_pad_zero);
+            wrote = out_unsigned(buffer ? &out : 0, &left, fd, (unsigned int)value, 10, digits_width, digits_pad_zero);
+            if (wrote < 0)
+                return -1;
+            count += wrote;
             break;
         }
         case 'u':
@@ -759,7 +1017,10 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
                 if (precision > width)
                     width = precision;
             }
-            out_unsigned(buffer ? &out : 0, &left, fd, va_arg(args, unsigned int), 10, width, pad_zero);
+            wrote = out_unsigned(buffer ? &out : 0, &left, fd, va_arg(args, unsigned int), 10, width, pad_zero);
+            if (wrote < 0)
+                return -1;
+            count += wrote;
             break;
         case 'x':
         case 'p':
@@ -768,10 +1029,15 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
                 if (precision > width)
                     width = precision;
             }
-            out_unsigned(buffer ? &out : 0, &left, fd, va_arg(args, unsigned int), 16, width, pad_zero);
+            wrote = out_unsigned(buffer ? &out : 0, &left, fd, va_arg(args, unsigned int), 16, width, pad_zero);
+            if (wrote < 0)
+                return -1;
+            count += wrote;
             break;
         case '%':
-            out_char(buffer ? &out : 0, &left, fd, '%');
+            if (out_char(buffer ? &out : 0, &left, fd, '%') < 0)
+                return -1;
+            ++count;
             break;
         default:
             break;
@@ -779,7 +1045,7 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
     }
     if (buffer && size)
         *out = 0;
-    return buffer ? (int)(out - start) : 0;
+    return buffer ? (int)(out - start) : count;
 }
 
 int vsnprintf(char* buffer, size_t size, const char* format, va_list args)
@@ -814,7 +1080,19 @@ int sprintf(char* buffer, const char* format, ...)
 
 int vfprintf(FILE* stream, const char* format, va_list args)
 {
-    return format_to(0, 0, stream->fd, format, args);
+    int result;
+    if (!stream || !stream->used || !stream->writable) {
+        if (stream)
+            stream->error = 1;
+        errno = EBADF;
+        return EOF;
+    }
+    if (stream->append)
+        (void)lseek(stream->fd, 0, SEEK_END);
+    result = format_to(0, 0, stream->fd, format, args);
+    if (result < 0)
+        stream->error = 1;
+    return result;
 }
 
 int fprintf(FILE* stream, const char* format, ...)
@@ -868,9 +1146,242 @@ int sscanf(const char* text, const char* format, ...)
     return assigned;
 }
 
+static int file_read_char(FILE* stream)
+{
+    unsigned char ch;
+    int bytes;
+
+    if (!stream || !stream->used || !stream->readable) {
+        if (stream)
+            stream->error = 1;
+        errno = EBADF;
+        return EOF;
+    }
+
+    if (stream->has_pushback) {
+        stream->has_pushback = 0;
+        return stream->pushback;
+    }
+
+    bytes = read(stream->fd, &ch, 1);
+    if (bytes == 1)
+        return ch;
+    if (bytes == 0) {
+        stream->eof = 1;
+        return EOF;
+    }
+    stream->error = 1;
+    return EOF;
+}
+
+static void file_unread_char(FILE* stream, int ch)
+{
+    if (!stream || ch == EOF)
+        return;
+    stream->pushback = (unsigned char)ch;
+    stream->has_pushback = 1;
+    stream->eof = 0;
+}
+
+static void scan_skip_space(FILE* stream)
+{
+    int ch;
+    do {
+        ch = file_read_char(stream);
+    } while (ch != EOF && isspace((unsigned char)ch));
+    file_unread_char(stream, ch);
+}
+
+static int scan_read_word(FILE* stream, char* dest, int width)
+{
+    int ch;
+    int count = 0;
+
+    if (width <= 0)
+        width = 1023;
+    scan_skip_space(stream);
+    while (count < width) {
+        ch = file_read_char(stream);
+        if (ch == EOF)
+            break;
+        if (isspace((unsigned char)ch)) {
+            file_unread_char(stream, ch);
+            break;
+        }
+        dest[count++] = (char)ch;
+    }
+    dest[count] = 0;
+    return count > 0;
+}
+
+static int scan_read_until(FILE* stream, char* dest, int width, int stop)
+{
+    int ch;
+    int count = 0;
+
+    if (width <= 0)
+        width = 99;
+    while (count < width) {
+        ch = file_read_char(stream);
+        if (ch == EOF)
+            break;
+        if (ch == stop) {
+            file_unread_char(stream, ch);
+            break;
+        }
+        dest[count++] = (char)ch;
+    }
+    dest[count] = 0;
+    return count > 0;
+}
+
+static int scan_read_int(FILE* stream, int* dest, int width, int base)
+{
+    char tmp[64];
+    int ch;
+    int count = 0;
+    int sign = 1;
+    int value = 0;
+    int digits = 0;
+    const char* p;
+
+    if (width <= 0 || width >= (int)sizeof(tmp))
+        width = (int)sizeof(tmp) - 1;
+    scan_skip_space(stream);
+    ch = file_read_char(stream);
+    if (ch == '-' || ch == '+') {
+        tmp[count++] = (char)ch;
+        ch = file_read_char(stream);
+    }
+    while (ch != EOF && count < width && (isalnum((unsigned char)ch) || ch == 'x' || ch == 'X')) {
+        tmp[count++] = (char)ch;
+        ch = file_read_char(stream);
+    }
+    file_unread_char(stream, ch);
+    tmp[count] = 0;
+
+    p = tmp;
+    if (*p == '-') {
+        sign = -1;
+        ++p;
+    } else if (*p == '+') {
+        ++p;
+    }
+    if ((base == 0 || base == 16) && p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+        base = 16;
+        p += 2;
+    } else if (base == 0) {
+        base = 10;
+    }
+    while (*p) {
+        int digit;
+        if (isdigit((unsigned char)*p))
+            digit = *p - '0';
+        else if (isxdigit((unsigned char)*p))
+            digit = tolower((unsigned char)*p) - 'a' + 10;
+        else
+            break;
+        if (digit >= base)
+            break;
+        value = value * base + digit;
+        ++digits;
+        ++p;
+    }
+    if (!digits)
+        return 0;
+    *dest = value * sign;
+    return 1;
+}
+
 int fscanf(FILE* stream, const char* format, ...)
 {
-    (void)stream;
-    (void)format;
-    return EOF;
+    va_list args;
+    int assigned = 0;
+    int matched = 0;
+
+    if (!stream || !format) {
+        errno = EINVAL;
+        return EOF;
+    }
+
+    va_start(args, format);
+    while (*format) {
+        int width = 0;
+        int ch;
+
+        if (isspace((unsigned char)*format)) {
+            while (isspace((unsigned char)*format))
+                ++format;
+            scan_skip_space(stream);
+            continue;
+        }
+
+        if (*format != '%') {
+            ch = file_read_char(stream);
+            if (ch == EOF || ch != (unsigned char)*format) {
+                file_unread_char(stream, ch);
+                break;
+            }
+            ++format;
+            ++matched;
+            continue;
+        }
+
+        ++format;
+        if (*format == '%') {
+            ch = file_read_char(stream);
+            if (ch != '%') {
+                file_unread_char(stream, ch);
+                break;
+            }
+            ++format;
+            ++matched;
+            continue;
+        }
+
+        while (isdigit((unsigned char)*format)) {
+            width = width * 10 + (*format - '0');
+            ++format;
+        }
+
+        if (*format == 's') {
+            if (!scan_read_word(stream, va_arg(args, char*), width))
+                break;
+            ++assigned;
+            ++matched;
+            ++format;
+        } else if (*format == '[') {
+            ++format;
+            if (*format == '^' && format[1] && format[2] == ']') {
+                if (!scan_read_until(stream, va_arg(args, char*), width, (unsigned char)format[1]))
+                    break;
+                format += 3;
+                ++assigned;
+                ++matched;
+            } else {
+                errno = EINVAL;
+                break;
+            }
+        } else if (*format == 'i' || *format == 'd') {
+            if (!scan_read_int(stream, va_arg(args, int*), width, *format == 'i' ? 0 : 10))
+                break;
+            ++assigned;
+            ++matched;
+            ++format;
+        } else if (*format == 'x') {
+            if (!scan_read_int(stream, va_arg(args, int*), width, 16))
+                break;
+            ++assigned;
+            ++matched;
+            ++format;
+        } else {
+            errno = EINVAL;
+            break;
+        }
+    }
+    va_end(args);
+
+    if (!matched && stream->eof)
+        return EOF;
+    return assigned;
 }

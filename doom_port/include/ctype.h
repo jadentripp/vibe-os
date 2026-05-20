@@ -28,6 +28,11 @@ static inline int isalpha(int ch)
     return islower(ch) || isupper(ch);
 }
 
+static inline int isalnum(int ch)
+{
+    return isalpha(ch) || isdigit(ch);
+}
+
 static inline int isspace(int ch)
 {
     return ch == ' ' || (ch >= '\t' && ch <= '\r');

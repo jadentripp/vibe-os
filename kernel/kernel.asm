@@ -84,6 +84,41 @@ DOOM_USER_END equ DOOM_ELF_LIMIT
 USER_KIND_NONE equ 0
 USER_KIND_PROBE equ 1
 USER_KIND_DOOM equ 2
+PROC_STATE_UNUSED equ 0
+PROC_STATE_READY equ 1
+PROC_STATE_RUNNING equ 2
+PROC_STATE_EXITED equ 3
+PROC_STATE_FAULTED equ 4
+PROCESS_SLOT_COUNT equ 3
+PROCESS_RECORD_BYTES equ 108
+PROC_PID equ 0
+PROC_KIND equ 4
+PROC_STATE equ 8
+PROC_BASE equ 12
+PROC_END equ 16
+PROC_BRK equ 20
+PROC_HEAP_START equ 24
+PROC_HEAP_END equ 28
+PROC_STACK_BOTTOM equ 32
+PROC_STACK_TOP equ 36
+PROC_ENTRY equ 40
+PROC_SAVED_EAX equ 44
+PROC_SAVED_EBX equ 48
+PROC_SAVED_ECX equ 52
+PROC_SAVED_EDX equ 56
+PROC_SAVED_ESI equ 60
+PROC_SAVED_EDI equ 64
+PROC_SAVED_EBP equ 68
+PROC_SAVED_ESP equ 72
+PROC_SAVED_EIP equ 76
+PROC_SAVED_EFLAGS equ 80
+PROC_SAVED_CS equ 84
+PROC_SAVED_SS equ 88
+PROC_TICKS equ 92
+PROC_RUNS equ 96
+PROC_QUANTUM_TICKS equ 100
+PROC_SWITCHES equ 104
+SCHEDULER_QUANTUM_TICKS equ 5
 C_RUNTIME_MAGIC equ 0xC0DEF00D
 ELF_MAGIC equ 0x464c457f
 ELFCLASS32 equ 1
@@ -98,10 +133,19 @@ USER_STACK_BOTTOM equ 0x00e81000
 USER_STACK_TOP equ 0x00e82000
 USER_HEAP_START equ USER_STACK_TOP
 USER_HEAP_END equ 0x00f00000
-USER_PROBE_EXPECTED_FLAGS equ 0x0000003f
+USER_PROBE_EXPECTED_FLAGS equ 0x0000007f
 USER_PROBE_MAGIC equ 0x13579BDF
 USER_FAULT_ADDR equ 0x00010000
 USER_FD_WAD equ 3
+USER_FD_WRITABLE_BASE equ 4
+WRITABLE_FILE_COUNT equ 7
+WRITABLE_DEFAULT_CAPACITY equ 0x00004000
+WRITABLE_SAVE_CAPACITY equ 0x00040000
+O_WRONLY equ 0x0001
+O_RDWR equ 0x0002
+O_CREAT equ 0x0100
+O_TRUNC equ 0x0200
+O_APPEND equ 0x0400
 SYS_USER_PROBE equ 1
 SYS_EXIT equ 2
 SYS_EXPECT_FAULT equ 3
@@ -113,6 +157,7 @@ SYS_LSEEK equ 8
 SYS_TIME equ 9
 SYS_PRESENT equ 10
 SYS_POLL_KEY equ 11
+SYS_CLOSE equ 12
 VGA_DAC_WRITE_INDEX equ 0x03c8
 VGA_DAC_DATA equ 0x03c9
 ATA_DATA equ 0x01f0
@@ -123,6 +168,7 @@ ATA_LBA_HIGH equ 0x01f5
 ATA_DRIVE_HEAD equ 0x01f6
 ATA_COMMAND_STATUS equ 0x01f7
 ATA_CMD_READ_SECTORS equ 0x20
+ATA_CMD_WRITE_SECTORS equ 0x30
 
 SC_LSHIFT equ 0x2a
 SC_RSHIFT equ 0x36
@@ -179,6 +225,7 @@ start:
     call fpu_self_test
     call libc_self_test
     call storage_init
+    call scheduler_init
     call c_runtime_self_test
     cmp eax, C_RUNTIME_MAGIC
     je .c_runtime_ok
@@ -199,7 +246,7 @@ user_probe_finished:
     mov gs, ax
     mov ss, ax
     mov esp, KERNEL_STACK_TOP
-    mov byte [current_user_kind], USER_KIND_NONE
+    call process_return_to_kernel
     call doom_user_run
 
 doom_user_finished:
@@ -210,7 +257,7 @@ doom_user_finished:
     mov gs, ax
     mov ss, ax
     mov esp, KERNEL_STACK_TOP
-    mov byte [current_user_kind], USER_KIND_NONE
+    call process_return_to_kernel
     call clear_screen
     mov esi, banner
     call print_string
@@ -2189,13 +2236,31 @@ storage_init:
     mov dword [doom_segment_filesz], 0
     mov dword [doom_segment_memsz], 0
     mov dword [doom_segment_end], 0
+    mov ecx, WRITABLE_FILE_COUNT
+    xor ebx, ebx
+
+.clear_writable_files:
+    mov byte [writable_status + ebx], 0
+    mov word [writable_first_clusters + ebx * 2], 0
+    mov dword [writable_sizes + ebx * 4], 0
+    mov dword [writable_root_lbas + ebx * 4], 0
+    mov dword [writable_root_offsets + ebx * 4], 0
+    mov dword [writable_offsets + ebx * 4], 0
+    inc ebx
+    loop .clear_writable_files
     mov byte [doom_user_window_status], 0
     mov word [doom_elf_first_cluster], 0
+    mov dword [current_pid], 0
+    mov dword [current_process_ptr], 0
     mov dword [current_user_base], 0
     mov dword [current_user_end], 0
     mov dword [current_user_brk], 0
+    mov dword [current_user_heap_start], 0
     mov dword [current_user_heap_end], 0
+    mov dword [current_user_stack_top], 0
+    mov dword [current_user_entry], 0
     mov dword [current_syscall_number], 0
+    mov dword [syscall_return_value], 0
     mov byte [current_user_kind], USER_KIND_NONE
     mov byte [doom_run_status], 0
     mov dword [doom_exit_code], 0
@@ -2281,6 +2346,7 @@ storage_init:
     jc .wad_fail
     call wad_parse
     jc .wad_parse_fail
+    call fat_find_writable_files
 
     call fat_find_user_elf
     jc .user_elf_fail
@@ -2458,6 +2524,71 @@ ata_read_sector:
     pop ebx
     ret
 
+ata_write_sector:
+    push ebx
+    push ecx
+    push edx
+    push esi
+
+    mov ebx, eax
+    mov [ata_last_lba], eax
+    call ata_wait_not_busy
+    jc .fail
+
+    mov eax, ebx
+    shr eax, 24
+    and al, 0x0f
+    or al, 0xe0
+    mov dx, ATA_DRIVE_HEAD
+    out dx, al
+    call ata_io_delay
+
+    mov dx, ATA_SECTOR_COUNT
+    mov al, 1
+    out dx, al
+
+    mov eax, ebx
+    mov dx, ATA_LBA_LOW
+    out dx, al
+
+    mov eax, ebx
+    shr eax, 8
+    mov dx, ATA_LBA_MID
+    out dx, al
+
+    mov eax, ebx
+    shr eax, 16
+    mov dx, ATA_LBA_HIGH
+    out dx, al
+
+    mov dx, ATA_COMMAND_STATUS
+    mov al, ATA_CMD_WRITE_SECTORS
+    out dx, al
+
+    call ata_wait_drq
+    jc .fail
+
+    cld
+    mov dx, ATA_DATA
+    mov ecx, 256
+    rep outsw
+    call ata_wait_not_busy
+    jc .fail
+    mov byte [ata_status], 1
+    clc
+    jmp .done
+
+.fail:
+    mov byte [ata_status], 2
+    stc
+
+.done:
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
 fat_name_match:
     push ecx
     push esi
@@ -2512,6 +2643,12 @@ fat_find_file:
     jmp .sector_loop
 
 .found:
+    mov eax, [fat_root_lba]
+    add eax, ebx
+    mov [fat_found_root_lba], eax
+    mov eax, esi
+    sub eax, SECTOR_BUFFER_ADDR
+    mov [fat_found_root_offset], eax
     mov ax, [esi + 26]
     mov [fat_found_first_cluster], ax
     mov eax, [esi + 28]
@@ -2726,6 +2863,350 @@ fat_load_doom_elf:
     stc
     ret
 
+fat_find_writable_files:
+    push ebx
+
+    xor ebx, ebx
+
+.loop:
+    cmp ebx, WRITABLE_FILE_COUNT
+    jae .ok
+    mov edi, [writable_name_table + ebx * 4]
+    push ebx
+    call fat_find_file
+    pop ebx
+    jc .fail
+    mov eax, [fat_found_size]
+    cmp eax, [writable_capacity_table + ebx * 4]
+    ja .fail
+    mov ax, [fat_found_first_cluster]
+    mov [writable_first_clusters + ebx * 2], ax
+    mov eax, [fat_found_size]
+    mov [writable_sizes + ebx * 4], eax
+    mov eax, [fat_found_root_lba]
+    mov [writable_root_lbas + ebx * 4], eax
+    mov eax, [fat_found_root_offset]
+    mov [writable_root_offsets + ebx * 4], eax
+    mov dword [writable_offsets + ebx * 4], 0
+    mov byte [writable_status + ebx], 1
+    inc ebx
+    jmp .loop
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    mov byte [writable_status + ebx], 2
+    stc
+
+.done:
+    pop ebx
+    ret
+
+user_path_equals:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov esi, eax
+    call user_range_validate
+    jc .fail
+    mov ecx, ebx
+    repe cmpsb
+    jne .fail
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+writable_fd_index:
+    mov eax, ebx
+    sub eax, USER_FD_WRITABLE_BASE
+    cmp eax, WRITABLE_FILE_COUNT
+    jae .fail
+    cmp byte [writable_status + eax], 1
+    jne .fail
+    clc
+    ret
+
+.fail:
+    stc
+    ret
+
+fat_file_lba_for_offset:
+    push ecx
+    push edx
+
+    mov ebx, edx
+    and ebx, 511
+    shr edx, 9
+    mov [fat_current_cluster], ax
+
+.cluster_loop:
+    movzx ecx, byte [fat_sectors_per_cluster]
+    cmp edx, ecx
+    jb .have_cluster
+    sub edx, ecx
+    movzx eax, word [fat_current_cluster]
+    call fat_next_cluster
+    jc .fail
+    cmp eax, 2
+    jb .fail
+    cmp eax, 0xfff8
+    jae .fail
+    mov [fat_current_cluster], ax
+    jmp .cluster_loop
+
+.have_cluster:
+    mov ecx, edx
+    movzx eax, word [fat_current_cluster]
+    cmp eax, 2
+    jb .fail
+    cmp eax, 0xfff8
+    jae .fail
+    sub eax, 2
+    movzx edx, byte [fat_sectors_per_cluster]
+    mul edx
+    add eax, [fat_data_lba]
+    add eax, ecx
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edx
+    pop ecx
+    ret
+
+fat_update_writable_size:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov ebx, eax
+    mov eax, [writable_root_lbas + ebx * 4]
+    mov edi, SECTOR_BUFFER_ADDR
+    call ata_read_sector
+    jc .fail
+    mov edx, [writable_root_offsets + ebx * 4]
+    mov ecx, [writable_sizes + ebx * 4]
+    mov [SECTOR_BUFFER_ADDR + edx + 28], ecx
+    mov eax, [writable_root_lbas + ebx * 4]
+    mov esi, SECTOR_BUFFER_ADDR
+    call ata_write_sector
+    jc .fail
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+user_file_read:
+    call writable_fd_index
+    jc .fail
+    mov [file_io_index], eax
+    mov [file_io_user_ptr], ecx
+    mov [file_io_remaining], edx
+    mov dword [file_io_done], 0
+    mov eax, ecx
+    mov ebx, edx
+    call user_range_validate
+    jc .fail
+    mov ebx, [file_io_index]
+    mov eax, [writable_sizes + ebx * 4]
+    cmp [writable_offsets + ebx * 4], eax
+    jb .have_readable_bytes
+    mov dword [file_io_remaining], 0
+    jmp .loop
+
+.have_readable_bytes:
+    sub eax, [writable_offsets + ebx * 4]
+    cmp [file_io_remaining], eax
+    jbe .loop
+    mov [file_io_remaining], eax
+
+.loop:
+    cmp dword [file_io_remaining], 0
+    je .ok
+    mov ebx, [file_io_index]
+    mov ax, [writable_first_clusters + ebx * 2]
+    mov edx, [writable_offsets + ebx * 4]
+    call fat_file_lba_for_offset
+    jc .fail
+    mov [file_io_sector_offset], ebx
+    mov edi, SECTOR_BUFFER_ADDR
+    call ata_read_sector
+    jc .fail
+    mov eax, 512
+    sub eax, [file_io_sector_offset]
+    cmp eax, [file_io_remaining]
+    jbe .chunk_ok
+    mov eax, [file_io_remaining]
+
+.chunk_ok:
+    mov [file_io_chunk], eax
+    mov esi, SECTOR_BUFFER_ADDR
+    add esi, [file_io_sector_offset]
+    mov edi, [file_io_user_ptr]
+    add edi, [file_io_done]
+    mov ecx, [file_io_chunk]
+    cld
+    rep movsb
+    mov eax, [file_io_chunk]
+    add [file_io_done], eax
+    sub [file_io_remaining], eax
+    mov ebx, [file_io_index]
+    add [writable_offsets + ebx * 4], eax
+    jmp .loop
+
+.ok:
+    mov eax, [file_io_done]
+    clc
+    ret
+
+.fail:
+    mov eax, 0xffffffff
+    stc
+    ret
+
+user_file_write:
+    call writable_fd_index
+    jc .fail
+    mov [file_io_index], eax
+    mov [file_io_user_ptr], ecx
+    mov [file_io_remaining], edx
+    mov dword [file_io_done], 0
+    mov eax, ecx
+    mov ebx, edx
+    call user_range_validate
+    jc .fail
+    mov ebx, [file_io_index]
+    mov eax, [writable_capacity_table + ebx * 4]
+    sub eax, [writable_offsets + ebx * 4]
+    cmp [file_io_remaining], eax
+    jbe .loop
+    mov [file_io_remaining], eax
+
+.loop:
+    cmp dword [file_io_remaining], 0
+    je .ok
+    mov ebx, [file_io_index]
+    mov ax, [writable_first_clusters + ebx * 2]
+    mov edx, [writable_offsets + ebx * 4]
+    call fat_file_lba_for_offset
+    jc .fail
+    mov [file_io_sector_lba], eax
+    mov [file_io_sector_offset], ebx
+    mov edi, SECTOR_BUFFER_ADDR
+    call ata_read_sector
+    jc .fail
+    mov eax, 512
+    sub eax, [file_io_sector_offset]
+    cmp eax, [file_io_remaining]
+    jbe .chunk_ok
+    mov eax, [file_io_remaining]
+
+.chunk_ok:
+    mov [file_io_chunk], eax
+    mov esi, [file_io_user_ptr]
+    add esi, [file_io_done]
+    mov edi, SECTOR_BUFFER_ADDR
+    add edi, [file_io_sector_offset]
+    mov ecx, [file_io_chunk]
+    cld
+    rep movsb
+    mov eax, [file_io_sector_lba]
+    mov esi, SECTOR_BUFFER_ADDR
+    call ata_write_sector
+    jc .fail
+    mov eax, [file_io_chunk]
+    add [file_io_done], eax
+    sub [file_io_remaining], eax
+    mov ebx, [file_io_index]
+    add [writable_offsets + ebx * 4], eax
+    mov edx, [writable_offsets + ebx * 4]
+    cmp edx, [writable_sizes + ebx * 4]
+    jbe .loop
+    mov [writable_sizes + ebx * 4], edx
+    jmp .loop
+
+.ok:
+    mov eax, [file_io_index]
+    call fat_update_writable_size
+    jc .fail
+    mov eax, [file_io_done]
+    clc
+    ret
+
+.fail:
+    mov eax, 0xffffffff
+    stc
+    ret
+
+user_file_lseek:
+    call writable_fd_index
+    jc .fail
+    mov [file_io_index], eax
+    mov ebx, eax
+    cmp edx, 0
+    je .seek_set
+    cmp edx, 1
+    je .seek_cur
+    cmp edx, 2
+    je .seek_end
+    jmp .fail
+
+.seek_set:
+    mov eax, ecx
+    jmp .seek_validate
+
+.seek_cur:
+    mov eax, [writable_offsets + ebx * 4]
+    add eax, ecx
+    jc .fail
+    jmp .seek_validate
+
+.seek_end:
+    mov eax, [writable_sizes + ebx * 4]
+    add eax, ecx
+    jc .fail
+
+.seek_validate:
+    cmp eax, [writable_capacity_table + ebx * 4]
+    ja .fail
+    mov [writable_offsets + ebx * 4], eax
+    clc
+    ret
+
+.fail:
+    mov eax, 0xffffffff
+    stc
+    ret
+
 wad_validate_range:
     push edx
 
@@ -2916,8 +3397,262 @@ idt_set_gate_attr:
     pop eax
     ret
 
+scheduler_init:
+    mov dword [scheduler_tick_count], 0
+    mov dword [scheduler_round_count], 0
+    mov dword [scheduler_context_switches], 0
+    mov dword [scheduler_rr_cursor], 0
+    mov dword [scheduler_next_pid], 0xffffffff
+    mov dword [current_process_ptr], 0
+    mov dword [current_pid], 0
+
+    mov esi, process_kernel
+    call process_reset_accounting
+    mov dword [process_kernel + PROC_STATE], PROC_STATE_READY
+    mov esi, process_user_probe
+    call process_reset_user_probe
+    mov esi, process_doom
+    call process_reset_doom
+    mov esi, process_kernel
+    call process_activate
+    ret
+
+process_reset_user_probe:
+    call process_reset_accounting
+    mov dword [esi + PROC_STATE], PROC_STATE_READY
+    mov dword [esi + PROC_BRK], USER_HEAP_START
+    mov dword [esi + PROC_ENTRY], 0
+    ret
+
+process_reset_doom:
+    call process_reset_accounting
+    mov dword [esi + PROC_STATE], PROC_STATE_READY
+    mov dword [esi + PROC_BRK], DOOM_USER_HEAP_START
+    mov dword [esi + PROC_ENTRY], 0
+    ret
+
+process_reset_accounting:
+    push eax
+    push ecx
+    push edi
+    mov dword [esi + PROC_TICKS], 0
+    mov dword [esi + PROC_RUNS], 0
+    mov dword [esi + PROC_QUANTUM_TICKS], 0
+    mov dword [esi + PROC_SWITCHES], 0
+    lea edi, [esi + PROC_SAVED_EAX]
+    xor eax, eax
+    mov ecx, 12
+    rep stosd
+    pop edi
+    pop ecx
+    pop eax
+    ret
+
+process_activate:
+    push eax
+    push ebx
+    mov ebx, [current_process_ptr]
+    cmp ebx, 0
+    je .activate
+    cmp dword [ebx + PROC_STATE], PROC_STATE_RUNNING
+    jne .activate
+    mov dword [ebx + PROC_STATE], PROC_STATE_READY
+
+.activate:
+    mov [current_process_ptr], esi
+    mov eax, [esi + PROC_PID]
+    mov [current_pid], eax
+    mov dword [esi + PROC_STATE], PROC_STATE_RUNNING
+    inc dword [esi + PROC_RUNS]
+    inc dword [esi + PROC_SWITCHES]
+    inc dword [scheduler_context_switches]
+    mov eax, [esi + PROC_KIND]
+    mov [current_user_kind], al
+    mov eax, [esi + PROC_BASE]
+    mov [current_user_base], eax
+    mov eax, [esi + PROC_END]
+    mov [current_user_end], eax
+    mov eax, [esi + PROC_BRK]
+    mov [current_user_brk], eax
+    mov [user_brk_current], eax
+    mov eax, [esi + PROC_HEAP_START]
+    mov [current_user_heap_start], eax
+    mov eax, [esi + PROC_HEAP_END]
+    mov [current_user_heap_end], eax
+    mov eax, [esi + PROC_STACK_TOP]
+    mov [current_user_stack_top], eax
+    mov eax, [esi + PROC_ENTRY]
+    mov [current_user_entry], eax
+    pop ebx
+    pop eax
+    ret
+
+process_return_to_kernel:
+    mov esi, process_kernel
+    call process_activate
+    ret
+
+process_mark_current_exited:
+    push esi
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .done
+    mov dword [esi + PROC_STATE], PROC_STATE_EXITED
+
+.done:
+    pop esi
+    ret
+
+process_mark_current_faulted:
+    push esi
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .done
+    mov dword [esi + PROC_STATE], PROC_STATE_FAULTED
+
+.done:
+    pop esi
+    ret
+
+scheduler_tick:
+    push eax
+    push ecx
+    push edx
+    push esi
+    push edi
+    inc dword [scheduler_tick_count]
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .done
+    inc dword [esi + PROC_TICKS]
+    inc dword [esi + PROC_QUANTUM_TICKS]
+    call process_save_irq_context
+    mov eax, [esi + PROC_QUANTUM_TICKS]
+    cmp eax, SCHEDULER_QUANTUM_TICKS
+    jb .done
+    mov dword [esi + PROC_QUANTUM_TICKS], 0
+    inc dword [scheduler_round_count]
+    call scheduler_select_next_ready
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop eax
+    ret
+
+process_save_irq_context:
+    mov eax, [ebx + 28]
+    mov [esi + PROC_SAVED_EAX], eax
+    mov eax, [ebx + 16]
+    mov [esi + PROC_SAVED_EBX], eax
+    mov eax, [ebx + 24]
+    mov [esi + PROC_SAVED_ECX], eax
+    mov eax, [ebx + 20]
+    mov [esi + PROC_SAVED_EDX], eax
+    mov eax, [ebx + 4]
+    mov [esi + PROC_SAVED_ESI], eax
+    mov eax, [ebx]
+    mov [esi + PROC_SAVED_EDI], eax
+    mov eax, [ebx + 8]
+    mov [esi + PROC_SAVED_EBP], eax
+    mov eax, [ebx + 32]
+    mov [esi + PROC_SAVED_EIP], eax
+    mov eax, [ebx + 40]
+    mov [esi + PROC_SAVED_EFLAGS], eax
+    mov eax, [ebx + 36]
+    mov [esi + PROC_SAVED_CS], eax
+    test eax, 3
+    jz .kernel_frame
+    mov eax, [ebx + 44]
+    mov [esi + PROC_SAVED_ESP], eax
+    mov eax, [ebx + 48]
+    mov [esi + PROC_SAVED_SS], eax
+    ret
+
+.kernel_frame:
+    mov eax, [ebx + 12]
+    mov [esi + PROC_SAVED_ESP], eax
+    mov dword [esi + PROC_SAVED_SS], DATA_SEG
+    ret
+
+process_save_syscall_return_context:
+    push eax
+    push esi
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .done
+    mov eax, [syscall_return_value]
+    mov [esi + PROC_SAVED_EAX], eax
+    mov eax, [esp + 32]
+    mov [esi + PROC_SAVED_EBX], eax
+    mov eax, [esp + 28]
+    mov [esi + PROC_SAVED_ECX], eax
+    mov eax, [esp + 24]
+    mov [esi + PROC_SAVED_EDX], eax
+    mov eax, [esp + 20]
+    mov [esi + PROC_SAVED_ESI], eax
+    mov eax, [esp + 16]
+    mov [esi + PROC_SAVED_EDI], eax
+    mov eax, [esp + 12]
+    mov [esi + PROC_SAVED_EBP], eax
+    mov eax, [esp + 36]
+    mov [esi + PROC_SAVED_EIP], eax
+    mov eax, [esp + 44]
+    mov [esi + PROC_SAVED_EFLAGS], eax
+    mov eax, [esp + 40]
+    mov [esi + PROC_SAVED_CS], eax
+    mov eax, [esp + 48]
+    mov [esi + PROC_SAVED_ESP], eax
+    mov eax, [esp + 52]
+    mov [esi + PROC_SAVED_SS], eax
+
+.done:
+    pop esi
+    pop eax
+    ret
+
+scheduler_select_next_ready:
+    push eax
+    push ecx
+    push edx
+    push edi
+    mov eax, [scheduler_rr_cursor]
+    mov ecx, PROCESS_SLOT_COUNT
+
+.next:
+    inc eax
+    cmp eax, PROCESS_SLOT_COUNT
+    jb .index_ok
+    xor eax, eax
+
+.index_ok:
+    mov edi, eax
+    imul edi, PROCESS_RECORD_BYTES
+    add edi, process_table
+    cmp dword [edi + PROC_STATE], PROC_STATE_READY
+    je .found
+    loop .next
+    mov dword [scheduler_next_pid], 0xffffffff
+    jmp .done
+
+.found:
+    mov [scheduler_rr_cursor], eax
+    mov edx, [edi + PROC_PID]
+    mov [scheduler_next_pid], edx
+
+.done:
+    pop edi
+    pop edx
+    pop ecx
+    pop eax
+    ret
+
 user_probe_run:
-    mov byte [current_user_kind], USER_KIND_PROBE
+    mov esi, process_user_probe
+    call process_reset_user_probe
+    call process_activate
     mov byte [user_probe_status], 0
     mov byte [user_fault_expected], 0
     mov byte [user_fault_status], 0
@@ -2926,11 +3661,6 @@ user_probe_run:
     mov dword [user_fault_addr], 0
     mov dword [user_wad_magic_seen], 0
     mov dword [user_wad_fd_offset], 0
-    mov dword [user_brk_current], USER_HEAP_START
-    mov dword [current_user_base], USER_CODE_ADDR
-    mov dword [current_user_end], USER_HEAP_END
-    mov dword [current_user_brk], USER_HEAP_START
-    mov dword [current_user_heap_end], USER_HEAP_END
     mov byte [present_status], 0
     mov dword [present_sample_first], 0
     mov dword [present_sample_mid], 0
@@ -2940,6 +3670,9 @@ user_probe_run:
 
     call user_elf_prepare
     jc .fail
+    mov eax, [user_entry_addr]
+    mov [process_user_probe + PROC_ENTRY], eax
+    mov [current_user_entry], eax
 
     mov edi, USER_STACK_BOTTOM
     xor eax, eax
@@ -2960,17 +3693,21 @@ user_probe_run:
     mov gs, ax
 
     push dword USER_DATA_SEG
-    push dword USER_STACK_TOP
+    push dword [current_user_stack_top]
     push dword 0x00000002
     push dword USER_CODE_SEG
-    push dword [user_entry_addr]
+    push dword [current_user_entry]
     iretd
 
 .fail:
     mov byte [user_probe_status], 2
+    call process_mark_current_faulted
     ret
 
 doom_user_run:
+    mov esi, process_doom
+    call process_reset_doom
+    call process_activate
     mov byte [doom_run_status], 0
     mov dword [doom_exit_code], 0
     mov dword [doom_fault_addr], 0
@@ -2990,14 +3727,12 @@ doom_user_run:
     mov dword [present_sample_last], 0
     call keyboard_reset_queue
     mov dword [user_wad_fd_offset], 0
-    mov dword [user_brk_current], DOOM_USER_HEAP_START
-    mov dword [current_user_base], DOOM_USER_BASE
-    mov dword [current_user_end], DOOM_USER_END
-    mov dword [current_user_brk], DOOM_USER_HEAP_START
-    mov dword [current_user_heap_end], DOOM_USER_HEAP_END
 
     cmp byte [doom_elf_parse_status], 1
     jne .fail
+    mov eax, [doom_entry_addr]
+    mov [process_doom + PROC_ENTRY], eax
+    mov [current_user_entry], eax
 
     cld
     mov edi, DOOM_USER_HEAP_START
@@ -3007,7 +3742,6 @@ doom_user_run:
 
     mov dword [tss_esp0], KERNEL_STACK_TOP
     mov word [tss_ss0], DATA_SEG
-    mov byte [current_user_kind], USER_KIND_DOOM
     mov byte [doom_run_status], 1
 
     call pic_unmask_timer_keyboard
@@ -3019,14 +3753,15 @@ doom_user_run:
     mov gs, ax
 
     push dword USER_DATA_SEG
-    push dword DOOM_USER_STACK_TOP
+    push dword [current_user_stack_top]
     push dword 0x00000202
     push dword USER_CODE_SEG
-    push dword [doom_entry_addr]
+    push dword [current_user_entry]
     iretd
 
 .fail:
     mov byte [doom_run_status], 4
+    call process_mark_current_faulted
     ret
 
 user_elf_prepare:
@@ -3303,6 +4038,8 @@ syscall_handler:
     je .present
     cmp eax, SYS_POLL_KEY
     je .poll_key
+    cmp eax, SYS_CLOSE
+    je .close
     jmp .bad_syscall
 
 .user_probe:
@@ -3325,7 +4062,10 @@ syscall_handler:
     cmp ebx, 1
     je .write_fd_ok
     cmp ebx, 2
-    jne .bad_syscall
+    je .write_fd_ok
+    call user_file_write
+    jc .bad_syscall
+    jmp .return
 
 .write_fd_ok:
     mov [syscall_ptr_arg], ecx
@@ -3360,12 +4100,16 @@ syscall_handler:
     jmp .return
 
 .sbrk:
-    mov eax, [current_user_brk]
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .bad_syscall
+    mov eax, [esi + PROC_BRK]
     mov edx, eax
     add edx, ebx
     jc .bad_syscall
-    cmp edx, [current_user_heap_end]
+    cmp edx, [esi + PROC_HEAP_END]
     ja .bad_syscall
+    mov [esi + PROC_BRK], edx
     mov [current_user_brk], edx
     mov [user_brk_current], edx
     cmp byte [current_user_kind], USER_KIND_DOOM
@@ -3377,15 +4121,12 @@ syscall_handler:
 
 .open:
     mov [syscall_ptr_arg], ebx
+    mov [syscall_open_flags], ecx
     mov eax, ebx
     mov ebx, user_path_doom_wad_end - user_path_doom_wad
-    call user_range_validate
-    jc .bad_syscall
-    mov esi, [syscall_ptr_arg]
     mov edi, user_path_doom_wad
-    mov ecx, user_path_doom_wad_end - user_path_doom_wad
-    repe cmpsb
-    jne .bad_syscall
+    call user_path_equals
+    jc .open_writable
     cmp byte [wad_status], 1
     jne .bad_syscall
     mov dword [user_wad_fd_offset], 0
@@ -3397,9 +4138,52 @@ syscall_handler:
 .open_return:
     jmp .return
 
+.open_writable:
+    xor edx, edx
+
+.open_writable_loop:
+    cmp edx, WRITABLE_FILE_COUNT
+    jae .bad_syscall
+    mov eax, [syscall_ptr_arg]
+    mov ebx, [writable_path_len_table + edx * 4]
+    mov edi, [writable_path_table + edx * 4]
+    push edx
+    call user_path_equals
+    pop edx
+    jnc .open_writable_found
+    inc edx
+    jmp .open_writable_loop
+
+.open_writable_found:
+    cmp byte [writable_status + edx], 1
+    jne .bad_syscall
+    mov dword [writable_offsets + edx * 4], 0
+    test dword [syscall_open_flags], O_TRUNC
+    jz .open_writable_append
+    mov dword [writable_sizes + edx * 4], 0
+    mov eax, edx
+    call fat_update_writable_size
+    jc .bad_syscall
+
+.open_writable_append:
+    test dword [syscall_open_flags], O_APPEND
+    jz .open_writable_return
+    mov eax, [writable_sizes + edx * 4]
+    mov [writable_offsets + edx * 4], eax
+
+.open_writable_return:
+    mov eax, USER_FD_WRITABLE_BASE
+    add eax, edx
+    jmp .return
+
 .read:
     cmp ebx, USER_FD_WAD
-    jne .bad_syscall
+    je .read_wad
+    call user_file_read
+    jc .bad_syscall
+    jmp .return
+
+.read_wad:
     mov [syscall_ptr_arg], ecx
     mov [syscall_len_arg], edx
     mov eax, ecx
@@ -3445,7 +4229,12 @@ syscall_handler:
 
 .lseek:
     cmp ebx, USER_FD_WAD
-    jne .bad_syscall
+    je .lseek_wad
+    call user_file_lseek
+    jc .bad_syscall
+    jmp .return
+
+.lseek_wad:
     cmp edx, 0
     je .seek_set
     cmp edx, 1
@@ -3527,6 +4316,16 @@ syscall_handler:
     xor eax, eax
     jmp .return
 
+.close:
+    cmp ebx, USER_FD_WAD
+    je .close_ok
+    call writable_fd_index
+    jc .bad_syscall
+
+.close_ok:
+    xor eax, eax
+    jmp .return
+
 .bad_syscall:
     mov eax, 0xffffffff
     jmp .return
@@ -3535,6 +4334,7 @@ syscall_handler:
     cmp byte [current_user_kind], USER_KIND_DOOM
     je .doom_exit
     mov byte [user_probe_status], 2
+    call process_mark_current_exited
     mov ax, DATA_SEG
     mov ds, ax
     mov es, ax
@@ -3547,6 +4347,7 @@ syscall_handler:
 .doom_exit:
     mov [doom_exit_code], ebx
     mov byte [doom_run_status], 2
+    call process_mark_current_exited
     mov ax, DATA_SEG
     mov ds, ax
     mov es, ax
@@ -3557,6 +4358,9 @@ syscall_handler:
     jmp doom_user_finished
 
 .return:
+    mov [syscall_return_value], eax
+    call process_save_syscall_return_context
+    mov eax, [syscall_return_value]
     pop ebp
     pop edi
     pop esi
@@ -3567,14 +4371,18 @@ syscall_handler:
 
 user_range_validate:
     push edx
+    push esi
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .fail
     cmp ebx, 0
     je .ok
-    cmp eax, [current_user_base]
+    cmp eax, [esi + PROC_BASE]
     jb .fail
     mov edx, eax
     add edx, ebx
     jc .fail
-    cmp edx, [current_user_end]
+    cmp edx, [esi + PROC_END]
     ja .fail
 
 .ok:
@@ -3585,6 +4393,7 @@ user_range_validate:
     stc
 
 .done:
+    pop esi
     pop edx
     ret
 
@@ -3830,6 +4639,7 @@ page_fault_handler:
     mov byte [user_probe_status], 3
     mov eax, cr2
     mov [user_fault_addr], eax
+    call process_mark_current_faulted
     mov ax, DATA_SEG
     mov ds, ax
     mov es, ax
@@ -3837,7 +4647,6 @@ page_fault_handler:
     mov gs, ax
     mov ss, ax
     mov esp, KERNEL_STACK_TOP
-    mov byte [current_user_kind], USER_KIND_NONE
     jmp user_probe_finished
 
 exception_halt:
@@ -3853,6 +4662,7 @@ doom_user_fault:
     mov byte [doom_run_status], 3
     mov eax, cr2
     mov [doom_fault_addr], eax
+    call process_mark_current_faulted
     mov ax, DATA_SEG
     mov ds, ax
     mov es, ax
@@ -3865,6 +4675,8 @@ doom_user_fault:
 irq_timer:
     pushad
     inc dword [timer_ticks]
+    mov ebx, esp
+    call scheduler_tick
     call draw_timer_status
     call write_smoke_status
     mov al, 0x20
@@ -4766,10 +5578,37 @@ cmd_halt db "halt", 0
 wad_name_83 db "DOOM1   WAD"
 user_elf_name_83 db "USERPROBELF"
 doom_elf_name_83 db "DOOM    ELF"
+default_cfg_name_83 db "DEFAULT CFG"
+doomsav0_name_83 db "DOOMSAV0DSG"
+doomsav1_name_83 db "DOOMSAV1DSG"
+doomsav2_name_83 db "DOOMSAV2DSG"
+doomsav3_name_83 db "DOOMSAV3DSG"
+doomsav4_name_83 db "DOOMSAV4DSG"
+doomsav5_name_83 db "DOOMSAV5DSG"
 wad_name_playpal db "PLAYPAL", 0
 wad_name_colormap db "COLORMAP"
 user_path_doom_wad db "DOOM1.WAD", 0
 user_path_doom_wad_end:
+user_path_default_cfg db "DEFAULT.CFG", 0
+user_path_default_cfg_end:
+user_path_doomrc db ".doomrc", 0
+user_path_doomrc_end:
+user_path_doomsav0 db "doomsav0.dsg", 0
+user_path_doomsav0_end:
+user_path_doomsav1 db "doomsav1.dsg", 0
+user_path_doomsav1_end:
+user_path_doomsav2 db "doomsav2.dsg", 0
+user_path_doomsav2_end:
+user_path_doomsav3 db "doomsav3.dsg", 0
+user_path_doomsav3_end:
+user_path_doomsav4 db "doomsav4.dsg", 0
+user_path_doomsav4_end:
+user_path_doomsav5 db "doomsav5.dsg", 0
+user_path_doomsav5_end:
+writable_name_table dd default_cfg_name_83, doomsav0_name_83, doomsav1_name_83, doomsav2_name_83, doomsav3_name_83, doomsav4_name_83, doomsav5_name_83
+writable_path_table dd user_path_default_cfg, user_path_doomsav0, user_path_doomsav1, user_path_doomsav2, user_path_doomsav3, user_path_doomsav4, user_path_doomsav5
+writable_path_len_table dd user_path_default_cfg_end - user_path_default_cfg, user_path_doomsav0_end - user_path_doomsav0, user_path_doomsav1_end - user_path_doomsav1, user_path_doomsav2_end - user_path_doomsav2, user_path_doomsav3_end - user_path_doomsav3, user_path_doomsav4_end - user_path_doomsav4, user_path_doomsav5_end - user_path_doomsav5
+writable_capacity_table dd WRITABLE_DEFAULT_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY
 user_elf_prefix db "User ELF loader: ", 0
 user_entry_prefix db "User entry: ", 0
 user_flags_prefix db "User syscall flags: ", 0
@@ -4880,6 +5719,25 @@ fat_status db 0
 wad_status db 0
 wad_parse_status db 0
 align 4
+process_table:
+process_kernel:
+    dd 0, USER_KIND_NONE, PROC_STATE_READY
+    dd 0, 0, 0, 0, 0
+    dd 0, KERNEL_STACK_TOP, start
+    times 12 dd 0
+    dd 0, 0, 0, 0
+process_user_probe:
+    dd 1, USER_KIND_PROBE, PROC_STATE_READY
+    dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
+    dd USER_STACK_BOTTOM, USER_STACK_TOP, 0
+    times 12 dd 0
+    dd 0, 0, 0, 0
+process_doom:
+    dd 2, USER_KIND_DOOM, PROC_STATE_READY
+    dd DOOM_USER_BASE, DOOM_USER_END, DOOM_USER_HEAP_START, DOOM_USER_HEAP_START, DOOM_USER_HEAP_END
+    dd DOOM_USER_STACK_BOTTOM, DOOM_USER_STACK_TOP, 0
+    times 12 dd 0
+    dd 0, 0, 0, 0
 pmm_total_pages dd 0
 pmm_free_pages dd 0
 pmm_used_pages dd 0
@@ -4896,6 +5754,8 @@ fat_data_lba dd 0
 fat_current_lba dd 0
 fat_search_name dd 0
 fat_found_size dd 0
+fat_found_root_lba dd 0
+fat_found_root_offset dd 0
 fat_load_remaining dd 0
 fat_load_sectors_read dd 0
 wad_size dd 0
@@ -4925,17 +5785,36 @@ user_segment_filesz dd 0
 user_segment_memsz dd 0
 syscall_ptr_arg dd 0
 syscall_len_arg dd 0
+syscall_open_flags dd 0
+file_io_index dd 0
+file_io_user_ptr dd 0
+file_io_remaining dd 0
+file_io_done dd 0
+file_io_sector_lba dd 0
+file_io_sector_offset dd 0
+file_io_chunk dd 0
 user_probe_magic_seen dd 0
 user_probe_flags_seen dd 0
 user_fault_addr dd 0
 user_wad_magic_seen dd 0
 user_wad_fd_offset dd 0
 user_brk_current dd 0
+current_pid dd 0
+current_process_ptr dd 0
 current_user_base dd 0
 current_user_end dd 0
 current_user_brk dd 0
+current_user_heap_start dd 0
 current_user_heap_end dd 0
+current_user_stack_top dd 0
+current_user_entry dd 0
 current_syscall_number dd 0
+syscall_return_value dd 0
+scheduler_tick_count dd 0
+scheduler_round_count dd 0
+scheduler_context_switches dd 0
+scheduler_rr_cursor dd 0
+scheduler_next_pid dd 0xffffffff
 doom_exit_code dd 0
 doom_fault_addr dd 0
 doom_last_syscall dd 0
@@ -4964,11 +5843,16 @@ heap_alloc_count dd 0
 heap_alloc_bytes dd 0
 heap_last_ptr dd 0
 command_start dd 0
+writable_sizes times WRITABLE_FILE_COUNT dd 0
+writable_root_lbas times WRITABLE_FILE_COUNT dd 0
+writable_root_offsets times WRITABLE_FILE_COUNT dd 0
+writable_offsets times WRITABLE_FILE_COUNT dd 0
 fat_current_cluster dw 0
 fat_found_first_cluster dw 0
 wad_first_cluster dw 0
 user_elf_first_cluster dw 0
 doom_elf_first_cluster dw 0
+writable_first_clusters times WRITABLE_FILE_COUNT dw 0
 user_probe_cs dw 0
 user_probe_ss dw 0
 fat_sectors_per_cluster db 0
@@ -4977,6 +5861,7 @@ doom_load_segment_count db 0
 present_status db 0
 shift_down db 0
 keyboard_extended db 0
+writable_status times WRITABLE_FILE_COUNT db 0
 doom_log_buffer times DOOM_LOG_BYTES db 0
 key_event_queue times KEY_QUEUE_SIZE dd 0
 input_buffer times INPUT_MAX db 0

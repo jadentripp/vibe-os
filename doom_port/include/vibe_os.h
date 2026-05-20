@@ -11,6 +11,7 @@ enum {
     VIBE_SYS_TIME = 9,
     VIBE_SYS_PRESENT = 10,
     VIBE_SYS_POLL_KEY = 11,
+    VIBE_SYS_CLOSE = 12,
 };
 
 enum {
@@ -18,6 +19,6 @@ enum {
     VIBE_KEY_EVENT_VALID = 0x00010000u,
 };
 
-int vibe_syscall3(unsigned int number, unsigned int arg0, unsigned int arg1, unsigned int arg2);
+int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, unsigned long arg2);
 
 #endif

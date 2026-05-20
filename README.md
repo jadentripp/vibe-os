@@ -34,6 +34,8 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
   WAD and Ring 3 probe, with kernel-side directory discovery, load, and ELF
   program-header validation
 - hard-path WAD loading through an ATA PIO IDE driver and a FAT16 reader
+- preallocated FAT16 writable files for Doom defaults and save slots, with
+  kernel read/write/lseek support over fixed cluster chains
 - WAD header/directory parsing with named-lump lookup for Doom assets
 - text UI with an interactive shell
 - local QEMU targets guarded behind an explicit opt-in
@@ -120,7 +122,11 @@ Current disk layout:
 - LBA 1-16: Stage 2 bootloader
 - LBA 17-112: protected-mode kernel ELF image
 - LBA 2048+: FAT16 partition containing `DOOM1.WAD`, `USERPROB.ELF`, and
-  `DOOM.ELF`
+  `DOOM.ELF`, plus preallocated `DEFAULT.CFG` and `DOOMSAV0.DSG` through
+  `DOOMSAV5.DSG` writable files
+
+See `docs/persistent-fat16.md` for the fixed-file persistence contract and the
+remaining gap to general FAT allocation.
 
 ## Run
 

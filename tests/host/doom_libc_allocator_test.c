@@ -63,13 +63,220 @@
 
 #include "../../doom_port/libc.c"
 
-int vibe_syscall3(unsigned int number, unsigned int arg0, unsigned int arg1, unsigned int arg2)
+#define MOCK_MAX_FILES 8
+#define MOCK_MAX_FDS 16
+#define MOCK_FILE_CAPACITY 2048
+
+struct mock_file {
+    char path[64];
+    unsigned char data[MOCK_FILE_CAPACITY];
+    int size;
+    int exists;
+    int open_count;
+    int close_count;
+    int last_flags;
+    int last_mode;
+};
+
+struct mock_fd {
+    int used;
+    int file_index;
+    int pos;
+    int flags;
+};
+
+static struct mock_file mock_files[MOCK_MAX_FILES];
+static struct mock_fd mock_fds[MOCK_MAX_FDS];
+static int mock_open_syscalls;
+static int mock_read_syscalls;
+static int mock_write_syscalls;
+static int mock_lseek_syscalls;
+static int mock_close_syscalls;
+
+static void mock_copy_text(char* dest, const char* src, int capacity)
 {
-    (void)number;
-    (void)arg0;
-    (void)arg1;
-    (void)arg2;
+    int i = 0;
+    while (i + 1 < capacity && src[i]) {
+        dest[i] = src[i];
+        ++i;
+    }
+    dest[i] = 0;
+}
+
+static void mock_reset(void)
+{
+    memset(mock_files, 0, sizeof(mock_files));
+    memset(mock_fds, 0, sizeof(mock_fds));
+    mock_open_syscalls = 0;
+    mock_read_syscalls = 0;
+    mock_write_syscalls = 0;
+    mock_lseek_syscalls = 0;
+    mock_close_syscalls = 0;
+    errno = 0;
+}
+
+static int mock_find_file(const char* path)
+{
+    int i;
+    for (i = 0; i < MOCK_MAX_FILES; ++i)
+        if (mock_files[i].exists && !strcasecmp(mock_files[i].path, path))
+            return i;
     return -1;
+}
+
+static int mock_create_file(const char* path)
+{
+    int i;
+    for (i = 0; i < MOCK_MAX_FILES; ++i) {
+        if (!mock_files[i].exists) {
+            mock_files[i].exists = 1;
+            mock_files[i].size = 0;
+            mock_copy_text(mock_files[i].path, path, (int)sizeof(mock_files[i].path));
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int mock_seed_file(const char* path, const char* content)
+{
+    int file_index = mock_create_file(path);
+    int len = (int)strlen(content);
+    if (file_index < 0 || len > MOCK_FILE_CAPACITY)
+        return -1;
+    memcpy(mock_files[file_index].data, content, (size_t)len);
+    mock_files[file_index].size = len;
+    return file_index;
+}
+
+static int mock_alloc_fd(int file_index, int flags)
+{
+    int fd;
+    for (fd = 3; fd < MOCK_MAX_FDS; ++fd) {
+        if (!mock_fds[fd].used) {
+            mock_fds[fd].used = 1;
+            mock_fds[fd].file_index = file_index;
+            mock_fds[fd].flags = flags;
+            mock_fds[fd].pos = (flags & O_APPEND) ? mock_files[file_index].size : 0;
+            return fd;
+        }
+    }
+    return -1;
+}
+
+static int mock_fd_can_read(int fd)
+{
+    int flags = mock_fds[fd].flags;
+    return (flags & O_RDWR) == O_RDWR || !(flags & O_WRONLY);
+}
+
+static int mock_fd_can_write(int fd)
+{
+    int flags = mock_fds[fd].flags;
+    return (flags & O_RDWR) == O_RDWR || (flags & O_WRONLY);
+}
+
+int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, unsigned long arg2)
+{
+    if (number == VIBE_SYS_OPEN) {
+        const char* path = (const char*)arg0;
+        int flags = (int)arg1;
+        int mode = (int)arg2;
+        int file_index;
+        int fd;
+        ++mock_open_syscalls;
+        file_index = mock_find_file(path);
+        if (file_index < 0) {
+            if (!(flags & O_CREAT))
+                return -ENOENT;
+            file_index = mock_create_file(path);
+            if (file_index < 0)
+                return -EMFILE;
+        }
+        if ((flags & O_TRUNC) && ((flags & O_WRONLY) || (flags & O_RDWR)))
+            mock_files[file_index].size = 0;
+        mock_files[file_index].last_flags = flags;
+        mock_files[file_index].last_mode = mode;
+        ++mock_files[file_index].open_count;
+        fd = mock_alloc_fd(file_index, flags);
+        return fd < 0 ? -EMFILE : fd;
+    }
+
+    if (number == VIBE_SYS_READ) {
+        int fd = (int)arg0;
+        unsigned char* out = (unsigned char*)arg1;
+        int count = (int)arg2;
+        struct mock_file* file;
+        int available;
+        ++mock_read_syscalls;
+        if (fd < 0 || fd >= MOCK_MAX_FDS || !mock_fds[fd].used || !mock_fd_can_read(fd))
+            return -EBADF;
+        file = &mock_files[mock_fds[fd].file_index];
+        available = file->size - mock_fds[fd].pos;
+        if (available < 0)
+            available = 0;
+        if (count > available)
+            count = available;
+        memcpy(out, file->data + mock_fds[fd].pos, (size_t)count);
+        mock_fds[fd].pos += count;
+        return count;
+    }
+
+    if (number == VIBE_SYS_WRITE) {
+        int fd = (int)arg0;
+        const unsigned char* in = (const unsigned char*)arg1;
+        int count = (int)arg2;
+        struct mock_file* file;
+        ++mock_write_syscalls;
+        if (fd < 0 || fd >= MOCK_MAX_FDS || !mock_fds[fd].used || !mock_fd_can_write(fd))
+            return -EBADF;
+        file = &mock_files[mock_fds[fd].file_index];
+        if (mock_fds[fd].flags & O_APPEND)
+            mock_fds[fd].pos = file->size;
+        if (mock_fds[fd].pos + count > MOCK_FILE_CAPACITY)
+            count = MOCK_FILE_CAPACITY - mock_fds[fd].pos;
+        if (count < 0)
+            count = 0;
+        memcpy(file->data + mock_fds[fd].pos, in, (size_t)count);
+        mock_fds[fd].pos += count;
+        if (mock_fds[fd].pos > file->size)
+            file->size = mock_fds[fd].pos;
+        return count;
+    }
+
+    if (number == VIBE_SYS_LSEEK) {
+        int fd = (int)arg0;
+        int offset = (int)arg1;
+        int whence = (int)arg2;
+        int next;
+        ++mock_lseek_syscalls;
+        if (fd < 0 || fd >= MOCK_MAX_FDS || !mock_fds[fd].used)
+            return -EBADF;
+        if (whence == SEEK_SET)
+            next = offset;
+        else if (whence == SEEK_CUR)
+            next = mock_fds[fd].pos + offset;
+        else if (whence == SEEK_END)
+            next = mock_files[mock_fds[fd].file_index].size + offset;
+        else
+            return -EINVAL;
+        if (next < 0)
+            return -EINVAL;
+        mock_fds[fd].pos = next;
+        return next;
+    }
+
+    if (number == VIBE_SYS_CLOSE) {
+        int fd = (int)arg0;
+        ++mock_close_syscalls;
+        if (fd < 0 || fd >= MOCK_MAX_FDS || !mock_fds[fd].used)
+            return -EBADF;
+        ++mock_files[mock_fds[fd].file_index].close_count;
+        mock_fds[fd].used = 0;
+        return 0;
+    }
+
+    return -ENOSYS;
 }
 
 static void fill_bytes(unsigned char* ptr, unsigned int count, unsigned char seed)
@@ -86,6 +293,16 @@ static int bytes_match(const unsigned char* ptr, unsigned int count, unsigned ch
         if (ptr[i] != (unsigned char)(seed + i))
             return 0;
     return 1;
+}
+
+static int mock_file_matches(int file_index, const char* content)
+{
+    int len = (int)strlen(content);
+    if (file_index < 0)
+        return 0;
+    if (mock_files[file_index].size != len)
+        return 0;
+    return memcmp(mock_files[file_index].data, content, (size_t)len) == 0;
 }
 
 int main(void)
@@ -174,6 +391,159 @@ int main(void)
     sprintf(text, "WILV%d%d", 1, 2);
     if (strcmp(text, "WILV12"))
         return 20;
+
+    mock_reset();
+    if (mock_seed_file("default.cfg", "mouse_sensitivity\t\t9\nchatmacro0\t\t\"HELLO\"\n") < 0)
+        return 21;
+    {
+        FILE* f = fopen("default.cfg", "r");
+        char key[80];
+        char value[100];
+        int file_index = mock_find_file("default.cfg");
+        if (!f)
+            return 22;
+        if (mock_files[file_index].last_flags != O_RDONLY)
+            return 23;
+        if (fscanf(f, "%79s %[^\n]\n", key, value) != 2)
+            return 24;
+        if (strcmp(key, "mouse_sensitivity") || strcmp(value, "9"))
+            return 25;
+        if (fscanf(f, "%79s %[^\n]\n", key, value) != 2)
+            return 26;
+        if (strcmp(key, "chatmacro0") || strcmp(value, "\"HELLO\""))
+            return 27;
+        if (fscanf(f, "%79s %[^\n]\n", key, value) != EOF)
+            return 28;
+        if (!feof(f))
+            return 29;
+        if (fclose(f) != 0)
+            return 30;
+        if (mock_files[file_index].close_count != 1 || mock_close_syscalls != 1)
+            return 31;
+    }
+
+    mock_reset();
+    if (mock_seed_file("args.rsp", "doom -file x.wad") < 0)
+        return 32;
+    {
+        FILE* f = fopen("args.rsp", "rb");
+        char buffer[16];
+        int file_index = mock_find_file("args.rsp");
+        if (!f)
+            return 33;
+        if (mock_files[file_index].last_flags != O_RDONLY)
+            return 34;
+        if (fseek(f, 0, SEEK_END) != 0 || ftell(f) != 16)
+            return 35;
+        if (fseek(f, 0, SEEK_SET) != 0)
+            return 36;
+        memset(buffer, 0, sizeof(buffer));
+        if (fread(buffer, 16, 1, f) != 1)
+            return 37;
+        if (memcmp(buffer, "doom -file x.wad", 16))
+            return 38;
+        if (fclose(f) != 0)
+            return 39;
+    }
+
+    mock_reset();
+    if (mock_seed_file("default.cfg", "old") < 0)
+        return 40;
+    {
+        FILE* f = fopen("default.cfg", "w");
+        int file_index = mock_find_file("default.cfg");
+        if (!f)
+            return 41;
+        if (mock_files[file_index].last_flags != (O_WRONLY | O_CREAT | O_TRUNC))
+            return 42;
+        if (mock_files[file_index].last_mode != 0666)
+            return 43;
+        if (fprintf(f, "%s\t\t%i\n", "screenblocks", 9) != 16)
+            return 44;
+        if (fclose(f) != 0)
+            return 45;
+        if (!mock_file_matches(file_index, "screenblocks\t\t9\n"))
+            return 46;
+    }
+
+    mock_reset();
+    {
+        int fd = open("savegame.dsg", O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0666);
+        int file_index;
+        if (fd < 0)
+            return 47;
+        if (write(fd, "SAVE", 4) != 4)
+            return 48;
+        if (close(fd) != 0)
+            return 49;
+        file_index = mock_find_file("savegame.dsg");
+        if (!mock_file_matches(file_index, "SAVE"))
+            return 50;
+        if (mock_files[file_index].last_flags != (O_WRONLY | O_CREAT | O_TRUNC | O_BINARY))
+            return 51;
+    }
+
+    mock_reset();
+    if (mock_seed_file("readme.txt", "abc") < 0)
+        return 52;
+    {
+        FILE* f = fopen("readme.txt", "r");
+        struct stat st;
+        int fd;
+        if (!f)
+            return 53;
+        if (fprintf(f, "nope") != EOF || errno != EBADF || !ferror(f))
+            return 54;
+        clearerr(f);
+        if (ferror(f))
+            return 55;
+        if (fclose(f) != 0)
+            return 56;
+        if (fopen("readme.txt", "wr"))
+            return 57;
+        if (errno != EINVAL)
+            return 58;
+        if (access("readme.txt", R_OK) != 0)
+            return 59;
+        if (access("missing.txt", R_OK) != -1 || errno != ENOENT)
+            return 60;
+        if (stat("readme.txt", &st) != 0 || st.st_size != 3)
+            return 61;
+        fd = open("readme.txt", O_RDONLY);
+        if (fd < 0)
+            return 62;
+        if (lseek(fd, 2, SEEK_SET) != 2)
+            return 63;
+        if (fstat(fd, &st) != 0 || st.st_size != 3)
+            return 64;
+        if (lseek(fd, 0, SEEK_CUR) != 2)
+            return 65;
+        if (close(fd) != 0)
+            return 66;
+    }
+
+    mock_reset();
+    if (mock_seed_file("append.txt", "A") < 0)
+        return 67;
+    {
+        FILE* f = fopen("append.txt", "ab+");
+        int file_index = mock_find_file("append.txt");
+        char ch = 0;
+        if (!f)
+            return 68;
+        if (mock_files[file_index].last_flags != (O_RDWR | O_CREAT | O_APPEND))
+            return 69;
+        if (fseek(f, 0, SEEK_SET) != 0)
+            return 70;
+        if (fread(&ch, 1, 1, f) != 1 || ch != 'A')
+            return 71;
+        if (fwrite("B", 1, 1, f) != 1)
+            return 72;
+        if (fclose(f) != 0)
+            return 73;
+        if (!mock_file_matches(file_index, "AB"))
+            return 74;
+    }
 
     return 0;
 }
