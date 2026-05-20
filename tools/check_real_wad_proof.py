@@ -182,6 +182,7 @@ SUMMARY_FIELDS = (
     "musicbuf",
     "musicunder",
     "musicdrops",
+    "musicrend",
     "sb16",
     "dma",
     "play",
@@ -449,6 +450,7 @@ def _validate_core_status(status: str) -> None:
     voiceq = _colon_tuple_field(status, "voiceq", 3)
     _colon_tuple_field(status, "sfxdma", 2)
     musicq = _colon_tuple_field(status, "musicq", 2)
+    musicrend = _colon_tuple_field(status, "musicrend", 6)
 
     attempts, successes, failures, handoffs, scheduled, rollbacks = _hex_tuple_field(
         status, "execsys", 6
@@ -506,6 +508,17 @@ def _validate_core_status(status: str) -> None:
         if musicq[0] == 0:
             raise AssertionError("musicq= must prove the music voice was queued when audio=SB16")
         _hex_field_gt(status, "musicpos", 0)
+        if musicrend[0] not in (1, 2):
+            raise AssertionError("musicrend= must record MUS or MIDI renderer format when audio=SB16")
+        for index, label in (
+            (1, "render chunk"),
+            (2, "note event"),
+            (3, "render event"),
+            (4, "active voice peak"),
+            (5, "rendered sample"),
+        ):
+            if musicrend[index] == 0:
+                raise AssertionError(f"musicrend= must prove nonzero {label} evidence when audio=SB16")
     preempt_switches = _hex_field_gt(status, "preempt", 0)
     irq_switches = _hex_field_gt(status, "pirq", 0)
     if irq_switches != preempt_switches:

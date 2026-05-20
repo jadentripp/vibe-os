@@ -47,6 +47,7 @@ def status_line(**overrides):
         "musicdrops": "00000000",
         "musicstream": "PULL",
         "musicpull": "00000000:00000000",
+        "musicrend": "00000001:00000001:00000002:00000003:00000001:00008000",
         "sb16": "00000004:00000005",
         "dma": "00000001",
         "play": "00000001:00000000",
@@ -79,6 +80,7 @@ def snapshot_statuses():
             musicpos="00000400",
             musicbuf="00001C00",
             musicpull="00000001:00000001",
+            musicrend="00000001:00000002:00000004:00000006:00000001:00010000",
             voiceq="00000001:00000000:00000001",
         ),
         "movement": status_line(
@@ -95,6 +97,7 @@ def snapshot_statuses():
             musicpos="00000800",
             musicbuf="00001800",
             musicpull="00000002:00000002",
+            musicrend="00000001:00000003:00000006:00000009:00000001:00018000",
             voiceq="00000001:00000000:00000002",
         ),
         "use": status_line(
@@ -112,6 +115,7 @@ def snapshot_statuses():
             musicpos="00000C00",
             musicbuf="00001400",
             musicpull="00000003:00000003",
+            musicrend="00000001:00000004:00000008:0000000C:00000001:00020000",
             voiceq="00000001:00000000:00000003",
         ),
         "menu": status_line(
@@ -130,6 +134,7 @@ def snapshot_statuses():
             musicpos="00001000",
             musicbuf="00001000",
             musicpull="00000004:00000004",
+            musicrend="00000001:00000005:0000000A:0000000F:00000001:00028000",
             voiceq="00000001:00000000:00000004",
         ),
         "final": status_line(
@@ -148,6 +153,7 @@ def snapshot_statuses():
             musicpos="00001400",
             musicbuf="00000C00",
             musicpull="00000005:00000005",
+            musicrend="00000001:00000006:0000000C:00000012:00000001:00030000",
             voiceq="00000001:00000000:00000005",
         ),
     }
@@ -484,6 +490,41 @@ class AudioContinuityProofTests(unittest.TestCase):
             snapshots[label] = snapshots[label].replace("musicpos=00001400", "musicpos=00000001")
 
         with self.assertRaisesRegex(AssertionError, "musicpos=.*increase"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+            )
+
+    def test_rejects_music_flagged_carrier_without_renderer_evidence(self):
+        snapshots = snapshot_statuses()
+        for label, status in list(snapshots.items()):
+            snapshots[label] = status.replace(
+                status.split("musicrend=")[1].split()[0],
+                "00000000:00000000:00000000:00000000:00000000:00000000",
+            )
+
+        with self.assertRaisesRegex(AssertionError, "musicrend=.*MUS or MIDI"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+            )
+
+        snapshots = snapshot_statuses()
+        for label, status in list(snapshots.items()):
+            snapshots[label] = status.replace(
+                status.split("musicrend=")[1].split()[0],
+                "00000001:00000006:00000000:00000012:00000001:00030000",
+            )
+
+        with self.assertRaisesRegex(AssertionError, "note event evidence"):
             check_audio_continuity_proof.validate_status(
                 snapshots["final"],
                 baseline_status=snapshots["baseline"],

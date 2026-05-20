@@ -828,7 +828,7 @@ class SourceContractTests(unittest.TestCase):
             "refill=00000000 half=00000000 mixwrap=00000000 mixover=00000000 mixunder=00000000 mixclip=00000000 "
             "steal=00000000 pitchclamp=00000000 panclamp=00000000 musicvoices=00000000 musicmix=00000000 musicloop=00000000 "
             "musicpos=00000000 musicbuf=00000000 musicunder=00000000 musicdrops=00000000 "
-            "musicstream=NONE musicpull=00000000:00000000 "
+            "musicstream=NONE musicpull=00000000:00000000 musicrend=00000000:00000000:00000000:00000000:00000000:00000000 "
             "sb16=00000000:00000000 dma=00000000 play=00000000:00000000 voiceq=00000000:00000000:00000000 musicq=00000000:00000000 "
             "mouseirq=00000001 mousepkt=00000001 mousepoll=00000001 "
             "mousebtn=00000001 mousedelta=00000018:0000000C "
@@ -1709,6 +1709,7 @@ class SourceContractTests(unittest.TestCase):
             'smoke_musicdrops_text db " musicdrops="',
             'smoke_musicstream_text db " musicstream="',
             'smoke_musicpull_text db " musicpull="',
+            'smoke_musicrend_text db " musicrend="',
             'smoke_audio_text db " audio="',
         ):
             self.assertIn(source, kernel)

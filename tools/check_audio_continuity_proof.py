@@ -52,6 +52,7 @@ REQUIRED_AUDIO_FIELDS = (
     "musicdrops",
     "musicstream",
     "musicpull",
+    "musicrend",
     "sb16",
     "dma",
     "play",
@@ -114,6 +115,7 @@ TUPLE_FIELDS = {
     "sfxlast": 3,
     "musicq": 2,
     "musicpull": 2,
+    "musicrend": 6,
 }
 MUSIC_STREAM_MODES = ("NONE", "PUSH", "PULL")
 SUMMARY_FIELDS = (
@@ -148,6 +150,7 @@ SUMMARY_FIELDS = (
     "musicdrops",
     "musicstream",
     "musicpull",
+    "musicrend",
     "sb16",
     "dma",
     "play",
@@ -489,6 +492,36 @@ def _assert_music_stream_mode(
         _assert_tuple_component_progress(snapshots, "voiceq", 3, 2, "stream update service")
 
 
+def _assert_music_render_evidence(snapshots: list[tuple[str, dict[str, str]]]) -> None:
+    final_label, final_fields = snapshots[-1]
+    final_format, final_chunks, final_notes, final_events, final_peak, final_samples = _hex_tuple(
+        final_fields,
+        "musicrend",
+        final_label,
+        6,
+    )
+
+    if final_format not in (1, 2):
+        raise AssertionError(
+            "musicrend= must record a MUS or MIDI renderer format for parser-backed music, "
+            f"got {final_format:08X}"
+        )
+    for value, label in (
+        (final_chunks, "render chunk"),
+        (final_notes, "note event"),
+        (final_events, "render event"),
+        (final_peak, "active voice peak"),
+        (final_samples, "rendered sample"),
+    ):
+        if value == 0:
+            raise AssertionError(f"musicrend= {label} evidence must be nonzero")
+
+    _assert_tuple_component_progress(snapshots, "musicrend", 6, 1, "render chunk")
+    _assert_tuple_component_progress(snapshots, "musicrend", 6, 2, "note event")
+    _assert_tuple_component_progress(snapshots, "musicrend", 6, 3, "render event")
+    _assert_tuple_component_progress(snapshots, "musicrend", 6, 5, "rendered sample")
+
+
 def validate_status(
     final_status: str,
     baseline_status: str,
@@ -560,6 +593,7 @@ def validate_status(
         ("sfxbytes", 2),
         ("sfxdma", 2),
         ("musicq", 2),
+        ("musicrend", 6),
     ):
         _assert_tuple_nondecreasing(snapshots, name, count)
     _assert_tuple_nondecreasing(snapshots, "musicpull", 2)
@@ -606,6 +640,7 @@ def validate_status(
         snapshots,
         use_pull_stream=uses_pull_stream or require_pull_stream,
     )
+    _assert_music_render_evidence(snapshots)
 
 
 def validate_repo_contract() -> None:
@@ -665,6 +700,7 @@ def validate_repo_contract() -> None:
                 "musicdrops=",
                 "musicstream=PULL",
                 "musicpull=",
+                "musicrend=",
                 "stream-health evidence",
                 "single static music carrier",
                 "no new mixclip=, musicunder=, or musicdrops=",
@@ -685,6 +721,7 @@ def validate_repo_contract() -> None:
                 "musicdrops=",
                 "musicstream=PULL",
                 "musicpull=",
+                "musicrend=",
                 "long-playback wrap",
                 "static stream window",
             ),

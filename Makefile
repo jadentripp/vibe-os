@@ -298,6 +298,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "musicdrops=" $(BUILD_DIR)/status.txt; \
 	grep -q "musicstream=" $(BUILD_DIR)/status.txt; \
 	grep -q "musicpull=" $(BUILD_DIR)/status.txt; \
+	grep -q "musicrend=" $(BUILD_DIR)/status.txt; \
 	grep -q "sb16=" $(BUILD_DIR)/status.txt; \
 	grep -q "dma=" $(BUILD_DIR)/status.txt; \
 	grep -q "play=" $(BUILD_DIR)/status.txt; \

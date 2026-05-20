@@ -122,8 +122,9 @@ Expected audio behavior:
 - Run `tools/check_audio_continuity_proof.py --require-pull-stream` on the
   downloaded status snapshots. It proves SB16 version, DMA programming,
   playback start, voice queue, IRQ/refill, SFX, music mixing, pull-requested
-  music chunk service, and `musicpull=` request/refill counters progressed; it
-  does not upload audio samples or prove a human heard sound.
+  music chunk service, `musicpull=` request/refill counters, and `musicrend=`
+  renderer provenance progressed; it does not upload audio samples or prove a
+  human heard sound.
 - For an audible remote proof that still avoids publishing copyrighted audio, run
   the GitHub workflow with `audible_audio_proof=true`. That uses QEMU's WAV
   backend on the disposable runner, analyzes the temporary capture into
@@ -551,9 +552,10 @@ Call a remote human playtest credible only after checking all of this:
   images contain the WAD; keep only status/checker text when preserving proof.
 - Audio is described honestly: `audio=SB16` plus the audio continuity checker
   proves the guest SB16 path advanced through IRQ/refill, SFX, `sfxdma=`
-  DMA-refill output, and looped music-carrier counters; audible remote sound
-  requires separate host audio forwarding or the aggregate `audio-proof.json`
-  lane. Neither lane should publish captured Doom audio.
+  DMA-refill output, looped music-stream counters, and `musicrend=` MUS/MIDI
+  renderer provenance; audible remote sound requires separate host audio
+  forwarding or the aggregate `audio-proof.json` lane. Neither lane should
+  publish captured Doom audio.
 - Exit is handled through the QEMU monitor (`quit`) today. A graceful Doom
   quit-to-shell or reboot path is still a gap.
 - Shutdown/panic evidence is a separate opt-in OS smoke lane. When

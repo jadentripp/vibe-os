@@ -54,6 +54,7 @@ def status_line(**overrides):
         "musicdrops": "00000000",
         "musicstream": "PULL",
         "musicpull": "00000000:00000000",
+        "musicrend": "00000001:00000006:0000000C:00000012:00000001:00030000",
         "dma": "00000001",
         "play": "00000001:00000000",
         "voiceq": "00000002:00000000:00000001",
@@ -106,6 +107,7 @@ def phase_statuses(*, carrier_only=False):
             musicloop="00000000",
             musicpos="00000001",
             musicbuf="00002000",
+            musicrend="00000001:00000001:00000002:00000003:00000001:00008000",
         ),
         "fire": status_line(
             doomsound="00000002",
@@ -124,6 +126,7 @@ def phase_statuses(*, carrier_only=False):
             musicpos="00000400",
             musicbuf="00001C00",
             musicpull="00000001:00000001",
+            musicrend="00000001:00000002:00000004:00000006:00000001:00010000",
             voiceq="00000002:00000000:00000002",
         ),
         "movement": status_line(
@@ -143,6 +146,7 @@ def phase_statuses(*, carrier_only=False):
             musicpos="00000800",
             musicbuf="00001800",
             musicpull="00000002:00000002",
+            musicrend="00000001:00000003:00000006:00000009:00000001:00018000",
             voiceq="00000002:00000000:00000003",
         ),
         "use": status_line(
@@ -162,6 +166,7 @@ def phase_statuses(*, carrier_only=False):
             musicpos="00000C00",
             musicbuf="00001400",
             musicpull="00000003:00000003",
+            musicrend="00000001:00000004:00000008:0000000C:00000001:00020000",
             voiceq="00000002:00000000:00000004",
         ),
         "menu": status_line(
@@ -181,6 +186,7 @@ def phase_statuses(*, carrier_only=False):
             musicpos="00001000",
             musicbuf="00001000",
             musicpull="00000004:00000004",
+            musicrend="00000001:00000005:0000000A:0000000F:00000001:00028000",
             voiceq="00000002:00000000:00000005",
         ),
         "final": status_line(
@@ -199,6 +205,7 @@ def phase_statuses(*, carrier_only=False):
             musicloop="00000001",
             musicpos="00001400",
             musicpull="00000005:00000005",
+            musicrend="00000001:00000006:0000000C:00000012:00000001:00030000",
             voiceq="00000002:00000000:00000006",
         ),
     }
@@ -456,6 +463,7 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "musicdrops": "00000000",
                 "musicstream": "PULL",
                 "musicpull": "00000005:00000005",
+                "musicrend": "00000001:00000002:00000004:00000006:00000001:00010000",
             },
             "continuity": {
                 "gate": "tools/check_audio_continuity_proof.py",
@@ -475,6 +483,10 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "voiceq_update": {"start": "00000000", "final": "00000001", "delta": "00000001"},
                     "musicpull_request": {"start": "00000000", "final": "00000005", "delta": "00000005"},
                     "musicpull_refill": {"start": "00000000", "final": "00000005", "delta": "00000005"},
+                    "musicrend_chunk": {"start": "00000001", "final": "00000002", "delta": "00000001"},
+                    "musicrend_note": {"start": "00000002", "final": "00000004", "delta": "00000002"},
+                    "musicrend_event": {"start": "00000003", "final": "00000006", "delta": "00000003"},
+                    "musicrend_sample": {"start": "00008000", "final": "00010000", "delta": "00008000"},
                 },
                 "mix_lanes": {
                     "non_music_sfx": {
@@ -489,6 +501,12 @@ class AudibleAudioProofTests(unittest.TestCase):
                         "buffered_window_snapshots": 1,
                         "stream_update_delta": "00000001",
                         "position_delta": "000003FF",
+                        "renderer_counter": "musicrend",
+                        "renderer_chunk_delta": "00000001",
+                        "renderer_note_delta": "00000002",
+                        "renderer_event_delta": "00000003",
+                        "renderer_sample_delta": "00008000",
+                        "renderer_final": "00000001:00000002:00000004:00000006:00000001:00010000",
                     },
                     "shared_sb16_refill": {
                         "irq_delta": "00000001",
@@ -580,6 +598,7 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "musicdrops": "00000000",
                 "musicstream": "PULL",
                 "musicpull": "00000005:00000005",
+                "musicrend": "00000001:00000006:0000000C:00000012:00000001:00030000",
             },
             "continuity": {
                 "gate": "tools/check_audio_continuity_proof.py",
@@ -607,6 +626,10 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "voiceq_update": {"start": "00000000", "final": "00000002", "delta": "00000002"},
                     "musicpull_request": {"start": "00000000", "final": "00000005", "delta": "00000005"},
                     "musicpull_refill": {"start": "00000000", "final": "00000005", "delta": "00000005"},
+                    "musicrend_chunk": {"start": "00000001", "final": "00000006", "delta": "00000005"},
+                    "musicrend_note": {"start": "00000002", "final": "0000000C", "delta": "0000000A"},
+                    "musicrend_event": {"start": "00000003", "final": "00000012", "delta": "0000000F"},
+                    "musicrend_sample": {"start": "00008000", "final": "00030000", "delta": "00028000"},
                 },
                 "mix_lanes": {
                     "non_music_sfx": {
@@ -630,6 +653,12 @@ class AudibleAudioProofTests(unittest.TestCase):
                         "buffered_window_snapshots": 1,
                         "stream_update_delta": "00000005",
                         "position_delta": "000003FF",
+                        "renderer_counter": "musicrend",
+                        "renderer_chunk_delta": "00000005",
+                        "renderer_note_delta": "0000000A",
+                        "renderer_event_delta": "0000000F",
+                        "renderer_sample_delta": "00028000",
+                        "renderer_final": "00000001:00000006:0000000C:00000012:00000001:00030000",
                     },
                     "shared_sb16_refill": {
                         "irq_delta": "00000005",

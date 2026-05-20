@@ -410,7 +410,15 @@ AUDIO_SFX_DESC_PITCH equ 16
 AUDIO_SFX_DESC_SOUND_ID equ 20
 AUDIO_SFX_DESC_FLAGS equ 24
 AUDIO_SFX_DESC_SAMPLE_RATE equ 28
-AUDIO_SFX_DESC_BYTES equ 32
+AUDIO_SFX_DESC_MUSIC_FORMAT equ 32
+AUDIO_SFX_DESC_MUSIC_NOTE_EVENTS equ 36
+AUDIO_SFX_DESC_MUSIC_CONTROL_EVENTS equ 40
+AUDIO_SFX_DESC_MUSIC_ACTIVE_VOICE_PEAK equ 44
+AUDIO_SFX_DESC_MUSIC_EMITTED_SAMPLES equ 48
+AUDIO_SFX_DESC_MUSIC_STREAM_START equ 52
+AUDIO_SFX_DESC_MUSIC_STREAM_END equ 56
+AUDIO_SFX_DESC_MUSIC_STREAM_LOOP_COUNT equ 60
+AUDIO_SFX_DESC_BYTES equ 64
 AUDIO_FLAG_LOOP equ 0x00000001
 AUDIO_FLAG_MUSIC equ 0x00000002
 AUDIO_FLAG_WAD_SFX equ 0x00000004
@@ -3434,6 +3442,12 @@ audio_init:
     mov dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_NONE
     mov dword [sb16_music_pull_request_count], 0
     mov dword [sb16_music_pull_refill_count], 0
+    mov dword [sb16_music_render_format], 0
+    mov dword [sb16_music_render_chunk_count], 0
+    mov dword [sb16_music_render_note_count], 0
+    mov dword [sb16_music_render_event_count], 0
+    mov dword [sb16_music_render_active_peak], 0
+    mov dword [sb16_music_render_sample_count], 0
     mov dword [sb16_pan_left_arg], 0
     mov dword [sb16_pan_right_arg], 0
     mov dword [sb16_mix_source_pos], 0
@@ -4126,6 +4140,39 @@ audio_mix_sfx_descriptor:
     pop eax
     ret
 
+sb16_record_music_render_stats:
+    push eax
+    push edx
+
+    mov eax, [esi + AUDIO_SFX_DESC_MUSIC_FORMAT]
+    cmp eax, 0
+    je .done
+    cmp eax, 2
+    ja .done
+    mov [sb16_music_render_format], eax
+    inc dword [sb16_music_render_chunk_count]
+
+    mov eax, [esi + AUDIO_SFX_DESC_MUSIC_NOTE_EVENTS]
+    add [sb16_music_render_note_count], eax
+    mov edx, eax
+    mov eax, [esi + AUDIO_SFX_DESC_MUSIC_CONTROL_EVENTS]
+    add edx, eax
+    add [sb16_music_render_event_count], edx
+
+    mov eax, [esi + AUDIO_SFX_DESC_MUSIC_ACTIVE_VOICE_PEAK]
+    cmp eax, [sb16_music_render_active_peak]
+    jbe .sample_count
+    mov [sb16_music_render_active_peak], eax
+
+.sample_count:
+    mov eax, [esi + AUDIO_SFX_DESC_MUSIC_EMITTED_SAMPLES]
+    add [sb16_music_render_sample_count], eax
+
+.done:
+    pop edx
+    pop eax
+    ret
+
 audio_register_sfx_voice:
     push eax
     push ebx
@@ -4218,6 +4265,7 @@ audio_register_sfx_voice:
     mov dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_PULL
     mov eax, [audio_sfx_length_arg]
     mov [sb16_music_stream_buffer_bytes], eax
+    call sb16_record_music_render_stats
     jmp .recount
 
 .sfx_started:
@@ -4353,6 +4401,7 @@ audio_update_sfx_voice:
     or eax, AUDIO_FLAG_MUSIC
     mov [sb16_voice_flags + ebx * 4], eax
     mov dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_PULL
+    call sb16_record_music_render_stats
     mov eax, [sb16_voice_positions + ebx * 4]
     shr eax, 16
     cmp eax, [sb16_voice_lengths + ebx * 4]
@@ -13250,6 +13299,31 @@ write_smoke_status:
     mov edx, [sb16_music_pull_refill_count]
     call smoke_write_hex32
 
+    mov esi, smoke_musicrend_text
+    call smoke_copy_string
+    mov edx, [sb16_music_render_format]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_music_render_chunk_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_music_render_note_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_music_render_event_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_music_render_active_peak]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_music_render_sample_count]
+    call smoke_write_hex32
+
     mov esi, smoke_sb16ver_text
     call smoke_copy_string
     movzx edx, byte [sb16_major_version]
@@ -14441,6 +14515,7 @@ smoke_musicunder_text db " musicunder=", 0
 smoke_musicdrops_text db " musicdrops=", 0
 smoke_musicstream_text db " musicstream=", 0
 smoke_musicpull_text db " musicpull=", 0
+smoke_musicrend_text db " musicrend=", 0
 smoke_sb16ver_text db " sb16=", 0
 smoke_dmaprog_text db " dma=", 0
 smoke_play_text db " play=", 0
@@ -15212,6 +15287,12 @@ sb16_music_stream_drop_count dd 0
 sb16_music_stream_mode dd AUDIO_MUSIC_STREAM_NONE
 sb16_music_pull_request_count dd 0
 sb16_music_pull_refill_count dd 0
+sb16_music_render_format dd 0
+sb16_music_render_chunk_count dd 0
+sb16_music_render_note_count dd 0
+sb16_music_render_event_count dd 0
+sb16_music_render_active_peak dd 0
+sb16_music_render_sample_count dd 0
 sb16_music_stream_calc_pos dd 0
 audio_sfx_desc_arg dd 0
 audio_sfx_handle_arg dd 0
