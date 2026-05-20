@@ -27,6 +27,8 @@ VGA_GRAPHICS_BUFFER equ 0x000a0000
 VGA_COLS equ 80
 VGA_ROWS equ 25
 VGA_ATTR equ 0x0f
+SMOKE_STATUS_ADDR equ 0x0009d000
+SMOKE_STATUS_BYTES equ 1024
 DOOM_SCREEN_WIDTH equ 320
 DOOM_SCREEN_HEIGHT equ 200
 DOOM_FRAME_BYTES equ DOOM_SCREEN_WIDTH * DOOM_SCREEN_HEIGHT
@@ -159,6 +161,7 @@ user_probe_finished:
     call draw_doom_status
     call draw_heap_status
     call draw_timer_status
+    call write_smoke_status
     call pic_unmask_timer
     sti
 
@@ -3430,6 +3433,7 @@ irq_timer:
     pushad
     inc dword [timer_ticks]
     call draw_timer_status
+    call write_smoke_status
     mov al, 0x20
     out 0x20, al
     popad
@@ -3491,6 +3495,254 @@ draw_timer_status:
     pop ecx
     pop ebx
     pop eax
+    ret
+
+write_smoke_status:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    cld
+    mov edi, SMOKE_STATUS_ADDR
+    xor eax, eax
+    mov ecx, SMOKE_STATUS_BYTES / 4
+    rep stosd
+
+    mov edi, SMOKE_STATUS_ADDR
+    mov esi, smoke_banner_text
+    call smoke_copy_string
+
+    mov esi, smoke_doom_text
+    call smoke_copy_string
+    cmp byte [doom_elf_status], 1
+    jne .doom_fail
+    cmp byte [doom_elf_load_status], 1
+    jne .doom_fail
+    cmp byte [doom_elf_parse_status], 1
+    jne .doom_fail
+    cmp byte [doom_load_segment_count], 1
+    jne .doom_fail
+    cmp byte [doom_user_window_status], 1
+    jne .doom_fail
+    mov esi, smoke_ok_text
+    jmp .doom_write
+
+.doom_fail:
+    mov esi, smoke_fail_text
+
+.doom_write:
+    call smoke_copy_string
+
+    mov esi, smoke_gfx_text
+    call smoke_copy_string
+    cmp byte [present_status], 1
+    je .gfx_ok
+    mov esi, smoke_fail_text
+    jmp .gfx_write
+
+.gfx_ok:
+    mov esi, smoke_ok_text
+
+.gfx_write:
+    call smoke_copy_string
+
+    mov esi, smoke_status_text
+    call smoke_copy_string
+
+    mov esi, paging_status_label
+    call smoke_copy_string
+    cmp byte [paging_status], 1
+    je .paging_ok
+    mov esi, off_status_text
+    jmp .paging_write
+
+.paging_ok:
+    mov esi, on_status_text
+
+.paging_write:
+    call smoke_copy_string
+    mov al, ' '
+    stosb
+
+    mov esi, pmm_status_label + 1
+    call smoke_copy_string
+    cmp byte [pmm_test_status], 1
+    je .pmm_ok
+    mov esi, fail_status_text
+    jmp .pmm_write
+
+.pmm_ok:
+    mov esi, ok_status_text
+
+.pmm_write:
+    call smoke_copy_string
+    mov al, ' '
+    stosb
+
+    mov esi, vmm_status_label + 1
+    call smoke_copy_string
+    cmp byte [vmm_test_status], 1
+    je .vmm_ok
+    mov esi, fail_status_text
+    jmp .vmm_write
+
+.vmm_ok:
+    mov esi, ok_status_text
+
+.vmm_write:
+    call smoke_copy_string
+    mov al, ' '
+    stosb
+
+    mov esi, libc_status_label + 1
+    call smoke_copy_string
+    cmp byte [libc_test_status], 1
+    je .libc_ok
+    mov esi, fail_status_text
+    jmp .libc_write
+
+.libc_ok:
+    mov esi, ok_status_text
+
+.libc_write:
+    call smoke_copy_string
+    mov al, ' '
+    stosb
+
+    mov esi, c_status_label + 1
+    call smoke_copy_string
+    cmp byte [c_runtime_status], 1
+    je .c_ok
+    mov esi, fail_status_text
+    jmp .c_write
+
+.c_ok:
+    mov esi, ok_status_text
+
+.c_write:
+    call smoke_copy_string
+    mov al, ' '
+    stosb
+
+    mov esi, user_status_label + 1
+    call smoke_copy_string
+    cmp byte [user_elf_status], 1
+    jne .user_fail
+    cmp byte [user_elf_parse_status], 1
+    jne .user_fail
+    cmp dword [user_probe_flags_seen], USER_PROBE_EXPECTED_FLAGS
+    jne .user_fail
+    cmp byte [user_probe_status], 3
+    jne .user_fail
+    mov esi, smoke_ok_text
+    jmp .user_write
+
+.user_fail:
+    mov esi, smoke_fail_text
+
+.user_write:
+    call smoke_copy_string
+    mov al, ' '
+    stosb
+
+    mov esi, wad_status_label + 1
+    call smoke_copy_string
+    cmp byte [wad_status], 1
+    je .wad_ok
+    mov esi, fail_status_text
+    jmp .wad_write
+
+.wad_ok:
+    mov esi, ok_status_text
+
+.wad_write:
+    call smoke_copy_string
+    mov al, ' '
+    stosb
+
+    mov esi, lump_status_label + 1
+    call smoke_copy_string
+    cmp byte [wad_parse_status], 1
+    je .lump_ok
+    mov esi, fail_status_text
+    jmp .lump_write
+
+.lump_ok:
+    mov esi, ok_status_text
+
+.lump_write:
+    call smoke_copy_string
+    mov al, ' '
+    stosb
+
+    mov esi, heap_status_label
+    call smoke_copy_string
+    cmp byte [heap_test_status], 1
+    je .heap_ok
+    mov esi, fail_status_text
+    jmp .heap_write
+
+.heap_ok:
+    mov esi, ok_status_text
+
+.heap_write:
+    call smoke_copy_string
+    mov esi, heap_status_free_label
+    call smoke_copy_string
+    call heap_free_bytes
+    mov edx, eax
+    call smoke_write_hex32
+
+    mov al, ' '
+    stosb
+    mov esi, ticks_status_label
+    call smoke_copy_string
+    mov edx, [timer_ticks]
+    call smoke_write_hex32
+
+    mov al, 13
+    stosb
+    mov al, 10
+    stosb
+
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+smoke_copy_string:
+    lodsb
+    test al, al
+    jz .done
+    stosb
+    jmp smoke_copy_string
+
+.done:
+    ret
+
+smoke_write_hex32:
+    push ebx
+    push ecx
+
+    mov ecx, 8
+
+.next:
+    rol edx, 4
+    mov bl, dl
+    and bl, 0x0f
+    movzx ebx, bl
+    mov al, [hex_digits + ebx]
+    stosb
+    loop .next
+
+    pop ecx
+    pop ebx
     ret
 
 draw_doom_status:
@@ -3925,6 +4177,12 @@ doom_status_label db "doom=", 0
 doom_status_entry_label db " entry=", 0
 doom_status_mem_label db " mem=", 0
 gfx_status_label db " gfx=", 0
+smoke_banner_text db "Aurora OS v0.2 ", 0
+smoke_doom_text db "doom=", 0
+smoke_gfx_text db " gfx=", 0
+smoke_status_text db " pg=", 0
+smoke_ok_text db "OK", 0
+smoke_fail_text db "FAIL", 0
 heap_status_gap db " ", 0
 ok_text db "OK", 13, 10, 0
 fail_text db "FAIL", 13, 10, 0

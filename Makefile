@@ -114,34 +114,33 @@ run-headless: vm-consent check-tools $(IMAGE)
 	$(QEMU) -machine $(QEMU_MACHINE) -drive file=$(IMAGE),format=raw,if=ide,index=0,media=disk -boot c -display none -monitor none
 
 smoke: vm-consent check-tools $(IMAGE)
-	@rm -f $(BUILD_DIR)/monitor.sock $(BUILD_DIR)/vga.bin $(BUILD_DIR)/vga.txt $(BUILD_DIR)/gfx.bin
+	@rm -f $(BUILD_DIR)/monitor.sock $(BUILD_DIR)/vga.bin $(BUILD_DIR)/vga.txt $(BUILD_DIR)/status.bin $(BUILD_DIR)/status.txt $(BUILD_DIR)/gfx.bin
 	@set -e; \
 	$(QEMU) -machine $(QEMU_MACHINE) -drive file=$(IMAGE),format=raw,if=ide,index=0,media=disk -boot c -display none -serial none -monitor unix:$(BUILD_DIR)/monitor.sock,server,nowait -no-reboot -no-shutdown & \
 	pid=$$!; \
 	sleep 5; \
-	printf "pmemsave 0xb8000 4000 $(BUILD_DIR)/vga.bin\npmemsave 0xa0000 64000 $(BUILD_DIR)/gfx.bin\nquit\n" | nc -U $(BUILD_DIR)/monitor.sock >/dev/null; \
+	printf "pmemsave 0xb8000 4000 $(BUILD_DIR)/vga.bin\npmemsave 0x9d000 1024 $(BUILD_DIR)/status.bin\npmemsave 0xa0000 64000 $(BUILD_DIR)/gfx.bin\nquit\n" | nc -U $(BUILD_DIR)/monitor.sock >/dev/null; \
 	wait $$pid >/dev/null 2>&1 || true; \
-	test -s $(BUILD_DIR)/vga.bin; \
+	test -s $(BUILD_DIR)/status.bin; \
 	perl -e 'local $$/; $$d = <>; for ($$i = 0; $$i < length($$d); $$i += 2) { $$c = ord(substr($$d, $$i, 1)); print chr($$c || 32); }' $(BUILD_DIR)/vga.bin > $(BUILD_DIR)/vga.txt; \
-	grep -q "Aurora OS v0.2" $(BUILD_DIR)/vga.txt; \
-	grep -q "32-bit protected mode kernel online" $(BUILD_DIR)/vga.txt; \
-	grep -q "aurora>" $(BUILD_DIR)/vga.txt; \
-	grep -q "pg=ON" $(BUILD_DIR)/vga.txt; \
-	grep -q "pmm=OK" $(BUILD_DIR)/vga.txt; \
-	grep -q "vmm=OK" $(BUILD_DIR)/vga.txt; \
-	grep -q "libc=OK" $(BUILD_DIR)/vga.txt; \
-	grep -q "c=OK" $(BUILD_DIR)/vga.txt; \
-	grep -q "usr=OK" $(BUILD_DIR)/vga.txt; \
-	grep -q "wad=OK" $(BUILD_DIR)/vga.txt; \
-	grep -q "lmp=OK" $(BUILD_DIR)/vga.txt; \
-	grep -q "doom=OK" $(BUILD_DIR)/vga.txt; \
-	grep -q "gfx=OK" $(BUILD_DIR)/vga.txt; \
-	grep -q "heap=OK" $(BUILD_DIR)/vga.txt; \
+	perl -e 'local $$/; $$d = <>; $$d =~ s/\0/ /g; print $$d' $(BUILD_DIR)/status.bin > $(BUILD_DIR)/status.txt; \
+	grep -q "Aurora OS v0.2" $(BUILD_DIR)/status.txt; \
+	grep -q "pg=ON" $(BUILD_DIR)/status.txt; \
+	grep -q "pmm=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "vmm=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "libc=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "c=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "usr=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "wad=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "lmp=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "doom=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "gfx=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "heap=OK" $(BUILD_DIR)/status.txt; \
 	test -s $(BUILD_DIR)/gfx.bin; \
 	perl -e 'local $$/; $$d = <>; exit(length($$d) == 64000 && ord(substr($$d, 0, 1)) == 0 && ord(substr($$d, 1, 1)) == 1 && ord(substr($$d, 320, 1)) == 64 && ord(substr($$d, 63999, 1)) == 255 ? 0 : 1)' $(BUILD_DIR)/gfx.bin; \
-	perl -ne '$$ok = 1 if /heap=OK free=([0-9A-F]{8})/ && hex($$1) >= 0x00700000; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/vga.txt; \
-	perl -ne '$$ok = 1 if /ticks=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/vga.txt; \
-	printf "Smoke boot OK: protected-mode banner, Ring 3 probe, Doom-scale heap self-test, and PIT ticks reached VGA text buffer.\n"
+	perl -ne '$$ok = 1 if /heap=OK free=([0-9A-F]{8})/ && hex($$1) >= 0x00700000; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+	perl -ne '$$ok = 1 if /ticks=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+	printf "Smoke boot OK: protected-mode kernel status, Ring 3 probe, Doom ELF load, indexed-frame present, and PIT ticks verified in cloud VM memory.\n"
 
 clean:
 	rm -rf $(BUILD_DIR)

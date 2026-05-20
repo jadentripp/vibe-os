@@ -289,18 +289,24 @@ class SourceContractTests(unittest.TestCase):
 
     def test_doom_port_and_probe_have_indexed_frame_present_syscall(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        stage2 = (ROOT / "boot" / "stage2.asm").read_text()
         platform = (ROOT / "doom_port" / "platform.c").read_text()
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
         probe = (ROOT / "user" / "probe.c").read_text()
         makefile = (ROOT / "Makefile").read_text()
+        self.assertIn("set_video_mode13:", stage2)
+        self.assertIn("mov ax, 0x0013", stage2)
+        self.assertIn("SMOKE_STATUS_ADDR equ 0x0009d000", kernel)
         self.assertIn("SYS_PRESENT equ 10", kernel)
         self.assertIn("VGA_GRAPHICS_BUFFER equ 0x000a0000", kernel)
         self.assertIn("present_indexed_frame:", kernel)
+        self.assertIn("write_smoke_status:", kernel)
         self.assertIn("VIBE_SYS_PRESENT = 10", header)
         self.assertIn("vibe_syscall3(VIBE_SYS_PRESENT", platform)
         self.assertIn("PROBE_FLAG_PRESENT = 0x20u", probe)
         self.assertIn("SYS_PRESENT = 10", probe)
         self.assertIn('grep -q "gfx=OK"', makefile)
+        self.assertIn("pmemsave 0x9d000 1024", makefile)
         self.assertIn("pmemsave 0xa0000 64000", makefile)
 
 

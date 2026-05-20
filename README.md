@@ -174,6 +174,9 @@ Already implemented:
 - Doom's platform `I_FinishUpdate` calls a kernel `SYS_PRESENT` path for a
   320x200 8-bit indexed frame plus RGB palette, and CI verifies bytes written
   to the VGA graphics aperture at `0xA0000`
+- Stage 2 enters VGA mode 13h before protected mode, while the cloud smoke
+  reads kernel status from a normal RAM status block so graphics memory and
+  boot status can be verified separately
 
 Still required before this is actually Doom-capable:
 

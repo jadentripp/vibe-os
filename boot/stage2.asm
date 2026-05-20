@@ -54,6 +54,7 @@ start:
     int 0x13
     jc disk_error
 
+    call set_video_mode13
     call enable_a20
 
     cli
@@ -80,6 +81,11 @@ enable_a20:
     or al, 0x02
     and al, 0xfe
     out 0x92, al
+    ret
+
+set_video_mode13:
+    mov ax, 0x0013
+    int 0x10
     ret
 
 disk_error:
