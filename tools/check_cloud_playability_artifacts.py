@@ -147,6 +147,8 @@ def validate_repo_contract() -> None:
             raise AssertionError(f"runbook should not instruct local/pixel artifact path {forbidden!r}")
 
     _require(playable, "Remote Doom Playtest Runbook", "playable cloud proof doc")
+    _require(playable, "puser", "playable cloud proof doc")
+    _require(playable, "pspin", "playable cloud proof doc")
     _require(readme, "docs/runbooks/remote-doom-playtest.md", "README")
     _require(tests_readme, "check_cloud_playability_artifacts.py", "tests README")
     _require(makefile, "cloud-playability-check", "Makefile")

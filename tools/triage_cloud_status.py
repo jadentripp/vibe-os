@@ -59,6 +59,7 @@ SUMMARY_FIELDS = (
     "ticks",
     "preempt",
     "pattempt",
+    "pskip",
     "puser",
     "pround",
     "pctx",
