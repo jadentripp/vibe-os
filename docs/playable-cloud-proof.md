@@ -9,7 +9,7 @@ compact counters and state deltas from Doom.
 
 This file describes the required green path. A scripted green run is not by itself a claim that the current branch is human-playable.
 The current machine-checkable baseline is manual **Real WAD smoke** run
-`26155149926` on commit `dc8224e`: it proves the real shareware WAD path,
+`26156172979` on commit `eabd307`: it proves the real shareware WAD path,
 gameplay, input, mouse, audio-counter, preemption, non-pixel visual diagnostics,
 aggregate audible output, and save-slot reboot persistence from disposable
 runner artifacts. A human-facing playable claim still needs a recorded remote

@@ -116,7 +116,7 @@ Remaining storage gaps before a broad Doom-capable claim:
   the generated FAT16 disk image, but there is not yet a broader storage boot
   path story for installing, selecting, or safely recovering persistent media
   outside this generated image workflow.
-- The archived real-WAD cloud run `26155149926` proves save-slot reboot
+- The archived real-WAD cloud run `26156172979` proves save-slot reboot
   persistence for this commit: `DOOMSAV0.DSG` is changed from the fresh baseline with
   description `VIBESAVE`, keeps Doom's `version 110` marker, and survives a
   second boot of the same remote image with `reboot status runtime=OK`. Future

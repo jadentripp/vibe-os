@@ -80,13 +80,13 @@ REQUIRED_GAPS = {
 LATEST_RUN_PHRASES = (
     "Latest Cloud Evidence",
     "current scripted cloud truth-serum run",
-    "26155149926",
-    "dc8224e",
+    "26156172979",
+    "eabd307",
     "real-WAD, human-playability",
     "audible-audio manifest",
     "save-slot persistence reboot",
     "artifact hygiene",
-    "26155142532",
+    "26156166546",
     "DOOMSAV0.DSG bytes=512 changed-from-baseline",
     "survived-reboot description='VIBESAVE'",
     "reboot status runtime=OK",
@@ -196,9 +196,9 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
             raise AssertionError(f"gap ledger missing latest-run phrase: {phrase}")
     for phrase in (
         "scripted cloud evidence",
-        "26155149926",
-        "dc8224e",
-        "26155142532",
+        "26156172979",
+        "eabd307",
+        "26156166546",
         "playability-status-green",
     ):
         if not _contains_phrase(readme, phrase):

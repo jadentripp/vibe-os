@@ -127,7 +127,7 @@ class PostCheckpointGapTests(unittest.TestCase):
 
         self.assertIn("The FAT16 image has root entries for `DEFAULT.CFG`", gap_doc)
         self.assertIn("Run `26151623245` passes that reboot proof for `DEFAULT.CFG`", gap_doc)
-        self.assertIn("Run `26155149926` passes the save-slot reboot proof for `DOOMSAV0.DSG`", gap_doc)
+        self.assertIn("Run `26156172979` passes the save-slot reboot proof for `DOOMSAV0.DSG`", gap_doc)
         self.assertIn("Nothing is missing for this exact commit's Doom config/save-slot", gap_doc)
         self.assertIn("captures the fresh baseline immediately after rebuilding", gap_doc)
         self.assertIn("same disk image is booted again", gap_doc)
@@ -183,13 +183,13 @@ class PostCheckpointGapTests(unittest.TestCase):
             "current scripted cloud truth-serum run",
             "historical repair context",
             "human-facing Doom-capable proof",
-            "26155149926",
-            "dc8224e",
+            "26156172979",
+            "eabd307",
             "real-WAD, human-playability",
             "audible-audio manifest",
             "save-slot persistence reboot",
             "artifact hygiene",
-            "26155142532",
+            "26156166546",
             "DOOMSAV0.DSG bytes=512 changed-from-baseline",
             "survived-reboot description='VIBESAVE'",
             "reboot status runtime=OK",

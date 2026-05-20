@@ -247,15 +247,15 @@ temporary QEMU WAV backend on the disposable runner, reduces it to aggregate
 continuity snapshots, and deletes the WAV before upload.
 Raw audio files are not diagnostic artifacts.
 
-Current proof status: run `26155149926` on kernel/runtime commit `dc8224e`
+Current proof status: run `26156172979` on kernel/runtime commit `eabd307`
 is the current scripted cloud proof that passes the serious real-WAD gates for
 the current runtime code. It reaches `doomrun=RUN`, `doomopen=OK`,
 `doomread=OK`, `gameplay=OK`, `usr=OK`, live keyboard/mouse/SB16/preemption
 counters, the aggregate audible-audio proof, and a rebooted Doom save-slot proof:
 `DOOMSAV0.DSG bytes=512 changed-from-baseline survived-reboot description='VIBESAVE' version='version 110'`.
-The matching `os-smoke` run `26155142532` also passes the generated-WAD smoke and
-opt-in shutdown/panic proof lane for the same kernel/runtime commit, and the
-real-WAD run triages as `playability-status-green`. Later commits that only
+The matching `os-smoke` run `26156166546` also passes the generated-WAD smoke
+for the same kernel/runtime commit, and the real-WAD run triages as
+`playability-status-green`. Later commits that only
 update evidence docs/tests do not change the booted runtime, but any kernel,
 runtime, workflow, or proof-checker change must rerun these gates. This is
 strong scripted cloud evidence, not yet a human-facing "Doom-capable" claim.

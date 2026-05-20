@@ -25,7 +25,7 @@ them so README and runbook wording cannot quietly drift into overclaiming.
 
 ## Latest Cloud Evidence
 
-As of 2026-05-20, manual run `26155149926` on kernel/runtime commit `dc8224e`
+As of 2026-05-20, manual run `26156172979` on kernel/runtime commit `eabd307`
 is the current scripted cloud truth-serum run for the current runtime code. It
 passes the real-WAD, human-playability, SB16/audio-continuity, audible-audio
 manifest, save-slot persistence reboot, artifact hygiene, and status-triage
@@ -51,7 +51,7 @@ What the current evidence proves:
   frames and reaching E1M1 gameplay status rather than dying during startup.
 - Scripted keyboard input, mouse input, SB16/audio counters, and live
   preemption counters are active in the cloud status stream.
-- The `26155149926` final status shows live real-WAD Doom with `doomrun=RUN`,
+- The `26156172979` final status shows live real-WAD Doom with `doomrun=RUN`,
   `doomopen=OK`, `doomread=OK`, `gameplay=OK`, `usr=OK`,
   input/mouse/audio counters, and live preemption counters. Its artifact set
   passes the real-WAD, human-playability, audio-continuity, audible-audio,
@@ -97,7 +97,7 @@ Earlier red runs kept for context:
 
 ## Machine-Readable Gap Ledger
 
-- `GAP[CLOUD_BOOT] status=proven category=cloud-boot gate=real-wad-smoke.yml evidence=real-wad-smoke-26155149926`
+- `GAP[CLOUD_BOOT] status=proven category=cloud-boot gate=real-wad-smoke.yml evidence=real-wad-smoke-26156172979`
 
 Current state:
 
@@ -108,11 +108,10 @@ Current state:
   rendered pixels out of uploaded artifacts.
 - Current archived real-WAD cloud evidence reaches Doom runtime, WAD I/O,
   frames, gameplay status, input counters, audio counters, and preemption
-  counters, and run `26155149926` passes the scripted proof checkers for commit
-  `dc8224e`.
-- The matching normal cloud `os-smoke` run `26155142532` passes the generated-WAD
-  boot smoke plus the opt-in shutdown/panic proof lane for the same
-  kernel/runtime commit.
+  counters, and run `26156172979` passes the scripted proof checkers for commit
+  `eabd307`.
+- The matching normal cloud `os-smoke` run `26156166546` passes the generated-WAD
+  boot smoke for the same kernel/runtime commit.
 - The display path now has a host-proved aspect policy: LFB presents use the
   largest centered 320x240 integer scale when the framebuffer can fit it, expose
   a labeled `SQ` fallback for 320x200 square scaling, and report `fbpolicy`,
@@ -121,7 +120,7 @@ Current state:
 
 Still missing:
 
-- Nothing is missing for this exact commit's scripted cloud-boot gate: `dc8224e`
+- Nothing is missing for this exact commit's scripted cloud-boot gate: `eabd307`
   has a current passing manual real-WAD cloud workflow with final `status.txt`
   and clean early/start/fire/move/use/mouse/menu baselines that make the proof
   gates reproducible.
@@ -135,7 +134,7 @@ Executable gate:
   only the uploaded non-WAD diagnostics: `status*.txt`, `status*.bin`, QEMU log,
   serial log, monitor log, and ELF files.
 
-- `GAP[REAL_GAMEPLAY] status=proven category=real-gameplay gate=check_real_wad_proof.py evidence=real-wad-smoke-26155149926`
+- `GAP[REAL_GAMEPLAY] status=proven category=real-gameplay gate=check_real_wad_proof.py evidence=real-wad-smoke-26156172979`
 
 Current state:
 
@@ -148,12 +147,12 @@ Current state:
 - The latest green real-WAD cloud evidence proves the important runtime path:
   Doom boots, runs, opens/reads the real WAD, presents frames, reaches gameplay
   status, emits input/audio/preemption counters, and passes the scripted
-  snapshot checkers for commit `dc8224e`.
+  snapshot checkers for commit `eabd307`.
 
 Still missing:
 
 - Nothing is missing for this exact commit's scripted real-gameplay gate:
-  `26155149926` has a fresh real-WAD status artifact where every required field
+  `26156172979` has a fresh real-WAD status artifact where every required field
   and every required phase snapshot passes the checkers. Future commits must
   preserve the now-green scripted `usr=OK`, `use`, mouse effect, audio
   continuity, and preemption evidence. Any regression in those fields reopens
@@ -199,7 +198,7 @@ Executable gate:
   and run `tools/check_cloud_playability_artifacts.py --human-session` plus the
   real-WAD and human-playability checkers on the downloaded diagnostics.
 
-- `GAP[PERSISTENCE] status=proven category=persistence gate=reboot-persistence-proof evidence=real-wad-smoke-26155149926`
+- `GAP[PERSISTENCE] status=proven category=persistence gate=reboot-persistence-proof evidence=real-wad-smoke-26156172979`
 
 Current state:
 
@@ -251,7 +250,7 @@ Current state:
   reports `DEFAULT.CFG bytes=512 changed-from-baseline`, and the reboot proof
   reports `DEFAULT.CFG bytes=512 changed-from-baseline survived-reboot` plus
   `reboot status runtime=OK`.
-- Run `26155149926` passes the save-slot reboot proof for `DOOMSAV0.DSG`: the
+- Run `26156172979` passes the save-slot reboot proof for `DOOMSAV0.DSG`: the
   write proof reports
   `DOOMSAV0.DSG bytes=512 changed-from-baseline description='VIBESAVE' version='version 110'`,
   and the reboot proof reports
@@ -292,7 +291,7 @@ Current state:
 - The Doom port has a freestanding MUS/MIDI parser and stateful stream cursor
   that submits streamed music chunks through the same audio syscall and SB16
   voice mixer path without editing the original Doom tree.
-- Run `26155149926` passes `tools/check_audio_continuity_proof.py` and
+- Run `26156172979` passes `tools/check_audio_continuity_proof.py` and
   `tools/check_audible_audio_proof.py` with status-only SB16 continuity and a
   copyright-safe aggregate `audio-proof.json`, proving non-silent audible output
   without uploading raw audio.
