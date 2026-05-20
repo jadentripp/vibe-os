@@ -753,7 +753,7 @@ def validate_repo_contract() -> None:
         "save-slot-${PERSISTENCE_SAVE_SLOT}",
         "load-slot-${PERSISTENCE_SAVE_SLOT}",
         "Capture fresh persistence baseline",
-        "if: ${{ always() && inputs.persistence_proof }}",
+        "if: ${{ always() && (inputs.persistence_proof || inputs.persistence_save_slot != '') }}",
         "cp build/disk.img \"$RUNNER_TEMP/disk.before-persistence.img\"",
         "check_args=(--baseline-image \"$baseline\")",
         "check_args+=(--require-default)",

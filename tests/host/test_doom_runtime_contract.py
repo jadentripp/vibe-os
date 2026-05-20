@@ -283,10 +283,13 @@ class DoomRuntimeContractTests(unittest.TestCase):
 
         self.assertIn("-DG_BuildTiccmd=doom_original_G_BuildTiccmd", makefile)
         self.assertIn("-DG_Ticker=doom_original_G_Ticker", makefile)
+        self.assertIn("-fno-strict-aliasing", makefile)
         self.assertIn("$(DOOM_SRC_DIR)/g_game.c Makefile", makefile)
         self.assertIn("void doom_original_G_BuildTiccmd(ticcmd_t* cmd);", platform)
         self.assertIn("void doom_original_G_Ticker(void);", platform)
+        self.assertIn("void G_SaveGame(int slot, char* description);", platform)
         self.assertIn("void G_DoSaveGame(void);", platform)
+        self.assertIn("G_SaveGame(save_checkpoint_slot, description);", platform)
         self.assertIn("void G_BuildTiccmd(ticcmd_t* cmd)", platform)
         self.assertIn("doom_original_G_BuildTiccmd(cmd);", platform)
         self.assertIn("void G_Ticker(void)", platform)

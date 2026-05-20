@@ -566,7 +566,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("persistence_load_input_script:", real_wad_workflow)
         self.assertIn("Persistence load script:", real_wad_workflow)
         self.assertIn("Capture fresh persistence baseline", real_wad_workflow)
-        self.assertIn("if: ${{ always() && inputs.persistence_proof }}", real_wad_workflow)
+        self.assertIn("if: ${{ always() && (inputs.persistence_proof || inputs.persistence_save_slot != '') }}", real_wad_workflow)
         self.assertIn('cp build/disk.img "$RUNNER_TEMP/disk.before-persistence.img"', real_wad_workflow)
         self.assertIn("check_args=(--baseline-image \"$baseline\")", real_wad_workflow)
         self.assertIn("check_args+=(--require-default)", real_wad_workflow)

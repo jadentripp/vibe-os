@@ -28,6 +28,7 @@ extern int savegameslot;
 extern char savedescription[32];
 void doom_original_G_BuildTiccmd(ticcmd_t* cmd);
 void doom_original_G_Ticker(void);
+void G_SaveGame(int slot, char* description);
 void G_DoSaveGame(void);
 void G_LoadGame(char* name);
 
@@ -73,6 +74,7 @@ static int load_checkpoint_done;
 #define VIBE_MUSIC_STREAM_TICS \
     ((int)((VIBE_MUSIC_STREAM_BYTES * 35u) / VIBE_MUSIC_DEFAULT_SAMPLE_RATE) / 16)
 #define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x2c000u
+#define VIBE_PERSISTENCE_MIN_LEVELTIME 48
 
 static void report_doom_init_status(unsigned long flags)
 {
@@ -368,7 +370,7 @@ static int default_config_checkpoint_ready(void)
         && gameepisode > 0
         && gamemap > 0
         && gametic > 0
-        && leveltime > 0
+        && leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME
         && consoleplayer >= 0
         && consoleplayer < MAXPLAYERS
         && playeringame[consoleplayer]
@@ -390,6 +392,8 @@ static void checkpoint_default_config_if_needed(void)
 
 static void checkpoint_save_slot_if_needed(void)
 {
+    static char description[] = "VIBE SAVE";
+
     if (save_checkpoint_done || !save_checkpoint_requested_once())
         return;
     if (!default_config_checkpoint_ready()
@@ -400,11 +404,7 @@ static void checkpoint_save_slot_if_needed(void)
         return;
     }
 
-    savegameslot = save_checkpoint_slot;
-    strcpy(savedescription, "VIBE SAVE");
-    sendsave = false;
-    gameaction = ga_savegame;
-    G_DoSaveGame();
+    G_SaveGame(save_checkpoint_slot, description);
     save_checkpoint_done = 1;
 }
 
