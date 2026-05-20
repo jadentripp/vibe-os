@@ -9,12 +9,13 @@ compact counters and state deltas from Doom.
 
 This file describes the required green path. A scripted green run is not by itself a claim that the current branch is human-playable.
 Current-head cloud proof state: save persistence is not green yet. The current
-runtime's latest persistence run, `26195523631` on `8d84766`, boots the kernel,
+runtime's latest persistence run, `26196214650` on `2788c00`, boots the kernel,
 reaches the real-WAD playability checks, and then fails the save-growth gate
 because `DOOMSAV0.DSG` is still truncated to 1024 bytes after the first write.
-Treat that as the active blocker, not as a playable-save claim. Exact
-current-head proof must rerun after doc, workflow, checker, kernel, or runtime
-changes.
+The current diagnostic fields narrow that failure to FAT save growth around
+`flb=` and `fcl=`. Treat that as the active blocker, not as a playable-save
+claim. Exact current-head proof must rerun after doc, workflow, checker, kernel,
+or runtime changes.
 The latest known green **gameplay/audio** evidence before those changes is
 manual **Real WAD smoke** run `26170007704` on commit `a2714a6`: its real-WAD,
 scripted human-playability, scripted gameplay transition, VM/process, SB16

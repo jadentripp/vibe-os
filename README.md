@@ -107,90 +107,51 @@ SUPPORT[UEFI] remains unclaimed. The kernel emits status-only PCI diagnostics
 such as `pci=`, `pciprobe=`, `pcicount=`, `pcifirst=`, `pciid=`, and
 `pciclass=`, but those are not a PCI driver claim.
 
-## Current Proof Status
+## Proof State
 
-Last published proof baseline: run `26165681561` on kernel/runtime commit
-`c525952` is the latest archived scripted cloud proof that passes the serious
-real-WAD gates. It reaches `doomrun=RUN`, `doomopen=OK`, `doomread=OK`,
-`gameplay=OK`, `usr=OK`, live keyboard/mouse/SB16/preemption counters, the
-scripted gameplay transition proof, and the aggregate audible-audio proof. The
-matching `os-smoke` run `26165678183` also passes the generated-WAD smoke for
-the same kernel/runtime commit, and the real-WAD run triages as
-`playability-status-green`.
+The best archived scripted cloud evidence is still run `26165681561` on
+kernel/runtime commit `c525952`. It boots the real shareware WAD, reaches
+`doomrun=RUN`, reads through the kernel FAT path, enters E1M1 with
+`gameplay=OK`, exercises keyboard, mouse, SB16, and preemption counters, passes
+the scripted gameplay transition gate, and triages as `playability-status-green`.
+The matching generated-WAD `os-smoke` run `26165678183` is green for the same
+kernel/runtime commit.
 
-That is strong scripted cloud evidence, not by itself a claim that the current
-branch is human-playable forever. Any kernel, runtime, workflow, or proof-checker
-change must rerun the relevant gates.
+That is real scripted cloud evidence, but it is not a blank check for every
+future commit. Current-head cloud proof state: save persistence is not green yet.
+The latest cloud persistence run, `26196214650` on `2788c00`, boots the
+kernel and reaches the real-WAD playability checks, then fails the save-growth
+gate because `DOOMSAV0.DSG` is still truncated to 1024 bytes after the first
+write. The new diagnostics narrow the failure to FAT save growth around the
+`flb=`/`fcl=` allocation and clip fields; treat that as the active blocker, not
+as a playable-save claim.
 
 Persistence/save-load should only be claimed for a matching green current-head
 cloud persistence run. The older `26156172979` / `eabd307` save-slot reboot
-proof is historical evidence for that older runtime, not the current proof
-point. Current-head save proof must include both the reboot comparison and the
-first boot's `--save-write-status` runtime gate.
+proof is useful historical evidence for that older runtime, but it is not the
+current proof point.
 
-Current-head cloud proof state: save persistence is not green yet. The current
-runtime's latest cloud persistence run, `26195523631` on `8d84766`, boots the
-kernel, reaches the real-WAD playability checks, and then fails the save-growth
-gate because `DOOMSAV0.DSG` is still truncated to 1024 bytes after the first
-write. Treat that as the active blocker, not as a playable-save claim. Exact
-current-head proof must rerun after doc, workflow, checker, kernel, or runtime
-changes.
-
-Before push, keep the host-only readiness gate green:
+Before push, keep the QEMU-free readiness gate green:
 
 ```sh
 make cloud-playability-check
 git diff --check
 ```
 
-After push, prove the selected branch/ref explicitly:
-
-```sh
-branch=$(git branch --show-current)
-gh workflow run os-smoke.yml \
-  --ref "$branch" \
-  -f expected_ref="$branch" \
-  -f shutdown_panic_proof=false
-
-gh workflow run real-wad-smoke.yml \
-  --ref "$branch" \
-  -f expected_ref="$branch" \
-  -f audible_audio_proof=true \
-  -f persistence_proof=false
-
-gh workflow run real-wad-smoke.yml \
-  --ref "$branch" \
-  -f expected_ref="$branch" \
-  -f audible_audio_proof=true \
-  -f persistence_save_slot=0
-```
-
-For repeated proof:
-
-```sh
-branch=$(git branch --show-current)
-gh workflow run real-wad-soak.yml \
-  --ref "$branch" \
-  -f expected_ref="$branch" \
-  -f attempts=3 \
-  -f min_passes=3 \
-  -f audible_audio_proof=true
-```
+After push, `docs/playable-cloud-proof.md` has the exact cloud commands,
+including `gh workflow run os-smoke.yml`,
+`gh workflow run real-wad-smoke.yml`, and
+`gh workflow run real-wad-soak.yml`. Keep those proof runs tied to an explicit
+branch/ref guard so the artifact says what commit it actually proved.
 
 For a human proof session, use `docs/runbooks/remote-doom-playtest.md`. It keeps
 QEMU remote, collects only allowlisted diagnostics, ties the manual run to a
 passing scripted real-WAD run, and validates the bundle with
-`tools/check_cloud_playability_artifacts.py --human-session`. The guided wrapper
-is:
-
-```sh
-./tools/run_remote_human_playtest.sh \
-  --playtester jt \
-  --scripted-proof-run-id "<passing-real-wad-smoke-run-id>"
-```
-
-The lower-level collector is `tools/collect_human_playtest_bundle.py`. The proof
-bundle includes `human-playtest-notes-v2`, `human-playtest-checklist.txt`,
+`tools/check_cloud_playability_artifacts.py --human-session`. The lower-level
+collector is `tools/collect_human_playtest_bundle.py`, and the guided wrapper is
+`tools/run_remote_human_playtest.sh`, tied to the operator with `--playtester`
+and to the scripted run with `--scripted-proof-run-id`. A real human proof
+bundle must include `human-playtest-notes-v2`, `human-playtest-checklist.txt`,
 `human-playtest-session.json`, and `human-playtest-manifest.json`; compare the
 collector's `pre-download human verification OK` line with the local
 `post-download human verification OK` line before treating it as evidence.
@@ -288,28 +249,20 @@ The interactive kernel shell still exists for diagnostics: `help`, `about`,
 `clear`, `echo`, `mem`, `mode`, `ticks`, `heap`, `paging`, `libc`, `c`, `user`,
 `wad`, `reboot`, `halt`, and `poweroff`.
 
-## Still required before this is actually Doom-capable
+## What Is Still Not Proven
 
-These are the remaining gaps before the project can honestly call itself done
-for playable Doom rather than "very close":
+The project is close enough that the remaining work is mostly about proof and
+rough edges, not getting Doom to boot. The boundary is still important: do not
+call vibe-os a finished Doom-capable OS until save/load survives reboot, a
+remote human VNC session is recorded against the current branch, and repeated
+real-WAD cloud runs show the input, audio, timing, and FAT paths are not flaky.
 
-- A current green cloud persistence run proving Doom-created `DOOMSAV*.DSG`
-  survives reboot and reloads back into gameplay.
-- A remote human VNC playtest from `docs/runbooks/remote-doom-playtest.md`,
-  tied to a passing scripted run and checked after download.
-- Repeated real-WAD cloud runs to catch input/audio/timing flakes.
-- Better human-session polish: graceful Doom exit/reboot behavior and clearer
-  remote audio expectations.
-- Stronger VM/POSIX coverage: richer `mmap`, `dup`/descriptor semantics,
-  broader exec targets, and less fixed-slot process machinery.
-- Higher-half/non-identity cleanup beyond the current low-memory runtime
-  contract.
-- Broader framebuffer/fullscreen/aspect behavior beyond the current QEMU VBE
-  target.
-- Hardware-class expansions only when proven: UEFI, real PCI enumeration, AHCI,
-  USB, SMP, APIC, HPET, or physical hardware support must update
-  `docs/hardware-support.md` and pass the support-matrix checker before README
-  language can claim them.
+There are also legitimacy gaps beyond playability: richer VM/POSIX semantics,
+less fixed-slot process machinery, higher-half/non-identity cleanup, broader
+framebuffer policy, and any future hardware classes such as UEFI, PCI, AHCI,
+USB, SMP, APIC, HPET, or physical hardware. Those only become README claims
+after `docs/hardware-support.md` and the support-matrix checker say they are
+proved.
 
 The detailed honesty ledger lives in `docs/post-checkpoint-gaps.md`; its
 machine-readable `GAP[...]` rows are the source of truth for open proof gates.

@@ -83,8 +83,10 @@ LATEST_RUN_PHRASES = (
     "Latest Cloud Evidence",
     "last published scripted cloud truth-serum run",
     "Current-head cloud proof state: save persistence is not green yet",
-    "26195523631",
-    "8d84766",
+    "26196214650",
+    "2788c00",
+    "flb=",
+    "fcl=",
     "26165681561",
     "c525952",
     "real-WAD, human-playability",
@@ -233,7 +235,7 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         raise AssertionError("playable cloud proof doc must keep the human-playability claim boundary")
     if "docs/post-checkpoint-gaps.md" not in readme:
         raise AssertionError("README must point to the gap ledger")
-    if "Still required before this is actually Doom-capable" not in readme:
+    if "What Is Still Not Proven" not in readme:
         raise AssertionError("README must keep the Doom-capable claim boundary visible")
     if "tools/check_playability_gap_ledger.py" not in tests_readme:
         raise AssertionError("tests README must document the gap-ledger checker")
