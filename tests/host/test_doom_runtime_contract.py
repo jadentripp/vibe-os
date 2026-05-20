@@ -207,6 +207,26 @@ class DoomRuntimeContractTests(unittest.TestCase):
         ):
             self.assertIn(token, platform)
 
+    def test_port_alloclow_preserves_original_save_scratch_assumption(self):
+        original_video = (ROOT / "third_party" / "doom" / "linuxdoom-1.10" / "v_video.c").read_text()
+        original_save = (ROOT / "third_party" / "doom" / "linuxdoom-1.10" / "g_game.c").read_text()
+        platform = (ROOT / "doom_port" / "platform.c").read_text()
+
+        for token in (
+            "screens[i] = base + i*SCREENWIDTH*SCREENHEIGHT;",
+            "save_p = savebuffer = screens[1]+0x4000;",
+            "#define SAVEGAMESIZE\t0x2c000",
+        ):
+            source = original_save if "save" in token or "SAVEGAMESIZE" in token else original_video
+            self.assertIn(token, source)
+
+        for token in (
+            "#define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x4000u",
+            "bytes = (size_t)length + VIBE_DOOM_SAVE_SCRATCH_BYTES;",
+            "memset(mem, 0, bytes);",
+        ):
+            self.assertIn(token, platform)
+
     def test_doom_port_has_no_host_linux_platform_api_escape_hatches(self):
         forbidden = (
             "#include <sys/socket.h>",

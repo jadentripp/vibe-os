@@ -44,6 +44,7 @@ static int playable_initial_clip = -1;
 #define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
 #define VIBE_MUSIC_STREAM_TICS \
     ((int)((VIBE_MUSIC_STREAM_BYTES * 35u) / VIBE_MUSIC_DEFAULT_SAMPLE_RATE) - 2)
+#define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x4000u
 
 static void report_doom_init_status(unsigned long flags)
 {
@@ -193,7 +194,18 @@ void I_Quit(void)
 
 byte* I_AllocLow(int length)
 {
-    return (byte*)malloc((size_t)length);
+    byte* mem;
+    size_t bytes;
+
+    if (length <= 0)
+        return 0;
+
+    bytes = (size_t)length + VIBE_DOOM_SAVE_SCRATCH_BYTES;
+    mem = (byte*)malloc(bytes);
+    if (!mem)
+        return 0;
+    memset(mem, 0, bytes);
+    return mem;
 }
 
 void I_Tactile(int on, int off, int total)
