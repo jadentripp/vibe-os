@@ -15,6 +15,8 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
 - paging enabled with an identity-mapped low-memory window and a map-page self-test
 - a standalone user ELF loaded from FAT16, entered in Ring 3, invoking
   `int 0x80`, and proving supervisor pages fault
+- user-mode syscall smoke coverage for `sbrk`, `open`, `read`, `lseek`, and
+  console `write`
 - physical frame accounting for the first managed 16 MiB
 - 8 MiB free-list heap with `kalloc`/`kfree` and boot-time high-memory self-test
 - freestanding cdecl-style libc subset: strings, memory helpers, integer math, x87 init/test, and `kprintf`
@@ -39,6 +41,7 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
   interrupts, and timer ticks are kernel-owned code in this repo.
 - User/kernel separation is not just a label: the boot probe enters Ring 3 with
   user selectors from a standalone `USERPROB.ELF` file loaded through FAT16,
+  allocates user heap, opens and reads `DOOM1.WAD` through kernel syscalls,
   calls the syscall gate, then intentionally faults on a supervisor-only kernel
   page and records the expected page fault.
 - `DOOM1.WAD` is not passed in as a GRUB module or RAM disk. The build creates an
@@ -142,6 +145,8 @@ Already implemented:
   isolation probe
 - standalone user ELF build, FAT16 storage entry, kernel ELF validation, and
   Ring 3 entry from the loaded executable
+- first POSIX-shaped user syscall slice: `sbrk`, `open`, `read`, `lseek`, and
+  `write`, exercised by the user ELF against the WAD header
 - paging, PMM/VMM self-tests, and kernel heap
 - kernel libc subset and a freestanding C probe linked from a clang ELF object
 - ATA PIO, MBR partition parsing, FAT16 root/cluster loading, and WAD parsing
@@ -150,7 +155,7 @@ Still required before this is actually Doom-capable:
 
 - higher-half kernel mapping and real user address spaces
 - scheduler, process table, per-process kernel stacks, and context switching
-- a broader syscall ABI: `exec`, `sbrk`/`mmap`, file I/O, input, and drawing
+- a broader syscall ABI: `exec`, `mmap`, fuller file I/O, input, and drawing
 - user-space ELF loader for `linuxdoom-1.10`
 - POSIX-ish libc and file syscalls for Doom
 - framebuffer graphics path and `i_video.c` port

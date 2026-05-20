@@ -72,11 +72,20 @@ USER_ELF_MAX_BYTES equ 0x00020000
 USER_CODE_ADDR equ 0x00e80000
 USER_STACK_BOTTOM equ 0x00e81000
 USER_STACK_TOP equ 0x00e82000
+USER_HEAP_START equ USER_STACK_TOP
+USER_HEAP_END equ 0x00f00000
+USER_PROBE_EXPECTED_FLAGS equ 0x0000000f
 USER_PROBE_MAGIC equ 0x13579BDF
 USER_FAULT_ADDR equ 0x00010000
+USER_FD_WAD equ 3
 SYS_USER_PROBE equ 1
 SYS_EXIT equ 2
 SYS_EXPECT_FAULT equ 3
+SYS_WRITE equ 4
+SYS_SBRK equ 5
+SYS_OPEN equ 6
+SYS_READ equ 7
+SYS_LSEEK equ 8
 ATA_DATA equ 0x01f0
 ATA_SECTOR_COUNT equ 0x01f2
 ATA_LBA_LOW equ 0x01f3
@@ -460,6 +469,16 @@ handle_command:
     mov esi, user_entry_prefix
     call print_string
     mov eax, [user_entry_addr]
+    call print_hex32
+    call newline
+    mov esi, user_flags_prefix
+    call print_string
+    mov eax, [user_probe_flags_seen]
+    call print_hex32
+    call newline
+    mov esi, user_wad_magic_prefix
+    call print_string
+    mov eax, [user_wad_magic_seen]
     call print_hex32
     call newline
 
@@ -1104,9 +1123,15 @@ paging_init:
     loop .pde_next
 
     mov eax, USER_CODE_ADDR
+
+.user_page_next:
+    cmp eax, USER_HEAP_END
+    jae .user_pages_done
     call vmm_mark_user_identity_page
-    mov eax, USER_STACK_BOTTOM
-    call vmm_mark_user_identity_page
+    add eax, PAGE_SIZE
+    jmp .user_page_next
+
+.user_pages_done:
 
     mov eax, PAGING_DIR_ADDR
     mov cr3, eax
@@ -1182,7 +1207,7 @@ pmm_init:
     call pmm_reserve_pages
 
     mov eax, USER_CODE_ADDR
-    mov ecx, 2
+    mov ecx, (USER_HEAP_END - USER_CODE_ADDR) / PAGE_SIZE
     call pmm_reserve_pages
 
     pop edi
@@ -2630,7 +2655,11 @@ user_probe_run:
     mov byte [user_fault_expected], 0
     mov byte [user_fault_status], 0
     mov dword [user_probe_magic_seen], 0
+    mov dword [user_probe_flags_seen], 0
     mov dword [user_fault_addr], 0
+    mov dword [user_wad_magic_seen], 0
+    mov dword [user_wad_fd_offset], 0
+    mov dword [user_brk_current], USER_HEAP_START
     mov word [user_probe_cs], 0
     mov word [user_probe_ss], 0
 
@@ -2640,6 +2669,10 @@ user_probe_run:
     mov edi, USER_STACK_BOTTOM
     xor eax, eax
     mov ecx, PAGE_SIZE / 4
+    rep stosd
+    mov edi, USER_HEAP_START
+    xor eax, eax
+    mov ecx, (USER_HEAP_END - USER_HEAP_START) / 4
     rep stosd
 
     mov dword [tss_esp0], KERNEL_STACK_TOP
@@ -2788,10 +2821,22 @@ syscall_handler:
     je .exit
     cmp eax, SYS_EXPECT_FAULT
     je .expect_fault
+    cmp eax, SYS_WRITE
+    je .write
+    cmp eax, SYS_SBRK
+    je .sbrk
+    cmp eax, SYS_OPEN
+    je .open
+    cmp eax, SYS_READ
+    je .read
+    cmp eax, SYS_LSEEK
+    je .lseek
+    mov eax, 0xffffffff
     iretd
 
 .user_probe:
     mov [user_probe_magic_seen], ebx
+    mov [user_probe_flags_seen], ecx
     movzx edx, word [esp + 4]
     mov [user_probe_cs], dx
     movzx edx, word [esp + 16]
@@ -2801,6 +2846,131 @@ syscall_handler:
 
 .expect_fault:
     mov byte [user_fault_expected], 1
+    iretd
+
+.write:
+    cmp ebx, 1
+    je .write_fd_ok
+    cmp ebx, 2
+    jne .bad_syscall
+
+.write_fd_ok:
+    mov [syscall_ptr_arg], ecx
+    mov [syscall_len_arg], edx
+    mov eax, ecx
+    mov ebx, edx
+    call user_range_validate
+    jc .bad_syscall
+    mov esi, [syscall_ptr_arg]
+    mov ecx, [syscall_len_arg]
+
+.write_next:
+    cmp ecx, 0
+    je .write_done
+    lodsb
+    call put_char
+    dec ecx
+    jmp .write_next
+
+.write_done:
+    mov eax, [syscall_len_arg]
+    iretd
+
+.sbrk:
+    mov eax, [user_brk_current]
+    mov edx, eax
+    add edx, ebx
+    jc .bad_syscall
+    cmp edx, USER_HEAP_END
+    ja .bad_syscall
+    mov [user_brk_current], edx
+    iretd
+
+.open:
+    mov [syscall_ptr_arg], ebx
+    mov eax, ebx
+    mov ebx, user_path_doom_wad_end - user_path_doom_wad
+    call user_range_validate
+    jc .bad_syscall
+    mov esi, [syscall_ptr_arg]
+    mov edi, user_path_doom_wad
+    mov ecx, user_path_doom_wad_end - user_path_doom_wad
+    repe cmpsb
+    jne .bad_syscall
+    cmp byte [wad_status], 1
+    jne .bad_syscall
+    mov dword [user_wad_fd_offset], 0
+    mov eax, USER_FD_WAD
+    iretd
+
+.read:
+    cmp ebx, USER_FD_WAD
+    jne .bad_syscall
+    mov [syscall_ptr_arg], ecx
+    mov [syscall_len_arg], edx
+    mov eax, ecx
+    mov ebx, edx
+    call user_range_validate
+    jc .bad_syscall
+    mov eax, [wad_size]
+    sub eax, [user_wad_fd_offset]
+    cmp edx, eax
+    jbe .read_len_ok
+    mov edx, eax
+    mov [syscall_len_arg], edx
+
+.read_len_ok:
+    mov esi, WAD_LOAD_ADDR
+    add esi, [user_wad_fd_offset]
+    mov edi, [syscall_ptr_arg]
+    mov ecx, [syscall_len_arg]
+    cld
+    rep movsb
+    mov eax, [syscall_len_arg]
+    add dword [user_wad_fd_offset], eax
+    cmp eax, 4
+    jb .read_done
+    mov edi, [syscall_ptr_arg]
+    mov edx, [edi]
+    mov [user_wad_magic_seen], edx
+
+.read_done:
+    iretd
+
+.lseek:
+    cmp ebx, USER_FD_WAD
+    jne .bad_syscall
+    cmp edx, 0
+    je .seek_set
+    cmp edx, 1
+    je .seek_cur
+    cmp edx, 2
+    je .seek_end
+    jmp .bad_syscall
+
+.seek_set:
+    mov eax, ecx
+    jmp .seek_validate
+
+.seek_cur:
+    mov eax, [user_wad_fd_offset]
+    add eax, ecx
+    jc .bad_syscall
+    jmp .seek_validate
+
+.seek_end:
+    mov eax, [wad_size]
+    add eax, ecx
+    jc .bad_syscall
+
+.seek_validate:
+    cmp eax, [wad_size]
+    ja .bad_syscall
+    mov [user_wad_fd_offset], eax
+    iretd
+
+.bad_syscall:
+    mov eax, 0xffffffff
     iretd
 
 .exit:
@@ -2813,6 +2983,29 @@ syscall_handler:
     mov ss, ax
     mov esp, KERNEL_STACK_TOP
     jmp user_probe_finished
+
+user_range_validate:
+    push edx
+    cmp ebx, 0
+    je .ok
+    cmp eax, USER_CODE_ADDR
+    jb .fail
+    mov edx, eax
+    add edx, ebx
+    jc .fail
+    cmp edx, USER_HEAP_END
+    ja .fail
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edx
+    ret
 
 page_fault_handler:
     cmp byte [user_fault_expected], 1
@@ -2993,6 +3186,8 @@ draw_heap_status:
     cmp byte [user_elf_status], 1
     jne .user_fail
     cmp byte [user_elf_parse_status], 1
+    jne .user_fail
+    cmp dword [user_probe_flags_seen], USER_PROBE_EXPECTED_FLAGS
     jne .user_fail
     cmp byte [user_probe_status], 3
     je .user_ok
@@ -3291,8 +3486,12 @@ wad_name_83 db "DOOM1   WAD"
 user_elf_name_83 db "USERPROBELF"
 wad_name_playpal db "PLAYPAL", 0
 wad_name_colormap db "COLORMAP"
+user_path_doom_wad db "DOOM1.WAD", 0
+user_path_doom_wad_end:
 user_elf_prefix db "User ELF loader: ", 0
 user_entry_prefix db "User entry: ", 0
+user_flags_prefix db "User syscall flags: ", 0
+user_wad_magic_prefix db "User WAD magic: ", 0
 user_status_prefix db "Ring 3 syscall probe: ", 0
 user_magic_prefix db "User magic: ", 0
 user_cs_prefix db "User CS: ", 0
@@ -3401,8 +3600,14 @@ user_phdr_remaining dd 0
 user_segment_dest dd 0
 user_segment_filesz dd 0
 user_segment_memsz dd 0
+syscall_ptr_arg dd 0
+syscall_len_arg dd 0
 user_probe_magic_seen dd 0
+user_probe_flags_seen dd 0
 user_fault_addr dd 0
+user_wad_magic_seen dd 0
+user_wad_fd_offset dd 0
+user_brk_current dd 0
 heap_start dd 0
 heap_free_head dd 0
 heap_end dd 0
