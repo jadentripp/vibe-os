@@ -2815,6 +2815,13 @@ user_elf_prepare:
     ret
 
 syscall_handler:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+    push ebp
+
     cmp eax, SYS_USER_PROBE
     je .user_probe
     cmp eax, SYS_EXIT
@@ -2831,22 +2838,23 @@ syscall_handler:
     je .read
     cmp eax, SYS_LSEEK
     je .lseek
-    mov eax, 0xffffffff
-    iretd
+    jmp .bad_syscall
 
 .user_probe:
     mov [user_probe_magic_seen], ebx
     mov [user_probe_flags_seen], ecx
-    movzx edx, word [esp + 4]
+    movzx edx, word [esp + 28]
     mov [user_probe_cs], dx
-    movzx edx, word [esp + 16]
+    movzx edx, word [esp + 40]
     mov [user_probe_ss], dx
     mov byte [user_probe_status], 1
-    iretd
+    xor eax, eax
+    jmp .return
 
 .expect_fault:
     mov byte [user_fault_expected], 1
-    iretd
+    xor eax, eax
+    jmp .return
 
 .write:
     cmp ebx, 1
@@ -2874,7 +2882,7 @@ syscall_handler:
 
 .write_done:
     mov eax, [syscall_len_arg]
-    iretd
+    jmp .return
 
 .sbrk:
     mov eax, [user_brk_current]
@@ -2884,7 +2892,7 @@ syscall_handler:
     cmp edx, USER_HEAP_END
     ja .bad_syscall
     mov [user_brk_current], edx
-    iretd
+    jmp .return
 
 .open:
     mov [syscall_ptr_arg], ebx
@@ -2901,7 +2909,7 @@ syscall_handler:
     jne .bad_syscall
     mov dword [user_wad_fd_offset], 0
     mov eax, USER_FD_WAD
-    iretd
+    jmp .return
 
 .read:
     cmp ebx, USER_FD_WAD
@@ -2935,7 +2943,7 @@ syscall_handler:
     mov [user_wad_magic_seen], edx
 
 .read_done:
-    iretd
+    jmp .return
 
 .lseek:
     cmp ebx, USER_FD_WAD
@@ -2967,11 +2975,11 @@ syscall_handler:
     cmp eax, [wad_size]
     ja .bad_syscall
     mov [user_wad_fd_offset], eax
-    iretd
+    jmp .return
 
 .bad_syscall:
     mov eax, 0xffffffff
-    iretd
+    jmp .return
 
 .exit:
     mov byte [user_probe_status], 2
@@ -2983,6 +2991,15 @@ syscall_handler:
     mov ss, ax
     mov esp, KERNEL_STACK_TOP
     jmp user_probe_finished
+
+.return:
+    pop ebp
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    iretd
 
 user_range_validate:
     push edx

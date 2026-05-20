@@ -204,6 +204,15 @@ class SourceContractTests(unittest.TestCase):
         self.assertTrue((ROOT / "user" / "crt0.asm").exists())
         self.assertFalse((ROOT / "user" / "probe.asm").exists())
 
+    def test_syscall_handler_preserves_c_caller_registers(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        handler = kernel.split("syscall_handler:", 1)[1].split("user_range_validate:", 1)[0]
+        for instruction in ("push ebx", "push ecx", "push edx", "push esi", "push edi", "push ebp"):
+            self.assertIn(instruction, handler)
+        for instruction in ("pop ebp", "pop edi", "pop esi", "pop edx", "pop ecx", "pop ebx"):
+            self.assertIn(instruction, handler)
+        self.assertIn(".return:", handler)
+
 
 if __name__ == "__main__":
     unittest.main()
