@@ -49,13 +49,35 @@ def _require_entry(fs, name):
     return meta
 
 
-def _validate_protected_entries(fs):
+def _validate_fat_layout(fs):
+    try:
+        fs.validate_fat_copies_match()
+    except ValueError as exc:
+        raise PersistenceProofError(str(exc)) from exc
+
+
+def _validate_protected_entries(fs, baseline_fs=None):
     for name in make_wad_image.PROTECTED_ROOT_NAMES:
         meta = _require_entry(fs, name)
         if not meta["protected"]:
             raise PersistenceProofError(f"{name!r} is not marked protected by the image parser")
         if meta["size"] <= 0 or meta["cluster"] < 2:
             raise PersistenceProofError(f"{name!r} does not point at persisted file data")
+        try:
+            current = fs.read_root_file(name)
+        except ValueError as exc:
+            raise PersistenceProofError(f"{name!r} has an invalid FAT chain: {exc}") from exc
+        if meta["size"] != len(current):
+            raise PersistenceProofError(f"{name!r} metadata size does not match readable bytes")
+        if baseline_fs is not None:
+            baseline_meta = _require_entry(baseline_fs, name)
+            if (
+                meta["cluster"] != baseline_meta["cluster"]
+                or meta["size"] != baseline_meta["size"]
+                or current != baseline_fs.read_root_file(name)
+            ):
+                label = name.decode("ascii", "replace").strip()
+                raise PersistenceProofError(f"protected entry {label} changed from baseline image")
 
 
 def _validate_default(fs):
@@ -111,7 +133,10 @@ def validate_image(path, *, baseline_image=None, require_default=False, require_
             "baseline image comparison requires --require-default or --require-save-slot"
         )
 
-    _validate_protected_entries(fs)
+    _validate_fat_layout(fs)
+    if baseline_fs is not None:
+        _validate_fat_layout(baseline_fs)
+    _validate_protected_entries(fs, baseline_fs)
     _require_entry(fs, make_wad_image.WRITABLE_DEFAULT_NAME)
     for name in make_wad_image.WRITABLE_SAVE_NAMES:
         _require_entry(fs, name)

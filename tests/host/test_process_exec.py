@@ -68,12 +68,24 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("sys_exec_handoffs dd 0", kernel)
         self.assertIn("sys_exec_scheduled dd 0", kernel)
         self.assertIn("sys_exec_rollbacks dd 0", kernel)
+        self.assertIn('smoke_execerr_text db " execerr=", 0', kernel)
+        self.assertIn('smoke_execres_text db " execres=", 0', kernel)
         self.assertIn('smoke_exec_target_text db " target=", 0', kernel)
+        self.assertIn('smoke_exec_entry_text db " entry=", 0', kernel)
+        self.assertIn('smoke_exec_stack_text db " stack=", 0', kernel)
+        self.assertIn('smoke_exec_argc_text db " argc=", 0', kernel)
+        self.assertIn('smoke_exec_argv_ptr_text db " argv=", 0', kernel)
         self.assertIn('smoke_exec_argv_text db " argv0=", 0', kernel)
         self.assertIn("mov edx, [sys_exec_handoffs]", write_smoke)
         self.assertIn("mov edx, [sys_exec_scheduled]", write_smoke)
         self.assertIn("mov edx, [sys_exec_rollbacks]", write_smoke)
+        self.assertIn("mov edx, [process_exec_last_error]", write_smoke)
+        self.assertIn("mov edx, [sys_exec_last_result]", write_smoke)
         self.assertIn("mov edx, [sys_exec_last_target_pid]", write_smoke)
+        self.assertIn("mov edx, [sys_exec_last_target_entry]", write_smoke)
+        self.assertIn("mov edx, [sys_exec_last_target_stack]", write_smoke)
+        self.assertIn("mov edx, [sys_exec_last_argc]", write_smoke)
+        self.assertIn("mov edx, [sys_exec_last_argv]", write_smoke)
 
     def test_sys_exec_dispatch_validates_prepares_and_hands_off_exec(self):
         kernel = read_kernel()
@@ -94,6 +106,29 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("inc dword [sys_exec_successes]", handler)
         self.assertIn("jmp .exec_handoff_return", handler)
         self.assertIn("VIBE_SYS_EXEC = 16", header)
+
+    def test_sys_exec_resets_diagnostics_and_rejects_unsupported_argv_flags(self):
+        kernel = read_kernel()
+        handler = kernel.split(".exec:", 1)[1].split(".exec_path_failed:", 1)[0]
+        for source in (
+            "mov dword [process_exec_path_ptr], 0",
+            "mov dword [process_exec_target], 0",
+            "mov dword [process_exec_entry], 0",
+            "mov dword [process_exec_last_error], 0",
+            "mov dword [sys_exec_last_target_pid], 0xffffffff",
+            "mov dword [sys_exec_last_target_entry], 0",
+            "mov dword [sys_exec_last_target_stack], 0",
+            "mov dword [sys_exec_last_argc], 0",
+            "mov dword [sys_exec_last_argv], 0",
+            "mov dword [sys_exec_last_argv0], 0",
+            "cmp dword [sys_exec_flags_arg], 0",
+            "jne .exec_einval",
+            "cmp dword [sys_exec_user_argv_arg], 0",
+            "jne .exec_einval",
+        ):
+            self.assertIn(source, handler)
+        exec_einval = kernel.split(".exec_einval:", 1)[1].split(".exec_path_failed:", 1)[0]
+        self.assertIn("mov dword [process_exec_last_error], -ERRNO_EINVAL", exec_einval)
 
     def test_exec_handoff_does_not_save_a_return_context_for_the_old_process(self):
         kernel = read_kernel()
@@ -124,6 +159,9 @@ class ProcessExecContractTests(unittest.TestCase):
         write_smoke = kernel.split("write_smoke_status:", 1)[1].split("smoke_copy_string:", 1)[0]
         self.assertIn("SYS_EXEC_PATH_MAX equ 16", kernel)
         self.assertIn("call user_range_validate", copy_path)
+        self.assertIn("mov edi, sys_exec_path_buffer", copy_path)
+        self.assertIn("mov ecx, SYS_EXEC_PATH_MAX", copy_path)
+        self.assertIn("rep stosb", copy_path)
         self.assertIn("mov al, [esi + ecx]", copy_path)
         self.assertIn("mov [edi + ecx], al", copy_path)
         self.assertIn("cmp ecx, SYS_EXEC_PATH_MAX - 1", copy_path)
@@ -245,8 +283,10 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("iretd", exception.split(".expected_fault_return:", 1)[1])
         self.assertNotIn("jmp user_probe_finished", exception.split(".not_expected_user_fault:", 1)[0])
         self.assertNotIn("call process_mark_current_faulted", exception.split(".not_expected_user_fault:", 1)[0])
-        self.assertIn("sys_expect_fault(&&after_expected_fault);", probe)
-        self.assertIn("after_expected_fault:", probe)
+        self.assertIn('"movl $1f, %%ebx', probe)
+        self.assertIn('"int $0x80', probe)
+        self.assertIn('"1:', probe)
+        self.assertNotIn("&&after_expected_fault", probe)
         self.assertIn("return sys_exec(doom_path) == 0 ? 0 : 1;", probe)
 
     def test_split_doom_elf_segments_still_count_as_loaded(self):

@@ -126,16 +126,18 @@ static void sys_expect_fault(void *recovery) {
 }
 
 static void trigger_expected_fault(void) {
-    sys_expect_fault(&&after_expected_fault);
     __asm__ volatile(
         "movl %0, %%eax\n\t"
+        "movl $1f, %%ebx\n\t"
+        "xorl %%ecx, %%ecx\n\t"
+        "xorl %%edx, %%edx\n\t"
+        "int $0x80\n\t"
+        "movl %1, %%eax\n\t"
         "movl (%%eax), %%eax\n\t"
+        "1:\n\t"
         :
-        : "i"(USER_FAULT_ADDR)
-        : "eax", "memory");
-
-after_expected_fault:
-    return;
+        : "i"(SYS_EXPECT_FAULT), "i"(USER_FAULT_ADDR)
+        : "eax", "ebx", "ecx", "edx", "memory");
 }
 
 int user_main(void) {

@@ -204,6 +204,7 @@ USER_HEAP_START equ USER_STACK_TOP
 USER_HEAP_END equ 0x00f00000
 USER_PROBE_EXPECTED_FLAGS equ 0x000007ff
 USER_PROBE_MAGIC equ 0x13579BDF
+PREEMPT_PROBE_MAGIC equ 0x50524545
 USER_FAULT_ADDR equ 0x00010000
 USER_FD_BASE equ 3
 USER_FD_COUNT equ 16
@@ -4761,20 +4762,27 @@ fat_alloc_cluster:
     inc ebx
     jmp .scan_loop
 
-.found:
-    mov eax, ebx
-    mov dx, 0xffff
-    call fat_write_cluster_entry
-    jc .fail
-    mov eax, ebx
-    call fat_zero_cluster
-    jc .fail
-    mov eax, ebx
-    clc
-    jmp .done
+	.found:
+	    mov eax, ebx
+	    mov dx, 0xffff
+	    call fat_write_cluster_entry
+	    jc .fail
+	    mov eax, ebx
+	    call fat_zero_cluster
+	    jc .rollback_alloc
+	    mov eax, ebx
+	    clc
+	    jmp .done
 
-.fail:
-    stc
+	.rollback_alloc:
+	    mov eax, ebx
+	    xor edx, edx
+	    call fat_write_cluster_entry
+	    stc
+	    jmp .done
+
+	.fail:
+	    stc
 
 .done:
     pop edi
@@ -4801,12 +4809,14 @@ fat_free_chain:
     ja .fail
     cmp ecx, 0
     je .fail
-    mov eax, ebx
-    call fat_next_cluster
-    jc .fail
-    mov [fat_free_next_cluster], ax
-    mov eax, ebx
-    xor edx, edx
+	    mov eax, ebx
+	    call fat_next_cluster
+	    jc .fail
+	    cmp ax, 0
+	    je .fail
+	    mov [fat_free_next_cluster], ax
+	    mov eax, ebx
+	    xor edx, edx
     call fat_write_cluster_entry
     jc .fail
     movzx ebx, word [fat_free_next_cluster]
@@ -5575,13 +5585,19 @@ fat_file_lba_for_write:
     call fat_alloc_cluster
     jc .fail
     mov [fat_new_cluster], ax
-    movzx eax, word [fat_current_cluster]
-    mov dx, [fat_new_cluster]
-    call fat_write_cluster_entry
-    jc .fail
-    mov ax, [fat_new_cluster]
+	    movzx eax, word [fat_current_cluster]
+	    mov dx, [fat_new_cluster]
+	    call fat_write_cluster_entry
+	    jnc .linked_new_cluster
+	    movzx eax, word [fat_new_cluster]
+	    xor edx, edx
+	    call fat_write_cluster_entry
+	    jmp .fail
 
-.next_exists:
+	.linked_new_cluster:
+	    mov ax, [fat_new_cluster]
+
+	.next_exists:
     cmp eax, 2
     jb .fail
     cmp eax, 0xfff8
@@ -6216,6 +6232,13 @@ scheduler_init:
     mov dword [scheduler_preempt_attempts], 0
     mov dword [scheduler_preempt_switches], 0
     mov dword [scheduler_preempt_skips], 0
+    mov dword [scheduler_user_irq_ticks], 0
+    mov dword [scheduler_last_preempt_from_pid], 0xffffffff
+    mov dword [scheduler_last_preempt_to_pid], 0xffffffff
+    mov dword [scheduler_last_preempt_from_eip], 0
+    mov dword [scheduler_last_preempt_to_eip], 0
+    mov dword [scheduler_preempt_probe_ready], 0
+    mov dword [scheduler_preempt_spin_value], 0
     mov byte [scheduler_preempt_selftest_status], 0
     mov dword [current_process_ptr], 0
     mov dword [current_pid], 0
@@ -6386,6 +6409,21 @@ process_mark_current_faulted:
     pop esi
     ret
 
+scheduler_prepare_live_preempt_probe:
+    push eax
+    push esi
+    mov esi, process_preempt_probe
+    call process_reset_preempt_probe
+    mov dword [esi + PROC_ENTRY], USER_CODE_ADDR
+    call process_seed_initial_user_context
+    mov dword [esi + PROC_SAVED_EAX], PREEMPT_PROBE_MAGIC
+    mov dword [USER_STACK_TOP - 4], PREEMPT_PROBE_MAGIC
+    mov dword [scheduler_preempt_probe_ready], 1
+    mov dword [scheduler_preempt_spin_value], PREEMPT_PROBE_MAGIC
+    pop esi
+    pop eax
+    ret
+
 scheduler_tick:
     push eax
     push ebx
@@ -6397,6 +6435,12 @@ scheduler_tick:
     mov esi, [current_process_ptr]
     cmp esi, 0
     je .done
+    mov eax, [ebx + 36]
+    test eax, 3
+    jz .account_current
+    inc dword [scheduler_user_irq_ticks]
+
+.account_current:
     inc dword [esi + PROC_TICKS]
     inc dword [esi + PROC_QUANTUM_TICKS]
     call process_save_irq_context
@@ -6409,10 +6453,20 @@ scheduler_tick:
     test eax, 3
     jz .skip_preempt
     inc dword [scheduler_preempt_attempts]
+    mov eax, [esi + PROC_PID]
+    mov [scheduler_last_preempt_from_pid], eax
+    mov eax, [esi + PROC_SAVED_EIP]
+    mov [scheduler_last_preempt_from_eip], eax
+    mov dword [scheduler_last_preempt_to_pid], 0xffffffff
+    mov dword [scheduler_last_preempt_to_eip], 0
     call scheduler_select_next_ready
     mov esi, [scheduler_next_process_ptr]
     cmp esi, 0
     je .skip_preempt
+    mov eax, [esi + PROC_PID]
+    mov [scheduler_last_preempt_to_pid], eax
+    mov eax, [esi + PROC_SAVED_EIP]
+    mov [scheduler_last_preempt_to_eip], eax
     call process_activate
     call process_restore_irq_context
     inc dword [scheduler_preempt_switches]
@@ -6422,6 +6476,12 @@ scheduler_tick:
     inc dword [scheduler_preempt_skips]
 
 .done:
+    cmp dword [scheduler_preempt_probe_ready], 0
+    je .restore_regs
+    mov eax, [USER_STACK_TOP - 4]
+    mov [scheduler_preempt_spin_value], eax
+
+.restore_regs:
     pop edi
     pop esi
     pop edx
@@ -6937,6 +6997,11 @@ process_exec_handoff_current:
     call keyboard_reset_queue
     call mouse_reset_queue
     call process_seed_initial_user_context
+    cmp esi, process_doom
+    jne .activate_target
+    call scheduler_prepare_live_preempt_probe
+
+.activate_target:
     call process_activate
     call process_exec_seed_argv_stack
 
@@ -8459,7 +8524,21 @@ syscall_handler:
     mov [sys_exec_user_argv_arg], ecx
     mov [sys_exec_flags_arg], edx
     mov [sys_exec_frame_ptr], esp
+    mov dword [process_exec_path_ptr], 0
+    mov dword [process_exec_target], 0
+    mov dword [process_exec_entry], 0
+    mov dword [process_exec_last_error], 0
+    mov dword [sys_exec_last_target_pid], 0xffffffff
+    mov dword [sys_exec_last_target_entry], 0
+    mov dword [sys_exec_last_target_stack], 0
+    mov dword [sys_exec_last_argc], 0
+    mov dword [sys_exec_last_argv], 0
+    mov dword [sys_exec_last_argv0], 0
     inc dword [sys_exec_attempts]
+    cmp dword [sys_exec_flags_arg], 0
+    jne .exec_einval
+    cmp dword [sys_exec_user_argv_arg], 0
+    jne .exec_einval
     call sys_exec_copy_user_path
     jc .exec_einval
     mov esi, sys_exec_path_buffer
@@ -8476,6 +8555,7 @@ syscall_handler:
     jmp .exec_handoff_return
 
 .exec_einval:
+    mov dword [process_exec_last_error], -ERRNO_EINVAL
     mov eax, -ERRNO_EINVAL
     jmp .exec_fail
 
@@ -8600,6 +8680,12 @@ sys_exec_copy_user_path:
     push ecx
     push esi
     push edi
+
+    mov edi, sys_exec_path_buffer
+    xor eax, eax
+    mov ecx, SYS_EXEC_PATH_MAX
+    cld
+    rep stosb
 
     mov esi, [syscall_ptr_arg]
     cmp esi, 0
@@ -9517,9 +9603,33 @@ write_smoke_status:
     stosb
     mov edx, [sys_exec_rollbacks]
     call smoke_write_hex32
+    mov esi, smoke_execerr_text
+    call smoke_copy_string
+    mov edx, [process_exec_last_error]
+    call smoke_write_hex32
+    mov esi, smoke_execres_text
+    call smoke_copy_string
+    mov edx, [sys_exec_last_result]
+    call smoke_write_hex32
     mov esi, smoke_exec_target_text
     call smoke_copy_string
     mov edx, [sys_exec_last_target_pid]
+    call smoke_write_hex32
+    mov esi, smoke_exec_entry_text
+    call smoke_copy_string
+    mov edx, [sys_exec_last_target_entry]
+    call smoke_write_hex32
+    mov esi, smoke_exec_stack_text
+    call smoke_copy_string
+    mov edx, [sys_exec_last_target_stack]
+    call smoke_write_hex32
+    mov esi, smoke_exec_argc_text
+    call smoke_copy_string
+    mov edx, [sys_exec_last_argc]
+    call smoke_write_hex32
+    mov esi, smoke_exec_argv_ptr_text
+    call smoke_copy_string
+    mov edx, [sys_exec_last_argv]
     call smoke_write_hex32
     mov esi, smoke_exec_argv_text
     call smoke_copy_string
@@ -10042,6 +10152,45 @@ write_smoke_status:
     mov esi, smoke_pskip_text
     call smoke_copy_string
     mov edx, [scheduler_preempt_skips]
+    call smoke_write_hex32
+
+    mov esi, smoke_puser_text
+    call smoke_copy_string
+    mov edx, [scheduler_user_irq_ticks]
+    call smoke_write_hex32
+
+    mov esi, smoke_pround_text
+    call smoke_copy_string
+    mov edx, [scheduler_round_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_pctx_text
+    call smoke_copy_string
+    mov edx, [scheduler_context_switches]
+    call smoke_write_hex32
+
+    mov esi, smoke_pfrom_text
+    call smoke_copy_string
+    mov edx, [scheduler_last_preempt_from_pid]
+    call smoke_write_hex32
+
+    mov esi, smoke_pto_text
+    call smoke_copy_string
+    mov edx, [scheduler_last_preempt_to_pid]
+    call smoke_write_hex32
+
+    mov esi, smoke_peip_text
+    call smoke_copy_string
+    mov edx, [scheduler_last_preempt_from_eip]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [scheduler_last_preempt_to_eip]
+    call smoke_write_hex32
+
+    mov esi, smoke_pspin_text
+    call smoke_copy_string
+    mov edx, [scheduler_preempt_spin_value]
     call smoke_write_hex32
 
     mov esi, smoke_pself_text
@@ -10692,7 +10841,13 @@ smoke_banner_text db "Aurora OS v0.2 ", 0
 smoke_exec_text db "exec=", 0
 smoke_exec_path_text db " path=", 0
 smoke_execsys_text db " execsys=", 0
+smoke_execerr_text db " execerr=", 0
+smoke_execres_text db " execres=", 0
 smoke_exec_target_text db " target=", 0
+smoke_exec_entry_text db " entry=", 0
+smoke_exec_stack_text db " stack=", 0
+smoke_exec_argc_text db " argc=", 0
+smoke_exec_argv_ptr_text db " argv=", 0
 smoke_exec_argv_text db " argv0=", 0
 smoke_doom_text db "doom=", 0
 smoke_doomrun_text db " doomrun=", 0
@@ -10761,6 +10916,13 @@ smoke_fb_text db " fb=", 0
 smoke_preempt_text db " preempt=", 0
 smoke_pattempt_text db " pattempt=", 0
 smoke_pskip_text db " pskip=", 0
+smoke_puser_text db " puser=", 0
+smoke_pround_text db " pround=", 0
+smoke_pctx_text db " pctx=", 0
+smoke_pfrom_text db " pfrom=", 0
+smoke_pto_text db " pto=", 0
+smoke_peip_text db " peip=", 0
+smoke_pspin_text db " pspin=", 0
 smoke_pself_text db " pself=", 0
 smoke_status_text db " ", 0
 smoke_ok_text db "OK", 0
@@ -11151,6 +11313,13 @@ scheduler_next_process_ptr dd 0
 scheduler_preempt_attempts dd 0
 scheduler_preempt_switches dd 0
 scheduler_preempt_skips dd 0
+scheduler_user_irq_ticks dd 0
+scheduler_last_preempt_from_pid dd 0xffffffff
+scheduler_last_preempt_to_pid dd 0xffffffff
+scheduler_last_preempt_from_eip dd 0
+scheduler_last_preempt_to_eip dd 0
+scheduler_preempt_probe_ready dd 0
+scheduler_preempt_spin_value dd 0
 scheduler_preempt_selftest_frame times 13 dd 0
 scheduler_preempt_selftest_status db 0
 align 4

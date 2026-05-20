@@ -75,7 +75,8 @@ Current state:
 - `docs/runbooks/remote-doom-playtest.md` describes the safe human path: boot on a
   disposable remote host, expose loopback-only VNC through SSH, keep the WAD
   outside git, and validate downloaded diagnostics afterward.
-- Deterministic scripted fire/move/use/menu checks are a strong cloud-safe proxy.
+- Deterministic scripted fire/move/use/mouse/menu checks are a strong
+  cloud-safe proxy.
 
 Still missing:
 
@@ -85,8 +86,8 @@ Still missing:
 Executable gate:
 
 - Follow the remote runbook, capture non-WAD status artifacts after real keyboard
-  actions, and run `tools/check_cloud_playability_artifacts.py` plus the real-WAD
-  and human-playability checkers on the downloaded diagnostics.
+  and mouse actions, and run `tools/check_cloud_playability_artifacts.py` plus
+  the real-WAD and human-playability checkers on the downloaded diagnostics.
 
 - `GAP[PERSISTENCE] status=open category=persistence gate=reboot-persistence-proof evidence=mutated-disk-status`
 
@@ -94,12 +95,14 @@ Current state:
 
 - The FAT16 image has root entries for Doom config and save files.
 - Host tests prove allocation, readback, truncation, deletion, protected-file
-  refusal, and libc save/config file modes without launching QEMU.
+  refusal, corrupt-chain rejection, FAT-copy agreement, and libc save/config
+  file modes without launching QEMU.
 - `tools/check_doom_persistence_image.py` can inspect a mutated remote image and
   require Doom-shaped `DEFAULT.CFG` text plus a `DOOMSAVN.DSG` save header
   without exporting the WAD or rendered pixels. With `--baseline-image`, it also
   requires the requested entries to differ from the fresh pre-boot image, so
-  host-preseeded bytes do not count as a persistence proof.
+  host-preseeded bytes do not count as a persistence proof. The same baseline
+  comparison rejects protected WAD/ELF mutation.
 - The kernel implements FAT16 cluster allocation/free/truncate over the disk
   image, so the storage layer is no longer a read-only WAD loader.
 - The real-WAD workflow has an opt-in `persistence_proof` path that keeps the

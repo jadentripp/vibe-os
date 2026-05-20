@@ -30,3 +30,6 @@ Host tests prove the translation without QEMU or WAD data:
   `tests/host/doom_input_test.c` against `doom_port/input.c`.
 - The same test also checks that the kernel scancode map still covers the Doom
   play keys and extended press/release path.
+- The real-WAD cloud workflow injects one deterministic mouse phase with QEMU
+  monitor `mouse_move`/`mouse_button`, captures `status.after-mouse.txt`, and
+  requires IRQ12, packet, and Doom poll counters to advance.

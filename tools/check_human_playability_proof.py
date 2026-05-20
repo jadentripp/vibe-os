@@ -19,6 +19,7 @@ DEFAULT_REJECT_PATTERNS = (
 )
 
 KEY_EVENT_COUNTERS = ("keyirq", "keyqueue", "keypoll")
+MOUSE_EVENT_COUNTERS = ("mouseirq", "mousepkt", "mousepoll")
 RUN_COUNTERS = ("gtic", "leveltime")
 MENU_ACTIVE_FLAG = 0x1
 PFLAG_PLAYER = 0x0001
@@ -66,6 +67,10 @@ SUMMARY_FIELDS = (
     "keyirq",
     "keyqueue",
     "keypoll",
+    "mouse",
+    "mouseirq",
+    "mousepkt",
+    "mousepoll",
     "doomrun",
     "doomopen",
     "doomread",
@@ -161,12 +166,58 @@ def _assert_increasing(baseline: str, final: str, names: tuple[str, ...]) -> Non
             )
 
 
+def _assert_not_decreasing(baseline: str, final: str, names: tuple[str, ...]) -> None:
+    for name in names:
+        before = _hex_field(baseline, name)
+        after = _hex_field(final, name)
+        if after < before:
+            raise AssertionError(
+                f"{name}= must not decrease across snapshots, got {before:08X}->{after:08X}"
+            )
+
+
+def _assert_keyboard_phase_progression(
+    baseline_status: str | None,
+    fire_status: str | None,
+    movement_status: str | None,
+    use_status: str | None,
+    menu_status: str | None,
+) -> None:
+    previous_label = "baseline"
+    previous_status = baseline_status
+    for label, snapshot in (
+        ("fire", fire_status),
+        ("movement", movement_status),
+        ("use", use_status),
+        ("menu", menu_status),
+    ):
+        if previous_status is not None and snapshot is not None:
+            try:
+                _assert_increasing(previous_status, snapshot, KEY_EVENT_COUNTERS)
+                _assert_increasing(previous_status, snapshot, RUN_COUNTERS)
+            except AssertionError as exc:
+                raise AssertionError(
+                    f"{label} snapshot must advance keyboard/runtime counters after {previous_label}: {exc}"
+                ) from exc
+        if snapshot is not None:
+            previous_label = label
+            previous_status = snapshot
+
+
+def _require_level_snapshot(snapshot: str, label: str) -> None:
+    if _field(snapshot, "gameplay") != "OK":
+        raise AssertionError(f"{label} snapshot gameplay=OK is required")
+    _hex_field_eq(snapshot, "gstate", 0, "GS_LEVEL (00000000)")
+    _hex_field_eq(snapshot, "gmap", 0x00000101, "E1M1 (00000101)")
+
+
 def validate_status(
     final_status: str,
     baseline_status: str | None = None,
     movement_status: str | None = None,
     fire_status: str | None = None,
     use_status: str | None = None,
+    mouse_status: str | None = None,
     menu_status: str | None = None,
     reject_patterns: tuple[str, ...] = DEFAULT_REJECT_PATTERNS,
 ) -> None:
@@ -178,6 +229,7 @@ def validate_status(
         ("movement", movement_status),
         ("fire", fire_status),
         ("use", use_status),
+        ("mouse", mouse_status),
         ("menu", menu_status),
     ):
         if snapshot is not None:
@@ -210,30 +262,41 @@ def validate_status(
     if baseline_status is not None:
         _assert_increasing(baseline_status, final_status, KEY_EVENT_COUNTERS)
         _assert_increasing(baseline_status, final_status, RUN_COUNTERS)
+    _assert_keyboard_phase_progression(
+        baseline_status,
+        fire_status,
+        movement_status,
+        use_status,
+        menu_status,
+    )
 
     if movement_status is not None:
-        if _field(movement_status, "gameplay") != "OK":
-            raise AssertionError("movement snapshot gameplay=OK is required")
-        _hex_field_eq(movement_status, "gmap", 0x00000101, "E1M1 (00000101)")
+        _require_level_snapshot(movement_status, "movement")
         _require_pflags(movement_status, PFLAG_PLAYER | PFLAG_MOVE_CMD | PFLAG_POS_DELTA)
         _hex_field_gt(movement_status, "pdelta", 0)
 
     if fire_status is not None:
-        if _field(fire_status, "gameplay") != "OK":
-            raise AssertionError("fire snapshot gameplay=OK is required")
-        _hex_field_eq(fire_status, "gmap", 0x00000101, "E1M1 (00000101)")
+        _require_level_snapshot(fire_status, "fire")
         _require_pflags(fire_status, PFLAG_PLAYER | PFLAG_ATTACK_CMD)
 
     if use_status is not None:
-        if _field(use_status, "gameplay") != "OK":
-            raise AssertionError("use snapshot gameplay=OK is required")
-        _hex_field_eq(use_status, "gmap", 0x00000101, "E1M1 (00000101)")
+        _require_level_snapshot(use_status, "use")
         _require_pflags(use_status, PFLAG_PLAYER | PFLAG_USE_CMD)
 
+    if mouse_status is not None:
+        _require_level_snapshot(mouse_status, "mouse")
+        if _field(mouse_status, "mouse") != "OK":
+            raise AssertionError("mouse snapshot mouse=OK is required when --mouse is supplied")
+        for name in MOUSE_EVENT_COUNTERS:
+            _hex_field_gt(mouse_status, name, 0)
+        if baseline_status is not None:
+            _assert_increasing(baseline_status, mouse_status, MOUSE_EVENT_COUNTERS)
+        _assert_not_decreasing(mouse_status, final_status, MOUSE_EVENT_COUNTERS)
+        if _field(final_status, "mouse") != "OK":
+            raise AssertionError("final status mouse=OK is required when --mouse is supplied")
+
     if menu_status is not None:
-        if _field(menu_status, "gameplay") != "OK":
-            raise AssertionError("menu snapshot gameplay=OK is required")
-        _hex_field_eq(menu_status, "gmap", 0x00000101, "E1M1 (00000101)")
+        _require_level_snapshot(menu_status, "menu")
         _require_pflags(menu_status, PFLAG_MENU)
         if not (_hex_field(menu_status, "gflags") & MENU_ACTIVE_FLAG):
             raise AssertionError("menu snapshot gflags= must have the menu-active bit set")
@@ -254,6 +317,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--movement", type=Path, help="Decoded status after scripted movement")
     parser.add_argument("--fire", type=Path, help="Decoded status after scripted fire")
     parser.add_argument("--use", type=Path, help="Decoded status after scripted use")
+    parser.add_argument("--mouse", type=Path, help="Decoded status after scripted mouse input")
     parser.add_argument("--menu", type=Path, help="Decoded status after scripted menu toggle")
     args = parser.parse_args(argv)
 
@@ -264,6 +328,7 @@ def main(argv: list[str]) -> int:
         movement_status = args.movement.read_text() if args.movement else None
         fire_status = args.fire.read_text() if args.fire else None
         use_status = args.use.read_text() if args.use else None
+        mouse_status = args.mouse.read_text() if args.mouse else None
         menu_status = args.menu.read_text() if args.menu else None
         validate_status(
             final_status,
@@ -271,6 +336,7 @@ def main(argv: list[str]) -> int:
             movement_status=movement_status,
             fire_status=fire_status,
             use_status=use_status,
+            mouse_status=mouse_status,
             menu_status=menu_status,
         )
     except (OSError, AssertionError) as exc:

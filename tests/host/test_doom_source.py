@@ -10,6 +10,7 @@ DOOM_ROOT = ROOT / "third_party" / "doom"
 DOOM_SRC = DOOM_ROOT / "linuxdoom-1.10"
 BUILD = ROOT / "build" / "doom"
 DOOM_ELF = ROOT / "build" / "doom.elf"
+DOOM_SYMBOLS = ROOT / "build" / "doom.symbols"
 DOOM_BASE = 0x01000000
 
 UPSTREAM_COMMIT = "a77dfb96cb91780ca334d0d4cfd86957558007e0"
@@ -147,7 +148,7 @@ class DoomSourceTests(unittest.TestCase):
         self.assertIn("$(DOOM_PORT_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c", makefile)
         self.assertIn("$(DOOM_PORT_BUILD_DIR)/port_%.o: doom_port/%.c", makefile)
         self.assertIn(
-            "tools/link_elf32.py -o $@ --base $(DOOM_BASE) $(DOOM_ORIGINAL_OBJS) $(DOOM_PORT_OBJS)",
+            "tools/link_elf32.py -o $@ --base $(DOOM_BASE) --map $(DOOM_SYMBOLS) $(DOOM_ORIGINAL_OBJS) $(DOOM_PORT_OBJS)",
             makefile,
         )
         for forbidden in ("doomgeneric", "chocolate", "crispy", "prboom", "sourceport"):
@@ -199,6 +200,18 @@ class DoomSourceTests(unittest.TestCase):
         self.assertTrue(any(u32(data, ph + 24) & 0x2 for ph in load_segments))
         self.assertTrue(all((u32(data, ph + 24) & 0x2) == 0 for ph in load_segments if u32(data, ph + 24) & 0x1))
         self.assertGreater(max(u32(data, ph + 8) + u32(data, ph + 20) for ph in load_segments), DOOM_BASE + 8 * 1024 * 1024)
+
+    def test_original_doom_symbol_map_is_available_for_cloud_fault_triage(self):
+        text = DOOM_SYMBOLS.read_text()
+        self.assertIn("# vibe-os-symbol-map-v1", text)
+        self.assertRegex(
+            text,
+            r"(?m)^[0-9A-F]{8}\t[0-9A-F]{8}\tFUNC\tGLOBAL\t\.text\t.*\tD_DoomMain$",
+        )
+        self.assertRegex(
+            text,
+            r"(?m)^[0-9A-F]{8}\t[0-9A-F]{8}\tFUNC\tGLOBAL\t\.text\t.*\tW_CheckNumForName$",
+        )
 
 
 if __name__ == "__main__":

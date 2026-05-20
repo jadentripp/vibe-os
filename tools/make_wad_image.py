@@ -18,6 +18,8 @@ ROOT_ENTRIES = 512
 ROOT_DIR_SECTORS = (ROOT_ENTRIES * 32 + SECTOR_SIZE - 1) // SECTOR_SIZE
 SECTORS_PER_CLUSTER = 1
 SECTORS_PER_FAT = 256
+FAT16_EOC = 0xFFF8
+FAT16_EOC_VALUE = 0xFFFF
 FIXTURE_WAD_SIZE = 1024 * 1024
 MAX_KERNEL_WAD_BYTES = 0x00500000
 DOOM_WAD_CLUSTER = 2
@@ -130,17 +132,23 @@ def allocate_cluster_chain(fat_entries, clusters_needed):
         raise ValueError("file does not fit in the FAT16 data area")
 
     for index, cluster in enumerate(chain):
-        fat_entries[cluster] = 0xFFFF if index == len(chain) - 1 else chain[index + 1]
+        fat_entries[cluster] = FAT16_EOC_VALUE if index == len(chain) - 1 else chain[index + 1]
     return tuple(chain)
 
 
 def free_cluster_chain(fat_entries, first_cluster):
     freed = []
     cluster = first_cluster
-    while 2 <= cluster < 0xFFF8:
+    seen = set()
+    while 2 <= cluster < FAT16_EOC:
         if cluster > last_data_cluster() or cluster >= len(fat_entries):
             raise ValueError("FAT16 chain points outside the data area")
+        if cluster in seen:
+            raise ValueError("FAT16 chain contains a loop")
+        seen.add(cluster)
         next_cluster = fat_entries[cluster]
+        if next_cluster == 0:
+            raise ValueError("FAT16 chain points at a free cluster")
         fat_entries[cluster] = 0
         freed.append(cluster)
         cluster = next_cluster
@@ -219,6 +227,16 @@ class Fat16Image:
         fat_lba = self.partition_lba + self.reserved
         return read_le16(self.image, fat_lba * SECTOR_SIZE + cluster * 2)
 
+    def validate_fat_copies_match(self):
+        first_fat = (self.partition_lba + self.reserved) * SECTOR_SIZE
+        fat_bytes = self.sectors_per_fat * SECTOR_SIZE
+        reference = self.image[first_fat:first_fat + fat_bytes]
+        for fat_index in range(1, self.fat_count):
+            copy_start = first_fat + fat_index * fat_bytes
+            copy = self.image[copy_start:copy_start + fat_bytes]
+            if copy != reference:
+                raise ValueError(f"FAT copy {fat_index} differs from FAT copy 0")
+
     def free_data_clusters(self):
         return sum(1 for cluster in range(2, last_data_cluster() + 1) if self.fat_entry(cluster) == 0)
 
@@ -264,23 +282,43 @@ class Fat16Image:
         if len(chain) != count:
             raise ValueError("file does not fit in the FAT16 data area")
         for index, cluster in enumerate(chain):
-            self.set_fat_entry(cluster, 0xFFFF if index == len(chain) - 1 else chain[index + 1])
+            self.set_fat_entry(cluster, FAT16_EOC_VALUE if index == len(chain) - 1 else chain[index + 1])
         zero_cluster_chain(self.image, self.data_lba, chain)
         return tuple(chain)
 
-    def free_chain(self, first_cluster):
-        freed = []
+    def cluster_offset(self, cluster):
+        if cluster < 2 or cluster > last_data_cluster():
+            raise ValueError("FAT16 cluster index is outside the data area")
+        return sector_offset(self.data_lba + (cluster - 2) * SECTORS_PER_CLUSTER)
+
+    def cluster_chain(self, first_cluster):
+        if first_cluster == 0:
+            return ()
+        if first_cluster < 2:
+            raise ValueError("FAT16 chain starts before the data area")
+        chain = []
+        seen = set()
         cluster = first_cluster
-        while 2 <= cluster < 0xFFF8:
+        while 2 <= cluster < FAT16_EOC:
             if cluster > last_data_cluster():
                 raise ValueError("FAT16 chain points outside the data area")
+            if cluster in seen:
+                raise ValueError("FAT16 chain contains a loop")
+            seen.add(cluster)
+            chain.append(cluster)
             next_cluster = self.fat_entry(cluster)
-            self.set_fat_entry(cluster, 0)
-            freed.append(cluster)
+            if next_cluster == 0:
+                raise ValueError("FAT16 chain points at a free cluster")
             cluster = next_cluster
-            if len(freed) > data_cluster_count():
+            if len(chain) > data_cluster_count():
                 raise ValueError("FAT16 chain did not terminate")
-        return tuple(freed)
+        return tuple(chain)
+
+    def free_chain(self, first_cluster):
+        freed = self.cluster_chain(first_cluster)
+        for cluster in freed:
+            self.set_fat_entry(cluster, 0)
+        return freed
 
     def root_file_metadata(self, name):
         entry = self.root_entry_offset(name)
@@ -301,17 +339,21 @@ class Fat16Image:
             raise FileNotFoundError(name)
         remaining = meta["size"]
         cluster = meta["cluster"]
+        if remaining == 0:
+            if cluster != 0:
+                raise ValueError("zero-size FAT16 root file has a cluster chain")
+            return b""
+        chain = self.cluster_chain(cluster)
+        if len(chain) < clusters_for_size(remaining):
+            raise ValueError("FAT16 chain ended before the root file size")
         data = bytearray()
-        while remaining:
-            if cluster < 2 or cluster >= 0xFFF8 or cluster > last_data_cluster():
-                raise ValueError("FAT16 chain ended before the root file size")
-            lba = self.data_lba + (cluster - 2) * SECTORS_PER_CLUSTER
-            start = sector_offset(lba)
+        for cluster in chain:
             chunk_size = min(remaining, cluster_size())
+            start = self.cluster_offset(cluster)
             data.extend(self.image[start:start + chunk_size])
             remaining -= chunk_size
-            if remaining:
-                cluster = self.fat_entry(cluster)
+            if remaining == 0:
+                break
         return bytes(data)
 
     def write_root_file(self, name, data):

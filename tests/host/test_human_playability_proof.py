@@ -30,6 +30,10 @@ def make_status(**overrides):
         "keyirq": "00000002",
         "keyqueue": "00000002",
         "keypoll": "00000002",
+        "mouse": "OK",
+        "mouseirq": "00000002",
+        "mousepkt": "00000002",
+        "mousepoll": "00000002",
         "doomlog": "ready",
     }
     fields.update(overrides)
@@ -100,9 +104,79 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     keyirq="00000001",
                     keyqueue="00000001",
                     keypoll="00000001",
+                    mouseirq="00000000",
+                    mousepkt="00000000",
+                    mousepoll="00000000",
                 )
             )
-            final.write_text(make_status())
+            fire = tmpdir / "status.after-fire.txt"
+            movement = tmpdir / "status.after-move.txt"
+            use = tmpdir / "status.after-use.txt"
+            mouse = tmpdir / "status.after-mouse.txt"
+            menu = tmpdir / "status.after-menu.txt"
+            fire.write_text(
+                make_status(
+                    gtic="00000020",
+                    leveltime="00000020",
+                    keyirq="00000002",
+                    keyqueue="00000002",
+                    keypoll="00000002",
+                    pflags="00000005",
+                )
+            )
+            movement.write_text(
+                make_status(
+                    gtic="00000030",
+                    leveltime="00000030",
+                    keyirq="00000003",
+                    keyqueue="00000003",
+                    keypoll="00000003",
+                    pflags="00000023",
+                )
+            )
+            use.write_text(
+                make_status(
+                    gtic="00000040",
+                    leveltime="00000040",
+                    keyirq="00000004",
+                    keyqueue="00000004",
+                    keypoll="00000004",
+                    pflags="00000009",
+                )
+            )
+            mouse.write_text(
+                make_status(
+                    gtic="00000050",
+                    leveltime="00000050",
+                    keyirq="00000004",
+                    keyqueue="00000004",
+                    keypoll="00000004",
+                    mouseirq="00000002",
+                    mousepkt="00000002",
+                    mousepoll="00000002",
+                )
+            )
+            menu.write_text(
+                make_status(
+                    gtic="00000060",
+                    leveltime="00000060",
+                    keyirq="00000005",
+                    keyqueue="00000005",
+                    keypoll="00000005",
+                    pflags="00000011",
+                    gflags="00000001",
+                )
+            )
+            final.write_text(
+                make_status(
+                    gtic="00000070",
+                    leveltime="00000070",
+                    keyirq="00000005",
+                    keyqueue="00000005",
+                    keypoll="00000005",
+                    pflags="0000003F",
+                )
+            )
 
             result = subprocess.run(
                 [
@@ -111,13 +185,15 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     "--baseline",
                     str(baseline),
                     "--fire",
-                    str(final),
+                    str(fire),
                     "--movement",
-                    str(final),
+                    str(movement),
                     "--use",
-                    str(final),
+                    str(use),
+                    "--mouse",
+                    str(mouse),
                     "--menu",
-                    str(final),
+                    str(menu),
                     str(final),
                 ],
                 cwd=ROOT,
@@ -127,6 +203,50 @@ class HumanPlayabilityProofTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("human-playability proof OK", result.stdout)
+
+    def test_mouse_phase_requires_mouse_counters_to_reach_doom(self):
+        baseline = make_status(
+            gtic="00000010",
+            leveltime="00000010",
+            mouseirq="00000000",
+            mousepkt="00000000",
+            mousepoll="00000000",
+        )
+        mouse = make_status(
+            gtic="00000020",
+            leveltime="00000020",
+            mouse="OK",
+            mouseirq="00000001",
+            mousepkt="00000001",
+            mousepoll="00000001",
+        )
+        check_human_playability_proof.validate_status(
+            make_status(
+                gtic="00000030",
+                leveltime="00000030",
+                keyirq="00000003",
+                keyqueue="00000003",
+                keypoll="00000003",
+            ),
+            baseline,
+            mouse_status=mouse,
+        )
+
+        for field in ("mouseirq", "mousepkt", "mousepoll"):
+            with self.subTest(field=field):
+                bad_mouse = make_status(**{field: "00000000"})
+                with self.assertRaisesRegex(AssertionError, field):
+                    check_human_playability_proof.validate_status(
+                        make_status(
+                            gtic="00000030",
+                            leveltime="00000030",
+                            keyirq="00000003",
+                            keyqueue="00000003",
+                            keypoll="00000003",
+                        ),
+                        baseline,
+                        mouse_status=bad_mouse,
+                    )
 
     def test_tool_reads_status_only(self):
         source = TOOL.read_text()
@@ -212,11 +332,14 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             "after-fire:hold=ctrl:800",
             "after-move:hold=up:1200",
             "after-use:spc",
+            "after-mouse:mouse=24:-12",
+            "mousebtn=1",
             "after-menu:esc",
             "Assert scripted human-playability gates",
             "build/status.after-fire.txt",
             "build/status.after-move.txt",
             "build/status.after-use.txt",
+            "build/status.after-mouse.txt",
             "build/status.after-menu.txt",
             'rm -f "$WAD_PATH"',
         ):

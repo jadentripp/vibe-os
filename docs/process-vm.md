@@ -30,7 +30,11 @@ read/execute-only pages can be re-marked without it.
 `process_preempt_probe` is a second non-Doom scheduler probe record. It uses
 the same minimal probe VM contract but has its own PID and kernel stack top, so
 host contracts can prove that the round-robin selector has an eligible
-alternate target without depending on Doom internals or real WAD data.
+alternate target without depending on Doom internals or real WAD data. When the
+probe execs Doom, the kernel seeds this process as a live Ring 3 spin task by
+entering the existing user-probe image with `EAX=PREEMPT_PROBE_MAGIC`; the
+crt0 branch increments a word on the user stack so cloud status can prove that
+the alternate task actually received CPU time after a timer switch.
 
 `process_doom` owns:
 
@@ -101,9 +105,10 @@ are adjacent and the Doom heap grows up to the stack bottom.
   interrupt frames: the scheduler can save the interrupted task, pick another
   READY task with a valid saved frame, switch CR3 through `process_activate`,
   load that task's kernel stack into `tss_esp0`, rewrite the live IRQ frame,
-  and resume it with `iretd`. The source-level self-test now uses the same
-  seeded-context helper as exec for the alternate probe, so a process that was
-  launched rather than timer-saved has the same scheduler-visible frame shape.
+  and resume it with `iretd`. The cloud status fields distinguish the source
+  and target PIDs (`pfrom`/`pto`), their restored EIPs (`peip`), timer IRQs that
+  arrived from Ring 3 (`puser`), quantum rounds (`pround`), total context
+  activations (`pctx`), and live spin progress (`pspin`).
 - Page-table structures are fixed low-memory page-table pages, not dynamically
   allocated or reclaimed with process lifetime.
 - Exact execute-disable enforcement is still blocked by the current 32-bit x86

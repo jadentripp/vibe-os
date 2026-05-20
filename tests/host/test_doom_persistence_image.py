@@ -2,6 +2,7 @@ import importlib.util
 import subprocess
 import sys
 import tempfile
+import struct
 import unittest
 from pathlib import Path
 
@@ -90,6 +91,85 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertIn("DOOMSAV0.DSG bytes=", summary[1])
         self.assertIn("changed-from-baseline", summary[1])
         self.assertIn("REBOOT PROOF", summary[1])
+
+    def test_checker_rejects_protected_wad_or_elf_mutation_from_baseline(self):
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        image = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(image)
+        wad_meta = fs.root_file_metadata(make_wad_image.PROTECTED_ROOT_NAMES[0])
+        image[fs.cluster_offset(wad_meta["cluster"])] ^= 0x01
+        fs.write_root_file(
+            make_wad_image.WRITABLE_DEFAULT_NAME,
+            b"use_mouse\t\t1\nscreenblocks\t\t9\n",
+        )
+
+        baseline_path = self.write_temp_image(baseline)
+        image_path = self.write_temp_image(image)
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "protected entry DOOM1"):
+            check_persistence.validate_image(
+                image_path,
+                baseline_image=baseline_path,
+                require_default=True,
+            )
+
+    def test_checker_rejects_divergent_fat_copies(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        second_fat = (fs.partition_lba + fs.reserved + fs.sectors_per_fat) * make_wad_image.SECTOR_SIZE
+        struct.pack_into("<H", image, second_fat + 2 * 2, fs.fat_entry(2) ^ 0x0001)
+        path = self.write_temp_image(image)
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "FAT copy 1 differs"):
+            check_persistence.validate_image(path)
+
+    def test_fat_image_detects_corrupt_dynamic_chains(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        name = b"RUNTIME TXT"
+
+        chain = fs.write_root_file(name, b"A" * 700)
+        fs.set_fat_entry(chain[-1], chain[0])
+        with self.assertRaisesRegex(ValueError, "contains a loop"):
+            fs.read_root_file(name)
+
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        chain = fs.write_root_file(name, b"B" * 700)
+        fs.set_fat_entry(chain[0], 0)
+        with self.assertRaisesRegex(ValueError, "free cluster"):
+            fs.read_root_file(name)
+
+    def test_delete_reuses_root_slot_and_restores_free_cluster_budget(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        name = b"RUNTIME TXT"
+        before_free = fs.free_data_clusters()
+
+        chain = fs.write_root_file(name, b"A" * 700)
+        self.assertEqual(fs.free_data_clusters(), before_free - len(chain))
+
+        freed = fs.delete_root_file(name)
+        self.assertEqual(freed, chain)
+        self.assertIsNone(fs.root_file_metadata(name))
+        self.assertEqual(fs.free_data_clusters(), before_free)
+
+        new_chain = fs.write_root_file(name, b"new runtime bytes")
+        self.assertEqual(fs.read_root_file(name), b"new runtime bytes")
+        self.assertEqual(fs.free_data_clusters(), before_free - len(new_chain))
+
+    def test_host_image_mutator_refuses_writes_to_protected_entries(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+
+        for name in make_wad_image.PROTECTED_ROOT_NAMES:
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(ValueError, "protected WAD/ELF"):
+                    fs.write_root_file(name, b"mutated")
+                with self.assertRaisesRegex(ValueError, "protected WAD/ELF"):
+                    fs.truncate_root_file(name)
+                with self.assertRaisesRegex(ValueError, "protected WAD/ELF"):
+                    fs.delete_root_file(name)
 
     def test_checker_rejects_baseline_comparison_without_requested_entries(self):
         image = bytearray((BUILD / "disk.img").read_bytes())

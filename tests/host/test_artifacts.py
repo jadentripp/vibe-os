@@ -522,6 +522,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('SMOKE_INPUT_SCRIPT="after-fire:hold=ctrl:800', real_wad_workflow)
         self.assertIn("after-move:hold=up:1200", real_wad_workflow)
         self.assertIn("after-use:spc", real_wad_workflow)
+        self.assertIn("after-mouse:mouse=24:-12", real_wad_workflow)
+        self.assertIn("mousebtn=1", real_wad_workflow)
         self.assertIn("after-menu:esc", real_wad_workflow)
         self.assertIn("if: always()", real_wad_workflow)
         self.assertIn("Assert real-WAD proof gates", real_wad_workflow)
@@ -531,6 +533,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("--fire build/status.after-fire.txt", real_wad_workflow)
         self.assertIn("--movement build/status.after-move.txt", real_wad_workflow)
         self.assertIn("--use build/status.after-use.txt", real_wad_workflow)
+        self.assertIn("--mouse build/status.after-mouse.txt", real_wad_workflow)
         self.assertIn("--menu build/status.after-menu.txt", real_wad_workflow)
         self.assertIn("build/status.txt", real_wad_workflow)
         self.assertIn("python3 tools/check_human_playability_proof.py", real_wad_workflow)
@@ -552,6 +555,7 @@ class SourceContractTests(unittest.TestCase):
 
     def test_real_wad_visual_proof_is_status_only(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        user_crt0 = (ROOT / "user" / "crt0.asm").read_text()
         makefile = (ROOT / "Makefile").read_text()
         checker = (ROOT / "tools" / "check_real_wad_proof.py").read_text()
         workflow = (ROOT / ".github" / "workflows" / "real-wad-smoke.yml").read_text()
@@ -714,8 +718,9 @@ class SourceContractTests(unittest.TestCase):
         core = (
             "exec=OK path=DOOM.ELF doom=OK doomrun=RUN doomopen=OK doomread=OK "
             "gfx=OK pself=OK pg=ON pmm=OK vmm=OK libc=OK c=OK usr=OK wad=OK lmp=OK heap=OK "
-            "fb=LFB audio=NONE mouse=NONE doommode=00000000:00000000 "
-            "target=00000001 argv0=00000001 execsys=00000001/00000001/00000000/00000001/00000001/00000000 "
+            "fb=LFB audio=NONE mouse=OK doommode=00000000:00000000 "
+            "target=00000001 entry=00000001 stack=00000002 argc=00000001 argv=00000003 argv0=00000004 "
+            "execerr=00000000 execres=00000000 execsys=00000001/00000001/00000000/00000001/00000001/00000000 "
             "doomwrite=00000000 doomseek=00000001 doomclose=00000000 doomsbrk=00000001 doomerr=00000000 "
             "doomexit=00000000 doomfault=00000000 doomfaultip=00000000 doomfaultv=00000000 doomfaulterr=00000000 "
             "fault=00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000 "
@@ -723,8 +728,10 @@ class SourceContractTests(unittest.TestCase):
             "doomsound=00000000 sfxmix=00000000 voices=00000000 audioirq=00000000 ack8=00000000 ack16=00000000 "
             "refill=00000000 half=00000000 mixwrap=00000000 mixover=00000000 mixunder=00000000 mixclip=00000000 "
             "steal=00000000 pitchclamp=00000000 panclamp=00000000 musicvoices=00000000 musicmix=00000000 musicloop=00000000 "
-            "mouseirq=00000000 mousepkt=00000000 mousepoll=00000000 "
-            "preempt=00000001 pattempt=00000001 pskip=00000000 free=00700000 ticks=00000001"
+            "mouseirq=00000001 mousepkt=00000001 mousepoll=00000001 "
+            "preempt=00000001 pattempt=00000001 pskip=00000000 puser=00000004 pround=00000001 "
+            "pctx=00000004 pfrom=00000002 pto=00000003 peip=01000000:00E80000 "
+            "pspin=50524546 free=00700000 ticks=00000001"
         )
         playable = "gstate=00000000 gtic=00000001 gflags=00000001 gaction=00000000 pflags=0000003F pbuttons=00000000 ppos=00010000:00020000 pdelta=00000100 keyirq=00000001 keyqueue=00000001 keypoll=00000001"
         valid = f"Aurora OS v0.2 {core} gameplay=OK gmap=00000101 leveltime=00000001 doompresent=00000002 {visual} {playable} doomlog=ready"
@@ -732,14 +739,46 @@ class SourceContractTests(unittest.TestCase):
             "leveltime=00000001", "leveltime=00000000"
         ).replace("keyirq=00000001", "keyirq=00000000").replace(
             "keyqueue=00000001", "keyqueue=00000000"
-        ).replace("keypoll=00000001", "keypoll=00000000")
+        ).replace("keypoll=00000001", "keypoll=00000000").replace(
+            "mouseirq=00000001", "mouseirq=00000000"
+        ).replace("mousepkt=00000001", "mousepkt=00000000").replace(
+            "mousepoll=00000001", "mousepoll=00000000"
+        )
+        fire = valid.replace("pflags=0000003F", "pflags=00000005")
+        movement = valid.replace("gtic=00000001", "gtic=00000002").replace(
+            "leveltime=00000001", "leveltime=00000002"
+        ).replace("keyirq=00000001", "keyirq=00000002").replace(
+            "keyqueue=00000001", "keyqueue=00000002"
+        ).replace("keypoll=00000001", "keypoll=00000002").replace(
+            "pflags=0000003F", "pflags=00000023"
+        )
+        use = valid.replace("gtic=00000001", "gtic=00000003").replace(
+            "leveltime=00000001", "leveltime=00000003"
+        ).replace("keyirq=00000001", "keyirq=00000003").replace(
+            "keyqueue=00000001", "keyqueue=00000003"
+        ).replace("keypoll=00000001", "keypoll=00000003").replace(
+            "pflags=0000003F", "pflags=00000009"
+        )
+        mouse = valid.replace("gtic=00000001", "gtic=00000004").replace(
+            "leveltime=00000001", "leveltime=00000004"
+        ).replace("keyirq=00000001", "keyirq=00000003").replace(
+            "keyqueue=00000001", "keyqueue=00000003"
+        ).replace("keypoll=00000001", "keypoll=00000003")
+        menu = valid.replace("gtic=00000001", "gtic=00000005").replace(
+            "leveltime=00000001", "leveltime=00000005"
+        ).replace("keyirq=00000001", "keyirq=00000004").replace(
+            "keyqueue=00000001", "keyqueue=00000004"
+        ).replace("keypoll=00000001", "keypoll=00000004").replace(
+            "pflags=0000003F", "pflags=00000011"
+        )
         check_real_wad_proof.validate_status(
             valid,
             baseline_status=baseline,
-            fire_status=valid,
-            movement_status=valid,
-            use_status=valid,
-            menu_status=valid,
+            fire_status=fire,
+            movement_status=movement,
+            use_status=use,
+            mouse_status=mouse,
+            menu_status=menu,
         )
 
         invalid_cases = (
@@ -758,6 +797,12 @@ class SourceContractTests(unittest.TestCase):
                 "execsys=00000001/00000001/00000000/00000001/00000001/00000000",
                 "execsys=00000001/00000000/00000000/00000000/00000000/00000000",
             ),
+            valid.replace("execerr=00000000", "execerr=FFFFFFFE"),
+            valid.replace("execres=00000000", "execres=FFFFFFFE"),
+            valid.replace("entry=00000001", "entry=00000000"),
+            valid.replace("stack=00000002", "stack=00000000"),
+            valid.replace("argc=00000001", "argc=00000000"),
+            valid.replace("argv=00000003", "argv=00000000"),
             valid.replace("doomerr=00000000", "doomerr=00000001"),
             valid.replace("doomexit=00000000", "doomexit=00000001"),
             valid.replace("doomfault=00000000", "doomfault=00BADF00"),
@@ -769,6 +814,12 @@ class SourceContractTests(unittest.TestCase):
                 "fault=0000000E/00000004/0102F190/0000001B/0100FFE0/00000023/018F0000/00000002/00000002/00000001/00000003",
             ),
             valid.replace("pself=OK", "pself=FAIL"),
+            valid.replace("preempt=00000001", "preempt=00000000"),
+            valid.replace("puser=00000004", "puser=00000000"),
+            valid.replace("pfrom=00000002", "pfrom=FFFFFFFF"),
+            valid.replace("pto=00000003", "pto=FFFFFFFF"),
+            valid.replace("peip=01000000:00E80000", "peip=00000000:00E80000"),
+            valid.replace("pspin=50524546", "pspin=50524545"),
             valid.replace("audio=NONE", "audio=EMU"),
         )
         for status in invalid_cases:
@@ -895,6 +946,12 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("and eax, O_ACCMODE", writer)
         self.assertIn("test dword [fd_flags + esi * 4], O_APPEND", writer)
         self.assertIn("fd_offsets", writer)
+        allocator = kernel.split("fat_alloc_cluster:", 1)[1].split("fat_free_chain:", 1)[0]
+        self.assertIn(".rollback_alloc:", allocator)
+        free_chain = kernel.split("fat_free_chain:", 1)[1].split("fat_create_root_file:", 1)[0]
+        self.assertIn("cmp ax, 0", free_chain)
+        fat_write_locator = kernel.split("fat_file_lba_for_write:", 1)[1].split("fat_update_writable_size:", 1)[0]
+        self.assertIn(".linked_new_cluster:", fat_write_locator)
         reader = kernel.split(".read:", 1)[1].split(".lseek:", 1)[0]
         self.assertIn("call fd_lookup", reader)
         self.assertIn("cmp byte [fd_kinds + eax], FD_KIND_WAD", reader)
@@ -1072,6 +1129,12 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("call process_restore_irq_context", scheduler)
         self.assertIn("inc dword [scheduler_preempt_switches]", scheduler)
         self.assertIn("inc dword [scheduler_preempt_skips]", scheduler)
+        self.assertIn("inc dword [scheduler_user_irq_ticks]", scheduler)
+        self.assertIn("mov [scheduler_last_preempt_from_pid], eax", scheduler)
+        self.assertIn("mov [scheduler_last_preempt_to_pid], eax", scheduler)
+        self.assertIn("mov [scheduler_last_preempt_from_eip], eax", scheduler)
+        self.assertIn("mov [scheduler_last_preempt_to_eip], eax", scheduler)
+        self.assertIn("mov [scheduler_preempt_spin_value], eax", scheduler)
         for field in ("PROC_SAVED_EAX", "PROC_SAVED_EIP", "PROC_SAVED_EFLAGS", "PROC_SAVED_CS", "PROC_SAVED_ESP", "PROC_SAVED_SS"):
             self.assertIn(field, save_irq)
             self.assertIn(field, restore_irq)
@@ -1085,11 +1148,23 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("scheduler_preempt_selftest_frame times 13 dd 0", kernel)
         self.assertIn("scheduler_preempt_selftest_status db 0", kernel)
         self.assertIn("call scheduler_preempt_self_test", kernel)
+        self.assertIn("PREEMPT_PROBE_MAGIC equ 0x50524545", user_crt0)
+        self.assertIn("cmp eax, PREEMPT_PROBE_MAGIC", user_crt0)
+        self.assertIn("je preempt_spin", user_crt0)
+        self.assertIn("inc dword [esp - 4]", user_crt0)
         self.assertIn("call process_restore_irq_context", selftest)
         self.assertIn("cmp dword [scheduler_next_process_ptr], process_user_probe", selftest)
         self.assertIn("cmp dword [scheduler_next_process_ptr], process_preempt_probe", selftest)
         self.assertIn("cmp dword [scheduler_next_pid], 3", selftest)
+        self.assertIn("scheduler_prepare_live_preempt_probe:", kernel)
+        preempt_prepare = kernel.split("scheduler_prepare_live_preempt_probe:", 1)[1].split("scheduler_tick:", 1)[0]
+        self.assertIn("mov dword [esi + PROC_SAVED_EAX], PREEMPT_PROBE_MAGIC", preempt_prepare)
+        self.assertIn("mov dword [USER_STACK_TOP - 4], PREEMPT_PROBE_MAGIC", preempt_prepare)
+        self.assertIn("call scheduler_prepare_live_preempt_probe", kernel)
         self.assertIn('smoke_preempt_text db " preempt="', kernel)
+        self.assertIn('smoke_puser_text db " puser="', kernel)
+        self.assertIn('smoke_peip_text db " peip="', kernel)
+        self.assertIn('smoke_pspin_text db " pspin="', kernel)
         self.assertIn('smoke_pself_text db " pself="', kernel)
 
     def test_doom_port_uses_kernel_time_syscall(self):

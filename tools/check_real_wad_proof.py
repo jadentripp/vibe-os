@@ -19,6 +19,7 @@ DEFAULT_REJECT_PATTERNS = (
     r"w_cachelumpnum",
     r"r_inittextures",
 )
+PREEMPT_PROBE_MAGIC = 0x50524545
 
 EXACT_FIELDS = {
     "exec": "OK",
@@ -47,7 +48,13 @@ EXACT_FIELDS = {
 
 HEX_FIELDS = (
     "target",
+    "entry",
+    "stack",
+    "argc",
+    "argv",
     "argv0",
+    "execerr",
+    "execres",
     "doomwrite",
     "doomseek",
     "doomclose",
@@ -97,17 +104,29 @@ HEX_FIELDS = (
     "preempt",
     "pattempt",
     "pskip",
+    "puser",
+    "pround",
+    "pctx",
+    "pfrom",
+    "pto",
+    "pspin",
     "free",
     "ticks",
 )
 
 FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
-REQUIRED_SNAPSHOT_LABELS = ("baseline", "fire", "movement", "use", "menu")
+REQUIRED_SNAPSHOT_LABELS = ("baseline", "fire", "movement", "use", "mouse", "menu")
 SUMMARY_FIELDS = (
     "exec",
     "path",
     "execsys",
+    "execerr",
+    "execres",
     "target",
+    "entry",
+    "stack",
+    "argc",
+    "argv",
     "argv0",
     "doom",
     "doomrun",
@@ -145,6 +164,16 @@ SUMMARY_FIELDS = (
     "heap",
     "free",
     "ticks",
+    "preempt",
+    "pattempt",
+    "pskip",
+    "puser",
+    "pround",
+    "pctx",
+    "pfrom",
+    "pto",
+    "peip",
+    "pspin",
 )
 
 
@@ -257,7 +286,16 @@ def _validate_core_status(status: str) -> None:
     if failures != 0 or rollbacks != 0:
         raise AssertionError("execsys= must not report failures or rollbacks in real-WAD proof")
 
+    if _hex_field(status, "execerr") != 0:
+        raise AssertionError("execerr= must be zero after successful real-WAD exec")
+    if _hex_field(status, "execres") != 0:
+        raise AssertionError("execres= must be zero after successful real-WAD exec")
     _hex_field_gt(status, "target", 0)
+    _hex_field_gt(status, "entry", 0)
+    _hex_field_gt(status, "stack", 0)
+    if _hex_field(status, "argc") != 1:
+        raise AssertionError("argc= must prove a single argv[0] exec stack")
+    _hex_field_gt(status, "argv", 0)
     _hex_field_gt(status, "argv0", 0)
     _hex_field_gt(status, "doomseek", 0)
     _hex_field_gt(status, "doomsbrk", 0)
@@ -272,7 +310,25 @@ def _validate_core_status(status: str) -> None:
         raise AssertionError("fault= must be all zero for the real-WAD gameplay proof")
     _hex_field_gt(status, "free", 0)
     _hex_field_gt(status, "ticks", 0)
+    _hex_field_gt(status, "preempt", 0)
     _hex_field_gt(status, "pattempt", 0)
+    _hex_field_gt(status, "puser", 0)
+    _hex_field_gt(status, "pround", 0)
+    _hex_field_gt(status, "pctx", 0)
+    pfrom = _hex_field(status, "pfrom")
+    pto = _hex_field(status, "pto")
+    if pfrom in (0, 0xFFFFFFFF):
+        raise AssertionError(f"pfrom= must record a live source PID, got {pfrom:#x}")
+    if pto in (0, 0xFFFFFFFF):
+        raise AssertionError(f"pto= must record a live target PID, got {pto:#x}")
+    if pfrom == pto:
+        raise AssertionError("pfrom= and pto= must prove a switch between different processes")
+    from_eip, to_eip = _hex_tuple_field(status, "peip", 2, separator=":")
+    if from_eip == 0 or to_eip == 0:
+        raise AssertionError("peip= must record nonzero source and target EIPs")
+    spin = _hex_field(status, "pspin")
+    if spin in (0, PREEMPT_PROBE_MAGIC):
+        raise AssertionError("pspin= must prove the Ring 3 preempt probe executed after seeding")
 
 
 def validate_status(
@@ -281,6 +337,7 @@ def validate_status(
     movement_status: str | None = None,
     fire_status: str | None = None,
     use_status: str | None = None,
+    mouse_status: str | None = None,
     menu_status: str | None = None,
     reject_patterns: tuple[str, ...] = DEFAULT_REJECT_PATTERNS,
     require_snapshots: bool = True,
@@ -290,6 +347,7 @@ def validate_status(
         "fire": fire_status,
         "movement": movement_status,
         "use": use_status,
+        "mouse": mouse_status,
         "menu": menu_status,
     }
     if require_snapshots:
@@ -316,6 +374,7 @@ def validate_status(
         movement_status=movement_status,
         fire_status=fire_status,
         use_status=use_status,
+        mouse_status=mouse_status,
         menu_status=menu_status,
         reject_patterns=reject_patterns,
     )
@@ -346,6 +405,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--movement", type=Path, help="Decoded status after scripted movement")
     parser.add_argument("--fire", type=Path, help="Decoded status after scripted fire")
     parser.add_argument("--use", type=Path, help="Decoded status after scripted use")
+    parser.add_argument("--mouse", type=Path, help="Decoded status after scripted mouse input")
     parser.add_argument("--menu", type=Path, help="Decoded status after scripted menu toggle")
     parser.add_argument(
         "--no-auto-snapshots",
@@ -361,18 +421,21 @@ def main(argv: list[str]) -> int:
         fire = args.fire
         movement = args.movement
         use = args.use
+        mouse = args.mouse
         menu = args.menu
         if not args.no_auto_snapshots:
             baseline = baseline or _auto_snapshot(args.status, "early")
             fire = fire or _auto_snapshot(args.status, "after-fire")
             movement = movement or _auto_snapshot(args.status, "after-move")
             use = use or _auto_snapshot(args.status, "after-use")
+            mouse = mouse or _auto_snapshot(args.status, "after-mouse")
             menu = menu or _auto_snapshot(args.status, "after-menu")
         snapshots = {
             "baseline": _resolve_snapshot(args.baseline, baseline),
             "fire": _resolve_snapshot(args.fire, fire),
             "movement": _resolve_snapshot(args.movement, movement),
             "use": _resolve_snapshot(args.use, use),
+            "mouse": _resolve_snapshot(args.mouse, mouse),
             "menu": _resolve_snapshot(args.menu, menu),
         }
         validate_status(
@@ -381,6 +444,7 @@ def main(argv: list[str]) -> int:
             fire_status=snapshots["fire"],
             movement_status=snapshots["movement"],
             use_status=snapshots["use"],
+            mouse_status=snapshots["mouse"],
             menu_status=snapshots["menu"],
         )
     except (OSError, AssertionError) as exc:

@@ -39,6 +39,9 @@ Current kernel contract:
   root entry deleted (`0xe5`), clears the in-kernel writable slot, and
   invalidates open descriptors for that file. Later `O_CREAT` can reuse the
   deleted root slot.
+- Supported chain hardening: FAT frees reject chains that point outside the data
+  area or into a free cluster, and allocation/link failures try to roll back the
+  just-allocated cluster instead of silently leaking it.
 - Supported creation: missing known root entries are created on storage init and
   can be recreated with `O_CREAT` after deletion.
 - Supported metadata: `stat` and `fstat` report regular-file mode, one link, and
@@ -62,7 +65,9 @@ defaults text in `DEFAULT.CFG`, and `--require-save-slot N` to require a
 `version ...` marker. For real proof, copy the fresh remote `disk.img` before
 boot and pass it back with `--baseline-image`; requested entries must differ
 from the baseline image, so preseeded host bytes do not count as Doom
-persistence.
+persistence. With a baseline image present, the checker also verifies both FAT
+copies agree and protected `DOOM1.WAD`, `USERPROB.ELF`, and `DOOM.ELF` entries
+have unchanged metadata and bytes.
 
 This is enough for Doom defaults and save slots without turning the kernel into
 a general-purpose FAT filesystem.

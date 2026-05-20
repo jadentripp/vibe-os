@@ -81,10 +81,14 @@ Expected keyboard controls:
 
 Expected mouse behavior:
 
-- If `mouse=OK` appears in status, PS/2 relative movement and the first three
-  buttons flow through `SYS_POLL_MOUSE` into Doom `ev_mouse` events.
-- VNC mouse grab/release and host pointer acceleration are not normalized yet,
-  so keyboard is the primary playability path.
+- `mouse=OK` means the PS/2 auxiliary device initialized. The automated
+  real-WAD workflow now injects `mouse_move` plus a left-button click and
+  captures `status.after-mouse.txt`; the checker requires `mouseirq`,
+  `mousepkt`, and `mousepoll` to increase, proving the event reached Doom
+  through `SYS_POLL_MOUSE`.
+- In a manual VNC session, relative movement and the first three buttons should
+  turn/aim/fire through normal Doom `ev_mouse` events. VNC grab/release and
+  host pointer acceleration are still worth noting in the playtest notes.
 
 Expected audio behavior:
 
@@ -118,10 +122,11 @@ workflow instead of this manual VNC path. It captures:
 - `status.after-fire.txt`
 - `status.after-move.txt`
 - `status.after-use.txt`
+- `status.after-mouse.txt`
 - `status.after-menu.txt`
 - `status.txt`
 - `smoke.log`, `qemu.log`, `monitor.log`, and `serial.log`
-- `kernel.elf`, `user_probe.elf`, and `doom.elf`
+- `kernel.elf`, `user_probe.elf`, `doom.elf`, and `doom.symbols`
 
 It deliberately does not upload `disk.img`, `gfx.bin`, `vga*.txt`, WAD files, or
 rendered Doom pixels.
@@ -132,11 +137,14 @@ renamed WAD/disk/image payload signatures, so do not add extra binaries to the
 diagnostic directory:
 
 ```sh
+python3 tools/triage_cloud_status.py path/to/real-wad-smoke-status/status.txt
+
 python3 tools/check_real_wad_proof.py \
   --baseline path/to/real-wad-smoke-status/status.early.txt \
   --fire path/to/real-wad-smoke-status/status.after-fire.txt \
   --movement path/to/real-wad-smoke-status/status.after-move.txt \
   --use path/to/real-wad-smoke-status/status.after-use.txt \
+  --mouse path/to/real-wad-smoke-status/status.after-mouse.txt \
   --menu path/to/real-wad-smoke-status/status.after-menu.txt \
   path/to/real-wad-smoke-status/status.txt
 
@@ -145,6 +153,7 @@ python3 tools/check_human_playability_proof.py \
   --fire path/to/real-wad-smoke-status/status.after-fire.txt \
   --movement path/to/real-wad-smoke-status/status.after-move.txt \
   --use path/to/real-wad-smoke-status/status.after-use.txt \
+  --mouse path/to/real-wad-smoke-status/status.after-mouse.txt \
   --menu path/to/real-wad-smoke-status/status.after-menu.txt \
   path/to/real-wad-smoke-status/status.txt
 
@@ -159,6 +168,10 @@ python3 tools/check_audio_continuity_proof.py \
 python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
 ```
 
+`triage_cloud_status.py` auto-loads `doom.symbols` from the artifact directory,
+so a `doom-user-fault` report should include the nearest Doom function for
+`doomfaultip` plus page-fault/WAD I/O context.
+
 ## Manual Review Checklist
 
 Call a remote human playtest credible only after checking all of this:
@@ -169,7 +182,8 @@ Call a remote human playtest credible only after checking all of this:
 - Arrow keys, Ctrl, Space, Enter, and Escape visibly affect Doom.
 - `status.manual.txt` or the GitHub artifact reports `gameplay=OK`,
   `gmap=00000101`, increasing `gtic`/`leveltime`, nonzero `keyirq`,
-  `keyqueue`, and `keypoll`, and nonzero playability flags.
+  `keyqueue`, and `keypoll`, nonzero `mouseirq`/`mousepkt`/`mousepoll` when
+  mouse is expected, and nonzero playability flags.
 - Save/config writes are attempted from Doom and then checked after a rebooted
   remote image before claiming persistence beyond the current host tests. The
   GitHub **Real WAD smoke** workflow has an opt-in `persistence_proof` input
@@ -209,8 +223,8 @@ Call a remote human playtest credible only after checking all of this:
 
 - Display scaling is fixed nearest-neighbor 2x with a Mode 13h fallback; there
   is no aspect-correct fullscreen policy yet.
-- Mouse input has a real PS/2 path, but no cloud mouse-injection proof and no
-  VNC pointer tuning policy.
+- Mouse input has a real PS/2 path and a cloud mouse-injection proof; VNC
+  pointer tuning policy is still unpolished.
 - Save/config persistence has host and filesystem coverage plus an opt-in cloud
   workflow path, but still needs a current passing real-WAD reboot proof after
   Doom changes settings or saves a game.

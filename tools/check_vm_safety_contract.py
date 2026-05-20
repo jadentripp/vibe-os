@@ -89,7 +89,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         _require(workflow, "ALLOW_LOCAL_VM=1", label)
         _require(workflow, "if: always()", label)
         upload = _upload_block(workflow)
-        for needle in ("build/status*.txt", "build/status*.bin", "build/*.log"):
+        for needle in ("build/status*.txt", "build/status*.bin", "build/*.log", "build/doom.symbols"):
             _require(upload, needle, label)
         for forbidden in ("build/disk.img", "build/gfx.bin", "DOOM1.WAD", "*.WAD", "*.wad"):
             if forbidden in upload:
@@ -99,6 +99,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "SMOKE_SKIP_ASSERTIONS=1",
         "Assert real-WAD proof gates",
         "Assert scripted human-playability gates",
+        "Triage cloud status",
+        "tools/triage_cloud_status.py build/status.txt",
         "Show smoke diagnostics",
         'rm -f "$WAD_PATH"',
     ):

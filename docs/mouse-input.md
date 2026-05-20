@@ -26,6 +26,10 @@ left/middle/right, so the port remaps those bits before posting the event. Raw
 signed deltas are scaled by 4 to match the coarser feel of the original Linux
 mouse path.
 
-It does not yet provide host-side smoke injection for mouse movement, cursor
-grabbing policy, wheel packets, or acceleration tuning beyond Doom's own
-`mouse_sensitivity`.
+The cloud smoke runner accepts `mouse=DX:DY` and `mousebtn=MASK` actions in
+`SMOKE_INPUT_SCRIPT`. The real-WAD workflow uses those actions to capture
+`status.after-mouse.txt`, and the proof checker requires `mouseirq`, `mousepkt`,
+and `mousepoll` to increase from the early status snapshot.
+
+It does not yet provide cursor grabbing policy, wheel packets, or acceleration
+tuning beyond Doom's own `mouse_sensitivity`.

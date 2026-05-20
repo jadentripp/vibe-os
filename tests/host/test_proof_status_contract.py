@@ -26,7 +26,13 @@ def status_line(**overrides):
         "exec": "OK",
         "path": "DOOM.ELF",
         "execsys": "00000001/00000001/00000000/00000001/00000001/00000000",
+        "execerr": "00000000",
+        "execres": "00000000",
         "target": "00000003",
+        "entry": "01000000",
+        "stack": "0100EFE0",
+        "argc": "00000001",
+        "argv": "0100EFE4",
         "argv0": "0100F000",
         "doom": "OK",
         "doomrun": "RUN",
@@ -83,18 +89,25 @@ def status_line(**overrides):
         "musicmix": "00000000",
         "musicloop": "00000000",
         "audio": "NONE",
-        "keyirq": "00000004",
-        "keyqueue": "00000004",
-        "keypoll": "00000004",
-        "mouse": "NONE",
-        "mouseirq": "00000000",
-        "mousepkt": "00000000",
-        "mousepoll": "00000000",
+        "keyirq": "00000005",
+        "keyqueue": "00000005",
+        "keypoll": "00000005",
+        "mouse": "OK",
+        "mouseirq": "00000002",
+        "mousepkt": "00000002",
+        "mousepoll": "00000002",
         "gfx": "OK",
         "fb": "M13",
-        "preempt": "00000000",
+        "preempt": "00000008",
         "pattempt": "00000010",
         "pskip": "00000010",
+        "puser": "00000080",
+        "pround": "00000018",
+        "pctx": "00000020",
+        "pfrom": "00000002",
+        "pto": "00000003",
+        "peip": "01002000:00E80000",
+        "pspin": "50524590",
         "pself": "OK",
         "pg": "ON",
         "pmm": "OK",
@@ -121,8 +134,70 @@ def baseline_status():
         keyirq="00000001",
         keyqueue="00000001",
         keypoll="00000001",
+        mouseirq="00000000",
+        mousepkt="00000000",
+        mousepoll="00000000",
         pflags="00000001",
         pdelta="00000001",
+        gflags="00000001",
+    )
+
+
+def fire_status():
+    return status_line(
+        gtic="00000020",
+        leveltime="00000020",
+        keyirq="00000002",
+        keyqueue="00000002",
+        keypoll="00000002",
+        pflags="00000005",
+    )
+
+
+def movement_status():
+    return status_line(
+        gtic="00000030",
+        leveltime="00000030",
+        keyirq="00000003",
+        keyqueue="00000003",
+        keypoll="00000003",
+        pflags="00000023",
+    )
+
+
+def use_status():
+    return status_line(
+        gtic="00000040",
+        leveltime="00000040",
+        keyirq="00000004",
+        keyqueue="00000004",
+        keypoll="00000004",
+        pflags="00000009",
+    )
+
+
+def mouse_status():
+    return status_line(
+        gtic="00000050",
+        leveltime="00000050",
+        keyirq="00000004",
+        keyqueue="00000004",
+        keypoll="00000004",
+        mouse="OK",
+        mouseirq="00000002",
+        mousepkt="00000002",
+        mousepoll="00000002",
+    )
+
+
+def menu_status():
+    return status_line(
+        gtic="00000060",
+        leveltime="00000060",
+        keyirq="00000005",
+        keyqueue="00000005",
+        keypoll="00000005",
+        pflags="00000011",
         gflags="00000001",
     )
 
@@ -131,10 +206,11 @@ def validate_real_wad_status(status):
     check_real_wad_proof.validate_status(
         status,
         baseline_status=baseline_status(),
-        fire_status=status_line(pflags="00000005"),
-        movement_status=status_line(pflags="00000023"),
-        use_status=status_line(pflags="00000009"),
-        menu_status=status_line(pflags="00000011", gflags="00000001"),
+        fire_status=fire_status(),
+        movement_status=movement_status(),
+        use_status=use_status(),
+        mouse_status=mouse_status(),
+        menu_status=menu_status(),
     )
 
 
@@ -146,6 +222,9 @@ class ProofStatusContractTests(unittest.TestCase):
             keyirq="00000001",
             keyqueue="00000001",
             keypoll="00000001",
+            mouseirq="00000000",
+            mousepkt="00000000",
+            mousepoll="00000000",
             pflags="00000001",
             pdelta="00000001",
             gflags="00000001",
@@ -153,21 +232,37 @@ class ProofStatusContractTests(unittest.TestCase):
         check_real_wad_proof.validate_status(
             status_line(),
             baseline_status=baseline,
-            fire_status=status_line(pflags="00000005"),
-            movement_status=status_line(pflags="00000023"),
-            use_status=status_line(pflags="00000009"),
-            menu_status=status_line(pflags="00000011", gflags="00000001"),
+            fire_status=fire_status(),
+            movement_status=movement_status(),
+            use_status=use_status(),
+            mouse_status=mouse_status(),
+            menu_status=menu_status(),
         )
 
     def test_real_wad_checker_rejects_weak_system_or_fake_debug_status(self):
         invalid = (
             status_line(execsys="00000001/00000000/00000000/00000000/00000000/00000000"),
+            status_line(execerr="FFFFFFFE"),
+            status_line(execres="FFFFFFFE"),
+            status_line(entry="00000000"),
+            status_line(stack="00000000"),
+            status_line(argc="00000000"),
+            status_line(argv="00000000"),
             status_line(doomrun="WAIT"),
             status_line(doomerr="00000001"),
             status_line(vmm="FAIL"),
             status_line(pself="FAIL"),
             status_line(audio="EMU"),
+            status_line(preempt="00000000"),
             status_line(pattempt="00000000"),
+            status_line(puser="00000000"),
+            status_line(pround="00000000"),
+            status_line(pctx="00000000"),
+            status_line(pfrom="FFFFFFFF"),
+            status_line(pto="FFFFFFFF"),
+            status_line(pto="00000002"),
+            status_line(peip="00000000:00E80000"),
+            status_line(pspin="50524545"),
             status_line(doomfaultip="0102F190"),
             status_line(doomfaultv="0000000D"),
             status_line(doomfaulterr="00000004"),
@@ -197,20 +292,13 @@ class ProofStatusContractTests(unittest.TestCase):
             final = tmpdir / "status.txt"
             final.write_text(status_line())
             (tmpdir / "status.early.txt").write_text(
-                status_line(
-                    gtic="00000010",
-                    leveltime="00000010",
-                    keyirq="00000001",
-                    keyqueue="00000001",
-                    keypoll="00000001",
-                )
+                baseline_status()
             )
-            (tmpdir / "status.after-fire.txt").write_text(status_line(pflags="00000005"))
-            (tmpdir / "status.after-move.txt").write_text(status_line(pflags="00000023"))
-            (tmpdir / "status.after-use.txt").write_text(status_line(pflags="00000009"))
-            (tmpdir / "status.after-menu.txt").write_text(
-                status_line(pflags="00000011", gflags="00000001")
-            )
+            (tmpdir / "status.after-fire.txt").write_text(fire_status())
+            (tmpdir / "status.after-move.txt").write_text(movement_status())
+            (tmpdir / "status.after-use.txt").write_text(use_status())
+            (tmpdir / "status.after-mouse.txt").write_text(mouse_status())
+            (tmpdir / "status.after-menu.txt").write_text(menu_status())
 
             result = subprocess.run(
                 [sys.executable, str(TOOLS / "check_real_wad_proof.py"), str(final)],
@@ -258,12 +346,11 @@ class ProofStatusContractTests(unittest.TestCase):
                 )
             )
             (tmpdir / "status.early.txt").write_text(baseline_status())
-            (tmpdir / "status.after-fire.txt").write_text(status_line(pflags="00000005"))
-            (tmpdir / "status.after-move.txt").write_text(status_line(pflags="00000023"))
-            (tmpdir / "status.after-use.txt").write_text(status_line(pflags="00000009"))
-            (tmpdir / "status.after-menu.txt").write_text(
-                status_line(pflags="00000011", gflags="00000001")
-            )
+            (tmpdir / "status.after-fire.txt").write_text(fire_status())
+            (tmpdir / "status.after-move.txt").write_text(movement_status())
+            (tmpdir / "status.after-use.txt").write_text(use_status())
+            (tmpdir / "status.after-mouse.txt").write_text(mouse_status())
+            (tmpdir / "status.after-menu.txt").write_text(menu_status())
 
             result = subprocess.run(
                 [sys.executable, str(TOOLS / "check_real_wad_proof.py"), str(final)],
@@ -297,6 +384,7 @@ class ProofStatusContractTests(unittest.TestCase):
         self.assertIn("--fire build/status.after-fire.txt", workflow)
         self.assertIn("--movement build/status.after-move.txt", workflow)
         self.assertIn("--use build/status.after-use.txt", workflow)
+        self.assertIn("--mouse build/status.after-mouse.txt", workflow)
         self.assertIn("--menu build/status.after-menu.txt", workflow)
         upload_block = workflow.split("Upload non-copyright diagnostic artifacts", 1)[1]
         for forbidden in ("build/disk.img", "build/gfx.bin", "build/vga*.txt", "DOOM1.WAD"):

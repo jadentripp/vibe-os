@@ -23,6 +23,10 @@ to the caller.
 
 - The syscall validates and copies a bounded user path into
   `sys_exec_path_buffer`.
+- The current ABI intentionally accepts only `path` with null `argv` and zero
+  flags. Nonzero user argv pointers or flags return `-EINVAL` until argv-copying
+  semantics are implemented, which keeps unsupported launch shapes from being
+  silently ignored.
 - It asks `process_exec_path` for a table-backed target while
   `process_exec_reject_active_target` is set. This prevents reloading the image
   backing the currently running process, because a partial reload could not be
@@ -57,7 +61,12 @@ instead of only proving that bytes were loaded.
 
 Smoke status still includes `exec=OK path=...`, and `execsys=` now reports:
 
-`attempts/successes/failures/handoffs/scheduled/rollbacks target=<pid> argv0=<ptr>`
+`attempts/successes/failures/handoffs/scheduled/rollbacks`
+
+The same status line also records `execerr=<errno>`, `execres=<syscall result>`,
+`target=<pid>`, `entry=<eip>`, `stack=<esp>`, `argc=<n>`, `argv=<ptr>`, and
+`argv0=<ptr>`. A successful Doom launch should have zero `execerr`/`execres`,
+one argument, nonzero argv pointers, and nonzero target entry/stack addresses.
 
 Failures before frame patch leave the active process current and increment the
 rollback counter. Unsafe active-slot exec returns `-EACCES`; invalid pointers

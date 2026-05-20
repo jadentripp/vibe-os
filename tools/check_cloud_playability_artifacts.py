@@ -28,6 +28,7 @@ REQUIRED_STATUS_FILES = (
     "status.after-fire.txt",
     "status.after-move.txt",
     "status.after-use.txt",
+    "status.after-mouse.txt",
     "status.after-menu.txt",
     "status.txt",
 )
@@ -36,6 +37,10 @@ REQUIRED_DIAGNOSTIC_FILES = (
     "kernel.elf",
     "user_probe.elf",
     "doom.elf",
+)
+
+REQUIRED_SYMBOL_FILES = (
+    "doom.symbols",
 )
 
 FORBIDDEN_ARTIFACT_PATTERNS = (
@@ -113,9 +118,12 @@ def validate_repo_contract() -> None:
         "tools/check_real_wad_proof.py",
         "tools/check_human_playability_proof.py",
         "tools/check_audio_continuity_proof.py",
+        "tools/triage_cloud_status.py",
+        "doom.symbols",
         "status.after-fire.txt",
         "status.after-move.txt",
         "status.after-use.txt",
+        "status.after-mouse.txt",
         "status.after-menu.txt",
         "Arrow keys",
         "Ctrl: fire",
@@ -165,9 +173,12 @@ def validate_repo_contract() -> None:
         "--fire build/status.after-fire.txt",
         "--movement build/status.after-move.txt",
         "--use build/status.after-use.txt",
+        "--mouse build/status.after-mouse.txt",
         "--menu build/status.after-menu.txt",
         "python3 tools/check_human_playability_proof.py",
         "python3 tools/check_audio_continuity_proof.py",
+        "Triage cloud status",
+        "python3 tools/triage_cloud_status.py build/status.txt",
         'rm -f "$WAD_PATH"',
         "build/status*.bin",
         "build/status*.txt",
@@ -176,6 +187,7 @@ def validate_repo_contract() -> None:
         "build/kernel.elf",
         "build/user_probe.elf",
         "build/doom.elf",
+        "build/doom.symbols",
     ):
         _require(workflow, needle, "real-WAD workflow")
     _assert_no_forbidden_uploads(workflow)
@@ -238,7 +250,8 @@ def validate_artifact_dir(artifact_dir: Path) -> None:
     _assert_no_forbidden_contents(artifact_dir, names)
 
     missing = [
-        required for required in REQUIRED_STATUS_FILES + REQUIRED_DIAGNOSTIC_FILES
+        required
+        for required in REQUIRED_STATUS_FILES + REQUIRED_DIAGNOSTIC_FILES + REQUIRED_SYMBOL_FILES
         if _find_one(names, required) is None
     ]
     if missing:
@@ -253,6 +266,7 @@ def validate_artifact_dir(artifact_dir: Path) -> None:
             fire_status=(artifact_dir / _find_one(names, "status.after-fire.txt")).read_text(),
             movement_status=(artifact_dir / _find_one(names, "status.after-move.txt")).read_text(),
             use_status=(artifact_dir / _find_one(names, "status.after-use.txt")).read_text(),
+            mouse_status=(artifact_dir / _find_one(names, "status.after-mouse.txt")).read_text(),
             menu_status=(artifact_dir / _find_one(names, "status.after-menu.txt")).read_text(),
         )
     except AssertionError as exc:

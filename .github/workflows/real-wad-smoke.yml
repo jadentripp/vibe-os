@@ -131,7 +131,7 @@ jobs:
             SMOKE_EARLY_SECONDS=2 \
             SMOKE_SETTLE_SECONDS=20 \
             SMOKE_SKIP_ASSERTIONS=1 \
-            SMOKE_INPUT_SCRIPT="after-fire:hold=ctrl:800,wait=2,snapshot after-move:hold=up:1200,wait=3,snapshot after-use:spc,wait=2,snapshot after-menu:esc,wait=2,snapshot" \
+            SMOKE_INPUT_SCRIPT="after-fire:hold=ctrl:800,wait=2,snapshot after-move:hold=up:1200,wait=3,snapshot after-use:spc,wait=2,snapshot after-mouse:mouse=24:-12,mousebtn=1,wait=1,mousebtn=0,wait=2,snapshot after-menu:esc,wait=2,snapshot" \
             smoke
 
       - name: Assert real-WAD proof gates
@@ -142,6 +142,7 @@ jobs:
             --fire build/status.after-fire.txt \
             --movement build/status.after-move.txt \
             --use build/status.after-use.txt \
+            --mouse build/status.after-mouse.txt \
             --menu build/status.after-menu.txt \
             build/status.txt
 
@@ -153,6 +154,7 @@ jobs:
             --fire build/status.after-fire.txt \
             --movement build/status.after-move.txt \
             --use build/status.after-use.txt \
+            --mouse build/status.after-mouse.txt \
             --menu build/status.after-menu.txt \
             build/status.txt
 
@@ -166,6 +168,15 @@ jobs:
             --use build/status.after-use.txt \
             --menu build/status.after-menu.txt \
             build/status.txt
+
+      - name: Triage cloud status
+        if: always()
+        run: |
+          if [ -f build/status.txt ]; then
+            python3 tools/triage_cloud_status.py build/status.txt
+          else
+            echo "No final status.txt available for triage."
+          fi
 
       - name: Show smoke diagnostics
         if: always()
@@ -252,6 +263,7 @@ jobs:
             build/kernel.elf
             build/user_probe.elf
             build/doom.elf
+            build/doom.symbols
             build/status*.bin
             build/status*.txt
             build/*.log

@@ -19,7 +19,13 @@ def status_line(**overrides):
         "exec": "OK",
         "path": "DOOM.ELF",
         "execsys": "00000001/00000001/00000000/00000001/00000001/00000000",
+        "execerr": "00000000",
+        "execres": "00000000",
         "target": "00000003",
+        "entry": "01000000",
+        "stack": "0100EFE0",
+        "argc": "00000001",
+        "argv": "0100EFE4",
         "argv0": "0100F000",
         "doom": "OK",
         "doomrun": "RUN",
@@ -57,10 +63,32 @@ def status_line(**overrides):
         "heap": "OK",
         "free": "00780000",
         "ticks": "00000300",
+        "preempt": "00000008",
+        "pattempt": "00000010",
+        "puser": "00000080",
+        "pround": "00000018",
+        "pctx": "00000020",
+        "pfrom": "00000002",
+        "pto": "00000003",
+        "peip": "01002000:00E80000",
+        "pspin": "50524590",
+        "pself": "OK",
     }
     fields.update(overrides)
     return "Aurora OS v0.2 " + " ".join(
         f"{name}={value}" for name, value in fields.items()
+    )
+
+
+def symbol_map_text():
+    return "\n".join(
+        (
+            "# vibe-os-symbol-map-v1",
+            "# address\tsize\ttype\tbind\tsection\tobject\tsymbol",
+            "0102F100\t00000200\tFUNC\tGLOBAL\t.text\tbuild/doom/d_main.o\tD_DoomMain",
+            "01040000\t00000080\tFUNC\tLOCAL\t.text\tbuild/doom/w_wad.o\tW_CheckNumForName",
+            "",
+        )
     )
 
 
@@ -78,6 +106,7 @@ class CloudStatusTriageTests(unittest.TestCase):
             "missing-wad-open-read",
             "frames-no-gameplay",
             "input-no-effect",
+            "preemption-not-proven",
             "artifact-proof-failure",
             "kernel-panic",
             "os-shutdown-requested",
@@ -95,6 +124,10 @@ class CloudStatusTriageTests(unittest.TestCase):
         primary, notes = self.classify(
             execsys="00000000/00000000/00000000/00000000/00000000/00000000",
             target="FFFFFFFF",
+            entry="00000000",
+            stack="00000000",
+            argc="00000000",
+            argv="00000000",
             argv0="00000000",
             doomrun="WAIT",
         )
@@ -105,12 +138,19 @@ class CloudStatusTriageTests(unittest.TestCase):
     def test_classifies_failed_exec_handoff(self):
         primary, notes = self.classify(
             execsys="00000001/00000000/00000001/00000000/00000000/00000000",
+            execerr="FFFFFFFE",
+            execres="FFFFFFFE",
             target="FFFFFFFF",
+            entry="00000000",
+            stack="00000000",
+            argc="00000000",
+            argv="00000000",
             argv0="00000000",
         )
 
         self.assertEqual(primary, "exec-failed")
         self.assertIn("failures=0x1", notes[0])
+        self.assertIn("execerr=FFFFFFFE", notes[0])
 
     def test_classifies_doom_fault_before_wad_io(self):
         primary, notes = self.classify(
@@ -128,6 +168,57 @@ class CloudStatusTriageTests(unittest.TestCase):
         rendered = "\n".join(notes)
         self.assertIn("doomfaultip(EIP)=0102F190", rendered)
         self.assertIn("missing-wad-open-read", rendered)
+
+    def test_symbol_map_resolves_fault_ip_to_doom_function(self):
+        symbols = triage_cloud_status.SymbolMap.parse(symbol_map_text())
+        hit = symbols.lookup(0x0102F190)
+
+        self.assertIsNotNone(hit)
+        self.assertEqual(hit.symbol.name, "D_DoomMain")
+        self.assertEqual(hit.offset, 0x90)
+        self.assertTrue(hit.inside_declared_size)
+
+    def test_render_diagnosis_adds_doom_fault_symbol_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            status_path = tmpdir / "status.txt"
+            status_path.write_text(
+                status_line(
+                    doomrun="FAULT",
+                    doomfault="018F0000",
+                    doomfaultip="0102F190",
+                    doomfaultv="0000000E",
+                    doomfaulterr="00000004",
+                )
+            )
+            (tmpdir / "doom.symbols").write_text(symbol_map_text())
+
+            rendered = triage_cloud_status.render_diagnosis(
+                status_path.read_text(),
+                status_path=status_path,
+            )
+
+        self.assertIn("primary: doom-user-fault", rendered)
+        self.assertIn("fault-decode: vector=0E (page-fault)", rendered)
+        self.assertIn("not-present page", rendered)
+        self.assertIn("symbol: 0102F190 -> D_DoomMain+0x90", rendered)
+
+    def test_render_diagnosis_adds_wad_io_context(self):
+        rendered = triage_cloud_status.render_diagnosis(
+            status_line(
+                doomopen="FAIL",
+                doomread="FAIL",
+                doomseek="00000000",
+                doomclose="00000000",
+                doomerr="00000002",
+                doommode="00000001:00000000",
+                doomlog="W_GetNumForName",
+            )
+        )
+
+        self.assertIn("primary: missing-wad-open-read", rendered)
+        self.assertIn("wad-io: doomopen=FAIL doomread=FAIL", rendered)
+        self.assertIn("wad-hint: disk image and WAD fixture were visible", rendered)
 
     def test_classifies_kernel_panic_before_other_lanes(self):
         primary, notes = self.classify(
@@ -168,6 +259,14 @@ class CloudStatusTriageTests(unittest.TestCase):
         self.assertEqual(primary, "input-no-effect")
         self.assertIn("keyirq=00000002", notes[0])
 
+    def test_classifies_missing_live_preemption_after_gameplay_is_green(self):
+        primary, notes = self.classify(preempt="00000000", pspin="50524545")
+
+        self.assertEqual(primary, "preemption-not-proven")
+        rendered = "\n".join(notes)
+        self.assertIn("preempt=00000000", rendered)
+        self.assertIn("pspin=50524545", rendered)
+
     def test_classifies_green_status_as_needing_full_proof_gates(self):
         primary, notes = self.classify()
 
@@ -186,6 +285,7 @@ class CloudStatusTriageTests(unittest.TestCase):
                     doomfaulterr="00000004",
                 )
             )
+            (Path(tmp) / "doom.symbols").write_text(symbol_map_text())
             result = subprocess.run(
                 [sys.executable, str(TOOLS / "triage_cloud_status.py"), str(status_path)],
                 cwd=ROOT,
@@ -196,6 +296,7 @@ class CloudStatusTriageTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("primary: doom-user-fault", result.stdout)
         self.assertIn("summary:", result.stdout)
+        self.assertIn("symbol: 0102F190 -> D_DoomMain+0x90", result.stdout)
         self.assertIn("next: Symbolize doomfaultip", result.stdout)
 
 

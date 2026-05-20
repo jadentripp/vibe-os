@@ -42,6 +42,7 @@ jobs:
             build/kernel.elf
             build/user_probe.elf
             build/doom.elf
+            build/doom.symbols
             build/status*.bin
             build/status*.txt
             build/*.log

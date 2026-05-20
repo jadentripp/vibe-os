@@ -196,20 +196,21 @@ the expected shareware v1.9 size (`4196020` bytes) and SHA-1
 through the QEMU monitor. The QEMU step captures status snapshots first; the
 separate proof steps then require Doom framebuffer presentation and kernel
 status counters showing Doom autostarted E1M1, advanced level time in
-`GS_LEVEL`, accepted fire/use/move/menu input, and changed player/menu state.
+`GS_LEVEL`, accepted fire/use/move/mouse/menu input, and changed player/menu
+state.
 That split keeps failed cloud boots diagnosable from text artifacts instead of
 skipping the proof tools. The workflow uploads only non-WAD diagnostics
-(`status*.txt`, `status*.bin`, logs, and ELF files). It deliberately does not
-upload `disk.img`, `gfx.bin`, `vga*.txt`, or WAD paths, since those may contain
-Doom game data or rendered pixels.
+(`status*.txt`, `status*.bin`, logs, ELF files, and `doom.symbols` for fault
+triage). It deliberately does not upload `disk.img`, `gfx.bin`, `vga*.txt`, or
+WAD paths, since those may contain Doom game data or rendered pixels.
 
 For the stronger cloud-safe playable proof, see
 `docs/playable-cloud-proof.md`. The real-WAD workflow now uses a deterministic
-fire/move/use/menu input script and validates non-pixel status fields for
-keyboard delivery, player movement, action commands, menu activation, and
-visual activity summaries. Its checker also requires coherent process/exec,
-storage, VM, audio, mouse, scheduler, and Doom file I/O telemetry so a green run
-is diagnosable from text artifacts alone.
+fire/move/use/mouse/menu input script and validates non-pixel status fields for
+keyboard delivery, PS/2 mouse delivery, player movement, action commands, menu
+activation, and visual activity summaries. Its checker also requires coherent
+process/exec, storage, VM, audio, mouse, scheduler, and Doom file I/O telemetry
+so a green run is diagnosable from text artifacts alone.
 
 For a human actually trying the image, use
 `docs/runbooks/remote-doom-playtest.md`. It keeps QEMU on a disposable remote
@@ -304,8 +305,6 @@ Still required before this is actually Doom-capable:
   including status capture after keyboard-driven menu and gameplay actions
 - higher-half kernel mapping or another non-identity kernel layout, plus
   dynamically allocated page tables and non-identity user frame backing
-- a second fully launched long-lived user task to exercise the timer
-  preemption path continuously under Doom
 - broader VM/POSIX coverage: arbitrary-path `exec`, richer `mmap`, fuller file
   semantics, descriptor duplication, and more device/ioctl contracts
 - current passing save/config persistence proof after a real-WAD reboot using

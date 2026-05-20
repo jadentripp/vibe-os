@@ -42,8 +42,8 @@ boot:
   public Archive.org gzipped shareware WAD. The runner validates the extracted
   `DOOM1.WAD` SHA-1 and size before building with `DOOM_WAD`, then requires
   `gameplay=OK`, `gmap=00000101` (E1M1), `leveltime>0`, `doompresent>0`,
-  nontrivial visual status hashes/counters, scripted fire/use/move/menu input
-  status, a key event, and no known Doom startup error strings in the decoded
+  nontrivial visual status hashes/counters, scripted fire/use/move/mouse/menu
+  input status, a key event, and no known Doom startup error strings in the decoded
   status artifact.
   QEMU is bounded by a smoke-level timeout and writes status, monitor, smoke,
   QEMU, and serial logs while keeping WADs, disk images, framebuffer dumps, and
@@ -51,16 +51,18 @@ boot:
 - `tools/check_real_wad_proof.py` is the source-level truth-serum gate for that
   real-WAD status proof. It now validates the wider debug contract too:
   VM/kernel health, syscall exec counters, FAT/WAD file access, Doom runtime
-  counters, audio/mouse telemetry fields, scheduler self-proof, and non-pixel
-  visual summaries. It requires the early/fire/move/use/menu status snapshots
-  as well as the final status, so a single good-looking final line cannot stand
-  in for scripted input proof. Host tests assert that the GitHub workflow and
+  counters, audio/mouse telemetry fields, live scheduler-preemption proof, and
+  non-pixel visual summaries. It requires the early/fire/move/use/mouse/menu status
+  snapshots as well as the final status, so a single good-looking final line
+  cannot stand in for scripted input proof. Host tests assert that the GitHub workflow and
   smoke target invoke it, so a future green CI claim must include those status
   counters rather than framebuffer bytes.
 - `tools/check_human_playability_proof.py` compares decoded status snapshots
   from the deterministic input phases. It requires keyboard counters to
-  increase, Doom to remain in E1M1 gameplay, player movement/action/menu flags
-  to be set, and `pdelta>0` without reading WAD or framebuffer artifacts.
+  increase across each keyboard phase, mouse IRQ/packet/poll counters to
+  advance during the mouse phase, Doom to remain in E1M1 gameplay, player
+  movement/action/menu flags to be set, and `pdelta>0` without reading WAD or
+  framebuffer artifacts.
 - `tools/check_audio_continuity_proof.py` is the remote-safe SB16 audio gate. It
   compares the same decoded status snapshots, requires `audio=SB16`, and proves
   IRQ/refill, SFX, and looped music-carrier counters progressed without storing
@@ -83,6 +85,10 @@ boot:
   downloaded real-WAD status artifacts without requiring a WAD or local QEMU.
   It rejects forbidden filenames, duplicate required basenames, unexpected ELF
   binaries, and renamed WAD/disk/image payload signatures.
+- `tools/triage_cloud_status.py` classifies a downloaded real-WAD status line
+  into the first repair lane. The custom linker also writes `build/doom.symbols`
+  so cloud artifacts can symbolize `doomfaultip` and decode page-fault/WAD I/O
+  context without uploading Doom data or framebuffer pixels.
 - `tools/check_vm_safety_contract.py` validates the safety rail: local QEMU
   targets must remain behind `ALLOW_LOCAL_VM=1`, host tests stay QEMU-free,
   cloud workflows upload only status/log diagnostics for proof lanes, and kernel

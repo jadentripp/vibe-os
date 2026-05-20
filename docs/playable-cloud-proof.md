@@ -3,8 +3,9 @@
 The playable-Doom milestone is proved in cloud CI without uploading WADs, disk
 images, framebuffer dumps, or rendered WAD pixels. The proof is status-driven:
 the OS boots the validated shareware `DOOM1.WAD`, Doom autostarts E1M1, QEMU
-injects deterministic keyboard input through the same PS/2 path a human would
-use, and the kernel exports compact counters and state deltas from Doom.
+injects deterministic keyboard and mouse input through the same PS/2 paths a
+human would use, and the kernel exports compact counters and state deltas from
+Doom.
 
 ## Deterministic Script
 
@@ -15,13 +16,16 @@ time to settle:
 after-fire:hold=ctrl:800,wait=2,snapshot
 after-move:hold=up:1200,wait=3,snapshot
 after-use:spc,wait=2,snapshot
+after-mouse:mouse=24:-12,mousebtn=1,wait=1,mousebtn=0,wait=2,snapshot
 after-menu:esc,wait=2,snapshot
 ```
 
-Each phase uses QEMU monitor `sendkey`, waits for Doom to process ticks, and
-captures a decoded status artifact. The final status is captured after the menu
-phase. `tests/run_smoke_qemu.sh` still supports the older `SMOKE_SENDKEYS`
-fallback, but `SMOKE_INPUT_SCRIPT` is the deterministic playability path.
+Keyboard phases use QEMU monitor `sendkey`; the mouse phase uses
+`mouse_move`/`mouse_button` against the PS/2 auxiliary path. Each phase waits
+for Doom to process ticks and captures a decoded status artifact. The final
+status is captured after the menu phase. `tests/run_smoke_qemu.sh` still
+supports the older `SMOKE_SENDKEYS` fallback, but `SMOKE_INPUT_SCRIPT` is the
+deterministic playability path.
 
 ## Non-Pixel Evidence
 
@@ -32,9 +36,10 @@ The cloud proof requires these status families:
   memory managers, C runtime probes, heap, and PIT timer are alive in the smoke
   VM.
 - Process/exec: `exec=OK`, `path=DOOM.ELF`, `execsys=a/b/c/d/e/f`,
-  `target`, `argv0`, `doom=OK`, and `doomrun=RUN` show that the kernel loaded
-  the Doom ELF, performed a syscall-driven exec handoff, seeded argv, and left
-  Doom running rather than merely validating bytes on disk. The six `execsys`
+  `execerr=00000000`, `execres=00000000`, `target`, `entry`, `stack`, `argc`,
+  `argv`, `argv0`, `doom=OK`, and `doomrun=RUN` show that the kernel loaded the
+  Doom ELF, performed a syscall-driven exec handoff, seeded argv, and left Doom
+  running rather than merely validating bytes on disk. The six `execsys`
   counters are attempts, successes, failures, handoffs, scheduled targets, and
   rollbacks.
 - Storage/libc: `wad=OK`, `lmp=OK`, `doomopen=OK`, `doomread=OK`,
@@ -53,8 +58,9 @@ The cloud proof requires these status families:
 - Runtime: `gameplay=OK`, `gstate=00000000`, `gmap=00000101`, `gtic>0`, and
   `leveltime>0` prove the real engine reached E1M1 gameplay.
 - Input pipeline: `keyirq`, `keyqueue`, and `keypoll` increase from the early
-  snapshot to the final snapshot, proving IRQ1 input entered the kernel queue
-  and Doom consumed it through `SYS_POLL_KEY`.
+  snapshot through the fire, movement, use, and menu snapshots, proving IRQ1
+  input entered the kernel queue and Doom consumed each keyboard phase through
+  `SYS_POLL_KEY`.
 - Player/action deltas: `pflags` records cumulative player, movement, attack,
   use, menu, and position-delta observations; `pdelta>0` proves the player
   moved in Doom state, not only that a key was delivered.
@@ -67,21 +73,27 @@ The cloud proof requires these status families:
   `musicvoices`, `musicmix`, `musicloop`, `audioirq`, `ack8`, `ack16`,
   `refill`, mixer safety counters, `mouse`,
   `mouseirq`, `mousepkt`, and `mousepoll` are required to be present and
-  well-formed even when hardware is absent (`audio=NONE`, `mouse=NONE`).
+  well-formed. The automated mouse phase requires `mouse=OK` and proves IRQ12,
+  packet decode, and Doom `SYS_POLL_MOUSE` consumption increased without
+  uploading pixels.
   `tools/check_audio_continuity_proof.py` is the stricter SB16 path: it compares
   the phase snapshots using status snapshots only, requires `audio=SB16`, and
   proves IRQ/refill, SFX, and looped music-carrier counters progressed without
   uploading audio samples. It does not upload audio samples.
   `tools/check_audio_continuity_proof.py` checks status snapshots only and
   does not upload audio samples.
-- Scheduler proof: `preempt`, `pattempt`, `pskip`, and `pself=OK` expose the
-  timer preemption selector and its self-test status in every cloud artifact.
+- Scheduler proof: `preempt`, `pattempt`, `pskip`, `puser`, `pround`, `pctx`,
+  `pfrom`, `pto`, `peip`, `pspin`, and `pself=OK` expose live PIT preemption.
+  A valid proof requires Ring 3 timer IRQs, a switch between different PIDs,
+  nonzero source/target EIPs, and a `pspin` value beyond the seeded
+  `50524545` magic from the alternate Ring 3 preempt probe.
 
 `tools/check_real_wad_proof.py` gates the real-WAD status on both the non-pixel
 visual proof and the scripted playability proof, plus the system/process/storage
 debug contract above. A final status line by itself is not sufficient: the gate
-requires the early, fire, movement, use, and menu snapshots so keyboard counters
-and Doom action flags can be compared across the scripted phases. It rejects
+requires the early, fire, movement, use, mouse, and menu snapshots so keyboard
+and mouse counters plus Doom action flags can be compared across the scripted
+phases. It rejects
 duplicate fields, malformed hex, weak synthetic exec counters, Doom error
 strings, failed self-tests, and status lines that only prove a boot banner.
 `tools/check_human_playability_proof.py` can also compare the phase snapshots
@@ -97,9 +109,12 @@ directly.
    The workflow rebuilds with `DOOM_WAD=/tmp/DOOM1.WAD` and deletes that local
    WAD after the post-smoke validation.
 3. Review `status.early.txt`, `status.after-fire.txt`, `status.after-move.txt`,
-   `status.after-use.txt`, `status.after-menu.txt`, and `status.txt` in the
+   `status.after-use.txt`, `status.after-mouse.txt`, `status.after-menu.txt`,
+   and `status.txt` in the
    uploaded diagnostic artifact. These are text status files, not framebuffer
-   or WAD artifacts.
+   or WAD artifacts. The same artifact should include `doom.symbols` so
+   `tools/triage_cloud_status.py` can symbolize `doomfaultip` if Doom reaches
+   user mode and faults.
    The real-WAD checker consumes them like this:
 
    ```sh
@@ -108,6 +123,7 @@ directly.
      --fire build/status.after-fire.txt \
      --movement build/status.after-move.txt \
      --use build/status.after-use.txt \
+     --mouse build/status.after-mouse.txt \
      --menu build/status.after-menu.txt \
      build/status.txt
 

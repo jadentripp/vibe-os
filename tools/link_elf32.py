@@ -22,6 +22,20 @@ PF_X = 0x1
 PF_W = 0x2
 PF_R = 0x4
 
+SYMBOL_BINDINGS = {
+    0: "LOCAL",
+    1: "GLOBAL",
+    2: "WEAK",
+}
+
+SYMBOL_TYPES = {
+    0: "NOTYPE",
+    1: "OBJECT",
+    2: "FUNC",
+    3: "SECTION",
+    4: "FILE",
+}
+
 
 def align_up(value, alignment):
     if alignment <= 1:
@@ -274,6 +288,49 @@ def apply_relocations(objects, memory, globals_by_name):
                     raise ValueError(f"{obj.path}: unsupported relocation type {rel_type}")
 
 
+def symbol_bind_name(sym):
+    return SYMBOL_BINDINGS.get(sym.info >> 4, f"BIND{sym.info >> 4}")
+
+
+def symbol_type_name(sym):
+    return SYMBOL_TYPES.get(sym.info & 0x0F, f"TYPE{sym.info & 0x0F}")
+
+
+def build_symbol_map(objects):
+    rows = []
+    for obj in objects:
+        for sym in obj.symbols:
+            if not sym.name or not sym.defined:
+                continue
+            if sym.shndx >= len(obj.sections):
+                continue
+            section = obj.sections[sym.shndx]
+            if not section.alloc:
+                continue
+            rows.append(
+                (
+                    sym.address(),
+                    sym.size,
+                    symbol_type_name(sym),
+                    symbol_bind_name(sym),
+                    section.name,
+                    obj.path,
+                    sym.name,
+                )
+            )
+    rows.sort(key=lambda row: (row[0], row[6], row[5]))
+    lines = [
+        "# vibe-os-symbol-map-v1",
+        "# address\tsize\ttype\tbind\tsection\tobject\tsymbol",
+    ]
+    for address, size, sym_type, bind, section, obj_path, name in rows:
+        lines.append(
+            f"{address:08X}\t{size:08X}\t{sym_type}\t{bind}\t"
+            f"{section}\t{obj_path}\t{name}"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def build_executable(objects, base):
     ordered, segments, mem_size = layout_sections(objects, base)
     memory = bytearray(mem_size)
@@ -341,21 +398,54 @@ def build_executable(objects, base):
             start = segment["mem_off"]
             end = start + segment["filesz"]
             elf[segment["offset"]:segment["offset"] + segment["filesz"]] = memory[start:end]
-    return bytes(elf)
+    return bytes(elf), build_symbol_map(objects)
+
+
+def parse_args(argv):
+    output = None
+    base = None
+    map_path = None
+    inputs = []
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "-o":
+            index += 1
+            if index >= len(argv):
+                raise SystemExit("link_elf32.py: -o requires an output path")
+            output = argv[index]
+        elif arg == "--base":
+            index += 1
+            if index >= len(argv):
+                raise SystemExit("link_elf32.py: --base requires an address")
+            base = int(argv[index], 0)
+        elif arg == "--map":
+            index += 1
+            if index >= len(argv):
+                raise SystemExit("link_elf32.py: --map requires an output path")
+            map_path = argv[index]
+        elif arg.startswith("-"):
+            raise SystemExit(f"link_elf32.py: unknown option {arg}")
+        else:
+            inputs.append(arg)
+        index += 1
+
+    if output is None or base is None or not inputs:
+        raise SystemExit("usage: link_elf32.py -o OUTPUT --base 0xADDR [--map MAP] INPUT.o...")
+    return output, base, map_path, inputs
 
 
 def main():
-    if len(sys.argv) < 5 or sys.argv[1] != "-o" or sys.argv[3] != "--base":
-        raise SystemExit("usage: link_elf32.py -o OUTPUT --base 0xADDR INPUT.o...")
+    output, base, map_path, input_paths = parse_args(sys.argv[1:])
 
-    output = sys.argv[2]
-    base = int(sys.argv[4], 0)
-    objects = [ObjectFile(path) for path in sys.argv[5:]]
-    if not objects:
-        raise SystemExit("link_elf32.py: no input objects")
+    objects = [ObjectFile(path) for path in input_paths]
+    elf, symbol_map = build_executable(objects, base)
 
     with open(output, "wb") as f:
-        f.write(build_executable(objects, base))
+        f.write(elf)
+    if map_path is not None:
+        with open(map_path, "w", encoding="ascii") as f:
+            f.write(symbol_map)
 
 
 if __name__ == "__main__":

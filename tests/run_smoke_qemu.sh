@@ -188,6 +188,24 @@ validate_seconds() {
   esac
 }
 
+validate_signed_integer() {
+  local value="$1"
+  local label="$2"
+
+  if ! printf '%s\n' "$value" | grep -Eq '^-?[0-9]+$'; then
+    fail_smoke "$label must be a signed integer, got '$value'."
+  fi
+}
+
+validate_mouse_buttons() {
+  local value="$1"
+
+  validate_seconds "$value" "mouse button mask"
+  if [ "$value" -gt 7 ]; then
+    fail_smoke "mouse button mask must be between 0 and 7, got '$value'."
+  fi
+}
+
 validate_phase_label() {
   local label="$1"
 
@@ -216,6 +234,30 @@ send_key_action() {
   fi
   send_monitor "$label" "$command\n" || fail_smoke "failed to send key action '$label' to QEMU monitor"
   sleep_checked 1 "$label delivery"
+}
+
+send_mouse_move_action() {
+  local move="$1"
+  local dx
+  local dy
+  local extra
+
+  IFS=':' read -r dx dy extra <<< "$move"
+  if [ -z "$dx" ] || [ -z "$dy" ] || [ -n "$extra" ]; then
+    fail_smoke "mouse move action must be mouse=DX:DY, got '$move'."
+  fi
+  validate_signed_integer "$dx" "mouse X delta"
+  validate_signed_integer "$dy" "mouse Y delta"
+  send_monitor "mouse_move $dx $dy" "mouse_move $dx $dy\n" || fail_smoke "failed to send mouse move '$move' to QEMU monitor"
+  sleep_checked 1 "mouse move delivery"
+}
+
+send_mouse_button_action() {
+  local buttons="$1"
+
+  validate_mouse_buttons "$buttons"
+  send_monitor "mouse_button $buttons" "mouse_button $buttons\n" || fail_smoke "failed to send mouse button mask '$buttons' to QEMU monitor"
+  sleep_checked 1 "mouse button delivery"
 }
 
 run_input_script() {
@@ -255,6 +297,12 @@ run_input_script() {
           key="${key_hold%%:*}"
           hold_ms="${key_hold#*:}"
           send_key_action "$key" "$hold_ms"
+          ;;
+        mouse=*|mousemove=*)
+          send_mouse_move_action "${action#*=}"
+          ;;
+        mousebtn=*|mousebutton=*)
+          send_mouse_button_action "${action#*=}"
           ;;
         "")
           fail_smoke "input script phase $label contains an empty action."

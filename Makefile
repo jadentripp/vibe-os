@@ -45,6 +45,7 @@ DOOM_SRC_DIR := third_party/doom/linuxdoom-1.10
 DOOM_PORT_INCLUDE_DIR := doom_port/include
 DOOM_PORT_BUILD_DIR := $(BUILD_DIR)/doom
 DOOM_ELF := $(BUILD_DIR)/doom.elf
+DOOM_SYMBOLS := $(BUILD_DIR)/doom.symbols
 DOOM_BASE := 0x01000000
 DOOM_ORIGINAL_SRCS := $(filter-out $(DOOM_SRC_DIR)/i_%.c,$(wildcard $(DOOM_SRC_DIR)/*.c))
 DOOM_ORIGINAL_OBJS := $(DOOM_ORIGINAL_SRCS:$(DOOM_SRC_DIR)/%.c=$(DOOM_PORT_BUILD_DIR)/%.o)
@@ -123,7 +124,7 @@ $(DOOM_PORT_BUILD_DIR)/port_%.o: doom_port/%.c | $(DOOM_PORT_BUILD_DIR)
 	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) -c $< -o $@
 
 $(DOOM_ELF): $(DOOM_ORIGINAL_OBJS) $(DOOM_PORT_OBJS) tools/link_elf32.py | $(BUILD_DIR)
-	$(PYTHON) tools/link_elf32.py -o $@ --base $(DOOM_BASE) $(DOOM_ORIGINAL_OBJS) $(DOOM_PORT_OBJS)
+	$(PYTHON) tools/link_elf32.py -o $@ --base $(DOOM_BASE) --map $(DOOM_SYMBOLS) $(DOOM_ORIGINAL_OBJS) $(DOOM_PORT_OBJS)
 
 $(USER_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_PROBE_C_OBJ) tools/link_elf32.py | $(BUILD_DIR)
 	$(PYTHON) tools/link_elf32.py -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_PROBE_C_OBJ)
@@ -286,6 +287,7 @@ smoke: vm-consent check-tools $(IMAGE)
 		if [ -f "$(BUILD_DIR)/status.after-fire.txt" ]; then real_wad_args="$$real_wad_args --fire $(BUILD_DIR)/status.after-fire.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-move.txt" ]; then real_wad_args="$$real_wad_args --movement $(BUILD_DIR)/status.after-move.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-use.txt" ]; then real_wad_args="$$real_wad_args --use $(BUILD_DIR)/status.after-use.txt"; fi; \
+		if [ -f "$(BUILD_DIR)/status.after-mouse.txt" ]; then real_wad_args="$$real_wad_args --mouse $(BUILD_DIR)/status.after-mouse.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-menu.txt" ]; then real_wad_args="$$real_wad_args --menu $(BUILD_DIR)/status.after-menu.txt"; fi; \
 		$(PYTHON) tools/check_real_wad_proof.py $$real_wad_args $(BUILD_DIR)/status.txt; \
 	fi; \
@@ -294,6 +296,7 @@ smoke: vm-consent check-tools $(IMAGE)
 		if [ -f "$(BUILD_DIR)/status.after-fire.txt" ]; then human_args="$$human_args --fire $(BUILD_DIR)/status.after-fire.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-move.txt" ]; then human_args="$$human_args --movement $(BUILD_DIR)/status.after-move.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-use.txt" ]; then human_args="$$human_args --use $(BUILD_DIR)/status.after-use.txt"; fi; \
+		if [ -f "$(BUILD_DIR)/status.after-mouse.txt" ]; then human_args="$$human_args --mouse $(BUILD_DIR)/status.after-mouse.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-menu.txt" ]; then human_args="$$human_args --menu $(BUILD_DIR)/status.after-menu.txt"; fi; \
 		$(PYTHON) tools/check_human_playability_proof.py $$human_args $(BUILD_DIR)/status.txt; \
 	fi; \
