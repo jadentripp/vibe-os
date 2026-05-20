@@ -1107,6 +1107,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
     def test_persistence_doc_keeps_dynamic_fs_and_storage_boot_gaps_explicit(self):
         persistent_doc = (ROOT / "docs" / "persistent-fat16.md").read_text()
         gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
+        makefile = (ROOT / "Makefile").read_text()
 
         for phrase in (
             "Writable semantics are still deliberately narrow",
@@ -1121,9 +1122,12 @@ class DoomPersistenceImageTests(unittest.TestCase):
             "--require-dynamic-fat-proof",
             "dynamic filesystem behavior",
             "FATPROOF.TMP",
+            "PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF=1 make persistence-image-check",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, persistent_doc)
+        self.assertIn("PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF ?= 0", makefile)
+        self.assertIn("--require-dynamic-fat-proof", makefile)
         self.assertIn("dynamic writable FS", gap_doc)
         self.assertIn("dynamic FAT allocation, free", gap_doc)
         self.assertIn("storage boot path", gap_doc)
