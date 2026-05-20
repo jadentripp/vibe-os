@@ -136,9 +136,10 @@ syscall per default line. The port checkpoints defaults only when the cloud
 persistence proof has stamped a root-level `PERSIST.CHK` marker into the image,
 Doom is already in settled live gameplay, and the generated `DEFAULT.CFG` is
 still empty, partial, or missing core defaults markers. Marker-requested
-`DOOMSAV*.DSG` proof follows Doom's own `G_SaveGame` path after the same settled
-gameplay guard instead of forcing `ga_savegame` directly. The default real-WAD
-cloud workflow waits for that checkpoint before snapshotting the disk; the
+`DOOMSAV*.DSG` proof follows Doom's own `G_SaveGame` path from the platform
+ticcmd wrapper after the same settled gameplay guard instead of forcing
+`ga_savegame` directly. The default real-WAD cloud workflow waits for that
+checkpoint before snapshotting the disk; the
 save-slot proof path uses `SAVEREQ.CHK` from the clean captured baseline and
 waits for Doom-reported save-file write/close status. `--write-status` keeps the
 wait honest by rejecting a `DEFAULT.CFG` proof until the defaults file has been
