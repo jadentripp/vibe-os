@@ -13,7 +13,7 @@ on:
         type: boolean
         default: false
       persistence_input_script:
-        description: QEMU input script for the first persistence boot. Use text=NAME to batch save-name typing; default waits for the port to checkpoint DEFAULT.CFG.
+        description: QEMU input script for the first persistence boot. Use text=NAME to batch save-name typing; default waits for the marked DEFAULT.CFG checkpoint.
         required: false
         type: string
         default: "persist-default:wait=12,snapshot"
@@ -247,6 +247,27 @@ jobs:
 
           test -f "$baseline"
           cp "$baseline" build/disk.img
+          python3 - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          spec = importlib.util.spec_from_file_location(
+              "make_wad_image",
+              Path("tools/make_wad_image.py"),
+          )
+          make_wad_image = importlib.util.module_from_spec(spec)
+          assert spec.loader is not None
+          spec.loader.exec_module(make_wad_image)
+
+          path = Path("build/disk.img")
+          image = bytearray(path.read_bytes())
+          fs = make_wad_image.Fat16Image(image)
+          fs.write_root_file(
+              make_wad_image.PERSISTENCE_CHECKPOINT_NAME,
+              b"checkpoint\n",
+          )
+          path.write_bytes(image)
+          PY
 
           mkdir -p build/persistence-write
           QEMU=qemu-system-x86_64 \

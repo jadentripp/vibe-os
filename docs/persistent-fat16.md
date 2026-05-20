@@ -114,12 +114,13 @@ back into the real disk artifact.
 
 The Doom libc buffers formatted `fprintf` output until `fflush()` / `fclose()`,
 so `M_SaveDefaults()` does not spend the cloud proof window performing one disk
-syscall per default line. The port checkpoints defaults once after Doom reaches
-live frame updates when the generated `DEFAULT.CFG` is still empty, partial, or
-missing core defaults markers. The default real-WAD cloud workflow waits for
-that checkpoint before snapshotting the disk; `--write-status` keeps the wait
-honest by rejecting a `DEFAULT.CFG` proof until the defaults file has been
-opened with `O_TRUNC` and closed.
+syscall per default line. The port checkpoints defaults only when the cloud
+persistence proof has stamped a root-level `PERSIST.CHK` marker into the image,
+Doom is already in live gameplay, and the generated `DEFAULT.CFG` is still
+empty, partial, or missing core defaults markers. The default real-WAD cloud
+workflow waits for that checkpoint before snapshotting the disk; `--write-status`
+keeps the wait honest by rejecting a `DEFAULT.CFG` proof until the defaults file
+has been opened with `O_TRUNC` and closed.
 
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,

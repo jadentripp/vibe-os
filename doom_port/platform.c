@@ -43,6 +43,8 @@ static int playable_origin_x;
 static int playable_origin_y;
 static int playable_initial_clip = -1;
 static int default_config_checkpoint_checked;
+static int default_config_checkpoint_request_checked;
+static int default_config_checkpoint_requested;
 
 #define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
 #define VIBE_MUSIC_STREAM_TICS \
@@ -157,9 +159,40 @@ static int default_config_needs_checkpoint(void)
         || !default_config_contains_marker(length, "chatmacro0");
 }
 
+static int persistence_checkpoint_requested(void)
+{
+    FILE* marker;
+
+    if (default_config_checkpoint_request_checked)
+        return default_config_checkpoint_requested;
+
+    default_config_checkpoint_request_checked = 1;
+    marker = fopen("PERSIST.CHK", "r");
+    if (marker) {
+        default_config_checkpoint_requested = 1;
+        fclose(marker);
+    }
+
+    return default_config_checkpoint_requested;
+}
+
+static int default_config_checkpoint_ready(void)
+{
+    return gamestate == GS_LEVEL
+        && gamemap > 0
+        && leveltime > 0
+        && consoleplayer >= 0
+        && consoleplayer < MAXPLAYERS
+        && playeringame[consoleplayer]
+        && players[consoleplayer].mo;
+}
+
 static void checkpoint_default_config_if_needed(void)
 {
     if (default_config_checkpoint_checked || !defaultfile)
+        return;
+
+    if (!persistence_checkpoint_requested() || !default_config_checkpoint_ready())
         return;
 
     default_config_checkpoint_checked = 1;
@@ -409,9 +442,9 @@ void I_FinishUpdate(void)
 
     report_doom_init_status(VIBE_DOOM_INIT_FRAME);
     pump_music_stream();
-    checkpoint_default_config_if_needed();
     report_gameplay_status();
     report_playability_status();
+    checkpoint_default_config_if_needed();
     if (screens[0]) {
         present.frame = screens[0];
         present.palette = active_palette;

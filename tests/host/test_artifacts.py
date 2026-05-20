@@ -564,6 +564,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("check_args+=(--require-default)", real_wad_workflow)
         self.assertIn("check_args+=(--require-save-slot \"$PERSISTENCE_SAVE_SLOT\")", real_wad_workflow)
         self.assertIn('cp "$baseline" build/disk.img', real_wad_workflow)
+        self.assertIn("make_wad_image.PERSISTENCE_CHECKPOINT_NAME", real_wad_workflow)
+        self.assertIn('b"checkpoint\\n"', real_wad_workflow)
         self.assertIn("build/status.persistence-write-proof.txt", real_wad_workflow)
         self.assertIn("build/status.persistence-reboot-proof.txt", real_wad_workflow)
         self.assertIn("--reboot-status build/status.persistence-reboot.txt", real_wad_workflow)
@@ -1014,6 +1016,7 @@ class SourceContractTests(unittest.TestCase):
         image_tool = (ROOT / "tools" / "make_wad_image.py").read_text()
         for source in (
             "WRITABLE_DEFAULT_NAME = b\"DEFAULT CFG\"",
+            "PERSISTENCE_CHECKPOINT_NAME = b\"PERSIST CHK\"",
             "WRITABLE_SAVE_NAMES",
             "WRITABLE_DYNAMIC_FILES",
             "MIN_OS_CREATED_FILE_CLUSTERS",
