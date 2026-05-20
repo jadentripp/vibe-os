@@ -254,6 +254,7 @@ def validate_repo_contract() -> None:
         "persistence_save_slot:",
         "Use text=NAME",
         "Capture fresh persistence baseline",
+        "if: ${{ always() && inputs.persistence_proof }}",
         "cp build/disk.img \"$RUNNER_TEMP/disk.before-persistence.img\"",
         "check_args=(--baseline-image \"$baseline\")",
         "check_args+=(--require-default)",

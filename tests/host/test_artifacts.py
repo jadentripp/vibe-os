@@ -544,6 +544,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("build/status.txt", real_wad_workflow)
         self.assertIn("python3 tools/check_human_playability_proof.py", real_wad_workflow)
         self.assertIn("Capture fresh persistence baseline", real_wad_workflow)
+        self.assertIn("if: ${{ always() && inputs.persistence_proof }}", real_wad_workflow)
         self.assertIn('cp build/disk.img "$RUNNER_TEMP/disk.before-persistence.img"', real_wad_workflow)
         self.assertIn("check_args=(--baseline-image \"$baseline\")", real_wad_workflow)
         self.assertIn("check_args+=(--require-default)", real_wad_workflow)
@@ -676,7 +677,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('grep -q "doomfaulterr="', makefile)
         self.assertIn('grep -q " fault="', makefile)
         self.assertIn('grep -Eq "panic=(NONE|KEXC)"', makefile)
-        self.assertIn('grep -Eq "shutdown=(NONE|HALT|REBOOT)"', makefile)
+        self.assertIn('grep -Eq "shutdown=(NONE|HALT|REBOOT|POWEROFF)"', makefile)
         self.assertIn('grep -q "doomopen=OK"', makefile)
         self.assertIn('grep -q "doomread=OK"', makefile)
         self.assertIn('grep -q "doomwad="', makefile)
@@ -762,6 +763,7 @@ class SourceContractTests(unittest.TestCase):
             "doomsound=00000000 sfxmix=00000000 voices=00000000 sfxvoices=00000000 audioirq=00000000 ack8=00000000 ack16=00000000 "
             "refill=00000000 half=00000000 mixwrap=00000000 mixover=00000000 mixunder=00000000 mixclip=00000000 "
             "steal=00000000 pitchclamp=00000000 panclamp=00000000 musicvoices=00000000 musicmix=00000000 musicloop=00000000 "
+            "musicpos=00000000 musicbuf=00000000 musicunder=00000000 musicdrops=00000000 "
             "sb16=00000000:00000000 dma=00000000 play=00000000:00000000 voiceq=00000000:00000000:00000000 musicq=00000000:00000000 "
             "mouseirq=00000001 mousepkt=00000001 mousepoll=00000001 "
             "mousebtn=00000001 mousedelta=00000018:0000000C "
@@ -1602,6 +1604,10 @@ class SourceContractTests(unittest.TestCase):
             'smoke_play_text db " play="',
             'smoke_voiceq_text db " voiceq="',
             'smoke_musicq_text db " musicq="',
+            'smoke_musicpos_text db " musicpos="',
+            'smoke_musicbuf_text db " musicbuf="',
+            'smoke_musicunder_text db " musicunder="',
+            'smoke_musicdrops_text db " musicdrops="',
             'smoke_audio_text db " audio="',
         ):
             self.assertIn(source, kernel)
@@ -1629,6 +1635,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('grep -q "doomsound="', makefile)
         self.assertIn('grep -q "sfxvoices="', makefile)
         self.assertIn('grep -q "musicmix="', makefile)
+        self.assertIn('grep -q "musicpos="', makefile)
         self.assertIn('grep -q "dma="', makefile)
         self.assertIn('grep -q "voiceq="', makefile)
         self.assertIn('grep -Eq "audio=(SB16|NONE)"', makefile)
