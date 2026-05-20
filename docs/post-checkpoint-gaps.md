@@ -170,7 +170,8 @@ Current state:
 - Doom `exit()` records `doomrun=EXIT` plus `doomexit=<code>`.
 - Expected user isolation faults are reported by the probe, Doom user faults are
   visible through `doomfault=`, `doomfaultip=`, `doomfaultv=`, and
-  `doomfaulterr=`, and Doom startup text is tailed into `doomlog=`.
+  `doomfaulterr=`, the latest trap frame is visible through `fault=`, and Doom
+  startup text is tailed into `doomlog=`.
 - The interactive shell has `halt` and PS/2-controller `reboot` commands.
 
 Still missing:

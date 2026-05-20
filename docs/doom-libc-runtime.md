@@ -78,8 +78,9 @@ without pretending that clone/wait lifecycle semantics are implemented.
 The kernel smoke status reports Doom file/runtime counters from the port ABI:
 `doomopen`, `doomread`, `doomwrite`, `doomseek`, `doomclose`, `doomsbrk`,
 `doomerr`, `doommode`, `doomexit`, `doomfault`, `doomfaultip`, `doomfaultv`,
-and `doomfaulterr`. These are counters, last-open mode/flag bits, and
-user-mode exit/fault diagnostics, not filesystem internals. They prove the
+`doomfaulterr`, and the compact `fault` frame tuple. These are counters,
+last-open mode/flag bits, and user-mode exit/fault diagnostics, not filesystem
+internals. They prove the
 original Doom code reached the port-layer file contract while keeping FAT
 allocation and vendor Doom sources untouched.
 
