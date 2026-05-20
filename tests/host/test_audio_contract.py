@@ -19,8 +19,10 @@ class AudioContractTests(unittest.TestCase):
             "unsigned long pitch;",
             "unsigned long sound_id;",
             "unsigned long flags;",
+            "unsigned long sample_rate;",
             "VIBE_AUDIO_FLAG_LOOP",
             "VIBE_AUDIO_FLAG_MUSIC",
+            "VIBE_AUDIO_FLAG_WAD_SFX",
             "VIBE_AUDIO_IS_PLAYING",
             "VIBE_AUDIO_BUFFERED_BYTES",
             "VIBE_AUDIO_MUSIC_PULL_STATE",
@@ -35,13 +37,18 @@ class AudioContractTests(unittest.TestCase):
             "sfxinfo_t* sfx = &S_sfx[id];",
             "sfx->data = W_CacheLumpNum(sfx->lumpnum, PU_STATIC);",
             "lump_length = W_LumpLength(sfx->lumpnum);",
-            "desc.samples = lump_data + 8;",
-            "desc.length = (unsigned long)(lump_length - 8);",
+            "cache_sfx_samples(id, sfx, &sample_length, &sample_rate, &sample_flags);",
+            "Z_Malloc(padded_length, PU_STATIC, 0);",
+            "memset(samples + raw_length, 128, padded_length - raw_length);",
+            "flags |= VIBE_AUDIO_FLAG_WAD_SFX;",
+            "desc.samples = samples;",
+            "desc.length = sample_length;",
             "desc.volume = (unsigned long)(vol & 0xff);",
             "desc.separation = (unsigned long)(sep & 0xff);",
             "desc.pitch = (unsigned long)(pitch & 0xff);",
             "desc.sound_id = (unsigned long)id;",
-            "desc.flags = 0;",
+            "desc.flags = sample_flags;",
+            "desc.sample_rate = sample_rate;",
             "(unsigned long)&desc",
             "VIBE_AUDIO_START_SFX",
             "VIBE_AUDIO_UPDATE_SFX",
@@ -61,7 +68,9 @@ class AudioContractTests(unittest.TestCase):
             "AUDIO_SFX_DESC_PITCH equ 16",
             "AUDIO_SFX_DESC_SOUND_ID equ 20",
             "AUDIO_SFX_DESC_FLAGS equ 24",
-            "AUDIO_SFX_DESC_BYTES equ 28",
+            "AUDIO_SFX_DESC_SAMPLE_RATE equ 28",
+            "AUDIO_SFX_DESC_BYTES equ 32",
+            "AUDIO_FLAG_WAD_SFX equ 0x00000004",
             "audio_mix_sfx_descriptor:",
             "call user_range_validate",
             "cmp ebx, SB16_DMA_BUFFER_BYTES",
@@ -75,8 +84,15 @@ class AudioContractTests(unittest.TestCase):
             "inc dword [sb16_mix_overwrite_count]",
             "inc dword [sb16_sfx_mix_count]",
             "add [sb16_sfx_mix_bytes], eax",
+            "add [sb16_sfx_output_bytes], eax",
+            "inc dword [sb16_sfx_wad_start_count]",
+            "sb16_sfx_last_rate dd 0",
             "inc dword [sb16_mix_underrun_count]",
             "smoke_sfxmix_text db \" sfxmix=\"",
+            "smoke_sfxq_text db \" sfxq=\"",
+            "smoke_sfxbytes_text db \" sfxbytes=\"",
+            "smoke_sfxsrc_text db \" sfxsrc=\"",
+            "smoke_sfxlast_text db \" sfxlast=\"",
         ):
             self.assertIn(source, kernel)
 
@@ -205,6 +221,10 @@ class AudioContractTests(unittest.TestCase):
             "smoke_musicdrops_text db \" musicdrops=\"",
             "smoke_musicstream_text db \" musicstream=\"",
             "smoke_musicpull_text db \" musicpull=\"",
+            "smoke_sfxq_text db \" sfxq=\"",
+            "smoke_sfxbytes_text db \" sfxbytes=\"",
+            "smoke_sfxsrc_text db \" sfxsrc=\"",
+            "smoke_sfxlast_text db \" sfxlast=\"",
             "smoke_sb16ver_text db \" sb16=\"",
             "smoke_dmaprog_text db \" dma=\"",
             "smoke_play_text db \" play=\"",
@@ -225,6 +245,10 @@ class AudioContractTests(unittest.TestCase):
             "mov eax, [sb16_music_stream_mode]",
             "mov edx, [sb16_music_pull_request_count]",
             "mov edx, [sb16_music_pull_refill_count]",
+            "mov edx, [sb16_sfx_voice_start_count]",
+            "mov edx, [sb16_sfx_submit_bytes]",
+            "mov edx, [sb16_sfx_wad_start_count]",
+            "mov edx, [sb16_sfx_last_rate]",
             "mov edx, [sb16_dma_program_count]",
             "mov edx, [sb16_playback_start_count]",
             "mov edx, [sb16_voice_start_count]",
@@ -234,6 +258,10 @@ class AudioContractTests(unittest.TestCase):
 
         for source in (
             'grep -q "sfxmix="',
+            'grep -q "sfxq="',
+            'grep -q "sfxbytes="',
+            'grep -q "sfxsrc="',
+            'grep -q "sfxlast="',
             'grep -q "voices="',
             'grep -q "sfxvoices="',
             'grep -q "audioirq="',
@@ -339,6 +367,10 @@ class AudioContractTests(unittest.TestCase):
         self.assertIn("audioirq=", audio_doc)
         self.assertIn("voices=", audio_doc)
         self.assertIn("sfxvoices=", audio_doc)
+        self.assertIn("sfxq=", audio_doc)
+        self.assertIn("sfxbytes=", audio_doc)
+        self.assertIn("sfxsrc=", audio_doc)
+        self.assertIn("sfxlast=", audio_doc)
         self.assertIn("sfxmix=` counts only normal Doom SFX voices", audio_doc)
         self.assertIn("VIBE_AUDIO_IS_PLAYING", audio_doc)
         self.assertIn("VIBE_AUDIO_MUSIC_PULL_STATE", audio_doc)

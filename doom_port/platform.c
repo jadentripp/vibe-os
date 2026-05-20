@@ -37,6 +37,10 @@ static char default_config_check_buffer[16 * 1024 + 1];
 static ticcmd_t empty_ticcmd;
 static byte active_palette[256 * 3];
 static int next_sound_handle = 1;
+static unsigned char* cached_sfx_samples[NUMSFX];
+static unsigned long cached_sfx_lengths[NUMSFX];
+static unsigned long cached_sfx_rates[NUMSFX];
+static unsigned long cached_sfx_flags[NUMSFX];
 static unsigned char music_pcm[2][VIBE_MUSIC_STREAM_BYTES];
 static int current_music_handle;
 static int current_music_looping;
@@ -64,6 +68,8 @@ static int load_checkpoint_slot;
 static int load_checkpoint_done;
 
 #define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
+#define VIBE_SFX_DEFAULT_SAMPLE_RATE 11025u
+#define VIBE_SFX_PAD_BYTES 512u
 #define VIBE_MUSIC_STREAM_TICS \
     ((int)((VIBE_MUSIC_STREAM_BYTES * 35u) / VIBE_MUSIC_DEFAULT_SAMPLE_RATE) / 16)
 #define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x2c000u
@@ -81,6 +87,110 @@ static int vibe_music_audio_handle(int handle)
 static int music_stream_tics(void)
 {
     return VIBE_MUSIC_STREAM_TICS > 1 ? VIBE_MUSIC_STREAM_TICS : 1;
+}
+
+static unsigned long read_le16(const unsigned char* data)
+{
+    return (unsigned long)data[0] | ((unsigned long)data[1] << 8);
+}
+
+static unsigned long read_le32(const unsigned char* data)
+{
+    return (unsigned long)data[0]
+        | ((unsigned long)data[1] << 8)
+        | ((unsigned long)data[2] << 16)
+        | ((unsigned long)data[3] << 24);
+}
+
+static int sfx_cache_index(sfxinfo_t* sfx, int fallback)
+{
+    int index;
+
+    index = (int)(sfx - S_sfx);
+    if (index > 0 && index < NUMSFX)
+        return index;
+    if (fallback > 0 && fallback < NUMSFX)
+        return fallback;
+    return 0;
+}
+
+static unsigned long pad_sfx_length(unsigned long length)
+{
+    if (!length)
+        return 0;
+    return ((length + VIBE_SFX_PAD_BYTES - 1u) / VIBE_SFX_PAD_BYTES) * VIBE_SFX_PAD_BYTES;
+}
+
+static unsigned char* cache_sfx_samples(
+    int id,
+    sfxinfo_t* sfx,
+    unsigned long* out_length,
+    unsigned long* out_rate,
+    unsigned long* out_flags)
+{
+    int index;
+    int lump_length;
+    unsigned long raw_length;
+    unsigned long padded_length;
+    unsigned long sample_rate;
+    unsigned long declared_length;
+    unsigned long flags;
+    unsigned char* lump_data;
+    unsigned char* samples;
+
+    index = sfx_cache_index(sfx, id);
+    if (index <= 0)
+        return 0;
+
+    if (cached_sfx_samples[index]) {
+        *out_length = cached_sfx_lengths[index];
+        *out_rate = cached_sfx_rates[index];
+        *out_flags = cached_sfx_flags[index];
+        return cached_sfx_samples[index];
+    }
+
+    if (sfx->lumpnum < 0)
+        sfx->lumpnum = I_GetSfxLumpNum(sfx);
+
+    if (!sfx->data)
+        sfx->data = W_CacheLumpNum(sfx->lumpnum, PU_STATIC);
+
+    lump_length = W_LumpLength(sfx->lumpnum);
+    lump_data = (unsigned char*)sfx->data;
+    if (lump_length <= 8 || !lump_data)
+        return 0;
+
+    raw_length = (unsigned long)(lump_length - 8);
+    padded_length = pad_sfx_length(raw_length);
+    if (!padded_length)
+        return 0;
+
+    sample_rate = read_le16(lump_data + 2);
+    if (!sample_rate)
+        sample_rate = VIBE_SFX_DEFAULT_SAMPLE_RATE;
+
+    flags = 0;
+    declared_length = read_le32(lump_data + 4);
+    if (read_le16(lump_data) == 3u
+        && declared_length > 0
+        && declared_length <= raw_length + VIBE_SFX_PAD_BYTES) {
+        flags |= VIBE_AUDIO_FLAG_WAD_SFX;
+    }
+
+    samples = (unsigned char*)Z_Malloc(padded_length, PU_STATIC, 0);
+    memcpy(samples, lump_data + 8, raw_length);
+    if (padded_length > raw_length)
+        memset(samples + raw_length, 128, padded_length - raw_length);
+
+    cached_sfx_samples[index] = samples;
+    cached_sfx_lengths[index] = padded_length;
+    cached_sfx_rates[index] = sample_rate;
+    cached_sfx_flags[index] = flags;
+
+    *out_length = padded_length;
+    *out_rate = sample_rate;
+    *out_flags = flags;
+    return samples;
 }
 
 static int submit_music_stream_chunk(int handle, int start_voice)
@@ -121,6 +231,7 @@ static int submit_music_stream_chunk(int handle, int start_voice)
     desc.pitch = 128;
     desc.sound_id = 0x4d555349u;
     desc.flags = VIBE_AUDIO_FLAG_MUSIC;
+    desc.sample_rate = VIBE_MUSIC_DEFAULT_SAMPLE_RATE;
 
     (void)vibe_syscall3(
         VIBE_SYS_AUDIO,
@@ -758,11 +869,15 @@ void I_SetChannels(void)
 int I_GetSfxLumpNum(sfxinfo_t* sfxinfo)
 {
     char name[9];
+    int lump;
     name[0] = 'd';
     name[1] = 's';
     strncpy(name + 2, sfxinfo->name, 6);
     name[8] = 0;
-    return W_GetNumForName(name);
+    lump = W_CheckNumForName(name);
+    if (lump < 0)
+        lump = W_GetNumForName("dspistol");
+    return lump;
 }
 
 int I_StartSound(int id, int vol, int sep, int pitch, int priority)
@@ -772,31 +887,28 @@ int I_StartSound(int id, int vol, int sep, int pitch, int priority)
         int handle = next_sound_handle++;
         vibe_audio_sfx_desc_t desc;
         sfxinfo_t* sfx = &S_sfx[id];
-        int lump_length;
-        unsigned char* lump_data;
+        unsigned long sample_length;
+        unsigned long sample_rate;
+        unsigned long sample_flags;
+        unsigned char* samples;
 
         if (sfx->link)
             sfx = sfx->link;
 
-        if (sfx->lumpnum < 0)
-            sfx->lumpnum = I_GetSfxLumpNum(sfx);
-
-        if (!sfx->data)
-            sfx->data = W_CacheLumpNum(sfx->lumpnum, PU_STATIC);
-
-        lump_length = W_LumpLength(sfx->lumpnum);
-        lump_data = (unsigned char*)sfx->data;
+        sample_length = 0;
+        sample_rate = VIBE_SFX_DEFAULT_SAMPLE_RATE;
+        sample_flags = 0;
+        samples = cache_sfx_samples(id, sfx, &sample_length, &sample_rate, &sample_flags);
 
         memset(&desc, 0, sizeof(desc));
-        if (lump_length > 8 && lump_data) {
-            desc.samples = lump_data + 8;
-            desc.length = (unsigned long)(lump_length - 8);
-        }
+        desc.samples = samples;
+        desc.length = sample_length;
         desc.volume = (unsigned long)(vol & 0xff);
         desc.separation = (unsigned long)(sep & 0xff);
         desc.pitch = (unsigned long)(pitch & 0xff);
         desc.sound_id = (unsigned long)id;
-        desc.flags = 0;
+        desc.flags = sample_flags;
+        desc.sample_rate = sample_rate;
 
         (void)vibe_syscall3(
             VIBE_SYS_AUDIO,

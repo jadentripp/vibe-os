@@ -270,6 +270,10 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "pweapon=" $(BUILD_DIR)/status.txt; \
 	grep -q "doomsound=" $(BUILD_DIR)/status.txt; \
 	grep -q "sfxmix=" $(BUILD_DIR)/status.txt; \
+	grep -q "sfxq=" $(BUILD_DIR)/status.txt; \
+	grep -q "sfxbytes=" $(BUILD_DIR)/status.txt; \
+	grep -q "sfxsrc=" $(BUILD_DIR)/status.txt; \
+	grep -q "sfxlast=" $(BUILD_DIR)/status.txt; \
 	grep -q "voices=" $(BUILD_DIR)/status.txt; \
 	grep -q "sfxvoices=" $(BUILD_DIR)/status.txt; \
 	grep -q "audioirq=" $(BUILD_DIR)/status.txt; \
