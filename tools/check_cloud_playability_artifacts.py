@@ -767,6 +767,7 @@ def validate_repo_contract() -> None:
         "check_args+=(--require-save-slot \"$PERSISTENCE_SAVE_SLOT\")",
         "check_args+=(--save-write-status build/status.persistence-write.txt)",
         "slot_marker_payload=\"$(printf",
+        "hold=up:1200,wait-status-min=leveltime:00000004:80:2",
         "cp \"$baseline\" build/disk.img",
         "if [ -z \"${PERSISTENCE_SAVE_SLOT:-}\" ]; then",
         "write_marker PERSISTENCE_CHECKPOINT_NAME \"\"",
