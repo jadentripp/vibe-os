@@ -643,6 +643,29 @@ static void report_playability_status(void)
         (unsigned long)y);
 }
 
+static void report_player_detail_status(void)
+{
+    unsigned long cmd;
+    unsigned long stats;
+    player_t* player;
+
+    if (consoleplayer < 0 || consoleplayer >= MAXPLAYERS || !playeringame[consoleplayer])
+        return;
+
+    player = &players[consoleplayer];
+    if (!player->mo)
+        return;
+
+    cmd = ((unsigned long)player->cmd.buttons & 0xffu)
+        | (((unsigned long)(unsigned char)player->cmd.forwardmove) << 8)
+        | (((unsigned long)(unsigned char)player->cmd.sidemove) << 16);
+    stats = ((unsigned long)player->ammo[am_clip] & 0xffffu)
+        | (((unsigned long)player->refire & 0xffu) << 16)
+        | (((unsigned long)player->readyweapon & 0xffu) << 24);
+
+    (void)vibe_syscall3(VIBE_SYS_PLAYER_DETAIL_STATUS, cmd, (unsigned long)player->mo->angle, stats);
+}
+
 void I_FinishUpdate(void)
 {
     vibe_present_indexed_t present;
@@ -654,6 +677,7 @@ void I_FinishUpdate(void)
     checkpoint_load_slot_if_needed();
     report_save_action_status();
     report_playability_status();
+    report_player_detail_status();
     checkpoint_default_config_if_needed();
     if (screens[0]) {
         present.frame = screens[0];

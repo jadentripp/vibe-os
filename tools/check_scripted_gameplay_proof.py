@@ -137,6 +137,12 @@ SUMMARY_FIELDS = (
     "pflags",
     "ppos",
     "pdelta",
+    "pcmd",
+    "pangle",
+    "pangledelta",
+    "pammo",
+    "prefire",
+    "pweapon",
     "keyirq",
     "keyqueue",
     "keypoll",
@@ -309,13 +315,19 @@ def _require_clean_start(start: str) -> None:
     _reject_mask(start, "pflags", PFLAG_ACTION_MASK, "start")
     if _hex_field(start, "pdelta") != 0:
         raise AssertionError("start pdelta= must be zero before scripted movement")
+    if _hex_field(start, "pangledelta") != 0:
+        raise AssertionError("start pangledelta= must be zero before scripted mouse turn")
     _position_field(start, "ppos")
+    for name in ("pcmd", "pangle", "pammo", "prefire", "pweapon"):
+        _hex_field(start, name)
 
 
 def _require_phase_masks(snapshots: dict[str, str]) -> None:
     for phase in PHASE_ORDER:
         status = snapshots[phase]
         _require_level_state(status, phase)
+        for name in ("pcmd", "pangle", "pangledelta", "pammo", "prefire", "pweapon"):
+            _hex_field(status, name)
         _require_scripted_key_state(status, phase, EXPECTED_SCRIPTED_KEYS[phase])
         _require_mask(status, "pflags", EXPECTED_PFLAGS[phase], phase)
         if phase != "start":
@@ -368,6 +380,19 @@ def _require_movement(snapshots: dict[str, str]) -> None:
     _assert_not_decreasing(snapshots["movement"], snapshots["final"], ("pdelta",), "movement", "final")
 
 
+def _require_fire_state(snapshots: dict[str, str]) -> None:
+    start_ammo = _hex_field(snapshots["start"], "pammo")
+    fire_ammo = _hex_field(snapshots["fire"], "pammo")
+    start_refire = _hex_field(snapshots["start"], "prefire")
+    fire_refire = _hex_field(snapshots["fire"], "prefire")
+
+    if fire_ammo >= start_ammo and fire_refire <= start_refire:
+        raise AssertionError(
+            "fire pammo=/prefire= must prove Doom weapon state changed, "
+            f"got ammo {start_ammo:08X}->{fire_ammo:08X} and refire {start_refire:08X}->{fire_refire:08X}"
+        )
+
+
 def _require_mouse(snapshots: dict[str, str]) -> None:
     mouse = snapshots["mouse"]
     if _field(mouse, "mouse") != "OK":
@@ -379,7 +404,12 @@ def _require_mouse(snapshots: dict[str, str]) -> None:
     mouse_dx, mouse_dy = _position_field(mouse, "mousedelta")
     if mouse_dx == 0 and mouse_dy == 0:
         raise AssertionError("mouse mousedelta= must record scripted motion")
+    if _hex_field(mouse, "pangle") == _hex_field(snapshots["start"], "pangle"):
+        raise AssertionError("mouse pangle= must differ from start after scripted mouse turn")
+    if _hex_field(mouse, "pangledelta") == 0:
+        raise AssertionError("mouse pangledelta= must record a Doom player-angle change")
     _assert_not_decreasing(mouse, snapshots["final"], MOUSE_COUNTERS, "mouse", "final")
+    _assert_not_decreasing(mouse, snapshots["final"], ("pangledelta",), "mouse", "final")
     if _hex_field(snapshots["final"], "mousebtn") == 0:
         raise AssertionError("final mousebtn= must retain scripted button proof")
 
@@ -407,6 +437,7 @@ def validate_statuses(snapshots: dict[str, str]) -> None:
     _require_phase_masks(snapshots)
     _require_timeline(snapshots)
     _require_movement(snapshots)
+    _require_fire_state(snapshots)
     _require_mouse(snapshots)
     _require_menu(snapshots)
 
@@ -450,11 +481,17 @@ def build_manifest(snapshots: dict[str, str], paths: dict[str, Path] | None = No
             "keyseen": _field(start, "keyseen"),
             "pdelta": _field(start, "pdelta"),
             "ppos": _field(start, "ppos"),
+            "pangle": _field(start, "pangle"),
+            "pammo": _field(start, "pammo"),
+            "prefire": _field(start, "prefire"),
+            "pweapon": _field(start, "pweapon"),
         },
         "transitions": {
             "fire": {
                 "keyseen": _field(snapshots["fire"], "keyseen"),
                 "pflags": _field(snapshots["fire"], "pflags"),
+                "pammo": _field(snapshots["fire"], "pammo"),
+                "prefire": _field(snapshots["fire"], "prefire"),
             },
             "movement": {
                 "keyseen": _field(movement, "keyseen"),
@@ -474,6 +511,8 @@ def build_manifest(snapshots: dict[str, str], paths: dict[str, Path] | None = No
                 "mousebtn": _field(mouse, "mousebtn"),
                 "mousedelta": _field(mouse, "mousedelta"),
                 "pflags": _field(mouse, "pflags"),
+                "pangle": _field(mouse, "pangle"),
+                "pangledelta": _field(mouse, "pangledelta"),
             },
             "menu": {
                 "keyseen": _field(snapshots["menu"], "keyseen"),
@@ -488,6 +527,10 @@ def build_manifest(snapshots: dict[str, str], paths: dict[str, Path] | None = No
             "pflags": _field(final, "pflags"),
             "keyseen": _field(final, "keyseen"),
             "pdelta": _field(final, "pdelta"),
+            "pangle": _field(final, "pangle"),
+            "pangledelta": _field(final, "pangledelta"),
+            "pammo": _field(final, "pammo"),
+            "prefire": _field(final, "prefire"),
         },
     }
 

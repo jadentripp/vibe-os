@@ -62,6 +62,10 @@ SUMMARY_FIELDS = (
     "pflags",
     "gflags",
     "pdelta",
+    "pangle",
+    "pangledelta",
+    "pammo",
+    "prefire",
     "keyirq",
     "keyqueue",
     "keypoll",
@@ -206,7 +210,23 @@ TRIAGE_RULES = (
     ),
     TriageRule(
         "input-no-effect",
-        ("keyirq", "keyqueue", "keypoll", "mouseirq", "mousepkt", "mousepoll", "mousebtn", "mousedelta", "pflags", "pdelta", "gflags"),
+        (
+            "keyirq",
+            "keyqueue",
+            "keypoll",
+            "mouseirq",
+            "mousepkt",
+            "mousepoll",
+            "mousebtn",
+            "mousedelta",
+            "pflags",
+            "pdelta",
+            "pangle",
+            "pangledelta",
+            "pammo",
+            "prefire",
+            "gflags",
+        ),
         "Keyboard or mouse events reached the OS, but scripted start/fire/move/use/menu/mouse effects were not observed.",
         "Compare early/start/fire/move/use/menu snapshots and inspect PS/2 translation plus Doom event injection.",
     ),
@@ -705,6 +725,7 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         or mouse_delta is None
         or (mouse_delta[0] == 0 and mouse_delta[1] == 0)
         or (_hex(fields, "pdelta") or 0) == 0
+        or (_hex(fields, "pangledelta") or 0) == 0
         or (pflags & PLAYABILITY_REQUIRED_FLAGS) != PLAYABILITY_REQUIRED_FLAGS
         or (pflags & PLAYABILITY_FIRE_STATE_FLAGS) == 0
     ):
@@ -714,6 +735,8 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
             f"keypoll={_field(fields, 'keypoll')} keyseen={_field(fields, 'keyseen')} "
             f"pflags={_field(fields, 'pflags')} "
             f"pdelta={_field(fields, 'pdelta')} gflags={_field(fields, 'gflags')} "
+            f"pangle={_field(fields, 'pangle')} pangledelta={_field(fields, 'pangledelta')} "
+            f"pammo={_field(fields, 'pammo')} prefire={_field(fields, 'prefire')} "
             f"mouseirq={_field(fields, 'mouseirq')} mousepkt={_field(fields, 'mousepkt')} "
             f"mousepoll={_field(fields, 'mousepoll')} mousebtn={_field(fields, 'mousebtn')} "
             f"mousedelta={_field(fields, 'mousedelta')}"
