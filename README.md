@@ -240,17 +240,14 @@ temporary QEMU WAV backend on the disposable runner, reduces it to aggregate
 continuity snapshots, and deletes the WAV before upload.
 Raw audio files are not diagnostic artifacts.
 
-Current proof status: the latest analyzed committed real-WAD run is still red,
-but it has moved past the old user-mode page faults. Run `26150621804` on commit
-`1db3a7a` reached `doomrun=RUN`, `doomopen=OK`, `doomread=OK`, `gameplay=OK`,
-live input/mouse/audio/preemption counters, and status-triaged as
-`playability-status-green`; the real-WAD proof gate failed because `usr=FAIL`.
-That is useful evidence that the OS is reaching real Doom gameplay in the cloud,
-but it is not a Doom-capable claim until the current commit passes the exact
-real-WAD proof gates and the uploaded artifacts are reviewed. The matching
-normal `os-smoke` run `26150621857` also failed before the shutdown/panic lane
-because the generated fixture path ended with `usr=FAIL` and Doom reported the
-fixture boundary `R_TextureNumForName: SKY1 not found`.
+Current proof status: run `26151623245` on commit `4c2c5c9` is the first
+current-head scripted cloud proof that passes the serious real-WAD gates. It
+reaches `doomrun=RUN`, `doomopen=OK`, `doomread=OK`, `gameplay=OK`, `usr=OK`,
+live keyboard/mouse/SB16/preemption counters, the reboot persistence proof, and
+the aggregate audible-audio proof, and it triages as
+`playability-status-green`. The matching `os-smoke` run `26151623239` also
+passes the generated-WAD smoke and opt-in shutdown/panic proof lane. This is
+strong scripted cloud evidence, not yet a human-facing "Doom-capable" claim.
 
 For a human actually trying the image, use
 `docs/runbooks/remote-doom-playtest.md`. It keeps QEMU on a disposable remote
@@ -325,7 +322,8 @@ Already implemented:
 - after the Ring 3 probe, the kernel enters the loaded original `DOOM.ELF`
   through its ELF entry point with a Doom-sized user stack/heap window; the
   latest real-WAD diagnostics prove the syscall-driven exec handoff reaches
-  Doom user mode, but they also prove Doom currently faults before WAD open/read
+  Doom user mode, opens and reads the real IWAD, and reaches scripted E1M1
+  gameplay in cloud QEMU
 - the kernel captures a bounded tail of Doom's user-mode stdout/stderr stream
   into the RAM smoke artifact as `doomlog=...`, so startup failures are
   diagnosable without editing Doom source
@@ -336,29 +334,16 @@ Already implemented:
 
 Still required before this is actually Doom-capable:
 
-- a current passing manual real-WAD cloud workflow on the exact commit being
-  claimed, followed by review of the non-WAD status diagnostics
-- fix the current `usr=FAIL` proof/status regression, then prove `usr=OK`,
-  `doomrun=RUN`, `doomopen=OK`, `doomread=OK`, and `gameplay=OK` on a fresh
-  exact-commit cloud run
-- a passing `tools/check_real_wad_proof.py` run on that current real-WAD status
-  artifact, including zero Doom exit/fault counters and coherent process,
-  storage, VM, input, audio, scheduler, and gameplay telemetry
 - a remote human VNC playtest using `docs/runbooks/remote-doom-playtest.md`,
   including status capture after keyboard-driven menu and gameplay actions
 - higher-half kernel mapping or another non-identity kernel layout, plus
   dynamically allocated page tables and non-identity user frame backing
 - broader VM/POSIX coverage: arbitrary-path `exec`, richer `mmap`, fuller file
   semantics, descriptor duplication, and more device/ioctl contracts
-- current passing save/config persistence proof after a real-WAD reboot using
-  `tools/check_doom_persistence_image.py --baseline-image` plus
-  `--reboot-baseline-image`, not just host-side FAT lifecycle coverage
 - broader framebuffer mode support, aspect policy, fullscreen behavior, and
   dirty-rect presentation beyond the current XRGB8888 VBE path
-- remote SB16 continuity proof now has a status-only checker, but audible human
-  validation still needs a current `audio-proof.json` or listener proof, and
-  long-running music streaming beyond the current looped PCM carrier is still
-  open
+- human audio/listener validation and long-running music streaming beyond the
+  current looped PCM carrier
 - graceful Doom exit/reboot behavior for a human session
 - new device-class claims must update `docs/hardware-support.md` and pass the
   host support-matrix checker; current claims stay bounded to the QEMU

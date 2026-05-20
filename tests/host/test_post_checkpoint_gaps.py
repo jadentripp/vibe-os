@@ -126,7 +126,8 @@ class PostCheckpointGapTests(unittest.TestCase):
         self.assertEqual(fs.root_file_metadata(make_wad_image.WRITABLE_SAVE_NAMES[0])["size"], 0)
 
         self.assertIn("The FAT16 image has root entries for `DEFAULT.CFG`", gap_doc)
-        self.assertIn("There is not yet an archived successful cloud artifact", gap_doc)
+        self.assertIn("Run `26151623245` passes that reboot proof for `DEFAULT.CFG`", gap_doc)
+        self.assertIn("Save-slot persistence still needs the same cloud reboot proof", gap_doc)
         self.assertIn("captures the fresh baseline immediately after rebuilding", gap_doc)
         self.assertIn("same disk image is booted again", gap_doc)
         self.assertIn("reboot comparison now requires the fresh baseline", gap_doc)
@@ -152,8 +153,8 @@ class PostCheckpointGapTests(unittest.TestCase):
             "panic=KEXC",
             "shutdown=HALT",
             "This is not a full POSIX environment",
-            "A previous run is useful",
-            "stale once the",
+            "Future kernel/runtime, workflow, or checker changes",
+            "current passing manual real-WAD cloud workflow",
             "Do not call the project Doom-capable",
             "fixed-slot launch/switch contract",
             "not a robust",
@@ -163,7 +164,7 @@ class PostCheckpointGapTests(unittest.TestCase):
             "SUPPORT[...]",
         ):
             with self.subTest(claim_boundary=claim_boundary):
-                self.assertIn(claim_boundary, gap_doc)
+                self.assertContainsPhrase(gap_doc, claim_boundary)
         self.assertIn("not a robust Unix", process_doc)
         self.assertIn("fork`/`exec` split", process_doc)
         self.assertIn("storage boot", persistence_doc)
@@ -177,16 +178,23 @@ class PostCheckpointGapTests(unittest.TestCase):
 
         for phrase in (
             "Latest Cloud Evidence",
-            "latest analyzed real-WAD cloud evidence has moved past",
-            "Doom faults before WAD I/O",
-            "not a Doom-capable proof",
+            "current scripted cloud truth-serum run",
+            "historical repair context",
+            "human-facing Doom-capable proof",
+            "26151623245",
+            "4c2c5c9",
+            "real-WAD, human-playability",
+            "audible-audio manifest",
+            "persistence reboot",
+            "artifact hygiene",
+            "26151623239",
             "26150621804",
             "1db3a7a",
             "usr=FAIL",
-            "real-WAD proof gate",
+            "failed the proof gate",
             "26149350434",
             "da9c136",
-            "passed the scripted real-WAD cloud artifact checker",
+            "then-current scripted checker",
             "playability-status-green",
             "doomrun=RUN",
             "doomopen=OK",
@@ -195,14 +203,14 @@ class PostCheckpointGapTests(unittest.TestCase):
             "Frame/gameplay counters are active",
             "Scripted keyboard input, mouse input, SB16/audio counters",
             "preemption counters are active",
-            "workflow, or checker contract changes",
+            "workflow, or checker changes",
             "scripted `usr=OK`, `use`, mouse effect, audio",
             "check_audio_continuity_proof.py",
             "26149570191",
             "memset+0x20",
             "doomfaultip=01029F20",
             "audio-proof.json",
-            "stronger gameplay proof",
+            "Stronger gameplay proof",
             "remote human playtest",
             "26146035600",
             "269dbb8",

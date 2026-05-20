@@ -25,18 +25,15 @@ them so README and runbook wording cannot quietly drift into overclaiming.
 
 ## Latest Cloud Evidence
 
-As of 2026-05-20, the latest analyzed real-WAD cloud evidence has moved past the
-old "Doom faults before WAD I/O" stage, but the exact committed branch proof is
-still red. Manual run `26150621804` on commit `1db3a7a` reaches real Doom
-gameplay and triages as `playability-status-green`, but the real-WAD proof gate
-fails because the final status reports `usr=FAIL`.
+As of 2026-05-20, manual run `26151623245` on commit `4c2c5c9` is the current
+scripted cloud truth-serum run. It passes the real-WAD, human-playability,
+SB16/audio-continuity, audible-audio manifest, persistence reboot, artifact
+hygiene, and status-triage gates. It triages as `playability-status-green`.
 
-Archived manual run `26149350434` on commit `da9c136` passed the scripted
-real-WAD cloud artifact checker before the later lifecycle/proof-gate changes.
-That is real scripted cloud evidence for that commit, but it is stale once the
-kernel/runtime, workflow, or checker contract changes. It is still not a
-Doom-capable proof for the dirty current branch or a human-facing playable
-claim.
+This is real scripted cloud evidence for the current commit, but it is not a
+human-facing Doom-capable proof by itself. The project still needs the remote
+human playtest and the remaining hard-mode architecture gaps below before README
+or release notes should say "you can play Doom on vibe-os" without caveats.
 
 What the current evidence proves:
 
@@ -50,36 +47,35 @@ What the current evidence proves:
   frames and reaching E1M1 gameplay status rather than dying during startup.
 - Scripted keyboard input, mouse input, SB16/audio counters, and live
   preemption counters are active in the cloud status stream.
-- The `26150621804` final status shows live real-WAD Doom with `doomrun=RUN`,
-  `doomopen=OK`, `doomread=OK`, `gameplay=OK`, input/mouse/audio counters, and
-  live preemption counters. The exact archived snapshot set for `26149350434`
-  passed the real-WAD, human-playability, audio-continuity, artifact-hygiene,
-  and status-triage checkers without uploading WAD bytes, disk images, rendered
-  pixels, or audio samples.
+- The `26151623245` final status shows live real-WAD Doom with `doomrun=RUN`,
+  `doomopen=OK`, `doomread=OK`, `gameplay=OK`, `usr=OK`,
+  input/mouse/audio counters, and live preemption counters. Its artifact set
+  passes the real-WAD, human-playability, audio-continuity, audible-audio,
+  persistence-reboot, artifact-hygiene, and status-triage checkers without
+  uploading WAD bytes, disk images, rendered pixels, or raw audio samples.
 - Earlier page-fault diagnostics remain useful, but they are historical repair
   context rather than the current primary blocker.
 
 What still fails:
 
-- The latest committed real-WAD run `26150621804` fails the proof gate at
-  `usr=FAIL`, even though Doom itself is running in gameplay. The dirty current
-  branch needs a fresh manual real-WAD workflow pass on the exact commit being
-  claimed after that proof/status regression is fixed.
-- A green final status line is not sufficient by itself. The exact cloud
-  artifact for the claimed commit must pass `tools/check_real_wad_proof.py`,
-  `tools/check_human_playability_proof.py`, `tools/check_audio_continuity_proof.py`,
-  and `tools/check_cloud_playability_artifacts.py` on the uploaded snapshot set.
-- The opt-in persistence/audible proof lane is not green yet. Heavy run
-  `26149570191` proved disk-level `DEFAULT.CFG` persistence across the same
-  runner image, but its reboot status faults in user mode at `memset+0x20`
-  (`doomfaultip=01029F20`) before Doom reaches gameplay again. Its
-  `audio-proof.json` also predates the stricter continuity-bearing manifest
-  contract, so it fails the current audible proof checker.
-- The project still needs stronger gameplay proof and a recorded remote human
-  playtest before a human-facing "playable" claim is honest.
+- A green scripted cloud run is not the same thing as a human playtest. A person
+  still needs to complete and record the remote VNC path with keyboard/menu and
+  gameplay actions.
+- The remaining architecture gaps are still real: higher-half or non-identity
+  kernel mapping, broader VM/POSIX semantics, broader graphics policy, more
+  complete music streaming, a human shutdown/reboot story, and hardware classes
+  beyond the current QEMU BIOS/IDE/PS2/VBE/SB16 target.
 
 Earlier red runs kept for context:
 
+- Manual real-WAD run `26150621804` on commit `1db3a7a` reached gameplay and
+  triaged as `playability-status-green`, but failed the proof gate at `usr=FAIL`.
+- Manual real-WAD run `26149350434` on commit `da9c136` passed the then-current
+  scripted checker set, but became stale after later lifecycle/proof-gate
+  changes.
+- Heavy run `26149570191` proved disk-level `DEFAULT.CFG` persistence, but its
+  reboot status faulted at `memset+0x20` (`doomfaultip=01029F20`) and its
+  `audio-proof.json` predates the stricter continuity-bearing manifest contract.
 - Manual real-WAD run `26146035600` on commit `269dbb8` reached exec handoff but
   faulted in Ring 3 at `FindResponseFile+0x34` with `doomfaultip=01003224`,
   vector `0000000E`, error `00000005`, and `CR2=00000000`.
@@ -101,20 +97,19 @@ Current state:
   rendered pixels out of uploaded artifacts.
 - Current archived real-WAD cloud evidence reaches Doom runtime, WAD I/O,
   frames, gameplay status, input counters, audio counters, and preemption
-  counters, and run `26149350434` passes the scripted proof checkers for commit
-  `da9c136`.
-- The current branch has uncommitted kernel, checker, workflow, and doc changes,
-  so that green artifact is evidence for the previous commit, not a reusable
-  claim for this worktree.
+  counters, and run `26151623245` passes the scripted proof checkers for commit
+  `4c2c5c9`.
+- The matching normal cloud `os-smoke` run `26151623239` passes the generated-WAD
+  boot smoke plus the opt-in shutdown/panic proof lane for the same commit.
 
 Still missing:
 
-- A current passing manual real-WAD cloud workflow on the exact commit being
-  claimed. A previous run is useful evidence, but it is stale once the
-  kernel/runtime, workflow, or checker contract changes.
-- A green run must include a final `status.txt`; `status.failure.txt` from a
-  timed-out/faulted smoke is diagnostic evidence only.
-- The status snapshot bundle must include clean early/start/fire/move/use/mouse/menu
+- This exact commit has a current passing manual real-WAD cloud workflow. Future
+  kernel/runtime, workflow, or checker changes must rerun the same gate before
+  making a fresh claim.
+- A future green run must include a final `status.txt`; `status.failure.txt`
+  from a timed-out/faulted smoke is diagnostic evidence only.
+- Future status snapshot bundles must include clean early/start/fire/move/use/mouse/menu
   baselines that make the proof gates reproducible.
 
 Executable gate:
@@ -133,19 +128,18 @@ Current state:
   process/storage/VM/audio/input/scheduler telemetry.
 - The checker delegates scripted input validation to
   `tools/check_human_playability_proof.py`.
-- The latest green real-WAD cloud evidence proves the important runtime
-  direction: Doom boots, runs, opens/reads the real WAD, presents frames, reaches
-  gameplay status, emits input/audio/preemption counters, and passes the
-  scripted snapshot checkers for its commit.
+- The latest green real-WAD cloud evidence proves the important runtime path:
+  Doom boots, runs, opens/reads the real WAD, presents frames, reaches gameplay
+  status, emits input/audio/preemption counters, and passes the scripted
+  snapshot checkers for commit `4c2c5c9`.
 
 Still missing:
 
-- A fresh real-WAD status artifact on the current commit where every required
-  field and every required phase snapshot passes the checkers.
-- Preserve the now-green scripted `usr=OK`, `use`, mouse effect, audio
-  continuity, and preemption evidence while landing the pending kernel/checker
-  changes. Any regression in those fields reopens this gap as an implementation
-  bug, not just a documentation issue.
+- The current commit has a fresh real-WAD status artifact where every required
+  field and every required phase snapshot passes the checkers. Future commits
+  must preserve the now-green scripted `usr=OK`, `use`, mouse effect, audio
+  continuity, and preemption evidence. Any regression in those fields reopens
+  this gap as an implementation bug, not just a documentation issue.
 - Stronger gameplay proof still matters after the gates pass: the current
   counter/status proof should be paired with a remote human playtest before the
   public claim becomes "playable Doom" rather than "scripted cloud proof".
@@ -217,13 +211,16 @@ Current state:
   text, not WAD or disk bytes.
   Summary for the proof gate: captures the fresh baseline immediately after rebuilding;
   same disk image is booted again; cloud reboot proof; reboot comparison now requires the fresh baseline.
+- Run `26151623245` passes that reboot proof for `DEFAULT.CFG`: the write proof
+  reports `DEFAULT.CFG bytes=512 changed-from-baseline`, and the reboot proof
+  reports `DEFAULT.CFG bytes=512 changed-from-baseline survived-reboot` plus
+  `reboot status runtime=OK`.
 
 Still missing:
 
-- There is not yet an archived successful cloud artifact proving the opt-in
-  reboot path with a real WAD and deterministic Doom input script. Until that
-  artifact exists, this remains an executable gate rather than a completed
-  proof claim.
+- Save-slot persistence still needs the same cloud reboot proof when a run
+  explicitly requires `DOOMSAVN.DSG`; the current green artifact proves
+  `DEFAULT.CFG` persistence.
 - The writable FAT path is still Doom-shaped, not full dynamic writable FS semantics:
   root-level 8.3 files, bounded dynamic entries, no subdirectories,
   no rename, no long filenames, and no POSIX delete-while-open behavior.
@@ -251,22 +248,19 @@ Current state:
 - The Doom port has a freestanding MUS/MIDI parser and bounded PCM renderer that
   submits music as a looped PCM carrier through the same audio syscall and SB16
   voice mixer path without editing the original Doom tree.
+- Run `26151623245` passes `tools/check_audio_continuity_proof.py` and
+  `tools/check_audible_audio_proof.py` with status-only SB16 continuity and a
+  copyright-safe aggregate `audio-proof.json`, proving non-silent audible output
+  without uploading raw audio.
 
 Still missing:
 
-- No current cloud or remote artifact proves audible output from a real Doom run.
 - Music renders bounded PCM windows and loops that carrier rather than advancing
   a long-running MUS/MIDI pull/refill stream; balancing between music and SFX
   still needs real playback tuning.
-- A new `tools/check_audio_continuity_proof.py` gate can validate `audio=SB16`,
-  IRQ/refill, SFX, and looped music-carrier counter progression across status
-  snapshots without capturing audio bytes, but it still needs a current remote
-  artifact with clean baseline/fire/move/use/menu/final progression to pass.
-- `tools/check_audible_audio_proof.py` now defines the next host-safe proof:
-  the cloud workflow can opt into a temporary QEMU WAV backend, reduce the
-  capture to aggregate `audio-proof.json`, delete the WAV, and upload only the
-  manifest plus status/log diagnostics. The artifact checker rejects raw audio
-  files and validates `audio-proof.json` when present.
+- Human listener quality validation is still separate from the aggregate
+  audible-output proof. For human quality notes, use remote audio forwarding
+  without uploading captured Doom audio.
 
 Executable gate:
 

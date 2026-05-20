@@ -76,14 +76,21 @@ REQUIRED_GAPS = {
 
 LATEST_RUN_PHRASES = (
     "Latest Cloud Evidence",
-    "latest analyzed real-WAD cloud evidence has moved past",
+    "current scripted cloud truth-serum run",
+    "26151623245",
+    "4c2c5c9",
+    "real-WAD, human-playability",
+    "audible-audio manifest",
+    "persistence reboot",
+    "artifact hygiene",
+    "26151623239",
     "26150621804",
     "1db3a7a",
     "usr=FAIL",
-    "real-WAD proof gate",
+    "failed the proof gate",
     "26149350434",
     "da9c136",
-    "passed the scripted real-WAD cloud artifact checker",
+    "then-current scripted checker",
     "playability-status-green",
     "doomrun=RUN",
     "doomopen=OK",
@@ -92,7 +99,7 @@ LATEST_RUN_PHRASES = (
     "Frame/gameplay counters are active",
     "SB16/audio counters",
     "preemption counters are active",
-    "workflow, or checker contract changes",
+    "workflow, or checker changes",
     "usr=OK",
     "scripted `use`",
     "mouse effect",
@@ -110,7 +117,7 @@ LATEST_RUN_PHRASES = (
     "34eb98d",
     "W_AddFile+0x246",
     "doomfaultip=01024D06",
-    "not a Doom-capable proof",
+    "human-facing Doom-capable proof",
 )
 
 GAP_RE = re.compile(
@@ -176,12 +183,13 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         if not _contains_phrase(text, phrase):
             raise AssertionError(f"gap ledger missing latest-run phrase: {phrase}")
     for phrase in (
-        "not a Doom-capable claim",
-        "26150621804",
-        "usr=FAIL",
+        "scripted cloud evidence",
+        "26151623245",
+        "4c2c5c9",
+        "26151623239",
         "playability-status-green",
     ):
-        if phrase not in readme:
+        if not _contains_phrase(readme, phrase):
             raise AssertionError(f"README missing claim-boundary phrase: {phrase}")
     if "not a claim that the current branch is playable" not in playable_cloud_proof:
         raise AssertionError("playable cloud proof doc must not read as a current playability claim")
