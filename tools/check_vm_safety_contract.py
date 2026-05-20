@@ -428,7 +428,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         'smoke_vmmhpa_text db " vmmhpa=", 0',
         'smoke_vmmhpt_text db " vmmhpt=", 0',
         'smoke_vmmhfree_text db " vmmhfree=", 0',
-        "USER_PROBE_EXPECTED_FLAGS equ 0x00001fff",
+        "USER_PROBE_EXPECTED_FLAGS equ 0x00003fff",
         "SYS_EXEC_ARGV_SOURCE_DEFAULT equ 1",
         "SYS_EXEC_ARGV_SOURCE_USER equ 2",
         "PROCESS_RECORD_BYTES equ 168",

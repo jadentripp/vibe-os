@@ -24,6 +24,9 @@ PROBE_USER_BASE = 0x00E80000
 PROBE_USER_END = 0x00F00000
 PREEMPT_PROBE_MAGIC = 0x50524545
 SYS_EXEC_ARGV_SOURCE_USER = 2
+PROCESS_SLOT_COUNT = 6
+PROCESS_GENERIC_SLOT_COUNT = 2
+WAIT_PROOF_EXIT_STATUS = 0x2A
 USER_KIND_DOOM = 2
 USER_KIND_PREEMPT_PROBE = 3
 PROC_DOOM_PAGE_DIR_ADDR = 0x00082000
@@ -180,6 +183,60 @@ def validate_exec(fields: dict[str, str]) -> None:
     if argv_source != SYS_EXEC_ARGV_SOURCE_USER:
         raise AssertionError("argvsrc= must be 2 to prove the user argv-vector copy path")
 
+    process_slots, generic_slots, slot_reuses, _generic_allocs, generic_failures = _hex_tuple(
+        fields, "procpool", 5, "/"
+    )
+    if process_slots != PROCESS_SLOT_COUNT:
+        raise AssertionError(
+            f"procpool= must report {PROCESS_SLOT_COUNT} bounded process records"
+        )
+    if generic_slots != PROCESS_GENERIC_SLOT_COUNT:
+        raise AssertionError(
+            f"procpool= must report {PROCESS_GENERIC_SLOT_COUNT} generic exec slots"
+        )
+    if slot_reuses == 0:
+        raise AssertionError("procpool= must prove exec reused a target process slot")
+    if generic_failures != 0:
+        raise AssertionError("procpool= must prove the bounded generic pool did not overflow")
+
+    next_pid, last_reused_pid, last_generation = _hex_tuple(fields, "pidseq", 3, "/")
+    if next_pid <= target:
+        raise AssertionError("pidseq= must show the PID allocator advanced past the target")
+    if last_reused_pid != target:
+        raise AssertionError("pidseq= must tie the last reused slot to the exec target PID")
+    if last_generation == 0:
+        raise AssertionError("pidseq= must prove the target slot generation advanced")
+
+    fd_handoffs, fd_inherited, _fd_closed, _owner_closes = _hex_tuple(
+        fields, "fdexec", 4, "/"
+    )
+    if fd_handoffs == 0:
+        raise AssertionError("fdexec= must prove exec performed an fd ownership handoff")
+    if fd_inherited == 0:
+        raise AssertionError("fdexec= must prove at least one fd inherited across exec")
+
+    (
+        wait_attempts,
+        wait_reaps,
+        wait_failures,
+        _wait_nohang,
+        wait_seeded,
+        wait_last_pid,
+        wait_last_status,
+    ) = _hex_tuple(fields, "wait", 7, "/")
+    if wait_seeded == 0:
+        raise AssertionError("wait= must prove the bounded wait/reap child was seeded")
+    if wait_attempts == 0 or wait_reaps == 0:
+        raise AssertionError("wait= must prove a userland waitpid reaped an exited child")
+    if wait_failures == 0:
+        raise AssertionError("wait= must also prove classified waitpid failure paths")
+    if wait_last_pid == 0 or wait_last_pid == 0xFFFFFFFF:
+        raise AssertionError("wait= must record a real reaped child PID")
+    if wait_last_status != WAIT_PROOF_EXIT_STATUS:
+        raise AssertionError(
+            f"wait= must record seeded child exit status {WAIT_PROOF_EXIT_STATUS:#x}"
+        )
+
 
 def validate_preemption(fields: dict[str, str]) -> None:
     _exact(fields, "pself", "OK")
@@ -285,6 +342,9 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         _require(text, "tools/check_vm_status_proof.py", label)
         _require(text, "vmmhfree", label)
         _require(text, "argvsrc=2", label)
+        _require(text, "procpool=", label)
+        _require(text, "fdexec=", label)
+        _require(text, "wait=", label)
         _require(text, "peip", label)
         _require(text, "pkind", label)
         _require(text, "pcr3", label)

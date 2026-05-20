@@ -187,7 +187,10 @@ The cloud proof requires these status families:
   `doomrun=RUN` show that the kernel loaded the Doom ELF, performed a
   syscall-driven exec handoff, seeded the user ABI stack from the copied user
   vector, recorded process parent metadata, and left Doom running rather than
-  merely validating bytes on disk. The six `execsys`
+  merely validating bytes on disk. `procpool=`, `pidseq=`, `fdexec=`, and
+  `wait=` additionally show bounded process-slot reuse, PID generation
+  movement, exec-time fd inheritance, and a userland wait/reap proof. The six
+  `execsys`
   counters are attempts, successes, failures, handoffs, scheduled targets, and
   rollbacks.
 - Storage/libc: `wad=OK`, `lmp=OK`, `doomopen=OK`, `doomread=OK`,
@@ -277,9 +280,10 @@ The cloud proof requires these status families:
 
 `tools/check_vm_status_proof.py` is the legitimacy ratchet for the VM/process
 status fields. It requires `vmmhfree` to match the reclaimed `vmmhpt` frame,
-`argvsrc=2` for the Doom exec path, and `pkind`/`peip`/`pcr3`/`pkstk` to cross
-the Doom/preempt-probe tasks, user windows, address spaces, and kernel stacks
-during timer IRQ preemption.
+`argvsrc=2` for the Doom exec path, `procpool=`/`fdexec=`/`wait=` for bounded
+process-slot reuse, exec-time fd inheritance, and the wait/reap proof, and
+`pkind`/`peip`/`pcr3`/`pkstk` to cross the Doom/preempt-probe tasks, user
+windows, address spaces, and kernel stacks during timer IRQ preemption.
 
 `tools/check_real_wad_proof.py` gates the real-WAD status on both the non-pixel
 visual proof and the scripted playability proof, plus the system/process/storage

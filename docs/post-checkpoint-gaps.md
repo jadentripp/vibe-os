@@ -427,8 +427,10 @@ Current state:
   legitimate non-identity mapping capability, not a relocated running kernel.
   `tools/check_vm_status_proof.py` turns those fields into a cloud gate: it
   requires `vmmhfree` to match the reclaimed `vmmhpt` frame, `argvsrc=2` for
-  user-vector exec, and `pkind`/`peip`/`pcr3`/`pkstk` for the timer IRQ switch
-  between Doom and the preempt probe.
+  user-vector exec, `procpool=`/`fdexec=`/`wait=` for bounded process-slot
+  reuse, exec-time fd inheritance, and the wait/reap proof, and
+  `pkind`/`peip`/`pcr3`/`pkstk` for the timer IRQ switch between Doom and the
+  preempt probe.
 
 Still missing:
 
