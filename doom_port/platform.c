@@ -21,6 +21,12 @@ static byte doom_zone[8 * 1024 * 1024];
 static doomcom_t local_doomcom;
 static ticcmd_t empty_ticcmd;
 static byte active_palette[256 * 3];
+static int next_sound_handle = 1;
+
+static int vibe_mouse_delta(unsigned int packed, int shift)
+{
+    return (int)(signed char)((packed >> shift) & 0xffu);
+}
 
 int mb_used = 8;
 FILE* sndserver = 0;
@@ -60,6 +66,18 @@ void I_StartTic(void)
         event.data1 = packed & 0xff;
         event.data2 = 0;
         event.data3 = 0;
+        D_PostEvent(&event);
+    }
+
+    for (i = 0; i < 32; ++i) {
+        packed = vibe_syscall3(VIBE_SYS_POLL_MOUSE, 0, 0, 0);
+        if (!((unsigned int)packed & VIBE_MOUSE_EVENT_VALID))
+            break;
+
+        event.type = ev_mouse;
+        event.data1 = packed & 0x07;
+        event.data2 = vibe_mouse_delta((unsigned int)packed, 8);
+        event.data3 = vibe_mouse_delta((unsigned int)packed, 16);
         D_PostEvent(&event);
     }
 }
@@ -117,8 +135,25 @@ void I_UpdateNoBlit(void)
 {
 }
 
+static void report_gameplay_status(void)
+{
+    unsigned long packed = ((unsigned long)(gamestate & 0xff))
+        | ((unsigned long)(gameepisode & 0xff) << 8)
+        | ((unsigned long)(gamemap & 0xff) << 16)
+        | ((unsigned long)(menuactive ? 1 : 0) << 24)
+        | ((unsigned long)(automapactive ? 1 : 0) << 25)
+        | ((unsigned long)(paused ? 1 : 0) << 26);
+
+    (void)vibe_syscall3(
+        VIBE_SYS_GAMEPLAY_STATUS,
+        packed,
+        (unsigned long)gametic,
+        (unsigned long)leveltime);
+}
+
 void I_FinishUpdate(void)
 {
+    report_gameplay_status();
     if (screens[0])
         (void)vibe_syscall3(VIBE_SYS_PRESENT, (unsigned int)screens[0], (unsigned int)active_palette, 0);
 }
@@ -163,6 +198,7 @@ void I_NetCmd(void)
 
 void I_InitSound(void)
 {
+    (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_INIT, 0, 0);
 }
 
 void I_UpdateSound(void)
@@ -175,6 +211,7 @@ void I_SubmitSound(void)
 
 void I_ShutdownSound(void)
 {
+    (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_SHUTDOWN, 0, 0);
 }
 
 void I_SetChannels(void)
@@ -193,17 +230,21 @@ int I_GetSfxLumpNum(sfxinfo_t* sfxinfo)
 
 int I_StartSound(int id, int vol, int sep, int pitch, int priority)
 {
-    (void)id;
-    (void)vol;
-    (void)sep;
-    (void)pitch;
     (void)priority;
-    return 0;
+    {
+        int handle = next_sound_handle++;
+        unsigned long packed = ((unsigned long)(vol & 0xff) << 24)
+            | ((unsigned long)(sep & 0xff) << 16)
+            | ((unsigned long)(pitch & 0xff) << 8)
+            | (unsigned long)(id & 0xff);
+        (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_START_SFX, (unsigned long)handle, packed);
+        return handle;
+    }
 }
 
 void I_StopSound(int handle)
 {
-    (void)handle;
+    (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_STOP_SFX, (unsigned long)handle, 0);
 }
 
 int I_SoundIsPlaying(int handle)
@@ -214,10 +255,10 @@ int I_SoundIsPlaying(int handle)
 
 void I_UpdateSoundParams(int handle, int vol, int sep, int pitch)
 {
-    (void)handle;
-    (void)vol;
-    (void)sep;
-    (void)pitch;
+    unsigned long packed = ((unsigned long)(vol & 0xff) << 16)
+        | ((unsigned long)(sep & 0xff) << 8)
+        | (unsigned long)(pitch & 0xff);
+    (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_UPDATE_SFX, (unsigned long)handle, packed);
 }
 
 void I_InitMusic(void)

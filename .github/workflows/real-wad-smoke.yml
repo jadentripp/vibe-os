@@ -103,16 +103,32 @@ jobs:
           make DOOM_WAD="$WAD_PATH"
 
       - name: Boot real-WAD image
+        timeout-minutes: 2
         run: |
           make \
             DOOM_WAD="$WAD_PATH" \
             ALLOW_LOCAL_VM=1 \
             SMOKE_EXPECT_PROBE_GFX=0 \
+            SMOKE_CAPTURE_GFX=0 \
+            SMOKE_QEMU_TIMEOUT=45 \
+            SMOKE_EARLY_SECONDS=2 \
+            SMOKE_SETTLE_SECONDS=20 \
             SMOKE_REQUIRE_DOOM_PRESENT=1 \
+            SMOKE_REQUIRE_DOOM_GAMEPLAY=1 \
             SMOKE_REQUIRE_KEY_EVENT=1 \
             SMOKE_SENDKEYS="spc" \
             SMOKE_REJECT_DOOMLOG="doom error|PNAMES not found|W_GetNumForName" \
             smoke
+
+      - name: Show smoke diagnostics
+        if: always()
+        run: |
+          for file in build/status.early.txt build/status.txt build/vga.early.txt build/vga.txt build/smoke.log build/qemu.log build/monitor.log build/serial.log; do
+            if [ -f "$file" ]; then
+              echo "---- $file ----"
+              sed -n '1,220p' "$file"
+            fi
+          done
 
       - name: Re-check validated WAD after smoke
         if: always()
@@ -140,6 +156,8 @@ jobs:
           path: |
             build/kernel.elf
             build/user_probe.elf
-            build/status.bin
-            build/status.txt
-            build/vga.txt
+            build/doom.elf
+            build/status*.bin
+            build/status*.txt
+            build/vga*.txt
+            build/*.log

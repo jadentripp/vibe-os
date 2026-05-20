@@ -12,7 +12,13 @@ SMOKE_REJECT_DOOMLOG ?=
 SMOKE_SENDKEYS ?=
 SMOKE_REQUIRE_DOOM_PRESENT ?= 0
 SMOKE_REQUIRE_KEY_EVENT ?= 0
+SMOKE_REQUIRE_DOOM_GAMEPLAY ?= 0
 SMOKE_NC_TIMEOUT ?= 3
+SMOKE_QEMU_TIMEOUT ?= 30
+SMOKE_EARLY_SECONDS ?= 2
+SMOKE_SETTLE_SECONDS ?= 5
+SMOKE_SHUTDOWN_TIMEOUT ?= 5
+SMOKE_CAPTURE_GFX ?= 1
 
 BUILD_DIR := build
 STAGE1_BIN := $(BUILD_DIR)/stage1.bin
@@ -42,9 +48,12 @@ STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 49152
 USER_PROBE_ELF_MAX_BYTES := 8192
 
-.PHONY: all test doom-compile doom-link run run-headless smoke clean check-tools vm-consent
+.PHONY: all build-only test doom-compile doom-link run run-headless smoke clean check-tools vm-consent
 
 all: $(IMAGE)
+
+build-only: $(IMAGE) doom-link
+	@printf "Build-only check OK: %s and %s are present.\n" "$(IMAGE)" "$(DOOM_ELF)"
 
 test: $(IMAGE) doom-link
 	$(PYTHON) -m unittest discover -s tests/host -p 'test_*.py'
@@ -126,22 +135,34 @@ run-headless: vm-consent check-tools $(IMAGE)
 	$(QEMU) -machine $(QEMU_MACHINE) -drive file=$(IMAGE),format=raw,if=ide,index=0,media=disk -boot c -display none -monitor none
 
 smoke: vm-consent check-tools $(IMAGE)
-	@rm -f $(BUILD_DIR)/monitor.sock $(BUILD_DIR)/vga.bin $(BUILD_DIR)/vga.txt $(BUILD_DIR)/status.bin $(BUILD_DIR)/status.txt $(BUILD_DIR)/gfx.bin
+	@QEMU="$(QEMU)" \
+		QEMU_MACHINE="$(QEMU_MACHINE)" \
+		IMAGE="$(IMAGE)" \
+		BUILD_DIR="$(BUILD_DIR)" \
+		NC="$(NC)" \
+		SMOKE_NC_TIMEOUT="$(SMOKE_NC_TIMEOUT)" \
+		SMOKE_QEMU_TIMEOUT="$(SMOKE_QEMU_TIMEOUT)" \
+		SMOKE_EARLY_SECONDS="$(SMOKE_EARLY_SECONDS)" \
+		SMOKE_SETTLE_SECONDS="$(SMOKE_SETTLE_SECONDS)" \
+		SMOKE_SHUTDOWN_TIMEOUT="$(SMOKE_SHUTDOWN_TIMEOUT)" \
+		SMOKE_CAPTURE_GFX="$(SMOKE_CAPTURE_GFX)" \
+		SMOKE_SENDKEYS="$(SMOKE_SENDKEYS)" \
+		tests/run_smoke_qemu.sh
 	@set -e; \
-	$(QEMU) -machine $(QEMU_MACHINE) -drive file=$(IMAGE),format=raw,if=ide,index=0,media=disk -boot c -display none -serial none -monitor unix:$(BUILD_DIR)/monitor.sock,server,nowait -no-reboot -no-shutdown & \
-	pid=$$!; \
-	sleep 5; \
-	if [ -n "$(SMOKE_SENDKEYS)" ]; then \
-		for key in $(SMOKE_SENDKEYS); do \
-			printf "sendkey %s\n" "$$key" | $(NC) -w $(SMOKE_NC_TIMEOUT) -U $(BUILD_DIR)/monitor.sock >/dev/null; \
-			sleep 1; \
-		done; \
-	fi; \
-	printf "pmemsave 0xb8000 4000 $(BUILD_DIR)/vga.bin\npmemsave 0x9d000 1024 $(BUILD_DIR)/status.bin\npmemsave 0xa0000 64000 $(BUILD_DIR)/gfx.bin\nquit\n" | $(NC) -w $(SMOKE_NC_TIMEOUT) -U $(BUILD_DIR)/monitor.sock >/dev/null; \
-	wait $$pid >/dev/null 2>&1 || true; \
+	dump_diagnostics() { \
+		rc=$$?; \
+		if [ $$rc -ne 0 ]; then \
+			echo "Smoke assertion failed with status $$rc."; \
+			if [ -f "$(BUILD_DIR)/status.txt" ]; then echo "---- final status.txt ----"; cat "$(BUILD_DIR)/status.txt"; fi; \
+			if [ -f "$(BUILD_DIR)/status.early.txt" ]; then echo "---- early status.early.txt ----"; cat "$(BUILD_DIR)/status.early.txt"; fi; \
+			if [ -f "$(BUILD_DIR)/smoke.log" ]; then echo "---- smoke.log ----"; tail -200 "$(BUILD_DIR)/smoke.log"; fi; \
+			if [ -f "$(BUILD_DIR)/qemu.log" ]; then echo "---- qemu.log ----"; tail -200 "$(BUILD_DIR)/qemu.log"; fi; \
+			if [ -f "$(BUILD_DIR)/serial.log" ]; then echo "---- serial.log ----"; tail -200 "$(BUILD_DIR)/serial.log"; fi; \
+		fi; \
+		exit $$rc; \
+	}; \
+	trap dump_diagnostics EXIT; \
 	test -s $(BUILD_DIR)/status.bin; \
-	perl -e 'local $$/; $$d = <>; for ($$i = 0; $$i < length($$d); $$i += 2) { $$c = ord(substr($$d, $$i, 1)); print chr($$c || 32); }' $(BUILD_DIR)/vga.bin > $(BUILD_DIR)/vga.txt; \
-	perl -e 'local $$/; $$d = <>; $$d =~ s/\0/ /g; print $$d' $(BUILD_DIR)/status.bin > $(BUILD_DIR)/status.txt; \
 	grep -q "Aurora OS v0.2" $(BUILD_DIR)/status.txt; \
 	grep -q "pg=ON" $(BUILD_DIR)/status.txt; \
 	grep -q "pmm=OK" $(BUILD_DIR)/status.txt; \
@@ -157,26 +178,47 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "doomread=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "doomlog=" $(BUILD_DIR)/status.txt; \
 	grep -q "doompresent=" $(BUILD_DIR)/status.txt; \
+	grep -q "gameplay=" $(BUILD_DIR)/status.txt; \
+	grep -q "gstate=" $(BUILD_DIR)/status.txt; \
+	grep -q "gmap=" $(BUILD_DIR)/status.txt; \
+	grep -q "gtic=" $(BUILD_DIR)/status.txt; \
+	grep -q "leveltime=" $(BUILD_DIR)/status.txt; \
+	grep -q "doomsound=" $(BUILD_DIR)/status.txt; \
+	grep -Eq "audio=(SB16|NONE)" $(BUILD_DIR)/status.txt; \
 	grep -q "keyirq=" $(BUILD_DIR)/status.txt; \
 	grep -q "keyqueue=" $(BUILD_DIR)/status.txt; \
 	grep -q "keypoll=" $(BUILD_DIR)/status.txt; \
+	grep -Eq "mouse=(OK|NONE)" $(BUILD_DIR)/status.txt; \
+	grep -q "mouseirq=" $(BUILD_DIR)/status.txt; \
+	grep -q "mousepkt=" $(BUILD_DIR)/status.txt; \
+	grep -q "mousepoll=" $(BUILD_DIR)/status.txt; \
 	grep -q "gfx=OK" $(BUILD_DIR)/status.txt; \
+	grep -Eq "fb=(LFB|M13)" $(BUILD_DIR)/status.txt; \
 	grep -q "heap=OK" $(BUILD_DIR)/status.txt; \
-	test -s $(BUILD_DIR)/gfx.bin; \
-	if [ "$(SMOKE_EXPECT_PROBE_GFX)" = "1" ]; then \
-		if perl -ne '$$ok = 1 if /doompresent=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; then \
-			test $$(wc -c < $(BUILD_DIR)/gfx.bin) -eq 64000; \
+	if [ "$(SMOKE_CAPTURE_GFX)" = "1" ]; then \
+		test -s $(BUILD_DIR)/gfx.bin; \
+		if [ "$(SMOKE_EXPECT_PROBE_GFX)" = "1" ]; then \
+			if perl -ne '$$ok = 1 if /doompresent=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; then \
+				test $$(wc -c < $(BUILD_DIR)/gfx.bin) -eq 64000; \
+			else \
+				perl -e 'local $$/; $$d = <>; exit(length($$d) == 64000 && ord(substr($$d, 0, 1)) == 0 && ord(substr($$d, 1, 1)) == 1 && ord(substr($$d, 320, 1)) == 64 && ord(substr($$d, 63999, 1)) == 255 ? 0 : 1)' $(BUILD_DIR)/gfx.bin; \
+			fi; \
 		else \
-			perl -e 'local $$/; $$d = <>; exit(length($$d) == 64000 && ord(substr($$d, 0, 1)) == 0 && ord(substr($$d, 1, 1)) == 1 && ord(substr($$d, 320, 1)) == 64 && ord(substr($$d, 63999, 1)) == 255 ? 0 : 1)' $(BUILD_DIR)/gfx.bin; \
+			test $$(wc -c < $(BUILD_DIR)/gfx.bin) -eq 64000; \
 		fi; \
-	else \
-		test $$(wc -c < $(BUILD_DIR)/gfx.bin) -eq 64000; \
 	fi; \
 	if [ -n "$(SMOKE_REJECT_DOOMLOG)" ]; then \
 		! grep -Eq "$(SMOKE_REJECT_DOOMLOG)" $(BUILD_DIR)/status.txt; \
 	fi; \
 	if [ "$(SMOKE_REQUIRE_DOOM_PRESENT)" = "1" ]; then \
 		perl -ne '$$ok = 1 if /doompresent=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+	fi; \
+	if [ "$(SMOKE_REQUIRE_DOOM_GAMEPLAY)" = "1" ]; then \
+		grep -q "gameplay=OK" $(BUILD_DIR)/status.txt; \
+		perl -ne '$$ok = 1 if /gstate=([0-9A-F]{8})/ && hex($$1) == 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+		perl -ne '$$ok = 1 if /gmap=([0-9A-F]{8})/ && hex($$1) == 0x00000101; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+		perl -ne '$$ok = 1 if /gtic=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+		perl -ne '$$ok = 1 if /leveltime=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	fi; \
 	if [ -n "$(SMOKE_SENDKEYS)" ] || [ "$(SMOKE_REQUIRE_KEY_EVENT)" = "1" ]; then \
 		perl -ne '$$ok = 1 if /keyirq=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
@@ -185,6 +227,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	fi; \
 	perl -ne '$$ok = 1 if /heap=OK free=([0-9A-F]{8})/ && hex($$1) >= 0x00700000; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	perl -ne '$$ok = 1 if /ticks=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+	trap - EXIT; \
 	printf "Smoke boot OK: protected-mode kernel status, Ring 3 probe, Doom ELF load, indexed-frame present, and PIT ticks verified in cloud VM memory.\n"
 
 clean:

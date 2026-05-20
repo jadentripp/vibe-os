@@ -42,7 +42,6 @@ jobs:
             build/disk.img
             build/kernel.elf
             build/user_probe.elf
-            build/gfx.bin
             build/status.bin
             build/status.txt
             build/vga.txt

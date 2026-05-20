@@ -34,11 +34,34 @@ KEY_QUEUE_SIZE equ 32
 KEY_QUEUE_MASK equ KEY_QUEUE_SIZE - 1
 KEY_EVENT_DOWN equ 0x00000100
 KEY_EVENT_VALID equ 0x00010000
+MOUSE_QUEUE_SIZE equ 32
+MOUSE_QUEUE_MASK equ MOUSE_QUEUE_SIZE - 1
+MOUSE_EVENT_VALID equ 0x01000000
 DOOM_SCREEN_WIDTH equ 320
 DOOM_SCREEN_HEIGHT equ 200
 DOOM_FRAME_BYTES equ DOOM_SCREEN_WIDTH * DOOM_SCREEN_HEIGHT
 DOOM_PALETTE_BYTES equ 256 * 3
 BOOT_INFO_ADDR equ 0x7000
+VIDEO_BOOT_MAGIC equ 0x45444956
+BOOT_VIDEO_MODE equ BOOT_INFO_ADDR + 12
+BOOT_VIDEO_FLAGS equ BOOT_INFO_ADDR + 14
+BOOT_VIDEO_FB_ADDR equ BOOT_INFO_ADDR + 16
+BOOT_VIDEO_PITCH equ BOOT_INFO_ADDR + 20
+BOOT_VIDEO_WIDTH equ BOOT_INFO_ADDR + 24
+BOOT_VIDEO_HEIGHT equ BOOT_INFO_ADDR + 26
+BOOT_VIDEO_BPP equ BOOT_INFO_ADDR + 28
+BOOT_VIDEO_MEMORY_MODEL equ BOOT_INFO_ADDR + 29
+BOOT_VIDEO_RED_MASK equ BOOT_INFO_ADDR + 30
+BOOT_VIDEO_RED_POS equ BOOT_INFO_ADDR + 31
+BOOT_VIDEO_GREEN_MASK equ BOOT_INFO_ADDR + 32
+BOOT_VIDEO_GREEN_POS equ BOOT_INFO_ADDR + 33
+BOOT_VIDEO_BLUE_MASK equ BOOT_INFO_ADDR + 34
+BOOT_VIDEO_BLUE_POS equ BOOT_INFO_ADDR + 35
+BOOT_VIDEO_FLAG_VBE equ 0x0001
+BOOT_VIDEO_FLAG_LFB equ 0x0002
+BOOT_VIDEO_FLAG_XRGB8888 equ 0x0004
+VIDEO_BACKEND_MODE13 equ 1
+VIDEO_BACKEND_LFB_XRGB8888 equ 2
 CODE_SEG equ 0x08
 DATA_SEG equ 0x10
 USER_CODE_SEG equ 0x1b
@@ -47,11 +70,24 @@ TSS_SEG equ 0x28
 KERNEL_STACK_TOP equ 0x00070000
 PIT_DIVISOR_100HZ equ 11932
 PAGE_SIZE equ 0x1000
+PTE_PRESENT equ 0x001
+PTE_WRITE equ 0x002
+PTE_USER equ 0x004
+PTE_KERNEL_FLAGS equ PTE_PRESENT | PTE_WRITE
+PTE_USER_FLAGS equ PTE_PRESENT | PTE_WRITE | PTE_USER
 PAGING_DIR_ADDR equ 0x00090000
 PAGING_TABLES_ADDR equ 0x00091000
 PAGING_TABLE_COUNT equ 8
 PAGING_TOTAL_PAGES equ PAGING_TABLE_COUNT * 1024
 PAGING_MAPPED_BYTES equ PAGING_TABLE_COUNT * 0x00400000
+FB_PAGE_TABLE_ADDR equ 0x0009c000
+PROC_PROBE_PAGE_DIR_ADDR equ 0x00080000
+PROC_PROBE_PDE3_TABLE_ADDR equ 0x00081000
+PROC_DOOM_PAGE_DIR_ADDR equ 0x00082000
+PROC_DOOM_PDE4_TABLE_ADDR equ 0x00084000
+PROC_DOOM_PDE5_TABLE_ADDR equ 0x00085000
+PROC_DOOM_PDE6_TABLE_ADDR equ 0x00086000
+PROC_DOOM_PDE7_TABLE_ADDR equ 0x00087000
 PMM_FRAME_MAP_ADDR equ 0x00099000
 PMM_MANAGED_START equ 0x00100000
 PMM_MANAGED_END equ 0x02000000
@@ -90,7 +126,7 @@ PROC_STATE_RUNNING equ 2
 PROC_STATE_EXITED equ 3
 PROC_STATE_FAULTED equ 4
 PROCESS_SLOT_COUNT equ 3
-PROCESS_RECORD_BYTES equ 108
+PROCESS_RECORD_BYTES equ 128
 PROC_PID equ 0
 PROC_KIND equ 4
 PROC_STATE equ 8
@@ -118,6 +154,17 @@ PROC_TICKS equ 92
 PROC_RUNS equ 96
 PROC_QUANTUM_TICKS equ 100
 PROC_SWITCHES equ 104
+PROC_PAGE_DIR equ 108
+PROC_VM_REGIONS equ 112
+PROC_VM_REGION_COUNT equ 116
+PROC_VM_FLAGS equ 120
+PROC_FLAG_IRQ_FRAME_VALID equ 0x1
+VM_REGION_BYTES equ 12
+VM_REGION_BASE equ 0
+VM_REGION_END equ 4
+VM_REGION_FLAGS equ 8
+VM_REGION_USER equ 0x1
+VM_REGION_HEAP equ 0x2
 SCHEDULER_QUANTUM_TICKS equ 5
 C_RUNTIME_MAGIC equ 0xC0DEF00D
 ELF_MAGIC equ 0x464c457f
@@ -158,8 +205,66 @@ SYS_TIME equ 9
 SYS_PRESENT equ 10
 SYS_POLL_KEY equ 11
 SYS_CLOSE equ 12
+SYS_AUDIO equ 13
+SYS_POLL_MOUSE equ 14
+SYS_GAMEPLAY_STATUS equ 15
+AUDIO_CMD_INIT equ 1
+AUDIO_CMD_START_SFX equ 2
+AUDIO_CMD_STOP_SFX equ 3
+AUDIO_CMD_UPDATE_SFX equ 4
+AUDIO_CMD_SHUTDOWN equ 5
 VGA_DAC_WRITE_INDEX equ 0x03c8
 VGA_DAC_DATA equ 0x03c9
+SB16_BASE equ 0x0220
+SB16_MIXER_ADDR equ SB16_BASE + 0x04
+SB16_MIXER_DATA equ SB16_BASE + 0x05
+SB16_DSP_RESET equ SB16_BASE + 0x06
+SB16_DSP_READ equ SB16_BASE + 0x0a
+SB16_DSP_WRITE equ SB16_BASE + 0x0c
+SB16_DSP_READ_STATUS equ SB16_BASE + 0x0e
+SB16_DSP_ACK16 equ SB16_BASE + 0x0f
+SB16_DSP_READY equ 0x80
+SB16_DSP_RESET_ACK equ 0xaa
+SB16_DSP_GET_VERSION equ 0xe1
+SB16_DSP_SPEAKER_ON equ 0xd1
+SB16_DSP_SPEAKER_OFF equ 0xd3
+SB16_DSP_EXIT_8BIT_AUTO equ 0xda
+SB16_DSP_SET_TIME_CONSTANT equ 0x40
+SB16_DSP_SET_BLOCK_SIZE equ 0x48
+SB16_DSP_8BIT_AUTO_OUT equ 0x1c
+SB16_DMA8_CHANNEL equ 1
+SB16_DMA16_CHANNEL equ 5
+SB16_IRQ_LINE equ 5
+SB16_SAMPLE_RATE equ 11025
+SB16_TIME_CONSTANT equ 256 - (1000000 / SB16_SAMPLE_RATE)
+SB16_DMA_BUFFER_BYTES equ 4096
+SB16_DMA_BLOCK_BYTES equ SB16_DMA_BUFFER_BYTES / 2
+SB16_MIXER_IRQ_SELECT equ 0x80
+SB16_MIXER_DMA_SELECT equ 0x81
+SB16_MIXER_IRQ5_BIT equ 0x02
+SB16_MIXER_DMA_CH1_BIT equ 0x02
+SB16_MIXER_DMA_CH5_BIT equ 0x20
+DMA8_MASK_REG equ 0x0a
+DMA8_MODE_REG equ 0x0b
+DMA8_CLEAR_FLIPFLOP_REG equ 0x0c
+DMA8_CH1_ADDR_REG equ 0x02
+DMA8_CH1_COUNT_REG equ 0x03
+DMA8_CH1_PAGE_REG equ 0x83
+DMA8_CH1_AUTO_READ_MODE equ 0x59
+PS2_DATA_PORT equ 0x0060
+PS2_STATUS_PORT equ 0x0064
+PS2_COMMAND_PORT equ 0x0064
+PS2_STATUS_OUTPUT_FULL equ 0x01
+PS2_STATUS_INPUT_FULL equ 0x02
+PS2_COMMAND_READ_CONFIG equ 0x20
+PS2_COMMAND_WRITE_CONFIG equ 0x60
+PS2_COMMAND_ENABLE_AUX equ 0xa8
+PS2_COMMAND_WRITE_AUX equ 0xd4
+PS2_CONFIG_AUX_IRQ equ 0x02
+PS2_CONFIG_AUX_CLOCK_DISABLE equ 0x20
+PS2_MOUSE_ACK equ 0xfa
+PS2_MOUSE_SET_DEFAULTS equ 0xf6
+PS2_MOUSE_ENABLE_DATA equ 0xf4
 ATA_DATA equ 0x01f0
 ATA_SECTOR_COUNT equ 0x01f2
 ATA_LBA_LOW equ 0x01f3
@@ -217,6 +322,7 @@ start:
     call pic_remap_and_mask
     call pit_init_100hz
     call paging_init
+    call framebuffer_init
     call pmm_init
     call pmm_self_test
     call vmm_self_test
@@ -225,7 +331,10 @@ start:
     call fpu_self_test
     call libc_self_test
     call storage_init
+    call audio_init
+    call ps2_mouse_init
     call scheduler_init
+    call scheduler_preempt_self_test
     call c_runtime_self_test
     cmp eax, C_RUNTIME_MAGIC
     je .c_runtime_ok
@@ -1256,10 +1365,43 @@ pic_unmask_timer:
     ret
 
 pic_unmask_timer_keyboard:
+    cmp byte [mouse_status], 1
+    je .with_mouse
+    cmp byte [audio_status], 1
+    je .with_audio
     mov al, 0xfc
     out 0x21, al
     call io_wait
     mov al, 0xff
+    out 0xa1, al
+    call io_wait
+    ret
+
+.with_audio:
+    mov al, 0xdc
+    out 0x21, al
+    call io_wait
+    mov al, 0xff
+    out 0xa1, al
+    call io_wait
+    ret
+
+.with_mouse:
+    cmp byte [audio_status], 1
+    je .with_mouse_audio
+    mov al, 0xf8
+    out 0x21, al
+    call io_wait
+    mov al, 0xef
+    out 0xa1, al
+    call io_wait
+    ret
+
+.with_mouse_audio:
+    mov al, 0xd8
+    out 0x21, al
+    call io_wait
+    mov al, 0xef
     out 0xa1, al
     call io_wait
     ret
@@ -1319,14 +1461,14 @@ paging_init:
 .pte_next:
     mov ebx, eax
     shl ebx, 12
-    or ebx, 0x003
+    or ebx, PTE_KERNEL_FLAGS
     mov [edi], ebx
     add edi, 4
     inc eax
     loop .pte_next
 
     mov edi, PAGING_DIR_ADDR
-    mov eax, PAGING_TABLES_ADDR | 0x003
+    mov eax, PAGING_TABLES_ADDR | PTE_KERNEL_FLAGS
     mov ecx, PAGING_TABLE_COUNT
 
 .pde_next:
@@ -1335,26 +1477,8 @@ paging_init:
     add edi, 4
     loop .pde_next
 
-    mov eax, USER_CODE_ADDR
-
-.user_page_next:
-    cmp eax, USER_HEAP_END
-    jae .user_pages_done
-    call vmm_mark_user_identity_page
-    add eax, PAGE_SIZE
-    jmp .user_page_next
-
-.user_pages_done:
-    mov eax, DOOM_USER_BASE
-
-.doom_page_next:
-    cmp eax, DOOM_USER_END
-    jae .doom_pages_done
-    call vmm_mark_user_identity_page
-    add eax, PAGE_SIZE
-    jmp .doom_page_next
-
-.doom_pages_done:
+    call framebuffer_map_lfb
+    call process_vm_init_page_spaces
 
     mov eax, PAGING_DIR_ADDR
     mov cr3, eax
@@ -1368,18 +1492,248 @@ paging_init:
     popad
     ret
 
-vmm_mark_user_identity_page:
+framebuffer_map_lfb:
+    pushad
+
+    mov byte [framebuffer_map_status], 0
+    cmp dword [BOOT_INFO_ADDR + 8], VIDEO_BOOT_MAGIC
+    jne .done
+    mov ax, [BOOT_VIDEO_FLAGS]
+    and ax, BOOT_VIDEO_FLAG_LFB | BOOT_VIDEO_FLAG_XRGB8888
+    cmp ax, BOOT_VIDEO_FLAG_LFB | BOOT_VIDEO_FLAG_XRGB8888
+    jne .fail
+    cmp byte [BOOT_VIDEO_BPP], 32
+    jne .fail
+    cmp dword [BOOT_VIDEO_FB_ADDR], 0
+    je .fail
+
+    mov eax, [BOOT_VIDEO_FB_ADDR]
+    shr eax, 22
+    mov [framebuffer_pde_index], eax
+    cmp eax, PAGING_TABLE_COUNT
+    jb .already_identity_mapped
+
+    mov eax, [BOOT_VIDEO_FB_ADDR]
+    and eax, 0x00000fff
+    mov ebx, eax
+    mov eax, [BOOT_VIDEO_PITCH]
+    movzx ecx, word [BOOT_VIDEO_HEIGHT]
+    mul ecx
+    test edx, edx
+    jnz .fail
+    add eax, ebx
+    jc .fail
+    add eax, PAGE_SIZE - 1
+    jc .fail
+    shr eax, 12
+    cmp eax, 1024
+    ja .fail
+    mov [framebuffer_page_count], eax
+
+    mov edx, [BOOT_VIDEO_FB_ADDR]
+    shr edx, 12
+    and edx, 0x000003ff
+    mov [framebuffer_pte_index], edx
+    mov ecx, [framebuffer_page_count]
+    add ecx, edx
+    cmp ecx, 1024
+    ja .fail
+
+    mov edi, FB_PAGE_TABLE_ADDR
+    xor eax, eax
+    mov ecx, 1024
+    cld
+    rep stosd
+
+    mov eax, [framebuffer_pde_index]
+    mov edi, PAGING_DIR_ADDR
+    lea edi, [edi + eax * 4]
+    mov dword [edi], FB_PAGE_TABLE_ADDR | PTE_KERNEL_FLAGS
+
+    mov edi, FB_PAGE_TABLE_ADDR
+    mov eax, [framebuffer_pte_index]
+    lea edi, [edi + eax * 4]
+    mov ebx, [BOOT_VIDEO_FB_ADDR]
+    and ebx, 0xfffff000
+    or ebx, PTE_KERNEL_FLAGS
+    mov ecx, [framebuffer_page_count]
+
+.pte_next:
+    cmp ecx, 0
+    je .mapped
+    mov [edi], ebx
+    add ebx, PAGE_SIZE
+    add edi, 4
+    dec ecx
+    jmp .pte_next
+
+.already_identity_mapped:
+    mov dword [framebuffer_page_count], 0
+    mov dword [framebuffer_pte_index], 0
+
+.mapped:
+    mov byte [framebuffer_map_status], 1
+    jmp .done
+
+.fail:
+    mov byte [framebuffer_map_status], 2
+
+.done:
+    popad
+    ret
+
+framebuffer_init:
+    mov byte [video_backend], VIDEO_BACKEND_MODE13
+    mov byte [framebuffer_status], 1
+    mov dword [framebuffer_addr], VGA_GRAPHICS_BUFFER
+    mov dword [framebuffer_pitch], DOOM_SCREEN_WIDTH
+    mov dword [framebuffer_width], DOOM_SCREEN_WIDTH
+    mov dword [framebuffer_height], DOOM_SCREEN_HEIGHT
+
+    cmp dword [BOOT_INFO_ADDR + 8], VIDEO_BOOT_MAGIC
+    jne .done
+    cmp byte [framebuffer_map_status], 1
+    jne .done
+    mov ax, [BOOT_VIDEO_FLAGS]
+    and ax, BOOT_VIDEO_FLAG_LFB | BOOT_VIDEO_FLAG_XRGB8888
+    cmp ax, BOOT_VIDEO_FLAG_LFB | BOOT_VIDEO_FLAG_XRGB8888
+    jne .done
+    cmp byte [BOOT_VIDEO_BPP], 32
+    jne .done
+    cmp byte [BOOT_VIDEO_MEMORY_MODEL], 6
+    jne .done
+    cmp byte [BOOT_VIDEO_RED_MASK], 8
+    jb .done
+    cmp byte [BOOT_VIDEO_RED_POS], 16
+    jne .done
+    cmp byte [BOOT_VIDEO_GREEN_MASK], 8
+    jb .done
+    cmp byte [BOOT_VIDEO_GREEN_POS], 8
+    jne .done
+    cmp byte [BOOT_VIDEO_BLUE_MASK], 8
+    jb .done
+    cmp byte [BOOT_VIDEO_BLUE_POS], 0
+    jne .done
+    movzx eax, word [BOOT_VIDEO_WIDTH]
+    cmp eax, 640
+    jb .done
+    movzx ebx, word [BOOT_VIDEO_HEIGHT]
+    cmp ebx, 400
+    jb .done
+    mov ecx, [BOOT_VIDEO_PITCH]
+    cmp ecx, 640 * 4
+    jb .done
+
+    mov byte [video_backend], VIDEO_BACKEND_LFB_XRGB8888
+    mov eax, [BOOT_VIDEO_FB_ADDR]
+    mov [framebuffer_addr], eax
+    mov eax, [BOOT_VIDEO_PITCH]
+    mov [framebuffer_pitch], eax
+    movzx eax, word [BOOT_VIDEO_WIDTH]
+    mov [framebuffer_width], eax
+    movzx eax, word [BOOT_VIDEO_HEIGHT]
+    mov [framebuffer_height], eax
+
+.done:
+    ret
+
+process_vm_init_page_spaces:
+    pushad
+
+    mov esi, PAGING_DIR_ADDR
+    mov edi, PROC_PROBE_PAGE_DIR_ADDR
+    mov ecx, 1024
+    cld
+    rep movsd
+
+    mov esi, PAGING_DIR_ADDR
+    mov edi, PROC_DOOM_PAGE_DIR_ADDR
+    mov ecx, 1024
+    cld
+    rep movsd
+
+    mov esi, PAGING_TABLES_ADDR + (3 * PAGE_SIZE)
+    mov edi, PROC_PROBE_PDE3_TABLE_ADDR
+    mov ecx, 1024
+    cld
+    rep movsd
+    mov dword [PROC_PROBE_PAGE_DIR_ADDR + (3 * 4)], PROC_PROBE_PDE3_TABLE_ADDR | PTE_USER_FLAGS
+
+    mov ebx, PROC_PROBE_PAGE_DIR_ADDR
+    mov eax, USER_CODE_ADDR
+    mov edx, USER_STACK_TOP
+    call vmm_mark_process_user_range
+    mov eax, USER_CODE_ADDR - PAGE_SIZE
+    call vmm_clear_process_page
+    mov eax, USER_HEAP_END
+    call vmm_clear_process_page
+
+    mov esi, PAGING_TABLES_ADDR + (4 * PAGE_SIZE)
+    mov edi, PROC_DOOM_PDE4_TABLE_ADDR
+    mov ecx, 1024
+    cld
+    rep movsd
+    mov dword [PROC_DOOM_PAGE_DIR_ADDR + (4 * 4)], PROC_DOOM_PDE4_TABLE_ADDR | PTE_USER_FLAGS
+
+    mov esi, PAGING_TABLES_ADDR + (5 * PAGE_SIZE)
+    mov edi, PROC_DOOM_PDE5_TABLE_ADDR
+    mov ecx, 1024
+    cld
+    rep movsd
+    mov dword [PROC_DOOM_PAGE_DIR_ADDR + (5 * 4)], PROC_DOOM_PDE5_TABLE_ADDR | PTE_USER_FLAGS
+
+    mov esi, PAGING_TABLES_ADDR + (6 * PAGE_SIZE)
+    mov edi, PROC_DOOM_PDE6_TABLE_ADDR
+    mov ecx, 1024
+    cld
+    rep movsd
+    mov dword [PROC_DOOM_PAGE_DIR_ADDR + (6 * 4)], PROC_DOOM_PDE6_TABLE_ADDR | PTE_USER_FLAGS
+
+    mov esi, PAGING_TABLES_ADDR + (7 * PAGE_SIZE)
+    mov edi, PROC_DOOM_PDE7_TABLE_ADDR
+    mov ecx, 1024
+    cld
+    rep movsd
+    mov dword [PROC_DOOM_PAGE_DIR_ADDR + (7 * 4)], PROC_DOOM_PDE7_TABLE_ADDR | PTE_USER_FLAGS
+
+    mov ebx, PROC_DOOM_PAGE_DIR_ADDR
+    mov eax, DOOM_USER_BASE
+    mov edx, DOOM_USER_HEAP_START
+    call vmm_mark_process_user_range
+    mov eax, DOOM_USER_STACK_BOTTOM
+    mov edx, DOOM_USER_STACK_TOP
+    call vmm_mark_process_user_range
+
+    popad
+    ret
+
+vmm_mark_process_user_range:
+    push eax
+    push edx
+
+.next:
+    cmp eax, edx
+    jae .done
+    call vmm_mark_process_user_page
+    add eax, PAGE_SIZE
+    jmp .next
+
+.done:
+    pop edx
+    pop eax
+    ret
+
+vmm_mark_process_user_page:
     push eax
     push ebx
     push edx
     push edi
 
-    mov ebx, eax
-    shr ebx, 22
-    mov edi, PAGING_DIR_ADDR
-    lea edi, [edi + ebx * 4]
+    mov edx, eax
+    shr edx, 22
+    lea edi, [ebx + edx * 4]
     mov edx, [edi]
-    or edx, 0x007
+    or edx, PTE_USER_FLAGS
     mov [edi], edx
     and edx, 0xfffff000
 
@@ -1387,9 +1741,34 @@ vmm_mark_user_identity_page:
     and eax, 0x3ff
     lea edi, [edx + eax * 4]
     mov ebx, [edi]
-    or ebx, 0x007
+    or ebx, PTE_USER_FLAGS
     mov [edi], ebx
 
+    pop edi
+    pop edx
+    pop ebx
+    pop eax
+    ret
+
+vmm_clear_process_page:
+    push eax
+    push ebx
+    push edx
+    push edi
+
+    mov edx, eax
+    shr edx, 22
+    lea edi, [ebx + edx * 4]
+    mov edx, [edi]
+    test edx, PTE_PRESENT
+    jz .done
+    and edx, 0xfffff000
+    shr eax, 12
+    and eax, 0x3ff
+    lea edi, [edx + eax * 4]
+    and dword [edi], 0xfffffffe
+
+.done:
     pop edi
     pop edx
     pop ebx
@@ -1431,6 +1810,10 @@ pmm_init:
 
     mov eax, USER_CODE_ADDR
     mov ecx, (USER_HEAP_END - USER_CODE_ADDR) / PAGE_SIZE
+    call pmm_reserve_pages
+
+    mov eax, DOOM_USER_BASE
+    mov ecx, (DOOM_USER_END - DOOM_USER_BASE) / PAGE_SIZE
     call pmm_reserve_pages
 
     pop edi
@@ -1594,7 +1977,7 @@ vmm_identity_page:
     push ecx
 
     mov ebx, eax
-    mov ecx, 0x003
+    mov ecx, PTE_KERNEL_FLAGS
     call vmm_map_page
 
     pop ecx
@@ -1608,7 +1991,7 @@ vmm_self_test:
     mov ebx, eax
 
     mov eax, VMM_TEST_VADDR
-    mov ecx, 0x003
+    mov ecx, PTE_KERNEL_FLAGS
     call vmm_map_page
     jc .free_fail
 
@@ -2208,6 +2591,403 @@ kprintf:
     pop ebp
     ret
 
+audio_init:
+    mov byte [audio_status], 0
+    mov byte [sb16_major_version], 0
+    mov byte [sb16_minor_version], 0
+    mov dword [doom_sound_call_count], 0
+    mov dword [doom_sound_start_count], 0
+    mov dword [doom_sound_stop_count], 0
+    mov dword [doom_sound_update_count], 0
+    mov dword [doom_sound_last_command], 0
+    mov dword [doom_sound_last_handle], 0
+    mov dword [doom_sound_last_packed], 0
+    mov dword [sb16_irq_count], 0
+    mov dword [sb16_playback_start_count], 0
+    mov dword [sb16_playback_stop_count], 0
+    mov dword [sb16_dma_program_count], 0
+    mov dword [sb16_dma_buffer_phys], sb16_dma_buffer
+    mov dword [sb16_dma_buffer_size], SB16_DMA_BUFFER_BYTES
+    mov dword [sb16_dma_block_size], SB16_DMA_BLOCK_BYTES
+    mov byte [sb16_playback_active], 0
+    call sb16_clear_dma_buffer
+    call sb16_probe
+    ret
+
+ps2_mouse_init:
+    mov byte [mouse_status], 0
+    mov byte [ps2_mouse_command_byte], 0
+    call mouse_reset_queue
+
+    mov al, PS2_COMMAND_ENABLE_AUX
+    call ps2_write_command
+    jc .absent
+
+    mov al, PS2_COMMAND_READ_CONFIG
+    call ps2_write_command
+    jc .absent
+    call ps2_read_data
+    jc .absent
+    or al, PS2_CONFIG_AUX_IRQ
+    and al, ~PS2_CONFIG_AUX_CLOCK_DISABLE
+    mov [ps2_mouse_command_byte], al
+
+    mov al, PS2_COMMAND_WRITE_CONFIG
+    call ps2_write_command
+    jc .absent
+    mov al, [ps2_mouse_command_byte]
+    call ps2_write_data
+    jc .absent
+
+    mov al, PS2_MOUSE_SET_DEFAULTS
+    call ps2_mouse_send_command
+    jc .absent
+    mov al, PS2_MOUSE_ENABLE_DATA
+    call ps2_mouse_send_command
+    jc .absent
+
+    mov byte [mouse_status], 1
+    clc
+    ret
+
+.absent:
+    mov byte [mouse_status], 2
+    stc
+    ret
+
+ps2_wait_input_clear:
+    push ecx
+    mov ecx, 0x00010000
+
+.wait:
+    in al, PS2_STATUS_PORT
+    test al, PS2_STATUS_INPUT_FULL
+    jz .ready
+    loop .wait
+    stc
+    pop ecx
+    ret
+
+.ready:
+    clc
+    pop ecx
+    ret
+
+ps2_wait_output_full:
+    push ecx
+    mov ecx, 0x00010000
+
+.wait:
+    in al, PS2_STATUS_PORT
+    test al, PS2_STATUS_OUTPUT_FULL
+    jnz .ready
+    loop .wait
+    stc
+    pop ecx
+    ret
+
+.ready:
+    clc
+    pop ecx
+    ret
+
+ps2_write_command:
+    push edx
+    push eax
+    call ps2_wait_input_clear
+    jc .done
+    mov dx, PS2_COMMAND_PORT
+    pop eax
+    out dx, al
+    clc
+    pop edx
+    ret
+
+.done:
+    pop eax
+    pop edx
+    ret
+
+ps2_write_data:
+    push edx
+    push eax
+    call ps2_wait_input_clear
+    jc .done
+    mov dx, PS2_DATA_PORT
+    pop eax
+    out dx, al
+    clc
+    pop edx
+    ret
+
+.done:
+    pop eax
+    pop edx
+    ret
+
+ps2_read_data:
+    push edx
+    call ps2_wait_output_full
+    jc .done
+    mov dx, PS2_DATA_PORT
+    in al, dx
+    clc
+
+.done:
+    pop edx
+    ret
+
+ps2_mouse_send_command:
+    mov [ps2_mouse_command_byte], al
+    mov al, PS2_COMMAND_WRITE_AUX
+    call ps2_write_command
+    jc .fail
+    mov al, [ps2_mouse_command_byte]
+    call ps2_write_data
+    jc .fail
+    call ps2_read_data
+    jc .fail
+    cmp al, PS2_MOUSE_ACK
+    jne .fail
+    clc
+    ret
+
+.fail:
+    stc
+    ret
+
+sb16_probe:
+    call sb16_reset_dsp
+    jc .absent
+
+    mov al, SB16_DSP_GET_VERSION
+    call sb16_write_dsp
+    jc .absent
+    call sb16_read_dsp
+    jc .absent
+    mov [sb16_major_version], al
+    call sb16_read_dsp
+    jc .absent
+    mov [sb16_minor_version], al
+    mov byte [audio_status], 1
+    call sb16_configure_mixer
+    clc
+    ret
+
+.absent:
+    mov byte [audio_status], 2
+    stc
+    ret
+
+sb16_reset_dsp:
+    mov dx, SB16_DSP_RESET
+    mov al, 1
+    out dx, al
+    call sb16_io_delay
+    xor al, al
+    out dx, al
+    call sb16_read_dsp
+    jc .fail
+    cmp al, SB16_DSP_RESET_ACK
+    jne .fail
+    clc
+    ret
+
+.fail:
+    stc
+    ret
+
+sb16_io_delay:
+    push ecx
+    mov ecx, 0x1000
+
+.delay_next:
+    loop .delay_next
+    pop ecx
+    ret
+
+sb16_configure_mixer:
+    mov al, SB16_MIXER_IRQ_SELECT
+    mov ah, SB16_MIXER_IRQ5_BIT
+    call sb16_write_mixer
+    mov al, SB16_MIXER_DMA_SELECT
+    mov ah, SB16_MIXER_DMA_CH1_BIT | SB16_MIXER_DMA_CH5_BIT
+    call sb16_write_mixer
+    ret
+
+sb16_write_mixer:
+    push edx
+    mov dx, SB16_MIXER_ADDR
+    out dx, al
+    call sb16_io_delay
+    mov dx, SB16_MIXER_DATA
+    mov al, ah
+    out dx, al
+    call sb16_io_delay
+    pop edx
+    ret
+
+sb16_clear_dma_buffer:
+    push eax
+    push ecx
+    push edi
+    mov edi, sb16_dma_buffer
+    mov eax, 0x80808080
+    mov ecx, SB16_DMA_BUFFER_BYTES / 4
+    cld
+    rep stosd
+    pop edi
+    pop ecx
+    pop eax
+    ret
+
+sb16_program_dma8:
+    push eax
+    push ecx
+    push edx
+
+    mov al, 0x04 | SB16_DMA8_CHANNEL
+    out DMA8_MASK_REG, al
+    out DMA8_CLEAR_FLIPFLOP_REG, al
+
+    mov eax, sb16_dma_buffer
+    mov dx, DMA8_CH1_ADDR_REG
+    out dx, al
+    shr eax, 8
+    out dx, al
+    shr eax, 8
+    mov dx, DMA8_CH1_PAGE_REG
+    out dx, al
+
+    out DMA8_CLEAR_FLIPFLOP_REG, al
+    mov ecx, SB16_DMA_BUFFER_BYTES - 1
+    mov dx, DMA8_CH1_COUNT_REG
+    mov al, cl
+    out dx, al
+    mov al, ch
+    out dx, al
+
+    mov al, DMA8_CH1_AUTO_READ_MODE
+    out DMA8_MODE_REG, al
+    mov al, SB16_DMA8_CHANNEL
+    out DMA8_MASK_REG, al
+    inc dword [sb16_dma_program_count]
+
+    pop edx
+    pop ecx
+    pop eax
+    ret
+
+sb16_start_playback:
+    cmp byte [audio_status], 1
+    jne .not_ready
+    call sb16_clear_dma_buffer
+    call sb16_program_dma8
+
+    mov al, SB16_DSP_SPEAKER_ON
+    call sb16_write_dsp
+    jc .fail
+    mov al, SB16_DSP_SET_TIME_CONSTANT
+    call sb16_write_dsp
+    jc .fail
+    mov al, SB16_TIME_CONSTANT
+    call sb16_write_dsp
+    jc .fail
+    mov al, SB16_DSP_SET_BLOCK_SIZE
+    call sb16_write_dsp
+    jc .fail
+    mov ax, SB16_DMA_BLOCK_BYTES - 1
+    call sb16_write_dsp
+    jc .fail
+    mov al, ah
+    call sb16_write_dsp
+    jc .fail
+    mov al, SB16_DSP_8BIT_AUTO_OUT
+    call sb16_write_dsp
+    jc .fail
+
+    mov byte [sb16_playback_active], 1
+    inc dword [sb16_playback_start_count]
+    clc
+    ret
+
+.not_ready:
+    clc
+    ret
+
+.fail:
+    mov byte [sb16_playback_active], 0
+    stc
+    ret
+
+sb16_stop_playback:
+    cmp byte [audio_status], 1
+    jne .not_ready
+    mov al, SB16_DSP_EXIT_8BIT_AUTO
+    call sb16_write_dsp
+    mov al, SB16_DSP_SPEAKER_OFF
+    call sb16_write_dsp
+    mov al, 0x04 | SB16_DMA8_CHANNEL
+    out DMA8_MASK_REG, al
+    mov byte [sb16_playback_active], 0
+    inc dword [sb16_playback_stop_count]
+
+.not_ready:
+    clc
+    ret
+
+sb16_write_dsp:
+    push ecx
+    push edx
+    push eax
+    mov ah, al
+    mov ecx, 0x10000
+    mov dx, SB16_DSP_WRITE
+
+.wait_next:
+    in al, dx
+    test al, SB16_DSP_READY
+    jz .write_ok
+    loop .wait_next
+    pop eax
+    stc
+    jmp .done
+
+.write_ok:
+    mov al, ah
+    out dx, al
+    pop eax
+    clc
+
+.done:
+    pop edx
+    pop ecx
+    ret
+
+sb16_read_dsp:
+    push ecx
+    push edx
+    mov ecx, 0x10000
+    mov dx, SB16_DSP_READ_STATUS
+
+.wait_next:
+    in al, dx
+    test al, SB16_DSP_READY
+    jnz .read_ok
+    loop .wait_next
+    stc
+    jmp .done
+
+.read_ok:
+    mov dx, SB16_DSP_READ
+    in al, dx
+    clc
+
+.done:
+    pop edx
+    pop ecx
+    ret
+
 storage_init:
     mov byte [ata_status], 0
     mov byte [fat_status], 0
@@ -2219,6 +2999,8 @@ storage_init:
     mov byte [doom_elf_load_status], 0
     mov byte [doom_elf_parse_status], 0
     mov dword [fat_lba_base], 0
+    mov dword [fat_total_sectors], 0
+    mov dword [fat_last_data_cluster], 0
     mov dword [wad_size], 0
     mov dword [wad_sectors_read], 0
     mov dword [wad_lump_count], 0
@@ -2272,6 +3054,24 @@ storage_init:
     mov dword [doom_write_count], 0
     mov dword [doom_sbrk_count], 0
     mov dword [doom_present_count], 0
+    mov byte [doom_gameplay_status], 0
+    mov dword [doom_gameplay_report_count], 0
+    mov dword [doom_game_state_packed], 0
+    mov dword [doom_game_state], 0
+    mov dword [doom_game_episode], 0
+    mov dword [doom_game_map], 0
+    mov dword [doom_game_map_pair], 0
+    mov dword [doom_game_flags], 0
+    mov dword [doom_game_tic], 0
+    mov dword [doom_level_time], 0
+    mov dword [doom_mouse_event_count], 0
+    mov dword [doom_sound_call_count], 0
+    mov dword [doom_sound_start_count], 0
+    mov dword [doom_sound_stop_count], 0
+    mov dword [doom_sound_update_count], 0
+    mov dword [doom_sound_last_command], 0
+    mov dword [doom_sound_last_handle], 0
+    mov dword [doom_sound_last_packed], 0
     mov dword [doom_wad_magic_seen], 0
     mov dword [doom_log_len], 0
     mov byte [doom_log_buffer], 0
@@ -2281,6 +3081,7 @@ storage_init:
     mov dword [present_sample_first], 0
     mov dword [present_sample_mid], 0
     mov dword [present_sample_last], 0
+    call mouse_reset_queue
 
     xor eax, eax
     mov edi, SECTOR_BUFFER_ADDR
@@ -2320,6 +3121,13 @@ storage_init:
     mov [fat_root_sectors], eax
     movzx eax, word [SECTOR_BUFFER_ADDR + 22]
     mov [fat_sectors_per_fat], eax
+    movzx eax, word [SECTOR_BUFFER_ADDR + 19]
+    cmp eax, 0
+    jne .have_total_sectors
+    mov eax, [SECTOR_BUFFER_ADDR + 32]
+
+.have_total_sectors:
+    mov [fat_total_sectors], eax
 
     mov eax, [fat_lba_base]
     add eax, [fat_reserved_sectors]
@@ -2332,6 +3140,18 @@ storage_init:
     mov [fat_root_lba], eax
     add eax, [fat_root_sectors]
     mov [fat_data_lba], eax
+    mov eax, [fat_total_sectors]
+    sub eax, [fat_reserved_sectors]
+    mov ebx, [fat_sectors_per_fat]
+    mov ecx, [fat_count]
+    imul ebx, ecx
+    sub eax, ebx
+    sub eax, [fat_root_sectors]
+    xor edx, edx
+    movzx ebx, byte [fat_sectors_per_cluster]
+    div ebx
+    inc eax
+    mov [fat_last_data_cluster], eax
     mov byte [fat_status], 1
 
     call fat_find_wad
@@ -2736,6 +3556,274 @@ fat_next_cluster:
     pop ebx
     ret
 
+fat_write_cluster_entry:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov [fat_mut_cluster], eax
+    mov [fat_mut_value], dx
+    shl eax, 1
+    xor edx, edx
+    mov ecx, 512
+    div ecx
+    mov [fat_mut_sector_index], eax
+    mov [fat_mut_entry_offset], edx
+    xor ebx, ebx
+
+.fat_copy_loop:
+    cmp ebx, [fat_count]
+    jae .ok
+    mov eax, [fat_sectors_per_fat]
+    mul ebx
+    add eax, [fat_start_lba]
+    add eax, [fat_mut_sector_index]
+    mov edi, SECTOR_BUFFER_ADDR
+    call ata_read_sector
+    jc .fail
+    mov edx, [fat_mut_entry_offset]
+    mov ax, [fat_mut_value]
+    mov [SECTOR_BUFFER_ADDR + edx], ax
+    mov eax, [fat_sectors_per_fat]
+    mul ebx
+    add eax, [fat_start_lba]
+    add eax, [fat_mut_sector_index]
+    mov esi, SECTOR_BUFFER_ADDR
+    call ata_write_sector
+    jc .fail
+    inc ebx
+    jmp .fat_copy_loop
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+fat_zero_cluster:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    cmp eax, 2
+    jb .fail
+    cmp eax, [fat_last_data_cluster]
+    ja .fail
+    sub eax, 2
+    movzx ebx, byte [fat_sectors_per_cluster]
+    mul ebx
+    add eax, [fat_data_lba]
+    mov [fat_current_lba], eax
+    mov edi, SECTOR_BUFFER_ADDR
+    xor eax, eax
+    mov ecx, 512 / 4
+    cld
+    rep stosd
+    movzx ecx, byte [fat_sectors_per_cluster]
+
+.sector_loop:
+    cmp ecx, 0
+    je .ok
+    push ecx
+    mov eax, [fat_current_lba]
+    mov esi, SECTOR_BUFFER_ADDR
+    call ata_write_sector
+    pop ecx
+    jc .fail
+    inc dword [fat_current_lba]
+    dec ecx
+    jmp .sector_loop
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+fat_alloc_cluster:
+    push ebx
+    push ecx
+    push edx
+    push edi
+
+    mov ebx, 2
+
+.scan_loop:
+    cmp ebx, [fat_last_data_cluster]
+    ja .fail
+    mov eax, ebx
+    call fat_next_cluster
+    jc .fail
+    cmp ax, 0
+    je .found
+    inc ebx
+    jmp .scan_loop
+
+.found:
+    mov eax, ebx
+    mov dx, 0xffff
+    call fat_write_cluster_entry
+    jc .fail
+    mov eax, ebx
+    call fat_zero_cluster
+    jc .fail
+    mov eax, ebx
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+fat_free_chain:
+    push eax
+    push ebx
+    push ecx
+    push edx
+
+    movzx ebx, ax
+    mov ecx, [fat_last_data_cluster]
+
+.loop:
+    cmp ebx, 2
+    jb .ok
+    cmp ebx, 0xfff8
+    jae .ok
+    cmp ebx, [fat_last_data_cluster]
+    ja .fail
+    cmp ecx, 0
+    je .fail
+    mov eax, ebx
+    call fat_next_cluster
+    jc .fail
+    mov [fat_free_next_cluster], ax
+    mov eax, ebx
+    xor edx, edx
+    call fat_write_cluster_entry
+    jc .fail
+    movzx ebx, word [fat_free_next_cluster]
+    dec ecx
+    jmp .loop
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+fat_create_root_file:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov [fat_search_name], edi
+    xor ebx, ebx
+
+.sector_loop:
+    cmp ebx, [fat_root_sectors]
+    jae .fail
+    mov eax, [fat_root_lba]
+    add eax, ebx
+    mov edi, SECTOR_BUFFER_ADDR
+    call ata_read_sector
+    jc .fail
+    mov esi, SECTOR_BUFFER_ADDR
+    mov ecx, 16
+
+.entry_loop:
+    cmp byte [esi], 0
+    je .create_here
+    cmp byte [esi], 0xe5
+    je .create_here
+    add esi, 32
+    loop .entry_loop
+    inc ebx
+    jmp .sector_loop
+
+.create_here:
+    push ecx
+    push esi
+    mov edi, esi
+    xor eax, eax
+    mov ecx, 32 / 4
+    cld
+    rep stosd
+    pop esi
+    mov edi, esi
+    mov esi, [fat_search_name]
+    mov ecx, 11
+    cld
+    rep movsb
+    pop ecx
+    mov byte [edi], 0x20
+    mov eax, [fat_root_lba]
+    add eax, ebx
+    mov [fat_found_root_lba], eax
+    mov eax, edi
+    sub eax, SECTOR_BUFFER_ADDR + 11
+    mov [fat_found_root_offset], eax
+    mov word [fat_found_first_cluster], 0
+    mov dword [fat_found_size], 0
+    mov eax, [fat_found_root_lba]
+    mov esi, SECTOR_BUFFER_ADDR
+    call ata_write_sector
+    jc .fail
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
 fat_load_file:
     cmp ebx, 0
     je .fail
@@ -2875,7 +3963,14 @@ fat_find_writable_files:
     push ebx
     call fat_find_file
     pop ebx
+    jnc .found
+    mov edi, [writable_name_table + ebx * 4]
+    push ebx
+    call fat_create_root_file
+    pop ebx
     jc .fail
+
+.found:
     mov eax, [fat_found_size]
     cmp eax, [writable_capacity_table + ebx * 4]
     ja .fail
@@ -2992,6 +4087,76 @@ fat_file_lba_for_offset:
     pop ecx
     ret
 
+fat_file_lba_for_write:
+    push ecx
+    push edx
+    push esi
+
+    mov esi, ebx
+    mov ebx, edx
+    and ebx, 511
+    shr edx, 9
+    mov ax, [writable_first_clusters + esi * 2]
+    cmp ax, 2
+    jae .have_first_cluster
+    call fat_alloc_cluster
+    jc .fail
+    mov [writable_first_clusters + esi * 2], ax
+
+.have_first_cluster:
+    mov [fat_current_cluster], ax
+
+.cluster_loop:
+    movzx ecx, byte [fat_sectors_per_cluster]
+    cmp edx, ecx
+    jb .have_cluster
+    sub edx, ecx
+    movzx eax, word [fat_current_cluster]
+    call fat_next_cluster
+    jc .fail
+    cmp eax, 0xfff8
+    jb .next_exists
+    call fat_alloc_cluster
+    jc .fail
+    mov [fat_new_cluster], ax
+    movzx eax, word [fat_current_cluster]
+    mov dx, [fat_new_cluster]
+    call fat_write_cluster_entry
+    jc .fail
+    mov ax, [fat_new_cluster]
+
+.next_exists:
+    cmp eax, 2
+    jb .fail
+    cmp eax, 0xfff8
+    jae .fail
+    mov [fat_current_cluster], ax
+    jmp .cluster_loop
+
+.have_cluster:
+    mov ecx, edx
+    movzx eax, word [fat_current_cluster]
+    cmp eax, 2
+    jb .fail
+    cmp eax, 0xfff8
+    jae .fail
+    sub eax, 2
+    movzx edx, byte [fat_sectors_per_cluster]
+    mul edx
+    add eax, [fat_data_lba]
+    add eax, ecx
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop esi
+    pop edx
+    pop ecx
+    ret
+
 fat_update_writable_size:
     push ebx
     push ecx
@@ -3005,6 +4170,8 @@ fat_update_writable_size:
     call ata_read_sector
     jc .fail
     mov edx, [writable_root_offsets + ebx * 4]
+    mov ax, [writable_first_clusters + ebx * 2]
+    mov [SECTOR_BUFFER_ADDR + edx + 26], ax
     mov ecx, [writable_sizes + ebx * 4]
     mov [SECTOR_BUFFER_ADDR + edx + 28], ecx
     mov eax, [writable_root_lbas + ebx * 4]
@@ -3022,6 +4189,33 @@ fat_update_writable_size:
     pop esi
     pop edx
     pop ecx
+    pop ebx
+    ret
+
+fat_truncate_writable_file:
+    push ebx
+
+    mov ebx, eax
+    mov ax, [writable_first_clusters + ebx * 2]
+    cmp ax, 2
+    jb .clear_root
+    call fat_free_chain
+    jc .fail
+
+.clear_root:
+    mov word [writable_first_clusters + ebx * 2], 0
+    mov dword [writable_sizes + ebx * 4], 0
+    mov dword [writable_offsets + ebx * 4], 0
+    mov eax, ebx
+    call fat_update_writable_size
+    jc .fail
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
     pop ebx
     ret
 
@@ -3053,9 +4247,8 @@ user_file_read:
     cmp dword [file_io_remaining], 0
     je .ok
     mov ebx, [file_io_index]
-    mov ax, [writable_first_clusters + ebx * 2]
     mov edx, [writable_offsets + ebx * 4]
-    call fat_file_lba_for_offset
+    call fat_file_lba_for_write
     jc .fail
     mov [file_io_sector_offset], ebx
     mov edi, SECTOR_BUFFER_ADDR
@@ -3115,9 +4308,8 @@ user_file_write:
     cmp dword [file_io_remaining], 0
     je .ok
     mov ebx, [file_io_index]
-    mov ax, [writable_first_clusters + ebx * 2]
     mov edx, [writable_offsets + ebx * 4]
-    call fat_file_lba_for_offset
+    call fat_file_lba_for_write
     jc .fail
     mov [file_io_sector_lba], eax
     mov [file_io_sector_offset], ebx
@@ -3345,11 +4537,21 @@ idt_init:
     call idt_set_gate
 
     mov eax, irq_ignore_master
-    mov ecx, 6
+    mov ecx, 3
 
 .master_irqs:
     call idt_set_gate
     loop .master_irqs
+
+    mov eax, irq_audio
+    call idt_set_gate
+
+    mov eax, irq_ignore_master
+    mov ecx, 2
+
+.master_irqs_after_audio:
+    call idt_set_gate
+    loop .master_irqs_after_audio
 
     mov eax, irq_ignore_slave
     mov ecx, 8
@@ -3358,6 +4560,11 @@ idt_init:
     call idt_set_gate
     loop .slave_irqs
 
+    mov edi, idt_start + (44 * 8)
+    mov eax, irq_mouse
+    call idt_set_gate
+
+    mov edi, idt_start + (48 * 8)
     mov eax, exception_halt
     mov ecx, 208
 
@@ -3403,6 +4610,11 @@ scheduler_init:
     mov dword [scheduler_context_switches], 0
     mov dword [scheduler_rr_cursor], 0
     mov dword [scheduler_next_pid], 0xffffffff
+    mov dword [scheduler_next_process_ptr], 0
+    mov dword [scheduler_preempt_attempts], 0
+    mov dword [scheduler_preempt_switches], 0
+    mov dword [scheduler_preempt_skips], 0
+    mov byte [scheduler_preempt_selftest_status], 0
     mov dword [current_process_ptr], 0
     mov dword [current_pid], 0
 
@@ -3439,6 +4651,7 @@ process_reset_accounting:
     mov dword [esi + PROC_RUNS], 0
     mov dword [esi + PROC_QUANTUM_TICKS], 0
     mov dword [esi + PROC_SWITCHES], 0
+    and dword [esi + PROC_VM_FLAGS], 0xfffffffe
     lea edi, [esi + PROC_SAVED_EAX]
     xor eax, eax
     mov ecx, 12
@@ -3462,6 +4675,13 @@ process_activate:
     mov [current_process_ptr], esi
     mov eax, [esi + PROC_PID]
     mov [current_pid], eax
+    mov eax, [esi + PROC_PAGE_DIR]
+    test eax, eax
+    jnz .have_page_dir
+    mov eax, PAGING_DIR_ADDR
+
+.have_page_dir:
+    mov cr3, eax
     mov dword [esi + PROC_STATE], PROC_STATE_RUNNING
     inc dword [esi + PROC_RUNS]
     inc dword [esi + PROC_SWITCHES]
@@ -3516,6 +4736,7 @@ process_mark_current_faulted:
 
 scheduler_tick:
     push eax
+    push ebx
     push ecx
     push edx
     push esi
@@ -3532,13 +4753,28 @@ scheduler_tick:
     jb .done
     mov dword [esi + PROC_QUANTUM_TICKS], 0
     inc dword [scheduler_round_count]
+    mov eax, [ebx + 36]
+    test eax, 3
+    jz .skip_preempt
+    inc dword [scheduler_preempt_attempts]
     call scheduler_select_next_ready
+    mov esi, [scheduler_next_process_ptr]
+    cmp esi, 0
+    je .skip_preempt
+    call process_activate
+    call process_restore_irq_context
+    inc dword [scheduler_preempt_switches]
+    jmp .done
+
+.skip_preempt:
+    inc dword [scheduler_preempt_skips]
 
 .done:
     pop edi
     pop esi
     pop edx
     pop ecx
+    pop ebx
     pop eax
     ret
 
@@ -3569,12 +4805,43 @@ process_save_irq_context:
     mov [esi + PROC_SAVED_ESP], eax
     mov eax, [ebx + 48]
     mov [esi + PROC_SAVED_SS], eax
+    or dword [esi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID
     ret
 
 .kernel_frame:
     mov eax, [ebx + 12]
     mov [esi + PROC_SAVED_ESP], eax
     mov dword [esi + PROC_SAVED_SS], DATA_SEG
+    and dword [esi + PROC_VM_FLAGS], 0xfffffffe
+    ret
+
+process_restore_irq_context:
+    mov eax, [esi + PROC_SAVED_EDI]
+    mov [ebx], eax
+    mov eax, [esi + PROC_SAVED_ESI]
+    mov [ebx + 4], eax
+    mov eax, [esi + PROC_SAVED_EBP]
+    mov [ebx + 8], eax
+    mov eax, [esi + PROC_SAVED_ESP]
+    mov [ebx + 12], eax
+    mov eax, [esi + PROC_SAVED_EBX]
+    mov [ebx + 16], eax
+    mov eax, [esi + PROC_SAVED_EDX]
+    mov [ebx + 20], eax
+    mov eax, [esi + PROC_SAVED_ECX]
+    mov [ebx + 24], eax
+    mov eax, [esi + PROC_SAVED_EAX]
+    mov [ebx + 28], eax
+    mov eax, [esi + PROC_SAVED_EIP]
+    mov [ebx + 32], eax
+    mov eax, [esi + PROC_SAVED_CS]
+    mov [ebx + 36], eax
+    mov eax, [esi + PROC_SAVED_EFLAGS]
+    mov [ebx + 40], eax
+    mov eax, [esi + PROC_SAVED_ESP]
+    mov [ebx + 44], eax
+    mov eax, [esi + PROC_SAVED_SS]
+    mov [ebx + 48], eax
     ret
 
 process_save_syscall_return_context:
@@ -3607,6 +4874,7 @@ process_save_syscall_return_context:
     mov [esi + PROC_SAVED_ESP], eax
     mov eax, [esp + 52]
     mov [esi + PROC_SAVED_SS], eax
+    or dword [esi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID
 
 .done:
     pop esi
@@ -3618,6 +4886,7 @@ scheduler_select_next_ready:
     push ecx
     push edx
     push edi
+    mov dword [scheduler_next_process_ptr], 0
     mov eax, [scheduler_rr_cursor]
     mov ecx, PROCESS_SLOT_COUNT
 
@@ -3632,13 +4901,22 @@ scheduler_select_next_ready:
     imul edi, PROCESS_RECORD_BYTES
     add edi, process_table
     cmp dword [edi + PROC_STATE], PROC_STATE_READY
-    je .found
+    jne .advance
+    test dword [edi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID
+    jz .advance
+    test dword [edi + PROC_SAVED_CS], 3
+    jz .advance
+    cmp dword [edi + PROC_SAVED_EIP], 0
+    jne .found
+
+.advance:
     loop .next
     mov dword [scheduler_next_pid], 0xffffffff
     jmp .done
 
 .found:
     mov [scheduler_rr_cursor], eax
+    mov [scheduler_next_process_ptr], edi
     mov edx, [edi + PROC_PID]
     mov [scheduler_next_pid], edx
 
@@ -3647,6 +4925,69 @@ scheduler_select_next_ready:
     pop edx
     pop ecx
     pop eax
+    ret
+
+scheduler_preempt_self_test:
+    pushad
+    mov byte [scheduler_preempt_selftest_status], 0
+
+    mov esi, process_user_probe
+    mov dword [esi + PROC_STATE], PROC_STATE_READY
+    mov dword [esi + PROC_SAVED_EAX], 0x11111111
+    mov dword [esi + PROC_SAVED_EBX], 0x22222222
+    mov dword [esi + PROC_SAVED_ECX], 0x33333333
+    mov dword [esi + PROC_SAVED_EDX], 0x44444444
+    mov dword [esi + PROC_SAVED_ESI], 0x55555555
+    mov dword [esi + PROC_SAVED_EDI], 0x66666666
+    mov dword [esi + PROC_SAVED_EBP], 0x77777777
+    mov dword [esi + PROC_SAVED_ESP], USER_STACK_TOP - 16
+    mov dword [esi + PROC_SAVED_EIP], USER_CODE_ADDR
+    mov dword [esi + PROC_SAVED_EFLAGS], 0x00000202
+    mov dword [esi + PROC_SAVED_CS], USER_CODE_SEG
+    mov dword [esi + PROC_SAVED_SS], USER_DATA_SEG
+    or dword [esi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID
+
+    mov edi, scheduler_preempt_selftest_frame
+    xor eax, eax
+    mov ecx, 13
+    cld
+    rep stosd
+
+    mov ebx, scheduler_preempt_selftest_frame
+    call process_restore_irq_context
+
+    cmp dword [scheduler_preempt_selftest_frame + 28], 0x11111111
+    jne .done
+    cmp dword [scheduler_preempt_selftest_frame + 16], 0x22222222
+    jne .done
+    cmp dword [scheduler_preempt_selftest_frame + 32], USER_CODE_ADDR
+    jne .done
+    cmp dword [scheduler_preempt_selftest_frame + 36], USER_CODE_SEG
+    jne .done
+    cmp dword [scheduler_preempt_selftest_frame + 40], 0x00000202
+    jne .done
+    cmp dword [scheduler_preempt_selftest_frame + 44], USER_STACK_TOP - 16
+    jne .done
+    cmp dword [scheduler_preempt_selftest_frame + 48], USER_DATA_SEG
+    jne .done
+
+    mov dword [scheduler_rr_cursor], 0
+    call scheduler_select_next_ready
+    cmp dword [scheduler_next_pid], 1
+    jne .done
+    cmp dword [scheduler_next_process_ptr], process_user_probe
+    jne .done
+    mov byte [scheduler_preempt_selftest_status], 1
+
+.done:
+    mov dword [scheduler_rr_cursor], 0
+    mov dword [scheduler_next_pid], 0xffffffff
+    mov dword [scheduler_next_process_ptr], 0
+    mov esi, process_user_probe
+    call process_reset_user_probe
+    mov esi, process_doom
+    call process_reset_doom
+    popad
     ret
 
 user_probe_run:
@@ -3718,6 +5059,23 @@ doom_user_run:
     mov dword [doom_write_count], 0
     mov dword [doom_sbrk_count], 0
     mov dword [doom_present_count], 0
+    mov byte [doom_gameplay_status], 0
+    mov dword [doom_gameplay_report_count], 0
+    mov dword [doom_game_state_packed], 0
+    mov dword [doom_game_state], 0
+    mov dword [doom_game_episode], 0
+    mov dword [doom_game_map], 0
+    mov dword [doom_game_map_pair], 0
+    mov dword [doom_game_flags], 0
+    mov dword [doom_game_tic], 0
+    mov dword [doom_level_time], 0
+    mov dword [doom_sound_call_count], 0
+    mov dword [doom_sound_start_count], 0
+    mov dword [doom_sound_stop_count], 0
+    mov dword [doom_sound_update_count], 0
+    mov dword [doom_sound_last_command], 0
+    mov dword [doom_sound_last_handle], 0
+    mov dword [doom_sound_last_packed], 0
     mov dword [doom_wad_magic_seen], 0
     mov dword [doom_log_len], 0
     mov byte [doom_log_buffer], 0
@@ -3726,6 +5084,7 @@ doom_user_run:
     mov dword [present_sample_mid], 0
     mov dword [present_sample_last], 0
     call keyboard_reset_queue
+    call mouse_reset_queue
     mov dword [user_wad_fd_offset], 0
 
     cmp byte [doom_elf_parse_status], 1
@@ -4040,6 +5399,12 @@ syscall_handler:
     je .poll_key
     cmp eax, SYS_CLOSE
     je .close
+    cmp eax, SYS_AUDIO
+    je .audio
+    cmp eax, SYS_POLL_MOUSE
+    je .poll_mouse
+    cmp eax, SYS_GAMEPLAY_STATUS
+    je .gameplay_status
     jmp .bad_syscall
 
 .user_probe:
@@ -4109,6 +5474,23 @@ syscall_handler:
     jc .bad_syscall
     cmp edx, [esi + PROC_HEAP_END]
     ja .bad_syscall
+    push eax
+    push edx
+    mov ebx, [esi + PROC_PAGE_DIR]
+    test ebx, ebx
+    jnz .sbrk_have_page_dir
+    mov ebx, PAGING_DIR_ADDR
+
+.sbrk_have_page_dir:
+    call vmm_mark_process_user_range
+    mov ebx, [esi + PROC_PAGE_DIR]
+    test ebx, ebx
+    jz .sbrk_restore_brk
+    mov cr3, ebx
+
+.sbrk_restore_brk:
+    pop edx
+    pop eax
     mov [esi + PROC_BRK], edx
     mov [current_user_brk], edx
     mov [user_brk_current], edx
@@ -4160,9 +5542,8 @@ syscall_handler:
     mov dword [writable_offsets + edx * 4], 0
     test dword [syscall_open_flags], O_TRUNC
     jz .open_writable_append
-    mov dword [writable_sizes + edx * 4], 0
     mov eax, edx
-    call fat_update_writable_size
+    call fat_truncate_writable_file
     jc .bad_syscall
 
 .open_writable_append:
@@ -4316,6 +5697,24 @@ syscall_handler:
     xor eax, eax
     jmp .return
 
+.poll_mouse:
+    mov ebx, [mouse_event_tail]
+    cmp ebx, [mouse_event_head]
+    je .poll_mouse_empty
+    mov edi, mouse_event_queue
+    mov eax, [edi + ebx * 4]
+    inc ebx
+    and ebx, MOUSE_QUEUE_MASK
+    mov [mouse_event_tail], ebx
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    jne .return
+    inc dword [doom_mouse_event_count]
+    jmp .return
+
+.poll_mouse_empty:
+    xor eax, eax
+    jmp .return
+
 .close:
     cmp ebx, USER_FD_WAD
     je .close_ok
@@ -4323,6 +5722,92 @@ syscall_handler:
     jc .bad_syscall
 
 .close_ok:
+    xor eax, eax
+    jmp .return
+
+.audio:
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    jne .audio_status
+    inc dword [doom_sound_call_count]
+    mov [doom_sound_last_command], ebx
+    mov [doom_sound_last_handle], ecx
+    mov [doom_sound_last_packed], edx
+    cmp ebx, AUDIO_CMD_INIT
+    je .audio_init_cmd
+    cmp ebx, AUDIO_CMD_START_SFX
+    je .audio_start_sfx
+    cmp ebx, AUDIO_CMD_STOP_SFX
+    je .audio_stop_sfx
+    cmp ebx, AUDIO_CMD_UPDATE_SFX
+    je .audio_update_sfx
+    cmp ebx, AUDIO_CMD_SHUTDOWN
+    je .audio_shutdown_cmd
+    jmp .audio_status
+
+.audio_init_cmd:
+    call sb16_start_playback
+    jmp .audio_status
+
+.audio_start_sfx:
+    inc dword [doom_sound_start_count]
+    call sb16_start_playback
+    jmp .audio_status
+
+.audio_stop_sfx:
+    inc dword [doom_sound_stop_count]
+    call sb16_stop_playback
+    jmp .audio_status
+
+.audio_update_sfx:
+    inc dword [doom_sound_update_count]
+    call sb16_start_playback
+    jmp .audio_status
+
+.audio_shutdown_cmd:
+    call sb16_stop_playback
+
+.audio_status:
+    movzx eax, byte [audio_status]
+    jmp .return
+
+.gameplay_status:
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    jne .gameplay_return
+    inc dword [doom_gameplay_report_count]
+    mov [doom_game_state_packed], ebx
+    mov eax, ebx
+    and eax, 0xff
+    mov [doom_game_state], eax
+    mov eax, ebx
+    shr eax, 8
+    and eax, 0xff
+    mov [doom_game_episode], eax
+    mov eax, ebx
+    shr eax, 16
+    and eax, 0xff
+    mov [doom_game_map], eax
+    mov eax, ebx
+    shr eax, 24
+    mov [doom_game_flags], eax
+    mov eax, [doom_game_episode]
+    shl eax, 8
+    or eax, [doom_game_map]
+    mov [doom_game_map_pair], eax
+    mov [doom_game_tic], ecx
+    mov [doom_level_time], edx
+    cmp dword [doom_game_state], 0
+    jne .gameplay_return
+    cmp dword [doom_game_episode], 0
+    je .gameplay_return
+    cmp dword [doom_game_map], 0
+    je .gameplay_return
+    cmp ecx, 0
+    je .gameplay_return
+    cmp edx, 0
+    je .gameplay_return
+    mov byte [doom_gameplay_status], 1
+
+.gameplay_return:
     xor eax, eax
     jmp .return
 
@@ -4370,20 +5855,41 @@ syscall_handler:
     iretd
 
 user_range_validate:
+    push eax
+    push ebx
+    push ecx
     push edx
     push esi
+    push edi
     mov esi, [current_process_ptr]
     cmp esi, 0
     je .fail
     cmp ebx, 0
     je .ok
-    cmp eax, [esi + PROC_BASE]
-    jb .fail
     mov edx, eax
     add edx, ebx
     jc .fail
-    cmp edx, [esi + PROC_END]
-    ja .fail
+    mov edi, [esi + PROC_VM_REGIONS]
+    mov ecx, [esi + PROC_VM_REGION_COUNT]
+
+.region_next:
+    cmp ecx, 0
+    je .fail
+    cmp eax, [edi + VM_REGION_BASE]
+    jb .region_advance
+    mov ebx, [edi + VM_REGION_END]
+    test dword [edi + VM_REGION_FLAGS], VM_REGION_HEAP
+    jz .region_end_ready
+    mov ebx, [esi + PROC_BRK]
+
+.region_end_ready:
+    cmp edx, ebx
+    jbe .ok
+
+.region_advance:
+    add edi, VM_REGION_BYTES
+    dec ecx
+    jmp .region_next
 
 .ok:
     clc
@@ -4393,8 +5899,12 @@ user_range_validate:
     stc
 
 .done:
+    pop edi
     pop esi
     pop edx
+    pop ecx
+    pop ebx
+    pop eax
     ret
 
 doom_log_char:
@@ -4456,6 +5966,9 @@ present_indexed_frame:
     push esi
     push edi
 
+    cmp byte [video_backend], VIDEO_BACKEND_LFB_XRGB8888
+    je .lfb_present
+
     mov dx, VGA_DAC_WRITE_INDEX
     xor al, al
     out dx, al
@@ -4469,6 +5982,37 @@ present_indexed_frame:
     out dx, al
     loop .palette_next
 
+.mode13_present:
+    call present_copy_indexed_shadow
+    jmp .success
+
+.lfb_present:
+    call present_copy_indexed_shadow
+    call present_lfb_xrgb8888
+    jc .fail
+
+.success:
+    mov byte [present_status], 1
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+present_copy_indexed_shadow:
+    push eax
+    push ecx
+    push esi
+    push edi
+
     mov esi, [present_frame_arg]
     mov edi, VGA_GRAPHICS_BUFFER
     mov ecx, DOOM_FRAME_BYTES / 4
@@ -4481,14 +6025,97 @@ present_indexed_frame:
     mov [present_sample_mid], eax
     movzx eax, byte [VGA_GRAPHICS_BUFFER + DOOM_FRAME_BYTES - 1]
     mov [present_sample_last], eax
-    mov byte [present_status], 1
-    clc
 
+    pop edi
+    pop esi
+    pop ecx
+    pop eax
+    ret
+
+present_lfb_xrgb8888:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+    push ebp
+
+    cmp dword [framebuffer_width], 640
+    jb .fail
+    cmp dword [framebuffer_height], 400
+    jb .fail
+    cmp dword [framebuffer_pitch], 640 * 4
+    jb .fail
+
+    mov eax, [framebuffer_width]
+    sub eax, 640
+    shr eax, 1
+    shl eax, 2
+    mov [present_lfb_x_offset], eax
+
+    mov eax, [framebuffer_height]
+    sub eax, 400
+    shr eax, 1
+    mul dword [framebuffer_pitch]
+    add eax, [present_lfb_x_offset]
+    add eax, [framebuffer_addr]
+    mov [present_lfb_row], eax
+
+    mov esi, [present_frame_arg]
+    mov dword [present_lfb_rows_left], DOOM_SCREEN_HEIGHT
+
+.row_next:
+    cmp dword [present_lfb_rows_left], 0
+    je .ok
+    mov edi, [present_lfb_row]
+    mov ebp, edi
+    add ebp, [framebuffer_pitch]
+    mov ecx, DOOM_SCREEN_WIDTH
+
+.pixel_next:
+    movzx ebx, byte [esi]
+    inc esi
+    lea edx, [ebx + ebx * 2]
+    add edx, [present_palette_arg]
+    xor eax, eax
+    movzx ebx, byte [edx]
+    shl ebx, 16
+    or eax, ebx
+    movzx ebx, byte [edx + 1]
+    shl ebx, 8
+    or eax, ebx
+    movzx ebx, byte [edx + 2]
+    or eax, ebx
+    mov [edi], eax
+    mov [edi + 4], eax
+    mov [ebp], eax
+    mov [ebp + 4], eax
+    add edi, 8
+    add ebp, 8
+    loop .pixel_next
+
+    mov eax, [framebuffer_pitch]
+    shl eax, 1
+    add [present_lfb_row], eax
+    dec dword [present_lfb_rows_left]
+    jmp .row_next
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop ebp
     pop edi
     pop esi
     pop edx
     pop ecx
     pop ebx
+    pop eax
     ret
 
 keyboard_reset_queue:
@@ -4631,6 +6258,111 @@ keyboard_queue_event:
 .done:
     ret
 
+mouse_reset_queue:
+    mov dword [mouse_event_head], 0
+    mov dword [mouse_event_tail], 0
+    mov dword [mouse_irq_count], 0
+    mov dword [mouse_packet_count], 0
+    mov dword [mouse_sync_loss_count], 0
+    mov dword [doom_mouse_event_count], 0
+    mov byte [mouse_packet_index], 0
+    mov byte [mouse_packet0], 0
+    mov byte [mouse_packet1], 0
+    mov byte [mouse_packet2], 0
+    ret
+
+mouse_queue_byte:
+    push eax
+    push ebx
+    push edx
+
+    mov bl, al
+    cmp byte [mouse_packet_index], 0
+    je .packet0
+    cmp byte [mouse_packet_index], 1
+    je .packet1
+
+    mov [mouse_packet2], bl
+    mov byte [mouse_packet_index], 0
+    call mouse_decode_packet
+    jmp .done
+
+.packet0:
+    test bl, 0x08
+    jnz .packet0_ok
+    inc dword [mouse_sync_loss_count]
+    jmp .done
+
+.packet0_ok:
+    mov [mouse_packet0], bl
+    mov byte [mouse_packet_index], 1
+    jmp .done
+
+.packet1:
+    mov [mouse_packet1], bl
+    mov byte [mouse_packet_index], 2
+
+.done:
+    pop edx
+    pop ebx
+    pop eax
+    ret
+
+mouse_decode_packet:
+    push eax
+    push ebx
+
+    mov al, [mouse_packet0]
+    test al, 0xc0
+    jnz .overflow
+
+    movzx eax, al
+    and eax, 0x07
+    movzx ebx, byte [mouse_packet1]
+    shl ebx, 8
+    or eax, ebx
+    movzx ebx, byte [mouse_packet2]
+    shl ebx, 16
+    or eax, ebx
+    or eax, MOUSE_EVENT_VALID
+    call mouse_queue_event
+    inc dword [mouse_packet_count]
+    jmp .done
+
+.overflow:
+    inc dword [mouse_sync_loss_count]
+
+.done:
+    pop ebx
+    pop eax
+    ret
+
+mouse_queue_event:
+    push ebx
+    push edx
+    push edi
+
+    mov ebx, [mouse_event_head]
+    mov edx, ebx
+    inc edx
+    and edx, MOUSE_QUEUE_MASK
+    cmp edx, [mouse_event_tail]
+    jne .space_available
+    mov edi, [mouse_event_tail]
+    inc edi
+    and edi, MOUSE_QUEUE_MASK
+    mov [mouse_event_tail], edi
+
+.space_available:
+    mov edi, mouse_event_queue
+    mov [edi + ebx * 4], eax
+    mov [mouse_event_head], edx
+
+    pop edi
+    pop edx
+    pop ebx
+    ret
+
 page_fault_handler:
     cmp byte [user_fault_expected], 1
     jne exception_halt
@@ -4687,11 +6419,36 @@ irq_timer:
 irq_keyboard:
     pushad
     inc dword [keyboard_irq_count]
-    in al, 0x60
+    in al, PS2_DATA_PORT
     call keyboard_queue_scancode
     mov al, 0x20
     out 0x20, al
     popad
+    iretd
+
+irq_mouse:
+    pushad
+    inc dword [mouse_irq_count]
+    in al, PS2_DATA_PORT
+    call mouse_queue_byte
+    mov al, 0x20
+    out 0xa0, al
+    out 0x20, al
+    popad
+    iretd
+
+irq_audio:
+    push eax
+    push edx
+    inc dword [sb16_irq_count]
+    mov dx, SB16_DSP_READ_STATUS
+    in al, dx
+    mov dx, SB16_DSP_ACK16
+    in al, dx
+    mov al, 0x20
+    out 0x20, al
+    pop edx
+    pop eax
     iretd
 
 irq_ignore_master:
@@ -4868,6 +6625,57 @@ write_smoke_status:
     mov edx, [doom_present_count]
     call smoke_write_hex32
 
+    mov esi, smoke_gameplay_text
+    call smoke_copy_string
+    cmp byte [doom_gameplay_status], 1
+    je .gameplay_ok
+    mov esi, smoke_wait_text
+    jmp .gameplay_write
+
+.gameplay_ok:
+    mov esi, smoke_ok_text
+
+.gameplay_write:
+    call smoke_copy_string
+
+    mov esi, smoke_gstate_text
+    call smoke_copy_string
+    mov edx, [doom_game_state]
+    call smoke_write_hex32
+
+    mov esi, smoke_gmap_text
+    call smoke_copy_string
+    mov edx, [doom_game_map_pair]
+    call smoke_write_hex32
+
+    mov esi, smoke_gtic_text
+    call smoke_copy_string
+    mov edx, [doom_game_tic]
+    call smoke_write_hex32
+
+    mov esi, smoke_leveltime_text
+    call smoke_copy_string
+    mov edx, [doom_level_time]
+    call smoke_write_hex32
+
+    mov esi, smoke_doomsound_text
+    call smoke_copy_string
+    mov edx, [doom_sound_call_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_audio_text
+    call smoke_copy_string
+    cmp byte [audio_status], 1
+    je .audio_sb16
+    mov esi, smoke_none_text
+    jmp .audio_write
+
+.audio_sb16:
+    mov esi, smoke_sb16_text
+
+.audio_write:
+    call smoke_copy_string
+
     mov esi, smoke_keyirq_text
     call smoke_copy_string
     mov edx, [keyboard_irq_count]
@@ -4883,6 +6691,34 @@ write_smoke_status:
     mov edx, [doom_key_event_count]
     call smoke_write_hex32
 
+    mov esi, smoke_mouse_text
+    call smoke_copy_string
+    cmp byte [mouse_status], 1
+    je .mouse_ok
+    mov esi, smoke_none_text
+    jmp .mouse_write
+
+.mouse_ok:
+    mov esi, smoke_ok_text
+
+.mouse_write:
+    call smoke_copy_string
+
+    mov esi, smoke_mouseirq_text
+    call smoke_copy_string
+    mov edx, [mouse_irq_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_mousepkt_text
+    call smoke_copy_string
+    mov edx, [mouse_packet_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_mousepoll_text
+    call smoke_copy_string
+    mov edx, [doom_mouse_event_count]
+    call smoke_write_hex32
+
     mov esi, smoke_gfx_text
     call smoke_copy_string
     cmp byte [present_status], 1
@@ -4894,6 +6730,47 @@ write_smoke_status:
     mov esi, smoke_ok_text
 
 .gfx_write:
+    call smoke_copy_string
+
+    mov esi, smoke_fb_text
+    call smoke_copy_string
+    cmp byte [video_backend], VIDEO_BACKEND_LFB_XRGB8888
+    je .fb_lfb
+    mov esi, smoke_mode13_text
+    jmp .fb_write
+
+.fb_lfb:
+    mov esi, smoke_lfb_text
+
+.fb_write:
+    call smoke_copy_string
+
+    mov esi, smoke_preempt_text
+    call smoke_copy_string
+    mov edx, [scheduler_preempt_switches]
+    call smoke_write_hex32
+
+    mov esi, smoke_pattempt_text
+    call smoke_copy_string
+    mov edx, [scheduler_preempt_attempts]
+    call smoke_write_hex32
+
+    mov esi, smoke_pskip_text
+    call smoke_copy_string
+    mov edx, [scheduler_preempt_skips]
+    call smoke_write_hex32
+
+    mov esi, smoke_pself_text
+    call smoke_copy_string
+    cmp byte [scheduler_preempt_selftest_status], 1
+    je .pself_ok
+    mov esi, smoke_fail_text
+    jmp .pself_write
+
+.pself_ok:
+    mov esi, smoke_ok_text
+
+.pself_write:
     call smoke_copy_string
 
     mov esi, smoke_status_text
@@ -5531,10 +7408,26 @@ smoke_doomopen_text db " doomopen=", 0
 smoke_doomread_text db " doomread=", 0
 smoke_doomlog_text db " doomlog=", 0
 smoke_doompresent_text db " doompresent=", 0
+smoke_gameplay_text db " gameplay=", 0
+smoke_gstate_text db " gstate=", 0
+smoke_gmap_text db " gmap=", 0
+smoke_gtic_text db " gtic=", 0
+smoke_leveltime_text db " leveltime=", 0
+smoke_doomsound_text db " doomsound=", 0
+smoke_audio_text db " audio=", 0
 smoke_keyirq_text db " keyirq=", 0
 smoke_keyqueue_text db " keyqueue=", 0
 smoke_keypoll_text db " keypoll=", 0
+smoke_mouse_text db " mouse=", 0
+smoke_mouseirq_text db " mouseirq=", 0
+smoke_mousepkt_text db " mousepkt=", 0
+smoke_mousepoll_text db " mousepoll=", 0
 smoke_gfx_text db " gfx=", 0
+smoke_fb_text db " fb=", 0
+smoke_preempt_text db " preempt=", 0
+smoke_pattempt_text db " pattempt=", 0
+smoke_pskip_text db " pskip=", 0
+smoke_pself_text db " pself=", 0
 smoke_status_text db " ", 0
 smoke_ok_text db "OK", 0
 smoke_fail_text db "FAIL", 0
@@ -5543,6 +7436,10 @@ smoke_wait_text db "WAIT", 0
 smoke_run_text db "RUN", 0
 smoke_exit_text db "EXIT", 0
 smoke_fault_text db "FAULT", 0
+smoke_mode13_text db "M13", 0
+smoke_lfb_text db "LFB", 0
+smoke_sb16_text db "SB16", 0
+smoke_none_text db "NONE", 0
 heap_status_gap db " ", 0
 ok_text db "OK", 13, 10, 0
 fail_text db "FAIL", 13, 10, 0
@@ -5719,6 +7616,13 @@ fat_status db 0
 wad_status db 0
 wad_parse_status db 0
 align 4
+process_user_probe_vm_regions:
+    dd USER_CODE_ADDR, USER_STACK_TOP, VM_REGION_USER
+    dd USER_HEAP_START, USER_HEAP_END, VM_REGION_USER | VM_REGION_HEAP
+process_doom_vm_regions:
+    dd DOOM_USER_BASE, DOOM_USER_HEAP_START, VM_REGION_USER
+    dd DOOM_USER_HEAP_START, DOOM_USER_HEAP_END, VM_REGION_USER | VM_REGION_HEAP
+    dd DOOM_USER_STACK_BOTTOM, DOOM_USER_STACK_TOP, VM_REGION_USER
 process_table:
 process_kernel:
     dd 0, USER_KIND_NONE, PROC_STATE_READY
@@ -5726,23 +7630,28 @@ process_kernel:
     dd 0, KERNEL_STACK_TOP, start
     times 12 dd 0
     dd 0, 0, 0, 0
+    dd PAGING_DIR_ADDR, 0, 0, 0, 0
 process_user_probe:
     dd 1, USER_KIND_PROBE, PROC_STATE_READY
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
     dd USER_STACK_BOTTOM, USER_STACK_TOP, 0
     times 12 dd 0
     dd 0, 0, 0, 0
+    dd PROC_PROBE_PAGE_DIR_ADDR, process_user_probe_vm_regions, 2, 0, 0
 process_doom:
     dd 2, USER_KIND_DOOM, PROC_STATE_READY
     dd DOOM_USER_BASE, DOOM_USER_END, DOOM_USER_HEAP_START, DOOM_USER_HEAP_START, DOOM_USER_HEAP_END
     dd DOOM_USER_STACK_BOTTOM, DOOM_USER_STACK_TOP, 0
     times 12 dd 0
     dd 0, 0, 0, 0
+    dd PROC_DOOM_PAGE_DIR_ADDR, process_doom_vm_regions, 3, 0, 0
 pmm_total_pages dd 0
 pmm_free_pages dd 0
 pmm_used_pages dd 0
 ata_last_lba dd 0
 fat_lba_base dd 0
+fat_total_sectors dd 0
+fat_last_data_cluster dd 0
 fat_reserved_sectors dd 0
 fat_count dd 0
 fat_root_entries dd 0
@@ -5758,6 +7667,9 @@ fat_found_root_lba dd 0
 fat_found_root_offset dd 0
 fat_load_remaining dd 0
 fat_load_sectors_read dd 0
+fat_mut_cluster dd 0
+fat_mut_sector_index dd 0
+fat_mut_entry_offset dd 0
 wad_size dd 0
 wad_remaining dd 0
 wad_sectors_read dd 0
@@ -5815,6 +7727,13 @@ scheduler_round_count dd 0
 scheduler_context_switches dd 0
 scheduler_rr_cursor dd 0
 scheduler_next_pid dd 0xffffffff
+scheduler_next_process_ptr dd 0
+scheduler_preempt_attempts dd 0
+scheduler_preempt_switches dd 0
+scheduler_preempt_skips dd 0
+scheduler_preempt_selftest_frame times 13 dd 0
+scheduler_preempt_selftest_status db 0
+align 4
 doom_exit_code dd 0
 doom_fault_addr dd 0
 doom_last_syscall dd 0
@@ -5825,17 +7744,71 @@ doom_write_count dd 0
 doom_sbrk_count dd 0
 doom_present_count dd 0
 doom_key_event_count dd 0
+doom_mouse_event_count dd 0
+doom_gameplay_status dd 0
+doom_gameplay_report_count dd 0
+doom_game_state_packed dd 0
+doom_game_state dd 0
+doom_game_episode dd 0
+doom_game_map dd 0
+doom_game_map_pair dd 0
+doom_game_flags dd 0
+doom_game_tic dd 0
+doom_level_time dd 0
+doom_sound_call_count dd 0
+doom_sound_start_count dd 0
+doom_sound_stop_count dd 0
+doom_sound_update_count dd 0
+doom_sound_last_command dd 0
+doom_sound_last_handle dd 0
+doom_sound_last_packed dd 0
 doom_wad_magic_seen dd 0
 doom_log_len dd 0
 key_event_head dd 0
 key_event_tail dd 0
 keyboard_irq_count dd 0
 keyboard_event_count dd 0
+mouse_irq_count dd 0
+mouse_event_head dd 0
+mouse_event_tail dd 0
+mouse_packet_count dd 0
+mouse_sync_loss_count dd 0
 present_frame_arg dd 0
 present_palette_arg dd 0
 present_sample_first dd 0
 present_sample_mid dd 0
 present_sample_last dd 0
+framebuffer_addr dd 0
+framebuffer_pitch dd 0
+framebuffer_width dd 0
+framebuffer_height dd 0
+framebuffer_page_count dd 0
+framebuffer_pde_index dd 0
+framebuffer_pte_index dd 0
+present_lfb_row dd 0
+present_lfb_x_offset dd 0
+present_lfb_rows_left dd 0
+audio_status db 0
+sb16_major_version db 0
+sb16_minor_version db 0
+sb16_playback_active db 0
+align 4
+sb16_irq_count dd 0
+sb16_playback_start_count dd 0
+sb16_playback_stop_count dd 0
+sb16_dma_program_count dd 0
+sb16_dma_buffer_phys dd 0
+sb16_dma_buffer_size dd 0
+sb16_dma_block_size dd 0
+mouse_status db 0
+ps2_mouse_command_byte db 0
+mouse_packet_index db 0
+mouse_packet0 db 0
+mouse_packet1 db 0
+mouse_packet2 db 0
+align 4096
+sb16_dma_buffer times SB16_DMA_BUFFER_BYTES db 0x80
+align 4
 heap_start dd 0
 heap_free_head dd 0
 heap_end dd 0
@@ -5852,6 +7825,9 @@ fat_found_first_cluster dw 0
 wad_first_cluster dw 0
 user_elf_first_cluster dw 0
 doom_elf_first_cluster dw 0
+fat_mut_value dw 0
+fat_new_cluster dw 0
+fat_free_next_cluster dw 0
 writable_first_clusters times WRITABLE_FILE_COUNT dw 0
 user_probe_cs dw 0
 user_probe_ss dw 0
@@ -5859,11 +7835,15 @@ fat_sectors_per_cluster db 0
 user_load_segment_count db 0
 doom_load_segment_count db 0
 present_status db 0
+video_backend db 0
+framebuffer_status db 0
+framebuffer_map_status db 0
 shift_down db 0
 keyboard_extended db 0
 writable_status times WRITABLE_FILE_COUNT db 0
 doom_log_buffer times DOOM_LOG_BYTES db 0
 key_event_queue times KEY_QUEUE_SIZE dd 0
+mouse_event_queue times MOUSE_QUEUE_SIZE dd 0
 input_buffer times INPUT_MAX db 0
 
 align 8

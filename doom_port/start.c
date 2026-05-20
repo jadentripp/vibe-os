@@ -4,11 +4,24 @@
 #include "m_argv.h"
 
 static char arg0[] = "vibe-doom";
-static char* argv_storage[] = { arg0, 0 };
+static char arg_warp[] = "-warp";
+static char arg_episode[] = "1";
+static char arg_map[] = "1";
+static char arg_skill[] = "-skill";
+static char arg_skill_medium[] = "3";
+static char* argv_storage[] = {
+    arg0,
+    arg_warp,
+    arg_episode,
+    arg_map,
+    arg_skill,
+    arg_skill_medium,
+    0
+};
 
 int user_main(void)
 {
-    myargc = 1;
+    myargc = 6;
     myargv = argv_storage;
     D_DoomMain();
     return 0;
