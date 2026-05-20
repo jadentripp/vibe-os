@@ -535,6 +535,7 @@ ATA_OP_WRITE equ 2
 ATA_WAIT_IDLE equ 0
 ATA_WAIT_BUSY equ 1
 ATA_WAIT_DRQ equ 2
+ATA_WAIT_READY equ 3
 ACPI_PM1A_CNT_PORT equ 0x0604
 ACPI_PM1_CNT_S5_ENABLE equ 0x2000
 BOCHS_PM1A_CNT_PORT equ 0xb004
@@ -5387,6 +5388,53 @@ ata_wait_drq:
     pop ecx
     ret
 
+ata_wait_ready:
+    push ecx
+    push edx
+
+    mov dword [ata_wait_phase], ATA_WAIT_READY
+    mov ecx, ATA_WAIT_POLL_LIMIT
+    mov dx, ATA_COMMAND_STATUS
+
+.wait_next:
+    in al, dx
+    movzx eax, al
+    mov [ata_last_status], eax
+    test al, ATA_STATUS_BSY
+    jnz .advance
+    test al, ATA_STATUS_DF | ATA_STATUS_ERR
+    jnz .error
+    test al, ATA_STATUS_DRQ
+    jz .ok
+
+.advance:
+    loop .wait_next
+
+    inc dword [ata_wait_failures]
+    inc dword [ata_wait_timeouts]
+    mov dword [ata_last_error], 0
+    stc
+    jmp .done
+
+.error:
+    mov dx, ATA_ERROR
+    in al, dx
+    movzx eax, al
+    mov [ata_last_error], eax
+    inc dword [ata_wait_failures]
+    inc dword [ata_wait_error_failures]
+    stc
+    jmp .done
+
+.ok:
+    mov dword [ata_wait_phase], ATA_WAIT_IDLE
+    clc
+
+.done:
+    pop edx
+    pop ecx
+    ret
+
 ata_read_sector:
     push ebx
     push ecx
@@ -5395,7 +5443,7 @@ ata_read_sector:
     mov ebx, eax
     mov dword [ata_last_op], ATA_OP_READ
     mov [ata_last_lba], eax
-    call ata_wait_not_busy
+    call ata_wait_ready
     jc .fail
 
     mov eax, ebx
@@ -5427,6 +5475,7 @@ ata_read_sector:
     mov dx, ATA_COMMAND_STATUS
     mov al, ATA_CMD_READ_SECTORS
     out dx, al
+    call ata_io_delay
 
     call ata_wait_drq
     jc .fail
@@ -5438,6 +5487,9 @@ ata_read_sector:
     in ax, dx
     stosw
     loop .read_word
+    call ata_io_delay
+    call ata_wait_ready
+    jc .fail
     mov byte [ata_status], 1
     clc
     jmp .done
@@ -5461,7 +5513,7 @@ ata_write_sector:
     mov ebx, eax
     mov dword [ata_last_op], ATA_OP_WRITE
     mov [ata_last_lba], eax
-    call ata_wait_not_busy
+    call ata_wait_ready
     jc .fail
 
     mov eax, ebx
@@ -5493,6 +5545,7 @@ ata_write_sector:
     mov dx, ATA_COMMAND_STATUS
     mov al, ATA_CMD_WRITE_SECTORS
     out dx, al
+    call ata_io_delay
 
     call ata_wait_drq
     jc .fail
@@ -5504,7 +5557,8 @@ ata_write_sector:
     lodsw
     out dx, ax
     loop .write_word
-    call ata_wait_not_busy
+    call ata_io_delay
+    call ata_wait_ready
     jc .fail
     mov byte [ata_status], 1
     clc
@@ -12923,6 +12977,8 @@ write_smoke_status:
     je .atawait_busy
     cmp dword [ata_wait_phase], ATA_WAIT_DRQ
     je .atawait_drq
+    cmp dword [ata_wait_phase], ATA_WAIT_READY
+    je .atawait_ready
     mov esi, smoke_idle_text
     jmp .atawait_write
 
@@ -12932,6 +12988,10 @@ write_smoke_status:
 
 .atawait_drq:
     mov esi, smoke_drq_text
+    jmp .atawait_write
+
+.atawait_ready:
+    mov esi, smoke_ready_text
 
 .atawait_write:
     call smoke_copy_string
@@ -14761,6 +14821,7 @@ smoke_write_text db "WRITE", 0
 smoke_idle_text db "IDLE", 0
 smoke_busy_text db "BUSY", 0
 smoke_drq_text db "DRQ", 0
+smoke_ready_text db "READY", 0
 heap_status_gap db " ", 0
 ok_text db "OK", 13, 10, 0
 fail_text db "FAIL", 13, 10, 0
