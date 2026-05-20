@@ -308,6 +308,7 @@ jobs:
           persistence_load_script="$PERSISTENCE_LOAD_INPUT_SCRIPT"
           persistence_default_script=""
           slot_marker_payload=""
+          save_description=""
           if [ -n "${PERSISTENCE_SAVE_SLOT:-}" ]; then
             case "$PERSISTENCE_SAVE_SLOT" in
               0|1|2|3|4|5) ;;
@@ -317,6 +318,7 @@ jobs:
                 ;;
             esac
             slot_marker_payload="$(printf '%*s' "$((PERSISTENCE_SAVE_SLOT + 1))" '' | tr ' ' X)"
+            save_description="VIBE SAVE"
             if [ "$persistence_write_script" = "auto" ]; then
               persistence_write_script="save-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,hold=up:1200,wait-status-min=leveltime:00000004:80:2,wait-status-part-min=savewr:1:00000001:180:2,wait-status-min=saveclose:00000001:120:2,snapshot"
             fi
@@ -325,6 +327,7 @@ jobs:
             fi
             persistence_default_script="persist-default:wait-status=gameplay:OK:150:5,wait-status-min=doomwrite:00000001:120:2,wait-status-min=doomclose:00000003:120:2,snapshot"
             check_args+=(--require-save-slot "$PERSISTENCE_SAVE_SLOT")
+            check_args+=(--require-save-description "${PERSISTENCE_SAVE_SLOT}=${save_description}")
             check_args+=(--save-write-status build/status.persistence-write.txt)
           else
             if [ "$persistence_write_script" = "auto" ]; then

@@ -519,9 +519,14 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("*.WAD", gitignore)
         self.assertIn("workflow_dispatch:", real_wad_workflow)
         self.assertIn("wad_url:", real_wad_workflow)
+        self.assertIn("Use text=NAME", real_wad_workflow)
         self.assertIn("marker-requested DOOMSAV slot", real_wad_workflow)
+        self.assertIn('save_description="VIBE SAVE"', real_wad_workflow)
         self.assertNotIn("save_keypoll_min", real_wad_workflow)
         self.assertNotIn("load_keypoll_min", real_wad_workflow)
+        self.assertNotIn("save_slot_select_actions", real_wad_workflow)
+        self.assertNotIn("save_description_actions", real_wad_workflow)
+        self.assertNotIn('if [ "$PERSISTENCE_SAVE_SLOT" != "0" ]', real_wad_workflow)
         self.assertIn("REAL_DOOM_WAD_URL", real_wad_workflow)
         self.assertIn("PUBLIC_SHAREWARE_WAD_GZ_URL", real_wad_workflow)
         self.assertIn("archive.org/download/wadarchive", real_wad_workflow)
@@ -583,6 +588,10 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("check_args=(--baseline-image \"$baseline\")", real_wad_workflow)
         self.assertIn("check_args+=(--require-default)", real_wad_workflow)
         self.assertIn("check_args+=(--require-save-slot \"$PERSISTENCE_SAVE_SLOT\")", real_wad_workflow)
+        self.assertIn(
+            'check_args+=(--require-save-description "${PERSISTENCE_SAVE_SLOT}=${save_description}")',
+            real_wad_workflow,
+        )
         self.assertIn("check_args+=(--save-write-status build/status.persistence-write.txt)", real_wad_workflow)
         self.assertIn('slot_marker_payload="$(printf', real_wad_workflow)
         self.assertIn("hold=up:1200,wait-status-min=leveltime:00000004:80:2", real_wad_workflow)
