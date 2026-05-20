@@ -21,6 +21,8 @@ REQUIRED_TOOLS = (
     "qemu-system-x86_64",
 )
 
+DEFAULT_NOVNC_PORT = "6080"
+
 NOVNC_WEB_ROOTS = (
     Path("/usr/share/novnc"),
     Path("/usr/local/share/novnc"),
@@ -60,6 +62,7 @@ class NovncStatus:
 @dataclass(frozen=True)
 class PreflightReport:
     platform_name: str
+    novnc_port: int
     required_tools: tuple[ToolStatus, ...]
     novnc: NovncStatus
 
@@ -76,6 +79,16 @@ def _local_vm_allowed(env: Mapping[str, str]) -> bool:
     return env.get("ALLOW_LOCAL_VM") == "1"
 
 
+def _validate_tcp_port(name: str, raw_value: str) -> int:
+    if not raw_value.isdigit():
+        raise PreflightError(f"{name} must be a TCP port number, got {raw_value!r}")
+
+    port = int(raw_value, 10)
+    if port < 1 or port > 65535:
+        raise PreflightError(f"{name} must be between 1 and 65535, got {raw_value!r}")
+    return port
+
+
 def check_preflight(
     *,
     env: Mapping[str, str] | None = None,
@@ -87,6 +100,9 @@ def check_preflight(
 
     effective_env = os.environ if env is None else env
     effective_platform = platform.system() if platform_name is None else platform_name
+    novnc_port = _validate_tcp_port(
+        "NOVNC_PORT", effective_env.get("NOVNC_PORT", DEFAULT_NOVNC_PORT)
+    )
 
     if _is_macos(effective_platform) and not _local_vm_allowed(effective_env):
         raise PreflightError(
@@ -111,6 +127,7 @@ def check_preflight(
     web_root = next((root for root in NOVNC_WEB_ROOTS if path_is_dir(root)), None)
     return PreflightReport(
         platform_name=effective_platform,
+        novnc_port=novnc_port,
         required_tools=required_tools,
         novnc=NovncStatus(websockify=which("websockify"), web_root=web_root),
     )
@@ -120,6 +137,7 @@ def render_report(report: PreflightReport) -> str:
     lines = [
         "play-now remote preflight OK",
         f"platform: {report.platform_name}",
+        f"noVNC port: {report.novnc_port}",
         "required tools:",
     ]
     for tool in report.required_tools:

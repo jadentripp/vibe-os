@@ -88,7 +88,7 @@ after-start:wait=2,snapshot
 after-fire:hold=ctrl:800,wait=2,snapshot
 after-move:hold=up:1200,wait=3,snapshot
 after-use:hold=spc:3000,snapshot,wait=2
-after-mouse:mousebtn=1,wait=1,mousebtn=0,wait=1,mouse=64:0,wait=2,snapshot
+after-mouse:mousebtn=1,wait=1,mouse=4:0,wait=1,mousebtn=0,wait=1,mouse=64:0,wait=2,snapshot
 after-menu:esc,wait=2,snapshot
 ```
 

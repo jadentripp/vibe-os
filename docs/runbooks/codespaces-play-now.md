@@ -26,6 +26,17 @@ opens/prints the noVNC URL, and prints the log and delete commands. QEMU, the
 shareware WAD, `build/disk.img`, pixel output, and raw audio never run on or
 copy back to the Mac.
 
+If port `6080` is unavailable, set `NOVNC_PORT` for both preflight and launch:
+
+```sh
+NOVNC_PORT=6173 ./tools/play_now_codespaces.sh --preflight
+NOVNC_PORT=6173 ./tools/play_now_codespaces.sh
+```
+
+The launcher uses that exact port in the remote Codespace, waits for the
+matching forwarded port, and refuses to print or open the noVNC URL if it cannot
+mark the port private.
+
 To reuse a specific existing Codespace:
 
 ```sh
@@ -62,9 +73,10 @@ creating a Codespace:
 
 Expected successful output includes `play-now Codespaces preflight OK`, the
 repo, ref, selected machine, `noVNC port: 6080 (private)`, and
+`local artifact transfer: none`. The dry run also prints
 `dry-run: Codespace was not created or modified`. If it reports a dirty tree,
-missing upstream, or ahead/behind counts, fix and push the branch before using
-the launcher as current-head play proof.
+missing upstream, an invalid noVNC port, or ahead/behind counts, fix and push
+the branch before using the launcher as current-head play proof.
 
 ## Run The Play Script
 
@@ -104,6 +116,11 @@ inside the Codespace.
 
 Controls: arrows move and turn, Ctrl fires, Space uses, and Escape opens the
 menu. noVNC does not carry game audio in this fast path.
+
+The Codespaces launcher never downloads the remote WAD, disk image, rendered
+pixels, raw audio, screenshots, or remote logs to the Mac. Use the separate
+allowlisted proof collector only when you intentionally need a status-only human
+proof bundle.
 
 ## Destroy The Codespace
 

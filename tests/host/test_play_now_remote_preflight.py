@@ -68,6 +68,20 @@ class PlayNowRemotePreflightTests(unittest.TestCase):
                 which=present.get,
             )
 
+    def test_invalid_novnc_port_is_reported_before_tool_lookup(self):
+        def fail_if_checked(name):
+            raise AssertionError(f"tool lookup should not happen after port refusal: {name}")
+
+        with self.assertRaisesRegex(
+            check_play_now_remote.PreflightError,
+            "NOVNC_PORT must be between 1 and 65535",
+        ):
+            check_play_now_remote.check_preflight(
+                env={"NOVNC_PORT": "0"},
+                platform_name="Linux",
+                which=fail_if_checked,
+            )
+
     def test_success_on_linux_like_host_reports_optional_novnc_without_launching_qemu(self):
         looked_up = []
 
@@ -89,6 +103,7 @@ class PlayNowRemotePreflightTests(unittest.TestCase):
 
         self.assertEqual(rc, 0, stderr.getvalue())
         self.assertIn("play-now remote preflight OK", stdout.getvalue())
+        self.assertIn("noVNC port: 6080", stdout.getvalue())
         self.assertIn("browser proxy: available", stdout.getvalue())
         self.assertIn("dry-run: QEMU was not launched", stdout.getvalue())
         self.assertIn("qemu-system-x86_64", looked_up)
@@ -108,6 +123,7 @@ class PlayNowRemotePreflightTests(unittest.TestCase):
         )
 
         self.assertEqual(rc, 0, stderr.getvalue())
+        self.assertIn("noVNC port: 6080", stdout.getvalue())
         self.assertIn("browser proxy: unavailable; use an SSH VNC tunnel", stdout.getvalue())
         self.assertIn("dry-run: QEMU was not launched", stdout.getvalue())
         self.assertEqual(stderr.getvalue(), "")

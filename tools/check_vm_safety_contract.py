@@ -199,11 +199,14 @@ def validate_cloud_interactive_runbooks(root: Path = ROOT) -> None:
         "local git working tree is dirty",
         "differs from upstream",
         "play-now Codespaces preflight OK",
+        "local artifact transfer: none",
         "dry-run: Codespace was not created or modified",
-        "gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" bash -lc \"$payload\"",
+        "novnc_url_from_browse_url",
+        "gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" NOVNC_PORT=\"$NOVNC_PORT\" bash -lc \"$payload\"",
         "./tools/play_now_remote.sh --preflight",
-        "nohup ./tools/play_now_remote.sh",
+        "NOVNC_PORT=$NOVNC_PORT nohup ./tools/play_now_remote.sh",
         "gh codespace ports visibility \"$NOVNC_PORT:private\"",
+        "noVNC port $NOVNC_PORT is private",
         "vnc.html?autoconnect=1",
     ):
         _require(codespaces_script, needle, "Codespaces play-now launcher")

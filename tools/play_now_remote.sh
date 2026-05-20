@@ -23,6 +23,25 @@ Options:
 EOF
 }
 
+fail_remote() {
+  echo "play-now remote failed: $*" >&2
+  exit 1
+}
+
+validate_tcp_port() {
+  local name="$1"
+  local value="$2"
+
+  case "$value" in
+    ''|*[!0-9]*)
+      fail_remote "$name must be a TCP port number, got '$value'"
+      ;;
+  esac
+  if [ "$value" -lt 1 ] || [ "$value" -gt 65535 ]; then
+    fail_remote "$name must be between 1 and 65535, got '$value'"
+  fi
+}
+
 RUN_PREFLIGHT_ONLY=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -41,6 +60,8 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+
+validate_tcp_port NOVNC_PORT "$NOVNC_PORT"
 
 if [ "$(uname -s)" = "Darwin" ] && [ "${ALLOW_LOCAL_VM:-0}" != "1" ]; then
   cat >&2 <<'EOF'
@@ -82,6 +103,7 @@ trap cleanup EXIT INT TERM
 mkdir -p "$PLAY_BUILD_DIR"
 
 echo "Fetching/validating shareware DOOM1.WAD into $WAD_PATH"
+echo "Remote artifact policy: WADs, disk images, pixels, raw audio, and logs stay on this disposable host unless a separate allowlisted proof collector is used."
 python3 tools/prepare_shareware_wad.py \
   --url "$DOOM_WAD_URL" \
   --output "$WAD_PATH"

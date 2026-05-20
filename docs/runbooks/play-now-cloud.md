@@ -20,6 +20,11 @@ branch, starts `./tools/play_now_remote.sh` inside the Codespace, makes port
 Codespaces and opens a browser; it does not run QEMU, fetch the WAD, build
 `disk.img`, or copy play artifacts back.
 
+To use a different noVNC port, set `NOVNC_PORT` on the Mac before both commands.
+The launcher validates that port locally, passes the same value into the
+Codespace, waits for that exact forwarded port, and fails closed if GitHub CLI
+cannot mark it private.
+
 Use a plain remote Ubuntu host instead when you do not want Codespaces:
 
 ```sh
@@ -56,6 +61,10 @@ The script refuses to run QEMU on macOS. Use a disposable remote Linux host or
 Codespace for playtesting. It fetches the validated shareware `DOOM1.WAD` to
 `/tmp/vibe-os-DOOM1.WAD`, keeps WAD data outside the repo, and does not upload
 disk images, pixels, WADs, or raw audio.
+
+The Mac-side Codespaces launcher does not download WADs, disk images, rendered
+pixels, raw audio, or remote logs. If you need a proof bundle later, use the
+allowlisted collector flow below instead of copying generated VM artifacts.
 
 Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens the menu.
 VNC does not carry game audio in this quick path; current SB16 and audible audio

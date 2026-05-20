@@ -75,6 +75,30 @@ validate_novnc_port() {
   fi
 }
 
+novnc_url_from_browse_url() {
+  local browse_url="$1"
+
+  case "$browse_url" in
+    http://*|https://*)
+      ;;
+    *)
+      die "gh returned an invalid noVNC browse URL for port $NOVNC_PORT: '$browse_url'"
+      ;;
+  esac
+
+  case "$browse_url" in
+    */vnc.html|*/vnc.html\?*)
+      printf "%s\n" "$browse_url"
+      ;;
+    *\?*)
+      printf "%s/vnc.html?autoconnect=1\n" "${browse_url%%\?*}"
+      ;;
+    *)
+      printf "%s/vnc.html?autoconnect=1\n" "${browse_url%/}"
+      ;;
+  esac
+}
+
 require_clean_pushed_git_state() {
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "run this from the vibe-os git checkout so the launcher can prove it will use pushed code"
 
@@ -128,8 +152,9 @@ print_preflight_summary() {
   echo "noVNC port: $NOVNC_PORT (private)"
   echo "browser open: $OPEN_BROWSER"
   echo "git state: clean and pushed for the selected current branch"
+  echo "local artifact transfer: none (no WADs, disk images, pixels, raw audio, or logs copied to the Mac)"
   echo "remote preflight command: ./tools/play_now_remote.sh --preflight"
-  echo "remote start command: nohup ./tools/play_now_remote.sh"
+  echo "remote start command: NOVNC_PORT=$NOVNC_PORT nohup ./tools/play_now_remote.sh"
   echo "dry-run: Codespace was not created or modified"
   echo "next: run without --dry-run when you are ready to start the disposable remote play session"
 }
@@ -151,11 +176,12 @@ fi
 cd "$repo_dir"
 
 if [ -n "${VIBE_PLAY_REF:-}" ]; then
-  git fetch origin "$VIBE_PLAY_REF" >/tmp/vibe-os-play-now-fetch.log 2>&1 || {
+  git fetch --depth=1 origin "$VIBE_PLAY_REF" >/tmp/vibe-os-play-now-fetch.log 2>&1 || {
     cat /tmp/vibe-os-play-now-fetch.log >&2
     exit 1
   }
-  git checkout "$VIBE_PLAY_REF"
+  git checkout --detach FETCH_HEAD
+  echo "remote play ref: $(git rev-parse --short HEAD)"
 fi
 
 ./tools/play_now_remote.sh --preflight
@@ -288,7 +314,7 @@ fi
 
 echo "Starting vibe-os Doom inside Codespace '$CODESPACE_NAME'"
 payload="$(remote_start_payload)"
-gh codespace ssh -c "$CODESPACE_NAME" -- env VIBE_PLAY_REF="$REF" bash -lc "$payload"
+gh codespace ssh -c "$CODESPACE_NAME" -- env VIBE_PLAY_REF="$REF" NOVNC_PORT="$NOVNC_PORT" bash -lc "$payload"
 
 novnc_browse_url=""
 echo "Waiting for noVNC port $NOVNC_PORT"
@@ -302,7 +328,10 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   )"
   if [ -n "$novnc_browse_url" ]; then
     echo "Marking noVNC port $NOVNC_PORT private"
-    gh codespace ports visibility "$NOVNC_PORT:private" -c "$CODESPACE_NAME" >/dev/null || true
+    gh codespace ports visibility "$NOVNC_PORT:private" -c "$CODESPACE_NAME" >/dev/null || {
+      die "could not mark noVNC port $NOVNC_PORT private; check the Codespaces Ports tab before opening the forwarded URL"
+    }
+    echo "noVNC port $NOVNC_PORT is private"
     break
   fi
   sleep 2
@@ -314,8 +343,9 @@ echo "Remote log: gh codespace ssh -c \"$CODESPACE_NAME\" -- tail -f /tmp/vibe-o
 echo "Delete when done: gh codespace delete -c \"$CODESPACE_NAME\" --force"
 
 if [ -n "$novnc_browse_url" ]; then
-  novnc_url="${novnc_browse_url%/}/vnc.html?autoconnect=1"
+  novnc_url="$(novnc_url_from_browse_url "$novnc_browse_url")"
   echo "Open Doom noVNC: $novnc_url"
+  echo "Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu."
   if [ "$OPEN_BROWSER" = "1" ] && [ "$(uname -s)" = "Darwin" ] && command -v open >/dev/null 2>&1; then
     open "$novnc_url" || true
   fi
