@@ -4180,7 +4180,7 @@ gfx_status_label db " gfx=", 0
 smoke_banner_text db "Aurora OS v0.2 ", 0
 smoke_doom_text db "doom=", 0
 smoke_gfx_text db " gfx=", 0
-smoke_status_text db " pg=", 0
+smoke_status_text db " ", 0
 smoke_ok_text db "OK", 0
 smoke_fail_text db "FAIL", 0
 heap_status_gap db " ", 0
