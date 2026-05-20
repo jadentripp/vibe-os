@@ -519,7 +519,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("*.WAD", gitignore)
         self.assertIn("workflow_dispatch:", real_wad_workflow)
         self.assertIn("wad_url:", real_wad_workflow)
-        self.assertIn("Use text=NAME", real_wad_workflow)
+        self.assertIn("marker-requested DOOMSAV slot", real_wad_workflow)
         self.assertNotIn("save_keypoll_min", real_wad_workflow)
         self.assertNotIn("load_keypoll_min", real_wad_workflow)
         self.assertIn("REAL_DOOM_WAD_URL", real_wad_workflow)
@@ -567,7 +567,18 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("persistence_load_input_script:", real_wad_workflow)
         self.assertIn("Persistence load script:", real_wad_workflow)
         self.assertIn("Capture fresh persistence baseline", real_wad_workflow)
-        self.assertIn("if: ${{ always() && (inputs.persistence_proof || inputs.persistence_save_slot != '') }}", real_wad_workflow)
+        self.assertIn(
+            "Providing this also enables the marker-driven reboot save/load persistence proof",
+            real_wad_workflow,
+        )
+        self.assertIn(
+            "if: ${{ inputs.persistence_proof || inputs.persistence_save_slot != '' }}",
+            real_wad_workflow,
+        )
+        self.assertIn(
+            "if: ${{ always() && (inputs.persistence_proof || inputs.persistence_save_slot != '') }}",
+            real_wad_workflow,
+        )
         self.assertIn('cp build/disk.img "$RUNNER_TEMP/disk.before-persistence.img"', real_wad_workflow)
         self.assertIn("check_args=(--baseline-image \"$baseline\")", real_wad_workflow)
         self.assertIn("check_args+=(--require-default)", real_wad_workflow)

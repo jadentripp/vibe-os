@@ -411,7 +411,6 @@ gh workflow run real-wad-smoke.yml \
   --ref "$branch" \
   -f expected_ref="$branch" \
   -f audible_audio_proof=true \
-  -f persistence_proof=true \
   -f persistence_save_slot=0
 ```
 

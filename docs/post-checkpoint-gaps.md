@@ -312,9 +312,10 @@ Still missing:
 
 - Current-head persistence is not proven. The latest current-head real-WAD proof
   is run `26165681561` on commit `c525952`, and it intentionally skipped the
-  opt-in persistence path. A new green `persistence_proof=true` cloud run must
-  prove `DEFAULT.CFG` or a matching `DOOMSAVN.DSG` save-slot plus full save/load
-  gameplay before the current branch can claim save/load persistence.
+  opt-in persistence path. A new green cloud run with either
+  `persistence_proof=true` or `persistence_save_slot=N` must prove `DEFAULT.CFG`
+  or a matching `DOOMSAVN.DSG` save-slot plus full save/load gameplay before
+  the current branch can claim save/load persistence.
 - The writable FAT path is still Doom-shaped, not full dynamic writable FS semantics:
   root-level 8.3 files, bounded dynamic entries, no subdirectories,
   no rename, no long filenames, and no POSIX delete-while-open behavior.
@@ -323,11 +324,10 @@ Still missing:
 
 Executable gate:
 
-- Run the opt-in `persistence_proof` cloud path with a deterministic Doom menu
-  script that writes `DEFAULT.CFG`, or set `persistence_save_slot=N` to require
-  a matching `DOOMSAVN.DSG` save-slot proof instead; use `text=NAME` for save
-  descriptions so typing is batched through the QEMU monitor; archive only
-  status/log diagnostics, not the disk image. If it fails to drive the menu,
+- Run the opt-in cloud path with `persistence_proof=true` for `DEFAULT.CFG`, or
+  set `persistence_save_slot=N` to require a matching marker-driven
+  `DOOMSAVN.DSG` save/load proof instead; archive only status/log diagnostics,
+  not the disk image. If the marker-driven slot path fails,
   finish the same flow through the remote VNC runbook and then run
   `python3 tools/check_doom_persistence_image.py --baseline-image
   /tmp/vibe-os-disk.before-persistence.img --reboot-baseline-image

@@ -515,6 +515,7 @@ jobs:
           print(f"Post-smoke WAD still validated locally: {actual_size} bytes, SHA-1 {actual_sha1}")
           PY
           rm -f "$WAD_PATH" "$RUNNER_TEMP/wad-source"
+          rm -f build/vga*.bin build/vga*.txt
 
       - name: Upload non-copyright diagnostic artifacts
         if: always()
