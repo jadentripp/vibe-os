@@ -461,6 +461,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('grep -q "doompresent="', makefile)
         self.assertIn('if [ "$(SMOKE_REQUIRE_DOOM_PRESENT)" = "1" ]; then', makefile)
         self.assertIn("/doompresent=([0-9A-F]{8})/", makefile)
+        self.assertIn('hex($$1) > 0; END { exit($$ok ? 0 : 1) }', makefile)
         self.assertIn("pmemsave 0x9d000 1024", makefile)
         self.assertIn("pmemsave 0xa0000 64000", makefile)
 

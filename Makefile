@@ -161,7 +161,11 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "heap=OK" $(BUILD_DIR)/status.txt; \
 	test -s $(BUILD_DIR)/gfx.bin; \
 	if [ "$(SMOKE_EXPECT_PROBE_GFX)" = "1" ]; then \
-		perl -e 'local $$/; $$d = <>; exit(length($$d) == 64000 && ord(substr($$d, 0, 1)) == 0 && ord(substr($$d, 1, 1)) == 1 && ord(substr($$d, 320, 1)) == 64 && ord(substr($$d, 63999, 1)) == 255 ? 0 : 1)' $(BUILD_DIR)/gfx.bin; \
+		if perl -ne '$$ok = 1 if /doompresent=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; then \
+			test $$(wc -c < $(BUILD_DIR)/gfx.bin) -eq 64000; \
+		else \
+			perl -e 'local $$/; $$d = <>; exit(length($$d) == 64000 && ord(substr($$d, 0, 1)) == 0 && ord(substr($$d, 1, 1)) == 1 && ord(substr($$d, 320, 1)) == 64 && ord(substr($$d, 63999, 1)) == 255 ? 0 : 1)' $(BUILD_DIR)/gfx.bin; \
+		fi; \
 	else \
 		test $$(wc -c < $(BUILD_DIR)/gfx.bin) -eq 64000; \
 	fi; \
