@@ -76,7 +76,7 @@ static int gameplay_frame_ready_seen;
 #define VIBE_MUSIC_STREAM_TICS \
     ((int)((VIBE_MUSIC_STREAM_BYTES * 35u) / VIBE_MUSIC_DEFAULT_SAMPLE_RATE) / 16)
 #define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x2c000u
-#define VIBE_PERSISTENCE_MIN_LEVELTIME 4
+#define VIBE_PERSISTENCE_MIN_LEVELTIME 3
 #define VIBE_PERSISTENCE_SLOT_COUNT 6
 
 static void report_doom_init_status(unsigned long flags)
