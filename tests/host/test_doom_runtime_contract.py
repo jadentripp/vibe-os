@@ -305,11 +305,13 @@ class DoomRuntimeContractTests(unittest.TestCase):
         save_checkpoint = platform.split(
             "static void checkpoint_save_slot_if_needed(void)", 1
         )[1].split("static void checkpoint_load_slot_if_needed", 1)[0]
-        self.assertIn("report_save_action_status();\n    G_SaveGame(save_checkpoint_slot, description);", save_checkpoint)
         self.assertIn("G_SaveGame(save_checkpoint_slot, description);", save_checkpoint)
+        self.assertIn("G_SaveGame(save_checkpoint_slot, description);\n    save_checkpoint_started = 1;", save_checkpoint)
+        self.assertIn("save_checkpoint_desc_hash = hash_save_description(&save_checkpoint_desc_len);", save_checkpoint)
         self.assertIn("sendsave = false;", save_checkpoint)
         self.assertIn("gameaction = ga_savegame;", save_checkpoint)
         self.assertIn("G_DoSaveGame();", save_checkpoint)
+        self.assertIn("save_checkpoint_done = 1;", save_checkpoint)
         self.assertIn("void G_BuildTiccmd(ticcmd_t* cmd)", platform)
         self.assertIn("doom_original_G_BuildTiccmd(cmd);", platform)
         build_ticcmd = platform.split("void G_BuildTiccmd(ticcmd_t* cmd)", 1)[1].split(

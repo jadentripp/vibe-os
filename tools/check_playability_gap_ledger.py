@@ -204,6 +204,7 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
     tests_readme = (root / "tests" / "README.md").read_text()
     playable_cloud_proof = (root / "docs" / "playable-cloud-proof.md").read_text()
     hardware_support = (root / "docs" / "hardware-support.md").read_text()
+    makefile = (root / "Makefile").read_text()
     for phrase in LATEST_RUN_PHRASES:
         if not _contains_phrase(text, phrase):
             raise AssertionError(f"gap ledger missing latest-run phrase: {phrase}")
@@ -232,6 +233,30 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         raise AssertionError("README must keep the Doom-capable claim boundary visible")
     if "tools/check_playability_gap_ledger.py" not in tests_readme:
         raise AssertionError("tests README must document the gap-ledger checker")
+    if "make playability-host-check" not in tests_readme:
+        raise AssertionError("tests README must document the host-only playability gate")
+    if "make playability-host-check" not in playable_cloud_proof:
+        raise AssertionError("playable cloud proof doc must prefer the host-only playability gate")
+    host_target = re.search(
+        r"^playability-host-check:.*?(?=^[a-zA-Z0-9_.-]+:|\Z)",
+        makefile,
+        re.MULTILINE | re.DOTALL,
+    )
+    if host_target is None:
+        raise AssertionError("Makefile must expose playability-host-check")
+    for phrase in (
+        "ALLOW_LOCAL_VM=0",
+        "DOOM_WAD=",
+        "build-only",
+        "test",
+        "tools/check_repo_hygiene.py",
+        "cloud-playability-check",
+        "PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF=1",
+        "persistence-image-check",
+        "git diff --check",
+    ):
+        if phrase not in host_target.group(0):
+            raise AssertionError(f"playability-host-check missing host-only gate phrase: {phrase}")
     for phrase in (
         "SUPPORT[UEFI] status=unclaimed",
         "SUPPORT[PCI_ENUMERATION] status=unclaimed",

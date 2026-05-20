@@ -40,9 +40,13 @@ locally after download.
 Before push, run the host-only readiness contract:
 
 ```sh
-make cloud-playability-check
-git diff --check
+make playability-host-check
 ```
+
+That target is intentionally QEMU-free on the local machine: it rebuilds the
+synthetic image, runs host tests, repo hygiene/original-Doom provenance,
+dynamic FAT persistence-image proof, cloud artifact/runbook contracts, play-now
+script contracts, and whitespace checks before any cloud dispatch.
 
 After push, dispatch the selected branch/ref with explicit guards so the job
 fails early if GitHub Actions is pointed at the wrong branch:

@@ -40,7 +40,7 @@ def read(path):
 
 
 def clusters_for_size(size):
-    return max(1, (size + SECTOR_SIZE - 1) // SECTOR_SIZE)
+    return make_wad_image.clusters_for_size(size)
 
 
 def make_test_wad(total_size):
@@ -223,7 +223,7 @@ class DiskImageTests(unittest.TestCase):
         return entries
 
     def cluster_bytes(self, cluster, size):
-        lba = self.data_lba + (cluster - 2)
+        lba = self.data_lba + (cluster - 2) * self.image[self.partition_lba * SECTOR_SIZE + 13]
         start = lba * SECTOR_SIZE
         return self.image[start:start + size]
 
@@ -257,7 +257,7 @@ class DiskImageTests(unittest.TestCase):
         boot = self.partition_lba * SECTOR_SIZE
         self.assertEqual(self.image[boot + 510:boot + 512], b"\x55\xaa")
         self.assertEqual(u16(self.image, boot + 11), SECTOR_SIZE)
-        self.assertEqual(self.image[boot + 13], 1)
+        self.assertEqual(self.image[boot + 13], make_wad_image.SECTORS_PER_CLUSTER)
         self.assertEqual(self.fat_count, 2)
 
     def test_fat_root_contains_wad_and_user_elf(self):
@@ -298,8 +298,9 @@ class DiskImageTests(unittest.TestCase):
         self.assertEqual(u32(image, entry + 28), len(payload))
         self.assertEqual(fs.fat_entry(chain[0]), chain[1] if len(chain) > 1 else 0xFFFF)
         self.assertEqual(fs.fat_entry(chain[-1]), 0xFFFF)
-        first_data = fs.data_lba * SECTOR_SIZE + (chain[0] - 2) * SECTOR_SIZE
-        self.assertEqual(image[first_data:first_data + len(payload[:SECTOR_SIZE])], payload[:SECTOR_SIZE])
+        first_data = fs.cluster_offset(chain[0])
+        first_chunk = payload[:make_wad_image.cluster_size()]
+        self.assertEqual(image[first_data:first_data + len(first_chunk)], first_chunk)
         self.assertEqual(fs.root_file_metadata(name)["size"], len(payload))
         self.assertFalse(fs.root_file_metadata(name)["protected"])
         self.assertEqual(fs.read_root_file(name), payload)

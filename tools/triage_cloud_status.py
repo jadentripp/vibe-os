@@ -34,6 +34,9 @@ SUMMARY_FIELDS = (
     "doominit",
     "doomerr",
     "doomerrno",
+    "doommode",
+    "doomwrite",
+    "doomclose",
     "doomexit",
     "doomfault",
     "doomfaultip",
@@ -103,6 +106,16 @@ SUMMARY_FIELDS = (
     "pkstk",
     "peip",
     "pspin",
+    "doomsav",
+    "saverd",
+    "savewr",
+    "saveclose",
+    "savemode",
+    "saveact",
+    "savedesc",
+    "fwr",
+    "fal",
+    "fio",
 )
 EXECSYS_NAMES = (
     "attempts",
@@ -199,6 +212,12 @@ TRIAGE_RULES = (
         ("doomopen", "doomread", "doomwad", "doomerr", "doomerrno", "doommode", "doomlog", "wad", "lmp"),
         "Doom did not successfully open/read the WAD through the libc/syscall/FAT path.",
         "If Doom also faulted, fix the fault first; otherwise inspect path mapping and FAT read/lseek.",
+    ),
+    TriageRule(
+        "persistence-save-write-failed",
+        ("doomerrno", "doommode", "doomsav", "savewr", "saveclose", "savemode", "fwr", "fal", "fio"),
+        "Doom reached the save path, but the DOOMSAV write did not complete.",
+        "Inspect the persistence status, then hand off to FAT allocation/free-space or write-path repair with the fwr/fio/fal fields.",
     ),
     TriageRule(
         "doom-init-stalled",
@@ -559,6 +578,65 @@ def render_wad_io_context(fields: dict[str, str]) -> list[str]:
     return lines
 
 
+def _status_nonzero_or_error(fields: dict[str, str], name: str) -> bool:
+    value = _hex(fields, name)
+    return value is not None and value != 0
+
+
+def _persistence_save_write_failed(fields: dict[str, str]) -> bool:
+    doomsav = _hex_tuple(fields, "doomsav", 2)
+    savewr = _hex_tuple(fields, "savewr", 2)
+    saveclose = _hex(fields, "saveclose")
+    fwr = _hex_tuple(fields, "fwr", 11)
+    fal = _hex_tuple(fields, "fal", 4)
+    fio = _hex_tuple(fields, "fio", 20)
+
+    save_slot_seen = doomsav is not None and doomsav[1] != 0xFFFFFFFF
+    save_write_missing = savewr is not None and (savewr[0] == 0 or savewr[1] == 0)
+    file_write_failed = (
+        fwr is not None
+        and (fwr[1] & 0x80000000) != 0
+        and fwr[2] != 0
+    )
+    fat_alloc_failed = fal is not None and fal[0] in (0xE0, 0xE1)
+    file_io_failed = fio is not None and (fio[0] != 0 or fio[14] != 0)
+
+    return (
+        save_slot_seen
+        and save_write_missing
+        and (
+            _status_nonzero_or_error(fields, "doomerrno")
+            or file_write_failed
+            or fat_alloc_failed
+            or file_io_failed
+            or (saveclose is not None and saveclose != 0)
+        )
+    )
+
+
+def render_persistence_save_context(fields: dict[str, str]) -> list[str]:
+    lines = [
+        "persistence-save: "
+        f"doomerrno={_field(fields, 'doomerrno')} doommode={_field(fields, 'doommode')} "
+        f"doomsav={_field(fields, 'doomsav')} savewr={_field(fields, 'savewr')} "
+        f"saveclose={_field(fields, 'saveclose')} savemode={_field(fields, 'savemode')} "
+        f"saveact={_field(fields, 'saveact')} savedesc={_field(fields, 'savedesc')}",
+        "persistence-write-debug: "
+        f"fwr={_field(fields, 'fwr')} fio={_field(fields, 'fio')} fal={_field(fields, 'fal')}",
+    ]
+    fal = _hex_tuple(fields, "fal", 4)
+    fio = _hex_tuple(fields, "fio", 20)
+    if fal is not None and fal[0] == 0xE0:
+        lines.append(
+            "persistence-hint: FAT allocation exhausted after a cache refresh while growing the save file"
+        )
+    if fio is not None and fio[14] != 0:
+        lines.append(
+            "persistence-hint: file_write reached cluster allocation; inspect FAT free-cluster budget and dynamic allocation"
+        )
+    return lines
+
+
 def render_doom_init_context(fields: dict[str, str]) -> list[str]:
     init = _hex_tuple(fields, "doominit", 2)
     if init is None:
@@ -693,6 +771,16 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
             f"gameplay={_field(fields, 'gameplay')} doompresent={_field(fields, 'doompresent')}"
         )
         return "doom-init-stalled", notes
+
+    if _persistence_save_write_failed(fields):
+        notes.append(
+            "persistence-save-write-failed: "
+            f"doomerrno={_field(fields, 'doomerrno')} doommode={_field(fields, 'doommode')} "
+            f"doomsav={_field(fields, 'doomsav')} savewr={_field(fields, 'savewr')} "
+            f"saveclose={_field(fields, 'saveclose')} savemode={_field(fields, 'savemode')} "
+            f"fwr={_field(fields, 'fwr')} fal={_field(fields, 'fal')} fio={_field(fields, 'fio')}"
+        )
+        return "persistence-save-write-failed", notes
 
     if doomrun != "RUN":
         notes.append(f"doom-not-running: doomrun={_field(fields, 'doomrun')}")
@@ -835,6 +923,8 @@ def render_diagnosis(
         lines.extend(f"- {note}" for note in render_doom_fault_context(fields, symbol_map_path))
     if primary == "missing-wad-open-read":
         lines.extend(f"- {note}" for note in render_wad_io_context(fields))
+    if primary == "persistence-save-write-failed":
+        lines.extend(f"- {note}" for note in render_persistence_save_context(fields))
     if primary == "doom-init-stalled":
         lines.extend(f"- {note}" for note in render_doom_init_context(fields))
     if rule is not None:

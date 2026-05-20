@@ -20,6 +20,8 @@ DOOM_SOURCE_ROOT = DOOM_VENDOR_ROOT / "linuxdoom-1.10"
 UPSTREAM_COMMIT = "a77dfb96cb91780ca334d0d4cfd86957558007e0"
 UPSTREAM_TREE_FILE_COUNT = 126
 UPSTREAM_TREE_SHA256 = "38ef8b80b6848e934c72d27cbbfa013c1e184544e9ddb6f100c4a15e565e3b83"
+UPSTREAM_IMPORTED_TREE_FILE_COUNT = 165
+UPSTREAM_IMPORTED_TREE_SHA256 = "7778ac7309e54a25199338402f488c806f625f57b7d774359bf2ff5440aa6e66"
 
 FORBIDDEN_PATH_FRAGMENTS = (
     "doomgeneric",
@@ -89,10 +91,24 @@ FORBIDDEN_PATH_PATTERNS = (
     "*.mp3",
     "*.ogg",
     "*.oga",
+    "*.opus",
+    "*.m4a",
+    "*.aac",
+    "*.wma",
     "*.flac",
     "*.aiff",
     "*.aif",
     "*.au",
+    "*.mid",
+    "*.midi",
+    "*.mus",
+    "*.sf2",
+    "*.sf3",
+    "*.voc",
+    "*.mod",
+    "*.s3m",
+    "*.xm",
+    "*.it",
     "*.qcow2",
     "*.bin",
     "*.ppm",
@@ -177,10 +193,24 @@ FORBIDDEN_UPLOAD_PATTERNS = (
     "*.mp3",
     "*.ogg",
     "*.oga",
+    "*.opus",
+    "*.m4a",
+    "*.aac",
+    "*.wma",
     "*.flac",
     "*.aiff",
     "*.aif",
     "*.au",
+    "*.mid",
+    "*.midi",
+    "*.mus",
+    "*.sf2",
+    "*.sf3",
+    "*.voc",
+    "*.mod",
+    "*.s3m",
+    "*.xm",
+    "*.it",
 )
 
 FORBIDDEN_REAL_WAD_UPLOAD_PATTERNS = (
@@ -215,6 +245,8 @@ REAL_WAD_ALLOWED_UPLOAD_PATTERNS = (
     "build/status*.bin",
     "build/status*.txt",
     "build/*.log",
+    "build/persistence-*/*.bin",
+    "build/persistence-*/*.json",
     "build/persistence-*/*.log",
     "build/persistence-*/*.txt",
 )
@@ -289,6 +321,32 @@ def upstream_tree_sha256() -> str:
         digest.update(relpath.as_posix().encode("utf-8"))
         digest.update(b"\0")
         digest.update(sha256(DOOM_VENDOR_ROOT / relpath).encode("ascii"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def upstream_imported_manifest_paths(paths: list[str] | None = None) -> list[Path]:
+    if paths is None:
+        paths = tracked_files()
+    vendor_prefix = "third_party/doom/"
+    manifest_paths = []
+    for path in paths:
+        if not path.startswith(vendor_prefix):
+            continue
+        relpath = Path(path).relative_to(DOOM_VENDOR_ROOT.relative_to(ROOT))
+        if relpath.as_posix() == "ORIGIN.md":
+            continue
+        manifest_paths.append(relpath)
+    return sorted(manifest_paths)
+
+
+def upstream_imported_tree_sha256(paths: list[str] | None = None) -> str:
+    digest = hashlib.sha256()
+    for relpath in upstream_imported_manifest_paths(paths):
+        digest.update(relpath.as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        full_path = DOOM_VENDOR_ROOT / relpath
+        digest.update(sha256(full_path).encode("ascii") if full_path.exists() else b"MISSING")
         digest.update(b"\n")
     return digest.hexdigest()
 
@@ -478,7 +536,23 @@ def vendor_policy_violations() -> list[str]:
             f"hash {actual_tree_hash} != {UPSTREAM_TREE_SHA256}"
         )
 
-    for path in DOOM_VENDOR_ROOT.glob("**/*.[ch]"):
+    imported_manifest_paths = upstream_imported_manifest_paths()
+    if len(imported_manifest_paths) != UPSTREAM_IMPORTED_TREE_FILE_COUNT:
+        violations.append(
+            "third_party/doom: imported upstream tree has "
+            f"{len(imported_manifest_paths)} tracked files, expected "
+            f"{UPSTREAM_IMPORTED_TREE_FILE_COUNT}"
+        )
+    actual_imported_tree_hash = upstream_imported_tree_sha256()
+    if actual_imported_tree_hash != UPSTREAM_IMPORTED_TREE_SHA256:
+        violations.append(
+            "third_party/doom: imported upstream tree hash "
+            f"{actual_imported_tree_hash} != {UPSTREAM_IMPORTED_TREE_SHA256}"
+        )
+
+    for path in DOOM_VENDOR_ROOT.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in {".c", ".h"}:
+            continue
         text = path.read_text(errors="ignore")
         relpath = path.relative_to(ROOT).as_posix()
         for token in FORBIDDEN_VENDOR_PORT_TOKENS:
@@ -546,7 +620,8 @@ def main() -> int:
         return 1
     print(
         "repo hygiene OK: pristine Doom vendor tree, no tracked WADs, "
-        "renamed WAD/archive payloads, disk images, raw audio, pixel dumps, logs, wrapper engine paths, "
+        "renamed WAD/archive payloads, disk images, standalone music/audio assets, "
+        "pixel dumps, logs, wrapper engine paths, "
         "forbidden uploads, or runtime shortcut APIs"
     )
     return 0

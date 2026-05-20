@@ -7585,9 +7585,23 @@ user_file_write:
     ret
 
 .fail_io:
+    cmp dword [file_io_done], 0
+    jne .partial_after_io_error
+
+.fail_io_no_progress:
     mov eax, -ERRNO_EIO
     mov [file_write_debug_result], eax
     stc
+    ret
+
+.partial_after_io_error:
+    mov eax, [file_io_index]
+    call fat_update_writable_size
+    jc .fail_io_no_progress
+    mov eax, [file_io_done]
+    mov dword [file_write_debug_stage], 0x0b
+    mov [file_write_debug_result], eax
+    clc
     ret
 
 user_file_lseek:

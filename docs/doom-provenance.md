@@ -53,14 +53,18 @@ Not allowed:
 
 `tests/host/test_doom_source.py` records the upstream commit, verifies a
 deterministic hash over the original `linuxdoom-1.10` `.c` and `.h` files plus
-the top-level release docs, checks that the Makefile compiles original engine
-objects and separate `doom_port` objects, and rejects source-port/wrapper paths.
+the top-level release docs, verifies a second deterministic hash over the full
+imported `third_party/doom` vendor tree, checks that the Makefile compiles
+original engine objects and separate `doom_port` objects, and rejects
+source-port/wrapper paths.
 
 `tools/check_repo_hygiene.py` scans tracked files and fails if game data,
 generated VM evidence, rendered pixel artifacts, wrapper-engine paths, or
 runtime/build references to shortcut engines and host display/audio APIs have
-entered git. It also sniffs renamed raw WAD payloads plus gzip, zip, and tar
-containers with WAD member names or WAD magic, and checks
+entered git. It also rejects standalone music/audio assets such as MUS, MIDI,
+soundfonts, tracker modules, and compressed audio, sniffs renamed raw WAD
+payloads plus gzip, zip, and tar containers with WAD member names or WAD magic,
+and checks
 `git status -- third_party/doom` so unstaged, staged, or untracked vendor-tree
 edits fail the host suite. The repo `.gitignore` mirrors the common WAD archive,
 disk image, rendered pixel, screenshot, log, and raw-audio spillover patterns.

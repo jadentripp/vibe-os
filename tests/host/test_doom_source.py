@@ -16,6 +16,8 @@ DOOM_BASE = 0x01000000
 UPSTREAM_COMMIT = "a77dfb96cb91780ca334d0d4cfd86957558007e0"
 UPSTREAM_TREE_FILE_COUNT = 126
 UPSTREAM_TREE_SHA256 = "38ef8b80b6848e934c72d27cbbfa013c1e184544e9ddb6f100c4a15e565e3b83"
+UPSTREAM_IMPORTED_TREE_FILE_COUNT = 165
+UPSTREAM_IMPORTED_TREE_SHA256 = "7778ac7309e54a25199338402f488c806f625f57b7d774359bf2ff5440aa6e66"
 ORIGINAL_PLATFORM_SRCS = ("i_main.c", "i_net.c", "i_sound.c", "i_system.c", "i_video.c")
 REQUIRED_PORT_SRCS = {"doom_port/libc.c", "doom_port/platform.c", "doom_port/start.c"}
 
@@ -55,6 +57,32 @@ def upstream_tree_sha256():
     return digest.hexdigest()
 
 
+def upstream_imported_manifest_paths():
+    raw = subprocess.check_output(
+        ["git", "ls-files", "-z", "--", "third_party/doom"],
+        cwd=ROOT,
+    )
+    paths = []
+    for entry in raw.split(b"\0"):
+        if not entry:
+            continue
+        path = Path(entry.decode("utf-8"))
+        relpath = path.relative_to("third_party/doom")
+        if relpath.as_posix() != "ORIGIN.md":
+            paths.append(relpath)
+    return sorted(paths)
+
+
+def upstream_imported_tree_sha256():
+    digest = hashlib.sha256()
+    for relpath in upstream_imported_manifest_paths():
+        digest.update(relpath.as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(sha256(DOOM_ROOT / relpath).encode("ascii"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
 def u16(data, offset):
     return int.from_bytes(data[offset:offset + 2], "little")
 
@@ -79,6 +107,11 @@ class DoomSourceTests(unittest.TestCase):
         paths = upstream_manifest_paths()
         self.assertEqual(len(paths), UPSTREAM_TREE_FILE_COUNT)
         self.assertEqual(upstream_tree_sha256(), UPSTREAM_TREE_SHA256)
+
+    def test_full_imported_doom_vendor_tree_is_pristine(self):
+        paths = upstream_imported_manifest_paths()
+        self.assertEqual(len(paths), UPSTREAM_IMPORTED_TREE_FILE_COUNT)
+        self.assertEqual(upstream_imported_tree_sha256(), UPSTREAM_IMPORTED_TREE_SHA256)
 
     def test_third_party_doom_worktree_is_pristine(self):
         result = subprocess.run(

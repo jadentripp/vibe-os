@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILD = ROOT / "build"
+REAL_SHAREWARE_WAD_SIZE = 4_196_020
 
 
 def load_tool(name, path):
@@ -70,6 +71,42 @@ def doom_save_payload(description="VIBE SAVE", version="version 110", tail_size=
     payload.extend(bytes(((index * 37 + 11) & 0xFF for index in range(tail_size))))
     payload.append(check_persistence.SAVE_CONSISTENCY_MARKER)
     return bytes(payload)
+
+
+def doom_save_payload_at_size(size):
+    base_size = len(doom_save_payload(tail_size=0))
+    if size < base_size:
+        raise ValueError("requested Doom save payload size is too small")
+    return doom_save_payload(tail_size=size - base_size)
+
+
+def wad_like_payload(total_size=REAL_SHAREWARE_WAD_SIZE):
+    wad = bytearray(total_size)
+    lumps = [
+        ("PLAYPAL", bytes((i % 64 for i in range(14 * 256 * 3)))),
+        ("COLORMAP", bytes((i % 256 for i in range(34 * 256)))),
+    ]
+    cursor = 12
+    entries = []
+    for name, data in lumps:
+        wad[cursor:cursor + len(data)] = data
+        entries.append((cursor, len(data), name.encode("ascii").ljust(8, b"\0")))
+        cursor += len(data)
+
+    directory = cursor
+    directory_end = directory + len(entries) * 16
+    if directory_end > total_size:
+        raise ValueError("WAD-like payload is too small for its directory")
+    for index, (filepos, size, name) in enumerate(entries):
+        struct.pack_into("<II8s", wad, directory + index * 16, filepos, size, name)
+
+    filler = b"vibe-os host FAT real-size WAD simulation; no game data\n"
+    for offset in range(directory_end, total_size, len(filler)):
+        wad[offset:offset + len(filler)] = filler[: total_size - offset]
+
+    wad[0:4] = b"IWAD"
+    struct.pack_into("<II", wad, 4, len(entries), directory)
+    return bytes(wad)
 
 
 def doom_default_payload(screenblocks=9, chatmacro=b"HELLO"):
@@ -181,6 +218,8 @@ def save_write_status(slot=1, **overrides):
         "savewr": "00001000/00000001",
         "saveclose": "00000001",
         "savemode": "00000301:000001B6",
+        "saveact": f"0000001C/00000000/{slot:08X}/00000003",
+        "savedesc": "00000009/0A118936",
         "doomexit": "00000000",
         "doomfault": "00000000",
         "doomfaultip": "00000000",
@@ -227,6 +266,32 @@ class DoomPersistenceImageTests(unittest.TestCase):
         tmp.write(text)
         tmp.close()
         return Path(tmp.name)
+
+    def build_temp_image_with_wad(self, wad):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            wad_path = tmpdir / "DOOM1.WAD"
+            image_path = tmpdir / "disk.img"
+            wad_path.write_bytes(wad)
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "tools" / "make_wad_image.py"),
+                    "--wad",
+                    str(wad_path),
+                    str(image_path),
+                    str(BUILD / "stage1.bin"),
+                    str(BUILD / "stage2.bin"),
+                    str(BUILD / "kernel.elf"),
+                    str(BUILD / "user_probe.elf"),
+                    str(BUILD / "doom.elf"),
+                ],
+                check=True,
+                cwd=ROOT,
+            )
+
+            return bytearray(image_path.read_bytes())
 
     def test_checker_accepts_fresh_image_entries_without_claiming_written_state(self):
         summary = check_persistence.validate_image(BUILD / "disk.img")
@@ -548,6 +613,10 @@ class DoomPersistenceImageTests(unittest.TestCase):
             check_persistence.validate_save_write_status(save_write_status(doomsav="00000009/00000001"))
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "savewr"):
             check_persistence.validate_save_write_status(save_write_status(savewr="00000000/00000000"))
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "saveact"):
+            check_persistence.validate_save_write_status(save_write_status(saveact="00000000/00000000/00000001/00000000"))
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "savedesc"):
+            check_persistence.validate_save_write_status(save_write_status(savedesc="00000000/00000000"))
 
     def test_checker_rejects_save_load_status_without_full_payload_read(self):
         save_payload = doom_save_payload("MENU ONLY")
@@ -855,7 +924,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         before_free = fs.free_data_clusters()
 
         first_chain = fs.write_root_file(name, b"A" * 600)
-        self.assertEqual(len(first_chain), 2)
+        self.assertEqual(len(first_chain), make_wad_image.clusters_for_size(600))
 
         grown_chain = fs.write_root_file_at(name, 1500, b"END")
         grown = fs.read_root_file(name)
@@ -929,6 +998,85 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertEqual(fs.root_file_metadata(save_name)["size"], 0)
         self.assertEqual(fs.free_data_clusters(), before_free - len(replacement_chain))
         fs.validate_fat_copies_match()
+
+    def test_real_wad_sized_image_can_request_and_grow_save_slot_zero(self):
+        image = self.build_temp_image_with_wad(wad_like_payload())
+        baseline = bytearray(image)
+        fs = make_wad_image.Fat16Image(image)
+        wad_meta = fs.root_file_metadata(b"DOOM1   WAD")
+        save_name = make_wad_image.WRITABLE_SAVE_NAMES[0]
+        cluster_bytes = make_wad_image.cluster_size()
+
+        self.assertEqual(wad_meta["cluster"], make_wad_image.DOOM_WAD_CLUSTER)
+        self.assertEqual(wad_meta["size"], REAL_SHAREWARE_WAD_SIZE)
+        self.assertEqual(
+            fs.root_file_metadata(make_wad_image.DOOM_ELF_NAME)["size"],
+            (BUILD / "doom.elf").stat().st_size,
+        )
+        self.assertEqual(fs.root_file_metadata(make_wad_image.SAVE_REQUEST_NAME)["cluster"], 0)
+        self.assertEqual(fs.root_file_metadata(make_wad_image.SAVE_REQUEST_NAME)["size"], 0)
+        self.assertEqual(fs.root_file_metadata(save_name)["cluster"], 0)
+        self.assertEqual(fs.root_file_metadata(save_name)["size"], 0)
+
+        before_free = fs.free_data_clusters()
+        save_payload = doom_save_payload_at_size(make_wad_image.WRITABLE_SAVE_BYTES)
+        required_clusters = make_wad_image.clusters_for_size(1) + make_wad_image.clusters_for_size(
+            len(save_payload)
+        )
+        self.assertGreaterEqual(
+            before_free - required_clusters,
+            make_wad_image.MIN_OS_CREATED_FILE_CLUSTERS,
+        )
+
+        marker_chain = fs.write_root_file(make_wad_image.SAVE_REQUEST_NAME, b"X")
+        self.assertEqual(len(marker_chain), 1)
+        self.assertEqual(fs.free_data_clusters(), before_free - len(marker_chain))
+        remounted = make_wad_image.Fat16Image(image)
+        self.assertEqual(remounted.read_root_file(make_wad_image.SAVE_REQUEST_NAME), b"X")
+        self.assertEqual(remounted.root_file_metadata(save_name)["cluster"], 0)
+        self.assertEqual(remounted.root_file_metadata(save_name)["size"], 0)
+
+        first_chain = fs.write_root_file_at(save_name, 0, save_payload[:cluster_bytes])
+        self.assertEqual(len(first_chain), 1)
+        self.assertEqual(fs.root_file_metadata(save_name)["size"], cluster_bytes)
+        self.assertEqual(fs.read_root_file(save_name), save_payload[:cluster_bytes])
+        self.assertEqual(
+            fs.free_data_clusters(),
+            before_free - len(marker_chain) - len(first_chain),
+        )
+
+        grown_chain = fs.write_root_file_at(save_name, cluster_bytes, save_payload[cluster_bytes:])
+        grown_meta = fs.root_file_metadata(save_name)
+        self.assertEqual(grown_meta["size"], len(save_payload))
+        self.assertGreater(len(grown_chain), len(first_chain))
+        self.assertEqual(len(grown_chain), make_wad_image.clusters_for_size(len(save_payload)))
+        self.assertEqual(fs.read_root_file(save_name), save_payload)
+        self.assertEqual(
+            fs.free_data_clusters(),
+            before_free - len(marker_chain) - len(grown_chain),
+        )
+
+        remounted = make_wad_image.Fat16Image(image)
+        remounted.validate_fat_copies_match()
+        remounted.validate_allocated_clusters_reachable()
+        self.assertEqual(remounted.read_root_file(make_wad_image.SAVE_REQUEST_NAME), b"X")
+        self.assertEqual(remounted.read_root_file(save_name), save_payload)
+
+        deleted_marker = fs.delete_root_file(make_wad_image.SAVE_REQUEST_NAME)
+        self.assertEqual(deleted_marker, marker_chain)
+        self.assertIsNone(fs.root_file_metadata(make_wad_image.SAVE_REQUEST_NAME))
+        self.assertEqual(fs.read_root_file(save_name), save_payload)
+        self.assertEqual(fs.free_data_clusters(), before_free - len(grown_chain))
+
+        baseline_path = self.write_temp_image(baseline)
+        image_path = self.write_temp_image(image)
+        summary = check_persistence.validate_image(
+            image_path,
+            baseline_image=baseline_path,
+            require_save_slots=[0],
+        )
+        self.assertIn("DOOMSAV0.DSG bytes=", summary[0])
+        self.assertIn("changed-from-baseline", summary[0])
 
     def test_dynamic_truncate_rejects_corrupt_chain_without_partial_free(self):
         image = bytearray((BUILD / "disk.img").read_bytes())

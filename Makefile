@@ -70,7 +70,7 @@ STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 98304
 USER_PROBE_ELF_MAX_BYTES := 12288
 
-.PHONY: all build-only test doom-compile doom-link run run-headless smoke playability-gap-check hardware-support-check vm-safety-check shutdown-panic-proof-check scripted-gameplay-proof-check audio-continuity-check audible-audio-proof-check cloud-playability-check persistence-image-check clean check-tools vm-consent
+.PHONY: all build-only test doom-compile doom-link run run-headless smoke playability-host-check playability-gap-check hardware-support-check vm-safety-check shutdown-panic-proof-check scripted-gameplay-proof-check audio-continuity-check audible-audio-proof-check cloud-playability-check persistence-image-check clean check-tools vm-consent
 
 all: $(IMAGE)
 
@@ -85,6 +85,18 @@ doom-compile: $(DOOM_ORIGINAL_OBJS)
 
 doom-link: $(DOOM_ELF)
 	@printf "Linked freestanding Doom ELF at %s\n" "$(DOOM_ELF)"
+
+playability-host-check:
+	@printf "Running host-only playability readiness checks; local QEMU remains disabled.\n"
+	$(MAKE) --no-print-directory clean
+	$(MAKE) --no-print-directory ALLOW_LOCAL_VM=0 DOOM_WAD= build-only
+	$(MAKE) --no-print-directory ALLOW_LOCAL_VM=0 DOOM_WAD= test
+	$(PYTHON) tools/check_repo_hygiene.py
+	$(MAKE) --no-print-directory ALLOW_LOCAL_VM=0 cloud-playability-check
+	$(MAKE) --no-print-directory ALLOW_LOCAL_VM=0 DOOM_WAD= PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF=1 persistence-image-check
+	git diff --check
+	git diff --cached --check
+	@printf "Playability host check OK: hygiene, original Doom provenance, dynamic FAT persistence image, cloud artifact/runbook contracts, and play-now script contracts passed without local QEMU.\n"
 
 check-tools:
 	@command -v $(NASM) >/dev/null || { echo "missing nasm"; exit 1; }

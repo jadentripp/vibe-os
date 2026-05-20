@@ -123,6 +123,12 @@ SAVELOAD_EVENT_READ = 0x0002
 SAVELOAD_EVENT_WRITE = 0x0004
 SAVELOAD_EVENT_CLOSE = 0x0008
 SAVELOAD_REQUIRED_LOAD_FLAGS = SAVELOAD_EVENT_OPEN | SAVELOAD_EVENT_READ | SAVELOAD_EVENT_CLOSE
+SAVEACTION_DESCRIPTION = 0x0004
+SAVEACTION_SAVE_REQUESTED = 0x0008
+SAVEACTION_SAVE_DONE = 0x0010
+SAVE_WRITE_REQUIRED_ACTION_FLAGS = (
+    SAVEACTION_DESCRIPTION | SAVEACTION_SAVE_REQUESTED | SAVEACTION_SAVE_DONE
+)
 
 spec = importlib.util.spec_from_file_location("make_wad_image", MAKE_WAD_IMAGE)
 make_wad_image = importlib.util.module_from_spec(spec)
@@ -683,6 +689,26 @@ def validate_save_write_status(status, expected_slot=None):
         raise PersistenceProofError(
             "save write status savemode= must prove DOOMSAV was opened "
             f"O_WRONLY|O_CREAT|O_TRUNC, got {save_flags:#x}"
+        )
+
+    saveaction_flags, _saveaction_gameaction, saveaction_slot, saveaction_reports = (
+        _status_hex_tuple_field(fields, "saveact", 4)
+    )
+    if expected_slot is not None and saveaction_slot != expected_slot:
+        raise PersistenceProofError(
+            f"save write status saveact= slot must be {expected_slot}, got {saveaction_slot}"
+        )
+    if saveaction_reports == 0:
+        raise PersistenceProofError("save write status saveact= must prove Doom action reporting")
+    if (saveaction_flags & SAVE_WRITE_REQUIRED_ACTION_FLAGS) != SAVE_WRITE_REQUIRED_ACTION_FLAGS:
+        raise PersistenceProofError(
+            "save write status saveact= must prove the original Doom save was "
+            "requested, described, and returned from G_DoSaveGame"
+        )
+    savedesc_len, savedesc_hash = _status_hex_tuple_field(fields, "savedesc", 2)
+    if savedesc_len == 0 or savedesc_hash == 0:
+        raise PersistenceProofError(
+            "save write status savedesc= must preserve the Doom save description marker"
         )
 
     if any(_status_hex_tuple_field(fields, "fault", 11)):

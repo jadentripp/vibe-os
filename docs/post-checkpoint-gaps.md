@@ -574,5 +574,5 @@ because host tests pass. A playable claim requires at least:
   in the phase snapshots
 - a remote human playtest or an explicit statement that only scripted
   cloud-safe playability has been proved
-- no tracked WADs, disk images, rendered Doom pixels, or modified
-  `third_party/doom` files
+- no tracked WADs, standalone music/audio assets, disk images, rendered Doom
+  pixels, or modified `third_party/doom` files

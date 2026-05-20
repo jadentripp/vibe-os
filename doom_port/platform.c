@@ -64,10 +64,14 @@ static int save_checkpoint_request_checked;
 static int save_checkpoint_requested;
 static int save_checkpoint_slot;
 static int save_checkpoint_done;
+static int save_checkpoint_started;
+static unsigned long save_checkpoint_desc_hash;
+static unsigned long save_checkpoint_desc_len;
 static int load_checkpoint_request_checked;
 static int load_checkpoint_requested;
 static int load_checkpoint_slot;
 static int load_checkpoint_done;
+static int load_checkpoint_started;
 
 #define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
 #define VIBE_SFX_DEFAULT_SAMPLE_RATE 11025u
@@ -80,6 +84,27 @@ static int load_checkpoint_done;
 static void report_doom_init_status(unsigned long flags)
 {
     (void)vibe_syscall3(VIBE_SYS_GAMEPLAY_STATUS, VIBE_DOOM_INIT_STATUS | flags, 0, 0);
+}
+
+static unsigned long hash_save_description(unsigned long* out_length)
+{
+    unsigned long hash = 0;
+    unsigned long length = 0;
+    unsigned char c;
+    int i;
+
+    for (i = 0; i < 32 && savedescription[i]; ++i) {
+        c = (unsigned char)savedescription[i];
+        if (length == 0)
+            hash = 2166136261u;
+        hash ^= c;
+        hash *= 16777619u;
+        ++length;
+    }
+
+    if (out_length)
+        *out_length = length;
+    return hash;
 }
 
 static int vibe_music_audio_handle(int handle)
@@ -439,12 +464,16 @@ static void checkpoint_save_slot_if_needed(void)
     if (!save_checkpoint_requested_once())
         return;
 
-    report_save_action_status();
     G_SaveGame(save_checkpoint_slot, description);
+    save_checkpoint_started = 1;
+    save_checkpoint_desc_hash = hash_save_description(&save_checkpoint_desc_len);
+    report_save_action_status();
     sendsave = false;
     gameaction = ga_savegame;
+    report_save_action_status();
     G_DoSaveGame();
     save_checkpoint_done = 1;
+    report_save_action_status();
 }
 
 static void checkpoint_load_slot_if_needed(void)
@@ -464,8 +493,11 @@ static void checkpoint_load_slot_if_needed(void)
         return;
 
     path[7] = (char)('0' + load_checkpoint_slot);
+    load_checkpoint_started = 1;
+    report_save_action_status();
     G_LoadGame(path);
     load_checkpoint_done = 1;
+    report_save_action_status();
 }
 
 static void pump_music_stream(void)
@@ -686,30 +718,39 @@ static void report_save_action_status(void)
     unsigned long hash = 0;
     unsigned long length = 0;
     unsigned long packed;
-    unsigned char c;
-    int i;
+    unsigned long slot = (unsigned long)savegameslot & 0xffu;
 
     if (sendsave)
         flags |= VIBE_DOOM_SAVEACTION_SENDSAVE;
     if (menuactive)
         flags |= VIBE_DOOM_SAVEACTION_MENUACTIVE;
+    if (save_checkpoint_requested || save_checkpoint_started)
+        flags |= VIBE_DOOM_SAVEACTION_SAVE_REQUESTED;
+    if (save_checkpoint_done)
+        flags |= VIBE_DOOM_SAVEACTION_SAVE_DONE;
+    if (load_checkpoint_requested || load_checkpoint_started)
+        flags |= VIBE_DOOM_SAVEACTION_LOAD_REQUESTED;
+    if (load_checkpoint_done)
+        flags |= VIBE_DOOM_SAVEACTION_LOAD_DONE;
 
-    for (i = 0; i < 32 && savedescription[i]; ++i) {
-        c = (unsigned char)savedescription[i];
-        if (length == 0)
-            hash = 2166136261u;
-        hash ^= c;
-        hash *= 16777619u;
-        ++length;
+    hash = hash_save_description(&length);
+    if (length == 0 && save_checkpoint_desc_len != 0) {
+        length = save_checkpoint_desc_len;
+        hash = save_checkpoint_desc_hash;
     }
 
     if (length)
         flags |= VIBE_DOOM_SAVEACTION_DESCRIPTION;
 
+    if (save_checkpoint_requested || save_checkpoint_started || save_checkpoint_done)
+        slot = (unsigned long)save_checkpoint_slot & 0xffu;
+    else if (load_checkpoint_requested || load_checkpoint_started || load_checkpoint_done)
+        slot = (unsigned long)load_checkpoint_slot & 0xffu;
+
     packed = VIBE_DOOM_SAVEACTION_STATUS
         | flags
         | (((unsigned long)gameaction & 0xffu) << VIBE_DOOM_SAVEACTION_GAMEACTION_SHIFT)
-        | (((unsigned long)savegameslot & 0xffu) << VIBE_DOOM_SAVEACTION_SLOT_SHIFT);
+        | (slot << VIBE_DOOM_SAVEACTION_SLOT_SHIFT);
 
     (void)vibe_syscall3(VIBE_SYS_GAMEPLAY_STATUS, packed, hash, length);
 }

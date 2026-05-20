@@ -36,6 +36,11 @@ class RepoHygieneTests(unittest.TestCase):
             check_repo_hygiene.upstream_tree_sha256(),
             "38ef8b80b6848e934c72d27cbbfa013c1e184544e9ddb6f100c4a15e565e3b83",
         )
+        self.assertEqual(check_repo_hygiene.UPSTREAM_IMPORTED_TREE_FILE_COUNT, 165)
+        self.assertEqual(
+            check_repo_hygiene.upstream_imported_tree_sha256(),
+            "7778ac7309e54a25199338402f488c806f625f57b7d774359bf2ff5440aa6e66",
+        )
         self.assertEqual(check_repo_hygiene.vendor_policy_violations(), [])
 
     def test_tracked_artifact_patterns_cover_wads_images_audio_and_pixels(self):
@@ -51,6 +56,12 @@ class RepoHygieneTests(unittest.TestCase):
             "proofs/pixels/frame.txt",
             "capture/doom-audio.wav",
             "capture/sfx.raw",
+            "capture/music.opus",
+            "capture/music.m4a",
+            "music/e1m1.mid",
+            "music/d_intro.mus",
+            "music/doom.sf2",
+            "music/tracker.mod",
         )
         for path in forbidden_paths:
             with self.subTest(path=path):
@@ -92,6 +103,21 @@ class RepoHygieneTests(unittest.TestCase):
                 "proof-zip.bundle: archive member 'renamed.dat' contains WAD/PWAD payload",
                 "proof-tar.bundle: tar archive member 'nested/DOOM1.WAD' is a WAD path",
             ],
+        )
+
+    def test_imported_vendor_manifest_rejects_extra_tracked_vendor_files(self):
+        tracked = check_repo_hygiene.tracked_files() + [
+            "third_party/doom/linuxdoom-1.10/vibe_os_port.c",
+        ]
+        with mock.patch.object(check_repo_hygiene, "tracked_files", return_value=tracked):
+            violations = check_repo_hygiene.vendor_policy_violations()
+        self.assertTrue(
+            any("imported upstream tree has" in violation for violation in violations),
+            violations,
+        )
+        self.assertTrue(
+            any("imported upstream tree hash" in violation for violation in violations),
+            violations,
         )
 
     def test_gitignore_covers_common_forbidden_artifact_spillover(self):
@@ -197,7 +223,10 @@ jobs:
           path: |
             build/status*.txt
             build/doom.symbols
+            build/persistence-write/status.save-slot-0.wait-savewr-1.bin
             build/persistence-write/status.save-slot-0.txt
+            build/persistence-write/status.save-slot-0.triage.txt
+            build/persistence-write/save-proof.json
             build/evidence.tar
 """
         with tempfile.TemporaryDirectory() as tmpdir:

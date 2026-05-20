@@ -135,6 +135,7 @@ class CloudStatusTriageTests(unittest.TestCase):
             "exec-failed",
             "doom-user-fault",
             "missing-wad-open-read",
+            "persistence-save-write-failed",
             "doom-init-stalled",
             "frames-no-gameplay",
             "input-no-effect",
@@ -371,6 +372,45 @@ class CloudStatusTriageTests(unittest.TestCase):
 
         self.assertEqual(primary, "doom-init-stalled")
         self.assertIn("doominit=0000003F/00000004", notes[0])
+
+    def test_classifies_persistence_save_write_fat_allocation_failure(self):
+        primary, notes = self.classify(
+            doomerrno="FFFFFFFB",
+            doommode="00000301:000001B6",
+            doomsav="00000009/00000000",
+            savewr="00000000/00000000",
+            saveclose="00000001",
+            savemode="00000301:000001B6",
+            fwr="00000005/FFFFFFFB/00000001/00000003/00006276/00000200/00000200/00007046/00000000/00040000/00000001",
+            fal="000000E0/00000002/0000F5E0/00000001",
+            fio="00000004/00000001/00000003/00006476/00040000/00006276/00000200/00007046/00000003/00000001/0000F5E0/0000FFFF/0000F5E0/00007046/00000002/00000002/0000F5E0/00000000/0000FFFF/0000F5E0",
+        )
+
+        self.assertEqual(primary, "persistence-save-write-failed")
+        rendered = "\n".join(notes)
+        self.assertIn("doomerrno=FFFFFFFB", rendered)
+        self.assertIn("savewr=00000000/00000000", rendered)
+        self.assertIn("fal=000000E0/00000002/0000F5E0/00000001", rendered)
+
+    def test_render_diagnosis_adds_persistence_save_context(self):
+        rendered = triage_cloud_status.render_diagnosis(
+            status_line(
+                doomerrno="FFFFFFFB",
+                doommode="00000301:000001B6",
+                doomsav="00000009/00000000",
+                savewr="00000000/00000000",
+                saveclose="00000001",
+                savemode="00000301:000001B6",
+                fwr="00000005/FFFFFFFB/00000001/00000003/00006276/00000200/00000200/00007046/00000000/00040000/00000001",
+                fal="000000E0/00000002/0000F5E0/00000001",
+                fio="00000004/00000001/00000003/00006476/00040000/00006276/00000200/00007046/00000003/00000001/0000F5E0/0000FFFF/0000F5E0/00007046/00000002/00000002/0000F5E0/00000000/0000FFFF/0000F5E0",
+            )
+        )
+
+        self.assertIn("primary: persistence-save-write-failed", rendered)
+        self.assertIn("persistence-save: doomerrno=FFFFFFFB", rendered)
+        self.assertIn("FAT allocation exhausted", rendered)
+        self.assertIn("next: Inspect the persistence status", rendered)
 
     def test_classifies_frames_without_gameplay(self):
         primary, notes = self.classify(gameplay="WAIT", leveltime="00000000")

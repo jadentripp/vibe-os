@@ -5,6 +5,13 @@ boot:
 
 - `make test` runs host-side artifact checks for the boot sectors, ELF files,
   FAT16 disk image, WAD fixture, and build/source contracts.
+- `make playability-host-check` is the fast host-only playability readiness
+  gate for the Mac/shared branch. It starts from a clean synthetic build, forces
+  `ALLOW_LOCAL_VM=0` and an empty `DOOM_WAD`, runs `make test`, reruns
+  `tools/check_repo_hygiene.py`, checks the cloud artifact/runbook/play-now
+  contracts, and runs
+  `PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF=1 make persistence-image-check`. It
+  must not launch local QEMU.
 - Boot/loader/VM contract tests compare the Stage 1 and Stage 2 raw-LBA
   constants, Makefile byte guards, image-builder layout, generated `disk.img`
   boot regions, protected-mode Stage 2 ELF handoff, and user/supervisor paging
