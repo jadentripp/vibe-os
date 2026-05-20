@@ -138,6 +138,33 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertIn("description='VIBE SAVE'", summary[1])
         self.assertIn("version='version 110'", summary[1])
 
+    def test_checker_can_require_dynamic_fat_mutation_proof_on_image_copy(self):
+        summary = check_persistence.validate_image(
+            BUILD / "disk.img",
+            require_dynamic_fat_proof=True,
+        )
+
+        self.assertIn("dynamic FAT allocation/free/truncate proof=OK", summary[0])
+        self.assertIn("scratch=FATPROOF.TMP", summary[0])
+        self.assertIn("clusters=2/4/2", summary[0])
+
+    def test_checker_rejects_dynamic_fat_proof_when_root_directory_is_full(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        root_start = fs.root_lba * make_wad_image.SECTOR_SIZE
+        for offset in range(0, fs.root_size, 32):
+            entry = root_start + offset
+            if image[entry] == 0:
+                index = offset // 32
+                image[entry:entry + 11] = f"F{index:07d}TMP".encode("ascii")
+                image[entry + 11] = make_wad_image.FAT_ATTR_ARCHIVE
+                struct.pack_into("<H", image, entry + 26, 0)
+                struct.pack_into("<I", image, entry + 28, 0)
+
+        path = self.write_temp_image(image)
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "root directory is full"):
+            check_persistence.validate_image(path, require_dynamic_fat_proof=True)
+
     def test_checker_proves_requested_entries_changed_from_baseline_image(self):
         baseline = bytearray((BUILD / "disk.img").read_bytes())
         image = bytearray(baseline)
@@ -537,6 +564,59 @@ class DoomPersistenceImageTests(unittest.TestCase):
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "too small"):
             check_persistence.validate_image(path, require_save_slots=[0])
 
+    def test_checker_rejects_malformed_default_config_values(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        fs.write_root_file(
+            make_wad_image.WRITABLE_DEFAULT_NAME,
+            b"mouse_sensitivity\t\tfast\n"
+            b"use_mouse\t\t1\n"
+            b"screenblocks\t\t9\n"
+            b"chatmacro0\t\t\"HELLO\"\n",
+        )
+        path = self.write_temp_image(image)
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "mouse_sensitivity"):
+            check_persistence.validate_image(path, require_default=True)
+
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        fs.write_root_file(
+            make_wad_image.WRITABLE_DEFAULT_NAME,
+            b"mouse_sensitivity\t\t5\n"
+            b"use_mouse\t\t1\n"
+            b"screenblocks\t\t12\n"
+            b"chatmacro0\t\tHELLO\n",
+        )
+        path = self.write_temp_image(image)
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "screenblocks"):
+            check_persistence.validate_image(path, require_default=True)
+
+    def test_checker_rejects_save_header_without_serialized_game_state(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        payload = bytearray()
+        payload.extend(b"EMPTY STATE".ljust(24, b"\0"))
+        payload.extend(b"version 110".ljust(16, b"\0"))
+        payload.extend(b"\x03\x01\x01\x01\x00\x00\x00")
+        payload.extend(b"\0" * (check_persistence.MIN_SAVE_BYTES - len(payload)))
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], bytes(payload))
+        path = self.write_temp_image(image)
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "serialized game-state"):
+            check_persistence.validate_image(path, require_save_slots=[0])
+
+    def test_checker_rejects_save_without_player_one_active(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        payload = bytearray(doom_save_payload())
+        payload[43] = 0
+        payload[44] = 1
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], bytes(payload))
+        path = self.write_temp_image(image)
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "player 1 active"):
+            check_persistence.validate_image(path, require_save_slots=[0])
+
     def test_checker_rejects_partial_default_and_tiny_fake_save_header(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
         fs = make_wad_image.Fat16Image(image)
@@ -591,6 +671,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
                 "--require-default",
                 "--require-save-slot",
                 "1",
+                "--require-dynamic-fat-proof",
                 "--baseline-image",
                 str(baseline_path),
                 "--reboot-baseline-image",
@@ -608,6 +689,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
 
         self.assertIn("DEFAULT.CFG bytes=", result.stdout)
         self.assertIn("DOOMSAV1.DSG bytes=", result.stdout)
+        self.assertIn("dynamic FAT allocation/free/truncate proof=OK", result.stdout)
         self.assertIn("survived-reboot", result.stdout)
         self.assertIn("reboot status runtime=OK", result.stdout)
         self.assertIn("REMOTE PROOF", result.stdout)
@@ -628,10 +710,14 @@ class DoomPersistenceImageTests(unittest.TestCase):
             "broader storage boot",
             "archived",
             "real-WAD cloud",
+            "--require-dynamic-fat-proof",
+            "dynamic filesystem behavior",
+            "FATPROOF.TMP",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, persistent_doc)
         self.assertIn("dynamic writable FS", gap_doc)
+        self.assertIn("dynamic FAT allocation, free", gap_doc)
         self.assertIn("storage boot path", gap_doc)
 
 

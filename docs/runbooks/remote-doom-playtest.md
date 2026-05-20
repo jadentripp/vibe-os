@@ -122,18 +122,23 @@ Expected audio behavior:
 
 ## Human Status Capture
 
-Capture non-pixel status while the VM is running. Use the same filenames as the
-scripted cloud proof so the local checkers can compare real human actions across
-the same phases:
+Capture non-pixel status while the VM is running. Use the collector's
+`--capture-phase` helper so the remote QEMU monitor writes one temporary memory
+snapshot, the helper decodes it to the exact required text filename, and the
+temporary `status.*.bin` file is deleted immediately. Use the same filenames as
+the scripted cloud proof so the local checkers can compare real human actions
+across the same phases:
 
 ```sh
 capture_status() {
-  label="$1"
-  printf 'pmemsave 0x9d000 4096 build/status.%s.bin\n' "$label" \
-    | nc -w 3 -U build/monitor.remote.sock
-  perl -e 'local $/; $d = <>; $d =~ s/\0/ /g; print $d' \
-    "build/status.$label.bin" > "build/status.$label.txt"
-  sed -n '1,220p' "build/status.$label.txt"
+  phase="$1"
+  python3 tools/collect_human_playtest_bundle.py \
+    --build-dir build \
+    --monitor-socket build/monitor.remote.sock \
+    --capture-phase "$phase"
+  status_file="build/status.$phase.txt"
+  if [ "$phase" = final ]; then status_file="build/status.txt"; fi
+  sed -n '1,220p' "$status_file"
 }
 
 # Capture before input, then play through VNC and capture after each action.
@@ -141,6 +146,8 @@ capture_status() {
 # one person should use the VNC client and wait for the visible response before
 # each capture. The strict checker requires at least 350 Doom ticks, about ten
 # seconds of in-game time, from after-start to final.
+capture_status early
+# Confirm E1M1 is visibly up in VNC.
 capture_status after-start
 # Press Ctrl/fire in VNC.
 capture_status after-fire
@@ -155,11 +162,13 @@ capture_status after-menu
 # Leave the session up long enough to cross the proof duration window, then
 # capture the final status from the same remote VNC session.
 capture_status final
-
-cp build/status.after-start.txt build/status.early.txt
-mv build/status.final.txt build/status.txt
-rm -f build/status.*.bin
 ```
+
+The helper understands only the eight proof phases: `early`, `after-start`,
+`after-fire`, `after-move`, `after-use`, `after-mouse`, `after-menu`, and
+`final`. `final` is written to `build/status.txt`; the other phases are written
+to `build/status.<phase>.txt`. Each successful capture prints
+`human status capture OK`.
 
 Collect the manual proof bundle on the disposable remote host. Use an empty
 scratch directory outside the repository. The collector does not launch QEMU; it

@@ -45,6 +45,9 @@ Current kernel behavior:
 - reports music-carrier and stream-window health separately as `musicvoices=`,
   `musicmix=`, `musicloop=`, `musicpos=`, `musicbuf=`, `musicunder=`, and
   `musicdrops=`
+- keeps one queued pending music window per active music voice, so an early
+  `VIBE_AUDIO_UPDATE_SFX` can be promoted by the IRQ refill path when the current
+  music window drains instead of replacing it or forcing a dry carrier
 
 SB16 constants in `kernel/kernel.asm`:
 
@@ -104,8 +107,12 @@ Active SFX playback has bounded state instead of only one-shot submissions.
 or steals one of eight voice slots. `STOP_SFX` clears the matching handle, and
 `UPDATE_SFX` refreshes volume, separation, pitch, derived pan gains, and pitch
 step for the existing handle. For music handles it can also replace the active
-sample pointer and length with the next streamed music chunk and reset that
-voice's source position. Refill advances each voice's 16.16 source position,
+sample pointer and length when the current window has already drained, or queue
+one pending streamed music chunk when the current window is still playing. The
+refill path promotes that pending window exactly at the source boundary and
+continues mixing without retiring the music voice. Doom's port layer can query
+`VIBE_AUDIO_BUFFERED_BYTES` and avoids rendering another chunk until the kernel
+music buffer falls below its low-water mark. Refill advances each voice's 16.16 source position,
 supports repeated source samples for low pitch and skipped source samples for
 high pitch, and retires non-looping voices that reach the end of their sample.
 Loop-flagged voices still wrap their source position back to zero for fallback
@@ -116,11 +123,13 @@ only while that handle is still active in the mixer voice table.
 
 The kernel now exposes a stream-visible music contract even though the port
 still pushes chunks. `musicpos=` is the cumulative music source bytes consumed
-by the IRQ refill mixer, `musicbuf=` is the currently buffered music window
-remaining in the active voice table, `musicunder=` counts music voices that ran
-dry before replacement, and `musicdrops=` counts invalid or early replacement
-stream windows. These fields let the proof checker distinguish a progressing
-kernel-mixed stream from a single queued music sample.
+by the IRQ refill mixer, `musicbuf=` is the active plus pending music window
+remaining in the voice table, `musicunder=` counts music voices that ran dry
+with no pending replacement, and `musicdrops=` counts invalid music updates or
+updates that arrive while the single pending slot is already occupied. Normal
+early music refreshes are queued rather than counted as drops. These fields let
+the proof checker distinguish a progressing kernel-mixed stream from a single
+queued music sample.
 The checker now treats `musicbuf=` as stream-health evidence: across the
 scripted snapshots it must move, and the stream-update counter must advance more
 than once, so a single static music carrier cannot satisfy the audio proof.
@@ -204,10 +213,11 @@ does not call host MIDI, audio, math, or operating-system libraries.
 
 `I_RegisterSong` stores the cached WAD lump pointer, and `I_PlaySong` now starts
 a port-owned stateful stream cursor instead of rendering one permanent carrier.
-The platform layer renders 8192-byte streamed music chunks from the current
+The platform layer renders 32768-byte streamed music chunks from the current
 song position and submits the first chunk through `VIBE_AUDIO_START_SFX`; later
-Doom sound ticks call `VIBE_AUDIO_UPDATE_SFX` to push the next chunk through the
-same SB16 voice. The music architecture keeps targeting the same SB16
+Doom sound ticks poll `VIBE_AUDIO_BUFFERED_BYTES` and call
+`VIBE_AUDIO_UPDATE_SFX` only after the kernel-visible music buffer reaches the
+low-water mark. The music architecture keeps targeting the same SB16
 DMA/refill output path, so the parser/renderer work shares SFX voice stealing,
 clipping, silence, and status accounting. The extra `musicvoices=`, `musicmix=`,
 `musicpos=`, `musicbuf=`, `musicunder=`, `musicdrops=`, and `voiceq=` update
@@ -224,8 +234,8 @@ full pipeline and fallback design.
 Remaining gaps:
 
 - Music now advances a stateful song-position cursor in the Doom port and pushes
-  bounded chunks with `VIBE_AUDIO_UPDATE_SFX`. The kernel now exposes
-  stream-position and stream-window health status, but it still has no
+  bounded chunks with `VIBE_AUDIO_UPDATE_SFX`. The kernel now owns an active plus
+  pending music window and exposes buffered-byte status, but it still has no
   first-class hardware-paced pull command that asks the renderer for more PCM
   directly from the IRQ/refill path.
 - The audible proof is a remote aggregate-output proof, not a listener recording

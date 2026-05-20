@@ -22,6 +22,7 @@ class AudioContractTests(unittest.TestCase):
             "VIBE_AUDIO_FLAG_LOOP",
             "VIBE_AUDIO_FLAG_MUSIC",
             "VIBE_AUDIO_IS_PLAYING",
+            "VIBE_AUDIO_BUFFERED_BYTES",
         ):
             self.assertIn(source, header)
 
@@ -42,6 +43,7 @@ class AudioContractTests(unittest.TestCase):
             "VIBE_AUDIO_START_SFX",
             "VIBE_AUDIO_UPDATE_SFX",
             "VIBE_AUDIO_IS_PLAYING",
+            "VIBE_AUDIO_BUFFERED_BYTES",
         ):
             self.assertIn(source, platform)
 
@@ -122,6 +124,8 @@ class AudioContractTests(unittest.TestCase):
             "sb16_voice_started_at times AUDIO_MAX_SFX_VOICES dd 0",
             "sb16_voice_flags times AUDIO_MAX_SFX_VOICES dd 0",
             "sb16_voice_loop_counts times AUDIO_MAX_SFX_VOICES dd 0",
+            "sb16_voice_pending_samples times AUDIO_MAX_SFX_VOICES dd 0",
+            "sb16_voice_pending_lengths times AUDIO_MAX_SFX_VOICES dd 0",
             "sb16_active_sfx_voice_count dd 0",
             "audio_register_sfx_voice:",
             "audio_stop_sfx_voice:",
@@ -252,11 +256,16 @@ class AudioContractTests(unittest.TestCase):
             "AUDIO_FLAG_LOOP equ 0x00000001",
             "AUDIO_FLAG_MUSIC equ 0x00000002",
             "AUDIO_CMD_IS_PLAYING equ 6",
+            "AUDIO_CMD_BUFFERED_BYTES equ 7",
             "AUDIO_MUSIC_HANDLE_BASE equ 0x4d550000",
             "or dword [audio_sfx_flags_arg], AUDIO_FLAG_MUSIC",
             ".refresh_stream_window:",
+            "sb16_music_promote_pending_window:",
+            ".maybe_promote_pending:",
             "mov [sb16_voice_samples + ebx * 4], eax",
             "mov [sb16_voice_lengths + ebx * 4], eax",
+            "mov [sb16_voice_pending_samples + ebx * 4], eax",
+            "mov [sb16_voice_pending_lengths + ebx * 4], eax",
             "mov dword [sb16_voice_positions + ebx * 4], 0",
             "test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_LOOP",
             "inc dword [sb16_voice_loop_counts + ebx * 4]",
@@ -271,6 +280,7 @@ class AudioContractTests(unittest.TestCase):
             "sb16_music_stream_buffer_bytes dd 0",
             "sb16_music_stream_under_count dd 0",
             "sb16_music_stream_drop_count dd 0",
+            ".audio_buffered_bytes:",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, kernel)
@@ -283,6 +293,7 @@ class AudioContractTests(unittest.TestCase):
             "vibe_music_audio_handle(handle)",
             "VIBE_AUDIO_START_SFX",
             "VIBE_AUDIO_UPDATE_SFX",
+            "VIBE_AUDIO_BUFFERED_BYTES",
             "pump_music_stream",
         ):
             with self.subTest(source=source):
@@ -309,6 +320,8 @@ class AudioContractTests(unittest.TestCase):
         self.assertIn("sfxvoices=", audio_doc)
         self.assertIn("sfxmix=` counts only normal Doom SFX voices", audio_doc)
         self.assertIn("VIBE_AUDIO_IS_PLAYING", audio_doc)
+        self.assertIn("VIBE_AUDIO_BUFFERED_BYTES", audio_doc)
+        self.assertIn("pending music window", audio_doc)
         self.assertIn("mixwrap", audio_doc)
         self.assertIn("mixover", audio_doc)
         self.assertIn("mixclip", audio_doc)

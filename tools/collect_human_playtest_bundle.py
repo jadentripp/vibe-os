@@ -12,8 +12,11 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import socket
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -34,9 +37,9 @@ OPTIONAL_EXACT_FILES = (
     "audio-proof.json",
 )
 
-ALLOWLIST_PATTERNS = (
-    "status*.txt",
-    "*.log",
+ALLOWLIST_PATTERNS = ("*.log",)
+CAPTURE_PHASES = tuple(
+    phase for phase, _status_file, _human_action in check_cloud_playability_artifacts.HUMAN_SESSION_PHASES
 )
 
 NOTE_FIELD_ORDER = (
@@ -128,6 +131,14 @@ def _copy_exact(build_dir: Path, output_dir: Path, name: str, required: bool) ->
     return True
 
 
+def _copy_required_status_files(build_dir: Path, output_dir: Path) -> list[str]:
+    copied: list[str] = []
+    for name in check_cloud_playability_artifacts.REQUIRED_STATUS_FILES:
+        _copy_exact(build_dir, output_dir, name, required=True)
+        copied.append(name)
+    return copied
+
+
 def _copy_patterns(build_dir: Path, output_dir: Path) -> list[str]:
     copied: list[str] = []
     for pattern in ALLOWLIST_PATTERNS:
@@ -140,6 +151,88 @@ def _copy_patterns(build_dir: Path, output_dir: Path) -> list[str]:
             shutil.copy2(src, dst)
             copied.append(src.name)
     return copied
+
+
+def _status_filename_for_phase(phase: str) -> str:
+    for phase_name, status_file, _human_action in check_cloud_playability_artifacts.HUMAN_SESSION_PHASES:
+        if phase_name == phase:
+            return status_file
+    raise AssertionError(f"unknown capture phase: {phase}")
+
+
+def _assert_monitor_filename_safe(path: Path) -> None:
+    text = str(path)
+    if any(char.isspace() for char in text):
+        raise AssertionError(
+            "temporary monitor capture path must not contain whitespace because "
+            "QEMU HMP pmemsave accepts an unquoted filename argument"
+        )
+
+
+def _send_monitor_command(monitor_socket: Path, command: str, timeout_seconds: float) -> str:
+    if not monitor_socket.exists():
+        raise AssertionError(f"monitor socket does not exist: {monitor_socket}")
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.settimeout(timeout_seconds)
+        client.connect(str(monitor_socket))
+        client.sendall(command.encode("ascii") + b"\n")
+        try:
+            client.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+        chunks: list[bytes] = []
+        while True:
+            try:
+                chunk = client.recv(4096)
+            except socket.timeout:
+                break
+            if not chunk:
+                break
+            chunks.append(chunk)
+    return b"".join(chunks).decode("utf-8", errors="replace")
+
+
+def capture_status_phase(args: argparse.Namespace) -> Path:
+    build_dir = args.build_dir.resolve()
+    monitor_socket = args.monitor_socket.resolve()
+    if not build_dir.exists():
+        raise AssertionError(f"build directory does not exist: {build_dir}")
+    if not build_dir.is_dir():
+        raise AssertionError(f"build directory is not a directory: {build_dir}")
+    status_file = _status_filename_for_phase(args.capture_phase)
+    status_path = build_dir / status_file
+
+    with tempfile.NamedTemporaryFile(
+        dir=build_dir,
+        prefix=f"{status_path.stem}.",
+        suffix=".bin",
+        delete=False,
+    ) as handle:
+        temp_bin = Path(handle.name)
+    temp_bin.unlink(missing_ok=True)
+    _assert_monitor_filename_safe(temp_bin)
+
+    command = f"pmemsave {args.status_address} {args.status_bytes} {temp_bin}"
+    monitor_reply = _send_monitor_command(
+        monitor_socket,
+        command,
+        timeout_seconds=args.monitor_timeout,
+    )
+
+    deadline = time.monotonic() + args.monitor_timeout
+    while not temp_bin.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    if not temp_bin.exists():
+        detail = f"; monitor replied: {monitor_reply.strip()}" if monitor_reply.strip() else ""
+        raise AssertionError(f"QEMU monitor did not create capture file {temp_bin}{detail}")
+
+    raw = temp_bin.read_bytes()
+    if not raw:
+        temp_bin.unlink(missing_ok=True)
+        raise AssertionError(f"QEMU monitor wrote an empty status capture: {temp_bin}")
+    status_path.write_text(raw.replace(b"\0", b" ").decode("latin-1", errors="replace"))
+    temp_bin.unlink(missing_ok=True)
+    return status_path
 
 
 def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
@@ -194,6 +287,13 @@ def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
 
 
 def collect(args: argparse.Namespace) -> list[str]:
+    if args.output_dir is None:
+        raise AssertionError("--output-dir is required for bundle collection")
+    if not args.playtester:
+        raise AssertionError("--playtester is required for bundle collection")
+    if not args.scripted_proof_run_id:
+        raise AssertionError("--scripted-proof-run-id is required for bundle collection")
+
     build_dir = args.build_dir.resolve()
     output_dir = args.output_dir
     _assert_output_location(output_dir)
@@ -204,7 +304,8 @@ def collect(args: argparse.Namespace) -> list[str]:
     _assert_empty_or_missing(output_dir)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    copied = _copy_patterns(build_dir, output_dir)
+    copied = _copy_required_status_files(build_dir, output_dir)
+    copied.extend(_copy_patterns(build_dir, output_dir))
     for name in REQUIRED_EXACT_FILES:
         _copy_exact(build_dir, output_dir, name, required=True)
         copied.append(name)
@@ -252,11 +353,41 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        required=True,
         help="empty scratch directory outside the repo, for example /tmp/vibe-os-human-proof",
     )
-    parser.add_argument("--playtester", required=True, help="human initials or handle")
+    parser.add_argument("--playtester", help="human initials or handle")
     parser.add_argument("--commit", help="commit under test; defaults to git rev-parse HEAD")
+    parser.add_argument(
+        "--capture-phase",
+        choices=CAPTURE_PHASES,
+        help=(
+            "capture one human proof phase from the remote QEMU monitor socket, "
+            "decode it to the required status text file, and exit"
+        ),
+    )
+    parser.add_argument(
+        "--monitor-socket",
+        type=Path,
+        default=ROOT / "build" / "monitor.remote.sock",
+        help="remote QEMU monitor socket used with --capture-phase",
+    )
+    parser.add_argument(
+        "--status-address",
+        default="0x9d000",
+        help="guest physical address of the text status page for monitor pmemsave",
+    )
+    parser.add_argument(
+        "--status-bytes",
+        type=int,
+        default=4096,
+        help="number of bytes to copy from the guest status page",
+    )
+    parser.add_argument(
+        "--monitor-timeout",
+        type=float,
+        default=5.0,
+        help="seconds to wait for the remote monitor capture to complete",
+    )
     parser.add_argument(
         "--remote-host",
         default="disposable",
@@ -265,7 +396,6 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--scripted-proof-run-id",
-        required=True,
         help="passing GitHub Actions Real WAD smoke run ID this human session follows",
     )
     parser.add_argument("--display", default="pass", choices=("pass",))
@@ -302,6 +432,15 @@ def main(argv: list[str]) -> int:
         help="operator confirms the downloaded bundle must be rechecked locally with --human-session",
     )
     args = parser.parse_args(argv)
+    if args.capture_phase:
+        try:
+            status_path = capture_status_phase(args)
+        except (OSError, AssertionError) as exc:
+            print(f"human status capture failed: {exc}", file=sys.stderr)
+            return 1
+        print(f"human status capture OK: {status_path}")
+        return 0
+
     for attr, flag in REQUIRED_CONFIRMATION_FLAGS:
         if not getattr(args, attr):
             parser.error(f"{flag} is required for manual human evidence collection")

@@ -73,13 +73,16 @@ Current kernel contract:
 
 `tools/check_doom_persistence_image.py` validates a remote/cloud-mutated image
 without launching QEMU locally. Use `--require-default` to require Doom-shaped
-defaults text in `DEFAULT.CFG`, and `--require-save-slot N` to require a
-`DOOMSAVN.DSG` file with Doom's 24-byte save description and 16-byte
-`version 110` marker plus plausible game-state header bytes. For real proof,
-copy the fresh remote `disk.img` before boot and pass it back with
-`--baseline-image`; requested entries must differ from the baseline image, so
-preseeded host bytes do not count as Doom persistence. For reboot proof, copy an
-after-write snapshot of the same disk image and pass it with
+defaults text in `DEFAULT.CFG`: ASCII, newline-terminated assignments for
+`mouse_sensitivity`, `use_mouse`, `screenblocks`, and quoted `chatmacro0`, with
+the numeric fields inside Doom-plausible ranges. Use `--require-save-slot N` to
+require a `DOOMSAVN.DSG` file with Doom's 24-byte printable save description,
+16-byte `version 110` marker, player 1 marked active, plausible game-state
+header bytes, and nonzero serialized game-state payload beyond the tiny header.
+For real proof, copy the fresh remote `disk.img` before boot and pass it back
+with `--baseline-image`; requested entries must differ from the baseline image,
+so preseeded host bytes do not count as Doom persistence. For reboot proof, copy
+an after-write snapshot of the same disk image and pass it with
 `--reboot-baseline-image` after booting the image again; requested entries must
 still have the same FAT root cluster, size, and bytes. Add `--reboot-status`
 with the second boot's decoded status so the same proof also requires a live
@@ -89,18 +92,29 @@ preseeded image can never be reported as a reboot persistence proof without also
 proving the requested bytes changed from the fresh image. With a baseline image
 present, the checker also verifies both FAT copies agree, every allocated data
 cluster is owned by exactly one live root entry, and protected `DOOM1.WAD`,
-  `USERPROB.ELF`, and `DOOM.ELF` entries have unchanged metadata and bytes. The
-  checker-side FAT reader can list the root directory and follow simple
-  read-only 8.3 subdirectory entries for lookup/readback proof; this is
-  deliberately a validation/tooling capability until the kernel grows a real
-  directory syscall contract.
+`USERPROB.ELF`, and `DOOM.ELF` entries have unchanged metadata and bytes. The
+checker-side FAT reader can list the root directory and follow simple read-only
+8.3 subdirectory entries for lookup/readback proof; this is deliberately a
+validation/tooling capability until the kernel grows a real directory syscall
+contract.
+
+Add `--require-dynamic-fat-proof` when the artifact should also prove the image
+still supports dynamic filesystem behavior. That option mutates an in-memory
+copy only: it creates `FATPROOF.TMP`, writes a multi-cluster file, sparse-extends
+it while proving zero-filled holes, shrinks it while proving tail-cluster free
+and tail-byte zeroing, truncates it to size zero, rewrites it, deletes it, and
+proves the deleted root slot can be reused. The checker then revalidates FAT-copy
+agreement and reachable-cluster ownership on the mutated copy, so this is a
+host-verifiable allocation/free/truncate proof without putting a scratch file
+back into the real disk artifact.
 
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,
-resize-to-zero, delete, zero-fill checks, FAT-copy agreement, root directory
-listing, and read-only subdirectory lookup/readback. That is a test harness for
-image inspection; the kernel-facing truncate contract remains `O_TRUNC` to
-zero, because Doom only needs config/save replacement semantics today.
+resize-to-zero, delete, deleted root-slot reuse, zero-fill checks, FAT-copy
+agreement, root directory listing, and read-only subdirectory lookup/readback.
+That is a test harness for image inspection; the kernel-facing truncate contract
+remains `O_TRUNC` to zero, because Doom only needs config/save replacement
+semantics today.
 
 This is enough for Doom defaults and save slots without turning the kernel into
 a general-purpose FAT filesystem.

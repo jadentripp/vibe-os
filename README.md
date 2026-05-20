@@ -143,7 +143,7 @@ Current disk layout:
 
 - LBA 0: Stage 1 MBR and partition table
 - LBA 1-16: Stage 2 bootloader
-- LBA 17-144: protected-mode kernel ELF image
+- LBA 17-208: protected-mode kernel ELF image
 - LBA 2048+: FAT16 partition containing `DOOM1.WAD`, `USERPROB.ELF`, and
   `DOOM.ELF`, plus empty dynamic `DEFAULT.CFG` and `DOOMSAV0.DSG` through
   `DOOMSAV5.DSG` writable root entries

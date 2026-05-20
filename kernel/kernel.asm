@@ -84,6 +84,8 @@ PROC_KERNEL_PROCESS_STACK_TOP equ 0x00070000
 PROC_USER_PROBE_KERNEL_STACK_TOP equ 0x00071000
 PROC_PREEMPT_PROBE_KERNEL_STACK_TOP equ 0x00072000
 PROC_DOOM_KERNEL_STACK_TOP equ 0x00073000
+PROC_GENERIC0_KERNEL_STACK_TOP equ 0x00074000
+PROC_GENERIC1_KERNEL_STACK_TOP equ 0x00075000
 PIT_DIVISOR_100HZ equ 11932
 PAGE_SIZE equ 0x1000
 PTE_PRESENT equ 0x001
@@ -110,6 +112,10 @@ PROC_DOOM_PDE5_TABLE_ADDR equ 0x00085000
 PROC_DOOM_PDE6_TABLE_ADDR equ 0x00086000
 PROC_DOOM_PDE7_TABLE_ADDR equ 0x00087000
 PROC_PREEMPT_PDE3_TABLE_ADDR equ 0x00088000
+PROC_GENERIC0_PAGE_DIR_ADDR equ 0x00089000
+PROC_GENERIC0_PDE3_TABLE_ADDR equ 0x0008a000
+PROC_GENERIC1_PAGE_DIR_ADDR equ 0x0008b000
+PROC_GENERIC1_PDE3_TABLE_ADDR equ 0x0008c000
 PMM_FRAME_MAP_ADDR equ 0x00099000
 PMM_MANAGED_START equ 0x00100000
 PMM_MANAGED_END equ 0x02000000
@@ -141,17 +147,21 @@ DOOM_USER_HEAP_END equ 0x01f00000
 DOOM_USER_STACK_BOTTOM equ DOOM_USER_HEAP_END
 DOOM_USER_STACK_TOP equ DOOM_ELF_LIMIT
 DOOM_USER_END equ DOOM_ELF_LIMIT
+DOOM_HEAP_PAGE_COUNT equ (DOOM_USER_HEAP_END - DOOM_USER_HEAP_START) / PAGE_SIZE
+DOOM_HEAP_BITMAP_BYTES equ (DOOM_HEAP_PAGE_COUNT + 7) / 8
 USER_KIND_NONE equ 0
 USER_KIND_PROBE equ 1
 USER_KIND_DOOM equ 2
 USER_KIND_PREEMPT_PROBE equ 3
+USER_KIND_GENERIC equ 4
 PROC_STATE_UNUSED equ 0
 PROC_STATE_READY equ 1
 PROC_STATE_RUNNING equ 2
 PROC_STATE_EXITED equ 3
 PROC_STATE_FAULTED equ 4
-PROCESS_SLOT_COUNT equ 4
-PROCESS_RECORD_BYTES equ 160
+PROCESS_SLOT_COUNT equ 6
+PROCESS_GENERIC_SLOT_COUNT equ 2
+PROCESS_RECORD_BYTES equ 168
 PROCESS_EXEC_TABLE_COUNT equ 2
 PROCESS_EXEC_ENTRY_BYTES equ 20
 PROCESS_EXEC_PATH equ 0
@@ -199,6 +209,8 @@ PROC_ARGV equ 144
 PROC_ENVP equ 148
 PROC_ARGV0 equ 152
 PROC_SLOT_GENERATION equ 156
+PROC_HEAP_BITMAP equ 160
+PROC_HEAP_PAGE_COUNT equ 164
 PROC_FLAG_IRQ_FRAME_VALID equ 0x1
 VM_REGION_BYTES equ 12
 VM_REGION_BASE equ 0
@@ -230,6 +242,8 @@ USER_STACK_BOTTOM equ 0x00e90000
 USER_STACK_TOP equ 0x00ea0000
 USER_HEAP_START equ USER_STACK_TOP
 USER_HEAP_END equ 0x00f00000
+USER_HEAP_PAGE_COUNT equ (USER_HEAP_END - USER_HEAP_START) / PAGE_SIZE
+USER_HEAP_BITMAP_BYTES equ (USER_HEAP_PAGE_COUNT + 7) / 8
 USER_PROBE_EXPECTED_FLAGS equ 0x00001fff
 USER_PROBE_MAGIC equ 0x13579BDF
 PREEMPT_PROBE_MAGIC equ 0x50524545
@@ -375,6 +389,7 @@ AUDIO_CMD_STOP_SFX equ 3
 AUDIO_CMD_UPDATE_SFX equ 4
 AUDIO_CMD_SHUTDOWN equ 5
 AUDIO_CMD_IS_PLAYING equ 6
+AUDIO_CMD_BUFFERED_BYTES equ 7
 AUDIO_SFX_DESC_SAMPLES equ 0
 AUDIO_SFX_DESC_LENGTH equ 4
 AUDIO_SFX_DESC_VOLUME equ 8
@@ -451,9 +466,20 @@ PCI_CONFIG_ADDRESS equ 0x0cf8
 PCI_CONFIG_DATA equ 0x0cfc
 PCI_CONFIG_ENABLE equ 0x80000000
 PCI_CONFIG_CLASS_REG equ 0x08
+PCI_CONFIG_HEADER_REG equ 0x0c
+PCI_HEADER_MULTIFUNCTION_FLAG equ 0x00800000
+PCI_CLASS_MASS_STORAGE equ 0x01
+PCI_CLASS_BRIDGE equ 0x06
 PCI_SCAN_DEVICE_COUNT equ 32
 PCI_SCAN_FUNCTION_COUNT equ 8
 PCI_SCAN_FUNCTION_PROBES equ PCI_SCAN_DEVICE_COUNT * PCI_SCAN_FUNCTION_COUNT
+PCI_TABLE_ENTRY_DWORDS equ 4
+PCI_TABLE_ENTRY_SIZE equ PCI_TABLE_ENTRY_DWORDS * 4
+PCI_TABLE_BDF_OFFSET equ 0
+PCI_TABLE_ID_OFFSET equ 4
+PCI_TABLE_CLASS_OFFSET equ 8
+PCI_TABLE_HEADER_OFFSET equ 12
+PCI_TABLE_MAX_ENTRIES equ PCI_SCAN_FUNCTION_PROBES
 ATA_DATA equ 0x01f0
 ATA_SECTOR_COUNT equ 0x01f2
 ATA_LBA_LOW equ 0x01f3
@@ -1763,6 +1789,16 @@ pci_scan_qemu:
     mov dword [pci_first_bdf], 0
     mov dword [pci_first_id], 0
     mov dword [pci_first_class], 0
+    mov dword [pci_last_bdf], 0
+    mov dword [pci_class_table_hash], 0
+    mov dword [pci_multifunction_device_count], 0
+    mov dword [pci_mass_storage_class_count], 0
+    mov dword [pci_bridge_class_count], 0
+
+    mov edi, pci_device_table
+    xor eax, eax
+    mov ecx, PCI_TABLE_MAX_ENTRIES * PCI_TABLE_ENTRY_DWORDS
+    rep stosd
 
     xor esi, esi
 
@@ -1792,16 +1828,7 @@ pci_scan_qemu:
     cmp ax, 0xffff
     je .next_function
 
-    inc dword [pci_function_count]
-    cmp byte [pci_config_status], 1
-    je .next_function
-
-    mov byte [pci_config_status], 1
-    mov [pci_first_id], eax
-    mov eax, esi
-    shl eax, 8
-    or eax, edi
-    mov [pci_first_bdf], eax
+    mov ebp, eax
 
     mov eax, PCI_CONFIG_ENABLE
     mov ebx, esi
@@ -1815,7 +1842,74 @@ pci_scan_qemu:
     out dx, eax
     mov dx, PCI_CONFIG_DATA
     in eax, dx
-    mov [pci_first_class], eax
+    mov ecx, eax
+
+    mov eax, PCI_CONFIG_ENABLE
+    mov ebx, esi
+    shl ebx, 11
+    or eax, ebx
+    mov ebx, edi
+    shl ebx, 8
+    or eax, ebx
+    or eax, PCI_CONFIG_HEADER_REG
+    mov dx, PCI_CONFIG_ADDRESS
+    out dx, eax
+    mov dx, PCI_CONFIG_DATA
+    in eax, dx
+    mov ebx, eax
+
+    mov edx, esi
+    shl edx, 8
+    or edx, edi
+
+    mov eax, [pci_function_count]
+    cmp eax, PCI_TABLE_MAX_ENTRIES
+    jae .skip_table_store
+    shl eax, 4
+    mov [pci_device_table + eax + PCI_TABLE_BDF_OFFSET], edx
+    mov [pci_device_table + eax + PCI_TABLE_ID_OFFSET], ebp
+    mov [pci_device_table + eax + PCI_TABLE_CLASS_OFFSET], ecx
+    mov [pci_device_table + eax + PCI_TABLE_HEADER_OFFSET], ebx
+
+.skip_table_store:
+    cmp byte [pci_config_status], 1
+    je .not_first_device
+    mov byte [pci_config_status], 1
+    mov [pci_first_id], ebp
+    mov [pci_first_bdf], edx
+    mov [pci_first_class], ecx
+
+.not_first_device:
+    mov [pci_last_bdf], edx
+
+    mov eax, [pci_class_table_hash]
+    rol eax, 5
+    xor eax, edx
+    xor eax, ebp
+    xor eax, ecx
+    xor eax, ebx
+    mov [pci_class_table_hash], eax
+
+    cmp edi, 0
+    jne .skip_multifunction_count
+    test ebx, PCI_HEADER_MULTIFUNCTION_FLAG
+    jz .skip_multifunction_count
+    inc dword [pci_multifunction_device_count]
+
+.skip_multifunction_count:
+    mov eax, ecx
+    shr eax, 24
+    cmp al, PCI_CLASS_MASS_STORAGE
+    jne .not_mass_storage_class
+    inc dword [pci_mass_storage_class_count]
+
+.not_mass_storage_class:
+    cmp al, PCI_CLASS_BRIDGE
+    jne .not_bridge_class
+    inc dword [pci_bridge_class_count]
+
+.not_bridge_class:
+    inc dword [pci_function_count]
 
 .next_function:
     inc edi
@@ -2087,6 +2181,18 @@ process_vm_init_page_spaces:
     cld
     rep movsd
 
+    mov esi, PAGING_DIR_ADDR
+    mov edi, PROC_GENERIC0_PAGE_DIR_ADDR
+    mov ecx, 1024
+    cld
+    rep movsd
+
+    mov esi, PAGING_DIR_ADDR
+    mov edi, PROC_GENERIC1_PAGE_DIR_ADDR
+    mov ecx, 1024
+    cld
+    rep movsd
+
     mov esi, PAGING_TABLES_ADDR + (3 * PAGE_SIZE)
     mov edi, PROC_PROBE_PDE3_TABLE_ADDR
     mov ecx, 1024
@@ -2111,6 +2217,38 @@ process_vm_init_page_spaces:
     mov dword [PROC_PREEMPT_PAGE_DIR_ADDR + (3 * 4)], PROC_PREEMPT_PDE3_TABLE_ADDR | PTE_USER_FLAGS
 
     mov ebx, PROC_PREEMPT_PAGE_DIR_ADDR
+    mov eax, USER_CODE_ADDR
+    mov edx, USER_STACK_TOP
+    call vmm_mark_process_user_range
+    mov eax, USER_CODE_ADDR - PAGE_SIZE
+    call vmm_clear_process_guard_page
+    mov eax, USER_HEAP_END
+    call vmm_clear_process_guard_page
+
+    mov esi, PAGING_TABLES_ADDR + (3 * PAGE_SIZE)
+    mov edi, PROC_GENERIC0_PDE3_TABLE_ADDR
+    mov ecx, 1024
+    cld
+    rep movsd
+    mov dword [PROC_GENERIC0_PAGE_DIR_ADDR + (3 * 4)], PROC_GENERIC0_PDE3_TABLE_ADDR | PTE_USER_FLAGS
+
+    mov ebx, PROC_GENERIC0_PAGE_DIR_ADDR
+    mov eax, USER_CODE_ADDR
+    mov edx, USER_STACK_TOP
+    call vmm_mark_process_user_range
+    mov eax, USER_CODE_ADDR - PAGE_SIZE
+    call vmm_clear_process_guard_page
+    mov eax, USER_HEAP_END
+    call vmm_clear_process_guard_page
+
+    mov esi, PAGING_TABLES_ADDR + (3 * PAGE_SIZE)
+    mov edi, PROC_GENERIC1_PDE3_TABLE_ADDR
+    mov ecx, 1024
+    cld
+    rep movsd
+    mov dword [PROC_GENERIC1_PAGE_DIR_ADDR + (3 * 4)], PROC_GENERIC1_PDE3_TABLE_ADDR | PTE_USER_FLAGS
+
+    mov ebx, PROC_GENERIC1_PAGE_DIR_ADDR
     mov eax, USER_CODE_ADDR
     mov edx, USER_STACK_TOP
     call vmm_mark_process_user_range
@@ -3499,7 +3637,7 @@ sb16_clear_active_voices:
     rep stosb
 
     mov edi, sb16_voice_handles
-    mov ecx, AUDIO_MAX_SFX_VOICES * 13
+    mov ecx, AUDIO_MAX_SFX_VOICES * 15
     cld
     rep stosd
 
@@ -3545,8 +3683,12 @@ sb16_recount_active_voices:
     mov [sb16_music_stream_calc_pos], edi
     mov edi, [sb16_voice_lengths + ebx * 4]
     cmp edi, [sb16_music_stream_calc_pos]
-    jbe .skip
+    jbe .count_pending
     sub edi, [sb16_music_stream_calc_pos]
+    add ebp, edi
+
+.count_pending:
+    mov edi, [sb16_voice_pending_lengths + ebx * 4]
     add ebp, edi
     jmp .skip
 
@@ -3989,6 +4131,8 @@ audio_register_sfx_voice:
     mov eax, [audio_sfx_flags_arg]
     mov [sb16_voice_flags + ebx * 4], eax
     mov dword [sb16_voice_loop_counts + ebx * 4], 0
+    mov dword [sb16_voice_pending_samples + ebx * 4], 0
+    mov dword [sb16_voice_pending_lengths + ebx * 4], 0
     mov eax, [audio_sfx_volume_arg]
     mov [sb16_voice_volumes + ebx * 4], eax
     mov eax, [audio_sfx_separation_arg]
@@ -4046,6 +4190,8 @@ audio_stop_sfx_voice:
 .clear_flags:
     mov dword [sb16_voice_flags + ebx * 4], 0
     mov dword [sb16_voice_loop_counts + ebx * 4], 0
+    mov dword [sb16_voice_pending_samples + ebx * 4], 0
+    mov dword [sb16_voice_pending_lengths + ebx * 4], 0
     inc dword [sb16_voice_stop_count]
     call sb16_recount_active_voices
 
@@ -4119,11 +4265,30 @@ audio_update_sfx_voice:
     call user_range_validate
     pop ebx
     jc .stream_underrun
+    mov eax, [audio_sfx_flags_arg]
+    or eax, AUDIO_FLAG_MUSIC
+    mov [sb16_voice_flags + ebx * 4], eax
     mov eax, [sb16_voice_positions + ebx * 4]
     shr eax, 16
     cmp eax, [sb16_voice_lengths + ebx * 4]
     jae .store_stream_window
+    cmp dword [sb16_voice_pending_lengths + ebx * 4], 0
+    jne .replace_pending_window
+    mov eax, [audio_sfx_sample_arg]
+    mov [sb16_voice_pending_samples + ebx * 4], eax
+    mov eax, [audio_sfx_length_arg]
+    mov [sb16_voice_pending_lengths + ebx * 4], eax
+    call sb16_recount_active_voices
+    jmp .count_update
+
+.replace_pending_window:
     inc dword [sb16_music_stream_drop_count]
+    mov eax, [audio_sfx_sample_arg]
+    mov [sb16_voice_pending_samples + ebx * 4], eax
+    mov eax, [audio_sfx_length_arg]
+    mov [sb16_voice_pending_lengths + ebx * 4], eax
+    call sb16_recount_active_voices
+    jmp .count_update
 
 .store_stream_window:
     mov eax, [audio_sfx_sample_arg]
@@ -4132,9 +4297,9 @@ audio_update_sfx_voice:
     mov [sb16_voice_lengths + ebx * 4], eax
     mov [sb16_music_stream_buffer_bytes], eax
     mov dword [sb16_voice_positions + ebx * 4], 0
-    mov eax, [audio_sfx_flags_arg]
-    or eax, AUDIO_FLAG_MUSIC
-    mov [sb16_voice_flags + ebx * 4], eax
+    mov dword [sb16_voice_pending_samples + ebx * 4], 0
+    mov dword [sb16_voice_pending_lengths + ebx * 4], 0
+    call sb16_recount_active_voices
     jmp .count_update
 
 .stream_underrun:
@@ -4159,6 +4324,32 @@ audio_update_sfx_voice:
     jne .done
     inc dword [sb16_music_stream_drop_count]
     jmp .done
+
+sb16_music_promote_pending_window:
+    push eax
+
+    test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
+    jz .none
+    cmp dword [sb16_voice_pending_lengths + ebx * 4], 0
+    je .none
+
+    mov eax, [sb16_voice_pending_samples + ebx * 4]
+    mov [sb16_voice_samples + ebx * 4], eax
+    mov eax, [sb16_voice_pending_lengths + ebx * 4]
+    mov [sb16_voice_lengths + ebx * 4], eax
+    mov dword [sb16_voice_pending_samples + ebx * 4], 0
+    mov dword [sb16_voice_pending_lengths + ebx * 4], 0
+    mov dword [sb16_voice_positions + ebx * 4], 0
+    mov dword [sb16_mix_source_pos], 0
+    clc
+    jmp .done
+
+.none:
+    stc
+
+.done:
+    pop eax
+    ret
 
 sb16_refill_active_half:
     pushad
@@ -4215,7 +4406,7 @@ sb16_refill_active_half:
     cmp edx, [sb16_voice_lengths + ebx * 4]
     jb .source_ready
     test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_LOOP
-    jz .voice_mixed
+    jz .maybe_promote_pending
     cmp dword [sb16_voice_lengths + ebx * 4], 0
     je .voice_mixed
     mov dword [sb16_mix_source_pos], 0
@@ -4224,6 +4415,11 @@ sb16_refill_active_half:
     jz .mix_next
     inc dword [sb16_music_loop_count]
     jmp .mix_next
+
+.maybe_promote_pending:
+    call sb16_music_promote_pending_window
+    jnc .mix_next
+    jmp .voice_mixed
 
 .source_ready:
     mov esi, [sb16_voice_samples + ebx * 4]
@@ -4307,7 +4503,7 @@ sb16_refill_active_half:
     cmp eax, [sb16_voice_lengths + ebx * 4]
     jb .advance_voice
     test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_LOOP
-    jz .finish_voice
+    jz .maybe_promote_pending_after_half
     cmp dword [sb16_voice_lengths + ebx * 4], 0
     je .finish_voice
     mov dword [sb16_voice_positions + ebx * 4], 0
@@ -4316,6 +4512,11 @@ sb16_refill_active_half:
     jz .advance_voice
     inc dword [sb16_music_loop_count]
     jmp .advance_voice
+
+.maybe_promote_pending_after_half:
+    call sb16_music_promote_pending_window
+    jnc .advance_voice
+    jmp .finish_voice
 
 .finish_voice:
     test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
@@ -4329,6 +4530,8 @@ sb16_refill_active_half:
     mov dword [sb16_voice_started_at + ebx * 4], 0
     mov dword [sb16_voice_flags + ebx * 4], 0
     mov dword [sb16_voice_loop_counts + ebx * 4], 0
+    mov dword [sb16_voice_pending_samples + ebx * 4], 0
+    mov dword [sb16_voice_pending_lengths + ebx * 4], 0
     inc dword [sb16_voice_finished_count]
 
 .advance_voice:
@@ -6939,6 +7142,8 @@ scheduler_init:
     mov dword [process_munmap_attempts], 0
     mov dword [process_munmap_pages_released], 0
     mov dword [process_munmap_non_tail_kept], 0
+    mov dword [process_munmap_holes_punched], 0
+    mov dword [process_munmap_pages_unmapped], 0
     mov dword [process_last_munmap_base], 0
     mov dword [process_last_munmap_end], 0
     mov dword [process_exit_teardowns], 0
@@ -6949,6 +7154,9 @@ scheduler_init:
     mov dword [process_last_teardown_pid], 0xffffffff
     mov dword [process_last_teardown_base], 0
     mov dword [process_last_teardown_end], 0
+    mov dword [process_generic_slot_allocations], 0
+    mov dword [process_generic_slot_failures], 0
+    mov dword [process_last_generic_slot], 0
     mov dword [process_wait_attempts], 0
     mov dword [process_wait_reaps], 0
     mov dword [process_wait_failures], 0
@@ -6976,6 +7184,10 @@ scheduler_init:
     call process_reset_preempt_probe
     mov esi, process_doom
     call process_reset_doom
+    mov esi, process_generic0
+    call process_reset_generic_unused
+    mov esi, process_generic1
+    call process_reset_generic_unused
     mov esi, process_kernel
     call process_activate
     ret
@@ -7001,10 +7213,18 @@ process_reset_doom:
     mov dword [esi + PROC_ENTRY], 0
     ret
 
+process_reset_generic_unused:
+    call process_reset_accounting
+    mov dword [esi + PROC_STATE], PROC_STATE_UNUSED
+    mov dword [esi + PROC_BRK], USER_HEAP_START
+    mov dword [esi + PROC_ENTRY], 0
+    ret
+
 process_reset_accounting:
     push eax
     push ecx
     push edi
+    call process_heap_clear_all
     mov dword [esi + PROC_TICKS], 0
     mov dword [esi + PROC_RUNS], 0
     mov dword [esi + PROC_QUANTUM_TICKS], 0
@@ -7026,6 +7246,187 @@ process_reset_accounting:
     pop eax
     ret
 
+process_heap_clear_all:
+    push eax
+    push ecx
+    push edi
+    mov edi, [esi + PROC_HEAP_BITMAP]
+    test edi, edi
+    jz .done
+    mov ecx, [esi + PROC_HEAP_PAGE_COUNT]
+    add ecx, 7
+    shr ecx, 3
+    test ecx, ecx
+    jz .done
+    xor eax, eax
+    cld
+    rep stosb
+
+.done:
+    pop edi
+    pop ecx
+    pop eax
+    ret
+
+process_heap_mark_range:
+    pushad
+    cmp esi, 0
+    je .done
+    mov edi, [esi + PROC_HEAP_BITMAP]
+    test edi, edi
+    jz .done
+    mov ebx, eax
+    cmp ebx, [esi + PROC_HEAP_START]
+    jae .base_ready
+    mov ebx, [esi + PROC_HEAP_START]
+
+.base_ready:
+    mov ecx, edx
+    cmp ecx, [esi + PROC_HEAP_END]
+    jbe .end_ready
+    mov ecx, [esi + PROC_HEAP_END]
+
+.end_ready:
+    cmp ebx, ecx
+    jae .done
+    sub ebx, [esi + PROC_HEAP_START]
+    shr ebx, 12
+    sub ecx, [esi + PROC_HEAP_START]
+    add ecx, PAGE_SIZE - 1
+    shr ecx, 12
+    cmp ecx, [esi + PROC_HEAP_PAGE_COUNT]
+    jbe .count_ready
+    mov ecx, [esi + PROC_HEAP_PAGE_COUNT]
+
+.count_ready:
+    mov ebp, ecx
+    cmp ebx, ebp
+    jae .done
+
+.mark_next:
+    mov edx, ebx
+    shr edx, 3
+    mov al, 1
+    mov ecx, ebx
+    and ecx, 7
+    shl al, cl
+    or byte [edi + edx], al
+    inc ebx
+    cmp ebx, ebp
+    jb .mark_next
+
+.done:
+    popad
+    ret
+
+process_heap_clear_range:
+    pushad
+    cmp esi, 0
+    je .done
+    mov edi, [esi + PROC_HEAP_BITMAP]
+    test edi, edi
+    jz .done
+    mov ebx, eax
+    cmp ebx, [esi + PROC_HEAP_START]
+    jae .base_ready
+    mov ebx, [esi + PROC_HEAP_START]
+
+.base_ready:
+    mov ecx, edx
+    cmp ecx, [esi + PROC_HEAP_END]
+    jbe .end_ready
+    mov ecx, [esi + PROC_HEAP_END]
+
+.end_ready:
+    cmp ebx, ecx
+    jae .done
+    sub ebx, [esi + PROC_HEAP_START]
+    shr ebx, 12
+    sub ecx, [esi + PROC_HEAP_START]
+    add ecx, PAGE_SIZE - 1
+    shr ecx, 12
+    cmp ecx, [esi + PROC_HEAP_PAGE_COUNT]
+    jbe .count_ready
+    mov ecx, [esi + PROC_HEAP_PAGE_COUNT]
+
+.count_ready:
+    mov ebp, ecx
+    cmp ebx, ebp
+    jae .done
+
+.clear_next:
+    mov edx, ebx
+    shr edx, 3
+    mov al, 1
+    mov ecx, ebx
+    and ecx, 7
+    shl al, cl
+    not al
+    and byte [edi + edx], al
+    inc ebx
+    cmp ebx, ebp
+    jb .clear_next
+
+.done:
+    popad
+    ret
+
+process_heap_range_is_mapped:
+    push ebx
+    push ecx
+    push edx
+    push edi
+    cmp esi, 0
+    je .fail
+    mov edi, [esi + PROC_HEAP_BITMAP]
+    test edi, edi
+    jz .fail
+    cmp eax, [esi + PROC_HEAP_START]
+    jb .fail
+    cmp edx, [esi + PROC_BRK]
+    ja .fail
+    mov ebx, eax
+    sub ebx, [esi + PROC_HEAP_START]
+    shr ebx, 12
+    mov ecx, edx
+    sub ecx, [esi + PROC_HEAP_START]
+    add ecx, PAGE_SIZE - 1
+    shr ecx, 12
+    cmp ecx, [esi + PROC_HEAP_PAGE_COUNT]
+    ja .fail
+    mov edx, ecx
+    cmp ebx, edx
+    jae .ok
+
+.check_next:
+    mov ecx, ebx
+    shr ecx, 3
+    mov al, 1
+    push ecx
+    mov ecx, ebx
+    and ecx, 7
+    shl al, cl
+    pop ecx
+    test byte [edi + ecx], al
+    jz .fail
+    inc ebx
+    cmp ebx, edx
+    jb .check_next
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
 process_clear_user_range:
     push eax
     push edx
@@ -7034,6 +7435,11 @@ process_clear_user_range:
     cmp eax, edx
     jae .done
     call vmm_clear_process_page
+    push edx
+    mov edx, eax
+    add edx, PAGE_SIZE
+    call process_heap_clear_range
+    pop edx
     inc dword [process_vm_pages_cleared]
     add eax, PAGE_SIZE
     jmp .next
@@ -7133,6 +7539,62 @@ process_reuse_exec_target_slot:
     mov dword [esi + PROC_STATE], PROC_STATE_UNUSED
 
 .done:
+    pop eax
+    ret
+
+process_is_user_exec_target:
+    cmp eax, process_user_probe
+    je .yes
+    cmp eax, process_generic0
+    je .yes
+    cmp eax, process_generic1
+    je .yes
+    stc
+    ret
+
+.yes:
+    clc
+    ret
+
+process_alloc_generic_exec_slot:
+    push eax
+    push ecx
+    push edi
+    mov edi, process_generic_exec_slots
+    mov ecx, PROCESS_GENERIC_SLOT_COUNT
+
+.scan_next:
+    cmp ecx, 0
+    je .none
+    mov esi, [edi]
+    cmp dword [esi + PROC_STATE], PROC_STATE_UNUSED
+    je .found
+    cmp dword [esi + PROC_PARENT_PID], 0xffffffff
+    jne .advance
+    cmp dword [esi + PROC_STATE], PROC_STATE_EXITED
+    je .found
+    cmp dword [esi + PROC_STATE], PROC_STATE_FAULTED
+    je .found
+
+.advance:
+    add edi, 4
+    dec ecx
+    jmp .scan_next
+
+.found:
+    mov [process_last_generic_slot], esi
+    inc dword [process_generic_slot_allocations]
+    clc
+    jmp .done
+
+.none:
+    inc dword [process_generic_slot_failures]
+    mov dword [process_exec_last_error], -ERRNO_ENOMEM
+    stc
+
+.done:
+    pop edi
+    pop ecx
     pop eax
     ret
 
@@ -7747,6 +8209,8 @@ process_exec_path:
     mov dword [process_exec_target], edi
     call process_exec_resolve_path
     jnc .resolved
+    cmp dword [process_exec_last_error], 0
+    jne .fail
     mov dword [process_exec_last_error], -ERRNO_ENOENT
     jmp .fail
 
@@ -7778,8 +8242,9 @@ process_exec_path:
 
     cmp dword [process_exec_target], process_doom
     je .bind_doom_artifact
-    cmp dword [process_exec_target], process_user_probe
-    je .bind_user_artifact
+    mov eax, [process_exec_target]
+    call process_is_user_exec_target
+    jnc .bind_user_artifact
     jmp .reserve
 
 .bind_doom_artifact:
@@ -7820,8 +8285,9 @@ process_exec_path:
 
     cmp dword [process_exec_target], process_doom
     je .loaded_doom
-    cmp dword [process_exec_target], process_user_probe
-    je .loaded_user_probe
+    mov eax, [process_exec_target]
+    call process_is_user_exec_target
+    jnc .loaded_user_probe
     jmp .unsupported
 
 .loaded_doom:
@@ -7858,8 +8324,9 @@ process_exec_path:
     mov dword [process_exec_last_error], -ERRNO_EIO
     cmp dword [process_exec_target], process_doom
     je .load_fail_doom
-    cmp dword [process_exec_target], process_user_probe
-    jne .fail
+    mov eax, [process_exec_target]
+    call process_is_user_exec_target
+    jc .fail
     mov byte [user_elf_status], 2
     jmp .fail
 
@@ -8034,10 +8501,12 @@ process_exec_resolve_generic_root83:
     jne .fail
     cmp byte [process_exec_name83_buffer + 10], 'F'
     jne .fail
+    call process_alloc_generic_exec_slot
+    jc .fail
     mov dword [process_exec_name83], process_exec_name83_buffer
     mov dword [process_exec_load_addr], USER_ELF_LOAD_ADDR
     mov dword [process_exec_max_bytes], USER_ELF_MAX_BYTES
-    mov dword [process_exec_target], process_user_probe
+    mov [process_exec_target], esi
     clc
     jmp .done
 
@@ -8056,8 +8525,9 @@ process_exec_resolve_generic_root83:
 process_exec_prepare_elf_image:
     cmp dword [process_exec_target], process_doom
     je .prepare_doom
-    cmp dword [process_exec_target], process_user_probe
-    je .prepare_user_probe
+    mov eax, [process_exec_target]
+    call process_is_user_exec_target
+    jnc .prepare_user_probe
     jmp .fail
 
 .prepare_doom:
@@ -8101,8 +8571,9 @@ process_exec_handoff_current:
 
     cmp esi, process_doom
     je .reset_doom_target
-    cmp esi, process_user_probe
-    je .reset_user_probe_target
+    mov eax, esi
+    call process_is_user_exec_target
+    jnc .reset_user_probe_target
     jmp .einval
 
 .reset_doom_target:
@@ -8672,6 +9143,12 @@ user_elf_prepare:
     add edx, PAGE_SIZE - 1
     and edx, 0xfffff000
     mov ebx, PROC_PROBE_PAGE_DIR_ADDR
+    mov edi, [process_exec_target]
+    cmp edi, 0
+    je .user_segment_page_dir_ready
+    mov ebx, [edi + PROC_PAGE_DIR]
+
+.user_segment_page_dir_ready:
     test dword [user_segment_flags], ELF_PF_W
     jz .mark_user_segment_read
     call vmm_mark_process_user_write_range
@@ -9043,6 +9520,7 @@ syscall_handler:
 .sbrk_restore_brk:
     pop edx
     pop eax
+    call process_heap_mark_range
     mov [esi + PROC_BRK], edx
     mov [current_user_brk], edx
     mov [user_brk_current], edx
@@ -9406,6 +9884,8 @@ syscall_handler:
     je .audio_shutdown_cmd
     cmp ebx, AUDIO_CMD_IS_PLAYING
     je .audio_is_playing
+    cmp ebx, AUDIO_CMD_BUFFERED_BYTES
+    je .audio_buffered_bytes
     jmp .audio_status
 
 .audio_init_cmd:
@@ -9446,6 +9926,26 @@ syscall_handler:
 
 .audio_not_playing:
     xor eax, eax
+    jmp .return
+
+.audio_buffered_bytes:
+    mov [audio_sfx_handle_arg], ecx
+    call sb16_find_voice_by_handle
+    jc .audio_not_playing
+    mov ebx, eax
+    mov edx, [sb16_voice_positions + ebx * 4]
+    shr edx, 16
+    mov eax, [sb16_voice_lengths + ebx * 4]
+    cmp eax, edx
+    jbe .audio_pending_only
+    sub eax, edx
+    jmp .audio_add_pending
+
+.audio_pending_only:
+    xor eax, eax
+
+.audio_add_pending:
+    add eax, [sb16_voice_pending_lengths + ebx * 4]
     jmp .return
 
 .audio_status:
@@ -9738,6 +10238,9 @@ syscall_handler:
     xor eax, eax
     cld
     rep stosd
+    mov eax, [mmap_base_arg]
+    mov edx, [mmap_end_arg]
+    call process_heap_mark_range
     mov edx, [mmap_end_arg]
     mov [esi + PROC_BRK], edx
     mov [current_user_brk], edx
@@ -9811,6 +10314,25 @@ syscall_handler:
 
 .munmap_keep_non_tail:
     inc dword [process_munmap_non_tail_kept]
+    mov ebx, [esi + PROC_PAGE_DIR]
+    test ebx, ebx
+    jnz .munmap_non_tail_have_page_dir
+    mov ebx, PAGING_DIR_ADDR
+
+.munmap_non_tail_have_page_dir:
+    mov eax, [mmap_base_arg]
+    mov edx, [mmap_end_arg]
+    call process_clear_user_range
+    mov ebx, [esi + PROC_PAGE_DIR]
+    test ebx, ebx
+    jz .munmap_non_tail_account
+    mov cr3, ebx
+
+.munmap_non_tail_account:
+    inc dword [process_munmap_holes_punched]
+    mov eax, [mmap_len_arg]
+    shr eax, 12
+    add [process_munmap_pages_unmapped], eax
     xor eax, eax
     jmp .return
 
@@ -10320,7 +10842,12 @@ user_range_validate:
 
 .region_end_ready:
     cmp edx, ebx
-    jbe .ok
+    ja .region_advance
+    test dword [edi + VM_REGION_FLAGS], VM_REGION_HEAP
+    jz .ok
+    call process_heap_range_is_mapped
+    jc .fail
+    jmp .ok
 
 .region_advance:
     add edi, VM_REGION_BYTES
@@ -12296,6 +12823,46 @@ write_smoke_status:
     mov edx, [pci_first_class]
     call smoke_write_hex32
 
+    mov esi, smoke_pcitable_text
+    call smoke_copy_string
+    mov esi, smoke_ok_text
+    call smoke_copy_string
+
+    mov esi, smoke_pcitabcap_text
+    call smoke_copy_string
+    mov edx, PCI_TABLE_MAX_ENTRIES
+    call smoke_write_hex32
+
+    mov esi, smoke_pcitabuse_text
+    call smoke_copy_string
+    mov edx, [pci_function_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_pcilast_text
+    call smoke_copy_string
+    mov edx, [pci_last_bdf]
+    call smoke_write_hex32
+
+    mov esi, smoke_pciclassh_text
+    call smoke_copy_string
+    mov edx, [pci_class_table_hash]
+    call smoke_write_hex32
+
+    mov esi, smoke_pcimulti_text
+    call smoke_copy_string
+    mov edx, [pci_multifunction_device_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_pciclsms_text
+    call smoke_copy_string
+    mov edx, [pci_mass_storage_class_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_pciclsbr_text
+    call smoke_copy_string
+    mov edx, [pci_bridge_class_count]
+    call smoke_write_hex32
+
     mov esi, smoke_gfx_text
     call smoke_copy_string
     cmp byte [present_status], 1
@@ -13240,6 +13807,14 @@ smoke_pcicount_text db " pcicount=", 0
 smoke_pcifirst_text db " pcifirst=", 0
 smoke_pciid_text db " pciid=", 0
 smoke_pciclass_text db " pciclass=", 0
+smoke_pcitable_text db " pcitable=", 0
+smoke_pcitabcap_text db " pcitabcap=", 0
+smoke_pcitabuse_text db " pcitabuse=", 0
+smoke_pcilast_text db " pcilast=", 0
+smoke_pciclassh_text db " pciclassh=", 0
+smoke_pcimulti_text db " pcimulti=", 0
+smoke_pciclsms_text db " pciclsms=", 0
+smoke_pciclsbr_text db " pciclsbr=", 0
 smoke_gfx_text db " gfx=", 0
 smoke_fb_text db " fb=", 0
 smoke_fbpolicy_text db " fbpolicy=", 0
@@ -13477,6 +14052,7 @@ process_kernel:
     dd 0, 0, 0, 0
     dd PAGING_DIR_ADDR, 0, 0, 0, PROC_KERNEL_PROCESS_STACK_TOP
     dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
+    dd 0, 0
 process_user_probe:
     dd 1, USER_KIND_PROBE, PROC_STATE_READY
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -13485,6 +14061,7 @@ process_user_probe:
     dd 0, 0, 0, 0
     dd PROC_PROBE_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_USER_PROBE_KERNEL_STACK_TOP
     dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
+    dd process_user_probe_heap_bitmap, USER_HEAP_PAGE_COUNT
 process_preempt_probe:
     dd 3, USER_KIND_PREEMPT_PROBE, PROC_STATE_READY
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -13493,6 +14070,7 @@ process_preempt_probe:
     dd 0, 0, 0, 0
     dd PROC_PREEMPT_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_PREEMPT_PROBE_KERNEL_STACK_TOP
     dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
+    dd process_preempt_probe_heap_bitmap, USER_HEAP_PAGE_COUNT
 process_doom:
     dd 2, USER_KIND_DOOM, PROC_STATE_READY
     dd DOOM_USER_BASE, DOOM_USER_END, DOOM_USER_HEAP_START, DOOM_USER_HEAP_START, DOOM_USER_HEAP_END
@@ -13501,6 +14079,34 @@ process_doom:
     dd 0, 0, 0, 0
     dd PROC_DOOM_PAGE_DIR_ADDR, process_doom_vm_regions, 3, 0, PROC_DOOM_KERNEL_STACK_TOP
     dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
+    dd process_doom_heap_bitmap, DOOM_HEAP_PAGE_COUNT
+process_generic0:
+    dd 0xffffffff, USER_KIND_GENERIC, PROC_STATE_UNUSED
+    dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
+    dd USER_STACK_BOTTOM, USER_STACK_TOP, 0
+    times 12 dd 0
+    dd 0, 0, 0, 0
+    dd PROC_GENERIC0_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_GENERIC0_KERNEL_STACK_TOP
+    dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
+    dd process_generic0_heap_bitmap, USER_HEAP_PAGE_COUNT
+process_generic1:
+    dd 0xffffffff, USER_KIND_GENERIC, PROC_STATE_UNUSED
+    dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
+    dd USER_STACK_BOTTOM, USER_STACK_TOP, 0
+    times 12 dd 0
+    dd 0, 0, 0, 0
+    dd PROC_GENERIC1_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_GENERIC1_KERNEL_STACK_TOP
+    dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
+    dd process_generic1_heap_bitmap, USER_HEAP_PAGE_COUNT
+process_generic_exec_slots:
+    dd process_generic0, process_generic1
+align 4
+process_user_probe_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
+process_preempt_probe_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
+process_doom_heap_bitmap times DOOM_HEAP_BITMAP_BYTES db 0
+process_generic0_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
+process_generic1_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
+align 4
 pmm_total_pages dd 0
 pmm_free_pages dd 0
 pmm_used_pages dd 0
@@ -13712,6 +14318,8 @@ process_mmap_pages_mapped dd 0
 process_munmap_attempts dd 0
 process_munmap_pages_released dd 0
 process_munmap_non_tail_kept dd 0
+process_munmap_holes_punched dd 0
+process_munmap_pages_unmapped dd 0
 process_last_munmap_base dd 0
 process_last_munmap_end dd 0
 process_exit_teardowns dd 0
@@ -13722,6 +14330,9 @@ process_last_slot_generation dd 0
 process_last_teardown_pid dd 0xffffffff
 process_last_teardown_base dd 0
 process_last_teardown_end dd 0
+process_generic_slot_allocations dd 0
+process_generic_slot_failures dd 0
+process_last_generic_slot dd 0
 process_wait_attempts dd 0
 process_wait_reaps dd 0
 process_wait_failures dd 0
@@ -13839,7 +14450,14 @@ pci_function_count dd 0
 pci_first_bdf dd 0
 pci_first_id dd 0
 pci_first_class dd 0
+pci_last_bdf dd 0
+pci_class_table_hash dd 0
+pci_multifunction_device_count dd 0
+pci_mass_storage_class_count dd 0
+pci_bridge_class_count dd 0
 pci_config_status db 0
+align 4
+pci_device_table times PCI_TABLE_MAX_ENTRIES * PCI_TABLE_ENTRY_DWORDS dd 0
 audio_status db 0
 sb16_major_version db 0
 sb16_minor_version db 0
@@ -13917,6 +14535,8 @@ sb16_voice_right_volumes times AUDIO_MAX_SFX_VOICES dd 0
 sb16_voice_started_at times AUDIO_MAX_SFX_VOICES dd 0
 sb16_voice_flags times AUDIO_MAX_SFX_VOICES dd 0
 sb16_voice_loop_counts times AUDIO_MAX_SFX_VOICES dd 0
+sb16_voice_pending_samples times AUDIO_MAX_SFX_VOICES dd 0
+sb16_voice_pending_lengths times AUDIO_MAX_SFX_VOICES dd 0
 sb16_dma_buffer_phys dd 0
 sb16_dma_buffer_size dd 0
 sb16_dma_block_size dd 0

@@ -415,6 +415,47 @@ static int test_streaming_volume_changes_affect_future_chunks(void)
     return 0;
 }
 
+static int test_default_stream_chunk_is_large_enough_for_buffered_refill(void)
+{
+    static unsigned char mus_lump[] = {
+        'M', 'U', 'S', 0x1a,
+        8, 0,
+        16, 0,
+        1, 0,
+        0, 0,
+        0, 0,
+        0, 0,
+        0x90, 0xbc, 100, 20,
+        0x80, 60, 4,
+        0xd0
+    };
+    static unsigned char chunk[VIBE_MUSIC_STREAM_BYTES];
+    vibe_music_render_stats_t stats;
+    int handle;
+    unsigned long rendered;
+
+    if (VIBE_MUSIC_STREAM_BYTES < 32768u)
+        return 120;
+
+    vibe_music_init();
+    handle = vibe_music_register_song(mus_lump);
+    if (handle <= 0)
+        return 121;
+
+    vibe_music_stream_begin(handle, VIBE_MUSIC_DEFAULT_SAMPLE_RATE, 127, 1);
+    rendered = vibe_music_stream_render(handle, chunk, sizeof(chunk), &stats);
+    if (rendered != sizeof(chunk))
+        return 122;
+    if (stats.stream_start_sample != 0 || stats.stream_end_sample != sizeof(chunk))
+        return 123;
+    if (vibe_music_stream_position(handle) != sizeof(chunk))
+        return 124;
+    if (count_non_silence(chunk, sizeof(chunk)) < sizeof(chunk) / 8u)
+        return 125;
+
+    return 0;
+}
+
 static int test_looping_stream_wraps_long_playback_position(void)
 {
     static unsigned char mus_lump[] = {
@@ -573,6 +614,10 @@ int main(void)
         return result;
 
     result = test_streaming_volume_changes_affect_future_chunks();
+    if (result)
+        return result;
+
+    result = test_default_stream_chunk_is_large_enough_for_buffered_refill();
     if (result)
         return result;
 

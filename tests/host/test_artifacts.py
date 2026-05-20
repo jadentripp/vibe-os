@@ -121,7 +121,7 @@ class BuildArtifactTests(unittest.TestCase):
 
     def test_stage2_and_kernel_fit_reserved_raw_lbas(self):
         self.assertLessEqual((BUILD / "stage2.bin").stat().st_size, 16 * SECTOR_SIZE)
-        self.assertLessEqual((BUILD / "kernel.elf").stat().st_size, 128 * SECTOR_SIZE)
+        self.assertLessEqual((BUILD / "kernel.elf").stat().st_size, 192 * SECTOR_SIZE)
 
     def test_kernel_elf32_load_segments(self):
         elf = Elf32(read(BUILD / "kernel.elf"))
@@ -328,6 +328,20 @@ class DiskImageTests(unittest.TestCase):
         self.assertEqual(fs.free_data_clusters(), before_free)
         recreated = fs.create_or_reuse_root_entry(name)
         self.assertEqual(recreated, entry)
+
+    def test_generated_image_passes_dynamic_fat_mutation_proof_on_copy(self):
+        fs = make_wad_image.Fat16Image(bytearray(self.image))
+
+        proof = make_wad_image.prove_dynamic_fat16_mutation(fs)
+
+        self.assertEqual(proof["proof_name"], "FATPROOF.TMP")
+        self.assertEqual(proof["initial_clusters"], 2)
+        self.assertEqual(proof["grown_clusters"], 4)
+        self.assertEqual(proof["shrunk_clusters"], 2)
+        self.assertGreaterEqual(
+            proof["free_clusters"],
+            make_wad_image.MIN_OS_CREATED_FILE_CLUSTERS,
+        )
 
     def test_fat16_mutator_rejects_invalid_and_protected_root_names(self):
         fs = make_wad_image.Fat16Image(bytearray(self.image))
@@ -1154,8 +1168,11 @@ class SourceContractTests(unittest.TestCase):
             "PROC_USER_PROBE_KERNEL_STACK_TOP equ 0x00071000",
             "PROC_PREEMPT_PROBE_KERNEL_STACK_TOP equ 0x00072000",
             "PROC_DOOM_KERNEL_STACK_TOP equ 0x00073000",
-            "PROCESS_SLOT_COUNT equ 4",
-            "PROCESS_RECORD_BYTES equ 160",
+            "PROC_GENERIC0_KERNEL_STACK_TOP equ 0x00074000",
+            "PROC_GENERIC1_KERNEL_STACK_TOP equ 0x00075000",
+            "PROCESS_SLOT_COUNT equ 6",
+            "PROCESS_GENERIC_SLOT_COUNT equ 2",
+            "PROCESS_RECORD_BYTES equ 168",
             "PROC_SAVED_EIP equ 76",
             "PROC_QUANTUM_TICKS equ 100",
             "PROC_PAGE_DIR equ 108",
@@ -1164,6 +1181,8 @@ class SourceContractTests(unittest.TestCase):
             "PROC_KERNEL_STACK_TOP equ 124",
             "PROC_PARENT_PID equ 128",
             "PROC_ARGV0 equ 152",
+            "PROC_HEAP_BITMAP equ 160",
+            "PROC_HEAP_PAGE_COUNT equ 164",
             "PROC_FLAG_IRQ_FRAME_VALID equ 0x1",
             "SCHEDULER_QUANTUM_TICKS equ 5",
             "process_table:",
@@ -1171,6 +1190,9 @@ class SourceContractTests(unittest.TestCase):
             "process_user_probe:",
             "process_preempt_probe:",
             "process_doom:",
+            "process_generic0:",
+            "process_generic1:",
+            "process_generic_exec_slots:",
             "scheduler_init:",
             "process_activate:",
             "process_return_to_kernel:",
@@ -1182,6 +1204,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("dd 1, USER_KIND_PROBE, PROC_STATE_READY", kernel)
         self.assertIn("dd 3, USER_KIND_PREEMPT_PROBE, PROC_STATE_READY", kernel)
         self.assertIn("dd 2, USER_KIND_DOOM, PROC_STATE_READY", kernel)
+        self.assertIn("dd 0xffffffff, USER_KIND_GENERIC, PROC_STATE_UNUSED", kernel)
         self.assertIn("call scheduler_init", kernel)
         self.assertIn("mov [current_process_ptr], esi", kernel)
         self.assertIn("mov [current_pid], eax", kernel)
@@ -1201,6 +1224,8 @@ class SourceContractTests(unittest.TestCase):
             "PROC_PROBE_PAGE_DIR_ADDR equ 0x00080000",
             "PROC_PREEMPT_PAGE_DIR_ADDR equ 0x00083000",
             "PROC_DOOM_PAGE_DIR_ADDR equ 0x00082000",
+            "PROC_GENERIC0_PAGE_DIR_ADDR equ 0x00089000",
+            "PROC_GENERIC1_PAGE_DIR_ADDR equ 0x0008b000",
             "process_vm_init_page_spaces:",
             "vmm_mark_process_user_range:",
             "vmm_mark_process_user_read_range:",
@@ -1216,6 +1241,8 @@ class SourceContractTests(unittest.TestCase):
             "dd PROC_PROBE_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_USER_PROBE_KERNEL_STACK_TOP",
             "dd PROC_PREEMPT_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_PREEMPT_PROBE_KERNEL_STACK_TOP",
             "dd PROC_DOOM_PAGE_DIR_ADDR, process_doom_vm_regions, 3, 0, PROC_DOOM_KERNEL_STACK_TOP",
+            "dd PROC_GENERIC0_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_GENERIC0_KERNEL_STACK_TOP",
+            "dd PROC_GENERIC1_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_GENERIC1_KERNEL_STACK_TOP",
             "mov cr3, eax",
         ):
             self.assertIn(source, kernel)
@@ -1236,6 +1263,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("call process_vm_init_page_spaces", paging_init)
         self.assertIn("PROC_PROBE_PDE3_TABLE_ADDR | PTE_USER_FLAGS", paging_init)
         self.assertIn("PROC_PREEMPT_PDE3_TABLE_ADDR | PTE_USER_FLAGS", paging_init)
+        self.assertIn("PROC_GENERIC0_PDE3_TABLE_ADDR | PTE_USER_FLAGS", paging_init)
+        self.assertIn("PROC_GENERIC1_PDE3_TABLE_ADDR | PTE_USER_FLAGS", paging_init)
         self.assertIn("PROC_DOOM_PDE4_TABLE_ADDR | PTE_USER_FLAGS", paging_init)
         self.assertIn("mov edx, USER_STACK_TOP", paging_init)
         self.assertIn("mov edx, DOOM_USER_HEAP_START", paging_init)

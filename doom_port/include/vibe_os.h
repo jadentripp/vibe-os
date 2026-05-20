@@ -34,6 +34,7 @@ enum {
     VIBE_AUDIO_UPDATE_SFX = 4,
     VIBE_AUDIO_SHUTDOWN = 5,
     VIBE_AUDIO_IS_PLAYING = 6,
+    VIBE_AUDIO_BUFFERED_BYTES = 7,
 };
 
 typedef struct vibe_audio_sfx_desc {

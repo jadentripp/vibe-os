@@ -2,9 +2,11 @@ import gzip
 import hashlib
 import importlib.util
 import json
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 import zipfile
 from pathlib import Path
@@ -339,6 +341,8 @@ def audio_phase_statuses():
         "status.txt": valid_status(
             doompresent="00000080",
             doomframe="88888888",
+            gtic="00000180",
+            leveltime="00000180",
             doomsound="00000004",
             sfxmix="00000008",
             audioirq="00000006",
@@ -861,6 +865,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             build.mkdir()
             write_valid_artifact(build)
             (build / "serial.remote.log").write_text("serial diagnostics\n")
+            (build / "status.persistence-write.txt").write_text(valid_status())
+            (build / "status.after-fire.bin").write_bytes(b"binary status page")
             (build / "disk.img").write_bytes(b"\x55\xaa" + b"disk" * 32)
             (build / "gfx.bin").write_bytes(b"pixels")
             (build / "DOOM1.WAD").write_bytes(b"IWAD" + b"\0" * 64)
@@ -897,6 +903,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertTrue((output / "human-playtest-session.json").exists())
             self.assertTrue((output / "human-playtest-manifest.json").exists())
             self.assertTrue((output / "serial.remote.log").exists())
+            self.assertFalse((output / "status.persistence-write.txt").exists())
+            self.assertFalse((output / "status.after-fire.bin").exists())
             self.assertFalse((output / "disk.img").exists())
             self.assertFalse((output / "gfx.bin").exists())
             self.assertFalse((output / "DOOM1.WAD").exists())
@@ -962,6 +970,85 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("outside the repository", result.stderr)
+
+    def test_collector_capture_phase_uses_remote_monitor_socket(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            build = tmpdir / "build"
+            build.mkdir()
+            sock_path = tmpdir / "monitor.sock"
+            ready = threading.Event()
+            commands = []
+
+            def serve_once():
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+                    server.bind(str(sock_path))
+                    server.listen(1)
+                    ready.set()
+                    conn, _addr = server.accept()
+                    with conn:
+                        command = b""
+                        while True:
+                            chunk = conn.recv(4096)
+                            if not chunk:
+                                break
+                            command += chunk
+                        text = command.decode("ascii").strip()
+                        commands.append(text)
+                        output = Path(text.split()[-1])
+                        output.write_bytes(b"Aurora\0OS gtic=00000180 leveltime=00000180")
+                        conn.sendall(b"OK\r\n")
+
+            thread = threading.Thread(target=serve_once)
+            thread.start()
+            self.assertTrue(ready.wait(2))
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(COLLECTOR),
+                    "--build-dir",
+                    str(build),
+                    "--monitor-socket",
+                    str(sock_path),
+                    "--capture-phase",
+                    "after-fire",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("human status capture OK", result.stdout)
+            self.assertEqual(len(commands), 1)
+            self.assertTrue(commands[0].startswith("pmemsave 0x9d000 4096 "))
+            self.assertEqual(
+                (build / "status.after-fire.txt").read_text(),
+                "Aurora OS gtic=00000180 leveltime=00000180",
+            )
+            self.assertEqual(list(build.glob("status.after-fire.*.bin")), [])
+
+    def test_human_session_artifact_checker_rejects_short_manual_duration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            (artifact / "status.txt").write_text(
+                audio_phase_statuses()["status.txt"].replace(
+                    "gtic=00000180 leveltime=00000180",
+                    "gtic=00000080 leveltime=00000080",
+                )
+            )
+            write_human_notes(artifact)
+            write_human_session(artifact)
+            write_human_manifest(artifact)
+
+            with self.assertRaisesRegex(AssertionError, "manual human playability failed"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
 
     def test_downloaded_artifact_directory_rejects_duplicate_required_basenames(self):
         with tempfile.TemporaryDirectory() as tmp:

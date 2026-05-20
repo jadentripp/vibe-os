@@ -229,14 +229,21 @@ Current state:
   deletion, protected-file refusal, corrupt-chain rejection before mutation,
   FAT-copy agreement, duplicate-root/cross-link/orphaned-cluster rejection, and
   libc save/config file modes without launching QEMU.
+- `tools/check_doom_persistence_image.py --require-dynamic-fat-proof` now
+  mutates an in-memory copy of the image to prove dynamic FAT allocation, free,
+  and truncate behavior: create `FATPROOF.TMP`, sparse-extend with zero-filled
+  holes, shrink with tail-cluster freeing and tail-byte zeroing, truncate to
+  zero, rewrite, delete, and reuse the deleted root slot, then re-check FAT-copy
+  agreement and reachable-cluster ownership.
 - Host image tests also cover a real FAT directory tree beyond Doom-shaped flat
   files: root directory listing, read-only 8.3 subdirectory lookup/readback, and
   checker rejection for orphaned or cross-linked clusters inside a
   subdirectory.
 - `tools/check_doom_persistence_image.py` can inspect a mutated remote image and
-  require complete Doom-shaped `DEFAULT.CFG` markers plus a `DOOMSAVN.DSG` save
-  header with Doom 1.10 version text, plausible game-state bytes, and enough
-  payload to be more than a tiny hand-shaped header. With `--baseline-image`, it
+  require complete Doom-shaped `DEFAULT.CFG` assignments with numeric range
+  checks plus a `DOOMSAVN.DSG` save header with Doom 1.10 version text,
+  printable description, player 1 active, plausible game-state bytes, and
+  nonzero serialized payload beyond the tiny header. With `--baseline-image`, it
   also requires the requested entries to differ from the fresh pre-boot image, so
   host-preseeded bytes do not count as a persistence proof. With
   `--reboot-baseline-image`, it compares the post-reboot disk against the
@@ -483,19 +490,20 @@ Current state:
   exit, ELF32-compatible kernel handoff, and separate opt-in build target.
   `tools/check_hardware_support_matrix.py` requires those rows to stay
   `status=unimplemented` and outside the current Makefile image path.
-- The kernel now has a bounded, status-only PCI config-space probe for the QEMU
-  legacy PC target. `PCI_STATUS[...]` rows keep that proof scoped to bus 0,
-  devices 0-31, functions 0-7, and the smoke status exposes `pci=`,
-  `pciprobe=`, `pcicount=`, `pcifirst=`, `pciid=`, and `pciclass=` so a
-  disposable cloud status artifact can be checked without claiming broad PCI
-  enumeration.
+- The kernel now has a bounded, status-only PCI config-space table builder for
+  the QEMU legacy PC target. `PCI_STATUS[...]` and `PCI_TABLE[...]` rows keep
+  that proof scoped to bus 0, devices 0-31, functions 0-7. The smoke status
+  exposes `pci=`, `pciprobe=`, `pcicount=`, `pcifirst=`, `pciid=`,
+  `pciclass=`, `pcitable=`, `pcitabcap=`, `pcitabuse=`, `pcilast=`,
+  `pciclassh=`, `pcimulti=`, `pciclsms=`, and `pciclsbr=` so a disposable
+  cloud status artifact can be checked without claiming broad PCI enumeration.
 
 Still missing:
 
 - There is no UEFI boot path, AHCI/SATA native driver, USB input/storage stack,
   SMP, APIC/HPET coverage, general PCI enumeration, broad VBE mode matrix, or
-  proof on physical hardware. The PCI status probe is not driver discovery and
-  does not make AHCI or USB usable.
+  proof on physical hardware. The PCI table is bounded to status-only bus-0
+  discovery and does not make AHCI or USB usable.
 - UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and physical hardware
   remain unclaimed `SUPPORT[...]` rows until a specific proof lane exists for
   each device class.
@@ -505,7 +513,7 @@ Executable gate:
 - Run `python3 tools/check_hardware_support_matrix.py`. When a disposable QEMU
   status artifact is available, additionally run
   `python3 tools/check_hardware_support_matrix.py --status status.txt` to verify
-  the bounded PCI status fields. Future device-class
+  the bounded PCI status and table fields. Future device-class
   claims must add or update a `SUPPORT[...]` row, name the proof boundary, and
   add one host-checkable cloud, disposable-machine, or hardware proof before
   README, docs, runbooks, tests, or release notes describe that class as

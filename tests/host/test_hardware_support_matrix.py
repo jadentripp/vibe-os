@@ -86,7 +86,9 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             (gap_doc, "check_hardware_support_matrix.py"),
             (gap_doc, "UEFI_BOOT[...]"),
             (gap_doc, "PCI_STATUS[...]"),
+            (gap_doc, "PCI_TABLE[...]"),
             (gap_doc, "pciprobe="),
+            (gap_doc, "pcitabcap="),
             (gap_doc, "UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and physical hardware remain unclaimed"),
             (tests_readme, "tools/check_hardware_support_matrix.py"),
             (tests_readme, "boot/uefi/README.md"),
@@ -107,17 +109,33 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         self.assertEqual(rows["PCI_ENUMERATION"]["evidence"], "none")
         self.assertEqual(pci_rows["QEMU_BUS0_CONFIG"]["status"], "status-only")
         self.assertEqual(pci_rows["QEMU_BUS0_CONFIG"]["scope"], "qemu-pci-bus0")
+        pci_table_rows = check_hardware_support_matrix._validate_pci_table_rows(matrix)
+        self.assertEqual(pci_table_rows["QEMU_BUS0_CLASS_TABLE"]["layout"], "bdf-id-class-header")
+        self.assertEqual(pci_table_rows["QEMU_BUS0_CLASS_TABLE"]["capacity"], "256")
         for source in (
             "PCI_SCAN_DEVICE_COUNT equ 32",
             "PCI_SCAN_FUNCTION_COUNT equ 8",
+            "PCI_TABLE_ENTRY_DWORDS equ 4",
+            "PCI_TABLE_MAX_ENTRIES equ PCI_SCAN_FUNCTION_PROBES",
             "call pci_scan_qemu",
             "pci_scan_qemu:",
+            "mov edi, pci_device_table",
+            "PCI_TABLE_CLASS_OFFSET",
+            "pci_device_table times PCI_TABLE_MAX_ENTRIES * PCI_TABLE_ENTRY_DWORDS dd 0",
             'smoke_pci_text db " pci="',
             'smoke_pciprobe_text db " pciprobe="',
             'smoke_pcicount_text db " pcicount="',
             'smoke_pcifirst_text db " pcifirst="',
             'smoke_pciid_text db " pciid="',
             'smoke_pciclass_text db " pciclass="',
+            'smoke_pcitable_text db " pcitable="',
+            'smoke_pcitabcap_text db " pcitabcap="',
+            'smoke_pcitabuse_text db " pcitabuse="',
+            'smoke_pcilast_text db " pcilast="',
+            'smoke_pciclassh_text db " pciclassh="',
+            'smoke_pcimulti_text db " pcimulti="',
+            'smoke_pciclsms_text db " pciclsms="',
+            'smoke_pciclsbr_text db " pciclsbr="',
         ):
             with self.subTest(source=source):
                 self.assertIn(source, kernel)
@@ -207,7 +225,10 @@ class HardwareSupportMatrixTests(unittest.TestCase):
     def test_checker_validates_bounded_pci_status_fields(self):
         status = (
             "Aurora OS v0.2 pci=OK pciprobe=00000100 pcicount=00000004 "
-            "pcifirst=00000000 pciid=12378086 pciclass=06000000"
+            "pcifirst=00000000 pciid=12378086 pciclass=06000000 "
+            "pcitable=OK pcitabcap=00000100 pcitabuse=00000004 "
+            "pcilast=00000100 pciclassh=89ABCDEF pcimulti=00000001 "
+            "pciclsms=00000001 pciclsbr=00000001"
         )
 
         fields = check_hardware_support_matrix.validate_pci_status_text(status)
@@ -215,12 +236,19 @@ class HardwareSupportMatrixTests(unittest.TestCase):
 
         none_status = (
             "Aurora OS v0.2 pci=NONE pciprobe=00000100 pcicount=00000000 "
-            "pcifirst=00000000 pciid=00000000 pciclass=00000000"
+            "pcifirst=00000000 pciid=00000000 pciclass=00000000 "
+            "pcitable=OK pcitabcap=00000100 pcitabuse=00000000 "
+            "pcilast=00000000 pciclassh=00000000 pcimulti=00000000 "
+            "pciclsms=00000000 pciclsbr=00000000"
         )
         self.assertEqual(check_hardware_support_matrix.validate_pci_status_text(none_status)["pci"], "NONE")
 
         with self.assertRaisesRegex(AssertionError, "pciprobe="):
             check_hardware_support_matrix.validate_pci_status_text(status.replace("pciprobe=00000100", "pciprobe=00000200"))
+        with self.assertRaisesRegex(AssertionError, "pcitabuse="):
+            check_hardware_support_matrix.validate_pci_status_text(status.replace("pcitabuse=00000004", "pcitabuse=00000003"))
+        with self.assertRaisesRegex(AssertionError, "pciclassh="):
+            check_hardware_support_matrix.validate_pci_status_text(status.replace("pciclassh=89ABCDEF", "pciclassh=00000000"))
         with self.assertRaisesRegex(AssertionError, "pcifirst="):
             check_hardware_support_matrix.validate_pci_status_text(status.replace("pcifirst=00000000", "pcifirst=00002000"))
         with self.assertRaisesRegex(AssertionError, "status missing PCI fields"):

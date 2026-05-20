@@ -167,6 +167,23 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "USER_PROBE_EXPECTED_FLAGS equ 0x00001fff",
         "SYS_EXEC_ARGV_SOURCE_DEFAULT equ 1",
         "SYS_EXEC_ARGV_SOURCE_USER equ 2",
+        "PROCESS_RECORD_BYTES equ 168",
+        "PROC_HEAP_BITMAP equ 160",
+        "PROC_HEAP_PAGE_COUNT equ 164",
+        "process_heap_mark_range:",
+        "process_heap_clear_range:",
+        "process_heap_range_is_mapped:",
+        "PROCESS_SLOT_COUNT equ 6",
+        "PROCESS_GENERIC_SLOT_COUNT equ 2",
+        "USER_KIND_GENERIC equ 4",
+        "PROC_GENERIC0_PAGE_DIR_ADDR equ 0x00089000",
+        "PROC_GENERIC1_PAGE_DIR_ADDR equ 0x0008b000",
+        "process_generic0:",
+        "process_generic1:",
+        "process_generic_exec_slots:",
+        "process_alloc_generic_exec_slot:",
+        "process_generic_slot_allocations dd 0",
+        "process_generic_slot_failures dd 0",
         "sys_exec_last_argv_source dd 0",
         'smoke_exec_argvsrc_text db " argvsrc=", 0',
         "mov edx, [sys_exec_last_argv_source]",
@@ -206,6 +223,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     for needle in (
         "process_munmap_pages_released dd 0",
         "process_munmap_non_tail_kept dd 0",
+        "process_munmap_holes_punched dd 0",
+        "process_munmap_pages_unmapped dd 0",
         "inc dword [process_munmap_attempts]",
         "and eax, PAGE_SIZE - 1",
         "call user_range_validate",
@@ -214,6 +233,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "mov [esi + PROC_BRK], eax",
         "add [process_munmap_pages_released], eax",
         "inc dword [process_munmap_non_tail_kept]",
+        "inc dword [process_munmap_holes_punched]",
+        "add [process_munmap_pages_unmapped], eax",
     ):
         _require(kernel if needle.endswith(" dd 0") else munmap, needle, "brk-backed munmap")
 
@@ -224,14 +245,35 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "syscall3(SYS_MMAP, 0, 0, mmap_flags) == -ERRNO_EINVAL",
         "syscall3(SYS_MUNMAP, 0, 4096, 0) == -ERRNO_EINVAL",
         "syscall3(SYS_WAITPID, (uint32_t)-1, USER_FAULT_ADDR, 0) == -ERRNO_EINVAL",
+        "unsigned char *hole = sys_mmap(8192",
+        "sys_munmap(hole, 4096) == 0",
+        "sys_write(1, hole, 1) == -ERRNO_EINVAL",
+        "mmap_hole_ok && sys_munmap(video, DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES) == 0",
         "char *doom_argv[] = {(char *)doom_path, (char *)0};",
         "return sys_execv(doom_path, doom_argv) == 0 ? 0 : 1;",
     ):
         _require(probe, needle, "user probe VM/POSIX contract")
 
+    validator = kernel.split("user_range_validate:", 1)[1].split("doom_log_char:", 1)[0]
+    _require(validator, "call process_heap_range_is_mapped", "heap mapping validator")
+
     copy_argv = kernel.split("sys_exec_copy_argv:", 1)[1].split("sys_exec_copy_user_arg_string:", 1)[0]
     _require(copy_argv, "mov dword [sys_exec_last_argv_source], SYS_EXEC_ARGV_SOURCE_USER", "exec argv source proof")
+    generic = kernel.split("process_exec_resolve_generic_root83:", 1)[1].split("process_exec_prepare_elf_image:", 1)[0]
+    _require(generic, "call process_alloc_generic_exec_slot", "generic exec pool")
+    _require(generic, "mov [process_exec_target], esi", "generic exec pool")
+    allocator = kernel.split("process_alloc_generic_exec_slot:", 1)[1].split("process_retire_exec_slot:", 1)[0]
+    for needle in (
+        "mov edi, process_generic_exec_slots",
+        "cmp dword [esi + PROC_STATE], PROC_STATE_UNUSED",
+        "cmp dword [esi + PROC_PARENT_PID], 0xffffffff",
+        "cmp dword [esi + PROC_STATE], PROC_STATE_EXITED",
+        "cmp dword [esi + PROC_STATE], PROC_STATE_FAULTED",
+        "mov dword [process_exec_last_error], -ERRNO_ENOMEM",
+    ):
+        _require(allocator, needle, "generic exec pool")
     _require(process_doc, "`argvsrc=2`", "process exec docs")
+    _require(process_doc, "two-entry generic probe-class pool", "process exec docs")
     _require(process_doc, "negative syscall probe bit", "process exec docs")
 
     panic_path = kernel.split(".not_expected_user_fault:", 1)[1].split("doom_user_fault:", 1)[0]

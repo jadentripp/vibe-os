@@ -39,6 +39,11 @@ music voices from normal Doom SFX handles. The descriptor also marks the voice
 with `VIBE_AUDIO_FLAG_MUSIC`.
 Runtime music volume changes call `vibe_music_stream_set_volume`, so future
 chunks honor Doom's current music volume without resetting the song position.
+The platform hook now polls `VIBE_AUDIO_BUFFERED_BYTES` before rendering a new
+chunk. The kernel keeps the currently mixed window plus one pending music window,
+then promotes the pending window from the SB16 IRQ refill path when the current
+one drains. That turns normal early refreshes into buffered continuity instead
+of `musicdrops=` while still making true pending-slot overwrites visible.
 For looping songs, the stream now measures one parsed song pass and wraps only
 the renderer's internal start point to that loop length while keeping the public
 stream position cumulative. That long-playback wrap keeps chunk rendering from
@@ -49,9 +54,10 @@ keeps intermission or one-shot music honest in the port layer and gives the
 platform hook a clean zero-render signal to stop the SB16 music voice.
 
 This is a meaningful step past the old single bounded PCM carrier, but it is
-not final hardware-paced pull streaming yet. The current port renders 8192-byte
-chunks at 11025 Hz from the current song position and schedules the next chunk
-from Doom's regular sound hooks. The kernel still treats music as an SB16 active
+not final hardware-paced pull streaming yet. The current port renders
+32768-byte chunks at 11025 Hz from the current song position and schedules the
+next chunk from Doom's regular sound hooks once the kernel buffer reaches a
+low-water mark. The kernel still treats music as an SB16 active
 voice, so music and sound effects mix in the IRQ refill path instead of
 competing for a separate backend. Smoke status exposes `musicvoices=`,
 `musicmix=`, `musicpos=`, `musicbuf=`, `musicunder=`, `musicdrops=`, and the
@@ -101,9 +107,9 @@ should remain status-only and copyright-safe:
 
 That contract preserves the current parser/renderer work: the port can keep
 parsing original Doom MUS/MIDI lumps outside `third_party/doom`, but rendering
-must move from the current push-updated chunks to "render the next bounded slice
-from the current song position whenever the SB16 hardware path needs more music
-PCM."
+must move from the current buffer-aware pushed chunks to "render the next
+bounded slice from the current song position whenever the SB16 hardware path
+needs more music PCM."
 
 Fallback design:
 
@@ -120,6 +126,6 @@ Host proof:
 and feeds it tiny MUS and MIDI fixtures. The tests verify format detection,
 channel state, tempo/controller handling, pitch bend, program changes, pan,
 expression, sustain, percussion channel mapping, streaming volume updates,
-long-playback wrap behavior, non-looping songs stop at their parsed song end,
+long-playback wrap behavior, larger streamed chunks, non-looping songs stop at their parsed song end,
 looping, deterministic output, invalid input silence, and non-silent unsigned
 8-bit PCM generation without launching QEMU.

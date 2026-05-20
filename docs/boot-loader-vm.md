@@ -11,8 +11,8 @@ mode, and Stage 1 uses EDD `INT 0x13 AH=0x42` to read Stage 2 from raw disk
 sectors `LBA 1-16` into `0x00008000`.
 
 `boot/stage2.asm` is still real-mode code when it reads the kernel. It uses the
-same EDD packet path to load the prelinked kernel ELF image from `LBA 17-144`
-into `0x00020000`. The FAT16 partition starts at `LBA 2048`, so the raw boot
+same EDD packet path to load the prelinked kernel ELF image from `LBA 17-208`
+into `0x00040000`. The FAT16 partition starts at `LBA 2048`, so the raw boot
 area and filesystem do not overlap.
 
 Before entering the kernel, Stage 2 records the BIOS memory/video data it needs
@@ -57,7 +57,7 @@ ELF entry point. The linked kernel entry is currently `0x00010000`.
 
 The loader is intentionally small. It does not resolve relocations at boot; the
 repo linker resolves them ahead of time. Build and host tests enforce the raw
-windows: Stage 2 must fit in 8 KiB and the kernel ELF must fit in 64 KiB.
+windows: Stage 2 must fit in 8 KiB and the kernel ELF must fit in 96 KiB.
 
 ## Paging Reality
 

@@ -226,7 +226,7 @@ class BootLoaderVmContractTests(unittest.TestCase):
 
         for source in (
             "no GRUB",
-            "0x00020000",
+            "0x00040000",
             "0x00010000",
             "CR0.PE",
             "PT_LOAD",

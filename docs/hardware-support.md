@@ -8,12 +8,15 @@ IDE disk attachment, PS/2 input, PIT timer interrupts, VBE/VGA display paths, an
 an optional SB16-compatible audio device. A passing host test or build-only check
 does not prove additional hardware support.
 
-There is also a bounded PCI config-space status probe for QEMU's legacy PC
+There is also a bounded PCI config-space table builder for QEMU's legacy PC
 machine model. It reads bus 0, devices 0-31, functions 0-7 through ports
-`0xcf8`/`0xcfc`, then emits `pci=`, `pciprobe=`, `pcicount=`, `pcifirst=`,
-`pciid=`, and `pciclass=` in the smoke status block. This is a discovery/status
-contract only; it does not bind drivers, walk secondary buses, or make AHCI,
-USB, or broad PCI enumeration supported.
+`0xcf8`/`0xcfc`, stores each present function in a fixed in-kernel
+`bdf-id-class-header` table, then emits `pci=`, `pciprobe=`, `pcicount=`,
+`pcifirst=`, `pciid=`, `pciclass=`, `pcitable=`, `pcitabcap=`, `pcitabuse=`,
+`pcilast=`, `pciclassh=`, `pcimulti=`, `pciclsms=`, and `pciclsbr=` in the
+smoke status block. This is a discovery/status contract only; it does not bind
+drivers, walk secondary buses, or make AHCI, USB, or broad PCI enumeration
+supported.
 
 ## Matrix
 
@@ -61,6 +64,7 @@ diagnostics, not driver support, and must not be used as compatibility claims.
 Status-only hardware discovery scaffolds:
 
 - `PCI_STATUS[QEMU_BUS0_CONFIG] status=status-only scope=qemu-pci-bus0 proof=cloud-smoke-status evidence=pci-status-fields`
+- `PCI_TABLE[QEMU_BUS0_CLASS_TABLE] status=status-only scope=qemu-pci-bus0 layout=bdf-id-class-header capacity=256 evidence=pci-table-status-fields`
 
 ## Future Proof Boundaries
 
@@ -107,12 +111,13 @@ docs and tests may discuss the class only as unclaimed/future/unsupported.
 - `NEXT_UNLOCK[PCI_ENUMERATION] priority=first scope=qemu-pci proof=cloud-class-table evidence=none`
 
 PCI enumeration is the next implementable hardware-class unlock. It is the
-lowest-risk bridge from today's status-only config-space probe to future AHCI,
-USB, APIC, and real-device work. The first useful implementation should produce
-a reusable in-kernel PCI table, record class/subclass/prog-if data for every
-present function, preserve the current QEMU IDE/PS2/VBE/SB16 Doom path, and
-prove the table with cloud status artifacts. AHCI and USB must stay unclaimed
-until a real driver consumes that table.
+lowest-risk bridge from today's status-only config-space table toward future
+AHCI, USB, APIC, and real-device work. The current implementation already
+produces a reusable in-kernel bus-0 PCI table and records class/subclass/prog-if
+data for every present function, but `SUPPORT[PCI_ENUMERATION]` stays
+unclaimed until a disposable cloud proof validates that table as the primary
+enumeration artifact and a driver-facing API consumes it. AHCI and USB must
+stay unclaimed until a real driver consumes that table.
 
 ## Rules For New Claims
 
@@ -126,10 +131,11 @@ until a real driver consumes that table.
   VM logs committed to git.
 - Physical hardware support requires explicit hardware proof notes. QEMU evidence
   alone can only claim the matching QEMU device model.
-- PCI status fields are not a PCI support claim. They prove only that the kernel
-  ran the bounded QEMU bus-0 config-space scan and recorded a first present
-  function, if any, in status-only diagnostics. A future PCI claim needs a new
-  `SUPPORT[...]` row boundary or an update to `SUPPORT[PCI_ENUMERATION]`.
+- PCI status and table fields are not a PCI support claim. They prove only that
+  the kernel ran the bounded QEMU bus-0 config-space scan, populated the fixed
+  `bdf-id-class-header` table, and recorded table summaries in status-only
+  diagnostics. A future PCI claim needs a new `SUPPORT[...]` row boundary or an
+  update to `SUPPORT[PCI_ENUMERATION]`.
 - Compatibility language should name the device class and proof boundary. Use
   "QEMU BIOS/IDE/PS2/VBE/SB16 target" for the current scope, not "PC hardware
   support" or "real hardware support".

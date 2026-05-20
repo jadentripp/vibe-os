@@ -60,7 +60,7 @@ FREESTANDING_I386_CFLAGS := -target i386-unknown-elf -ffreestanding -fno-builtin
 DOOM_ORIGINAL_CFLAGS := $(FREESTANDING_I386_CFLAGS) -std=gnu89 -DNORMALUNIX -DLINUX -I$(DOOM_PORT_INCLUDE_DIR) -I$(DOOM_SRC_DIR)
 
 STAGE2_MAX_BYTES := 8192
-KERNEL_ELF_MAX_BYTES := 65536
+KERNEL_ELF_MAX_BYTES := 98304
 USER_PROBE_ELF_MAX_BYTES := 12288
 
 .PHONY: all build-only test doom-compile doom-link run run-headless smoke playability-gap-check hardware-support-check vm-safety-check shutdown-panic-proof-check audio-continuity-check audible-audio-proof-check cloud-playability-check persistence-image-check clean check-tools vm-consent

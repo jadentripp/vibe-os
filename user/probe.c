@@ -165,6 +165,7 @@ int user_main(int argc, char **argv, char **envp) {
     static struct vibe_fb_info fbinfo;
     static struct vibe_present_indexed present;
     uint32_t flags = 0;
+    int mmap_hole_ok = 0;
 
     if (argc == 1
         && argv
@@ -221,6 +222,17 @@ int user_main(int argc, char **argv, char **envp) {
         }
     }
 
+    unsigned char *hole = sys_mmap(8192, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS);
+    if (hole) {
+        hole[0] = 'x';
+        hole[4096] = 'y';
+        if (sys_munmap(hole, 4096) == 0
+            && sys_write(1, hole, 1) == -ERRNO_EINVAL
+            && sys_munmap(hole + 4096, 4096) == 0) {
+            mmap_hole_ok = 1;
+        }
+    }
+
     unsigned char *video = sys_mmap(DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS);
     if (video) {
         unsigned char *frame = video;
@@ -248,7 +260,7 @@ int user_main(int argc, char **argv, char **envp) {
         if (sys_ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_PRESENT_INDEXED, &present) == 0) {
             flags |= PROBE_FLAG_IOCTL_PRESENT;
         }
-        if (sys_munmap(video, DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES) == 0) {
+        if (mmap_hole_ok && sys_munmap(video, DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES) == 0) {
             flags |= PROBE_FLAG_MMAP;
         }
     }

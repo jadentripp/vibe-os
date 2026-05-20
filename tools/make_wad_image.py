@@ -9,7 +9,7 @@ IMAGE_SECTORS = 65536
 STAGE2_LBA = 1
 STAGE2_SECTORS = 16
 KERNEL_LBA = 17
-KERNEL_SECTORS = 128
+KERNEL_SECTORS = 192
 PARTITION_START = 2048
 PARTITION_SECTORS = IMAGE_SECTORS - PARTITION_START
 RESERVED_SECTORS = 1
@@ -40,6 +40,7 @@ WRITABLE_DYNAMIC_FILES = (
 )
 MIN_OS_CREATED_FILE_CLUSTERS = 4096
 PROTECTED_ROOT_NAMES = (b"DOOM1   WAD", USER_PROBE_NAME, DOOM_ELF_NAME)
+DYNAMIC_FAT_PROOF_NAME = b"FATPROOFTMP"
 SYNTHETIC_PATCH_NAME = "SYNTHPCH"
 SHAREWARE_SWITCH_TEXTURES = (
     "SW1BRCOM", "SW2BRCOM",
@@ -717,6 +718,122 @@ class Fat16Image:
             self.image[start:start + len(chunk)] = chunk
         self._write_directory_entry(entry, file_name, FAT_ATTR_ARCHIVE, chain[0] if chain else 0, len(data))
         return chain
+
+
+def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
+    """Exercise dynamic root-file FAT allocation on an in-memory image copy.
+
+    The checker uses this as a host-side proof that the image still has enough
+    root-directory and FAT headroom for create, sparse extend, shrink,
+    truncate, delete, and root-slot reuse. It intentionally mutates only the
+    caller-provided Fat16Image instance, so pass a copy when validating an
+    artifact that should remain unchanged.
+    """
+
+    proof_name = Fat16Image.validate_root_83_name(proof_name)
+    if fs.root_file_metadata(proof_name) is not None:
+        raise ValueError("dynamic FAT proof scratch file already exists")
+
+    fs.validate_fat_copies_match()
+    fs.validate_allocated_clusters_reachable()
+    before_free = fs.free_data_clusters()
+    if before_free < 8:
+        raise ValueError("not enough free clusters for dynamic FAT proof")
+
+    cluster_bytes = cluster_size()
+    payload = b"A" * (cluster_bytes + 29)
+    first_chain = fs.write_root_file(proof_name, payload)
+    if len(first_chain) != clusters_for_size(len(payload)):
+        raise ValueError("dynamic FAT proof initial allocation used an unexpected cluster count")
+    first_entry = fs.root_entry_offset(proof_name)
+    first_meta = fs.root_file_metadata(proof_name)
+    if first_meta is None or first_meta["cluster"] != first_chain[0]:
+        raise ValueError("dynamic FAT proof root entry did not record the first cluster")
+    if first_meta["size"] != len(payload) or fs.read_root_file(proof_name) != payload:
+        raise ValueError("dynamic FAT proof initial write did not round-trip")
+    if fs.free_data_clusters() != before_free - len(first_chain):
+        raise ValueError("dynamic FAT proof initial allocation did not consume the expected clusters")
+    fs.validate_fat_copies_match()
+    fs.validate_allocated_clusters_reachable()
+
+    sparse_offset = cluster_bytes * 3 + 17
+    grown_chain = fs.write_root_file_at(proof_name, sparse_offset, b"END")
+    grown = fs.read_root_file(proof_name)
+    if len(grown) != sparse_offset + 3:
+        raise ValueError("dynamic FAT proof sparse write produced the wrong size")
+    if grown[:len(payload)] != payload:
+        raise ValueError("dynamic FAT proof sparse write did not preserve existing bytes")
+    if grown[len(payload):sparse_offset] != b"\0" * (sparse_offset - len(payload)):
+        raise ValueError("dynamic FAT proof sparse write gap was not zero-filled")
+    if grown[sparse_offset:] != b"END":
+        raise ValueError("dynamic FAT proof sparse write tail did not round-trip")
+    if len(grown_chain) <= len(first_chain):
+        raise ValueError("dynamic FAT proof sparse write did not grow the FAT chain")
+    if fs.free_data_clusters() != before_free - len(grown_chain):
+        raise ValueError("dynamic FAT proof sparse growth did not consume the expected clusters")
+    fs.validate_fat_copies_match()
+    fs.validate_allocated_clusters_reachable()
+
+    shrunk_size = cluster_bytes + 1
+    shrunk_chain = fs.resize_root_file(proof_name, shrunk_size)
+    shrunk = fs.read_root_file(proof_name)
+    if len(shrunk) != shrunk_size or shrunk != payload[:shrunk_size]:
+        raise ValueError("dynamic FAT proof shrink did not preserve the expected prefix")
+    if len(shrunk_chain) >= len(grown_chain):
+        raise ValueError("dynamic FAT proof shrink did not free tail clusters")
+    if fs.fat_entry(shrunk_chain[-1]) != FAT16_EOC_VALUE:
+        raise ValueError("dynamic FAT proof shrink did not terminate the kept chain")
+    for cluster in grown_chain[len(shrunk_chain):]:
+        if fs.fat_entry(cluster) != 0:
+            raise ValueError("dynamic FAT proof shrink left a freed cluster allocated")
+    clear_start = fs.cluster_offset(shrunk_chain[-1]) + 1
+    clear_end = fs.cluster_offset(shrunk_chain[-1]) + cluster_bytes
+    if fs.image[clear_start:clear_end] != b"\0" * (cluster_bytes - 1):
+        raise ValueError("dynamic FAT proof shrink did not zero the truncated tail bytes")
+    fs.validate_fat_copies_match()
+    fs.validate_allocated_clusters_reachable()
+
+    truncated = fs.truncate_root_file(proof_name)
+    if truncated != shrunk_chain:
+        raise ValueError("dynamic FAT proof truncate did not free the current chain")
+    truncated_meta = fs.root_file_metadata(proof_name)
+    if truncated_meta is None or truncated_meta["cluster"] != 0 or truncated_meta["size"] != 0:
+        raise ValueError("dynamic FAT proof truncate did not reset root metadata")
+    if fs.read_root_file(proof_name) != b"":
+        raise ValueError("dynamic FAT proof truncate did not leave an empty file")
+    if fs.free_data_clusters() != before_free:
+        raise ValueError("dynamic FAT proof truncate did not restore the free-cluster budget")
+    fs.validate_fat_copies_match()
+    fs.validate_allocated_clusters_reachable()
+
+    replacement = b"recreated after truncate\n"
+    replacement_chain = fs.write_root_file(proof_name, replacement)
+    if fs.root_entry_offset(proof_name) != first_entry:
+        raise ValueError("dynamic FAT proof rewrite did not reuse the same live root entry")
+    if fs.read_root_file(proof_name) != replacement:
+        raise ValueError("dynamic FAT proof rewrite did not round-trip")
+    deleted = fs.delete_root_file(proof_name)
+    if deleted != replacement_chain:
+        raise ValueError("dynamic FAT proof delete did not free the replacement chain")
+    if fs.root_file_metadata(proof_name) is not None:
+        raise ValueError("dynamic FAT proof delete left a live root entry")
+    if fs.free_data_clusters() != before_free:
+        raise ValueError("dynamic FAT proof delete did not restore the free-cluster budget")
+    reused_entry = fs.create_or_reuse_root_entry(proof_name)
+    if reused_entry != first_entry:
+        raise ValueError("dynamic FAT proof create did not reuse the deleted root slot")
+    fs.truncate_root_file(proof_name)
+    fs.delete_root_file(proof_name)
+
+    fs.validate_fat_copies_match()
+    fs.validate_allocated_clusters_reachable()
+    return {
+        "proof_name": Fat16Image._entry_label(proof_name),
+        "initial_clusters": len(first_chain),
+        "grown_clusters": len(grown_chain),
+        "shrunk_clusters": len(shrunk_chain),
+        "free_clusters": before_free,
+    }
 
 
 def wad_name(name):

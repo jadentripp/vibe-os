@@ -43,7 +43,8 @@ static int playable_initial_clip = -1;
 
 #define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
 #define VIBE_MUSIC_STREAM_TICS \
-    ((int)((VIBE_MUSIC_STREAM_BYTES * 35u) / VIBE_MUSIC_DEFAULT_SAMPLE_RATE) - 2)
+    ((int)((VIBE_MUSIC_STREAM_BYTES * 35u) / VIBE_MUSIC_DEFAULT_SAMPLE_RATE) / 8)
+#define VIBE_MUSIC_BUFFER_LOW_WATER_BYTES (VIBE_MUSIC_STREAM_BYTES / 4u)
 #define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x2c000u
 
 static void report_doom_init_status(unsigned long flags)
@@ -61,7 +62,7 @@ static int music_stream_tics(void)
     return VIBE_MUSIC_STREAM_TICS > 1 ? VIBE_MUSIC_STREAM_TICS : 1;
 }
 
-static void submit_music_stream_chunk(int handle, int start_voice)
+static int submit_music_stream_chunk(int handle, int start_voice)
 {
     vibe_audio_sfx_desc_t desc;
     vibe_music_render_stats_t stats;
@@ -86,7 +87,7 @@ static void submit_music_stream_chunk(int handle, int start_voice)
             current_music_next_tic = 0;
             vibe_music_stream_stop(handle);
         }
-        return;
+        return 0;
     }
 
     current_music_buffer = buffer_index;
@@ -105,12 +106,14 @@ static void submit_music_stream_chunk(int handle, int start_voice)
         start_voice ? VIBE_AUDIO_START_SFX : VIBE_AUDIO_UPDATE_SFX,
         (unsigned long)vibe_music_audio_handle(handle),
         (unsigned long)&desc);
+    return 1;
 }
 
 static void pump_music_stream(void)
 {
     int now;
     int start_voice;
+    unsigned long buffered;
 
     if (current_music_handle <= 0 || current_music_paused)
         return;
@@ -124,8 +127,22 @@ static void pump_music_stream(void)
         VIBE_AUDIO_IS_PLAYING,
         (unsigned long)vibe_music_audio_handle(current_music_handle),
         0) <= 0;
-    submit_music_stream_chunk(current_music_handle, start_voice);
-    current_music_next_tic = now + music_stream_tics();
+    if (!start_voice) {
+        buffered = vibe_syscall3(
+            VIBE_SYS_AUDIO,
+            VIBE_AUDIO_BUFFERED_BYTES,
+            (unsigned long)vibe_music_audio_handle(current_music_handle),
+            0);
+        if (buffered > VIBE_MUSIC_BUFFER_LOW_WATER_BYTES) {
+            current_music_next_tic = now + music_stream_tics();
+            return;
+        }
+    }
+
+    if (submit_music_stream_chunk(current_music_handle, start_voice))
+        current_music_next_tic = now + music_stream_tics();
+    else
+        current_music_next_tic = 0;
 }
 
 int mb_used = 8;

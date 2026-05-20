@@ -22,10 +22,18 @@ DEFAULT_MARKERS = (
     b"use_mouse",
     b"chatmacro0",
 )
+DEFAULT_NUMERIC_FIELDS = {
+    "mouse_sensitivity": (0, 255),
+    "screenblocks": (3, 11),
+    "use_mouse": (0, 1),
+}
+DEFAULT_STRING_FIELDS = ("chatmacro0",)
 EXPECTED_SAVE_VERSION = b"version 110"
 MIN_SAVE_BYTES = 512
+SAVE_HEADER_BYTES = SAVE_DESCRIPTION_BYTES + SAVE_VERSION_BYTES + 7
 REQUIRED_DOOM_INIT_FLAGS = 0x000001FF
 FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
+DEFAULT_ASSIGNMENT_PATTERN = re.compile(r"^([A-Za-z0-9_]+)\s+(.+)$")
 REBOOT_EXACT_FIELDS = {
     "exec": "OK",
     "path": "DOOM.ELF",
@@ -109,6 +117,16 @@ def _validate_fat_layout(fs):
         raise PersistenceProofError(str(exc)) from exc
 
 
+def _validate_dynamic_fat_proof(image):
+    try:
+        proof = make_wad_image.prove_dynamic_fat16_mutation(
+            make_wad_image.Fat16Image(bytearray(image))
+        )
+    except ValueError as exc:
+        raise PersistenceProofError(f"dynamic FAT mutation proof failed: {exc}") from exc
+    return proof
+
+
 def _validate_protected_entries(fs, baseline_fs=None):
     for name in make_wad_image.PROTECTED_ROOT_NAMES:
         meta = _require_entry(fs, name)
@@ -140,12 +158,53 @@ def _validate_default(fs):
         raise PersistenceProofError("DEFAULT.CFG metadata size does not match readable bytes")
     if not data:
         raise PersistenceProofError("DEFAULT.CFG is still empty")
+    if len(data) > make_wad_image.WRITABLE_DEFAULT_BYTES:
+        raise PersistenceProofError("DEFAULT.CFG exceeds the configured Doom defaults capacity")
+    if b"\0" in data:
+        raise PersistenceProofError("DEFAULT.CFG contains NUL bytes")
+    if not data.endswith(b"\n"):
+        raise PersistenceProofError("DEFAULT.CFG is not newline-terminated")
     missing = [marker.decode("ascii") for marker in DEFAULT_MARKERS if marker not in data]
     if missing:
         raise PersistenceProofError(
             "DEFAULT.CFG does not look like a complete Doom defaults file; "
             f"missing {', '.join(missing)}"
         )
+    try:
+        text = data.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise PersistenceProofError("DEFAULT.CFG is not ASCII text") from exc
+
+    fields = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        match = DEFAULT_ASSIGNMENT_PATTERN.fullmatch(stripped)
+        if not match:
+            raise PersistenceProofError(f"DEFAULT.CFG has malformed defaults line {stripped!r}")
+        fields[match.group(1)] = match.group(2).strip()
+
+    for name, (minimum, maximum) in DEFAULT_NUMERIC_FIELDS.items():
+        value = fields.get(name)
+        if value is None:
+            raise PersistenceProofError(f"DEFAULT.CFG missing {name} assignment")
+        try:
+            parsed = int(value, 10)
+        except ValueError as exc:
+            raise PersistenceProofError(f"DEFAULT.CFG {name} is not an integer") from exc
+        if not (minimum <= parsed <= maximum):
+            raise PersistenceProofError(
+                f"DEFAULT.CFG {name}={parsed} is outside {minimum}..{maximum}"
+            )
+
+    for name in DEFAULT_STRING_FIELDS:
+        value = fields.get(name)
+        if value is None:
+            raise PersistenceProofError(f"DEFAULT.CFG missing {name} assignment")
+        if len(value) < 2 or not (value.startswith('"') and value.endswith('"')):
+            raise PersistenceProofError(f"DEFAULT.CFG {name} must be a quoted string")
+
     return len(data)
 
 
@@ -159,6 +218,8 @@ def _validate_save_slot(fs, slot):
     minimum = SAVE_DESCRIPTION_BYTES + SAVE_VERSION_BYTES
     if meta["size"] != len(data):
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG metadata size does not match readable bytes")
+    if len(data) > make_wad_image.WRITABLE_SAVE_BYTES:
+        raise PersistenceProofError(f"DOOMSAV{slot}.DSG exceeds the configured Doom save capacity")
     if len(data) < minimum:
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG is too small for a Doom save header")
     if len(data) < MIN_SAVE_BYTES:
@@ -168,6 +229,8 @@ def _validate_save_slot(fs, slot):
     version = _trim_c_string(data[SAVE_DESCRIPTION_BYTES:minimum])
     if not description:
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG has an empty save description")
+    if any(ch < 0x20 or ch > 0x7E for ch in description):
+        raise PersistenceProofError(f"DOOMSAV{slot}.DSG has a non-printable save description")
     if version != EXPECTED_SAVE_VERSION:
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG has unexpected Doom version {version!r}")
     skill = data[minimum]
@@ -178,8 +241,12 @@ def _validate_save_slot(fs, slot):
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG has an invalid skill byte")
     if not (1 <= episode <= 4 and 1 <= game_map <= 9):
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG has an invalid episode/map header")
+    if not player_flags[0]:
+        raise PersistenceProofError(f"DOOMSAV{slot}.DSG does not mark player 1 active")
     if not any(player_flags):
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG has no active player flags")
+    if not any(data[SAVE_HEADER_BYTES:]):
+        raise PersistenceProofError(f"DOOMSAV{slot}.DSG does not contain serialized game-state bytes")
     return len(data), description.decode("ascii", "replace"), version.decode("ascii", "replace")
 
 
@@ -315,8 +382,10 @@ def validate_image(
     reboot_status_path=None,
     require_default=False,
     require_save_slots=(),
+    require_dynamic_fat_proof=False,
 ):
-    fs = make_wad_image.Fat16Image(_read_image(path))
+    image = _read_image(path)
+    fs = make_wad_image.Fat16Image(image)
     baseline_fs = make_wad_image.Fat16Image(_read_image(baseline_image)) if baseline_image else None
     reboot_fs = (
         make_wad_image.Fat16Image(_read_image(reboot_baseline_image))
@@ -351,6 +420,15 @@ def validate_image(
     _require_entry(fs, make_wad_image.WRITABLE_DEFAULT_NAME)
     for name in make_wad_image.WRITABLE_SAVE_NAMES:
         _require_entry(fs, name)
+
+    if require_dynamic_fat_proof:
+        proof = _validate_dynamic_fat_proof(image)
+        summary.append(
+            "dynamic FAT allocation/free/truncate proof=OK "
+            f"scratch={proof['proof_name']} "
+            f"clusters={proof['initial_clusters']}/{proof['grown_clusters']}/{proof['shrunk_clusters']} "
+            f"free={proof['free_clusters']}"
+        )
 
     if require_default:
         default_size = _validate_default(fs)
@@ -431,6 +509,11 @@ def parse_args():
         metavar="N",
         help="require DOOMSAVN.DSG to contain a Doom save header; may be repeated",
     )
+    parser.add_argument(
+        "--require-dynamic-fat-proof",
+        action="store_true",
+        help="mutate an in-memory copy to prove dynamic FAT create/grow/shrink/truncate/delete behavior",
+    )
     return parser.parse_args()
 
 
@@ -443,6 +526,7 @@ def main():
         reboot_status_path=args.reboot_status,
         require_default=args.require_default,
         require_save_slots=args.require_save_slot,
+        require_dynamic_fat_proof=args.require_dynamic_fat_proof,
     ):
         print(line)
 

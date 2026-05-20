@@ -47,6 +47,13 @@ with `EAX=PREEMPT_PROBE_MAGIC`; the crt0 branch increments a word on the user
 stack so cloud status can prove that the alternate task actually received CPU
 time after a timer switch.
 
+`process_generic0` and `process_generic1` are bounded generic user slots for
+root-level FAT16 `.ELF` exec fallback. They use the probe-class virtual layout
+and have their own page directories, PDE-3 page tables, kernel stack tops, slot
+reuse accounting, and fresh PIDs. They are selected at exec time from
+`process_generic_exec_slots`, so a generic utility no longer has to overwrite
+the boot probe process record.
+
 `process_doom` owns:
 
 - loaded Doom image: `DOOM_USER_BASE` through `DOOM_USER_HEAP_START`
@@ -60,28 +67,31 @@ address spaces, so a Ring 3 access to kernel pages, or to another process's
 user window, faults instead of passing the page-table permission check.
 
 Heap windows are reserved in the process metadata, but they are not all granted
-to Ring 3 at process start. `SYS_SBRK` marks the newly covered heap pages with
-the user bit and flushes the active CR3 before returning to user mode. The
-syscall validator also checks heap pointers against the current process `brk`.
+to Ring 3 at process start. Each process record now also points at a compact
+heap-page bitmap. `SYS_SBRK` and `SYS_MMAP` mark newly covered heap pages in
+both the page tables and that bitmap, then flush the active CR3 before returning
+to user mode. The syscall validator checks heap pointers against the current
+process `brk` and requires every covered heap page to still be marked mapped.
 
 `SYS_MMAP` currently shares that heap window rather than allocating independent
 VM objects. It accepts only anonymous/private mappings, rounds the requested
 length to whole pages, marks the new pages in the current process page
-directory, zero-fills the returned range, and advances `brk`. `SYS_MUNMAP`
-requires a page-aligned base, rounds the length, validates that the range
-belongs to the current process, and reclaims only tail mappings whose end is the
-current process `brk`. Tail releases clear the process PTEs, flush the active
-address space, move `brk` back to the unmapped base, and increment munmap page
-release counters. Non-tail valid ranges still return success without punching
-holes, so this remains a brk-backed allocator contract rather than a full VM
-object model.
+directory, zero-fills the returned range, records the mapped pages in the heap
+bitmap, and advances `brk`. `SYS_MUNMAP` requires a page-aligned base, rounds
+the length, validates that the range belongs to the current process, and clears
+the process PTEs plus heap-bitmap bits for the range. Tail releases also move
+`brk` back to the unmapped base and increment tail-release counters. Non-tail
+valid ranges now punch real validation holes and increment separate
+hole-accounting counters, but they still do not create reusable VM objects, so
+this remains a brk-backed allocator contract rather than a full VMA tree.
 
 The Ring 3 probe treats that as a live ABI contract rather than a doc-only
 claim: it requires its successful anonymous mapping to survive framebuffer and
-ioctl use, requires the tail `munmap` to return success, and separately checks
-that zero-length, fixed, null, and invalid pointer-style memory calls return
-classified `-EINVAL` errors instead of falling through to ambiguous `-1`
-results.
+ioctl use, first punches a non-tail heap hole and proves a syscall using that
+hole is rejected with `-EINVAL`, requires the tail `munmap` to return success,
+and separately checks that zero-length, fixed, null, and invalid pointer-style
+memory calls return classified `-EINVAL` errors instead of falling through to
+ambiguous `-1` results.
 
 ## Process Lifecycle
 
@@ -140,10 +150,11 @@ heap are adjacent and the Doom heap grows up to the stack bottom.
   `process_preempt_probe` is the active process, so the proof does not depend on
   probe pages being visible in Doom's page directory.
 - Boot/process structures are still fixed low-memory page-table pages. The
-  kernel can allocate additional page tables for new mappings after PMM is
-  online and reclaim empty PMM-backed VMM tables after unmap, but process page
-  directories and their user PDE tables are not yet dynamically allocated or
-  reclaimed with process lifetime.
+  kernel now has a bounded generic user-process pool, and can allocate
+  additional page tables for new mappings after PMM is online and reclaim empty
+  PMM-backed VMM tables after unmap, but process page directories and their
+  user PDE tables are still prebuilt rather than allocated and reclaimed with
+  arbitrary process lifetime.
 - Exact execute-disable enforcement is still blocked by the current 32-bit x86
   paging mode: `VM_REGION_EXEC` and `PF_X` are metadata until the kernel grows
   hardware NX or a different paging mode. Write protection is enforced today.

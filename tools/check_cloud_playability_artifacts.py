@@ -22,6 +22,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 import check_real_wad_proof  # noqa: E402
 import check_audio_continuity_proof  # noqa: E402
 import check_audible_audio_proof  # noqa: E402
+import check_human_playability_proof  # noqa: E402
 
 
 RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
@@ -304,6 +305,8 @@ def validate_repo_contract() -> None:
         "scripted_proof=real-wad-smoke-pass",
         "scripted_proof_run_id=",
         "--scripted-proof-run-id",
+        "--capture-phase",
+        "human status capture OK",
         "--confirm-remote-vnc",
         "--confirm-phase-actions",
         "--confirm-phase-status-hashes",
@@ -962,6 +965,38 @@ def validate_human_notes(path: Path, artifact_dir: Path | None = None) -> None:
                 )
 
 
+def validate_manual_human_playability(artifact_dir: Path, names: list[str]) -> None:
+    snapshots: dict[str, str] = {}
+    phase_paths: dict[str, Path] = {}
+    for phase, status_file, _human_action in HUMAN_SESSION_PHASES:
+        status_name = _find_one(names, status_file)
+        if status_name is None:
+            raise AssertionError(f"missing expected human status file: {status_file}")
+        status_path = artifact_dir / status_name
+        phase_paths[phase] = status_path
+        snapshots[phase] = status_path.read_text()
+
+    check_human_playability_proof.validate_human_session_status(snapshots)
+
+    notes_name = _find_one(names, HUMAN_NOTES_FILE)
+    if notes_name is None:
+        raise AssertionError(f"missing expected human review file: {HUMAN_NOTES_FILE}")
+    notes_path = artifact_dir / notes_name
+    check_human_playability_proof.validate_human_notes(
+        notes_path,
+        {
+            "early": phase_paths["early"],
+            "after-start": phase_paths["after-start"],
+            "after-fire": phase_paths["after-fire"],
+            "after-move": phase_paths["after-move"],
+            "after-use": phase_paths["after-use"],
+            "after-mouse": phase_paths["after-mouse"],
+            "after-menu": phase_paths["after-menu"],
+            "final": phase_paths["final"],
+        },
+    )
+
+
 def _assert_human_session_allowlist(names: list[str]) -> None:
     for name in names:
         basename = Path(name).name
@@ -1043,6 +1078,12 @@ def validate_artifact_dir(artifact_dir: Path, require_human_notes: bool = False)
             validate_human_notes(artifact_dir / human_notes, artifact_dir=artifact_dir)
         except AssertionError as exc:
             raise AssertionError(f"human playtest notes failed: {exc}") from exc
+
+    if require_human_notes:
+        try:
+            validate_manual_human_playability(artifact_dir, names)
+        except AssertionError as exc:
+            raise AssertionError(f"manual human playability failed: {exc}") from exc
 
     human_session = _find_one(names, HUMAN_SESSION_FILE)
     if require_human_notes and human_session is None:

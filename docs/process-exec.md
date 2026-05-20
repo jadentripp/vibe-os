@@ -14,11 +14,12 @@ to the caller.
   Doom address window; the boot probe stays table-backed because it owns the
   initial probe address window.
 - If a path is not in the table, `process_exec_resolve_generic_root83` parses a
-  root-level FAT16 8.3 path, accepts only `.ELF` files, resolves it through the
-  FAT root directory, and loads it into the reusable probe-class user process
-  window. This makes `SYS_EXEC("HELLO.ELF")` a real FAT16 lookup instead of a
-  hard-coded string table miss, while still rejecting subdirectories, long
-  names, and non-ELF payloads.
+  root-level FAT16 8.3 path, accepts only `.ELF` files, allocates one of the
+  bounded generic user slots, resolves the file through the FAT root directory,
+  and loads it into that probe-class address window. This makes
+  `SYS_EXEC("HELLO.ELF")` a real FAT16 lookup with a reusable target selected at
+  runtime instead of a hard-coded string table miss, while still rejecting
+  subdirectories, long names, and non-ELF payloads.
 - `process_exec_path` resolves the copied path through the table or generic
   root-ELF fallback, rejects an active target slot when syscall mode requests
   active-process safety, loads the file through the common FAT reader, validates
@@ -43,15 +44,17 @@ to the caller.
   `process_exec_reject_active_target` is set. This prevents reloading the image
   backing the currently running process, because a partial reload could not be
   rolled back safely.
-- Non-table `.ELF` paths currently target the reusable probe-class slot. That
-  means Doom can exec a small root-level user utility from FAT16, but a running
-  probe-class process still cannot replace itself through the same slot until
-  the kernel grows another child slot or true in-place `exec` overlay semantics.
+- Non-table `.ELF` paths currently target a bounded generic probe-class pool,
+  specifically a two-entry generic probe-class pool.
+  That means Doom can exec small root-level user utilities from FAT16 without
+  clobbering the boot probe record. The pool is still bounded, and a generic
+  process exit path is not a full shell/scheduler handoff yet.
 - Before loading the target image, the kernel tears down stale user PTEs for the
   target slot, restores only its writable stack window, assigns the slot a fresh
-  PID from `process_next_pid`, and increments the slot generation. That keeps
-  the table-supported launch path bounded while making slots reusable instead of
-  permanently tied to one fixed PID.
+  PID from `process_next_pid`, and increments the slot generation. Table targets
+  keep their dedicated slots, while generic root `.ELF` targets are chosen from
+  `process_generic_exec_slots` by scanning for `UNUSED` records or orphaned
+  `EXITED`/`FAULTED` records.
 - On success, `process_exec_handoff_current` resets the target process record
   without changing the freshly allocated PID, stores the prepared ELF entry,
   seeds `PROC_SAVED_EIP`, `PROC_SAVED_ESP`, selectors, `EFLAGS`, and
@@ -134,23 +137,25 @@ early POSIX-shaped ABI honest about classified errors without injecting failed
 
 ## Remaining Gaps
 
-- Exec now accepts arbitrary root-level FAT16 `.ELF` paths for the probe-class
-  user window, but it is not a full path resolver: there are no directories,
-  long filenames, interpreter/shebang handling, environment copying, or
-  dynamically chosen address-space classes.
-- A generic executable still lands in the reusable probe-class slot. There is no
-  pool of dynamic process records, so self-reexec for that slot is rejected and
-  non-Doom user utilities share one bounded memory layout.
+- Exec now accepts arbitrary root-level FAT16 `.ELF` paths for a bounded generic
+  probe-class pool, but it is not a full path resolver: there are no
+  directories, long filenames, interpreter/shebang handling, environment
+  copying, or dynamically chosen address-space classes.
+- Generic executables no longer overwrite the boot probe slot, but the pool is
+  still statically sized to two process records and two prebuilt probe-style
+  page directories. This is dynamic target selection, not dynamic process-table
+  growth.
 - `argv` copying is intentionally bounded to a small static vector; environment
   copying is not implemented yet, so libc exposes an empty `envp` contract.
 - Page-table structures and process records are still static, but exec targets
-  now reuse slots with fresh PIDs and teardown of stale user PTEs. Tail
-  brk-backed `munmap` can reclaim process heap PTEs, and empty PMM-backed VMM
-  page tables are returned to the frame allocator after unmap. There is not yet
+  now reuse slots with fresh PIDs and teardown of stale user PTEs. Brk-backed
+  `munmap` can clear process heap PTEs, track non-tail holes in per-process heap
+  bitmaps, and move `brk` backward for tail releases; empty PMM-backed VMM page
+  tables are returned to the frame allocator after unmap. There is not yet
   dynamic child-slot growth or general physical-frame reclamation for
   identity-shaped user pages.
 - This is enough to launch the probe and Doom, preserve inheritable fds across
   exec, close process-owned fds during teardown, and reap exited child records,
   but it is not a robust Unix process model. There is no `fork`/`exec` split,
   wait blocking, process groups, signal delivery, fork-time fd duplication,
-  dynamic child slots, or file-backed VM object lifetime.
+  unbounded dynamic child slots, or file-backed VM object lifetime.

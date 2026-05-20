@@ -103,7 +103,8 @@ class ProcessExecContractTests(unittest.TestCase):
             "mov dword [process_exec_name83], process_exec_name83_buffer",
             "mov dword [process_exec_load_addr], USER_ELF_LOAD_ADDR",
             "mov dword [process_exec_max_bytes], USER_ELF_MAX_BYTES",
-            "mov dword [process_exec_target], process_user_probe",
+            "call process_alloc_generic_exec_slot",
+            "mov [process_exec_target], esi",
         ):
             self.assertIn(source, kernel if source.startswith("process_exec_name83_buffer") else generic)
 
@@ -271,14 +272,56 @@ class ProcessExecContractTests(unittest.TestCase):
         kernel = read_kernel()
         exec_path = kernel.split("process_exec_path:", 1)[1].split("process_exec_resolve_path:", 1)[0]
         prepare = kernel.split("process_exec_prepare_elf_image:", 1)[1].split("kernel_streq:", 1)[0]
-        self.assertIn("cmp dword [process_exec_target], process_user_probe", exec_path)
+        self.assertIn("call process_is_user_exec_target", exec_path)
         self.assertIn("mov [user_elf_first_cluster], ax", exec_path)
         self.assertIn("mov [user_elf_size], eax", exec_path)
         self.assertIn("mov [user_elf_sectors_read], eax", exec_path)
         self.assertIn("mov byte [user_elf_status], 1", exec_path)
-        self.assertIn("cmp dword [process_exec_target], process_user_probe", prepare)
+        self.assertIn("call process_is_user_exec_target", prepare)
         self.assertIn("call user_elf_prepare", prepare)
         self.assertIn("mov eax, [user_entry_addr]", prepare)
+
+    def test_generic_root_exec_uses_bounded_dynamic_process_pool(self):
+        kernel = read_kernel()
+        generic = kernel.split("process_exec_resolve_generic_root83:", 1)[1].split("process_exec_prepare_elf_image:", 1)[0]
+        allocator = kernel.split("process_alloc_generic_exec_slot:", 1)[1].split("process_retire_exec_slot:", 1)[0]
+        page_spaces = kernel.split("process_vm_init_page_spaces:", 1)[1].split("vmm_mark_process_user_range:", 1)[0]
+        for source in (
+            "PROCESS_SLOT_COUNT equ 6",
+            "PROCESS_GENERIC_SLOT_COUNT equ 2",
+            "USER_KIND_GENERIC equ 4",
+            "PROC_GENERIC0_PAGE_DIR_ADDR equ 0x00089000",
+            "PROC_GENERIC1_PAGE_DIR_ADDR equ 0x0008b000",
+            "process_generic0:",
+            "process_generic1:",
+            "process_generic_exec_slots:",
+            "process_generic_slot_allocations dd 0",
+            "process_generic_slot_failures dd 0",
+            "process_last_generic_slot dd 0",
+        ):
+            self.assertIn(source, kernel)
+        self.assertIn("call process_alloc_generic_exec_slot", generic)
+        self.assertIn("mov [process_exec_target], esi", generic)
+        for source in (
+            "mov edi, process_generic_exec_slots",
+            "mov ecx, PROCESS_GENERIC_SLOT_COUNT",
+            "cmp dword [esi + PROC_STATE], PROC_STATE_UNUSED",
+            "cmp dword [esi + PROC_PARENT_PID], 0xffffffff",
+            "cmp dword [esi + PROC_STATE], PROC_STATE_EXITED",
+            "cmp dword [esi + PROC_STATE], PROC_STATE_FAULTED",
+            "mov [process_last_generic_slot], esi",
+            "inc dword [process_generic_slot_allocations]",
+            "inc dword [process_generic_slot_failures]",
+            "mov dword [process_exec_last_error], -ERRNO_ENOMEM",
+        ):
+            self.assertIn(source, allocator)
+        for source in (
+            "mov edi, PROC_GENERIC0_PAGE_DIR_ADDR",
+            "mov edi, PROC_GENERIC1_PAGE_DIR_ADDR",
+            "PROC_GENERIC0_PDE3_TABLE_ADDR | PTE_USER_FLAGS",
+            "PROC_GENERIC1_PDE3_TABLE_ADDR | PTE_USER_FLAGS",
+        ):
+            self.assertIn(source, page_spaces)
 
     def test_sys_exec_copies_a_bounded_user_path_and_reports_status(self):
         kernel = read_kernel()
@@ -518,7 +561,7 @@ class ProcessExecContractTests(unittest.TestCase):
         argv = kernel.split("process_exec_seed_argv_stack:", 1)[1].split("process_exec_patch_syscall_frame:", 1)[0]
         user_probe_run = kernel.split("user_probe_run:", 1)[1].split(".fail:", 1)[0]
         for source in (
-            "PROCESS_RECORD_BYTES equ 160",
+            "PROCESS_RECORD_BYTES equ 168",
             "PROC_PARENT_PID equ 128",
             "PROC_EXIT_STATUS equ 132",
             "PROC_EXEC_COUNT equ 136",
@@ -631,8 +674,13 @@ class ProcessExecContractTests(unittest.TestCase):
             "process_munmap_attempts dd 0",
             "process_munmap_pages_released dd 0",
             "process_munmap_non_tail_kept dd 0",
+            "process_munmap_holes_punched dd 0",
+            "process_munmap_pages_unmapped dd 0",
             "process_last_munmap_base dd 0",
             "process_last_munmap_end dd 0",
+            "process_heap_mark_range:",
+            "process_heap_clear_range:",
+            "process_heap_range_is_mapped:",
         ):
             self.assertIn(source, kernel)
         for source in (
@@ -641,6 +689,8 @@ class ProcessExecContractTests(unittest.TestCase):
             "mov dword [process_munmap_attempts], 0",
             "mov dword [process_munmap_pages_released], 0",
             "mov dword [process_munmap_non_tail_kept], 0",
+            "mov dword [process_munmap_holes_punched], 0",
+            "mov dword [process_munmap_pages_unmapped], 0",
             "mov dword [process_last_munmap_base], 0",
             "mov dword [process_last_munmap_end], 0",
         ):
@@ -648,6 +698,7 @@ class ProcessExecContractTests(unittest.TestCase):
         for source in (
             "add [process_mmap_pages_mapped], eax",
             "inc dword [process_mmap_allocations]",
+            "call process_heap_mark_range",
             "mov eax, [mmap_base_arg]",
         ):
             self.assertIn(source, mmap)
@@ -669,9 +720,16 @@ class ProcessExecContractTests(unittest.TestCase):
             "add [process_munmap_pages_released], eax",
             ".munmap_keep_non_tail:",
             "inc dword [process_munmap_non_tail_kept]",
+            "inc dword [process_munmap_holes_punched]",
+            "add [process_munmap_pages_unmapped], eax",
         ):
             self.assertIn(source, munmap)
-        self.assertIn("if (sys_munmap(video, DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES) == 0)", probe)
+        validator = kernel.split("user_range_validate:", 1)[1].split("doom_log_char:", 1)[0]
+        self.assertIn("call process_heap_range_is_mapped", validator)
+        self.assertIn("unsigned char *hole = sys_mmap(8192", probe)
+        self.assertIn("sys_munmap(hole, 4096) == 0", probe)
+        self.assertIn("sys_write(1, hole, 1) == -ERRNO_EINVAL", probe)
+        self.assertIn("if (mmap_hole_ok && sys_munmap(video, DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES) == 0)", probe)
         self.assertIn("flags |= PROBE_FLAG_MMAP;", probe)
 
     def test_fd_table_records_owner_generation_and_exec_inheritance_metadata(self):
@@ -826,14 +884,15 @@ class ProcessExecContractTests(unittest.TestCase):
 
         for phrase in (
             "arbitrary root-level FAT16 `.ELF` paths",
-            "generic executable still lands in the reusable probe-class slot",
+            "two-entry generic probe-class pool",
+            "dynamic target selection",
             "switches the caller back to RUNNING",
             "empty `envp` contract",
             "not a robust Unix",
             "`fork`/`exec` split",
             "wait blocking",
             "fork-time fd duplication",
-            "dynamic child slots",
+            "unbounded dynamic child slots",
             "address-space",
         ):
             with self.subTest(phrase=phrase):
