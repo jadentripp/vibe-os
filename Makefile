@@ -142,6 +142,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -Eq "doomrun=(RUN|EXIT)" $(BUILD_DIR)/status.txt; \
 	grep -q "doomopen=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "doomread=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "doomlog=" $(BUILD_DIR)/status.txt; \
 	grep -q "gfx=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "heap=OK" $(BUILD_DIR)/status.txt; \
 	test -s $(BUILD_DIR)/gfx.bin; \

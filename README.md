@@ -195,6 +195,9 @@ Already implemented:
   through its ELF entry point with a Doom-sized user stack/heap window; CI
   verifies that Doom's user process opens and reads `DOOM1.WAD` through the
   kernel syscall/FAT path
+- the kernel captures a bounded tail of Doom's user-mode stdout/stderr stream
+  into the RAM smoke artifact as `doomlog=...`, so startup failures are
+  diagnosable without editing Doom source
 - optional external `DOOM_WAD=/path/to/DOOM1.WAD` image builds for real
   shareware WAD testing without committing game data
 

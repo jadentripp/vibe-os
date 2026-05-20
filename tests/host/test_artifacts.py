@@ -382,12 +382,17 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("doom_open_count", kernel)
         self.assertIn("doom_read_count", kernel)
         self.assertIn("doom_wad_magic_seen", kernel)
+        self.assertIn("DOOM_LOG_BYTES equ 160", kernel)
+        self.assertIn("doom_log_char:", kernel)
+        self.assertIn("doom_log_buffer times DOOM_LOG_BYTES db 0", kernel)
         self.assertIn("doomrun=", kernel)
         self.assertIn("doomopen=", kernel)
         self.assertIn("doomread=", kernel)
+        self.assertIn("doomlog=", kernel)
         self.assertIn('grep -Eq "doomrun=(RUN|EXIT)"', makefile)
         self.assertIn('grep -q "doomopen=OK"', makefile)
         self.assertIn('grep -q "doomread=OK"', makefile)
+        self.assertIn('grep -q "doomlog="', makefile)
 
     def test_user_syscalls_validate_against_current_process_window(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()

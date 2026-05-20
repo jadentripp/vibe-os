@@ -29,6 +29,7 @@ VGA_ROWS equ 25
 VGA_ATTR equ 0x0f
 SMOKE_STATUS_ADDR equ 0x0009d000
 SMOKE_STATUS_BYTES equ 1024
+DOOM_LOG_BYTES equ 160
 DOOM_SCREEN_WIDTH equ 320
 DOOM_SCREEN_HEIGHT equ 200
 DOOM_FRAME_BYTES equ DOOM_SCREEN_WIDTH * DOOM_SCREEN_HEIGHT
@@ -2167,6 +2168,8 @@ storage_init:
     mov dword [doom_sbrk_count], 0
     mov dword [doom_present_count], 0
     mov dword [doom_wad_magic_seen], 0
+    mov dword [doom_log_len], 0
+    mov byte [doom_log_buffer], 0
     mov byte [present_status], 0
     mov dword [present_frame_arg], 0
     mov dword [present_palette_arg], 0
@@ -2936,6 +2939,8 @@ doom_user_run:
     mov dword [doom_sbrk_count], 0
     mov dword [doom_present_count], 0
     mov dword [doom_wad_magic_seen], 0
+    mov dword [doom_log_len], 0
+    mov byte [doom_log_buffer], 0
     mov dword [user_wad_fd_offset], 0
     mov dword [user_brk_current], DOOM_USER_HEAP_START
     mov dword [current_user_base], DOOM_USER_BASE
@@ -3287,6 +3292,11 @@ syscall_handler:
     je .write_done
     lodsb
     call put_char
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    jne .write_skip_capture
+    call doom_log_char
+
+.write_skip_capture:
     dec ecx
     jmp .write_next
 
@@ -3508,6 +3518,58 @@ user_range_validate:
 
 .done:
     pop edx
+    ret
+
+doom_log_char:
+    push eax
+    push ebx
+    push ecx
+    push esi
+    push edi
+
+    cmp al, 13
+    je .space
+    cmp al, 10
+    je .space
+    cmp al, 9
+    je .space
+    cmp al, 32
+    jb .space
+    cmp al, 126
+    jbe .have_char
+
+.space:
+    mov al, ' '
+
+.have_char:
+    mov bl, al
+    mov eax, [doom_log_len]
+    cmp eax, DOOM_LOG_BYTES - 1
+    jb .append
+
+    mov esi, doom_log_buffer + 1
+    mov edi, doom_log_buffer
+    mov ecx, DOOM_LOG_BYTES - 2
+    cld
+    rep movsb
+    mov byte [doom_log_buffer + DOOM_LOG_BYTES - 2], bl
+    mov byte [doom_log_buffer + DOOM_LOG_BYTES - 1], 0
+    jmp .done
+
+.append:
+    mov edi, doom_log_buffer
+    add edi, eax
+    mov [edi], bl
+    inc eax
+    mov [doom_log_len], eax
+    mov byte [edi + 1], 0
+
+.done:
+    pop edi
+    pop esi
+    pop ecx
+    pop ebx
+    pop eax
     ret
 
 present_indexed_frame:
@@ -3756,6 +3818,19 @@ write_smoke_status:
     mov esi, smoke_fail_text
 
 .doomread_write:
+    call smoke_copy_string
+
+    mov esi, smoke_doomlog_text
+    call smoke_copy_string
+    cmp byte [doom_log_buffer], 0
+    je .doomlog_empty
+    mov esi, doom_log_buffer
+    jmp .doomlog_write
+
+.doomlog_empty:
+    mov esi, smoke_dash_text
+
+.doomlog_write:
     call smoke_copy_string
 
     mov esi, smoke_gfx_text
@@ -4404,10 +4479,12 @@ smoke_doom_text db "doom=", 0
 smoke_doomrun_text db " doomrun=", 0
 smoke_doomopen_text db " doomopen=", 0
 smoke_doomread_text db " doomread=", 0
+smoke_doomlog_text db " doomlog=", 0
 smoke_gfx_text db " gfx=", 0
 smoke_status_text db " ", 0
 smoke_ok_text db "OK", 0
 smoke_fail_text db "FAIL", 0
+smoke_dash_text db "-", 0
 smoke_wait_text db "WAIT", 0
 smoke_run_text db "RUN", 0
 smoke_exit_text db "EXIT", 0
@@ -4600,6 +4677,7 @@ doom_write_count dd 0
 doom_sbrk_count dd 0
 doom_present_count dd 0
 doom_wad_magic_seen dd 0
+doom_log_len dd 0
 present_frame_arg dd 0
 present_palette_arg dd 0
 present_sample_first dd 0
@@ -4624,6 +4702,7 @@ user_load_segment_count db 0
 doom_load_segment_count db 0
 present_status db 0
 shift_down db 0
+doom_log_buffer times DOOM_LOG_BYTES db 0
 input_buffer times INPUT_MAX db 0
 
 align 8
