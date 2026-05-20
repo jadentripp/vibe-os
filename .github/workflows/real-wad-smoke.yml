@@ -23,7 +23,7 @@ jobs:
       PUBLIC_SHAREWARE_WAD_GZ_URL: https://archive.org/download/wadarchive/DATA/5b.zip/5b%2F2e249b9c5133ec987b3ea77596381dc0d6bc1d%2F5b2e249b9c5133ec987b3ea77596381dc0d6bc1d.wad.gz
       EXPECTED_WAD_SHA1: 5b2e249b9c5133ec987b3ea77596381dc0d6bc1d
       EXPECTED_WAD_BYTES: "4196020"
-      WAD_PATH: ${{ runner.temp }}/DOOM1.WAD
+      WAD_PATH: /tmp/DOOM1.WAD
 
     steps:
       - name: Check out repository
