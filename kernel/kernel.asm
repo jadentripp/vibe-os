@@ -3369,6 +3369,8 @@ syscall_handler:
     mov [user_wad_magic_seen], edx
     cmp byte [current_user_kind], USER_KIND_DOOM
     jne .read_done
+    cmp dword [doom_wad_magic_seen], 0
+    jne .read_done
     mov [doom_wad_magic_seen], edx
 
 .read_done:
