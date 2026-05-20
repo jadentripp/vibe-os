@@ -304,17 +304,14 @@ static int default_config_needs_checkpoint(void)
 
 static int persistence_checkpoint_requested(void)
 {
-    FILE* marker;
+    struct stat info;
 
     if (default_config_checkpoint_requested)
         return default_config_checkpoint_requested;
 
     default_config_checkpoint_request_checked = 1;
-    marker = fopen("PERSIST.CHK", "r");
-    if (marker) {
+    if (stat("PERSIST.CHK", &info) == 0)
         default_config_checkpoint_requested = 1;
-        fclose(marker);
-    }
 
     return default_config_checkpoint_requested;
 }

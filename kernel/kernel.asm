@@ -261,6 +261,8 @@ WRITABLE_FILE_COUNT equ 16
 WRITABLE_DEFAULT_CAPACITY equ 0x00004000
 WRITABLE_SAVE_CAPACITY equ 0x00040000
 WRITABLE_GENERIC_CAPACITY equ 0x00040000
+FAT_ROOT_CACHE_SECTORS equ 32
+PERSISTENCE_MARKER_COUNT equ 3
 O_WRONLY equ 0x0001
 O_RDWR equ 0x0002
 O_ACCMODE equ 0x0003
@@ -4906,6 +4908,14 @@ storage_init:
     mov dword [writable_offsets + ebx * 4], 0
     inc ebx
     loop .clear_writable_files
+    mov ecx, PERSISTENCE_MARKER_COUNT
+    xor ebx, ebx
+
+.clear_persistence_markers:
+    mov byte [persistence_marker_status + ebx], 0
+    mov dword [persistence_marker_sizes + ebx * 4], 0
+    inc ebx
+    loop .clear_persistence_markers
     mov byte [doom_user_window_status], 0
     mov word [doom_elf_first_cluster], 0
     mov dword [current_pid], 0
@@ -5142,6 +5152,10 @@ storage_init:
     inc eax
     mov [fat_last_data_cluster], eax
     mov byte [fat_status], 1
+    cmp dword [fat_root_sectors], FAT_ROOT_CACHE_SECTORS
+    ja .fat_fail
+    call fat_cache_root_dir
+    jc .fat_fail
 
     call fat_find_wad
     jc .wad_fail
@@ -5156,6 +5170,7 @@ storage_init:
     call wad_parse
     jc .wad_parse_fail
     call fat_find_writable_files
+    call fat_find_persistence_markers
 
     call fat_find_user_elf
     jc .user_elf_fail
@@ -5443,6 +5458,39 @@ ata_write_sector:
     pop ebx
     ret
 
+fat_cache_root_dir:
+    push ebx
+    push ecx
+    push edi
+
+    xor ebx, ebx
+
+.sector_loop:
+    cmp ebx, [fat_root_sectors]
+    jae .ok
+    mov eax, [fat_root_lba]
+    add eax, ebx
+    mov edi, ebx
+    shl edi, 9
+    add edi, fat_root_cache
+    call ata_read_sector
+    jc .fail
+    inc ebx
+    jmp .sector_loop
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop ecx
+    pop ebx
+    ret
+
 fat_name_match:
     push ecx
     push esi
@@ -5464,13 +5512,9 @@ fat_find_file:
 .sector_loop:
     cmp ebx, [fat_root_sectors]
     jae .fail
-    mov eax, [fat_root_lba]
-    add eax, ebx
-    mov edi, SECTOR_BUFFER_ADDR
-    call ata_read_sector
-    jc .fail
-
-    mov esi, SECTOR_BUFFER_ADDR
+    mov esi, ebx
+    shl esi, 9
+    add esi, fat_root_cache
     mov ecx, 16
 
 .entry_loop:
@@ -5501,7 +5545,8 @@ fat_find_file:
     add eax, ebx
     mov [fat_found_root_lba], eax
     mov eax, esi
-    sub eax, SECTOR_BUFFER_ADDR
+    sub eax, fat_root_cache
+    and eax, 511
     mov [fat_found_root_offset], eax
     mov ax, [esi + 26]
     mov [fat_found_first_cluster], ax
@@ -5828,12 +5873,9 @@ fat_create_root_file:
 .sector_loop:
     cmp ebx, [fat_root_sectors]
     jae .fail
-    mov eax, [fat_root_lba]
-    add eax, ebx
-    mov edi, SECTOR_BUFFER_ADDR
-    call ata_read_sector
-    jc .fail
-    mov esi, SECTOR_BUFFER_ADDR
+    mov esi, ebx
+    shl esi, 9
+    add esi, fat_root_cache
     mov ecx, 16
 
 .entry_loop:
@@ -5866,12 +5908,16 @@ fat_create_root_file:
     add eax, ebx
     mov [fat_found_root_lba], eax
     mov eax, edi
-    sub eax, SECTOR_BUFFER_ADDR + 11
+    sub eax, 11
+    sub eax, fat_root_cache
+    and eax, 511
     mov [fat_found_root_offset], eax
     mov word [fat_found_first_cluster], 0
     mov dword [fat_found_size], 0
     mov eax, [fat_found_root_lba]
-    mov esi, SECTOR_BUFFER_ADDR
+    mov esi, ebx
+    shl esi, 9
+    add esi, fat_root_cache
     call ata_write_sector
     jc .fail
     clc
@@ -6063,6 +6109,36 @@ fat_find_writable_files:
     pop ebx
     ret
 
+fat_find_persistence_markers:
+    push ebx
+
+    xor ebx, ebx
+
+.loop:
+    cmp ebx, PERSISTENCE_MARKER_COUNT
+    jae .done
+    mov edi, [persistence_marker_name_table + ebx * 4]
+    push ebx
+    call fat_find_file
+    pop ebx
+    jc .missing
+    mov eax, [fat_found_size]
+    mov [persistence_marker_sizes + ebx * 4], eax
+    mov byte [persistence_marker_status + ebx], 1
+    jmp .next
+
+.missing:
+    mov dword [persistence_marker_sizes + ebx * 4], 0
+    mov byte [persistence_marker_status + ebx], 0
+
+.next:
+    inc ebx
+    jmp .loop
+
+.done:
+    pop ebx
+    ret
+
 user_path_equals:
     push ebx
     push ecx
@@ -6228,6 +6304,38 @@ fat_open_name_is_protected:
 .done:
     pop edi
     pop esi
+    ret
+
+fat_open_name_marker_index:
+    push ebx
+    push esi
+    push edi
+
+    xor ebx, ebx
+
+.loop:
+    cmp ebx, PERSISTENCE_MARKER_COUNT
+    jae .fail
+    mov esi, fat_open_name_buffer
+    mov edi, [persistence_marker_name_table + ebx * 4]
+    call fat_name_match
+    cmp al, 1
+    je .found
+    inc ebx
+    jmp .loop
+
+.found:
+    mov eax, ebx
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop ebx
     ret
 
 fat_bind_found_writable_slot:
@@ -6740,16 +6848,18 @@ fat_update_writable_size:
 
     mov ebx, eax
     mov eax, [writable_root_lbas + ebx * 4]
-    mov edi, SECTOR_BUFFER_ADDR
-    call ata_read_sector
-    jc .fail
+    sub eax, [fat_root_lba]
+    cmp eax, [fat_root_sectors]
+    jae .fail
+    mov esi, eax
+    shl esi, 9
+    add esi, fat_root_cache
     mov edx, [writable_root_offsets + ebx * 4]
     mov ax, [writable_first_clusters + ebx * 2]
-    mov [SECTOR_BUFFER_ADDR + edx + 26], ax
+    mov [esi + edx + 26], ax
     mov ecx, [writable_sizes + ebx * 4]
-    mov [SECTOR_BUFFER_ADDR + edx + 28], ecx
+    mov [esi + edx + 28], ecx
     mov eax, [writable_root_lbas + ebx * 4]
-    mov esi, SECTOR_BUFFER_ADDR
     call ata_write_sector
     jc .fail
     clc
@@ -6807,15 +6917,17 @@ fat_delete_found_file:
 
 .clear_root_entry:
     mov eax, [fat_found_root_lba]
-    mov edi, SECTOR_BUFFER_ADDR
-    call ata_read_sector
-    jc .fail
+    sub eax, [fat_root_lba]
+    cmp eax, [fat_root_sectors]
+    jae .fail
+    mov esi, eax
+    shl esi, 9
+    add esi, fat_root_cache
     mov edx, [fat_found_root_offset]
-    mov byte [SECTOR_BUFFER_ADDR + edx], 0xe5
-    mov word [SECTOR_BUFFER_ADDR + edx + 26], 0
-    mov dword [SECTOR_BUFFER_ADDR + edx + 28], 0
+    mov byte [esi + edx], 0xe5
+    mov word [esi + edx + 26], 0
+    mov dword [esi + edx + 28], 0
     mov eax, [fat_found_root_lba]
-    mov esi, SECTOR_BUFFER_ADDR
     call ata_write_sector
     jc .fail
     clc
@@ -10432,6 +10544,8 @@ syscall_handler:
     call fat_name_match
     cmp al, 1
     je .stat_doom_elf
+    call fat_open_name_marker_index
+    jnc .stat_persistence_marker
     mov edi, fat_open_name_buffer
     call fat_find_file
     jc .bad_syscall_enoent
@@ -10469,6 +10583,16 @@ syscall_handler:
     call fat_find_file
     jc .bad_syscall_enoent
     mov eax, [fat_found_size]
+    mov edx, STAT_MODE_READONLY_REG
+    call stat_fill_user
+    jc .bad_syscall_einval
+    xor eax, eax
+    jmp .return
+
+.stat_persistence_marker:
+    cmp byte [persistence_marker_status + eax], 1
+    jne .bad_syscall_enoent
+    mov eax, [persistence_marker_sizes + eax * 4]
     mov edx, STAT_MODE_READONLY_REG
     call stat_fill_user
     jc .bad_syscall_einval
@@ -14566,6 +14690,9 @@ doomsav2_name_83 db "DOOMSAV2DSG"
 doomsav3_name_83 db "DOOMSAV3DSG"
 doomsav4_name_83 db "DOOMSAV4DSG"
 doomsav5_name_83 db "DOOMSAV5DSG"
+persist_chk_name_83 db "PERSIST CHK"
+save_req_name_83 db "SAVEREQ CHK"
+load_req_name_83 db "LOADREQ CHK"
 wad_name_playpal db "PLAYPAL", 0
 wad_name_colormap db "COLORMAP"
 user_path_doom_wad db "DOOM1.WAD", 0
@@ -14590,6 +14717,7 @@ writable_name_table dd default_cfg_name_83, doomsav0_name_83, doomsav1_name_83, 
 writable_path_table dd user_path_default_cfg, user_path_doomsav0, user_path_doomsav1, user_path_doomsav2, user_path_doomsav3, user_path_doomsav4, user_path_doomsav5
 writable_path_len_table dd user_path_default_cfg_end - user_path_default_cfg, user_path_doomsav0_end - user_path_doomsav0, user_path_doomsav1_end - user_path_doomsav1, user_path_doomsav2_end - user_path_doomsav2, user_path_doomsav3_end - user_path_doomsav3, user_path_doomsav4_end - user_path_doomsav4, user_path_doomsav5_end - user_path_doomsav5
 writable_capacity_table dd WRITABLE_DEFAULT_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY
+persistence_marker_name_table dd persist_chk_name_83, save_req_name_83, load_req_name_83
 process_exec_table:
     dd exec_path_doom, doom_elf_name_83, DOOM_ELF_LOAD_ADDR, DOOM_ELF_MAX_BYTES, process_doom
     dd exec_path_user_probe, user_elf_name_83, USER_ELF_LOAD_ADDR, USER_ELF_MAX_BYTES, process_user_probe
@@ -15277,6 +15405,7 @@ heap_alloc_bytes dd 0
 heap_last_ptr dd 0
 command_start dd 0
 writable_sizes times WRITABLE_FILE_COUNT dd 0
+persistence_marker_sizes times PERSISTENCE_MARKER_COUNT dd 0
 writable_root_lbas times WRITABLE_FILE_COUNT dd 0
 writable_root_offsets times WRITABLE_FILE_COUNT dd 0
 writable_offsets times WRITABLE_FILE_COUNT dd 0
@@ -15305,10 +15434,12 @@ framebuffer_map_status db 0
 shift_down db 0
 keyboard_extended db 0
 writable_status times WRITABLE_FILE_COUNT db 0
+persistence_marker_status times PERSISTENCE_MARKER_COUNT db 0
 doom_log_buffer times DOOM_LOG_BYTES db 0
 key_event_queue times KEY_QUEUE_SIZE dd 0
 mouse_event_queue times MOUSE_QUEUE_SIZE dd 0
 input_buffer times INPUT_MAX db 0
+fat_root_cache times FAT_ROOT_CACHE_SECTORS * 512 db 0
 
 align 8
 kernel_gdt_start:
