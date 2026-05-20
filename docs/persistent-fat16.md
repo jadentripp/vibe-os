@@ -108,6 +108,10 @@ agreement and reachable-cluster ownership on the mutated copy, so this is a
 host-verifiable allocation/free/truncate proof without putting a scratch file
 back into the real disk artifact.
 
+The default real-WAD cloud workflow waits after Doom's quit confirmation before
+snapshotting the disk, so `DEFAULT.CFG` is checked after the defaults writer has
+had time to finish and close the file.
+
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,
 resize-to-zero, delete, deleted root-slot reuse, zero-fill checks, FAT-copy
