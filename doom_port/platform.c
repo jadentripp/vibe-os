@@ -422,6 +422,22 @@ static void promote_save_checkpoint_action(void)
     gameaction = ga_savegame;
 }
 
+static void flush_save_checkpoint_if_needed(void)
+{
+    if (!save_checkpoint_pending_special || !savedescription[0])
+        return;
+    if (!default_config_checkpoint_ready())
+        return;
+    if (gameaction == ga_nothing)
+        gameaction = ga_savegame;
+    if (gameaction != ga_savegame)
+        return;
+
+    sendsave = false;
+    save_checkpoint_pending_special = 0;
+    G_DoSaveGame();
+}
+
 static void checkpoint_load_slot_if_needed(void)
 {
     char path[] = "doomsav0.dsg";
@@ -692,12 +708,9 @@ void G_Ticker(void)
     promote_save_checkpoint_action();
     doom_original_G_Ticker();
 
-    if (gameaction == ga_savegame && savedescription[0]) {
+    flush_save_checkpoint_if_needed();
+    if (!savedescription[0])
         save_checkpoint_pending_special = 0;
-        G_DoSaveGame();
-    } else if (!savedescription[0]) {
-        save_checkpoint_pending_special = 0;
-    }
 }
 
 static void report_playability_status(void)
@@ -789,6 +802,7 @@ void I_FinishUpdate(void)
     pump_music_stream();
     report_gameplay_status();
     checkpoint_load_slot_if_needed();
+    flush_save_checkpoint_if_needed();
     report_save_action_status();
     report_playability_status();
     report_player_detail_status();

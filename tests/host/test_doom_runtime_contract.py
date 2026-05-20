@@ -293,6 +293,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("G_SaveGame(save_checkpoint_slot, description);", platform)
         self.assertIn("sendsave = false;", platform)
         self.assertIn("static void promote_save_checkpoint_action(void)", platform)
+        self.assertIn("static void flush_save_checkpoint_if_needed(void)", platform)
         self.assertIn("gameaction = ga_savegame;", platform)
         self.assertIn("void G_BuildTiccmd(ticcmd_t* cmd)", platform)
         self.assertIn("doom_original_G_BuildTiccmd(cmd);", platform)
@@ -309,13 +310,21 @@ class DoomRuntimeContractTests(unittest.TestCase):
             platform.index("doom_original_G_Ticker();"),
         )
         self.assertIn("doom_original_G_Ticker();", platform)
-        self.assertIn("if (gameaction == ga_savegame && savedescription[0])", platform)
+        self.assertIn("if (gameaction != ga_savegame)", platform)
         self.assertIn("save_checkpoint_pending_special = 0;", platform)
         self.assertIn("G_DoSaveGame();", platform)
         finish_update = platform.split("void I_FinishUpdate(void)", 1)[1].split(
             "void I_WaitVBL", 1
         )[0]
         self.assertNotIn("checkpoint_save_slot_if_needed();", finish_update)
+        self.assertLess(
+            finish_update.index("checkpoint_load_slot_if_needed();"),
+            finish_update.index("flush_save_checkpoint_if_needed();"),
+        )
+        self.assertLess(
+            finish_update.index("flush_save_checkpoint_if_needed();"),
+            finish_update.index("report_save_action_status();"),
+        )
         self.assertIn("if (sendsave)", original)
         self.assertIn("cmd->buttons = BT_SPECIAL | BTS_SAVEGAME", original)
         self.assertNotIn("doom_original_G_BuildTiccmd", original)

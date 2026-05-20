@@ -120,6 +120,7 @@ class DoomInputContractTests(unittest.TestCase):
             "M_SaveDefaults();",
             "G_SaveGame(save_checkpoint_slot, description);",
             "promote_save_checkpoint_action();",
+            "flush_save_checkpoint_if_needed();",
             "G_LoadGame(path);",
             "VIBE_DOOM_INPUT_KEYDOWN",
             "ev_keydown",
