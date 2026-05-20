@@ -204,6 +204,7 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         raise AssertionError("tests README must document the gap-ledger checker")
     for phrase in (
         "SUPPORT[UEFI] status=unclaimed",
+        "SUPPORT[PCI_ENUMERATION] status=unclaimed",
         "SUPPORT[AHCI] status=unclaimed",
         "SUPPORT[USB] status=unclaimed",
         "SUPPORT[SMP] status=unclaimed",

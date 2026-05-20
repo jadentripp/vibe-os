@@ -534,6 +534,81 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("mov dword [process_user_probe + PROC_PARENT_PID], 0", user_probe_run)
         self.assertIn("inc dword [process_user_probe + PROC_EXEC_COUNT]", user_probe_run)
 
+    def test_waitpid_scans_children_and_reaps_exited_records(self):
+        kernel = read_kernel()
+        waitpid = kernel.split("process_waitpid_current:", 1)[1].split("scheduler_prepare_live_preempt_probe:", 1)[0]
+        handler = kernel.split(".waitpid:", 1)[1].split(".getpid:", 1)[0]
+        for source in (
+            "process_wait_attempts dd 0",
+            "process_wait_reaps dd 0",
+            "process_wait_failures dd 0",
+            "process_wait_last_reaped_pid dd 0xffffffff",
+            "process_wait_seen_live_child dd 0",
+        ):
+            self.assertIn(source, kernel)
+        for source in (
+            "call process_waitpid_current",
+            "jc .bad_syscall_from_eax",
+            "jmp .return",
+        ):
+            self.assertIn(source, handler)
+        for source in (
+            "inc dword [process_wait_attempts]",
+            "cmp edx, 0",
+            "jne .enosys",
+            "cmp ebx, 0xffffffff",
+            "cmp ebx, 0",
+            "call user_range_validate",
+            "mov esi, process_table",
+            "mov edi, PROCESS_SLOT_COUNT",
+            "cmp esi, process_kernel",
+            "cmp esi, eax",
+            "cmp eax, [current_pid]",
+            "mov eax, [process_wait_last_pid_arg]",
+            "cmp eax, PROC_STATE_EXITED",
+            "cmp eax, PROC_STATE_FAULTED",
+            "mov dword [process_wait_seen_live_child], 1",
+            "mov [process_wait_last_reaped_pid], eax",
+            "mov [process_wait_last_status], ebx",
+            "mov [ecx], ebx",
+            "inc dword [process_wait_reaps]",
+            "mov dword [esi + PROC_STATE], PROC_STATE_UNUSED",
+            "mov dword [esi + PROC_PARENT_PID], 0xffffffff",
+            "mov eax, -ERRNO_ENOSYS",
+            "mov eax, -ERRNO_ECHILD",
+        ):
+            self.assertIn(source, waitpid)
+
+    def test_fd_table_records_owner_generation_and_exec_inheritance_metadata(self):
+        kernel = read_kernel()
+        fd_reset = kernel.split("fd_reset_all:", 1)[1].split("fd_alloc:", 1)[0]
+        fd_alloc = kernel.split("fd_alloc:", 1)[1].split("fd_lookup:", 1)[0]
+        close_handler = kernel.split(".close:", 1)[1].split(".audio:", 1)[0]
+        for source in (
+            "FD_INHERIT_EXEC equ 0x1",
+            "fd_owner_pids times USER_FD_COUNT dd 0xffffffff",
+            "fd_open_generations times USER_FD_COUNT dd 0",
+            "fd_inherit_flags times USER_FD_COUNT dd 0",
+        ):
+            self.assertIn(source, kernel)
+        for source in (
+            "mov dword [fd_owner_pids + ebx * 4], 0xffffffff",
+            "mov dword [fd_inherit_flags + ebx * 4], 0",
+        ):
+            self.assertIn(source, fd_reset)
+        for source in (
+            "mov eax, [current_pid]",
+            "mov [fd_owner_pids + ebx * 4], eax",
+            "inc dword [fd_open_generations + ebx * 4]",
+            "mov dword [fd_inherit_flags + ebx * 4], FD_INHERIT_EXEC",
+        ):
+            self.assertIn(source, fd_alloc)
+        for source in (
+            "mov dword [fd_owner_pids + eax * 4], 0xffffffff",
+            "mov dword [fd_inherit_flags + eax * 4], 0",
+        ):
+            self.assertIn(source, close_handler)
+
     def test_user_crt0_passes_argc_argv_and_empty_envp_to_user_main(self):
         crt0 = (ROOT / "user" / "crt0.asm").read_text()
         start = crt0.split("start:", 1)[1].split(".halt:", 1)[0]
@@ -601,8 +676,8 @@ class ProcessExecContractTests(unittest.TestCase):
             "empty `envp` contract",
             "not a robust Unix",
             "`fork`/`exec` split",
-            "`wait`/reap lifecycle",
-            "fd inheritance",
+            "wait blocking",
+            "inheritance cloning",
             "dynamic child slots",
             "reusable address-space resources",
         ):

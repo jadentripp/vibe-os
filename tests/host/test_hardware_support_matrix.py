@@ -40,6 +40,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             unclaimed,
             {
                 "UEFI",
+                "PCI_ENUMERATION",
                 "AHCI",
                 "USB",
                 "SMP",
@@ -48,9 +49,19 @@ class HardwareSupportMatrixTests(unittest.TestCase):
                 "PHYSICAL_HARDWARE",
             },
         )
+        expected_scopes = {
+            "BIOS_BOOT": "qemu-bios",
+            "IDE_ATA_PIO": "qemu-ide",
+            "FAT16": "generated-disk-image",
+            "PS2_KEYBOARD": "qemu-ps2",
+            "PS2_MOUSE": "qemu-ps2",
+            "PIT": "qemu-pit",
+            "VBE_VGA": "qemu-vbe-vga",
+            "SB16": "qemu-sb16",
+        }
         for support_id in claimed:
             with self.subTest(support_id=support_id):
-                self.assertNotEqual(rows[support_id]["scope"], "none")
+                self.assertEqual(rows[support_id]["scope"], expected_scopes[support_id])
                 self.assertNotEqual(rows[support_id]["evidence"], "none")
         for support_id in unclaimed:
             with self.subTest(support_id=support_id):
@@ -67,7 +78,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             (readme, "not broad PC or physical hardware compatibility"),
             (readme, "docs/hardware-support.md"),
             (gap_doc, "check_hardware_support_matrix.py"),
-            (gap_doc, "UEFI, AHCI, USB, SMP, APIC, HPET, and physical hardware remain unclaimed"),
+            (gap_doc, "UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and physical hardware remain unclaimed"),
             (tests_readme, "tools/check_hardware_support_matrix.py"),
             (runbook, "does not prove vibe-os boots directly on physical hardware"),
         ):
@@ -84,6 +95,16 @@ class HardwareSupportMatrixTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("hardware support matrix OK", result.stdout)
+
+    def test_checker_rejects_claimed_scope_broadening(self):
+        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        broadened = matrix.replace(
+            "SUPPORT[IDE_ATA_PIO] status=claimed scope=qemu-ide",
+            "SUPPORT[IDE_ATA_PIO] status=claimed scope=pc-storage",
+        )
+
+        with self.assertRaisesRegex(AssertionError, "IDE_ATA_PIO scope must stay qemu-ide"):
+            check_hardware_support_matrix._validate_support_rows(broadened)
 
 
 if __name__ == "__main__":

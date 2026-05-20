@@ -40,7 +40,9 @@ boot:
   `.ELF` names into the reusable probe-class slot, rejects unsafe active-slot
   reloads, seeds a scheduler-visible target context, writes an argc/argv stack
   shape, patches the live syscall frame, marks the caller exited, and records
-  handoff/schedule/rollback counters.
+  handoff/schedule/rollback counters. The same tests pin the bounded
+  `waitpid` child scan/reap path and fd owner/generation/inheritance metadata
+  without claiming that `fork` or descriptor cloning exist yet.
 - `tests/host/test_framebuffer_contract.py` proves the 320x200 indexed shadow,
   RGB palette to XRGB8888 conversion, 2x scaling, and centering contract without
   using rendered Doom pixels.
@@ -99,8 +101,9 @@ boot:
 - `tools/check_hardware_support_matrix.py` parses
   `docs/hardware-support.md` so README/docs/runbook/test language stays bounded
   to the QEMU BIOS/IDE/PS2/VBE/SB16 device-model proof. It rejects unsupported
-  UEFI, AHCI, USB, SMP, APIC, HPET, and physical-hardware support wording unless
-  the matrix grows a claimed row and a proof boundary first.
+  UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and physical-hardware
+  support wording unless the matrix grows a claimed row and a proof boundary
+  first.
 - `tools/check_vm_safety_contract.py` machine-checks the local-QEMU opt-in,
   cloud diagnostic upload hygiene, panic status fields, shutdown status fields,
   guard-page helper, and dynamic high VMM mapping contract without launching

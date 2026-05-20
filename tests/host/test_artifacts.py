@@ -1010,6 +1010,11 @@ class SourceContractTests(unittest.TestCase):
             "truncate_root_file",
             "write_root_file_at",
             "resize_root_file",
+            "create_subdirectory",
+            "write_directory_file",
+            "read_file_at_path",
+            "list_root_directory",
+            "entry_metadata_at_path",
         ):
             self.assertIn(source, image_tool)
         for source in (
@@ -1091,6 +1096,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("and eax, O_ACCMODE", writer)
         self.assertIn("test dword [fd_flags + esi * 4], O_APPEND", writer)
         self.assertIn("fd_offsets", writer)
+        growth_flush = writer.split("mov [writable_sizes + ebx * 4], edx", 1)[1].split(".ok:", 1)[0]
+        self.assertIn("call fat_update_writable_size", growth_flush)
         allocator = kernel.split("fat_alloc_cluster:", 1)[1].split("fat_free_chain:", 1)[0]
         self.assertIn(".rollback_alloc:", allocator)
         free_chain = kernel.split("fat_free_chain:", 1)[1].split("fat_create_root_file:", 1)[0]

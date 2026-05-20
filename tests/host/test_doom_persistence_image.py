@@ -311,6 +311,58 @@ class DoomPersistenceImageTests(unittest.TestCase):
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "duplicate live"):
             check_persistence.validate_image(path)
 
+    def test_checker_accepts_readonly_subdirectory_lookup_and_listing(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+
+        directory_cluster = fs.create_subdirectory(b"CONFIG  DIR")
+        file_chain = fs.write_directory_file(b"CONFIG  DIR", b"LEVELS  TXT", b"E1M1\nE1M2\n")
+
+        root_names = {entry["name"] for entry in fs.list_root_directory()}
+        self.assertIn(b"CONFIG  DIR", root_names)
+        self.assertEqual(
+            fs.entry_metadata_at_path((b"CONFIG  DIR",))["cluster"],
+            directory_cluster,
+        )
+        self.assertEqual(
+            fs.read_file_at_path((b"CONFIG  DIR", b"LEVELS  TXT")),
+            b"E1M1\nE1M2\n",
+        )
+        self.assertEqual(
+            fs.entry_metadata_at_path((b"CONFIG  DIR", b"LEVELS  TXT"))["cluster"],
+            file_chain[0],
+        )
+        with self.assertRaises(IsADirectoryError):
+            fs.read_root_file(b"CONFIG  DIR")
+        with self.assertRaises(IsADirectoryError):
+            fs.truncate_root_file(b"CONFIG  DIR")
+
+        path = self.write_temp_image(image)
+        self.assertEqual(check_persistence.validate_image(path), ["persistence entries present"])
+
+    def test_checker_rejects_orphans_and_crosslinks_inside_subdirectories(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        fs.create_subdirectory(b"CONFIG  DIR")
+        file_chain = fs.write_directory_file(b"CONFIG  DIR", b"LEVELS  TXT", b"L" * 700)
+        file_entry = fs.entry_metadata_at_path((b"CONFIG  DIR", b"LEVELS  TXT"))["entry"]
+        image[file_entry] = 0xE5
+        path = self.write_temp_image(image)
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "not reachable"):
+            check_persistence.validate_image(path)
+        self.assertGreater(len(file_chain), 0)
+
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        root_chain = fs.write_root_file(b"ROOT    TXT", b"R" * 700)
+        fs.create_subdirectory(b"CONFIG  DIR")
+        fs.write_directory_file(b"CONFIG  DIR", b"LEVELS  TXT", b"L" * 700)
+        child_entry = fs.entry_metadata_at_path((b"CONFIG  DIR", b"LEVELS  TXT"))["entry"]
+        struct.pack_into("<H", image, child_entry + 26, root_chain[0])
+        path = self.write_temp_image(image)
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "shared by"):
+            check_persistence.validate_image(path)
+
     def test_fat_image_detects_corrupt_dynamic_chains(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
         fs = make_wad_image.Fat16Image(image)

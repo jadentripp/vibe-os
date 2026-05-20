@@ -114,7 +114,8 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "VIBE_IOCTL_FBINFO equ 0x00005601",
             "VIBE_IOCTL_PRESENT_INDEXED equ 0x00005602",
             "jmp .bad_syscall_enosys",
-            "jmp .bad_syscall_echild",
+            "call process_waitpid_current",
+            "ERRNO_ECHILD",
         ):
             self.assertIn(token, kernel)
         for token in (

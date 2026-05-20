@@ -42,9 +42,11 @@ Current kernel contract:
 - Supported allocation hygiene: newly allocated clusters are zero-filled before
   they become file data, FAT updates are written to both FAT copies, and root
   entry size/first-cluster metadata is updated after successful writes. The
-  host image checker now rejects duplicate live root entries, cross-linked file
-  chains, and allocated data clusters that are not reachable from any live root
-  entry, so leaked clusters cannot pass as healthy persistence evidence.
+  host image checker now walks the root directory plus read-only subdirectory
+  trees, rejects duplicate live names within a directory, cross-linked file or
+  directory chains, and allocated data clusters that are not reachable from any
+  live directory entry, so leaked clusters cannot pass as healthy persistence
+  evidence.
 - Supported deletion: `unlink`/`remove` frees the FAT cluster chain, marks the
   root entry deleted (`0xe5`), clears the in-kernel writable slot, and
   invalidates open descriptors for that file. Later `O_CREAT` can reuse the
@@ -64,10 +66,10 @@ Current kernel contract:
   be deleted, truncated, or opened writable. Unknown `open` flag bits are
   rejected as `EINVAL` in the kernel, even if libc callers normally filter them
   first.
-- Unsupported: subdirectories, long filenames, rename, timestamps, ownership,
-  permissions beyond read-only versus writable regular-file mode, and POSIX
-  delete-while-open behavior. This kernel deliberately invalidates descriptors
-  when their root entry is unlinked.
+- Unsupported in the kernel syscall surface: subdirectories, long filenames, no rename,
+  timestamps, ownership, permissions beyond read-only versus writable
+  regular-file mode, and no POSIX delete-while-open behavior. This kernel
+  deliberately invalidates descriptors when their root entry is unlinked.
 
 `tools/check_doom_persistence_image.py` validates a remote/cloud-mutated image
 without launching QEMU locally. Use `--require-default` to require Doom-shaped
@@ -87,23 +89,29 @@ preseeded image can never be reported as a reboot persistence proof without also
 proving the requested bytes changed from the fresh image. With a baseline image
 present, the checker also verifies both FAT copies agree, every allocated data
 cluster is owned by exactly one live root entry, and protected `DOOM1.WAD`,
-`USERPROB.ELF`, and `DOOM.ELF` entries have unchanged metadata and bytes.
+  `USERPROB.ELF`, and `DOOM.ELF` entries have unchanged metadata and bytes. The
+  checker-side FAT reader can list the root directory and follow simple
+  read-only 8.3 subdirectory entries for lookup/readback proof; this is
+  deliberately a validation/tooling capability until the kernel grows a real
+  directory syscall contract.
 
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,
-resize-to-zero, delete, zero-fill checks, and FAT-copy agreement. That is a test
-harness for image inspection; the kernel-facing truncate contract remains
-`O_TRUNC` to zero, because Doom only needs config/save replacement semantics
-today.
+resize-to-zero, delete, zero-fill checks, FAT-copy agreement, root directory
+listing, and read-only subdirectory lookup/readback. That is a test harness for
+image inspection; the kernel-facing truncate contract remains `O_TRUNC` to
+zero, because Doom only needs config/save replacement semantics today.
 
 This is enough for Doom defaults and save slots without turning the kernel into
 a general-purpose FAT filesystem.
 
 Remaining storage gaps before a broad Doom-capable claim:
 
-- Writable semantics are still deliberately narrow: root-level 8.3 files,
-  bounded dynamic root entries, no subdirectories, no rename, no long filenames,
-  no timestamps/ownership, and no POSIX delete-while-open behavior.
+- Writable semantics are still deliberately narrow: kernel syscalls handle
+  root-level 8.3 files, bounded dynamic root entries, no subdirectories, no rename,
+  no long filenames, no timestamps/ownership, and no POSIX delete-while-open behavior.
+  Host-side validation can now inspect read-only
+  subdirectory trees, but user processes cannot create or traverse them yet.
 - The storage proof is image-level and cloud-runner scoped. The OS can mutate
   the generated FAT16 disk image, but there is not yet a broader storage boot
   path story for installing, selecting, or safely recovering persistent media

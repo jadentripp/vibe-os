@@ -20,6 +20,11 @@ SECTORS_PER_CLUSTER = 1
 SECTORS_PER_FAT = 256
 FAT16_EOC = 0xFFF8
 FAT16_EOC_VALUE = 0xFFFF
+FAT_ATTR_READ_ONLY = 0x01
+FAT_ATTR_VOLUME_ID = 0x08
+FAT_ATTR_DIRECTORY = 0x10
+FAT_ATTR_ARCHIVE = 0x20
+FAT_ATTR_LONG_NAME = 0x0F
 FIXTURE_WAD_SIZE = 1024 * 1024
 MAX_KERNEL_WAD_BYTES = 0x00500000
 DOOM_WAD_CLUSTER = 2
@@ -113,7 +118,7 @@ def write_root_entry(root, index, name, first_cluster, size):
     offset = index * 32
     root[offset:offset + 32] = b"\0" * 32
     root[offset:offset + 11] = name
-    root[offset + 11] = 0x20
+    root[offset + 11] = FAT_ATTR_ARCHIVE
     write_le16(root, offset + 26, first_cluster)
     write_le32(root, offset + 28, size)
 
@@ -190,7 +195,7 @@ def assert_free_cluster_budget(fat_entries):
 
 
 class Fat16Image:
-    """Small root-level FAT16 mutator used by tests and by future tooling."""
+    """Small FAT16 mutator used by tests and by future tooling."""
 
     def __init__(self, image):
         self.image = image
@@ -220,6 +225,16 @@ class Fat16Image:
         if any(ch not in allowed for ch in name):
             raise ValueError("FAT16 root name contains unsupported characters")
         return bytes(name)
+
+    @staticmethod
+    def _entry_label(name):
+        base = bytes(name[:8]).decode("ascii", "replace").rstrip()
+        ext = bytes(name[8:]).decode("ascii", "replace").rstrip()
+        return f"{base}.{ext}" if ext else base
+
+    @staticmethod
+    def _path_label(path):
+        return "/" + "/".join(Fat16Image._entry_label(name) for name in path)
 
     def fat_entry(self, cluster):
         if cluster < 0 or cluster * 2 + 1 >= self.sectors_per_fat * SECTOR_SIZE:
@@ -257,11 +272,44 @@ class Fat16Image:
                 return entry
         return None
 
+    def _directory_entry_offsets(self, first_cluster=None):
+        if first_cluster is None:
+            root_start = self.root_lba * SECTOR_SIZE
+            for offset in range(0, self.root_size, 32):
+                yield root_start + offset
+            return
+
+        for cluster in self.cluster_chain(first_cluster):
+            start = self.cluster_offset(cluster)
+            for offset in range(0, cluster_size(), 32):
+                yield start + offset
+
+    def _directory_entry_offset(self, first_cluster, name):
+        name = self.validate_root_83_name(name, allow_protected=True)
+        for entry in self._directory_entry_offsets(first_cluster):
+            first = self.image[entry]
+            if first == 0:
+                return None
+            if first != 0xE5 and self.image[entry:entry + 11] == name:
+                return entry
+        return None
+
+    def _directory_free_entry_offset(self, first_cluster):
+        for entry in self._directory_entry_offsets(first_cluster):
+            if self.image[entry] in (0, 0xE5):
+                return entry
+        raise ValueError("FAT16 directory is full")
+
+    def _write_directory_entry(self, entry, name, attr, first_cluster, size):
+        self.image[entry:entry + 32] = b"\0" * 32
+        self.image[entry:entry + 11] = name
+        self.image[entry + 11] = attr
+        write_le16(self.image, entry + 26, first_cluster)
+        write_le32(self.image, entry + 28, size)
+
     def live_root_entries(self):
-        root_start = self.root_lba * SECTOR_SIZE
         entries = []
-        for offset in range(0, self.root_size, 32):
-            entry = root_start + offset
+        for entry in self._directory_entry_offsets(None):
             first = self.image[entry]
             if first == 0:
                 break
@@ -277,33 +325,26 @@ class Fat16Image:
                     "attr": attr,
                     "cluster": read_le16(self.image, entry + 26),
                     "size": read_le32(self.image, entry + 28),
+                    "is_directory": bool(attr & FAT_ATTR_DIRECTORY),
                     "protected": bytes(self.image[entry:entry + 11]) in PROTECTED_ROOT_NAMES,
                 }
             )
         return entries
 
+    def list_root_directory(self):
+        return self.list_directory(())
+
     def validate_allocated_clusters_reachable(self):
         owners = {}
-        names = set()
-        for meta in self.live_root_entries():
-            name = meta["name"]
-            label = name.decode("ascii", "replace").strip()
-            if name in names:
-                raise ValueError(f"duplicate live FAT16 root entry {label}")
-            names.add(name)
+        visited_dirs = set()
 
-            size = meta["size"]
-            first_cluster = meta["cluster"]
-            if size == 0:
-                if first_cluster != 0:
-                    raise ValueError(f"zero-size FAT16 root file {label} has a cluster chain")
-                continue
+        def own_chain(first_cluster, label, *, size=0, is_directory=False):
             if first_cluster < 2:
-                raise ValueError(f"non-empty FAT16 root file {label} has no data cluster")
-
+                raise ValueError(f"FAT16 entry {label} has no data cluster")
             chain = self.cluster_chain(first_cluster)
-            if len(chain) < clusters_for_size(size):
-                raise ValueError(f"FAT16 chain for {label} ended before the root file size")
+            required = 1 if is_directory else clusters_for_size(size)
+            if len(chain) < required:
+                raise ValueError(f"FAT16 chain for {label} ended before the entry size")
             for cluster in chain:
                 owner = owners.get(cluster)
                 if owner is not None:
@@ -311,6 +352,55 @@ class Fat16Image:
                         f"FAT16 cluster {cluster} is shared by {owner} and {label}"
                     )
                 owners[cluster] = label
+            return chain
+
+        def validate_directory(first_cluster, path, parent_cluster=None):
+            directory_id = 0 if first_cluster is None else first_cluster
+            if directory_id in visited_dirs:
+                raise ValueError(f"FAT16 directory {self._path_label(path) or '/'} loops through itself")
+            visited_dirs.add(directory_id)
+
+            names = set()
+            for entry in self._directory_entry_offsets(first_cluster):
+                first = self.image[entry]
+                if first == 0:
+                    break
+                if first == 0xE5:
+                    continue
+                attr = self.image[entry + 11]
+                if attr == FAT_ATTR_LONG_NAME or attr & FAT_ATTR_VOLUME_ID:
+                    continue
+
+                name = bytes(self.image[entry:entry + 11])
+                label_path = path + (name,)
+                label = self._path_label(label_path)
+                if name in names:
+                    raise ValueError(f"duplicate live FAT16 directory entry {label}")
+                names.add(name)
+
+                size = read_le32(self.image, entry + 28)
+                child_cluster = read_le16(self.image, entry + 26)
+                if attr & FAT_ATTR_DIRECTORY:
+                    if name == b".          ":
+                        if child_cluster != first_cluster:
+                            raise ValueError(f"FAT16 . entry in {self._path_label(path)} points elsewhere")
+                        continue
+                    if name == b"..         ":
+                        expected = parent_cluster or 0
+                        if child_cluster != expected:
+                            raise ValueError(f"FAT16 .. entry in {self._path_label(path)} points elsewhere")
+                        continue
+                    own_chain(child_cluster, label, is_directory=True)
+                    validate_directory(child_cluster, label_path, first_cluster)
+                    continue
+
+                if size == 0:
+                    if child_cluster != 0:
+                        raise ValueError(f"zero-size FAT16 file {label} has a cluster chain")
+                    continue
+                own_chain(child_cluster, label, size=size)
+
+        validate_directory(None, ())
 
         for cluster in range(2, last_data_cluster() + 1):
             if self.fat_entry(cluster) != 0 and cluster not in owners:
@@ -329,7 +419,7 @@ class Fat16Image:
             if self.image[entry] in (0, 0xE5):
                 self.image[entry:entry + 32] = b"\0" * 32
                 self.image[entry:entry + 11] = name
-                self.image[entry + 11] = 0x20
+                self.image[entry + 11] = FAT_ATTR_ARCHIVE
                 return entry
         raise ValueError("FAT16 root directory is full")
 
@@ -391,13 +481,82 @@ class Fat16Image:
             "attr": self.image[entry + 11],
             "cluster": read_le16(self.image, entry + 26),
             "size": read_le32(self.image, entry + 28),
+            "is_directory": bool(self.image[entry + 11] & FAT_ATTR_DIRECTORY),
             "protected": bytes(self.image[entry:entry + 11]) in PROTECTED_ROOT_NAMES,
         }
+
+    def entry_metadata_at_path(self, path):
+        path = tuple(self.validate_root_83_name(name, allow_protected=True) for name in path)
+        if not path:
+            return {
+                "entry": None,
+                "name": b"",
+                "attr": FAT_ATTR_DIRECTORY,
+                "cluster": 0,
+                "size": self.root_size,
+                "is_directory": True,
+                "protected": True,
+            }
+
+        first_cluster = None
+        entry = None
+        for index, name in enumerate(path):
+            entry = self._directory_entry_offset(first_cluster, name)
+            if entry is None:
+                return None
+            attr = self.image[entry + 11]
+            if index != len(path) - 1:
+                if not (attr & FAT_ATTR_DIRECTORY):
+                    return None
+                first_cluster = read_le16(self.image, entry + 26)
+
+        return {
+            "entry": entry,
+            "name": bytes(self.image[entry:entry + 11]),
+            "attr": self.image[entry + 11],
+            "cluster": read_le16(self.image, entry + 26),
+            "size": read_le32(self.image, entry + 28),
+            "is_directory": bool(self.image[entry + 11] & FAT_ATTR_DIRECTORY),
+            "protected": bytes(self.image[entry:entry + 11]) in PROTECTED_ROOT_NAMES,
+        }
+
+    def list_directory(self, path=()):
+        meta = self.entry_metadata_at_path(path)
+        if meta is None or not meta["is_directory"]:
+            raise FileNotFoundError(path)
+        first_cluster = None if not path else meta["cluster"]
+        entries = []
+        for entry in self._directory_entry_offsets(first_cluster):
+            first = self.image[entry]
+            if first == 0:
+                break
+            if first == 0xE5:
+                continue
+            attr = self.image[entry + 11]
+            if attr == FAT_ATTR_LONG_NAME or attr & FAT_ATTR_VOLUME_ID:
+                continue
+            entries.append(
+                {
+                    "entry": entry,
+                    "name": bytes(self.image[entry:entry + 11]),
+                    "attr": attr,
+                    "cluster": read_le16(self.image, entry + 26),
+                    "size": read_le32(self.image, entry + 28),
+                    "is_directory": bool(attr & FAT_ATTR_DIRECTORY),
+                    "protected": bytes(self.image[entry:entry + 11]) in PROTECTED_ROOT_NAMES,
+                }
+            )
+        return tuple(entries)
 
     def read_root_file(self, name):
         meta = self.root_file_metadata(name)
         if meta is None:
             raise FileNotFoundError(name)
+        if meta["is_directory"]:
+            raise IsADirectoryError(name)
+        return self._read_file_from_meta(meta)
+
+    def _read_file_from_meta(self, meta):
         remaining = meta["size"]
         cluster = meta["cluster"]
         if remaining == 0:
@@ -417,8 +576,18 @@ class Fat16Image:
                 break
         return bytes(data)
 
+    def read_file_at_path(self, path):
+        meta = self.entry_metadata_at_path(path)
+        if meta is None:
+            raise FileNotFoundError(path)
+        if meta["is_directory"]:
+            raise IsADirectoryError(path)
+        return self._read_file_from_meta(meta)
+
     def write_root_file(self, name, data):
         entry = self.create_or_reuse_root_entry(name)
+        if self.image[entry + 11] & FAT_ATTR_DIRECTORY:
+            raise IsADirectoryError(name)
         first_cluster = read_le16(self.image, entry + 26)
         if first_cluster:
             self.free_chain(first_cluster)
@@ -484,6 +653,8 @@ class Fat16Image:
 
     def truncate_root_file(self, name):
         entry = self.create_or_reuse_root_entry(name)
+        if self.image[entry + 11] & FAT_ATTR_DIRECTORY:
+            raise IsADirectoryError(name)
         first_cluster = read_le16(self.image, entry + 26)
         freed = self.free_chain(first_cluster) if first_cluster else ()
         write_le16(self.image, entry + 26, 0)
@@ -495,12 +666,57 @@ class Fat16Image:
         entry = self.root_entry_offset(name)
         if entry is None:
             raise FileNotFoundError(name)
+        if self.image[entry + 11] & FAT_ATTR_DIRECTORY:
+            raise IsADirectoryError(name)
         first_cluster = read_le16(self.image, entry + 26)
         freed = self.free_chain(first_cluster) if first_cluster else ()
         self.image[entry] = 0xE5
         write_le16(self.image, entry + 26, 0)
         write_le32(self.image, entry + 28, 0)
         return freed
+
+    def create_subdirectory(self, name):
+        name = self.validate_root_83_name(name)
+        entry = self.root_entry_offset(name)
+        if entry is not None:
+            if not (self.image[entry + 11] & FAT_ATTR_DIRECTORY):
+                raise FileExistsError(name)
+            return read_le16(self.image, entry + 26)
+
+        entry = self.create_or_reuse_root_entry(name)
+        chain = self.allocate_clusters(1)
+        cluster = chain[0]
+        self._write_directory_entry(entry, name, FAT_ATTR_DIRECTORY, cluster, 0)
+
+        directory_start = self.cluster_offset(cluster)
+        self._write_directory_entry(directory_start, b".          ", FAT_ATTR_DIRECTORY, cluster, 0)
+        self._write_directory_entry(directory_start + 32, b"..         ", FAT_ATTR_DIRECTORY, 0, 0)
+        return cluster
+
+    def write_directory_file(self, directory_name, file_name, data):
+        directory_name = self.validate_root_83_name(directory_name)
+        file_name = self.validate_root_83_name(file_name)
+        directory_meta = self.root_file_metadata(directory_name)
+        if directory_meta is None or not directory_meta["is_directory"]:
+            raise FileNotFoundError(directory_name)
+
+        entry = self._directory_entry_offset(directory_meta["cluster"], file_name)
+        if entry is None:
+            entry = self._directory_free_entry_offset(directory_meta["cluster"])
+            self._write_directory_entry(entry, file_name, FAT_ATTR_ARCHIVE, 0, 0)
+        if self.image[entry + 11] & FAT_ATTR_DIRECTORY:
+            raise IsADirectoryError(file_name)
+
+        first_cluster = read_le16(self.image, entry + 26)
+        if first_cluster:
+            self.free_chain(first_cluster)
+        chain = self.allocate_clusters(clusters_for_size(len(data))) if data else ()
+        for index, cluster in enumerate(chain):
+            start = self.cluster_offset(cluster)
+            chunk = data[index * cluster_size():(index + 1) * cluster_size()]
+            self.image[start:start + len(chunk)] = chunk
+        self._write_directory_entry(entry, file_name, FAT_ATTR_ARCHIVE, chain[0] if chain else 0, len(data))
+        return chain
 
 
 def wad_name(name):

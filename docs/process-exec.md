@@ -57,6 +57,16 @@ to the caller.
 - The target process record also stores exec metadata for later proof and
   accounting: parent PID, exec count, `argc`, `argv`, `envp`, and `argv[0]`.
   These fields are populated from the same stack builder that crt0 consumes.
+- `waitpid()` uses that parent PID metadata instead of staying a blanket stub.
+  The current implementation scans the static process table for children of the
+  calling process, supports `pid == -1` and exact positive PIDs, validates a
+  non-null status pointer, reaps `EXITED`/`FAULTED` child records back to
+  `UNUSED`, and reports the stored exit status. It still returns `ENOSYS` for
+  live-child blocking and nonzero options because there is no sleep queue yet.
+- Open fd slots now carry owner PID, open-generation, and inheritance flag
+  metadata. That makes future fork/exec descriptor cloning auditable without
+  claiming support for descriptor duplication today; the current exec handoff
+  still resets the global fd table before entering the target image.
 - The initial Ring 3 probe is bootstrapped through the same stack builder before
   entering crt0. It receives `argc == 1`, `argv[0] == "USERPROB.ELF"`,
   `argv[1] == NULL`, and an empty `envp`, then verifies that `getpid()` reports
@@ -119,7 +129,8 @@ reports failure. Unsafe active-slot exec returns `-EACCES`; invalid pointers ret
 - Page-table structures and process records are still static, but exec targets
   now reuse slots with fresh PIDs and teardown of stale user PTEs. There is not
   yet dynamic child-slot growth or physical-frame reclamation.
-- This is enough to launch the probe and Doom, but it is not a robust Unix process
-  model. There is no `fork`/`exec` split, `wait`/reap lifecycle, process groups,
-  signal delivery, fd inheritance, dynamic child slots, or cleanup of a dead
-  process into reusable address-space resources.
+- This is enough to launch the probe and Doom, and exited child records now have
+  a real wait/reap path, but it is not a robust Unix process model. There is no
+  `fork`/`exec` split, wait blocking, process groups, signal delivery, fd
+  inheritance cloning, dynamic child slots, or physical-frame reclamation for
+  reusable address-space resources.

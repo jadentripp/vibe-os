@@ -22,8 +22,20 @@ CLAIMED_CLASSES = {
     "SB16",
 }
 
+CLAIMED_BOUNDARIES = {
+    "BIOS_BOOT": {"scope": "qemu-bios", "proof": "cloud-smoke"},
+    "IDE_ATA_PIO": {"scope": "qemu-ide", "proof": "cloud-smoke"},
+    "FAT16": {"scope": "generated-disk-image", "proof": "host-and-cloud"},
+    "PS2_KEYBOARD": {"scope": "qemu-ps2", "proof": "scripted-cloud-input"},
+    "PS2_MOUSE": {"scope": "qemu-ps2", "proof": "scripted-cloud-input"},
+    "PIT": {"scope": "qemu-pit", "proof": "cloud-smoke"},
+    "VBE_VGA": {"scope": "qemu-vbe-vga", "proof": "host-and-cloud"},
+    "SB16": {"scope": "qemu-sb16", "proof": "status-continuity"},
+}
+
 UNCLAIMED_CLASSES = {
     "UEFI",
+    "PCI_ENUMERATION",
     "AHCI",
     "USB",
     "SMP",
@@ -43,6 +55,7 @@ REQUIRED_MATRIX_PHRASES = (
     "VBE/VGA",
     "SB16",
     "UEFI boot is not implemented",
+    "General PCI bus/device/function enumeration is not implemented",
     "AHCI/SATA native storage is not implemented",
     "USB input and storage are not implemented",
     "Multiprocessor startup and scheduling are not implemented",
@@ -89,6 +102,10 @@ SUPPORT_RE = re.compile(
 OVERCLAIM_PATTERNS = (
     re.compile(r"\bsupports?\s+UEFI\b", re.IGNORECASE),
     re.compile(r"\bUEFI\s+support\b", re.IGNORECASE),
+    re.compile(r"\bsupports?\s+PCI\b", re.IGNORECASE),
+    re.compile(r"\bPCI\s+support\b", re.IGNORECASE),
+    re.compile(r"\bPCI\s+device\s+enumeration\b", re.IGNORECASE),
+    re.compile(r"\bPCI\s+enumeration\s+support\b", re.IGNORECASE),
     re.compile(r"\bsupports?\s+AHCI\b", re.IGNORECASE),
     re.compile(r"\bAHCI\s+support\b", re.IGNORECASE),
     re.compile(r"\bsupports?\s+USB\b", re.IGNORECASE),
@@ -166,10 +183,15 @@ def _validate_support_rows(text: str) -> dict[str, dict[str, str]]:
         row = rows[support_id]
         if row["status"] != "claimed":
             raise AssertionError(f"{support_id} must be status=claimed")
-        if row["scope"] == "none":
-            raise AssertionError(f"{support_id} needs a bounded non-none scope")
-        if row["proof"].startswith("future"):
-            raise AssertionError(f"{support_id} needs current proof, not future proof")
+        boundary = CLAIMED_BOUNDARIES[support_id]
+        if row["scope"] != boundary["scope"]:
+            raise AssertionError(
+                f"{support_id} scope must stay {boundary['scope']} until a new proof boundary exists"
+            )
+        if row["proof"] != boundary["proof"]:
+            raise AssertionError(
+                f"{support_id} proof must stay {boundary['proof']} until the matrix changes"
+            )
         if row["evidence"] == "none":
             raise AssertionError(f"{support_id} needs evidence")
 
@@ -179,6 +201,8 @@ def _validate_support_rows(text: str) -> dict[str, dict[str, str]]:
             raise AssertionError(f"{support_id} must be status=unclaimed")
         if row["scope"] != "none":
             raise AssertionError(f"{support_id} must keep scope=none until implemented")
+        if not (row["proof"].startswith("future") or row["proof"].endswith("hardware-proof")):
+            raise AssertionError(f"{support_id} must keep a future/dedicated proof boundary")
         if row["evidence"] != "none":
             raise AssertionError(f"{support_id} must keep evidence=none until implemented")
 
@@ -231,7 +255,7 @@ def main() -> int:
     unclaimed = sum(1 for row in rows.values() if row["status"] == "unclaimed")
     print(
         "hardware support matrix OK: "
-        f"{claimed} claimed QEMU-scoped classes, {unclaimed} unclaimed classes"
+        f"{claimed} bounded claimed classes, {unclaimed} unclaimed classes"
     )
     return 0
 

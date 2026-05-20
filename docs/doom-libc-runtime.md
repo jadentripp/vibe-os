@@ -75,11 +75,19 @@ loader: there are no directories, long filenames, dynamic process slots, or
 environment copying, and probe-class self-reexec is rejected while the current
 slot is active.
 
-`fork()` and `wait()/waitpid()` are deliberately classified rather than faked:
-`fork()` returns `ENOSYS` until process cloning has real address-space and file
-descriptor semantics, and `wait()/waitpid()` return `ECHILD` because no child
-process table exists yet. This gives POSIX-looking ports stable errno behavior
-without pretending that clone/wait lifecycle semantics are implemented.
+`fork()` is deliberately classified rather than faked: it returns `ENOSYS`
+until process cloning has real address-space and file descriptor semantics.
+`wait()/waitpid()` now enter a real process-table scanner. They return
+`ECHILD` when the current process has no matching child, validate a non-null
+status pointer, reap already-exited or faulted child records into `UNUSED`, and
+write the child's stored exit status. Blocking on a live child, process-group
+waits, and nonzero wait options still return explicit errors instead of
+pretending that scheduling/blocking semantics are implemented.
+
+The kernel fd table also records owner PID, open generation, and explicit
+inheritance flags for each allocated fd. This is metadata only for now: `fork()`
+does not clone descriptors yet, and the current exec handoff still resets the
+global fd table before entering the new image.
 
 ## Runtime proof
 

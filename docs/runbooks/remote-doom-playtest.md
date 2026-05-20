@@ -363,8 +363,8 @@ Call a remote human playtest credible only after checking all of this:
   remote listening notes exist.
 - Doom exit/reboot behavior is not polished for a human session.
 - Hardware support remains bounded to the QEMU BIOS/IDE/PS2/VBE/SB16 target in
-  `docs/hardware-support.md`; this runbook does not prove UEFI, AHCI, USB, SMP,
-  APIC, HPET, or physical-hardware support.
+  `docs/hardware-support.md`; this runbook does not prove UEFI, PCI
+  enumeration, AHCI, USB, SMP, APIC, HPET, or physical-hardware support.
 
 Cleanup:
 

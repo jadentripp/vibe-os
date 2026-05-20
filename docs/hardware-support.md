@@ -24,6 +24,7 @@ The `SUPPORT[...]` rows are machine-readable. Keep the `status`, `scope`,
 | VBE/VGA | Claimed | QEMU VBE XRGB8888 LFB when available, VGA Mode 13h fallback | Cloud non-pixel status plus host framebuffer contract | Broad VBE mode matrix, GOP/UEFI framebuffer, physical GPU coverage |
 | SB16 | Claimed | QEMU ISA SB16-compatible guest device at `0x220` with status-visible IRQ/DMA/mixer counters | Status-only SB16 continuity checker; audible aggregate proof only when `audio-proof.json` passes | AC97/HDA/USB audio, physical sound cards, human-audible proof by default |
 | UEFI | Unclaimed | None | Future proof required before mention as supported | UEFI boot is not implemented |
+| PCI enumeration | Unclaimed | None | Future proof required before mention as supported | General PCI bus/device/function enumeration is not implemented; AHCI and USB controllers are not discovered through PCI |
 | AHCI | Unclaimed | None | Future proof required before mention as supported | AHCI/SATA native storage is not implemented |
 | USB | Unclaimed | None | Future proof required before mention as supported | USB input and storage are not implemented |
 | SMP | Unclaimed | None | Future proof required before mention as supported | Multiprocessor startup and scheduling are not implemented |
@@ -40,6 +41,7 @@ The `SUPPORT[...]` rows are machine-readable. Keep the `status`, `scope`,
 - `SUPPORT[VBE_VGA] status=claimed scope=qemu-vbe-vga proof=host-and-cloud evidence=framebuffer-status`
 - `SUPPORT[SB16] status=claimed scope=qemu-sb16 proof=status-continuity evidence=audio-status`
 - `SUPPORT[UEFI] status=unclaimed scope=none proof=future-device-class-proof evidence=none`
+- `SUPPORT[PCI_ENUMERATION] status=unclaimed scope=none proof=future-device-class-proof evidence=none`
 - `SUPPORT[AHCI] status=unclaimed scope=none proof=future-device-class-proof evidence=none`
 - `SUPPORT[USB] status=unclaimed scope=none proof=future-device-class-proof evidence=none`
 - `SUPPORT[SMP] status=unclaimed scope=none proof=future-device-class-proof evidence=none`

@@ -168,8 +168,8 @@ See `docs/graphics.md` for the VBE/Mode 13h framebuffer contract and current
 scaler limits.
 
 See `docs/hardware-support.md` for the support matrix that separates claimed
-QEMU BIOS/IDE/PS2/VBE/SB16 device classes from unclaimed UEFI, AHCI, USB, SMP,
-APIC, HPET, and physical-hardware support.
+QEMU BIOS/IDE/PS2/VBE/SB16 device classes from unclaimed UEFI, PCI
+enumeration, AHCI, USB, SMP, APIC, HPET, and physical-hardware support.
 
 ## Run
 

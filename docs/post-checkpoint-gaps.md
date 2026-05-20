@@ -196,6 +196,10 @@ Current state:
   deletion, protected-file refusal, corrupt-chain rejection before mutation,
   FAT-copy agreement, duplicate-root/cross-link/orphaned-cluster rejection, and
   libc save/config file modes without launching QEMU.
+- Host image tests also cover a real FAT directory tree beyond Doom-shaped flat
+  files: root directory listing, read-only 8.3 subdirectory lookup/readback, and
+  checker rejection for orphaned or cross-linked clusters inside a
+  subdirectory.
 - `tools/check_doom_persistence_image.py` can inspect a mutated remote image and
   require complete Doom-shaped `DEFAULT.CFG` markers plus a `DOOMSAVN.DSG` save
   header with Doom 1.10 version text, plausible game-state bytes, and enough
@@ -207,8 +211,8 @@ Current state:
   root cluster, size, and bytes; that reboot comparison now requires the fresh
   baseline too.
   The same checker gate rejects divergent FAT copies, duplicate live root
-  entries, cross-linked chains, orphaned allocated clusters, and protected
-  WAD/ELF mutation.
+  entries, cross-linked chains, orphaned allocated clusters, malformed
+  directory ownership, and protected WAD/ELF mutation.
 - The kernel implements FAT16 cluster allocation/free/truncate over the disk
   image, with validate-before-free chain hardening, so the storage layer is no
   longer a read-only WAD loader.
@@ -217,6 +221,10 @@ Current state:
   reads back zero-filled gaps, both FAT copies stay synchronized, replacement
   frees stale clusters, and shrink/zero truncation restores the free-cluster
   budget.
+- This is not full POSIX: kernel syscalls are still root-level, and the
+  subdirectory support is currently a checker/tooling proof that the FAT layer
+  can account for directory-owned clusters without accepting leaks or
+  crosslinks.
 - The real-WAD workflow has an opt-in `persistence_proof` path that keeps the
   disk image inside the disposable runner, captures the fresh baseline
   immediately after rebuilding the real-WAD image, restores that baseline before
@@ -299,7 +307,11 @@ Current state:
   process VM-region metadata, `int 0x80`, Doom/probe table-backed `exec`,
   arbitrary root-level FAT16 `.ELF` exec into the reusable probe-class slot,
   syscall pointer validation, anonymous/private `mmap`, display `ioctl`, file
-  syscalls, and classified `fork`/`waitpid` failures.
+  syscalls, classified `fork` failures, and a bounded `waitpid` scanner that can
+  reap already-exited child records from the static process table.
+- File descriptor slots now carry owner PID, open-generation, and inheritance
+  flag metadata. Descriptor cloning is still absent, but future fork/exec work
+  has concrete fd state to copy or close instead of anonymous global slots.
 - The `SYS_EXEC` handoff now restores the caller if argv stack seeding or live
   syscall-frame patching fails after the target address space was activated, so
   the rollback counter no longer leaves a half-prepared target running.
@@ -325,8 +337,8 @@ Still missing:
   model, terminal device model, or POSIX delete-while-open behavior.
 - The process model is still a fixed-slot launch/switch contract with a generic
   probe-class exec fallback, not a robust Unix process model with dynamic PIDs,
-  reaping, fd inheritance, address-space teardown, or general child lifecycle
-  semantics.
+  wait blocking, fd inheritance cloning, physical-frame reclamation, or general
+  child lifecycle semantics.
 - The running kernel is still identity-mapped in low memory, process page-table
   allocation is not fully dynamic or reclaimed with process lifetime, user pages
   are still backed by identity-shaped frames, and 32-bit paging cannot enforce
@@ -406,10 +418,11 @@ Current state:
 Still missing:
 
 - There is no UEFI boot path, AHCI/SATA native driver, USB input/storage stack,
-  SMP, APIC/HPET coverage, general PCI enumeration beyond narrow device needs,
-  broad VBE mode matrix, or proof on physical hardware.
-- UEFI, AHCI, USB, SMP, APIC, HPET, and physical hardware remain unclaimed
-  `SUPPORT[...]` rows until a specific proof lane exists for each device class.
+  SMP, APIC/HPET coverage, general PCI enumeration, broad VBE mode matrix, or
+  proof on physical hardware.
+- UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and physical hardware
+  remain unclaimed `SUPPORT[...]` rows until a specific proof lane exists for
+  each device class.
 
 Executable gate:
 

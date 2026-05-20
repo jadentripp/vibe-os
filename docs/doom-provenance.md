@@ -85,9 +85,9 @@ Not honest yet:
   `linuxdoom-1.10` release
 - claiming POSIX completeness, full process isolation, or a general-purpose OS
   beyond the implemented Doom-oriented runtime
-- claiming UEFI, AHCI, USB, SMP, APIC, HPET, physical hardware, or broad PC
-  compatibility before the support matrix has a claimed row and proof for that
-  device class
+- claiming UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, physical
+  hardware, or broad PC compatibility before the support matrix has a claimed
+  row and proof for that device class
 
 Before saying "you can play Doom on vibe-os", require a current real-WAD cloud
 workflow pass, status proof that Doom reaches E1M1 gameplay, deterministic input

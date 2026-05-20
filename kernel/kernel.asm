@@ -239,6 +239,7 @@ USER_FD_COUNT equ 16
 FD_KIND_FREE equ 0
 FD_KIND_WAD equ 1
 FD_KIND_WRITABLE equ 2
+FD_INHERIT_EXEC equ 0x1
 WRITABLE_KNOWN_FILE_COUNT equ 7
 WRITABLE_FILE_COUNT equ 16
 WRITABLE_DEFAULT_CAPACITY equ 0x00004000
@@ -4394,6 +4395,9 @@ storage_init:
     mov dword [fd_indices + ebx * 4], 0
     mov dword [fd_offsets + ebx * 4], 0
     mov dword [fd_flags + ebx * 4], 0
+    mov dword [fd_owner_pids + ebx * 4], 0xffffffff
+    mov dword [fd_open_generations + ebx * 4], 0
+    mov dword [fd_inherit_flags + ebx * 4], 0
     inc ebx
     loop .clear_user_fds
     mov ecx, WRITABLE_FILE_COUNT
@@ -4531,6 +4535,15 @@ storage_init:
     mov dword [process_exec_last_error], 0
     mov byte [process_exec_reject_active_target], 0
     mov byte [sys_exec_path_buffer], 0
+    mov dword [process_wait_attempts], 0
+    mov dword [process_wait_reaps], 0
+    mov dword [process_wait_failures], 0
+    mov dword [process_wait_last_pid_arg], 0
+    mov dword [process_wait_last_status_ptr], 0
+    mov dword [process_wait_last_options], 0
+    mov dword [process_wait_last_reaped_pid], 0xffffffff
+    mov dword [process_wait_last_status], 0
+    mov dword [process_wait_seen_live_child], 0
 
     xor eax, eax
     mov edi, SECTOR_BUFFER_ADDR
@@ -5790,6 +5803,8 @@ fat_close_writable_fds_for_slot:
     mov dword [fd_indices + ebx * 4], 0
     mov dword [fd_offsets + ebx * 4], 0
     mov dword [fd_flags + ebx * 4], 0
+    mov dword [fd_owner_pids + ebx * 4], 0xffffffff
+    mov dword [fd_inherit_flags + ebx * 4], 0
 
 .next:
     inc ebx
@@ -5833,6 +5848,8 @@ fd_reset_all:
     mov dword [fd_indices + ebx * 4], 0
     mov dword [fd_offsets + ebx * 4], 0
     mov dword [fd_flags + ebx * 4], 0
+    mov dword [fd_owner_pids + ebx * 4], 0xffffffff
+    mov dword [fd_inherit_flags + ebx * 4], 0
     inc ebx
     loop .loop
 
@@ -5855,6 +5872,10 @@ fd_alloc:
 
 .found:
     mov byte [fd_status + ebx], 1
+    mov eax, [current_pid]
+    mov [fd_owner_pids + ebx * 4], eax
+    inc dword [fd_open_generations + ebx * 4]
+    mov dword [fd_inherit_flags + ebx * 4], FD_INHERIT_EXEC
     mov eax, ebx
     clc
     jmp .done
@@ -6333,6 +6354,9 @@ user_file_write:
     cmp edx, [writable_sizes + ebx * 4]
     jbe .loop
     mov [writable_sizes + ebx * 4], edx
+    mov eax, ebx
+    call fat_update_writable_size
+    jc .fail_io
     jmp .loop
 
 .ok:
@@ -6661,6 +6685,15 @@ scheduler_init:
     mov dword [process_last_teardown_pid], 0xffffffff
     mov dword [process_last_teardown_base], 0
     mov dword [process_last_teardown_end], 0
+    mov dword [process_wait_attempts], 0
+    mov dword [process_wait_reaps], 0
+    mov dword [process_wait_failures], 0
+    mov dword [process_wait_last_pid_arg], 0
+    mov dword [process_wait_last_status_ptr], 0
+    mov dword [process_wait_last_options], 0
+    mov dword [process_wait_last_reaped_pid], 0xffffffff
+    mov dword [process_wait_last_status], 0
+    mov dword [process_wait_seen_live_child], 0
 
     mov esi, process_kernel
     call process_reset_accounting
@@ -6970,6 +7003,118 @@ process_mark_current_faulted:
 
 .done:
     pop esi
+    ret
+
+process_waitpid_current:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov [process_wait_last_pid_arg], ebx
+    mov [process_wait_last_status_ptr], ecx
+    mov [process_wait_last_options], edx
+    inc dword [process_wait_attempts]
+    cmp edx, 0
+    jne .enosys
+    cmp ebx, 0xffffffff
+    je .pid_ok
+    cmp ebx, 0
+    jg .pid_ok
+    jmp .echild
+
+.pid_ok:
+    cmp ecx, 0
+    je .scan
+    mov eax, ecx
+    mov ebx, 4
+    call user_range_validate
+    jc .einval
+
+.scan:
+    mov dword [process_wait_seen_live_child], 0
+    mov esi, process_table
+    mov edi, PROCESS_SLOT_COUNT
+
+.scan_next:
+    cmp edi, 0
+    je .scan_done
+    cmp esi, process_kernel
+    je .advance
+    mov eax, [current_process_ptr]
+    cmp esi, eax
+    je .advance
+    mov eax, [esi + PROC_PARENT_PID]
+    cmp eax, [current_pid]
+    jne .advance
+    mov eax, [process_wait_last_pid_arg]
+    cmp eax, 0xffffffff
+    je .child_matches
+    cmp eax, [esi + PROC_PID]
+    jne .advance
+
+.child_matches:
+    mov eax, [esi + PROC_STATE]
+    cmp eax, PROC_STATE_EXITED
+    je .reap
+    cmp eax, PROC_STATE_FAULTED
+    je .reap
+    mov dword [process_wait_seen_live_child], 1
+    jmp .advance
+
+.advance:
+    add esi, PROCESS_RECORD_BYTES
+    dec edi
+    jmp .scan_next
+
+.scan_done:
+    cmp dword [process_wait_seen_live_child], 0
+    jne .enosys
+    jmp .echild
+
+.reap:
+    mov eax, [esi + PROC_PID]
+    mov [process_wait_last_reaped_pid], eax
+    mov ebx, [esi + PROC_EXIT_STATUS]
+    mov [process_wait_last_status], ebx
+    mov ecx, [process_wait_last_status_ptr]
+    cmp ecx, 0
+    je .reap_without_status
+    mov [ecx], ebx
+
+.reap_without_status:
+    inc dword [process_wait_reaps]
+    mov dword [esi + PROC_STATE], PROC_STATE_UNUSED
+    mov dword [esi + PROC_PARENT_PID], 0xffffffff
+    and dword [esi + PROC_VM_FLAGS], 0xfffffffe
+    mov eax, [process_wait_last_reaped_pid]
+    clc
+    jmp .done
+
+.einval:
+    inc dword [process_wait_failures]
+    mov eax, -ERRNO_EINVAL
+    stc
+    jmp .done
+
+.enosys:
+    inc dword [process_wait_failures]
+    mov eax, -ERRNO_ENOSYS
+    stc
+    jmp .done
+
+.echild:
+    inc dword [process_wait_failures]
+    mov eax, -ERRNO_ECHILD
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
     ret
 
 scheduler_prepare_live_preempt_probe:
@@ -8738,6 +8883,8 @@ syscall_handler:
     mov dword [fd_indices + eax * 4], 0
     mov dword [fd_offsets + eax * 4], 0
     mov dword [fd_flags + eax * 4], 0
+    mov dword [fd_owner_pids + eax * 4], 0xffffffff
+    mov dword [fd_inherit_flags + eax * 4], 0
     jmp .bad_syscall_eio
 
 .open_generic_root83:
@@ -8937,6 +9084,8 @@ syscall_handler:
     mov dword [fd_indices + eax * 4], 0
     mov dword [fd_offsets + eax * 4], 0
     mov dword [fd_flags + eax * 4], 0
+    mov dword [fd_owner_pids + eax * 4], 0xffffffff
+    mov dword [fd_inherit_flags + eax * 4], 0
 
 .close_ok:
     cmp byte [current_user_kind], USER_KIND_DOOM
@@ -9408,7 +9557,9 @@ syscall_handler:
     jmp .bad_syscall_enosys
 
 .waitpid:
-    jmp .bad_syscall_echild
+    call process_waitpid_current
+    jc .bad_syscall_from_eax
+    jmp .return
 
 .getpid:
     mov eax, [current_pid]
@@ -13082,6 +13233,9 @@ align 4
 fd_indices times USER_FD_COUNT dd 0
 fd_offsets times USER_FD_COUNT dd 0
 fd_flags times USER_FD_COUNT dd 0
+fd_owner_pids times USER_FD_COUNT dd 0xffffffff
+fd_open_generations times USER_FD_COUNT dd 0
+fd_inherit_flags times USER_FD_COUNT dd 0
 file_io_index dd 0
 file_io_user_ptr dd 0
 file_io_remaining dd 0
@@ -13152,6 +13306,15 @@ process_last_slot_generation dd 0
 process_last_teardown_pid dd 0xffffffff
 process_last_teardown_base dd 0
 process_last_teardown_end dd 0
+process_wait_attempts dd 0
+process_wait_reaps dd 0
+process_wait_failures dd 0
+process_wait_last_pid_arg dd 0
+process_wait_last_status_ptr dd 0
+process_wait_last_options dd 0
+process_wait_last_reaped_pid dd 0xffffffff
+process_wait_last_status dd 0
+process_wait_seen_live_child dd 0
 doom_exit_code dd 0
 doom_fault_addr dd 0
 doom_fault_eip dd 0
