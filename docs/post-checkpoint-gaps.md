@@ -429,9 +429,10 @@ Current state:
   `SHUTDOWN_PANIC_PROOF_HALT`, `SHUTDOWN_PANIC_PROOF_REBOOT`, and
   `SHUTDOWN_PANIC_PROOF_POWEROFF` on the disposable runner. The reboot phase
   captures status while the guest waits on CMOS RTC seconds, then uses
-  `-no-reboot` so the reset-control / PS/2 reset exits QEMU; the poweroff phase
-  captures status during the same guest-owned delay, omits `-no-shutdown`, and
-  requires the ACPI/QEMU poweroff request to exit QEMU.
+  `-no-reboot` so the reset-control / PS/2 reset exits QEMU, while also
+  omitting `-no-shutdown`; the poweroff phase captures status during the same
+  guest-owned delay, omits `-no-shutdown`, and requires the ACPI/QEMU poweroff
+  request to exit QEMU.
 
 Still missing:
 

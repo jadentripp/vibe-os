@@ -57,6 +57,7 @@ jobs:
 
             if [ "$mode" = "status-before-reset" ]; then
               expect_guest_exit=1
+              no_shutdown=0
             elif [ "$mode" = "status-before-poweroff" ]; then
               expect_guest_exit=1
               no_shutdown=0

@@ -316,6 +316,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "run_phase shutdown-halt SHUTDOWN_PANIC_PROOF_HALT status.shutdown-halt.txt",
         "run_phase shutdown-reboot SHUTDOWN_PANIC_PROOF_REBOOT status.shutdown-reboot.txt status-before-reset",
         "run_phase shutdown-poweroff SHUTDOWN_PANIC_PROOF_POWEROFF status.shutdown-poweroff.txt status-before-poweroff",
+        "if [ \"$mode\" = \"status-before-reset\" ]; then\n              expect_guest_exit=1\n              no_shutdown=0",
         "SMOKE_EXPECT_GUEST_EXIT=\"$expect_guest_exit\"",
         "SMOKE_SHUTDOWN_TIMEOUT=35",
         "SMOKE_NO_SHUTDOWN=\"$no_shutdown\"",

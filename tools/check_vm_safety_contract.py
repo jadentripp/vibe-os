@@ -92,6 +92,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "SHUTDOWN_PANIC_PROOF_HALT",
         "SHUTDOWN_PANIC_PROOF_REBOOT",
         "SHUTDOWN_PANIC_PROOF_POWEROFF",
+        "if [ \"$mode\" = \"status-before-reset\" ]; then\n              expect_guest_exit=1\n              no_shutdown=0",
         "--manifest build/shutdown-panic-proof/shutdown-panic-proof.json",
         "build/shutdown-panic-proof/**",
         "build/proof-*/*.log",
