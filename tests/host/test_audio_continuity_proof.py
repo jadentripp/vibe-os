@@ -21,6 +21,7 @@ def status_line(**overrides):
         "sfxmix": "00000001",
         "sfxq": "00000001:00000000:00000000:00000000",
         "sfxbytes": "00000400:00000400",
+        "sfxdma": "00000001:00000400",
         "sfxsrc": "00000001",
         "sfxlast": "00000001:00002B11:00000400",
         "voices": "00000002",
@@ -68,6 +69,7 @@ def snapshot_statuses():
             sfxmix="00000003",
             sfxq="00000002:00000000:00000000:00000000",
             sfxbytes="00000800:00000C00",
+            sfxdma="00000003:00000C00",
             sfxsrc="00000002",
             sfxlast="00000001:00002B11:00000400",
             audioirq="00000002",
@@ -84,6 +86,7 @@ def snapshot_statuses():
             sfxmix="00000004",
             sfxq="00000002:00000000:00000000:00000000",
             sfxbytes="00000800:00001000",
+            sfxdma="00000004:00001000",
             sfxsrc="00000002",
             audioirq="00000003",
             ack8="00000003",
@@ -99,6 +102,7 @@ def snapshot_statuses():
             sfxmix="00000005",
             sfxq="00000003:00000000:00000001:00000000",
             sfxbytes="00000C00:00001400",
+            sfxdma="00000005:00001400",
             sfxsrc="00000003",
             sfxlast="00000020:00002B11:00000400",
             audioirq="00000004",
@@ -115,6 +119,7 @@ def snapshot_statuses():
             sfxmix="00000006",
             sfxq="00000004:00000000:00000001:00000000",
             sfxbytes="00001000:00001800",
+            sfxdma="00000006:00001800",
             sfxsrc="00000004",
             sfxlast="0000003E:00002B11:00000400",
             audioirq="00000005",
@@ -132,6 +137,7 @@ def snapshot_statuses():
             sfxmix="00000008",
             sfxq="00000004:00000000:00000001:00000001",
             sfxbytes="00001000:00002000",
+            sfxdma="00000008:00002000",
             sfxsrc="00000004",
             sfxlast="0000003E:00002B11:00000400",
             audioirq="00000006",
@@ -524,6 +530,25 @@ class AudioContinuityProofTests(unittest.TestCase):
         snapshots = snapshot_statuses()
         snapshots["fire"] = snapshots["fire"].replace("sfxmix=00000003", "sfxmix=00000001")
         with self.assertRaisesRegex(AssertionError, "sfxmix=.*scripted fire SFX"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+            )
+
+    def test_rejects_sfx_submit_without_dma_refill_mix(self):
+        snapshots = snapshot_statuses()
+        for label, status in list(snapshots.items()):
+            snapshots[label] = status.replace("sfxdma=00000003:00000C00", "sfxdma=00000001:00000400")
+            snapshots[label] = snapshots[label].replace("sfxdma=00000004:00001000", "sfxdma=00000001:00000400")
+            snapshots[label] = snapshots[label].replace("sfxdma=00000005:00001400", "sfxdma=00000001:00000400")
+            snapshots[label] = snapshots[label].replace("sfxdma=00000006:00001800", "sfxdma=00000001:00000400")
+            snapshots[label] = snapshots[label].replace("sfxdma=00000008:00002000", "sfxdma=00000001:00000400")
+
+        with self.assertRaisesRegex(AssertionError, "sfxdma=.*SB16 DMA SFX refill"):
             check_audio_continuity_proof.validate_status(
                 snapshots["final"],
                 baseline_status=snapshots["baseline"],

@@ -26,6 +26,7 @@ REQUIRED_AUDIO_FIELDS = (
     "sfxmix",
     "sfxq",
     "sfxbytes",
+    "sfxdma",
     "sfxsrc",
     "sfxlast",
     "voices",
@@ -109,6 +110,7 @@ TUPLE_FIELDS = {
     "voiceq": 3,
     "sfxq": 4,
     "sfxbytes": 2,
+    "sfxdma": 2,
     "sfxlast": 3,
     "musicq": 2,
     "musicpull": 2,
@@ -120,6 +122,7 @@ SUMMARY_FIELDS = (
     "sfxmix",
     "sfxq",
     "sfxbytes",
+    "sfxdma",
     "sfxsrc",
     "sfxlast",
     "voices",
@@ -337,6 +340,25 @@ def _assert_tuple_component_progress(
         )
 
 
+def _assert_tuple_component_phase_progress(
+    snapshots: list[tuple[str, dict[str, str]]],
+    earlier_label: str,
+    later_label: str,
+    name: str,
+    count: int,
+    index: int,
+    reason: str,
+) -> None:
+    lookup = {label: fields for label, fields in snapshots}
+    earlier = _hex_tuple(lookup[earlier_label], name, earlier_label, count)[index]
+    later = _hex_tuple(lookup[later_label], name, later_label, count)[index]
+    if later <= earlier:
+        raise AssertionError(
+            f"{name}= {reason} counter must increase from {earlier_label} to {later_label}, "
+            f"got {earlier:08X}->{later:08X}"
+        )
+
+
 def _assert_tuple_component_min_delta(
     snapshots: list[tuple[str, dict[str, str]]],
     name: str,
@@ -517,6 +539,9 @@ def validate_status(
     sfx_submit, sfx_output = _hex_tuple(final_fields, "sfxbytes", "final", 2)
     if sfx_submit == 0 or sfx_output == 0:
         raise AssertionError("final sfxbytes= must prove submitted and SB16-output SFX PCM bytes")
+    sfx_dma_mixes, sfx_dma_bytes = _hex_tuple(final_fields, "sfxdma", "final", 2)
+    if sfx_dma_mixes == 0 or sfx_dma_bytes == 0:
+        raise AssertionError("final sfxdma= must prove SFX mixed during SB16 DMA refills")
     _, sfx_rate, sfx_length = _hex_tuple(final_fields, "sfxlast", "final", 3)
     if sfx_rate == 0 or sfx_length == 0:
         raise AssertionError("final sfxlast= must expose a nonzero SFX sample rate and padded length")
@@ -528,7 +553,14 @@ def validate_status(
     _assert_voice_lane_consistency(snapshots)
     for name in MONOTONIC_COUNTERS:
         _assert_nondecreasing(snapshots, name)
-    for name, count in (("play", 2), ("voiceq", 3), ("sfxq", 4), ("sfxbytes", 2), ("musicq", 2)):
+    for name, count in (
+        ("play", 2),
+        ("voiceq", 3),
+        ("sfxq", 4),
+        ("sfxbytes", 2),
+        ("sfxdma", 2),
+        ("musicq", 2),
+    ):
         _assert_tuple_nondecreasing(snapshots, name, count)
     _assert_tuple_nondecreasing(snapshots, "musicpull", 2)
     for name in PROGRESS_COUNTERS:
@@ -541,6 +573,26 @@ def validate_status(
     _assert_tuple_component_progress(snapshots, "sfxq", 4, 0, "scripted fire SFX submit")
     _assert_tuple_component_progress(snapshots, "sfxbytes", 2, 0, "scripted fire SFX submit bytes")
     _assert_tuple_component_progress(snapshots, "sfxbytes", 2, 1, "scripted fire SFX output bytes")
+    _assert_tuple_component_progress(snapshots, "sfxdma", 2, 0, "SB16 DMA SFX refill mix")
+    _assert_tuple_component_progress(snapshots, "sfxdma", 2, 1, "SB16 DMA SFX refill bytes")
+    _assert_tuple_component_phase_progress(
+        snapshots,
+        "baseline",
+        "fire",
+        "sfxdma",
+        2,
+        0,
+        "scripted fire SB16 DMA SFX refill mix",
+    )
+    _assert_tuple_component_phase_progress(
+        snapshots,
+        "baseline",
+        "fire",
+        "sfxdma",
+        2,
+        1,
+        "scripted fire SB16 DMA SFX refill bytes",
+    )
     for name, maximum in MAX_SAFETY_DELTAS.items():
         _assert_max_delta(snapshots, name, maximum, "audio safety")
     _assert_music_stream_mode(snapshots, require_pull_stream=require_pull_stream)
@@ -601,6 +653,7 @@ def validate_repo_contract() -> None:
                 "sfxmix= counts non-music Doom SFX only",
                 "sfxq=",
                 "sfxbytes=",
+                "sfxdma=",
                 "sfxsrc=",
                 "sfxlast=",
                 "VIBE_AUDIO_FLAG_WAD_SFX",
@@ -749,8 +802,8 @@ def main(argv: list[str]) -> int:
         return 1
 
     print(
-        "audio continuity proof OK: SB16 IRQ/refill, SFX, and kernel-visible "
-        "music stream counters progressed across status snapshots"
+        "audio continuity proof OK: SB16 IRQ/refill, SFX DMA refill, and "
+        "kernel-visible music stream counters progressed across status snapshots"
     )
     return 0
 

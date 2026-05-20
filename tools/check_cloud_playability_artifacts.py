@@ -189,6 +189,7 @@ HUMAN_SESSION_STATUS_FIELDS = (
     "vmmhfree",
     "doomsound",
     "sfxmix",
+    "sfxdma",
     "musicstream",
     "musicpull",
     "musicpos",
@@ -294,6 +295,7 @@ SOAK_PASS_CRITERIA = {
         "playback_started": True,
         "irq_refill_progress": True,
         "sfxmix_progress": True,
+        "sfxdma_progress": True,
         "music_stream_progress": True,
     },
     "audible_aggregate_proof": {
@@ -349,6 +351,7 @@ SOAK_STATUS_SUMMARY_FIELDS = (
     "vmmhfree",
     "doomsound",
     "sfxmix",
+    "sfxdma",
     "musicmix",
     "musicpos",
     "musicbuf",

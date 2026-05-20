@@ -822,7 +822,8 @@ class SourceContractTests(unittest.TestCase):
             "fault=00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000 "
             "panic=NONE shutdown=NONE "
             "doomsound=00000000 sfxmix=00000000 sfxq=00000000:00000000:00000000:00000000 "
-            "sfxbytes=00000000:00000000 sfxsrc=00000000 sfxlast=00000000:00000000:00000000 "
+            "sfxbytes=00000000:00000000 sfxdma=00000000:00000000 "
+            "sfxsrc=00000000 sfxlast=00000000:00000000:00000000 "
             "voices=00000000 sfxvoices=00000000 audioirq=00000000 ack8=00000000 ack16=00000000 "
             "refill=00000000 half=00000000 mixwrap=00000000 mixover=00000000 mixunder=00000000 mixclip=00000000 "
             "steal=00000000 pitchclamp=00000000 panclamp=00000000 musicvoices=00000000 musicmix=00000000 musicloop=00000000 "
@@ -1693,6 +1694,7 @@ class SourceContractTests(unittest.TestCase):
             'smoke_doomsound_text db " doomsound="',
             'smoke_sfxq_text db " sfxq="',
             'smoke_sfxbytes_text db " sfxbytes="',
+            'smoke_sfxdma_text db " sfxdma="',
             'smoke_sfxsrc_text db " sfxsrc="',
             'smoke_sfxlast_text db " sfxlast="',
             'smoke_sfxvoices_text db " sfxvoices="',
@@ -1737,6 +1739,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('grep -q "doomsound="', makefile)
         self.assertIn('grep -q "sfxq="', makefile)
         self.assertIn('grep -q "sfxbytes="', makefile)
+        self.assertIn('grep -q "sfxdma="', makefile)
         self.assertIn('grep -q "sfxsrc="', makefile)
         self.assertIn('grep -q "sfxlast="', makefile)
         self.assertIn('grep -q "sfxvoices="', makefile)

@@ -100,9 +100,10 @@ boot:
   menu bit without reading WAD or framebuffer artifacts.
 - `tools/check_audio_continuity_proof.py` is the remote-safe SB16 audio gate. It
   compares the same decoded status snapshots, requires `audio=SB16`, and proves
-  IRQ/refill, non-music SFX, music mixing, `voiceq=` stream-update counters,
-  and kernel-visible `musicpos=` progress without storing audio samples. This
-  is still not a full hardware-paced MUS/MIDI pull-stream proof.
+  IRQ/refill, non-music SFX, `sfxdma=` IRQ-refill SFX output, music mixing,
+  `voiceq=` stream-update counters, and kernel-visible `musicpos=` progress
+  without storing audio samples. This is still not a kernel-owned MUS/MIDI
+  renderer proof.
 - `tools/check_audible_audio_proof.py` is the optional remote audible-output
   gate. In cloud it analyzes a temporary QEMU WAV capture into aggregate
   `audio-proof.json`, validates non-silent duration/window/RMS/peak metrics tied

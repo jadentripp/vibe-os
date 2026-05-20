@@ -550,10 +550,10 @@ Call a remote human playtest credible only after checking all of this:
   `build/disk.img`, the baseline, or the after-write snapshot because those
   images contain the WAD; keep only status/checker text when preserving proof.
 - Audio is described honestly: `audio=SB16` plus the audio continuity checker
-  proves the guest SB16 path advanced through IRQ/refill, SFX, and looped
-  music-carrier counters; audible remote sound requires separate host audio
-  forwarding or the aggregate `audio-proof.json` lane. Neither lane should
-  publish captured Doom audio.
+  proves the guest SB16 path advanced through IRQ/refill, SFX, `sfxdma=`
+  DMA-refill output, and looped music-carrier counters; audible remote sound
+  requires separate host audio forwarding or the aggregate `audio-proof.json`
+  lane. Neither lane should publish captured Doom audio.
 - Exit is handled through the QEMU monitor (`quit`) today. A graceful Doom
   quit-to-shell or reboot path is still a gap.
 - Shutdown/panic evidence is a separate opt-in OS smoke lane. When

@@ -3395,6 +3395,8 @@ audio_init:
     mov dword [sb16_sfx_last_length], 0
     mov dword [sb16_sfx_mix_count], 0
     mov dword [sb16_sfx_mix_bytes], 0
+    mov dword [sb16_sfx_dma_mix_count], 0
+    mov dword [sb16_sfx_dma_mix_bytes], 0
     mov dword [sb16_dma_write_pos], 0
     mov dword [sb16_mix_clip_count], 0
     mov dword [sb16_mix_underrun_count], 0
@@ -4617,6 +4619,8 @@ sb16_refill_active_half:
     inc dword [sb16_sfx_mix_count]
     add [sb16_sfx_mix_bytes], eax
     add [sb16_sfx_output_bytes], eax
+    inc dword [sb16_sfx_dma_mix_count]
+    add [sb16_sfx_dma_mix_bytes], eax
 
 .check_finished:
     mov eax, [sb16_voice_positions + ebx * 4]
@@ -13085,6 +13089,15 @@ write_smoke_status:
     mov edx, [sb16_sfx_output_bytes]
     call smoke_write_hex32
 
+    mov esi, smoke_sfxdma_text
+    call smoke_copy_string
+    mov edx, [sb16_sfx_dma_mix_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_sfx_dma_mix_bytes]
+    call smoke_write_hex32
+
     mov esi, smoke_sfxsrc_text
     call smoke_copy_string
     mov edx, [sb16_sfx_wad_start_count]
@@ -14402,6 +14415,7 @@ smoke_doomsound_text db " doomsound=", 0
 smoke_sfxmix_text db " sfxmix=", 0
 smoke_sfxq_text db " sfxq=", 0
 smoke_sfxbytes_text db " sfxbytes=", 0
+smoke_sfxdma_text db " sfxdma=", 0
 smoke_sfxsrc_text db " sfxsrc=", 0
 smoke_sfxlast_text db " sfxlast=", 0
 smoke_audiovoices_text db " voices=", 0
@@ -15167,6 +15181,8 @@ sb16_playback_stop_count dd 0
 sb16_dma_program_count dd 0
 sb16_sfx_mix_count dd 0
 sb16_sfx_mix_bytes dd 0
+sb16_sfx_dma_mix_count dd 0
+sb16_sfx_dma_mix_bytes dd 0
 sb16_dma_write_pos dd 0
 sb16_mix_clip_count dd 0
 sb16_mix_underrun_count dd 0

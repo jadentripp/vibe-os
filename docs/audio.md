@@ -27,8 +27,9 @@ Current kernel behavior:
 - accepts Doom SFX descriptors from the platform layer and reports real,
   non-music Doom SFX mixing as `sfxmix=<hex count>`
 - reports non-music SFX queue and asset-source proof as `sfxq=`,
-  `sfxbytes=`, `sfxsrc=`, and `sfxlast=`, so the cloud gate can distinguish
-  runtime WAD `DS*` SFX submits and SB16 output bytes from generic audio calls
+  `sfxbytes=`, `sfxdma=`, `sfxsrc=`, and `sfxlast=`, so the cloud gate can
+  distinguish runtime WAD `DS*` SFX submits and SB16 DMA-refill output bytes
+  from generic audio calls
 - keeps a fixed eight-slot active voice table keyed by Doom sound handle, with
   sample pointer, length, fixed-point current position, volume, separation,
   pitch, panned left/right gains, pitch step, start order, and explicit voice
@@ -41,10 +42,10 @@ Current kernel behavior:
   back to the oldest music voice only if every slot is music, so new SFX stay
   bounded without usually cutting the music bed
 - reports audio init, playback, voice queue, IRQ, and mixer ring health in smoke status:
-  `sb16=`, `dma=`, `play=`, `voiceq=`, `sfxq=`, `sfxbytes=`, `sfxsrc=`,
-  `sfxlast=`, `musicq=`, `voices=`, `sfxvoices=`, `audioirq=`, `ack8=`,
-  `ack16=`, `refill=`, `half=`, `mixwrap=`, `mixover=`, `mixunder=`,
-  `mixclip=`, `steal=`, `pitchclamp=`, and `panclamp=`
+  `sb16=`, `dma=`, `play=`, `voiceq=`, `sfxq=`, `sfxbytes=`, `sfxdma=`,
+  `sfxsrc=`, `sfxlast=`, `musicq=`, `voices=`, `sfxvoices=`, `audioirq=`,
+  `ack8=`, `ack16=`, `refill=`, `half=`, `mixwrap=`, `mixover=`,
+  `mixunder=`, `mixclip=`, `steal=`, `pitchclamp=`, and `panclamp=`
 - reports music-carrier and stream-window health separately as `musicvoices=`,
   `musicmix=`, `musicloop=`, `musicpos=`, `musicbuf=`, `musicunder=`,
   `musicdrops=`, `musicstream=`, and `musicpull=`
@@ -109,11 +110,14 @@ look alive by themselves.
 
 `sfxq=<starts>:<stops>:<updates>:<finished>` counts only non-music Doom SFX
 voices, `sfxbytes=<submitted>:<output>` compares WAD-sourced PCM submitted by
-the platform with bytes mixed into SB16 half-buffer refills, `sfxsrc=` counts
-runtime WAD `DS*` sound submits, and `sfxlast=<id>:<rate>:<length>` records the
-latest non-music Doom SFX id, source sample rate, and padded sample length. The
-status-only cloud proof requires these to progress during scripted fire input,
-so a music-only or generic beep path cannot satisfy the SFX gate.
+the platform with bytes mixed into SB16 half-buffer refills, and
+`sfxdma=<mixes>:<bytes>` is incremented only by the IRQ-driven SB16
+half-buffer refill mixer when non-music SFX contribute bytes to the
+kernel-owned DMA ring. `sfxsrc=` counts runtime WAD `DS*` sound submits, and
+`sfxlast=<id>:<rate>:<length>` records the latest non-music Doom SFX id, source
+sample rate, and padded sample length. The status-only cloud proof requires
+these to progress during scripted fire input, so a music-only, generic beep, or
+submit-only path cannot satisfy the SFX gate.
 
 Separation follows Doom's original squared pan law in source-contract form:
 `left = volume - ((volume * (sep + 1)^2) >> 16)` and
@@ -190,9 +194,10 @@ Remote-safe continuity proof:
 `status.after-use.txt`, `status.after-menu.txt`, and `status.txt`. It requires
 `audio=SB16` in every snapshot, a nonzero `sb16=` DSP version, nonzero `dma=`
 programming and `play=` start counters, nonzero `voiceq=` and `musicq=` queue
-counters, nonzero `sfxq=`, `sfxbytes=`, `sfxsrc=`, and `sfxlast=` SFX-source
-proof, monotonic audio counters, increasing IRQ/refill, non-music SFX
-`sfxmix=`, runtime WAD SFX source `sfxsrc=`, music `musicmix=` counters,
+counters, nonzero `sfxq=`, `sfxbytes=`, `sfxdma=`, `sfxsrc=`, and `sfxlast=`
+SFX-source proof, monotonic audio counters, increasing IRQ/refill, non-music SFX
+`sfxmix=`, SB16-refill-side SFX `sfxdma=`, runtime WAD SFX source `sfxsrc=`,
+music `musicmix=` counters,
 increasing `musicpos=`, a progressing `voiceq=` stream-update component,
 visible `musicbuf=` / `musicunder=` / `musicdrops=` health fields,
 `musicstream=PULL` for the current
@@ -202,11 +207,12 @@ for hardware-paced request/service evidence, coherent lane accounting where
 `musicvoices=`, at least one active music voice snapshot, at least one buffered
 music-window snapshot, and nonzero SB16 ACK accounting. SFX
 lane proof is cumulative: `sfxmix=` must progress even if every captured
-snapshot lands after the short SFX voice has drained, and `sfxbytes=` must show
-both submitted and output PCM byte progress. That proves the emulated SB16 guest
-path was initialized, DMA-programmed, started, queued, and continued to refill
-and mix both Doom SFX and streamed music chunks across time without uploading
-proprietary WAD data, PCM samples, or rendered pixels. A run with
+snapshot lands after the short SFX voice has drained, and `sfxbytes=` plus
+`sfxdma=` must show both submitted PCM and IRQ-refill DMA output byte progress.
+That proves the emulated SB16 guest path was initialized, DMA-programmed,
+started, queued, and continued to refill and mix both Doom SFX and streamed
+music chunks across time without uploading proprietary WAD data, PCM samples, or
+rendered pixels. A run with
 `audio=NONE` is still useful diagnostics, but it is not an audible/streaming
 audio proof.
 
@@ -234,10 +240,11 @@ counters, WAD-lump asset provenance, and a status-only SB16 continuity summary
 from the same phase
 snapshots. The audible checker refuses to write or
 validate the manifest if only the music path progresses while `sfxmix=` stays
-flat, and its continuity summary now records separate `mix_lanes` deltas for
-non-music SFX, music, stream updates, music position, and shared SB16 IRQ/refill
-progress plus a `stream_health` object with buffer floor/peak/final values,
-under/drop deltas, and position-per-update metadata. It also records
+flat or while `sfxdma=` fails to advance through the IRQ refill path, and its
+continuity summary now records separate `mix_lanes` deltas for non-music SFX,
+music, stream updates, music position, and shared SB16 IRQ/refill progress plus
+a `stream_health` object with buffer floor/peak/final values, under/drop deltas,
+and position-per-update metadata. It also records
 `stream_contract` metadata that records `musicstream=PULL`, `mixer_safety`
 thresholds for clip-free, underrun-free, and
 drop-free playback, plus a scripted fire-phase proof so a manifest cannot pass

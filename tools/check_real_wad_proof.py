@@ -173,6 +173,7 @@ SUMMARY_FIELDS = (
     "doompal",
     "doomframe",
     "sfxmix",
+    "sfxdma",
     "sfxvoices",
     "musicvoices",
     "musicmix",
@@ -446,6 +447,7 @@ def _validate_core_status(status: str) -> None:
     sb16_version = _colon_tuple_field(status, "sb16", 2)
     play = _colon_tuple_field(status, "play", 2)
     voiceq = _colon_tuple_field(status, "voiceq", 3)
+    _colon_tuple_field(status, "sfxdma", 2)
     musicq = _colon_tuple_field(status, "musicq", 2)
 
     attempts, successes, failures, handoffs, scheduled, rollbacks = _hex_tuple_field(
