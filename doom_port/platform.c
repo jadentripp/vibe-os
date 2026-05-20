@@ -530,15 +530,16 @@ static void checkpoint_default_config_if_needed(void)
 
 static void checkpoint_save_slot_if_needed(void)
 {
-    if (save_checkpoint_done || !save_checkpoint_requested_once())
-        return;
-    if (!default_config_checkpoint_ready()
+    if (save_checkpoint_done
+        || !default_config_checkpoint_ready()
         || menuactive
         || sendsave
         || savedescription[0]
         || gameaction != ga_nothing) {
         return;
     }
+    if (!save_checkpoint_requested_once())
+        return;
 
     savegameslot = save_checkpoint_slot;
     strcpy(savedescription, "VIBE SAVE");
@@ -551,15 +552,16 @@ static void checkpoint_load_slot_if_needed(void)
 {
     char path[] = "doomsav0.dsg";
 
-    if (load_checkpoint_done || !load_checkpoint_requested_once())
-        return;
-    if (!default_config_checkpoint_ready()
+    if (load_checkpoint_done
+        || !default_config_checkpoint_ready()
         || menuactive
         || sendsave
         || savedescription[0]
         || gameaction != ga_nothing) {
         return;
     }
+    if (!load_checkpoint_requested_once())
+        return;
 
     path[7] = (char)('0' + load_checkpoint_slot);
     G_LoadGame(path);
@@ -830,9 +832,9 @@ void G_BuildTiccmd(ticcmd_t* cmd)
 
 void G_Ticker(void)
 {
+    doom_original_G_Ticker();
     checkpoint_save_slot_if_needed();
     checkpoint_load_slot_if_needed();
-    doom_original_G_Ticker();
 
     if (gameaction == ga_savegame && savedescription[0])
         G_DoSaveGame();

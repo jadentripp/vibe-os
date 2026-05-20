@@ -304,6 +304,10 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("doom_original_G_BuildTiccmd(cmd);", platform)
         self.assertIn("void G_Ticker(void)", platform)
         self.assertIn("doom_original_G_Ticker();", platform)
+        self.assertLess(
+            platform.index("doom_original_G_Ticker();", platform.index("void G_Ticker(void)")),
+            platform.index("checkpoint_save_slot_if_needed();", platform.index("void G_Ticker(void)")),
+        )
         self.assertIn("if (gameaction == ga_savegame && savedescription[0])", platform)
         self.assertIn("G_DoSaveGame();", platform)
         self.assertIn("(cmd->buttons & BT_SPECIALMASK) != BTS_SAVEGAME", platform)
