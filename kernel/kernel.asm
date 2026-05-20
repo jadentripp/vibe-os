@@ -11178,7 +11178,12 @@ write_smoke_status:
     cmp byte [process_exec_status], 1
     jne .user_fail_text
     cmp byte [doom_run_status], 1
-    jne .user_fail_text
+    je .user_check_live_doom
+    cmp byte [doom_run_status], 2
+    je .user_ok_from_doom
+    jmp .user_fail_text
+
+.user_check_live_doom:
     mov eax, [process_doom + PROC_STATE]
     cmp eax, PROC_STATE_READY
     je .user_ok_from_doom
@@ -11464,7 +11469,12 @@ draw_heap_status:
     cmp byte [process_exec_status], 1
     jne .user_fail_text
     cmp byte [doom_run_status], 1
-    jne .user_fail_text
+    je .user_check_live_doom
+    cmp byte [doom_run_status], 2
+    je .user_ok_from_doom
+    jmp .user_fail_text
+
+.user_check_live_doom:
     mov eax, [process_doom + PROC_STATE]
     cmp eax, PROC_STATE_READY
     je .user_ok_from_doom

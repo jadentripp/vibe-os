@@ -177,6 +177,10 @@ class ProcessExecContractTests(unittest.TestCase):
         for status_path in (write_smoke, draw_status):
             with self.subTest(status_path=status_path[:24]):
                 self.assertIn("cmp byte [doom_run_status], 1", status_path)
+                self.assertIn("je .user_check_live_doom", status_path)
+                self.assertIn("cmp byte [doom_run_status], 2", status_path)
+                self.assertIn("je .user_ok_from_doom", status_path)
+                self.assertIn(".user_check_live_doom:", status_path)
                 self.assertIn("mov eax, [process_doom + PROC_STATE]", status_path)
                 self.assertIn("cmp eax, PROC_STATE_READY", status_path)
                 self.assertIn("je .user_ok_from_doom", status_path)
