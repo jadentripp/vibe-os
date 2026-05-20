@@ -73,7 +73,12 @@ DOOM_ELF_MAX_BYTES equ DOOM_ELF_LIMIT - DOOM_ELF_LOAD_ADDR
 DOOM_USER_BASE equ DOOM_ELF_LOAD_ADDR
 DOOM_USER_HEAP_START equ 0x01900000
 DOOM_USER_HEAP_END equ 0x01f00000
+DOOM_USER_STACK_BOTTOM equ DOOM_USER_HEAP_END
+DOOM_USER_STACK_TOP equ DOOM_ELF_LIMIT
 DOOM_USER_END equ DOOM_ELF_LIMIT
+USER_KIND_NONE equ 0
+USER_KIND_PROBE equ 1
+USER_KIND_DOOM equ 2
 C_RUNTIME_MAGIC equ 0xC0DEF00D
 ELF_MAGIC equ 0x464c457f
 ELFCLASS32 equ 1
@@ -155,6 +160,25 @@ start:
     call user_probe_run
 
 user_probe_finished:
+    mov ax, DATA_SEG
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    mov esp, KERNEL_STACK_TOP
+    mov byte [current_user_kind], USER_KIND_NONE
+    call doom_user_run
+
+doom_user_finished:
+    mov ax, DATA_SEG
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    mov esp, KERNEL_STACK_TOP
+    mov byte [current_user_kind], USER_KIND_NONE
     call clear_screen
     mov esi, banner
     call print_string
@@ -2130,6 +2154,19 @@ storage_init:
     mov dword [current_user_end], 0
     mov dword [current_user_brk], 0
     mov dword [current_user_heap_end], 0
+    mov dword [current_syscall_number], 0
+    mov byte [current_user_kind], USER_KIND_NONE
+    mov byte [doom_run_status], 0
+    mov dword [doom_exit_code], 0
+    mov dword [doom_fault_addr], 0
+    mov dword [doom_last_syscall], 0
+    mov dword [doom_open_count], 0
+    mov dword [doom_read_count], 0
+    mov dword [doom_lseek_count], 0
+    mov dword [doom_write_count], 0
+    mov dword [doom_sbrk_count], 0
+    mov dword [doom_present_count], 0
+    mov dword [doom_wad_magic_seen], 0
     mov byte [present_status], 0
     mov dword [present_frame_arg], 0
     mov dword [present_palette_arg], 0
@@ -2834,6 +2871,7 @@ idt_set_gate_attr:
     ret
 
 user_probe_run:
+    mov byte [current_user_kind], USER_KIND_PROBE
     mov byte [user_probe_status], 0
     mov byte [user_fault_expected], 0
     mov byte [user_fault_status], 0
@@ -2884,6 +2922,58 @@ user_probe_run:
 
 .fail:
     mov byte [user_probe_status], 2
+    ret
+
+doom_user_run:
+    mov byte [doom_run_status], 0
+    mov dword [doom_exit_code], 0
+    mov dword [doom_fault_addr], 0
+    mov dword [doom_last_syscall], 0
+    mov dword [doom_open_count], 0
+    mov dword [doom_read_count], 0
+    mov dword [doom_lseek_count], 0
+    mov dword [doom_write_count], 0
+    mov dword [doom_sbrk_count], 0
+    mov dword [doom_present_count], 0
+    mov dword [doom_wad_magic_seen], 0
+    mov dword [user_wad_fd_offset], 0
+    mov dword [user_brk_current], DOOM_USER_HEAP_START
+    mov dword [current_user_base], DOOM_USER_BASE
+    mov dword [current_user_end], DOOM_USER_END
+    mov dword [current_user_brk], DOOM_USER_HEAP_START
+    mov dword [current_user_heap_end], DOOM_USER_HEAP_END
+
+    cmp byte [doom_elf_parse_status], 1
+    jne .fail
+
+    cld
+    mov edi, DOOM_USER_HEAP_START
+    xor eax, eax
+    mov ecx, (DOOM_USER_END - DOOM_USER_HEAP_START) / 4
+    rep stosd
+
+    mov dword [tss_esp0], KERNEL_STACK_TOP
+    mov word [tss_ss0], DATA_SEG
+    mov byte [current_user_kind], USER_KIND_DOOM
+    mov byte [doom_run_status], 1
+
+    call pic_unmask_timer
+
+    mov ax, USER_DATA_SEG
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+
+    push dword USER_DATA_SEG
+    push dword DOOM_USER_STACK_TOP
+    push dword 0x00000202
+    push dword USER_CODE_SEG
+    push dword [doom_entry_addr]
+    iretd
+
+.fail:
+    mov byte [doom_run_status], 4
     ret
 
 user_elf_prepare:
@@ -3132,6 +3222,12 @@ syscall_handler:
     push edi
     push ebp
 
+    mov [current_syscall_number], eax
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    jne .dispatch
+    mov [doom_last_syscall], eax
+
+.dispatch:
     cmp eax, SYS_USER_PROBE
     je .user_probe
     cmp eax, SYS_EXIT
@@ -3196,6 +3292,11 @@ syscall_handler:
 
 .write_done:
     mov eax, [syscall_len_arg]
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    jne .write_return
+    inc dword [doom_write_count]
+
+.write_return:
     jmp .return
 
 .sbrk:
@@ -3207,6 +3308,11 @@ syscall_handler:
     ja .bad_syscall
     mov [current_user_brk], edx
     mov [user_brk_current], edx
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    jne .sbrk_return
+    inc dword [doom_sbrk_count]
+
+.sbrk_return:
     jmp .return
 
 .open:
@@ -3224,6 +3330,11 @@ syscall_handler:
     jne .bad_syscall
     mov dword [user_wad_fd_offset], 0
     mov eax, USER_FD_WAD
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    jne .open_return
+    inc dword [doom_open_count]
+
+.open_return:
     jmp .return
 
 .read:
@@ -3256,8 +3367,18 @@ syscall_handler:
     mov edi, [syscall_ptr_arg]
     mov edx, [edi]
     mov [user_wad_magic_seen], edx
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    jne .read_done
+    mov [doom_wad_magic_seen], edx
 
 .read_done:
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    jne .read_return
+    cmp eax, 0
+    je .read_return
+    inc dword [doom_read_count]
+
+.read_return:
     jmp .return
 
 .lseek:
@@ -3290,6 +3411,11 @@ syscall_handler:
     cmp eax, [wad_size]
     ja .bad_syscall
     mov [user_wad_fd_offset], eax
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    jne .seek_return
+    inc dword [doom_lseek_count]
+
+.seek_return:
     jmp .return
 
 .time:
@@ -3313,6 +3439,11 @@ syscall_handler:
     jc .bad_syscall
     call present_indexed_frame
     jc .bad_syscall
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    jne .present_return
+    inc dword [doom_present_count]
+
+.present_return:
     xor eax, eax
     jmp .return
 
@@ -3321,6 +3452,8 @@ syscall_handler:
     jmp .return
 
 .exit:
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    je .doom_exit
     mov byte [user_probe_status], 2
     mov ax, DATA_SEG
     mov ds, ax
@@ -3330,6 +3463,18 @@ syscall_handler:
     mov ss, ax
     mov esp, KERNEL_STACK_TOP
     jmp user_probe_finished
+
+.doom_exit:
+    mov [doom_exit_code], ebx
+    mov byte [doom_run_status], 2
+    mov ax, DATA_SEG
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    mov esp, KERNEL_STACK_TOP
+    jmp doom_user_finished
 
 .return:
     pop ebp
@@ -3420,14 +3565,30 @@ page_fault_handler:
     mov gs, ax
     mov ss, ax
     mov esp, KERNEL_STACK_TOP
+    mov byte [current_user_kind], USER_KIND_NONE
     jmp user_probe_finished
 
 exception_halt:
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    je doom_user_fault
     cli
 
 .halt:
     hlt
     jmp .halt
+
+doom_user_fault:
+    mov byte [doom_run_status], 3
+    mov eax, cr2
+    mov [doom_fault_addr], eax
+    mov ax, DATA_SEG
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    mov esp, KERNEL_STACK_TOP
+    jmp doom_user_finished
 
 irq_timer:
     pushad
@@ -3534,6 +3695,65 @@ write_smoke_status:
     mov esi, smoke_fail_text
 
 .doom_write:
+    call smoke_copy_string
+
+    mov esi, smoke_doomrun_text
+    call smoke_copy_string
+    cmp byte [doom_run_status], 1
+    je .doomrun_running
+    cmp byte [doom_run_status], 2
+    je .doomrun_exited
+    cmp byte [doom_run_status], 3
+    je .doomrun_faulted
+    cmp byte [doom_run_status], 4
+    je .doomrun_failed
+    mov esi, smoke_wait_text
+    jmp .doomrun_write
+
+.doomrun_running:
+    mov esi, smoke_run_text
+    jmp .doomrun_write
+
+.doomrun_exited:
+    mov esi, smoke_exit_text
+    jmp .doomrun_write
+
+.doomrun_faulted:
+    mov esi, smoke_fault_text
+    jmp .doomrun_write
+
+.doomrun_failed:
+    mov esi, smoke_fail_text
+
+.doomrun_write:
+    call smoke_copy_string
+
+    mov esi, smoke_doomopen_text
+    call smoke_copy_string
+    cmp dword [doom_open_count], 0
+    je .doomopen_fail
+    mov esi, smoke_ok_text
+    jmp .doomopen_write
+
+.doomopen_fail:
+    mov esi, smoke_fail_text
+
+.doomopen_write:
+    call smoke_copy_string
+
+    mov esi, smoke_doomread_text
+    call smoke_copy_string
+    cmp dword [doom_read_count], 0
+    je .doomread_fail
+    cmp dword [doom_wad_magic_seen], 0x44415749
+    jne .doomread_fail
+    mov esi, smoke_ok_text
+    jmp .doomread_write
+
+.doomread_fail:
+    mov esi, smoke_fail_text
+
+.doomread_write:
     call smoke_copy_string
 
     mov esi, smoke_gfx_text
@@ -4179,10 +4399,17 @@ doom_status_mem_label db " mem=", 0
 gfx_status_label db " gfx=", 0
 smoke_banner_text db "Aurora OS v0.2 ", 0
 smoke_doom_text db "doom=", 0
+smoke_doomrun_text db " doomrun=", 0
+smoke_doomopen_text db " doomopen=", 0
+smoke_doomread_text db " doomread=", 0
 smoke_gfx_text db " gfx=", 0
 smoke_status_text db " ", 0
 smoke_ok_text db "OK", 0
 smoke_fail_text db "FAIL", 0
+smoke_wait_text db "WAIT", 0
+smoke_run_text db "RUN", 0
+smoke_exit_text db "EXIT", 0
+smoke_fault_text db "FAULT", 0
 heap_status_gap db " ", 0
 ok_text db "OK", 13, 10, 0
 fail_text db "FAIL", 13, 10, 0
@@ -4298,6 +4525,8 @@ doom_elf_status db 0
 doom_elf_load_status db 0
 doom_elf_parse_status db 0
 doom_user_window_status db 0
+current_user_kind db 0
+doom_run_status db 0
 ata_status db 0
 fat_status db 0
 wad_status db 0
@@ -4358,6 +4587,17 @@ current_user_base dd 0
 current_user_end dd 0
 current_user_brk dd 0
 current_user_heap_end dd 0
+current_syscall_number dd 0
+doom_exit_code dd 0
+doom_fault_addr dd 0
+doom_last_syscall dd 0
+doom_open_count dd 0
+doom_read_count dd 0
+doom_lseek_count dd 0
+doom_write_count dd 0
+doom_sbrk_count dd 0
+doom_present_count dd 0
+doom_wad_magic_seen dd 0
 present_frame_arg dd 0
 present_palette_arg dd 0
 present_sample_first dd 0

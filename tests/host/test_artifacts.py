@@ -259,13 +259,36 @@ class SourceContractTests(unittest.TestCase):
             "DOOM_ELF_LIMIT equ 0x02000000",
             "DOOM_USER_HEAP_START equ 0x01900000",
             "DOOM_USER_HEAP_END equ 0x01f00000",
+            "DOOM_USER_STACK_BOTTOM equ DOOM_USER_HEAP_END",
+            "DOOM_USER_STACK_TOP equ DOOM_ELF_LIMIT",
             "fat_load_doom_elf:",
             "doom_elf_prepare:",
+            "doom_user_run:",
             "draw_doom_status:",
         ):
             self.assertIn(source, kernel)
         makefile = (ROOT / "Makefile").read_text()
         self.assertIn('grep -q "doom=OK"', makefile)
+
+    def test_kernel_launches_loaded_doom_elf_in_ring3_smoke(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        makefile = (ROOT / "Makefile").read_text()
+        self.assertIn("USER_KIND_DOOM equ 2", kernel)
+        self.assertIn("call doom_user_run", kernel)
+        self.assertIn("push dword DOOM_USER_STACK_TOP", kernel)
+        self.assertIn("push dword [doom_entry_addr]", kernel)
+        self.assertIn("mov byte [doom_run_status], 1", kernel)
+        self.assertIn("mov byte [doom_run_status], 2", kernel)
+        self.assertIn("doom_user_fault:", kernel)
+        self.assertIn("doom_open_count", kernel)
+        self.assertIn("doom_read_count", kernel)
+        self.assertIn("doom_wad_magic_seen", kernel)
+        self.assertIn("doomrun=", kernel)
+        self.assertIn("doomopen=", kernel)
+        self.assertIn("doomread=", kernel)
+        self.assertIn('grep -Eq "doomrun=(RUN|EXIT)"', makefile)
+        self.assertIn('grep -q "doomopen=OK"', makefile)
+        self.assertIn('grep -q "doomread=OK"', makefile)
 
     def test_user_syscalls_validate_against_current_process_window(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()

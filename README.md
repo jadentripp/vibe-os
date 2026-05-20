@@ -177,14 +177,19 @@ Already implemented:
 - Stage 2 enters VGA mode 13h before protected mode, while the cloud smoke
   reads kernel status from a normal RAM status block so graphics memory and
   boot status can be verified separately
+- after the Ring 3 probe, the kernel enters the loaded original `DOOM.ELF`
+  through its ELF entry point with a Doom-sized user stack/heap window; CI
+  verifies that Doom's user process opens and reads `DOOM1.WAD` through the
+  kernel syscall/FAT path
 
 Still required before this is actually Doom-capable:
 
 - higher-half kernel mapping and real user address spaces
 - scheduler, process table, per-process kernel stacks, and context switching
 - a broader syscall ABI: `exec`, `mmap`, fuller file I/O, input, and drawing
-- safe Ring 3 launch path for `linuxdoom-1.10` with its larger address space,
-  heap, and syscall surface
+- real `DOOM1.WAD` support in the build/cloud path, without committing game data
+- enough syscall/libc/file coverage for the original engine to progress past
+  startup errors from the current generated WAD fixture
 - POSIX-ish libc and file syscalls for Doom
 - complete framebuffer mode setup and input plumbing for interactive Doom
 - sound stack, or an explicit first Doom milestone that runs video/input with
