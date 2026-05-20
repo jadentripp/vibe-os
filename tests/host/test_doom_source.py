@@ -7,6 +7,8 @@ ROOT = Path(__file__).resolve().parents[2]
 DOOM_ROOT = ROOT / "third_party" / "doom"
 DOOM_SRC = DOOM_ROOT / "linuxdoom-1.10"
 BUILD = ROOT / "build" / "doom"
+DOOM_ELF = ROOT / "build" / "doom.elf"
+DOOM_BASE = 0x01000000
 
 UPSTREAM_COMMIT = "a77dfb96cb91780ca334d0d4cfd86957558007e0"
 
@@ -23,6 +25,14 @@ PRISTINE_HASHES = {
 
 def sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def u16(data, offset):
+    return int.from_bytes(data[offset:offset + 2], "little")
+
+
+def u32(data, offset):
+    return int.from_bytes(data[offset:offset + 4], "little")
 
 
 class DoomSourceTests(unittest.TestCase):
@@ -48,20 +58,35 @@ class DoomSourceTests(unittest.TestCase):
     def test_original_doom_modules_compile_as_freestanding_i386_objects(self):
         compiled_sources = [
             path for path in DOOM_SRC.glob("*.c")
-            if not path.name.startswith("i_") and path.name != "d_net.c"
+            if not path.name.startswith("i_")
         ]
-        self.assertEqual(len(compiled_sources), 56)
+        self.assertEqual(len(compiled_sources), 57)
         for source in compiled_sources:
             with self.subTest(name=source.name):
                 obj = BUILD / f"{source.stem}.o"
                 self.assertTrue(obj.exists())
                 self.assertGreater(obj.stat().st_size, 0)
+        self.assertTrue((BUILD / "d_net.o").exists())
 
     def test_linux_platform_sources_are_not_used_as_the_os_port(self):
-        excluded = ("i_main.c", "i_net.c", "i_sound.c", "i_system.c", "i_video.c", "d_net.c")
+        excluded = ("i_main.c", "i_net.c", "i_sound.c", "i_system.c", "i_video.c")
         for name in excluded:
             with self.subTest(name=name):
                 self.assertFalse((BUILD / f"{Path(name).stem}.o").exists())
+
+    def test_original_doom_links_against_vibe_os_platform_layer(self):
+        data = DOOM_ELF.read_bytes()
+        self.assertEqual(data[:4], b"\x7fELF")
+        self.assertEqual(data[4], 1)
+        self.assertEqual(data[5], 1)
+        self.assertEqual(u16(data, 16), 2)
+        self.assertEqual(u16(data, 18), 3)
+        self.assertGreaterEqual(u32(data, 24), DOOM_BASE)
+        self.assertEqual(u16(data, 44), 1)
+        program_header = u32(data, 28)
+        self.assertEqual(u32(data, program_header), 1)
+        self.assertEqual(u32(data, program_header + 8), DOOM_BASE)
+        self.assertGreater(u32(data, program_header + 20), 8 * 1024 * 1024)
 
 
 if __name__ == "__main__":

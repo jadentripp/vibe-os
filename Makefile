@@ -21,8 +21,12 @@ USER_PROBE_C_SRC := user/probe.c
 DOOM_SRC_DIR := third_party/doom/linuxdoom-1.10
 DOOM_PORT_INCLUDE_DIR := doom_port/include
 DOOM_PORT_BUILD_DIR := $(BUILD_DIR)/doom
-DOOM_ORIGINAL_SRCS := $(filter-out $(DOOM_SRC_DIR)/i_%.c $(DOOM_SRC_DIR)/d_net.c,$(wildcard $(DOOM_SRC_DIR)/*.c))
+DOOM_ELF := $(BUILD_DIR)/doom.elf
+DOOM_BASE := 0x01000000
+DOOM_ORIGINAL_SRCS := $(filter-out $(DOOM_SRC_DIR)/i_%.c,$(wildcard $(DOOM_SRC_DIR)/*.c))
 DOOM_ORIGINAL_OBJS := $(DOOM_ORIGINAL_SRCS:$(DOOM_SRC_DIR)/%.c=$(DOOM_PORT_BUILD_DIR)/%.o)
+DOOM_PORT_SRCS := doom_port/libc.c doom_port/platform.c doom_port/start.c
+DOOM_PORT_OBJS := $(DOOM_PORT_SRCS:doom_port/%.c=$(DOOM_PORT_BUILD_DIR)/port_%.o)
 FREESTANDING_I386_CFLAGS := -target i386-unknown-elf -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m32 -march=i386 -mno-sse -mno-mmx -msoft-float -O2
 DOOM_ORIGINAL_CFLAGS := $(FREESTANDING_I386_CFLAGS) -std=gnu89 -DNORMALUNIX -DLINUX -I$(DOOM_PORT_INCLUDE_DIR) -I$(DOOM_SRC_DIR)
 
@@ -30,15 +34,18 @@ STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 49152
 USER_PROBE_ELF_MAX_BYTES := 8192
 
-.PHONY: all test doom-compile run run-headless smoke clean check-tools vm-consent
+.PHONY: all test doom-compile doom-link run run-headless smoke clean check-tools vm-consent
 
 all: $(IMAGE)
 
-test: $(IMAGE) doom-compile
+test: $(IMAGE) doom-link
 	$(PYTHON) -m unittest discover -s tests/host -p 'test_*.py'
 
 doom-compile: $(DOOM_ORIGINAL_OBJS)
 	@printf "Compiled %s original Doom source files for freestanding i386.\n" "$$(printf '%s\n' $(DOOM_ORIGINAL_OBJS) | wc -l | tr -d ' ')"
+
+doom-link: $(DOOM_ELF)
+	@printf "Linked freestanding Doom ELF at %s\n" "$(DOOM_ELF)"
 
 check-tools:
 	@command -v $(NASM) >/dev/null || { echo "missing nasm"; exit 1; }
@@ -85,6 +92,12 @@ $(USER_PROBE_C_OBJ): $(USER_PROBE_C_SRC) | $(BUILD_DIR)
 
 $(DOOM_PORT_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c | $(DOOM_PORT_BUILD_DIR)
 	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) -c $< -o $@
+
+$(DOOM_PORT_BUILD_DIR)/port_%.o: doom_port/%.c | $(DOOM_PORT_BUILD_DIR)
+	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) -c $< -o $@
+
+$(DOOM_ELF): $(DOOM_ORIGINAL_OBJS) $(DOOM_PORT_OBJS) tools/link_elf32.py | $(BUILD_DIR)
+	$(PYTHON) tools/link_elf32.py -o $@ --base $(DOOM_BASE) $(DOOM_ORIGINAL_OBJS) $(DOOM_PORT_OBJS)
 
 $(USER_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_PROBE_C_OBJ) tools/link_elf32.py | $(BUILD_DIR)
 	$(PYTHON) tools/link_elf32.py -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_PROBE_C_OBJ)

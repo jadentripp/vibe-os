@@ -25,8 +25,9 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
 - freestanding C build path that compiles C into the booted kernel image
 - vendored official id Software Doom source release at
   `third_party/doom/linuxdoom-1.10`
-- freestanding i386 compile smoke for 56 unmodified original Doom engine
-  modules, excluding the Linux platform layer
+- freestanding i386 compile/link smoke for 57 unmodified original Doom engine
+  modules against the vibe-os platform layer, excluding only the Linux `i_*`
+  platform files
 - hard-path WAD loading through an ATA PIO IDE driver and a FAT16 reader
 - WAD header/directory parsing with named-lump lookup for Doom assets
 - text UI with an interactive shell
@@ -156,7 +157,8 @@ Already implemented:
 - kernel libc subset and a freestanding C probe linked from a clang ELF object
 - ATA PIO, MBR partition parsing, FAT16 root/cluster loading, and WAD parsing
 - official `linuxdoom-1.10` source import, with a no-modification provenance
-  policy and a freestanding compile smoke for the non-platform engine modules
+  policy and a freestanding link smoke for the original engine plus vibe-os
+  replacement `i_*` platform layer
 
 Still required before this is actually Doom-capable:
 

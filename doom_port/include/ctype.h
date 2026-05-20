@@ -6,6 +6,13 @@ static inline int isdigit(int ch)
     return ch >= '0' && ch <= '9';
 }
 
+static inline int isxdigit(int ch)
+{
+    return (ch >= '0' && ch <= '9')
+        || (ch >= 'a' && ch <= 'f')
+        || (ch >= 'A' && ch <= 'F');
+}
+
 static inline int islower(int ch)
 {
     return ch >= 'a' && ch <= 'z';

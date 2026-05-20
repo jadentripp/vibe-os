@@ -14,8 +14,12 @@ char* strcat(char* dest, const char* src);
 char* strncat(char* dest, const char* src, size_t count);
 int strcmp(const char* left, const char* right);
 int strncmp(const char* left, const char* right, size_t count);
+int strcasecmp(const char* left, const char* right);
+int strncasecmp(const char* left, const char* right, size_t count);
 char* strchr(const char* text, int ch);
 char* strrchr(const char* text, int ch);
 char* strdup(const char* text);
+
+#define strcmpi strcasecmp
 
 #endif

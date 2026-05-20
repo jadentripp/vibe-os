@@ -24,6 +24,7 @@ struct stat
 #define S_IWUSR 0000200
 
 int stat(const char* path, struct stat* out);
+int fstat(int fd, struct stat* out);
 int mkdir(const char* path, mode_t mode);
 
 #endif
