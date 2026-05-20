@@ -135,9 +135,16 @@ HEAP_PROBE_LAST_DWORD equ HEAP_PROBE_SIZE - 4
 HEAP_PROBE_MAGIC equ 0x464c4154
 HEAP_BLOCK_MAGIC_FREE equ 0x46524545
 HEAP_BLOCK_MAGIC_USED equ 0x55534544
+FAT_ROOT_CACHE_SECTORS equ 32
+FAT_TABLE_CACHE_SECTORS equ 256
+FAT_CACHE_BYTES equ FAT_TABLE_CACHE_SECTORS * 512 + FAT_ROOT_CACHE_SECTORS * 512
 SECTOR_BUFFER_ADDR equ 0x0009b000
 WAD_LOAD_ADDR equ 0x00900000
 WAD_MAX_BYTES equ 0x00500000
+FAT_TABLE_CACHE_ADDR equ WAD_LOAD_ADDR + WAD_MAX_BYTES
+FAT_ROOT_CACHE_ADDR equ FAT_TABLE_CACHE_ADDR + FAT_TABLE_CACHE_SECTORS * 512
+fat_table_cache equ FAT_TABLE_CACHE_ADDR
+fat_root_cache equ FAT_ROOT_CACHE_ADDR
 DOOM_ELF_LOAD_ADDR equ 0x01000000
 DOOM_ELF_LIMIT equ 0x02000000
 DOOM_ELF_MAX_BYTES equ DOOM_ELF_LIMIT - DOOM_ELF_LOAD_ADDR
@@ -261,7 +268,6 @@ WRITABLE_FILE_COUNT equ 16
 WRITABLE_DEFAULT_CAPACITY equ 0x00004000
 WRITABLE_SAVE_CAPACITY equ 0x00040000
 WRITABLE_GENERIC_CAPACITY equ 0x00040000
-FAT_ROOT_CACHE_SECTORS equ 32
 PERSISTENCE_MARKER_COUNT equ 3
 O_WRONLY equ 0x0001
 O_RDWR equ 0x0002
@@ -2464,6 +2470,10 @@ pmm_init:
 
     mov eax, DOOM_USER_BASE
     mov ecx, (DOOM_USER_END - DOOM_USER_BASE) / PAGE_SIZE
+    call pmm_reserve_pages
+
+    mov eax, FAT_TABLE_CACHE_ADDR
+    mov ecx, (FAT_CACHE_BYTES + PAGE_SIZE - 1) / PAGE_SIZE
     call pmm_reserve_pages
 
     pop edi
@@ -5152,6 +5162,10 @@ storage_init:
     inc eax
     mov [fat_last_data_cluster], eax
     mov byte [fat_status], 1
+    cmp dword [fat_sectors_per_fat], FAT_TABLE_CACHE_SECTORS
+    ja .fat_fail
+    call fat_cache_table
+    jc .fat_fail
     cmp dword [fat_root_sectors], FAT_ROOT_CACHE_SECTORS
     ja .fat_fail
     call fat_cache_root_dir
@@ -5491,6 +5505,39 @@ fat_cache_root_dir:
     pop ebx
     ret
 
+fat_cache_table:
+    push ebx
+    push ecx
+    push edi
+
+    xor ebx, ebx
+
+.sector_loop:
+    cmp ebx, [fat_sectors_per_fat]
+    jae .ok
+    mov eax, [fat_start_lba]
+    add eax, ebx
+    mov edi, ebx
+    shl edi, 9
+    add edi, fat_table_cache
+    call ata_read_sector
+    jc .fail
+    inc ebx
+    jmp .sector_loop
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop ecx
+    pop ebx
+    ret
+
 fat_name_match:
     push ecx
     push esi
@@ -5610,18 +5657,14 @@ fat_next_cluster:
     push ebx
     push ecx
     push edx
-    push edi
 
     shl eax, 1
-    xor edx, edx
-    mov ecx, 512
-    div ecx
-    mov ebx, edx
-    add eax, [fat_start_lba]
-    mov edi, SECTOR_BUFFER_ADDR
-    call ata_read_sector
-    jc .fail
-    movzx eax, word [SECTOR_BUFFER_ADDR + ebx]
+    mov ebx, eax
+    mov eax, [fat_sectors_per_fat]
+    shl eax, 9
+    cmp ebx, eax
+    jae .fail
+    movzx eax, word [fat_table_cache + ebx]
     clc
     jmp .done
 
@@ -5629,7 +5672,6 @@ fat_next_cluster:
     stc
 
 .done:
-    pop edi
     pop edx
     pop ecx
     pop ebx
@@ -5651,6 +5693,14 @@ fat_write_cluster_entry:
     div ecx
     mov [fat_mut_sector_index], eax
     mov [fat_mut_entry_offset], edx
+    cmp eax, [fat_sectors_per_fat]
+    jae .fail
+    mov esi, eax
+    shl esi, 9
+    add esi, fat_table_cache
+    mov edx, [fat_mut_entry_offset]
+    mov ax, [fat_mut_value]
+    mov [esi + edx], ax
     xor ebx, ebx
 
 .fat_copy_loop:
@@ -5660,17 +5710,9 @@ fat_write_cluster_entry:
     mul ebx
     add eax, [fat_start_lba]
     add eax, [fat_mut_sector_index]
-    mov edi, SECTOR_BUFFER_ADDR
-    call ata_read_sector
-    jc .fail
-    mov edx, [fat_mut_entry_offset]
-    mov ax, [fat_mut_value]
-    mov [SECTOR_BUFFER_ADDR + edx], ax
-    mov eax, [fat_sectors_per_fat]
-    mul ebx
-    add eax, [fat_start_lba]
-    add eax, [fat_mut_sector_index]
-    mov esi, SECTOR_BUFFER_ADDR
+    mov esi, [fat_mut_sector_index]
+    shl esi, 9
+    add esi, fat_table_cache
     call ata_write_sector
     jc .fail
     inc ebx
@@ -15439,7 +15481,6 @@ doom_log_buffer times DOOM_LOG_BYTES db 0
 key_event_queue times KEY_QUEUE_SIZE dd 0
 mouse_event_queue times MOUSE_QUEUE_SIZE dd 0
 input_buffer times INPUT_MAX db 0
-fat_root_cache times FAT_ROOT_CACHE_SECTORS * 512 db 0
 
 align 8
 kernel_gdt_start:
