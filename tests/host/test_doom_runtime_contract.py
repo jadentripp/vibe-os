@@ -316,9 +316,12 @@ class DoomRuntimeContractTests(unittest.TestCase):
         finish_update = platform.split("void I_FinishUpdate(void)", 1)[1].split(
             "void I_WaitVBL", 1
         )[0]
-        self.assertNotIn("checkpoint_save_slot_if_needed();", finish_update)
         self.assertLess(
             finish_update.index("checkpoint_load_slot_if_needed();"),
+            finish_update.index("checkpoint_save_slot_if_needed();"),
+        )
+        self.assertLess(
+            finish_update.index("checkpoint_save_slot_if_needed();"),
             finish_update.index("flush_save_checkpoint_if_needed();"),
         )
         self.assertLess(

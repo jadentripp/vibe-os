@@ -802,6 +802,7 @@ void I_FinishUpdate(void)
     pump_music_stream();
     report_gameplay_status();
     checkpoint_load_slot_if_needed();
+    checkpoint_save_slot_if_needed();
     flush_save_checkpoint_if_needed();
     report_save_action_status();
     report_playability_status();
