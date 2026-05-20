@@ -293,6 +293,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("G_SaveGame(save_checkpoint_slot, description);", platform)
         self.assertIn("void G_BuildTiccmd(ticcmd_t* cmd)", platform)
         self.assertIn("doom_original_G_BuildTiccmd(cmd);", platform)
+        self.assertIn("queue_save_checkpoint_ticcmd(cmd);", platform)
         build_ticcmd = platform.split("void G_BuildTiccmd(ticcmd_t* cmd)", 1)[1].split(
             "void G_Ticker(void)", 1
         )[0]
@@ -301,16 +302,22 @@ class DoomRuntimeContractTests(unittest.TestCase):
             build_ticcmd.index("doom_original_G_BuildTiccmd(cmd);"),
         )
         self.assertIn("void G_Ticker(void)", platform)
+        self.assertLess(
+            platform.index("queue_save_checkpoint_ticcmd(0);"),
+            platform.index("doom_original_G_Ticker();"),
+        )
         self.assertIn("doom_original_G_Ticker();", platform)
         self.assertIn("if (gameaction == ga_savegame && savedescription[0])", platform)
+        self.assertIn("save_checkpoint_pending_special = 0;", platform)
         self.assertIn("G_DoSaveGame();", platform)
+        self.assertIn("clear_save_checkpoint_ticcmds();", platform)
         finish_update = platform.split("void I_FinishUpdate(void)", 1)[1].split(
             "void I_WaitVBL", 1
         )[0]
         self.assertNotIn("checkpoint_save_slot_if_needed();", finish_update)
-        self.assertIn("(cmd->buttons & BT_SPECIALMASK) != BTS_SAVEGAME", platform)
-        self.assertIn("target_tic = (gametic / divisor) % BACKUPTICS;", platform)
-        self.assertIn("netcmds[consoleplayer][target_tic] = *cmd;", platform)
+        self.assertIn("static void queue_save_checkpoint_ticcmd(ticcmd_t* cmd)", platform)
+        self.assertIn("target_tic = current_ticcmd_index();", platform)
+        self.assertIn("netcmds[consoleplayer][target_tic].buttons = buttons;", platform)
         self.assertIn("if (sendsave)", original)
         self.assertIn("cmd->buttons = BT_SPECIAL | BTS_SAVEGAME", original)
         self.assertNotIn("doom_original_G_BuildTiccmd", original)

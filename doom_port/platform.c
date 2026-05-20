@@ -63,6 +63,7 @@ static int save_checkpoint_request_checked;
 static int save_checkpoint_requested;
 static int save_checkpoint_slot;
 static int save_checkpoint_done;
+static int save_checkpoint_pending_special;
 static int load_checkpoint_request_checked;
 static int load_checkpoint_requested;
 static int load_checkpoint_slot;
@@ -405,7 +406,60 @@ static void checkpoint_save_slot_if_needed(void)
     }
 
     G_SaveGame(save_checkpoint_slot, description);
+    save_checkpoint_pending_special = 1;
     save_checkpoint_done = 1;
+}
+
+static int current_ticcmd_index(void)
+{
+    int divisor;
+    int target_tic;
+
+    divisor = ticdup > 0 ? ticdup : 1;
+    target_tic = (gametic / divisor) % BACKUPTICS;
+    if (target_tic < 0)
+        target_tic += BACKUPTICS;
+    return target_tic;
+}
+
+static int save_checkpoint_buttons(void)
+{
+    return BT_SPECIAL
+        | BTS_SAVEGAME
+        | ((save_checkpoint_slot & 0x7) << BTS_SAVESHIFT);
+}
+
+static void clear_save_checkpoint_ticcmds(void)
+{
+    int i;
+    int buttons;
+
+    if (consoleplayer < 0 || consoleplayer >= MAXPLAYERS)
+        return;
+
+    buttons = save_checkpoint_buttons();
+    for (i = 0; i < BACKUPTICS; ++i) {
+        if (netcmds[consoleplayer][i].buttons == buttons)
+            netcmds[consoleplayer][i].buttons = 0;
+    }
+}
+
+static void queue_save_checkpoint_ticcmd(ticcmd_t* cmd)
+{
+    int target_tic;
+    int buttons;
+
+    if (!save_checkpoint_pending_special || !savedescription[0])
+        return;
+    if (consoleplayer < 0 || consoleplayer >= MAXPLAYERS || !playeringame[consoleplayer])
+        return;
+
+    buttons = save_checkpoint_buttons();
+    if (cmd)
+        cmd->buttons = buttons;
+
+    target_tic = current_ticcmd_index();
+    netcmds[consoleplayer][target_tic].buttons = buttons;
 }
 
 static void checkpoint_load_slot_if_needed(void)
@@ -669,33 +723,23 @@ static void report_save_action_status(void)
 
 void G_BuildTiccmd(ticcmd_t* cmd)
 {
-    int target_tic;
-    int divisor;
-
     checkpoint_save_slot_if_needed();
     doom_original_G_BuildTiccmd(cmd);
-
-    if (!singletics || !cmd)
-        return;
-    if (!(cmd->buttons & BT_SPECIAL))
-        return;
-    if ((cmd->buttons & BT_SPECIALMASK) != BTS_SAVEGAME)
-        return;
-
-    divisor = ticdup > 0 ? ticdup : 1;
-    target_tic = (gametic / divisor) % BACKUPTICS;
-    if (target_tic < 0)
-        target_tic += BACKUPTICS;
-
-    netcmds[consoleplayer][target_tic] = *cmd;
+    queue_save_checkpoint_ticcmd(cmd);
 }
 
 void G_Ticker(void)
 {
+    queue_save_checkpoint_ticcmd(0);
     doom_original_G_Ticker();
 
-    if (gameaction == ga_savegame && savedescription[0])
+    if (gameaction == ga_savegame && savedescription[0]) {
+        save_checkpoint_pending_special = 0;
         G_DoSaveGame();
+        clear_save_checkpoint_ticcmds();
+    } else if (!savedescription[0]) {
+        save_checkpoint_pending_special = 0;
+    }
 }
 
 static void report_playability_status(void)
