@@ -12,14 +12,14 @@ When the local checkout is dirty, or when another worker owns the current
 workspace, launch from a pushed repo/ref instead:
 
 ```sh
-VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/playable-rc-next \
+VIBE_REPO=jadentripp/vibe-os VIBE_REF=main \
   ./tools/play_now_codespaces.sh
 ```
 
 or:
 
 ```sh
-./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref jt/playable-rc-next
+./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref main
 ```
 
 Explicit repo/ref mode verifies the GitHub repo and branch before Codespaces
@@ -54,7 +54,7 @@ browser-only Codespaces path instead:
 ```sh
 ./tools/play_now_codespaces.sh --web-url \
   --repo jadentripp/vibe-os \
-  --ref jt/playable-rc-next
+  --ref main
 ```
 
 That verifies the pushed repo/ref and required play files, then prints a
@@ -73,7 +73,7 @@ Optional dry run:
 
 ```sh
 ./tools/play_now_codespaces.sh --preflight
-VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/playable-rc-next \
+VIBE_REPO=jadentripp/vibe-os VIBE_REF=main \
   ./tools/play_now_codespaces.sh --preflight --no-open
 ```
 
@@ -93,7 +93,7 @@ Use a plain remote Ubuntu host instead when you do not want Codespaces:
 ```sh
 git clone https://github.com/jadentripp/vibe-os.git
 cd vibe-os
-git checkout jt/playable-rc-next
+git checkout main
 sudo apt-get update
 sudo apt-get install -y nasm qemu-system-x86 clang make netcat-openbsd curl novnc websockify
 ./tools/play_now_remote.sh --preflight
@@ -104,15 +104,15 @@ For a fresh disposable Ubuntu shell, the bootstrap helper performs that setup
 and then starts the same remote play script:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/jt/playable-rc-next/tools/play_now_cloud_shell.sh \
-  | VIBE_REF=jt/playable-rc-next bash
+curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/main/tools/play_now_cloud_shell.sh \
+  | VIBE_REF=main bash
 ```
 
 Use `--preflight-only` when you want it to stop after dependency and noVNC
 checks:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/jt/playable-rc-next/tools/play_now_cloud_shell.sh \
+curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/main/tools/play_now_cloud_shell.sh \
   | bash -s -- --preflight-only
 ```
 

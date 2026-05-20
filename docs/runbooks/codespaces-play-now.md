@@ -16,14 +16,14 @@ Fastest path from the Mac, with GitHub CLI authenticated for Codespaces:
 Fastest path from any checkout state is to pin the pushed repo/ref explicitly:
 
 ```sh
-VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/playable-rc-next \
+VIBE_REPO=jadentripp/vibe-os VIBE_REF=main \
   ./tools/play_now_codespaces.sh
 ```
 
 The equivalent flag form is:
 
 ```sh
-./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref jt/playable-rc-next
+./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref main
 ```
 
 Explicit repo/ref mode verifies that the GitHub repo is accessible and the
@@ -49,7 +49,7 @@ browser:
 ```sh
 ./tools/play_now_codespaces.sh --web-url \
   --repo jadentripp/vibe-os \
-  --ref jt/playable-rc-next
+  --ref main
 ```
 
 Open the printed `codespaces/new` URL, confirm the branch and
@@ -67,7 +67,7 @@ Optional dry run:
 
 ```sh
 ./tools/play_now_codespaces.sh --preflight
-VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/playable-rc-next \
+VIBE_REPO=jadentripp/vibe-os VIBE_REF=main \
   ./tools/play_now_codespaces.sh --preflight --no-open
 ```
 
@@ -204,8 +204,8 @@ If Codespaces is unavailable, open any disposable Ubuntu cloud shell and run the
 bootstrap helper there:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/jt/playable-rc-next/tools/play_now_cloud_shell.sh \
-  | VIBE_REF=jt/playable-rc-next bash
+curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/main/tools/play_now_cloud_shell.sh \
+  | VIBE_REF=main bash
 ```
 
 That installs the remote play dependencies, checks out the pushed branch into

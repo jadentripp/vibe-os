@@ -127,7 +127,6 @@ verify_remote_play_payload() {
     die "GitHub branch '$REF' in '$REPO' is missing required play-now path '${missing[0]}'; push the devcontainer, remote play launcher, and WAD prep helpers before starting Codespaces"
   fi
 }
-
 validate_repo_slug() {
   local repo="$1"
 

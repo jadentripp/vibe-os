@@ -114,14 +114,14 @@ When the local checkout is dirty or you want to launch from a known pushed
 branch, pin the remote repo/ref explicitly:
 
 ```sh
-VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/playable-rc-next \
+VIBE_REPO=jadentripp/vibe-os VIBE_REF=main \
   ./tools/play_now_codespaces.sh
 ```
 
 or:
 
 ```sh
-./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref jt/playable-rc-next
+./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref main
 ```
 
 Explicit repo/ref mode verifies that the GitHub repo and branch exist remotely
@@ -144,7 +144,7 @@ API scope, print the browser-only creation URL instead:
 ```sh
 ./tools/play_now_codespaces.sh --web-url \
   --repo jadentripp/vibe-os \
-  --ref jt/playable-rc-next
+  --ref main
 ```
 
 Open that URL, create the Codespace in the GitHub web UI, and use the terminal
@@ -170,8 +170,8 @@ For a fresh remote Ubuntu shell with no local `gh` involvement, use the remote
 bootstrap helper from inside that disposable shell:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/jt/playable-rc-next/tools/play_now_cloud_shell.sh \
-  | VIBE_REF=jt/playable-rc-next bash
+curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/main/tools/play_now_cloud_shell.sh \
+  | VIBE_REF=main bash
 ```
 
 Do not run local Mac QEMU for the quick path. See
