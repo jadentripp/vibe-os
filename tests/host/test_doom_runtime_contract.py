@@ -276,7 +276,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
                 with self.subTest(path=path.relative_to(ROOT), token=token):
                     self.assertNotIn(token, text)
 
-    def test_save_ticcmd_wrapper_preserves_original_doom_source(self):
+    def test_save_action_wrapper_preserves_original_doom_source(self):
         makefile = (ROOT / "Makefile").read_text()
         platform = (ROOT / "doom_port" / "platform.c").read_text()
         original = (ROOT / "third_party" / "doom" / "linuxdoom-1.10" / "g_game.c").read_text()
@@ -291,9 +291,11 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("#define VIBE_PERSISTENCE_MIN_LEVELTIME 1", platform)
         self.assertIn("leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME", platform)
         self.assertIn("G_SaveGame(save_checkpoint_slot, description);", platform)
+        self.assertIn("sendsave = false;", platform)
+        self.assertIn("static void promote_save_checkpoint_action(void)", platform)
+        self.assertIn("gameaction = ga_savegame;", platform)
         self.assertIn("void G_BuildTiccmd(ticcmd_t* cmd)", platform)
         self.assertIn("doom_original_G_BuildTiccmd(cmd);", platform)
-        self.assertIn("queue_save_checkpoint_ticcmd(cmd);", platform)
         build_ticcmd = platform.split("void G_BuildTiccmd(ticcmd_t* cmd)", 1)[1].split(
             "void G_Ticker(void)", 1
         )[0]
@@ -303,21 +305,17 @@ class DoomRuntimeContractTests(unittest.TestCase):
         )
         self.assertIn("void G_Ticker(void)", platform)
         self.assertLess(
-            platform.index("queue_save_checkpoint_ticcmd(0);"),
+            platform.index("promote_save_checkpoint_action();"),
             platform.index("doom_original_G_Ticker();"),
         )
         self.assertIn("doom_original_G_Ticker();", platform)
         self.assertIn("if (gameaction == ga_savegame && savedescription[0])", platform)
         self.assertIn("save_checkpoint_pending_special = 0;", platform)
         self.assertIn("G_DoSaveGame();", platform)
-        self.assertIn("clear_save_checkpoint_ticcmds();", platform)
         finish_update = platform.split("void I_FinishUpdate(void)", 1)[1].split(
             "void I_WaitVBL", 1
         )[0]
         self.assertNotIn("checkpoint_save_slot_if_needed();", finish_update)
-        self.assertIn("static void queue_save_checkpoint_ticcmd(ticcmd_t* cmd)", platform)
-        self.assertIn("target_tic = current_ticcmd_index();", platform)
-        self.assertIn("netcmds[consoleplayer][target_tic].buttons = buttons;", platform)
         self.assertIn("if (sendsave)", original)
         self.assertIn("cmd->buttons = BT_SPECIAL | BTS_SAVEGAME", original)
         self.assertNotIn("doom_original_G_BuildTiccmd", original)
