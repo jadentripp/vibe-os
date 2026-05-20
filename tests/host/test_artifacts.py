@@ -734,20 +734,35 @@ class SourceContractTests(unittest.TestCase):
         ):
             self.assertIn(source, start)
         self.assertIn("VIBE_SYS_GAMEPLAY_STATUS = 15", header)
+        self.assertIn("VIBE_GAMEPLAY_FLAG_MENU_ACTIVE = 0x01u", header)
+        self.assertIn("VIBE_GAMEPLAY_FLAG_SINGLETICS = 0x08u", header)
+        self.assertIn("VIBE_DOOM_SAVEACTION_STATUS = 0x10000000u", header)
         self.assertIn("VIBE_DOOM_INIT_STATUS = 0x40000000u", header)
         self.assertIn("static void report_gameplay_status(void)", platform)
+        self.assertIn("static void report_save_action_status(void)", platform)
         self.assertIn("static void report_doom_init_status(unsigned long flags)", platform)
         self.assertIn("VIBE_SYS_GAMEPLAY_STATUS", platform)
+        self.assertIn("singletics = true;", platform)
+        self.assertIn("flags |= VIBE_GAMEPLAY_FLAG_SINGLETICS;", platform)
+        self.assertIn("VIBE_DOOM_SAVEACTION_STATUS", platform)
         self.assertIn("(unsigned long)gametic", platform)
         self.assertIn("(unsigned long)leveltime", platform)
         for source in (
             "SYS_GAMEPLAY_STATUS equ 15",
             "DOOM_INIT_STATUS_FLAG equ 0x40000000",
+            "SAVEACTION_STATUS_FLAG equ 0x10000000",
             "cmp eax, SYS_GAMEPLAY_STATUS",
             ".gameplay_status:",
             ".doom_init_status:",
+            ".saveaction_status:",
             "doom_init_flags dd 0",
             "doom_init_report_count dd 0",
+            "doom_saveaction_flags dd 0",
+            "doom_saveaction_gameaction dd 0",
+            "doom_saveaction_slot dd 0xffffffff",
+            "doom_saveaction_desc_len dd 0",
+            "doom_saveaction_desc_hash dd 0",
+            "doom_saveaction_report_count dd 0",
             "doom_gameplay_status dd 0",
             "doom_gameplay_report_count dd 0",
             "doom_game_state dd 0",
@@ -761,6 +776,8 @@ class SourceContractTests(unittest.TestCase):
             'smoke_leveltime_text db " leveltime="',
             'smoke_doomtick_text db " dtick="',
             'smoke_doominit_text db " doominit="',
+            'smoke_saveact_text db " saveact="',
+            'smoke_savedesc_text db " savedesc="',
         ):
             self.assertIn(source, kernel)
         self.assertIn('grep -q "gameplay="', makefile)
@@ -769,6 +786,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("hex($$1) == 0x00000101", makefile)
         self.assertIn("/leveltime=([0-9A-F]{8})/", makefile)
         self.assertIn('grep -q "dtick="', makefile)
+        self.assertIn('grep -q "saveact="', makefile)
+        self.assertIn('grep -q "savedesc="', makefile)
         self.assertIn(
             "real_wad_args=\"--baseline $(BUILD_DIR)/status.after-start.txt --start $(BUILD_DIR)/status.after-start.txt\"",
             makefile,

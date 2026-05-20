@@ -293,6 +293,12 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "doom_saveload_write_bytes",
             "doom_saveload_last_open_flags",
             "doom_saveload_last_open_mode",
+            "doom_saveaction_flags",
+            "doom_saveaction_gameaction",
+            "doom_saveaction_slot",
+            "doom_saveaction_desc_len",
+            "doom_saveaction_desc_hash",
+            "doom_saveaction_report_count",
             "doom_init_flags",
             "doom_init_report_count",
             "smoke_doomwad_text",
@@ -305,6 +311,8 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "smoke_savewr_text",
             "smoke_saveclose_text",
             "smoke_savemode_text",
+            "smoke_saveact_text",
+            "smoke_savedesc_text",
             "smoke_doomerr_text",
         ):
             with self.subTest(token=token):
@@ -320,6 +328,8 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn('grep -q "savewr="', makefile)
         self.assertIn('grep -q "saveclose="', makefile)
         self.assertIn('grep -q "savemode="', makefile)
+        self.assertIn('grep -q "saveact="', makefile)
+        self.assertIn('grep -q "savedesc="', makefile)
         self.assertIn("`doomopen`, `doomread`, `doomwad`, `doomwrite`, `doomseek`, `doomclose`", docs)
         self.assertIn("`doomsbrk`, `doomerr`, `doomerrno`, `doommode`, `doomsav`, `saverd`, `savewr`", docs)
         self.assertIn("`--load-status`", docs)

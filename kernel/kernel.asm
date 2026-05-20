@@ -297,6 +297,9 @@ SYS_GETPID equ 25
 PLAYABLE_STATUS_FLAG equ 0x80000000
 DOOM_INIT_STATUS_FLAG equ 0x40000000
 SAVELOAD_STATUS_FLAG equ 0x20000000
+SAVEACTION_STATUS_FLAG equ 0x10000000
+SAVEACTION_GAMEACTION_SHIFT equ 8
+SAVEACTION_SLOT_SHIFT equ 16
 SAVELOAD_EVENT_OPEN equ 0x0001
 SAVELOAD_EVENT_READ equ 0x0002
 SAVELOAD_EVENT_WRITE equ 0x0004
@@ -4900,6 +4903,12 @@ storage_init:
     mov dword [doom_saveload_write_bytes], 0
     mov dword [doom_saveload_last_open_flags], 0
     mov dword [doom_saveload_last_open_mode], 0
+    mov dword [doom_saveaction_flags], 0
+    mov dword [doom_saveaction_gameaction], 0
+    mov dword [doom_saveaction_slot], 0xffffffff
+    mov dword [doom_saveaction_desc_len], 0
+    mov dword [doom_saveaction_desc_hash], 0
+    mov dword [doom_saveaction_report_count], 0
     mov dword [doom_present_count], 0
     mov dword [doom_init_flags], 0
     mov dword [doom_init_report_count], 0
@@ -9086,6 +9095,12 @@ doom_user_run:
     mov dword [doom_last_error], 0
     mov dword [doom_last_open_flags], 0
     mov dword [doom_last_open_mode], 0
+    mov dword [doom_saveaction_flags], 0
+    mov dword [doom_saveaction_gameaction], 0
+    mov dword [doom_saveaction_slot], 0xffffffff
+    mov dword [doom_saveaction_desc_len], 0
+    mov dword [doom_saveaction_desc_hash], 0
+    mov dword [doom_saveaction_report_count], 0
     mov dword [doom_present_count], 0
     mov dword [doom_init_flags], 0
     mov dword [doom_init_report_count], 0
@@ -10119,6 +10134,8 @@ syscall_handler:
     jnz .doom_init_status
     test ebx, SAVELOAD_STATUS_FLAG
     jnz .saveload_status
+    test ebx, SAVEACTION_STATUS_FLAG
+    jnz .saveaction_status
     test ebx, PLAYABLE_STATUS_FLAG
     jnz .playable_status
     inc dword [doom_gameplay_report_count]
@@ -10193,6 +10210,23 @@ syscall_handler:
     test esi, SAVELOAD_EVENT_CLOSE
     jz .gameplay_return
     inc dword [doom_saveload_close_count]
+    jmp .gameplay_return
+
+.saveaction_status:
+    inc dword [doom_saveaction_report_count]
+    mov eax, ebx
+    and eax, 0x000000ff
+    mov [doom_saveaction_flags], eax
+    mov eax, ebx
+    shr eax, SAVEACTION_GAMEACTION_SHIFT
+    and eax, 0x000000ff
+    mov [doom_saveaction_gameaction], eax
+    mov eax, ebx
+    shr eax, SAVEACTION_SLOT_SHIFT
+    and eax, 0x000000ff
+    mov [doom_saveaction_slot], eax
+    mov [doom_saveaction_desc_hash], ecx
+    mov [doom_saveaction_desc_len], edx
     jmp .gameplay_return
 
 .playable_status:
@@ -12730,6 +12764,32 @@ write_smoke_status:
     mov edx, [doom_saveload_last_open_mode]
     call smoke_write_hex32
 
+    mov esi, smoke_saveact_text
+    call smoke_copy_string
+    mov edx, [doom_saveaction_flags]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_saveaction_gameaction]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_saveaction_slot]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_saveaction_report_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_savedesc_text
+    call smoke_copy_string
+    mov edx, [doom_saveaction_desc_len]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_saveaction_desc_hash]
+    call smoke_write_hex32
+
     mov esi, smoke_doomlog_text
     call smoke_copy_string
     cmp byte [doom_log_buffer], 0
@@ -14139,6 +14199,8 @@ smoke_saverd_text db " saverd=", 0
 smoke_savewr_text db " savewr=", 0
 smoke_saveclose_text db " saveclose=", 0
 smoke_savemode_text db " savemode=", 0
+smoke_saveact_text db " saveact=", 0
+smoke_savedesc_text db " savedesc=", 0
 smoke_doomlog_text db " doomlog=", 0
 smoke_doompresent_text db " doompresent=", 0
 smoke_doompal_text db " doompal=", 0
@@ -14786,6 +14848,12 @@ doom_saveload_read_bytes dd 0
 doom_saveload_write_bytes dd 0
 doom_saveload_last_open_flags dd 0
 doom_saveload_last_open_mode dd 0
+doom_saveaction_flags dd 0
+doom_saveaction_gameaction dd 0
+doom_saveaction_slot dd 0xffffffff
+doom_saveaction_desc_len dd 0
+doom_saveaction_desc_hash dd 0
+doom_saveaction_report_count dd 0
 doom_present_count dd 0
 doom_init_flags dd 0
 doom_init_report_count dd 0

@@ -236,6 +236,8 @@ smoke: vm-consent check-tools $(IMAGE)
 		grep -q "savewr=" $(BUILD_DIR)/status.txt; \
 		grep -q "saveclose=" $(BUILD_DIR)/status.txt; \
 		grep -q "savemode=" $(BUILD_DIR)/status.txt; \
+		grep -q "saveact=" $(BUILD_DIR)/status.txt; \
+		grep -q "savedesc=" $(BUILD_DIR)/status.txt; \
 		grep -q "doomlog=" $(BUILD_DIR)/status.txt; \
 	grep -q "doompresent=" $(BUILD_DIR)/status.txt; \
 	grep -q "doompal=" $(BUILD_DIR)/status.txt; \

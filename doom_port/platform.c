@@ -23,6 +23,9 @@
 
 extern doomcom_t* doomcom;
 extern char* defaultfile;
+extern boolean sendsave;
+extern int savegameslot;
+extern char savedescription[32];
 
 static byte doom_zone[8 * 1024 * 1024];
 static doomcom_t local_doomcom;
@@ -399,18 +402,61 @@ void I_UpdateNoBlit(void)
 
 static void report_gameplay_status(void)
 {
+    unsigned long flags = 0;
     unsigned long packed = ((unsigned long)(gamestate & 0xff))
         | ((unsigned long)(gameepisode & 0xff) << 8)
-        | ((unsigned long)(gamemap & 0xff) << 16)
-        | ((unsigned long)(menuactive ? 1 : 0) << 24)
-        | ((unsigned long)(automapactive ? 1 : 0) << 25)
-        | ((unsigned long)(paused ? 1 : 0) << 26);
+        | ((unsigned long)(gamemap & 0xff) << 16);
+
+    if (menuactive)
+        flags |= VIBE_GAMEPLAY_FLAG_MENU_ACTIVE;
+    if (automapactive)
+        flags |= VIBE_GAMEPLAY_FLAG_AUTOMAP_ACTIVE;
+    if (paused)
+        flags |= VIBE_GAMEPLAY_FLAG_PAUSED;
+    if (singletics)
+        flags |= VIBE_GAMEPLAY_FLAG_SINGLETICS;
+
+    packed |= flags << 24;
 
     (void)vibe_syscall3(
         VIBE_SYS_GAMEPLAY_STATUS,
         packed,
         (unsigned long)gametic,
         (unsigned long)leveltime);
+}
+
+static void report_save_action_status(void)
+{
+    unsigned long flags = 0;
+    unsigned long hash = 0;
+    unsigned long length = 0;
+    unsigned long packed;
+    unsigned char c;
+    int i;
+
+    if (sendsave)
+        flags |= VIBE_DOOM_SAVEACTION_SENDSAVE;
+    if (menuactive)
+        flags |= VIBE_DOOM_SAVEACTION_MENUACTIVE;
+
+    for (i = 0; i < 32 && savedescription[i]; ++i) {
+        c = (unsigned char)savedescription[i];
+        if (length == 0)
+            hash = 2166136261u;
+        hash ^= c;
+        hash *= 16777619u;
+        ++length;
+    }
+
+    if (length)
+        flags |= VIBE_DOOM_SAVEACTION_DESCRIPTION;
+
+    packed = VIBE_DOOM_SAVEACTION_STATUS
+        | flags
+        | (((unsigned long)gameaction & 0xffu) << VIBE_DOOM_SAVEACTION_GAMEACTION_SHIFT)
+        | (((unsigned long)savegameslot & 0xffu) << VIBE_DOOM_SAVEACTION_SLOT_SHIFT);
+
+    (void)vibe_syscall3(VIBE_SYS_GAMEPLAY_STATUS, packed, hash, length);
 }
 
 static void report_playability_status(void)
@@ -478,6 +524,7 @@ void I_FinishUpdate(void)
     report_doom_init_status(VIBE_DOOM_INIT_FRAME);
     pump_music_stream();
     report_gameplay_status();
+    report_save_action_status();
     report_playability_status();
     checkpoint_default_config_if_needed();
     if (screens[0]) {
@@ -512,6 +559,7 @@ void I_InitNetwork(void)
 {
     report_doom_init_status(VIBE_DOOM_INIT_NETWORK);
     memset(&local_doomcom, 0, sizeof(local_doomcom));
+    singletics = true;
     local_doomcom.id = DOOMCOM_ID;
     local_doomcom.numnodes = 1;
     local_doomcom.ticdup = 1;
