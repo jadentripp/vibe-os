@@ -1,0 +1,306 @@
+#!/usr/bin/env python3
+import struct
+import sys
+
+
+SHT_SYMTAB = 2
+SHT_REL = 9
+SHF_ALLOC = 0x2
+SHN_UNDEF = 0
+R_386_32 = 1
+R_386_PC32 = 2
+
+ELF_HEADER_SIZE = 52
+PROGRAM_HEADER_SIZE = 32
+SEGMENT_OFFSET = 0x1000
+PAGE_SIZE = 0x1000
+
+
+def align_up(value, alignment):
+    if alignment <= 1:
+        return value
+    return (value + alignment - 1) & ~(alignment - 1)
+
+
+def u16(data, offset):
+    return struct.unpack_from("<H", data, offset)[0]
+
+
+def u32(data, offset):
+    return struct.unpack_from("<I", data, offset)[0]
+
+
+def put_u32(data, offset, value):
+    struct.pack_into("<I", data, offset, value & 0xFFFFFFFF)
+
+
+def cstr(data, offset):
+    end = data.find(b"\0", offset)
+    if end < 0:
+        end = len(data)
+    return data[offset:end].decode("ascii")
+
+
+class Section:
+    def __init__(self, obj, index, name, sh_type, flags, offset, size, align, link, info, entsize):
+        self.obj = obj
+        self.index = index
+        self.name = name
+        self.type = sh_type
+        self.flags = flags
+        self.offset = offset
+        self.size = size
+        self.align = align
+        self.link = link
+        self.info = info
+        self.entsize = entsize
+        self.out_off = None
+        self.out_addr = None
+
+    @property
+    def alloc(self):
+        return bool(self.flags & SHF_ALLOC)
+
+    def bytes(self):
+        return self.obj.data[self.offset:self.offset + self.size]
+
+
+class Symbol:
+    def __init__(self, obj, index, name, value, size, info, shndx):
+        self.obj = obj
+        self.index = index
+        self.name = name
+        self.value = value
+        self.size = size
+        self.info = info
+        self.shndx = shndx
+
+    @property
+    def bind(self):
+        return self.info >> 4
+
+    @property
+    def defined(self):
+        return self.shndx != SHN_UNDEF
+
+    def address(self):
+        if not self.defined:
+            raise ValueError(f"undefined symbol has no address: {self.name}")
+        section = self.obj.sections[self.shndx]
+        if not section.alloc:
+            raise ValueError(f"symbol is not in an allocated section: {self.name}")
+        return section.out_addr + self.value
+
+
+class ObjectFile:
+    def __init__(self, path):
+        self.path = path
+        with open(path, "rb") as f:
+            self.data = f.read()
+        self.sections = []
+        self.symbols = []
+        self.rel_sections = []
+        self._parse()
+
+    def _parse(self):
+        data = self.data
+        if data[0:4] != b"\x7fELF":
+            raise ValueError(f"{self.path}: not an ELF file")
+        if data[4] != 1 or data[5] != 1:
+            raise ValueError(f"{self.path}: expected ELF32 little-endian")
+        if u16(data, 16) != 1 or u16(data, 18) != 3:
+            raise ValueError(f"{self.path}: expected i386 relocatable ELF")
+
+        shoff = u32(data, 32)
+        shentsize = u16(data, 46)
+        shnum = u16(data, 48)
+        shstrndx = u16(data, 50)
+        raw_sections = []
+
+        for index in range(shnum):
+            off = shoff + index * shentsize
+            raw_sections.append(
+                (
+                    u32(data, off),
+                    u32(data, off + 4),
+                    u32(data, off + 8),
+                    u32(data, off + 16),
+                    u32(data, off + 20),
+                    u32(data, off + 24),
+                    u32(data, off + 28),
+                    u32(data, off + 32),
+                    u32(data, off + 36),
+                )
+            )
+
+        shstr = b""
+        if shstrndx != SHN_UNDEF:
+            sh_name, _type, _flags, sh_offset, sh_size, _link, _info, _align, _entsize = raw_sections[shstrndx]
+            shstr = data[sh_offset:sh_offset + sh_size]
+
+        self.sections = [None]
+        for index in range(1, shnum):
+            sh_name, sh_type, flags, offset, size, link, info, align, entsize = raw_sections[index]
+            self.sections.append(
+                Section(self, index, cstr(shstr, sh_name), sh_type, flags, offset, size, align, link, info, entsize)
+            )
+
+        for section in self.sections[1:]:
+            if section.type == SHT_SYMTAB:
+                self._parse_symbols(section)
+            elif section.type == SHT_REL:
+                self.rel_sections.append(section)
+
+    def _parse_symbols(self, section):
+        strtab = self.sections[section.link].bytes()
+        count = section.size // section.entsize
+        self.symbols = []
+        for index in range(count):
+            off = section.offset + index * section.entsize
+            self.symbols.append(
+                Symbol(
+                    self,
+                    index,
+                    cstr(strtab, u32(self.data, off)),
+                    u32(self.data, off + 4),
+                    u32(self.data, off + 8),
+                    self.data[off + 12],
+                    u16(self.data, off + 14),
+                )
+            )
+
+
+def collect_global_symbols(objects):
+    globals_by_name = {}
+    for obj in objects:
+        for sym in obj.symbols:
+            if sym.name and sym.defined and sym.bind != 0:
+                if sym.name in globals_by_name:
+                    raise ValueError(f"duplicate symbol: {sym.name}")
+                globals_by_name[sym.name] = sym
+    return globals_by_name
+
+
+def layout_sections(objects, base):
+    cursor = 0
+    ordered = []
+    for obj in objects:
+        for section in obj.sections[1:]:
+            if not section.alloc:
+                continue
+            cursor = align_up(cursor, max(section.align, 1))
+            section.out_off = cursor
+            section.out_addr = base + cursor
+            ordered.append(section)
+            cursor += section.size
+    return ordered, cursor
+
+
+def symbol_address(sym, globals_by_name):
+    if sym.shndx == SHN_UNDEF:
+        if sym.name not in globals_by_name:
+            raise ValueError(f"unresolved symbol: {sym.name}")
+        return globals_by_name[sym.name].address()
+    return sym.address()
+
+
+def apply_relocations(objects, segment, globals_by_name):
+    for obj in objects:
+        for rel_section in obj.rel_sections:
+            target = obj.sections[rel_section.info]
+            if not target.alloc:
+                continue
+            count = rel_section.size // 8
+            for index in range(count):
+                off = rel_section.offset + index * 8
+                rel_offset = u32(obj.data, off)
+                rel_info = u32(obj.data, off + 4)
+                sym_index = rel_info >> 8
+                rel_type = rel_info & 0xFF
+                sym = obj.symbols[sym_index]
+                patch_off = target.out_off + rel_offset
+                place = target.out_addr + rel_offset
+                addend = u32(segment, patch_off)
+                value = symbol_address(sym, globals_by_name)
+
+                if rel_type == R_386_32:
+                    put_u32(segment, patch_off, value + addend)
+                elif rel_type == R_386_PC32:
+                    put_u32(segment, patch_off, value + addend - place)
+                else:
+                    raise ValueError(f"{obj.path}: unsupported relocation type {rel_type}")
+
+
+def build_executable(objects, base):
+    ordered, mem_size = layout_sections(objects, base)
+    segment = bytearray(mem_size)
+    for section in ordered:
+        segment[section.out_off:section.out_off + section.size] = section.bytes()
+
+    globals_by_name = collect_global_symbols(objects)
+    apply_relocations(objects, segment, globals_by_name)
+
+    if "start" not in globals_by_name:
+        raise ValueError("missing kernel entry symbol: start")
+
+    file_size = align_up(len(segment), 16)
+    segment.extend(b"\0" * (file_size - len(segment)))
+    elf = bytearray(SEGMENT_OFFSET)
+
+    ident = bytearray(16)
+    ident[0:4] = b"\x7fELF"
+    ident[4] = 1
+    ident[5] = 1
+    ident[6] = 1
+    struct.pack_into(
+        "<16sHHIIIIIHHHHHH",
+        elf,
+        0,
+        bytes(ident),
+        2,
+        3,
+        1,
+        globals_by_name["start"].address(),
+        ELF_HEADER_SIZE,
+        0,
+        0,
+        ELF_HEADER_SIZE,
+        PROGRAM_HEADER_SIZE,
+        1,
+        0,
+        0,
+        0,
+    )
+    struct.pack_into(
+        "<IIIIIIII",
+        elf,
+        ELF_HEADER_SIZE,
+        1,
+        SEGMENT_OFFSET,
+        base,
+        base,
+        len(segment),
+        len(segment),
+        0x7,
+        PAGE_SIZE,
+    )
+    elf.extend(segment)
+    return bytes(elf)
+
+
+def main():
+    if len(sys.argv) < 5 or sys.argv[1] != "-o" or sys.argv[3] != "--base":
+        raise SystemExit("usage: link_elf32.py -o OUTPUT --base 0xADDR INPUT.o...")
+
+    output = sys.argv[2]
+    base = int(sys.argv[4], 0)
+    objects = [ObjectFile(path) for path in sys.argv[5:]]
+    if not objects:
+        raise SystemExit("link_elf32.py: no input objects")
+
+    with open(output, "wb") as f:
+        f.write(build_executable(objects, base))
+
+
+if __name__ == "__main__":
+    main()

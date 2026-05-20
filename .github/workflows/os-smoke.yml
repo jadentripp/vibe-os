@@ -1,0 +1,42 @@
+name: OS smoke
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Build and boot smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install OS toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm qemu-system-x86 clang make netcat-openbsd
+
+      - name: Build bootable disk image
+        run: make
+
+      - name: Boot smoke in disposable runner VM
+        run: make ALLOW_LOCAL_VM=1 smoke
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurora-os-build
+          if-no-files-found: ignore
+          path: |
+            build/disk.img
+            build/kernel.elf
+            build/user_probe.elf
+            build/vga.txt
