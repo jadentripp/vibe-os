@@ -59,9 +59,11 @@ REQUIRED_GAPS = {
     "SHUTDOWN_PANIC": {
         "category": "shutdown-panic",
         "phrases": (
-            "A current claim still requires running",
+            "26157926297",
+            "guest_exit_observed=true",
             "panic=KEXC",
             "shutdown=HALT",
+            "shutdown=REBOOT",
             "shutdown=POWEROFF",
         ),
     },
@@ -126,7 +128,7 @@ LATEST_RUN_PHRASES = (
     "human-facing Doom-capable proof",
 )
 
-PROVEN_GAPS = {"CLOUD_BOOT", "REAL_GAMEPLAY", "PERSISTENCE"}
+PROVEN_GAPS = {"CLOUD_BOOT", "REAL_GAMEPLAY", "PERSISTENCE", "SHUTDOWN_PANIC"}
 
 GAP_RE = re.compile(
     r"^- `GAP\[(?P<id>[A-Z0-9_]+)\] "

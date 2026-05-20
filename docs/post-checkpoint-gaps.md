@@ -63,6 +63,11 @@ What the current evidence proves:
   `DOOMSAV0.DSG bytes=512 changed-from-baseline survived-reboot description='VIBESAVE' version='version 110'`
   plus `reboot status runtime=OK` after the second boot of the same cloud disk
   image.
+- Run `26157926297` on commit `6b5319e` passes the opt-in
+  `shutdown_panic_proof` workflow and the downloaded status-only artifact passes
+  `tools/check_shutdown_panic_proof.py`. The proof records `panic=KEXC`,
+  `shutdown=HALT`, `shutdown=REBOOT`, and `shutdown=POWEROFF`, with
+  `guest_exit_observed=true` for the reboot and poweroff phases.
 - Earlier page-fault diagnostics remain useful, but they are historical repair
   context rather than the current primary blocker.
 
@@ -73,9 +78,8 @@ What still fails:
   gameplay actions.
 - The remaining architecture gaps are still real: relocating the running kernel
   onto the new higher-half/non-identity mapping contract, broader VM/POSIX
-  semantics, broader graphics policy, more complete music streaming, a human
-  shutdown/reboot story, and hardware classes beyond the current QEMU
-  BIOS/IDE/PS2/VBE/SB16 target.
+  semantics, broader graphics policy, more complete music streaming, and
+  hardware classes beyond the current QEMU BIOS/IDE/PS2/VBE/SB16 target.
 
 Earlier red runs kept for context:
 
@@ -396,7 +400,7 @@ Executable gate:
   every new syscall contract, and add cloud tests for any VM behavior used by
   Doom rather than documenting it as assumed.
 
-- `GAP[SHUTDOWN_PANIC] status=open category=shutdown-panic gate=panic-poweroff-proof evidence=panic-status`
+- `GAP[SHUTDOWN_PANIC] status=proven category=shutdown-panic gate=panic-poweroff-proof evidence=os-smoke-26157926297`
 
 Current state:
 
@@ -433,20 +437,24 @@ Current state:
   omitting `-no-shutdown`; the poweroff phase captures status during the same
   guest-owned delay, omits `-no-shutdown`, and requires the ACPI/QEMU poweroff
   request to exit QEMU.
+- Run `26157926297` on commit `6b5319e` passes that workflow. Its downloaded
+  artifact passed `tools/check_shutdown_panic_proof.py` and includes
+  `panic=KEXC`, `shutdown=HALT`, `shutdown=REBOOT`, `shutdown=POWEROFF`, and
+  `guest_exit_observed=true` for reboot and poweroff.
 
 Still missing:
 
-- A current claim still requires running the opt-in disposable cloud
-  `shutdown_panic_proof` workflow on the exact commit being claimed, downloading
-  its status-only artifact, and passing `tools/check_shutdown_panic_proof.py`.
-- The halt phase remains `status-before-cleanup` because `hlt` intentionally
-  stops the CPU without making QEMU exit. A fatal crash before the exception
-  handler can update status may only be visible through serial/QEMU logs.
+- Nothing is missing for this exact shutdown/panic proof gate on commit
+  `6b5319e`.
+- Future kernel/runtime, workflow, or checker changes must rerun the opt-in
+  disposable cloud `shutdown_panic_proof` workflow before carrying this proof
+  forward. The halt phase remains `status-before-cleanup` because `hlt`
+  intentionally stops the CPU without making QEMU exit.
 
 Executable gate:
 
-- Run the opt-in disposable cloud `shutdown_panic_proof` workflow mode on the
-  exact commit being claimed, download its status-only artifact, and pass
+- Re-run the opt-in disposable cloud `shutdown_panic_proof` workflow mode after
+  any future relevant change, download its status-only artifact, and pass
   `tools/check_shutdown_panic_proof.py /path/to/artifact`. The manifest must
   include `guest_exit_observed=true` for the reboot and poweroff phases.
 

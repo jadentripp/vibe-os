@@ -132,6 +132,8 @@ class PostCheckpointGapTests(unittest.TestCase):
         self.assertIn("captures the fresh baseline immediately after rebuilding", gap_doc)
         self.assertIn("same disk image is booted again", gap_doc)
         self.assertIn("reboot comparison now requires the fresh baseline", gap_doc)
+        self.assertIn("Run `26157926297` on commit `6b5319e` passes the opt-in", gap_doc)
+        self.assertIn("guest_exit_observed=true", gap_doc)
         self.assertIn("after-write snapshot", persistent_doc)
         self.assertIn("requires `--baseline-image` too", persistent_doc)
         self.assertIn("This is enough for Doom defaults and save slots", persistent_doc)
@@ -150,9 +152,10 @@ class PostCheckpointGapTests(unittest.TestCase):
         self.assertIn("tools/check_playability_gap_ledger.py", tests_readme)
         self.assertIn("not by itself a claim that the current branch is human-playable", playable_doc)
         for claim_boundary in (
-            "A current claim still requires running",
+            "Nothing is missing for this exact shutdown/panic proof gate",
             "panic=KEXC",
             "shutdown=HALT",
+            "shutdown=REBOOT",
             "shutdown=POWEROFF",
             "This is not a full POSIX environment",
             "Future kernel/runtime, workflow, or checker changes",
@@ -264,7 +267,7 @@ class PostCheckpointGapTests(unittest.TestCase):
                 "PERSISTENCE": "proven",
                 "AUDIO": "open",
                 "VM_POSIX": "open",
-                "SHUTDOWN_PANIC": "open",
+                "SHUTDOWN_PANIC": "proven",
                 "HARDWARE_LIMITS": "open",
             },
         )
