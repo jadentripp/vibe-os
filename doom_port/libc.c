@@ -14,6 +14,8 @@
 
 #include "vibe_os.h"
 
+#define VIBE_FILE_WRITE_BUFFER 4096
+
 struct vibe_doom_file {
     int fd;
     int eof;
@@ -22,8 +24,10 @@ struct vibe_doom_file {
     int readable;
     int writable;
     int append;
+    size_t write_buffered;
     int has_pushback;
     unsigned char pushback;
+    char write_buffer[VIBE_FILE_WRITE_BUFFER];
 };
 
 typedef struct alloc_header {
@@ -35,15 +39,19 @@ typedef struct alloc_header {
 
 int errno;
 
-static struct vibe_doom_file stdin_file = { 0, 0, 0, 1, 1, 0, 0, 0, 0 };
-static struct vibe_doom_file stdout_file = { 1, 0, 0, 1, 0, 1, 0, 0, 0 };
-static struct vibe_doom_file stderr_file = { 2, 0, 0, 1, 0, 1, 0, 0, 0 };
+static struct vibe_doom_file stdin_file = { 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, { 0 } };
+static struct vibe_doom_file stdout_file = { 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, { 0 } };
+static struct vibe_doom_file stderr_file = { 2, 0, 0, 1, 0, 1, 0, 0, 0, 0, { 0 } };
 static alloc_header_t* alloc_head;
 static alloc_header_t* alloc_tail;
 
 FILE* stdin = &stdin_file;
 FILE* stdout = &stdout_file;
 FILE* stderr = &stderr_file;
+
+static int write_all_fd(int fd, const char* data, size_t length);
+static int stream_flush_write(FILE* stream);
+static int stream_write(FILE* stream, const char* data, size_t length);
 
 #ifndef VIBE_LIBC_HOST_TEST
 int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, unsigned long arg2)
@@ -953,6 +961,7 @@ FILE* fopen(const char* path, const char* mode)
             file_pool[i].readable = readable;
             file_pool[i].writable = writable;
             file_pool[i].append = append;
+            file_pool[i].write_buffered = 0;
             file_pool[i].has_pushback = 0;
             file_pool[i].pushback = 0;
             if (append)
@@ -978,6 +987,8 @@ size_t fread(void* ptr, size_t size, size_t count, FILE* stream)
             errno = EBADF;
         return 0;
     }
+    if (stream_flush_write(stream) < 0)
+        return 0;
     bytes = read(stream->fd, ptr, total);
     if (bytes < 0) {
         stream->error = 1;
@@ -994,7 +1005,6 @@ size_t fread(void* ptr, size_t size, size_t count, FILE* stream)
 
 size_t fwrite(const void* ptr, size_t size, size_t count, FILE* stream)
 {
-    int bytes;
     size_t total;
     if (!size || !count)
         return 0;
@@ -1007,14 +1017,11 @@ size_t fwrite(const void* ptr, size_t size, size_t count, FILE* stream)
     }
     if (stream->append)
         (void)lseek(stream->fd, 0, SEEK_END);
-    bytes = write(stream->fd, ptr, total);
-    if (bytes < 0) {
+    if (stream_write(stream, ptr, total) < 0) {
         stream->error = 1;
         return 0;
     }
-    if ((size_t)bytes < total)
-        stream->error = 1;
-    return bytes < 0 || !size ? 0 : (size_t)bytes / size;
+    return count;
 }
 
 int fseek(FILE* stream, long offset, int whence)
@@ -1023,6 +1030,8 @@ int fseek(FILE* stream, long offset, int whence)
         errno = EBADF;
         return -1;
     }
+    if (stream_flush_write(stream) < 0)
+        return -1;
     if (lseek(stream->fd, (off_t)offset, whence) < 0) {
         stream->error = 1;
         return -1;
@@ -1044,7 +1053,7 @@ long ftell(FILE* stream)
         stream->error = 1;
         return -1;
     }
-    return (long)raw;
+    return (long)(raw + (off_t)stream->write_buffered);
 }
 
 int fclose(FILE* stream)
@@ -1054,7 +1063,9 @@ int fclose(FILE* stream)
         errno = EBADF;
         return EOF;
     }
-    result = close(stream->fd);
+    result = stream_flush_write(stream);
+    if (close(stream->fd) < 0)
+        result = EOF;
     stream->fd = -1;
     stream->eof = 1;
     stream->error = result < 0;
@@ -1062,14 +1073,20 @@ int fclose(FILE* stream)
     stream->readable = 0;
     stream->writable = 0;
     stream->append = 0;
+    stream->write_buffered = 0;
     stream->has_pushback = 0;
     return result;
 }
 
 int fflush(FILE* stream)
 {
-    (void)stream;
-    return 0;
+    if (!stream)
+        return 0;
+    if (!stream->used) {
+        errno = EBADF;
+        return EOF;
+    }
+    return stream_flush_write(stream);
 }
 
 int feof(FILE* stream)
@@ -1129,6 +1146,37 @@ static int write_all_fd(int fd, const char* data, size_t length)
             return -1;
         done += (size_t)bytes;
     }
+    return 0;
+}
+
+static int stream_flush_write(FILE* stream)
+{
+    if (!stream || !stream->write_buffered)
+        return 0;
+    if (write_all_fd(stream->fd, stream->write_buffer, stream->write_buffered) < 0) {
+        stream->error = 1;
+        return EOF;
+    }
+    stream->write_buffered = 0;
+    return 0;
+}
+
+static int stream_write(FILE* stream, const char* data, size_t length)
+{
+    if (!length)
+        return 0;
+    if (stream->fd == 1 || stream->fd == 2)
+        return write_all_fd(stream->fd, data, length);
+    if (length > VIBE_FILE_WRITE_BUFFER) {
+        if (stream_flush_write(stream) < 0)
+            return -1;
+        return write_all_fd(stream->fd, data, length);
+    }
+    if (stream->write_buffered + length > VIBE_FILE_WRITE_BUFFER
+        && stream_flush_write(stream) < 0)
+        return -1;
+    memcpy(stream->write_buffer + stream->write_buffered, data, length);
+    stream->write_buffered += length;
     return 0;
 }
 
@@ -1317,9 +1365,11 @@ int vfprintf(FILE* stream, const char* format, va_list args)
     result = format_to(buffer, sizeof(buffer), stream->fd, format, copy);
     va_end(copy);
     if (result >= 0 && (size_t)result < sizeof(buffer)) {
-        if (write_all_fd(stream->fd, buffer, (size_t)result) < 0)
+        if (stream_write(stream, buffer, (size_t)result) < 0)
             result = -1;
     } else if (result >= 0) {
+        if (stream_flush_write(stream) < 0)
+            return EOF;
         result = format_to(0, 0, stream->fd, format, args);
     }
     if (result < 0)
