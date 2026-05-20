@@ -23,6 +23,41 @@ them so README and runbook wording cannot quietly drift into overclaiming.
 - The FAT16 image has root entries for `DEFAULT.CFG` and `DOOMSAV0.DSG` through
   `DOOMSAV5.DSG`, and host tests prove image-level allocation/readback behavior.
 
+## Latest Analyzed Cloud Run
+
+As of 2026-05-20, the latest analyzed manual **Real WAD smoke** run is
+`26146035600` on commit `269dbb8`, and it is not a Doom-capable proof.
+
+What it proves:
+
+- The disposable cloud workflow fetched and validated the shareware
+  `DOOM1.WAD`, built the image, and booted QEMU long enough to capture status
+  snapshots through the mouse phase.
+- The old `exec-not-attempted` blocker is no longer the first failure in this
+  run. Status shows `exec=OK path=DOOM.ELF`, `execsys=1/1/0/1/1/0`, zero
+  `execerr` / `execres`, a nonzero target PID, and seeded entry, stack, argc,
+  argv, and argv0 values.
+
+What fails:
+
+- The primary triage class is `doom-user-fault`.
+- Doom faults in Ring 3 at `FindResponseFile+0x34` with
+  `doomfaultip=01003224`, vector `0000000E`, error `00000005`, and
+  `CR2=00000000`.
+- The compact fault tuple is
+  `0000000E/00000005/01003224/0000001B/01FFFD98/00000023/00000000/00000002/00000002/00000002/00000010`.
+- `doomopen=FAIL doomread=FAIL`, `gameplay=WAIT`, `doompresent=00000000`,
+  input counters remain zero, and no final `status.txt` exists because the smoke
+  script timed out while waiting for the after-menu phase after Doom had already
+  faulted.
+
+Next repair lane:
+
+- Fix the Doom user-mode page fault before treating WAD I/O, input, audio,
+  gameplay, or persistence failures as primary. The next cloud run must move
+  from `doomrun=FAULT` to `doomrun=RUN`, with `doomfault*` and `fault=` cleared,
+  before any playable claim is possible.
+
 ## Machine-Readable Gap Ledger
 
 - `GAP[CLOUD_BOOT] status=open category=cloud-boot gate=real-wad-smoke.yml evidence=status.txt`
@@ -34,11 +69,15 @@ Current state:
 - The manual real-WAD workflow validates the shareware `DOOM1.WAD` size/hash,
   rebuilds the image with that WAD, and keeps WAD bytes, disk images, and
   rendered pixels out of uploaded artifacts.
+- The latest analyzed real-WAD run reached the Doom exec handoff, but the proof
+  is still red because Doom faulted before WAD I/O and gameplay.
 
 Still missing:
 
 - A current passing manual real-WAD cloud workflow on the exact commit being
   claimed. A previous run is useful evidence, but it is stale once the kernel/runtime changes.
+- A green run must include a final `status.txt`; `status.failure.txt` from a
+  timed-out/faulted smoke is diagnostic evidence only.
 
 Executable gate:
 
@@ -61,6 +100,9 @@ Still missing:
 
 - A fresh real-WAD status artifact proving those fields on the current commit
   after the real-WAD fault is fixed.
+- The current first runtime blocker is the Ring 3 page fault at
+  `FindResponseFile+0x34`; until that is fixed, WAD open/read, E1M1 gameplay,
+  input, and audio proof are downstream unknowns.
 
 Executable gate:
 
@@ -147,13 +189,21 @@ Still missing:
   IRQ/refill, SFX, and looped music-carrier counter progression across status
   snapshots without capturing audio bytes, but it still needs a current remote
   artifact to pass.
+- `tools/check_audible_audio_proof.py` now defines the next host-safe proof:
+  the cloud workflow can opt into a temporary QEMU WAV backend, reduce the
+  capture to aggregate `audio-proof.json`, delete the WAV, and upload only the
+  manifest plus status/log diagnostics. The artifact checker rejects raw audio
+  files and validates `audio-proof.json` when present.
 
 Executable gate:
 
 - Run the remote SB16 continuity checker against a real-WAD cloud artifact, then
-  add separate host audio forwarding or listener proof before calling it
-  audible. Harden the stream path so long music playback does not rely on a
-  single pre-rendered window.
+  run the real-WAD workflow with `audible_audio_proof=true` and require
+  `python3 tools/check_audible_audio_proof.py audio-proof.json` to pass on the
+  downloaded aggregate manifest. For human quality notes, use remote audio
+  forwarding without uploading captured Doom audio. Harden the stream path so
+  long music playback does not rely on a single pre-rendered window and exposes
+  song-position status counters across the scripted snapshots.
 
 - `GAP[VM_POSIX] status=open category=vm-posix gate=vm-posix-contract evidence=host-and-cloud-tests`
 
@@ -243,6 +293,8 @@ because host tests pass. A playable claim requires at least:
 - a current manual real-WAD cloud workflow pass for the exact commit
 - `check_real_wad_proof.py` and `check_human_playability_proof.py` passing on the
   uploaded status artifacts
+- `doomrun=RUN`, `doomopen=OK`, `doomread=OK`, `gameplay=OK`, and all
+  `doomfault*` fields cleared in those artifacts
 - a remote human playtest or an explicit statement that only scripted
   cloud-safe playability has been proved
 - no tracked WADs, disk images, rendered Doom pixels, or modified

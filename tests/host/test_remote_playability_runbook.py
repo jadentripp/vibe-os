@@ -1,6 +1,7 @@
 import gzip
 import hashlib
 import importlib.util
+import json
 import subprocess
 import sys
 import tempfile
@@ -249,6 +250,52 @@ def write_valid_artifact(artifact):
         )
 
 
+def valid_audio_proof_manifest():
+    return {
+        "schema": check_cloud_playability_artifacts.check_audible_audio_proof.SCHEMA,
+        "source": "qemu-wav-temporary",
+        "format": {
+            "sample_rate": 11025,
+            "channels": 2,
+            "sample_width_bytes": 2,
+            "frames": 44100,
+            "duration_ms": 4000,
+            "window_ms": 100,
+        },
+        "analysis": {
+            "total_windows": 40,
+            "active_windows": 12,
+            "active_window_ratio": 0.3,
+            "first_active_window": 3,
+            "last_active_window": 35,
+            "max_window_rms_norm": 0.15,
+            "mean_window_rms_norm": 0.05,
+            "mean_active_rms_norm": 0.1,
+            "peak_abs_norm": 0.25,
+            "zero_crossings": 200,
+            "active_rms_threshold_norm": 0.0015,
+        },
+        "status": {
+            "audio": "SB16",
+            "doomrun": "RUN",
+            "gameplay": "OK",
+            "audioirq": "00000006",
+            "ack8": "00000006",
+            "ack16": "00000000",
+            "refill": "00000006",
+            "sfxmix": "00000008",
+            "musicmix": "00000006",
+            "musicloop": "00000001",
+        },
+        "artifact_policy": {
+            "contains_raw_audio": False,
+            "contains_wad_data": False,
+            "contains_pixels": False,
+            "upload_only_aggregate_json": True,
+        },
+    }
+
+
 class RemotePlayabilityRunbookTests(unittest.TestCase):
     def test_repo_contract_is_wired_for_remote_human_play(self):
         check_cloud_playability_artifacts.validate_repo_contract()
@@ -285,6 +332,35 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
 
             (artifact / "harmless.log").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 64)
             with self.assertRaisesRegex(AssertionError, "forbidden artifact content"):
+                check_cloud_playability_artifacts.validate_artifact_dir(artifact)
+
+            (artifact / "harmless.log").write_bytes(b"RIFF" + b"\0" * 64)
+            with self.assertRaisesRegex(AssertionError, "forbidden artifact content"):
+                check_cloud_playability_artifacts.validate_artifact_dir(artifact)
+
+    def test_downloaded_artifact_directory_rejects_raw_audio_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+
+            (artifact / "doom-audio.wav").write_bytes(b"RIFF" + b"\0" * 64)
+            with self.assertRaisesRegex(AssertionError, "forbidden WAD/image/pixel/audio artifact"):
+                check_cloud_playability_artifacts.validate_artifact_dir(artifact)
+
+    def test_downloaded_artifact_directory_accepts_aggregate_audio_proof_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            (artifact / "audio-proof.json").write_text(
+                json.dumps(valid_audio_proof_manifest(), sort_keys=True)
+            )
+
+            check_cloud_playability_artifacts.validate_artifact_dir(artifact)
+
+            manifest = valid_audio_proof_manifest()
+            manifest["analysis"]["active_windows"] = 0
+            (artifact / "audio-proof.json").write_text(json.dumps(manifest, sort_keys=True))
+            with self.assertRaisesRegex(AssertionError, "audible audio proof manifest failed"):
                 check_cloud_playability_artifacts.validate_artifact_dir(artifact)
 
     def test_downloaded_artifact_directory_rejects_duplicate_required_basenames(self):

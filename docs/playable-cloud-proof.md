@@ -1,11 +1,15 @@
 # Playable Cloud Proof
 
-The playable-Doom milestone is proved in cloud CI without uploading WADs, disk
-images, framebuffer dumps, or rendered WAD pixels. The proof is status-driven:
-the OS boots the validated shareware `DOOM1.WAD`, Doom autostarts E1M1, QEMU
-injects deterministic keyboard and mouse input through the same PS/2 paths a
-human would use, and the kernel exports compact counters and state deltas from
-Doom.
+The playable-Doom milestone is only proved when the cloud CI proof gates pass
+without uploading WADs, disk images, framebuffer dumps, or rendered WAD pixels.
+The intended proof is status-driven: the OS boots the validated shareware
+`DOOM1.WAD`, Doom autostarts E1M1, QEMU injects deterministic keyboard and mouse
+input through the same PS/2 paths a human would use, and the kernel exports
+compact counters and state deltas from Doom.
+
+This file describes the required green path. It is not a claim that the current branch is playable.
+The latest analyzed real-WAD run is still red with `doomrun=FAULT` at
+`FindResponseFile+0x34`, before WAD open/read or gameplay.
 
 ## Deterministic Script
 
@@ -82,6 +86,13 @@ The cloud proof requires these status families:
   uploading audio samples. It does not upload audio samples.
   `tools/check_audio_continuity_proof.py` checks status snapshots only and
   does not upload audio samples.
+- Optional audible-output proof: when the manual workflow is run with
+  `audible_audio_proof=true`, QEMU uses a temporary WAV backend on the
+  disposable runner, `tools/check_audible_audio_proof.py` reduces that file to
+  aggregate `audio-proof.json`, and the workflow deletes the WAV before upload.
+  The manifest proves non-silent remote audio output tied to the final
+  `audio=SB16` status counters, but it does not upload the WAV or any captured
+  samples.
 - Scheduler proof: `preempt`, `pattempt`, `pskip`, `puser`, `pround`, `pctx`,
   `pfrom`, `pto`, `peip`, `pspin`, and `pself=OK` expose live PIT preemption.
   A valid proof requires Ring 3 timer IRQs, a switch between different PIDs,
@@ -115,7 +126,8 @@ directly.
    or WAD artifacts. The same artifact should include `doom.symbols` so
    `tools/triage_cloud_status.py` can symbolize `doomfaultip` if Doom reaches
    user mode and faults.
-   The real-WAD checker consumes them like this:
+   The real-WAD checker consumes them like this. The audible checker applies
+   only when `audible_audio_proof=true` produced `audio-proof.json`:
 
    ```sh
    python3 tools/check_real_wad_proof.py \
@@ -134,6 +146,8 @@ directly.
      --use build/status.after-use.txt \
      --menu build/status.after-menu.txt \
      build/status.txt
+
+   python3 tools/check_audible_audio_proof.py build/audio-proof.json
    ```
 
 4. Treat the run as playable-cloud-proof green only when the QEMU capture step

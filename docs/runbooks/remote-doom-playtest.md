@@ -102,6 +102,17 @@ Expected audio behavior:
 - Run `tools/check_audio_continuity_proof.py` on the downloaded status snapshots.
   It proves SB16 IRQ/refill, SFX, and looped music-carrier counters progressed;
   it does not upload audio samples or prove a human heard sound.
+- For an audible remote proof that still avoids publishing copyrighted audio, run
+  the GitHub workflow with `audible_audio_proof=true`. That uses QEMU's WAV
+  backend on the disposable runner, analyzes the temporary capture into
+  aggregate `audio-proof.json`, validates it with
+  `tools/check_audible_audio_proof.py`, and deletes the temporary WAV before
+  upload. Keep the manifest and status files; do not upload or keep captured
+  Doom audio.
+- For a manual listener check, use remote audio forwarding on the disposable
+  host and record written notes only. If you make a local audio capture to debug
+  clipping or balance, delete the temporary WAV when done and do not add it to a
+  diagnostic artifact.
 
 ## Status Capture
 
@@ -165,8 +176,15 @@ python3 tools/check_audio_continuity_proof.py \
   --menu path/to/real-wad-smoke-status/status.after-menu.txt \
   path/to/real-wad-smoke-status/status.txt
 
+python3 tools/check_audible_audio_proof.py \
+  path/to/real-wad-smoke-status/audio-proof.json
+
 python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
 ```
+
+The audible checker command is only expected to pass when the workflow was
+triggered with `audible_audio_proof=true` and the artifact contains
+`audio-proof.json`.
 
 `triage_cloud_status.py` auto-loads `doom.symbols` from the artifact directory,
 so a `doom-user-fault` report should include the nearest Doom function for
@@ -215,7 +233,8 @@ Call a remote human playtest credible only after checking all of this:
 - Audio is described honestly: `audio=SB16` plus the audio continuity checker
   proves the guest SB16 path advanced through IRQ/refill, SFX, and looped
   music-carrier counters; audible remote sound requires separate host audio
-  forwarding.
+  forwarding or the aggregate `audio-proof.json` lane. Neither lane should
+  publish captured Doom audio.
 - Exit is handled through the QEMU monitor (`quit`) today. A graceful Doom
   quit-to-shell or reboot path is still a gap.
 
@@ -230,7 +249,8 @@ Call a remote human playtest credible only after checking all of this:
   Doom changes settings or saves a game.
 - Music renders bounded PCM windows and loops them as an SB16 carrier voice mixed
   with SFX; long realtime music streaming and audible remote validation remain
-  unfinished.
+  unfinished until `audio-proof.json` passes on a current real-WAD run and a
+  song-position streaming proof replaces the bounded carrier claim.
 - Doom exit/reboot behavior is not polished for a human session.
 
 Cleanup:

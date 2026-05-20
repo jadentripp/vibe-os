@@ -21,6 +21,11 @@ on:
         description: Optional DOOMSAV slot number to require if the input script creates a save.
         required: false
         type: string
+      audible_audio_proof:
+        description: Also capture temporary QEMU WAV output, reduce it to aggregate audio-proof.json, and delete the WAV.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -33,6 +38,7 @@ jobs:
 
     env:
       INPUT_DOOM_WAD_URL: ${{ inputs.wad_url }}
+      AUDIBLE_AUDIO_PROOF: ${{ inputs.audible_audio_proof }}
       PERSISTENCE_INPUT_SCRIPT: ${{ inputs.persistence_input_script }}
       PERSISTENCE_SAVE_SLOT: ${{ inputs.persistence_save_slot }}
       REAL_DOOM_WAD_URL: ${{ secrets.REAL_DOOM_WAD_URL }}
@@ -121,10 +127,15 @@ jobs:
       - name: Boot real-WAD image
         timeout-minutes: 2
         run: |
+          audio_backend="-audiodev none,id=snd0 -device sb16,audiodev=snd0"
+          if [ "${AUDIBLE_AUDIO_PROOF}" = "true" ]; then
+            audio_backend="-audiodev wav,id=snd0,path=build/doom-audio.wav -device sb16,audiodev=snd0"
+          fi
+
           make \
             DOOM_WAD="$WAD_PATH" \
             ALLOW_LOCAL_VM=1 \
-            QEMU_EXTRA_ARGS="-audiodev none,id=snd0 -device sb16,audiodev=snd0" \
+            QEMU_EXTRA_ARGS="$audio_backend" \
             SMOKE_EXPECT_PROBE_GFX=0 \
             SMOKE_CAPTURE_GFX=0 \
             SMOKE_QEMU_TIMEOUT=75 \
@@ -133,6 +144,14 @@ jobs:
             SMOKE_SKIP_ASSERTIONS=1 \
             SMOKE_INPUT_SCRIPT="after-fire:hold=ctrl:800,wait=2,snapshot after-move:hold=up:1200,wait=3,snapshot after-use:spc,wait=2,snapshot after-mouse:mouse=24:-12,mousebtn=1,wait=1,mousebtn=0,wait=2,snapshot after-menu:esc,wait=2,snapshot" \
             smoke
+
+      - name: Analyze temporary audible audio capture
+        if: ${{ always() && inputs.audible_audio_proof }}
+        run: |
+          set -euo pipefail
+          trap 'rm -f build/doom-audio.wav' EXIT
+          python3 tools/check_audible_audio_proof.py --analyze-wav build/doom-audio.wav --status build/status.txt --output build/audio-proof.json
+          python3 tools/check_audible_audio_proof.py build/audio-proof.json
 
       - name: Assert real-WAD proof gates
         if: always()
@@ -168,6 +187,12 @@ jobs:
             --use build/status.after-use.txt \
             --menu build/status.after-menu.txt \
             build/status.txt
+
+      - name: Assert audible audio proof manifest
+        if: ${{ always() && inputs.audible_audio_proof }}
+        run: |
+          test -f build/audio-proof.json
+          python3 tools/check_audible_audio_proof.py build/audio-proof.json
 
       - name: Triage cloud status
         if: always()
@@ -264,6 +289,7 @@ jobs:
             build/user_probe.elf
             build/doom.elf
             build/doom.symbols
+            build/audio-proof.json
             build/status*.bin
             build/status*.txt
             build/*.log

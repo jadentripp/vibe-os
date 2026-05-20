@@ -115,6 +115,26 @@ and mix across time without uploading proprietary WAD data, PCM samples, or
 rendered pixels. A run with `audio=NONE` is still useful diagnostics, but it is
 not an audible/streaming audio proof.
 
+Human-audible remote proof:
+
+The next proof lane is `tools/check_audible_audio_proof.py`. The real-WAD
+workflow has an opt-in `audible_audio_proof` input that swaps the disposable
+runner from QEMU's null backend to the QEMU WAV backend:
+`-audiodev wav,id=snd0,path=build/doom-audio.wav -device sb16,audiodev=snd0`.
+That makes QEMU write the host-side output it would have sent to a speaker. The
+workflow then analyzes the temporary WAV on the runner, writes only
+`build/audio-proof.json`, validates that manifest, and must delete the temporary WAV
+with `rm -f build/doom-audio.wav` before artifact upload.
+
+The aggregate JSON manifest is intentionally aggregate-only: sample format, duration,
+active-window counts, RMS/peak summaries, zero-crossing count, and the matching
+final `audio=SB16` / IRQ / refill / SFX / music status counters. It does not
+store samples, hashes, PCM bytes, WAD bytes, pixels, or a waveform. The artifact
+checker rejects raw audio files such as `*.wav`, `*.mp3`, `*.ogg`, and `*.flac`,
+but accepts `audio-proof.json` when the manifest passes the checker. This proves
+that a remote QEMU audio backend received non-silent output from the guest
+without publishing copyrighted audio.
+
 Doom music:
 
 Music is now owned by isolated Doom port code instead of kernel assembly or the
@@ -141,6 +161,10 @@ Remaining gaps:
 - Music currently renders bounded PCM windows and loops that PCM carrier in the
   SB16 voice table instead of advancing the MUS/MIDI event stream in realtime.
   This is audible continuity, not full song-position continuity.
+- The audible proof is a remote aggregate-output proof, not a listener recording
+  or subjective quality proof. A human playtest can still use remote audio
+  forwarding for listening notes, but those notes should not upload captured Doom
+  audio.
 - IRQ refill still needs real playback validation under VM smoke and click-free
   voice ramping for steals/stops.
 - Music and SFX now share the SB16 mixer, but the final mixer still needs better

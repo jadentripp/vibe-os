@@ -71,6 +71,17 @@ REQUIRED_GAPS = {
     },
 }
 
+LATEST_RUN_PHRASES = (
+    "Latest Analyzed Cloud Run",
+    "26146035600",
+    "269dbb8",
+    "doom-user-fault",
+    "FindResponseFile+0x34",
+    "doomfaultip=01003224",
+    "doomopen=FAIL doomread=FAIL",
+    "not a Doom-capable proof",
+)
+
 GAP_RE = re.compile(
     r"^- `GAP\[(?P<id>[A-Z0-9_]+)\] "
     r"status=(?P<status>[a-z-]+) "
@@ -124,6 +135,19 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
 
     readme = (root / "README.md").read_text()
     tests_readme = (root / "tests" / "README.md").read_text()
+    playable_cloud_proof = (root / "docs" / "playable-cloud-proof.md").read_text()
+    for phrase in LATEST_RUN_PHRASES:
+        if phrase not in text:
+            raise AssertionError(f"gap ledger missing latest-run phrase: {phrase}")
+    for phrase in (
+        "latest analyzed real-WAD run is red",
+        "not a Doom-capable claim",
+        "FindResponseFile+0x34",
+    ):
+        if phrase not in readme:
+            raise AssertionError(f"README missing current claim-boundary phrase: {phrase}")
+    if "not a claim that the current branch is playable" not in playable_cloud_proof:
+        raise AssertionError("playable cloud proof doc must not read as a current playability claim")
     if "docs/post-checkpoint-gaps.md" not in readme:
         raise AssertionError("README must point to the gap ledger")
     if "Still required before this is actually Doom-capable" not in readme:

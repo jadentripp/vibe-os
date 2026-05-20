@@ -211,6 +211,17 @@ keyboard delivery, PS/2 mouse delivery, player movement, action commands, menu
 activation, and visual activity summaries. Its checker also requires coherent
 process/exec, storage, VM, audio, mouse, scheduler, and Doom file I/O telemetry
 so a green run is diagnosable from text artifacts alone.
+The same workflow has an opt-in `audible_audio_proof` mode that uses a
+temporary QEMU WAV backend on the disposable runner, reduces it to aggregate
+`audio-proof.json`, validates that manifest, and deletes the WAV before upload.
+Raw audio files are not diagnostic artifacts.
+
+Current proof status: the latest analyzed real-WAD run is red. Run
+`26146035600` on commit `269dbb8` reached `exec=OK path=DOOM.ELF` with valid
+entry, stack, argc, argv, and argv0 fields, then Doom faulted in Ring 3 at
+`FindResponseFile+0x34` (`doomfaultip=01003224`, page-fault vector `0x0E`,
+error `0x05`, `CR2=00000000`) before `doomopen` / `doomread`. That is useful
+bring-up evidence, not a Doom-capable claim.
 
 For a human actually trying the image, use
 `docs/runbooks/remote-doom-playtest.md`. It keeps QEMU on a disposable remote
@@ -283,9 +294,9 @@ Already implemented:
   reads kernel status from a normal RAM status block so graphics memory and
   boot status can be verified separately
 - after the Ring 3 probe, the kernel enters the loaded original `DOOM.ELF`
-  through its ELF entry point with a Doom-sized user stack/heap window; CI
-  verifies that Doom's user process opens and reads `DOOM1.WAD` through the
-  kernel syscall/FAT path
+  through its ELF entry point with a Doom-sized user stack/heap window; the
+  latest real-WAD diagnostics prove the syscall-driven exec handoff reaches
+  Doom user mode, but they also prove Doom currently faults before WAD open/read
 - the kernel captures a bounded tail of Doom's user-mode stdout/stderr stream
   into the RAM smoke artifact as `doomlog=...`, so startup failures are
   diagnosable without editing Doom source
@@ -298,6 +309,8 @@ Still required before this is actually Doom-capable:
 
 - a current passing manual real-WAD cloud workflow on the exact commit being
   claimed, followed by review of the non-WAD status diagnostics
+- fix the current Doom user-mode page fault at `FindResponseFile+0x34` and
+  prove `doomrun=RUN`, `doomopen=OK`, and `doomread=OK` on a fresh cloud run
 - a passing `tools/check_real_wad_proof.py` run on that current real-WAD status
   artifact, including zero Doom exit/fault counters and coherent process,
   storage, VM, input, audio, scheduler, and gameplay telemetry
@@ -313,8 +326,9 @@ Still required before this is actually Doom-capable:
 - broader framebuffer mode support, aspect policy, fullscreen behavior, and
   dirty-rect presentation beyond the current XRGB8888 VBE path
 - remote SB16 continuity proof now has a status-only checker, but audible human
-  validation and long-running music streaming beyond the current looped PCM
-  carrier are still open
+  validation still needs a current `audio-proof.json` or listener proof, and
+  long-running music streaming beyond the current looped PCM carrier is still
+  open
 - graceful Doom exit/reboot behavior for a human session
 - a scoped hardware/support matrix; current claims should stay bounded to the
   QEMU BIOS/IDE/PS2/VBE/SB16 target until each new device class has its own

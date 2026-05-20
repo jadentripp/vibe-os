@@ -14,6 +14,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 import check_real_wad_proof  # noqa: E402
 import check_audio_continuity_proof  # noqa: E402
+import check_audible_audio_proof  # noqa: E402
 
 
 RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
@@ -43,6 +44,8 @@ REQUIRED_SYMBOL_FILES = (
     "doom.symbols",
 )
 
+OPTIONAL_AUDIO_PROOF_FILE = "audio-proof.json"
+
 FORBIDDEN_ARTIFACT_PATTERNS = (
     "*.wad",
     "*.WAD",
@@ -62,6 +65,15 @@ FORBIDDEN_ARTIFACT_PATTERNS = (
     "*.ppm",
     "*.pgm",
     "*.bmp",
+    "*.wav",
+    "*.wave",
+    "*.mp3",
+    "*.ogg",
+    "*.oga",
+    "*.flac",
+    "*.aiff",
+    "*.aif",
+    "*.au",
 )
 
 CONTENT_SIGNATURES = (
@@ -72,6 +84,11 @@ CONTENT_SIGNATURES = (
     (b"P6", "PPM image"),
     (b"P5", "PGM image"),
     (b"QFI\xfb", "QCOW2 disk image"),
+    (b"RIFF", "RIFF/WAV audio"),
+    (b"ID3", "MP3 audio"),
+    (b"OggS", "Ogg audio"),
+    (b"fLaC", "FLAC audio"),
+    (b"FORM", "AIFF audio"),
 )
 
 
@@ -93,6 +110,11 @@ def _assert_no_forbidden_uploads(workflow: str) -> None:
         "build/gfx.bin",
         "build/vga*.txt",
         "build/vga*.bin",
+        "build/doom-audio.wav",
+        "*.wav",
+        "*.mp3",
+        "*.ogg",
+        "*.flac",
         "DOOM1.WAD",
         "*.WAD",
         "*.wad",
@@ -118,8 +140,10 @@ def validate_repo_contract() -> None:
         "tools/check_real_wad_proof.py",
         "tools/check_human_playability_proof.py",
         "tools/check_audio_continuity_proof.py",
+        "tools/check_audible_audio_proof.py",
         "tools/triage_cloud_status.py",
         "doom.symbols",
+        "audio-proof.json",
         "status.after-fire.txt",
         "status.after-move.txt",
         "status.after-use.txt",
@@ -131,6 +155,7 @@ def validate_repo_contract() -> None:
         "Escape",
         "audio=SB16",
         "audio=NONE",
+        "audible remote proof",
         "Save/config persistence",
         "Doom exit/reboot behavior",
         "destroy the disposable remote host",
@@ -179,6 +204,7 @@ def validate_repo_contract() -> None:
         "--menu build/status.after-menu.txt",
         "python3 tools/check_human_playability_proof.py",
         "python3 tools/check_audio_continuity_proof.py",
+        "python3 tools/check_audible_audio_proof.py",
         "Triage cloud status",
         "python3 tools/triage_cloud_status.py build/status.txt",
         'rm -f "$WAD_PATH"',
@@ -190,6 +216,7 @@ def validate_repo_contract() -> None:
         "build/user_probe.elf",
         "build/doom.elf",
         "build/doom.symbols",
+        "build/audio-proof.json",
     ):
         _require(workflow, needle, "real-WAD workflow")
     _assert_no_forbidden_uploads(workflow)
@@ -248,7 +275,7 @@ def validate_artifact_dir(artifact_dir: Path) -> None:
         basename = Path(name).name
         for pattern in FORBIDDEN_ARTIFACT_PATTERNS:
             if fnmatch.fnmatchcase(basename, pattern):
-                raise AssertionError(f"forbidden WAD/image/pixel artifact present: {name}")
+                raise AssertionError(f"forbidden WAD/image/pixel/audio artifact present: {name}")
     _assert_no_forbidden_contents(artifact_dir, names)
 
     missing = [
@@ -288,6 +315,15 @@ def validate_artifact_dir(artifact_dir: Path) -> None:
         raise AssertionError(
             f"{exc}; final audio summary: {check_audio_continuity_proof.summarize_status(status)}"
         ) from exc
+
+    audio_proof = _find_one(names, OPTIONAL_AUDIO_PROOF_FILE)
+    if audio_proof is not None:
+        try:
+            check_audible_audio_proof.validate_manifest(
+                check_audible_audio_proof._load_manifest(artifact_dir / audio_proof)
+            )
+        except AssertionError as exc:
+            raise AssertionError(f"audible audio proof manifest failed: {exc}") from exc
 
 
 def main(argv: list[str]) -> int:

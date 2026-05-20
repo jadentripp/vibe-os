@@ -42,6 +42,32 @@ looped PCM carrier across status snapshots; it does not claim a continuously
 advanced MUS/MIDI song cursor. A later kernel milestone can replace the carrier
 voice with a dedicated `START_MUSIC_PCM` or pull-based streaming command.
 
+Long-running music streaming contract:
+
+The long-running music streaming contract is still open.
+
+To close the music gap, the kernel and Doom port should stop treating music as a
+single bounded PCM carrier and instead maintain song-position continuity across
+refills. The proof should remain status-only and copyright-safe:
+
+- `musicstream=OK` when the active music path is a pull/refill stream rather
+  than a pre-rendered carrier.
+- `songtick=` or `musicpos=` increasing across early/fire/move/use/menu/final
+  snapshots, proving the MUS/MIDI cursor advanced beyond the first rendered
+  window.
+- `musicbuf=`, `musicunder=`, and `musicdrops=` to expose ring-buffer health
+  without uploading PCM.
+- `musicloop=` still increasing only when the parsed song loops, not whenever a
+  short carrier buffer wraps.
+- `tools/check_audio_continuity_proof.py` or a successor gate should compare
+  those fields across the same real-WAD snapshots before any doc calls music
+  streaming complete.
+
+That contract preserves the current parser/renderer work: the port can keep
+parsing original Doom MUS/MIDI lumps outside `third_party/doom`, but rendering
+must move from "make one 65536-byte buffer" to "render the next bounded slice
+from the current song position whenever the SB16 path needs more music PCM."
+
 Fallback design:
 
 SB16 remains the real target for Doom-capable audio. A PC speaker fallback should

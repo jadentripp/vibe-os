@@ -131,10 +131,12 @@ class PostCheckpointGapTests(unittest.TestCase):
         readme = (ROOT / "README.md").read_text()
         tests_readme = (ROOT / "tests" / "README.md").read_text()
         gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
+        playable_doc = (ROOT / "docs" / "playable-cloud-proof.md").read_text()
 
         self.assertIn("docs/post-checkpoint-gaps.md", readme)
         self.assertIn("test_post_checkpoint_gaps.py", tests_readme)
         self.assertIn("tools/check_playability_gap_ledger.py", tests_readme)
+        self.assertIn("not a claim that the current branch is playable", playable_doc)
         for claim_boundary in (
             "There is no cloud proof that an OS-requested",
             "panic=KEXC",
@@ -146,6 +148,35 @@ class PostCheckpointGapTests(unittest.TestCase):
         ):
             with self.subTest(claim_boundary=claim_boundary):
                 self.assertIn(claim_boundary, gap_doc)
+
+    def test_latest_failed_cloud_run_is_precise_and_not_a_claim(self):
+        readme = (ROOT / "README.md").read_text()
+        gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
+
+        for phrase in (
+            "Latest Analyzed Cloud Run",
+            "26146035600",
+            "269dbb8",
+            "not a Doom-capable proof",
+            "doom-user-fault",
+            "FindResponseFile+0x34",
+            "doomfaultip=01003224",
+            "0000000E/00000005/01003224",
+            "doomopen=FAIL doomread=FAIL",
+            "no final `status.txt` exists",
+            "Fix the Doom user-mode page fault",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, gap_doc)
+
+        for phrase in (
+            "latest analyzed real-WAD run is red",
+            "FindResponseFile+0x34",
+            "not a Doom-capable claim",
+            "faults before WAD open/read",
+        ):
+            with self.subTest(readme_phrase=phrase):
+                self.assertIn(phrase, readme)
 
     def test_machine_readable_gap_ledger_covers_playability_surface(self):
         gaps = check_playability_gap_ledger.validate_ledger(ROOT)
