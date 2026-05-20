@@ -708,6 +708,7 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
     while (*format) {
         int width = 0;
         int pad_zero = 0;
+        int precision = -1;
         if (*format != '%') {
             out_char(buffer ? &out : 0, &left, fd, *format++);
             continue;
@@ -722,8 +723,11 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
         }
         if (*format == '.') {
             ++format;
-            while (isdigit((unsigned char)*format))
+            precision = 0;
+            while (isdigit((unsigned char)*format)) {
+                precision = precision * 10 + (*format - '0');
                 ++format;
+            }
         }
         switch (*format++) {
         case 's':
@@ -735,18 +739,35 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
         case 'd':
         case 'i': {
             int value = va_arg(args, int);
+            int digits_width = width;
+            int digits_pad_zero = pad_zero;
             if (value < 0) {
                 out_char(buffer ? &out : 0, &left, fd, '-');
                 value = -value;
             }
-            out_unsigned(buffer ? &out : 0, &left, fd, (unsigned int)value, 10, width, pad_zero);
+            if (precision >= 0) {
+                digits_pad_zero = 1;
+                if (precision > digits_width)
+                    digits_width = precision;
+            }
+            out_unsigned(buffer ? &out : 0, &left, fd, (unsigned int)value, 10, digits_width, digits_pad_zero);
             break;
         }
         case 'u':
+            if (precision >= 0) {
+                pad_zero = 1;
+                if (precision > width)
+                    width = precision;
+            }
             out_unsigned(buffer ? &out : 0, &left, fd, va_arg(args, unsigned int), 10, width, pad_zero);
             break;
         case 'x':
         case 'p':
+            if (precision >= 0) {
+                pad_zero = 1;
+                if (precision > width)
+                    width = precision;
+            }
             out_unsigned(buffer ? &out : 0, &left, fd, va_arg(args, unsigned int), 16, width, pad_zero);
             break;
         case '%':

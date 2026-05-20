@@ -96,6 +96,7 @@ int main(void)
     unsigned char* grown;
     unsigned char* reused;
     size_t used;
+    char text[16];
 
     vibe_libc_host_heap_reset();
     a = malloc(64);
@@ -166,6 +167,13 @@ int main(void)
 
     if (calloc((size_t)-1, 2))
         return 18;
+
+    sprintf(text, "STCFN%.3d", 33);
+    if (strcmp(text, "STCFN033"))
+        return 19;
+    sprintf(text, "WILV%d%d", 1, 2);
+    if (strcmp(text, "WILV12"))
+        return 20;
 
     return 0;
 }
