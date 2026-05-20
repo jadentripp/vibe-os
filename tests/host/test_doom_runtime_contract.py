@@ -299,7 +299,9 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("if (load_checkpoint_requested)", platform)
         self.assertIn("if (!default_config_checkpoint_ready() || !persistence_checkpoint_requested())", platform)
         self.assertIn("G_SaveGame(save_checkpoint_slot, description);", platform)
-        self.assertIn("if (gameaction == ga_savegame && savedescription[0])\n        G_DoSaveGame();", platform)
+        self.assertIn("sendsave = false;", platform)
+        self.assertIn("gameaction = ga_savegame;", platform)
+        self.assertIn("G_DoSaveGame();", platform)
         self.assertIn("void G_BuildTiccmd(ticcmd_t* cmd)", platform)
         self.assertIn("doom_original_G_BuildTiccmd(cmd);", platform)
         build_ticcmd = platform.split("void G_BuildTiccmd(ticcmd_t* cmd)", 1)[1].split(

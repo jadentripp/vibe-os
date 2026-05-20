@@ -149,9 +149,11 @@ and the gameplay checkpoint consumes only that cached intent. This keeps the
 proof focused on the real `DOOMSAV*.DSG` write/read path instead of spending
 the critical window on throwaway marker I/O.
 When the cached save request is present, the port enters the original
-`G_SaveGame()` path as soon as Doom has a live level/player, then immediately
-drains `G_DoSaveGame()` so the proof captures the real Doom serializer before
-later lazy asset lookups can stall the run.
+`G_SaveGame()` path as soon as Doom has a live level/player. Original Doom's
+`G_SaveGame()` only queues `sendsave`; the port clears that queued input path,
+promotes the queued save to `ga_savegame`, and immediately drains
+`G_DoSaveGame()` so the proof captures the real Doom serializer before later
+lazy asset lookups can stall the run.
 
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,
