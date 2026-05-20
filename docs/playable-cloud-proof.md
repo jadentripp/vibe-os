@@ -98,10 +98,10 @@ time to settle:
 
 ```text
 after-start:wait=2,snapshot
-after-fire:hold=ctrl:800,wait=2,snapshot
-after-move:hold=up:1200,wait=3,snapshot
+after-fire:hold=ctrl:800,wait-status-min=pflags:000000C5:80:2,wait=1,snapshot
+after-move:hold=up:1200,wait-status-min=pdelta:00000001:80:2,wait=1,snapshot
 after-use:hold=spc:3000,snapshot,wait=2
-after-mouse:mousebtn=1,wait=1,mouse=4:0,wait=1,mousebtn=0,wait=1,mouse=64:0,wait=2,snapshot
+after-mouse:mousebtn=1,wait=1,mouse=4:0,wait=1,mousebtn=0,wait=1,mouse=64:0,wait-status-min=pangledelta:00000001:80:2,wait=1,snapshot
 after-menu:esc,wait=2,snapshot
 ```
 
@@ -218,13 +218,14 @@ The cloud proof requires these status families:
   `pdelta>0`
   and a changed `ppos` between `status.after-start.txt` and
   `status.after-move.txt` prove the player moved in Doom state, not only that a
-  key was delivered. The fire phase must also prove ammo/refire state changed,
-  so Ctrl cannot pass as a key counter alone.
+  key was delivered. The raw `pammo`/`prefire` fields must also change across
+  the fire phase, so Ctrl cannot pass as a key counter or cumulative flag alone.
 - Mouse turn proof: `status.after-mouse.txt` must include both PS/2 mouse
-  IRQ/packet/poll counters and the `pflags` turn bit from Doom gameplay state.
-  The runtime sets that bit from Doom's live `ticcmd.angleturn` when sampled, or
-  from a durable player-angle delta after Doom has applied the command, so mouse
-  proof cannot pass on kernel delivery alone.
+  IRQ/packet/poll counters, the `pflags` turn bit, and a raw `pangle` /
+  `pangledelta` change from Doom gameplay state. The runtime sets the turn bit
+  from Doom's live `ticcmd.angleturn` when sampled, or from a durable
+  player-angle delta after Doom has applied the command, so mouse proof cannot
+  pass on kernel delivery alone.
 - Menu state: `status.after-start.txt` must have the menu bit clear, and
   `status.after-menu.txt` plus final `gflags` must have it set after Escape,
   proving the scripted input toggled Doom UI state while remaining in

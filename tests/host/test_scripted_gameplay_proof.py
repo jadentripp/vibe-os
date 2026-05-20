@@ -27,6 +27,12 @@ def make_status(**overrides):
         "pbuttons": "00000000",
         "ppos": "00010000:00020000",
         "pdelta": "00000000",
+        "pcmd": "00000000",
+        "pangle": "10000000",
+        "pangledelta": "00000000",
+        "pammo": "00000032",
+        "prefire": "00000000",
+        "pweapon": "00000002",
         "keyirq": "00000000",
         "keyqueue": "00000000",
         "keypoll": "00000000",
@@ -60,6 +66,9 @@ def scripted_statuses():
             keyseen="00000010",
             keylast="0001019D",
             pflags="000000C5",
+            pcmd="00010001",
+            pammo="00000031",
+            prefire="00000001",
         ),
         "movement": make_status(
             gtic="00000060",
@@ -72,6 +81,8 @@ def scripted_statuses():
             pflags="000000E7",
             ppos="00010020:00020000",
             pdelta="00000020",
+            pcmd="00003200",
+            pammo="00000031",
         ),
         "use": make_status(
             gtic="00000080",
@@ -84,6 +95,8 @@ def scripted_statuses():
             pflags="000000EF",
             ppos="00010020:00020000",
             pdelta="00000020",
+            pcmd="00000002",
+            pammo="00000031",
         ),
         "mouse": make_status(
             gtic="000000A0",
@@ -96,6 +109,9 @@ def scripted_statuses():
             pflags="000001EF",
             ppos="00010020:00020000",
             pdelta="00000020",
+            pammo="00000031",
+            pangle="11000000",
+            pangledelta="01000000",
             mouseirq="00000002",
             mousepkt="00000002",
             mousepoll="00000002",
@@ -114,6 +130,9 @@ def scripted_statuses():
             pflags="000001FF",
             ppos="00010020:00020000",
             pdelta="00000020",
+            pammo="00000031",
+            pangle="11000000",
+            pangledelta="01000000",
             mouseirq="00000002",
             mousepkt="00000002",
             mousepoll="00000002",
@@ -132,6 +151,9 @@ def scripted_statuses():
             pflags="000001FF",
             ppos="00010020:00020000",
             pdelta="00000020",
+            pammo="00000031",
+            pangle="11000000",
+            pangledelta="01000000",
             mouseirq="00000002",
             mousepkt="00000002",
             mousepoll="00000002",
@@ -159,7 +181,10 @@ class ScriptedGameplayProofTests(unittest.TestCase):
         self.assertEqual(manifest["schema"], check_scripted_gameplay_proof.SCHEMA)
         self.assertEqual(manifest["phase_order"], list(check_scripted_gameplay_proof.PHASE_ORDER))
         self.assertEqual(manifest["start_state"]["pdelta"], "00000000")
+        self.assertEqual(manifest["start_state"]["pangle"], "10000000")
+        self.assertEqual(manifest["transitions"]["fire"]["pammo"], "00000031")
         self.assertEqual(manifest["transitions"]["movement"]["movement_ppos"], "00010020:00020000")
+        self.assertEqual(manifest["transitions"]["mouse"]["pangledelta"], "01000000")
         self.assertEqual(manifest["transitions"]["mouse"]["pflags"], "000001EF")
         check_scripted_gameplay_proof.validate_manifest(manifest, snapshots=statuses)
 
@@ -232,6 +257,42 @@ class ScriptedGameplayProofTests(unittest.TestCase):
                     mousepoll="00000002",
                     mousebtn="00000001",
                     mousedelta="00000018:0000000C",
+                )
+            },
+            "fire raw weapon state": {
+                "fire": make_status(
+                    gtic="00000040",
+                    leveltime="00000040",
+                    keyirq="00000001",
+                    keyqueue="00000001",
+                    keypoll="00000001",
+                    keyseen="00000010",
+                    keylast="0001019D",
+                    pflags="000000C5",
+                    pammo="00000032",
+                    prefire="00000000",
+                )
+            },
+            "mouse raw angle state": {
+                "mouse": make_status(
+                    gtic="000000A0",
+                    leveltime="000000A0",
+                    keyirq="00000003",
+                    keyqueue="00000003",
+                    keypoll="00000003",
+                    keyseen="00000031",
+                    keylast="00010020",
+                    pflags="000001EF",
+                    ppos="00010020:00020000",
+                    pdelta="00000020",
+                    pammo="00000031",
+                    mouseirq="00000002",
+                    mousepkt="00000002",
+                    mousepoll="00000002",
+                    mousebtn="00000001",
+                    mousedelta="00000018:0000000C",
+                    pangle="10000000",
+                    pangledelta="00000000",
                 )
             },
             "menu gflags": {
