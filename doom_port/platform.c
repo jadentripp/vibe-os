@@ -76,7 +76,6 @@ static int load_checkpoint_done;
     ((int)((VIBE_MUSIC_STREAM_BYTES * 35u) / VIBE_MUSIC_DEFAULT_SAMPLE_RATE) / 16)
 #define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x2c000u
 #define VIBE_PERSISTENCE_MIN_LEVELTIME 32
-#define VIBE_PERSISTENCE_SLOT_COUNT 6
 
 static void report_doom_init_status(unsigned long flags)
 {
@@ -318,85 +317,18 @@ static int default_config_needs_checkpoint(void)
         || !default_config_contains_marker(length, "chatmacro0");
 }
 
-static int default_config_file_contains_marker(const char* marker)
-{
-    const char* path;
-    FILE* file;
-    size_t length;
-
-    if (!marker)
-        return 0;
-
-    path = defaultfile ? defaultfile : "DEFAULT.CFG";
-    file = fopen(path, "r");
-    if (!file)
-        return 0;
-
-    length = fread(
-        default_config_check_buffer,
-        1,
-        sizeof(default_config_check_buffer) - 1,
-        file);
-    fclose(file);
-    default_config_check_buffer[length] = 0;
-
-    return default_config_contains_marker(length, marker);
-}
-
 static int persistence_checkpoint_requested(void)
 {
-    FILE* marker;
+    struct stat info;
 
     if (default_config_checkpoint_requested)
         return default_config_checkpoint_requested;
 
     default_config_checkpoint_request_checked = 1;
-    marker = fopen("PERSIST.CHK", "r");
-    if (marker) {
+    if (stat("PERSIST.CHK", &info) == 0)
         default_config_checkpoint_requested = 1;
-        fclose(marker);
-    }
-    if (!default_config_checkpoint_requested
-        && default_config_file_contains_marker("VIBE_DEFAULT")) {
-        default_config_checkpoint_requested = 1;
-    }
 
     return default_config_checkpoint_requested;
-}
-
-static int read_save_slot_marker_request(const char* prefix, int* slot)
-{
-    FILE* marker;
-    char path[] = "doomsav0.dsg";
-    char buffer[16];
-    size_t length;
-    size_t prefix_length;
-    int marker_slot;
-
-    if (!prefix || !slot)
-        return 0;
-
-    prefix_length = strlen(prefix);
-    for (marker_slot = 0; marker_slot < VIBE_PERSISTENCE_SLOT_COUNT; ++marker_slot) {
-        path[7] = (char)('0' + marker_slot);
-        marker = fopen(path, "r");
-        if (!marker)
-            continue;
-
-        length = fread(buffer, 1, sizeof(buffer) - 1, marker);
-        fclose(marker);
-        buffer[length] = 0;
-
-        if (length > prefix_length
-            && !strncmp(buffer, prefix, prefix_length)
-            && buffer[prefix_length] >= '0'
-            && buffer[prefix_length] <= '5') {
-            *slot = buffer[prefix_length] - '0';
-            return 1;
-        }
-    }
-
-    return 0;
 }
 
 static int read_persistence_slot_request(const char* path, int* slot)
@@ -423,14 +355,9 @@ static int save_checkpoint_requested_once(void)
         return save_checkpoint_requested;
 
     save_checkpoint_request_checked = 1;
-    save_checkpoint_requested = read_save_slot_marker_request(
-        "VIBE_SAVE_",
+    save_checkpoint_requested = read_persistence_slot_request(
+        "SAVEREQ.CHK",
         &save_checkpoint_slot);
-    if (!save_checkpoint_requested) {
-        save_checkpoint_requested = read_persistence_slot_request(
-            "SAVEREQ.CHK",
-            &save_checkpoint_slot);
-    }
     return save_checkpoint_requested;
 }
 
@@ -440,14 +367,9 @@ static int load_checkpoint_requested_once(void)
         return load_checkpoint_requested;
 
     load_checkpoint_request_checked = 1;
-    load_checkpoint_requested = read_save_slot_marker_request(
-        "VIBE_LOAD_",
+    load_checkpoint_requested = read_persistence_slot_request(
+        "LOADREQ.CHK",
         &load_checkpoint_slot);
-    if (!load_checkpoint_requested) {
-        load_checkpoint_requested = read_persistence_slot_request(
-            "LOADREQ.CHK",
-            &load_checkpoint_slot);
-    }
     return load_checkpoint_requested;
 }
 
