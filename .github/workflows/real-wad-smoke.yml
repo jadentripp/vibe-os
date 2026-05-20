@@ -385,7 +385,13 @@ jobs:
             SMOKE_SETTLE_SECONDS=20 \
             SMOKE_INPUT_SCRIPT="$persistence_write_script" \
             tests/run_smoke_qemu.sh
-          cp build/persistence-write/status.txt build/status.persistence-write.txt
+          if [ -n "${PERSISTENCE_SAVE_SLOT:-}" ]; then
+            write_status="build/persistence-write/status.save-slot-${PERSISTENCE_SAVE_SLOT}.txt"
+          else
+            write_status="build/persistence-write/status.txt"
+          fi
+          test -f "$write_status"
+          cp "$write_status" build/status.persistence-write.txt
 
           python3 tools/check_doom_persistence_image.py "${check_args[@]}" build/disk.img \
             | tee build/status.persistence-write-proof.txt
@@ -494,3 +500,4 @@ jobs:
             build/status*.txt
             build/*.log
             build/persistence-*/*.log
+            build/persistence-*/*.txt
