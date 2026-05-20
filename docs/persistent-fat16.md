@@ -157,6 +157,12 @@ proof can distinguish a gameplay bring-up failure from a storage write stall
 while still capturing the real Doom serializer before later lazy asset lookups
 can stall the run.
 
+The kernel caches the last FAT root-directory sector it read in low memory and
+reuses that cached sector when updating root metadata for known writable files.
+This keeps the save proof from re-reading the same root sector during the first
+`O_TRUNC`/size update window, while still writing the updated root entry back to
+the FAT image for reboot persistence.
+
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,
 resize-to-zero, delete, deleted root-slot reuse, zero-fill checks, FAT-copy
@@ -168,11 +174,11 @@ semantics today.
 This is enough for Doom defaults and save slots without turning the kernel into
 a general-purpose FAT filesystem.
 
-ATA PIO waits are bounded and status-reported. The ATA path makes sure commands only start once stale `DRQ` is clear, and read/write transfers wait for the
-data-request phase to drain after the 256-word PIO burst. The smoke line includes `ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo` so a
-cloud persistence write boot that parks in `ata_wait_drq` or `ata_wait_ready`
-reports the last operation and command-status byte instead of silently looking
-like a Doom startup/gameplay wait.
+ATA PIO waits are bounded and status-reported. The ATA path makes sure commands only start once stale `DRQ` is clear, labels the 256-word data-port burst as
+`atawait=DATA`, and waits for the data-request phase to drain after the burst. The smoke line includes `ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo` so a cloud persistence write boot that parks in
+`ata_wait_drq`, `ata_wait_ready`, or the data transfer reports the last
+operation and command-status byte instead of silently looking like a Doom
+startup/gameplay wait.
 
 Remaining storage gaps before a broad Doom-capable claim:
 

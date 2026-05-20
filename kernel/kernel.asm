@@ -135,6 +135,7 @@ HEAP_PROBE_LAST_DWORD equ HEAP_PROBE_SIZE - 4
 HEAP_PROBE_MAGIC equ 0x464c4154
 HEAP_BLOCK_MAGIC_FREE equ 0x46524545
 HEAP_BLOCK_MAGIC_USED equ 0x55534544
+ROOT_SECTOR_CACHE_ADDR equ 0x0009a000
 SECTOR_BUFFER_ADDR equ 0x0009b000
 WAD_LOAD_ADDR equ 0x00900000
 WAD_MAX_BYTES equ 0x00500000
@@ -520,6 +521,7 @@ ATA_WAIT_IDLE equ 0
 ATA_WAIT_BUSY equ 1
 ATA_WAIT_DRQ equ 2
 ATA_WAIT_READY equ 3
+ATA_WAIT_DATA equ 4
 ACPI_PM1A_CNT_PORT equ 0x0604
 ACPI_PM1_CNT_S5_ENABLE equ 0x2000
 BOCHS_PM1A_CNT_PORT equ 0xb004
@@ -4861,6 +4863,8 @@ storage_init:
     mov dword [ata_wait_failures], 0
     mov dword [ata_wait_timeouts], 0
     mov dword [ata_wait_error_failures], 0
+    mov byte [root_sector_cache_valid], 0
+    mov dword [root_sector_cache_lba], 0
     mov dword [fat_lba_base], 0
     mov dword [fat_total_sectors], 0
     mov dword [fat_last_data_cluster], 0
@@ -5403,9 +5407,11 @@ ata_read_sector:
     jc .fail
 
     cld
+    mov dword [ata_wait_phase], ATA_WAIT_DATA
     mov dx, ATA_DATA
     mov ecx, 256
     rep insw
+    mov dword [ata_wait_phase], ATA_WAIT_IDLE
     call ata_io_delay
     call ata_wait_ready
     jc .fail
@@ -5470,9 +5476,11 @@ ata_write_sector:
     jc .fail
 
     cld
+    mov dword [ata_wait_phase], ATA_WAIT_DATA
     mov dx, ATA_DATA
     mov ecx, 256
     rep outsw
+    mov dword [ata_wait_phase], ATA_WAIT_IDLE
     call ata_io_delay
     call ata_wait_ready
     jc .fail
@@ -5487,6 +5495,81 @@ ata_write_sector:
 .done:
     pop esi
     pop edx
+    pop ecx
+    pop ebx
+    ret
+
+fat_read_root_sector:
+    push ebx
+    push ecx
+    push esi
+    push edi
+
+    mov ebx, eax
+    cmp byte [root_sector_cache_valid], 1
+    jne .miss
+    cmp [root_sector_cache_lba], ebx
+    jne .miss
+    mov esi, ROOT_SECTOR_CACHE_ADDR
+    mov edi, SECTOR_BUFFER_ADDR
+    mov ecx, 512 / 4
+    cld
+    rep movsd
+    clc
+    jmp .done
+
+.miss:
+    mov eax, ebx
+    mov edi, SECTOR_BUFFER_ADDR
+    call ata_read_sector
+    jc .fail
+    mov [root_sector_cache_lba], ebx
+    mov esi, SECTOR_BUFFER_ADDR
+    mov edi, ROOT_SECTOR_CACHE_ADDR
+    mov ecx, 512 / 4
+    cld
+    rep movsd
+    mov byte [root_sector_cache_valid], 1
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop ecx
+    pop ebx
+    ret
+
+fat_write_root_sector:
+    push ebx
+    push ecx
+    push esi
+    push edi
+
+    mov ebx, eax
+    mov eax, ebx
+    mov esi, SECTOR_BUFFER_ADDR
+    call ata_write_sector
+    jc .fail
+    mov [root_sector_cache_lba], ebx
+    mov esi, SECTOR_BUFFER_ADDR
+    mov edi, ROOT_SECTOR_CACHE_ADDR
+    mov ecx, 512 / 4
+    cld
+    rep movsd
+    mov byte [root_sector_cache_valid], 1
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
     pop ecx
     pop ebx
     ret
@@ -5514,8 +5597,7 @@ fat_find_file:
     jae .fail
     mov eax, [fat_root_lba]
     add eax, ebx
-    mov edi, SECTOR_BUFFER_ADDR
-    call ata_read_sector
+    call fat_read_root_sector
     jc .fail
 
     mov esi, SECTOR_BUFFER_ADDR
@@ -5878,8 +5960,7 @@ fat_create_root_file:
     jae .fail
     mov eax, [fat_root_lba]
     add eax, ebx
-    mov edi, SECTOR_BUFFER_ADDR
-    call ata_read_sector
+    call fat_read_root_sector
     jc .fail
     mov esi, SECTOR_BUFFER_ADDR
     mov ecx, 16
@@ -5919,8 +6000,7 @@ fat_create_root_file:
     mov word [fat_found_first_cluster], 0
     mov dword [fat_found_size], 0
     mov eax, [fat_found_root_lba]
-    mov esi, SECTOR_BUFFER_ADDR
-    call ata_write_sector
+    call fat_write_root_sector
     jc .fail
     clc
     jmp .done
@@ -6788,8 +6868,7 @@ fat_update_writable_size:
 
     mov ebx, eax
     mov eax, [writable_root_lbas + ebx * 4]
-    mov edi, SECTOR_BUFFER_ADDR
-    call ata_read_sector
+    call fat_read_root_sector
     jc .fail
     mov edx, [writable_root_offsets + ebx * 4]
     mov ax, [writable_first_clusters + ebx * 2]
@@ -6797,8 +6876,7 @@ fat_update_writable_size:
     mov ecx, [writable_sizes + ebx * 4]
     mov [SECTOR_BUFFER_ADDR + edx + 28], ecx
     mov eax, [writable_root_lbas + ebx * 4]
-    mov esi, SECTOR_BUFFER_ADDR
-    call ata_write_sector
+    call fat_write_root_sector
     jc .fail
     clc
     jmp .done
@@ -6855,16 +6933,14 @@ fat_delete_found_file:
 
 .clear_root_entry:
     mov eax, [fat_found_root_lba]
-    mov edi, SECTOR_BUFFER_ADDR
-    call ata_read_sector
+    call fat_read_root_sector
     jc .fail
     mov edx, [fat_found_root_offset]
     mov byte [SECTOR_BUFFER_ADDR + edx], 0xe5
     mov word [SECTOR_BUFFER_ADDR + edx + 26], 0
     mov dword [SECTOR_BUFFER_ADDR + edx + 28], 0
     mov eax, [fat_found_root_lba]
-    mov esi, SECTOR_BUFFER_ADDR
-    call ata_write_sector
+    call fat_write_root_sector
     jc .fail
     clc
     jmp .done
@@ -12758,6 +12834,8 @@ write_smoke_status:
     je .atawait_drq
     cmp dword [ata_wait_phase], ATA_WAIT_READY
     je .atawait_ready
+    cmp dword [ata_wait_phase], ATA_WAIT_DATA
+    je .atawait_data
     mov esi, smoke_idle_text
     jmp .atawait_write
 
@@ -12771,6 +12849,10 @@ write_smoke_status:
 
 .atawait_ready:
     mov esi, smoke_ready_text
+    jmp .atawait_write
+
+.atawait_data:
+    mov esi, smoke_data_text
 
 .atawait_write:
     call smoke_copy_string
@@ -14575,6 +14657,7 @@ smoke_idle_text db "IDLE", 0
 smoke_busy_text db "BUSY", 0
 smoke_drq_text db "DRQ", 0
 smoke_ready_text db "READY", 0
+smoke_data_text db "DATA", 0
 heap_status_gap db " ", 0
 ok_text db "OK", 13, 10, 0
 fail_text db "FAIL", 13, 10, 0
@@ -14856,6 +14939,9 @@ ata_last_error dd 0
 ata_wait_failures dd 0
 ata_wait_timeouts dd 0
 ata_wait_error_failures dd 0
+root_sector_cache_valid db 0
+align 4
+root_sector_cache_lba dd 0
 fat_lba_base dd 0
 fat_total_sectors dd 0
 fat_last_data_cluster dd 0

@@ -586,7 +586,7 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
     ata_failures = _hex(fields, "atafail") or 0
     ata_timeouts = _hex(fields, "atatmo") or 0
     ata_active_before_frames = (
-        ata_wait in ("BUSY", "DRQ", "READY")
+        ata_wait in ("BUSY", "DRQ", "READY", "DATA")
         and fields.get("gameplay") != "OK"
         and not _hex_nonzero(fields, "doompresent", "doompal", "doomframe")
     )
