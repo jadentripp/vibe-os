@@ -262,6 +262,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     smoke_runner = _read(root, "tests/run_smoke_qemu.sh")
     os_workflow = _read(root, ".github/workflows/os-smoke.yml")
     real_wad_workflow = _read(root, ".github/workflows/real-wad-smoke.yml")
+    cloud_play_workflow = _read(root, ".github/workflows/cloud-play-now-preflight.yml")
     kernel = _read(root, "kernel/kernel.asm")
     probe = _read(root, "user/probe.c")
     process_doc = _read(root, "docs/process-exec.md")
@@ -335,6 +336,35 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         for forbidden in ("build/disk.img", "build/gfx.bin", "DOOM1.WAD", "*.WAD", "*.wad"):
             if forbidden in upload:
                 raise AssertionError(f"{label} upload block includes forbidden artifact {forbidden}")
+
+    for needle in (
+        "workflow_dispatch:",
+        "runs-on: ubuntu-latest",
+        "NOVNC_PORT: ${{ inputs.novnc_port }}",
+        "qemu-system-x86",
+        "./tools/play_now_remote.sh \"${args[@]}\"",
+        "--preflight",
+        "--require-novnc",
+        "dry-run: QEMU was not launched",
+        "python3 tools/check_vm_safety_contract.py",
+        "This workflow did not launch QEMU, fetch a WAD, build disk.img, or upload logs/artifacts.",
+        "VIBE_REPO=${{ github.repository }} VIBE_REF=${{ github.ref_name }} ./tools/play_now_codespaces.sh",
+    ):
+        _require(cloud_play_workflow, needle, "cloud play-now preflight workflow")
+
+    for forbidden in (
+        "actions/upload-artifact",
+        "DOOM1.WAD",
+        "make DOOM_WAD",
+        "qemu-system-x86_64 \\",
+        "build/disk.img",
+        "gh codespace cp",
+        "scp ",
+    ):
+        if forbidden in cloud_play_workflow:
+            raise AssertionError(
+                f"cloud play-now preflight workflow includes forbidden payload/action {forbidden!r}"
+            )
 
     for needle in (
         "SMOKE_SKIP_ASSERTIONS=1",

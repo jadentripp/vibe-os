@@ -44,6 +44,12 @@ remote play script there, marks the noVNC port private, and opens/prints the
 browser URL. The rest of this runbook is the manual remote-host equivalent and
 the optional human proof-capture flow.
 
+Optional cloud prerequisite check: run the manual **Cloud play-now preflight**
+GitHub Actions workflow on the branch you plan to play. It installs the remote
+dependencies, runs `./tools/play_now_remote.sh --preflight --require-novnc`,
+checks this safety contract, and exits before QEMU launch, WAD download, disk
+image build, or artifact upload.
+
 On the Mac, set only connection metadata:
 
 ```sh

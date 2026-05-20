@@ -193,6 +193,11 @@ boot:
   `tools/play_now_remote.sh` inside it, mark noVNC port `6080` private, and
   print/open the noVNC URL. It must not run QEMU locally or copy WAD, disk,
   pixel, screenshot, log, or raw-audio artifacts back from Codespaces.
+- `.github/workflows/cloud-play-now-preflight.yml` is the manual cloud dry-run
+  for the play host shape. It installs the remote dependencies on
+  `ubuntu-latest`, runs `tools/play_now_remote.sh --preflight --require-novnc`,
+  checks the safety contract, and exits before QEMU, WAD fetch, image build, or
+  artifact upload.
 - `tools/triage_cloud_status.py` classifies a downloaded real-WAD status line
   into the first repair lane. The custom linker also writes `build/doom.symbols`
   so cloud artifacts can symbolize `doomfaultip` and decode page-fault/WAD I/O
