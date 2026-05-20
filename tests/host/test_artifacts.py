@@ -565,7 +565,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("check_args+=(--require-save-slot \"$PERSISTENCE_SAVE_SLOT\")", real_wad_workflow)
         self.assertIn('cp "$baseline" build/disk.img', real_wad_workflow)
         self.assertIn("make_wad_image.PERSISTENCE_CHECKPOINT_NAME", real_wad_workflow)
-        self.assertIn('b"checkpoint\\n"', real_wad_workflow)
+        self.assertIn('b""', real_wad_workflow)
         self.assertIn("build/status.persistence-write-proof.txt", real_wad_workflow)
         self.assertIn("build/status.persistence-reboot-proof.txt", real_wad_workflow)
         self.assertIn("--reboot-status build/status.persistence-reboot.txt", real_wad_workflow)

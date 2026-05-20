@@ -264,7 +264,7 @@ jobs:
           fs = make_wad_image.Fat16Image(image)
           fs.write_root_file(
               make_wad_image.PERSISTENCE_CHECKPOINT_NAME,
-              b"checkpoint\n",
+              b"",
           )
           path.write_bytes(image)
           PY
