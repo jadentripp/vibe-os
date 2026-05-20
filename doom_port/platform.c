@@ -949,7 +949,6 @@ void I_FinishUpdate(void)
     report_doom_init_status(VIBE_DOOM_INIT_FRAME);
     pump_music_stream();
     report_gameplay_status();
-    run_persistence_checkpoint_actions();
     report_save_action_status();
     report_playability_status();
     report_player_detail_status();
@@ -961,6 +960,7 @@ void I_FinishUpdate(void)
         present.height = SCREENHEIGHT;
         (void)ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_PRESENT_INDEXED, &present);
     }
+    run_persistence_checkpoint_actions();
 }
 
 void I_WaitVBL(int count)
