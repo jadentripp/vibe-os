@@ -105,6 +105,8 @@ static unsigned long read_le32(const unsigned char* data)
         | ((unsigned long)data[3] << 24);
 }
 
+static void report_save_action_status(void);
+
 static int sfx_cache_index(sfxinfo_t* sfx, int fallback)
 {
     int index;
@@ -413,6 +415,7 @@ static void checkpoint_save_slot_if_needed(void)
     if (!save_checkpoint_requested_once())
         return;
 
+    report_save_action_status();
     G_SaveGame(save_checkpoint_slot, description);
     sendsave = false;
     gameaction = ga_savegame;

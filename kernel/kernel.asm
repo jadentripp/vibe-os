@@ -5410,7 +5410,11 @@ ata_read_sector:
     mov dword [ata_wait_phase], ATA_WAIT_DATA
     mov dx, ATA_DATA
     mov ecx, 256
-    rep insw
+.read_word:
+    in ax, dx
+    mov [edi], ax
+    add edi, 2
+    loop .read_word
     mov dword [ata_wait_phase], ATA_WAIT_IDLE
     call ata_io_delay
     call ata_wait_ready
@@ -5479,7 +5483,11 @@ ata_write_sector:
     mov dword [ata_wait_phase], ATA_WAIT_DATA
     mov dx, ATA_DATA
     mov ecx, 256
-    rep outsw
+.write_word:
+    mov ax, [esi]
+    out dx, ax
+    add esi, 2
+    loop .write_word
     mov dword [ata_wait_phase], ATA_WAIT_IDLE
     call ata_io_delay
     call ata_wait_ready

@@ -67,10 +67,16 @@ class AtaPioContractTests(unittest.TestCase):
         self.assertGreaterEqual(write_sector.count("call ata_wait_ready"), 2)
         self.assertIn("out dx, al\n    call ata_io_delay\n\n    call ata_wait_drq", read_sector)
         self.assertIn("mov dword [ata_wait_phase], ATA_WAIT_DATA", read_sector)
-        self.assertIn("rep insw\n    mov dword [ata_wait_phase], ATA_WAIT_IDLE\n    call ata_io_delay\n    call ata_wait_ready", read_sector)
+        self.assertIn("mov ecx, 256\n.read_word:\n    in ax, dx", read_sector)
+        self.assertIn("mov [edi], ax\n    add edi, 2\n    loop .read_word", read_sector)
+        self.assertIn("loop .read_word\n    mov dword [ata_wait_phase], ATA_WAIT_IDLE", read_sector)
         self.assertIn("out dx, al\n    call ata_io_delay\n\n    call ata_wait_drq", write_sector)
         self.assertIn("mov dword [ata_wait_phase], ATA_WAIT_DATA", write_sector)
-        self.assertIn("rep outsw\n    mov dword [ata_wait_phase], ATA_WAIT_IDLE\n    call ata_io_delay\n    call ata_wait_ready", write_sector)
+        self.assertIn("mov ecx, 256\n.write_word:\n    mov ax, [esi]", write_sector)
+        self.assertIn("out dx, ax\n    add esi, 2\n    loop .write_word", write_sector)
+        self.assertIn("loop .write_word\n    mov dword [ata_wait_phase], ATA_WAIT_IDLE", write_sector)
+        self.assertNotIn("rep insw", read_sector)
+        self.assertNotIn("rep outsw", write_sector)
 
     def test_writable_root_updates_use_cached_root_sector(self):
         kernel = self.kernel

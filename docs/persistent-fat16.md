@@ -152,10 +152,10 @@ When the cached save request is present, the port enters the original
 `G_SaveGame()` path as soon as Doom has a live level/player. Original Doom's
 `G_SaveGame()` only queues `sendsave`; the port clears that queued input path,
 promotes the queued save to `ga_savegame`, and immediately drains
-`G_DoSaveGame()` after reporting live gameplay/save-request status, so the cloud
-proof can distinguish a gameplay bring-up failure from a storage write stall
-while still capturing the real Doom serializer before later lazy asset lookups
-can stall the run.
+`G_DoSaveGame()` after reporting live gameplay/save-request status. That keeps
+the cloud proof able to distinguish a missing marker from a serializer/storage
+stall while still capturing the real Doom serializer before later lazy asset
+lookups can stall the run.
 
 The kernel caches the last FAT root-directory sector it read in low memory and
 reuses that cached sector when updating root metadata for known writable files.
@@ -177,8 +177,8 @@ semantics today.
 This is enough for Doom defaults and save slots without turning the kernel into
 a general-purpose FAT filesystem.
 
-ATA PIO waits are bounded and status-reported. The ATA path makes sure commands only start once stale `DRQ` is clear, labels the 256-word data-port burst as
-`atawait=DATA`, and waits for the data-request phase to drain after the burst. The smoke line includes `ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo` so a cloud persistence write boot that parks in
+ATA PIO waits are bounded and status-reported. The ATA path makes sure commands only start once stale `DRQ` is clear, labels the explicit 256-word PIO loop as
+`atawait=DATA`, and waits for the data-request phase to drain after the loop. The smoke line includes `ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo` so a cloud persistence write boot that parks in
 `ata_wait_drq`, `ata_wait_ready`, or the data transfer reports the last
 operation and command-status byte instead of silently looking like a Doom
 startup/gameplay wait.

@@ -129,6 +129,7 @@ class DoomInputContractTests(unittest.TestCase):
             "default_config_needs_checkpoint()",
             'default_config_contains_marker(length, "chatmacro0")',
             "M_SaveDefaults();",
+            "report_save_action_status();\n    G_SaveGame(save_checkpoint_slot, description);",
             "G_SaveGame(save_checkpoint_slot, description);",
             "sendsave = false;",
             "gameaction = ga_savegame;",
