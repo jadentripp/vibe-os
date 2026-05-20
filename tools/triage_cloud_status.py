@@ -118,6 +118,8 @@ SUMMARY_FIELDS = (
     "fam",
     "fac",
     "fio",
+    "flb",
+    "fcl",
 )
 EXECSYS_NAMES = (
     "attempts",
@@ -657,7 +659,8 @@ def render_persistence_save_context(fields: dict[str, str]) -> list[str]:
         f"saveact={_field(fields, 'saveact')} savedesc={_field(fields, 'savedesc')}",
         "persistence-write-debug: "
         f"fwr={_field(fields, 'fwr')} fio={_field(fields, 'fio')} "
-        f"fal={_field(fields, 'fal')} fam={_field(fields, 'fam')} fac={_field(fields, 'fac')}",
+        f"fal={_field(fields, 'fal')} fam={_field(fields, 'fam')} "
+        f"fac={_field(fields, 'fac')} flb={_field(fields, 'flb')} fcl={_field(fields, 'fcl')}",
     ]
     fal = _hex_tuple(fields, "fal", 4)
     fio = _hex_tuple(fields, "fio", 20)
@@ -822,7 +825,8 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
                 f"doomsav={_field(fields, 'doomsav')} savewr={_field(fields, 'savewr')} "
                 f"saveclose={_field(fields, 'saveclose')} savemode={_field(fields, 'savemode')} "
                 f"fwr={_field(fields, 'fwr')} fal={_field(fields, 'fal')} "
-                f"fam={_field(fields, 'fam')} fac={_field(fields, 'fac')} fio={_field(fields, 'fio')}"
+                f"fam={_field(fields, 'fam')} fac={_field(fields, 'fac')} "
+                f"fio={_field(fields, 'fio')} flb={_field(fields, 'flb')} fcl={_field(fields, 'fcl')}"
             )
             return "persistence-save-growth-allocation-partial", notes
         notes.append(
@@ -831,7 +835,8 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
             f"doomsav={_field(fields, 'doomsav')} savewr={_field(fields, 'savewr')} "
             f"saveclose={_field(fields, 'saveclose')} savemode={_field(fields, 'savemode')} "
             f"fwr={_field(fields, 'fwr')} fal={_field(fields, 'fal')} "
-            f"fam={_field(fields, 'fam')} fac={_field(fields, 'fac')} fio={_field(fields, 'fio')}"
+            f"fam={_field(fields, 'fam')} fac={_field(fields, 'fac')} "
+            f"fio={_field(fields, 'fio')} flb={_field(fields, 'flb')} fcl={_field(fields, 'fcl')}"
         )
         return "persistence-save-write-failed", notes
 

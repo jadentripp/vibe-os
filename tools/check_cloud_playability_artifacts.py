@@ -676,7 +676,7 @@ def validate_repo_contract() -> None:
             raise AssertionError(f"runbook should not instruct local/pixel artifact path {forbidden!r}")
 
     _require(playable, "Remote Doom Playtest Runbook", "playable cloud proof doc")
-    _require(playable, "Current-head cloud proof state: pending", "playable cloud proof doc")
+    _require(playable, "Current-head cloud proof state: save persistence is not green yet", "playable cloud proof doc")
     _require(playable, "gh workflow run os-smoke.yml", "playable cloud proof doc")
     _require(playable, "gh workflow run real-wad-smoke.yml", "playable cloud proof doc")
     _require(playable, "tools/collect_human_playtest_bundle.py", "playable cloud proof doc")
@@ -694,7 +694,7 @@ def validate_repo_contract() -> None:
     _require(playable, "pkstk", "playable cloud proof doc")
     _require(playable, "pspin", "playable cloud proof doc")
     _require(readme, "docs/runbooks/remote-doom-playtest.md", "README")
-    _require(readme, "Current-head cloud proof state: pending", "README")
+    _require(readme, "Current-head cloud proof state: save persistence is not green yet", "README")
     _require(readme, "gh workflow run os-smoke.yml", "README")
     _require(readme, "gh workflow run real-wad-smoke.yml", "README")
     _require(readme, "gh workflow run real-wad-soak.yml", "README")

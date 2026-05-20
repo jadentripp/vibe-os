@@ -1600,7 +1600,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("human status capture OK", result.stdout)
             self.assertEqual(len(commands), 1)
-            self.assertTrue(commands[0].startswith("pmemsave 0x9d000 4096 "))
+            self.assertTrue(commands[0].startswith("pmemsave 0x9d000 8192 "))
             self.assertEqual(
                 (build / "status.after-fire.txt").read_text(),
                 "Aurora OS gtic=00000180 leveltime=00000180",

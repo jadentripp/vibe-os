@@ -82,7 +82,9 @@ REQUIRED_GAPS = {
 LATEST_RUN_PHRASES = (
     "Latest Cloud Evidence",
     "last published scripted cloud truth-serum run",
-    "Current-head cloud proof state: pending",
+    "Current-head cloud proof state: save persistence is not green yet",
+    "26195523631",
+    "8d84766",
     "26165681561",
     "c525952",
     "real-WAD, human-playability",
@@ -219,7 +221,9 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         "26165678183",
         "playability-status-green",
         "Persistence/save-load should only be claimed",
-        "Current-head cloud proof state: pending",
+        "Current-head cloud proof state: save persistence is not green yet",
+        "DOOMSAV0.DSG",
+        "1024 bytes",
         "gh workflow run os-smoke.yml",
         "gh workflow run real-wad-smoke.yml",
     ):

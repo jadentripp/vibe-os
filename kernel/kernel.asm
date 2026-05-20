@@ -28,7 +28,7 @@ VGA_COLS equ 80
 VGA_ROWS equ 25
 VGA_ATTR equ 0x0f
 SMOKE_STATUS_ADDR equ 0x0009d000
-SMOKE_STATUS_BYTES equ 4096
+SMOKE_STATUS_BYTES equ 8192
 DOOM_LOG_BYTES equ 32
 KEY_QUEUE_SIZE equ 32
 KEY_QUEUE_MASK equ KEY_QUEUE_SIZE - 1
@@ -5000,6 +5000,17 @@ storage_init:
     mov dword [fat_lba_tail_free_count], 0
     mov dword [fat_lba_walked_sectors], 0
     mov dword [fat_lba_next_boundary], 0
+    mov dword [fat_lba_branch_code], 0
+    mov dword [fat_lba_branch_cluster], 0
+    mov dword [fat_lba_branch_next], 0
+    mov dword [fat_clip_debug_stage], 0
+    mov dword [fat_clip_debug_index], 0
+    mov dword [fat_clip_debug_size], 0
+    mov dword [fat_clip_debug_first], 0
+    mov dword [fat_clip_debug_needed], 0
+    mov dword [fat_clip_debug_current], 0
+    mov dword [fat_clip_debug_next], 0
+    mov dword [fat_clip_debug_result], 0
     mov dword [wad_size], 0
     mov dword [wad_sectors_read], 0
     mov dword [wad_lump_count], 0
@@ -7405,6 +7416,9 @@ fat_file_lba_for_write:
     mov dword [fat_lba_tail_free_count], 0
     mov dword [fat_lba_walked_sectors], 0
     mov dword [fat_lba_next_boundary], 0
+    mov dword [fat_lba_branch_code], 0
+    mov dword [fat_lba_branch_cluster], 0
+    mov dword [fat_lba_branch_next], 0
     mov esi, ebx
     mov ebx, edx
     and ebx, 511
@@ -7443,6 +7457,10 @@ fat_file_lba_for_write:
     jbe .extend_after_current
 
 .follow_existing_chain:
+    mov eax, [fat_lba_next_boundary]
+    cmp eax, [fat_lba_logical_sectors]
+    jae .extend_after_current
+    mov dword [fat_lba_branch_code], 0x20
     mov eax, [fat_lba_sector_index]
     cmp eax, [fat_lba_logical_sectors]
     jae .extend_after_current
@@ -7450,24 +7468,29 @@ fat_file_lba_for_write:
     add [fat_lba_walked_sectors], ecx
     movzx eax, word [fat_current_cluster]
     mov [fat_lba_current_cluster], eax
+    mov [fat_lba_branch_cluster], eax
     mov dword [fat_lba_fail_stage], 2
     call fat_next_cluster
     jc .fail
     mov [fat_lba_next_cluster], eax
+    mov [fat_lba_branch_next], eax
     cmp eax, 0
     je .allocate_next_cluster
     cmp eax, 0xfff8
     jb .next_exists
 
 .extend_after_current:
+    mov dword [fat_lba_branch_code], 0x30
     sub edx, ecx
     add [fat_lba_walked_sectors], ecx
     movzx eax, word [fat_current_cluster]
     mov [fat_lba_current_cluster], eax
+    mov [fat_lba_branch_cluster], eax
     mov dword [fat_lba_fail_stage], 2
     call fat_next_cluster
     jc .fail
     mov [fat_lba_next_cluster], eax
+    mov [fat_lba_branch_next], eax
 
 .free_stale_tail_before_growth:
     cmp eax, 2
@@ -7480,6 +7503,7 @@ fat_file_lba_for_write:
     jc .fail
 
 .allocate_next_cluster:
+    mov dword [fat_lba_branch_code], 0x40
     mov dword [fat_lba_fail_stage], 3
     call fat_alloc_cluster
     jc .fail
@@ -7487,20 +7511,25 @@ fat_file_lba_for_write:
     movzx eax, ax
     mov [fat_lba_new_cluster], eax
     mov dword [fat_file_lba_was_new_cluster], 1
-	    movzx eax, word [fat_current_cluster]
-	    mov dx, [fat_new_cluster]
-	    mov dword [fat_lba_fail_stage], 4
-	    call fat_write_cluster_entry
-	    jnc .linked_new_cluster
-	    movzx eax, word [fat_new_cluster]
-	    xor edx, edx
-	    call fat_write_cluster_entry
-	    jmp .fail
+    movzx eax, word [fat_current_cluster]
+    mov dx, [fat_new_cluster]
+    mov dword [fat_lba_fail_stage], 4
+    call fat_write_cluster_entry
+    jnc .linked_new_cluster
+    movzx eax, word [fat_new_cluster]
+    xor edx, edx
+    call fat_write_cluster_entry
+    jmp .fail
 
-	.linked_new_cluster:
-	    mov ax, [fat_new_cluster]
+.linked_new_cluster:
+    mov ax, [fat_new_cluster]
 
-	.next_exists:
+.next_exists:
+    cmp dword [fat_lba_branch_code], 0x40
+    je .next_exists_from_alloc
+    mov dword [fat_lba_branch_code], 0x50
+
+.next_exists_from_alloc:
     mov [fat_lba_next_cluster], eax
     mov dword [fat_lba_fail_stage], 5
     cmp eax, 2
@@ -7512,6 +7541,7 @@ fat_file_lba_for_write:
     jmp .cluster_loop
 
 .have_cluster:
+    mov dword [fat_lba_branch_code], 0x60
     mov ecx, edx
     movzx eax, word [fat_current_cluster]
     mov [fat_lba_current_cluster], eax
@@ -7612,13 +7642,25 @@ fat_clip_writable_chain_to_size:
     push edx
     push esi
 
+    mov dword [fat_clip_debug_stage], 1
+    mov dword [fat_clip_debug_index], eax
+    mov dword [fat_clip_debug_size], 0
+    mov dword [fat_clip_debug_first], 0
+    mov dword [fat_clip_debug_needed], 0
+    mov dword [fat_clip_debug_current], 0
+    mov dword [fat_clip_debug_next], 0
+    mov dword [fat_clip_debug_result], 0
     mov esi, eax
     cmp esi, WRITABLE_FILE_COUNT
     jae .fail
     mov ax, [writable_first_clusters + esi * 2]
+    movzx eax, ax
+    mov [fat_clip_debug_first], eax
     mov ebx, [writable_sizes + esi * 4]
+    mov [fat_clip_debug_size], ebx
     cmp ebx, 0
     jne .nonempty
+    mov dword [fat_clip_debug_stage], 2
     cmp ax, 2
     jb .ok
     call fat_free_chain
@@ -7627,6 +7669,7 @@ fat_clip_writable_chain_to_size:
     jmp .ok
 
 .nonempty:
+    mov dword [fat_clip_debug_stage], 3
     cmp ax, 2
     jb .fail
     mov [fat_current_cluster], ax
@@ -7638,13 +7681,16 @@ fat_clip_writable_chain_to_size:
     xor edx, edx
     div ecx
     mov ecx, eax
+    mov [fat_clip_debug_needed], ecx
     cmp ecx, 0
     je .fail
 
 .walk_needed:
+    mov dword [fat_clip_debug_stage], 4
     cmp ecx, 1
     je .at_last_needed
     movzx eax, word [fat_current_cluster]
+    mov [fat_clip_debug_current], eax
     call fat_next_cluster
     jc .fail
     cmp eax, 2
@@ -7656,23 +7702,29 @@ fat_clip_writable_chain_to_size:
     jmp .walk_needed
 
 .at_last_needed:
+    mov dword [fat_clip_debug_stage], 5
     movzx eax, word [fat_current_cluster]
+    mov [fat_clip_debug_current], eax
     call fat_next_cluster
     jc .fail
+    mov [fat_clip_debug_next], eax
     cmp eax, 2
     jb .ok
     cmp eax, 0xfff8
     jae .ok
     mov [fat_lba_tail_free_cluster], eax
     mov dword [fat_lba_fail_stage], 9
+    mov dword [fat_clip_debug_stage], 6
     call fat_free_tail_after_current
     jc .fail
 
 .ok:
+    mov dword [fat_clip_debug_result], 0
     clc
     jmp .done
 
 .fail:
+    mov dword [fat_clip_debug_result], 0xffffffff
     stc
 
 .done:
@@ -8005,6 +8057,9 @@ user_file_write:
 
 .update_size:
     mov eax, [file_io_index]
+    call fat_clip_writable_chain_to_size
+    jc .fail_io_no_progress
+    mov eax, [file_io_index]
     cmp dword [file_write_fail_stage], 3
     je .skip_update_stage
     mov dword [file_write_fail_stage], 8
@@ -8052,6 +8107,9 @@ user_file_write:
     ret
 
 .partial_after_io_error:
+    mov eax, [file_io_index]
+    call fat_clip_writable_chain_to_size
+    jc .fail_io_no_progress
     mov eax, [file_io_index]
     call fat_update_writable_size
     jc .fail_io_no_progress
@@ -14271,6 +14329,52 @@ write_smoke_status:
     mov edx, [fat_alloc_last_data_snapshot]
     call smoke_write_hex32
 
+    mov esi, smoke_flb_text
+    call smoke_copy_string
+    mov edx, [fat_lba_branch_code]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_lba_branch_cluster]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_lba_branch_next]
+    call smoke_write_hex32
+
+    mov esi, smoke_fcl_text
+    call smoke_copy_string
+    mov edx, [fat_clip_debug_stage]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_clip_debug_index]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_clip_debug_size]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_clip_debug_first]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_clip_debug_needed]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_clip_debug_current]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_clip_debug_next]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_clip_debug_result]
+    call smoke_write_hex32
+
     mov esi, smoke_doomlog_text
     call smoke_copy_string
     cmp byte [doom_log_buffer], 0
@@ -15831,6 +15935,8 @@ smoke_fatcopy_text db " fac=", 0
 smoke_saveact_text db " saveact=", 0
 smoke_savedesc_text db " savedesc=", 0
 smoke_fio_text db " fio=", 0
+smoke_flb_text db " flb=", 0
+smoke_fcl_text db " fcl=", 0
 smoke_doomlog_text db " doomlog=", 0
 smoke_doompresent_text db " doompresent=", 0
 smoke_doompal_text db " doompal=", 0
@@ -16426,6 +16532,17 @@ fat_lba_tail_free_cluster dd 0
 fat_lba_tail_free_count dd 0
 fat_lba_walked_sectors dd 0
 fat_lba_next_boundary dd 0
+fat_lba_branch_code dd 0
+fat_lba_branch_cluster dd 0
+fat_lba_branch_next dd 0
+fat_clip_debug_stage dd 0
+fat_clip_debug_index dd 0
+fat_clip_debug_size dd 0
+fat_clip_debug_first dd 0
+fat_clip_debug_needed dd 0
+fat_clip_debug_current dd 0
+fat_clip_debug_next dd 0
+fat_clip_debug_result dd 0
 fat_alloc_fail_stage dd 0
 fat_alloc_scan_start_snapshot dd 0
 fat_alloc_scan_cluster dd 0

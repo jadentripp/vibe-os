@@ -128,11 +128,13 @@ proof is historical evidence for that older runtime, not the current proof
 point. Current-head save proof must include both the reboot comparison and the
 first boot's `--save-write-status` runtime gate.
 
-Current-head cloud proof state: normal playability is green, but save
-persistence is not green yet. Run `26195523631` on `8d84766` boots the current
+Current-head cloud proof state: save persistence is not green yet. The current
+runtime's latest cloud persistence run, `26195523631` on `8d84766`, boots the
 kernel, reaches the real-WAD playability checks, and then fails the save-growth
 gate because `DOOMSAV0.DSG` is still truncated to 1024 bytes after the first
-write. Treat that as the active blocker, not as a playable-save claim.
+write. Treat that as the active blocker, not as a playable-save claim. Exact
+current-head proof must rerun after doc, workflow, checker, kernel, or runtime
+changes.
 
 Before push, keep the host-only readiness gate green:
 

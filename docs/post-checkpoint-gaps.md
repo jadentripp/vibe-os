@@ -33,14 +33,17 @@ status-triage gates. It triages as `playability-status-green`. Persistence is
 not current-head proven by that run because it was intentionally dispatched with
 `persistence_proof=false`.
 
-Current-head cloud proof state: pending for this branch until the pushed commit
-passes OS smoke and Real WAD smoke on GitHub Actions. This is real scripted
-cloud evidence for the earlier baseline, but it is not a human-facing
-Doom-capable proof by itself. Any kernel, runtime, workflow, or proof-checker
-change must rerun the gates before becoming the next claimed proof point. The
-project still needs the remote human playtest and the remaining hard-mode
-architecture gaps below before README or release notes should say "you can play
-Doom on vibe-os" without caveats.
+Current-head cloud proof state: save persistence is not green yet. The current
+runtime's latest persistence run, `26195523631` on `8d84766`, reaches the
+real-WAD playability checks, then fails the save-growth gate because
+`DOOMSAV0.DSG` is still truncated to 1024 bytes after the first write. This is
+real scripted cloud evidence for the current runtime, but it is not a
+human-facing Doom-capable proof by itself. Any doc, kernel, runtime, workflow,
+or proof-checker change must rerun the gates before becoming the next claimed
+proof point. The project still needs a green save/load persistence proof, the
+remote human playtest, and the remaining hard-mode architecture gaps below
+before README or release notes should say "you can play Doom on vibe-os"
+without caveats.
 
 What the last published evidence proves:
 
