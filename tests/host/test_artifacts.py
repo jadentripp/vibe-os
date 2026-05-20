@@ -819,7 +819,9 @@ class SourceContractTests(unittest.TestCase):
             "doomexit=00000000 doomfault=00000000 doomfaultip=00000000 doomfaultv=00000000 doomfaulterr=00000000 "
             "fault=00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000 "
             "panic=NONE shutdown=NONE "
-            "doomsound=00000000 sfxmix=00000000 voices=00000000 sfxvoices=00000000 audioirq=00000000 ack8=00000000 ack16=00000000 "
+            "doomsound=00000000 sfxmix=00000000 sfxq=00000000:00000000:00000000:00000000 "
+            "sfxbytes=00000000:00000000 sfxsrc=00000000 sfxlast=00000000:00000000:00000000 "
+            "voices=00000000 sfxvoices=00000000 audioirq=00000000 ack8=00000000 ack16=00000000 "
             "refill=00000000 half=00000000 mixwrap=00000000 mixover=00000000 mixunder=00000000 mixclip=00000000 "
             "steal=00000000 pitchclamp=00000000 panclamp=00000000 musicvoices=00000000 musicmix=00000000 musicloop=00000000 "
             "musicpos=00000000 musicbuf=00000000 musicunder=00000000 musicdrops=00000000 "
@@ -1685,6 +1687,10 @@ class SourceContractTests(unittest.TestCase):
             "mov dx, SB16_DSP_READ_STATUS",
             "mov dx, SB16_DSP_ACK16",
             'smoke_doomsound_text db " doomsound="',
+            'smoke_sfxq_text db " sfxq="',
+            'smoke_sfxbytes_text db " sfxbytes="',
+            'smoke_sfxsrc_text db " sfxsrc="',
+            'smoke_sfxlast_text db " sfxlast="',
             'smoke_sfxvoices_text db " sfxvoices="',
             'smoke_sb16ver_text db " sb16="',
             'smoke_dmaprog_text db " dma="',
@@ -1706,13 +1712,16 @@ class SourceContractTests(unittest.TestCase):
             "VIBE_AUDIO_UPDATE_SFX = 4",
             "VIBE_AUDIO_FLAG_LOOP",
             "VIBE_AUDIO_FLAG_MUSIC",
+            "VIBE_AUDIO_FLAG_WAD_SFX",
         ):
             self.assertIn(source, header)
         for source in (
             "vibe_audio_sfx_desc_t desc",
-            "desc.samples = lump_data + 8",
-            "desc.length = (unsigned long)(lump_length - 8)",
-            "desc.flags = 0",
+            "cache_sfx_samples(id, sfx, &sample_length, &sample_rate, &sample_flags)",
+            "desc.samples = samples",
+            "desc.length = sample_length",
+            "desc.flags = sample_flags",
+            "desc.sample_rate = sample_rate",
             "VIBE_SYS_AUDIO",
             "VIBE_AUDIO_INIT",
             "VIBE_AUDIO_START_SFX",
@@ -1722,6 +1731,10 @@ class SourceContractTests(unittest.TestCase):
         ):
             self.assertIn(source, platform)
         self.assertIn('grep -q "doomsound="', makefile)
+        self.assertIn('grep -q "sfxq="', makefile)
+        self.assertIn('grep -q "sfxbytes="', makefile)
+        self.assertIn('grep -q "sfxsrc="', makefile)
+        self.assertIn('grep -q "sfxlast="', makefile)
         self.assertIn('grep -q "sfxvoices="', makefile)
         self.assertIn('grep -q "musicmix="', makefile)
         self.assertIn('grep -q "musicpos="', makefile)
