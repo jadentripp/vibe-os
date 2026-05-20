@@ -1,0 +1,158 @@
+# vibe-os
+
+This repo is a practical "can we actually build an OS with agentic coding?"
+workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
+
+- 512-byte Stage 1 MBR boot sector
+- Stage 2 loader read from raw disk sectors with BIOS EDD `INT 0x13`
+- Stage 2-owned A20 enable, GDT setup, and protected-mode transition
+- Stage 2 ELF32 executable parser that loads kernel `PT_LOAD` segments
+- repo-owned ELF32 linker for NASM and freestanding C object files
+- 32-bit protected-mode kernel entered through its ELF entry point at `0x10000`
+- own VGA text console and PS/2 keyboard polling
+- kernel-owned IDT/PIC/PIT timer tick
+- kernel-owned GDT with Ring 0/Ring 3 descriptors and a TSS
+- paging enabled with an identity-mapped low-memory window and a map-page self-test
+- a standalone user ELF loaded from FAT16, entered in Ring 3, invoking
+  `int 0x80`, and proving supervisor pages fault
+- physical frame accounting for the first managed 16 MiB
+- 8 MiB free-list heap with `kalloc`/`kfree` and boot-time high-memory self-test
+- freestanding cdecl-style libc subset: strings, memory helpers, integer math, x87 init/test, and `kprintf`
+- freestanding C build path that compiles C into the booted kernel image
+- hard-path WAD loading through an ATA PIO IDE driver and a FAT16 reader
+- WAD header/directory parsing with named-lump lookup for Doom assets
+- text UI with an interactive shell
+- local QEMU targets guarded behind an explicit opt-in
+- GitHub Actions smoke test for cloud-side boot validation
+
+## Legitimacy Boundary
+
+- The kernel runs in 32-bit protected mode with its own flat-memory setup.
+- The boot path does not use GRUB or Multiboot. `boot/stage1.asm` is the MBR
+  sector, and `boot/stage2.asm` is loaded from raw LBAs before the FAT
+  partition.
+- The kernel is not jumped to as a raw sector blob. The build emits real ELF32
+  relocatable objects, `tools/link_elf32.py` links them into an ELF executable,
+  and Stage 2 parses the executable's program headers before jumping to the
+  entry point.
+- Paging, physical-frame accounting, heap allocation, libc helpers, console I/O,
+  interrupts, and timer ticks are kernel-owned code in this repo.
+- User/kernel separation is not just a label: the boot probe enters Ring 3 with
+  user selectors from a standalone `USERPROB.ELF` file loaded through FAT16,
+  calls the syscall gate, then intentionally faults on a supervisor-only kernel
+  page and records the expected page fault.
+- `DOOM1.WAD` is not passed in as a GRUB module or RAM disk. The build creates an
+  IDE disk image with boot sectors, an MBR partition table, and a FAT16
+  partition, and the kernel reads
+  `DOOM1.WAD` through its own ATA PIO and FAT16 code.
+- The current WAD is a generated IWAD-shaped fixture used to prove the storage
+  path and lump parser. A real Doom milestone should replace it with the
+  shareware WAD without changing the kernel storage path.
+- External programs here are build/test tools: assembler, C compiler, image
+  generator, and emulator. They are not runtime OS services.
+
+## Requirements
+
+- `nasm`
+- `qemu-system-x86_64`
+- `clang`
+- `make`
+
+On macOS:
+
+```sh
+brew install nasm qemu
+```
+
+Apple's `clang` from Xcode Command Line Tools is sufficient for the
+freestanding C probe.
+
+## Build
+
+```sh
+make
+```
+
+The disk image is written to `build/disk.img`.
+
+Current disk layout:
+
+- LBA 0: Stage 1 MBR and partition table
+- LBA 1-16: Stage 2 bootloader
+- LBA 17-112: protected-mode kernel ELF image
+- LBA 2048+: FAT16 partition containing `DOOM1.WAD` and `USERPROB.ELF`
+
+## Runtime Safety
+
+This project builds a raw bootable x86 disk image. After a host crash during
+local VM testing, repo-owned QEMU targets now refuse to run on this Mac unless
+you explicitly opt in.
+
+For zero risk to the laptop, do not run QEMU locally. Copy the repo or the
+generated `build/disk.img` to a disposable remote host, CI runner, or separate
+machine, and boot it there.
+
+The repo includes `.github/workflows/os-smoke.yml` for this path. It builds on a
+GitHub-hosted Ubuntu runner, installs the OS toolchain, runs the QEMU smoke test
+inside that disposable cloud VM, and uploads `disk.img`, `kernel.elf`,
+`user_probe.elf`, and the captured VGA text.
+
+The local VM commands are intentionally gated:
+
+```sh
+make run
+make smoke
+```
+
+To run locally anyway, accepting that this still exercises host virtualization
+or emulator code:
+
+```sh
+make ALLOW_LOCAL_VM=1 run
+make ALLOW_LOCAL_VM=1 smoke
+```
+
+## Shell Commands
+
+- `help`
+- `about`
+- `clear`
+- `echo <text>`
+- `mem`
+- `mode`
+- `ticks`
+- `heap`
+- `paging`
+- `libc`
+- `c`
+- `user`
+- `wad`
+- `reboot`
+- `halt`
+
+## Hard-Way Doom Roadmap
+
+Already implemented:
+
+- raw BIOS boot sector and Stage 2 bootloader, without GRUB
+- Stage 2 ELF32 kernel loader
+- repo-owned ELF32 linker for `R_386_32` and `R_386_PC32` relocations
+- 32-bit protected mode with flat GDT
+- kernel GDT, TSS, Ring 3 transition, `int 0x80`, and a supervisor-page fault
+  isolation probe
+- standalone user ELF build, FAT16 storage entry, kernel ELF validation, and
+  Ring 3 entry from the loaded executable
+- paging, PMM/VMM self-tests, and kernel heap
+- kernel libc subset and a freestanding C probe linked from a clang ELF object
+- ATA PIO, MBR partition parsing, FAT16 root/cluster loading, and WAD parsing
+
+Still required before this is actually Doom-capable:
+
+- higher-half kernel mapping and real user address spaces
+- scheduler, process table, per-process kernel stacks, and context switching
+- a broader syscall ABI: `exec`, `sbrk`/`mmap`, file I/O, input, and drawing
+- user-space ELF loader for `linuxdoom-1.10`
+- POSIX-ish libc and file syscalls for Doom
+- framebuffer graphics path and `i_video.c` port
+- sound stack, or an explicit first Doom milestone that runs video/input with
+  sound disabled
