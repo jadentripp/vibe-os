@@ -101,6 +101,7 @@ static void reset_stats(vibe_music_render_stats_t* stats, int format)
     stats->note_off_count = 0;
     stats->controller_count = 0;
     stats->tempo_count = 0;
+    stats->loop_count = 0;
     stats->clipped_samples = 0;
     stats->emitted_samples = 0;
 }
@@ -774,6 +775,8 @@ unsigned long vibe_music_render_pcm(
         if (!looping || cursor == before)
             break;
 
+        if (stats)
+            ++stats->loop_count;
         synth_init(&synth, sample_rate, volume);
         ++passes;
     } while (passes < VIBE_MUSIC_MAX_LOOP_PASSES);

@@ -3,6 +3,16 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+DOOM_BASE = 0x01000000
+DOOM_HEAP_START = 0x01900000
+
+
+def u16(data, offset):
+    return int.from_bytes(data[offset:offset + 2], "little")
+
+
+def u32(data, offset):
+    return int.from_bytes(data[offset:offset + 4], "little")
 
 
 class DoomRuntimeContractTests(unittest.TestCase):
@@ -20,6 +30,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "#define ECHILD 10",
             "#define ENOMEM 12",
             "#define EINVAL 22",
+            "#define EMFILE 24",
             "#define ENOTTY 25",
             "#define ENOSYS 38",
         ):
@@ -35,10 +46,12 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "ERRNO_ECHILD equ 10",
             "ERRNO_ENOMEM equ 12",
             "ERRNO_EINVAL equ 22",
+            "ERRNO_EMFILE equ 24",
             "ERRNO_ENOTTY equ 25",
             "ERRNO_ENOSYS equ 38",
             ".bad_syscall_ebadf:",
             ".bad_syscall_echild:",
+            ".bad_syscall_emfile:",
             ".bad_syscall_enotty:",
             ".bad_syscall_enosys:",
         ):
@@ -114,6 +127,70 @@ class DoomRuntimeContractTests(unittest.TestCase):
             text = path.read_text(errors="ignore")
             for token in forbidden:
                 with self.subTest(path=path.name, token=token):
+                    self.assertNotIn(token, text)
+
+    def test_doom_user_entry_and_static_argv_contract_are_explicit(self):
+        start = (ROOT / "doom_port" / "start.c").read_text()
+        linker = (ROOT / "tools" / "link_elf32.py").read_text()
+        makefile = (ROOT / "Makefile").read_text()
+        elf = (ROOT / "build" / "doom.elf").read_bytes()
+
+        self.assertIn('static char arg0[] = "vibe-doom";', start)
+        self.assertIn('static char arg_warp[] = "-warp";', start)
+        self.assertIn("static char* argv_storage[]", start)
+        self.assertIn("myargc = 6;", start)
+        self.assertIn("myargv = argv_storage;", start)
+        self.assertIn("void start(void)", start)
+        self.assertIn("D_DoomMain();", start)
+        self.assertIn("exit(0);", start)
+        self.assertIn('raise ValueError("missing kernel entry symbol: start")', linker)
+        self.assertIn('globals_by_name["start"].address()', linker)
+        self.assertIn("doom_port/start.c", makefile)
+
+        entry = u32(elf, 24)
+        self.assertGreaterEqual(entry, DOOM_BASE)
+        self.assertLess(entry, DOOM_HEAP_START)
+
+    def test_doom_first_wad_lookup_flows_through_port_libc(self):
+        original = (ROOT / "third_party" / "doom" / "linuxdoom-1.10" / "d_main.c").read_text()
+        libc = (ROOT / "doom_port" / "libc.c").read_text()
+
+        for token in (
+            'doomwaddir = getenv("DOOMWADDIR");',
+            'sprintf(doom1wad, "%s/doom1.wad", doomwaddir);',
+            "if ( !access (doom1wad,R_OK) )",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, original)
+
+        for token in (
+            'if (!strcmp(name, "DOOMWADDIR"))',
+            'return ".";',
+            'if (!strcasecmp(slash, "doom1.wad"))',
+            'return "DOOM1.WAD";',
+            "fd = open(path, flags);",
+            "close(fd);",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, libc)
+
+    def test_doom_port_has_no_host_linux_platform_api_escape_hatches(self):
+        forbidden = (
+            "#include <sys/socket.h>",
+            "#include <X11/",
+            "socket(",
+            "recvfrom(",
+            "sendto(",
+            "popen(",
+            "system(",
+            "/dev/dsp",
+            "XOpenDisplay",
+            "forkpty(",
+        )
+        for path in (ROOT / "doom_port").glob("**/*.[ch]"):
+            text = path.read_text(errors="ignore")
+            for token in forbidden:
+                with self.subTest(path=path.relative_to(ROOT), token=token):
                     self.assertNotIn(token, text)
 
     def test_kernel_smoke_exposes_file_runtime_counters_not_fat_internals(self):

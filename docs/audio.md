@@ -27,15 +27,19 @@ Current kernel behavior:
   buffer submissions as `sfxmix=<hex count>`
 - keeps a fixed eight-slot active voice table keyed by Doom sound handle, with
   sample pointer, length, fixed-point current position, volume, separation,
-  pitch, panned left/right gains, pitch step, and start order
+  pitch, panned left/right gains, pitch step, start order, and explicit voice
+  flags
 - handles `START_SFX`, `STOP_SFX`, and `UPDATE_SFX` by registering, clearing, or
   retuning active voices before the next DMA half-buffer refill
-- steals the oldest active voice when all eight slots are full, so new SFX stay
-  bounded without always crushing slot zero
+- steals the oldest non-music active voice when all eight slots are full, falling
+  back to the oldest music carrier only if every slot is music, so new SFX stay
+  bounded without usually cutting the music bed
 - reports audio IRQ and mixer ring health in smoke status:
   `voices=`, `audioirq=`, `ack8=`, `ack16=`, `refill=`, `half=`, `mixwrap=`,
   `mixover=`, `mixunder=`, `mixclip=`, `steal=`, `pitchclamp=`, and
   `panclamp=`
+- reports music-carrier health separately as `musicvoices=`, `musicmix=`, and
+  `musicloop=`
 
 SB16 constants in `kernel/kernel.asm`:
 
@@ -56,7 +60,9 @@ The Doom platform layer keeps original Doom source pristine, resolves the `ds*`
 sound lump for `I_StartSound`, caches the lump, strips the 8-byte Doom sound
 header, and passes a small `vibe_audio_sfx_desc_t` through `SYS_AUDIO`. The
 descriptor contains the raw unsigned 8-bit PCM sample pointer, length, volume,
-separation, pitch, and Doom sound id.
+separation, pitch, Doom sound id, and flags. Normal SFX submit zero flags. The
+music bridge submits `VIBE_AUDIO_FLAG_MUSIC` and, when Doom asked for looping,
+`VIBE_AUDIO_FLAG_LOOP`.
 
 The kernel validates the descriptor and sample range against the current Doom
 process memory map, then registers the sound in the active voice table. Each
@@ -87,12 +93,15 @@ or steals one of eight voice slots. `STOP_SFX` clears the matching handle, and
 `UPDATE_SFX` refreshes volume, separation, pitch, derived pan gains, and pitch
 step for the existing handle. Refill advances each voice's 16.16 source
 position, supports repeated source samples for low pitch and skipped source
-samples for high pitch, and retires voices that reach the end of their sample.
+samples for high pitch, and retires non-looping voices that reach the end of
+their sample. Loop-flagged voices wrap their source position back to zero
+instead, which is how bounded rendered music windows remain audible across IRQ
+refills without pretending the kernel has a pull-based MIDI stream yet.
 
 Mixer safety is smoke-visible. `mixclip` counts left/right output clipping,
 `mixunder` counts invalid/empty SFX or active refills with no voices, `steal`
-counts bounded oldest-voice replacement, and the clamp counters show bad or
-extreme caller parameters that had to be made safe before mixing.
+counts bounded voice replacement, and the clamp counters show bad or extreme
+caller parameters that had to be made safe before mixing.
 
 Doom music:
 
@@ -106,22 +115,24 @@ not call host MIDI, audio, math, or operating-system libraries.
 `I_RegisterSong` stores the cached WAD lump pointer, `I_PlaySong` renders a
 65536-byte PCM window at 11025 Hz, and the platform layer submits that PCM
 through `SYS_AUDIO` using `VIBE_AUDIO_START_SFX` with a separated music handle
-range. This is a bridge into the existing SB16 path, not a second mixer. The
-music architecture should keep targeting the same SB16 DMA/refill output path
-so the parser/renderer work can share SFX clipping, silence, and status
-accounting. The kernel can later grow a first-class streaming music command
-without changing the MUS/MIDI parser or Doom's original sources. See
-`docs/doom-music.md` for the full pipeline and fallback design.
+range and explicit music/loop flags. This is a looped PCM carrier in the
+existing SB16 path, not a second mixer. The music architecture keeps targeting
+the same SB16 DMA/refill output path, so the parser/renderer work shares SFX
+voice stealing, clipping, silence, and status accounting. The extra
+`musicvoices=`, `musicmix=`, and `musicloop=` counters make that contract
+visible in cloud smoke status. The kernel can later grow a first-class
+streaming music command without changing the MUS/MIDI parser or Doom's original
+sources. See `docs/doom-music.md` for the full pipeline and fallback design.
 
 Remaining gaps:
 
-- Music currently renders bounded PCM windows instead of a pull-based realtime
-  stream, so long-term looping should move into a dedicated kernel music command
-  or a refilled user/kernel PCM queue.
+- Music currently renders bounded PCM windows and loops that PCM carrier in the
+  SB16 voice table instead of advancing the MUS/MIDI event stream in realtime.
+  This is audible continuity, not full song-position continuity.
 - IRQ refill still needs real playback validation under VM smoke and click-free
   voice ramping for steals/stops.
-- Music and SFX now share the SB16 carrier path, but the final mixer still needs
-  explicit music status counters and balancing once the kernel owns streaming.
+- Music and SFX now share the SB16 mixer, but the final mixer still needs better
+  balancing once the kernel owns streaming.
 - Local `make test` stays host-only and does not launch QEMU; VM smoke remains
   behind the explicit repo-owned `ALLOW_LOCAL_VM=1` opt-in.
 

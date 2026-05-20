@@ -17,6 +17,7 @@ typedef struct vibe_music_render_stats {
     unsigned long note_off_count;
     unsigned long controller_count;
     unsigned long tempo_count;
+    unsigned long loop_count;
     unsigned long clipped_samples;
     unsigned long emitted_samples;
 } vibe_music_render_stats_t;

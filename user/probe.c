@@ -10,6 +10,7 @@ enum {
     SYS_READ = 7,
     SYS_LSEEK = 8,
     SYS_PRESENT = 10,
+    SYS_EXEC = 16,
     SYS_MMAP = 20,
     SYS_MUNMAP = 21,
     SYS_IOCTL = 22,
@@ -112,12 +113,29 @@ static int sys_ioctl(uint32_t fd, uint32_t request, void *arg) {
     return syscall3(SYS_IOCTL, fd, request, (uint32_t)arg);
 }
 
+static int sys_exec(const char *path) {
+    return syscall3(SYS_EXEC, (uint32_t)path, 0, 0);
+}
+
 static void sys_user_probe(uint32_t flags) {
     (void)syscall3(SYS_USER_PROBE, USER_PROBE_MAGIC, flags, 0);
 }
 
-static void sys_expect_fault(void) {
-    (void)syscall3(SYS_EXPECT_FAULT, 0, 0, 0);
+static void sys_expect_fault(void *recovery) {
+    (void)syscall3(SYS_EXPECT_FAULT, (uint32_t)recovery, 0, 0);
+}
+
+static void trigger_expected_fault(void) {
+    sys_expect_fault(&&after_expected_fault);
+    __asm__ volatile(
+        "movl %0, %%eax\n\t"
+        "movl (%%eax), %%eax\n\t"
+        :
+        : "i"(USER_FAULT_ADDR)
+        : "eax", "memory");
+
+after_expected_fault:
+    return;
 }
 
 int user_main(void) {
@@ -125,6 +143,7 @@ int user_main(void) {
     static char readback[12];
     const char hello[] = "user C probe\n";
     const char wad_path[] = "DOOM1.WAD";
+    const char doom_path[] = "DOOM.ELF";
     const char default_path[] = "DEFAULT.CFG";
     const char writable_payload[] = "persist-ok\n";
     static struct vibe_fb_info fbinfo;
@@ -212,9 +231,7 @@ int user_main(void) {
     }
 
     sys_user_probe(flags);
-    sys_expect_fault();
+    trigger_expected_fault();
 
-    volatile uint32_t *fault = (volatile uint32_t *)USER_FAULT_ADDR;
-    (void)*fault;
-    return 1;
+    return sys_exec(doom_path) == 0 ? 0 : 1;
 }

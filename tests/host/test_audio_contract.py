@@ -18,6 +18,9 @@ class AudioContractTests(unittest.TestCase):
             "unsigned long separation;",
             "unsigned long pitch;",
             "unsigned long sound_id;",
+            "unsigned long flags;",
+            "VIBE_AUDIO_FLAG_LOOP",
+            "VIBE_AUDIO_FLAG_MUSIC",
         ):
             self.assertIn(source, header)
 
@@ -33,6 +36,7 @@ class AudioContractTests(unittest.TestCase):
             "desc.separation = (unsigned long)(sep & 0xff);",
             "desc.pitch = (unsigned long)(pitch & 0xff);",
             "desc.sound_id = (unsigned long)id;",
+            "desc.flags = 0;",
             "(unsigned long)&desc",
             "VIBE_AUDIO_START_SFX",
             "VIBE_AUDIO_UPDATE_SFX",
@@ -49,7 +53,8 @@ class AudioContractTests(unittest.TestCase):
             "AUDIO_SFX_DESC_SEPARATION equ 12",
             "AUDIO_SFX_DESC_PITCH equ 16",
             "AUDIO_SFX_DESC_SOUND_ID equ 20",
-            "AUDIO_SFX_DESC_BYTES equ 24",
+            "AUDIO_SFX_DESC_FLAGS equ 24",
+            "AUDIO_SFX_DESC_BYTES equ 28",
             "audio_mix_sfx_descriptor:",
             "call user_range_validate",
             "cmp ebx, SB16_DMA_BUFFER_BYTES",
@@ -113,6 +118,8 @@ class AudioContractTests(unittest.TestCase):
             "sb16_voice_left_volumes times AUDIO_MAX_SFX_VOICES dd 0",
             "sb16_voice_right_volumes times AUDIO_MAX_SFX_VOICES dd 0",
             "sb16_voice_started_at times AUDIO_MAX_SFX_VOICES dd 0",
+            "sb16_voice_flags times AUDIO_MAX_SFX_VOICES dd 0",
+            "sb16_voice_loop_counts times AUDIO_MAX_SFX_VOICES dd 0",
             "audio_register_sfx_voice:",
             "audio_stop_sfx_voice:",
             "audio_update_sfx_voice:",
@@ -161,6 +168,8 @@ class AudioContractTests(unittest.TestCase):
             "mov [sb16_pan_right_arg], edx",
             "inc dword [sb16_pitch_clamp_count]",
             "inc dword [sb16_pan_clamp_count]",
+            "test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC",
+            ".fallback_next:",
         ):
             self.assertIn(source, kernel)
 
@@ -173,10 +182,16 @@ class AudioContractTests(unittest.TestCase):
             "smoke_voicesteal_text db \" steal=\"",
             "smoke_pitchclamp_text db \" pitchclamp=\"",
             "smoke_panclamp_text db \" panclamp=\"",
+            "smoke_musicvoices_text db \" musicvoices=\"",
+            "smoke_musicmix_text db \" musicmix=\"",
+            "smoke_musicloop_text db \" musicloop=\"",
             "mov edx, [sb16_mix_clip_count]",
             "mov edx, [sb16_voice_steal_count]",
             "mov edx, [sb16_pitch_clamp_count]",
             "mov edx, [sb16_pan_clamp_count]",
+            "mov edx, [sb16_active_music_voice_count]",
+            "mov edx, [sb16_music_mix_count]",
+            "mov edx, [sb16_music_loop_count]",
         ):
             self.assertIn(source, kernel)
 
@@ -188,8 +203,41 @@ class AudioContractTests(unittest.TestCase):
             'grep -q "steal="',
             'grep -q "pitchclamp="',
             'grep -q "panclamp="',
+            'grep -q "musicvoices="',
+            'grep -q "musicmix="',
+            'grep -q "musicloop="',
         ):
             self.assertIn(source, makefile)
+
+    def test_music_carrier_voices_loop_and_share_sfx_mixer(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        platform = (ROOT / "doom_port" / "platform.c").read_text()
+
+        for source in (
+            "AUDIO_FLAG_LOOP equ 0x00000001",
+            "AUDIO_FLAG_MUSIC equ 0x00000002",
+            "AUDIO_MUSIC_HANDLE_BASE equ 0x4d550000",
+            "or dword [audio_sfx_flags_arg], AUDIO_FLAG_MUSIC",
+            "test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_LOOP",
+            "inc dword [sb16_voice_loop_counts + ebx * 4]",
+            "inc dword [sb16_music_loop_count]",
+            "inc dword [sb16_music_mix_count]",
+            "add [sb16_music_mix_bytes], eax",
+            "sb16_active_music_voice_count dd 0",
+            "sb16_music_start_count dd 0",
+            "sb16_music_stop_count dd 0",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, kernel)
+
+        for source in (
+            "desc.flags = VIBE_AUDIO_FLAG_MUSIC;",
+            "desc.flags |= VIBE_AUDIO_FLAG_LOOP;",
+            "vibe_music_audio_handle(handle)",
+            "VIBE_AUDIO_START_SFX",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, platform)
 
     def test_audio_contract_stays_host_only(self):
         makefile = (ROOT / "Makefile").read_text()
@@ -206,18 +254,21 @@ class AudioContractTests(unittest.TestCase):
         self.assertIn("interleaved unsigned 8-bit stereo", audio_doc)
         self.assertIn("Doom's original squared pan law", audio_doc)
         self.assertIn("16.16 source position", audio_doc)
-        self.assertIn("oldest active voice", audio_doc)
+        self.assertIn("oldest non-music active voice", audio_doc)
         self.assertIn("audioirq=", audio_doc)
         self.assertIn("voices=", audio_doc)
         self.assertIn("mixwrap", audio_doc)
         self.assertIn("mixover", audio_doc)
         self.assertIn("mixclip", audio_doc)
         self.assertIn("pitchclamp", audio_doc)
+        self.assertIn("musicvoices", audio_doc)
+        self.assertIn("musicmix", audio_doc)
+        self.assertIn("musicloop", audio_doc)
         self.assertIn("active voice table", audio_doc)
         self.assertIn("Doom music:", audio_doc)
         self.assertIn("deterministic unsigned 8-bit PCM", audio_doc)
         self.assertIn("VIBE_AUDIO_START_SFX", audio_doc)
-        self.assertIn("bounded PCM windows", audio_doc)
+        self.assertIn("looped PCM carrier", audio_doc)
         self.assertIn("PC speaker fallback", audio_doc)
         self.assertNotIn("MUS/MIDI synthesis is not implemented", audio_doc)
         self.assertNotIn("Doom SFX are not mixed into PCM yet", audio_doc)

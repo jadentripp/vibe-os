@@ -37,6 +37,7 @@
 #define lseek vibe_test_lseek
 #define access vibe_test_access
 #define unlink vibe_test_unlink
+#define remove vibe_test_remove
 #define mmap vibe_test_mmap
 #define munmap vibe_test_munmap
 #define ioctl vibe_test_ioctl
@@ -219,6 +220,9 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
         int fd;
         ++mock_open_syscalls;
         if (!strcasecmp(path, "denied.txt"))
+            return -EACCES;
+        if (mock_is_protected_file(path)
+            && (flags & (O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND)))
             return -EACCES;
         file_index = mock_find_file(path);
         if (file_index < 0) {
@@ -423,6 +427,9 @@ int main(void)
     unsigned char* reused;
     size_t used;
     char text[16];
+    char wad_path[32];
+    char parsed_word[16];
+    int parsed_value;
 
     vibe_libc_host_heap_reset();
     a = malloc(64);
@@ -500,6 +507,37 @@ int main(void)
     sprintf(text, "WILV%d%d", 1, 2);
     if (strcmp(text, "WILV12"))
         return 20;
+    parsed_value = -1;
+    if (sscanf("version 110", "version %i", &parsed_value) != 1 || parsed_value != 110)
+        return 181;
+    parsed_value = -1;
+    if (sscanf("chatmacro0 \"HELLO\"", "%15s %[^\n]", parsed_word, wad_path) != 2)
+        return 182;
+    if (strcmp(parsed_word, "chatmacro0") || strcmp(wad_path, "\"HELLO\""))
+        return 183;
+    parsed_value = -1;
+    if (sscanf("0x2a", "%x", &parsed_value) != 1 || parsed_value != 0x2a)
+        return 184;
+
+    mock_reset();
+    if (mock_seed_file("DOOM1.WAD", "IWAD") < 0)
+        return 185;
+    sprintf(wad_path, "%s/doom1.wad", getenv("DOOMWADDIR"));
+    if (strcmp(wad_path, "./doom1.wad"))
+        return 186;
+    if (access(wad_path, R_OK) != 0)
+        return 187;
+    {
+        int file_index = mock_find_file("DOOM1.WAD");
+        if (file_index < 0)
+            return 188;
+        if (mock_files[file_index].open_count != 1 || mock_files[file_index].close_count != 1)
+            return 189;
+        if (mock_files[file_index].last_flags != O_RDONLY)
+            return 190;
+    }
+    if (strcmp(getenv("HOME"), "/"))
+        return 191;
 
     mock_reset();
     if (mock_seed_file("default.cfg", "mouse_sensitivity\t\t9\nchatmacro0\t\t\"HELLO\"\n") < 0)
@@ -593,6 +631,116 @@ int main(void)
     }
 
     mock_reset();
+    if (mock_seed_file("DEFAULT.CFG", "old-value") < 0)
+        return 141;
+    {
+        FILE* f = fopen("/.doomrc", "w");
+        int file_index = mock_find_file("DEFAULT.CFG");
+        char key[80];
+        char value[100];
+        struct stat st;
+        if (!f)
+            return 142;
+        if (mock_files[file_index].last_flags != (O_WRONLY | O_CREAT | O_TRUNC))
+            return 143;
+        if (fprintf(f, "%s\t\t%i\n%s\t\t\"%s\"\n", "use_mouse", 1, "chatmacro0", "PERSIST") != 35)
+            return 144;
+        if (fclose(f) != 0)
+            return 145;
+        if (!mock_file_matches(file_index, "use_mouse\t\t1\nchatmacro0\t\t\"PERSIST\"\n"))
+            return 146;
+        f = fopen("c:\\doomdata\\default.cfg", "r");
+        if (!f)
+            return 147;
+        if (fscanf(f, "%79s %[^\n]\n", key, value) != 2)
+            return 148;
+        if (strcmp(key, "use_mouse") || strcmp(value, "1"))
+            return 149;
+        if (fscanf(f, "%79s %[^\n]\n", key, value) != 2)
+            return 150;
+        if (strcmp(key, "chatmacro0") || strcmp(value, "\"PERSIST\""))
+            return 151;
+        if (fclose(f) != 0)
+            return 152;
+        if (stat("c:/doomdata/default.cfg", &st) != 0 || st.st_size != 35)
+            return 153;
+    }
+
+    mock_reset();
+    {
+        unsigned char save_payload[64];
+        unsigned char header[40];
+        int fd;
+        int file_index;
+        struct stat st;
+        memset(save_payload, 0, sizeof(save_payload));
+        memcpy(save_payload, "VIBE SAVE SLOT", 14);
+        memcpy(save_payload + 24, "version 110", 11);
+        save_payload[40] = 3;
+        save_payload[41] = 1;
+        save_payload[42] = 1;
+        fd = open("c:\\doomdata\\doomsav3.dsg", O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0666);
+        if (fd < 0)
+            return 154;
+        if (write(fd, save_payload, sizeof(save_payload)) != (ssize_t)sizeof(save_payload))
+            return 155;
+        if (close(fd) != 0)
+            return 156;
+        file_index = mock_find_file("doomsav3.dsg");
+        if (file_index < 0)
+            return 157;
+        if (mock_files[file_index].last_flags != (O_WRONLY | O_CREAT | O_TRUNC | O_BINARY))
+            return 158;
+        fd = open("doomsav3.dsg", O_RDONLY | O_BINARY, 0666);
+        if (fd < 0)
+            return 159;
+        if (fstat(fd, &st) != 0 || st.st_size != (off_t)sizeof(save_payload))
+            return 160;
+        if (read(fd, header, sizeof(header)) != (ssize_t)sizeof(header))
+            return 161;
+        if (memcmp(header, "VIBE SAVE SLOT", 14))
+            return 162;
+        if (memcmp(header + 24, "version 110", 11))
+            return 163;
+        if (close(fd) != 0)
+            return 164;
+        fd = open("doomsav3.dsg", O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0666);
+        if (fd < 0)
+            return 165;
+        if (write(fd, "tiny", 4) != 4)
+            return 166;
+        if (close(fd) != 0)
+            return 167;
+        if (stat("c:/doomdata/doomsav3.dsg", &st) != 0 || st.st_size != 4)
+            return 168;
+        if (remove("doomsav3.dsg") != 0)
+            return 169;
+        if (stat("doomsav3.dsg", &st) != -1 || errno != ENOENT)
+            return 170;
+    }
+
+    mock_reset();
+    if (mock_seed_file("DOOM1.WAD", "IWAD") < 0)
+        return 171;
+    if (mock_seed_file("DOOM.ELF", "ELF") < 0)
+        return 172;
+    {
+        int fd = open("c:\\doomdata\\DOOM1.WAD", O_RDONLY | O_BINARY, 0666);
+        if (fd < 0)
+            return 173;
+        if (close(fd) != 0)
+            return 174;
+        if (open("c:\\doomdata\\DOOM1.WAD", O_WRONLY | O_TRUNC | O_BINARY, 0666) != -1 || errno != EACCES)
+            return 175;
+        if (open("DOOM.ELF", O_WRONLY | O_TRUNC | O_BINARY, 0666) != -1 || errno != EACCES)
+            return 176;
+        if (mock_file_matches(mock_find_file("DOOM1.WAD"), "IWAD") == 0)
+            return 177;
+        if (mock_file_matches(mock_find_file("DOOM.ELF"), "ELF") == 0)
+            return 178;
+    }
+
+    mock_reset();
     if (mock_seed_file("readme.txt", "abc") < 0)
         return 52;
     {
@@ -669,10 +817,40 @@ int main(void)
         return 77;
     if (mock_open_syscalls != 0)
         return 78;
+    if (open("bad.txt", O_RDONLY | 0x8000) != -1 || errno != EINVAL)
+        return 192;
+    if (mock_open_syscalls != 0)
+        return 193;
     if (open("denied.txt", O_RDONLY) != -1 || errno != EACCES)
         return 79;
     if (mock_open_syscalls != 1)
         return 80;
+
+    mock_reset();
+    if (mock_seed_file("slots.txt", "x") < 0)
+        return 194;
+    {
+        int fds[MOCK_MAX_FDS];
+        int i;
+        for (i = 0; i < MOCK_MAX_FDS; ++i)
+            fds[i] = -1;
+        for (i = 3; i < MOCK_MAX_FDS; ++i) {
+            fds[i] = open("slots.txt", O_RDONLY);
+            if (fds[i] < 0)
+                return 195;
+        }
+        if (open("slots.txt", O_RDONLY) != -1 || errno != EMFILE)
+            return 196;
+        for (i = 3; i < MOCK_MAX_FDS; ++i)
+            if (close(fds[i]) != 0)
+                return 197;
+    }
+
+    errno = 0;
+    if (mkdir("c:\\doomdata", 0) != 0)
+        return 198;
+    if (mkdir("notadir", 0) != -1 || errno != ENOSYS)
+        return 199;
 
     mock_reset();
     {

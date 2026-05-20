@@ -20,13 +20,34 @@ The libc shim validates impossible access modes before entering the kernel.
 This keeps stdio mode parsing deterministic for Doom's `fopen("r")`,
 `fopen("w")`, response-file `rb`, save/config writes, and append/update modes.
 The kernel now classifies the obvious Doom file syscall failures as `ENOENT`,
-`EINVAL`, `EBADF`, `ENOMEM`, `EACCES`, `EIO`, or `ENOSYS` before libc maps them
-to `errno`.
+`EINVAL`, `EBADF`, `ENOMEM`, `EMFILE`, `EACCES`, `EIO`, or `ENOSYS` before libc
+maps them to `errno`. Unknown `open` flag bits are rejected in the kernel as
+`EINVAL`; running out of process fd slots is `EMFILE`, not a fake heap failure.
 
-`unlink`, `stat`, and `fstat` are real syscall-backed libc wrappers. The FAT16
-layer reports regular-file size/mode metadata for WAD/ELF artifacts and writable
-root files, refuses deletion of protected `DOOM1.WAD`, `USERPROB.ELF`, and
-`DOOM.ELF`, and invalidates writable descriptors whose root entry is deleted.
+Path normalization is intentionally Doom-shaped, not a general directory layer.
+The port maps Doom's Unix default path (`/.doomrc`), DOS/CD-ROM default path
+(`c:/doomdata/default.cfg` or `c:\doomdata\default.cfg`), and plain
+`default.cfg` to the FAT root file `DEFAULT.CFG`. It also maps
+`doomsav0.dsg` through `doomsav5.dsg`, including the DOS/CD-ROM
+`c:\doomdata\...` spelling, to the corresponding FAT root save files. This lets
+the unmodified engine's `M_SaveDefaults`, `M_ReadSaveStrings`, `M_WriteFile`,
+and save/load paths exercise the real FAT/syscall layer.
+
+`mkdir` is a compatibility shim for Doom's startup call to `c:\doomdata`: that
+specific path succeeds because the port maps Doom's state files into the FAT
+root. Other directory creation still returns `ENOSYS`; there is no directory
+allocator yet.
+
+`unlink`, `remove`, `stat`, and `fstat` are real syscall-backed libc wrappers.
+The FAT16 layer reports regular-file size/mode metadata for WAD/ELF artifacts
+and writable root files, refuses deletion or writable opens of protected
+`DOOM1.WAD`, `USERPROB.ELF`, and `DOOM.ELF`, and invalidates writable
+descriptors whose root entry is deleted.
+
+The tiny stdio scanner intentionally covers the original Doom patterns used for
+defaults and saves: `%s`, `%[^\n]`, `%i`, `%d`, `%x`, literal text, and
+whitespace. That includes save/version reads such as `sscanf("version 110",
+"version %i", ...)`, so the port does not need a patched Doom parser.
 
 ## Memory, Device, And Process ABI
 
@@ -56,6 +77,15 @@ without pretending that clone/wait lifecycle semantics are implemented.
 
 The kernel smoke status reports Doom file/runtime counters from the port ABI:
 `doomopen`, `doomread`, `doomwrite`, `doomseek`, `doomclose`, `doomsbrk`,
-`doomerr`, and `doommode`. These are counters and last-open mode/flag bits, not
-filesystem internals. They prove the original Doom code reached the port-layer
-file contract while keeping FAT allocation and vendor Doom sources untouched.
+`doomerr`, `doommode`, `doomexit`, `doomfault`, `doomfaultip`, `doomfaultv`,
+and `doomfaulterr`. These are counters, last-open mode/flag bits, and
+user-mode exit/fault diagnostics, not filesystem internals. They prove the
+original Doom code reached the port-layer file contract while keeping FAT
+allocation and vendor Doom sources untouched.
+
+`tools/check_doom_persistence_image.py` is the non-QEMU persistence proof tool.
+After a remote/cloud run writes defaults or a save slot into a disposable
+`disk.img`, run it on that remote image with `--require-default` and
+`--require-save-slot N`. It reads only `DEFAULT.CFG` and `DOOMSAVN.DSG` through
+the FAT parser and checks for Doom-shaped defaults text plus the savegame
+description/version header.

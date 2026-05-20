@@ -63,6 +63,11 @@ HEX_FIELDS = (
     "pflags",
     "pbuttons",
     "pdelta",
+    "doomexit",
+    "doomfault",
+    "doomfaultip",
+    "doomfaultv",
+    "doomfaulterr",
     "doomsound",
     "sfxmix",
     "voices",
@@ -78,6 +83,9 @@ HEX_FIELDS = (
     "steal",
     "pitchclamp",
     "panclamp",
+    "musicvoices",
+    "musicmix",
+    "musicloop",
     "keyirq",
     "keyqueue",
     "keypoll",
@@ -92,6 +100,48 @@ HEX_FIELDS = (
 )
 
 FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
+REQUIRED_SNAPSHOT_LABELS = ("baseline", "fire", "movement", "use", "menu")
+SUMMARY_FIELDS = (
+    "exec",
+    "path",
+    "execsys",
+    "target",
+    "argv0",
+    "doom",
+    "doomrun",
+    "doomopen",
+    "doomread",
+    "doomerr",
+    "doomexit",
+    "doomfault",
+    "doomfaultip",
+    "doomfaultv",
+    "doomfaulterr",
+    "fault",
+    "gameplay",
+    "gstate",
+    "gmap",
+    "gtic",
+    "leveltime",
+    "doompresent",
+    "doompal",
+    "doomframe",
+    "musicvoices",
+    "musicmix",
+    "musicloop",
+    "pflags",
+    "gflags",
+    "keyirq",
+    "keyqueue",
+    "keypoll",
+    "gfx",
+    "usr",
+    "wad",
+    "lmp",
+    "heap",
+    "free",
+    "ticks",
+)
 
 
 def _field(status: str, name: str) -> str:
@@ -110,6 +160,16 @@ def _status_fields(status: str) -> dict[str, str]:
             raise AssertionError(f"duplicate {name}= field")
         fields[name] = match.group(2)
     return fields
+
+
+def summarize_status(status: str) -> str:
+    """Return a compact proof-field summary for CI failure logs."""
+
+    try:
+        fields = _status_fields(status)
+    except AssertionError as exc:
+        return f"unparseable status: {exc}"
+    return " ".join(f"{name}={fields.get(name, '<missing>')}" for name in SUMMARY_FIELDS)
 
 
 def _hex_field(status: str, name: str) -> int:
@@ -199,6 +259,13 @@ def _validate_core_status(status: str) -> None:
     _hex_field_gt(status, "doomsbrk", 0)
     if _hex_field(status, "doomerr") != 0:
         raise AssertionError("doomerr= must be zero")
+    if _hex_field(status, "doomexit") != 0:
+        raise AssertionError("doomexit= must be zero for the real-WAD gameplay proof")
+    for fault_field in ("doomfault", "doomfaultip", "doomfaultv", "doomfaulterr"):
+        if _hex_field(status, fault_field) != 0:
+            raise AssertionError(f"{fault_field}= must be zero for the real-WAD gameplay proof")
+    if any(_hex_tuple_field(status, "fault", 11)):
+        raise AssertionError("fault= must be all zero for the real-WAD gameplay proof")
     _hex_field_gt(status, "free", 0)
     _hex_field_gt(status, "ticks", 0)
     _hex_field_gt(status, "pattempt", 0)
@@ -212,7 +279,25 @@ def validate_status(
     use_status: str | None = None,
     menu_status: str | None = None,
     reject_patterns: tuple[str, ...] = DEFAULT_REJECT_PATTERNS,
+    require_snapshots: bool = True,
 ) -> None:
+    snapshots = {
+        "baseline": baseline_status,
+        "fire": fire_status,
+        "movement": movement_status,
+        "use": use_status,
+        "menu": menu_status,
+    }
+    if require_snapshots:
+        missing = [
+            label for label in REQUIRED_SNAPSHOT_LABELS
+            if snapshots.get(label) is None
+        ]
+        if missing:
+            raise AssertionError(
+                "missing required scripted status snapshot(s): " + ", ".join(missing)
+            )
+
     _validate_core_status(status)
     _hex_field_gt(status, "leveltime", 0)
     _hex_field_gt(status, "doompresent", 0)
@@ -265,6 +350,7 @@ def main(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv)
 
+    status = ""
     try:
         status = args.status.read_text()
         baseline = args.baseline
@@ -278,16 +364,24 @@ def main(argv: list[str]) -> int:
             movement = movement or _auto_snapshot(args.status, "after-move")
             use = use or _auto_snapshot(args.status, "after-use")
             menu = menu or _auto_snapshot(args.status, "after-menu")
+        snapshots = {
+            "baseline": _resolve_snapshot(args.baseline, baseline),
+            "fire": _resolve_snapshot(args.fire, fire),
+            "movement": _resolve_snapshot(args.movement, movement),
+            "use": _resolve_snapshot(args.use, use),
+            "menu": _resolve_snapshot(args.menu, menu),
+        }
         validate_status(
             status,
-            baseline_status=_resolve_snapshot(args.baseline, baseline),
-            fire_status=_resolve_snapshot(args.fire, fire),
-            movement_status=_resolve_snapshot(args.movement, movement),
-            use_status=_resolve_snapshot(args.use, use),
-            menu_status=_resolve_snapshot(args.menu, menu),
+            baseline_status=snapshots["baseline"],
+            fire_status=snapshots["fire"],
+            movement_status=snapshots["movement"],
+            use_status=snapshots["use"],
+            menu_status=snapshots["menu"],
         )
     except (OSError, AssertionError) as exc:
-        print(f"real-WAD proof failed: {exc}", file=sys.stderr)
+        summary = f"\nstatus summary: {summarize_status(status)}" if status else ""
+        print(f"real-WAD proof failed: {exc}{summary}", file=sys.stderr)
         return 1
 
     print(

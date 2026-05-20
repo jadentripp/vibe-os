@@ -9,16 +9,20 @@ def read_kernel():
 
 
 class ProcessExecContractTests(unittest.TestCase):
-    def test_boot_doom_routes_through_generic_exec_launcher(self):
+    def test_boot_doom_routes_through_userland_sys_exec(self):
         kernel = read_kernel()
+        probe = (ROOT / "user" / "probe.c").read_text()
         boot_flow = kernel.split("user_probe_finished:", 1)[1].split("doom_user_finished:", 1)[0]
         self.assertIn("call process_boot_launch_doom", boot_flow)
         self.assertNotIn("call doom_user_run", boot_flow)
         launcher = kernel.split("process_boot_launch_doom:", 1)[1].split("user_probe_run:", 1)[0]
-        self.assertIn("mov esi, exec_path_doom", launcher)
-        self.assertIn("mov edi, process_doom", launcher)
-        self.assertIn("call process_exec_path", launcher)
-        self.assertIn("call doom_user_run", launcher)
+        self.assertIn("cmp dword [sys_exec_successes], 0", launcher)
+        self.assertIn("mov byte [doom_run_status], 4", launcher)
+        self.assertNotIn("call doom_user_run", launcher)
+        self.assertIn("SYS_EXEC = 16", probe)
+        self.assertIn('const char doom_path[] = "DOOM.ELF";', probe)
+        self.assertIn("trigger_expected_fault();", probe)
+        self.assertIn("return sys_exec(doom_path) == 0 ? 0 : 1;", probe)
 
     def test_process_exec_resolves_path_through_table_and_fat(self):
         kernel = read_kernel()
@@ -150,6 +154,7 @@ class ProcessExecContractTests(unittest.TestCase):
             "call process_reset_doom",
             "call process_reset_user_probe",
             "call process_seed_initial_user_context",
+            "call process_activate",
             "call process_exec_seed_argv_stack",
             "call process_exec_patch_syscall_frame",
             "mov dword [edi + PROC_STATE], PROC_STATE_EXITED",
@@ -160,6 +165,10 @@ class ProcessExecContractTests(unittest.TestCase):
             "inc dword [sys_exec_handoffs]",
         ):
             self.assertIn(source, handoff)
+        self.assertLess(
+            handoff.index("call process_activate"),
+            handoff.index("call process_exec_seed_argv_stack"),
+        )
         for source in (
             "mov [esi + PROC_SAVED_EIP], eax",
             "mov [esi + PROC_SAVED_ESP], eax",
@@ -219,3 +228,35 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("mov dword [esi + PROC_ENTRY], USER_CODE_ADDR", selftest)
         self.assertIn("call process_seed_initial_user_context", selftest)
         self.assertIn("cmp dword [scheduler_next_process_ptr], process_preempt_probe", selftest)
+
+    def test_expected_probe_fault_recovers_then_execs_doom(self):
+        kernel = read_kernel()
+        probe = (ROOT / "user" / "probe.c").read_text()
+        expect_fault = kernel.split(".expect_fault:", 1)[1].split(".write:", 1)[0]
+        exception = kernel.split("exception_common:", 1)[1].split("irq_timer:", 1)[0]
+        self.assertIn("mov [user_fault_recovery], ebx", expect_fault)
+        self.assertIn("call user_range_validate", expect_fault)
+        self.assertIn("EXCEPTION_FRAME_EIP equ 8", kernel)
+        self.assertIn("EXPECTED_FAULT_INSTRUCTION_BYTES equ 2", kernel)
+        self.assertIn("mov eax, [user_fault_recovery]", exception)
+        self.assertIn("mov [esp + EXCEPTION_FRAME_EIP], eax", exception)
+        self.assertIn("add dword [esp + EXCEPTION_FRAME_EIP], EXPECTED_FAULT_INSTRUCTION_BYTES", exception)
+        self.assertIn("add esp, 8", exception)
+        self.assertIn("iretd", exception.split(".expected_fault_return:", 1)[1])
+        self.assertNotIn("jmp user_probe_finished", exception.split(".not_expected_user_fault:", 1)[0])
+        self.assertNotIn("call process_mark_current_faulted", exception.split(".not_expected_user_fault:", 1)[0])
+        self.assertIn("sys_expect_fault(&&after_expected_fault);", probe)
+        self.assertIn("after_expected_fault:", probe)
+        self.assertIn("return sys_exec(doom_path) == 0 ? 0 : 1;", probe)
+
+    def test_split_doom_elf_segments_still_count_as_loaded(self):
+        kernel = read_kernel()
+        write_smoke = kernel.split("write_smoke_status:", 1)[1].split("smoke_copy_string:", 1)[0]
+        draw_status = kernel.split("draw_doom_status:", 1)[1].split("draw_heap_status:", 1)[0]
+        self.assertIn("inc byte [doom_load_segment_count]", kernel)
+        self.assertIn("cmp byte [doom_load_segment_count], 0", write_smoke)
+        self.assertIn("je .doom_fail", write_smoke)
+        self.assertNotIn("cmp byte [doom_load_segment_count], 1", write_smoke)
+        self.assertIn("cmp byte [doom_load_segment_count], 0", draw_status)
+        self.assertIn("je .fail", draw_status)
+        self.assertNotIn("cmp byte [doom_load_segment_count], 1", draw_status)

@@ -55,6 +55,7 @@ class DoomMusicTests(unittest.TestCase):
             "VIBE_MUSIC_FORMAT_MUS",
             "VIBE_MUSIC_FORMAT_MIDI",
             "vibe_music_render_stats_t",
+            "loop_count",
             "vibe_music_register_song",
             "vibe_music_render_pcm",
         ):
@@ -68,6 +69,7 @@ class DoomMusicTests(unittest.TestCase):
             "synth_render_until",
             "channel_volume",
             "vibe_music_note_freq_x16",
+            "++stats->loop_count",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, music_c)
@@ -80,6 +82,7 @@ class DoomMusicTests(unittest.TestCase):
             "Standard MIDI format 0",
             "deterministic unsigned 8-bit PCM",
             "VIBE_AUDIO_START_SFX",
+            "looped PCM carrier",
             "PC speaker fallback",
             "SB16",
         ):

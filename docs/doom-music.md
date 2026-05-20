@@ -27,14 +27,17 @@ pointers through `vibe_music_register_song`, render a bounded PCM window with
 `vibe_music_render_song`, and submit that PCM to the existing `SYS_AUDIO` path
 using `VIBE_AUDIO_START_SFX`. The temporary music handle space is separated with
 `VIBE_MUSIC_AUDIO_HANDLE_BASE`, so the kernel can distinguish music-carrier
-voices from normal Doom SFX handles if the SB16 mixer grows first-class music
-commands later.
+voices from normal Doom SFX handles. The descriptor also marks the voice with
+`VIBE_AUDIO_FLAG_MUSIC`, and looping songs add `VIBE_AUDIO_FLAG_LOOP`.
 
 This is not final realtime music streaming yet. The current port renders a
 65536-byte PCM window at 11025 Hz and, for looping songs, repeats the parsed song
-inside that window. That gets real MUS/MIDI event data onto the same kernel audio
-contract as SFX without colliding with the active SB16 IRQ refill assembly work.
-A later kernel milestone can replace the carrier voice with a dedicated
+inside that window. The kernel then keeps that buffer alive as a looped PCM carrier
+in the same SB16 active-voice table used for SFX, so music and sound effects mix
+in the IRQ refill path instead of competing for a separate backend.
+Smoke status exposes `musicvoices=`, `musicmix=`, and `musicloop=` so this
+continuity is testable without claiming full song-position streaming. A later
+kernel milestone can replace the carrier voice with a dedicated
 `START_MUSIC_PCM` or pull-based streaming command.
 
 Fallback design:

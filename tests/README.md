@@ -16,7 +16,14 @@ boot:
   pixel artifacts, logs, or wrapper/source-port paths.
 - Host storage tests cover root-level 8.3 lifecycle behavior: create, readback,
   truncate, delete, cluster-chain freeing/reuse, protected WAD/ELF refusal, and
-  syscall-backed `unlink`/`stat`/`fstat` libc wrappers.
+  syscall-backed `unlink`/`stat`/`fstat` libc wrappers. They also pin kernel
+  rejection of unknown `open` flags, `EMFILE` fd exhaustion, and the Doom-only
+  `c:\doomdata` `mkdir` shim.
+- `tests/host/test_doom_persistence_image.py` and
+  `tools/check_doom_persistence_image.py` prove the non-QEMU image-inspection
+  path for Doom defaults and saves: `DEFAULT.CFG` must contain Doom-shaped
+  defaults text, and `DOOMSAVN.DSG` must carry Doom's save description plus
+  `version ...` header before a remote reboot run can claim persistence.
 - Host process tests prove that `SYS_EXEC` is more than a FAT loader: the path
   rejects unsafe active-slot reloads, seeds a scheduler-visible target context,
   writes an argc/argv stack shape, patches the live syscall frame, marks the
@@ -38,13 +45,36 @@ boot:
   QEMU, and serial logs while keeping WADs, disk images, framebuffer dumps, and
   rendered Doom pixels out of uploaded artifacts.
 - `tools/check_real_wad_proof.py` is the source-level truth-serum gate for that
-  real-WAD status proof. Host tests assert that the GitHub workflow and smoke
-  target invoke it, so a future green CI claim must include those non-pixel
-  status counters rather than framebuffer bytes.
+  real-WAD status proof. It now validates the wider debug contract too:
+  VM/kernel health, syscall exec counters, FAT/WAD file access, Doom runtime
+  counters, audio/mouse telemetry fields, scheduler self-proof, and non-pixel
+  visual summaries. It requires the early/fire/move/use/menu status snapshots
+  as well as the final status, so a single good-looking final line cannot stand
+  in for scripted input proof. Host tests assert that the GitHub workflow and
+  smoke target invoke it, so a future green CI claim must include those status
+  counters rather than framebuffer bytes.
 - `tools/check_human_playability_proof.py` compares decoded status snapshots
   from the deterministic input phases. It requires keyboard counters to
   increase, Doom to remain in E1M1 gameplay, player movement/action/menu flags
   to be set, and `pdelta>0` without reading WAD or framebuffer artifacts.
+- `tests/host/test_post_checkpoint_gaps.py` guards the post-checkpoint honesty
+  ledger: Doom exit/fault diagnostics, including CR2, EIP, vector, and x86
+  error code, must stay visible in status, save/config persistence must be
+  proved at image level, and the missing
+  cloud boot, real gameplay, human playtest, audio, VM/POSIX,
+  shutdown/panic, and hardware-limit claims must remain documented.
+- `tools/check_playability_gap_ledger.py` parses the `GAP[...]` rows in
+  `docs/post-checkpoint-gaps.md` so every open Doom-capability claim has a
+  concrete category, executable gate, and evidence artifact before README text
+  can call it done.
+- `tools/check_cloud_playability_artifacts.py` validates the remote human-run
+  runbook, workflow upload hygiene, expected non-WAD diagnostic files, and
+  downloaded real-WAD status artifacts without requiring a WAD or local QEMU.
+  It rejects forbidden filenames, duplicate required basenames, unexpected ELF
+  binaries, and renamed WAD/disk/image payload signatures.
+- `tools/prepare_shareware_wad.py` is covered with synthetic raw/gzip/zip WAD
+  sources so the remote runbook's WAD extraction and validation path is tested
+  without network access or real game data.
 - Still manual: actually launching the manual workflow, reviewing its uploaded
   diagnostics, and deciding whether the current visual/input/audio state is good
   enough to call the OS Doom-capable.

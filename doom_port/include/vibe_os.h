@@ -41,7 +41,13 @@ typedef struct vibe_audio_sfx_desc {
     unsigned long separation;
     unsigned long pitch;
     unsigned long sound_id;
+    unsigned long flags;
 } vibe_audio_sfx_desc_t;
+
+enum {
+    VIBE_AUDIO_FLAG_LOOP = 0x00000001u,
+    VIBE_AUDIO_FLAG_MUSIC = 0x00000002u,
+};
 
 enum {
     VIBE_KEY_EVENT_DOWN = 0x00000100u,

@@ -50,6 +50,33 @@ REQUIRED_PFLAGS = (
 )
 
 FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
+SUMMARY_FIELDS = (
+    "gameplay",
+    "gstate",
+    "gmap",
+    "gtic",
+    "leveltime",
+    "doompresent",
+    "gflags",
+    "gaction",
+    "pflags",
+    "pbuttons",
+    "ppos",
+    "pdelta",
+    "keyirq",
+    "keyqueue",
+    "keypoll",
+    "doomrun",
+    "doomopen",
+    "doomread",
+    "doomerr",
+    "doomfault",
+    "doomfaultip",
+    "doomfaultv",
+    "doomfaulterr",
+    "gfx",
+    "usr",
+)
 
 
 def _status_fields(status: str) -> dict[str, str]:
@@ -60,6 +87,16 @@ def _status_fields(status: str) -> dict[str, str]:
             raise AssertionError(f"duplicate {name}= field")
         fields[name] = match.group(2)
     return fields
+
+
+def summarize_status(status: str) -> str:
+    """Return the playability fields most useful in cloud CI logs."""
+
+    try:
+        fields = _status_fields(status)
+    except AssertionError as exc:
+        return f"unparseable status: {exc}"
+    return " ".join(f"{name}={fields.get(name, '<missing>')}" for name in SUMMARY_FIELDS)
 
 
 def _field(status: str, name: str) -> str:
@@ -217,6 +254,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--menu", type=Path, help="Decoded status after scripted menu toggle")
     args = parser.parse_args(argv)
 
+    final_status = ""
     try:
         final_status = args.final_status.read_text()
         baseline_status = args.baseline.read_text() if args.baseline else None
@@ -233,7 +271,8 @@ def main(argv: list[str]) -> int:
             menu_status=menu_status,
         )
     except (OSError, AssertionError) as exc:
-        print(f"human-playability proof failed: {exc}", file=sys.stderr)
+        summary = f"\nstatus summary: {summarize_status(final_status)}" if final_status else ""
+        print(f"human-playability proof failed: {exc}{summary}", file=sys.stderr)
         return 1
 
     print(

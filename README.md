@@ -139,8 +139,9 @@ Current disk layout:
   `DOOM.ELF`, plus empty dynamic `DEFAULT.CFG` and `DOOMSAV0.DSG` through
   `DOOMSAV5.DSG` writable root entries
 
-See `docs/persistent-fat16.md` for the bounded root-level persistence contract
-and the remaining gap to general FAT coverage.
+See `docs/persistent-fat16.md` for the bounded root-level persistence contract,
+the Doom save/config path mapping, and the remote-image checker for
+`DEFAULT.CFG` / `DOOMSAV*.DSG` proof.
 
 See `docs/boot-loader-vm.md` for the raw-sector boot chain, protected-mode ELF
 handoff, fixed low-memory reservations, paging contract, and VM gaps.
@@ -150,6 +151,11 @@ including per-process page directories, VM regions, and remaining VM gaps.
 
 See `docs/process-exec.md` for the current table-backed exec handoff,
 process-replacement, argv-stack, and scheduler integration contract.
+
+See `docs/post-checkpoint-gaps.md` for the current post-checkpoint honesty
+ledger. Its machine-readable `GAP[...]` rows track the remaining cloud boot,
+real gameplay, human playtest, persistence, audio, VM/POSIX, shutdown/panic, and
+hardware-limit gates still needed before a playable claim.
 
 See `docs/graphics.md` for the VBE/Mode 13h framebuffer contract and current
 scaler limits.
@@ -178,19 +184,30 @@ secret is set, otherwise the workflow falls back to the public Archive.org
 shareware WAD gzip. In the disposable runner it extracts `DOOM1.WAD`, validates
 the expected shareware v1.9 size (`4196020` bytes) and SHA-1
 (`5b2e249b9c5133ec987b3ea77596381dc0d6bc1d`), builds `disk.img` with
-`DOOM_WAD`, boots it in cloud QEMU, requires Doom framebuffer presentation, runs
-a deterministic input script through the QEMU monitor, and requires kernel
+`DOOM_WAD`, boots it in cloud QEMU, and runs a deterministic input script
+through the QEMU monitor. The QEMU step captures status snapshots first; the
+separate proof steps then require Doom framebuffer presentation and kernel
 status counters showing Doom autostarted E1M1, advanced level time in
-`GS_LEVEL`, accepted fire/use/move/menu input, and changed player/menu state. It
-uploads only non-WAD diagnostics (`status*.txt`, `status*.bin`, logs, and ELF
-files). It deliberately does not upload `disk.img`, `gfx.bin`, `vga*.txt`, or
-WAD paths, since those may contain Doom game data or rendered pixels.
+`GS_LEVEL`, accepted fire/use/move/menu input, and changed player/menu state.
+That split keeps failed cloud boots diagnosable from text artifacts instead of
+skipping the proof tools. The workflow uploads only non-WAD diagnostics
+(`status*.txt`, `status*.bin`, logs, and ELF files). It deliberately does not
+upload `disk.img`, `gfx.bin`, `vga*.txt`, or WAD paths, since those may contain
+Doom game data or rendered pixels.
 
 For the stronger cloud-safe playable proof, see
 `docs/playable-cloud-proof.md`. The real-WAD workflow now uses a deterministic
 fire/move/use/menu input script and validates non-pixel status fields for
 keyboard delivery, player movement, action commands, menu activation, and
-visual activity summaries.
+visual activity summaries. Its checker also requires coherent process/exec,
+storage, VM, audio, mouse, scheduler, and Doom file I/O telemetry so a green run
+is diagnosable from text artifacts alone.
+
+For a human actually trying the image, use
+`docs/runbooks/remote-doom-playtest.md`. It keeps QEMU on a disposable remote
+host, exposes a loopback-only VNC display through SSH, keeps `DOOM1.WAD` outside
+git, and validates downloaded diagnostics with
+`tools/check_cloud_playability_artifacts.py`.
 
 ## Shell Commands
 
@@ -272,19 +289,25 @@ Still required before this is actually Doom-capable:
 
 - a current passing manual real-WAD cloud workflow on the exact commit being
   claimed, followed by review of the non-WAD status diagnostics
+- a passing `tools/check_real_wad_proof.py` run on that current real-WAD status
+  artifact, including zero Doom exit/fault counters and coherent process,
+  storage, VM, input, audio, scheduler, and gameplay telemetry
+- a remote human VNC playtest using `docs/runbooks/remote-doom-playtest.md`,
+  including status capture after keyboard-driven menu and gameplay actions
 - higher-half kernel mapping or another non-identity kernel layout, plus
   dynamically allocated page tables and non-identity user frame backing
 - a second fully launched long-lived user task to exercise the timer
   preemption path continuously under Doom
-- a broader syscall ABI: arbitrary-path `exec`, real process cloning/waiting,
-  file-backed mappings, descriptor duplication, and richer drawing controls
-- run and analyze the manual cloud smoke with an actual user-supplied shareware
-  `DOOM1.WAD`
-- enough syscall/libc/file coverage for the original engine to progress past
-  startup errors from the current generated WAD fixture
-- more complete POSIX libc coverage for Doom ports beyond the current file,
-  heap, mmap, ioctl, and classified process-lifecycle slice
-- broader framebuffer mode support, aspect policy, and dirty-rect presentation
-  beyond the current XRGB8888 VBE path
-- sound stack, or an explicit first Doom milestone that runs video/input with
-  sound disabled
+- broader VM/POSIX coverage: arbitrary-path `exec`, richer `mmap`, fuller file
+  semantics, descriptor duplication, and more device/ioctl contracts
+- save/config persistence proof after a real-WAD reboot using
+  `tools/check_doom_persistence_image.py`, not just host-side FAT lifecycle
+  coverage
+- broader framebuffer mode support, aspect policy, fullscreen behavior, and
+  dirty-rect presentation beyond the current XRGB8888 VBE path
+- audible remote SB16 validation and long-running music streaming beyond the
+  current SFX/mixer counters and bounded music PCM windows
+- graceful Doom exit/reboot behavior for a human session
+- a scoped hardware/support matrix; current claims should stay bounded to the
+  QEMU BIOS/IDE/PS2/VBE/SB16 target until each new device class has its own
+  disposable-runner or hardware proof

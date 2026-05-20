@@ -74,6 +74,8 @@ static int test_mus_fixture_renders_deterministic_pcm(void)
         return 16;
     if (stats.emitted_samples != sizeof(pcm_a))
         return 17;
+    if (!stats.loop_count)
+        return 18;
 
     return 0;
 }
@@ -120,6 +122,8 @@ static int test_midi_fixture_renders_note_events(void)
         return 24;
     if (stats.note_on_count != 1 || stats.note_off_count != 1)
         return 25;
+    if (stats.loop_count != 0)
+        return 26;
 
     return 0;
 }

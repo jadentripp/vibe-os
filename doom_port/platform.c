@@ -70,6 +70,9 @@ static void submit_music_pcm(int handle, int looping)
     desc.separation = 128;
     desc.pitch = 128;
     desc.sound_id = 0x4d555349u;
+    desc.flags = VIBE_AUDIO_FLAG_MUSIC;
+    if (looping)
+        desc.flags |= VIBE_AUDIO_FLAG_LOOP;
 
     (void)vibe_syscall3(
         VIBE_SYS_AUDIO,
@@ -372,6 +375,7 @@ int I_StartSound(int id, int vol, int sep, int pitch, int priority)
         desc.separation = (unsigned long)(sep & 0xff);
         desc.pitch = (unsigned long)(pitch & 0xff);
         desc.sound_id = (unsigned long)id;
+        desc.flags = 0;
 
         (void)vibe_syscall3(
             VIBE_SYS_AUDIO,

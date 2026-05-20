@@ -201,8 +201,18 @@ static alloc_header_t* alloc_request(size_t size)
     return block;
 }
 
+static int is_doom_save_basename(const char* path)
+{
+    return strlen(path) == 12
+        && !strncasecmp(path, "doomsav", 7)
+        && path[7] >= '0'
+        && path[7] <= '5'
+        && !strcasecmp(path + 8, ".dsg");
+}
+
 static const char* mapped_path(const char* path)
 {
+    static char save_path[] = "doomsav0.dsg";
     const char* slash = path;
     const char* p;
 
@@ -214,7 +224,18 @@ static const char* mapped_path(const char* path)
         return "DOOM1.WAD";
     if (!strcasecmp(slash, ".doomrc") || !strcasecmp(slash, "default.cfg"))
         return "DEFAULT.CFG";
+    if (is_doom_save_basename(slash)) {
+        save_path[7] = slash[7];
+        return save_path;
+    }
     return path;
+}
+
+static int is_doom_data_dir(const char* path)
+{
+    return !strcasecmp(path, "c:\\doomdata")
+        || !strcasecmp(path, "c:/doomdata")
+        || !strcasecmp(path, "doomdata");
 }
 
 static int syscall_failed(int raw, int fallback_errno)
@@ -647,11 +668,22 @@ int unlink(const char* path)
     return raw < 0 ? syscall_failed(raw, ENOSYS) : raw;
 }
 
+int remove(const char* path)
+{
+    return unlink(path);
+}
+
 int mkdir(const char* path, mode_t mode)
 {
-    (void)path;
     (void)mode;
-    return 0;
+    if (!path) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (is_doom_data_dir(path))
+        return 0;
+    errno = ENOSYS;
+    return -1;
 }
 
 int fstat(int fd, struct stat* out)
@@ -1235,29 +1267,179 @@ int printf(const char* format, ...)
     return result;
 }
 
+static void scan_text_skip_space(const char** text)
+{
+    while (isspace((unsigned char)**text))
+        ++*text;
+}
+
+static int scan_text_read_int(const char** text, int* dest, int width, int base)
+{
+    const char* p = *text;
+    int sign = 1;
+    int value = 0;
+    int digits = 0;
+    int consumed = 0;
+
+    if (width <= 0)
+        width = 64;
+
+    scan_text_skip_space(&p);
+    if (consumed < width && (*p == '-' || *p == '+')) {
+        if (*p == '-')
+            sign = -1;
+        ++p;
+        ++consumed;
+    }
+
+    if ((base == 0 || base == 16)
+        && consumed + 2 <= width
+        && p[0] == '0'
+        && (p[1] == 'x' || p[1] == 'X')) {
+        base = 16;
+        p += 2;
+        consumed += 2;
+    } else if (base == 0) {
+        base = 10;
+    }
+
+    while (consumed < width && *p) {
+        int digit;
+        if (isdigit((unsigned char)*p))
+            digit = *p - '0';
+        else if (isxdigit((unsigned char)*p))
+            digit = tolower((unsigned char)*p) - 'a' + 10;
+        else
+            break;
+        if (digit >= base)
+            break;
+        value = value * base + digit;
+        ++digits;
+        ++p;
+        ++consumed;
+    }
+
+    if (!digits)
+        return 0;
+    *dest = value * sign;
+    *text = p;
+    return 1;
+}
+
+static int scan_text_read_word(const char** text, char* dest, int width)
+{
+    int count = 0;
+
+    if (width <= 0)
+        width = 1023;
+    scan_text_skip_space(text);
+    while (count < width && **text && !isspace((unsigned char)**text)) {
+        dest[count++] = **text;
+        ++*text;
+    }
+    dest[count] = 0;
+    return count > 0;
+}
+
+static int scan_text_read_until(const char** text, char* dest, int width, int stop)
+{
+    int count = 0;
+
+    if (width <= 0)
+        width = 99;
+    while (count < width && **text && **text != (char)stop) {
+        dest[count++] = **text;
+        ++*text;
+    }
+    dest[count] = 0;
+    return count > 0;
+}
+
 int sscanf(const char* text, const char* format, ...)
 {
     va_list args;
     int assigned = 0;
+    int matched = 0;
+
+    if (!text || !format) {
+        errno = EINVAL;
+        return EOF;
+    }
+
     va_start(args, format);
-    while (*format && *text) {
-        if (*format++ != '%')
+    while (*format) {
+        int width = 0;
+
+        if (isspace((unsigned char)*format)) {
+            while (isspace((unsigned char)*format))
+                ++format;
+            scan_text_skip_space(&text);
             continue;
-        if (*format == 'i' || *format == 'd') {
-            *va_arg(args, int*) = atoi(text);
-            ++assigned;
-        } else if (*format == 'x') {
-            int value = 0;
-            while (isxdigit((unsigned char)*text)) {
-                int ch = tolower((unsigned char)*text++);
-                value = value * 16 + (isdigit(ch) ? ch - '0' : ch - 'a' + 10);
-            }
-            *va_arg(args, int*) = value;
-            ++assigned;
         }
+
+        if (*format != '%') {
+            if (*text != *format)
+                break;
+            ++text;
+            ++format;
+            ++matched;
+            continue;
+        }
+
         ++format;
+        if (*format == '%') {
+            if (*text != '%')
+                break;
+            ++text;
+            ++format;
+            ++matched;
+            continue;
+        }
+
+        while (isdigit((unsigned char)*format)) {
+            width = width * 10 + (*format - '0');
+            ++format;
+        }
+
+        if (*format == 's') {
+            if (!scan_text_read_word(&text, va_arg(args, char*), width))
+                break;
+            ++assigned;
+            ++matched;
+            ++format;
+        } else if (*format == '[') {
+            ++format;
+            if (*format == '^' && format[1] && format[2] == ']') {
+                if (!scan_text_read_until(&text, va_arg(args, char*), width, (unsigned char)format[1]))
+                    break;
+                format += 3;
+                ++assigned;
+                ++matched;
+            } else {
+                errno = EINVAL;
+                break;
+            }
+        } else if (*format == 'i' || *format == 'd') {
+            if (!scan_text_read_int(&text, va_arg(args, int*), width, *format == 'i' ? 0 : 10))
+                break;
+            ++assigned;
+            ++matched;
+            ++format;
+        } else if (*format == 'x') {
+            if (!scan_text_read_int(&text, va_arg(args, int*), width, 16))
+                break;
+            ++assigned;
+            ++matched;
+            ++format;
+        } else {
+            errno = EINVAL;
+            break;
+        }
     }
     va_end(args);
+
+    if (!matched && !*text)
+        return EOF;
     return assigned;
 }
 

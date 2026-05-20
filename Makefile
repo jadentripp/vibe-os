@@ -16,6 +16,7 @@ SMOKE_REQUIRE_KEY_EVENT ?= 0
 SMOKE_REQUIRE_DOOM_GAMEPLAY ?= 0
 SMOKE_REQUIRE_REAL_WAD_PROOF ?= 0
 SMOKE_REQUIRE_HUMAN_PLAYABILITY_PROOF ?= 0
+SMOKE_SKIP_ASSERTIONS ?= 0
 SMOKE_NC_TIMEOUT ?= 3
 SMOKE_QEMU_TIMEOUT ?= 30
 SMOKE_EARLY_SECONDS ?= 2
@@ -51,7 +52,7 @@ STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 65536
 USER_PROBE_ELF_MAX_BYTES := 12288
 
-.PHONY: all build-only test doom-compile doom-link run run-headless smoke clean check-tools vm-consent
+.PHONY: all build-only test doom-compile doom-link run run-headless smoke playability-gap-check cloud-playability-check clean check-tools vm-consent
 
 all: $(IMAGE)
 
@@ -169,6 +170,11 @@ smoke: vm-consent check-tools $(IMAGE)
 	trap dump_diagnostics EXIT; \
 	test -s $(BUILD_DIR)/status.bin; \
 	grep -q "Aurora OS v0.2" $(BUILD_DIR)/status.txt; \
+	if [ "$(SMOKE_SKIP_ASSERTIONS)" = "1" ]; then \
+		trap - EXIT; \
+		printf "Smoke capture OK: QEMU status snapshots captured; proof gates are expected to run separately.\n"; \
+		exit 0; \
+	fi; \
 	grep -q "pg=ON" $(BUILD_DIR)/status.txt; \
 	grep -q "pmm=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "vmm=OK" $(BUILD_DIR)/status.txt; \
@@ -179,9 +185,15 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "lmp=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "exec=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "path=DOOM.ELF" $(BUILD_DIR)/status.txt; \
-	grep -q "doom=OK" $(BUILD_DIR)/status.txt; \
-	grep -Eq "doomrun=(RUN|EXIT)" $(BUILD_DIR)/status.txt; \
-	grep -q "doomopen=OK" $(BUILD_DIR)/status.txt; \
+		grep -q "doom=OK" $(BUILD_DIR)/status.txt; \
+		grep -Eq "doomrun=(RUN|EXIT)" $(BUILD_DIR)/status.txt; \
+		grep -q "doomexit=" $(BUILD_DIR)/status.txt; \
+		grep -q "doomfault=" $(BUILD_DIR)/status.txt; \
+		grep -q "doomfaultip=" $(BUILD_DIR)/status.txt; \
+		grep -q "doomfaultv=" $(BUILD_DIR)/status.txt; \
+		grep -q "doomfaulterr=" $(BUILD_DIR)/status.txt; \
+		grep -q " fault=" $(BUILD_DIR)/status.txt; \
+		grep -q "doomopen=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "doomread=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "doomwrite=" $(BUILD_DIR)/status.txt; \
 	grep -q "doomseek=" $(BUILD_DIR)/status.txt; \
@@ -222,6 +234,9 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "steal=" $(BUILD_DIR)/status.txt; \
 	grep -q "pitchclamp=" $(BUILD_DIR)/status.txt; \
 	grep -q "panclamp=" $(BUILD_DIR)/status.txt; \
+	grep -q "musicvoices=" $(BUILD_DIR)/status.txt; \
+	grep -q "musicmix=" $(BUILD_DIR)/status.txt; \
+	grep -q "musicloop=" $(BUILD_DIR)/status.txt; \
 	grep -Eq "audio=(SB16|NONE)" $(BUILD_DIR)/status.txt; \
 	grep -q "keyirq=" $(BUILD_DIR)/status.txt; \
 	grep -q "keyqueue=" $(BUILD_DIR)/status.txt; \
@@ -259,7 +274,12 @@ smoke: vm-consent check-tools $(IMAGE)
 		perl -ne '$$ok = 1 if /leveltime=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	fi; \
 	if [ "$(SMOKE_REQUIRE_REAL_WAD_PROOF)" = "1" ]; then \
-		$(PYTHON) tools/check_real_wad_proof.py $(BUILD_DIR)/status.txt; \
+		real_wad_args="--baseline $(BUILD_DIR)/status.early.txt"; \
+		if [ -f "$(BUILD_DIR)/status.after-fire.txt" ]; then real_wad_args="$$real_wad_args --fire $(BUILD_DIR)/status.after-fire.txt"; fi; \
+		if [ -f "$(BUILD_DIR)/status.after-move.txt" ]; then real_wad_args="$$real_wad_args --movement $(BUILD_DIR)/status.after-move.txt"; fi; \
+		if [ -f "$(BUILD_DIR)/status.after-use.txt" ]; then real_wad_args="$$real_wad_args --use $(BUILD_DIR)/status.after-use.txt"; fi; \
+		if [ -f "$(BUILD_DIR)/status.after-menu.txt" ]; then real_wad_args="$$real_wad_args --menu $(BUILD_DIR)/status.after-menu.txt"; fi; \
+		$(PYTHON) tools/check_real_wad_proof.py $$real_wad_args $(BUILD_DIR)/status.txt; \
 	fi; \
 	if [ "$(SMOKE_REQUIRE_HUMAN_PLAYABILITY_PROOF)" = "1" ]; then \
 		human_args="--baseline $(BUILD_DIR)/status.early.txt"; \
@@ -278,6 +298,12 @@ smoke: vm-consent check-tools $(IMAGE)
 	perl -ne '$$ok = 1 if /ticks=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	trap - EXIT; \
 	printf "Smoke boot OK: protected-mode kernel status, Ring 3 probe, Doom ELF load, indexed-frame present, and PIT ticks verified in cloud VM memory.\n"
+
+playability-gap-check:
+	$(PYTHON) tools/check_playability_gap_ledger.py
+
+cloud-playability-check: playability-gap-check
+	$(PYTHON) tools/check_cloud_playability_artifacts.py --repo-contract
 
 clean:
 	rm -rf $(BUILD_DIR)
