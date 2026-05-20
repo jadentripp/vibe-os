@@ -282,14 +282,23 @@ class DoomRuntimeContractTests(unittest.TestCase):
         original = (ROOT / "third_party" / "doom" / "linuxdoom-1.10" / "g_game.c").read_text()
 
         self.assertIn("-DG_BuildTiccmd=doom_original_G_BuildTiccmd", makefile)
+        self.assertIn("-DG_Ticker=doom_original_G_Ticker", makefile)
         self.assertIn("void doom_original_G_BuildTiccmd(ticcmd_t* cmd);", platform)
+        self.assertIn("void doom_original_G_Ticker(void);", platform)
+        self.assertIn("void G_DoSaveGame(void);", platform)
         self.assertIn("void G_BuildTiccmd(ticcmd_t* cmd)", platform)
         self.assertIn("doom_original_G_BuildTiccmd(cmd);", platform)
+        self.assertIn("void G_Ticker(void)", platform)
+        self.assertIn("doom_original_G_Ticker();", platform)
+        self.assertIn("if (gameaction == ga_savegame && savedescription[0])", platform)
+        self.assertIn("G_DoSaveGame();", platform)
         self.assertIn("(cmd->buttons & BT_SPECIALMASK) != BTS_SAVEGAME", platform)
         self.assertIn("target_tic = (gametic / divisor) % BACKUPTICS;", platform)
         self.assertIn("netcmds[consoleplayer][target_tic] = *cmd;", platform)
         self.assertIn("if (sendsave)", original)
         self.assertIn("cmd->buttons = BT_SPECIAL | BTS_SAVEGAME", original)
+        self.assertNotIn("doom_original_G_BuildTiccmd", original)
+        self.assertNotIn("doom_original_G_Ticker", original)
 
     def test_kernel_smoke_exposes_file_runtime_counters_not_fat_internals(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()

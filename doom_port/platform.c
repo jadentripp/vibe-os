@@ -27,6 +27,8 @@ extern boolean sendsave;
 extern int savegameslot;
 extern char savedescription[32];
 void doom_original_G_BuildTiccmd(ticcmd_t* cmd);
+void doom_original_G_Ticker(void);
+void G_DoSaveGame(void);
 void G_LoadGame(char* name);
 
 static byte doom_zone[8 * 1024 * 1024];
@@ -573,6 +575,14 @@ void G_BuildTiccmd(ticcmd_t* cmd)
         target_tic += BACKUPTICS;
 
     netcmds[consoleplayer][target_tic] = *cmd;
+}
+
+void G_Ticker(void)
+{
+    doom_original_G_Ticker();
+
+    if (gameaction == ga_savegame && savedescription[0])
+        G_DoSaveGame();
 }
 
 static void report_playability_status(void)

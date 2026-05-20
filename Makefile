@@ -63,7 +63,7 @@ DOOM_PORT_SRCS := doom_port/input.c doom_port/libc.c doom_port/music.c doom_port
 DOOM_PORT_OBJS := $(DOOM_PORT_SRCS:doom_port/%.c=$(DOOM_PORT_BUILD_DIR)/port_%.o)
 FREESTANDING_I386_CFLAGS := -target i386-unknown-elf -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m32 -march=i386 -mno-sse -mno-mmx -msoft-float -O2
 DOOM_ORIGINAL_CFLAGS := $(FREESTANDING_I386_CFLAGS) -std=gnu89 -DNORMALUNIX -DLINUX -I$(DOOM_PORT_INCLUDE_DIR) -I$(DOOM_SRC_DIR)
-DOOM_G_GAME_CFLAGS := -DG_BuildTiccmd=doom_original_G_BuildTiccmd
+DOOM_G_GAME_CFLAGS := -DG_BuildTiccmd=doom_original_G_BuildTiccmd -DG_Ticker=doom_original_G_Ticker
 
 STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 98304
