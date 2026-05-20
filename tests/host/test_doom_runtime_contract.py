@@ -124,6 +124,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "PROBE_FLAG_IOCTL_PRESENT = 0x200u",
             "PROBE_FLAG_FORK_WAIT = 0x400u",
             "PROBE_FLAG_PROCESS_ABI = 0x800u",
+            "PROBE_FLAG_NEGATIVE_SYSCALLS = 0x1000u",
             "SYS_MMAP = 20",
             "SYS_IOCTL = 22",
             "SYS_GETPID = 25",

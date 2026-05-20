@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import subprocess
 import sys
@@ -44,6 +45,174 @@ def make_status(**overrides):
     return "Aurora OS v0.2 " + " ".join(
         f"{name}={value}" for name, value in fields.items()
     )
+
+
+def write_human_session_bundle(tmpdir, *, final_tick="000001B0", commit="abcdef123456"):
+    tmpdir = Path(tmpdir)
+    statuses = {
+        "status.early.txt": make_status(
+            gtic="00000010",
+            leveltime="00000010",
+            keyirq="00000000",
+            keyqueue="00000000",
+            keypoll="00000000",
+            keyseen="00000000",
+            keylast="00000000",
+            mouseirq="00000000",
+            mousepkt="00000000",
+            mousepoll="00000000",
+            mousebtn="00000000",
+            mousedelta="00000000:00000000",
+            pflags="00000001",
+            gflags="00000000",
+            pdelta="00000000",
+        ),
+        "status.after-start.txt": make_status(
+            gtic="00000020",
+            leveltime="00000020",
+            keyirq="00000000",
+            keyqueue="00000000",
+            keypoll="00000000",
+            keyseen="00000000",
+            keylast="00000000",
+            mouseirq="00000000",
+            mousepkt="00000000",
+            mousepoll="00000000",
+            mousebtn="00000000",
+            mousedelta="00000000:00000000",
+            pflags="00000001",
+            gflags="00000000",
+            pdelta="00000000",
+        ),
+        "status.after-fire.txt": make_status(
+            gtic="00000060",
+            leveltime="00000060",
+            keyirq="00000001",
+            keyqueue="00000001",
+            keypoll="00000001",
+            keyseen="00000010",
+            keylast="0001019D",
+            pflags="000000C5",
+        ),
+        "status.after-move.txt": make_status(
+            gtic="00000090",
+            leveltime="00000090",
+            keyirq="00000002",
+            keyqueue="00000002",
+            keypoll="00000002",
+            keyseen="00000011",
+            keylast="000101AD",
+            pflags="00000023",
+            ppos="00010020:00020000",
+        ),
+        "status.after-use.txt": make_status(
+            gtic="000000C0",
+            leveltime="000000C0",
+            keyirq="00000003",
+            keyqueue="00000003",
+            keypoll="00000003",
+            keyseen="00000031",
+            keylast="00010020",
+            pflags="00000009",
+        ),
+        "status.after-mouse.txt": make_status(
+            gtic="00000100",
+            leveltime="00000100",
+            keyirq="00000003",
+            keyqueue="00000003",
+            keypoll="00000003",
+            keyseen="00000031",
+            mouseirq="00000001",
+            mousepkt="00000001",
+            mousepoll="00000001",
+            mousebtn="00000001",
+            mousedelta="00000018:0000000C",
+        ),
+        "status.after-menu.txt": make_status(
+            gtic="00000180",
+            leveltime="00000180",
+            keyirq="00000004",
+            keyqueue="00000004",
+            keypoll="00000004",
+            keyseen="00000071",
+            keylast="0001001B",
+            pflags="00000011",
+            gflags="00000001",
+            mouseirq="00000001",
+            mousepkt="00000001",
+            mousepoll="00000001",
+            mousebtn="00000001",
+        ),
+        "status.txt": make_status(
+            gtic=final_tick,
+            leveltime=final_tick,
+            keyirq="00000004",
+            keyqueue="00000004",
+            keypoll="00000004",
+            keyseen="00000071",
+            keylast="0001001B",
+            pflags="000000F7",
+            gflags="00000001",
+            mouseirq="00000001",
+            mousepkt="00000001",
+            mousepoll="00000001",
+            mousebtn="00000001",
+        ),
+    }
+    for name, status in statuses.items():
+        (tmpdir / name).write_text(status)
+
+    def digest(name):
+        return hashlib.sha256((tmpdir / name).read_bytes()).hexdigest()
+
+    notes = {
+        "schema": "human-playtest-notes-v2",
+        "commit": commit,
+        "scripted_proof": "real-wad-smoke-pass",
+        "scripted_proof_run_id": "1234567890",
+        "playtester": "jt",
+        "remote_host": "disposable",
+        "qemu_location": "remote",
+        "qemu_display": "127.0.0.1:1",
+        "monitor_socket": "unix-monitor-socket",
+        "vnc_tunnel": "loopback-only",
+        "vnc_endpoint": "127.0.0.1:5901",
+        "wad": "shareware-v1.9-validated-remote-only",
+        "display": "pass",
+        "keyboard": "pass",
+        "mouse": "pass",
+        "audio": "status-only",
+        "visual_evidence": "e1m1-visible-via-remote-vnc",
+        "keyboard_evidence": "fire-move-use-menu-visible",
+        "mouse_evidence": "motion-click-visible",
+        "status_capture": "monitor-pmemsave-0x9d000",
+        "session_phases": (
+            "early,after-start,after-fire,after-move,after-use,after-mouse,"
+            "after-menu,final"
+        ),
+        "phase_hash_early": digest("status.early.txt"),
+        "phase_hash_after_start": digest("status.after-start.txt"),
+        "phase_hash_after_fire": digest("status.after-fire.txt"),
+        "phase_hash_after_move": digest("status.after-move.txt"),
+        "phase_hash_after_use": digest("status.after-use.txt"),
+        "phase_hash_after_mouse": digest("status.after-mouse.txt"),
+        "phase_hash_after_menu": digest("status.after-menu.txt"),
+        "phase_hash_final": digest("status.txt"),
+        "diagnostics": "non-wad-status-only",
+        "proof_bundle": "allowlisted-status-only",
+        "no_local_qemu": "yes",
+        "no_wad_upload": "yes",
+        "no_disk_upload": "yes",
+        "no_pixel_upload": "yes",
+        "operator_remote_vnc": "confirmed",
+        "operator_phase_actions": "confirmed",
+        "operator_phase_status_hashes": "confirmed",
+        "operator_no_forbidden_artifacts": "confirmed",
+        "operator_post_download_verification": "required",
+    }
+    notes_path = tmpdir / "human-playtest-notes.txt"
+    notes_path.write_text("\n".join(f"{key}={value}" for key, value in notes.items()) + "\n")
+    return notes_path
 
 
 class HumanPlayabilityProofTests(unittest.TestCase):
@@ -255,6 +424,120 @@ class HumanPlayabilityProofTests(unittest.TestCase):
         self.assertEqual(auto_result.returncode, 0, auto_result.stderr)
         self.assertIn("human-playability proof OK", auto_result.stdout)
 
+    def test_cli_requires_full_manual_human_session_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            notes = write_human_session_bundle(tmpdir)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(TOOL),
+                    "--require-human-session",
+                    "--human-notes",
+                    str(notes),
+                    "--expected-commit",
+                    "abcdef123456",
+                    "--expected-scripted-proof-run-id",
+                    "1234567890",
+                    str(tmpdir / "status.txt"),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("manual remote VNC session", result.stdout)
+
+    def test_manual_human_session_rejects_short_duration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            notes = write_human_session_bundle(tmpdir, final_tick="00000080")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(TOOL),
+                    "--require-human-session",
+                    "--human-notes",
+                    str(notes),
+                    str(tmpdir / "status.txt"),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("at least 350", result.stderr)
+
+    def test_manual_human_session_rejects_identity_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            notes = write_human_session_bundle(tmpdir)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(TOOL),
+                    "--require-human-session",
+                    "--human-notes",
+                    str(notes),
+                    "--expected-commit",
+                    "deadbeef1234",
+                    str(tmpdir / "status.txt"),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("commit= must match expected commit", result.stderr)
+
+    def test_manual_human_session_rejects_phase_hash_tampering(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            notes = write_human_session_bundle(tmpdir)
+            with (tmpdir / "status.after-fire.txt").open("a") as handle:
+                handle.write(" ")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(TOOL),
+                    "--require-human-session",
+                    "--human-notes",
+                    str(notes),
+                    str(tmpdir / "status.txt"),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("phase_hash_after_fire", result.stderr)
+
+    def test_manual_human_session_rejects_forbidden_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            notes = write_human_session_bundle(tmpdir)
+            (tmpdir / "DOOM1.WAD").write_bytes(b"IWAD")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(TOOL),
+                    "--require-human-session",
+                    "--human-notes",
+                    str(notes),
+                    str(tmpdir / "status.txt"),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("forbidden human proof artifact", result.stderr)
+
     def test_mouse_phase_requires_mouse_counters_to_reach_doom(self):
         baseline = make_status(
             gtic="00000010",
@@ -328,7 +611,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
 
     def test_tool_reads_status_only(self):
         source = TOOL.read_text()
-        for forbidden in ("gfx.bin", "vga.bin", "pmemsave", "0xa0000", "disk.img"):
+        for forbidden in ("qemu-system", "subprocess.run", "pmemsave 0xa0000", "0xa0000"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, source)
 

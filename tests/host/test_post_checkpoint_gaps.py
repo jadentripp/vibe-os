@@ -167,6 +167,9 @@ class PostCheckpointGapTests(unittest.TestCase):
             "storage boot path",
             "check_hardware_support_matrix.py",
             "SUPPORT[...]",
+            "check_human_playability_proof.py --require-human-session",
+            "at least 350 Doom ticks",
+            "rejects forbidden WAD/disk/pixel/raw-audio artifacts",
         ):
             with self.subTest(claim_boundary=claim_boundary):
                 self.assertContainsPhrase(gap_doc, claim_boundary)

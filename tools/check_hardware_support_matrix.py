@@ -45,6 +45,93 @@ UNCLAIMED_CLASSES = {
     "PHYSICAL_HARDWARE",
 }
 
+PROOF_REQUIREMENTS = {
+    "UEFI": {
+        "artifact": "ovmf-cloud-boot",
+        "requires": "pe32-esp-gop-mmap-exitbs",
+    },
+    "PCI_ENUMERATION": {
+        "artifact": "pci-cloud-class-table",
+        "requires": "all-bdfs-class-table",
+    },
+    "AHCI": {
+        "artifact": "ahci-cloud-wad-read",
+        "requires": "pci-ahci-bar-identify-read",
+    },
+    "USB": {
+        "artifact": "usb-cloud-input-storage",
+        "requires": "host-controller-hid-storage",
+    },
+    "SMP": {
+        "artifact": "smp-cloud-run",
+        "requires": "ap-startup-percpu-progress",
+    },
+    "APIC": {
+        "artifact": "apic-cloud-irq",
+        "requires": "lapic-ioapic-pic-masked",
+    },
+    "HPET": {
+        "artifact": "hpet-cloud-timer",
+        "requires": "acpi-hpet-mmio-comparator",
+    },
+    "PHYSICAL_HARDWARE": {
+        "artifact": "disposable-hardware-run",
+        "requires": "machine-inventory-status-capture",
+    },
+}
+
+NEGATIVE_CLAIMS = {
+    "UEFI": {
+        "scope": "boot",
+        "claim": "no-uefi-boot",
+        "evidence": "boot-uefi-contract",
+    },
+    "PCI_ENUMERATION": {
+        "scope": "kernel",
+        "claim": "no-general-pci-enumeration",
+        "evidence": "status-only-qemu-bus0",
+    },
+    "AHCI": {
+        "scope": "storage",
+        "claim": "no-ahci-driver",
+        "evidence": "ide-only-storage",
+    },
+    "USB": {
+        "scope": "input-storage",
+        "claim": "no-usb-stack",
+        "evidence": "ps2-ide-only",
+    },
+    "SMP": {
+        "scope": "cpu",
+        "claim": "no-multiprocessor-runtime",
+        "evidence": "single-cpu-kernel",
+    },
+    "APIC": {
+        "scope": "interrupts",
+        "claim": "no-apic-routing",
+        "evidence": "pic-pit-only",
+    },
+    "HPET": {
+        "scope": "timer",
+        "claim": "no-hpet-timer",
+        "evidence": "pit-only",
+    },
+    "PHYSICAL_HARDWARE": {
+        "scope": "hardware",
+        "claim": "no-physical-machine-proof",
+        "evidence": "qemu-only",
+    },
+}
+
+NEXT_UNLOCK = {
+    "PCI_ENUMERATION": {
+        "priority": "first",
+        "scope": "qemu-pci",
+        "proof": "cloud-class-table",
+        "evidence": "none",
+    },
+}
+
 REQUIRED_MATRIX_PHRASES = (
     "QEMU's legacy PC machine model",
     "BIOS boot",
@@ -67,6 +154,25 @@ REQUIRED_MATRIX_PHRASES = (
     "HPET timer support is not implemented",
     "No real PC or broad hardware compatibility claim",
     "QEMU evidence alone can only claim the matching QEMU device model",
+    "Claimed rows prove only the named QEMU device-model path",
+    "Status-only rows are diagnostics, not driver support",
+    "PROOF_REQUIREMENT[UEFI]",
+    "PROOF_REQUIREMENT[AHCI]",
+    "PROOF_REQUIREMENT[USB]",
+    "PROOF_REQUIREMENT[APIC]",
+    "PROOF_REQUIREMENT[SMP]",
+    "PROOF_REQUIREMENT[HPET]",
+    "PROOF_REQUIREMENT[PHYSICAL_HARDWARE]",
+    "NEGATIVE_CLAIM[UEFI]",
+    "NEGATIVE_CLAIM[PCI_ENUMERATION]",
+    "NEGATIVE_CLAIM[AHCI]",
+    "NEGATIVE_CLAIM[USB]",
+    "NEGATIVE_CLAIM[SMP]",
+    "NEGATIVE_CLAIM[APIC]",
+    "NEGATIVE_CLAIM[HPET]",
+    "NEGATIVE_CLAIM[PHYSICAL_HARDWARE]",
+    "NEXT_UNLOCK[PCI_ENUMERATION]",
+    "PCI enumeration is the next implementable hardware-class unlock",
 )
 
 REQUIRED_CROSS_DOC_LINKS = {
@@ -151,6 +257,33 @@ SUPPORT_RE = re.compile(
 PCI_STATUS_RE = re.compile(
     r"^- `PCI_STATUS\[(?P<id>[A-Z0-9_]+)\] "
     r"status=(?P<status>[a-z-]+) "
+    r"scope=(?P<scope>[a-z0-9-]+) "
+    r"proof=(?P<proof>[a-z0-9-]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
+PROOF_REQUIREMENT_RE = re.compile(
+    r"^- `PROOF_REQUIREMENT\[(?P<id>[A-Z0-9_]+)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"artifact=(?P<artifact>[a-z0-9-]+) "
+    r"requires=(?P<requires>[a-z0-9-]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
+NEGATIVE_CLAIM_RE = re.compile(
+    r"^- `NEGATIVE_CLAIM\[(?P<id>[A-Z0-9_]+)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"scope=(?P<scope>[a-z0-9-]+) "
+    r"claim=(?P<claim>[a-z0-9-]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
+NEXT_UNLOCK_RE = re.compile(
+    r"^- `NEXT_UNLOCK\[(?P<id>[A-Z0-9_]+)\] "
+    r"priority=(?P<priority>[a-z0-9-]+) "
     r"scope=(?P<scope>[a-z0-9-]+) "
     r"proof=(?P<proof>[a-z0-9-]+) "
     r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
@@ -336,6 +469,84 @@ def _validate_pci_status_rows(text: str) -> dict[str, dict[str, str]]:
     return rows
 
 
+def _validate_proof_requirement_rows(text: str) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for match in PROOF_REQUIREMENT_RE.finditer(text):
+        row_id = match.group("id")
+        if row_id in rows:
+            raise AssertionError(f"duplicate PROOF_REQUIREMENT row: {row_id}")
+        rows[row_id] = match.groupdict()
+
+    missing = sorted(set(PROOF_REQUIREMENTS) - set(rows))
+    if missing:
+        raise AssertionError(f"missing PROOF_REQUIREMENT rows: {', '.join(missing)}")
+    extras = sorted(set(rows) - set(PROOF_REQUIREMENTS))
+    if extras:
+        raise AssertionError(f"unexpected PROOF_REQUIREMENT rows: {', '.join(extras)}")
+
+    for row_id, expected in PROOF_REQUIREMENTS.items():
+        row = rows[row_id]
+        if row["status"] != "future":
+            raise AssertionError(f"PROOF_REQUIREMENT[{row_id}] must stay status=future")
+        for key, value in expected.items():
+            if row[key] != value:
+                raise AssertionError(f"PROOF_REQUIREMENT[{row_id}] {key} must stay {value}")
+        if row["evidence"] != "none":
+            raise AssertionError(f"PROOF_REQUIREMENT[{row_id}] must keep evidence=none until proved")
+
+    return rows
+
+
+def _validate_negative_claim_rows(text: str) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for match in NEGATIVE_CLAIM_RE.finditer(text):
+        row_id = match.group("id")
+        if row_id in rows:
+            raise AssertionError(f"duplicate NEGATIVE_CLAIM row: {row_id}")
+        rows[row_id] = match.groupdict()
+
+    missing = sorted(set(NEGATIVE_CLAIMS) - set(rows))
+    if missing:
+        raise AssertionError(f"missing NEGATIVE_CLAIM rows: {', '.join(missing)}")
+    extras = sorted(set(rows) - set(NEGATIVE_CLAIMS))
+    if extras:
+        raise AssertionError(f"unexpected NEGATIVE_CLAIM rows: {', '.join(extras)}")
+
+    for row_id, expected in NEGATIVE_CLAIMS.items():
+        row = rows[row_id]
+        if row["status"] != "active":
+            raise AssertionError(f"NEGATIVE_CLAIM[{row_id}] must stay status=active until proved")
+        for key, value in expected.items():
+            if row[key] != value:
+                raise AssertionError(f"NEGATIVE_CLAIM[{row_id}] {key} must stay {value}")
+
+    return rows
+
+
+def _validate_next_unlock_rows(text: str) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for match in NEXT_UNLOCK_RE.finditer(text):
+        row_id = match.group("id")
+        if row_id in rows:
+            raise AssertionError(f"duplicate NEXT_UNLOCK row: {row_id}")
+        rows[row_id] = match.groupdict()
+
+    missing = sorted(set(NEXT_UNLOCK) - set(rows))
+    if missing:
+        raise AssertionError(f"missing NEXT_UNLOCK rows: {', '.join(missing)}")
+    extras = sorted(set(rows) - set(NEXT_UNLOCK))
+    if extras:
+        raise AssertionError(f"unexpected NEXT_UNLOCK rows: {', '.join(extras)}")
+
+    for row_id, expected in NEXT_UNLOCK.items():
+        row = rows[row_id]
+        for key, value in expected.items():
+            if row[key] != value:
+                raise AssertionError(f"NEXT_UNLOCK[{row_id}] {key} must stay {value}")
+
+    return rows
+
+
 def _validate_uefi_scaffold(root: Path) -> dict[str, dict[str, str]]:
     text = _read(root / "boot" / "uefi" / "README.md")
     rows = _validate_uefi_boot_rows(text)
@@ -475,6 +686,9 @@ def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
 
     rows = _validate_support_rows(matrix_text)
     _validate_pci_status_rows(matrix_text)
+    _validate_proof_requirement_rows(matrix_text)
+    _validate_negative_claim_rows(matrix_text)
+    _validate_next_unlock_rows(matrix_text)
     _validate_uefi_scaffold(root)
     _validate_pci_source_contract(root)
 

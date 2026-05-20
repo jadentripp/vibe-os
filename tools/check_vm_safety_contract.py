@@ -49,6 +49,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     os_workflow = _read(root, ".github/workflows/os-smoke.yml")
     real_wad_workflow = _read(root, ".github/workflows/real-wad-smoke.yml")
     kernel = _read(root, "kernel/kernel.asm")
+    probe = _read(root, "user/probe.c")
+    process_doc = _read(root, "docs/process-exec.md")
     gap_doc = _read(root, "docs/post-checkpoint-gaps.md")
     tests_readme = _read(root, "tests/README.md")
 
@@ -162,6 +164,12 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "vmm_last_reclaimed_page_table dd 0",
         "vmm_user_guard_pages dd 0",
         "vmm_high_mapping_status db 0",
+        "USER_PROBE_EXPECTED_FLAGS equ 0x00001fff",
+        "SYS_EXEC_ARGV_SOURCE_DEFAULT equ 1",
+        "SYS_EXEC_ARGV_SOURCE_USER equ 2",
+        "sys_exec_last_argv_source dd 0",
+        'smoke_exec_argvsrc_text db " argvsrc=", 0',
+        "mov edx, [sys_exec_last_argv_source]",
         "vmm_clear_process_guard_page:",
         "call vmm_clear_process_guard_page",
         "vmm_unmap_page:",
@@ -208,6 +216,23 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "inc dword [process_munmap_non_tail_kept]",
     ):
         _require(kernel if needle.endswith(" dd 0") else munmap, needle, "brk-backed munmap")
+
+    for needle in (
+        "PROBE_FLAG_NEGATIVE_SYSCALLS = 0x1000u",
+        "ERRNO_EINVAL = 22",
+        "syscall3(0x7fffffffu, 0, 0, 0) == -ERRNO_ENOSYS",
+        "syscall3(SYS_MMAP, 0, 0, mmap_flags) == -ERRNO_EINVAL",
+        "syscall3(SYS_MUNMAP, 0, 4096, 0) == -ERRNO_EINVAL",
+        "syscall3(SYS_WAITPID, (uint32_t)-1, USER_FAULT_ADDR, 0) == -ERRNO_EINVAL",
+        "char *doom_argv[] = {(char *)doom_path, (char *)0};",
+        "return sys_execv(doom_path, doom_argv) == 0 ? 0 : 1;",
+    ):
+        _require(probe, needle, "user probe VM/POSIX contract")
+
+    copy_argv = kernel.split("sys_exec_copy_argv:", 1)[1].split("sys_exec_copy_user_arg_string:", 1)[0]
+    _require(copy_argv, "mov dword [sys_exec_last_argv_source], SYS_EXEC_ARGV_SOURCE_USER", "exec argv source proof")
+    _require(process_doc, "`argvsrc=2`", "process exec docs")
+    _require(process_doc, "negative syscall probe bit", "process exec docs")
 
     panic_path = kernel.split(".not_expected_user_fault:", 1)[1].split("doom_user_fault:", 1)[0]
     _require(panic_path, "mov dword [panic_status], PANIC_UNHANDLED_EXCEPTION", "kernel panic path")

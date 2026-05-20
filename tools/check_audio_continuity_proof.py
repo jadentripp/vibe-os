@@ -81,7 +81,16 @@ FINAL_POSITIVE_COUNTERS = (
     "musicpos",
     "dma",
 )
-PROGRESS_COUNTERS = ("audioirq", "refill", "sfxmix", "musicmix", "musicpos")
+PROGRESS_COUNTERS = ("doomsound", "audioirq", "refill", "sfxmix", "musicmix", "musicpos")
+MIN_PHASED_PROGRESS = {
+    "audioirq": len(SNAPSHOT_ORDER) - 1,
+    "refill": len(SNAPSHOT_ORDER) - 1,
+}
+MAX_SAFETY_DELTAS = {
+    "mixclip": 0,
+    "musicunder": 0,
+    "musicdrops": 0,
+}
 PROGRESS_TUPLE_COMPONENTS = (
     ("voiceq", 3, 2, "stream update"),
 )
@@ -216,6 +225,57 @@ def _assert_progress(
         )
 
 
+def _assert_min_delta(
+    snapshots: list[tuple[str, dict[str, str]]],
+    name: str,
+    minimum: int,
+) -> None:
+    first_label, first_fields = snapshots[0]
+    last_label, last_fields = snapshots[-1]
+    first = _hex(first_fields, name, first_label)
+    last = _hex(last_fields, name, last_label)
+    delta = last - first
+    if delta < minimum:
+        raise AssertionError(
+            f"{name}= must advance by at least {minimum:08X} across phase snapshots, "
+            f"got {delta:08X}"
+        )
+
+
+def _assert_max_delta(
+    snapshots: list[tuple[str, dict[str, str]]],
+    name: str,
+    maximum: int,
+    reason: str,
+) -> None:
+    first_label, first_fields = snapshots[0]
+    last_label, last_fields = snapshots[-1]
+    first = _hex(first_fields, name, first_label)
+    last = _hex(last_fields, name, last_label)
+    delta = last - first
+    if delta > maximum:
+        raise AssertionError(
+            f"{name}= {reason} delta must be <= {maximum:08X}, got {delta:08X}"
+        )
+
+
+def _assert_phase_progress(
+    snapshots: list[tuple[str, dict[str, str]]],
+    earlier_label: str,
+    later_label: str,
+    name: str,
+    reason: str,
+) -> None:
+    lookup = {label: fields for label, fields in snapshots}
+    earlier = _hex(lookup[earlier_label], name, earlier_label)
+    later = _hex(lookup[later_label], name, later_label)
+    if later <= earlier:
+        raise AssertionError(
+            f"{name}= must increase from {earlier_label} to {later_label} for {reason}, "
+            f"got {earlier:08X}->{later:08X}"
+        )
+
+
 def _assert_tuple_nondecreasing(
     snapshots: list[tuple[str, dict[str, str]]],
     name: str,
@@ -336,6 +396,12 @@ def validate_status(
         _assert_tuple_nondecreasing(snapshots, name, count)
     for name in PROGRESS_COUNTERS:
         _assert_progress(snapshots, name)
+    for name, minimum in MIN_PHASED_PROGRESS.items():
+        _assert_min_delta(snapshots, name, minimum)
+    _assert_phase_progress(snapshots, "baseline", "fire", "doomsound", "scripted fire SFX")
+    _assert_phase_progress(snapshots, "baseline", "fire", "sfxmix", "scripted fire SFX")
+    for name, maximum in MAX_SAFETY_DELTAS.items():
+        _assert_max_delta(snapshots, name, maximum, "audio safety")
     for name, count, index, reason in PROGRESS_TUPLE_COMPONENTS:
         _assert_tuple_component_progress(snapshots, name, count, index, reason)
     _assert_music_stream_health(snapshots)
@@ -389,6 +455,7 @@ def validate_repo_contract() -> None:
                 "musicdrops=",
                 "stream-health evidence",
                 "single static music carrier",
+                "no new mixclip=, musicunder=, or musicdrops=",
             ),
         ),
         (

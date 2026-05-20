@@ -19,6 +19,8 @@ USB, or broad PCI enumeration supported.
 
 The `SUPPORT[...]` rows are machine-readable. Keep the `status`, `scope`,
 `proof`, and `evidence` fields current whenever a device-class claim changes.
+Claimed rows prove only the named QEMU device-model path. Status-only rows are
+diagnostics, not driver support, and must not be used as compatibility claims.
 
 | Device class | Claim status | Current scope | Proof boundary | Not claimed |
 | --- | --- | --- | --- | --- |
@@ -60,10 +62,65 @@ Status-only hardware discovery scaffolds:
 
 - `PCI_STATUS[QEMU_BUS0_CONFIG] status=status-only scope=qemu-pci-bus0 proof=cloud-smoke-status evidence=pci-status-fields`
 
+## Future Proof Boundaries
+
+The `PROOF_REQUIREMENT[...]` rows define what would count before an unclaimed
+hardware class could become supported. These rows are intentionally stricter
+than "the source contains a stub" or "QEMU still boots".
+
+| Future class | Minimum proof before support claim |
+| --- | --- |
+| UEFI | Build a PE32 EFI application into an ESP image, load the kernel from ESP/FAT, hand off GOP framebuffer and UEFI memory map data, call `ExitBootServices`, and boot the current kernel through OVMF in disposable cloud CI. |
+| PCI enumeration | Build a reusable PCI device table from config space, record every present bus/device/function with vendor/device/class/subclass/prog-if data, handle multifunction devices, and prove the table in at least one disposable QEMU PCI run without promoting status-only probes into drivers. |
+| AHCI | Discover an AHCI controller through PCI, map the BAR, reset the HBA, identify a SATA disk, read sectors through AHCI with the IDE path disabled for that proof, and load the WAD through that path. |
+| USB | Enumerate a USB host controller, enumerate at least one HID keyboard path and one mass-storage path, prove Doom input through USB HID, and prove WAD/file reads through USB storage with PS/2 or IDE disabled for the relevant proof. |
+| APIC | Enable Local APIC and IOAPIC, route at least timer and keyboard/storage interrupts through APIC while the legacy PIC is masked for that proof, and expose cloud status counters showing the APIC path handled the interrupts. |
+| SMP | Parse CPU topology, start at least one application processor, install per-CPU stacks/TSS/interrupt state, run a bounded scheduler or worker proof on more than one CPU, and report per-CPU progress from a disposable `-smp` cloud run. |
+| HPET | Discover HPET through firmware tables, map the HPET MMIO block, drive a timer/comparator proof independent of PIT ticks, and show Doom time or scheduler time advancing from HPET status counters. |
+| Physical hardware | Boot a disposable machine or lab PC, capture serial/status evidence plus exact hardware inventory, prove Doom reaches the same runtime gates on that exact machine, and document the exact model as supported without generalizing to broad PC compatibility. |
+
+- `PROOF_REQUIREMENT[UEFI] status=future artifact=ovmf-cloud-boot requires=pe32-esp-gop-mmap-exitbs evidence=none`
+- `PROOF_REQUIREMENT[PCI_ENUMERATION] status=future artifact=pci-cloud-class-table requires=all-bdfs-class-table evidence=none`
+- `PROOF_REQUIREMENT[AHCI] status=future artifact=ahci-cloud-wad-read requires=pci-ahci-bar-identify-read evidence=none`
+- `PROOF_REQUIREMENT[USB] status=future artifact=usb-cloud-input-storage requires=host-controller-hid-storage evidence=none`
+- `PROOF_REQUIREMENT[SMP] status=future artifact=smp-cloud-run requires=ap-startup-percpu-progress evidence=none`
+- `PROOF_REQUIREMENT[APIC] status=future artifact=apic-cloud-irq requires=lapic-ioapic-pic-masked evidence=none`
+- `PROOF_REQUIREMENT[HPET] status=future artifact=hpet-cloud-timer requires=acpi-hpet-mmio-comparator evidence=none`
+- `PROOF_REQUIREMENT[PHYSICAL_HARDWARE] status=future artifact=disposable-hardware-run requires=machine-inventory-status-capture evidence=none`
+
+## Machine-Checked Negative Claims
+
+These rows make unsupported hardware claims explicit. While they are active,
+docs and tests may discuss the class only as unclaimed/future/unsupported.
+
+- `NEGATIVE_CLAIM[UEFI] status=active scope=boot claim=no-uefi-boot evidence=boot-uefi-contract`
+- `NEGATIVE_CLAIM[PCI_ENUMERATION] status=active scope=kernel claim=no-general-pci-enumeration evidence=status-only-qemu-bus0`
+- `NEGATIVE_CLAIM[AHCI] status=active scope=storage claim=no-ahci-driver evidence=ide-only-storage`
+- `NEGATIVE_CLAIM[USB] status=active scope=input-storage claim=no-usb-stack evidence=ps2-ide-only`
+- `NEGATIVE_CLAIM[SMP] status=active scope=cpu claim=no-multiprocessor-runtime evidence=single-cpu-kernel`
+- `NEGATIVE_CLAIM[APIC] status=active scope=interrupts claim=no-apic-routing evidence=pic-pit-only`
+- `NEGATIVE_CLAIM[HPET] status=active scope=timer claim=no-hpet-timer evidence=pit-only`
+- `NEGATIVE_CLAIM[PHYSICAL_HARDWARE] status=active scope=hardware claim=no-physical-machine-proof evidence=qemu-only`
+
+## Next Hardware-Class Unlock
+
+- `NEXT_UNLOCK[PCI_ENUMERATION] priority=first scope=qemu-pci proof=cloud-class-table evidence=none`
+
+PCI enumeration is the next implementable hardware-class unlock. It is the
+lowest-risk bridge from today's status-only config-space probe to future AHCI,
+USB, APIC, and real-device work. The first useful implementation should produce
+a reusable in-kernel PCI table, record class/subclass/prog-if data for every
+present function, preserve the current QEMU IDE/PS2/VBE/SB16 Doom path, and
+prove the table with cloud status artifacts. AHCI and USB must stay unclaimed
+until a real driver consumes that table.
+
 ## Rules For New Claims
 
 - A new device class must add or update one `SUPPORT[...]` row before README,
   docs, runbooks, tests, or release notes describe it as supported.
+- Changing a future class from unclaimed to claimed must also retire or update
+  the matching `NEGATIVE_CLAIM[...]` row and replace `evidence=none` in the
+  matching `PROOF_REQUIREMENT[...]` row with the artifact that proves it.
 - The proof must be host-checkable from source or from disposable-runner artifacts
   that do not include WADs, disk images, screenshots, pixel dumps, raw audio, or
   VM logs committed to git.

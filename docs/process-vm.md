@@ -76,6 +76,13 @@ release counters. Non-tail valid ranges still return success without punching
 holes, so this remains a brk-backed allocator contract rather than a full VM
 object model.
 
+The Ring 3 probe treats that as a live ABI contract rather than a doc-only
+claim: it requires its successful anonymous mapping to survive framebuffer and
+ioctl use, requires the tail `munmap` to return success, and separately checks
+that zero-length, fixed, null, and invalid pointer-style memory calls return
+classified `-EINVAL` errors instead of falling through to ambiguous `-1`
+results.
+
 ## Process Lifecycle
 
 Process records now carry enough saved-frame state for both timer preemption
@@ -84,7 +91,8 @@ the saved Ring 3 frame for a fresh target, marks it READY, and sets
 `PROC_FLAG_IRQ_FRAME_VALID`. `SYS_EXEC` tears down stale user mappings in the
 target slot, restores the target stack PTEs, assigns a fresh PID, transfers
 inheritable fd ownership from the caller PID to the target PID, writes an
-argv-shaped stack, patches the interrupted syscall frame, retires the caller's
+argv-shaped stack, records whether that stack came from the kernel default or a
+copied user vector, patches the interrupted syscall frame, retires the caller's
 user mappings, and then activates the target process record. Failed exec paths
 retire any half-prepared target slot before reporting rollback. `SYS_EXIT`,
 fault retirement, target-slot reuse, and wait reaping also close descriptors

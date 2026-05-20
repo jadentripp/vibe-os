@@ -22,6 +22,7 @@ typedef struct vibe_music_song {
     unsigned long stream_sample_rate;
     unsigned long stream_volume;
     unsigned long stream_position;
+    unsigned long stream_song_samples;
     unsigned long stream_loop_samples;
     unsigned long stream_loop_count;
 } vibe_music_song_t;
@@ -140,6 +141,7 @@ static void reset_stats(vibe_music_render_stats_t* stats, int format)
     stats->emitted_samples = 0;
     stats->stream_start_sample = 0;
     stats->stream_end_sample = 0;
+    stats->stream_song_samples = 0;
     stats->stream_loop_samples = 0;
     stats->stream_loop_count = 0;
 }
@@ -998,6 +1000,7 @@ void vibe_music_init(void)
         vibe_music_songs[i].stream_sample_rate = VIBE_MUSIC_DEFAULT_SAMPLE_RATE;
         vibe_music_songs[i].stream_volume = 127;
         vibe_music_songs[i].stream_position = 0;
+        vibe_music_songs[i].stream_song_samples = 0;
         vibe_music_songs[i].stream_loop_samples = 0;
         vibe_music_songs[i].stream_loop_count = 0;
     }
@@ -1037,6 +1040,7 @@ int vibe_music_register_song(void* data)
             vibe_music_songs[i].stream_sample_rate = VIBE_MUSIC_DEFAULT_SAMPLE_RATE;
             vibe_music_songs[i].stream_volume = 127;
             vibe_music_songs[i].stream_position = 0;
+            vibe_music_songs[i].stream_song_samples = 0;
             vibe_music_songs[i].stream_loop_samples = 0;
             vibe_music_songs[i].stream_loop_count = 0;
             return (int)i + 1;
@@ -1064,6 +1068,7 @@ void vibe_music_unregister_song(int handle)
     vibe_music_songs[index].stream_sample_rate = VIBE_MUSIC_DEFAULT_SAMPLE_RATE;
     vibe_music_songs[index].stream_volume = 127;
     vibe_music_songs[index].stream_position = 0;
+    vibe_music_songs[index].stream_song_samples = 0;
     vibe_music_songs[index].stream_loop_samples = 0;
     vibe_music_songs[index].stream_loop_count = 0;
 }
@@ -1192,6 +1197,8 @@ void vibe_music_stream_begin(
     int looping)
 {
     unsigned long index;
+    unsigned long stream_sample_rate;
+    unsigned long song_samples;
 
     if (handle <= 0)
         return;
@@ -1199,14 +1206,15 @@ void vibe_music_stream_begin(
     if (index >= VIBE_MUSIC_MAX_SONGS || !vibe_music_songs[index].used)
         return;
 
+    stream_sample_rate = sample_rate ? sample_rate : VIBE_MUSIC_DEFAULT_SAMPLE_RATE;
+    song_samples = measure_loop_samples(vibe_music_songs[index].data, stream_sample_rate);
     vibe_music_songs[index].stream_active = 1;
     vibe_music_songs[index].stream_looping = looping;
-    vibe_music_songs[index].stream_sample_rate = sample_rate ? sample_rate : VIBE_MUSIC_DEFAULT_SAMPLE_RATE;
+    vibe_music_songs[index].stream_sample_rate = stream_sample_rate;
     vibe_music_songs[index].stream_volume = volume > 127u ? 127u : volume;
     vibe_music_songs[index].stream_position = 0;
-    vibe_music_songs[index].stream_loop_samples = looping
-        ? measure_loop_samples(vibe_music_songs[index].data, vibe_music_songs[index].stream_sample_rate)
-        : 0;
+    vibe_music_songs[index].stream_song_samples = song_samples;
+    vibe_music_songs[index].stream_loop_samples = looping ? song_samples : 0;
     vibe_music_songs[index].stream_loop_count = 0;
 }
 
@@ -1247,6 +1255,18 @@ unsigned long vibe_music_stream_position(int handle)
     return vibe_music_songs[index].stream_position;
 }
 
+unsigned long vibe_music_stream_song_samples(int handle)
+{
+    unsigned long index;
+
+    if (handle <= 0)
+        return 0;
+    index = (unsigned long)(handle - 1);
+    if (index >= VIBE_MUSIC_MAX_SONGS || !vibe_music_songs[index].used)
+        return 0;
+    return vibe_music_songs[index].stream_song_samples;
+}
+
 unsigned long vibe_music_stream_loop_samples(int handle)
 {
     unsigned long index;
@@ -1280,6 +1300,8 @@ unsigned long vibe_music_stream_render(
     unsigned long index;
     unsigned long render_position;
     unsigned long loop_samples;
+    unsigned long song_samples;
+    unsigned long render_len;
     unsigned long start_position;
     unsigned long start_loop_count;
     unsigned long end_position;
@@ -1296,15 +1318,25 @@ unsigned long vibe_music_stream_render(
 
     start_position = vibe_music_songs[index].stream_position;
     render_position = start_position;
+    render_len = out_len;
+    song_samples = vibe_music_songs[index].stream_song_samples;
     loop_samples = vibe_music_songs[index].stream_loop_samples;
     start_loop_count = loop_samples ? start_position / loop_samples : 0;
     if (vibe_music_songs[index].stream_looping && loop_samples)
         render_position = start_position % loop_samples;
+    if (!vibe_music_songs[index].stream_looping && song_samples) {
+        if (start_position >= song_samples) {
+            vibe_music_songs[index].stream_active = 0;
+            return 0;
+        }
+        if (render_len > song_samples - start_position)
+            render_len = song_samples - start_position;
+    }
 
     rendered = render_pcm_window(
         vibe_music_songs[index].data,
         out,
-        out_len,
+        render_len,
         render_position,
         vibe_music_songs[index].stream_sample_rate,
         vibe_music_songs[index].stream_volume,
@@ -1319,9 +1351,12 @@ unsigned long vibe_music_stream_render(
     if (end_loop_count > start_loop_count)
         vibe_music_songs[index].stream_loop_count += end_loop_count - start_loop_count;
     vibe_music_songs[index].stream_position = end_position;
+    if (!vibe_music_songs[index].stream_looping && song_samples && end_position >= song_samples)
+        vibe_music_songs[index].stream_active = 0;
     if (stats) {
         stats->stream_start_sample = start_position;
         stats->stream_end_sample = end_position;
+        stats->stream_song_samples = song_samples;
         stats->stream_loop_samples = loop_samples;
         stats->stream_loop_count = vibe_music_songs[index].stream_loop_count;
     }

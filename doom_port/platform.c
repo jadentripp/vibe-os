@@ -75,8 +75,19 @@ static void submit_music_stream_chunk(int handle, int start_voice)
         VIBE_MUSIC_STREAM_BYTES,
         &stats);
 
-    if (!rendered)
+    if (!rendered) {
+        if (!current_music_looping && current_music_handle == handle) {
+            (void)vibe_syscall3(
+                VIBE_SYS_AUDIO,
+                VIBE_AUDIO_STOP_SFX,
+                (unsigned long)vibe_music_audio_handle(handle),
+                0);
+            current_music_handle = 0;
+            current_music_next_tic = 0;
+            vibe_music_stream_stop(handle);
+        }
         return;
+    }
 
     current_music_buffer = buffer_index;
 

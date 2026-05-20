@@ -137,6 +137,10 @@ capture_status() {
 }
 
 # Capture before input, then play through VNC and capture after each action.
+# Do not synthesize these inputs through the QEMU monitor for a human claim:
+# one person should use the VNC client and wait for the visible response before
+# each capture. The strict checker requires at least 350 Doom ticks, about ten
+# seconds of in-game time, from after-start to final.
 capture_status after-start
 # Press Ctrl/fire in VNC.
 capture_status after-fire
@@ -148,9 +152,12 @@ capture_status after-use
 capture_status after-mouse
 # Press Escape to open the menu.
 capture_status after-menu
+# Leave the session up long enough to cross the proof duration window, then
+# capture the final status from the same remote VNC session.
+capture_status final
 
 cp build/status.after-start.txt build/status.early.txt
-cp build/status.after-menu.txt build/status.txt
+mv build/status.final.txt build/status.txt
 rm -f build/status.*.bin
 ```
 
@@ -299,6 +306,13 @@ python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
 
 python3 tools/check_cloud_playability_artifacts.py \
   --human-session path/to/vibe-os-human-proof
+
+python3 tools/check_human_playability_proof.py \
+  --require-human-session \
+  --human-notes path/to/vibe-os-human-proof/human-playtest-notes.txt \
+  --expected-commit "$(git rev-parse --short=12 HEAD)" \
+  --expected-scripted-proof-run-id "<passing-real-wad-smoke-run-id>" \
+  path/to/vibe-os-human-proof/status.txt
 ```
 
 The audible checker command is only expected to pass when the workflow was
@@ -312,6 +326,14 @@ verification OK` line containing `session_id=`, `bundle_sha256=`,
 `--human-session` command prints the same values under `post-download human
 verification OK`; compare them exactly before treating the downloaded bundle as
 the evidence packet.
+
+The strict human-playability checker is the pass/fail gate for the manual
+session itself. In `--require-human-session` mode it requires all eight status
+snapshots, verifies the `human-playtest-notes.txt` commit and scripted run ID,
+recomputes every note-level `phase_hash_*` value from the downloaded status
+files, rejects WAD/disk/pixel/raw-audio payloads in the proof directory, and
+requires at least 350 Doom ticks of elapsed `gtic=` and `leveltime=` from
+`status.after-start.txt` to `status.txt`.
 
 `triage_cloud_status.py` auto-loads `doom.symbols` from the artifact directory,
 so a `doom-user-fault` report should include the nearest Doom function for
@@ -337,6 +359,10 @@ Call a remote human playtest credible only after checking all of this:
   field, include the five `operator_*` confirmation fields, and the local
   `post-download human verification OK` line matches the remote
   `pre-download human verification OK` line.
+- `tools/check_human_playability_proof.py --require-human-session` passes with
+  `--human-notes`, the expected commit under test, and the linked passing
+  real-WAD smoke run ID. A final-only checker pass is not enough for the manual
+  human gate.
 - `status.txt` or the GitHub artifact reports `gameplay=OK`,
   `gmap=00000101`, increasing `gtic`/`leveltime`, nonzero `keyirq`,
   `keyqueue`, and `keypoll`, `keyseen` bits for Up/Ctrl/Space/Escape, nonzero

@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -101,6 +103,92 @@ SUMMARY_FIELDS = (
     "shutdown",
     "gfx",
     "usr",
+)
+
+HUMAN_MIN_SESSION_TICKS = 35 * 10
+HUMAN_SESSION_PHASES = (
+    ("early", "phase_hash_early", "status.early.txt"),
+    ("after-start", "phase_hash_after_start", "status.after-start.txt"),
+    ("after-fire", "phase_hash_after_fire", "status.after-fire.txt"),
+    ("after-move", "phase_hash_after_move", "status.after-move.txt"),
+    ("after-use", "phase_hash_after_use", "status.after-use.txt"),
+    ("after-mouse", "phase_hash_after_mouse", "status.after-mouse.txt"),
+    ("after-menu", "phase_hash_after_menu", "status.after-menu.txt"),
+    ("final", "phase_hash_final", "status.txt"),
+)
+HUMAN_REQUIRED_NOTE_VALUES = {
+    "schema": ("human-playtest-notes-v2",),
+    "scripted_proof": ("real-wad-smoke-pass",),
+    "remote_host": ("disposable",),
+    "qemu_location": ("remote",),
+    "qemu_display": ("127.0.0.1:1",),
+    "monitor_socket": ("unix-monitor-socket",),
+    "vnc_tunnel": ("loopback-only",),
+    "vnc_endpoint": ("127.0.0.1:5901",),
+    "wad": ("shareware-v1.9-validated-remote-only",),
+    "display": ("pass",),
+    "keyboard": ("pass",),
+    "mouse": ("pass",),
+    "visual_evidence": ("e1m1-visible-via-remote-vnc",),
+    "keyboard_evidence": ("fire-move-use-menu-visible",),
+    "mouse_evidence": ("motion-click-visible",),
+    "status_capture": ("monitor-pmemsave-0x9d000",),
+    "session_phases": (
+        "early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final",
+    ),
+    "diagnostics": ("non-wad-status-only",),
+    "proof_bundle": ("allowlisted-status-only",),
+    "no_local_qemu": ("yes",),
+    "no_wad_upload": ("yes",),
+    "no_disk_upload": ("yes",),
+    "no_pixel_upload": ("yes",),
+    "operator_remote_vnc": ("confirmed",),
+    "operator_phase_actions": ("confirmed",),
+    "operator_phase_status_hashes": ("confirmed",),
+    "operator_no_forbidden_artifacts": ("confirmed",),
+    "operator_post_download_verification": ("required",),
+}
+HUMAN_OPTIONAL_NOTE_VALUES = {
+    "audio": ("status-only", "listener-pass", "audio-proof-json-pass", "not-tested"),
+}
+HUMAN_NOTE_PATTERNS = {
+    "commit": r"(?:[0-9A-Fa-f]{7,40}|unknown)",
+    "playtester": r"[A-Za-z0-9._-]{2,64}",
+    "scripted_proof_run_id": r"[0-9]{6,32}",
+    **{note_key: r"[0-9A-Fa-f]{64}" for _, note_key, _ in HUMAN_SESSION_PHASES},
+}
+FORBIDDEN_ARTIFACT_PATTERNS = (
+    "*.wad",
+    "*.WAD",
+    "*.iwad",
+    "*.IWAD",
+    "*.pwad",
+    "*.PWAD",
+    "*.img",
+    "*.iso",
+    "*.raw",
+    "*.qcow2",
+    "gfx.bin",
+    "gfx*.txt",
+    "vga*.bin",
+    "vga*.txt",
+    "*.png",
+    "*.ppm",
+    "*.pgm",
+    "*.bmp",
+    "*.wav",
+    "*.wave",
+    "*.mp3",
+    "*.ogg",
+    "*.oga",
+    "*.flac",
+    "*.aiff",
+    "*.aif",
+    "*.au",
+)
+FORBIDDEN_ARTIFACT_SIGNATURES = (
+    (b"IWAD", "WAD/IWAD payload"),
+    (b"PWAD", "WAD/PWAD payload"),
 )
 
 
@@ -208,6 +296,14 @@ def _assert_increasing(baseline: str, final: str, names: tuple[str, ...]) -> Non
             )
 
 
+def _counter_delta(baseline: str, final: str, name: str) -> int:
+    before = _hex_field(baseline, name)
+    after = _hex_field(final, name)
+    if after < before:
+        raise AssertionError(f"{name}= must not go backward, got {before:08X}->{after:08X}")
+    return after - before
+
+
 def _assert_not_decreasing(baseline: str, final: str, names: tuple[str, ...]) -> None:
     for name in names:
         before = _hex_field(baseline, name)
@@ -278,6 +374,162 @@ def _require_level_snapshot(snapshot: str, label: str) -> None:
 def _require_menu_inactive(snapshot: str, label: str) -> None:
     if _hex_field(snapshot, "gflags") & MENU_ACTIVE_FLAG:
         raise AssertionError(f"{label} snapshot gflags= must not have the menu-active bit")
+
+
+def validate_human_session_status(
+    snapshots: dict[str, str | None],
+    min_duration_ticks: int = HUMAN_MIN_SESSION_TICKS,
+) -> None:
+    """Validate the stricter status timeline required for a manual VNC session."""
+
+    missing = [
+        status_file
+        for phase, _note_key, status_file in HUMAN_SESSION_PHASES
+        if snapshots.get(phase) is None
+    ]
+    if missing:
+        raise AssertionError(
+            "manual human proof requires every phase status file: " + ", ".join(missing)
+        )
+
+    start = snapshots["after-start"]
+    final = snapshots["final"]
+    assert start is not None and final is not None
+    for name in RUN_COUNTERS:
+        delta = _counter_delta(start, final, name)
+        if delta < min_duration_ticks:
+            raise AssertionError(
+                f"manual human proof requires at least {min_duration_ticks} {name}= ticks "
+                f"from after-start to final, got {delta}"
+            )
+
+    ordered_action_phases = (
+        "after-start",
+        "after-fire",
+        "after-move",
+        "after-use",
+        "after-mouse",
+        "after-menu",
+    )
+    for before_phase, after_phase in zip(ordered_action_phases, ordered_action_phases[1:]):
+        before = snapshots[before_phase]
+        after = snapshots[after_phase]
+        assert before is not None and after is not None
+        try:
+            _assert_increasing(before, after, RUN_COUNTERS)
+        except AssertionError as exc:
+            raise AssertionError(
+                f"manual phase {after_phase} must advance Doom time after {before_phase}: {exc}"
+            ) from exc
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _load_human_notes(path: Path) -> dict[str, str]:
+    notes: dict[str, str] = {}
+    for line_number, line in enumerate(path.read_text().splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if "=" not in stripped:
+            raise AssertionError(f"{path.name}:{line_number} must be key=value")
+        key, value = stripped.split("=", 1)
+        if not key or not value:
+            raise AssertionError(f"{path.name}:{line_number} must have nonempty key and value")
+        if key in notes:
+            raise AssertionError(f"{path.name} has duplicate {key}= field")
+        notes[key] = value
+    return notes
+
+
+def _commit_matches(actual: str, expected: str) -> bool:
+    return actual == expected or actual.startswith(expected) or expected.startswith(actual)
+
+
+def validate_human_notes(
+    notes_path: Path,
+    phase_paths: dict[str, Path | None],
+    expected_commit: str | None = None,
+    expected_scripted_proof_run_id: str | None = None,
+) -> None:
+    """Validate collector notes against the current status files and identity."""
+
+    notes = _load_human_notes(notes_path)
+    for key, expected_values in HUMAN_REQUIRED_NOTE_VALUES.items():
+        actual = notes.get(key)
+        if actual not in expected_values:
+            raise AssertionError(
+                f"{notes_path.name} {key}= must be one of {expected_values}, got {actual!r}"
+            )
+    for key, allowed_values in HUMAN_OPTIONAL_NOTE_VALUES.items():
+        actual = notes.get(key)
+        if actual is not None and actual not in allowed_values:
+            raise AssertionError(
+                f"{notes_path.name} {key}= must be one of {allowed_values}, got {actual!r}"
+            )
+    for key, pattern in HUMAN_NOTE_PATTERNS.items():
+        actual = notes.get(key)
+        if actual is None:
+            raise AssertionError(f"{notes_path.name} missing {key}= field")
+        if not re.fullmatch(pattern, actual):
+            raise AssertionError(f"{notes_path.name} {key}= has invalid value {actual!r}")
+
+    commit = notes["commit"]
+    if commit == "unknown":
+        raise AssertionError(f"{notes_path.name} commit=unknown is not acceptable for human proof")
+    if expected_commit and not _commit_matches(commit, expected_commit):
+        raise AssertionError(
+            f"{notes_path.name} commit= must match expected commit {expected_commit}, got {commit}"
+        )
+    if (
+        expected_scripted_proof_run_id
+        and notes["scripted_proof_run_id"] != expected_scripted_proof_run_id
+    ):
+        raise AssertionError(
+            f"{notes_path.name} scripted_proof_run_id= must match "
+            f"{expected_scripted_proof_run_id}, got {notes['scripted_proof_run_id']}"
+        )
+
+    for phase, note_key, status_file in HUMAN_SESSION_PHASES:
+        phase_path = phase_paths.get(phase)
+        if phase_path is None:
+            raise AssertionError(f"missing phase status path for {status_file}")
+        if not phase_path.exists():
+            raise AssertionError(f"missing phase status file for notes hash: {phase_path}")
+        actual_hash = _sha256_file(phase_path)
+        expected_hash = notes[note_key].lower()
+        if actual_hash.lower() != expected_hash:
+            raise AssertionError(
+                f"{notes_path.name} {note_key}= must match {status_file} SHA-256"
+            )
+
+
+def validate_artifact_hygiene(artifact_dir: Path) -> None:
+    """Reject WADs, disk images, screenshots, raw audio, and obvious WAD payloads."""
+
+    if not artifact_dir.exists():
+        raise AssertionError(f"artifact directory does not exist: {artifact_dir}")
+    if not artifact_dir.is_dir():
+        raise AssertionError(f"artifact path is not a directory: {artifact_dir}")
+    for path in sorted(artifact_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(artifact_dir).as_posix()
+        name = path.name
+        for pattern in FORBIDDEN_ARTIFACT_PATTERNS:
+            if fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(rel, pattern):
+                raise AssertionError(f"forbidden human proof artifact present: {rel}")
+        with path.open("rb") as handle:
+            prefix = handle.read(4096)
+        for signature, label in FORBIDDEN_ARTIFACT_SIGNATURES:
+            if prefix.startswith(signature):
+                raise AssertionError(f"forbidden {label} signature present in {rel}")
 
 
 def validate_status(
@@ -420,6 +672,14 @@ def _auto_snapshot(final_status: Path, label: str) -> Path:
     return final_status.with_name(f"status.{label}.txt")
 
 
+def _resolve_snapshot_path(explicit: Path | None, auto: Path | None) -> Path | None:
+    if explicit is not None:
+        return explicit
+    if auto is not None and auto.exists():
+        return auto
+    return None
+
+
 def _resolve_snapshot(explicit: Path | None, auto: Path | None) -> str | None:
     if explicit is not None:
         return explicit.read_text()
@@ -445,6 +705,41 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="Only use explicitly supplied snapshot paths",
     )
+    parser.add_argument(
+        "--require-human-session",
+        action="store_true",
+        help=(
+            "Require the complete manual remote-VNC proof: all phase snapshots, "
+            "human notes, phase hashes, artifact hygiene, and a minimum Doom time window"
+        ),
+    )
+    parser.add_argument(
+        "--human-notes",
+        type=Path,
+        help="human-playtest-notes.txt generated by collect_human_playtest_bundle.py",
+    )
+    parser.add_argument(
+        "--artifact-dir",
+        type=Path,
+        help="manual proof bundle directory; defaults to the final status parent in human mode",
+    )
+    parser.add_argument(
+        "--expected-commit",
+        help="commit expected in human-playtest-notes.txt; short or full hashes are accepted",
+    )
+    parser.add_argument(
+        "--expected-scripted-proof-run-id",
+        help="passing Real WAD smoke run ID expected in human-playtest-notes.txt",
+    )
+    parser.add_argument(
+        "--min-human-duration-ticks",
+        type=int,
+        default=HUMAN_MIN_SESSION_TICKS,
+        help=(
+            "minimum Doom gtic/leveltime delta from after-start to final when "
+            "--require-human-session is set"
+        ),
+    )
     args = parser.parse_args(argv)
 
     final_status = ""
@@ -468,6 +763,22 @@ def main(argv: list[str]) -> int:
             use = use or _auto_snapshot(args.final_status, "after-use")
             mouse = mouse or _auto_snapshot(args.final_status, "after-mouse")
             menu = menu or _auto_snapshot(args.final_status, "after-menu")
+        early_auto = _auto_snapshot(args.final_status, "early")
+        early_explicit = (
+            args.baseline
+            if args.baseline is not None and args.baseline.name == "status.early.txt"
+            else None
+        )
+        phase_paths = {
+            "early": _resolve_snapshot_path(early_explicit, early_auto),
+            "after-start": _resolve_snapshot_path(args.start, start),
+            "after-fire": _resolve_snapshot_path(args.fire, fire),
+            "after-move": _resolve_snapshot_path(args.movement, movement),
+            "after-use": _resolve_snapshot_path(args.use, use),
+            "after-mouse": _resolve_snapshot_path(args.mouse, mouse),
+            "after-menu": _resolve_snapshot_path(args.menu, menu),
+            "final": args.final_status,
+        }
         snapshots = {
             "baseline": _resolve_snapshot(args.baseline, baseline),
             "start": _resolve_snapshot(args.start, start),
@@ -487,14 +798,45 @@ def main(argv: list[str]) -> int:
             mouse_status=snapshots["mouse"],
             menu_status=snapshots["menu"],
         )
+        if args.require_human_session:
+            if args.min_human_duration_ticks < 1:
+                raise AssertionError("--min-human-duration-ticks must be positive")
+            if args.human_notes is None:
+                raise AssertionError("--require-human-session requires --human-notes")
+            validate_human_session_status(
+                {
+                    "early": snapshots["baseline"],
+                    "after-start": snapshots["start"],
+                    "after-fire": snapshots["fire"],
+                    "after-move": snapshots["movement"],
+                    "after-use": snapshots["use"],
+                    "after-mouse": snapshots["mouse"],
+                    "after-menu": snapshots["menu"],
+                    "final": final_status,
+                },
+                min_duration_ticks=args.min_human_duration_ticks,
+            )
+            validate_human_notes(
+                args.human_notes,
+                phase_paths,
+                expected_commit=args.expected_commit,
+                expected_scripted_proof_run_id=args.expected_scripted_proof_run_id,
+            )
+            validate_artifact_hygiene(args.artifact_dir or args.final_status.parent)
     except (OSError, AssertionError) as exc:
         summary = f"\nstatus summary: {summarize_status(final_status)}" if final_status else ""
         print(f"human-playability proof failed: {exc}{summary}", file=sys.stderr)
         return 1
 
-    print(
-        "human-playability proof OK: scripted start/fire/use/move/mouse/menu changed Doom state without WAD pixels"
-    )
+    if args.require_human_session:
+        print(
+            "human-playability proof OK: manual remote VNC session phases, notes, "
+            "duration, status hashes, and artifact hygiene verified"
+        )
+    else:
+        print(
+            "human-playability proof OK: scripted start/fire/use/move/mouse/menu changed Doom state without WAD pixels"
+        )
     return 0
 
 

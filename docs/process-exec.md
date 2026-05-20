@@ -35,7 +35,10 @@ to the caller.
 - The current ABI accepts `path`, an optional user `argv`, and zero flags.
   Nonzero flags return `-EINVAL`. `argv == NULL` falls back to a single
   `argv[0]` copied from the exec path; a non-null vector is copied into kernel
-  staging buffers before the old address space is replaced.
+  staging buffers before the old address space is replaced. The boot probe now
+  launches Doom with an explicit one-entry user `argv` vector, so the Doom exec
+  proof exercises the pointer-vector copy path instead of only the fallback
+  path.
 - It asks `process_exec_path` for a table-backed target while
   `process_exec_reject_active_target` is set. This prevents reloading the image
   backing the currently running process, because a partial reload could not be
@@ -105,9 +108,12 @@ Smoke status still includes `exec=OK path=...`, and `execsys=` now reports:
 
 The same status line also records `execerr=<errno>`, `execres=<syscall result>`,
 `target=<pid>`, `ppid=<pid>`, `entry=<eip>`, `stack=<esp>`, `argc=<n>`,
-`argv=<ptr>`, `envp=<ptr>`, `argv0=<ptr>`, and `envp0=<word>`. A successful Doom
-launch should have zero `execerr`/`execres`, nonzero argc/argv/envp pointers,
-`envp0 == 0`, and nonzero target entry/stack addresses.
+`argv=<ptr>`, `envp=<ptr>`, `argv0=<ptr>`, `envp0=<word>`, and
+`argvsrc=<source>`. A successful Doom launch should have zero
+`execerr`/`execres`, nonzero argc/argv/envp pointers, `envp0 == 0`, nonzero
+target entry/stack addresses, and `argvsrc=2` for the user-vector path. The
+initial probe bootstrap still uses `argvsrc=1` because the kernel supplies its
+own default `argv[0]`.
 
 Failures before the target is activated leave the caller current, retire any
 resolved target slot that was prepared for reuse, and increment the rollback
@@ -118,6 +124,13 @@ rollback. That path retires the half-prepared target slot before the syscall
 reports failure. Unsafe active-slot exec returns `-EACCES`; invalid pointers return
 `-EINVAL`; missing table/FAT paths return `-ENOENT`; loader/ELF failures return
 `-EIO`.
+
+The user probe also carries a negative syscall probe bit. Before it execs Doom,
+it verifies that an unknown syscall returns `-ENOSYS`, impossible anonymous
+`mmap` requests return `-EINVAL`, invalid `munmap` ranges return `-EINVAL`, and
+`waitpid` rejects an invalid user status pointer with `-EINVAL`. That keeps the
+early POSIX-shaped ABI honest about classified errors without injecting failed
+`SYS_EXEC` attempts into the real-WAD proof counters.
 
 ## Remaining Gaps
 

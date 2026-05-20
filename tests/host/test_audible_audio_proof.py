@@ -203,6 +203,11 @@ class AudibleAudioProofTests(unittest.TestCase):
         self.assertGreaterEqual(manifest["analysis"]["active_windows"], 3)
         self.assertGreater(manifest["quality"]["active_span_ms"], 0)
         self.assertGreater(manifest["quality"]["zero_crossing_rate_per_sec"], 0)
+        self.assertTrue(manifest["listener_quality"]["machine_audible"])
+        self.assertFalse(manifest["listener_quality"]["subjective_listener_approved"])
+        self.assertTrue(manifest["continuity"]["mixer_safety"]["clip_free"])
+        self.assertTrue(manifest["continuity"]["mixer_safety"]["underrun_free"])
+        self.assertTrue(manifest["continuity"]["mixer_safety"]["drop_free"])
         self.assertFalse(manifest["artifact_policy"]["contains_raw_audio"])
         serialized = json.dumps(manifest)
         self.assertNotIn("audio_bytes", serialized)
@@ -416,13 +421,14 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "audio": "SB16",
                 "gameplay": "OK",
                 "doomrun": "RUN",
+                "doomsound": "00000006",
                 "sb16": "00000004:00000005",
                 "dma": "00000001",
                 "play": "00000001:00000000",
-                "voiceq": "00000001:00000000:00000001",
+                "voiceq": "00000001:00000000:00000002",
                 "musicq": "00000001:00000000",
-                "audioirq": "00000002",
-                "refill": "00000002",
+                "audioirq": "00000006",
+                "refill": "00000006",
                 "sfxmix": "00000002",
                 "sfxvoices": "00000000",
                 "musicmix": "00000002",
@@ -435,18 +441,20 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "gate": "tools/check_audio_continuity_proof.py",
                 "snapshots": ["baseline", "fire", "movement", "use", "menu", "final"],
                 "sb16_continuity": True,
+                "doomsound_progress": True,
                 "non_music_sfx_progress": True,
                 "music_stream_progress": True,
                 "music_position_progress": True,
                 "music_stream_update_progress": True,
                 "irq_refill_progress": True,
                 "progress": {
-                    "audioirq": {"start": "00000001", "final": "00000002", "delta": "00000001"},
-                    "refill": {"start": "00000001", "final": "00000002", "delta": "00000001"},
+                    "doomsound": {"start": "00000001", "final": "00000006", "delta": "00000005"},
+                    "audioirq": {"start": "00000001", "final": "00000006", "delta": "00000005"},
+                    "refill": {"start": "00000001", "final": "00000006", "delta": "00000005"},
                     "sfxmix": {"start": "00000001", "final": "00000002", "delta": "00000001"},
                     "musicmix": {"start": "00000001", "final": "00000002", "delta": "00000001"},
                     "musicpos": {"start": "00000001", "final": "00000400", "delta": "000003FF"},
-                    "voiceq_update": {"start": "00000000", "final": "00000001", "delta": "00000001"},
+                    "voiceq_update": {"start": "00000000", "final": "00000002", "delta": "00000002"},
                 },
                 "mix_lanes": {
                     "non_music_sfx": {
@@ -459,12 +467,12 @@ class AudibleAudioProofTests(unittest.TestCase):
                         "delta": "00000001",
                         "active_voice_snapshots": 1,
                         "buffered_window_snapshots": 1,
-                        "stream_update_delta": "00000001",
+                        "stream_update_delta": "00000002",
                         "position_delta": "000003FF",
                     },
                     "shared_sb16_refill": {
-                        "irq_delta": "00000001",
-                        "refill_delta": "00000001",
+                        "irq_delta": "00000005",
+                        "refill_delta": "00000005",
                     },
                 },
                 "stream_health": {
@@ -475,11 +483,40 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "distinct_buffer_windows": 2,
                     "under_delta": "00000000",
                     "drop_delta": "00000000",
-                    "stream_update_delta": "00000001",
+                    "stream_update_delta": "00000002",
                     "position_delta": "000003FF",
                     "position_delta_per_update_floor": "000003FF",
                 },
+                "mixer_safety": {
+                    "mixclip_delta": "00000000",
+                    "musicunder_delta": "00000000",
+                    "musicdrop_delta": "00000000",
+                    "max_mixclip_delta": "00000000",
+                    "max_musicunder_delta": "00000000",
+                    "max_musicdrop_delta": "00000000",
+                    "clip_free": True,
+                    "underrun_free": True,
+                    "drop_free": True,
+                },
                 "claim": "non-silent remote QEMU output plus status-only SB16 continuity",
+            },
+            "listener_quality": {
+                "mode": "aggregate-metrics-no-human-listener",
+                "quality_floor": "machine-audible",
+                "subjective_listener_approved": False,
+                "requires_remote_listener_notes": True,
+                "machine_audible": True,
+                "thresholds": {
+                    "min_duration_ms": check_audible_audio_proof.DEFAULT_MIN_DURATION_MS,
+                    "min_active_windows": check_audible_audio_proof.DEFAULT_MIN_ACTIVE_WINDOWS,
+                    "min_active_ratio": check_audible_audio_proof.DEFAULT_MIN_ACTIVE_RATIO,
+                    "min_peak_abs_norm": check_audible_audio_proof.DEFAULT_MIN_PEAK,
+                    "max_clipped_sample_ratio": check_audible_audio_proof.DEFAULT_MAX_CLIPPED_SAMPLE_RATIO,
+                    "max_mixclip_delta": check_audible_audio_proof.MAX_MIX_CLIP_DELTA,
+                    "max_musicunder_delta": check_audible_audio_proof.MAX_MUSIC_UNDERRUN_DELTA,
+                    "max_musicdrop_delta": check_audible_audio_proof.MAX_MUSIC_DROP_DELTA,
+                },
+                "notes": "aggregate metrics only; not a human listening pass",
             },
             "artifact_policy": {
                 "contains_raw_audio": False,

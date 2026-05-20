@@ -194,6 +194,12 @@ Current state:
   `post-download human verification OK` line so reviewers can compare
   `session_id`, `bundle_sha256`, `manifest_sha256`, and short phase hashes
   against the remote collector output.
+- `tools/check_human_playability_proof.py --require-human-session` is the strict
+  manual gate. It requires all eight human phase snapshots, validates the notes
+  commit and linked real-WAD run ID, recomputes the phase hashes, rejects
+  forbidden WAD/disk/pixel/raw-audio artifacts in the proof directory, and
+  requires at least 350 Doom ticks of elapsed `gtic=` and `leveltime=` from
+  `status.after-start.txt` to `status.txt`.
 
 Still missing:
 
@@ -207,8 +213,10 @@ Executable gate:
   and mouse actions, collect the bundle with
   `tools/collect_human_playtest_bundle.py --scripted-proof-run-id <run-id>`
   plus the required `--confirm-*` flags, and run
-  `tools/check_cloud_playability_artifacts.py --human-session` plus the real-WAD
-  and human-playability checkers on the downloaded diagnostics. The local
+  `tools/check_cloud_playability_artifacts.py --human-session`,
+  `tools/check_human_playability_proof.py --require-human-session --human-notes
+  human-playtest-notes.txt`, plus the real-WAD checker on the downloaded
+  diagnostics. The local
   post-download verification line must match the remote pre-download
   verification line before the human packet counts as evidence.
 

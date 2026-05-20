@@ -111,6 +111,12 @@ boot:
   It also requires the kernel's bounded QEMU bus-0 PCI status scan and the
   `pci=`, `pciprobe=`, `pcicount=`, `pcifirst=`, `pciid=`, and `pciclass=`
   smoke fields to remain status-only diagnostics rather than a broad PCI claim.
+  Future hardware classes now have machine-readable `PROOF_REQUIREMENT[...]`
+  rows plus active `NEGATIVE_CLAIM[...]` rows, so unsupported UEFI, PCI, AHCI,
+  USB, SMP, APIC, HPET, and physical-machine wording stays tied to a concrete
+  future proof instead of becoming advertising copy.
+  The same checker pins `NEXT_UNLOCK[PCI_ENUMERATION]` as the next hardware
+  class to implement before AHCI or USB can honestly move forward.
   It also checks the contract-only `boot/uefi/README.md` scaffold: each
   `UEFI_BOOT[...]` row must stay unimplemented with no evidence, and `boot/uefi`
   must stay out of the current Makefile image path until a separate opt-in UEFI

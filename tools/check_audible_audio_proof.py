@@ -28,7 +28,7 @@ PLAYABLE_DOC = ROOT / "docs" / "playable-cloud-proof.md"
 RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
 ARTIFACT_CHECKER = ROOT / "tools" / "check_cloud_playability_artifacts.py"
 
-SCHEMA = "vibe-os-audible-audio-proof-v2"
+SCHEMA = "vibe-os-audible-audio-proof-v3"
 FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
 FORBIDDEN_MANIFEST_KEYS = {
     "audio_bytes",
@@ -45,6 +45,10 @@ DEFAULT_MIN_ACTIVE_WINDOWS = 3
 DEFAULT_MIN_ACTIVE_RATIO = 0.02
 DEFAULT_MIN_RMS = 0.0015
 DEFAULT_MIN_PEAK = 0.01
+DEFAULT_MAX_CLIPPED_SAMPLE_RATIO = 0.05
+MAX_MIX_CLIP_DELTA = 0
+MAX_MUSIC_UNDERRUN_DELTA = 0
+MAX_MUSIC_DROP_DELTA = 0
 
 
 def _status_fields(status: str) -> dict[str, str]:
@@ -94,7 +98,7 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         raise AssertionError(f"status gameplay=OK is required, got {fields.get('gameplay')!r}")
     if fields.get("doomrun") not in ("RUN", "EXIT"):
         raise AssertionError(f"status doomrun=RUN or EXIT is required, got {fields.get('doomrun')!r}")
-    for counter in ("audioirq", "refill", "sfxmix", "musicmix", "musicpos"):
+    for counter in ("doomsound", "audioirq", "refill", "sfxmix", "musicmix", "musicpos"):
         _hex_positive(fields, counter)
     for counter in ("musicbuf", "musicunder", "musicdrops"):
         _hex_value(fields, counter)
@@ -114,6 +118,7 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         "audio": fields["audio"],
         "doomrun": fields["doomrun"],
         "gameplay": fields["gameplay"],
+        "doomsound": fields["doomsound"],
         "sb16": fields["sb16"],
         "dma": fields["dma"],
         "play": fields["play"],
@@ -190,11 +195,15 @@ def _continuity_summary(
     final_fields = snapshot_fields["final"]
     progress = {
         name: _counter_delta(baseline_fields, final_fields, name)
-        for name in ("audioirq", "refill", "sfxmix", "musicmix", "musicpos")
+        for name in ("doomsound", "audioirq", "refill", "sfxmix", "musicmix", "musicpos")
     }
     progress["voiceq_update"] = _tuple_counter_delta(
         baseline_fields, final_fields, "voiceq", 3, 2
     )
+    safety_progress = {
+        name: _counter_delta(baseline_fields, final_fields, name)
+        for name in ("mixclip", "musicunder", "musicdrops")
+    }
     ordered_fields = [snapshot_fields[label] for label in ("baseline", "fire", "movement", "use", "menu", "final")]
     music_buffers = [_hex_value(fields, "musicbuf") for fields in ordered_fields]
     update_delta = int(progress["voiceq_update"]["delta"], 16)
@@ -211,10 +220,22 @@ def _continuity_summary(
         "position_delta": progress["musicpos"]["delta"],
         "position_delta_per_update_floor": f"{(position_delta // update_delta) if update_delta else 0:08X}",
     }
+    mixer_safety = {
+        "mixclip_delta": safety_progress["mixclip"]["delta"],
+        "musicunder_delta": safety_progress["musicunder"]["delta"],
+        "musicdrop_delta": safety_progress["musicdrops"]["delta"],
+        "max_mixclip_delta": f"{MAX_MIX_CLIP_DELTA:08X}",
+        "max_musicunder_delta": f"{MAX_MUSIC_UNDERRUN_DELTA:08X}",
+        "max_musicdrop_delta": f"{MAX_MUSIC_DROP_DELTA:08X}",
+        "clip_free": int(safety_progress["mixclip"]["delta"], 16) <= MAX_MIX_CLIP_DELTA,
+        "underrun_free": int(safety_progress["musicunder"]["delta"], 16) <= MAX_MUSIC_UNDERRUN_DELTA,
+        "drop_free": int(safety_progress["musicdrops"]["delta"], 16) <= MAX_MUSIC_DROP_DELTA,
+    }
     return {
         "gate": "tools/check_audio_continuity_proof.py",
         "snapshots": ["baseline", "fire", "movement", "use", "menu", "final"],
         "sb16_continuity": True,
+        "doomsound_progress": int(progress["doomsound"]["delta"], 16) > 0,
         "non_music_sfx_progress": int(progress["sfxmix"]["delta"], 16) > 0,
         "music_stream_progress": int(progress["musicmix"]["delta"], 16) > 0,
         "music_position_progress": int(progress["musicpos"]["delta"], 16) > 0,
@@ -249,11 +270,13 @@ def _continuity_summary(
             },
         },
         "stream_health": stream_health,
+        "mixer_safety": mixer_safety,
         "progress": progress,
         "claim": (
             "non-silent remote QEMU output plus status-only SB16 continuity; "
             "music chunks are advanced by a kernel-visible stream-position contract, "
-            "but human listener quality is still unproven"
+            "aggregate listener-quality metadata is machine checked, but subjective "
+            "human approval is still unproven"
         ),
     }
 
@@ -389,6 +412,13 @@ def analyze_wav(
     )
     duration_seconds = total_frames / sample_rate if sample_rate else 0.0
     clipped_ratio = clipped_samples / sample_count if sample_count else 0.0
+    machine_audible = (
+        duration_ms >= DEFAULT_MIN_DURATION_MS
+        and active_windows >= DEFAULT_MIN_ACTIVE_WINDOWS
+        and active_ratio >= DEFAULT_MIN_ACTIVE_RATIO
+        and peak_abs >= DEFAULT_MIN_PEAK
+        and clipped_ratio <= DEFAULT_MAX_CLIPPED_SAMPLE_RATIO
+    )
 
     return {
         "schema": SCHEMA,
@@ -427,6 +457,27 @@ def analyze_wav(
             "zero_crossing_rate_per_sec": round(
                 zero_crossings / duration_seconds if duration_seconds else 0.0,
                 3,
+            ),
+        },
+        "listener_quality": {
+            "mode": "aggregate-metrics-no-human-listener",
+            "quality_floor": "machine-audible" if machine_audible else "below-threshold",
+            "subjective_listener_approved": False,
+            "requires_remote_listener_notes": True,
+            "machine_audible": machine_audible,
+            "thresholds": {
+                "min_duration_ms": DEFAULT_MIN_DURATION_MS,
+                "min_active_windows": DEFAULT_MIN_ACTIVE_WINDOWS,
+                "min_active_ratio": DEFAULT_MIN_ACTIVE_RATIO,
+                "min_peak_abs_norm": DEFAULT_MIN_PEAK,
+                "max_clipped_sample_ratio": DEFAULT_MAX_CLIPPED_SAMPLE_RATIO,
+                "max_mixclip_delta": MAX_MIX_CLIP_DELTA,
+                "max_musicunder_delta": MAX_MUSIC_UNDERRUN_DELTA,
+                "max_musicdrop_delta": MAX_MUSIC_DROP_DELTA,
+            },
+            "notes": (
+                "This proof validates aggregate machine-audible output and SB16 "
+                "continuity only; it is not a human listening pass."
             ),
         },
         "status": _status_summary(status_path),
@@ -473,6 +524,7 @@ def validate_manifest(
     fmt = manifest.get("format")
     analysis = manifest.get("analysis")
     quality = manifest.get("quality")
+    listener_quality = manifest.get("listener_quality")
     status = manifest.get("status")
     continuity = manifest.get("continuity")
     policy = manifest.get("artifact_policy")
@@ -480,6 +532,8 @@ def validate_manifest(
         raise AssertionError("manifest must contain format and analysis objects")
     if not isinstance(quality, dict):
         raise AssertionError("manifest must contain quality object")
+    if not isinstance(listener_quality, dict):
+        raise AssertionError("manifest must contain listener_quality object")
     if not isinstance(status, dict) or not isinstance(continuity, dict) or not isinstance(policy, dict):
         raise AssertionError("manifest must contain status, continuity, and artifact_policy objects")
 
@@ -506,12 +560,42 @@ def validate_manifest(
     for key in ("clipped_sample_ratio", "crest_factor_peak_over_mean_rms", "zero_crossing_rate_per_sec"):
         if not isinstance(quality.get(key), (int, float)):
             raise AssertionError(f"manifest quality.{key} must be numeric")
-    if quality["clipped_sample_ratio"] < 0 or quality["clipped_sample_ratio"] > 0.25:
+    if quality["clipped_sample_ratio"] < 0 or quality["clipped_sample_ratio"] > DEFAULT_MAX_CLIPPED_SAMPLE_RATIO:
         raise AssertionError("manifest quality clipped sample ratio is outside proof bounds")
     if quality["crest_factor_peak_over_mean_rms"] <= 0:
         raise AssertionError("manifest quality crest factor must be nonzero")
     if quality["zero_crossing_rate_per_sec"] <= 0:
         raise AssertionError("manifest quality zero crossing rate must be nonzero")
+
+    if listener_quality.get("mode") != "aggregate-metrics-no-human-listener":
+        raise AssertionError("manifest listener_quality.mode must be aggregate-metrics-no-human-listener")
+    if listener_quality.get("quality_floor") != "machine-audible":
+        raise AssertionError("manifest listener_quality.quality_floor must be machine-audible")
+    if listener_quality.get("subjective_listener_approved") is not False:
+        raise AssertionError("manifest listener_quality must not claim subjective listener approval")
+    if listener_quality.get("requires_remote_listener_notes") is not True:
+        raise AssertionError("manifest listener_quality must require remote listener notes")
+    if listener_quality.get("machine_audible") is not True:
+        raise AssertionError("manifest listener_quality.machine_audible must be true")
+    thresholds = listener_quality.get("thresholds")
+    if not isinstance(thresholds, dict):
+        raise AssertionError("manifest listener_quality.thresholds must be an object")
+    expected_thresholds = {
+        "min_duration_ms": DEFAULT_MIN_DURATION_MS,
+        "min_active_windows": DEFAULT_MIN_ACTIVE_WINDOWS,
+        "min_active_ratio": DEFAULT_MIN_ACTIVE_RATIO,
+        "min_peak_abs_norm": DEFAULT_MIN_PEAK,
+        "max_clipped_sample_ratio": DEFAULT_MAX_CLIPPED_SAMPLE_RATIO,
+        "max_mixclip_delta": MAX_MIX_CLIP_DELTA,
+        "max_musicunder_delta": MAX_MUSIC_UNDERRUN_DELTA,
+        "max_musicdrop_delta": MAX_MUSIC_DROP_DELTA,
+    }
+    for key, expected in expected_thresholds.items():
+        if thresholds.get(key) != expected:
+            raise AssertionError(f"manifest listener_quality.thresholds.{key} must be {expected!r}")
+    notes = listener_quality.get("notes")
+    if not isinstance(notes, str) or "not a human listening pass" not in notes:
+        raise AssertionError("manifest listener_quality.notes must state that this is not a human listening pass")
 
     if status.get("audio") != "SB16":
         raise AssertionError("manifest status.audio must be SB16")
@@ -519,7 +603,7 @@ def validate_manifest(
         raise AssertionError("manifest status.gameplay must be OK")
     if status.get("doomrun") not in ("RUN", "EXIT"):
         raise AssertionError("manifest status.doomrun must be RUN or EXIT")
-    for counter in ("audioirq", "refill", "sfxmix", "musicmix", "musicpos"):
+    for counter in ("doomsound", "audioirq", "refill", "sfxmix", "musicmix", "musicpos"):
         value = status.get(counter)
         if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
             raise AssertionError(f"manifest status.{counter} must be eight hex digits")
@@ -545,6 +629,7 @@ def validate_manifest(
         raise AssertionError("manifest continuity.gate must name the audio continuity checker")
     for key in (
         "sb16_continuity",
+        "doomsound_progress",
         "non_music_sfx_progress",
         "music_stream_progress",
         "music_position_progress",
@@ -556,7 +641,7 @@ def validate_manifest(
     progress = continuity.get("progress")
     if not isinstance(progress, dict):
         raise AssertionError("manifest continuity.progress must be an object")
-    for name in ("audioirq", "refill", "sfxmix", "musicmix", "musicpos", "voiceq_update"):
+    for name in ("doomsound", "audioirq", "refill", "sfxmix", "musicmix", "musicpos", "voiceq_update"):
         entry = progress.get(name)
         if not isinstance(entry, dict):
             raise AssertionError(f"manifest continuity.progress.{name} must be an object")
@@ -566,6 +651,11 @@ def validate_manifest(
                 raise AssertionError(f"manifest continuity.progress.{name}.{key} must be eight hex digits")
         if int(entry["delta"], 16) <= 0:
             raise AssertionError(f"manifest continuity.progress.{name}.delta must be nonzero")
+    for name, minimum in check_audio_continuity_proof.MIN_PHASED_PROGRESS.items():
+        if int(progress[name]["delta"], 16) < minimum:
+            raise AssertionError(f"manifest continuity.progress.{name}.delta must be at least {minimum:08X}")
+    if int(progress["voiceq_update"]["delta"], 16) < check_audio_continuity_proof.MIN_MUSIC_STREAM_UPDATE_DELTA:
+        raise AssertionError("manifest continuity.progress.voiceq_update.delta is below stream proof threshold")
 
     mix_lanes = continuity.get("mix_lanes")
     if not isinstance(mix_lanes, dict):
@@ -573,6 +663,9 @@ def validate_manifest(
     stream_health = continuity.get("stream_health")
     if not isinstance(stream_health, dict):
         raise AssertionError("manifest continuity.stream_health must be an object")
+    mixer_safety = continuity.get("mixer_safety")
+    if not isinstance(mixer_safety, dict):
+        raise AssertionError("manifest continuity.mixer_safety must be an object")
     for lane_name in ("non_music_sfx", "music", "shared_sb16_refill"):
         if not isinstance(mix_lanes.get(lane_name), dict):
             raise AssertionError(f"manifest continuity.mix_lanes.{lane_name} must be an object")
@@ -629,6 +722,36 @@ def validate_manifest(
     for key in ("buffer_peak", "stream_update_delta", "position_delta", "position_delta_per_update_floor"):
         if int(stream_health[key], 16) <= 0:
             raise AssertionError(f"manifest continuity.stream_health.{key} must be nonzero")
+    if int(stream_health["stream_update_delta"], 16) < check_audio_continuity_proof.MIN_MUSIC_STREAM_UPDATE_DELTA:
+        raise AssertionError("manifest stream health stream_update_delta is below proof threshold")
+    if int(stream_health["under_delta"], 16) > MAX_MUSIC_UNDERRUN_DELTA:
+        raise AssertionError("manifest stream health under_delta exceeds proof threshold")
+    if int(stream_health["drop_delta"], 16) > MAX_MUSIC_DROP_DELTA:
+        raise AssertionError("manifest stream health drop_delta exceeds proof threshold")
+
+    for key in (
+        "mixclip_delta",
+        "musicunder_delta",
+        "musicdrop_delta",
+        "max_mixclip_delta",
+        "max_musicunder_delta",
+        "max_musicdrop_delta",
+    ):
+        value = mixer_safety.get(key)
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
+            raise AssertionError(f"manifest continuity.mixer_safety.{key} must be eight hex digits")
+    if int(mixer_safety["mixclip_delta"], 16) > MAX_MIX_CLIP_DELTA:
+        raise AssertionError("manifest mixer safety mixclip_delta exceeds proof threshold")
+    if int(mixer_safety["musicunder_delta"], 16) > MAX_MUSIC_UNDERRUN_DELTA:
+        raise AssertionError("manifest mixer safety musicunder_delta exceeds proof threshold")
+    if int(mixer_safety["musicdrop_delta"], 16) > MAX_MUSIC_DROP_DELTA:
+        raise AssertionError("manifest mixer safety musicdrop_delta exceeds proof threshold")
+    if mixer_safety.get("clip_free") is not True:
+        raise AssertionError("manifest mixer safety clip_free must be true")
+    if mixer_safety.get("underrun_free") is not True:
+        raise AssertionError("manifest mixer safety underrun_free must be true")
+    if mixer_safety.get("drop_free") is not True:
+        raise AssertionError("manifest mixer safety drop_free must be true")
 
     for key in ("contains_raw_audio", "contains_wad_data", "contains_pixels"):
         if policy.get(key) is not False:

@@ -122,6 +122,50 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             with self.subTest(source=source):
                 self.assertIn(source, kernel)
 
+    def test_unclaimed_hardware_has_future_proof_and_negative_claim_rows(self):
+        check_hardware_support_matrix.validate_repo_contract(ROOT)
+        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        proof_rows = check_hardware_support_matrix._validate_proof_requirement_rows(matrix)
+        negative_rows = check_hardware_support_matrix._validate_negative_claim_rows(matrix)
+
+        expected_unclaimed = {
+            "UEFI",
+            "PCI_ENUMERATION",
+            "AHCI",
+            "USB",
+            "SMP",
+            "APIC",
+            "HPET",
+            "PHYSICAL_HARDWARE",
+        }
+        self.assertEqual(set(proof_rows), expected_unclaimed)
+        self.assertEqual(set(negative_rows), expected_unclaimed)
+
+        for support_id in expected_unclaimed:
+            with self.subTest(support_id=support_id):
+                self.assertEqual(proof_rows[support_id]["status"], "future")
+                self.assertEqual(proof_rows[support_id]["evidence"], "none")
+                self.assertEqual(negative_rows[support_id]["status"], "active")
+                self.assertNotEqual(negative_rows[support_id]["evidence"], "none")
+
+        self.assertEqual(proof_rows["AHCI"]["requires"], "pci-ahci-bar-identify-read")
+        self.assertEqual(proof_rows["USB"]["requires"], "host-controller-hid-storage")
+        self.assertEqual(proof_rows["APIC"]["requires"], "lapic-ioapic-pic-masked")
+        self.assertEqual(proof_rows["SMP"]["requires"], "ap-startup-percpu-progress")
+        self.assertEqual(proof_rows["HPET"]["requires"], "acpi-hpet-mmio-comparator")
+        self.assertEqual(negative_rows["PHYSICAL_HARDWARE"]["claim"], "no-physical-machine-proof")
+
+    def test_next_hardware_unlock_is_pci_enumeration(self):
+        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        next_rows = check_hardware_support_matrix._validate_next_unlock_rows(matrix)
+
+        self.assertEqual(set(next_rows), {"PCI_ENUMERATION"})
+        self.assertEqual(next_rows["PCI_ENUMERATION"]["priority"], "first")
+        self.assertEqual(next_rows["PCI_ENUMERATION"]["scope"], "qemu-pci")
+        self.assertEqual(next_rows["PCI_ENUMERATION"]["proof"], "cloud-class-table")
+        self.assertEqual(next_rows["PCI_ENUMERATION"]["evidence"], "none")
+        self.assertContainsPhrase(matrix, "PCI enumeration is the next implementable hardware-class unlock")
+
     def test_uefi_scaffold_is_contract_only_and_unclaimed(self):
         rows = check_hardware_support_matrix.validate_repo_contract(ROOT)
         uefi_rows = check_hardware_support_matrix._validate_uefi_scaffold(ROOT)
@@ -201,6 +245,26 @@ class HardwareSupportMatrixTests(unittest.TestCase):
 
         with self.assertRaisesRegex(AssertionError, r"UEFI_BOOT\[ENTRY\] must stay status=unimplemented"):
             check_hardware_support_matrix._validate_uefi_boot_rows(broadened)
+
+    def test_checker_rejects_retired_negative_claim_without_proof(self):
+        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        broadened = matrix.replace(
+            "NEGATIVE_CLAIM[USB] status=active",
+            "NEGATIVE_CLAIM[USB] status=retired",
+        )
+
+        with self.assertRaisesRegex(AssertionError, r"NEGATIVE_CLAIM\[USB\] must stay status=active"):
+            check_hardware_support_matrix._validate_negative_claim_rows(broadened)
+
+    def test_checker_rejects_future_proof_requirement_claiming_evidence(self):
+        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        broadened = matrix.replace(
+            "PROOF_REQUIREMENT[APIC] status=future artifact=apic-cloud-irq requires=lapic-ioapic-pic-masked evidence=none",
+            "PROOF_REQUIREMENT[APIC] status=future artifact=apic-cloud-irq requires=lapic-ioapic-pic-masked evidence=status.txt",
+        )
+
+        with self.assertRaisesRegex(AssertionError, r"PROOF_REQUIREMENT\[APIC\] must keep evidence=none"):
+            check_hardware_support_matrix._validate_proof_requirement_rows(broadened)
 
 
 if __name__ == "__main__":

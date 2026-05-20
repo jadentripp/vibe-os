@@ -34,6 +34,7 @@ enum {
     PROBE_FLAG_IOCTL_PRESENT = 0x200u,
     PROBE_FLAG_FORK_WAIT = 0x400u,
     PROBE_FLAG_PROCESS_ABI = 0x800u,
+    PROBE_FLAG_NEGATIVE_SYSCALLS = 0x1000u,
 };
 
 enum {
@@ -43,9 +44,11 @@ enum {
     PROT_WRITE = 0x2u,
     MAP_PRIVATE = 0x2u,
     MAP_ANONYMOUS = 0x20u,
+    MAP_FIXED = 0x10u,
     VIBE_DISPLAY_FD = 1u,
     VIBE_IOCTL_FBINFO = 0x00005601u,
     VIBE_IOCTL_PRESENT_INDEXED = 0x00005602u,
+    ERRNO_EINVAL = 22,
     ERRNO_ECHILD = 10,
     ERRNO_ENOSYS = 38,
 };
@@ -115,8 +118,8 @@ static int sys_ioctl(uint32_t fd, uint32_t request, void *arg) {
     return syscall3(SYS_IOCTL, fd, request, (uint32_t)arg);
 }
 
-static int sys_exec(const char *path) {
-    return syscall3(SYS_EXEC, (uint32_t)path, 0, 0);
+static int sys_execv(const char *path, char *const argv[]) {
+    return syscall3(SYS_EXEC, (uint32_t)path, (uint32_t)argv, 0);
 }
 
 static void sys_user_probe(uint32_t flags) {
@@ -158,6 +161,7 @@ int user_main(int argc, char **argv, char **envp) {
     const char doom_path[] = "DOOM.ELF";
     const char default_path[] = "DEFAULT.CFG";
     const char writable_payload[] = "persist-ok\n";
+    char *doom_argv[] = {(char *)doom_path, (char *)0};
     static struct vibe_fb_info fbinfo;
     static struct vibe_present_indexed present;
     uint32_t flags = 0;
@@ -221,7 +225,6 @@ int user_main(int argc, char **argv, char **envp) {
     if (video) {
         unsigned char *frame = video;
         unsigned char *palette = video + DOOM_FRAME_BYTES;
-        flags |= PROBE_FLAG_MMAP;
         for (uint32_t i = 0; i < DOOM_FRAME_BYTES; ++i) {
             frame[i] = (unsigned char)i;
         }
@@ -245,7 +248,9 @@ int user_main(int argc, char **argv, char **envp) {
         if (sys_ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_PRESENT_INDEXED, &present) == 0) {
             flags |= PROBE_FLAG_IOCTL_PRESENT;
         }
-        (void)sys_munmap(video, DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES);
+        if (sys_munmap(video, DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES) == 0) {
+            flags |= PROBE_FLAG_MMAP;
+        }
     }
 
     if (syscall3(SYS_FORK, 0, 0, 0) == -ERRNO_ENOSYS
@@ -253,8 +258,18 @@ int user_main(int argc, char **argv, char **envp) {
         flags |= PROBE_FLAG_FORK_WAIT;
     }
 
+    uint32_t mmap_flags = ((MAP_PRIVATE | MAP_ANONYMOUS) << 16) | (PROT_READ | PROT_WRITE);
+    uint32_t mmap_fixed_flags = ((MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED) << 16) | (PROT_READ | PROT_WRITE);
+    if (syscall3(0x7fffffffu, 0, 0, 0) == -ERRNO_ENOSYS
+        && syscall3(SYS_MMAP, 0, 0, mmap_flags) == -ERRNO_EINVAL
+        && syscall3(SYS_MMAP, 0, 4096, mmap_fixed_flags) == -ERRNO_EINVAL
+        && syscall3(SYS_MUNMAP, 0, 4096, 0) == -ERRNO_EINVAL
+        && syscall3(SYS_WAITPID, (uint32_t)-1, USER_FAULT_ADDR, 0) == -ERRNO_EINVAL) {
+        flags |= PROBE_FLAG_NEGATIVE_SYSCALLS;
+    }
+
     sys_user_probe(flags);
     trigger_expected_fault();
 
-    return sys_exec(doom_path) == 0 ? 0 : 1;
+    return sys_execv(doom_path, doom_argv) == 0 ? 0 : 1;
 }

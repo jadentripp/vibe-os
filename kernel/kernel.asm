@@ -230,7 +230,7 @@ USER_STACK_BOTTOM equ 0x00e90000
 USER_STACK_TOP equ 0x00ea0000
 USER_HEAP_START equ USER_STACK_TOP
 USER_HEAP_END equ 0x00f00000
-USER_PROBE_EXPECTED_FLAGS equ 0x00000fff
+USER_PROBE_EXPECTED_FLAGS equ 0x00001fff
 USER_PROBE_MAGIC equ 0x13579BDF
 PREEMPT_PROBE_MAGIC equ 0x50524545
 USER_FAULT_ADDR equ 0x00010000
@@ -323,6 +323,8 @@ SYS_EXEC_ARGV_SLOT_BYTES equ 12
 SYS_EXEC_ARG_MAX equ 8
 SYS_EXEC_ARG_STR_MAX equ 64
 SYS_EXEC_ARG_FRAME_BASE_BYTES equ 12
+SYS_EXEC_ARGV_SOURCE_DEFAULT equ 1
+SYS_EXEC_ARGV_SOURCE_USER equ 2
 SYSCALL_FRAME_EBP equ 0
 SYSCALL_FRAME_EDI equ 4
 SYSCALL_FRAME_ESI equ 8
@@ -4675,6 +4677,7 @@ storage_init:
     mov dword [sys_exec_last_envp], 0
     mov dword [sys_exec_last_argv0], 0
     mov dword [sys_exec_last_envp0], 0
+    mov dword [sys_exec_last_argv_source], 0
     mov dword [sys_exec_user_argv_arg], 0
     mov dword [sys_exec_flags_arg], 0
     mov dword [sys_exec_frame_ptr], 0
@@ -9925,6 +9928,7 @@ syscall_handler:
     mov dword [sys_exec_last_envp], 0
     mov dword [sys_exec_last_argv0], 0
     mov dword [sys_exec_last_envp0], 0
+    mov dword [sys_exec_last_argv_source], 0
     inc dword [sys_exec_attempts]
     cmp dword [sys_exec_flags_arg], 0
     jne .exec_einval
@@ -10125,6 +10129,7 @@ sys_exec_clear_args:
     mov dword [sys_exec_stack_cursor], 0
     mov dword [sys_exec_user_stack_ptr], 0
     mov dword [sys_exec_argv0_ptr], 0
+    mov dword [sys_exec_last_argv_source], 0
     mov edi, sys_exec_arg_target_ptrs
     xor eax, eax
     mov ecx, SYS_EXEC_ARG_MAX
@@ -10165,6 +10170,7 @@ sys_exec_stage_kernel_arg:
 
 .ok:
     mov dword [sys_exec_argc], SYS_EXEC_ARGC_DEFAULT
+    mov dword [sys_exec_last_argv_source], SYS_EXEC_ARGV_SOURCE_DEFAULT
     clc
 
 .done:
@@ -10192,6 +10198,7 @@ sys_exec_copy_argv:
     cld
     rep movsb
     mov dword [sys_exec_argc], SYS_EXEC_ARGC_DEFAULT
+    mov dword [sys_exec_last_argv_source], SYS_EXEC_ARGV_SOURCE_DEFAULT
     clc
     jmp .done
 
@@ -10227,6 +10234,7 @@ sys_exec_copy_argv:
     je .fail
     mov eax, [sys_exec_arg_copy_index]
     mov [sys_exec_argc], eax
+    mov dword [sys_exec_last_argv_source], SYS_EXEC_ARGV_SOURCE_USER
     clc
     jmp .done
 
@@ -11626,6 +11634,10 @@ write_smoke_status:
     mov esi, smoke_exec_envp0_text
     call smoke_copy_string
     mov edx, [sys_exec_last_envp0]
+    call smoke_write_hex32
+    mov esi, smoke_exec_argvsrc_text
+    call smoke_copy_string
+    mov edx, [sys_exec_last_argv_source]
     call smoke_write_hex32
     mov al, ' '
     stosb
@@ -13141,6 +13153,7 @@ smoke_exec_argv_ptr_text db " argv=", 0
 smoke_exec_envp_ptr_text db " envp=", 0
 smoke_exec_argv_text db " argv0=", 0
 smoke_exec_envp0_text db " envp0=", 0
+smoke_exec_argvsrc_text db " argvsrc=", 0
 smoke_doom_text db "doom=", 0
 smoke_doomrun_text db " doomrun=", 0
 smoke_doomexit_text db " doomexit=", 0
@@ -13589,6 +13602,7 @@ sys_exec_last_argv dd 0
 sys_exec_last_envp dd 0
 sys_exec_last_argv0 dd 0
 sys_exec_last_envp0 dd 0
+sys_exec_last_argv_source dd 0
 sys_exec_user_argv_arg dd 0
 sys_exec_flags_arg dd 0
 sys_exec_frame_ptr dd 0

@@ -124,6 +124,13 @@ kernel-mixed stream from a single queued music sample.
 The checker now treats `musicbuf=` as stream-health evidence: across the
 scripted snapshots it must move, and the stream-update counter must advance more
 than once, so a single static music carrier cannot satisfy the audio proof.
+The same gate now also rejects audio proofs with new `mixclip=`, `musicunder=`,
+or `musicdrops=` deltas across the scripted window, and requires IRQ/refill
+movement across the phase snapshots plus Doom sound-call/SFX-mix progress by the
+fire phase. In other words, the status-only proof must show SB16 DMA continuity,
+real Doom SFX activity, streamed music updates, and no new mixclip=,
+musicunder=, or musicdrops= safety regressions.
+Contract phrase for the checker: no new mixclip=, musicunder=, or musicdrops=.
 
 Mixer safety is smoke-visible. `mixclip` counts left/right output clipping,
 `mixunder` counts invalid/empty SFX or active refills with no voices, `steal`
@@ -172,10 +179,13 @@ validate the manifest if only the music path progresses while `sfxmix=` stays
 flat, and its continuity summary now records separate `mix_lanes` deltas for
 non-music SFX, music, stream updates, music position, and shared SB16 IRQ/refill
 progress plus a `stream_health` object with buffer floor/peak/final values,
-under/drop deltas, and position-per-update metadata. The quality metadata is
-still aggregate only: active span, leading/trailing inactive windows, clipping
-ratio, crest factor, and zero-crossing rate. It does not store samples, hashes,
-PCM bytes, WAD bytes, pixels, or a waveform. The artifact
+under/drop deltas, and position-per-update metadata. It also records
+`mixer_safety` thresholds for clip-free, underrun-free, and drop-free playback.
+The listener-quality metadata is still aggregate only: active span,
+leading/trailing inactive windows, clipping ratio, crest factor, zero-crossing
+rate, machine-audible thresholds, and an explicit note that subjective human
+listener approval is still absent. It does not store samples, hashes, PCM bytes,
+WAD bytes, pixels, or a waveform. The artifact
 checker rejects raw audio files such as `*.wav`, `*.mp3`, `*.ogg`, and `*.flac`,
 but accepts `audio-proof.json` when the manifest passes the checker. This proves
 that a remote QEMU audio backend received non-silent output from the guest

@@ -23,8 +23,9 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertNotIn("call doom_user_run", launcher)
         self.assertIn("SYS_EXEC = 16", probe)
         self.assertIn('const char doom_path[] = "DOOM.ELF";', probe)
+        self.assertIn("char *doom_argv[] = {(char *)doom_path, (char *)0};", probe)
         self.assertIn("trigger_expected_fault();", probe)
-        self.assertIn("return sys_exec(doom_path) == 0 ? 0 : 1;", probe)
+        self.assertIn("return sys_execv(doom_path, doom_argv) == 0 ? 0 : 1;", probe)
 
     def test_initial_user_probe_gets_real_arg_stack_before_crt0(self):
         kernel = read_kernel()
@@ -54,8 +55,9 @@ class ProcessExecContractTests(unittest.TestCase):
             user_probe_run.index("push dword [process_user_probe + PROC_SAVED_ESP]"),
         )
         for source in (
-            "USER_PROBE_EXPECTED_FLAGS equ 0x00000fff",
+            "USER_PROBE_EXPECTED_FLAGS equ 0x00001fff",
             "PROBE_FLAG_PROCESS_ABI = 0x800u",
+            "PROBE_FLAG_NEGATIVE_SYSCALLS = 0x1000u",
             "SYS_GETPID = 25",
             "int user_main(int argc, char **argv, char **envp)",
             'probe_streq(argv[0], "USERPROB.ELF")',
@@ -142,6 +144,7 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn('smoke_exec_envp_ptr_text db " envp=", 0', kernel)
         self.assertIn('smoke_exec_argv_text db " argv0=", 0', kernel)
         self.assertIn('smoke_exec_envp0_text db " envp0=", 0', kernel)
+        self.assertIn('smoke_exec_argvsrc_text db " argvsrc=", 0', kernel)
         self.assertIn("mov edx, [sys_exec_handoffs]", write_smoke)
         self.assertIn("mov edx, [sys_exec_scheduled]", write_smoke)
         self.assertIn("mov edx, [sys_exec_rollbacks]", write_smoke)
@@ -154,6 +157,7 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("mov edx, [sys_exec_last_argc]", write_smoke)
         self.assertIn("mov edx, [sys_exec_last_argv]", write_smoke)
         self.assertIn("mov edx, [sys_exec_last_envp]", write_smoke)
+        self.assertIn("mov edx, [sys_exec_last_argv_source]", write_smoke)
         self.assertIn("mov edx, [sys_exec_last_envp0]", write_smoke)
 
     def test_sys_exec_dispatch_validates_prepares_and_hands_off_exec(self):
@@ -191,6 +195,23 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("xor eax, eax", skip_path)
         self.assertIn("jmp .return", skip_path)
 
+    def test_user_probe_exercises_classified_negative_syscall_contracts(self):
+        kernel = read_kernel()
+        probe = (ROOT / "user" / "probe.c").read_text()
+        for source in (
+            "PROBE_FLAG_NEGATIVE_SYSCALLS = 0x1000u",
+            "ERRNO_EINVAL = 22",
+            "syscall3(0x7fffffffu, 0, 0, 0) == -ERRNO_ENOSYS",
+            "syscall3(SYS_MMAP, 0, 0, mmap_flags) == -ERRNO_EINVAL",
+            "syscall3(SYS_MMAP, 0, 4096, mmap_fixed_flags) == -ERRNO_EINVAL",
+            "syscall3(SYS_MUNMAP, 0, 4096, 0) == -ERRNO_EINVAL",
+            "syscall3(SYS_WAITPID, (uint32_t)-1, USER_FAULT_ADDR, 0) == -ERRNO_EINVAL",
+            "flags |= PROBE_FLAG_NEGATIVE_SYSCALLS;",
+        ):
+            self.assertIn(source, probe)
+        handler = kernel.split("syscall_handler:", 1)[1].split(".user_probe:", 1)[0]
+        self.assertIn("jmp .bad_syscall_enosys", handler)
+
     def test_live_doom_user_status_accepts_ready_or_running_scheduler_state(self):
         kernel = read_kernel()
         write_smoke = kernel.split("write_smoke_status:", 1)[1].split("smoke_copy_string:", 1)[0]
@@ -226,6 +247,7 @@ class ProcessExecContractTests(unittest.TestCase):
             "mov dword [sys_exec_last_envp], 0",
             "mov dword [sys_exec_last_argv0], 0",
             "mov dword [sys_exec_last_envp0], 0",
+            "mov dword [sys_exec_last_argv_source], 0",
             "cmp dword [sys_exec_flags_arg], 0",
             "jne .exec_einval",
             "call sys_exec_copy_argv",
@@ -435,9 +457,12 @@ class ProcessExecContractTests(unittest.TestCase):
             "SYS_EXEC_ARG_MAX equ 8",
             "SYS_EXEC_ARG_STR_MAX equ 64",
             "SYS_EXEC_ARG_FRAME_BASE_BYTES equ 12",
+            "SYS_EXEC_ARGV_SOURCE_DEFAULT equ 1",
+            "SYS_EXEC_ARGV_SOURCE_USER equ 2",
             "sys_exec_last_argc dd 0",
             "sys_exec_last_argv dd 0",
             "sys_exec_last_argv0 dd 0",
+            "sys_exec_last_argv_source dd 0",
             "sys_exec_arg_target_ptrs times SYS_EXEC_ARG_MAX dd 0",
             "sys_exec_arg_strings times SYS_EXEC_ARG_MAX * SYS_EXEC_ARG_STR_MAX db 0",
         ):
@@ -470,6 +495,8 @@ class ProcessExecContractTests(unittest.TestCase):
             "call user_range_validate",
             "call sys_exec_copy_user_arg_string",
             "mov [sys_exec_argc], eax",
+            "mov dword [sys_exec_last_argv_source], SYS_EXEC_ARGV_SOURCE_DEFAULT",
+            "mov dword [sys_exec_last_argv_source], SYS_EXEC_ARGV_SOURCE_USER",
         ):
             self.assertIn(source, copy_argv)
         for source in (
@@ -480,6 +507,7 @@ class ProcessExecContractTests(unittest.TestCase):
             "stosb",
             "mov byte [sys_exec_arg_strings + SYS_EXEC_ARG_STR_MAX - 1], 0",
             "mov dword [sys_exec_argc], SYS_EXEC_ARGC_DEFAULT",
+            "mov dword [sys_exec_last_argv_source], SYS_EXEC_ARGV_SOURCE_DEFAULT",
         ):
             self.assertIn(source, stage_kernel_arg)
 
@@ -593,6 +621,7 @@ class ProcessExecContractTests(unittest.TestCase):
 
     def test_anonymous_mmap_tail_munmap_reclaims_brk_backed_pages(self):
         kernel = read_kernel()
+        probe = (ROOT / "user" / "probe.c").read_text()
         mmap = kernel.split(".mmap:", 1)[1].split(".munmap:", 1)[0]
         munmap = kernel.split(".munmap:", 1)[1].split(".ioctl:", 1)[0]
         scheduler_init = kernel.split("scheduler_init:", 1)[1].split("process_reset_user_probe:", 1)[0]
@@ -642,6 +671,8 @@ class ProcessExecContractTests(unittest.TestCase):
             "inc dword [process_munmap_non_tail_kept]",
         ):
             self.assertIn(source, munmap)
+        self.assertIn("if (sys_munmap(video, DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES) == 0)", probe)
+        self.assertIn("flags |= PROBE_FLAG_MMAP;", probe)
 
     def test_fd_table_records_owner_generation_and_exec_inheritance_metadata(self):
         kernel = read_kernel()
@@ -776,7 +807,7 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn('"int $0x80', probe)
         self.assertIn('"1:', probe)
         self.assertNotIn("&&after_expected_fault", probe)
-        self.assertIn("return sys_exec(doom_path) == 0 ? 0 : 1;", probe)
+        self.assertIn("return sys_execv(doom_path, doom_argv) == 0 ? 0 : 1;", probe)
 
     def test_split_doom_elf_segments_still_count_as_loaded(self):
         kernel = read_kernel()

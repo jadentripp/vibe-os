@@ -31,6 +31,7 @@ typedef struct vibe_music_render_stats {
     unsigned long emitted_samples;
     unsigned long stream_start_sample;
     unsigned long stream_end_sample;
+    unsigned long stream_song_samples;
     unsigned long stream_loop_samples;
     unsigned long stream_loop_count;
 } vibe_music_render_stats_t;
@@ -47,6 +48,7 @@ void vibe_music_stream_begin(
 void vibe_music_stream_stop(int handle);
 void vibe_music_stream_set_volume(int handle, unsigned long volume);
 unsigned long vibe_music_stream_position(int handle);
+unsigned long vibe_music_stream_song_samples(int handle);
 unsigned long vibe_music_stream_loop_samples(int handle);
 unsigned long vibe_music_stream_loop_count(int handle);
 unsigned long vibe_music_stream_render(
