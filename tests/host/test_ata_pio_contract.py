@@ -15,12 +15,14 @@ class AtaPioContractTests(unittest.TestCase):
     def test_ata_waits_are_bounded_and_record_failures(self):
         kernel = self.kernel
         not_busy = kernel.split("ata_wait_not_busy:", 1)[1].split("ata_wait_drq:", 1)[0]
-        drq = kernel.split("ata_wait_drq:", 1)[1].split("ata_read_sector:", 1)[0]
+        drq = kernel.split("ata_wait_drq:", 1)[1].split("ata_wait_ready:", 1)[0]
+        ready = kernel.split("ata_wait_ready:", 1)[1].split("ata_read_sector:", 1)[0]
 
         for source in (
             "ATA_ERROR equ 0x01f1",
             "ATA_STATUS_BSY equ 0x80",
             "ATA_WAIT_POLL_LIMIT equ 0x20000",
+            "ATA_WAIT_READY equ 3",
             "ata_wait_failures dd 0",
             "ata_wait_timeouts dd 0",
             "ata_wait_error_failures dd 0",
@@ -28,7 +30,7 @@ class AtaPioContractTests(unittest.TestCase):
             with self.subTest(source=source):
                 self.assertIn(source, kernel)
 
-        for wait_body in (not_busy, drq):
+        for wait_body in (not_busy, drq, ready):
             with self.subTest(wait=wait_body.splitlines()[0]):
                 self.assertIn("mov ecx, ATA_WAIT_POLL_LIMIT", wait_body)
                 self.assertIn("mov [ata_last_status], eax", wait_body)
@@ -39,7 +41,7 @@ class AtaPioContractTests(unittest.TestCase):
                 self.assertNotIn("mov ecx, 0x100000", wait_body)
 
     def test_drq_wait_ignores_error_bits_while_busy(self):
-        drq = self.kernel.split("ata_wait_drq:", 1)[1].split("ata_read_sector:", 1)[0]
+        drq = self.kernel.split("ata_wait_drq:", 1)[1].split("ata_wait_ready:", 1)[0]
 
         self.assertLess(
             drq.index("test al, ATA_STATUS_BSY"),
@@ -49,6 +51,22 @@ class AtaPioContractTests(unittest.TestCase):
             drq.index("test al, ATA_STATUS_DF | ATA_STATUS_ERR"),
             drq.index("test al, ATA_STATUS_DRQ"),
         )
+
+    def test_commands_wait_for_drq_to_clear_around_transfers(self):
+        ready = self.kernel.split("ata_wait_ready:", 1)[1].split("ata_read_sector:", 1)[0]
+        read_sector = self.kernel.split("ata_read_sector:", 1)[1].split("ata_write_sector:", 1)[0]
+        write_sector = self.kernel.split("ata_write_sector:", 1)[1].split("fat_name_match:", 1)[0]
+
+        self.assertIn("mov dword [ata_wait_phase], ATA_WAIT_READY", ready)
+        self.assertIn("test al, ATA_STATUS_DRQ", ready)
+        self.assertIn("jz .ok", ready)
+
+        self.assertGreaterEqual(read_sector.count("call ata_wait_ready"), 2)
+        self.assertGreaterEqual(write_sector.count("call ata_wait_ready"), 2)
+        self.assertIn("out dx, al\n    call ata_io_delay\n\n    call ata_wait_drq", read_sector)
+        self.assertIn("rep insw\n    call ata_io_delay\n    call ata_wait_ready", read_sector)
+        self.assertIn("out dx, al\n    call ata_io_delay\n\n    call ata_wait_drq", write_sector)
+        self.assertIn("rep outsw\n    call ata_io_delay\n    call ata_wait_ready", write_sector)
 
     def test_storage_status_reports_last_ata_wait_state(self):
         kernel = self.kernel
@@ -74,13 +92,15 @@ class AtaPioContractTests(unittest.TestCase):
 
         self.assertIn("cmp dword [ata_wait_phase], ATA_WAIT_BUSY", smoke)
         self.assertIn("cmp dword [ata_wait_phase], ATA_WAIT_DRQ", smoke)
+        self.assertIn("cmp dword [ata_wait_phase], ATA_WAIT_READY", smoke)
         self.assertIn("smoke_busy_text", smoke)
         self.assertIn("smoke_drq_text", smoke)
+        self.assertIn("smoke_ready_text", smoke)
 
     def test_docs_and_triage_track_ata_storage_stalls(self):
         for phrase in (
             "`ata-storage-stalled`",
-            "`atawait=BUSY` or `atawait=DRQ`",
+            "`atawait=BUSY`, `atawait=DRQ`, or `atawait=READY`",
             "`ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo`",
         ):
             with self.subTest(phrase=phrase):
@@ -88,6 +108,7 @@ class AtaPioContractTests(unittest.TestCase):
 
         for phrase in (
             "ATA PIO waits are bounded and status-reported",
+            "commands only start once stale `DRQ` is clear",
             "`ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo`",
             "startup/gameplay wait",
         ):

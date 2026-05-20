@@ -296,13 +296,13 @@ class CloudStatusTriageTests(unittest.TestCase):
             doompresent="00000000",
             doompal="00000000",
             doomframe="00000000",
-            atawait="DRQ",
+            atawait="READY",
             atastat="00000080",
             atalba="00002013",
         )
 
         self.assertEqual(primary, "ata-storage-stalled")
-        self.assertIn("atawait=DRQ", notes[0])
+        self.assertIn("atawait=READY", notes[0])
         self.assertIn("atastat=00000080", notes[0])
         self.assertIn("atalba=00002013", notes[0])
 
