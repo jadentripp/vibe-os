@@ -80,6 +80,9 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
   supports this with a local, untracked WAD path.
 - External programs here are build/test tools: assembler, C compiler, image
   generator, and emulator. They are not runtime OS services.
+- Hardware support is bounded by `docs/hardware-support.md`: current evidence is
+  for the QEMU BIOS/IDE/PS2/VBE/SB16 target, not broad PC or physical hardware
+  compatibility.
 - Doom source legitimacy is pinned to the official id Software public release:
   `third_party/doom/ORIGIN.md` records the upstream repository and commit, and
   host tests hash the original files used by the compile smoke so port work
@@ -164,6 +167,10 @@ hardware-limit gates still needed before a playable claim.
 See `docs/graphics.md` for the VBE/Mode 13h framebuffer contract and current
 scaler limits.
 
+See `docs/hardware-support.md` for the support matrix that separates claimed
+QEMU BIOS/IDE/PS2/VBE/SB16 device classes from unclaimed UEFI, AHCI, USB, SMP,
+APIC, HPET, and physical-hardware support.
+
 ## Run
 
 Local QEMU targets are opt-in:
@@ -233,17 +240,17 @@ temporary QEMU WAV backend on the disposable runner, reduces it to aggregate
 continuity snapshots, and deletes the WAV before upload.
 Raw audio files are not diagnostic artifacts.
 
-Current proof status: the latest analyzed real-WAD run is red. Run
-`26146035600` on commit `269dbb8` reached `exec=OK path=DOOM.ELF` with valid
-entry, stack, argc, argv, and argv0 fields, then Doom faulted in Ring 3 at
-`FindResponseFile+0x34` (`doomfaultip=01003224`, page-fault vector `0x0E`,
-error `0x05`, `CR2=00000000`) before `doomopen` / `doomread`. That is useful
-bring-up evidence, not a Doom-capable claim.
-The latest normal cloud `os-smoke` on current head `34eb98d` is also red: run
-`26146488906` proves the generated-WAD path reaches `doomopen=OK` /
-`doomread=OK`, then faults at `W_AddFile+0x246` (`doomfaultip=01024D06`,
-page-fault vector `0x0E`, error `0x07`, `CR2=0193F000`). So the branch is not CI-clean
-and still has a real Doom user-mode memory fault before gameplay.
+Current proof status: the latest analyzed committed real-WAD run is still red,
+but it has moved past the old user-mode page faults. Run `26150621804` on commit
+`1db3a7a` reached `doomrun=RUN`, `doomopen=OK`, `doomread=OK`, `gameplay=OK`,
+live input/mouse/audio/preemption counters, and status-triaged as
+`playability-status-green`; the real-WAD proof gate failed because `usr=FAIL`.
+That is useful evidence that the OS is reaching real Doom gameplay in the cloud,
+but it is not a Doom-capable claim until the current commit passes the exact
+real-WAD proof gates and the uploaded artifacts are reviewed. The matching
+normal `os-smoke` run `26150621857` also failed before the shutdown/panic lane
+because the generated fixture path ended with `usr=FAIL` and Doom reported the
+fixture boundary `R_TextureNumForName: SKY1 not found`.
 
 For a human actually trying the image, use
 `docs/runbooks/remote-doom-playtest.md`. It keeps QEMU on a disposable remote
@@ -331,9 +338,9 @@ Still required before this is actually Doom-capable:
 
 - a current passing manual real-WAD cloud workflow on the exact commit being
   claimed, followed by review of the non-WAD status diagnostics
-- fix the current Doom user-mode page fault at `FindResponseFile+0x34` and
-  the current-head smoke fault at `W_AddFile+0x246`, then prove `doomrun=RUN`,
-  `doomopen=OK`, and `doomread=OK` on a fresh cloud run
+- fix the current `usr=FAIL` proof/status regression, then prove `usr=OK`,
+  `doomrun=RUN`, `doomopen=OK`, `doomread=OK`, and `gameplay=OK` on a fresh
+  exact-commit cloud run
 - a passing `tools/check_real_wad_proof.py` run on that current real-WAD status
   artifact, including zero Doom exit/fault counters and coherent process,
   storage, VM, input, audio, scheduler, and gameplay telemetry
@@ -353,6 +360,7 @@ Still required before this is actually Doom-capable:
   long-running music streaming beyond the current looped PCM carrier is still
   open
 - graceful Doom exit/reboot behavior for a human session
-- a scoped hardware/support matrix; current claims should stay bounded to the
-  QEMU BIOS/IDE/PS2/VBE/SB16 target until each new device class has its own
-  disposable-runner or hardware proof
+- new device-class claims must update `docs/hardware-support.md` and pass the
+  host support-matrix checker; current claims stay bounded to the QEMU
+  BIOS/IDE/PS2/VBE/SB16 target until each new class has disposable-runner or
+  dedicated hardware proof

@@ -3,7 +3,8 @@
 The first real Doom audio target is an ISA Sound Blaster 16 compatible device at
 base port `0x220`. This is the practical hobby-OS target because QEMU exposes an
 SB16 model and the device has a simple DSP reset/version probe before the harder
-mixing work.
+mixing work. In the hardware matrix, this is claimed only as the QEMU SB16
+device-model path until a separate physical audio proof exists.
 
 Current kernel behavior:
 

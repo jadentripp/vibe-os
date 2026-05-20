@@ -25,12 +25,18 @@ them so README and runbook wording cannot quietly drift into overclaiming.
 
 ## Latest Cloud Evidence
 
-As of 2026-05-20, the latest reported real-WAD cloud evidence has moved past the
-old "Doom faults before WAD I/O" stage. Archived manual run `26149350434` on
-commit `da9c136` passes the current scripted real-WAD cloud artifact checker and
-triages as `playability-status-green`. That is a real scripted cloud proof for
-that commit, but it is still not a Doom-capable proof for the dirty current
-branch or a human-facing playable claim.
+As of 2026-05-20, the latest analyzed real-WAD cloud evidence has moved past the
+old "Doom faults before WAD I/O" stage, but the exact committed branch proof is
+still red. Manual run `26150621804` on commit `1db3a7a` reaches real Doom
+gameplay and triages as `playability-status-green`, but the real-WAD proof gate
+fails because the final status reports `usr=FAIL`.
+
+Archived manual run `26149350434` on commit `da9c136` passed the scripted
+real-WAD cloud artifact checker before the later lifecycle/proof-gate changes.
+That is real scripted cloud evidence for that commit, but it is stale once the
+kernel/runtime, workflow, or checker contract changes. It is still not a
+Doom-capable proof for the dirty current branch or a human-facing playable
+claim.
 
 What the current evidence proves:
 
@@ -44,18 +50,21 @@ What the current evidence proves:
   frames and reaching E1M1 gameplay status rather than dying during startup.
 - Scripted keyboard input, mouse input, SB16/audio counters, and live
   preemption counters are active in the cloud status stream.
-- The exact archived snapshot set for `26149350434` passes the real-WAD,
-  human-playability, audio-continuity, artifact-hygiene, and status-triage
-  checkers without uploading WAD bytes, disk images, rendered pixels, or audio
-  samples.
+- The `26150621804` final status shows live real-WAD Doom with `doomrun=RUN`,
+  `doomopen=OK`, `doomread=OK`, `gameplay=OK`, input/mouse/audio counters, and
+  live preemption counters. The exact archived snapshot set for `26149350434`
+  passed the real-WAD, human-playability, audio-continuity, artifact-hygiene,
+  and status-triage checkers without uploading WAD bytes, disk images, rendered
+  pixels, or audio samples.
 - Earlier page-fault diagnostics remain useful, but they are historical repair
   context rather than the current primary blocker.
 
 What still fails:
 
-- A previous run is useful evidence, but it is stale once the kernel/runtime,
-  workflow, or checker contract changes. The dirty current branch needs a
-  fresh manual real-WAD workflow pass on the exact commit being claimed.
+- The latest committed real-WAD run `26150621804` fails the proof gate at
+  `usr=FAIL`, even though Doom itself is running in gameplay. The dirty current
+  branch needs a fresh manual real-WAD workflow pass on the exact commit being
+  claimed after that proof/status regression is fixed.
 - A green final status line is not sufficient by itself. The exact cloud
   artifact for the claimed commit must pass `tools/check_real_wad_proof.py`,
   `tools/check_human_playability_proof.py`, `tools/check_audio_continuity_proof.py`,
@@ -355,25 +364,34 @@ Executable gate:
   assert QEMU exits for that guest reason rather than only preserving
   status-before-cleanup evidence.
 
-- `GAP[HARDWARE_LIMITS] status=open category=hardware-limits gate=hardware-matrix evidence=compatibility-notes`
+- `GAP[HARDWARE_LIMITS] status=open category=hardware-limits gate=check_hardware_support_matrix.py evidence=support-matrix`
 
 Current state:
 
 - The supported target is BIOS x86 in QEMU with ATA PIO, FAT16, PS/2 keyboard,
   PS/2 mouse when present, PIT timing, VBE XRGB8888 LFB or VGA Mode 13h fallback,
   and optional SB16-compatible audio.
+- `docs/hardware-support.md` is the scoped hardware/support matrix. Its
+  machine-readable `SUPPORT[...]` rows mark BIOS boot, IDE/ATA PIO, FAT16, PS/2
+  keyboard/mouse, PIT, VBE/VGA, and SB16 as claimed only inside the current QEMU
+  device-model boundary.
 
 Still missing:
 
 - There is no UEFI boot path, AHCI/SATA native driver, USB input/storage stack,
   SMP, APIC/HPET coverage, general PCI enumeration beyond narrow device needs,
   broad VBE mode matrix, or proof on physical hardware.
+- UEFI, AHCI, USB, SMP, APIC, HPET, and physical hardware remain unclaimed
+  `SUPPORT[...]` rows until a specific proof lane exists for each device class.
 
 Executable gate:
 
-- Publish a small hardware/support matrix and add one cloud or disposable-machine
-  proof per newly claimed device class. Until then, claims should stay scoped to
-  the current QEMU BIOS/IDE/PS2/VBE/SB16 target.
+- Run `python3 tools/check_hardware_support_matrix.py`. Future device-class
+  claims must add or update a `SUPPORT[...]` row, name the proof boundary, and
+  add one host-checkable cloud, disposable-machine, or hardware proof before
+  README, docs, runbooks, tests, or release notes describe that class as
+  supported. Until then, claims should stay scoped to the current QEMU
+  BIOS/IDE/PS2/VBE/SB16 target.
 
 ## Claim Boundary
 

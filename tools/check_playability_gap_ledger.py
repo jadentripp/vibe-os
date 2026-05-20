@@ -66,6 +66,9 @@ REQUIRED_GAPS = {
         "category": "hardware-limits",
         "phrases": (
             "QEMU BIOS/IDE/PS2/VBE/SB16",
+            "docs/hardware-support.md",
+            "SUPPORT[...]",
+            "check_hardware_support_matrix.py",
             "physical hardware",
         ),
     },
@@ -73,10 +76,14 @@ REQUIRED_GAPS = {
 
 LATEST_RUN_PHRASES = (
     "Latest Cloud Evidence",
-    "latest reported real-WAD cloud evidence has moved past",
+    "latest analyzed real-WAD cloud evidence has moved past",
+    "26150621804",
+    "1db3a7a",
+    "usr=FAIL",
+    "real-WAD proof gate",
     "26149350434",
     "da9c136",
-    "passes the current scripted real-WAD cloud artifact checker",
+    "passed the scripted real-WAD cloud artifact checker",
     "playability-status-green",
     "doomrun=RUN",
     "doomopen=OK",
@@ -123,6 +130,10 @@ def _gap_blocks(text: str):
         yield match, text[match.start() : end]
 
 
+def _contains_phrase(text: str, phrase: str) -> bool:
+    return " ".join(phrase.split()) in " ".join(text.split())
+
+
 def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
     text = (root / "docs" / "post-checkpoint-gaps.md").read_text()
     matches_and_blocks = list(_gap_blocks(text))
@@ -154,19 +165,21 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
             )
         block = next(block for match, block in matches_and_blocks if match.group("id") == gap_id)
         for phrase in contract["phrases"]:
-            if phrase not in block:
+            if not _contains_phrase(block, phrase):
                 raise AssertionError(f"{gap_id} missing phrase: {phrase}")
 
     readme = (root / "README.md").read_text()
     tests_readme = (root / "tests" / "README.md").read_text()
     playable_cloud_proof = (root / "docs" / "playable-cloud-proof.md").read_text()
+    hardware_support = (root / "docs" / "hardware-support.md").read_text()
     for phrase in LATEST_RUN_PHRASES:
-        if phrase not in text:
+        if not _contains_phrase(text, phrase):
             raise AssertionError(f"gap ledger missing latest-run phrase: {phrase}")
     for phrase in (
         "not a Doom-capable claim",
-        "FindResponseFile+0x34",
-        "W_AddFile+0x246",
+        "26150621804",
+        "usr=FAIL",
+        "playability-status-green",
     ):
         if phrase not in readme:
             raise AssertionError(f"README missing claim-boundary phrase: {phrase}")
@@ -178,6 +191,18 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         raise AssertionError("README must keep the Doom-capable claim boundary visible")
     if "tools/check_playability_gap_ledger.py" not in tests_readme:
         raise AssertionError("tests README must document the gap-ledger checker")
+    for phrase in (
+        "SUPPORT[UEFI] status=unclaimed",
+        "SUPPORT[AHCI] status=unclaimed",
+        "SUPPORT[USB] status=unclaimed",
+        "SUPPORT[SMP] status=unclaimed",
+        "SUPPORT[APIC] status=unclaimed",
+        "SUPPORT[HPET] status=unclaimed",
+        "SUPPORT[PHYSICAL_HARDWARE] status=unclaimed",
+        "QEMU evidence alone can only claim the matching QEMU device model",
+    ):
+        if not _contains_phrase(hardware_support, phrase):
+            raise AssertionError(f"hardware support matrix missing gap-ledger phrase: {phrase}")
 
     return gaps
 

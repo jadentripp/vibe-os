@@ -71,12 +71,12 @@ from the current song position whenever the SB16 path needs more music PCM."
 
 Fallback design:
 
-SB16 remains the real target for Doom-capable audio. A PC speaker fallback should
-not duplicate the SB16 mixer. If needed, it can consume the same parsed music
-schedule at a lower layer by selecting the loudest active melody voice, converting
-its MIDI note to a PIT divisor, and toggling one square wave until SB16 is
-available. That would prove music timing on machines without SB16 while keeping
-polyphonic PCM and SFX mixing in the SB16 path.
+SB16 remains the current QEMU-backed target for Doom-capable audio. A future
+PC speaker fallback should not duplicate the SB16 mixer. If needed, it can consume
+the same parsed music schedule at a lower layer by selecting the loudest active
+melody voice, converting its MIDI note to a PIT divisor, and toggling one square
+wave until SB16 is available. That would need its own support-matrix row and
+proof before docs call PC speaker audio supported.
 
 Host proof:
 

@@ -90,6 +90,11 @@ boot:
   can call it done.
   It also requires the latest analyzed failed real-WAD run to stay documented
   until a newer current run replaces that evidence.
+- `tools/check_hardware_support_matrix.py` parses
+  `docs/hardware-support.md` so README/docs/runbook/test language stays bounded
+  to the QEMU BIOS/IDE/PS2/VBE/SB16 device-model proof. It rejects unsupported
+  UEFI, AHCI, USB, SMP, APIC, HPET, and physical-hardware support wording unless
+  the matrix grows a claimed row and a proof boundary first.
 - `tools/check_vm_safety_contract.py` machine-checks the local-QEMU opt-in,
   cloud diagnostic upload hygiene, panic status fields, and shutdown status
   fields without launching QEMU.

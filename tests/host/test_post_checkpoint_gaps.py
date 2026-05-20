@@ -18,6 +18,9 @@ gap_spec.loader.exec_module(check_playability_gap_ledger)
 
 
 class PostCheckpointGapTests(unittest.TestCase):
+    def assertContainsPhrase(self, text, phrase):
+        self.assertIn(" ".join(phrase.split()), " ".join(text.split()))
+
     def test_doom_user_fault_diagnostics_capture_exception_frame(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
 
@@ -138,6 +141,7 @@ class PostCheckpointGapTests(unittest.TestCase):
         playable_doc = (ROOT / "docs" / "playable-cloud-proof.md").read_text()
         process_doc = (ROOT / "docs" / "process-exec.md").read_text()
         persistence_doc = (ROOT / "docs" / "persistent-fat16.md").read_text()
+        hardware_doc = (ROOT / "docs" / "hardware-support.md").read_text()
 
         self.assertIn("docs/post-checkpoint-gaps.md", readme)
         self.assertIn("test_post_checkpoint_gaps.py", tests_readme)
@@ -155,6 +159,8 @@ class PostCheckpointGapTests(unittest.TestCase):
             "not a robust",
             "full POSIX environment",
             "storage boot path",
+            "check_hardware_support_matrix.py",
+            "SUPPORT[...]",
         ):
             with self.subTest(claim_boundary=claim_boundary):
                 self.assertIn(claim_boundary, gap_doc)
@@ -163,18 +169,24 @@ class PostCheckpointGapTests(unittest.TestCase):
         self.assertIn("storage boot", persistence_doc)
         self.assertIn("path story", persistence_doc)
         self.assertIn("not yet a broader storage boot", persistence_doc)
+        self.assertIn("SUPPORT[PHYSICAL_HARDWARE] status=unclaimed", hardware_doc)
+        self.assertContainsPhrase(hardware_doc, "QEMU evidence alone can only claim")
 
     def test_latest_cloud_evidence_tracks_run_but_not_playable_claim(self):
         gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
 
         for phrase in (
             "Latest Cloud Evidence",
-            "latest reported real-WAD cloud evidence has moved past",
+            "latest analyzed real-WAD cloud evidence has moved past",
             "Doom faults before WAD I/O",
             "not a Doom-capable proof",
+            "26150621804",
+            "1db3a7a",
+            "usr=FAIL",
+            "real-WAD proof gate",
             "26149350434",
             "da9c136",
-            "passes the current scripted real-WAD cloud artifact checker",
+            "passed the scripted real-WAD cloud artifact checker",
             "playability-status-green",
             "doomrun=RUN",
             "doomopen=OK",
@@ -204,7 +216,7 @@ class PostCheckpointGapTests(unittest.TestCase):
             "blocker after",
         ):
             with self.subTest(phrase=phrase):
-                self.assertIn(phrase, gap_doc)
+                self.assertContainsPhrase(gap_doc, phrase)
 
         for phrase in (
             "The current first runtime blocker is the Ring 3 page fault",

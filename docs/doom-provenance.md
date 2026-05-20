@@ -67,6 +67,8 @@ Honest:
 - vibe-os has a real x86 boot path, protected-mode kernel, ATA/FAT storage,
   framebuffer/input/timer/audio/syscall runtime work, and a freestanding Doom
   link using original id Software sources plus `doom_port` shims.
+- Those hardware-facing claims are bounded by `docs/hardware-support.md` to the
+  current QEMU BIOS/IDE/PS2/VBE/SB16 device-model proof.
 - The local generated WAD fixture proves the storage and loader path without
   shipping game data.
 - The manual real-WAD cloud workflow is the current truth-serum path because it
@@ -83,8 +85,11 @@ Not honest yet:
   `linuxdoom-1.10` release
 - claiming POSIX completeness, full process isolation, or a general-purpose OS
   beyond the implemented Doom-oriented runtime
+- claiming UEFI, AHCI, USB, SMP, APIC, HPET, physical hardware, or broad PC
+  compatibility before the support matrix has a claimed row and proof for that
+  device class
 
 Before saying "you can play Doom on vibe-os", require a current real-WAD cloud
 workflow pass, status proof that Doom reaches E1M1 gameplay, deterministic input
 proof that keyboard actions affect game state, and a reviewed path for trying it
-interactively on disposable hardware or a cloud VM.
+interactively on a disposable remote QEMU host or a cloud VM.

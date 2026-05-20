@@ -154,6 +154,35 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("jmp .exec_handoff_return", handler)
         self.assertIn("VIBE_SYS_EXEC = 16", header)
 
+    def test_preempt_probe_cannot_clobber_boot_user_probe_status(self):
+        kernel = read_kernel()
+        user_probe_handler = kernel.split(".user_probe:", 1)[1].split(".expect_fault:", 1)[0]
+
+        self.assertIn("cmp byte [current_user_kind], USER_KIND_PROBE", user_probe_handler)
+        self.assertIn("jne .user_probe_ignore", user_probe_handler)
+        self.assertLess(
+            user_probe_handler.index("jne .user_probe_ignore"),
+            user_probe_handler.index("mov [user_probe_magic_seen], ebx"),
+        )
+        self.assertIn(".user_probe_ignore:", user_probe_handler)
+        ignore_path = user_probe_handler.split(".user_probe_ignore:", 1)[1]
+        self.assertIn("xor eax, eax", ignore_path)
+        self.assertIn("jmp .return", ignore_path)
+
+    def test_live_doom_user_status_accepts_ready_or_running_scheduler_state(self):
+        kernel = read_kernel()
+        write_smoke = kernel.split("write_smoke_status:", 1)[1].split("smoke_copy_string:", 1)[0]
+        draw_status = kernel.split("draw_heap_status:", 1)[1].split(".wad_status:", 1)[0]
+
+        for status_path in (write_smoke, draw_status):
+            with self.subTest(status_path=status_path[:24]):
+                self.assertIn("cmp byte [doom_run_status], 1", status_path)
+                self.assertIn("mov eax, [process_doom + PROC_STATE]", status_path)
+                self.assertIn("cmp eax, PROC_STATE_READY", status_path)
+                self.assertIn("je .user_ok_from_doom", status_path)
+                self.assertIn("cmp eax, PROC_STATE_RUNNING", status_path)
+                self.assertIn("jne .user_fail_text", status_path)
+
     def test_sys_exec_resets_diagnostics_and_accepts_bounded_argv(self):
         kernel = read_kernel()
         handler = kernel.split(".exec:", 1)[1].split(".exec_path_failed:", 1)[0]

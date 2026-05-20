@@ -8098,6 +8098,8 @@ syscall_handler:
     jmp .bad_syscall_enosys
 
 .user_probe:
+    cmp byte [current_user_kind], USER_KIND_PROBE
+    jne .user_probe_ignore
     mov [user_probe_magic_seen], ebx
     mov [user_probe_flags_seen], ecx
     movzx edx, word [esp + 28]
@@ -8105,6 +8107,10 @@ syscall_handler:
     movzx edx, word [esp + 40]
     mov [user_probe_ss], dx
     mov byte [user_probe_status], 1
+    xor eax, eax
+    jmp .return
+
+.user_probe_ignore:
     xor eax, eax
     jmp .return
 
@@ -11173,8 +11179,12 @@ write_smoke_status:
     jne .user_fail_text
     cmp byte [doom_run_status], 1
     jne .user_fail_text
-    cmp dword [process_doom + PROC_STATE], PROC_STATE_RUNNING
+    mov eax, [process_doom + PROC_STATE]
+    cmp eax, PROC_STATE_READY
+    je .user_ok_from_doom
+    cmp eax, PROC_STATE_RUNNING
     jne .user_fail_text
+.user_ok_from_doom:
     mov esi, smoke_ok_text
     jmp .user_write
 
@@ -11455,8 +11465,12 @@ draw_heap_status:
     jne .user_fail_text
     cmp byte [doom_run_status], 1
     jne .user_fail_text
-    cmp dword [process_doom + PROC_STATE], PROC_STATE_RUNNING
+    mov eax, [process_doom + PROC_STATE]
+    cmp eax, PROC_STATE_READY
+    je .user_ok_from_doom
+    cmp eax, PROC_STATE_RUNNING
     jne .user_fail_text
+.user_ok_from_doom:
     mov esi, ok_status_text
     call draw_status_string
     jmp .wad_status

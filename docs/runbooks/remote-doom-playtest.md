@@ -4,9 +4,11 @@ This is the safe human-run path for playing vibe-os Doom without running QEMU on
 the laptop and without committing or uploading WAD data, disk images, or Doom
 pixels to the repository.
 
-Use a disposable remote Ubuntu VM, Codespace, or throwaway bare-metal host. The
-host only needs CPU emulation; hardware virtualization is helpful but not
-required because the runbook uses QEMU TCG.
+Use a disposable remote Ubuntu VM, Codespace, or throwaway remote host that runs
+QEMU. The host only needs CPU emulation; hardware virtualization is helpful but
+not required because the runbook uses QEMU TCG. This does not prove vibe-os boots
+directly on physical hardware; that remains outside the current
+`docs/hardware-support.md` matrix claims.
 
 ## Remote Host Setup
 
@@ -351,6 +353,9 @@ Call a remote human playtest credible only after checking all of this:
   unfinished until `audio-proof.json` passes on a current real-WAD run and a
   song-position streaming proof replaces the bounded carrier claim.
 - Doom exit/reboot behavior is not polished for a human session.
+- Hardware support remains bounded to the QEMU BIOS/IDE/PS2/VBE/SB16 target in
+  `docs/hardware-support.md`; this runbook does not prove UEFI, AHCI, USB, SMP,
+  APIC, HPET, or physical-hardware support.
 
 Cleanup:
 
