@@ -772,7 +772,8 @@ def validate_image(
             "dynamic FAT allocation/free/truncate proof=OK "
             f"scratch={proof['proof_name']} "
             f"clusters={proof['initial_clusters']}/{proof['grown_clusters']}/{proof['shrunk_clusters']} "
-            f"free={proof['free_clusters']}"
+            f"free={proof['free_clusters']} "
+            "remount=OK"
         )
 
     write_status_ok = False

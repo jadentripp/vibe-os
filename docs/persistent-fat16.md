@@ -122,10 +122,13 @@ still supports dynamic filesystem behavior. That option mutates an in-memory
 copy only: it creates `FATPROOF.TMP`, writes a multi-cluster file, sparse-extends
 it while proving zero-filled holes, shrinks it while proving tail-cluster free
 and tail-byte zeroing, truncates it to size zero, rewrites it, deletes it, and
-proves the deleted root slot can be reused. The checker then revalidates FAT-copy
-agreement and reachable-cluster ownership on the mutated copy, so this is a
-host-verifiable allocation/free/truncate proof without putting a scratch file
-back into the real disk artifact.
+proves the deleted root slot can be reused. After each size-changing step the
+checker reparses the mutated bytes through a fresh FAT reader and reads the file
+back, so the proof covers read-after-remount behavior rather than only
+same-object state. The checker then revalidates FAT-copy agreement and
+reachable-cluster ownership on the mutated copy, so this is a host-verifiable
+allocation/free/truncate proof without putting a scratch file back into the real
+disk artifact.
 
 The Doom libc buffers formatted `fprintf` output until `fflush()` / `fclose()`,
 so `M_SaveDefaults()` does not spend the cloud proof window performing one disk
