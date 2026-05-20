@@ -259,11 +259,21 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
+          proof_dir="$RUNNER_TEMP/gameplay-audio-proof"
+          rm -rf "$proof_dir"
+          mkdir -p "$proof_dir"
+          cp build/kernel.elf build/user_probe.elf build/doom.elf build/doom.symbols "$proof_dir"/
+          cp build/status*.txt build/status*.bin "$proof_dir"/
+          cp build/*.log "$proof_dir"/ 2>/dev/null || true
+          cp build/gameplay-proof.json "$proof_dir"/
+          if [ -f build/audio-proof.json ]; then
+            cp build/audio-proof.json "$proof_dir"/
+          fi
           proof_args=(--require-gameplay-proof)
           if [ "${AUDIBLE_AUDIO_PROOF}" = "true" ]; then
             proof_args+=(--require-audible-proof)
           fi
-          python3 tools/check_cloud_playability_artifacts.py build "${proof_args[@]}"
+          python3 tools/check_cloud_playability_artifacts.py "$proof_dir" "${proof_args[@]}"
 
       - name: Triage cloud status
         if: always()
