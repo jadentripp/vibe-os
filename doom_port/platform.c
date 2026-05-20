@@ -67,6 +67,7 @@ static int load_checkpoint_done;
 #define VIBE_MUSIC_STREAM_TICS \
     ((int)((VIBE_MUSIC_STREAM_BYTES * 35u) / VIBE_MUSIC_DEFAULT_SAMPLE_RATE) / 16)
 #define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x2c000u
+#define VIBE_PERSISTENCE_MIN_LEVELTIME 70
 
 static void report_doom_init_status(unsigned long flags)
 {
@@ -257,7 +258,7 @@ static int default_config_checkpoint_ready(void)
         && gameepisode > 0
         && gamemap > 0
         && gametic > 0
-        && leveltime > 0
+        && leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME
         && consoleplayer >= 0
         && consoleplayer < MAXPLAYERS
         && playeringame[consoleplayer]
