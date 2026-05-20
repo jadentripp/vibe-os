@@ -1208,10 +1208,15 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("call fat_bind_found_to_writable_slot", open_path)
         self.assertIn("call fd_alloc", open_path)
         self.assertIn("jc .bad_syscall_emfile", open_path)
+        self.assertIn("call fat_cache_table", open_path)
         self.assertIn(".open_writable_bind_reserved:", open_path)
         self.assertIn(".open_writable_reserved_eio:", open_path)
         self.assertLess(
             open_path.index("call fd_alloc", open_path.index(".open_writable_ready:")),
+            open_path.index("call fat_cache_table", open_path.index(".open_writable_ready:")),
+        )
+        self.assertLess(
+            open_path.index("call fat_cache_table", open_path.index(".open_writable_ready:")),
             open_path.index("call fat_truncate_writable_file", open_path.index(".open_writable_ready:")),
         )
         self.assertIn("mov byte [fd_kinds + eax], FD_KIND_WAD", open_path)
@@ -1242,7 +1247,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn(".validate_loop:", free_chain)
         self.assertIn(".validated:", free_chain)
         self.assertIn(".free_loop:", free_chain)
-        self.assertIn("mov [fat_next_free_hint], ebx", free_chain)
+        self.assertIn("mov dword [fat_next_free_hint], 2", free_chain)
         self.assertLess(free_chain.index(".validate_loop:"), free_chain.index(".validated:"))
         self.assertLess(free_chain.index(".validated:"), free_chain.index(".free_loop:"))
         validate_pass = free_chain.split(".validate_loop:", 1)[1].split(".validated:", 1)[0]

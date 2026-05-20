@@ -6077,8 +6077,8 @@ fat_free_chain:
     jmp .validate_loop
 
 .validated:
+    mov dword [fat_next_free_hint], 2
     movzx ebx, word [fat_current_cluster]
-    mov [fat_next_free_hint], ebx
 
 .free_loop:
     cmp ebx, 0xfff8
@@ -10363,6 +10363,8 @@ syscall_handler:
     mov [file_io_fd_slot], eax
     test dword [syscall_open_flags], O_TRUNC
     jz .open_writable_bind_reserved
+    call fat_cache_table
+    jc .open_writable_reserved_eio
     mov eax, [fat_open_slot]
     call fat_truncate_writable_file
     jc .open_writable_reserved_eio
