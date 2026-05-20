@@ -13,10 +13,29 @@ Fastest path from the Mac, with GitHub CLI authenticated for Codespaces:
 ./tools/play_now_codespaces.sh
 ```
 
-The launcher checks GitHub CLI auth, the selected repo/ref, the local git state,
-the chosen Codespaces machine, and the noVNC port before creating anything. It
-refuses a dirty checkout or a current branch that differs from its upstream,
-because Codespaces runs pushed git state rather than local files.
+Fastest path from any checkout state is to pin the pushed repo/ref explicitly:
+
+```sh
+VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/doom-gameplay-proof \
+  ./tools/play_now_codespaces.sh
+```
+
+The equivalent flag form is:
+
+```sh
+./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref jt/doom-gameplay-proof
+```
+
+Explicit repo/ref mode verifies that the GitHub repo is accessible and the
+branch exists remotely, then ignores unrelated local dirt. That is intentional:
+Codespaces runs the pushed branch, not uncommitted Mac files.
+
+If you omit `--ref`/`VIBE_REF`, the launcher infers the current git branch and
+uses it as proof of what will run remotely. In that inferred-branch mode it
+refuses a dirty checkout or a current branch that differs from its upstream.
+
+The launcher checks GitHub CLI auth, the selected repo/ref, the chosen
+Codespaces machine, and the noVNC port before creating anything.
 If GitHub CLI reports a missing Codespaces API scope, refresh it once:
 
 ```sh
@@ -33,6 +52,8 @@ Optional dry run:
 
 ```sh
 ./tools/play_now_codespaces.sh --preflight
+VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/doom-gameplay-proof \
+  ./tools/play_now_codespaces.sh --preflight --no-open
 ```
 
 If port `6080` is unavailable, set `NOVNC_PORT` for the launch and optional
@@ -86,11 +107,12 @@ creating a Codespace:
 
 Expected successful output includes `play-now Codespaces preflight OK`, the
 repo, ref, selected machine, `noVNC port: 6080 (private)`, the noVNC wait
-timeout, and
-`local artifact transfer: none`. The dry run also prints
-`dry-run: Codespace was not created or modified`. If it reports a dirty tree,
-missing upstream, an invalid noVNC port, or ahead/behind counts, fix and push
-the branch before using the launcher as current-head play proof.
+timeout, `GitHub repo/ref: verified`, and `local artifact transfer: none`. The
+dry run also prints `dry-run: Codespace was not created or modified`. If it
+reports a dirty tree, missing upstream, or ahead/behind counts, either fix and
+push the current branch or rerun with explicit `--repo` and `--ref` for a branch
+that already exists on GitHub. Invalid noVNC ports and inaccessible GitHub
+repos/branches always fail before Codespaces creation.
 
 ## Run The Play Script
 

@@ -110,7 +110,26 @@ Codespaces launcher from this Mac checkout:
 ./tools/play_now_codespaces.sh
 ```
 
-That command runs the Mac-side safety checks, creates or reuses a disposable
+When the local checkout is dirty or you want to launch from a known pushed
+branch, pin the remote repo/ref explicitly:
+
+```sh
+VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/doom-gameplay-proof \
+  ./tools/play_now_codespaces.sh
+```
+
+or:
+
+```sh
+./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref jt/doom-gameplay-proof
+```
+
+Explicit repo/ref mode verifies that the GitHub repo and branch exist remotely
+and ignores unrelated local dirt, because the Codespace can only run pushed
+code. If you omit `--ref`/`VIBE_REF`, the launcher infers the current branch and
+requires the local branch to be clean and exactly synced with its upstream.
+
+The command runs the Mac-side safety checks, creates or reuses a disposable
 GitHub Codespace, starts the real vibe-os boot path there, waits for private
 noVNC, and opens/prints the browser URL. QEMU, the downloaded shareware WAD,
 disk images, pixels, and raw audio stay in the Codespace. If GitHub CLI needs

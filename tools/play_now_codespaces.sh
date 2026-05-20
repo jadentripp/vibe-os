@@ -3,6 +3,8 @@ set -euo pipefail
 
 REPO="${VIBE_REPO:-}"
 REF="${VIBE_REF:-}"
+REPO_EXPLICIT=0
+REF_EXPLICIT=0
 CODESPACE_NAME="${CODESPACE_NAME:-}"
 DISPLAY_NAME="${DISPLAY_NAME:-}"
 CODESPACE_MACHINE="${CODESPACE_MACHINE:-}"
@@ -14,6 +16,14 @@ CODESPACES_PORT_WAIT_SECONDS="${CODESPACES_PORT_WAIT_SECONDS:-300}"
 CODESPACES_PORT_WAIT_INTERVAL="${CODESPACES_PORT_WAIT_INTERVAL:-5}"
 MAX_DISPLAY_NAME_LENGTH=48
 RUN_PREFLIGHT_ONLY=0
+GIT_STATE_SUMMARY=""
+
+if [ -n "${VIBE_REPO:-}" ]; then
+  REPO_EXPLICIT=1
+fi
+if [ -n "${VIBE_REF:-}" ]; then
+  REF_EXPLICIT=1
+fi
 
 usage() {
   cat <<'EOF'
@@ -59,6 +69,61 @@ require_gh_codespaces_access() {
   gh api -H "Accept: application/vnd.github+json" "/user/codespaces?per_page=1" >/dev/null 2>&1 || {
     die "GitHub CLI token cannot access Codespaces; run: gh auth refresh -h github.com -s codespace"
   }
+}
+
+validate_repo_slug() {
+  local repo="$1"
+
+  case "$repo" in
+    */*)
+      ;;
+    *)
+      die "repo must be OWNER/REPO, got '$repo'"
+      ;;
+  esac
+  case "$repo" in
+    *$'\n'*|*$'\r'*|*' '*|*'	'*|*://*|/*|*/|*/*/*)
+      die "repo must be a GitHub OWNER/REPO slug, got '$repo'"
+      ;;
+  esac
+  case "$repo" in
+    *[!A-Za-z0-9_./-]*)
+      die "repo contains unsupported characters: '$repo'"
+      ;;
+  esac
+}
+
+validate_ref_name() {
+  local ref="$1"
+
+  [ -n "$ref" ] || die "ref must not be empty"
+  case "$ref" in
+    *$'\n'*|*$'\r'*|*' '*|*'	'*|-*|refs/*)
+      die "ref must be a branch name without spaces/control characters, got '$ref'"
+      ;;
+  esac
+}
+
+verify_github_remote_ref() {
+  validate_repo_slug "$REPO"
+  validate_ref_name "$REF"
+
+  gh repo view "$REPO" --json nameWithOwner -q .nameWithOwner >/dev/null 2>&1 || {
+    die "GitHub repo '$REPO' is not accessible with the current gh auth"
+  }
+
+  local remote_url
+  local refs
+  local expected_ref
+
+  remote_url="https://github.com/${REPO}.git"
+  expected_ref="refs/heads/$REF"
+  refs="$(
+    GIT_TERMINAL_PROMPT=0 git ls-remote --heads "$remote_url" "$REF" 2>/dev/null || true
+  )"
+  if ! printf "%s\n" "$refs" | awk '{print $2}' | grep -Fx "$expected_ref" >/dev/null 2>&1; then
+    die "GitHub branch '$REF' was not found in '$REPO'; push it first or pass a branch that exists remotely"
+  fi
 }
 
 sanitize_display_part() {
@@ -215,7 +280,8 @@ print_preflight_summary() {
   echo "noVNC wait timeout: ${CODESPACES_PORT_WAIT_SECONDS}s"
   echo "browser open: $OPEN_BROWSER"
   echo "GitHub Codespaces API: accessible"
-  echo "git state: clean and pushed for the selected current branch"
+  echo "GitHub repo/ref: verified"
+  echo "git state: $GIT_STATE_SUMMARY"
   echo "local artifact transfer: none (no WADs, disk images, pixels, raw audio, or logs copied to the Mac)"
   echo "remote preflight command: ./tools/play_now_remote.sh --preflight --require-novnc"
   echo "remote start command: NOVNC_PORT=$NOVNC_PORT nohup ./tools/play_now_remote.sh --require-novnc"
@@ -281,11 +347,13 @@ while [ "$#" -gt 0 ]; do
     --repo)
       [ "$#" -ge 2 ] || die "--repo requires OWNER/REPO"
       REPO="$2"
+      REPO_EXPLICIT=1
       shift
       ;;
     --ref|--branch)
       [ "$#" -ge 2 ] || die "--ref requires a branch or ref"
       REF="$2"
+      REF_EXPLICIT=1
       shift
       ;;
     --codespace)
@@ -345,9 +413,16 @@ fi
 if [ -z "$REF" ]; then
   REF="$(current_ref)"
 fi
-[ -n "$REF" ] || REF="main"
+[ -n "$REF" ] || die "could not infer a git branch; pass --ref BRANCH for explicit remote play"
 
-require_clean_pushed_git_state
+if [ "$REF_EXPLICIT" = "1" ]; then
+  GIT_STATE_SUMMARY="explicit GitHub repo/ref selected; local checkout dirt is ignored"
+else
+  require_clean_pushed_git_state
+  GIT_STATE_SUMMARY="clean and pushed for the inferred current branch"
+fi
+
+verify_github_remote_ref
 require_gh_codespaces_access
 
 if [ -z "$CODESPACE_NAME" ] && [ -z "$DISPLAY_NAME" ]; then
