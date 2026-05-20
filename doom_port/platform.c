@@ -321,6 +321,8 @@ static int persistence_checkpoint_requested(void)
 {
     FILE* marker;
 
+    if (default_config_checkpoint_request_checked)
+        return default_config_checkpoint_requested;
     if (default_config_checkpoint_requested)
         return default_config_checkpoint_requested;
 
@@ -354,6 +356,8 @@ static int read_persistence_slot_request(const char* path, int* slot)
 
 static int save_checkpoint_requested_once(void)
 {
+    if (save_checkpoint_request_checked)
+        return save_checkpoint_requested;
     if (save_checkpoint_requested)
         return save_checkpoint_requested;
 
@@ -366,6 +370,8 @@ static int save_checkpoint_requested_once(void)
 
 static int load_checkpoint_requested_once(void)
 {
+    if (load_checkpoint_request_checked)
+        return load_checkpoint_requested;
     if (load_checkpoint_requested)
         return load_checkpoint_requested;
 
@@ -387,6 +393,13 @@ static int default_config_checkpoint_ready(void)
         && consoleplayer < MAXPLAYERS
         && playeringame[consoleplayer]
         && players[consoleplayer].mo;
+}
+
+static void cache_persistence_requests(void)
+{
+    (void)persistence_checkpoint_requested();
+    (void)save_checkpoint_requested_once();
+    (void)load_checkpoint_requested_once();
 }
 
 static void checkpoint_default_config_if_needed(void)
@@ -500,11 +513,13 @@ char* sndserver_filename = "sndserver";
 void I_Init(void)
 {
     report_doom_init_status(VIBE_DOOM_INIT_I_INIT);
+    cache_persistence_requests();
 }
 
 byte* I_ZoneBase(int* size)
 {
     report_doom_init_status(VIBE_DOOM_INIT_ZONE);
+    cache_persistence_requests();
     *size = sizeof(doom_zone);
     return doom_zone;
 }

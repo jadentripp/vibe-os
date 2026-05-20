@@ -143,6 +143,12 @@ workflow waits for that checkpoint before snapshotting the disk; the save-slot
 proof path skips the marker so `DOOMSAV*.DSG` runs boot from the clean captured
 baseline. `--write-status` keeps the wait honest by rejecting a `DEFAULT.CFG`
 proof until the defaults file has been opened with `O_TRUNC` and closed.
+Persistence control markers are cached during `I_ZoneBase` and checked again
+during `I_Init`; both happen before live gameplay, and the marker readers are
+one-shot even when a marker is absent. The leveltime checkpoint therefore
+consumes the cached `PERSIST.CHK`, `SAVEREQ.CHK`, or `LOADREQ.CHK` decision
+instead of scanning the FAT root directory on the frame that arms the save or
+load.
 
 The save/load cloud proof uses `SAVEREQ.CHK` and `LOADREQ.CHK` marker files to
 request a Doom save slot. The marker file size is `slot + 1`, so the Doom port
