@@ -731,14 +731,29 @@ static void report_save_action_status(void)
     (void)vibe_syscall3(VIBE_SYS_GAMEPLAY_STATUS, packed, hash, length);
 }
 
+static void report_playability_status(void);
+static void report_player_detail_status(void);
+
 void G_BuildTiccmd(ticcmd_t* cmd)
 {
     doom_original_G_BuildTiccmd(cmd);
 }
 
+static void report_runtime_proof_status(void)
+{
+    report_gameplay_status();
+    checkpoint_load_slot_if_needed();
+    checkpoint_save_slot_if_needed();
+    report_save_action_status();
+    report_playability_status();
+    report_player_detail_status();
+    checkpoint_default_config_if_needed();
+}
+
 void G_Ticker(void)
 {
     doom_original_G_Ticker();
+    report_runtime_proof_status();
 }
 
 static void report_playability_status(void)
@@ -828,13 +843,7 @@ void I_FinishUpdate(void)
 
     report_doom_init_status(VIBE_DOOM_INIT_FRAME);
     pump_music_stream();
-    report_gameplay_status();
-    checkpoint_load_slot_if_needed();
-    checkpoint_save_slot_if_needed();
-    report_save_action_status();
-    report_playability_status();
-    report_player_detail_status();
-    checkpoint_default_config_if_needed();
+    report_runtime_proof_status();
     if (screens[0]) {
         present.frame = screens[0];
         present.palette = active_palette;

@@ -138,10 +138,11 @@ Doom is already in settled live gameplay, and the generated `DEFAULT.CFG` is
 still empty, partial, or missing core defaults markers. Marker-requested
 `DOOMSAV*.DSG` proof uses the platform wrapper only after the same settled
 gameplay guard; it reuses Doom's `P_Archive*` serializers and `M_WriteFile`
-instead of forcing `ga_savegame` or calling `G_DoSaveGame` during boot/display
-setup. The default real-WAD cloud workflow waits for that checkpoint before
-snapshotting the disk; the
-save-slot proof path uses `SAVEREQ.CHK` from the clean captured baseline and
+from the Doom ticker path instead of forcing `ga_savegame`, calling
+`G_DoSaveGame`, or waiting on the display-present path during boot setup. The
+default real-WAD cloud workflow waits for that checkpoint before snapshotting
+the disk; the save-slot proof path uses `SAVEREQ.CHK` from the clean captured
+baseline and
 waits for Doom-reported save-file write/close status. `--write-status` keeps the
 wait honest by rejecting a `DEFAULT.CFG` proof until the defaults file has been
 opened with `O_TRUNC` and closed.

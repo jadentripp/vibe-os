@@ -118,6 +118,7 @@ class DoomInputContractTests(unittest.TestCase):
             "default_config_needs_checkpoint()",
             'default_config_contains_marker(length, "chatmacro0")',
             "M_SaveDefaults();",
+            "static void report_runtime_proof_status(void)",
             "static int write_save_checkpoint_file(int slot, const char* description)",
             "P_ArchivePlayers();",
             "P_ArchiveWorld();",

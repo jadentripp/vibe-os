@@ -315,7 +315,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("void G_BuildTiccmd(ticcmd_t* cmd)", platform)
         self.assertIn("doom_original_G_BuildTiccmd(cmd);", platform)
         build_ticcmd = platform.split("void G_BuildTiccmd(ticcmd_t* cmd)", 1)[1].split(
-            "void G_Ticker(void)", 1
+            "static void report_runtime_proof_status(void)", 1
         )[0]
         self.assertNotIn("checkpoint_save_slot_if_needed();", build_ticcmd)
         self.assertIn("void G_Ticker(void)", platform)
@@ -323,19 +323,24 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "static void report_playability_status(void)", 1
         )[0]
         self.assertIn("doom_original_G_Ticker();", ticker)
+        self.assertIn("report_runtime_proof_status();", ticker)
         self.assertNotIn("G_SaveGame(", platform)
         self.assertNotIn("G_DoSaveGame();", platform)
+        runtime_status = platform.split(
+            "static void report_runtime_proof_status(void)", 1
+        )[1].split("void G_Ticker(void)", 1)[0]
+        self.assertLess(
+            runtime_status.index("checkpoint_load_slot_if_needed();"),
+            runtime_status.index("checkpoint_save_slot_if_needed();"),
+        )
+        self.assertLess(
+            runtime_status.index("checkpoint_save_slot_if_needed();"),
+            runtime_status.index("report_save_action_status();"),
+        )
         finish_update = platform.split("void I_FinishUpdate(void)", 1)[1].split(
             "void I_WaitVBL", 1
         )[0]
-        self.assertLess(
-            finish_update.index("checkpoint_load_slot_if_needed();"),
-            finish_update.index("checkpoint_save_slot_if_needed();"),
-        )
-        self.assertLess(
-            finish_update.index("checkpoint_save_slot_if_needed();"),
-            finish_update.index("report_save_action_status();"),
-        )
+        self.assertIn("report_runtime_proof_status();", finish_update)
         self.assertIn("if (sendsave)", original)
         self.assertIn("cmd->buttons = BT_SPECIAL | BTS_SAVEGAME", original)
         self.assertNotIn("doom_original_G_BuildTiccmd", original)
