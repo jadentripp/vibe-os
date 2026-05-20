@@ -7031,8 +7031,12 @@ fat_file_lba_for_write:
     movzx eax, word [fat_current_cluster]
     call fat_next_cluster
     jc .fail
+    cmp eax, 0
+    je .allocate_next_cluster
     cmp eax, 0xfff8
     jb .next_exists
+
+.allocate_next_cluster:
     call fat_alloc_cluster
     jc .fail
     mov [fat_new_cluster], ax
@@ -7334,15 +7338,18 @@ user_file_write:
     mov dword [file_write_debug_stage], 3
     mov [file_io_user_ptr], ecx
     mov [file_io_remaining], edx
+    mov [file_write_requested], edx
     mov dword [file_io_done], 0
+    mov dword [file_write_fail_stage], 0
     mov eax, ecx
     mov ebx, edx
     call user_range_validate
-    jc .fail_inval
+    jc .fail_inval_range
     mov dword [file_write_debug_stage], 4
     mov ebx, [file_io_index]
     mov esi, [file_io_fd_slot]
     mov eax, [writable_capacity_table + ebx * 4]
+    mov [file_write_capacity], eax
     sub eax, [fd_offsets + esi * 4]
     mov [file_write_debug_capacity], eax
     cmp [file_io_remaining], eax
@@ -7368,6 +7375,7 @@ user_file_write:
 
 .allocation_policy_ready:
     mov dword [file_write_debug_stage], 5
+    mov dword [file_write_fail_stage], 4
     call fat_file_lba_for_write
     mov dword [fat_alloc_zero_policy], 1
     jc .fail_io
@@ -7389,6 +7397,7 @@ user_file_write:
     mov eax, [file_io_sector_lba]
     mov esi, [file_io_user_ptr]
     add esi, [file_io_done]
+    mov dword [file_write_fail_stage], 5
     call ata_write_sector
     jc .fail_io
     jmp .after_sector_write
@@ -7399,6 +7408,7 @@ user_file_write:
     mov dword [file_write_debug_stage], 7
     mov eax, [file_io_sector_lba]
     mov edi, SECTOR_BUFFER_ADDR
+    mov dword [file_write_fail_stage], 6
     call ata_read_sector
     jc .fail_io
     jmp .copy_partial_sector
@@ -7421,10 +7431,12 @@ user_file_write:
     mov dword [file_write_debug_stage], 8
     mov eax, [file_io_sector_lba]
     mov esi, SECTOR_BUFFER_ADDR
+    mov dword [file_write_fail_stage], 7
     call ata_write_sector
     jc .fail_io
 
 .after_sector_write:
+    mov dword [file_write_fail_stage], 0
     mov eax, [file_io_chunk]
     add [file_io_done], eax
     sub [file_io_remaining], eax
@@ -7439,9 +7451,26 @@ user_file_write:
 
 .ok:
     mov dword [file_write_debug_stage], 9
+    cmp dword [file_write_requested], 0
+    je .update_size
+    cmp dword [file_io_done], 0
+    jne .update_size
+    mov dword [file_write_fail_stage], 3
+
+.update_size:
     mov eax, [file_io_index]
+    cmp dword [file_write_fail_stage], 3
+    je .skip_update_stage
+    mov dword [file_write_fail_stage], 8
+
+.skip_update_stage:
     call fat_update_writable_size
     jc .fail_io
+    cmp dword [file_write_fail_stage], 3
+    je .return_done
+    mov dword [file_write_fail_stage], 0
+
+.return_done:
     mov eax, [file_io_done]
     mov dword [file_write_debug_stage], 0x0a
     mov [file_write_debug_result], eax
@@ -7449,11 +7478,15 @@ user_file_write:
     ret
 
 .fail_badfd:
+    mov dword [file_write_fail_stage], 1
     mov eax, -ERRNO_EBADF
     mov dword [file_write_debug_stage], 0xe1
     mov [file_write_debug_result], eax
     stc
     ret
+
+.fail_inval_range:
+    mov dword [file_write_fail_stage], 2
 
 .fail_inval:
     mov eax, -ERRNO_EINVAL
@@ -13514,6 +13547,39 @@ write_smoke_status:
     mov edx, [doom_saveaction_desc_hash]
     call smoke_write_hex32
 
+    mov esi, smoke_fio_text
+    call smoke_copy_string
+    mov edx, [file_write_fail_stage]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [file_io_index]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [file_io_fd_slot]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [file_write_requested]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [file_write_capacity]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [file_io_remaining]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [file_io_done]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [file_io_sector_lba]
+    call smoke_write_hex32
+
     mov esi, smoke_doomlog_text
     call smoke_copy_string
     cmp byte [doom_log_buffer], 0
@@ -15066,6 +15132,7 @@ smoke_filewrite_text db " fwr=", 0
 smoke_fatalloc_text db " fal=", 0
 smoke_saveact_text db " saveact=", 0
 smoke_savedesc_text db " savedesc=", 0
+smoke_fio_text db " fio=", 0
 smoke_doomlog_text db " doomlog=", 0
 smoke_doompresent_text db " doompresent=", 0
 smoke_doompal_text db " doompal=", 0
@@ -15635,6 +15702,9 @@ file_io_chunk dd 0
 file_write_debug_stage dd 0
 file_write_debug_result dd 0
 file_write_debug_capacity dd 0
+file_write_requested dd 0
+file_write_capacity dd 0
+file_write_fail_stage dd 0
 user_probe_magic_seen dd 0
 user_probe_flags_seen dd 0
 user_fault_addr dd 0
