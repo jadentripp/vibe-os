@@ -28,6 +28,7 @@ class AudioContractTests(unittest.TestCase):
             "VIBE_AUDIO_FLAG_LOOP",
             "VIBE_AUDIO_FLAG_MUSIC",
             "VIBE_AUDIO_FLAG_WAD_SFX",
+            "VIBE_AUDIO_FLAG_STREAM_FINAL",
             "VIBE_AUDIO_IS_PLAYING",
             "VIBE_AUDIO_BUFFERED_BYTES",
             "VIBE_AUDIO_MUSIC_PULL_STATE",
@@ -46,6 +47,7 @@ class AudioContractTests(unittest.TestCase):
             "Z_Malloc(padded_length, PU_STATIC, 0);",
             "memset(samples + raw_length, 128, padded_length - raw_length);",
             "flags |= VIBE_AUDIO_FLAG_WAD_SFX;",
+            "desc.flags |= VIBE_AUDIO_FLAG_STREAM_FINAL;",
             "desc.samples = samples;",
             "desc.length = sample_length;",
             "desc.volume = (unsigned long)(vol & 0xff);",
@@ -81,6 +83,7 @@ class AudioContractTests(unittest.TestCase):
             "AUDIO_SFX_DESC_MUSIC_EMITTED_SAMPLES equ 48",
             "AUDIO_SFX_DESC_BYTES equ 64",
             "AUDIO_FLAG_WAD_SFX equ 0x00000004",
+            "AUDIO_FLAG_STREAM_FINAL equ 0x00000008",
             "audio_mix_sfx_descriptor:",
             "call user_range_validate",
             "cmp ebx, SB16_DMA_BUFFER_BYTES",
@@ -213,6 +216,7 @@ class AudioContractTests(unittest.TestCase):
             "inc dword [sb16_pitch_clamp_count]",
             "inc dword [sb16_pan_clamp_count]",
             "test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC",
+            "test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_STREAM_FINAL",
             ".fallback_next:",
         ):
             self.assertIn(source, kernel)

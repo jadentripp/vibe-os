@@ -60,7 +60,10 @@ the renderer's internal start point to that loop length while keeping the public
 stream position cumulative. That long-playback wrap keeps chunk rendering from
 falling off the old bounded loop-pass limit after many minutes of looping music.
 For non-looping songs, the stream now also measures the parsed song length and
-stops at the parsed song end instead of emitting endless silence chunks. That
+stops at the parsed song end instead of emitting endless silence chunks. The
+final rendered chunk is tagged with `VIBE_AUDIO_FLAG_STREAM_FINAL`; draining
+that marked chunk is a normal terminal state, while an unmarked music window
+that runs dry with no pending service still increments `musicunder=`. That
 keeps intermission or one-shot music honest in the port layer and gives the
 platform hook a clean zero-render signal to stop the SB16 music voice.
 
