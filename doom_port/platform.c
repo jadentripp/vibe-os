@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 
 #include "d_event.h"
 #include "d_main.h"
@@ -23,7 +24,6 @@
 
 extern doomcom_t* doomcom;
 extern char* defaultfile;
-extern char* chat_macros[];
 extern boolean sendsave;
 extern int savegameslot;
 extern char savedescription[32];
@@ -332,33 +332,6 @@ static int default_config_file_contains_marker(const char* marker)
     return default_config_contains_marker(length, marker);
 }
 
-static char* find_marker_text(char* text, const char* marker)
-{
-    size_t marker_length;
-    char* cursor;
-
-    if (!text || !marker)
-        return 0;
-
-    marker_length = strlen(marker);
-    if (!marker_length)
-        return 0;
-
-    for (cursor = text; *cursor; ++cursor) {
-        if (!strncmp(cursor, marker, marker_length))
-            return cursor;
-    }
-
-    return 0;
-}
-
-static int chat_macro_contains_marker(const char* marker)
-{
-    return marker
-        && chat_macros[0]
-        && find_marker_text(chat_macros[0], marker);
-}
-
 static int default_config_file_is_short_checkpoint_marker(void)
 {
     const char* path;
@@ -397,10 +370,6 @@ static int persistence_checkpoint_requested(void)
     if (marker) {
         default_config_checkpoint_requested = 1;
         fclose(marker);
-    }
-    if (!default_config_checkpoint_requested
-        && chat_macro_contains_marker("VIBE_DEFAULT")) {
-        default_config_checkpoint_requested = 1;
     }
     if (!default_config_checkpoint_requested
         && default_config_file_contains_marker("VIBE_DEFAULT")) {
@@ -483,32 +452,6 @@ static int read_save_slot_marker_request(const char* prefix, int* slot)
     return 0;
 }
 
-static int read_chat_macro_slot_request(const char* prefix, int* slot)
-{
-    size_t prefix_length;
-    char* macro;
-    char* match;
-
-    if (!prefix || !slot)
-        return 0;
-
-    macro = chat_macros[0];
-    if (!macro)
-        return 0;
-
-    prefix_length = strlen(prefix);
-    match = find_marker_text(macro, prefix);
-    if (!match)
-        return 0;
-
-    match += prefix_length;
-    if (*match < '0' || *match > '5')
-        return 0;
-
-    *slot = *match - '0';
-    return 1;
-}
-
 static int read_default_config_slot_request(const char* prefix, int* slot)
 {
     const char* path;
@@ -551,23 +494,19 @@ static int read_default_config_slot_request(const char* prefix, int* slot)
 
 static int read_persistence_slot_request(const char* path, int* slot)
 {
-    FILE* marker;
-    char buffer[4];
-    size_t length;
+    struct stat info;
 
     if (!slot)
         return 0;
 
     *slot = 0;
-    marker = fopen(path, "r");
-    if (!marker)
+    if (stat(path, &info) < 0)
         return 0;
 
-    length = fread(buffer, 1, sizeof(buffer), marker);
-    fclose(marker);
-    if (length > 0 && buffer[0] >= '0' && buffer[0] <= '5')
-        *slot = buffer[0] - '0';
+    if (info.st_size < 1 || info.st_size > VIBE_PERSISTENCE_SLOT_COUNT)
+        return 0;
 
+    *slot = (int)info.st_size - 1;
     return 1;
 }
 
@@ -577,8 +516,8 @@ static int save_checkpoint_requested_once(void)
         return save_checkpoint_requested;
 
     save_checkpoint_request_checked = 1;
-    save_checkpoint_requested = read_chat_macro_slot_request(
-        "VIBE_SAVE_",
+    save_checkpoint_requested = read_persistence_slot_request(
+        "SAVEREQ.CHK",
         &save_checkpoint_slot);
     if (!save_checkpoint_requested) {
         save_checkpoint_requested = read_default_config_slot_request(
@@ -590,11 +529,6 @@ static int save_checkpoint_requested_once(void)
             "VIBE_SAVE_",
             &save_checkpoint_slot);
     }
-    if (!save_checkpoint_requested) {
-        save_checkpoint_requested = read_persistence_slot_request(
-            "SAVEREQ.CHK",
-            &save_checkpoint_slot);
-    }
     return save_checkpoint_requested;
 }
 
@@ -604,12 +538,12 @@ static int load_checkpoint_requested_once(void)
         return load_checkpoint_requested;
 
     load_checkpoint_request_checked = 1;
-    load_checkpoint_requested = read_save_slot_marker_request(
-        "VIBE_LOAD_",
+    load_checkpoint_requested = read_persistence_slot_request(
+        "LOADREQ.CHK",
         &load_checkpoint_slot);
     if (!load_checkpoint_requested) {
-        load_checkpoint_requested = read_persistence_slot_request(
-            "LOADREQ.CHK",
+        load_checkpoint_requested = read_save_slot_marker_request(
+            "VIBE_LOAD_",
             &load_checkpoint_slot);
     }
     return load_checkpoint_requested;
