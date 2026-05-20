@@ -19,6 +19,8 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
   `USERPROB.ELF`
 - user-mode syscall smoke coverage for `sbrk`, `open`, `read`, `lseek`, and
   console `write`
+- syscall pointer validation uses a current user-process window, so the tiny
+  probe and the larger Doom image can have different valid address ranges
 - physical frame accounting for the first managed 32 MiB
 - 8 MiB free-list heap with `kalloc`/`kfree` and boot-time high-memory self-test
 - freestanding cdecl-style libc subset: strings, memory helpers, integer math, x87 init/test, and `kprintf`
@@ -167,6 +169,8 @@ Already implemented:
   path
 - widened low-memory paging/PMM coverage to 32 MiB and loaded the linked Doom
   executable into its `0x01000000` image window for ELF validation
+- Doom's platform `I_GetTime` now calls a kernel 35 Hz time syscall instead of
+  using a fake local counter
 
 Still required before this is actually Doom-capable:
 

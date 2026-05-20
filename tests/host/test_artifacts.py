@@ -8,6 +8,7 @@ BUILD = ROOT / "build"
 SECTOR_SIZE = 512
 USER_BASE = 0x00E80000
 DOOM_BASE = 0x01000000
+DOOM_HEAP_START = 0x01900000
 DOOM_LIMIT = 0x02000000
 
 
@@ -136,6 +137,7 @@ class BuildArtifactTests(unittest.TestCase):
         self.assertEqual(p_vaddr, DOOM_BASE)
         self.assertEqual(p_paddr, DOOM_BASE)
         self.assertEqual(p_filesz, p_memsz)
+        self.assertLessEqual(p_paddr + p_memsz, DOOM_HEAP_START)
         self.assertLessEqual(p_paddr + p_memsz, DOOM_LIMIT)
         self.assertEqual(p_flags, 0x7)
         self.assertEqual(p_align, 0x1000)
@@ -255,6 +257,8 @@ class SourceContractTests(unittest.TestCase):
             "PMM_MANAGED_END equ 0x02000000",
             "DOOM_ELF_LOAD_ADDR equ 0x01000000",
             "DOOM_ELF_LIMIT equ 0x02000000",
+            "DOOM_USER_HEAP_START equ 0x01900000",
+            "DOOM_USER_HEAP_END equ 0x01f00000",
             "fat_load_doom_elf:",
             "doom_elf_prepare:",
             "draw_doom_status:",
@@ -262,6 +266,26 @@ class SourceContractTests(unittest.TestCase):
             self.assertIn(source, kernel)
         makefile = (ROOT / "Makefile").read_text()
         self.assertIn('grep -q "doom=OK"', makefile)
+
+    def test_user_syscalls_validate_against_current_process_window(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        validator = kernel.split("user_range_validate:", 1)[1].split("page_fault_handler:", 1)[0]
+        self.assertIn("cmp eax, [current_user_base]", validator)
+        self.assertIn("cmp edx, [current_user_end]", validator)
+        self.assertNotIn("cmp eax, USER_CODE_ADDR", validator)
+        self.assertNotIn("cmp edx, USER_HEAP_END", validator)
+        sbrk = kernel.split(".sbrk:", 1)[1].split(".open:", 1)[0]
+        self.assertIn("mov eax, [current_user_brk]", sbrk)
+        self.assertIn("cmp edx, [current_user_heap_end]", sbrk)
+
+    def test_doom_port_uses_kernel_time_syscall(self):
+        platform = (ROOT / "doom_port" / "platform.c").read_text()
+        libc = (ROOT / "doom_port" / "libc.c").read_text()
+        header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
+        self.assertIn("VIBE_SYS_TIME = 9", header)
+        self.assertIn("int vibe_syscall3", header)
+        self.assertIn("int vibe_syscall3(", libc)
+        self.assertIn("return vibe_syscall3(VIBE_SYS_TIME, 0, 0, 0);", platform)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@
 #include "i_sound.h"
 #include "i_system.h"
 #include "i_video.h"
+#include "vibe_os.h"
 #include "v_video.h"
 #include "w_wad.h"
 
@@ -35,8 +36,7 @@ byte* I_ZoneBase(int* size)
 
 int I_GetTime(void)
 {
-    static int tic;
-    return ++tic;
+    return vibe_syscall3(VIBE_SYS_TIME, 0, 0, 0);
 }
 
 void I_StartFrame(void)

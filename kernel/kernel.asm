@@ -63,6 +63,10 @@ WAD_MAX_BYTES equ 0x00500000
 DOOM_ELF_LOAD_ADDR equ 0x01000000
 DOOM_ELF_LIMIT equ 0x02000000
 DOOM_ELF_MAX_BYTES equ DOOM_ELF_LIMIT - DOOM_ELF_LOAD_ADDR
+DOOM_USER_BASE equ DOOM_ELF_LOAD_ADDR
+DOOM_USER_HEAP_START equ 0x01900000
+DOOM_USER_HEAP_END equ 0x01f00000
+DOOM_USER_END equ DOOM_ELF_LIMIT
 C_RUNTIME_MAGIC equ 0xC0DEF00D
 ELF_MAGIC equ 0x464c457f
 ELFCLASS32 equ 1
@@ -89,6 +93,7 @@ SYS_SBRK equ 5
 SYS_OPEN equ 6
 SYS_READ equ 7
 SYS_LSEEK equ 8
+SYS_TIME equ 9
 ATA_DATA equ 0x01f0
 ATA_SECTOR_COUNT equ 0x01f2
 ATA_LBA_LOW equ 0x01f3
@@ -689,6 +694,24 @@ handle_command:
     mov esi, bytes_suffix
     call print_string
 
+    mov esi, doom_elf_end_prefix
+    call print_string
+    mov eax, [doom_segment_end]
+    call print_hex32
+    call newline
+
+    mov esi, doom_user_window_prefix
+    call print_string
+    cmp byte [doom_user_window_status], 1
+    je .doom_user_window_ok
+    mov esi, fail_text
+    call print_string
+    jmp .wad_load_address
+
+.doom_user_window_ok:
+    mov esi, ok_text
+    call print_string
+
 .wad_load_address:
     mov esi, wad_load_prefix
     call print_string
@@ -1199,6 +1222,16 @@ paging_init:
     jmp .user_page_next
 
 .user_pages_done:
+    mov eax, DOOM_USER_BASE
+
+.doom_page_next:
+    cmp eax, DOOM_USER_END
+    jae .doom_pages_done
+    call vmm_mark_user_identity_page
+    add eax, PAGE_SIZE
+    jmp .doom_page_next
+
+.doom_pages_done:
 
     mov eax, PAGING_DIR_ADDR
     mov cr3, eax
@@ -2079,7 +2112,13 @@ storage_init:
     mov dword [doom_entry_addr], 0
     mov dword [doom_segment_filesz], 0
     mov dword [doom_segment_memsz], 0
+    mov dword [doom_segment_end], 0
+    mov byte [doom_user_window_status], 0
     mov word [doom_elf_first_cluster], 0
+    mov dword [current_user_base], 0
+    mov dword [current_user_end], 0
+    mov dword [current_user_brk], 0
+    mov dword [current_user_heap_end], 0
 
     xor eax, eax
     mov edi, SECTOR_BUFFER_ADDR
@@ -2787,6 +2826,10 @@ user_probe_run:
     mov dword [user_wad_magic_seen], 0
     mov dword [user_wad_fd_offset], 0
     mov dword [user_brk_current], USER_HEAP_START
+    mov dword [current_user_base], USER_CODE_ADDR
+    mov dword [current_user_end], USER_HEAP_END
+    mov dword [current_user_brk], USER_HEAP_START
+    mov dword [current_user_heap_end], USER_HEAP_END
     mov word [user_probe_cs], 0
     mov word [user_probe_ss], 0
 
@@ -2949,6 +2992,8 @@ doom_elf_prepare:
     mov dword [doom_segment_dest], 0
     mov dword [doom_segment_filesz], 0
     mov dword [doom_segment_memsz], 0
+    mov dword [doom_segment_end], 0
+    mov byte [doom_user_window_status], 0
 
     cmp byte [doom_elf_load_status], 1
     jne .fail
@@ -3013,6 +3058,9 @@ doom_elf_prepare:
     jc .fail
     cmp ebx, DOOM_ELF_LIMIT
     ja .fail
+    mov [doom_segment_end], ebx
+    cmp ebx, DOOM_USER_HEAP_START
+    ja .fail
 
     mov eax, [doom_entry_addr]
     cmp eax, [doom_segment_dest]
@@ -3045,6 +3093,7 @@ doom_elf_prepare:
     rep stosb
 
     inc byte [doom_load_segment_count]
+    mov byte [doom_user_window_status], 1
     mov byte [doom_elf_parse_status], 1
     clc
     ret
@@ -3078,6 +3127,8 @@ syscall_handler:
     je .read
     cmp eax, SYS_LSEEK
     je .lseek
+    cmp eax, SYS_TIME
+    je .time
     jmp .bad_syscall
 
 .user_probe:
@@ -3125,12 +3176,13 @@ syscall_handler:
     jmp .return
 
 .sbrk:
-    mov eax, [user_brk_current]
+    mov eax, [current_user_brk]
     mov edx, eax
     add edx, ebx
     jc .bad_syscall
-    cmp edx, USER_HEAP_END
+    cmp edx, [current_user_heap_end]
     ja .bad_syscall
+    mov [current_user_brk], edx
     mov [user_brk_current], edx
     jmp .return
 
@@ -3217,6 +3269,14 @@ syscall_handler:
     mov [user_wad_fd_offset], eax
     jmp .return
 
+.time:
+    mov eax, [timer_ticks]
+    mov ebx, 35
+    mul ebx
+    mov ebx, 100
+    div ebx
+    jmp .return
+
 .bad_syscall:
     mov eax, 0xffffffff
     jmp .return
@@ -3245,12 +3305,12 @@ user_range_validate:
     push edx
     cmp ebx, 0
     je .ok
-    cmp eax, USER_CODE_ADDR
+    cmp eax, [current_user_base]
     jb .fail
     mov edx, eax
     add edx, ebx
     jc .fail
-    cmp edx, USER_HEAP_END
+    cmp edx, [current_user_end]
     ja .fail
 
 .ok:
@@ -3382,6 +3442,8 @@ draw_doom_status:
     cmp byte [doom_elf_parse_status], 1
     jne .fail
     cmp byte [doom_load_segment_count], 1
+    jne .fail
+    cmp byte [doom_user_window_status], 1
     jne .fail
 
     mov esi, ok_status_text
@@ -3754,6 +3816,8 @@ doom_elf_load_prefix db "DOOM.ELF load: ", 0
 doom_elf_parse_prefix db "DOOM.ELF parser: ", 0
 doom_elf_entry_prefix db "DOOM.ELF entry: ", 0
 doom_elf_mem_prefix db "DOOM.ELF segment bytes: ", 0
+doom_elf_end_prefix db "DOOM.ELF segment end: ", 0
+doom_user_window_prefix db "DOOM user window: ", 0
 wad_load_prefix db "WAD load address: ", 0
 bytes_suffix db " bytes", 13, 10, 0
 pages_suffix db " pages", 13, 10, 0
@@ -3885,6 +3949,7 @@ user_elf_parse_status db 0
 doom_elf_status db 0
 doom_elf_load_status db 0
 doom_elf_parse_status db 0
+doom_user_window_status db 0
 ata_status db 0
 fat_status db 0
 wad_status db 0
@@ -3927,6 +3992,7 @@ doom_segment_source dd 0
 doom_segment_dest dd 0
 doom_segment_filesz dd 0
 doom_segment_memsz dd 0
+doom_segment_end dd 0
 user_phdr_ptr dd 0
 user_phdr_remaining dd 0
 user_segment_dest dd 0
@@ -3940,6 +4006,10 @@ user_fault_addr dd 0
 user_wad_magic_seen dd 0
 user_wad_fd_offset dd 0
 user_brk_current dd 0
+current_user_base dd 0
+current_user_end dd 0
+current_user_brk dd 0
+current_user_heap_end dd 0
 heap_start dd 0
 heap_free_head dd 0
 heap_end dd 0

@@ -8,14 +8,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-enum {
-    SYS_EXIT = 2,
-    SYS_WRITE = 4,
-    SYS_SBRK = 5,
-    SYS_OPEN = 6,
-    SYS_READ = 7,
-    SYS_LSEEK = 8,
-};
+#include "vibe_os.h"
 
 struct vibe_doom_file {
     int fd;
@@ -35,7 +28,7 @@ FILE* stdin = &stdin_file;
 FILE* stdout = &stdout_file;
 FILE* stderr = &stderr_file;
 
-static int syscall3(unsigned int number, unsigned int arg0, unsigned int arg1, unsigned int arg2)
+int vibe_syscall3(unsigned int number, unsigned int arg0, unsigned int arg1, unsigned int arg2)
 {
     unsigned int result;
     __asm__ volatile(
@@ -241,7 +234,7 @@ void* malloc(size_t size)
     alloc_header_t* header;
     int raw;
     size = (size + 15) & ~(size_t)15;
-    raw = syscall3(SYS_SBRK, (unsigned int)(size + sizeof(*header)), 0, 0);
+    raw = vibe_syscall3(VIBE_SYS_SBRK, (unsigned int)(size + sizeof(*header)), 0, 0);
     if (raw < 0)
         return 0;
     header = (alloc_header_t*)(unsigned int)raw;
@@ -280,7 +273,7 @@ void free(void* ptr)
 
 void exit(int status)
 {
-    (void)syscall3(SYS_EXIT, (unsigned int)status, 0, 0);
+    (void)vibe_syscall3(VIBE_SYS_EXIT, (unsigned int)status, 0, 0);
     for (;;) {
     }
 }
@@ -306,17 +299,17 @@ void srand(unsigned int seed)
 int open(const char* path, int flags, ...)
 {
     (void)flags;
-    return syscall3(SYS_OPEN, (unsigned int)mapped_path(path), 0, 0);
+    return vibe_syscall3(VIBE_SYS_OPEN, (unsigned int)mapped_path(path), 0, 0);
 }
 
 ssize_t read(int fd, void* buffer, size_t count)
 {
-    return syscall3(SYS_READ, (unsigned int)fd, (unsigned int)buffer, (unsigned int)count);
+    return vibe_syscall3(VIBE_SYS_READ, (unsigned int)fd, (unsigned int)buffer, (unsigned int)count);
 }
 
 ssize_t write(int fd, const void* buffer, size_t count)
 {
-    return syscall3(SYS_WRITE, (unsigned int)fd, (unsigned int)buffer, (unsigned int)count);
+    return vibe_syscall3(VIBE_SYS_WRITE, (unsigned int)fd, (unsigned int)buffer, (unsigned int)count);
 }
 
 int close(int fd)
@@ -327,7 +320,7 @@ int close(int fd)
 
 off_t lseek(int fd, off_t offset, int whence)
 {
-    return syscall3(SYS_LSEEK, (unsigned int)fd, (unsigned int)offset, (unsigned int)whence);
+    return vibe_syscall3(VIBE_SYS_LSEEK, (unsigned int)fd, (unsigned int)offset, (unsigned int)whence);
 }
 
 int access(const char* path, int mode)
