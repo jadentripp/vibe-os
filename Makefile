@@ -21,13 +21,10 @@ USER_PROBE_C_SRC := user/probe.c
 DOOM_SRC_DIR := third_party/doom/linuxdoom-1.10
 DOOM_PORT_INCLUDE_DIR := doom_port/include
 DOOM_PORT_BUILD_DIR := $(BUILD_DIR)/doom
-DOOM_ORIGINAL_SRCS := \
-	$(DOOM_SRC_DIR)/m_bbox.c \
-	$(DOOM_SRC_DIR)/m_fixed.c \
-	$(DOOM_SRC_DIR)/m_random.c \
-	$(DOOM_SRC_DIR)/m_swap.c
+DOOM_ORIGINAL_SRCS := $(filter-out $(DOOM_SRC_DIR)/i_%.c $(DOOM_SRC_DIR)/d_net.c,$(wildcard $(DOOM_SRC_DIR)/*.c))
 DOOM_ORIGINAL_OBJS := $(DOOM_ORIGINAL_SRCS:$(DOOM_SRC_DIR)/%.c=$(DOOM_PORT_BUILD_DIR)/%.o)
 FREESTANDING_I386_CFLAGS := -target i386-unknown-elf -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m32 -march=i386 -mno-sse -mno-mmx -msoft-float -O2
+DOOM_ORIGINAL_CFLAGS := $(FREESTANDING_I386_CFLAGS) -std=gnu89 -DNORMALUNIX -DLINUX -I$(DOOM_PORT_INCLUDE_DIR) -I$(DOOM_SRC_DIR)
 
 STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 49152
@@ -87,7 +84,7 @@ $(USER_PROBE_C_OBJ): $(USER_PROBE_C_SRC) | $(BUILD_DIR)
 	$(CLANG) $(FREESTANDING_I386_CFLAGS) -c $< -o $@
 
 $(DOOM_PORT_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c | $(DOOM_PORT_BUILD_DIR)
-	$(CLANG) $(FREESTANDING_I386_CFLAGS) -std=gnu89 -DNORMALUNIX -I$(DOOM_PORT_INCLUDE_DIR) -I$(DOOM_SRC_DIR) -c $< -o $@
+	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) -c $< -o $@
 
 $(USER_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_PROBE_C_OBJ) tools/link_elf32.py | $(BUILD_DIR)
 	$(PYTHON) tools/link_elf32.py -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_PROBE_C_OBJ)

@@ -46,11 +46,22 @@ class DoomSourceTests(unittest.TestCase):
             self.assertTrue((DOOM_SRC / name).exists())
 
     def test_original_doom_modules_compile_as_freestanding_i386_objects(self):
-        for name in ("m_bbox.o", "m_fixed.o", "m_random.o", "m_swap.o"):
-            with self.subTest(name=name):
-                obj = BUILD / name
+        compiled_sources = [
+            path for path in DOOM_SRC.glob("*.c")
+            if not path.name.startswith("i_") and path.name != "d_net.c"
+        ]
+        self.assertEqual(len(compiled_sources), 56)
+        for source in compiled_sources:
+            with self.subTest(name=source.name):
+                obj = BUILD / f"{source.stem}.o"
                 self.assertTrue(obj.exists())
                 self.assertGreater(obj.stat().st_size, 0)
+
+    def test_linux_platform_sources_are_not_used_as_the_os_port(self):
+        excluded = ("i_main.c", "i_net.c", "i_sound.c", "i_system.c", "i_video.c", "d_net.c")
+        for name in excluded:
+            with self.subTest(name=name):
+                self.assertFalse((BUILD / f"{Path(name).stem}.o").exists())
 
 
 if __name__ == "__main__":
