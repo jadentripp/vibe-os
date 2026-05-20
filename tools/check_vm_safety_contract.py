@@ -64,6 +64,9 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         raise AssertionError("make test must not launch or require QEMU")
     _require(makefile, "vm-safety-check:", "Makefile")
     _require(makefile, "tools/check_vm_safety_contract.py", "Makefile")
+    _require(makefile, "shutdown-panic-proof-check:", "Makefile")
+    _require(makefile, "tools/check_shutdown_panic_proof.py --repo-contract", "Makefile")
+    _require(makefile, "KERNEL_EXTRA_NASMFLAGS ?=", "Makefile")
     _require(makefile, 'grep -Eq "panic=(NONE|KEXC)"', "Makefile")
     _require(makefile, 'grep -Eq "shutdown=(NONE|HALT|REBOOT)"', "Makefile")
 
@@ -80,6 +83,17 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "kill -9 \"$qemu_pid\"",
     ):
         _require(smoke_runner, needle, "smoke runner")
+
+    for needle in (
+        "shutdown_panic_proof:",
+        "SHUTDOWN_PANIC_PROOF_PANIC",
+        "SHUTDOWN_PANIC_PROOF_HALT",
+        "SHUTDOWN_PANIC_PROOF_REBOOT",
+        "--manifest build/shutdown-panic-proof/shutdown-panic-proof.json",
+        "build/shutdown-panic-proof/**",
+        "build/proof-*/*.log",
+    ):
+        _require(os_workflow, needle, "OS smoke workflow")
 
     for workflow, label in (
         (os_workflow, "OS smoke workflow"),
@@ -112,6 +126,9 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "SHUTDOWN_REBOOT equ 2",
         "panic_status dd 0",
         "shutdown_state dd 0",
+        "SHUTDOWN_PANIC_PROOF_PANIC",
+        "SHUTDOWN_PANIC_PROOF_HALT",
+        "SHUTDOWN_PANIC_PROOF_REBOOT",
         'smoke_panic_text db " panic="',
         'smoke_shutdown_text db " shutdown="',
         "mov dword [panic_status], PANIC_UNHANDLED_EXCEPTION",
@@ -131,10 +148,14 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "panic=KEXC",
         "shutdown=HALT",
         "shutdown=REBOOT",
+        "tools/check_shutdown_panic_proof.py",
+        "status-before-cleanup",
+        "guest reset/poweroff is still open",
         "tools/check_vm_safety_contract.py",
     ):
         _require(gap_doc, needle, "gap ledger")
     _require(tests_readme, "tools/check_vm_safety_contract.py", "tests README")
+    _require(tests_readme, "tools/check_shutdown_panic_proof.py", "tests README")
 
 
 def main() -> int:

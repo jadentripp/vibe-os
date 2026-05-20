@@ -243,9 +243,17 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
+            auto_result = subprocess.run(
+                [sys.executable, str(TOOL), str(final)],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("human-playability proof OK", result.stdout)
+        self.assertEqual(auto_result.returncode, 0, auto_result.stderr)
+        self.assertIn("human-playability proof OK", auto_result.stdout)
 
     def test_mouse_phase_requires_mouse_counters_to_reach_doom(self):
         baseline = make_status(

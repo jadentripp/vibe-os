@@ -246,8 +246,7 @@ class ProcessExecContractTests(unittest.TestCase):
             "call process_exec_seed_argv_stack",
             "call pic_unmask_timer_keyboard",
             "call process_exec_patch_syscall_frame",
-            "mov dword [edi + PROC_STATE], PROC_STATE_EXITED",
-            "and dword [edi + PROC_VM_FLAGS], 0xfffffffe",
+            "call process_retire_exec_slot",
             "mov [scheduler_next_process_ptr], esi",
             "inc dword [sys_exec_scheduled]",
             "call process_activate",
@@ -273,6 +272,86 @@ class ProcessExecContractTests(unittest.TestCase):
             "or dword [esi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID",
         ):
             self.assertIn(source, seed)
+
+    def test_exec_reuses_slots_with_fresh_pid_and_vm_cleanup(self):
+        kernel = read_kernel()
+        exec_path = kernel.split("process_exec_path:", 1)[1].split("process_exec_resolve_path:", 1)[0]
+        reuse = kernel.split("process_reuse_exec_target_slot:", 1)[1].split("process_retire_exec_slot:", 1)[0]
+        teardown = kernel.split("process_teardown_user_vm:", 1)[1].split("process_restore_user_stack_vm:", 1)[0]
+        retire_exec = kernel.split("process_retire_exec_slot:", 1)[1].split("process_retire_current_exit_slot:", 1)[0]
+        retire_exit = kernel.split("process_retire_current_exit_slot:", 1)[1].split("clear_fault_record:", 1)[0]
+        mark_exit = kernel.split("process_mark_current_exited:", 1)[1].split("process_mark_current_faulted:", 1)[0]
+
+        for source in (
+            "process_next_pid dd 4",
+            "process_slot_reuses dd 0",
+            "process_vm_teardowns dd 0",
+            "process_vm_pages_cleared dd 0",
+            "process_exit_teardowns dd 0",
+            "process_exec_teardowns dd 0",
+            "process_last_reused_pid dd 0xffffffff",
+            "process_last_slot_generation dd 0",
+        ):
+            self.assertIn(source, kernel)
+        self.assertLess(
+            exec_path.index("call process_reuse_exec_target_slot"),
+            exec_path.index("call fat_find_file"),
+        )
+        self.assertIn("call process_retire_exec_slot", exec_path.split(".fail:", 1)[1])
+        for source in (
+            "call process_teardown_user_vm",
+            "call process_restore_user_stack_vm",
+            "inc dword [process_slot_reuses]",
+            "mov eax, [process_next_pid]",
+            "mov [esi + PROC_PID], eax",
+            "mov [process_last_reused_pid], eax",
+            "mov [process_next_pid], eax",
+            "inc dword [esi + PROC_SLOT_GENERATION]",
+            "mov dword [esi + PROC_STATE], PROC_STATE_UNUSED",
+        ):
+            self.assertIn(source, reuse)
+        for source in (
+            "mov ebx, [esi + PROC_PAGE_DIR]",
+            "mov edi, [esi + PROC_VM_REGIONS]",
+            "mov ecx, [esi + PROC_VM_REGION_COUNT]",
+            "test dword [edi + VM_REGION_FLAGS], VM_REGION_USER",
+            "call process_clear_user_range",
+            "mov [esi + PROC_BRK], eax",
+        ):
+            self.assertIn(source, teardown)
+        self.assertIn("inc dword [process_exec_teardowns]", retire_exec)
+        self.assertIn("mov dword [esi + PROC_STATE], PROC_STATE_EXITED", retire_exec)
+        self.assertIn("inc dword [process_exit_teardowns]", retire_exit)
+        self.assertIn("call process_retire_current_exit_slot", mark_exit)
+
+    def test_late_exec_handoff_failure_restores_caller_before_rollback(self):
+        kernel = read_kernel()
+        process_doc = (ROOT / "docs" / "process-exec.md").read_text()
+        gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
+        handoff = kernel.split("process_exec_handoff_current:", 1)[1].split("process_exec_seed_argv_stack:", 1)[0]
+        late_rollback = handoff.split(".eio_after_activate:", 1)[1].split(".eio:", 1)[0]
+
+        self.assertIn("call process_activate", handoff)
+        self.assertIn("call process_exec_seed_argv_stack", handoff)
+        self.assertIn("jc .eio_after_activate", handoff)
+        self.assertIn("call process_exec_patch_syscall_frame", handoff)
+        self.assertIn("push esi", late_rollback)
+        self.assertIn("mov esi, edi", late_rollback)
+        self.assertIn("call process_activate", late_rollback)
+        self.assertIn("pop esi", late_rollback)
+        self.assertIn("call process_retire_exec_slot", late_rollback)
+        self.assertIn("jmp .eio", late_rollback)
+        self.assertLess(
+            handoff.index("call process_activate"),
+            handoff.index("call process_exec_seed_argv_stack"),
+        )
+        self.assertLess(
+            handoff.index("call process_exec_seed_argv_stack"),
+            handoff.index(".eio_after_activate:"),
+        )
+        self.assertIn("switches the caller back to RUNNING", process_doc)
+        self.assertIn("retires the half-prepared target slot", process_doc)
+        self.assertIn("rollback counter no longer leaves a half-prepared target running", gap_doc)
 
     def test_exec_patches_live_syscall_frame_for_target_iret(self):
         kernel = read_kernel()
@@ -364,6 +443,7 @@ class ProcessExecContractTests(unittest.TestCase):
             "PROC_ARGV equ 144",
             "PROC_ENVP equ 148",
             "PROC_ARGV0 equ 152",
+            "PROC_SLOT_GENERATION equ 156",
             "sys_exec_last_parent_pid dd 0xffffffff",
             "sys_exec_last_envp dd 0",
             "sys_exec_last_envp0 dd 0",
@@ -461,6 +541,7 @@ class ProcessExecContractTests(unittest.TestCase):
 
         for phrase in (
             "fixed table entries instead of arbitrary FAT paths",
+            "switches the caller back to RUNNING",
             "empty `envp` contract",
             "not a robust Unix",
             "`fork`/`exec` split",

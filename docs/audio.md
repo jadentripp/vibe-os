@@ -142,14 +142,18 @@ workflow then analyzes the temporary WAV on the runner, writes only
 with `rm -f build/doom-audio.wav` before artifact upload.
 
 The aggregate JSON manifest is intentionally aggregate-only: sample format, duration,
-active-window counts, RMS/peak summaries, zero-crossing count, and the matching
+active-window counts, RMS/peak summaries, zero-crossing count, the matching
 final `audio=SB16` / SB16 version / DMA / playback / voice queue / IRQ / refill
-/ non-music SFX / music status counters. It does not store samples, hashes, PCM
-bytes, WAD bytes, pixels, or a waveform. The artifact
+/ non-music SFX / music status counters, and a status-only SB16 continuity
+summary from the same phase snapshots. The audible checker refuses to write or
+validate the manifest if only the looped music carrier progresses while
+`sfxmix=` stays flat. It does not store samples, hashes, PCM bytes, WAD bytes,
+pixels, or a waveform. The artifact
 checker rejects raw audio files such as `*.wav`, `*.mp3`, `*.ogg`, and `*.flac`,
 but accepts `audio-proof.json` when the manifest passes the checker. This proves
 that a remote QEMU audio backend received non-silent output from the guest
-without publishing copyrighted audio.
+without publishing copyrighted audio. It still does not claim full MUS/MIDI
+song-position streaming; music remains the looped-carrier proof described below.
 
 Doom music:
 

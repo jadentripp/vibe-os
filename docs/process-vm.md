@@ -28,13 +28,14 @@ read/execute-only pages can be re-marked without it.
 - page directory: `PROC_PROBE_PAGE_DIR_ADDR`
 
 `process_preempt_probe` is a second non-Doom scheduler probe record. It uses
-the same minimal probe VM contract but has its own PID and kernel stack top, so
-host contracts can prove that the round-robin selector has an eligible
-alternate target without depending on Doom internals or real WAD data. When the
-probe execs Doom, the kernel seeds this process as a live Ring 3 spin task by
-entering the existing user-probe image with `EAX=PREEMPT_PROBE_MAGIC`; the
-crt0 branch increments a word on the user stack so cloud status can prove that
-the alternate task actually received CPU time after a timer switch.
+the same minimal probe VM contract but has its own PID, page directory, PDE-3
+page table, and kernel stack top, so host contracts can prove that the
+round-robin selector has an eligible alternate target without depending on Doom
+internals or real WAD data. When the probe execs Doom, the kernel seeds this
+process as a live Ring 3 spin task by entering the existing user-probe image
+with `EAX=PREEMPT_PROBE_MAGIC`; the crt0 branch increments a word on the user
+stack so cloud status can prove that the alternate task actually received CPU
+time after a timer switch.
 
 `process_doom` owns:
 
@@ -67,10 +68,12 @@ semantics.
 Process records now carry enough saved-frame state for both timer preemption
 and syscall-driven exec handoff. `process_seed_initial_user_context` initializes
 the saved Ring 3 frame for a fresh target, marks it READY, and sets
-`PROC_FLAG_IRQ_FRAME_VALID`. `SYS_EXEC` uses that helper, writes an argv-shaped
-stack, patches the interrupted syscall frame, marks the caller EXITED, and then
-activates the target process record. Failure paths before frame patch leave the
-current process in place.
+`PROC_FLAG_IRQ_FRAME_VALID`. `SYS_EXEC` tears down stale user mappings in the
+target slot, restores the target stack PTEs, assigns a fresh PID, writes an
+argv-shaped stack, patches the interrupted syscall frame, retires the caller's
+user mappings, and then activates the target process record. Failed exec paths
+retire any half-prepared target slot before reporting rollback. `SYS_EXIT` also
+tears down the current process's user mappings before marking it exited.
 
 ## Permissions
 
@@ -107,11 +110,11 @@ are adjacent and the Doom heap grows up to the stack bottom.
   load that task's kernel stack into `tss_esp0`, rewrite the live IRQ frame,
   and resume it with `iretd`. The cloud status fields distinguish the source
   and target PIDs (`pfrom`/`pto`), their restored EIPs (`peip`), timer IRQs that
-  arrived from Ring 3 (`puser`), quantum rounds (`pround`), total context
-  activations (`pctx`), and live spin progress (`pspin`). The `pspin` sampler
-  only dereferences the preempt probe stack while `process_preempt_probe` is the
-  active process, so the proof does not depend on probe pages being visible in
-  Doom's page directory.
+  arrived from Ring 3 (`puser`), timer-IRQ context switches (`pirq`), quantum
+  rounds (`pround`), total context activations (`pctx`), and live spin progress
+  (`pspin`). The `pspin` sampler only dereferences the preempt probe stack while
+  `process_preempt_probe` is the active process, so the proof does not depend on
+  probe pages being visible in Doom's page directory.
 - Page-table structures are fixed low-memory page-table pages, not dynamically
   allocated or reclaimed with process lifetime.
 - Exact execute-disable enforcement is still blocked by the current 32-bit x86

@@ -113,6 +113,7 @@ HEX_FIELDS = (
     "mousepoll",
     "mousebtn",
     "preempt",
+    "pirq",
     "pattempt",
     "pskip",
     "puser",
@@ -198,6 +199,7 @@ SUMMARY_FIELDS = (
     "free",
     "ticks",
     "preempt",
+    "pirq",
     "pattempt",
     "pskip",
     "puser",
@@ -457,7 +459,10 @@ def _validate_core_status(status: str) -> None:
             raise AssertionError("voiceq= must prove an audio voice was queued when audio=SB16")
         if musicq[0] == 0:
             raise AssertionError("musicq= must prove the music carrier was queued when audio=SB16")
-    _hex_field_gt(status, "preempt", 0)
+    preempt_switches = _hex_field_gt(status, "preempt", 0)
+    irq_switches = _hex_field_gt(status, "pirq", 0)
+    if irq_switches != preempt_switches:
+        raise AssertionError("pirq= must match preempt= to prove timer IRQ-driven switches")
     _hex_field_gt(status, "pattempt", 0)
     _hex_field_gt(status, "puser", 0)
     _hex_field_gt(status, "pround", 0)

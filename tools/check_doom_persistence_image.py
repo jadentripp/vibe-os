@@ -8,6 +8,7 @@ it does not print or export WAD contents, rendered pixels, or disk images.
 
 import argparse
 import importlib.util
+import re
 from pathlib import Path
 
 
@@ -20,6 +21,57 @@ DEFAULT_MARKERS = (
     b"screenblocks",
     b"use_mouse",
     b"chatmacro0",
+)
+EXPECTED_SAVE_VERSION = b"version 110"
+MIN_SAVE_BYTES = 512
+REQUIRED_DOOM_INIT_FLAGS = 0x000001FF
+FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
+REBOOT_EXACT_FIELDS = {
+    "exec": "OK",
+    "path": "DOOM.ELF",
+    "doom": "OK",
+    "doomrun": "RUN",
+    "doomopen": "OK",
+    "doomread": "OK",
+    "gameplay": "OK",
+    "gfx": "OK",
+    "pself": "OK",
+    "pg": "ON",
+    "pmm": "OK",
+    "vmm": "OK",
+    "libc": "OK",
+    "c": "OK",
+    "usr": "OK",
+    "wad": "OK",
+    "lmp": "OK",
+    "heap": "OK",
+    "panic": "NONE",
+    "shutdown": "NONE",
+}
+REBOOT_ZERO_HEX_FIELDS = (
+    "execerr",
+    "execres",
+    "doomexit",
+    "doomfault",
+    "doomfaultip",
+    "doomfaultv",
+    "doomfaulterr",
+)
+REBOOT_POSITIVE_HEX_FIELDS = (
+    "target",
+    "ppid",
+    "entry",
+    "stack",
+    "argv",
+    "envp",
+    "argv0",
+    "doomseek",
+    "doomsbrk",
+    "doompresent",
+    "leveltime",
+    "dtick",
+    "free",
+    "ticks",
 )
 
 spec = importlib.util.spec_from_file_location("make_wad_image", MAKE_WAD_IMAGE)
@@ -87,8 +139,12 @@ def _validate_default(fs):
         raise PersistenceProofError("DEFAULT.CFG metadata size does not match readable bytes")
     if not data:
         raise PersistenceProofError("DEFAULT.CFG is still empty")
-    if not any(marker in data for marker in DEFAULT_MARKERS):
-        raise PersistenceProofError("DEFAULT.CFG does not look like Doom defaults text")
+    missing = [marker.decode("ascii") for marker in DEFAULT_MARKERS if marker not in data]
+    if missing:
+        raise PersistenceProofError(
+            "DEFAULT.CFG does not look like a complete Doom defaults file; "
+            f"missing {', '.join(missing)}"
+        )
     return len(data)
 
 
@@ -104,13 +160,25 @@ def _validate_save_slot(fs, slot):
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG metadata size does not match readable bytes")
     if len(data) < minimum:
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG is too small for a Doom save header")
+    if len(data) < MIN_SAVE_BYTES:
+        raise PersistenceProofError(f"DOOMSAV{slot}.DSG is too small for a real Doom save payload")
 
     description = _trim_c_string(data[:SAVE_DESCRIPTION_BYTES])
     version = _trim_c_string(data[SAVE_DESCRIPTION_BYTES:minimum])
     if not description:
         raise PersistenceProofError(f"DOOMSAV{slot}.DSG has an empty save description")
-    if not version.startswith(b"version "):
-        raise PersistenceProofError(f"DOOMSAV{slot}.DSG is missing the Doom version marker")
+    if version != EXPECTED_SAVE_VERSION:
+        raise PersistenceProofError(f"DOOMSAV{slot}.DSG has unexpected Doom version {version!r}")
+    skill = data[minimum]
+    episode = data[minimum + 1]
+    game_map = data[minimum + 2]
+    player_flags = data[minimum + 3:minimum + 7]
+    if skill > 4:
+        raise PersistenceProofError(f"DOOMSAV{slot}.DSG has an invalid skill byte")
+    if not (1 <= episode <= 4 and 1 <= game_map <= 9):
+        raise PersistenceProofError(f"DOOMSAV{slot}.DSG has an invalid episode/map header")
+    if not any(player_flags):
+        raise PersistenceProofError(f"DOOMSAV{slot}.DSG has no active player flags")
     return len(data), description.decode("ascii", "replace"), version.decode("ascii", "replace")
 
 
@@ -138,11 +206,112 @@ def _require_reboot_survived(fs, reboot_fs, name, label):
         raise PersistenceProofError(f"{label} did not survive reboot image comparison")
 
 
+def _status_fields(status):
+    fields = {}
+    for match in FIELD_PATTERN.finditer(status):
+        name = match.group(1)
+        if name in fields:
+            raise PersistenceProofError(f"reboot status has duplicate {name}= field")
+        fields[name] = match.group(2)
+    if not fields:
+        raise PersistenceProofError("reboot status has no key=value fields")
+    return fields
+
+
+def _status_field(fields, name):
+    value = fields.get(name)
+    if value is None:
+        raise PersistenceProofError(f"reboot status missing {name}= field")
+    return value
+
+
+def _status_hex_field(fields, name):
+    value = _status_field(fields, name)
+    if not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
+        raise PersistenceProofError(
+            f"reboot status {name}= must be eight hex digits, got {value!r}"
+        )
+    return int(value, 16)
+
+
+def _status_hex_tuple_field(fields, name, count, separator="/"):
+    value = _status_field(fields, name)
+    parts = value.split(separator)
+    if len(parts) != count:
+        raise PersistenceProofError(
+            f"reboot status {name}= must have {count} hex parts separated by {separator!r}"
+        )
+    parsed = []
+    for part in parts:
+        if not re.fullmatch(r"[0-9A-Fa-f]{8}", part):
+            raise PersistenceProofError(
+                f"reboot status {name}= part must be eight hex digits, got {part!r}"
+            )
+        parsed.append(int(part, 16))
+    return tuple(parsed)
+
+
+def validate_reboot_status(status):
+    if "Aurora OS v0.2" not in status:
+        raise PersistenceProofError("reboot status is missing Aurora OS banner")
+
+    fields = _status_fields(status)
+    for name, expected in REBOOT_EXACT_FIELDS.items():
+        value = _status_field(fields, name)
+        if value != expected:
+            raise PersistenceProofError(
+                f"reboot status {name}= must be {expected}, got {value!r}"
+            )
+
+    for name in REBOOT_ZERO_HEX_FIELDS:
+        value = _status_hex_field(fields, name)
+        if value != 0:
+            raise PersistenceProofError(f"reboot status {name}= must be zero, got {value:#x}")
+
+    for name in REBOOT_POSITIVE_HEX_FIELDS:
+        value = _status_hex_field(fields, name)
+        if value == 0:
+            raise PersistenceProofError(f"reboot status {name}= must be nonzero")
+
+    if _status_hex_field(fields, "argc") != 1:
+        raise PersistenceProofError("reboot status argc= must prove a single argv[0]")
+    if _status_hex_field(fields, "envp0") != 0:
+        raise PersistenceProofError("reboot status envp0= must prove an empty envp")
+
+    attempts, successes, failures, handoffs, scheduled, rollbacks = _status_hex_tuple_field(
+        fields, "execsys", 6
+    )
+    if attempts == 0 or successes == 0 or handoffs == 0 or scheduled == 0:
+        raise PersistenceProofError(
+            "reboot status execsys= must prove a successful syscall exec handoff"
+        )
+    if failures != 0 or rollbacks != 0:
+        raise PersistenceProofError("reboot status execsys= must not report failures")
+
+    opens, reads, seeks, magic = _status_hex_tuple_field(fields, "doomwad", 4)
+    if opens == 0 or reads == 0 or seeks == 0:
+        raise PersistenceProofError("reboot status doomwad= must prove WAD open/read/lseek")
+    if magic != 0x44415749:
+        raise PersistenceProofError(f"reboot status doomwad= magic must be IWAD, got {magic:#x}")
+
+    init_flags, init_reports = _status_hex_tuple_field(fields, "doominit", 2)
+    if (init_flags & REQUIRED_DOOM_INIT_FLAGS) != REQUIRED_DOOM_INIT_FLAGS:
+        raise PersistenceProofError(
+            f"reboot status doominit= flags must include {REQUIRED_DOOM_INIT_FLAGS:#x}"
+        )
+    if init_reports == 0:
+        raise PersistenceProofError("reboot status doominit= report count must be nonzero")
+
+    if any(_status_hex_tuple_field(fields, "fault", 11)):
+        raise PersistenceProofError("reboot status fault= must be all zero")
+
+
 def validate_image(
     path,
     *,
     baseline_image=None,
     reboot_baseline_image=None,
+    reboot_status_path=None,
     require_default=False,
     require_save_slots=(),
 ):
@@ -163,6 +332,12 @@ def validate_image(
         raise PersistenceProofError(
             "reboot image comparison requires --require-default or --require-save-slot"
         )
+    if reboot_fs is not None and baseline_fs is None:
+        raise PersistenceProofError(
+            "reboot image comparison requires --baseline-image so survived bytes are also proven to be Doom-written"
+        )
+    if reboot_status_path is not None and reboot_fs is None:
+        raise PersistenceProofError("--reboot-status requires --reboot-baseline-image")
 
     _validate_fat_layout(fs)
     if baseline_fs is not None:
@@ -216,6 +391,10 @@ def validate_image(
             f"DOOMSAV{slot}.DSG bytes={size}{suffix} description={description!r} version={version!r}"
         )
 
+    if reboot_status_path is not None:
+        validate_reboot_status(Path(reboot_status_path).read_text())
+        summary.append("reboot status runtime=OK")
+
     if not summary:
         summary.append("persistence entries present")
     return summary
@@ -240,6 +419,10 @@ def parse_args():
         help="image copied after the write boot; requested entries must match it after reboot",
     )
     parser.add_argument(
+        "--reboot-status",
+        help="decoded status.txt captured from the reboot boot; Doom runtime/fault gates must pass",
+    )
+    parser.add_argument(
         "--require-save-slot",
         action="append",
         type=int,
@@ -256,6 +439,7 @@ def main():
         args.image,
         baseline_image=args.baseline_image,
         reboot_baseline_image=args.reboot_baseline_image,
+        reboot_status_path=args.reboot_status,
         require_default=args.require_default,
         require_save_slots=args.require_save_slot,
     ):

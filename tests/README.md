@@ -24,11 +24,13 @@ boot:
   `c:\doomdata` `mkdir` shim.
 - `tests/host/test_doom_persistence_image.py` and
   `tools/check_doom_persistence_image.py` prove the non-QEMU image-inspection
-  path for Doom defaults and saves: `DEFAULT.CFG` must contain Doom-shaped
-  defaults text, and `DOOMSAVN.DSG` must carry Doom's save description plus
-  `version ...` header. With `--baseline-image`, requested entries must also
-  differ from the fresh pre-boot image before a remote reboot run can claim
-  persistence.
+  path for Doom defaults and saves: `DEFAULT.CFG` must contain complete
+  Doom-shaped defaults markers, and `DOOMSAVN.DSG` must carry Doom's save
+  description, `version 110` header, plausible game-state bytes, and enough
+  payload to rule out tiny fake headers. With `--baseline-image`, requested
+  entries must also differ from the fresh pre-boot image; reboot comparison
+  requires that fresh baseline plus a clean `--reboot-status` runtime/fault gate
+  before it can claim persistence.
 - Host process tests prove that `SYS_EXEC` is more than a FAT loader: the path
   rejects unsafe active-slot reloads, seeds a scheduler-visible target context,
   writes an argc/argv stack shape, patches the live syscall frame, marks the
@@ -74,7 +76,8 @@ boot:
 - `tools/check_audible_audio_proof.py` is the optional remote audible-output
   gate. In cloud it analyzes a temporary QEMU WAV capture into aggregate
   `audio-proof.json`, validates non-silent duration/window/RMS/peak metrics tied
-  to the final `audio=SB16` status, and keeps raw audio out of artifacts.
+  to the final `audio=SB16` status plus the same status-only SB16 continuity
+  snapshots, and keeps raw audio out of artifacts.
 - `tests/host/test_post_checkpoint_gaps.py` guards the post-checkpoint honesty
   ledger: Doom exit/fault diagnostics, including CR2, EIP, vector, and x86
   error code, must stay visible in status, save/config persistence must be
@@ -90,11 +93,15 @@ boot:
 - `tools/check_vm_safety_contract.py` machine-checks the local-QEMU opt-in,
   cloud diagnostic upload hygiene, panic status fields, and shutdown status
   fields without launching QEMU.
+- `tools/check_shutdown_panic_proof.py` validates the opt-in disposable-cloud
+  shutdown/panic proof contract and any downloaded proof artifact. It requires
+  `shutdown-panic-proof.json` plus dedicated panic, halt, and reboot-request
+  status files, and rejects missing status or monitor-quit-only evidence.
 - `tools/check_cloud_playability_artifacts.py` validates the remote human-run
   runbook, workflow upload hygiene, expected non-WAD diagnostic files, and
   downloaded real-WAD status artifacts without requiring a WAD or local QEMU.
   It rejects forbidden filenames, duplicate required basenames, unexpected ELF
-  binaries, raw audio files, and renamed WAD/disk/image/audio payload
+  binaries, raw audio files, compressed WAD archives, and renamed WAD/disk/image/audio payload
   signatures. If `audio-proof.json` is present, it validates that aggregate
   manifest too.
 - `tools/triage_cloud_status.py` classifies a downloaded real-WAD status line

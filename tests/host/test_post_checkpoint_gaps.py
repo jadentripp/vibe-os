@@ -124,8 +124,11 @@ class PostCheckpointGapTests(unittest.TestCase):
 
         self.assertIn("The FAT16 image has root entries for `DEFAULT.CFG`", gap_doc)
         self.assertIn("There is not yet an archived successful cloud artifact", gap_doc)
+        self.assertIn("captures the fresh baseline immediately after rebuilding", gap_doc)
         self.assertIn("same disk image is booted again", gap_doc)
+        self.assertIn("reboot comparison now requires the fresh baseline", gap_doc)
         self.assertIn("after-write snapshot", persistent_doc)
+        self.assertIn("requires `--baseline-image` too", persistent_doc)
         self.assertIn("This is enough for Doom defaults and save slots", persistent_doc)
 
     def test_docs_keep_large_post_checkpoint_gaps_explicit(self):
@@ -169,6 +172,10 @@ class PostCheckpointGapTests(unittest.TestCase):
             "latest reported real-WAD cloud evidence has moved past",
             "Doom faults before WAD I/O",
             "not a Doom-capable proof",
+            "26149350434",
+            "da9c136",
+            "passes the current scripted real-WAD cloud artifact checker",
+            "playability-status-green",
             "doomrun=RUN",
             "doomopen=OK",
             "doomread=OK",
@@ -176,11 +183,13 @@ class PostCheckpointGapTests(unittest.TestCase):
             "Frame/gameplay counters are active",
             "Scripted keyboard input, mouse input, SB16/audio counters",
             "preemption counters are active",
-            "`usr=OK` consistency",
-            "scripted `use` snapshot",
-            "mouse snapshot/effect baselines",
-            "SB16/audio baseline",
+            "workflow, or checker contract changes",
+            "scripted `usr=OK`, `use`, mouse effect, audio",
             "check_audio_continuity_proof.py",
+            "26149570191",
+            "memset+0x20",
+            "doomfaultip=01029F20",
+            "audio-proof.json",
             "stronger gameplay proof",
             "remote human playtest",
             "26146035600",

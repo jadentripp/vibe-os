@@ -3,6 +3,7 @@ QEMU ?= qemu-system-x86_64
 PYTHON ?= python3
 CLANG ?= clang
 NC ?= nc
+KERNEL_EXTRA_NASMFLAGS ?=
 QEMU_ACCEL ?= tcg
 QEMU_MACHINE := pc,accel=$(QEMU_ACCEL)
 QEMU_EXTRA_ARGS ?=
@@ -58,7 +59,7 @@ STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 65536
 USER_PROBE_ELF_MAX_BYTES := 12288
 
-.PHONY: all build-only test doom-compile doom-link run run-headless smoke playability-gap-check vm-safety-check audio-continuity-check audible-audio-proof-check cloud-playability-check persistence-image-check clean check-tools vm-consent
+.PHONY: all build-only test doom-compile doom-link run run-headless smoke playability-gap-check vm-safety-check shutdown-panic-proof-check audio-continuity-check audible-audio-proof-check cloud-playability-check persistence-image-check clean check-tools vm-consent
 
 all: $(IMAGE)
 
@@ -102,7 +103,7 @@ $(STAGE2_BIN): boot/stage2.asm | $(BUILD_DIR)
 	@test $$(wc -c < $@) -le $(STAGE2_MAX_BYTES) || { echo "stage2 exceeds $(STAGE2_MAX_BYTES) bytes"; exit 1; }
 
 $(KERNEL_OBJ): kernel/kernel.asm | $(BUILD_DIR)
-	$(NASM) -f elf32 -D ELF_KERNEL $< -o $@
+	$(NASM) -f elf32 -D ELF_KERNEL $(KERNEL_EXTRA_NASMFLAGS) $< -o $@
 
 $(C_RUNTIME_OBJ): $(C_RUNTIME_SRC) | $(BUILD_DIR)
 	$(CLANG) $(FREESTANDING_I386_CFLAGS) -c $< -o $@
@@ -339,13 +340,16 @@ playability-gap-check:
 vm-safety-check:
 	$(PYTHON) tools/check_vm_safety_contract.py
 
+shutdown-panic-proof-check:
+	$(PYTHON) tools/check_shutdown_panic_proof.py --repo-contract
+
 audio-continuity-check:
 	$(PYTHON) tools/check_audio_continuity_proof.py --repo-contract
 
 audible-audio-proof-check:
 	$(PYTHON) tools/check_audible_audio_proof.py --repo-contract
 
-cloud-playability-check: playability-gap-check vm-safety-check audio-continuity-check audible-audio-proof-check
+cloud-playability-check: playability-gap-check vm-safety-check shutdown-panic-proof-check audio-continuity-check audible-audio-proof-check
 	$(PYTHON) tools/check_cloud_playability_artifacts.py --repo-contract
 
 persistence-image-check: $(IMAGE)

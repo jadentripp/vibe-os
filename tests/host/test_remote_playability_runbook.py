@@ -120,6 +120,7 @@ def valid_status(**overrides):
         "mousebtn": "00000001",
         "mousedelta": "00000018:0000000C",
         "preempt": "00000001",
+        "pirq": "00000001",
         "pattempt": "00000001",
         "pskip": "00000000",
         "puser": "00000020",
@@ -333,6 +334,31 @@ def write_valid_artifact(artifact):
         )
 
 
+def write_human_notes(artifact, **overrides):
+    fields = {
+        "schema": "human-playtest-notes-v1",
+        "commit": "abcdef0",
+        "playtester": "jt",
+        "remote_host": "disposable",
+        "qemu_location": "remote",
+        "vnc_tunnel": "loopback-only",
+        "wad": "shareware-v1.9-validated-remote-only",
+        "display": "pass",
+        "keyboard": "pass",
+        "mouse": "pass",
+        "audio": "status-only",
+        "diagnostics": "non-wad-status-only",
+        "no_local_qemu": "yes",
+        "no_wad_upload": "yes",
+        "no_disk_upload": "yes",
+        "no_pixel_upload": "yes",
+    }
+    fields.update(overrides)
+    (artifact / "human-playtest-notes.txt").write_text(
+        "\n".join(f"{key}={value}" for key, value in fields.items()) + "\n"
+    )
+
+
 def valid_audio_proof_manifest():
     return {
         "schema": check_cloud_playability_artifacts.check_audible_audio_proof.SCHEMA,
@@ -375,6 +401,21 @@ def valid_audio_proof_manifest():
             "sfxvoices": "00000001",
             "musicmix": "00000006",
             "musicloop": "00000001",
+        },
+        "continuity": {
+            "gate": "tools/check_audio_continuity_proof.py",
+            "snapshots": ["baseline", "fire", "movement", "use", "menu", "final"],
+            "sb16_continuity": True,
+            "non_music_sfx_progress": True,
+            "music_carrier_progress": True,
+            "irq_refill_progress": True,
+            "progress": {
+                "audioirq": {"start": "00000001", "final": "00000006", "delta": "00000005"},
+                "refill": {"start": "00000001", "final": "00000006", "delta": "00000005"},
+                "sfxmix": {"start": "00000001", "final": "00000008", "delta": "00000007"},
+                "musicmix": {"start": "00000001", "final": "00000006", "delta": "00000005"},
+            },
+            "claim": "non-silent remote QEMU output plus status-only SB16 continuity",
         },
         "artifact_policy": {
             "contains_raw_audio": False,
@@ -427,6 +468,25 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             with self.assertRaisesRegex(AssertionError, "forbidden artifact content"):
                 check_cloud_playability_artifacts.validate_artifact_dir(artifact)
 
+    def test_downloaded_artifact_directory_rejects_compressed_or_archived_wad_payloads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+
+            (artifact / "harmless.log").write_bytes(gzip.compress(b"IWAD" + b"\0" * 64))
+            with self.assertRaisesRegex(AssertionError, "gzip-compressed WAD"):
+                check_cloud_playability_artifacts.validate_artifact_dir(artifact)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+
+            archive_path = artifact / "diagnostics.log"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("nested/DOOM1.WAD", b"IWAD" + b"\0" * 64)
+            with self.assertRaisesRegex(AssertionError, "zip archive containing forbidden payload"):
+                check_cloud_playability_artifacts.validate_artifact_dir(artifact)
+
     def test_downloaded_artifact_directory_rejects_raw_audio_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             artifact = Path(tmp)
@@ -451,6 +511,46 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             (artifact / "audio-proof.json").write_text(json.dumps(manifest, sort_keys=True))
             with self.assertRaisesRegex(AssertionError, "audible audio proof manifest failed"):
                 check_cloud_playability_artifacts.validate_artifact_dir(artifact)
+
+    def test_downloaded_human_session_requires_structured_notes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+
+            with self.assertRaisesRegex(AssertionError, "human review file"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
+            write_human_notes(artifact)
+            check_cloud_playability_artifacts.validate_artifact_dir(
+                artifact,
+                require_human_notes=True,
+            )
+
+            write_human_notes(artifact, no_local_qemu="no")
+            with self.assertRaisesRegex(AssertionError, "human playtest notes failed"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
+    def test_cli_human_session_mode_validates_notes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            write_human_notes(artifact)
+
+            result = subprocess.run(
+                [sys.executable, str(CHECKER), "--human-session", str(artifact)],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("cloud playability artifact check OK", result.stdout)
 
     def test_downloaded_artifact_directory_rejects_duplicate_required_basenames(self):
         with tempfile.TemporaryDirectory() as tmp:

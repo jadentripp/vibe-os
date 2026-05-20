@@ -10,7 +10,7 @@ to the caller.
 
 - `process_exec_table` currently recognizes `DOOM.ELF` and `USERPROB.ELF`.
   Each entry names the public path, FAT 8.3 root entry, load buffer, byte limit,
-  and fixed process record.
+  and reusable process slot.
 - `process_exec_path` resolves the copied path through that table, rejects an
   active target slot when syscall mode requests active-process safety, loads the
   file through the common FAT reader, validates ELF magic, and delegates segment
@@ -31,11 +31,16 @@ to the caller.
   `process_exec_reject_active_target` is set. This prevents reloading the image
   backing the currently running process, because a partial reload could not be
   rolled back safely.
-- On success, `process_exec_handoff_current` resets the target process record,
-  stores the prepared ELF entry, seeds `PROC_SAVED_EIP`, `PROC_SAVED_ESP`,
-  selectors, `EFLAGS`, and `PROC_FLAG_IRQ_FRAME_VALID`, and writes a real
-  `argc`, `argv[]`, `NULL`, `envp NULL` stack layout from the bounded staged
-  arguments.
+- Before loading the target image, the kernel tears down stale user PTEs for the
+  target slot, restores only its writable stack window, assigns the slot a fresh
+  PID from `process_next_pid`, and increments the slot generation. That keeps
+  the table-supported launch path bounded while making slots reusable instead of
+  permanently tied to one fixed PID.
+- On success, `process_exec_handoff_current` resets the target process record
+  without changing the freshly allocated PID, stores the prepared ELF entry,
+  seeds `PROC_SAVED_EIP`, `PROC_SAVED_ESP`, selectors, `EFLAGS`, and
+  `PROC_FLAG_IRQ_FRAME_VALID`, and writes a real `argc`, `argv[]`, `NULL`,
+  `envp NULL` stack layout from the bounded staged arguments.
 - The target process record also stores exec metadata for later proof and
   accounting: parent PID, exec count, `argc`, `argv`, `envp`, and `argv[0]`.
   These fields are populated from the same stack builder that crt0 consumes.
@@ -52,9 +57,9 @@ to the caller.
   caller move to `PROC_STATE_EXITED`. The target is installed into
   `scheduler_next_process_ptr`, activated with `process_activate`, and resumed
   through the syscall `iretd` path.
-- The fixed-slot model means this is a process replacement/switch rather than a
-  Unix-style PID-preserving address-space overlay. The old caller stops running;
-  the table target's fixed process record becomes current.
+- The old caller stops running; the table target's reusable process slot becomes
+  current with its newly assigned PID. This is still not a Unix-style
+  PID-preserving address-space overlay.
 
 ## Scheduler Proof
 
@@ -77,18 +82,24 @@ The same status line also records `execerr=<errno>`, `execres=<syscall result>`,
 launch should have zero `execerr`/`execres`, nonzero argc/argv/envp pointers,
 `envp0 == 0`, and nonzero target entry/stack addresses.
 
-Failures before frame patch leave the active process current and increment the
-rollback counter. Unsafe active-slot exec returns `-EACCES`; invalid pointers
-return `-EINVAL`; missing table/FAT paths return `-ENOENT`; loader/ELF failures
-return `-EIO`.
+Failures before the target is activated leave the caller current, retire any
+resolved target slot that was prepared for reuse, and increment the rollback
+counter. If a later handoff step fails after the target address space has been
+activated, the kernel switches the caller back to RUNNING, tears down the
+half-prepared target slot's user mappings, marks it exited, and then reports the
+rollback. That path retires the half-prepared target slot before the syscall
+reports failure. Unsafe active-slot exec returns `-EACCES`; invalid pointers return
+`-EINVAL`; missing table/FAT paths return `-ENOENT`; loader/ELF failures return
+`-EIO`.
 
 ## Remaining Gaps
 
 - Exec targets are still fixed table entries instead of arbitrary FAT paths.
 - `argv` copying is intentionally bounded to a small static vector; environment
   copying is not implemented yet, so libc exposes an empty `envp` contract.
-- Page-table structures and process records are static; there is no dynamic PID
-  allocation or address-space reclamation.
+- Page-table structures and process records are still static, but exec targets
+  now reuse slots with fresh PIDs and teardown of stale user PTEs. There is not
+  yet dynamic child-slot growth or physical-frame reclamation.
 - This is enough to launch the probe and Doom, but it is not a robust Unix process
   model. There is no `fork`/`exec` split, `wait`/reap lifecycle, process groups,
   signal delivery, fd inheritance, dynamic child slots, or cleanup of a dead

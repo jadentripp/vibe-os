@@ -8,10 +8,12 @@ input through the same PS/2 paths a human would use, and the kernel exports
 compact counters and state deltas from Doom.
 
 This file describes the required green path. It is not a claim that the current branch is playable.
-The latest analyzed real-WAD run is still red with `doomrun=FAULT` at
-`FindResponseFile+0x34`, before WAD open/read or gameplay.
-The latest current-head normal cloud smoke is also red with `doomrun=FAULT` at
-`W_AddFile+0x246`, after WAD open/read but before gameplay.
+The scripted cloud proof is the current machine-checkable baseline: a green
+manual **Real WAD smoke** run proves the real shareware WAD path, gameplay,
+input, mouse, audio-counter, preemption, and non-pixel visual diagnostics from a
+disposable runner artifact. A human-facing playable claim still needs a recorded
+remote VNC playtest bundle from `docs/runbooks/remote-doom-playtest.md`, with
+structured human notes and the same non-WAD status checks passing locally.
 
 ## Deterministic Script
 
@@ -66,7 +68,9 @@ The cloud proof requires these status families:
   vector/error/eip/cs/esp/ss/cr2/pid/kind/state/last-syscall for the most
   recent fault frame. `panic=KEXC` is reserved for unhandled non-Doom kernel
   exceptions, and `shutdown=HALT`/`shutdown=REBOOT` mark intentional OS shutdown
-  paths.
+  paths. Those shutdown/panic values only become proof when paired with the
+  opt-in `shutdown-panic-proof.json` artifact and
+  `tools/check_shutdown_panic_proof.py`; monitor `quit` cleanup does not count.
 - Runtime: `gameplay=OK`, `gstate=00000000`, `gmap=00000101`, `gtic>0`, and
   `leveltime>0` prove the real engine reached E1M1 gameplay.
 - Input pipeline: `keyirq`, `keyqueue`, and `keypoll` increase from the early
@@ -109,12 +113,14 @@ The cloud proof requires these status families:
   disposable runner, `tools/check_audible_audio_proof.py` reduces that file to
   aggregate `audio-proof.json`, and the workflow deletes the WAV before upload.
   The manifest proves non-silent remote audio output tied to the final
-  `audio=SB16` status counters, but it does not upload the WAV or any captured
-  samples.
-- Scheduler proof: `preempt`, `pattempt`, `pskip`, `puser`, `pround`, `pctx`,
-  `pfrom`, `pto`, `peip`, `pspin`, and `pself=OK` expose live PIT preemption.
-  A valid proof requires Ring 3 timer IRQs, a switch between different PIDs,
-  nonzero source/target EIPs, and a `pspin` value beyond the seeded
+  `audio=SB16` status counters and the same status-only SB16 continuity gate.
+  It fails if the carrier path moves but non-music `sfxmix=` does not progress,
+  and it does not upload the WAV or any captured samples.
+- Scheduler proof: `preempt`, `pirq`, `pattempt`, `pskip`, `puser`, `pround`,
+  `pctx`, `pfrom`, `pto`, `peip`, `pspin`, and `pself=OK` expose live PIT
+  preemption. A valid proof requires `pirq` to match `preempt`, Ring 3 timer
+  IRQs, a switch between different PIDs, nonzero source/target EIPs, and a
+  `pspin` value beyond the seeded
   `50524545` magic from the alternate Ring 3 preempt probe.
 
 `tools/check_real_wad_proof.py` gates the real-WAD status on both the non-pixel
@@ -186,5 +192,6 @@ kernel/port paths a human session uses.
 For a live human session, use the Remote Doom Playtest Runbook in
 `docs/runbooks/remote-doom-playtest.md`. That path keeps QEMU on a disposable
 remote host, connects through VNC over SSH, and uses
-`tools/check_cloud_playability_artifacts.py` to validate downloaded diagnostics
-without storing WAD data or rendered pixels in the repo.
+`tools/check_cloud_playability_artifacts.py --human-session` to validate
+downloaded diagnostics and `human-playtest-notes.txt` without storing WAD data,
+disk images, audio captures, or rendered pixels in the repo.

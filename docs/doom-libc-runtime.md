@@ -94,4 +94,9 @@ After a remote/cloud run writes defaults or a save slot into a disposable
 fresh pre-boot image, plus `--require-default` and optional `--require-save-slot
 N`. It reads only `DEFAULT.CFG` and `DOOMSAVN.DSG` through the FAT parser and
 checks for Doom-shaped defaults text, the savegame description/version header,
-and requested entries that changed from the baseline.
+and requested entries that changed from the baseline. Reboot-survival claims add
+`--reboot-baseline-image` for the after-write snapshot plus `--reboot-status`
+for the second boot's decoded status. The checker requires the fresh baseline in
+that mode too, and the status gate rejects user faults, panics, shutdowns, and
+failed Doom runtime health fields so persisted bytes alone cannot count as
+proof.

@@ -412,6 +412,20 @@ def validate_status(
             raise AssertionError(f"rejected Doom error string matched: {pattern}")
 
 
+def _read_existing(path: Path | None) -> str | None:
+    return path.read_text() if path is not None and path.exists() else None
+
+
+def _auto_snapshot(final_status: Path, label: str) -> Path:
+    return final_status.with_name(f"status.{label}.txt")
+
+
+def _resolve_snapshot(explicit: Path | None, auto: Path | None) -> str | None:
+    if explicit is not None:
+        return explicit.read_text()
+    return _read_existing(auto)
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("final_status", type=Path, help="Decoded final build/status.txt")
@@ -426,27 +440,52 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--use", type=Path, help="Decoded status after scripted use")
     parser.add_argument("--mouse", type=Path, help="Decoded status after scripted mouse input")
     parser.add_argument("--menu", type=Path, help="Decoded status after scripted menu toggle")
+    parser.add_argument(
+        "--no-auto-snapshots",
+        action="store_true",
+        help="Only use explicitly supplied snapshot paths",
+    )
     args = parser.parse_args(argv)
 
     final_status = ""
     try:
         final_status = args.final_status.read_text()
-        baseline_status = args.baseline.read_text() if args.baseline else None
-        start_status = args.start.read_text() if args.start else None
-        movement_status = args.movement.read_text() if args.movement else None
-        fire_status = args.fire.read_text() if args.fire else None
-        use_status = args.use.read_text() if args.use else None
-        mouse_status = args.mouse.read_text() if args.mouse else None
-        menu_status = args.menu.read_text() if args.menu else None
+        baseline = args.baseline
+        start = args.start
+        movement = args.movement
+        fire = args.fire
+        use = args.use
+        mouse = args.mouse
+        menu = args.menu
+        if not args.no_auto_snapshots:
+            if baseline is None:
+                early = _auto_snapshot(args.final_status, "early")
+                after_start = _auto_snapshot(args.final_status, "after-start")
+                baseline = early if early.exists() else after_start
+            start = start or _auto_snapshot(args.final_status, "after-start")
+            fire = fire or _auto_snapshot(args.final_status, "after-fire")
+            movement = movement or _auto_snapshot(args.final_status, "after-move")
+            use = use or _auto_snapshot(args.final_status, "after-use")
+            mouse = mouse or _auto_snapshot(args.final_status, "after-mouse")
+            menu = menu or _auto_snapshot(args.final_status, "after-menu")
+        snapshots = {
+            "baseline": _resolve_snapshot(args.baseline, baseline),
+            "start": _resolve_snapshot(args.start, start),
+            "fire": _resolve_snapshot(args.fire, fire),
+            "movement": _resolve_snapshot(args.movement, movement),
+            "use": _resolve_snapshot(args.use, use),
+            "mouse": _resolve_snapshot(args.mouse, mouse),
+            "menu": _resolve_snapshot(args.menu, menu),
+        }
         validate_status(
             final_status,
-            baseline_status,
-            start_status=start_status,
-            movement_status=movement_status,
-            fire_status=fire_status,
-            use_status=use_status,
-            mouse_status=mouse_status,
-            menu_status=menu_status,
+            snapshots["baseline"],
+            start_status=snapshots["start"],
+            movement_status=snapshots["movement"],
+            fire_status=snapshots["fire"],
+            use_status=snapshots["use"],
+            mouse_status=snapshots["mouse"],
+            menu_status=snapshots["menu"],
         )
     except (OSError, AssertionError) as exc:
         summary = f"\nstatus summary: {summarize_status(final_status)}" if final_status else ""
@@ -454,7 +493,7 @@ def main(argv: list[str]) -> int:
         return 1
 
     print(
-        "human-playability proof OK: scripted start/fire/use/move/menu changed Doom state without WAD pixels"
+        "human-playability proof OK: scripted start/fire/use/move/mouse/menu changed Doom state without WAD pixels"
     )
     return 0
 

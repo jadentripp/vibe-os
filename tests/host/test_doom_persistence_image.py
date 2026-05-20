@@ -25,13 +25,78 @@ check_persistence = load_tool(
 )
 
 
-def doom_save_payload(description="VIBE SAVE", version="version 110", tail_size=128):
+def doom_save_payload(description="VIBE SAVE", version="version 110", tail_size=1024):
     payload = bytearray()
     payload.extend(description.encode("ascii")[:23].ljust(24, b"\0"))
     payload.extend(version.encode("ascii")[:15].ljust(16, b"\0"))
-    payload.extend(b"\x03\x01\x01\x01")
+    payload.extend(b"\x03\x01\x01\x01\x00\x00\x00")
     payload.extend(bytes((index & 0xFF for index in range(tail_size))))
     return bytes(payload)
+
+
+def doom_default_payload(screenblocks=9, chatmacro=b"HELLO"):
+    return (
+        b"mouse_sensitivity\t\t5\n"
+        b"use_mouse\t\t1\n"
+        + f"screenblocks\t\t{screenblocks}\n".encode("ascii")
+        + b"chatmacro0\t\t\""
+        + chatmacro
+        + b"\"\n"
+    )
+
+
+def reboot_status(**overrides):
+    fields = {
+        "exec": "OK",
+        "path": "DOOM.ELF",
+        "execsys": "00000001/00000001/00000000/00000001/00000001/00000000",
+        "execerr": "00000000",
+        "execres": "00000000",
+        "target": "00000002",
+        "ppid": "00000001",
+        "entry": "0102F730",
+        "stack": "01FFFFB0",
+        "argc": "00000001",
+        "argv": "01FFFFB4",
+        "envp": "01FFFFBC",
+        "argv0": "01FFFFC0",
+        "envp0": "00000000",
+        "doom": "OK",
+        "doomrun": "RUN",
+        "doomopen": "OK",
+        "doomread": "OK",
+        "doomseek": "00000001",
+        "doomwad": "00000002/00000002/00000001/44415749",
+        "doomsbrk": "00000010",
+        "doominit": "000001FF/00000009",
+        "doomexit": "00000000",
+        "doomfault": "00000000",
+        "doomfaultip": "00000000",
+        "doomfaultv": "00000000",
+        "doomfaulterr": "00000000",
+        "fault": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
+        "panic": "NONE",
+        "shutdown": "NONE",
+        "gameplay": "OK",
+        "gfx": "OK",
+        "doompresent": "00000001",
+        "leveltime": "00000001",
+        "dtick": "00000001",
+        "pself": "OK",
+        "pg": "ON",
+        "pmm": "OK",
+        "vmm": "OK",
+        "libc": "OK",
+        "c": "OK",
+        "usr": "OK",
+        "wad": "OK",
+        "lmp": "OK",
+        "heap": "OK",
+        "free": "00700000",
+        "ticks": "00000003",
+    }
+    fields.update(overrides)
+    return "Aurora OS v0.2 " + " ".join(f"{name}={value}" for name, value in fields.items())
 
 
 class DoomPersistenceImageTests(unittest.TestCase):
@@ -42,6 +107,15 @@ class DoomPersistenceImageTests(unittest.TestCase):
         tmp.close()
         return Path(tmp.name)
 
+    def write_temp_text(self, text):
+        tmp = tempfile.NamedTemporaryFile(
+            prefix="vibe-os-persist-", suffix=".txt", mode="w", delete=False
+        )
+        self.addCleanup(lambda: Path(tmp.name).unlink(missing_ok=True))
+        tmp.write(text)
+        tmp.close()
+        return Path(tmp.name)
+
     def test_checker_accepts_fresh_image_entries_without_claiming_written_state(self):
         summary = check_persistence.validate_image(BUILD / "disk.img")
         self.assertEqual(summary, ["persistence entries present"])
@@ -49,10 +123,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
     def test_checker_accepts_doom_shaped_defaults_and_save_slot(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
         fs = make_wad_image.Fat16Image(image)
-        fs.write_root_file(
-            make_wad_image.WRITABLE_DEFAULT_NAME,
-            b"use_mouse\t\t1\nscreenblocks\t\t9\nchatmacro0\t\t\"HELLO\"\n",
-        )
+        fs.write_root_file(make_wad_image.WRITABLE_DEFAULT_NAME, doom_default_payload())
         fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[2], doom_save_payload())
 
         path = self.write_temp_image(image)
@@ -71,10 +142,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         baseline = bytearray((BUILD / "disk.img").read_bytes())
         image = bytearray(baseline)
         fs = make_wad_image.Fat16Image(image)
-        fs.write_root_file(
-            make_wad_image.WRITABLE_DEFAULT_NAME,
-            b"use_mouse\t\t1\nscreenblocks\t\t9\nchatmacro0\t\t\"HELLO\"\n",
-        )
+        fs.write_root_file(make_wad_image.WRITABLE_DEFAULT_NAME, doom_default_payload())
         fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], doom_save_payload("REBOOT PROOF"))
 
         baseline_path = self.write_temp_image(baseline)
@@ -96,10 +164,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         baseline = bytearray((BUILD / "disk.img").read_bytes())
         after_write = bytearray(baseline)
         fs = make_wad_image.Fat16Image(after_write)
-        fs.write_root_file(
-            make_wad_image.WRITABLE_DEFAULT_NAME,
-            b"use_mouse\t\t1\nscreenblocks\t\t9\nchatmacro0\t\t\"HELLO\"\n",
-        )
+        fs.write_root_file(make_wad_image.WRITABLE_DEFAULT_NAME, doom_default_payload())
         fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[3], doom_save_payload("STILL HERE"))
 
         after_reboot = bytearray(after_write)
@@ -121,21 +186,53 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertIn("survived-reboot", summary[1])
         self.assertIn("STILL HERE", summary[1])
 
+    def test_checker_gates_reboot_status_when_claiming_reboot_image(self):
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        after_write = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(after_write)
+        fs.write_root_file(make_wad_image.WRITABLE_DEFAULT_NAME, doom_default_payload())
+        after_reboot = bytearray(after_write)
+
+        baseline_path = self.write_temp_image(baseline)
+        write_path = self.write_temp_image(after_write)
+        reboot_path = self.write_temp_image(after_reboot)
+        status_path = self.write_temp_text(reboot_status())
+
+        summary = check_persistence.validate_image(
+            reboot_path,
+            baseline_image=baseline_path,
+            reboot_baseline_image=write_path,
+            reboot_status_path=status_path,
+            require_default=True,
+        )
+
+        self.assertIn("survived-reboot", summary[0])
+        self.assertIn("reboot status runtime=OK", summary)
+
+    def test_checker_rejects_faulting_reboot_status(self):
+        fault = reboot_status(
+            doomrun="FAULT",
+            gameplay="WAIT",
+            usr="FAIL",
+            doomfault="01946000",
+            doomfaultip="01029F20",
+            doomfaultv="0000000E",
+            doomfaulterr="00000007",
+            fault="0000000E/00000007/01029F20/0000001B/01FFFDB4/00000023/01946000/00000002/00000002/00000002/00000005",
+        )
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "doomrun"):
+            check_persistence.validate_reboot_status(fault)
+
     def test_checker_rejects_requested_entry_that_changed_during_reboot(self):
         baseline = bytearray((BUILD / "disk.img").read_bytes())
         after_write = bytearray(baseline)
         fs = make_wad_image.Fat16Image(after_write)
-        fs.write_root_file(
-            make_wad_image.WRITABLE_DEFAULT_NAME,
-            b"use_mouse\t\t1\nscreenblocks\t\t9\n",
-        )
+        fs.write_root_file(make_wad_image.WRITABLE_DEFAULT_NAME, doom_default_payload())
 
         after_reboot = bytearray(after_write)
         reboot_fs = make_wad_image.Fat16Image(after_reboot)
-        reboot_fs.write_root_file(
-            make_wad_image.WRITABLE_DEFAULT_NAME,
-            b"use_mouse\t\t1\nscreenblocks\t\t10\n",
-        )
+        reboot_fs.write_root_file(make_wad_image.WRITABLE_DEFAULT_NAME, doom_default_payload(10))
 
         baseline_path = self.write_temp_image(baseline)
         write_path = self.write_temp_image(after_write)
@@ -155,10 +252,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         fs = make_wad_image.Fat16Image(image)
         wad_meta = fs.root_file_metadata(make_wad_image.PROTECTED_ROOT_NAMES[0])
         image[fs.cluster_offset(wad_meta["cluster"])] ^= 0x01
-        fs.write_root_file(
-            make_wad_image.WRITABLE_DEFAULT_NAME,
-            b"use_mouse\t\t1\nscreenblocks\t\t9\n",
-        )
+        fs.write_root_file(make_wad_image.WRITABLE_DEFAULT_NAME, doom_default_payload())
 
         baseline_path = self.write_temp_image(baseline)
         image_path = self.write_temp_image(image)
@@ -240,9 +334,61 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertLess(len(shrunk_chain), len(grown_chain))
 
         emptied_chain = fs.resize_root_file(name, 0)
-        self.assertEqual(emptied_chain, ())
+        self.assertEqual(emptied_chain, shrunk_chain)
         self.assertEqual(fs.read_root_file(name), b"")
         self.assertEqual(fs.free_data_clusters(), before_free)
+        fs.validate_fat_copies_match()
+
+    def test_doom_state_files_allocate_sparse_extend_and_free_dynamic_chains(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        before_free = fs.free_data_clusters()
+        default_name = make_wad_image.WRITABLE_DEFAULT_NAME
+        save_name = make_wad_image.WRITABLE_SAVE_NAMES[0]
+        cluster_bytes = make_wad_image.cluster_size()
+
+        default_payload = b"D" * (cluster_bytes + 23)
+        default_chain = fs.write_root_file(default_name, default_payload)
+        default_meta = fs.root_file_metadata(default_name)
+        self.assertEqual(len(default_chain), 2)
+        self.assertEqual(default_meta["cluster"], default_chain[0])
+        self.assertEqual(default_meta["size"], len(default_payload))
+        self.assertEqual(fs.read_root_file(default_name), default_payload)
+        default_tail_start = fs.cluster_offset(default_chain[-1]) + 23
+        self.assertEqual(
+            image[default_tail_start:fs.cluster_offset(default_chain[-1]) + cluster_bytes],
+            b"\0" * (cluster_bytes - 23),
+        )
+
+        save_offset = cluster_bytes * 2 + 17
+        save_chain = fs.write_root_file_at(save_name, save_offset, b"SAVE")
+        save_payload = fs.read_root_file(save_name)
+        self.assertEqual(len(save_chain), 3)
+        self.assertEqual(save_payload[:save_offset], b"\0" * save_offset)
+        self.assertEqual(save_payload[save_offset:], b"SAVE")
+        self.assertEqual(fs.free_data_clusters(), before_free - len(default_chain) - len(save_chain))
+        fs.validate_fat_copies_match()
+
+        replacement_chain = fs.write_root_file(default_name, b"short defaults\n")
+        self.assertEqual(fs.read_root_file(default_name), b"short defaults\n")
+        self.assertEqual(fs.fat_entry(default_chain[-1]), 0)
+        self.assertEqual(replacement_chain, default_chain[:1])
+
+        shrunk_save_chain = fs.resize_root_file(save_name, cluster_bytes + 1)
+        self.assertEqual(shrunk_save_chain, save_chain[:2])
+        self.assertEqual(fs.fat_entry(shrunk_save_chain[-1]), make_wad_image.FAT16_EOC_VALUE)
+        self.assertEqual(fs.fat_entry(save_chain[-1]), 0)
+        second_cluster_clear = fs.cluster_offset(shrunk_save_chain[-1]) + 1
+        self.assertEqual(
+            image[second_cluster_clear:fs.cluster_offset(shrunk_save_chain[-1]) + cluster_bytes],
+            b"\0" * (cluster_bytes - 1),
+        )
+
+        freed_save_chain = fs.truncate_root_file(save_name)
+        self.assertEqual(freed_save_chain, shrunk_save_chain)
+        self.assertEqual(fs.root_file_metadata(save_name)["cluster"], 0)
+        self.assertEqual(fs.root_file_metadata(save_name)["size"], 0)
+        self.assertEqual(fs.free_data_clusters(), before_free - len(replacement_chain))
         fs.validate_fat_copies_match()
 
     def test_dynamic_truncate_rejects_corrupt_chain_without_partial_free(self):
@@ -285,10 +431,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
     def test_checker_rejects_requested_entry_unchanged_from_baseline(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
         fs = make_wad_image.Fat16Image(image)
-        fs.write_root_file(
-            make_wad_image.WRITABLE_DEFAULT_NAME,
-            b"use_mouse\t\t1\nscreenblocks\t\t9\n",
-        )
+        fs.write_root_file(make_wad_image.WRITABLE_DEFAULT_NAME, doom_default_payload())
         path = self.write_temp_image(image)
 
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "DEFAULT.CFG did not change"):
@@ -305,12 +448,52 @@ class DoomPersistenceImageTests(unittest.TestCase):
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "too small"):
             check_persistence.validate_image(path, require_save_slots=[0])
 
-    def test_checker_cli_reports_written_state_without_exporting_image_data(self):
+    def test_checker_rejects_partial_default_and_tiny_fake_save_header(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
         fs = make_wad_image.Fat16Image(image)
         fs.write_root_file(make_wad_image.WRITABLE_DEFAULT_NAME, b"screenblocks\t\t10\n")
-        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[1], doom_save_payload("REMOTE PROOF"))
+        fs.write_root_file(
+            make_wad_image.WRITABLE_SAVE_NAMES[0],
+            doom_save_payload("SHORT SAVE", tail_size=16),
+        )
         path = self.write_temp_image(image)
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "complete Doom defaults"):
+            check_persistence.validate_image(path, require_default=True)
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "real Doom save payload"):
+            check_persistence.validate_image(path, require_save_slots=[0])
+
+    def test_checker_rejects_save_with_invalid_game_header(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        payload = bytearray(doom_save_payload())
+        payload[40] = 9
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], bytes(payload))
+        path = self.write_temp_image(image)
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "invalid skill"):
+            check_persistence.validate_image(path, require_save_slots=[0])
+
+    def test_checker_rejects_reboot_claim_without_fresh_baseline(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        fs.write_root_file(make_wad_image.WRITABLE_DEFAULT_NAME, doom_default_payload())
+        path = self.write_temp_image(image)
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "requires --baseline-image"):
+            check_persistence.validate_image(path, reboot_baseline_image=path, require_default=True)
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "--reboot-status"):
+            check_persistence.validate_image(path, reboot_status_path=path, require_default=True)
+
+    def test_checker_cli_reports_written_state_without_exporting_image_data(self):
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        image = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(image)
+        fs.write_root_file(make_wad_image.WRITABLE_DEFAULT_NAME, doom_default_payload(10, b"REMOTE"))
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[1], doom_save_payload("REMOTE PROOF"))
+        baseline_path = self.write_temp_image(baseline)
+        path = self.write_temp_image(image)
+        status_path = self.write_temp_text(reboot_status())
 
         result = subprocess.run(
             [
@@ -319,8 +502,12 @@ class DoomPersistenceImageTests(unittest.TestCase):
                 "--require-default",
                 "--require-save-slot",
                 "1",
+                "--baseline-image",
+                str(baseline_path),
                 "--reboot-baseline-image",
                 str(path),
+                "--reboot-status",
+                str(status_path),
                 str(path),
             ],
             cwd=ROOT,
@@ -333,6 +520,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertIn("DEFAULT.CFG bytes=", result.stdout)
         self.assertIn("DOOMSAV1.DSG bytes=", result.stdout)
         self.assertIn("survived-reboot", result.stdout)
+        self.assertIn("reboot status runtime=OK", result.stdout)
         self.assertIn("REMOTE PROOF", result.stdout)
         self.assertNotIn("IWAD", result.stdout)
         self.assertEqual(result.stderr, "")

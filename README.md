@@ -186,6 +186,21 @@ The VM safety contract is checked without launching QEMU:
 make vm-safety-check
 ```
 
+The normal smoke path still exits QEMU through the monitor after collecting
+status. For the shutdown/panic slice, the OS smoke workflow has an opt-in
+`shutdown_panic_proof` mode that builds disposable proof kernels on the GitHub
+runner and emits `shutdown-panic-proof.json` plus `status.panic.txt`,
+`status.shutdown-halt.txt`, and `status.shutdown-reboot.txt`. Validate a
+downloaded artifact with:
+
+```sh
+python3 tools/check_shutdown_panic_proof.py /path/to/artifact
+```
+
+This is status-only proof groundwork: it rejects missing artifacts and monitor
+quit as evidence, but a true guest reset/poweroff cloud proof is still tracked
+as an open gate.
+
 For a real-WAD test, run the **Real WAD smoke** workflow manually.
 You can paste a URL to `DOOM1.WAD`, `DOOM1.WAD.gz`, or a zip containing
 `DOOM1.WAD`; leave the input empty to use `REAL_DOOM_WAD_URL` if the repository
@@ -214,7 +229,8 @@ process/exec, storage, VM, audio, mouse, scheduler, and Doom file I/O telemetry
 so a green run is diagnosable from text artifacts alone.
 The same workflow has an opt-in `audible_audio_proof` mode that uses a
 temporary QEMU WAV backend on the disposable runner, reduces it to aggregate
-`audio-proof.json`, validates that manifest, and deletes the WAV before upload.
+`audio-proof.json`, validates that manifest against the same status-only SB16
+continuity snapshots, and deletes the WAV before upload.
 Raw audio files are not diagnostic artifacts.
 
 Current proof status: the latest analyzed real-WAD run is red. Run
@@ -328,8 +344,8 @@ Still required before this is actually Doom-capable:
 - broader VM/POSIX coverage: arbitrary-path `exec`, richer `mmap`, fuller file
   semantics, descriptor duplication, and more device/ioctl contracts
 - current passing save/config persistence proof after a real-WAD reboot using
-  `tools/check_doom_persistence_image.py --baseline-image`, not just host-side
-  FAT lifecycle coverage
+  `tools/check_doom_persistence_image.py --baseline-image` plus
+  `--reboot-baseline-image`, not just host-side FAT lifecycle coverage
 - broader framebuffer mode support, aspect policy, fullscreen behavior, and
   dirty-rect presentation beyond the current XRGB8888 VBE path
 - remote SB16 continuity proof now has a status-only checker, but audible human

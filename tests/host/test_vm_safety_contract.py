@@ -53,6 +53,9 @@ class VmSafetyContractTests(unittest.TestCase):
     def test_make_test_stays_host_only_and_vm_targets_require_opt_in(self):
         makefile = (ROOT / "Makefile").read_text()
         self.assertIn("ALLOW_LOCAL_VM ?= 0", makefile)
+        self.assertIn("KERNEL_EXTRA_NASMFLAGS ?=", makefile)
+        self.assertIn("shutdown-panic-proof-check:", makefile)
+        self.assertIn("tools/check_shutdown_panic_proof.py --repo-contract", makefile)
         for target in ("run", "run-headless", "smoke"):
             with self.subTest(target=target):
                 line = next(line for line in makefile.splitlines() if line.startswith(f"{target}:"))
@@ -72,6 +75,21 @@ class VmSafetyContractTests(unittest.TestCase):
                 self.assertNotIn("build/disk.img", upload)
                 self.assertNotIn("build/gfx.bin", upload)
                 self.assertNotIn("DOOM1.WAD", upload)
+
+    def test_os_smoke_has_opt_in_shutdown_panic_proof_mode(self):
+        workflow = (ROOT / ".github" / "workflows" / "os-smoke.yml").read_text()
+        for needle in (
+            "shutdown_panic_proof:",
+            "KERNEL_EXTRA_NASMFLAGS=\"-D ${define}\"",
+            "run_phase panic SHUTDOWN_PANIC_PROOF_PANIC status.panic.txt",
+            "run_phase shutdown-halt SHUTDOWN_PANIC_PROOF_HALT status.shutdown-halt.txt",
+            "run_phase shutdown-reboot SHUTDOWN_PANIC_PROOF_REBOOT status.shutdown-reboot.txt",
+            "shutdown-panic-proof.json",
+            "--manifest build/shutdown-panic-proof/shutdown-panic-proof.json",
+            "build/shutdown-panic-proof",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, workflow)
 
 
 if __name__ == "__main__":

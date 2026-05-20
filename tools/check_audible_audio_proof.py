@@ -14,6 +14,12 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import check_audio_continuity_proof  # noqa: E402
+
 WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
 MAKEFILE = ROOT / "Makefile"
 AUDIO_DOC = ROOT / "docs" / "audio.md"
@@ -122,6 +128,64 @@ def _status_summary(status_path: Path) -> dict[str, str]:
     }
 
 
+def _counter_delta(first: dict[str, str], last: dict[str, str], name: str) -> dict[str, Any]:
+    first_value = _hex_value(first, name)
+    last_value = _hex_value(last, name)
+    return {
+        "start": first[name],
+        "final": last[name],
+        "delta": f"{last_value - first_value:08X}",
+    }
+
+
+def _continuity_summary(
+    *,
+    final_status: str,
+    baseline_status: str,
+    fire_status: str,
+    movement_status: str,
+    use_status: str,
+    menu_status: str,
+) -> dict[str, Any]:
+    check_audio_continuity_proof.validate_status(
+        final_status,
+        baseline_status=baseline_status,
+        fire_status=fire_status,
+        movement_status=movement_status,
+        use_status=use_status,
+        menu_status=menu_status,
+    )
+    baseline_fields = _status_fields(baseline_status)
+    final_fields = _status_fields(final_status)
+    progress = {
+        name: _counter_delta(baseline_fields, final_fields, name)
+        for name in ("audioirq", "refill", "sfxmix", "musicmix")
+    }
+    return {
+        "gate": "tools/check_audio_continuity_proof.py",
+        "snapshots": ["baseline", "fire", "movement", "use", "menu", "final"],
+        "sb16_continuity": True,
+        "non_music_sfx_progress": int(progress["sfxmix"]["delta"], 16) > 0,
+        "music_carrier_progress": int(progress["musicmix"]["delta"], 16) > 0,
+        "irq_refill_progress": (
+            int(progress["audioirq"]["delta"], 16) > 0
+            and int(progress["refill"]["delta"], 16) > 0
+        ),
+        "progress": progress,
+        "claim": (
+            "non-silent remote QEMU output plus status-only SB16 continuity; "
+            "music is still a looped carrier, not full song-position streaming"
+        ),
+    }
+
+
+def _read_required(path: Path, label: str) -> str:
+    try:
+        return path.read_text()
+    except OSError as exc:
+        raise AssertionError(f"cannot read {label} status snapshot {path}: {exc}") from exc
+
+
 def _iter_normalized_samples(data: bytes, sample_width: int):
     if sample_width == 1:
         for byte in data:
@@ -144,6 +208,11 @@ def analyze_wav(
     wav_path: Path,
     status_path: Path,
     *,
+    baseline_status_path: Path,
+    fire_status_path: Path,
+    movement_status_path: Path,
+    use_status_path: Path,
+    menu_status_path: Path,
     window_ms: int = DEFAULT_WINDOW_MS,
     min_active_rms: float = DEFAULT_MIN_RMS,
 ) -> dict[str, Any]:
@@ -153,6 +222,16 @@ def analyze_wav(
         raise AssertionError("window_ms must be positive")
     if min_active_rms <= 0:
         raise AssertionError("min_active_rms must be positive")
+
+    final_status_text = _read_required(status_path, "final")
+    continuity = _continuity_summary(
+        final_status=final_status_text,
+        baseline_status=_read_required(baseline_status_path, "baseline"),
+        fire_status=_read_required(fire_status_path, "fire"),
+        movement_status=_read_required(movement_status_path, "movement"),
+        use_status=_read_required(use_status_path, "use"),
+        menu_status=_read_required(menu_status_path, "menu"),
+    )
 
     with wave.open(str(wav_path), "rb") as wav:
         channels = wav.getnchannels()
@@ -241,6 +320,7 @@ def analyze_wav(
             "active_rms_threshold_norm": min_active_rms,
         },
         "status": _status_summary(status_path),
+        "continuity": continuity,
         "artifact_policy": {
             "contains_raw_audio": False,
             "contains_wad_data": False,
@@ -283,11 +363,12 @@ def validate_manifest(
     fmt = manifest.get("format")
     analysis = manifest.get("analysis")
     status = manifest.get("status")
+    continuity = manifest.get("continuity")
     policy = manifest.get("artifact_policy")
     if not isinstance(fmt, dict) or not isinstance(analysis, dict):
         raise AssertionError("manifest must contain format and analysis objects")
-    if not isinstance(status, dict) or not isinstance(policy, dict):
-        raise AssertionError("manifest must contain status and artifact_policy objects")
+    if not isinstance(status, dict) or not isinstance(continuity, dict) or not isinstance(policy, dict):
+        raise AssertionError("manifest must contain status, continuity, and artifact_policy objects")
 
     if fmt.get("duration_ms", 0) < min_duration_ms:
         raise AssertionError("captured audio duration is too short for audible proof")
@@ -330,6 +411,30 @@ def validate_manifest(
         if int(parts[0], 16) <= 0:
             raise AssertionError(f"manifest status.{name} first counter must be nonzero")
 
+    if continuity.get("gate") != "tools/check_audio_continuity_proof.py":
+        raise AssertionError("manifest continuity.gate must name the audio continuity checker")
+    for key in (
+        "sb16_continuity",
+        "non_music_sfx_progress",
+        "music_carrier_progress",
+        "irq_refill_progress",
+    ):
+        if continuity.get(key) is not True:
+            raise AssertionError(f"manifest continuity.{key} must be true")
+    progress = continuity.get("progress")
+    if not isinstance(progress, dict):
+        raise AssertionError("manifest continuity.progress must be an object")
+    for name in ("audioirq", "refill", "sfxmix", "musicmix"):
+        entry = progress.get(name)
+        if not isinstance(entry, dict):
+            raise AssertionError(f"manifest continuity.progress.{name} must be an object")
+        for key in ("start", "final", "delta"):
+            value = entry.get(key)
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
+                raise AssertionError(f"manifest continuity.progress.{name}.{key} must be eight hex digits")
+        if int(entry["delta"], 16) <= 0:
+            raise AssertionError(f"manifest continuity.progress.{name}.delta must be nonzero")
+
     for key in ("contains_raw_audio", "contains_wad_data", "contains_pixels"):
         if policy.get(key) is not False:
             raise AssertionError(f"manifest artifact_policy.{key} must be false")
@@ -356,6 +461,7 @@ def validate_repo_contract() -> None:
                 "-audiodev wav,id=snd0,path=build/doom-audio.wav",
                 "tools/check_audible_audio_proof.py",
                 "--analyze-wav build/doom-audio.wav",
+                "--baseline build/status.after-start.txt",
                 "rm -f build/doom-audio.wav",
                 "build/audio-proof.json",
             ),
@@ -378,6 +484,7 @@ def validate_repo_contract() -> None:
                 "QEMU WAV backend",
                 "aggregate JSON",
                 "delete the temporary WAV",
+                "status-only SB16 continuity",
             ),
         ),
         (
@@ -396,6 +503,7 @@ def validate_repo_contract() -> None:
                 "audible_audio_proof",
                 "audio-proof.json",
                 "does not upload the WAV",
+                "status-only SB16 continuity",
             ),
         ),
         (
@@ -405,6 +513,7 @@ def validate_repo_contract() -> None:
                 "audible remote proof",
                 "audio-proof.json",
                 "delete the temporary WAV",
+                "status-only SB16 continuity",
             ),
         ),
         (
@@ -438,6 +547,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("manifest", nargs="?", type=Path, help="audio-proof.json to validate")
     parser.add_argument("--analyze-wav", type=Path, help="temporary QEMU WAV to analyze")
     parser.add_argument("--status", type=Path, help="decoded final status.txt for WAV analysis")
+    parser.add_argument("--baseline", type=Path, help="decoded status.after-start.txt")
+    parser.add_argument("--fire", type=Path, help="decoded status.after-fire.txt")
+    parser.add_argument("--movement", type=Path, help="decoded status.after-move.txt")
+    parser.add_argument("--use", type=Path, help="decoded status.after-use.txt")
+    parser.add_argument("--menu", type=Path, help="decoded status.after-menu.txt")
     parser.add_argument("--output", type=Path, help="write aggregate manifest JSON here")
     parser.add_argument("--repo-contract", action="store_true")
     parser.add_argument("--window-ms", type=int, default=DEFAULT_WINDOW_MS)
@@ -452,9 +566,26 @@ def main(argv: list[str]) -> int:
         if args.analyze_wav is not None:
             if args.status is None or args.output is None:
                 raise AssertionError("--analyze-wav requires --status and --output")
+            missing = [
+                label for label, path in (
+                    ("--baseline", args.baseline),
+                    ("--fire", args.fire),
+                    ("--movement", args.movement),
+                    ("--use", args.use),
+                    ("--menu", args.menu),
+                )
+                if path is None
+            ]
+            if missing:
+                raise AssertionError("--analyze-wav requires audio continuity snapshots: " + ", ".join(missing))
             manifest = analyze_wav(
                 args.analyze_wav,
                 args.status,
+                baseline_status_path=args.baseline,
+                fire_status_path=args.fire,
+                movement_status_path=args.movement,
+                use_status_path=args.use,
+                menu_status_path=args.menu,
                 window_ms=args.window_ms,
                 min_active_rms=args.min_active_rms,
             )

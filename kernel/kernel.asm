@@ -98,10 +98,12 @@ FB_PAGE_TABLE_ADDR equ 0x0009c000
 PROC_PROBE_PAGE_DIR_ADDR equ 0x00080000
 PROC_PROBE_PDE3_TABLE_ADDR equ 0x00081000
 PROC_DOOM_PAGE_DIR_ADDR equ 0x00082000
+PROC_PREEMPT_PAGE_DIR_ADDR equ 0x00083000
 PROC_DOOM_PDE4_TABLE_ADDR equ 0x00084000
 PROC_DOOM_PDE5_TABLE_ADDR equ 0x00085000
 PROC_DOOM_PDE6_TABLE_ADDR equ 0x00086000
 PROC_DOOM_PDE7_TABLE_ADDR equ 0x00087000
+PROC_PREEMPT_PDE3_TABLE_ADDR equ 0x00088000
 PMM_FRAME_MAP_ADDR equ 0x00099000
 PMM_MANAGED_START equ 0x00100000
 PMM_MANAGED_END equ 0x02000000
@@ -188,6 +190,7 @@ PROC_ARGC equ 140
 PROC_ARGV equ 144
 PROC_ENVP equ 148
 PROC_ARGV0 equ 152
+PROC_SLOT_GENERATION equ 156
 PROC_FLAG_IRQ_FRAME_VALID equ 0x1
 VM_REGION_BYTES equ 12
 VM_REGION_BASE equ 0
@@ -500,6 +503,25 @@ start:
 
 .c_runtime_done:
     call write_smoke_status
+%ifdef SHUTDOWN_PANIC_PROOF_PANIC
+    ud2
+%endif
+%ifdef SHUTDOWN_PANIC_PROOF_HALT
+    mov dword [shutdown_state], SHUTDOWN_HALT
+    call write_smoke_status
+.proof_halt_loop:
+    cli
+    hlt
+    jmp .proof_halt_loop
+%endif
+%ifdef SHUTDOWN_PANIC_PROOF_REBOOT
+    mov dword [shutdown_state], SHUTDOWN_REBOOT
+    call write_smoke_status
+.proof_reboot_status_loop:
+    cli
+    hlt
+    jmp .proof_reboot_status_loop
+%endif
     call user_probe_run
 
 user_probe_finished:
@@ -1864,6 +1886,12 @@ process_vm_init_page_spaces:
     cld
     rep movsd
 
+    mov esi, PAGING_DIR_ADDR
+    mov edi, PROC_PREEMPT_PAGE_DIR_ADDR
+    mov ecx, 1024
+    cld
+    rep movsd
+
     mov esi, PAGING_TABLES_ADDR + (3 * PAGE_SIZE)
     mov edi, PROC_PROBE_PDE3_TABLE_ADDR
     mov ecx, 1024
@@ -1872,6 +1900,22 @@ process_vm_init_page_spaces:
     mov dword [PROC_PROBE_PAGE_DIR_ADDR + (3 * 4)], PROC_PROBE_PDE3_TABLE_ADDR | PTE_USER_FLAGS
 
     mov ebx, PROC_PROBE_PAGE_DIR_ADDR
+    mov eax, USER_CODE_ADDR
+    mov edx, USER_STACK_TOP
+    call vmm_mark_process_user_range
+    mov eax, USER_CODE_ADDR - PAGE_SIZE
+    call vmm_clear_process_page
+    mov eax, USER_HEAP_END
+    call vmm_clear_process_page
+
+    mov esi, PAGING_TABLES_ADDR + (3 * PAGE_SIZE)
+    mov edi, PROC_PREEMPT_PDE3_TABLE_ADDR
+    mov ecx, 1024
+    cld
+    rep movsd
+    mov dword [PROC_PREEMPT_PAGE_DIR_ADDR + (3 * 4)], PROC_PREEMPT_PDE3_TABLE_ADDR | PTE_USER_FLAGS
+
+    mov ebx, PROC_PREEMPT_PAGE_DIR_ADDR
     mov eax, USER_CODE_ADDR
     mov edx, USER_STACK_TOP
     call vmm_mark_process_user_range
@@ -1934,6 +1978,10 @@ vmm_mark_process_user_range_with_flags:
     push eax
     push ecx
     push edx
+
+    and eax, 0xfffff000
+    add edx, PAGE_SIZE - 1
+    and edx, 0xfffff000
 
 .next:
     cmp eax, edx
@@ -6304,6 +6352,7 @@ scheduler_init:
     mov dword [scheduler_next_process_ptr], 0
     mov dword [scheduler_preempt_attempts], 0
     mov dword [scheduler_preempt_switches], 0
+    mov dword [scheduler_irq_context_switches], 0
     mov dword [scheduler_preempt_skips], 0
     mov dword [scheduler_user_irq_ticks], 0
     mov dword [scheduler_last_preempt_from_pid], 0xffffffff
@@ -6315,6 +6364,18 @@ scheduler_init:
     mov byte [scheduler_preempt_selftest_status], 0
     mov dword [current_process_ptr], 0
     mov dword [current_pid], 0
+    mov dword [process_next_pid], 4
+    mov dword [process_slot_reuses], 0
+    mov dword [process_vm_teardowns], 0
+    mov dword [process_vm_pages_cleared], 0
+    mov dword [process_exit_teardowns], 0
+    mov dword [process_exec_teardowns], 0
+    mov dword [process_last_reused_slot], 0
+    mov dword [process_last_reused_pid], 0xffffffff
+    mov dword [process_last_slot_generation], 0
+    mov dword [process_last_teardown_pid], 0xffffffff
+    mov dword [process_last_teardown_base], 0
+    mov dword [process_last_teardown_end], 0
 
     mov esi, process_kernel
     call process_reset_accounting
@@ -6373,6 +6434,141 @@ process_reset_accounting:
     pop edi
     pop ecx
     pop eax
+    ret
+
+process_clear_user_range:
+    push eax
+    push edx
+
+.next:
+    cmp eax, edx
+    jae .done
+    call vmm_clear_process_page
+    inc dword [process_vm_pages_cleared]
+    add eax, PAGE_SIZE
+    jmp .next
+
+.done:
+    pop edx
+    pop eax
+    ret
+
+process_teardown_user_vm:
+    pushad
+    cmp esi, 0
+    je .done
+    cmp esi, process_kernel
+    je .done
+    mov eax, [esi + PROC_PID]
+    mov [process_last_teardown_pid], eax
+    mov eax, [esi + PROC_BASE]
+    mov [process_last_teardown_base], eax
+    mov eax, [esi + PROC_END]
+    mov [process_last_teardown_end], eax
+    inc dword [process_vm_teardowns]
+    mov ebx, [esi + PROC_PAGE_DIR]
+    cmp ebx, 0
+    je .reset_metadata
+    mov edi, [esi + PROC_VM_REGIONS]
+    mov ecx, [esi + PROC_VM_REGION_COUNT]
+
+.region_next:
+    cmp ecx, 0
+    je .reset_metadata
+    test dword [edi + VM_REGION_FLAGS], VM_REGION_USER
+    jz .region_advance
+    mov eax, [edi + VM_REGION_BASE]
+    mov edx, [edi + VM_REGION_END]
+    call process_clear_user_range
+
+.region_advance:
+    add edi, VM_REGION_BYTES
+    dec ecx
+    jmp .region_next
+
+.reset_metadata:
+    mov eax, [esi + PROC_HEAP_START]
+    mov [esi + PROC_BRK], eax
+    and dword [esi + PROC_VM_FLAGS], 0xfffffffe
+
+.done:
+    popad
+    ret
+
+process_restore_user_stack_vm:
+    push eax
+    push ebx
+    push edx
+    cmp esi, 0
+    je .done
+    cmp esi, process_kernel
+    je .done
+    mov ebx, [esi + PROC_PAGE_DIR]
+    cmp ebx, 0
+    je .done
+    mov eax, [esi + PROC_STACK_BOTTOM]
+    mov edx, [esi + PROC_STACK_TOP]
+    call vmm_mark_process_user_write_range
+
+.done:
+    pop edx
+    pop ebx
+    pop eax
+    ret
+
+process_reuse_exec_target_slot:
+    push eax
+    cmp esi, 0
+    je .done
+    cmp esi, process_kernel
+    je .done
+    call process_teardown_user_vm
+    call process_restore_user_stack_vm
+    inc dword [process_slot_reuses]
+    mov [process_last_reused_slot], esi
+    mov eax, [process_next_pid]
+    mov [esi + PROC_PID], eax
+    mov [process_last_reused_pid], eax
+    inc eax
+    cmp eax, 0
+    jne .pid_ready
+    mov eax, 4
+
+.pid_ready:
+    mov [process_next_pid], eax
+    inc dword [esi + PROC_SLOT_GENERATION]
+    mov eax, [esi + PROC_SLOT_GENERATION]
+    mov [process_last_slot_generation], eax
+    mov dword [esi + PROC_STATE], PROC_STATE_UNUSED
+
+.done:
+    pop eax
+    ret
+
+process_retire_exec_slot:
+    cmp esi, 0
+    je .done
+    cmp esi, process_kernel
+    je .done
+    call process_teardown_user_vm
+    inc dword [process_exec_teardowns]
+    mov dword [esi + PROC_STATE], PROC_STATE_EXITED
+    and dword [esi + PROC_VM_FLAGS], 0xfffffffe
+
+.done:
+    ret
+
+process_retire_current_exit_slot:
+    cmp esi, 0
+    je .done
+    cmp esi, process_kernel
+    je .done
+    call process_teardown_user_vm
+    inc dword [process_exit_teardowns]
+    mov dword [esi + PROC_STATE], PROC_STATE_EXITED
+    and dword [esi + PROC_VM_FLAGS], 0xfffffffe
+
+.done:
     ret
 
 clear_fault_record:
@@ -6472,7 +6668,7 @@ process_mark_current_exited:
     mov esi, [current_process_ptr]
     cmp esi, 0
     je .done
-    mov dword [esi + PROC_STATE], PROC_STATE_EXITED
+    call process_retire_current_exit_slot
     mov [esi + PROC_EXIT_STATUS], ebx
 
 .done:
@@ -6484,6 +6680,7 @@ process_mark_current_faulted:
     mov esi, [current_process_ptr]
     cmp esi, 0
     je .done
+    call process_teardown_user_vm
     mov dword [esi + PROC_STATE], PROC_STATE_FAULTED
 
 .done:
@@ -6495,6 +6692,7 @@ scheduler_prepare_live_preempt_probe:
     push esi
     mov esi, process_preempt_probe
     call process_reset_preempt_probe
+    call process_restore_user_stack_vm
     mov dword [esi + PROC_ENTRY], USER_CODE_ADDR
     call process_seed_initial_user_context
     mov dword [esi + PROC_SAVED_EAX], PREEMPT_PROBE_MAGIC
@@ -6565,6 +6763,7 @@ scheduler_tick:
     call process_activate
     call process_restore_irq_context
     inc dword [scheduler_preempt_switches]
+    inc dword [scheduler_irq_context_switches]
     jmp .done
 
 .skip_preempt:
@@ -6842,6 +7041,8 @@ process_exec_path:
     jmp .fail
 
 .target_safe:
+    mov esi, [process_exec_target]
+    call process_reuse_exec_target_slot
 
     mov edi, [process_exec_name83]
     call fat_find_file
@@ -6947,6 +7148,14 @@ process_exec_path:
     mov byte [doom_elf_load_status], 2
 
 .fail:
+    mov esi, [process_exec_target]
+    cmp esi, 0
+    je .status_fail
+    cmp esi, [current_process_ptr]
+    je .status_fail
+    call process_retire_exec_slot
+
+.status_fail:
     mov byte [process_exec_status], 2
     stc
 
@@ -7099,7 +7308,7 @@ process_exec_handoff_current:
     mov [esi + PROC_PARENT_PID], eax
     call process_activate
     call process_exec_seed_argv_stack
-    jc .eio
+    jc .eio_after_activate
     call pic_unmask_timer_keyboard
 
     mov eax, [edi + PROC_PID]
@@ -7114,9 +7323,11 @@ process_exec_handoff_current:
     mov [sys_exec_last_target_stack], eax
     inc dword [esi + PROC_EXEC_COUNT]
     call process_exec_patch_syscall_frame
-    jc .eio
-    mov dword [edi + PROC_STATE], PROC_STATE_EXITED
-    and dword [edi + PROC_VM_FLAGS], 0xfffffffe
+    jc .eio_after_activate
+    push esi
+    mov esi, edi
+    call process_retire_exec_slot
+    pop esi
 
     mov eax, [esi + PROC_PID]
     mov [scheduler_next_pid], eax
@@ -7135,6 +7346,14 @@ process_exec_handoff_current:
     mov dword [process_exec_last_error], -ERRNO_EINVAL
     stc
     jmp .done
+
+.eio_after_activate:
+    push esi
+    mov esi, edi
+    call process_activate
+    pop esi
+    call process_retire_exec_slot
+    jmp .eio
 
 .eio:
     mov dword [process_exec_last_error], -ERRNO_EIO
@@ -10785,6 +11004,11 @@ write_smoke_status:
     mov edx, [scheduler_preempt_switches]
     call smoke_write_hex32
 
+    mov esi, smoke_pirq_text
+    call smoke_copy_string
+    mov edx, [scheduler_irq_context_switches]
+    call smoke_write_hex32
+
     mov esi, smoke_pattempt_text
     call smoke_copy_string
     mov edx, [scheduler_preempt_attempts]
@@ -11605,6 +11829,7 @@ smoke_mousedelta_text db " mousedelta=", 0
 smoke_gfx_text db " gfx=", 0
 smoke_fb_text db " fb=", 0
 smoke_preempt_text db " preempt=", 0
+smoke_pirq_text db " pirq=", 0
 smoke_pattempt_text db " pattempt=", 0
 smoke_pskip_text db " pskip=", 0
 smoke_puser_text db " puser=", 0
@@ -11843,7 +12068,7 @@ process_preempt_probe:
     dd USER_STACK_BOTTOM, USER_STACK_TOP, 0
     times 12 dd 0
     dd 0, 0, 0, 0
-    dd PROC_PROBE_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_PREEMPT_PROBE_KERNEL_STACK_TOP
+    dd PROC_PREEMPT_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_PREEMPT_PROBE_KERNEL_STACK_TOP
     dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
 process_doom:
     dd 2, USER_KIND_DOOM, PROC_STATE_READY
@@ -11920,6 +12145,7 @@ process_exec_sectors_read dd 0
 process_exec_entry dd 0
 process_exec_last_error dd 0
 process_exec_reject_active_target db 0
+process_exec_target_reusable db 0
 align 4
 sys_exec_attempts dd 0
 sys_exec_successes dd 0
@@ -12016,6 +12242,7 @@ scheduler_next_pid dd 0xffffffff
 scheduler_next_process_ptr dd 0
 scheduler_preempt_attempts dd 0
 scheduler_preempt_switches dd 0
+scheduler_irq_context_switches dd 0
 scheduler_preempt_skips dd 0
 scheduler_user_irq_ticks dd 0
 scheduler_last_preempt_from_pid dd 0xffffffff
@@ -12027,6 +12254,18 @@ scheduler_preempt_spin_value dd 0
 scheduler_preempt_selftest_frame times 13 dd 0
 scheduler_preempt_selftest_status db 0
 align 4
+process_next_pid dd 4
+process_slot_reuses dd 0
+process_vm_teardowns dd 0
+process_vm_pages_cleared dd 0
+process_exit_teardowns dd 0
+process_exec_teardowns dd 0
+process_last_reused_slot dd 0
+process_last_reused_pid dd 0xffffffff
+process_last_slot_generation dd 0
+process_last_teardown_pid dd 0xffffffff
+process_last_teardown_base dd 0
+process_last_teardown_end dd 0
 doom_exit_code dd 0
 doom_fault_addr dd 0
 doom_fault_eip dd 0

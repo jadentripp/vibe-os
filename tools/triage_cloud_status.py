@@ -77,6 +77,7 @@ SUMMARY_FIELDS = (
     "voiceq",
     "musicq",
     "preempt",
+    "pirq",
     "pattempt",
     "pskip",
     "puser",
@@ -209,7 +210,7 @@ TRIAGE_RULES = (
     ),
     TriageRule(
         "preemption-not-proven",
-        ("preempt", "pattempt", "puser", "pround", "pctx", "pfrom", "pto", "peip", "pspin", "pself"),
+        ("preempt", "pirq", "pattempt", "puser", "pround", "pctx", "pfrom", "pto", "peip", "pspin", "pself"),
         "Doom reached gameplay, but the status does not prove live timer-driven switching between Ring 3 tasks.",
         "Inspect scheduler_tick, the live preempt probe seeding path, and whether timer IRQs are interrupting user code.",
     ),
@@ -707,9 +708,13 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
     pfrom = _hex(fields, "pfrom")
     pto = _hex(fields, "pto")
     spin = _hex(fields, "pspin")
+    preempt_switches = _hex(fields, "preempt")
+    irq_switches = _hex(fields, "pirq")
     if (
         fields.get("pself") != "OK"
-        or (_hex(fields, "preempt") or 0) == 0
+        or (preempt_switches or 0) == 0
+        or (irq_switches or 0) == 0
+        or irq_switches != preempt_switches
         or (_hex(fields, "pattempt") or 0) == 0
         or (_hex(fields, "puser") or 0) == 0
         or (_hex(fields, "pround") or 0) == 0
@@ -724,7 +729,8 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
     ):
         notes.append(
             "preemption-not-proven: "
-            f"preempt={_field(fields, 'preempt')} pattempt={_field(fields, 'pattempt')} "
+            f"preempt={_field(fields, 'preempt')} pirq={_field(fields, 'pirq')} "
+            f"pattempt={_field(fields, 'pattempt')} "
             f"puser={_field(fields, 'puser')} pround={_field(fields, 'pround')} "
             f"pctx={_field(fields, 'pctx')} pfrom={_field(fields, 'pfrom')} "
             f"pto={_field(fields, 'pto')} peip={_field(fields, 'peip')} "

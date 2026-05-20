@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import gzip
+import io
 import sys
+import zipfile
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -46,6 +49,30 @@ REQUIRED_SYMBOL_FILES = (
 )
 
 OPTIONAL_AUDIO_PROOF_FILE = "audio-proof.json"
+HUMAN_NOTES_FILE = "human-playtest-notes.txt"
+HUMAN_NOTES_SCHEMA = "human-playtest-notes-v1"
+REQUIRED_HUMAN_NOTE_FIELDS = {
+    "schema": (HUMAN_NOTES_SCHEMA,),
+    "remote_host": ("disposable",),
+    "qemu_location": ("remote",),
+    "vnc_tunnel": ("loopback-only",),
+    "wad": ("shareware-v1.9-validated-remote-only",),
+    "display": ("pass",),
+    "keyboard": ("pass",),
+    "mouse": ("pass",),
+    "diagnostics": ("non-wad-status-only",),
+    "no_local_qemu": ("yes",),
+    "no_wad_upload": ("yes",),
+    "no_disk_upload": ("yes",),
+    "no_pixel_upload": ("yes",),
+}
+REQUIRED_FREEFORM_HUMAN_NOTE_FIELDS = (
+    "commit",
+    "playtester",
+)
+OPTIONAL_HUMAN_NOTE_FIELDS = {
+    "audio": ("status-only", "listener-pass", "audio-proof-json-pass", "not-tested"),
+}
 
 FORBIDDEN_ARTIFACT_PATTERNS = (
     "*.wad",
@@ -90,6 +117,21 @@ CONTENT_SIGNATURES = (
     (b"OggS", "Ogg audio"),
     (b"fLaC", "FLAC audio"),
     (b"FORM", "AIFF audio"),
+)
+
+FORBIDDEN_ARCHIVE_SUFFIXES = (
+    ".wad",
+    ".iwad",
+    ".pwad",
+    ".wav",
+    ".wave",
+    ".mp3",
+    ".ogg",
+    ".oga",
+    ".flac",
+    ".aiff",
+    ".aif",
+    ".au",
 )
 
 
@@ -143,6 +185,10 @@ def validate_repo_contract() -> None:
         "tools/check_audio_continuity_proof.py",
         "tools/check_audible_audio_proof.py",
         "tools/triage_cloud_status.py",
+        "human-playtest-notes.txt",
+        "--human-session",
+        "capture_status",
+        "no_local_qemu=yes",
         "doom.symbols",
         "audio-proof.json",
         "status.after-fire.txt",
@@ -195,8 +241,13 @@ def validate_repo_contract() -> None:
         "persistence_proof:",
         "persistence_input_script:",
         "persistence_save_slot:",
+        "Capture fresh persistence baseline",
+        "cp build/disk.img \"$RUNNER_TEMP/disk.before-persistence.img\"",
+        "cp \"$baseline\" build/disk.img",
         "build/status.persistence-write.txt",
         "build/status.persistence-reboot.txt",
+        "build/status.persistence-write-proof.txt",
+        "build/status.persistence-reboot-proof.txt",
         "tools/check_doom_persistence_image.py",
         "--baseline-image \"$baseline\"",
         "--reboot-baseline-image \"$after_write\"",
@@ -257,6 +308,31 @@ def _forbidden_content_reason(path: Path, data: bytes) -> str | None:
     for signature, label in CONTENT_SIGNATURES:
         if data.startswith(signature):
             return label
+    if data.startswith(b"\x1f\x8b"):
+        try:
+            inflated = gzip.decompress(data)
+        except OSError:
+            inflated = b""
+        if inflated.startswith((b"IWAD", b"PWAD")):
+            return "gzip-compressed WAD payload"
+        for signature, label in CONTENT_SIGNATURES:
+            if inflated.startswith(signature):
+                return f"gzip-compressed {label}"
+    if data.startswith(b"PK\x03\x04"):
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                for info in archive.infolist():
+                    inner_name = Path(info.filename).name.lower()
+                    if inner_name.endswith(FORBIDDEN_ARCHIVE_SUFFIXES):
+                        return f"zip archive containing forbidden payload: {info.filename}"
+                    if info.file_size > 0:
+                        with archive.open(info) as member:
+                            prefix = member.read(16)
+                        for signature, label in CONTENT_SIGNATURES:
+                            if prefix.startswith(signature):
+                                return f"zip archive containing {label}: {info.filename}"
+        except zipfile.BadZipFile:
+            pass
     if len(data) >= 0x8006 and data[0x8001:0x8006] == b"CD001":
         return "ISO image"
     if len(data) >= 512 and data[510:512] == b"\x55\xaa" and b"FAT" in data[:512]:
@@ -273,7 +349,45 @@ def _assert_no_forbidden_contents(artifact_dir: Path, names: list[str]) -> None:
             raise AssertionError(f"forbidden artifact content in {name}: {reason}")
 
 
-def validate_artifact_dir(artifact_dir: Path) -> None:
+def _load_human_notes(path: Path) -> dict[str, str]:
+    notes: dict[str, str] = {}
+    for line_number, line in enumerate(path.read_text().splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" not in stripped:
+            raise AssertionError(f"{HUMAN_NOTES_FILE}:{line_number} must be key=value")
+        key, value = stripped.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key or not value:
+            raise AssertionError(f"{HUMAN_NOTES_FILE}:{line_number} must have non-empty key and value")
+        if key in notes:
+            raise AssertionError(f"{HUMAN_NOTES_FILE} duplicates {key}=")
+        notes[key] = value
+    return notes
+
+
+def validate_human_notes(path: Path) -> None:
+    notes = _load_human_notes(path)
+    for key in REQUIRED_FREEFORM_HUMAN_NOTE_FIELDS:
+        if key not in notes:
+            raise AssertionError(f"{HUMAN_NOTES_FILE} missing {key}=")
+    for key, allowed_values in REQUIRED_HUMAN_NOTE_FIELDS.items():
+        value = notes.get(key)
+        if value is None:
+            raise AssertionError(f"{HUMAN_NOTES_FILE} missing {key}=")
+        if value not in allowed_values:
+            allowed = ", ".join(allowed_values)
+            raise AssertionError(f"{HUMAN_NOTES_FILE} {key}= must be {allowed}, got {value!r}")
+    for key, allowed_values in OPTIONAL_HUMAN_NOTE_FIELDS.items():
+        value = notes.get(key)
+        if value is not None and value not in allowed_values:
+            allowed = ", ".join(allowed_values)
+            raise AssertionError(f"{HUMAN_NOTES_FILE} {key}= must be one of {allowed}, got {value!r}")
+
+
+def validate_artifact_dir(artifact_dir: Path, require_human_notes: bool = False) -> None:
     if not artifact_dir.exists():
         raise AssertionError(f"artifact directory does not exist: {artifact_dir}")
     names = _relative_names(artifact_dir)
@@ -332,6 +446,15 @@ def validate_artifact_dir(artifact_dir: Path) -> None:
         except AssertionError as exc:
             raise AssertionError(f"audible audio proof manifest failed: {exc}") from exc
 
+    human_notes = _find_one(names, HUMAN_NOTES_FILE)
+    if require_human_notes and human_notes is None:
+        raise AssertionError(f"missing expected human review file: {HUMAN_NOTES_FILE}")
+    if human_notes is not None:
+        try:
+            validate_human_notes(artifact_dir / human_notes)
+        except AssertionError as exc:
+            raise AssertionError(f"human playtest notes failed: {exc}") from exc
+
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
@@ -346,13 +469,18 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="validate docs/workflow/Makefile runbook wiring",
     )
+    parser.add_argument(
+        "--human-session",
+        action="store_true",
+        help=f"require and validate {HUMAN_NOTES_FILE} for a manual remote playtest",
+    )
     args = parser.parse_args(argv)
 
     try:
         if args.repo_contract or args.artifact_dir is None:
             validate_repo_contract()
         if args.artifact_dir is not None:
-            validate_artifact_dir(args.artifact_dir)
+            validate_artifact_dir(args.artifact_dir, require_human_notes=args.human_session)
     except (OSError, AssertionError) as exc:
         print(f"cloud playability artifact check failed: {exc}", file=sys.stderr)
         return 1

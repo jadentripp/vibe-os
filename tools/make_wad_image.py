@@ -392,12 +392,34 @@ class Fat16Image:
         name = self.validate_root_83_name(name)
         if size < 0:
             raise ValueError("FAT16 root file size must be non-negative")
-        current = self.read_root_file(name) if self.root_entry_offset(name) is not None else b""
-        if len(current) > size:
-            resized = current[:size]
-        else:
-            resized = current + b"\0" * (size - len(current))
-        return self.write_root_file(name, resized)
+        entry = self.root_entry_offset(name)
+        if entry is None:
+            return self.write_root_file(name, b"\0" * size)
+
+        meta = self.root_file_metadata(name)
+        if meta["size"] < size:
+            current = self.read_root_file(name)
+            return self.write_root_file(name, current + b"\0" * (size - len(current)))
+        if meta["size"] == size:
+            return self.cluster_chain(meta["cluster"])
+        if size == 0:
+            return self.truncate_root_file(name)
+
+        chain = self.cluster_chain(meta["cluster"])
+        keep_count = clusters_for_size(size)
+        kept = chain[:keep_count]
+        freed = chain[keep_count:]
+        self.set_fat_entry(kept[-1], FAT16_EOC_VALUE)
+        for cluster in freed:
+            self.set_fat_entry(cluster, 0)
+
+        last_cluster_used = size % cluster_size()
+        if last_cluster_used:
+            last_start = self.cluster_offset(kept[-1])
+            clear_start = last_start + last_cluster_used
+            self.image[clear_start:last_start + cluster_size()] = bytes(cluster_size() - last_cluster_used)
+        write_le32(self.image, entry + 28, size)
+        return kept
 
     def truncate_root_file(self, name):
         entry = self.create_or_reuse_root_entry(name)

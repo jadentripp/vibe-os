@@ -539,6 +539,12 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("--menu build/status.after-menu.txt", real_wad_workflow)
         self.assertIn("build/status.txt", real_wad_workflow)
         self.assertIn("python3 tools/check_human_playability_proof.py", real_wad_workflow)
+        self.assertIn("Capture fresh persistence baseline", real_wad_workflow)
+        self.assertIn('cp build/disk.img "$RUNNER_TEMP/disk.before-persistence.img"', real_wad_workflow)
+        self.assertIn('cp "$baseline" build/disk.img', real_wad_workflow)
+        self.assertIn("build/status.persistence-write-proof.txt", real_wad_workflow)
+        self.assertIn("build/status.persistence-reboot-proof.txt", real_wad_workflow)
+        self.assertIn("--reboot-status build/status.persistence-reboot.txt", real_wad_workflow)
         self.assertIn('rm -f "$WAD_PATH"', real_wad_workflow)
         self.assertIn("timeout-minutes: 4", real_wad_workflow)
         self.assertIn("Show smoke diagnostics", real_wad_workflow)
@@ -752,7 +758,7 @@ class SourceContractTests(unittest.TestCase):
             "sb16=00000000:00000000 dma=00000000 play=00000000:00000000 voiceq=00000000:00000000:00000000 musicq=00000000:00000000 "
             "mouseirq=00000001 mousepkt=00000001 mousepoll=00000001 "
             "mousebtn=00000001 mousedelta=00000018:0000000C "
-            "dtick=00000059 preempt=00000001 pattempt=00000001 pskip=00000000 puser=00000004 pround=00000001 "
+            "dtick=00000059 preempt=00000001 pirq=00000001 pattempt=00000001 pskip=00000000 puser=00000004 pround=00000001 "
             "pctx=00000004 pfrom=00000002 pto=00000003 peip=01000000:00E80000 "
             "pspin=50524546 free=00700000 ticks=00000100"
         )
@@ -931,6 +937,8 @@ class SourceContractTests(unittest.TestCase):
             valid.replace("pself=OK", "pself=FAIL"),
             valid.replace("dtick=00000059", "dtick=00000058"),
             valid.replace("preempt=00000001", "preempt=00000000"),
+            valid.replace("pirq=00000001", "pirq=00000000"),
+            valid.replace("pirq=00000001", "pirq=00000002"),
             valid.replace("puser=00000004", "puser=00000000"),
             valid.replace("pfrom=00000002", "pfrom=FFFFFFFF"),
             valid.replace("pto=00000003", "pto=FFFFFFFF"),
@@ -1172,6 +1180,7 @@ class SourceContractTests(unittest.TestCase):
             "PTE_USER_WRITE_FLAGS equ PTE_PRESENT | PTE_WRITE | PTE_USER",
             "PTE_USER_FLAGS equ PTE_USER_WRITE_FLAGS",
             "PROC_PROBE_PAGE_DIR_ADDR equ 0x00080000",
+            "PROC_PREEMPT_PAGE_DIR_ADDR equ 0x00083000",
             "PROC_DOOM_PAGE_DIR_ADDR equ 0x00082000",
             "process_vm_init_page_spaces:",
             "vmm_mark_process_user_range:",
@@ -1186,7 +1195,7 @@ class SourceContractTests(unittest.TestCase):
             "VM_REGION_WRITE equ 0x8",
             "VM_REGION_EXEC equ 0x10",
             "dd PROC_PROBE_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_USER_PROBE_KERNEL_STACK_TOP",
-            "dd PROC_PROBE_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_PREEMPT_PROBE_KERNEL_STACK_TOP",
+            "dd PROC_PREEMPT_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_PREEMPT_PROBE_KERNEL_STACK_TOP",
             "dd PROC_DOOM_PAGE_DIR_ADDR, process_doom_vm_regions, 3, 0, PROC_DOOM_KERNEL_STACK_TOP",
             "mov cr3, eax",
         ):
@@ -1207,6 +1216,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("or ebx, PTE_KERNEL_FLAGS", paging_init)
         self.assertIn("call process_vm_init_page_spaces", paging_init)
         self.assertIn("PROC_PROBE_PDE3_TABLE_ADDR | PTE_USER_FLAGS", paging_init)
+        self.assertIn("PROC_PREEMPT_PDE3_TABLE_ADDR | PTE_USER_FLAGS", paging_init)
         self.assertIn("PROC_DOOM_PDE4_TABLE_ADDR | PTE_USER_FLAGS", paging_init)
         self.assertIn("mov edx, USER_STACK_TOP", paging_init)
         self.assertIn("mov edx, DOOM_USER_HEAP_START", paging_init)
@@ -1215,6 +1225,12 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("mov eax, USER_CODE_ADDR - PAGE_SIZE", paging_init)
         self.assertIn("mov eax, USER_HEAP_END", paging_init)
         self.assertNotIn("call vmm_mark_user_identity_page", paging_init)
+        range_marker = kernel.split("vmm_mark_process_user_range_with_flags:", 1)[1].split(
+            "vmm_mark_process_user_page:", 1
+        )[0]
+        self.assertIn("and eax, 0xfffff000", range_marker)
+        self.assertIn("add edx, PAGE_SIZE - 1", range_marker)
+        self.assertIn("and edx, 0xfffff000", range_marker)
         sbrk = kernel.split(".sbrk:", 1)[1].split(".open:", 1)[0]
         self.assertIn("call vmm_mark_process_user_range", sbrk)
         self.assertIn("mov cr3, ebx", sbrk)
@@ -1286,6 +1302,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("call process_activate", scheduler)
         self.assertIn("call process_restore_irq_context", scheduler)
         self.assertIn("inc dword [scheduler_preempt_switches]", scheduler)
+        self.assertIn("inc dword [scheduler_irq_context_switches]", scheduler)
         self.assertIn("inc dword [scheduler_preempt_skips]", scheduler)
         self.assertIn("inc dword [scheduler_user_irq_ticks]", scheduler)
         self.assertGreaterEqual(scheduler.count("call scheduler_capture_preempt_spin"), 2)
@@ -1325,6 +1342,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("mov dword [USER_STACK_TOP - 4], PREEMPT_PROBE_MAGIC", preempt_prepare)
         self.assertIn("call scheduler_prepare_live_preempt_probe", kernel)
         self.assertIn('smoke_preempt_text db " preempt="', kernel)
+        self.assertIn('smoke_pirq_text db " pirq="', kernel)
         self.assertIn('smoke_puser_text db " puser="', kernel)
         self.assertIn('smoke_peip_text db " peip="', kernel)
         self.assertIn('smoke_pspin_text db " pspin="', kernel)

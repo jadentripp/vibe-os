@@ -109,24 +109,90 @@ Expected audio behavior:
   the GitHub workflow with `audible_audio_proof=true`. That uses QEMU's WAV
   backend on the disposable runner, analyzes the temporary capture into
   aggregate `audio-proof.json`, validates it with
-  `tools/check_audible_audio_proof.py`, and deletes the temporary WAV before
-  upload. Keep the manifest and status files; do not upload or keep captured
-  Doom audio.
+  `tools/check_audible_audio_proof.py`, requires the same status-only SB16 continuity
+  snapshots so a music carrier alone cannot pass as SFX proof, and deletes the
+  temporary WAV before upload. Keep the manifest and status files; do not upload
+  or keep captured Doom audio.
 - For a manual listener check, use remote audio forwarding on the disposable
   host and record written notes only. If you make a local audio capture to debug
   clipping or balance, delete the temporary WAV when done and do not add it to a
   diagnostic artifact.
 
-## Status Capture
+## Human Status Capture
 
-Capture non-pixel status while the VM is running:
+Capture non-pixel status while the VM is running. Use the same filenames as the
+scripted cloud proof so the local checkers can compare real human actions across
+the same phases:
 
 ```sh
-printf 'pmemsave 0x9d000 4096 build/status.manual.bin\n' \
-  | nc -w 3 -U build/monitor.remote.sock
-perl -e 'local $/; $d = <>; $d =~ s/\0/ /g; print $d' \
-  build/status.manual.bin > build/status.manual.txt
-sed -n '1,220p' build/status.manual.txt
+capture_status() {
+  label="$1"
+  printf 'pmemsave 0x9d000 4096 build/status.%s.bin\n' "$label" \
+    | nc -w 3 -U build/monitor.remote.sock
+  perl -e 'local $/; $d = <>; $d =~ s/\0/ /g; print $d' \
+    "build/status.$label.bin" > "build/status.$label.txt"
+  sed -n '1,220p' "build/status.$label.txt"
+}
+
+# Capture before input, then play through VNC and capture after each action.
+capture_status after-start
+# Press Ctrl/fire in VNC.
+capture_status after-fire
+# Hold an arrow key long enough to move or turn.
+capture_status after-move
+# Press Space/use.
+capture_status after-use
+# Move the mouse and click once.
+capture_status after-mouse
+# Press Escape to open the menu.
+capture_status after-menu
+
+cp build/status.after-start.txt build/status.early.txt
+cp build/status.after-menu.txt build/status.txt
+rm -f build/status.*.bin
+```
+
+Record the human review as text only:
+
+```sh
+cat > build/human-playtest-notes.txt <<EOF
+schema=human-playtest-notes-v1
+commit=$(git rev-parse HEAD)
+playtester=<name-or-initials>
+remote_host=disposable
+qemu_location=remote
+vnc_tunnel=loopback-only
+wad=shareware-v1.9-validated-remote-only
+display=pass
+keyboard=pass
+mouse=pass
+audio=status-only
+diagnostics=non-wad-status-only
+no_local_qemu=yes
+no_wad_upload=yes
+no_disk_upload=yes
+no_pixel_upload=yes
+EOF
+```
+
+`audio=` may be `status-only`, `listener-pass`, `audio-proof-json-pass`, or
+`not-tested`. Keep subjective comments in extra text keys if useful, but do not
+store screenshots, audio captures, WADs, or disk images in the proof directory.
+
+Build a local diagnostic directory on the remote host, then download that
+directory or a tarball of it:
+
+```sh
+mkdir -p /tmp/vibe-os-human-proof
+cp \
+  build/status*.txt \
+  build/*.log \
+  build/kernel.elf \
+  build/user_probe.elf \
+  build/doom.elf \
+  build/doom.symbols \
+  build/human-playtest-notes.txt \
+  /tmp/vibe-os-human-proof/
 ```
 
 For a fully automated truth-serum run, use the GitHub Actions **Real WAD smoke**
@@ -164,6 +230,8 @@ python3 tools/check_real_wad_proof.py \
   --menu path/to/real-wad-smoke-status/status.after-menu.txt \
   path/to/real-wad-smoke-status/status.txt
 
+python3 tools/check_human_playability_proof.py path/to/real-wad-smoke-status/status.txt
+
 python3 tools/check_human_playability_proof.py \
   --baseline path/to/real-wad-smoke-status/status.after-start.txt \
   --start path/to/real-wad-smoke-status/status.after-start.txt \
@@ -186,11 +254,15 @@ python3 tools/check_audible_audio_proof.py \
   path/to/real-wad-smoke-status/audio-proof.json
 
 python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
+
+python3 tools/check_cloud_playability_artifacts.py \
+  --human-session path/to/vibe-os-human-proof
 ```
 
 The audible checker command is only expected to pass when the workflow was
 triggered with `audible_audio_proof=true` and the artifact contains
-`audio-proof.json`.
+`audio-proof.json`. The `--human-session` artifact check is for the manual VNC
+bundle and requires `human-playtest-notes.txt`.
 
 `triage_cloud_status.py` auto-loads `doom.symbols` from the artifact directory,
 so a `doom-user-fault` report should include the nearest Doom function for
@@ -205,7 +277,12 @@ Call a remote human playtest credible only after checking all of this:
 - Doom reaches the title/menu or E1M1 visually in the VNC display.
 - Verify keyboard and mouse actions visibly affect Doom: Arrow keys, Ctrl, Space,
   Enter, Escape, and relative mouse movement/clicks all change the menu or E1M1.
-- `status.manual.txt` or the GitHub artifact reports `gameplay=OK`,
+- The downloaded manual proof bundle contains `human-playtest-notes.txt`,
+  `status.early.txt`, `status.after-start.txt`, `status.after-fire.txt`,
+  `status.after-move.txt`, `status.after-use.txt`, `status.after-mouse.txt`,
+  `status.after-menu.txt`, `status.txt`, `doom.symbols`, and the diagnostic ELF
+  files, and `tools/check_cloud_playability_artifacts.py --human-session` passes.
+- `status.txt` or the GitHub artifact reports `gameplay=OK`,
   `gmap=00000101`, increasing `gtic`/`leveltime`, nonzero `keyirq`,
   `keyqueue`, and `keypoll`, `keyseen` bits for Up/Ctrl/Space/Escape, nonzero
   `mouseirq`/`mousepkt`/`mousepoll` when mouse is expected, changed `ppos` from
@@ -216,11 +293,14 @@ Call a remote human playtest credible only after checking all of this:
   remote image before claiming persistence beyond the current host tests. The
   GitHub **Real WAD smoke** workflow has an opt-in `persistence_proof` input
   for this path. It copies the fresh `build/disk.img` to a runner-local
-  baseline, performs a first boot with `persistence_input_script`, checks that
-  `DEFAULT.CFG` changed from that baseline, captures an after-write image
-  snapshot, boots the same image again, and checks that the requested FAT entries
-  still match the after-write snapshot. If your input script creates a save, set
-  `persistence_save_slot` to require the matching `DOOMSAVN.DSG`.
+  baseline immediately after rebuilding the real-WAD image, restores that
+  baseline before the persistence boot, performs a first boot with
+  `persistence_input_script`, checks that `DEFAULT.CFG` changed from that
+  baseline, captures an after-write image snapshot, boots the same image again,
+  and checks that the requested FAT entries still match the after-write snapshot.
+  The checker summary is saved as status text; the disk image and WAD are not
+  uploaded. If your input script creates a save, set `persistence_save_slot` to
+  require the matching `DOOMSAVN.DSG`.
 
   For a manual remote proof, copy a baseline before booting, quit Doom through
   its menu so `I_Quit` writes defaults, optionally create a save, boot the same
@@ -240,10 +320,10 @@ Call a remote human playtest credible only after checking all of this:
     build/disk.img
   ```
 
-  The checker reads `DEFAULT.CFG` and `DOOMSAV0.DSG` through the FAT parser and
-  prints only compact metadata, save description, version text, and whether the
-  requested entry changed from the baseline and survived the reboot comparison.
-  Do not upload `build/disk.img`
+  The checker reads `DEFAULT.CFG` and `DOOMSAV0.DSG` through the FAT parser,
+  requires a fresh baseline for reboot claims, and prints only compact metadata,
+  save description, version text, and whether the requested entry changed from
+  the baseline and survived the reboot comparison. Do not upload `build/disk.img`
   because it contains the WAD.
 - Audio is described honestly: `audio=SB16` plus the audio continuity checker
   proves the guest SB16 path advanced through IRQ/refill, SFX, and looped
@@ -252,6 +332,10 @@ Call a remote human playtest credible only after checking all of this:
   publish captured Doom audio.
 - Exit is handled through the QEMU monitor (`quit`) today. A graceful Doom
   quit-to-shell or reboot path is still a gap.
+- Shutdown/panic evidence is a separate opt-in OS smoke lane. When
+  `shutdown_panic_proof` is enabled, validate the downloaded artifact with
+  `tools/check_shutdown_panic_proof.py`; do not count monitor `quit` cleanup as
+  a guest-requested halt, reboot, or panic proof.
 
 ## Honest Remaining Gaps
 
@@ -272,7 +356,7 @@ Cleanup:
 
 ```sh
 rm -f /tmp/DOOM1.WAD
-rm -f build/status.manual.bin build/status.manual.txt
+rm -f build/status.*.bin build/human-playtest-notes.txt
 ```
 
 Then destroy the disposable remote host.

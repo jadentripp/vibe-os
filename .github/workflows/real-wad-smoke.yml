@@ -124,6 +124,12 @@ jobs:
           make clean
           make DOOM_WAD="$WAD_PATH"
 
+      - name: Capture fresh persistence baseline
+        if: ${{ inputs.persistence_proof }}
+        run: |
+          set -euo pipefail
+          cp build/disk.img "$RUNNER_TEMP/disk.before-persistence.img"
+
       - name: Boot real-WAD image
         timeout-minutes: 4
         run: |
@@ -150,7 +156,15 @@ jobs:
         run: |
           set -euo pipefail
           trap 'rm -f build/doom-audio.wav' EXIT
-          python3 tools/check_audible_audio_proof.py --analyze-wav build/doom-audio.wav --status build/status.txt --output build/audio-proof.json
+          python3 tools/check_audible_audio_proof.py \
+            --analyze-wav build/doom-audio.wav \
+            --status build/status.txt \
+            --baseline build/status.after-start.txt \
+            --fire build/status.after-fire.txt \
+            --movement build/status.after-move.txt \
+            --use build/status.after-use.txt \
+            --menu build/status.after-menu.txt \
+            --output build/audio-proof.json
           python3 tools/check_audible_audio_proof.py build/audio-proof.json
 
       - name: Assert real-WAD proof gates
@@ -228,7 +242,8 @@ jobs:
             check_args+=(--require-save-slot "$PERSISTENCE_SAVE_SLOT")
           fi
 
-          cp build/disk.img "$baseline"
+          test -f "$baseline"
+          cp "$baseline" build/disk.img
 
           mkdir -p build/persistence-write
           QEMU=qemu-system-x86_64 \
@@ -245,7 +260,8 @@ jobs:
             tests/run_smoke_qemu.sh
           cp build/persistence-write/status.txt build/status.persistence-write.txt
 
-          python3 tools/check_doom_persistence_image.py "${check_args[@]}" build/disk.img
+          python3 tools/check_doom_persistence_image.py "${check_args[@]}" build/disk.img \
+            | tee build/status.persistence-write-proof.txt
           cp build/disk.img "$after_write"
 
           mkdir -p build/persistence-reboot
@@ -265,7 +281,9 @@ jobs:
           python3 tools/check_doom_persistence_image.py \
             "${check_args[@]}" \
             --reboot-baseline-image "$after_write" \
-            build/disk.img
+            --reboot-status build/status.persistence-reboot.txt \
+            build/disk.img \
+            | tee build/status.persistence-reboot-proof.txt
 
       - name: Re-check validated WAD after smoke
         if: always()
