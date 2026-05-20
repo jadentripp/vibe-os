@@ -38,11 +38,14 @@ def status_line(**overrides):
         "doomrun": "RUN",
         "doomopen": "OK",
         "doomread": "OK",
+        "doomwad": "00000001/00000002/00000003/44415749",
         "doomwrite": "00000000",
         "doomseek": "00000020",
         "doomclose": "00000001",
         "doomsbrk": "00000010",
         "doomerr": "00000000",
+        "doomerrno": "00000000",
+        "doominit": "000001FF/00000009",
         "doomexit": "00000000",
         "doomfault": "00000000",
         "doomfaultip": "00000000",
@@ -64,6 +67,7 @@ def status_line(**overrides):
         "gmap": "00000101",
         "gtic": "000002E5",
         "leveltime": "000002E5",
+        "dtick": "0000010C",
         "gflags": "00000001",
         "gaction": "00000000",
         "pflags": "000000FF",
@@ -89,6 +93,11 @@ def status_line(**overrides):
         "musicvoices": "00000000",
         "musicmix": "00000000",
         "musicloop": "00000000",
+        "sb16": "00000000:00000000",
+        "dma": "00000000",
+        "play": "00000000:00000000",
+        "voiceq": "00000000:00000000:00000000",
+        "musicq": "00000000:00000000",
         "audio": "NONE",
         "keyirq": "00000005",
         "keyqueue": "00000005",
@@ -303,9 +312,17 @@ class ProofStatusContractTests(unittest.TestCase):
             status_line(argv="00000000"),
             status_line(doomrun="WAIT"),
             status_line(doomerr="00000001"),
+            status_line(doomerrno="FFFFFFFE"),
+            status_line(doomwad="00000000/00000002/00000003/44415749"),
+            status_line(doomwad="00000001/00000000/00000003/44415749"),
+            status_line(doomwad="00000001/00000002/00000000/44415749"),
+            status_line(doomwad="00000001/00000002/00000003/50574144"),
+            status_line(doominit="000000FF/00000009"),
+            status_line(doominit="000001FF/00000000"),
             status_line(vmm="FAIL"),
             status_line(pself="FAIL"),
             status_line(audio="EMU"),
+            status_line(dtick="0000010B"),
             status_line(preempt="00000000"),
             status_line(pattempt="00000000"),
             status_line(puser="00000000"),
@@ -399,6 +416,8 @@ class ProofStatusContractTests(unittest.TestCase):
                     fault="0000000E/00000004/0102F190/0000001B/0100FFE0/00000023/018F0000/00000002/00000002/00000001/00000003",
                     doomopen="FAIL",
                     doomread="FAIL",
+                    doomwad="00000000/00000000/00000000/00000000",
+                    doominit="0000003F/00000004",
                     gameplay="WAIT",
                     gfx="FAIL",
                     usr="FAIL",
@@ -430,6 +449,8 @@ class ProofStatusContractTests(unittest.TestCase):
         self.assertIn("doomfaulterr=00000004", result.stderr)
         self.assertIn("fault=0000000E/00000004/0102F190", result.stderr)
         self.assertIn("doomopen=FAIL", result.stderr)
+        self.assertIn("doomwad=00000000/00000000/00000000/00000000", result.stderr)
+        self.assertIn("doominit=0000003F/00000004", result.stderr)
         self.assertIn("usr=FAIL", result.stderr)
 
     def test_human_checker_rejects_duplicate_status_fields(self):

@@ -36,7 +36,9 @@ Current kernel contract:
 - Supported truncation: `O_TRUNC` frees the old cluster chain, resets first
   cluster to 0, and persists size 0. The kernel validates the whole FAT chain
   before mutating entries, so a corrupt loop or out-of-range pointer fails
-  without partially freeing the file.
+  without partially freeing the file. Writable `open(..., O_TRUNC)` also
+  reserves an fd slot before truncating, so `EMFILE` cannot erase Doom defaults
+  or saves.
 - Supported deletion: `unlink`/`remove` frees the FAT cluster chain, marks the
   root entry deleted (`0xe5`), clears the in-kernel writable slot, and
   invalidates open descriptors for that file. Later `O_CREAT` can reuse the

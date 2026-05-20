@@ -36,6 +36,11 @@ def status_line(**overrides):
         "musicvoices": "00000001",
         "musicmix": "00000001",
         "musicloop": "00000000",
+        "sb16": "00000004:00000005",
+        "dma": "00000001",
+        "play": "00000001:00000000",
+        "voiceq": "00000001:00000000:00000000",
+        "musicq": "00000001:00000000",
         "doomrun": "RUN",
         "doomopen": "OK",
         "doomread": "OK",
@@ -150,6 +155,43 @@ class AudioContinuityProofTests(unittest.TestCase):
                 movement_status=flat["baseline"],
                 use_status=flat["baseline"],
                 menu_status=flat["baseline"],
+            )
+
+    def test_rejects_mixing_without_sb16_dma_playback_or_queued_voices(self):
+        snapshots = snapshot_statuses()
+        snapshots["final"] = status_line(dma="00000000", musicloop="00000001")
+        with self.assertRaisesRegex(AssertionError, "final dma="):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+            )
+
+        snapshots = snapshot_statuses()
+        snapshots["final"] = status_line(play="00000000:00000000", musicloop="00000001")
+        with self.assertRaisesRegex(AssertionError, "final play="):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+            )
+
+        snapshots = snapshot_statuses()
+        snapshots["final"] = status_line(voiceq="00000000:00000000:00000000", musicloop="00000001")
+        with self.assertRaisesRegex(AssertionError, "final voiceq="):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
             )
 
     def test_rejects_music_carrier_without_independent_sfx_progress(self):

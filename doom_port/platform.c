@@ -41,6 +41,11 @@ static int playable_initial_clip = -1;
 
 #define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
 
+static void report_doom_init_status(unsigned long flags)
+{
+    (void)vibe_syscall3(VIBE_SYS_GAMEPLAY_STATUS, VIBE_DOOM_INIT_STATUS | flags, 0, 0);
+}
+
 static int vibe_music_audio_handle(int handle)
 {
     return (int)(VIBE_MUSIC_AUDIO_HANDLE_BASE | ((unsigned int)handle & 0xffffu));
@@ -88,10 +93,12 @@ char* sndserver_filename = "sndserver";
 
 void I_Init(void)
 {
+    report_doom_init_status(VIBE_DOOM_INIT_I_INIT);
 }
 
 byte* I_ZoneBase(int* size)
 {
+    report_doom_init_status(VIBE_DOOM_INIT_ZONE);
     *size = sizeof(doom_zone);
     return doom_zone;
 }
@@ -111,6 +118,8 @@ void I_StartTic(void)
     int packed;
     event_t event;
     vibe_doom_input_event_t translated;
+
+    report_doom_init_status(VIBE_DOOM_INIT_TIC);
 
     for (i = 0; i < 32; ++i) {
         packed = vibe_syscall3(VIBE_SYS_POLL_KEY, 0, 0, 0);
@@ -180,6 +189,7 @@ void I_Error(char* error, ...)
 
 void I_InitGraphics(void)
 {
+    report_doom_init_status(VIBE_DOOM_INIT_GRAPHICS);
 }
 
 void I_ShutdownGraphics(void)
@@ -188,6 +198,7 @@ void I_ShutdownGraphics(void)
 
 void I_SetPalette(byte* palette)
 {
+    report_doom_init_status(VIBE_DOOM_INIT_PALETTE);
     memcpy(active_palette, palette, sizeof(active_palette));
 }
 
@@ -268,6 +279,7 @@ void I_FinishUpdate(void)
 {
     vibe_present_indexed_t present;
 
+    report_doom_init_status(VIBE_DOOM_INIT_FRAME);
     report_gameplay_status();
     report_playability_status();
     if (screens[0]) {
@@ -300,6 +312,7 @@ void I_EndRead(void)
 
 void I_InitNetwork(void)
 {
+    report_doom_init_status(VIBE_DOOM_INIT_NETWORK);
     memset(&local_doomcom, 0, sizeof(local_doomcom));
     local_doomcom.id = DOOMCOM_ID;
     local_doomcom.numnodes = 1;
@@ -319,6 +332,7 @@ void I_NetCmd(void)
 
 void I_InitSound(void)
 {
+    report_doom_init_status(VIBE_DOOM_INIT_SOUND);
     vibe_music_init();
     (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_INIT, 0, 0);
 }

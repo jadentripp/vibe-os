@@ -192,6 +192,11 @@ class AudioContractTests(unittest.TestCase):
             "smoke_musicvoices_text db \" musicvoices=\"",
             "smoke_musicmix_text db \" musicmix=\"",
             "smoke_musicloop_text db \" musicloop=\"",
+            "smoke_sb16ver_text db \" sb16=\"",
+            "smoke_dmaprog_text db \" dma=\"",
+            "smoke_play_text db \" play=\"",
+            "smoke_voiceq_text db \" voiceq=\"",
+            "smoke_musicq_text db \" musicq=\"",
             "mov edx, [sb16_mix_clip_count]",
             "mov edx, [sb16_voice_steal_count]",
             "mov edx, [sb16_pitch_clamp_count]",
@@ -200,6 +205,10 @@ class AudioContractTests(unittest.TestCase):
             "mov edx, [sb16_active_music_voice_count]",
             "mov edx, [sb16_music_mix_count]",
             "mov edx, [sb16_music_loop_count]",
+            "mov edx, [sb16_dma_program_count]",
+            "mov edx, [sb16_playback_start_count]",
+            "mov edx, [sb16_voice_start_count]",
+            "mov edx, [sb16_music_start_count]",
         ):
             self.assertIn(source, kernel)
 
@@ -215,6 +224,11 @@ class AudioContractTests(unittest.TestCase):
             'grep -q "musicvoices="',
             'grep -q "musicmix="',
             'grep -q "musicloop="',
+            'grep -q "sb16="',
+            'grep -q "dma="',
+            'grep -q "play="',
+            'grep -q "voiceq="',
+            'grep -q "musicq="',
         ):
             self.assertIn(source, makefile)
 

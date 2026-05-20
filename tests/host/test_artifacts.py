@@ -510,7 +510,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("hashlib.sha1", real_wad_workflow)
         self.assertIn("SMOKE_EXPECT_PROBE_GFX=0", real_wad_workflow)
         self.assertIn("SMOKE_CAPTURE_GFX=0", real_wad_workflow)
-        self.assertIn("SMOKE_QEMU_TIMEOUT=75", real_wad_workflow)
+        self.assertIn("SMOKE_QEMU_TIMEOUT=120", real_wad_workflow)
         self.assertIn("SMOKE_EARLY_SECONDS=2", real_wad_workflow)
         self.assertIn("SMOKE_SETTLE_SECONDS=20", real_wad_workflow)
         self.assertIn("SMOKE_SKIP_ASSERTIONS=1", real_wad_workflow)
@@ -540,7 +540,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("build/status.txt", real_wad_workflow)
         self.assertIn("python3 tools/check_human_playability_proof.py", real_wad_workflow)
         self.assertIn('rm -f "$WAD_PATH"', real_wad_workflow)
-        self.assertIn("timeout-minutes: 2", real_wad_workflow)
+        self.assertIn("timeout-minutes: 4", real_wad_workflow)
         self.assertIn("Show smoke diagnostics", real_wad_workflow)
         self.assertIn("build/status*.bin", real_wad_workflow)
         self.assertIn("build/status*.txt", real_wad_workflow)
@@ -651,6 +651,9 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("shutdown=", kernel)
         self.assertIn("doomopen=", kernel)
         self.assertIn("doomread=", kernel)
+        self.assertIn("doomwad=", kernel)
+        self.assertIn("doominit=", kernel)
+        self.assertIn("doomerrno=", kernel)
         self.assertIn("doomlog=", kernel)
         self.assertIn('grep -Eq "doomrun=(RUN|EXIT)"', makefile)
         self.assertIn('grep -q "doomexit="', makefile)
@@ -663,6 +666,9 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('grep -Eq "shutdown=(NONE|HALT|REBOOT)"', makefile)
         self.assertIn('grep -q "doomopen=OK"', makefile)
         self.assertIn('grep -q "doomread=OK"', makefile)
+        self.assertIn('grep -q "doomwad="', makefile)
+        self.assertIn('grep -q "doominit="', makefile)
+        self.assertIn('grep -q "doomerrno="', makefile)
         self.assertIn('grep -q "doomlog="', makefile)
 
     def test_doom_autostarts_e1m1_and_reports_gameplay_state(self):
@@ -680,14 +686,20 @@ class SourceContractTests(unittest.TestCase):
         ):
             self.assertIn(source, start)
         self.assertIn("VIBE_SYS_GAMEPLAY_STATUS = 15", header)
+        self.assertIn("VIBE_DOOM_INIT_STATUS = 0x40000000u", header)
         self.assertIn("static void report_gameplay_status(void)", platform)
+        self.assertIn("static void report_doom_init_status(unsigned long flags)", platform)
         self.assertIn("VIBE_SYS_GAMEPLAY_STATUS", platform)
         self.assertIn("(unsigned long)gametic", platform)
         self.assertIn("(unsigned long)leveltime", platform)
         for source in (
             "SYS_GAMEPLAY_STATUS equ 15",
+            "DOOM_INIT_STATUS_FLAG equ 0x40000000",
             "cmp eax, SYS_GAMEPLAY_STATUS",
             ".gameplay_status:",
+            ".doom_init_status:",
+            "doom_init_flags dd 0",
+            "doom_init_report_count dd 0",
             "doom_gameplay_status dd 0",
             "doom_gameplay_report_count dd 0",
             "doom_game_state dd 0",
@@ -699,6 +711,8 @@ class SourceContractTests(unittest.TestCase):
             'smoke_gmap_text db " gmap="',
             'smoke_gtic_text db " gtic="',
             'smoke_leveltime_text db " leveltime="',
+            'smoke_doomtick_text db " dtick="',
+            'smoke_doominit_text db " doominit="',
         ):
             self.assertIn(source, kernel)
         self.assertIn('grep -q "gameplay="', makefile)
@@ -706,6 +720,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("/gstate=([0-9A-F]{8})/", makefile)
         self.assertIn("hex($$1) == 0x00000101", makefile)
         self.assertIn("/leveltime=([0-9A-F]{8})/", makefile)
+        self.assertIn('grep -q "dtick="', makefile)
         self.assertIn("real_wad_args=\"--baseline $(BUILD_DIR)/status.early.txt\"", makefile)
         self.assertIn("tools/check_real_wad_proof.py $$real_wad_args $(BUILD_DIR)/status.txt", makefile)
 
@@ -723,18 +738,20 @@ class SourceContractTests(unittest.TestCase):
             "fb=LFB audio=NONE mouse=OK doommode=00000000:00000000 "
             "target=00000001 entry=00000001 stack=00000002 argc=00000001 argv=00000003 argv0=00000004 "
             "execerr=00000000 execres=00000000 execsys=00000001/00000001/00000000/00000001/00000001/00000000 "
-            "doomwrite=00000000 doomseek=00000001 doomclose=00000000 doomsbrk=00000001 doomerr=00000000 "
+            "doomwrite=00000000 doomseek=00000001 doomwad=00000001/00000001/00000001/44415749 "
+            "doomclose=00000000 doomsbrk=00000001 doomerr=00000000 doomerrno=00000000 doominit=000001FF/00000009 "
             "doomexit=00000000 doomfault=00000000 doomfaultip=00000000 doomfaultv=00000000 doomfaulterr=00000000 "
             "fault=00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000 "
             "panic=NONE shutdown=NONE "
             "doomsound=00000000 sfxmix=00000000 voices=00000000 sfxvoices=00000000 audioirq=00000000 ack8=00000000 ack16=00000000 "
             "refill=00000000 half=00000000 mixwrap=00000000 mixover=00000000 mixunder=00000000 mixclip=00000000 "
             "steal=00000000 pitchclamp=00000000 panclamp=00000000 musicvoices=00000000 musicmix=00000000 musicloop=00000000 "
+            "sb16=00000000:00000000 dma=00000000 play=00000000:00000000 voiceq=00000000:00000000:00000000 musicq=00000000:00000000 "
             "mouseirq=00000001 mousepkt=00000001 mousepoll=00000001 "
             "mousebtn=00000001 mousedelta=00000018:0000000C "
-            "preempt=00000001 pattempt=00000001 pskip=00000000 puser=00000004 pround=00000001 "
+            "dtick=00000059 preempt=00000001 pattempt=00000001 pskip=00000000 puser=00000004 pround=00000001 "
             "pctx=00000004 pfrom=00000002 pto=00000003 peip=01000000:00E80000 "
-            "pspin=50524546 free=00700000 ticks=00000001"
+            "pspin=50524546 free=00700000 ticks=00000100"
         )
         playable = "gstate=00000000 gtic=00000001 gflags=00000001 gaction=00000000 pflags=000000FF pbuttons=00000000 ppos=00010000:00020000 pdelta=00000100 keyirq=00000001 keyqueue=00000001 keypoll=00000001 keyseen=00000071 keylast=0001001B"
         valid = f"Aurora OS v0.2 {core} gameplay=OK gmap=00000101 leveltime=00000001 doompresent=00000002 {visual} {playable} doomlog=ready"
@@ -855,6 +872,9 @@ class SourceContractTests(unittest.TestCase):
             valid.replace("argc=00000001", "argc=00000000"),
             valid.replace("argv=00000003", "argv=00000000"),
             valid.replace("doomerr=00000000", "doomerr=00000001"),
+            valid.replace("doomwad=00000001/00000001/00000001/44415749", "doomwad=00000001/00000001/00000000/44415749"),
+            valid.replace("doominit=000001FF/00000009", "doominit=000000FF/00000009"),
+            valid.replace("doomerrno=00000000", "doomerrno=FFFFFFFE"),
             valid.replace("doomexit=00000000", "doomexit=00000001"),
             valid.replace("doomfault=00000000", "doomfault=00BADF00"),
             valid.replace("doomfaultip=00000000", "doomfaultip=0102F190"),
@@ -865,6 +885,7 @@ class SourceContractTests(unittest.TestCase):
                 "fault=0000000E/00000004/0102F190/0000001B/0100FFE0/00000023/018F0000/00000002/00000002/00000001/00000003",
             ),
             valid.replace("pself=OK", "pself=FAIL"),
+            valid.replace("dtick=00000059", "dtick=00000058"),
             valid.replace("preempt=00000001", "preempt=00000000"),
             valid.replace("puser=00000004", "puser=00000000"),
             valid.replace("pfrom=00000002", "pfrom=FFFFFFFF"),
@@ -992,6 +1013,12 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("call fat_bind_found_to_writable_slot", open_path)
         self.assertIn("call fd_alloc", open_path)
         self.assertIn("jc .bad_syscall_emfile", open_path)
+        self.assertIn(".open_writable_bind_reserved:", open_path)
+        self.assertIn(".open_writable_reserved_eio:", open_path)
+        self.assertLess(
+            open_path.index("call fd_alloc", open_path.index(".open_writable_ready:")),
+            open_path.index("call fat_truncate_writable_file", open_path.index(".open_writable_ready:")),
+        )
         self.assertIn("mov byte [fd_kinds + eax], FD_KIND_WAD", open_path)
         self.assertIn("mov byte [fd_kinds + eax], FD_KIND_WRITABLE", open_path)
         self.assertNotIn("USER_FD_WRITABLE_BASE", kernel)
@@ -1316,7 +1343,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('if [ "$(SMOKE_REQUIRE_DOOM_PRESENT)" = "1" ]; then', makefile)
         self.assertIn("/doompresent=([0-9A-F]{8})/", makefile)
         self.assertIn('hex($$1) > 0; END { exit($$ok ? 0 : 1) }', makefile)
-        self.assertIn("pmemsave 0x9d000 2048", smoke_runner)
+        self.assertIn("pmemsave 0x9d000 4096", smoke_runner)
         self.assertIn("pmemsave 0xa0000 64000", smoke_runner)
 
     def test_doom_keyboard_events_flow_through_kernel_syscall(self):
@@ -1477,6 +1504,9 @@ class SourceContractTests(unittest.TestCase):
             "doom_sound_start_count dd 0",
             "sb16_irq_count dd 0",
             "sb16_dma_program_count dd 0",
+            "sb16_playback_start_count dd 0",
+            "sb16_voice_start_count dd 0",
+            "sb16_music_start_count dd 0",
             "align 4096",
             "sb16_dma_buffer times SB16_DMA_BUFFER_BYTES db 0x80",
             "mov dx, DMA8_CH1_ADDR_REG",
@@ -1496,6 +1526,11 @@ class SourceContractTests(unittest.TestCase):
             "mov dx, SB16_DSP_ACK16",
             'smoke_doomsound_text db " doomsound="',
             'smoke_sfxvoices_text db " sfxvoices="',
+            'smoke_sb16ver_text db " sb16="',
+            'smoke_dmaprog_text db " dma="',
+            'smoke_play_text db " play="',
+            'smoke_voiceq_text db " voiceq="',
+            'smoke_musicq_text db " musicq="',
             'smoke_audio_text db " audio="',
         ):
             self.assertIn(source, kernel)
@@ -1523,6 +1558,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('grep -q "doomsound="', makefile)
         self.assertIn('grep -q "sfxvoices="', makefile)
         self.assertIn('grep -q "musicmix="', makefile)
+        self.assertIn('grep -q "dma="', makefile)
+        self.assertIn('grep -q "voiceq="', makefile)
         self.assertIn('grep -Eq "audio=(SB16|NONE)"', makefile)
         self.assertIn("test: $(IMAGE) doom-link", makefile)
         self.assertNotIn("test: vm-consent", makefile)

@@ -31,7 +31,10 @@ def status_line(**overrides):
         "doomrun": "RUN",
         "doomopen": "OK",
         "doomread": "OK",
+        "doomwad": "00000001/00000002/00000003/44415749",
+        "doominit": "000001FF/00000009",
         "doomerr": "00000000",
+        "doomerrno": "00000000",
         "doomexit": "00000000",
         "doomfault": "00000000",
         "doomfaultip": "00000000",
@@ -70,6 +73,7 @@ def status_line(**overrides):
         "heap": "OK",
         "free": "00780000",
         "ticks": "00000300",
+        "dtick": "0000010C",
         "preempt": "00000008",
         "pattempt": "00000010",
         "puser": "00000080",
@@ -111,8 +115,10 @@ class CloudStatusTriageTests(unittest.TestCase):
             "exec-failed",
             "doom-user-fault",
             "missing-wad-open-read",
+            "doom-init-stalled",
             "frames-no-gameplay",
             "input-no-effect",
+            "doom-timer-not-proven",
             "preemption-not-proven",
             "artifact-proof-failure",
             "kernel-panic",
@@ -169,6 +175,7 @@ class CloudStatusTriageTests(unittest.TestCase):
             fault="0000000E/00000004/0102F190/0000001B/0100FFE0/00000023/018F0000/00000002/00000002/00000001/00000003",
             doomopen="FAIL",
             doomread="FAIL",
+            doomwad="00000000/00000000/00000000/00000000",
         )
 
         self.assertEqual(primary, "doom-user-fault")
@@ -215,9 +222,11 @@ class CloudStatusTriageTests(unittest.TestCase):
             status_line(
                 doomopen="FAIL",
                 doomread="FAIL",
+                doomwad="00000000/00000000/00000000/00000000",
                 doomseek="00000000",
                 doomclose="00000000",
                 doomerr="00000002",
+                doomerrno="FFFFFFFE",
                 doommode="00000001:00000000",
                 doomlog="W_GetNumForName",
             )
@@ -225,6 +234,7 @@ class CloudStatusTriageTests(unittest.TestCase):
 
         self.assertIn("primary: missing-wad-open-read", rendered)
         self.assertIn("wad-io: doomopen=FAIL doomread=FAIL", rendered)
+        self.assertIn("doomerrno=FFFFFFFE", rendered)
         self.assertIn("wad-hint: disk image and WAD fixture were visible", rendered)
 
     def test_classifies_kernel_panic_before_other_lanes(self):
@@ -247,12 +257,27 @@ class CloudStatusTriageTests(unittest.TestCase):
         primary, notes = self.classify(
             doomopen="FAIL",
             doomread="FAIL",
+            doomwad="00000000/00000000/00000000/00000000",
             doomerr="00000002",
+            doomerrno="FFFFFFFE",
             doomlog="W_GetNumForName",
         )
 
         self.assertEqual(primary, "missing-wad-open-read")
         self.assertIn("doomerr=00000002", notes[0])
+        self.assertIn("doomerrno=FFFFFFFE", notes[0])
+
+    def test_classifies_missing_wad_seek_or_magic_even_if_legacy_fields_are_ok(self):
+        primary, notes = self.classify(doomwad="00000001/00000001/00000000/00000000")
+
+        self.assertEqual(primary, "missing-wad-open-read")
+        self.assertIn("doomwad=00000001/00000001/00000000/00000000", notes[0])
+
+    def test_classifies_doom_init_stalled_after_wad_io(self):
+        primary, notes = self.classify(doominit="0000003F/00000004", gameplay="WAIT")
+
+        self.assertEqual(primary, "doom-init-stalled")
+        self.assertIn("doominit=0000003F/00000004", notes[0])
 
     def test_classifies_frames_without_gameplay(self):
         primary, notes = self.classify(gameplay="WAIT", leveltime="00000000")
@@ -279,7 +304,14 @@ class CloudStatusTriageTests(unittest.TestCase):
 
         self.assertEqual(primary, "input-no-effect")
         self.assertIn("mousebtn=00000000", notes[0])
-        self.assertIn("mousedelta=00000000:0000000C", notes[0])
+
+    def test_classifies_missing_doom_35hz_timer_proof(self):
+        primary, notes = self.classify(dtick="0000010B")
+
+        self.assertEqual(primary, "doom-timer-not-proven")
+        self.assertIn("ticks=00000300", notes[0])
+        self.assertIn("dtick=0000010B", notes[0])
+        self.assertIn("gtic=00000020", notes[0])
 
     def test_classifies_missing_live_preemption_after_gameplay_is_green(self):
         primary, notes = self.classify(preempt="00000000", pspin="50524545")

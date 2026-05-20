@@ -20,6 +20,7 @@ DEFAULT_REJECT_PATTERNS = (
     r"r_inittextures",
 )
 PREEMPT_PROBE_MAGIC = 0x50524545
+REQUIRED_DOOM_INIT_FLAGS = 0x000001FF
 
 EXACT_FIELDS = {
     "exec": "OK",
@@ -60,6 +61,7 @@ HEX_FIELDS = (
     "doomclose",
     "doomsbrk",
     "doomerr",
+    "doomerrno",
     "doompresent",
     "doompal",
     "doomframe",
@@ -67,6 +69,7 @@ HEX_FIELDS = (
     "doomcolors",
     "gtic",
     "leveltime",
+    "dtick",
     "gflags",
     "gaction",
     "pflags",
@@ -96,6 +99,7 @@ HEX_FIELDS = (
     "musicvoices",
     "musicmix",
     "musicloop",
+    "dma",
     "keyirq",
     "keyqueue",
     "keypoll",
@@ -136,7 +140,9 @@ SUMMARY_FIELDS = (
     "doomrun",
     "doomopen",
     "doomread",
+    "doomwad",
     "doomerr",
+    "doomerrno",
     "doomexit",
     "doomfault",
     "doomfaultip",
@@ -145,11 +151,13 @@ SUMMARY_FIELDS = (
     "fault",
     "panic",
     "shutdown",
+    "doominit",
     "gameplay",
     "gstate",
     "gmap",
     "gtic",
     "leveltime",
+    "dtick",
     "doompresent",
     "doompal",
     "doomframe",
@@ -158,6 +166,11 @@ SUMMARY_FIELDS = (
     "musicvoices",
     "musicmix",
     "musicloop",
+    "sb16",
+    "dma",
+    "play",
+    "voiceq",
+    "musicq",
     "pflags",
     "gflags",
     "keyirq",
@@ -257,6 +270,30 @@ def _hex_tuple_field(status: str, name: str, count: int, separator: str = "/") -
     return tuple(int(part, 16) for part in parts)
 
 
+def _doom_init_field(status: str) -> tuple[int, int]:
+    flags, reports = _hex_tuple_field(status, "doominit", 2)
+    if (flags & REQUIRED_DOOM_INIT_FLAGS) != REQUIRED_DOOM_INIT_FLAGS:
+        raise AssertionError(
+            f"doominit= flags must include {REQUIRED_DOOM_INIT_FLAGS:#x}, got {flags:#x}"
+        )
+    if reports == 0:
+        raise AssertionError("doominit= report count must be nonzero")
+    return flags, reports
+
+
+def _doom_wad_field(status: str) -> tuple[int, int, int, int]:
+    opens, reads, seeks, magic = _hex_tuple_field(status, "doomwad", 4)
+    if opens == 0:
+        raise AssertionError("doomwad= must prove a Doom DOOM1.WAD open")
+    if reads == 0:
+        raise AssertionError("doomwad= must prove a Doom DOOM1.WAD read")
+    if seeks == 0:
+        raise AssertionError("doomwad= must prove a Doom DOOM1.WAD lseek")
+    if magic != 0x44415749:
+        raise AssertionError(f"doomwad= magic must be IWAD, got {magic:#x}")
+    return opens, reads, seeks, magic
+
+
 def _sample_field(status: str, name: str) -> tuple[int, int, int]:
     value = _field(status, name)
     if not re.fullmatch(r"[0-9A-Fa-f]{8}:[0-9A-Fa-f]{8}:[0-9A-Fa-f]{8}", value):
@@ -272,6 +309,17 @@ def _position_field(status: str, name: str) -> None:
     value = _field(status, name)
     if not re.fullmatch(r"[0-9A-Fa-f]{8}:[0-9A-Fa-f]{8}", value):
         raise AssertionError(f"{name}= must be two eight-digit hex coordinates, got {value!r}")
+
+
+def _colon_tuple_field(status: str, name: str, count: int) -> tuple[int, ...]:
+    value = _field(status, name)
+    parts = value.split(":")
+    if len(parts) != count:
+        raise AssertionError(f"{name}= must have {count} hex parts separated by ':'")
+    for part in parts:
+        if not re.fullmatch(r"[0-9A-Fa-f]{8}", part):
+            raise AssertionError(f"{name}= part must be eight hex digits, got {part!r}")
+    return tuple(int(part, 16) for part in parts)
 
 
 def _open_mode_field(status: str, name: str) -> None:
@@ -292,6 +340,10 @@ def _validate_core_status(status: str) -> None:
     _open_mode_field(status, "doommode")
     _position_field(status, "ppos")
     _position_field(status, "mousedelta")
+    sb16_version = _colon_tuple_field(status, "sb16", 2)
+    play = _colon_tuple_field(status, "play", 2)
+    voiceq = _colon_tuple_field(status, "voiceq", 3)
+    musicq = _colon_tuple_field(status, "musicq", 2)
 
     attempts, successes, failures, handoffs, scheduled, rollbacks = _hex_tuple_field(
         status, "execsys", 6
@@ -313,9 +365,13 @@ def _validate_core_status(status: str) -> None:
     _hex_field_gt(status, "argv", 0)
     _hex_field_gt(status, "argv0", 0)
     _hex_field_gt(status, "doomseek", 0)
+    _doom_wad_field(status)
+    _doom_init_field(status)
     _hex_field_gt(status, "doomsbrk", 0)
     if _hex_field(status, "doomerr") != 0:
         raise AssertionError("doomerr= must be zero")
+    if _hex_field(status, "doomerrno") != 0:
+        raise AssertionError("doomerrno= must be zero")
     if _hex_field(status, "doomexit") != 0:
         raise AssertionError("doomexit= must be zero for the real-WAD gameplay proof")
     for fault_field in ("doomfault", "doomfaultip", "doomfaultv", "doomfaulterr"):
@@ -324,7 +380,24 @@ def _validate_core_status(status: str) -> None:
     if any(_hex_tuple_field(status, "fault", 11)):
         raise AssertionError("fault= must be all zero for the real-WAD gameplay proof")
     _hex_field_gt(status, "free", 0)
-    _hex_field_gt(status, "ticks", 0)
+    timer_ticks = _hex_field_gt(status, "ticks", 0)
+    doom_ticks = _hex_field_gt(status, "dtick", 0)
+    expected_doom_ticks = (timer_ticks * 35) // 100
+    if doom_ticks != expected_doom_ticks:
+        raise AssertionError(
+            f"dtick= must equal floor(ticks*35/100), got {doom_ticks:08X} for ticks={timer_ticks:08X}"
+        )
+    audio = _field(status, "audio")
+    if audio == "SB16":
+        if sb16_version[0] == 0:
+            raise AssertionError("sb16= must expose a nonzero SB16 DSP major version when audio=SB16")
+        _hex_field_gt(status, "dma", 0)
+        if play[0] == 0:
+            raise AssertionError("play= must prove SB16 playback started when audio=SB16")
+        if voiceq[0] == 0:
+            raise AssertionError("voiceq= must prove an audio voice was queued when audio=SB16")
+        if musicq[0] == 0:
+            raise AssertionError("musicq= must prove the music carrier was queued when audio=SB16")
     _hex_field_gt(status, "preempt", 0)
     _hex_field_gt(status, "pattempt", 0)
     _hex_field_gt(status, "puser", 0)

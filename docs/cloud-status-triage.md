@@ -49,9 +49,11 @@ python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
 | `doom-user-fault` | `doomrun=FAULT`, nonzero `doomfault`, `doomfaultip`, `doomfaultv`, `doomfaulterr`, or nonzero compact `fault=` tuple | Doom entered user mode and faulted. `doomfault` is CR2, `doomfaultip` is EIP, `doomfaultv` is the exception vector, and `doomfaulterr` is the x86 error code. | Resolve `doomfaultip` with `doom.symbols`; decode vector/error/CR2; inspect stack, paging, segment, and syscall ABI. |
 | `kernel-panic` | `panic=KEXC`, usually with a nonzero compact `fault=` tuple | The kernel recorded an unhandled non-Doom exception before halting. | Decode `fault=vector/error/eip/cs/esp/ss/cr2/pid/kind/state/syscall`, then inspect the matching kernel path. |
 | `os-shutdown-requested` | `shutdown=HALT` or `shutdown=REBOOT` | The OS recorded a halt or reboot request in the status block. | Verify this came from an intentional shutdown/reboot proof lane before treating QEMU exit as a failure. |
-| `missing-wad-open-read` | `doomopen!=OK`, `doomread!=OK`, nonzero `doomerr`, suspicious `doommode`, or Doom error text in `doomlog` | Doom did not successfully open/read the WAD through the libc/syscall/FAT path. If `doomrun=FAULT` is also present, fix the fault first because WAD I/O may simply not have been reached. | Doom libc path mapping, `open/read/lseek`, FAT file lookup, WAD protection rules. |
+| `missing-wad-open-read` | `doomopen!=OK`, `doomread!=OK`, weak `doomwad=open/read/seek/magic`, nonzero `doomerr`, nonzero `doomerrno`, suspicious `doommode`, or Doom error text in `doomlog` | Doom did not successfully open/read/seek the WAD through the libc/syscall/FAT path. If `doomrun=FAULT` is also present, fix the fault first because WAD I/O may simply not have been reached. | Doom libc path mapping, `open/read/lseek`, FAT file lookup, WAD protection rules. |
+| `doom-init-stalled` | `doominit` is missing, malformed, has missing milestone bits, or has a zero report count after WAD I/O is green | Doom entered user mode and WAD I/O is visible, but the port did not report all first startup milestones. | Decode `doominit`, then inspect the last reported platform hook and nearby Doom startup log text. |
 | `frames-no-gameplay` | Nonzero `doompresent`, `doompal`, or `doomframe`, but `gameplay!=OK`, `gstate!=00000000`, `gmap!=00000101`, or `leveltime=00000000` | The renderer is alive, but the engine has not proved E1M1 `GS_LEVEL` gameplay. | Doom startup state, WAD/game mode selection, title/menu/error path, gameplay status reporting. |
 | `input-no-effect` | `keyirq/keyqueue/keypoll` are zero or fail to increase across keyboard phase snapshots; `keyseen` lacks Up/Ctrl/Space/Escape bits; `mouseirq/mousepkt/mousepoll` fail the mouse snapshot when requested; `pflags` lacks movement/fire/use/menu/ammo/refire bits; `pdelta=00000000`; `status.after-move.txt` does not change `ppos` from `status.after-start.txt`; final `gflags` lacks menu-active evidence | Input either did not enter the OS/queue/poll path or did not mutate Doom state. | PS/2 scan translation, event queues, `I_StartTic`, scripted monitor timing, Doom event mapping. |
+| `doom-timer-not-proven` | `ticks` is zero or missing, `dtick` is zero/missing, or `dtick` does not equal `floor(ticks * 35 / 100)` | Doom reached gameplay, but the status line does not prove the Doom 35 Hz timebase derived from the OS timer. | `SYS_TIME`, PIT tick accounting, and smoke `dtick` emission. |
 | `preemption-not-proven` | `preempt`, `pattempt`, `puser`, `pround`, or `pctx` are zero; `pfrom`/`pto` are missing, equal, zero, or `FFFFFFFF`; `peip` is malformed or zero; `pspin=50524545`; `pself!=OK` | Doom reached gameplay, but the cloud line does not prove a live PIT interrupt switched from one Ring 3 process to another and let the alternate probe execute. | `scheduler_tick`, live preempt-probe seeding during Doom exec, IRQ frame save/restore, and timer IRQ delivery in user mode. |
 | `artifact-proof-failure` | Checker complains about missing `status.early.txt`, `status.after-*.txt`, duplicate basenames, forbidden WAD/disk/image/pixel payloads, missing diagnostic ELFs, or missing `doom.symbols` | The status line may be useful, but the uploaded evidence package is not acceptable proof. | `.github/workflows/real-wad-smoke.yml` upload block and `tools/check_cloud_playability_artifacts.py` contract. |
 | `playability-status-green` | `doomrun=RUN`, `gameplay=OK`, E1M1 fields correct, frame/palette counters nonzero, input/player flags nonzero | The final line has no obvious first-failure field. | Still require `check_real_wad_proof.py`, `check_human_playability_proof.py`, and artifact checker pass before claiming playable Doom. |
@@ -73,10 +75,17 @@ python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
   only proof when the cloud run intentionally requested it.
 - `doomopen=FAIL doomread=FAIL` after `doomrun=FAULT` usually means Doom died
   before its WAD path, not that FAT is necessarily broken.
-- `missing-wad-open-read` without a Doom fault prints the `doomseek`,
-  `doomclose`, `doomerr`, `doommode`, `doomlog`, `wad`, and `lmp` fields so the
-  next owner can separate path-mapping/libc failures from FAT root/WAD loading
-  failures.
+- `doomwad=a/b/c/d` means Doom-side `DOOM1.WAD` opens, reads, lseeks, and the
+  first four WAD bytes seen by Doom. For the real shareware proof, `d` should be
+  `44415749` (`IWAD` as little-endian hex).
+- `missing-wad-open-read` without a Doom fault prints the `doomwad`,
+  `doomseek`, `doomclose`, `doomerr`, `doomerrno`, `doommode`, `doomlog`,
+  `wad`, and `lmp` fields so the next owner can separate path-mapping/libc
+  failures from FAT root/WAD loading failures.
+- `doominit=flags/reports` records first Doom port milestones: entry, `I_Init`,
+  zone allocation, network, sound, graphics, palette, tic polling, and first
+  frame. Missing bits localize startup stalls before gameplay fields become
+  meaningful.
 - `doompresent>0` without `gameplay=OK` means rendering happened, but not enough
   to call the OS Doom-playable.
 - `pspin=50524545` is only the seeded preempt-probe magic. A later value proves

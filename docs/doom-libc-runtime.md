@@ -76,13 +76,17 @@ without pretending that clone/wait lifecycle semantics are implemented.
 ## Runtime proof
 
 The kernel smoke status reports Doom file/runtime counters from the port ABI:
-`doomopen`, `doomread`, `doomwrite`, `doomseek`, `doomclose`, `doomsbrk`,
-`doomerr`, `doommode`, `doomexit`, `doomfault`, `doomfaultip`, `doomfaultv`,
-`doomfaulterr`, the compact `fault` frame tuple, `panic`, and `shutdown`. These
-are counters, last-open mode/flag bits, user-mode exit/fault diagnostics, and
-kernel stop-state markers, not filesystem internals. They prove the
-original Doom code reached the port-layer file contract while keeping FAT
-allocation and vendor Doom sources untouched.
+`doomopen`, `doomread`, `doomwad`, `doomwrite`, `doomseek`, `doomclose`,
+`doomsbrk`, `doomerr`, `doomerrno`, `doommode`, `doominit`, `doomexit`,
+`doomfault`, `doomfaultip`, `doomfaultv`, `doomfaulterr`, the compact `fault`
+frame tuple, `panic`, and `shutdown`. These are counters, last-open mode/flag
+bits, the most recent negative kernel errno returned to Doom, first-init
+milestone bits, user-mode exit/fault diagnostics, and kernel stop-state
+markers, not filesystem internals. `doomwad` is a compact open/read/lseek/magic
+tuple for the real `DOOM1.WAD` path, and `doominit` records the port-reported
+startup milestones before gameplay. They prove the original Doom code reached
+the port-layer file contract while keeping FAT allocation and vendor Doom
+sources untouched.
 
 `tools/check_doom_persistence_image.py` is the non-QEMU persistence proof tool.
 After a remote/cloud run writes defaults or a save slot into a disposable

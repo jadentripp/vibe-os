@@ -97,11 +97,14 @@ Expected audio behavior:
   disposable remote host.
 - Status should report `audio=SB16` when the probe succeeds and `audio=NONE`
   when the remote QEMU/audio setup does not expose the device.
+- `dtick=` must equal `floor(ticks * 35 / 100)`, proving the guest exposes
+  Doom's 35 Hz time base separately from raw PIT interrupt ticks.
 - VNC does not carry audio. Treat sound as status/counter proof unless you also
   configure remote audio forwarding on the disposable host.
 - Run `tools/check_audio_continuity_proof.py` on the downloaded status snapshots.
-  It proves SB16 IRQ/refill, SFX, and looped music-carrier counters progressed;
-  it does not upload audio samples or prove a human heard sound.
+  It proves SB16 version, DMA programming, playback start, voice queue,
+  IRQ/refill, SFX, and looped music-carrier counters progressed; it does not
+  upload audio samples or prove a human heard sound.
 - For an audible remote proof that still avoids publishing copyrighted audio, run
   the GitHub workflow with `audible_audio_proof=true`. That uses QEMU's WAV
   backend on the disposable runner, analyzes the temporary capture into
@@ -119,7 +122,7 @@ Expected audio behavior:
 Capture non-pixel status while the VM is running:
 
 ```sh
-printf 'pmemsave 0x9d000 2048 build/status.manual.bin\n' \
+printf 'pmemsave 0x9d000 4096 build/status.manual.bin\n' \
   | nc -w 3 -U build/monitor.remote.sock
 perl -e 'local $/; $d = <>; $d =~ s/\0/ /g; print $d' \
   build/status.manual.bin > build/status.manual.txt

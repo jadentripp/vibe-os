@@ -31,6 +31,11 @@ def status_line(**overrides):
         "sfxvoices": "00000001",
         "musicmix": "00000006",
         "musicloop": "00000001",
+        "sb16": "00000004:00000005",
+        "dma": "00000001",
+        "play": "00000001:00000000",
+        "voiceq": "00000002:00000000:00000001",
+        "musicq": "00000001:00000000",
     }
     fields.update(overrides)
     return "Aurora OS v0.2 " + " ".join(f"{key}={value}" for key, value in fields.items())
@@ -145,6 +150,11 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "audio": "SB16",
                 "gameplay": "OK",
                 "doomrun": "RUN",
+                "sb16": "00000004:00000005",
+                "dma": "00000001",
+                "play": "00000001:00000000",
+                "voiceq": "00000001:00000000:00000000",
+                "musicq": "00000001:00000000",
                 "audioirq": "00000001",
                 "refill": "00000001",
                 "sfxmix": "00000001",

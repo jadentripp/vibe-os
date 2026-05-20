@@ -125,7 +125,7 @@ jobs:
           make DOOM_WAD="$WAD_PATH"
 
       - name: Boot real-WAD image
-        timeout-minutes: 2
+        timeout-minutes: 4
         run: |
           audio_backend="-audiodev none,id=snd0 -device sb16,audiodev=snd0"
           if [ "${AUDIBLE_AUDIO_PROOF}" = "true" ]; then
@@ -138,7 +138,7 @@ jobs:
             QEMU_EXTRA_ARGS="$audio_backend" \
             SMOKE_EXPECT_PROBE_GFX=0 \
             SMOKE_CAPTURE_GFX=0 \
-            SMOKE_QEMU_TIMEOUT=75 \
+            SMOKE_QEMU_TIMEOUT=120 \
             SMOKE_EARLY_SECONDS=2 \
             SMOKE_SETTLE_SECONDS=20 \
             SMOKE_SKIP_ASSERTIONS=1 \

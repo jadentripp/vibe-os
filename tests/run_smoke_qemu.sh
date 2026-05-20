@@ -144,7 +144,7 @@ capture_snapshot() {
   vga_bin="$BUILD_DIR/vga$suffix.bin"
   vga_txt="$BUILD_DIR/vga$suffix.txt"
 
-  commands="info status\ninfo registers\npmemsave 0xb8000 4000 $vga_bin\npmemsave 0x9d000 2048 $status_bin\n"
+  commands="info status\ninfo registers\npmemsave 0xb8000 4000 $vga_bin\npmemsave 0x9d000 4096 $status_bin\n"
   if [ "$label" = "final" ] && [ "$SMOKE_CAPTURE_GFX" = "1" ]; then
     commands="${commands}pmemsave 0xa0000 64000 $BUILD_DIR/gfx.bin\n"
   fi

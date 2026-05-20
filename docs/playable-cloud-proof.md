@@ -54,6 +54,7 @@ The cloud proof requires these status families:
   rollbacks.
 - Storage/libc: `wad=OK`, `lmp=OK`, `doomopen=OK`, `doomread=OK`,
   `doomseek`, `doomsbrk`, `doommode`, `doomerr=00000000`,
+  `doomerrno=00000000`,
   `doomexit=00000000`, `doomfault=00000000`, `doomfaultip=00000000`,
   `doomfaultv=00000000`, `doomfaulterr=00000000`, `fault=0/.../0`,
   `panic=NONE`, `shutdown=NONE`, and `doomlog` make
@@ -84,8 +85,12 @@ The cloud proof requires these status families:
 - Visual presence without pixels: `doompal`, `doomframe`, `doomnonzero`,
   `doomcolors`, and `doomsamp` summarize palette/frame activity without
   uploading `gfx.bin` or any rendered frame bytes.
+- Doom timer proof: `dtick` is the kernel's 35 Hz Doom time conversion and must
+  equal `floor(ticks * 35 / 100)`, so the real-WAD checker can distinguish PIT
+  progress from Doom's expected tic rate.
 - Audio/mouse observability: `audio`, `doomsound`, `sfxmix`, `voices`,
-  `sfxvoices`, `musicvoices`, `musicmix`, `musicloop`, `audioirq`, `ack8`,
+  `sfxvoices`, `musicvoices`, `musicmix`, `musicloop`, `sb16`, `dma`, `play`,
+  `voiceq`, `musicq`, `audioirq`, `ack8`,
   `ack16`, `refill`, mixer safety counters, `mouse`,
   `mouseirq`, `mousepkt`, and `mousepoll` are required to be present and
   well-formed. The automated mouse phase requires `mouse=OK` and proves IRQ12,
@@ -93,8 +98,9 @@ The cloud proof requires these status families:
   uploading pixels.
   `tools/check_audio_continuity_proof.py` is the stricter SB16 path: it compares
   the phase snapshots using status snapshots only, requires `audio=SB16`, and
-  proves IRQ/refill, non-music SFX, and looped music-carrier counters
-  progressed without uploading audio samples. It does not upload audio samples.
+  proves SB16 version, DMA programming, playback start, voice queue, IRQ/refill,
+  non-music SFX, and looped music-carrier counters progressed without uploading
+  audio samples. It does not upload audio samples.
   `tools/check_audio_continuity_proof.py` checks status snapshots only and
   does not upload audio samples.
 - Optional audible-output proof: when the manual workflow is run with

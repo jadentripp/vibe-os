@@ -2,6 +2,7 @@
 
 #include "d_main.h"
 #include "m_argv.h"
+#include "vibe_os.h"
 
 static char arg0[] = "vibe-doom";
 static char arg_warp[] = "-warp";
@@ -21,6 +22,7 @@ static char* argv_storage[] = {
 
 int user_main(void)
 {
+    (void)vibe_syscall3(VIBE_SYS_GAMEPLAY_STATUS, VIBE_DOOM_INIT_STATUS | VIBE_DOOM_INIT_START, 0, 0);
     myargc = 6;
     myargv = argv_storage;
     D_DoomMain();

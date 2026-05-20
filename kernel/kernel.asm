@@ -28,7 +28,7 @@ VGA_COLS equ 80
 VGA_ROWS equ 25
 VGA_ATTR equ 0x0f
 SMOKE_STATUS_ADDR equ 0x0009d000
-SMOKE_STATUS_BYTES equ 2048
+SMOKE_STATUS_BYTES equ 4096
 DOOM_LOG_BYTES equ 160
 KEY_QUEUE_SIZE equ 32
 KEY_QUEUE_MASK equ KEY_QUEUE_SIZE - 1
@@ -259,6 +259,7 @@ SYS_FORK equ 23
 SYS_WAITPID equ 24
 SYS_GETPID equ 25
 PLAYABLE_STATUS_FLAG equ 0x80000000
+DOOM_INIT_STATUS_FLAG equ 0x40000000
 SYS_EXEC_PATH_MAX equ 16
 MMAP_PROT_MASK equ 0x0000ffff
 MMAP_FLAGS_SHIFT equ 16
@@ -4120,9 +4121,12 @@ storage_init:
     mov dword [doom_close_count], 0
     mov dword [doom_sbrk_count], 0
     mov dword [doom_error_count], 0
+    mov dword [doom_last_error], 0
     mov dword [doom_last_open_flags], 0
     mov dword [doom_last_open_mode], 0
     mov dword [doom_present_count], 0
+    mov dword [doom_init_flags], 0
+    mov dword [doom_init_report_count], 0
     mov byte [doom_gameplay_status], 0
     mov dword [doom_gameplay_report_count], 0
     mov dword [doom_game_state_packed], 0
@@ -7046,6 +7050,7 @@ process_exec_handoff_current:
     call clear_fault_record
     mov dword [doom_last_syscall], 0
     mov dword [doom_error_count], 0
+    mov dword [doom_last_error], 0
     mov dword [doom_log_len], 0
     mov byte [doom_log_buffer], 0
     jmp .seed_context
@@ -7367,9 +7372,12 @@ doom_user_run:
     mov dword [doom_close_count], 0
     mov dword [doom_sbrk_count], 0
     mov dword [doom_error_count], 0
+    mov dword [doom_last_error], 0
     mov dword [doom_last_open_flags], 0
     mov dword [doom_last_open_mode], 0
     mov dword [doom_present_count], 0
+    mov dword [doom_init_flags], 0
+    mov dword [doom_init_report_count], 0
     mov byte [doom_gameplay_status], 0
     mov dword [doom_gameplay_report_count], 0
     mov dword [doom_game_state_packed], 0
@@ -8029,17 +8037,18 @@ syscall_handler:
     jc .bad_syscall_enomem
 
 .open_writable_ready:
-    test dword [syscall_open_flags], O_TRUNC
-    jz .open_writable_append
-    mov eax, edx
-    call fat_truncate_writable_file
-    jc .bad_syscall_eio
-
-.open_writable_append:
-.open_writable_return:
     mov [fat_open_slot], edx
     call fd_alloc
     jc .bad_syscall_emfile
+    mov [file_io_fd_slot], eax
+    test dword [syscall_open_flags], O_TRUNC
+    jz .open_writable_bind_reserved
+    mov eax, [fat_open_slot]
+    call fat_truncate_writable_file
+    jc .open_writable_reserved_eio
+
+.open_writable_bind_reserved:
+    mov eax, [file_io_fd_slot]
     mov byte [fd_kinds + eax], FD_KIND_WRITABLE
     mov edx, [fat_open_slot]
     mov [fd_indices + eax * 4], edx
@@ -8054,6 +8063,15 @@ syscall_handler:
     mov [fd_flags + eax * 4], ecx
     add eax, USER_FD_BASE
     jmp .return
+
+.open_writable_reserved_eio:
+    mov eax, [file_io_fd_slot]
+    mov byte [fd_status + eax], FD_KIND_FREE
+    mov byte [fd_kinds + eax], FD_KIND_FREE
+    mov dword [fd_indices + eax * 4], 0
+    mov dword [fd_offsets + eax * 4], 0
+    mov dword [fd_flags + eax * 4], 0
+    jmp .bad_syscall_eio
 
 .open_generic_root83:
     call fat_parse_user_root83
@@ -8073,12 +8091,7 @@ syscall_handler:
     call fat_bind_found_writable_slot
     jc .bad_syscall_enomem
     mov edx, [fat_open_slot]
-    test dword [syscall_open_flags], O_TRUNC
-    jz .open_writable_append
-    mov eax, edx
-    call fat_truncate_writable_file
-    jc .bad_syscall_eio
-    jmp .open_writable_append
+    jmp .open_writable_ready
 
 .read:
     call fd_lookup
@@ -8335,6 +8348,8 @@ syscall_handler:
 .gameplay_status:
     cmp byte [current_user_kind], USER_KIND_DOOM
     jne .gameplay_return
+    test ebx, DOOM_INIT_STATUS_FLAG
+    jnz .doom_init_status
     test ebx, PLAYABLE_STATUS_FLAG
     jnz .playable_status
     inc dword [doom_gameplay_report_count]
@@ -8370,6 +8385,14 @@ syscall_handler:
     cmp edx, 0
     je .gameplay_return
     mov byte [doom_gameplay_status], 1
+    jmp .gameplay_return
+
+.doom_init_status:
+    mov eax, ebx
+    and eax, 0x0000ffff
+    or [doom_init_flags], eax
+    inc dword [doom_init_report_count]
+    jmp .gameplay_return
 
 .playable_status:
     mov eax, ebx
@@ -8816,6 +8839,7 @@ syscall_handler:
     cmp byte [current_user_kind], USER_KIND_DOOM
     jne .return
     inc dword [doom_error_count]
+    mov [doom_last_error], eax
     jmp .return
 
 .exit:
@@ -10284,6 +10308,23 @@ write_smoke_status:
     mov edx, [doom_lseek_count]
     call smoke_write_hex32
 
+    mov esi, smoke_doomwad_text
+    call smoke_copy_string
+    mov edx, [doom_open_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_read_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_lseek_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_wad_magic_seen]
+    call smoke_write_hex32
+
     mov esi, smoke_doomclose_text
     call smoke_copy_string
     mov edx, [doom_close_count]
@@ -10297,6 +10338,11 @@ write_smoke_status:
     mov esi, smoke_doomerr_text
     call smoke_copy_string
     mov edx, [doom_error_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_doomerrno_text
+    call smoke_copy_string
+    mov edx, [doom_last_error]
     call smoke_write_hex32
 
     mov esi, smoke_doommode_text
@@ -10354,6 +10400,15 @@ write_smoke_status:
     mov edx, [present_sample_last]
     call smoke_write_hex32
 
+    mov esi, smoke_doominit_text
+    call smoke_copy_string
+    mov edx, [doom_init_flags]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_init_report_count]
+    call smoke_write_hex32
+
     mov esi, smoke_gameplay_text
     call smoke_copy_string
     cmp byte [doom_gameplay_status], 1
@@ -10385,6 +10440,16 @@ write_smoke_status:
     mov esi, smoke_leveltime_text
     call smoke_copy_string
     mov edx, [doom_level_time]
+    call smoke_write_hex32
+
+    mov esi, smoke_doomtick_text
+    call smoke_copy_string
+    mov eax, [timer_ticks]
+    mov ebx, 35
+    mul ebx
+    mov ebx, 100
+    div ebx
+    mov edx, eax
     call smoke_write_hex32
 
     mov esi, smoke_gflags_text
@@ -10514,6 +10579,51 @@ write_smoke_status:
     mov esi, smoke_musicloop_text
     call smoke_copy_string
     mov edx, [sb16_music_loop_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_sb16ver_text
+    call smoke_copy_string
+    movzx edx, byte [sb16_major_version]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    movzx edx, byte [sb16_minor_version]
+    call smoke_write_hex32
+
+    mov esi, smoke_dmaprog_text
+    call smoke_copy_string
+    mov edx, [sb16_dma_program_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_play_text
+    call smoke_copy_string
+    mov edx, [sb16_playback_start_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_playback_stop_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_voiceq_text
+    call smoke_copy_string
+    mov edx, [sb16_voice_start_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_voice_stop_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_voice_update_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_musicq_text
+    call smoke_copy_string
+    mov edx, [sb16_music_start_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_music_stop_count]
     call smoke_write_hex32
 
     mov esi, smoke_audio_text
@@ -11346,9 +11456,11 @@ smoke_doomopen_text db " doomopen=", 0
 smoke_doomread_text db " doomread=", 0
 smoke_doomwrite_text db " doomwrite=", 0
 smoke_doomseek_text db " doomseek=", 0
+smoke_doomwad_text db " doomwad=", 0
 smoke_doomclose_text db " doomclose=", 0
 smoke_doomsbrk_text db " doomsbrk=", 0
 smoke_doomerr_text db " doomerr=", 0
+smoke_doomerrno_text db " doomerrno=", 0
 smoke_doommode_text db " doommode=", 0
 smoke_doomlog_text db " doomlog=", 0
 smoke_doompresent_text db " doompresent=", 0
@@ -11357,11 +11469,13 @@ smoke_doomframe_text db " doomframe=", 0
 smoke_doomnonzero_text db " doomnonzero=", 0
 smoke_doomcolors_text db " doomcolors=", 0
 smoke_doomsamp_text db " doomsamp=", 0
+smoke_doominit_text db " doominit=", 0
 smoke_gameplay_text db " gameplay=", 0
 smoke_gstate_text db " gstate=", 0
 smoke_gmap_text db " gmap=", 0
 smoke_gtic_text db " gtic=", 0
 smoke_leveltime_text db " leveltime=", 0
+smoke_doomtick_text db " dtick=", 0
 smoke_gflags_text db " gflags=", 0
 smoke_gaction_text db " gaction=", 0
 smoke_pflags_text db " pflags=", 0
@@ -11387,6 +11501,11 @@ smoke_panclamp_text db " panclamp=", 0
 smoke_musicvoices_text db " musicvoices=", 0
 smoke_musicmix_text db " musicmix=", 0
 smoke_musicloop_text db " musicloop=", 0
+smoke_sb16ver_text db " sb16=", 0
+smoke_dmaprog_text db " dma=", 0
+smoke_play_text db " play=", 0
+smoke_voiceq_text db " voiceq=", 0
+smoke_musicq_text db " musicq=", 0
 smoke_audio_text db " audio=", 0
 smoke_keyirq_text db " keyirq=", 0
 smoke_keyqueue_text db " keyqueue=", 0
@@ -11830,9 +11949,12 @@ doom_write_count dd 0
 doom_close_count dd 0
 doom_sbrk_count dd 0
 doom_error_count dd 0
+doom_last_error dd 0
 doom_last_open_flags dd 0
 doom_last_open_mode dd 0
 doom_present_count dd 0
+doom_init_flags dd 0
+doom_init_report_count dd 0
 doom_key_event_count dd 0
 doom_key_down_seen dd 0
 doom_key_last_event dd 0

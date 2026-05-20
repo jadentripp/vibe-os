@@ -41,6 +41,11 @@ REQUIRED_AUDIO_FIELDS = (
     "musicvoices",
     "musicmix",
     "musicloop",
+    "sb16",
+    "dma",
+    "play",
+    "voiceq",
+    "musicq",
 )
 MONOTONIC_COUNTERS = (
     "doomsound",
@@ -58,6 +63,7 @@ MONOTONIC_COUNTERS = (
     "panclamp",
     "musicmix",
     "musicloop",
+    "dma",
 )
 FINAL_POSITIVE_COUNTERS = (
     "doomsound",
@@ -67,8 +73,15 @@ FINAL_POSITIVE_COUNTERS = (
     "musicvoices",
     "musicmix",
     "musicloop",
+    "dma",
 )
 PROGRESS_COUNTERS = ("audioirq", "refill", "sfxmix", "musicmix")
+TUPLE_FIELDS = {
+    "sb16": 2,
+    "play": 2,
+    "voiceq": 3,
+    "musicq": 2,
+}
 SUMMARY_FIELDS = (
     "audio",
     "doomsound",
@@ -90,6 +103,11 @@ SUMMARY_FIELDS = (
     "musicvoices",
     "musicmix",
     "musicloop",
+    "sb16",
+    "dma",
+    "play",
+    "voiceq",
+    "musicq",
     "doomrun",
     "doomopen",
     "doomread",
@@ -124,6 +142,19 @@ def _hex(fields: dict[str, str], name: str, label: str) -> int:
     return int(value, 16)
 
 
+def _hex_tuple(fields: dict[str, str], name: str, label: str, count: int) -> tuple[int, ...]:
+    value = fields.get(name)
+    if value is None:
+        raise AssertionError(f"{label} snapshot missing {name}= field")
+    parts = value.split(":")
+    if len(parts) != count:
+        raise AssertionError(f"{label} {name}= must have {count} colon-separated hex parts")
+    for part in parts:
+        if not re.fullmatch(r"[0-9A-Fa-f]{8}", part):
+            raise AssertionError(f"{label} {name}= part must be eight hex digits, got {part!r}")
+    return tuple(int(part, 16) for part in parts)
+
+
 def _parse_labeled(label: str, status: str) -> dict[str, str]:
     fields = _status_fields(status)
     for name in REQUIRED_AUDIO_FIELDS:
@@ -132,7 +163,9 @@ def _parse_labeled(label: str, status: str) -> dict[str, str]:
     if fields["audio"] not in ("SB16", "NONE"):
         raise AssertionError(f"{label} audio= must be SB16 or NONE, got {fields['audio']!r}")
     for name in REQUIRED_AUDIO_FIELDS:
-        if name != "audio":
+        if name in TUPLE_FIELDS:
+            _hex_tuple(fields, name, label, TUPLE_FIELDS[name])
+        elif name != "audio":
             _hex(fields, name, label)
     return fields
 
@@ -169,6 +202,24 @@ def _assert_progress(
         )
 
 
+def _assert_tuple_nondecreasing(
+    snapshots: list[tuple[str, dict[str, str]]],
+    name: str,
+    count: int,
+) -> None:
+    previous_label, previous_fields = snapshots[0]
+    previous = _hex_tuple(previous_fields, name, previous_label, count)
+    for label, fields in snapshots[1:]:
+        current = _hex_tuple(fields, name, label, count)
+        if any(now < before for now, before in zip(current, previous)):
+            raise AssertionError(
+                f"{name}= must be monotonic across snapshots, "
+                f"got {previous_label}:{previous_fields[name]} -> {label}:{fields[name]}"
+            )
+        previous_label = label
+        previous = current
+
+
 def validate_status(
     final_status: str,
     baseline_status: str,
@@ -203,9 +254,19 @@ def validate_status(
 
     if _hex(final_fields, "ack8", "final") == 0 and _hex(final_fields, "ack16", "final") == 0:
         raise AssertionError("final ack8= or ack16= must be nonzero to prove SB16 IRQ ACKs")
+    if _hex_tuple(final_fields, "sb16", "final", 2)[0] == 0:
+        raise AssertionError("final sb16= must expose a nonzero SB16 DSP major version")
+    if _hex_tuple(final_fields, "play", "final", 2)[0] == 0:
+        raise AssertionError("final play= must prove SB16 playback was started")
+    if _hex_tuple(final_fields, "voiceq", "final", 3)[0] == 0:
+        raise AssertionError("final voiceq= must prove at least one audio voice was queued")
+    if _hex_tuple(final_fields, "musicq", "final", 2)[0] == 0:
+        raise AssertionError("final musicq= must prove the music carrier was queued")
 
     for name in MONOTONIC_COUNTERS:
         _assert_nondecreasing(snapshots, name)
+    for name, count in (("play", 2), ("voiceq", 3), ("musicq", 2)):
+        _assert_tuple_nondecreasing(snapshots, name, count)
     for name in PROGRESS_COUNTERS:
         _assert_progress(snapshots, name)
 

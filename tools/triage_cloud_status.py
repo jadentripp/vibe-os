@@ -27,7 +27,10 @@ SUMMARY_FIELDS = (
     "doomrun",
     "doomopen",
     "doomread",
+    "doomwad",
+    "doominit",
     "doomerr",
+    "doomerrno",
     "doomexit",
     "doomfault",
     "doomfaultip",
@@ -41,6 +44,7 @@ SUMMARY_FIELDS = (
     "gmap",
     "gtic",
     "leveltime",
+    "dtick",
     "doompresent",
     "doompal",
     "doomframe",
@@ -64,6 +68,11 @@ SUMMARY_FIELDS = (
     "heap",
     "free",
     "ticks",
+    "sb16",
+    "dma",
+    "play",
+    "voiceq",
+    "musicq",
     "preempt",
     "pattempt",
     "pskip",
@@ -117,6 +126,7 @@ PREEMPT_PROBE_MAGIC = 0x50524545
 PLAYABILITY_REQUIRED_FLAGS = 0x0000003F
 PLAYABILITY_FIRE_STATE_FLAGS = 0x000000C0
 KEY_SEEN_SCRIPTED_FLAGS = 0x00000071
+REQUIRED_DOOM_INIT_FLAGS = 0x000001FF
 
 
 @dataclass(frozen=True)
@@ -166,9 +176,15 @@ TRIAGE_RULES = (
     ),
     TriageRule(
         "missing-wad-open-read",
-        ("doomopen", "doomread", "doomerr", "doommode", "doomlog", "wad", "lmp"),
+        ("doomopen", "doomread", "doomwad", "doomerr", "doomerrno", "doommode", "doomlog", "wad", "lmp"),
         "Doom did not successfully open/read the WAD through the libc/syscall/FAT path.",
         "If Doom also faulted, fix the fault first; otherwise inspect path mapping and FAT read/lseek.",
+    ),
+    TriageRule(
+        "doom-init-stalled",
+        ("doominit", "doomlog", "doomopen", "doomread", "doomwad", "gameplay", "doompresent"),
+        "Doom entered user mode but did not report all first initialization milestones.",
+        "Decode doominit flags, then inspect the last completed platform hook and nearby Doom startup log text.",
     ),
     TriageRule(
         "frames-no-gameplay",
@@ -181,6 +197,12 @@ TRIAGE_RULES = (
         ("keyirq", "keyqueue", "keypoll", "mouseirq", "mousepkt", "mousepoll", "mousebtn", "mousedelta", "pflags", "pdelta", "gflags"),
         "Keyboard or mouse events reached the OS, but scripted start/fire/move/use/menu/mouse effects were not observed.",
         "Compare early/start/fire/move/use/menu snapshots and inspect PS/2 translation plus Doom event injection.",
+    ),
+    TriageRule(
+        "doom-timer-not-proven",
+        ("ticks", "dtick", "gtic", "leveltime"),
+        "Doom reached gameplay, but the status does not prove the 35 Hz Doom time base derived from PIT ticks.",
+        "Inspect SYS_TIME and smoke dtick emission; dtick must equal floor(ticks * 35 / 100).",
     ),
     TriageRule(
         "preemption-not-proven",
@@ -324,6 +346,22 @@ def _hex_pair(fields: dict[str, str], name: str) -> tuple[int, int] | None:
     return left, right
 
 
+def _hex_tuple(fields: dict[str, str], name: str, count: int) -> tuple[int, ...] | None:
+    value = fields.get(name)
+    if value is None:
+        return None
+    parts = value.split("/")
+    if len(parts) != count:
+        return None
+    parsed: list[int] = []
+    for part in parts:
+        item = _parse_hex_field(part)
+        if item is None:
+            return None
+        parsed.append(item)
+    return tuple(parsed)
+
+
 def _exec_detail(fields: dict[str, str]) -> str:
     return (
         f"execerr={_field(fields, 'execerr')} execres={_field(fields, 'execres')} "
@@ -458,8 +496,10 @@ def render_wad_io_context(fields: dict[str, str]) -> list[str]:
     lines = [
         "wad-io: "
         f"doomopen={_field(fields, 'doomopen')} doomread={_field(fields, 'doomread')} "
+        f"doomwad={_field(fields, 'doomwad')} "
         f"doomseek={_field(fields, 'doomseek')} doomclose={_field(fields, 'doomclose')} "
-        f"doomerr={_field(fields, 'doomerr')} doommode={_field(fields, 'doommode')} "
+        f"doomerr={_field(fields, 'doomerr')} doomerrno={_field(fields, 'doomerrno')} "
+        f"doommode={_field(fields, 'doommode')} "
         f"doomlog={_field(fields, 'doomlog')}",
         "wad-source: "
         f"kernel_wad={_field(fields, 'wad')} lump_probe={_field(fields, 'lmp')} "
@@ -474,6 +514,18 @@ def render_wad_io_context(fields: dict[str, str]) -> list[str]:
             "wad-hint: kernel WAD/lump probes are not green; inspect FAT root lookup and WAD directory loading before Doom libc"
         )
     return lines
+
+
+def render_doom_init_context(fields: dict[str, str]) -> list[str]:
+    init = _hex_tuple(fields, "doominit", 2)
+    if init is None:
+        return ["doom-init: doominit field is missing or malformed"]
+    flags, reports = init
+    missing = REQUIRED_DOOM_INIT_FLAGS & ~flags
+    return [
+        f"doom-init: flags={flags:08X} reports={reports:08X} required={REQUIRED_DOOM_INIT_FLAGS:08X}",
+        f"doom-init-missing: {missing:08X}",
+    ]
 
 
 def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
@@ -557,16 +609,28 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         )
         return "doom-user-exit", notes
 
+    doomwad = _hex_tuple(fields, "doomwad", 4)
     if fields.get("doomopen") != "OK" or fields.get("doomread") != "OK" or (
         _hex(fields, "doomerr") or 0
-    ) != 0:
+    ) != 0 or doomwad is None or doomwad[0] == 0 or doomwad[1] == 0 or doomwad[2] == 0 or doomwad[3] != 0x44415749:
         notes.append(
             "missing-wad-open-read: "
             f"doomopen={_field(fields, 'doomopen')} doomread={_field(fields, 'doomread')} "
-            f"doomerr={_field(fields, 'doomerr')} doommode={_field(fields, 'doommode')} "
+            f"doomwad={_field(fields, 'doomwad')} "
+            f"doomerr={_field(fields, 'doomerr')} doomerrno={_field(fields, 'doomerrno')} "
+            f"doommode={_field(fields, 'doommode')} "
             f"doomlog={_field(fields, 'doomlog')}"
         )
         return "missing-wad-open-read", notes
+
+    doominit = _hex_tuple(fields, "doominit", 2)
+    if doominit is None or (doominit[0] & REQUIRED_DOOM_INIT_FLAGS) != REQUIRED_DOOM_INIT_FLAGS or doominit[1] == 0:
+        notes.append(
+            "doom-init-stalled: "
+            f"doominit={_field(fields, 'doominit')} doomlog={_field(fields, 'doomlog')} "
+            f"gameplay={_field(fields, 'gameplay')} doompresent={_field(fields, 'doompresent')}"
+        )
+        return "doom-init-stalled", notes
 
     if doomrun != "RUN":
         notes.append(f"doom-not-running: doomrun={_field(fields, 'doomrun')}")
@@ -618,6 +682,22 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
             f"mousedelta={_field(fields, 'mousedelta')}"
         )
         return "input-no-effect", notes
+
+    timer_ticks = _hex(fields, "ticks")
+    doom_ticks = _hex(fields, "dtick")
+    if (
+        timer_ticks is None
+        or timer_ticks == 0
+        or doom_ticks is None
+        or doom_ticks == 0
+        or doom_ticks != (timer_ticks * 35) // 100
+    ):
+        notes.append(
+            "doom-timer-not-proven: "
+            f"ticks={_field(fields, 'ticks')} dtick={_field(fields, 'dtick')} "
+            f"gtic={_field(fields, 'gtic')} leveltime={_field(fields, 'leveltime')}"
+        )
+        return "doom-timer-not-proven", notes
 
     peip = _hex_pair(fields, "peip")
     pfrom = _hex(fields, "pfrom")
@@ -671,6 +751,8 @@ def render_diagnosis(
         lines.extend(f"- {note}" for note in render_doom_fault_context(fields, symbol_map_path))
     if primary == "missing-wad-open-read":
         lines.extend(f"- {note}" for note in render_wad_io_context(fields))
+    if primary == "doom-init-stalled":
+        lines.extend(f"- {note}" for note in render_doom_init_context(fields))
     if rule is not None:
         lines.append(f"next: {rule.next_step}")
     return "\n".join(lines)

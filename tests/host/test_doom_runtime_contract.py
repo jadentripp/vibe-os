@@ -234,9 +234,15 @@ class DoomRuntimeContractTests(unittest.TestCase):
         for token in (
             "doom_close_count",
             "doom_error_count",
+            "doom_last_error",
             "doom_last_open_flags",
             "doom_last_open_mode",
+            "doom_init_flags",
+            "doom_init_report_count",
+            "smoke_doomwad_text",
+            "smoke_doominit_text",
             "smoke_doomclose_text",
+            "smoke_doomerrno_text",
             "smoke_doommode_text",
             "smoke_doomerr_text",
         ):
@@ -244,8 +250,11 @@ class DoomRuntimeContractTests(unittest.TestCase):
                 self.assertIn(token, kernel)
 
         self.assertIn('grep -q "doomclose="', makefile)
+        self.assertIn('grep -q "doomwad="', makefile)
+        self.assertIn('grep -q "doominit="', makefile)
+        self.assertIn('grep -q "doomerrno="', makefile)
         self.assertIn('grep -q "doommode="', makefile)
-        self.assertIn("`doomopen`, `doomread`, `doomwrite`, `doomseek`, `doomclose`", docs)
+        self.assertIn("`doomopen`, `doomread`, `doomwad`, `doomwrite`, `doomseek`, `doomclose`", docs)
 
 
 if __name__ == "__main__":

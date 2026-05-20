@@ -403,7 +403,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             "SMOKE_INPUT_SCRIPT",
             "run_input_script",
             "hold=KEY:MILLISECONDS",
-            "pmemsave 0x9d000 2048",
+            "pmemsave 0x9d000 4096",
         ):
             self.assertIn(source, smoke_runner)
 

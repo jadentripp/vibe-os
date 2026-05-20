@@ -67,6 +67,19 @@ def _hex_positive(fields: dict[str, str], name: str) -> int:
     return parsed
 
 
+def _hex_tuple(fields: dict[str, str], name: str, count: int) -> tuple[int, ...]:
+    value = fields.get(name)
+    if value is None:
+        raise AssertionError(f"status missing {name}= field")
+    parts = value.split(":")
+    if len(parts) != count:
+        raise AssertionError(f"{name}= must have {count} colon-separated hex parts")
+    for part in parts:
+        if not re.fullmatch(r"[0-9A-Fa-f]{8}", part):
+            raise AssertionError(f"{name}= part must be eight hex digits, got {part!r}")
+    return tuple(int(part, 16) for part in parts)
+
+
 def _status_summary(status_path: Path) -> dict[str, str]:
     fields = _status_fields(status_path.read_text())
     if fields.get("audio") != "SB16":
@@ -77,13 +90,27 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         raise AssertionError(f"status doomrun=RUN or EXIT is required, got {fields.get('doomrun')!r}")
     for counter in ("audioirq", "refill", "sfxmix", "musicmix"):
         _hex_positive(fields, counter)
+    _hex_positive(fields, "dma")
     _hex_value(fields, "sfxvoices")
     if _hex_value(fields, "ack8") + _hex_value(fields, "ack16") <= 0:
         raise AssertionError("status ack8= or ack16= must be nonzero")
+    if _hex_tuple(fields, "sb16", 2)[0] == 0:
+        raise AssertionError("status sb16= must expose a nonzero SB16 DSP major version")
+    if _hex_tuple(fields, "play", 2)[0] == 0:
+        raise AssertionError("status play= must prove SB16 playback was started")
+    if _hex_tuple(fields, "voiceq", 3)[0] == 0:
+        raise AssertionError("status voiceq= must prove at least one audio voice was queued")
+    if _hex_tuple(fields, "musicq", 2)[0] == 0:
+        raise AssertionError("status musicq= must prove the music carrier was queued")
     return {
         "audio": fields["audio"],
         "doomrun": fields["doomrun"],
         "gameplay": fields["gameplay"],
+        "sb16": fields["sb16"],
+        "dma": fields["dma"],
+        "play": fields["play"],
+        "voiceq": fields["voiceq"],
+        "musicq": fields["musicq"],
         "audioirq": fields["audioirq"],
         "ack8": fields.get("ack8", "00000000"),
         "ack16": fields.get("ack16", "00000000"),
@@ -287,9 +314,21 @@ def validate_manifest(
             raise AssertionError(f"manifest status.{counter} must be eight hex digits")
         if int(value, 16) <= 0:
             raise AssertionError(f"manifest status.{counter} must be nonzero")
-    value = status.get("sfxvoices")
-    if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
-        raise AssertionError("manifest status.sfxvoices must be eight hex digits")
+    for counter in ("dma", "sfxvoices"):
+        value = status.get(counter)
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
+            raise AssertionError(f"manifest status.{counter} must be eight hex digits")
+    if int(status["dma"], 16) <= 0:
+        raise AssertionError("manifest status.dma must be nonzero")
+    for name, count in (("sb16", 2), ("play", 2), ("voiceq", 3), ("musicq", 2)):
+        value = status.get(name)
+        if not isinstance(value, str):
+            raise AssertionError(f"manifest status.{name} must be present")
+        parts = value.split(":")
+        if len(parts) != count or any(not re.fullmatch(r"[0-9A-Fa-f]{8}", part) for part in parts):
+            raise AssertionError(f"manifest status.{name} must have {count} colon-separated hex parts")
+        if int(parts[0], 16) <= 0:
+            raise AssertionError(f"manifest status.{name} first counter must be nonzero")
 
     for key in ("contains_raw_audio", "contains_wad_data", "contains_pixels"):
         if policy.get(key) is not False:

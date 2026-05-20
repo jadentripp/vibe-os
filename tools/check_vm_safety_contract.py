@@ -70,7 +70,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     for needle in (
         "trap cleanup EXIT INT TERM",
         "capture_snapshot failure",
-        "pmemsave 0x9d000 2048",
+        "pmemsave 0x9d000 4096",
         "-serial \"file:$serial_log\"",
         "-monitor \"unix:$monitor_sock,server,nowait\"",
         "-no-reboot",

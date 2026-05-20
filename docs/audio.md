@@ -36,7 +36,8 @@ Current kernel behavior:
 - steals the oldest non-music active voice when all eight slots are full, falling
   back to the oldest music carrier only if every slot is music, so new SFX stay
   bounded without usually cutting the music bed
-- reports audio IRQ and mixer ring health in smoke status:
+- reports audio init, playback, voice queue, IRQ, and mixer ring health in smoke status:
+  `sb16=`, `dma=`, `play=`, `voiceq=`, `musicq=`,
   `voices=`, `sfxvoices=`, `audioirq=`, `ack8=`, `ack16=`, `refill=`,
   `half=`, `mixwrap=`, `mixover=`, `mixunder=`, `mixclip=`, `steal=`,
   `pitchclamp=`, and `panclamp=`
@@ -119,13 +120,15 @@ Remote-safe continuity proof:
 `tools/check_audio_continuity_proof.py` consumes only decoded status snapshots:
 `status.early.txt`, `status.after-fire.txt`, `status.after-move.txt`,
 `status.after-use.txt`, `status.after-menu.txt`, and `status.txt`. It requires
-`audio=SB16` in every snapshot, monotonic audio counters, increasing IRQ/refill,
-non-music SFX `sfxmix=`, and music-carrier `musicmix=` counters, nonzero SB16
-ACK accounting, and a nonzero `musicloop=` count. That proves the emulated SB16
-guest path continued to refill and mix both Doom SFX and the looped music
-carrier across time without uploading proprietary WAD data, PCM samples, or
-rendered pixels. A run with `audio=NONE` is still useful diagnostics, but it is
-not an audible/streaming audio proof.
+`audio=SB16` in every snapshot, a nonzero `sb16=` DSP version, nonzero `dma=`
+programming and `play=` start counters, nonzero `voiceq=` and `musicq=` queue
+counters, monotonic audio counters, increasing IRQ/refill, non-music SFX
+`sfxmix=`, and music-carrier `musicmix=` counters, nonzero SB16 ACK accounting,
+and a nonzero `musicloop=` count. That proves the emulated SB16 guest path was
+initialized, DMA-programmed, started, queued, and continued to refill and mix
+both Doom SFX and the looped music carrier across time without uploading
+proprietary WAD data, PCM samples, or rendered pixels. A run with `audio=NONE`
+is still useful diagnostics, but it is not an audible/streaming audio proof.
 
 Human-audible remote proof:
 
@@ -140,8 +143,9 @@ with `rm -f build/doom-audio.wav` before artifact upload.
 
 The aggregate JSON manifest is intentionally aggregate-only: sample format, duration,
 active-window counts, RMS/peak summaries, zero-crossing count, and the matching
-final `audio=SB16` / IRQ / refill / non-music SFX / music status counters. It
-does not store samples, hashes, PCM bytes, WAD bytes, pixels, or a waveform. The artifact
+final `audio=SB16` / SB16 version / DMA / playback / voice queue / IRQ / refill
+/ non-music SFX / music status counters. It does not store samples, hashes, PCM
+bytes, WAD bytes, pixels, or a waveform. The artifact
 checker rejects raw audio files such as `*.wav`, `*.mp3`, `*.ogg`, and `*.flac`,
 but accepts `audio-proof.json` when the manifest passes the checker. This proves
 that a remote QEMU audio backend received non-silent output from the guest
@@ -185,9 +189,9 @@ Remaining gaps:
   behind the explicit repo-owned `ALLOW_LOCAL_VM=1` opt-in.
 
 The cloud-safe continuity gate is `tools/check_audio_continuity_proof.py`. It
-checks status snapshots only: `audio=SB16`, IRQ/refill progress, non-music SFX
-mixing, and the looped PCM carrier counters must move across the scripted cloud
-phases.
+checks status snapshots only: `audio=SB16`, `sb16=`, `dma=`, `play=`,
+`voiceq=`, `musicq=`, IRQ/refill progress, non-music SFX mixing, and the looped
+PCM carrier counters must move across the scripted cloud phases.
 
 Fallback plan:
 
