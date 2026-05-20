@@ -114,10 +114,10 @@ back into the real disk artifact.
 
 The Doom libc batches formatted `fprintf` output before issuing file writes, so
 `M_SaveDefaults()` does not spend the cloud proof window performing one disk
-syscall per character. The default real-WAD cloud workflow uses Doom's direct
-F10 quit confirmation before snapshotting the disk, and `--write-status` keeps
-that wait honest by rejecting a `DEFAULT.CFG` proof if Doom is still running in
-the defaults writer phase.
+syscall per character. The default real-WAD cloud workflow drives Doom's menu
+quit confirmation before snapshotting the disk, and `--write-status` keeps that
+wait honest by rejecting a `DEFAULT.CFG` proof if Doom is still running in the
+defaults writer phase.
 
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,
