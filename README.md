@@ -82,7 +82,9 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
   generator, and emulator. They are not runtime OS services.
 - Hardware support is bounded by `docs/hardware-support.md`: current evidence is
   for the QEMU BIOS/IDE/PS2/VBE/SB16 target, not broad PC or physical hardware
-  compatibility.
+  compatibility. The kernel also emits bounded PCI config-space diagnostics as
+  `pci=`, `pciprobe=`, `pcicount=`, `pcifirst=`, `pciid=`, and `pciclass=`, but
+  those fields are status-only and do not claim PCI support.
 - Doom source legitimacy is pinned to the official id Software public release:
   `third_party/doom/ORIGIN.md` records the upstream repository and commit, and
   host tests hash the original files used by the compile smoke so port work
@@ -172,8 +174,9 @@ See `docs/graphics.md` for the VBE/Mode 13h framebuffer contract and current
 scaler limits.
 
 See `docs/hardware-support.md` for the support matrix that separates claimed
-QEMU BIOS/IDE/PS2/VBE/SB16 device classes from unclaimed UEFI, PCI
-enumeration, AHCI, USB, SMP, APIC, HPET, and physical-hardware support.
+QEMU BIOS/IDE/PS2/VBE/SB16 device classes and status-only PCI diagnostics from
+unclaimed UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and
+physical-hardware support.
 
 ## Run
 
@@ -203,8 +206,9 @@ status. For the shutdown/panic slice, the OS smoke workflow has an opt-in
 runner and emits `shutdown-panic-proof.json` plus `status.panic.txt`,
 `status.shutdown-halt.txt`, `status.shutdown-reboot.txt`, and
 `status.shutdown-poweroff.txt`. The reboot and poweroff phases capture status
-before releasing the guest to request a PS/2 reset or ACPI/QEMU poweroff, then
-require QEMU to exit from that guest request. Validate a downloaded artifact
+before releasing the guest to request x86 reset control / PS/2 reset or
+ACPI/QEMU poweroff, then require QEMU to exit from that guest request.
+Validate a downloaded artifact
 with:
 
 ```sh
@@ -264,10 +268,15 @@ For a human actually trying the image, use
 `docs/runbooks/remote-doom-playtest.md`. It keeps QEMU on a disposable remote
 host, exposes a loopback-only VNC display through SSH, keeps `DOOM1.WAD` outside
 git, collects an allowlisted status/log/ELF proof bundle with
-`tools/collect_human_playtest_bundle.py`, writes a phase-by-phase
-`human-playtest-session.json` tied to the passing real-WAD workflow run ID,
-writes a SHA-256 `human-playtest-manifest.json`, and validates downloaded
-diagnostics with `tools/check_cloud_playability_artifacts.py --human-session`.
+`tools/collect_human_playtest_bundle.py`, requires explicit `--confirm-*`
+operator confirmations, writes `human-playtest-notes-v2` with SHA-256 hashes
+for every status phase, writes a phase-by-phase `human-playtest-session.json`
+tied to the passing real-WAD workflow run ID, writes a SHA-256
+`human-playtest-manifest.json`, and validates downloaded diagnostics with
+`tools/check_cloud_playability_artifacts.py --human-session`. Compare the
+collector's `pre-download human verification OK` line with the local
+`post-download human verification OK` line before treating the downloaded
+bundle as the human evidence packet.
 
 ## Shell Commands
 
@@ -363,5 +372,5 @@ Still required before this is actually Doom-capable:
 - graceful Doom exit/reboot behavior for a human session
 - new device-class claims must update `docs/hardware-support.md` and pass the
   host support-matrix checker; current claims stay bounded to the QEMU
-  BIOS/IDE/PS2/VBE/SB16 target until each new class has disposable-runner or
-  dedicated hardware proof
+  BIOS/IDE/PS2/VBE/SB16 target, with PCI diagnostics status-only, until each new
+  class has disposable-runner or dedicated hardware proof

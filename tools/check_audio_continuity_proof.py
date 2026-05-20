@@ -85,6 +85,7 @@ PROGRESS_COUNTERS = ("audioirq", "refill", "sfxmix", "musicmix", "musicpos")
 PROGRESS_TUPLE_COMPONENTS = (
     ("voiceq", 3, 2, "stream update"),
 )
+MIN_MUSIC_STREAM_UPDATE_DELTA = 2
 TUPLE_FIELDS = {
     "sb16": 2,
     "play": 2,
@@ -263,6 +264,24 @@ def _assert_voice_lane_consistency(snapshots: list[tuple[str, dict[str, str]]]) 
             )
 
 
+def _assert_music_stream_health(snapshots: list[tuple[str, dict[str, str]]]) -> None:
+    buffers = [_hex(fields, "musicbuf", label) for label, fields in snapshots]
+    first_label, first_fields = snapshots[0]
+    last_label, last_fields = snapshots[-1]
+    first_update = _hex_tuple(first_fields, "voiceq", first_label, 3)[2]
+    last_update = _hex_tuple(last_fields, "voiceq", last_label, 3)[2]
+    update_delta = last_update - first_update
+
+    if update_delta < MIN_MUSIC_STREAM_UPDATE_DELTA:
+        raise AssertionError(
+            "voiceq= stream update counter must advance by at least "
+            f"{MIN_MUSIC_STREAM_UPDATE_DELTA} across music health snapshots, "
+            f"got {update_delta:08X}"
+        )
+    if len(set(buffers)) < 2:
+        raise AssertionError("musicbuf= must show changing stream-window health across snapshots")
+
+
 def validate_status(
     final_status: str,
     baseline_status: str,
@@ -319,6 +338,7 @@ def validate_status(
         _assert_progress(snapshots, name)
     for name, count, index, reason in PROGRESS_TUPLE_COMPONENTS:
         _assert_tuple_component_progress(snapshots, name, count, index, reason)
+    _assert_music_stream_health(snapshots)
 
 
 def validate_repo_contract() -> None:
@@ -367,6 +387,8 @@ def validate_repo_contract() -> None:
                 "musicbuf=",
                 "musicunder=",
                 "musicdrops=",
+                "stream-health evidence",
+                "single static music carrier",
             ),
         ),
         (
@@ -381,6 +403,8 @@ def validate_repo_contract() -> None:
                 "musicbuf=",
                 "musicunder=",
                 "musicdrops=",
+                "long-playback wrap",
+                "static stream window",
             ),
         ),
         (

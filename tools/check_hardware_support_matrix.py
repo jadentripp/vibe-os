@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -56,6 +57,8 @@ REQUIRED_MATRIX_PHRASES = (
     "SB16",
     "UEFI boot is not implemented",
     "contract-only scaffold",
+    "bounded PCI config-space status probe",
+    "PCI_STATUS[QEMU_BUS0_CONFIG]",
     "General PCI bus/device/function enumeration is not implemented",
     "AHCI/SATA native storage is not implemented",
     "USB input and storage are not implemented",
@@ -73,18 +76,21 @@ REQUIRED_CROSS_DOC_LINKS = {
         "QEMU BIOS/IDE/PS2/VBE/SB16",
         "not broad PC or physical hardware compatibility",
         "SUPPORT[UEFI] remains unclaimed",
+        "pci=",
     ),
     "docs/boot-loader-vm.md": (
         "boot/uefi/README.md",
         "contract-only UEFI scaffold",
         "UEFI_BOOT[...]",
         "SUPPORT[UEFI] remains unclaimed",
+        "PCI_STATUS[QEMU_BUS0_CONFIG]",
     ),
     "docs/post-checkpoint-gaps.md": (
         "docs/hardware-support.md",
         "boot/uefi/README.md",
         "UEFI_BOOT[...]",
         "SUPPORT[...]",
+        "PCI_STATUS[...]",
         "check_hardware_support_matrix.py",
     ),
     "docs/doom-provenance.md": (
@@ -100,6 +106,7 @@ REQUIRED_CROSS_DOC_LINKS = {
         "boot/uefi/README.md",
         "UEFI_BOOT[...]",
         "QEMU BIOS/IDE/PS2/VBE/SB16",
+        "pciprobe=",
     ),
 }
 
@@ -113,6 +120,25 @@ UEFI_BOOT_REQUIREMENTS = {
     "BUILD_INTEGRATION": {"requires": "separate-opt-in-target", "proof": "future-host-build"},
 }
 
+PCI_STATUS_REQUIREMENTS = {
+    "QEMU_BUS0_CONFIG": {
+        "status": "status-only",
+        "scope": "qemu-pci-bus0",
+        "proof": "cloud-smoke-status",
+        "evidence": "pci-status-fields",
+    },
+}
+
+PCI_STATUS_FIELDS = {
+    "pci",
+    "pciprobe",
+    "pcicount",
+    "pcifirst",
+    "pciid",
+    "pciclass",
+}
+PCI_QEMU_BUS0_PROBES = 32 * 8
+
 SUPPORT_RE = re.compile(
     r"^- `SUPPORT\[(?P<id>[A-Z0-9_]+)\] "
     r"status=(?P<status>[a-z-]+) "
@@ -121,6 +147,18 @@ SUPPORT_RE = re.compile(
     r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
     re.MULTILINE,
 )
+
+PCI_STATUS_RE = re.compile(
+    r"^- `PCI_STATUS\[(?P<id>[A-Z0-9_]+)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"scope=(?P<scope>[a-z0-9-]+) "
+    r"proof=(?P<proof>[a-z0-9-]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
+STATUS_FIELD_RE = re.compile(r"\b([a-z0-9]+)=([^ \r\n]+)")
+HEX8_RE = re.compile(r"[0-9A-Fa-f]{8}")
 
 UEFI_BOOT_RE = re.compile(
     r"^- `UEFI_BOOT\[(?P<id>[A-Z0-9_]+)\] "
@@ -274,6 +312,30 @@ def _validate_uefi_boot_rows(text: str) -> dict[str, dict[str, str]]:
     return rows
 
 
+def _validate_pci_status_rows(text: str) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for match in PCI_STATUS_RE.finditer(text):
+        row_id = match.group("id")
+        if row_id in rows:
+            raise AssertionError(f"duplicate PCI_STATUS row: {row_id}")
+        rows[row_id] = match.groupdict()
+
+    missing = sorted(set(PCI_STATUS_REQUIREMENTS) - set(rows))
+    if missing:
+        raise AssertionError(f"missing PCI_STATUS rows: {', '.join(missing)}")
+    extras = sorted(set(rows) - set(PCI_STATUS_REQUIREMENTS))
+    if extras:
+        raise AssertionError(f"unexpected PCI_STATUS rows: {', '.join(extras)}")
+
+    for row_id, expected in PCI_STATUS_REQUIREMENTS.items():
+        row = rows[row_id]
+        for key, value in expected.items():
+            if row[key] != value:
+                raise AssertionError(f"PCI_STATUS[{row_id}] {key} must stay {value}")
+
+    return rows
+
+
 def _validate_uefi_scaffold(root: Path) -> dict[str, dict[str, str]]:
     text = _read(root / "boot" / "uefi" / "README.md")
     rows = _validate_uefi_boot_rows(text)
@@ -297,6 +359,38 @@ def _validate_uefi_scaffold(root: Path) -> dict[str, dict[str, str]]:
     return rows
 
 
+def _validate_pci_source_contract(root: Path) -> None:
+    kernel = _read(root / "kernel" / "kernel.asm")
+
+    for phrase in (
+        "PCI_CONFIG_ADDRESS equ 0x0cf8",
+        "PCI_CONFIG_DATA equ 0x0cfc",
+        "PCI_CONFIG_ENABLE equ 0x80000000",
+        "PCI_SCAN_DEVICE_COUNT equ 32",
+        "PCI_SCAN_FUNCTION_COUNT equ 8",
+        "PCI_SCAN_FUNCTION_PROBES equ PCI_SCAN_DEVICE_COUNT * PCI_SCAN_FUNCTION_COUNT",
+        "call pci_scan_qemu",
+        "pci_scan_qemu:",
+        "cmp esi, PCI_SCAN_DEVICE_COUNT",
+        "cmp edi, PCI_SCAN_FUNCTION_COUNT",
+        "out dx, eax",
+        "in eax, dx",
+        'smoke_pci_text db " pci="',
+        'smoke_pciprobe_text db " pciprobe="',
+        'smoke_pcicount_text db " pcicount="',
+        'smoke_pcifirst_text db " pcifirst="',
+        'smoke_pciid_text db " pciid="',
+        'smoke_pciclass_text db " pciclass="',
+        "pci_probe_count dd 0",
+        "pci_function_count dd 0",
+        "pci_first_bdf dd 0",
+        "pci_first_id dd 0",
+        "pci_first_class dd 0",
+    ):
+        if phrase not in kernel:
+            raise AssertionError(f"kernel missing bounded PCI status contract phrase: {phrase}")
+
+
 def _validate_claim_wording(root: Path) -> None:
     for path in _repo_text_files(root):
         if path == MATRIX:
@@ -313,6 +407,65 @@ def _validate_claim_wording(root: Path) -> None:
                     )
 
 
+def _parse_status_fields(status: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for match in STATUS_FIELD_RE.finditer(status):
+        name, value = match.group(1), match.group(2)
+        if name in fields:
+            raise AssertionError(f"duplicate status field: {name}")
+        fields[name] = value
+    return fields
+
+
+def _hex8_field(fields: dict[str, str], name: str) -> int:
+    value = fields.get(name)
+    if value is None:
+        raise AssertionError(f"status missing {name}= field")
+    if not HEX8_RE.fullmatch(value):
+        raise AssertionError(f"{name}= must be 8 uppercase/lowercase hex digits")
+    return int(value, 16)
+
+
+def validate_pci_status_text(status: str) -> dict[str, str]:
+    fields = _parse_status_fields(status)
+    missing = sorted(PCI_STATUS_FIELDS - set(fields))
+    if missing:
+        raise AssertionError(f"status missing PCI fields: {', '.join(missing)}")
+
+    pci_state = fields["pci"]
+    if pci_state not in {"OK", "NONE"}:
+        raise AssertionError("pci= must be OK or NONE")
+
+    probes = _hex8_field(fields, "pciprobe")
+    if probes != PCI_QEMU_BUS0_PROBES:
+        raise AssertionError(f"pciprobe= must be {PCI_QEMU_BUS0_PROBES:08X} for the bounded QEMU bus-0 scan")
+
+    count = _hex8_field(fields, "pcicount")
+    first_bdf = _hex8_field(fields, "pcifirst")
+    first_id = _hex8_field(fields, "pciid")
+    first_class = _hex8_field(fields, "pciclass")
+
+    if pci_state == "NONE":
+        if any((count, first_bdf, first_id, first_class)):
+            raise AssertionError("pci=NONE must keep pcicount, pcifirst, pciid, and pciclass at zero")
+        return fields
+
+    if count == 0:
+        raise AssertionError("pci=OK requires pcicount= to be nonzero")
+    if first_bdf >> 16:
+        raise AssertionError("pcifirst= must encode a bus-0 device/function, not a broader bus scan")
+    device = (first_bdf >> 8) & 0xff
+    function = first_bdf & 0xff
+    if device >= 32 or function >= 8:
+        raise AssertionError("pcifirst= device/function is outside the bounded QEMU bus-0 scan")
+    if first_id in (0, 0xffffffff) or (first_id & 0xffff) == 0xffff:
+        raise AssertionError("pciid= must record a present config-space vendor/device dword")
+    if first_class == 0xffffffff:
+        raise AssertionError("pciclass= must record a present config-space class dword")
+
+    return fields
+
+
 def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
     matrix_text = _read(root / "docs" / "hardware-support.md")
 
@@ -321,7 +474,9 @@ def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
             raise AssertionError(f"hardware support matrix missing phrase: {phrase}")
 
     rows = _validate_support_rows(matrix_text)
+    _validate_pci_status_rows(matrix_text)
     _validate_uefi_scaffold(root)
+    _validate_pci_source_contract(root)
 
     for relative_path, phrases in REQUIRED_CROSS_DOC_LINKS.items():
         text = _read(root / relative_path)
@@ -334,17 +489,25 @@ def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--status", type=Path, help="optional QEMU status.txt to validate for bounded PCI fields")
+    args = parser.parse_args()
+
     try:
         rows = validate_repo_contract()
+        if args.status is not None:
+            validate_pci_status_text(args.status.read_text(encoding="utf-8"))
     except AssertionError as exc:
         print(f"hardware support matrix failed: {exc}", file=sys.stderr)
         return 1
 
     claimed = sum(1 for row in rows.values() if row["status"] == "claimed")
     unclaimed = sum(1 for row in rows.values() if row["status"] == "unclaimed")
+    status_suffix = "; PCI status OK" if args.status is not None else ""
     print(
         "hardware support matrix OK: "
         f"{claimed} bounded claimed classes, {unclaimed} unclaimed classes"
+        f"{status_suffix}"
     )
     return 0
 

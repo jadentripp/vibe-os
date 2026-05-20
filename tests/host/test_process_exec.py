@@ -591,6 +591,58 @@ class ProcessExecContractTests(unittest.TestCase):
         ):
             self.assertIn(source, waitpid)
 
+    def test_anonymous_mmap_tail_munmap_reclaims_brk_backed_pages(self):
+        kernel = read_kernel()
+        mmap = kernel.split(".mmap:", 1)[1].split(".munmap:", 1)[0]
+        munmap = kernel.split(".munmap:", 1)[1].split(".ioctl:", 1)[0]
+        scheduler_init = kernel.split("scheduler_init:", 1)[1].split("process_reset_user_probe:", 1)[0]
+        for source in (
+            "process_mmap_allocations dd 0",
+            "process_mmap_pages_mapped dd 0",
+            "process_munmap_attempts dd 0",
+            "process_munmap_pages_released dd 0",
+            "process_munmap_non_tail_kept dd 0",
+            "process_last_munmap_base dd 0",
+            "process_last_munmap_end dd 0",
+        ):
+            self.assertIn(source, kernel)
+        for source in (
+            "mov dword [process_mmap_allocations], 0",
+            "mov dword [process_mmap_pages_mapped], 0",
+            "mov dword [process_munmap_attempts], 0",
+            "mov dword [process_munmap_pages_released], 0",
+            "mov dword [process_munmap_non_tail_kept], 0",
+            "mov dword [process_last_munmap_base], 0",
+            "mov dword [process_last_munmap_end], 0",
+        ):
+            self.assertIn(source, scheduler_init)
+        for source in (
+            "add [process_mmap_pages_mapped], eax",
+            "inc dword [process_mmap_allocations]",
+            "mov eax, [mmap_base_arg]",
+        ):
+            self.assertIn(source, mmap)
+        for source in (
+            "inc dword [process_munmap_attempts]",
+            "and eax, PAGE_SIZE - 1",
+            "jnz .bad_syscall_einval",
+            "add eax, PAGE_SIZE - 1",
+            "and eax, 0xfffff000",
+            "mov [mmap_end_arg], eax",
+            "call user_range_validate",
+            "mov [process_last_munmap_base], eax",
+            "mov [process_last_munmap_end], eax",
+            "cmp eax, [esi + PROC_BRK]",
+            "jne .munmap_keep_non_tail",
+            "call process_clear_user_range",
+            "mov cr3, ebx",
+            "mov [esi + PROC_BRK], eax",
+            "add [process_munmap_pages_released], eax",
+            ".munmap_keep_non_tail:",
+            "inc dword [process_munmap_non_tail_kept]",
+        ):
+            self.assertIn(source, munmap)
+
     def test_fd_table_records_owner_generation_and_exec_inheritance_metadata(self):
         kernel = read_kernel()
         fd_reset = kernel.split("fd_reset_all:", 1)[1].split("fd_alloc:", 1)[0]

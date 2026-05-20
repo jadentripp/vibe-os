@@ -184,6 +184,8 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "VMM_HIGH_TEST_VADDR equ KERNEL_HIGHER_HALF_BASE",
             "vmm_dynamic_page_tables dd 0",
             "vmm_active_page_tables dd 0",
+            "vmm_reclaimed_page_tables dd 0",
+            "vmm_last_reclaimed_page_table dd 0",
             "vmm_high_mapping_status db 0",
         ):
             self.assertIn(source, kernel)
@@ -193,6 +195,21 @@ class BootLoaderVmContractTests(unittest.TestCase):
         self.assertIn("inc dword [vmm_dynamic_page_tables]", vmm_map)
         self.assertIn("inc dword [vmm_active_page_tables]", vmm_map)
         self.assertNotIn("cmp edx, PAGING_TOTAL_PAGES", vmm_map)
+
+        vmm_unmap = kernel.split("vmm_unmap_page:", 1)[1].split("vmm_identity_page:", 1)[0]
+        for source in (
+            "mov [vmm_map_pde_ptr], edi",
+            "mov [vmm_map_table_addr], edx",
+            ".scan_table:",
+            "cmp eax, PMM_MANAGED_START",
+            "cmp eax, PMM_MANAGED_END",
+            "mov dword [edi], 0",
+            "mov [vmm_last_reclaimed_page_table], eax",
+            "call pmm_free_page",
+            "dec dword [vmm_active_page_tables]",
+            "inc dword [vmm_reclaimed_page_tables]",
+        ):
+            self.assertIn(source, vmm_unmap)
 
         vmm_self_test = kernel.split("vmm_self_test:", 1)[1].split("heap_init:", 1)[0]
         self.assertIn("mov eax, VMM_HIGH_TEST_VADDR", vmm_self_test)

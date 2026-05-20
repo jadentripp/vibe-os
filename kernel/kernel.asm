@@ -445,6 +445,13 @@ PS2_CONFIG_AUX_CLOCK_DISABLE equ 0x20
 PS2_MOUSE_ACK equ 0xfa
 PS2_MOUSE_SET_DEFAULTS equ 0xf6
 PS2_MOUSE_ENABLE_DATA equ 0xf4
+PCI_CONFIG_ADDRESS equ 0x0cf8
+PCI_CONFIG_DATA equ 0x0cfc
+PCI_CONFIG_ENABLE equ 0x80000000
+PCI_CONFIG_CLASS_REG equ 0x08
+PCI_SCAN_DEVICE_COUNT equ 32
+PCI_SCAN_FUNCTION_COUNT equ 8
+PCI_SCAN_FUNCTION_PROBES equ PCI_SCAN_DEVICE_COUNT * PCI_SCAN_FUNCTION_COUNT
 ATA_DATA equ 0x01f0
 ATA_SECTOR_COUNT equ 0x01f2
 ATA_LBA_LOW equ 0x01f3
@@ -459,6 +466,9 @@ ACPI_PM1_CNT_S5_ENABLE equ 0x2000
 BOCHS_PM1A_CNT_PORT equ 0xb004
 VIRTUALBOX_PM1A_CNT_PORT equ 0x4004
 VIRTUALBOX_PM1_CNT_S5_ENABLE equ 0x3400
+RESET_CONTROL_PORT equ 0x0cf9
+RESET_CONTROL_SYSTEM equ 0x02
+RESET_CONTROL_FULL_RESET equ 0x06
 
 SC_LSHIFT equ 0x2a
 SC_RSHIFT equ 0x36
@@ -516,6 +526,7 @@ start:
     call fpu_self_test
     call libc_self_test
     call storage_init
+    call pci_scan_qemu
     call audio_init
     call ps2_mouse_init
     call scheduler_init
@@ -1345,6 +1356,14 @@ wait_scancode:
     ret
 
 keyboard_controller_reboot:
+    mov dx, RESET_CONTROL_PORT
+    mov al, RESET_CONTROL_SYSTEM
+    out dx, al
+    call io_wait
+    mov al, RESET_CONTROL_FULL_RESET
+    out dx, al
+    call io_wait
+
     in al, 0x64
     test al, 0x02
     jnz keyboard_controller_reboot
@@ -1372,6 +1391,7 @@ acpi_poweroff:
     jmp .wait
 
 shutdown_proof_wait_for_key:
+    cli
     call wait_scancode
     ret
 
@@ -1712,6 +1732,84 @@ io_wait:
     pop eax
     ret
 
+pci_scan_qemu:
+    pushad
+
+    mov byte [pci_config_status], 0
+    mov dword [pci_probe_count], 0
+    mov dword [pci_function_count], 0
+    mov dword [pci_first_bdf], 0
+    mov dword [pci_first_id], 0
+    mov dword [pci_first_class], 0
+
+    xor esi, esi
+
+.device_loop:
+    cmp esi, PCI_SCAN_DEVICE_COUNT
+    jae .done
+    xor edi, edi
+
+.function_loop:
+    cmp edi, PCI_SCAN_FUNCTION_COUNT
+    jae .next_device
+
+    inc dword [pci_probe_count]
+    mov eax, PCI_CONFIG_ENABLE
+    mov ebx, esi
+    shl ebx, 11
+    or eax, ebx
+    mov ebx, edi
+    shl ebx, 8
+    or eax, ebx
+    mov dx, PCI_CONFIG_ADDRESS
+    out dx, eax
+    mov dx, PCI_CONFIG_DATA
+    in eax, dx
+    cmp eax, 0xffffffff
+    je .next_function
+    cmp ax, 0xffff
+    je .next_function
+
+    inc dword [pci_function_count]
+    cmp byte [pci_config_status], 1
+    je .next_function
+
+    mov byte [pci_config_status], 1
+    mov [pci_first_id], eax
+    mov eax, esi
+    shl eax, 8
+    or eax, edi
+    mov [pci_first_bdf], eax
+
+    mov eax, PCI_CONFIG_ENABLE
+    mov ebx, esi
+    shl ebx, 11
+    or eax, ebx
+    mov ebx, edi
+    shl ebx, 8
+    or eax, ebx
+    or eax, PCI_CONFIG_CLASS_REG
+    mov dx, PCI_CONFIG_ADDRESS
+    out dx, eax
+    mov dx, PCI_CONFIG_DATA
+    in eax, dx
+    mov [pci_first_class], eax
+
+.next_function:
+    inc edi
+    jmp .function_loop
+
+.next_device:
+    inc esi
+    jmp .device_loop
+
+.done:
+    xor eax, eax
+    mov dx, PCI_CONFIG_ADDRESS
+    out dx, eax
+    popad
+    ret
+
 pit_init_100hz:
     mov al, 0x36
     out 0x43, al
@@ -1751,6 +1849,8 @@ paging_init:
     mov dword [vmm_static_page_tables], PAGING_TABLE_COUNT
     mov dword [vmm_dynamic_page_tables], 0
     mov dword [vmm_active_page_tables], PAGING_TABLE_COUNT
+    mov dword [vmm_reclaimed_page_tables], 0
+    mov dword [vmm_last_reclaimed_page_table], 0
     mov dword [vmm_user_guard_pages], 0
     mov byte [vmm_high_mapping_status], 0
 
@@ -2361,7 +2461,10 @@ vmm_map_page:
 
 vmm_unmap_page:
     push eax
+    push ebx
+    push ecx
     push edx
+    push esi
     push edi
 
     and eax, 0xfffff000
@@ -2370,10 +2473,12 @@ vmm_unmap_page:
     shr edx, 22
     mov edi, PAGING_DIR_ADDR
     lea edi, [edi + edx * 4]
+    mov [vmm_map_pde_ptr], edi
     mov edx, [edi]
     test edx, PTE_PRESENT
     jz .done
     and edx, 0xfffff000
+    mov [vmm_map_table_addr], edx
     mov eax, [vmm_map_vaddr]
     shr eax, 12
     and eax, 0x000003ff
@@ -2382,9 +2487,33 @@ vmm_unmap_page:
     mov eax, [vmm_map_vaddr]
     invlpg [eax]
 
+    mov esi, [vmm_map_table_addr]
+    mov ecx, 1024
+
+.scan_table:
+    cmp dword [esi], 0
+    jne .done
+    add esi, 4
+    loop .scan_table
+
+    mov eax, [vmm_map_table_addr]
+    cmp eax, PMM_MANAGED_START
+    jb .done
+    cmp eax, PMM_MANAGED_END
+    jae .done
+    mov edi, [vmm_map_pde_ptr]
+    mov dword [edi], 0
+    mov [vmm_last_reclaimed_page_table], eax
+    call pmm_free_page
+    dec dword [vmm_active_page_tables]
+    inc dword [vmm_reclaimed_page_tables]
+
 .done:
     pop edi
+    pop esi
     pop edx
+    pop ecx
+    pop ebx
     pop eax
     ret
 
@@ -6782,6 +6911,13 @@ scheduler_init:
     mov dword [process_slot_reuses], 0
     mov dword [process_vm_teardowns], 0
     mov dword [process_vm_pages_cleared], 0
+    mov dword [process_mmap_allocations], 0
+    mov dword [process_mmap_pages_mapped], 0
+    mov dword [process_munmap_attempts], 0
+    mov dword [process_munmap_pages_released], 0
+    mov dword [process_munmap_non_tail_kept], 0
+    mov dword [process_last_munmap_base], 0
+    mov dword [process_last_munmap_end], 0
     mov dword [process_exit_teardowns], 0
     mov dword [process_exec_teardowns], 0
     mov dword [process_last_reused_slot], 0
@@ -9583,6 +9719,10 @@ syscall_handler:
     mov [esi + PROC_BRK], edx
     mov [current_user_brk], edx
     mov [user_brk_current], edx
+    mov eax, [mmap_len_arg]
+    shr eax, 12
+    add [process_mmap_pages_mapped], eax
+    inc dword [process_mmap_allocations]
     mov eax, [mmap_base_arg]
     cmp byte [current_user_kind], USER_KIND_DOOM
     jne .return
@@ -9590,14 +9730,64 @@ syscall_handler:
     jmp .return
 
 .munmap:
+    inc dword [process_munmap_attempts]
     cmp ebx, 0
     je .bad_syscall_einval
     cmp ecx, 0
     je .bad_syscall_einval
     mov eax, ebx
-    mov ebx, ecx
+    and eax, PAGE_SIZE - 1
+    jnz .bad_syscall_einval
+    mov [mmap_base_arg], ebx
+    mov eax, ecx
+    add eax, PAGE_SIZE - 1
+    jc .bad_syscall_einval
+    and eax, 0xfffff000
+    mov [mmap_len_arg], eax
+    mov eax, ebx
+    add eax, [mmap_len_arg]
+    jc .bad_syscall_einval
+    mov [mmap_end_arg], eax
+    mov eax, [mmap_base_arg]
+    mov ebx, [mmap_len_arg]
     call user_range_validate
     jc .bad_syscall_einval
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .bad_syscall_einval
+    mov eax, [mmap_base_arg]
+    mov [process_last_munmap_base], eax
+    mov eax, [mmap_end_arg]
+    mov [process_last_munmap_end], eax
+    cmp eax, [esi + PROC_BRK]
+    jne .munmap_keep_non_tail
+    mov ebx, [esi + PROC_PAGE_DIR]
+    test ebx, ebx
+    jnz .munmap_have_page_dir
+    mov ebx, PAGING_DIR_ADDR
+
+.munmap_have_page_dir:
+    mov eax, [mmap_base_arg]
+    mov edx, [mmap_end_arg]
+    call process_clear_user_range
+    mov ebx, [esi + PROC_PAGE_DIR]
+    test ebx, ebx
+    jz .munmap_update_brk
+    mov cr3, ebx
+
+.munmap_update_brk:
+    mov eax, [mmap_base_arg]
+    mov [esi + PROC_BRK], eax
+    mov [current_user_brk], eax
+    mov [user_brk_current], eax
+    mov eax, [mmap_len_arg]
+    shr eax, 12
+    add [process_munmap_pages_released], eax
+    xor eax, eax
+    jmp .return
+
+.munmap_keep_non_tail:
+    inc dword [process_munmap_non_tail_kept]
     xor eax, eax
     jmp .return
 
@@ -12036,6 +12226,44 @@ write_smoke_status:
     mov edx, [doom_mouse_delta_y]
     call smoke_write_hex32
 
+    mov esi, smoke_pci_text
+    call smoke_copy_string
+    cmp byte [pci_config_status], 1
+    je .pci_ok
+    mov esi, smoke_none_text
+    jmp .pci_write
+
+.pci_ok:
+    mov esi, smoke_ok_text
+
+.pci_write:
+    call smoke_copy_string
+
+    mov esi, smoke_pciprobe_text
+    call smoke_copy_string
+    mov edx, [pci_probe_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_pcicount_text
+    call smoke_copy_string
+    mov edx, [pci_function_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_pcifirst_text
+    call smoke_copy_string
+    mov edx, [pci_first_bdf]
+    call smoke_write_hex32
+
+    mov esi, smoke_pciid_text
+    call smoke_copy_string
+    mov edx, [pci_first_id]
+    call smoke_write_hex32
+
+    mov esi, smoke_pciclass_text
+    call smoke_copy_string
+    mov edx, [pci_first_class]
+    call smoke_write_hex32
+
     mov esi, smoke_gfx_text
     call smoke_copy_string
     cmp byte [present_status], 1
@@ -12973,6 +13201,12 @@ smoke_mousepkt_text db " mousepkt=", 0
 smoke_mousepoll_text db " mousepoll=", 0
 smoke_mousebtn_text db " mousebtn=", 0
 smoke_mousedelta_text db " mousedelta=", 0
+smoke_pci_text db " pci=", 0
+smoke_pciprobe_text db " pciprobe=", 0
+smoke_pcicount_text db " pcicount=", 0
+smoke_pcifirst_text db " pcifirst=", 0
+smoke_pciid_text db " pciid=", 0
+smoke_pciclass_text db " pciclass=", 0
 smoke_gfx_text db " gfx=", 0
 smoke_fb_text db " fb=", 0
 smoke_fbpolicy_text db " fbpolicy=", 0
@@ -13021,7 +13255,7 @@ fail_status_text db "FAIL", 0
 on_status_text db "ON", 0
 off_status_text db "OFF", 0
 hex_digits db "0123456789ABCDEF"
-reboot_message db "Rebooting through the PS/2 controller...", 13, 10, 0
+reboot_message db "Rebooting through x86 reset control / PS/2 controller...", 13, 10, 0
 halt_message db "CPU halted. Close QEMU to exit.", 13, 10, 0
 poweroff_message db "Requesting ACPI/QEMU poweroff...", 13, 10, 0
 
@@ -13240,6 +13474,8 @@ pmm_used_pages dd 0
 vmm_static_page_tables dd 0
 vmm_dynamic_page_tables dd 0
 vmm_active_page_tables dd 0
+vmm_reclaimed_page_tables dd 0
+vmm_last_reclaimed_page_table dd 0
 vmm_user_guard_pages dd 0
 vmm_map_vaddr dd 0
 vmm_map_entry dd 0
@@ -13437,6 +13673,13 @@ process_next_pid dd 4
 process_slot_reuses dd 0
 process_vm_teardowns dd 0
 process_vm_pages_cleared dd 0
+process_mmap_allocations dd 0
+process_mmap_pages_mapped dd 0
+process_munmap_attempts dd 0
+process_munmap_pages_released dd 0
+process_munmap_non_tail_kept dd 0
+process_last_munmap_base dd 0
+process_last_munmap_end dd 0
 process_exit_teardowns dd 0
 process_exec_teardowns dd 0
 process_last_reused_slot dd 0
@@ -13557,6 +13800,12 @@ present_lfb_x_offset dd 0
 present_lfb_rows_left dd 0
 present_lfb_source_y dd 0
 present_lfb_repeat_rows dd 0
+pci_probe_count dd 0
+pci_function_count dd 0
+pci_first_bdf dd 0
+pci_first_id dd 0
+pci_first_class dd 0
+pci_config_status db 0
 audio_status db 0
 sb16_major_version db 0
 sb16_minor_version db 0

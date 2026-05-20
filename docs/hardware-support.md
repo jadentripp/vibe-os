@@ -8,6 +8,13 @@ IDE disk attachment, PS/2 input, PIT timer interrupts, VBE/VGA display paths, an
 an optional SB16-compatible audio device. A passing host test or build-only check
 does not prove additional hardware support.
 
+There is also a bounded PCI config-space status probe for QEMU's legacy PC
+machine model. It reads bus 0, devices 0-31, functions 0-7 through ports
+`0xcf8`/`0xcfc`, then emits `pci=`, `pciprobe=`, `pcicount=`, `pcifirst=`,
+`pciid=`, and `pciclass=` in the smoke status block. This is a discovery/status
+contract only; it does not bind drivers, walk secondary buses, or make AHCI,
+USB, or broad PCI enumeration supported.
+
 ## Matrix
 
 The `SUPPORT[...]` rows are machine-readable. Keep the `status`, `scope`,
@@ -24,7 +31,7 @@ The `SUPPORT[...]` rows are machine-readable. Keep the `status`, `scope`,
 | VBE/VGA | Claimed | QEMU VBE XRGB8888 LFB when available, VGA Mode 13h fallback | Cloud non-pixel status plus host framebuffer contract | Broad VBE mode matrix, GOP/UEFI framebuffer, physical GPU coverage |
 | SB16 | Claimed | QEMU ISA SB16-compatible guest device at `0x220` with status-visible IRQ/DMA/mixer counters | Status-only SB16 continuity checker; audible aggregate proof only when `audio-proof.json` passes | AC97/HDA/USB audio, physical sound cards, human-audible proof by default |
 | UEFI | Unclaimed | None | Future boot-path proof required before mention as supported | UEFI boot is not implemented; `boot/uefi/README.md` is a contract-only scaffold |
-| PCI enumeration | Unclaimed | None | Future proof required before mention as supported | General PCI bus/device/function enumeration is not implemented; AHCI and USB controllers are not discovered through PCI |
+| PCI enumeration | Unclaimed | None | Future proof required before mention as supported | General PCI bus/device/function enumeration is not implemented; the bounded QEMU bus-0 status probe is not driver discovery, and AHCI or USB controllers are not used through PCI |
 | AHCI | Unclaimed | None | Future proof required before mention as supported | AHCI/SATA native storage is not implemented |
 | USB | Unclaimed | None | Future proof required before mention as supported | USB input and storage are not implemented |
 | SMP | Unclaimed | None | Future proof required before mention as supported | Multiprocessor startup and scheduling are not implemented |
@@ -49,6 +56,10 @@ The `SUPPORT[...]` rows are machine-readable. Keep the `status`, `scope`,
 - `SUPPORT[HPET] status=unclaimed scope=none proof=future-device-class-proof evidence=none`
 - `SUPPORT[PHYSICAL_HARDWARE] status=unclaimed scope=none proof=dedicated-hardware-proof evidence=none`
 
+Status-only hardware discovery scaffolds:
+
+- `PCI_STATUS[QEMU_BUS0_CONFIG] status=status-only scope=qemu-pci-bus0 proof=cloud-smoke-status evidence=pci-status-fields`
+
 ## Rules For New Claims
 
 - A new device class must add or update one `SUPPORT[...]` row before README,
@@ -58,6 +69,10 @@ The `SUPPORT[...]` rows are machine-readable. Keep the `status`, `scope`,
   VM logs committed to git.
 - Physical hardware support requires explicit hardware proof notes. QEMU evidence
   alone can only claim the matching QEMU device model.
+- PCI status fields are not a PCI support claim. They prove only that the kernel
+  ran the bounded QEMU bus-0 config-space scan and recorded a first present
+  function, if any, in status-only diagnostics. A future PCI claim needs a new
+  `SUPPORT[...]` row boundary or an update to `SUPPORT[PCI_ENUMERATION]`.
 - Compatibility language should name the device class and proof boundary. Use
   "QEMU BIOS/IDE/PS2/VBE/SB16 target" for the current scope, not "PC hardware
   support" or "real hardware support".

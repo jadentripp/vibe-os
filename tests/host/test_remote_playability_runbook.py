@@ -180,6 +180,7 @@ def audio_phase_statuses():
             musicmix="00000001",
             musicloop="00000000",
             musicpos="00000001",
+            musicbuf="00000100",
             voiceq="00000001:00000000:00000000",
             pflags="00000001",
             gflags="00000000",
@@ -206,6 +207,7 @@ def audio_phase_statuses():
             musicmix="00000001",
             musicloop="00000000",
             musicpos="00000001",
+            musicbuf="00000100",
             voiceq="00000001:00000000:00000000",
             pflags="00000001",
             gflags="00000000",
@@ -234,6 +236,7 @@ def audio_phase_statuses():
             musicmix="00000002",
             musicloop="00000000",
             musicpos="00000400",
+            musicbuf="00000400",
             voiceq="00000001:00000000:00000001",
         ),
         "status.after-move.txt": valid_status(
@@ -258,6 +261,7 @@ def audio_phase_statuses():
             musicmix="00000003",
             musicloop="00000000",
             musicpos="00000800",
+            musicbuf="00000800",
             voiceq="00000001:00000000:00000002",
         ),
         "status.after-use.txt": valid_status(
@@ -281,6 +285,7 @@ def audio_phase_statuses():
             musicmix="00000004",
             musicloop="00000000",
             musicpos="00000C00",
+            musicbuf="00000C00",
             voiceq="00000001:00000000:00000003",
         ),
         "status.after-mouse.txt": valid_status(
@@ -306,6 +311,7 @@ def audio_phase_statuses():
             musicmix="00000004",
             musicloop="00000000",
             musicpos="00000C00",
+            musicbuf="00000C00",
             voiceq="00000001:00000000:00000003",
         ),
         "status.after-menu.txt": valid_status(
@@ -327,6 +333,7 @@ def audio_phase_statuses():
             musicmix="00000005",
             musicloop="00000001",
             musicpos="00001000",
+            musicbuf="00001000",
             voiceq="00000001:00000000:00000004",
         ),
         "status.txt": valid_status(
@@ -340,6 +347,7 @@ def audio_phase_statuses():
             musicmix="00000006",
             musicloop="00000001",
             musicpos="00001400",
+            musicbuf="00001400",
             voiceq="00000001:00000000:00000005",
         ),
     }
@@ -359,8 +367,14 @@ def write_valid_artifact(artifact):
 
 
 def write_human_notes(artifact, **overrides):
+    phase_hashes = {}
+    for phase, status_file, _human_action in check_cloud_playability_artifacts.HUMAN_SESSION_PHASES:
+        phase_hashes[
+            check_cloud_playability_artifacts.HUMAN_PHASE_HASH_NOTE_KEYS[phase]
+        ] = check_cloud_playability_artifacts._sha256_file(artifact / status_file)
+
     fields = {
-        "schema": "human-playtest-notes-v1",
+        "schema": "human-playtest-notes-v2",
         "commit": "abcdef0",
         "scripted_proof": "real-wad-smoke-pass",
         "scripted_proof_run_id": "26156172979",
@@ -389,7 +403,13 @@ def write_human_notes(artifact, **overrides):
         "no_wad_upload": "yes",
         "no_disk_upload": "yes",
         "no_pixel_upload": "yes",
+        "operator_remote_vnc": "confirmed",
+        "operator_phase_actions": "confirmed",
+        "operator_phase_status_hashes": "confirmed",
+        "operator_no_forbidden_artifacts": "confirmed",
+        "operator_post_download_verification": "required",
     }
+    fields.update(phase_hashes)
     fields.update(overrides)
     (artifact / "human-playtest-notes.txt").write_text(
         "\n".join(f"{key}={value}" for key, value in fields.items()) + "\n"
@@ -448,6 +468,15 @@ def valid_audio_proof_manifest():
             "zero_crossings": 200,
             "active_rms_threshold_norm": 0.0015,
         },
+        "quality": {
+            "active_span_ms": 3200,
+            "active_span_windows": 32,
+            "leading_inactive_windows": 3,
+            "trailing_inactive_windows": 5,
+            "clipped_sample_ratio": 0.0,
+            "crest_factor_peak_over_mean_rms": 2.5,
+            "zero_crossing_rate_per_sec": 50.0,
+        },
         "status": {
             "audio": "SB16",
             "doomrun": "RUN",
@@ -505,6 +534,18 @@ def valid_audio_proof_manifest():
                     "irq_delta": "00000005",
                     "refill_delta": "00000005",
                 },
+            },
+            "stream_health": {
+                "buffered_window_snapshots": 5,
+                "distinct_buffer_windows": 4,
+                "buffer_floor": "00000100",
+                "buffer_peak": "00001400",
+                "buffer_final": "00001400",
+                "under_delta": "00000000",
+                "drop_delta": "00000000",
+                "stream_update_delta": "00000005",
+                "position_delta": "000013FF",
+                "position_delta_per_update_floor": "00000300",
             },
             "claim": "non-silent remote QEMU output plus status-only SB16 continuity with streamed music chunks",
         },
@@ -631,6 +672,15 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                     require_human_notes=True,
                 )
 
+            write_human_notes(artifact, operator_remote_vnc="unchecked")
+            write_human_session(artifact)
+            write_human_manifest(artifact)
+            with self.assertRaisesRegex(AssertionError, "operator_remote_vnc"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
     def test_downloaded_human_session_requires_session_transcript(self):
         with tempfile.TemporaryDirectory() as tmp:
             artifact = Path(tmp)
@@ -706,6 +756,20 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                     require_human_notes=True,
                 )
 
+    def test_downloaded_human_session_rejects_note_phase_hash_tampering(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            write_human_notes(artifact, phase_hash_after_fire="0" * 64)
+            write_human_session(artifact)
+            write_human_manifest(artifact)
+
+            with self.assertRaisesRegex(AssertionError, "phase_hash_after_fire"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
     def test_downloaded_human_session_rejects_non_allowlisted_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             artifact = Path(tmp)
@@ -754,6 +818,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("cloud playability artifact check OK", result.stdout)
+        self.assertIn("post-download human verification OK", result.stdout)
+        self.assertIn("phase status hashes:", result.stdout)
 
     def test_collector_builds_allowlisted_manual_human_bundle(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -781,6 +847,11 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                     "26156172979",
                     "--commit",
                     "abcdef0",
+                    "--confirm-remote-vnc",
+                    "--confirm-phase-actions",
+                    "--confirm-phase-status-hashes",
+                    "--confirm-no-forbidden-artifacts",
+                    "--confirm-post-download-verification",
                 ],
                 cwd=ROOT,
                 capture_output=True,
@@ -789,6 +860,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("human playtest bundle OK", result.stdout)
+            self.assertIn("pre-download human verification OK", result.stdout)
             self.assertTrue((output / "human-playtest-notes.txt").exists())
             self.assertTrue((output / "human-playtest-session.json").exists())
             self.assertTrue((output / "human-playtest-manifest.json").exists())
@@ -800,6 +872,37 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                 output,
                 require_human_notes=True,
             )
+
+    def test_collector_requires_operator_confirmations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            build = tmpdir / "build"
+            output = tmpdir / "human-proof"
+            build.mkdir()
+            write_valid_artifact(build)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(COLLECTOR),
+                    "--build-dir",
+                    str(build),
+                    "--output-dir",
+                    str(output),
+                    "--playtester",
+                    "jt",
+                    "--scripted-proof-run-id",
+                    "26156172979",
+                    "--commit",
+                    "abcdef0",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--confirm-remote-vnc is required", result.stderr)
 
     def test_collector_rejects_repo_output_directory(self):
         result = subprocess.run(
@@ -814,6 +917,11 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                 "jt",
                 "--scripted-proof-run-id",
                 "26156172979",
+                "--confirm-remote-vnc",
+                "--confirm-phase-actions",
+                "--confirm-phase-status-hashes",
+                "--confirm-no-forbidden-artifacts",
+                "--confirm-post-download-verification",
             ],
             cwd=ROOT,
             capture_output=True,

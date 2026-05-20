@@ -54,11 +54,29 @@ REQUIRED_SYMBOL_FILES = (
 
 OPTIONAL_AUDIO_PROOF_FILE = "audio-proof.json"
 HUMAN_NOTES_FILE = "human-playtest-notes.txt"
-HUMAN_NOTES_SCHEMA = "human-playtest-notes-v1"
+HUMAN_NOTES_SCHEMA = "human-playtest-notes-v2"
 HUMAN_MANIFEST_FILE = "human-playtest-manifest.json"
 HUMAN_MANIFEST_SCHEMA = "human-playtest-manifest-v1"
 HUMAN_SESSION_FILE = "human-playtest-session.json"
 HUMAN_SESSION_SCHEMA = "human-playtest-session-v1"
+HUMAN_POST_DOWNLOAD_VERIFICATION_SCHEMA = "human-playtest-post-download-verification-v1"
+HUMAN_PHASE_HASH_NOTE_KEYS = {
+    "early": "phase_hash_early",
+    "after-start": "phase_hash_after_start",
+    "after-fire": "phase_hash_after_fire",
+    "after-move": "phase_hash_after_move",
+    "after-use": "phase_hash_after_use",
+    "after-mouse": "phase_hash_after_mouse",
+    "after-menu": "phase_hash_after_menu",
+    "final": "phase_hash_final",
+}
+HUMAN_OPERATOR_CONFIRMATION_FIELDS = {
+    "remote_vnc": "operator_remote_vnc",
+    "phase_actions": "operator_phase_actions",
+    "phase_status_hashes": "operator_phase_status_hashes",
+    "no_forbidden_artifacts": "operator_no_forbidden_artifacts",
+    "post_download_verification": "operator_post_download_verification",
+}
 REQUIRED_HUMAN_NOTE_FIELDS = {
     "schema": (HUMAN_NOTES_SCHEMA,),
     "scripted_proof": ("real-wad-smoke-pass",),
@@ -85,12 +103,17 @@ REQUIRED_HUMAN_NOTE_FIELDS = {
     "no_wad_upload": ("yes",),
     "no_disk_upload": ("yes",),
     "no_pixel_upload": ("yes",),
+    "operator_remote_vnc": ("confirmed",),
+    "operator_phase_actions": ("confirmed",),
+    "operator_phase_status_hashes": ("confirmed",),
+    "operator_no_forbidden_artifacts": ("confirmed",),
+    "operator_post_download_verification": ("required",),
 }
 REQUIRED_FREEFORM_HUMAN_NOTE_FIELDS = (
     "commit",
     "playtester",
     "scripted_proof_run_id",
-)
+) + tuple(HUMAN_PHASE_HASH_NOTE_KEYS.values())
 OPTIONAL_HUMAN_NOTE_FIELDS = {
     "audio": ("status-only", "listener-pass", "audio-proof-json-pass", "not-tested"),
 }
@@ -98,6 +121,10 @@ HUMAN_NOTE_FIELD_PATTERNS = {
     "commit": r"(?:[0-9A-Fa-f]{7,40}|unknown)",
     "playtester": r"[A-Za-z0-9._-]{2,64}",
     "scripted_proof_run_id": r"[0-9]{6,32}",
+    **{
+        note_key: r"[0-9A-Fa-f]{64}"
+        for note_key in HUMAN_PHASE_HASH_NOTE_KEYS.values()
+    },
 }
 
 HUMAN_SESSION_PHASES = (
@@ -271,11 +298,17 @@ def validate_repo_contract() -> None:
         "tools/check_audible_audio_proof.py",
         "tools/triage_cloud_status.py",
         "human-playtest-notes.txt",
+        "schema=human-playtest-notes-v2",
         "human-playtest-session.json",
         "human-playtest-manifest.json",
         "scripted_proof=real-wad-smoke-pass",
         "scripted_proof_run_id=",
         "--scripted-proof-run-id",
+        "--confirm-remote-vnc",
+        "--confirm-phase-actions",
+        "--confirm-phase-status-hashes",
+        "--confirm-no-forbidden-artifacts",
+        "--confirm-post-download-verification",
         "proof_bundle=allowlisted-status-only",
         "qemu_display=127.0.0.1:1",
         "vnc_endpoint=127.0.0.1:5901",
@@ -284,6 +317,23 @@ def validate_repo_contract() -> None:
         "mouse_evidence=motion-click-visible",
         "status_capture=monitor-pmemsave-0x9d000",
         "session_phases=early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final",
+        "phase_hash_early=",
+        "phase_hash_after_start=",
+        "phase_hash_after_fire=",
+        "phase_hash_after_move=",
+        "phase_hash_after_use=",
+        "phase_hash_after_mouse=",
+        "phase_hash_after_menu=",
+        "phase_hash_final=",
+        "operator_remote_vnc=confirmed",
+        "operator_phase_actions=confirmed",
+        "operator_phase_status_hashes=confirmed",
+        "operator_no_forbidden_artifacts=confirmed",
+        "operator_post_download_verification=required",
+        "pre-download human verification OK",
+        "post-download human verification OK",
+        "bundle_sha256=",
+        "manifest_sha256=",
         "--human-session",
         "capture_status",
         "no_local_qemu=yes",
@@ -319,15 +369,20 @@ def validate_repo_contract() -> None:
 
     _require(playable, "Remote Doom Playtest Runbook", "playable cloud proof doc")
     _require(playable, "tools/collect_human_playtest_bundle.py", "playable cloud proof doc")
+    _require(playable, "human-playtest-notes-v2", "playable cloud proof doc")
     _require(playable, "human-playtest-session.json", "playable cloud proof doc")
     _require(playable, "human-playtest-manifest.json", "playable cloud proof doc")
+    _require(playable, "post-download human verification OK", "playable cloud proof doc")
     _require(playable, "puser", "playable cloud proof doc")
     _require(playable, "pspin", "playable cloud proof doc")
     _require(readme, "docs/runbooks/remote-doom-playtest.md", "README")
     _require(readme, "tools/collect_human_playtest_bundle.py", "README")
+    _require(readme, "human-playtest-notes-v2", "README")
     _require(readme, "human-playtest-session.json", "README")
+    _require(readme, "post-download human verification OK", "README")
     _require(tests_readme, "check_cloud_playability_artifacts.py", "tests README")
     _require(tests_readme, "collect_human_playtest_bundle.py", "tests README")
+    _require(tests_readme, "phase_hash_*", "tests README")
     _require(tests_readme, "human-playtest-session.json", "tests README")
     _require(makefile, "cloud-playability-check", "Makefile")
     _require(makefile, "persistence-image-check", "Makefile")
@@ -455,6 +510,8 @@ def _human_session_id(notes: dict[str, str], phases: list[dict]) -> str:
         "commit": notes.get("commit", ""),
         "playtester": notes.get("playtester", ""),
         "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
+        "operator_confirmations": _operator_confirmations_from_notes(notes),
+        "phase_status_hashes": _phase_status_hashes_from_notes(notes),
         "phases": [
             {
                 "phase": phase["phase"],
@@ -465,6 +522,20 @@ def _human_session_id(notes: dict[str, str], phases: list[dict]) -> str:
         ],
     }
     return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+
+
+def _phase_status_hashes_from_notes(notes: dict[str, str]) -> dict[str, str]:
+    return {
+        phase: notes.get(note_key, "")
+        for phase, note_key in HUMAN_PHASE_HASH_NOTE_KEYS.items()
+    }
+
+
+def _operator_confirmations_from_notes(notes: dict[str, str]) -> dict[str, str]:
+    return {
+        label: notes.get(note_key, "")
+        for label, note_key in HUMAN_OPERATOR_CONFIRMATION_FIELDS.items()
+    }
 
 
 def build_human_session(
@@ -504,6 +575,7 @@ def build_human_session(
         "scripted_proof": notes.get("scripted_proof", ""),
         "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
         "phase_order": [phase for phase, _, _ in HUMAN_SESSION_PHASES],
+        "phase_status_hashes": _phase_status_hashes_from_notes(notes),
         "status_capture": notes.get("status_capture", ""),
         "remote_endpoint": {
             "qemu_location": notes.get("qemu_location", ""),
@@ -527,6 +599,7 @@ def build_human_session(
             "no_disk_upload": notes.get("no_disk_upload", ""),
             "no_pixel_upload": notes.get("no_pixel_upload", ""),
         },
+        "operator_confirmations": _operator_confirmations_from_notes(notes),
         "validation_gates": [
             "tools/check_real_wad_proof.py",
             "tools/check_human_playability_proof.py",
@@ -604,6 +677,7 @@ def build_human_manifest(artifact_dir: Path) -> dict:
             "contains_raw_audio": False,
             "requires_remote_qemu": True,
             "permits_local_qemu": False,
+            "requires_post_download_verification": True,
         },
         "required_files": sorted(
             REQUIRED_STATUS_FILES
@@ -647,6 +721,7 @@ def validate_human_manifest(artifact_dir: Path, manifest_path: Path) -> None:
         "contains_raw_audio": False,
         "requires_remote_qemu": True,
         "permits_local_qemu": False,
+        "requires_post_download_verification": True,
     }
     for key, expected in expected_policy.items():
         if policy.get(key) is not expected:
@@ -714,6 +789,70 @@ def validate_human_manifest(artifact_dir: Path, manifest_path: Path) -> None:
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} commit must match {HUMAN_NOTES_FILE}")
     if manifest.get("playtester") != notes.get("playtester"):
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} playtester must match {HUMAN_NOTES_FILE}")
+
+
+def build_human_post_download_verification(artifact_dir: Path) -> dict:
+    names = _relative_names(artifact_dir)
+    manifest_name = _find_one(names, HUMAN_MANIFEST_FILE)
+    if manifest_name is None:
+        raise AssertionError(f"missing expected human manifest file: {HUMAN_MANIFEST_FILE}")
+    session_name = _find_one(names, HUMAN_SESSION_FILE)
+    if session_name is None:
+        raise AssertionError(f"missing expected human session file: {HUMAN_SESSION_FILE}")
+
+    manifest_path = artifact_dir / manifest_name
+    session_path = artifact_dir / session_name
+    manifest = _load_human_manifest(manifest_path)
+    session = _load_human_session(session_path)
+    manifest_entry = {
+        "path": HUMAN_MANIFEST_FILE,
+        "bytes": manifest_path.stat().st_size,
+        "sha256": _sha256_file(manifest_path),
+    }
+    files = sorted(
+        list(manifest.get("files", [])) + [manifest_entry],
+        key=lambda entry: entry["path"],
+    )
+    phase_hashes = {
+        phase["phase"]: phase["sha256"]
+        for phase in session.get("phases", [])
+        if isinstance(phase, dict) and "phase" in phase and "sha256" in phase
+    }
+    verification = {
+        "schema": HUMAN_POST_DOWNLOAD_VERIFICATION_SCHEMA,
+        "source": "remote-vnc-human-session-post-download",
+        "session_id": session.get("session_id", ""),
+        "commit": session.get("commit", ""),
+        "playtester": session.get("playtester", ""),
+        "scripted_proof_run_id": session.get("scripted_proof_run_id", ""),
+        "manifest_sha256": manifest_entry["sha256"],
+        "session_sha256": _sha256_file(session_path),
+        "files": files,
+        "phase_status_hashes": phase_hashes,
+    }
+    verification["bundle_sha256"] = hashlib.sha256(
+        json.dumps(verification, sort_keys=True).encode()
+    ).hexdigest()
+    return verification
+
+
+def format_human_post_download_verification(
+    verification: dict,
+    label: str = "post-download human verification OK",
+) -> str:
+    phase_hashes = verification.get("phase_status_hashes", {})
+    phase_text = " ".join(
+        f"{phase}={phase_hashes[phase][:12]}"
+        for phase, _, _ in HUMAN_SESSION_PHASES
+        if phase in phase_hashes
+    )
+    return (
+        f"{label}: session_id={verification.get('session_id', '')} "
+        f"bundle_sha256={verification.get('bundle_sha256', '')} "
+        f"manifest_sha256={verification.get('manifest_sha256', '')} "
+        f"files={len(verification.get('files', []))}\n"
+        f"phase status hashes: {phase_text}"
+    )
 
 
 def _forbidden_content_reason(path: Path, data: bytes) -> str | None:
@@ -789,7 +928,7 @@ def _load_human_notes(path: Path) -> dict[str, str]:
     return notes
 
 
-def validate_human_notes(path: Path) -> None:
+def validate_human_notes(path: Path, artifact_dir: Path | None = None) -> None:
     notes = _load_human_notes(path)
     for key in REQUIRED_FREEFORM_HUMAN_NOTE_FIELDS:
         if key not in notes:
@@ -809,6 +948,18 @@ def validate_human_notes(path: Path) -> None:
         if value is not None and value not in allowed_values:
             allowed = ", ".join(allowed_values)
             raise AssertionError(f"{HUMAN_NOTES_FILE} {key}= must be one of {allowed}, got {value!r}")
+    if artifact_dir is not None:
+        names = _relative_names(artifact_dir)
+        for phase, status_file, _human_action in HUMAN_SESSION_PHASES:
+            note_key = HUMAN_PHASE_HASH_NOTE_KEYS[phase]
+            status_name = _find_one(names, status_file)
+            if status_name is None:
+                continue
+            actual_hash = _sha256_file(artifact_dir / status_name)
+            if notes.get(note_key) != actual_hash:
+                raise AssertionError(
+                    f"{HUMAN_NOTES_FILE} {note_key}= must match sha256({status_file})"
+                )
 
 
 def _assert_human_session_allowlist(names: list[str]) -> None:
@@ -889,7 +1040,7 @@ def validate_artifact_dir(artifact_dir: Path, require_human_notes: bool = False)
         raise AssertionError(f"missing expected human review file: {HUMAN_NOTES_FILE}")
     if human_notes is not None:
         try:
-            validate_human_notes(artifact_dir / human_notes)
+            validate_human_notes(artifact_dir / human_notes, artifact_dir=artifact_dir)
         except AssertionError as exc:
             raise AssertionError(f"human playtest notes failed: {exc}") from exc
 
@@ -933,15 +1084,20 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     try:
+        verification = None
         if args.repo_contract or args.artifact_dir is None:
             validate_repo_contract()
         if args.artifact_dir is not None:
             validate_artifact_dir(args.artifact_dir, require_human_notes=args.human_session)
+            if args.human_session:
+                verification = build_human_post_download_verification(args.artifact_dir)
     except (OSError, AssertionError) as exc:
         print(f"cloud playability artifact check failed: {exc}", file=sys.stderr)
         return 1
 
     print("cloud playability artifact check OK")
+    if verification is not None:
+        print(format_human_post_download_verification(verification))
     return 0
 
 

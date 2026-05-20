@@ -39,6 +39,10 @@ music voices from normal Doom SFX handles. The descriptor also marks the voice
 with `VIBE_AUDIO_FLAG_MUSIC`.
 Runtime music volume changes call `vibe_music_stream_set_volume`, so future
 chunks honor Doom's current music volume without resetting the song position.
+For looping songs, the stream now measures one parsed song pass and wraps only
+the renderer's internal start point to that loop length while keeping the public
+stream position cumulative. That long-playback wrap keeps chunk rendering from
+falling off the old bounded loop-pass limit after many minutes of looping music.
 
 This is a meaningful step past the old single bounded PCM carrier, but it is
 not final hardware-paced pull streaming yet. The current port renders 8192-byte
@@ -56,9 +60,11 @@ mixed music, accepted streamed music chunk updates, and advanced kernel-visible
 `musicpos=` across status snapshots. It also rejects incoherent lane accounting:
 `voices=` must match `sfxvoices=` plus `musicvoices=`, `sfxmix=` must prove SFX
 lane progress, the music lane must be active in at least one snapshot, and at
-least one music snapshot must show a buffered stream window. That is still
-push-fed song-position progress, not a claim that the kernel owns the final pull
-stream.
+least one music snapshot must show a buffered stream window. It now also
+requires more than one stream update and changing `musicbuf=` values so the
+proof includes stream-health movement instead of a static carrier. That is
+still push-fed song-position progress, not a claim that the kernel owns the
+final pull stream.
 The checker treats this lane as separate from normal Doom SFX even if the final
 snapshot lands after the active music voice drained.
 A later kernel milestone can replace the push-style `VIBE_AUDIO_UPDATE_SFX`
@@ -67,7 +73,8 @@ refresh with a dedicated `START_MUSIC_STREAM` or pull-based ring-buffer command.
 Long-running music streaming contract:
 
 The long-running music streaming contract now has status-visible kernel
-accounting, but the final pull model is still open.
+accounting plus a host-proved long-playback wrap in the port renderer, but the
+final pull model is still open.
 
 To fully close the music gap, the kernel should own hardware-paced stream
 refills instead of relying on Doom's sound tick to push the next chunk. The proof
@@ -83,7 +90,8 @@ should remain status-only and copyright-safe:
 - `musicloop=` increasing only when the parsed song loops, not when a short
   sample window wraps.
 - `tools/check_audio_continuity_proof.py` compares these fields across the same
-  real-WAD snapshots. A successor gate should additionally require a true
+  real-WAD snapshots and rejects a static stream window. A successor gate should
+  additionally require a true
   kernel pull/refill command before any doc calls music streaming complete.
 
 That contract preserves the current parser/renderer work: the port can keep
@@ -107,5 +115,5 @@ Host proof:
 and feeds it tiny MUS and MIDI fixtures. The tests verify format detection,
 channel state, tempo/controller handling, pitch bend, program changes, pan,
 expression, sustain, percussion channel mapping, streaming volume updates,
-looping, deterministic output, invalid input silence, and non-silent unsigned
-8-bit PCM generation without launching QEMU.
+long-playback wrap behavior, looping, deterministic output, invalid input
+silence, and non-silent unsigned 8-bit PCM generation without launching QEMU.

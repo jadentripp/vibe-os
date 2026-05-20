@@ -21,9 +21,12 @@ read/execute-only pages can be re-marked without it.
 `vmm_map_page` is no longer limited to the boot-time low identity tables. If the
 target PDE is absent after PMM is online, it allocates and zeroes a page-table
 frame, installs a supervisor PDE, updates dynamic/active page-table counters,
-and then writes the requested PTE. The current runtime proof is a high-half
-non-identity self-test at `0xc0000000`; process page directories are still
-preallocated and cloned from the boot kernel map.
+and then writes the requested PTE. `vmm_unmap_page` now scans that table after
+clearing a PTE; when the table is empty and came from the PMM-managed range, it
+clears the PDE, returns the page-table frame to PMM, and records reclaimed-table
+accounting. The current runtime proof is a high-half non-identity self-test at
+`0xc0000000`; process page directories are still preallocated and cloned from
+the boot kernel map.
 
 ## Current Address Spaces
 
@@ -65,10 +68,13 @@ syscall validator also checks heap pointers against the current process `brk`.
 VM objects. It accepts only anonymous/private mappings, rounds the requested
 length to whole pages, marks the new pages in the current process page
 directory, zero-fills the returned range, and advances `brk`. `SYS_MUNMAP`
-validates that the range belongs to the current process, then returns success
-without reclaiming pages. That keeps the ABI useful for ports that expect
-`mmap` as an allocator while avoiding fake file mapping or clone-era lifetime
-semantics.
+requires a page-aligned base, rounds the length, validates that the range
+belongs to the current process, and reclaims only tail mappings whose end is the
+current process `brk`. Tail releases clear the process PTEs, flush the active
+address space, move `brk` back to the unmapped base, and increment munmap page
+release counters. Non-tail valid ranges still return success without punching
+holes, so this remains a brk-backed allocator contract rather than a full VM
+object model.
 
 ## Process Lifecycle
 
@@ -127,8 +133,9 @@ heap are adjacent and the Doom heap grows up to the stack bottom.
   probe pages being visible in Doom's page directory.
 - Boot/process structures are still fixed low-memory page-table pages. The
   kernel can allocate additional page tables for new mappings after PMM is
-  online, but process page directories and their user PDE tables are not yet
-  dynamically allocated or reclaimed with process lifetime.
+  online and reclaim empty PMM-backed VMM tables after unmap, but process page
+  directories and their user PDE tables are not yet dynamically allocated or
+  reclaimed with process lifetime.
 - Exact execute-disable enforcement is still blocked by the current 32-bit x86
   paging mode: `VM_REGION_EXEC` and `PF_X` are metadata until the kernel grows
   hardware NX or a different paging mode. Write protection is enforced today.

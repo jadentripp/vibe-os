@@ -28,7 +28,7 @@ PLAYABLE_DOC = ROOT / "docs" / "playable-cloud-proof.md"
 RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
 ARTIFACT_CHECKER = ROOT / "tools" / "check_cloud_playability_artifacts.py"
 
-SCHEMA = "vibe-os-audible-audio-proof-v1"
+SCHEMA = "vibe-os-audible-audio-proof-v2"
 FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
 FORBIDDEN_MANIFEST_KEYS = {
     "audio_bytes",
@@ -195,6 +195,22 @@ def _continuity_summary(
     progress["voiceq_update"] = _tuple_counter_delta(
         baseline_fields, final_fields, "voiceq", 3, 2
     )
+    ordered_fields = [snapshot_fields[label] for label in ("baseline", "fire", "movement", "use", "menu", "final")]
+    music_buffers = [_hex_value(fields, "musicbuf") for fields in ordered_fields]
+    update_delta = int(progress["voiceq_update"]["delta"], 16)
+    position_delta = int(progress["musicpos"]["delta"], 16)
+    stream_health = {
+        "buffer_floor": f"{min(music_buffers):08X}",
+        "buffer_peak": f"{max(music_buffers):08X}",
+        "buffer_final": final_fields["musicbuf"],
+        "buffered_window_snapshots": sum(1 for value in music_buffers if value > 0),
+        "distinct_buffer_windows": len(set(music_buffers)),
+        "under_delta": _counter_delta(baseline_fields, final_fields, "musicunder")["delta"],
+        "drop_delta": _counter_delta(baseline_fields, final_fields, "musicdrops")["delta"],
+        "stream_update_delta": progress["voiceq_update"]["delta"],
+        "position_delta": progress["musicpos"]["delta"],
+        "position_delta_per_update_floor": f"{(position_delta // update_delta) if update_delta else 0:08X}",
+    }
     return {
         "gate": "tools/check_audio_continuity_proof.py",
         "snapshots": ["baseline", "fire", "movement", "use", "menu", "final"],
@@ -232,6 +248,7 @@ def _continuity_summary(
                 "refill_delta": progress["refill"]["delta"],
             },
         },
+        "stream_health": stream_health,
         "progress": progress,
         "claim": (
             "non-silent remote QEMU output plus status-only SB16 continuity; "
@@ -320,6 +337,8 @@ def analyze_wav(
         sum_window_rms = 0.0
         sum_active_rms = 0.0
         peak_abs = 0.0
+        clipped_samples = 0
+        sample_count = 0
         zero_crossings = 0
         previous_sign = 0
 
@@ -330,12 +349,15 @@ def analyze_wav(
             samples = list(_iter_normalized_samples(chunk, sample_width))
             if not samples:
                 break
+            sample_count += len(samples)
             total_windows += 1
             sum_squares = 0.0
             for sample in samples:
                 abs_sample = abs(sample)
                 if abs_sample > peak_abs:
                     peak_abs = abs_sample
+                if abs_sample >= 0.999:
+                    clipped_samples += 1
                 sum_squares += sample * sample
                 sign = 1 if sample > 0 else -1 if sample < 0 else 0
                 if sign and previous_sign and sign != previous_sign:
@@ -356,6 +378,17 @@ def analyze_wav(
     active_ratio = active_windows / total_windows if total_windows else 0.0
     mean_window_rms = sum_window_rms / total_windows if total_windows else 0.0
     mean_active_rms = sum_active_rms / active_windows if active_windows else 0.0
+    active_span_windows = (
+        0
+        if first_active_window is None or last_active_window is None
+        else last_active_window - first_active_window + 1
+    )
+    leading_inactive_windows = first_active_window if first_active_window is not None else total_windows
+    trailing_inactive_windows = (
+        total_windows - last_active_window - 1 if last_active_window is not None else total_windows
+    )
+    duration_seconds = total_frames / sample_rate if sample_rate else 0.0
+    clipped_ratio = clipped_samples / sample_count if sample_count else 0.0
 
     return {
         "schema": SCHEMA,
@@ -380,6 +413,21 @@ def analyze_wav(
             "peak_abs_norm": round(peak_abs, 6),
             "zero_crossings": zero_crossings,
             "active_rms_threshold_norm": min_active_rms,
+        },
+        "quality": {
+            "active_span_ms": active_span_windows * window_ms,
+            "active_span_windows": active_span_windows,
+            "leading_inactive_windows": leading_inactive_windows,
+            "trailing_inactive_windows": trailing_inactive_windows,
+            "clipped_sample_ratio": round(clipped_ratio, 6),
+            "crest_factor_peak_over_mean_rms": round(
+                peak_abs / mean_window_rms if mean_window_rms else 0.0,
+                6,
+            ),
+            "zero_crossing_rate_per_sec": round(
+                zero_crossings / duration_seconds if duration_seconds else 0.0,
+                3,
+            ),
         },
         "status": _status_summary(status_path),
         "continuity": continuity,
@@ -424,11 +472,14 @@ def validate_manifest(
 
     fmt = manifest.get("format")
     analysis = manifest.get("analysis")
+    quality = manifest.get("quality")
     status = manifest.get("status")
     continuity = manifest.get("continuity")
     policy = manifest.get("artifact_policy")
     if not isinstance(fmt, dict) or not isinstance(analysis, dict):
         raise AssertionError("manifest must contain format and analysis objects")
+    if not isinstance(quality, dict):
+        raise AssertionError("manifest must contain quality object")
     if not isinstance(status, dict) or not isinstance(continuity, dict) or not isinstance(policy, dict):
         raise AssertionError("manifest must contain status, continuity, and artifact_policy objects")
 
@@ -444,6 +495,23 @@ def validate_manifest(
         raise AssertionError("max window RMS must be nonzero")
     if analysis.get("zero_crossings", 0) <= 0:
         raise AssertionError("zero crossings must be nonzero")
+
+    for key in ("active_span_ms", "active_span_windows", "leading_inactive_windows", "trailing_inactive_windows"):
+        if not isinstance(quality.get(key), int):
+            raise AssertionError(f"manifest quality.{key} must be an integer")
+        if quality[key] < 0:
+            raise AssertionError(f"manifest quality.{key} cannot be negative")
+    if quality["active_span_ms"] <= 0 or quality["active_span_windows"] <= 0:
+        raise AssertionError("manifest quality active span must be nonzero")
+    for key in ("clipped_sample_ratio", "crest_factor_peak_over_mean_rms", "zero_crossing_rate_per_sec"):
+        if not isinstance(quality.get(key), (int, float)):
+            raise AssertionError(f"manifest quality.{key} must be numeric")
+    if quality["clipped_sample_ratio"] < 0 or quality["clipped_sample_ratio"] > 0.25:
+        raise AssertionError("manifest quality clipped sample ratio is outside proof bounds")
+    if quality["crest_factor_peak_over_mean_rms"] <= 0:
+        raise AssertionError("manifest quality crest factor must be nonzero")
+    if quality["zero_crossing_rate_per_sec"] <= 0:
+        raise AssertionError("manifest quality zero crossing rate must be nonzero")
 
     if status.get("audio") != "SB16":
         raise AssertionError("manifest status.audio must be SB16")
@@ -502,6 +570,9 @@ def validate_manifest(
     mix_lanes = continuity.get("mix_lanes")
     if not isinstance(mix_lanes, dict):
         raise AssertionError("manifest continuity.mix_lanes must be an object")
+    stream_health = continuity.get("stream_health")
+    if not isinstance(stream_health, dict):
+        raise AssertionError("manifest continuity.stream_health must be an object")
     for lane_name in ("non_music_sfx", "music", "shared_sb16_refill"):
         if not isinstance(mix_lanes.get(lane_name), dict):
             raise AssertionError(f"manifest continuity.mix_lanes.{lane_name} must be an object")
@@ -531,6 +602,33 @@ def validate_manifest(
         raise AssertionError("manifest music lane must have active voice snapshots")
     if music_lane.get("buffered_window_snapshots", 0) <= 0:
         raise AssertionError("manifest music lane must have buffered window snapshots")
+
+    for key in (
+        "buffered_window_snapshots",
+        "distinct_buffer_windows",
+    ):
+        if not isinstance(stream_health.get(key), int):
+            raise AssertionError(f"manifest continuity.stream_health.{key} must be an integer")
+    if stream_health["buffered_window_snapshots"] <= 0:
+        raise AssertionError("manifest stream health must include buffered windows")
+    if stream_health["distinct_buffer_windows"] < 2:
+        raise AssertionError("manifest stream health must include changing music buffers")
+    for key in (
+        "buffer_floor",
+        "buffer_peak",
+        "buffer_final",
+        "under_delta",
+        "drop_delta",
+        "stream_update_delta",
+        "position_delta",
+        "position_delta_per_update_floor",
+    ):
+        value = stream_health.get(key)
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
+            raise AssertionError(f"manifest continuity.stream_health.{key} must be eight hex digits")
+    for key in ("buffer_peak", "stream_update_delta", "position_delta", "position_delta_per_update_floor"):
+        if int(stream_health[key], 16) <= 0:
+            raise AssertionError(f"manifest continuity.stream_health.{key} must be nonzero")
 
     for key in ("contains_raw_audio", "contains_wad_data", "contains_pixels"):
         if policy.get(key) is not False:
@@ -584,6 +682,8 @@ def validate_repo_contract() -> None:
                 "status-only SB16 continuity",
                 "musicpos=",
                 "musicbuf=",
+                "listener-quality metadata",
+                "stream-health",
             ),
         ),
         (
@@ -593,6 +693,7 @@ def validate_repo_contract() -> None:
                 "long-running music streaming contract",
                 "song-position",
                 "stateful stream cursor",
+                "long-playback wrap",
             ),
         ),
         (

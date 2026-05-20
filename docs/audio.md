@@ -121,6 +121,9 @@ remaining in the active voice table, `musicunder=` counts music voices that ran
 dry before replacement, and `musicdrops=` counts invalid or early replacement
 stream windows. These fields let the proof checker distinguish a progressing
 kernel-mixed stream from a single queued music sample.
+The checker now treats `musicbuf=` as stream-health evidence: across the
+scripted snapshots it must move, and the stream-update counter must advance more
+than once, so a single static music carrier cannot satisfy the audio proof.
 
 Mixer safety is smoke-visible. `mixclip` counts left/right output clipping,
 `mixunder` counts invalid/empty SFX or active refills with no voices, `steal`
@@ -160,20 +163,24 @@ workflow then analyzes the temporary WAV on the runner, writes only
 with `rm -f build/doom-audio.wav` before artifact upload.
 
 The aggregate JSON manifest is intentionally aggregate-only: sample format, duration,
-active-window counts, RMS/peak summaries, zero-crossing count, the matching
-final `audio=SB16` / SB16 version / DMA / playback / voice queue / IRQ / refill
-/ non-music SFX / music status counters, and a status-only SB16 continuity
-summary from the same phase snapshots. The audible checker refuses to write or
+active-window counts, RMS/peak summaries, zero-crossing count, listener-quality metadata,
+stream-health summary, the matching final `audio=SB16` / SB16 version
+/ DMA / playback / voice queue / IRQ / refill / non-music SFX / music status
+counters, and a status-only SB16 continuity summary from the same phase
+snapshots. The audible checker refuses to write or
 validate the manifest if only the music path progresses while `sfxmix=` stays
 flat, and its continuity summary now records separate `mix_lanes` deltas for
 non-music SFX, music, stream updates, music position, and shared SB16 IRQ/refill
-progress. It does not store samples, hashes, PCM bytes, WAD bytes,
-pixels, or a waveform. The artifact
+progress plus a `stream_health` object with buffer floor/peak/final values,
+under/drop deltas, and position-per-update metadata. The quality metadata is
+still aggregate only: active span, leading/trailing inactive windows, clipping
+ratio, crest factor, and zero-crossing rate. It does not store samples, hashes,
+PCM bytes, WAD bytes, pixels, or a waveform. The artifact
 checker rejects raw audio files such as `*.wav`, `*.mp3`, `*.ogg`, and `*.flac`,
 but accepts `audio-proof.json` when the manifest passes the checker. This proves
 that a remote QEMU audio backend received non-silent output from the guest
-without publishing copyrighted audio. It still does not claim human listener
-quality or kernel-owned hardware-paced music streaming.
+without publishing copyrighted audio. It still does not claim subjective human
+listener approval or kernel-owned hardware-paced music streaming.
 
 Doom music:
 
@@ -197,6 +204,9 @@ clipping, silence, and status accounting. The extra `musicvoices=`, `musicmix=`,
 counter make that contract visible in cloud smoke status.
 Runtime music volume updates feed `vibe_music_stream_set_volume`, so new chunks
 use Doom's latest music volume without restarting the song cursor.
+Looping songs measure one parsed song pass and wrap only the renderer's
+internal start point, keeping the public stream cursor cumulative for long
+playback while avoiding the old bounded loop-pass failure.
 The kernel can later grow a first-class pull/refill command without changing the
 MUS/MIDI parser or Doom's original sources. See `docs/doom-music.md` for the
 full pipeline and fallback design.
@@ -209,9 +219,9 @@ Remaining gaps:
   first-class hardware-paced pull command that asks the renderer for more PCM
   directly from the IRQ/refill path.
 - The audible proof is a remote aggregate-output proof, not a listener recording
-  or subjective quality proof. A human playtest can still use remote audio
-  forwarding for listening notes, but those notes should not upload captured Doom
-  audio.
+  or subjective quality proof. It now records aggregate listener-quality
+  metadata, but a human playtest should still use remote audio forwarding for
+  listening notes without uploading captured Doom audio.
 - IRQ refill still needs real playback validation under VM smoke and click-free
   voice ramping for steals/stops.
 - Music and SFX now share the SB16 mixer, but the final mixer still needs better
@@ -222,8 +232,8 @@ Remaining gaps:
 The cloud-safe continuity gate is `tools/check_audio_continuity_proof.py`. It
 checks status snapshots only: `audio=SB16`, `sb16=`, `dma=`, `play=`,
 `voiceq=`, `musicq=`, IRQ/refill progress, non-music SFX mixing, streamed music
-chunks, music mixer counters, and `musicpos=` stream position must move across
-the scripted cloud phases.
+chunks, music mixer counters, changing `musicbuf=` stream-health windows, and
+`musicpos=` stream position must move across the scripted cloud phases.
 
 Fallback plan:
 

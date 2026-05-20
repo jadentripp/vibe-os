@@ -75,6 +75,8 @@ class DoomMusicTests(unittest.TestCase):
             "vibe_music_stream_render",
             "vibe_music_stream_set_volume",
             "vibe_music_stream_position",
+            "vibe_music_stream_loop_samples",
+            "vibe_music_stream_loop_count",
             "vibe_music_render_pcm",
         ):
             with self.subTest(token=token):
@@ -98,6 +100,8 @@ class DoomMusicTests(unittest.TestCase):
             "++stats->loop_count",
             "render_pcm_window",
             "stream_position",
+            "stream_loop_samples",
+            "stream_loop_count",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, music_c)

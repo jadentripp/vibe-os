@@ -61,12 +61,21 @@ NOTE_FIELD_ORDER = (
     "mouse_evidence",
     "status_capture",
     "session_phases",
+) + tuple(check_cloud_playability_artifacts.HUMAN_PHASE_HASH_NOTE_KEYS.values()) + (
     "diagnostics",
     "proof_bundle",
     "no_local_qemu",
     "no_wad_upload",
     "no_disk_upload",
     "no_pixel_upload",
+) + tuple(check_cloud_playability_artifacts.HUMAN_OPERATOR_CONFIRMATION_FIELDS.values())
+
+REQUIRED_CONFIRMATION_FLAGS = (
+    ("confirm_remote_vnc", "--confirm-remote-vnc"),
+    ("confirm_phase_actions", "--confirm-phase-actions"),
+    ("confirm_phase_status_hashes", "--confirm-phase-status-hashes"),
+    ("confirm_no_forbidden_artifacts", "--confirm-no-forbidden-artifacts"),
+    ("confirm_post_download_verification", "--confirm-post-download-verification"),
 )
 
 
@@ -134,6 +143,15 @@ def _copy_patterns(build_dir: Path, output_dir: Path) -> list[str]:
 
 
 def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
+    phase_hash_fields = {}
+    for phase, status_file, _human_action in check_cloud_playability_artifacts.HUMAN_SESSION_PHASES:
+        status_path = output_dir / status_file
+        if not status_path.exists():
+            raise AssertionError(f"missing required status file before notes hash: {status_file}")
+        phase_hash_fields[
+            check_cloud_playability_artifacts.HUMAN_PHASE_HASH_NOTE_KEYS[phase]
+        ] = check_cloud_playability_artifacts._sha256_file(status_path)
+
     fields = {
         "schema": check_cloud_playability_artifacts.HUMAN_NOTES_SCHEMA,
         "commit": args.commit or _git_head(),
@@ -164,7 +182,13 @@ def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
         "no_wad_upload": "yes",
         "no_disk_upload": "yes",
         "no_pixel_upload": "yes",
+        "operator_remote_vnc": "confirmed",
+        "operator_phase_actions": "confirmed",
+        "operator_phase_status_hashes": "confirmed",
+        "operator_no_forbidden_artifacts": "confirmed",
+        "operator_post_download_verification": "required",
     }
+    fields.update(phase_hash_fields)
     notes = "\n".join(f"{key}={fields[key]}" for key in NOTE_FIELD_ORDER) + "\n"
     (output_dir / check_cloud_playability_artifacts.HUMAN_NOTES_FILE).write_text(notes)
 
@@ -252,15 +276,52 @@ def main(argv: list[str]) -> int:
         default="status-only",
         choices=("status-only", "listener-pass", "audio-proof-json-pass", "not-tested"),
     )
+    parser.add_argument(
+        "--confirm-remote-vnc",
+        action="store_true",
+        help="operator confirms they used the remote VNC display, not local QEMU",
+    )
+    parser.add_argument(
+        "--confirm-phase-actions",
+        action="store_true",
+        help="operator confirms the required start/fire/move/use/mouse/menu actions were visibly tried",
+    )
+    parser.add_argument(
+        "--confirm-phase-status-hashes",
+        action="store_true",
+        help="operator confirms status files were captured after each named phase before collection",
+    )
+    parser.add_argument(
+        "--confirm-no-forbidden-artifacts",
+        action="store_true",
+        help="operator confirms WADs, disk images, pixels, screenshots, and raw audio are excluded",
+    )
+    parser.add_argument(
+        "--confirm-post-download-verification",
+        action="store_true",
+        help="operator confirms the downloaded bundle must be rechecked locally with --human-session",
+    )
     args = parser.parse_args(argv)
+    for attr, flag in REQUIRED_CONFIRMATION_FLAGS:
+        if not getattr(args, attr):
+            parser.error(f"{flag} is required for manual human evidence collection")
 
     try:
         copied = collect(args)
+        verification = check_cloud_playability_artifacts.build_human_post_download_verification(
+            args.output_dir
+        )
     except (OSError, AssertionError) as exc:
         print(f"human playtest bundle collection failed: {exc}", file=sys.stderr)
         return 1
 
     print(f"human playtest bundle OK: {args.output_dir}")
+    print(
+        check_cloud_playability_artifacts.format_human_post_download_verification(
+            verification,
+            label="pre-download human verification OK",
+        )
+    )
     for name in copied:
         print(f"  {name}")
     return 0

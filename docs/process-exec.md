@@ -131,11 +131,13 @@ reports failure. Unsafe active-slot exec returns `-EACCES`; invalid pointers ret
 - `argv` copying is intentionally bounded to a small static vector; environment
   copying is not implemented yet, so libc exposes an empty `envp` contract.
 - Page-table structures and process records are still static, but exec targets
-  now reuse slots with fresh PIDs and teardown of stale user PTEs. There is not
-  yet dynamic child-slot growth or physical-frame reclamation.
+  now reuse slots with fresh PIDs and teardown of stale user PTEs. Tail
+  brk-backed `munmap` can reclaim process heap PTEs, and empty PMM-backed VMM
+  page tables are returned to the frame allocator after unmap. There is not yet
+  dynamic child-slot growth or general physical-frame reclamation for
+  identity-shaped user pages.
 - This is enough to launch the probe and Doom, preserve inheritable fds across
   exec, close process-owned fds during teardown, and reap exited child records,
   but it is not a robust Unix process model. There is no `fork`/`exec` split,
   wait blocking, process groups, signal delivery, fork-time fd duplication,
-  dynamic child slots, or physical-frame reclamation for reusable address-space
-  resources.
+  dynamic child slots, or file-backed VM object lifetime.

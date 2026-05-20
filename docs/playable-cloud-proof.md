@@ -14,10 +14,11 @@ gameplay, input, mouse, audio-counter, preemption, non-pixel visual diagnostics,
 aggregate audible output, and save-slot reboot persistence from disposable
 runner artifacts. A human-facing playable claim still needs a recorded remote
 VNC playtest bundle from `docs/runbooks/remote-doom-playtest.md`, with
-structured human notes, a phase-by-phase `human-playtest-session.json`
-transcript tied to the passing scripted run ID, a SHA-256
-`human-playtest-manifest.json`, and the same non-WAD status checks passing
-locally.
+structured `human-playtest-notes-v2` notes, required operator confirmations,
+per-phase status SHA-256 fields, a phase-by-phase
+`human-playtest-session.json` transcript tied to the passing scripted run ID, a
+SHA-256 `human-playtest-manifest.json`, and the same non-WAD status checks
+passing locally after download.
 
 ## Deterministic Script
 
@@ -208,8 +209,13 @@ allowlisted proof bundle before download. The bundle is then validated with
 `human-playtest-notes.txt`, `human-playtest-session.json`, and
 `human-playtest-manifest.json`, without storing WAD data, disk images, audio
 captures, or rendered pixels in the repo. The session transcript records the
-linked passing real-WAD run ID, exact phase order, per-status byte counts,
-SHA-256 hashes, and compact status summaries; the manifest ties the notes,
-session transcript, and diagnostics to exact byte counts and SHA-256 hashes so a
-downloaded human bundle cannot grow extra files or change contents without the
-artifact checker failing.
+linked passing real-WAD run ID, exact phase order, operator confirmations,
+per-status byte counts, SHA-256 hashes, and compact status summaries; the notes
+also carry `phase_hash_early` through `phase_hash_final` so the checker can
+compare the human note hashes against the downloaded status files. The manifest
+ties the notes, session transcript, and diagnostics to exact byte counts and
+SHA-256 hashes, records `requires_post_download_verification=true`, and the
+local checker prints a `post-download human verification OK` line with
+`session_id`, `bundle_sha256`, `manifest_sha256`, and short phase hashes to
+compare against the remote collector's `pre-download human verification OK`
+line.

@@ -141,6 +141,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "mov dword [shutdown_state], SHUTDOWN_HALT",
         "mov dword [shutdown_state], SHUTDOWN_REBOOT",
         "mov dword [shutdown_state], SHUTDOWN_POWEROFF",
+        "RESET_CONTROL_PORT equ 0x0cf9",
+        "RESET_CONTROL_FULL_RESET equ 0x06",
         "acpi_poweroff:",
     ):
         _require(kernel, needle, "kernel")
@@ -151,6 +153,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "VMM_HIGH_TEST_VADDR equ KERNEL_HIGHER_HALF_BASE",
         "vmm_dynamic_page_tables dd 0",
         "vmm_active_page_tables dd 0",
+        "vmm_reclaimed_page_tables dd 0",
+        "vmm_last_reclaimed_page_table dd 0",
         "vmm_user_guard_pages dd 0",
         "vmm_high_mapping_status db 0",
         "vmm_clear_process_guard_page:",
@@ -171,6 +175,35 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     if "cmp edx, PAGING_TOTAL_PAGES" in vmm_map:
         raise AssertionError("vmm_map_page must not be limited to the static identity table span")
 
+    vmm_unmap = kernel.split("vmm_unmap_page:", 1)[1].split("vmm_identity_page:", 1)[0]
+    for needle in (
+        "mov [vmm_map_pde_ptr], edi",
+        "mov [vmm_map_table_addr], edx",
+        ".scan_table:",
+        "cmp eax, PMM_MANAGED_START",
+        "cmp eax, PMM_MANAGED_END",
+        "mov [vmm_last_reclaimed_page_table], eax",
+        "call pmm_free_page",
+        "dec dword [vmm_active_page_tables]",
+        "inc dword [vmm_reclaimed_page_tables]",
+    ):
+        _require(vmm_unmap, needle, "dynamic VMM unmapper")
+
+    munmap = kernel.split(".munmap:", 1)[1].split(".ioctl:", 1)[0]
+    for needle in (
+        "process_munmap_pages_released dd 0",
+        "process_munmap_non_tail_kept dd 0",
+        "inc dword [process_munmap_attempts]",
+        "and eax, PAGE_SIZE - 1",
+        "call user_range_validate",
+        "cmp eax, [esi + PROC_BRK]",
+        "call process_clear_user_range",
+        "mov [esi + PROC_BRK], eax",
+        "add [process_munmap_pages_released], eax",
+        "inc dword [process_munmap_non_tail_kept]",
+    ):
+        _require(kernel if needle.endswith(" dd 0") else munmap, needle, "brk-backed munmap")
+
     panic_path = kernel.split(".not_expected_user_fault:", 1)[1].split("doom_user_fault:", 1)[0]
     _require(panic_path, "mov dword [panic_status], PANIC_UNHANDLED_EXCEPTION", "kernel panic path")
     _require(panic_path, "call write_smoke_status", "kernel panic path")
@@ -186,6 +219,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "status-before-cleanup",
         "status-before-reset",
         "status-before-poweroff",
+        "reset-control / PS/2 reset exits QEMU",
         "tools/check_vm_safety_contract.py",
     ):
         _require(gap_doc, needle, "gap ledger")

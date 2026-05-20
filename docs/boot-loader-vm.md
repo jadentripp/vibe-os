@@ -35,6 +35,18 @@ The scaffold is not part of the current Makefile image path. Today the booted
 artifact is still the BIOS raw-sector chain above; there is no ESP image, UEFI
 application, firmware memory-map handoff, or UEFI boot proof.
 
+## Hardware Discovery Status
+
+After the BIOS boot chain reaches the kernel, the kernel performs one bounded
+QEMU PCI config-space status scan. `PCI_STATUS[QEMU_BUS0_CONFIG]` in
+`docs/hardware-support.md` defines the contract: bus 0, devices 0-31, functions
+0-7 are read through `0xcf8`/`0xcfc`, and the smoke block records `pci=`,
+`pciprobe=`, `pcicount=`, `pcifirst=`, `pciid=`, and `pciclass=`.
+
+That scan is not a boot dependency and not general PCI bus/device/function
+enumeration. It does not walk bridges, attach drivers, or change the current
+BIOS/IDE/PS2/VBE/SB16 support boundary.
+
 ## ELF Handoff
 
 The kernel is not treated as a raw sector blob. Stage 2 checks the ELF magic,

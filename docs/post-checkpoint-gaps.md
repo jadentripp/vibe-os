@@ -183,6 +183,13 @@ Current state:
   transcript must name the passing scripted real-WAD run ID and match the exact
   status phase order, byte counts, SHA-256 hashes, and compact status summaries
   rebuilt from the bundle.
+- The notes schema is now `human-playtest-notes-v2`: it requires explicit
+  operator confirmation fields, one SHA-256 `phase_hash_*` value for every
+  human status phase, and a post-download verification commitment. The checker
+  compares those note hashes against the downloaded status files and prints a
+  `post-download human verification OK` line so reviewers can compare
+  `session_id`, `bundle_sha256`, `manifest_sha256`, and short phase hashes
+  against the remote collector output.
 
 Still missing:
 
@@ -194,9 +201,12 @@ Executable gate:
 
 - Follow the remote runbook, capture non-WAD status artifacts after real keyboard
   and mouse actions, collect the bundle with
-  `tools/collect_human_playtest_bundle.py --scripted-proof-run-id <run-id>`,
-  and run `tools/check_cloud_playability_artifacts.py --human-session` plus the
-  real-WAD and human-playability checkers on the downloaded diagnostics.
+  `tools/collect_human_playtest_bundle.py --scripted-proof-run-id <run-id>`
+  plus the required `--confirm-*` flags, and run
+  `tools/check_cloud_playability_artifacts.py --human-session` plus the real-WAD
+  and human-playability checkers on the downloaded diagnostics. The local
+  post-download verification line must match the remote pre-download
+  verification line before the human packet counts as evidence.
 
 - `GAP[PERSISTENCE] status=proven category=persistence gate=reboot-persistence-proof evidence=real-wad-smoke-26156172979`
 
@@ -291,20 +301,26 @@ Current state:
 - The Doom port has a freestanding MUS/MIDI parser and stateful stream cursor
   that submits streamed music chunks through the same audio syscall and SB16
   voice mixer path without editing the original Doom tree.
+- The music stream now has host-proved long-playback wrap behavior: looping
+  songs keep cumulative song-position accounting while rendering from the
+  measured loop window, so long runs no longer depend on the old bounded
+  loop-pass skip path.
 - Run `26156172979` passes `tools/check_audio_continuity_proof.py` and
   `tools/check_audible_audio_proof.py` with status-only SB16 continuity and a
   copyright-safe aggregate `audio-proof.json`, proving non-silent audible output
   without uploading raw audio.
+- The audible manifest contract now includes aggregate stream-health and
+  listener-quality metadata without storing raw audio.
 
 Still missing:
 
-- Music now advances chunk-by-chunk from the port-owned song cursor, but the
-  kernel still needs a hardware-paced MUS/MIDI pull/refill stream with explicit
-  `musicpos=` and ring-health status; balancing between music and SFX still
-  needs real playback tuning.
-- Human listener quality validation is still separate from the aggregate
-  audible-output proof. For human quality notes, use remote audio forwarding
-  without uploading captured Doom audio.
+- Music now advances chunk-by-chunk from the port-owned song cursor with
+  long-playback wrap and stricter stream-health proof, but the kernel still
+  needs a hardware-paced MUS/MIDI pull/refill stream; balancing between music
+  and SFX still needs real playback tuning.
+- Human listener approval is still separate from the aggregate audible-output
+  proof. For human quality notes, use remote audio forwarding without uploading
+  captured Doom audio.
 
 Executable gate:
 
@@ -312,9 +328,10 @@ Executable gate:
   run the real-WAD workflow with `audible_audio_proof=true` and require
   `python3 tools/check_audible_audio_proof.py audio-proof.json` to pass on the
   downloaded aggregate manifest. For human quality notes, use remote audio
-  forwarding without uploading captured Doom audio. Harden the stream path so
-  long music playback does not rely on a single pre-rendered window and exposes
-  song-position status counters across the scripted snapshots.
+  forwarding without uploading captured Doom audio. The stream path must keep
+  long music playback independent of a single pre-rendered window, expose
+  changing song-position and stream-health counters across the scripted
+  snapshots, and eventually move to a kernel-owned pull/refill command.
 
 - `GAP[VM_POSIX] status=open category=vm-posix gate=vm-posix-contract evidence=host-and-cloud-tests`
 
@@ -323,11 +340,12 @@ Current state:
 - User processes have separate page directories, user/supervisor page bits,
   process VM-region metadata, `int 0x80`, Doom/probe table-backed `exec`,
   arbitrary root-level FAT16 `.ELF` exec into the reusable probe-class slot,
-  syscall pointer validation, anonymous/private `mmap`, display `ioctl`, file
-  syscalls, classified `fork` failures, and a bounded `waitpid` scanner that can
-  reap already-exited child records from the static process table. `WNOHANG`
-  returns `0` for matching live children instead of pretending nonblocking wait
-  is an unsupported option.
+  syscall pointer validation, anonymous/private brk-backed `mmap`, tail
+  `munmap` release for page-aligned mappings, display `ioctl`, file syscalls,
+  classified `fork` failures, and a bounded `waitpid` scanner that can reap
+  already-exited child records from the static process table. `WNOHANG` returns
+  `0` for matching live children instead of pretending nonblocking wait is an
+  unsupported option.
 - File descriptor slots now carry owner PID, open-generation, and inheritance
   flag metadata. The kernel enforces owner PID on fd lookup, retags
   `FD_INHERIT_EXEC` slots from the exec caller to the target PID, closes
@@ -341,6 +359,10 @@ Current state:
 - Exec targets reuse their table slots with fresh PIDs, stale user PTE teardown,
   and stack-PTE rearming before image load. Exit and failed exec paths retire
   user mappings instead of only changing process state.
+- The mmap/munmap path now records allocation/release counters. Anonymous
+  mappings still come from the process heap window, but tail `munmap` clears the
+  relevant process PTEs, flushes the active address space, and moves `brk` back
+  to the unmapped base. Valid non-tail ranges remain no-hole success cases.
 - Timer preemption has a real Ring 3 IRQ-frame switch path: it saves the
   interrupted task, selects a different READY process record, switches CR3/TSS,
   rewrites the live interrupt frame, and reports `pirq` plus
@@ -348,9 +370,10 @@ Current state:
   guarded to run only while that process address space is active.
 - The VMM has a checked higher-half seed contract: `KERNEL_HIGHER_HALF_BASE` is
   `0xc0000000`, `vmm_map_page` can allocate a missing page table from PMM after
-  PMM is online, and the VMM self-test maps a high virtual alias to a different
-  physical frame before unmapping it. This is a legitimate non-identity mapping
-  capability, not a relocated running kernel.
+  PMM is online, and `vmm_unmap_page` returns an empty PMM-backed page-table
+  frame to the allocator after clearing the last PTE. The VMM self-test maps a
+  high virtual alias to a different physical frame before unmapping it. This is
+  a legitimate non-identity mapping capability, not a relocated running kernel.
 
 Still missing:
 
@@ -360,12 +383,12 @@ Still missing:
   model, terminal device model, or POSIX delete-while-open behavior.
 - The process model is still a fixed-slot launch/switch contract with a generic
   probe-class exec fallback, not a robust Unix process model with dynamic PIDs,
-  wait blocking, fork-time fd duplication, physical-frame reclamation, or
-  general child lifecycle semantics.
+  wait blocking, fork-time fd duplication, general physical-frame reclamation
+  for identity-shaped user pages, or general child lifecycle semantics.
 - The running kernel is still identity-mapped in low memory, process page-table
-  allocation is not fully dynamic or reclaimed with process lifetime, user pages
-  are still backed by identity-shaped frames, and 32-bit paging cannot enforce
-  NX.
+  allocation is not fully dynamic or reclaimed with process lifetime, non-tail
+  unmap does not punch holes, user pages are still backed by identity-shaped
+  frames, and 32-bit paging cannot enforce NX.
 
 Executable gate:
 
@@ -383,8 +406,8 @@ Current state:
   visible through `doomfault=`, `doomfaultip=`, `doomfaultv=`, and
   `doomfaulterr=`, the latest trap frame is visible through `fault=`, and Doom
   startup text is tailed into `doomlog=`.
-- The interactive shell has `halt`, PS/2-controller `reboot`, and
-  ACPI/QEMU-oriented `poweroff` commands.
+- The interactive shell has `halt`, x86 reset-control / PS/2-controller
+  `reboot`, and ACPI/QEMU-oriented `poweroff` commands.
 - Unhandled non-Doom exceptions set `panic=KEXC`, preserve the latest
   `fault=vector/error/eip/cs/esp/ss/cr2/pid/kind/state/syscall` tuple, write the
   smoke status block, and then halt. Shell `halt` and `reboot` record
@@ -405,10 +428,10 @@ Current state:
   proof kernels with `SHUTDOWN_PANIC_PROOF_PANIC`,
   `SHUTDOWN_PANIC_PROOF_HALT`, `SHUTDOWN_PANIC_PROOF_REBOOT`, and
   `SHUTDOWN_PANIC_PROOF_POWEROFF` on the disposable runner. The reboot phase
-  captures status, sends a guest key to release the proof path, and uses
-  `-no-reboot` so the PS/2 reset exits QEMU; the poweroff phase captures status,
-  releases the guest, omits `-no-shutdown`, and requires the ACPI/QEMU poweroff
-  request to exit QEMU.
+  captures status, sends a guest key to release the polling-only proof path, and
+  uses `-no-reboot` so the reset-control / PS/2 reset exits QEMU; the poweroff
+  phase captures status, releases the guest, omits `-no-shutdown`, and requires
+  the ACPI/QEMU poweroff request to exit QEMU.
 
 Still missing:
 
@@ -443,19 +466,29 @@ Current state:
   exit, ELF32-compatible kernel handoff, and separate opt-in build target.
   `tools/check_hardware_support_matrix.py` requires those rows to stay
   `status=unimplemented` and outside the current Makefile image path.
+- The kernel now has a bounded, status-only PCI config-space probe for the QEMU
+  legacy PC target. `PCI_STATUS[...]` rows keep that proof scoped to bus 0,
+  devices 0-31, functions 0-7, and the smoke status exposes `pci=`,
+  `pciprobe=`, `pcicount=`, `pcifirst=`, `pciid=`, and `pciclass=` so a
+  disposable cloud status artifact can be checked without claiming broad PCI
+  enumeration.
 
 Still missing:
 
 - There is no UEFI boot path, AHCI/SATA native driver, USB input/storage stack,
   SMP, APIC/HPET coverage, general PCI enumeration, broad VBE mode matrix, or
-  proof on physical hardware.
+  proof on physical hardware. The PCI status probe is not driver discovery and
+  does not make AHCI or USB usable.
 - UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and physical hardware
   remain unclaimed `SUPPORT[...]` rows until a specific proof lane exists for
   each device class.
 
 Executable gate:
 
-- Run `python3 tools/check_hardware_support_matrix.py`. Future device-class
+- Run `python3 tools/check_hardware_support_matrix.py`. When a disposable QEMU
+  status artifact is available, additionally run
+  `python3 tools/check_hardware_support_matrix.py --status status.txt` to verify
+  the bounded PCI status fields. Future device-class
   claims must add or update a `SUPPORT[...]` row, name the proof boundary, and
   add one host-checkable cloud, disposable-machine, or hardware proof before
   README, docs, runbooks, tests, or release notes describe that class as

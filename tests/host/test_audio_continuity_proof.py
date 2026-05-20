@@ -266,6 +266,24 @@ class AudioContinuityProofTests(unittest.TestCase):
                 menu_status=snapshots["menu"],
             )
 
+    def test_rejects_single_stream_update_as_too_little_long_playback_health(self):
+        snapshots = snapshot_statuses()
+        snapshots["fire"] = snapshots["fire"].replace("voiceq=00000001:00000000:00000001", "voiceq=00000001:00000000:00000000")
+        snapshots["movement"] = snapshots["movement"].replace("voiceq=00000001:00000000:00000002", "voiceq=00000001:00000000:00000000")
+        snapshots["use"] = snapshots["use"].replace("voiceq=00000001:00000000:00000003", "voiceq=00000001:00000000:00000000")
+        snapshots["menu"] = snapshots["menu"].replace("voiceq=00000001:00000000:00000004", "voiceq=00000001:00000000:00000001")
+        snapshots["final"] = snapshots["final"].replace("voiceq=00000001:00000000:00000005", "voiceq=00000001:00000000:00000001")
+
+        with self.assertRaisesRegex(AssertionError, "at least 2"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+            )
+
     def test_rejects_never_active_music_voice(self):
         snapshots = snapshot_statuses()
         for label, status in list(snapshots.items()):
@@ -319,6 +337,25 @@ class AudioContinuityProofTests(unittest.TestCase):
             snapshots[label] = snapshots[label].replace("musicbuf=00000C00", "musicbuf=00000000")
 
         with self.assertRaisesRegex(AssertionError, "musicbuf=.*at least one snapshot"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+            )
+
+    def test_rejects_static_music_buffer_health(self):
+        snapshots = snapshot_statuses()
+        for label, status in list(snapshots.items()):
+            snapshots[label] = status.replace("musicbuf=00002000", "musicbuf=00001000")
+            snapshots[label] = snapshots[label].replace("musicbuf=00001C00", "musicbuf=00001000")
+            snapshots[label] = snapshots[label].replace("musicbuf=00001800", "musicbuf=00001000")
+            snapshots[label] = snapshots[label].replace("musicbuf=00001400", "musicbuf=00001000")
+            snapshots[label] = snapshots[label].replace("musicbuf=00000C00", "musicbuf=00001000")
+
+        with self.assertRaisesRegex(AssertionError, "changing stream-window health"):
             check_audio_continuity_proof.validate_status(
                 snapshots["final"],
                 baseline_status=snapshots["baseline"],

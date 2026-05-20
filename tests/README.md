@@ -10,7 +10,8 @@ boot:
   boot regions, protected-mode Stage 2 ELF handoff, and user/supervisor paging
   boundaries without launching QEMU. They also pin the higher-half seed contract:
   `vmm_map_page` can allocate a missing page table from PMM and the VMM self-test
-  maps a high non-identity alias before unmapping it.
+  maps a high non-identity alias before unmapping it, after which an empty
+  PMM-backed page-table frame is reclaimed.
 - `tests/host/test_doom_source.py` is the original-Doom provenance gate. It
   hashes the vendored `linuxdoom-1.10` source boundary, audits the Makefile so
   original engine objects and `doom_port/*` shims stay separate, and invokes
@@ -43,7 +44,9 @@ boot:
   handoff/schedule/rollback counters. The same tests pin the bounded
   `waitpid` child scan/reap path, `WNOHANG` live-child result, fd owner
   enforcement, exec-time inheritance/close-on-exec handoff, and process-owned
-  fd teardown without claiming that `fork` or descriptor duplication exist yet.
+  fd teardown. They also cover anonymous brk-backed `mmap` accounting and
+  page-aligned tail `munmap` reclaim without claiming that `fork`, descriptor
+  duplication, or non-tail VM holes exist yet.
 - `tests/host/test_framebuffer_contract.py` proves the 320x200 indexed shadow,
   RGB palette to XRGB8888 conversion, 2x scaling, and centering contract without
   using rendered Doom pixels.
@@ -105,14 +108,17 @@ boot:
   UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and physical-hardware
   support wording unless the matrix grows a claimed row and a proof boundary
   first.
+  It also requires the kernel's bounded QEMU bus-0 PCI status scan and the
+  `pci=`, `pciprobe=`, `pcicount=`, `pcifirst=`, `pciid=`, and `pciclass=`
+  smoke fields to remain status-only diagnostics rather than a broad PCI claim.
   It also checks the contract-only `boot/uefi/README.md` scaffold: each
   `UEFI_BOOT[...]` row must stay unimplemented with no evidence, and `boot/uefi`
   must stay out of the current Makefile image path until a separate opt-in UEFI
   build exists.
 - `tools/check_vm_safety_contract.py` machine-checks the local-QEMU opt-in,
   cloud diagnostic upload hygiene, panic status fields, shutdown status fields,
-  guard-page helper, and dynamic high VMM mapping contract without launching
-  QEMU.
+  guard-page helper, dynamic high VMM mapping/reclaim, and brk-backed tail
+  `munmap` contract without launching QEMU.
 - `tools/check_shutdown_panic_proof.py` validates the opt-in disposable-cloud
   shutdown/panic proof contract and any downloaded proof artifact. It requires
   `shutdown-panic-proof.json` plus dedicated panic, halt, reboot-request, and
@@ -126,12 +132,15 @@ boot:
   signatures. In `--human-session` mode it also requires
   `human-playtest-session.json` plus `human-playtest-manifest.json`, requires a
   flat allowlisted bundle, rebuilds the human phase transcript from the status
-  files and notes, and verifies the bundle inventory SHA-256 hashes. If
+  files and notes, verifies every note-level `phase_hash_*` value, verifies the
+  bundle inventory SHA-256 hashes, and prints a stable post-download
+  verification ID for comparison with the remote collector output. If
   `audio-proof.json` is present, it validates that aggregate manifest too.
 - `tools/collect_human_playtest_bundle.py` is the remote-host helper for manual
   VNC sessions. It does not launch QEMU; it copies only allowlisted status/log
   diagnostics and required ELF/symbol files from the disposable host build
-  directory, writes structured `human-playtest-notes.txt`, a
+  directory, requires explicit `--confirm-*` operator flags, writes structured
+  `human-playtest-notes.txt` with phase status hashes, a
   `human-playtest-session.json` transcript tied to the passing scripted
   real-WAD run ID, and `human-playtest-manifest.json`, refuses proof output
   inside the repo, and immediately invokes

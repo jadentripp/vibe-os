@@ -415,6 +415,75 @@ static int test_streaming_volume_changes_affect_future_chunks(void)
     return 0;
 }
 
+static int test_looping_stream_wraps_long_playback_position(void)
+{
+    static unsigned char mus_lump[] = {
+        'M', 'U', 'S', 0x1a,
+        8, 0,
+        16, 0,
+        1, 0,
+        0, 0,
+        0, 0,
+        0, 0,
+        0x90, 0xbc, 110, 20,
+        0x80, 60, 4,
+        0xd0
+    };
+    unsigned char expected[512];
+    unsigned char chunk[4096];
+    unsigned char wrapped[512];
+    vibe_music_render_stats_t stats;
+    int handle;
+    unsigned long rendered;
+    unsigned long loop_samples;
+    unsigned long i;
+
+    vibe_music_init();
+    handle = vibe_music_register_song(mus_lump);
+    if (handle <= 0)
+        return 90;
+
+    rendered = vibe_music_render_pcm(
+        mus_lump,
+        expected,
+        sizeof(expected),
+        VIBE_MUSIC_DEFAULT_SAMPLE_RATE,
+        127,
+        1,
+        0);
+    if (rendered != sizeof(expected))
+        return 91;
+
+    vibe_music_stream_begin(handle, VIBE_MUSIC_DEFAULT_SAMPLE_RATE, 127, 1);
+    loop_samples = vibe_music_stream_loop_samples(handle);
+    if (loop_samples < sizeof(expected) || loop_samples > sizeof(chunk))
+        return 92;
+
+    for (i = 0; i < 270u; ++i) {
+        rendered = vibe_music_stream_render(handle, chunk, loop_samples, &stats);
+        if (rendered != loop_samples)
+            return 93;
+        if (stats.stream_loop_samples != loop_samples)
+            return 94;
+        if (stats.stream_end_sample != (i + 1u) * loop_samples)
+            return 95;
+    }
+
+    if (vibe_music_stream_loop_count(handle) < 270u)
+        return 96;
+    rendered = vibe_music_stream_render(handle, wrapped, sizeof(wrapped), &stats);
+    if (rendered != sizeof(wrapped))
+        return 97;
+    if (!buffers_equal(expected, wrapped, sizeof(expected)))
+        return 98;
+    if (stats.stream_start_sample != 270u * loop_samples)
+        return 99;
+    if (stats.stream_loop_count != vibe_music_stream_loop_count(handle))
+        return 100;
+
+    return 0;
+}
+
 int main(void)
 {
     int result;
@@ -443,5 +512,9 @@ int main(void)
     if (result)
         return result;
 
-    return test_streaming_volume_changes_affect_future_chunks();
+    result = test_streaming_volume_changes_affect_future_chunks();
+    if (result)
+        return result;
+
+    return test_looping_stream_wraps_long_playback_position();
 }

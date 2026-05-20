@@ -90,6 +90,7 @@ def phase_statuses(*, carrier_only=False):
             musicmix="00000001",
             musicloop="00000000",
             musicpos="00000001",
+            musicbuf="00002000",
         ),
         "fire": status_line(
             doomsound="00000002",
@@ -100,6 +101,7 @@ def phase_statuses(*, carrier_only=False):
             musicmix="00000002",
             musicloop="00000000",
             musicpos="00000400",
+            musicbuf="00001C00",
             voiceq="00000002:00000000:00000002",
         ),
         "movement": status_line(
@@ -111,6 +113,7 @@ def phase_statuses(*, carrier_only=False):
             musicmix="00000003",
             musicloop="00000000",
             musicpos="00000800",
+            musicbuf="00001800",
             voiceq="00000002:00000000:00000003",
         ),
         "use": status_line(
@@ -122,6 +125,7 @@ def phase_statuses(*, carrier_only=False):
             musicmix="00000004",
             musicloop="00000000",
             musicpos="00000C00",
+            musicbuf="00001400",
             voiceq="00000002:00000000:00000004",
         ),
         "menu": status_line(
@@ -133,6 +137,7 @@ def phase_statuses(*, carrier_only=False):
             musicmix="00000005",
             musicloop="00000001",
             musicpos="00001000",
+            musicbuf="00001000",
             voiceq="00000002:00000000:00000005",
         ),
         "final": status_line(
@@ -194,7 +199,10 @@ class AudibleAudioProofTests(unittest.TestCase):
         self.assertTrue(manifest["continuity"]["non_music_sfx_progress"])
         self.assertGreaterEqual(manifest["continuity"]["mix_lanes"]["non_music_sfx"]["active_voice_snapshots"], 0)
         self.assertGreater(manifest["continuity"]["mix_lanes"]["music"]["buffered_window_snapshots"], 0)
+        self.assertGreaterEqual(manifest["continuity"]["stream_health"]["distinct_buffer_windows"], 2)
         self.assertGreaterEqual(manifest["analysis"]["active_windows"], 3)
+        self.assertGreater(manifest["quality"]["active_span_ms"], 0)
+        self.assertGreater(manifest["quality"]["zero_crossing_rate_per_sec"], 0)
         self.assertFalse(manifest["artifact_policy"]["contains_raw_audio"])
         serialized = json.dumps(manifest)
         self.assertNotIn("audio_bytes", serialized)
@@ -293,6 +301,15 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "max_window_rms_norm": 0.1,
                 "zero_crossings": 20,
             },
+            "quality": {
+                "active_span_ms": 400,
+                "active_span_windows": 4,
+                "leading_inactive_windows": 0,
+                "trailing_inactive_windows": 0,
+                "clipped_sample_ratio": 0.0,
+                "crest_factor_peak_over_mean_rms": 2.0,
+                "zero_crossing_rate_per_sec": 5.0,
+            },
             "status": {
                 "audio": "SB16",
                 "gameplay": "OK",
@@ -348,6 +365,18 @@ class AudibleAudioProofTests(unittest.TestCase):
                         "refill_delta": "00000001",
                     },
                 },
+                "stream_health": {
+                    "buffer_floor": "00001000",
+                    "buffer_peak": "00002000",
+                    "buffer_final": "00002000",
+                    "buffered_window_snapshots": 2,
+                    "distinct_buffer_windows": 2,
+                    "under_delta": "00000000",
+                    "drop_delta": "00000000",
+                    "stream_update_delta": "00000001",
+                    "position_delta": "000003FF",
+                    "position_delta_per_update_floor": "000003FF",
+                },
                 "claim": "non-silent remote QEMU output plus status-only SB16 continuity",
             },
             "artifact_policy": {
@@ -373,6 +402,15 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "peak_abs_norm": 0.2,
                 "max_window_rms_norm": 0.1,
                 "zero_crossings": 20,
+            },
+            "quality": {
+                "active_span_ms": 400,
+                "active_span_windows": 4,
+                "leading_inactive_windows": 0,
+                "trailing_inactive_windows": 0,
+                "clipped_sample_ratio": 0.0,
+                "crest_factor_peak_over_mean_rms": 2.0,
+                "zero_crossing_rate_per_sec": 5.0,
             },
             "status": {
                 "audio": "SB16",
@@ -428,6 +466,18 @@ class AudibleAudioProofTests(unittest.TestCase):
                         "irq_delta": "00000001",
                         "refill_delta": "00000001",
                     },
+                },
+                "stream_health": {
+                    "buffer_floor": "00001000",
+                    "buffer_peak": "00002000",
+                    "buffer_final": "00002000",
+                    "buffered_window_snapshots": 2,
+                    "distinct_buffer_windows": 2,
+                    "under_delta": "00000000",
+                    "drop_delta": "00000000",
+                    "stream_update_delta": "00000001",
+                    "position_delta": "000003FF",
+                    "position_delta_per_update_floor": "000003FF",
                 },
                 "claim": "non-silent remote QEMU output plus status-only SB16 continuity",
             },
