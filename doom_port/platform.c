@@ -75,7 +75,7 @@ static int load_checkpoint_done;
 #define VIBE_MUSIC_STREAM_TICS \
     ((int)((VIBE_MUSIC_STREAM_BYTES * 35u) / VIBE_MUSIC_DEFAULT_SAMPLE_RATE) / 16)
 #define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x2c000u
-#define VIBE_PERSISTENCE_MIN_LEVELTIME 32
+#define VIBE_PERSISTENCE_MIN_LEVELTIME 16
 
 static void report_doom_init_status(unsigned long flags)
 {
@@ -306,6 +306,8 @@ static int persistence_checkpoint_requested(void)
 {
     FILE* marker;
 
+    if (default_config_checkpoint_request_checked)
+        return default_config_checkpoint_requested;
     if (default_config_checkpoint_requested)
         return default_config_checkpoint_requested;
 
@@ -339,6 +341,8 @@ static int read_persistence_slot_request(const char* path, int* slot)
 
 static int save_checkpoint_requested_once(void)
 {
+    if (save_checkpoint_request_checked)
+        return save_checkpoint_requested;
     if (save_checkpoint_requested)
         return save_checkpoint_requested;
 
@@ -351,6 +355,8 @@ static int save_checkpoint_requested_once(void)
 
 static int load_checkpoint_requested_once(void)
 {
+    if (load_checkpoint_request_checked)
+        return load_checkpoint_requested;
     if (load_checkpoint_requested)
         return load_checkpoint_requested;
 
@@ -359,6 +365,13 @@ static int load_checkpoint_requested_once(void)
         "LOADREQ.CHK",
         &load_checkpoint_slot);
     return load_checkpoint_requested;
+}
+
+static void cache_persistence_marker_requests(void)
+{
+    (void)persistence_checkpoint_requested();
+    (void)save_checkpoint_requested_once();
+    (void)load_checkpoint_requested_once();
 }
 
 static int default_config_checkpoint_ready(void)
@@ -485,6 +498,7 @@ char* sndserver_filename = "sndserver";
 void I_Init(void)
 {
     report_doom_init_status(VIBE_DOOM_INIT_I_INIT);
+    cache_persistence_marker_requests();
 }
 
 byte* I_ZoneBase(int* size)
@@ -659,6 +673,14 @@ static void report_save_action_status(void)
 
     if (length)
         flags |= VIBE_DOOM_SAVEACTION_DESCRIPTION;
+    if (save_checkpoint_requested)
+        flags |= VIBE_DOOM_SAVEACTION_SAVE_REQUESTED;
+    if (save_checkpoint_done)
+        flags |= VIBE_DOOM_SAVEACTION_SAVE_DONE;
+    if (load_checkpoint_requested)
+        flags |= VIBE_DOOM_SAVEACTION_LOAD_REQUESTED;
+    if (load_checkpoint_done)
+        flags |= VIBE_DOOM_SAVEACTION_LOAD_DONE;
 
     packed = VIBE_DOOM_SAVEACTION_STATUS
         | flags

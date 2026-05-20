@@ -744,6 +744,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("VIBE_GAMEPLAY_FLAG_MENU_ACTIVE = 0x01u", header)
         self.assertIn("VIBE_GAMEPLAY_FLAG_SINGLETICS = 0x08u", header)
         self.assertIn("VIBE_DOOM_SAVEACTION_STATUS = 0x10000000u", header)
+        self.assertIn("VIBE_DOOM_SAVEACTION_SAVE_REQUESTED = 0x0008u", header)
+        self.assertIn("VIBE_DOOM_SAVEACTION_LOAD_REQUESTED = 0x0020u", header)
         self.assertIn("VIBE_DOOM_INIT_STATUS = 0x40000000u", header)
         self.assertIn("static void report_gameplay_status(void)", platform)
         self.assertIn("static void report_save_action_status(void)", platform)
