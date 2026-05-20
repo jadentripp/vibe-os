@@ -146,6 +146,18 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         raise AssertionError("status sfxlast= must expose a nonzero SFX sample rate and padded length")
     if _hex_tuple(fields, "musicq", 2)[0] == 0:
         raise AssertionError("status musicq= must prove the music voice was queued")
+    musicrend = _hex_tuple(fields, "musicrend", 6)
+    if musicrend[0] not in (1, 2):
+        raise AssertionError("status musicrend= must record MUS or MIDI renderer format")
+    for value, label in (
+        (musicrend[1], "render chunk"),
+        (musicrend[2], "note event"),
+        (musicrend[3], "render event"),
+        (musicrend[4], "active voice peak"),
+        (musicrend[5], "rendered sample"),
+    ):
+        if value == 0:
+            raise AssertionError(f"status musicrend= must prove nonzero {label} evidence")
     if fields.get("musicstream") not in check_audio_continuity_proof.MUSIC_STREAM_MODES:
         raise AssertionError(f"status musicstream= must be a known mode, got {fields.get('musicstream')!r}")
     _hex_tuple(fields, "musicpull", 2)
@@ -178,6 +190,7 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         "musicdrops": fields["musicdrops"],
         "musicstream": fields["musicstream"],
         "musicpull": fields["musicpull"],
+        "musicrend": fields["musicrend"],
     }
 
 
@@ -262,6 +275,18 @@ def _continuity_summary(
     )
     progress["musicpull_refill"] = _tuple_counter_delta(
         baseline_fields, final_fields, "musicpull", 2, 1
+    )
+    progress["musicrend_chunk"] = _tuple_counter_delta(
+        baseline_fields, final_fields, "musicrend", 6, 1
+    )
+    progress["musicrend_note"] = _tuple_counter_delta(
+        baseline_fields, final_fields, "musicrend", 6, 2
+    )
+    progress["musicrend_event"] = _tuple_counter_delta(
+        baseline_fields, final_fields, "musicrend", 6, 3
+    )
+    progress["musicrend_sample"] = _tuple_counter_delta(
+        baseline_fields, final_fields, "musicrend", 6, 5
     )
     safety_progress = {
         name: _counter_delta(baseline_fields, final_fields, name)
@@ -400,6 +425,12 @@ def _continuity_summary(
             "music": {
                 "counter": "musicmix",
                 "delta": progress["musicmix"]["delta"],
+                "renderer_counter": "musicrend",
+                "renderer_chunk_delta": progress["musicrend_chunk"]["delta"],
+                "renderer_note_delta": progress["musicrend_note"]["delta"],
+                "renderer_event_delta": progress["musicrend_event"]["delta"],
+                "renderer_sample_delta": progress["musicrend_sample"]["delta"],
+                "renderer_final": final_fields["musicrend"],
                 "active_voice_snapshots": sum(
                     1 for fields in snapshot_fields.values() if _hex_value(fields, "musicvoices") > 0
                 ),
@@ -792,6 +823,7 @@ def validate_manifest(
         ("sfxlast", 3),
         ("musicq", 2),
         ("musicpull", 2),
+        ("musicrend", 6),
     ):
         value = status.get(name)
         if not isinstance(value, str):
@@ -836,6 +868,10 @@ def validate_manifest(
         "voiceq_update",
         "musicpull_request",
         "musicpull_refill",
+        "musicrend_chunk",
+        "musicrend_note",
+        "musicrend_event",
+        "musicrend_sample",
     ):
         entry = progress.get(name)
         if not isinstance(entry, dict):
@@ -894,7 +930,19 @@ def validate_manifest(
                 "dma_bytes_delta",
             ),
         ),
-        ("music", music_lane, ("delta", "stream_update_delta", "position_delta")),
+        (
+            "music",
+            music_lane,
+            (
+                "delta",
+                "stream_update_delta",
+                "position_delta",
+                "renderer_chunk_delta",
+                "renderer_note_delta",
+                "renderer_event_delta",
+                "renderer_sample_delta",
+            ),
+        ),
         ("shared_sb16_refill", refill_lane, ("irq_delta", "refill_delta")),
     ):
         for key in keys:
@@ -913,6 +961,21 @@ def validate_manifest(
         raise AssertionError("manifest music lane must have active voice snapshots")
     if music_lane.get("buffered_window_snapshots", 0) <= 0:
         raise AssertionError("manifest music lane must have buffered window snapshots")
+    if music_lane.get("renderer_counter") != "musicrend":
+        raise AssertionError("manifest music lane must name musicrend as renderer_counter")
+    renderer_final = music_lane.get("renderer_final")
+    if not isinstance(renderer_final, str):
+        raise AssertionError("manifest music lane must include renderer_final")
+    renderer_parts = renderer_final.split(":")
+    if len(renderer_parts) != 6 or any(
+        not re.fullmatch(r"[0-9A-Fa-f]{8}", part) for part in renderer_parts
+    ):
+        raise AssertionError("manifest music lane renderer_final must have six hex parts")
+    if int(renderer_parts[0], 16) not in (1, 2):
+        raise AssertionError("manifest music lane renderer_final must record MUS or MIDI format")
+    for part in renderer_parts[1:]:
+        if int(part, 16) <= 0:
+            raise AssertionError("manifest music lane renderer_final counters must be nonzero")
 
     for key in (
         "buffered_window_snapshots",
@@ -1088,6 +1151,7 @@ def validate_repo_contract() -> None:
                 "status-only SB16 continuity",
                 "musicpos=",
                 "musicbuf=",
+                "musicrend=",
                 "stream_contract",
                 "musicstream=PULL",
                 "listener-quality metadata",

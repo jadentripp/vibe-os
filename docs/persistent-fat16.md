@@ -129,6 +129,9 @@ same-object state. The checker then revalidates FAT-copy agreement and
 reachable-cluster ownership on the mutated copy, so this is a host-verifiable
 allocation/free/truncate proof without putting a scratch file back into the real
 disk artifact.
+The Makefile wrapper exposes the same checker path with
+`PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF=1 make persistence-image-check`, keeping
+the host proof runnable without launching QEMU locally.
 
 The Doom libc buffers formatted `fprintf` output until `fflush()` / `fclose()`,
 so `M_SaveDefaults()` does not spend the cloud proof window performing one disk

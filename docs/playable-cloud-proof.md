@@ -241,7 +241,7 @@ The cloud proof requires these status families:
   progress from Doom's expected tic rate.
 - Audio/mouse observability: `audio`, `doomsound`, `sfxmix`, `sfxdma`, `voices`,
   `sfxvoices`, `musicvoices`, `musicmix`, `musicloop`, `musicpos`, `musicbuf`,
-  `musicunder`, `musicdrops`, `sb16`, `dma`, `play`, `voiceq`, `musicq`,
+  `musicunder`, `musicdrops`, `musicrend`, `sb16`, `dma`, `play`, `voiceq`, `musicq`,
   `audioirq`, `ack8`,
   `ack16`, `refill`, mixer safety counters, `mouse`,
   `mouseirq`, `mousepkt`, and `mousepoll` are required to be present and
@@ -253,7 +253,8 @@ The cloud proof requires these status families:
   proves SB16 version, DMA programming, playback start, voice queue, IRQ/refill,
   non-music SFX, `sfxdma=` SFX bytes from the IRQ-driven DMA refill mixer,
   music mixing, kernel-visible `musicpos=` progress, and pull-requested music
-  chunk service with advancing `musicpull=` counters progressed without
+  chunk service with advancing `musicpull=` counters plus `musicrend=` renderer
+  provenance progressed without
   uploading audio samples. It does not upload audio samples.
   `tools/check_audio_continuity_proof.py` checks status snapshots only and
   does not upload audio samples.

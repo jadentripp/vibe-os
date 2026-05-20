@@ -48,7 +48,11 @@ Current kernel behavior:
   `mixunder=`, `mixclip=`, `steal=`, `pitchclamp=`, and `panclamp=`
 - reports music-carrier and stream-window health separately as `musicvoices=`,
   `musicmix=`, `musicloop=`, `musicpos=`, `musicbuf=`, `musicunder=`,
-  `musicdrops=`, `musicstream=`, and `musicpull=`
+  `musicdrops=`, `musicstream=`, `musicpull=`, and `musicrend=`
+- records music renderer provenance as
+  `musicrend=<format>:<chunks>:<notes>:<events>:<peak>:<samples>`, where
+  format is the port-owned MUS or MIDI renderer and the counters prove the
+  submitted music stream came from parsed song events, not a raw carrier tone
 - exposes `VIBE_AUDIO_MUSIC_PULL_STATE` so Doom-port music service and SB16
   refill-side pull requests have an explicit source-level contract; the older
   `VIBE_AUDIO_BUFFERED_BYTES` query remains defined for diagnostic buffer
@@ -174,6 +178,9 @@ kernel-owned music synthesis.
 The checker now treats `musicbuf=` as stream-health evidence: across the
 scripted snapshots it must move, and the stream-update counter must advance more
 than once, so a single static music carrier cannot satisfy the audio proof.
+It also requires `musicrend=` renderer provenance to show MUS/MIDI format,
+rendered chunks, note events, total render events, active renderer voice peak,
+and emitted samples; a music flag plus carrier PCM cannot satisfy that lane.
 The same gate now also rejects audio proofs with new `mixclip=`, `musicunder=`,
 or `musicdrops=` deltas across the scripted window, and requires IRQ/refill
 movement across the phase snapshots plus Doom sound-call/SFX-mix progress by the
@@ -202,6 +209,7 @@ increasing `musicpos=`, a progressing `voiceq=` stream-update component,
 visible `musicbuf=` / `musicunder=` / `musicdrops=` health fields,
 `musicstream=PULL` for the current
 SB16-refill-requested music proof, monotonic and advancing `musicpull=` counters
+and `musicrend=` renderer-provenance counters,
 for hardware-paced request/service evidence, coherent lane accounting where
 `voices=` equals `sfxvoices=` plus
 `musicvoices=`, at least one active music voice snapshot, at least one buffered
@@ -280,7 +288,7 @@ request from the SB16 refill path. The music architecture keeps targeting the sa
 DMA/refill output path, so the parser/renderer work shares SFX voice stealing,
 clipping, silence, and status accounting. The extra `musicvoices=`, `musicmix=`,
 `musicpos=`, `musicbuf=`, `musicunder=`, `musicdrops=`, `musicstream=`,
-`musicpull=`, and `voiceq=` update counter make that contract visible in cloud
+`musicpull=`, `musicrend=`, and `voiceq=` update counter make that contract visible in cloud
 smoke status.
 `musicstream=PULL` and advancing `musicpull=` counters make the current
 request-driven status explicit; `tools/check_audio_continuity_proof.py
@@ -300,8 +308,9 @@ Remaining gaps:
 - Music now advances a stateful song-position cursor in the Doom port and
   services kernel pull requests with `VIBE_AUDIO_UPDATE_SFX`. The SB16 IRQ
   refill path owns request timing and `musicpull=` accounting, but the Doom port
-  still renders the MUS/MIDI chunk in response; kernel-owned synthesis remains a
-  future legitimacy step.
+  still renders the MUS/MIDI chunk in response. The `musicrend=` counters now
+  prove those service chunks came from parsed MUS/MIDI renderer activity rather
+  than a carrier tone; kernel-owned synthesis remains a future legitimacy step.
 - The audible proof is a remote aggregate-output proof, not a listener recording
   or subjective quality proof. It now records aggregate listener-quality
   metadata, but a human playtest should still use remote audio forwarding for
@@ -318,7 +327,8 @@ checks status snapshots only: `audio=SB16`, `sb16=`, `dma=`, `play=`,
 `voiceq=`, `musicq=`, IRQ/refill progress, non-music SFX mixing, streamed music
 chunks, music mixer counters, changing `musicbuf=` stream-health windows,
 `musicpos=` stream position, `musicstream=PULL`, and advancing `musicpull=`
-request/refill counters must move across the scripted cloud phases. Passing
+request/refill plus `musicrend=` renderer counters must move across the
+scripted cloud phases. Passing
 `--require-pull-stream` keeps that contract explicit.
 
 Fallback plan:

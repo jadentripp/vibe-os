@@ -80,6 +80,13 @@ explicit. This is hardware-paced pull service, not a claim that the kernel owns
 MUS/MIDI parsing or synthesis. `sfxmix=` counts only non-music sound effects,
 `sfxdma=` proves those sound effects reached the SB16 IRQ refill mixer, and
 music increments `musicmix=`.
+Each music stream descriptor also carries renderer provenance from the
+port-owned MUS/MIDI renderer. The kernel records it as
+`musicrend=<format>:<chunks>:<notes>:<events>:<peak>:<samples>`, so status
+snapshots can distinguish parsed song events rendered into the music lane from a
+music-flagged carrier tone. Format `1` is MUS and format `2` is Standard MIDI;
+the remaining fields are cumulative render chunks, note events, total render
+events, renderer active-voice peak, and emitted samples.
 
 The remote-safe audio checker now proves that the SB16 path mixed non-music SFX,
 mixed music, accepted streamed music chunk updates, and advanced kernel-visible
@@ -88,7 +95,9 @@ mixed music, accepted streamed music chunk updates, and advanced kernel-visible
 lane progress, the music lane must be active in at least one snapshot, and at
 least one music snapshot must show a buffered stream window. It now also
 requires more than one stream update and changing `musicbuf=` values so the
-proof includes stream-health movement instead of a static carrier. The gate also
+proof includes stream-health movement instead of a static carrier. It also
+requires advancing `musicrend=` renderer-provenance counters, so a carrier-only
+music voice cannot pass as actual MUS/MIDI rendering. The gate also
 requires the scripted fire phase to advance Doom sound calls and non-music SFX
 mixing plus `sfxdma=` IRQ-refill output, so music-only, carrier-only, or
 submit-only output cannot stand in for firing the shotgun in the play proof. It
@@ -120,6 +129,9 @@ should remain status-only and copyright-safe:
 - `musicpull=<requests>:<refills>` increasing in the pull/refill model, so host
   checks can reject a pull-stream claim that never requested or never serviced
   hardware-paced chunks.
+- `musicrend=<format>:<chunks>:<notes>:<events>:<peak>:<samples>` increasing
+  with MUS/MIDI format, note/event, renderer peak, and sample evidence so host
+  checks can reject a music-flagged carrier tone.
 - `musicpos=` increasing across early/fire/move/use/menu/final snapshots,
   proving the kernel refill path consumed music beyond the first rendered
   window.
