@@ -654,6 +654,7 @@ void I_UpdateNoBlit(void)
 static void report_gameplay_status(void)
 {
     unsigned long flags = 0;
+    unsigned long tic = (unsigned long)gametic;
     unsigned long packed = ((unsigned long)(gamestate & 0xff))
         | ((unsigned long)(gameepisode & 0xff) << 8)
         | ((unsigned long)(gamemap & 0xff) << 16);
@@ -667,12 +668,15 @@ static void report_gameplay_status(void)
     if (singletics)
         flags |= VIBE_GAMEPLAY_FLAG_SINGLETICS;
 
+    if (!tic && leveltime > 0)
+        tic = (unsigned long)leveltime;
+
     packed |= flags << 24;
 
     (void)vibe_syscall3(
         VIBE_SYS_GAMEPLAY_STATUS,
         packed,
-        (unsigned long)gametic,
+        tic,
         (unsigned long)leveltime);
 }
 
@@ -1060,7 +1064,6 @@ void I_PlaySong(int handle, int looping)
         VIBE_MUSIC_DEFAULT_SAMPLE_RATE,
         (unsigned long)current_music_volume,
         looping);
-    pump_music_stream();
 }
 
 void I_StopSong(int handle)

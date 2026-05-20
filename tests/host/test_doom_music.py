@@ -66,6 +66,21 @@ class DoomMusicTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, platform)
 
+        play_song_body = platform.split(
+            "void I_PlaySong(int handle, int looping)", 1
+        )[1].split("void I_StopSong", 1)[0]
+        self.assertIn("vibe_music_stream_begin(", play_song_body)
+        self.assertNotIn("pump_music_stream();", play_song_body)
+
+        for hook in (
+            "void I_StartTic(void)",
+            "void I_UpdateSound(void)",
+            "void I_SubmitSound(void)",
+        ):
+            with self.subTest(hook=hook):
+                hook_body = platform.split(hook, 1)[1].split("\n}", 1)[0]
+                self.assertIn("pump_music_stream();", hook_body)
+
         for token in (
             "VIBE_MUSIC_FORMAT_MUS",
             "VIBE_MUSIC_FORMAT_MIDI",
@@ -132,6 +147,7 @@ class DoomMusicTests(unittest.TestCase):
             "VIBE_AUDIO_UPDATE_SFX",
             "stateful stream cursor",
             "streamed music chunks",
+            "deferred to the normal tic/frame/sound update pump",
             "larger streamed chunks",
             "non-looping songs stop at their parsed song end",
             "pitch bend",

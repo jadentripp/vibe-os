@@ -264,7 +264,7 @@ FD_INHERIT_EXEC equ 0x1
 WAIT_OPTION_WNOHANG equ 0x1
 WAIT_SUPPORTED_OPTIONS equ WAIT_OPTION_WNOHANG
 WAIT_PROOF_EXIT_STATUS equ 0x0000002a
-WRITABLE_KNOWN_FILE_COUNT equ 7
+WRITABLE_KNOWN_FILE_COUNT equ 9
 WRITABLE_FILE_COUNT equ 16
 WRITABLE_DEFAULT_CAPACITY equ 0x00004000
 WRITABLE_SAVE_CAPACITY equ 0x00040000
@@ -15360,9 +15360,13 @@ user_path_doomsav4 db "doomsav4.dsg", 0
 user_path_doomsav4_end:
 user_path_doomsav5 db "doomsav5.dsg", 0
 user_path_doomsav5_end:
-writable_name_table dd default_cfg_name_83, doomsav0_name_83, doomsav1_name_83, doomsav2_name_83, doomsav3_name_83, doomsav4_name_83, doomsav5_name_83
-writable_path_table dd user_path_default_cfg, user_path_doomsav0, user_path_doomsav1, user_path_doomsav2, user_path_doomsav3, user_path_doomsav4, user_path_doomsav5
-writable_path_len_table dd user_path_default_cfg_end - user_path_default_cfg, user_path_doomsav0_end - user_path_doomsav0, user_path_doomsav1_end - user_path_doomsav1, user_path_doomsav2_end - user_path_doomsav2, user_path_doomsav3_end - user_path_doomsav3, user_path_doomsav4_end - user_path_doomsav4, user_path_doomsav5_end - user_path_doomsav5
+user_path_savereq db "SAVEREQ.CHK", 0
+user_path_savereq_end:
+user_path_loadreq db "LOADREQ.CHK", 0
+user_path_loadreq_end:
+writable_name_table dd default_cfg_name_83, doomsav0_name_83, doomsav1_name_83, doomsav2_name_83, doomsav3_name_83, doomsav4_name_83, doomsav5_name_83, save_req_name_83, load_req_name_83
+writable_path_table dd user_path_default_cfg, user_path_doomsav0, user_path_doomsav1, user_path_doomsav2, user_path_doomsav3, user_path_doomsav4, user_path_doomsav5, user_path_savereq, user_path_loadreq
+writable_path_len_table dd user_path_default_cfg_end - user_path_default_cfg, user_path_doomsav0_end - user_path_doomsav0, user_path_doomsav1_end - user_path_doomsav1, user_path_doomsav2_end - user_path_doomsav2, user_path_doomsav3_end - user_path_doomsav3, user_path_doomsav4_end - user_path_doomsav4, user_path_doomsav5_end - user_path_doomsav5, user_path_savereq_end - user_path_savereq, user_path_loadreq_end - user_path_loadreq
 writable_capacity_table dd WRITABLE_DEFAULT_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY
 persistence_marker_name_table dd persist_chk_name_83, save_req_name_83, load_req_name_83
 process_exec_table:
