@@ -119,6 +119,8 @@ class DoomInputContractTests(unittest.TestCase):
             '"SAVEREQ.CHK"',
             '"LOADREQ.CHK"',
             "default_config_checkpoint_ready()",
+            "gameplay_frame_ready_seen",
+            "gameplay_checkpoint_state_ready()",
             "gamestate == GS_LEVEL",
             "gameepisode > 0",
             "gametic > 0",

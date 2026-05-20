@@ -311,9 +311,11 @@ class DoomRuntimeContractTests(unittest.TestCase):
             platform.index("run_persistence_checkpoint_actions();", platform.index("void G_Ticker(void)")),
         )
         self.assertLess(
-            platform.index("run_persistence_checkpoint_actions();", platform.index("void I_FinishUpdate(void)")),
             platform.index("report_gameplay_status();", platform.index("void I_FinishUpdate(void)")),
+            platform.index("run_persistence_checkpoint_actions();", platform.index("void I_FinishUpdate(void)")),
         )
+        self.assertIn("gameplay_frame_ready_seen", platform)
+        self.assertIn("gameplay_checkpoint_state_ready()", platform)
         self.assertIn("if (gameaction == ga_savegame && savedescription[0])", platform)
         self.assertIn("G_DoSaveGame();", platform)
         self.assertIn("if (load_checkpoint_armed && gameaction == ga_loadgame)", platform)

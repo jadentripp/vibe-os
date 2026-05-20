@@ -68,6 +68,7 @@ static int load_checkpoint_requested;
 static int load_checkpoint_slot;
 static int load_checkpoint_done;
 static int load_checkpoint_armed;
+static int gameplay_frame_ready_seen;
 
 #define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
 #define VIBE_SFX_DEFAULT_SAMPLE_RATE 11025u
@@ -504,7 +505,7 @@ static int load_checkpoint_requested_once(void)
     return load_checkpoint_requested;
 }
 
-static int default_config_checkpoint_ready(void)
+static int gameplay_checkpoint_state_ready(void)
 {
     return gamestate == GS_LEVEL
         && gameepisode > 0
@@ -515,6 +516,11 @@ static int default_config_checkpoint_ready(void)
         && consoleplayer < MAXPLAYERS
         && playeringame[consoleplayer]
         && players[consoleplayer].mo;
+}
+
+static int default_config_checkpoint_ready(void)
+{
+    return gameplay_frame_ready_seen && gameplay_checkpoint_state_ready();
 }
 
 static void checkpoint_default_config_if_needed(void)
@@ -783,6 +789,9 @@ static void report_gameplay_status(void)
 
     packed |= flags << 24;
 
+    if (gameplay_checkpoint_state_ready())
+        gameplay_frame_ready_seen = 1;
+
     (void)vibe_syscall3(
         VIBE_SYS_GAMEPLAY_STATUS,
         packed,
@@ -939,8 +948,8 @@ void I_FinishUpdate(void)
 
     report_doom_init_status(VIBE_DOOM_INIT_FRAME);
     pump_music_stream();
-    run_persistence_checkpoint_actions();
     report_gameplay_status();
+    run_persistence_checkpoint_actions();
     report_save_action_status();
     report_playability_status();
     report_player_detail_status();
