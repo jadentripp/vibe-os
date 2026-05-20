@@ -13,10 +13,10 @@ on:
         type: boolean
         default: false
       persistence_input_script:
-        description: QEMU input script for the first persistence boot. Use text=NAME to batch save-name typing; default sends the platform quit signal so Doom saves DEFAULT.CFG through I_Quit.
+        description: QEMU input script for the first persistence boot. Use text=NAME to batch save-name typing; default sends the F12 platform quit signal so Doom saves DEFAULT.CFG through I_Quit.
         required: false
         type: string
-        default: "persist-quit:ctrl-alt-f12,wait=12,snapshot"
+        default: "persist-quit:f12,wait=12,snapshot"
       persistence_save_slot:
         description: Optional DOOMSAV slot number to require if the input script creates a save.
         required: false

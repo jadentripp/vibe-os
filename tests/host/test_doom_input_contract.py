@@ -103,7 +103,7 @@ class DoomInputContractTests(unittest.TestCase):
             "vibe_doom_input_event_t translated",
             "vibe_doom_translate_key_event",
             "track_platform_quit_signal(&translated);",
-            "platform_quit_ctrl_down && platform_quit_alt_down && platform_quit_f12_down",
+            "event->type == VIBE_DOOM_INPUT_KEYDOWN && event->data1 == VIBE_DOOM_KEY_F12",
             "I_Quit();",
             "VIBE_DOOM_INPUT_KEYDOWN",
             "ev_keydown",

@@ -115,8 +115,8 @@ back into the real disk artifact.
 The Doom libc buffers formatted `fprintf` output until `fflush()` / `fclose()`,
 so `M_SaveDefaults()` does not spend the cloud proof window performing one disk
 syscall per default line. The default real-WAD cloud workflow sends the port's
-Ctrl+Alt+F12 platform quit signal before snapshotting the disk. That signal
-calls the same `I_Quit()` path as a normal Doom quit, so it still runs
+F12 platform quit signal before snapshotting the disk. That signal calls the
+same `I_Quit()` path as a normal Doom quit, so it still runs
 `M_SaveDefaults()` and shuts down through Doom's platform layer; `--write-status`
 keeps the wait honest by rejecting a `DEFAULT.CFG` proof if Doom is still
 running in the defaults writer phase.
