@@ -177,8 +177,17 @@ def _continuity_summary(
         use_status=use_status,
         menu_status=menu_status,
     )
-    baseline_fields = _status_fields(baseline_status)
-    final_fields = _status_fields(final_status)
+    snapshot_texts = {
+        "baseline": baseline_status,
+        "fire": fire_status,
+        "movement": movement_status,
+        "use": use_status,
+        "menu": menu_status,
+        "final": final_status,
+    }
+    snapshot_fields = {label: _status_fields(text) for label, text in snapshot_texts.items()}
+    baseline_fields = snapshot_fields["baseline"]
+    final_fields = snapshot_fields["final"]
     progress = {
         name: _counter_delta(baseline_fields, final_fields, name)
         for name in ("audioirq", "refill", "sfxmix", "musicmix", "musicpos")
@@ -198,6 +207,31 @@ def _continuity_summary(
             int(progress["audioirq"]["delta"], 16) > 0
             and int(progress["refill"]["delta"], 16) > 0
         ),
+        "mix_lanes": {
+            "non_music_sfx": {
+                "counter": "sfxmix",
+                "delta": progress["sfxmix"]["delta"],
+                "active_voice_snapshots": sum(
+                    1 for fields in snapshot_fields.values() if _hex_value(fields, "sfxvoices") > 0
+                ),
+            },
+            "music": {
+                "counter": "musicmix",
+                "delta": progress["musicmix"]["delta"],
+                "active_voice_snapshots": sum(
+                    1 for fields in snapshot_fields.values() if _hex_value(fields, "musicvoices") > 0
+                ),
+                "buffered_window_snapshots": sum(
+                    1 for fields in snapshot_fields.values() if _hex_value(fields, "musicbuf") > 0
+                ),
+                "stream_update_delta": progress["voiceq_update"]["delta"],
+                "position_delta": progress["musicpos"]["delta"],
+            },
+            "shared_sb16_refill": {
+                "irq_delta": progress["audioirq"]["delta"],
+                "refill_delta": progress["refill"]["delta"],
+            },
+        },
         "progress": progress,
         "claim": (
             "non-silent remote QEMU output plus status-only SB16 continuity; "
@@ -464,6 +498,37 @@ def validate_manifest(
                 raise AssertionError(f"manifest continuity.progress.{name}.{key} must be eight hex digits")
         if int(entry["delta"], 16) <= 0:
             raise AssertionError(f"manifest continuity.progress.{name}.delta must be nonzero")
+
+    mix_lanes = continuity.get("mix_lanes")
+    if not isinstance(mix_lanes, dict):
+        raise AssertionError("manifest continuity.mix_lanes must be an object")
+    for lane_name in ("non_music_sfx", "music", "shared_sb16_refill"):
+        if not isinstance(mix_lanes.get(lane_name), dict):
+            raise AssertionError(f"manifest continuity.mix_lanes.{lane_name} must be an object")
+    sfx_lane = mix_lanes["non_music_sfx"]
+    music_lane = mix_lanes["music"]
+    refill_lane = mix_lanes["shared_sb16_refill"]
+    if sfx_lane.get("counter") != "sfxmix":
+        raise AssertionError("manifest non_music_sfx lane must name sfxmix")
+    if music_lane.get("counter") != "musicmix":
+        raise AssertionError("manifest music lane must name musicmix")
+    for lane_name, lane, keys in (
+        ("non_music_sfx", sfx_lane, ("delta",)),
+        ("music", music_lane, ("delta", "stream_update_delta", "position_delta")),
+        ("shared_sb16_refill", refill_lane, ("irq_delta", "refill_delta")),
+    ):
+        for key in keys:
+            value = lane.get(key)
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
+                raise AssertionError(f"manifest continuity.mix_lanes.{lane_name}.{key} must be eight hex digits")
+            if int(value, 16) <= 0:
+                raise AssertionError(f"manifest continuity.mix_lanes.{lane_name}.{key} must be nonzero")
+    if sfx_lane.get("active_voice_snapshots", 0) <= 0:
+        raise AssertionError("manifest non_music_sfx lane must have active voice snapshots")
+    if music_lane.get("active_voice_snapshots", 0) <= 0:
+        raise AssertionError("manifest music lane must have active voice snapshots")
+    if music_lane.get("buffered_window_snapshots", 0) <= 0:
+        raise AssertionError("manifest music lane must have buffered window snapshots")
 
     for key in ("contains_raw_audio", "contains_wad_data", "contains_pixels"):
         if policy.get(key) is not False:

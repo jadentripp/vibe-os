@@ -116,6 +116,9 @@ Remaining storage gaps before a broad Doom-capable claim:
   the generated FAT16 disk image, but there is not yet a broader storage boot
   path story for installing, selecting, or safely recovering persistent media
   outside this generated image workflow.
-- Reboot persistence is still an executable proof gate until an archived
-  real-WAD cloud artifact shows Doom writing the requested config/save state and
-  the same remote image preserving it across a second boot.
+- The archived real-WAD cloud run `26155149926` proves save-slot reboot
+  persistence for this commit: `DOOMSAV0.DSG` is changed from the fresh baseline with
+  description `VIBESAVE`, keeps Doom's `version 110` marker, and survives a
+  second boot of the same remote image with `reboot status runtime=OK`. Future
+  storage or workflow changes must rerun that executable proof gate before
+  making a fresh persistence claim.

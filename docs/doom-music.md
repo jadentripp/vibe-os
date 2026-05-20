@@ -8,15 +8,20 @@ Current behavior:
 
 - detects Doom MUS lumps by the `MUS\x1a` header and Standard MIDI files by the
   `MThd` header
-- includes a MUS parser for score events from WAD lump bytes, including note on, note off,
-  pitch wheel skip, system events, controller changes, score end, and MUS
-  variable-length delays
+- includes a MUS parser for score events from WAD lump bytes, including note on,
+  note off, MUS-to-MIDI channel mapping for percussion, pitch bend, system
+  events, program changes, pan, expression, sustain, all-notes-off handling,
+  score end, and MUS variable-length delays
 - parses Standard MIDI format 0 tracks, including running status, note on,
-  note off, controller volume, tempo meta events, SysEx skip, and end-of-track
-- maintains 16 channels of volume state and a bounded 16-voice active-note
-  table so music scheduling is separate from the SB16 SFX active-voice mixer
-- synthesizes deterministic unsigned 8-bit PCM with a simple square-wave,
-  OPL-inspired voice model backed by an integer MIDI note frequency table
+  note off, controller volume, pan, expression, sustain, pitch bend, program
+  changes, tempo meta events, SysEx skip, and end-of-track
+- maintains 16 channels of volume, expression, pan, program, sustain, and pitch
+  bend state plus a bounded 16-voice active-note table so music scheduling is
+  separate from the SB16 SFX active-voice mixer
+- synthesizes deterministic unsigned 8-bit PCM with a simple square/noise,
+  OPL-inspired voice model backed by an integer MIDI note frequency table;
+  program changes alter duty color and percussion notes use deterministic
+  channel-local noise rather than a silent placeholder
 - uses only freestanding integer code and does not call host audio, MIDI, math,
   or operating-system libraries
 
@@ -32,6 +37,8 @@ without changing Doom's original sources. The temporary music handle space is
 separated with `VIBE_MUSIC_AUDIO_HANDLE_BASE`, so the kernel can distinguish
 music voices from normal Doom SFX handles. The descriptor also marks the voice
 with `VIBE_AUDIO_FLAG_MUSIC`.
+Runtime music volume changes call `vibe_music_stream_set_volume`, so future
+chunks honor Doom's current music volume without resetting the song position.
 
 This is a meaningful step past the old single bounded PCM carrier, but it is
 not final hardware-paced pull streaming yet. The current port renders 8192-byte
@@ -46,8 +53,11 @@ increments `musicmix=`.
 
 The remote-safe audio checker now proves that the SB16 path mixed non-music SFX,
 mixed music, accepted streamed music chunk updates, and advanced kernel-visible
-`musicpos=` across status snapshots. That is still push-fed song-position
-progress, not a claim that the kernel owns the final pull stream.
+`musicpos=` across status snapshots. It also rejects incoherent lane accounting:
+`voices=` must match `sfxvoices=` plus `musicvoices=`, both SFX and music lanes
+must be active in at least one snapshot, and at least one music snapshot must
+show a buffered stream window. That is still push-fed song-position progress,
+not a claim that the kernel owns the final pull stream.
 The checker treats this lane as separate from normal Doom SFX even if the final
 snapshot lands after the active music voice drained.
 A later kernel milestone can replace the push-style `VIBE_AUDIO_UPDATE_SFX`
@@ -94,6 +104,7 @@ Host proof:
 
 `tests/host/doom_music_test.c` builds the renderer directly into a host binary
 and feeds it tiny MUS and MIDI fixtures. The tests verify format detection,
-channel state, tempo/controller handling, looping, deterministic output, invalid
-input silence, and non-silent unsigned 8-bit PCM generation without launching
-QEMU.
+channel state, tempo/controller handling, pitch bend, program changes, pan,
+expression, sustain, percussion channel mapping, streaming volume updates,
+looping, deterministic output, invalid input silence, and non-silent unsigned
+8-bit PCM generation without launching QEMU.

@@ -153,6 +153,10 @@ checker for `DEFAULT.CFG` / `DOOMSAV*.DSG` proof.
 See `docs/boot-loader-vm.md` for the raw-sector boot chain, protected-mode ELF
 handoff, fixed low-memory reservations, paging contract, and VM gaps.
 
+See `boot/uefi/README.md` for the contract-only UEFI boot path scaffold. It is
+not a UEFI-bootable artifact; SUPPORT[UEFI] remains unclaimed until there is
+source, build integration, and proof evidence.
+
 See `docs/process-vm.md` for the current process address-space contract,
 including per-process page directories, VM regions, and remaining VM gaps.
 
@@ -243,25 +247,27 @@ temporary QEMU WAV backend on the disposable runner, reduces it to aggregate
 continuity snapshots, and deletes the WAV before upload.
 Raw audio files are not diagnostic artifacts.
 
-Current proof status: run `26151623245` on kernel/runtime commit `4c2c5c9`
-is the first scripted cloud proof that passes the serious real-WAD gates for
+Current proof status: run `26155149926` on kernel/runtime commit `dc8224e`
+is the current scripted cloud proof that passes the serious real-WAD gates for
 the current runtime code. It reaches `doomrun=RUN`, `doomopen=OK`,
 `doomread=OK`, `gameplay=OK`, `usr=OK`, live keyboard/mouse/SB16/preemption
-counters, the reboot persistence proof, and the aggregate audible-audio proof,
-and it triages as `playability-status-green`. The matching `os-smoke` run
-`26151623239` also passes the generated-WAD smoke and opt-in shutdown/panic
-proof lane for the same kernel/runtime commit. Later commits that only update
-evidence docs/tests do not change the booted runtime, but any kernel, runtime,
-workflow, or proof-checker change must rerun these gates. This is strong
-scripted cloud evidence, not yet a human-facing "Doom-capable" claim.
+counters, the aggregate audible-audio proof, and a rebooted Doom save-slot proof:
+`DOOMSAV0.DSG bytes=512 changed-from-baseline survived-reboot description='VIBESAVE' version='version 110'`.
+The matching `os-smoke` run `26155142532` also passes the generated-WAD smoke and
+opt-in shutdown/panic proof lane for the same kernel/runtime commit, and the
+real-WAD run triages as `playability-status-green`. Later commits that only
+update evidence docs/tests do not change the booted runtime, but any kernel,
+runtime, workflow, or proof-checker change must rerun these gates. This is
+strong scripted cloud evidence, not yet a human-facing "Doom-capable" claim.
 
 For a human actually trying the image, use
 `docs/runbooks/remote-doom-playtest.md`. It keeps QEMU on a disposable remote
 host, exposes a loopback-only VNC display through SSH, keeps `DOOM1.WAD` outside
 git, collects an allowlisted status/log/ELF proof bundle with
-`tools/collect_human_playtest_bundle.py`, writes a SHA-256
-`human-playtest-manifest.json`, and validates downloaded diagnostics with
-`tools/check_cloud_playability_artifacts.py --human-session`.
+`tools/collect_human_playtest_bundle.py`, writes a phase-by-phase
+`human-playtest-session.json` tied to the passing real-WAD workflow run ID,
+writes a SHA-256 `human-playtest-manifest.json`, and validates downloaded
+diagnostics with `tools/check_cloud_playability_artifacts.py --human-session`.
 
 ## Shell Commands
 

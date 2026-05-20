@@ -192,6 +192,8 @@ class AudibleAudioProofTests(unittest.TestCase):
         self.assertEqual(manifest["schema"], check_audible_audio_proof.SCHEMA)
         self.assertEqual(manifest["status"]["audio"], "SB16")
         self.assertTrue(manifest["continuity"]["non_music_sfx_progress"])
+        self.assertGreater(manifest["continuity"]["mix_lanes"]["non_music_sfx"]["active_voice_snapshots"], 0)
+        self.assertGreater(manifest["continuity"]["mix_lanes"]["music"]["buffered_window_snapshots"], 0)
         self.assertGreaterEqual(manifest["analysis"]["active_windows"], 3)
         self.assertFalse(manifest["artifact_policy"]["contains_raw_audio"])
         serialized = json.dumps(manifest)
@@ -326,6 +328,25 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "musicmix": {"start": "00000001", "final": "00000002", "delta": "00000001"},
                     "musicpos": {"start": "00000001", "final": "00000400", "delta": "000003FF"},
                     "voiceq_update": {"start": "00000000", "final": "00000001", "delta": "00000001"},
+                },
+                "mix_lanes": {
+                    "non_music_sfx": {
+                        "counter": "sfxmix",
+                        "delta": "00000001",
+                        "active_voice_snapshots": 1,
+                    },
+                    "music": {
+                        "counter": "musicmix",
+                        "delta": "00000001",
+                        "active_voice_snapshots": 1,
+                        "buffered_window_snapshots": 1,
+                        "stream_update_delta": "00000001",
+                        "position_delta": "000003FF",
+                    },
+                    "shared_sb16_refill": {
+                        "irq_delta": "00000001",
+                        "refill_delta": "00000001",
+                    },
                 },
                 "claim": "non-silent remote QEMU output plus status-only SB16 continuity",
             },

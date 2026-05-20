@@ -70,6 +70,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
 
     def test_hardware_boundary_is_visible_from_main_claim_surfaces(self):
         readme = (ROOT / "README.md").read_text()
+        boot_doc = (ROOT / "docs" / "boot-loader-vm.md").read_text()
         gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
         tests_readme = (ROOT / "tests" / "README.md").read_text()
         runbook = (ROOT / "docs" / "runbooks" / "remote-doom-playtest.md").read_text()
@@ -77,13 +78,45 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         for text, phrase in (
             (readme, "not broad PC or physical hardware compatibility"),
             (readme, "docs/hardware-support.md"),
+            (readme, "boot/uefi/README.md"),
+            (boot_doc, "contract-only UEFI scaffold"),
+            (boot_doc, "SUPPORT[UEFI] remains unclaimed"),
             (gap_doc, "check_hardware_support_matrix.py"),
+            (gap_doc, "UEFI_BOOT[...]"),
             (gap_doc, "UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and physical hardware remain unclaimed"),
             (tests_readme, "tools/check_hardware_support_matrix.py"),
+            (tests_readme, "boot/uefi/README.md"),
             (runbook, "does not prove vibe-os boots directly on physical hardware"),
         ):
             with self.subTest(phrase=phrase):
                 self.assertContainsPhrase(text, phrase)
+
+    def test_uefi_scaffold_is_contract_only_and_unclaimed(self):
+        rows = check_hardware_support_matrix.validate_repo_contract(ROOT)
+        uefi_rows = check_hardware_support_matrix._validate_uefi_scaffold(ROOT)
+        makefile = (ROOT / "Makefile").read_text()
+
+        self.assertEqual(rows["UEFI"]["status"], "unclaimed")
+        self.assertEqual(rows["UEFI"]["scope"], "none")
+        self.assertEqual(rows["UEFI"]["proof"], "future-boot-path-proof")
+        self.assertEqual(rows["UEFI"]["evidence"], "none")
+        self.assertEqual(
+            set(uefi_rows),
+            {
+                "ENTRY",
+                "ESP_STORAGE",
+                "FRAMEBUFFER",
+                "MEMORY_MAP",
+                "EXIT_BOOT_SERVICES",
+                "KERNEL_HANDOFF",
+                "BUILD_INTEGRATION",
+            },
+        )
+        for row_id, row in uefi_rows.items():
+            with self.subTest(row_id=row_id):
+                self.assertEqual(row["status"], "unimplemented")
+                self.assertEqual(row["evidence"], "none")
+        self.assertNotIn("boot/uefi", makefile)
 
     def test_cli_reports_contract_success(self):
         result = subprocess.run(
@@ -105,6 +138,16 @@ class HardwareSupportMatrixTests(unittest.TestCase):
 
         with self.assertRaisesRegex(AssertionError, "IDE_ATA_PIO scope must stay qemu-ide"):
             check_hardware_support_matrix._validate_support_rows(broadened)
+
+    def test_checker_rejects_uefi_scaffold_becoming_claimed_without_evidence(self):
+        scaffold = (ROOT / "boot" / "uefi" / "README.md").read_text()
+        broadened = scaffold.replace(
+            "UEFI_BOOT[ENTRY] status=unimplemented",
+            "UEFI_BOOT[ENTRY] status=implemented",
+        )
+
+        with self.assertRaisesRegex(AssertionError, r"UEFI_BOOT\[ENTRY\] must stay status=unimplemented"):
+            check_hardware_support_matrix._validate_uefi_boot_rows(broadened)
 
 
 if __name__ == "__main__":

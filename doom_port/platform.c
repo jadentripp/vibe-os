@@ -506,6 +506,8 @@ void I_SetMusicVolume(int volume)
     if (volume > 127)
         volume = 127;
     current_music_volume = volume;
+    if (current_music_handle > 0)
+        vibe_music_stream_set_volume(current_music_handle, (unsigned long)current_music_volume);
 }
 
 void I_PauseSong(int handle)

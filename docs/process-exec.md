@@ -61,12 +61,16 @@ to the caller.
   The current implementation scans the static process table for children of the
   calling process, supports `pid == -1` and exact positive PIDs, validates a
   non-null status pointer, reaps `EXITED`/`FAULTED` child records back to
-  `UNUSED`, and reports the stored exit status. It still returns `ENOSYS` for
-  live-child blocking and nonzero options because there is no sleep queue yet.
-- Open fd slots now carry owner PID, open-generation, and inheritance flag
-  metadata. That makes future fork/exec descriptor cloning auditable without
-  claiming support for descriptor duplication today; the current exec handoff
-  still resets the global fd table before entering the target image.
+  `UNUSED`, and reports the stored exit status. `WNOHANG` is now a real
+  nonblocking check: if a matching child is live but not reapable, it returns
+  `0`; the blocking form still returns `ENOSYS` until there is a sleep queue.
+- Open fd slots are now process-owned. `fd_lookup` rejects descriptors whose
+  owner PID does not match the running process, `exec` retags slots marked
+  `FD_INHERIT_EXEC` from the caller PID to the target PID, and slots without
+  that bit are closed on exec. Process teardown, fault handling, target-slot
+  reuse, and wait reaping all sweep descriptors owned by the retiring process.
+  This is real exec-time fd inheritance/close-on-exec behavior, not yet
+  fork-time descriptor duplication.
 - The initial Ring 3 probe is bootstrapped through the same stack builder before
   entering crt0. It receives `argc == 1`, `argv[0] == "USERPROB.ELF"`,
   `argv[1] == NULL`, and an empty `envp`, then verifies that `getpid()` reports
@@ -129,8 +133,9 @@ reports failure. Unsafe active-slot exec returns `-EACCES`; invalid pointers ret
 - Page-table structures and process records are still static, but exec targets
   now reuse slots with fresh PIDs and teardown of stale user PTEs. There is not
   yet dynamic child-slot growth or physical-frame reclamation.
-- This is enough to launch the probe and Doom, and exited child records now have
-  a real wait/reap path, but it is not a robust Unix process model. There is no
-  `fork`/`exec` split, wait blocking, process groups, signal delivery, fd
-  inheritance cloning, dynamic child slots, or physical-frame reclamation for
-  reusable address-space resources.
+- This is enough to launch the probe and Doom, preserve inheritable fds across
+  exec, close process-owned fds during teardown, and reap exited child records,
+  but it is not a robust Unix process model. There is no `fork`/`exec` split,
+  wait blocking, process groups, signal delivery, fork-time fd duplication,
+  dynamic child slots, or physical-frame reclamation for reusable address-space
+  resources.

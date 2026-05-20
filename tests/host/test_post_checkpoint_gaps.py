@@ -127,7 +127,8 @@ class PostCheckpointGapTests(unittest.TestCase):
 
         self.assertIn("The FAT16 image has root entries for `DEFAULT.CFG`", gap_doc)
         self.assertIn("Run `26151623245` passes that reboot proof for `DEFAULT.CFG`", gap_doc)
-        self.assertIn("Save-slot persistence still needs the same cloud reboot proof", gap_doc)
+        self.assertIn("Run `26155149926` passes the save-slot reboot proof for `DOOMSAV0.DSG`", gap_doc)
+        self.assertIn("Nothing is missing for this exact commit's Doom config/save-slot", gap_doc)
         self.assertIn("captures the fresh baseline immediately after rebuilding", gap_doc)
         self.assertIn("same disk image is booted again", gap_doc)
         self.assertIn("reboot comparison now requires the fresh baseline", gap_doc)
@@ -147,7 +148,7 @@ class PostCheckpointGapTests(unittest.TestCase):
         self.assertIn("docs/post-checkpoint-gaps.md", readme)
         self.assertIn("test_post_checkpoint_gaps.py", tests_readme)
         self.assertIn("tools/check_playability_gap_ledger.py", tests_readme)
-        self.assertIn("not a claim that the current branch is playable", playable_doc)
+        self.assertIn("not by itself a claim that the current branch is human-playable", playable_doc)
         for claim_boundary in (
             "A current claim still requires running",
             "panic=KEXC",
@@ -182,13 +183,16 @@ class PostCheckpointGapTests(unittest.TestCase):
             "current scripted cloud truth-serum run",
             "historical repair context",
             "human-facing Doom-capable proof",
-            "26151623245",
-            "4c2c5c9",
+            "26155149926",
+            "dc8224e",
             "real-WAD, human-playability",
             "audible-audio manifest",
-            "persistence reboot",
+            "save-slot persistence reboot",
             "artifact hygiene",
-            "26151623239",
+            "26155142532",
+            "DOOMSAV0.DSG bytes=512 changed-from-baseline",
+            "survived-reboot description='VIBESAVE'",
+            "reboot status runtime=OK",
             "26150621804",
             "1db3a7a",
             "usr=FAIL",
@@ -251,7 +255,19 @@ class PostCheckpointGapTests(unittest.TestCase):
                 "HARDWARE_LIMITS",
             },
         )
-        self.assertEqual({gap["status"] for gap in gaps.values()}, {"open"})
+        self.assertEqual(
+            {gap_id: gap["status"] for gap_id, gap in gaps.items()},
+            {
+                "CLOUD_BOOT": "proven",
+                "REAL_GAMEPLAY": "proven",
+                "HUMAN_PLAYTEST": "open",
+                "PERSISTENCE": "proven",
+                "AUDIO": "open",
+                "VM_POSIX": "open",
+                "SHUTDOWN_PANIC": "open",
+                "HARDWARE_LIMITS": "open",
+            },
+        )
         self.assertEqual(
             {gap["category"] for gap in gaps.values()},
             {

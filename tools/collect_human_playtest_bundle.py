@@ -42,6 +42,8 @@ ALLOWLIST_PATTERNS = (
 NOTE_FIELD_ORDER = (
     "schema",
     "commit",
+    "scripted_proof",
+    "scripted_proof_run_id",
     "playtester",
     "remote_host",
     "qemu_location",
@@ -54,6 +56,11 @@ NOTE_FIELD_ORDER = (
     "keyboard",
     "mouse",
     "audio",
+    "visual_evidence",
+    "keyboard_evidence",
+    "mouse_evidence",
+    "status_capture",
+    "session_phases",
     "diagnostics",
     "proof_bundle",
     "no_local_qemu",
@@ -130,6 +137,8 @@ def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
     fields = {
         "schema": check_cloud_playability_artifacts.HUMAN_NOTES_SCHEMA,
         "commit": args.commit or _git_head(),
+        "scripted_proof": "real-wad-smoke-pass",
+        "scripted_proof_run_id": args.scripted_proof_run_id,
         "playtester": args.playtester,
         "remote_host": args.remote_host,
         "qemu_location": "remote",
@@ -142,6 +151,13 @@ def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
         "keyboard": args.keyboard,
         "mouse": args.mouse,
         "audio": args.audio,
+        "visual_evidence": "e1m1-visible-via-remote-vnc",
+        "keyboard_evidence": "fire-move-use-menu-visible",
+        "mouse_evidence": "motion-click-visible",
+        "status_capture": "monitor-pmemsave-0x9d000",
+        "session_phases": (
+            "early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final"
+        ),
         "diagnostics": "non-wad-status-only",
         "proof_bundle": "allowlisted-status-only",
         "no_local_qemu": "yes",
@@ -176,6 +192,12 @@ def collect(args: argparse.Namespace) -> list[str]:
 
     if args.audio == "audio-proof-json-pass" and not (output_dir / "audio-proof.json").exists():
         raise AssertionError("audio=audio-proof-json-pass requires audio-proof.json")
+
+    session = check_cloud_playability_artifacts.build_human_session(output_dir)
+    (output_dir / check_cloud_playability_artifacts.HUMAN_SESSION_FILE).write_text(
+        json.dumps(session, indent=2, sort_keys=True) + "\n"
+    )
+    copied.append(check_cloud_playability_artifacts.HUMAN_SESSION_FILE)
 
     manifest = check_cloud_playability_artifacts.build_human_manifest(output_dir)
     (output_dir / check_cloud_playability_artifacts.HUMAN_MANIFEST_FILE).write_text(
@@ -216,6 +238,11 @@ def main(argv: list[str]) -> int:
         default="disposable",
         choices=("disposable",),
         help="remote host class attested by the human notes",
+    )
+    parser.add_argument(
+        "--scripted-proof-run-id",
+        required=True,
+        help="passing GitHub Actions Real WAD smoke run ID this human session follows",
     )
     parser.add_argument("--display", default="pass", choices=("pass",))
     parser.add_argument("--keyboard", default="pass", choices=("pass",))

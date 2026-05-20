@@ -25,11 +25,11 @@ them so README and runbook wording cannot quietly drift into overclaiming.
 
 ## Latest Cloud Evidence
 
-As of 2026-05-20, manual run `26151623245` on kernel/runtime commit `4c2c5c9`
+As of 2026-05-20, manual run `26155149926` on kernel/runtime commit `dc8224e`
 is the current scripted cloud truth-serum run for the current runtime code. It
 passes the real-WAD, human-playability, SB16/audio-continuity, audible-audio
-manifest, persistence reboot, artifact hygiene, and status-triage gates. It
-triages as `playability-status-green`.
+manifest, save-slot persistence reboot, artifact hygiene, and status-triage
+gates. It triages as `playability-status-green`.
 
 This is real scripted cloud evidence for the current kernel/runtime code, but it
 is not a human-facing Doom-capable proof by itself. Later commits that only
@@ -51,12 +51,18 @@ What the current evidence proves:
   frames and reaching E1M1 gameplay status rather than dying during startup.
 - Scripted keyboard input, mouse input, SB16/audio counters, and live
   preemption counters are active in the cloud status stream.
-- The `26151623245` final status shows live real-WAD Doom with `doomrun=RUN`,
+- The `26155149926` final status shows live real-WAD Doom with `doomrun=RUN`,
   `doomopen=OK`, `doomread=OK`, `gameplay=OK`, `usr=OK`,
   input/mouse/audio counters, and live preemption counters. Its artifact set
   passes the real-WAD, human-playability, audio-continuity, audible-audio,
   persistence-reboot, artifact-hygiene, and status-triage checkers without
   uploading WAD bytes, disk images, rendered pixels, or raw audio samples.
+- The save-slot persistence proof reports
+  `DOOMSAV0.DSG bytes=512 changed-from-baseline description='VIBESAVE' version='version 110'`
+  after the write boot, then
+  `DOOMSAV0.DSG bytes=512 changed-from-baseline survived-reboot description='VIBESAVE' version='version 110'`
+  plus `reboot status runtime=OK` after the second boot of the same cloud disk
+  image.
 - Earlier page-fault diagnostics remain useful, but they are historical repair
   context rather than the current primary blocker.
 
@@ -91,7 +97,7 @@ Earlier red runs kept for context:
 
 ## Machine-Readable Gap Ledger
 
-- `GAP[CLOUD_BOOT] status=open category=cloud-boot gate=real-wad-smoke.yml evidence=status.txt`
+- `GAP[CLOUD_BOOT] status=proven category=cloud-boot gate=real-wad-smoke.yml evidence=real-wad-smoke-26155149926`
 
 Current state:
 
@@ -102,9 +108,9 @@ Current state:
   rendered pixels out of uploaded artifacts.
 - Current archived real-WAD cloud evidence reaches Doom runtime, WAD I/O,
   frames, gameplay status, input counters, audio counters, and preemption
-  counters, and run `26151623245` passes the scripted proof checkers for commit
-  `4c2c5c9`.
-- The matching normal cloud `os-smoke` run `26151623239` passes the generated-WAD
+  counters, and run `26155149926` passes the scripted proof checkers for commit
+  `dc8224e`.
+- The matching normal cloud `os-smoke` run `26155142532` passes the generated-WAD
   boot smoke plus the opt-in shutdown/panic proof lane for the same
   kernel/runtime commit.
 - The display path now has a host-proved aspect policy: LFB presents use the
@@ -115,14 +121,13 @@ Current state:
 
 Still missing:
 
-- This exact commit boundary is the kernel/runtime commit `4c2c5c9`, which has
-  a current passing manual real-WAD cloud workflow. Future kernel/runtime,
-  workflow, or checker changes must rerun the same gate before making a fresh
-  claim.
-- A future green run must include a final `status.txt`; `status.failure.txt`
-  from a timed-out/faulted smoke is diagnostic evidence only.
-- Future status snapshot bundles must include clean early/start/fire/move/use/mouse/menu
-  baselines that make the proof gates reproducible.
+- Nothing is missing for this exact commit's scripted cloud-boot gate: `dc8224e`
+  has a current passing manual real-WAD cloud workflow with final `status.txt`
+  and clean early/start/fire/move/use/mouse/menu baselines that make the proof
+  gates reproducible.
+- Future kernel/runtime, workflow, or checker changes must rerun the same gate
+  before making a fresh claim. `status.failure.txt` from a timed-out/faulted
+  smoke remains diagnostic evidence only.
 
 Executable gate:
 
@@ -130,7 +135,7 @@ Executable gate:
   only the uploaded non-WAD diagnostics: `status*.txt`, `status*.bin`, QEMU log,
   serial log, monitor log, and ELF files.
 
-- `GAP[REAL_GAMEPLAY] status=open category=real-gameplay gate=check_real_wad_proof.py evidence=gameplay-status`
+- `GAP[REAL_GAMEPLAY] status=proven category=real-gameplay gate=check_real_wad_proof.py evidence=real-wad-smoke-26155149926`
 
 Current state:
 
@@ -143,16 +148,16 @@ Current state:
 - The latest green real-WAD cloud evidence proves the important runtime path:
   Doom boots, runs, opens/reads the real WAD, presents frames, reaches gameplay
   status, emits input/audio/preemption counters, and passes the scripted
-  snapshot checkers for commit `4c2c5c9`.
+  snapshot checkers for commit `dc8224e`.
 
 Still missing:
 
-- The current kernel/runtime commit has a fresh real-WAD status artifact where
-  every required field and every required phase snapshot passes the checkers.
-  Future commits must preserve the now-green scripted `usr=OK`, `use`, mouse
-  effect, audio continuity, and preemption evidence. Any regression in those
-  fields reopens this gap as an implementation bug, not just a documentation
-  issue.
+- Nothing is missing for this exact commit's scripted real-gameplay gate:
+  `26155149926` has a fresh real-WAD status artifact where every required field
+  and every required phase snapshot passes the checkers. Future commits must
+  preserve the now-green scripted `usr=OK`, `use`, mouse effect, audio
+  continuity, and preemption evidence. Any regression in those fields reopens
+  this gap as an implementation bug, not just a documentation issue.
 - Stronger gameplay proof still matters after the gates pass: the current
   counter/status proof should be paired with a remote human playtest before the
   public claim becomes "playable Doom" rather than "scripted cloud proof".
@@ -174,6 +179,11 @@ Current state:
   outside git, and validate downloaded diagnostics afterward.
 - Deterministic scripted start/fire/move/use/mouse/menu checks are a strong
   cloud-safe proxy.
+- The manual bundle checker now requires `human-playtest-notes.txt`,
+  `human-playtest-session.json`, and `human-playtest-manifest.json`. The session
+  transcript must name the passing scripted real-WAD run ID and match the exact
+  status phase order, byte counts, SHA-256 hashes, and compact status summaries
+  rebuilt from the bundle.
 
 Still missing:
 
@@ -184,10 +194,12 @@ Still missing:
 Executable gate:
 
 - Follow the remote runbook, capture non-WAD status artifacts after real keyboard
-  and mouse actions, and run `tools/check_cloud_playability_artifacts.py` plus
-  the real-WAD and human-playability checkers on the downloaded diagnostics.
+  and mouse actions, collect the bundle with
+  `tools/collect_human_playtest_bundle.py --scripted-proof-run-id <run-id>`,
+  and run `tools/check_cloud_playability_artifacts.py --human-session` plus the
+  real-WAD and human-playability checkers on the downloaded diagnostics.
 
-- `GAP[PERSISTENCE] status=open category=persistence gate=reboot-persistence-proof evidence=mutated-disk-status`
+- `GAP[PERSISTENCE] status=proven category=persistence gate=reboot-persistence-proof evidence=real-wad-smoke-26155149926`
 
 Current state:
 
@@ -239,12 +251,18 @@ Current state:
   reports `DEFAULT.CFG bytes=512 changed-from-baseline`, and the reboot proof
   reports `DEFAULT.CFG bytes=512 changed-from-baseline survived-reboot` plus
   `reboot status runtime=OK`.
+- Run `26155149926` passes the save-slot reboot proof for `DOOMSAV0.DSG`: the
+  write proof reports
+  `DOOMSAV0.DSG bytes=512 changed-from-baseline description='VIBESAVE' version='version 110'`,
+  and the reboot proof reports
+  `DOOMSAV0.DSG bytes=512 changed-from-baseline survived-reboot description='VIBESAVE' version='version 110'`
+  plus `reboot status runtime=OK`.
 
 Still missing:
 
-- Save-slot persistence still needs the same cloud reboot proof when a run
-  explicitly requires `DOOMSAVN.DSG`; the current green artifact proves
-  `DEFAULT.CFG` persistence.
+- Nothing is missing for this exact commit's Doom config/save-slot reboot
+  persistence gate. Future storage, workflow, or checker changes must rerun the
+  opt-in cloud proof before making a fresh persistence claim.
 - The writable FAT path is still Doom-shaped, not full dynamic writable FS semantics:
   root-level 8.3 files, bounded dynamic entries, no subdirectories,
   no rename, no long filenames, and no POSIX delete-while-open behavior.
@@ -274,7 +292,7 @@ Current state:
 - The Doom port has a freestanding MUS/MIDI parser and stateful stream cursor
   that submits streamed music chunks through the same audio syscall and SB16
   voice mixer path without editing the original Doom tree.
-- Run `26151623245` passes `tools/check_audio_continuity_proof.py` and
+- Run `26155149926` passes `tools/check_audio_continuity_proof.py` and
   `tools/check_audible_audio_proof.py` with status-only SB16 continuity and a
   copyright-safe aggregate `audio-proof.json`, proving non-silent audible output
   without uploading raw audio.
@@ -308,10 +326,16 @@ Current state:
   arbitrary root-level FAT16 `.ELF` exec into the reusable probe-class slot,
   syscall pointer validation, anonymous/private `mmap`, display `ioctl`, file
   syscalls, classified `fork` failures, and a bounded `waitpid` scanner that can
-  reap already-exited child records from the static process table.
+  reap already-exited child records from the static process table. `WNOHANG`
+  returns `0` for matching live children instead of pretending nonblocking wait
+  is an unsupported option.
 - File descriptor slots now carry owner PID, open-generation, and inheritance
-  flag metadata. Descriptor cloning is still absent, but future fork/exec work
-  has concrete fd state to copy or close instead of anonymous global slots.
+  flag metadata. The kernel enforces owner PID on fd lookup, retags
+  `FD_INHERIT_EXEC` slots from the exec caller to the target PID, closes
+  non-inheritable slots on exec, and sweeps process-owned descriptors during
+  exit, fault, target-slot reuse, and wait reaping. Descriptor duplication is
+  still absent, but future fork work now has concrete fd state to copy or close
+  instead of anonymous global slots.
 - The `SYS_EXEC` handoff now restores the caller if argv stack seeding or live
   syscall-frame patching fails after the target address space was activated, so
   the rollback counter no longer leaves a half-prepared target running.
@@ -337,8 +361,8 @@ Still missing:
   model, terminal device model, or POSIX delete-while-open behavior.
 - The process model is still a fixed-slot launch/switch contract with a generic
   probe-class exec fallback, not a robust Unix process model with dynamic PIDs,
-  wait blocking, fd inheritance cloning, physical-frame reclamation, or general
-  child lifecycle semantics.
+  wait blocking, fork-time fd duplication, physical-frame reclamation, or
+  general child lifecycle semantics.
 - The running kernel is still identity-mapped in low memory, process page-table
   allocation is not fully dynamic or reclaimed with process lifetime, user pages
   are still backed by identity-shaped frames, and 32-bit paging cannot enforce
@@ -414,6 +438,12 @@ Current state:
   machine-readable `SUPPORT[...]` rows mark BIOS boot, IDE/ATA PIO, FAT16, PS/2
   keyboard/mouse, PIT, VBE/VGA, and SB16 as claimed only inside the current QEMU
   device-model boundary.
+- `boot/uefi/README.md` now records a contract-only UEFI scaffold with
+  machine-readable `UEFI_BOOT[...]` prerequisites for a future PE/COFF entry,
+  ESP/FAT load path, GOP framebuffer handoff, UEFI memory map, boot-services
+  exit, ELF32-compatible kernel handoff, and separate opt-in build target.
+  `tools/check_hardware_support_matrix.py` requires those rows to stay
+  `status=unimplemented` and outside the current Makefile image path.
 
 Still missing:
 

@@ -41,8 +41,9 @@ boot:
   reloads, seeds a scheduler-visible target context, writes an argc/argv stack
   shape, patches the live syscall frame, marks the caller exited, and records
   handoff/schedule/rollback counters. The same tests pin the bounded
-  `waitpid` child scan/reap path and fd owner/generation/inheritance metadata
-  without claiming that `fork` or descriptor cloning exist yet.
+  `waitpid` child scan/reap path, `WNOHANG` live-child result, fd owner
+  enforcement, exec-time inheritance/close-on-exec handoff, and process-owned
+  fd teardown without claiming that `fork` or descriptor duplication exist yet.
 - `tests/host/test_framebuffer_contract.py` proves the 320x200 indexed shadow,
   RGB palette to XRGB8888 conversion, 2x scaling, and centering contract without
   using rendered Doom pixels.
@@ -104,6 +105,10 @@ boot:
   UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and physical-hardware
   support wording unless the matrix grows a claimed row and a proof boundary
   first.
+  It also checks the contract-only `boot/uefi/README.md` scaffold: each
+  `UEFI_BOOT[...]` row must stay unimplemented with no evidence, and `boot/uefi`
+  must stay out of the current Makefile image path until a separate opt-in UEFI
+  build exists.
 - `tools/check_vm_safety_contract.py` machine-checks the local-QEMU opt-in,
   cloud diagnostic upload hygiene, panic status fields, shutdown status fields,
   guard-page helper, and dynamic high VMM mapping contract without launching
@@ -119,14 +124,17 @@ boot:
   It rejects forbidden filenames, duplicate required basenames, unexpected ELF
   binaries, raw audio files, compressed WAD archives, and renamed WAD/disk/image/audio payload
   signatures. In `--human-session` mode it also requires
-  `human-playtest-manifest.json` and verifies the bundle inventory SHA-256
-  hashes. If `audio-proof.json` is present, it validates that aggregate manifest
-  too.
+  `human-playtest-session.json` plus `human-playtest-manifest.json`, requires a
+  flat allowlisted bundle, rebuilds the human phase transcript from the status
+  files and notes, and verifies the bundle inventory SHA-256 hashes. If
+  `audio-proof.json` is present, it validates that aggregate manifest too.
 - `tools/collect_human_playtest_bundle.py` is the remote-host helper for manual
   VNC sessions. It does not launch QEMU; it copies only allowlisted status/log
   diagnostics and required ELF/symbol files from the disposable host build
-  directory, writes structured `human-playtest-notes.txt` plus
-  `human-playtest-manifest.json`, refuses proof output inside the repo, and immediately invokes
+  directory, writes structured `human-playtest-notes.txt`, a
+  `human-playtest-session.json` transcript tied to the passing scripted
+  real-WAD run ID, and `human-playtest-manifest.json`, refuses proof output
+  inside the repo, and immediately invokes
   `tools/check_cloud_playability_artifacts.py --human-session`.
 - `tools/triage_cloud_status.py` classifies a downloaded real-WAD status line
   into the first repair lane. The custom linker also writes `build/doom.symbols`

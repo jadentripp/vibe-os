@@ -55,6 +55,7 @@ REQUIRED_MATRIX_PHRASES = (
     "VBE/VGA",
     "SB16",
     "UEFI boot is not implemented",
+    "contract-only scaffold",
     "General PCI bus/device/function enumeration is not implemented",
     "AHCI/SATA native storage is not implemented",
     "USB input and storage are not implemented",
@@ -68,11 +69,21 @@ REQUIRED_MATRIX_PHRASES = (
 REQUIRED_CROSS_DOC_LINKS = {
     "README.md": (
         "docs/hardware-support.md",
+        "boot/uefi/README.md",
         "QEMU BIOS/IDE/PS2/VBE/SB16",
         "not broad PC or physical hardware compatibility",
+        "SUPPORT[UEFI] remains unclaimed",
+    ),
+    "docs/boot-loader-vm.md": (
+        "boot/uefi/README.md",
+        "contract-only UEFI scaffold",
+        "UEFI_BOOT[...]",
+        "SUPPORT[UEFI] remains unclaimed",
     ),
     "docs/post-checkpoint-gaps.md": (
         "docs/hardware-support.md",
+        "boot/uefi/README.md",
+        "UEFI_BOOT[...]",
         "SUPPORT[...]",
         "check_hardware_support_matrix.py",
     ),
@@ -86,14 +97,35 @@ REQUIRED_CROSS_DOC_LINKS = {
     ),
     "tests/README.md": (
         "tools/check_hardware_support_matrix.py",
+        "boot/uefi/README.md",
+        "UEFI_BOOT[...]",
         "QEMU BIOS/IDE/PS2/VBE/SB16",
     ),
+}
+
+UEFI_BOOT_REQUIREMENTS = {
+    "ENTRY": {"requires": "pe32-efi-application", "proof": "future-host-build"},
+    "ESP_STORAGE": {"requires": "fat-esp-kernel-read", "proof": "future-host-build"},
+    "FRAMEBUFFER": {"requires": "gop-boot-info", "proof": "future-host-build"},
+    "MEMORY_MAP": {"requires": "uefi-memory-map", "proof": "future-host-build"},
+    "EXIT_BOOT_SERVICES": {"requires": "exit-before-kernel-handoff", "proof": "future-boot-run"},
+    "KERNEL_HANDOFF": {"requires": "elf32-entry-compatible", "proof": "future-boot-run"},
+    "BUILD_INTEGRATION": {"requires": "separate-opt-in-target", "proof": "future-host-build"},
 }
 
 SUPPORT_RE = re.compile(
     r"^- `SUPPORT\[(?P<id>[A-Z0-9_]+)\] "
     r"status=(?P<status>[a-z-]+) "
     r"scope=(?P<scope>[a-z0-9-]+) "
+    r"proof=(?P<proof>[a-z0-9-]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
+UEFI_BOOT_RE = re.compile(
+    r"^- `UEFI_BOOT\[(?P<id>[A-Z0-9_]+)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"requires=(?P<requires>[a-z0-9+-]+) "
     r"proof=(?P<proof>[a-z0-9-]+) "
     r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
     re.MULTILINE,
@@ -153,6 +185,7 @@ def _contains_phrase(text: str, phrase: str) -> bool:
 
 def _repo_text_files(root: Path) -> list[Path]:
     files = [root / "README.md", root / "tests" / "README.md"]
+    files.extend(sorted((root / "boot").rglob("*.md")))
     files.extend(sorted((root / "docs").rglob("*.md")))
     files.extend(sorted((root / "tests").rglob("test_*.py")))
     return [path for path in files if path.exists()]
@@ -206,6 +239,61 @@ def _validate_support_rows(text: str) -> dict[str, dict[str, str]]:
         if row["evidence"] != "none":
             raise AssertionError(f"{support_id} must keep evidence=none until implemented")
 
+    if rows["UEFI"]["proof"] != "future-boot-path-proof":
+        raise AssertionError("UEFI must keep proof=future-boot-path-proof until a loader exists")
+
+    return rows
+
+
+def _validate_uefi_boot_rows(text: str) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for match in UEFI_BOOT_RE.finditer(text):
+        row_id = match.group("id")
+        if row_id in rows:
+            raise AssertionError(f"duplicate UEFI_BOOT row: {row_id}")
+        rows[row_id] = match.groupdict()
+
+    missing = sorted(set(UEFI_BOOT_REQUIREMENTS) - set(rows))
+    if missing:
+        raise AssertionError(f"missing UEFI_BOOT rows: {', '.join(missing)}")
+    extras = sorted(set(rows) - set(UEFI_BOOT_REQUIREMENTS))
+    if extras:
+        raise AssertionError(f"unexpected UEFI_BOOT rows: {', '.join(extras)}")
+
+    for row_id, expected in UEFI_BOOT_REQUIREMENTS.items():
+        row = rows[row_id]
+        if row["status"] != "unimplemented":
+            raise AssertionError(f"UEFI_BOOT[{row_id}] must stay status=unimplemented")
+        if row["requires"] != expected["requires"]:
+            raise AssertionError(f"UEFI_BOOT[{row_id}] requires must stay {expected['requires']}")
+        if row["proof"] != expected["proof"]:
+            raise AssertionError(f"UEFI_BOOT[{row_id}] proof must stay {expected['proof']}")
+        if row["evidence"] != "none":
+            raise AssertionError(f"UEFI_BOOT[{row_id}] must keep evidence=none until implemented")
+
+    return rows
+
+
+def _validate_uefi_scaffold(root: Path) -> dict[str, dict[str, str]]:
+    text = _read(root / "boot" / "uefi" / "README.md")
+    rows = _validate_uefi_boot_rows(text)
+
+    for phrase in (
+        "contract-only placeholder",
+        "does not contain a UEFI binary",
+        "does not contain a UEFI binary, a PE/COFF image",
+        "SUPPORT[UEFI] remains unclaimed",
+        "must not describe vibe-os as UEFI-bootable",
+        "ExitBootServices",
+        "keep local VM execution behind the existing opt-in safety rail",
+    ):
+        if not _contains_phrase(text, phrase):
+            raise AssertionError(f"boot/uefi/README.md missing UEFI scaffold phrase: {phrase}")
+
+    makefile = _read(root / "Makefile")
+    if "boot/uefi" in makefile:
+        raise AssertionError("boot/uefi must not be wired into the current Makefile image path")
+
     return rows
 
 
@@ -233,6 +321,7 @@ def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
             raise AssertionError(f"hardware support matrix missing phrase: {phrase}")
 
     rows = _validate_support_rows(matrix_text)
+    _validate_uefi_scaffold(root)
 
     for relative_path, phrases in REQUIRED_CROSS_DOC_LINKS.items():
         text = _read(root / relative_path)

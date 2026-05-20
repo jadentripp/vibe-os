@@ -251,6 +251,18 @@ def _assert_tuple_component_progress(
         )
 
 
+def _assert_voice_lane_consistency(snapshots: list[tuple[str, dict[str, str]]]) -> None:
+    for label, fields in snapshots:
+        voices = _hex(fields, "voices", label)
+        sfxvoices = _hex(fields, "sfxvoices", label)
+        musicvoices = _hex(fields, "musicvoices", label)
+        if voices != sfxvoices + musicvoices:
+            raise AssertionError(
+                f"{label} voices= must equal sfxvoices= plus musicvoices=, "
+                f"got {voices:08X} != {sfxvoices:08X}+{musicvoices:08X}"
+            )
+
+
 def validate_status(
     final_status: str,
     baseline_status: str,
@@ -282,8 +294,12 @@ def validate_status(
     for name in FINAL_POSITIVE_COUNTERS:
         if _hex(final_fields, name, "final") == 0:
             raise AssertionError(f"final {name}= must be nonzero for audio continuity proof")
+    if all(_hex(fields, "sfxvoices", label) == 0 for label, fields in snapshots):
+        raise AssertionError("sfxvoices= must be nonzero in at least one snapshot")
     if all(_hex(fields, "musicvoices", label) == 0 for label, fields in snapshots):
         raise AssertionError("musicvoices= must be nonzero in at least one snapshot")
+    if all(_hex(fields, "musicbuf", label) == 0 for label, fields in snapshots):
+        raise AssertionError("musicbuf= must be nonzero in at least one snapshot")
 
     if _hex(final_fields, "ack8", "final") == 0 and _hex(final_fields, "ack16", "final") == 0:
         raise AssertionError("final ack8= or ack16= must be nonzero to prove SB16 IRQ ACKs")
@@ -296,6 +312,7 @@ def validate_status(
     if _hex_tuple(final_fields, "musicq", "final", 2)[0] == 0:
         raise AssertionError("final musicq= must prove the music voice was queued")
 
+    _assert_voice_lane_consistency(snapshots)
     for name in MONOTONIC_COUNTERS:
         _assert_nondecreasing(snapshots, name)
     for name, count in (("play", 2), ("voiceq", 3), ("musicq", 2)):

@@ -240,6 +240,8 @@ FD_KIND_FREE equ 0
 FD_KIND_WAD equ 1
 FD_KIND_WRITABLE equ 2
 FD_INHERIT_EXEC equ 0x1
+WAIT_OPTION_WNOHANG equ 0x1
+WAIT_SUPPORTED_OPTIONS equ WAIT_OPTION_WNOHANG
 WRITABLE_KNOWN_FILE_COUNT equ 7
 WRITABLE_FILE_COUNT equ 16
 WRITABLE_DEFAULT_CAPACITY equ 0x00004000
@@ -4544,6 +4546,14 @@ storage_init:
     mov dword [process_wait_last_reaped_pid], 0xffffffff
     mov dword [process_wait_last_status], 0
     mov dword [process_wait_seen_live_child], 0
+    mov dword [process_wait_nohang_returns], 0
+    mov dword [fd_exec_handoffs], 0
+    mov dword [fd_exec_inherited], 0
+    mov dword [fd_exec_closed], 0
+    mov dword [fd_owner_closes], 0
+    mov dword [fd_last_exec_from_pid], 0xffffffff
+    mov dword [fd_last_exec_to_pid], 0xffffffff
+    mov dword [fd_last_closed_owner_pid], 0xffffffff
 
     xor eax, eax
     mov edi, SECTOR_BUFFER_ADDR
@@ -5894,12 +5904,107 @@ fd_lookup:
     jae .fail
     cmp byte [fd_status + eax], 1
     jne .fail
+    push edx
+    mov edx, [current_pid]
+    cmp [fd_owner_pids + eax * 4], edx
+    pop edx
+    jne .fail
     mov [file_io_fd_slot], eax
     clc
     ret
 
 .fail:
     stc
+    ret
+
+fd_clear_slot:
+    mov byte [fd_status + ebx], FD_KIND_FREE
+    mov byte [fd_kinds + ebx], FD_KIND_FREE
+    mov dword [fd_indices + ebx * 4], 0
+    mov dword [fd_offsets + ebx * 4], 0
+    mov dword [fd_flags + ebx * 4], 0
+    mov dword [fd_owner_pids + ebx * 4], 0xffffffff
+    mov dword [fd_inherit_flags + ebx * 4], 0
+    ret
+
+fd_close_owned_by_pid:
+    push ebx
+    push ecx
+    push edx
+
+    mov edx, eax
+    mov [fd_last_closed_owner_pid], edx
+    mov ecx, USER_FD_COUNT
+    xor ebx, ebx
+
+.loop:
+    cmp byte [fd_status + ebx], 1
+    jne .next
+    cmp [fd_owner_pids + ebx * 4], edx
+    jne .next
+    call fd_clear_slot
+    inc dword [fd_owner_closes]
+
+.next:
+    inc ebx
+    loop .loop
+
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+fd_close_owned_by_process:
+    push eax
+    cmp esi, 0
+    je .done
+    cmp esi, process_kernel
+    je .done
+    mov eax, [esi + PROC_PID]
+    call fd_close_owned_by_pid
+
+.done:
+    pop eax
+    ret
+
+fd_exec_handoff:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+
+    mov [fd_last_exec_from_pid], eax
+    mov [fd_last_exec_to_pid], edx
+    inc dword [fd_exec_handoffs]
+    mov esi, eax
+    mov ecx, USER_FD_COUNT
+    xor ebx, ebx
+
+.loop:
+    cmp byte [fd_status + ebx], 1
+    jne .next
+    cmp [fd_owner_pids + ebx * 4], esi
+    jne .next
+    test dword [fd_inherit_flags + ebx * 4], FD_INHERIT_EXEC
+    jz .close_on_exec
+    mov [fd_owner_pids + ebx * 4], edx
+    inc dword [fd_exec_inherited]
+    jmp .next
+
+.close_on_exec:
+    call fd_clear_slot
+    inc dword [fd_exec_closed]
+
+.next:
+    inc ebx
+    loop .loop
+
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
     ret
 
 writable_fd_index:
@@ -6694,6 +6799,14 @@ scheduler_init:
     mov dword [process_wait_last_reaped_pid], 0xffffffff
     mov dword [process_wait_last_status], 0
     mov dword [process_wait_seen_live_child], 0
+    mov dword [process_wait_nohang_returns], 0
+    mov dword [fd_exec_handoffs], 0
+    mov dword [fd_exec_inherited], 0
+    mov dword [fd_exec_closed], 0
+    mov dword [fd_owner_closes], 0
+    mov dword [fd_last_exec_from_pid], 0xffffffff
+    mov dword [fd_last_exec_to_pid], 0xffffffff
+    mov dword [fd_last_closed_owner_pid], 0xffffffff
 
     mov esi, process_kernel
     call process_reset_accounting
@@ -6840,6 +6953,7 @@ process_reuse_exec_target_slot:
     je .done
     cmp esi, process_kernel
     je .done
+    call fd_close_owned_by_process
     call process_teardown_user_vm
     call process_restore_user_stack_vm
     inc dword [process_slot_reuses]
@@ -6868,6 +6982,7 @@ process_retire_exec_slot:
     je .done
     cmp esi, process_kernel
     je .done
+    call fd_close_owned_by_process
     call process_teardown_user_vm
     inc dword [process_exec_teardowns]
     mov dword [esi + PROC_STATE], PROC_STATE_EXITED
@@ -6881,6 +6996,7 @@ process_retire_current_exit_slot:
     je .done
     cmp esi, process_kernel
     je .done
+    call fd_close_owned_by_process
     call process_teardown_user_vm
     inc dword [process_exit_teardowns]
     mov dword [esi + PROC_STATE], PROC_STATE_EXITED
@@ -6998,6 +7114,7 @@ process_mark_current_faulted:
     mov esi, [current_process_ptr]
     cmp esi, 0
     je .done
+    call fd_close_owned_by_process
     call process_teardown_user_vm
     mov dword [esi + PROC_STATE], PROC_STATE_FAULTED
 
@@ -7016,8 +7133,9 @@ process_waitpid_current:
     mov [process_wait_last_status_ptr], ecx
     mov [process_wait_last_options], edx
     inc dword [process_wait_attempts]
-    cmp edx, 0
-    jne .enosys
+    mov eax, edx
+    and eax, 0xfffffffe
+    jne .einval
     cmp ebx, 0xffffffff
     je .pid_ok
     cmp ebx, 0
@@ -7070,8 +7188,19 @@ process_waitpid_current:
 
 .scan_done:
     cmp dword [process_wait_seen_live_child], 0
-    jne .enosys
+    jne .live_child
     jmp .echild
+
+.live_child:
+    test dword [process_wait_last_options], WAIT_OPTION_WNOHANG
+    jnz .nohang
+    jmp .enosys
+
+.nohang:
+    inc dword [process_wait_nohang_returns]
+    xor eax, eax
+    clc
+    jmp .done
 
 .reap:
     mov eax, [esi + PROC_PID]
@@ -7085,6 +7214,7 @@ process_waitpid_current:
 
 .reap_without_status:
     inc dword [process_wait_reaps]
+    call fd_close_owned_by_process
     mov dword [esi + PROC_STATE], PROC_STATE_UNUSED
     mov dword [esi + PROC_PARENT_PID], 0xffffffff
     and dword [esi + PROC_VM_FLAGS], 0xfffffffe
@@ -7847,7 +7977,9 @@ process_exec_handoff_current:
     mov dword [user_fault_recovery], 0
 
 .seed_context:
-    call fd_reset_all
+    mov eax, [edi + PROC_PID]
+    mov edx, [esi + PROC_PID]
+    call fd_exec_handoff
     call keyboard_reset_queue
     call mouse_reset_queue
     call process_seed_initial_user_context
@@ -13236,6 +13368,13 @@ fd_flags times USER_FD_COUNT dd 0
 fd_owner_pids times USER_FD_COUNT dd 0xffffffff
 fd_open_generations times USER_FD_COUNT dd 0
 fd_inherit_flags times USER_FD_COUNT dd 0
+fd_exec_handoffs dd 0
+fd_exec_inherited dd 0
+fd_exec_closed dd 0
+fd_owner_closes dd 0
+fd_last_exec_from_pid dd 0xffffffff
+fd_last_exec_to_pid dd 0xffffffff
+fd_last_closed_owner_pid dd 0xffffffff
 file_io_index dd 0
 file_io_user_ptr dd 0
 file_io_remaining dd 0
@@ -13315,6 +13454,7 @@ process_wait_last_options dd 0
 process_wait_last_reaped_pid dd 0xffffffff
 process_wait_last_status dd 0
 process_wait_seen_live_child dd 0
+process_wait_nohang_returns dd 0
 doom_exit_code dd 0
 doom_fault_addr dd 0
 doom_fault_eip dd 0

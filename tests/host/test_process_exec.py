@@ -539,11 +539,14 @@ class ProcessExecContractTests(unittest.TestCase):
         waitpid = kernel.split("process_waitpid_current:", 1)[1].split("scheduler_prepare_live_preempt_probe:", 1)[0]
         handler = kernel.split(".waitpid:", 1)[1].split(".getpid:", 1)[0]
         for source in (
+            "WAIT_OPTION_WNOHANG equ 0x1",
+            "WAIT_SUPPORTED_OPTIONS equ WAIT_OPTION_WNOHANG",
             "process_wait_attempts dd 0",
             "process_wait_reaps dd 0",
             "process_wait_failures dd 0",
             "process_wait_last_reaped_pid dd 0xffffffff",
             "process_wait_seen_live_child dd 0",
+            "process_wait_nohang_returns dd 0",
         ):
             self.assertIn(source, kernel)
         for source in (
@@ -554,8 +557,9 @@ class ProcessExecContractTests(unittest.TestCase):
             self.assertIn(source, handler)
         for source in (
             "inc dword [process_wait_attempts]",
-            "cmp edx, 0",
-            "jne .enosys",
+            "mov eax, edx",
+            "and eax, 0xfffffffe",
+            "jne .einval",
             "cmp ebx, 0xffffffff",
             "cmp ebx, 0",
             "call user_range_validate",
@@ -568,13 +572,21 @@ class ProcessExecContractTests(unittest.TestCase):
             "cmp eax, PROC_STATE_EXITED",
             "cmp eax, PROC_STATE_FAULTED",
             "mov dword [process_wait_seen_live_child], 1",
+            ".live_child:",
+            "test dword [process_wait_last_options], WAIT_OPTION_WNOHANG",
+            "jnz .nohang",
+            ".nohang:",
+            "inc dword [process_wait_nohang_returns]",
+            "xor eax, eax",
             "mov [process_wait_last_reaped_pid], eax",
             "mov [process_wait_last_status], ebx",
             "mov [ecx], ebx",
             "inc dword [process_wait_reaps]",
+            "call fd_close_owned_by_process",
             "mov dword [esi + PROC_STATE], PROC_STATE_UNUSED",
             "mov dword [esi + PROC_PARENT_PID], 0xffffffff",
             "mov eax, -ERRNO_ENOSYS",
+            "mov eax, -ERRNO_EINVAL",
             "mov eax, -ERRNO_ECHILD",
         ):
             self.assertIn(source, waitpid)
@@ -583,12 +595,17 @@ class ProcessExecContractTests(unittest.TestCase):
         kernel = read_kernel()
         fd_reset = kernel.split("fd_reset_all:", 1)[1].split("fd_alloc:", 1)[0]
         fd_alloc = kernel.split("fd_alloc:", 1)[1].split("fd_lookup:", 1)[0]
+        fd_lookup = kernel.split("fd_lookup:", 1)[1].split("fd_clear_slot:", 1)[0]
         close_handler = kernel.split(".close:", 1)[1].split(".audio:", 1)[0]
         for source in (
             "FD_INHERIT_EXEC equ 0x1",
             "fd_owner_pids times USER_FD_COUNT dd 0xffffffff",
             "fd_open_generations times USER_FD_COUNT dd 0",
             "fd_inherit_flags times USER_FD_COUNT dd 0",
+            "fd_exec_handoffs dd 0",
+            "fd_exec_inherited dd 0",
+            "fd_exec_closed dd 0",
+            "fd_owner_closes dd 0",
         ):
             self.assertIn(source, kernel)
         for source in (
@@ -604,10 +621,65 @@ class ProcessExecContractTests(unittest.TestCase):
         ):
             self.assertIn(source, fd_alloc)
         for source in (
+            "mov edx, [current_pid]",
+            "cmp [fd_owner_pids + eax * 4], edx",
+            "jne .fail",
+        ):
+            self.assertIn(source, fd_lookup)
+        for source in (
             "mov dword [fd_owner_pids + eax * 4], 0xffffffff",
             "mov dword [fd_inherit_flags + eax * 4], 0",
         ):
             self.assertIn(source, close_handler)
+
+    def test_fd_exec_handoff_retags_inheritable_fds_and_closes_teardown_owners(self):
+        kernel = read_kernel()
+        handoff = kernel.split("process_exec_handoff_current:", 1)[1].split("process_exec_seed_argv_stack:", 1)[0]
+        fd_handoff = kernel.split("fd_exec_handoff:", 1)[1].split("writable_fd_index:", 1)[0]
+        close_owned = kernel.split("fd_close_owned_by_pid:", 1)[1].split("fd_close_owned_by_process:", 1)[0]
+        close_process = kernel.split("fd_close_owned_by_process:", 1)[1].split("fd_exec_handoff:", 1)[0]
+        reuse = kernel.split("process_reuse_exec_target_slot:", 1)[1].split("process_retire_exec_slot:", 1)[0]
+        retire_exec = kernel.split("process_retire_exec_slot:", 1)[1].split("process_retire_current_exit_slot:", 1)[0]
+        retire_exit = kernel.split("process_retire_current_exit_slot:", 1)[1].split("clear_fault_record:", 1)[0]
+        faulted = kernel.split("process_mark_current_faulted:", 1)[1].split("process_waitpid_current:", 1)[0]
+
+        self.assertNotIn("call fd_reset_all", handoff)
+        for source in (
+            "mov eax, [edi + PROC_PID]",
+            "mov edx, [esi + PROC_PID]",
+            "call fd_exec_handoff",
+        ):
+            self.assertIn(source, handoff)
+        for source in (
+            "mov [fd_last_exec_from_pid], eax",
+            "mov [fd_last_exec_to_pid], edx",
+            "inc dword [fd_exec_handoffs]",
+            "cmp [fd_owner_pids + ebx * 4], esi",
+            "test dword [fd_inherit_flags + ebx * 4], FD_INHERIT_EXEC",
+            "jz .close_on_exec",
+            "mov [fd_owner_pids + ebx * 4], edx",
+            "inc dword [fd_exec_inherited]",
+            ".close_on_exec:",
+            "call fd_clear_slot",
+            "inc dword [fd_exec_closed]",
+        ):
+            self.assertIn(source, fd_handoff)
+        for source in (
+            "mov [fd_last_closed_owner_pid], edx",
+            "cmp [fd_owner_pids + ebx * 4], edx",
+            "call fd_clear_slot",
+            "inc dword [fd_owner_closes]",
+        ):
+            self.assertIn(source, close_owned)
+        for source in (
+            "cmp esi, process_kernel",
+            "mov eax, [esi + PROC_PID]",
+            "call fd_close_owned_by_pid",
+        ):
+            self.assertIn(source, close_process)
+        for lifecycle in (reuse, retire_exec, retire_exit, faulted):
+            with self.subTest(lifecycle=lifecycle[:32]):
+                self.assertIn("call fd_close_owned_by_process", lifecycle)
 
     def test_user_crt0_passes_argc_argv_and_empty_envp_to_user_main(self):
         crt0 = (ROOT / "user" / "crt0.asm").read_text()
@@ -677,9 +749,9 @@ class ProcessExecContractTests(unittest.TestCase):
             "not a robust Unix",
             "`fork`/`exec` split",
             "wait blocking",
-            "inheritance cloning",
+            "fork-time fd duplication",
             "dynamic child slots",
-            "reusable address-space resources",
+            "address-space",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, process_doc)

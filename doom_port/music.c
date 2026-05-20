@@ -8,6 +8,10 @@
 #define VIBE_MUSIC_DEFAULT_MIDI_DIVISION 96u
 #define VIBE_MUSIC_DEFAULT_TEMPO_US 500000u
 #define VIBE_MUSIC_MAX_LOOP_PASSES 256u
+#define VIBE_MUSIC_PITCH_BEND_CENTER 8192u
+#define VIBE_MUSIC_PITCH_BEND_MAX 16383u
+#define VIBE_MUSIC_MIDI_PERCUSSION_CHANNEL 9u
+#define VIBE_MUSIC_MUS_PERCUSSION_CHANNEL 15u
 
 typedef struct vibe_music_song {
     void* data;
@@ -25,6 +29,8 @@ typedef struct vibe_music_voice {
     unsigned char channel;
     unsigned char note;
     unsigned char volume;
+    unsigned char released;
+    unsigned char program;
     unsigned int phase;
     unsigned int step;
 } vibe_music_voice_t;
@@ -32,6 +38,11 @@ typedef struct vibe_music_voice {
 typedef struct vibe_music_synth {
     vibe_music_voice_t voices[VIBE_MUSIC_MAX_VOICES];
     unsigned char channel_volume[VIBE_MUSIC_MAX_CHANNELS];
+    unsigned char channel_expression[VIBE_MUSIC_MAX_CHANNELS];
+    unsigned char channel_pan[VIBE_MUSIC_MAX_CHANNELS];
+    unsigned char channel_program[VIBE_MUSIC_MAX_CHANNELS];
+    unsigned char channel_sustain[VIBE_MUSIC_MAX_CHANNELS];
+    unsigned int channel_pitch_bend[VIBE_MUSIC_MAX_CHANNELS];
     unsigned long sample_rate;
     unsigned long output_volume;
 } vibe_music_synth_t;
@@ -113,6 +124,14 @@ static void reset_stats(vibe_music_render_stats_t* stats, int format)
     stats->note_on_count = 0;
     stats->note_off_count = 0;
     stats->controller_count = 0;
+    stats->program_count = 0;
+    stats->pan_count = 0;
+    stats->expression_count = 0;
+    stats->sustain_count = 0;
+    stats->pitch_bend_count = 0;
+    stats->percussion_note_count = 0;
+    stats->all_notes_off_count = 0;
+    stats->active_voice_peak = 0;
     stats->tempo_count = 0;
     stats->loop_count = 0;
     stats->clipped_samples = 0;
@@ -188,6 +207,46 @@ static unsigned int note_to_step(unsigned int note, unsigned long sample_rate)
     return (unsigned int)step;
 }
 
+static unsigned int note_to_step_bent(
+    unsigned int note,
+    unsigned long sample_rate,
+    unsigned int bend)
+{
+    unsigned long step;
+    unsigned long adjust;
+
+    if (bend > VIBE_MUSIC_PITCH_BEND_MAX)
+        bend = VIBE_MUSIC_PITCH_BEND_MAX;
+
+    step = note_to_step(note, sample_rate);
+    if (bend >= VIBE_MUSIC_PITCH_BEND_CENTER) {
+        adjust = (step * (unsigned long)(bend - VIBE_MUSIC_PITCH_BEND_CENTER)) / 32768u;
+        step += adjust;
+    } else {
+        adjust = (step * (unsigned long)(VIBE_MUSIC_PITCH_BEND_CENTER - bend)) / 32768u;
+        if (adjust >= step)
+            step = 1;
+        else
+            step -= adjust;
+    }
+
+    if (!step)
+        step = 1;
+    if (step > 0xffffu)
+        step = 0xffffu;
+    return (unsigned int)step;
+}
+
+static unsigned int mus_channel_to_midi(unsigned int channel)
+{
+    channel &= 0x0fu;
+    if (channel == VIBE_MUSIC_MUS_PERCUSSION_CHANNEL)
+        return VIBE_MUSIC_MIDI_PERCUSSION_CHANNEL;
+    if (channel >= VIBE_MUSIC_MIDI_PERCUSSION_CHANNEL)
+        return channel + 1u;
+    return channel;
+}
+
 static void synth_init(vibe_music_synth_t* synth, unsigned long sample_rate, unsigned long volume)
 {
     unsigned long i;
@@ -197,32 +256,174 @@ static void synth_init(vibe_music_synth_t* synth, unsigned long sample_rate, uns
         synth->voices[i].channel = 0;
         synth->voices[i].note = 0;
         synth->voices[i].volume = 0;
+        synth->voices[i].released = 0;
+        synth->voices[i].program = 0;
         synth->voices[i].phase = 0;
         synth->voices[i].step = 0;
     }
 
-    for (i = 0; i < VIBE_MUSIC_MAX_CHANNELS; ++i)
+    for (i = 0; i < VIBE_MUSIC_MAX_CHANNELS; ++i) {
         synth->channel_volume[i] = 100;
+        synth->channel_expression[i] = 127;
+        synth->channel_pan[i] = 64;
+        synth->channel_program[i] = 0;
+        synth->channel_sustain[i] = 0;
+        synth->channel_pitch_bend[i] = VIBE_MUSIC_PITCH_BEND_CENTER;
+    }
 
     synth->sample_rate = sample_rate ? sample_rate : VIBE_MUSIC_DEFAULT_SAMPLE_RATE;
     synth->output_volume = volume > 127u ? 127u : volume;
 }
 
-static void synth_all_notes_off(vibe_music_synth_t* synth)
+static void synth_all_sounds_off(vibe_music_synth_t* synth)
 {
     unsigned long i;
 
-    for (i = 0; i < VIBE_MUSIC_MAX_VOICES; ++i)
+    for (i = 0; i < VIBE_MUSIC_MAX_VOICES; ++i) {
         synth->voices[i].active = 0;
+        synth->voices[i].released = 0;
+    }
+}
+
+static void synth_channel_all_sounds_off(vibe_music_synth_t* synth, unsigned int channel)
+{
+    unsigned long i;
+
+    if (channel >= VIBE_MUSIC_MAX_CHANNELS)
+        return;
+
+    for (i = 0; i < VIBE_MUSIC_MAX_VOICES; ++i)
+        if (synth->voices[i].active && synth->voices[i].channel == (unsigned char)channel) {
+            synth->voices[i].active = 0;
+            synth->voices[i].released = 0;
+        }
+}
+
+static void synth_release_sustained_channel(vibe_music_synth_t* synth, unsigned int channel)
+{
+    unsigned long i;
+
+    if (channel >= VIBE_MUSIC_MAX_CHANNELS)
+        return;
+
+    for (i = 0; i < VIBE_MUSIC_MAX_VOICES; ++i)
+        if (synth->voices[i].active
+            && synth->voices[i].released
+            && synth->voices[i].channel == (unsigned char)channel) {
+            synth->voices[i].active = 0;
+            synth->voices[i].released = 0;
+        }
 }
 
 static void synth_channel_notes_off(vibe_music_synth_t* synth, unsigned int channel)
 {
     unsigned long i;
 
+    if (channel >= VIBE_MUSIC_MAX_CHANNELS)
+        return;
+
+    for (i = 0; i < VIBE_MUSIC_MAX_VOICES; ++i) {
+        if (synth->voices[i].active && synth->voices[i].channel == (unsigned char)channel) {
+            if (synth->channel_sustain[channel])
+                synth->voices[i].released = 1;
+            else
+                synth->voices[i].active = 0;
+        }
+    }
+}
+
+static void synth_all_notes_off(vibe_music_synth_t* synth)
+{
+    unsigned long i;
+
+    for (i = 0; i < VIBE_MUSIC_MAX_CHANNELS; ++i)
+        synth_channel_notes_off(synth, (unsigned int)i);
+}
+
+static void synth_reset_channel_controls(vibe_music_synth_t* synth, unsigned int channel)
+{
+    if (channel >= VIBE_MUSIC_MAX_CHANNELS)
+        return;
+
+    synth->channel_volume[channel] = 100;
+    synth->channel_expression[channel] = 127;
+    synth->channel_pan[channel] = 64;
+    synth->channel_program[channel] = 0;
+    synth->channel_sustain[channel] = 0;
+    synth->channel_pitch_bend[channel] = VIBE_MUSIC_PITCH_BEND_CENTER;
+    synth_release_sustained_channel(synth, channel);
+}
+
+static unsigned long synth_active_voice_count(vibe_music_synth_t* synth)
+{
+    unsigned long i;
+    unsigned long active;
+
+    active = 0;
+    for (i = 0; i < VIBE_MUSIC_MAX_VOICES; ++i)
+        if (synth->voices[i].active)
+            ++active;
+    return active;
+}
+
+static void synth_update_active_voice_peak(
+    vibe_music_synth_t* synth,
+    vibe_music_render_stats_t* stats)
+{
+    unsigned long active;
+
+    if (!stats)
+        return;
+    active = synth_active_voice_count(synth);
+    if (active > stats->active_voice_peak)
+        stats->active_voice_peak = active;
+}
+
+static void synth_update_channel_steps(vibe_music_synth_t* synth, unsigned int channel)
+{
+    unsigned long i;
+
+    if (channel >= VIBE_MUSIC_MAX_CHANNELS)
+        return;
+
     for (i = 0; i < VIBE_MUSIC_MAX_VOICES; ++i)
         if (synth->voices[i].active && synth->voices[i].channel == (unsigned char)channel)
-            synth->voices[i].active = 0;
+            synth->voices[i].step = note_to_step_bent(
+                synth->voices[i].note,
+                synth->sample_rate,
+                synth->channel_pitch_bend[channel]);
+}
+
+static void synth_set_pitch_bend(
+    vibe_music_synth_t* synth,
+    unsigned int channel,
+    unsigned int bend,
+    vibe_music_render_stats_t* stats)
+{
+    if (channel >= VIBE_MUSIC_MAX_CHANNELS)
+        return;
+    if (bend > VIBE_MUSIC_PITCH_BEND_MAX)
+        bend = VIBE_MUSIC_PITCH_BEND_MAX;
+
+    synth->channel_pitch_bend[channel] = bend;
+    synth_update_channel_steps(synth, channel);
+    if (stats)
+        ++stats->pitch_bend_count;
+}
+
+static void synth_set_sustain(vibe_music_synth_t* synth, unsigned int channel, unsigned int value)
+{
+    unsigned char enabled;
+    unsigned char was_enabled;
+
+    if (channel >= VIBE_MUSIC_MAX_CHANNELS)
+        return;
+
+    was_enabled = synth->channel_sustain[channel];
+    enabled = value >= 64u ? 1u : 0u;
+    synth->channel_sustain[channel] = enabled;
+    if (was_enabled && !enabled)
+        synth_release_sustained_channel(synth, channel);
 }
 
 static void synth_note_off(
@@ -236,8 +437,14 @@ static void synth_note_off(
     for (i = 0; i < VIBE_MUSIC_MAX_VOICES; ++i)
         if (synth->voices[i].active
             && synth->voices[i].channel == (unsigned char)channel
-            && synth->voices[i].note == (unsigned char)note)
-            synth->voices[i].active = 0;
+            && synth->voices[i].note == (unsigned char)note) {
+            if (channel < VIBE_MUSIC_MAX_CHANNELS && synth->channel_sustain[channel])
+                synth->voices[i].released = 1;
+            else {
+                synth->voices[i].active = 0;
+                synth->voices[i].released = 0;
+            }
+        }
 
     if (stats)
         ++stats->note_off_count;
@@ -273,7 +480,6 @@ static void synth_note_on(
     vibe_music_render_stats_t* stats)
 {
     unsigned long slot;
-    unsigned long scaled_volume;
 
     if (channel >= VIBE_MUSIC_MAX_CHANNELS)
         channel = VIBE_MUSIC_MAX_CHANNELS - 1;
@@ -287,20 +493,60 @@ static void synth_note_on(
         return;
     }
 
-    scaled_volume = (volume * synth->channel_volume[channel]) / 127u;
-    if (!scaled_volume)
-        scaled_volume = 1;
-
     slot = synth_find_voice(synth, channel, note);
     synth->voices[slot].active = 1;
     synth->voices[slot].channel = (unsigned char)channel;
     synth->voices[slot].note = (unsigned char)note;
-    synth->voices[slot].volume = (unsigned char)scaled_volume;
+    synth->voices[slot].volume = (unsigned char)volume;
+    synth->voices[slot].released = 0;
+    synth->voices[slot].program = synth->channel_program[channel];
     synth->voices[slot].phase = 0;
-    synth->voices[slot].step = note_to_step(note, synth->sample_rate);
+    synth->voices[slot].step = note_to_step_bent(
+        note,
+        synth->sample_rate,
+        synth->channel_pitch_bend[channel]);
 
-    if (stats)
+    if (stats) {
         ++stats->note_on_count;
+        if (channel == VIBE_MUSIC_MIDI_PERCUSSION_CHANNEL)
+            ++stats->percussion_note_count;
+    }
+    synth_update_active_voice_peak(synth, stats);
+}
+
+static long synth_voice_sample(vibe_music_voice_t* voice, unsigned long amp)
+{
+    unsigned int phase;
+    unsigned int threshold;
+    unsigned int noise;
+
+    phase = voice->phase & 0xffffu;
+    if (voice->channel == VIBE_MUSIC_MIDI_PERCUSSION_CHANNEL) {
+        noise = phase
+            ^ ((unsigned int)voice->note << 9)
+            ^ ((unsigned int)voice->program << 4);
+        noise ^= noise >> 7;
+        noise ^= noise >> 3;
+        return (noise & 1u) ? (long)amp : -(long)amp;
+    }
+
+    threshold = 0x8000u;
+    switch ((voice->program >> 3) & 0x03u) {
+    case 0:
+        threshold = 0x8000u;
+        break;
+    case 1:
+        threshold = 0x6000u;
+        break;
+    case 2:
+        threshold = 0xa000u;
+        break;
+    default:
+        threshold = 0x4000u;
+        break;
+    }
+
+    return phase < threshold ? (long)amp : -(long)amp;
 }
 
 static void synth_render_until(
@@ -324,16 +570,30 @@ static void synth_render_until(
         for (i = 0; i < VIBE_MUSIC_MAX_VOICES; ++i) {
             vibe_music_voice_t* voice;
             unsigned long amp;
+            unsigned long pan;
+            unsigned long pan_distance;
+            unsigned long pan_gain;
 
             voice = &synth->voices[i];
             if (!voice->active)
                 continue;
 
-            amp = ((unsigned long)voice->volume * synth->output_volume) / 127u;
+            amp = (unsigned long)voice->volume;
+            amp = (amp * synth->channel_volume[voice->channel]) / 127u;
+            amp = (amp * synth->channel_expression[voice->channel]) / 127u;
+            amp = (amp * synth->output_volume) / 127u;
+            pan = synth->channel_pan[voice->channel];
+            pan_distance = pan > 64u ? pan - 64u : 64u - pan;
+            pan_gain = 127u - (pan_distance / 2u);
+            amp = (amp * pan_gain) / 127u;
+            if (voice->released)
+                amp /= 2u;
+            if (!amp)
+                amp = 1;
             if (amp > 127u)
                 amp = 127u;
 
-            mix += (voice->phase & 0x8000u) ? (long)amp : -(long)amp;
+            mix += synth_voice_sample(voice, amp);
             voice->phase = (voice->phase + voice->step) & 0xffffu;
             ++active;
         }
@@ -440,7 +700,7 @@ static int render_mus_pass(
 
         descriptor = data[pos++];
         event_type = (descriptor >> 4) & 0x07u;
-        channel = descriptor & 0x0fu;
+        channel = mus_channel_to_midi(descriptor & 0x0fu);
         last_in_group = descriptor & 0x80u;
 
         if (event_type == 0u) {
@@ -467,9 +727,12 @@ static int render_mus_pass(
             volume = synth->channel_volume[channel];
             synth_note_on(synth, channel, note, volume, stats);
         } else if (event_type == 2u) {
+            unsigned int bend;
+
             if (pos >= end)
                 return 0;
-            ++pos;
+            bend = ((unsigned int)data[pos++] & 0x7fu) << 7;
+            synth_set_pitch_bend(synth, channel, bend, stats);
         } else if (event_type == 3u) {
             unsigned int system_event;
 
@@ -477,9 +740,18 @@ static int render_mus_pass(
                 return 0;
             system_event = data[pos++] & 0x7fu;
             if (system_event == 10u)
+                synth_channel_all_sounds_off(synth, channel);
+            else if (system_event == 11u) {
                 synth_channel_notes_off(synth, channel);
-            else if (system_event == 11u)
+                if (stats)
+                    ++stats->all_notes_off_count;
+            } else if (system_event == 14u) {
+                synth_reset_channel_controls(synth, channel);
+            } else if (system_event == 15u) {
                 synth_all_notes_off(synth);
+                if (stats)
+                    ++stats->all_notes_off_count;
+            }
             if (stats)
                 ++stats->controller_count;
         } else if (event_type == 4u) {
@@ -490,16 +762,37 @@ static int render_mus_pass(
                 return 0;
             controller = data[pos++] & 0x7fu;
             value = data[pos++] & 0x7fu;
-            if (controller == 3u || controller == 5u)
+            if (controller == 0u) {
+                synth->channel_program[channel] = (unsigned char)value;
+                if (stats)
+                    ++stats->program_count;
+            } else if (controller == 3u) {
                 synth->channel_volume[channel] = (unsigned char)value;
-            else if (controller == 10u)
+            } else if (controller == 4u) {
+                synth->channel_pan[channel] = (unsigned char)value;
+                if (stats)
+                    ++stats->pan_count;
+            } else if (controller == 5u) {
+                synth->channel_expression[channel] = (unsigned char)value;
+                if (stats)
+                    ++stats->expression_count;
+            } else if (controller == 8u) {
+                synth_set_sustain(synth, channel, value);
+                if (stats)
+                    ++stats->sustain_count;
+            } else if (controller == 10u) {
                 synth_channel_notes_off(synth, channel);
-            else if (controller == 11u)
+                if (stats)
+                    ++stats->all_notes_off_count;
+            } else if (controller == 11u) {
                 synth_all_notes_off(synth);
+                if (stats)
+                    ++stats->all_notes_off_count;
+            }
             if (stats)
                 ++stats->controller_count;
         } else if (event_type == 5u) {
-            synth_all_notes_off(synth);
+            synth_all_sounds_off(synth);
             return 1;
         } else {
             return 0;
@@ -596,7 +889,7 @@ static int render_midi_pass(
                 return 0;
 
             if (meta_type == 0x2fu) {
-                synth_all_notes_off(synth);
+                synth_all_sounds_off(synth);
                 return 1;
             }
             if (meta_type == 0x51u && length == 3u) {
@@ -629,7 +922,11 @@ static int render_midi_pass(
                         return 0;
                     data1 = track[pos++];
                 }
-                (void)data1;
+                if (kind == 0xc0u) {
+                    synth->channel_program[channel] = (unsigned char)(data1 & 0x7fu);
+                    if (stats)
+                        ++stats->program_count;
+                }
             } else {
                 if (!have_data1) {
                     if (pos >= end)
@@ -645,12 +942,37 @@ static int render_midi_pass(
                 } else if (kind == 0x90u) {
                     synth_note_on(synth, channel, data1, data2, stats);
                 } else if (kind == 0xb0u) {
-                    if (data1 == 7u || data1 == 11u)
+                    if (data1 == 7u) {
                         synth->channel_volume[channel] = (unsigned char)(data2 & 0x7fu);
-                    else if (data1 == 120u || data1 == 123u)
+                    } else if (data1 == 10u) {
+                        synth->channel_pan[channel] = (unsigned char)(data2 & 0x7fu);
+                        if (stats)
+                            ++stats->pan_count;
+                    } else if (data1 == 11u) {
+                        synth->channel_expression[channel] = (unsigned char)(data2 & 0x7fu);
+                        if (stats)
+                            ++stats->expression_count;
+                    } else if (data1 == 64u) {
+                        synth_set_sustain(synth, channel, data2 & 0x7fu);
+                        if (stats)
+                            ++stats->sustain_count;
+                    } else if (data1 == 120u) {
+                        synth_channel_all_sounds_off(synth, channel);
+                    } else if (data1 == 121u) {
+                        synth_reset_channel_controls(synth, channel);
+                    } else if (data1 == 123u) {
                         synth_channel_notes_off(synth, channel);
+                        if (stats)
+                            ++stats->all_notes_off_count;
+                    }
                     if (stats)
                         ++stats->controller_count;
+                } else if (kind == 0xe0u) {
+                    synth_set_pitch_bend(
+                        synth,
+                        channel,
+                        ((data2 & 0x7fu) << 7) | (data1 & 0x7fu),
+                        stats);
                 }
             }
         }
@@ -854,6 +1176,19 @@ void vibe_music_stream_stop(int handle)
     if (index >= VIBE_MUSIC_MAX_SONGS)
         return;
     vibe_music_songs[index].stream_active = 0;
+}
+
+void vibe_music_stream_set_volume(int handle, unsigned long volume)
+{
+    unsigned long index;
+
+    if (handle <= 0)
+        return;
+    index = (unsigned long)(handle - 1);
+    if (index >= VIBE_MUSIC_MAX_SONGS || !vibe_music_songs[index].used)
+        return;
+
+    vibe_music_songs[index].stream_volume = volume > 127u ? 127u : volume;
 }
 
 unsigned long vibe_music_stream_position(int handle)

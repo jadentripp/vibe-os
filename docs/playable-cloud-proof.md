@@ -7,14 +7,17 @@ The intended proof is status-driven: the OS boots the validated shareware
 input through the same PS/2 paths a human would use, and the kernel exports
 compact counters and state deltas from Doom.
 
-This file describes the required green path. It is not a claim that the current branch is playable.
-The scripted cloud proof is the current machine-checkable baseline: a green
-manual **Real WAD smoke** run proves the real shareware WAD path, gameplay,
-input, mouse, audio-counter, preemption, and non-pixel visual diagnostics from a
-disposable runner artifact. A human-facing playable claim still needs a recorded
-remote VNC playtest bundle from `docs/runbooks/remote-doom-playtest.md`, with
-structured human notes, a SHA-256 `human-playtest-manifest.json`, and the same
-non-WAD status checks passing locally.
+This file describes the required green path. A scripted green run is not by itself a claim that the current branch is human-playable.
+The current machine-checkable baseline is manual **Real WAD smoke** run
+`26155149926` on commit `dc8224e`: it proves the real shareware WAD path,
+gameplay, input, mouse, audio-counter, preemption, non-pixel visual diagnostics,
+aggregate audible output, and save-slot reboot persistence from disposable
+runner artifacts. A human-facing playable claim still needs a recorded remote
+VNC playtest bundle from `docs/runbooks/remote-doom-playtest.md`, with
+structured human notes, a phase-by-phase `human-playtest-session.json`
+transcript tied to the passing scripted run ID, a SHA-256
+`human-playtest-manifest.json`, and the same non-WAD status checks passing
+locally.
 
 ## Deterministic Script
 
@@ -202,8 +205,11 @@ remote host, connects through VNC over SSH, and uses
 `tools/collect_human_playtest_bundle.py` on the remote host to build an
 allowlisted proof bundle before download. The bundle is then validated with
 `tools/check_cloud_playability_artifacts.py --human-session`, including
-`human-playtest-notes.txt` and `human-playtest-manifest.json`, without storing
-WAD data, disk images, audio captures, or rendered pixels in the repo. The
-manifest ties the notes and diagnostics to exact byte counts and SHA-256 hashes
-so a downloaded human bundle cannot grow extra files or change contents without
-the artifact checker failing.
+`human-playtest-notes.txt`, `human-playtest-session.json`, and
+`human-playtest-manifest.json`, without storing WAD data, disk images, audio
+captures, or rendered pixels in the repo. The session transcript records the
+linked passing real-WAD run ID, exact phase order, per-status byte counts,
+SHA-256 hashes, and compact status summaries; the manifest ties the notes,
+session transcript, and diagnostics to exact byte counts and SHA-256 hashes so a
+downloaded human bundle cannot grow extra files or change contents without the
+artifact checker failing.

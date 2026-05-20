@@ -17,6 +17,14 @@ typedef struct vibe_music_render_stats {
     unsigned long note_on_count;
     unsigned long note_off_count;
     unsigned long controller_count;
+    unsigned long program_count;
+    unsigned long pan_count;
+    unsigned long expression_count;
+    unsigned long sustain_count;
+    unsigned long pitch_bend_count;
+    unsigned long percussion_note_count;
+    unsigned long all_notes_off_count;
+    unsigned long active_voice_peak;
     unsigned long tempo_count;
     unsigned long loop_count;
     unsigned long clipped_samples;
@@ -35,6 +43,7 @@ void vibe_music_stream_begin(
     unsigned long volume,
     int looping);
 void vibe_music_stream_stop(int handle);
+void vibe_music_stream_set_volume(int handle, unsigned long volume);
 unsigned long vibe_music_stream_position(int handle);
 unsigned long vibe_music_stream_render(
     int handle,

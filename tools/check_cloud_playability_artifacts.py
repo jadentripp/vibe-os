@@ -9,8 +9,10 @@ import gzip
 import hashlib
 import io
 import json
+import re
 import sys
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -55,8 +57,11 @@ HUMAN_NOTES_FILE = "human-playtest-notes.txt"
 HUMAN_NOTES_SCHEMA = "human-playtest-notes-v1"
 HUMAN_MANIFEST_FILE = "human-playtest-manifest.json"
 HUMAN_MANIFEST_SCHEMA = "human-playtest-manifest-v1"
+HUMAN_SESSION_FILE = "human-playtest-session.json"
+HUMAN_SESSION_SCHEMA = "human-playtest-session-v1"
 REQUIRED_HUMAN_NOTE_FIELDS = {
     "schema": (HUMAN_NOTES_SCHEMA,),
+    "scripted_proof": ("real-wad-smoke-pass",),
     "remote_host": ("disposable",),
     "qemu_location": ("remote",),
     "qemu_display": ("127.0.0.1:1",),
@@ -67,6 +72,13 @@ REQUIRED_HUMAN_NOTE_FIELDS = {
     "display": ("pass",),
     "keyboard": ("pass",),
     "mouse": ("pass",),
+    "visual_evidence": ("e1m1-visible-via-remote-vnc",),
+    "keyboard_evidence": ("fire-move-use-menu-visible",),
+    "mouse_evidence": ("motion-click-visible",),
+    "status_capture": ("monitor-pmemsave-0x9d000",),
+    "session_phases": (
+        "early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final",
+    ),
     "diagnostics": ("non-wad-status-only",),
     "proof_bundle": ("allowlisted-status-only",),
     "no_local_qemu": ("yes",),
@@ -77,10 +89,74 @@ REQUIRED_HUMAN_NOTE_FIELDS = {
 REQUIRED_FREEFORM_HUMAN_NOTE_FIELDS = (
     "commit",
     "playtester",
+    "scripted_proof_run_id",
 )
 OPTIONAL_HUMAN_NOTE_FIELDS = {
     "audio": ("status-only", "listener-pass", "audio-proof-json-pass", "not-tested"),
 }
+HUMAN_NOTE_FIELD_PATTERNS = {
+    "commit": r"(?:[0-9A-Fa-f]{7,40}|unknown)",
+    "playtester": r"[A-Za-z0-9._-]{2,64}",
+    "scripted_proof_run_id": r"[0-9]{6,32}",
+}
+
+HUMAN_SESSION_PHASES = (
+    ("early", "status.early.txt", "pre-input status baseline"),
+    ("after-start", "status.after-start.txt", "human confirmed E1M1 visible over remote VNC"),
+    ("after-fire", "status.after-fire.txt", "human pressed Ctrl/fire and saw Doom respond"),
+    ("after-move", "status.after-move.txt", "human held an arrow key and saw movement or turning"),
+    ("after-use", "status.after-use.txt", "human pressed Space/use and saw Doom accept it"),
+    ("after-mouse", "status.after-mouse.txt", "human moved/clicked the mouse and saw Doom respond"),
+    ("after-menu", "status.after-menu.txt", "human pressed Escape and saw the Doom menu"),
+    ("final", "status.txt", "final status captured after the manual session"),
+)
+HUMAN_SESSION_STATUS_FIELDS = (
+    "gameplay",
+    "gstate",
+    "gmap",
+    "gtic",
+    "leveltime",
+    "gflags",
+    "gaction",
+    "pflags",
+    "pbuttons",
+    "ppos",
+    "pdelta",
+    "keyirq",
+    "keyqueue",
+    "keypoll",
+    "keyseen",
+    "keylast",
+    "mouse",
+    "mouseirq",
+    "mousepkt",
+    "mousepoll",
+    "mousebtn",
+    "mousedelta",
+    "audio",
+    "doomsound",
+    "sfxmix",
+    "musicpos",
+    "doomrun",
+    "doomopen",
+    "doomread",
+    "doomerr",
+    "doomfault",
+    "panic",
+    "shutdown",
+)
+HUMAN_SESSION_ALLOWED_EXACT_FILES = set(
+    REQUIRED_STATUS_FILES
+    + REQUIRED_DIAGNOSTIC_FILES
+    + REQUIRED_SYMBOL_FILES
+    + (
+        OPTIONAL_AUDIO_PROOF_FILE,
+        HUMAN_NOTES_FILE,
+        HUMAN_MANIFEST_FILE,
+        HUMAN_SESSION_FILE,
+    )
+)
+HUMAN_SESSION_ALLOWED_PATTERNS = ("*.log",)
 
 FORBIDDEN_ARTIFACT_PATTERNS = (
     "*.wad",
@@ -195,10 +271,19 @@ def validate_repo_contract() -> None:
         "tools/check_audible_audio_proof.py",
         "tools/triage_cloud_status.py",
         "human-playtest-notes.txt",
+        "human-playtest-session.json",
         "human-playtest-manifest.json",
+        "scripted_proof=real-wad-smoke-pass",
+        "scripted_proof_run_id=",
+        "--scripted-proof-run-id",
         "proof_bundle=allowlisted-status-only",
         "qemu_display=127.0.0.1:1",
         "vnc_endpoint=127.0.0.1:5901",
+        "visual_evidence=e1m1-visible-via-remote-vnc",
+        "keyboard_evidence=fire-move-use-menu-visible",
+        "mouse_evidence=motion-click-visible",
+        "status_capture=monitor-pmemsave-0x9d000",
+        "session_phases=early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final",
         "--human-session",
         "capture_status",
         "no_local_qemu=yes",
@@ -234,13 +319,16 @@ def validate_repo_contract() -> None:
 
     _require(playable, "Remote Doom Playtest Runbook", "playable cloud proof doc")
     _require(playable, "tools/collect_human_playtest_bundle.py", "playable cloud proof doc")
+    _require(playable, "human-playtest-session.json", "playable cloud proof doc")
     _require(playable, "human-playtest-manifest.json", "playable cloud proof doc")
     _require(playable, "puser", "playable cloud proof doc")
     _require(playable, "pspin", "playable cloud proof doc")
     _require(readme, "docs/runbooks/remote-doom-playtest.md", "README")
     _require(readme, "tools/collect_human_playtest_bundle.py", "README")
+    _require(readme, "human-playtest-session.json", "README")
     _require(tests_readme, "check_cloud_playability_artifacts.py", "tests README")
     _require(tests_readme, "collect_human_playtest_bundle.py", "tests README")
+    _require(tests_readme, "human-playtest-session.json", "tests README")
     _require(makefile, "cloud-playability-check", "Makefile")
     _require(makefile, "persistence-image-check", "Makefile")
     _require(makefile, "PERSISTENCE_BASELINE_IMAGE", "Makefile")
@@ -325,6 +413,160 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+STATUS_FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
+
+
+def _status_fields(status: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for match in STATUS_FIELD_PATTERN.finditer(status):
+        name = match.group(1)
+        if name in fields:
+            raise AssertionError(f"duplicate {name}= field")
+        fields[name] = match.group(2)
+    return fields
+
+
+def _human_status_summary(path: Path) -> dict[str, str]:
+    fields = _status_fields(path.read_text())
+    return {
+        name: fields.get(name, "<missing>")
+        for name in HUMAN_SESSION_STATUS_FIELDS
+    }
+
+
+def _utc_now_text() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _assert_utc_timestamp(value: object, label: str) -> None:
+    if not isinstance(value, str):
+        raise AssertionError(f"{label} must be an ISO-8601 UTC string")
+    if not value.endswith("Z"):
+        raise AssertionError(f"{label} must end with Z")
+    try:
+        datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError as exc:
+        raise AssertionError(f"{label} must be an ISO-8601 UTC string") from exc
+
+
+def _human_session_id(notes: dict[str, str], phases: list[dict]) -> str:
+    identity = {
+        "schema": HUMAN_SESSION_SCHEMA,
+        "commit": notes.get("commit", ""),
+        "playtester": notes.get("playtester", ""),
+        "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
+        "phases": [
+            {
+                "phase": phase["phase"],
+                "status_file": phase["status_file"],
+                "sha256": phase["sha256"],
+            }
+            for phase in phases
+        ],
+    }
+    return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+
+
+def build_human_session(
+    artifact_dir: Path,
+    collected_at_utc: str | None = None,
+) -> dict:
+    names = _relative_names(artifact_dir)
+    notes_name = _find_one(names, HUMAN_NOTES_FILE)
+    if notes_name is None:
+        raise AssertionError(f"missing expected human review file: {HUMAN_NOTES_FILE}")
+    notes = _load_human_notes(artifact_dir / notes_name)
+
+    phases: list[dict] = []
+    for phase_name, status_file, human_action in HUMAN_SESSION_PHASES:
+        status_name = _find_one(names, status_file)
+        if status_name is None:
+            raise AssertionError(f"missing expected human status file: {status_file}")
+        status_path = artifact_dir / status_name
+        phases.append(
+            {
+                "phase": phase_name,
+                "status_file": status_file,
+                "human_action": human_action,
+                "bytes": status_path.stat().st_size,
+                "sha256": _sha256_file(status_path),
+                "summary": _human_status_summary(status_path),
+            }
+        )
+
+    session = {
+        "schema": HUMAN_SESSION_SCHEMA,
+        "source": "remote-vnc-human-session",
+        "generated_by": "tools/collect_human_playtest_bundle.py",
+        "collected_at_utc": collected_at_utc or _utc_now_text(),
+        "commit": notes.get("commit", ""),
+        "playtester": notes.get("playtester", ""),
+        "scripted_proof": notes.get("scripted_proof", ""),
+        "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
+        "phase_order": [phase for phase, _, _ in HUMAN_SESSION_PHASES],
+        "status_capture": notes.get("status_capture", ""),
+        "remote_endpoint": {
+            "qemu_location": notes.get("qemu_location", ""),
+            "qemu_display": notes.get("qemu_display", ""),
+            "vnc_tunnel": notes.get("vnc_tunnel", ""),
+            "vnc_endpoint": notes.get("vnc_endpoint", ""),
+            "monitor_socket": notes.get("monitor_socket", ""),
+        },
+        "human_attestation": {
+            "remote_host": notes.get("remote_host", ""),
+            "wad": notes.get("wad", ""),
+            "display": notes.get("display", ""),
+            "keyboard": notes.get("keyboard", ""),
+            "mouse": notes.get("mouse", ""),
+            "audio": notes.get("audio", ""),
+            "visual_evidence": notes.get("visual_evidence", ""),
+            "keyboard_evidence": notes.get("keyboard_evidence", ""),
+            "mouse_evidence": notes.get("mouse_evidence", ""),
+            "no_local_qemu": notes.get("no_local_qemu", ""),
+            "no_wad_upload": notes.get("no_wad_upload", ""),
+            "no_disk_upload": notes.get("no_disk_upload", ""),
+            "no_pixel_upload": notes.get("no_pixel_upload", ""),
+        },
+        "validation_gates": [
+            "tools/check_real_wad_proof.py",
+            "tools/check_human_playability_proof.py",
+            "tools/check_audio_continuity_proof.py",
+            "tools/check_cloud_playability_artifacts.py --human-session",
+        ],
+        "phases": phases,
+    }
+    session["session_id"] = _human_session_id(notes, phases)
+    return session
+
+
+def _load_human_session(path: Path) -> dict:
+    try:
+        session = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise AssertionError(f"{HUMAN_SESSION_FILE} must be valid JSON: {exc}") from exc
+    if not isinstance(session, dict):
+        raise AssertionError(f"{HUMAN_SESSION_FILE} must be a JSON object")
+    return session
+
+
+def validate_human_session(artifact_dir: Path, session_path: Path) -> None:
+    session = _load_human_session(session_path)
+    if session.get("schema") != HUMAN_SESSION_SCHEMA:
+        raise AssertionError(f"{HUMAN_SESSION_FILE} schema must be {HUMAN_SESSION_SCHEMA}")
+    if session.get("source") != "remote-vnc-human-session":
+        raise AssertionError(f"{HUMAN_SESSION_FILE} source must be remote-vnc-human-session")
+    if session.get("generated_by") != "tools/collect_human_playtest_bundle.py":
+        raise AssertionError(f"{HUMAN_SESSION_FILE} generated_by must name the collector")
+    _assert_utc_timestamp(session.get("collected_at_utc"), f"{HUMAN_SESSION_FILE} collected_at_utc")
+
+    expected = build_human_session(
+        artifact_dir,
+        collected_at_utc=session["collected_at_utc"],
+    )
+    if session != expected:
+        raise AssertionError(f"{HUMAN_SESSION_FILE} does not match notes and status file hashes")
+
+
 def build_human_manifest(artifact_dir: Path) -> dict:
     names = [
         name
@@ -334,6 +576,9 @@ def build_human_manifest(artifact_dir: Path) -> dict:
     notes_name = _find_one(names, HUMAN_NOTES_FILE)
     if notes_name is None:
         raise AssertionError(f"missing expected human review file: {HUMAN_NOTES_FILE}")
+    session_name = _find_one(names, HUMAN_SESSION_FILE)
+    if session_name is None:
+        raise AssertionError(f"missing expected human session file: {HUMAN_SESSION_FILE}")
     notes_path = artifact_dir / notes_name
     notes = _load_human_notes(notes_path)
     files = [
@@ -364,7 +609,7 @@ def build_human_manifest(artifact_dir: Path) -> dict:
             REQUIRED_STATUS_FILES
             + REQUIRED_DIAGNOSTIC_FILES
             + REQUIRED_SYMBOL_FILES
-            + (HUMAN_NOTES_FILE,)
+            + (HUMAN_NOTES_FILE, HUMAN_SESSION_FILE)
         ),
         "files": files,
     }
@@ -412,7 +657,7 @@ def validate_human_manifest(artifact_dir: Path, manifest_path: Path) -> None:
         REQUIRED_STATUS_FILES
         + REQUIRED_DIAGNOSTIC_FILES
         + REQUIRED_SYMBOL_FILES
-        + (HUMAN_NOTES_FILE,)
+        + (HUMAN_NOTES_FILE, HUMAN_SESSION_FILE)
     )
     if required_files != expected_required:
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} required_files does not match checker contract")
@@ -549,6 +794,9 @@ def validate_human_notes(path: Path) -> None:
     for key in REQUIRED_FREEFORM_HUMAN_NOTE_FIELDS:
         if key not in notes:
             raise AssertionError(f"{HUMAN_NOTES_FILE} missing {key}=")
+        pattern = HUMAN_NOTE_FIELD_PATTERNS[key]
+        if not re.fullmatch(pattern, notes[key]):
+            raise AssertionError(f"{HUMAN_NOTES_FILE} {key}= has invalid format")
     for key, allowed_values in REQUIRED_HUMAN_NOTE_FIELDS.items():
         value = notes.get(key)
         if value is None:
@@ -563,6 +811,18 @@ def validate_human_notes(path: Path) -> None:
             raise AssertionError(f"{HUMAN_NOTES_FILE} {key}= must be one of {allowed}, got {value!r}")
 
 
+def _assert_human_session_allowlist(names: list[str]) -> None:
+    for name in names:
+        basename = Path(name).name
+        if name != basename:
+            raise AssertionError(f"human session bundles must be flat; nested path found: {name}")
+        if basename in HUMAN_SESSION_ALLOWED_EXACT_FILES:
+            continue
+        if any(fnmatch.fnmatchcase(basename, pattern) for pattern in HUMAN_SESSION_ALLOWED_PATTERNS):
+            continue
+        raise AssertionError(f"unexpected human session artifact: {name}")
+
+
 def validate_artifact_dir(artifact_dir: Path, require_human_notes: bool = False) -> None:
     if not artifact_dir.exists():
         raise AssertionError(f"artifact directory does not exist: {artifact_dir}")
@@ -573,6 +833,8 @@ def validate_artifact_dir(artifact_dir: Path, require_human_notes: bool = False)
             if fnmatch.fnmatchcase(basename, pattern):
                 raise AssertionError(f"forbidden WAD/image/pixel/audio artifact present: {name}")
     _assert_no_forbidden_contents(artifact_dir, names)
+    if require_human_notes:
+        _assert_human_session_allowlist(names)
 
     missing = [
         required
@@ -630,6 +892,15 @@ def validate_artifact_dir(artifact_dir: Path, require_human_notes: bool = False)
             validate_human_notes(artifact_dir / human_notes)
         except AssertionError as exc:
             raise AssertionError(f"human playtest notes failed: {exc}") from exc
+
+    human_session = _find_one(names, HUMAN_SESSION_FILE)
+    if require_human_notes and human_session is None:
+        raise AssertionError(f"missing expected human session file: {HUMAN_SESSION_FILE}")
+    if human_session is not None:
+        try:
+            validate_human_session(artifact_dir, artifact_dir / human_session)
+        except AssertionError as exc:
+            raise AssertionError(f"human playtest session failed: {exc}") from exc
 
     human_manifest = _find_one(names, HUMAN_MANIFEST_FILE)
     if require_human_notes and human_manifest is None:

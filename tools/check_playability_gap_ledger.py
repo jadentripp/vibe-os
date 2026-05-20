@@ -80,13 +80,16 @@ REQUIRED_GAPS = {
 LATEST_RUN_PHRASES = (
     "Latest Cloud Evidence",
     "current scripted cloud truth-serum run",
-    "26151623245",
-    "4c2c5c9",
+    "26155149926",
+    "dc8224e",
     "real-WAD, human-playability",
     "audible-audio manifest",
-    "persistence reboot",
+    "save-slot persistence reboot",
     "artifact hygiene",
-    "26151623239",
+    "26155142532",
+    "DOOMSAV0.DSG bytes=512 changed-from-baseline",
+    "survived-reboot description='VIBESAVE'",
+    "reboot status runtime=OK",
     "26150621804",
     "1db3a7a",
     "usr=FAIL",
@@ -123,6 +126,8 @@ LATEST_RUN_PHRASES = (
     "human-facing Doom-capable proof",
 )
 
+PROVEN_GAPS = {"CLOUD_BOOT", "REAL_GAMEPLAY", "PERSISTENCE"}
+
 GAP_RE = re.compile(
     r"^- `GAP\[(?P<id>[A-Z0-9_]+)\] "
     r"status=(?P<status>[a-z-]+) "
@@ -154,7 +159,11 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         if gap_id in gaps:
             raise AssertionError(f"duplicate gap id: {gap_id}")
         gaps[gap_id] = match.groupdict()
-        if match.group("status") != "open":
+        status = match.group("status")
+        if gap_id in PROVEN_GAPS:
+            if status != "proven":
+                raise AssertionError(f"{gap_id} must be status=proven after its gate is proven")
+        elif status != "open":
             raise AssertionError(f"{gap_id} must stay status=open until its gate is proven")
         for heading in ("Current state:", "Still missing:", "Executable gate:"):
             if heading not in block:
@@ -187,15 +196,15 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
             raise AssertionError(f"gap ledger missing latest-run phrase: {phrase}")
     for phrase in (
         "scripted cloud evidence",
-        "26151623245",
-        "4c2c5c9",
-        "26151623239",
+        "26155149926",
+        "dc8224e",
+        "26155142532",
         "playability-status-green",
     ):
         if not _contains_phrase(readme, phrase):
             raise AssertionError(f"README missing claim-boundary phrase: {phrase}")
-    if "not a claim that the current branch is playable" not in playable_cloud_proof:
-        raise AssertionError("playable cloud proof doc must not read as a current playability claim")
+    if "not by itself a claim that the current branch is human-playable" not in playable_cloud_proof:
+        raise AssertionError("playable cloud proof doc must keep the human-playability claim boundary")
     if "docs/post-checkpoint-gaps.md" not in readme:
         raise AssertionError("README must point to the gap ledger")
     if "Still required before this is actually Doom-capable" not in readme:
@@ -226,7 +235,12 @@ def main() -> int:
         print(f"playability gap ledger failed: {exc}", file=sys.stderr)
         return 1
 
-    print(f"playability gap ledger OK: {len(gaps)} open Doom-capability gaps tracked")
+    open_count = sum(1 for gap in gaps.values() if gap["status"] == "open")
+    proven_count = sum(1 for gap in gaps.values() if gap["status"] == "proven")
+    print(
+        "playability gap ledger OK: "
+        f"{open_count} open and {proven_count} proven Doom-capability gates tracked"
+    )
     return 0
 
 

@@ -76,11 +76,13 @@ Process records now carry enough saved-frame state for both timer preemption
 and syscall-driven exec handoff. `process_seed_initial_user_context` initializes
 the saved Ring 3 frame for a fresh target, marks it READY, and sets
 `PROC_FLAG_IRQ_FRAME_VALID`. `SYS_EXEC` tears down stale user mappings in the
-target slot, restores the target stack PTEs, assigns a fresh PID, writes an
+target slot, restores the target stack PTEs, assigns a fresh PID, transfers
+inheritable fd ownership from the caller PID to the target PID, writes an
 argv-shaped stack, patches the interrupted syscall frame, retires the caller's
 user mappings, and then activates the target process record. Failed exec paths
-retire any half-prepared target slot before reporting rollback. `SYS_EXIT` also
-tears down the current process's user mappings before marking it exited.
+retire any half-prepared target slot before reporting rollback. `SYS_EXIT`,
+fault retirement, target-slot reuse, and wait reaping also close descriptors
+owned by the retiring process before the record becomes reusable.
 
 ## Permissions
 

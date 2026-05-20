@@ -202,6 +202,7 @@ class BootLoaderVmContractTests(unittest.TestCase):
 
     def test_boot_vm_docs_state_current_limits_without_overclaiming(self):
         boot_doc = text(ROOT / "docs" / "boot-loader-vm.md")
+        uefi_scaffold = text(ROOT / "boot" / "uefi" / "README.md")
         process_doc = text(ROOT / "docs" / "process-vm.md")
         readme = text(ROOT / "README.md")
         tests_readme = text(ROOT / "tests" / "README.md")
@@ -222,6 +223,11 @@ class BootLoaderVmContractTests(unittest.TestCase):
         self.assertIn("docs/boot-loader-vm.md", readme)
         self.assertIn("Boot/loader/VM contract", tests_readme)
         self.assertIn("fixed low-memory page-table pages", process_doc)
+        self.assertIn("boot/uefi/README.md", readme)
+        self.assertIn("contract-only UEFI scaffold", boot_doc)
+        self.assertIn("status=unimplemented", uefi_scaffold)
+        self.assertIn("SUPPORT[UEFI] remains unclaimed", uefi_scaffold)
+        self.assertNotIn("UEFI_BOOT[ENTRY] status=implemented", uefi_scaffold)
 
 
 if __name__ == "__main__":

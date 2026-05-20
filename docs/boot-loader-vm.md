@@ -22,6 +22,19 @@ Mode 13h fallback, enables A20 through port `0x92`, loads its own flat GDT, sets
 entry sets flat data selectors and a temporary stack, then calls the Stage 2 ELF
 loader.
 
+## UEFI Scaffold Boundary
+
+`boot/uefi/README.md` is a contract-only UEFI scaffold. It defines the future
+`UEFI_BOOT[...]` rows for a PE/COFF entry, ESP/FAT kernel load, GOP framebuffer
+handoff, UEFI memory map capture, `ExitBootServices`, ELF32-compatible kernel
+handoff, and separate opt-in build integration. Every row remains
+`status=unimplemented`, and SUPPORT[UEFI] remains unclaimed in
+`docs/hardware-support.md`.
+
+The scaffold is not part of the current Makefile image path. Today the booted
+artifact is still the BIOS raw-sector chain above; there is no ESP image, UEFI
+application, firmware memory-map handoff, or UEFI boot proof.
+
 ## ELF Handoff
 
 The kernel is not treated as a raw sector blob. Stage 2 checks the ELF magic,

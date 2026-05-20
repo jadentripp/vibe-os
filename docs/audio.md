@@ -137,10 +137,12 @@ programming and `play=` start counters, nonzero `voiceq=` and `musicq=` queue
 counters, monotonic audio counters, increasing IRQ/refill, non-music SFX
 `sfxmix=`, music `musicmix=` counters, increasing `musicpos=`, a progressing
 `voiceq=` stream-update component, visible `musicbuf=` / `musicunder=` /
-`musicdrops=` health fields, and nonzero SB16 ACK accounting. That proves the
-emulated SB16 guest path was initialized, DMA-programmed, started, queued, and
-continued to refill and mix both Doom SFX and streamed music chunks across time
-without uploading
+`musicdrops=` health fields, coherent lane accounting where `voices=` equals
+`sfxvoices=` plus `musicvoices=`, at least one active SFX voice snapshot, at
+least one active music voice snapshot, at least one buffered music-window
+snapshot, and nonzero SB16 ACK accounting. That proves the emulated SB16 guest
+path was initialized, DMA-programmed, started, queued, and continued to refill
+and mix both Doom SFX and streamed music chunks across time without uploading
 proprietary WAD data, PCM samples, or rendered pixels. A run with `audio=NONE`
 is still useful diagnostics, but it is not an audible/streaming audio proof.
 
@@ -161,7 +163,9 @@ final `audio=SB16` / SB16 version / DMA / playback / voice queue / IRQ / refill
 / non-music SFX / music status counters, and a status-only SB16 continuity
 summary from the same phase snapshots. The audible checker refuses to write or
 validate the manifest if only the music path progresses while `sfxmix=` stays
-flat. It does not store samples, hashes, PCM bytes, WAD bytes,
+flat, and its continuity summary now records separate `mix_lanes` deltas for
+non-music SFX, music, stream updates, music position, and shared SB16 IRQ/refill
+progress. It does not store samples, hashes, PCM bytes, WAD bytes,
 pixels, or a waveform. The artifact
 checker rejects raw audio files such as `*.wav`, `*.mp3`, `*.ogg`, and `*.flac`,
 but accepts `audio-proof.json` when the manifest passes the checker. This proves
@@ -173,10 +177,11 @@ Doom music:
 
 Music is now owned by isolated Doom port code instead of kernel assembly or the
 vendor Doom tree. `doom_port/music.c` detects MUS and Standard MIDI bytes,
-parses their event streams, tracks channel volume and active notes, schedules
-MUS/MIDI delays, and renders deterministic unsigned 8-bit PCM with a small
-integer square-wave synth. The renderer is deliberately freestanding: it does
-not call host MIDI, audio, math, or operating-system libraries.
+parses their event streams, tracks channel volume/expression/pan/program,
+sustain, pitch bend, percussion mapping, active notes, and peak voice use,
+schedules MUS/MIDI delays, and renders deterministic unsigned 8-bit PCM with a
+small integer square/noise synth. The renderer is deliberately freestanding: it
+does not call host MIDI, audio, math, or operating-system libraries.
 
 `I_RegisterSong` stores the cached WAD lump pointer, and `I_PlaySong` now starts
 a port-owned stateful stream cursor instead of rendering one permanent carrier.
@@ -188,6 +193,8 @@ DMA/refill output path, so the parser/renderer work shares SFX voice stealing,
 clipping, silence, and status accounting. The extra `musicvoices=`, `musicmix=`,
 `musicpos=`, `musicbuf=`, `musicunder=`, `musicdrops=`, and `voiceq=` update
 counter make that contract visible in cloud smoke status.
+Runtime music volume updates feed `vibe_music_stream_set_volume`, so new chunks
+use Doom's latest music volume without restarting the song cursor.
 The kernel can later grow a first-class pull/refill command without changing the
 MUS/MIDI parser or Doom's original sources. See `docs/doom-music.md` for the
 full pipeline and fallback design.

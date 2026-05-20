@@ -88,7 +88,7 @@ def valid_status(**overrides):
         "pdelta": "00000100",
         "doomsound": "00000001",
         "sfxmix": "00000001",
-        "voices": "00000001",
+        "voices": "00000002",
         "sfxvoices": "00000001",
         "audioirq": "00000001",
         "ack8": "00000001",
@@ -362,6 +362,8 @@ def write_human_notes(artifact, **overrides):
     fields = {
         "schema": "human-playtest-notes-v1",
         "commit": "abcdef0",
+        "scripted_proof": "real-wad-smoke-pass",
+        "scripted_proof_run_id": "26155149926",
         "playtester": "jt",
         "remote_host": "disposable",
         "qemu_location": "remote",
@@ -374,6 +376,13 @@ def write_human_notes(artifact, **overrides):
         "keyboard": "pass",
         "mouse": "pass",
         "audio": "status-only",
+        "visual_evidence": "e1m1-visible-via-remote-vnc",
+        "keyboard_evidence": "fire-move-use-menu-visible",
+        "mouse_evidence": "motion-click-visible",
+        "status_capture": "monitor-pmemsave-0x9d000",
+        "session_phases": (
+            "early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final"
+        ),
         "diagnostics": "non-wad-status-only",
         "proof_bundle": "allowlisted-status-only",
         "no_local_qemu": "yes",
@@ -387,7 +396,23 @@ def write_human_notes(artifact, **overrides):
     )
 
 
+def write_human_session(artifact):
+    (artifact / "human-playtest-session.json").write_text(
+        json.dumps(
+            check_cloud_playability_artifacts.build_human_session(
+                artifact,
+                collected_at_utc="2026-05-20T00:00:00Z",
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+
+
 def write_human_manifest(artifact):
+    if not (artifact / "human-playtest-session.json").exists():
+        write_human_session(artifact)
     (artifact / "human-playtest-manifest.json").write_text(
         json.dumps(
             check_cloud_playability_artifacts.build_human_manifest(artifact),
@@ -461,6 +486,25 @@ def valid_audio_proof_manifest():
                 "musicmix": {"start": "00000001", "final": "00000006", "delta": "00000005"},
                 "musicpos": {"start": "00000001", "final": "00001400", "delta": "000013FF"},
                 "voiceq_update": {"start": "00000000", "final": "00000005", "delta": "00000005"},
+            },
+            "mix_lanes": {
+                "non_music_sfx": {
+                    "counter": "sfxmix",
+                    "delta": "00000007",
+                    "active_voice_snapshots": 5,
+                },
+                "music": {
+                    "counter": "musicmix",
+                    "delta": "00000005",
+                    "stream_update_delta": "00000005",
+                    "position_delta": "000013FF",
+                    "active_voice_snapshots": 5,
+                    "buffered_window_snapshots": 5,
+                },
+                "shared_sb16_refill": {
+                    "irq_delta": "00000005",
+                    "refill_delta": "00000005",
+                },
             },
             "claim": "non-silent remote QEMU output plus status-only SB16 continuity with streamed music chunks",
         },
@@ -571,6 +615,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             )
 
             write_human_notes(artifact)
+            write_human_session(artifact)
             write_human_manifest(artifact)
             check_cloud_playability_artifacts.validate_artifact_dir(
                 artifact,
@@ -578,8 +623,21 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             )
 
             write_human_notes(artifact, no_local_qemu="no")
+            write_human_session(artifact)
             write_human_manifest(artifact)
             with self.assertRaisesRegex(AssertionError, "human playtest notes failed"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
+    def test_downloaded_human_session_requires_session_transcript(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            write_human_notes(artifact)
+
+            with self.assertRaisesRegex(AssertionError, "human session file"):
                 check_cloud_playability_artifacts.validate_artifact_dir(
                     artifact,
                     require_human_notes=True,
@@ -590,6 +648,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             artifact = Path(tmp)
             write_valid_artifact(artifact)
             write_human_notes(artifact)
+            write_human_session(artifact)
 
             with self.assertRaisesRegex(AssertionError, "human manifest file"):
                 check_cloud_playability_artifacts.validate_artifact_dir(
@@ -602,6 +661,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             artifact = Path(tmp)
             write_valid_artifact(artifact)
             write_human_notes(artifact)
+            write_human_session(artifact)
             write_human_manifest(artifact)
 
             (artifact / "serial.remote.log").write_text("late extra diagnostic\n")
@@ -618,7 +678,60 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                     "playtester=someone-else",
                 )
             )
-            with self.assertRaisesRegex(AssertionError, "byte count mismatch|sha256 mismatch"):
+            with self.assertRaisesRegex(
+                AssertionError,
+                "human playtest session failed|byte count mismatch|sha256 mismatch",
+            ):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
+    def test_downloaded_human_session_rejects_session_tampering(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            write_human_notes(artifact)
+            write_human_session(artifact)
+            write_human_manifest(artifact)
+
+            session_path = artifact / "human-playtest-session.json"
+            session = json.loads(session_path.read_text())
+            session["phases"][1]["sha256"] = "0" * 64
+            session_path.write_text(json.dumps(session, indent=2, sort_keys=True) + "\n")
+
+            with self.assertRaisesRegex(AssertionError, "human playtest session failed"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
+    def test_downloaded_human_session_rejects_non_allowlisted_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            write_human_notes(artifact)
+            write_human_session(artifact)
+            write_human_manifest(artifact)
+
+            (artifact / "freeform-extra.txt").write_text("not part of the proof contract\n")
+            with self.assertRaisesRegex(AssertionError, "unexpected human session artifact"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            nested = artifact / "nested"
+            nested.mkdir()
+            write_valid_artifact(artifact)
+            write_human_notes(artifact)
+            write_human_session(artifact)
+            write_human_manifest(artifact)
+
+            (nested / "serial.remote.log").write_text("nested logs are not accepted\n")
+            with self.assertRaisesRegex(AssertionError, "must be flat"):
                 check_cloud_playability_artifacts.validate_artifact_dir(
                     artifact,
                     require_human_notes=True,
@@ -629,6 +742,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             artifact = Path(tmp)
             write_valid_artifact(artifact)
             write_human_notes(artifact)
+            write_human_session(artifact)
             write_human_manifest(artifact)
 
             result = subprocess.run(
@@ -663,6 +777,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                     str(output),
                     "--playtester",
                     "jt",
+                    "--scripted-proof-run-id",
+                    "26155149926",
                     "--commit",
                     "abcdef0",
                 ],
@@ -674,6 +790,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("human playtest bundle OK", result.stdout)
             self.assertTrue((output / "human-playtest-notes.txt").exists())
+            self.assertTrue((output / "human-playtest-session.json").exists())
             self.assertTrue((output / "human-playtest-manifest.json").exists())
             self.assertTrue((output / "serial.remote.log").exists())
             self.assertFalse((output / "disk.img").exists())
@@ -695,6 +812,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                 str(ROOT / "build" / "human-proof"),
                 "--playtester",
                 "jt",
+                "--scripted-proof-run-id",
+                "26155149926",
             ],
             cwd=ROOT,
             capture_output=True,
