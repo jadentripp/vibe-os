@@ -39,12 +39,15 @@ The Doom platform hooks in `doom_port/platform.c` now register song lump
 pointers through `vibe_music_register_song`, start a stateful stream cursor with
 `vibe_music_stream_begin`, render streamed music chunks with
 `vibe_music_stream_render`, and submit those chunks to the existing `SYS_AUDIO`
-path. The first chunk uses `VIBE_AUDIO_START_SFX`; subsequent chunks use
-`VIBE_AUDIO_UPDATE_SFX` so the kernel refreshes the music voice's sample window
-without changing Doom's original sources. The temporary music handle space is
-separated with `VIBE_MUSIC_AUDIO_HANDLE_BASE`, so the kernel can distinguish
-music voices from normal Doom SFX handles. The descriptor also marks the voice
-with `VIBE_AUDIO_FLAG_MUSIC`.
+path. `I_PlaySong` only starts the stream cursor; the first chunk render is
+deferred to the normal tic/frame/sound update pump so startup cannot block
+inside the synthesizer before Doom reaches gameplay status. The first chunk uses
+`VIBE_AUDIO_START_SFX`; subsequent chunks use `VIBE_AUDIO_UPDATE_SFX` so the
+kernel refreshes the music voice's sample window without changing Doom's
+original sources. The temporary music handle space is separated with
+`VIBE_MUSIC_AUDIO_HANDLE_BASE`, so the kernel can distinguish music voices from
+normal Doom SFX handles. The descriptor also marks the voice with
+`VIBE_AUDIO_FLAG_MUSIC`.
 Runtime music volume changes call `vibe_music_stream_set_volume`, so future
 chunks honor Doom's current music volume without resetting the song position.
 The platform hook now polls `VIBE_AUDIO_MUSIC_PULL_STATE` before rendering a new

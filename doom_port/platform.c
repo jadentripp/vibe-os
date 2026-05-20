@@ -1074,7 +1074,6 @@ void I_PlaySong(int handle, int looping)
         VIBE_MUSIC_DEFAULT_SAMPLE_RATE,
         (unsigned long)current_music_volume,
         looping);
-    pump_music_stream();
 }
 
 void I_StopSong(int handle)
