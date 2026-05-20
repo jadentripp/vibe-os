@@ -306,6 +306,7 @@ jobs:
           check_args=(--baseline-image "$baseline")
           persistence_write_script="$PERSISTENCE_INPUT_SCRIPT"
           persistence_load_script="$PERSISTENCE_LOAD_INPUT_SCRIPT"
+          persistence_default_script=""
           save_slot_digit=""
           if [ -n "${PERSISTENCE_SAVE_SLOT:-}" ]; then
             case "$PERSISTENCE_SAVE_SLOT" in
@@ -321,21 +322,13 @@ jobs:
                 ;;
             esac
             if [ "$persistence_write_script" = "auto" ]; then
-              persistence_write_script="save-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,f2,wait=2"
-              if [ "$PERSISTENCE_SAVE_SLOT" != "0" ]; then
-                persistence_write_script="${persistence_write_script},${save_slot_digit}"
-              fi
-              persistence_write_script="${persistence_write_script},ret,text=VIBE-SLOT-${PERSISTENCE_SAVE_SLOT},ret,wait-status-min=saveclose:00000001:80:2,f10,wait=1,y,wait-status=doomrun:EXIT:60:2,snapshot"
+              persistence_write_script="save-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,f2,wait=2,${save_slot_digit},wait=1,ret,text=VIBE-SLOT-${PERSISTENCE_SAVE_SLOT},ret,wait-status-min=saveclose:00000001:80:2,snapshot"
             fi
             if [ "$persistence_load_script" = "auto" ]; then
-              persistence_load_script="load-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,f3,wait=2"
-              if [ "$PERSISTENCE_SAVE_SLOT" != "0" ]; then
-                persistence_load_script="${persistence_load_script},${save_slot_digit}"
-              fi
+              persistence_load_script="load-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,f3,wait=2,${save_slot_digit},wait=1"
               persistence_load_script="${persistence_load_script},ret,wait-status-min=saveclose:00000001:80:2,wait-status=gameplay:OK:60:2,snapshot"
             fi
-            check_args+=(--require-default)
-            check_args+=(--write-status build/status.persistence-write.txt)
+            persistence_default_script="persist-default:wait-status=gameplay:OK:150:5,f10,wait=1,y,wait-status=doomrun:EXIT:80:2,snapshot"
             check_args+=(--require-save-slot "$PERSISTENCE_SAVE_SLOT")
             check_args+=(--save-write-status build/status.persistence-write.txt)
           else
@@ -396,9 +389,28 @@ jobs:
 
           python3 tools/check_doom_persistence_image.py "${check_args[@]}" build/disk.img \
             | tee build/status.persistence-write-proof.txt
-          cp build/disk.img "$after_write"
 
           if [ -n "${PERSISTENCE_SAVE_SLOT:-}" ]; then
+            mkdir -p build/persistence-default
+            QEMU=qemu-system-x86_64 \
+              QEMU_MACHINE=pc,accel=tcg \
+              QEMU_EXTRA_ARGS="-audiodev wav,id=snd0,path=$RUNNER_TEMP/persistence-default-audio.wav -device sb16,audiodev=snd0" \
+              IMAGE=build/disk.img \
+              BUILD_DIR=build/persistence-default \
+              NC=nc \
+              SMOKE_CAPTURE_GFX=0 \
+              SMOKE_QEMU_TIMEOUT=220 \
+              SMOKE_EARLY_SECONDS=2 \
+              SMOKE_SETTLE_SECONDS=20 \
+              SMOKE_INPUT_SCRIPT="$persistence_default_script" \
+              tests/run_smoke_qemu.sh
+            cp build/persistence-default/status.txt build/status.persistence-default.txt
+            check_args+=(--require-default)
+            check_args+=(--write-status build/status.persistence-default.txt)
+            python3 tools/check_doom_persistence_image.py "${check_args[@]}" build/disk.img \
+              | tee build/status.persistence-default-proof.txt
+            cp build/disk.img "$after_write"
+
             mkdir -p build/persistence-load
             QEMU=qemu-system-x86_64 \
               QEMU_MACHINE=pc,accel=tcg \
@@ -424,6 +436,7 @@ jobs:
               | tee build/status.persistence-load-proof.txt
             cp build/status.persistence-load-proof.txt build/status.persistence-reboot-proof.txt
           else
+            cp build/disk.img "$after_write"
             mkdir -p build/persistence-reboot
             QEMU=qemu-system-x86_64 \
               QEMU_MACHINE=pc,accel=tcg \
