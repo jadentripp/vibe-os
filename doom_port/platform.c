@@ -352,6 +352,7 @@ void I_ShutdownSound(void)
 
 void I_SetChannels(void)
 {
+    report_doom_init_status(VIBE_DOOM_INIT_SOUND);
 }
 
 int I_GetSfxLumpNum(sfxinfo_t* sfxinfo)

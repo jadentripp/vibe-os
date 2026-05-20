@@ -48,11 +48,14 @@ def valid_status(**overrides):
         "lmp": "OK",
         "heap": "OK",
         "target": "01000000",
+        "ppid": "00000001",
         "entry": "01000000",
         "stack": "0100EFE0",
         "argc": "00000001",
         "argv": "0100EFE4",
+        "envp": "0100EFEC",
         "argv0": "00F00000",
+        "envp0": "00000000",
         "execerr": "00000000",
         "execres": "00000000",
         "doomwrite": "00000001",
@@ -69,9 +72,9 @@ def valid_status(**overrides):
         "fault": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
         "panic": "NONE",
         "shutdown": "NONE",
-        "doompresent": "00000004",
+        "doompresent": "00000080",
         "doompal": "89ABCDEF",
-        "doomframe": "13572468",
+        "doomframe": "88888888",
         "doomnonzero": "00002000",
         "doomcolors": "00000080",
         "gtic": "00000020",
@@ -146,6 +149,8 @@ def valid_status(**overrides):
 def audio_phase_statuses():
     return {
         "status.early.txt": valid_status(
+            doompresent="00000010",
+            doomframe="11111111",
             gtic="00000010",
             leveltime="00000010",
             keyirq="00000001",
@@ -170,6 +175,8 @@ def audio_phase_statuses():
             pdelta="00000000",
         ),
         "status.after-start.txt": valid_status(
+            doompresent="00000020",
+            doomframe="22222222",
             gtic="00000018",
             leveltime="00000018",
             keyirq="00000001",
@@ -194,6 +201,8 @@ def audio_phase_statuses():
             mousedelta="00000000:00000000",
         ),
         "status.after-fire.txt": valid_status(
+            doompresent="00000030",
+            doomframe="33333333",
             gtic="00000020",
             leveltime="00000020",
             keyirq="00000002",
@@ -213,6 +222,8 @@ def audio_phase_statuses():
             musicloop="00000000",
         ),
         "status.after-move.txt": valid_status(
+            doompresent="00000040",
+            doomframe="44444444",
             gtic="00000030",
             leveltime="00000030",
             keyirq="00000003",
@@ -233,6 +244,8 @@ def audio_phase_statuses():
             musicloop="00000000",
         ),
         "status.after-use.txt": valid_status(
+            doompresent="00000050",
+            doomframe="55555555",
             gtic="00000040",
             leveltime="00000040",
             keyirq="00000004",
@@ -252,6 +265,8 @@ def audio_phase_statuses():
             musicloop="00000000",
         ),
         "status.after-mouse.txt": valid_status(
+            doompresent="00000060",
+            doomframe="66666666",
             gtic="00000050",
             leveltime="00000050",
             keyirq="00000004",
@@ -273,6 +288,8 @@ def audio_phase_statuses():
             musicloop="00000000",
         ),
         "status.after-menu.txt": valid_status(
+            doompresent="00000070",
+            doomframe="77777777",
             gtic="00000060",
             leveltime="00000060",
             keyirq="00000005",
@@ -290,6 +307,8 @@ def audio_phase_statuses():
             musicloop="00000001",
         ),
         "status.txt": valid_status(
+            doompresent="00000080",
+            doomframe="88888888",
             doomsound="00000004",
             sfxmix="00000008",
             audioirq="00000006",

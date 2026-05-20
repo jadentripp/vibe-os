@@ -92,6 +92,63 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertIn("changed-from-baseline", summary[1])
         self.assertIn("REBOOT PROOF", summary[1])
 
+    def test_checker_proves_requested_entries_survived_reboot_image(self):
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        after_write = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(after_write)
+        fs.write_root_file(
+            make_wad_image.WRITABLE_DEFAULT_NAME,
+            b"use_mouse\t\t1\nscreenblocks\t\t9\nchatmacro0\t\t\"HELLO\"\n",
+        )
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[3], doom_save_payload("STILL HERE"))
+
+        after_reboot = bytearray(after_write)
+        baseline_path = self.write_temp_image(baseline)
+        write_path = self.write_temp_image(after_write)
+        reboot_path = self.write_temp_image(after_reboot)
+
+        summary = check_persistence.validate_image(
+            reboot_path,
+            baseline_image=baseline_path,
+            reboot_baseline_image=write_path,
+            require_default=True,
+            require_save_slots=[3],
+        )
+
+        self.assertIn("changed-from-baseline", summary[0])
+        self.assertIn("survived-reboot", summary[0])
+        self.assertIn("DOOMSAV3.DSG bytes=", summary[1])
+        self.assertIn("survived-reboot", summary[1])
+        self.assertIn("STILL HERE", summary[1])
+
+    def test_checker_rejects_requested_entry_that_changed_during_reboot(self):
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        after_write = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(after_write)
+        fs.write_root_file(
+            make_wad_image.WRITABLE_DEFAULT_NAME,
+            b"use_mouse\t\t1\nscreenblocks\t\t9\n",
+        )
+
+        after_reboot = bytearray(after_write)
+        reboot_fs = make_wad_image.Fat16Image(after_reboot)
+        reboot_fs.write_root_file(
+            make_wad_image.WRITABLE_DEFAULT_NAME,
+            b"use_mouse\t\t1\nscreenblocks\t\t10\n",
+        )
+
+        baseline_path = self.write_temp_image(baseline)
+        write_path = self.write_temp_image(after_write)
+        reboot_path = self.write_temp_image(after_reboot)
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "did not survive reboot"):
+            check_persistence.validate_image(
+                reboot_path,
+                baseline_image=baseline_path,
+                reboot_baseline_image=write_path,
+                require_default=True,
+            )
+
     def test_checker_rejects_protected_wad_or_elf_mutation_from_baseline(self):
         baseline = bytearray((BUILD / "disk.img").read_bytes())
         image = bytearray(baseline)
@@ -222,6 +279,8 @@ class DoomPersistenceImageTests(unittest.TestCase):
 
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "requires --require-default"):
             check_persistence.validate_image(path, baseline_image=path)
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "requires --require-default"):
+            check_persistence.validate_image(path, reboot_baseline_image=path)
 
     def test_checker_rejects_requested_entry_unchanged_from_baseline(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
@@ -260,6 +319,8 @@ class DoomPersistenceImageTests(unittest.TestCase):
                 "--require-default",
                 "--require-save-slot",
                 "1",
+                "--reboot-baseline-image",
+                str(path),
                 str(path),
             ],
             cwd=ROOT,
@@ -271,9 +332,30 @@ class DoomPersistenceImageTests(unittest.TestCase):
 
         self.assertIn("DEFAULT.CFG bytes=", result.stdout)
         self.assertIn("DOOMSAV1.DSG bytes=", result.stdout)
+        self.assertIn("survived-reboot", result.stdout)
         self.assertIn("REMOTE PROOF", result.stdout)
         self.assertNotIn("IWAD", result.stdout)
         self.assertEqual(result.stderr, "")
+
+    def test_persistence_doc_keeps_dynamic_fs_and_storage_boot_gaps_explicit(self):
+        persistent_doc = (ROOT / "docs" / "persistent-fat16.md").read_text()
+        gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
+
+        for phrase in (
+            "Writable semantics are still deliberately narrow",
+            "root-level 8.3 files",
+            "no subdirectories",
+            "no rename",
+            "no long filenames",
+            "no POSIX delete-while-open behavior",
+            "broader storage boot",
+            "archived",
+            "real-WAD cloud",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, persistent_doc)
+        self.assertIn("dynamic writable FS", gap_doc)
+        self.assertIn("storage boot path", gap_doc)
 
 
 if __name__ == "__main__":

@@ -70,9 +70,12 @@ defaults text in `DEFAULT.CFG`, and `--require-save-slot N` to require a
 `version ...` marker. For real proof, copy the fresh remote `disk.img` before
 boot and pass it back with `--baseline-image`; requested entries must differ
 from the baseline image, so preseeded host bytes do not count as Doom
-persistence. With a baseline image present, the checker also verifies both FAT
-copies agree and protected `DOOM1.WAD`, `USERPROB.ELF`, and `DOOM.ELF` entries
-have unchanged metadata and bytes.
+persistence. For reboot proof, copy an after-write snapshot of the same disk
+image and pass it with `--reboot-baseline-image` after booting the image again;
+requested entries must still have the same FAT root cluster, size, and bytes.
+With a baseline image present, the checker also verifies both FAT copies agree
+and protected `DOOM1.WAD`, `USERPROB.ELF`, and `DOOM.ELF` entries have unchanged
+metadata and bytes.
 
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` also exercises
 sparse writes, growth, resize-to-smaller, resize-to-zero, delete, and FAT-copy
@@ -82,3 +85,16 @@ replacement semantics today.
 
 This is enough for Doom defaults and save slots without turning the kernel into
 a general-purpose FAT filesystem.
+
+Remaining storage gaps before a broad Doom-capable claim:
+
+- Writable semantics are still deliberately narrow: root-level 8.3 files,
+  bounded dynamic root entries, no subdirectories, no rename, no long filenames,
+  no timestamps/ownership, and no POSIX delete-while-open behavior.
+- The storage proof is image-level and cloud-runner scoped. The OS can mutate
+  the generated FAT16 disk image, but there is not yet a broader storage boot
+  path story for installing, selecting, or safely recovering persistent media
+  outside this generated image workflow.
+- Reboot persistence is still an executable proof gate until an archived
+  real-WAD cloud artifact shows Doom writing the requested config/save state and
+  the same remote image preserving it across a second boot.

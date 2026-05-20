@@ -215,7 +215,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     keypoll="00000005",
                     keyseen="00000071",
                     keylast="0001001B",
-                    pflags="000000FF",
+                    pflags="000000F7",
                 )
             )
 
@@ -298,6 +298,40 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                         baseline,
                         mouse_status=bad_mouse,
                     )
+
+        stale_y_baseline = make_status(
+            gtic="00000010",
+            leveltime="00000010",
+            mouseirq="00000000",
+            mousepkt="00000000",
+            mousepoll="00000000",
+            mousebtn="00000000",
+            mousedelta="00000000:0000000C",
+            keyseen="00000031",
+        )
+        stale_y_mouse = make_status(
+            gtic="00000020",
+            leveltime="00000020",
+            mouseirq="00000001",
+            mousepkt="00000001",
+            mousepoll="00000001",
+            mousebtn="00000001",
+            mousedelta="00000018:0000000C",
+            keyseen="00000031",
+        )
+        with self.assertRaisesRegex(AssertionError, "mousedelta"):
+            check_human_playability_proof.validate_status(
+                make_status(
+                    gtic="00000030",
+                    leveltime="00000030",
+                    keyirq="00000003",
+                    keyqueue="00000003",
+                    keypoll="00000003",
+                    keyseen="00000071",
+                ),
+                stale_y_baseline,
+                mouse_status=stale_y_mouse,
+            )
 
         for field, value in (
             ("mousebtn", "00000000"),
@@ -394,7 +428,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             "SMOKE_INPUT_SCRIPT ?=",
             "SMOKE_REQUIRE_HUMAN_PLAYABILITY_PROOF ?= 0",
             'grep -q "pflags="',
-            'human_args="--baseline $(BUILD_DIR)/status.early.txt"',
+            'human_args="--baseline $(BUILD_DIR)/status.after-start.txt --start $(BUILD_DIR)/status.after-start.txt"',
             "tools/check_human_playability_proof.py $$human_args $(BUILD_DIR)/status.txt",
         ):
             self.assertIn(source, makefile)
@@ -411,8 +445,8 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             "after-fire:hold=ctrl:800",
             "after-start:wait=2",
             "after-move:hold=up:1200",
-            "after-use:spc",
-            "after-mouse:mouse=24:-12",
+            "after-use:hold=spc:3000,snapshot,wait=2",
+            "after-mouse:mouse=24:-12,mouse=0:-12",
             "mousebtn=1",
             "after-menu:esc",
             "Assert scripted human-playability gates",

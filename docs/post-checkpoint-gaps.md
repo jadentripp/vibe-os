@@ -23,56 +23,49 @@ them so README and runbook wording cannot quietly drift into overclaiming.
 - The FAT16 image has root entries for `DEFAULT.CFG` and `DOOMSAV0.DSG` through
   `DOOMSAV5.DSG`, and host tests prove image-level allocation/readback behavior.
 
-## Latest Analyzed Cloud Run
+## Latest Cloud Evidence
 
-As of 2026-05-20, the latest analyzed manual **Real WAD smoke** run is
-`26146035600` on commit `269dbb8`, and it is not a Doom-capable proof.
+As of 2026-05-20, the latest reported real-WAD cloud evidence has moved past the
+old "Doom faults before WAD I/O" stage. It is still not a Doom-capable proof,
+but the first repair lane has changed.
 
-What it proves:
+What the current evidence proves:
 
-- The disposable cloud workflow fetched and validated the shareware
-  `DOOM1.WAD`, built the image, and booted QEMU long enough to capture status
-  snapshots through the mouse phase.
-- The old `exec-not-attempted` blocker is no longer the first failure in this
-  run. Status shows `exec=OK path=DOOM.ELF`, `execsys=1/1/0/1/1/0`, zero
-  `execerr` / `execres`, a nonzero target PID, and seeded entry, stack, argc,
-  argv, and argv0 values.
+- The disposable real-WAD workflow can fetch and validate the shareware
+  `DOOM1.WAD`, build the image, boot it in cloud QEMU, and start the Doom ELF
+  through the generic `SYS_EXEC("DOOM.ELF")` path.
+- Real-WAD Doom reaches `doomrun=RUN` with WAD I/O visible through the kernel
+  file path: `doomopen=OK`, `doomread=OK`, nonzero seek/close counters, and
+  `doomwad` magic for `IWAD`.
+- Frame/gameplay counters are active enough to show the engine is presenting
+  frames and reaching E1M1 gameplay status rather than dying during startup.
+- Scripted keyboard input, mouse input, SB16/audio counters, and live
+  preemption counters are active in the cloud status stream.
+- Earlier page-fault diagnostics remain useful, but they are historical repair
+  context rather than the current primary blocker.
 
-What fails:
+What still fails:
 
-- The primary triage class is `doom-user-fault`.
-- Doom faults in Ring 3 at `FindResponseFile+0x34` with
-  `doomfaultip=01003224`, vector `0000000E`, error `00000005`, and
-  `CR2=00000000`.
-- The compact fault tuple is
-  `0000000E/00000005/01003224/0000001B/01FFFD98/00000023/00000000/00000002/00000002/00000002/00000010`.
-- `doomopen=FAIL doomread=FAIL`, `gameplay=WAIT`, `doompresent=00000000`,
-  input counters remain zero, and no final `status.txt` exists because the smoke
-  script timed out while waiting for the after-menu phase after Doom had already
-  faulted.
+- The proof gates are not clean enough to say "playable Doom" yet. The current
+  cleanup lane is around `usr=OK` consistency, scripted `use` snapshot
+  progression, mouse snapshot/effect baselines, and SB16/audio baseline
+  continuity.
+- A green final status line is not sufficient by itself. The exact cloud
+  artifact for the claimed commit must pass `tools/check_real_wad_proof.py`,
+  `tools/check_human_playability_proof.py`, `tools/check_audio_continuity_proof.py`,
+  and `tools/check_cloud_playability_artifacts.py` on the uploaded snapshot set.
+- The project still needs stronger gameplay proof and a recorded remote human
+  playtest before a human-facing "playable" claim is honest.
 
-Next repair lane:
+Earlier red runs kept for context:
 
-- Fix the Doom user-mode page fault before treating WAD I/O, input, audio,
-  gameplay, or persistence failures as primary. The next cloud run must move
-  from `doomrun=FAULT` to `doomrun=RUN`, with `doomfault*` and `fault=` cleared,
-  before any playable claim is possible.
-
-Current-head smoke status:
-
-- The latest normal cloud `os-smoke` run is `26146488906` on current head
-  `34eb98d`, and it is also red.
-- It proves a later synthetic/generated-WAD path than the real-WAD run:
-  `exec=OK`, `doomopen=OK`, `doomread=OK`, `doomseek=00000001`,
-  `doomclose=00000002`, and Doom startup log text reaches
-  `W_Init: Init WADfiles.  adding ./doom1.wad`.
-- It then fails as `doom-user-fault` at `W_AddFile+0x246` with
-  `doomfault=0193F000`, `doomfaultip=01024D06`, vector `0000000E`, error
-  `00000007`, and compact fault tuple
-  `0000000E/00000007/01024D06/0000001B/01FFF3C0/00000023/0193F000/00000002/00000002/00000002/00000005`.
-- This does not replace the real-WAD failure above, but it narrows the current
-  repair lane: Doom is now reaching WAD startup in smoke, then hitting a
-  user-mode write-protection page fault before gameplay.
+- Manual real-WAD run `26146035600` on commit `269dbb8` reached exec handoff but
+  faulted in Ring 3 at `FindResponseFile+0x34` with `doomfaultip=01003224`,
+  vector `0000000E`, error `00000005`, and `CR2=00000000`.
+- Normal cloud smoke run `26146488906` on commit `34eb98d` reached generated-WAD
+  open/read and then faulted at `W_AddFile+0x246` with
+  `doomfaultip=01024D06`. Those failures should not be described as the latest
+  blocker after the newer real-WAD cloud run evidence.
 
 ## Machine-Readable Gap Ledger
 
@@ -85,17 +78,20 @@ Current state:
 - The manual real-WAD workflow validates the shareware `DOOM1.WAD` size/hash,
   rebuilds the image with that WAD, and keeps WAD bytes, disk images, and
   rendered pixels out of uploaded artifacts.
-- The latest analyzed real-WAD run reached the Doom exec handoff, but the proof
-  is still red because Doom faulted before WAD I/O and gameplay.
-- The latest normal cloud smoke for current head is also red, faulting after
-  generated-WAD open/read but before gameplay.
+- Current real-WAD cloud evidence reaches Doom runtime, WAD I/O, frames,
+  gameplay status, input counters, audio counters, and preemption counters.
+- The proof is still red because the uploaded snapshot set needs `usr`, `use`,
+  mouse, and audio-baseline cleanup before the checkers can certify it.
 
 Still missing:
 
 - A current passing manual real-WAD cloud workflow on the exact commit being
-  claimed. A previous run is useful evidence, but it is stale once the kernel/runtime changes.
+  claimed. A previous run is useful evidence, but it is stale once the
+  kernel/runtime changes.
 - A green run must include a final `status.txt`; `status.failure.txt` from a
   timed-out/faulted smoke is diagnostic evidence only.
+- The status snapshot bundle must include clean early/start/fire/move/use/mouse/menu
+  baselines that make the proof gates reproducible.
 
 Executable gate:
 
@@ -113,23 +109,29 @@ Current state:
   process/storage/VM/audio/input/scheduler telemetry.
 - The checker delegates scripted input validation to
   `tools/check_human_playability_proof.py`.
+- The latest real-WAD cloud evidence proves the important runtime direction:
+  Doom boots, runs, opens/reads the real WAD, presents frames, reaches gameplay
+  status, and emits input/audio/preemption counters.
 
 Still missing:
 
-- A fresh real-WAD status artifact proving those fields on the current commit
-  after the real-WAD fault is fixed.
-- The current first runtime blocker is the Ring 3 page fault at
-  `FindResponseFile+0x34`; until that is fixed, WAD open/read, E1M1 gameplay,
-  input, and audio proof are downstream unknowns.
-- On current head, the normal smoke path exposes a second fault at
-  `W_AddFile+0x246` after WAD open/read succeeds. Both faults need fresh cloud
-  proof after repair.
+- A fresh real-WAD status artifact on the current commit where every required
+  field and every required phase snapshot passes the checkers.
+- The remaining proof work is baseline hygiene, not a known pre-WAD crash:
+  make `usr=OK` stable in the proof status, prove the scripted `use` phase,
+  prove mouse button/motion effects against the baseline, and make the audio
+  continuity baseline line up with the same snapshot sequence.
+- Stronger gameplay proof still matters after the gates pass: the current
+  counter/status proof should be paired with a remote human playtest before the
+  public claim becomes "playable Doom" rather than "scripted cloud proof".
 
 Executable gate:
 
 - Run `python3 tools/check_real_wad_proof.py` with the early, fire, movement,
   use, menu, and final status artifacts from the cloud workflow, and require it
-  to pass without local QEMU or pixel dumps.
+  to pass without local QEMU or pixel dumps. Then run
+  `tools/check_audio_continuity_proof.py` on the same real-WAD snapshot set when
+  audio is part of the claim.
 
 - `GAP[HUMAN_PLAYTEST] status=open category=human-playtest gate=remote-doom-playtest.md evidence=human-session-notes`
 
@@ -144,7 +146,8 @@ Current state:
 Still missing:
 
 - A person has not yet completed and recorded a current remote VNC playtest where
-  keyboard actions visibly affect the menu and E1M1 gameplay.
+  keyboard actions visibly affect the menu and E1M1 gameplay, with mouse actions
+  visibly affecting the same remote session when mouse support is claimed.
 
 Executable gate:
 
@@ -164,21 +167,31 @@ Current state:
   require Doom-shaped `DEFAULT.CFG` text plus a `DOOMSAVN.DSG` save header
   without exporting the WAD or rendered pixels. With `--baseline-image`, it also
   requires the requested entries to differ from the fresh pre-boot image, so
-  host-preseeded bytes do not count as a persistence proof. The same baseline
-  comparison rejects protected WAD/ELF mutation.
+  host-preseeded bytes do not count as a persistence proof. With
+  `--reboot-baseline-image`, it compares the post-reboot disk against the
+  after-write snapshot and requires the requested entries to keep the same FAT
+  root cluster, size, and bytes. The same baseline comparison rejects protected
+  WAD/ELF mutation.
 - The kernel implements FAT16 cluster allocation/free/truncate over the disk
   image, with validate-before-free chain hardening, so the storage layer is no
   longer a read-only WAD loader.
 - The real-WAD workflow has an opt-in `persistence_proof` path that keeps the
   disk image inside the disposable runner, boots once to attempt a Doom quit/save
-  script, runs the image checker, boots the same mutated image again, and runs
-  the checker again.
+  script, runs the image checker, captures an after-write snapshot, then the
+  same disk image is booted again for a cloud reboot proof. The requested
+  entries must match that after-write snapshot.
 
 Still missing:
 
-- There is not yet a cloud reboot proof where Doom writes a config or save file,
-  the VM exits, the same disk image is booted again, and Doom or a verifier reads
-  the persisted bytes back.
+- There is not yet an archived successful cloud artifact proving the opt-in
+  reboot path with a real WAD and deterministic Doom input script. Until that
+  artifact exists, this remains an executable gate rather than a completed
+  proof claim.
+- The writable FAT path is still Doom-shaped, not full dynamic writable FS semantics:
+  root-level 8.3 files, bounded dynamic entries, no subdirectories,
+  no rename, no long filenames, and no POSIX delete-while-open behavior.
+- There is not yet a broader storage boot path story beyond mutating and
+  rebooting the generated FAT16 image inside the disposable proof workflow.
 
 Executable gate:
 
@@ -187,8 +200,9 @@ Executable gate:
   status/log diagnostics, not the disk image. If it fails to drive the menu,
   finish the same flow through the remote VNC runbook and then run
   `python3 tools/check_doom_persistence_image.py --baseline-image
-  /tmp/vibe-os-disk.before-persistence.img --require-default --require-save-slot
-  N build/disk.img` on that remote image before deleting it.
+  /tmp/vibe-os-disk.before-persistence.img --reboot-baseline-image
+  /tmp/vibe-os-disk.after-persistence-write.img --require-default
+  --require-save-slot N build/disk.img` on that remote image before deleting it.
 
 - `GAP[AUDIO] status=open category=audio gate=remote-sb16-audible-proof evidence=audio-status`
 
@@ -210,7 +224,7 @@ Still missing:
 - A new `tools/check_audio_continuity_proof.py` gate can validate `audio=SB16`,
   IRQ/refill, SFX, and looped music-carrier counter progression across status
   snapshots without capturing audio bytes, but it still needs a current remote
-  artifact to pass.
+  artifact with clean baseline/fire/move/use/menu/final progression to pass.
 - `tools/check_audible_audio_proof.py` now defines the next host-safe proof:
   the cloud workflow can opt into a temporary QEMU WAV backend, reduce the
   capture to aggregate `audio-proof.json`, delete the WAV, and upload only the
@@ -246,6 +260,9 @@ Still missing:
 - This is not a full POSIX environment. There is no arbitrary-path `exec`, real
   `fork`, descriptor duplication, file-backed `mmap`, signal model, terminal
   device model, or POSIX delete-while-open behavior.
+- The process model is still a fixed-slot launch/switch contract, not a robust
+  Unix process model with dynamic PIDs, reaping, fd inheritance, address-space
+  teardown, or general child lifecycle semantics.
 - The kernel is still identity-mapped in low memory, page-table allocation is not
   fully dynamic, and 32-bit paging cannot enforce NX.
 
@@ -320,8 +337,11 @@ because host tests pass. A playable claim requires at least:
 - a current manual real-WAD cloud workflow pass for the exact commit
 - `check_real_wad_proof.py` and `check_human_playability_proof.py` passing on the
   uploaded status artifacts
+- `check_audio_continuity_proof.py` passing when audio/SB16 is part of the claim
 - `doomrun=RUN`, `doomopen=OK`, `doomread=OK`, `gameplay=OK`, and all
   `doomfault*` fields cleared in those artifacts
+- clean `usr=OK`, scripted `use`, mouse, audio baseline, and preemption evidence
+  in the phase snapshots
 - a remote human playtest or an explicit statement that only scripted
   cloud-safe playability has been proved
 - no tracked WADs, disk images, rendered Doom pixels, or modified

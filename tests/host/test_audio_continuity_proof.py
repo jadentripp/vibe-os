@@ -219,7 +219,7 @@ class AudioContinuityProofTests(unittest.TestCase):
             tmpdir = Path(tmp)
             final = tmpdir / "status.txt"
             final.write_text(snapshots["final"])
-            (tmpdir / "status.early.txt").write_text(snapshots["baseline"])
+            (tmpdir / "status.after-start.txt").write_text(snapshots["baseline"])
             (tmpdir / "status.after-fire.txt").write_text(snapshots["fire"])
             (tmpdir / "status.after-move.txt").write_text(snapshots["movement"])
             (tmpdir / "status.after-use.txt").write_text(snapshots["use"])

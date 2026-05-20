@@ -29,11 +29,14 @@ def status_line(**overrides):
         "execerr": "00000000",
         "execres": "00000000",
         "target": "00000003",
+        "ppid": "00000001",
         "entry": "01000000",
         "stack": "0100EFE0",
         "argc": "00000001",
         "argv": "0100EFE4",
+        "envp": "0100EFEC",
         "argv0": "0100F000",
+        "envp0": "00000000",
         "doom": "OK",
         "doomrun": "RUN",
         "doomopen": "OK",
@@ -141,127 +144,155 @@ def status_line(**overrides):
     )
 
 
-def baseline_status():
-    return status_line(
-        gtic="00000010",
-        leveltime="00000010",
-        keyirq="00000001",
-        keyqueue="00000001",
-        keypoll="00000001",
-        keyseen="00000000",
-        keylast="00000000",
-        mouseirq="00000000",
-        mousepkt="00000000",
-        mousepoll="00000000",
-        mousebtn="00000000",
-        mousedelta="00000000:00000000",
-        pflags="00000001",
-        pdelta="00000001",
-        gflags="00000000",
-    )
+def baseline_status(**overrides):
+    fields = {
+        "doompresent": "00000010",
+        "doomframe": "11111111",
+        "gtic": "00000010",
+        "leveltime": "00000010",
+        "keyirq": "00000001",
+        "keyqueue": "00000001",
+        "keypoll": "00000001",
+        "keyseen": "00000000",
+        "keylast": "00000000",
+        "mouseirq": "00000000",
+        "mousepkt": "00000000",
+        "mousepoll": "00000000",
+        "mousebtn": "00000000",
+        "mousedelta": "00000000:00000000",
+        "pflags": "00000001",
+        "pdelta": "00000001",
+        "gflags": "00000000",
+    }
+    fields.update(overrides)
+    return status_line(**fields)
 
 
-def start_status():
-    return status_line(
-        gtic="00000018",
-        leveltime="00000018",
-        keyirq="00000001",
-        keyqueue="00000001",
-        keypoll="00000001",
-        keyseen="00000000",
-        keylast="00000000",
-        mouseirq="00000000",
-        mousepkt="00000000",
-        mousepoll="00000000",
-        mousebtn="00000000",
-        mousedelta="00000000:00000000",
-        pflags="00000001",
-        pdelta="00000000",
-        gflags="00000000",
-    )
+def start_status(**overrides):
+    fields = {
+        "doompresent": "00000020",
+        "doomframe": "22222222",
+        "gtic": "00000018",
+        "leveltime": "00000018",
+        "keyirq": "00000001",
+        "keyqueue": "00000001",
+        "keypoll": "00000001",
+        "keyseen": "00000000",
+        "keylast": "00000000",
+        "mouseirq": "00000000",
+        "mousepkt": "00000000",
+        "mousepoll": "00000000",
+        "mousebtn": "00000000",
+        "mousedelta": "00000000:00000000",
+        "pflags": "00000001",
+        "pdelta": "00000000",
+        "gflags": "00000000",
+    }
+    fields.update(overrides)
+    return status_line(**fields)
 
 
-def fire_status():
-    return status_line(
-        gtic="00000020",
-        leveltime="00000020",
-        keyirq="00000002",
-        keyqueue="00000002",
-        keypoll="00000002",
-        keyseen="00000010",
-        keylast="0001019D",
-        pflags="000000C5",
-        mousebtn="00000000",
-        mousedelta="00000000:00000000",
-    )
+def fire_status(**overrides):
+    fields = {
+        "doompresent": "00000030",
+        "doomframe": "33333333",
+        "gtic": "00000020",
+        "leveltime": "00000020",
+        "keyirq": "00000002",
+        "keyqueue": "00000002",
+        "keypoll": "00000002",
+        "keyseen": "00000010",
+        "keylast": "0001019D",
+        "pflags": "000000C5",
+        "mousebtn": "00000000",
+        "mousedelta": "00000000:00000000",
+    }
+    fields.update(overrides)
+    return status_line(**fields)
 
 
-def movement_status():
-    return status_line(
-        gtic="00000030",
-        leveltime="00000030",
-        keyirq="00000003",
-        keyqueue="00000003",
-        keypoll="00000003",
-        keyseen="00000011",
-        keylast="000101AD",
-        pflags="00000023",
-        ppos="00010020:00020000",
-        mousebtn="00000000",
-        mousedelta="00000000:00000000",
-    )
+def movement_status(**overrides):
+    fields = {
+        "doompresent": "00000040",
+        "doomframe": "44444444",
+        "gtic": "00000030",
+        "leveltime": "00000030",
+        "keyirq": "00000003",
+        "keyqueue": "00000003",
+        "keypoll": "00000003",
+        "keyseen": "00000011",
+        "keylast": "000101AD",
+        "pflags": "00000023",
+        "ppos": "00010020:00020000",
+        "mousebtn": "00000000",
+        "mousedelta": "00000000:00000000",
+    }
+    fields.update(overrides)
+    return status_line(**fields)
 
 
-def use_status():
-    return status_line(
-        gtic="00000040",
-        leveltime="00000040",
-        keyirq="00000004",
-        keyqueue="00000004",
-        keypoll="00000004",
-        keyseen="00000031",
-        keylast="00010020",
-        pflags="00000009",
-        mousebtn="00000000",
-        mousedelta="00000000:00000000",
-    )
+def use_status(**overrides):
+    fields = {
+        "doompresent": "00000050",
+        "doomframe": "55555555",
+        "gtic": "00000040",
+        "leveltime": "00000040",
+        "keyirq": "00000004",
+        "keyqueue": "00000004",
+        "keypoll": "00000004",
+        "keyseen": "00000031",
+        "keylast": "00010020",
+        "pflags": "00000009",
+        "mousebtn": "00000000",
+        "mousedelta": "00000000:00000000",
+    }
+    fields.update(overrides)
+    return status_line(**fields)
 
 
-def mouse_status():
-    return status_line(
-        gtic="00000050",
-        leveltime="00000050",
-        keyirq="00000004",
-        keyqueue="00000004",
-        keypoll="00000004",
-        keyseen="00000031",
-        mouse="OK",
-        mouseirq="00000002",
-        mousepkt="00000002",
-        mousepoll="00000002",
-        mousebtn="00000001",
-        mousedelta="00000018:0000000C",
-    )
+def mouse_status(**overrides):
+    fields = {
+        "doompresent": "00000060",
+        "doomframe": "66666666",
+        "gtic": "00000050",
+        "leveltime": "00000050",
+        "keyirq": "00000004",
+        "keyqueue": "00000004",
+        "keypoll": "00000004",
+        "keyseen": "00000031",
+        "mouse": "OK",
+        "mouseirq": "00000002",
+        "mousepkt": "00000002",
+        "mousepoll": "00000002",
+        "mousebtn": "00000001",
+        "mousedelta": "00000018:0000000C",
+    }
+    fields.update(overrides)
+    return status_line(**fields)
 
 
-def menu_status():
-    return status_line(
-        gtic="00000060",
-        leveltime="00000060",
-        keyirq="00000005",
-        keyqueue="00000005",
-        keypoll="00000005",
-        keyseen="00000071",
-        keylast="0001001B",
-        pflags="00000011",
-        gflags="00000001",
-    )
+def menu_status(**overrides):
+    fields = {
+        "doompresent": "00000070",
+        "doomframe": "77777777",
+        "gtic": "00000060",
+        "leveltime": "00000060",
+        "keyirq": "00000005",
+        "keyqueue": "00000005",
+        "keypoll": "00000005",
+        "keyseen": "00000071",
+        "keylast": "0001001B",
+        "pflags": "00000011",
+        "gflags": "00000001",
+    }
+    fields.update(overrides)
+    return status_line(**fields)
 
 
 def validate_real_wad_status(status):
     check_real_wad_proof.validate_status(
         status,
-        baseline_status=baseline_status(),
+        baseline_status=start_status(),
         start_status=start_status(),
         fire_status=fire_status(),
         movement_status=movement_status(),
@@ -273,26 +304,21 @@ def validate_real_wad_status(status):
 
 class ProofStatusContractTests(unittest.TestCase):
     def test_real_wad_checker_accepts_realistic_phase_snapshots(self):
-        baseline = status_line(
-            gtic="00000010",
-            leveltime="00000010",
-            keyirq="00000001",
-            keyqueue="00000001",
-            keypoll="00000001",
-            keyseen="00000000",
-            keylast="00000000",
-            mouseirq="00000000",
-            mousepkt="00000000",
-            mousepoll="00000000",
-            mousebtn="00000000",
-            mousedelta="00000000:00000000",
-            pflags="00000001",
-            pdelta="00000001",
-            gflags="00000000",
-        )
         check_real_wad_proof.validate_status(
             status_line(),
-            baseline_status=baseline,
+            baseline_status=start_status(),
+            start_status=start_status(),
+            fire_status=fire_status(),
+            movement_status=movement_status(),
+            use_status=use_status(),
+            mouse_status=mouse_status(),
+            menu_status=menu_status(),
+        )
+
+    def test_real_wad_checker_allows_nonfatal_doom_syscall_rejections(self):
+        check_real_wad_proof.validate_status(
+            status_line(doomerr="00000003", doomerrno="FFFFFFFE"),
+            baseline_status=baseline_status(),
             start_status=start_status(),
             fire_status=fire_status(),
             movement_status=movement_status(),
@@ -306,13 +332,15 @@ class ProofStatusContractTests(unittest.TestCase):
             status_line(execsys="00000001/00000000/00000000/00000000/00000000/00000000"),
             status_line(execerr="FFFFFFFE"),
             status_line(execres="FFFFFFFE"),
+            status_line(target="00000000"),
+            status_line(ppid="00000000"),
+            status_line(ppid="FFFFFFFF"),
             status_line(entry="00000000"),
             status_line(stack="00000000"),
             status_line(argc="00000000"),
             status_line(argv="00000000"),
+            status_line(envp="00000000"),
             status_line(doomrun="WAIT"),
-            status_line(doomerr="00000001"),
-            status_line(doomerrno="FFFFFFFE"),
             status_line(doomwad="00000000/00000002/00000003/44415749"),
             status_line(doomwad="00000001/00000000/00000003/44415749"),
             status_line(doomwad="00000001/00000002/00000000/44415749"),
@@ -359,6 +387,32 @@ class ProofStatusContractTests(unittest.TestCase):
                 fire_status=status_line(pflags="000000C5"),
                 movement_status=status_line(pflags="00000023"),
                 use_status=status_line(pflags="00000009"),
+            )
+
+    def test_real_wad_checker_rejects_frozen_visual_phase_proof(self):
+        with self.assertRaisesRegex(AssertionError, "doomframe= hash change"):
+            check_real_wad_proof.validate_status(
+                status_line(doomframe="11111111"),
+                baseline_status=baseline_status(),
+                start_status=start_status(doomframe="11111111"),
+                fire_status=fire_status(doomframe="11111111"),
+                movement_status=movement_status(doomframe="11111111"),
+                use_status=use_status(doomframe="11111111"),
+                mouse_status=mouse_status(doomframe="11111111"),
+                menu_status=menu_status(doomframe="11111111"),
+            )
+
+    def test_real_wad_checker_rejects_non_advancing_visual_counter(self):
+        with self.assertRaisesRegex(AssertionError, "doompresent=.*advance"):
+            check_real_wad_proof.validate_status(
+                status_line(),
+                baseline_status=baseline_status(),
+                start_status=start_status(),
+                fire_status=fire_status(doompresent="00000020"),
+                movement_status=movement_status(),
+                use_status=use_status(),
+                mouse_status=mouse_status(),
+                menu_status=menu_status(),
             )
 
     def test_real_wad_cli_auto_discovers_phase_status_files(self):
@@ -461,7 +515,7 @@ class ProofStatusContractTests(unittest.TestCase):
 
     def test_workflow_artifacts_are_status_only_for_real_wad_proof(self):
         workflow = (ROOT / ".github" / "workflows" / "real-wad-smoke.yml").read_text()
-        self.assertIn("--baseline build/status.early.txt", workflow)
+        self.assertIn("--baseline build/status.after-start.txt", workflow)
         self.assertIn("--start build/status.after-start.txt", workflow)
         self.assertIn("--fire build/status.after-fire.txt", workflow)
         self.assertIn("--movement build/status.after-move.txt", workflow)

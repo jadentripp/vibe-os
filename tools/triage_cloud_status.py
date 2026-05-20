@@ -18,11 +18,14 @@ SUMMARY_FIELDS = (
     "execerr",
     "execres",
     "target",
+    "ppid",
     "entry",
     "stack",
     "argc",
     "argv",
+    "envp",
     "argv0",
+    "envp0",
     "doom",
     "doomrun",
     "doomopen",
@@ -158,13 +161,13 @@ class SymbolHit:
 TRIAGE_RULES = (
     TriageRule(
         "exec-not-attempted",
-        ("execsys", "execerr", "execres", "target", "entry", "stack", "argc", "argv", "argv0", "doomrun"),
+        ("execsys", "execerr", "execres", "target", "ppid", "entry", "stack", "argc", "argv", "envp", "argv0", "envp0", "doomrun"),
         "The probe never attempted the syscall exec handoff into DOOM.ELF.",
         "Inspect the user-probe completion path and the expected-fault recovery into SYS_EXEC.",
     ),
     TriageRule(
         "exec-failed",
-        ("exec", "path", "execsys", "execerr", "execres", "target", "entry", "stack", "argc", "argv", "argv0", "doom"),
+        ("exec", "path", "execsys", "execerr", "execres", "target", "ppid", "entry", "stack", "argc", "argv", "envp", "argv0", "envp0", "doom"),
         "The kernel attempted exec, but lookup, ELF loading, argv seeding, or handoff failed.",
         "Read execerr/execres and the six execsys counters, then inspect process_exec_path/process_exec_handoff_current.",
     ),
@@ -365,9 +368,10 @@ def _hex_tuple(fields: dict[str, str], name: str, count: int) -> tuple[int, ...]
 def _exec_detail(fields: dict[str, str]) -> str:
     return (
         f"execerr={_field(fields, 'execerr')} execres={_field(fields, 'execres')} "
-        f"target={_field(fields, 'target')} entry={_field(fields, 'entry')} "
+        f"target={_field(fields, 'target')} ppid={_field(fields, 'ppid')} entry={_field(fields, 'entry')} "
         f"stack={_field(fields, 'stack')} argc={_field(fields, 'argc')} "
-        f"argv={_field(fields, 'argv')} argv0={_field(fields, 'argv0')}"
+        f"argv={_field(fields, 'argv')} envp={_field(fields, 'envp')} "
+        f"argv0={_field(fields, 'argv0')} envp0={_field(fields, 'envp0')}"
     )
 
 
@@ -571,11 +575,14 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         or failures != 0
         or rollbacks != 0
         or _hex(fields, "target") in (None, 0, 0xFFFFFFFF)
+        or _hex(fields, "ppid") in (None, 0, 0xFFFFFFFF)
         or _hex(fields, "entry") in (None, 0, 0xFFFFFFFF)
         or _hex(fields, "stack") in (None, 0, 0xFFFFFFFF)
         or _hex(fields, "argc") != 1
         or _hex(fields, "argv") in (None, 0, 0xFFFFFFFF)
+        or _hex(fields, "envp") in (None, 0, 0xFFFFFFFF)
         or _hex(fields, "argv0") in (None, 0, 0xFFFFFFFF)
+        or (_hex(fields, "envp0") or 0) != 0
     ):
         notes.append(
             "exec-failed: "
@@ -610,9 +617,7 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         return "doom-user-exit", notes
 
     doomwad = _hex_tuple(fields, "doomwad", 4)
-    if fields.get("doomopen") != "OK" or fields.get("doomread") != "OK" or (
-        _hex(fields, "doomerr") or 0
-    ) != 0 or doomwad is None or doomwad[0] == 0 or doomwad[1] == 0 or doomwad[2] == 0 or doomwad[3] != 0x44415749:
+    if fields.get("doomopen") != "OK" or fields.get("doomread") != "OK" or doomwad is None or doomwad[0] == 0 or doomwad[1] == 0 or doomwad[2] == 0 or doomwad[3] != 0x44415749:
         notes.append(
             "missing-wad-open-read: "
             f"doomopen={_field(fields, 'doomopen')} doomread={_field(fields, 'doomread')} "

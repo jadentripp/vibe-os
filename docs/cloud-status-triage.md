@@ -28,7 +28,7 @@ Then run the actual gates:
 
 ```sh
 python3 tools/check_real_wad_proof.py \
-  --baseline path/to/real-wad-smoke-status/status.early.txt \
+  --baseline path/to/real-wad-smoke-status/status.after-start.txt \
   --start path/to/real-wad-smoke-status/status.after-start.txt \
   --fire path/to/real-wad-smoke-status/status.after-fire.txt \
   --movement path/to/real-wad-smoke-status/status.after-move.txt \
@@ -44,8 +44,8 @@ python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
 
 | Class | Status fields | Interpretation | First repair lane |
 | --- | --- | --- | --- |
-| `exec-not-attempted` | `execsys=00000000/...`, `target=FFFFFFFF` or `00000000`, `entry=00000000`, `stack=00000000`, `argv0=00000000`, often `doomrun=WAIT` | The probe did not make the `SYS_EXEC("DOOM.ELF")` transition. | User-probe completion, expected-fault recovery, syscall dispatch entry. |
-| `exec-failed` | `exec!=OK`, `path!=DOOM.ELF`, `doom!=OK`, nonzero `execerr` or `execres`, `execsys` failures or rollbacks nonzero, successes/handoffs/scheduled zero, bad `target`, `entry`, `stack`, `argc`, `argv`, or `argv0` | The kernel attempted exec but did not complete the process/ELF/argv handoff. | `process_exec_path`, ELF lookup/load checks, argv stack seeding, rollback path. |
+| `exec-not-attempted` | `execsys=00000000/...`, `target=FFFFFFFF` or `00000000`, `entry=00000000`, `stack=00000000`, `argv0=00000000`, `envp=00000000`, often `doomrun=WAIT` | The probe did not make the `SYS_EXEC("DOOM.ELF")` transition. | User-probe completion, expected-fault recovery, syscall dispatch entry. |
+| `exec-failed` | `exec!=OK`, `path!=DOOM.ELF`, `doom!=OK`, nonzero `execerr` or `execres`, `execsys` failures or rollbacks nonzero, successes/handoffs/scheduled zero, bad `target`, `ppid`, `entry`, `stack`, `argc`, `argv`, `envp`, `argv0`, or `envp0` | The kernel attempted exec but did not complete the process/ELF/argv/envp handoff. | `process_exec_path`, ELF lookup/load checks, argv stack seeding, rollback path. |
 | `doom-user-fault` | `doomrun=FAULT`, nonzero `doomfault`, `doomfaultip`, `doomfaultv`, `doomfaulterr`, or nonzero compact `fault=` tuple | Doom entered user mode and faulted. `doomfault` is CR2, `doomfaultip` is EIP, `doomfaultv` is the exception vector, and `doomfaulterr` is the x86 error code. | Resolve `doomfaultip` with `doom.symbols`; decode vector/error/CR2; inspect stack, paging, segment, and syscall ABI. |
 | `kernel-panic` | `panic=KEXC`, usually with a nonzero compact `fault=` tuple | The kernel recorded an unhandled non-Doom exception before halting. | Decode `fault=vector/error/eip/cs/esp/ss/cr2/pid/kind/state/syscall`, then inspect the matching kernel path. |
 | `os-shutdown-requested` | `shutdown=HALT` or `shutdown=REBOOT` | The OS recorded a halt or reboot request in the status block. | Verify this came from an intentional shutdown/reboot proof lane before treating QEMU exit as a failure. |
@@ -56,15 +56,16 @@ python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
 | `doom-timer-not-proven` | `ticks` is zero or missing, `dtick` is zero/missing, or `dtick` does not equal `floor(ticks * 35 / 100)` | Doom reached gameplay, but the status line does not prove the Doom 35 Hz timebase derived from the OS timer. | `SYS_TIME`, PIT tick accounting, and smoke `dtick` emission. |
 | `preemption-not-proven` | `preempt`, `pattempt`, `puser`, `pround`, or `pctx` are zero; `pfrom`/`pto` are missing, equal, zero, or `FFFFFFFF`; `peip` is malformed or zero; `pspin=50524545`; `pself!=OK` | Doom reached gameplay, but the cloud line does not prove a live PIT interrupt switched from one Ring 3 process to another and let the alternate probe execute. | `scheduler_tick`, live preempt-probe seeding during Doom exec, IRQ frame save/restore, and timer IRQ delivery in user mode. |
 | `artifact-proof-failure` | Checker complains about missing `status.early.txt`, `status.after-*.txt`, duplicate basenames, forbidden WAD/disk/image/pixel payloads, missing diagnostic ELFs, or missing `doom.symbols` | The status line may be useful, but the uploaded evidence package is not acceptable proof. | `.github/workflows/real-wad-smoke.yml` upload block and `tools/check_cloud_playability_artifacts.py` contract. |
-| `playability-status-green` | `doomrun=RUN`, `gameplay=OK`, E1M1 fields correct, frame/palette counters nonzero, input/player flags nonzero | The final line has no obvious first-failure field. | Still require `check_real_wad_proof.py`, `check_human_playability_proof.py`, and artifact checker pass before claiming playable Doom. |
+| `playability-status-green` | `doomrun=RUN`, `gameplay=OK`, E1M1 fields correct, frame/palette counters nonzero, WAD I/O green, input/audio/preemption counters active | The final line has no obvious first-failure field, but proof gates can still fail on snapshot-baseline details. | Still require `check_real_wad_proof.py`, `check_human_playability_proof.py`, `check_audio_continuity_proof.py`, and artifact checker pass before claiming playable Doom. |
 
 ## Quick Reads
 
 - `execsys=a/b/c/d/e/f` means attempts, successes, failures, handoffs,
   scheduled targets, and rollbacks.
 - `execerr` is the kernel-side process exec errno and `execres` is the syscall
-  result returned on failure. `entry`, `stack`, `argc`, `argv`, and `argv0`
-  describe the seeded target process frame and argument stack.
+  result returned on failure. `ppid`, `entry`, `stack`, `argc`, `argv`, `envp`,
+  `argv0`, and `envp0` describe the target process metadata and seeded argument
+  stack.
 - `doomfaultv=0000000E` is a page fault; pair it with `doomfault` (CR2) and
   `doomfaulterr`. The triage tool decodes common page-fault error bits.
 - `doomfaultv=0000000D` is a general protection fault; expect segment, stack,
@@ -75,6 +76,12 @@ python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
   only proof when the cloud run intentionally requested it.
 - `doomopen=FAIL doomread=FAIL` after `doomrun=FAULT` usually means Doom died
   before its WAD path, not that FAT is necessarily broken.
+- Current real-WAD evidence can be past the old fault and WAD I/O blockers while
+  still failing proof gates. If Doom is `RUN`, WAD I/O is green, gameplay and
+  counters are active, but the checker is red, read the checker error literally:
+  the likely lane is `usr=OK` consistency, scripted `use` phase progression,
+  mouse baseline/effect evidence, audio baseline continuity, or missing phase
+  snapshots.
 - `doomwad=a/b/c/d` means Doom-side `DOOM1.WAD` opens, reads, lseeks, and the
   first four WAD bytes seen by Doom. For the real shareware proof, `d` should be
   `44415749` (`IWAD` as little-endian hex).
@@ -91,3 +98,6 @@ python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
 - `pspin=50524545` is only the seeded preempt-probe magic. A later value proves
   the alternate Ring 3 spin task got CPU time after a timer switch.
 - A green final status without the phase snapshot files is still not proof.
+  The required proof bundle is the final status plus early/start/fire/move/use/
+  mouse/menu snapshots and the non-WAD diagnostics accepted by the artifact
+  checker.

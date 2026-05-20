@@ -36,6 +36,9 @@ to the caller.
   selectors, `EFLAGS`, and `PROC_FLAG_IRQ_FRAME_VALID`, and writes a real
   `argc`, `argv[]`, `NULL`, `envp NULL` stack layout from the bounded staged
   arguments.
+- The target process record also stores exec metadata for later proof and
+  accounting: parent PID, exec count, `argc`, `argv`, `envp`, and `argv[0]`.
+  These fields are populated from the same stack builder that crt0 consumes.
 - The initial Ring 3 probe is bootstrapped through the same stack builder before
   entering crt0. It receives `argc == 1`, `argv[0] == "USERPROB.ELF"`,
   `argv[1] == NULL`, and an empty `envp`, then verifies that `getpid()` reports
@@ -69,9 +72,10 @@ Smoke status still includes `exec=OK path=...`, and `execsys=` now reports:
 `attempts/successes/failures/handoffs/scheduled/rollbacks`
 
 The same status line also records `execerr=<errno>`, `execres=<syscall result>`,
-`target=<pid>`, `entry=<eip>`, `stack=<esp>`, `argc=<n>`, `argv=<ptr>`, and
-`argv0=<ptr>`. A successful Doom launch should have zero `execerr`/`execres`,
-nonzero argc/argv pointers, and nonzero target entry/stack addresses.
+`target=<pid>`, `ppid=<pid>`, `entry=<eip>`, `stack=<esp>`, `argc=<n>`,
+`argv=<ptr>`, `envp=<ptr>`, `argv0=<ptr>`, and `envp0=<word>`. A successful Doom
+launch should have zero `execerr`/`execres`, nonzero argc/argv/envp pointers,
+`envp0 == 0`, and nonzero target entry/stack addresses.
 
 Failures before frame patch leave the active process current and increment the
 rollback counter. Unsafe active-slot exec returns `-EACCES`; invalid pointers
@@ -85,3 +89,7 @@ return `-EIO`.
   copying is not implemented yet, so libc exposes an empty `envp` contract.
 - Page-table structures and process records are static; there is no dynamic PID
   allocation or address-space reclamation.
+- This is enough to launch the probe and Doom, but it is not a robust Unix process
+  model. There is no `fork`/`exec` split, `wait`/reap lifecycle, process groups,
+  signal delivery, fd inheritance, dynamic child slots, or cleanup of a dead
+  process into reusable address-space resources.

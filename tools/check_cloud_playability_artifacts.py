@@ -181,6 +181,7 @@ def validate_repo_contract() -> None:
     _require(makefile, "cloud-playability-check", "Makefile")
     _require(makefile, "persistence-image-check", "Makefile")
     _require(makefile, "PERSISTENCE_BASELINE_IMAGE", "Makefile")
+    _require(makefile, "PERSISTENCE_REBOOT_BASELINE_IMAGE", "Makefile")
     _require(makefile, "tools/check_cloud_playability_artifacts.py --repo-contract", "Makefile")
 
     for needle in (
@@ -198,8 +199,9 @@ def validate_repo_contract() -> None:
         "build/status.persistence-reboot.txt",
         "tools/check_doom_persistence_image.py",
         "--baseline-image \"$baseline\"",
+        "--reboot-baseline-image \"$after_write\"",
         "python3 tools/check_real_wad_proof.py \\",
-        "--baseline build/status.early.txt",
+        "--baseline build/status.after-start.txt",
         "--start build/status.after-start.txt",
         "--fire build/status.after-fire.txt",
         "--movement build/status.after-move.txt",
@@ -295,7 +297,7 @@ def validate_artifact_dir(artifact_dir: Path) -> None:
     try:
         check_real_wad_proof.validate_status(
             status,
-            baseline_status=(artifact_dir / _find_one(names, "status.early.txt")).read_text(),
+            baseline_status=(artifact_dir / _find_one(names, "status.after-start.txt")).read_text(),
             start_status=(artifact_dir / _find_one(names, "status.after-start.txt")).read_text(),
             fire_status=(artifact_dir / _find_one(names, "status.after-fire.txt")).read_text(),
             movement_status=(artifact_dir / _find_one(names, "status.after-move.txt")).read_text(),
@@ -310,7 +312,7 @@ def validate_artifact_dir(artifact_dir: Path) -> None:
     try:
         check_audio_continuity_proof.validate_status(
             status,
-            baseline_status=(artifact_dir / _find_one(names, "status.early.txt")).read_text(),
+            baseline_status=(artifact_dir / _find_one(names, "status.after-start.txt")).read_text(),
             fire_status=(artifact_dir / _find_one(names, "status.after-fire.txt")).read_text(),
             movement_status=(artifact_dir / _find_one(names, "status.after-move.txt")).read_text(),
             use_status=(artifact_dir / _find_one(names, "status.after-use.txt")).read_text(),

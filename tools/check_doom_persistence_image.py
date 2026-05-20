@@ -123,20 +123,55 @@ def _require_changed(fs, baseline_fs, name, label):
         raise PersistenceProofError(f"{label} did not change from baseline image")
 
 
-def validate_image(path, *, baseline_image=None, require_default=False, require_save_slots=()):
+def _require_reboot_survived(fs, reboot_fs, name, label):
+    if reboot_fs is None:
+        return
+    current_meta = _require_entry(fs, name)
+    reboot_meta = _require_entry(reboot_fs, name)
+    current = fs.read_root_file(name)
+    reboot = reboot_fs.read_root_file(name)
+    if (
+        current_meta["cluster"] != reboot_meta["cluster"]
+        or current_meta["size"] != reboot_meta["size"]
+        or current != reboot
+    ):
+        raise PersistenceProofError(f"{label} did not survive reboot image comparison")
+
+
+def validate_image(
+    path,
+    *,
+    baseline_image=None,
+    reboot_baseline_image=None,
+    require_default=False,
+    require_save_slots=(),
+):
     fs = make_wad_image.Fat16Image(_read_image(path))
     baseline_fs = make_wad_image.Fat16Image(_read_image(baseline_image)) if baseline_image else None
+    reboot_fs = (
+        make_wad_image.Fat16Image(_read_image(reboot_baseline_image))
+        if reboot_baseline_image
+        else None
+    )
     summary = []
 
     if baseline_fs is not None and not require_default and not require_save_slots:
         raise PersistenceProofError(
             "baseline image comparison requires --require-default or --require-save-slot"
         )
+    if reboot_fs is not None and not require_default and not require_save_slots:
+        raise PersistenceProofError(
+            "reboot image comparison requires --require-default or --require-save-slot"
+        )
 
     _validate_fat_layout(fs)
     if baseline_fs is not None:
         _validate_fat_layout(baseline_fs)
+    if reboot_fs is not None:
+        _validate_fat_layout(reboot_fs)
     _validate_protected_entries(fs, baseline_fs)
+    if reboot_fs is not None:
+        _validate_protected_entries(reboot_fs, baseline_fs)
     _require_entry(fs, make_wad_image.WRITABLE_DEFAULT_NAME)
     for name in make_wad_image.WRITABLE_SAVE_NAMES:
         _require_entry(fs, name)
@@ -149,7 +184,15 @@ def validate_image(path, *, baseline_image=None, require_default=False, require_
             make_wad_image.WRITABLE_DEFAULT_NAME,
             "DEFAULT.CFG",
         )
+        _require_reboot_survived(
+            fs,
+            reboot_fs,
+            make_wad_image.WRITABLE_DEFAULT_NAME,
+            "DEFAULT.CFG",
+        )
         suffix = " changed-from-baseline" if baseline_fs is not None else ""
+        if reboot_fs is not None:
+            suffix += " survived-reboot"
         summary.append(f"DEFAULT.CFG bytes={default_size}{suffix}")
 
     for slot in require_save_slots:
@@ -160,7 +203,15 @@ def validate_image(path, *, baseline_image=None, require_default=False, require_
             make_wad_image.WRITABLE_SAVE_NAMES[slot],
             f"DOOMSAV{slot}.DSG",
         )
+        _require_reboot_survived(
+            fs,
+            reboot_fs,
+            make_wad_image.WRITABLE_SAVE_NAMES[slot],
+            f"DOOMSAV{slot}.DSG",
+        )
         suffix = " changed-from-baseline" if baseline_fs is not None else ""
+        if reboot_fs is not None:
+            suffix += " survived-reboot"
         summary.append(
             f"DOOMSAV{slot}.DSG bytes={size}{suffix} description={description!r} version={version!r}"
         )
@@ -185,6 +236,10 @@ def parse_args():
         help="fresh image copied before the remote boot; requested entries must differ from it",
     )
     parser.add_argument(
+        "--reboot-baseline-image",
+        help="image copied after the write boot; requested entries must match it after reboot",
+    )
+    parser.add_argument(
         "--require-save-slot",
         action="append",
         type=int,
@@ -200,6 +255,7 @@ def main():
     for line in validate_image(
         args.image,
         baseline_image=args.baseline_image,
+        reboot_baseline_image=args.reboot_baseline_image,
         require_default=args.require_default,
         require_save_slots=args.require_save_slot,
     ):

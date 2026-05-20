@@ -90,7 +90,7 @@ class PostCheckpointGapTests(unittest.TestCase):
         self.assertIn("`doomfaultv=<vector>`", gap_doc)
         self.assertIn("`doomfaulterr=<error-code>`", gap_doc)
 
-    def test_save_config_persistence_is_image_proven_but_reboot_gap_is_documented(self):
+    def test_save_config_persistence_has_image_and_reboot_snapshot_gates(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
         fs = make_wad_image.Fat16Image(image)
         gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
@@ -123,8 +123,9 @@ class PostCheckpointGapTests(unittest.TestCase):
         self.assertEqual(fs.root_file_metadata(make_wad_image.WRITABLE_SAVE_NAMES[0])["size"], 0)
 
         self.assertIn("The FAT16 image has root entries for `DEFAULT.CFG`", gap_doc)
-        self.assertIn("There is not yet a cloud reboot proof", gap_doc)
+        self.assertIn("There is not yet an archived successful cloud artifact", gap_doc)
         self.assertIn("same disk image is booted again", gap_doc)
+        self.assertIn("after-write snapshot", persistent_doc)
         self.assertIn("This is enough for Doom defaults and save slots", persistent_doc)
 
     def test_docs_keep_large_post_checkpoint_gaps_explicit(self):
@@ -132,6 +133,8 @@ class PostCheckpointGapTests(unittest.TestCase):
         tests_readme = (ROOT / "tests" / "README.md").read_text()
         gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
         playable_doc = (ROOT / "docs" / "playable-cloud-proof.md").read_text()
+        process_doc = (ROOT / "docs" / "process-exec.md").read_text()
+        persistence_doc = (ROOT / "docs" / "persistent-fat16.md").read_text()
 
         self.assertIn("docs/post-checkpoint-gaps.md", readme)
         self.assertIn("test_post_checkpoint_gaps.py", tests_readme)
@@ -143,49 +146,64 @@ class PostCheckpointGapTests(unittest.TestCase):
             "shutdown=HALT",
             "This is not a full POSIX environment",
             "A previous run is useful",
-            "stale once the kernel/runtime changes",
+            "stale once the",
             "Do not call the project Doom-capable",
+            "fixed-slot launch/switch contract",
+            "not a robust",
+            "full POSIX environment",
+            "storage boot path",
         ):
             with self.subTest(claim_boundary=claim_boundary):
                 self.assertIn(claim_boundary, gap_doc)
+        self.assertIn("not a robust Unix", process_doc)
+        self.assertIn("fork`/`exec` split", process_doc)
+        self.assertIn("storage boot", persistence_doc)
+        self.assertIn("path story", persistence_doc)
+        self.assertIn("not yet a broader storage boot", persistence_doc)
 
-    def test_latest_failed_cloud_run_is_precise_and_not_a_claim(self):
-        readme = (ROOT / "README.md").read_text()
+    def test_latest_cloud_evidence_tracks_run_but_not_playable_claim(self):
         gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
 
         for phrase in (
-            "Latest Analyzed Cloud Run",
+            "Latest Cloud Evidence",
+            "latest reported real-WAD cloud evidence has moved past",
+            "Doom faults before WAD I/O",
+            "not a Doom-capable proof",
+            "doomrun=RUN",
+            "doomopen=OK",
+            "doomread=OK",
+            "IWAD",
+            "Frame/gameplay counters are active",
+            "Scripted keyboard input, mouse input, SB16/audio counters",
+            "preemption counters are active",
+            "`usr=OK` consistency",
+            "scripted `use` snapshot",
+            "mouse snapshot/effect baselines",
+            "SB16/audio baseline",
+            "check_audio_continuity_proof.py",
+            "stronger gameplay proof",
+            "remote human playtest",
             "26146035600",
             "269dbb8",
-            "not a Doom-capable proof",
-            "doom-user-fault",
             "FindResponseFile+0x34",
             "doomfaultip=01003224",
-            "0000000E/00000005/01003224",
-            "doomopen=FAIL doomread=FAIL",
-            "no final `status.txt` exists",
-            "Fix the Doom user-mode page fault",
             "26146488906",
             "34eb98d",
             "W_AddFile+0x246",
             "doomfaultip=01024D06",
-            "doomopen=OK",
-            "doomread=OK",
-            "0193F000",
+            "historical repair",
+            "blocker after",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, gap_doc)
 
         for phrase in (
-            "latest analyzed real-WAD run is red",
-            "FindResponseFile+0x34",
-            "W_AddFile+0x246",
-            "not a Doom-capable claim",
-            "faults before WAD open/read",
-            "not CI-clean",
+            "The current first runtime blocker is the Ring 3 page fault",
+            "until that is fixed, WAD open/read",
+            "Current-head smoke status",
         ):
-            with self.subTest(readme_phrase=phrase):
-                self.assertIn(phrase, readme)
+            with self.subTest(stale_phrase=phrase):
+                self.assertNotIn(phrase, gap_doc)
 
     def test_machine_readable_gap_ledger_covers_playability_surface(self):
         gaps = check_playability_gap_ledger.validate_ledger(ROOT)

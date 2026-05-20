@@ -155,7 +155,7 @@ diagnostic directory:
 python3 tools/triage_cloud_status.py path/to/real-wad-smoke-status/status.txt
 
 python3 tools/check_real_wad_proof.py \
-  --baseline path/to/real-wad-smoke-status/status.early.txt \
+  --baseline path/to/real-wad-smoke-status/status.after-start.txt \
   --start path/to/real-wad-smoke-status/status.after-start.txt \
   --fire path/to/real-wad-smoke-status/status.after-fire.txt \
   --movement path/to/real-wad-smoke-status/status.after-move.txt \
@@ -165,7 +165,7 @@ python3 tools/check_real_wad_proof.py \
   path/to/real-wad-smoke-status/status.txt
 
 python3 tools/check_human_playability_proof.py \
-  --baseline path/to/real-wad-smoke-status/status.early.txt \
+  --baseline path/to/real-wad-smoke-status/status.after-start.txt \
   --start path/to/real-wad-smoke-status/status.after-start.txt \
   --fire path/to/real-wad-smoke-status/status.after-fire.txt \
   --movement path/to/real-wad-smoke-status/status.after-move.txt \
@@ -175,7 +175,7 @@ python3 tools/check_human_playability_proof.py \
   path/to/real-wad-smoke-status/status.txt
 
 python3 tools/check_audio_continuity_proof.py \
-  --baseline path/to/real-wad-smoke-status/status.early.txt \
+  --baseline path/to/real-wad-smoke-status/status.after-start.txt \
   --fire path/to/real-wad-smoke-status/status.after-fire.txt \
   --movement path/to/real-wad-smoke-status/status.after-move.txt \
   --use path/to/real-wad-smoke-status/status.after-use.txt \
@@ -203,7 +203,8 @@ Call a remote human playtest credible only after checking all of this:
 - The image was built on the remote host with a validated external
   `DOOM1.WAD`; no WAD is tracked in git.
 - Doom reaches the title/menu or E1M1 visually in the VNC display.
-- Arrow keys, Ctrl, Space, Enter, and Escape visibly affect Doom.
+- Verify keyboard and mouse actions visibly affect Doom: Arrow keys, Ctrl, Space,
+  Enter, Escape, and relative mouse movement/clicks all change the menu or E1M1.
 - `status.manual.txt` or the GitHub artifact reports `gameplay=OK`,
   `gmap=00000101`, increasing `gtic`/`leveltime`, nonzero `keyirq`,
   `keyqueue`, and `keypoll`, `keyseen` bits for Up/Ctrl/Space/Escape, nonzero
@@ -216,8 +217,9 @@ Call a remote human playtest credible only after checking all of this:
   GitHub **Real WAD smoke** workflow has an opt-in `persistence_proof` input
   for this path. It copies the fresh `build/disk.img` to a runner-local
   baseline, performs a first boot with `persistence_input_script`, checks that
-  `DEFAULT.CFG` changed from that baseline, boots the same image again, and
-  checks the image a second time. If your input script creates a save, set
+  `DEFAULT.CFG` changed from that baseline, captures an after-write image
+  snapshot, boots the same image again, and checks that the requested FAT entries
+  still match the after-write snapshot. If your input script creates a save, set
   `persistence_save_slot` to require the matching `DOOMSAVN.DSG`.
 
   For a manual remote proof, copy a baseline before booting, quit Doom through
@@ -227,9 +229,12 @@ Call a remote human playtest credible only after checking all of this:
 
   ```sh
   cp build/disk.img /tmp/vibe-os-disk.before-persistence.img
-  # Boot remotely, quit Doom or create a save, then boot the same build/disk.img again.
+  # Boot remotely, quit Doom or create a save.
+  cp build/disk.img /tmp/vibe-os-disk.after-persistence-write.img
+  # Boot the same build/disk.img again.
   python3 tools/check_doom_persistence_image.py \
     --baseline-image /tmp/vibe-os-disk.before-persistence.img \
+    --reboot-baseline-image /tmp/vibe-os-disk.after-persistence-write.img \
     --require-default \
     --require-save-slot 0 \
     build/disk.img
@@ -237,7 +242,8 @@ Call a remote human playtest credible only after checking all of this:
 
   The checker reads `DEFAULT.CFG` and `DOOMSAV0.DSG` through the FAT parser and
   prints only compact metadata, save description, version text, and whether the
-  requested entry changed from the baseline. Do not upload `build/disk.img`
+  requested entry changed from the baseline and survived the reboot comparison.
+  Do not upload `build/disk.img`
   because it contains the WAD.
 - Audio is described honestly: `audio=SB16` plus the audio continuity checker
   proves the guest SB16 path advanced through IRQ/refill, SFX, and looped

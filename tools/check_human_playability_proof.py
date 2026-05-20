@@ -54,6 +54,13 @@ REQUIRED_PFLAGS = (
     | PFLAG_MENU
     | PFLAG_POS_DELTA
 )
+REQUIRED_FINAL_PFLAGS_WITH_USE_SNAPSHOT = (
+    PFLAG_PLAYER
+    | PFLAG_MOVE_CMD
+    | PFLAG_ATTACK_CMD
+    | PFLAG_MENU
+    | PFLAG_POS_DELTA
+)
 REQUIRED_FIRE_STATE_PFLAGS = PFLAG_AMMO_DELTA | PFLAG_REFIRE
 
 FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
@@ -211,12 +218,12 @@ def _assert_not_decreasing(baseline: str, final: str, names: tuple[str, ...]) ->
             )
 
 
-def _assert_pair_increasing(baseline: str, final: str, name: str) -> None:
+def _assert_pair_components_increasing(baseline: str, final: str, name: str) -> None:
     before_left, before_right = _position_field(baseline, name)
     after_left, after_right = _position_field(final, name)
-    if after_left <= before_left and after_right <= before_right:
+    if after_left <= before_left or after_right <= before_right:
         raise AssertionError(
-            f"{name}= must increase in at least one component, got "
+            f"{name}= must increase in both components, got "
             f"{before_left:08X}:{before_right:08X}->{after_left:08X}:{after_right:08X}"
         )
 
@@ -323,7 +330,12 @@ def validate_status(
         raise AssertionError("gflags= must have the menu-active bit set after scripted Escape")
     _hex_field(final_status, "gaction")
     _hex_field(final_status, "pbuttons")
-    _require_pflags(final_status, REQUIRED_PFLAGS)
+    final_required_pflags = (
+        REQUIRED_FINAL_PFLAGS_WITH_USE_SNAPSHOT
+        if use_status is not None
+        else REQUIRED_PFLAGS
+    )
+    _require_pflags(final_status, final_required_pflags)
     _require_any_pflag(final_status, REQUIRED_FIRE_STATE_PFLAGS, "final fire-state proof")
 
     if baseline_status is not None:
@@ -378,7 +390,7 @@ def validate_status(
             raise AssertionError("mousedelta= must record nonzero X and Y movement from the mouse phase")
         if baseline_status is not None:
             _assert_increasing(baseline_status, mouse_status, MOUSE_EVENT_COUNTERS)
-            _assert_pair_increasing(baseline_status, mouse_status, "mousedelta")
+            _assert_pair_components_increasing(baseline_status, mouse_status, "mousedelta")
         _assert_not_decreasing(mouse_status, final_status, MOUSE_EVENT_COUNTERS)
         _assert_pair_not_decreasing(mouse_status, final_status, "mousedelta")
         if _field(final_status, "mouse") != "OK":
@@ -406,7 +418,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--baseline",
         type=Path,
-        help="Decoded pre-injection status, such as build/status.early.txt",
+        help="Decoded pre-input status after Doom autostarts, such as build/status.after-start.txt",
     )
     parser.add_argument("--start", type=Path, help="Decoded status after Doom autostarts E1M1")
     parser.add_argument("--movement", type=Path, help="Decoded status after scripted movement")

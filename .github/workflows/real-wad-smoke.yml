@@ -142,7 +142,7 @@ jobs:
             SMOKE_EARLY_SECONDS=2 \
             SMOKE_SETTLE_SECONDS=20 \
             SMOKE_SKIP_ASSERTIONS=1 \
-            SMOKE_INPUT_SCRIPT="after-start:wait=2,snapshot after-fire:hold=ctrl:800,wait=2,snapshot after-move:hold=up:1200,wait=3,snapshot after-use:spc,wait=2,snapshot after-mouse:mouse=24:-12,mousebtn=1,wait=1,mousebtn=0,wait=2,snapshot after-menu:esc,wait=2,snapshot" \
+            SMOKE_INPUT_SCRIPT="after-start:wait=2,snapshot after-fire:hold=ctrl:800,wait=2,snapshot after-move:hold=up:1200,wait=3,snapshot after-use:hold=spc:3000,snapshot,wait=2 after-mouse:mouse=24:-12,mouse=0:-12,mousebtn=1,wait=1,mousebtn=0,wait=2,snapshot after-menu:esc,wait=2,snapshot" \
             smoke
 
       - name: Analyze temporary audible audio capture
@@ -157,7 +157,7 @@ jobs:
         if: always()
         run: |
           python3 tools/check_real_wad_proof.py \
-            --baseline build/status.early.txt \
+            --baseline build/status.after-start.txt \
             --start build/status.after-start.txt \
             --fire build/status.after-fire.txt \
             --movement build/status.after-move.txt \
@@ -170,7 +170,7 @@ jobs:
         if: always()
         run: |
           python3 tools/check_human_playability_proof.py \
-            --baseline build/status.early.txt \
+            --baseline build/status.after-start.txt \
             --start build/status.after-start.txt \
             --fire build/status.after-fire.txt \
             --movement build/status.after-move.txt \
@@ -183,7 +183,7 @@ jobs:
         if: always()
         run: |
           python3 tools/check_audio_continuity_proof.py \
-            --baseline build/status.early.txt \
+            --baseline build/status.after-start.txt \
             --fire build/status.after-fire.txt \
             --movement build/status.after-move.txt \
             --use build/status.after-use.txt \
@@ -222,6 +222,7 @@ jobs:
           set -euo pipefail
 
           baseline="$RUNNER_TEMP/disk.before-persistence.img"
+          after_write="$RUNNER_TEMP/disk.after-persistence-write.img"
           check_args=(--baseline-image "$baseline" --require-default)
           if [ -n "${PERSISTENCE_SAVE_SLOT:-}" ]; then
             check_args+=(--require-save-slot "$PERSISTENCE_SAVE_SLOT")
@@ -245,6 +246,7 @@ jobs:
           cp build/persistence-write/status.txt build/status.persistence-write.txt
 
           python3 tools/check_doom_persistence_image.py "${check_args[@]}" build/disk.img
+          cp build/disk.img "$after_write"
 
           mkdir -p build/persistence-reboot
           QEMU=qemu-system-x86_64 \
@@ -260,7 +262,10 @@ jobs:
             tests/run_smoke_qemu.sh
           cp build/persistence-reboot/status.txt build/status.persistence-reboot.txt
 
-          python3 tools/check_doom_persistence_image.py "${check_args[@]}" build/disk.img
+          python3 tools/check_doom_persistence_image.py \
+            "${check_args[@]}" \
+            --reboot-baseline-image "$after_write" \
+            build/disk.img
 
       - name: Re-check validated WAD after smoke
         if: always()

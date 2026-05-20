@@ -22,8 +22,8 @@ time to settle:
 after-start:wait=2,snapshot
 after-fire:hold=ctrl:800,wait=2,snapshot
 after-move:hold=up:1200,wait=3,snapshot
-after-use:spc,wait=2,snapshot
-after-mouse:mouse=24:-12,mousebtn=1,wait=1,mousebtn=0,wait=2,snapshot
+after-use:hold=spc:3000,snapshot,wait=2
+after-mouse:mouse=24:-12,mouse=0:-12,mousebtn=1,wait=1,mousebtn=0,wait=2,snapshot
 after-menu:esc,wait=2,snapshot
 ```
 
@@ -47,8 +47,9 @@ The cloud proof requires these status families:
   VM.
 - Process/exec: `exec=OK`, `path=DOOM.ELF`, `execsys=a/b/c/d/e/f`,
   `execerr=00000000`, `execres=00000000`, `target`, `entry`, `stack`, `argc`,
-  `argv`, `argv0`, `doom=OK`, and `doomrun=RUN` show that the kernel loaded the
-  Doom ELF, performed a syscall-driven exec handoff, seeded argv, and left Doom
+  `argv`, `envp`, `argv0`, `envp0`, `ppid`, `doom=OK`, and `doomrun=RUN` show
+  that the kernel loaded the Doom ELF, performed a syscall-driven exec handoff,
+  seeded the user ABI stack, recorded process parent metadata, and left Doom
   running rather than merely validating bytes on disk. The six `execsys`
   counters are attempts, successes, failures, handoffs, scheduled targets, and
   rollbacks.
@@ -119,7 +120,8 @@ The cloud proof requires these status families:
 `tools/check_real_wad_proof.py` gates the real-WAD status on both the non-pixel
 visual proof and the scripted playability proof, plus the system/process/storage
 debug contract above. A final status line by itself is not sufficient: the gate
-requires the early, start, fire, movement, use, mouse, and menu snapshots so
+uses `status.after-start.txt` as the post-Doom-start baseline and requires the
+start, fire, movement, use, mouse, and menu snapshots so
 keyboard and mouse counters plus Doom action flags and position/ammo/menu state
 can be compared across the scripted phases. It rejects
 duplicate fields, malformed hex, weak synthetic exec counters, Doom error
@@ -148,7 +150,7 @@ directly.
 
    ```sh
    python3 tools/check_real_wad_proof.py \
-     --baseline build/status.early.txt \
+     --baseline build/status.after-start.txt \
      --start build/status.after-start.txt \
      --fire build/status.after-fire.txt \
      --movement build/status.after-move.txt \
@@ -158,7 +160,7 @@ directly.
      build/status.txt
 
    python3 tools/check_audio_continuity_proof.py \
-     --baseline build/status.early.txt \
+     --baseline build/status.after-start.txt \
      --fire build/status.after-fire.txt \
      --movement build/status.after-move.txt \
      --use build/status.after-use.txt \

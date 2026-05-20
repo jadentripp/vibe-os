@@ -141,7 +141,7 @@ PROC_STATE_RUNNING equ 2
 PROC_STATE_EXITED equ 3
 PROC_STATE_FAULTED equ 4
 PROCESS_SLOT_COUNT equ 4
-PROCESS_RECORD_BYTES equ 128
+PROCESS_RECORD_BYTES equ 160
 PROCESS_EXEC_TABLE_COUNT equ 2
 PROCESS_EXEC_ENTRY_BYTES equ 20
 PROCESS_EXEC_PATH equ 0
@@ -181,6 +181,13 @@ PROC_VM_REGIONS equ 112
 PROC_VM_REGION_COUNT equ 116
 PROC_VM_FLAGS equ 120
 PROC_KERNEL_STACK_TOP equ 124
+PROC_PARENT_PID equ 128
+PROC_EXIT_STATUS equ 132
+PROC_EXEC_COUNT equ 136
+PROC_ARGC equ 140
+PROC_ARGV equ 144
+PROC_ENVP equ 148
+PROC_ARGV0 equ 152
 PROC_FLAG_IRQ_FRAME_VALID equ 0x1
 VM_REGION_BYTES equ 12
 VM_REGION_BASE equ 0
@@ -4184,12 +4191,15 @@ storage_init:
     mov dword [sys_exec_rollbacks], 0
     mov dword [sys_exec_last_result], 0
     mov dword [sys_exec_last_caller_pid], 0xffffffff
+    mov dword [sys_exec_last_parent_pid], 0xffffffff
     mov dword [sys_exec_last_target_pid], 0xffffffff
     mov dword [sys_exec_last_target_entry], 0
     mov dword [sys_exec_last_target_stack], 0
     mov dword [sys_exec_last_argc], 0
     mov dword [sys_exec_last_argv], 0
+    mov dword [sys_exec_last_envp], 0
     mov dword [sys_exec_last_argv0], 0
+    mov dword [sys_exec_last_envp0], 0
     mov dword [sys_exec_user_argv_arg], 0
     mov dword [sys_exec_flags_arg], 0
     mov dword [sys_exec_frame_ptr], 0
@@ -6349,6 +6359,13 @@ process_reset_accounting:
     mov dword [esi + PROC_QUANTUM_TICKS], 0
     mov dword [esi + PROC_SWITCHES], 0
     and dword [esi + PROC_VM_FLAGS], 0xfffffffe
+    mov dword [esi + PROC_PARENT_PID], 0xffffffff
+    mov dword [esi + PROC_EXIT_STATUS], 0
+    mov dword [esi + PROC_EXEC_COUNT], 0
+    mov dword [esi + PROC_ARGC], 0
+    mov dword [esi + PROC_ARGV], 0
+    mov dword [esi + PROC_ENVP], 0
+    mov dword [esi + PROC_ARGV0], 0
     lea edi, [esi + PROC_SAVED_EAX]
     xor eax, eax
     mov ecx, 12
@@ -6456,6 +6473,7 @@ process_mark_current_exited:
     cmp esi, 0
     je .done
     mov dword [esi + PROC_STATE], PROC_STATE_EXITED
+    mov [esi + PROC_EXIT_STATUS], ebx
 
 .done:
     pop esi
@@ -7077,6 +7095,8 @@ process_exec_handoff_current:
     call scheduler_prepare_live_preempt_probe
 
 .activate_target:
+    mov eax, [edi + PROC_PID]
+    mov [esi + PROC_PARENT_PID], eax
     call process_activate
     call process_exec_seed_argv_stack
     jc .eio
@@ -7084,12 +7104,15 @@ process_exec_handoff_current:
 
     mov eax, [edi + PROC_PID]
     mov [sys_exec_last_caller_pid], eax
+    mov eax, [esi + PROC_PARENT_PID]
+    mov [sys_exec_last_parent_pid], eax
     mov eax, [esi + PROC_PID]
     mov [sys_exec_last_target_pid], eax
     mov eax, [esi + PROC_ENTRY]
     mov [sys_exec_last_target_entry], eax
     mov eax, [esi + PROC_SAVED_ESP]
     mov [sys_exec_last_target_stack], eax
+    inc dword [esi + PROC_EXEC_COUNT]
     call process_exec_patch_syscall_frame
     jc .eio
     mov dword [edi + PROC_STATE], PROC_STATE_EXITED
@@ -7198,11 +7221,19 @@ process_exec_seed_argv_stack:
     mov dword [ebx + ecx * 4 + 4], 0
     mov eax, [sys_exec_argc]
     mov [sys_exec_last_argc], eax
+    mov [edx + PROC_ARGC], eax
     mov eax, ebx
     mov [sys_exec_last_argv], eax
+    mov [edx + PROC_ARGV], eax
+    lea eax, [ebx + ecx * 4 + 4]
+    mov [sys_exec_last_envp], eax
+    mov [edx + PROC_ENVP], eax
+    mov eax, [eax]
+    mov [sys_exec_last_envp0], eax
     mov eax, [sys_exec_arg_target_ptrs]
     mov [sys_exec_argv0_ptr], eax
     mov [sys_exec_last_argv0], eax
+    mov [edx + PROC_ARGV0], eax
     mov eax, [sys_exec_user_stack_ptr]
     mov [edx + PROC_SAVED_ESP], eax
     clc
@@ -7283,6 +7314,7 @@ kernel_streq:
 user_probe_run:
     mov esi, process_user_probe
     call process_reset_user_probe
+    mov dword [process_user_probe + PROC_PARENT_PID], 0
     call process_activate
     mov byte [user_probe_status], 0
     mov byte [user_fault_expected], 0
@@ -7327,6 +7359,7 @@ user_probe_run:
     call process_activate
     call process_exec_seed_argv_stack
     jc .fail
+    inc dword [process_user_probe + PROC_EXEC_COUNT]
 
     mov ax, USER_DATA_SEG
     mov ds, ax
@@ -8734,12 +8767,15 @@ syscall_handler:
     mov dword [process_exec_target], 0
     mov dword [process_exec_entry], 0
     mov dword [process_exec_last_error], 0
+    mov dword [sys_exec_last_parent_pid], 0xffffffff
     mov dword [sys_exec_last_target_pid], 0xffffffff
     mov dword [sys_exec_last_target_entry], 0
     mov dword [sys_exec_last_target_stack], 0
     mov dword [sys_exec_last_argc], 0
     mov dword [sys_exec_last_argv], 0
+    mov dword [sys_exec_last_envp], 0
     mov dword [sys_exec_last_argv0], 0
+    mov dword [sys_exec_last_envp0], 0
     inc dword [sys_exec_attempts]
     cmp dword [sys_exec_flags_arg], 0
     jne .exec_einval
@@ -10093,6 +10129,10 @@ write_smoke_status:
     call smoke_copy_string
     mov edx, [sys_exec_last_target_pid]
     call smoke_write_hex32
+    mov esi, smoke_exec_ppid_text
+    call smoke_copy_string
+    mov edx, [sys_exec_last_parent_pid]
+    call smoke_write_hex32
     mov esi, smoke_exec_entry_text
     call smoke_copy_string
     mov edx, [sys_exec_last_target_entry]
@@ -10109,9 +10149,17 @@ write_smoke_status:
     call smoke_copy_string
     mov edx, [sys_exec_last_argv]
     call smoke_write_hex32
+    mov esi, smoke_exec_envp_ptr_text
+    call smoke_copy_string
+    mov edx, [sys_exec_last_envp]
+    call smoke_write_hex32
     mov esi, smoke_exec_argv_text
     call smoke_copy_string
     mov edx, [sys_exec_last_argv0]
+    call smoke_write_hex32
+    mov esi, smoke_exec_envp0_text
+    call smoke_copy_string
+    mov edx, [sys_exec_last_envp0]
     call smoke_write_hex32
     mov al, ' '
     stosb
@@ -10891,6 +10939,22 @@ write_smoke_status:
     jmp .user_write
 
 .user_fail:
+    cmp byte [doom_elf_status], 1
+    jne .user_fail_text
+    cmp byte [doom_elf_load_status], 1
+    jne .user_fail_text
+    cmp byte [doom_elf_parse_status], 1
+    jne .user_fail_text
+    cmp byte [process_exec_status], 1
+    jne .user_fail_text
+    cmp byte [doom_run_status], 1
+    jne .user_fail_text
+    cmp dword [process_doom + PROC_STATE], PROC_STATE_RUNNING
+    jne .user_fail_text
+    mov esi, smoke_ok_text
+    jmp .user_write
+
+.user_fail_text:
     mov esi, smoke_fail_text
 
 .user_write:
@@ -11157,6 +11221,23 @@ draw_heap_status:
     je .user_ok
 
 .user_fail:
+    cmp byte [doom_elf_status], 1
+    jne .user_fail_text
+    cmp byte [doom_elf_load_status], 1
+    jne .user_fail_text
+    cmp byte [doom_elf_parse_status], 1
+    jne .user_fail_text
+    cmp byte [process_exec_status], 1
+    jne .user_fail_text
+    cmp byte [doom_run_status], 1
+    jne .user_fail_text
+    cmp dword [process_doom + PROC_STATE], PROC_STATE_RUNNING
+    jne .user_fail_text
+    mov esi, ok_status_text
+    call draw_status_string
+    jmp .wad_status
+
+.user_fail_text:
     mov esi, fail_status_text
     call draw_status_string
     jmp .wad_status
@@ -11437,11 +11518,14 @@ smoke_execsys_text db " execsys=", 0
 smoke_execerr_text db " execerr=", 0
 smoke_execres_text db " execres=", 0
 smoke_exec_target_text db " target=", 0
+smoke_exec_ppid_text db " ppid=", 0
 smoke_exec_entry_text db " entry=", 0
 smoke_exec_stack_text db " stack=", 0
 smoke_exec_argc_text db " argc=", 0
 smoke_exec_argv_ptr_text db " argv=", 0
+smoke_exec_envp_ptr_text db " envp=", 0
 smoke_exec_argv_text db " argv0=", 0
+smoke_exec_envp0_text db " envp0=", 0
 smoke_doom_text db "doom=", 0
 smoke_doomrun_text db " doomrun=", 0
 smoke_doomexit_text db " doomexit=", 0
@@ -11744,6 +11828,7 @@ process_kernel:
     times 12 dd 0
     dd 0, 0, 0, 0
     dd PAGING_DIR_ADDR, 0, 0, 0, PROC_KERNEL_PROCESS_STACK_TOP
+    dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
 process_user_probe:
     dd 1, USER_KIND_PROBE, PROC_STATE_READY
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -11751,6 +11836,7 @@ process_user_probe:
     times 12 dd 0
     dd 0, 0, 0, 0
     dd PROC_PROBE_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_USER_PROBE_KERNEL_STACK_TOP
+    dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
 process_preempt_probe:
     dd 3, USER_KIND_PREEMPT_PROBE, PROC_STATE_READY
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -11758,6 +11844,7 @@ process_preempt_probe:
     times 12 dd 0
     dd 0, 0, 0, 0
     dd PROC_PROBE_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_PREEMPT_PROBE_KERNEL_STACK_TOP
+    dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
 process_doom:
     dd 2, USER_KIND_DOOM, PROC_STATE_READY
     dd DOOM_USER_BASE, DOOM_USER_END, DOOM_USER_HEAP_START, DOOM_USER_HEAP_START, DOOM_USER_HEAP_END
@@ -11765,6 +11852,7 @@ process_doom:
     times 12 dd 0
     dd 0, 0, 0, 0
     dd PROC_DOOM_PAGE_DIR_ADDR, process_doom_vm_regions, 3, 0, PROC_DOOM_KERNEL_STACK_TOP
+    dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
 pmm_total_pages dd 0
 pmm_free_pages dd 0
 pmm_used_pages dd 0
@@ -11841,12 +11929,15 @@ sys_exec_scheduled dd 0
 sys_exec_rollbacks dd 0
 sys_exec_last_result dd 0
 sys_exec_last_caller_pid dd 0xffffffff
+sys_exec_last_parent_pid dd 0xffffffff
 sys_exec_last_target_pid dd 0xffffffff
 sys_exec_last_target_entry dd 0
 sys_exec_last_target_stack dd 0
 sys_exec_last_argc dd 0
 sys_exec_last_argv dd 0
+sys_exec_last_envp dd 0
 sys_exec_last_argv0 dd 0
+sys_exec_last_envp0 dd 0
 sys_exec_user_argv_arg dd 0
 sys_exec_flags_arg dd 0
 sys_exec_frame_ptr dd 0

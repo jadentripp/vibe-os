@@ -22,11 +22,14 @@ def status_line(**overrides):
         "execerr": "00000000",
         "execres": "00000000",
         "target": "00000003",
+        "ppid": "00000001",
         "entry": "01000000",
         "stack": "0100EFE0",
         "argc": "00000001",
         "argv": "0100EFE4",
+        "envp": "0100EFEC",
         "argv0": "0100F000",
+        "envp0": "00000000",
         "doom": "OK",
         "doomrun": "RUN",
         "doomopen": "OK",
@@ -133,6 +136,23 @@ class CloudStatusTriageTests(unittest.TestCase):
             with self.subTest(doc=expected):
                 self.assertIn(f"`{expected}`", doc)
 
+    def test_doc_tracks_green_runtime_but_red_proof_gate_cleanup_lane(self):
+        doc = (ROOT / "docs" / "cloud-status-triage.md").read_text()
+
+        for phrase in (
+            "input/audio/preemption counters active",
+            "proof gates can still fail on snapshot-baseline details",
+            "`usr=OK` consistency",
+            "scripted `use` phase progression",
+            "mouse baseline/effect evidence",
+            "audio baseline continuity",
+            "early/start/fire/move/use/",
+            "mouse/menu snapshots",
+            "check_audio_continuity_proof.py",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, doc)
+
     def test_classifies_exec_not_attempted(self):
         primary, notes = self.classify(
             execsys="00000000/00000000/00000000/00000000/00000000/00000000",
@@ -141,6 +161,7 @@ class CloudStatusTriageTests(unittest.TestCase):
             stack="00000000",
             argc="00000000",
             argv="00000000",
+            envp="00000000",
             argv0="00000000",
             doomrun="WAIT",
         )
@@ -158,6 +179,7 @@ class CloudStatusTriageTests(unittest.TestCase):
             stack="00000000",
             argc="00000000",
             argv="00000000",
+            envp="00000000",
             argv0="00000000",
         )
 

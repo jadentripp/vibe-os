@@ -297,8 +297,7 @@ smoke: vm-consent check-tools $(IMAGE)
 		perl -ne '$$ok = 1 if /leveltime=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	fi; \
 	if [ "$(SMOKE_REQUIRE_REAL_WAD_PROOF)" = "1" ]; then \
-		real_wad_args="--baseline $(BUILD_DIR)/status.early.txt"; \
-		if [ -f "$(BUILD_DIR)/status.after-start.txt" ]; then real_wad_args="$$real_wad_args --start $(BUILD_DIR)/status.after-start.txt"; fi; \
+		real_wad_args="--baseline $(BUILD_DIR)/status.after-start.txt --start $(BUILD_DIR)/status.after-start.txt"; \
 		if [ -f "$(BUILD_DIR)/status.after-fire.txt" ]; then real_wad_args="$$real_wad_args --fire $(BUILD_DIR)/status.after-fire.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-move.txt" ]; then real_wad_args="$$real_wad_args --movement $(BUILD_DIR)/status.after-move.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-use.txt" ]; then real_wad_args="$$real_wad_args --use $(BUILD_DIR)/status.after-use.txt"; fi; \
@@ -307,8 +306,7 @@ smoke: vm-consent check-tools $(IMAGE)
 		$(PYTHON) tools/check_real_wad_proof.py $$real_wad_args $(BUILD_DIR)/status.txt; \
 	fi; \
 	if [ "$(SMOKE_REQUIRE_HUMAN_PLAYABILITY_PROOF)" = "1" ]; then \
-		human_args="--baseline $(BUILD_DIR)/status.early.txt"; \
-		if [ -f "$(BUILD_DIR)/status.after-start.txt" ]; then human_args="$$human_args --start $(BUILD_DIR)/status.after-start.txt"; fi; \
+		human_args="--baseline $(BUILD_DIR)/status.after-start.txt --start $(BUILD_DIR)/status.after-start.txt"; \
 		if [ -f "$(BUILD_DIR)/status.after-fire.txt" ]; then human_args="$$human_args --fire $(BUILD_DIR)/status.after-fire.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-move.txt" ]; then human_args="$$human_args --movement $(BUILD_DIR)/status.after-move.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-use.txt" ]; then human_args="$$human_args --use $(BUILD_DIR)/status.after-use.txt"; fi; \
@@ -317,7 +315,7 @@ smoke: vm-consent check-tools $(IMAGE)
 		$(PYTHON) tools/check_human_playability_proof.py $$human_args $(BUILD_DIR)/status.txt; \
 	fi; \
 	if [ "$(SMOKE_REQUIRE_AUDIO_CONTINUITY)" = "1" ]; then \
-		audio_args="--baseline $(BUILD_DIR)/status.early.txt"; \
+		audio_args="--baseline $(BUILD_DIR)/status.after-start.txt"; \
 		if [ -f "$(BUILD_DIR)/status.after-fire.txt" ]; then audio_args="$$audio_args --fire $(BUILD_DIR)/status.after-fire.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-move.txt" ]; then audio_args="$$audio_args --movement $(BUILD_DIR)/status.after-move.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-use.txt" ]; then audio_args="$$audio_args --use $(BUILD_DIR)/status.after-use.txt"; fi; \
@@ -354,6 +352,7 @@ persistence-image-check: $(IMAGE)
 	@set -e; \
 	args=""; \
 	if [ -n "$(PERSISTENCE_BASELINE_IMAGE)" ]; then args="$$args --baseline-image $(PERSISTENCE_BASELINE_IMAGE)"; fi; \
+	if [ -n "$(PERSISTENCE_REBOOT_BASELINE_IMAGE)" ]; then args="$$args --reboot-baseline-image $(PERSISTENCE_REBOOT_BASELINE_IMAGE)"; fi; \
 	if [ "$(PERSISTENCE_REQUIRE_DEFAULT)" = "1" ]; then args="$$args --require-default"; fi; \
 	for slot in $(PERSISTENCE_REQUIRE_SAVE_SLOT); do args="$$args --require-save-slot $$slot"; done; \
 	$(PYTHON) tools/check_doom_persistence_image.py $$args "$(IMAGE)"

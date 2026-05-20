@@ -72,19 +72,29 @@ REQUIRED_GAPS = {
 }
 
 LATEST_RUN_PHRASES = (
-    "Latest Analyzed Cloud Run",
+    "Latest Cloud Evidence",
+    "latest reported real-WAD cloud evidence has moved past",
+    "doomrun=RUN",
+    "doomopen=OK",
+    "doomread=OK",
+    "IWAD",
+    "Frame/gameplay counters are active",
+    "SB16/audio counters",
+    "preemption counters are active",
+    "proof gates are not clean enough",
+    "usr=OK",
+    "scripted `use`",
+    "mouse snapshot/effect",
+    "audio baseline",
+    "check_audio_continuity_proof.py",
     "26146035600",
     "269dbb8",
-    "doom-user-fault",
     "FindResponseFile+0x34",
     "doomfaultip=01003224",
-    "doomopen=FAIL doomread=FAIL",
     "26146488906",
     "34eb98d",
     "W_AddFile+0x246",
     "doomfaultip=01024D06",
-    "doomopen=OK",
-    "doomread=OK",
     "not a Doom-capable proof",
 )
 
@@ -146,13 +156,12 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         if phrase not in text:
             raise AssertionError(f"gap ledger missing latest-run phrase: {phrase}")
     for phrase in (
-        "latest analyzed real-WAD run is red",
         "not a Doom-capable claim",
         "FindResponseFile+0x34",
         "W_AddFile+0x246",
     ):
         if phrase not in readme:
-            raise AssertionError(f"README missing current claim-boundary phrase: {phrase}")
+            raise AssertionError(f"README missing claim-boundary phrase: {phrase}")
     if "not a claim that the current branch is playable" not in playable_cloud_proof:
         raise AssertionError("playable cloud proof doc must not read as a current playability claim")
     if "docs/post-checkpoint-gaps.md" not in readme:

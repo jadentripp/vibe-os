@@ -287,7 +287,7 @@ def validate_repo_contract() -> None:
             (
                 "QEMU_EXTRA_ARGS=\"-audiodev none,id=snd0 -device sb16,audiodev=snd0\"",
                 "tools/check_audio_continuity_proof.py",
-                "--baseline build/status.early.txt",
+                "--baseline build/status.after-start.txt",
                 "--fire build/status.after-fire.txt",
                 "--movement build/status.after-move.txt",
                 "--use build/status.after-use.txt",
@@ -371,7 +371,7 @@ def _auto_snapshot(final_status: Path, label: str) -> Path:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("status", nargs="?", type=Path, help="Decoded final status.txt")
-    parser.add_argument("--baseline", type=Path, help="Decoded status.early.txt")
+    parser.add_argument("--baseline", type=Path, help="Decoded post-Doom-start status.after-start.txt")
     parser.add_argument("--fire", type=Path, help="Decoded status.after-fire.txt")
     parser.add_argument("--movement", type=Path, help="Decoded status.after-move.txt")
     parser.add_argument("--use", type=Path, help="Decoded status.after-use.txt")
@@ -396,7 +396,9 @@ def main(argv: list[str]) -> int:
         use = args.use
         menu = args.menu
         if not args.no_auto_snapshots:
-            baseline = baseline or _auto_snapshot(args.status, "early")
+            if baseline is None:
+                after_start = _auto_snapshot(args.status, "after-start")
+                baseline = after_start if after_start.exists() else _auto_snapshot(args.status, "early")
             fire = fire or _auto_snapshot(args.status, "after-fire")
             movement = movement or _auto_snapshot(args.status, "after-move")
             use = use or _auto_snapshot(args.status, "after-use")

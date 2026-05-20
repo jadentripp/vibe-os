@@ -112,21 +112,27 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn('smoke_execerr_text db " execerr=", 0', kernel)
         self.assertIn('smoke_execres_text db " execres=", 0', kernel)
         self.assertIn('smoke_exec_target_text db " target=", 0', kernel)
+        self.assertIn('smoke_exec_ppid_text db " ppid=", 0', kernel)
         self.assertIn('smoke_exec_entry_text db " entry=", 0', kernel)
         self.assertIn('smoke_exec_stack_text db " stack=", 0', kernel)
         self.assertIn('smoke_exec_argc_text db " argc=", 0', kernel)
         self.assertIn('smoke_exec_argv_ptr_text db " argv=", 0', kernel)
+        self.assertIn('smoke_exec_envp_ptr_text db " envp=", 0', kernel)
         self.assertIn('smoke_exec_argv_text db " argv0=", 0', kernel)
+        self.assertIn('smoke_exec_envp0_text db " envp0=", 0', kernel)
         self.assertIn("mov edx, [sys_exec_handoffs]", write_smoke)
         self.assertIn("mov edx, [sys_exec_scheduled]", write_smoke)
         self.assertIn("mov edx, [sys_exec_rollbacks]", write_smoke)
         self.assertIn("mov edx, [process_exec_last_error]", write_smoke)
         self.assertIn("mov edx, [sys_exec_last_result]", write_smoke)
         self.assertIn("mov edx, [sys_exec_last_target_pid]", write_smoke)
+        self.assertIn("mov edx, [sys_exec_last_parent_pid]", write_smoke)
         self.assertIn("mov edx, [sys_exec_last_target_entry]", write_smoke)
         self.assertIn("mov edx, [sys_exec_last_target_stack]", write_smoke)
         self.assertIn("mov edx, [sys_exec_last_argc]", write_smoke)
         self.assertIn("mov edx, [sys_exec_last_argv]", write_smoke)
+        self.assertIn("mov edx, [sys_exec_last_envp]", write_smoke)
+        self.assertIn("mov edx, [sys_exec_last_envp0]", write_smoke)
 
     def test_sys_exec_dispatch_validates_prepares_and_hands_off_exec(self):
         kernel = read_kernel()
@@ -156,12 +162,15 @@ class ProcessExecContractTests(unittest.TestCase):
             "mov dword [process_exec_target], 0",
             "mov dword [process_exec_entry], 0",
             "mov dword [process_exec_last_error], 0",
+            "mov dword [sys_exec_last_parent_pid], 0xffffffff",
             "mov dword [sys_exec_last_target_pid], 0xffffffff",
             "mov dword [sys_exec_last_target_entry], 0",
             "mov dword [sys_exec_last_target_stack], 0",
             "mov dword [sys_exec_last_argc], 0",
             "mov dword [sys_exec_last_argv], 0",
+            "mov dword [sys_exec_last_envp], 0",
             "mov dword [sys_exec_last_argv0], 0",
+            "mov dword [sys_exec_last_envp0], 0",
             "cmp dword [sys_exec_flags_arg], 0",
             "jne .exec_einval",
             "call sys_exec_copy_argv",
@@ -312,6 +321,7 @@ class ProcessExecContractTests(unittest.TestCase):
             "mov [ebx + esi * 4], eax",
             "mov dword [ebx + ecx * 4], 0",
             "mov dword [ebx + ecx * 4 + 4], 0",
+            "lea eax, [ebx + ecx * 4 + 4]",
             "mov [edx + PROC_SAVED_ESP], eax",
         ):
             self.assertIn(source, argv)
@@ -338,6 +348,56 @@ class ProcessExecContractTests(unittest.TestCase):
             "mov dword [sys_exec_argc], SYS_EXEC_ARGC_DEFAULT",
         ):
             self.assertIn(source, stage_kernel_arg)
+
+    def test_process_records_capture_exec_parent_and_user_abi_metadata(self):
+        kernel = read_kernel()
+        reset = kernel.split("process_reset_accounting:", 1)[1].split("clear_fault_record:", 1)[0]
+        handoff = kernel.split("process_exec_handoff_current:", 1)[1].split("process_exec_seed_argv_stack:", 1)[0]
+        argv = kernel.split("process_exec_seed_argv_stack:", 1)[1].split("process_exec_patch_syscall_frame:", 1)[0]
+        user_probe_run = kernel.split("user_probe_run:", 1)[1].split(".fail:", 1)[0]
+        for source in (
+            "PROCESS_RECORD_BYTES equ 160",
+            "PROC_PARENT_PID equ 128",
+            "PROC_EXIT_STATUS equ 132",
+            "PROC_EXEC_COUNT equ 136",
+            "PROC_ARGC equ 140",
+            "PROC_ARGV equ 144",
+            "PROC_ENVP equ 148",
+            "PROC_ARGV0 equ 152",
+            "sys_exec_last_parent_pid dd 0xffffffff",
+            "sys_exec_last_envp dd 0",
+            "sys_exec_last_envp0 dd 0",
+        ):
+            self.assertIn(source, kernel)
+        for source in (
+            "mov dword [esi + PROC_PARENT_PID], 0xffffffff",
+            "mov dword [esi + PROC_EXIT_STATUS], 0",
+            "mov dword [esi + PROC_EXEC_COUNT], 0",
+            "mov dword [esi + PROC_ARGC], 0",
+            "mov dword [esi + PROC_ARGV], 0",
+            "mov dword [esi + PROC_ENVP], 0",
+            "mov dword [esi + PROC_ARGV0], 0",
+        ):
+            self.assertIn(source, reset)
+        for source in (
+            "mov eax, [edi + PROC_PID]",
+            "mov [esi + PROC_PARENT_PID], eax",
+            "mov eax, [esi + PROC_PARENT_PID]",
+            "mov [sys_exec_last_parent_pid], eax",
+            "inc dword [esi + PROC_EXEC_COUNT]",
+        ):
+            self.assertIn(source, handoff)
+        for source in (
+            "mov [edx + PROC_ARGC], eax",
+            "mov [edx + PROC_ARGV], eax",
+            "mov [sys_exec_last_envp], eax",
+            "mov [edx + PROC_ENVP], eax",
+            "mov [sys_exec_last_envp0], eax",
+            "mov [edx + PROC_ARGV0], eax",
+        ):
+            self.assertIn(source, argv)
+        self.assertIn("mov dword [process_user_probe + PROC_PARENT_PID], 0", user_probe_run)
+        self.assertIn("inc dword [process_user_probe + PROC_EXEC_COUNT]", user_probe_run)
 
     def test_user_crt0_passes_argc_argv_and_empty_envp_to_user_main(self):
         crt0 = (ROOT / "user" / "crt0.asm").read_text()
@@ -395,3 +455,19 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("cmp byte [doom_load_segment_count], 0", draw_status)
         self.assertIn("je .fail", draw_status)
         self.assertNotIn("cmp byte [doom_load_segment_count], 1", draw_status)
+
+    def test_process_exec_doc_keeps_fixed_slot_process_gap_honest(self):
+        process_doc = (ROOT / "docs" / "process-exec.md").read_text()
+
+        for phrase in (
+            "fixed table entries instead of arbitrary FAT paths",
+            "empty `envp` contract",
+            "not a robust Unix",
+            "`fork`/`exec` split",
+            "`wait`/reap lifecycle",
+            "fd inheritance",
+            "dynamic child slots",
+            "reusable address-space resources",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, process_doc)

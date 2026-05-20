@@ -522,15 +522,15 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('SMOKE_INPUT_SCRIPT="after-start:wait=2,snapshot', real_wad_workflow)
         self.assertIn("after-fire:hold=ctrl:800", real_wad_workflow)
         self.assertIn("after-move:hold=up:1200", real_wad_workflow)
-        self.assertIn("after-use:spc", real_wad_workflow)
-        self.assertIn("after-mouse:mouse=24:-12", real_wad_workflow)
+        self.assertIn("after-use:hold=spc:3000,snapshot,wait=2", real_wad_workflow)
+        self.assertIn("after-mouse:mouse=24:-12,mouse=0:-12", real_wad_workflow)
         self.assertIn("mousebtn=1", real_wad_workflow)
         self.assertIn("after-menu:esc", real_wad_workflow)
         self.assertIn("if: always()", real_wad_workflow)
         self.assertIn("Assert real-WAD proof gates", real_wad_workflow)
         self.assertIn("Assert scripted human-playability gates", real_wad_workflow)
         self.assertIn("python3 tools/check_real_wad_proof.py \\", real_wad_workflow)
-        self.assertIn("--baseline build/status.early.txt", real_wad_workflow)
+        self.assertIn("--baseline build/status.after-start.txt", real_wad_workflow)
         self.assertIn("--start build/status.after-start.txt", real_wad_workflow)
         self.assertIn("--fire build/status.after-fire.txt", real_wad_workflow)
         self.assertIn("--movement build/status.after-move.txt", real_wad_workflow)
@@ -721,7 +721,10 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("hex($$1) == 0x00000101", makefile)
         self.assertIn("/leveltime=([0-9A-F]{8})/", makefile)
         self.assertIn('grep -q "dtick="', makefile)
-        self.assertIn("real_wad_args=\"--baseline $(BUILD_DIR)/status.early.txt\"", makefile)
+        self.assertIn(
+            "real_wad_args=\"--baseline $(BUILD_DIR)/status.after-start.txt --start $(BUILD_DIR)/status.after-start.txt\"",
+            makefile,
+        )
         self.assertIn("tools/check_real_wad_proof.py $$real_wad_args $(BUILD_DIR)/status.txt", makefile)
 
     def test_real_wad_proof_checker_requires_meaningful_status(self):
@@ -736,7 +739,7 @@ class SourceContractTests(unittest.TestCase):
             "exec=OK path=DOOM.ELF doom=OK doomrun=RUN doomopen=OK doomread=OK "
             "gfx=OK pself=OK pg=ON pmm=OK vmm=OK libc=OK c=OK usr=OK wad=OK lmp=OK heap=OK "
             "fb=LFB audio=NONE mouse=OK doommode=00000000:00000000 "
-            "target=00000001 entry=00000001 stack=00000002 argc=00000001 argv=00000003 argv0=00000004 "
+            "target=00000001 ppid=00000001 entry=00000001 stack=00000002 argc=00000001 argv=00000003 envp=00000005 argv0=00000004 envp0=00000000 "
             "execerr=00000000 execres=00000000 execsys=00000001/00000001/00000000/00000001/00000001/00000000 "
             "doomwrite=00000000 doomseek=00000001 doomwad=00000001/00000001/00000001/44415749 "
             "doomclose=00000000 doomsbrk=00000001 doomerr=00000000 doomerrno=00000000 doominit=000001FF/00000009 "
@@ -754,9 +757,13 @@ class SourceContractTests(unittest.TestCase):
             "pspin=50524546 free=00700000 ticks=00000100"
         )
         playable = "gstate=00000000 gtic=00000001 gflags=00000001 gaction=00000000 pflags=000000FF pbuttons=00000000 ppos=00010000:00020000 pdelta=00000100 keyirq=00000001 keyqueue=00000001 keypoll=00000001 keyseen=00000071 keylast=0001001B"
-        valid = f"Aurora OS v0.2 {core} gameplay=OK gmap=00000101 leveltime=00000001 doompresent=00000002 {visual} {playable} doomlog=ready"
+        valid = f"Aurora OS v0.2 {core} gameplay=OK gmap=00000101 leveltime=00000001 doompresent=00000008 {visual.replace('doomframe=13572468', 'doomframe=88888888')} {playable} doomlog=ready"
         baseline = valid.replace("gtic=00000001", "gtic=00000000").replace(
             "leveltime=00000001", "leveltime=00000000"
+        ).replace(
+            "doompresent=00000008", "doompresent=00000001"
+        ).replace(
+            "doomframe=88888888", "doomframe=11111111"
         ).replace("keyirq=00000001", "keyirq=00000000").replace(
             "keyqueue=00000001", "keyqueue=00000000"
         ).replace("keypoll=00000001", "keypoll=00000000").replace(
@@ -777,6 +784,10 @@ class SourceContractTests(unittest.TestCase):
         start = valid.replace("gflags=00000001", "gflags=00000000").replace(
             "pflags=000000FF", "pflags=00000001"
         ).replace(
+            "doompresent=00000008", "doompresent=00000002"
+        ).replace(
+            "doomframe=88888888", "doomframe=22222222"
+        ).replace(
             "pdelta=00000100", "pdelta=00000000"
         ).replace(
             "keyseen=00000071", "keyseen=00000000"
@@ -785,6 +796,10 @@ class SourceContractTests(unittest.TestCase):
         )
         fire = valid.replace("gtic=00000001", "gtic=00000002").replace(
             "leveltime=00000001", "leveltime=00000002"
+        ).replace(
+            "doompresent=00000008", "doompresent=00000003"
+        ).replace(
+            "doomframe=88888888", "doomframe=33333333"
         ).replace("keyirq=00000001", "keyirq=00000002").replace(
             "keyqueue=00000001", "keyqueue=00000002"
         ).replace("keypoll=00000001", "keypoll=00000002").replace(
@@ -796,6 +811,10 @@ class SourceContractTests(unittest.TestCase):
         )
         movement = valid.replace("gtic=00000001", "gtic=00000003").replace(
             "leveltime=00000001", "leveltime=00000003"
+        ).replace(
+            "doompresent=00000008", "doompresent=00000004"
+        ).replace(
+            "doomframe=88888888", "doomframe=44444444"
         ).replace("keyirq=00000001", "keyirq=00000003").replace(
             "keyqueue=00000001", "keyqueue=00000003"
         ).replace("keypoll=00000001", "keypoll=00000003").replace(
@@ -809,6 +828,10 @@ class SourceContractTests(unittest.TestCase):
         )
         use = valid.replace("gtic=00000001", "gtic=00000004").replace(
             "leveltime=00000001", "leveltime=00000004"
+        ).replace(
+            "doompresent=00000008", "doompresent=00000005"
+        ).replace(
+            "doomframe=88888888", "doomframe=55555555"
         ).replace("keyirq=00000001", "keyirq=00000004").replace(
             "keyqueue=00000001", "keyqueue=00000004"
         ).replace("keypoll=00000001", "keypoll=00000004").replace(
@@ -820,6 +843,10 @@ class SourceContractTests(unittest.TestCase):
         )
         mouse = valid.replace("gtic=00000001", "gtic=00000005").replace(
             "leveltime=00000001", "leveltime=00000005"
+        ).replace(
+            "doompresent=00000008", "doompresent=00000006"
+        ).replace(
+            "doomframe=88888888", "doomframe=66666666"
         ).replace("keyirq=00000001", "keyirq=00000004").replace(
             "keyqueue=00000001", "keyqueue=00000004"
         ).replace("keypoll=00000001", "keypoll=00000004").replace(
@@ -829,6 +856,10 @@ class SourceContractTests(unittest.TestCase):
         )
         menu = valid.replace("gtic=00000001", "gtic=00000006").replace(
             "leveltime=00000001", "leveltime=00000006"
+        ).replace(
+            "doompresent=00000008", "doompresent=00000007"
+        ).replace(
+            "doomframe=88888888", "doomframe=77777777"
         ).replace("keyirq=00000001", "keyirq=00000005").replace(
             "keyqueue=00000001", "keyqueue=00000005"
         ).replace("keypoll=00000001", "keypoll=00000005").replace(
@@ -844,14 +875,27 @@ class SourceContractTests(unittest.TestCase):
             mouse_status=mouse,
             menu_status=menu,
         )
+        check_real_wad_proof.validate_status(
+            valid.replace(
+                "doomerr=00000000 doomerrno=00000000",
+                "doomerr=00000003 doomerrno=FFFFFFFE",
+            ),
+            baseline_status=baseline,
+            start_status=start,
+            fire_status=fire,
+            movement_status=movement,
+            use_status=use,
+            mouse_status=mouse,
+            menu_status=menu,
+        )
 
         invalid_cases = (
             valid.replace("gameplay=OK", "gameplay=NO"),
             valid.replace("gmap=00000101", "gmap=00000102"),
             valid.replace("leveltime=00000001", "leveltime=00000000"),
-            valid.replace("doompresent=00000002", "doompresent=00000000"),
+            valid.replace("doompresent=00000008", "doompresent=00000000"),
             valid.replace("doompal=89ABCDEF", "doompal=00000000"),
-            valid.replace("doomframe=13572468", "doomframe=00000000"),
+            valid.replace("doomframe=88888888", "doomframe=00000000"),
             valid.replace("doomnonzero=00002000", "doomnonzero=00000400"),
             valid.replace("doomcolors=00000080", "doomcolors=00000040"),
             valid.replace("doomsamp=00000001:00000002:00000003", "doomsamp=00000100:00000002:00000003"),
@@ -867,14 +911,15 @@ class SourceContractTests(unittest.TestCase):
             ),
             valid.replace("execerr=00000000", "execerr=FFFFFFFE"),
             valid.replace("execres=00000000", "execres=FFFFFFFE"),
+            valid.replace("target=00000001", "target=00000000"),
+            valid.replace("ppid=00000001", "ppid=00000000"),
             valid.replace("entry=00000001", "entry=00000000"),
             valid.replace("stack=00000002", "stack=00000000"),
             valid.replace("argc=00000001", "argc=00000000"),
             valid.replace("argv=00000003", "argv=00000000"),
-            valid.replace("doomerr=00000000", "doomerr=00000001"),
             valid.replace("doomwad=00000001/00000001/00000001/44415749", "doomwad=00000001/00000001/00000000/44415749"),
+            valid.replace("doomwad=00000001/00000001/00000001/44415749", "doomwad=00000001/00000001/00000001/50574144"),
             valid.replace("doominit=000001FF/00000009", "doominit=000000FF/00000009"),
-            valid.replace("doomerrno=00000000", "doomerrno=FFFFFFFE"),
             valid.replace("doomexit=00000000", "doomexit=00000001"),
             valid.replace("doomfault=00000000", "doomfault=00BADF00"),
             valid.replace("doomfaultip=00000000", "doomfaultip=0102F190"),
@@ -1084,13 +1129,15 @@ class SourceContractTests(unittest.TestCase):
             "PROC_PREEMPT_PROBE_KERNEL_STACK_TOP equ 0x00072000",
             "PROC_DOOM_KERNEL_STACK_TOP equ 0x00073000",
             "PROCESS_SLOT_COUNT equ 4",
-            "PROCESS_RECORD_BYTES equ 128",
+            "PROCESS_RECORD_BYTES equ 160",
             "PROC_SAVED_EIP equ 76",
             "PROC_QUANTUM_TICKS equ 100",
             "PROC_PAGE_DIR equ 108",
             "PROC_VM_REGIONS equ 112",
             "PROC_VM_REGION_COUNT equ 116",
             "PROC_KERNEL_STACK_TOP equ 124",
+            "PROC_PARENT_PID equ 128",
+            "PROC_ARGV0 equ 152",
             "PROC_FLAG_IRQ_FRAME_VALID equ 0x1",
             "SCHEDULER_QUANTUM_TICKS equ 5",
             "process_table:",

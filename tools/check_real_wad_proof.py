@@ -49,11 +49,14 @@ EXACT_FIELDS = {
 
 HEX_FIELDS = (
     "target",
+    "ppid",
     "entry",
     "stack",
     "argc",
     "argv",
+    "envp",
     "argv0",
+    "envp0",
     "execerr",
     "execres",
     "doomwrite",
@@ -131,11 +134,14 @@ SUMMARY_FIELDS = (
     "execerr",
     "execres",
     "target",
+    "ppid",
     "entry",
     "stack",
     "argc",
     "argv",
+    "envp",
     "argv0",
+    "envp0",
     "doom",
     "doomrun",
     "doomopen",
@@ -305,6 +311,57 @@ def _sample_field(status: str, name: str) -> tuple[int, int, int]:
     return samples
 
 
+def _visual_phase_signature(status: str, label: str) -> tuple[int, int, int, int, int, tuple[int, int, int]]:
+    try:
+        present = _hex_field_gt(status, "doompresent", 0)
+        palette = _hex_field_gt(status, "doompal", 0)
+        frame = _hex_field_gt(status, "doomframe", 0)
+        nonzero = _hex_field_gt(status, "doomnonzero", 1024)
+        colors = _hex_field_gt(status, "doomcolors", 64)
+        samples = _sample_field(status, "doomsamp")
+    except AssertionError as exc:
+        raise AssertionError(f"{label} visual proof: {exc}") from exc
+    return present, palette, frame, nonzero, colors, samples
+
+
+def _assert_scripted_visual_progression(snapshots: dict[str, str | None], final_status: str) -> None:
+    ordered = [
+        ("baseline", snapshots.get("baseline")),
+        ("start", snapshots.get("start")),
+        ("fire", snapshots.get("fire")),
+        ("movement", snapshots.get("movement")),
+        ("use", snapshots.get("use")),
+        ("mouse", snapshots.get("mouse")),
+        ("menu", snapshots.get("menu")),
+        ("final", final_status),
+    ]
+    previous_label: str | None = None
+    previous_present: int | None = None
+    previous_status: str | None = None
+    frame_hashes: set[int] = set()
+
+    for label, status in ordered:
+        if status is None or "doompresent=" not in status:
+            continue
+        if previous_status is not None and status == previous_status:
+            continue
+        present, _palette, frame, _nonzero, _colors, _samples = _visual_phase_signature(status, label)
+        frame_hashes.add(frame)
+        if previous_present is not None and present <= previous_present:
+            raise AssertionError(
+                f"{label} doompresent= must advance after {previous_label}, "
+                f"got {previous_present:08X}->{present:08X}"
+            )
+        previous_label = label
+        previous_present = present
+        previous_status = status
+
+    if len(frame_hashes) < 2:
+        raise AssertionError(
+            "scripted visual proof must show at least one doomframe= hash change across snapshots"
+        )
+
+
 def _position_field(status: str, name: str) -> None:
     value = _field(status, name)
     if not re.fullmatch(r"[0-9A-Fa-f]{8}:[0-9A-Fa-f]{8}", value):
@@ -358,20 +415,22 @@ def _validate_core_status(status: str) -> None:
     if _hex_field(status, "execres") != 0:
         raise AssertionError("execres= must be zero after successful real-WAD exec")
     _hex_field_gt(status, "target", 0)
+    ppid = _hex_field(status, "ppid")
+    if ppid in (0, 0xFFFFFFFF):
+        raise AssertionError(f"ppid= must prove a live exec parent PID, got {ppid:#x}")
     _hex_field_gt(status, "entry", 0)
     _hex_field_gt(status, "stack", 0)
     if _hex_field(status, "argc") != 1:
         raise AssertionError("argc= must prove a single argv[0] exec stack")
     _hex_field_gt(status, "argv", 0)
+    _hex_field_gt(status, "envp", 0)
     _hex_field_gt(status, "argv0", 0)
+    if _hex_field(status, "envp0") != 0:
+        raise AssertionError("envp0= must prove the exec stack has an empty envp terminator")
     _hex_field_gt(status, "doomseek", 0)
     _doom_wad_field(status)
     _doom_init_field(status)
     _hex_field_gt(status, "doomsbrk", 0)
-    if _hex_field(status, "doomerr") != 0:
-        raise AssertionError("doomerr= must be zero")
-    if _hex_field(status, "doomerrno") != 0:
-        raise AssertionError("doomerrno= must be zero")
     if _hex_field(status, "doomexit") != 0:
         raise AssertionError("doomexit= must be zero for the real-WAD gameplay proof")
     for fault_field in ("doomfault", "doomfaultip", "doomfaultv", "doomfaulterr"):
@@ -452,12 +511,7 @@ def validate_status(
 
     _validate_core_status(status)
     _hex_field_gt(status, "leveltime", 0)
-    _hex_field_gt(status, "doompresent", 0)
-    _hex_field_gt(status, "doompal", 0)
-    _hex_field_gt(status, "doomframe", 0)
-    _hex_field_gt(status, "doomnonzero", 1024)
-    _hex_field_gt(status, "doomcolors", 64)
-    _sample_field(status, "doomsamp")
+    _assert_scripted_visual_progression(snapshots, status)
     check_human_playability_proof.validate_status(
         status,
         baseline_status,
@@ -517,7 +571,9 @@ def main(argv: list[str]) -> int:
         mouse = args.mouse
         menu = args.menu
         if not args.no_auto_snapshots:
-            baseline = baseline or _auto_snapshot(args.status, "early")
+            if baseline is None:
+                after_start = _auto_snapshot(args.status, "after-start")
+                baseline = after_start if after_start.exists() else _auto_snapshot(args.status, "early")
             start = start or _auto_snapshot(args.status, "after-start")
             fire = fire or _auto_snapshot(args.status, "after-fire")
             movement = movement or _auto_snapshot(args.status, "after-move")

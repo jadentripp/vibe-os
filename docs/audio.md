@@ -118,7 +118,7 @@ caller parameters that had to be made safe before mixing.
 Remote-safe continuity proof:
 
 `tools/check_audio_continuity_proof.py` consumes only decoded status snapshots:
-`status.early.txt`, `status.after-fire.txt`, `status.after-move.txt`,
+`status.after-start.txt`, `status.after-fire.txt`, `status.after-move.txt`,
 `status.after-use.txt`, `status.after-menu.txt`, and `status.txt`. It requires
 `audio=SB16` in every snapshot, a nonzero `sb16=` DSP version, nonzero `dma=`
 programming and `play=` start counters, nonzero `voiceq=` and `musicq=` queue
