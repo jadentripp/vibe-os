@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 
 #include "d_event.h"
 #include "d_main.h"
@@ -400,23 +401,19 @@ static int read_save_slot_marker_request(const char* prefix, int* slot)
 
 static int read_persistence_slot_request(const char* path, int* slot)
 {
-    FILE* marker;
-    char buffer[4];
-    size_t length;
+    struct stat info;
 
     if (!slot)
         return 0;
 
     *slot = 0;
-    marker = fopen(path, "r");
-    if (!marker)
+    if (stat(path, &info) < 0)
         return 0;
 
-    length = fread(buffer, 1, sizeof(buffer), marker);
-    fclose(marker);
-    if (length > 0 && buffer[0] >= '0' && buffer[0] <= '5')
-        *slot = buffer[0] - '0';
+    if (info.st_size < 1 || info.st_size > 6)
+        return 0;
 
+    *slot = (int)info.st_size - 1;
     return 1;
 }
 

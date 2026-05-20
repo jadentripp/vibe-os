@@ -114,6 +114,8 @@ class DoomInputContractTests(unittest.TestCase):
             '"VIBE_LOAD_"',
             '"SAVEREQ.CHK"',
             '"LOADREQ.CHK"',
+            "stat(path, &info)",
+            "*slot = (int)info.st_size - 1;",
             "default_config_checkpoint_ready()",
             "gamestate == GS_LEVEL",
             "gameepisode > 0",
@@ -138,6 +140,12 @@ class DoomInputContractTests(unittest.TestCase):
         ):
             with self.subTest(source=source):
                 self.assertIn(source, platform)
+
+        slot_request = platform.split("static int read_persistence_slot_request", 1)[1].split(
+            "static int save_checkpoint_requested_once", 1
+        )[0]
+        self.assertIn("stat(path, &info)", slot_request)
+        self.assertNotIn("fread", slot_request)
 
         self.assertIn("doom_port/input.c", makefile)
 
