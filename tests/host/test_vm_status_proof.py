@@ -49,7 +49,10 @@ def status_line(**overrides):
         "pctx": "00000004",
         "pfrom": "00000002",
         "pto": "00000003",
+        "pkind": "00000002:00000003",
         "peip": "01002000:00E80000",
+        "pcr3": "00082000:00083000",
+        "pkstk": "00073000:00072000",
         "pspin": "50524546",
     }
     fields.update(overrides)
@@ -101,7 +104,10 @@ class VmStatusProofTests(unittest.TestCase):
             ({"pirq": "00000002"}, "pirq"),
             ({"puser": "00000000"}, "puser"),
             ({"pto": "00000002"}, "switch between processes"),
+            ({"pkind": "00000002:00000002"}, "Doom and the preempt probe"),
             ({"peip": "01002000:01003000"}, "Doom and the preempt probe"),
+            ({"pcr3": "00082000:00082000"}, "address spaces"),
+            ({"pkstk": "00073000:00073000"}, "kernel stacks"),
             ({"pspin": "50524545"}, "preempt probe executed"),
         ):
             with self.subTest(overrides=overrides):

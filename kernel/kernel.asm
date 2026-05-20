@@ -7384,8 +7384,14 @@ scheduler_init:
     mov dword [scheduler_user_irq_ticks], 0
     mov dword [scheduler_last_preempt_from_pid], 0xffffffff
     mov dword [scheduler_last_preempt_to_pid], 0xffffffff
+    mov dword [scheduler_last_preempt_from_kind], 0
+    mov dword [scheduler_last_preempt_to_kind], 0
     mov dword [scheduler_last_preempt_from_eip], 0
     mov dword [scheduler_last_preempt_to_eip], 0
+    mov dword [scheduler_last_preempt_from_cr3], 0
+    mov dword [scheduler_last_preempt_to_cr3], 0
+    mov dword [scheduler_last_preempt_from_kstack], 0
+    mov dword [scheduler_last_preempt_to_kstack], 0
     mov dword [scheduler_preempt_probe_ready], 0
     mov dword [scheduler_preempt_spin_value], 0
     mov byte [scheduler_preempt_selftest_status], 0
@@ -8194,18 +8200,33 @@ scheduler_tick:
     inc dword [scheduler_preempt_attempts]
     mov eax, [esi + PROC_PID]
     mov [scheduler_last_preempt_from_pid], eax
+    mov eax, [esi + PROC_KIND]
+    mov [scheduler_last_preempt_from_kind], eax
     mov eax, [esi + PROC_SAVED_EIP]
     mov [scheduler_last_preempt_from_eip], eax
+    mov eax, [esi + PROC_PAGE_DIR]
+    mov [scheduler_last_preempt_from_cr3], eax
+    mov eax, [esi + PROC_KERNEL_STACK_TOP]
+    mov [scheduler_last_preempt_from_kstack], eax
     mov dword [scheduler_last_preempt_to_pid], 0xffffffff
+    mov dword [scheduler_last_preempt_to_kind], 0
     mov dword [scheduler_last_preempt_to_eip], 0
+    mov dword [scheduler_last_preempt_to_cr3], 0
+    mov dword [scheduler_last_preempt_to_kstack], 0
     call scheduler_select_next_ready
     mov esi, [scheduler_next_process_ptr]
     cmp esi, 0
     je .skip_preempt
     mov eax, [esi + PROC_PID]
     mov [scheduler_last_preempt_to_pid], eax
+    mov eax, [esi + PROC_KIND]
+    mov [scheduler_last_preempt_to_kind], eax
     mov eax, [esi + PROC_SAVED_EIP]
     mov [scheduler_last_preempt_to_eip], eax
+    mov eax, [esi + PROC_PAGE_DIR]
+    mov [scheduler_last_preempt_to_cr3], eax
+    mov eax, [esi + PROC_KERNEL_STACK_TOP]
+    mov [scheduler_last_preempt_to_kstack], eax
     call process_activate
     call process_restore_irq_context
     inc dword [scheduler_preempt_switches]
@@ -13659,6 +13680,15 @@ write_smoke_status:
     mov edx, [scheduler_last_preempt_to_pid]
     call smoke_write_hex32
 
+    mov esi, smoke_pkind_text
+    call smoke_copy_string
+    mov edx, [scheduler_last_preempt_from_kind]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [scheduler_last_preempt_to_kind]
+    call smoke_write_hex32
+
     mov esi, smoke_peip_text
     call smoke_copy_string
     mov edx, [scheduler_last_preempt_from_eip]
@@ -13666,6 +13696,24 @@ write_smoke_status:
     mov al, ':'
     stosb
     mov edx, [scheduler_last_preempt_to_eip]
+    call smoke_write_hex32
+
+    mov esi, smoke_pcr3_text
+    call smoke_copy_string
+    mov edx, [scheduler_last_preempt_from_cr3]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [scheduler_last_preempt_to_cr3]
+    call smoke_write_hex32
+
+    mov esi, smoke_pkstk_text
+    call smoke_copy_string
+    mov edx, [scheduler_last_preempt_from_kstack]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [scheduler_last_preempt_to_kstack]
     call smoke_write_hex32
 
     mov esi, smoke_pspin_text
@@ -14561,7 +14609,10 @@ smoke_pround_text db " pround=", 0
 smoke_pctx_text db " pctx=", 0
 smoke_pfrom_text db " pfrom=", 0
 smoke_pto_text db " pto=", 0
+smoke_pkind_text db " pkind=", 0
 smoke_peip_text db " peip=", 0
+smoke_pcr3_text db " pcr3=", 0
+smoke_pkstk_text db " pkstk=", 0
 smoke_pspin_text db " pspin=", 0
 smoke_pself_text db " pself=", 0
 smoke_status_text db " ", 0
@@ -15051,8 +15102,14 @@ scheduler_preempt_skips dd 0
 scheduler_user_irq_ticks dd 0
 scheduler_last_preempt_from_pid dd 0xffffffff
 scheduler_last_preempt_to_pid dd 0xffffffff
+scheduler_last_preempt_from_kind dd 0
+scheduler_last_preempt_to_kind dd 0
 scheduler_last_preempt_from_eip dd 0
 scheduler_last_preempt_to_eip dd 0
+scheduler_last_preempt_from_cr3 dd 0
+scheduler_last_preempt_to_cr3 dd 0
+scheduler_last_preempt_from_kstack dd 0
+scheduler_last_preempt_to_kstack dd 0
 scheduler_preempt_probe_ready dd 0
 scheduler_preempt_spin_value dd 0
 scheduler_preempt_selftest_frame times 13 dd 0
