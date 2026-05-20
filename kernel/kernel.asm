@@ -244,7 +244,7 @@ USER_HEAP_START equ USER_STACK_TOP
 USER_HEAP_END equ 0x00f00000
 USER_HEAP_PAGE_COUNT equ (USER_HEAP_END - USER_HEAP_START) / PAGE_SIZE
 USER_HEAP_BITMAP_BYTES equ (USER_HEAP_PAGE_COUNT + 7) / 8
-USER_PROBE_EXPECTED_FLAGS equ 0x00001fff
+USER_PROBE_EXPECTED_FLAGS equ 0x00003fff
 USER_PROBE_MAGIC equ 0x13579BDF
 PREEMPT_PROBE_MAGIC equ 0x50524545
 USER_FAULT_ADDR equ 0x00010000
@@ -256,6 +256,7 @@ FD_KIND_WRITABLE equ 2
 FD_INHERIT_EXEC equ 0x1
 WAIT_OPTION_WNOHANG equ 0x1
 WAIT_SUPPORTED_OPTIONS equ WAIT_OPTION_WNOHANG
+WAIT_PROOF_EXIT_STATUS equ 0x0000002a
 WRITABLE_KNOWN_FILE_COUNT equ 7
 WRITABLE_FILE_COUNT equ 16
 WRITABLE_DEFAULT_CAPACITY equ 0x00004000
@@ -5113,6 +5114,8 @@ storage_init:
     mov dword [process_wait_last_status], 0
     mov dword [process_wait_seen_live_child], 0
     mov dword [process_wait_nohang_returns], 0
+    mov dword [process_wait_seeded_children], 0
+    mov dword [process_wait_seeded_child_pid], 0xffffffff
     mov dword [fd_exec_handoffs], 0
     mov dword [fd_exec_inherited], 0
     mov dword [fd_exec_closed], 0
@@ -7431,6 +7434,8 @@ scheduler_init:
     mov dword [process_wait_last_status], 0
     mov dword [process_wait_seen_live_child], 0
     mov dword [process_wait_nohang_returns], 0
+    mov dword [process_wait_seeded_children], 0
+    mov dword [process_wait_seeded_child_pid], 0xffffffff
     mov dword [fd_exec_handoffs], 0
     mov dword [fd_exec_inherited], 0
     mov dword [fd_exec_closed], 0
@@ -7468,6 +7473,22 @@ process_reset_preempt_probe:
     mov dword [esi + PROC_STATE], PROC_STATE_READY
     mov dword [esi + PROC_BRK], USER_HEAP_START
     mov dword [esi + PROC_ENTRY], 0
+    ret
+
+process_seed_wait_reap_probe_child:
+    push eax
+    push esi
+    mov esi, process_preempt_probe
+    call process_reset_preempt_probe
+    mov eax, [current_pid]
+    mov [esi + PROC_PARENT_PID], eax
+    mov dword [esi + PROC_EXIT_STATUS], WAIT_PROOF_EXIT_STATUS
+    mov dword [esi + PROC_STATE], PROC_STATE_EXITED
+    mov eax, [esi + PROC_PID]
+    mov [process_wait_seeded_child_pid], eax
+    inc dword [process_wait_seeded_children]
+    pop esi
+    pop eax
     ret
 
 process_reset_doom:
@@ -9144,6 +9165,7 @@ user_probe_run:
     mov dword [user_fault_recovery], 0
     mov dword [user_wad_magic_seen], 0
     call fd_reset_all
+    call process_seed_wait_reap_probe_child
     mov byte [present_status], 0
     mov dword [present_sample_first], 0
     mov dword [present_sample_mid], 0
@@ -12565,6 +12587,86 @@ write_smoke_status:
     call smoke_copy_string
     mov edx, [sys_exec_last_argv_source]
     call smoke_write_hex32
+
+    mov esi, smoke_procpool_text
+    call smoke_copy_string
+    mov edx, PROCESS_SLOT_COUNT
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, PROCESS_GENERIC_SLOT_COUNT
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_slot_reuses]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_generic_slot_allocations]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_generic_slot_failures]
+    call smoke_write_hex32
+
+    mov esi, smoke_pidseq_text
+    call smoke_copy_string
+    mov edx, [process_next_pid]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_last_reused_pid]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_last_slot_generation]
+    call smoke_write_hex32
+
+    mov esi, smoke_fdexec_text
+    call smoke_copy_string
+    mov edx, [fd_exec_handoffs]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fd_exec_inherited]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fd_exec_closed]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fd_owner_closes]
+    call smoke_write_hex32
+
+    mov esi, smoke_pwait_text
+    call smoke_copy_string
+    mov edx, [process_wait_attempts]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_wait_reaps]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_wait_failures]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_wait_nohang_returns]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_wait_seeded_children]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_wait_last_reaped_pid]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_wait_last_status]
+    call smoke_write_hex32
     mov al, ' '
     stosb
 
@@ -14467,6 +14569,10 @@ smoke_exec_envp_ptr_text db " envp=", 0
 smoke_exec_argv_text db " argv0=", 0
 smoke_exec_envp0_text db " envp0=", 0
 smoke_exec_argvsrc_text db " argvsrc=", 0
+smoke_procpool_text db " procpool=", 0
+smoke_pidseq_text db " pidseq=", 0
+smoke_fdexec_text db " fdexec=", 0
+smoke_pwait_text db " wait=", 0
 smoke_doom_text db "doom=", 0
 smoke_doomrun_text db " doomrun=", 0
 smoke_doomexit_text db " doomexit=", 0
@@ -15149,6 +15255,8 @@ process_wait_last_reaped_pid dd 0xffffffff
 process_wait_last_status dd 0
 process_wait_seen_live_child dd 0
 process_wait_nohang_returns dd 0
+process_wait_seeded_children dd 0
+process_wait_seeded_child_pid dd 0xffffffff
 doom_exit_code dd 0
 doom_fault_addr dd 0
 doom_fault_eip dd 0

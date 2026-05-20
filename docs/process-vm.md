@@ -34,9 +34,11 @@ preallocated and cloned from the boot kernel map.
 `tools/check_vm_status_proof.py` is the cloud status ratchet for this layer. It
 rejects status artifacts unless `vmmhfree` equals the dynamic `vmmhpt` frame,
 the high alias is backed by a distinct PMM-managed physical frame, the Doom
-launch used `argvsrc=2` from a user argv-vector exec path, and `pkind`,
-`peip`, `pcr3`, and `pkstk` show a timer-driven switch between Doom and the
-preempt probe with distinct address spaces and kernel stacks.
+launch used `argvsrc=2` from a user argv-vector exec path, `procpool=`,
+`fdexec=`, and `wait=` prove bounded slot reuse, exec-time fd inheritance, and a
+userland wait/reap path, and `pkind`, `peip`, `pcr3`, and `pkstk` show a
+timer-driven switch between Doom and the preempt probe with distinct address
+spaces and kernel stacks.
 
 ## Current Address Spaces
 

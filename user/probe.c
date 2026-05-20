@@ -35,6 +35,7 @@ enum {
     PROBE_FLAG_FORK_WAIT = 0x400u,
     PROBE_FLAG_PROCESS_ABI = 0x800u,
     PROBE_FLAG_NEGATIVE_SYSCALLS = 0x1000u,
+    PROBE_FLAG_WAIT_REAP = 0x2000u,
 };
 
 enum {
@@ -48,6 +49,9 @@ enum {
     VIBE_DISPLAY_FD = 1u,
     VIBE_IOCTL_FBINFO = 0x00005601u,
     VIBE_IOCTL_PRESENT_INDEXED = 0x00005602u,
+    WAIT_OPTION_WNOHANG = 0x1u,
+    WAIT_PROOF_EXIT_STATUS = 0x2a,
+    WAIT_PROOF_CHILD_PID = 3,
     ERRNO_EINVAL = 22,
     ERRNO_ECHILD = 10,
     ERRNO_ENOSYS = 38,
@@ -120,6 +124,10 @@ static int sys_ioctl(uint32_t fd, uint32_t request, void *arg) {
 
 static int sys_execv(const char *path, char *const argv[]) {
     return syscall3(SYS_EXEC, (uint32_t)path, (uint32_t)argv, 0);
+}
+
+static int sys_waitpid(uint32_t pid, int *status, uint32_t options) {
+    return syscall3(SYS_WAITPID, pid, (uint32_t)status, options);
 }
 
 static void sys_user_probe(uint32_t flags) {
@@ -265,9 +273,13 @@ int user_main(int argc, char **argv, char **envp) {
         }
     }
 
+    int wait_status = 0;
     if (syscall3(SYS_FORK, 0, 0, 0) == -ERRNO_ENOSYS
-        && syscall3(SYS_WAITPID, (uint32_t)-1, 0, 0) == -ERRNO_ECHILD) {
+        && sys_waitpid((uint32_t)-1, &wait_status, WAIT_OPTION_WNOHANG) == WAIT_PROOF_CHILD_PID
+        && wait_status == WAIT_PROOF_EXIT_STATUS
+        && sys_waitpid((uint32_t)-1, 0, WAIT_OPTION_WNOHANG) == -ERRNO_ECHILD) {
         flags |= PROBE_FLAG_FORK_WAIT;
+        flags |= PROBE_FLAG_WAIT_REAP;
     }
 
     uint32_t mmap_flags = ((MAP_PRIVATE | MAP_ANONYMOUS) << 16) | (PROT_READ | PROT_WRITE);

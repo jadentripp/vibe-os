@@ -116,9 +116,14 @@ Smoke status still includes `exec=OK path=...`, and `execsys=` now reports:
 The same status line also records `execerr=<errno>`, `execres=<syscall result>`,
 `target=<pid>`, `ppid=<pid>`, `entry=<eip>`, `stack=<esp>`, `argc=<n>`,
 `argv=<ptr>`, `envp=<ptr>`, `argv0=<ptr>`, `envp0=<word>`, and
-`argvsrc=<source>`. A successful Doom launch should have zero
-`execerr`/`execres`, nonzero argc/argv/envp pointers, `envp0 == 0`, nonzero
-target entry/stack addresses, and `argvsrc=2` for the user-vector path. The
+`argvsrc=<source>`. It also emits `procpool=slots/generic/reuses/galloc/gfail`,
+`pidseq=next/last_reused/generation`,
+`fdexec=handoffs/inherited/closed/owner_closes`, and
+`wait=attempts/reaps/failures/nohang/seeded/last_pid/last_status`. A successful
+Doom launch should have zero `execerr`/`execres`, nonzero argc/argv/envp
+pointers, `envp0 == 0`, nonzero target entry/stack addresses, `argvsrc=2` for
+the user-vector path, at least one process-slot reuse, at least one fd inherited
+across exec, and a userland `waitpid` reap of the seeded exited child. The
 initial probe bootstrap still uses `argvsrc=1` because the kernel supplies its
 own default `argv[0]`.
 
@@ -132,12 +137,16 @@ reports failure. Unsafe active-slot exec returns `-EACCES`; invalid pointers ret
 `-EINVAL`; missing table/FAT paths return `-ENOENT`; loader/ELF failures return
 `-EIO`.
 
-The user probe also carries a negative syscall probe bit. Before it execs Doom,
-it verifies that an unknown syscall returns `-ENOSYS`, impossible anonymous
-`mmap` requests return `-EINVAL`, invalid `munmap` ranges return `-EINVAL`, and
-`waitpid` rejects an invalid user status pointer with `-EINVAL`. That keeps the
-early POSIX-shaped ABI honest about classified errors without injecting failed
-`SYS_EXEC` attempts into the real-WAD proof counters.
+The user probe also carries a negative syscall probe bit and a wait/reap probe
+bit. Before it execs Doom, the kernel seeds one bounded exited child record
+under the probe's PID; the Ring 3 probe reaps it with
+`waitpid(-1, &status, WNOHANG)`, checks the stored exit status, then verifies
+that the next wait reports `-ECHILD`. It also verifies that an unknown syscall
+returns `-ENOSYS`, impossible anonymous `mmap` requests return `-EINVAL`,
+invalid `munmap` ranges return `-EINVAL`, and `waitpid` rejects an invalid user
+status pointer with `-EINVAL`. That keeps the early POSIX-shaped ABI honest
+about classified errors without injecting failed `SYS_EXEC` attempts into the
+real-WAD proof counters.
 
 ## Remaining Gaps
 
@@ -159,7 +168,8 @@ early POSIX-shaped ABI honest about classified errors without injecting failed
   dynamic child-slot growth or general physical-frame reclamation for
   identity-shaped user pages.
 - This is enough to launch the probe and Doom, preserve inheritable fds across
-  exec, close process-owned fds during teardown, and reap exited child records,
-  but it is not a robust Unix process model. There is no `fork`/`exec` split,
-  wait blocking, process groups, signal delivery, fork-time fd duplication,
-  unbounded dynamic child slots, or file-backed VM object lifetime.
+  exec, close process-owned fds during teardown, and exercise a userland
+  `waitpid` reap path against a seeded exited child record, but it is not a robust Unix process model.
+  There is no `fork`/`exec` split, wait blocking, process groups, signal
+  delivery, fork-time fd duplication, unbounded dynamic child slots, or
+  file-backed VM object lifetime.
