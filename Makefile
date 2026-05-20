@@ -248,10 +248,12 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "musicmix=" $(BUILD_DIR)/status.txt; \
 	grep -q "musicloop=" $(BUILD_DIR)/status.txt; \
 	grep -Eq "audio=(SB16|NONE)" $(BUILD_DIR)/status.txt; \
-	grep -q "keyirq=" $(BUILD_DIR)/status.txt; \
-	grep -q "keyqueue=" $(BUILD_DIR)/status.txt; \
-	grep -q "keypoll=" $(BUILD_DIR)/status.txt; \
-	grep -Eq "mouse=(OK|NONE)" $(BUILD_DIR)/status.txt; \
+		grep -q "keyirq=" $(BUILD_DIR)/status.txt; \
+		grep -q "keyqueue=" $(BUILD_DIR)/status.txt; \
+		grep -q "keypoll=" $(BUILD_DIR)/status.txt; \
+		grep -q "keyseen=" $(BUILD_DIR)/status.txt; \
+		grep -q "keylast=" $(BUILD_DIR)/status.txt; \
+		grep -Eq "mouse=(OK|NONE)" $(BUILD_DIR)/status.txt; \
 		grep -q "mouseirq=" $(BUILD_DIR)/status.txt; \
 		grep -q "mousepkt=" $(BUILD_DIR)/status.txt; \
 		grep -q "mousepoll=" $(BUILD_DIR)/status.txt; \
@@ -314,10 +316,11 @@ smoke: vm-consent check-tools $(IMAGE)
 		$(PYTHON) tools/check_audio_continuity_proof.py $$audio_args $(BUILD_DIR)/status.txt; \
 	fi; \
 	if [ -n "$(SMOKE_SENDKEYS)" ] || [ "$(SMOKE_REQUIRE_KEY_EVENT)" = "1" ]; then \
-		perl -ne '$$ok = 1 if /keyirq=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
-		perl -ne '$$ok = 1 if /keyqueue=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
-		perl -ne '$$ok = 1 if /keypoll=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
-	fi; \
+			perl -ne '$$ok = 1 if /keyirq=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+			perl -ne '$$ok = 1 if /keyqueue=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+			perl -ne '$$ok = 1 if /keypoll=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+			perl -ne '$$ok = 1 if /keyseen=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+		fi; \
 	perl -ne '$$ok = 1 if /heap=OK free=([0-9A-F]{8})/ && hex($$1) >= 0x00700000; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	perl -ne '$$ok = 1 if /ticks=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	trap - EXIT; \

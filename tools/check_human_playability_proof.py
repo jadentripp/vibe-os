@@ -22,6 +22,11 @@ KEY_EVENT_COUNTERS = ("keyirq", "keyqueue", "keypoll")
 MOUSE_EVENT_COUNTERS = ("mouseirq", "mousepkt", "mousepoll")
 RUN_COUNTERS = ("gtic", "leveltime")
 MENU_ACTIVE_FLAG = 0x1
+KEY_SEEN_UP = 0x00000001
+KEY_SEEN_FIRE = 0x00000010
+KEY_SEEN_USE = 0x00000020
+KEY_SEEN_MENU = 0x00000040
+REQUIRED_SCRIPTED_KEYS = KEY_SEEN_UP | KEY_SEEN_FIRE | KEY_SEEN_USE | KEY_SEEN_MENU
 PFLAG_PLAYER = 0x0001
 PFLAG_MOVE_CMD = 0x0002
 PFLAG_ATTACK_CMD = 0x0004
@@ -68,6 +73,8 @@ SUMMARY_FIELDS = (
     "keyirq",
     "keyqueue",
     "keypoll",
+    "keyseen",
+    "keylast",
     "mouse",
     "mouseirq",
     "mousepkt",
@@ -174,6 +181,14 @@ def _require_any_pflag(status: str, mask: int, label: str) -> int:
     if not (flags & mask):
         raise AssertionError(f"{label} pflags= missing one of {_flag_names(mask)}")
     return flags
+
+
+def _require_keyseen(status: str, mask: int, label: str) -> int:
+    seen = _hex_field(status, "keyseen")
+    missing = mask & ~seen
+    if missing:
+        raise AssertionError(f"{label} keyseen= missing scripted key bit(s) {missing:08X}")
+    return seen
 
 
 def _assert_increasing(baseline: str, final: str, names: tuple[str, ...]) -> None:
@@ -298,6 +313,8 @@ def validate_status(
 
     for name in KEY_EVENT_COUNTERS:
         _hex_field_gt(final_status, name, 0)
+    _hex_field(final_status, "keylast")
+    _require_keyseen(final_status, REQUIRED_SCRIPTED_KEYS, "final")
 
     _position_field(final_status, "ppos")
     _hex_field_gt(final_status, "pdelta", 0)
@@ -330,6 +347,7 @@ def validate_status(
 
     if movement_status is not None:
         _require_level_snapshot(movement_status, "movement")
+        _require_keyseen(movement_status, KEY_SEEN_UP, "movement snapshot")
         _require_pflags(movement_status, PFLAG_PLAYER | PFLAG_MOVE_CMD | PFLAG_POS_DELTA)
         _hex_field_gt(movement_status, "pdelta", 0)
         if start_status is not None:
@@ -337,11 +355,13 @@ def validate_status(
 
     if fire_status is not None:
         _require_level_snapshot(fire_status, "fire")
+        _require_keyseen(fire_status, KEY_SEEN_FIRE, "fire snapshot")
         _require_pflags(fire_status, PFLAG_PLAYER | PFLAG_ATTACK_CMD)
         _require_any_pflag(fire_status, REQUIRED_FIRE_STATE_PFLAGS, "fire snapshot")
 
     if use_status is not None:
         _require_level_snapshot(use_status, "use")
+        _require_keyseen(use_status, KEY_SEEN_USE, "use snapshot")
         _require_pflags(use_status, PFLAG_PLAYER | PFLAG_USE_CMD)
 
     if mouse_status is not None:
@@ -368,6 +388,7 @@ def validate_status(
 
     if menu_status is not None:
         _require_level_snapshot(menu_status, "menu")
+        _require_keyseen(menu_status, KEY_SEEN_MENU, "menu snapshot")
         _require_pflags(menu_status, PFLAG_MENU)
         if not (_hex_field(menu_status, "gflags") & MENU_ACTIVE_FLAG):
             raise AssertionError("menu snapshot gflags= must have the menu-active bit set")
@@ -421,7 +442,7 @@ def main(argv: list[str]) -> int:
         return 1
 
     print(
-        "human-playability proof OK: scripted fire/use/move/menu changed Doom status without WAD pixels"
+        "human-playability proof OK: scripted start/fire/use/move/menu changed Doom state without WAD pixels"
     )
     return 0
 

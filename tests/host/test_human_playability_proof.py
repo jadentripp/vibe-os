@@ -30,6 +30,8 @@ def make_status(**overrides):
         "keyirq": "00000002",
         "keyqueue": "00000002",
         "keypoll": "00000002",
+        "keyseen": "00000071",
+        "keylast": "0001001B",
         "mouse": "OK",
         "mouseirq": "00000002",
         "mousepkt": "00000002",
@@ -55,6 +57,8 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             keyirq="00000001",
             keyqueue="00000001",
             keypoll="00000001",
+            keyseen="00000000",
+            keylast="00000000",
         )
         final = make_status(
             gtic="00000020",
@@ -88,6 +92,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             make_status(keyirq="00000000"),
             make_status(keyqueue="00000000"),
             make_status(keypoll="00000000"),
+            make_status(keyseen="00000031"),
             make_status(doomlog="W_GetNumForName"),
         )
         for status in invalid_cases:
@@ -107,6 +112,8 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     keyirq="00000001",
                     keyqueue="00000001",
                     keypoll="00000001",
+                    keyseen="00000000",
+                    keylast="00000000",
                     mouseirq="00000000",
                     mousepkt="00000000",
                     mousepoll="00000000",
@@ -127,6 +134,8 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     keyirq="00000002",
                     keyqueue="00000002",
                     keypoll="00000002",
+                    keyseen="00000010",
+                    keylast="0001019D",
                     pflags="000000C5",
                 )
             )
@@ -137,6 +146,8 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     keyirq="00000001",
                     keyqueue="00000001",
                     keypoll="00000001",
+                    keyseen="00000000",
+                    keylast="00000000",
                     pflags="00000001",
                     gflags="00000000",
                     pdelta="00000000",
@@ -149,6 +160,8 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     keyirq="00000003",
                     keyqueue="00000003",
                     keypoll="00000003",
+                    keyseen="00000011",
+                    keylast="000101AD",
                     pflags="00000023",
                     ppos="00010020:00020000",
                 )
@@ -160,6 +173,8 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     keyirq="00000004",
                     keyqueue="00000004",
                     keypoll="00000004",
+                    keyseen="00000031",
+                    keylast="00010020",
                     pflags="00000009",
                 )
             )
@@ -170,6 +185,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     keyirq="00000004",
                     keyqueue="00000004",
                     keypoll="00000004",
+                    keyseen="00000031",
                     mouseirq="00000002",
                     mousepkt="00000002",
                     mousepoll="00000002",
@@ -184,6 +200,8 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     keyirq="00000005",
                     keyqueue="00000005",
                     keypoll="00000005",
+                    keyseen="00000071",
+                    keylast="0001001B",
                     pflags="00000011",
                     gflags="00000001",
                 )
@@ -195,6 +213,8 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     keyirq="00000005",
                     keyqueue="00000005",
                     keypoll="00000005",
+                    keyseen="00000071",
+                    keylast="0001001B",
                     pflags="000000FF",
                 )
             )
@@ -236,6 +256,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             mousepoll="00000000",
             mousebtn="00000000",
             mousedelta="00000000:00000000",
+            keyseen="00000031",
         )
         mouse = make_status(
             gtic="00000020",
@@ -246,6 +267,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             mousepoll="00000001",
             mousebtn="00000001",
             mousedelta="00000018:0000000C",
+            keyseen="00000031",
         )
         check_human_playability_proof.validate_status(
             make_status(
@@ -254,6 +276,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                 keyirq="00000003",
                 keyqueue="00000003",
                 keypoll="00000003",
+                keyseen="00000071",
             ),
             baseline,
             mouse_status=mouse,
@@ -270,6 +293,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                             keyirq="00000003",
                             keyqueue="00000003",
                             keypoll="00000003",
+                            keyseen="00000071",
                         ),
                         baseline,
                         mouse_status=bad_mouse,
@@ -359,6 +383,8 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             'smoke_pflags_text db " pflags="',
             'smoke_ppos_text db " ppos="',
             'smoke_pdelta_text db " pdelta="',
+            'smoke_keyseen_text db " keyseen="',
+            'smoke_keylast_text db " keylast="',
             'smoke_mousebtn_text db " mousebtn="',
             'smoke_mousedelta_text db " mousedelta="',
         ):

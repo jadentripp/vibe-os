@@ -16,6 +16,7 @@ enum {
     SYS_IOCTL = 22,
     SYS_FORK = 23,
     SYS_WAITPID = 24,
+    SYS_GETPID = 25,
 };
 
 enum {
@@ -32,6 +33,7 @@ enum {
     PROBE_FLAG_IOCTL_FBINFO = 0x100u,
     PROBE_FLAG_IOCTL_PRESENT = 0x200u,
     PROBE_FLAG_FORK_WAIT = 0x400u,
+    PROBE_FLAG_PROCESS_ABI = 0x800u,
 };
 
 enum {
@@ -140,7 +142,15 @@ static void trigger_expected_fault(void) {
         : "eax", "ebx", "ecx", "edx", "memory");
 }
 
-int user_main(void) {
+static int probe_streq(const char *left, const char *right) {
+    while (*left && *left == *right) {
+        ++left;
+        ++right;
+    }
+    return *left == *right;
+}
+
+int user_main(int argc, char **argv, char **envp) {
     static char header[12];
     static char readback[12];
     const char hello[] = "user C probe\n";
@@ -151,6 +161,17 @@ int user_main(void) {
     static struct vibe_fb_info fbinfo;
     static struct vibe_present_indexed present;
     uint32_t flags = 0;
+
+    if (argc == 1
+        && argv
+        && argv[0]
+        && probe_streq(argv[0], "USERPROB.ELF")
+        && argv[1] == (char *)0
+        && envp
+        && envp[0] == (char *)0
+        && syscall3(SYS_GETPID, 0, 0, 0) == 1) {
+        flags |= PROBE_FLAG_PROCESS_ABI;
+    }
 
     if (sys_write(1, hello, sizeof(hello) - 1) == (int)(sizeof(hello) - 1)) {
         flags |= PROBE_FLAG_WRITE;

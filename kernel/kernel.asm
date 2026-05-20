@@ -34,6 +34,14 @@ KEY_QUEUE_SIZE equ 32
 KEY_QUEUE_MASK equ KEY_QUEUE_SIZE - 1
 KEY_EVENT_DOWN equ 0x00000100
 KEY_EVENT_VALID equ 0x00010000
+KEY_PROOF_UP equ 0x00000001
+KEY_PROOF_DOWN equ 0x00000002
+KEY_PROOF_LEFT equ 0x00000004
+KEY_PROOF_RIGHT equ 0x00000008
+KEY_PROOF_FIRE equ 0x00000010
+KEY_PROOF_USE equ 0x00000020
+KEY_PROOF_MENU equ 0x00000040
+KEY_PROOF_ENTER equ 0x00000080
 MOUSE_QUEUE_SIZE equ 32
 MOUSE_QUEUE_MASK equ MOUSE_QUEUE_SIZE - 1
 MOUSE_EVENT_VALID equ 0x01000000
@@ -204,7 +212,7 @@ USER_STACK_BOTTOM equ 0x00e90000
 USER_STACK_TOP equ 0x00ea0000
 USER_HEAP_START equ USER_STACK_TOP
 USER_HEAP_END equ 0x00f00000
-USER_PROBE_EXPECTED_FLAGS equ 0x000007ff
+USER_PROBE_EXPECTED_FLAGS equ 0x00000fff
 USER_PROBE_MAGIC equ 0x13579BDF
 PREEMPT_PROBE_MAGIC equ 0x50524545
 USER_FAULT_ADDR equ 0x00010000
@@ -4134,6 +4142,8 @@ storage_init:
     mov dword [doom_player_origin_x], 0
     mov dword [doom_player_origin_y], 0
     mov dword [doom_player_delta], 0
+    mov dword [doom_key_down_seen], 0
+    mov dword [doom_key_last_event], 0
     mov dword [doom_mouse_event_count], 0
     mov dword [doom_mouse_buttons_seen], 0
     mov dword [doom_mouse_delta_x], 0
@@ -7304,6 +7314,14 @@ user_probe_run:
     xor eax, eax
     mov ecx, (USER_HEAP_END - USER_HEAP_START) / 4
     rep stosd
+    mov esi, exec_path_user_probe
+    call sys_exec_stage_kernel_arg
+    jc .fail
+    mov esi, process_user_probe
+    call process_seed_initial_user_context
+    call process_activate
+    call process_exec_seed_argv_stack
+    jc .fail
 
     mov ax, USER_DATA_SEG
     mov ds, ax
@@ -7312,10 +7330,17 @@ user_probe_run:
     mov gs, ax
 
     push dword USER_DATA_SEG
-    push dword [current_user_stack_top]
+    push dword [process_user_probe + PROC_SAVED_ESP]
     push dword 0x00000202
     push dword USER_CODE_SEG
     push dword [current_user_entry]
+    xor eax, eax
+    xor ebx, ebx
+    xor ecx, ecx
+    xor edx, edx
+    xor esi, esi
+    xor edi, edi
+    xor ebp, ebp
     iretd
 
 .fail:
@@ -7364,6 +7389,8 @@ doom_user_run:
     mov dword [doom_player_origin_x], 0
     mov dword [doom_player_origin_y], 0
     mov dword [doom_player_delta], 0
+    mov dword [doom_key_down_seen], 0
+    mov dword [doom_key_last_event], 0
     mov dword [doom_mouse_buttons_seen], 0
     mov dword [doom_mouse_delta_x], 0
     mov dword [doom_mouse_delta_y], 0
@@ -8195,6 +8222,7 @@ syscall_handler:
     mov [key_event_tail], ebx
     cmp byte [current_user_kind], USER_KIND_DOOM
     jne .return
+    call doom_record_key_event
     inc dword [doom_key_event_count]
     jmp .return
 
@@ -8901,6 +8929,42 @@ sys_exec_clear_args:
     pop eax
     ret
 
+sys_exec_stage_kernel_arg:
+    push eax
+    push ecx
+    push esi
+    push edi
+
+    call sys_exec_clear_args
+    mov edi, sys_exec_arg_strings
+    mov ecx, SYS_EXEC_ARG_STR_MAX
+
+.copy:
+    cmp ecx, 0
+    je .too_long
+    lodsb
+    stosb
+    dec ecx
+    test al, al
+    jz .ok
+    jmp .copy
+
+.too_long:
+    mov byte [sys_exec_arg_strings + SYS_EXEC_ARG_STR_MAX - 1], 0
+    stc
+    jmp .done
+
+.ok:
+    mov dword [sys_exec_argc], SYS_EXEC_ARGC_DEFAULT
+    clc
+
+.done:
+    pop edi
+    pop esi
+    pop ecx
+    pop eax
+    ret
+
 sys_exec_copy_argv:
     push eax
     push ebx
@@ -9332,6 +9396,8 @@ keyboard_reset_queue:
     mov dword [keyboard_irq_count], 0
     mov dword [keyboard_event_count], 0
     mov dword [doom_key_event_count], 0
+    mov dword [doom_key_down_seen], 0
+    mov dword [doom_key_last_event], 0
     mov byte [keyboard_extended], 0
     ret
 
@@ -9573,6 +9639,69 @@ mouse_queue_event:
     pop edi
     pop edx
     pop ebx
+    ret
+
+doom_record_key_event:
+    push eax
+    push ebx
+
+    mov [doom_key_last_event], eax
+    test eax, KEY_EVENT_DOWN
+    jz .done
+    mov ebx, eax
+    and ebx, 0xff
+    cmp bl, DOOM_KEY_UPARROW
+    je .seen_up
+    cmp bl, DOOM_KEY_DOWNARROW
+    je .seen_down
+    cmp bl, DOOM_KEY_LEFTARROW
+    je .seen_left
+    cmp bl, DOOM_KEY_RIGHTARROW
+    je .seen_right
+    cmp bl, DOOM_KEY_RCTRL
+    je .seen_fire
+    cmp bl, 32
+    je .seen_use
+    cmp bl, DOOM_KEY_ESCAPE
+    je .seen_menu
+    cmp bl, DOOM_KEY_ENTER
+    je .seen_enter
+    jmp .done
+
+.seen_up:
+    or dword [doom_key_down_seen], KEY_PROOF_UP
+    jmp .done
+
+.seen_down:
+    or dword [doom_key_down_seen], KEY_PROOF_DOWN
+    jmp .done
+
+.seen_left:
+    or dword [doom_key_down_seen], KEY_PROOF_LEFT
+    jmp .done
+
+.seen_right:
+    or dword [doom_key_down_seen], KEY_PROOF_RIGHT
+    jmp .done
+
+.seen_fire:
+    or dword [doom_key_down_seen], KEY_PROOF_FIRE
+    jmp .done
+
+.seen_use:
+    or dword [doom_key_down_seen], KEY_PROOF_USE
+    jmp .done
+
+.seen_menu:
+    or dword [doom_key_down_seen], KEY_PROOF_MENU
+    jmp .done
+
+.seen_enter:
+    or dword [doom_key_down_seen], KEY_PROOF_ENTER
+
+.done:
+    pop ebx
+    pop eax
     ret
 
 doom_record_mouse_event:
@@ -10415,6 +10544,16 @@ write_smoke_status:
     mov edx, [doom_key_event_count]
     call smoke_write_hex32
 
+    mov esi, smoke_keyseen_text
+    call smoke_copy_string
+    mov edx, [doom_key_down_seen]
+    call smoke_write_hex32
+
+    mov esi, smoke_keylast_text
+    call smoke_copy_string
+    mov edx, [doom_key_last_event]
+    call smoke_write_hex32
+
     mov esi, smoke_mouse_text
     call smoke_copy_string
     cmp byte [mouse_status], 1
@@ -11252,6 +11391,8 @@ smoke_audio_text db " audio=", 0
 smoke_keyirq_text db " keyirq=", 0
 smoke_keyqueue_text db " keyqueue=", 0
 smoke_keypoll_text db " keypoll=", 0
+smoke_keyseen_text db " keyseen=", 0
+smoke_keylast_text db " keylast=", 0
 smoke_mouse_text db " mouse=", 0
 smoke_mouseirq_text db " mouseirq=", 0
 smoke_mousepkt_text db " mousepkt=", 0
@@ -11693,6 +11834,8 @@ doom_last_open_flags dd 0
 doom_last_open_mode dd 0
 doom_present_count dd 0
 doom_key_event_count dd 0
+doom_key_down_seen dd 0
+doom_key_last_event dd 0
 doom_mouse_event_count dd 0
 doom_mouse_buttons_seen dd 0
 doom_mouse_delta_x dd 0

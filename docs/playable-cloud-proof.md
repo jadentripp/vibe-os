@@ -68,9 +68,9 @@ The cloud proof requires these status families:
 - Runtime: `gameplay=OK`, `gstate=00000000`, `gmap=00000101`, `gtic>0`, and
   `leveltime>0` prove the real engine reached E1M1 gameplay.
 - Input pipeline: `keyirq`, `keyqueue`, and `keypoll` increase from the early
-  snapshot through the fire, movement, use, and menu snapshots, proving IRQ1
-  input entered the kernel queue and Doom consumed each keyboard phase through
-  `SYS_POLL_KEY`.
+  snapshot through the fire, movement, use, and menu snapshots, while `keyseen`
+  and `keylast` prove the scripted Up/Ctrl/Space/Escape keys were the keys Doom
+  consumed through `SYS_POLL_KEY`.
 - Player/action deltas: `pflags` records cumulative player, movement, attack,
   use, menu, position-delta, ammo-delta, and refire observations; `pdelta>0`
   and a changed `ppos` between `status.after-start.txt` and

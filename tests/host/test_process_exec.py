@@ -26,6 +26,45 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("trigger_expected_fault();", probe)
         self.assertIn("return sys_exec(doom_path) == 0 ? 0 : 1;", probe)
 
+    def test_initial_user_probe_gets_real_arg_stack_before_crt0(self):
+        kernel = read_kernel()
+        probe = (ROOT / "user" / "probe.c").read_text()
+        user_probe_run = kernel.split("user_probe_run:", 1)[1].split(".fail:", 1)[0]
+        for source in (
+            "mov esi, exec_path_user_probe",
+            "call sys_exec_stage_kernel_arg",
+            "call process_seed_initial_user_context",
+            "call process_activate",
+            "call process_exec_seed_argv_stack",
+            "push dword [process_user_probe + PROC_SAVED_ESP]",
+            "xor eax, eax",
+            "xor ebp, ebp",
+        ):
+            self.assertIn(source, user_probe_run)
+        self.assertLess(
+            user_probe_run.index("call sys_exec_stage_kernel_arg"),
+            user_probe_run.index("call process_exec_seed_argv_stack"),
+        )
+        self.assertLess(
+            user_probe_run.index("call process_seed_initial_user_context"),
+            user_probe_run.index("call process_activate", user_probe_run.index("call sys_exec_stage_kernel_arg")),
+        )
+        self.assertLess(
+            user_probe_run.index("call process_exec_seed_argv_stack"),
+            user_probe_run.index("push dword [process_user_probe + PROC_SAVED_ESP]"),
+        )
+        for source in (
+            "USER_PROBE_EXPECTED_FLAGS equ 0x00000fff",
+            "PROBE_FLAG_PROCESS_ABI = 0x800u",
+            "SYS_GETPID = 25",
+            "int user_main(int argc, char **argv, char **envp)",
+            'probe_streq(argv[0], "USERPROB.ELF")',
+            "argv[1] == (char *)0",
+            "envp[0] == (char *)0",
+            "syscall3(SYS_GETPID, 0, 0, 0) == 1",
+        ):
+            self.assertIn(source, kernel if source.startswith("USER_PROBE_EXPECTED") else probe)
+
     def test_process_exec_resolves_path_through_table_and_fat(self):
         kernel = read_kernel()
         exec_path = kernel.split("process_exec_path:", 1)[1].split("process_exec_resolve_path:", 1)[0]
@@ -277,6 +316,7 @@ class ProcessExecContractTests(unittest.TestCase):
         ):
             self.assertIn(source, argv)
         copy_argv = kernel.split("sys_exec_copy_argv:", 1)[1].split("sys_exec_copy_user_arg_string:", 1)[0]
+        stage_kernel_arg = kernel.split("sys_exec_stage_kernel_arg:", 1)[1].split("sys_exec_copy_argv:", 1)[0]
         for source in (
             "call sys_exec_clear_args",
             "cmp dword [sys_exec_user_argv_arg], 0",
@@ -288,6 +328,16 @@ class ProcessExecContractTests(unittest.TestCase):
             "mov [sys_exec_argc], eax",
         ):
             self.assertIn(source, copy_argv)
+        for source in (
+            "call sys_exec_clear_args",
+            "mov edi, sys_exec_arg_strings",
+            "mov ecx, SYS_EXEC_ARG_STR_MAX",
+            "lodsb",
+            "stosb",
+            "mov byte [sys_exec_arg_strings + SYS_EXEC_ARG_STR_MAX - 1], 0",
+            "mov dword [sys_exec_argc], SYS_EXEC_ARGC_DEFAULT",
+        ):
+            self.assertIn(source, stage_kernel_arg)
 
     def test_user_crt0_passes_argc_argv_and_empty_envp_to_user_main(self):
         crt0 = (ROOT / "user" / "crt0.asm").read_text()

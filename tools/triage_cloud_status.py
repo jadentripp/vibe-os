@@ -50,6 +50,8 @@ SUMMARY_FIELDS = (
     "keyirq",
     "keyqueue",
     "keypoll",
+    "keyseen",
+    "keylast",
     "mouseirq",
     "mousepkt",
     "mousepoll",
@@ -114,6 +116,7 @@ PAGE_FAULT_ERROR_BITS = (
 PREEMPT_PROBE_MAGIC = 0x50524545
 PLAYABILITY_REQUIRED_FLAGS = 0x0000003F
 PLAYABILITY_FIRE_STATE_FLAGS = 0x000000C0
+KEY_SEEN_SCRIPTED_FLAGS = 0x00000071
 
 
 @dataclass(frozen=True)
@@ -587,10 +590,12 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
 
     mouse_delta = _hex_pair(fields, "mousedelta")
     pflags = _hex(fields, "pflags") or 0
+    keyseen = _hex(fields, "keyseen") or 0
     if (
         (_hex(fields, "keyirq") or 0) == 0
         or (_hex(fields, "keyqueue") or 0) == 0
         or (_hex(fields, "keypoll") or 0) == 0
+        or (keyseen & KEY_SEEN_SCRIPTED_FLAGS) != KEY_SEEN_SCRIPTED_FLAGS
         or (_hex(fields, "mouseirq") or 0) == 0
         or (_hex(fields, "mousepkt") or 0) == 0
         or (_hex(fields, "mousepoll") or 0) == 0
@@ -605,7 +610,8 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         notes.append(
             "input-no-effect: "
             f"keyirq={_field(fields, 'keyirq')} keyqueue={_field(fields, 'keyqueue')} "
-            f"keypoll={_field(fields, 'keypoll')} pflags={_field(fields, 'pflags')} "
+            f"keypoll={_field(fields, 'keypoll')} keyseen={_field(fields, 'keyseen')} "
+            f"pflags={_field(fields, 'pflags')} "
             f"pdelta={_field(fields, 'pdelta')} gflags={_field(fields, 'gflags')} "
             f"mouseirq={_field(fields, 'mouseirq')} mousepkt={_field(fields, 'mousepkt')} "
             f"mousepoll={_field(fields, 'mousepoll')} mousebtn={_field(fields, 'mousebtn')} "

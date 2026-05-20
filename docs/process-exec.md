@@ -36,6 +36,10 @@ to the caller.
   selectors, `EFLAGS`, and `PROC_FLAG_IRQ_FRAME_VALID`, and writes a real
   `argc`, `argv[]`, `NULL`, `envp NULL` stack layout from the bounded staged
   arguments.
+- The initial Ring 3 probe is bootstrapped through the same stack builder before
+  entering crt0. It receives `argc == 1`, `argv[0] == "USERPROB.ELF"`,
+  `argv[1] == NULL`, and an empty `envp`, then verifies that `getpid()` reports
+  its fixed process id from user mode.
 - The Ring 3 probe arms its intentional page-fault check with a recovery EIP.
   The fault handler records the frame, clears the expectation, rewrites the
   saved exception EIP to the recovery label, drops vector/error from the trap

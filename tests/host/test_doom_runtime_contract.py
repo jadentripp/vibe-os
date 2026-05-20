@@ -122,8 +122,10 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "PROBE_FLAG_IOCTL_FBINFO = 0x100u",
             "PROBE_FLAG_IOCTL_PRESENT = 0x200u",
             "PROBE_FLAG_FORK_WAIT = 0x400u",
+            "PROBE_FLAG_PROCESS_ABI = 0x800u",
             "SYS_MMAP = 20",
             "SYS_IOCTL = 22",
+            "SYS_GETPID = 25",
         ):
             self.assertIn(token, probe)
 

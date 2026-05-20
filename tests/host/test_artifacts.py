@@ -736,7 +736,7 @@ class SourceContractTests(unittest.TestCase):
             "pctx=00000004 pfrom=00000002 pto=00000003 peip=01000000:00E80000 "
             "pspin=50524546 free=00700000 ticks=00000001"
         )
-        playable = "gstate=00000000 gtic=00000001 gflags=00000001 gaction=00000000 pflags=000000FF pbuttons=00000000 ppos=00010000:00020000 pdelta=00000100 keyirq=00000001 keyqueue=00000001 keypoll=00000001"
+        playable = "gstate=00000000 gtic=00000001 gflags=00000001 gaction=00000000 pflags=000000FF pbuttons=00000000 ppos=00010000:00020000 pdelta=00000100 keyirq=00000001 keyqueue=00000001 keypoll=00000001 keyseen=00000071 keylast=0001001B"
         valid = f"Aurora OS v0.2 {core} gameplay=OK gmap=00000101 leveltime=00000001 doompresent=00000002 {visual} {playable} doomlog=ready"
         baseline = valid.replace("gtic=00000001", "gtic=00000000").replace(
             "leveltime=00000001", "leveltime=00000000"
@@ -752,11 +752,19 @@ class SourceContractTests(unittest.TestCase):
             "gflags=00000001", "gflags=00000000"
         ).replace(
             "pflags=000000FF", "pflags=00000001"
+        ).replace(
+            "keyseen=00000071", "keyseen=00000000"
+        ).replace(
+            "keylast=0001001B", "keylast=00000000"
         )
         start = valid.replace("gflags=00000001", "gflags=00000000").replace(
             "pflags=000000FF", "pflags=00000001"
         ).replace(
             "pdelta=00000100", "pdelta=00000000"
+        ).replace(
+            "keyseen=00000071", "keyseen=00000000"
+        ).replace(
+            "keylast=0001001B", "keylast=00000000"
         )
         fire = valid.replace("gtic=00000001", "gtic=00000002").replace(
             "leveltime=00000001", "leveltime=00000002"
@@ -764,6 +772,10 @@ class SourceContractTests(unittest.TestCase):
             "keyqueue=00000001", "keyqueue=00000002"
         ).replace("keypoll=00000001", "keypoll=00000002").replace(
             "pflags=000000FF", "pflags=000000C5"
+        ).replace(
+            "keyseen=00000071", "keyseen=00000010"
+        ).replace(
+            "keylast=0001001B", "keylast=0001019D"
         )
         movement = valid.replace("gtic=00000001", "gtic=00000003").replace(
             "leveltime=00000001", "leveltime=00000003"
@@ -773,6 +785,10 @@ class SourceContractTests(unittest.TestCase):
             "pflags=000000FF", "pflags=00000023"
         ).replace(
             "ppos=00010000:00020000", "ppos=00010020:00020000"
+        ).replace(
+            "keyseen=00000071", "keyseen=00000011"
+        ).replace(
+            "keylast=0001001B", "keylast=000101AD"
         )
         use = valid.replace("gtic=00000001", "gtic=00000004").replace(
             "leveltime=00000001", "leveltime=00000004"
@@ -780,12 +796,20 @@ class SourceContractTests(unittest.TestCase):
             "keyqueue=00000001", "keyqueue=00000004"
         ).replace("keypoll=00000001", "keypoll=00000004").replace(
             "pflags=000000FF", "pflags=00000009"
+        ).replace(
+            "keyseen=00000071", "keyseen=00000031"
+        ).replace(
+            "keylast=0001001B", "keylast=00010020"
         )
         mouse = valid.replace("gtic=00000001", "gtic=00000005").replace(
             "leveltime=00000001", "leveltime=00000005"
         ).replace("keyirq=00000001", "keyirq=00000004").replace(
             "keyqueue=00000001", "keyqueue=00000004"
-        ).replace("keypoll=00000001", "keypoll=00000004")
+        ).replace("keypoll=00000001", "keypoll=00000004").replace(
+            "keyseen=00000071", "keyseen=00000031"
+        ).replace(
+            "keylast=0001001B", "keylast=00010020"
+        )
         menu = valid.replace("gtic=00000001", "gtic=00000006").replace(
             "leveltime=00000001", "leveltime=00000006"
         ).replace("keyirq=00000001", "keyirq=00000005").replace(
@@ -816,6 +840,7 @@ class SourceContractTests(unittest.TestCase):
             valid.replace("doomsamp=00000001:00000002:00000003", "doomsamp=00000100:00000002:00000003"),
             valid.replace("doomlog=ready", "doomlog=PNAMES not found"),
             valid.replace("pdelta=00000100", "pdelta=00000000"),
+            valid.replace("keyseen=00000071", "keyseen=00000031"),
             valid.replace("mousebtn=00000001", "mousebtn=00000000"),
             valid.replace("mousedelta=00000018:0000000C", "mousedelta=00000000:0000000C"),
             valid.replace("mousedelta=00000018:0000000C", "mousedelta=00000018:00000000"),
@@ -1315,12 +1340,19 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("keyboard_irq_count dd 0", kernel)
         self.assertIn("keyboard_event_count dd 0", kernel)
         self.assertIn("doom_key_event_count dd 0", kernel)
+        self.assertIn("doom_record_key_event:", kernel)
+        self.assertIn("doom_key_down_seen dd 0", kernel)
+        self.assertIn("doom_key_last_event dd 0", kernel)
         self.assertIn('smoke_keyirq_text db " keyirq="', kernel)
         self.assertIn('smoke_keyqueue_text db " keyqueue="', kernel)
         self.assertIn('smoke_keypoll_text db " keypoll="', kernel)
+        self.assertIn('smoke_keyseen_text db " keyseen="', kernel)
+        self.assertIn('smoke_keylast_text db " keylast="', kernel)
         self.assertIn("mov edx, [keyboard_irq_count]", kernel)
         self.assertIn("mov edx, [keyboard_event_count]", kernel)
         self.assertIn("mov edx, [doom_key_event_count]", kernel)
+        self.assertIn("mov edx, [doom_key_down_seen]", kernel)
+        self.assertIn("mov edx, [doom_key_last_event]", kernel)
         self.assertIn("VIBE_SYS_POLL_KEY = 11", header)
         self.assertIn("VIBE_KEY_EVENT_VALID", header)
         self.assertIn("VIBE_KEY_EVENT_DOWN", header)
@@ -1334,6 +1366,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('grep -q "keyirq="', makefile)
         self.assertIn('grep -q "keyqueue="', makefile)
         self.assertIn('grep -q "keypoll="', makefile)
+        self.assertIn('grep -q "keyseen="', makefile)
+        self.assertIn('grep -q "keylast="', makefile)
         self.assertIn("/keyirq=([0-9A-F]{8})/", makefile)
         self.assertIn("/keyqueue=([0-9A-F]{8})/", makefile)
         self.assertIn("/keypoll=([0-9A-F]{8})/", makefile)

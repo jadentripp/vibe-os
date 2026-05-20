@@ -203,8 +203,9 @@ Call a remote human playtest credible only after checking all of this:
 - Arrow keys, Ctrl, Space, Enter, and Escape visibly affect Doom.
 - `status.manual.txt` or the GitHub artifact reports `gameplay=OK`,
   `gmap=00000101`, increasing `gtic`/`leveltime`, nonzero `keyirq`,
-  `keyqueue`, and `keypoll`, nonzero `mouseirq`/`mousepkt`/`mousepoll` when
-  mouse is expected, changed `ppos` from `status.after-start.txt` to
+  `keyqueue`, and `keypoll`, `keyseen` bits for Up/Ctrl/Space/Escape, nonzero
+  `mouseirq`/`mousepkt`/`mousepoll` when mouse is expected, changed `ppos` from
+  `status.after-start.txt` to
   `status.after-move.txt`, fire ammo/refire evidence in `pflags`, and menu
   inactive-to-active evidence after Escape.
 - Save/config writes are attempted from Doom and then checked after a rebooted

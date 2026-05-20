@@ -56,6 +56,8 @@ def status_line(**overrides):
         "keyirq": "00000002",
         "keyqueue": "00000002",
         "keypoll": "00000002",
+        "keyseen": "00000071",
+        "keylast": "0001001B",
         "mouseirq": "00000002",
         "mousepkt": "00000002",
         "mousepoll": "00000002",
@@ -263,7 +265,14 @@ class CloudStatusTriageTests(unittest.TestCase):
 
         self.assertEqual(primary, "input-no-effect")
         self.assertIn("keyirq=00000002", notes[0])
+        self.assertIn("keyseen=00000071", notes[0])
         self.assertIn("mousedelta=00000018:0000000C", notes[0])
+
+    def test_classifies_keyboard_input_without_scripted_key_bits(self):
+        primary, notes = self.classify(keyseen="00000031")
+
+        self.assertEqual(primary, "input-no-effect")
+        self.assertIn("keyseen=00000031", notes[0])
 
     def test_classifies_mouse_input_without_button_or_motion_proof(self):
         primary, notes = self.classify(mousebtn="00000000", mousedelta="00000000:0000000C")

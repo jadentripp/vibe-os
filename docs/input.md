@@ -14,6 +14,10 @@ Keyboard:
   Ctrl, Alt, Shift, Tab, number keys, letters, Backspace, minus/equal, and F1-F12.
 - Extended `0xe0` scancodes cover arrows, keypad Enter, right Ctrl/Alt, and Delete
   as Doom Backspace.
+- Smoke status exposes `keyseen=` as a cumulative bitmask updated only when the
+  Doom user process consumes `SYS_POLL_KEY`. The real-WAD proof requires the
+  scripted Up/Ctrl/Space/Escape bits, so a random IRQ counter cannot satisfy
+  the keyboard lane. `keylast=` keeps the last packed key event for triage.
 
 Mouse:
 
@@ -33,7 +37,7 @@ Host tests prove the translation without QEMU or WAD data:
   `tests/host/doom_input_test.c` against `doom_port/input.c`.
 - The same test also checks that the kernel scancode map still covers the Doom
   play keys and extended press/release path.
-- The real-WAD cloud workflow injects one deterministic mouse phase with QEMU
-  monitor `mouse_move`/`mouse_button`, captures `status.after-mouse.txt`, and
-  requires IRQ12, packet, Doom poll counters, `mousebtn`, and `mousedelta` to
-  advance.
+- The real-WAD cloud workflow injects deterministic keyboard phases and one
+  mouse phase with QEMU monitor input, captures each status snapshot, and
+  requires Doom-poll counters plus `keyseen`, `mousebtn`, and `mousedelta`
+  proof fields to advance.

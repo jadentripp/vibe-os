@@ -61,10 +61,11 @@ boot:
 - `tools/check_human_playability_proof.py` compares decoded status snapshots
   from the deterministic input phases. It requires keyboard counters to
   increase across each keyboard phase, mouse IRQ/packet/poll counters to
-  advance during the mouse phase, Doom to remain in E1M1 gameplay, player
-  movement/action/menu flags to be set, `pdelta>0`, `ppos` to change after the
-  movement phase, fire to change ammo/refire state, and Escape to flip the menu
-  bit without reading WAD or framebuffer artifacts.
+  advance during the mouse phase, Doom to remain in E1M1 gameplay, `keyseen` to
+  record Up/Ctrl/Space/Escape, player movement/action/menu flags to be set,
+  `pdelta>0`, `ppos` to change after the movement phase, fire to change
+  ammo/refire state, and Escape to flip the menu bit without reading WAD or
+  framebuffer artifacts.
 - `tools/check_audio_continuity_proof.py` is the remote-safe SB16 audio gate. It
   compares the same decoded status snapshots, requires `audio=SB16`, and proves
   IRQ/refill, non-music SFX, and looped music-carrier counters progressed
