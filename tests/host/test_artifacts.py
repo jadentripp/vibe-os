@@ -583,7 +583,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("check_args+=(--require-default)", real_wad_workflow)
         self.assertIn("check_args+=(--require-save-slot \"$PERSISTENCE_SAVE_SLOT\")", real_wad_workflow)
         self.assertIn("check_args+=(--save-write-status build/status.persistence-write.txt)", real_wad_workflow)
-        self.assertIn("wait-status-min=leveltime:00000008:90:2", real_wad_workflow)
+        self.assertIn("wait-status-min=leveltime:00000007:90:2", real_wad_workflow)
         self.assertIn('cp "$baseline" build/disk.img', real_wad_workflow)
         self.assertIn('if [ -z "${PERSISTENCE_SAVE_SLOT:-}" ]; then', real_wad_workflow)
         self.assertIn("write_marker SAVE_REQUEST_NAME \"$PERSISTENCE_SAVE_SLOT\"", real_wad_workflow)
