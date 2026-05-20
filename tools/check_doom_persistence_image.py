@@ -414,6 +414,32 @@ def _validate_save_slot(fs, slot):
     )
 
 
+def _validate_expected_save_description(slot, actual, expected):
+    try:
+        encoded = expected.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise PersistenceProofError(
+            f"DOOMSAV{slot}.DSG expected save description must be ASCII"
+        ) from exc
+    if not encoded:
+        raise PersistenceProofError(
+            f"DOOMSAV{slot}.DSG expected save description must not be empty"
+        )
+    if len(encoded) >= SAVE_DESCRIPTION_BYTES:
+        raise PersistenceProofError(
+            f"DOOMSAV{slot}.DSG expected save description must fit in "
+            f"{SAVE_DESCRIPTION_BYTES - 1} bytes"
+        )
+    if any(ch < 0x20 or ch > 0x7E for ch in encoded):
+        raise PersistenceProofError(
+            f"DOOMSAV{slot}.DSG expected save description must be printable ASCII"
+        )
+    if actual != expected:
+        raise PersistenceProofError(
+            f"DOOMSAV{slot}.DSG description must be {expected!r}, got {actual!r}"
+        )
+
+
 def _require_fresh_save_baseline(baseline_fs, name, label):
     if baseline_fs is None:
         raise PersistenceProofError(
@@ -715,6 +741,7 @@ def validate_image(
     load_status_path=None,
     require_default=False,
     require_save_slots=(),
+    require_save_descriptions=None,
     require_dynamic_fat_proof=False,
 ):
     image = _read_image(path)
@@ -725,6 +752,7 @@ def validate_image(
         if reboot_baseline_image
         else None
     )
+    require_save_descriptions = require_save_descriptions or {}
     summary = []
 
     if baseline_fs is not None and not require_default and not require_save_slots:
@@ -749,6 +777,13 @@ def validate_image(
         raise PersistenceProofError("--load-status requires exactly one --require-save-slot")
     if load_status_path is not None and reboot_fs is None:
         raise PersistenceProofError("--load-status requires --reboot-baseline-image")
+    unknown_description_slots = sorted(set(require_save_descriptions) - set(require_save_slots))
+    if unknown_description_slots:
+        joined = ", ".join(str(slot) for slot in unknown_description_slots)
+        raise PersistenceProofError(
+            "--require-save-description requires matching --require-save-slot "
+            f"for slot(s): {joined}"
+        )
     if reboot_fs is not None and require_save_slots and save_write_status_path is None:
         raise PersistenceProofError(
             "save-slot reboot proof requires --save-write-status from the write boot"
@@ -810,6 +845,8 @@ def validate_image(
     save_slot_infos = {}
     for slot in require_save_slots:
         size, description, version, skill, episode, game_map, leveltime = _validate_save_slot(fs, slot)
+        if slot in require_save_descriptions:
+            _validate_expected_save_description(slot, description, require_save_descriptions[slot])
         save_slot_infos[slot] = {
             "size": size,
             "description": description,
@@ -912,11 +949,38 @@ def parse_args():
         help="require DOOMSAVN.DSG to contain a Doom save header; may be repeated",
     )
     parser.add_argument(
+        "--require-save-description",
+        action="append",
+        default=[],
+        metavar="N=TEXT",
+        help="require DOOMSAVN.DSG to contain exactly TEXT as its decoded save description",
+    )
+    parser.add_argument(
         "--require-dynamic-fat-proof",
         action="store_true",
         help="mutate an in-memory copy to prove dynamic FAT create/grow/shrink/truncate/delete behavior",
     )
     return parser.parse_args()
+
+
+def parse_required_save_descriptions(values):
+    descriptions = {}
+    for value in values:
+        if "=" not in value:
+            raise SystemExit(
+                "--require-save-description must be SLOT=TEXT, for example 0=VIBE-SLOT-0"
+            )
+        slot_text, description = value.split("=", 1)
+        try:
+            slot = int(slot_text, 10)
+        except ValueError:
+            raise SystemExit(
+                f"--require-save-description slot must be an integer, got {slot_text!r}"
+            ) from None
+        if slot in descriptions:
+            raise SystemExit(f"duplicate --require-save-description for slot {slot}")
+        descriptions[slot] = description
+    return descriptions
 
 
 def main():
@@ -931,6 +995,9 @@ def main():
         load_status_path=args.load_status,
         require_default=args.require_default,
         require_save_slots=args.require_save_slot,
+        require_save_descriptions=parse_required_save_descriptions(
+            args.require_save_description
+        ),
         require_dynamic_fat_proof=args.require_dynamic_fat_proof,
     ):
         print(line)

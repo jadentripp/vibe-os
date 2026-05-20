@@ -519,6 +519,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("wad_url:", real_wad_workflow)
         self.assertIn("Use text=NAME", real_wad_workflow)
         self.assertIn('save_slot_select_actions=",${save_slot_digit},wait=2"', real_wad_workflow)
+        self.assertIn('save_description="VIBE-SLOT-${PERSISTENCE_SAVE_SLOT}"', real_wad_workflow)
+        self.assertIn("text=${save_description}", real_wad_workflow)
         self.assertIn("save_keypoll_min=0000000A", real_wad_workflow)
         self.assertIn("load_keypoll_min=00000006", real_wad_workflow)
         self.assertNotIn('if [ "$PERSISTENCE_SAVE_SLOT" != "0" ]', real_wad_workflow)
@@ -572,6 +574,10 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("check_args=(--baseline-image \"$baseline\")", real_wad_workflow)
         self.assertIn("check_args+=(--require-default)", real_wad_workflow)
         self.assertIn("check_args+=(--require-save-slot \"$PERSISTENCE_SAVE_SLOT\")", real_wad_workflow)
+        self.assertIn(
+            'check_args+=(--require-save-description "${PERSISTENCE_SAVE_SLOT}=${save_description}")',
+            real_wad_workflow,
+        )
         self.assertIn("check_args+=(--save-write-status build/status.persistence-write.txt)", real_wad_workflow)
         self.assertIn('cp "$baseline" build/disk.img', real_wad_workflow)
         self.assertIn('if [ -z "${PERSISTENCE_SAVE_SLOT:-}" ]; then', real_wad_workflow)

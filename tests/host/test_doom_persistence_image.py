@@ -437,7 +437,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertIn("save write status closed=OK", summary)
 
     def test_checker_gates_save_load_status_when_claiming_playable_save_slot(self):
-        save_payload = doom_save_payload("LOAD PROOF")
+        save_payload = doom_save_payload("VIBE-SLOT-1")
         baseline = bytearray((BUILD / "disk.img").read_bytes())
         after_write = bytearray(baseline)
         fs = make_wad_image.Fat16Image(after_write)
@@ -460,12 +460,41 @@ class DoomPersistenceImageTests(unittest.TestCase):
             save_write_status_path=status_path,
             load_status_path=load_status_path,
             require_save_slots=[1],
+            require_save_descriptions={1: "VIBE-SLOT-1"},
         )
 
         self.assertIn("DOOMSAV1.DSG bytes=", summary[0])
+        self.assertIn("description='VIBE-SLOT-1'", summary[0])
         self.assertIn("survived-reboot", summary[0])
         self.assertIn("reboot status runtime=OK", summary)
         self.assertIn("save load status gameplay=OK slot=1", summary)
+
+    def test_checker_rejects_unexpected_save_description(self):
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        image = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(image)
+        fs.write_root_file(
+            make_wad_image.WRITABLE_SAVE_NAMES[2],
+            doom_save_payload("OTHER-SLOT-2"),
+        )
+
+        baseline_path = self.write_temp_image(baseline)
+        image_path = self.write_temp_image(image)
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "description must be"):
+            check_persistence.validate_image(
+                image_path,
+                baseline_image=baseline_path,
+                require_save_slots=[2],
+                require_save_descriptions={2: "VIBE-SLOT-2"},
+            )
+
+    def test_checker_rejects_save_description_without_matching_slot(self):
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "matching --require-save-slot"):
+            check_persistence.validate_image(
+                BUILD / "disk.img",
+                require_save_descriptions={4: "VIBE-SLOT-4"},
+            )
 
     def test_checker_requires_save_write_status_for_rebooted_save_slot(self):
         baseline = bytearray((BUILD / "disk.img").read_bytes())
