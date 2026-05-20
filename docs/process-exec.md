@@ -31,6 +31,11 @@ to the caller.
   stores the prepared ELF entry, seeds `PROC_SAVED_EIP`, `PROC_SAVED_ESP`,
   selectors, `EFLAGS`, and `PROC_FLAG_IRQ_FRAME_VALID`, and writes an
   argc/argv-compatible stack layout with `argv[0]` copied from the exec path.
+- The Ring 3 probe arms its intentional page-fault check with a recovery EIP.
+  The fault handler records the frame, clears the expectation, rewrites the
+  saved exception EIP to the recovery label, drops vector/error from the trap
+  stack, and `iretd`s back to user mode so the following `SYS_EXEC("DOOM.ELF")`
+  call is reachable.
 - Only after the target context and live syscall frame are patched does the
   caller move to `PROC_STATE_EXITED`. The target is installed into
   `scheduler_next_process_ptr`, activated with `process_activate`, and resumed

@@ -11,12 +11,15 @@ them so README and runbook wording cannot quietly drift into overclaiming.
 ## Closed Since Earlier Checkpoints
 
 - The smoke status now exposes `doomexit=`, `doomfault=`, `doomfaultip=`,
-  `doomfaultv=`, and `doomfaulterr=`. The kernel records Doom's user-mode
-  `exit()` status plus CR2, faulting EIP, exception vector, and x86 error code;
-  those values are now part of the cloud-safe RAM status artifact so a real-WAD
-  run can prove Doom is still running and has not faulted.
+  `doomfaultv=`, `doomfaulterr=`, and compact `fault=` frame diagnostics. The
+  kernel records Doom's user-mode `exit()` status plus CR2, faulting EIP,
+  exception vector, x86 error code, selectors, stack, current process identity,
+  state, and last syscall; those values are now part of the cloud-safe RAM
+  status artifact so a real-WAD run can prove Doom is still running and has not
+  faulted.
 - Doom user faults record `doomrun=FAULT` plus `doomfault=<cr2>`,
-  `doomfaultip=<eip>`, `doomfaultv=<vector>`, and `doomfaulterr=<error-code>`.
+  `doomfaultip=<eip>`, `doomfaultv=<vector>`, `doomfaulterr=<error-code>`, and
+  `fault=vector/error/eip/cs/esp/ss/cr2/pid/kind/state/syscall`.
 - The FAT16 image has root entries for `DEFAULT.CFG` and `DOOMSAV0.DSG` through
   `DOOMSAV5.DSG`, and host tests prove image-level allocation/readback behavior.
 
