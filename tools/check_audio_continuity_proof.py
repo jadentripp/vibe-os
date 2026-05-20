@@ -75,6 +75,9 @@ FINAL_POSITIVE_COUNTERS = (
     "dma",
 )
 PROGRESS_COUNTERS = ("audioirq", "refill", "sfxmix", "musicmix")
+PROGRESS_TUPLE_COMPONENTS = (
+    ("voiceq", 3, 2, "stream update"),
+)
 TUPLE_FIELDS = {
     "sb16": 2,
     "play": 2,
@@ -219,6 +222,24 @@ def _assert_tuple_nondecreasing(
         previous = current
 
 
+def _assert_tuple_component_progress(
+    snapshots: list[tuple[str, dict[str, str]]],
+    name: str,
+    count: int,
+    index: int,
+    reason: str,
+) -> None:
+    first_label, first_fields = snapshots[0]
+    last_label, last_fields = snapshots[-1]
+    first = _hex_tuple(first_fields, name, first_label, count)
+    last = _hex_tuple(last_fields, name, last_label, count)
+    if last[index] <= first[index]:
+        raise AssertionError(
+            f"{name}= {reason} counter must increase from {first_label} to {last_label}, "
+            f"got {first[index]:08X}->{last[index]:08X}"
+        )
+
+
 def validate_status(
     final_status: str,
     baseline_status: str,
@@ -260,7 +281,7 @@ def validate_status(
     if _hex_tuple(final_fields, "voiceq", "final", 3)[0] == 0:
         raise AssertionError("final voiceq= must prove at least one audio voice was queued")
     if _hex_tuple(final_fields, "musicq", "final", 2)[0] == 0:
-        raise AssertionError("final musicq= must prove the music carrier was queued")
+        raise AssertionError("final musicq= must prove the music voice was queued")
 
     for name in MONOTONIC_COUNTERS:
         _assert_nondecreasing(snapshots, name)
@@ -268,6 +289,8 @@ def validate_status(
         _assert_tuple_nondecreasing(snapshots, name, count)
     for name in PROGRESS_COUNTERS:
         _assert_progress(snapshots, name)
+    for name, count, index, reason in PROGRESS_TUPLE_COMPONENTS:
+        _assert_tuple_component_progress(snapshots, name, count, index, reason)
 
 
 def validate_repo_contract() -> None:
@@ -310,18 +333,19 @@ def validate_repo_contract() -> None:
                 "tools/check_audio_continuity_proof.py",
                 "audio=SB16",
                 "sfxmix= counts non-music Doom SFX only",
-                "looped PCM carrier",
-                "not full song-position continuity",
+                "VIBE_AUDIO_UPDATE_SFX",
+                "streamed music chunks",
             ),
         ),
         (
             MUSIC_DOC,
             music_doc,
             (
-                "bounded PCM window",
-                "looped PCM carrier",
+                "stateful stream cursor",
+                "VIBE_AUDIO_UPDATE_SFX",
+                "streamed music chunks",
                 "separate from normal Doom SFX",
-                "not full song-position streaming",
+                "not final hardware-paced pull streaming",
             ),
         ),
         (
@@ -431,7 +455,7 @@ def main(argv: list[str]) -> int:
         return 1
 
     print(
-        "audio continuity proof OK: SB16 IRQ/refill, SFX, and music carrier "
+        "audio continuity proof OK: SB16 IRQ/refill, SFX, and streamed music "
         "counters progressed across status snapshots"
     )
     return 0

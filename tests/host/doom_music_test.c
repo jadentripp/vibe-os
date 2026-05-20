@@ -186,6 +186,71 @@ static int test_register_song_slots_and_invalid_silence(void)
     return 0;
 }
 
+static int test_streaming_chunks_advance_song_position(void)
+{
+    static unsigned char mus_lump[] = {
+        'M', 'U', 'S', 0x1a,
+        8, 0,
+        16, 0,
+        1, 0,
+        0, 0,
+        0, 0,
+        0, 0,
+        0x90, 0xbc, 100, 20,
+        0x80, 60, 4,
+        0xd0
+    };
+    unsigned char full[1024];
+    unsigned char chunks[1024];
+    vibe_music_render_stats_t stats;
+    int handle;
+    unsigned long rendered;
+
+    vibe_music_init();
+    handle = vibe_music_register_song(mus_lump);
+    if (handle <= 0)
+        return 40;
+
+    rendered = vibe_music_render_pcm(
+        mus_lump,
+        full,
+        sizeof(full),
+        VIBE_MUSIC_DEFAULT_SAMPLE_RATE,
+        127,
+        1,
+        0);
+    if (rendered != sizeof(full))
+        return 41;
+
+    vibe_music_stream_begin(handle, VIBE_MUSIC_DEFAULT_SAMPLE_RATE, 127, 1);
+    if (vibe_music_stream_position(handle) != 0)
+        return 42;
+
+    rendered = vibe_music_stream_render(handle, chunks, 512, &stats);
+    if (rendered != 512)
+        return 43;
+    if (stats.stream_start_sample != 0 || stats.stream_end_sample != 512)
+        return 44;
+    if (vibe_music_stream_position(handle) != 512)
+        return 45;
+
+    rendered = vibe_music_stream_render(handle, chunks + 512, 512, &stats);
+    if (rendered != 512)
+        return 46;
+    if (stats.stream_start_sample != 512 || stats.stream_end_sample != 1024)
+        return 47;
+    if (vibe_music_stream_position(handle) != 1024)
+        return 48;
+    if (!buffers_equal(full, chunks, sizeof(full)))
+        return 49;
+
+    vibe_music_stream_stop(handle);
+    if (vibe_music_stream_render(handle, chunks, 512, &stats))
+        return 50;
+
+    return 0;
+}
+
 int main(void)
 {
     int result;
@@ -198,5 +263,9 @@ int main(void)
     if (result)
         return result;
 
-    return test_register_song_slots_and_invalid_silence();
+    result = test_register_song_slots_and_invalid_silence();
+    if (result)
+        return result;
+
+    return test_streaming_chunks_advance_song_position();
 }

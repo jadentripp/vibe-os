@@ -242,6 +242,10 @@ class AudioContractTests(unittest.TestCase):
             "AUDIO_CMD_IS_PLAYING equ 6",
             "AUDIO_MUSIC_HANDLE_BASE equ 0x4d550000",
             "or dword [audio_sfx_flags_arg], AUDIO_FLAG_MUSIC",
+            ".refresh_stream_window:",
+            "mov [sb16_voice_samples + ebx * 4], eax",
+            "mov [sb16_voice_lengths + ebx * 4], eax",
+            "mov dword [sb16_voice_positions + ebx * 4], 0",
             "test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_LOOP",
             "inc dword [sb16_voice_loop_counts + ebx * 4]",
             "inc dword [sb16_music_loop_count]",
@@ -257,9 +261,13 @@ class AudioContractTests(unittest.TestCase):
 
         for source in (
             "desc.flags = VIBE_AUDIO_FLAG_MUSIC;",
-            "desc.flags |= VIBE_AUDIO_FLAG_LOOP;",
+            "static unsigned char music_pcm[2][VIBE_MUSIC_STREAM_BYTES];",
+            "vibe_music_stream_begin(",
+            "vibe_music_stream_render(",
             "vibe_music_audio_handle(handle)",
             "VIBE_AUDIO_START_SFX",
+            "VIBE_AUDIO_UPDATE_SFX",
+            "pump_music_stream",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, platform)
@@ -296,7 +304,8 @@ class AudioContractTests(unittest.TestCase):
         self.assertIn("Doom music:", audio_doc)
         self.assertIn("deterministic unsigned 8-bit PCM", audio_doc)
         self.assertIn("VIBE_AUDIO_START_SFX", audio_doc)
-        self.assertIn("looped PCM carrier", audio_doc)
+        self.assertIn("VIBE_AUDIO_UPDATE_SFX", audio_doc)
+        self.assertIn("streamed music chunks", audio_doc)
         self.assertIn("PC speaker fallback", audio_doc)
         self.assertNotIn("MUS/MIDI synthesis is not implemented", audio_doc)
         self.assertNotIn("Doom SFX are not mixed into PCM yet", audio_doc)

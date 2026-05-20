@@ -172,6 +172,7 @@ def audio_phase_statuses():
             refill="00000001",
             musicmix="00000001",
             musicloop="00000000",
+            voiceq="00000001:00000000:00000000",
             pflags="00000001",
             gflags="00000000",
             pdelta="00000000",
@@ -196,6 +197,7 @@ def audio_phase_statuses():
             refill="00000001",
             musicmix="00000001",
             musicloop="00000000",
+            voiceq="00000001:00000000:00000000",
             pflags="00000001",
             gflags="00000000",
             pdelta="00000000",
@@ -222,6 +224,7 @@ def audio_phase_statuses():
             refill="00000002",
             musicmix="00000002",
             musicloop="00000000",
+            voiceq="00000001:00000000:00000001",
         ),
         "status.after-move.txt": valid_status(
             doompresent="00000040",
@@ -244,6 +247,7 @@ def audio_phase_statuses():
             refill="00000003",
             musicmix="00000003",
             musicloop="00000000",
+            voiceq="00000001:00000000:00000002",
         ),
         "status.after-use.txt": valid_status(
             doompresent="00000050",
@@ -265,6 +269,7 @@ def audio_phase_statuses():
             refill="00000004",
             musicmix="00000004",
             musicloop="00000000",
+            voiceq="00000001:00000000:00000003",
         ),
         "status.after-mouse.txt": valid_status(
             doompresent="00000060",
@@ -288,6 +293,7 @@ def audio_phase_statuses():
             refill="00000004",
             musicmix="00000004",
             musicloop="00000000",
+            voiceq="00000001:00000000:00000003",
         ),
         "status.after-menu.txt": valid_status(
             doompresent="00000070",
@@ -307,6 +313,7 @@ def audio_phase_statuses():
             refill="00000005",
             musicmix="00000005",
             musicloop="00000001",
+            voiceq="00000001:00000000:00000004",
         ),
         "status.txt": valid_status(
             doompresent="00000080",
@@ -318,6 +325,7 @@ def audio_phase_statuses():
             refill="00000006",
             musicmix="00000006",
             musicloop="00000001",
+            voiceq="00000001:00000000:00000005",
         ),
     }
 
@@ -396,7 +404,7 @@ def valid_audio_proof_manifest():
             "sb16": "00000004:00000005",
             "dma": "00000001",
             "play": "00000001:00000000",
-            "voiceq": "00000001:00000000:00000000",
+            "voiceq": "00000001:00000000:00000005",
             "musicq": "00000001:00000000",
             "audioirq": "00000006",
             "ack8": "00000006",
@@ -412,15 +420,17 @@ def valid_audio_proof_manifest():
             "snapshots": ["baseline", "fire", "movement", "use", "menu", "final"],
             "sb16_continuity": True,
             "non_music_sfx_progress": True,
-            "music_carrier_progress": True,
+            "music_stream_progress": True,
+            "music_stream_update_progress": True,
             "irq_refill_progress": True,
             "progress": {
                 "audioirq": {"start": "00000001", "final": "00000006", "delta": "00000005"},
                 "refill": {"start": "00000001", "final": "00000006", "delta": "00000005"},
                 "sfxmix": {"start": "00000001", "final": "00000008", "delta": "00000007"},
                 "musicmix": {"start": "00000001", "final": "00000006", "delta": "00000005"},
+                "voiceq_update": {"start": "00000000", "final": "00000005", "delta": "00000005"},
             },
-            "claim": "non-silent remote QEMU output plus status-only SB16 continuity",
+            "claim": "non-silent remote QEMU output plus status-only SB16 continuity with streamed music chunks",
         },
         "artifact_policy": {
             "contains_raw_audio": False,

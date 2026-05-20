@@ -3,6 +3,7 @@
 
 #define VIBE_MUSIC_DEFAULT_SAMPLE_RATE 11025u
 #define VIBE_MUSIC_RENDER_BYTES 65536u
+#define VIBE_MUSIC_STREAM_BYTES 8192u
 #define VIBE_MUSIC_MAX_SONGS 8
 
 enum {
@@ -20,12 +21,26 @@ typedef struct vibe_music_render_stats {
     unsigned long loop_count;
     unsigned long clipped_samples;
     unsigned long emitted_samples;
+    unsigned long stream_start_sample;
+    unsigned long stream_end_sample;
 } vibe_music_render_stats_t;
 
 void vibe_music_init(void);
 int vibe_music_detect(const void* data);
 int vibe_music_register_song(void* data);
 void vibe_music_unregister_song(int handle);
+void vibe_music_stream_begin(
+    int handle,
+    unsigned long sample_rate,
+    unsigned long volume,
+    int looping);
+void vibe_music_stream_stop(int handle);
+unsigned long vibe_music_stream_position(int handle);
+unsigned long vibe_music_stream_render(
+    int handle,
+    unsigned char* out,
+    unsigned long out_len,
+    vibe_music_render_stats_t* stats);
 unsigned long vibe_music_render_song(
     int handle,
     unsigned char* out,

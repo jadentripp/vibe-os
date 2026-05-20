@@ -237,14 +237,15 @@ Still missing:
 Executable gate:
 
 - Run the opt-in `persistence_proof` cloud path with a deterministic Doom menu
-  script that writes `DEFAULT.CFG`, and optionally `DOOMSAVN.DSG`; use
-  `text=NAME` for save descriptions so typing is batched through the QEMU
-  monitor; archive only status/log diagnostics, not the disk image. If it fails
-  to drive the menu, finish the same flow through the remote VNC runbook and then run
+  script that writes `DEFAULT.CFG`, or set `persistence_save_slot=N` to require
+  a matching `DOOMSAVN.DSG` save-slot proof instead; use `text=NAME` for save
+  descriptions so typing is batched through the QEMU monitor; archive only
+  status/log diagnostics, not the disk image. If it fails to drive the menu,
+  finish the same flow through the remote VNC runbook and then run
   `python3 tools/check_doom_persistence_image.py --baseline-image
   /tmp/vibe-os-disk.before-persistence.img --reboot-baseline-image
-  /tmp/vibe-os-disk.after-persistence-write.img --require-default
-  --require-save-slot N build/disk.img` on that remote image before deleting it.
+  /tmp/vibe-os-disk.after-persistence-write.img --require-default build/disk.img`
+  or `--require-save-slot N` on that remote image before deleting it.
 
 - `GAP[AUDIO] status=open category=audio gate=remote-sb16-audible-proof evidence=audio-status`
 
@@ -253,8 +254,8 @@ Current state:
 - The kernel has an SB16 path with IRQ/DMA setup, stereo unsigned 8-bit SFX
   mixing, active voice tracking, panning, pitch stepping, refill accounting, and
   smoke-visible audio counters.
-- The Doom port has a freestanding MUS/MIDI parser and bounded PCM renderer that
-  submits music as a looped PCM carrier through the same audio syscall and SB16
+- The Doom port has a freestanding MUS/MIDI parser and stateful stream cursor
+  that submits streamed music chunks through the same audio syscall and SB16
   voice mixer path without editing the original Doom tree.
 - Run `26151623245` passes `tools/check_audio_continuity_proof.py` and
   `tools/check_audible_audio_proof.py` with status-only SB16 continuity and a
@@ -263,9 +264,10 @@ Current state:
 
 Still missing:
 
-- Music renders bounded PCM windows and loops that carrier rather than advancing
-  a long-running MUS/MIDI pull/refill stream; balancing between music and SFX
-  still needs real playback tuning.
+- Music now advances chunk-by-chunk from the port-owned song cursor, but the
+  kernel still needs a hardware-paced MUS/MIDI pull/refill stream with explicit
+  `musicpos=` and ring-health status; balancing between music and SFX still
+  needs real playback tuning.
 - Human listener quality validation is still separate from the aggregate
   audible-output proof. For human quality notes, use remote audio forwarding
   without uploading captured Doom audio.
@@ -285,9 +287,10 @@ Executable gate:
 Current state:
 
 - User processes have separate page directories, user/supervisor page bits,
-  process VM-region metadata, `int 0x80`, table-backed `exec`, syscall pointer
-  validation, anonymous/private `mmap`, display `ioctl`, file syscalls, and
-  classified `fork`/`waitpid` failures.
+  process VM-region metadata, `int 0x80`, Doom/probe table-backed `exec`,
+  arbitrary root-level FAT16 `.ELF` exec into the reusable probe-class slot,
+  syscall pointer validation, anonymous/private `mmap`, display `ioctl`, file
+  syscalls, and classified `fork`/`waitpid` failures.
 - The `SYS_EXEC` handoff now restores the caller if argv stack seeding or live
   syscall-frame patching fails after the target address space was activated, so
   the rollback counter no longer leaves a half-prepared target running.
@@ -302,12 +305,14 @@ Current state:
 
 Still missing:
 
-- This is not a full POSIX environment. There is no arbitrary-path `exec`, real
-  `fork`, descriptor duplication, file-backed `mmap`, signal model, terminal
-  device model, or POSIX delete-while-open behavior.
-- The process model is still a fixed-slot launch/switch contract, not a robust
-  Unix process model with dynamic PIDs, reaping, fd inheritance, address-space
-  teardown, or general child lifecycle semantics.
+- This is not a full POSIX environment. Exec now accepts arbitrary root-level
+  FAT16 `.ELF` paths, but there are no directories, long filenames, dynamic
+  child slots, real `fork`, descriptor duplication, file-backed `mmap`, signal
+  model, terminal device model, or POSIX delete-while-open behavior.
+- The process model is still a fixed-slot launch/switch contract with a generic
+  probe-class exec fallback, not a robust Unix process model with dynamic PIDs,
+  reaping, fd inheritance, address-space teardown, or general child lifecycle
+  semantics.
 - The kernel is still identity-mapped in low memory, page-table allocation is not
   fully dynamic, and 32-bit paging cannot enforce NX.
 

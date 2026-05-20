@@ -44,13 +44,15 @@ REQUIRED_GAPS = {
         "category": "audio",
         "phrases": (
             "audible output",
-            "bounded PCM windows",
+            "streamed music chunks",
         ),
     },
     "VM_POSIX": {
         "category": "vm-posix",
         "phrases": (
             "This is not a full POSIX environment",
+            "arbitrary root-level FAT16 `.ELF` paths",
+            "generic probe-class exec fallback",
             "identity-mapped",
         ),
     },

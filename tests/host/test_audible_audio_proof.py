@@ -94,6 +94,7 @@ def phase_statuses(*, carrier_only=False):
             refill="00000002",
             musicmix="00000002",
             musicloop="00000000",
+            voiceq="00000002:00000000:00000002",
         ),
         "movement": status_line(
             doomsound="00000002",
@@ -103,6 +104,7 @@ def phase_statuses(*, carrier_only=False):
             refill="00000003",
             musicmix="00000003",
             musicloop="00000000",
+            voiceq="00000002:00000000:00000003",
         ),
         "use": status_line(
             doomsound="00000003",
@@ -112,6 +114,7 @@ def phase_statuses(*, carrier_only=False):
             refill="00000004",
             musicmix="00000004",
             musicloop="00000000",
+            voiceq="00000002:00000000:00000004",
         ),
         "menu": status_line(
             doomsound="00000004",
@@ -121,6 +124,7 @@ def phase_statuses(*, carrier_only=False):
             refill="00000005",
             musicmix="00000005",
             musicloop="00000001",
+            voiceq="00000002:00000000:00000005",
         ),
         "final": status_line(
             doomsound="00000004",
@@ -130,6 +134,7 @@ def phase_statuses(*, carrier_only=False):
             refill="00000006",
             musicmix="00000006",
             musicloop="00000001",
+            voiceq="00000002:00000000:00000006",
         ),
     }
 
@@ -296,7 +301,7 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "snapshots": ["baseline", "fire", "movement", "use", "menu", "final"],
                 "sb16_continuity": True,
                 "non_music_sfx_progress": True,
-                "music_carrier_progress": True,
+                "music_stream_progress": True,
                 "irq_refill_progress": True,
                 "progress": {
                     "audioirq": {"start": "00000001", "final": "00000002", "delta": "00000001"},

@@ -3709,6 +3709,7 @@ audio_stop_sfx_voice:
 audio_update_sfx_voice:
     push eax
     push ebx
+    push edx
     push esi
 
     mov eax, [audio_sfx_desc_arg]
@@ -3719,14 +3720,30 @@ audio_update_sfx_voice:
     jc .done
     mov ebx, eax
     mov esi, [audio_sfx_desc_arg]
+    mov eax, [esi + AUDIO_SFX_DESC_SAMPLES]
+    mov [audio_sfx_sample_arg], eax
+    mov eax, [esi + AUDIO_SFX_DESC_LENGTH]
+    mov [audio_sfx_length_arg], eax
+    mov eax, [esi + AUDIO_SFX_DESC_FLAGS]
+    mov [audio_sfx_flags_arg], eax
+    mov eax, [audio_sfx_handle_arg]
+    and eax, AUDIO_MUSIC_HANDLE_MASK
+    cmp eax, AUDIO_MUSIC_HANDLE_BASE
+    jne .update_flags_ready
+    or dword [audio_sfx_flags_arg], AUDIO_FLAG_MUSIC
+
+.update_flags_ready:
     mov eax, [esi + AUDIO_SFX_DESC_VOLUME]
     and eax, 0xff
+    mov [audio_sfx_volume_arg], eax
     mov [sb16_voice_volumes + ebx * 4], eax
     mov eax, [esi + AUDIO_SFX_DESC_SEPARATION]
     and eax, 0xff
+    mov [audio_sfx_separation_arg], eax
     mov [sb16_voice_separations + ebx * 4], eax
     mov eax, [esi + AUDIO_SFX_DESC_PITCH]
     and eax, 0xff
+    mov [audio_sfx_pitch_arg], eax
     mov [sb16_voice_pitches + ebx * 4], eax
     call sb16_pitch_to_step
     mov [sb16_voice_steps + ebx * 4], eax
@@ -3735,10 +3752,44 @@ audio_update_sfx_voice:
     mov [sb16_voice_left_volumes + ebx * 4], eax
     mov eax, [sb16_pan_right_arg]
     mov [sb16_voice_right_volumes + ebx * 4], eax
+
+    mov eax, [audio_sfx_sample_arg]
+    cmp eax, 0
+    je .count_update
+    mov edx, [audio_sfx_length_arg]
+    cmp edx, 0
+    je .count_update
+    test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
+    jnz .refresh_stream_window
+    test dword [audio_sfx_flags_arg], AUDIO_FLAG_MUSIC
+    jz .count_update
+
+.refresh_stream_window:
+    push ebx
+    mov eax, [audio_sfx_sample_arg]
+    mov ebx, [audio_sfx_length_arg]
+    call user_range_validate
+    pop ebx
+    jc .stream_underrun
+    mov eax, [audio_sfx_sample_arg]
+    mov [sb16_voice_samples + ebx * 4], eax
+    mov eax, [audio_sfx_length_arg]
+    mov [sb16_voice_lengths + ebx * 4], eax
+    mov dword [sb16_voice_positions + ebx * 4], 0
+    mov eax, [audio_sfx_flags_arg]
+    or eax, AUDIO_FLAG_MUSIC
+    mov [sb16_voice_flags + ebx * 4], eax
+    jmp .count_update
+
+.stream_underrun:
+    inc dword [sb16_mix_underrun_count]
+
+.count_update:
     inc dword [sb16_voice_update_count]
 
 .done:
     pop esi
+    pop edx
     pop ebx
     pop eax
     ret
@@ -7179,7 +7230,7 @@ process_exec_resolve_path:
 
 .entry_loop:
     cmp ecx, 0
-    je .fail
+    je .try_generic_root83
     mov esi, [process_exec_path_ptr]
     mov edi, [ebx + PROCESS_EXEC_PATH]
     call kernel_streq
@@ -7201,12 +7252,134 @@ process_exec_resolve_path:
     clc
     jmp .done
 
+.try_generic_root83:
+    call process_exec_resolve_generic_root83
+    jnc .done
+
 .fail:
     stc
 
 .done:
     pop edi
     pop esi
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+process_exec_resolve_generic_root83:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov edi, process_exec_name83_buffer
+    mov al, ' '
+    mov ecx, 11
+    cld
+    rep stosb
+    mov esi, [process_exec_path_ptr]
+    cmp esi, 0
+    je .fail
+    xor eax, eax
+    mov [process_exec_base_len], al
+    mov [process_exec_ext_len], al
+    mov [process_exec_dot_seen], al
+    mov ecx, SYS_EXEC_PATH_MAX - 1
+
+.char_loop:
+    cmp ecx, 0
+    je .fail
+    lodsb
+    test al, al
+    jz .finish
+    dec ecx
+    cmp al, '/'
+    je .fail
+    cmp al, 0x5c
+    je .fail
+    cmp al, '.'
+    je .dot
+    cmp al, 'a'
+    jb .validate_char
+    cmp al, 'z'
+    ja .validate_char
+    sub al, 32
+
+.validate_char:
+    cmp al, 'A'
+    jb .check_digit
+    cmp al, 'Z'
+    jbe .store_char
+
+.check_digit:
+    cmp al, '0'
+    jb .check_extra
+    cmp al, '9'
+    jbe .store_char
+
+.check_extra:
+    cmp al, '_'
+    je .store_char
+    cmp al, '-'
+    je .store_char
+    jmp .fail
+
+.dot:
+    cmp byte [process_exec_base_len], 0
+    je .fail
+    cmp byte [process_exec_dot_seen], 0
+    jne .fail
+    mov byte [process_exec_dot_seen], 1
+    jmp .char_loop
+
+.store_char:
+    cmp byte [process_exec_dot_seen], 0
+    jne .store_ext
+    movzx edx, byte [process_exec_base_len]
+    cmp edx, 8
+    jae .fail
+    mov [process_exec_name83_buffer + edx], al
+    inc byte [process_exec_base_len]
+    jmp .char_loop
+
+.store_ext:
+    movzx edx, byte [process_exec_ext_len]
+    cmp edx, 3
+    jae .fail
+    mov [process_exec_name83_buffer + 8 + edx], al
+    inc byte [process_exec_ext_len]
+    jmp .char_loop
+
+.finish:
+    cmp byte [process_exec_base_len], 0
+    je .fail
+    cmp byte [process_exec_dot_seen], 0
+    je .fail
+    cmp byte [process_exec_ext_len], 0
+    je .fail
+    cmp byte [process_exec_name83_buffer + 8], 'E'
+    jne .fail
+    cmp byte [process_exec_name83_buffer + 9], 'L'
+    jne .fail
+    cmp byte [process_exec_name83_buffer + 10], 'F'
+    jne .fail
+    mov dword [process_exec_name83], process_exec_name83_buffer
+    mov dword [process_exec_load_addr], USER_ELF_LOAD_ADDR
+    mov dword [process_exec_max_bytes], USER_ELF_MAX_BYTES
+    mov dword [process_exec_target], process_user_probe
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
     pop ecx
     pop ebx
     pop eax
@@ -12170,6 +12343,11 @@ process_exec_entry dd 0
 process_exec_last_error dd 0
 process_exec_reject_active_target db 0
 process_exec_target_reusable db 0
+process_exec_dot_seen db 0
+process_exec_base_len db 0
+process_exec_ext_len db 0
+align 4
+process_exec_name83_buffer times 11 db 0
 align 4
 sys_exec_attempts dd 0
 sys_exec_successes dd 0

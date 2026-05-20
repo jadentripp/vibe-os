@@ -105,14 +105,14 @@ Expected audio behavior:
   configure remote audio forwarding on the disposable host.
 - Run `tools/check_audio_continuity_proof.py` on the downloaded status snapshots.
   It proves SB16 version, DMA programming, playback start, voice queue,
-  IRQ/refill, SFX, and looped music-carrier counters progressed; it does not
-  upload audio samples or prove a human heard sound.
+  IRQ/refill, SFX, music mixing, and streamed music chunk updates progressed; it
+  does not upload audio samples or prove a human heard sound.
 - For an audible remote proof that still avoids publishing copyrighted audio, run
   the GitHub workflow with `audible_audio_proof=true`. That uses QEMU's WAV
   backend on the disposable runner, analyzes the temporary capture into
   aggregate `audio-proof.json`, validates it with
   `tools/check_audible_audio_proof.py`, requires the same status-only SB16 continuity
-  snapshots so a music carrier alone cannot pass as SFX proof, and deletes the
+  snapshots so music alone cannot pass as SFX proof, and deletes the
   temporary WAV before upload. Keep the manifest and status files; do not upload
   or keep captured Doom audio.
 - For a manual listener check, use remote audio forwarding on the disposable
@@ -292,12 +292,13 @@ Call a remote human playtest credible only after checking all of this:
   for this path. It copies the fresh `build/disk.img` to a runner-local
   baseline immediately after rebuilding the real-WAD image, restores that
   baseline before the persistence boot, performs a first boot with
-  `persistence_input_script`, checks that `DEFAULT.CFG` changed from that
-  baseline, captures an after-write image snapshot, boots the same image again,
-  and checks that the requested FAT entries still match the after-write snapshot.
-  The checker summary is saved as status text; the disk image and WAD are not
-  uploaded. If your input script creates a save, set `persistence_save_slot` to
-  require the matching `DOOMSAVN.DSG`. For scripted save names, prefer the
+  `persistence_input_script`, checks that either `DEFAULT.CFG` changed from that
+  baseline or the requested `DOOMSAVN.DSG` slot changed, captures an after-write
+  image snapshot, boots the same image again, and checks that the requested FAT
+  entries still match the after-write snapshot. The checker summary is saved as
+  status text; the disk image and WAD are not uploaded. If your input script
+  creates a save, set `persistence_save_slot` to require the matching
+  `DOOMSAVN.DSG`. For scripted save names, prefer the
   smoke-runner `text=NAME` action over one `sendkey` action per letter so the
   QEMU monitor connection latency does not consume the proof timeout.
 
@@ -345,10 +346,10 @@ Call a remote human playtest credible only after checking all of this:
 - Save/config persistence has host and filesystem coverage plus an opt-in cloud
   workflow path, but still needs a current passing real-WAD reboot proof after
   Doom changes settings or saves a game.
-- Music renders bounded PCM windows and loops them as an SB16 carrier voice mixed
-  with SFX; long realtime music streaming and audible remote validation remain
-  unfinished until `audio-proof.json` passes on a current real-WAD run and a
-  song-position streaming proof replaces the bounded carrier claim.
+- Music renders streamed chunks from a port-owned song cursor and updates the
+  SB16 music voice; kernel-owned pull/refill streaming and human listener
+  validation remain unfinished until explicit `musicpos=`/ring-health status and
+  remote listening notes exist.
 - Doom exit/reboot behavior is not polished for a human session.
 - Hardware support remains bounded to the QEMU BIOS/IDE/PS2/VBE/SB16 target in
   `docs/hardware-support.md`; this runbook does not prove UEFI, AHCI, USB, SMP,

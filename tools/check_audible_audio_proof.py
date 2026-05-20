@@ -107,7 +107,7 @@ def _status_summary(status_path: Path) -> dict[str, str]:
     if _hex_tuple(fields, "voiceq", 3)[0] == 0:
         raise AssertionError("status voiceq= must prove at least one audio voice was queued")
     if _hex_tuple(fields, "musicq", 2)[0] == 0:
-        raise AssertionError("status musicq= must prove the music carrier was queued")
+        raise AssertionError("status musicq= must prove the music voice was queued")
     return {
         "audio": fields["audio"],
         "doomrun": fields["doomrun"],
@@ -138,6 +138,22 @@ def _counter_delta(first: dict[str, str], last: dict[str, str], name: str) -> di
     }
 
 
+def _tuple_counter_delta(
+    first: dict[str, str],
+    last: dict[str, str],
+    name: str,
+    count: int,
+    index: int,
+) -> dict[str, Any]:
+    first_tuple = _hex_tuple(first, name, count)
+    last_tuple = _hex_tuple(last, name, count)
+    return {
+        "start": f"{first_tuple[index]:08X}",
+        "final": f"{last_tuple[index]:08X}",
+        "delta": f"{last_tuple[index] - first_tuple[index]:08X}",
+    }
+
+
 def _continuity_summary(
     *,
     final_status: str,
@@ -161,12 +177,16 @@ def _continuity_summary(
         name: _counter_delta(baseline_fields, final_fields, name)
         for name in ("audioirq", "refill", "sfxmix", "musicmix")
     }
+    progress["voiceq_update"] = _tuple_counter_delta(
+        baseline_fields, final_fields, "voiceq", 3, 2
+    )
     return {
         "gate": "tools/check_audio_continuity_proof.py",
         "snapshots": ["baseline", "fire", "movement", "use", "menu", "final"],
         "sb16_continuity": True,
         "non_music_sfx_progress": int(progress["sfxmix"]["delta"], 16) > 0,
-        "music_carrier_progress": int(progress["musicmix"]["delta"], 16) > 0,
+        "music_stream_progress": int(progress["musicmix"]["delta"], 16) > 0,
+        "music_stream_update_progress": int(progress["voiceq_update"]["delta"], 16) > 0,
         "irq_refill_progress": (
             int(progress["audioirq"]["delta"], 16) > 0
             and int(progress["refill"]["delta"], 16) > 0
@@ -174,7 +194,8 @@ def _continuity_summary(
         "progress": progress,
         "claim": (
             "non-silent remote QEMU output plus status-only SB16 continuity; "
-            "music is still a looped carrier, not full song-position streaming"
+            "music chunks are advanced by a port-owned song-position stream, "
+            "but human listener quality is still unproven"
         ),
     }
 
@@ -416,7 +437,8 @@ def validate_manifest(
     for key in (
         "sb16_continuity",
         "non_music_sfx_progress",
-        "music_carrier_progress",
+        "music_stream_progress",
+        "music_stream_update_progress",
         "irq_refill_progress",
     ):
         if continuity.get(key) is not True:
@@ -424,7 +446,7 @@ def validate_manifest(
     progress = continuity.get("progress")
     if not isinstance(progress, dict):
         raise AssertionError("manifest continuity.progress must be an object")
-    for name in ("audioirq", "refill", "sfxmix", "musicmix"):
+    for name in ("audioirq", "refill", "sfxmix", "musicmix", "voiceq_update"):
         entry = progress.get(name)
         if not isinstance(entry, dict):
             raise AssertionError(f"manifest continuity.progress.{name} must be an object")
@@ -493,7 +515,7 @@ def validate_repo_contract() -> None:
             (
                 "long-running music streaming contract",
                 "song-position",
-                "bounded PCM carrier",
+                "stateful stream cursor",
             ),
         ),
         (

@@ -28,11 +28,13 @@ static doomcom_t local_doomcom;
 static ticcmd_t empty_ticcmd;
 static byte active_palette[256 * 3];
 static int next_sound_handle = 1;
-static unsigned char music_pcm[VIBE_MUSIC_RENDER_BYTES];
+static unsigned char music_pcm[2][VIBE_MUSIC_STREAM_BYTES];
 static int current_music_handle;
 static int current_music_looping;
 static int current_music_paused;
 static int current_music_volume = 127;
+static unsigned int current_music_buffer;
+static int current_music_next_tic;
 static unsigned long playable_proof_flags;
 static int playable_origin_set;
 static int playable_origin_x;
@@ -40,6 +42,8 @@ static int playable_origin_y;
 static int playable_initial_clip = -1;
 
 #define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
+#define VIBE_MUSIC_STREAM_TICS \
+    ((int)((VIBE_MUSIC_STREAM_BYTES * 35u) / VIBE_MUSIC_DEFAULT_SAMPLE_RATE) - 2)
 
 static void report_doom_init_status(unsigned long flags)
 {
@@ -51,40 +55,65 @@ static int vibe_music_audio_handle(int handle)
     return (int)(VIBE_MUSIC_AUDIO_HANDLE_BASE | ((unsigned int)handle & 0xffffu));
 }
 
-static void submit_music_pcm(int handle, int looping)
+static int music_stream_tics(void)
+{
+    return VIBE_MUSIC_STREAM_TICS > 1 ? VIBE_MUSIC_STREAM_TICS : 1;
+}
+
+static void submit_music_stream_chunk(int handle, int start_voice)
 {
     vibe_audio_sfx_desc_t desc;
     vibe_music_render_stats_t stats;
     unsigned long rendered;
+    unsigned int buffer_index;
 
-    rendered = vibe_music_render_song(
+    buffer_index = current_music_buffer ^ 1u;
+    rendered = vibe_music_stream_render(
         handle,
-        music_pcm,
-        sizeof(music_pcm),
-        VIBE_MUSIC_DEFAULT_SAMPLE_RATE,
-        (unsigned long)current_music_volume,
-        looping,
+        music_pcm[buffer_index],
+        VIBE_MUSIC_STREAM_BYTES,
         &stats);
 
     if (!rendered)
         return;
 
+    current_music_buffer = buffer_index;
+
     memset(&desc, 0, sizeof(desc));
-    desc.samples = music_pcm;
+    desc.samples = music_pcm[current_music_buffer];
     desc.length = rendered;
     desc.volume = 127;
     desc.separation = 128;
     desc.pitch = 128;
     desc.sound_id = 0x4d555349u;
     desc.flags = VIBE_AUDIO_FLAG_MUSIC;
-    if (looping)
-        desc.flags |= VIBE_AUDIO_FLAG_LOOP;
 
     (void)vibe_syscall3(
         VIBE_SYS_AUDIO,
-        VIBE_AUDIO_START_SFX,
+        start_voice ? VIBE_AUDIO_START_SFX : VIBE_AUDIO_UPDATE_SFX,
         (unsigned long)vibe_music_audio_handle(handle),
         (unsigned long)&desc);
+}
+
+static void pump_music_stream(void)
+{
+    int now;
+    int start_voice;
+
+    if (current_music_handle <= 0 || current_music_paused)
+        return;
+
+    now = I_GetTime();
+    if (current_music_next_tic && now < current_music_next_tic)
+        return;
+
+    start_voice = vibe_syscall3(
+        VIBE_SYS_AUDIO,
+        VIBE_AUDIO_IS_PLAYING,
+        (unsigned long)vibe_music_audio_handle(current_music_handle),
+        0) <= 0;
+    submit_music_stream_chunk(current_music_handle, start_voice);
+    current_music_next_tic = now + music_stream_tics();
 }
 
 int mb_used = 8;
@@ -339,10 +368,12 @@ void I_InitSound(void)
 
 void I_UpdateSound(void)
 {
+    pump_music_stream();
 }
 
 void I_SubmitSound(void)
 {
+    pump_music_stream();
 }
 
 void I_ShutdownSound(void)
@@ -446,9 +477,12 @@ void I_ShutdownMusic(void)
             VIBE_AUDIO_STOP_SFX,
             (unsigned long)vibe_music_audio_handle(current_music_handle),
             0);
+    if (current_music_handle)
+        vibe_music_stream_stop(current_music_handle);
     current_music_handle = 0;
     current_music_looping = 0;
     current_music_paused = 0;
+    current_music_next_tic = 0;
 }
 
 void I_SetMusicVolume(int volume)
@@ -479,7 +513,8 @@ void I_ResumeSong(int handle)
     if (handle <= 0 || !current_music_paused)
         return;
     current_music_paused = 0;
-    submit_music_pcm(handle, current_music_looping);
+    current_music_next_tic = 0;
+    pump_music_stream();
 }
 
 int I_RegisterSong(void* data)
@@ -494,7 +529,13 @@ void I_PlaySong(int handle, int looping)
     current_music_handle = handle;
     current_music_looping = looping;
     current_music_paused = 0;
-    submit_music_pcm(handle, looping);
+    current_music_next_tic = 0;
+    vibe_music_stream_begin(
+        handle,
+        VIBE_MUSIC_DEFAULT_SAMPLE_RATE,
+        (unsigned long)current_music_volume,
+        looping);
+    pump_music_stream();
 }
 
 void I_StopSong(int handle)
@@ -510,6 +551,8 @@ void I_StopSong(int handle)
         current_music_handle = 0;
         current_music_looping = 0;
         current_music_paused = 0;
+        current_music_next_tic = 0;
+        vibe_music_stream_stop(handle);
     }
 }
 

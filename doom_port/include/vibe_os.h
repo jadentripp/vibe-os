@@ -118,8 +118,9 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
  * - File flags use the O_* constants from fcntl.h, including O_ACCMODE.
  * - mmap is currently anonymous/private and brk-backed; munmap validates the
  *   mapping range but does not reclaim heap pages.
- * - execv passes a bounded argv vector to the static process handoff; envp is
- *   intentionally empty for now.
+ * - execv passes a bounded argv vector to the process handoff. Table entries
+ *   cover Doom/probe images; other root-level FAT16 .ELF names use the
+ *   reusable probe-class slot. envp is intentionally empty for now.
  * - getpid returns the active static process id.
  * - fork returns ENOSYS until address-space cloning exists; wait/waitpid
  *   return ECHILD because this kernel has no child-process table yet.

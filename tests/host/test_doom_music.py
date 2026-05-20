@@ -40,10 +40,13 @@ class DoomMusicTests(unittest.TestCase):
         self.assertIn("doom_port/music.c", makefile)
         for token in (
             "#include \"music.h\"",
-            "static unsigned char music_pcm[VIBE_MUSIC_RENDER_BYTES];",
-            "vibe_music_render_song(",
+            "static unsigned char music_pcm[2][VIBE_MUSIC_STREAM_BYTES];",
+            "vibe_music_stream_begin(",
+            "vibe_music_stream_render(",
             "VIBE_AUDIO_START_SFX",
+            "VIBE_AUDIO_UPDATE_SFX",
             "vibe_music_audio_handle",
+            "pump_music_stream",
             "I_RegisterSong",
             "I_PlaySong",
             "I_StopSong",
@@ -54,9 +57,15 @@ class DoomMusicTests(unittest.TestCase):
         for token in (
             "VIBE_MUSIC_FORMAT_MUS",
             "VIBE_MUSIC_FORMAT_MIDI",
+            "VIBE_MUSIC_STREAM_BYTES",
             "vibe_music_render_stats_t",
             "loop_count",
+            "stream_start_sample",
+            "stream_end_sample",
             "vibe_music_register_song",
+            "vibe_music_stream_begin",
+            "vibe_music_stream_render",
+            "vibe_music_stream_position",
             "vibe_music_render_pcm",
         ):
             with self.subTest(token=token):
@@ -70,6 +79,8 @@ class DoomMusicTests(unittest.TestCase):
             "channel_volume",
             "vibe_music_note_freq_x16",
             "++stats->loop_count",
+            "render_pcm_window",
+            "stream_position",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, music_c)
@@ -82,7 +93,9 @@ class DoomMusicTests(unittest.TestCase):
             "Standard MIDI format 0",
             "deterministic unsigned 8-bit PCM",
             "VIBE_AUDIO_START_SFX",
-            "looped PCM carrier",
+            "VIBE_AUDIO_UPDATE_SFX",
+            "stateful stream cursor",
+            "streamed music chunks",
             "separate from normal Doom SFX",
             "PC speaker fallback",
             "SB16",

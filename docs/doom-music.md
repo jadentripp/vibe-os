@@ -23,51 +23,59 @@ Current behavior:
 Integration:
 
 The Doom platform hooks in `doom_port/platform.c` now register song lump
-pointers through `vibe_music_register_song`, render a bounded PCM window with
-`vibe_music_render_song`, and submit that PCM to the existing `SYS_AUDIO` path
-using `VIBE_AUDIO_START_SFX`. The temporary music handle space is separated with
-`VIBE_MUSIC_AUDIO_HANDLE_BASE`, so the kernel can distinguish music-carrier
-voices from normal Doom SFX handles. The descriptor also marks the voice with
-`VIBE_AUDIO_FLAG_MUSIC`, and looping songs add `VIBE_AUDIO_FLAG_LOOP`.
+pointers through `vibe_music_register_song`, start a stateful stream cursor with
+`vibe_music_stream_begin`, render streamed music chunks with
+`vibe_music_stream_render`, and submit those chunks to the existing `SYS_AUDIO`
+path. The first chunk uses `VIBE_AUDIO_START_SFX`; subsequent chunks use
+`VIBE_AUDIO_UPDATE_SFX` so the kernel refreshes the music voice's sample window
+without changing Doom's original sources. The temporary music handle space is
+separated with `VIBE_MUSIC_AUDIO_HANDLE_BASE`, so the kernel can distinguish
+music voices from normal Doom SFX handles. The descriptor also marks the voice
+with `VIBE_AUDIO_FLAG_MUSIC`.
 
-This is not final realtime music streaming yet. The current port renders a
-65536-byte PCM window at 11025 Hz and, for looping songs, repeats the parsed song
-inside that window. The kernel then keeps that buffer alive as a looped PCM carrier
-in the same SB16 active-voice table used for SFX, so music and sound effects mix
-in the IRQ refill path instead of competing for a separate backend.
-Smoke status exposes `musicvoices=`, `musicmix=`, and `musicloop=` so this
-continuity is testable and separate from normal Doom SFX. `sfxmix=` counts only
-non-music sound effects, while the carrier increments `musicmix=`. This is not full song-position streaming. The
-remote-safe audio checker proves that bounded PCM window remains alive as a
-looped PCM carrier across status snapshots; it does not claim a continuously
-advanced MUS/MIDI song cursor. A later kernel milestone can replace the carrier
-voice with a dedicated `START_MUSIC_PCM` or pull-based streaming command.
+This is a meaningful step past the old single bounded PCM carrier, but it is
+not final hardware-paced pull streaming yet. The current port renders 8192-byte
+chunks at 11025 Hz from the current song position and schedules the next chunk
+from Doom's regular sound hooks. The kernel still treats music as an SB16 active
+voice, so music and sound effects mix in the IRQ refill path instead of
+competing for a separate backend. Smoke status exposes `musicvoices=`,
+`musicmix=`, and the third `voiceq=` component so this continuity is testable
+and separate from normal Doom SFX. `sfxmix=` counts only non-music sound
+effects, while music increments `musicmix=`.
+
+The remote-safe audio checker now proves that the SB16 path mixed non-music SFX,
+mixed music, and accepted streamed music chunk updates across status snapshots.
+That is song-position progress in the port-owned renderer, not a claim that the
+kernel owns the final pull stream.
+A later kernel milestone can replace the push-style `VIBE_AUDIO_UPDATE_SFX`
+refresh with a dedicated `START_MUSIC_STREAM` or pull-based ring-buffer command.
 
 Long-running music streaming contract:
 
-The long-running music streaming contract is still open.
+The long-running music streaming contract is partially open.
 
-To close the music gap, the kernel and Doom port should stop treating music as a
-single bounded PCM carrier and instead maintain song-position continuity across
-refills. The proof should remain status-only and copyright-safe:
+To fully close the music gap, the kernel should own hardware-paced stream
+refills instead of relying on Doom's sound tick to push the next chunk. The proof
+should remain status-only and copyright-safe:
 
 - `musicstream=OK` when the active music path is a pull/refill stream rather
-  than a pre-rendered carrier.
+  than the current push-updated SB16 voice.
 - `songtick=` or `musicpos=` increasing across early/fire/move/use/menu/final
   snapshots, proving the MUS/MIDI cursor advanced beyond the first rendered
   window.
 - `musicbuf=`, `musicunder=`, and `musicdrops=` to expose ring-buffer health
   without uploading PCM.
-- `musicloop=` still increasing only when the parsed song loops, not whenever a
-  short carrier buffer wraps.
+- `musicloop=` increasing only when the parsed song loops, not when a short
+  sample window wraps.
 - `tools/check_audio_continuity_proof.py` or a successor gate should compare
   those fields across the same real-WAD snapshots before any doc calls music
   streaming complete.
 
 That contract preserves the current parser/renderer work: the port can keep
 parsing original Doom MUS/MIDI lumps outside `third_party/doom`, but rendering
-must move from "make one 65536-byte buffer" to "render the next bounded slice
-from the current song position whenever the SB16 path needs more music PCM."
+must move from the current push-updated chunks to "render the next bounded slice
+from the current song position whenever the SB16 hardware path needs more music
+PCM."
 
 Fallback design:
 

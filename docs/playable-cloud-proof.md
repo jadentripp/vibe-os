@@ -104,8 +104,8 @@ The cloud proof requires these status families:
   `tools/check_audio_continuity_proof.py` is the stricter SB16 path: it compares
   the phase snapshots using status snapshots only, requires `audio=SB16`, and
   proves SB16 version, DMA programming, playback start, voice queue, IRQ/refill,
-  non-music SFX, and looped music-carrier counters progressed without uploading
-  audio samples. It does not upload audio samples.
+  non-music SFX, music mixing, and streamed music chunk updates progressed
+  without uploading audio samples. It does not upload audio samples.
   `tools/check_audio_continuity_proof.py` checks status snapshots only and
   does not upload audio samples.
 - Optional audible-output proof: when the manual workflow is run with
@@ -114,7 +114,7 @@ The cloud proof requires these status families:
   aggregate `audio-proof.json`, and the workflow deletes the WAV before upload.
   The manifest proves non-silent remote audio output tied to the final
   `audio=SB16` status counters and the same status-only SB16 continuity gate.
-  It fails if the carrier path moves but non-music `sfxmix=` does not progress,
+  It fails if the music path moves but non-music `sfxmix=` does not progress,
   and it does not upload the WAV or any captured samples.
 - Scheduler proof: `preempt`, `pirq`, `pattempt`, `pskip`, `puser`, `pround`,
   `pctx`, `pfrom`, `pto`, `peip`, `pspin`, and `pself=OK` expose live PIT

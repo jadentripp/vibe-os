@@ -65,10 +65,11 @@ class ProcessExecContractTests(unittest.TestCase):
         ):
             self.assertIn(source, kernel if source.startswith("USER_PROBE_EXPECTED") else probe)
 
-    def test_process_exec_resolves_path_through_table_and_fat(self):
+    def test_process_exec_resolves_table_paths_and_generic_fat16_elves(self):
         kernel = read_kernel()
         exec_path = kernel.split("process_exec_path:", 1)[1].split("process_exec_resolve_path:", 1)[0]
         resolver = kernel.split("process_exec_resolve_path:", 1)[1].split("process_exec_prepare_elf_image:", 1)[0]
+        generic = kernel.split("process_exec_resolve_generic_root83:", 1)[1].split("process_exec_prepare_elf_image:", 1)[0]
         self.assertIn("process_exec_table:", kernel)
         self.assertIn("PROCESS_EXEC_TABLE_COUNT equ 2", kernel)
         self.assertIn("PROCESS_EXEC_ENTRY_BYTES equ 20", kernel)
@@ -82,19 +83,40 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("call fat_load_file", exec_path)
         self.assertIn("mov esi, [process_exec_load_addr]", exec_path)
         self.assertIn("cmp dword [esi], ELF_MAGIC", exec_path)
+        self.assertIn("call process_exec_resolve_generic_root83", resolver)
         self.assertIn("call kernel_streq", resolver)
         self.assertIn("mov eax, [ebx + PROCESS_EXEC_TARGET]", resolver)
         self.assertIn("mov [process_exec_target], eax", resolver)
+        for source in (
+            "process_exec_name83_buffer times 11 db 0",
+            "mov edi, process_exec_name83_buffer",
+            "mov ecx, SYS_EXEC_PATH_MAX - 1",
+            "cmp al, '/'",
+            "cmp al, 0x5c",
+            "cmp al, '.'",
+            "sub al, 32",
+            "cmp byte [process_exec_name83_buffer + 8], 'E'",
+            "cmp byte [process_exec_name83_buffer + 9], 'L'",
+            "cmp byte [process_exec_name83_buffer + 10], 'F'",
+            "mov dword [process_exec_name83], process_exec_name83_buffer",
+            "mov dword [process_exec_load_addr], USER_ELF_LOAD_ADDR",
+            "mov dword [process_exec_max_bytes], USER_ELF_MAX_BYTES",
+            "mov dword [process_exec_target], process_user_probe",
+        ):
+            self.assertIn(source, kernel if source.startswith("process_exec_name83_buffer") else generic)
 
     def test_exec_launcher_is_not_a_doom_only_fat_loader(self):
         kernel = read_kernel()
         exec_path = kernel.split("process_exec_path:", 1)[1].split("process_exec_resolve_path:", 1)[0]
+        resolver = kernel.split("process_exec_resolve_path:", 1)[1].split("process_exec_prepare_elf_image:", 1)[0]
         self.assertNotIn("call fat_find_doom_elf", exec_path)
         self.assertNotIn("call fat_load_doom_elf", exec_path)
         self.assertNotIn("mov edi, doom_elf_name_83", exec_path)
         self.assertIn("mov edi, [process_exec_name83]", exec_path)
         self.assertIn("mov edi, [process_exec_load_addr]", exec_path)
         self.assertIn("mov ecx, [process_exec_max_bytes]", exec_path)
+        self.assertIn(".try_generic_root83:", resolver)
+        self.assertIn("call process_exec_resolve_generic_root83", resolver)
 
     def test_exec_status_is_reported_to_smoke_and_cli_status(self):
         kernel = read_kernel()
@@ -573,7 +595,8 @@ class ProcessExecContractTests(unittest.TestCase):
         process_doc = (ROOT / "docs" / "process-exec.md").read_text()
 
         for phrase in (
-            "fixed table entries instead of arbitrary FAT paths",
+            "arbitrary root-level FAT16 `.ELF` paths",
+            "generic executable still lands in the reusable probe-class slot",
             "switches the caller back to RUNNING",
             "empty `envp` contract",
             "not a robust Unix",

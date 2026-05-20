@@ -31,10 +31,12 @@ boot:
   entries must also differ from the fresh pre-boot image; reboot comparison
   requires that fresh baseline plus a clean `--reboot-status` runtime/fault gate
   before it can claim persistence.
-- Host process tests prove that `SYS_EXEC` is more than a FAT loader: the path
-  rejects unsafe active-slot reloads, seeds a scheduler-visible target context,
-  writes an argc/argv stack shape, patches the live syscall frame, marks the
-  caller exited, and records handoff/schedule/rollback counters.
+- Host process tests prove that `SYS_EXEC` is more than a fixed string loader:
+  the path resolves Doom/probe table entries, parses arbitrary root-level FAT16
+  `.ELF` names into the reusable probe-class slot, rejects unsafe active-slot
+  reloads, seeds a scheduler-visible target context, writes an argc/argv stack
+  shape, patches the live syscall frame, marks the caller exited, and records
+  handoff/schedule/rollback counters.
 - `tests/host/test_framebuffer_contract.py` proves the 320x200 indexed shadow,
   RGB palette to XRGB8888 conversion, 2x scaling, and centering contract without
   using rendered Doom pixels.
@@ -70,9 +72,9 @@ boot:
   framebuffer artifacts.
 - `tools/check_audio_continuity_proof.py` is the remote-safe SB16 audio gate. It
   compares the same decoded status snapshots, requires `audio=SB16`, and proves
-  IRQ/refill, non-music SFX, and looped music-carrier counters progressed
-  without storing audio samples. This is not a full MUS/MIDI song-position
-  streaming proof.
+  IRQ/refill, non-music SFX, music mixing, and `voiceq=` stream-update counters
+  progressed without storing audio samples. This is still not a full
+  hardware-paced MUS/MIDI pull-stream proof.
 - `tools/check_audible_audio_proof.py` is the optional remote audible-output
   gate. In cloud it analyzes a temporary QEMU WAV capture into aggregate
   `audio-proof.json`, validates non-silent duration/window/RMS/peak metrics tied

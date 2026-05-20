@@ -342,12 +342,13 @@ Still required before this is actually Doom-capable:
   including status capture after keyboard-driven menu and gameplay actions
 - higher-half kernel mapping or another non-identity kernel layout, plus
   dynamically allocated page tables and non-identity user frame backing
-- broader VM/POSIX coverage: arbitrary-path `exec`, richer `mmap`, fuller file
-  semantics, descriptor duplication, and more device/ioctl contracts
+- broader VM/POSIX coverage: exec beyond the new root-level FAT16 `.ELF`
+  fallback, richer `mmap`, fuller file semantics, descriptor duplication, and
+  more device/ioctl contracts
 - broader framebuffer mode support, aspect policy, fullscreen behavior, and
   dirty-rect presentation beyond the current XRGB8888 VBE path
-- human audio/listener validation and long-running music streaming beyond the
-  current looped PCM carrier
+- human audio/listener validation and hardware-paced music streaming beyond the
+  current push-updated streamed chunks
 - graceful Doom exit/reboot behavior for a human session
 - new device-class claims must update `docs/hardware-support.md` and pass the
   host support-matrix checker; current claims stay bounded to the QEMU

@@ -67,6 +67,14 @@ describing a 320x200 indexed frame plus 256-entry RGB palette. Doom's
 `I_FinishUpdate` now uses this ioctl path while the older `SYS_PRESENT` remains
 available for the low-level probe.
 
+`execv()` passes a bounded `argv` vector through the syscall ABI. Doom and the
+boot probe keep table-backed launch entries, and other root-level FAT16 `.ELF`
+names are parsed as 8.3 paths and loaded into the reusable probe-class user
+window. That is useful for small user utilities, but it is still not a Unix
+loader: there are no directories, long filenames, dynamic process slots, or
+environment copying, and probe-class self-reexec is rejected while the current
+slot is active.
+
 `fork()` and `wait()/waitpid()` are deliberately classified rather than faked:
 `fork()` returns `ENOSYS` until process cloning has real address-space and file
 descriptor semantics, and `wait()/waitpid()` return `ECHILD` because no child
