@@ -83,6 +83,7 @@ class DoomMusicTests(unittest.TestCase):
             "deterministic unsigned 8-bit PCM",
             "VIBE_AUDIO_START_SFX",
             "looped PCM carrier",
+            "separate from normal Doom SFX",
             "PC speaker fallback",
             "SB16",
         ):

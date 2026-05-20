@@ -51,11 +51,16 @@ def status_line(**overrides):
         "gtic": "00000020",
         "leveltime": "00000020",
         "gflags": "00000001",
-        "pflags": "0000003F",
+        "pflags": "000000FF",
         "pdelta": "00000100",
         "keyirq": "00000002",
         "keyqueue": "00000002",
         "keypoll": "00000002",
+        "mouseirq": "00000002",
+        "mousepkt": "00000002",
+        "mousepoll": "00000002",
+        "mousebtn": "00000001",
+        "mousedelta": "00000018:0000000C",
         "gfx": "OK",
         "usr": "OK",
         "wad": "OK",
@@ -258,6 +263,14 @@ class CloudStatusTriageTests(unittest.TestCase):
 
         self.assertEqual(primary, "input-no-effect")
         self.assertIn("keyirq=00000002", notes[0])
+        self.assertIn("mousedelta=00000018:0000000C", notes[0])
+
+    def test_classifies_mouse_input_without_button_or_motion_proof(self):
+        primary, notes = self.classify(mousebtn="00000000", mousedelta="00000000:0000000C")
+
+        self.assertEqual(primary, "input-no-effect")
+        self.assertIn("mousebtn=00000000", notes[0])
+        self.assertIn("mousedelta=00000000:0000000C", notes[0])
 
     def test_classifies_missing_live_preemption_after_gameplay_is_green(self):
         primary, notes = self.classify(preempt="00000000", pspin="50524545")

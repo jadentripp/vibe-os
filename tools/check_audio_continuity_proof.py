@@ -25,6 +25,7 @@ REQUIRED_AUDIO_FIELDS = (
     "doomsound",
     "sfxmix",
     "voices",
+    "sfxvoices",
     "audioirq",
     "ack8",
     "ack16",
@@ -73,6 +74,7 @@ SUMMARY_FIELDS = (
     "doomsound",
     "sfxmix",
     "voices",
+    "sfxvoices",
     "audioirq",
     "ack8",
     "ack16",
@@ -247,6 +249,7 @@ def validate_repo_contract() -> None:
             (
                 "tools/check_audio_continuity_proof.py",
                 "audio=SB16",
+                "sfxmix= counts non-music Doom SFX only",
                 "looped PCM carrier",
                 "not full song-position continuity",
             ),
@@ -257,6 +260,7 @@ def validate_repo_contract() -> None:
             (
                 "bounded PCM window",
                 "looped PCM carrier",
+                "separate from normal Doom SFX",
                 "not full song-position streaming",
             ),
         ),

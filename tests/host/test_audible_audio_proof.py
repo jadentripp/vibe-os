@@ -28,6 +28,7 @@ def status_line(**overrides):
         "ack16": "00000000",
         "refill": "00000006",
         "sfxmix": "00000008",
+        "sfxvoices": "00000001",
         "musicmix": "00000006",
         "musicloop": "00000001",
     }
@@ -147,6 +148,7 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "audioirq": "00000001",
                 "refill": "00000001",
                 "sfxmix": "00000001",
+                "sfxvoices": "00000001",
                 "musicmix": "00000001",
             },
             "artifact_policy": {

@@ -249,6 +249,7 @@ SYS_MUNMAP equ 21
 SYS_IOCTL equ 22
 SYS_FORK equ 23
 SYS_WAITPID equ 24
+SYS_GETPID equ 25
 PLAYABLE_STATUS_FLAG equ 0x80000000
 SYS_EXEC_PATH_MAX equ 16
 MMAP_PROT_MASK equ 0x0000ffff
@@ -278,6 +279,9 @@ VIBE_PRESENT_DESC_HEIGHT equ 12
 VIBE_PRESENT_DESC_BYTES equ 16
 SYS_EXEC_ARGC_DEFAULT equ 1
 SYS_EXEC_ARGV_SLOT_BYTES equ 12
+SYS_EXEC_ARG_MAX equ 8
+SYS_EXEC_ARG_STR_MAX equ 64
+SYS_EXEC_ARG_FRAME_BASE_BYTES equ 12
 SYSCALL_FRAME_EBP equ 0
 SYSCALL_FRAME_EDI equ 4
 SYSCALL_FRAME_ESI equ 8
@@ -326,6 +330,7 @@ AUDIO_CMD_START_SFX equ 2
 AUDIO_CMD_STOP_SFX equ 3
 AUDIO_CMD_UPDATE_SFX equ 4
 AUDIO_CMD_SHUTDOWN equ 5
+AUDIO_CMD_IS_PLAYING equ 6
 AUDIO_SFX_DESC_SAMPLES equ 0
 AUDIO_SFX_DESC_LENGTH equ 4
 AUDIO_SFX_DESC_VOLUME equ 8
@@ -478,6 +483,7 @@ start:
     mov byte [c_runtime_status], 1
 
 .c_runtime_done:
+    call write_smoke_status
     call user_probe_run
 
 user_probe_finished:
@@ -2825,6 +2831,7 @@ audio_init:
     mov dword [sb16_playback_stop_count], 0
     mov dword [sb16_dma_program_count], 0
     mov dword [sb16_active_voice_count], 0
+    mov dword [sb16_active_sfx_voice_count], 0
     mov dword [sb16_active_music_voice_count], 0
     mov dword [sb16_voice_start_count], 0
     mov dword [sb16_voice_stop_count], 0
@@ -3103,6 +3110,7 @@ sb16_clear_active_voices:
     rep stosd
 
     mov dword [sb16_active_voice_count], 0
+    mov dword [sb16_active_sfx_voice_count], 0
     mov dword [sb16_active_music_voice_count], 0
     mov dword [sb16_voice_age_counter], 0
 
@@ -3116,10 +3124,12 @@ sb16_recount_active_voices:
     push ebx
     push ecx
     push edx
+    push esi
 
     xor eax, eax
     xor ebx, ebx
     xor edx, edx
+    xor esi, esi
     mov ecx, AUDIO_MAX_SFX_VOICES
 
 .next:
@@ -3127,15 +3137,21 @@ sb16_recount_active_voices:
     jne .skip
     inc eax
     test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
-    jz .skip
+    jz .count_sfx
     inc edx
+    jmp .skip
+
+.count_sfx:
+    inc esi
 
 .skip:
     inc ebx
     loop .next
     mov [sb16_active_voice_count], eax
+    mov [sb16_active_sfx_voice_count], esi
     mov [sb16_active_music_voice_count], edx
 
+    pop esi
     pop edx
     pop ecx
     pop ebx
@@ -3791,13 +3807,16 @@ sb16_refill_active_half:
     mov eax, [sb16_mix_frames_mixed]
     cmp eax, 0
     je .check_finished
-    inc dword [sb16_sfx_mix_count]
     shl eax, 1
-    add [sb16_sfx_mix_bytes], eax
     test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
-    jz .check_finished
+    jz .count_sfx_mix
     inc dword [sb16_music_mix_count]
     add [sb16_music_mix_bytes], eax
+    jmp .check_finished
+
+.count_sfx_mix:
+    inc dword [sb16_sfx_mix_count]
+    add [sb16_sfx_mix_bytes], eax
 
 .check_finished:
     mov eax, [sb16_voice_positions + ebx * 4]
@@ -4116,6 +4135,10 @@ storage_init:
     mov dword [doom_player_origin_y], 0
     mov dword [doom_player_delta], 0
     mov dword [doom_mouse_event_count], 0
+    mov dword [doom_mouse_buttons_seen], 0
+    mov dword [doom_mouse_delta_x], 0
+    mov dword [doom_mouse_delta_y], 0
+    mov dword [doom_mouse_last_event], 0
     mov dword [doom_sound_call_count], 0
     mov dword [doom_sound_start_count], 0
     mov dword [doom_sound_stop_count], 0
@@ -4158,6 +4181,9 @@ storage_init:
     mov dword [sys_exec_frame_ptr], 0
     mov dword [sys_exec_user_stack_ptr], 0
     mov dword [sys_exec_argv0_ptr], 0
+    mov dword [sys_exec_argc], 0
+    mov dword [sys_exec_arg_copy_index], 0
+    mov dword [sys_exec_stack_cursor], 0
     mov dword [process_exec_last_error], 0
     mov byte [process_exec_reject_active_target], 0
     mov byte [sys_exec_path_buffer], 0
@@ -4800,30 +4826,51 @@ fat_free_chain:
     push edx
 
     movzx ebx, ax
+    cmp ax, 0
+    je .ok
+    cmp ebx, 2
+    jb .fail
+    mov [fat_current_cluster], ax
     mov ecx, [fat_last_data_cluster]
 
-.loop:
-    cmp ebx, 2
-    jb .ok
+.validate_loop:
     cmp ebx, 0xfff8
-    jae .ok
+    jae .validated
+    cmp ebx, 2
+    jb .fail
     cmp ebx, [fat_last_data_cluster]
     ja .fail
     cmp ecx, 0
     je .fail
-	    mov eax, ebx
-	    call fat_next_cluster
-	    jc .fail
-	    cmp ax, 0
-	    je .fail
-	    mov [fat_free_next_cluster], ax
-	    mov eax, ebx
-	    xor edx, edx
+    mov eax, ebx
+    call fat_next_cluster
+    jc .fail
+    cmp ax, 0
+    je .fail
+    movzx ebx, ax
+    dec ecx
+    jmp .validate_loop
+
+.validated:
+    movzx ebx, word [fat_current_cluster]
+
+.free_loop:
+    cmp ebx, 0xfff8
+    jae .ok
+    cmp ebx, 2
+    jb .fail
+    cmp ebx, [fat_last_data_cluster]
+    ja .fail
+    mov eax, ebx
+    call fat_next_cluster
+    jc .fail
+    mov [fat_free_next_cluster], ax
+    mov eax, ebx
+    xor edx, edx
     call fat_write_cluster_entry
     jc .fail
     movzx ebx, word [fat_free_next_cluster]
-    dec ecx
-    jmp .loop
+    jmp .free_loop
 
 .ok:
     clc
@@ -6426,6 +6473,19 @@ scheduler_prepare_live_preempt_probe:
     pop eax
     ret
 
+scheduler_capture_preempt_spin:
+    push eax
+    cmp dword [scheduler_preempt_probe_ready], 0
+    je .done
+    cmp dword [current_process_ptr], process_preempt_probe
+    jne .done
+    mov eax, [USER_STACK_TOP - 4]
+    mov [scheduler_preempt_spin_value], eax
+
+.done:
+    pop eax
+    ret
+
 scheduler_tick:
     push eax
     push ebx
@@ -6437,6 +6497,7 @@ scheduler_tick:
     mov esi, [current_process_ptr]
     cmp esi, 0
     je .done
+    call scheduler_capture_preempt_spin
     mov eax, [ebx + 36]
     test eax, 3
     jz .account_current
@@ -6478,10 +6539,7 @@ scheduler_tick:
     inc dword [scheduler_preempt_skips]
 
 .done:
-    cmp dword [scheduler_preempt_probe_ready], 0
-    je .restore_regs
-    mov eax, [USER_STACK_TOP - 4]
-    mov [scheduler_preempt_spin_value], eax
+    call scheduler_capture_preempt_spin
 
 .restore_regs:
     pop edi
@@ -7006,6 +7064,8 @@ process_exec_handoff_current:
 .activate_target:
     call process_activate
     call process_exec_seed_argv_stack
+    jc .eio
+    call pic_unmask_timer_keyboard
 
     mov eax, [edi + PROC_PID]
     mov [sys_exec_last_caller_pid], eax
@@ -7053,45 +7113,95 @@ process_exec_handoff_current:
 
 process_exec_seed_argv_stack:
     push eax
+    push ebx
     push ecx
     push edx
     push esi
     push edi
 
     mov edx, esi
+    cmp dword [sys_exec_argc], 0
+    je .fail
+    cmp dword [sys_exec_argc], SYS_EXEC_ARG_MAX
+    ja .fail
+
     mov eax, [edx + PROC_STACK_TOP]
-    sub eax, SYS_EXEC_PATH_MAX
+    mov [sys_exec_stack_cursor], eax
+    mov ecx, [sys_exec_argc]
+
+.copy_string_loop:
+    cmp ecx, 0
+    je .strings_done
+    dec ecx
+    mov eax, [sys_exec_stack_cursor]
+    sub eax, SYS_EXEC_ARG_STR_MAX
+    jc .fail
     and eax, 0xfffffffc
-    mov [sys_exec_argv0_ptr], eax
+    cmp eax, [edx + PROC_STACK_BOTTOM]
+    jb .fail
+    mov [sys_exec_stack_cursor], eax
     mov edi, eax
-    mov esi, sys_exec_path_buffer
-    mov ecx, SYS_EXEC_PATH_MAX
+    mov esi, sys_exec_arg_strings
+    mov ebx, ecx
+    shl ebx, 6
+    add esi, ebx
+    push ecx
+    mov ecx, SYS_EXEC_ARG_STR_MAX
     cld
     rep movsb
+    pop ecx
+    mov [sys_exec_arg_target_ptrs + ecx * 4], eax
+    jmp .copy_string_loop
 
-    mov eax, [sys_exec_argv0_ptr]
-    sub eax, SYS_EXEC_ARGV_SLOT_BYTES
-    and eax, 0xfffffffc
+.strings_done:
+    mov ecx, [sys_exec_argc]
+    mov ebx, ecx
+    shl ebx, 2
+    add ebx, SYS_EXEC_ARG_FRAME_BASE_BYTES
+    mov eax, [sys_exec_stack_cursor]
+    sub eax, ebx
+    jc .fail
+    and eax, 0xfffffff0
+    cmp eax, [edx + PROC_STACK_BOTTOM]
+    jb .fail
     mov [sys_exec_user_stack_ptr], eax
     mov edi, eax
-    mov dword [edi], SYS_EXEC_ARGC_DEFAULT
-    mov eax, [sys_exec_argv0_ptr]
-    mov [edi + 4], eax
-    mov dword [edi + 8], 0
+    mov [edi], ecx
+    lea ebx, [edi + 4]
+    xor esi, esi
 
-    mov dword [sys_exec_last_argc], SYS_EXEC_ARGC_DEFAULT
-    mov eax, [sys_exec_user_stack_ptr]
-    lea ecx, [eax + 4]
-    mov [sys_exec_last_argv], ecx
-    mov eax, [sys_exec_argv0_ptr]
+.copy_argv_ptr_loop:
+    cmp esi, ecx
+    jae .argv_ptrs_done
+    mov eax, [sys_exec_arg_target_ptrs + esi * 4]
+    mov [ebx + esi * 4], eax
+    inc esi
+    jmp .copy_argv_ptr_loop
+
+.argv_ptrs_done:
+    mov dword [ebx + ecx * 4], 0
+    mov dword [ebx + ecx * 4 + 4], 0
+    mov eax, [sys_exec_argc]
+    mov [sys_exec_last_argc], eax
+    mov eax, ebx
+    mov [sys_exec_last_argv], eax
+    mov eax, [sys_exec_arg_target_ptrs]
+    mov [sys_exec_argv0_ptr], eax
     mov [sys_exec_last_argv0], eax
     mov eax, [sys_exec_user_stack_ptr]
     mov [edx + PROC_SAVED_ESP], eax
+    clc
+    jmp .done
 
+.fail:
+    stc
+
+.done:
     pop edi
     pop esi
     pop edx
     pop ecx
+    pop ebx
     pop eax
     ret
 
@@ -7203,7 +7313,7 @@ user_probe_run:
 
     push dword USER_DATA_SEG
     push dword [current_user_stack_top]
-    push dword 0x00000002
+    push dword 0x00000202
     push dword USER_CODE_SEG
     push dword [current_user_entry]
     iretd
@@ -7254,6 +7364,10 @@ doom_user_run:
     mov dword [doom_player_origin_x], 0
     mov dword [doom_player_origin_y], 0
     mov dword [doom_player_delta], 0
+    mov dword [doom_mouse_buttons_seen], 0
+    mov dword [doom_mouse_delta_x], 0
+    mov dword [doom_mouse_delta_y], 0
+    mov dword [doom_mouse_last_event], 0
     mov dword [doom_sound_call_count], 0
     mov dword [doom_sound_start_count], 0
     mov dword [doom_sound_stop_count], 0
@@ -7692,6 +7806,8 @@ syscall_handler:
     je .fork
     cmp eax, SYS_WAITPID
     je .waitpid
+    cmp eax, SYS_GETPID
+    je .getpid
     jmp .bad_syscall_enosys
 
 .user_probe:
@@ -8097,6 +8213,7 @@ syscall_handler:
     mov [mouse_event_tail], ebx
     cmp byte [current_user_kind], USER_KIND_DOOM
     jne .return
+    call doom_record_mouse_event
     inc dword [doom_mouse_event_count]
     jmp .return
 
@@ -8139,6 +8256,8 @@ syscall_handler:
     je .audio_update_sfx
     cmp ebx, AUDIO_CMD_SHUTDOWN
     je .audio_shutdown_cmd
+    cmp ebx, AUDIO_CMD_IS_PLAYING
+    je .audio_is_playing
     jmp .audio_status
 
 .audio_init_cmd:
@@ -8168,6 +8287,18 @@ syscall_handler:
 
 .audio_shutdown_cmd:
     call sb16_stop_playback
+    jmp .audio_status
+
+.audio_is_playing:
+    mov [audio_sfx_handle_arg], ecx
+    call sb16_find_voice_by_handle
+    jc .audio_not_playing
+    mov eax, 1
+    jmp .return
+
+.audio_not_playing:
+    xor eax, eax
+    jmp .return
 
 .audio_status:
     movzx eax, byte [audio_status]
@@ -8539,6 +8670,10 @@ syscall_handler:
 .waitpid:
     jmp .bad_syscall_echild
 
+.getpid:
+    mov eax, [current_pid]
+    jmp .return
+
 .exec:
     mov [syscall_ptr_arg], ebx
     mov [sys_exec_user_argv_arg], ecx
@@ -8557,9 +8692,9 @@ syscall_handler:
     inc dword [sys_exec_attempts]
     cmp dword [sys_exec_flags_arg], 0
     jne .exec_einval
-    cmp dword [sys_exec_user_argv_arg], 0
-    jne .exec_einval
     call sys_exec_copy_user_path
+    jc .exec_einval
+    call sys_exec_copy_argv
     jc .exec_einval
     mov esi, sys_exec_path_buffer
     xor edi, edi
@@ -8728,6 +8863,136 @@ sys_exec_copy_user_path:
     cmp ecx, SYS_EXEC_PATH_MAX - 1
     jb .next
     mov byte [sys_exec_path_buffer + SYS_EXEC_PATH_MAX - 1], 0
+
+.fail:
+    stc
+    jmp .done
+
+.ok:
+    clc
+
+.done:
+    pop edi
+    pop esi
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+sys_exec_clear_args:
+    push eax
+    push ecx
+    push edi
+    mov dword [sys_exec_argc], 0
+    mov dword [sys_exec_arg_copy_index], 0
+    mov dword [sys_exec_stack_cursor], 0
+    mov dword [sys_exec_user_stack_ptr], 0
+    mov dword [sys_exec_argv0_ptr], 0
+    mov edi, sys_exec_arg_target_ptrs
+    xor eax, eax
+    mov ecx, SYS_EXEC_ARG_MAX
+    cld
+    rep stosd
+    mov edi, sys_exec_arg_strings
+    mov ecx, SYS_EXEC_ARG_MAX * SYS_EXEC_ARG_STR_MAX
+    rep stosb
+    pop edi
+    pop ecx
+    pop eax
+    ret
+
+sys_exec_copy_argv:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    call sys_exec_clear_args
+    cmp dword [sys_exec_user_argv_arg], 0
+    jne .copy_user_argv
+
+    mov esi, sys_exec_path_buffer
+    mov edi, sys_exec_arg_strings
+    mov ecx, SYS_EXEC_PATH_MAX
+    cld
+    rep movsb
+    mov dword [sys_exec_argc], SYS_EXEC_ARGC_DEFAULT
+    clc
+    jmp .done
+
+.copy_user_argv:
+    mov dword [sys_exec_arg_copy_index], 0
+
+.argv_loop:
+    mov ecx, [sys_exec_arg_copy_index]
+    cmp ecx, SYS_EXEC_ARG_MAX
+    jae .fail
+    mov eax, [sys_exec_user_argv_arg]
+    mov edx, ecx
+    shl edx, 2
+    add eax, edx
+    jc .fail
+    mov ebx, 4
+    call user_range_validate
+    jc .fail
+    mov esi, [eax]
+    cmp esi, 0
+    je .argv_done
+    mov edi, sys_exec_arg_strings
+    mov edx, ecx
+    shl edx, 6
+    add edi, edx
+    call sys_exec_copy_user_arg_string
+    jc .fail
+    inc dword [sys_exec_arg_copy_index]
+    jmp .argv_loop
+
+.argv_done:
+    cmp dword [sys_exec_arg_copy_index], 0
+    je .fail
+    mov eax, [sys_exec_arg_copy_index]
+    mov [sys_exec_argc], eax
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+sys_exec_copy_user_arg_string:
+    push eax
+    push ebx
+    push ecx
+    push esi
+    push edi
+
+    xor ecx, ecx
+
+.next:
+    mov eax, esi
+    add eax, ecx
+    jc .fail
+    mov ebx, 1
+    call user_range_validate
+    jc .fail
+    mov al, [esi + ecx]
+    mov [edi + ecx], al
+    test al, al
+    jz .ok
+    inc ecx
+    cmp ecx, SYS_EXEC_ARG_STR_MAX - 1
+    jb .next
+    mov byte [edi + SYS_EXEC_ARG_STR_MAX - 1], 0
 
 .fail:
     stc
@@ -9208,6 +9473,10 @@ mouse_reset_queue:
     mov dword [mouse_packet_count], 0
     mov dword [mouse_sync_loss_count], 0
     mov dword [doom_mouse_event_count], 0
+    mov dword [doom_mouse_buttons_seen], 0
+    mov dword [doom_mouse_delta_x], 0
+    mov dword [doom_mouse_delta_y], 0
+    mov dword [doom_mouse_last_event], 0
     mov byte [mouse_packet_index], 0
     mov byte [mouse_packet0], 0
     mov byte [mouse_packet1], 0
@@ -9304,6 +9573,42 @@ mouse_queue_event:
     pop edi
     pop edx
     pop ebx
+    ret
+
+doom_record_mouse_event:
+    push eax
+    push ebx
+    push edx
+
+    mov [doom_mouse_last_event], eax
+
+    mov ebx, eax
+    and ebx, 0x07
+    or dword [doom_mouse_buttons_seen], ebx
+
+    mov ebx, eax
+    shr ebx, 8
+    movsx ebx, bl
+    test ebx, ebx
+    jns .dx_positive
+    neg ebx
+
+.dx_positive:
+    add dword [doom_mouse_delta_x], ebx
+
+    mov ebx, eax
+    shr ebx, 16
+    movsx ebx, bl
+    test ebx, ebx
+    jns .dy_positive
+    neg ebx
+
+.dy_positive:
+    add dword [doom_mouse_delta_y], ebx
+
+    pop edx
+    pop ebx
+    pop eax
     ret
 
 exception_divide_error:
@@ -10002,6 +10307,11 @@ write_smoke_status:
     mov edx, [sb16_active_voice_count]
     call smoke_write_hex32
 
+    mov esi, smoke_sfxvoices_text
+    call smoke_copy_string
+    mov edx, [sb16_active_sfx_voice_count]
+    call smoke_write_hex32
+
     mov esi, smoke_audioirq_text
     call smoke_copy_string
     mov edx, [sb16_irq_count]
@@ -10131,6 +10441,20 @@ write_smoke_status:
     mov esi, smoke_mousepoll_text
     call smoke_copy_string
     mov edx, [doom_mouse_event_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_mousebtn_text
+    call smoke_copy_string
+    mov edx, [doom_mouse_buttons_seen]
+    call smoke_write_hex32
+
+    mov esi, smoke_mousedelta_text
+    call smoke_copy_string
+    mov edx, [doom_mouse_delta_x]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [doom_mouse_delta_y]
     call smoke_write_hex32
 
     mov esi, smoke_gfx_text
@@ -10908,6 +11232,7 @@ smoke_pdelta_text db " pdelta=", 0
 smoke_doomsound_text db " doomsound=", 0
 smoke_sfxmix_text db " sfxmix=", 0
 smoke_audiovoices_text db " voices=", 0
+smoke_sfxvoices_text db " sfxvoices=", 0
 smoke_audioirq_text db " audioirq=", 0
 smoke_audioack8_text db " ack8=", 0
 smoke_audioack16_text db " ack16=", 0
@@ -10931,6 +11256,8 @@ smoke_mouse_text db " mouse=", 0
 smoke_mouseirq_text db " mouseirq=", 0
 smoke_mousepkt_text db " mousepkt=", 0
 smoke_mousepoll_text db " mousepoll=", 0
+smoke_mousebtn_text db " mousebtn=", 0
+smoke_mousedelta_text db " mousedelta=", 0
 smoke_gfx_text db " gfx=", 0
 smoke_fb_text db " fb=", 0
 smoke_preempt_text db " preempt=", 0
@@ -11265,6 +11592,11 @@ sys_exec_flags_arg dd 0
 sys_exec_frame_ptr dd 0
 sys_exec_user_stack_ptr dd 0
 sys_exec_argv0_ptr dd 0
+sys_exec_argc dd 0
+sys_exec_arg_copy_index dd 0
+sys_exec_stack_cursor dd 0
+sys_exec_arg_target_ptrs times SYS_EXEC_ARG_MAX dd 0
+sys_exec_arg_strings times SYS_EXEC_ARG_MAX * SYS_EXEC_ARG_STR_MAX db 0
 sys_exec_path_buffer times SYS_EXEC_PATH_MAX db 0
 syscall_ptr_arg dd 0
 syscall_len_arg dd 0
@@ -11362,6 +11694,10 @@ doom_last_open_mode dd 0
 doom_present_count dd 0
 doom_key_event_count dd 0
 doom_mouse_event_count dd 0
+doom_mouse_buttons_seen dd 0
+doom_mouse_delta_x dd 0
+doom_mouse_delta_y dd 0
+doom_mouse_last_event dd 0
 doom_gameplay_status dd 0
 doom_gameplay_report_count dd 0
 doom_game_state_packed dd 0
@@ -11441,6 +11777,7 @@ sb16_mix_underrun_count dd 0
 sb16_mix_wrap_count dd 0
 sb16_mix_overwrite_count dd 0
 sb16_active_voice_count dd 0
+sb16_active_sfx_voice_count dd 0
 sb16_active_music_voice_count dd 0
 sb16_voice_start_count dd 0
 sb16_voice_stop_count dd 0

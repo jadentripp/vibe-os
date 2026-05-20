@@ -11,7 +11,14 @@ section .text
 start:
     cmp eax, PREEMPT_PROBE_MAGIC
     je preempt_spin
+    mov eax, [esp]
+    lea ebx, [esp + 4]
+    lea ecx, [ebx + eax * 4 + 4]
+    push ecx
+    push ebx
+    push eax
     call user_main
+    add esp, 12
     mov ebx, eax
     mov eax, SYS_EXIT
     int 0x80

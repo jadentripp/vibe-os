@@ -80,6 +80,7 @@ HEX_FIELDS = (
     "doomsound",
     "sfxmix",
     "voices",
+    "sfxvoices",
     "audioirq",
     "ack8",
     "ack16",
@@ -101,6 +102,7 @@ HEX_FIELDS = (
     "mouseirq",
     "mousepkt",
     "mousepoll",
+    "mousebtn",
     "preempt",
     "pattempt",
     "pskip",
@@ -115,7 +117,7 @@ HEX_FIELDS = (
 )
 
 FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
-REQUIRED_SNAPSHOT_LABELS = ("baseline", "fire", "movement", "use", "mouse", "menu")
+REQUIRED_SNAPSHOT_LABELS = ("baseline", "start", "fire", "movement", "use", "mouse", "menu")
 SUMMARY_FIELDS = (
     "exec",
     "path",
@@ -149,6 +151,8 @@ SUMMARY_FIELDS = (
     "doompresent",
     "doompal",
     "doomframe",
+    "sfxmix",
+    "sfxvoices",
     "musicvoices",
     "musicmix",
     "musicloop",
@@ -157,6 +161,12 @@ SUMMARY_FIELDS = (
     "keyirq",
     "keyqueue",
     "keypoll",
+    "mouse",
+    "mouseirq",
+    "mousepkt",
+    "mousepoll",
+    "mousebtn",
+    "mousedelta",
     "gfx",
     "usr",
     "wad",
@@ -277,6 +287,7 @@ def _validate_core_status(status: str) -> None:
     _choice_field(status, "mouse", ("OK", "NONE"))
     _open_mode_field(status, "doommode")
     _position_field(status, "ppos")
+    _position_field(status, "mousedelta")
 
     attempts, successes, failures, handoffs, scheduled, rollbacks = _hex_tuple_field(
         status, "execsys", 6
@@ -334,6 +345,7 @@ def _validate_core_status(status: str) -> None:
 def validate_status(
     status: str,
     baseline_status: str | None = None,
+    start_status: str | None = None,
     movement_status: str | None = None,
     fire_status: str | None = None,
     use_status: str | None = None,
@@ -344,6 +356,7 @@ def validate_status(
 ) -> None:
     snapshots = {
         "baseline": baseline_status,
+        "start": start_status,
         "fire": fire_status,
         "movement": movement_status,
         "use": use_status,
@@ -371,6 +384,7 @@ def validate_status(
     check_human_playability_proof.validate_status(
         status,
         baseline_status,
+        start_status=start_status,
         movement_status=movement_status,
         fire_status=fire_status,
         use_status=use_status,
@@ -402,6 +416,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("status", type=Path, help="Decoded build/status.txt from real-WAD smoke")
     parser.add_argument("--baseline", type=Path, help="Decoded pre-input status snapshot")
+    parser.add_argument("--start", type=Path, help="Decoded status after Doom autostarts E1M1")
     parser.add_argument("--movement", type=Path, help="Decoded status after scripted movement")
     parser.add_argument("--fire", type=Path, help="Decoded status after scripted fire")
     parser.add_argument("--use", type=Path, help="Decoded status after scripted use")
@@ -418,6 +433,7 @@ def main(argv: list[str]) -> int:
     try:
         status = args.status.read_text()
         baseline = args.baseline
+        start = args.start
         fire = args.fire
         movement = args.movement
         use = args.use
@@ -425,6 +441,7 @@ def main(argv: list[str]) -> int:
         menu = args.menu
         if not args.no_auto_snapshots:
             baseline = baseline or _auto_snapshot(args.status, "early")
+            start = start or _auto_snapshot(args.status, "after-start")
             fire = fire or _auto_snapshot(args.status, "after-fire")
             movement = movement or _auto_snapshot(args.status, "after-move")
             use = use or _auto_snapshot(args.status, "after-use")
@@ -432,6 +449,7 @@ def main(argv: list[str]) -> int:
             menu = menu or _auto_snapshot(args.status, "after-menu")
         snapshots = {
             "baseline": _resolve_snapshot(args.baseline, baseline),
+            "start": _resolve_snapshot(args.start, start),
             "fire": _resolve_snapshot(args.fire, fire),
             "movement": _resolve_snapshot(args.movement, movement),
             "use": _resolve_snapshot(args.use, use),
@@ -441,6 +459,7 @@ def main(argv: list[str]) -> int:
         validate_status(
             status,
             baseline_status=snapshots["baseline"],
+            start_status=snapshots["start"],
             fire_status=snapshots["fire"],
             movement_status=snapshots["movement"],
             use_status=snapshots["use"],

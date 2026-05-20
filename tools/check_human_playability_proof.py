@@ -49,6 +49,7 @@ REQUIRED_PFLAGS = (
     | PFLAG_MENU
     | PFLAG_POS_DELTA
 )
+REQUIRED_FIRE_STATE_PFLAGS = PFLAG_AMMO_DELTA | PFLAG_REFIRE
 
 FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
 SUMMARY_FIELDS = (
@@ -71,6 +72,8 @@ SUMMARY_FIELDS = (
     "mouseirq",
     "mousepkt",
     "mousepoll",
+    "mousebtn",
+    "mousedelta",
     "doomrun",
     "doomopen",
     "doomread",
@@ -143,6 +146,16 @@ def _position_field(status: str, name: str) -> tuple[int, int]:
     return int(left, 16), int(right, 16)
 
 
+def _assert_position_changed(before: str, after: str, before_label: str, after_label: str) -> None:
+    before_pos = _position_field(before, "ppos")
+    after_pos = _position_field(after, "ppos")
+    if after_pos == before_pos:
+        raise AssertionError(
+            f"{after_label} ppos= must differ from {before_label}, got "
+            f"{after_pos[0]:08X}:{after_pos[1]:08X}"
+        )
+
+
 def _flag_names(mask: int) -> str:
     names = [name for flag, name in PFLAG_NAMES.items() if mask & flag]
     return ", ".join(names) if names else f"{mask:#x}"
@@ -153,6 +166,13 @@ def _require_pflags(status: str, mask: int) -> int:
     missing = mask & ~flags
     if missing:
         raise AssertionError(f"pflags= missing {_flag_names(missing)}")
+    return flags
+
+
+def _require_any_pflag(status: str, mask: int, label: str) -> int:
+    flags = _hex_field(status, "pflags")
+    if not (flags & mask):
+        raise AssertionError(f"{label} pflags= missing one of {_flag_names(mask)}")
     return flags
 
 
@@ -174,6 +194,26 @@ def _assert_not_decreasing(baseline: str, final: str, names: tuple[str, ...]) ->
             raise AssertionError(
                 f"{name}= must not decrease across snapshots, got {before:08X}->{after:08X}"
             )
+
+
+def _assert_pair_increasing(baseline: str, final: str, name: str) -> None:
+    before_left, before_right = _position_field(baseline, name)
+    after_left, after_right = _position_field(final, name)
+    if after_left <= before_left and after_right <= before_right:
+        raise AssertionError(
+            f"{name}= must increase in at least one component, got "
+            f"{before_left:08X}:{before_right:08X}->{after_left:08X}:{after_right:08X}"
+        )
+
+
+def _assert_pair_not_decreasing(baseline: str, final: str, name: str) -> None:
+    before_left, before_right = _position_field(baseline, name)
+    after_left, after_right = _position_field(final, name)
+    if after_left < before_left or after_right < before_right:
+        raise AssertionError(
+            f"{name}= must not decrease across snapshots, got "
+            f"{before_left:08X}:{before_right:08X}->{after_left:08X}:{after_right:08X}"
+        )
 
 
 def _assert_keyboard_phase_progression(
@@ -209,11 +249,19 @@ def _require_level_snapshot(snapshot: str, label: str) -> None:
         raise AssertionError(f"{label} snapshot gameplay=OK is required")
     _hex_field_eq(snapshot, "gstate", 0, "GS_LEVEL (00000000)")
     _hex_field_eq(snapshot, "gmap", 0x00000101, "E1M1 (00000101)")
+    for name in RUN_COUNTERS:
+        _hex_field_gt(snapshot, name, 0)
+
+
+def _require_menu_inactive(snapshot: str, label: str) -> None:
+    if _hex_field(snapshot, "gflags") & MENU_ACTIVE_FLAG:
+        raise AssertionError(f"{label} snapshot gflags= must not have the menu-active bit")
 
 
 def validate_status(
     final_status: str,
     baseline_status: str | None = None,
+    start_status: str | None = None,
     movement_status: str | None = None,
     fire_status: str | None = None,
     use_status: str | None = None,
@@ -226,6 +274,7 @@ def validate_status(
     _status_fields(final_status)
     for label, snapshot in (
         ("baseline", baseline_status),
+        ("start", start_status),
         ("movement", movement_status),
         ("fire", fire_status),
         ("use", use_status),
@@ -258,12 +307,21 @@ def validate_status(
     _hex_field(final_status, "gaction")
     _hex_field(final_status, "pbuttons")
     _require_pflags(final_status, REQUIRED_PFLAGS)
+    _require_any_pflag(final_status, REQUIRED_FIRE_STATE_PFLAGS, "final fire-state proof")
 
     if baseline_status is not None:
         _assert_increasing(baseline_status, final_status, KEY_EVENT_COUNTERS)
         _assert_increasing(baseline_status, final_status, RUN_COUNTERS)
+
+    if start_status is not None:
+        _require_level_snapshot(start_status, "start")
+        _require_menu_inactive(start_status, "start")
+        _position_field(start_status, "ppos")
+        if baseline_status is not None:
+            _assert_not_decreasing(baseline_status, start_status, RUN_COUNTERS)
+
     _assert_keyboard_phase_progression(
-        baseline_status,
+        start_status or baseline_status,
         fire_status,
         movement_status,
         use_status,
@@ -274,10 +332,13 @@ def validate_status(
         _require_level_snapshot(movement_status, "movement")
         _require_pflags(movement_status, PFLAG_PLAYER | PFLAG_MOVE_CMD | PFLAG_POS_DELTA)
         _hex_field_gt(movement_status, "pdelta", 0)
+        if start_status is not None:
+            _assert_position_changed(start_status, movement_status, "start", "movement")
 
     if fire_status is not None:
         _require_level_snapshot(fire_status, "fire")
         _require_pflags(fire_status, PFLAG_PLAYER | PFLAG_ATTACK_CMD)
+        _require_any_pflag(fire_status, REQUIRED_FIRE_STATE_PFLAGS, "fire snapshot")
 
     if use_status is not None:
         _require_level_snapshot(use_status, "use")
@@ -289,17 +350,29 @@ def validate_status(
             raise AssertionError("mouse snapshot mouse=OK is required when --mouse is supplied")
         for name in MOUSE_EVENT_COUNTERS:
             _hex_field_gt(mouse_status, name, 0)
+        mouse_buttons = _hex_field(mouse_status, "mousebtn")
+        if not (mouse_buttons & 0x1):
+            raise AssertionError("mousebtn= must record the scripted left-button press")
+        mouse_dx, mouse_dy = _position_field(mouse_status, "mousedelta")
+        if mouse_dx == 0 or mouse_dy == 0:
+            raise AssertionError("mousedelta= must record nonzero X and Y movement from the mouse phase")
         if baseline_status is not None:
             _assert_increasing(baseline_status, mouse_status, MOUSE_EVENT_COUNTERS)
+            _assert_pair_increasing(baseline_status, mouse_status, "mousedelta")
         _assert_not_decreasing(mouse_status, final_status, MOUSE_EVENT_COUNTERS)
+        _assert_pair_not_decreasing(mouse_status, final_status, "mousedelta")
         if _field(final_status, "mouse") != "OK":
             raise AssertionError("final status mouse=OK is required when --mouse is supplied")
+        if not (_hex_field(final_status, "mousebtn") & 0x1):
+            raise AssertionError("final status mousebtn= must retain the scripted left-button press")
 
     if menu_status is not None:
         _require_level_snapshot(menu_status, "menu")
         _require_pflags(menu_status, PFLAG_MENU)
         if not (_hex_field(menu_status, "gflags") & MENU_ACTIVE_FLAG):
             raise AssertionError("menu snapshot gflags= must have the menu-active bit set")
+        if start_status is not None:
+            _require_menu_inactive(start_status, "start")
 
     for pattern in reject_patterns:
         if re.search(pattern, final_status, re.IGNORECASE):
@@ -314,6 +387,7 @@ def main(argv: list[str]) -> int:
         type=Path,
         help="Decoded pre-injection status, such as build/status.early.txt",
     )
+    parser.add_argument("--start", type=Path, help="Decoded status after Doom autostarts E1M1")
     parser.add_argument("--movement", type=Path, help="Decoded status after scripted movement")
     parser.add_argument("--fire", type=Path, help="Decoded status after scripted fire")
     parser.add_argument("--use", type=Path, help="Decoded status after scripted use")
@@ -325,6 +399,7 @@ def main(argv: list[str]) -> int:
     try:
         final_status = args.final_status.read_text()
         baseline_status = args.baseline.read_text() if args.baseline else None
+        start_status = args.start.read_text() if args.start else None
         movement_status = args.movement.read_text() if args.movement else None
         fire_status = args.fire.read_text() if args.fire else None
         use_status = args.use.read_text() if args.use else None
@@ -333,6 +408,7 @@ def main(argv: list[str]) -> int:
         validate_status(
             final_status,
             baseline_status,
+            start_status=start_status,
             movement_status=movement_status,
             fire_status=fire_status,
             use_status=use_status,

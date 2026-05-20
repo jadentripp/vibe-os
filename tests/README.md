@@ -17,7 +17,8 @@ boot:
   worktree state, and runtime/build references to shortcut source ports or host
   display/audio APIs.
 - Host storage tests cover root-level 8.3 lifecycle behavior: create, readback,
-  truncate, delete, cluster-chain freeing/reuse, protected WAD/ELF refusal, and
+  sparse growth, truncate/resize-to-zero, delete, cluster-chain freeing/reuse,
+  corrupt-chain validation before mutation, protected WAD/ELF refusal, and
   syscall-backed `unlink`/`stat`/`fstat` libc wrappers. They also pin kernel
   rejection of unknown `open` flags, `EMFILE` fd exhaustion, and the Doom-only
   `c:\doomdata` `mkdir` shim.
@@ -42,7 +43,7 @@ boot:
   public Archive.org gzipped shareware WAD. The runner validates the extracted
   `DOOM1.WAD` SHA-1 and size before building with `DOOM_WAD`, then requires
   `gameplay=OK`, `gmap=00000101` (E1M1), `leveltime>0`, `doompresent>0`,
-  nontrivial visual status hashes/counters, scripted fire/use/move/mouse/menu
+  nontrivial visual status hashes/counters, scripted start/fire/use/move/mouse/menu
   input status, a key event, and no known Doom startup error strings in the decoded
   status artifact.
   QEMU is bounded by a smoke-level timeout and writes status, monitor, smoke,
@@ -52,7 +53,7 @@ boot:
   real-WAD status proof. It now validates the wider debug contract too:
   VM/kernel health, syscall exec counters, FAT/WAD file access, Doom runtime
   counters, audio/mouse telemetry fields, live scheduler-preemption proof, and
-  non-pixel visual summaries. It requires the early/fire/move/use/mouse/menu status
+  non-pixel visual summaries. It requires the early/start/fire/move/use/mouse/menu status
   snapshots as well as the final status, so a single good-looking final line
   cannot stand in for scripted input proof. Host tests assert that the GitHub workflow and
   smoke target invoke it, so a future green CI claim must include those status
@@ -61,12 +62,14 @@ boot:
   from the deterministic input phases. It requires keyboard counters to
   increase across each keyboard phase, mouse IRQ/packet/poll counters to
   advance during the mouse phase, Doom to remain in E1M1 gameplay, player
-  movement/action/menu flags to be set, and `pdelta>0` without reading WAD or
-  framebuffer artifacts.
+  movement/action/menu flags to be set, `pdelta>0`, `ppos` to change after the
+  movement phase, fire to change ammo/refire state, and Escape to flip the menu
+  bit without reading WAD or framebuffer artifacts.
 - `tools/check_audio_continuity_proof.py` is the remote-safe SB16 audio gate. It
   compares the same decoded status snapshots, requires `audio=SB16`, and proves
-  IRQ/refill, SFX, and looped music-carrier counters progressed without storing
-  audio samples. This is not a full MUS/MIDI song-position streaming proof.
+  IRQ/refill, non-music SFX, and looped music-carrier counters progressed
+  without storing audio samples. This is not a full MUS/MIDI song-position
+  streaming proof.
 - `tools/check_audible_audio_proof.py` is the optional remote audible-output
   gate. In cloud it analyzes a temporary QEMU WAV capture into aggregate
   `audio-proof.json`, validates non-silent duration/window/RMS/peak metrics tied

@@ -371,6 +371,34 @@ class Fat16Image:
         write_le32(self.image, entry + 28, len(data))
         return chain
 
+    def write_root_file_at(self, name, offset, data):
+        name = self.validate_root_83_name(name)
+        if offset < 0:
+            raise ValueError("FAT16 write offset must be non-negative")
+        current = self.read_root_file(name) if self.root_entry_offset(name) is not None else b""
+        end = offset + len(data)
+        if end < offset:
+            raise ValueError("FAT16 write offset overflow")
+
+        updated = bytearray(current)
+        if len(updated) < offset:
+            updated.extend(b"\0" * (offset - len(updated)))
+        if len(updated) < end:
+            updated.extend(b"\0" * (end - len(updated)))
+        updated[offset:end] = data
+        return self.write_root_file(name, bytes(updated))
+
+    def resize_root_file(self, name, size):
+        name = self.validate_root_83_name(name)
+        if size < 0:
+            raise ValueError("FAT16 root file size must be non-negative")
+        current = self.read_root_file(name) if self.root_entry_offset(name) is not None else b""
+        if len(current) > size:
+            resized = current[:size]
+        else:
+            resized = current + b"\0" * (size - len(current))
+        return self.write_root_file(name, resized)
+
     def truncate_root_file(self, name):
         entry = self.create_or_reuse_root_entry(name)
         first_cluster = read_le16(self.image, entry + 26)

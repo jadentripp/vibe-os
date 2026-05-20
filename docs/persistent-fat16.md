@@ -34,14 +34,17 @@ Current kernel contract:
   exhaustion returns `EMFILE`.
 - Supported growth: file size can grow up to the per-file guard capacity.
 - Supported truncation: `O_TRUNC` frees the old cluster chain, resets first
-  cluster to 0, and persists size 0.
+  cluster to 0, and persists size 0. The kernel validates the whole FAT chain
+  before mutating entries, so a corrupt loop or out-of-range pointer fails
+  without partially freeing the file.
 - Supported deletion: `unlink`/`remove` frees the FAT cluster chain, marks the
   root entry deleted (`0xe5`), clears the in-kernel writable slot, and
   invalidates open descriptors for that file. Later `O_CREAT` can reuse the
   deleted root slot.
 - Supported chain hardening: FAT frees reject chains that point outside the data
-  area or into a free cluster, and allocation/link failures try to roll back the
-  just-allocated cluster instead of silently leaking it.
+  area, into a free cluster, or around a loop before writing any FAT updates.
+  Allocation/link failures try to roll back the just-allocated cluster instead
+  of silently leaking it.
 - Supported creation: missing known root entries are created on storage init and
   can be recreated with `O_CREAT` after deletion.
 - Supported metadata: `stat` and `fstat` report regular-file mode, one link, and
@@ -68,6 +71,12 @@ from the baseline image, so preseeded host bytes do not count as Doom
 persistence. With a baseline image present, the checker also verifies both FAT
 copies agree and protected `DOOM1.WAD`, `USERPROB.ELF`, and `DOOM.ELF` entries
 have unchanged metadata and bytes.
+
+The host-side `Fat16Image` mutator in `tools/make_wad_image.py` also exercises
+sparse writes, growth, resize-to-smaller, resize-to-zero, delete, and FAT-copy
+agreement. That is a test harness for image inspection; the kernel-facing
+truncate contract remains `O_TRUNC` to zero, because Doom only needs config/save
+replacement semantics today.
 
 This is enough for Doom defaults and save slots without turning the kernel into
 a general-purpose FAT filesystem.

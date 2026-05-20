@@ -108,7 +108,10 @@ are adjacent and the Doom heap grows up to the stack bottom.
   and resume it with `iretd`. The cloud status fields distinguish the source
   and target PIDs (`pfrom`/`pto`), their restored EIPs (`peip`), timer IRQs that
   arrived from Ring 3 (`puser`), quantum rounds (`pround`), total context
-  activations (`pctx`), and live spin progress (`pspin`).
+  activations (`pctx`), and live spin progress (`pspin`). The `pspin` sampler
+  only dereferences the preempt probe stack while `process_preempt_probe` is the
+  active process, so the proof does not depend on probe pages being visible in
+  Doom's page directory.
 - Page-table structures are fixed low-memory page-table pages, not dynamically
   allocated or reclaimed with process lifetime.
 - Exact execute-disable enforcement is still blocked by the current 32-bit x86

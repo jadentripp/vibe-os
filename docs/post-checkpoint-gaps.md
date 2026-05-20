@@ -58,6 +58,22 @@ Next repair lane:
   from `doomrun=FAULT` to `doomrun=RUN`, with `doomfault*` and `fault=` cleared,
   before any playable claim is possible.
 
+Current-head smoke status:
+
+- The latest normal cloud `os-smoke` run is `26146488906` on current head
+  `34eb98d`, and it is also red.
+- It proves a later synthetic/generated-WAD path than the real-WAD run:
+  `exec=OK`, `doomopen=OK`, `doomread=OK`, `doomseek=00000001`,
+  `doomclose=00000002`, and Doom startup log text reaches
+  `W_Init: Init WADfiles.  adding ./doom1.wad`.
+- It then fails as `doom-user-fault` at `W_AddFile+0x246` with
+  `doomfault=0193F000`, `doomfaultip=01024D06`, vector `0000000E`, error
+  `00000007`, and compact fault tuple
+  `0000000E/00000007/01024D06/0000001B/01FFF3C0/00000023/0193F000/00000002/00000002/00000002/00000005`.
+- This does not replace the real-WAD failure above, but it narrows the current
+  repair lane: Doom is now reaching WAD startup in smoke, then hitting a
+  user-mode write-protection page fault before gameplay.
+
 ## Machine-Readable Gap Ledger
 
 - `GAP[CLOUD_BOOT] status=open category=cloud-boot gate=real-wad-smoke.yml evidence=status.txt`
@@ -71,6 +87,8 @@ Current state:
   rendered pixels out of uploaded artifacts.
 - The latest analyzed real-WAD run reached the Doom exec handoff, but the proof
   is still red because Doom faulted before WAD I/O and gameplay.
+- The latest normal cloud smoke for current head is also red, faulting after
+  generated-WAD open/read but before gameplay.
 
 Still missing:
 
@@ -103,6 +121,9 @@ Still missing:
 - The current first runtime blocker is the Ring 3 page fault at
   `FindResponseFile+0x34`; until that is fixed, WAD open/read, E1M1 gameplay,
   input, and audio proof are downstream unknowns.
+- On current head, the normal smoke path exposes a second fault at
+  `W_AddFile+0x246` after WAD open/read succeeds. Both faults need fresh cloud
+  proof after repair.
 
 Executable gate:
 
@@ -117,7 +138,7 @@ Current state:
 - `docs/runbooks/remote-doom-playtest.md` describes the safe human path: boot on a
   disposable remote host, expose loopback-only VNC through SSH, keep the WAD
   outside git, and validate downloaded diagnostics afterward.
-- Deterministic scripted fire/move/use/mouse/menu checks are a strong
+- Deterministic scripted start/fire/move/use/mouse/menu checks are a strong
   cloud-safe proxy.
 
 Still missing:
@@ -136,9 +157,9 @@ Executable gate:
 Current state:
 
 - The FAT16 image has root entries for Doom config and save files.
-- Host tests prove allocation, readback, truncation, deletion, protected-file
-  refusal, corrupt-chain rejection, FAT-copy agreement, and libc save/config
-  file modes without launching QEMU.
+- Host tests prove allocation, readback, sparse growth, shrink/zero truncation,
+  deletion, protected-file refusal, corrupt-chain rejection before mutation,
+  FAT-copy agreement, and libc save/config file modes without launching QEMU.
 - `tools/check_doom_persistence_image.py` can inspect a mutated remote image and
   require Doom-shaped `DEFAULT.CFG` text plus a `DOOMSAVN.DSG` save header
   without exporting the WAD or rendered pixels. With `--baseline-image`, it also
@@ -146,7 +167,8 @@ Current state:
   host-preseeded bytes do not count as a persistence proof. The same baseline
   comparison rejects protected WAD/ELF mutation.
 - The kernel implements FAT16 cluster allocation/free/truncate over the disk
-  image, so the storage layer is no longer a read-only WAD loader.
+  image, with validate-before-free chain hardening, so the storage layer is no
+  longer a read-only WAD loader.
 - The real-WAD workflow has an opt-in `persistence_proof` path that keeps the
   disk image inside the disposable runner, boots once to attempt a Doom quit/save
   script, runs the image checker, boots the same mutated image again, and runs
@@ -213,6 +235,11 @@ Current state:
   process VM-region metadata, `int 0x80`, table-backed `exec`, syscall pointer
   validation, anonymous/private `mmap`, display `ioctl`, file syscalls, and
   classified `fork`/`waitpid` failures.
+- Timer preemption has a real Ring 3 IRQ-frame switch path: it saves the
+  interrupted task, selects a different READY process record, switches CR3/TSS,
+  rewrites the live interrupt frame, and reports `pfrom`/`pto`/`peip`/`pspin`
+  status. The preempt probe's stack sampler is guarded to run only while that
+  process address space is active.
 
 Still missing:
 

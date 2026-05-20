@@ -21,6 +21,7 @@ class AudioContractTests(unittest.TestCase):
             "unsigned long flags;",
             "VIBE_AUDIO_FLAG_LOOP",
             "VIBE_AUDIO_FLAG_MUSIC",
+            "VIBE_AUDIO_IS_PLAYING",
         ):
             self.assertIn(source, header)
 
@@ -40,6 +41,7 @@ class AudioContractTests(unittest.TestCase):
             "(unsigned long)&desc",
             "VIBE_AUDIO_START_SFX",
             "VIBE_AUDIO_UPDATE_SFX",
+            "VIBE_AUDIO_IS_PLAYING",
         ):
             self.assertIn(source, platform)
 
@@ -120,9 +122,11 @@ class AudioContractTests(unittest.TestCase):
             "sb16_voice_started_at times AUDIO_MAX_SFX_VOICES dd 0",
             "sb16_voice_flags times AUDIO_MAX_SFX_VOICES dd 0",
             "sb16_voice_loop_counts times AUDIO_MAX_SFX_VOICES dd 0",
+            "sb16_active_sfx_voice_count dd 0",
             "audio_register_sfx_voice:",
             "audio_stop_sfx_voice:",
             "audio_update_sfx_voice:",
+            ".audio_is_playing:",
             "sb16_refill_active_half:",
             "sb16_find_steal_voice:",
             "sb16_pitch_to_step:",
@@ -130,6 +134,7 @@ class AudioContractTests(unittest.TestCase):
             "call audio_register_sfx_voice",
             "call audio_stop_sfx_voice",
             "call audio_update_sfx_voice",
+            "call sb16_find_voice_by_handle",
             "call sb16_refill_active_half",
             "mov [sb16_voice_handles + ebx * 4], eax",
             "mov [sb16_voice_steps + ebx * 4], eax",
@@ -141,6 +146,7 @@ class AudioContractTests(unittest.TestCase):
             "inc dword [sb16_voice_refill_count]",
             "inc dword [sb16_voice_finished_count]",
             "smoke_audiovoices_text db \" voices=\"",
+            "smoke_sfxvoices_text db \" sfxvoices=\"",
         ):
             self.assertIn(source, kernel)
 
@@ -182,6 +188,7 @@ class AudioContractTests(unittest.TestCase):
             "smoke_voicesteal_text db \" steal=\"",
             "smoke_pitchclamp_text db \" pitchclamp=\"",
             "smoke_panclamp_text db \" panclamp=\"",
+            "smoke_sfxvoices_text db \" sfxvoices=\"",
             "smoke_musicvoices_text db \" musicvoices=\"",
             "smoke_musicmix_text db \" musicmix=\"",
             "smoke_musicloop_text db \" musicloop=\"",
@@ -189,6 +196,7 @@ class AudioContractTests(unittest.TestCase):
             "mov edx, [sb16_voice_steal_count]",
             "mov edx, [sb16_pitch_clamp_count]",
             "mov edx, [sb16_pan_clamp_count]",
+            "mov edx, [sb16_active_sfx_voice_count]",
             "mov edx, [sb16_active_music_voice_count]",
             "mov edx, [sb16_music_mix_count]",
             "mov edx, [sb16_music_loop_count]",
@@ -198,6 +206,7 @@ class AudioContractTests(unittest.TestCase):
         for source in (
             'grep -q "sfxmix="',
             'grep -q "voices="',
+            'grep -q "sfxvoices="',
             'grep -q "audioirq="',
             'grep -q "mixclip="',
             'grep -q "steal="',
@@ -216,6 +225,7 @@ class AudioContractTests(unittest.TestCase):
         for source in (
             "AUDIO_FLAG_LOOP equ 0x00000001",
             "AUDIO_FLAG_MUSIC equ 0x00000002",
+            "AUDIO_CMD_IS_PLAYING equ 6",
             "AUDIO_MUSIC_HANDLE_BASE equ 0x4d550000",
             "or dword [audio_sfx_flags_arg], AUDIO_FLAG_MUSIC",
             "test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_LOOP",
@@ -223,6 +233,7 @@ class AudioContractTests(unittest.TestCase):
             "inc dword [sb16_music_loop_count]",
             "inc dword [sb16_music_mix_count]",
             "add [sb16_music_mix_bytes], eax",
+            ".count_sfx_mix:",
             "sb16_active_music_voice_count dd 0",
             "sb16_music_start_count dd 0",
             "sb16_music_stop_count dd 0",
@@ -257,6 +268,9 @@ class AudioContractTests(unittest.TestCase):
         self.assertIn("oldest non-music active voice", audio_doc)
         self.assertIn("audioirq=", audio_doc)
         self.assertIn("voices=", audio_doc)
+        self.assertIn("sfxvoices=", audio_doc)
+        self.assertIn("sfxmix=` counts only normal Doom SFX voices", audio_doc)
+        self.assertIn("VIBE_AUDIO_IS_PLAYING", audio_doc)
         self.assertIn("mixwrap", audio_doc)
         self.assertIn("mixover", audio_doc)
         self.assertIn("mixclip", audio_doc)

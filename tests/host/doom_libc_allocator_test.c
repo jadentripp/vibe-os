@@ -10,6 +10,7 @@
 #define calloc vibe_test_calloc
 #define realloc vibe_test_realloc
 #define free vibe_test_free
+#define _exit vibe_test__exit
 #define exit vibe_test_exit
 #define getenv vibe_test_getenv
 #define rand vibe_test_rand
@@ -41,7 +42,11 @@
 #define mmap vibe_test_mmap
 #define munmap vibe_test_munmap
 #define ioctl vibe_test_ioctl
+#define execl vibe_test_execl
+#define execv vibe_test_execv
+#define execve vibe_test_execve
 #define fork vibe_test_fork
+#define getpid vibe_test_getpid
 #define wait vibe_test_wait
 #define waitpid vibe_test_waitpid
 #define mkdir vibe_test_mkdir
@@ -103,7 +108,12 @@ static int mock_unlink_syscalls;
 static int mock_stat_syscalls;
 static int mock_fstat_syscalls;
 static int mock_ioctl_syscalls;
+static int mock_exec_syscalls;
+static int mock_getpid_syscalls;
 static int mock_present_count;
+static int mock_exec_last_argc;
+static char mock_exec_last_path[64];
+static char mock_exec_last_argv0[64];
 
 static void mock_copy_text(char* dest, const char* src, int capacity)
 {
@@ -128,7 +138,12 @@ static void mock_reset(void)
     mock_stat_syscalls = 0;
     mock_fstat_syscalls = 0;
     mock_ioctl_syscalls = 0;
+    mock_exec_syscalls = 0;
+    mock_getpid_syscalls = 0;
     mock_present_count = 0;
+    mock_exec_last_argc = 0;
+    mock_exec_last_path[0] = 0;
+    mock_exec_last_argv0[0] = 0;
     errno = 0;
 }
 
@@ -381,6 +396,33 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
             return 0;
         }
         return -ENOTTY;
+    }
+
+    if (number == VIBE_SYS_EXEC) {
+        const char* path = (const char*)arg0;
+        char* const* argv = (char* const*)arg1;
+        int argc = 0;
+        ++mock_exec_syscalls;
+        mock_copy_text(mock_exec_last_path, path ? path : "", (int)sizeof(mock_exec_last_path));
+        mock_exec_last_argv0[0] = 0;
+        if (!path)
+            return -EINVAL;
+        if (strcasecmp(path, "DOOM.ELF") && strcasecmp(path, "USERPROB.ELF"))
+            return -ENOENT;
+        if (argv) {
+            while (argv[argc]) {
+                if (argc == 0)
+                    mock_copy_text(mock_exec_last_argv0, argv[argc], (int)sizeof(mock_exec_last_argv0));
+                ++argc;
+            }
+        }
+        mock_exec_last_argc = argc;
+        return 0;
+    }
+
+    if (number == VIBE_SYS_GETPID) {
+        ++mock_getpid_syscalls;
+        return 42;
     }
 
     if (number == VIBE_SYS_FORK)
@@ -986,6 +1028,26 @@ int main(void)
             return 139;
         if (wait(&status) != -1 || errno != ECHILD)
             return 140;
+    }
+
+    mock_reset();
+    {
+        char* argv[] = { "doom.elf", "-warp", "1", 0 };
+        char* envp[] = { "HOME=/", 0 };
+        if (execv("doom.elf", argv) != 0)
+            return 141;
+        if (mock_exec_syscalls != 1 || strcmp(mock_exec_last_path, "DOOM.ELF") || mock_exec_last_argc != 3)
+            return 142;
+        if (strcmp(mock_exec_last_argv0, "doom.elf"))
+            return 143;
+        if (execve("doom.elf", argv, envp) != -1 || errno != ENOSYS)
+            return 144;
+        if (execv("missing.elf", argv) != -1 || errno != ENOENT)
+            return 145;
+        if (execl("USERPROB.ELF", "USERPROB.ELF", (char*)0) != 0)
+            return 146;
+        if (getpid() != 42 || mock_getpid_syscalls != 1)
+            return 147;
     }
 
     return 0;

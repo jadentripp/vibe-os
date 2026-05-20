@@ -13,6 +13,8 @@ class ProcessExecContractTests(unittest.TestCase):
         kernel = read_kernel()
         probe = (ROOT / "user" / "probe.c").read_text()
         boot_flow = kernel.split("user_probe_finished:", 1)[1].split("doom_user_finished:", 1)[0]
+        boot_entry = kernel.split(".c_runtime_done:", 1)[1].split("user_probe_finished:", 1)[0]
+        self.assertIn("call write_smoke_status", boot_entry)
         self.assertIn("call process_boot_launch_doom", boot_flow)
         self.assertNotIn("call doom_user_run", boot_flow)
         launcher = kernel.split("process_boot_launch_doom:", 1)[1].split("user_probe_run:", 1)[0]
@@ -107,7 +109,7 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("jmp .exec_handoff_return", handler)
         self.assertIn("VIBE_SYS_EXEC = 16", header)
 
-    def test_sys_exec_resets_diagnostics_and_rejects_unsupported_argv_flags(self):
+    def test_sys_exec_resets_diagnostics_and_accepts_bounded_argv(self):
         kernel = read_kernel()
         handler = kernel.split(".exec:", 1)[1].split(".exec_path_failed:", 1)[0]
         for source in (
@@ -123,8 +125,8 @@ class ProcessExecContractTests(unittest.TestCase):
             "mov dword [sys_exec_last_argv0], 0",
             "cmp dword [sys_exec_flags_arg], 0",
             "jne .exec_einval",
-            "cmp dword [sys_exec_user_argv_arg], 0",
-            "jne .exec_einval",
+            "call sys_exec_copy_argv",
+            "jc .exec_einval",
         ):
             self.assertIn(source, handler)
         exec_einval = kernel.split(".exec_einval:", 1)[1].split(".exec_path_failed:", 1)[0]
@@ -194,6 +196,7 @@ class ProcessExecContractTests(unittest.TestCase):
             "call process_seed_initial_user_context",
             "call process_activate",
             "call process_exec_seed_argv_stack",
+            "call pic_unmask_timer_keyboard",
             "call process_exec_patch_syscall_frame",
             "mov dword [edi + PROC_STATE], PROC_STATE_EXITED",
             "and dword [edi + PROC_VM_FLAGS], 0xfffffffe",
@@ -207,6 +210,12 @@ class ProcessExecContractTests(unittest.TestCase):
             handoff.index("call process_activate"),
             handoff.index("call process_exec_seed_argv_stack"),
         )
+        self.assertLess(
+            handoff.index("call process_exec_seed_argv_stack"),
+            handoff.index("call pic_unmask_timer_keyboard"),
+        )
+        user_probe_run = kernel.split("user_probe_run:", 1)[1].split(".fail:", 1)[0]
+        self.assertIn("push dword 0x00000202", user_probe_run)
         for source in (
             "mov [esi + PROC_SAVED_EIP], eax",
             "mov [esi + PROC_SAVED_ESP], eax",
@@ -241,23 +250,59 @@ class ProcessExecContractTests(unittest.TestCase):
         for source in (
             "SYS_EXEC_ARGC_DEFAULT equ 1",
             "SYS_EXEC_ARGV_SLOT_BYTES equ 12",
+            "SYS_EXEC_ARG_MAX equ 8",
+            "SYS_EXEC_ARG_STR_MAX equ 64",
+            "SYS_EXEC_ARG_FRAME_BASE_BYTES equ 12",
             "sys_exec_last_argc dd 0",
             "sys_exec_last_argv dd 0",
             "sys_exec_last_argv0 dd 0",
+            "sys_exec_arg_target_ptrs times SYS_EXEC_ARG_MAX dd 0",
+            "sys_exec_arg_strings times SYS_EXEC_ARG_MAX * SYS_EXEC_ARG_STR_MAX db 0",
         ):
             self.assertIn(source, kernel)
         for source in (
-            "sub eax, SYS_EXEC_PATH_MAX",
-            "mov [sys_exec_argv0_ptr], eax",
-            "mov esi, sys_exec_path_buffer",
-            "rep movsb",
-            "sub eax, SYS_EXEC_ARGV_SLOT_BYTES",
-            "mov dword [edi], SYS_EXEC_ARGC_DEFAULT",
-            "mov [edi + 4], eax",
-            "mov dword [edi + 8], 0",
+            "cmp dword [sys_exec_argc], 0",
+            "cmp dword [sys_exec_argc], SYS_EXEC_ARG_MAX",
+            "sub eax, SYS_EXEC_ARG_STR_MAX",
+            "cmp eax, [edx + PROC_STACK_BOTTOM]",
+            "mov esi, sys_exec_arg_strings",
+            "mov ecx, SYS_EXEC_ARG_STR_MAX",
+            "mov [sys_exec_arg_target_ptrs + ecx * 4], eax",
+            "add ebx, SYS_EXEC_ARG_FRAME_BASE_BYTES",
+            "mov [edi], ecx",
+            "mov [ebx + esi * 4], eax",
+            "mov dword [ebx + ecx * 4], 0",
+            "mov dword [ebx + ecx * 4 + 4], 0",
             "mov [edx + PROC_SAVED_ESP], eax",
         ):
             self.assertIn(source, argv)
+        copy_argv = kernel.split("sys_exec_copy_argv:", 1)[1].split("sys_exec_copy_user_arg_string:", 1)[0]
+        for source in (
+            "call sys_exec_clear_args",
+            "cmp dword [sys_exec_user_argv_arg], 0",
+            "jne .copy_user_argv",
+            "mov dword [sys_exec_argc], SYS_EXEC_ARGC_DEFAULT",
+            "cmp ecx, SYS_EXEC_ARG_MAX",
+            "call user_range_validate",
+            "call sys_exec_copy_user_arg_string",
+            "mov [sys_exec_argc], eax",
+        ):
+            self.assertIn(source, copy_argv)
+
+    def test_user_crt0_passes_argc_argv_and_empty_envp_to_user_main(self):
+        crt0 = (ROOT / "user" / "crt0.asm").read_text()
+        start = crt0.split("start:", 1)[1].split(".halt:", 1)[0]
+        for source in (
+            "mov eax, [esp]",
+            "lea ebx, [esp + 4]",
+            "lea ecx, [ebx + eax * 4 + 4]",
+            "push ecx",
+            "push ebx",
+            "push eax",
+            "call user_main",
+            "add esp, 12",
+        ):
+            self.assertIn(source, start)
 
     def test_scheduler_preemption_selftest_uses_seeded_context_helper(self):
         kernel = read_kernel()

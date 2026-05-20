@@ -130,6 +130,7 @@ For a fully automated truth-serum run, use the GitHub Actions **Real WAD smoke**
 workflow instead of this manual VNC path. It captures:
 
 - `status.early.txt`
+- `status.after-start.txt`
 - `status.after-fire.txt`
 - `status.after-move.txt`
 - `status.after-use.txt`
@@ -152,6 +153,7 @@ python3 tools/triage_cloud_status.py path/to/real-wad-smoke-status/status.txt
 
 python3 tools/check_real_wad_proof.py \
   --baseline path/to/real-wad-smoke-status/status.early.txt \
+  --start path/to/real-wad-smoke-status/status.after-start.txt \
   --fire path/to/real-wad-smoke-status/status.after-fire.txt \
   --movement path/to/real-wad-smoke-status/status.after-move.txt \
   --use path/to/real-wad-smoke-status/status.after-use.txt \
@@ -161,6 +163,7 @@ python3 tools/check_real_wad_proof.py \
 
 python3 tools/check_human_playability_proof.py \
   --baseline path/to/real-wad-smoke-status/status.early.txt \
+  --start path/to/real-wad-smoke-status/status.after-start.txt \
   --fire path/to/real-wad-smoke-status/status.after-fire.txt \
   --movement path/to/real-wad-smoke-status/status.after-move.txt \
   --use path/to/real-wad-smoke-status/status.after-use.txt \
@@ -201,7 +204,9 @@ Call a remote human playtest credible only after checking all of this:
 - `status.manual.txt` or the GitHub artifact reports `gameplay=OK`,
   `gmap=00000101`, increasing `gtic`/`leveltime`, nonzero `keyirq`,
   `keyqueue`, and `keypoll`, nonzero `mouseirq`/`mousepkt`/`mousepoll` when
-  mouse is expected, and nonzero playability flags.
+  mouse is expected, changed `ppos` from `status.after-start.txt` to
+  `status.after-move.txt`, fire ammo/refire evidence in `pflags`, and menu
+  inactive-to-active evidence after Escape.
 - Save/config writes are attempted from Doom and then checked after a rebooted
   remote image before claiming persistence beyond the current host tests. The
   GitHub **Real WAD smoke** workflow has an opt-in `persistence_proof` input

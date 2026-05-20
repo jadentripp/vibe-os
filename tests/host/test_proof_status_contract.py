@@ -66,13 +66,14 @@ def status_line(**overrides):
         "leveltime": "000002E5",
         "gflags": "00000001",
         "gaction": "00000000",
-        "pflags": "0000003F",
+        "pflags": "000000FF",
         "pbuttons": "00000000",
         "ppos": "00010000:00020000",
         "pdelta": "00000100",
         "doomsound": "00000000",
         "sfxmix": "00000000",
         "voices": "00000000",
+        "sfxvoices": "00000000",
         "audioirq": "00000000",
         "ack8": "00000000",
         "ack16": "00000000",
@@ -96,6 +97,8 @@ def status_line(**overrides):
         "mouseirq": "00000002",
         "mousepkt": "00000002",
         "mousepoll": "00000002",
+        "mousebtn": "00000001",
+        "mousedelta": "00000018:0000000C",
         "gfx": "OK",
         "fb": "M13",
         "preempt": "00000008",
@@ -137,9 +140,29 @@ def baseline_status():
         mouseirq="00000000",
         mousepkt="00000000",
         mousepoll="00000000",
+        mousebtn="00000000",
+        mousedelta="00000000:00000000",
         pflags="00000001",
         pdelta="00000001",
-        gflags="00000001",
+        gflags="00000000",
+    )
+
+
+def start_status():
+    return status_line(
+        gtic="00000018",
+        leveltime="00000018",
+        keyirq="00000001",
+        keyqueue="00000001",
+        keypoll="00000001",
+        mouseirq="00000000",
+        mousepkt="00000000",
+        mousepoll="00000000",
+        mousebtn="00000000",
+        mousedelta="00000000:00000000",
+        pflags="00000001",
+        pdelta="00000000",
+        gflags="00000000",
     )
 
 
@@ -150,7 +173,9 @@ def fire_status():
         keyirq="00000002",
         keyqueue="00000002",
         keypoll="00000002",
-        pflags="00000005",
+        pflags="000000C5",
+        mousebtn="00000000",
+        mousedelta="00000000:00000000",
     )
 
 
@@ -162,6 +187,9 @@ def movement_status():
         keyqueue="00000003",
         keypoll="00000003",
         pflags="00000023",
+        ppos="00010020:00020000",
+        mousebtn="00000000",
+        mousedelta="00000000:00000000",
     )
 
 
@@ -173,6 +201,8 @@ def use_status():
         keyqueue="00000004",
         keypoll="00000004",
         pflags="00000009",
+        mousebtn="00000000",
+        mousedelta="00000000:00000000",
     )
 
 
@@ -187,6 +217,8 @@ def mouse_status():
         mouseirq="00000002",
         mousepkt="00000002",
         mousepoll="00000002",
+        mousebtn="00000001",
+        mousedelta="00000018:0000000C",
     )
 
 
@@ -206,6 +238,7 @@ def validate_real_wad_status(status):
     check_real_wad_proof.validate_status(
         status,
         baseline_status=baseline_status(),
+        start_status=start_status(),
         fire_status=fire_status(),
         movement_status=movement_status(),
         use_status=use_status(),
@@ -225,13 +258,16 @@ class ProofStatusContractTests(unittest.TestCase):
             mouseirq="00000000",
             mousepkt="00000000",
             mousepoll="00000000",
+            mousebtn="00000000",
+            mousedelta="00000000:00000000",
             pflags="00000001",
             pdelta="00000001",
-            gflags="00000001",
+            gflags="00000000",
         )
         check_real_wad_proof.validate_status(
             status_line(),
             baseline_status=baseline,
+            start_status=start_status(),
             fire_status=fire_status(),
             movement_status=movement_status(),
             use_status=use_status(),
@@ -263,10 +299,14 @@ class ProofStatusContractTests(unittest.TestCase):
             status_line(pto="00000002"),
             status_line(peip="00000000:00E80000"),
             status_line(pspin="50524545"),
+            status_line(pflags="0000003F"),
             status_line(doomfaultip="0102F190"),
             status_line(doomfaultv="0000000D"),
             status_line(doomfaulterr="00000004"),
             status_line(fault="0000000E/00000004/0102F190/0000001B/0100FFE0/00000023/018F0000/00000002/00000002/00000001/00000003"),
+            status_line(mousebtn="00000000"),
+            status_line(mousedelta="00000000:0000000C"),
+            status_line(mousedelta="00000018:00000000"),
             status_line(panic="KEXC"),
             status_line(shutdown="HALT"),
             status_line() + " keyirq=00000005",
@@ -281,7 +321,7 @@ class ProofStatusContractTests(unittest.TestCase):
             check_real_wad_proof.validate_status(
                 status_line(),
                 baseline_status=baseline_status(),
-                fire_status=status_line(pflags="00000005"),
+                fire_status=status_line(pflags="000000C5"),
                 movement_status=status_line(pflags="00000023"),
                 use_status=status_line(pflags="00000009"),
             )
@@ -294,6 +334,7 @@ class ProofStatusContractTests(unittest.TestCase):
             (tmpdir / "status.early.txt").write_text(
                 baseline_status()
             )
+            (tmpdir / "status.after-start.txt").write_text(start_status())
             (tmpdir / "status.after-fire.txt").write_text(fire_status())
             (tmpdir / "status.after-move.txt").write_text(movement_status())
             (tmpdir / "status.after-use.txt").write_text(use_status())
@@ -346,6 +387,7 @@ class ProofStatusContractTests(unittest.TestCase):
                 )
             )
             (tmpdir / "status.early.txt").write_text(baseline_status())
+            (tmpdir / "status.after-start.txt").write_text(start_status())
             (tmpdir / "status.after-fire.txt").write_text(fire_status())
             (tmpdir / "status.after-move.txt").write_text(movement_status())
             (tmpdir / "status.after-use.txt").write_text(use_status())
@@ -381,6 +423,7 @@ class ProofStatusContractTests(unittest.TestCase):
     def test_workflow_artifacts_are_status_only_for_real_wad_proof(self):
         workflow = (ROOT / ".github" / "workflows" / "real-wad-smoke.yml").read_text()
         self.assertIn("--baseline build/status.early.txt", workflow)
+        self.assertIn("--start build/status.after-start.txt", workflow)
         self.assertIn("--fire build/status.after-fire.txt", workflow)
         self.assertIn("--movement build/status.after-move.txt", workflow)
         self.assertIn("--use build/status.after-use.txt", workflow)

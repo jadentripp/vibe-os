@@ -23,18 +23,19 @@ to the caller.
 
 - The syscall validates and copies a bounded user path into
   `sys_exec_path_buffer`.
-- The current ABI intentionally accepts only `path` with null `argv` and zero
-  flags. Nonzero user argv pointers or flags return `-EINVAL` until argv-copying
-  semantics are implemented, which keeps unsupported launch shapes from being
-  silently ignored.
+- The current ABI accepts `path`, an optional user `argv`, and zero flags.
+  Nonzero flags return `-EINVAL`. `argv == NULL` falls back to a single
+  `argv[0]` copied from the exec path; a non-null vector is copied into kernel
+  staging buffers before the old address space is replaced.
 - It asks `process_exec_path` for a table-backed target while
   `process_exec_reject_active_target` is set. This prevents reloading the image
   backing the currently running process, because a partial reload could not be
   rolled back safely.
 - On success, `process_exec_handoff_current` resets the target process record,
   stores the prepared ELF entry, seeds `PROC_SAVED_EIP`, `PROC_SAVED_ESP`,
-  selectors, `EFLAGS`, and `PROC_FLAG_IRQ_FRAME_VALID`, and writes an
-  argc/argv-compatible stack layout with `argv[0]` copied from the exec path.
+  selectors, `EFLAGS`, and `PROC_FLAG_IRQ_FRAME_VALID`, and writes a real
+  `argc`, `argv[]`, `NULL`, `envp NULL` stack layout from the bounded staged
+  arguments.
 - The Ring 3 probe arms its intentional page-fault check with a recovery EIP.
   The fault handler records the frame, clears the expectation, rewrites the
   saved exception EIP to the recovery label, drops vector/error from the trap
@@ -66,7 +67,7 @@ Smoke status still includes `exec=OK path=...`, and `execsys=` now reports:
 The same status line also records `execerr=<errno>`, `execres=<syscall result>`,
 `target=<pid>`, `entry=<eip>`, `stack=<esp>`, `argc=<n>`, `argv=<ptr>`, and
 `argv0=<ptr>`. A successful Doom launch should have zero `execerr`/`execres`,
-one argument, nonzero argv pointers, and nonzero target entry/stack addresses.
+nonzero argc/argv pointers, and nonzero target entry/stack addresses.
 
 Failures before frame patch leave the active process current and increment the
 rollback counter. Unsafe active-slot exec returns `-EACCES`; invalid pointers
@@ -76,7 +77,7 @@ return `-EIO`.
 ## Remaining Gaps
 
 - Exec targets are still fixed table entries instead of arbitrary FAT paths.
-- The kernel builds an argc/argv stack layout, but the current user CRT and Doom
-  start shim do not consume it yet.
+- `argv` copying is intentionally bounded to a small static vector; environment
+  copying is not implemented yet, so libc exposes an empty `envp` contract.
 - Page-table structures and process records are static; there is no dynamic PID
   allocation or address-space reclamation.

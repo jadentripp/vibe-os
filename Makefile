@@ -231,6 +231,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "doomsound=" $(BUILD_DIR)/status.txt; \
 	grep -q "sfxmix=" $(BUILD_DIR)/status.txt; \
 	grep -q "voices=" $(BUILD_DIR)/status.txt; \
+	grep -q "sfxvoices=" $(BUILD_DIR)/status.txt; \
 	grep -q "audioirq=" $(BUILD_DIR)/status.txt; \
 	grep -q "ack8=" $(BUILD_DIR)/status.txt; \
 	grep -q "ack16=" $(BUILD_DIR)/status.txt; \
@@ -251,10 +252,12 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "keyqueue=" $(BUILD_DIR)/status.txt; \
 	grep -q "keypoll=" $(BUILD_DIR)/status.txt; \
 	grep -Eq "mouse=(OK|NONE)" $(BUILD_DIR)/status.txt; \
-	grep -q "mouseirq=" $(BUILD_DIR)/status.txt; \
-	grep -q "mousepkt=" $(BUILD_DIR)/status.txt; \
-	grep -q "mousepoll=" $(BUILD_DIR)/status.txt; \
-	grep -q "gfx=OK" $(BUILD_DIR)/status.txt; \
+		grep -q "mouseirq=" $(BUILD_DIR)/status.txt; \
+		grep -q "mousepkt=" $(BUILD_DIR)/status.txt; \
+		grep -q "mousepoll=" $(BUILD_DIR)/status.txt; \
+		grep -q "mousebtn=" $(BUILD_DIR)/status.txt; \
+		grep -q "mousedelta=" $(BUILD_DIR)/status.txt; \
+		grep -q "gfx=OK" $(BUILD_DIR)/status.txt; \
 	grep -Eq "fb=(LFB|M13)" $(BUILD_DIR)/status.txt; \
 	grep -q "heap=OK" $(BUILD_DIR)/status.txt; \
 	if [ "$(SMOKE_CAPTURE_GFX)" = "1" ]; then \
@@ -284,6 +287,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	fi; \
 	if [ "$(SMOKE_REQUIRE_REAL_WAD_PROOF)" = "1" ]; then \
 		real_wad_args="--baseline $(BUILD_DIR)/status.early.txt"; \
+		if [ -f "$(BUILD_DIR)/status.after-start.txt" ]; then real_wad_args="$$real_wad_args --start $(BUILD_DIR)/status.after-start.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-fire.txt" ]; then real_wad_args="$$real_wad_args --fire $(BUILD_DIR)/status.after-fire.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-move.txt" ]; then real_wad_args="$$real_wad_args --movement $(BUILD_DIR)/status.after-move.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-use.txt" ]; then real_wad_args="$$real_wad_args --use $(BUILD_DIR)/status.after-use.txt"; fi; \
@@ -293,6 +297,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	fi; \
 	if [ "$(SMOKE_REQUIRE_HUMAN_PLAYABILITY_PROOF)" = "1" ]; then \
 		human_args="--baseline $(BUILD_DIR)/status.early.txt"; \
+		if [ -f "$(BUILD_DIR)/status.after-start.txt" ]; then human_args="$$human_args --start $(BUILD_DIR)/status.after-start.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-fire.txt" ]; then human_args="$$human_args --fire $(BUILD_DIR)/status.after-fire.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-move.txt" ]; then human_args="$$human_args --movement $(BUILD_DIR)/status.after-move.txt"; fi; \
 		if [ -f "$(BUILD_DIR)/status.after-use.txt" ]; then human_args="$$human_args --use $(BUILD_DIR)/status.after-use.txt"; fi; \

@@ -79,6 +79,12 @@ LATEST_RUN_PHRASES = (
     "FindResponseFile+0x34",
     "doomfaultip=01003224",
     "doomopen=FAIL doomread=FAIL",
+    "26146488906",
+    "34eb98d",
+    "W_AddFile+0x246",
+    "doomfaultip=01024D06",
+    "doomopen=OK",
+    "doomread=OK",
     "not a Doom-capable proof",
 )
 
@@ -143,6 +149,7 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         "latest analyzed real-WAD run is red",
         "not a Doom-capable claim",
         "FindResponseFile+0x34",
+        "W_AddFile+0x246",
     ):
         if phrase not in readme:
             raise AssertionError(f"README missing current claim-boundary phrase: {phrase}")

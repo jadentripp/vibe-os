@@ -77,6 +77,7 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         raise AssertionError(f"status doomrun=RUN or EXIT is required, got {fields.get('doomrun')!r}")
     for counter in ("audioirq", "refill", "sfxmix", "musicmix"):
         _hex_positive(fields, counter)
+    _hex_value(fields, "sfxvoices")
     if _hex_value(fields, "ack8") + _hex_value(fields, "ack16") <= 0:
         raise AssertionError("status ack8= or ack16= must be nonzero")
     return {
@@ -88,6 +89,7 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         "ack16": fields.get("ack16", "00000000"),
         "refill": fields["refill"],
         "sfxmix": fields["sfxmix"],
+        "sfxvoices": fields["sfxvoices"],
         "musicmix": fields["musicmix"],
         "musicloop": fields.get("musicloop", "00000000"),
     }
@@ -285,6 +287,9 @@ def validate_manifest(
             raise AssertionError(f"manifest status.{counter} must be eight hex digits")
         if int(value, 16) <= 0:
             raise AssertionError(f"manifest status.{counter} must be nonzero")
+    value = status.get("sfxvoices")
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
+        raise AssertionError("manifest status.sfxvoices must be eight hex digits")
 
     for key in ("contains_raw_audio", "contains_wad_data", "contains_pixels"):
         if policy.get(key) is not False:
@@ -330,6 +335,7 @@ def validate_repo_contract() -> None:
             audio_doc,
             (
                 "tools/check_audible_audio_proof.py",
+                "sfxmix= counts non-music Doom SFX only",
                 "QEMU WAV backend",
                 "aggregate JSON",
                 "delete the temporary WAV",

@@ -44,7 +44,8 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
 - dynamic FAT16 writable files for Doom defaults, save slots, and bounded
   root-level 8.3 user-created files, with kernel
   read/write/lseek/truncate/unlink/stat support over allocated cluster chains
-  and shared per-descriptor offsets for WAD and writable file descriptors
+  validate-before-free chain hardening, and shared per-descriptor offsets for
+  WAD and writable file descriptors
 - WAD header/directory parsing with named-lump lookup for Doom assets
 - text UI with an interactive shell
 - local QEMU targets guarded behind an explicit opt-in, plus a host-side safety
@@ -222,6 +223,11 @@ entry, stack, argc, argv, and argv0 fields, then Doom faulted in Ring 3 at
 `FindResponseFile+0x34` (`doomfaultip=01003224`, page-fault vector `0x0E`,
 error `0x05`, `CR2=00000000`) before `doomopen` / `doomread`. That is useful
 bring-up evidence, not a Doom-capable claim.
+The latest normal cloud `os-smoke` on current head `34eb98d` is also red: run
+`26146488906` proves the generated-WAD path reaches `doomopen=OK` /
+`doomread=OK`, then faults at `W_AddFile+0x246` (`doomfaultip=01024D06`,
+page-fault vector `0x0E`, error `0x07`, `CR2=0193F000`). So the branch is not CI-clean
+and still has a real Doom user-mode memory fault before gameplay.
 
 For a human actually trying the image, use
 `docs/runbooks/remote-doom-playtest.md`. It keeps QEMU on a disposable remote
@@ -310,7 +316,8 @@ Still required before this is actually Doom-capable:
 - a current passing manual real-WAD cloud workflow on the exact commit being
   claimed, followed by review of the non-WAD status diagnostics
 - fix the current Doom user-mode page fault at `FindResponseFile+0x34` and
-  prove `doomrun=RUN`, `doomopen=OK`, and `doomread=OK` on a fresh cloud run
+  the current-head smoke fault at `W_AddFile+0x246`, then prove `doomrun=RUN`,
+  `doomopen=OK`, and `doomread=OK` on a fresh cloud run
 - a passing `tools/check_real_wad_proof.py` run on that current real-WAD status
   artifact, including zero Doom exit/fault counters and coherent process,
   storage, VM, input, audio, scheduler, and gameplay telemetry

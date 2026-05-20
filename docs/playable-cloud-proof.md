@@ -10,6 +10,8 @@ compact counters and state deltas from Doom.
 This file describes the required green path. It is not a claim that the current branch is playable.
 The latest analyzed real-WAD run is still red with `doomrun=FAULT` at
 `FindResponseFile+0x34`, before WAD open/read or gameplay.
+The latest current-head normal cloud smoke is also red with `doomrun=FAULT` at
+`W_AddFile+0x246`, after WAD open/read but before gameplay.
 
 ## Deterministic Script
 
@@ -17,6 +19,7 @@ The manual **Real WAD smoke** workflow runs this input script after Doom has had
 time to settle:
 
 ```text
+after-start:wait=2,snapshot
 after-fire:hold=ctrl:800,wait=2,snapshot
 after-move:hold=up:1200,wait=3,snapshot
 after-use:spc,wait=2,snapshot
@@ -30,6 +33,9 @@ for Doom to process ticks and captures a decoded status artifact. The final
 status is captured after the menu phase. `tests/run_smoke_qemu.sh` still
 supports the older `SMOKE_SENDKEYS` fallback, but `SMOKE_INPUT_SCRIPT` is the
 deterministic playability path.
+The `after-start` snapshot is the clean pre-input checkpoint: the port starts
+Doom directly in E1M1, the checker verifies it is already `GS_LEVEL`, and later
+phases must mutate state from that baseline.
 
 ## Non-Pixel Evidence
 
@@ -66,24 +72,29 @@ The cloud proof requires these status families:
   input entered the kernel queue and Doom consumed each keyboard phase through
   `SYS_POLL_KEY`.
 - Player/action deltas: `pflags` records cumulative player, movement, attack,
-  use, menu, and position-delta observations; `pdelta>0` proves the player
-  moved in Doom state, not only that a key was delivered.
-- Menu state: final `gflags` has the menu-active bit after Escape, proving the
-  scripted input can affect the Doom UI while remaining in `GS_LEVEL`.
+  use, menu, position-delta, ammo-delta, and refire observations; `pdelta>0`
+  and a changed `ppos` between `status.after-start.txt` and
+  `status.after-move.txt` prove the player moved in Doom state, not only that a
+  key was delivered. The fire phase must also prove ammo/refire state changed,
+  so Ctrl cannot pass as a key counter alone.
+- Menu state: `status.after-start.txt` must have the menu bit clear, and
+  `status.after-menu.txt` plus final `gflags` must have it set after Escape,
+  proving the scripted input toggled Doom UI state while remaining in
+  `GS_LEVEL`.
 - Visual presence without pixels: `doompal`, `doomframe`, `doomnonzero`,
   `doomcolors`, and `doomsamp` summarize palette/frame activity without
   uploading `gfx.bin` or any rendered frame bytes.
 - Audio/mouse observability: `audio`, `doomsound`, `sfxmix`, `voices`,
-  `musicvoices`, `musicmix`, `musicloop`, `audioirq`, `ack8`, `ack16`,
-  `refill`, mixer safety counters, `mouse`,
+  `sfxvoices`, `musicvoices`, `musicmix`, `musicloop`, `audioirq`, `ack8`,
+  `ack16`, `refill`, mixer safety counters, `mouse`,
   `mouseirq`, `mousepkt`, and `mousepoll` are required to be present and
   well-formed. The automated mouse phase requires `mouse=OK` and proves IRQ12,
   packet decode, and Doom `SYS_POLL_MOUSE` consumption increased without
   uploading pixels.
   `tools/check_audio_continuity_proof.py` is the stricter SB16 path: it compares
   the phase snapshots using status snapshots only, requires `audio=SB16`, and
-  proves IRQ/refill, SFX, and looped music-carrier counters progressed without
-  uploading audio samples. It does not upload audio samples.
+  proves IRQ/refill, non-music SFX, and looped music-carrier counters
+  progressed without uploading audio samples. It does not upload audio samples.
   `tools/check_audio_continuity_proof.py` checks status snapshots only and
   does not upload audio samples.
 - Optional audible-output proof: when the manual workflow is run with
@@ -102,9 +113,9 @@ The cloud proof requires these status families:
 `tools/check_real_wad_proof.py` gates the real-WAD status on both the non-pixel
 visual proof and the scripted playability proof, plus the system/process/storage
 debug contract above. A final status line by itself is not sufficient: the gate
-requires the early, fire, movement, use, mouse, and menu snapshots so keyboard
-and mouse counters plus Doom action flags can be compared across the scripted
-phases. It rejects
+requires the early, start, fire, movement, use, mouse, and menu snapshots so
+keyboard and mouse counters plus Doom action flags and position/ammo/menu state
+can be compared across the scripted phases. It rejects
 duplicate fields, malformed hex, weak synthetic exec counters, Doom error
 strings, failed self-tests, and status lines that only prove a boot banner.
 `tools/check_human_playability_proof.py` can also compare the phase snapshots
@@ -119,9 +130,9 @@ directly.
 2. Confirm the fetch step prints the expected shareware v1.9 size and SHA-1.
    The workflow rebuilds with `DOOM_WAD=/tmp/DOOM1.WAD` and deletes that local
    WAD after the post-smoke validation.
-3. Review `status.early.txt`, `status.after-fire.txt`, `status.after-move.txt`,
-   `status.after-use.txt`, `status.after-mouse.txt`, `status.after-menu.txt`,
-   and `status.txt` in the
+3. Review `status.early.txt`, `status.after-start.txt`,
+   `status.after-fire.txt`, `status.after-move.txt`, `status.after-use.txt`,
+   `status.after-mouse.txt`, `status.after-menu.txt`, and `status.txt` in the
    uploaded diagnostic artifact. These are text status files, not framebuffer
    or WAD artifacts. The same artifact should include `doom.symbols` so
    `tools/triage_cloud_status.py` can symbolize `doomfaultip` if Doom reaches
@@ -132,6 +143,7 @@ directly.
    ```sh
    python3 tools/check_real_wad_proof.py \
      --baseline build/status.early.txt \
+     --start build/status.after-start.txt \
      --fire build/status.after-fire.txt \
      --movement build/status.after-move.txt \
      --use build/status.after-use.txt \

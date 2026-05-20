@@ -222,6 +222,10 @@ static const char* mapped_path(const char* path)
 
     if (!strcasecmp(slash, "doom1.wad"))
         return "DOOM1.WAD";
+    if (!strcasecmp(slash, "doom.elf"))
+        return "DOOM.ELF";
+    if (!strcasecmp(slash, "userprob.elf"))
+        return "USERPROB.ELF";
     if (!strcasecmp(slash, ".doomrc") || !strcasecmp(slash, "default.cfg"))
         return "DEFAULT.CFG";
     if (is_doom_save_basename(slash)) {
@@ -554,11 +558,16 @@ void free(void* ptr)
         alloc_coalesce_next(block->prev);
 }
 
-void exit(int status)
+void _exit(int status)
 {
     (void)vibe_syscall3(VIBE_SYS_EXIT, (unsigned long)status, 0, 0);
     for (;;) {
     }
+}
+
+void exit(int status)
+{
+    _exit(status);
 }
 
 char* getenv(const char* name)
@@ -784,6 +793,60 @@ int ioctl(int fd, unsigned long request, void* arg)
 {
     int raw = vibe_syscall3(VIBE_SYS_IOCTL, (unsigned long)fd, request, (unsigned long)arg);
     return raw < 0 ? syscall_failed(raw, ENOTTY) : raw;
+}
+
+int execv(const char* path, char* const argv[])
+{
+    int raw;
+
+    if (!path) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    raw = vibe_syscall3(VIBE_SYS_EXEC, (unsigned long)mapped_path(path), (unsigned long)argv, 0);
+    return raw < 0 ? syscall_failed(raw, ENOENT) : raw;
+}
+
+int execve(const char* path, char* const argv[], char* const envp[])
+{
+    if (envp && envp[0]) {
+        errno = ENOSYS;
+        return -1;
+    }
+    return execv(path, argv);
+}
+
+int execl(const char* path, const char* arg, ...)
+{
+    char* argv[8];
+    int count = 0;
+    va_list args;
+
+    if (!path) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    va_start(args, arg);
+    while (arg) {
+        if (count >= (int)(sizeof(argv) / sizeof(argv[0])) - 1) {
+            va_end(args);
+            errno = EINVAL;
+            return -1;
+        }
+        argv[count++] = (char*)arg;
+        arg = va_arg(args, const char*);
+    }
+    va_end(args);
+    argv[count] = 0;
+    return execv(path, argv);
+}
+
+pid_t getpid(void)
+{
+    int raw = vibe_syscall3(VIBE_SYS_GETPID, 0, 0, 0);
+    return raw < 0 ? syscall_failed(raw, ENOSYS) : raw;
 }
 
 pid_t fork(void)

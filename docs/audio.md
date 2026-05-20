@@ -23,21 +23,23 @@ Current kernel behavior:
 - exposes `SYS_AUDIO`/`VIBE_SYS_AUDIO` for the Doom platform layer
 - records Doom sound calls as `doomsound=<hex count>` plus last command, handle,
   and packed parameters in kernel memory
-- accepts Doom SFX descriptors from the platform layer and reports successful
-  buffer submissions as `sfxmix=<hex count>`
+- accepts Doom SFX descriptors from the platform layer and reports real,
+  non-music Doom SFX mixing as `sfxmix=<hex count>`
 - keeps a fixed eight-slot active voice table keyed by Doom sound handle, with
   sample pointer, length, fixed-point current position, volume, separation,
   pitch, panned left/right gains, pitch step, start order, and explicit voice
   flags
 - handles `START_SFX`, `STOP_SFX`, and `UPDATE_SFX` by registering, clearing, or
   retuning active voices before the next DMA half-buffer refill
+- answers Doom's `I_SoundIsPlaying` through `VIBE_AUDIO_IS_PLAYING` by checking
+  the same active voice table used by the IRQ mixer
 - steals the oldest non-music active voice when all eight slots are full, falling
   back to the oldest music carrier only if every slot is music, so new SFX stay
   bounded without usually cutting the music bed
 - reports audio IRQ and mixer ring health in smoke status:
-  `voices=`, `audioirq=`, `ack8=`, `ack16=`, `refill=`, `half=`, `mixwrap=`,
-  `mixover=`, `mixunder=`, `mixclip=`, `steal=`, `pitchclamp=`, and
-  `panclamp=`
+  `voices=`, `sfxvoices=`, `audioirq=`, `ack8=`, `ack16=`, `refill=`,
+  `half=`, `mixwrap=`, `mixover=`, `mixunder=`, `mixclip=`, `steal=`,
+  `pitchclamp=`, and `panclamp=`
 - reports music-carrier health separately as `musicvoices=`, `musicmix=`, and
   `musicloop=`
 
@@ -72,6 +74,13 @@ source sample is centered around `0x80`, scaled by the voice's panned gain,
 added to the existing left or right DMA byte, clipped back to unsigned 8-bit
 PCM, and written into the kernel-owned SB16 DMA ring.
 
+`sfxmix=` counts only normal Doom SFX voices. In plain contract terms,
+sfxmix= counts non-music Doom SFX only. Music-carrier voices use the same SB16
+refill mixer but increment `musicmix=` instead, and `sfxvoices=` exposes the
+current non-music voice count separately from total `voices=` and `musicvoices=`.
+This keeps the proof honest: a looped music carrier can no longer make the SFX
+lane look alive by itself.
+
 Separation follows Doom's original squared pan law in source-contract form:
 `left = volume - ((volume * (sep + 1)^2) >> 16)` and
 `right = volume - ((volume * (sep - 256)^2) >> 16)`, with gains clamped to the
@@ -97,6 +106,8 @@ samples for high pitch, and retires non-looping voices that reach the end of
 their sample. Loop-flagged voices wrap their source position back to zero
 instead, which is how bounded rendered music windows remain audible across IRQ
 refills without pretending the kernel has a pull-based MIDI stream yet.
+Doom's `I_SoundIsPlaying` now calls back into the audio syscall and returns true
+only while that handle is still active in the mixer voice table.
 
 Mixer safety is smoke-visible. `mixclip` counts left/right output clipping,
 `mixunder` counts invalid/empty SFX or active refills with no voices, `steal`
@@ -109,9 +120,10 @@ Remote-safe continuity proof:
 `status.early.txt`, `status.after-fire.txt`, `status.after-move.txt`,
 `status.after-use.txt`, `status.after-menu.txt`, and `status.txt`. It requires
 `audio=SB16` in every snapshot, monotonic audio counters, increasing IRQ/refill,
-SFX, and music-mix counters, nonzero SB16 ACK accounting, and a nonzero
-`musicloop=` count. That proves the emulated SB16 guest path continued to refill
-and mix across time without uploading proprietary WAD data, PCM samples, or
+non-music SFX `sfxmix=`, and music-carrier `musicmix=` counters, nonzero SB16
+ACK accounting, and a nonzero `musicloop=` count. That proves the emulated SB16
+guest path continued to refill and mix both Doom SFX and the looped music
+carrier across time without uploading proprietary WAD data, PCM samples, or
 rendered pixels. A run with `audio=NONE` is still useful diagnostics, but it is
 not an audible/streaming audio proof.
 
@@ -128,8 +140,8 @@ with `rm -f build/doom-audio.wav` before artifact upload.
 
 The aggregate JSON manifest is intentionally aggregate-only: sample format, duration,
 active-window counts, RMS/peak summaries, zero-crossing count, and the matching
-final `audio=SB16` / IRQ / refill / SFX / music status counters. It does not
-store samples, hashes, PCM bytes, WAD bytes, pixels, or a waveform. The artifact
+final `audio=SB16` / IRQ / refill / non-music SFX / music status counters. It
+does not store samples, hashes, PCM bytes, WAD bytes, pixels, or a waveform. The artifact
 checker rejects raw audio files such as `*.wav`, `*.mp3`, `*.ogg`, and `*.flac`,
 but accepts `audio-proof.json` when the manifest passes the checker. This proves
 that a remote QEMU audio backend received non-silent output from the guest
@@ -173,8 +185,9 @@ Remaining gaps:
   behind the explicit repo-owned `ALLOW_LOCAL_VM=1` opt-in.
 
 The cloud-safe continuity gate is `tools/check_audio_continuity_proof.py`. It
-checks status snapshots only: `audio=SB16`, IRQ/refill progress, SFX mixing, and
-the looped PCM carrier counters must move across the scripted cloud phases.
+checks status snapshots only: `audio=SB16`, IRQ/refill progress, non-music SFX
+mixing, and the looped PCM carrier counters must move across the scripted cloud
+phases.
 
 Fallback plan:
 

@@ -23,6 +23,9 @@ Mouse:
   carries signed Y delta.
 - The port maps PS/2 left/right/middle order into Doom's left/middle/right button
   order, then applies a small 4x relative-motion scale before posting `ev_mouse`.
+- Smoke status also exposes `mousebtn=` and `mousedelta=`. Those fields are
+  updated when the Doom user process consumes `SYS_POLL_MOUSE`, so the proof
+  distinguishes a real left-click/movement packet from an empty IRQ counter.
 
 Host tests prove the translation without QEMU or WAD data:
 
@@ -32,4 +35,5 @@ Host tests prove the translation without QEMU or WAD data:
   play keys and extended press/release path.
 - The real-WAD cloud workflow injects one deterministic mouse phase with QEMU
   monitor `mouse_move`/`mouse_button`, captures `status.after-mouse.txt`, and
-  requires IRQ12, packet, and Doom poll counters to advance.
+  requires IRQ12, packet, Doom poll counters, `mousebtn`, and `mousedelta` to
+  advance.

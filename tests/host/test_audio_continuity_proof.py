@@ -20,6 +20,7 @@ def status_line(**overrides):
         "doomsound": "00000001",
         "sfxmix": "00000001",
         "voices": "00000001",
+        "sfxvoices": "00000001",
         "audioirq": "00000001",
         "ack8": "00000001",
         "ack16": "00000000",
@@ -149,6 +150,25 @@ class AudioContinuityProofTests(unittest.TestCase):
                 movement_status=flat["baseline"],
                 use_status=flat["baseline"],
                 menu_status=flat["baseline"],
+            )
+
+    def test_rejects_music_carrier_without_independent_sfx_progress(self):
+        snapshots = snapshot_statuses()
+        for label, status in list(snapshots.items()):
+            snapshots[label] = status.replace("sfxmix=00000003", "sfxmix=00000001")
+            snapshots[label] = snapshots[label].replace("sfxmix=00000004", "sfxmix=00000001")
+            snapshots[label] = snapshots[label].replace("sfxmix=00000005", "sfxmix=00000001")
+            snapshots[label] = snapshots[label].replace("sfxmix=00000006", "sfxmix=00000001")
+            snapshots[label] = snapshots[label].replace("sfxmix=00000008", "sfxmix=00000001")
+
+        with self.assertRaisesRegex(AssertionError, "sfxmix=.*increase"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
             )
 
     def test_cli_auto_discovers_phase_status_files(self):

@@ -23,7 +23,7 @@ def make_status(**overrides):
         "doompresent": "00000004",
         "gflags": "00000001",
         "gaction": "00000000",
-        "pflags": "0000003F",
+        "pflags": "000000FF",
         "pbuttons": "00000000",
         "ppos": "00010000:00020000",
         "pdelta": "00000100",
@@ -34,6 +34,8 @@ def make_status(**overrides):
         "mouseirq": "00000002",
         "mousepkt": "00000002",
         "mousepoll": "00000002",
+        "mousebtn": "00000001",
+        "mousedelta": "00000018:0000000C",
         "doomlog": "ready",
     }
     fields.update(overrides)
@@ -80,6 +82,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             make_status(gflags="00000000"),
             make_status(pflags="0000003D"),
             make_status(pflags="00000037"),
+            make_status(pflags="0000003F"),
             make_status(pdelta="00000000"),
             make_status(ppos="00000000"),
             make_status(keyirq="00000000"),
@@ -107,9 +110,12 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     mouseirq="00000000",
                     mousepkt="00000000",
                     mousepoll="00000000",
+                    mousebtn="00000000",
+                    mousedelta="00000000:00000000",
                 )
             )
             fire = tmpdir / "status.after-fire.txt"
+            start = tmpdir / "status.after-start.txt"
             movement = tmpdir / "status.after-move.txt"
             use = tmpdir / "status.after-use.txt"
             mouse = tmpdir / "status.after-mouse.txt"
@@ -121,7 +127,19 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     keyirq="00000002",
                     keyqueue="00000002",
                     keypoll="00000002",
-                    pflags="00000005",
+                    pflags="000000C5",
+                )
+            )
+            start.write_text(
+                make_status(
+                    gtic="00000015",
+                    leveltime="00000015",
+                    keyirq="00000001",
+                    keyqueue="00000001",
+                    keypoll="00000001",
+                    pflags="00000001",
+                    gflags="00000000",
+                    pdelta="00000000",
                 )
             )
             movement.write_text(
@@ -132,6 +150,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     keyqueue="00000003",
                     keypoll="00000003",
                     pflags="00000023",
+                    ppos="00010020:00020000",
                 )
             )
             use.write_text(
@@ -154,6 +173,8 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     mouseirq="00000002",
                     mousepkt="00000002",
                     mousepoll="00000002",
+                    mousebtn="00000001",
+                    mousedelta="00000018:0000000C",
                 )
             )
             menu.write_text(
@@ -174,7 +195,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     keyirq="00000005",
                     keyqueue="00000005",
                     keypoll="00000005",
-                    pflags="0000003F",
+                    pflags="000000FF",
                 )
             )
 
@@ -184,6 +205,8 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     str(TOOL),
                     "--baseline",
                     str(baseline),
+                    "--start",
+                    str(start),
                     "--fire",
                     str(fire),
                     "--movement",
@@ -211,6 +234,8 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             mouseirq="00000000",
             mousepkt="00000000",
             mousepoll="00000000",
+            mousebtn="00000000",
+            mousedelta="00000000:00000000",
         )
         mouse = make_status(
             gtic="00000020",
@@ -219,6 +244,8 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             mouseirq="00000001",
             mousepkt="00000001",
             mousepoll="00000001",
+            mousebtn="00000001",
+            mousedelta="00000018:0000000C",
         )
         check_human_playability_proof.validate_status(
             make_status(
@@ -235,6 +262,26 @@ class HumanPlayabilityProofTests(unittest.TestCase):
         for field in ("mouseirq", "mousepkt", "mousepoll"):
             with self.subTest(field=field):
                 bad_mouse = make_status(**{field: "00000000"})
+                with self.assertRaisesRegex(AssertionError, field):
+                    check_human_playability_proof.validate_status(
+                        make_status(
+                            gtic="00000030",
+                            leveltime="00000030",
+                            keyirq="00000003",
+                            keyqueue="00000003",
+                            keypoll="00000003",
+                        ),
+                        baseline,
+                        mouse_status=bad_mouse,
+                    )
+
+        for field, value in (
+            ("mousebtn", "00000000"),
+            ("mousedelta", "00000000:0000000C"),
+            ("mousedelta", "00000018:00000000"),
+        ):
+            with self.subTest(field=field, value=value):
+                bad_mouse = make_status(**{field: value})
                 with self.assertRaisesRegex(AssertionError, field):
                     check_human_playability_proof.validate_status(
                         make_status(
@@ -271,6 +318,8 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             "VIBE_PLAYABLE_SEEN_USE_CMD",
             "VIBE_PLAYABLE_SEEN_MENU",
             "VIBE_PLAYABLE_SEEN_POS_DELTA",
+            "VIBE_PLAYABLE_SEEN_AMMO_DELTA",
+            "VIBE_PLAYABLE_SEEN_REFIRE",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, header)
@@ -281,6 +330,8 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             "VIBE_PLAYABLE_SEEN_USE_CMD",
             "VIBE_PLAYABLE_SEEN_MENU",
             "VIBE_PLAYABLE_SEEN_POS_DELTA",
+            "VIBE_PLAYABLE_SEEN_AMMO_DELTA",
+            "VIBE_PLAYABLE_SEEN_REFIRE",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, platform)
@@ -308,6 +359,8 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             'smoke_pflags_text db " pflags="',
             'smoke_ppos_text db " ppos="',
             'smoke_pdelta_text db " pdelta="',
+            'smoke_mousebtn_text db " mousebtn="',
+            'smoke_mousedelta_text db " mousedelta="',
         ):
             self.assertIn(source, kernel)
 
@@ -330,12 +383,14 @@ class HumanPlayabilityProofTests(unittest.TestCase):
 
         for source in (
             "after-fire:hold=ctrl:800",
+            "after-start:wait=2",
             "after-move:hold=up:1200",
             "after-use:spc",
             "after-mouse:mouse=24:-12",
             "mousebtn=1",
             "after-menu:esc",
             "Assert scripted human-playability gates",
+            "build/status.after-start.txt",
             "build/status.after-fire.txt",
             "build/status.after-move.txt",
             "build/status.after-use.txt",

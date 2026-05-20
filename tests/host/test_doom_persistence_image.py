@@ -158,6 +158,51 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertEqual(fs.read_root_file(name), b"new runtime bytes")
         self.assertEqual(fs.free_data_clusters(), before_free - len(new_chain))
 
+    def test_dynamic_file_growth_sparse_write_and_resize_preserve_fat_copies(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        name = b"GROWTH  BIN"
+        before_free = fs.free_data_clusters()
+
+        first_chain = fs.write_root_file(name, b"A" * 600)
+        self.assertEqual(len(first_chain), 2)
+
+        grown_chain = fs.write_root_file_at(name, 1500, b"END")
+        grown = fs.read_root_file(name)
+        self.assertEqual(len(grown), 1503)
+        self.assertEqual(grown[:600], b"A" * 600)
+        self.assertEqual(grown[600:1500], b"\0" * 900)
+        self.assertEqual(grown[1500:], b"END")
+        self.assertEqual(fs.free_data_clusters(), before_free - len(grown_chain))
+
+        shrunk_chain = fs.resize_root_file(name, 513)
+        shrunk = fs.read_root_file(name)
+        self.assertEqual(len(shrunk), 513)
+        self.assertEqual(shrunk, b"A" * 513)
+        self.assertEqual(fs.free_data_clusters(), before_free - len(shrunk_chain))
+        self.assertLess(len(shrunk_chain), len(grown_chain))
+
+        emptied_chain = fs.resize_root_file(name, 0)
+        self.assertEqual(emptied_chain, ())
+        self.assertEqual(fs.read_root_file(name), b"")
+        self.assertEqual(fs.free_data_clusters(), before_free)
+        fs.validate_fat_copies_match()
+
+    def test_dynamic_truncate_rejects_corrupt_chain_without_partial_free(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        name = b"CORRUPT BIN"
+        chain = fs.write_root_file(name, b"C" * 900)
+        fs.set_fat_entry(chain[-1], chain[0])
+        corrupt_entries = {cluster: fs.fat_entry(cluster) for cluster in chain}
+
+        with self.assertRaisesRegex(ValueError, "contains a loop"):
+            fs.truncate_root_file(name)
+
+        for cluster, value in corrupt_entries.items():
+            self.assertEqual(fs.fat_entry(cluster), value)
+        self.assertEqual(fs.root_file_metadata(name)["size"], 900)
+
     def test_host_image_mutator_refuses_writes_to_protected_entries(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
         fs = make_wad_image.Fat16Image(image)

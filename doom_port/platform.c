@@ -399,8 +399,7 @@ void I_StopSound(int handle)
 
 int I_SoundIsPlaying(int handle)
 {
-    (void)handle;
-    return 0;
+    return vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_IS_PLAYING, (unsigned long)handle, 0) > 0;
 }
 
 void I_UpdateSoundParams(int handle, int vol, int sep, int pitch)

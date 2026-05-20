@@ -50,6 +50,11 @@ SUMMARY_FIELDS = (
     "keyirq",
     "keyqueue",
     "keypoll",
+    "mouseirq",
+    "mousepkt",
+    "mousepoll",
+    "mousebtn",
+    "mousedelta",
     "gfx",
     "usr",
     "wad",
@@ -107,6 +112,8 @@ PAGE_FAULT_ERROR_BITS = (
     (4, "instruction-fetch"),
 )
 PREEMPT_PROBE_MAGIC = 0x50524545
+PLAYABILITY_REQUIRED_FLAGS = 0x0000003F
+PLAYABILITY_FIRE_STATE_FLAGS = 0x000000C0
 
 
 @dataclass(frozen=True)
@@ -168,9 +175,9 @@ TRIAGE_RULES = (
     ),
     TriageRule(
         "input-no-effect",
-        ("keyirq", "keyqueue", "keypoll", "pflags", "pdelta", "gflags"),
-        "Keyboard events reached the OS, but scripted fire/move/use/menu effects were not observed.",
-        "Compare early/fire/move/use/menu snapshots and inspect PS/2 translation plus Doom event injection.",
+        ("keyirq", "keyqueue", "keypoll", "mouseirq", "mousepkt", "mousepoll", "mousebtn", "mousedelta", "pflags", "pdelta", "gflags"),
+        "Keyboard or mouse events reached the OS, but scripted start/fire/move/use/menu/mouse effects were not observed.",
+        "Compare early/start/fire/move/use/menu snapshots and inspect PS/2 translation plus Doom event injection.",
     ),
     TriageRule(
         "preemption-not-proven",
@@ -578,17 +585,31 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         )
         return "frames-no-gameplay", notes
 
+    mouse_delta = _hex_pair(fields, "mousedelta")
+    pflags = _hex(fields, "pflags") or 0
     if (
         (_hex(fields, "keyirq") or 0) == 0
         or (_hex(fields, "keyqueue") or 0) == 0
         or (_hex(fields, "keypoll") or 0) == 0
+        or (_hex(fields, "mouseirq") or 0) == 0
+        or (_hex(fields, "mousepkt") or 0) == 0
+        or (_hex(fields, "mousepoll") or 0) == 0
+        or ((_hex(fields, "mousebtn") or 0) & 0x1) == 0
+        or mouse_delta is None
+        or mouse_delta[0] == 0
+        or mouse_delta[1] == 0
         or (_hex(fields, "pdelta") or 0) == 0
+        or (pflags & PLAYABILITY_REQUIRED_FLAGS) != PLAYABILITY_REQUIRED_FLAGS
+        or (pflags & PLAYABILITY_FIRE_STATE_FLAGS) == 0
     ):
         notes.append(
             "input-no-effect: "
             f"keyirq={_field(fields, 'keyirq')} keyqueue={_field(fields, 'keyqueue')} "
             f"keypoll={_field(fields, 'keypoll')} pflags={_field(fields, 'pflags')} "
-            f"pdelta={_field(fields, 'pdelta')} gflags={_field(fields, 'gflags')}"
+            f"pdelta={_field(fields, 'pdelta')} gflags={_field(fields, 'gflags')} "
+            f"mouseirq={_field(fields, 'mouseirq')} mousepkt={_field(fields, 'mousepkt')} "
+            f"mousepoll={_field(fields, 'mousepoll')} mousebtn={_field(fields, 'mousebtn')} "
+            f"mousedelta={_field(fields, 'mousedelta')}"
         )
         return "input-no-effect", notes
 

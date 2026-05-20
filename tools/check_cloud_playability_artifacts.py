@@ -26,6 +26,7 @@ MAKEFILE = ROOT / "Makefile"
 
 REQUIRED_STATUS_FILES = (
     "status.early.txt",
+    "status.after-start.txt",
     "status.after-fire.txt",
     "status.after-move.txt",
     "status.after-use.txt",
@@ -145,6 +146,7 @@ def validate_repo_contract() -> None:
         "doom.symbols",
         "audio-proof.json",
         "status.after-fire.txt",
+        "status.after-start.txt",
         "status.after-move.txt",
         "status.after-use.txt",
         "status.after-mouse.txt",
@@ -187,7 +189,8 @@ def validate_repo_contract() -> None:
         "SMOKE_SKIP_ASSERTIONS=1",
         "if: always()",
         "QEMU_EXTRA_ARGS=\"-audiodev none,id=snd0 -device sb16,audiodev=snd0\"",
-        "SMOKE_INPUT_SCRIPT=\"after-fire:hold=ctrl:800",
+        "SMOKE_INPUT_SCRIPT=\"after-start:wait=2,snapshot after-fire:hold=ctrl:800",
+        "after-start:wait=2,snapshot",
         "persistence_proof:",
         "persistence_input_script:",
         "persistence_save_slot:",
@@ -197,6 +200,7 @@ def validate_repo_contract() -> None:
         "--baseline-image \"$baseline\"",
         "python3 tools/check_real_wad_proof.py \\",
         "--baseline build/status.early.txt",
+        "--start build/status.after-start.txt",
         "--fire build/status.after-fire.txt",
         "--movement build/status.after-move.txt",
         "--use build/status.after-use.txt",
@@ -292,6 +296,7 @@ def validate_artifact_dir(artifact_dir: Path) -> None:
         check_real_wad_proof.validate_status(
             status,
             baseline_status=(artifact_dir / _find_one(names, "status.early.txt")).read_text(),
+            start_status=(artifact_dir / _find_one(names, "status.after-start.txt")).read_text(),
             fire_status=(artifact_dir / _find_one(names, "status.after-fire.txt")).read_text(),
             movement_status=(artifact_dir / _find_one(names, "status.after-move.txt")).read_text(),
             use_status=(artifact_dir / _find_one(names, "status.after-use.txt")).read_text(),

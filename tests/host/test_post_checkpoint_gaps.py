@@ -165,6 +165,13 @@ class PostCheckpointGapTests(unittest.TestCase):
             "doomopen=FAIL doomread=FAIL",
             "no final `status.txt` exists",
             "Fix the Doom user-mode page fault",
+            "26146488906",
+            "34eb98d",
+            "W_AddFile+0x246",
+            "doomfaultip=01024D06",
+            "doomopen=OK",
+            "doomread=OK",
+            "0193F000",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, gap_doc)
@@ -172,8 +179,10 @@ class PostCheckpointGapTests(unittest.TestCase):
         for phrase in (
             "latest analyzed real-WAD run is red",
             "FindResponseFile+0x34",
+            "W_AddFile+0x246",
             "not a Doom-capable claim",
             "faults before WAD open/read",
+            "not CI-clean",
         ):
             with self.subTest(readme_phrase=phrase):
                 self.assertIn(phrase, readme)
