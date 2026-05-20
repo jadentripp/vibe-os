@@ -310,7 +310,8 @@ jobs:
           save_slot_digit=""
           save_slot_select_actions=""
           save_description=""
-          save_keypoll_min=0000000A
+          save_description_actions=""
+          save_keypoll_min=0000001E
           load_keypoll_min=00000006
           if [ -n "${PERSISTENCE_SAVE_SLOT:-}" ]; then
             case "$PERSISTENCE_SAVE_SLOT" in
@@ -327,8 +328,9 @@ jobs:
             esac
             save_slot_select_actions=",${save_slot_digit},wait=2"
             save_description="VIBE-SLOT-${PERSISTENCE_SAVE_SLOT}"
+            save_description_actions=",v,i,b,e,minus,s,l,o,t,minus,${PERSISTENCE_SAVE_SLOT}"
             if [ "$persistence_write_script" = "auto" ]; then
-              persistence_write_script="save-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,f2,wait=2${save_slot_select_actions},ret,wait=2,text=${save_description},wait=2,ret,wait-status-min=keypoll:${save_keypoll_min}:360:2,wait-status-part-min=savewr:1:00000001:120:2,snapshot"
+              persistence_write_script="save-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,f2,wait=2${save_slot_select_actions},ret,wait=2${save_description_actions},wait=2,ret,wait-status-min=keypoll:${save_keypoll_min}:360:2,wait-status-part-min=savewr:1:00000001:120:2,snapshot"
             fi
             if [ "$persistence_load_script" = "auto" ]; then
               persistence_load_script="load-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,f3,wait=2${save_slot_select_actions}"

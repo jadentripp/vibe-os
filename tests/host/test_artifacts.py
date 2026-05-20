@@ -520,8 +520,12 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("Use text=NAME", real_wad_workflow)
         self.assertIn('save_slot_select_actions=",${save_slot_digit},wait=2"', real_wad_workflow)
         self.assertIn('save_description="VIBE-SLOT-${PERSISTENCE_SAVE_SLOT}"', real_wad_workflow)
-        self.assertIn("text=${save_description}", real_wad_workflow)
-        self.assertIn("save_keypoll_min=0000000A", real_wad_workflow)
+        self.assertIn(
+            'save_description_actions=",v,i,b,e,minus,s,l,o,t,minus,${PERSISTENCE_SAVE_SLOT}"',
+            real_wad_workflow,
+        )
+        self.assertIn("${save_description_actions}", real_wad_workflow)
+        self.assertIn("save_keypoll_min=0000001E", real_wad_workflow)
         self.assertIn("load_keypoll_min=00000006", real_wad_workflow)
         self.assertNotIn('if [ "$PERSISTENCE_SAVE_SLOT" != "0" ]', real_wad_workflow)
         self.assertIn("REAL_DOOM_WAD_URL", real_wad_workflow)
