@@ -165,7 +165,7 @@ class BootLoaderVmContractTests(unittest.TestCase):
         self.assertNotIn("PROC_PROBE_PAGE_DIR_ADDR + (0 * 4)", process_vm)
         self.assertNotIn("PROC_DOOM_PAGE_DIR_ADDR + (0 * 4)", process_vm)
         self.assertIn("mov eax, USER_CODE_ADDR - PAGE_SIZE", process_vm)
-        self.assertIn("call vmm_clear_process_page", process_vm)
+        self.assertIn("call vmm_clear_process_guard_page", process_vm)
         self.assertIn("mov eax, USER_HEAP_END", process_vm)
 
         user_page_marker = kernel.split("vmm_mark_process_user_page:", 1)[1].split("vmm_clear_process_page:", 1)[0]
@@ -177,6 +177,28 @@ class BootLoaderVmContractTests(unittest.TestCase):
         for source in ("mov eax, HEAP_START", "mov eax, USER_CODE_ADDR", "mov eax, DOOM_USER_BASE"):
             self.assertIn(source, pmm_init)
         self.assertGreaterEqual(pmm_init.count("call pmm_reserve_pages"), 3)
+
+        for source in (
+            "KERNEL_HIGHER_HALF_BASE equ 0xc0000000",
+            "KERNEL_HIGHER_HALF_PDE_INDEX equ KERNEL_HIGHER_HALF_BASE >> 22",
+            "VMM_HIGH_TEST_VADDR equ KERNEL_HIGHER_HALF_BASE",
+            "vmm_dynamic_page_tables dd 0",
+            "vmm_active_page_tables dd 0",
+            "vmm_high_mapping_status db 0",
+        ):
+            self.assertIn(source, kernel)
+
+        vmm_map = kernel.split("vmm_map_page:", 1)[1].split("vmm_unmap_page:", 1)[0]
+        self.assertIn("call pmm_alloc_page", vmm_map)
+        self.assertIn("inc dword [vmm_dynamic_page_tables]", vmm_map)
+        self.assertIn("inc dword [vmm_active_page_tables]", vmm_map)
+        self.assertNotIn("cmp edx, PAGING_TOTAL_PAGES", vmm_map)
+
+        vmm_self_test = kernel.split("vmm_self_test:", 1)[1].split("heap_init:", 1)[0]
+        self.assertIn("mov eax, VMM_HIGH_TEST_VADDR", vmm_self_test)
+        self.assertIn("mov dword [VMM_HIGH_TEST_VADDR], VMM_HIGH_TEST_MAGIC", vmm_self_test)
+        self.assertIn("call vmm_unmap_page", vmm_self_test)
+        self.assertIn("mov byte [vmm_high_mapping_status], 1", vmm_self_test)
 
     def test_boot_vm_docs_state_current_limits_without_overclaiming(self):
         boot_doc = text(ROOT / "docs" / "boot-loader-vm.md")

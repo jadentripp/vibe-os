@@ -18,6 +18,13 @@ whose PTEs carry the user bit. Page-table helpers now accept explicit user
 read-vs-write PTE flags; writable user pages use `PTE_WRITE`, while
 read/execute-only pages can be re-marked without it.
 
+`vmm_map_page` is no longer limited to the boot-time low identity tables. If the
+target PDE is absent after PMM is online, it allocates and zeroes a page-table
+frame, installs a supervisor PDE, updates dynamic/active page-table counters,
+and then writes the requested PTE. The current runtime proof is a high-half
+non-identity self-test at `0xc0000000`; process page directories are still
+preallocated and cloned from the boot kernel map.
+
 ## Current Address Spaces
 
 `process_user_probe` owns:
@@ -94,11 +101,12 @@ longer need to remain writable just because data exists in the same executable.
 
 ## Guards
 
-The probe process clears a not-present guard page immediately before
-`USER_CODE_ADDR` and immediately after `USER_HEAP_END`. Doom's post-window guard
-is the unmapped PDE after `DOOM_USER_END`. More precise stack red zones are still
-blocked by the current compact user layouts, where each process stack and heap
-are adjacent and the Doom heap grows up to the stack bottom.
+The probe and preempt-probe processes clear not-present guard pages immediately
+before `USER_CODE_ADDR` and immediately after `USER_HEAP_END` through the
+guard-page helper, which increments the VM guard counter. Doom's post-window
+guard is the unmapped PDE after `DOOM_USER_END`. More precise stack red zones are
+still blocked by the current compact user layouts, where each process stack and
+heap are adjacent and the Doom heap grows up to the stack bottom.
 
 ## Remaining Gaps
 
@@ -115,8 +123,10 @@ are adjacent and the Doom heap grows up to the stack bottom.
   (`pspin`). The `pspin` sampler only dereferences the preempt probe stack while
   `process_preempt_probe` is the active process, so the proof does not depend on
   probe pages being visible in Doom's page directory.
-- Page-table structures are fixed low-memory page-table pages, not dynamically
-  allocated or reclaimed with process lifetime.
+- Boot/process structures are still fixed low-memory page-table pages. The
+  kernel can allocate additional page tables for new mappings after PMM is
+  online, but process page directories and their user PDE tables are not yet
+  dynamically allocated or reclaimed with process lifetime.
 - Exact execute-disable enforcement is still blocked by the current 32-bit x86
   paging mode: `VM_REGION_EXEC` and `PF_X` are metadata until the kernel grows
   hardware NX or a different paging mode. Write protection is enforced today.

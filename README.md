@@ -259,8 +259,9 @@ For a human actually trying the image, use
 `docs/runbooks/remote-doom-playtest.md`. It keeps QEMU on a disposable remote
 host, exposes a loopback-only VNC display through SSH, keeps `DOOM1.WAD` outside
 git, collects an allowlisted status/log/ELF proof bundle with
-`tools/collect_human_playtest_bundle.py`, and validates downloaded diagnostics
-with `tools/check_cloud_playability_artifacts.py --human-session`.
+`tools/collect_human_playtest_bundle.py`, writes a SHA-256
+`human-playtest-manifest.json`, and validates downloaded diagnostics with
+`tools/check_cloud_playability_artifacts.py --human-session`.
 
 ## Shell Commands
 
@@ -344,8 +345,8 @@ Still required before this is actually Doom-capable:
 
 - a remote human VNC playtest using `docs/runbooks/remote-doom-playtest.md`,
   including status capture after keyboard-driven menu and gameplay actions
-- higher-half kernel mapping or another non-identity kernel layout, plus
-  dynamically allocated page tables and non-identity user frame backing
+- relocating the running kernel onto the new higher-half/non-identity mapping
+  contract, plus dynamic process page tables and non-identity user frame backing
 - broader VM/POSIX coverage: exec beyond the new root-level FAT16 `.ELF`
   fallback, richer `mmap`, fuller file semantics, descriptor duplication, and
   more device/ioctl contracts

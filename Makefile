@@ -283,6 +283,9 @@ smoke: vm-consent check-tools $(IMAGE)
 		grep -q "mousedelta=" $(BUILD_DIR)/status.txt; \
 		grep -q "gfx=OK" $(BUILD_DIR)/status.txt; \
 	grep -Eq "fb=(LFB|M13)" $(BUILD_DIR)/status.txt; \
+	grep -Eq "fbpolicy=(ASP|SQ|M13)" $(BUILD_DIR)/status.txt; \
+	grep -Eq "fbgeom=([0-9A-F]{8}:){4}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
+	grep -Eq "fbdirty=([0-9A-F]{8}:){4}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
 	grep -q "heap=OK" $(BUILD_DIR)/status.txt; \
 	if [ "$(SMOKE_CAPTURE_GFX)" = "1" ]; then \
 		test -s $(BUILD_DIR)/gfx.bin; \

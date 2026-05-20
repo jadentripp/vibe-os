@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import gzip
+import hashlib
 import io
+import json
 import sys
 import zipfile
 from pathlib import Path
@@ -51,6 +53,8 @@ REQUIRED_SYMBOL_FILES = (
 OPTIONAL_AUDIO_PROOF_FILE = "audio-proof.json"
 HUMAN_NOTES_FILE = "human-playtest-notes.txt"
 HUMAN_NOTES_SCHEMA = "human-playtest-notes-v1"
+HUMAN_MANIFEST_FILE = "human-playtest-manifest.json"
+HUMAN_MANIFEST_SCHEMA = "human-playtest-manifest-v1"
 REQUIRED_HUMAN_NOTE_FIELDS = {
     "schema": (HUMAN_NOTES_SCHEMA,),
     "remote_host": ("disposable",),
@@ -191,6 +195,7 @@ def validate_repo_contract() -> None:
         "tools/check_audible_audio_proof.py",
         "tools/triage_cloud_status.py",
         "human-playtest-notes.txt",
+        "human-playtest-manifest.json",
         "proof_bundle=allowlisted-status-only",
         "qemu_display=127.0.0.1:1",
         "vnc_endpoint=127.0.0.1:5901",
@@ -229,6 +234,7 @@ def validate_repo_contract() -> None:
 
     _require(playable, "Remote Doom Playtest Runbook", "playable cloud proof doc")
     _require(playable, "tools/collect_human_playtest_bundle.py", "playable cloud proof doc")
+    _require(playable, "human-playtest-manifest.json", "playable cloud proof doc")
     _require(playable, "puser", "playable cloud proof doc")
     _require(playable, "pspin", "playable cloud proof doc")
     _require(readme, "docs/runbooks/remote-doom-playtest.md", "README")
@@ -309,6 +315,160 @@ def _find_one(names: list[str], basename: str) -> str | None:
         joined = ", ".join(matches)
         raise AssertionError(f"duplicate diagnostic file basename {basename}: {joined}")
     return matches[0] if matches else None
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def build_human_manifest(artifact_dir: Path) -> dict:
+    names = [
+        name
+        for name in _relative_names(artifact_dir)
+        if Path(name).name != HUMAN_MANIFEST_FILE
+    ]
+    notes_name = _find_one(names, HUMAN_NOTES_FILE)
+    if notes_name is None:
+        raise AssertionError(f"missing expected human review file: {HUMAN_NOTES_FILE}")
+    notes_path = artifact_dir / notes_name
+    notes = _load_human_notes(notes_path)
+    files = [
+        {
+            "path": name,
+            "bytes": (artifact_dir / name).stat().st_size,
+            "sha256": _sha256_file(artifact_dir / name),
+        }
+        for name in sorted(names)
+    ]
+    return {
+        "schema": HUMAN_MANIFEST_SCHEMA,
+        "generated_by": "tools/collect_human_playtest_bundle.py",
+        "human_notes_schema": HUMAN_NOTES_SCHEMA,
+        "notes_file": HUMAN_NOTES_FILE,
+        "commit": notes.get("commit", ""),
+        "playtester": notes.get("playtester", ""),
+        "artifact_policy": {
+            "allowlisted_status_only": True,
+            "contains_wad_data": False,
+            "contains_disk_image": False,
+            "contains_pixels": False,
+            "contains_raw_audio": False,
+            "requires_remote_qemu": True,
+            "permits_local_qemu": False,
+        },
+        "required_files": sorted(
+            REQUIRED_STATUS_FILES
+            + REQUIRED_DIAGNOSTIC_FILES
+            + REQUIRED_SYMBOL_FILES
+            + (HUMAN_NOTES_FILE,)
+        ),
+        "files": files,
+    }
+
+
+def _load_human_manifest(path: Path) -> dict:
+    try:
+        manifest = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} must be valid JSON: {exc}") from exc
+    if not isinstance(manifest, dict):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} must be a JSON object")
+    return manifest
+
+
+def validate_human_manifest(artifact_dir: Path, manifest_path: Path) -> None:
+    manifest = _load_human_manifest(manifest_path)
+    if manifest.get("schema") != HUMAN_MANIFEST_SCHEMA:
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} schema must be {HUMAN_MANIFEST_SCHEMA}")
+    if manifest.get("generated_by") != "tools/collect_human_playtest_bundle.py":
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} generated_by must name the collector")
+    if manifest.get("human_notes_schema") != HUMAN_NOTES_SCHEMA:
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} human_notes_schema must be {HUMAN_NOTES_SCHEMA}")
+    if manifest.get("notes_file") != HUMAN_NOTES_FILE:
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} notes_file must be {HUMAN_NOTES_FILE}")
+
+    policy = manifest.get("artifact_policy")
+    if not isinstance(policy, dict):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} artifact_policy must be an object")
+    expected_policy = {
+        "allowlisted_status_only": True,
+        "contains_wad_data": False,
+        "contains_disk_image": False,
+        "contains_pixels": False,
+        "contains_raw_audio": False,
+        "requires_remote_qemu": True,
+        "permits_local_qemu": False,
+    }
+    for key, expected in expected_policy.items():
+        if policy.get(key) is not expected:
+            raise AssertionError(f"{HUMAN_MANIFEST_FILE} artifact_policy.{key} must be {expected}")
+
+    required_files = manifest.get("required_files")
+    expected_required = sorted(
+        REQUIRED_STATUS_FILES
+        + REQUIRED_DIAGNOSTIC_FILES
+        + REQUIRED_SYMBOL_FILES
+        + (HUMAN_NOTES_FILE,)
+    )
+    if required_files != expected_required:
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} required_files does not match checker contract")
+
+    entries = manifest.get("files")
+    if not isinstance(entries, list) or not entries:
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} files must be a non-empty list")
+    actual_names = sorted(
+        name
+        for name in _relative_names(artifact_dir)
+        if Path(name).name != HUMAN_MANIFEST_FILE
+    )
+    seen: dict[str, dict] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise AssertionError(f"{HUMAN_MANIFEST_FILE} files entries must be objects")
+        name = entry.get("path")
+        if not isinstance(name, str) or not name:
+            raise AssertionError(f"{HUMAN_MANIFEST_FILE} file path must be a non-empty string")
+        path = Path(name)
+        if path.is_absolute() or ".." in path.parts:
+            raise AssertionError(f"{HUMAN_MANIFEST_FILE} file path must stay inside bundle: {name}")
+        if Path(name).name == HUMAN_MANIFEST_FILE:
+            raise AssertionError(f"{HUMAN_MANIFEST_FILE} must not hash itself")
+        if name in seen:
+            raise AssertionError(f"{HUMAN_MANIFEST_FILE} duplicates file entry: {name}")
+        seen[name] = entry
+
+    if sorted(seen) != actual_names:
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} file inventory does not match bundle contents")
+
+    for name, entry in seen.items():
+        path = artifact_dir / name
+        expected_bytes = entry.get("bytes")
+        expected_hash = entry.get("sha256")
+        if not isinstance(expected_bytes, int) or expected_bytes < 0:
+            raise AssertionError(f"{HUMAN_MANIFEST_FILE} bytes must be a non-negative integer for {name}")
+        if path.stat().st_size != expected_bytes:
+            raise AssertionError(f"{HUMAN_MANIFEST_FILE} byte count mismatch for {name}")
+        if not isinstance(expected_hash, str) or len(expected_hash) != 64:
+            raise AssertionError(f"{HUMAN_MANIFEST_FILE} sha256 must be 64 hex chars for {name}")
+        try:
+            int(expected_hash, 16)
+        except ValueError as exc:
+            raise AssertionError(f"{HUMAN_MANIFEST_FILE} sha256 must be hex for {name}") from exc
+        if _sha256_file(path) != expected_hash:
+            raise AssertionError(f"{HUMAN_MANIFEST_FILE} sha256 mismatch for {name}")
+
+    notes_name = _find_one(actual_names, HUMAN_NOTES_FILE)
+    if notes_name is None:
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} missing notes inventory entry")
+    notes = _load_human_notes(artifact_dir / notes_name)
+    if manifest.get("commit") != notes.get("commit"):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} commit must match {HUMAN_NOTES_FILE}")
+    if manifest.get("playtester") != notes.get("playtester"):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} playtester must match {HUMAN_NOTES_FILE}")
 
 
 def _forbidden_content_reason(path: Path, data: bytes) -> str | None:
@@ -470,6 +630,15 @@ def validate_artifact_dir(artifact_dir: Path, require_human_notes: bool = False)
             validate_human_notes(artifact_dir / human_notes)
         except AssertionError as exc:
             raise AssertionError(f"human playtest notes failed: {exc}") from exc
+
+    human_manifest = _find_one(names, HUMAN_MANIFEST_FILE)
+    if require_human_notes and human_manifest is None:
+        raise AssertionError(f"missing expected human manifest file: {HUMAN_MANIFEST_FILE}")
+    if human_manifest is not None:
+        try:
+            validate_human_manifest(artifact_dir, artifact_dir / human_manifest)
+        except AssertionError as exc:
+            raise AssertionError(f"human playtest manifest failed: {exc}") from exc
 
 
 def main(argv: list[str]) -> int:

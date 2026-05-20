@@ -138,6 +138,9 @@ def valid_status(**overrides):
         "free": "00800000",
         "ticks": "00000020",
         "fb": "LFB",
+        "fbpolicy": "ASP",
+        "fbgeom": "00000000:00000000:00000280:000001E0:00000002",
+        "fbdirty": "00000000:00000000:00000140:000000C8:00010000",
         "audio": "SB16",
         "mouse": "OK",
         "doommode": "00000000:00000000",
@@ -384,6 +387,17 @@ def write_human_notes(artifact, **overrides):
     )
 
 
+def write_human_manifest(artifact):
+    (artifact / "human-playtest-manifest.json").write_text(
+        json.dumps(
+            check_cloud_playability_artifacts.build_human_manifest(artifact),
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+
+
 def valid_audio_proof_manifest():
     return {
         "schema": check_cloud_playability_artifacts.check_audible_audio_proof.SCHEMA,
@@ -554,16 +568,57 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                 check_cloud_playability_artifacts.validate_artifact_dir(
                     artifact,
                     require_human_notes=True,
-                )
+            )
 
             write_human_notes(artifact)
+            write_human_manifest(artifact)
             check_cloud_playability_artifacts.validate_artifact_dir(
                 artifact,
                 require_human_notes=True,
             )
 
             write_human_notes(artifact, no_local_qemu="no")
+            write_human_manifest(artifact)
             with self.assertRaisesRegex(AssertionError, "human playtest notes failed"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
+    def test_downloaded_human_session_requires_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            write_human_notes(artifact)
+
+            with self.assertRaisesRegex(AssertionError, "human manifest file"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
+    def test_downloaded_human_session_rejects_manifest_tampering(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            write_human_notes(artifact)
+            write_human_manifest(artifact)
+
+            (artifact / "serial.remote.log").write_text("late extra diagnostic\n")
+            with self.assertRaisesRegex(AssertionError, "file inventory does not match"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
+            write_human_manifest(artifact)
+            (artifact / "human-playtest-notes.txt").write_text(
+                (artifact / "human-playtest-notes.txt").read_text().replace(
+                    "playtester=jt",
+                    "playtester=someone-else",
+                )
+            )
+            with self.assertRaisesRegex(AssertionError, "byte count mismatch|sha256 mismatch"):
                 check_cloud_playability_artifacts.validate_artifact_dir(
                     artifact,
                     require_human_notes=True,
@@ -574,6 +629,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             artifact = Path(tmp)
             write_valid_artifact(artifact)
             write_human_notes(artifact)
+            write_human_manifest(artifact)
 
             result = subprocess.run(
                 [sys.executable, str(CHECKER), "--human-session", str(artifact)],
@@ -618,6 +674,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("human playtest bundle OK", result.stdout)
             self.assertTrue((output / "human-playtest-notes.txt").exists())
+            self.assertTrue((output / "human-playtest-manifest.json").exists())
             self.assertTrue((output / "serial.remote.log").exists())
             self.assertFalse((output / "disk.img").exists())
             self.assertFalse((output / "gfx.bin").exists())

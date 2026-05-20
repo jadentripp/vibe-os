@@ -41,6 +41,14 @@ are initialized. The base kernel page directory keeps the first 32 MiB
 identity-mapped with supervisor writable PTEs. This is deliberate early-OS
 plumbing; the kernel is not higher-half or position-independent yet.
 
+The VMM does now have a source-level higher-half contract for the next step:
+`KERNEL_HIGHER_HALF_BASE` is `0xc0000000`, and a host-checked self-test maps
+`VMM_HIGH_TEST_VADDR` at that base to a PMM-allocated physical frame. That test
+uses a dynamically allocated page table, writes through the high virtual alias,
+verifies the non-identity physical frame changed, unmaps the alias, and frees the
+test frame. This proves the mapper can build high, non-identity kernel mappings
+after PMM is online, but it does not relocate the running kernel yet.
+
 User processes get separate page directories. Those directories start as clones
 of the supervisor kernel map, then replace only the user windows with private
 page tables carrying the user bit:
@@ -67,7 +75,10 @@ Several fixed low-memory pages are reserved by design today:
 - `0x0009c000`: optional VBE LFB page table
 - `0x0009d000`: smoke/status block
 
-That is technically honest for the current milestone, but it is still fixed
-low-memory infrastructure. The remaining legitimacy work is dynamic page-table
-allocation, non-identity user frame backing, a higher-half or otherwise
-relocated kernel map, and stronger execute-permission enforcement.
+That is technically honest for the current milestone, but the boot-critical
+kernel/process tables are still fixed low-memory infrastructure. The VMM now
+accounts static, active, dynamic, and guard page-table state and can allocate
+additional page tables for mappings outside the original 32 MiB identity span.
+The remaining legitimacy work is moving the running kernel to the higher-half
+contract, non-identity user frame backing, page-table reclamation, and stronger
+execute-permission enforcement.

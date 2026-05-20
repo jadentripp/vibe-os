@@ -13,7 +13,8 @@ manual **Real WAD smoke** run proves the real shareware WAD path, gameplay,
 input, mouse, audio-counter, preemption, and non-pixel visual diagnostics from a
 disposable runner artifact. A human-facing playable claim still needs a recorded
 remote VNC playtest bundle from `docs/runbooks/remote-doom-playtest.md`, with
-structured human notes and the same non-WAD status checks passing locally.
+structured human notes, a SHA-256 `human-playtest-manifest.json`, and the same
+non-WAD status checks passing locally.
 
 ## Deterministic Script
 
@@ -90,7 +91,10 @@ The cloud proof requires these status families:
   `GS_LEVEL`.
 - Visual presence without pixels: `doompal`, `doomframe`, `doomnonzero`,
   `doomcolors`, and `doomsamp` summarize palette/frame activity without
-  uploading `gfx.bin` or any rendered frame bytes.
+  uploading `gfx.bin` or any rendered frame bytes. `fb`, `fbpolicy`, `fbgeom`,
+  and `fbdirty` prove whether the run used Mode 13h, aspect-correct integer LFB
+  scaling (`ASP`), or the labeled square fallback (`SQ`), plus the centered
+  viewport and changed source bounds.
 - Doom timer proof: `dtick` is the kernel's 35 Hz Doom time conversion and must
   equal `floor(ticks * 35 / 100)`, so the real-WAD checker can distinguish PIT
   progress from Doom's expected tic rate.
@@ -198,5 +202,8 @@ remote host, connects through VNC over SSH, and uses
 `tools/collect_human_playtest_bundle.py` on the remote host to build an
 allowlisted proof bundle before download. The bundle is then validated with
 `tools/check_cloud_playability_artifacts.py --human-session`, including
-`human-playtest-notes.txt`, without storing WAD data, disk images, audio
-captures, or rendered pixels in the repo.
+`human-playtest-notes.txt` and `human-playtest-manifest.json`, without storing
+WAD data, disk images, audio captures, or rendered pixels in the repo. The
+manifest ties the notes and diagnostics to exact byte counts and SHA-256 hashes
+so a downloaded human bundle cannot grow extra files or change contents without
+the artifact checker failing.

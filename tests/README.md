@@ -8,7 +8,9 @@ boot:
 - Boot/loader/VM contract tests compare the Stage 1 and Stage 2 raw-LBA
   constants, Makefile byte guards, image-builder layout, generated `disk.img`
   boot regions, protected-mode Stage 2 ELF handoff, and user/supervisor paging
-  boundaries without launching QEMU.
+  boundaries without launching QEMU. They also pin the higher-half seed contract:
+  `vmm_map_page` can allocate a missing page table from PMM and the VMM self-test
+  maps a high non-identity alias before unmapping it.
 - `tests/host/test_doom_source.py` is the original-Doom provenance gate. It
   hashes the vendored `linuxdoom-1.10` source boundary, audits the Makefile so
   original engine objects and `doom_port/*` shims stay separate, and invokes
@@ -100,8 +102,9 @@ boot:
   UEFI, AHCI, USB, SMP, APIC, HPET, and physical-hardware support wording unless
   the matrix grows a claimed row and a proof boundary first.
 - `tools/check_vm_safety_contract.py` machine-checks the local-QEMU opt-in,
-  cloud diagnostic upload hygiene, panic status fields, and shutdown status
-  fields without launching QEMU.
+  cloud diagnostic upload hygiene, panic status fields, shutdown status fields,
+  guard-page helper, and dynamic high VMM mapping contract without launching
+  QEMU.
 - `tools/check_shutdown_panic_proof.py` validates the opt-in disposable-cloud
   shutdown/panic proof contract and any downloaded proof artifact. It requires
   `shutdown-panic-proof.json` plus dedicated panic, halt, reboot-request, and
@@ -112,13 +115,15 @@ boot:
   downloaded real-WAD status artifacts without requiring a WAD or local QEMU.
   It rejects forbidden filenames, duplicate required basenames, unexpected ELF
   binaries, raw audio files, compressed WAD archives, and renamed WAD/disk/image/audio payload
-  signatures. If `audio-proof.json` is present, it validates that aggregate
-  manifest too.
+  signatures. In `--human-session` mode it also requires
+  `human-playtest-manifest.json` and verifies the bundle inventory SHA-256
+  hashes. If `audio-proof.json` is present, it validates that aggregate manifest
+  too.
 - `tools/collect_human_playtest_bundle.py` is the remote-host helper for manual
   VNC sessions. It does not launch QEMU; it copies only allowlisted status/log
   diagnostics and required ELF/symbol files from the disposable host build
-  directory, writes structured `human-playtest-notes.txt`, refuses proof output
-  inside the repo, and immediately invokes
+  directory, writes structured `human-playtest-notes.txt` plus
+  `human-playtest-manifest.json`, refuses proof output inside the repo, and immediately invokes
   `tools/check_cloud_playability_artifacts.py --human-session`.
 - `tools/triage_cloud_status.py` classifies a downloaded real-WAD status line
   into the first repair lane. The custom linker also writes `build/doom.symbols`

@@ -70,6 +70,10 @@ BOOT_VIDEO_FLAG_LFB equ 0x0002
 BOOT_VIDEO_FLAG_XRGB8888 equ 0x0004
 VIDEO_BACKEND_MODE13 equ 1
 VIDEO_BACKEND_LFB_XRGB8888 equ 2
+PRESENT_POLICY_MODE13 equ 1
+PRESENT_POLICY_ASPECT equ 2
+PRESENT_POLICY_SQUARE equ 3
+DOOM_ASPECT_HEIGHT equ 240
 CODE_SEG equ 0x08
 DATA_SEG equ 0x10
 USER_CODE_SEG equ 0x1b
@@ -94,6 +98,8 @@ PAGING_TABLES_ADDR equ 0x00091000
 PAGING_TABLE_COUNT equ 8
 PAGING_TOTAL_PAGES equ PAGING_TABLE_COUNT * 1024
 PAGING_MAPPED_BYTES equ PAGING_TABLE_COUNT * 0x00400000
+KERNEL_HIGHER_HALF_BASE equ 0xc0000000
+KERNEL_HIGHER_HALF_PDE_INDEX equ KERNEL_HIGHER_HALF_BASE >> 22
 FB_PAGE_TABLE_ADDR equ 0x0009c000
 PROC_PROBE_PAGE_DIR_ADDR equ 0x00080000
 PROC_PROBE_PDE3_TABLE_ADDR equ 0x00081000
@@ -110,6 +116,8 @@ PMM_MANAGED_END equ 0x02000000
 PMM_MANAGED_PAGES equ (PMM_MANAGED_END - PMM_MANAGED_START) / PAGE_SIZE
 VMM_TEST_VADDR equ 0x00f00000
 VMM_TEST_MAGIC equ 0x564d4d21
+VMM_HIGH_TEST_VADDR equ KERNEL_HIGHER_HALF_BASE
+VMM_HIGH_TEST_MAGIC equ 0x48494d4d
 HEAP_START equ 0x00100000
 HEAP_SIZE equ 0x00800000
 HEAP_MIN_EXT_KB equ 8192
@@ -290,7 +298,18 @@ VIBE_FB_INFO_PITCH equ 8
 VIBE_FB_INFO_BACKEND equ 12
 VIBE_FB_INFO_FRAME_BYTES equ 16
 VIBE_FB_INFO_PALETTE_BYTES equ 20
-VIBE_FB_INFO_BYTES equ 24
+VIBE_FB_INFO_SCALE equ 24
+VIBE_FB_INFO_VIEW_X equ 28
+VIBE_FB_INFO_VIEW_Y equ 32
+VIBE_FB_INFO_VIEW_WIDTH equ 36
+VIBE_FB_INFO_VIEW_HEIGHT equ 40
+VIBE_FB_INFO_POLICY equ 44
+VIBE_FB_INFO_DIRTY_X equ 48
+VIBE_FB_INFO_DIRTY_Y equ 52
+VIBE_FB_INFO_DIRTY_WIDTH equ 56
+VIBE_FB_INFO_DIRTY_HEIGHT equ 60
+VIBE_FB_INFO_DIRTY_COUNT equ 64
+VIBE_FB_INFO_BYTES equ 68
 VIBE_PRESENT_DESC_FRAME equ 0
 VIBE_PRESENT_DESC_PALETTE equ 4
 VIBE_PRESENT_DESC_WIDTH equ 8
@@ -1726,6 +1745,12 @@ gdt_init:
 paging_init:
     pushad
 
+    mov dword [vmm_static_page_tables], PAGING_TABLE_COUNT
+    mov dword [vmm_dynamic_page_tables], 0
+    mov dword [vmm_active_page_tables], PAGING_TABLE_COUNT
+    mov dword [vmm_user_guard_pages], 0
+    mov byte [vmm_high_mapping_status], 0
+
     mov edi, PAGING_DIR_ADDR
     xor eax, eax
     mov ecx, 1024
@@ -1826,6 +1851,8 @@ framebuffer_map_lfb:
     mov edi, PAGING_DIR_ADDR
     lea edi, [edi + eax * 4]
     mov dword [edi], FB_PAGE_TABLE_ADDR | PTE_KERNEL_FLAGS
+    inc dword [vmm_static_page_tables]
+    inc dword [vmm_active_page_tables]
 
     mov edi, FB_PAGE_TABLE_ADDR
     mov eax, [framebuffer_pte_index]
@@ -1947,9 +1974,9 @@ process_vm_init_page_spaces:
     mov edx, USER_STACK_TOP
     call vmm_mark_process_user_range
     mov eax, USER_CODE_ADDR - PAGE_SIZE
-    call vmm_clear_process_page
+    call vmm_clear_process_guard_page
     mov eax, USER_HEAP_END
-    call vmm_clear_process_page
+    call vmm_clear_process_guard_page
 
     mov esi, PAGING_TABLES_ADDR + (3 * PAGE_SIZE)
     mov edi, PROC_PREEMPT_PDE3_TABLE_ADDR
@@ -1963,9 +1990,9 @@ process_vm_init_page_spaces:
     mov edx, USER_STACK_TOP
     call vmm_mark_process_user_range
     mov eax, USER_CODE_ADDR - PAGE_SIZE
-    call vmm_clear_process_page
+    call vmm_clear_process_guard_page
     mov eax, USER_HEAP_END
-    call vmm_clear_process_page
+    call vmm_clear_process_guard_page
 
     mov esi, PAGING_TABLES_ADDR + (4 * PAGE_SIZE)
     mov edi, PROC_DOOM_PDE4_TABLE_ADDR
@@ -2093,6 +2120,11 @@ vmm_clear_process_page:
     pop edx
     pop ebx
     pop eax
+    ret
+
+vmm_clear_process_guard_page:
+    call vmm_clear_process_page
+    inc dword [vmm_user_guard_pages]
     ret
 
 pmm_init:
@@ -2262,20 +2294,51 @@ vmm_map_page:
     push ebx
     push ecx
     push edx
+    push esi
     push edi
 
     and eax, 0xfffff000
+    mov [vmm_map_vaddr], eax
     and ebx, 0xfffff000
     or ebx, ecx
     or ebx, 0x001
+    mov [vmm_map_entry], ebx
+
     mov edx, eax
-    shr edx, 12
-    cmp edx, PAGING_TOTAL_PAGES
-    jae .fail
-    mov edi, PAGING_TABLES_ADDR
-    shl edx, 2
-    add edi, edx
+    shr edx, 22
+    mov edi, PAGING_DIR_ADDR
+    lea edi, [edi + edx * 4]
+    mov edx, [edi]
+    test edx, PTE_PRESENT
+    jnz .have_table
+
+    call pmm_alloc_page
+    test eax, eax
+    jz .fail
+    mov [vmm_map_table_addr], eax
+    mov [vmm_map_pde_ptr], edi
+    mov edi, eax
+    xor eax, eax
+    mov ecx, 1024
+    cld
+    rep stosd
+    mov edi, [vmm_map_pde_ptr]
+    mov eax, [vmm_map_table_addr]
+    or eax, PTE_KERNEL_FLAGS
+    mov [edi], eax
+    inc dword [vmm_dynamic_page_tables]
+    inc dword [vmm_active_page_tables]
+
+.have_table:
+    mov edx, [edi]
+    and edx, 0xfffff000
+    mov eax, [vmm_map_vaddr]
+    shr eax, 12
+    and eax, 0x000003ff
+    lea edi, [edx + eax * 4]
+    mov ebx, [vmm_map_entry]
     mov [edi], ebx
+    mov eax, [vmm_map_vaddr]
     invlpg [eax]
     mov byte [vmm_status], 1
     clc
@@ -2286,9 +2349,39 @@ vmm_map_page:
 
 .done:
     pop edi
+    pop esi
     pop edx
     pop ecx
     pop ebx
+    pop eax
+    ret
+
+vmm_unmap_page:
+    push eax
+    push edx
+    push edi
+
+    and eax, 0xfffff000
+    mov [vmm_map_vaddr], eax
+    mov edx, eax
+    shr edx, 22
+    mov edi, PAGING_DIR_ADDR
+    lea edi, [edi + edx * 4]
+    mov edx, [edi]
+    test edx, PTE_PRESENT
+    jz .done
+    and edx, 0xfffff000
+    mov eax, [vmm_map_vaddr]
+    shr eax, 12
+    and eax, 0x000003ff
+    lea edi, [edx + eax * 4]
+    mov dword [edi], 0
+    mov eax, [vmm_map_vaddr]
+    invlpg [eax]
+
+.done:
+    pop edi
+    pop edx
     pop eax
     ret
 
@@ -2323,8 +2416,39 @@ vmm_self_test:
     call vmm_identity_page
     mov eax, ebx
     call pmm_free_page
+    call pmm_alloc_page
+    test eax, eax
+    jz .fail
+    mov ebx, eax
+
+    mov eax, VMM_HIGH_TEST_VADDR
+    cmp eax, ebx
+    je .high_free_fail
+    mov ecx, PTE_KERNEL_FLAGS
+    call vmm_map_page
+    jc .high_free_fail
+
+    mov dword [VMM_HIGH_TEST_VADDR], VMM_HIGH_TEST_MAGIC
+    cmp dword [ebx], VMM_HIGH_TEST_MAGIC
+    jne .high_unmap_fail
+
+    mov eax, VMM_HIGH_TEST_VADDR
+    call vmm_unmap_page
+    mov eax, ebx
+    call pmm_free_page
+    mov byte [vmm_high_mapping_status], 1
     mov byte [vmm_test_status], 1
     ret
+
+.high_unmap_fail:
+    mov eax, VMM_HIGH_TEST_VADDR
+    call vmm_unmap_page
+
+.high_free_fail:
+    mov eax, ebx
+    call pmm_free_page
+    mov byte [vmm_high_mapping_status], 2
+    jmp .fail
 
 .restore_fail:
     mov eax, VMM_TEST_VADDR
@@ -2335,6 +2459,11 @@ vmm_self_test:
     call pmm_free_page
 
 .fail:
+    cmp byte [vmm_high_mapping_status], 1
+    je .status_only
+    mov byte [vmm_high_mapping_status], 2
+
+.status_only:
     mov byte [vmm_test_status], 2
     ret
 
@@ -4371,6 +4500,7 @@ storage_init:
     mov dword [present_nonzero_count], 0
     mov dword [present_color_transition_count], 0
     mov byte [present_previous_index], 0
+    call present_reset_status_fields
     call mouse_reset_queue
 
     mov dword [sys_exec_attempts], 0
@@ -5831,6 +5961,11 @@ fat_file_lba_for_write:
     call fat_alloc_cluster
     jc .fail
     mov [writable_first_clusters + esi * 2], ax
+    push eax
+    mov eax, esi
+    call fat_update_writable_size
+    pop eax
+    jc .first_cluster_root_fail
 
 .have_first_cluster:
     mov [fat_current_cluster], ax
@@ -5884,6 +6019,14 @@ fat_file_lba_for_write:
     jmp .done
 
 .fail:
+    stc
+    jmp .done
+
+.first_cluster_root_fail:
+    mov word [writable_first_clusters + esi * 2], 0
+    movzx eax, ax
+    xor edx, edx
+    call fat_write_cluster_entry
     stc
 
 .done:
@@ -7817,6 +7960,7 @@ user_probe_run:
     mov dword [present_nonzero_count], 0
     mov dword [present_color_transition_count], 0
     mov byte [present_previous_index], 0
+    call present_reset_status_fields
     mov word [user_probe_cs], 0
     mov word [user_probe_ss], 0
 
@@ -7938,6 +8082,7 @@ doom_user_run:
     mov dword [present_nonzero_count], 0
     mov dword [present_color_transition_count], 0
     mov byte [present_previous_index], 0
+    call present_reset_status_fields
     call keyboard_reset_queue
     call mouse_reset_queue
     call fd_reset_all
@@ -9201,6 +9346,28 @@ syscall_handler:
     mov [edi + VIBE_FB_INFO_BACKEND], eax
     mov dword [edi + VIBE_FB_INFO_FRAME_BYTES], DOOM_FRAME_BYTES
     mov dword [edi + VIBE_FB_INFO_PALETTE_BYTES], DOOM_PALETTE_BYTES
+    mov eax, [present_lfb_scale]
+    mov [edi + VIBE_FB_INFO_SCALE], eax
+    mov eax, [present_lfb_view_x]
+    mov [edi + VIBE_FB_INFO_VIEW_X], eax
+    mov eax, [present_lfb_view_y]
+    mov [edi + VIBE_FB_INFO_VIEW_Y], eax
+    mov eax, [present_lfb_view_width]
+    mov [edi + VIBE_FB_INFO_VIEW_WIDTH], eax
+    mov eax, [present_lfb_view_height]
+    mov [edi + VIBE_FB_INFO_VIEW_HEIGHT], eax
+    mov eax, [present_lfb_policy]
+    mov [edi + VIBE_FB_INFO_POLICY], eax
+    mov eax, [present_dirty_x]
+    mov [edi + VIBE_FB_INFO_DIRTY_X], eax
+    mov eax, [present_dirty_y]
+    mov [edi + VIBE_FB_INFO_DIRTY_Y], eax
+    mov eax, [present_dirty_width]
+    mov [edi + VIBE_FB_INFO_DIRTY_WIDTH], eax
+    mov eax, [present_dirty_height]
+    mov [edi + VIBE_FB_INFO_DIRTY_HEIGHT], eax
+    mov eax, [present_dirty_count]
+    mov [edi + VIBE_FB_INFO_DIRTY_COUNT], eax
     xor eax, eax
     jmp .return
 
@@ -9751,13 +9918,19 @@ present_indexed_frame:
     loop .palette_next
 
 .mode13_present:
+    call present_set_mode13_geometry
+    call present_update_dirty_rect
     call present_copy_indexed_shadow
     call present_update_visual_proof
     jmp .success
 
 .lfb_present:
+    call present_select_lfb_geometry
+    jc .fail
+    call present_update_dirty_rect
     call present_copy_indexed_shadow
     call present_update_visual_proof
+    call present_clear_lfb
     call present_lfb_xrgb8888
     jc .fail
 
@@ -9775,6 +9948,116 @@ present_indexed_frame:
     pop edx
     pop ecx
     pop ebx
+    ret
+
+present_reset_status_fields:
+    mov byte [present_status], 0
+    mov dword [present_sample_first], 0
+    mov dword [present_sample_mid], 0
+    mov dword [present_sample_last], 0
+    mov dword [present_palette_hash], 0
+    mov dword [present_frame_hash], 0
+    mov dword [present_nonzero_count], 0
+    mov dword [present_color_transition_count], 0
+    mov byte [present_previous_index], 0
+    mov dword [present_dirty_x], 0
+    mov dword [present_dirty_y], 0
+    mov dword [present_dirty_width], 0
+    mov dword [present_dirty_height], 0
+    mov dword [present_dirty_count], 0
+    mov dword [present_lfb_policy], PRESENT_POLICY_MODE13
+    mov dword [present_lfb_scale], 1
+    mov dword [present_lfb_view_x], 0
+    mov dword [present_lfb_view_y], 0
+    mov dword [present_lfb_view_width], DOOM_SCREEN_WIDTH
+    mov dword [present_lfb_view_height], DOOM_SCREEN_HEIGHT
+    ret
+
+present_set_mode13_geometry:
+    mov dword [present_lfb_policy], PRESENT_POLICY_MODE13
+    mov dword [present_lfb_scale], 1
+    mov dword [present_lfb_view_x], 0
+    mov dword [present_lfb_view_y], 0
+    mov dword [present_lfb_view_width], DOOM_SCREEN_WIDTH
+    mov dword [present_lfb_view_height], DOOM_SCREEN_HEIGHT
+    ret
+
+present_update_dirty_rect:
+    pushad
+
+    mov dword [present_dirty_count], 0
+    mov dword [present_dirty_x], 0
+    mov dword [present_dirty_y], 0
+    mov dword [present_dirty_width], 0
+    mov dword [present_dirty_height], 0
+    mov dword [present_dirty_min_x], DOOM_SCREEN_WIDTH
+    mov dword [present_dirty_min_y], DOOM_SCREEN_HEIGHT
+    mov dword [present_dirty_max_x], 0
+    mov dword [present_dirty_max_y], 0
+
+    mov esi, [present_frame_arg]
+    mov edi, VGA_GRAPHICS_BUFFER
+    xor ebx, ebx
+
+.dirty_y_next:
+    cmp ebx, DOOM_SCREEN_HEIGHT
+    jae .dirty_done_scan
+    xor ecx, ecx
+
+.dirty_x_next:
+    cmp ecx, DOOM_SCREEN_WIDTH
+    jae .dirty_next_row
+    mov al, [esi]
+    cmp al, [edi]
+    je .dirty_same
+    inc dword [present_dirty_count]
+    cmp ecx, [present_dirty_min_x]
+    jae .dirty_min_x_done
+    mov [present_dirty_min_x], ecx
+
+.dirty_min_x_done:
+    cmp ebx, [present_dirty_min_y]
+    jae .dirty_min_y_done
+    mov [present_dirty_min_y], ebx
+
+.dirty_min_y_done:
+    cmp ecx, [present_dirty_max_x]
+    jbe .dirty_max_x_done
+    mov [present_dirty_max_x], ecx
+
+.dirty_max_x_done:
+    cmp ebx, [present_dirty_max_y]
+    jbe .dirty_same
+    mov [present_dirty_max_y], ebx
+
+.dirty_same:
+    inc esi
+    inc edi
+    inc ecx
+    jmp .dirty_x_next
+
+.dirty_next_row:
+    inc ebx
+    jmp .dirty_y_next
+
+.dirty_done_scan:
+    cmp dword [present_dirty_count], 0
+    je .dirty_done
+    mov eax, [present_dirty_min_x]
+    mov [present_dirty_x], eax
+    mov eax, [present_dirty_min_y]
+    mov [present_dirty_y], eax
+    mov eax, [present_dirty_max_x]
+    sub eax, [present_dirty_min_x]
+    inc eax
+    mov [present_dirty_width], eax
+    mov eax, [present_dirty_max_y]
+    sub eax, [present_dirty_min_y]
+    inc eax
+    mov [present_dirty_height], eax
+
+.dirty_done:
+    popad
     ret
 
 present_copy_indexed_shadow:
@@ -9862,36 +10145,252 @@ present_lfb_xrgb8888:
     push edi
     push ebp
 
-    cmp dword [framebuffer_width], 640
+    cmp dword [present_lfb_policy], PRESENT_POLICY_ASPECT
+    je .aspect
+    cmp dword [present_lfb_policy], PRESENT_POLICY_SQUARE
+    je .square
+    jmp .fail
+
+.aspect:
+    call present_lfb_aspect_xrgb8888
+    jmp .done_from_render
+
+.square:
+    call present_lfb_square_xrgb8888
+
+.done_from_render:
+    jc .fail
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop ebp
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+present_select_lfb_geometry:
+    push eax
+    push ebx
+    push ecx
+    push edx
+
+    cmp dword [framebuffer_width], DOOM_SCREEN_WIDTH * 2
     jb .fail
-    cmp dword [framebuffer_height], 400
+    cmp dword [framebuffer_height], DOOM_SCREEN_HEIGHT * 2
     jb .fail
-    cmp dword [framebuffer_pitch], 640 * 4
+    mov eax, [framebuffer_width]
+    shl eax, 2
+    cmp [framebuffer_pitch], eax
     jb .fail
 
     mov eax, [framebuffer_width]
-    sub eax, 640
+    xor edx, edx
+    mov ebx, DOOM_SCREEN_WIDTH
+    div ebx
+    mov ecx, eax
+    mov eax, [framebuffer_height]
+    xor edx, edx
+    mov ebx, DOOM_ASPECT_HEIGHT
+    div ebx
+    cmp ecx, eax
+    jbe .aspect_scale_ready
+    mov ecx, eax
+
+.aspect_scale_ready:
+    cmp ecx, 2
+    jb .try_square
+    mov dword [present_lfb_policy], PRESENT_POLICY_ASPECT
+    mov [present_lfb_scale], ecx
+    mov eax, DOOM_SCREEN_WIDTH
+    mul ecx
+    mov [present_lfb_view_width], eax
+    mov eax, DOOM_ASPECT_HEIGHT
+    mul ecx
+    mov [present_lfb_view_height], eax
+    jmp .compute_center
+
+.try_square:
+    mov eax, [framebuffer_width]
+    xor edx, edx
+    mov ebx, DOOM_SCREEN_WIDTH
+    div ebx
+    mov ecx, eax
+    mov eax, [framebuffer_height]
+    xor edx, edx
+    mov ebx, DOOM_SCREEN_HEIGHT
+    div ebx
+    cmp ecx, eax
+    jbe .square_scale_ready
+    mov ecx, eax
+
+.square_scale_ready:
+    cmp ecx, 2
+    jb .fail
+    mov dword [present_lfb_policy], PRESENT_POLICY_SQUARE
+    mov [present_lfb_scale], ecx
+    mov eax, DOOM_SCREEN_WIDTH
+    mul ecx
+    mov [present_lfb_view_width], eax
+    mov eax, DOOM_SCREEN_HEIGHT
+    mul ecx
+    mov [present_lfb_view_height], eax
+
+.compute_center:
+    mov eax, [framebuffer_width]
+    sub eax, [present_lfb_view_width]
     shr eax, 1
+    mov [present_lfb_view_x], eax
     shl eax, 2
     mov [present_lfb_x_offset], eax
 
     mov eax, [framebuffer_height]
-    sub eax, 400
+    sub eax, [present_lfb_view_height]
     shr eax, 1
+    mov [present_lfb_view_y], eax
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+present_clear_lfb:
+    pushad
+    mov edi, [framebuffer_addr]
+    mov eax, [framebuffer_pitch]
+    mul dword [framebuffer_height]
+    shr eax, 2
+    mov ecx, eax
+    xor eax, eax
+    cld
+    rep stosd
+    popad
+    ret
+
+present_lfb_start_row:
+    push edx
+    mov eax, [present_lfb_view_y]
     mul dword [framebuffer_pitch]
     add eax, [present_lfb_x_offset]
     add eax, [framebuffer_addr]
     mov [present_lfb_row], eax
+    pop edx
+    ret
 
-    mov esi, [present_frame_arg]
-    mov dword [present_lfb_rows_left], DOOM_SCREEN_HEIGHT
+present_lfb_square_xrgb8888:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
 
-.row_next:
-    cmp dword [present_lfb_rows_left], 0
-    je .ok
+    call present_lfb_start_row
+    xor ebx, ebx
+
+.source_row_next:
+    cmp ebx, DOOM_SCREEN_HEIGHT
+    jae .ok
+    mov eax, ebx
+    mov ecx, DOOM_SCREEN_WIDTH
+    mul ecx
+    add eax, [present_frame_arg]
+    mov esi, eax
+    mov ecx, [present_lfb_scale]
+
+.repeat_row:
     mov edi, [present_lfb_row]
-    mov ebp, edi
-    add ebp, [framebuffer_pitch]
+    push esi
+    call present_lfb_render_scaled_row
+    pop esi
+    mov eax, [framebuffer_pitch]
+    add [present_lfb_row], eax
+    dec ecx
+    jnz .repeat_row
+    inc ebx
+    jmp .source_row_next
+
+.ok:
+    clc
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+present_lfb_aspect_xrgb8888:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    call present_lfb_start_row
+    xor ebx, ebx
+
+.visual_row_next:
+    cmp ebx, DOOM_ASPECT_HEIGHT
+    jae .ok
+    mov eax, ebx
+    mov ecx, DOOM_SCREEN_HEIGHT
+    mul ecx
+    mov ecx, DOOM_ASPECT_HEIGHT
+    div ecx
+    mov [present_lfb_source_y], eax
+    mov ecx, DOOM_SCREEN_WIDTH
+    mul ecx
+    add eax, [present_frame_arg]
+    mov esi, eax
+    mov ecx, [present_lfb_scale]
+
+.repeat_row:
+    mov edi, [present_lfb_row]
+    push esi
+    call present_lfb_render_scaled_row
+    pop esi
+    mov eax, [framebuffer_pitch]
+    add [present_lfb_row], eax
+    dec ecx
+    jnz .repeat_row
+    inc ebx
+    jmp .visual_row_next
+
+.ok:
+    clc
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+present_lfb_render_scaled_row:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push ebp
+
     mov ecx, DOOM_SCREEN_WIDTH
 
 .pixel_next:
@@ -9908,31 +10407,16 @@ present_lfb_xrgb8888:
     or eax, ebx
     movzx ebx, byte [edx + 2]
     or eax, ebx
+    mov ebp, [present_lfb_scale]
+
+.repeat_pixel:
     mov [edi], eax
-    mov [edi + 4], eax
-    mov [ebp], eax
-    mov [ebp + 4], eax
-    add edi, 8
-    add ebp, 8
+    add edi, 4
+    dec ebp
+    jnz .repeat_pixel
     loop .pixel_next
 
-    mov eax, [framebuffer_pitch]
-    shl eax, 1
-    add [present_lfb_row], eax
-    dec dword [present_lfb_rows_left]
-    jmp .row_next
-
-.ok:
-    clc
-    jmp .done
-
-.fail:
-    stc
-
-.done:
     pop ebp
-    pop edi
-    pop esi
     pop edx
     pop ecx
     pop ebx
@@ -11295,6 +11779,67 @@ write_smoke_status:
 .fb_write:
     call smoke_copy_string
 
+    mov esi, smoke_fbpolicy_text
+    call smoke_copy_string
+    cmp dword [present_lfb_policy], PRESENT_POLICY_ASPECT
+    je .fbpolicy_aspect
+    cmp dword [present_lfb_policy], PRESENT_POLICY_SQUARE
+    je .fbpolicy_square
+    mov esi, smoke_mode13_text
+    jmp .fbpolicy_write
+
+.fbpolicy_aspect:
+    mov esi, smoke_aspect_text
+    jmp .fbpolicy_write
+
+.fbpolicy_square:
+    mov esi, smoke_square_text
+
+.fbpolicy_write:
+    call smoke_copy_string
+
+    mov esi, smoke_fbgeom_text
+    call smoke_copy_string
+    mov edx, [present_lfb_view_x]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [present_lfb_view_y]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [present_lfb_view_width]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [present_lfb_view_height]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [present_lfb_scale]
+    call smoke_write_hex32
+
+    mov esi, smoke_fbdirty_text
+    call smoke_copy_string
+    mov edx, [present_dirty_x]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [present_dirty_y]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [present_dirty_width]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [present_dirty_height]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [present_dirty_count]
+    call smoke_write_hex32
+
     mov esi, smoke_preempt_text
     call smoke_copy_string
     mov edx, [scheduler_preempt_switches]
@@ -12147,6 +12692,9 @@ smoke_mousebtn_text db " mousebtn=", 0
 smoke_mousedelta_text db " mousedelta=", 0
 smoke_gfx_text db " gfx=", 0
 smoke_fb_text db " fb=", 0
+smoke_fbpolicy_text db " fbpolicy=", 0
+smoke_fbgeom_text db " fbgeom=", 0
+smoke_fbdirty_text db " fbdirty=", 0
 smoke_preempt_text db " preempt=", 0
 smoke_pirq_text db " pirq=", 0
 smoke_pattempt_text db " pattempt=", 0
@@ -12169,6 +12717,8 @@ smoke_exit_text db "EXIT", 0
 smoke_fault_text db "FAULT", 0
 smoke_mode13_text db "M13", 0
 smoke_lfb_text db "LFB", 0
+smoke_aspect_text db "ASP", 0
+smoke_square_text db "SQ", 0
 smoke_sb16_text db "SB16", 0
 smoke_none_text db "NONE", 0
 smoke_kexc_text db "KEXC", 0
@@ -12337,6 +12887,7 @@ paging_status db 0
 vmm_status db 0
 pmm_test_status db 0
 vmm_test_status db 0
+vmm_high_mapping_status db 0
 heap_test_status db 0
 fpu_status db 0
 fpu_test_status db 0
@@ -12403,6 +12954,14 @@ process_doom:
 pmm_total_pages dd 0
 pmm_free_pages dd 0
 pmm_used_pages dd 0
+vmm_static_page_tables dd 0
+vmm_dynamic_page_tables dd 0
+vmm_active_page_tables dd 0
+vmm_user_guard_pages dd 0
+vmm_map_vaddr dd 0
+vmm_map_entry dd 0
+vmm_map_table_addr dd 0
+vmm_map_pde_ptr dd 0
 ata_last_lba dd 0
 fat_lba_base dd 0
 fat_total_sectors dd 0
@@ -12668,6 +13227,21 @@ present_nonzero_count dd 0
 present_color_transition_count dd 0
 present_previous_index db 0
 align 4
+present_dirty_x dd 0
+present_dirty_y dd 0
+present_dirty_width dd 0
+present_dirty_height dd 0
+present_dirty_count dd 0
+present_dirty_min_x dd 0
+present_dirty_min_y dd 0
+present_dirty_max_x dd 0
+present_dirty_max_y dd 0
+present_lfb_policy dd PRESENT_POLICY_MODE13
+present_lfb_scale dd 1
+present_lfb_view_x dd 0
+present_lfb_view_y dd 0
+present_lfb_view_width dd DOOM_SCREEN_WIDTH
+present_lfb_view_height dd DOOM_SCREEN_HEIGHT
 framebuffer_addr dd 0
 framebuffer_pitch dd 0
 framebuffer_width dd 0
@@ -12678,6 +13252,8 @@ framebuffer_pte_index dd 0
 present_lfb_row dd 0
 present_lfb_x_offset dd 0
 present_lfb_rows_left dd 0
+present_lfb_source_y dd 0
+present_lfb_repeat_rows dd 0
 audio_status db 0
 sb16_major_version db 0
 sb16_minor_version db 0

@@ -98,7 +98,24 @@ typedef struct vibe_fb_info {
     unsigned long backend;
     unsigned long frame_bytes;
     unsigned long palette_bytes;
+    unsigned long scale;
+    unsigned long view_x;
+    unsigned long view_y;
+    unsigned long view_width;
+    unsigned long view_height;
+    unsigned long policy;
+    unsigned long dirty_x;
+    unsigned long dirty_y;
+    unsigned long dirty_width;
+    unsigned long dirty_height;
+    unsigned long dirty_count;
 } vibe_fb_info_t;
+
+enum {
+    VIBE_FB_POLICY_MODE13 = 1,
+    VIBE_FB_POLICY_ASPECT = 2,
+    VIBE_FB_POLICY_SQUARE = 3,
+};
 
 typedef struct vibe_present_indexed {
     const void* frame;

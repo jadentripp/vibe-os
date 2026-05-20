@@ -65,10 +65,11 @@ What still fails:
 - A green scripted cloud run is not the same thing as a human playtest. A person
   still needs to complete and record the remote VNC path with keyboard/menu and
   gameplay actions.
-- The remaining architecture gaps are still real: higher-half or non-identity
-  kernel mapping, broader VM/POSIX semantics, broader graphics policy, more
-  complete music streaming, a human shutdown/reboot story, and hardware classes
-  beyond the current QEMU BIOS/IDE/PS2/VBE/SB16 target.
+- The remaining architecture gaps are still real: relocating the running kernel
+  onto the new higher-half/non-identity mapping contract, broader VM/POSIX
+  semantics, broader graphics policy, more complete music streaming, a human
+  shutdown/reboot story, and hardware classes beyond the current QEMU
+  BIOS/IDE/PS2/VBE/SB16 target.
 
 Earlier red runs kept for context:
 
@@ -106,6 +107,11 @@ Current state:
 - The matching normal cloud `os-smoke` run `26151623239` passes the generated-WAD
   boot smoke plus the opt-in shutdown/panic proof lane for the same
   kernel/runtime commit.
+- The display path now has a host-proved aspect policy: LFB presents use the
+  largest centered 320x240 integer scale when the framebuffer can fit it, expose
+  a labeled `SQ` fallback for 320x200 square scaling, and report `fbpolicy`,
+  `fbgeom`, and `fbdirty` so future status artifacts show the exact display
+  contract without uploading pixels.
 
 Still missing:
 
@@ -305,6 +311,11 @@ Current state:
   rewrites the live interrupt frame, and reports `pirq` plus
   `pfrom`/`pto`/`peip`/`pspin` status. The preempt probe's stack sampler is
   guarded to run only while that process address space is active.
+- The VMM has a checked higher-half seed contract: `KERNEL_HIGHER_HALF_BASE` is
+  `0xc0000000`, `vmm_map_page` can allocate a missing page table from PMM after
+  PMM is online, and the VMM self-test maps a high virtual alias to a different
+  physical frame before unmapping it. This is a legitimate non-identity mapping
+  capability, not a relocated running kernel.
 
 Still missing:
 
@@ -316,8 +327,10 @@ Still missing:
   probe-class exec fallback, not a robust Unix process model with dynamic PIDs,
   reaping, fd inheritance, address-space teardown, or general child lifecycle
   semantics.
-- The kernel is still identity-mapped in low memory, page-table allocation is not
-  fully dynamic, and 32-bit paging cannot enforce NX.
+- The running kernel is still identity-mapped in low memory, process page-table
+  allocation is not fully dynamic or reclaimed with process lifetime, user pages
+  are still backed by identity-shaped frames, and 32-bit paging cannot enforce
+  NX.
 
 Executable gate:
 

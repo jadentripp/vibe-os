@@ -10,6 +10,7 @@ runs the same status-only artifact validator used for downloaded cloud proofs.
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import subprocess
 import sys
@@ -175,6 +176,12 @@ def collect(args: argparse.Namespace) -> list[str]:
 
     if args.audio == "audio-proof-json-pass" and not (output_dir / "audio-proof.json").exists():
         raise AssertionError("audio=audio-proof-json-pass requires audio-proof.json")
+
+    manifest = check_cloud_playability_artifacts.build_human_manifest(output_dir)
+    (output_dir / check_cloud_playability_artifacts.HUMAN_MANIFEST_FILE).write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    )
+    copied.append(check_cloud_playability_artifacts.HUMAN_MANIFEST_FILE)
 
     check_cloud_playability_artifacts.validate_artifact_dir(
         output_dir,

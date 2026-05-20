@@ -145,6 +145,32 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     ):
         _require(kernel, needle, "kernel")
 
+    for needle in (
+        "KERNEL_HIGHER_HALF_BASE equ 0xc0000000",
+        "KERNEL_HIGHER_HALF_PDE_INDEX equ KERNEL_HIGHER_HALF_BASE >> 22",
+        "VMM_HIGH_TEST_VADDR equ KERNEL_HIGHER_HALF_BASE",
+        "vmm_dynamic_page_tables dd 0",
+        "vmm_active_page_tables dd 0",
+        "vmm_user_guard_pages dd 0",
+        "vmm_high_mapping_status db 0",
+        "vmm_clear_process_guard_page:",
+        "call vmm_clear_process_guard_page",
+        "vmm_unmap_page:",
+        "mov dword [VMM_HIGH_TEST_VADDR], VMM_HIGH_TEST_MAGIC",
+        "mov byte [vmm_high_mapping_status], 1",
+    ):
+        _require(kernel, needle, "kernel VM contract")
+
+    vmm_map = kernel.split("vmm_map_page:", 1)[1].split("vmm_unmap_page:", 1)[0]
+    for needle in (
+        "call pmm_alloc_page",
+        "inc dword [vmm_dynamic_page_tables]",
+        "inc dword [vmm_active_page_tables]",
+    ):
+        _require(vmm_map, needle, "dynamic VMM mapper")
+    if "cmp edx, PAGING_TOTAL_PAGES" in vmm_map:
+        raise AssertionError("vmm_map_page must not be limited to the static identity table span")
+
     panic_path = kernel.split(".not_expected_user_fault:", 1)[1].split("doom_user_fault:", 1)[0]
     _require(panic_path, "mov dword [panic_status], PANIC_UNHANDLED_EXCEPTION", "kernel panic path")
     _require(panic_path, "call write_smoke_status", "kernel panic path")
@@ -174,7 +200,7 @@ def main() -> int:
         print(f"VM safety contract failed: {exc}", file=sys.stderr)
         return 1
 
-    print("VM safety contract OK: local QEMU opt-in, cloud diagnostics, and panic/shutdown status are machine-checkable")
+    print("VM safety contract OK: local QEMU opt-in, cloud diagnostics, panic/shutdown status, and dynamic high VMM mapping are machine-checkable")
     return 0
 
 

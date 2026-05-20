@@ -752,7 +752,9 @@ class SourceContractTests(unittest.TestCase):
         core = (
             "exec=OK path=DOOM.ELF doom=OK doomrun=RUN doomopen=OK doomread=OK "
             "gfx=OK pself=OK pg=ON pmm=OK vmm=OK libc=OK c=OK usr=OK wad=OK lmp=OK heap=OK "
-            "fb=LFB audio=NONE mouse=OK doommode=00000000:00000000 "
+            "fb=LFB fbpolicy=ASP fbgeom=00000000:00000000:00000280:000001E0:00000002 "
+            "fbdirty=00000000:00000000:00000140:000000C8:00010000 "
+            "audio=NONE mouse=OK doommode=00000000:00000000 "
             "target=00000001 ppid=00000001 entry=00000001 stack=00000002 argc=00000001 argv=00000003 envp=00000005 argv0=00000004 envp0=00000000 "
             "execerr=00000000 execres=00000000 execsys=00000001/00000001/00000000/00000001/00000001/00000000 "
             "doomwrite=00000000 doomseek=00000001 doomwad=00000001/00000001/00000001/44415749 "
@@ -1394,8 +1396,11 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("present_indexed_frame:", kernel)
         self.assertIn("present_copy_indexed_shadow:", kernel)
         self.assertIn("present_lfb_xrgb8888:", kernel)
-        self.assertIn("mov [edi + 4], eax", kernel)
-        self.assertIn("mov [ebp + 4], eax", kernel)
+        self.assertIn("present_lfb_render_scaled_row:", kernel)
+        self.assertIn("present_update_dirty_rect:", kernel)
+        self.assertIn('smoke_fbpolicy_text db " fbpolicy="', kernel)
+        self.assertIn('smoke_fbgeom_text db " fbgeom="', kernel)
+        self.assertIn('smoke_fbdirty_text db " fbdirty="', kernel)
         self.assertIn("mov dword [doom_present_count], 0", kernel)
         self.assertIn("mov byte [present_status], 0", kernel)
         self.assertIn('smoke_doompresent_text db " doompresent="', kernel)
