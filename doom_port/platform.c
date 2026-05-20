@@ -27,6 +27,7 @@ extern boolean sendsave;
 extern int savegameslot;
 extern char savedescription[32];
 void doom_original_G_BuildTiccmd(ticcmd_t* cmd);
+void G_LoadGame(char* name);
 
 static byte doom_zone[8 * 1024 * 1024];
 static doomcom_t local_doomcom;
@@ -51,6 +52,14 @@ static int playable_initial_clip = -1;
 static int default_config_checkpoint_checked;
 static int default_config_checkpoint_request_checked;
 static int default_config_checkpoint_requested;
+static int save_checkpoint_request_checked;
+static int save_checkpoint_requested;
+static int save_checkpoint_slot;
+static int save_checkpoint_done;
+static int load_checkpoint_request_checked;
+static int load_checkpoint_requested;
+static int load_checkpoint_slot;
+static int load_checkpoint_done;
 
 #define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
 #define VIBE_MUSIC_STREAM_TICS \
@@ -194,6 +203,52 @@ static int persistence_checkpoint_requested(void)
     return default_config_checkpoint_requested;
 }
 
+static int read_persistence_slot_request(const char* path, int* slot)
+{
+    FILE* marker;
+    char buffer[4];
+    size_t length;
+
+    if (!slot)
+        return 0;
+
+    *slot = 0;
+    marker = fopen(path, "r");
+    if (!marker)
+        return 0;
+
+    length = fread(buffer, 1, sizeof(buffer), marker);
+    fclose(marker);
+    if (length > 0 && buffer[0] >= '0' && buffer[0] <= '5')
+        *slot = buffer[0] - '0';
+
+    return 1;
+}
+
+static int save_checkpoint_requested_once(void)
+{
+    if (save_checkpoint_request_checked)
+        return save_checkpoint_requested;
+
+    save_checkpoint_request_checked = 1;
+    save_checkpoint_requested = read_persistence_slot_request(
+        "SAVEREQ.CHK",
+        &save_checkpoint_slot);
+    return save_checkpoint_requested;
+}
+
+static int load_checkpoint_requested_once(void)
+{
+    if (load_checkpoint_request_checked)
+        return load_checkpoint_requested;
+
+    load_checkpoint_request_checked = 1;
+    load_checkpoint_requested = read_persistence_slot_request(
+        "LOADREQ.CHK",
+        &load_checkpoint_slot);
+    return load_checkpoint_requested;
+}
+
 static int default_config_checkpoint_ready(void)
 {
     return gamestate == GS_LEVEL
@@ -218,6 +273,44 @@ static void checkpoint_default_config_if_needed(void)
     default_config_checkpoint_checked = 1;
     if (default_config_needs_checkpoint())
         M_SaveDefaults();
+}
+
+static void checkpoint_save_slot_if_needed(void)
+{
+    if (save_checkpoint_done || !save_checkpoint_requested_once())
+        return;
+    if (!default_config_checkpoint_ready()
+        || menuactive
+        || sendsave
+        || savedescription[0]
+        || gameaction != ga_nothing) {
+        return;
+    }
+
+    savegameslot = save_checkpoint_slot;
+    strcpy(savedescription, "VIBE SAVE");
+    sendsave = false;
+    gameaction = ga_savegame;
+    save_checkpoint_done = 1;
+}
+
+static void checkpoint_load_slot_if_needed(void)
+{
+    char path[] = "doomsav0.dsg";
+
+    if (load_checkpoint_done || !load_checkpoint_requested_once())
+        return;
+    if (!default_config_checkpoint_ready()
+        || menuactive
+        || sendsave
+        || savedescription[0]
+        || gameaction != ga_nothing) {
+        return;
+    }
+
+    path[7] = (char)('0' + load_checkpoint_slot);
+    G_LoadGame(path);
+    load_checkpoint_done = 1;
 }
 
 static void pump_music_stream(void)
@@ -547,6 +640,8 @@ void I_FinishUpdate(void)
     report_doom_init_status(VIBE_DOOM_INIT_FRAME);
     pump_music_stream();
     report_gameplay_status();
+    checkpoint_save_slot_if_needed();
+    checkpoint_load_slot_if_needed();
     report_save_action_status();
     report_playability_status();
     checkpoint_default_config_if_needed();

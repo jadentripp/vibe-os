@@ -484,6 +484,7 @@ class SourceContractTests(unittest.TestCase):
         gitignore = (ROOT / ".gitignore").read_text()
         os_smoke_workflow = (ROOT / ".github" / "workflows" / "os-smoke.yml").read_text()
         real_wad_workflow = (ROOT / ".github" / "workflows" / "real-wad-smoke.yml").read_text()
+        image_tool = (ROOT / "tools" / "make_wad_image.py").read_text()
         self.assertIn("ALLOW_LOCAL_VM ?= 0", makefile)
         self.assertIn("DOOM_WAD ?=", makefile)
         self.assertIn("SMOKE_EXPECT_PROBE_GFX ?= 1", makefile)
@@ -518,10 +519,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", real_wad_workflow)
         self.assertIn("wad_url:", real_wad_workflow)
         self.assertIn("Use text=NAME", real_wad_workflow)
-        self.assertIn('save_slot_select_actions=",${save_slot_digit},wait=2"', real_wad_workflow)
-        self.assertIn("save_keypoll_min=0000000A", real_wad_workflow)
-        self.assertIn("load_keypoll_min=00000006", real_wad_workflow)
-        self.assertNotIn('if [ "$PERSISTENCE_SAVE_SLOT" != "0" ]', real_wad_workflow)
+        self.assertNotIn("save_keypoll_min", real_wad_workflow)
+        self.assertNotIn("load_keypoll_min", real_wad_workflow)
         self.assertIn("REAL_DOOM_WAD_URL", real_wad_workflow)
         self.assertIn("PUBLIC_SHAREWARE_WAD_GZ_URL", real_wad_workflow)
         self.assertIn("archive.org/download/wadarchive", real_wad_workflow)
@@ -575,9 +574,12 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("check_args+=(--save-write-status build/status.persistence-write.txt)", real_wad_workflow)
         self.assertIn('cp "$baseline" build/disk.img', real_wad_workflow)
         self.assertIn('if [ -z "${PERSISTENCE_SAVE_SLOT:-}" ]; then', real_wad_workflow)
-        self.assertIn("make_wad_image.PERSISTENCE_CHECKPOINT_NAME", real_wad_workflow)
-        self.assertIn('b""', real_wad_workflow)
-        self.assertIn("Skipping PERSIST.CHK marker for save-slot persistence proof.", real_wad_workflow)
+        self.assertIn("write_marker SAVE_REQUEST_NAME \"$PERSISTENCE_SAVE_SLOT\"", real_wad_workflow)
+        self.assertIn("delete_marker SAVE_REQUEST_NAME", real_wad_workflow)
+        self.assertIn('write_marker PERSISTENCE_CHECKPOINT_NAME ""', real_wad_workflow)
+        self.assertIn("SAVE_REQUEST_NAME = b\"SAVEREQ CHK\"", image_tool)
+        self.assertIn("LOAD_REQUEST_NAME = b\"LOADREQ CHK\"", image_tool)
+        self.assertIn("write_marker LOAD_REQUEST_NAME \"$PERSISTENCE_SAVE_SLOT\"", real_wad_workflow)
         self.assertIn('write_status="build/persistence-write/status.save-slot-${PERSISTENCE_SAVE_SLOT}.txt"', real_wad_workflow)
         self.assertIn('write_status="build/persistence-write/status.txt"', real_wad_workflow)
         self.assertIn('test -f "$write_status"', real_wad_workflow)
@@ -1058,6 +1060,8 @@ class SourceContractTests(unittest.TestCase):
         for source in (
             "WRITABLE_DEFAULT_NAME = b\"DEFAULT CFG\"",
             "PERSISTENCE_CHECKPOINT_NAME = b\"PERSIST CHK\"",
+            "SAVE_REQUEST_NAME = b\"SAVEREQ CHK\"",
+            "LOAD_REQUEST_NAME = b\"LOADREQ CHK\"",
             "WRITABLE_SAVE_NAMES",
             "WRITABLE_DYNAMIC_FILES",
             "MIN_OS_CREATED_FILE_CLUSTERS",

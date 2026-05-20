@@ -307,37 +307,26 @@ jobs:
           persistence_write_script="$PERSISTENCE_INPUT_SCRIPT"
           persistence_load_script="$PERSISTENCE_LOAD_INPUT_SCRIPT"
           persistence_default_script=""
-          save_slot_digit=""
-          save_slot_select_actions=""
-          save_keypoll_min=0000000A
-          load_keypoll_min=00000006
           if [ -n "${PERSISTENCE_SAVE_SLOT:-}" ]; then
             case "$PERSISTENCE_SAVE_SLOT" in
-              0) save_slot_digit=1 ;;
-              1) save_slot_digit=2 ;;
-              2) save_slot_digit=3 ;;
-              3) save_slot_digit=4 ;;
-              4) save_slot_digit=5 ;;
-              5) save_slot_digit=6 ;;
+              0|1|2|3|4|5) ;;
               *)
                 echo "persistence_save_slot must be 0..5, got '$PERSISTENCE_SAVE_SLOT'." >&2
                 exit 1
                 ;;
             esac
-            save_slot_select_actions=",${save_slot_digit},wait=2"
             if [ "$persistence_write_script" = "auto" ]; then
-              persistence_write_script="save-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,f2,wait=2${save_slot_select_actions},ret,wait=2,text=S,wait=2,ret,wait-status-min=keypoll:${save_keypoll_min}:360:2,wait-status-part-min=savewr:1:00000001:120:2,snapshot"
+              persistence_write_script="save-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,wait-status-part-min=savewr:1:00000001:180:2,wait-status-min=saveclose:00000001:120:2,snapshot"
             fi
             if [ "$persistence_load_script" = "auto" ]; then
-              persistence_load_script="load-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,f3,wait=2${save_slot_select_actions}"
-              persistence_load_script="${persistence_load_script},ret,wait-status-min=keypoll:${load_keypoll_min}:240:2,wait-status-part-min=saverd:1:00000001:120:2,wait-status=gameplay:OK:60:2,snapshot"
+              persistence_load_script="load-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,wait-status-part-min=saverd:1:00000001:120:2,wait=2,wait-status=gameplay:OK:60:2,snapshot"
             fi
-            persistence_default_script="persist-default:wait-status=gameplay:OK:150:5,f10,wait=1,y,wait-status-min=keypoll:00000004:240:2,wait-status=doomrun:EXIT:80:2,snapshot"
+            persistence_default_script="persist-default:wait-status=gameplay:OK:150:5,wait-status-min=doomwrite:00000001:120:2,wait-status-min=doomclose:00000003:120:2,snapshot"
             check_args+=(--require-save-slot "$PERSISTENCE_SAVE_SLOT")
             check_args+=(--save-write-status build/status.persistence-write.txt)
           else
             if [ "$persistence_write_script" = "auto" ]; then
-              persistence_write_script="persist-default:wait-status=gameplay:OK:150:5,f10,wait=1,y,wait-status=doomrun:EXIT:60:2,snapshot"
+              persistence_write_script="persist-default:wait-status=gameplay:OK:150:5,wait-status-min=doomwrite:00000001:120:2,wait-status-min=doomclose:00000003:120:2,snapshot"
             fi
             if [ "$persistence_load_script" = "auto" ]; then
               persistence_load_script=""
@@ -348,11 +337,14 @@ jobs:
           echo "Persistence write script: ${persistence_write_script:-<none>}"
           echo "Persistence load script: ${persistence_load_script:-<none>}"
 
-          test -f "$baseline"
-          cp "$baseline" build/disk.img
-          if [ -z "${PERSISTENCE_SAVE_SLOT:-}" ]; then
-            python3 - <<'PY'
+          write_marker() {
+            local marker_name="$1"
+            local marker_payload="${2:-}"
+            PERSISTENCE_MARKER_NAME="$marker_name" \
+            PERSISTENCE_MARKER_PAYLOAD="$marker_payload" \
+              python3 - <<'PY'
           import importlib.util
+          import os
           from pathlib import Path
 
           spec = importlib.util.spec_from_file_location(
@@ -366,14 +358,47 @@ jobs:
           path = Path("build/disk.img")
           image = bytearray(path.read_bytes())
           fs = make_wad_image.Fat16Image(image)
+          name = getattr(make_wad_image, os.environ["PERSISTENCE_MARKER_NAME"])
           fs.write_root_file(
-              make_wad_image.PERSISTENCE_CHECKPOINT_NAME,
-              b"",
+              name,
+              os.environ["PERSISTENCE_MARKER_PAYLOAD"].encode("ascii"),
           )
           path.write_bytes(image)
           PY
+          }
+
+          delete_marker() {
+            local marker_name="$1"
+            PERSISTENCE_MARKER_NAME="$marker_name" \
+              python3 - <<'PY'
+          import importlib.util
+          import os
+          from pathlib import Path
+
+          spec = importlib.util.spec_from_file_location(
+              "make_wad_image",
+              Path("tools/make_wad_image.py"),
+          )
+          make_wad_image = importlib.util.module_from_spec(spec)
+          assert spec.loader is not None
+          spec.loader.exec_module(make_wad_image)
+
+          path = Path("build/disk.img")
+          image = bytearray(path.read_bytes())
+          fs = make_wad_image.Fat16Image(image)
+          name = getattr(make_wad_image, os.environ["PERSISTENCE_MARKER_NAME"])
+          if fs.root_file_metadata(name) is not None:
+              fs.delete_root_file(name)
+              path.write_bytes(image)
+          PY
+          }
+
+          test -f "$baseline"
+          cp "$baseline" build/disk.img
+          if [ -z "${PERSISTENCE_SAVE_SLOT:-}" ]; then
+            write_marker PERSISTENCE_CHECKPOINT_NAME ""
           else
-            echo "Skipping PERSIST.CHK marker for save-slot persistence proof."
+            write_marker SAVE_REQUEST_NAME "$PERSISTENCE_SAVE_SLOT"
           fi
 
           mkdir -p build/persistence-write
@@ -401,6 +426,8 @@ jobs:
             | tee build/status.persistence-write-proof.txt
 
           if [ -n "${PERSISTENCE_SAVE_SLOT:-}" ]; then
+            delete_marker SAVE_REQUEST_NAME
+            write_marker PERSISTENCE_CHECKPOINT_NAME ""
             mkdir -p build/persistence-default
             QEMU=qemu-system-x86_64 \
               QEMU_MACHINE=pc,accel=tcg \
@@ -420,6 +447,7 @@ jobs:
             python3 tools/check_doom_persistence_image.py "${check_args[@]}" build/disk.img \
               | tee build/status.persistence-default-proof.txt
             cp build/disk.img "$after_write"
+            write_marker LOAD_REQUEST_NAME "$PERSISTENCE_SAVE_SLOT"
 
             mkdir -p build/persistence-load
             QEMU=qemu-system-x86_64 \
