@@ -322,11 +322,11 @@ jobs:
                 ;;
             esac
             if [ "$persistence_write_script" = "auto" ]; then
-              persistence_write_script="save-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,f2,wait=2,${save_slot_digit},wait=1,ret,text=VIBE-SLOT-${PERSISTENCE_SAVE_SLOT},ret,wait-status-min=saveclose:00000001:80:2,snapshot"
+              persistence_write_script="save-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,f2,wait=2,${save_slot_digit},wait=1,ret,text=VIBE-SLOT-${PERSISTENCE_SAVE_SLOT},ret,wait-status-part-min=savewr:1:00000001:120:2,snapshot"
             fi
             if [ "$persistence_load_script" = "auto" ]; then
               persistence_load_script="load-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,f3,wait=2,${save_slot_digit},wait=1"
-              persistence_load_script="${persistence_load_script},ret,wait-status-min=saveclose:00000001:80:2,wait-status=gameplay:OK:60:2,snapshot"
+              persistence_load_script="${persistence_load_script},ret,wait-status-part-min=saverd:1:00000001:120:2,wait-status=gameplay:OK:60:2,snapshot"
             fi
             persistence_default_script="persist-default:wait-status=gameplay:OK:150:5,f10,wait=1,y,wait-status=doomrun:EXIT:80:2,snapshot"
             check_args+=(--require-save-slot "$PERSISTENCE_SAVE_SLOT")

@@ -151,6 +151,28 @@ status_field_hex_at_least() {
   [ $((16#$value)) -ge $((16#$minimum)) ]
 }
 
+status_field_hex_part_at_least() {
+  local path="$1"
+  local field="$2"
+  local part="$3"
+  local minimum="$4"
+  local value
+  local normalized
+  local index
+  local piece
+  local -a parts
+
+  value="$(status_field_value "$field" "$path" 2>/dev/null)" || return 1
+  normalized="${value//:/\/}"
+  IFS='/' read -r -a parts <<< "$normalized"
+  index=$((part - 1))
+  piece="${parts[$index]:-}"
+  case "$piece" in
+    ""|*[!0123456789abcdefABCDEF]*) return 1 ;;
+  esac
+  [ $((16#$piece)) -ge $((16#$minimum)) ]
+}
+
 decode_vga() {
   local input="$1"
   local output="$2"
@@ -447,6 +469,67 @@ wait_status_action() {
   done
 }
 
+wait_status_part_min_action() {
+  local label="$1"
+  local spec="$2"
+  local field
+  local part
+  local expected
+  local timeout
+  local interval
+  local extra
+  local end
+  local now
+  local left
+  local sleep_for
+  local status_bin
+  local status_txt
+
+  IFS=':' read -r field part expected timeout interval extra <<< "$spec"
+  if [ -z "$field" ] || [ -z "$part" ] || [ -z "$expected" ] || [ -z "$timeout" ] || [ -n "$extra" ]; then
+    fail_smoke "wait-status-part-min action must be wait-status-part-min=FIELD:PART:HEX:SECONDS[:INTERVAL], got '$spec'."
+  fi
+  if [ -z "$interval" ]; then
+    interval=2
+  fi
+  validate_status_field_name "$field"
+  validate_seconds "$part" "part index for wait-status-part-min action in phase $label"
+  if [ "$part" -eq 0 ]; then
+    fail_smoke "part index for wait-status-part-min action in phase $label must be greater than zero."
+  fi
+  validate_hex_value "$expected" "minimum for wait-status-part-min action in phase $label"
+  validate_seconds "$timeout" "timeout for wait-status-part-min action in phase $label"
+  validate_seconds "$interval" "poll interval for wait-status-part-min action in phase $label"
+  if [ "$interval" -eq 0 ]; then
+    fail_smoke "poll interval for wait-status-part-min action in phase $label must be greater than zero."
+  fi
+
+  status_bin="$BUILD_DIR/status.$label.wait-$field-$part.bin"
+  status_txt="$BUILD_DIR/status.$label.wait-$field-$part.txt"
+  end=$(( $(now_s) + timeout ))
+
+  while :; do
+    rm -f "$status_bin" "$status_txt"
+    send_monitor "wait-status-part-min $field[$part]=$expected" "pmemsave 0x9d000 4096 $status_bin\n" || fail_smoke "failed to capture status for wait-status-part-min action in phase $label"
+    decode_status "$status_bin" "$status_txt"
+    if status_field_hex_part_at_least "$status_txt" "$field" "$part" "$expected"; then
+      log "Observed status field $field part $part >= 0x$expected for phase $label."
+      return 0
+    fi
+
+    now="$(now_s)"
+    left=$((end - now))
+    if [ "$left" -le 0 ]; then
+      fail_smoke "Timed out waiting for $field part $part to reach at least 0x$expected in phase $label after ${timeout}s."
+    fi
+    sleep_for="$interval"
+    if [ "$sleep_for" -gt "$left" ]; then
+      sleep_for="$left"
+    fi
+    sleep_checked "$sleep_for" "wait-status-part-min $field[$part]=$expected"
+  done
+}
+
 run_input_script() {
   local phase
   local label
@@ -478,6 +561,9 @@ run_input_script() {
           ;;
         wait-status-min=*)
           wait_status_action "$label" "${action#wait-status-min=}" "wait-status-min"
+          ;;
+        wait-status-part-min=*)
+          wait_status_part_min_action "$label" "${action#wait-status-part-min=}"
           ;;
         snapshot)
           capture_snapshot "$label" 0 || true
