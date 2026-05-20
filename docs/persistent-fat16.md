@@ -156,6 +156,14 @@ can learn the requested slot with `stat()` instead of reading marker file data
 from the live gameplay loop. That keeps the proof focused on the real
 `DOOMSAV*.DSG` write/read path instead of spending the critical window on a
 throwaway marker payload read.
+When the cached save request is present, the port enters the original
+`G_SaveGame()` path as soon as Doom has a live level/player. Original Doom's
+`G_SaveGame()` only queues `sendsave`; the port clears that queued input path,
+promotes the queued save to `ga_savegame`, and immediately drains
+`G_DoSaveGame()` after reporting live gameplay/save-request status. That keeps
+the cloud proof able to distinguish a missing marker from a serializer/storage
+stall while still capturing the real Doom serializer before later lazy asset
+lookups can stall the run.
 
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,

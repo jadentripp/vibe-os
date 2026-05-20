@@ -105,6 +105,8 @@ static unsigned long read_le32(const unsigned char* data)
         | ((unsigned long)data[3] << 24);
 }
 
+static void report_save_action_status(void);
+
 static int sfx_cache_index(sfxinfo_t* sfx, int fallback)
 {
     int index;
@@ -358,29 +360,33 @@ static int read_persistence_slot_request(const char* path, int* slot)
 
 static int save_checkpoint_requested_once(void)
 {
-    if (save_checkpoint_request_checked)
-        return save_checkpoint_requested;
     if (save_checkpoint_requested)
+        return save_checkpoint_requested;
+    if (save_checkpoint_request_checked)
         return save_checkpoint_requested;
 
     save_checkpoint_request_checked = 1;
     save_checkpoint_requested = read_persistence_slot_request(
         "SAVEREQ.CHK",
         &save_checkpoint_slot);
+    if (!save_checkpoint_requested)
+        save_checkpoint_request_checked = 0;
     return save_checkpoint_requested;
 }
 
 static int load_checkpoint_requested_once(void)
 {
-    if (load_checkpoint_request_checked)
-        return load_checkpoint_requested;
     if (load_checkpoint_requested)
+        return load_checkpoint_requested;
+    if (load_checkpoint_request_checked)
         return load_checkpoint_requested;
 
     load_checkpoint_request_checked = 1;
     load_checkpoint_requested = read_persistence_slot_request(
         "LOADREQ.CHK",
         &load_checkpoint_slot);
+    if (!load_checkpoint_requested)
+        load_checkpoint_request_checked = 0;
     return load_checkpoint_requested;
 }
 
@@ -433,7 +439,11 @@ static void checkpoint_save_slot_if_needed(void)
     if (!save_checkpoint_requested_once())
         return;
 
+    report_save_action_status();
     G_SaveGame(save_checkpoint_slot, description);
+    sendsave = false;
+    gameaction = ga_savegame;
+    G_DoSaveGame();
     save_checkpoint_done = 1;
 }
 

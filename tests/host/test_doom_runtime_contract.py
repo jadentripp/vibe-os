@@ -305,9 +305,11 @@ class DoomRuntimeContractTests(unittest.TestCase):
         save_checkpoint = platform.split(
             "static void checkpoint_save_slot_if_needed(void)", 1
         )[1].split("static void checkpoint_load_slot_if_needed", 1)[0]
+        self.assertIn("report_save_action_status();\n    G_SaveGame(save_checkpoint_slot, description);", save_checkpoint)
         self.assertIn("G_SaveGame(save_checkpoint_slot, description);", save_checkpoint)
-        self.assertNotIn("gameaction = ga_savegame;", save_checkpoint)
-        self.assertNotIn("sendsave = false;", save_checkpoint)
+        self.assertIn("sendsave = false;", save_checkpoint)
+        self.assertIn("gameaction = ga_savegame;", save_checkpoint)
+        self.assertIn("G_DoSaveGame();", save_checkpoint)
         self.assertIn("void G_BuildTiccmd(ticcmd_t* cmd)", platform)
         self.assertIn("doom_original_G_BuildTiccmd(cmd);", platform)
         build_ticcmd = platform.split("void G_BuildTiccmd(ticcmd_t* cmd)", 1)[1].split(
@@ -350,7 +352,9 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("(void)save_checkpoint_requested_once();", cache_body)
         self.assertIn("(void)load_checkpoint_requested_once();", cache_body)
         self.assertIn("if (save_checkpoint_request_checked)\n        return save_checkpoint_requested;", save_request)
+        self.assertIn("if (!save_checkpoint_requested)\n        save_checkpoint_request_checked = 0;", save_request)
         self.assertIn("if (load_checkpoint_request_checked)\n        return load_checkpoint_requested;", load_request)
+        self.assertIn("if (!load_checkpoint_requested)\n        load_checkpoint_request_checked = 0;", load_request)
         self.assertIn(
             "if (default_config_checkpoint_request_checked)\n        return default_config_checkpoint_requested;",
             config_request,
