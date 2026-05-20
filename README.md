@@ -62,7 +62,8 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
   `DOOM1.WAD` through its own ATA PIO and FAT16 code.
 - The current WAD is a generated IWAD-shaped fixture used to prove the storage
   path and lump parser. A real Doom milestone should replace it with the
-  shareware WAD without changing the kernel storage path.
+  shareware WAD without changing the kernel storage path. The image builder
+  supports this with a local, untracked WAD path.
 - External programs here are build/test tools: assembler, C compiler, image
   generator, and emulator. They are not runtime OS services.
 - Doom source legitimacy is pinned to the official id Software public release:
@@ -93,6 +94,19 @@ make
 ```
 
 The disk image is written to `build/disk.img`.
+
+By default the image contains a generated IWAD-shaped storage fixture so public
+CI can boot without copyrighted game data. To build the same OS image with a
+real shareware WAD, keep the WAD outside git and pass it explicitly:
+
+```sh
+make clean
+make DOOM_WAD=/absolute/path/to/DOOM1.WAD
+```
+
+The builder validates that the supplied file is a WAD and fits the kernel's
+current 5 MiB WAD load window. `*.wad` and `*.WAD` are ignored by this repo so
+game data is not accidentally committed.
 
 Run host-side artifact tests without launching QEMU:
 
@@ -181,13 +195,15 @@ Already implemented:
   through its ELF entry point with a Doom-sized user stack/heap window; CI
   verifies that Doom's user process opens and reads `DOOM1.WAD` through the
   kernel syscall/FAT path
+- optional external `DOOM_WAD=/path/to/DOOM1.WAD` image builds for real
+  shareware WAD testing without committing game data
 
 Still required before this is actually Doom-capable:
 
 - higher-half kernel mapping and real user address spaces
 - scheduler, process table, per-process kernel stacks, and context switching
 - a broader syscall ABI: `exec`, `mmap`, fuller file I/O, input, and drawing
-- real `DOOM1.WAD` support in the build/cloud path, without committing game data
+- cloud/manual smoke with an actual user-supplied shareware `DOOM1.WAD`
 - enough syscall/libc/file coverage for the original engine to progress past
   startup errors from the current generated WAD fixture
 - POSIX-ish libc and file syscalls for Doom

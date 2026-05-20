@@ -5,6 +5,7 @@ CLANG ?= clang
 QEMU_ACCEL ?= tcg
 QEMU_MACHINE := pc,accel=$(QEMU_ACCEL)
 ALLOW_LOCAL_VM ?= 0
+DOOM_WAD ?=
 
 BUILD_DIR := build
 STAGE1_BIN := $(BUILD_DIR)/stage1.bin
@@ -104,7 +105,11 @@ $(USER_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_PROBE_C_OBJ) tools/link_elf32.py | $(
 	@test $$(wc -c < $@) -le $(USER_PROBE_ELF_MAX_BYTES) || { echo "user probe ELF exceeds $(USER_PROBE_ELF_MAX_BYTES) bytes"; exit 1; }
 
 $(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF) tools/make_wad_image.py
-	$(PYTHON) tools/make_wad_image.py $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF)
+	@if [ -n "$(DOOM_WAD)" ]; then \
+		$(PYTHON) tools/make_wad_image.py --wad "$(DOOM_WAD)" $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF); \
+	else \
+		$(PYTHON) tools/make_wad_image.py $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF); \
+	fi
 	@printf "Built %s\n" "$@"
 
 run: vm-consent check-tools $(IMAGE)

@@ -1,4 +1,7 @@
 import struct
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -10,6 +13,7 @@ USER_BASE = 0x00E80000
 DOOM_BASE = 0x01000000
 DOOM_HEAP_START = 0x01900000
 DOOM_LIMIT = 0x02000000
+MAX_KERNEL_WAD_BYTES = 0x00500000
 
 
 def u16(data, offset):
@@ -26,6 +30,27 @@ def read(path):
 
 def clusters_for_size(size):
     return max(1, (size + SECTOR_SIZE - 1) // SECTOR_SIZE)
+
+
+def make_test_wad(total_size):
+    wad = bytearray(total_size)
+    lumps = [
+        ("PLAYPAL", bytes((i % 64 for i in range(14 * 256 * 3)))),
+        ("COLORMAP", bytes((i % 256 for i in range(34 * 256)))),
+    ]
+    cursor = 12
+    entries = []
+    for name, data in lumps:
+        wad[cursor:cursor + len(data)] = data
+        entries.append((cursor, len(data), name.encode("ascii").ljust(8, b"\0")))
+        cursor += len(data)
+    directory = cursor
+    for index, (filepos, size, name) in enumerate(entries):
+        off = directory + index * 16
+        struct.pack_into("<II8s", wad, off, filepos, size, name)
+    wad[0:4] = b"IWAD"
+    struct.pack_into("<II", wad, 4, len(entries), directory)
+    return bytes(wad)
 
 
 class Elf32:
@@ -229,12 +254,83 @@ class DiskImageTests(unittest.TestCase):
         self.assertEqual(self.fat_entry(doom["cluster"] + clusters - 1), 0xFFFF)
 
 
+class ExternalWadImageTests(unittest.TestCase):
+    def test_image_builder_can_package_external_real_wad_sized_file(self):
+        wad = make_test_wad(2 * 1024 * 1024 + 123)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            wad_path = tmpdir / "DOOM1.WAD"
+            image_path = tmpdir / "disk.img"
+            wad_path.write_bytes(wad)
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "tools" / "make_wad_image.py"),
+                    "--wad",
+                    str(wad_path),
+                    str(image_path),
+                ],
+                check=True,
+                cwd=ROOT,
+            )
+
+            image = image_path.read_bytes()
+
+        partition_lba = u32(image, 446 + 8)
+        boot = partition_lba * SECTOR_SIZE
+        reserved = u16(image, boot + 14)
+        fat_count = image[boot + 16]
+        root_entries = u16(image, boot + 17)
+        sectors_per_fat = u16(image, boot + 22)
+        root_lba = partition_lba + reserved + fat_count * sectors_per_fat
+        root_size = root_entries * 32
+        root = image[root_lba * SECTOR_SIZE:root_lba * SECTOR_SIZE + root_size]
+        data_lba = root_lba + ((root_entries * 32 + SECTOR_SIZE - 1) // SECTOR_SIZE)
+
+        self.assertEqual(root[0:11], b"DOOM1   WAD")
+        self.assertEqual(u16(root, 26), 2)
+        self.assertEqual(u32(root, 28), len(wad))
+        wad_start = data_lba * SECTOR_SIZE
+        self.assertEqual(image[wad_start:wad_start + len(wad)], wad)
+
+    def test_image_builder_rejects_wads_larger_than_kernel_loader_limit(self):
+        wad = make_test_wad(MAX_KERNEL_WAD_BYTES + 1)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            wad_path = tmpdir / "too-large.wad"
+            image_path = tmpdir / "disk.img"
+            wad_path.write_bytes(wad)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "tools" / "make_wad_image.py"),
+                    "--wad",
+                    str(wad_path),
+                    str(image_path),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("exceeds kernel WAD load limit", result.stderr)
+
+
 class SourceContractTests(unittest.TestCase):
     def test_local_vm_targets_are_opt_in(self):
         makefile = (ROOT / "Makefile").read_text()
+        gitignore = (ROOT / ".gitignore").read_text()
         self.assertIn("ALLOW_LOCAL_VM ?= 0", makefile)
+        self.assertIn("DOOM_WAD ?=", makefile)
+        self.assertIn("--wad", makefile)
         self.assertIn("run: vm-consent", makefile)
         self.assertIn("smoke: vm-consent", makefile)
+        self.assertIn("*.wad", gitignore)
+        self.assertIn("*.WAD", gitignore)
 
     def test_user_probe_is_c_not_assembly_only(self):
         self.assertTrue((ROOT / "user" / "probe.c").exists())
@@ -252,6 +348,7 @@ class SourceContractTests(unittest.TestCase):
 
     def test_kernel_has_doom_elf_load_window_and_status(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        image_tool = (ROOT / "tools" / "make_wad_image.py").read_text()
         for source in (
             "PAGING_TABLE_COUNT equ 8",
             "PMM_MANAGED_END equ 0x02000000",
@@ -269,6 +366,8 @@ class SourceContractTests(unittest.TestCase):
             self.assertIn(source, kernel)
         makefile = (ROOT / "Makefile").read_text()
         self.assertIn('grep -q "doom=OK"', makefile)
+        self.assertIn("WAD_MAX_BYTES equ 0x00500000", kernel)
+        self.assertIn("MAX_KERNEL_WAD_BYTES = 0x00500000", image_tool)
 
     def test_kernel_launches_loaded_doom_elf_in_ring3_smoke(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()

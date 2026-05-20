@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
+import argparse
 import struct
-import sys
+from pathlib import Path
 
 
 SECTOR_SIZE = 512
@@ -17,7 +18,8 @@ ROOT_ENTRIES = 512
 ROOT_DIR_SECTORS = (ROOT_ENTRIES * 32 + SECTOR_SIZE - 1) // SECTOR_SIZE
 SECTORS_PER_CLUSTER = 1
 SECTORS_PER_FAT = 256
-DOOM_WAD_SIZE = 1024 * 1024
+FIXTURE_WAD_SIZE = 1024 * 1024
+MAX_KERNEL_WAD_BYTES = 0x00500000
 DOOM_WAD_CLUSTER = 2
 USER_PROBE_NAME = b"USERPROBELF"
 DOOM_ELF_NAME = b"DOOM    ELF"
@@ -33,6 +35,10 @@ def write_le16(buf, offset, value):
 
 def write_le32(buf, offset, value):
     struct.pack_into("<I", buf, offset, value)
+
+
+def read_le32(buf, offset):
+    return struct.unpack_from("<I", buf, offset)[0]
 
 
 def write_padded_file(image, lba, sectors, path, label):
@@ -80,7 +86,7 @@ def wad_name(name):
 
 
 def build_wad():
-    wad = bytearray(DOOM_WAD_SIZE)
+    wad = bytearray(FIXTURE_WAD_SIZE)
     lumps = [
         ("PLAYPAL", bytes((i % 64 for i in range(14 * 256 * 3)))),
         ("COLORMAP", bytes((i % 256 for i in range(34 * 256)))),
@@ -108,21 +114,58 @@ def build_wad():
 
     pattern = b"Aurora hard-path IDE FAT16 WAD fixture\n"
     fill_start = directory_offset + len(entries) * 16
-    for offset in range(fill_start, DOOM_WAD_SIZE, len(pattern)):
-        wad[offset:offset + len(pattern)] = pattern[: max(0, min(len(pattern), DOOM_WAD_SIZE - offset))]
+    for offset in range(fill_start, FIXTURE_WAD_SIZE, len(pattern)):
+        wad[offset:offset + len(pattern)] = pattern[: max(0, min(len(pattern), FIXTURE_WAD_SIZE - offset))]
 
     wad[0:4] = b"IWAD"
     return wad
 
 
+def load_external_wad(path):
+    wad = bytearray(Path(path).read_bytes())
+    if len(wad) > MAX_KERNEL_WAD_BYTES:
+        raise ValueError(
+            f"{path} is {len(wad)} bytes, exceeds kernel WAD load limit "
+            f"of {MAX_KERNEL_WAD_BYTES} bytes"
+        )
+    if len(wad) < 12:
+        raise ValueError(f"{path} is too small to be a WAD")
+    if wad[0:4] not in (b"IWAD", b"PWAD"):
+        raise ValueError(f"{path} does not start with IWAD or PWAD")
+
+    lump_count = read_le32(wad, 4)
+    directory_offset = read_le32(wad, 8)
+    directory_size = lump_count * 16
+    if directory_offset + directory_size > len(wad):
+        raise ValueError(f"{path} has a WAD directory outside the file")
+    return wad
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Build a bootable vibe-os IDE/FAT16 disk image."
+    )
+    parser.add_argument(
+        "--wad",
+        metavar="PATH",
+        help="use this external DOOM1.WAD/PWAD instead of the generated test fixture",
+    )
+    parser.add_argument("paths", nargs="+")
+    args = parser.parse_args()
+
+    if len(args.paths) not in (1, 4, 5, 6):
+        parser.error("usage: make_wad_image.py [--wad PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [DOOM_ELF]]]")
+    return args
+
+
 def main():
-    if len(sys.argv) not in (2, 5, 6, 7):
-        raise SystemExit("usage: make_wad_image.py OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [DOOM_ELF]]]")
+    args = parse_args()
 
     image = bytearray(IMAGE_SECTORS * SECTOR_SIZE)
-    boot_paths = sys.argv[2:5] if len(sys.argv) >= 5 else None
-    user_elf_path = sys.argv[5] if len(sys.argv) >= 6 else None
-    doom_elf_path = sys.argv[6] if len(sys.argv) == 7 else None
+    output_path = args.paths[0]
+    boot_paths = args.paths[1:4] if len(args.paths) >= 4 else None
+    user_elf_path = args.paths[4] if len(args.paths) >= 5 else None
+    doom_elf_path = args.paths[5] if len(args.paths) == 6 else None
 
     mbr = memoryview(image)[0:SECTOR_SIZE]
     if boot_paths:
@@ -178,7 +221,7 @@ def main():
 
     root = memoryview(image)[sector_offset(root_start):sector_offset(root_start + ROOT_DIR_SECTORS)]
 
-    wad = build_wad()
+    wad = load_external_wad(args.wad) if args.wad else build_wad()
     wad_clusters = write_cluster_chain(image, fat_entries, data_start, DOOM_WAD_CLUSTER, wad)
     write_root_entry(root, 0, b"DOOM1   WAD", DOOM_WAD_CLUSTER, len(wad))
 
@@ -204,9 +247,12 @@ def main():
         start = sector_offset(fat_start + fat_index * SECTORS_PER_FAT)
         image[start:start + len(fat_bytes)] = fat_bytes
 
-    with open(sys.argv[1], "wb") as f:
+    with open(output_path, "wb") as f:
         f.write(image)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except ValueError as exc:
+        raise SystemExit(f"error: {exc}") from None
