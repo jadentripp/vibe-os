@@ -7605,6 +7605,84 @@ fat_truncate_writable_file:
     pop ebx
     ret
 
+fat_clip_writable_chain_to_size:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+
+    mov esi, eax
+    cmp esi, WRITABLE_FILE_COUNT
+    jae .fail
+    mov ax, [writable_first_clusters + esi * 2]
+    mov ebx, [writable_sizes + esi * 4]
+    cmp ebx, 0
+    jne .nonempty
+    cmp ax, 2
+    jb .ok
+    call fat_free_chain
+    jc .fail
+    mov word [writable_first_clusters + esi * 2], 0
+    jmp .ok
+
+.nonempty:
+    cmp ax, 2
+    jb .fail
+    mov [fat_current_cluster], ax
+    mov eax, ebx
+    movzx ecx, byte [fat_sectors_per_cluster]
+    shl ecx, 9
+    add eax, ecx
+    dec eax
+    xor edx, edx
+    div ecx
+    mov ecx, eax
+    cmp ecx, 0
+    je .fail
+
+.walk_needed:
+    cmp ecx, 1
+    je .at_last_needed
+    movzx eax, word [fat_current_cluster]
+    call fat_next_cluster
+    jc .fail
+    cmp eax, 2
+    jb .fail
+    cmp eax, 0xfff8
+    jae .fail
+    mov [fat_current_cluster], ax
+    dec ecx
+    jmp .walk_needed
+
+.at_last_needed:
+    movzx eax, word [fat_current_cluster]
+    call fat_next_cluster
+    jc .fail
+    cmp eax, 2
+    jb .ok
+    cmp eax, 0xfff8
+    jae .ok
+    mov [fat_lba_tail_free_cluster], eax
+    mov dword [fat_lba_fail_stage], 9
+    call fat_free_tail_after_current
+    jc .fail
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
 fat_delete_found_file:
     push eax
     push edx
@@ -7826,6 +7904,9 @@ user_file_write:
     je .ok
     mov ebx, [file_io_index]
     mov esi, [file_io_fd_slot]
+    mov eax, ebx
+    call fat_clip_writable_chain_to_size
+    jc .fail_io
     mov edx, [fd_offsets + esi * 4]
     mov dword [fat_alloc_zero_policy], 1
     cmp edx, [writable_sizes + ebx * 4]

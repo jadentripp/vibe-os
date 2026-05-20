@@ -1291,6 +1291,14 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("call fat_next_cluster", validate_pass)
         self.assertIn("cmp ax, 0", validate_pass)
         self.assertNotIn("call fat_write_cluster_entry", validate_pass)
+        clip_chain = kernel.split("fat_clip_writable_chain_to_size:", 1)[1].split("fat_delete_found_file:", 1)[0]
+        self.assertIn("call fat_free_tail_after_current", clip_chain)
+        self.assertIn("call fat_free_chain", clip_chain)
+        self.assertIn("mov word [writable_first_clusters + esi * 2], 0", clip_chain)
+        self.assertLess(clip_chain.index(".walk_needed:"), clip_chain.index(".at_last_needed:"))
+        file_write_loop = kernel.split("user_file_write:", 1)[1].split("user_file_lseek:", 1)[0]
+        growth_call = file_write_loop.split(".loop:", 1)[1].split("call fat_file_lba_for_write", 1)[0]
+        self.assertIn("call fat_clip_writable_chain_to_size", growth_call)
         fat_write_locator = kernel.split("fat_file_lba_for_write:", 1)[1].split("fat_update_writable_size:", 1)[0]
         self.assertIn(".linked_new_cluster:", fat_write_locator)
         self.assertIn("fat_lba_fail_stage", fat_write_locator)
