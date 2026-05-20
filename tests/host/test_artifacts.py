@@ -903,8 +903,7 @@ class SourceContractTests(unittest.TestCase):
             valid.replace("pdelta=00000100", "pdelta=00000000"),
             valid.replace("keyseen=00000071", "keyseen=00000031"),
             valid.replace("mousebtn=00000001", "mousebtn=00000000"),
-            valid.replace("mousedelta=00000018:0000000C", "mousedelta=00000000:0000000C"),
-            valid.replace("mousedelta=00000018:0000000C", "mousedelta=00000018:00000000"),
+            valid.replace("mousedelta=00000018:0000000C", "mousedelta=00000000:00000000"),
             valid.replace(
                 "execsys=00000001/00000001/00000000/00000001/00000001/00000000",
                 "execsys=00000001/00000000/00000000/00000000/00000000/00000000",

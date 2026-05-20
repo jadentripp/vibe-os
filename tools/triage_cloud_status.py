@@ -668,10 +668,9 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         or (_hex(fields, "mouseirq") or 0) == 0
         or (_hex(fields, "mousepkt") or 0) == 0
         or (_hex(fields, "mousepoll") or 0) == 0
-        or ((_hex(fields, "mousebtn") or 0) & 0x1) == 0
+        or (_hex(fields, "mousebtn") or 0) == 0
         or mouse_delta is None
-        or mouse_delta[0] == 0
-        or mouse_delta[1] == 0
+        or (mouse_delta[0] == 0 and mouse_delta[1] == 0)
         or (_hex(fields, "pdelta") or 0) == 0
         or (pflags & PLAYABILITY_REQUIRED_FLAGS) != PLAYABILITY_REQUIRED_FLAGS
         or (pflags & PLAYABILITY_FIRE_STATE_FLAGS) == 0

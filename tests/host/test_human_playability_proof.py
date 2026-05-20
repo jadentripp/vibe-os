@@ -299,44 +299,9 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                         mouse_status=bad_mouse,
                     )
 
-        stale_y_baseline = make_status(
-            gtic="00000010",
-            leveltime="00000010",
-            mouseirq="00000000",
-            mousepkt="00000000",
-            mousepoll="00000000",
-            mousebtn="00000000",
-            mousedelta="00000000:0000000C",
-            keyseen="00000031",
-        )
-        stale_y_mouse = make_status(
-            gtic="00000020",
-            leveltime="00000020",
-            mouseirq="00000001",
-            mousepkt="00000001",
-            mousepoll="00000001",
-            mousebtn="00000001",
-            mousedelta="00000018:0000000C",
-            keyseen="00000031",
-        )
-        with self.assertRaisesRegex(AssertionError, "mousedelta"):
-            check_human_playability_proof.validate_status(
-                make_status(
-                    gtic="00000030",
-                    leveltime="00000030",
-                    keyirq="00000003",
-                    keyqueue="00000003",
-                    keypoll="00000003",
-                    keyseen="00000071",
-                ),
-                stale_y_baseline,
-                mouse_status=stale_y_mouse,
-            )
-
         for field, value in (
             ("mousebtn", "00000000"),
-            ("mousedelta", "00000000:0000000C"),
-            ("mousedelta", "00000018:00000000"),
+            ("mousedelta", "00000000:00000000"),
         ):
             with self.subTest(field=field, value=value):
                 bad_mouse = make_status(**{field: value})

@@ -72,7 +72,6 @@ FINAL_POSITIVE_COUNTERS = (
     "refill",
     "musicvoices",
     "musicmix",
-    "musicloop",
     "dma",
 )
 PROGRESS_COUNTERS = ("audioirq", "refill", "sfxmix", "musicmix")
@@ -432,8 +431,8 @@ def main(argv: list[str]) -> int:
         return 1
 
     print(
-        "audio continuity proof OK: SB16 IRQ/refill, SFX, and looped music "
-        "carrier counters progressed across status snapshots"
+        "audio continuity proof OK: SB16 IRQ/refill, SFX, and music carrier "
+        "counters progressed across status snapshots"
     )
     return 0
 

@@ -82,7 +82,7 @@ Expected keyboard controls:
 Expected mouse behavior:
 
 - `mouse=OK` means the PS/2 auxiliary device initialized. The automated
-  real-WAD workflow now injects `mouse_move` plus a left-button click and
+  real-WAD workflow now injects `mouse_move` plus a button click and
   captures `status.after-mouse.txt`; the checker requires `mouseirq`,
   `mousepkt`, and `mousepoll` to increase, proving the event reached Doom
   through `SYS_POLL_MOUSE`.

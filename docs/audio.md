@@ -123,10 +123,10 @@ Remote-safe continuity proof:
 `audio=SB16` in every snapshot, a nonzero `sb16=` DSP version, nonzero `dma=`
 programming and `play=` start counters, nonzero `voiceq=` and `musicq=` queue
 counters, monotonic audio counters, increasing IRQ/refill, non-music SFX
-`sfxmix=`, and music-carrier `musicmix=` counters, nonzero SB16 ACK accounting,
-and a nonzero `musicloop=` count. That proves the emulated SB16 guest path was
+`sfxmix=`, music-carrier `musicmix=` counters, and nonzero SB16 ACK accounting.
+That proves the emulated SB16 guest path was
 initialized, DMA-programmed, started, queued, and continued to refill and mix
-both Doom SFX and the looped music carrier across time without uploading
+both Doom SFX and the music carrier across time without uploading
 proprietary WAD data, PCM samples, or rendered pixels. A run with `audio=NONE`
 is still useful diagnostics, but it is not an audible/streaming audio proof.
 
