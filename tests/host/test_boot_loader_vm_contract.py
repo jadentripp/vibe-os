@@ -189,6 +189,9 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "vmm_active_page_tables dd 0",
             "vmm_reclaimed_page_tables dd 0",
             "vmm_last_reclaimed_page_table dd 0",
+            "vmm_high_test_phys dd 0",
+            "vmm_high_test_table dd 0",
+            "vmm_high_test_reclaimed dd 0",
             "vmm_high_mapping_status db 0",
         ):
             self.assertIn(source, kernel)
@@ -216,8 +219,15 @@ class BootLoaderVmContractTests(unittest.TestCase):
 
         vmm_self_test = kernel.split("vmm_self_test:", 1)[1].split("heap_init:", 1)[0]
         self.assertIn("mov eax, VMM_HIGH_TEST_VADDR", vmm_self_test)
+        self.assertIn("cmp eax, ebx", vmm_self_test)
+        self.assertIn("je .high_free_fail", vmm_self_test)
+        self.assertIn("mov [vmm_high_test_phys], ebx", vmm_self_test)
+        self.assertIn("mov [vmm_high_test_table], eax", vmm_self_test)
         self.assertIn("mov dword [VMM_HIGH_TEST_VADDR], VMM_HIGH_TEST_MAGIC", vmm_self_test)
         self.assertIn("call vmm_unmap_page", vmm_self_test)
+        self.assertIn("mov [vmm_high_test_reclaimed], eax", vmm_self_test)
+        self.assertIn("cmp eax, [vmm_high_test_table]", vmm_self_test)
+        self.assertIn("jne .high_free_fail", vmm_self_test)
         self.assertIn("mov byte [vmm_high_mapping_status], 1", vmm_self_test)
 
     def test_boot_vm_docs_state_current_limits_without_overclaiming(self):
@@ -238,6 +248,8 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "not higher-half",
             "no NX",
             "fixed low-memory",
+            "vmmhi=OK",
+            "vmmhfree=",
         ):
             self.assertIn(source, boot_doc)
         self.assertIn("docs/boot-loader-vm.md", readme)

@@ -162,6 +162,31 @@ def default_write_status(**overrides):
     return "Aurora OS v0.2 " + " ".join(f"{name}={value}" for name, value in fields.items())
 
 
+def save_write_status(**overrides):
+    fields = {
+        "doom": "OK",
+        "doomrun": "RUN",
+        "doomopen": "OK",
+        "doomread": "OK",
+        "doomwrite": "00000018",
+        "doomclose": "00000001",
+        "doommode": "00000301:000001B6",
+        "doomexit": "00000000",
+        "doomfault": "00000000",
+        "doomfaultip": "00000000",
+        "doomfaultv": "00000000",
+        "doomfaulterr": "00000000",
+        "fault": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
+        "panic": "NONE",
+        "shutdown": "NONE",
+        "gameplay": "OK",
+        "usr": "OK",
+        "wad": "OK",
+    }
+    fields.update(overrides)
+    return "Aurora OS v0.2 " + " ".join(f"{name}={value}" for name, value in fields.items())
+
+
 class DoomPersistenceImageTests(unittest.TestCase):
     def write_temp_image(self, image):
         tmp = tempfile.NamedTemporaryFile(prefix="vibe-os-persist-", suffix=".img", delete=False)
@@ -267,11 +292,13 @@ class DoomPersistenceImageTests(unittest.TestCase):
         baseline_path = self.write_temp_image(baseline)
         write_path = self.write_temp_image(after_write)
         reboot_path = self.write_temp_image(after_reboot)
+        save_status_path = self.write_temp_text(save_write_status())
 
         summary = check_persistence.validate_image(
             reboot_path,
             baseline_image=baseline_path,
             reboot_baseline_image=write_path,
+            save_write_status_path=save_status_path,
             require_default=True,
             require_save_slots=[3],
         )
@@ -281,6 +308,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertIn("DOOMSAV3.DSG bytes=", summary[1])
         self.assertIn("survived-reboot", summary[1])
         self.assertIn("STILL HERE", summary[1])
+        self.assertIn("save write status closed=OK", summary)
 
     def test_checker_rejects_save_slot_proof_without_fresh_baseline(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
@@ -360,6 +388,56 @@ class DoomPersistenceImageTests(unittest.TestCase):
     def test_checker_accepts_running_default_write_status_after_close(self):
         check_persistence.validate_default_write_status(default_write_status(doomrun="RUN"))
 
+    def test_checker_gates_save_write_status_when_claiming_rebooted_save_slot(self):
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        after_write = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(after_write)
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[1], doom_save_payload("SAVE WRITE"))
+        after_reboot = bytearray(after_write)
+
+        baseline_path = self.write_temp_image(baseline)
+        write_path = self.write_temp_image(after_write)
+        reboot_path = self.write_temp_image(after_reboot)
+        status_path = self.write_temp_text(save_write_status())
+
+        summary = check_persistence.validate_image(
+            reboot_path,
+            baseline_image=baseline_path,
+            reboot_baseline_image=write_path,
+            save_write_status_path=status_path,
+            require_save_slots=[1],
+        )
+
+        self.assertIn("DOOMSAV1.DSG bytes=", summary[0])
+        self.assertIn("survived-reboot", summary[0])
+        self.assertIn("save write status closed=OK", summary)
+
+    def test_checker_requires_save_write_status_for_rebooted_save_slot(self):
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        after_write = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(after_write)
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[1], doom_save_payload("NEEDS STATUS"))
+
+        baseline_path = self.write_temp_image(baseline)
+        write_path = self.write_temp_image(after_write)
+        reboot_path = self.write_temp_image(bytearray(after_write))
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "--save-write-status"):
+            check_persistence.validate_image(
+                reboot_path,
+                baseline_image=baseline_path,
+                reboot_baseline_image=write_path,
+                require_save_slots=[1],
+            )
+
+    def test_checker_rejects_save_write_status_without_save_output(self):
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "doomwrite"):
+            check_persistence.validate_save_write_status(save_write_status(doomwrite="00000000"))
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "doomclose"):
+            check_persistence.validate_save_write_status(save_write_status(doomclose="00000000"))
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "O_WRONLY"):
+            check_persistence.validate_save_write_status(save_write_status(doommode="00000000:000001B6"))
+
     def test_checker_rejects_default_write_status_before_default_close(self):
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "doomclose"):
             check_persistence.validate_default_write_status(
@@ -437,12 +515,14 @@ class DoomPersistenceImageTests(unittest.TestCase):
         baseline_path = self.write_temp_image(baseline)
         write_path = self.write_temp_image(after_write)
         reboot_path = self.write_temp_image(after_reboot)
+        status_path = self.write_temp_text(save_write_status())
 
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "did not survive reboot"):
             check_persistence.validate_image(
                 reboot_path,
                 baseline_image=baseline_path,
                 reboot_baseline_image=write_path,
+                save_write_status_path=status_path,
                 require_save_slots=[0],
             )
 
@@ -867,6 +947,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         path = self.write_temp_image(image)
         status_path = self.write_temp_text(reboot_status())
         write_status_path = self.write_temp_text(default_write_status())
+        save_status_path = self.write_temp_text(save_write_status())
 
         result = subprocess.run(
             [
@@ -884,6 +965,8 @@ class DoomPersistenceImageTests(unittest.TestCase):
                 str(status_path),
                 "--write-status",
                 str(write_status_path),
+                "--save-write-status",
+                str(save_status_path),
                 str(path),
             ],
             cwd=ROOT,

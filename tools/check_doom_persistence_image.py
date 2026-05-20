@@ -106,6 +106,18 @@ DEFAULT_WRITE_ZERO_HEX_FIELDS = (
     "doomfaulterr",
 )
 DEFAULT_WRITE_REQUIRED_OPEN_FLAGS = 0x00000301
+SAVE_WRITE_EXACT_FIELDS = {
+    "doom": "OK",
+    "doomopen": "OK",
+    "doomread": "OK",
+    "gameplay": "OK",
+    "panic": "NONE",
+    "shutdown": "NONE",
+    "usr": "OK",
+    "wad": "OK",
+}
+SAVE_WRITE_ZERO_HEX_FIELDS = DEFAULT_WRITE_ZERO_HEX_FIELDS
+SAVE_WRITE_REQUIRED_OPEN_FLAGS = DEFAULT_WRITE_REQUIRED_OPEN_FLAGS
 
 spec = importlib.util.spec_from_file_location("make_wad_image", MAKE_WAD_IMAGE)
 make_wad_image = importlib.util.module_from_spec(spec)
@@ -577,6 +589,49 @@ def validate_default_write_status(status):
         raise PersistenceProofError("default write status fault= must be all zero")
 
 
+def validate_save_write_status(status):
+    if "Aurora OS v0.2" not in status:
+        raise PersistenceProofError("save write status is missing Aurora OS banner")
+
+    fields = _status_fields(status)
+    run_state = _status_field(fields, "doomrun")
+    if run_state not in ("RUN", "EXIT"):
+        raise PersistenceProofError(
+            f"save write status doomrun= must be RUN or EXIT, got {run_state!r}"
+        )
+
+    for name, expected in SAVE_WRITE_EXACT_FIELDS.items():
+        value = _status_field(fields, name)
+        if value != expected:
+            raise PersistenceProofError(
+                f"save write status {name}= must be {expected}, got {value!r}"
+            )
+
+    for name in SAVE_WRITE_ZERO_HEX_FIELDS:
+        value = _status_hex_field(fields, name)
+        if value != 0:
+            raise PersistenceProofError(
+                f"save write status {name}= must be zero, got {value:#x}"
+            )
+
+    write_count = _status_hex_field(fields, "doomwrite")
+    close_count = _status_hex_field(fields, "doomclose")
+    if write_count == 0:
+        raise PersistenceProofError("save write status doomwrite= must prove file output")
+    if close_count == 0:
+        raise PersistenceProofError("save write status doomclose= must prove the save file was closed")
+
+    flags, _mode = _status_hex_tuple_field(fields, "doommode", 2, separator=":")
+    if flags != SAVE_WRITE_REQUIRED_OPEN_FLAGS:
+        raise PersistenceProofError(
+            "save write status doommode= must prove DOOMSAV was opened "
+            f"O_WRONLY|O_CREAT|O_TRUNC, got {flags:#x}"
+        )
+
+    if any(_status_hex_tuple_field(fields, "fault", 11)):
+        raise PersistenceProofError("save write status fault= must be all zero")
+
+
 def validate_image(
     path,
     *,
@@ -584,6 +639,7 @@ def validate_image(
     reboot_baseline_image=None,
     reboot_status_path=None,
     write_status_path=None,
+    save_write_status_path=None,
     require_default=False,
     require_save_slots=(),
     require_dynamic_fat_proof=False,
@@ -614,6 +670,12 @@ def validate_image(
         raise PersistenceProofError("--reboot-status requires --reboot-baseline-image")
     if write_status_path is not None and not require_default:
         raise PersistenceProofError("--write-status requires --require-default")
+    if save_write_status_path is not None and not require_save_slots:
+        raise PersistenceProofError("--save-write-status requires --require-save-slot")
+    if reboot_fs is not None and require_save_slots and save_write_status_path is None:
+        raise PersistenceProofError(
+            "save-slot reboot proof requires --save-write-status from the write boot"
+        )
 
     _validate_fat_layout(fs)
     if baseline_fs is not None:
@@ -640,6 +702,10 @@ def validate_image(
     if write_status_path is not None:
         validate_default_write_status(Path(write_status_path).read_text())
         write_status_ok = True
+    save_write_status_ok = False
+    if save_write_status_path is not None:
+        validate_save_write_status(Path(save_write_status_path).read_text())
+        save_write_status_ok = True
 
     if require_default:
         default_size = _validate_default(fs)
@@ -692,6 +758,8 @@ def validate_image(
         summary.append("reboot status runtime=OK")
     if write_status_ok:
         summary.append("default write status closed=OK")
+    if save_write_status_ok:
+        summary.append("save write status closed=OK")
 
     if not summary:
         summary.append("persistence entries present")
@@ -725,6 +793,10 @@ def parse_args():
         help="decoded status.txt captured from the default-writing boot; Doom must have closed O_TRUNC defaults output",
     )
     parser.add_argument(
+        "--save-write-status",
+        help="decoded status.txt captured from the save-writing boot; Doom must have written and closed an O_TRUNC save file",
+    )
+    parser.add_argument(
         "--require-save-slot",
         action="append",
         type=int,
@@ -748,6 +820,7 @@ def main():
         reboot_baseline_image=args.reboot_baseline_image,
         reboot_status_path=args.reboot_status,
         write_status_path=args.write_status,
+        save_write_status_path=args.save_write_status,
         require_default=args.require_default,
         require_save_slots=args.require_save_slot,
         require_dynamic_fat_proof=args.require_dynamic_fat_proof,

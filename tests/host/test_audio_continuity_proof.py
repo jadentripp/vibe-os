@@ -40,6 +40,8 @@ def status_line(**overrides):
         "musicbuf": "00002000",
         "musicunder": "00000000",
         "musicdrops": "00000000",
+        "musicstream": "PUSH",
+        "musicpull": "00000000:00000000",
         "sb16": "00000004:00000005",
         "dma": "00000001",
         "play": "00000001:00000000",
@@ -115,6 +117,25 @@ def snapshot_statuses():
             voiceq="00000001:00000000:00000005",
         ),
     }
+
+
+def pull_snapshot_statuses():
+    snapshots = snapshot_statuses()
+    pull_counts = {
+        "baseline": "00000000:00000000",
+        "fire": "00000001:00000001",
+        "movement": "00000002:00000002",
+        "use": "00000003:00000003",
+        "menu": "00000004:00000004",
+        "final": "00000005:00000005",
+    }
+    for label, status in list(snapshots.items()):
+        snapshots[label] = status.replace("musicstream=PUSH", "musicstream=PULL")
+        snapshots[label] = snapshots[label].replace(
+            "musicpull=00000000:00000000",
+            f"musicpull={pull_counts[label]}",
+        )
+    return snapshots
 
 
 class AudioContinuityProofTests(unittest.TestCase):
@@ -257,6 +278,63 @@ class AudioContinuityProofTests(unittest.TestCase):
             snapshots[label] = snapshots[label].replace("voiceq=00000001:00000000:00000005", "voiceq=00000001:00000000:00000000")
 
         with self.assertRaisesRegex(AssertionError, "voiceq=.*stream update"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+            )
+
+    def test_future_pull_stream_contract_requires_mode_and_pull_counters(self):
+        snapshots = snapshot_statuses()
+        with self.assertRaisesRegex(AssertionError, "musicstream=PULL is required"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+                require_pull_stream=True,
+            )
+
+        pull_snapshots = pull_snapshot_statuses()
+        check_audio_continuity_proof.validate_status(
+            pull_snapshots["final"],
+            baseline_status=pull_snapshots["baseline"],
+            fire_status=pull_snapshots["fire"],
+            movement_status=pull_snapshots["movement"],
+            use_status=pull_snapshots["use"],
+            menu_status=pull_snapshots["menu"],
+            require_pull_stream=True,
+        )
+
+    def test_rejects_pull_mode_without_hardware_paced_counters(self):
+        snapshots = pull_snapshot_statuses()
+        for label, status in list(snapshots.items()):
+            snapshots[label] = status.replace(
+                f"musicpull={status.split('musicpull=')[1].split()[0]}",
+                "musicpull=00000000:00000000",
+            )
+
+        with self.assertRaisesRegex(AssertionError, "musicpull=.*pull request"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+                require_pull_stream=True,
+            )
+
+    def test_rejects_missing_music_stream_mode_for_music_proof(self):
+        snapshots = snapshot_statuses()
+        snapshots["final"] = snapshots["final"].replace("musicstream=PUSH", "musicstream=NONE")
+
+        with self.assertRaisesRegex(AssertionError, "musicstream=.*PUSH or PULL"):
             check_audio_continuity_proof.validate_status(
                 snapshots["final"],
                 baseline_status=snapshots["baseline"],

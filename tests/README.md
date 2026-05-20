@@ -11,7 +11,8 @@ boot:
   boundaries without launching QEMU. They also pin the higher-half seed contract:
   `vmm_map_page` can allocate a missing page table from PMM and the VMM self-test
   maps a high non-identity alias before unmapping it, after which an empty
-  PMM-backed page-table frame is reclaimed.
+  PMM-backed page-table frame is reclaimed. The smoke contract exposes that as
+  `vmmhi=OK`, `vmmhva=`, `vmmhpa=`, `vmmhpt=`, and `vmmhfree=`.
 - `tests/host/test_doom_source.py` is the original-Doom provenance gate. It
   hashes the vendored `linuxdoom-1.10` source boundary, audits the Makefile so
   original engine objects and `doom_port/*` shims stay separate, and invokes
@@ -34,8 +35,11 @@ boot:
   payload to rule out tiny fake headers. With `--baseline-image`, requested
   entries must also differ from the fresh pre-boot image; reboot comparison
   requires that fresh baseline plus a clean `--reboot-status` runtime/fault gate
-  before it can claim persistence. The checker also rejects storage leaks where
-  allocated FAT clusters are not owned by exactly one live root entry.
+  before it can claim persistence. Rebooted `DOOMSAVN.DSG` proof additionally
+  requires `--save-write-status` from the write boot, proving Doom reported file
+  output and a close before the mutated save bytes count. The checker also
+  rejects storage leaks where allocated FAT clusters are not owned by exactly
+  one live root entry.
 - Host process tests prove that `SYS_EXEC` is more than a fixed string loader:
   the path resolves Doom/probe table entries, parses arbitrary root-level FAT16
   `.ELF` names into the reusable probe-class slot, rejects unsafe active-slot
@@ -45,8 +49,9 @@ boot:
   `waitpid` child scan/reap path, `WNOHANG` live-child result, fd owner
   enforcement, exec-time inheritance/close-on-exec handoff, and process-owned
   fd teardown. They also cover anonymous brk-backed `mmap` accounting and
-  page-aligned tail `munmap` reclaim without claiming that `fork`, descriptor
-  duplication, or non-tail VM holes exist yet.
+  page-aligned tail `munmap` reclaim plus non-tail validation holes, without
+  claiming that `fork`, descriptor duplication, or reusable VM objects exist
+  yet.
 - `tests/host/test_framebuffer_contract.py` proves the 320x200 indexed shadow,
   RGB palette to XRGB8888 conversion, 2x scaling, and centering contract without
   using rendered Doom pixels.
@@ -78,8 +83,8 @@ boot:
   advance during the mouse phase, Doom to remain in E1M1 gameplay, `keyseen` to
   record Up/Ctrl/Space/Escape, player movement/action/menu flags to be set,
   `pdelta>0`, `ppos` to change after the movement phase, fire to change
-  ammo/refire state, and Escape to flip the menu bit without reading WAD or
-  framebuffer artifacts.
+  ammo/refire state, the mouse phase to set Doom's `ticcmd.angleturn` proof bit,
+  and Escape to flip the menu bit without reading WAD or framebuffer artifacts.
 - `tools/check_audio_continuity_proof.py` is the remote-safe SB16 audio gate. It
   compares the same decoded status snapshots, requires `audio=SB16`, and proves
   IRQ/refill, non-music SFX, music mixing, `voiceq=` stream-update counters,
@@ -133,24 +138,38 @@ boot:
 - `tools/check_cloud_playability_artifacts.py` validates the remote human-run
   runbook, workflow upload hygiene, expected non-WAD diagnostic files, and
   downloaded real-WAD status artifacts without requiring a WAD or local QEMU.
+  The docs it checks must keep a `Current-head cloud proof state` note plus the
+  explicit `gh workflow run os-smoke.yml`, `real-wad-smoke.yml`, and soak
+  dispatch commands, so host-only changes cannot masquerade as cloud proof.
+  The repo contract also locks the repeated **Real WAD soak** workflow's
+  `expected_ref` branch guard and default-branch dispatch limitation docs.
   It rejects forbidden filenames, duplicate required basenames, unexpected ELF
   binaries, raw audio files, compressed WAD archives, and renamed WAD/disk/image/audio payload
   signatures. In `--human-session` mode it also requires
-  `human-playtest-session.json` plus `human-playtest-manifest.json`, requires a
-  flat allowlisted bundle, rebuilds the human phase transcript from the status
-  files and notes, verifies every note-level `phase_hash_*` value, verifies the
-  bundle inventory SHA-256 hashes, and prints a stable post-download
-  verification ID for comparison with the remote collector output. If
-  `audio-proof.json` is present, it validates that aggregate manifest too.
+  `human-playtest-checklist.txt`, `human-playtest-session.json`, and
+  `human-playtest-manifest.json`, requires a flat allowlisted bundle, rebuilds
+  the human phase transcript from the status files and notes, verifies every
+  note-level `phase_hash_*` value, verifies the generated checklist and bundle
+  inventory SHA-256 hashes, and prints a stable post-download verification ID
+  for comparison with the remote collector output. If `audio-proof.json` is
+  present, it validates that aggregate manifest too.
 - `tools/collect_human_playtest_bundle.py` is the remote-host helper for manual
   VNC sessions. It does not launch QEMU; it copies only allowlisted status/log
   diagnostics and required ELF/symbol files from the disposable host build
   directory, requires explicit `--confirm-*` operator flags, writes structured
   `human-playtest-notes.txt` with phase status hashes, a
-  `human-playtest-session.json` transcript tied to the passing scripted
-  real-WAD run ID, and `human-playtest-manifest.json`, refuses proof output
-  inside the repo, and immediately invokes
+  `human-playtest-checklist.txt` review file, a `human-playtest-session.json`
+  transcript tied to the passing scripted real-WAD run ID, and
+  `human-playtest-manifest.json`, refuses proof output inside the repo, and
+  immediately invokes
   `tools/check_cloud_playability_artifacts.py --human-session`.
+- `tools/run_remote_human_playtest.sh` is the faster guided wrapper for that
+  same remote-only human path. It refuses macOS, does not launch QEMU, prompts
+  the playtester through the eight required Doom phases, calls the collector's
+  `--capture-phase` helper for each status snapshot, builds
+  `/tmp/vibe-os-human-proof.tgz`, and prints the local post-download checker
+  commands. The normal remote invocation is
+  `tools/run_remote_human_playtest.sh --playtester NAME --scripted-proof-run-id RUN_ID`.
 - `tools/triage_cloud_status.py` classifies a downloaded real-WAD status line
   into the first repair lane. The custom linker also writes `build/doom.symbols`
   so cloud artifacts can symbolize `doomfaultip` and decode page-fault/WAD I/O

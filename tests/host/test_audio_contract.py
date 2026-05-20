@@ -23,6 +23,8 @@ class AudioContractTests(unittest.TestCase):
             "VIBE_AUDIO_FLAG_MUSIC",
             "VIBE_AUDIO_IS_PLAYING",
             "VIBE_AUDIO_BUFFERED_BYTES",
+            "VIBE_AUDIO_MUSIC_STREAM_PUSH",
+            "VIBE_AUDIO_MUSIC_STREAM_PULL",
         ):
             self.assertIn(source, header)
 
@@ -200,6 +202,8 @@ class AudioContractTests(unittest.TestCase):
             "smoke_musicbuf_text db \" musicbuf=\"",
             "smoke_musicunder_text db \" musicunder=\"",
             "smoke_musicdrops_text db \" musicdrops=\"",
+            "smoke_musicstream_text db \" musicstream=\"",
+            "smoke_musicpull_text db \" musicpull=\"",
             "smoke_sb16ver_text db \" sb16=\"",
             "smoke_dmaprog_text db \" dma=\"",
             "smoke_play_text db \" play=\"",
@@ -217,6 +221,9 @@ class AudioContractTests(unittest.TestCase):
             "mov edx, [sb16_music_stream_buffer_bytes]",
             "mov edx, [sb16_music_stream_under_count]",
             "mov edx, [sb16_music_stream_drop_count]",
+            "mov eax, [sb16_music_stream_mode]",
+            "mov edx, [sb16_music_pull_request_count]",
+            "mov edx, [sb16_music_pull_refill_count]",
             "mov edx, [sb16_dma_program_count]",
             "mov edx, [sb16_playback_start_count]",
             "mov edx, [sb16_voice_start_count]",
@@ -240,6 +247,8 @@ class AudioContractTests(unittest.TestCase):
             'grep -q "musicbuf="',
             'grep -q "musicunder="',
             'grep -q "musicdrops="',
+            'grep -q "musicstream="',
+            'grep -q "musicpull="',
             'grep -q "sb16="',
             'grep -q "dma="',
             'grep -q "play="',
@@ -280,6 +289,9 @@ class AudioContractTests(unittest.TestCase):
             "sb16_music_stream_buffer_bytes dd 0",
             "sb16_music_stream_under_count dd 0",
             "sb16_music_stream_drop_count dd 0",
+            "sb16_music_stream_mode dd AUDIO_MUSIC_STREAM_NONE",
+            "sb16_music_pull_request_count dd 0",
+            "sb16_music_pull_refill_count dd 0",
             ".audio_buffered_bytes:",
         ):
             with self.subTest(source=source):
@@ -337,6 +349,8 @@ class AudioContractTests(unittest.TestCase):
         self.assertIn("musicbuf", audio_doc)
         self.assertIn("musicunder", audio_doc)
         self.assertIn("musicdrops", audio_doc)
+        self.assertIn("musicstream=PUSH", audio_doc)
+        self.assertIn("musicpull=", audio_doc)
         self.assertIn("active voice table", audio_doc)
         self.assertIn("Doom music:", audio_doc)
         self.assertIn("deterministic unsigned 8-bit PCM", audio_doc)

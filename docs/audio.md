@@ -43,8 +43,11 @@ Current kernel behavior:
   `half=`, `mixwrap=`, `mixover=`, `mixunder=`, `mixclip=`, `steal=`,
   `pitchclamp=`, and `panclamp=`
 - reports music-carrier and stream-window health separately as `musicvoices=`,
-  `musicmix=`, `musicloop=`, `musicpos=`, `musicbuf=`, `musicunder=`, and
-  `musicdrops=`
+  `musicmix=`, `musicloop=`, `musicpos=`, `musicbuf=`, `musicunder=`,
+  `musicdrops=`, `musicstream=`, and `musicpull=`
+- today `musicstream=PUSH` and `musicpull=00000000:00000000`, reserving
+  `musicstream=PULL` plus advancing `musicpull=<requests>:<refills>` for the
+  future hardware-paced pull/refill stream proof
 - keeps one queued pending music window per active music voice, so an early
   `VIBE_AUDIO_UPDATE_SFX` can be promoted by the IRQ refill path when the current
   music window drains instead of replacing it or forcing a dry carrier
@@ -133,10 +136,12 @@ still pushes chunks. `musicpos=` is the cumulative music source bytes consumed
 by the IRQ refill mixer, `musicbuf=` is the active plus pending music window
 remaining in the voice table, `musicunder=` counts music voices that ran dry
 with no pending replacement, and `musicdrops=` counts invalid music updates or
-updates that arrive while the single pending slot is already occupied. Normal
-early music refreshes are queued rather than counted as drops. These fields let
-the proof checker distinguish a progressing kernel-mixed stream from a single
-queued music sample.
+updates that arrive while the single pending slot is already occupied.
+`musicstream=PUSH` names the current mode, while `musicpull=` remains zero until
+a real pull/refill command exists. Normal early music refreshes are queued
+rather than counted as drops. These fields let the proof checker distinguish a
+progressing kernel-mixed stream from a single queued music sample without
+calling the current proof hardware-paced.
 The checker now treats `musicbuf=` as stream-health evidence: across the
 scripted snapshots it must move, and the stream-update counter must advance more
 than once, so a single static music carrier cannot satisfy the audio proof.
@@ -163,9 +168,11 @@ programming and `play=` start counters, nonzero `voiceq=` and `musicq=` queue
 counters, monotonic audio counters, increasing IRQ/refill, non-music SFX
 `sfxmix=`, music `musicmix=` counters, increasing `musicpos=`, a progressing
 `voiceq=` stream-update component, visible `musicbuf=` / `musicunder=` /
-`musicdrops=` health fields, coherent lane accounting where `voices=` equals
-`sfxvoices=` plus `musicvoices=`, at least one active music voice snapshot, at
-least one buffered music-window snapshot, and nonzero SB16 ACK accounting. SFX
+`musicdrops=` health fields, `musicstream=PUSH` for the current pushed-chunk
+proof, monotonic `musicpull=` counters reserved for future hardware-paced pull
+proof, coherent lane accounting where `voices=` equals `sfxvoices=` plus
+`musicvoices=`, at least one active music voice snapshot, at least one buffered
+music-window snapshot, and nonzero SB16 ACK accounting. SFX
 lane proof is cumulative: `sfxmix=` must progress even if every captured
 snapshot lands after the short SFX voice has drained. That proves the emulated
 SB16 guest path was initialized, DMA-programmed, started, queued, and continued
@@ -202,9 +209,10 @@ flat, and its continuity summary now records separate `mix_lanes` deltas for
 non-music SFX, music, stream updates, music position, and shared SB16 IRQ/refill
 progress plus a `stream_health` object with buffer floor/peak/final values,
 under/drop deltas, and position-per-update metadata. It also records
-`mixer_safety` thresholds for clip-free, underrun-free, and drop-free playback,
-plus a scripted fire-phase proof so a manifest cannot pass on carrier or music
-activity alone.
+`stream_contract` metadata that preserves `musicstream=PUSH` versus future
+`musicstream=PULL`, `mixer_safety` thresholds for clip-free, underrun-free, and
+drop-free playback, plus a scripted fire-phase proof so a manifest cannot pass
+on carrier or music activity alone.
 The listener-quality metadata is still aggregate only: active span,
 leading/trailing inactive windows, clipping ratio, crest factor, zero-crossing
 rate, machine-audible thresholds, and an explicit note that subjective human
@@ -235,8 +243,13 @@ Doom sound, tic, and frame hooks poll `VIBE_AUDIO_BUFFERED_BYTES` and call
 three-quarter low-water mark. The music architecture keeps targeting the same SB16
 DMA/refill output path, so the parser/renderer work shares SFX voice stealing,
 clipping, silence, and status accounting. The extra `musicvoices=`, `musicmix=`,
-`musicpos=`, `musicbuf=`, `musicunder=`, `musicdrops=`, and `voiceq=` update
-counter make that contract visible in cloud smoke status.
+`musicpos=`, `musicbuf=`, `musicunder=`, `musicdrops=`, `musicstream=`,
+`musicpull=`, and `voiceq=` update counter make that contract visible in cloud
+smoke status.
+`musicstream=PUSH` and zeroed `musicpull=` counters make the current push-fed
+status explicit; `tools/check_audio_continuity_proof.py --require-pull-stream`
+is the host-only successor contract that will reject this mode until the kernel
+owns hardware-paced music refills.
 Runtime music volume updates feed `vibe_music_stream_set_volume`, so new chunks
 use Doom's latest music volume without restarting the song cursor.
 Looping songs measure one parsed song pass and wrap only the renderer's
@@ -252,7 +265,10 @@ Remaining gaps:
   bounded chunks with `VIBE_AUDIO_UPDATE_SFX`. The kernel now owns an active plus
   pending music window and exposes buffered-byte status, but it still has no
   first-class hardware-paced pull command that asks the renderer for more PCM
-  directly from the IRQ/refill path.
+  directly from the IRQ/refill path. The status contract now says this out loud:
+  `musicstream=PUSH` is acceptable for continuity proof, while
+  `musicstream=PULL` with advancing `musicpull=` counters is required for the
+  future hardware-paced proof.
 - The audible proof is a remote aggregate-output proof, not a listener recording
   or subjective quality proof. It now records aggregate listener-quality
   metadata, but a human playtest should still use remote audio forwarding for
@@ -268,7 +284,9 @@ The cloud-safe continuity gate is `tools/check_audio_continuity_proof.py`. It
 checks status snapshots only: `audio=SB16`, `sb16=`, `dma=`, `play=`,
 `voiceq=`, `musicq=`, IRQ/refill progress, non-music SFX mixing, streamed music
 chunks, music mixer counters, changing `musicbuf=` stream-health windows, and
-`musicpos=` stream position must move across the scripted cloud phases.
+`musicpos=` stream position must move across the scripted cloud phases. Passing
+`--require-pull-stream` additionally requires `musicstream=PULL` and advancing
+`musicpull=` counters.
 
 Fallback plan:
 

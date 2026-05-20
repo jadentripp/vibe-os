@@ -116,12 +116,28 @@ throwaway host. See `docs/runbooks/play-now-cloud.md` for the shortest
 copy/paste path and `docs/runbooks/cloud-interactive-playtest.md` for the fuller
 remote VNC playtest and proof-capture flow.
 
-Current cloud status at a high level: scripted real-WAD playability/input and
-aggregate audible-audio proof are cloud-proven in the run recorded below.
+For the quickest human proof, leave `./tools/play_now_remote.sh` running on the
+remote host and run this from a second remote SSH shell:
+
+```sh
+./tools/run_remote_human_playtest.sh \
+  --playtester jt \
+  --scripted-proof-run-id "<passing-real-wad-smoke-run-id>"
+```
+
+That helper prompts for each Doom action, captures the remote monitor status
+phases, builds `/tmp/vibe-os-human-proof.tgz`, validates the allowlisted bundle
+before download, and prints the local post-download verification commands.
+
+Current cloud status at a high level: the last published baseline has scripted
+real-WAD playability/input and aggregate audible-audio proof in the run recorded
+below.
 Persistence/save-load should only be claimed for a matching green cloud
-persistence run; the current proof status below records a rebooted
-`DOOMSAV0.DSG` save-slot proof for that baseline, and later runtime, workflow,
-or checker changes must rerun the relevant cloud gates.
+persistence run; the current proof status below intentionally does not claim a
+current-head rebooted `DOOMSAV0.DSG` save-slot proof. Later runtime, workflow,
+or checker changes must rerun the relevant cloud gates. Current save-slot proof
+also requires the write boot's decoded status via `--save-write-status`, so
+mutated `DOOMSAV*.DSG` bytes alone are not enough.
 
 ## Requirements
 
@@ -279,29 +295,73 @@ temporary QEMU WAV backend on the disposable runner, reduces it to aggregate
 continuity snapshots, and deletes the WAV before upload.
 Raw audio files are not diagnostic artifacts.
 
-Current proof status: run `26156172979` on kernel/runtime commit `eabd307`
-is the current scripted cloud proof that passes the serious real-WAD gates for
-the current runtime code. It reaches `doomrun=RUN`, `doomopen=OK`,
+Last published proof baseline: run `26165681561` on kernel/runtime commit
+`c525952` is the latest archived scripted cloud proof that passes the serious
+real-WAD gates. It reaches `doomrun=RUN`, `doomopen=OK`,
 `doomread=OK`, `gameplay=OK`, `usr=OK`, live keyboard/mouse/SB16/preemption
-counters, the aggregate audible-audio proof, and a rebooted Doom save-slot proof:
-`DOOMSAV0.DSG bytes=512 changed-from-baseline survived-reboot description='VIBESAVE' version='version 110'`.
-The matching `os-smoke` run `26156166546` also passes the generated-WAD smoke
-for the same kernel/runtime commit, and the real-WAD run triages as
+counters, the scripted gameplay transition proof, and the aggregate
+audible-audio proof. The matching `os-smoke` run `26165678183` also passes the
+generated-WAD smoke for the same kernel/runtime commit, and the real-WAD run triages as
 `playability-status-green`. Later commits that only
 update evidence docs/tests do not change the booted runtime, but any kernel,
 runtime, workflow, or proof-checker change must rerun these gates. This is
 strong scripted cloud evidence, not yet a human-facing "Doom-capable" claim.
+Persistence/save-load should only be claimed for a matching green current-head
+cloud persistence run; the older `26156172979` / `eabd307` save-slot reboot
+proof is historical evidence for that older runtime, not the current proof
+point. Current-head save proof must include both the reboot comparison and the
+first boot's `--save-write-status` runtime gate.
+
+Current-head cloud proof state: pending for this branch until the pushed commit
+passes the cloud gates below. Before push, keep this host-only readiness check
+green:
+
+```sh
+make cloud-playability-check
+git diff --check
+```
+
+After push, prove the selected branch/ref explicitly:
+
+```sh
+branch=$(git branch --show-current)
+gh workflow run os-smoke.yml \
+  --ref "$branch" \
+  -f expected_ref="$branch" \
+  -f shutdown_panic_proof=false
+
+gh workflow run real-wad-smoke.yml \
+  --ref "$branch" \
+  -f expected_ref="$branch" \
+  -f audible_audio_proof=true \
+  -f persistence_proof=false
+```
+
+Once `.github/workflows/real-wad-soak.yml` is present on the repository default
+branch, run the repeated proof too:
+
+```sh
+branch=$(git branch --show-current)
+gh workflow run real-wad-soak.yml \
+  --ref "$branch" \
+  -f expected_ref="$branch" \
+  -f attempts=3 \
+  -f min_passes=3 \
+  -f audible_audio_proof=true
+```
 
 For a human actually trying the image, use
 `docs/runbooks/remote-doom-playtest.md`. It keeps QEMU on a disposable remote
 host, exposes a loopback-only VNC display through SSH, keeps `DOOM1.WAD` outside
 git, collects an allowlisted status/log/ELF proof bundle with
+`tools/run_remote_human_playtest.sh` or
 `tools/collect_human_playtest_bundle.py`, requires explicit `--confirm-*`
 operator confirmations, writes `human-playtest-notes-v2` with SHA-256 hashes
 for every status phase, writes a phase-by-phase `human-playtest-session.json`
-tied to the passing real-WAD workflow run ID, writes a SHA-256
-`human-playtest-manifest.json`, and validates downloaded diagnostics with
-`tools/check_cloud_playability_artifacts.py --human-session`. Compare the
+tied to the passing real-WAD workflow run ID, writes
+`human-playtest-checklist.txt` with `schema=human-playtest-checklist-v1`, writes
+a SHA-256 `human-playtest-manifest.json`, and validates downloaded diagnostics
+with `tools/check_cloud_playability_artifacts.py --human-session`. Compare the
 collector's `pre-download human verification OK` line with the local
 `post-download human verification OK` line before treating the downloaded
 bundle as the human evidence packet.

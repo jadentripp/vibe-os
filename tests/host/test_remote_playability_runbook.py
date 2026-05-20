@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 CHECKER = ROOT / "tools" / "check_cloud_playability_artifacts.py"
 COLLECTOR = ROOT / "tools" / "collect_human_playtest_bundle.py"
+GUIDED_HUMAN_PLAYTEST = ROOT / "tools" / "run_remote_human_playtest.sh"
 PREPARE = ROOT / "tools" / "prepare_shareware_wad.py"
 
 checker_spec = importlib.util.spec_from_file_location("check_cloud_playability_artifacts", CHECKER)
@@ -44,6 +45,11 @@ def valid_status(**overrides):
         "pg": "ON",
         "pmm": "OK",
         "vmm": "OK",
+        "vmmhi": "OK",
+        "vmmhva": "C0000000",
+        "vmmhpa": "00123000",
+        "vmmhpt": "00124000",
+        "vmmhfree": "00000001",
         "libc": "OK",
         "c": "OK",
         "usr": "OK",
@@ -85,7 +91,7 @@ def valid_status(**overrides):
         "dtick": "0000000B",
         "gflags": "00000001",
         "gaction": "00000000",
-        "pflags": "000000FF",
+        "pflags": "000001FF",
         "pbuttons": "00000000",
         "pdelta": "00000100",
         "doomsound": "00000001",
@@ -111,6 +117,8 @@ def valid_status(**overrides):
         "musicbuf": "00000C00",
         "musicunder": "00000000",
         "musicdrops": "00000000",
+        "musicstream": "PUSH",
+        "musicpull": "00000000:00000000",
         "sb16": "00000004:00000005",
         "dma": "00000001",
         "play": "00000001:00000000",
@@ -434,9 +442,17 @@ def write_human_session(artifact):
     )
 
 
+def write_human_checklist(artifact):
+    (artifact / "human-playtest-checklist.txt").write_text(
+        check_cloud_playability_artifacts.build_human_checklist(artifact)
+    )
+
+
 def write_human_manifest(artifact):
     if not (artifact / "human-playtest-session.json").exists():
         write_human_session(artifact)
+    if not (artifact / "human-playtest-checklist.txt").exists():
+        write_human_checklist(artifact)
     (artifact / "human-playtest-manifest.json").write_text(
         json.dumps(
             check_cloud_playability_artifacts.build_human_manifest(artifact),
@@ -525,6 +541,8 @@ def valid_audio_proof_manifest():
             "musicbuf": "00000C00",
             "musicunder": "00000000",
             "musicdrops": "00000000",
+            "musicstream": "PUSH",
+            "musicpull": "00000000:00000000",
         },
         "continuity": {
             "gate": "tools/check_audio_continuity_proof.py",
@@ -575,6 +593,17 @@ def valid_audio_proof_manifest():
                 "stream_update_delta": "00000005",
                 "position_delta": "000013FF",
                 "position_delta_per_update_floor": "00000300",
+            },
+            "stream_contract": {
+                "mode": "PUSH",
+                "status_field": "musicstream",
+                "pull_counters": "00000000:00000000",
+                "hardware_paced": False,
+                "current_push_proof": True,
+                "claim": (
+                    "musicstream=PUSH proves pushed chunk continuity; musicstream=PULL plus "
+                    "advancing musicpull= counters is required before claiming hardware-paced music"
+                ),
             },
             "mixer_safety": {
                 "mixclip_delta": "00000000",
@@ -641,6 +670,57 @@ def write_valid_soak_metadata(metadata, artifact, attempts=2, audible=False):
 class RemotePlayabilityRunbookTests(unittest.TestCase):
     def test_repo_contract_is_wired_for_remote_human_play(self):
         check_cloud_playability_artifacts.validate_repo_contract()
+
+    def test_guided_remote_human_playtest_helper_is_safe_and_wires_collector(self):
+        script = GUIDED_HUMAN_PLAYTEST.read_text()
+        cloud = (ROOT / "docs" / "runbooks" / "cloud-interactive-playtest.md").read_text()
+        play_now = (ROOT / "docs" / "runbooks" / "play-now-cloud.md").read_text()
+        remote = (ROOT / "docs" / "runbooks" / "remote-doom-playtest.md").read_text()
+
+        for needle in (
+            "Usage: tools/run_remote_human_playtest.sh --playtester NAME --scripted-proof-run-id RUN_ID",
+            "Refusing to run the remote human playtest helper on macOS",
+            "BUILD_DIR=\"${BUILD_DIR:-build}\"",
+            "MONITOR_SOCKET=\"${MONITOR_SOCKET:-build/play-now/monitor.sock}\"",
+            "OUTPUT_DIR=\"${OUTPUT_DIR:-/tmp/vibe-os-human-proof}\"",
+            "TARBALL=\"${TARBALL:-/tmp/vibe-os-human-proof.tgz}\"",
+            "PHASES=(",
+            "after-start",
+            "after-fire",
+            "after-move",
+            "after-use",
+            "after-mouse",
+            "after-menu",
+            "python3 tools/collect_human_playtest_bundle.py",
+            "--capture-phase \"$phase\"",
+            "--confirm-remote-vnc",
+            "--confirm-phase-actions",
+            "--confirm-phase-status-hashes",
+            "--confirm-no-forbidden-artifacts",
+            "--confirm-post-download-verification",
+            "tar -C \"$output_parent\" -czf \"$TARBALL\" \"$output_base\"",
+            "python3 tools/check_cloud_playability_artifacts.py --human-session ./vibe-os-human-proof",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, script)
+
+        for forbidden in (
+            "qemu-system",
+            "DOOM1.WAD",
+            "disk.img",
+            "gfx.bin",
+            "doom-audio.wav",
+            "git add",
+            "actions/upload-artifact",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, script)
+
+        self.assertTrue(GUIDED_HUMAN_PLAYTEST.stat().st_mode & 0o111)
+        for doc in (cloud, play_now, remote):
+            self.assertIn("tools/run_remote_human_playtest.sh", doc)
+            self.assertIn("--scripted-proof-run-id", doc)
+            self.assertIn("--playtester", doc)
 
     def test_cli_repo_contract_is_host_only(self):
         result = subprocess.run(
@@ -957,8 +1037,22 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             write_valid_artifact(artifact)
             write_human_notes(artifact)
             write_human_session(artifact)
+            write_human_checklist(artifact)
 
             with self.assertRaisesRegex(AssertionError, "human manifest file"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
+    def test_downloaded_human_session_requires_generated_checklist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            write_human_notes(artifact)
+            write_human_session(artifact)
+
+            with self.assertRaisesRegex(AssertionError, "human checklist file"):
                 check_cloud_playability_artifacts.validate_artifact_dir(
                     artifact,
                     require_human_notes=True,
@@ -1009,6 +1103,28 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             session_path.write_text(json.dumps(session, indent=2, sort_keys=True) + "\n")
 
             with self.assertRaisesRegex(AssertionError, "human playtest session failed"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
+    def test_downloaded_human_session_rejects_checklist_tampering(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            write_human_notes(artifact)
+            write_human_session(artifact)
+            write_human_manifest(artifact)
+
+            checklist_path = artifact / "human-playtest-checklist.txt"
+            checklist_path.write_text(
+                checklist_path.read_text().replace(
+                    "post-download human verification OK",
+                    "post-download skipped",
+                )
+            )
+
+            with self.assertRaisesRegex(AssertionError, "human playtest checklist failed"):
                 check_cloud_playability_artifacts.validate_artifact_dir(
                     artifact,
                     require_human_notes=True,
@@ -1123,7 +1239,9 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertIn("pre-download human verification OK", result.stdout)
             self.assertTrue((output / "human-playtest-notes.txt").exists())
             self.assertTrue((output / "human-playtest-session.json").exists())
+            self.assertTrue((output / "human-playtest-checklist.txt").exists())
             self.assertTrue((output / "human-playtest-manifest.json").exists())
+            self.assertIn("human-playtest-checklist.txt", result.stdout)
             self.assertTrue((output / "serial.remote.log").exists())
             self.assertFalse((output / "status.persistence-write.txt").exists())
             self.assertFalse((output / "status.after-fire.bin").exists())

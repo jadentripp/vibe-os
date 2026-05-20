@@ -25,8 +25,11 @@ and then writes the requested PTE. `vmm_unmap_page` now scans that table after
 clearing a PTE; when the table is empty and came from the PMM-managed range, it
 clears the PDE, returns the page-table frame to PMM, and records reclaimed-table
 accounting. The current runtime proof is a high-half non-identity self-test at
-`0xc0000000`; process page directories are still preallocated and cloned from
-the boot kernel map.
+`0xc0000000`. The status line exposes that proof as `vmmhi=OK`, `vmmhva=`,
+`vmmhpa=`, `vmmhpt=`, and `vmmhfree=`: the high virtual alias, the distinct PMM
+frame touched through it, the dynamic page-table frame, and the same page-table
+frame after `vmm_unmap_page` reclaims it. Process page directories are still
+preallocated and cloned from the boot kernel map.
 
 ## Current Address Spaces
 

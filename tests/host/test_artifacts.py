@@ -563,12 +563,14 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("check_args=(--baseline-image \"$baseline\")", real_wad_workflow)
         self.assertIn("check_args+=(--require-default)", real_wad_workflow)
         self.assertIn("check_args+=(--require-save-slot \"$PERSISTENCE_SAVE_SLOT\")", real_wad_workflow)
+        self.assertIn("check_args+=(--save-write-status build/status.persistence-write.txt)", real_wad_workflow)
         self.assertIn('cp "$baseline" build/disk.img', real_wad_workflow)
         self.assertIn("make_wad_image.PERSISTENCE_CHECKPOINT_NAME", real_wad_workflow)
         self.assertIn('b""', real_wad_workflow)
         self.assertIn("build/status.persistence-write-proof.txt", real_wad_workflow)
         self.assertIn("build/status.persistence-reboot-proof.txt", real_wad_workflow)
         self.assertIn("--reboot-status build/status.persistence-reboot.txt", real_wad_workflow)
+        self.assertIn("--save-write-status", real_wad_workflow)
         self.assertIn('rm -f "$WAD_PATH"', real_wad_workflow)
         self.assertIn("timeout-minutes: 4", real_wad_workflow)
         self.assertIn("Show smoke diagnostics", real_wad_workflow)
@@ -783,6 +785,7 @@ class SourceContractTests(unittest.TestCase):
             "refill=00000000 half=00000000 mixwrap=00000000 mixover=00000000 mixunder=00000000 mixclip=00000000 "
             "steal=00000000 pitchclamp=00000000 panclamp=00000000 musicvoices=00000000 musicmix=00000000 musicloop=00000000 "
             "musicpos=00000000 musicbuf=00000000 musicunder=00000000 musicdrops=00000000 "
+            "musicstream=NONE musicpull=00000000:00000000 "
             "sb16=00000000:00000000 dma=00000000 play=00000000:00000000 voiceq=00000000:00000000:00000000 musicq=00000000:00000000 "
             "mouseirq=00000001 mousepkt=00000001 mousepoll=00000001 "
             "mousebtn=00000001 mousedelta=00000018:0000000C "
@@ -790,7 +793,7 @@ class SourceContractTests(unittest.TestCase):
             "pctx=00000004 pfrom=00000002 pto=00000003 peip=01000000:00E80000 "
             "pspin=50524546 free=00700000 ticks=00000100"
         )
-        playable = "gstate=00000000 gtic=00000001 gflags=00000001 gaction=00000000 pflags=000000FF pbuttons=00000000 ppos=00010000:00020000 pdelta=00000100 keyirq=00000001 keyqueue=00000001 keypoll=00000001 keyseen=00000071 keylast=0001001B"
+        playable = "gstate=00000000 gtic=00000001 gflags=00000001 gaction=00000000 pflags=000001FF pbuttons=00000000 ppos=00010000:00020000 pdelta=00000100 keyirq=00000001 keyqueue=00000001 keypoll=00000001 keyseen=00000071 keylast=0001001B"
         valid = f"Aurora OS v0.2 {core} gameplay=OK gmap=00000101 leveltime=00000001 doompresent=00000008 {visual.replace('doomframe=13572468', 'doomframe=88888888')} {playable} doomlog=ready"
         baseline = valid.replace("gtic=00000001", "gtic=00000000").replace(
             "leveltime=00000001", "leveltime=00000000"
@@ -809,14 +812,14 @@ class SourceContractTests(unittest.TestCase):
         ).replace(
             "gflags=00000001", "gflags=00000000"
         ).replace(
-            "pflags=000000FF", "pflags=00000001"
+            "pflags=000001FF", "pflags=00000001"
         ).replace(
             "keyseen=00000071", "keyseen=00000000"
         ).replace(
             "keylast=0001001B", "keylast=00000000"
         )
         start = valid.replace("gflags=00000001", "gflags=00000000").replace(
-            "pflags=000000FF", "pflags=00000001"
+            "pflags=000001FF", "pflags=00000001"
         ).replace(
             "doompresent=00000008", "doompresent=00000002"
         ).replace(
@@ -837,7 +840,7 @@ class SourceContractTests(unittest.TestCase):
         ).replace("keyirq=00000001", "keyirq=00000002").replace(
             "keyqueue=00000001", "keyqueue=00000002"
         ).replace("keypoll=00000001", "keypoll=00000002").replace(
-            "pflags=000000FF", "pflags=000000C5"
+            "pflags=000001FF", "pflags=000000C5"
         ).replace(
             "keyseen=00000071", "keyseen=00000010"
         ).replace(
@@ -852,7 +855,7 @@ class SourceContractTests(unittest.TestCase):
         ).replace("keyirq=00000001", "keyirq=00000003").replace(
             "keyqueue=00000001", "keyqueue=00000003"
         ).replace("keypoll=00000001", "keypoll=00000003").replace(
-            "pflags=000000FF", "pflags=00000023"
+            "pflags=000001FF", "pflags=00000023"
         ).replace(
             "ppos=00010000:00020000", "ppos=00010020:00020000"
         ).replace(
@@ -869,7 +872,7 @@ class SourceContractTests(unittest.TestCase):
         ).replace("keyirq=00000001", "keyirq=00000004").replace(
             "keyqueue=00000001", "keyqueue=00000004"
         ).replace("keypoll=00000001", "keypoll=00000004").replace(
-            "pflags=000000FF", "pflags=00000009"
+            "pflags=000001FF", "pflags=00000009"
         ).replace(
             "keyseen=00000071", "keyseen=00000031"
         ).replace(
@@ -897,7 +900,7 @@ class SourceContractTests(unittest.TestCase):
         ).replace("keyirq=00000001", "keyirq=00000005").replace(
             "keyqueue=00000001", "keyqueue=00000005"
         ).replace("keypoll=00000001", "keypoll=00000005").replace(
-            "pflags=000000FF", "pflags=00000011"
+            "pflags=000001FF", "pflags=00000011"
         )
         check_real_wad_proof.validate_status(
             valid,
@@ -1654,6 +1657,8 @@ class SourceContractTests(unittest.TestCase):
             'smoke_musicbuf_text db " musicbuf="',
             'smoke_musicunder_text db " musicunder="',
             'smoke_musicdrops_text db " musicdrops="',
+            'smoke_musicstream_text db " musicstream="',
+            'smoke_musicpull_text db " musicpull="',
             'smoke_audio_text db " audio="',
         ):
             self.assertIn(source, kernel)

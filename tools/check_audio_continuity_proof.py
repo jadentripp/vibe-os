@@ -45,6 +45,8 @@ REQUIRED_AUDIO_FIELDS = (
     "musicbuf",
     "musicunder",
     "musicdrops",
+    "musicstream",
+    "musicpull",
     "sb16",
     "dma",
     "play",
@@ -100,7 +102,9 @@ TUPLE_FIELDS = {
     "play": 2,
     "voiceq": 3,
     "musicq": 2,
+    "musicpull": 2,
 }
+MUSIC_STREAM_MODES = ("NONE", "PUSH", "PULL")
 SUMMARY_FIELDS = (
     "audio",
     "doomsound",
@@ -126,6 +130,8 @@ SUMMARY_FIELDS = (
     "musicbuf",
     "musicunder",
     "musicdrops",
+    "musicstream",
+    "musicpull",
     "sb16",
     "dma",
     "play",
@@ -188,6 +194,12 @@ def _parse_labeled(label: str, status: str) -> dict[str, str]:
     for name in REQUIRED_AUDIO_FIELDS:
         if name in TUPLE_FIELDS:
             _hex_tuple(fields, name, label, TUPLE_FIELDS[name])
+        elif name == "musicstream":
+            if fields[name] not in MUSIC_STREAM_MODES:
+                raise AssertionError(
+                    f"{label} musicstream= must be one of {', '.join(MUSIC_STREAM_MODES)}, "
+                    f"got {fields[name]!r}"
+                )
         elif name != "audio":
             _hex(fields, name, label)
     return fields
@@ -312,6 +324,20 @@ def _assert_tuple_component_progress(
         )
 
 
+def _assert_tuple_component_nonzero(
+    snapshots: list[tuple[str, dict[str, str]]],
+    name: str,
+    count: int,
+    index: int,
+    reason: str,
+) -> None:
+    for label, fields in snapshots:
+        value = _hex_tuple(fields, name, label, count)[index]
+        if value > 0:
+            return
+    raise AssertionError(f"{name}= {reason} counter must be nonzero in at least one snapshot")
+
+
 def _assert_voice_lane_consistency(snapshots: list[tuple[str, dict[str, str]]]) -> None:
     for label, fields in snapshots:
         voices = _hex(fields, "voices", label)
@@ -324,22 +350,58 @@ def _assert_voice_lane_consistency(snapshots: list[tuple[str, dict[str, str]]]) 
             )
 
 
-def _assert_music_stream_health(snapshots: list[tuple[str, dict[str, str]]]) -> None:
+def _assert_music_stream_health(
+    snapshots: list[tuple[str, dict[str, str]]],
+    *,
+    use_pull_stream: bool,
+) -> None:
     buffers = [_hex(fields, "musicbuf", label) for label, fields in snapshots]
     first_label, first_fields = snapshots[0]
     last_label, last_fields = snapshots[-1]
-    first_update = _hex_tuple(first_fields, "voiceq", first_label, 3)[2]
-    last_update = _hex_tuple(last_fields, "voiceq", last_label, 3)[2]
+    if use_pull_stream:
+        first_update = _hex_tuple(first_fields, "musicpull", first_label, 2)[1]
+        last_update = _hex_tuple(last_fields, "musicpull", last_label, 2)[1]
+        counter = "musicpull= pull refill"
+    else:
+        first_update = _hex_tuple(first_fields, "voiceq", first_label, 3)[2]
+        last_update = _hex_tuple(last_fields, "voiceq", last_label, 3)[2]
+        counter = "voiceq= stream update"
     update_delta = last_update - first_update
 
     if update_delta < MIN_MUSIC_STREAM_UPDATE_DELTA:
         raise AssertionError(
-            "voiceq= stream update counter must advance by at least "
+            f"{counter} counter must advance by at least "
             f"{MIN_MUSIC_STREAM_UPDATE_DELTA} across music health snapshots, "
             f"got {update_delta:08X}"
         )
     if len(set(buffers)) < 2:
         raise AssertionError("musicbuf= must show changing stream-window health across snapshots")
+
+
+def _assert_music_stream_mode(
+    snapshots: list[tuple[str, dict[str, str]]],
+    *,
+    require_pull_stream: bool,
+) -> None:
+    modes = {fields["musicstream"] for _, fields in snapshots}
+    if "NONE" in modes:
+        raise AssertionError("musicstream= must name PUSH or PULL while proving music continuity")
+
+    if require_pull_stream:
+        if modes != {"PULL"}:
+            raise AssertionError(
+                "musicstream=PULL is required for a hardware-paced music proof; "
+                f"got {', '.join(sorted(modes))}"
+            )
+        _assert_tuple_component_progress(snapshots, "musicpull", 2, 0, "pull request")
+        _assert_tuple_component_progress(snapshots, "musicpull", 2, 1, "pull refill")
+        _assert_tuple_component_nonzero(snapshots, "musicpull", 2, 0, "pull request")
+        _assert_tuple_component_nonzero(snapshots, "musicpull", 2, 1, "pull refill")
+        return
+
+    if "PULL" in modes:
+        _assert_tuple_component_progress(snapshots, "musicpull", 2, 0, "pull request")
+        _assert_tuple_component_progress(snapshots, "musicpull", 2, 1, "pull refill")
 
 
 def validate_status(
@@ -349,6 +411,7 @@ def validate_status(
     movement_status: str,
     use_status: str,
     menu_status: str,
+    require_pull_stream: bool = False,
 ) -> None:
     """Validate SB16 counter continuity without reading or uploading audio bytes."""
 
@@ -389,11 +452,14 @@ def validate_status(
     if _hex_tuple(final_fields, "musicq", "final", 2)[0] == 0:
         raise AssertionError("final musicq= must prove the music voice was queued")
 
+    uses_pull_stream = any(fields["musicstream"] == "PULL" for _, fields in snapshots)
+
     _assert_voice_lane_consistency(snapshots)
     for name in MONOTONIC_COUNTERS:
         _assert_nondecreasing(snapshots, name)
     for name, count in (("play", 2), ("voiceq", 3), ("musicq", 2)):
         _assert_tuple_nondecreasing(snapshots, name, count)
+    _assert_tuple_nondecreasing(snapshots, "musicpull", 2)
     for name in PROGRESS_COUNTERS:
         _assert_progress(snapshots, name)
     for name, minimum in MIN_PHASED_PROGRESS.items():
@@ -402,9 +468,17 @@ def validate_status(
     _assert_phase_progress(snapshots, "baseline", "fire", "sfxmix", "scripted fire SFX")
     for name, maximum in MAX_SAFETY_DELTAS.items():
         _assert_max_delta(snapshots, name, maximum, "audio safety")
-    for name, count, index, reason in PROGRESS_TUPLE_COMPONENTS:
-        _assert_tuple_component_progress(snapshots, name, count, index, reason)
-    _assert_music_stream_health(snapshots)
+    _assert_music_stream_mode(snapshots, require_pull_stream=require_pull_stream)
+    if uses_pull_stream or require_pull_stream:
+        _assert_tuple_component_progress(snapshots, "musicpull", 2, 0, "pull request")
+        _assert_tuple_component_progress(snapshots, "musicpull", 2, 1, "pull refill")
+    else:
+        for name, count, index, reason in PROGRESS_TUPLE_COMPONENTS:
+            _assert_tuple_component_progress(snapshots, name, count, index, reason)
+    _assert_music_stream_health(
+        snapshots,
+        use_pull_stream=uses_pull_stream or require_pull_stream,
+    )
 
 
 def validate_repo_contract() -> None:
@@ -453,6 +527,8 @@ def validate_repo_contract() -> None:
                 "musicbuf=",
                 "musicunder=",
                 "musicdrops=",
+                "musicstream=PUSH",
+                "musicpull=",
                 "stream-health evidence",
                 "single static music carrier",
                 "no new mixclip=, musicunder=, or musicdrops=",
@@ -470,6 +546,8 @@ def validate_repo_contract() -> None:
                 "musicbuf=",
                 "musicunder=",
                 "musicdrops=",
+                "musicstream=PUSH",
+                "musicpull=",
                 "long-playback wrap",
                 "static stream window",
             ),
@@ -527,6 +605,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--menu", type=Path, help="Decoded status.after-menu.txt")
     parser.add_argument("--repo-contract", action="store_true")
     parser.add_argument("--no-auto-snapshots", action="store_true")
+    parser.add_argument(
+        "--require-pull-stream",
+        action="store_true",
+        help="Require the future hardware-paced musicstream=PULL contract.",
+    )
     args = parser.parse_args(argv)
 
     final_status = ""
@@ -574,6 +657,7 @@ def main(argv: list[str]) -> int:
             movement_status=_read(movement),
             use_status=_read(use),
             menu_status=_read(menu),
+            require_pull_stream=args.require_pull_stream,
         )
     except AssertionError as exc:
         summary = f"\nfinal audio summary: {summarize_status(final_status)}" if final_status else ""

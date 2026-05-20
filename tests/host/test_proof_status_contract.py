@@ -73,7 +73,7 @@ def status_line(**overrides):
         "dtick": "0000010C",
         "gflags": "00000001",
         "gaction": "00000000",
-        "pflags": "000000FF",
+        "pflags": "000001FF",
         "pbuttons": "00000000",
         "ppos": "00010000:00020000",
         "pdelta": "00000100",
@@ -100,6 +100,8 @@ def status_line(**overrides):
         "musicbuf": "00000000",
         "musicunder": "00000000",
         "musicdrops": "00000000",
+        "musicstream": "NONE",
+        "musicpull": "00000000:00000000",
         "sb16": "00000000:00000000",
         "dma": "00000000",
         "play": "00000000:00000000",
@@ -274,6 +276,7 @@ def mouse_status(**overrides):
         "mousepoll": "00000002",
         "mousebtn": "00000001",
         "mousedelta": "00000018:0000000C",
+        "pflags": "00000109",
     }
     fields.update(overrides)
     return status_line(**fields)

@@ -31,6 +31,10 @@ SMOKE_GUEST_EXIT_KEYS ?=
 SMOKE_NO_REBOOT ?= 1
 SMOKE_NO_SHUTDOWN ?= 1
 PERSISTENCE_BASELINE_IMAGE ?=
+PERSISTENCE_REBOOT_BASELINE_IMAGE ?=
+PERSISTENCE_REBOOT_STATUS ?=
+PERSISTENCE_WRITE_STATUS ?=
+PERSISTENCE_SAVE_WRITE_STATUS ?=
 PERSISTENCE_REQUIRE_DEFAULT ?= 0
 PERSISTENCE_REQUIRE_SAVE_SLOT ?=
 
@@ -194,6 +198,11 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "pg=ON" $(BUILD_DIR)/status.txt; \
 	grep -q "pmm=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "vmm=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "vmmhi=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "vmmhva=C0000000" $(BUILD_DIR)/status.txt; \
+	grep -q "vmmhpa=" $(BUILD_DIR)/status.txt; \
+	grep -q "vmmhpt=" $(BUILD_DIR)/status.txt; \
+	grep -q "vmmhfree=" $(BUILD_DIR)/status.txt; \
 	grep -q "libc=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "c=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "usr=OK" $(BUILD_DIR)/status.txt; \
@@ -264,6 +273,8 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "musicbuf=" $(BUILD_DIR)/status.txt; \
 	grep -q "musicunder=" $(BUILD_DIR)/status.txt; \
 	grep -q "musicdrops=" $(BUILD_DIR)/status.txt; \
+	grep -q "musicstream=" $(BUILD_DIR)/status.txt; \
+	grep -q "musicpull=" $(BUILD_DIR)/status.txt; \
 	grep -q "sb16=" $(BUILD_DIR)/status.txt; \
 	grep -q "dma=" $(BUILD_DIR)/status.txt; \
 	grep -q "play=" $(BUILD_DIR)/status.txt; \
@@ -378,6 +389,9 @@ persistence-image-check: $(IMAGE)
 	args=""; \
 	if [ -n "$(PERSISTENCE_BASELINE_IMAGE)" ]; then args="$$args --baseline-image $(PERSISTENCE_BASELINE_IMAGE)"; fi; \
 	if [ -n "$(PERSISTENCE_REBOOT_BASELINE_IMAGE)" ]; then args="$$args --reboot-baseline-image $(PERSISTENCE_REBOOT_BASELINE_IMAGE)"; fi; \
+	if [ -n "$(PERSISTENCE_REBOOT_STATUS)" ]; then args="$$args --reboot-status $(PERSISTENCE_REBOOT_STATUS)"; fi; \
+	if [ -n "$(PERSISTENCE_WRITE_STATUS)" ]; then args="$$args --write-status $(PERSISTENCE_WRITE_STATUS)"; fi; \
+	if [ -n "$(PERSISTENCE_SAVE_WRITE_STATUS)" ]; then args="$$args --save-write-status $(PERSISTENCE_SAVE_WRITE_STATUS)"; fi; \
 	if [ "$(PERSISTENCE_REQUIRE_DEFAULT)" = "1" ]; then args="$$args --require-default"; fi; \
 	for slot in $(PERSISTENCE_REQUIRE_SAVE_SLOT); do args="$$args --require-save-slot $$slot"; done; \
 	$(PYTHON) tools/check_doom_persistence_image.py $$args "$(IMAGE)"

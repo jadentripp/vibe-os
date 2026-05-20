@@ -37,6 +37,7 @@ PFLAG_MENU = 0x0010
 PFLAG_POS_DELTA = 0x0020
 PFLAG_AMMO_DELTA = 0x0040
 PFLAG_REFIRE = 0x0080
+PFLAG_TURN_CMD = 0x0100
 
 PFLAG_NAMES = {
     PFLAG_PLAYER: "player",
@@ -47,6 +48,7 @@ PFLAG_NAMES = {
     PFLAG_POS_DELTA: "position delta",
     PFLAG_AMMO_DELTA: "ammo delta",
     PFLAG_REFIRE: "refire",
+    PFLAG_TURN_CMD: "turn command",
 }
 REQUIRED_PFLAGS = (
     PFLAG_PLAYER
@@ -587,8 +589,10 @@ def validate_status(
         if use_status is not None
         else REQUIRED_PFLAGS
     )
+    if mouse_status is not None:
+        final_required_pflags |= PFLAG_TURN_CMD
     _require_pflags(final_status, final_required_pflags)
-    _require_any_pflag(final_status, REQUIRED_FIRE_STATE_PFLAGS, "final fire-state proof")
+    _require_pflags(final_status, REQUIRED_FIRE_STATE_PFLAGS)
 
     if baseline_status is not None:
         _assert_increasing(baseline_status, final_status, KEY_EVENT_COUNTERS)
@@ -620,8 +624,7 @@ def validate_status(
     if fire_status is not None:
         _require_level_snapshot(fire_status, "fire")
         _require_keyseen(fire_status, KEY_SEEN_FIRE, "fire snapshot")
-        _require_pflags(fire_status, PFLAG_PLAYER | PFLAG_ATTACK_CMD)
-        _require_any_pflag(fire_status, REQUIRED_FIRE_STATE_PFLAGS, "fire snapshot")
+        _require_pflags(fire_status, PFLAG_PLAYER | PFLAG_ATTACK_CMD | REQUIRED_FIRE_STATE_PFLAGS)
 
     if use_status is not None:
         _require_level_snapshot(use_status, "use")
@@ -637,6 +640,7 @@ def validate_status(
         mouse_buttons = _hex_field(mouse_status, "mousebtn")
         if mouse_buttons == 0:
             raise AssertionError("mousebtn= must record a scripted mouse button press")
+        _require_pflags(mouse_status, PFLAG_TURN_CMD)
         mouse_dx, mouse_dy = _position_field(mouse_status, "mousedelta")
         if mouse_dx == 0 and mouse_dy == 0:
             raise AssertionError("mousedelta= must record nonzero movement from the mouse phase")

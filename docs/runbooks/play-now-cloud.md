@@ -40,3 +40,21 @@ disk images, pixels, WADs, or raw audio.
 Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens the menu.
 VNC does not carry game audio in this quick path; current SB16 and audible audio
 are proved by the cloud `real-wad-smoke.yml` aggregate audio proof.
+
+To turn the same remote session into a human proof bundle, leave
+`./tools/play_now_remote.sh` running and open a second SSH shell on the
+disposable host:
+
+```sh
+./tools/run_remote_human_playtest.sh \
+  --playtester jt \
+  --scripted-proof-run-id "<passing-real-wad-smoke-run-id>"
+```
+
+The helper prompts for the playable Doom actions, captures each status phase
+through the remote monitor socket, writes the allowlisted proof bundle, validates
+it before download, creates `/tmp/vibe-os-human-proof.tgz`, and prints the local
+post-download checker commands. The longer version lives in
+`docs/runbooks/remote-doom-playtest.md`; its collector writes
+`human-playtest-checklist.txt` with the post-download checker commands and phase
+hashes to compare.

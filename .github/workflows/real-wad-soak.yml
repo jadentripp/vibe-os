@@ -21,6 +21,10 @@ on:
         required: false
         type: boolean
         default: false
+      expected_ref:
+        description: Optional branch/ref guard. Set this to the branch you meant to soak; the job fails before fetching the WAD if the selected workflow ref differs.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -36,6 +40,7 @@ jobs:
       INPUT_SOAK_ATTEMPTS: ${{ inputs.attempts }}
       INPUT_SOAK_MIN_PASSES: ${{ inputs.min_passes }}
       AUDIBLE_AUDIO_PROOF: ${{ inputs.audible_audio_proof }}
+      INPUT_EXPECTED_REF: ${{ inputs.expected_ref }}
       REAL_DOOM_WAD_URL: ${{ secrets.REAL_DOOM_WAD_URL }}
       PUBLIC_SHAREWARE_WAD_GZ_URL: https://archive.org/download/wadarchive/DATA/5b.zip/5b%2F2e249b9c5133ec987b3ea77596381dc0d6bc1d%2F5b2e249b9c5133ec987b3ea77596381dc0d6bc1d.wad.gz
       WAD_PATH: /tmp/DOOM1.WAD
@@ -43,6 +48,18 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Confirm selected proof ref
+        run: |
+          set -euo pipefail
+
+          if [ -n "${INPUT_EXPECTED_REF:-}" ] && [ "$GITHUB_REF_NAME" != "$INPUT_EXPECTED_REF" ]; then
+            echo "expected_ref '$INPUT_EXPECTED_REF' does not match selected workflow ref '$GITHUB_REF_NAME'." >&2
+            echo "Use the Run workflow branch selector or gh workflow run real-wad-soak.yml --ref '$INPUT_EXPECTED_REF'." >&2
+            exit 1
+          fi
+
+          echo "Running real-WAD soak proof on ref '$GITHUB_REF_NAME' at commit '$GITHUB_SHA'."
 
       - name: Install OS toolchain
         run: |

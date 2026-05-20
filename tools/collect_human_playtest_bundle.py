@@ -3,8 +3,9 @@
 
 This helper is intended to run on a disposable remote host after a human VNC
 session. It does not launch QEMU. It copies only allowlisted diagnostics out of
-the remote build directory, writes the structured human notes file, and then
-runs the same status-only artifact validator used for downloaded cloud proofs.
+the remote build directory, writes the structured human notes/checklist/session
+files, and then runs the same status-only artifact validator used for
+downloaded cloud proofs.
 """
 
 from __future__ import annotations
@@ -324,6 +325,10 @@ def collect(args: argparse.Namespace) -> list[str]:
     )
     copied.append(check_cloud_playability_artifacts.HUMAN_SESSION_FILE)
 
+    checklist = check_cloud_playability_artifacts.build_human_checklist(output_dir)
+    (output_dir / check_cloud_playability_artifacts.HUMAN_CHECKLIST_FILE).write_text(checklist)
+    copied.append(check_cloud_playability_artifacts.HUMAN_CHECKLIST_FILE)
+
     manifest = check_cloud_playability_artifacts.build_human_manifest(output_dir)
     (output_dir / check_cloud_playability_artifacts.HUMAN_MANIFEST_FILE).write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n"
@@ -341,7 +346,8 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Collect a non-WAD, non-pixel, non-audio manual remote Doom "
-            "playtest proof bundle and validate it."
+            "playtest proof bundle, write the generated human checklist, and "
+            "validate it."
         )
     )
     parser.add_argument(

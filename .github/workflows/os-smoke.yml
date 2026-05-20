@@ -10,6 +10,10 @@ on:
         required: false
         type: boolean
         default: false
+      expected_ref:
+        description: Optional branch/ref guard. Set this to the branch you meant to smoke; the job fails before toolchain install if the selected workflow ref differs.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -19,10 +23,24 @@ jobs:
     name: Build and boot smoke
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      INPUT_EXPECTED_REF: ${{ inputs.expected_ref }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Confirm selected proof ref
+        run: |
+          set -euo pipefail
+
+          if [ -n "${INPUT_EXPECTED_REF:-}" ] && [ "$GITHUB_REF_NAME" != "$INPUT_EXPECTED_REF" ]; then
+            echo "expected_ref '$INPUT_EXPECTED_REF' does not match selected workflow ref '$GITHUB_REF_NAME'." >&2
+            echo "Use the Run workflow branch selector or gh workflow run os-smoke.yml --ref '$INPUT_EXPECTED_REF'." >&2
+            exit 1
+          fi
+
+          echo "Running OS smoke proof on ref '$GITHUB_REF_NAME' at commit '$GITHUB_SHA'."
 
       - name: Install OS toolchain
         run: |

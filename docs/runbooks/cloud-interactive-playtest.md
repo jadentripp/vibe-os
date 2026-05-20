@@ -15,9 +15,9 @@ Safety contract:
   any WAD, `build/disk.img`, raw disk image, framebuffer dump, screenshot,
   rendered pixels, `status.*.bin`, QEMU WAV, or other raw audio capture.
 - `CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST`: only status text, logs, ELF diagnostics,
-  `doom.symbols`, `human-playtest-notes.txt`, `human-playtest-session.json`,
-  `human-playtest-manifest.json`, and optional aggregate `audio-proof.json` may
-  leave the disposable host.
+  `doom.symbols`, `human-playtest-notes.txt`, `human-playtest-checklist.txt`,
+  `human-playtest-session.json`, `human-playtest-manifest.json`, and optional
+  aggregate `audio-proof.json` may leave the disposable host.
 
 ## Pick A Disposable Host
 
@@ -144,7 +144,24 @@ other raw audio capture.
 ## Capture A Human Proof Bundle
 
 While QEMU is running on the remote host, use the status capture phases from
-`docs/runbooks/remote-doom-playtest.md`. The short version is:
+`docs/runbooks/remote-doom-playtest.md`.
+
+Fast path from a second SSH shell on the disposable host:
+
+```sh
+cd ~/vibe-os-cloud-playtest
+./tools/run_remote_human_playtest.sh \
+  --playtester "<name-or-initials>" \
+  --scripted-proof-run-id "<passing-real-wad-smoke-run-id>"
+```
+
+The guided helper asks the human to perform each VNC action, captures the eight
+status phases through `build/play-now/monitor.sock`, runs the collector with the
+required operator confirmations, prints `pre-download human verification OK`,
+builds `/tmp/vibe-os-human-proof.tgz`, and prints the local `scp` plus
+post-download verification commands.
+
+Manual equivalent, if you need to capture phases one at a time:
 
 ```sh
 cd ~/vibe-os-cloud-playtest
@@ -190,7 +207,9 @@ python3 tools/collect_human_playtest_bundle.py \
 
 The collector runs
 `tools/check_cloud_playability_artifacts.py --human-session` before download and
-prints `pre-download human verification OK`. Keep that line.
+prints `pre-download human verification OK`. Keep that line and the generated
+`human-playtest-checklist.txt`; the checklist names the local commands and phase
+hashes to compare after download.
 
 ## Download Only The Allowlisted Bundle
 

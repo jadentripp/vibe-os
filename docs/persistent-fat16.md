@@ -96,6 +96,11 @@ requires a live Doom runtime: no user fault, panic, shutdown, or failed
 proved through the runtime defaults checkpoint; the checker then requires the
 write boot to report the last `O_WRONLY|O_CREAT|O_TRUNC` defaults open, a
 completed defaults close, and no user fault before accepting the disk bytes.
+For save-slot proof, add `--save-write-status` with the first boot's decoded
+status; current save-slot reboot proof refuses to pass without that write-boot
+runtime evidence, and the checker requires Doom to be live, fault-free, writing,
+closing, and using an `O_WRONLY|O_CREAT|O_TRUNC` save-file open before the
+`DOOMSAVN.DSG` bytes and reboot comparison count.
 The reboot comparison requires `--baseline-image` too, so a preseeded image can
 never be reported as a reboot persistence proof without also proving the
 requested bytes changed from the fresh image. With a baseline image present, the

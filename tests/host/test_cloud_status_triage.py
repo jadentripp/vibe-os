@@ -57,7 +57,7 @@ def status_line(**overrides):
         "gtic": "00000020",
         "leveltime": "00000020",
         "gflags": "00000001",
-        "pflags": "000000FF",
+        "pflags": "000001FF",
         "pdelta": "00000100",
         "keyirq": "00000002",
         "keyqueue": "00000002",

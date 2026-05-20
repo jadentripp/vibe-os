@@ -134,6 +134,9 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         raise AssertionError("status voiceq= must prove at least one audio voice was queued")
     if _hex_tuple(fields, "musicq", 2)[0] == 0:
         raise AssertionError("status musicq= must prove the music voice was queued")
+    if fields.get("musicstream") not in check_audio_continuity_proof.MUSIC_STREAM_MODES:
+        raise AssertionError(f"status musicstream= must be a known mode, got {fields.get('musicstream')!r}")
+    _hex_tuple(fields, "musicpull", 2)
     return {
         "audio": fields["audio"],
         "doomrun": fields["doomrun"],
@@ -156,6 +159,8 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         "musicbuf": fields["musicbuf"],
         "musicunder": fields["musicunder"],
         "musicdrops": fields["musicdrops"],
+        "musicstream": fields["musicstream"],
+        "musicpull": fields["musicpull"],
     }
 
 
@@ -278,6 +283,17 @@ def _continuity_summary(
         "underrun_free": int(safety_progress["musicunder"]["delta"], 16) <= MAX_MUSIC_UNDERRUN_DELTA,
         "drop_free": int(safety_progress["musicdrops"]["delta"], 16) <= MAX_MUSIC_DROP_DELTA,
     }
+    stream_contract = {
+        "mode": final_fields["musicstream"],
+        "status_field": "musicstream",
+        "pull_counters": final_fields["musicpull"],
+        "hardware_paced": final_fields["musicstream"] == "PULL",
+        "current_push_proof": final_fields["musicstream"] == "PUSH",
+        "claim": (
+            "musicstream=PUSH proves pushed chunk continuity; musicstream=PULL plus "
+            "advancing musicpull= counters is required before claiming hardware-paced music"
+        ),
+    }
     return {
         "gate": "tools/check_audio_continuity_proof.py",
         "snapshots": ["baseline", "fire", "movement", "use", "menu", "final"],
@@ -317,12 +333,14 @@ def _continuity_summary(
             },
         },
         "stream_health": stream_health,
+        "stream_contract": stream_contract,
         "mixer_safety": mixer_safety,
         "scripted_phase_proof": fire_phase,
         "progress": progress,
         "claim": (
             "non-silent remote QEMU output plus status-only SB16 continuity; "
             "music chunks are advanced by a kernel-visible stream-position contract, "
+            "musicstream= names whether that proof is PUSH or future PULL, "
             "aggregate listener-quality metadata is machine checked, but subjective "
             "human approval is still unproven"
         ),
@@ -680,14 +698,16 @@ def validate_manifest(
             raise AssertionError(f"manifest status.{counter} must be eight hex digits")
     if int(status["dma"], 16) <= 0:
         raise AssertionError("manifest status.dma must be nonzero")
-    for name, count in (("sb16", 2), ("play", 2), ("voiceq", 3), ("musicq", 2)):
+    if status.get("musicstream") not in check_audio_continuity_proof.MUSIC_STREAM_MODES:
+        raise AssertionError("manifest status.musicstream must be a known music stream mode")
+    for name, count in (("sb16", 2), ("play", 2), ("voiceq", 3), ("musicq", 2), ("musicpull", 2)):
         value = status.get(name)
         if not isinstance(value, str):
             raise AssertionError(f"manifest status.{name} must be present")
         parts = value.split(":")
         if len(parts) != count or any(not re.fullmatch(r"[0-9A-Fa-f]{8}", part) for part in parts):
             raise AssertionError(f"manifest status.{name} must have {count} colon-separated hex parts")
-        if int(parts[0], 16) <= 0:
+        if name != "musicpull" and int(parts[0], 16) <= 0:
             raise AssertionError(f"manifest status.{name} first counter must be nonzero")
 
     if continuity.get("gate") != "tools/check_audio_continuity_proof.py":
@@ -728,6 +748,9 @@ def validate_manifest(
     stream_health = continuity.get("stream_health")
     if not isinstance(stream_health, dict):
         raise AssertionError("manifest continuity.stream_health must be an object")
+    stream_contract = continuity.get("stream_contract")
+    if not isinstance(stream_contract, dict):
+        raise AssertionError("manifest continuity.stream_contract must be an object")
     mixer_safety = continuity.get("mixer_safety")
     if not isinstance(mixer_safety, dict):
         raise AssertionError("manifest continuity.mixer_safety must be an object")
@@ -774,6 +797,16 @@ def validate_manifest(
         raise AssertionError("manifest stream health must include buffered windows")
     if stream_health["distinct_buffer_windows"] < 2:
         raise AssertionError("manifest stream health must include changing music buffers")
+    if stream_contract.get("mode") not in check_audio_continuity_proof.MUSIC_STREAM_MODES:
+        raise AssertionError("manifest stream contract mode must be a known music stream mode")
+    if stream_contract.get("status_field") != "musicstream":
+        raise AssertionError("manifest stream contract must name musicstream")
+    if not isinstance(stream_contract.get("pull_counters"), str):
+        raise AssertionError("manifest stream contract must record musicpull counters")
+    if stream_contract["mode"] == "PUSH" and stream_contract.get("current_push_proof") is not True:
+        raise AssertionError("manifest stream contract must mark current PUSH proof")
+    if stream_contract["mode"] == "PULL" and stream_contract.get("hardware_paced") is not True:
+        raise AssertionError("manifest stream contract must mark PULL as hardware paced")
     for key in (
         "buffer_floor",
         "buffer_peak",
@@ -900,6 +933,8 @@ def validate_repo_contract() -> None:
                 "status-only SB16 continuity",
                 "musicpos=",
                 "musicbuf=",
+                "stream_contract",
+                "musicstream=PUSH",
                 "listener-quality metadata",
                 "stream-health",
                 "Doom audio assets come from WAD lumps",

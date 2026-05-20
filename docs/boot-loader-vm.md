@@ -72,8 +72,12 @@ The VMM does now have a source-level higher-half contract for the next step:
 `VMM_HIGH_TEST_VADDR` at that base to a PMM-allocated physical frame. That test
 uses a dynamically allocated page table, writes through the high virtual alias,
 verifies the non-identity physical frame changed, unmaps the alias, and frees the
-test frame. This proves the mapper can build high, non-identity kernel mappings
-after PMM is online, but it does not relocate the running kernel yet.
+test frame. The smoke status now reports `vmmhi=OK`, `vmmhva=`, `vmmhpa=`,
+`vmmhpt=`, and `vmmhfree=` so status-only artifacts show the high virtual alias,
+the non-identity PMM frame, the dynamic page-table frame, and the page-table
+frame reclaimed after unmap. This proves the mapper can build high,
+non-identity kernel mappings after PMM is online, but it does not relocate the
+running kernel yet.
 
 User processes get separate page directories. Those directories start as clones
 of the supervisor kernel map, then replace only the user windows with private
@@ -105,6 +109,8 @@ That is technically honest for the current milestone, but the boot-critical
 kernel/process tables are still fixed low-memory infrastructure. The VMM now
 accounts static, active, dynamic, and guard page-table state and can allocate
 additional page tables for mappings outside the original 32 MiB identity span.
-The remaining legitimacy work is moving the running kernel to the higher-half
-contract, non-identity user frame backing, page-table reclamation, and stronger
+The higher-half self-test also proves one PMM-backed dynamic page table is
+reclaimed after the high alias is unmapped. The remaining legitimacy work is
+moving the running kernel to the higher-half contract, non-identity user frame
+backing, process-lifetime page-table reclamation, and stronger
 execute-permission enforcement.

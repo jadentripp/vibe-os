@@ -127,8 +127,8 @@ class PostCheckpointGapTests(unittest.TestCase):
 
         self.assertIn("The FAT16 image has root entries for `DEFAULT.CFG`", gap_doc)
         self.assertIn("Run `26151623245` passes that reboot proof for `DEFAULT.CFG`", gap_doc)
-        self.assertIn("Run `26156172979` passes the save-slot reboot proof for `DOOMSAV0.DSG`", gap_doc)
-        self.assertIn("Nothing is missing for this exact commit's Doom config/save-slot", gap_doc)
+        self.assertIn("Historical run `26156172979` passes the save-slot reboot proof", gap_doc)
+        self.assertIn("Current-head persistence is not proven", gap_doc)
         self.assertIn("captures the fresh baseline immediately after rebuilding", gap_doc)
         self.assertIn("same disk image is booted again", gap_doc)
         self.assertIn("reboot comparison now requires the fresh baseline", gap_doc)
@@ -158,10 +158,12 @@ class PostCheckpointGapTests(unittest.TestCase):
             "shutdown=REBOOT",
             "shutdown=POWEROFF",
             "This is not a full POSIX environment",
-            "Future kernel/runtime, workflow, or checker changes",
-            "current passing manual real-WAD cloud workflow",
+            "Current-head cloud proof state: pending",
+            "pushed commit passes OS smoke and Real WAD smoke",
             "Do not call the project Doom-capable",
             "fixed-slot launch/switch contract",
+            "vmmhi=OK",
+            "vmmhfree=",
             "not a robust",
             "full POSIX environment",
             "storage boot path",
@@ -186,16 +188,20 @@ class PostCheckpointGapTests(unittest.TestCase):
 
         for phrase in (
             "Latest Cloud Evidence",
-            "current scripted cloud truth-serum run",
+            "last published scripted cloud truth-serum run",
+            "Current-head cloud proof state: pending",
             "historical repair context",
             "human-facing Doom-capable proof",
+            "26165681561",
+            "c525952",
+            "scripted gameplay transition",
+            "26165678183",
+            "Persistence is not current-head proven",
             "26156172979",
             "eabd307",
             "real-WAD, human-playability",
             "audible-audio manifest",
-            "save-slot persistence reboot",
             "artifact hygiene",
-            "26156166546",
             "DOOMSAV0.DSG bytes=512 changed-from-baseline",
             "survived-reboot description='VIBESAVE'",
             "reboot status runtime=OK",
@@ -214,7 +220,7 @@ class PostCheckpointGapTests(unittest.TestCase):
             "Frame/gameplay counters are active",
             "Scripted keyboard input, mouse input, SB16/audio counters",
             "preemption counters are active",
-            "workflow, or checker changes",
+            "workflow, or proof-checker change",
             "scripted `usr=OK`, `use`, mouse effect, audio",
             "check_audio_continuity_proof.py",
             "26149570191",
@@ -241,6 +247,10 @@ class PostCheckpointGapTests(unittest.TestCase):
             "The current first runtime blocker is the Ring 3 page fault",
             "until that is fixed, WAD open/read",
             "Current-head smoke status",
+            "is the current scripted cloud truth-serum run for the current runtime code",
+            "is the current scripted cloud proof that passes the serious real-WAD gates for the current runtime code",
+            "Nothing is missing for this exact commit's scripted cloud-boot gate",
+            "Nothing is missing for this exact commit's scripted real-gameplay gate",
         ):
             with self.subTest(stale_phrase=phrase):
                 self.assertNotIn(phrase, gap_doc)
@@ -267,7 +277,7 @@ class PostCheckpointGapTests(unittest.TestCase):
                 "CLOUD_BOOT": "proven",
                 "REAL_GAMEPLAY": "proven",
                 "HUMAN_PLAYTEST": "open",
-                "PERSISTENCE": "proven",
+                "PERSISTENCE": "open",
                 "AUDIO": "open",
                 "VM_POSIX": "open",
                 "SHUTDOWN_PANIC": "proven",

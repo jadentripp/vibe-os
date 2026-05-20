@@ -26,6 +26,10 @@ on:
         required: false
         type: boolean
         default: false
+      expected_ref:
+        description: Optional branch/ref guard. Set this to the branch you meant to prove; the job fails before toolchain install or WAD fetch if the selected workflow ref differs.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -41,6 +45,7 @@ jobs:
       AUDIBLE_AUDIO_PROOF: ${{ inputs.audible_audio_proof }}
       PERSISTENCE_INPUT_SCRIPT: ${{ inputs.persistence_input_script }}
       PERSISTENCE_SAVE_SLOT: ${{ inputs.persistence_save_slot }}
+      INPUT_EXPECTED_REF: ${{ inputs.expected_ref }}
       REAL_DOOM_WAD_URL: ${{ secrets.REAL_DOOM_WAD_URL }}
       PUBLIC_SHAREWARE_WAD_GZ_URL: https://archive.org/download/wadarchive/DATA/5b.zip/5b%2F2e249b9c5133ec987b3ea77596381dc0d6bc1d%2F5b2e249b9c5133ec987b3ea77596381dc0d6bc1d.wad.gz
       EXPECTED_WAD_SHA1: 5b2e249b9c5133ec987b3ea77596381dc0d6bc1d
@@ -50,6 +55,18 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Confirm selected proof ref
+        run: |
+          set -euo pipefail
+
+          if [ -n "${INPUT_EXPECTED_REF:-}" ] && [ "$GITHUB_REF_NAME" != "$INPUT_EXPECTED_REF" ]; then
+            echo "expected_ref '$INPUT_EXPECTED_REF' does not match selected workflow ref '$GITHUB_REF_NAME'." >&2
+            echo "Use the Run workflow branch selector or gh workflow run real-wad-smoke.yml --ref '$INPUT_EXPECTED_REF'." >&2
+            exit 1
+          fi
+
+          echo "Running real-WAD smoke proof on ref '$GITHUB_REF_NAME' at commit '$GITHUB_SHA'."
 
       - name: Install OS toolchain
         run: |
@@ -253,6 +270,7 @@ jobs:
           check_args=(--baseline-image "$baseline")
           if [ -n "${PERSISTENCE_SAVE_SLOT:-}" ]; then
             check_args+=(--require-save-slot "$PERSISTENCE_SAVE_SLOT")
+            check_args+=(--save-write-status build/status.persistence-write.txt)
           else
             check_args+=(--require-default)
             check_args+=(--write-status build/status.persistence-write.txt)

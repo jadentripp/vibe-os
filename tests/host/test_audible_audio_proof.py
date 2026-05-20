@@ -47,6 +47,8 @@ def status_line(**overrides):
         "musicbuf": "00000C00",
         "musicunder": "00000000",
         "musicdrops": "00000000",
+        "musicstream": "PUSH",
+        "musicpull": "00000000:00000000",
         "dma": "00000001",
         "play": "00000001:00000000",
         "voiceq": "00000002:00000000:00000001",
@@ -215,6 +217,8 @@ class AudibleAudioProofTests(unittest.TestCase):
         self.assertTrue(manifest["continuity"]["mixer_safety"]["clip_free"])
         self.assertTrue(manifest["continuity"]["mixer_safety"]["underrun_free"])
         self.assertTrue(manifest["continuity"]["mixer_safety"]["drop_free"])
+        self.assertEqual(manifest["continuity"]["stream_contract"]["mode"], "PUSH")
+        self.assertFalse(manifest["continuity"]["stream_contract"]["hardware_paced"])
         self.assertEqual(manifest["continuity"]["scripted_phase_proof"]["baseline_snapshot"], "baseline")
         self.assertEqual(manifest["continuity"]["scripted_phase_proof"]["fire_snapshot"], "fire")
         self.assertTrue(manifest["continuity"]["scripted_phase_proof"]["requires_scripted_fire_sfx"])
@@ -400,6 +404,8 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "musicbuf": "00002000",
                 "musicunder": "00000000",
                 "musicdrops": "00000000",
+                "musicstream": "PUSH",
+                "musicpull": "00000000:00000000",
             },
             "continuity": {
                 "gate": "tools/check_audio_continuity_proof.py",
@@ -448,6 +454,14 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "stream_update_delta": "00000001",
                     "position_delta": "000003FF",
                     "position_delta_per_update_floor": "000003FF",
+                },
+                "stream_contract": {
+                    "mode": "PUSH",
+                    "status_field": "musicstream",
+                    "pull_counters": "00000000:00000000",
+                    "hardware_paced": False,
+                    "current_push_proof": True,
+                    "claim": "musicstream=PUSH proves pushed chunk continuity",
                 },
                 "claim": "non-silent remote QEMU output plus status-only SB16 continuity",
             },
@@ -503,6 +517,8 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "musicbuf": "00002000",
                 "musicunder": "00000000",
                 "musicdrops": "00000000",
+                "musicstream": "PUSH",
+                "musicpull": "00000000:00000000",
             },
             "continuity": {
                 "gate": "tools/check_audio_continuity_proof.py",
@@ -553,6 +569,14 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "stream_update_delta": "00000002",
                     "position_delta": "000003FF",
                     "position_delta_per_update_floor": "000003FF",
+                },
+                "stream_contract": {
+                    "mode": "PUSH",
+                    "status_field": "musicstream",
+                    "pull_counters": "00000000:00000000",
+                    "hardware_paced": False,
+                    "current_push_proof": True,
+                    "claim": "musicstream=PUSH proves pushed chunk continuity",
                 },
                 "mixer_safety": {
                     "mixclip_delta": "00000000",

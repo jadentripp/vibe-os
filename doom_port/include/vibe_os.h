@@ -37,6 +37,12 @@ enum {
     VIBE_AUDIO_BUFFERED_BYTES = 7,
 };
 
+enum {
+    VIBE_AUDIO_MUSIC_STREAM_NONE = 0,
+    VIBE_AUDIO_MUSIC_STREAM_PUSH = 1,
+    VIBE_AUDIO_MUSIC_STREAM_PULL = 2,
+};
+
 typedef struct vibe_audio_sfx_desc {
     const unsigned char* samples;
     unsigned long length;
@@ -71,6 +77,7 @@ enum {
     VIBE_PLAYABLE_SEEN_POS_DELTA = 0x0020u,
     VIBE_PLAYABLE_SEEN_AMMO_DELTA = 0x0040u,
     VIBE_PLAYABLE_SEEN_REFIRE = 0x0080u,
+    VIBE_PLAYABLE_SEEN_TURN_CMD = 0x0100u,
 };
 
 enum {
@@ -136,7 +143,8 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
  * - File flags use the O_* constants from fcntl.h, including O_ACCMODE and
  *   O_CLOEXEC.
  * - mmap is currently anonymous/private and brk-backed; munmap validates the
- *   mapping range but does not reclaim heap pages.
+ *   mapping range, tail munmap moves brk back, and valid non-tail munmap
+ *   punches validation holes without creating reusable VM objects.
  * - execv passes a bounded argv vector to the process handoff. Table entries
  *   cover Doom/probe images; other root-level FAT16 .ELF names use reusable
  *   probe-class slots. File descriptors inherit across exec unless opened with

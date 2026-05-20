@@ -51,6 +51,7 @@ PFLAG_MENU = 0x0010
 PFLAG_POS_DELTA = 0x0020
 PFLAG_AMMO_DELTA = 0x0040
 PFLAG_REFIRE = 0x0080
+PFLAG_TURN_CMD = 0x0100
 PFLAG_FIRE_STATE = PFLAG_AMMO_DELTA | PFLAG_REFIRE
 PFLAG_ACTION_MASK = (
     PFLAG_MOVE_CMD
@@ -60,6 +61,7 @@ PFLAG_ACTION_MASK = (
     | PFLAG_POS_DELTA
     | PFLAG_AMMO_DELTA
     | PFLAG_REFIRE
+    | PFLAG_TURN_CMD
 )
 
 FLAG_NAMES = {
@@ -71,6 +73,7 @@ FLAG_NAMES = {
     PFLAG_POS_DELTA: "position delta",
     PFLAG_AMMO_DELTA: "ammo delta",
     PFLAG_REFIRE: "refire",
+    PFLAG_TURN_CMD: "turn command",
 }
 
 EXPECTED_SCRIPTED_KEYS = {
@@ -88,7 +91,14 @@ EXPECTED_PFLAGS = {
     "fire": PFLAG_PLAYER | PFLAG_ATTACK_CMD,
     "movement": PFLAG_PLAYER | PFLAG_ATTACK_CMD | PFLAG_MOVE_CMD | PFLAG_POS_DELTA,
     "use": PFLAG_PLAYER | PFLAG_ATTACK_CMD | PFLAG_MOVE_CMD | PFLAG_POS_DELTA | PFLAG_USE_CMD,
-    "mouse": PFLAG_PLAYER | PFLAG_ATTACK_CMD | PFLAG_MOVE_CMD | PFLAG_POS_DELTA | PFLAG_USE_CMD,
+    "mouse": (
+        PFLAG_PLAYER
+        | PFLAG_ATTACK_CMD
+        | PFLAG_MOVE_CMD
+        | PFLAG_POS_DELTA
+        | PFLAG_USE_CMD
+        | PFLAG_TURN_CMD
+    ),
     "menu": (
         PFLAG_PLAYER
         | PFLAG_ATTACK_CMD
@@ -96,6 +106,7 @@ EXPECTED_PFLAGS = {
         | PFLAG_POS_DELTA
         | PFLAG_USE_CMD
         | PFLAG_MENU
+        | PFLAG_TURN_CMD
     ),
     "final": (
         PFLAG_PLAYER
@@ -104,14 +115,15 @@ EXPECTED_PFLAGS = {
         | PFLAG_POS_DELTA
         | PFLAG_USE_CMD
         | PFLAG_MENU
+        | PFLAG_TURN_CMD
     ),
 }
 
 FORBIDDEN_PFLAGS = {
     "start": PFLAG_ACTION_MASK,
-    "fire": PFLAG_MOVE_CMD | PFLAG_USE_CMD | PFLAG_MENU | PFLAG_POS_DELTA,
-    "movement": PFLAG_USE_CMD | PFLAG_MENU,
-    "use": PFLAG_MENU,
+    "fire": PFLAG_MOVE_CMD | PFLAG_USE_CMD | PFLAG_MENU | PFLAG_POS_DELTA | PFLAG_TURN_CMD,
+    "movement": PFLAG_USE_CMD | PFLAG_MENU | PFLAG_TURN_CMD,
+    "use": PFLAG_MENU | PFLAG_TURN_CMD,
     "mouse": PFLAG_MENU,
 }
 
@@ -307,7 +319,7 @@ def _require_phase_masks(snapshots: dict[str, str]) -> None:
         _require_scripted_key_state(status, phase, EXPECTED_SCRIPTED_KEYS[phase])
         _require_mask(status, "pflags", EXPECTED_PFLAGS[phase], phase)
         if phase != "start":
-            _require_any_mask(status, "pflags", PFLAG_FIRE_STATE, phase)
+            _require_mask(status, "pflags", PFLAG_FIRE_STATE, phase)
         forbidden = FORBIDDEN_PFLAGS.get(phase, 0)
         if forbidden:
             _reject_mask(status, "pflags", forbidden, phase)
@@ -360,6 +372,7 @@ def _require_mouse(snapshots: dict[str, str]) -> None:
     mouse = snapshots["mouse"]
     if _field(mouse, "mouse") != "OK":
         raise AssertionError("mouse snapshot mouse=OK is required")
+    _require_mask(mouse, "pflags", PFLAG_TURN_CMD, "mouse")
     _assert_increasing(snapshots["start"], mouse, MOUSE_COUNTERS, "start", "mouse")
     if _hex_field(mouse, "mousebtn") == 0:
         raise AssertionError("mouse mousebtn= must record a scripted button press")
@@ -460,6 +473,7 @@ def build_manifest(snapshots: dict[str, str], paths: dict[str, Path] | None = No
                 "mousepoll": _field(mouse, "mousepoll"),
                 "mousebtn": _field(mouse, "mousebtn"),
                 "mousedelta": _field(mouse, "mousedelta"),
+                "pflags": _field(mouse, "pflags"),
             },
             "menu": {
                 "keyseen": _field(snapshots["menu"], "keyseen"),
@@ -544,6 +558,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "scripted-gameplay-proof-v1",
         "clean E1M1 start",
         "cumulative key/player proof",
+        "mouse turn-command proof",
         "gameplay-proof.json",
     ):
         _require(playable_doc, needle, "playable cloud proof doc")
@@ -604,7 +619,7 @@ def main(argv: list[str]) -> int:
 
     print(
         "scripted gameplay proof OK: clean E1M1 start, cumulative fire/move/use/menu "
-        "state, player-position delta, and Doom mouse input verified"
+        "state, player-position delta, and Doom mouse turn-command input verified"
     )
     return 0
 

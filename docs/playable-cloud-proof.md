@@ -8,17 +8,67 @@ input through the same PS/2 paths a human would use, and the kernel exports
 compact counters and state deltas from Doom.
 
 This file describes the required green path. A scripted green run is not by itself a claim that the current branch is human-playable.
-The current machine-checkable baseline is manual **Real WAD smoke** run
-`26156172979` on commit `eabd307`: it proves the real shareware WAD path,
+Current-head cloud proof state: pending until the pushed head reruns the OS
+smoke and Real WAD smoke gates after the latest runtime/workflow/checker
+changes.
+The last published machine-checkable baseline is manual **Real WAD smoke** run
+`26165681561` on commit `c525952`: it proves the real shareware WAD path,
 gameplay, input, mouse, audio-counter, preemption, non-pixel visual diagnostics,
-aggregate audible output, and save-slot reboot persistence from disposable
-runner artifacts. A human-facing playable claim still needs a recorded remote
-VNC playtest bundle from `docs/runbooks/remote-doom-playtest.md`, with
+the stricter scripted gameplay transition gate, including mouse turn-command proof,
+and aggregate audible output
+from disposable runner artifacts. Persistence/save-load is deliberately not
+part of that current-head proof; it needs its own matching green opt-in
+persistence run before being claimed. Current save-slot proof must include the
+first boot's decoded `--save-write-status` runtime gate plus the rebooted image
+comparison, so changed `DOOMSAV*.DSG` bytes alone do not count. A human-facing
+playable claim still needs
+a recorded remote VNC playtest bundle from `docs/runbooks/remote-doom-playtest.md`, with
 structured `human-playtest-notes-v2` notes, required operator confirmations,
 per-phase status SHA-256 fields, a phase-by-phase
 `human-playtest-session.json` transcript tied to the passing scripted run ID, a
-SHA-256 `human-playtest-manifest.json`, and the same non-WAD status checks
-passing locally after download.
+`human-playtest-checklist.txt` review file with
+`schema=human-playtest-checklist-v1`, a SHA-256
+`human-playtest-manifest.json`, and the same non-WAD status checks passing
+locally after download.
+
+## Current-Head Dispatch
+
+Before push, run the host-only readiness contract:
+
+```sh
+make cloud-playability-check
+git diff --check
+```
+
+After push, dispatch the selected branch/ref with explicit guards so the job
+fails early if GitHub Actions is pointed at the wrong branch:
+
+```sh
+branch=$(git branch --show-current)
+gh workflow run os-smoke.yml \
+  --ref "$branch" \
+  -f expected_ref="$branch" \
+  -f shutdown_panic_proof=false
+
+gh workflow run real-wad-smoke.yml \
+  --ref "$branch" \
+  -f expected_ref="$branch" \
+  -f audible_audio_proof=true \
+  -f persistence_proof=false
+```
+
+Once `.github/workflows/real-wad-soak.yml` is present on the repository default
+branch, run the repeated proof:
+
+```sh
+branch=$(git branch --show-current)
+gh workflow run real-wad-soak.yml \
+  --ref "$branch" \
+  -f expected_ref="$branch" \
+  -f attempts=3 \
+  -f min_passes=3 \
+  -f audible_audio_proof=true
+```
 
 ## Deterministic Script
 
@@ -68,6 +118,26 @@ per-phase status SHA-256 hashes, compact status field summaries, gate outcomes,
 and the artifact policy. It is intentionally not a replacement for the
 single-run diagnostic artifact when a new failure needs deep triage.
 
+To soak the branch you are currently testing, dispatch the workflow with an
+explicit ref guard:
+
+```sh
+branch=$(git branch --show-current)
+gh workflow run real-wad-soak.yml \
+  --ref "$branch" \
+  -f expected_ref="$branch" \
+  -f attempts=3 \
+  -f min_passes=3 \
+  -f audible_audio_proof=true
+```
+
+`expected_ref` is an early workflow guard: it fails before toolchain install or
+WAD fetch if the selected `workflow_dispatch` branch/ref is not the branch you
+intended to prove. GitHub can only dispatch a workflow file that already exists
+on the repository default branch, so branch-only edits to
+`.github/workflows/real-wad-soak.yml` are limited to host-only contract
+validation until that workflow file is present on the default branch.
+
 A soak is green only when the configured threshold passes the same repeated
 criteria every successful attempt: playability, input state changes, SB16
 continuity, and optional audible aggregate proof. The default threshold requires
@@ -84,10 +154,12 @@ python3 tools/check_cloud_playability_artifacts.py \
 
 The cloud proof requires these status families:
 
-- CPU/runtime health: `pg=ON`, `pmm=OK`, `vmm=OK`, `libc=OK`, `c=OK`,
-  `usr=OK`, `heap=OK`, `free>0`, and `ticks>0` prove the protected-mode kernel,
-  memory managers, C runtime probes, heap, and PIT timer are alive in the smoke
-  VM.
+- CPU/runtime health: `pg=ON`, `pmm=OK`, `vmm=OK`, `vmmhi=OK`, `libc=OK`,
+  `c=OK`, `usr=OK`, `heap=OK`, `free>0`, and `ticks>0` prove the
+  protected-mode kernel, memory managers, C runtime probes, heap, and PIT timer
+  are alive in the smoke VM. The `vmmhva`/`vmmhpa`/`vmmhpt`/`vmmhfree` fields
+  additionally show the high-half alias, backing frame, dynamic page table, and
+  reclaimed table frame.
 - Process/exec: `exec=OK`, `path=DOOM.ELF`, `execsys=a/b/c/d/e/f`,
   `execerr=00000000`, `execres=00000000`, `target`, `entry`, `stack`, `argc`,
   `argv`, `envp`, `argv0`, `envp0`, `ppid`, `doom=OK`, and `doomrun=RUN` show
@@ -120,11 +192,15 @@ The cloud proof requires these status families:
   and `keylast` prove the scripted Up/Ctrl/Space/Escape keys were the keys Doom
   consumed through `SYS_POLL_KEY`.
 - Player/action deltas: `pflags` records cumulative player, movement, attack,
-  use, menu, position-delta, ammo-delta, and refire observations; `pdelta>0`
+  use, menu, position-delta, ammo-delta, refire, and turn-command observations;
+  `pdelta>0`
   and a changed `ppos` between `status.after-start.txt` and
   `status.after-move.txt` prove the player moved in Doom state, not only that a
   key was delivered. The fire phase must also prove ammo/refire state changed,
   so Ctrl cannot pass as a key counter alone.
+- Mouse turn-command proof: `status.after-mouse.txt` must include both PS/2 mouse
+  IRQ/packet/poll counters and the `pflags` turn-command bit from Doom's own
+  `ticcmd.angleturn`, so mouse proof cannot pass on kernel delivery alone.
 - Menu state: `status.after-start.txt` must have the menu bit clear, and
   `status.after-menu.txt` plus final `gflags` must have it set after Escape,
   proving the scripted input toggled Doom UI state while remaining in
@@ -186,9 +262,9 @@ general playability checker: `status.after-start.txt` must be a clean E1M1
 new-game state with no scripted key bits, no action proof flags, no menu bit,
 and `pdelta=00000000`; later snapshots must retain cumulative key/player proof
 bits rather than merely showing a final aggregate. It then requires movement to
-change `ppos`, the mouse phase to advance IRQ/packet/poll counters and retain
-button/motion proof, and Escape to flip the menu bit while the game remains in
-`GS_LEVEL`.
+change `ppos`, the mouse phase to advance IRQ/packet/poll counters and set
+Doom's `ticcmd.angleturn` proof bit while retaining button/motion proof, and
+Escape to flip the menu bit while the game remains in `GS_LEVEL`.
 
 ## Safe Remote Runbook
 
@@ -262,16 +338,18 @@ capture each named status phase from the QEMU monitor without keeping
 `status.*.bin`, then uses the same collector to build an allowlisted proof
 bundle before download. The bundle is then validated with
 `tools/check_cloud_playability_artifacts.py --human-session`, including
-`human-playtest-notes.txt`, `human-playtest-session.json`, and
-`human-playtest-manifest.json`, without storing WAD data, disk images, audio
-captures, or rendered pixels in the repo. The session transcript records the
-linked passing real-WAD run ID, exact phase order, operator confirmations,
-per-status byte counts, SHA-256 hashes, and compact status summaries; the notes
-also carry `phase_hash_early` through `phase_hash_final` so the checker can
-compare the human note hashes against the downloaded status files. The manifest
-ties the notes, session transcript, and diagnostics to exact byte counts and
-SHA-256 hashes, records `requires_post_download_verification=true`, and the
-local checker prints a `post-download human verification OK` line with
+`human-playtest-notes.txt`, `human-playtest-checklist.txt`,
+`human-playtest-session.json`, and `human-playtest-manifest.json`, without
+storing WAD data, disk images, audio captures, or rendered pixels in the repo.
+The session transcript records the linked passing real-WAD run ID, exact phase
+order, operator confirmations, per-status byte counts, SHA-256 hashes, and
+compact status summaries; the notes also carry `phase_hash_early` through
+`phase_hash_final` so the checker can compare the human note hashes against the
+downloaded status files. The generated checklist records the post-download
+review commands and the phase hashes, and the manifest ties the notes,
+checklist, session transcript, and diagnostics to exact byte counts and SHA-256
+hashes. The manifest records `requires_post_download_verification=true`, and
+the local checker prints a `post-download human verification OK` line with
 `session_id`, `bundle_sha256`, `manifest_sha256`, and short phase hashes to
 compare against the remote collector's `pre-download human verification OK`
 line.

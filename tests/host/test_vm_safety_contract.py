@@ -132,6 +132,15 @@ rsync -av "$VIBE_CLOUD_HOST:~/vibe-os-cloud-playtest/build/disk.img" .
         self.assertIn("KERNEL_EXTRA_NASMFLAGS ?=", makefile)
         self.assertIn("shutdown-panic-proof-check:", makefile)
         self.assertIn("tools/check_shutdown_panic_proof.py --repo-contract", makefile)
+        for needle in (
+            'grep -q "vmmhi=OK"',
+            'grep -q "vmmhva=C0000000"',
+            'grep -q "vmmhpa="',
+            'grep -q "vmmhpt="',
+            'grep -q "vmmhfree="',
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, makefile)
         for target in ("run", "run-headless", "smoke"):
             with self.subTest(target=target):
                 line = next(line for line in makefile.splitlines() if line.startswith(f"{target}:"))

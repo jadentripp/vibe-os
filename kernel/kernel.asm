@@ -403,6 +403,9 @@ AUDIO_FLAG_LOOP equ 0x00000001
 AUDIO_FLAG_MUSIC equ 0x00000002
 AUDIO_MUSIC_HANDLE_MASK equ 0xffff0000
 AUDIO_MUSIC_HANDLE_BASE equ 0x4d550000
+AUDIO_MUSIC_STREAM_NONE equ 0
+AUDIO_MUSIC_STREAM_PUSH equ 1
+AUDIO_MUSIC_STREAM_PULL equ 2
 AUDIO_MAX_SFX_VOICES equ 8
 AUDIO_PITCH_NORMAL equ 128
 AUDIO_PITCH_STEP_NORMAL equ 0x00010000
@@ -1970,6 +1973,9 @@ paging_init:
     mov dword [vmm_last_reclaimed_page_table], 0
     mov dword [vmm_user_guard_pages], 0
     mov byte [vmm_high_mapping_status], 0
+    mov dword [vmm_high_test_phys], 0
+    mov dword [vmm_high_test_table], 0
+    mov dword [vmm_high_test_reclaimed], 0
 
     mov edi, PAGING_DIR_ADDR
     xor eax, eax
@@ -2720,6 +2726,9 @@ vmm_self_test:
     mov ecx, PTE_KERNEL_FLAGS
     call vmm_map_page
     jc .high_free_fail
+    mov [vmm_high_test_phys], ebx
+    mov eax, [vmm_map_table_addr]
+    mov [vmm_high_test_table], eax
 
     mov dword [VMM_HIGH_TEST_VADDR], VMM_HIGH_TEST_MAGIC
     cmp dword [ebx], VMM_HIGH_TEST_MAGIC
@@ -2727,6 +2736,10 @@ vmm_self_test:
 
     mov eax, VMM_HIGH_TEST_VADDR
     call vmm_unmap_page
+    mov eax, [vmm_last_reclaimed_page_table]
+    mov [vmm_high_test_reclaimed], eax
+    cmp eax, [vmm_high_test_table]
+    jne .high_free_fail
     mov eax, ebx
     call pmm_free_page
     mov byte [vmm_high_mapping_status], 1
@@ -3380,6 +3393,9 @@ audio_init:
     mov dword [sb16_music_stream_buffer_bytes], 0
     mov dword [sb16_music_stream_under_count], 0
     mov dword [sb16_music_stream_drop_count], 0
+    mov dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_NONE
+    mov dword [sb16_music_pull_request_count], 0
+    mov dword [sb16_music_pull_refill_count], 0
     mov dword [sb16_pan_left_arg], 0
     mov dword [sb16_pan_right_arg], 0
     mov dword [sb16_mix_source_pos], 0
@@ -4154,6 +4170,7 @@ audio_register_sfx_voice:
     test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
     jz .recount
     inc dword [sb16_music_start_count]
+    mov dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_PUSH
     mov eax, [audio_sfx_length_arg]
     mov [sb16_music_stream_buffer_bytes], eax
 
@@ -4269,6 +4286,7 @@ audio_update_sfx_voice:
     mov eax, [audio_sfx_flags_arg]
     or eax, AUDIO_FLAG_MUSIC
     mov [sb16_voice_flags + ebx * 4], eax
+    mov dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_PUSH
     mov eax, [sb16_voice_positions + ebx * 4]
     shr eax, 16
     cmp eax, [sb16_voice_lengths + ebx * 4]
@@ -12676,6 +12694,35 @@ write_smoke_status:
     mov edx, [sb16_music_stream_drop_count]
     call smoke_write_hex32
 
+    mov esi, smoke_musicstream_text
+    call smoke_copy_string
+    mov eax, [sb16_music_stream_mode]
+    cmp eax, AUDIO_MUSIC_STREAM_PUSH
+    je .musicstream_push
+    cmp eax, AUDIO_MUSIC_STREAM_PULL
+    je .musicstream_pull
+    mov esi, smoke_none_text
+    jmp .musicstream_write
+
+.musicstream_push:
+    mov esi, smoke_push_text
+    jmp .musicstream_write
+
+.musicstream_pull:
+    mov esi, smoke_pull_text
+
+.musicstream_write:
+    call smoke_copy_string
+
+    mov esi, smoke_musicpull_text
+    call smoke_copy_string
+    mov edx, [sb16_music_pull_request_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_music_pull_refill_count]
+    call smoke_write_hex32
+
     mov esi, smoke_sb16ver_text
     call smoke_copy_string
     movzx edx, byte [sb16_major_version]
@@ -13083,6 +13130,40 @@ write_smoke_status:
 
 .vmm_write:
     call smoke_copy_string
+
+    mov esi, smoke_vmmhi_text
+    call smoke_copy_string
+    cmp byte [vmm_high_mapping_status], 1
+    je .vmmhi_ok
+    mov esi, fail_status_text
+    jmp .vmmhi_write
+
+.vmmhi_ok:
+    mov esi, ok_status_text
+
+.vmmhi_write:
+    call smoke_copy_string
+
+    mov esi, smoke_vmmhva_text
+    call smoke_copy_string
+    mov edx, VMM_HIGH_TEST_VADDR
+    call smoke_write_hex32
+
+    mov esi, smoke_vmmhpa_text
+    call smoke_copy_string
+    mov edx, [vmm_high_test_phys]
+    call smoke_write_hex32
+
+    mov esi, smoke_vmmhpt_text
+    call smoke_copy_string
+    mov edx, [vmm_high_test_table]
+    call smoke_write_hex32
+
+    mov esi, smoke_vmmhfree_text
+    call smoke_copy_string
+    mov edx, [vmm_high_test_reclaimed]
+    call smoke_write_hex32
+
     mov al, ' '
     stosb
 
@@ -13747,6 +13828,11 @@ smoke_doomfaulterr_text db " doomfaulterr=", 0
 smoke_faultframe_text db " fault=", 0
 smoke_panic_text db " panic=", 0
 smoke_shutdown_text db " shutdown=", 0
+smoke_vmmhi_text db " vmmhi=", 0
+smoke_vmmhva_text db " vmmhva=", 0
+smoke_vmmhpa_text db " vmmhpa=", 0
+smoke_vmmhpt_text db " vmmhpt=", 0
+smoke_vmmhfree_text db " vmmhfree=", 0
 smoke_doomopen_text db " doomopen=", 0
 smoke_doomread_text db " doomread=", 0
 smoke_doomwrite_text db " doomwrite=", 0
@@ -13800,6 +13886,8 @@ smoke_musicpos_text db " musicpos=", 0
 smoke_musicbuf_text db " musicbuf=", 0
 smoke_musicunder_text db " musicunder=", 0
 smoke_musicdrops_text db " musicdrops=", 0
+smoke_musicstream_text db " musicstream=", 0
+smoke_musicpull_text db " musicpull=", 0
 smoke_sb16ver_text db " sb16=", 0
 smoke_dmaprog_text db " dma=", 0
 smoke_play_text db " play=", 0
@@ -13862,6 +13950,8 @@ smoke_aspect_text db "ASP", 0
 smoke_square_text db "SQ", 0
 smoke_sb16_text db "SB16", 0
 smoke_none_text db "NONE", 0
+smoke_push_text db "PUSH", 0
+smoke_pull_text db "PULL", 0
 smoke_kexc_text db "KEXC", 0
 smoke_halt_text db "HALT", 0
 smoke_reboot_text db "REBOOT", 0
@@ -14132,6 +14222,9 @@ vmm_active_page_tables dd 0
 vmm_reclaimed_page_tables dd 0
 vmm_last_reclaimed_page_table dd 0
 vmm_user_guard_pages dd 0
+vmm_high_test_phys dd 0
+vmm_high_test_table dd 0
+vmm_high_test_reclaimed dd 0
 vmm_map_vaddr dd 0
 vmm_map_entry dd 0
 vmm_map_table_addr dd 0
@@ -14515,6 +14608,9 @@ sb16_music_stream_pos_bytes dd 0
 sb16_music_stream_buffer_bytes dd 0
 sb16_music_stream_under_count dd 0
 sb16_music_stream_drop_count dd 0
+sb16_music_stream_mode dd AUDIO_MUSIC_STREAM_NONE
+sb16_music_pull_request_count dd 0
+sb16_music_pull_refill_count dd 0
 sb16_music_stream_calc_pos dd 0
 audio_sfx_desc_arg dd 0
 audio_sfx_handle_arg dd 0

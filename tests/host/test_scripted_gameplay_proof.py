@@ -93,7 +93,7 @@ def scripted_statuses():
             keypoll="00000003",
             keyseen="00000031",
             keylast="00010020",
-            pflags="000000EF",
+            pflags="000001EF",
             ppos="00010020:00020000",
             pdelta="00000020",
             mouseirq="00000002",
@@ -111,7 +111,7 @@ def scripted_statuses():
             keypoll="00000004",
             keyseen="00000071",
             keylast="0001001B",
-            pflags="000000FF",
+            pflags="000001FF",
             ppos="00010020:00020000",
             pdelta="00000020",
             mouseirq="00000002",
@@ -129,7 +129,7 @@ def scripted_statuses():
             keypoll="00000004",
             keyseen="00000071",
             keylast="0001001B",
-            pflags="000000FF",
+            pflags="000001FF",
             ppos="00010020:00020000",
             pdelta="00000020",
             mouseirq="00000002",
@@ -160,6 +160,7 @@ class ScriptedGameplayProofTests(unittest.TestCase):
         self.assertEqual(manifest["phase_order"], list(check_scripted_gameplay_proof.PHASE_ORDER))
         self.assertEqual(manifest["start_state"]["pdelta"], "00000000")
         self.assertEqual(manifest["transitions"]["movement"]["movement_ppos"], "00010020:00020000")
+        self.assertEqual(manifest["transitions"]["mouse"]["pflags"], "000001EF")
         check_scripted_gameplay_proof.validate_manifest(manifest, snapshots=statuses)
 
     def test_rejects_dirty_start_or_non_cumulative_player_proof(self):
@@ -205,12 +206,30 @@ class ScriptedGameplayProofTests(unittest.TestCase):
                     keyqueue="00000003",
                     keypoll="00000003",
                     keyseen="00000031",
-                    pflags="000000EF",
+                    pflags="000001EF",
                     ppos="00010020:00020000",
                     pdelta="00000020",
                     mouseirq="00000002",
                     mousepkt="00000002",
                     mousepoll="00000000",
+                    mousebtn="00000001",
+                    mousedelta="00000018:0000000C",
+                )
+            },
+            "mouse turn pflags": {
+                "mouse": make_status(
+                    gtic="000000A0",
+                    leveltime="000000A0",
+                    keyirq="00000003",
+                    keyqueue="00000003",
+                    keypoll="00000003",
+                    keyseen="00000031",
+                    pflags="000000EF",
+                    ppos="00010020:00020000",
+                    pdelta="00000020",
+                    mouseirq="00000002",
+                    mousepkt="00000002",
+                    mousepoll="00000002",
                     mousebtn="00000001",
                     mousedelta="00000018:0000000C",
                 )
@@ -223,7 +242,7 @@ class ScriptedGameplayProofTests(unittest.TestCase):
                     keyqueue="00000004",
                     keypoll="00000004",
                     keyseen="00000071",
-                    pflags="000000FF",
+                    pflags="000001FF",
                     ppos="00010020:00020000",
                     pdelta="00000020",
                     mouseirq="00000002",

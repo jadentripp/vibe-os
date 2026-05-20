@@ -414,8 +414,10 @@ static void report_playability_status(void)
         playable_proof_flags |= VIBE_PLAYABLE_SEEN_PLAYER;
         buttons = (unsigned long)player->cmd.buttons & 0xffu;
 
-        if (player->cmd.forwardmove || player->cmd.sidemove || player->cmd.angleturn)
+        if (player->cmd.forwardmove || player->cmd.sidemove)
             playable_proof_flags |= VIBE_PLAYABLE_SEEN_MOVE_CMD;
+        if (player->cmd.angleturn)
+            playable_proof_flags |= VIBE_PLAYABLE_SEEN_TURN_CMD;
         if (player->cmd.buttons & BT_ATTACK)
             playable_proof_flags |= VIBE_PLAYABLE_SEEN_ATTACK_CMD;
         if (player->cmd.buttons & BT_USE)

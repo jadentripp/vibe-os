@@ -25,21 +25,24 @@ them so README and runbook wording cannot quietly drift into overclaiming.
 
 ## Latest Cloud Evidence
 
-As of 2026-05-20, manual run `26156172979` on kernel/runtime commit `eabd307`
-is the current scripted cloud truth-serum run for the current runtime code. It
-passes the real-WAD, human-playability, SB16/audio-continuity, audible-audio
-manifest, save-slot persistence reboot, artifact hygiene, and status-triage
-gates. It triages as `playability-status-green`.
+As of 2026-05-20, manual run `26165681561` on kernel/runtime commit `c525952`
+is the last published scripted cloud truth-serum run before the current branch
+changes. It passes the real-WAD, human-playability, scripted gameplay transition,
+SB16/audio-continuity, audible-audio manifest, artifact hygiene, and
+status-triage gates. It triages as `playability-status-green`. Persistence is
+not current-head proven by that run because it was intentionally dispatched with
+`persistence_proof=false`.
 
-This is real scripted cloud evidence for the current kernel/runtime code, but it
-is not a human-facing Doom-capable proof by itself. Later commits that only
-update evidence docs/tests do not change the booted runtime. Any kernel,
-runtime, workflow, or proof-checker change must rerun the gates before becoming
-the next claimed proof point. The project still needs the remote human playtest
-and the remaining hard-mode architecture gaps below before README or release
-notes should say "you can play Doom on vibe-os" without caveats.
+Current-head cloud proof state: pending for this branch until the pushed commit
+passes OS smoke and Real WAD smoke on GitHub Actions. This is real scripted
+cloud evidence for the earlier baseline, but it is not a human-facing
+Doom-capable proof by itself. Any kernel, runtime, workflow, or proof-checker
+change must rerun the gates before becoming the next claimed proof point. The
+project still needs the remote human playtest and the remaining hard-mode
+architecture gaps below before README or release notes should say "you can play
+Doom on vibe-os" without caveats.
 
-What the current evidence proves:
+What the last published evidence proves:
 
 - The disposable real-WAD workflow can fetch and validate the shareware
   `DOOM1.WAD`, build the image, boot it in cloud QEMU, and start the Doom ELF
@@ -51,18 +54,27 @@ What the current evidence proves:
   frames and reaching E1M1 gameplay status rather than dying during startup.
 - Scripted keyboard input, mouse input, SB16/audio counters, and live
   preemption counters are active in the cloud status stream.
-- The `26156172979` final status shows live real-WAD Doom with `doomrun=RUN`,
+- The `26165681561` final status shows live real-WAD Doom with `doomrun=RUN`,
   `doomopen=OK`, `doomread=OK`, `gameplay=OK`, `usr=OK`,
   input/mouse/audio counters, and live preemption counters. Its artifact set
-  passes the real-WAD, human-playability, audio-continuity, audible-audio,
-  persistence-reboot, artifact-hygiene, and status-triage checkers without
-  uploading WAD bytes, disk images, rendered pixels, or raw audio samples.
-- The save-slot persistence proof reports
+  passes the real-WAD, human-playability, scripted gameplay transition,
+  audio-continuity, audible-audio, artifact-hygiene, and status-triage checkers
+  without uploading WAD bytes, disk images, rendered pixels, or raw audio
+  samples.
+- The `gameplay-proof.json` artifact from `26165681561` is schema
+  `scripted-gameplay-proof-v1` and records SHA-256 hashes plus compact start,
+  fire, movement, use, mouse, menu, and final state summaries without storing
+  WAD bytes or pixels.
+- The matching normal cloud `os-smoke` run `26165678183` passes the generated-WAD
+  boot smoke for the same kernel/runtime commit.
+- Historical save-slot persistence proof from run `26156172979` on commit
+  `eabd307` reported
   `DOOMSAV0.DSG bytes=512 changed-from-baseline description='VIBESAVE' version='version 110'`
   after the write boot, then
   `DOOMSAV0.DSG bytes=512 changed-from-baseline survived-reboot description='VIBESAVE' version='version 110'`
   plus `reboot status runtime=OK` after the second boot of the same cloud disk
-  image.
+  image. That is useful storage evidence, but it is historical repair context
+  until rerun on the current head.
 - Run `26157926297` on commit `6b5319e` passes the opt-in
   `shutdown_panic_proof` workflow and the downloaded status-only artifact passes
   `tools/check_shutdown_panic_proof.py`. The proof records `panic=KEXC`,
@@ -101,7 +113,7 @@ Earlier red runs kept for context:
 
 ## Machine-Readable Gap Ledger
 
-- `GAP[CLOUD_BOOT] status=proven category=cloud-boot gate=real-wad-smoke.yml evidence=real-wad-smoke-26156172979`
+- `GAP[CLOUD_BOOT] status=proven category=cloud-boot gate=real-wad-smoke.yml evidence=real-wad-smoke-26165681561`
 
 Current state:
 
@@ -112,9 +124,9 @@ Current state:
   rendered pixels out of uploaded artifacts.
 - Current archived real-WAD cloud evidence reaches Doom runtime, WAD I/O,
   frames, gameplay status, input counters, audio counters, and preemption
-  counters, and run `26156172979` passes the scripted proof checkers for commit
-  `eabd307`.
-- The matching normal cloud `os-smoke` run `26156166546` passes the generated-WAD
+  counters, and run `26165681561` passes the scripted proof checkers for commit
+  `c525952`.
+- The matching normal cloud `os-smoke` run `26165678183` passes the generated-WAD
   boot smoke for the same kernel/runtime commit.
 - The display path now has a host-proved aspect policy: LFB presents use the
   largest centered 320x240 integer scale when the framebuffer can fit it, expose
@@ -124,13 +136,13 @@ Current state:
 
 Still missing:
 
-- Nothing is missing for this exact commit's scripted cloud-boot gate: `eabd307`
-  has a current passing manual real-WAD cloud workflow with final `status.txt`
-  and clean early/start/fire/move/use/mouse/menu baselines that make the proof
-  gates reproducible.
-- Future kernel/runtime, workflow, or checker changes must rerun the same gate
-  before making a fresh claim. `status.failure.txt` from a timed-out/faulted
-  smoke remains diagnostic evidence only.
+- No known design gap is open for the scripted cloud-boot gate: `c525952` has a
+  passing manual real-WAD cloud workflow with final `status.txt` and clean
+  early/start/fire/move/use/mouse/menu baselines that make the proof gates
+  reproducible.
+- The current branch still needs the same gate rerun for the exact commit after
+  push before making a fresh current-head claim. `status.failure.txt` from a
+  timed-out/faulted smoke remains diagnostic evidence only.
 
 Executable gate:
 
@@ -138,7 +150,7 @@ Executable gate:
   only the uploaded non-WAD diagnostics: `status*.txt`, `status*.bin`, QEMU log,
   serial log, monitor log, and ELF files.
 
-- `GAP[REAL_GAMEPLAY] status=proven category=real-gameplay gate=check_real_wad_proof.py evidence=real-wad-smoke-26156172979`
+- `GAP[REAL_GAMEPLAY] status=proven category=real-gameplay gate=check_real_wad_proof.py evidence=real-wad-smoke-26165681561`
 
 Current state:
 
@@ -151,16 +163,17 @@ Current state:
 - The latest green real-WAD cloud evidence proves the important runtime path:
   Doom boots, runs, opens/reads the real WAD, presents frames, reaches gameplay
   status, emits input/audio/preemption counters, and passes the scripted
-  snapshot checkers for commit `eabd307`.
+  snapshot checkers for commit `c525952`.
 
 Still missing:
 
-- Nothing is missing for this exact commit's scripted real-gameplay gate:
-  `26156172979` has a fresh real-WAD status artifact where every required field
-  and every required phase snapshot passes the checkers. Future commits must
-  preserve the now-green scripted `usr=OK`, `use`, mouse effect, audio
-  continuity, and preemption evidence. Any regression in those fields reopens
-  this gap as an implementation bug, not just a documentation issue.
+- No known design gap is open for the scripted real-gameplay gate: `26165681561`
+  has a real-WAD status artifact where every required field and every required
+  phase snapshot passes the checkers for commit `c525952`. The current branch
+  still needs the same gate rerun after push. Future commits must preserve the
+  now-green scripted `usr=OK`, `use`, mouse effect, audio continuity, and
+  preemption evidence. Any regression in those fields reopens this gap as an
+  implementation bug, not just a documentation issue.
 - Stronger gameplay proof still matters after the gates pass: the current
   counter/status proof should be paired with a remote human playtest before the
   public claim becomes "playable Doom" rather than "scripted cloud proof".
@@ -220,7 +233,7 @@ Executable gate:
   post-download verification line must match the remote pre-download
   verification line before the human packet counts as evidence.
 
-- `GAP[PERSISTENCE] status=proven category=persistence gate=reboot-persistence-proof evidence=real-wad-smoke-26156172979`
+- `GAP[PERSISTENCE] status=open category=persistence gate=reboot-persistence-proof evidence=needs-current-real-wad-persistence-run`
 
 Current state:
 
@@ -249,7 +262,10 @@ Current state:
   `--reboot-baseline-image`, it compares the post-reboot disk against the
   after-write snapshot and requires the requested entries to keep the same FAT
   root cluster, size, and bytes; that reboot comparison now requires the fresh
-  baseline too.
+  baseline too. Save-slot reboot proof now also requires `--save-write-status`
+  from the first boot, so a `DOOMSAVN.DSG` claim has to show a fault-free live
+  Doom run with file output, a close, and an `O_WRONLY|O_CREAT|O_TRUNC` open
+  before the save bytes and reboot comparison can pass.
   The same checker gate rejects divergent FAT copies, duplicate live root
   entries, cross-linked chains, orphaned allocated clusters, malformed
   directory ownership, and protected WAD/ELF mutation.
@@ -279,7 +295,8 @@ Current state:
   reports `DEFAULT.CFG bytes=512 changed-from-baseline`, and the reboot proof
   reports `DEFAULT.CFG bytes=512 changed-from-baseline survived-reboot` plus
   `reboot status runtime=OK`.
-- Run `26156172979` passes the save-slot reboot proof for `DOOMSAV0.DSG`: the
+- Historical run `26156172979` passes the save-slot reboot proof for
+  `DOOMSAV0.DSG` on older commit `eabd307`: the
   write proof reports
   `DOOMSAV0.DSG bytes=512 changed-from-baseline description='VIBESAVE' version='version 110'`,
   and the reboot proof reports
@@ -288,9 +305,11 @@ Current state:
 
 Still missing:
 
-- Nothing is missing for this exact commit's Doom config/save-slot reboot
-  persistence gate. Future storage, workflow, or checker changes must rerun the
-  opt-in cloud proof before making a fresh persistence claim.
+- Current-head persistence is not proven. The latest current-head real-WAD proof
+  is run `26165681561` on commit `c525952`, and it intentionally skipped the
+  opt-in persistence path. A new green `persistence_proof=true` cloud run must
+  prove `DEFAULT.CFG` and a matching `DOOMSAVN.DSG` save-slot before the current
+  branch can claim save/load persistence.
 - The writable FAT path is still Doom-shaped, not full dynamic writable FS semantics:
   root-level 8.3 files, bounded dynamic entries, no subdirectories,
   no rename, no long filenames, and no POSIX delete-while-open behavior.
@@ -308,7 +327,8 @@ Executable gate:
   `python3 tools/check_doom_persistence_image.py --baseline-image
   /tmp/vibe-os-disk.before-persistence.img --reboot-baseline-image
   /tmp/vibe-os-disk.after-persistence-write.img --require-default build/disk.img`
-  or `--require-save-slot N` on that remote image before deleting it.
+  or `--require-save-slot N --save-write-status build/status.persistence-write.txt`
+  on that remote image before deleting it.
 
 - `GAP[AUDIO] status=open category=audio gate=remote-sb16-audible-proof evidence=audio-status`
 
@@ -324,7 +344,7 @@ Current state:
   songs keep cumulative song-position accounting while rendering from the
   measured loop window, so long runs no longer depend on the old bounded
   loop-pass skip path.
-- Run `26156172979` passes `tools/check_audio_continuity_proof.py` and
+- Run `26165681561` passes `tools/check_audio_continuity_proof.py` and
   `tools/check_audible_audio_proof.py` with status-only SB16 continuity and a
   copyright-safe aggregate `audio-proof.json`, proving non-silent audible output
   without uploading raw audio.
@@ -381,7 +401,8 @@ Current state:
 - The mmap/munmap path now records allocation/release counters. Anonymous
   mappings still come from the process heap window, but tail `munmap` clears the
   relevant process PTEs, flushes the active address space, and moves `brk` back
-  to the unmapped base. Valid non-tail ranges remain no-hole success cases.
+  to the unmapped base. Valid non-tail ranges punch validation holes in the
+  heap bitmap, but they do not yet become reusable VM objects.
 - Timer preemption has a real Ring 3 IRQ-frame switch path: it saves the
   interrupted task, selects a different READY process record, switches CR3/TSS,
   rewrites the live interrupt frame, and reports `pirq` plus
@@ -391,8 +412,11 @@ Current state:
   `0xc0000000`, `vmm_map_page` can allocate a missing page table from PMM after
   PMM is online, and `vmm_unmap_page` returns an empty PMM-backed page-table
   frame to the allocator after clearing the last PTE. The VMM self-test maps a
-  high virtual alias to a different physical frame before unmapping it. This is
-  a legitimate non-identity mapping capability, not a relocated running kernel.
+  high virtual alias to a different physical frame before unmapping it. Status
+  artifacts expose `vmmhi=OK`, `vmmhva=`, `vmmhpa=`, `vmmhpt=`, and
+  `vmmhfree=` so the high alias, distinct PMM frame, dynamic page-table frame,
+  and reclaimed table frame are visible without a framebuffer dump. This is a
+  legitimate non-identity mapping capability, not a relocated running kernel.
 
 Still missing:
 
@@ -406,8 +430,8 @@ Still missing:
   for identity-shaped user pages, or general child lifecycle semantics.
 - The running kernel is still identity-mapped in low memory, process page-table
   allocation is not fully dynamic or reclaimed with process lifetime, non-tail
-  unmap does not punch holes, user pages are still backed by identity-shaped
-  frames, and 32-bit paging cannot enforce NX.
+  unmap punches validation holes but not reusable VM objects, user pages are
+  still backed by identity-shaped frames, and 32-bit paging cannot enforce NX.
 
 Executable gate:
 
@@ -525,7 +549,7 @@ Executable gate:
 Do not call the project Doom-capable from README, release notes, or comments just
 because host tests pass. A playable claim requires at least:
 
-- a current manual real-WAD cloud workflow pass for the exact commit
+- a current passing manual real-WAD cloud workflow pass for the exact commit
 - `check_real_wad_proof.py` and `check_human_playability_proof.py` passing on the
   uploaded status artifacts
 - `check_audio_continuity_proof.py` passing when audio/SB16 is part of the claim

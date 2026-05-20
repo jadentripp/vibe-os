@@ -148,6 +148,7 @@ def validate_cloud_interactive_runbooks(root: Path = ROOT) -> None:
     cloud = runbooks["docs/runbooks/cloud-interactive-playtest.md"]
     remote = runbooks["docs/runbooks/remote-doom-playtest.md"]
     play_now_script = _read(root, "tools/play_now_remote.sh")
+    human_playtest_script = _read(root, "tools/run_remote_human_playtest.sh")
 
     for text, label in (
         (cloud, "cloud interactive playtest runbook"),
@@ -188,6 +189,27 @@ def validate_cloud_interactive_runbooks(root: Path = ROOT) -> None:
         _require(play_now_script, needle, "play-now remote script")
 
     for needle in (
+        "Refusing to run the remote human playtest helper on macOS",
+        "tools/collect_human_playtest_bundle.py",
+        "--capture-phase \"$phase\"",
+        "--confirm-no-forbidden-artifacts",
+        "python3 tools/check_cloud_playability_artifacts.py --human-session ./vibe-os-human-proof",
+    ):
+        _require(human_playtest_script, needle, "remote human playtest helper")
+
+    for forbidden in (
+        "qemu-system",
+        "DOOM1.WAD",
+        "disk.img",
+        "gfx.bin",
+        "doom-audio.wav",
+    ):
+        if forbidden in human_playtest_script:
+            raise AssertionError(
+                f"remote human playtest helper should not launch/transfer forbidden payload {forbidden!r}"
+            )
+
+    for needle in (
         "docs/runbooks/cloud-interactive-playtest.md",
         "CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC",
         "CLOUD_PLAYTEST_REMOTE_QEMU_ONLY",
@@ -225,6 +247,11 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     _require(makefile, "shutdown-panic-proof-check:", "Makefile")
     _require(makefile, "tools/check_shutdown_panic_proof.py --repo-contract", "Makefile")
     _require(makefile, "KERNEL_EXTRA_NASMFLAGS ?=", "Makefile")
+    _require(makefile, 'grep -q "vmmhi=OK"', "Makefile")
+    _require(makefile, 'grep -q "vmmhva=C0000000"', "Makefile")
+    _require(makefile, 'grep -q "vmmhpa="', "Makefile")
+    _require(makefile, 'grep -q "vmmhpt="', "Makefile")
+    _require(makefile, 'grep -q "vmmhfree="', "Makefile")
     _require(makefile, 'grep -Eq "panic=(NONE|KEXC)"', "Makefile")
     _require(makefile, 'grep -Eq "shutdown=(NONE|HALT|REBOOT|POWEROFF)"', "Makefile")
 
@@ -319,7 +346,15 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "vmm_reclaimed_page_tables dd 0",
         "vmm_last_reclaimed_page_table dd 0",
         "vmm_user_guard_pages dd 0",
+        "vmm_high_test_phys dd 0",
+        "vmm_high_test_table dd 0",
+        "vmm_high_test_reclaimed dd 0",
         "vmm_high_mapping_status db 0",
+        'smoke_vmmhi_text db " vmmhi=", 0',
+        'smoke_vmmhva_text db " vmmhva=", 0',
+        'smoke_vmmhpa_text db " vmmhpa=", 0',
+        'smoke_vmmhpt_text db " vmmhpt=", 0',
+        'smoke_vmmhfree_text db " vmmhfree=", 0',
         "USER_PROBE_EXPECTED_FLAGS equ 0x00001fff",
         "SYS_EXEC_ARGV_SOURCE_DEFAULT equ 1",
         "SYS_EXEC_ARGV_SOURCE_USER equ 2",
@@ -347,6 +382,10 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "call vmm_clear_process_guard_page",
         "vmm_unmap_page:",
         "mov dword [VMM_HIGH_TEST_VADDR], VMM_HIGH_TEST_MAGIC",
+        "mov [vmm_high_test_phys], ebx",
+        "mov [vmm_high_test_table], eax",
+        "mov [vmm_high_test_reclaimed], eax",
+        "cmp eax, [vmm_high_test_table]",
         "mov byte [vmm_high_mapping_status], 1",
     ):
         _require(kernel, needle, "kernel VM contract")
@@ -443,6 +482,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "shutdown=HALT",
         "shutdown=REBOOT",
         "shutdown=POWEROFF",
+        "vmmhi=OK",
+        "vmmhfree=",
         "tools/check_shutdown_panic_proof.py",
         "status-before-cleanup",
         "status-before-reset",

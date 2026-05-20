@@ -24,7 +24,7 @@ def make_status(**overrides):
         "doompresent": "00000004",
         "gflags": "00000001",
         "gaction": "00000000",
-        "pflags": "000000FF",
+        "pflags": "000001FF",
         "pbuttons": "00000000",
         "ppos": "00010000:00020000",
         "pdelta": "00000100",
@@ -127,6 +127,7 @@ def write_human_session_bundle(tmpdir, *, final_tick="000001B0", commit="abcdef1
             mousepoll="00000001",
             mousebtn="00000001",
             mousedelta="00000018:0000000C",
+            pflags="00000109",
         ),
         "status.after-menu.txt": make_status(
             gtic="00000180",
@@ -151,7 +152,7 @@ def write_human_session_bundle(tmpdir, *, final_tick="000001B0", commit="abcdef1
             keypoll="00000004",
             keyseen="00000071",
             keylast="0001001B",
-            pflags="000000F7",
+            pflags="000001F7",
             gflags="00000001",
             mouseirq="00000001",
             mousepkt="00000001",
@@ -360,6 +361,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     mousepoll="00000002",
                     mousebtn="00000001",
                     mousedelta="00000018:0000000C",
+                    pflags="00000109",
                 )
             )
             menu.write_text(
@@ -384,7 +386,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
                     keypoll="00000005",
                     keyseen="00000071",
                     keylast="0001001B",
-                    pflags="000000F7",
+                    pflags="000001F7",
                 )
             )
 
@@ -559,6 +561,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             mousebtn="00000001",
             mousedelta="00000018:0000000C",
             keyseen="00000031",
+            pflags="00000109",
         )
         check_human_playability_proof.validate_status(
             make_status(
@@ -593,6 +596,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
         for field, value in (
             ("mousebtn", "00000000"),
             ("mousedelta", "00000000:00000000"),
+            ("pflags", "00000009"),
         ):
             with self.subTest(field=field, value=value):
                 bad_mouse = make_status(**{field: value})
@@ -634,6 +638,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             "VIBE_PLAYABLE_SEEN_POS_DELTA",
             "VIBE_PLAYABLE_SEEN_AMMO_DELTA",
             "VIBE_PLAYABLE_SEEN_REFIRE",
+            "VIBE_PLAYABLE_SEEN_TURN_CMD",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, header)
@@ -646,6 +651,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             "VIBE_PLAYABLE_SEEN_POS_DELTA",
             "VIBE_PLAYABLE_SEEN_AMMO_DELTA",
             "VIBE_PLAYABLE_SEEN_REFIRE",
+            "VIBE_PLAYABLE_SEEN_TURN_CMD",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, platform)
@@ -654,6 +660,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             "static void report_playability_status(void)",
             "players[consoleplayer]",
             "player->cmd.forwardmove",
+            "player->cmd.angleturn",
             "player->cmd.buttons & BT_ATTACK",
             "player->cmd.buttons & BT_USE",
             "player->mo->x",

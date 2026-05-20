@@ -81,14 +81,18 @@ REQUIRED_GAPS = {
 
 LATEST_RUN_PHRASES = (
     "Latest Cloud Evidence",
-    "current scripted cloud truth-serum run",
+    "last published scripted cloud truth-serum run",
+    "Current-head cloud proof state: pending",
+    "26165681561",
+    "c525952",
+    "real-WAD, human-playability",
+    "scripted gameplay transition",
+    "audible-audio manifest",
+    "artifact hygiene",
+    "26165678183",
+    "Persistence is not current-head proven",
     "26156172979",
     "eabd307",
-    "real-WAD, human-playability",
-    "audible-audio manifest",
-    "save-slot persistence reboot",
-    "artifact hygiene",
-    "26156166546",
     "DOOMSAV0.DSG bytes=512 changed-from-baseline",
     "survived-reboot description='VIBESAVE'",
     "reboot status runtime=OK",
@@ -107,7 +111,7 @@ LATEST_RUN_PHRASES = (
     "Frame/gameplay counters are active",
     "SB16/audio counters",
     "preemption counters are active",
-    "workflow, or checker changes",
+    "workflow, or proof-checker change",
     "usr=OK",
     "scripted `use`",
     "mouse effect",
@@ -128,7 +132,14 @@ LATEST_RUN_PHRASES = (
     "human-facing Doom-capable proof",
 )
 
-PROVEN_GAPS = {"CLOUD_BOOT", "REAL_GAMEPLAY", "PERSISTENCE", "SHUTDOWN_PANIC"}
+FORBIDDEN_STALE_CURRENT_PROOF_PHRASES = (
+    "is the current scripted cloud truth-serum run for the current runtime code",
+    "is the current scripted cloud proof that passes the serious real-WAD gates for the current runtime code",
+    "Nothing is missing for this exact commit's scripted cloud-boot gate: `c525952`",
+    "Nothing is missing for this exact commit's scripted real-gameplay gate",
+)
+
+PROVEN_GAPS = {"CLOUD_BOOT", "REAL_GAMEPLAY", "SHUTDOWN_PANIC"}
 
 GAP_RE = re.compile(
     r"^- `GAP\[(?P<id>[A-Z0-9_]+)\] "
@@ -196,12 +207,20 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
     for phrase in LATEST_RUN_PHRASES:
         if not _contains_phrase(text, phrase):
             raise AssertionError(f"gap ledger missing latest-run phrase: {phrase}")
+    combined_claim_surface = "\n".join((text, readme, playable_cloud_proof))
+    for phrase in FORBIDDEN_STALE_CURRENT_PROOF_PHRASES:
+        if _contains_phrase(combined_claim_surface, phrase):
+            raise AssertionError(f"claim surface still uses stale current-proof phrase: {phrase}")
     for phrase in (
         "scripted cloud evidence",
-        "26156172979",
-        "eabd307",
-        "26156166546",
+        "26165681561",
+        "c525952",
+        "26165678183",
         "playability-status-green",
+        "Persistence/save-load should only be claimed",
+        "Current-head cloud proof state: pending",
+        "gh workflow run os-smoke.yml",
+        "gh workflow run real-wad-smoke.yml",
     ):
         if not _contains_phrase(readme, phrase):
             raise AssertionError(f"README missing claim-boundary phrase: {phrase}")

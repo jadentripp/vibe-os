@@ -80,6 +80,8 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "VIBE_IOCTL_PRESENT_INDEXED",
             "typedef struct vibe_fb_info",
             "typedef struct vibe_present_indexed",
+            "tail munmap moves brk back",
+            "punches validation holes without creating reusable VM objects",
         ):
             self.assertIn(token, header)
         for token in ("MAP_ANONYMOUS", "MAP_FAILED", "PROT_READ", "PROT_WRITE"):

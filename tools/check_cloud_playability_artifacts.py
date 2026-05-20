@@ -28,12 +28,16 @@ import check_scripted_gameplay_proof  # noqa: E402
 
 
 RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
+INTERACTIVE_RUNBOOK = ROOT / "docs" / "runbooks" / "cloud-interactive-playtest.md"
+PLAY_NOW_RUNBOOK = ROOT / "docs" / "runbooks" / "play-now-cloud.md"
 PLAYABLE_DOC = ROOT / "docs" / "playable-cloud-proof.md"
+OS_WORKFLOW = ROOT / ".github" / "workflows" / "os-smoke.yml"
 WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
 SOAK_WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-soak.yml"
 README = ROOT / "README.md"
 TESTS_README = ROOT / "tests" / "README.md"
 MAKEFILE = ROOT / "Makefile"
+HUMAN_PLAYTEST_SCRIPT = ROOT / "tools" / "run_remote_human_playtest.sh"
 
 REQUIRED_STATUS_FILES = (
     "status.early.txt",
@@ -67,6 +71,8 @@ HUMAN_MANIFEST_FILE = "human-playtest-manifest.json"
 HUMAN_MANIFEST_SCHEMA = "human-playtest-manifest-v1"
 HUMAN_SESSION_FILE = "human-playtest-session.json"
 HUMAN_SESSION_SCHEMA = "human-playtest-session-v1"
+HUMAN_CHECKLIST_FILE = "human-playtest-checklist.txt"
+HUMAN_CHECKLIST_SCHEMA = "human-playtest-checklist-v1"
 HUMAN_POST_DOWNLOAD_VERIFICATION_SCHEMA = "human-playtest-post-download-verification-v1"
 HUMAN_PHASE_HASH_NOTE_KEYS = {
     "early": "phase_hash_early",
@@ -169,8 +175,15 @@ HUMAN_SESSION_STATUS_FIELDS = (
     "mousebtn",
     "mousedelta",
     "audio",
+    "vmmhi",
+    "vmmhva",
+    "vmmhpa",
+    "vmmhpt",
+    "vmmhfree",
     "doomsound",
     "sfxmix",
+    "musicstream",
+    "musicpull",
     "musicpos",
     "doomrun",
     "doomopen",
@@ -187,6 +200,7 @@ HUMAN_SESSION_ALLOWED_EXACT_FILES = set(
     + (
         OPTIONAL_AUDIO_PROOF_FILE,
         HUMAN_NOTES_FILE,
+        HUMAN_CHECKLIST_FILE,
         HUMAN_MANIFEST_FILE,
         HUMAN_SESSION_FILE,
     )
@@ -316,11 +330,18 @@ SOAK_STATUS_SUMMARY_FIELDS = (
     "mousebtn",
     "mousedelta",
     "audio",
+    "vmmhi",
+    "vmmhva",
+    "vmmhpa",
+    "vmmhpt",
+    "vmmhfree",
     "doomsound",
     "sfxmix",
     "musicmix",
     "musicpos",
     "musicbuf",
+    "musicstream",
+    "musicpull",
     "audioirq",
     "ack8",
     "ack16",
@@ -435,12 +456,16 @@ def _assert_soak_uploads_only_json(workflow: str) -> None:
 
 def validate_repo_contract() -> None:
     runbook = _read(RUNBOOK)
+    interactive_runbook = _read(INTERACTIVE_RUNBOOK)
+    play_now_runbook = _read(PLAY_NOW_RUNBOOK)
     playable = _read(PLAYABLE_DOC)
+    os_workflow = _read(OS_WORKFLOW)
     workflow = _read(WORKFLOW)
     soak_workflow = _read(SOAK_WORKFLOW)
     readme = _read(README)
     tests_readme = _read(TESTS_README)
     makefile = _read(MAKEFILE)
+    human_script = _read(HUMAN_PLAYTEST_SCRIPT)
 
     for needle in (
         "qemu-system-x86_64",
@@ -450,12 +475,15 @@ def validate_repo_contract() -> None:
         "tools/check_cloud_playability_artifacts.py",
         "real-wad-soak-summary.json",
         "tools/collect_human_playtest_bundle.py",
+        "tools/run_remote_human_playtest.sh",
         "tools/check_real_wad_proof.py",
         "tools/check_human_playability_proof.py",
         "tools/check_audio_continuity_proof.py",
         "tools/check_audible_audio_proof.py",
         "tools/triage_cloud_status.py",
         "human-playtest-notes.txt",
+        "human-playtest-checklist.txt",
+        "schema=human-playtest-checklist-v1",
         "schema=human-playtest-notes-v2",
         "human-playtest-session.json",
         "human-playtest-manifest.json",
@@ -501,6 +529,10 @@ def validate_repo_contract() -> None:
         "audio-proof.json",
         "Real WAD soak",
         "soak summary",
+        "gh workflow run real-wad-soak.yml",
+        "-f expected_ref=\"$branch\"",
+        "Run workflow branch selector",
+        "default branch",
         "playability, input state changes, SB16 continuity, and optional audible aggregate proof",
         "status.after-fire.txt",
         "status.after-start.txt",
@@ -521,6 +553,47 @@ def validate_repo_contract() -> None:
     ):
         _require(runbook, needle, "remote playtest runbook")
 
+    for text, label in (
+        (interactive_runbook, "cloud interactive playtest runbook"),
+        (play_now_runbook, "play-now cloud runbook"),
+        (readme, "README"),
+        (tests_readme, "tests README"),
+    ):
+        _require(text, "tools/run_remote_human_playtest.sh", label)
+        _require(text, "--scripted-proof-run-id", label)
+        _require(text, "--playtester", label)
+
+    for needle in (
+        "Usage: tools/run_remote_human_playtest.sh --playtester NAME --scripted-proof-run-id RUN_ID",
+        "Refusing to run the remote human playtest helper on macOS",
+        "tools/collect_human_playtest_bundle.py",
+        "--capture-phase \"$phase\"",
+        "--confirm-remote-vnc",
+        "--confirm-phase-actions",
+        "--confirm-phase-status-hashes",
+        "--confirm-no-forbidden-artifacts",
+        "--confirm-post-download-verification",
+        "tar -C \"$output_parent\" -czf \"$TARBALL\" \"$output_base\"",
+        "python3 tools/check_cloud_playability_artifacts.py --human-session ./vibe-os-human-proof",
+        "pre-download human verification OK",
+        "post-download human verification OK",
+    ):
+        _require(human_script, needle, "remote human playtest helper")
+
+    for forbidden in (
+        "qemu-system",
+        "DOOM1.WAD",
+        "disk.img",
+        "gfx.bin",
+        "doom-audio.wav",
+        "git add",
+        "actions/upload-artifact",
+    ):
+        if forbidden in human_script:
+            raise AssertionError(
+                f"remote human playtest helper should not mention forbidden operation/artifact {forbidden!r}"
+            )
+
     for forbidden in (
         "make ALLOW_LOCAL_VM=1 run",
         "make ALLOW_LOCAL_VM=1 smoke",
@@ -531,30 +604,66 @@ def validate_repo_contract() -> None:
             raise AssertionError(f"runbook should not instruct local/pixel artifact path {forbidden!r}")
 
     _require(playable, "Remote Doom Playtest Runbook", "playable cloud proof doc")
+    _require(playable, "Current-head cloud proof state: pending", "playable cloud proof doc")
+    _require(playable, "gh workflow run os-smoke.yml", "playable cloud proof doc")
+    _require(playable, "gh workflow run real-wad-smoke.yml", "playable cloud proof doc")
     _require(playable, "tools/collect_human_playtest_bundle.py", "playable cloud proof doc")
     _require(playable, "human-playtest-notes-v2", "playable cloud proof doc")
+    _require(playable, "human-playtest-checklist.txt", "playable cloud proof doc")
     _require(playable, "human-playtest-session.json", "playable cloud proof doc")
     _require(playable, "human-playtest-manifest.json", "playable cloud proof doc")
     _require(playable, "post-download human verification OK", "playable cloud proof doc")
+    _require(playable, "-f expected_ref=\"$branch\"", "playable cloud proof doc")
+    _require(playable, "default branch", "playable cloud proof doc")
     _require(playable, "puser", "playable cloud proof doc")
     _require(playable, "pspin", "playable cloud proof doc")
     _require(readme, "docs/runbooks/remote-doom-playtest.md", "README")
+    _require(readme, "Current-head cloud proof state: pending", "README")
+    _require(readme, "gh workflow run os-smoke.yml", "README")
+    _require(readme, "gh workflow run real-wad-smoke.yml", "README")
+    _require(readme, "gh workflow run real-wad-soak.yml", "README")
     _require(readme, "tools/collect_human_playtest_bundle.py", "README")
     _require(readme, "human-playtest-notes-v2", "README")
+    _require(readme, "human-playtest-checklist.txt", "README")
     _require(readme, "human-playtest-session.json", "README")
     _require(readme, "post-download human verification OK", "README")
     _require(tests_readme, "check_cloud_playability_artifacts.py", "tests README")
+    _require(tests_readme, "expected_ref", "tests README")
+    _require(tests_readme, "Current-head cloud proof state", "tests README")
     _require(tests_readme, "collect_human_playtest_bundle.py", "tests README")
     _require(tests_readme, "phase_hash_*", "tests README")
+    _require(tests_readme, "human-playtest-checklist.txt", "tests README")
     _require(tests_readme, "human-playtest-session.json", "tests README")
     _require(makefile, "cloud-playability-check", "Makefile")
     _require(makefile, "persistence-image-check", "Makefile")
     _require(makefile, "PERSISTENCE_BASELINE_IMAGE", "Makefile")
     _require(makefile, "PERSISTENCE_REBOOT_BASELINE_IMAGE", "Makefile")
+    _require(makefile, "PERSISTENCE_REBOOT_STATUS", "Makefile")
+    _require(makefile, "PERSISTENCE_WRITE_STATUS", "Makefile")
+    _require(makefile, "PERSISTENCE_SAVE_WRITE_STATUS", "Makefile")
     _require(makefile, "tools/check_cloud_playability_artifacts.py --repo-contract", "Makefile")
 
     for needle in (
         "workflow_dispatch:",
+        "expected_ref:",
+        "INPUT_EXPECTED_REF",
+        "Confirm selected proof ref",
+        "GITHUB_REF_NAME",
+        "gh workflow run os-smoke.yml --ref",
+        "Running OS smoke proof on ref",
+        "make test",
+        "make ALLOW_LOCAL_VM=1 smoke",
+    ):
+        _require(os_workflow, needle, "OS smoke workflow")
+
+    for needle in (
+        "workflow_dispatch:",
+        "expected_ref:",
+        "INPUT_EXPECTED_REF",
+        "Confirm selected proof ref",
+        "GITHUB_REF_NAME",
+        "gh workflow run real-wad-smoke.yml --ref",
+        "Running real-WAD smoke proof on ref",
         "SMOKE_CAPTURE_GFX=0",
         "SMOKE_SKIP_ASSERTIONS=1",
         "if: always()",
@@ -572,6 +681,7 @@ def validate_repo_contract() -> None:
         "check_args+=(--require-default)",
         "check_args+=(--write-status build/status.persistence-write.txt)",
         "check_args+=(--require-save-slot \"$PERSISTENCE_SAVE_SLOT\")",
+        "check_args+=(--save-write-status build/status.persistence-write.txt)",
         "cp \"$baseline\" build/disk.img",
         "build/status.persistence-write.txt",
         "build/status.persistence-reboot.txt",
@@ -580,6 +690,7 @@ def validate_repo_contract() -> None:
         "tools/check_doom_persistence_image.py",
         "--baseline-image \"$baseline\"",
         "--reboot-baseline-image \"$after_write\"",
+        "--save-write-status",
         "python3 tools/check_real_wad_proof.py \\",
         "--baseline build/status.after-start.txt",
         "--start build/status.after-start.txt",
@@ -615,6 +726,11 @@ def validate_repo_contract() -> None:
         "attempts:",
         "min_passes:",
         "audible_audio_proof:",
+        "expected_ref:",
+        "INPUT_EXPECTED_REF",
+        "Confirm selected proof ref",
+        "GITHUB_REF_NAME",
+        "gh workflow run real-wad-soak.yml --ref",
         "tools/prepare_shareware_wad.py",
         "SOAK_ATTEMPTS",
         "SOAK_MIN_PASSES",
@@ -804,6 +920,63 @@ def build_human_session(
     return session
 
 
+def build_human_checklist(artifact_dir: Path) -> str:
+    names = _relative_names(artifact_dir)
+    notes_name = _find_one(names, HUMAN_NOTES_FILE)
+    if notes_name is None:
+        raise AssertionError(f"missing expected human review file: {HUMAN_NOTES_FILE}")
+    notes = _load_human_notes(artifact_dir / notes_name)
+    session = build_human_session(artifact_dir)
+
+    phase_lines: list[str] = []
+    for phase_name, status_file, human_action in HUMAN_SESSION_PHASES:
+        status_name = _find_one(names, status_file)
+        if status_name is None:
+            raise AssertionError(f"missing expected human status file: {status_file}")
+        digest = _sha256_file(artifact_dir / status_name)
+        phase_lines.append(
+            f"- {phase_name}: {status_file} sha256={digest} action={human_action}"
+        )
+
+    commit = notes.get("commit", "")
+    scripted_run_id = notes.get("scripted_proof_run_id", "")
+    lines = [
+        f"schema={HUMAN_CHECKLIST_SCHEMA}",
+        "source=remote-vnc-human-session",
+        "generated_by=tools/collect_human_playtest_bundle.py",
+        f"session_id={session['session_id']}",
+        f"commit={commit}",
+        f"scripted_proof_run_id={scripted_run_id}",
+        f"playtester={notes.get('playtester', '')}",
+        "",
+        "Post-download checklist",
+        "- Compare the local post-download human verification OK line with the saved remote pre-download human verification OK line.",
+        "- Run: python3 tools/check_cloud_playability_artifacts.py --human-session path/to/vibe-os-human-proof",
+        (
+            "- Run: python3 tools/check_human_playability_proof.py "
+            "--require-human-session "
+            "--human-notes path/to/vibe-os-human-proof/human-playtest-notes.txt "
+            f"--expected-commit {commit} "
+            f"--expected-scripted-proof-run-id {scripted_run_id} "
+            "path/to/vibe-os-human-proof/status.txt"
+        ),
+        "- Confirm no WAD, disk image, status binary, pixel, screenshot, or raw-audio file was downloaded.",
+        "- Keep the bundle tied to the passing Real WAD smoke run ID before claiming human playability.",
+        "",
+        "Phase hashes",
+        *phase_lines,
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def validate_human_checklist(artifact_dir: Path, checklist_path: Path) -> None:
+    actual = checklist_path.read_text()
+    expected = build_human_checklist(artifact_dir)
+    if actual != expected:
+        raise AssertionError(f"{HUMAN_CHECKLIST_FILE} does not match notes and status files")
+
+
 def _load_human_session(path: Path) -> dict:
     try:
         session = json.loads(path.read_text())
@@ -830,6 +1003,14 @@ def validate_human_session(artifact_dir: Path, session_path: Path) -> None:
     )
     if session != expected:
         raise AssertionError(f"{HUMAN_SESSION_FILE} does not match notes and status file hashes")
+    for phase in session.get("phases", []):
+        summary = phase.get("summary", {}) if isinstance(phase, dict) else {}
+        phase_name = phase.get("phase", "<unknown>") if isinstance(phase, dict) else "<unknown>"
+        for field in HUMAN_SESSION_STATUS_FIELDS:
+            if summary.get(field) == "<missing>":
+                raise AssertionError(
+                    f"{HUMAN_SESSION_FILE} phase {phase_name} summary missing {field}"
+                )
 
 
 def build_human_manifest(artifact_dir: Path) -> dict:
@@ -844,6 +1025,9 @@ def build_human_manifest(artifact_dir: Path) -> dict:
     session_name = _find_one(names, HUMAN_SESSION_FILE)
     if session_name is None:
         raise AssertionError(f"missing expected human session file: {HUMAN_SESSION_FILE}")
+    checklist_name = _find_one(names, HUMAN_CHECKLIST_FILE)
+    if checklist_name is None:
+        raise AssertionError(f"missing expected human checklist file: {HUMAN_CHECKLIST_FILE}")
     notes_path = artifact_dir / notes_name
     notes = _load_human_notes(notes_path)
     files = [
@@ -875,7 +1059,7 @@ def build_human_manifest(artifact_dir: Path) -> dict:
             REQUIRED_STATUS_FILES
             + REQUIRED_DIAGNOSTIC_FILES
             + REQUIRED_SYMBOL_FILES
-            + (HUMAN_NOTES_FILE, HUMAN_SESSION_FILE)
+            + (HUMAN_NOTES_FILE, HUMAN_CHECKLIST_FILE, HUMAN_SESSION_FILE)
         ),
         "files": files,
     }
@@ -924,7 +1108,7 @@ def validate_human_manifest(artifact_dir: Path, manifest_path: Path) -> None:
         REQUIRED_STATUS_FILES
         + REQUIRED_DIAGNOSTIC_FILES
         + REQUIRED_SYMBOL_FILES
-        + (HUMAN_NOTES_FILE, HUMAN_SESSION_FILE)
+        + (HUMAN_NOTES_FILE, HUMAN_CHECKLIST_FILE, HUMAN_SESSION_FILE)
     )
     if required_files != expected_required:
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} required_files does not match checker contract")
@@ -1384,7 +1568,7 @@ def _validate_soak_attempt(attempt: object, audible_required: bool) -> bool:
         if not isinstance(summary, dict):
             raise AssertionError(f"real-WAD soak attempt {index} phase {phase} summary is required")
         for field in SOAK_STATUS_SUMMARY_FIELDS:
-            if field not in summary:
+            if field not in summary or summary[field] == "<missing>":
                 raise AssertionError(
                     f"real-WAD soak attempt {index} phase {phase} summary missing {field}"
                 )
@@ -1657,6 +1841,15 @@ def validate_artifact_dir(artifact_dir: Path, require_human_notes: bool = False)
             validate_human_session(artifact_dir, artifact_dir / human_session)
         except AssertionError as exc:
             raise AssertionError(f"human playtest session failed: {exc}") from exc
+
+    human_checklist = _find_one(names, HUMAN_CHECKLIST_FILE)
+    if require_human_notes and human_checklist is None:
+        raise AssertionError(f"missing expected human checklist file: {HUMAN_CHECKLIST_FILE}")
+    if human_checklist is not None:
+        try:
+            validate_human_checklist(artifact_dir, artifact_dir / human_checklist)
+        except AssertionError as exc:
+            raise AssertionError(f"human playtest checklist failed: {exc}") from exc
 
     human_manifest = _find_one(names, HUMAN_MANIFEST_FILE)
     if require_human_notes and human_manifest is None:
