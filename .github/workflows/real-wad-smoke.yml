@@ -2,19 +2,28 @@ name: Real WAD smoke
 
 on:
   workflow_dispatch:
+    inputs:
+      wad_url:
+        description: Optional URL to a DOOM1.WAD, DOOM1.WAD.gz, or zip containing DOOM1.WAD. Empty uses REAL_DOOM_WAD_URL, then the public Archive.org shareware fallback.
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   smoke:
-    name: Boot with user-supplied DOOM1.WAD
+    name: Boot with validated shareware DOOM1.WAD
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     env:
+      INPUT_DOOM_WAD_URL: ${{ inputs.wad_url }}
       REAL_DOOM_WAD_URL: ${{ secrets.REAL_DOOM_WAD_URL }}
-      WAD_PATH: build/private/DOOM1.WAD
+      PUBLIC_SHAREWARE_WAD_GZ_URL: https://archive.org/download/wadarchive/DATA/5b.zip/5b%2F2e249b9c5133ec987b3ea77596381dc0d6bc1d%2F5b2e249b9c5133ec987b3ea77596381dc0d6bc1d.wad.gz
+      EXPECTED_WAD_SHA1: 5b2e249b9c5133ec987b3ea77596381dc0d6bc1d
+      EXPECTED_WAD_BYTES: "4196020"
+      WAD_PATH: ${{ runner.temp }}/DOOM1.WAD
 
     steps:
       - name: Check out repository
@@ -25,38 +34,102 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y nasm qemu-system-x86 clang make netcat-openbsd curl
 
-      - name: Prove public fixture path first
-        run: make test
-
-      - name: Fetch private WAD
+      - name: Fetch and validate shareware WAD
         run: |
-          test -n "${REAL_DOOM_WAD_URL:-}" || {
-            echo "Set the REAL_DOOM_WAD_URL repository secret to a private DOOM1.WAD URL before running this workflow.";
-            exit 1;
-          }
-          mkdir -p "$(dirname "$WAD_PATH")"
-          curl --fail --silent --show-error --location "$REAL_DOOM_WAD_URL" --output "$WAD_PATH"
+          set -euo pipefail
+
+          url="${INPUT_DOOM_WAD_URL:-}"
+          source_label="workflow input"
+          if [ -z "$url" ]; then
+            url="${REAL_DOOM_WAD_URL:-}"
+            source_label="REAL_DOOM_WAD_URL secret"
+          fi
+          if [ -z "$url" ]; then
+            url="$PUBLIC_SHAREWARE_WAD_GZ_URL"
+            source_label="public Archive.org shareware fallback"
+          fi
+
+          echo "Fetching DOOM1.WAD source from ${source_label}."
+          curl --fail --silent --show-error --location "$url" --output "$RUNNER_TEMP/wad-source"
           python3 - <<'PY'
+          import gzip
+          import hashlib
+          import io
+          import os
+          import zipfile
           from pathlib import Path
-          path = Path("build/private/DOOM1.WAD")
-          data = path.read_bytes()
-          if data[:4] not in (b"IWAD", b"PWAD"):
-              raise SystemExit("downloaded file is not a WAD")
-          print(f"Downloaded private WAD: {len(data)} bytes")
+
+          source = Path(os.environ["RUNNER_TEMP"]) / "wad-source"
+          path = Path(os.environ["WAD_PATH"])
+          raw = source.read_bytes()
+
+          if raw[:2] == b"\x1f\x8b":
+              data = gzip.decompress(raw)
+          elif raw[:4] == b"PK\x03\x04":
+              with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+                  matches = [
+                      name for name in archive.namelist()
+                      if Path(name).name.upper() == "DOOM1.WAD"
+                  ]
+                  if not matches:
+                      raise SystemExit("zip archive does not contain DOOM1.WAD")
+                  data = archive.read(matches[0])
+          elif raw[:4] in (b"IWAD", b"PWAD"):
+              data = raw
+          else:
+              raise SystemExit("downloaded file is not a WAD, gzip-compressed WAD, or zip containing DOOM1.WAD")
+
+          path.write_bytes(data)
+          source.unlink()
+
+          expected_sha1 = os.environ["EXPECTED_WAD_SHA1"]
+          expected_size = int(os.environ["EXPECTED_WAD_BYTES"])
+          actual_sha1 = hashlib.sha1(data).hexdigest()
+          actual_size = len(data)
+
+          if data[:4] != b"IWAD":
+              raise SystemExit("extracted DOOM1.WAD is not an IWAD")
+          if actual_size != expected_size:
+              raise SystemExit(f"DOOM1.WAD size mismatch: got {actual_size}, expected {expected_size}")
+          if actual_sha1 != expected_sha1:
+              raise SystemExit(f"DOOM1.WAD SHA-1 mismatch: got {actual_sha1}, expected {expected_sha1}")
+
+          print(f"Validated shareware DOOM1.WAD: {actual_size} bytes, SHA-1 {actual_sha1}")
           PY
 
-      - name: Build and boot real-WAD image
+      - name: Rebuild real-WAD image
         run: |
           make clean
           make DOOM_WAD="$WAD_PATH"
+
+      - name: Boot real-WAD image
+        run: |
           make \
             DOOM_WAD="$WAD_PATH" \
             ALLOW_LOCAL_VM=1 \
             SMOKE_EXPECT_PROBE_GFX=0 \
             SMOKE_REQUIRE_DOOM_PRESENT=1 \
+            SMOKE_REQUIRE_KEY_EVENT=1 \
             SMOKE_SENDKEYS="spc" \
             SMOKE_REJECT_DOOMLOG="doom error|PNAMES not found|W_GetNumForName" \
             smoke
+
+      - name: Re-check validated WAD after smoke
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["WAD_PATH"])
+          data = path.read_bytes()
+          actual_sha1 = hashlib.sha1(data).hexdigest()
+          actual_size = len(data)
+          assert actual_sha1 == os.environ["EXPECTED_WAD_SHA1"], actual_sha1
+          assert actual_size == int(os.environ["EXPECTED_WAD_BYTES"]), actual_size
+          print(f"Post-smoke WAD still validated locally: {actual_size} bytes, SHA-1 {actual_sha1}")
+          PY
 
       - name: Upload non-copyright diagnostic artifacts
         if: always()

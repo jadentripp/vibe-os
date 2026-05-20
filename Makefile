@@ -10,6 +10,7 @@ SMOKE_EXPECT_PROBE_GFX ?= 1
 SMOKE_REJECT_DOOMLOG ?=
 SMOKE_SENDKEYS ?=
 SMOKE_REQUIRE_DOOM_PRESENT ?= 0
+SMOKE_REQUIRE_KEY_EVENT ?= 0
 
 BUILD_DIR := build
 STAGE1_BIN := $(BUILD_DIR)/stage1.bin
@@ -175,7 +176,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	if [ "$(SMOKE_REQUIRE_DOOM_PRESENT)" = "1" ]; then \
 		perl -ne '$$ok = 1 if /doompresent=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	fi; \
-	if [ -n "$(SMOKE_SENDKEYS)" ]; then \
+	if [ -n "$(SMOKE_SENDKEYS)" ] || [ "$(SMOKE_REQUIRE_KEY_EVENT)" = "1" ]; then \
 		perl -ne '$$ok = 1 if /keyirq=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 		perl -ne '$$ok = 1 if /keyqueue=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 		perl -ne '$$ok = 1 if /keypoll=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \

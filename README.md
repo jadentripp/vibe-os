@@ -139,13 +139,18 @@ make ALLOW_LOCAL_VM=1 smoke
 The repo also includes `.github/workflows/os-smoke.yml`, which builds the disk
 image, runs host artifact tests, and runs the smoke test in GitHub Actions.
 
-For a laptop-safe real-WAD test, set a GitHub repository secret named
-`REAL_DOOM_WAD_URL` to a private URL for your local shareware `DOOM1.WAD`, then
-run the **Real WAD smoke** workflow manually. That workflow downloads the WAD
-inside a disposable GitHub runner, builds `disk.img` with `DOOM_WAD`, boots it
-in QEMU there, and uploads only non-WAD diagnostics (`status.txt`, `status.bin`,
-`vga.txt`, and ELF files). It deliberately does not upload `disk.img` or
-`gfx.bin`, since those may contain Doom game data or rendered pixels.
+For a laptop-safe real-WAD test, run the **Real WAD smoke** workflow manually.
+You can paste a URL to `DOOM1.WAD`, `DOOM1.WAD.gz`, or a zip containing
+`DOOM1.WAD`; leave the input empty to use `REAL_DOOM_WAD_URL` if the repository
+secret is set, otherwise the workflow falls back to the public Archive.org
+shareware WAD gzip. In the disposable runner it extracts `DOOM1.WAD`, validates
+the expected shareware v1.9 size (`4196020` bytes) and SHA-1
+(`5b2e249b9c5133ec987b3ea77596381dc0d6bc1d`), builds `disk.img` with
+`DOOM_WAD`, boots it in cloud QEMU, requires Doom framebuffer presentation, sends
+a key through the QEMU monitor, and requires the kernel key counters to move. It
+uploads only non-WAD diagnostics (`status.txt`, `status.bin`, `vga.txt`, and ELF
+files). It deliberately does not upload `disk.img` or `gfx.bin`, since those may
+contain Doom game data or rendered pixels.
 
 ## Shell Commands
 
