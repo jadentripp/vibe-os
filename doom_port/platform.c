@@ -373,7 +373,7 @@ static int default_config_checkpoint_ready(void)
     return gamestate == GS_LEVEL
         && gameepisode > 0
         && gamemap > 0
-        && gametic > 0
+        && (gametic > 0 || leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME)
         && leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME
         && consoleplayer >= 0
         && consoleplayer < MAXPLAYERS
@@ -675,9 +675,13 @@ void I_UpdateNoBlit(void)
 static void report_gameplay_status(void)
 {
     unsigned long flags = 0;
+    unsigned long tic = (unsigned long)gametic;
     unsigned long packed = ((unsigned long)(gamestate & 0xff))
         | ((unsigned long)(gameepisode & 0xff) << 8)
         | ((unsigned long)(gamemap & 0xff) << 16);
+
+    if (!tic && leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME)
+        tic = (unsigned long)leveltime;
 
     if (menuactive)
         flags |= VIBE_GAMEPLAY_FLAG_MENU_ACTIVE;
@@ -693,7 +697,7 @@ static void report_gameplay_status(void)
     (void)vibe_syscall3(
         VIBE_SYS_GAMEPLAY_STATUS,
         packed,
-        (unsigned long)gametic,
+        tic,
         (unsigned long)leveltime);
 }
 

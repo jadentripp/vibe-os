@@ -112,7 +112,7 @@ class DoomInputContractTests(unittest.TestCase):
             "default_config_checkpoint_ready()",
             "gamestate == GS_LEVEL",
             "gameepisode > 0",
-            "gametic > 0",
+            "(gametic > 0 || leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME)",
             "#define VIBE_PERSISTENCE_MIN_LEVELTIME 1",
             "leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME",
             "default_config_needs_checkpoint()",

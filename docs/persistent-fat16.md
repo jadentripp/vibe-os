@@ -140,9 +140,10 @@ still empty, partial, or missing core defaults markers. Marker-requested
 gameplay guard; it reuses Doom's `P_Archive*` serializers and `M_WriteFile`
 from the Doom ticker path instead of forcing `ga_savegame`, calling
 `G_DoSaveGame`, or waiting on the display-present path during boot setup. The
-default real-WAD cloud workflow waits for that checkpoint before snapshotting
-the disk; the save-slot proof path uses `SAVEREQ.CHK` from the clean captured
-baseline and
+proof treats Doom's first advanced `leveltime` as an effective gameplay tic
+because the wrapper runs before the main loop increments `gametic`. The default
+real-WAD cloud workflow waits for that checkpoint before snapshotting the disk;
+the save-slot proof path uses `SAVEREQ.CHK` from the clean captured baseline and
 waits for Doom-reported save-file write/close status. `--write-status` keeps the
 wait honest by rejecting a `DEFAULT.CFG` proof until the defaults file has been
 opened with `O_TRUNC` and closed.

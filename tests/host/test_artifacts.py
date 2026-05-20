@@ -763,7 +763,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("singletics = true;", platform)
         self.assertIn("flags |= VIBE_GAMEPLAY_FLAG_SINGLETICS;", platform)
         self.assertIn("VIBE_DOOM_SAVEACTION_STATUS", platform)
-        self.assertIn("(unsigned long)gametic", platform)
+        self.assertIn("unsigned long tic = (unsigned long)gametic;", platform)
+        self.assertIn("tic = (unsigned long)leveltime;", platform)
         self.assertIn("(unsigned long)leveltime", platform)
         for source in (
             "SYS_GAMEPLAY_STATUS equ 15",

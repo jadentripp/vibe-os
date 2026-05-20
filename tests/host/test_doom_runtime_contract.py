@@ -287,6 +287,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("void doom_original_G_BuildTiccmd(ticcmd_t* cmd);", platform)
         self.assertIn("void doom_original_G_Ticker(void);", platform)
         self.assertIn("#define VIBE_PERSISTENCE_MIN_LEVELTIME 1", platform)
+        self.assertIn("(gametic > 0 || leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME)", platform)
         self.assertIn("leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME", platform)
         self.assertIn("static int write_save_checkpoint_file(int slot, const char* description)", platform)
         self.assertIn("save_p = savebuffer = screens[1] + 0x4000;", platform)
