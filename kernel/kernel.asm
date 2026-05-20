@@ -469,7 +469,10 @@ VIRTUALBOX_PM1_CNT_S5_ENABLE equ 0x3400
 RESET_CONTROL_PORT equ 0x0cf9
 RESET_CONTROL_SYSTEM equ 0x02
 RESET_CONTROL_FULL_RESET equ 0x06
-SHUTDOWN_PROOF_DELAY_TICKS equ 2000
+CMOS_INDEX_PORT equ 0x70
+CMOS_DATA_PORT equ 0x71
+CMOS_RTC_SECONDS_REGISTER equ 0x00
+SHUTDOWN_PROOF_DELAY_SECONDS equ 20
 
 SC_LSHIFT equ 0x2a
 SC_RSHIFT equ 0x36
@@ -1391,19 +1394,25 @@ acpi_poweroff:
     hlt
     jmp .wait
 
-shutdown_proof_wait_before_guest_exit:
-    call pic_unmask_timer
-    sti
-    mov eax, [timer_ticks]
-    add eax, SHUTDOWN_PROOF_DELAY_TICKS
-    mov [shutdown_proof_target_ticks], eax
+read_cmos_seconds:
+    mov al, CMOS_RTC_SECONDS_REGISTER
+    out CMOS_INDEX_PORT, al
+    call io_wait
+    in al, CMOS_DATA_PORT
+    ret
 
-.wait:
-    hlt
-    mov eax, [timer_ticks]
-    cmp eax, [shutdown_proof_target_ticks]
-    jb .wait
+shutdown_proof_wait_before_guest_exit:
     cli
+    call read_cmos_seconds
+    mov bl, al
+    mov ecx, SHUTDOWN_PROOF_DELAY_SECONDS
+
+.wait_next_second:
+    call read_cmos_seconds
+    cmp al, bl
+    je .wait_next_second
+    mov bl, al
+    loop .wait_next_second
     ret
 
 skip_spaces:
@@ -13647,7 +13656,6 @@ fault_state dd 0
 fault_last_syscall dd 0
 panic_status dd 0
 shutdown_state dd 0
-shutdown_proof_target_ticks dd 0
 user_wad_magic_seen dd 0
 user_brk_current dd 0
 current_pid dd 0

@@ -301,10 +301,10 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "mov dword [shutdown_state], SHUTDOWN_POWEROFF",
         "RESET_CONTROL_PORT equ 0x0cf9",
         "RESET_CONTROL_FULL_RESET equ 0x06",
-        "SHUTDOWN_PROOF_DELAY_TICKS equ 2000",
+        "CMOS_RTC_SECONDS_REGISTER equ 0x00",
+        "SHUTDOWN_PROOF_DELAY_SECONDS equ 20",
+        "read_cmos_seconds:",
         "shutdown_proof_wait_before_guest_exit:",
-        "call pic_unmask_timer",
-        "shutdown_proof_target_ticks dd 0",
         "acpi_poweroff:",
     ):
         _require(kernel, needle, "kernel")
@@ -317,7 +317,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "run_phase shutdown-reboot SHUTDOWN_PANIC_PROOF_REBOOT status.shutdown-reboot.txt status-before-reset",
         "run_phase shutdown-poweroff SHUTDOWN_PANIC_PROOF_POWEROFF status.shutdown-poweroff.txt status-before-poweroff",
         "SMOKE_EXPECT_GUEST_EXIT=\"$expect_guest_exit\"",
-        "SMOKE_SHUTDOWN_TIMEOUT=25",
+        "SMOKE_SHUTDOWN_TIMEOUT=35",
         "SMOKE_NO_SHUTDOWN=\"$no_shutdown\"",
         "shutdown-panic-proof.json",
         "--manifest build/shutdown-panic-proof/shutdown-panic-proof.json",

@@ -72,10 +72,10 @@ jobs:
               SMOKE_EXPECT_GUEST_EXIT="$expect_guest_exit" \
               SMOKE_NO_REBOOT="$no_reboot" \
               SMOKE_NO_SHUTDOWN="$no_shutdown" \
-              SMOKE_QEMU_TIMEOUT=45 \
+              SMOKE_QEMU_TIMEOUT=60 \
               SMOKE_EARLY_SECONDS=1 \
               SMOKE_SETTLE_SECONDS=3 \
-              SMOKE_SHUTDOWN_TIMEOUT=25 \
+              SMOKE_SHUTDOWN_TIMEOUT=35 \
               smoke
             cp "$dir/status.txt" "${proof_dir}/${status_name}"
           }

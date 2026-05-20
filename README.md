@@ -206,9 +206,9 @@ status. For the shutdown/panic slice, the OS smoke workflow has an opt-in
 runner and emits `shutdown-panic-proof.json` plus `status.panic.txt`,
 `status.shutdown-halt.txt`, `status.shutdown-reboot.txt`, and
 `status.shutdown-poweroff.txt`. The reboot and poweroff phases capture status
-while the guest waits on PIT ticks, then the guest requests x86 reset control /
-PS/2 reset or ACPI/QEMU poweroff and the workflow requires QEMU to exit from
-that guest request.
+while the guest waits on CMOS RTC seconds, then the guest requests x86 reset
+control / PS/2 reset or ACPI/QEMU poweroff and the workflow requires QEMU to
+exit from that guest request.
 Validate a downloaded artifact
 with:
 

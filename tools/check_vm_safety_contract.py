@@ -143,9 +143,10 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "mov dword [shutdown_state], SHUTDOWN_POWEROFF",
         "RESET_CONTROL_PORT equ 0x0cf9",
         "RESET_CONTROL_FULL_RESET equ 0x06",
-        "SHUTDOWN_PROOF_DELAY_TICKS equ 2000",
+        "CMOS_RTC_SECONDS_REGISTER equ 0x00",
+        "SHUTDOWN_PROOF_DELAY_SECONDS equ 20",
+        "read_cmos_seconds:",
         "shutdown_proof_wait_before_guest_exit:",
-        "call pic_unmask_timer",
         "acpi_poweroff:",
     ):
         _require(kernel, needle, "kernel")
