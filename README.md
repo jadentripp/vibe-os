@@ -171,6 +171,9 @@ Already implemented:
   executable into its `0x01000000` image window for ELF validation
 - Doom's platform `I_GetTime` now calls a kernel 35 Hz time syscall instead of
   using a fake local counter
+- Doom's platform `I_FinishUpdate` calls a kernel `SYS_PRESENT` path for a
+  320x200 8-bit indexed frame plus RGB palette, and CI verifies bytes written
+  to the VGA graphics aperture at `0xA0000`
 
 Still required before this is actually Doom-capable:
 
@@ -180,6 +183,6 @@ Still required before this is actually Doom-capable:
 - safe Ring 3 launch path for `linuxdoom-1.10` with its larger address space,
   heap, and syscall surface
 - POSIX-ish libc and file syscalls for Doom
-- framebuffer graphics path and `i_video.c` port
+- complete framebuffer mode setup and input plumbing for interactive Doom
 - sound stack, or an explicit first Doom milestone that runs video/input with
   sound disabled

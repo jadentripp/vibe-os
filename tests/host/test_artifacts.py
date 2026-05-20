@@ -287,6 +287,22 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("int vibe_syscall3(", libc)
         self.assertIn("return vibe_syscall3(VIBE_SYS_TIME, 0, 0, 0);", platform)
 
+    def test_doom_port_and_probe_have_indexed_frame_present_syscall(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        platform = (ROOT / "doom_port" / "platform.c").read_text()
+        header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
+        probe = (ROOT / "user" / "probe.c").read_text()
+        makefile = (ROOT / "Makefile").read_text()
+        self.assertIn("SYS_PRESENT equ 10", kernel)
+        self.assertIn("VGA_GRAPHICS_BUFFER equ 0x000a0000", kernel)
+        self.assertIn("present_indexed_frame:", kernel)
+        self.assertIn("VIBE_SYS_PRESENT = 10", header)
+        self.assertIn("vibe_syscall3(VIBE_SYS_PRESENT", platform)
+        self.assertIn("PROBE_FLAG_PRESENT = 0x20u", probe)
+        self.assertIn("SYS_PRESENT = 10", probe)
+        self.assertIn('grep -q "gfx=OK"', makefile)
+        self.assertIn("pmemsave 0xa0000 64000", makefile)
+
 
 if __name__ == "__main__":
     unittest.main()

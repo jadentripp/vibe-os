@@ -102,6 +102,8 @@ void I_UpdateNoBlit(void)
 
 void I_FinishUpdate(void)
 {
+    if (screens[0])
+        (void)vibe_syscall3(VIBE_SYS_PRESENT, (unsigned int)screens[0], (unsigned int)active_palette, 0);
 }
 
 void I_WaitVBL(int count)

@@ -23,9 +23,14 @@ org KERNEL_BASE
 
 INPUT_MAX equ 96
 VGA_BUFFER equ 0x000b8000
+VGA_GRAPHICS_BUFFER equ 0x000a0000
 VGA_COLS equ 80
 VGA_ROWS equ 25
 VGA_ATTR equ 0x0f
+DOOM_SCREEN_WIDTH equ 320
+DOOM_SCREEN_HEIGHT equ 200
+DOOM_FRAME_BYTES equ DOOM_SCREEN_WIDTH * DOOM_SCREEN_HEIGHT
+DOOM_PALETTE_BYTES equ 256 * 3
 BOOT_INFO_ADDR equ 0x7000
 CODE_SEG equ 0x08
 DATA_SEG equ 0x10
@@ -81,7 +86,7 @@ USER_STACK_BOTTOM equ 0x00e81000
 USER_STACK_TOP equ 0x00e82000
 USER_HEAP_START equ USER_STACK_TOP
 USER_HEAP_END equ 0x00f00000
-USER_PROBE_EXPECTED_FLAGS equ 0x0000001f
+USER_PROBE_EXPECTED_FLAGS equ 0x0000003f
 USER_PROBE_MAGIC equ 0x13579BDF
 USER_FAULT_ADDR equ 0x00010000
 USER_FD_WAD equ 3
@@ -94,6 +99,9 @@ SYS_OPEN equ 6
 SYS_READ equ 7
 SYS_LSEEK equ 8
 SYS_TIME equ 9
+SYS_PRESENT equ 10
+VGA_DAC_WRITE_INDEX equ 0x03c8
+VGA_DAC_DATA equ 0x03c9
 ATA_DATA equ 0x01f0
 ATA_SECTOR_COUNT equ 0x01f2
 ATA_LBA_LOW equ 0x01f3
@@ -2119,6 +2127,12 @@ storage_init:
     mov dword [current_user_end], 0
     mov dword [current_user_brk], 0
     mov dword [current_user_heap_end], 0
+    mov byte [present_status], 0
+    mov dword [present_frame_arg], 0
+    mov dword [present_palette_arg], 0
+    mov dword [present_sample_first], 0
+    mov dword [present_sample_mid], 0
+    mov dword [present_sample_last], 0
 
     xor eax, eax
     mov edi, SECTOR_BUFFER_ADDR
@@ -2830,6 +2844,10 @@ user_probe_run:
     mov dword [current_user_end], USER_HEAP_END
     mov dword [current_user_brk], USER_HEAP_START
     mov dword [current_user_heap_end], USER_HEAP_END
+    mov byte [present_status], 0
+    mov dword [present_sample_first], 0
+    mov dword [present_sample_mid], 0
+    mov dword [present_sample_last], 0
     mov word [user_probe_cs], 0
     mov word [user_probe_ss], 0
 
@@ -3129,6 +3147,8 @@ syscall_handler:
     je .lseek
     cmp eax, SYS_TIME
     je .time
+    cmp eax, SYS_PRESENT
+    je .present
     jmp .bad_syscall
 
 .user_probe:
@@ -3277,6 +3297,22 @@ syscall_handler:
     div ebx
     jmp .return
 
+.present:
+    mov [present_frame_arg], ebx
+    mov [present_palette_arg], ecx
+    mov eax, ebx
+    mov ebx, DOOM_FRAME_BYTES
+    call user_range_validate
+    jc .bad_syscall
+    mov eax, [present_palette_arg]
+    mov ebx, DOOM_PALETTE_BYTES
+    call user_range_validate
+    jc .bad_syscall
+    call present_indexed_frame
+    jc .bad_syscall
+    xor eax, eax
+    jmp .return
+
 .bad_syscall:
     mov eax, 0xffffffff
     jmp .return
@@ -3322,6 +3358,48 @@ user_range_validate:
 
 .done:
     pop edx
+    ret
+
+present_indexed_frame:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov dx, VGA_DAC_WRITE_INDEX
+    xor al, al
+    out dx, al
+    mov dx, VGA_DAC_DATA
+    mov esi, [present_palette_arg]
+    mov ecx, DOOM_PALETTE_BYTES
+
+.palette_next:
+    lodsb
+    shr al, 2
+    out dx, al
+    loop .palette_next
+
+    mov esi, [present_frame_arg]
+    mov edi, VGA_GRAPHICS_BUFFER
+    mov ecx, DOOM_FRAME_BYTES / 4
+    cld
+    rep movsd
+
+    movzx eax, byte [VGA_GRAPHICS_BUFFER]
+    mov [present_sample_first], eax
+    movzx eax, byte [VGA_GRAPHICS_BUFFER + 320]
+    mov [present_sample_mid], eax
+    movzx eax, byte [VGA_GRAPHICS_BUFFER + DOOM_FRAME_BYTES - 1]
+    mov [present_sample_last], eax
+    mov byte [present_status], 1
+    clc
+
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
     ret
 
 page_fault_handler:
@@ -3456,6 +3534,17 @@ draw_doom_status:
     call draw_status_string
     mov edx, [doom_segment_memsz]
     call draw_status_hex32
+    mov esi, gfx_status_label
+    call draw_status_string
+    cmp byte [present_status], 1
+    je .gfx_ok
+    mov esi, fail_status_text
+    call draw_status_string
+    jmp .done
+
+.gfx_ok:
+    mov esi, ok_status_text
+    call draw_status_string
     jmp .done
 
 .fail:
@@ -3835,6 +3924,7 @@ lump_status_label db " lmp=", 0
 doom_status_label db "doom=", 0
 doom_status_entry_label db " entry=", 0
 doom_status_mem_label db " mem=", 0
+gfx_status_label db " gfx=", 0
 heap_status_gap db " ", 0
 ok_text db "OK", 13, 10, 0
 fail_text db "FAIL", 13, 10, 0
@@ -4010,6 +4100,11 @@ current_user_base dd 0
 current_user_end dd 0
 current_user_brk dd 0
 current_user_heap_end dd 0
+present_frame_arg dd 0
+present_palette_arg dd 0
+present_sample_first dd 0
+present_sample_mid dd 0
+present_sample_last dd 0
 heap_start dd 0
 heap_free_head dd 0
 heap_end dd 0
@@ -4027,6 +4122,7 @@ user_probe_ss dw 0
 fat_sectors_per_cluster db 0
 user_load_segment_count db 0
 doom_load_segment_count db 0
+present_status db 0
 shift_down db 0
 input_buffer times INPUT_MAX db 0
 

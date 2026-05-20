@@ -114,12 +114,12 @@ run-headless: vm-consent check-tools $(IMAGE)
 	$(QEMU) -machine $(QEMU_MACHINE) -drive file=$(IMAGE),format=raw,if=ide,index=0,media=disk -boot c -display none -monitor none
 
 smoke: vm-consent check-tools $(IMAGE)
-	@rm -f $(BUILD_DIR)/monitor.sock $(BUILD_DIR)/vga.bin $(BUILD_DIR)/vga.txt
+	@rm -f $(BUILD_DIR)/monitor.sock $(BUILD_DIR)/vga.bin $(BUILD_DIR)/vga.txt $(BUILD_DIR)/gfx.bin
 	@set -e; \
 	$(QEMU) -machine $(QEMU_MACHINE) -drive file=$(IMAGE),format=raw,if=ide,index=0,media=disk -boot c -display none -serial none -monitor unix:$(BUILD_DIR)/monitor.sock,server,nowait -no-reboot -no-shutdown & \
 	pid=$$!; \
 	sleep 5; \
-	printf "pmemsave 0xb8000 4000 $(BUILD_DIR)/vga.bin\nquit\n" | nc -U $(BUILD_DIR)/monitor.sock >/dev/null; \
+	printf "pmemsave 0xb8000 4000 $(BUILD_DIR)/vga.bin\npmemsave 0xa0000 64000 $(BUILD_DIR)/gfx.bin\nquit\n" | nc -U $(BUILD_DIR)/monitor.sock >/dev/null; \
 	wait $$pid >/dev/null 2>&1 || true; \
 	test -s $(BUILD_DIR)/vga.bin; \
 	perl -e 'local $$/; $$d = <>; for ($$i = 0; $$i < length($$d); $$i += 2) { $$c = ord(substr($$d, $$i, 1)); print chr($$c || 32); }' $(BUILD_DIR)/vga.bin > $(BUILD_DIR)/vga.txt; \
@@ -135,7 +135,10 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "wad=OK" $(BUILD_DIR)/vga.txt; \
 	grep -q "lmp=OK" $(BUILD_DIR)/vga.txt; \
 	grep -q "doom=OK" $(BUILD_DIR)/vga.txt; \
+	grep -q "gfx=OK" $(BUILD_DIR)/vga.txt; \
 	grep -q "heap=OK" $(BUILD_DIR)/vga.txt; \
+	test -s $(BUILD_DIR)/gfx.bin; \
+	perl -e 'local $$/; $$d = <>; exit(length($$d) == 64000 && ord(substr($$d, 0, 1)) == 0 && ord(substr($$d, 1, 1)) == 1 && ord(substr($$d, 320, 1)) == 64 && ord(substr($$d, 63999, 1)) == 255 ? 0 : 1)' $(BUILD_DIR)/gfx.bin; \
 	perl -ne '$$ok = 1 if /heap=OK free=([0-9A-F]{8})/ && hex($$1) >= 0x00700000; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/vga.txt; \
 	perl -ne '$$ok = 1 if /ticks=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/vga.txt; \
 	printf "Smoke boot OK: protected-mode banner, Ring 3 probe, Doom-scale heap self-test, and PIT ticks reached VGA text buffer.\n"
