@@ -588,7 +588,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("build/status*.txt", real_wad_workflow)
         self.assertIn("build/*.log", real_wad_workflow)
         self.assertNotIn("build/gfx.bin", real_wad_workflow)
-        self.assertNotIn("build/vga*.txt", real_wad_workflow)
+        self.assertIn("rm -f build/vga*.bin build/vga*.txt", real_wad_workflow)
         self.assertNotIn("build/private", real_wad_workflow)
         real_wad_upload_block = real_wad_workflow.split("uses: actions/upload-artifact@v4", 1)[1]
         self.assertNotIn("build/disk.img", real_wad_upload_block)
