@@ -1107,8 +1107,28 @@ class SourceContractTests(unittest.TestCase):
             self.assertIn("call vmm_mark_process_user_write_range", prepare)
             self.assertIn("call vmm_mark_process_user_read_range", prepare)
 
+    def test_user_elf_loaders_preserve_program_headers_before_segment_copy(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        for source in (
+            "ELF_PHDR_SIZE equ 32",
+            "ELF_MAX_PHDRS equ 16",
+            "elf_phdr_scratch times ELF_MAX_PHDRS * ELF_PHDR_SIZE db 0",
+        ):
+            self.assertIn(source, kernel)
+        user_prepare = kernel.split("user_elf_prepare:", 1)[1].split("doom_elf_prepare:", 1)[0]
+        doom_prepare = kernel.split("doom_elf_prepare:", 1)[1].split("syscall_handler:", 1)[0]
+        for prepare, pointer in (
+            (user_prepare, "user_phdr_ptr"),
+            (doom_prepare, "doom_phdr_ptr"),
+        ):
+            before_loop = prepare.split(".phdr_loop:", 1)[0]
+            self.assertIn("mov edi, elf_phdr_scratch", before_loop)
+            self.assertIn("rep movsb", before_loop)
+            self.assertIn(f"mov dword [{pointer}], elf_phdr_scratch", before_loop)
+
     def test_timer_path_saves_task_context_and_round_robin_state(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        user_crt0 = (ROOT / "user" / "crt0.asm").read_text()
         irq_timer = kernel.split("irq_timer:", 1)[1].split("irq_keyboard:", 1)[0]
         scheduler = kernel.split("scheduler_tick:", 1)[1].split("process_save_irq_context:", 1)[0]
         save_irq = kernel.split("process_save_irq_context:", 1)[1].split("process_restore_irq_context:", 1)[0]

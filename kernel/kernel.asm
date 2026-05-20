@@ -191,6 +191,8 @@ ELFDATA2LSB equ 1
 ET_EXEC equ 2
 EM_386 equ 3
 PT_LOAD equ 1
+ELF_PHDR_SIZE equ 32
+ELF_MAX_PHDRS equ 16
 ELF_PH_FLAGS equ 24
 ELF_PF_X equ 0x1
 ELF_PF_W equ 0x2
@@ -7349,11 +7351,21 @@ user_elf_prepare:
     cmp ebx, [user_elf_size]
     ja .fail
 
-    add eax, USER_ELF_LOAD_ADDR
-    mov [user_phdr_ptr], eax
-    mov [user_phdr_remaining], ecx
     mov eax, [esi + 24]
     mov [user_entry_addr], eax
+
+    push ecx
+    mov eax, [esi + 28]
+    add eax, USER_ELF_LOAD_ADDR
+    mov esi, eax
+    mov edi, elf_phdr_scratch
+    mov ecx, [esp]
+    shl ecx, 5
+    cld
+    rep movsb
+    pop ecx
+    mov dword [user_phdr_ptr], elf_phdr_scratch
+    mov [user_phdr_remaining], ecx
 
 .phdr_loop:
     cmp dword [user_phdr_remaining], 0
@@ -7497,8 +7509,16 @@ doom_elf_prepare:
     mov [doom_entry_addr], eax
 
     mov eax, [esi + 28]
+    push ecx
     add eax, DOOM_ELF_LOAD_ADDR
-    mov [doom_phdr_ptr], eax
+    mov esi, eax
+    mov edi, elf_phdr_scratch
+    mov ecx, [esp]
+    shl ecx, 5
+    cld
+    rep movsb
+    pop ecx
+    mov dword [doom_phdr_ptr], elf_phdr_scratch
     mov [doom_phdr_remaining], ecx
 
 .phdr_loop:
@@ -11208,6 +11228,7 @@ doom_phdr_ptr dd 0
 doom_phdr_remaining dd 0
 user_phdr_ptr dd 0
 user_phdr_remaining dd 0
+elf_phdr_scratch times ELF_MAX_PHDRS * ELF_PHDR_SIZE db 0
 user_segment_dest dd 0
 user_segment_filesz dd 0
 user_segment_memsz dd 0
