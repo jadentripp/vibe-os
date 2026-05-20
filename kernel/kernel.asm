@@ -4883,6 +4883,8 @@ storage_init:
     mov dword [fat_alloc_debug_stage], 0
     mov dword [fat_alloc_debug_hint], 0
     mov dword [fat_alloc_debug_cluster], 0
+    mov dword [fat_alloc_debug_refreshes], 0
+    mov dword [fat_alloc_scan_refreshed], 0
     mov dword [wad_size], 0
     mov dword [wad_sectors_read], 0
     mov dword [wad_lump_count], 0
@@ -5857,6 +5859,9 @@ fat_alloc_cluster:
     push edx
     push edi
 
+    mov dword [fat_alloc_scan_refreshed], 0
+
+.start_scan:
     mov dword [fat_alloc_debug_stage], 1
     mov ebx, [fat_next_free_hint]
     mov [fat_alloc_debug_hint], ebx
@@ -5886,11 +5891,11 @@ fat_alloc_cluster:
 .wrap_scan:
     mov ebx, 2
     cmp ebx, [fat_scan_start]
-    jae .fail
+    jae .retry_or_fail
 
 .wrap_loop:
     cmp ebx, [fat_scan_start]
-    jae .fail
+    jae .retry_or_fail
     mov eax, ebx
     call fat_next_cluster
     jc .fail
@@ -5933,6 +5938,16 @@ fat_alloc_cluster:
     call fat_write_cluster_entry
     stc
     jmp .done
+
+.retry_or_fail:
+    cmp dword [fat_alloc_scan_refreshed], 0
+    jne .fail
+    mov dword [fat_alloc_scan_refreshed], 1
+    inc dword [fat_alloc_debug_refreshes]
+    mov dword [fat_alloc_debug_stage], 0xd0
+    call fat_cache_table
+    jc .fail
+    jmp .start_scan
 
 .fail:
     mov dword [fat_alloc_debug_stage], 0xe0
@@ -13258,6 +13273,10 @@ write_smoke_status:
     stosb
     mov edx, [fat_alloc_debug_cluster]
     call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_alloc_debug_refreshes]
+    call smoke_write_hex32
 
     mov esi, smoke_saveact_text
     call smoke_copy_string
@@ -15206,6 +15225,8 @@ fat_file_lba_was_new_cluster dd 0
 fat_alloc_debug_stage dd 0
 fat_alloc_debug_hint dd 0
 fat_alloc_debug_cluster dd 0
+fat_alloc_debug_refreshes dd 0
+fat_alloc_scan_refreshed dd 0
 fat_reserved_sectors dd 0
 fat_count dd 0
 fat_root_entries dd 0
