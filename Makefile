@@ -118,7 +118,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	@set -e; \
 	$(QEMU) -machine $(QEMU_MACHINE) -drive file=$(IMAGE),format=raw,if=ide,index=0,media=disk -boot c -display none -serial none -monitor unix:$(BUILD_DIR)/monitor.sock,server,nowait -no-reboot -no-shutdown & \
 	pid=$$!; \
-	sleep 1; \
+	sleep 5; \
 	printf "pmemsave 0xb8000 4000 $(BUILD_DIR)/vga.bin\nquit\n" | nc -U $(BUILD_DIR)/monitor.sock >/dev/null; \
 	wait $$pid >/dev/null 2>&1 || true; \
 	test -s $(BUILD_DIR)/vga.bin; \
