@@ -117,6 +117,7 @@ class DoomInputContractTests(unittest.TestCase):
             'default_config_contains_marker(length, "chatmacro0")',
             "M_SaveDefaults();",
             "gameaction = ga_savegame;",
+            "G_DoSaveGame();",
             "G_LoadGame(path);",
             "VIBE_DOOM_INPUT_KEYDOWN",
             "ev_keydown",
