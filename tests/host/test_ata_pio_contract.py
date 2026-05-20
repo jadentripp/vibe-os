@@ -50,6 +50,33 @@ class AtaPioContractTests(unittest.TestCase):
             drq.index("test al, ATA_STATUS_DRQ"),
         )
 
+    def test_pio_data_transfers_use_explicit_word_loops(self):
+        read = self.kernel.split("ata_read_sector:", 1)[1].split("ata_write_sector:", 1)[0]
+        write = self.kernel.split("ata_write_sector:", 1)[1].split("fat_name_match:", 1)[0]
+
+        for instruction in ("rep insw", "rep outsw"):
+            with self.subTest(instruction=instruction):
+                self.assertNotIn(instruction, read)
+                self.assertNotIn(instruction, write)
+
+        for source in (
+            ".read_word:",
+            "in ax, dx",
+            "stosw",
+            "loop .read_word",
+        ):
+            with self.subTest(read_source=source):
+                self.assertIn(source, read)
+
+        for source in (
+            ".write_word:",
+            "lodsw",
+            "out dx, ax",
+            "loop .write_word",
+        ):
+            with self.subTest(write_source=source):
+                self.assertIn(source, write)
+
     def test_storage_status_reports_last_ata_wait_state(self):
         kernel = self.kernel
         smoke = kernel.split("write_smoke_status:", 1)[1].split("smoke_write_hex32:", 1)[0]
