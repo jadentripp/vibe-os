@@ -7,26 +7,36 @@ other play artifacts to git.
 
 ## Create The Codespace
 
-Fastest path from the Mac, with GitHub CLI authenticated:
+Fastest path from the Mac, with GitHub CLI authenticated for Codespaces:
 
 ```sh
-./tools/play_now_codespaces.sh --preflight
 ./tools/play_now_codespaces.sh
 ```
 
-The preflight is a dry run: it checks GitHub CLI auth, the selected repo/ref,
-the local git state, the chosen Codespaces machine, and the noVNC port, then
-exits before creating or modifying any Codespace. The launcher refuses a dirty
-checkout or a current branch that differs from its upstream, because Codespaces
-runs pushed git state rather than local files.
+The launcher checks GitHub CLI auth, the selected repo/ref, the local git state,
+the chosen Codespaces machine, and the noVNC port before creating anything. It
+refuses a dirty checkout or a current branch that differs from its upstream,
+because Codespaces runs pushed git state rather than local files.
+If GitHub CLI reports a missing Codespaces API scope, refresh it once:
 
-The real launch creates a disposable Codespace from the current repo and
-branch, starts `./tools/play_now_remote.sh` inside it, sets port `6080` private,
-opens/prints the noVNC URL, and prints the log and delete commands. QEMU, the
-shareware WAD, `build/disk.img`, pixel output, and raw audio never run on or
-copy back to the Mac.
+```sh
+gh auth refresh -h github.com -s codespace
+```
 
-If port `6080` is unavailable, set `NOVNC_PORT` for both preflight and launch:
+The launch creates a disposable Codespace from the current repo and branch,
+starts `./tools/play_now_remote.sh` inside it, waits for noVNC, sets port `6080`
+private, opens/prints the noVNC URL, and prints the log and delete commands.
+QEMU, the shareware WAD, `build/disk.img`, pixel output, and raw audio never run
+on or copy back to the Mac.
+
+Optional dry run:
+
+```sh
+./tools/play_now_codespaces.sh --preflight
+```
+
+If port `6080` is unavailable, set `NOVNC_PORT` for the launch and optional
+preflight:
 
 ```sh
 NOVNC_PORT=6173 ./tools/play_now_codespaces.sh --preflight
@@ -35,7 +45,10 @@ NOVNC_PORT=6173 ./tools/play_now_codespaces.sh
 
 The launcher uses that exact port in the remote Codespace, waits for the
 matching forwarded port, and refuses to print or open the noVNC URL if it cannot
-mark the port private.
+mark the port private or the port never becomes ready.
+
+New Codespaces get an auto-generated display name short enough for the GitHub
+CLI limit. Pass `--display-name` only when you need a specific name.
 
 To reuse a specific existing Codespace:
 
@@ -72,7 +85,8 @@ creating a Codespace:
 ```
 
 Expected successful output includes `play-now Codespaces preflight OK`, the
-repo, ref, selected machine, `noVNC port: 6080 (private)`, and
+repo, ref, selected machine, `noVNC port: 6080 (private)`, the noVNC wait
+timeout, and
 `local artifact transfer: none`. The dry run also prints
 `dry-run: Codespace was not created or modified`. If it reports a dirty tree,
 missing upstream, an invalid noVNC port, or ahead/behind counts, fix and push
@@ -83,12 +97,14 @@ the branch before using the launcher as current-head play proof.
 In the Codespace terminal:
 
 ```sh
-./tools/play_now_remote.sh --preflight
-./tools/play_now_remote.sh
+./tools/play_now_remote.sh --preflight --require-novnc
+./tools/play_now_remote.sh --require-novnc
 ```
 
 The preflight is a dry run: it checks host safety and dependencies, then exits
-before fetching a WAD, building, or launching QEMU. The play script fetches and
+before fetching a WAD, building, or launching QEMU. `--require-novnc` keeps the
+Codespaces path browser-first: if noVNC is missing, fix the Codespace instead
+of silently falling back to a raw VNC-only setup. The play script fetches and
 validates the shareware `DOOM1.WAD` into `/tmp`, outside the repository. Leave
 it outside git. The script refuses to run QEMU on macOS; this runbook uses
 remote Codespaces QEMU only.

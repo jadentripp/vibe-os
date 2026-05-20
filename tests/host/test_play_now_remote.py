@@ -31,6 +31,14 @@ class PlayNowRemoteTests(unittest.TestCase):
                 if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
                   exit 0
                 fi
+                if [ "$1" = "api" ]; then
+                  if [ "${FAKE_CODESPACE_SCOPE_FAIL:-0}" = "1" ]; then
+                    echo "missing codespace scope" >&2
+                    exit 68
+                  fi
+                  echo '{"total_count":0,"codespaces":[]}'
+                  exit 0
+                fi
                 if [ "$1" = "codespace" ] && [ "${2:-}" = "create" ]; then
                   exit 0
                 fi
@@ -143,6 +151,7 @@ class PlayNowRemoteTests(unittest.TestCase):
             "play-now Codespaces preflight OK",
             "machine: ${CODESPACE_MACHINE:-default}",
             "noVNC port: $NOVNC_PORT (private)",
+            "GitHub Codespaces API: accessible",
             "local artifact transfer: none",
             "dry-run: Codespace was not created or modified",
             "gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" NOVNC_PORT=\"$NOVNC_PORT\" bash -lc \"$payload\"",
@@ -211,9 +220,65 @@ class PlayNowRemoteTests(unittest.TestCase):
 
             log = gh_log.read_text()
             self.assertIn("auth status -h github.com", log)
+            self.assertIn("api -H Accept: application/vnd.github+json /user/codespaces?per_page=1", log)
             self.assertNotIn("codespace create", log)
             self.assertNotIn("codespace ssh", log)
             self.assertNotIn("codespace ports", log)
+
+    def test_codespaces_launcher_requires_codespaces_api_scope_before_create(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env, gh_log = self._codespaces_stub_env(tmp)
+            env["FAKE_CODESPACE_SCOPE_FAIL"] = "1"
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "tools" / "play_now_codespaces.sh"),
+                    "--dry-run",
+                    "--repo",
+                    "jadentripp/vibe-os",
+                    "--ref",
+                    "jt/doom-gameplay-proof",
+                    "--no-open",
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("gh auth refresh -h github.com -s codespace", result.stderr)
+            log = gh_log.read_text()
+            self.assertIn("/user/codespaces?per_page=1", log)
+            self.assertNotIn("codespace create", log)
+
+    def test_codespaces_launcher_default_display_name_fits_gh_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env, _ = self._codespaces_stub_env(tmp)
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "tools" / "play_now_codespaces.sh"),
+                    "--dry-run",
+                    "--repo",
+                    "jadentripp/vibe-os",
+                    "--ref",
+                    "jt/doom-gameplay-proof-with-a-very-long-proof-branch-name",
+                    "--no-open",
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            display_line = next(
+                line for line in result.stdout.splitlines() if line.startswith("codespace: create ")
+            )
+            display_name = display_line.removeprefix("codespace: create ")
+            self.assertLessEqual(len(display_name), 48)
+            self.assertTrue(display_name.startswith("vibe-play-"))
 
     def test_codespaces_launcher_passes_custom_novnc_port_and_opens_private_vnc_path(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -349,8 +414,9 @@ class PlayNowRemoteTests(unittest.TestCase):
         doc = (ROOT / "docs" / "runbooks" / "play-now-cloud.md").read_text()
 
         for needle in (
-            'Usage: tools/play_now_remote.sh [--preflight|--dry-run]',
+            'Usage: tools/play_now_remote.sh [--preflight|--dry-run] [--require-novnc]',
             '--preflight|--dry-run',
+            '--require-novnc',
             'uname -s',
             'Refusing to run QEMU on macOS',
             'ALLOW_LOCAL_VM:-0',
@@ -359,11 +425,13 @@ class PlayNowRemoteTests(unittest.TestCase):
             'if [ "$RUN_PREFLIGHT_ONLY" = "1" ]; then',
             '/tmp/vibe-os-DOOM1.WAD',
             'tools/prepare_shareware_wad.py',
+            'make clean',
             'make DOOM_WAD="$WAD_PATH"',
             'websockify --web=/usr/share/novnc',
             '/vnc.html?autoconnect=1',
             'codespaces_novnc_url()',
             'Codespaces noVNC URL:',
+            'QEMU_PID="$!"',
             '-display "vnc=127.0.0.1:$VNC_DISPLAY"',
             '-drive file=build/disk.img,format=raw,if=ide,index=0,media=disk',
             '-audiodev none,id=snd0',

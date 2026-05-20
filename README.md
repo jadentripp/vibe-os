@@ -107,16 +107,16 @@ If you just want to play Doom as fast as possible, use the one-command
 Codespaces launcher from this Mac checkout:
 
 ```sh
-./tools/play_now_codespaces.sh --preflight
 ./tools/play_now_codespaces.sh
 ```
 
-The preflight is a Mac-side dry run: it checks GitHub CLI auth, repo/ref
-selection, git cleanliness, upstream sync, machine selection, and the noVNC port
-without creating or modifying a Codespace. The real launch creates or reuses a
-disposable GitHub Codespace, starts the real vibe-os boot path there, marks
-noVNC private, and opens/prints the noVNC browser URL. QEMU, the downloaded
-shareware WAD, disk images, pixels, and raw audio stay in the Codespace.
+That command runs the Mac-side safety checks, creates or reuses a disposable
+GitHub Codespace, starts the real vibe-os boot path there, waits for private
+noVNC, and opens/prints the browser URL. QEMU, the downloaded shareware WAD,
+disk images, pixels, and raw audio stay in the Codespace. If GitHub CLI needs
+Codespaces scope, run `gh auth refresh -h github.com -s codespace` once. To
+check the plan without creating or modifying a Codespace, run
+`./tools/play_now_codespaces.sh --preflight` first.
 
 If you already have a disposable remote Linux host or are already inside a
 Codespace, run:

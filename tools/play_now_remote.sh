@@ -10,7 +10,7 @@ PLAY_BUILD_DIR="${PLAY_BUILD_DIR:-build/play-now}"
 
 usage() {
   cat <<'EOF'
-Usage: tools/play_now_remote.sh [--preflight|--dry-run]
+Usage: tools/play_now_remote.sh [--preflight|--dry-run] [--require-novnc]
 
 Run on a disposable remote Linux host or GitHub Codespace. The default path
 fetches the public shareware WAD into /tmp, builds the disk image, exposes QEMU
@@ -19,6 +19,7 @@ over loopback-only VNC, and starts a noVNC bridge when available.
 Options:
   --preflight, --dry-run  Check host safety and dependencies, then exit before
                          fetching a WAD, building, or launching QEMU.
+  --require-novnc        Fail preflight if noVNC/websockify is unavailable.
   -h, --help             Show this help.
 EOF
 }
@@ -43,10 +44,14 @@ validate_tcp_port() {
 }
 
 RUN_PREFLIGHT_ONLY=0
+REQUIRE_NOVNC=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --preflight|--dry-run)
       RUN_PREFLIGHT_ONLY=1
+      ;;
+    --require-novnc)
+      REQUIRE_NOVNC=1
       ;;
     -h|--help)
       usage
@@ -79,7 +84,11 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-python3 tools/check_play_now_remote.py
+preflight_args=()
+if [ "$REQUIRE_NOVNC" = "1" ]; then
+  preflight_args+=(--require-novnc)
+fi
+python3 tools/check_play_now_remote.py "${preflight_args[@]}"
 if [ "$RUN_PREFLIGHT_ONLY" = "1" ]; then
   exit 0
 fi
@@ -94,13 +103,21 @@ codespaces_novnc_url() {
 }
 
 cleanup() {
+  if [ -n "${QEMU_PID:-}" ]; then
+    kill "$QEMU_PID" >/dev/null 2>&1 || true
+    wait "$QEMU_PID" 2>/dev/null || true
+  fi
   if [ -n "${WEBSOCKIFY_PID:-}" ]; then
     kill "$WEBSOCKIFY_PID" >/dev/null 2>&1 || true
+    wait "$WEBSOCKIFY_PID" 2>/dev/null || true
   fi
 }
-trap cleanup EXIT INT TERM
-
-mkdir -p "$PLAY_BUILD_DIR"
+terminate() {
+  cleanup
+  exit 130
+}
+trap cleanup EXIT
+trap terminate INT TERM
 
 echo "Fetching/validating shareware DOOM1.WAD into $WAD_PATH"
 echo "Remote artifact policy: WADs, disk images, pixels, raw audio, and logs stay on this disposable host unless a separate allowlisted proof collector is used."
@@ -109,7 +126,9 @@ python3 tools/prepare_shareware_wad.py \
   --output "$WAD_PATH"
 
 echo "Building vibe-os Doom disk image"
+make clean
 make DOOM_WAD="$WAD_PATH"
+mkdir -p "$PLAY_BUILD_DIR"
 
 if command -v websockify >/dev/null 2>&1 && [ -d /usr/share/novnc ]; then
   websockify --web=/usr/share/novnc "127.0.0.1:$NOVNC_PORT" "127.0.0.1:$((5900 + VNC_DISPLAY))" \
@@ -121,6 +140,9 @@ if command -v websockify >/dev/null 2>&1 && [ -d /usr/share/novnc ]; then
   fi
   echo "In Codespaces, forward port $NOVNC_PORT and open the forwarded URL with path /vnc.html?autoconnect=1."
 else
+  if [ "$REQUIRE_NOVNC" = "1" ]; then
+    fail_remote "noVNC was required but websockify or /usr/share/novnc is unavailable"
+  fi
   echo "noVNC not found; use SSH VNC tunnel instead:"
   echo "  ssh -L $((5900 + VNC_DISPLAY)):127.0.0.1:$((5900 + VNC_DISPLAY)) user@remote-host"
   echo "Then connect a VNC client to localhost:$((5900 + VNC_DISPLAY))."
@@ -128,7 +150,7 @@ fi
 
 echo "Starting remote QEMU VNC display :$VNC_DISPLAY on 127.0.0.1:$((5900 + VNC_DISPLAY))"
 echo "Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu."
-exec qemu-system-x86_64 \
+qemu-system-x86_64 \
   -machine pc,accel=tcg \
   -m 128M \
   -audiodev none,id=snd0 \
@@ -139,4 +161,6 @@ exec qemu-system-x86_64 \
   -serial "file:$PLAY_BUILD_DIR/serial.log" \
   -monitor "unix:$PLAY_BUILD_DIR/monitor.sock,server,nowait" \
   -no-reboot \
-  -no-shutdown
+  -no-shutdown &
+QEMU_PID="$!"
+wait "$QEMU_PID"

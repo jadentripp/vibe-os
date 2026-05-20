@@ -133,9 +133,10 @@ syscall per default line. The port checkpoints defaults only when the cloud
 persistence proof has stamped a root-level `PERSIST.CHK` marker into the image,
 Doom is already in live gameplay, and the generated `DEFAULT.CFG` is still
 empty, partial, or missing core defaults markers. The default real-WAD cloud
-workflow waits for that checkpoint before snapshotting the disk; `--write-status`
-keeps the wait honest by rejecting a `DEFAULT.CFG` proof until the defaults file
-has been opened with `O_TRUNC` and closed.
+workflow waits for that checkpoint before snapshotting the disk; the save-slot
+proof path skips the marker so `DOOMSAV*.DSG` runs boot from the clean captured
+baseline. `--write-status` keeps the wait honest by rejecting a `DEFAULT.CFG`
+proof until the defaults file has been opened with `O_TRUNC` and closed.
 
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,
@@ -147,6 +148,12 @@ semantics today.
 
 This is enough for Doom defaults and save slots without turning the kernel into
 a general-purpose FAT filesystem.
+
+ATA PIO waits are bounded and status-reported. The smoke line includes
+`ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo` so a
+cloud persistence write boot that parks in `ata_wait_drq` reports the last
+operation and command-status byte instead of silently looking like a Doom
+startup/gameplay wait.
 
 Remaining storage gaps before a broad Doom-capable claim:
 

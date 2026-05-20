@@ -276,6 +276,7 @@ SOAK_PASS_CRITERIA = {
     },
     "input_state_changes": {
         "scripted_human_playability_passed": True,
+        "scripted_gameplay_transition_passed": True,
         "key_counters_progress": True,
         "fire_ammo_or_refire_changed": True,
         "movement_position_changed": True,
@@ -365,6 +366,7 @@ SOAK_STATUS_SUMMARY_FIELDS = (
 SOAK_SUCCESS_GATES = (
     "real_wad_proof",
     "scripted_human_playability",
+    "scripted_gameplay_transition",
     "playability",
     "input_state_changes",
     "sb16_continuity",
@@ -748,6 +750,8 @@ def validate_repo_contract() -> None:
         "check_args+=(--require-save-slot \"$PERSISTENCE_SAVE_SLOT\")",
         "check_args+=(--save-write-status build/status.persistence-write.txt)",
         "cp \"$baseline\" build/disk.img",
+        "if [ -z \"${PERSISTENCE_SAVE_SLOT:-}\" ]; then",
+        "Skipping PERSIST.CHK marker for save-slot persistence proof.",
         "build/status.persistence-write.txt",
         "build/status.persistence-load.txt",
         "build/status.persistence-reboot.txt",
@@ -775,6 +779,9 @@ def validate_repo_contract() -> None:
         "--require-preempt",
         "python3 tools/check_audio_continuity_proof.py",
         "python3 tools/check_audible_audio_proof.py",
+        "Assert gameplay/audio proof bundle",
+        "python3 tools/check_cloud_playability_artifacts.py build",
+        "--require-gameplay-proof",
         "Triage cloud status",
         "python3 tools/triage_cloud_status.py build/status.txt",
         'rm -f "$WAD_PATH"',
@@ -810,9 +817,12 @@ def validate_repo_contract() -> None:
         "SMOKE_INPUT_SCRIPT=\"after-start:wait=2,snapshot after-fire:hold=ctrl:800",
         "python3 tools/check_real_wad_proof.py",
         "python3 tools/check_human_playability_proof.py",
+        "python3 tools/check_scripted_gameplay_proof.py",
+        "scripted_gameplay_transition",
         "python3 tools/check_vm_status_proof.py",
         "python3 tools/check_audio_continuity_proof.py",
         "python3 tools/check_audible_audio_proof.py",
+        "--require-gameplay-proof",
         "--write-soak-attempt",
         "--write-soak-summary",
         "--soak-summary",
@@ -1586,10 +1596,15 @@ def build_soak_attempt_metadata(
     artifact_dir: Path,
     attempt_index: int,
     audible_required: bool = False,
+    gameplay_required: bool = False,
 ) -> dict:
     if attempt_index < 1:
         raise AssertionError("soak attempt index must be positive")
-    validate_artifact_dir(artifact_dir)
+    validate_artifact_dir(
+        artifact_dir,
+        require_gameplay_proof=gameplay_required,
+        require_audible_proof=audible_required,
+    )
     names = _relative_names(artifact_dir)
 
     phase_hashes: dict[str, str] = {}
@@ -1614,6 +1629,7 @@ def build_soak_attempt_metadata(
     gates = {
         "real_wad_proof": "pass",
         "scripted_human_playability": "pass",
+        "scripted_gameplay_transition": "pass",
         "playability": "pass",
         "input_state_changes": "pass",
         "sb16_continuity": "pass",
@@ -1843,6 +1859,8 @@ def validate_artifact_dir(
     require_human_notes: bool = False,
     expected_commit: str | None = None,
     expected_scripted_proof_run_id: str | None = None,
+    require_gameplay_proof: bool = False,
+    require_audible_proof: bool = False,
 ) -> None:
     if not artifact_dir.exists():
         raise AssertionError(f"artifact directory does not exist: {artifact_dir}")
@@ -1908,6 +1926,13 @@ def validate_artifact_dir(
     except AssertionError as exc:
         raise AssertionError(f"VM status proof failed: {exc}") from exc
     gameplay_proof = _find_one(names, OPTIONAL_GAMEPLAY_PROOF_FILE)
+    if require_gameplay_proof or gameplay_proof is not None:
+        try:
+            check_scripted_gameplay_proof.validate_statuses(scripted_snapshots)
+        except AssertionError as exc:
+            raise AssertionError(f"scripted gameplay transition proof failed: {exc}") from exc
+    if require_gameplay_proof and gameplay_proof is None:
+        raise AssertionError(f"gameplay proof manifest requires {OPTIONAL_GAMEPLAY_PROOF_FILE}")
     if gameplay_proof is not None:
         try:
             check_scripted_gameplay_proof.validate_manifest(
@@ -1932,6 +1957,8 @@ def validate_artifact_dir(
         ) from exc
 
     audio_proof = _find_one(names, OPTIONAL_AUDIO_PROOF_FILE)
+    if require_audible_proof and audio_proof is None:
+        raise AssertionError(f"audible audio proof manifest requires {OPTIONAL_AUDIO_PROOF_FILE}")
     if audio_proof is not None:
         try:
             check_audible_audio_proof.validate_manifest(
@@ -2047,6 +2074,11 @@ def main(argv: list[str]) -> int:
         help="require aggregate audio-proof.json metadata for soak attempt/summary validation",
     )
     parser.add_argument(
+        "--require-gameplay-proof",
+        action="store_true",
+        help="require gameplay-proof.json and the stricter scripted gameplay transition gate",
+    )
+    parser.add_argument(
         "--write-soak-summary",
         type=Path,
         help="write and validate real-wad-soak-summary.json from attempt-*.json files",
@@ -2083,6 +2115,7 @@ def main(argv: list[str]) -> int:
                 args.artifact_dir,
                 args.soak_attempt_index,
                 audible_required=args.require_audible_proof,
+                gameplay_required=args.require_gameplay_proof,
             )
             args.write_soak_attempt.parent.mkdir(parents=True, exist_ok=True)
             args.write_soak_attempt.write_text(json.dumps(attempt, indent=2, sort_keys=True) + "\n")
@@ -2118,6 +2151,8 @@ def main(argv: list[str]) -> int:
                 expected_scripted_proof_run_id=(
                     args.expected_scripted_proof_run_id if args.human_session else None
                 ),
+                require_gameplay_proof=args.require_gameplay_proof,
+                require_audible_proof=args.require_audible_proof,
             )
             if args.human_session:
                 verification = build_human_post_download_verification(args.artifact_dir)

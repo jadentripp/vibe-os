@@ -42,6 +42,14 @@ SUMMARY_FIELDS = (
     "fault",
     "panic",
     "shutdown",
+    "ata",
+    "ataop",
+    "atawait",
+    "atalba",
+    "atastat",
+    "ataerr",
+    "atafail",
+    "atatmo",
     "gameplay",
     "gstate",
     "gmap",
@@ -225,6 +233,12 @@ TRIAGE_RULES = (
         ("shutdown", "panic", "fault"),
         "The OS recorded a halt or reboot request in the status block.",
         "Verify this came from an intentional shutdown/reboot proof lane before treating QEMU exit as a failure.",
+    ),
+    TriageRule(
+        "ata-storage-stalled",
+        ("ata", "ataop", "atawait", "atalba", "atastat", "ataerr", "atafail", "atatmo"),
+        "The kernel is stuck in or has failed an ATA PIO wait before Doom produced frames.",
+        "Inspect ata_wait_not_busy/ata_wait_drq, the last LBA, and the command/status bits before widening to Doom startup.",
     ),
     TriageRule(
         "artifact-proof-failure",
@@ -547,6 +561,24 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
     if shutdown not in (None, "NONE"):
         notes.append(f"os-shutdown-requested: shutdown={shutdown} panic={_field(fields, 'panic')}")
         return "os-shutdown-requested", notes
+
+    ata_wait = fields.get("atawait")
+    ata_failures = _hex(fields, "atafail") or 0
+    ata_timeouts = _hex(fields, "atatmo") or 0
+    ata_active_before_frames = (
+        ata_wait in ("BUSY", "DRQ")
+        and fields.get("gameplay") != "OK"
+        and not _hex_nonzero(fields, "doompresent", "doompal", "doomframe")
+    )
+    if ata_failures or ata_timeouts or ata_active_before_frames:
+        notes.append(
+            "ata-storage-stalled: "
+            f"ata={_field(fields, 'ata')} ataop={_field(fields, 'ataop')} "
+            f"atawait={_field(fields, 'atawait')} atalba={_field(fields, 'atalba')} "
+            f"atastat={_field(fields, 'atastat')} ataerr={_field(fields, 'ataerr')} "
+            f"atafail={_field(fields, 'atafail')} atatmo={_field(fields, 'atatmo')}"
+        )
+        return "ata-storage-stalled", notes
 
     if execsys is None:
         notes.append("exec-failed: execsys is missing or malformed")

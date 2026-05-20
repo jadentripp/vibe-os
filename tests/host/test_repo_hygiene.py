@@ -1,7 +1,10 @@
 import importlib.util
+import gzip
 import subprocess
+import tarfile
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -65,6 +68,68 @@ class RepoHygieneTests(unittest.TestCase):
             violations,
             ["notes/proof.dat: WAD/IWAD payload is tracked under a non-WAD extension"],
         )
+
+    def test_disguised_compressed_wad_payloads_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "proof-gzip.dat").write_bytes(gzip.compress(b"IWAD\x00\x00\x00\x00"))
+            with zipfile.ZipFile(root / "proof-zip.bundle", "w") as archive:
+                archive.writestr("renamed.dat", b"PWAD\x00\x00\x00\x00")
+            with tarfile.open(root / "proof-tar.bundle", "w") as archive:
+                wad_path = root / "DOOM1.WAD"
+                wad_path.write_bytes(b"not-real-game-data")
+                archive.add(wad_path, arcname="nested/DOOM1.WAD")
+
+            with mock.patch.object(check_repo_hygiene, "ROOT", root):
+                violations = check_repo_hygiene.find_violations(
+                    ["proof-gzip.dat", "proof-zip.bundle", "proof-tar.bundle"]
+                )
+
+        self.assertEqual(
+            violations,
+            [
+                "proof-gzip.dat: gzip-compressed WAD/IWAD payload is tracked under a non-WAD extension",
+                "proof-zip.bundle: archive member 'renamed.dat' contains WAD/PWAD payload",
+                "proof-tar.bundle: tar archive member 'nested/DOOM1.WAD' is a WAD path",
+            ],
+        )
+
+    def test_gitignore_covers_common_forbidden_artifact_spillover(self):
+        ignored = {
+            line.strip()
+            for line in (ROOT / ".gitignore").read_text().splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        for pattern in (
+            "*.[Ww][Aa][Dd].gz",
+            "*.[Ii][Ww][Aa][Dd].gz",
+            "*.[Pp][Ww][Aa][Dd].gz",
+            "*.[Ww][Aa][Dd].zip",
+            "*.[Ii][Ww][Aa][Dd].zip",
+            "*.[Pp][Ww][Aa][Dd].zip",
+            "*.[Ww][Aa][Dd].tar.gz",
+            "*.[Ii][Ww][Aa][Dd].tar.gz",
+            "*.[Pp][Ww][Aa][Dd].tar.gz",
+            "*.wav",
+            "*.wave",
+            "*.mp3",
+            "*.ogg",
+            "*.oga",
+            "*.flac",
+            "*.aiff",
+            "*.aif",
+            "*.au",
+            "*.jpg",
+            "*.jpeg",
+            "*.webp",
+            "*.gif",
+            "screenshots/",
+            "pixels/",
+            "screenshot*.txt",
+            "pixel*.txt",
+        ):
+            with self.subTest(pattern=pattern):
+                self.assertIn(pattern, ignored)
 
     def test_upload_path_parser_reads_multiline_artifact_paths(self):
         workflow = """
@@ -197,6 +262,7 @@ jobs:
             (provenance, '"legit but playable first"'),
             (provenance, "original Doom engine drop stays original"),
             (provenance, "keep proprietary game data and rendered proof assets out of git"),
+            (provenance, "renamed raw WAD payloads plus gzip, zip, and tar containers"),
             (runtime, "Compressed WAD archives"),
             (runtime, "are treated as game assets too."),
         ):

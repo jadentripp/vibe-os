@@ -493,6 +493,7 @@ PCI_TABLE_CLASS_OFFSET equ 8
 PCI_TABLE_HEADER_OFFSET equ 12
 PCI_TABLE_MAX_ENTRIES equ PCI_SCAN_FUNCTION_PROBES
 ATA_DATA equ 0x01f0
+ATA_ERROR equ 0x01f1
 ATA_SECTOR_COUNT equ 0x01f2
 ATA_LBA_LOW equ 0x01f3
 ATA_LBA_MID equ 0x01f4
@@ -501,6 +502,17 @@ ATA_DRIVE_HEAD equ 0x01f6
 ATA_COMMAND_STATUS equ 0x01f7
 ATA_CMD_READ_SECTORS equ 0x20
 ATA_CMD_WRITE_SECTORS equ 0x30
+ATA_STATUS_ERR equ 0x01
+ATA_STATUS_DRQ equ 0x08
+ATA_STATUS_DF equ 0x20
+ATA_STATUS_BSY equ 0x80
+ATA_WAIT_POLL_LIMIT equ 0x20000
+ATA_OP_NONE equ 0
+ATA_OP_READ equ 1
+ATA_OP_WRITE equ 2
+ATA_WAIT_IDLE equ 0
+ATA_WAIT_BUSY equ 1
+ATA_WAIT_DRQ equ 2
 ACPI_PM1A_CNT_PORT equ 0x0604
 ACPI_PM1_CNT_S5_ENABLE equ 0x2000
 BOCHS_PM1A_CNT_PORT equ 0xb004
@@ -4782,6 +4794,14 @@ storage_init:
     mov byte [doom_elf_status], 0
     mov byte [doom_elf_load_status], 0
     mov byte [doom_elf_parse_status], 0
+    mov dword [ata_last_lba], 0
+    mov dword [ata_last_op], ATA_OP_NONE
+    mov dword [ata_wait_phase], ATA_WAIT_IDLE
+    mov dword [ata_last_status], 0
+    mov dword [ata_last_error], 0
+    mov dword [ata_wait_failures], 0
+    mov dword [ata_wait_timeouts], 0
+    mov dword [ata_wait_error_failures], 0
     mov dword [fat_lba_base], 0
     mov dword [fat_total_sectors], 0
     mov dword [fat_last_data_cluster], 0
@@ -5130,19 +5150,40 @@ ata_wait_not_busy:
     push ecx
     push edx
 
-    mov ecx, 0x100000
+    mov dword [ata_wait_phase], ATA_WAIT_BUSY
+    mov ecx, ATA_WAIT_POLL_LIMIT
     mov dx, ATA_COMMAND_STATUS
 
 .wait_next:
     in al, dx
-    test al, 0x80
-    jz .ok
+    movzx eax, al
+    mov [ata_last_status], eax
+    test al, ATA_STATUS_BSY
+    jz .not_busy
     loop .wait_next
+    inc dword [ata_wait_failures]
+    inc dword [ata_wait_timeouts]
+    mov dword [ata_last_error], 0
     stc
     jmp .done
 
+.not_busy:
+    test al, ATA_STATUS_DF | ATA_STATUS_ERR
+    jnz .error
+
 .ok:
+    mov dword [ata_wait_phase], ATA_WAIT_IDLE
     clc
+    jmp .done
+
+.error:
+    mov dx, ATA_ERROR
+    in al, dx
+    movzx eax, al
+    mov [ata_last_error], eax
+    inc dword [ata_wait_failures]
+    inc dword [ata_wait_error_failures]
+    stc
 
 .done:
     pop edx
@@ -5153,26 +5194,42 @@ ata_wait_drq:
     push ecx
     push edx
 
-    mov ecx, 0x100000
+    mov dword [ata_wait_phase], ATA_WAIT_DRQ
+    mov ecx, ATA_WAIT_POLL_LIMIT
     mov dx, ATA_COMMAND_STATUS
 
 .wait_next:
     in al, dx
-    test al, 0x21
-    jnz .fail
-    test al, 0x80
+    movzx eax, al
+    mov [ata_last_status], eax
+    test al, ATA_STATUS_BSY
     jnz .advance
-    test al, 0x08
+    test al, ATA_STATUS_DF | ATA_STATUS_ERR
+    jnz .error
+    test al, ATA_STATUS_DRQ
     jnz .ok
 
 .advance:
     loop .wait_next
 
-.fail:
+    inc dword [ata_wait_failures]
+    inc dword [ata_wait_timeouts]
+    mov dword [ata_last_error], 0
+    stc
+    jmp .done
+
+.error:
+    mov dx, ATA_ERROR
+    in al, dx
+    movzx eax, al
+    mov [ata_last_error], eax
+    inc dword [ata_wait_failures]
+    inc dword [ata_wait_error_failures]
     stc
     jmp .done
 
 .ok:
+    mov dword [ata_wait_phase], ATA_WAIT_IDLE
     clc
 
 .done:
@@ -5186,6 +5243,7 @@ ata_read_sector:
     push edx
 
     mov ebx, eax
+    mov dword [ata_last_op], ATA_OP_READ
     mov [ata_last_lba], eax
     call ata_wait_not_busy
     jc .fail
@@ -5248,6 +5306,7 @@ ata_write_sector:
     push esi
 
     mov ebx, eax
+    mov dword [ata_last_op], ATA_OP_WRITE
     mov [ata_last_lba], eax
     call ata_wait_not_busy
     jc .fail
@@ -12464,6 +12523,88 @@ write_smoke_status:
 .shutdown_write:
     call smoke_copy_string
 
+    mov esi, smoke_ata_text
+    call smoke_copy_string
+    cmp byte [ata_status], 1
+    je .ata_ok
+    cmp byte [ata_status], 2
+    je .ata_fail
+    mov esi, smoke_wait_text
+    jmp .ata_write
+
+.ata_ok:
+    mov esi, smoke_ok_text
+    jmp .ata_write
+
+.ata_fail:
+    mov esi, smoke_fail_text
+
+.ata_write:
+    call smoke_copy_string
+
+    mov esi, smoke_ataop_text
+    call smoke_copy_string
+    cmp dword [ata_last_op], ATA_OP_READ
+    je .ataop_read
+    cmp dword [ata_last_op], ATA_OP_WRITE
+    je .ataop_write
+    mov esi, smoke_none_text
+    jmp .ataop_write_field
+
+.ataop_read:
+    mov esi, smoke_read_text
+    jmp .ataop_write_field
+
+.ataop_write:
+    mov esi, smoke_write_text
+
+.ataop_write_field:
+    call smoke_copy_string
+
+    mov esi, smoke_atawait_text
+    call smoke_copy_string
+    cmp dword [ata_wait_phase], ATA_WAIT_BUSY
+    je .atawait_busy
+    cmp dword [ata_wait_phase], ATA_WAIT_DRQ
+    je .atawait_drq
+    mov esi, smoke_idle_text
+    jmp .atawait_write
+
+.atawait_busy:
+    mov esi, smoke_busy_text
+    jmp .atawait_write
+
+.atawait_drq:
+    mov esi, smoke_drq_text
+
+.atawait_write:
+    call smoke_copy_string
+
+    mov esi, smoke_atalba_text
+    call smoke_copy_string
+    mov edx, [ata_last_lba]
+    call smoke_write_hex32
+
+    mov esi, smoke_atastat_text
+    call smoke_copy_string
+    mov edx, [ata_last_status]
+    call smoke_write_hex32
+
+    mov esi, smoke_ataerr_text
+    call smoke_copy_string
+    mov edx, [ata_last_error]
+    call smoke_write_hex32
+
+    mov esi, smoke_atafail_text
+    call smoke_copy_string
+    mov edx, [ata_wait_failures]
+    call smoke_write_hex32
+
+    mov esi, smoke_atatmo_text
+    call smoke_copy_string
+    mov edx, [ata_wait_timeouts]
+    call smoke_write_hex32
+
     mov esi, smoke_doomopen_text
     call smoke_copy_string
     cmp dword [doom_open_count], 0
@@ -13970,6 +14111,14 @@ smoke_doomfaulterr_text db " doomfaulterr=", 0
 smoke_faultframe_text db " fault=", 0
 smoke_panic_text db " panic=", 0
 smoke_shutdown_text db " shutdown=", 0
+smoke_ata_text db " ata=", 0
+smoke_ataop_text db " ataop=", 0
+smoke_atawait_text db " atawait=", 0
+smoke_atalba_text db " atalba=", 0
+smoke_atastat_text db " atastat=", 0
+smoke_ataerr_text db " ataerr=", 0
+smoke_atafail_text db " atafail=", 0
+smoke_atatmo_text db " atatmo=", 0
 smoke_vmmhi_text db " vmmhi=", 0
 smoke_vmmhva_text db " vmmhva=", 0
 smoke_vmmhpa_text db " vmmhpa=", 0
@@ -14103,6 +14252,11 @@ smoke_kexc_text db "KEXC", 0
 smoke_halt_text db "HALT", 0
 smoke_reboot_text db "REBOOT", 0
 smoke_poweroff_text db "POWEROFF", 0
+smoke_read_text db "READ", 0
+smoke_write_text db "WRITE", 0
+smoke_idle_text db "IDLE", 0
+smoke_busy_text db "BUSY", 0
+smoke_drq_text db "DRQ", 0
 heap_status_gap db " ", 0
 ok_text db "OK", 13, 10, 0
 fail_text db "FAIL", 13, 10, 0
@@ -14377,6 +14531,13 @@ vmm_map_entry dd 0
 vmm_map_table_addr dd 0
 vmm_map_pde_ptr dd 0
 ata_last_lba dd 0
+ata_last_op dd 0
+ata_wait_phase dd 0
+ata_last_status dd 0
+ata_last_error dd 0
+ata_wait_failures dd 0
+ata_wait_timeouts dd 0
+ata_wait_error_failures dd 0
 fat_lba_base dd 0
 fat_total_sectors dd 0
 fat_last_data_cluster dd 0

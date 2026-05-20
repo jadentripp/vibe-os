@@ -159,6 +159,7 @@ jobs:
               "gates": {
                   "real_wad_proof": "fail",
                   "scripted_human_playability": "fail",
+                  "scripted_gameplay_transition": "fail",
                   "playability": "fail",
                   "input_state_changes": "fail",
                   "sb16_continuity": "fail",
@@ -252,6 +253,20 @@ jobs:
             fi
 
             if [ -z "$failure_stage" ]; then
+              python3 tools/check_scripted_gameplay_proof.py \
+                --start build/status.after-start.txt \
+                --fire build/status.after-fire.txt \
+                --movement build/status.after-move.txt \
+                --use build/status.after-use.txt \
+                --mouse build/status.after-mouse.txt \
+                --menu build/status.after-menu.txt \
+                --write-json build/gameplay-proof.json \
+                build/status.txt
+              rc=$?
+              if [ "$rc" -ne 0 ]; then failure_stage="scripted-gameplay-transition"; fi
+            fi
+
+            if [ -z "$failure_stage" ]; then
               python3 tools/check_vm_status_proof.py \
                 --require-exec \
                 --require-preempt \
@@ -280,7 +295,7 @@ jobs:
             fi
 
             if [ -z "$failure_stage" ]; then
-              extra_args=()
+              extra_args=(--require-gameplay-proof)
               if [ "$AUDIBLE_AUDIO_PROOF" = "true" ]; then
                 extra_args+=(--require-audible-proof)
               fi

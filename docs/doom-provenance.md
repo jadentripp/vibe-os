@@ -59,11 +59,14 @@ objects and separate `doom_port` objects, and rejects source-port/wrapper paths.
 `tools/check_repo_hygiene.py` scans tracked files and fails if game data,
 generated VM evidence, rendered pixel artifacts, wrapper-engine paths, or
 runtime/build references to shortcut engines and host display/audio APIs have
-entered git. It also checks `git status -- third_party/doom` so unstaged,
-staged, or untracked vendor-tree edits fail the host suite. This is
-intentionally conservative because the public repository should contain source
-and text diagnostics, not copyrighted data, ambiguous proof artifacts, or a
-quietly patched Doom engine.
+entered git. It also sniffs renamed raw WAD payloads plus gzip, zip, and tar
+containers with WAD member names or WAD magic, and checks
+`git status -- third_party/doom` so unstaged, staged, or untracked vendor-tree
+edits fail the host suite. The repo `.gitignore` mirrors the common WAD archive,
+disk image, rendered pixel, screenshot, log, and raw-audio spillover patterns.
+This is intentionally conservative because the public repository should contain
+source and text diagnostics, not copyrighted data, ambiguous proof artifacts, or
+a quietly patched Doom engine.
 
 ## What Is Honest To Claim
 

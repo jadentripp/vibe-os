@@ -95,6 +95,7 @@ def check_preflight(
     platform_name: str | None = None,
     which: Callable[[str], str | None] = shutil.which,
     path_is_dir: Callable[[Path], bool] = Path.is_dir,
+    require_novnc: bool = False,
 ) -> PreflightReport:
     """Return a preflight report or raise before any VM action is possible."""
 
@@ -125,11 +126,18 @@ def check_preflight(
         )
 
     web_root = next((root for root in NOVNC_WEB_ROOTS if path_is_dir(root)), None)
+    novnc = NovncStatus(websockify=which("websockify"), web_root=web_root)
+    if require_novnc and not novnc.available:
+        raise PreflightError(
+            "noVNC is required for this launch path but is unavailable.\n"
+            "Ubuntu setup: " + UBUNTU_INSTALL_HINT
+        )
+
     return PreflightReport(
         platform_name=effective_platform,
         novnc_port=novnc_port,
         required_tools=required_tools,
-        novnc=NovncStatus(websockify=which("websockify"), web_root=web_root),
+        novnc=novnc,
     )
 
 
@@ -171,7 +179,12 @@ def main(
     parser = argparse.ArgumentParser(
         description="Dry-run preflight for the remote vibe-os Doom play path."
     )
-    parser.parse_args(argv)
+    parser.add_argument(
+        "--require-novnc",
+        action="store_true",
+        help="fail unless websockify and a noVNC web root are available",
+    )
+    args = parser.parse_args(argv)
 
     try:
         report = check_preflight(
@@ -179,6 +192,7 @@ def main(
             platform_name=platform_name,
             which=which,
             path_is_dir=path_is_dir,
+            require_novnc=args.require_novnc,
         )
     except PreflightError as exc:
         print(f"play-now remote preflight failed: {exc}", file=stderr)

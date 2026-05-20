@@ -4,9 +4,13 @@
 from __future__ import annotations
 
 import fnmatch
+import gzip
 import hashlib
 import subprocess
 import sys
+import tarfile
+import zipfile
+import zlib
 from pathlib import Path
 
 
@@ -119,6 +123,18 @@ FORBIDDEN_TRACKED_MAGIC = (
     (b"IWAD", "WAD/IWAD payload"),
     (b"PWAD", "WAD/PWAD payload"),
 )
+
+WAD_ARCHIVE_MEMBER_PATTERNS = (
+    "*.wad",
+    "*.WAD",
+    "*.iwad",
+    "*.IWAD",
+    "*.pwad",
+    "*.PWAD",
+)
+
+ARCHIVE_PREFIX_BYTES = 512
+MAX_ARCHIVE_MEMBERS_TO_SNIFF = 64
 
 FORBIDDEN_VENDOR_PORT_TOKENS = (
     "VIBE_SYS_",
@@ -291,6 +307,88 @@ def read_file_prefix(path: str, size: int = 16) -> bytes:
         return handle.read(size)
 
 
+def forbidden_magic_label(prefix: bytes) -> str | None:
+    for magic, label in FORBIDDEN_TRACKED_MAGIC:
+        if prefix.startswith(magic):
+            return label
+    return None
+
+
+def _archive_member_violation(container_path: str, member_name: str, member_prefix: bytes) -> str | None:
+    normalized_name = member_name.replace("\\", "/")
+    if path_matches(normalized_name, WAD_ARCHIVE_MEMBER_PATTERNS):
+        return f"{container_path}: archive member {normalized_name!r} is a WAD path"
+    label = forbidden_magic_label(member_prefix)
+    if label:
+        return f"{container_path}: archive member {normalized_name!r} contains {label}"
+    return None
+
+
+def _gzip_wad_violation(path: str) -> str | None:
+    try:
+        with gzip.open(ROOT / path, "rb") as handle:
+            label = forbidden_magic_label(handle.read(16))
+    except (EOFError, OSError, zlib.error):
+        return None
+    if label:
+        return f"{path}: gzip-compressed {label} is tracked under a non-WAD extension"
+    return None
+
+
+def _zip_wad_violation(path: str) -> str | None:
+    try:
+        with zipfile.ZipFile(ROOT / path) as archive:
+            for index, info in enumerate(archive.infolist()):
+                if index >= MAX_ARCHIVE_MEMBERS_TO_SNIFF:
+                    break
+                if info.is_dir():
+                    continue
+                if path_matches(info.filename, WAD_ARCHIVE_MEMBER_PATTERNS):
+                    return f"{path}: ZIP archive member {info.filename!r} is a WAD path"
+                with archive.open(info, "r") as handle:
+                    violation = _archive_member_violation(path, info.filename, handle.read(16))
+                if violation:
+                    return violation
+    except (EOFError, OSError, RuntimeError, zipfile.BadZipFile, zlib.error):
+        return None
+    return None
+
+
+def _tar_wad_violation(path: str) -> str | None:
+    try:
+        with tarfile.open(ROOT / path, "r:*") as archive:
+            for index, member in enumerate(archive):
+                if index >= MAX_ARCHIVE_MEMBERS_TO_SNIFF:
+                    break
+                if not member.isfile():
+                    continue
+                if path_matches(member.name, WAD_ARCHIVE_MEMBER_PATTERNS):
+                    return f"{path}: tar archive member {member.name!r} is a WAD path"
+                extracted = archive.extractfile(member)
+                if extracted is None:
+                    continue
+                with extracted:
+                    violation = _archive_member_violation(path, member.name, extracted.read(16))
+                if violation:
+                    return violation
+    except (EOFError, OSError, tarfile.TarError, zlib.error):
+        return None
+    return None
+
+
+def archive_wad_violation(path: str, prefix: bytes) -> str | None:
+    if prefix.startswith(b"\x1f\x8b"):
+        violation = _gzip_wad_violation(path)
+        if violation:
+            return violation
+        return _tar_wad_violation(path)
+    if prefix.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")):
+        return _zip_wad_violation(path)
+    if len(prefix) >= 262 and prefix[257:262] == b"ustar":
+        return _tar_wad_violation(path)
+    return None
+
+
 def upload_path_lines(workflow_text: str) -> list[str]:
     lines = workflow_text.splitlines()
     uploads: list[str] = []
@@ -410,11 +508,15 @@ def find_violations(paths: list[str]) -> list[str]:
                 "screenshot, or pixel artifact is tracked"
             )
             continue
-        prefix = read_file_prefix(path)
-        for magic, label in FORBIDDEN_TRACKED_MAGIC:
-            if prefix.startswith(magic):
-                violations.append(f"{path}: {label} is tracked under a non-WAD extension")
-                break
+        prefix = read_file_prefix(path, ARCHIVE_PREFIX_BYTES)
+        label = forbidden_magic_label(prefix)
+        if label:
+            violations.append(f"{path}: {label} is tracked under a non-WAD extension")
+            continue
+        archive_violation = archive_wad_violation(path, prefix)
+        if archive_violation:
+            violations.append(archive_violation)
+            continue
         if is_runtime_or_build_source(path):
             text = (ROOT / path).read_text(errors="ignore").lower()
             for token in FORBIDDEN_RUNTIME_CONTENT:
@@ -443,7 +545,7 @@ def main() -> int:
         return 1
     print(
         "repo hygiene OK: pristine Doom vendor tree, no tracked WADs, "
-        "disk images, raw audio, pixel dumps, logs, wrapper engine paths, "
+        "renamed WAD/archive payloads, disk images, raw audio, pixel dumps, logs, wrapper engine paths, "
         "forbidden uploads, or runtime shortcut APIs"
     )
     return 0

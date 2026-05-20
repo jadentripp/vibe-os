@@ -9,20 +9,23 @@ compact counters and state deltas from Doom.
 
 This file describes the required green path. A scripted green run is not by itself a claim that the current branch is human-playable.
 Current-head cloud proof state: pending until the pushed head reruns the OS
-smoke and Real WAD smoke gates after the latest runtime/workflow/checker
-changes.
-The last published machine-checkable baseline is manual **Real WAD smoke** run
-`26165681561` on commit `c525952`: it proves the real shareware WAD path,
-gameplay, input, mouse, audio-counter, preemption, non-pixel visual diagnostics,
-the stricter scripted gameplay transition gate, including mouse turn proof,
-and aggregate audible output
-from disposable runner artifacts. Persistence/save-load is deliberately not
-part of that current-head proof; it needs its own matching green opt-in
-persistence run before being claimed. Current save-slot proof must include the
-first boot's decoded `--save-write-status` runtime gate plus the rebooted image
-comparison and `--load-status` evidence that Doom read the full `DOOMSAV*.DSG`
-payload back into gameplay, so changed save bytes alone do not count. A human-facing
-playable claim still needs
+smoke and Real WAD smoke gates after the latest workflow/checker changes.
+The latest known green **gameplay/audio** evidence before those changes is
+manual **Real WAD smoke** run `26170007704` on commit `a2714a6`: its real-WAD,
+scripted human-playability, scripted gameplay transition, VM/process, SB16
+continuity, mouse turn proof, and audible aggregate manifest steps passed.
+Manual **Real WAD smoke** run `26170007795` on the same commit also passed those
+first-boot gates, but its overall conclusion was red because the opt-in reboot
+persistence step failed, so it must not be cited as a green persistence proof.
+The gameplay/audio proof lane is now explicitly validated as its own bundle with
+`gameplay-proof.json` and, when requested, `audio-proof.json`, before any
+persistence step runs.
+Persistence/save-load is deliberately separate; it needs its own matching green
+opt-in persistence run before being claimed. Current save-slot proof must include
+the first boot's decoded `--save-write-status` runtime gate plus the rebooted
+image comparison and `--load-status` evidence that Doom read the full
+`DOOMSAV*.DSG` payload back into gameplay, so changed save bytes alone do not
+count. A human-facing playable claim still needs
 a recorded remote VNC playtest bundle from `docs/runbooks/remote-doom-playtest.md`, with
 structured `human-playtest-notes-v2` notes, required operator confirmations,
 per-phase status SHA-256 fields, a phase-by-phase
@@ -63,6 +66,16 @@ gh workflow run real-wad-smoke.yml \
   -f audible_audio_proof=true \
   -f persistence_proof=true \
   -f persistence_save_slot=0
+```
+
+For a downloaded non-persistence gameplay/audio proof artifact, require both
+machine-checkable manifests:
+
+```sh
+python3 tools/check_cloud_playability_artifacts.py \
+  path/to/real-wad-smoke-status \
+  --require-gameplay-proof \
+  --require-audible-proof
 ```
 
 Once `.github/workflows/real-wad-soak.yml` is present on the repository default
@@ -342,8 +355,10 @@ Escape to flip the menu bit while the game remains in `GS_LEVEL`.
    ```
 
 4. Treat the run as playable-cloud-proof green only when the QEMU capture step
-   finishes, both checker steps pass, and
-   `tools/check_cloud_playability_artifacts.py` accepts the downloaded artifact.
+   finishes, the gameplay/input/audio checker steps pass, and
+   `tools/check_cloud_playability_artifacts.py --require-gameplay-proof`
+   accepts the downloaded artifact. If `audible_audio_proof=true`, also require
+   `--require-audible-proof`.
    That artifact gate rejects WAD/disk/image/pixel filenames, duplicate required
    status basenames, and renamed WAD/disk/image payload signatures. The workflow
    intentionally keeps proof assertions in the checker steps so a failed cloud

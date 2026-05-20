@@ -1,29 +1,39 @@
 # Play Now In The Cloud
 
 Fastest safe path: run QEMU on a disposable Linux host, not on the Mac.
-With GitHub CLI authenticated on the Mac, this is one command from the local
-checkout:
+With GitHub CLI authenticated for Codespaces on the Mac, this is the one command
+to play from the local checkout:
 
 ```sh
-./tools/play_now_codespaces.sh --preflight
 ./tools/play_now_codespaces.sh
 ```
 
-The preflight is a dry run that checks GitHub CLI auth, repo/ref selection,
-git cleanliness, upstream sync, machine selection, and port `6080` before any
-Codespace is created. The launcher refuses a dirty checkout or unpushed current
-branch because the remote Codespace can only run pushed git state.
-
-The real launch creates or reuses a disposable GitHub Codespace for the current
-branch, starts `./tools/play_now_remote.sh` inside the Codespace, makes port
+The launcher checks GitHub CLI auth, repo/ref selection, git cleanliness,
+upstream sync, machine selection, and port `6080`, then creates or reuses a
+disposable GitHub Codespace for the current branch. It starts
+`./tools/play_now_remote.sh` inside the Codespace, waits for noVNC, makes port
 `6080` private, and opens/prints the noVNC URL. The Mac only controls
 Codespaces and opens a browser; it does not run QEMU, fetch the WAD, build
-`disk.img`, or copy play artifacts back.
+`disk.img`, or copy play artifacts back. The launcher refuses a dirty checkout
+or unpushed current branch because the remote Codespace can only run pushed git
+state.
 
-To use a different noVNC port, set `NOVNC_PORT` on the Mac before both commands.
-The launcher validates that port locally, passes the same value into the
-Codespace, waits for that exact forwarded port, and fails closed if GitHub CLI
-cannot mark it private.
+If the launcher reports that GitHub CLI cannot access Codespaces, run:
+
+```sh
+gh auth refresh -h github.com -s codespace
+```
+
+Optional dry run:
+
+```sh
+./tools/play_now_codespaces.sh --preflight
+```
+
+To use a different noVNC port, set `NOVNC_PORT` on the Mac before the launch
+and before the optional dry run. The launcher validates that port locally,
+passes the same value into the Codespace, waits for that exact forwarded port,
+and fails closed if GitHub CLI cannot mark it private.
 
 Use a plain remote Ubuntu host instead when you do not want Codespaces:
 

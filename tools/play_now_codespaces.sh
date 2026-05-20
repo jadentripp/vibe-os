@@ -10,6 +10,9 @@ IDLE_TIMEOUT="${IDLE_TIMEOUT:-30m}"
 RETENTION_PERIOD="${RETENTION_PERIOD:-1h}"
 NOVNC_PORT="${NOVNC_PORT:-6080}"
 OPEN_BROWSER="${OPEN_BROWSER:-1}"
+CODESPACES_PORT_WAIT_SECONDS="${CODESPACES_PORT_WAIT_SECONDS:-300}"
+CODESPACES_PORT_WAIT_INTERVAL="${CODESPACES_PORT_WAIT_INTERVAL:-5}"
+MAX_DISPLAY_NAME_LENGTH=48
 RUN_PREFLIGHT_ONLY=0
 
 usage() {
@@ -52,6 +55,12 @@ require_gh_auth() {
   gh auth status -h github.com >/dev/null 2>&1 || die "GitHub CLI is not authenticated for github.com; run gh auth login before launching Codespaces"
 }
 
+require_gh_codespaces_access() {
+  gh api -H "Accept: application/vnd.github+json" "/user/codespaces?per_page=1" >/dev/null 2>&1 || {
+    die "GitHub CLI token cannot access Codespaces; run: gh auth refresh -h github.com -s codespace"
+  }
+}
+
 sanitize_display_part() {
   printf "%s" "$1" | tr '/_.' '---' | tr -cd 'A-Za-z0-9-'
 }
@@ -73,6 +82,59 @@ validate_novnc_port() {
   if [ "$NOVNC_PORT" -lt 1 ] || [ "$NOVNC_PORT" -gt 65535 ]; then
     die "NOVNC_PORT must be between 1 and 65535, got '$NOVNC_PORT'"
   fi
+}
+
+validate_positive_integer() {
+  local name="$1"
+  local value="$2"
+
+  case "$value" in
+    ''|*[!0-9]*)
+      die "$name must be a positive integer, got '$value'"
+      ;;
+  esac
+  if [ "$value" -lt 1 ]; then
+    die "$name must be a positive integer, got '$value'"
+  fi
+}
+
+validate_display_name() {
+  local name="$1"
+
+  [ -n "$name" ] || die "Codespaces display name must not be empty"
+  case "$name" in
+    *$'\n'*|*$'\r'*)
+      die "Codespaces display name must be a single line"
+      ;;
+    *\"*|*\\*)
+      die "Codespaces display name must not contain quotes or backslashes"
+      ;;
+  esac
+  if [ "${#name}" -gt "$MAX_DISPLAY_NAME_LENGTH" ]; then
+    die "Codespaces display name must be $MAX_DISPLAY_NAME_LENGTH characters or fewer, got ${#name}: '$name'"
+  fi
+}
+
+default_display_name() {
+  local ref="$1"
+  local prefix="vibe-play"
+  local timestamp
+  local ref_part
+  local max_ref_len
+
+  timestamp="$(date -u +%Y%m%d%H%M%S)"
+  ref_part="$(sanitize_display_part "$ref")"
+  [ -n "$ref_part" ] || ref_part="ref"
+
+  max_ref_len=$((MAX_DISPLAY_NAME_LENGTH - ${#prefix} - ${#timestamp} - 2))
+  if [ "$max_ref_len" -lt 3 ]; then
+    die "internal display-name budget is too small"
+  fi
+  if [ "${#ref_part}" -gt "$max_ref_len" ]; then
+    ref_part="${ref_part:0:$max_ref_len}"
+  fi
+
+  printf "%s-%s-%s\n" "$prefix" "$ref_part" "$timestamp"
 }
 
 novnc_url_from_browse_url() {
@@ -150,11 +212,13 @@ print_preflight_summary() {
   echo "idle timeout: $IDLE_TIMEOUT"
   echo "retention period: $RETENTION_PERIOD"
   echo "noVNC port: $NOVNC_PORT (private)"
+  echo "noVNC wait timeout: ${CODESPACES_PORT_WAIT_SECONDS}s"
   echo "browser open: $OPEN_BROWSER"
+  echo "GitHub Codespaces API: accessible"
   echo "git state: clean and pushed for the selected current branch"
   echo "local artifact transfer: none (no WADs, disk images, pixels, raw audio, or logs copied to the Mac)"
-  echo "remote preflight command: ./tools/play_now_remote.sh --preflight"
-  echo "remote start command: NOVNC_PORT=$NOVNC_PORT nohup ./tools/play_now_remote.sh"
+  echo "remote preflight command: ./tools/play_now_remote.sh --preflight --require-novnc"
+  echo "remote start command: NOVNC_PORT=$NOVNC_PORT nohup ./tools/play_now_remote.sh --require-novnc"
   echo "dry-run: Codespace was not created or modified"
   echo "next: run without --dry-run when you are ready to start the disposable remote play session"
 }
@@ -184,15 +248,27 @@ if [ -n "${VIBE_PLAY_REF:-}" ]; then
   echo "remote play ref: $(git rev-parse --short HEAD)"
 fi
 
-./tools/play_now_remote.sh --preflight
+./tools/play_now_remote.sh --preflight --require-novnc
 
 pid_file=/tmp/vibe-os-play-now.pid
 log_file=/tmp/vibe-os-play-now.log
+port_file=/tmp/vibe-os-play-now.novnc-port
+current_port="${NOVNC_PORT:-6080}"
 if [ -s "$pid_file" ] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+  existing_port="$(cat "$port_file" 2>/dev/null || true)"
+  if [ -z "$existing_port" ]; then
+    echo "vibe-os play-now is already running, but its noVNC port is unknown; stop pid $(cat "$pid_file") before relaunching" >&2
+    exit 1
+  fi
+  if [ "$existing_port" != "$current_port" ]; then
+    echo "vibe-os play-now is already running with NOVNC_PORT=$existing_port; rerun with that port or stop pid $(cat "$pid_file")" >&2
+    exit 1
+  fi
   echo "vibe-os play-now already running in this Codespace: pid=$(cat "$pid_file")"
 else
-  rm -f "$pid_file" "$log_file"
-  nohup ./tools/play_now_remote.sh >"$log_file" 2>&1 &
+  rm -f "$pid_file" "$log_file" "$port_file"
+  printf "%s\n" "$current_port" >"$port_file"
+  nohup ./tools/play_now_remote.sh --require-novnc >"$log_file" 2>&1 &
   echo "$!" >"$pid_file"
   echo "vibe-os play-now started in this Codespace: pid=$(cat "$pid_file")"
 fi
@@ -258,6 +334,8 @@ require_tool gh
 require_tool git
 require_gh_auth
 validate_novnc_port
+validate_positive_integer CODESPACES_PORT_WAIT_SECONDS "$CODESPACES_PORT_WAIT_SECONDS"
+validate_positive_integer CODESPACES_PORT_WAIT_INTERVAL "$CODESPACES_PORT_WAIT_INTERVAL"
 
 if [ -z "$REPO" ]; then
   REPO="$(current_repo)"
@@ -270,10 +348,13 @@ fi
 [ -n "$REF" ] || REF="main"
 
 require_clean_pushed_git_state
+require_gh_codespaces_access
 
 if [ -z "$CODESPACE_NAME" ] && [ -z "$DISPLAY_NAME" ]; then
-  ref_part="$(sanitize_display_part "$REF")"
-  DISPLAY_NAME="vibe-os-play-${ref_part}-$(date -u +%Y%m%d%H%M%S)"
+  DISPLAY_NAME="$(default_display_name "$REF")"
+fi
+if [ -n "$DISPLAY_NAME" ]; then
+  validate_display_name "$DISPLAY_NAME"
 fi
 
 if [ "$RUN_PREFLIGHT_ONLY" = "1" ]; then
@@ -317,8 +398,9 @@ payload="$(remote_start_payload)"
 gh codespace ssh -c "$CODESPACE_NAME" -- env VIBE_PLAY_REF="$REF" NOVNC_PORT="$NOVNC_PORT" bash -lc "$payload"
 
 novnc_browse_url=""
-echo "Waiting for noVNC port $NOVNC_PORT"
-for _ in 1 2 3 4 5 6 7 8 9 10; do
+echo "Waiting up to ${CODESPACES_PORT_WAIT_SECONDS}s for noVNC port $NOVNC_PORT"
+wait_started=$SECONDS
+while [ $((SECONDS - wait_started)) -lt "$CODESPACES_PORT_WAIT_SECONDS" ]; do
   novnc_browse_url="$(
     gh codespace ports \
       -c "$CODESPACE_NAME" \
@@ -334,7 +416,7 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
     echo "noVNC port $NOVNC_PORT is private"
     break
   fi
-  sleep 2
+  sleep "$CODESPACES_PORT_WAIT_INTERVAL"
 done
 
 echo
@@ -342,16 +424,17 @@ echo "Codespace: $CODESPACE_NAME"
 echo "Remote log: gh codespace ssh -c \"$CODESPACE_NAME\" -- tail -f /tmp/vibe-os-play-now.log"
 echo "Delete when done: gh codespace delete -c \"$CODESPACE_NAME\" --force"
 
-if [ -n "$novnc_browse_url" ]; then
-  novnc_url="$(novnc_url_from_browse_url "$novnc_browse_url")"
-  echo "Open Doom noVNC: $novnc_url"
-  echo "Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu."
-  if [ "$OPEN_BROWSER" = "1" ] && [ "$(uname -s)" = "Darwin" ] && command -v open >/dev/null 2>&1; then
-    open "$novnc_url" || true
-  fi
-else
+if [ -z "$novnc_browse_url" ]; then
   echo "noVNC browse URL was not ready yet."
   echo "List ports: gh codespace ports -c \"$CODESPACE_NAME\""
   echo "Fallback tunnel: gh codespace ports forward $NOVNC_PORT:$NOVNC_PORT -c \"$CODESPACE_NAME\""
   echo "Then open: http://127.0.0.1:$NOVNC_PORT/vnc.html?autoconnect=1"
+  die "noVNC port $NOVNC_PORT did not become available before the timeout; inspect the remote log above"
+fi
+
+novnc_url="$(novnc_url_from_browse_url "$novnc_browse_url")"
+echo "Open Doom noVNC: $novnc_url"
+echo "Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu."
+if [ "$OPEN_BROWSER" = "1" ] && [ "$(uname -s)" = "Darwin" ] && command -v open >/dev/null 2>&1; then
+  open "$novnc_url" || true
 fi

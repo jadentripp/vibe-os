@@ -128,6 +128,24 @@ class PlayNowRemotePreflightTests(unittest.TestCase):
         self.assertIn("dry-run: QEMU was not launched", stdout.getvalue())
         self.assertEqual(stderr.getvalue(), "")
 
+    def test_require_novnc_fails_before_play_when_browser_proxy_is_missing(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        rc = check_play_now_remote.main(
+            ["--require-novnc"],
+            env={},
+            platform_name="Linux",
+            which=lambda name: fake_tool_path(name) if name != "websockify" else None,
+            path_is_dir=lambda path: False,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("noVNC is required for this launch path", stderr.getvalue())
+        self.assertIn("dry-run: QEMU was not launched", stderr.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

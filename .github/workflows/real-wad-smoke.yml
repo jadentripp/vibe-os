@@ -255,6 +255,16 @@ jobs:
           test -f build/audio-proof.json
           python3 tools/check_audible_audio_proof.py build/audio-proof.json
 
+      - name: Assert gameplay/audio proof bundle
+        if: always()
+        run: |
+          set -euo pipefail
+          proof_args=(--require-gameplay-proof)
+          if [ "${AUDIBLE_AUDIO_PROOF}" = "true" ]; then
+            proof_args+=(--require-audible-proof)
+          fi
+          python3 tools/check_cloud_playability_artifacts.py build "${proof_args[@]}"
+
       - name: Triage cloud status
         if: always()
         run: |

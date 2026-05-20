@@ -1,0 +1,99 @@
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+class AtaPioContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        cls.triage_doc = (ROOT / "docs" / "cloud-status-triage.md").read_text()
+        cls.persistence_doc = (ROOT / "docs" / "persistent-fat16.md").read_text()
+
+    def test_ata_waits_are_bounded_and_record_failures(self):
+        kernel = self.kernel
+        not_busy = kernel.split("ata_wait_not_busy:", 1)[1].split("ata_wait_drq:", 1)[0]
+        drq = kernel.split("ata_wait_drq:", 1)[1].split("ata_read_sector:", 1)[0]
+
+        for source in (
+            "ATA_ERROR equ 0x01f1",
+            "ATA_STATUS_BSY equ 0x80",
+            "ATA_WAIT_POLL_LIMIT equ 0x20000",
+            "ata_wait_failures dd 0",
+            "ata_wait_timeouts dd 0",
+            "ata_wait_error_failures dd 0",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, kernel)
+
+        for wait_body in (not_busy, drq):
+            with self.subTest(wait=wait_body.splitlines()[0]):
+                self.assertIn("mov ecx, ATA_WAIT_POLL_LIMIT", wait_body)
+                self.assertIn("mov [ata_last_status], eax", wait_body)
+                self.assertIn("inc dword [ata_wait_failures]", wait_body)
+                self.assertIn("inc dword [ata_wait_timeouts]", wait_body)
+                self.assertIn("mov dx, ATA_ERROR", wait_body)
+                self.assertIn("inc dword [ata_wait_error_failures]", wait_body)
+                self.assertNotIn("mov ecx, 0x100000", wait_body)
+
+    def test_drq_wait_ignores_error_bits_while_busy(self):
+        drq = self.kernel.split("ata_wait_drq:", 1)[1].split("ata_read_sector:", 1)[0]
+
+        self.assertLess(
+            drq.index("test al, ATA_STATUS_BSY"),
+            drq.index("test al, ATA_STATUS_DF | ATA_STATUS_ERR"),
+        )
+        self.assertLess(
+            drq.index("test al, ATA_STATUS_DF | ATA_STATUS_ERR"),
+            drq.index("test al, ATA_STATUS_DRQ"),
+        )
+
+    def test_storage_status_reports_last_ata_wait_state(self):
+        kernel = self.kernel
+        smoke = kernel.split("write_smoke_status:", 1)[1].split("smoke_write_hex32:", 1)[0]
+
+        for source in (
+            'smoke_ata_text db " ata="',
+            'smoke_ataop_text db " ataop="',
+            'smoke_atawait_text db " atawait="',
+            'smoke_atalba_text db " atalba="',
+            'smoke_atastat_text db " atastat="',
+            'smoke_ataerr_text db " ataerr="',
+            'smoke_atafail_text db " atafail="',
+            'smoke_atatmo_text db " atatmo="',
+            "mov edx, [ata_last_lba]",
+            "mov edx, [ata_last_status]",
+            "mov edx, [ata_last_error]",
+            "mov edx, [ata_wait_failures]",
+            "mov edx, [ata_wait_timeouts]",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, kernel)
+
+        self.assertIn("cmp dword [ata_wait_phase], ATA_WAIT_BUSY", smoke)
+        self.assertIn("cmp dword [ata_wait_phase], ATA_WAIT_DRQ", smoke)
+        self.assertIn("smoke_busy_text", smoke)
+        self.assertIn("smoke_drq_text", smoke)
+
+    def test_docs_and_triage_track_ata_storage_stalls(self):
+        for phrase in (
+            "`ata-storage-stalled`",
+            "`atawait=BUSY` or `atawait=DRQ`",
+            "`ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo`",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.triage_doc)
+
+        for phrase in (
+            "ATA PIO waits are bounded and status-reported",
+            "`ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo`",
+            "startup/gameplay wait",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.persistence_doc)
+
+
+if __name__ == "__main__":
+    unittest.main()

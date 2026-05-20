@@ -239,6 +239,7 @@ def audio_phase_statuses():
             keyseen="00000010",
             keylast="0001019D",
             pflags="000000C5",
+            gflags="00000000",
             mousebtn="00000000",
             mousedelta="00000000:00000000",
             doomsound="00000002",
@@ -263,7 +264,8 @@ def audio_phase_statuses():
             keypoll="00000003",
             keyseen="00000011",
             keylast="000101AD",
-            pflags="00000023",
+            pflags="000000E7",
+            gflags="00000000",
             ppos="00010020:00020000",
             mousebtn="00000000",
             mousedelta="00000000:00000000",
@@ -289,7 +291,8 @@ def audio_phase_statuses():
             keypoll="00000004",
             keyseen="00000031",
             keylast="00010020",
-            pflags="00000009",
+            pflags="000000EF",
+            gflags="00000000",
             mousebtn="00000000",
             mousedelta="00000000:00000000",
             doomsound="00000003",
@@ -319,6 +322,8 @@ def audio_phase_statuses():
             mousepoll="00000002",
             mousebtn="00000001",
             mousedelta="00000018:0000000C",
+            pflags="000001EF",
+            gflags="00000000",
             doomsound="00000003",
             sfxmix="00000005",
             audioirq="00000004",
@@ -341,7 +346,7 @@ def audio_phase_statuses():
             keypoll="00000005",
             keyseen="00000071",
             keylast="0001001B",
-            pflags="00000011",
+            pflags="000001FF",
             doomsound="00000004",
             sfxmix="00000006",
             audioirq="00000005",
@@ -385,6 +390,25 @@ def write_valid_artifact(artifact):
             "# address\tsize\ttype\tbind\tsection\tobject\tsymbol\n"
             "01000000\t00000010\tFUNC\tGLOBAL\t.text\tbuild/doom/port_start.o\tstart\n"
         )
+
+
+def write_gameplay_proof(artifact):
+    phase_files = {
+        "start": "status.after-start.txt",
+        "fire": "status.after-fire.txt",
+        "movement": "status.after-move.txt",
+        "use": "status.after-use.txt",
+        "mouse": "status.after-mouse.txt",
+        "menu": "status.after-menu.txt",
+        "final": "status.txt",
+    }
+    paths = {phase: artifact / name for phase, name in phase_files.items()}
+    snapshots = {phase: path.read_text() for phase, path in paths.items()}
+    manifest = check_cloud_playability_artifacts.check_scripted_gameplay_proof.build_manifest(
+        snapshots,
+        paths=paths,
+    )
+    (artifact / "gameplay-proof.json").write_text(json.dumps(manifest, sort_keys=True))
 
 
 def write_human_notes(artifact, **overrides):
@@ -832,6 +856,34 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             with self.assertRaisesRegex(AssertionError, "audible audio proof manifest failed"):
                 check_cloud_playability_artifacts.validate_artifact_dir(artifact)
 
+    def test_downloaded_artifact_directory_can_require_strong_manifest_proofs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+
+            with self.assertRaisesRegex(AssertionError, "gameplay proof manifest"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_gameplay_proof=True,
+                )
+
+            write_gameplay_proof(artifact)
+            with self.assertRaisesRegex(AssertionError, "audible audio proof manifest"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_gameplay_proof=True,
+                    require_audible_proof=True,
+                )
+
+            (artifact / "audio-proof.json").write_text(
+                json.dumps(valid_audio_proof_manifest(), sort_keys=True)
+            )
+            check_cloud_playability_artifacts.validate_artifact_dir(
+                artifact,
+                require_gameplay_proof=True,
+                require_audible_proof=True,
+            )
+
     def test_soak_summary_accepts_repeated_status_json_metadata_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmpdir = Path(tmp)
@@ -860,7 +912,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             artifact.mkdir()
             write_valid_artifact(artifact)
 
-            with self.assertRaisesRegex(AssertionError, "requires audio-proof.json"):
+            with self.assertRaisesRegex(AssertionError, "audio-proof.json"):
                 check_cloud_playability_artifacts.build_soak_attempt_metadata(
                     artifact,
                     1,
@@ -898,6 +950,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                 "gates": {
                     "real_wad_proof": "fail",
                     "scripted_human_playability": "fail",
+                    "scripted_gameplay_transition": "fail",
                     "playability": "fail",
                     "input_state_changes": "fail",
                     "sb16_continuity": "fail",
@@ -1496,6 +1549,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             write_valid_artifact(artifact)
             (artifact / "status.txt").write_text(
                 valid_status(
+                    gtic="00000060",
+                    leveltime="00000060",
                     doomsound="00000001",
                     sfxmix="00000001",
                     audioirq="00000001",

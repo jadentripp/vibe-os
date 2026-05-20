@@ -46,6 +46,14 @@ def status_line(**overrides):
         "fault": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
         "panic": "NONE",
         "shutdown": "NONE",
+        "ata": "OK",
+        "ataop": "READ",
+        "atawait": "IDLE",
+        "atalba": "00000800",
+        "atastat": "00000040",
+        "ataerr": "00000000",
+        "atafail": "00000000",
+        "atatmo": "00000000",
         "doommode": "00000000:00000000",
         "doomlog": "ready",
         "doompresent": "00000008",
@@ -127,6 +135,7 @@ class CloudStatusTriageTests(unittest.TestCase):
             "artifact-proof-failure",
             "kernel-panic",
             "os-shutdown-requested",
+            "ata-storage-stalled",
             "playability-status-green",
         ):
             with self.subTest(expected=expected):
@@ -275,6 +284,29 @@ class CloudStatusTriageTests(unittest.TestCase):
 
         self.assertEqual(primary, "os-shutdown-requested")
         self.assertIn("shutdown=HALT", notes[0])
+
+    def test_classifies_ata_wait_before_doom_frames(self):
+        primary, notes = self.classify(
+            doomrun="WAIT",
+            gameplay="WAIT",
+            doompresent="00000000",
+            doompal="00000000",
+            doomframe="00000000",
+            atawait="DRQ",
+            atastat="00000080",
+            atalba="00002013",
+        )
+
+        self.assertEqual(primary, "ata-storage-stalled")
+        self.assertIn("atawait=DRQ", notes[0])
+        self.assertIn("atastat=00000080", notes[0])
+        self.assertIn("atalba=00002013", notes[0])
+
+    def test_classifies_ata_timeout_even_after_exec_started(self):
+        primary, notes = self.classify(ata="FAIL", atawait="BUSY", atafail="00000001", atatmo="00000001")
+
+        self.assertEqual(primary, "ata-storage-stalled")
+        self.assertIn("atatmo=00000001", notes[0])
 
     def test_classifies_wad_open_read_failure_after_doom_is_running(self):
         primary, notes = self.classify(

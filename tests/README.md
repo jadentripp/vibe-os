@@ -18,8 +18,11 @@ boot:
   original engine objects and `doom_port/*` shims stay separate, and invokes
   `tools/check_repo_hygiene.py` to reject tracked WADs, disk images, rendered
   pixel artifacts, logs, wrapper/source-port paths, dirty `third_party/doom`
-  worktree state, and runtime/build references to shortcut source ports or host
-  display/audio APIs.
+  worktree state, renamed raw/gzip/zip/tar WAD payloads, and runtime/build
+  references to shortcut source ports or host display/audio APIs. `.gitignore`
+  is checked for the common WAD archive, screenshot/pixel, disk-image, log, and
+  raw-audio spillover patterns so accidental local proof output is harder to
+  stage.
 - Host storage tests cover root-level 8.3 lifecycle behavior: create, readback,
   sparse growth, truncate/resize-to-zero, delete, cluster-chain freeing/reuse,
   corrupt-chain validation before mutation, FAT-copy agreement,
