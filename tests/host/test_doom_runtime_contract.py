@@ -295,6 +295,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn('default_config_file_contains_marker("VIBE_DEFAULT")', platform)
         self.assertIn("default_config_file_is_short_checkpoint_marker()", platform)
         self.assertIn("read_save_slot_marker_request(", platform)
+        self.assertIn("read_default_config_slot_request(", platform)
         self.assertIn("short_marker_slot", platform)
         self.assertIn("large_save_slots", platform)
         self.assertIn('"VIBE_SAVE_"', platform)

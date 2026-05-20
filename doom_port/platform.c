@@ -449,6 +449,46 @@ static int read_save_slot_marker_request(const char* prefix, int* slot)
     return 0;
 }
 
+static int read_default_config_slot_request(const char* prefix, int* slot)
+{
+    const char* path;
+    FILE* marker;
+    size_t length;
+    size_t prefix_length;
+    size_t index;
+
+    if (!prefix || !slot)
+        return 0;
+
+    path = defaultfile ? defaultfile : "DEFAULT.CFG";
+    marker = fopen(path, "r");
+    if (!marker)
+        return 0;
+
+    length = fread(
+        default_config_check_buffer,
+        1,
+        sizeof(default_config_check_buffer) - 1,
+        marker);
+    fclose(marker);
+    default_config_check_buffer[length] = 0;
+
+    prefix_length = strlen(prefix);
+    if (prefix_length == 0 || prefix_length >= length)
+        return 0;
+
+    for (index = 0; index <= length - prefix_length - 1; ++index) {
+        if (memcmp(default_config_check_buffer + index, prefix, prefix_length) == 0
+            && default_config_check_buffer[index + prefix_length] >= '0'
+            && default_config_check_buffer[index + prefix_length] <= '5') {
+            *slot = default_config_check_buffer[index + prefix_length] - '0';
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 static int read_persistence_slot_request(const char* path, int* slot)
 {
     FILE* marker;
@@ -477,9 +517,14 @@ static int save_checkpoint_requested_once(void)
         return save_checkpoint_requested;
 
     save_checkpoint_request_checked = 1;
-    save_checkpoint_requested = read_save_slot_marker_request(
+    save_checkpoint_requested = read_default_config_slot_request(
         "VIBE_SAVE_",
         &save_checkpoint_slot);
+    if (!save_checkpoint_requested) {
+        save_checkpoint_requested = read_save_slot_marker_request(
+            "VIBE_SAVE_",
+            &save_checkpoint_slot);
+    }
     if (!save_checkpoint_requested) {
         save_checkpoint_requested = read_persistence_slot_request(
             "SAVEREQ.CHK",

@@ -764,7 +764,7 @@ def validate_repo_contract() -> None:
         "if [ -z \"${PERSISTENCE_SAVE_SLOT:-}\" ]; then",
         "write_marker PERSISTENCE_CHECKPOINT_NAME \"\"",
         "write_marker SAVE_REQUEST_NAME \"$PERSISTENCE_SAVE_SLOT\"",
-        "make_wad_image.WRITABLE_SAVE_NAMES[slot]",
+        "name = make_wad_image.WRITABLE_DEFAULT_NAME",
         "VIBE_SAVE_{slot}",
         "marker_slot = (slot + 1) % len(make_wad_image.WRITABLE_SAVE_NAMES)",
         "VIBE_LOAD_{slot}",

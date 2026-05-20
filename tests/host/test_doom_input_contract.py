@@ -112,6 +112,7 @@ class DoomInputContractTests(unittest.TestCase):
             "default_config_file_is_short_checkpoint_marker()",
             "VIBE_PERSISTENCE_SLOT_COUNT",
             "read_save_slot_marker_request(",
+            "read_default_config_slot_request(",
             "short_marker_slot",
             "large_save_slots",
             '"VIBE_SAVE_"',
