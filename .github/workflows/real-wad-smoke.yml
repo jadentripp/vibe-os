@@ -309,8 +309,8 @@ jobs:
           persistence_default_script=""
           save_slot_digit=""
           save_slot_select_actions=""
-          save_keypoll_min=00000008
-          load_keypoll_min=00000004
+          save_keypoll_min=0000000A
+          load_keypoll_min=00000006
           if [ -n "${PERSISTENCE_SAVE_SLOT:-}" ]; then
             case "$PERSISTENCE_SAVE_SLOT" in
               0) save_slot_digit=1 ;;
@@ -324,11 +324,7 @@ jobs:
                 exit 1
                 ;;
             esac
-            if [ "$PERSISTENCE_SAVE_SLOT" != "0" ]; then
-              save_slot_select_actions=",${save_slot_digit},wait=2"
-              save_keypoll_min=0000000A
-              load_keypoll_min=00000006
-            fi
+            save_slot_select_actions=",${save_slot_digit},wait=2"
             if [ "$persistence_write_script" = "auto" ]; then
               persistence_write_script="save-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,f2,wait=2${save_slot_select_actions},ret,wait=2,text=S,wait=2,ret,wait-status-min=keypoll:${save_keypoll_min}:360:2,wait-status-part-min=savewr:1:00000001:120:2,snapshot"
             fi
