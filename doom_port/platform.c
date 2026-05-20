@@ -341,29 +341,33 @@ static int read_persistence_slot_request(const char* path, int* slot)
 
 static int save_checkpoint_requested_once(void)
 {
-    if (save_checkpoint_request_checked)
-        return save_checkpoint_requested;
     if (save_checkpoint_requested)
+        return save_checkpoint_requested;
+    if (save_checkpoint_request_checked)
         return save_checkpoint_requested;
 
     save_checkpoint_request_checked = 1;
     save_checkpoint_requested = read_persistence_slot_request(
         "SAVEREQ.CHK",
         &save_checkpoint_slot);
+    if (!save_checkpoint_requested)
+        save_checkpoint_request_checked = 0;
     return save_checkpoint_requested;
 }
 
 static int load_checkpoint_requested_once(void)
 {
-    if (load_checkpoint_request_checked)
-        return load_checkpoint_requested;
     if (load_checkpoint_requested)
+        return load_checkpoint_requested;
+    if (load_checkpoint_request_checked)
         return load_checkpoint_requested;
 
     load_checkpoint_request_checked = 1;
     load_checkpoint_requested = read_persistence_slot_request(
         "LOADREQ.CHK",
         &load_checkpoint_slot);
+    if (!load_checkpoint_requested)
+        load_checkpoint_request_checked = 0;
     return load_checkpoint_requested;
 }
 

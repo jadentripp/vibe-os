@@ -122,6 +122,8 @@ class DoomInputContractTests(unittest.TestCase):
             "if (load_checkpoint_request_checked)",
             "if (save_checkpoint_requested)",
             "if (load_checkpoint_requested)",
+            "save_checkpoint_request_checked = 0;",
+            "load_checkpoint_request_checked = 0;",
             "if (!default_config_checkpoint_ready() || !persistence_checkpoint_requested())",
             "if (!save_checkpoint_requested_once())",
             "if (!load_checkpoint_requested_once())",

@@ -297,6 +297,22 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("if (load_checkpoint_request_checked)", platform)
         self.assertIn("if (save_checkpoint_requested)", platform)
         self.assertIn("if (load_checkpoint_requested)", platform)
+        save_request = platform.split("static int save_checkpoint_requested_once", 1)[1].split(
+            "static int load_checkpoint_requested_once", 1
+        )[0]
+        load_request = platform.split("static int load_checkpoint_requested_once", 1)[1].split(
+            "static void cache_persistence_marker_requests", 1
+        )[0]
+        self.assertIn("save_checkpoint_request_checked = 0;", save_request)
+        self.assertIn("load_checkpoint_request_checked = 0;", load_request)
+        self.assertLess(
+            save_request.index("save_checkpoint_requested = read_persistence_slot_request("),
+            save_request.index("save_checkpoint_request_checked = 0;"),
+        )
+        self.assertLess(
+            load_request.index("load_checkpoint_requested = read_persistence_slot_request("),
+            load_request.index("load_checkpoint_request_checked = 0;"),
+        )
         self.assertIn("if (!default_config_checkpoint_ready() || !persistence_checkpoint_requested())", platform)
         self.assertIn("G_SaveGame(save_checkpoint_slot, description);", platform)
         self.assertIn("sendsave = false;", platform)
