@@ -128,9 +128,13 @@ proof is historical evidence for that older runtime, not the current proof
 point. Current-head save proof must include both the reboot comparison and the
 first boot's `--save-write-status` runtime gate.
 
-Current-head cloud proof state: pending for this branch until the pushed commit
-passes the cloud gates below. Before push, keep the host-only readiness gate
-green:
+Current-head cloud proof state: normal playability is green, but save
+persistence is not green yet. Run `26195523631` on `8d84766` boots the current
+kernel, reaches the real-WAD playability checks, and then fails the save-growth
+gate because `DOOMSAV0.DSG` is still truncated to 1024 bytes after the first
+write. Treat that as the active blocker, not as a playable-save claim.
+
+Before push, keep the host-only readiness gate green:
 
 ```sh
 make cloud-playability-check
