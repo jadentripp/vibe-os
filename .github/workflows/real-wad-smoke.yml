@@ -115,10 +115,14 @@ jobs:
             SMOKE_SETTLE_SECONDS=20 \
             SMOKE_REQUIRE_DOOM_PRESENT=1 \
             SMOKE_REQUIRE_DOOM_GAMEPLAY=1 \
+            SMOKE_REQUIRE_REAL_WAD_PROOF=1 \
             SMOKE_REQUIRE_KEY_EVENT=1 \
             SMOKE_SENDKEYS="spc" \
             SMOKE_REJECT_DOOMLOG="doom error|PNAMES not found|W_GetNumForName" \
             smoke
+
+      - name: Assert real-WAD proof gates
+        run: python3 tools/check_real_wad_proof.py build/status.txt
 
       - name: Show smoke diagnostics
         if: always()
@@ -159,5 +163,4 @@ jobs:
             build/doom.elf
             build/status*.bin
             build/status*.txt
-            build/vga*.txt
             build/*.log

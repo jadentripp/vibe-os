@@ -3,7 +3,10 @@
 The kernel now keeps explicit address-space metadata per process:
 
 - each process record has a page-directory physical address
-- user processes have VM region tables with base, end, and flags
+- each process record has a dedicated Ring 0 stack top loaded into `tss_esp0`
+  by `process_activate`
+- user processes have VM region tables with base, end, and
+  read/write/execute-intent flags
 - heap pages become user-accessible as `sbrk` advances the process `brk`
 - syscall pointer validation walks the current process region table
 
@@ -11,15 +14,23 @@ The boot kernel still uses identity-mapped physical memory, but the page
 permissions are no longer one flat user window. The kernel page directory maps
 low memory as supervisor writable pages. User process page directories clone the
 kernel mapping, then replace only the user-owned PDEs with private page tables
-whose PTEs carry the user bit.
+whose PTEs carry the user bit. Page-table helpers now accept explicit user
+read-vs-write PTE flags; writable user pages use `PTE_WRITE`, while
+read/execute-only pages can be re-marked without it.
 
 ## Current Address Spaces
 
 `process_user_probe` owns:
 
-- code/data/stack: `USER_CODE_ADDR` through `USER_STACK_TOP`
+- packed code/data: `USER_CODE_ADDR` through `USER_STACK_BOTTOM`
+- stack: `USER_STACK_BOTTOM` through `USER_STACK_TOP`
 - heap: `USER_HEAP_START` through the current probe `brk`
 - page directory: `PROC_PROBE_PAGE_DIR_ADDR`
+
+`process_preempt_probe` is a second non-Doom scheduler probe record. It uses
+the same minimal probe VM contract but has its own PID and kernel stack top, so
+host contracts can prove that the round-robin selector has an eligible
+alternate target without depending on Doom internals or real WAD data.
 
 `process_doom` owns:
 
@@ -38,6 +49,20 @@ to Ring 3 at process start. `SYS_SBRK` marks the newly covered heap pages with
 the user bit and flushes the active CR3 before returning to user mode. The
 syscall validator also checks heap pointers against the current process `brk`.
 
+## Permissions
+
+The kernel records source-level region intent with `VM_REGION_READ`,
+`VM_REGION_WRITE`, and `VM_REGION_EXEC`. On current x86 paging there is no NX
+bit, so execute permission is metadata only, but write permission is real: the
+ELF prepare path reads each `PT_LOAD` program header's `p_flags` and marks pages
+without `ELF_PF_W` as user-readable but not writable. Writable segments, stacks,
+and pages newly exposed by `SYS_SBRK` are marked with `PTE_WRITE`.
+
+The current repo linker still emits one `PF_R|PF_W|PF_X` load segment for both
+the C probe and Doom. That keeps today's packed image/data pages writable by
+necessity, while preserving the page-table contract needed for a future
+multi-segment linker or loader to make text pages read/execute-only.
+
 ## Guards
 
 The probe process clears a not-present guard page immediately before
@@ -53,11 +78,12 @@ are adjacent and the Doom heap grows up to the stack bottom.
 - Timer IRQ preemption now has an end-to-end restore path for saved Ring 3
   interrupt frames: the scheduler can save the interrupted task, pick another
   READY task with a valid saved frame, switch CR3 through `process_activate`,
-  rewrite the live IRQ frame, and resume it with `iretd`. The current boot flow
-  still needs a second long-lived runnable user task before Doom can demonstrate
-  frequent real task-to-task switches instead of mostly reporting no eligible
-  saved-frame candidate.
+  load that task's kernel stack into `tss_esp0`, rewrite the live IRQ frame,
+  and resume it with `iretd`. The source-level self-test seeds two non-Doom
+  probe frames so the selector must prove a legitimate alternate preemption
+  target.
 - Page-table structures are fixed low-memory pages, not dynamically allocated
   or reclaimed with process lifetime.
-- User page permissions are writable for now. The ELF loader does not split
-  text read/execute from data/write permissions yet.
+- Exact Doom text/data separation is blocked by the current repo linker, which
+  emits a single writable/executable `PT_LOAD` instead of separate text and data
+  program headers.

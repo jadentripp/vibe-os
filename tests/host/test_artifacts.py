@@ -291,6 +291,21 @@ class DiskImageTests(unittest.TestCase):
             self.assertEqual(fs.fat_entry(cluster), 0)
         self.assertEqual(fs.free_data_clusters(), before_free)
 
+    def test_fat16_mutator_rejects_invalid_and_protected_root_names(self):
+        fs = make_wad_image.Fat16Image(bytearray(self.image))
+        for name in (
+            b"TOO-LONG-NAME",
+            b"BAD/NAMEEXT",
+            b"BAD NAMEEXT",
+            b"        TXT",
+            b"DOOM1   WAD",
+            b"USERPROBELF",
+            b"DOOM    ELF",
+        ):
+            with self.subTest(name=name):
+                with self.assertRaises(ValueError):
+                    fs.create_or_reuse_root_entry(name)
+
     def test_wad_fixture_header_and_lumps(self):
         wad = self.cluster_bytes(2, 1024 * 1024)
         self.assertEqual(wad[:4], b"IWAD")
@@ -422,6 +437,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("SMOKE_REQUIRE_DOOM_PRESENT ?= 0", makefile)
         self.assertIn("SMOKE_REQUIRE_KEY_EVENT ?= 0", makefile)
         self.assertIn("SMOKE_REQUIRE_DOOM_GAMEPLAY ?= 0", makefile)
+        self.assertIn("SMOKE_REQUIRE_REAL_WAD_PROOF ?= 0", makefile)
         self.assertIn("SMOKE_NC_TIMEOUT ?= 3", makefile)
         self.assertIn("SMOKE_QEMU_TIMEOUT ?= 30", makefile)
         self.assertIn("SMOKE_EARLY_SECONDS ?= 2", makefile)
@@ -455,17 +471,20 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("SMOKE_SETTLE_SECONDS=20", real_wad_workflow)
         self.assertIn("SMOKE_REQUIRE_DOOM_PRESENT=1", real_wad_workflow)
         self.assertIn("SMOKE_REQUIRE_DOOM_GAMEPLAY=1", real_wad_workflow)
+        self.assertIn("SMOKE_REQUIRE_REAL_WAD_PROOF=1", real_wad_workflow)
         self.assertIn("SMOKE_REQUIRE_KEY_EVENT=1", real_wad_workflow)
         self.assertIn('SMOKE_SENDKEYS="spc"', real_wad_workflow)
         self.assertIn("SMOKE_REJECT_DOOMLOG=", real_wad_workflow)
+        self.assertIn("Assert real-WAD proof gates", real_wad_workflow)
+        self.assertIn("python3 tools/check_real_wad_proof.py build/status.txt", real_wad_workflow)
         self.assertIn("timeout-minutes: 2", real_wad_workflow)
         self.assertIn("Show smoke diagnostics", real_wad_workflow)
         self.assertIn("build/status*.bin", real_wad_workflow)
         self.assertIn("build/status*.txt", real_wad_workflow)
-        self.assertIn("build/vga*.txt", real_wad_workflow)
         self.assertIn("build/*.log", real_wad_workflow)
         self.assertNotIn("build/disk.img", real_wad_workflow)
         self.assertNotIn("build/gfx.bin", real_wad_workflow)
+        self.assertNotIn("build/vga*.txt", real_wad_workflow)
         self.assertNotIn("build/private", real_wad_workflow)
         os_upload_block = os_smoke_workflow.split("uses: actions/upload-artifact@v4", 1)[1]
         self.assertNotIn("build/gfx.bin", os_upload_block)
@@ -573,6 +592,29 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("/gstate=([0-9A-F]{8})/", makefile)
         self.assertIn("hex($$1) == 0x00000101", makefile)
         self.assertIn("/leveltime=([0-9A-F]{8})/", makefile)
+        self.assertIn("tools/check_real_wad_proof.py $(BUILD_DIR)/status.txt", makefile)
+
+    def test_real_wad_proof_checker_requires_meaningful_status(self):
+        sys.path.insert(0, str(ROOT / "tools"))
+        try:
+            import check_real_wad_proof
+        finally:
+            sys.path.pop(0)
+
+        valid = "Aurora OS v0.2 gameplay=OK gmap=00000101 leveltime=00000001 doompresent=00000002 doomlog=ready"
+        check_real_wad_proof.validate_status(valid)
+
+        invalid_cases = (
+            "Aurora OS v0.2 gameplay=NO gmap=00000101 leveltime=00000001 doompresent=00000002",
+            "Aurora OS v0.2 gameplay=OK gmap=00000102 leveltime=00000001 doompresent=00000002",
+            "Aurora OS v0.2 gameplay=OK gmap=00000101 leveltime=00000000 doompresent=00000002",
+            "Aurora OS v0.2 gameplay=OK gmap=00000101 leveltime=00000001 doompresent=00000000",
+            "Aurora OS v0.2 gameplay=OK gmap=00000101 leveltime=00000001 doompresent=00000002 doomlog=PNAMES not found",
+        )
+        for status in invalid_cases:
+            with self.subTest(status=status):
+                with self.assertRaises(AssertionError):
+                    check_real_wad_proof.validate_status(status)
 
     def test_user_syscalls_validate_against_current_process_window(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
@@ -611,11 +653,16 @@ class SourceContractTests(unittest.TestCase):
             self.assertIn(source, image_tool)
         for source in (
             "USER_FD_WRITABLE_BASE equ 4",
-            "WRITABLE_FILE_COUNT equ 7",
+            "WRITABLE_KNOWN_FILE_COUNT equ 7",
+            "WRITABLE_FILE_COUNT equ 16",
+            "WRITABLE_GENERIC_CAPACITY equ 0x00040000",
             "ATA_CMD_WRITE_SECTORS equ 0x30",
             "ata_write_sector:",
             "fat_find_writable_files:",
             "fat_create_root_file:",
+            "fat_parse_user_root83:",
+            "fat_open_name_is_protected:",
+            "fat_bind_found_writable_slot:",
             "fat_alloc_cluster:",
             "fat_write_cluster_entry:",
             "fat_free_chain:",
@@ -627,9 +674,18 @@ class SourceContractTests(unittest.TestCase):
             "user_file_lseek:",
             "DEFAULT CFG",
             "DOOMSAV0DSG",
+            "fat_open_name_buffer times 11 db 0",
             "SYS_CLOSE equ 12",
         ):
             self.assertIn(source, kernel)
+        open_path = kernel.split(".open:", 1)[1].split(".read:", 1)[0]
+        self.assertIn("test dword [syscall_open_flags], O_WRONLY | O_RDWR | O_TRUNC | O_APPEND", open_path)
+        self.assertIn("cmp edx, WRITABLE_KNOWN_FILE_COUNT", open_path)
+        self.assertIn("test eax, O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND", open_path)
+        self.assertIn("call fat_parse_user_root83", open_path)
+        self.assertIn("call fat_open_name_is_protected", open_path)
+        self.assertIn("call fat_create_root_file", open_path)
+        self.assertIn("call fat_bind_found_writable_slot", open_path)
         writer = kernel.split("user_file_write:", 1)[1].split("user_file_lseek:", 1)[0]
         self.assertIn("call fat_file_lba_for_write", writer)
         self.assertNotIn("call fat_file_lba_for_offset", writer)
@@ -640,18 +696,24 @@ class SourceContractTests(unittest.TestCase):
     def test_kernel_has_real_process_table_and_scheduler_accounting(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
         for source in (
-            "PROCESS_SLOT_COUNT equ 3",
+            "PROC_KERNEL_PROCESS_STACK_TOP equ 0x00070000",
+            "PROC_USER_PROBE_KERNEL_STACK_TOP equ 0x00071000",
+            "PROC_PREEMPT_PROBE_KERNEL_STACK_TOP equ 0x00072000",
+            "PROC_DOOM_KERNEL_STACK_TOP equ 0x00073000",
+            "PROCESS_SLOT_COUNT equ 4",
             "PROCESS_RECORD_BYTES equ 128",
             "PROC_SAVED_EIP equ 76",
             "PROC_QUANTUM_TICKS equ 100",
             "PROC_PAGE_DIR equ 108",
             "PROC_VM_REGIONS equ 112",
             "PROC_VM_REGION_COUNT equ 116",
+            "PROC_KERNEL_STACK_TOP equ 124",
             "PROC_FLAG_IRQ_FRAME_VALID equ 0x1",
             "SCHEDULER_QUANTUM_TICKS equ 5",
             "process_table:",
             "process_kernel:",
             "process_user_probe:",
+            "process_preempt_probe:",
             "process_doom:",
             "scheduler_init:",
             "process_activate:",
@@ -662,30 +724,56 @@ class SourceContractTests(unittest.TestCase):
             self.assertIn(source, kernel)
         self.assertIn("dd 0, USER_KIND_NONE, PROC_STATE_READY", kernel)
         self.assertIn("dd 1, USER_KIND_PROBE, PROC_STATE_READY", kernel)
+        self.assertIn("dd 3, USER_KIND_PREEMPT_PROBE, PROC_STATE_READY", kernel)
         self.assertIn("dd 2, USER_KIND_DOOM, PROC_STATE_READY", kernel)
         self.assertIn("call scheduler_init", kernel)
         self.assertIn("mov [current_process_ptr], esi", kernel)
         self.assertIn("mov [current_pid], eax", kernel)
+        process_activate = kernel.split("process_activate:", 1)[1].split("process_return_to_kernel:", 1)[0]
+        self.assertIn("mov eax, [esi + PROC_KERNEL_STACK_TOP]", process_activate)
+        self.assertIn("mov [tss_esp0], eax", process_activate)
+        self.assertIn("mov word [tss_ss0], DATA_SEG", process_activate)
         self.assertIn("inc dword [scheduler_context_switches]", kernel)
 
     def test_kernel_has_per_process_page_directories_and_vm_regions(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
         for source in (
             "PTE_KERNEL_FLAGS equ PTE_PRESENT | PTE_WRITE",
-            "PTE_USER_FLAGS equ PTE_PRESENT | PTE_WRITE | PTE_USER",
+            "PTE_USER_READ_FLAGS equ PTE_PRESENT | PTE_USER",
+            "PTE_USER_WRITE_FLAGS equ PTE_PRESENT | PTE_WRITE | PTE_USER",
+            "PTE_USER_FLAGS equ PTE_USER_WRITE_FLAGS",
             "PROC_PROBE_PAGE_DIR_ADDR equ 0x00080000",
             "PROC_DOOM_PAGE_DIR_ADDR equ 0x00082000",
             "process_vm_init_page_spaces:",
             "vmm_mark_process_user_range:",
+            "vmm_mark_process_user_read_range:",
+            "vmm_mark_process_user_write_range:",
+            "vmm_mark_process_user_range_with_flags:",
             "vmm_mark_process_user_page:",
             "vmm_clear_process_page:",
             "process_user_probe_vm_regions:",
             "process_doom_vm_regions:",
-            "dd PROC_PROBE_PAGE_DIR_ADDR, process_user_probe_vm_regions, 2, 0, 0",
-            "dd PROC_DOOM_PAGE_DIR_ADDR, process_doom_vm_regions, 3, 0, 0",
+            "VM_REGION_READ equ 0x4",
+            "VM_REGION_WRITE equ 0x8",
+            "VM_REGION_EXEC equ 0x10",
+            "dd PROC_PROBE_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_USER_PROBE_KERNEL_STACK_TOP",
+            "dd PROC_PROBE_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_PREEMPT_PROBE_KERNEL_STACK_TOP",
+            "dd PROC_DOOM_PAGE_DIR_ADDR, process_doom_vm_regions, 3, 0, PROC_DOOM_KERNEL_STACK_TOP",
             "mov cr3, eax",
         ):
             self.assertIn(source, kernel)
+        self.assertIn(
+            "dd USER_CODE_ADDR, USER_STACK_BOTTOM, VM_REGION_USER | VM_REGION_READ | VM_REGION_WRITE | VM_REGION_EXEC",
+            kernel,
+        )
+        self.assertIn(
+            "dd USER_STACK_BOTTOM, USER_STACK_TOP, VM_REGION_USER | VM_REGION_READ | VM_REGION_WRITE",
+            kernel,
+        )
+        self.assertIn(
+            "dd DOOM_USER_HEAP_START, DOOM_USER_HEAP_END, VM_REGION_USER | VM_REGION_HEAP | VM_REGION_READ | VM_REGION_WRITE",
+            kernel,
+        )
         paging_init = kernel.split("paging_init:", 1)[1].split("pmm_init:", 1)[0]
         self.assertIn("or ebx, PTE_KERNEL_FLAGS", paging_init)
         self.assertIn("call process_vm_init_page_spaces", paging_init)
@@ -701,6 +789,31 @@ class SourceContractTests(unittest.TestCase):
         sbrk = kernel.split(".sbrk:", 1)[1].split(".open:", 1)[0]
         self.assertIn("call vmm_mark_process_user_range", sbrk)
         self.assertIn("mov cr3, ebx", sbrk)
+
+    def test_elf_loader_encodes_segment_write_permissions_in_ptes(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        for source in (
+            "ELF_PH_FLAGS equ 24",
+            "ELF_PF_W equ 0x2",
+            "user_segment_flags dd 0",
+            "doom_segment_flags dd 0",
+        ):
+            self.assertIn(source, kernel)
+        marker = kernel.split("vmm_mark_process_user_page:", 1)[1].split("vmm_clear_process_page:", 1)[0]
+        self.assertIn("and ebx, 0xfffff000", marker)
+        self.assertIn("or ebx, ecx", marker)
+        user_prepare = kernel.split("user_elf_prepare:", 1)[1].split("doom_elf_prepare:", 1)[0]
+        doom_prepare = kernel.split("doom_elf_prepare:", 1)[1].split("syscall_handler:", 1)[0]
+        for prepare, page_dir in (
+            (user_prepare, "PROC_PROBE_PAGE_DIR_ADDR"),
+            (doom_prepare, "PROC_DOOM_PAGE_DIR_ADDR"),
+        ):
+            self.assertIn("mov eax, [esi + ELF_PH_FLAGS]", prepare)
+            self.assertIn("test dword", prepare)
+            self.assertIn("ELF_PF_W", prepare)
+            self.assertIn(f"mov ebx, {page_dir}", prepare)
+            self.assertIn("call vmm_mark_process_user_write_range", prepare)
+            self.assertIn("call vmm_mark_process_user_read_range", prepare)
 
     def test_timer_path_saves_task_context_and_round_robin_state(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
@@ -739,6 +852,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("call scheduler_preempt_self_test", kernel)
         self.assertIn("call process_restore_irq_context", selftest)
         self.assertIn("cmp dword [scheduler_next_process_ptr], process_user_probe", selftest)
+        self.assertIn("cmp dword [scheduler_next_process_ptr], process_preempt_probe", selftest)
+        self.assertIn("cmp dword [scheduler_next_pid], 3", selftest)
         self.assertIn('smoke_preempt_text db " preempt="', kernel)
         self.assertIn('smoke_pself_text db " pself="', kernel)
 
@@ -940,6 +1055,19 @@ class SourceContractTests(unittest.TestCase):
             "sb16_dma_program_count dd 0",
             "align 4096",
             "sb16_dma_buffer times SB16_DMA_BUFFER_BYTES db 0x80",
+            "mov dx, DMA8_CH1_ADDR_REG",
+            "mov dx, DMA8_CH1_PAGE_REG",
+            "mov dx, DMA8_CH1_COUNT_REG",
+            "out DMA8_MASK_REG, al",
+            "out DMA8_CLEAR_FLIPFLOP_REG, al",
+            "out DMA8_MODE_REG, al",
+            "mov al, DMA8_CH1_AUTO_READ_MODE",
+            "mov al, SB16_DSP_SPEAKER_ON",
+            "mov al, SB16_DSP_SET_TIME_CONSTANT",
+            "mov al, SB16_DSP_SET_BLOCK_SIZE",
+            "mov al, SB16_DSP_8BIT_AUTO_OUT",
+            "mov dx, SB16_DSP_READ_STATUS",
+            "mov dx, SB16_DSP_ACK16",
             'smoke_doomsound_text db " doomsound="',
             'smoke_audio_text db " audio="',
         ):
@@ -950,10 +1078,18 @@ class SourceContractTests(unittest.TestCase):
             "VIBE_AUDIO_UPDATE_SFX = 4",
         ):
             self.assertIn(source, header)
-        self.assertIn("vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_INIT", platform)
-        self.assertIn("vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_START_SFX", platform)
-        self.assertIn("vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_STOP_SFX", platform)
-        self.assertIn("vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_UPDATE_SFX", platform)
+        for source in (
+            "vibe_audio_sfx_desc_t desc",
+            "desc.samples = lump_data + 8",
+            "desc.length = (unsigned long)(lump_length - 8)",
+            "VIBE_SYS_AUDIO",
+            "VIBE_AUDIO_INIT",
+            "VIBE_AUDIO_START_SFX",
+            "VIBE_AUDIO_STOP_SFX",
+            "VIBE_AUDIO_UPDATE_SFX",
+            "(unsigned long)&desc",
+        ):
+            self.assertIn(source, platform)
         self.assertIn('grep -q "doomsound="', makefile)
         self.assertIn('grep -Eq "audio=(SB16|NONE)"', makefile)
         self.assertIn("test: $(IMAGE) doom-link", makefile)

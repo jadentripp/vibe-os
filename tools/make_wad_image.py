@@ -32,6 +32,7 @@ WRITABLE_DYNAMIC_FILES = (
     *((name, WRITABLE_SAVE_BYTES) for name in WRITABLE_SAVE_NAMES),
 )
 MIN_OS_CREATED_FILE_CLUSTERS = 4096
+PROTECTED_ROOT_NAMES = (b"DOOM1   WAD", USER_PROBE_NAME, DOOM_ELF_NAME)
 SYNTHETIC_PATCH_NAME = "SYNTHPCH"
 SHAREWARE_SWITCH_TEXTURES = (
     "SW1BRCOM", "SW2BRCOM",
@@ -195,6 +196,23 @@ class Fat16Image:
         self.root_size = self.root_entries * 32
         self.data_lba = self.root_lba + ((self.root_size + SECTOR_SIZE - 1) // SECTOR_SIZE)
 
+    @staticmethod
+    def validate_root_83_name(name, *, allow_protected=False):
+        if not isinstance(name, (bytes, bytearray)) or len(name) != 11:
+            raise ValueError("FAT16 root name must be an 11-byte 8.3 name")
+        if not allow_protected and bytes(name) in PROTECTED_ROOT_NAMES:
+            raise ValueError("protected WAD/ELF root entries are read-only")
+        base = bytes(name[:8])
+        ext = bytes(name[8:])
+        if base[0:1] == b" " or b" " in base.rstrip(b" "):
+            raise ValueError("FAT16 8.3 base name must be left-aligned and non-empty")
+        if b" " in ext.rstrip(b" "):
+            raise ValueError("FAT16 8.3 extension must be left-aligned")
+        allowed = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_- "
+        if any(ch not in allowed for ch in name):
+            raise ValueError("FAT16 root name contains unsupported characters")
+        return bytes(name)
+
     def fat_entry(self, cluster):
         fat_lba = self.partition_lba + self.reserved
         return read_le16(self.image, fat_lba * SECTOR_SIZE + cluster * 2)
@@ -208,6 +226,7 @@ class Fat16Image:
             write_le16(self.image, fat_lba * SECTOR_SIZE + cluster * 2, value)
 
     def root_entry_offset(self, name):
+        name = self.validate_root_83_name(name, allow_protected=True)
         root_start = self.root_lba * SECTOR_SIZE
         for offset in range(0, self.root_size, 32):
             entry = root_start + offset
@@ -219,6 +238,7 @@ class Fat16Image:
         return None
 
     def create_or_reuse_root_entry(self, name):
+        name = self.validate_root_83_name(name)
         root_start = self.root_lba * SECTOR_SIZE
         existing = self.root_entry_offset(name)
         if existing is not None:

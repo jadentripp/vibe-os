@@ -13,6 +13,7 @@ SMOKE_SENDKEYS ?=
 SMOKE_REQUIRE_DOOM_PRESENT ?= 0
 SMOKE_REQUIRE_KEY_EVENT ?= 0
 SMOKE_REQUIRE_DOOM_GAMEPLAY ?= 0
+SMOKE_REQUIRE_REAL_WAD_PROOF ?= 0
 SMOKE_NC_TIMEOUT ?= 3
 SMOKE_QEMU_TIMEOUT ?= 30
 SMOKE_EARLY_SECONDS ?= 2
@@ -172,10 +173,18 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "usr=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "wad=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "lmp=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "exec=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "path=DOOM.ELF" $(BUILD_DIR)/status.txt; \
 	grep -q "doom=OK" $(BUILD_DIR)/status.txt; \
 	grep -Eq "doomrun=(RUN|EXIT)" $(BUILD_DIR)/status.txt; \
 	grep -q "doomopen=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "doomread=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "doomwrite=" $(BUILD_DIR)/status.txt; \
+	grep -q "doomseek=" $(BUILD_DIR)/status.txt; \
+	grep -q "doomclose=" $(BUILD_DIR)/status.txt; \
+	grep -q "doomsbrk=" $(BUILD_DIR)/status.txt; \
+	grep -q "doomerr=" $(BUILD_DIR)/status.txt; \
+	grep -q "doommode=" $(BUILD_DIR)/status.txt; \
 	grep -q "doomlog=" $(BUILD_DIR)/status.txt; \
 	grep -q "doompresent=" $(BUILD_DIR)/status.txt; \
 	grep -q "gameplay=" $(BUILD_DIR)/status.txt; \
@@ -219,6 +228,9 @@ smoke: vm-consent check-tools $(IMAGE)
 		perl -ne '$$ok = 1 if /gmap=([0-9A-F]{8})/ && hex($$1) == 0x00000101; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 		perl -ne '$$ok = 1 if /gtic=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 		perl -ne '$$ok = 1 if /leveltime=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+	fi; \
+	if [ "$(SMOKE_REQUIRE_REAL_WAD_PROOF)" = "1" ]; then \
+		$(PYTHON) tools/check_real_wad_proof.py $(BUILD_DIR)/status.txt; \
 	fi; \
 	if [ -n "$(SMOKE_SENDKEYS)" ] || [ "$(SMOKE_REQUIRE_KEY_EVENT)" = "1" ]; then \
 		perl -ne '$$ok = 1 if /keyirq=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \

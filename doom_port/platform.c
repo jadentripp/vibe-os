@@ -14,6 +14,7 @@
 #include "vibe_os.h"
 #include "v_video.h"
 #include "w_wad.h"
+#include "z_zone.h"
 
 extern doomcom_t* doomcom;
 
@@ -233,11 +234,38 @@ int I_StartSound(int id, int vol, int sep, int pitch, int priority)
     (void)priority;
     {
         int handle = next_sound_handle++;
-        unsigned long packed = ((unsigned long)(vol & 0xff) << 24)
-            | ((unsigned long)(sep & 0xff) << 16)
-            | ((unsigned long)(pitch & 0xff) << 8)
-            | (unsigned long)(id & 0xff);
-        (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_START_SFX, (unsigned long)handle, packed);
+        vibe_audio_sfx_desc_t desc;
+        sfxinfo_t* sfx = &S_sfx[id];
+        int lump_length;
+        unsigned char* lump_data;
+
+        if (sfx->link)
+            sfx = sfx->link;
+
+        if (sfx->lumpnum < 0)
+            sfx->lumpnum = I_GetSfxLumpNum(sfx);
+
+        if (!sfx->data)
+            sfx->data = W_CacheLumpNum(sfx->lumpnum, PU_STATIC);
+
+        lump_length = W_LumpLength(sfx->lumpnum);
+        lump_data = (unsigned char*)sfx->data;
+
+        memset(&desc, 0, sizeof(desc));
+        if (lump_length > 8 && lump_data) {
+            desc.samples = lump_data + 8;
+            desc.length = (unsigned long)(lump_length - 8);
+        }
+        desc.volume = (unsigned long)(vol & 0xff);
+        desc.separation = (unsigned long)(sep & 0xff);
+        desc.pitch = (unsigned long)(pitch & 0xff);
+        desc.sound_id = (unsigned long)id;
+
+        (void)vibe_syscall3(
+            VIBE_SYS_AUDIO,
+            VIBE_AUDIO_START_SFX,
+            (unsigned long)handle,
+            (unsigned long)&desc);
         return handle;
     }
 }
@@ -255,10 +283,18 @@ int I_SoundIsPlaying(int handle)
 
 void I_UpdateSoundParams(int handle, int vol, int sep, int pitch)
 {
-    unsigned long packed = ((unsigned long)(vol & 0xff) << 16)
-        | ((unsigned long)(sep & 0xff) << 8)
-        | (unsigned long)(pitch & 0xff);
-    (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_UPDATE_SFX, (unsigned long)handle, packed);
+    vibe_audio_sfx_desc_t desc;
+
+    memset(&desc, 0, sizeof(desc));
+    desc.volume = (unsigned long)(vol & 0xff);
+    desc.separation = (unsigned long)(sep & 0xff);
+    desc.pitch = (unsigned long)(pitch & 0xff);
+
+    (void)vibe_syscall3(
+        VIBE_SYS_AUDIO,
+        VIBE_AUDIO_UPDATE_SFX,
+        (unsigned long)handle,
+        (unsigned long)&desc);
 }
 
 void I_InitMusic(void)

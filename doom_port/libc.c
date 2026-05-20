@@ -223,6 +223,29 @@ static int syscall_failed(int raw, int fallback_errno)
     return -1;
 }
 
+static int validate_open_flags(int flags)
+{
+    int access_mode = flags & O_ACCMODE;
+    int known_flags = O_ACCMODE | O_CREAT | O_TRUNC | O_APPEND | O_BINARY;
+
+    if ((flags & ~known_flags) || access_mode == O_ACCMODE) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if ((flags & O_TRUNC) && access_mode == O_RDONLY) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if ((flags & O_APPEND) && access_mode == O_RDONLY) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    return 0;
+}
+
 static int checked_multiply_size(size_t left, size_t right, size_t* out)
 {
     if (left && right > (size_t)-1 / left) {
@@ -545,6 +568,9 @@ int open(const char* path, int flags, ...)
         errno = EINVAL;
         return -1;
     }
+
+    if (validate_open_flags(flags) < 0)
+        return -1;
 
     if (flags & O_CREAT) {
         va_start(args, flags);

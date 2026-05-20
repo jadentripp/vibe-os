@@ -14,7 +14,8 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
 - kernel-owned IDT/PIC/PIT timer tick
 - kernel-owned GDT with Ring 0/Ring 3 descriptors and a TSS
 - paging enabled with supervisor-only kernel identity mappings, per-process
-  page directories for user processes, and a map-page self-test
+  page directories for user processes, ELF segment write-permission metadata,
+  and a map-page self-test
 - a standalone user ELF loaded from FAT16, entered in Ring 3, invoking
   `int 0x80`, and proving supervisor pages fault
 - tiny user-space C runtime entrypoint that links a freestanding C probe into
@@ -36,8 +37,9 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
   WAD and Ring 3 probe, with kernel-side directory discovery, load, and ELF
   program-header validation
 - hard-path WAD loading through an ATA PIO IDE driver and a FAT16 reader
-- dynamic FAT16 writable files for Doom defaults and save slots, with kernel
-  read/write/lseek/truncate support over allocated cluster chains
+- dynamic FAT16 writable files for Doom defaults, save slots, and bounded
+  root-level 8.3 user-created files, with kernel read/write/lseek/truncate
+  support over allocated cluster chains
 - WAD header/directory parsing with named-lump lookup for Doom assets
 - text UI with an interactive shell
 - local QEMU targets guarded behind an explicit opt-in
@@ -127,7 +129,7 @@ Current disk layout:
   `DOOM.ELF`, plus empty dynamic `DEFAULT.CFG` and `DOOMSAV0.DSG` through
   `DOOMSAV5.DSG` writable root entries
 
-See `docs/persistent-fat16.md` for the dynamic root-level persistence contract
+See `docs/persistent-fat16.md` for the bounded root-level persistence contract
 and the remaining gap to general FAT coverage.
 
 See `docs/process-vm.md` for the current process address-space contract,
@@ -244,8 +246,8 @@ Already implemented:
 Still required before this is actually Doom-capable:
 
 - higher-half kernel mapping and real user address spaces
-- per-process kernel stacks and a second long-lived runnable user task to
-  exercise the timer preemption path continuously under Doom
+- a second fully launched long-lived user task to exercise the timer
+  preemption path continuously under Doom
 - a broader syscall ABI: `exec`, `mmap`, fuller file I/O, and richer drawing
 - run and analyze the manual cloud smoke with an actual user-supplied shareware
   `DOOM1.WAD`

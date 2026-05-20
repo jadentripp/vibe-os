@@ -185,6 +185,8 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
         int file_index;
         int fd;
         ++mock_open_syscalls;
+        if (!strcasecmp(path, "denied.txt"))
+            return -EACCES;
         file_index = mock_find_file(path);
         if (file_index < 0) {
             if (!(flags & O_CREAT))
@@ -543,6 +545,39 @@ int main(void)
             return 73;
         if (!mock_file_matches(file_index, "AB"))
             return 74;
+    }
+
+    mock_reset();
+    if (open("bad.txt", O_ACCMODE) != -1 || errno != EINVAL)
+        return 75;
+    if (mock_open_syscalls != 0)
+        return 76;
+    if (open("bad.txt", O_RDONLY | O_TRUNC) != -1 || errno != EINVAL)
+        return 77;
+    if (mock_open_syscalls != 0)
+        return 78;
+    if (open("denied.txt", O_RDONLY) != -1 || errno != EACCES)
+        return 79;
+    if (mock_open_syscalls != 1)
+        return 80;
+
+    mock_reset();
+    {
+        FILE* f = fopen("update.cfg", "w+b");
+        int file_index = mock_find_file("update.cfg");
+        char ch = 0;
+        if (!f)
+            return 81;
+        if (mock_files[file_index].last_flags != (O_RDWR | O_CREAT | O_TRUNC))
+            return 82;
+        if (fwrite("XY", 1, 2, f) != 2)
+            return 83;
+        if (fseek(f, 0, SEEK_SET) != 0)
+            return 84;
+        if (fread(&ch, 1, 1, f) != 1 || ch != 'X')
+            return 85;
+        if (fclose(f) != 0)
+            return 86;
     }
 
     return 0;
