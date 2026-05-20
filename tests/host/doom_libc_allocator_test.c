@@ -649,6 +649,8 @@ int main(void)
             return 43;
         if (fprintf(f, "%s\t\t%i\n", "screenblocks", 9) != 16)
             return 44;
+        if (mock_write_syscalls != 1)
+            return 200;
         if (fclose(f) != 0)
             return 45;
         if (!mock_file_matches(file_index, "screenblocks\t\t9\n"))
@@ -687,6 +689,8 @@ int main(void)
             return 143;
         if (fprintf(f, "%s\t\t%i\n%s\t\t\"%s\"\n", "use_mouse", 1, "chatmacro0", "PERSIST") != 35)
             return 144;
+        if (mock_write_syscalls != 1)
+            return 201;
         if (fclose(f) != 0)
             return 145;
         if (!mock_file_matches(file_index, "use_mouse\t\t1\nchatmacro0\t\t\"PERSIST\"\n"))

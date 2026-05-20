@@ -1120,6 +1120,18 @@ static int out_char(char** out, size_t* left, int fd, char ch)
     return 0;
 }
 
+static int write_all_fd(int fd, const char* data, size_t length)
+{
+    size_t done = 0;
+    while (done < length) {
+        ssize_t bytes = write(fd, data + done, length - done);
+        if (bytes <= 0)
+            return -1;
+        done += (size_t)bytes;
+    }
+    return 0;
+}
+
 static int out_string(char** out, size_t* left, int fd, const char* text)
 {
     int count = 0;
@@ -1157,7 +1169,6 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
 {
     char* out = buffer;
     size_t left = size;
-    const char* start = buffer;
     int count = 0;
 
     while (*format) {
@@ -1255,7 +1266,7 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
     }
     if (buffer && size)
         *out = 0;
-    return buffer ? (int)(out - start) : count;
+    return count;
 }
 
 int vsnprintf(char* buffer, size_t size, const char* format, va_list args)
@@ -1290,6 +1301,8 @@ int sprintf(char* buffer, const char* format, ...)
 
 int vfprintf(FILE* stream, const char* format, va_list args)
 {
+    char buffer[512];
+    va_list copy;
     int result;
     if (!stream || !stream->used || !stream->writable) {
         if (stream)
@@ -1299,7 +1312,16 @@ int vfprintf(FILE* stream, const char* format, va_list args)
     }
     if (stream->append)
         (void)lseek(stream->fd, 0, SEEK_END);
-    result = format_to(0, 0, stream->fd, format, args);
+
+    va_copy(copy, args);
+    result = format_to(buffer, sizeof(buffer), stream->fd, format, copy);
+    va_end(copy);
+    if (result >= 0 && (size_t)result < sizeof(buffer)) {
+        if (write_all_fd(stream->fd, buffer, (size_t)result) < 0)
+            result = -1;
+    } else if (result >= 0) {
+        result = format_to(0, 0, stream->fd, format, args);
+    }
     if (result < 0)
         stream->error = 1;
     return result;

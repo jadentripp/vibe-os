@@ -43,8 +43,8 @@ static int playable_initial_clip = -1;
 
 #define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
 #define VIBE_MUSIC_STREAM_TICS \
-    ((int)((VIBE_MUSIC_STREAM_BYTES * 35u) / VIBE_MUSIC_DEFAULT_SAMPLE_RATE) / 8)
-#define VIBE_MUSIC_BUFFER_LOW_WATER_BYTES (VIBE_MUSIC_STREAM_BYTES / 4u)
+    ((int)((VIBE_MUSIC_STREAM_BYTES * 35u) / VIBE_MUSIC_DEFAULT_SAMPLE_RATE) / 16)
+#define VIBE_MUSIC_BUFFER_LOW_WATER_BYTES ((VIBE_MUSIC_STREAM_BYTES * 3u) / 4u)
 #define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x2c000u
 
 static void report_doom_init_status(unsigned long flags)
@@ -178,6 +178,7 @@ void I_StartTic(void)
     vibe_doom_input_event_t translated;
 
     report_doom_init_status(VIBE_DOOM_INIT_TIC);
+    pump_music_stream();
 
     for (i = 0; i < 32; ++i) {
         packed = vibe_syscall3(VIBE_SYS_POLL_KEY, 0, 0, 0);
@@ -349,6 +350,7 @@ void I_FinishUpdate(void)
     vibe_present_indexed_t present;
 
     report_doom_init_status(VIBE_DOOM_INIT_FRAME);
+    pump_music_stream();
     report_gameplay_status();
     report_playability_status();
     if (screens[0]) {

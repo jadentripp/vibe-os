@@ -288,6 +288,8 @@ class AudioContractTests(unittest.TestCase):
         for source in (
             "desc.flags = VIBE_AUDIO_FLAG_MUSIC;",
             "static unsigned char music_pcm[2][VIBE_MUSIC_STREAM_BYTES];",
+            "VIBE_MUSIC_DEFAULT_SAMPLE_RATE) / 16)",
+            "#define VIBE_MUSIC_BUFFER_LOW_WATER_BYTES ((VIBE_MUSIC_STREAM_BYTES * 3u) / 4u)",
             "vibe_music_stream_begin(",
             "vibe_music_stream_render(",
             "vibe_music_audio_handle(handle)",
@@ -295,6 +297,8 @@ class AudioContractTests(unittest.TestCase):
             "VIBE_AUDIO_UPDATE_SFX",
             "VIBE_AUDIO_BUFFERED_BYTES",
             "pump_music_stream",
+            "report_doom_init_status(VIBE_DOOM_INIT_TIC);\n    pump_music_stream();",
+            "report_doom_init_status(VIBE_DOOM_INIT_FRAME);\n    pump_music_stream();",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, platform)

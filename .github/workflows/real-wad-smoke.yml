@@ -16,7 +16,7 @@ on:
         description: QEMU input script for the first persistence boot. Use text=NAME to batch save-name typing; default attempts Doom menu quit so DEFAULT.CFG is saved.
         required: false
         type: string
-        default: "persist-quit:esc,wait=1,up,wait=1,ret,wait=1,y,wait=12,snapshot"
+        default: "persist-quit:f10,wait=1,y,wait=12,snapshot"
       persistence_save_slot:
         description: Optional DOOMSAV slot number to require if the input script creates a save.
         required: false
@@ -242,6 +242,7 @@ jobs:
             check_args+=(--require-save-slot "$PERSISTENCE_SAVE_SLOT")
           else
             check_args+=(--require-default)
+            check_args+=(--write-status build/status.persistence-write.txt)
           fi
 
           test -f "$baseline"

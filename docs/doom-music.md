@@ -56,8 +56,8 @@ platform hook a clean zero-render signal to stop the SB16 music voice.
 This is a meaningful step past the old single bounded PCM carrier, but it is
 not final hardware-paced pull streaming yet. The current port renders
 32768-byte chunks at 11025 Hz from the current song position and schedules the
-next chunk from Doom's regular sound hooks once the kernel buffer reaches a
-low-water mark. The kernel still treats music as an SB16 active
+next chunk from Doom's sound, tic, and frame hooks once the kernel buffer reaches
+a three-quarter low-water mark. The kernel still treats music as an SB16 active
 voice, so music and sound effects mix in the IRQ refill path instead of
 competing for a separate backend. Smoke status exposes `musicvoices=`,
 `musicmix=`, `musicpos=`, `musicbuf=`, `musicunder=`, `musicdrops=`, and the

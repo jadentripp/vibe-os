@@ -81,6 +81,25 @@ REBOOT_POSITIVE_HEX_FIELDS = (
     "free",
     "ticks",
 )
+DEFAULT_WRITE_EXACT_FIELDS = {
+    "doom": "OK",
+    "doomrun": "EXIT",
+    "doomopen": "OK",
+    "doomread": "OK",
+    "gameplay": "OK",
+    "panic": "NONE",
+    "shutdown": "NONE",
+    "usr": "OK",
+    "wad": "OK",
+}
+DEFAULT_WRITE_ZERO_HEX_FIELDS = (
+    "doomexit",
+    "doomfault",
+    "doomfaultip",
+    "doomfaultv",
+    "doomfaulterr",
+)
+DEFAULT_WRITE_REQUIRED_OPEN_FLAGS = 0x00000301
 
 spec = importlib.util.spec_from_file_location("make_wad_image", MAKE_WAD_IMAGE)
 make_wad_image = importlib.util.module_from_spec(spec)
@@ -374,12 +393,50 @@ def validate_reboot_status(status):
         raise PersistenceProofError("reboot status fault= must be all zero")
 
 
+def validate_default_write_status(status):
+    if "Aurora OS v0.2" not in status:
+        raise PersistenceProofError("default write status is missing Aurora OS banner")
+
+    fields = _status_fields(status)
+    for name, expected in DEFAULT_WRITE_EXACT_FIELDS.items():
+        value = _status_field(fields, name)
+        if value != expected:
+            raise PersistenceProofError(
+                f"default write status {name}= must be {expected}, got {value!r}"
+            )
+
+    for name in DEFAULT_WRITE_ZERO_HEX_FIELDS:
+        value = _status_hex_field(fields, name)
+        if value != 0:
+            raise PersistenceProofError(
+                f"default write status {name}= must be zero, got {value:#x}"
+            )
+
+    write_count = _status_hex_field(fields, "doomwrite")
+    close_count = _status_hex_field(fields, "doomclose")
+    if write_count == 0:
+        raise PersistenceProofError("default write status doomwrite= must prove file output")
+    if close_count == 0:
+        raise PersistenceProofError("default write status doomclose= must prove file close")
+
+    flags, _mode = _status_hex_tuple_field(fields, "doommode", 2, separator=":")
+    if flags != DEFAULT_WRITE_REQUIRED_OPEN_FLAGS:
+        raise PersistenceProofError(
+            "default write status doommode= must prove DEFAULT.CFG was opened "
+            f"O_WRONLY|O_CREAT|O_TRUNC, got {flags:#x}"
+        )
+
+    if any(_status_hex_tuple_field(fields, "fault", 11)):
+        raise PersistenceProofError("default write status fault= must be all zero")
+
+
 def validate_image(
     path,
     *,
     baseline_image=None,
     reboot_baseline_image=None,
     reboot_status_path=None,
+    write_status_path=None,
     require_default=False,
     require_save_slots=(),
     require_dynamic_fat_proof=False,
@@ -408,6 +465,8 @@ def validate_image(
         )
     if reboot_status_path is not None and reboot_fs is None:
         raise PersistenceProofError("--reboot-status requires --reboot-baseline-image")
+    if write_status_path is not None and not require_default:
+        raise PersistenceProofError("--write-status requires --require-default")
 
     _validate_fat_layout(fs)
     if baseline_fs is not None:
@@ -473,6 +532,9 @@ def validate_image(
     if reboot_status_path is not None:
         validate_reboot_status(Path(reboot_status_path).read_text())
         summary.append("reboot status runtime=OK")
+    if write_status_path is not None:
+        validate_default_write_status(Path(write_status_path).read_text())
+        summary.append("default write status exited=OK")
 
     if not summary:
         summary.append("persistence entries present")
@@ -502,6 +564,10 @@ def parse_args():
         help="decoded status.txt captured from the reboot boot; Doom runtime/fault gates must pass",
     )
     parser.add_argument(
+        "--write-status",
+        help="decoded status.txt captured from the default-writing boot; Doom must have exited cleanly after O_TRUNC defaults output",
+    )
+    parser.add_argument(
         "--require-save-slot",
         action="append",
         type=int,
@@ -524,6 +590,7 @@ def main():
         baseline_image=args.baseline_image,
         reboot_baseline_image=args.reboot_baseline_image,
         reboot_status_path=args.reboot_status,
+        write_status_path=args.write_status,
         require_default=args.require_default,
         require_save_slots=args.require_save_slot,
         require_dynamic_fat_proof=args.require_dynamic_fat_proof,

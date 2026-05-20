@@ -112,7 +112,10 @@ one pending streamed music chunk when the current window is still playing. The
 refill path promotes that pending window exactly at the source boundary and
 continues mixing without retiring the music voice. Doom's port layer can query
 `VIBE_AUDIO_BUFFERED_BYTES` and avoids rendering another chunk until the kernel
-music buffer falls below its low-water mark. Refill advances each voice's 16.16 source position,
+music buffer falls below its low-water mark. The low-water mark is three
+quarters of one streamed chunk, and the port polls from sound, tic, and frame
+hooks so menu/display phases keep feeding the SB16 IRQ puller. Refill advances
+each voice's 16.16 source position,
 supports repeated source samples for low pitch and skipped source samples for
 high pitch, and retires non-looping voices that reach the end of their sample.
 Loop-flagged voices still wrap their source position back to zero for fallback
@@ -215,9 +218,9 @@ does not call host MIDI, audio, math, or operating-system libraries.
 a port-owned stateful stream cursor instead of rendering one permanent carrier.
 The platform layer renders 32768-byte streamed music chunks from the current
 song position and submits the first chunk through `VIBE_AUDIO_START_SFX`; later
-Doom sound ticks poll `VIBE_AUDIO_BUFFERED_BYTES` and call
+Doom sound, tic, and frame hooks poll `VIBE_AUDIO_BUFFERED_BYTES` and call
 `VIBE_AUDIO_UPDATE_SFX` only after the kernel-visible music buffer reaches the
-low-water mark. The music architecture keeps targeting the same SB16
+three-quarter low-water mark. The music architecture keeps targeting the same SB16
 DMA/refill output path, so the parser/renderer work shares SFX voice stealing,
 clipping, silence, and status accounting. The extra `musicvoices=`, `musicmix=`,
 `musicpos=`, `musicbuf=`, `musicunder=`, `musicdrops=`, and `voiceq=` update

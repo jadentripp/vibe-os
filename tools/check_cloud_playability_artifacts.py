@@ -410,6 +410,7 @@ def validate_repo_contract() -> None:
         "cp build/disk.img \"$RUNNER_TEMP/disk.before-persistence.img\"",
         "check_args=(--baseline-image \"$baseline\")",
         "check_args+=(--require-default)",
+        "check_args+=(--write-status build/status.persistence-write.txt)",
         "check_args+=(--require-save-slot \"$PERSISTENCE_SAVE_SLOT\")",
         "cp \"$baseline\" build/disk.img",
         "build/status.persistence-write.txt",

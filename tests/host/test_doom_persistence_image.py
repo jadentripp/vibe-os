@@ -99,6 +99,31 @@ def reboot_status(**overrides):
     return "Aurora OS v0.2 " + " ".join(f"{name}={value}" for name, value in fields.items())
 
 
+def default_write_status(**overrides):
+    fields = {
+        "doom": "OK",
+        "doomrun": "EXIT",
+        "doomopen": "OK",
+        "doomread": "OK",
+        "doomwrite": "00000030",
+        "doomclose": "00000003",
+        "doommode": "00000301:000001B6",
+        "doomexit": "00000000",
+        "doomfault": "00000000",
+        "doomfaultip": "00000000",
+        "doomfaultv": "00000000",
+        "doomfaulterr": "00000000",
+        "fault": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
+        "panic": "NONE",
+        "shutdown": "NONE",
+        "gameplay": "OK",
+        "usr": "OK",
+        "wad": "OK",
+    }
+    fields.update(overrides)
+    return "Aurora OS v0.2 " + " ".join(f"{name}={value}" for name, value in fields.items())
+
+
 class DoomPersistenceImageTests(unittest.TestCase):
     def write_temp_image(self, image):
         tmp = tempfile.NamedTemporaryFile(prefix="vibe-os-persist-", suffix=".img", delete=False)
@@ -235,6 +260,30 @@ class DoomPersistenceImageTests(unittest.TestCase):
 
         self.assertIn("survived-reboot", summary[0])
         self.assertIn("reboot status runtime=OK", summary)
+
+    def test_checker_gates_default_write_status_when_claiming_quit_default(self):
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        image = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(image)
+        fs.write_root_file(make_wad_image.WRITABLE_DEFAULT_NAME, doom_default_payload())
+
+        baseline_path = self.write_temp_image(baseline)
+        image_path = self.write_temp_image(image)
+        status_path = self.write_temp_text(default_write_status())
+
+        summary = check_persistence.validate_image(
+            image_path,
+            baseline_image=baseline_path,
+            write_status_path=status_path,
+            require_default=True,
+        )
+
+        self.assertIn("changed-from-baseline", summary[0])
+        self.assertIn("default write status exited=OK", summary)
+
+    def test_checker_rejects_default_write_status_before_doom_exit(self):
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "doomrun"):
+            check_persistence.validate_default_write_status(default_write_status(doomrun="RUN"))
 
     def test_checker_rejects_faulting_reboot_status(self):
         fault = reboot_status(
@@ -653,6 +702,8 @@ class DoomPersistenceImageTests(unittest.TestCase):
             check_persistence.validate_image(path, reboot_baseline_image=path, require_default=True)
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "--reboot-status"):
             check_persistence.validate_image(path, reboot_status_path=path, require_default=True)
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "--write-status"):
+            check_persistence.validate_image(path, write_status_path=path, require_save_slots=[0])
 
     def test_checker_cli_reports_written_state_without_exporting_image_data(self):
         baseline = bytearray((BUILD / "disk.img").read_bytes())
@@ -663,6 +714,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         baseline_path = self.write_temp_image(baseline)
         path = self.write_temp_image(image)
         status_path = self.write_temp_text(reboot_status())
+        write_status_path = self.write_temp_text(default_write_status())
 
         result = subprocess.run(
             [
@@ -678,6 +730,8 @@ class DoomPersistenceImageTests(unittest.TestCase):
                 str(path),
                 "--reboot-status",
                 str(status_path),
+                "--write-status",
+                str(write_status_path),
                 str(path),
             ],
             cwd=ROOT,
@@ -692,6 +746,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertIn("dynamic FAT allocation/free/truncate proof=OK", result.stdout)
         self.assertIn("survived-reboot", result.stdout)
         self.assertIn("reboot status runtime=OK", result.stdout)
+        self.assertIn("default write status exited=OK", result.stdout)
         self.assertIn("REMOTE PROOF", result.stdout)
         self.assertNotIn("IWAD", result.stdout)
         self.assertEqual(result.stderr, "")

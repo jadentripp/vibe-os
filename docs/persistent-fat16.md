@@ -87,7 +87,11 @@ an after-write snapshot of the same disk image and pass it with
 still have the same FAT root cluster, size, and bytes. Add `--reboot-status`
 with the second boot's decoded status so the same proof also requires a live
 Doom runtime: no user fault, panic, shutdown, or failed `usr`/`wad`/runtime
-health fields. The reboot comparison requires `--baseline-image` too, so a
+health fields. Add `--write-status` when `DEFAULT.CFG` is proved through the
+quit path; the checker then requires the write boot to report clean Doom exit,
+the last `O_WRONLY|O_CREAT|O_TRUNC` defaults open, nonzero write/close counts,
+and no user fault before accepting the disk bytes. The reboot comparison
+requires `--baseline-image` too, so a
 preseeded image can never be reported as a reboot persistence proof without also
 proving the requested bytes changed from the fresh image. With a baseline image
 present, the checker also verifies both FAT copies agree, every allocated data
@@ -108,9 +112,12 @@ agreement and reachable-cluster ownership on the mutated copy, so this is a
 host-verifiable allocation/free/truncate proof without putting a scratch file
 back into the real disk artifact.
 
-The default real-WAD cloud workflow waits after Doom's quit confirmation before
-snapshotting the disk, so `DEFAULT.CFG` is checked after the defaults writer has
-had time to finish and close the file.
+The Doom libc batches formatted `fprintf` output before issuing file writes, so
+`M_SaveDefaults()` does not spend the cloud proof window performing one disk
+syscall per character. The default real-WAD cloud workflow uses Doom's direct
+F10 quit confirmation before snapshotting the disk, and `--write-status` keeps
+that wait honest by rejecting a `DEFAULT.CFG` proof if Doom is still running in
+the defaults writer phase.
 
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,

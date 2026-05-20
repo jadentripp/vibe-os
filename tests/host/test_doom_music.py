@@ -48,6 +48,8 @@ class DoomMusicTests(unittest.TestCase):
             "VIBE_AUDIO_UPDATE_SFX",
             "VIBE_AUDIO_BUFFERED_BYTES",
             "VIBE_MUSIC_BUFFER_LOW_WATER_BYTES",
+            "VIBE_MUSIC_DEFAULT_SAMPLE_RATE) / 16)",
+            "VIBE_MUSIC_BUFFER_LOW_WATER_BYTES ((VIBE_MUSIC_STREAM_BYTES * 3u) / 4u)",
             "vibe_music_audio_handle",
             "pump_music_stream",
             "I_RegisterSong",
