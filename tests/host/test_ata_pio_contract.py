@@ -64,13 +64,9 @@ class AtaPioContractTests(unittest.TestCase):
         self.assertGreaterEqual(read_sector.count("call ata_wait_ready"), 2)
         self.assertGreaterEqual(write_sector.count("call ata_wait_ready"), 2)
         self.assertIn("out dx, al\n    call ata_io_delay\n\n    call ata_wait_drq", read_sector)
-        self.assertIn("mov ecx, 256\n.read_word:\n    in ax, dx", read_sector)
-        self.assertIn("mov [edi], ax\n    add edi, 2\n    loop .read_word", read_sector)
+        self.assertIn("rep insw\n    call ata_io_delay\n    call ata_wait_ready", read_sector)
         self.assertIn("out dx, al\n    call ata_io_delay\n\n    call ata_wait_drq", write_sector)
-        self.assertIn("mov ecx, 256\n.write_word:\n    mov ax, [esi]", write_sector)
-        self.assertIn("out dx, ax\n    add esi, 2\n    loop .write_word", write_sector)
-        self.assertNotIn("rep insw", read_sector)
-        self.assertNotIn("rep outsw", write_sector)
+        self.assertIn("rep outsw\n    call ata_io_delay\n    call ata_wait_ready", write_sector)
 
     def test_storage_status_reports_last_ata_wait_state(self):
         kernel = self.kernel
