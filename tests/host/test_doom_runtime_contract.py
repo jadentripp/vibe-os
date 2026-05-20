@@ -297,8 +297,13 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn('"LOADREQ.CHK"', platform)
         self.assertIn("stat(path, &info)", platform)
         self.assertIn("*slot = (int)info.st_size - 1;", platform)
-        self.assertIn("void G_SaveGame(int slot, char* description);", platform)
-        self.assertIn("G_SaveGame(save_checkpoint_slot, description);", platform)
+        self.assertIn("#define VIBE_PERSISTENCE_MIN_LEVELTIME 32", platform)
+        self.assertIn("if (save_checkpoint_requested)", platform)
+        self.assertIn("if (load_checkpoint_requested)", platform)
+        self.assertIn("if (!default_config_checkpoint_ready() || !persistence_checkpoint_requested())", platform)
+        self.assertIn("savegameslot = save_checkpoint_slot;", platform)
+        self.assertIn("strcpy(savedescription, description);", platform)
+        self.assertIn("gameaction = ga_savegame;", platform)
         self.assertIn("void G_BuildTiccmd(ticcmd_t* cmd)", platform)
         self.assertIn("doom_original_G_BuildTiccmd(cmd);", platform)
         build_ticcmd = platform.split("void G_BuildTiccmd(ticcmd_t* cmd)", 1)[1].split(
@@ -330,7 +335,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
 
         init_body = platform.split("void I_Init(void)", 1)[1].split("byte* I_ZoneBase", 1)[0]
         zone_body = platform.split("byte* I_ZoneBase(int* size)", 1)[1].split("int I_GetTime", 1)[0]
-        cache_body = platform.split("static void cache_persistence_requests(void)", 1)[1].split("static void pump_music_stream", 1)[0]
+        cache_body = platform.split("static void cache_persistence_requests(void)", 1)[1].split("static void checkpoint_default_config_if_needed", 1)[0]
         save_request = platform.split("static int save_checkpoint_requested_once(void)", 1)[1].split("static int load_checkpoint_requested_once", 1)[0]
         load_request = platform.split("static int load_checkpoint_requested_once(void)", 1)[1].split("static int default_config_checkpoint_ready", 1)[0]
         config_request = platform.split("static int persistence_checkpoint_requested(void)", 1)[1].split("static int read_persistence_slot_request", 1)[0]
@@ -340,7 +345,6 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("(void)persistence_checkpoint_requested();", cache_body)
         self.assertIn("(void)save_checkpoint_requested_once();", cache_body)
         self.assertIn("(void)load_checkpoint_requested_once();", cache_body)
-
         self.assertIn("if (save_checkpoint_request_checked)\n        return save_checkpoint_requested;", save_request)
         self.assertIn("if (load_checkpoint_request_checked)\n        return load_checkpoint_requested;", load_request)
         self.assertIn(

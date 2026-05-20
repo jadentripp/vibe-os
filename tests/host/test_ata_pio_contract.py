@@ -72,6 +72,22 @@ class AtaPioContractTests(unittest.TestCase):
         self.assertNotIn("rep insw", read_sector)
         self.assertNotIn("rep outsw", write_sector)
 
+    def test_commands_wait_for_drq_to_clear_around_transfers(self):
+        ready = self.kernel.split("ata_wait_ready:", 1)[1].split("ata_read_sector:", 1)[0]
+        read_sector = self.kernel.split("ata_read_sector:", 1)[1].split("ata_write_sector:", 1)[0]
+        write_sector = self.kernel.split("ata_write_sector:", 1)[1].split("fat_cache_root_dir:", 1)[0]
+
+        self.assertIn("mov dword [ata_wait_phase], ATA_WAIT_READY", ready)
+        self.assertIn("test al, ATA_STATUS_DRQ", ready)
+        self.assertIn("jz .ok", ready)
+
+        self.assertGreaterEqual(read_sector.count("call ata_wait_ready"), 2)
+        self.assertGreaterEqual(write_sector.count("call ata_wait_ready"), 2)
+        self.assertIn("out dx, al\n    call ata_io_delay\n\n    call ata_wait_drq", read_sector)
+        self.assertIn("loop .read_word\n    call ata_io_delay\n    call ata_wait_ready", read_sector)
+        self.assertIn("out dx, al\n    call ata_io_delay\n\n    call ata_wait_drq", write_sector)
+        self.assertIn("loop .write_word\n    call ata_io_delay\n    call ata_wait_ready", write_sector)
+
     def test_storage_status_reports_last_ata_wait_state(self):
         kernel = self.kernel
         smoke = kernel.split("write_smoke_status:", 1)[1].split("smoke_write_hex32:", 1)[0]

@@ -319,7 +319,7 @@ static int default_config_needs_checkpoint(void)
 
 static int persistence_checkpoint_requested(void)
 {
-    FILE* marker;
+    struct stat info;
 
     if (default_config_checkpoint_request_checked)
         return default_config_checkpoint_requested;
@@ -327,11 +327,8 @@ static int persistence_checkpoint_requested(void)
         return default_config_checkpoint_requested;
 
     default_config_checkpoint_request_checked = 1;
-    marker = fopen("PERSIST.CHK", "r");
-    if (marker) {
+    if (stat("PERSIST.CHK", &info) == 0)
         default_config_checkpoint_requested = 1;
-        fclose(marker);
-    }
 
     return default_config_checkpoint_requested;
 }
@@ -431,7 +428,10 @@ static void checkpoint_save_slot_if_needed(void)
     if (!save_checkpoint_requested_once())
         return;
 
-    G_SaveGame(save_checkpoint_slot, description);
+    savegameslot = save_checkpoint_slot;
+    strcpy(savedescription, description);
+    sendsave = false;
+    gameaction = ga_savegame;
     save_checkpoint_done = 1;
 }
 

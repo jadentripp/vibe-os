@@ -1106,11 +1106,22 @@ class SourceContractTests(unittest.TestCase):
             "STAT_MODE_READONLY_REG equ STAT_S_IFREG | STAT_S_IRUSR",
             "STAT_MODE_WRITABLE_REG equ STAT_S_IFREG | STAT_S_IRUSR | STAT_S_IWUSR",
             "ATA_CMD_WRITE_SECTORS equ 0x30",
+            "FAT_ROOT_CACHE_SECTORS equ 32",
+            "FAT_TABLE_CACHE_SECTORS equ 256",
+            "FAT_TABLE_CACHE_ADDR equ WAD_LOAD_ADDR + WAD_MAX_BYTES",
+            "FAT_ROOT_CACHE_ADDR equ FAT_TABLE_CACHE_ADDR + FAT_TABLE_CACHE_SECTORS * 512",
+            "fat_table_cache equ FAT_TABLE_CACHE_ADDR",
+            "fat_root_cache equ FAT_ROOT_CACHE_ADDR",
+            "PERSISTENCE_MARKER_COUNT equ 3",
             "ata_write_sector:",
+            "fat_cache_table:",
+            "fat_cache_root_dir:",
             "fat_find_writable_files:",
+            "fat_find_persistence_markers:",
             "fat_create_root_file:",
             "fat_parse_user_root83:",
             "fat_open_name_is_protected:",
+            "fat_open_name_marker_index:",
             "fat_bind_found_writable_slot:",
             "fat_bind_found_to_writable_slot:",
             "fat_find_writable_slot_for_found:",
@@ -1133,6 +1144,12 @@ class SourceContractTests(unittest.TestCase):
             "user_file_lseek:",
             "DEFAULT CFG",
             "DOOMSAV0DSG",
+            "persist_chk_name_83 db \"PERSIST CHK\"",
+            "save_req_name_83 db \"SAVEREQ CHK\"",
+            "load_req_name_83 db \"LOADREQ CHK\"",
+            "persistence_marker_name_table",
+            "persistence_marker_sizes times PERSISTENCE_MARKER_COUNT dd 0",
+            "persistence_marker_status times PERSISTENCE_MARKER_COUNT db 0",
             "fat_open_name_buffer times 11 db 0",
             "fd_offsets times USER_FD_COUNT dd 0",
             "fd_kinds times USER_FD_COUNT db 0",
@@ -1186,6 +1203,33 @@ class SourceContractTests(unittest.TestCase):
         self.assertNotIn("call fat_write_cluster_entry", validate_pass)
         fat_write_locator = kernel.split("fat_file_lba_for_write:", 1)[1].split("fat_update_writable_size:", 1)[0]
         self.assertIn(".linked_new_cluster:", fat_write_locator)
+        storage_init = kernel.split("storage_init:", 1)[1].split("fat_find_file:", 1)[0]
+        self.assertLess(storage_init.index("call fat_cache_table"), storage_init.index("call fat_cache_root_dir"))
+        pmm_init = kernel.split("pmm_init:", 1)[1].split("pmm_reserve_pages:", 1)[0]
+        self.assertIn("mov eax, FAT_TABLE_CACHE_ADDR", pmm_init)
+        self.assertIn("mov ecx, (FAT_CACHE_BYTES + PAGE_SIZE - 1) / PAGE_SIZE", pmm_init)
+        fat_next = kernel.split("fat_next_cluster:", 1)[1].split("fat_write_cluster_entry:", 1)[0]
+        self.assertIn("fat_table_cache", fat_next)
+        self.assertNotIn("call ata_read_sector", fat_next)
+        fat_writer = kernel.split("fat_write_cluster_entry:", 1)[1].split("fat_zero_cluster:", 1)[0]
+        self.assertIn("fat_table_cache", fat_writer)
+        self.assertIn("call ata_write_sector", fat_writer)
+        self.assertNotIn("call ata_read_sector", fat_writer)
+        root_finder = kernel.split("fat_find_file:", 1)[1].split("fat_find_wad:", 1)[0]
+        self.assertIn("add esi, fat_root_cache", root_finder)
+        self.assertNotIn("call ata_read_sector", root_finder)
+        root_creator = kernel.split("fat_create_root_file:", 1)[1].split("fat_load_file:", 1)[0]
+        self.assertIn("add esi, fat_root_cache", root_creator)
+        self.assertIn("call ata_write_sector", root_creator)
+        self.assertNotIn("call ata_read_sector", root_creator)
+        root_size_updater = kernel.split("fat_update_writable_size:", 1)[1].split("fat_truncate_writable_file:", 1)[0]
+        self.assertIn("add esi, fat_root_cache", root_size_updater)
+        self.assertIn("call ata_write_sector", root_size_updater)
+        self.assertNotIn("call ata_read_sector", root_size_updater)
+        root_deleter = kernel.split("fat_delete_found_file:", 1)[1].split("stat_fill_user:", 1)[0]
+        self.assertIn("add esi, fat_root_cache", root_deleter)
+        self.assertIn("call ata_write_sector", root_deleter)
+        self.assertNotIn("call ata_read_sector", root_deleter)
         reader = kernel.split(".read:", 1)[1].split(".lseek:", 1)[0]
         self.assertIn("call fd_lookup", reader)
         self.assertIn("cmp byte [fd_kinds + eax], FD_KIND_WAD", reader)
@@ -1203,6 +1247,14 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("call stat_fill_user", stat_path)
         self.assertIn("STAT_MODE_READONLY_REG", stat_path)
         self.assertIn("STAT_MODE_WRITABLE_REG", stat_path)
+        self.assertIn("call fat_open_name_marker_index", stat_path)
+        self.assertIn(".stat_persistence_marker:", stat_path)
+        self.assertIn("cmp byte [persistence_marker_status + eax], 1", stat_path)
+        self.assertIn("mov eax, [persistence_marker_sizes + eax * 4]", stat_path)
+        self.assertLess(
+            stat_path.index("call fat_open_name_marker_index"),
+            stat_path.index("mov edi, fat_open_name_buffer", stat_path.index("call fat_open_name_marker_index")),
+        )
         fstat_path = kernel.split(".fstat:", 1)[1].split(".exec:", 1)[0]
         self.assertIn("call fd_lookup", fstat_path)
         self.assertIn("call stat_fill_user", fstat_path)
