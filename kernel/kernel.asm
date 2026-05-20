@@ -6361,6 +6361,33 @@ fat_find_writable_files:
     pop ebx
     ret
 
+fat_refresh_known_writable_slot:
+    push ebx
+
+    mov ebx, eax
+    cmp ebx, WRITABLE_KNOWN_FILE_COUNT
+    jae .fail
+    call fat_cache_table
+    jc .fail
+    call fat_cache_root_dir
+    jc .fail
+    mov edi, [writable_name_table + ebx * 4]
+    push ebx
+    call fat_find_file
+    pop ebx
+    jc .fail
+    call fat_bind_found_to_writable_slot
+    jc .fail
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop ebx
+    ret
+
 fat_find_persistence_markers:
     push ebx
 
@@ -7007,14 +7034,17 @@ fat_file_lba_for_write:
     push edx
     push esi
 
+    mov dword [fat_lba_fail_stage], 0
     mov dword [fat_file_lba_was_new_cluster], 0
     mov esi, ebx
     mov ebx, edx
     and ebx, 511
     shr edx, 9
+    mov [fat_lba_sector_index], edx
     mov ax, [writable_first_clusters + esi * 2]
     cmp ax, 2
     jae .have_first_cluster
+    mov dword [fat_lba_fail_stage], 1
     call fat_alloc_cluster
     jc .fail
     mov [writable_first_clusters + esi * 2], ax
@@ -7022,6 +7052,8 @@ fat_file_lba_for_write:
 
 .have_first_cluster:
     mov [fat_current_cluster], ax
+    movzx eax, ax
+    mov [fat_lba_current_cluster], eax
 
 .cluster_loop:
     movzx ecx, byte [fat_sectors_per_cluster]
@@ -7029,20 +7061,27 @@ fat_file_lba_for_write:
     jb .have_cluster
     sub edx, ecx
     movzx eax, word [fat_current_cluster]
+    mov [fat_lba_current_cluster], eax
+    mov dword [fat_lba_fail_stage], 2
     call fat_next_cluster
     jc .fail
+    mov [fat_lba_next_cluster], eax
     cmp eax, 0
     je .allocate_next_cluster
     cmp eax, 0xfff8
     jb .next_exists
 
 .allocate_next_cluster:
+    mov dword [fat_lba_fail_stage], 3
     call fat_alloc_cluster
     jc .fail
     mov [fat_new_cluster], ax
+    movzx eax, ax
+    mov [fat_lba_new_cluster], eax
     mov dword [fat_file_lba_was_new_cluster], 1
 	    movzx eax, word [fat_current_cluster]
 	    mov dx, [fat_new_cluster]
+	    mov dword [fat_lba_fail_stage], 4
 	    call fat_write_cluster_entry
 	    jnc .linked_new_cluster
 	    movzx eax, word [fat_new_cluster]
@@ -7054,8 +7093,11 @@ fat_file_lba_for_write:
 	    mov ax, [fat_new_cluster]
 
 	.next_exists:
+    mov [fat_lba_next_cluster], eax
+    mov dword [fat_lba_fail_stage], 5
     cmp eax, 2
     jb .fail
+    mov dword [fat_lba_fail_stage], 6
     cmp eax, 0xfff8
     jae .fail
     mov [fat_current_cluster], ax
@@ -7064,8 +7106,11 @@ fat_file_lba_for_write:
 .have_cluster:
     mov ecx, edx
     movzx eax, word [fat_current_cluster]
+    mov [fat_lba_current_cluster], eax
+    mov dword [fat_lba_fail_stage], 7
     cmp eax, 2
     jb .fail
+    mov dword [fat_lba_fail_stage], 8
     cmp eax, 0xfff8
     jae .fail
     sub eax, 2
@@ -7073,6 +7118,8 @@ fat_file_lba_for_write:
     mul edx
     add eax, [fat_data_lba]
     add eax, ecx
+    mov [fat_lba_result_lba], eax
+    mov dword [fat_lba_fail_stage], 0
     clc
     jmp .done
 
@@ -10363,8 +10410,18 @@ syscall_handler:
     mov [file_io_fd_slot], eax
     test dword [syscall_open_flags], O_TRUNC
     jz .open_writable_bind_reserved
+    mov eax, [fat_open_slot]
+    cmp eax, WRITABLE_KNOWN_FILE_COUNT
+    jae .open_writable_refresh_generic
+    call fat_refresh_known_writable_slot
+    jc .open_writable_reserved_eio
+    jmp .open_writable_truncate
+
+.open_writable_refresh_generic:
     call fat_cache_table
     jc .open_writable_reserved_eio
+
+.open_writable_truncate:
     mov eax, [fat_open_slot]
     call fat_truncate_writable_file
     jc .open_writable_reserved_eio
@@ -13598,6 +13655,30 @@ write_smoke_status:
     stosb
     mov edx, [file_io_sector_lba]
     call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_lba_fail_stage]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_lba_sector_index]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_lba_current_cluster]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_lba_next_cluster]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_lba_new_cluster]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_lba_result_lba]
+    call smoke_write_hex32
 
     mov esi, smoke_doomlog_text
     call smoke_copy_string
@@ -15734,6 +15815,12 @@ file_write_debug_capacity dd 0
 file_write_requested dd 0
 file_write_capacity dd 0
 file_write_fail_stage dd 0
+fat_lba_fail_stage dd 0
+fat_lba_sector_index dd 0
+fat_lba_current_cluster dd 0
+fat_lba_next_cluster dd 0
+fat_lba_new_cluster dd 0
+fat_lba_result_lba dd 0
 user_probe_magic_seen dd 0
 user_probe_flags_seen dd 0
 user_fault_addr dd 0
