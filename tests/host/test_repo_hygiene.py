@@ -197,6 +197,7 @@ jobs:
           path: |
             build/status*.txt
             build/doom.symbols
+            build/persistence-write/status.save-slot-0.txt
             build/evidence.tar
 """
         with tempfile.TemporaryDirectory() as tmpdir:

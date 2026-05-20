@@ -216,6 +216,7 @@ REAL_WAD_ALLOWED_UPLOAD_PATTERNS = (
     "build/status*.txt",
     "build/*.log",
     "build/persistence-*/*.log",
+    "build/persistence-*/*.txt",
 )
 
 RUNTIME_SOURCE_PREFIXES = (
