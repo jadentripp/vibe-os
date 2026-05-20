@@ -15,6 +15,8 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
 - paging enabled with an identity-mapped low-memory window and a map-page self-test
 - a standalone user ELF loaded from FAT16, entered in Ring 3, invoking
   `int 0x80`, and proving supervisor pages fault
+- tiny user-space C runtime entrypoint that links a freestanding C probe into
+  `USERPROB.ELF`
 - user-mode syscall smoke coverage for `sbrk`, `open`, `read`, `lseek`, and
   console `write`
 - physical frame accounting for the first managed 16 MiB
@@ -40,10 +42,10 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
 - Paging, physical-frame accounting, heap allocation, libc helpers, console I/O,
   interrupts, and timer ticks are kernel-owned code in this repo.
 - User/kernel separation is not just a label: the boot probe enters Ring 3 with
-  user selectors from a standalone `USERPROB.ELF` file loaded through FAT16,
-  allocates user heap, opens and reads `DOOM1.WAD` through kernel syscalls,
-  calls the syscall gate, then intentionally faults on a supervisor-only kernel
-  page and records the expected page fault.
+  user selectors from a standalone C-backed `USERPROB.ELF` file loaded through
+  FAT16, allocates user heap, opens and reads `DOOM1.WAD` through kernel
+  syscalls, calls the syscall gate, then intentionally faults on a
+  supervisor-only kernel page and records the expected page fault.
 - `DOOM1.WAD` is not passed in as a GRUB module or RAM disk. The build creates an
   IDE disk image with boot sectors, an MBR partition table, and a FAT16
   partition, and the kernel reads
@@ -78,6 +80,12 @@ make
 
 The disk image is written to `build/disk.img`.
 
+Run host-side artifact tests without launching QEMU:
+
+```sh
+make test
+```
+
 Current disk layout:
 
 - LBA 0: Stage 1 MBR and partition table
@@ -100,7 +108,7 @@ make ALLOW_LOCAL_VM=1 smoke
 ```
 
 The repo also includes `.github/workflows/os-smoke.yml`, which builds the disk
-image and runs the smoke test in GitHub Actions.
+image, runs host artifact tests, and runs the smoke test in GitHub Actions.
 
 ## Shell Commands
 
@@ -132,6 +140,8 @@ Already implemented:
   isolation probe
 - standalone user ELF build, FAT16 storage entry, kernel ELF validation, and
   Ring 3 entry from the loaded executable
+- freestanding C user program linked through a tiny `crt0` instead of a
+  hand-written assembly-only probe
 - first POSIX-shaped user syscall slice: `sbrk`, `open`, `read`, `lseek`, and
   `write`, exercised by the user ELF against the WAD header
 - paging, PMM/VMM self-tests, and kernel heap

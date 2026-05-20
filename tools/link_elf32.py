@@ -4,6 +4,7 @@ import sys
 
 
 SHT_SYMTAB = 2
+SHT_NOBITS = 8
 SHT_REL = 9
 SHF_ALLOC = 0x2
 SHN_UNDEF = 0
@@ -62,6 +63,8 @@ class Section:
         return bool(self.flags & SHF_ALLOC)
 
     def bytes(self):
+        if self.type == SHT_NOBITS:
+            return b"\0" * self.size
         return self.obj.data[self.offset:self.offset + self.size]
 
 

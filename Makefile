@@ -12,18 +12,23 @@ STAGE2_BIN := $(BUILD_DIR)/stage2.bin
 KERNEL_OBJ := $(BUILD_DIR)/kernel.o
 C_RUNTIME_OBJ := $(BUILD_DIR)/c_runtime_probe.o
 KERNEL_ELF := $(BUILD_DIR)/kernel.elf
-USER_PROBE_OBJ := $(BUILD_DIR)/user_probe.o
+USER_CRT0_OBJ := $(BUILD_DIR)/user_crt0.o
+USER_PROBE_C_OBJ := $(BUILD_DIR)/user_probe_c.o
 USER_PROBE_ELF := $(BUILD_DIR)/user_probe.elf
 IMAGE := $(BUILD_DIR)/disk.img
 C_RUNTIME_SRC := kernel/c_runtime_probe.c
+USER_PROBE_C_SRC := user/probe.c
 
 STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 49152
 USER_PROBE_ELF_MAX_BYTES := 8192
 
-.PHONY: all run run-headless smoke clean check-tools vm-consent
+.PHONY: all test run run-headless smoke clean check-tools vm-consent
 
 all: $(IMAGE)
+
+test: $(IMAGE)
+	$(PYTHON) -m unittest discover -s tests/host -p 'test_*.py'
 
 check-tools:
 	@command -v $(NASM) >/dev/null || { echo "missing nasm"; exit 1; }
@@ -59,11 +64,14 @@ $(KERNEL_ELF): $(KERNEL_OBJ) $(C_RUNTIME_OBJ) tools/link_elf32.py | $(BUILD_DIR)
 	$(PYTHON) tools/link_elf32.py -o $@ --base 0x10000 $(KERNEL_OBJ) $(C_RUNTIME_OBJ)
 	@test $$(wc -c < $@) -le $(KERNEL_ELF_MAX_BYTES) || { echo "kernel ELF exceeds $(KERNEL_ELF_MAX_BYTES) bytes"; exit 1; }
 
-$(USER_PROBE_OBJ): user/probe.asm | $(BUILD_DIR)
+$(USER_CRT0_OBJ): user/crt0.asm | $(BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
 
-$(USER_PROBE_ELF): $(USER_PROBE_OBJ) tools/link_elf32.py | $(BUILD_DIR)
-	$(PYTHON) tools/link_elf32.py -o $@ --base 0x00e80000 $(USER_PROBE_OBJ)
+$(USER_PROBE_C_OBJ): $(USER_PROBE_C_SRC) | $(BUILD_DIR)
+	$(CLANG) -target i386-unknown-elf -ffreestanding -fno-builtin -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m32 -march=i386 -mno-sse -mno-mmx -msoft-float -O2 -c $< -o $@
+
+$(USER_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_PROBE_C_OBJ) tools/link_elf32.py | $(BUILD_DIR)
+	$(PYTHON) tools/link_elf32.py -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_PROBE_C_OBJ)
 	@test $$(wc -c < $@) -le $(USER_PROBE_ELF_MAX_BYTES) || { echo "user probe ELF exceeds $(USER_PROBE_ELF_MAX_BYTES) bytes"; exit 1; }
 
 $(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) tools/make_wad_image.py

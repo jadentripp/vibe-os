@@ -1,0 +1,209 @@
+import struct
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+BUILD = ROOT / "build"
+SECTOR_SIZE = 512
+USER_BASE = 0x00E80000
+
+
+def u16(data, offset):
+    return struct.unpack_from("<H", data, offset)[0]
+
+
+def u32(data, offset):
+    return struct.unpack_from("<I", data, offset)[0]
+
+
+def read(path):
+    return path.read_bytes()
+
+
+class Elf32:
+    def __init__(self, data):
+        self.data = data
+        if data[:4] != b"\x7fELF":
+            raise AssertionError("missing ELF magic")
+        if data[4] != 1 or data[5] != 1:
+            raise AssertionError("expected ELF32 little-endian")
+        self.kind = u16(data, 16)
+        self.machine = u16(data, 18)
+        self.entry = u32(data, 24)
+        self.phoff = u32(data, 28)
+        self.shoff = u32(data, 32)
+        self.phentsize = u16(data, 42)
+        self.phnum = u16(data, 44)
+        self.shentsize = u16(data, 46)
+        self.shnum = u16(data, 48)
+        self.shstrndx = u16(data, 50)
+
+    def program_headers(self):
+        headers = []
+        for index in range(self.phnum):
+            off = self.phoff + index * self.phentsize
+            headers.append(struct.unpack_from("<IIIIIIII", self.data, off))
+        return headers
+
+    def section_headers(self):
+        headers = []
+        for index in range(self.shnum):
+            off = self.shoff + index * self.shentsize
+            headers.append(struct.unpack_from("<IIIIIIIIII", self.data, off))
+        return headers
+
+    def section_name_table(self):
+        if self.shstrndx == 0 or self.shstrndx >= self.shnum:
+            return b""
+        sh = self.section_headers()[self.shstrndx]
+        return self.data[sh[4]:sh[4] + sh[5]]
+
+
+def cstr(data, offset):
+    end = data.find(b"\0", offset)
+    if end < 0:
+        end = len(data)
+    return data[offset:end].decode("ascii")
+
+
+class BuildArtifactTests(unittest.TestCase):
+    def test_stage1_is_bootable_mbr_sector(self):
+        stage1 = read(BUILD / "stage1.bin")
+        self.assertEqual(len(stage1), SECTOR_SIZE)
+        self.assertEqual(stage1[510:512], b"\x55\xaa")
+
+    def test_stage2_and_kernel_fit_reserved_raw_lbas(self):
+        self.assertLessEqual((BUILD / "stage2.bin").stat().st_size, 16 * SECTOR_SIZE)
+        self.assertLessEqual((BUILD / "kernel.elf").stat().st_size, 96 * SECTOR_SIZE)
+
+    def test_kernel_elf32_load_segment(self):
+        elf = Elf32(read(BUILD / "kernel.elf"))
+        self.assertEqual(elf.kind, 2)
+        self.assertEqual(elf.machine, 3)
+        self.assertEqual(elf.entry, 0x10000)
+        self.assertEqual(elf.phnum, 1)
+        p_type, p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, p_flags, p_align = elf.program_headers()[0]
+        self.assertEqual(p_type, 1)
+        self.assertEqual(p_offset, 0x1000)
+        self.assertEqual(p_vaddr, 0x10000)
+        self.assertEqual(p_paddr, 0x10000)
+        self.assertEqual(p_filesz, p_memsz)
+        self.assertEqual(p_flags, 0x7)
+        self.assertEqual(p_align, 0x1000)
+
+    def test_user_probe_is_small_c_backed_user_elf(self):
+        elf = Elf32(read(BUILD / "user_probe.elf"))
+        self.assertEqual(elf.kind, 2)
+        self.assertEqual(elf.machine, 3)
+        self.assertEqual(elf.entry, USER_BASE)
+        self.assertEqual(elf.phnum, 1)
+        p_type, p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, p_flags, p_align = elf.program_headers()[0]
+        self.assertEqual(p_type, 1)
+        self.assertEqual(p_offset, 0x1000)
+        self.assertEqual(p_vaddr, USER_BASE)
+        self.assertEqual(p_paddr, USER_BASE)
+        self.assertLessEqual(p_memsz, 0x1000)
+        self.assertEqual(p_filesz, p_memsz)
+        self.assertEqual(p_flags, 0x7)
+        self.assertEqual(p_align, 0x1000)
+
+    def test_user_c_object_contains_bss_for_linker_nobits_coverage(self):
+        obj = Elf32(read(BUILD / "user_probe_c.o"))
+        shstr = obj.section_name_table()
+        sections = []
+        for sh in obj.section_headers():
+            name = cstr(shstr, sh[0]) if shstr else ""
+            sections.append((name, sh[1], sh[5]))
+        self.assertIn((".bss", 8, 12), sections)
+
+
+class DiskImageTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.image = read(BUILD / "disk.img")
+        cls.partition_lba = u32(cls.image, 446 + 8)
+        boot = cls.partition_lba * SECTOR_SIZE
+        cls.reserved = u16(cls.image, boot + 14)
+        cls.fat_count = cls.image[boot + 16]
+        cls.root_entries = u16(cls.image, boot + 17)
+        cls.sectors_per_fat = u16(cls.image, boot + 22)
+        cls.root_lba = cls.partition_lba + cls.reserved + cls.fat_count * cls.sectors_per_fat
+        cls.root_size = cls.root_entries * 32
+        cls.root = cls.image[cls.root_lba * SECTOR_SIZE:cls.root_lba * SECTOR_SIZE + cls.root_size]
+        cls.data_lba = cls.root_lba + ((cls.root_entries * 32 + SECTOR_SIZE - 1) // SECTOR_SIZE)
+
+    def root_entries_by_name(self):
+        entries = {}
+        for off in range(0, self.root_size, 32):
+            name = self.root[off:off + 11]
+            if name[0] == 0:
+                break
+            entries[name.decode("ascii")] = {
+                "cluster": u16(self.root, off + 26),
+                "size": u32(self.root, off + 28),
+            }
+        return entries
+
+    def cluster_bytes(self, cluster, size):
+        lba = self.data_lba + (cluster - 2)
+        start = lba * SECTOR_SIZE
+        return self.image[start:start + size]
+
+    def fat_entry(self, cluster):
+        fat_lba = self.partition_lba + self.reserved
+        return u16(self.image, fat_lba * SECTOR_SIZE + cluster * 2)
+
+    def test_mbr_partition_and_fat_bpb(self):
+        self.assertEqual(self.image[510:512], b"\x55\xaa")
+        self.assertEqual(self.image[446 + 4], 0x06)
+        self.assertEqual(self.partition_lba, 2048)
+        boot = self.partition_lba * SECTOR_SIZE
+        self.assertEqual(self.image[boot + 510:boot + 512], b"\x55\xaa")
+        self.assertEqual(u16(self.image, boot + 11), SECTOR_SIZE)
+        self.assertEqual(self.image[boot + 13], 1)
+        self.assertEqual(self.fat_count, 2)
+
+    def test_fat_root_contains_wad_and_user_elf(self):
+        entries = self.root_entries_by_name()
+        self.assertEqual(entries["DOOM1   WAD"]["size"], 1024 * 1024)
+        self.assertEqual(entries["DOOM1   WAD"]["cluster"], 2)
+        self.assertEqual(entries["USERPROBELF"]["size"], (BUILD / "user_probe.elf").stat().st_size)
+        self.assertGreater(entries["USERPROBELF"]["cluster"], entries["DOOM1   WAD"]["cluster"])
+
+    def test_wad_fixture_header_and_lumps(self):
+        wad = self.cluster_bytes(2, 1024 * 1024)
+        self.assertEqual(wad[:4], b"IWAD")
+        lump_count = u32(wad, 4)
+        directory = u32(wad, 8)
+        self.assertEqual(lump_count, 4)
+        names = []
+        for index in range(lump_count):
+            entry = directory + index * 16
+            names.append(wad[entry + 8:entry + 16].rstrip(b"\0").decode("ascii"))
+        self.assertIn("PLAYPAL", names)
+        self.assertIn("COLORMAP", names)
+
+    def test_user_elf_bytes_are_present_in_fat_data_area(self):
+        entries = self.root_entries_by_name()
+        user = entries["USERPROBELF"]
+        image_bytes = self.cluster_bytes(user["cluster"], user["size"])
+        self.assertEqual(image_bytes, read(BUILD / "user_probe.elf"))
+        self.assertEqual(self.fat_entry(user["cluster"]), user["cluster"] + 1)
+
+
+class SourceContractTests(unittest.TestCase):
+    def test_local_vm_targets_are_opt_in(self):
+        makefile = (ROOT / "Makefile").read_text()
+        self.assertIn("ALLOW_LOCAL_VM ?= 0", makefile)
+        self.assertIn("run: vm-consent", makefile)
+        self.assertIn("smoke: vm-consent", makefile)
+
+    def test_user_probe_is_c_not_assembly_only(self):
+        self.assertTrue((ROOT / "user" / "probe.c").exists())
+        self.assertTrue((ROOT / "user" / "crt0.asm").exists())
+        self.assertFalse((ROOT / "user" / "probe.asm").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
