@@ -276,6 +276,21 @@ class DoomRuntimeContractTests(unittest.TestCase):
                 with self.subTest(path=path.relative_to(ROOT), token=token):
                     self.assertNotIn(token, text)
 
+    def test_save_ticcmd_wrapper_preserves_original_doom_source(self):
+        makefile = (ROOT / "Makefile").read_text()
+        platform = (ROOT / "doom_port" / "platform.c").read_text()
+        original = (ROOT / "third_party" / "doom" / "linuxdoom-1.10" / "g_game.c").read_text()
+
+        self.assertIn("-DG_BuildTiccmd=doom_original_G_BuildTiccmd", makefile)
+        self.assertIn("void doom_original_G_BuildTiccmd(ticcmd_t* cmd);", platform)
+        self.assertIn("void G_BuildTiccmd(ticcmd_t* cmd)", platform)
+        self.assertIn("doom_original_G_BuildTiccmd(cmd);", platform)
+        self.assertIn("(cmd->buttons & BT_SPECIALMASK) != BTS_SAVEGAME", platform)
+        self.assertIn("target_tic = (gametic / divisor) % BACKUPTICS;", platform)
+        self.assertIn("netcmds[consoleplayer][target_tic] = *cmd;", platform)
+        self.assertIn("if (sendsave)", original)
+        self.assertIn("cmd->buttons = BT_SPECIAL | BTS_SAVEGAME", original)
+
     def test_kernel_smoke_exposes_file_runtime_counters_not_fat_internals(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
         makefile = (ROOT / "Makefile").read_text()

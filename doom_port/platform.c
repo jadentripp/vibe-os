@@ -26,6 +26,7 @@ extern char* defaultfile;
 extern boolean sendsave;
 extern int savegameslot;
 extern char savedescription[32];
+void doom_original_G_BuildTiccmd(ticcmd_t* cmd);
 
 static byte doom_zone[8 * 1024 * 1024];
 static doomcom_t local_doomcom;
@@ -457,6 +458,28 @@ static void report_save_action_status(void)
         | (((unsigned long)savegameslot & 0xffu) << VIBE_DOOM_SAVEACTION_SLOT_SHIFT);
 
     (void)vibe_syscall3(VIBE_SYS_GAMEPLAY_STATUS, packed, hash, length);
+}
+
+void G_BuildTiccmd(ticcmd_t* cmd)
+{
+    int target_tic;
+    int divisor;
+
+    doom_original_G_BuildTiccmd(cmd);
+
+    if (!singletics || !cmd)
+        return;
+    if (!(cmd->buttons & BT_SPECIAL))
+        return;
+    if ((cmd->buttons & BT_SPECIALMASK) != BTS_SAVEGAME)
+        return;
+
+    divisor = ticdup > 0 ? ticdup : 1;
+    target_tic = (gametic / divisor) % BACKUPTICS;
+    if (target_tic < 0)
+        target_tic += BACKUPTICS;
+
+    netcmds[consoleplayer][target_tic] = *cmd;
 }
 
 static void report_playability_status(void)
