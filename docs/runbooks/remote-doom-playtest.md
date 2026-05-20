@@ -297,7 +297,9 @@ Call a remote human playtest credible only after checking all of this:
   and checks that the requested FAT entries still match the after-write snapshot.
   The checker summary is saved as status text; the disk image and WAD are not
   uploaded. If your input script creates a save, set `persistence_save_slot` to
-  require the matching `DOOMSAVN.DSG`.
+  require the matching `DOOMSAVN.DSG`. For scripted save names, prefer the
+  smoke-runner `text=NAME` action over one `sendkey` action per letter so the
+  QEMU monitor connection latency does not consume the proof timeout.
 
   For a manual remote proof, copy a baseline before booting, quit Doom through
   its menu so `I_Quit` writes defaults, optionally create a save, boot the same

@@ -237,9 +237,10 @@ Still missing:
 Executable gate:
 
 - Run the opt-in `persistence_proof` cloud path with a deterministic Doom menu
-  script that writes `DEFAULT.CFG`, and optionally `DOOMSAVN.DSG`; archive only
-  status/log diagnostics, not the disk image. If it fails to drive the menu,
-  finish the same flow through the remote VNC runbook and then run
+  script that writes `DEFAULT.CFG`, and optionally `DOOMSAVN.DSG`; use
+  `text=NAME` for save descriptions so typing is batched through the QEMU
+  monitor; archive only status/log diagnostics, not the disk image. If it fails
+  to drive the menu, finish the same flow through the remote VNC runbook and then run
   `python3 tools/check_doom_persistence_image.py --baseline-image
   /tmp/vibe-os-disk.before-persistence.img --reboot-baseline-image
   /tmp/vibe-os-disk.after-persistence-write.img --require-default

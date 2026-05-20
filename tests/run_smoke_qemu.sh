@@ -216,6 +216,22 @@ validate_phase_label() {
   esac
 }
 
+qemu_key_for_char() {
+  local ch="$1"
+
+  case "$ch" in
+    [abcdefghijklmnopqrstuvwxyz0123456789]) printf '%s' "$ch" ;;
+    [ABCDEFGHIJKLMNOPQRSTUVWXYZ]) printf '%s' "$(printf '%s' "$ch" | tr '[:upper:]' '[:lower:]')" ;;
+    " ") printf 'spc' ;;
+    "-") printf 'minus' ;;
+    "_") printf 'shift-minus' ;;
+    ".") printf 'dot' ;;
+    "/") printf 'slash' ;;
+    ":") printf 'shift-semicolon' ;;
+    *) fail_smoke "text action contains unsupported character '$ch'." ;;
+  esac
+}
+
 send_key_action() {
   local key="$1"
   local hold_ms="${2:-}"
@@ -234,6 +250,29 @@ send_key_action() {
   fi
   send_monitor "$label" "$command\n" || fail_smoke "failed to send key action '$label' to QEMU monitor"
   sleep_checked 1 "$label delivery"
+}
+
+send_text_action() {
+  local text="$1"
+  local index
+  local ch
+  local key
+  local commands=""
+
+  if [ -z "$text" ]; then
+    fail_smoke "text action is empty."
+  fi
+
+  for ((index = 0; index < ${#text}; index++)); do
+    ch="${text:index:1}"
+    if ! key="$(qemu_key_for_char "$ch")"; then
+      fail_smoke "failed to translate text action character '$ch'."
+    fi
+    commands="${commands}sendkey ${key}\n"
+  done
+
+  send_monitor "text $text" "$commands" || fail_smoke "failed to send text action"
+  sleep_checked 1 "text action delivery"
 }
 
 send_mouse_move_action() {
@@ -303,6 +342,9 @@ run_input_script() {
           ;;
         mousebtn=*|mousebutton=*)
           send_mouse_button_action "${action#*=}"
+          ;;
+        text=*)
+          send_text_action "${action#text=}"
           ;;
         "")
           fail_smoke "input script phase $label contains an empty action."

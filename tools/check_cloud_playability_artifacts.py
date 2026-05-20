@@ -252,6 +252,7 @@ def validate_repo_contract() -> None:
         "persistence_proof:",
         "persistence_input_script:",
         "persistence_save_slot:",
+        "Use text=NAME",
         "Capture fresh persistence baseline",
         "cp build/disk.img \"$RUNNER_TEMP/disk.before-persistence.img\"",
         "cp \"$baseline\" build/disk.img",
