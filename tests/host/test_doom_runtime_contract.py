@@ -382,6 +382,8 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "smoke_savewr_text",
             "smoke_saveclose_text",
             "smoke_savemode_text",
+            "smoke_filewrite_text",
+            "smoke_fatalloc_text",
             "smoke_saveact_text",
             "smoke_savedesc_text",
             "smoke_doomerr_text",
@@ -403,6 +405,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn('grep -q "savedesc="', makefile)
         self.assertIn("`doomopen`, `doomread`, `doomwad`, `doomwrite`, `doomseek`, `doomclose`", docs)
         self.assertIn("`doomsbrk`, `doomerr`, `doomerrno`, `doommode`, `doomsav`, `saverd`, `savewr`", docs)
+        self.assertIn("`saveclose`, `savemode`, `fwr`, `fal`", docs)
         self.assertIn("`--load-status`", docs)
 
 

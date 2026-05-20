@@ -692,7 +692,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("doom_open_count", kernel)
         self.assertIn("doom_read_count", kernel)
         self.assertIn("doom_wad_magic_seen", kernel)
-        self.assertIn("DOOM_LOG_BYTES equ 160", kernel)
+        self.assertIn("DOOM_LOG_BYTES equ 32", kernel)
         self.assertIn("doom_log_char:", kernel)
         self.assertIn("doom_log_buffer times DOOM_LOG_BYTES db 0", kernel)
         self.assertIn("doomrun=", kernel)

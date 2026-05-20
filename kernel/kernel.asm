@@ -29,7 +29,7 @@ VGA_ROWS equ 25
 VGA_ATTR equ 0x0f
 SMOKE_STATUS_ADDR equ 0x0009d000
 SMOKE_STATUS_BYTES equ 4096
-DOOM_LOG_BYTES equ 160
+DOOM_LOG_BYTES equ 32
 KEY_QUEUE_SIZE equ 32
 KEY_QUEUE_MASK equ KEY_QUEUE_SIZE - 1
 KEY_EVENT_DOWN equ 0x00000100
@@ -4880,6 +4880,9 @@ storage_init:
     mov dword [fat_scan_start], 0
     mov dword [fat_alloc_zero_policy], 1
     mov dword [fat_file_lba_was_new_cluster], 0
+    mov dword [fat_alloc_debug_stage], 0
+    mov dword [fat_alloc_debug_hint], 0
+    mov dword [fat_alloc_debug_cluster], 0
     mov dword [wad_size], 0
     mov dword [wad_sectors_read], 0
     mov dword [wad_lump_count], 0
@@ -4944,6 +4947,9 @@ storage_init:
     mov dword [current_user_entry], 0
     mov dword [current_syscall_number], 0
     mov dword [syscall_return_value], 0
+    mov dword [file_write_debug_stage], 0
+    mov dword [file_write_debug_result], 0
+    mov dword [file_write_debug_capacity], 0
     mov dword [syscall_stat_ptr], 0
     mov dword [fat_unlink_slot], 0xffffffff
     mov dword [stat_size_arg], 0
@@ -5851,7 +5857,9 @@ fat_alloc_cluster:
     push edx
     push edi
 
+    mov dword [fat_alloc_debug_stage], 1
     mov ebx, [fat_next_free_hint]
+    mov [fat_alloc_debug_hint], ebx
     cmp ebx, 2
     jae .hint_min_ok
     mov ebx, 2
@@ -5891,39 +5899,44 @@ fat_alloc_cluster:
     inc ebx
     jmp .wrap_loop
 
-	.found:
-	    mov eax, ebx
-	    mov dx, 0xffff
-	    call fat_write_cluster_entry
-	    jc .fail
-	    mov eax, ebx
-	    cmp dword [fat_alloc_zero_policy], 0
-	    je .allocated
-	    call fat_zero_cluster
-	    jc .rollback_alloc
+.found:
+    mov dword [fat_alloc_debug_stage], 2
+    mov [fat_alloc_debug_cluster], ebx
+    mov eax, ebx
+    mov dx, 0xffff
+    call fat_write_cluster_entry
+    jc .fail
+    mov eax, ebx
+    cmp dword [fat_alloc_zero_policy], 0
+    je .allocated
+    call fat_zero_cluster
+    jc .rollback_alloc
 
-	.allocated:
-	    mov edx, ebx
-	    inc edx
-	    cmp edx, [fat_last_data_cluster]
-	    jbe .store_hint
-	    mov edx, 2
+.allocated:
+    mov dword [fat_alloc_debug_stage], 3
+    mov edx, ebx
+    inc edx
+    cmp edx, [fat_last_data_cluster]
+    jbe .store_hint
+    mov edx, 2
 
-	.store_hint:
-	    mov [fat_next_free_hint], edx
-	    mov eax, ebx
-	    clc
-	    jmp .done
+.store_hint:
+    mov [fat_next_free_hint], edx
+    mov eax, ebx
+    clc
+    jmp .done
 
-	.rollback_alloc:
-	    mov eax, ebx
-	    xor edx, edx
-	    call fat_write_cluster_entry
-	    stc
-	    jmp .done
+.rollback_alloc:
+    mov dword [fat_alloc_debug_stage], 0xe1
+    mov eax, ebx
+    xor edx, edx
+    call fat_write_cluster_entry
+    stc
+    jmp .done
 
-	.fail:
-	    stc
+.fail:
+    mov dword [fat_alloc_debug_stage], 0xe0
+    stc
 
 .done:
     pop edi
@@ -7197,6 +7210,9 @@ user_file_read:
     ret
 
 user_file_write:
+    mov dword [file_write_debug_stage], 1
+    mov dword [file_write_debug_result], 0
+    mov dword [file_write_debug_capacity], 0
     call writable_fd_index
     jc .fail_badfd
     mov esi, [file_io_fd_slot]
@@ -7208,6 +7224,7 @@ user_file_write:
     jne .fail_badfd
 
 .write_mode_ok:
+    mov dword [file_write_debug_stage], 2
     test dword [fd_flags + esi * 4], O_APPEND
     jz .write_offset_ready
     mov ebx, [file_io_index]
@@ -7215,6 +7232,7 @@ user_file_write:
     mov [fd_offsets + esi * 4], eax
 
 .write_offset_ready:
+    mov dword [file_write_debug_stage], 3
     mov [file_io_user_ptr], ecx
     mov [file_io_remaining], edx
     mov dword [file_io_done], 0
@@ -7222,10 +7240,12 @@ user_file_write:
     mov ebx, edx
     call user_range_validate
     jc .fail_inval
+    mov dword [file_write_debug_stage], 4
     mov ebx, [file_io_index]
     mov esi, [file_io_fd_slot]
     mov eax, [writable_capacity_table + ebx * 4]
     sub eax, [fd_offsets + esi * 4]
+    mov [file_write_debug_capacity], eax
     cmp [file_io_remaining], eax
     jbe .loop
     mov [file_io_remaining], eax
@@ -7248,6 +7268,7 @@ user_file_write:
     mov dword [fat_alloc_zero_policy], 0
 
 .allocation_policy_ready:
+    mov dword [file_write_debug_stage], 5
     call fat_file_lba_for_write
     mov dword [fat_alloc_zero_policy], 1
     jc .fail_io
@@ -7265,6 +7286,7 @@ user_file_write:
     jne .prepare_partial_sector
     cmp dword [file_io_chunk], 512
     jne .prepare_partial_sector
+    mov dword [file_write_debug_stage], 6
     mov eax, [file_io_sector_lba]
     mov esi, [file_io_user_ptr]
     add esi, [file_io_done]
@@ -7275,6 +7297,7 @@ user_file_write:
 .prepare_partial_sector:
     cmp dword [fat_file_lba_was_new_cluster], 1
     je .zero_sector_buffer
+    mov dword [file_write_debug_stage], 7
     mov eax, [file_io_sector_lba]
     mov edi, SECTOR_BUFFER_ADDR
     call ata_read_sector
@@ -7296,6 +7319,7 @@ user_file_write:
     mov ecx, [file_io_chunk]
     cld
     rep movsb
+    mov dword [file_write_debug_stage], 8
     mov eax, [file_io_sector_lba]
     mov esi, SECTOR_BUFFER_ADDR
     call ata_write_sector
@@ -7315,25 +7339,33 @@ user_file_write:
     jmp .loop
 
 .ok:
+    mov dword [file_write_debug_stage], 9
     mov eax, [file_io_index]
     call fat_update_writable_size
     jc .fail_io
     mov eax, [file_io_done]
+    mov dword [file_write_debug_stage], 0x0a
+    mov [file_write_debug_result], eax
     clc
     ret
 
 .fail_badfd:
     mov eax, -ERRNO_EBADF
+    mov dword [file_write_debug_stage], 0xe1
+    mov [file_write_debug_result], eax
     stc
     ret
 
 .fail_inval:
     mov eax, -ERRNO_EINVAL
+    mov dword [file_write_debug_stage], 0xe2
+    mov [file_write_debug_result], eax
     stc
     ret
 
 .fail_io:
     mov eax, -ERRNO_EIO
+    mov [file_write_debug_result], eax
     stc
     ret
 
@@ -13169,6 +13201,64 @@ write_smoke_status:
     mov edx, [doom_saveload_last_open_mode]
     call smoke_write_hex32
 
+    mov esi, smoke_filewrite_text
+    call smoke_copy_string
+    mov edx, [file_write_debug_stage]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [file_write_debug_result]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [file_io_index]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [file_io_fd_slot]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [file_io_remaining]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [file_io_done]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [file_io_chunk]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [file_io_sector_lba]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [file_io_sector_offset]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [file_write_debug_capacity]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_file_lba_was_new_cluster]
+    call smoke_write_hex32
+
+    mov esi, smoke_fatalloc_text
+    call smoke_copy_string
+    mov edx, [fat_alloc_debug_stage]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_alloc_debug_hint]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_alloc_debug_cluster]
+    call smoke_write_hex32
+
     mov esi, smoke_saveact_text
     call smoke_copy_string
     mov edx, [doom_saveaction_flags]
@@ -14687,6 +14777,8 @@ smoke_saverd_text db " saverd=", 0
 smoke_savewr_text db " savewr=", 0
 smoke_saveclose_text db " saveclose=", 0
 smoke_savemode_text db " savemode=", 0
+smoke_filewrite_text db " fwr=", 0
+smoke_fatalloc_text db " fal=", 0
 smoke_saveact_text db " saveact=", 0
 smoke_savedesc_text db " savedesc=", 0
 smoke_doomlog_text db " doomlog=", 0
@@ -15111,6 +15203,9 @@ fat_next_free_hint dd 0
 fat_scan_start dd 0
 fat_alloc_zero_policy dd 0
 fat_file_lba_was_new_cluster dd 0
+fat_alloc_debug_stage dd 0
+fat_alloc_debug_hint dd 0
+fat_alloc_debug_cluster dd 0
 fat_reserved_sectors dd 0
 fat_count dd 0
 fat_root_entries dd 0
@@ -15245,6 +15340,9 @@ file_io_done dd 0
 file_io_sector_lba dd 0
 file_io_sector_offset dd 0
 file_io_chunk dd 0
+file_write_debug_stage dd 0
+file_write_debug_result dd 0
+file_write_debug_capacity dd 0
 user_probe_magic_seen dd 0
 user_probe_flags_seen dd 0
 user_fault_addr dd 0
