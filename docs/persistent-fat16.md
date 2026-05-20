@@ -165,6 +165,10 @@ missing even when the disk image contains them.
 This keeps the save proof from re-reading the same root sector during the first
 `O_TRUNC`/size update window, while still writing the updated root entry back to
 the FAT image for reboot persistence.
+The kernel also caches the last FAT sector used by cluster-chain walks. Real-WAD
+boots walk long WAD and Doom ELF chains before the first frame, and repeatedly
+re-reading the same FAT sector makes the persistence marker boot depend on far
+more ATA PIO commands than the game actually needs.
 
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,

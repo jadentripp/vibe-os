@@ -136,6 +136,7 @@ HEAP_PROBE_MAGIC equ 0x464c4154
 HEAP_BLOCK_MAGIC_FREE equ 0x46524545
 HEAP_BLOCK_MAGIC_USED equ 0x55534544
 ROOT_SECTOR_CACHE_ADDR equ 0x0008d000
+FAT_SECTOR_CACHE_ADDR equ 0x0008e000
 SECTOR_BUFFER_ADDR equ 0x0009b000
 WAD_LOAD_ADDR equ 0x00900000
 WAD_MAX_BYTES equ 0x00500000
@@ -4864,7 +4865,9 @@ storage_init:
     mov dword [ata_wait_timeouts], 0
     mov dword [ata_wait_error_failures], 0
     mov byte [root_sector_cache_valid], 0
+    mov byte [fat_sector_cache_valid], 0
     mov dword [root_sector_cache_lba], 0
+    mov dword [fat_sector_cache_lba], 0
     mov dword [fat_lba_base], 0
     mov dword [fat_total_sectors], 0
     mov dword [fat_last_data_cluster], 0
@@ -5582,6 +5585,49 @@ fat_write_root_sector:
     pop ebx
     ret
 
+fat_read_fat_sector:
+    push ebx
+    push ecx
+    push esi
+    push edi
+
+    mov ebx, eax
+    cmp byte [fat_sector_cache_valid], 1
+    jne .miss
+    cmp [fat_sector_cache_lba], ebx
+    jne .miss
+    mov esi, FAT_SECTOR_CACHE_ADDR
+    mov edi, SECTOR_BUFFER_ADDR
+    mov ecx, 512 / 4
+    cld
+    rep movsd
+    clc
+    jmp .done
+
+.miss:
+    mov edi, SECTOR_BUFFER_ADDR
+    call ata_read_sector
+    jc .fail
+    mov [fat_sector_cache_lba], ebx
+    mov esi, SECTOR_BUFFER_ADDR
+    mov edi, FAT_SECTOR_CACHE_ADDR
+    mov ecx, 512 / 4
+    cld
+    rep movsd
+    mov byte [fat_sector_cache_valid], 1
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop ecx
+    pop ebx
+    ret
+
 fat_name_match:
     push ecx
     push esi
@@ -5711,8 +5757,7 @@ fat_next_cluster:
     div ecx
     mov ebx, edx
     add eax, [fat_start_lba]
-    mov edi, SECTOR_BUFFER_ADDR
-    call ata_read_sector
+    call fat_read_fat_sector
     jc .fail
     movzx eax, word [SECTOR_BUFFER_ADDR + ebx]
     clc
@@ -5753,8 +5798,7 @@ fat_write_cluster_entry:
     mul ebx
     add eax, [fat_start_lba]
     add eax, [fat_mut_sector_index]
-    mov edi, SECTOR_BUFFER_ADDR
-    call ata_read_sector
+    call fat_read_fat_sector
     jc .fail
     mov edx, [fat_mut_entry_offset]
     mov ax, [fat_mut_value]
@@ -5766,6 +5810,7 @@ fat_write_cluster_entry:
     mov esi, SECTOR_BUFFER_ADDR
     call ata_write_sector
     jc .fail
+    mov byte [fat_sector_cache_valid], 0
     inc ebx
     jmp .fat_copy_loop
 
@@ -14948,8 +14993,10 @@ ata_wait_failures dd 0
 ata_wait_timeouts dd 0
 ata_wait_error_failures dd 0
 root_sector_cache_valid db 0
+fat_sector_cache_valid db 0
 align 4
 root_sector_cache_lba dd 0
+fat_sector_cache_lba dd 0
 fat_lba_base dd 0
 fat_total_sectors dd 0
 fat_last_data_cluster dd 0

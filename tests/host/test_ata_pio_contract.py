@@ -105,7 +105,34 @@ class AtaPioContractTests(unittest.TestCase):
         self.assertIn("call fat_read_root_sector", update)
         self.assertIn("call fat_write_root_sector", update)
 
-    def test_root_sector_cache_does_not_overlap_pmm_frame_map(self):
+    def test_fat_cluster_walks_use_cached_fat_sector(self):
+        kernel = self.kernel
+        cache_read = kernel.split("fat_read_fat_sector:", 1)[1].split("fat_name_match:", 1)[0]
+        next_cluster = kernel.split("fat_next_cluster:", 1)[1].split("fat_write_cluster_entry:", 1)[0]
+        writer = kernel.split("fat_write_cluster_entry:", 1)[1].split("fat_zero_cluster:", 1)[0]
+
+        for source in (
+            "FAT_SECTOR_CACHE_ADDR equ 0x0008e000",
+            "fat_sector_cache_valid db 0",
+            "fat_sector_cache_lba dd 0",
+            "mov byte [fat_sector_cache_valid], 0",
+            "fat_read_fat_sector:",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, kernel)
+
+        self.assertIn("cmp byte [fat_sector_cache_valid], 1", cache_read)
+        self.assertIn("cmp [fat_sector_cache_lba], ebx", cache_read)
+        self.assertIn("mov esi, FAT_SECTOR_CACHE_ADDR", cache_read)
+        self.assertIn("mov edi, SECTOR_BUFFER_ADDR", cache_read)
+        self.assertIn("call ata_read_sector", cache_read)
+        self.assertIn("mov [fat_sector_cache_lba], ebx", cache_read)
+        self.assertIn("call fat_read_fat_sector", next_cluster)
+        self.assertNotIn("call ata_read_sector", next_cluster)
+        self.assertIn("call fat_read_fat_sector", writer)
+        self.assertIn("mov byte [fat_sector_cache_valid], 0", writer)
+
+    def test_sector_caches_do_not_overlap_pmm_frame_map(self):
         kernel = self.kernel
 
         def constant(name):
@@ -114,12 +141,15 @@ class AtaPioContractTests(unittest.TestCase):
             return int(match.group(1), 0)
 
         root_cache = constant("ROOT_SECTOR_CACHE_ADDR")
+        fat_cache = constant("FAT_SECTOR_CACHE_ADDR")
         sector_buffer = constant("SECTOR_BUFFER_ADDR")
         pmm_map = constant("PMM_FRAME_MAP_ADDR")
         managed_pages = (constant("PMM_MANAGED_END") - constant("PMM_MANAGED_START")) // constant("PAGE_SIZE")
         pmm_map_end = pmm_map + managed_pages
 
         self.assertLess(root_cache + 512, pmm_map)
+        self.assertLess(fat_cache + 512, pmm_map)
+        self.assertGreaterEqual(fat_cache, root_cache + 512)
         self.assertGreaterEqual(sector_buffer, pmm_map_end)
 
     def test_storage_status_reports_last_ata_wait_state(self):
