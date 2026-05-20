@@ -28,6 +28,7 @@ extern int savegameslot;
 extern char savedescription[32];
 void doom_original_G_BuildTiccmd(ticcmd_t* cmd);
 void doom_original_G_Ticker(void);
+void G_DoLoadGame(void);
 void G_DoSaveGame(void);
 void G_LoadGame(char* name);
 
@@ -66,6 +67,7 @@ static int load_checkpoint_request_checked;
 static int load_checkpoint_requested;
 static int load_checkpoint_slot;
 static int load_checkpoint_done;
+static int load_checkpoint_armed;
 
 #define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
 #define VIBE_SFX_DEFAULT_SAMPLE_RATE 11025u
@@ -565,7 +567,21 @@ static void checkpoint_load_slot_if_needed(void)
 
     path[7] = (char)('0' + load_checkpoint_slot);
     G_LoadGame(path);
+    load_checkpoint_armed = 1;
     load_checkpoint_done = 1;
+}
+
+static void run_persistence_checkpoint_actions(void)
+{
+    checkpoint_save_slot_if_needed();
+    checkpoint_load_slot_if_needed();
+
+    if (gameaction == ga_savegame && savedescription[0])
+        G_DoSaveGame();
+    if (load_checkpoint_armed && gameaction == ga_loadgame) {
+        load_checkpoint_armed = 0;
+        G_DoLoadGame();
+    }
 }
 
 static void pump_music_stream(void)
@@ -833,11 +849,7 @@ void G_BuildTiccmd(ticcmd_t* cmd)
 void G_Ticker(void)
 {
     doom_original_G_Ticker();
-    checkpoint_save_slot_if_needed();
-    checkpoint_load_slot_if_needed();
-
-    if (gameaction == ga_savegame && savedescription[0])
-        G_DoSaveGame();
+    run_persistence_checkpoint_actions();
 }
 
 static void report_playability_status(void)
@@ -927,6 +939,7 @@ void I_FinishUpdate(void)
 
     report_doom_init_status(VIBE_DOOM_INIT_FRAME);
     pump_music_stream();
+    run_persistence_checkpoint_actions();
     report_gameplay_status();
     report_save_action_status();
     report_playability_status();

@@ -287,9 +287,11 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("$(DOOM_SRC_DIR)/g_game.c Makefile", makefile)
         self.assertIn("void doom_original_G_BuildTiccmd(ticcmd_t* cmd);", platform)
         self.assertIn("void doom_original_G_Ticker(void);", platform)
+        self.assertIn("void G_DoLoadGame(void);", platform)
         self.assertIn("void G_DoSaveGame(void);", platform)
         self.assertIn("checkpoint_save_slot_if_needed();", platform)
         self.assertIn("checkpoint_load_slot_if_needed();", platform)
+        self.assertIn("run_persistence_checkpoint_actions();", platform)
         self.assertIn('default_config_file_contains_marker("VIBE_DEFAULT")', platform)
         self.assertIn("default_config_file_is_short_checkpoint_marker()", platform)
         self.assertIn("read_save_slot_marker_request(", platform)
@@ -306,10 +308,16 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("doom_original_G_Ticker();", platform)
         self.assertLess(
             platform.index("doom_original_G_Ticker();", platform.index("void G_Ticker(void)")),
-            platform.index("checkpoint_save_slot_if_needed();", platform.index("void G_Ticker(void)")),
+            platform.index("run_persistence_checkpoint_actions();", platform.index("void G_Ticker(void)")),
+        )
+        self.assertLess(
+            platform.index("run_persistence_checkpoint_actions();", platform.index("void I_FinishUpdate(void)")),
+            platform.index("report_gameplay_status();", platform.index("void I_FinishUpdate(void)")),
         )
         self.assertIn("if (gameaction == ga_savegame && savedescription[0])", platform)
         self.assertIn("G_DoSaveGame();", platform)
+        self.assertIn("if (load_checkpoint_armed && gameaction == ga_loadgame)", platform)
+        self.assertIn("G_DoLoadGame();", platform)
         self.assertIn("(cmd->buttons & BT_SPECIALMASK) != BTS_SAVEGAME", platform)
         self.assertIn("target_tic = (gametic / divisor) % BACKUPTICS;", platform)
         self.assertIn("netcmds[consoleplayer][target_tic] = *cmd;", platform)
