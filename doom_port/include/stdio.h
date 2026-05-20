@@ -38,5 +38,6 @@ int ferror(FILE* stream);
 void clearerr(FILE* stream);
 void setbuf(FILE* stream, char* buffer);
 int getchar(void);
+int remove(const char* path);
 
 #endif

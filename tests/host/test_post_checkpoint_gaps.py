@@ -1,0 +1,313 @@
+import importlib.util
+import subprocess
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+BUILD = ROOT / "build"
+TOOL = ROOT / "tools" / "make_wad_image.py"
+spec = importlib.util.spec_from_file_location("make_wad_image", TOOL)
+make_wad_image = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(make_wad_image)
+
+GAP_TOOL = ROOT / "tools" / "check_playability_gap_ledger.py"
+gap_spec = importlib.util.spec_from_file_location("check_playability_gap_ledger", GAP_TOOL)
+check_playability_gap_ledger = importlib.util.module_from_spec(gap_spec)
+gap_spec.loader.exec_module(check_playability_gap_ledger)
+
+
+class PostCheckpointGapTests(unittest.TestCase):
+    def assertContainsPhrase(self, text, phrase):
+        self.assertIn(" ".join(phrase.split()), " ".join(text.split()))
+
+    def test_doom_user_fault_diagnostics_capture_exception_frame(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+
+        for source in (
+            "idt_start + (6 * 8)",
+            "idt_start + (12 * 8)",
+            "idt_start + (13 * 8)",
+            "idt_start + (14 * 8)",
+            "exception_invalid_opcode:",
+            "exception_stack_fault:",
+            "exception_general_protection:",
+            "page_fault_handler:",
+            "exception_common:",
+            "mov [fault_vector], eax",
+            "mov [fault_error], eax",
+            "mov [fault_eip], eax",
+            "mov [fault_cr2], eax",
+            "mov [doom_fault_addr], eax",
+            "mov [doom_fault_eip], eax",
+            "mov [doom_fault_vector], eax",
+            "mov [doom_fault_error], eax",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, kernel)
+
+    def test_doom_exit_and_fault_diagnostics_are_cloud_visible(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        makefile = (ROOT / "Makefile").read_text()
+        checker = (ROOT / "tools" / "check_real_wad_proof.py").read_text()
+        runtime_doc = (ROOT / "docs" / "doom-libc-runtime.md").read_text()
+        gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
+
+        for source in (
+            'smoke_doomexit_text db " doomexit="',
+            'smoke_doomfault_text db " doomfault="',
+            'smoke_doomfaultip_text db " doomfaultip="',
+            'smoke_doomfaultv_text db " doomfaultv="',
+            'smoke_doomfaulterr_text db " doomfaulterr="',
+            "mov edx, [doom_exit_code]",
+            "mov edx, [doom_fault_addr]",
+            "mov edx, [doom_fault_eip]",
+            "mov edx, [doom_fault_vector]",
+            "mov edx, [doom_fault_error]",
+            "doom_exit_code dd 0",
+            "doom_fault_addr dd 0",
+            "doom_fault_eip dd 0",
+            "doom_fault_vector dd 0",
+            "doom_fault_error dd 0",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, kernel)
+
+        self.assertIn('grep -q "doomexit="', makefile)
+        self.assertIn('grep -q "doomfault="', makefile)
+        self.assertIn('grep -q "doomfaultip="', makefile)
+        self.assertIn('grep -q "doomfaultv="', makefile)
+        self.assertIn('grep -q "doomfaulterr="', makefile)
+        self.assertIn('"doomexit"', checker)
+        self.assertIn('"doomfault"', checker)
+        self.assertIn('"doomfaultip"', checker)
+        self.assertIn('"doomfaultv"', checker)
+        self.assertIn('"doomfaulterr"', checker)
+        self.assertIn("doomexit= must be zero", checker)
+        self.assertIn('("doomfault", "doomfaultip", "doomfaultv", "doomfaulterr")', checker)
+        self.assertIn('f"{fault_field}= must be zero', checker)
+        self.assertIn("`doomexit`", runtime_doc)
+        self.assertIn("`doomfault`", runtime_doc)
+        self.assertIn("Doom user faults record `doomrun=FAULT` plus `doomfault=<cr2>`", gap_doc)
+        self.assertIn("`doomfaultip=<eip>`", gap_doc)
+        self.assertIn("`doomfaultv=<vector>`", gap_doc)
+        self.assertIn("`doomfaulterr=<error-code>`", gap_doc)
+
+    def test_save_config_persistence_has_image_and_reboot_snapshot_gates(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
+        persistent_doc = (ROOT / "docs" / "persistent-fat16.md").read_text()
+
+        default_payload = b"use_mouse\t\t1\nscreenblocks\t\t9\n"
+        save_payload = b"VIBEOS-SAVE-PROOF" * 1024
+        before_free = fs.free_data_clusters()
+
+        default_chain = fs.write_root_file(make_wad_image.WRITABLE_DEFAULT_NAME, default_payload)
+        save_chain = fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], save_payload)
+
+        self.assertEqual(fs.read_root_file(make_wad_image.WRITABLE_DEFAULT_NAME), default_payload)
+        self.assertEqual(fs.read_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0]), save_payload)
+        self.assertEqual(
+            fs.root_file_metadata(make_wad_image.WRITABLE_DEFAULT_NAME)["size"],
+            len(default_payload),
+        )
+        self.assertEqual(
+            fs.root_file_metadata(make_wad_image.WRITABLE_SAVE_NAMES[0])["size"],
+            len(save_payload),
+        )
+        self.assertEqual(
+            fs.free_data_clusters(),
+            before_free - len(default_chain) - len(save_chain),
+        )
+
+        freed = fs.truncate_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0])
+        self.assertEqual(freed, save_chain)
+        self.assertEqual(fs.root_file_metadata(make_wad_image.WRITABLE_SAVE_NAMES[0])["size"], 0)
+
+        self.assertIn("The FAT16 image has root entries for `DEFAULT.CFG`", gap_doc)
+        self.assertIn("Run `26151623245` passes that reboot proof for `DEFAULT.CFG`", gap_doc)
+        self.assertIn("Historical run `26156172979` passes the save-slot reboot proof", gap_doc)
+        self.assertIn("Current-head persistence is not proven", gap_doc)
+        self.assertIn("captures the fresh baseline immediately after rebuilding", gap_doc)
+        self.assertIn("same disk image is booted again", gap_doc)
+        self.assertIn("reboot comparison now requires the fresh baseline", gap_doc)
+        self.assertIn("Run `26157926297` on commit `6b5319e` passes the opt-in", gap_doc)
+        self.assertIn("guest_exit_observed=true", gap_doc)
+        self.assertIn("after-write snapshot", persistent_doc)
+        self.assertIn("requires `--baseline-image` too", persistent_doc)
+        self.assertIn("This is enough for Doom defaults and save slots", persistent_doc)
+
+    def test_docs_keep_large_post_checkpoint_gaps_explicit(self):
+        readme = (ROOT / "README.md").read_text()
+        tests_readme = (ROOT / "tests" / "README.md").read_text()
+        gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
+        playable_doc = (ROOT / "docs" / "playable-cloud-proof.md").read_text()
+        process_doc = (ROOT / "docs" / "process-exec.md").read_text()
+        persistence_doc = (ROOT / "docs" / "persistent-fat16.md").read_text()
+        hardware_doc = (ROOT / "docs" / "hardware-support.md").read_text()
+
+        self.assertIn("docs/post-checkpoint-gaps.md", readme)
+        self.assertIn("test_post_checkpoint_gaps.py", tests_readme)
+        self.assertIn("tools/check_playability_gap_ledger.py", tests_readme)
+        self.assertIn("not by itself a claim that the current branch is human-playable", playable_doc)
+        for claim_boundary in (
+            "Nothing is missing for this exact shutdown/panic proof gate",
+            "panic=KEXC",
+            "shutdown=HALT",
+            "shutdown=REBOOT",
+            "shutdown=POWEROFF",
+            "This is not a full POSIX environment",
+            "Current-head cloud proof state: pending",
+            "pushed commit passes OS smoke and Real WAD smoke",
+            "Do not call the project Doom-capable",
+            "fixed-slot launch/switch contract",
+            "vmmhi=OK",
+            "vmmhfree=",
+            "not a robust",
+            "full POSIX environment",
+            "storage boot path",
+            "check_hardware_support_matrix.py",
+            "SUPPORT[...]",
+            "check_human_playability_proof.py --require-human-session",
+            "at least 350 Doom ticks",
+            "rejects forbidden WAD/disk/pixel/raw-audio artifacts",
+        ):
+            with self.subTest(claim_boundary=claim_boundary):
+                self.assertContainsPhrase(gap_doc, claim_boundary)
+        self.assertIn("not a robust Unix", process_doc)
+        self.assertIn("fork`/`exec` split", process_doc)
+        self.assertIn("storage boot", persistence_doc)
+        self.assertIn("path story", persistence_doc)
+        self.assertIn("not yet a broader storage boot", persistence_doc)
+        self.assertIn("SUPPORT[PHYSICAL_HARDWARE] status=unclaimed", hardware_doc)
+        self.assertContainsPhrase(hardware_doc, "QEMU evidence alone can only claim")
+
+    def test_latest_cloud_evidence_tracks_run_but_not_playable_claim(self):
+        gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
+
+        for phrase in (
+            "Latest Cloud Evidence",
+            "last published scripted cloud truth-serum run",
+            "Current-head cloud proof state: pending",
+            "historical repair context",
+            "human-facing Doom-capable proof",
+            "26165681561",
+            "c525952",
+            "scripted gameplay transition",
+            "26165678183",
+            "Persistence is not current-head proven",
+            "26156172979",
+            "eabd307",
+            "real-WAD, human-playability",
+            "audible-audio manifest",
+            "artifact hygiene",
+            "DOOMSAV0.DSG bytes=512 changed-from-baseline",
+            "survived-reboot description='VIBESAVE'",
+            "reboot status runtime=OK",
+            "26150621804",
+            "1db3a7a",
+            "usr=FAIL",
+            "failed the proof gate",
+            "26149350434",
+            "da9c136",
+            "then-current scripted checker",
+            "playability-status-green",
+            "doomrun=RUN",
+            "doomopen=OK",
+            "doomread=OK",
+            "IWAD",
+            "Frame/gameplay counters are active",
+            "Scripted keyboard input, mouse input, SB16/audio counters",
+            "preemption counters are active",
+            "workflow, or proof-checker change",
+            "scripted `usr=OK`, `use`, mouse effect, audio",
+            "check_audio_continuity_proof.py",
+            "26149570191",
+            "memset+0x20",
+            "doomfaultip=01029F20",
+            "audio-proof.json",
+            "Stronger gameplay proof",
+            "remote human playtest",
+            "26146035600",
+            "269dbb8",
+            "FindResponseFile+0x34",
+            "doomfaultip=01003224",
+            "26146488906",
+            "34eb98d",
+            "W_AddFile+0x246",
+            "doomfaultip=01024D06",
+            "historical repair",
+            "blocker after",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertContainsPhrase(gap_doc, phrase)
+
+        for phrase in (
+            "The current first runtime blocker is the Ring 3 page fault",
+            "until that is fixed, WAD open/read",
+            "Current-head smoke status",
+            "is the current scripted cloud truth-serum run for the current runtime code",
+            "is the current scripted cloud proof that passes the serious real-WAD gates for the current runtime code",
+            "Nothing is missing for this exact commit's scripted cloud-boot gate",
+            "Nothing is missing for this exact commit's scripted real-gameplay gate",
+        ):
+            with self.subTest(stale_phrase=phrase):
+                self.assertNotIn(phrase, gap_doc)
+
+    def test_machine_readable_gap_ledger_covers_playability_surface(self):
+        gaps = check_playability_gap_ledger.validate_ledger(ROOT)
+
+        self.assertEqual(
+            set(gaps),
+            {
+                "CLOUD_BOOT",
+                "REAL_GAMEPLAY",
+                "HUMAN_PLAYTEST",
+                "PERSISTENCE",
+                "AUDIO",
+                "VM_POSIX",
+                "SHUTDOWN_PANIC",
+                "HARDWARE_LIMITS",
+            },
+        )
+        self.assertEqual(
+            {gap_id: gap["status"] for gap_id, gap in gaps.items()},
+            {
+                "CLOUD_BOOT": "proven",
+                "REAL_GAMEPLAY": "proven",
+                "HUMAN_PLAYTEST": "open",
+                "PERSISTENCE": "open",
+                "AUDIO": "open",
+                "VM_POSIX": "open",
+                "SHUTDOWN_PANIC": "proven",
+                "HARDWARE_LIMITS": "open",
+            },
+        )
+        self.assertEqual(
+            {gap["category"] for gap in gaps.values()},
+            {
+                "cloud-boot",
+                "real-gameplay",
+                "human-playtest",
+                "persistence",
+                "audio",
+                "vm-posix",
+                "shutdown-panic",
+                "hardware-limits",
+            },
+        )
+
+    def test_gap_ledger_checker_cli_is_repo_local(self):
+        result = subprocess.run(
+            ["python3", str(GAP_TOOL)],
+            cwd=ROOT,
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        self.assertIn("playability gap ledger OK", result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

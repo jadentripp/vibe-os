@@ -1,0 +1,70 @@
+name: Cloud play-now preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      novnc_port:
+        description: noVNC port to validate for a disposable cloud play session.
+        required: true
+        default: "6080"
+      require_novnc:
+        description: Require noVNC/websockify so the browser play path is ready.
+        type: boolean
+        required: true
+        default: true
+
+jobs:
+  preflight:
+    name: Remote play host preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NOVNC_PORT: ${{ inputs.novnc_port }}
+    steps:
+      - name: Check out selected branch
+        uses: actions/checkout@v4
+
+      - name: Install remote play dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang \
+            curl \
+            make \
+            nasm \
+            netcat-openbsd \
+            novnc \
+            python3 \
+            qemu-system-x86 \
+            websockify
+
+      - name: Run remote play dry-run preflight
+        run: |
+          set -euo pipefail
+          args=(--preflight)
+          if [ "${{ inputs.require_novnc }}" = "true" ]; then
+            args+=(--require-novnc)
+          fi
+          ./tools/play_now_remote.sh "${args[@]}" | tee "$RUNNER_TEMP/play-now-preflight.txt"
+          grep -q "play-now remote preflight OK" "$RUNNER_TEMP/play-now-preflight.txt"
+          grep -q "dry-run: QEMU was not launched" "$RUNNER_TEMP/play-now-preflight.txt"
+
+      - name: Check cloud play safety contract
+        run: python3 tools/check_vm_safety_contract.py
+
+      - name: Summarize next play command
+        run: |
+          {
+            echo "## Cloud play-now preflight"
+            echo
+            echo "Remote prerequisites are present on the selected GitHub Actions runner."
+            echo
+            echo "This workflow did not launch QEMU, fetch a WAD, build disk.img, or upload logs/artifacts."
+            echo
+            echo "For interactive play, use Codespaces from the Mac:"
+            echo
+            echo '```sh'
+            echo "gh auth refresh -h github.com -s codespace"
+            echo "VIBE_REPO=${{ github.repository }} VIBE_REF=${{ github.ref_name }} ./tools/play_now_codespaces.sh"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -6,10 +6,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "vibe_os.h"
+
+#define VIBE_FILE_WRITE_BUFFER 4096
+#define VIBE_TRACKED_FDS 32
 
 struct vibe_doom_file {
     int fd;
@@ -19,8 +25,10 @@ struct vibe_doom_file {
     int readable;
     int writable;
     int append;
+    size_t write_buffered;
     int has_pushback;
     unsigned char pushback;
+    char write_buffer[VIBE_FILE_WRITE_BUFFER];
 };
 
 typedef struct alloc_header {
@@ -32,15 +40,21 @@ typedef struct alloc_header {
 
 int errno;
 
-static struct vibe_doom_file stdin_file = { 0, 0, 0, 1, 1, 0, 0, 0, 0 };
-static struct vibe_doom_file stdout_file = { 1, 0, 0, 1, 0, 1, 0, 0, 0 };
-static struct vibe_doom_file stderr_file = { 2, 0, 0, 1, 0, 1, 0, 0, 0 };
+static struct vibe_doom_file stdin_file = { 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, { 0 } };
+static struct vibe_doom_file stdout_file = { 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, { 0 } };
+static struct vibe_doom_file stderr_file = { 2, 0, 0, 1, 0, 1, 0, 0, 0, 0, { 0 } };
 static alloc_header_t* alloc_head;
 static alloc_header_t* alloc_tail;
+static unsigned char tracked_save_fd[VIBE_TRACKED_FDS];
+static unsigned char tracked_save_slot[VIBE_TRACKED_FDS];
 
 FILE* stdin = &stdin_file;
 FILE* stdout = &stdout_file;
 FILE* stderr = &stderr_file;
+
+static int write_all_fd(int fd, const char* data, size_t length);
+static int stream_flush_write(FILE* stream);
+static int stream_write(FILE* stream, const char* data, size_t length);
 
 #ifndef VIBE_LIBC_HOST_TEST
 int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, unsigned long arg2)
@@ -198,8 +212,61 @@ static alloc_header_t* alloc_request(size_t size)
     return block;
 }
 
+static int is_doom_save_basename(const char* path)
+{
+    return strlen(path) == 12
+        && !strncasecmp(path, "doomsav", 7)
+        && path[7] >= '0'
+        && path[7] <= '5'
+        && !strcasecmp(path + 8, ".dsg");
+}
+
+static int doom_save_slot_for_basename(const char* path)
+{
+    if (!is_doom_save_basename(path))
+        return -1;
+    return path[7] - '0';
+}
+
+static void report_doom_save_event(int slot, unsigned long event, unsigned long value, unsigned long extra)
+{
+    unsigned long packed;
+
+    if (slot < 0 || slot > 5)
+        return;
+
+    packed = VIBE_DOOM_SAVELOAD_STATUS
+        | (event & 0xffffu)
+        | ((unsigned long)slot << VIBE_DOOM_SAVELOAD_SLOT_SHIFT);
+    (void)vibe_syscall3(VIBE_SYS_GAMEPLAY_STATUS, packed, value, extra);
+}
+
+static void track_save_fd(int fd, int slot)
+{
+    if (fd < 0 || fd >= VIBE_TRACKED_FDS)
+        return;
+    tracked_save_fd[fd] = 1;
+    tracked_save_slot[fd] = (unsigned char)slot;
+}
+
+static int tracked_save_slot_for_fd(int fd)
+{
+    if (fd < 0 || fd >= VIBE_TRACKED_FDS || !tracked_save_fd[fd])
+        return -1;
+    return tracked_save_slot[fd];
+}
+
+static void untrack_save_fd(int fd)
+{
+    if (fd < 0 || fd >= VIBE_TRACKED_FDS)
+        return;
+    tracked_save_fd[fd] = 0;
+    tracked_save_slot[fd] = 0;
+}
+
 static const char* mapped_path(const char* path)
 {
+    static char save_path[] = "doomsav0.dsg";
     const char* slash = path;
     const char* p;
 
@@ -209,9 +276,24 @@ static const char* mapped_path(const char* path)
 
     if (!strcasecmp(slash, "doom1.wad"))
         return "DOOM1.WAD";
+    if (!strcasecmp(slash, "doom.elf"))
+        return "DOOM.ELF";
+    if (!strcasecmp(slash, "userprob.elf"))
+        return "USERPROB.ELF";
     if (!strcasecmp(slash, ".doomrc") || !strcasecmp(slash, "default.cfg"))
         return "DEFAULT.CFG";
+    if (is_doom_save_basename(slash)) {
+        save_path[7] = slash[7];
+        return save_path;
+    }
     return path;
+}
+
+static int is_doom_data_dir(const char* path)
+{
+    return !strcasecmp(path, "c:\\doomdata")
+        || !strcasecmp(path, "c:/doomdata")
+        || !strcasecmp(path, "doomdata");
 }
 
 static int syscall_failed(int raw, int fallback_errno)
@@ -221,6 +303,29 @@ static int syscall_failed(int raw, int fallback_errno)
     else
         errno = fallback_errno;
     return -1;
+}
+
+static int validate_open_flags(int flags)
+{
+    int access_mode = flags & O_ACCMODE;
+    int known_flags = O_ACCMODE | O_CREAT | O_TRUNC | O_APPEND | O_CLOEXEC | O_BINARY;
+
+    if ((flags & ~known_flags) || access_mode == O_ACCMODE) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if ((flags & O_TRUNC) && access_mode == O_RDONLY) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if ((flags & O_APPEND) && access_mode == O_RDONLY) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    return 0;
 }
 
 static int checked_multiply_size(size_t left, size_t right, size_t* out)
@@ -507,11 +612,16 @@ void free(void* ptr)
         alloc_coalesce_next(block->prev);
 }
 
-void exit(int status)
+void _exit(int status)
 {
     (void)vibe_syscall3(VIBE_SYS_EXIT, (unsigned long)status, 0, 0);
     for (;;) {
     }
+}
+
+void exit(int status)
+{
+    _exit(status);
 }
 
 char* getenv(const char* name)
@@ -538,7 +648,9 @@ void srand(unsigned int seed)
 int open(const char* path, int flags, ...)
 {
     int raw;
+    int slot;
     unsigned int mode = 0;
+    const char* mapped;
     va_list args;
 
     if (!path) {
@@ -546,41 +658,73 @@ int open(const char* path, int flags, ...)
         return -1;
     }
 
+    if (validate_open_flags(flags) < 0)
+        return -1;
+
     if (flags & O_CREAT) {
         va_start(args, flags);
         mode = (unsigned int)va_arg(args, int);
         va_end(args);
     }
 
-    raw = vibe_syscall3(VIBE_SYS_OPEN, (unsigned long)mapped_path(path), (unsigned long)flags, mode);
+    mapped = mapped_path(path);
+    raw = vibe_syscall3(VIBE_SYS_OPEN, (unsigned long)mapped, (unsigned long)flags, mode);
+    if (raw >= 0) {
+        slot = doom_save_slot_for_basename(mapped);
+        if (slot >= 0) {
+            track_save_fd(raw, slot);
+            report_doom_save_event(
+                slot,
+                VIBE_DOOM_SAVELOAD_OPEN,
+                (unsigned long)flags,
+                mode);
+        }
+    }
     return raw < 0 ? syscall_failed(raw, ENOENT) : raw;
 }
 
 ssize_t read(int fd, void* buffer, size_t count)
 {
     int raw;
+    int slot;
     if (!buffer && count) {
         errno = EINVAL;
         return -1;
     }
     raw = vibe_syscall3(VIBE_SYS_READ, (unsigned long)fd, (unsigned long)buffer, (unsigned long)count);
+    if (raw > 0) {
+        slot = tracked_save_slot_for_fd(fd);
+        if (slot >= 0)
+            report_doom_save_event(slot, VIBE_DOOM_SAVELOAD_READ, (unsigned long)raw, 0);
+    }
     return raw < 0 ? syscall_failed(raw, EIO) : raw;
 }
 
 ssize_t write(int fd, const void* buffer, size_t count)
 {
     int raw;
+    int slot;
     if (!buffer && count) {
         errno = EINVAL;
         return -1;
     }
     raw = vibe_syscall3(VIBE_SYS_WRITE, (unsigned long)fd, (unsigned long)buffer, (unsigned long)count);
+    if (raw > 0) {
+        slot = tracked_save_slot_for_fd(fd);
+        if (slot >= 0)
+            report_doom_save_event(slot, VIBE_DOOM_SAVELOAD_WRITE, (unsigned long)raw, 0);
+    }
     return raw < 0 ? syscall_failed(raw, EIO) : raw;
 }
 
 int close(int fd)
 {
+    int slot = tracked_save_slot_for_fd(fd);
     int raw = vibe_syscall3(VIBE_SYS_CLOSE, (unsigned long)fd, 0, 0);
+    if (raw >= 0 && slot >= 0) {
+        report_doom_save_event(slot, VIBE_DOOM_SAVELOAD_CLOSE, 0, 0);
+        untrack_save_fd(fd);
+    }
     return raw < 0 ? syscall_failed(raw, EBADF) : raw;
 }
 
@@ -609,51 +753,202 @@ int access(const char* path, int mode)
 
 int unlink(const char* path)
 {
-    (void)path;
-    errno = ENOSYS;
-    return -1;
+    int raw;
+    if (!path) {
+        errno = EINVAL;
+        return -1;
+    }
+    raw = vibe_syscall3(VIBE_SYS_UNLINK, (unsigned long)mapped_path(path), 0, 0);
+    return raw < 0 ? syscall_failed(raw, ENOSYS) : raw;
+}
+
+int remove(const char* path)
+{
+    return unlink(path);
 }
 
 int mkdir(const char* path, mode_t mode)
 {
-    (void)path;
     (void)mode;
-    return 0;
+    if (!path) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (is_doom_data_dir(path))
+        return 0;
+    errno = ENOSYS;
+    return -1;
 }
 
 int fstat(int fd, struct stat* out)
 {
-    off_t current;
-    off_t end;
+    int raw;
     if (!out) {
         errno = EINVAL;
         return -1;
     }
-    current = lseek(fd, 0, SEEK_CUR);
-    end = lseek(fd, 0, SEEK_END);
-    if (current < 0 || end < 0)
-        return -1;
-    (void)lseek(fd, current, SEEK_SET);
-    memset(out, 0, sizeof(*out));
-    out->st_size = end;
-    out->st_mode = S_IFREG | S_IRUSR;
-    return 0;
+    raw = vibe_syscall3(VIBE_SYS_FSTAT, (unsigned long)fd, (unsigned long)out, 0);
+    return raw < 0 ? syscall_failed(raw, EBADF) : raw;
 }
 
 int stat(const char* path, struct stat* out)
 {
-    int fd;
-    int result;
+    int raw;
+    if (!path) {
+        errno = EINVAL;
+        return -1;
+    }
     if (!out) {
         errno = EINVAL;
         return -1;
     }
-    fd = open(path, O_RDONLY);
-    if (fd < 0)
+    raw = vibe_syscall3(VIBE_SYS_STAT, (unsigned long)mapped_path(path), (unsigned long)out, 0);
+    return raw < 0 ? syscall_failed(raw, ENOENT) : raw;
+}
+
+void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t offset)
+{
+#ifdef VIBE_LIBC_HOST_TEST
+    size_t rounded;
+    void* raw;
+#else
+    int raw;
+    unsigned long packed;
+#endif
+
+    if (addr || !length || (flags & MAP_FIXED) || offset != 0) {
+        errno = EINVAL;
+        return MAP_FAILED;
+    }
+
+    if (!prot
+        || (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC))
+        || (flags & ~(MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_SHARED))) {
+        errno = EINVAL;
+        return MAP_FAILED;
+    }
+
+    if (!(flags & MAP_ANONYMOUS) || fd != -1 || !(flags & MAP_PRIVATE) || (flags & MAP_SHARED)) {
+        errno = ENOSYS;
+        return MAP_FAILED;
+    }
+
+#ifdef VIBE_LIBC_HOST_TEST
+    if (length > (size_t)-1 - 4095) {
+        errno = ENOMEM;
+        return MAP_FAILED;
+    }
+    rounded = (length + 4095) & ~(size_t)4095;
+    raw = alloc_sbrk(rounded);
+    if (!raw) {
+        errno = ENOMEM;
+        return MAP_FAILED;
+    }
+    memset(raw, 0, rounded);
+    return raw;
+#else
+    packed = ((unsigned long)(flags & 0xffff) << 16) | (unsigned long)(prot & 0xffff);
+    raw = vibe_syscall3(VIBE_SYS_MMAP, 0, (unsigned long)length, packed);
+    if (raw < 0) {
+        (void)syscall_failed(raw, ENOMEM);
+        return MAP_FAILED;
+    }
+    return (void*)(unsigned int)raw;
+#endif
+}
+
+int munmap(void* addr, size_t length)
+{
+#ifndef VIBE_LIBC_HOST_TEST
+    int raw;
+#endif
+    if (!addr || addr == MAP_FAILED || !length) {
+        errno = EINVAL;
         return -1;
-    result = fstat(fd, out);
-    close(fd);
-    return result;
+    }
+#ifdef VIBE_LIBC_HOST_TEST
+    return 0;
+#else
+    raw = vibe_syscall3(VIBE_SYS_MUNMAP, (unsigned long)addr, (unsigned long)length, 0);
+    return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
+#endif
+}
+
+int ioctl(int fd, unsigned long request, void* arg)
+{
+    int raw = vibe_syscall3(VIBE_SYS_IOCTL, (unsigned long)fd, request, (unsigned long)arg);
+    return raw < 0 ? syscall_failed(raw, ENOTTY) : raw;
+}
+
+int execv(const char* path, char* const argv[])
+{
+    int raw;
+
+    if (!path) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    raw = vibe_syscall3(VIBE_SYS_EXEC, (unsigned long)mapped_path(path), (unsigned long)argv, 0);
+    return raw < 0 ? syscall_failed(raw, ENOENT) : raw;
+}
+
+int execve(const char* path, char* const argv[], char* const envp[])
+{
+    if (envp && envp[0]) {
+        errno = ENOSYS;
+        return -1;
+    }
+    return execv(path, argv);
+}
+
+int execl(const char* path, const char* arg, ...)
+{
+    char* argv[8];
+    int count = 0;
+    va_list args;
+
+    if (!path) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    va_start(args, arg);
+    while (arg) {
+        if (count >= (int)(sizeof(argv) / sizeof(argv[0])) - 1) {
+            va_end(args);
+            errno = EINVAL;
+            return -1;
+        }
+        argv[count++] = (char*)arg;
+        arg = va_arg(args, const char*);
+    }
+    va_end(args);
+    argv[count] = 0;
+    return execv(path, argv);
+}
+
+pid_t getpid(void)
+{
+    int raw = vibe_syscall3(VIBE_SYS_GETPID, 0, 0, 0);
+    return raw < 0 ? syscall_failed(raw, ENOSYS) : raw;
+}
+
+pid_t fork(void)
+{
+    int raw = vibe_syscall3(VIBE_SYS_FORK, 0, 0, 0);
+    return raw < 0 ? syscall_failed(raw, ENOSYS) : raw;
+}
+
+pid_t waitpid(pid_t pid, int* status, int options)
+{
+    int raw = vibe_syscall3(VIBE_SYS_WAITPID, (unsigned long)pid, (unsigned long)status, (unsigned long)options);
+    return raw < 0 ? syscall_failed(raw, ECHILD) : raw;
+}
+
+pid_t wait(int* status)
+{
+    return waitpid((pid_t)-1, status, 0);
 }
 
 static int parse_fopen_mode(const char* mode, int* flags, int* readable, int* writable, int* append)
@@ -743,6 +1038,7 @@ FILE* fopen(const char* path, const char* mode)
             file_pool[i].readable = readable;
             file_pool[i].writable = writable;
             file_pool[i].append = append;
+            file_pool[i].write_buffered = 0;
             file_pool[i].has_pushback = 0;
             file_pool[i].pushback = 0;
             if (append)
@@ -768,6 +1064,8 @@ size_t fread(void* ptr, size_t size, size_t count, FILE* stream)
             errno = EBADF;
         return 0;
     }
+    if (stream_flush_write(stream) < 0)
+        return 0;
     bytes = read(stream->fd, ptr, total);
     if (bytes < 0) {
         stream->error = 1;
@@ -784,7 +1082,6 @@ size_t fread(void* ptr, size_t size, size_t count, FILE* stream)
 
 size_t fwrite(const void* ptr, size_t size, size_t count, FILE* stream)
 {
-    int bytes;
     size_t total;
     if (!size || !count)
         return 0;
@@ -797,14 +1094,11 @@ size_t fwrite(const void* ptr, size_t size, size_t count, FILE* stream)
     }
     if (stream->append)
         (void)lseek(stream->fd, 0, SEEK_END);
-    bytes = write(stream->fd, ptr, total);
-    if (bytes < 0) {
+    if (stream_write(stream, ptr, total) < 0) {
         stream->error = 1;
         return 0;
     }
-    if ((size_t)bytes < total)
-        stream->error = 1;
-    return bytes < 0 || !size ? 0 : (size_t)bytes / size;
+    return count;
 }
 
 int fseek(FILE* stream, long offset, int whence)
@@ -813,6 +1107,8 @@ int fseek(FILE* stream, long offset, int whence)
         errno = EBADF;
         return -1;
     }
+    if (stream_flush_write(stream) < 0)
+        return -1;
     if (lseek(stream->fd, (off_t)offset, whence) < 0) {
         stream->error = 1;
         return -1;
@@ -834,7 +1130,7 @@ long ftell(FILE* stream)
         stream->error = 1;
         return -1;
     }
-    return (long)raw;
+    return (long)(raw + (off_t)stream->write_buffered);
 }
 
 int fclose(FILE* stream)
@@ -844,7 +1140,9 @@ int fclose(FILE* stream)
         errno = EBADF;
         return EOF;
     }
-    result = close(stream->fd);
+    result = stream_flush_write(stream);
+    if (close(stream->fd) < 0)
+        result = EOF;
     stream->fd = -1;
     stream->eof = 1;
     stream->error = result < 0;
@@ -852,14 +1150,20 @@ int fclose(FILE* stream)
     stream->readable = 0;
     stream->writable = 0;
     stream->append = 0;
+    stream->write_buffered = 0;
     stream->has_pushback = 0;
     return result;
 }
 
 int fflush(FILE* stream)
 {
-    (void)stream;
-    return 0;
+    if (!stream)
+        return 0;
+    if (!stream->used) {
+        errno = EBADF;
+        return EOF;
+    }
+    return stream_flush_write(stream);
 }
 
 int feof(FILE* stream)
@@ -910,6 +1214,49 @@ static int out_char(char** out, size_t* left, int fd, char ch)
     return 0;
 }
 
+static int write_all_fd(int fd, const char* data, size_t length)
+{
+    size_t done = 0;
+    while (done < length) {
+        ssize_t bytes = write(fd, data + done, length - done);
+        if (bytes <= 0)
+            return -1;
+        done += (size_t)bytes;
+    }
+    return 0;
+}
+
+static int stream_flush_write(FILE* stream)
+{
+    if (!stream || !stream->write_buffered)
+        return 0;
+    if (write_all_fd(stream->fd, stream->write_buffer, stream->write_buffered) < 0) {
+        stream->error = 1;
+        return EOF;
+    }
+    stream->write_buffered = 0;
+    return 0;
+}
+
+static int stream_write(FILE* stream, const char* data, size_t length)
+{
+    if (!length)
+        return 0;
+    if (stream->fd == 1 || stream->fd == 2)
+        return write_all_fd(stream->fd, data, length);
+    if (length > VIBE_FILE_WRITE_BUFFER) {
+        if (stream_flush_write(stream) < 0)
+            return -1;
+        return write_all_fd(stream->fd, data, length);
+    }
+    if (stream->write_buffered + length > VIBE_FILE_WRITE_BUFFER
+        && stream_flush_write(stream) < 0)
+        return -1;
+    memcpy(stream->write_buffer + stream->write_buffered, data, length);
+    stream->write_buffered += length;
+    return 0;
+}
+
 static int out_string(char** out, size_t* left, int fd, const char* text)
 {
     int count = 0;
@@ -947,7 +1294,6 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
 {
     char* out = buffer;
     size_t left = size;
-    const char* start = buffer;
     int count = 0;
 
     while (*format) {
@@ -1045,7 +1391,7 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
     }
     if (buffer && size)
         *out = 0;
-    return buffer ? (int)(out - start) : count;
+    return count;
 }
 
 int vsnprintf(char* buffer, size_t size, const char* format, va_list args)
@@ -1080,6 +1426,8 @@ int sprintf(char* buffer, const char* format, ...)
 
 int vfprintf(FILE* stream, const char* format, va_list args)
 {
+    char buffer[512];
+    va_list copy;
     int result;
     if (!stream || !stream->used || !stream->writable) {
         if (stream)
@@ -1089,7 +1437,18 @@ int vfprintf(FILE* stream, const char* format, va_list args)
     }
     if (stream->append)
         (void)lseek(stream->fd, 0, SEEK_END);
-    result = format_to(0, 0, stream->fd, format, args);
+
+    va_copy(copy, args);
+    result = format_to(buffer, sizeof(buffer), stream->fd, format, copy);
+    va_end(copy);
+    if (result >= 0 && (size_t)result < sizeof(buffer)) {
+        if (stream_write(stream, buffer, (size_t)result) < 0)
+            result = -1;
+    } else if (result >= 0) {
+        if (stream_flush_write(stream) < 0)
+            return EOF;
+        result = format_to(0, 0, stream->fd, format, args);
+    }
     if (result < 0)
         stream->error = 1;
     return result;
@@ -1120,29 +1479,179 @@ int printf(const char* format, ...)
     return result;
 }
 
+static void scan_text_skip_space(const char** text)
+{
+    while (isspace((unsigned char)**text))
+        ++*text;
+}
+
+static int scan_text_read_int(const char** text, int* dest, int width, int base)
+{
+    const char* p = *text;
+    int sign = 1;
+    int value = 0;
+    int digits = 0;
+    int consumed = 0;
+
+    if (width <= 0)
+        width = 64;
+
+    scan_text_skip_space(&p);
+    if (consumed < width && (*p == '-' || *p == '+')) {
+        if (*p == '-')
+            sign = -1;
+        ++p;
+        ++consumed;
+    }
+
+    if ((base == 0 || base == 16)
+        && consumed + 2 <= width
+        && p[0] == '0'
+        && (p[1] == 'x' || p[1] == 'X')) {
+        base = 16;
+        p += 2;
+        consumed += 2;
+    } else if (base == 0) {
+        base = 10;
+    }
+
+    while (consumed < width && *p) {
+        int digit;
+        if (isdigit((unsigned char)*p))
+            digit = *p - '0';
+        else if (isxdigit((unsigned char)*p))
+            digit = tolower((unsigned char)*p) - 'a' + 10;
+        else
+            break;
+        if (digit >= base)
+            break;
+        value = value * base + digit;
+        ++digits;
+        ++p;
+        ++consumed;
+    }
+
+    if (!digits)
+        return 0;
+    *dest = value * sign;
+    *text = p;
+    return 1;
+}
+
+static int scan_text_read_word(const char** text, char* dest, int width)
+{
+    int count = 0;
+
+    if (width <= 0)
+        width = 1023;
+    scan_text_skip_space(text);
+    while (count < width && **text && !isspace((unsigned char)**text)) {
+        dest[count++] = **text;
+        ++*text;
+    }
+    dest[count] = 0;
+    return count > 0;
+}
+
+static int scan_text_read_until(const char** text, char* dest, int width, int stop)
+{
+    int count = 0;
+
+    if (width <= 0)
+        width = 99;
+    while (count < width && **text && **text != (char)stop) {
+        dest[count++] = **text;
+        ++*text;
+    }
+    dest[count] = 0;
+    return count > 0;
+}
+
 int sscanf(const char* text, const char* format, ...)
 {
     va_list args;
     int assigned = 0;
+    int matched = 0;
+
+    if (!text || !format) {
+        errno = EINVAL;
+        return EOF;
+    }
+
     va_start(args, format);
-    while (*format && *text) {
-        if (*format++ != '%')
+    while (*format) {
+        int width = 0;
+
+        if (isspace((unsigned char)*format)) {
+            while (isspace((unsigned char)*format))
+                ++format;
+            scan_text_skip_space(&text);
             continue;
-        if (*format == 'i' || *format == 'd') {
-            *va_arg(args, int*) = atoi(text);
-            ++assigned;
-        } else if (*format == 'x') {
-            int value = 0;
-            while (isxdigit((unsigned char)*text)) {
-                int ch = tolower((unsigned char)*text++);
-                value = value * 16 + (isdigit(ch) ? ch - '0' : ch - 'a' + 10);
-            }
-            *va_arg(args, int*) = value;
-            ++assigned;
         }
+
+        if (*format != '%') {
+            if (*text != *format)
+                break;
+            ++text;
+            ++format;
+            ++matched;
+            continue;
+        }
+
         ++format;
+        if (*format == '%') {
+            if (*text != '%')
+                break;
+            ++text;
+            ++format;
+            ++matched;
+            continue;
+        }
+
+        while (isdigit((unsigned char)*format)) {
+            width = width * 10 + (*format - '0');
+            ++format;
+        }
+
+        if (*format == 's') {
+            if (!scan_text_read_word(&text, va_arg(args, char*), width))
+                break;
+            ++assigned;
+            ++matched;
+            ++format;
+        } else if (*format == '[') {
+            ++format;
+            if (*format == '^' && format[1] && format[2] == ']') {
+                if (!scan_text_read_until(&text, va_arg(args, char*), width, (unsigned char)format[1]))
+                    break;
+                format += 3;
+                ++assigned;
+                ++matched;
+            } else {
+                errno = EINVAL;
+                break;
+            }
+        } else if (*format == 'i' || *format == 'd') {
+            if (!scan_text_read_int(&text, va_arg(args, int*), width, *format == 'i' ? 0 : 10))
+                break;
+            ++assigned;
+            ++matched;
+            ++format;
+        } else if (*format == 'x') {
+            if (!scan_text_read_int(&text, va_arg(args, int*), width, 16))
+                break;
+            ++assigned;
+            ++matched;
+            ++format;
+        } else {
+            errno = EINVAL;
+            break;
+        }
     }
     va_end(args);
+
+    if (!matched && !*text)
+        return EOF;
     return assigned;
 }
 

@@ -15,5 +15,11 @@ int close(int fd);
 off_t lseek(int fd, off_t offset, int whence);
 int access(const char* path, int mode);
 int unlink(const char* path);
+void _exit(int status);
+int execl(const char* path, const char* arg, ...);
+int execv(const char* path, char* const argv[]);
+int execve(const char* path, char* const argv[], char* const envp[]);
+pid_t fork(void);
+pid_t getpid(void);
 
 #endif

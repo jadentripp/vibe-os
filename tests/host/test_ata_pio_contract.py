@@ -1,0 +1,147 @@
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+class AtaPioContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        cls.triage_doc = (ROOT / "docs" / "cloud-status-triage.md").read_text()
+        cls.persistence_doc = (ROOT / "docs" / "persistent-fat16.md").read_text()
+
+    def test_ata_waits_are_bounded_and_record_failures(self):
+        kernel = self.kernel
+        not_busy = kernel.split("ata_wait_not_busy:", 1)[1].split("ata_wait_drq:", 1)[0]
+        drq = kernel.split("ata_wait_drq:", 1)[1].split("ata_wait_ready:", 1)[0]
+        ready = kernel.split("ata_wait_ready:", 1)[1].split("ata_read_sector:", 1)[0]
+
+        for source in (
+            "ATA_ERROR equ 0x01f1",
+            "ATA_STATUS_BSY equ 0x80",
+            "ATA_WAIT_POLL_LIMIT equ 0x20000",
+            "ATA_WAIT_READY equ 3",
+            "ata_wait_failures dd 0",
+            "ata_wait_timeouts dd 0",
+            "ata_wait_error_failures dd 0",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, kernel)
+
+        for wait_body in (not_busy, drq, ready):
+            with self.subTest(wait=wait_body.splitlines()[0]):
+                self.assertIn("mov ecx, ATA_WAIT_POLL_LIMIT", wait_body)
+                self.assertIn("mov [ata_last_status], eax", wait_body)
+                self.assertIn("inc dword [ata_wait_failures]", wait_body)
+                self.assertIn("inc dword [ata_wait_timeouts]", wait_body)
+                self.assertIn("mov dx, ATA_ERROR", wait_body)
+                self.assertIn("inc dword [ata_wait_error_failures]", wait_body)
+                self.assertNotIn("mov ecx, 0x100000", wait_body)
+
+    def test_drq_wait_ignores_error_bits_while_busy(self):
+        drq = self.kernel.split("ata_wait_drq:", 1)[1].split("ata_wait_ready:", 1)[0]
+
+        self.assertLess(
+            drq.index("test al, ATA_STATUS_BSY"),
+            drq.index("test al, ATA_STATUS_DF | ATA_STATUS_ERR"),
+        )
+        self.assertLess(
+            drq.index("test al, ATA_STATUS_DF | ATA_STATUS_ERR"),
+            drq.index("test al, ATA_STATUS_DRQ"),
+        )
+
+    def test_pio_data_transfers_use_explicit_word_loops(self):
+        read = self.kernel.split("ata_read_sector:", 1)[1].split("ata_write_sector:", 1)[0]
+        write = self.kernel.split("ata_write_sector:", 1)[1].split("fat_name_match:", 1)[0]
+
+        for instruction in ("rep insw", "rep outsw"):
+            with self.subTest(instruction=instruction):
+                self.assertNotIn(instruction, read)
+                self.assertNotIn(instruction, write)
+
+        for source in (
+            ".read_word:",
+            "in ax, dx",
+            "stosw",
+            "loop .read_word",
+        ):
+            with self.subTest(read_source=source):
+                self.assertIn(source, read)
+
+        for source in (
+            ".write_word:",
+            "lodsw",
+            "out dx, ax",
+            "loop .write_word",
+        ):
+            with self.subTest(write_source=source):
+                self.assertIn(source, write)
+
+    def test_commands_wait_for_drq_to_clear_around_transfers(self):
+        ready = self.kernel.split("ata_wait_ready:", 1)[1].split("ata_read_sector:", 1)[0]
+        read_sector = self.kernel.split("ata_read_sector:", 1)[1].split("ata_write_sector:", 1)[0]
+        write_sector = self.kernel.split("ata_write_sector:", 1)[1].split("fat_cache_root_dir:", 1)[0]
+
+        self.assertIn("mov dword [ata_wait_phase], ATA_WAIT_READY", ready)
+        self.assertIn("test al, ATA_STATUS_DRQ", ready)
+        self.assertIn("jz .ok", ready)
+
+        self.assertGreaterEqual(read_sector.count("call ata_wait_ready"), 2)
+        self.assertGreaterEqual(write_sector.count("call ata_wait_ready"), 2)
+        self.assertIn("out dx, al\n    call ata_io_delay\n\n    call ata_wait_drq", read_sector)
+        self.assertIn("loop .read_word\n    call ata_io_delay\n    call ata_wait_ready", read_sector)
+        self.assertIn("out dx, al\n    call ata_io_delay\n\n    call ata_wait_drq", write_sector)
+        self.assertIn("loop .write_word\n    call ata_io_delay\n    call ata_wait_ready", write_sector)
+
+    def test_storage_status_reports_last_ata_wait_state(self):
+        kernel = self.kernel
+        smoke = kernel.split("write_smoke_status:", 1)[1].split("smoke_write_hex32:", 1)[0]
+
+        for source in (
+            'smoke_ata_text db " ata="',
+            'smoke_ataop_text db " ataop="',
+            'smoke_atawait_text db " atawait="',
+            'smoke_atalba_text db " atalba="',
+            'smoke_atastat_text db " atastat="',
+            'smoke_ataerr_text db " ataerr="',
+            'smoke_atafail_text db " atafail="',
+            'smoke_atatmo_text db " atatmo="',
+            "mov edx, [ata_last_lba]",
+            "mov edx, [ata_last_status]",
+            "mov edx, [ata_last_error]",
+            "mov edx, [ata_wait_failures]",
+            "mov edx, [ata_wait_timeouts]",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, kernel)
+
+        self.assertIn("cmp dword [ata_wait_phase], ATA_WAIT_BUSY", smoke)
+        self.assertIn("cmp dword [ata_wait_phase], ATA_WAIT_DRQ", smoke)
+        self.assertIn("cmp dword [ata_wait_phase], ATA_WAIT_READY", smoke)
+        self.assertIn("smoke_busy_text", smoke)
+        self.assertIn("smoke_drq_text", smoke)
+        self.assertIn("smoke_ready_text", smoke)
+
+    def test_docs_and_triage_track_ata_storage_stalls(self):
+        for phrase in (
+            "`ata-storage-stalled`",
+            "`atawait=BUSY`, `atawait=DRQ`, or `atawait=READY`",
+            "`ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo`",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.triage_doc)
+
+        for phrase in (
+            "ATA PIO waits are bounded and status-reported",
+            "commands only start once stale `DRQ` is clear",
+            "`ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo`",
+            "startup/gameplay wait",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.persistence_doc)
+
+
+if __name__ == "__main__":
+    unittest.main()

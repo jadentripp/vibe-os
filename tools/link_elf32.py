@@ -6,7 +6,9 @@ import sys
 SHT_SYMTAB = 2
 SHT_NOBITS = 8
 SHT_REL = 9
+SHF_WRITE = 0x1
 SHF_ALLOC = 0x2
+SHF_EXECINSTR = 0x4
 SHN_UNDEF = 0
 R_386_32 = 1
 R_386_PC32 = 2
@@ -15,6 +17,24 @@ ELF_HEADER_SIZE = 52
 PROGRAM_HEADER_SIZE = 32
 SEGMENT_OFFSET = 0x1000
 PAGE_SIZE = 0x1000
+
+PF_X = 0x1
+PF_W = 0x2
+PF_R = 0x4
+
+SYMBOL_BINDINGS = {
+    0: "LOCAL",
+    1: "GLOBAL",
+    2: "WEAK",
+}
+
+SYMBOL_TYPES = {
+    0: "NOTYPE",
+    1: "OBJECT",
+    2: "FUNC",
+    3: "SECTION",
+    4: "FILE",
+}
 
 
 def align_up(value, alignment):
@@ -57,6 +77,8 @@ class Section:
         self.entsize = entsize
         self.out_off = None
         self.out_addr = None
+        self.mem_off = None
+        self.segment = None
 
     @property
     def alloc(self):
@@ -185,18 +207,50 @@ def collect_global_symbols(objects):
 
 
 def layout_sections(objects, base):
+    groups = [
+        ("rx", PF_R | PF_X, lambda section: bool(section.flags & SHF_EXECINSTR)),
+        ("ro", PF_R, lambda section: not (section.flags & SHF_WRITE) and not (section.flags & SHF_EXECINSTR)),
+        ("rw", PF_R | PF_W, lambda section: bool(section.flags & SHF_WRITE)),
+    ]
+    alloc_sections = [
+        section
+        for obj in objects
+        for section in obj.sections[1:]
+        if section.alloc
+    ]
     cursor = 0
     ordered = []
-    for obj in objects:
-        for section in obj.sections[1:]:
-            if not section.alloc:
-                continue
+    segments = []
+
+    for _name, flags, predicate in groups:
+        grouped = [section for section in alloc_sections if predicate(section)]
+        if not grouped:
+            continue
+        cursor = align_up(cursor, PAGE_SIZE)
+        segment_start = cursor
+        file_size = 0
+        for section in grouped:
             cursor = align_up(cursor, max(section.align, 1))
-            section.out_off = cursor
+            section.mem_off = cursor
             section.out_addr = base + cursor
+            section.segment = len(segments)
             ordered.append(section)
             cursor += section.size
-    return ordered, cursor
+            if section.type != SHT_NOBITS:
+                file_size = cursor - segment_start
+        mem_size = cursor - segment_start
+        segments.append(
+            {
+                "flags": flags,
+                "mem_off": segment_start,
+                "vaddr": base + segment_start,
+                "filesz": file_size,
+                "memsz": mem_size,
+                "sections": grouped,
+            }
+        )
+
+    return ordered, segments, cursor
 
 
 def symbol_address(sym, globals_by_name):
@@ -207,7 +261,7 @@ def symbol_address(sym, globals_by_name):
     return sym.address()
 
 
-def apply_relocations(objects, segment, globals_by_name):
+def apply_relocations(objects, memory, globals_by_name):
     for obj in objects:
         for rel_section in obj.rel_sections:
             target = obj.sections[rel_section.info]
@@ -221,34 +275,86 @@ def apply_relocations(objects, segment, globals_by_name):
                 sym_index = rel_info >> 8
                 rel_type = rel_info & 0xFF
                 sym = obj.symbols[sym_index]
-                patch_off = target.out_off + rel_offset
+                patch_off = target.mem_off + rel_offset
                 place = target.out_addr + rel_offset
-                addend = u32(segment, patch_off)
+                addend = u32(memory, patch_off)
                 value = symbol_address(sym, globals_by_name)
 
                 if rel_type == R_386_32:
-                    put_u32(segment, patch_off, value + addend)
+                    put_u32(memory, patch_off, value + addend)
                 elif rel_type == R_386_PC32:
-                    put_u32(segment, patch_off, value + addend - place)
+                    put_u32(memory, patch_off, value + addend - place)
                 else:
                     raise ValueError(f"{obj.path}: unsupported relocation type {rel_type}")
 
 
+def symbol_bind_name(sym):
+    return SYMBOL_BINDINGS.get(sym.info >> 4, f"BIND{sym.info >> 4}")
+
+
+def symbol_type_name(sym):
+    return SYMBOL_TYPES.get(sym.info & 0x0F, f"TYPE{sym.info & 0x0F}")
+
+
+def build_symbol_map(objects):
+    rows = []
+    for obj in objects:
+        for sym in obj.symbols:
+            if not sym.name or not sym.defined:
+                continue
+            if sym.shndx >= len(obj.sections):
+                continue
+            section = obj.sections[sym.shndx]
+            if not section.alloc:
+                continue
+            rows.append(
+                (
+                    sym.address(),
+                    sym.size,
+                    symbol_type_name(sym),
+                    symbol_bind_name(sym),
+                    section.name,
+                    obj.path,
+                    sym.name,
+                )
+            )
+    rows.sort(key=lambda row: (row[0], row[6], row[5]))
+    lines = [
+        "# vibe-os-symbol-map-v1",
+        "# address\tsize\ttype\tbind\tsection\tobject\tsymbol",
+    ]
+    for address, size, sym_type, bind, section, obj_path, name in rows:
+        lines.append(
+            f"{address:08X}\t{size:08X}\t{sym_type}\t{bind}\t"
+            f"{section}\t{obj_path}\t{name}"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def build_executable(objects, base):
-    ordered, mem_size = layout_sections(objects, base)
-    segment = bytearray(mem_size)
+    ordered, segments, mem_size = layout_sections(objects, base)
+    memory = bytearray(mem_size)
     for section in ordered:
-        segment[section.out_off:section.out_off + section.size] = section.bytes()
+        if section.type != SHT_NOBITS:
+            memory[section.mem_off:section.mem_off + section.size] = section.bytes()
 
     globals_by_name = collect_global_symbols(objects)
-    apply_relocations(objects, segment, globals_by_name)
+    apply_relocations(objects, memory, globals_by_name)
 
     if "start" not in globals_by_name:
         raise ValueError("missing kernel entry symbol: start")
 
-    file_size = align_up(len(segment), 16)
-    segment.extend(b"\0" * (file_size - len(segment)))
-    elf = bytearray(SEGMENT_OFFSET)
+    if not segments:
+        raise ValueError("no allocated sections")
+
+    phnum = len(segments)
+    file_cursor = SEGMENT_OFFSET
+    for segment in segments:
+        file_cursor = align_up(file_cursor, PAGE_SIZE)
+        segment["offset"] = file_cursor
+        file_cursor += align_up(segment["filesz"], 16)
+
+    elf = bytearray(file_cursor)
 
     ident = bytearray(16)
     ident[0:4] = b"\x7fELF"
@@ -269,40 +375,77 @@ def build_executable(objects, base):
         0,
         ELF_HEADER_SIZE,
         PROGRAM_HEADER_SIZE,
-        1,
+        phnum,
         0,
         0,
         0,
     )
-    struct.pack_into(
-        "<IIIIIIII",
-        elf,
-        ELF_HEADER_SIZE,
-        1,
-        SEGMENT_OFFSET,
-        base,
-        base,
-        len(segment),
-        len(segment),
-        0x7,
-        PAGE_SIZE,
-    )
-    elf.extend(segment)
-    return bytes(elf)
+    for index, segment in enumerate(segments):
+        struct.pack_into(
+            "<IIIIIIII",
+            elf,
+            ELF_HEADER_SIZE + index * PROGRAM_HEADER_SIZE,
+            1,
+            segment["offset"],
+            segment["vaddr"],
+            segment["vaddr"],
+            segment["filesz"],
+            segment["memsz"],
+            segment["flags"],
+            PAGE_SIZE,
+        )
+        if segment["filesz"]:
+            start = segment["mem_off"]
+            end = start + segment["filesz"]
+            elf[segment["offset"]:segment["offset"] + segment["filesz"]] = memory[start:end]
+    return bytes(elf), build_symbol_map(objects)
+
+
+def parse_args(argv):
+    output = None
+    base = None
+    map_path = None
+    inputs = []
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "-o":
+            index += 1
+            if index >= len(argv):
+                raise SystemExit("link_elf32.py: -o requires an output path")
+            output = argv[index]
+        elif arg == "--base":
+            index += 1
+            if index >= len(argv):
+                raise SystemExit("link_elf32.py: --base requires an address")
+            base = int(argv[index], 0)
+        elif arg == "--map":
+            index += 1
+            if index >= len(argv):
+                raise SystemExit("link_elf32.py: --map requires an output path")
+            map_path = argv[index]
+        elif arg.startswith("-"):
+            raise SystemExit(f"link_elf32.py: unknown option {arg}")
+        else:
+            inputs.append(arg)
+        index += 1
+
+    if output is None or base is None or not inputs:
+        raise SystemExit("usage: link_elf32.py -o OUTPUT --base 0xADDR [--map MAP] INPUT.o...")
+    return output, base, map_path, inputs
 
 
 def main():
-    if len(sys.argv) < 5 or sys.argv[1] != "-o" or sys.argv[3] != "--base":
-        raise SystemExit("usage: link_elf32.py -o OUTPUT --base 0xADDR INPUT.o...")
+    output, base, map_path, input_paths = parse_args(sys.argv[1:])
 
-    output = sys.argv[2]
-    base = int(sys.argv[4], 0)
-    objects = [ObjectFile(path) for path in sys.argv[5:]]
-    if not objects:
-        raise SystemExit("link_elf32.py: no input objects")
+    objects = [ObjectFile(path) for path in input_paths]
+    elf, symbol_map = build_executable(objects, base)
 
     with open(output, "wb") as f:
-        f.write(build_executable(objects, base))
+        f.write(elf)
+    if map_path is not None:
+        with open(map_path, "w", encoding="ascii") as f:
+            f.write(symbol_map)
 
 
 if __name__ == "__main__":

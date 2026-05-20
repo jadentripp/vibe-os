@@ -4,6 +4,16 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      shutdown_panic_proof:
+        description: Also run opt-in shutdown/panic proof modes on the disposable runner.
+        required: false
+        type: boolean
+        default: false
+      expected_ref:
+        description: Optional branch/ref guard. Set this to the branch you meant to smoke; the job fails before toolchain install if the selected workflow ref differs.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -13,10 +23,24 @@ jobs:
     name: Build and boot smoke
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      INPUT_EXPECTED_REF: ${{ inputs.expected_ref }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Confirm selected proof ref
+        run: |
+          set -euo pipefail
+
+          if [ -n "${INPUT_EXPECTED_REF:-}" ] && [ "$GITHUB_REF_NAME" != "$INPUT_EXPECTED_REF" ]; then
+            echo "expected_ref '$INPUT_EXPECTED_REF' does not match selected workflow ref '$GITHUB_REF_NAME'." >&2
+            echo "Use the Run workflow branch selector or gh workflow run os-smoke.yml --ref '$INPUT_EXPECTED_REF'." >&2
+            exit 1
+          fi
+
+          echo "Running OS smoke proof on ref '$GITHUB_REF_NAME' at commit '$GITHUB_SHA'."
 
       - name: Install OS toolchain
         run: |
@@ -32,17 +56,133 @@ jobs:
       - name: Boot smoke in GitHub Actions
         run: make ALLOW_LOCAL_VM=1 smoke
 
-      - name: Upload build artifacts
+      - name: Assert VM/process legitimacy gates
+        run: |
+          python3 tools/check_vm_status_proof.py \
+            --require-exec \
+            --require-preempt \
+            build/status.txt
+
+      - name: Run opt-in shutdown/panic proof modes
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.shutdown_panic_proof }}
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+
+          run_phase() {
+            phase="$1"
+            define="$2"
+            status_name="$3"
+            mode="${4:-status-before-cleanup}"
+            dir="build/proof-${phase}"
+            proof_dir="build/shutdown-panic-proof"
+            expect_guest_exit=0
+            no_reboot=1
+            no_shutdown=1
+
+            if [ "$mode" = "status-before-reset" ]; then
+              expect_guest_exit=1
+              no_shutdown=0
+            elif [ "$mode" = "status-before-poweroff" ]; then
+              expect_guest_exit=1
+              no_shutdown=0
+            fi
+
+            mkdir -p "$proof_dir"
+            make \
+              BUILD_DIR="$dir" \
+              KERNEL_EXTRA_NASMFLAGS="-D ${define}" \
+              ALLOW_LOCAL_VM=1 \
+              SMOKE_SKIP_ASSERTIONS=1 \
+              SMOKE_CAPTURE_GFX=0 \
+              SMOKE_EXPECT_GUEST_EXIT="$expect_guest_exit" \
+              SMOKE_NO_REBOOT="$no_reboot" \
+              SMOKE_NO_SHUTDOWN="$no_shutdown" \
+              SMOKE_QEMU_TIMEOUT=60 \
+              SMOKE_EARLY_SECONDS=1 \
+              SMOKE_SETTLE_SECONDS=3 \
+              SMOKE_SHUTDOWN_TIMEOUT=35 \
+              smoke
+            cp "$dir/status.txt" "${proof_dir}/${status_name}"
+          }
+
+          run_phase panic SHUTDOWN_PANIC_PROOF_PANIC status.panic.txt
+          run_phase shutdown-halt SHUTDOWN_PANIC_PROOF_HALT status.shutdown-halt.txt
+          run_phase shutdown-reboot SHUTDOWN_PANIC_PROOF_REBOOT status.shutdown-reboot.txt status-before-reset
+          run_phase shutdown-poweroff SHUTDOWN_PANIC_PROOF_POWEROFF status.shutdown-poweroff.txt status-before-poweroff
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = {
+              "schema": "shutdown-panic-proof-v1",
+              "source": "github-actions-disposable-vm",
+              "no_local_qemu": True,
+              "artifact_policy": {
+                  "contains_wad_data": False,
+                  "contains_disk_image": False,
+                  "contains_pixel_dump": False,
+                  "contains_raw_audio": False,
+              },
+              "phases": {
+                  "panic": {
+                      "status": "status.panic.txt",
+                      "trigger": "kernel-proof-invalid-opcode",
+                      "evidence": "status-before-cleanup",
+                      "monitor_quit_evidence": False,
+                      "cleanup": "monitor-quit-after-evidence",
+                  },
+                  "shutdown-halt": {
+                      "status": "status.shutdown-halt.txt",
+                      "trigger": "kernel-proof-halt",
+                      "evidence": "status-before-cleanup",
+                      "monitor_quit_evidence": False,
+                      "cleanup": "monitor-quit-after-evidence",
+                  },
+                  "shutdown-reboot": {
+                      "status": "status.shutdown-reboot.txt",
+                      "trigger": "kernel-proof-reboot-request",
+                      "evidence": "status-before-reset",
+                      "monitor_quit_evidence": False,
+                      "cleanup": "guest-reset-or-exit-after-evidence",
+                      "guest_exit_expected": True,
+                      "guest_exit_observed": True,
+                  },
+                  "shutdown-poweroff": {
+                      "status": "status.shutdown-poweroff.txt",
+                      "trigger": "kernel-proof-acpi-poweroff",
+                      "evidence": "status-before-poweroff",
+                      "monitor_quit_evidence": False,
+                      "cleanup": "guest-reset-or-exit-after-evidence",
+                      "guest_exit_expected": True,
+                      "guest_exit_observed": True,
+                  },
+              },
+          }
+          Path("build/shutdown-panic-proof/shutdown-panic-proof.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+          )
+          PY
+
+          python3 tools/check_shutdown_panic_proof.py \
+            --manifest build/shutdown-panic-proof/shutdown-panic-proof.json \
+            build/shutdown-panic-proof
+
+      - name: Upload smoke diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: aurora-os-build
+          name: aurora-os-smoke-status
           if-no-files-found: ignore
           path: |
-            build/disk.img
             build/kernel.elf
             build/user_probe.elf
-            build/gfx.bin
-            build/status.bin
-            build/status.txt
+            build/doom.elf
+            build/doom.symbols
+            build/shutdown-panic-proof/**
+            build/status*.bin
+            build/status*.txt
+            build/*.log
+            build/proof-*/*.log
             build/vga.txt
