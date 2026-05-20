@@ -23,6 +23,7 @@ class AtaPioContractTests(unittest.TestCase):
             "ATA_STATUS_BSY equ 0x80",
             "ATA_WAIT_POLL_LIMIT equ 0x20000",
             "ATA_WAIT_READY equ 3",
+            "ATA_WAIT_DATA equ 4",
             "ata_wait_failures dd 0",
             "ata_wait_timeouts dd 0",
             "ata_wait_error_failures dd 0",
@@ -91,9 +92,11 @@ class AtaPioContractTests(unittest.TestCase):
         self.assertGreaterEqual(read_sector.count("call ata_wait_ready"), 2)
         self.assertGreaterEqual(write_sector.count("call ata_wait_ready"), 2)
         self.assertIn("out dx, al\n    call ata_io_delay\n\n    call ata_wait_drq", read_sector)
-        self.assertIn("loop .read_word\n    call ata_io_delay\n    call ata_wait_ready", read_sector)
+        self.assertIn("mov dword [ata_wait_phase], ATA_WAIT_DATA", read_sector)
+        self.assertIn("loop .read_word\n    mov dword [ata_wait_phase], ATA_WAIT_IDLE\n    call ata_io_delay\n    call ata_wait_ready", read_sector)
         self.assertIn("out dx, al\n    call ata_io_delay\n\n    call ata_wait_drq", write_sector)
-        self.assertIn("loop .write_word\n    call ata_io_delay\n    call ata_wait_ready", write_sector)
+        self.assertIn("mov dword [ata_wait_phase], ATA_WAIT_DATA", write_sector)
+        self.assertIn("loop .write_word\n    mov dword [ata_wait_phase], ATA_WAIT_IDLE\n    call ata_io_delay\n    call ata_wait_ready", write_sector)
 
     def test_storage_status_reports_last_ata_wait_state(self):
         kernel = self.kernel
@@ -120,14 +123,16 @@ class AtaPioContractTests(unittest.TestCase):
         self.assertIn("cmp dword [ata_wait_phase], ATA_WAIT_BUSY", smoke)
         self.assertIn("cmp dword [ata_wait_phase], ATA_WAIT_DRQ", smoke)
         self.assertIn("cmp dword [ata_wait_phase], ATA_WAIT_READY", smoke)
+        self.assertIn("cmp dword [ata_wait_phase], ATA_WAIT_DATA", smoke)
         self.assertIn("smoke_busy_text", smoke)
         self.assertIn("smoke_drq_text", smoke)
         self.assertIn("smoke_ready_text", smoke)
+        self.assertIn("smoke_data_text", smoke)
 
     def test_docs_and_triage_track_ata_storage_stalls(self):
         for phrase in (
             "`ata-storage-stalled`",
-            "`atawait=BUSY`, `atawait=DRQ`, or `atawait=READY`",
+            "`atawait=BUSY`, `atawait=DRQ`, `atawait=READY`, or `atawait=DATA`",
             "`ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo`",
         ):
             with self.subTest(phrase=phrase):

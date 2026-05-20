@@ -528,6 +528,7 @@ ATA_WAIT_IDLE equ 0
 ATA_WAIT_BUSY equ 1
 ATA_WAIT_DRQ equ 2
 ATA_WAIT_READY equ 3
+ATA_WAIT_DATA equ 4
 ACPI_PM1A_CNT_PORT equ 0x0604
 ACPI_PM1_CNT_S5_ENABLE equ 0x2000
 BOCHS_PM1A_CNT_PORT equ 0xb004
@@ -5444,12 +5445,14 @@ ata_read_sector:
     jc .fail
 
     cld
+    mov dword [ata_wait_phase], ATA_WAIT_DATA
     mov dx, ATA_DATA
     mov ecx, 256
 .read_word:
     in ax, dx
     stosw
     loop .read_word
+    mov dword [ata_wait_phase], ATA_WAIT_IDLE
     call ata_io_delay
     call ata_wait_ready
     jc .fail
@@ -5514,12 +5517,14 @@ ata_write_sector:
     jc .fail
 
     cld
+    mov dword [ata_wait_phase], ATA_WAIT_DATA
     mov dx, ATA_DATA
     mov ecx, 256
 .write_word:
     lodsw
     out dx, ax
     loop .write_word
+    mov dword [ata_wait_phase], ATA_WAIT_IDLE
     call ata_io_delay
     call ata_wait_ready
     jc .fail
@@ -13049,6 +13054,8 @@ write_smoke_status:
     je .atawait_drq
     cmp dword [ata_wait_phase], ATA_WAIT_READY
     je .atawait_ready
+    cmp dword [ata_wait_phase], ATA_WAIT_DATA
+    je .atawait_data
     mov esi, smoke_idle_text
     jmp .atawait_write
 
@@ -13062,6 +13069,10 @@ write_smoke_status:
 
 .atawait_ready:
     mov esi, smoke_ready_text
+    jmp .atawait_write
+
+.atawait_data:
+    mov esi, smoke_data_text
 
 .atawait_write:
     call smoke_copy_string
@@ -14930,6 +14941,7 @@ smoke_idle_text db "IDLE", 0
 smoke_busy_text db "BUSY", 0
 smoke_drq_text db "DRQ", 0
 smoke_ready_text db "READY", 0
+smoke_data_text db "DATA", 0
 heap_status_gap db " ", 0
 ok_text db "OK", 13, 10, 0
 fail_text db "FAIL", 13, 10, 0
