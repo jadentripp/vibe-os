@@ -107,8 +107,11 @@ Several fixed low-memory pages are reserved by design today:
 - `0x00007000`: boot-info block from Stage 2 to the kernel
 - `0x00080000` and `0x00082000`: process page directories
 - `0x00081000`, `0x00084000`-`0x00087000`: user PDE tables
+- `0x0008d000`: FAT root-sector cache used by storage metadata updates
 - `0x00090000`: kernel page directory
 - `0x00091000`: low-memory identity page tables
+- `0x00099000`-`0x0009aeff`: PMM frame map, one byte per managed frame
+- `0x0009b000`: ATA/FAT sector transfer buffer
 - `0x0009c000`: optional VBE LFB page table
 - `0x0009d000`: smoke/status block
 

@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 
@@ -78,7 +79,7 @@ class AtaPioContractTests(unittest.TestCase):
         update = kernel.split("fat_update_writable_size:", 1)[1].split("fat_truncate_writable_file:", 1)[0]
 
         for source in (
-            "ROOT_SECTOR_CACHE_ADDR equ 0x0009a000",
+            "ROOT_SECTOR_CACHE_ADDR equ 0x0008d000",
             "root_sector_cache_valid db 0",
             "root_sector_cache_lba dd 0",
             "mov byte [root_sector_cache_valid], 0",
@@ -97,6 +98,23 @@ class AtaPioContractTests(unittest.TestCase):
         self.assertIn("call ata_write_sector", cache_write)
         self.assertIn("call fat_read_root_sector", update)
         self.assertIn("call fat_write_root_sector", update)
+
+    def test_root_sector_cache_does_not_overlap_pmm_frame_map(self):
+        kernel = self.kernel
+
+        def constant(name):
+            match = re.search(rf"^{name} equ (0x[0-9a-fA-F]+|[0-9]+)$", kernel, re.MULTILINE)
+            self.assertIsNotNone(match, name)
+            return int(match.group(1), 0)
+
+        root_cache = constant("ROOT_SECTOR_CACHE_ADDR")
+        sector_buffer = constant("SECTOR_BUFFER_ADDR")
+        pmm_map = constant("PMM_FRAME_MAP_ADDR")
+        managed_pages = (constant("PMM_MANAGED_END") - constant("PMM_MANAGED_START")) // constant("PAGE_SIZE")
+        pmm_map_end = pmm_map + managed_pages
+
+        self.assertLess(root_cache + 512, pmm_map)
+        self.assertGreaterEqual(sector_buffer, pmm_map_end)
 
     def test_storage_status_reports_last_ata_wait_state(self):
         kernel = self.kernel

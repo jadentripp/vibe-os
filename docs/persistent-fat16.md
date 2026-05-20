@@ -159,6 +159,9 @@ can stall the run.
 
 The kernel caches the last FAT root-directory sector it read in low memory and
 reuses that cached sector when updating root metadata for known writable files.
+The cache lives outside the PMM frame map; otherwise later page allocation
+bookkeeping can corrupt the cached root sector and make marker files appear
+missing even when the disk image contains them.
 This keeps the save proof from re-reading the same root sector during the first
 `O_TRUNC`/size update window, while still writing the updated root entry back to
 the FAT image for reboot persistence.
