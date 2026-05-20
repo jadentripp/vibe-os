@@ -62,6 +62,10 @@ SUMMARY_FIELDS = (
     "pflags",
     "gflags",
     "pdelta",
+    "pangle",
+    "pangledelta",
+    "pammo",
+    "prefire",
     "keyirq",
     "keyqueue",
     "keypoll",
@@ -91,6 +95,7 @@ SUMMARY_FIELDS = (
     "puser",
     "pround",
     "pctx",
+    "pmask",
     "pfrom",
     "pto",
     "pkind",
@@ -209,7 +214,23 @@ TRIAGE_RULES = (
     ),
     TriageRule(
         "input-no-effect",
-        ("keyirq", "keyqueue", "keypoll", "mouseirq", "mousepkt", "mousepoll", "mousebtn", "mousedelta", "pflags", "pdelta", "gflags"),
+        (
+            "keyirq",
+            "keyqueue",
+            "keypoll",
+            "mouseirq",
+            "mousepkt",
+            "mousepoll",
+            "mousebtn",
+            "mousedelta",
+            "pflags",
+            "pdelta",
+            "pangle",
+            "pangledelta",
+            "pammo",
+            "prefire",
+            "gflags",
+        ),
         "Keyboard or mouse events reached the OS, but scripted start/fire/move/use/menu/mouse effects were not observed.",
         "Compare early/start/fire/move/use/menu snapshots and inspect PS/2 translation plus Doom event injection.",
     ),
@@ -221,7 +242,7 @@ TRIAGE_RULES = (
     ),
     TriageRule(
         "preemption-not-proven",
-        ("preempt", "pirq", "pattempt", "puser", "pround", "pctx", "pfrom", "pto", "pkind", "peip", "pcr3", "pkstk", "pspin", "pself"),
+        ("preempt", "pirq", "pattempt", "puser", "pround", "pctx", "pmask", "pfrom", "pto", "pkind", "peip", "pcr3", "pkstk", "pspin", "pself"),
         "Doom reached gameplay, but the status does not prove live timer-driven switching between Ring 3 tasks.",
         "Inspect scheduler_tick, the live preempt probe seeding path, and whether timer IRQs are interrupting user code.",
     ),
@@ -708,6 +729,7 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         or mouse_delta is None
         or (mouse_delta[0] == 0 and mouse_delta[1] == 0)
         or (_hex(fields, "pdelta") or 0) == 0
+        or (_hex(fields, "pangledelta") or 0) == 0
         or (pflags & PLAYABILITY_REQUIRED_FLAGS) != PLAYABILITY_REQUIRED_FLAGS
         or (pflags & PLAYABILITY_FIRE_STATE_FLAGS) == 0
     ):
@@ -717,6 +739,8 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
             f"keypoll={_field(fields, 'keypoll')} keyseen={_field(fields, 'keyseen')} "
             f"pflags={_field(fields, 'pflags')} "
             f"pdelta={_field(fields, 'pdelta')} gflags={_field(fields, 'gflags')} "
+            f"pangle={_field(fields, 'pangle')} pangledelta={_field(fields, 'pangledelta')} "
+            f"pammo={_field(fields, 'pammo')} prefire={_field(fields, 'prefire')} "
             f"mouseirq={_field(fields, 'mouseirq')} mousepkt={_field(fields, 'mousepkt')} "
             f"mousepoll={_field(fields, 'mousepoll')} mousebtn={_field(fields, 'mousebtn')} "
             f"mousedelta={_field(fields, 'mousedelta')}"
@@ -746,6 +770,7 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
     pfrom = _hex(fields, "pfrom")
     pto = _hex(fields, "pto")
     spin = _hex(fields, "pspin")
+    pair_mask = _hex(fields, "pmask")
     preempt_switches = _hex(fields, "preempt")
     irq_switches = _hex(fields, "pirq")
     if (
@@ -757,6 +782,8 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         or (_hex(fields, "puser") or 0) == 0
         or (_hex(fields, "pround") or 0) == 0
         or (_hex(fields, "pctx") or 0) == 0
+        or pair_mask is None
+        or (pair_mask & 0x3) != 0x3
         or pfrom in (None, 0, 0xFFFFFFFF)
         or pto in (None, 0, 0xFFFFFFFF)
         or pfrom == pto
@@ -776,7 +803,8 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
             f"preempt={_field(fields, 'preempt')} pirq={_field(fields, 'pirq')} "
             f"pattempt={_field(fields, 'pattempt')} "
             f"puser={_field(fields, 'puser')} pround={_field(fields, 'pround')} "
-            f"pctx={_field(fields, 'pctx')} pfrom={_field(fields, 'pfrom')} "
+            f"pctx={_field(fields, 'pctx')} pmask={_field(fields, 'pmask')} "
+            f"pfrom={_field(fields, 'pfrom')} "
             f"pto={_field(fields, 'pto')} pkind={_field(fields, 'pkind')} "
             f"peip={_field(fields, 'peip')} pcr3={_field(fields, 'pcr3')} "
             f"pkstk={_field(fields, 'pkstk')} "

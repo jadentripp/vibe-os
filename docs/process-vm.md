@@ -34,9 +34,10 @@ preallocated and cloned from the boot kernel map.
 `tools/check_vm_status_proof.py` is the cloud status ratchet for this layer. It
 rejects status artifacts unless `vmmhfree` equals the dynamic `vmmhpt` frame,
 the high alias is backed by a distinct PMM-managed physical frame, the Doom
-launch used `argvsrc=2` from a user argv-vector exec path, and `pkind`,
-`peip`, `pcr3`, and `pkstk` show a timer-driven switch between Doom and the
-preempt probe with distinct address spaces and kernel stacks.
+launch used `argvsrc=2` from a user argv-vector exec path, and `pmask`,
+`pkind`, `peip`, `pcr3`, and `pkstk` show timer-driven switches in both
+directions between Doom and the preempt probe with distinct address spaces and
+kernel stacks.
 
 ## Current Address Spaces
 
@@ -160,7 +161,8 @@ heap are adjacent and the Doom heap grows up to the stack bottom.
   (`peip`), selected page directories (`pcr3`), selected kernel stacks
   (`pkstk`), timer IRQs that arrived from Ring 3 (`puser`), timer-IRQ context
   switches (`pirq`), quantum rounds (`pround`), total context activations
-  (`pctx`), and live spin progress (`pspin`). The `pspin` sampler only
+  (`pctx`), the bidirectional Doom/preempt-probe pair mask (`pmask`), and live
+  spin progress (`pspin`). The `pspin` sampler only
   dereferences the preempt probe stack while `process_preempt_probe` is the
   active process, so the proof does not depend on probe pages being visible in
   Doom's page directory.
