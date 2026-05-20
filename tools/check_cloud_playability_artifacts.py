@@ -768,6 +768,8 @@ def validate_repo_contract() -> None:
         "if [ -z \"${PERSISTENCE_SAVE_SLOT:-}\" ]; then",
         "write_marker PERSISTENCE_CHECKPOINT_NAME \"\"",
         "write_marker SAVE_REQUEST_NAME \"$slot_marker_payload\"",
+        "name = getattr(make_wad_image, os.environ[\"PERSISTENCE_MARKER_NAME\"])",
+        "data = os.environ[\"PERSISTENCE_MARKER_PAYLOAD\"].encode(\"ascii\")",
         "delete_marker SAVE_REQUEST_NAME",
         "write_marker LOAD_REQUEST_NAME \"$slot_marker_payload\"",
         "write_status=\"build/persistence-write/status.save-slot-${PERSISTENCE_SAVE_SLOT}.txt\"",

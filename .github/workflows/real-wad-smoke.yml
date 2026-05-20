@@ -360,33 +360,8 @@ jobs:
           path = Path("build/disk.img")
           image = bytearray(path.read_bytes())
           fs = make_wad_image.Fat16Image(image)
-          marker_name = os.environ["PERSISTENCE_MARKER_NAME"]
-          marker_payload = os.environ["PERSISTENCE_MARKER_PAYLOAD"]
-
-          def requested_slot():
-              try:
-                  slot = int(marker_payload)
-              except ValueError as exc:
-                  raise SystemExit(f"persistence marker slot must be numeric, got {marker_payload!r}") from exc
-              if not 0 <= slot < len(make_wad_image.WRITABLE_SAVE_NAMES):
-                  raise SystemExit(f"persistence marker slot must be 0..5, got {slot}")
-              return slot
-
-          if marker_name == "SAVE_REQUEST_NAME":
-              slot = requested_slot()
-              name = make_wad_image.WRITABLE_SAVE_NAMES[slot]
-              data = f"VIBE_SAVE_{slot}\n".encode("ascii")
-          elif marker_name == "LOAD_REQUEST_NAME":
-              slot = requested_slot()
-              marker_slot = (slot + 1) % len(make_wad_image.WRITABLE_SAVE_NAMES)
-              name = make_wad_image.WRITABLE_SAVE_NAMES[marker_slot]
-              data = f"VIBE_LOAD_{slot}\n".encode("ascii")
-          elif marker_name == "PERSISTENCE_CHECKPOINT_NAME":
-              name = make_wad_image.WRITABLE_DEFAULT_NAME
-              data = b'chatmacro0\t\t"VIBE_DEFAULT"\n'
-          else:
-              name = getattr(make_wad_image, marker_name)
-              data = marker_payload.encode("ascii")
+          name = getattr(make_wad_image, os.environ["PERSISTENCE_MARKER_NAME"])
+          data = os.environ["PERSISTENCE_MARKER_PAYLOAD"].encode("ascii")
 
           fs.write_root_file(name, data)
           path.write_bytes(image)
