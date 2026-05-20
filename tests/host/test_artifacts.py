@@ -1209,6 +1209,12 @@ class SourceContractTests(unittest.TestCase):
         self.assertNotIn("call fat_write_cluster_entry", validate_pass)
         fat_write_locator = kernel.split("fat_file_lba_for_write:", 1)[1].split("fat_update_writable_size:", 1)[0]
         self.assertIn(".linked_new_cluster:", fat_write_locator)
+        cluster_growth = fat_write_locator.split(".cluster_loop:", 1)[1].split(".have_cluster:", 1)[0]
+        self.assertLess(cluster_growth.index("call fat_next_cluster"), cluster_growth.index("cmp eax, 0"))
+        self.assertLess(cluster_growth.index("cmp eax, 0"), cluster_growth.index("je .allocate_next_cluster"))
+        self.assertLess(cluster_growth.index("je .allocate_next_cluster"), cluster_growth.index("cmp eax, 0xfff8"))
+        self.assertLess(cluster_growth.index("cmp eax, 0xfff8"), cluster_growth.index("jb .next_exists"))
+        self.assertLess(cluster_growth.index(".allocate_next_cluster:"), cluster_growth.index("call fat_alloc_cluster"))
         storage_init = kernel.split("storage_init:", 1)[1].split("fat_find_file:", 1)[0]
         self.assertLess(storage_init.index("call fat_cache_table"), storage_init.index("call fat_cache_root_dir"))
         pmm_init = kernel.split("pmm_init:", 1)[1].split("pmm_reserve_pages:", 1)[0]
