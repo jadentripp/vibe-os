@@ -8,6 +8,8 @@ ALLOW_LOCAL_VM ?= 0
 DOOM_WAD ?=
 SMOKE_EXPECT_PROBE_GFX ?= 1
 SMOKE_REJECT_DOOMLOG ?=
+SMOKE_SENDKEYS ?=
+SMOKE_REQUIRE_DOOM_PRESENT ?= 0
 
 BUILD_DIR := build
 STAGE1_BIN := $(BUILD_DIR)/stage1.bin
@@ -126,6 +128,12 @@ smoke: vm-consent check-tools $(IMAGE)
 	$(QEMU) -machine $(QEMU_MACHINE) -drive file=$(IMAGE),format=raw,if=ide,index=0,media=disk -boot c -display none -serial none -monitor unix:$(BUILD_DIR)/monitor.sock,server,nowait -no-reboot -no-shutdown & \
 	pid=$$!; \
 	sleep 5; \
+	if [ -n "$(SMOKE_SENDKEYS)" ]; then \
+		for key in $(SMOKE_SENDKEYS); do \
+			printf "sendkey %s\n" "$$key" | nc -U $(BUILD_DIR)/monitor.sock >/dev/null; \
+			sleep 1; \
+		done; \
+	fi; \
 	printf "pmemsave 0xb8000 4000 $(BUILD_DIR)/vga.bin\npmemsave 0x9d000 1024 $(BUILD_DIR)/status.bin\npmemsave 0xa0000 64000 $(BUILD_DIR)/gfx.bin\nquit\n" | nc -U $(BUILD_DIR)/monitor.sock >/dev/null; \
 	wait $$pid >/dev/null 2>&1 || true; \
 	test -s $(BUILD_DIR)/status.bin; \
@@ -145,6 +153,10 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "doomopen=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "doomread=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "doomlog=" $(BUILD_DIR)/status.txt; \
+	grep -q "doompresent=" $(BUILD_DIR)/status.txt; \
+	grep -q "keyirq=" $(BUILD_DIR)/status.txt; \
+	grep -q "keyqueue=" $(BUILD_DIR)/status.txt; \
+	grep -q "keypoll=" $(BUILD_DIR)/status.txt; \
 	grep -q "gfx=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "heap=OK" $(BUILD_DIR)/status.txt; \
 	test -s $(BUILD_DIR)/gfx.bin; \
@@ -155,6 +167,14 @@ smoke: vm-consent check-tools $(IMAGE)
 	fi; \
 	if [ -n "$(SMOKE_REJECT_DOOMLOG)" ]; then \
 		! grep -Eq "$(SMOKE_REJECT_DOOMLOG)" $(BUILD_DIR)/status.txt; \
+	fi; \
+	if [ "$(SMOKE_REQUIRE_DOOM_PRESENT)" = "1" ]; then \
+		perl -ne '$$ok = 1 if /doompresent=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+	fi; \
+	if [ -n "$(SMOKE_SENDKEYS)" ]; then \
+		perl -ne '$$ok = 1 if /keyirq=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+		perl -ne '$$ok = 1 if /keyqueue=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+		perl -ne '$$ok = 1 if /keypoll=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	fi; \
 	perl -ne '$$ok = 1 if /heap=OK free=([0-9A-F]{8})/ && hex($$1) >= 0x00700000; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	perl -ne '$$ok = 1 if /ticks=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \

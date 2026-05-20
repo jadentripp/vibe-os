@@ -18,16 +18,22 @@ struct vibe_doom_file {
 
 typedef struct alloc_header {
     size_t size;
+    int free;
+    struct alloc_header* prev;
+    struct alloc_header* next;
 } alloc_header_t;
 
 static struct vibe_doom_file stdin_file = { 0, 0, 1 };
 static struct vibe_doom_file stdout_file = { 1, 0, 1 };
 static struct vibe_doom_file stderr_file = { 2, 0, 1 };
+static alloc_header_t* alloc_head;
+static alloc_header_t* alloc_tail;
 
 FILE* stdin = &stdin_file;
 FILE* stdout = &stdout_file;
 FILE* stderr = &stderr_file;
 
+#ifndef VIBE_LIBC_HOST_TEST
 int vibe_syscall3(unsigned int number, unsigned int arg0, unsigned int arg1, unsigned int arg2)
 {
     unsigned int result;
@@ -37,6 +43,150 @@ int vibe_syscall3(unsigned int number, unsigned int arg0, unsigned int arg1, uns
         : "a"(number), "b"(arg0), "c"(arg1), "d"(arg2)
         : "memory");
     return (int)result;
+}
+#endif
+
+static size_t align16(size_t size)
+{
+    return (size + 15) & ~(size_t)15;
+}
+
+static size_t alloc_header_size(void)
+{
+    return align16(sizeof(alloc_header_t));
+}
+
+static void* alloc_payload(alloc_header_t* header)
+{
+    return (void*)((unsigned char*)header + alloc_header_size());
+}
+
+static alloc_header_t* alloc_from_payload(void* ptr)
+{
+    return (alloc_header_t*)((unsigned char*)ptr - alloc_header_size());
+}
+
+#ifdef VIBE_LIBC_HOST_TEST
+#define VIBE_LIBC_HOST_HEAP_SIZE (64 * 1024)
+
+static unsigned char vibe_libc_host_heap[VIBE_LIBC_HOST_HEAP_SIZE] __attribute__((aligned(16)));
+static size_t vibe_libc_host_heap_offset;
+
+void vibe_libc_host_heap_reset(void)
+{
+    alloc_head = 0;
+    alloc_tail = 0;
+    vibe_libc_host_heap_offset = 0;
+}
+
+size_t vibe_libc_host_heap_used(void)
+{
+    return vibe_libc_host_heap_offset;
+}
+
+static void* alloc_sbrk(size_t total)
+{
+    void* ptr;
+
+    total = align16(total);
+    if (total > VIBE_LIBC_HOST_HEAP_SIZE - vibe_libc_host_heap_offset)
+        return 0;
+
+    ptr = vibe_libc_host_heap + vibe_libc_host_heap_offset;
+    vibe_libc_host_heap_offset += total;
+    return ptr;
+}
+#else
+static void* alloc_sbrk(size_t total)
+{
+    int raw;
+
+    if (total > (unsigned int)-1)
+        return 0;
+
+    raw = vibe_syscall3(VIBE_SYS_SBRK, (unsigned int)total, 0, 0);
+    if (raw < 0)
+        return 0;
+    return (void*)(unsigned int)raw;
+}
+#endif
+
+static alloc_header_t* alloc_find_free(size_t size)
+{
+    alloc_header_t* block = alloc_head;
+    while (block) {
+        if (block->free && block->size >= size)
+            return block;
+        block = block->next;
+    }
+    return 0;
+}
+
+static void alloc_split(alloc_header_t* block, size_t size)
+{
+    size_t header_size = alloc_header_size();
+    alloc_header_t* next;
+
+    if (block->size <= size || block->size - size < header_size + 16)
+        return;
+
+    next = (alloc_header_t*)((unsigned char*)alloc_payload(block) + size);
+    next->size = block->size - size - header_size;
+    next->free = 1;
+    next->prev = block;
+    next->next = block->next;
+
+    if (next->next)
+        next->next->prev = next;
+    else
+        alloc_tail = next;
+
+    block->size = size;
+    block->next = next;
+}
+
+static void alloc_coalesce_next(alloc_header_t* block)
+{
+    alloc_header_t* next = block->next;
+    if (!next || !next->free)
+        return;
+
+    block->size += alloc_header_size() + next->size;
+    block->next = next->next;
+    if (block->next)
+        block->next->prev = block;
+    else
+        alloc_tail = block;
+}
+
+static alloc_header_t* alloc_request(size_t size)
+{
+    size_t header_size = alloc_header_size();
+    size_t total;
+    void* raw;
+    alloc_header_t* block;
+
+    if (size > (size_t)-1 - header_size)
+        return 0;
+
+    total = header_size + size;
+    raw = alloc_sbrk(total);
+    if (!raw)
+        return 0;
+
+    block = (alloc_header_t*)raw;
+    block->size = size;
+    block->free = 0;
+    block->prev = alloc_tail;
+    block->next = 0;
+
+    if (alloc_tail)
+        alloc_tail->next = block;
+    else
+        alloc_head = block;
+    alloc_tail = block;
+
+    return block;
 }
 
 static const char* mapped_path(const char* path)
@@ -231,22 +381,37 @@ long atol(const char* text)
 
 void* malloc(size_t size)
 {
-    alloc_header_t* header;
-    int raw;
-    size = (size + 15) & ~(size_t)15;
-    raw = vibe_syscall3(VIBE_SYS_SBRK, (unsigned int)(size + sizeof(*header)), 0, 0);
-    if (raw < 0)
+    alloc_header_t* block;
+
+    if (!size)
         return 0;
-    header = (alloc_header_t*)(unsigned int)raw;
-    header->size = size;
-    return header + 1;
+    if (size > (size_t)-1 - 15)
+        return 0;
+
+    size = align16(size);
+    block = alloc_find_free(size);
+    if (!block)
+        block = alloc_request(size);
+    if (!block)
+        return 0;
+
+    block->free = 0;
+    alloc_split(block, size);
+    return alloc_payload(block);
 }
 
 void* calloc(size_t count, size_t size)
 {
-    void* ptr = malloc(count * size);
+    size_t total;
+    void* ptr;
+
+    if (size && count > (size_t)-1 / size)
+        return 0;
+
+    total = count * size;
+    ptr = malloc(total);
     if (ptr)
-        memset(ptr, 0, count * size);
+        memset(ptr, 0, total);
     return ptr;
 }
 
@@ -255,20 +420,61 @@ void* realloc(void* ptr, size_t size)
     alloc_header_t* old_header;
     void* next;
     size_t copy;
+    size_t combined;
+
     if (!ptr)
         return malloc(size);
-    old_header = ((alloc_header_t*)ptr) - 1;
+    if (!size) {
+        free(ptr);
+        return 0;
+    }
+    if (size > (size_t)-1 - 15)
+        return 0;
+
+    size = align16(size);
+    old_header = alloc_from_payload(ptr);
+
+    if (old_header->size >= size) {
+        alloc_split(old_header, size);
+        return ptr;
+    }
+
+    if (old_header->next && old_header->next->free) {
+        combined = old_header->size + alloc_header_size();
+        if (combined >= old_header->size) {
+            combined += old_header->next->size;
+            if (combined >= old_header->next->size && combined >= size) {
+                alloc_coalesce_next(old_header);
+                alloc_split(old_header, size);
+                return ptr;
+            }
+        }
+    }
+
     next = malloc(size);
     if (!next)
         return 0;
     copy = old_header->size < size ? old_header->size : size;
     memcpy(next, ptr, copy);
+    free(ptr);
     return next;
 }
 
 void free(void* ptr)
 {
-    (void)ptr;
+    alloc_header_t* block;
+
+    if (!ptr)
+        return;
+
+    block = alloc_from_payload(ptr);
+    if (block->free)
+        return;
+
+    block->free = 1;
+    alloc_coalesce_next(block);
+    if (block->prev && block->prev->free)
+        alloc_coalesce_next(block->prev);
 }
 
 void exit(int status)

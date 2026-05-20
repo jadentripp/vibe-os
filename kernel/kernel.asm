@@ -2984,6 +2984,10 @@ doom_user_run:
     mov dword [doom_wad_magic_seen], 0
     mov dword [doom_log_len], 0
     mov byte [doom_log_buffer], 0
+    mov byte [present_status], 0
+    mov dword [present_sample_first], 0
+    mov dword [present_sample_mid], 0
+    mov dword [present_sample_last], 0
     call keyboard_reset_queue
     mov dword [user_wad_fd_offset], 0
     mov dword [user_brk_current], DOOM_USER_HEAP_START
@@ -3681,6 +3685,7 @@ present_indexed_frame:
 keyboard_reset_queue:
     mov dword [key_event_head], 0
     mov dword [key_event_tail], 0
+    mov dword [keyboard_irq_count], 0
     mov dword [keyboard_event_count], 0
     mov dword [doom_key_event_count], 0
     mov byte [keyboard_extended], 0
@@ -3869,6 +3874,7 @@ irq_timer:
 
 irq_keyboard:
     pushad
+    inc dword [keyboard_irq_count]
     in al, 0x60
     call keyboard_queue_scancode
     mov al, 0x20
@@ -4044,6 +4050,26 @@ write_smoke_status:
 
 .doomlog_write:
     call smoke_copy_string
+
+    mov esi, smoke_doompresent_text
+    call smoke_copy_string
+    mov edx, [doom_present_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_keyirq_text
+    call smoke_copy_string
+    mov edx, [keyboard_irq_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_keyqueue_text
+    call smoke_copy_string
+    mov edx, [keyboard_event_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_keypoll_text
+    call smoke_copy_string
+    mov edx, [doom_key_event_count]
+    call smoke_write_hex32
 
     mov esi, smoke_gfx_text
     call smoke_copy_string
@@ -4692,6 +4718,10 @@ smoke_doomrun_text db " doomrun=", 0
 smoke_doomopen_text db " doomopen=", 0
 smoke_doomread_text db " doomread=", 0
 smoke_doomlog_text db " doomlog=", 0
+smoke_doompresent_text db " doompresent=", 0
+smoke_keyirq_text db " keyirq=", 0
+smoke_keyqueue_text db " keyqueue=", 0
+smoke_keypoll_text db " keypoll=", 0
 smoke_gfx_text db " gfx=", 0
 smoke_status_text db " ", 0
 smoke_ok_text db "OK", 0
@@ -4920,6 +4950,7 @@ doom_wad_magic_seen dd 0
 doom_log_len dd 0
 key_event_head dd 0
 key_event_tail dd 0
+keyboard_irq_count dd 0
 keyboard_event_count dd 0
 present_frame_arg dd 0
 present_palette_arg dd 0

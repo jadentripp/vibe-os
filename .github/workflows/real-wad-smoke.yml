@@ -53,6 +53,8 @@ jobs:
             DOOM_WAD="$WAD_PATH" \
             ALLOW_LOCAL_VM=1 \
             SMOKE_EXPECT_PROBE_GFX=0 \
+            SMOKE_REQUIRE_DOOM_PRESENT=1 \
+            SMOKE_SENDKEYS="spc" \
             SMOKE_REJECT_DOOMLOG="doom error|PNAMES not found|W_GetNumForName" \
             smoke
 

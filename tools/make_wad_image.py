@@ -23,6 +23,28 @@ MAX_KERNEL_WAD_BYTES = 0x00500000
 DOOM_WAD_CLUSTER = 2
 USER_PROBE_NAME = b"USERPROBELF"
 DOOM_ELF_NAME = b"DOOM    ELF"
+SYNTHETIC_PATCH_NAME = "SYNTHPCH"
+SHAREWARE_SWITCH_TEXTURES = (
+    "SW1BRCOM", "SW2BRCOM",
+    "SW1BRN1", "SW2BRN1",
+    "SW1BRN2", "SW2BRN2",
+    "SW1BRNGN", "SW2BRNGN",
+    "SW1BROWN", "SW2BROWN",
+    "SW1COMM", "SW2COMM",
+    "SW1COMP", "SW2COMP",
+    "SW1DIRT", "SW2DIRT",
+    "SW1EXIT", "SW2EXIT",
+    "SW1GRAY", "SW2GRAY",
+    "SW1GRAY1", "SW2GRAY1",
+    "SW1METAL", "SW2METAL",
+    "SW1PIPE", "SW2PIPE",
+    "SW1SLAD", "SW2SLAD",
+    "SW1STARG", "SW2STARG",
+    "SW1STON1", "SW2STON1",
+    "SW1STON2", "SW2STON2",
+    "SW1STONE", "SW2STONE",
+    "SW1STRTN", "SW2STRTN",
+)
 
 
 def sector_offset(lba):
@@ -85,14 +107,93 @@ def wad_name(name):
     return raw.ljust(8, b"\0")
 
 
+def build_patch(pixel=0):
+    patch = bytearray(18)
+    write_le16(patch, 0, 1)
+    write_le16(patch, 2, 1)
+    write_le16(patch, 4, 0)
+    write_le16(patch, 6, 0)
+    write_le32(patch, 8, 12)
+    patch[12:18] = bytes((0, 1, 0, pixel & 0xff, 0, 0xff))
+    return bytes(patch)
+
+
+def build_pnames(patch_names):
+    data = bytearray(4 + len(patch_names) * 8)
+    write_le32(data, 0, len(patch_names))
+    for index, name in enumerate(patch_names):
+        data[4 + index * 8:12 + index * 8] = wad_name(name)
+    return bytes(data)
+
+
+def build_texture1(texture_names, patch_index=0):
+    directory_size = 4 + len(texture_names) * 4
+    data = bytearray(directory_size)
+    write_le32(data, 0, len(texture_names))
+
+    for index, name in enumerate(texture_names):
+        offset = len(data)
+        write_le32(data, 4 + index * 4, offset)
+
+        texture = bytearray(32)
+        texture[0:8] = wad_name(name)
+        write_le32(texture, 8, 0)
+        write_le16(texture, 12, 1)
+        write_le16(texture, 14, 1)
+        write_le32(texture, 16, 0)
+        write_le16(texture, 20, 1)
+        write_le16(texture, 22, 0)
+        write_le16(texture, 24, 0)
+        write_le16(texture, 26, patch_index)
+        write_le16(texture, 28, 0)
+        write_le16(texture, 30, 0)
+        data.extend(texture)
+
+    return bytes(data)
+
+
+def startup_patch_names():
+    names = []
+    names.extend(f"STCFN{code:03d}" for code in range(ord("!"), ord("_") + 1))
+    names.extend(f"STTNUM{i}" for i in range(10))
+    names.extend(f"STYSNUM{i}" for i in range(10))
+    names.append("STTPRCNT")
+    names.extend(f"STKEYS{i}" for i in range(6))
+    names.append("STARMS")
+    names.extend(f"STGNUM{i}" for i in range(2, 8))
+    names.extend(("STFB0", "STBAR"))
+
+    for pain in range(5):
+        names.extend(f"STFST{pain}{straight}" for straight in range(3))
+        names.extend((
+            f"STFTR{pain}0",
+            f"STFTL{pain}0",
+            f"STFOUCH{pain}",
+            f"STFEVL{pain}",
+            f"STFKILL{pain}",
+        ))
+    names.extend(("STFGOD0", "STFDEAD0", "TITLEPIC", "CREDIT", "HELP2"))
+    return tuple(dict.fromkeys(names))
+
+
 def build_wad():
     wad = bytearray(FIXTURE_WAD_SIZE)
+    patch = build_patch()
     lumps = [
         ("PLAYPAL", bytes((i % 64 for i in range(14 * 256 * 3)))),
         ("COLORMAP", bytes((i % 256 for i in range(34 * 256)))),
+        ("PNAMES", build_pnames((SYNTHETIC_PATCH_NAME,))),
+        ("TEXTURE1", build_texture1(SHAREWARE_SWITCH_TEXTURES)),
+        ("F_START", b""),
+        ("F_END", b""),
+        ("S_START", b""),
+        ("S_END", b""),
+        (SYNTHETIC_PATCH_NAME, patch),
+        ("D_INTRO", b""),
         ("E1M1", b""),
         ("THINGS", b"\0" * 10),
     ]
+    lumps.extend((name, patch) for name in startup_patch_names())
 
     entries = []
     cursor = 12
