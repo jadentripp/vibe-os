@@ -234,6 +234,11 @@ static int submit_music_stream_chunk(int handle, int start_voice)
     desc.pitch = 128;
     desc.sound_id = 0x4d555349u;
     desc.flags = VIBE_AUDIO_FLAG_MUSIC;
+    if (!current_music_looping
+        && stats.stream_song_samples
+        && stats.stream_end_sample >= stats.stream_song_samples) {
+        desc.flags |= VIBE_AUDIO_FLAG_STREAM_FINAL;
+    }
     desc.sample_rate = VIBE_MUSIC_DEFAULT_SAMPLE_RATE;
 
     (void)vibe_syscall3(

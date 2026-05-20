@@ -422,6 +422,7 @@ AUDIO_SFX_DESC_BYTES equ 32
 AUDIO_FLAG_LOOP equ 0x00000001
 AUDIO_FLAG_MUSIC equ 0x00000002
 AUDIO_FLAG_WAD_SFX equ 0x00000004
+AUDIO_FLAG_STREAM_FINAL equ 0x00000008
 AUDIO_MUSIC_HANDLE_MASK equ 0xffff0000
 AUDIO_MUSIC_HANDLE_BASE equ 0x4d550000
 AUDIO_MUSIC_STREAM_NONE equ 0
@@ -4444,10 +4445,29 @@ sb16_mark_music_pull_refill:
 
 sb16_note_music_pull_request:
     push eax
+    push ebx
+    push ecx
     cmp dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_PULL
     jne .done
     cmp dword [sb16_active_music_voice_count], 0
     je .done
+    xor ebx, ebx
+    mov ecx, AUDIO_MAX_SFX_VOICES
+
+.voice_next:
+    cmp byte [sb16_voice_active + ebx], 1
+    jne .voice_advance
+    test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
+    jz .voice_advance
+    test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_STREAM_FINAL
+    jz .maybe_request
+
+.voice_advance:
+    inc ebx
+    loop .voice_next
+    jmp .done
+
+.maybe_request:
     mov eax, [sb16_music_stream_buffer_bytes]
     cmp eax, AUDIO_MUSIC_PULL_LOW_WATER_BYTES
     ja .done
@@ -4457,6 +4477,8 @@ sb16_note_music_pull_request:
     inc dword [sb16_music_pull_request_count]
 
 .done:
+    pop ecx
+    pop ebx
     pop eax
     ret
 
@@ -4659,7 +4681,10 @@ sb16_refill_active_half:
 .finish_voice:
     test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_MUSIC
     jz .finish_sfx
+    test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_STREAM_FINAL
+    jnz .finish_terminal_music
     inc dword [sb16_music_stream_under_count]
+.finish_terminal_music:
     mov dword [sb16_music_stream_buffer_bytes], 0
     jmp .finish_clear
 

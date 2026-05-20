@@ -87,7 +87,9 @@ tagged with `VIBE_AUDIO_FLAG_WAD_SFX` after the platform validates the Doom
 sound header and pads the sample data with unsigned silence to the original
 Linux Doom mixer quantum. The music bridge submits `VIBE_AUDIO_FLAG_MUSIC`;
 looping is now handled by the port-owned song cursor instead of by looping a
-short kernel sample window.
+short kernel sample window. For non-looping songs, the port tags the last
+rendered chunk with `VIBE_AUDIO_FLAG_STREAM_FINAL` so the kernel can distinguish
+a normal terminal chunk drain from an unserved pull request.
 Doom audio assets come from WAD lumps selected at runtime. The repo does not
 ship Doom SFX, MUS, MIDI, WAD bytes, or pre-rendered audio assets for this
 proof lane; `ds*` SFX lumps and MUS/MIDI song lumps are loaded from the caller's
@@ -162,9 +164,10 @@ only while that handle is still active in the mixer voice table.
 The kernel now exposes a stream-visible music contract. `musicpos=` is the
 cumulative music source bytes consumed by the IRQ refill mixer, `musicbuf=` is
 the active plus pending music window remaining in the voice table, `musicunder=`
-counts music voices that ran dry with no pending replacement, and `musicdrops=`
-counts invalid music updates or updates that arrive while the single pending
-slot is already occupied. `musicstream=PULL` names the current mode, while
+counts music voices that ran dry with no pending replacement before the port has
+marked a legitimate final stream chunk, and `musicdrops=` counts invalid music
+updates or updates that arrive while the single pending slot is already
+occupied. `musicstream=PULL` names the current mode, while
 `musicpull=` records `<requests>:<refills>` so the proof checker can reject a
 claimed pull stream that never received SB16-refill requests or never served
 them. Normal early music refreshes are queued rather than counted as drops.
