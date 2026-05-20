@@ -19,7 +19,7 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
   `USERPROB.ELF`
 - user-mode syscall smoke coverage for `sbrk`, `open`, `read`, `lseek`, and
   console `write`
-- physical frame accounting for the first managed 16 MiB
+- physical frame accounting for the first managed 32 MiB
 - 8 MiB free-list heap with `kalloc`/`kfree` and boot-time high-memory self-test
 - freestanding cdecl-style libc subset: strings, memory helpers, integer math, x87 init/test, and `kprintf`
 - freestanding C build path that compiles C into the booted kernel image
@@ -29,7 +29,8 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
   modules against the vibe-os platform layer, excluding only the Linux `i_*`
   platform files
 - FAT16 disk image carries the linked `DOOM.ELF` user artifact alongside the
-  WAD and Ring 3 probe, with kernel-side directory discovery
+  WAD and Ring 3 probe, with kernel-side directory discovery, load, and ELF
+  program-header validation
 - hard-path WAD loading through an ATA PIO IDE driver and a FAT16 reader
 - WAD header/directory parsing with named-lump lookup for Doom assets
 - text UI with an interactive shell
@@ -164,13 +165,16 @@ Already implemented:
   replacement `i_*` platform layer
 - `DOOM.ELF` embedded as a FAT16 root file and discovered by the kernel storage
   path
+- widened low-memory paging/PMM coverage to 32 MiB and loaded the linked Doom
+  executable into its `0x01000000` image window for ELF validation
 
 Still required before this is actually Doom-capable:
 
 - higher-half kernel mapping and real user address spaces
 - scheduler, process table, per-process kernel stacks, and context switching
 - a broader syscall ABI: `exec`, `mmap`, fuller file I/O, input, and drawing
-- user-space ELF loader for `linuxdoom-1.10`
+- safe Ring 3 launch path for `linuxdoom-1.10` with its larger address space,
+  heap, and syscall surface
 - POSIX-ish libc and file syscalls for Doom
 - framebuffer graphics path and `i_video.c` port
 - sound stack, or an explicit first Doom milestone that runs video/input with

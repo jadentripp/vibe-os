@@ -7,6 +7,8 @@ ROOT = Path(__file__).resolve().parents[2]
 BUILD = ROOT / "build"
 SECTOR_SIZE = 512
 USER_BASE = 0x00E80000
+DOOM_BASE = 0x01000000
+DOOM_LIMIT = 0x02000000
 
 
 def u16(data, offset):
@@ -121,6 +123,23 @@ class BuildArtifactTests(unittest.TestCase):
             sections.append((name, sh[1], sh[5]))
         self.assertIn((".bss", 8, 12), sections)
 
+    def test_doom_elf_fits_kernel_doom_load_window(self):
+        elf = Elf32(read(BUILD / "doom.elf"))
+        self.assertEqual(elf.kind, 2)
+        self.assertEqual(elf.machine, 3)
+        self.assertGreaterEqual(elf.entry, DOOM_BASE)
+        self.assertLess(elf.entry, DOOM_LIMIT)
+        self.assertEqual(elf.phnum, 1)
+        p_type, p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, p_flags, p_align = elf.program_headers()[0]
+        self.assertEqual(p_type, 1)
+        self.assertEqual(p_offset, 0x1000)
+        self.assertEqual(p_vaddr, DOOM_BASE)
+        self.assertEqual(p_paddr, DOOM_BASE)
+        self.assertEqual(p_filesz, p_memsz)
+        self.assertLessEqual(p_paddr + p_memsz, DOOM_LIMIT)
+        self.assertEqual(p_flags, 0x7)
+        self.assertEqual(p_align, 0x1000)
+
 
 class DiskImageTests(unittest.TestCase):
     @classmethod
@@ -228,6 +247,21 @@ class SourceContractTests(unittest.TestCase):
         for instruction in ("pop ebp", "pop edi", "pop esi", "pop edx", "pop ecx", "pop ebx"):
             self.assertIn(instruction, handler)
         self.assertIn(".return:", handler)
+
+    def test_kernel_has_doom_elf_load_window_and_status(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        for source in (
+            "PAGING_TABLE_COUNT equ 8",
+            "PMM_MANAGED_END equ 0x02000000",
+            "DOOM_ELF_LOAD_ADDR equ 0x01000000",
+            "DOOM_ELF_LIMIT equ 0x02000000",
+            "fat_load_doom_elf:",
+            "doom_elf_prepare:",
+            "draw_doom_status:",
+        ):
+            self.assertIn(source, kernel)
+        makefile = (ROOT / "Makefile").read_text()
+        self.assertIn('grep -q "doom=OK"', makefile)
 
 
 if __name__ == "__main__":

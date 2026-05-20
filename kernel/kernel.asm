@@ -37,12 +37,12 @@ PIT_DIVISOR_100HZ equ 11932
 PAGE_SIZE equ 0x1000
 PAGING_DIR_ADDR equ 0x00090000
 PAGING_TABLES_ADDR equ 0x00091000
-PAGING_TABLE_COUNT equ 4
+PAGING_TABLE_COUNT equ 8
 PAGING_TOTAL_PAGES equ PAGING_TABLE_COUNT * 1024
 PAGING_MAPPED_BYTES equ PAGING_TABLE_COUNT * 0x00400000
-PMM_FRAME_MAP_ADDR equ 0x00095000
+PMM_FRAME_MAP_ADDR equ 0x00099000
 PMM_MANAGED_START equ 0x00100000
-PMM_MANAGED_END equ 0x01000000
+PMM_MANAGED_END equ 0x02000000
 PMM_MANAGED_PAGES equ (PMM_MANAGED_END - PMM_MANAGED_START) / PAGE_SIZE
 VMM_TEST_VADDR equ 0x00f00000
 VMM_TEST_MAGIC equ 0x564d4d21
@@ -57,9 +57,12 @@ HEAP_PROBE_LAST_DWORD equ HEAP_PROBE_SIZE - 4
 HEAP_PROBE_MAGIC equ 0x464c4154
 HEAP_BLOCK_MAGIC_FREE equ 0x46524545
 HEAP_BLOCK_MAGIC_USED equ 0x55534544
-SECTOR_BUFFER_ADDR equ 0x00097000
+SECTOR_BUFFER_ADDR equ 0x0009b000
 WAD_LOAD_ADDR equ 0x00900000
 WAD_MAX_BYTES equ 0x00500000
+DOOM_ELF_LOAD_ADDR equ 0x01000000
+DOOM_ELF_LIMIT equ 0x02000000
+DOOM_ELF_MAX_BYTES equ DOOM_ELF_LIMIT - DOOM_ELF_LOAD_ADDR
 C_RUNTIME_MAGIC equ 0xC0DEF00D
 ELF_MAGIC equ 0x464c457f
 ELFCLASS32 equ 1
@@ -140,6 +143,7 @@ user_probe_finished:
     call clear_screen
     mov esi, banner
     call print_string
+    call draw_doom_status
     call draw_heap_status
     call draw_timer_status
     call pic_unmask_timer
@@ -647,6 +651,43 @@ handle_command:
     movzx eax, word [doom_elf_first_cluster]
     call print_dec
     call newline
+
+    mov esi, doom_elf_load_prefix
+    call print_string
+    cmp byte [doom_elf_load_status], 1
+    je .doom_elf_load_ok
+    mov esi, fail_text
+    call print_string
+    jmp .wad_load_address
+
+.doom_elf_load_ok:
+    mov esi, ok_text
+    call print_string
+
+    mov esi, doom_elf_parse_prefix
+    call print_string
+    cmp byte [doom_elf_parse_status], 1
+    je .doom_elf_parse_ok
+    mov esi, fail_text
+    call print_string
+    jmp .wad_load_address
+
+.doom_elf_parse_ok:
+    mov esi, ok_text
+    call print_string
+
+    mov esi, doom_elf_entry_prefix
+    call print_string
+    mov eax, [doom_entry_addr]
+    call print_hex32
+    call newline
+
+    mov esi, doom_elf_mem_prefix
+    call print_string
+    mov eax, [doom_segment_memsz]
+    call print_dec
+    mov esi, bytes_suffix
+    call print_string
 
 .wad_load_address:
     mov esi, wad_load_prefix
@@ -2019,6 +2060,8 @@ storage_init:
     mov byte [user_elf_status], 0
     mov byte [user_elf_parse_status], 0
     mov byte [doom_elf_status], 0
+    mov byte [doom_elf_load_status], 0
+    mov byte [doom_elf_parse_status], 0
     mov dword [fat_lba_base], 0
     mov dword [wad_size], 0
     mov dword [wad_sectors_read], 0
@@ -2032,6 +2075,10 @@ storage_init:
     mov dword [user_elf_sectors_read], 0
     mov dword [user_entry_addr], 0
     mov dword [doom_elf_size], 0
+    mov dword [doom_elf_sectors_read], 0
+    mov dword [doom_entry_addr], 0
+    mov dword [doom_segment_filesz], 0
+    mov dword [doom_segment_memsz], 0
     mov word [doom_elf_first_cluster], 0
 
     xor eax, eax
@@ -2110,6 +2157,18 @@ storage_init:
     call fat_load_user_elf
     jc .user_elf_fail
     call fat_find_doom_elf
+    jc .doom_elf_done
+    mov eax, [doom_elf_size]
+    add eax, PAGE_SIZE - 1
+    shr eax, 12
+    mov ecx, eax
+    mov eax, DOOM_ELF_LOAD_ADDR
+    call pmm_reserve_pages
+    call fat_load_doom_elf
+    jc .doom_elf_done
+    call doom_elf_prepare
+
+.doom_elf_done:
     clc
     ret
 
@@ -2511,6 +2570,26 @@ fat_load_user_elf:
     stc
     ret
 
+fat_load_doom_elf:
+    movzx eax, word [doom_elf_first_cluster]
+    mov ebx, [doom_elf_size]
+    mov ecx, DOOM_ELF_MAX_BYTES
+    mov edi, DOOM_ELF_LOAD_ADDR
+    call fat_load_file
+    jc .fail
+    mov eax, [fat_load_sectors_read]
+    mov [doom_elf_sectors_read], eax
+    cmp dword [DOOM_ELF_LOAD_ADDR], ELF_MAGIC
+    jne .fail
+    mov byte [doom_elf_load_status], 1
+    clc
+    ret
+
+.fail:
+    mov byte [doom_elf_load_status], 2
+    stc
+    ret
+
 wad_validate_range:
     push edx
 
@@ -2862,6 +2941,119 @@ user_elf_prepare:
     stc
     ret
 
+doom_elf_prepare:
+    mov byte [doom_elf_parse_status], 0
+    mov byte [doom_load_segment_count], 0
+    mov dword [doom_entry_addr], 0
+    mov dword [doom_segment_source], 0
+    mov dword [doom_segment_dest], 0
+    mov dword [doom_segment_filesz], 0
+    mov dword [doom_segment_memsz], 0
+
+    cmp byte [doom_elf_load_status], 1
+    jne .fail
+    cmp dword [doom_elf_size], 52
+    jb .fail
+
+    mov esi, DOOM_ELF_LOAD_ADDR
+    cmp dword [esi], ELF_MAGIC
+    jne .fail
+    cmp byte [esi + 4], ELFCLASS32
+    jne .fail
+    cmp byte [esi + 5], ELFDATA2LSB
+    jne .fail
+    cmp word [esi + 16], ET_EXEC
+    jne .fail
+    cmp word [esi + 18], EM_386
+    jne .fail
+    cmp dword [esi + 20], 1
+    jne .fail
+    cmp word [esi + 42], 32
+    jne .fail
+    cmp word [esi + 44], 1
+    jne .fail
+
+    mov eax, [esi + 28]
+    mov ebx, eax
+    add ebx, 32
+    jc .fail
+    cmp ebx, [doom_elf_size]
+    ja .fail
+
+    mov eax, [esi + 24]
+    mov [doom_entry_addr], eax
+
+    mov eax, [esi + 28]
+    add eax, DOOM_ELF_LOAD_ADDR
+    mov esi, eax
+    cmp dword [esi], PT_LOAD
+    jne .fail
+
+    mov eax, [esi + 16]
+    cmp eax, [esi + 20]
+    ja .fail
+
+    mov eax, [esi + 4]
+    add eax, [esi + 16]
+    jc .fail
+    cmp eax, [doom_elf_size]
+    ja .fail
+
+    mov eax, [esi + 12]
+    test eax, eax
+    jnz .have_destination
+    mov eax, [esi + 8]
+
+.have_destination:
+    mov [doom_segment_dest], eax
+    cmp eax, DOOM_ELF_LOAD_ADDR
+    jb .fail
+    mov ebx, eax
+    add ebx, [esi + 20]
+    jc .fail
+    cmp ebx, DOOM_ELF_LIMIT
+    ja .fail
+
+    mov eax, [doom_entry_addr]
+    cmp eax, [doom_segment_dest]
+    jb .fail
+    cmp eax, ebx
+    jae .fail
+
+    mov eax, [esi + 4]
+    add eax, DOOM_ELF_LOAD_ADDR
+    jc .fail
+    mov ebx, [doom_segment_dest]
+    cmp ebx, eax
+    ja .fail
+    mov [doom_segment_source], eax
+
+    mov eax, [esi + 16]
+    mov [doom_segment_filesz], eax
+    mov eax, [esi + 20]
+    mov [doom_segment_memsz], eax
+
+    mov esi, [doom_segment_source]
+    mov edi, [doom_segment_dest]
+    mov ecx, [doom_segment_filesz]
+    cld
+    rep movsb
+
+    mov ecx, [doom_segment_memsz]
+    sub ecx, [doom_segment_filesz]
+    xor eax, eax
+    rep stosb
+
+    inc byte [doom_load_segment_count]
+    mov byte [doom_elf_parse_status], 1
+    clc
+    ret
+
+.fail:
+    mov byte [doom_elf_parse_status], 2
+    stc
+    ret
+
 syscall_handler:
     push ebx
     push ecx
@@ -3155,6 +3347,60 @@ draw_timer_status:
     add edi, 2
     loop .hex_next
 
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+draw_doom_status:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov edi, VGA_BUFFER + ((VGA_ROWS - 3) * VGA_COLS * 2)
+    mov ax, (VGA_ATTR << 8) | ' '
+    mov ecx, VGA_COLS
+
+.clear_row:
+    mov [edi], ax
+    add edi, 2
+    loop .clear_row
+
+    mov edi, VGA_BUFFER + ((VGA_ROWS - 3) * VGA_COLS * 2)
+    mov esi, doom_status_label
+    call draw_status_string
+    cmp byte [doom_elf_status], 1
+    jne .fail
+    cmp byte [doom_elf_load_status], 1
+    jne .fail
+    cmp byte [doom_elf_parse_status], 1
+    jne .fail
+    cmp byte [doom_load_segment_count], 1
+    jne .fail
+
+    mov esi, ok_status_text
+    call draw_status_string
+    mov esi, doom_status_entry_label
+    call draw_status_string
+    mov edx, [doom_entry_addr]
+    call draw_status_hex32
+    mov esi, doom_status_mem_label
+    call draw_status_string
+    mov edx, [doom_segment_memsz]
+    call draw_status_hex32
+    jmp .done
+
+.fail:
+    mov esi, fail_status_text
+    call draw_status_string
+
+.done:
     pop edi
     pop esi
     pop edx
@@ -3504,6 +3750,10 @@ wad_cluster_prefix db "WAD first cluster: ", 0
 doom_elf_prefix db "DOOM.ELF FAT entry: ", 0
 doom_elf_size_prefix db "DOOM.ELF size: ", 0
 doom_elf_cluster_prefix db "DOOM.ELF first cluster: ", 0
+doom_elf_load_prefix db "DOOM.ELF load: ", 0
+doom_elf_parse_prefix db "DOOM.ELF parser: ", 0
+doom_elf_entry_prefix db "DOOM.ELF entry: ", 0
+doom_elf_mem_prefix db "DOOM.ELF segment bytes: ", 0
 wad_load_prefix db "WAD load address: ", 0
 bytes_suffix db " bytes", 13, 10, 0
 pages_suffix db " pages", 13, 10, 0
@@ -3518,6 +3768,9 @@ c_status_label db " c=", 0
 user_status_label db " usr=", 0
 wad_status_label db " wad=", 0
 lump_status_label db " lmp=", 0
+doom_status_label db "doom=", 0
+doom_status_entry_label db " entry=", 0
+doom_status_mem_label db " mem=", 0
 heap_status_gap db " ", 0
 ok_text db "OK", 13, 10, 0
 fail_text db "FAIL", 13, 10, 0
@@ -3630,6 +3883,8 @@ user_fault_status db 0
 user_elf_status db 0
 user_elf_parse_status db 0
 doom_elf_status db 0
+doom_elf_load_status db 0
+doom_elf_parse_status db 0
 ata_status db 0
 fat_status db 0
 wad_status db 0
@@ -3666,6 +3921,12 @@ user_elf_size dd 0
 user_elf_sectors_read dd 0
 user_entry_addr dd 0
 doom_elf_size dd 0
+doom_elf_sectors_read dd 0
+doom_entry_addr dd 0
+doom_segment_source dd 0
+doom_segment_dest dd 0
+doom_segment_filesz dd 0
+doom_segment_memsz dd 0
 user_phdr_ptr dd 0
 user_phdr_remaining dd 0
 user_segment_dest dd 0
@@ -3695,6 +3956,7 @@ user_probe_cs dw 0
 user_probe_ss dw 0
 fat_sectors_per_cluster db 0
 user_load_segment_count db 0
+doom_load_segment_count db 0
 shift_down db 0
 input_buffer times INPUT_MAX db 0
 

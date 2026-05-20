@@ -134,6 +134,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "usr=OK" $(BUILD_DIR)/vga.txt; \
 	grep -q "wad=OK" $(BUILD_DIR)/vga.txt; \
 	grep -q "lmp=OK" $(BUILD_DIR)/vga.txt; \
+	grep -q "doom=OK" $(BUILD_DIR)/vga.txt; \
 	grep -q "heap=OK" $(BUILD_DIR)/vga.txt; \
 	perl -ne '$$ok = 1 if /heap=OK free=([0-9A-F]{8})/ && hex($$1) >= 0x00700000; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/vga.txt; \
 	perl -ne '$$ok = 1 if /ticks=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/vga.txt; \
