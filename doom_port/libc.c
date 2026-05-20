@@ -280,7 +280,10 @@ void exit(int status)
 
 char* getenv(const char* name)
 {
-    (void)name;
+    if (!strcmp(name, "HOME"))
+        return "/";
+    if (!strcmp(name, "DOOMWADDIR"))
+        return ".";
     return 0;
 }
 

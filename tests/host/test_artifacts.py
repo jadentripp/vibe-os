@@ -309,6 +309,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("int vibe_syscall3", header)
         self.assertIn("int vibe_syscall3(", libc)
         self.assertIn("return vibe_syscall3(VIBE_SYS_TIME, 0, 0, 0);", platform)
+        self.assertIn('!strcmp(name, "HOME")', libc)
+        self.assertIn('!strcmp(name, "DOOMWADDIR")', libc)
 
     def test_doom_port_and_probe_have_indexed_frame_present_syscall(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
