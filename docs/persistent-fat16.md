@@ -144,10 +144,10 @@ proof until the defaults file has been opened with `O_TRUNC` and closed.
 The save/load cloud proof uses `SAVEREQ.CHK` and `LOADREQ.CHK` marker files to
 request a Doom save slot. The marker file size is `slot + 1`, so the Doom port
 can learn the requested slot with `stat()` instead of reading marker file data.
-The marker request is checked during Doom platform init, before live gameplay,
-but only a successful marker lookup is cached. Early misses are retried after
-Doom reaches a live level/player, so a transient marker `stat()` failure cannot
-permanently veto the save/load proof.
+The save/load marker request is deliberately checked only after Doom reaches a
+live level/player. That keeps the pre-frame bring-up path free of marker-only
+filesystem work, and failed marker lookups are still retried so a transient
+`stat()` failure cannot permanently veto the save/load proof.
 When the cached save request is present, the port enters the original
 `G_SaveGame()` path as soon as Doom has a live level/player. Original Doom's
 `G_SaveGame()` only queues `sendsave`; the port clears that queued input path,

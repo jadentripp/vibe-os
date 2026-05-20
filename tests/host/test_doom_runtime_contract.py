@@ -292,7 +292,6 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("checkpoint_save_slot_if_needed();", platform)
         self.assertIn("checkpoint_load_slot_if_needed();", platform)
         self.assertIn("#define VIBE_PERSISTENCE_MIN_LEVELTIME 1", platform)
-        self.assertIn("cache_persistence_marker_requests();", platform)
         self.assertIn("if (save_checkpoint_request_checked)", platform)
         self.assertIn("if (load_checkpoint_request_checked)", platform)
         self.assertIn("if (save_checkpoint_requested)", platform)
@@ -333,6 +332,10 @@ class DoomRuntimeContractTests(unittest.TestCase):
         )[0]
         self.assertIn("checkpoint_save_slot_if_needed();", finish_update)
         self.assertIn("checkpoint_load_slot_if_needed();", finish_update)
+        i_init = platform.split("void I_Init(void)", 1)[1].split("byte* I_ZoneBase", 1)[0]
+        self.assertNotIn("save_checkpoint_requested_once();", i_init)
+        self.assertNotIn("load_checkpoint_requested_once();", i_init)
+        self.assertNotIn("persistence_checkpoint_requested();", i_init)
         self.assertLess(
             finish_update.index("report_gameplay_status();"),
             finish_update.index("checkpoint_save_slot_if_needed();"),

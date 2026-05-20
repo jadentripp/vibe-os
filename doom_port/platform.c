@@ -371,13 +371,6 @@ static int load_checkpoint_requested_once(void)
     return load_checkpoint_requested;
 }
 
-static void cache_persistence_marker_requests(void)
-{
-    (void)persistence_checkpoint_requested();
-    (void)save_checkpoint_requested_once();
-    (void)load_checkpoint_requested_once();
-}
-
 static int default_config_checkpoint_ready(void)
 {
     return gamestate == GS_LEVEL
@@ -505,7 +498,6 @@ char* sndserver_filename = "sndserver";
 void I_Init(void)
 {
     report_doom_init_status(VIBE_DOOM_INIT_I_INIT);
-    cache_persistence_marker_requests();
 }
 
 byte* I_ZoneBase(int* size)

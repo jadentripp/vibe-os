@@ -117,7 +117,6 @@ class DoomInputContractTests(unittest.TestCase):
             "gametic > 0",
             "VIBE_PERSISTENCE_MIN_LEVELTIME",
             "leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME",
-            "cache_persistence_marker_requests();",
             "if (save_checkpoint_request_checked)",
             "if (load_checkpoint_request_checked)",
             "if (save_checkpoint_requested)",
@@ -143,6 +142,11 @@ class DoomInputContractTests(unittest.TestCase):
         ):
             with self.subTest(source=source):
                 self.assertIn(source, platform)
+
+        i_init = platform.split("void I_Init(void)", 1)[1].split("byte* I_ZoneBase", 1)[0]
+        self.assertNotIn("save_checkpoint_requested_once();", i_init)
+        self.assertNotIn("load_checkpoint_requested_once();", i_init)
+        self.assertNotIn("persistence_checkpoint_requested();", i_init)
 
         slot_request = platform.split("static int read_persistence_slot_request", 1)[1].split(
             "static int save_checkpoint_requested_once", 1
