@@ -28,6 +28,7 @@ extern int savegameslot;
 extern char savedescription[32];
 void doom_original_G_BuildTiccmd(ticcmd_t* cmd);
 void doom_original_G_Ticker(void);
+void G_SaveGame(int slot, char* description);
 void G_DoSaveGame(void);
 void G_LoadGame(char* name);
 
@@ -280,6 +281,8 @@ static void checkpoint_default_config_if_needed(void)
 
 static void checkpoint_save_slot_if_needed(void)
 {
+    static char description[] = "VIBE SAVE";
+
     if (save_checkpoint_done || !save_checkpoint_requested_once())
         return;
     if (!default_config_checkpoint_ready()
@@ -290,10 +293,7 @@ static void checkpoint_save_slot_if_needed(void)
         return;
     }
 
-    savegameslot = save_checkpoint_slot;
-    strcpy(savedescription, "VIBE SAVE");
-    sendsave = false;
-    gameaction = ga_savegame;
+    G_SaveGame(save_checkpoint_slot, description);
     save_checkpoint_done = 1;
 }
 
