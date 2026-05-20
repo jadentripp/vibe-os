@@ -66,8 +66,11 @@ class BootLoaderVmContractTests(unittest.TestCase):
         )
         self.assertIn("dw STAGE2_SECTORS", stage1)
         self.assertIn("dq STAGE2_LBA", stage1)
-        self.assertIn("dw KERNEL_SECTORS", stage2)
-        self.assertIn("dq KERNEL_LBA", stage2)
+        self.assertEqual(equ_value(stage2, "KERNEL_READ_CHUNK_SECTORS"), 64)
+        self.assertIn("call load_kernel_elf_sectors", stage2)
+        self.assertIn("mov word [kernel_load_remaining], KERNEL_SECTORS", stage2)
+        self.assertIn("cmp ax, KERNEL_READ_CHUNK_SECTORS", stage2)
+        self.assertIn("kernel_packet_lba:", stage2)
 
     def test_disk_image_contains_raw_boot_regions_before_fat_partition(self):
         image_builder = text(ROOT / "tools" / "make_wad_image.py")

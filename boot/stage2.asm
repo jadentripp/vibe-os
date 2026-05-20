@@ -9,6 +9,7 @@ KERNEL_ELF_OFF equ 0x0000
 KERNEL_ELF_PHYS equ 0x00040000
 KERNEL_LBA equ 17
 KERNEL_SECTORS equ 192
+KERNEL_READ_CHUNK_SECTORS equ 64
 
 ELF_MAGIC equ 0x464c457f
 ELFCLASS32 equ 1
@@ -68,11 +69,7 @@ start:
 
     call require_edd
 
-    mov si, kernel_packet
-    mov ah, 0x42
-    mov dl, [boot_drive]
-    int 0x13
-    jc disk_error
+    call load_kernel_elf_sectors
 
     call set_vbe_lfb_or_mode13
     call enable_a20
@@ -94,6 +91,52 @@ require_edd:
     jne disk_error
     test cx, 0x0001
     jz disk_error
+    ret
+
+load_kernel_elf_sectors:
+    mov word [kernel_load_remaining], KERNEL_SECTORS
+    mov word [kernel_load_segment], KERNEL_ELF_SEG
+    mov dword [kernel_load_lba], KERNEL_LBA
+    mov dword [kernel_load_lba + 4], 0
+
+.next:
+    cmp word [kernel_load_remaining], 0
+    je .done
+
+    mov ax, [kernel_load_remaining]
+    cmp ax, KERNEL_READ_CHUNK_SECTORS
+    jbe .count_ready
+    mov ax, KERNEL_READ_CHUNK_SECTORS
+
+.count_ready:
+    mov [kernel_packet_sectors], ax
+    mov word [kernel_packet_offset], KERNEL_ELF_OFF
+    mov ax, [kernel_load_segment]
+    mov [kernel_packet_segment], ax
+    mov eax, [kernel_load_lba]
+    mov [kernel_packet_lba], eax
+    mov eax, [kernel_load_lba + 4]
+    mov [kernel_packet_lba + 4], eax
+
+    mov si, kernel_packet
+    mov ah, 0x42
+    mov dl, [boot_drive]
+    int 0x13
+    jc disk_error
+
+    mov ax, [kernel_packet_sectors]
+    sub [kernel_load_remaining], ax
+    push ax
+    shl ax, 5
+    add [kernel_load_segment], ax
+    pop ax
+    xor ebx, ebx
+    mov bx, ax
+    add [kernel_load_lba], ebx
+    adc dword [kernel_load_lba + 4], 0
+    jmp .next
+
+.done:
     ret
 
 enable_a20:
@@ -391,10 +434,18 @@ align 4
 kernel_packet:
     db 0x10
     db 0x00
-    dw KERNEL_SECTORS
+kernel_packet_sectors:
+    dw 0
+kernel_packet_offset:
     dw KERNEL_ELF_OFF
+kernel_packet_segment:
     dw KERNEL_ELF_SEG
-    dq KERNEL_LBA
+kernel_packet_lba:
+    dq 0
+kernel_load_remaining dw 0
+kernel_load_segment dw 0
+align 4
+kernel_load_lba dq 0
 
 gdt_start:
 gdt_null:

@@ -12,7 +12,8 @@ sectors `LBA 1-16` into `0x00008000`.
 
 `boot/stage2.asm` is still real-mode code when it reads the kernel. It uses the
 same EDD packet path to load the prelinked kernel ELF image from `LBA 17-208`
-into `0x00040000`. The FAT16 partition starts at `LBA 2048`, so the raw boot
+into `0x00040000`, issuing 64-sector chunks so BIOSes do not have to accept one
+oversized transfer. The FAT16 partition starts at `LBA 2048`, so the raw boot
 area and filesystem do not overlap.
 
 Before entering the kernel, Stage 2 records the BIOS memory/video data it needs
