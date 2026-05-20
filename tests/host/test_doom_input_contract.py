@@ -107,6 +107,8 @@ class DoomInputContractTests(unittest.TestCase):
             'fopen("PERSIST.CHK", "r")',
             "default_config_checkpoint_ready()",
             "gamestate == GS_LEVEL",
+            "gameepisode > 0",
+            "gametic > 0",
             "default_config_needs_checkpoint()",
             'default_config_contains_marker(length, "chatmacro0")',
             "M_SaveDefaults();",

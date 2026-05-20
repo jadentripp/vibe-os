@@ -179,7 +179,9 @@ static int persistence_checkpoint_requested(void)
 static int default_config_checkpoint_ready(void)
 {
     return gamestate == GS_LEVEL
+        && gameepisode > 0
         && gamemap > 0
+        && gametic > 0
         && leveltime > 0
         && consoleplayer >= 0
         && consoleplayer < MAXPLAYERS
