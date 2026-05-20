@@ -1,0 +1,70 @@
+name: Real WAD smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Boot with user-supplied DOOM1.WAD
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      REAL_DOOM_WAD_URL: ${{ secrets.REAL_DOOM_WAD_URL }}
+      WAD_PATH: build/private/DOOM1.WAD
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install OS toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm qemu-system-x86 clang make netcat-openbsd curl
+
+      - name: Prove public fixture path first
+        run: make test
+
+      - name: Fetch private WAD
+        run: |
+          test -n "${REAL_DOOM_WAD_URL:-}" || {
+            echo "Set the REAL_DOOM_WAD_URL repository secret to a private DOOM1.WAD URL before running this workflow.";
+            exit 1;
+          }
+          mkdir -p "$(dirname "$WAD_PATH")"
+          curl --fail --silent --show-error --location "$REAL_DOOM_WAD_URL" --output "$WAD_PATH"
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("build/private/DOOM1.WAD")
+          data = path.read_bytes()
+          if data[:4] not in (b"IWAD", b"PWAD"):
+              raise SystemExit("downloaded file is not a WAD")
+          print(f"Downloaded private WAD: {len(data)} bytes")
+          PY
+
+      - name: Build and boot real-WAD image
+        run: |
+          make clean
+          make DOOM_WAD="$WAD_PATH"
+          make \
+            DOOM_WAD="$WAD_PATH" \
+            ALLOW_LOCAL_VM=1 \
+            SMOKE_EXPECT_PROBE_GFX=0 \
+            SMOKE_REJECT_DOOMLOG="doom error|PNAMES not found|W_GetNumForName" \
+            smoke
+
+      - name: Upload non-copyright diagnostic artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-wad-smoke-status
+          if-no-files-found: ignore
+          path: |
+            build/kernel.elf
+            build/user_probe.elf
+            build/status.bin
+            build/status.txt
+            build/vga.txt

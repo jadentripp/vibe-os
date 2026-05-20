@@ -139,6 +139,14 @@ make ALLOW_LOCAL_VM=1 smoke
 The repo also includes `.github/workflows/os-smoke.yml`, which builds the disk
 image, runs host artifact tests, and runs the smoke test in GitHub Actions.
 
+For a laptop-safe real-WAD test, set a GitHub repository secret named
+`REAL_DOOM_WAD_URL` to a private URL for your local shareware `DOOM1.WAD`, then
+run the **Real WAD smoke** workflow manually. That workflow downloads the WAD
+inside a disposable GitHub runner, builds `disk.img` with `DOOM_WAD`, boots it
+in QEMU there, and uploads only non-WAD diagnostics (`status.txt`, `status.bin`,
+`vga.txt`, and ELF files). It deliberately does not upload `disk.img` or
+`gfx.bin`, since those may contain Doom game data or rendered pixels.
+
 ## Shell Commands
 
 - `help`
@@ -200,13 +208,16 @@ Already implemented:
   diagnosable without editing Doom source
 - optional external `DOOM_WAD=/path/to/DOOM1.WAD` image builds for real
   shareware WAD testing without committing game data
+- manual GitHub Actions real-WAD smoke path using a private
+  `REAL_DOOM_WAD_URL`, with artifacts limited to non-WAD diagnostics
 
 Still required before this is actually Doom-capable:
 
 - higher-half kernel mapping and real user address spaces
 - scheduler, process table, per-process kernel stacks, and context switching
 - a broader syscall ABI: `exec`, `mmap`, fuller file I/O, input, and drawing
-- cloud/manual smoke with an actual user-supplied shareware `DOOM1.WAD`
+- run and analyze the manual cloud smoke with an actual user-supplied shareware
+  `DOOM1.WAD`
 - enough syscall/libc/file coverage for the original engine to progress past
   startup errors from the current generated WAD fixture
 - POSIX-ish libc and file syscalls for Doom

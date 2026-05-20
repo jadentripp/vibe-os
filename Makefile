@@ -6,6 +6,8 @@ QEMU_ACCEL ?= tcg
 QEMU_MACHINE := pc,accel=$(QEMU_ACCEL)
 ALLOW_LOCAL_VM ?= 0
 DOOM_WAD ?=
+SMOKE_EXPECT_PROBE_GFX ?= 1
+SMOKE_REJECT_DOOMLOG ?=
 
 BUILD_DIR := build
 STAGE1_BIN := $(BUILD_DIR)/stage1.bin
@@ -146,7 +148,14 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "gfx=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "heap=OK" $(BUILD_DIR)/status.txt; \
 	test -s $(BUILD_DIR)/gfx.bin; \
-	perl -e 'local $$/; $$d = <>; exit(length($$d) == 64000 && ord(substr($$d, 0, 1)) == 0 && ord(substr($$d, 1, 1)) == 1 && ord(substr($$d, 320, 1)) == 64 && ord(substr($$d, 63999, 1)) == 255 ? 0 : 1)' $(BUILD_DIR)/gfx.bin; \
+	if [ "$(SMOKE_EXPECT_PROBE_GFX)" = "1" ]; then \
+		perl -e 'local $$/; $$d = <>; exit(length($$d) == 64000 && ord(substr($$d, 0, 1)) == 0 && ord(substr($$d, 1, 1)) == 1 && ord(substr($$d, 320, 1)) == 64 && ord(substr($$d, 63999, 1)) == 255 ? 0 : 1)' $(BUILD_DIR)/gfx.bin; \
+	else \
+		test $$(wc -c < $(BUILD_DIR)/gfx.bin) -eq 64000; \
+	fi; \
+	if [ -n "$(SMOKE_REJECT_DOOMLOG)" ]; then \
+		! grep -Eq "$(SMOKE_REJECT_DOOMLOG)" $(BUILD_DIR)/status.txt; \
+	fi; \
 	perl -ne '$$ok = 1 if /heap=OK free=([0-9A-F]{8})/ && hex($$1) >= 0x00700000; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	perl -ne '$$ok = 1 if /ticks=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	printf "Smoke boot OK: protected-mode kernel status, Ring 3 probe, Doom ELF load, indexed-frame present, and PIT ticks verified in cloud VM memory.\n"

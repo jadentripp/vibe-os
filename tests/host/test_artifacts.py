@@ -324,13 +324,22 @@ class SourceContractTests(unittest.TestCase):
     def test_local_vm_targets_are_opt_in(self):
         makefile = (ROOT / "Makefile").read_text()
         gitignore = (ROOT / ".gitignore").read_text()
+        real_wad_workflow = (ROOT / ".github" / "workflows" / "real-wad-smoke.yml").read_text()
         self.assertIn("ALLOW_LOCAL_VM ?= 0", makefile)
         self.assertIn("DOOM_WAD ?=", makefile)
+        self.assertIn("SMOKE_EXPECT_PROBE_GFX ?= 1", makefile)
+        self.assertIn("SMOKE_REJECT_DOOMLOG ?=", makefile)
         self.assertIn("--wad", makefile)
         self.assertIn("run: vm-consent", makefile)
         self.assertIn("smoke: vm-consent", makefile)
         self.assertIn("*.wad", gitignore)
         self.assertIn("*.WAD", gitignore)
+        self.assertIn("workflow_dispatch:", real_wad_workflow)
+        self.assertIn("REAL_DOOM_WAD_URL", real_wad_workflow)
+        self.assertIn("SMOKE_EXPECT_PROBE_GFX=0", real_wad_workflow)
+        self.assertIn("SMOKE_REJECT_DOOMLOG=", real_wad_workflow)
+        self.assertNotIn("build/disk.img", real_wad_workflow)
+        self.assertNotIn("build/gfx.bin", real_wad_workflow)
 
     def test_user_probe_is_c_not_assembly_only(self):
         self.assertTrue((ROOT / "user" / "probe.c").exists())
