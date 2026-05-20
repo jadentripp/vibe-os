@@ -158,16 +158,16 @@ class ProcessExecContractTests(unittest.TestCase):
         kernel = read_kernel()
         user_probe_handler = kernel.split(".user_probe:", 1)[1].split(".expect_fault:", 1)[0]
 
-        self.assertIn("cmp byte [current_user_kind], USER_KIND_PROBE", user_probe_handler)
-        self.assertIn("jne .user_probe_ignore", user_probe_handler)
+        self.assertIn("cmp byte [current_user_kind], USER_KIND_PREEMPT_PROBE", user_probe_handler)
+        self.assertIn("je .user_probe_skip", user_probe_handler)
         self.assertLess(
-            user_probe_handler.index("jne .user_probe_ignore"),
+            user_probe_handler.index("je .user_probe_skip"),
             user_probe_handler.index("mov [user_probe_magic_seen], ebx"),
         )
-        self.assertIn(".user_probe_ignore:", user_probe_handler)
-        ignore_path = user_probe_handler.split(".user_probe_ignore:", 1)[1]
-        self.assertIn("xor eax, eax", ignore_path)
-        self.assertIn("jmp .return", ignore_path)
+        self.assertIn(".user_probe_skip:", user_probe_handler)
+        skip_path = user_probe_handler.split(".user_probe_skip:", 1)[1]
+        self.assertIn("xor eax, eax", skip_path)
+        self.assertIn("jmp .return", skip_path)
 
     def test_live_doom_user_status_accepts_ready_or_running_scheduler_state(self):
         kernel = read_kernel()

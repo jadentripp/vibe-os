@@ -8098,8 +8098,8 @@ syscall_handler:
     jmp .bad_syscall_enosys
 
 .user_probe:
-    cmp byte [current_user_kind], USER_KIND_PROBE
-    jne .user_probe_ignore
+    cmp byte [current_user_kind], USER_KIND_PREEMPT_PROBE
+    je .user_probe_skip
     mov [user_probe_magic_seen], ebx
     mov [user_probe_flags_seen], ecx
     movzx edx, word [esp + 28]
@@ -8110,7 +8110,7 @@ syscall_handler:
     xor eax, eax
     jmp .return
 
-.user_probe_ignore:
+.user_probe_skip:
     xor eax, eax
     jmp .return
 
