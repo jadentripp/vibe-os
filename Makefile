@@ -33,10 +33,9 @@ check-tools:
 
 vm-consent:
 	@if [ "$(ALLOW_LOCAL_VM)" != "1" ]; then \
-		echo "Refusing to run a local VM on this Mac."; \
+		echo "Local QEMU execution is disabled by default."; \
 		echo "Build-only targets are still allowed: make"; \
-		echo "For zero risk to this laptop, run QEMU only on a disposable remote host or separate machine."; \
-		echo "If you explicitly accept local VM risk, rerun with ALLOW_LOCAL_VM=1."; \
+		echo "Rerun with ALLOW_LOCAL_VM=1 to use run, run-headless, or smoke."; \
 		exit 1; \
 	fi
 

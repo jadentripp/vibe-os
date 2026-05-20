@@ -85,35 +85,22 @@ Current disk layout:
 - LBA 17-112: protected-mode kernel ELF image
 - LBA 2048+: FAT16 partition containing `DOOM1.WAD` and `USERPROB.ELF`
 
-## Runtime Safety
+## Run
 
-This project builds a raw bootable x86 disk image. After a host crash during
-local VM testing, repo-owned QEMU targets now refuse to run on this Mac unless
-you explicitly opt in.
-
-For zero risk to the laptop, do not run QEMU locally. Copy the repo or the
-generated `build/disk.img` to a disposable remote host, CI runner, or separate
-machine, and boot it there.
-
-The repo includes `.github/workflows/os-smoke.yml` for this path. It builds on a
-GitHub-hosted Ubuntu runner, installs the OS toolchain, runs the QEMU smoke test
-inside that disposable cloud VM, and uploads `disk.img`, `kernel.elf`,
-`user_probe.elf`, and the captured VGA text.
-
-The local VM commands are intentionally gated:
-
-```sh
-make run
-make smoke
-```
-
-To run locally anyway, accepting that this still exercises host virtualization
-or emulator code:
+Local QEMU targets are opt-in:
 
 ```sh
 make ALLOW_LOCAL_VM=1 run
+```
+
+For a non-graphical boot check:
+
+```sh
 make ALLOW_LOCAL_VM=1 smoke
 ```
+
+The repo also includes `.github/workflows/os-smoke.yml`, which builds the disk
+image and runs the smoke test in GitHub Actions.
 
 ## Shell Commands
 
