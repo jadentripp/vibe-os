@@ -109,6 +109,12 @@ boot:
   binaries, raw audio files, compressed WAD archives, and renamed WAD/disk/image/audio payload
   signatures. If `audio-proof.json` is present, it validates that aggregate
   manifest too.
+- `tools/collect_human_playtest_bundle.py` is the remote-host helper for manual
+  VNC sessions. It does not launch QEMU; it copies only allowlisted status/log
+  diagnostics and required ELF/symbol files from the disposable host build
+  directory, writes structured `human-playtest-notes.txt`, refuses proof output
+  inside the repo, and immediately invokes
+  `tools/check_cloud_playability_artifacts.py --human-session`.
 - `tools/triage_cloud_status.py` classifies a downloaded real-WAD status line
   into the first repair lane. The custom linker also writes `build/doom.symbols`
   so cloud artifacts can symbolize `doomfaultip` and decode page-fault/WAD I/O

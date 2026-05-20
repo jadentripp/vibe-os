@@ -154,48 +154,40 @@ cp build/status.after-menu.txt build/status.txt
 rm -f build/status.*.bin
 ```
 
-Record the human review as text only:
+Collect the manual proof bundle on the disposable remote host. Use an empty
+scratch directory outside the repository. The collector does not launch QEMU; it
+copies only status text, logs, ELF diagnostics, `doom.symbols`, optional
+`audio-proof.json`, writes `human-playtest-notes.txt`, and then runs
+`tools/check_cloud_playability_artifacts.py --human-session` against the bundle.
+It deliberately skips `disk.img`, WADs, status binaries, screenshots, pixel
+dumps, and raw audio:
 
 ```sh
-cat > build/human-playtest-notes.txt <<EOF
-schema=human-playtest-notes-v1
-commit=$(git rev-parse HEAD)
-playtester=<name-or-initials>
-remote_host=disposable
-qemu_location=remote
-vnc_tunnel=loopback-only
-wad=shareware-v1.9-validated-remote-only
-display=pass
-keyboard=pass
-mouse=pass
-audio=status-only
-diagnostics=non-wad-status-only
-no_local_qemu=yes
-no_wad_upload=yes
-no_disk_upload=yes
-no_pixel_upload=yes
-EOF
+python3 tools/collect_human_playtest_bundle.py \
+  --build-dir build \
+  --output-dir /tmp/vibe-os-human-proof \
+  --playtester "<name-or-initials>" \
+  --audio status-only
 ```
 
 `audio=` may be `status-only`, `listener-pass`, `audio-proof-json-pass`, or
-`not-tested`. Keep subjective comments in extra text keys if useful, but do not
-store screenshots, audio captures, WADs, or disk images in the proof directory.
+`not-tested`. Use `audio-proof-json-pass` only when the bundle also contains a
+validated aggregate `audio-proof.json`. Keep subjective comments in extra text
+keys if useful, but do not store screenshots, audio captures, WADs, disk images,
+or `status.*.bin` files in the proof directory.
 
-Build a local diagnostic directory on the remote host, then download that
-directory or a tarball of it:
+If you need to audit the exact notes format, the collector writes these required
+keys: `schema=human-playtest-notes-v1`, `commit=...`, `playtester=...`,
+`remote_host=disposable`, `qemu_location=remote`,
+`qemu_display=127.0.0.1:1`, `monitor_socket=unix-monitor-socket`,
+`vnc_tunnel=loopback-only`, `vnc_endpoint=127.0.0.1:5901`,
+`wad=shareware-v1.9-validated-remote-only`, `display=pass`,
+`keyboard=pass`, `mouse=pass`, `diagnostics=non-wad-status-only`,
+`proof_bundle=allowlisted-status-only`, `no_local_qemu=yes`,
+`no_wad_upload=yes`, `no_disk_upload=yes`, and `no_pixel_upload=yes`.
 
-```sh
-mkdir -p /tmp/vibe-os-human-proof
-cp \
-  build/status*.txt \
-  build/*.log \
-  build/kernel.elf \
-  build/user_probe.elf \
-  build/doom.elf \
-  build/doom.symbols \
-  build/human-playtest-notes.txt \
-  /tmp/vibe-os-human-proof/
-```
+Download `/tmp/vibe-os-human-proof` or a tarball of it. Do not download
+`build/disk.img` or `/tmp/DOOM1.WAD`.
 
 For a fully automated truth-serum run, use the GitHub Actions **Real WAD smoke**
 workflow instead of this manual VNC path. It captures:
@@ -264,7 +256,9 @@ python3 tools/check_cloud_playability_artifacts.py \
 The audible checker command is only expected to pass when the workflow was
 triggered with `audible_audio_proof=true` and the artifact contains
 `audio-proof.json`. The `--human-session` artifact check is for the manual VNC
-bundle and requires `human-playtest-notes.txt`.
+bundle and requires `human-playtest-notes.txt`; if you used
+`tools/collect_human_playtest_bundle.py`, that check already ran once on the
+remote host before download.
 
 `triage_cloud_status.py` auto-loads `doom.symbols` from the artifact directory,
 so a `doom-user-fault` report should include the nearest Doom function for
@@ -283,7 +277,8 @@ Call a remote human playtest credible only after checking all of this:
   `status.early.txt`, `status.after-start.txt`, `status.after-fire.txt`,
   `status.after-move.txt`, `status.after-use.txt`, `status.after-mouse.txt`,
   `status.after-menu.txt`, `status.txt`, `doom.symbols`, and the diagnostic ELF
-  files, and `tools/check_cloud_playability_artifacts.py --human-session` passes.
+  files, was produced with `tools/collect_human_playtest_bundle.py`, and
+  `tools/check_cloud_playability_artifacts.py --human-session` passes.
 - `status.txt` or the GitHub artifact reports `gameplay=OK`,
   `gmap=00000101`, increasing `gtic`/`leveltime`, nonzero `keyirq`,
   `keyqueue`, and `keypoll`, `keyseen` bits for Up/Ctrl/Space/Escape, nonzero

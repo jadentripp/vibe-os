@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CHECKER = ROOT / "tools" / "check_cloud_playability_artifacts.py"
+COLLECTOR = ROOT / "tools" / "collect_human_playtest_bundle.py"
 PREPARE = ROOT / "tools" / "prepare_shareware_wad.py"
 
 checker_spec = importlib.util.spec_from_file_location("check_cloud_playability_artifacts", CHECKER)
@@ -341,13 +342,17 @@ def write_human_notes(artifact, **overrides):
         "playtester": "jt",
         "remote_host": "disposable",
         "qemu_location": "remote",
+        "qemu_display": "127.0.0.1:1",
+        "monitor_socket": "unix-monitor-socket",
         "vnc_tunnel": "loopback-only",
+        "vnc_endpoint": "127.0.0.1:5901",
         "wad": "shareware-v1.9-validated-remote-only",
         "display": "pass",
         "keyboard": "pass",
         "mouse": "pass",
         "audio": "status-only",
         "diagnostics": "non-wad-status-only",
+        "proof_bundle": "allowlisted-status-only",
         "no_local_qemu": "yes",
         "no_wad_upload": "yes",
         "no_disk_upload": "yes",
@@ -551,6 +556,68 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("cloud playability artifact check OK", result.stdout)
+
+    def test_collector_builds_allowlisted_manual_human_bundle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            build = tmpdir / "build"
+            output = tmpdir / "human-proof"
+            build.mkdir()
+            write_valid_artifact(build)
+            (build / "serial.remote.log").write_text("serial diagnostics\n")
+            (build / "disk.img").write_bytes(b"\x55\xaa" + b"disk" * 32)
+            (build / "gfx.bin").write_bytes(b"pixels")
+            (build / "DOOM1.WAD").write_bytes(b"IWAD" + b"\0" * 64)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(COLLECTOR),
+                    "--build-dir",
+                    str(build),
+                    "--output-dir",
+                    str(output),
+                    "--playtester",
+                    "jt",
+                    "--commit",
+                    "abcdef0",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("human playtest bundle OK", result.stdout)
+            self.assertTrue((output / "human-playtest-notes.txt").exists())
+            self.assertTrue((output / "serial.remote.log").exists())
+            self.assertFalse((output / "disk.img").exists())
+            self.assertFalse((output / "gfx.bin").exists())
+            self.assertFalse((output / "DOOM1.WAD").exists())
+            check_cloud_playability_artifacts.validate_artifact_dir(
+                output,
+                require_human_notes=True,
+            )
+
+    def test_collector_rejects_repo_output_directory(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(COLLECTOR),
+                "--build-dir",
+                str(ROOT / "build"),
+                "--output-dir",
+                str(ROOT / "build" / "human-proof"),
+                "--playtester",
+                "jt",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("outside the repository", result.stderr)
 
     def test_downloaded_artifact_directory_rejects_duplicate_required_basenames(self):
         with tempfile.TemporaryDirectory() as tmp:

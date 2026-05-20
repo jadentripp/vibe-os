@@ -55,12 +55,16 @@ REQUIRED_HUMAN_NOTE_FIELDS = {
     "schema": (HUMAN_NOTES_SCHEMA,),
     "remote_host": ("disposable",),
     "qemu_location": ("remote",),
+    "qemu_display": ("127.0.0.1:1",),
+    "monitor_socket": ("unix-monitor-socket",),
     "vnc_tunnel": ("loopback-only",),
+    "vnc_endpoint": ("127.0.0.1:5901",),
     "wad": ("shareware-v1.9-validated-remote-only",),
     "display": ("pass",),
     "keyboard": ("pass",),
     "mouse": ("pass",),
     "diagnostics": ("non-wad-status-only",),
+    "proof_bundle": ("allowlisted-status-only",),
     "no_local_qemu": ("yes",),
     "no_wad_upload": ("yes",),
     "no_disk_upload": ("yes",),
@@ -180,12 +184,16 @@ def validate_repo_contract() -> None:
         "ssh -L 5901:127.0.0.1:5901",
         "tools/prepare_shareware_wad.py",
         "tools/check_cloud_playability_artifacts.py",
+        "tools/collect_human_playtest_bundle.py",
         "tools/check_real_wad_proof.py",
         "tools/check_human_playability_proof.py",
         "tools/check_audio_continuity_proof.py",
         "tools/check_audible_audio_proof.py",
         "tools/triage_cloud_status.py",
         "human-playtest-notes.txt",
+        "proof_bundle=allowlisted-status-only",
+        "qemu_display=127.0.0.1:1",
+        "vnc_endpoint=127.0.0.1:5901",
         "--human-session",
         "capture_status",
         "no_local_qemu=yes",
@@ -220,10 +228,13 @@ def validate_repo_contract() -> None:
             raise AssertionError(f"runbook should not instruct local/pixel artifact path {forbidden!r}")
 
     _require(playable, "Remote Doom Playtest Runbook", "playable cloud proof doc")
+    _require(playable, "tools/collect_human_playtest_bundle.py", "playable cloud proof doc")
     _require(playable, "puser", "playable cloud proof doc")
     _require(playable, "pspin", "playable cloud proof doc")
     _require(readme, "docs/runbooks/remote-doom-playtest.md", "README")
+    _require(readme, "tools/collect_human_playtest_bundle.py", "README")
     _require(tests_readme, "check_cloud_playability_artifacts.py", "tests README")
+    _require(tests_readme, "collect_human_playtest_bundle.py", "tests README")
     _require(makefile, "cloud-playability-check", "Makefile")
     _require(makefile, "persistence-image-check", "Makefile")
     _require(makefile, "PERSISTENCE_BASELINE_IMAGE", "Makefile")

@@ -192,6 +192,8 @@ kernel/port paths a human session uses.
 For a live human session, use the Remote Doom Playtest Runbook in
 `docs/runbooks/remote-doom-playtest.md`. That path keeps QEMU on a disposable
 remote host, connects through VNC over SSH, and uses
-`tools/check_cloud_playability_artifacts.py --human-session` to validate
-downloaded diagnostics and `human-playtest-notes.txt` without storing WAD data,
-disk images, audio captures, or rendered pixels in the repo.
+`tools/collect_human_playtest_bundle.py` on the remote host to build an
+allowlisted proof bundle before download. The bundle is then validated with
+`tools/check_cloud_playability_artifacts.py --human-session`, including
+`human-playtest-notes.txt`, without storing WAD data, disk images, audio
+captures, or rendered pixels in the repo.

@@ -255,8 +255,9 @@ scripted cloud evidence, not yet a human-facing "Doom-capable" claim.
 For a human actually trying the image, use
 `docs/runbooks/remote-doom-playtest.md`. It keeps QEMU on a disposable remote
 host, exposes a loopback-only VNC display through SSH, keeps `DOOM1.WAD` outside
-git, and validates downloaded diagnostics with
-`tools/check_cloud_playability_artifacts.py`.
+git, collects an allowlisted status/log/ELF proof bundle with
+`tools/collect_human_playtest_bundle.py`, and validates downloaded diagnostics
+with `tools/check_cloud_playability_artifacts.py --human-session`.
 
 ## Shell Commands
 
