@@ -40,7 +40,15 @@ class PlayNowRemoteTests(unittest.TestCase):
                   echo "jadentripp/vibe-os"
                   exit 0
                 fi
-                if [ "$1" = "api" ]; then
+                if [ "$1" = "api" ] && [[ "$*" == *"/repos/jadentripp/vibe-os/contents/"* ]]; then
+                  if [ "${FAKE_PLAY_PAYLOAD_MISSING:-0}" = "1" ]; then
+                    echo "missing play payload" >&2
+                    exit 69
+                  fi
+                  echo '{"type":"file"}'
+                  exit 0
+                fi
+                if [ "$1" = "api" ] && [[ "$*" == *"/user/codespaces?per_page=1"* ]]; then
                   if [ "${FAKE_CODESPACE_SCOPE_FAIL:-0}" = "1" ]; then
                     echo "missing codespace scope" >&2
                     exit 68
@@ -172,6 +180,7 @@ class PlayNowRemoteTests(unittest.TestCase):
             "noVNC port: $NOVNC_PORT (private)",
             "GitHub Codespaces API: accessible",
             "GitHub repo/ref: verified",
+            "remote play payload: verified on selected ref",
             "explicit GitHub repo/ref selected; local checkout dirt is ignored",
             "clean and pushed for the inferred current branch",
             "local artifact transfer: none",
@@ -237,6 +246,7 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("machine: basicLinux32gb", result.stdout)
             self.assertIn("noVNC port: 6080 (private)", result.stdout)
             self.assertIn("GitHub repo/ref: verified", result.stdout)
+            self.assertIn("remote play payload: verified on selected ref", result.stdout)
             self.assertIn("git state: explicit GitHub repo/ref selected; local checkout dirt is ignored", result.stdout)
             self.assertIn("local artifact transfer: none", result.stdout)
             self.assertIn("dry-run: Codespace was not created or modified", result.stdout)
@@ -245,6 +255,8 @@ class PlayNowRemoteTests(unittest.TestCase):
             log = gh_log.read_text()
             self.assertIn("auth status -h github.com", log)
             self.assertIn("repo view jadentripp/vibe-os --json nameWithOwner -q .nameWithOwner", log)
+            self.assertIn("/repos/jadentripp/vibe-os/contents/.devcontainer/devcontainer.json", log)
+            self.assertIn("/repos/jadentripp/vibe-os/contents/tools/play_now_remote.sh", log)
             self.assertIn("api -H Accept: application/vnd.github+json /user/codespaces?per_page=1", log)
             self.assertNotIn("codespace create", log)
             self.assertNotIn("codespace ssh", log)
@@ -276,6 +288,35 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("gh auth refresh -h github.com -s codespace", result.stderr)
             log = gh_log.read_text()
             self.assertIn("/user/codespaces?per_page=1", log)
+            self.assertNotIn("codespace create", log)
+
+    def test_codespaces_launcher_requires_remote_play_payload_before_create(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env, gh_log, _ = self._codespaces_stub_env(tmp)
+            env["FAKE_PLAY_PAYLOAD_MISSING"] = "1"
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "tools" / "play_now_codespaces.sh"),
+                    "--dry-run",
+                    "--repo",
+                    "jadentripp/vibe-os",
+                    "--ref",
+                    "jt/doom-gameplay-proof",
+                    "--no-open",
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("missing required play-now path", result.stderr)
+            self.assertIn(".devcontainer/devcontainer.json", result.stderr)
+            log = gh_log.read_text()
+            self.assertIn("/repos/jadentripp/vibe-os/contents/.devcontainer/devcontainer.json", log)
+            self.assertNotIn("/user/codespaces?per_page=1", log)
             self.assertNotIn("codespace create", log)
 
     def test_codespaces_launcher_default_display_name_fits_gh_limit(self):

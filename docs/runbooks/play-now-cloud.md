@@ -34,6 +34,12 @@ port `6080`, then creates or reuses a disposable GitHub Codespace. It starts
 Codespaces and opens a browser; it does not run QEMU, fetch the WAD, build
 `disk.img`, or copy play artifacts back.
 
+Before creation, the launcher also checks the selected pushed branch for the
+required play payload: `.devcontainer/devcontainer.json`,
+`.devcontainer/Dockerfile`, `tools/play_now_remote.sh`,
+and `tools/check_play_now_remote.py`. A branch that has not pushed those files
+fails before Codespaces creation with the missing path named in the error.
+
 If the launcher reports that GitHub CLI cannot access Codespaces, run:
 
 ```sh
@@ -47,6 +53,12 @@ Optional dry run:
 VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/doom-gameplay-proof \
   ./tools/play_now_codespaces.sh --preflight --no-open
 ```
+
+Optional GitHub-hosted dry run: dispatch **Cloud play-now preflight** on the
+same branch. It installs the remote dependencies on `ubuntu-latest`, runs
+`./tools/play_now_remote.sh --preflight --require-novnc`, verifies the VM safety
+contract, and uploads no artifacts. It is useful when you want to know the
+remote host shape is ready before spending a Codespace.
 
 To use a different noVNC port, set `NOVNC_PORT` on the Mac before the launch
 and before the optional dry run. The launcher validates that port locally,
