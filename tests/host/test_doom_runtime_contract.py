@@ -296,7 +296,8 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("P_ArchiveThinkers();", platform)
         self.assertIn("P_ArchiveSpecials();", platform)
         self.assertIn("*save_p++ = 0x1d;", platform)
-        self.assertIn("M_WriteFile(path, savebuffer, length)", platform)
+        self.assertIn("write_save_checkpoint_bytes(path, savebuffer, length)", platform)
+        self.assertIn("VIBE_DOOM_SAVE_WRITE_CHUNK_BYTES", platform)
         self.assertIn("write_save_checkpoint_file(save_checkpoint_slot, description)", platform)
         self.assertIn("sendsave = false;", platform)
         save_checkpoint = platform.split(

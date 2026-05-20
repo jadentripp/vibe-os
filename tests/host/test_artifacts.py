@@ -1182,7 +1182,9 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("test dword [fd_flags + esi * 4], O_APPEND", writer)
         self.assertIn("fd_offsets", writer)
         growth_flush = writer.split("mov [writable_sizes + ebx * 4], edx", 1)[1].split(".ok:", 1)[0]
-        self.assertIn("call fat_update_writable_size", growth_flush)
+        self.assertNotIn("call fat_update_writable_size", growth_flush)
+        final_flush = writer.split(".ok:", 1)[1].split(".fail_badfd:", 1)[0]
+        self.assertIn("call fat_update_writable_size", final_flush)
         allocator = kernel.split("fat_alloc_cluster:", 1)[1].split("fat_free_chain:", 1)[0]
         self.assertIn(".rollback_alloc:", allocator)
         free_chain = kernel.split("fat_free_chain:", 1)[1].split("fat_create_root_file:", 1)[0]

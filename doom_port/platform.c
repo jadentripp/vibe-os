@@ -1,8 +1,10 @@
+#include <fcntl.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <unistd.h>
 
 #include "d_event.h"
 #include "dstrings.h"
@@ -79,6 +81,7 @@ static int load_checkpoint_done;
 #define VIBE_DOOM_SAVEGAME_BYTES 0x2c000
 #define VIBE_DOOM_SAVE_DESCRIPTION_BYTES 24
 #define VIBE_DOOM_SAVE_VERSION_BYTES 16
+#define VIBE_DOOM_SAVE_WRITE_CHUNK_BYTES 4096
 
 static void report_doom_init_status(unsigned long flags)
 {
@@ -394,6 +397,38 @@ static void checkpoint_default_config_if_needed(void)
         M_SaveDefaults();
 }
 
+static int write_save_checkpoint_bytes(const char* path, const byte* data, int length)
+{
+    int handle;
+    int written = 0;
+
+    if (!path || !data || length <= 0)
+        return 0;
+
+    handle = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0666);
+    if (handle < 0)
+        return 0;
+
+    while (written < length) {
+        int chunk = length - written;
+        int count;
+
+        if (chunk > VIBE_DOOM_SAVE_WRITE_CHUNK_BYTES)
+            chunk = VIBE_DOOM_SAVE_WRITE_CHUNK_BYTES;
+
+        count = write(handle, data + written, (size_t)chunk);
+        if (count <= 0) {
+            close(handle);
+            return 0;
+        }
+        written += count;
+    }
+
+    if (close(handle) < 0)
+        return 0;
+    return 1;
+}
+
 static int write_save_checkpoint_file(int slot, const char* description)
 {
     char path[] = "doomsav0.dsg";
@@ -441,7 +476,7 @@ static int write_save_checkpoint_file(int slot, const char* description)
     length = save_p - savebuffer;
     if (length <= 0 || length > VIBE_DOOM_SAVEGAME_BYTES)
         return 0;
-    if (!M_WriteFile(path, savebuffer, length))
+    if (!write_save_checkpoint_bytes(path, savebuffer, length))
         return 0;
 
     gameaction = ga_nothing;

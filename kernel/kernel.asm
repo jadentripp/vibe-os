@@ -7019,9 +7019,6 @@ user_file_write:
     cmp edx, [writable_sizes + ebx * 4]
     jbe .loop
     mov [writable_sizes + ebx * 4], edx
-    mov eax, ebx
-    call fat_update_writable_size
-    jc .fail_io
     jmp .loop
 
 .ok:

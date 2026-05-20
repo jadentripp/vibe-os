@@ -139,16 +139,17 @@ persistence proof has stamped a root-level `PERSIST.CHK` marker into the image,
 Doom is already in settled live gameplay, and the generated `DEFAULT.CFG` is
 still empty, partial, or missing core defaults markers. Marker-requested
 `DOOMSAV*.DSG` proof uses the platform wrapper only after the same settled
-gameplay guard; it reuses Doom's `P_Archive*` serializers and `M_WriteFile`
-from the Doom ticker path instead of forcing `ga_savegame`, calling
-`G_DoSaveGame`, or waiting on the display-present path during boot setup. The
-proof treats Doom's first advanced `leveltime` as an effective gameplay tic
-because the wrapper runs before the main loop increments `gametic`. The default
-real-WAD cloud workflow waits for that checkpoint before snapshotting the disk;
-the save-slot proof path uses `SAVEREQ.CHK` from the clean captured baseline and
-waits for Doom-reported save-file write/close status. `--write-status` keeps the
-wait honest by rejecting a `DEFAULT.CFG` proof until the defaults file has been
-opened with `O_TRUNC` and closed.
+gameplay guard; it reuses Doom's `P_Archive*` serializers and writes the
+resulting Doom save bytes to `DOOMSAV*.DSG` in bounded chunks from the Doom
+ticker path instead of forcing `ga_savegame`, calling `G_DoSaveGame`, or waiting
+on the display-present path during boot setup. The proof treats Doom's first
+advanced `leveltime` as an effective gameplay tic because the wrapper runs
+before the main loop increments `gametic`. The default real-WAD cloud workflow
+waits for that checkpoint before snapshotting the disk; the save-slot proof path
+uses `SAVEREQ.CHK` from the clean captured baseline and waits for Doom-reported
+save-file write/close status. `--write-status` keeps the wait honest by
+rejecting a `DEFAULT.CFG` proof until the defaults file has been opened with
+`O_TRUNC` and closed.
 
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,
