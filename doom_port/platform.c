@@ -701,6 +701,7 @@ void G_BuildTiccmd(ticcmd_t* cmd)
 {
     checkpoint_save_slot_if_needed();
     doom_original_G_BuildTiccmd(cmd);
+    flush_save_checkpoint_if_needed();
 }
 
 void G_Ticker(void)

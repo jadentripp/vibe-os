@@ -304,6 +304,10 @@ class DoomRuntimeContractTests(unittest.TestCase):
             build_ticcmd.index("checkpoint_save_slot_if_needed();"),
             build_ticcmd.index("doom_original_G_BuildTiccmd(cmd);"),
         )
+        self.assertLess(
+            build_ticcmd.index("doom_original_G_BuildTiccmd(cmd);"),
+            build_ticcmd.index("flush_save_checkpoint_if_needed();"),
+        )
         self.assertIn("void G_Ticker(void)", platform)
         self.assertLess(
             platform.index("promote_save_checkpoint_action();"),
