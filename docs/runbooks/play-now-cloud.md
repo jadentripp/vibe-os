@@ -37,8 +37,10 @@ Codespaces and opens a browser; it does not run QEMU, fetch the WAD, build
 Before creation, the launcher also checks the selected pushed branch for the
 required play payload: `.devcontainer/devcontainer.json`,
 `.devcontainer/Dockerfile`, `tools/play_now_remote.sh`,
-and `tools/check_play_now_remote.py`. A branch that has not pushed those files
-fails before Codespaces creation with the missing path named in the error.
+`tools/check_play_now_remote.py`, `tools/prepare_shareware_wad.py`,
+`tools/make_wad_image.py`, and `Makefile`. A branch that has not pushed those
+files fails before Codespaces creation with the missing path named in the
+error.
 
 If the launcher reports that GitHub CLI cannot access Codespaces, run:
 

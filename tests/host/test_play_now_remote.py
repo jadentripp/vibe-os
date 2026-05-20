@@ -41,6 +41,10 @@ class PlayNowRemoteTests(unittest.TestCase):
                   exit 0
                 fi
                 if [ "$1" = "api" ] && [[ "$*" == *"/repos/jadentripp/vibe-os"* ]] && [[ "$*" != *"/contents/"* ]]; then
+                  if [ "${FAKE_REPO_ID_FAIL:-0}" = "1" ]; then
+                    echo '{"message":"API rate limit exceeded","status":"403"}'
+                    exit 1
+                  fi
                   echo "${FAKE_REPO_DATABASE_ID:-123456789}"
                   exit 0
                 fi
@@ -115,6 +119,28 @@ class PlayNowRemoteTests(unittest.TestCase):
                   fi
                   ref="${@: -1}"
                   printf '0123456789abcdef0123456789abcdef01234567\\trefs/heads/%s\\n' "$ref"
+                  exit 0
+                fi
+                if [ "$1" = "init" ]; then
+                  exit 0
+                fi
+                if [ "$1" = "remote" ] && [ "${2:-}" = "add" ]; then
+                  exit 0
+                fi
+                if [ "$1" = "remote" ] && [ "${2:-}" = "get-url" ]; then
+                  echo "https://github.com/jadentripp/vibe-os.git"
+                  exit 0
+                fi
+                if [ "$1" = "fetch" ]; then
+                  if [ "${FAKE_REF_MISSING:-0}" = "1" ]; then
+                    exit 2
+                  fi
+                  exit 0
+                fi
+                if [ "$1" = "cat-file" ] && [ "${2:-}" = "-e" ]; then
+                  if [ "${FAKE_PLAY_PAYLOAD_MISSING:-0}" = "1" ]; then
+                    exit 69
+                  fi
                   exit 0
                 fi
                 case "$*" in
@@ -200,7 +226,10 @@ class PlayNowRemoteTests(unittest.TestCase):
             "gh codespace ports",
             "vnc.html?autoconnect=1",
             ".devcontainer/play-now-welcome.sh",
+            "Makefile",
             "tools/play_now_cloud_shell.sh",
+            "tools/prepare_shareware_wad.py",
+            "tools/make_wad_image.py",
             "Delete when done: gh codespace delete -c \\\"$CODESPACE_NAME\\\" --force",
             "Codespaces runs pushed git state",
         ):
@@ -210,7 +239,7 @@ class PlayNowRemoteTests(unittest.TestCase):
         for forbidden in (
             "qemu-system-x86_64",
             "make DOOM_WAD",
-            "prepare_shareware_wad.py",
+            "python3 tools/prepare_shareware_wad.py",
             "gh codespace cp",
             "scp ",
             "build/disk.img",
@@ -269,14 +298,19 @@ class PlayNowRemoteTests(unittest.TestCase):
 
             log = gh_log.read_text()
             self.assertIn("auth status -h github.com", log)
-            self.assertIn("repo view jadentripp/vibe-os --json nameWithOwner -q .nameWithOwner", log)
-            self.assertIn("/repos/jadentripp/vibe-os/contents/.devcontainer/devcontainer.json", log)
-            self.assertIn("/repos/jadentripp/vibe-os/contents/tools/play_now_remote.sh", log)
+            self.assertIn("api -H Accept: application/vnd.github+json /repos/jadentripp/vibe-os --jq .id", log)
             self.assertIn("api -H Accept: application/vnd.github+json /user/codespaces?per_page=1", log)
             self.assertNotIn("codespace create", log)
             self.assertNotIn("codespace ssh", log)
             self.assertNotIn("codespace ports", log)
-            self.assertIn("ls-remote --heads https://github.com/jadentripp/vibe-os.git jt/doom-gameplay-proof", git_log.read_text())
+            git_calls = git_log.read_text()
+            self.assertIn("ls-remote --heads https://github.com/jadentripp/vibe-os.git jt/doom-gameplay-proof", git_calls)
+            self.assertIn("fetch --depth=1 --filter=blob:none origin refs/heads/jt/doom-gameplay-proof", git_calls)
+            self.assertIn("cat-file -e FETCH_HEAD:.devcontainer/devcontainer.json", git_calls)
+            self.assertIn("cat-file -e FETCH_HEAD:Makefile", git_calls)
+            self.assertIn("cat-file -e FETCH_HEAD:tools/play_now_remote.sh", git_calls)
+            self.assertIn("cat-file -e FETCH_HEAD:tools/prepare_shareware_wad.py", git_calls)
+            self.assertIn("cat-file -e FETCH_HEAD:tools/make_wad_image.py", git_calls)
 
     def test_codespaces_launcher_web_url_mode_does_not_need_codespaces_api_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -321,9 +355,42 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertNotIn("codespace ssh", log)
             self.assertIn("ls-remote --heads https://github.com/jadentripp/vibe-os.git jt/play-now-access-next", git_log.read_text())
 
+    def test_codespaces_launcher_web_url_mode_falls_back_when_repo_id_api_is_limited(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env, gh_log, git_log = self._codespaces_stub_env(tmp)
+            env["FAKE_REPO_ID_FAIL"] = "1"
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "tools" / "play_now_codespaces.sh"),
+                    "--web-url",
+                    "--repo",
+                    "jadentripp/vibe-os",
+                    "--ref",
+                    "jt/play-now-access-next",
+                    "--no-open",
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("Codespaces create URL:\nhttps://github.com/codespaces/new", result.stdout)
+            self.assertNotIn("API rate limit exceeded", result.stdout)
+            self.assertIn("repo: jadentripp/vibe-os", result.stdout)
+            self.assertIn("ref: jt/play-now-access-next", result.stdout)
+            self.assertEqual(result.stderr, "")
+
+            log = gh_log.read_text()
+            self.assertIn("api -H Accept: application/vnd.github+json /repos/jadentripp/vibe-os --jq .id", log)
+            self.assertNotIn("/user/codespaces?per_page=1", log)
+            self.assertIn("ls-remote --heads https://github.com/jadentripp/vibe-os.git jt/play-now-access-next", git_log.read_text())
+
     def test_codespaces_launcher_requires_codespaces_api_scope_before_create(self):
         with tempfile.TemporaryDirectory() as tmp:
-            env, gh_log, _ = self._codespaces_stub_env(tmp)
+            env, gh_log, git_log = self._codespaces_stub_env(tmp)
             env["FAKE_CODESPACE_SCOPE_FAIL"] = "1"
             result = subprocess.run(
                 [
@@ -353,7 +420,7 @@ class PlayNowRemoteTests(unittest.TestCase):
 
     def test_codespaces_launcher_requires_remote_play_payload_before_create(self):
         with tempfile.TemporaryDirectory() as tmp:
-            env, gh_log, _ = self._codespaces_stub_env(tmp)
+            env, gh_log, git_log = self._codespaces_stub_env(tmp)
             env["FAKE_PLAY_PAYLOAD_MISSING"] = "1"
             result = subprocess.run(
                 [
@@ -376,9 +443,9 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("missing required play-now path", result.stderr)
             self.assertIn(".devcontainer/devcontainer.json", result.stderr)
             log = gh_log.read_text()
-            self.assertIn("/repos/jadentripp/vibe-os/contents/.devcontainer/devcontainer.json", log)
             self.assertNotIn("/user/codespaces?per_page=1", log)
             self.assertNotIn("codespace create", log)
+            self.assertIn("cat-file -e FETCH_HEAD:.devcontainer/devcontainer.json", git_log.read_text())
 
     def test_codespaces_launcher_default_display_name_fits_gh_limit(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -521,7 +588,7 @@ class PlayNowRemoteTests(unittest.TestCase):
                     git_log.read_text(),
                 )
                 log = gh_log.read_text()
-                self.assertIn("repo view jadentripp/vibe-os", log)
+                self.assertIn("api -H Accept: application/vnd.github+json /repos/jadentripp/vibe-os --jq .id", log)
                 self.assertNotIn("codespace create", log)
                 self.assertNotIn("codespace ssh", log)
 
@@ -579,7 +646,6 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("GitHub branch 'jt/not-pushed' was not found", result.stderr)
             log = gh_log.read_text()
-            self.assertIn("repo view jadentripp/vibe-os", log)
             self.assertNotIn("/user/codespaces?per_page=1", log)
             self.assertNotIn("codespace create", log)
 

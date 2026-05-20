@@ -131,10 +131,11 @@ requires the local branch to be clean and exactly synced with its upstream.
 
 The command runs the Mac-side safety checks, creates or reuses a disposable
 GitHub Codespace, starts the real vibe-os boot path there, waits for private
-noVNC, and opens/prints the browser URL. QEMU, the downloaded shareware WAD,
-disk images, pixels, and raw audio stay in the Codespace. If GitHub CLI needs
-Codespaces scope, run `gh auth refresh -h github.com -s codespace` once. To
-check the plan without creating or modifying a Codespace, run
+noVNC, and opens/prints the browser URL. QEMU, the downloaded shareware WAD at
+`/tmp/vibe-os-DOOM1.WAD`, disk images, pixels, and raw audio stay in the
+Codespace. If GitHub CLI needs Codespaces scope, run
+`gh auth refresh -h github.com -s codespace` once. To check the plan without
+creating or modifying a Codespace, run
 `./tools/play_now_codespaces.sh --preflight` first.
 
 If local `gh` is authenticated for the repo but does not have the Codespaces

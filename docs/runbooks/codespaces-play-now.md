@@ -150,9 +150,9 @@ The preflight is a dry run: it checks host safety and dependencies, then exits
 before fetching a WAD, building, or launching QEMU. `--require-novnc` keeps the
 Codespaces path browser-first: if noVNC is missing, fix the Codespace instead
 of silently falling back to a raw VNC-only setup. The play script fetches and
-validates the shareware `DOOM1.WAD` into `/tmp`, outside the repository. Leave
-it outside git. The script refuses to run QEMU on macOS; this runbook uses
-remote Codespaces QEMU only.
+validates the shareware `DOOM1.WAD` into `/tmp/vibe-os-DOOM1.WAD`, outside the
+repository. Leave it outside git. The script refuses to run QEMU on macOS; this
+runbook uses remote Codespaces QEMU only.
 
 ## Open noVNC
 
