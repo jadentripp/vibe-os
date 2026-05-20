@@ -79,6 +79,13 @@ frame reclaimed after unmap. This proves the mapper can build high,
 non-identity kernel mappings after PMM is online, but it does not relocate the
 running kernel yet.
 
+The status proof is now executable:
+`tools/check_vm_status_proof.py --require-exec --require-preempt status.txt`
+requires that `vmmhfree` match the reclaimed dynamic page table, that the Doom
+handoff report `argvsrc=2`, and that `peip` show an IRQ switch between Doom and
+the preempt probe. It is a cloud artifact checker, not a claim that the running
+kernel has already moved to higher-half virtual addresses.
+
 User processes get separate page directories. Those directories start as clones
 of the supervisor kernel map, then replace only the user windows with private
 page tables carrying the user bit:

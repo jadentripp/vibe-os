@@ -710,7 +710,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
             "after-start:wait=2",
             "after-move:hold=up:1200",
             "after-use:hold=spc:3000,snapshot,wait=2",
-            "after-mouse:mouse=24:-12,mouse=0:-12",
+            "after-mouse:mousebtn=1,wait=1,mousebtn=0,wait=1,mouse=64:0",
             "mousebtn=1",
             "after-menu:esc",
             "Assert scripted human-playability gates",

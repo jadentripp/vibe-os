@@ -61,6 +61,8 @@ What the last published evidence proves:
   audio-continuity, audible-audio, artifact-hygiene, and status-triage checkers
   without uploading WAD bytes, disk images, rendered pixels, or raw audio
   samples.
+- `tools/check_vm_status_proof.py` is now the executable cloud gate for the
+  higher-half VMM, exec handoff, and preemptive context-switch status fields.
 - The `gameplay-proof.json` artifact from `26165681561` is schema
   `scripted-gameplay-proof-v1` and records SHA-256 hashes plus compact start,
   fire, movement, use, mouse, menu, and final state summaries without storing
@@ -398,7 +400,8 @@ Current state:
   fd state to copy or close instead of anonymous global slots.
 - The `SYS_EXEC` handoff now restores the caller if argv stack seeding or live
   syscall-frame patching fails after the target address space was activated, so
-  the rollback counter no longer leaves a half-prepared target running.
+  the rollback counter no longer leaves a half-prepared target running. Status
+  reports `argvsrc=2` when Doom's ABI stack came from the copied user vector.
 - Exec targets reuse their table slots with fresh PIDs, stale user PTE teardown,
   and stack-PTE rearming before image load. Exit and failed exec paths retire
   user mappings instead of only changing process state.
@@ -421,6 +424,10 @@ Current state:
   `vmmhfree=` so the high alias, distinct PMM frame, dynamic page-table frame,
   and reclaimed table frame are visible without a framebuffer dump. This is a
   legitimate non-identity mapping capability, not a relocated running kernel.
+  `tools/check_vm_status_proof.py` turns those fields into a cloud gate: it
+  requires `vmmhfree` to match the reclaimed `vmmhpt` frame, `argvsrc=2` for
+  user-vector exec, and `peip` for the timer IRQ switch between Doom and the
+  preempt probe.
 
 Still missing:
 
@@ -440,8 +447,9 @@ Still missing:
 Executable gate:
 
 - Keep unsupported ABI calls classified as explicit errors, add host tests for
-  every new syscall contract, and add cloud tests for any VM behavior used by
-  Doom rather than documenting it as assumed.
+  every new syscall contract, run `tools/check_vm_status_proof.py
+  --require-exec --require-preempt` on cloud status artifacts, and add cloud
+  tests for any VM behavior used by Doom rather than documenting it as assumed.
 
 - `GAP[SHUTDOWN_PANIC] status=proven category=shutdown-panic gate=panic-poweroff-proof evidence=os-smoke-26157926297`
 

@@ -31,6 +31,12 @@ frame touched through it, the dynamic page-table frame, and the same page-table
 frame after `vmm_unmap_page` reclaims it. Process page directories are still
 preallocated and cloned from the boot kernel map.
 
+`tools/check_vm_status_proof.py` is the cloud status ratchet for this layer. It
+rejects status artifacts unless `vmmhfree` equals the dynamic `vmmhpt` frame,
+the high alias is backed by a distinct PMM-managed physical frame, the Doom
+launch used `argvsrc=2` from a user argv-vector exec path, and `peip` shows a
+timer-driven switch between Doom and the preempt probe.
+
 ## Current Address Spaces
 
 `process_user_probe` owns:
@@ -105,8 +111,8 @@ the saved Ring 3 frame for a fresh target, marks it READY, and sets
 target slot, restores the target stack PTEs, assigns a fresh PID, transfers
 inheritable fd ownership from the caller PID to the target PID, writes an
 argv-shaped stack, records whether that stack came from the kernel default or a
-copied user vector, patches the interrupted syscall frame, retires the caller's
-user mappings, and then activates the target process record. Failed exec paths
+copied user vector (`argvsrc=2`), patches the interrupted syscall frame, retires
+the caller's user mappings, and then activates the target process record. Failed exec paths
 retire any half-prepared target slot before reporting rollback. `SYS_EXIT`,
 fault retirement, target-slot reuse, and wait reaping also close descriptors
 owned by the retiring process before the record becomes reusable.
@@ -127,6 +133,9 @@ real linker shape before the stack starts. Text-bearing segments are `PF_R|PF_X`
 and omit `PF_W`, while data and bss are carried by `PF_R|PF_W` segments. The user
 ELF prepare paths honor those flags when marking process pages, so text pages no
 longer need to remain writable just because data exists in the same executable.
+The executable cloud contract for these VM/process fields is
+`tools/check_vm_status_proof.py`; it rejects weak status lines before they can
+be used as playability evidence.
 
 ## Guards
 

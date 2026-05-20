@@ -5,14 +5,20 @@ With GitHub CLI authenticated on the Mac, this is one command from the local
 checkout:
 
 ```sh
+./tools/play_now_codespaces.sh --preflight
 ./tools/play_now_codespaces.sh
 ```
 
-That creates or reuses a disposable GitHub Codespace for the current branch,
-starts `./tools/play_now_remote.sh` inside the Codespace, makes port `6080`
-private, and opens/prints the noVNC URL. The Mac only controls Codespaces and
-opens a browser; it does not run QEMU, fetch the WAD, build `disk.img`, or copy
-play artifacts back.
+The preflight is a dry run that checks GitHub CLI auth, repo/ref selection,
+git cleanliness, upstream sync, machine selection, and port `6080` before any
+Codespace is created. The launcher refuses a dirty checkout or unpushed current
+branch because the remote Codespace can only run pushed git state.
+
+The real launch creates or reuses a disposable GitHub Codespace for the current
+branch, starts `./tools/play_now_remote.sh` inside the Codespace, makes port
+`6080` private, and opens/prints the noVNC URL. The Mac only controls
+Codespaces and opens a browser; it does not run QEMU, fetch the WAD, build
+`disk.img`, or copy play artifacts back.
 
 Use a plain remote Ubuntu host instead when you do not want Codespaces:
 

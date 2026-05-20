@@ -8,7 +8,7 @@ TARBALL="${TARBALL:-/tmp/vibe-os-human-proof.tgz}"
 AUDIO_MODE="${AUDIO_MODE:-status-only}"
 PLAYTESTER=""
 SCRIPTED_PROOF_RUN_ID=""
-COMMIT_ARG=()
+COMMIT_VALUE=""
 
 usage() {
   cat <<'EOF'
@@ -85,7 +85,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     --commit)
       [ "$#" -ge 2 ] || die "--commit requires a value"
-      COMMIT_ARG=(--commit "$2")
+      COMMIT_VALUE="$2"
       shift
       ;;
     -h|--help)
@@ -119,6 +119,12 @@ command -v python3 >/dev/null 2>&1 || die "missing python3"
 command -v tar >/dev/null 2>&1 || die "missing tar"
 [ -d "$BUILD_DIR" ] || die "build directory does not exist: $BUILD_DIR"
 [ -S "$MONITOR_SOCKET" ] || die "remote QEMU monitor socket does not exist: $MONITOR_SOCKET"
+
+if [ -z "$COMMIT_VALUE" ]; then
+  command -v git >/dev/null 2>&1 || die "missing git; pass --commit HASH explicitly"
+  COMMIT_VALUE="$(git rev-parse --short=12 HEAD 2>/dev/null || true)"
+  [ -n "$COMMIT_VALUE" ] || die "could not resolve git HEAD; pass --commit HASH explicitly"
+fi
 
 case "$AUDIO_MODE" in
   status-only|listener-pass|audio-proof-json-pass|not-tested) ;;
@@ -155,6 +161,8 @@ PHASE_PROMPTS=(
 echo "Remote human Doom proof capture"
 echo "  build dir:        $BUILD_DIR"
 echo "  monitor socket:   $MONITOR_SOCKET"
+echo "  commit:           $COMMIT_VALUE"
+echo "  scripted run ID:  $SCRIPTED_PROOF_RUN_ID"
 echo "  proof output dir: $OUTPUT_DIR"
 echo "  proof tarball:    $TARBALL"
 echo
@@ -181,7 +189,7 @@ python3 tools/collect_human_playtest_bundle.py \
   --playtester "$PLAYTESTER" \
   --scripted-proof-run-id "$SCRIPTED_PROOF_RUN_ID" \
   --audio "$AUDIO_MODE" \
-  "${COMMIT_ARG[@]}" \
+  --commit "$COMMIT_VALUE" \
   --confirm-remote-vnc \
   --confirm-phase-actions \
   --confirm-phase-status-hashes \
@@ -201,8 +209,8 @@ fi
 cat <<'EOF'
   rm -rf ./vibe-os-human-proof
   tar -xzf ./vibe-os-human-proof.tgz
-  python3 tools/check_cloud_playability_artifacts.py --human-session ./vibe-os-human-proof
 EOF
+echo "  python3 tools/check_cloud_playability_artifacts.py --human-session ./vibe-os-human-proof --expected-commit \"$COMMIT_VALUE\" --expected-scripted-proof-run-id \"$SCRIPTED_PROOF_RUN_ID\""
 echo
 echo "Compare the local post-download human verification OK line with the"
 echo "pre-download human verification OK line printed above."

@@ -200,7 +200,7 @@ jobs:
                 SMOKE_EARLY_SECONDS=2 \
                 SMOKE_SETTLE_SECONDS=20 \
                 SMOKE_SKIP_ASSERTIONS=1 \
-                SMOKE_INPUT_SCRIPT="after-start:wait=2,snapshot after-fire:hold=ctrl:800,wait=2,snapshot after-move:hold=up:1200,wait=3,snapshot after-use:hold=spc:3000,snapshot,wait=2 after-mouse:mouse=24:-12,mouse=0:-12,mousebtn=1,wait=1,mousebtn=0,wait=2,snapshot after-menu:esc,wait=2,snapshot" \
+                SMOKE_INPUT_SCRIPT="after-start:wait=2,snapshot after-fire:hold=ctrl:800,wait=2,snapshot after-move:hold=up:1200,wait=3,snapshot after-use:hold=spc:3000,snapshot,wait=2 after-mouse:mousebtn=1,wait=1,mousebtn=0,wait=1,mouse=64:0,wait=2,snapshot after-menu:esc,wait=2,snapshot" \
                 smoke
               rc=$?
               if [ "$rc" -ne 0 ]; then failure_stage="cloud-smoke"; fi
@@ -249,6 +249,15 @@ jobs:
                 build/status.txt
               rc=$?
               if [ "$rc" -ne 0 ]; then failure_stage="scripted-human-playability"; fi
+            fi
+
+            if [ -z "$failure_stage" ]; then
+              python3 tools/check_vm_status_proof.py \
+                --require-exec \
+                --require-preempt \
+                build/status.txt
+              rc=$?
+              if [ "$rc" -ne 0 ]; then failure_stage="vm-status-proof"; fi
             fi
 
             if [ -z "$failure_stage" ]; then

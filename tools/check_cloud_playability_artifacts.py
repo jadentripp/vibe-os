@@ -25,6 +25,7 @@ import check_audio_continuity_proof  # noqa: E402
 import check_audible_audio_proof  # noqa: E402
 import check_human_playability_proof  # noqa: E402
 import check_scripted_gameplay_proof  # noqa: E402
+import check_vm_status_proof  # noqa: E402
 
 
 RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
@@ -484,6 +485,7 @@ def validate_repo_contract() -> None:
         "tools/check_human_playability_proof.py",
         "tools/check_audio_continuity_proof.py",
         "tools/check_audible_audio_proof.py",
+        "tools/check_vm_status_proof.py",
         "tools/triage_cloud_status.py",
         "human-playtest-notes.txt",
         "human-playtest-checklist.txt",
@@ -588,6 +590,8 @@ def validate_repo_contract() -> None:
         "--confirm-post-download-verification",
         "tar -C \"$output_parent\" -czf \"$TARBALL\" \"$output_base\"",
         "python3 tools/check_cloud_playability_artifacts.py --human-session ./vibe-os-human-proof",
+        "--expected-commit",
+        "--expected-scripted-proof-run-id",
         "pre-download human verification OK",
         "post-download human verification OK",
     ):
@@ -612,6 +616,12 @@ def validate_repo_contract() -> None:
         "codespace create",
         "gh \"${create_args[@]}\"",
         "--devcontainer-path \".devcontainer/devcontainer.json\"",
+        "--preflight, --dry-run",
+        "require_clean_pushed_git_state",
+        "local git working tree is dirty",
+        "differs from upstream",
+        "play-now Codespaces preflight OK",
+        "dry-run: Codespace was not created or modified",
         "gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" bash -lc \"$payload\"",
         "./tools/play_now_remote.sh --preflight",
         "nohup ./tools/play_now_remote.sh",
@@ -711,8 +721,11 @@ def validate_repo_contract() -> None:
         "SMOKE_CAPTURE_GFX=0",
         "SMOKE_SKIP_ASSERTIONS=1",
         "if: always()",
-        "QEMU_EXTRA_ARGS=\"-audiodev none,id=snd0 -device sb16,audiodev=snd0\"",
+        "QEMU_EXTRA_ARGS=\"-audiodev wav,id=snd0,path=$RUNNER_TEMP/persistence-write-audio.wav -device sb16,audiodev=snd0\"",
+        "QEMU_EXTRA_ARGS=\"-audiodev wav,id=snd0,path=$RUNNER_TEMP/persistence-load-audio.wav -device sb16,audiodev=snd0\"",
+        "QEMU_EXTRA_ARGS=\"-audiodev wav,id=snd0,path=$RUNNER_TEMP/persistence-reboot-audio.wav -device sb16,audiodev=snd0\"",
         "SMOKE_INPUT_SCRIPT=\"after-start:wait=2,snapshot after-fire:hold=ctrl:800",
+        "after-mouse:mousebtn=1,wait=1,mousebtn=0,wait=1,mouse=64:0",
         "after-start:wait=2,snapshot",
         "persistence_proof:",
         "persistence_input_script:",
@@ -754,6 +767,9 @@ def validate_repo_contract() -> None:
         "python3 tools/check_human_playability_proof.py",
         "python3 tools/check_scripted_gameplay_proof.py",
         "--write-json build/gameplay-proof.json",
+        "python3 tools/check_vm_status_proof.py",
+        "--require-exec",
+        "--require-preempt",
         "python3 tools/check_audio_continuity_proof.py",
         "python3 tools/check_audible_audio_proof.py",
         "Triage cloud status",
@@ -791,6 +807,7 @@ def validate_repo_contract() -> None:
         "SMOKE_INPUT_SCRIPT=\"after-start:wait=2,snapshot after-fire:hold=ctrl:800",
         "python3 tools/check_real_wad_proof.py",
         "python3 tools/check_human_playability_proof.py",
+        "python3 tools/check_vm_status_proof.py",
         "python3 tools/check_audio_continuity_proof.py",
         "python3 tools/check_audible_audio_proof.py",
         "--write-soak-attempt",
@@ -963,6 +980,7 @@ def build_human_session(
         "validation_gates": [
             "tools/check_real_wad_proof.py",
             "tools/check_human_playability_proof.py",
+            "tools/check_vm_status_proof.py",
             "tools/check_audio_continuity_proof.py",
             "tools/check_cloud_playability_artifacts.py --human-session",
         ],
@@ -1003,7 +1021,12 @@ def build_human_checklist(artifact_dir: Path) -> str:
         "",
         "Post-download checklist",
         "- Compare the local post-download human verification OK line with the saved remote pre-download human verification OK line.",
-        "- Run: python3 tools/check_cloud_playability_artifacts.py --human-session path/to/vibe-os-human-proof",
+        (
+            "- Run: python3 tools/check_cloud_playability_artifacts.py "
+            "--human-session path/to/vibe-os-human-proof "
+            f"--expected-commit {commit} "
+            f"--expected-scripted-proof-run-id {scripted_run_id}"
+        ),
         (
             "- Run: python3 tools/check_human_playability_proof.py "
             "--require-human-session "
@@ -1276,6 +1299,8 @@ def format_human_post_download_verification(
     )
     return (
         f"{label}: session_id={verification.get('session_id', '')} "
+        f"commit={verification.get('commit', '')} "
+        f"scripted_proof_run_id={verification.get('scripted_proof_run_id', '')} "
         f"bundle_sha256={verification.get('bundle_sha256', '')} "
         f"manifest_sha256={verification.get('manifest_sha256', '')} "
         f"files={len(verification.get('files', []))}\n"
@@ -1360,7 +1385,16 @@ def _load_human_notes(path: Path) -> dict[str, str]:
     return notes
 
 
-def validate_human_notes(path: Path, artifact_dir: Path | None = None) -> None:
+def _commit_matches(actual: str, expected: str) -> bool:
+    return actual == expected or actual.startswith(expected) or expected.startswith(actual)
+
+
+def validate_human_notes(
+    path: Path,
+    artifact_dir: Path | None = None,
+    expected_commit: str | None = None,
+    expected_scripted_proof_run_id: str | None = None,
+) -> None:
     notes = _load_human_notes(path)
     for key in REQUIRED_FREEFORM_HUMAN_NOTE_FIELDS:
         if key not in notes:
@@ -1380,6 +1414,19 @@ def validate_human_notes(path: Path, artifact_dir: Path | None = None) -> None:
         if value is not None and value not in allowed_values:
             allowed = ", ".join(allowed_values)
             raise AssertionError(f"{HUMAN_NOTES_FILE} {key}= must be one of {allowed}, got {value!r}")
+    if expected_commit and not _commit_matches(notes["commit"], expected_commit):
+        raise AssertionError(
+            f"{HUMAN_NOTES_FILE} commit= must match expected commit "
+            f"{expected_commit}, got {notes['commit']}"
+        )
+    if (
+        expected_scripted_proof_run_id
+        and notes["scripted_proof_run_id"] != expected_scripted_proof_run_id
+    ):
+        raise AssertionError(
+            f"{HUMAN_NOTES_FILE} scripted_proof_run_id= must match "
+            f"{expected_scripted_proof_run_id}, got {notes['scripted_proof_run_id']}"
+        )
     if artifact_dir is not None:
         names = _relative_names(artifact_dir)
         for phase, status_file, _human_action in HUMAN_SESSION_PHASES:
@@ -1394,7 +1441,12 @@ def validate_human_notes(path: Path, artifact_dir: Path | None = None) -> None:
                 )
 
 
-def validate_manual_human_playability(artifact_dir: Path, names: list[str]) -> None:
+def validate_manual_human_playability(
+    artifact_dir: Path,
+    names: list[str],
+    expected_commit: str | None = None,
+    expected_scripted_proof_run_id: str | None = None,
+) -> None:
     snapshots: dict[str, str] = {}
     phase_paths: dict[str, Path] = {}
     for phase, status_file, _human_action in HUMAN_SESSION_PHASES:
@@ -1423,6 +1475,8 @@ def validate_manual_human_playability(artifact_dir: Path, names: list[str]) -> N
             "after-menu": phase_paths["after-menu"],
             "final": phase_paths["final"],
         },
+        expected_commit=expected_commit,
+        expected_scripted_proof_run_id=expected_scripted_proof_run_id,
     )
 
 
@@ -1781,7 +1835,12 @@ def validate_soak_summary_path(path: Path) -> None:
         validate_soak_summary(_load_json_object(summary_path, SOAK_SUMMARY_FILE))
 
 
-def validate_artifact_dir(artifact_dir: Path, require_human_notes: bool = False) -> None:
+def validate_artifact_dir(
+    artifact_dir: Path,
+    require_human_notes: bool = False,
+    expected_commit: str | None = None,
+    expected_scripted_proof_run_id: str | None = None,
+) -> None:
     if not artifact_dir.exists():
         raise AssertionError(f"artifact directory does not exist: {artifact_dir}")
     names = _relative_names(artifact_dir)
@@ -1837,6 +1896,14 @@ def validate_artifact_dir(artifact_dir: Path, require_human_notes: bool = False)
         raise AssertionError(
             f"{exc}; final status summary: {check_real_wad_proof.summarize_status(status)}"
         ) from exc
+    try:
+        check_vm_status_proof.validate_status(
+            status,
+            require_exec=True,
+            require_preempt=True,
+        )
+    except AssertionError as exc:
+        raise AssertionError(f"VM status proof failed: {exc}") from exc
     gameplay_proof = _find_one(names, OPTIONAL_GAMEPLAY_PROOF_FILE)
     if gameplay_proof is not None:
         try:
@@ -1875,13 +1942,23 @@ def validate_artifact_dir(artifact_dir: Path, require_human_notes: bool = False)
         raise AssertionError(f"missing expected human review file: {HUMAN_NOTES_FILE}")
     if human_notes is not None:
         try:
-            validate_human_notes(artifact_dir / human_notes, artifact_dir=artifact_dir)
+            validate_human_notes(
+                artifact_dir / human_notes,
+                artifact_dir=artifact_dir,
+                expected_commit=expected_commit,
+                expected_scripted_proof_run_id=expected_scripted_proof_run_id,
+            )
         except AssertionError as exc:
             raise AssertionError(f"human playtest notes failed: {exc}") from exc
 
     if require_human_notes:
         try:
-            validate_manual_human_playability(artifact_dir, names)
+            validate_manual_human_playability(
+                artifact_dir,
+                names,
+                expected_commit=expected_commit,
+                expected_scripted_proof_run_id=expected_scripted_proof_run_id,
+            )
         except AssertionError as exc:
             raise AssertionError(f"manual human playability failed: {exc}") from exc
 
@@ -1932,6 +2009,20 @@ def main(argv: list[str]) -> int:
         help=f"require and validate {HUMAN_NOTES_FILE} for a manual remote playtest",
     )
     parser.add_argument(
+        "--expected-commit",
+        help=(
+            "when used with --human-session, require human-playtest-notes.txt "
+            "to match this commit hash or prefix"
+        ),
+    )
+    parser.add_argument(
+        "--expected-scripted-proof-run-id",
+        help=(
+            "when used with --human-session, require human-playtest-notes.txt "
+            "to match this passing Real WAD smoke run ID"
+        ),
+    )
+    parser.add_argument(
         "--soak-summary",
         type=Path,
         help="validate a real-wad-soak metadata directory or real-wad-soak-summary.json",
@@ -1976,6 +2067,10 @@ def main(argv: list[str]) -> int:
 
     try:
         verification = None
+        if (args.expected_commit or args.expected_scripted_proof_run_id) and not args.human_session:
+            raise AssertionError(
+                "--expected-commit and --expected-scripted-proof-run-id require --human-session"
+            )
         if args.soak_summary is not None:
             validate_soak_summary_path(args.soak_summary)
         if args.write_soak_attempt is not None:
@@ -2013,7 +2108,14 @@ def main(argv: list[str]) -> int:
         if args.repo_contract or default_repo_contract:
             validate_repo_contract()
         if args.artifact_dir is not None:
-            validate_artifact_dir(args.artifact_dir, require_human_notes=args.human_session)
+            validate_artifact_dir(
+                args.artifact_dir,
+                require_human_notes=args.human_session,
+                expected_commit=args.expected_commit if args.human_session else None,
+                expected_scripted_proof_run_id=(
+                    args.expected_scripted_proof_run_id if args.human_session else None
+                ),
+            )
             if args.human_session:
                 verification = build_human_post_download_verification(args.artifact_dir)
     except (OSError, AssertionError) as exc:

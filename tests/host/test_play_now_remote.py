@@ -1,3 +1,7 @@
+import os
+import subprocess
+import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -6,6 +10,82 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PlayNowRemoteTests(unittest.TestCase):
+    def _write_stub_tool(self, directory, name, body):
+        path = Path(directory) / name
+        path.write_text(body)
+        path.chmod(0o755)
+        return path
+
+    def _codespaces_stub_env(self, tmp, git_mode="clean"):
+        bin_dir = Path(tmp) / "bin"
+        bin_dir.mkdir()
+        gh_log = Path(tmp) / "gh.log"
+        self._write_stub_tool(
+            bin_dir,
+            "gh",
+            textwrap.dedent(
+                """\
+                #!/usr/bin/env bash
+                set -euo pipefail
+                echo "$*" >> "$GH_LOG"
+                if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+                  exit 0
+                fi
+                echo "unexpected gh command: $*" >&2
+                exit 64
+                """
+            ),
+        )
+        self._write_stub_tool(
+            bin_dir,
+            "git",
+            textwrap.dedent(
+                """\
+                #!/usr/bin/env bash
+                set -euo pipefail
+                mode="${FAKE_GIT_MODE:-clean}"
+                case "$*" in
+                  "rev-parse --is-inside-work-tree")
+                    exit 0
+                    ;;
+                  "branch --show-current")
+                    echo "jt/doom-gameplay-proof"
+                    exit 0
+                    ;;
+                  "status --porcelain=v1 --untracked-files=all")
+                    if [ "$mode" = "dirty" ]; then
+                      echo " M tools/play_now_codespaces.sh"
+                    fi
+                    exit 0
+                    ;;
+                  "rev-parse --abbrev-ref --symbolic-full-name @{u}")
+                    echo "origin/jt/doom-gameplay-proof"
+                    exit 0
+                    ;;
+                  "rev-list --left-right --count origin/jt/doom-gameplay-proof...HEAD")
+                    if [ "$mode" = "ahead" ]; then
+                      echo "0 2"
+                    else
+                      echo "0 0"
+                    fi
+                    exit 0
+                    ;;
+                esac
+                echo "unexpected git command: $*" >&2
+                exit 64
+                """
+            ),
+        )
+        env = os.environ.copy()
+        env.update(
+            {
+                "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
+                "GH_LOG": str(gh_log),
+                "FAKE_GIT_MODE": git_mode,
+            }
+        )
+        return env, gh_log
+
     def test_codespaces_launcher_is_one_command_and_mac_safe(self):
         script = (ROOT / "tools" / "play_now_codespaces.sh").read_text()
         docs = [
@@ -21,6 +101,14 @@ class PlayNowRemoteTests(unittest.TestCase):
             "--devcontainer-path \".devcontainer/devcontainer.json\"",
             "--idle-timeout \"$IDLE_TIMEOUT\"",
             "--retention-period \"$RETENTION_PERIOD\"",
+            "--preflight, --dry-run",
+            "require_clean_pushed_git_state",
+            "local git working tree is dirty",
+            "differs from upstream",
+            "play-now Codespaces preflight OK",
+            "machine: ${CODESPACE_MACHINE:-default}",
+            "noVNC port: $NOVNC_PORT (private)",
+            "dry-run: Codespace was not created or modified",
             "gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" bash -lc \"$payload\"",
             "./tools/play_now_remote.sh --preflight",
             "nohup ./tools/play_now_remote.sh",
@@ -52,6 +140,72 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("./tools/play_now_codespaces.sh", doc)
             self.assertIn("disposable", doc)
             self.assertIn("Codespace", doc)
+
+    def test_codespaces_launcher_dry_run_does_not_create_or_mutate_codespaces(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env, gh_log = self._codespaces_stub_env(tmp)
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "tools" / "play_now_codespaces.sh"),
+                    "--dry-run",
+                    "--repo",
+                    "jadentripp/vibe-os",
+                    "--ref",
+                    "jt/doom-gameplay-proof",
+                    "--machine",
+                    "basicLinux32gb",
+                    "--no-open",
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("play-now Codespaces preflight OK", result.stdout)
+            self.assertIn("repo: jadentripp/vibe-os", result.stdout)
+            self.assertIn("ref: jt/doom-gameplay-proof", result.stdout)
+            self.assertIn("machine: basicLinux32gb", result.stdout)
+            self.assertIn("noVNC port: 6080 (private)", result.stdout)
+            self.assertIn("dry-run: Codespace was not created or modified", result.stdout)
+            self.assertEqual(result.stderr, "")
+
+            log = gh_log.read_text()
+            self.assertIn("auth status -h github.com", log)
+            self.assertNotIn("codespace create", log)
+            self.assertNotIn("codespace ssh", log)
+            self.assertNotIn("codespace ports", log)
+
+    def test_codespaces_launcher_refuses_dirty_or_unpushed_state_before_codespaces(self):
+        for mode, message in (
+            ("dirty", "local git working tree is dirty"),
+            ("ahead", "differs from upstream"),
+        ):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                env, gh_log = self._codespaces_stub_env(tmp, git_mode=mode)
+                result = subprocess.run(
+                    [
+                        "bash",
+                        str(ROOT / "tools" / "play_now_codespaces.sh"),
+                        "--dry-run",
+                        "--repo",
+                        "jadentripp/vibe-os",
+                        "--ref",
+                        "jt/doom-gameplay-proof",
+                    ],
+                    cwd=ROOT,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                )
+
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(message, result.stderr)
+                log = gh_log.read_text()
+                self.assertNotIn("codespace create", log)
+                self.assertNotIn("codespace ssh", log)
 
     def test_play_now_script_is_remote_first_and_repo_safe(self):
         script = (ROOT / "tools" / "play_now_remote.sh").read_text()

@@ -10,15 +10,21 @@ other play artifacts to git.
 Fastest path from the Mac, with GitHub CLI authenticated:
 
 ```sh
+./tools/play_now_codespaces.sh --preflight
 ./tools/play_now_codespaces.sh
 ```
 
-The launcher creates a disposable Codespace from the current repo and branch,
-starts `./tools/play_now_remote.sh` inside it, sets port `6080` private,
-opens/prints the noVNC URL, and prints the log and delete commands. Codespaces
-runs pushed git state, so push the branch first before treating the session as
-current-head proof. QEMU, the shareware WAD, `build/disk.img`, pixel output, and
-raw audio never run on or copy back to the Mac.
+The preflight is a dry run: it checks GitHub CLI auth, the selected repo/ref,
+the local git state, the chosen Codespaces machine, and the noVNC port, then
+exits before creating or modifying any Codespace. The launcher refuses a dirty
+checkout or a current branch that differs from its upstream, because Codespaces
+runs pushed git state rather than local files.
+
+The real launch creates a disposable Codespace from the current repo and
+branch, starts `./tools/play_now_remote.sh` inside it, sets port `6080` private,
+opens/prints the noVNC URL, and prints the log and delete commands. QEMU, the
+shareware WAD, `build/disk.img`, pixel output, and raw audio never run on or
+copy back to the Mac.
 
 To reuse a specific existing Codespace:
 
@@ -44,6 +50,21 @@ Manual browser path:
 The dev container installs Python 3 plus the toolchain used by
 `./tools/play_now_remote.sh`: `nasm`, `qemu-system-x86`, `clang`, `make`,
 `netcat-openbsd`, `curl`, `novnc`, and `websockify`.
+
+## Launcher Diagnostics
+
+Use preflight whenever you want to verify the Mac-side control path without
+creating a Codespace:
+
+```sh
+./tools/play_now_codespaces.sh --dry-run --machine basicLinux32gb --no-open
+```
+
+Expected successful output includes `play-now Codespaces preflight OK`, the
+repo, ref, selected machine, `noVNC port: 6080 (private)`, and
+`dry-run: Codespace was not created or modified`. If it reports a dirty tree,
+missing upstream, or ahead/behind counts, fix and push the branch before using
+the launcher as current-head play proof.
 
 ## Run The Play Script
 

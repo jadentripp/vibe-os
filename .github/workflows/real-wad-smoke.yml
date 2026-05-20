@@ -171,7 +171,7 @@ jobs:
             SMOKE_EARLY_SECONDS=2 \
             SMOKE_SETTLE_SECONDS=20 \
             SMOKE_SKIP_ASSERTIONS=1 \
-            SMOKE_INPUT_SCRIPT="after-start:wait=2,snapshot after-fire:hold=ctrl:800,wait=2,snapshot after-move:hold=up:1200,wait=3,snapshot after-use:hold=spc:3000,snapshot,wait=2 after-mouse:mouse=24:-12,mouse=0:-12,mousebtn=1,wait=1,mousebtn=0,wait=2,snapshot after-menu:esc,wait=2,snapshot" \
+            SMOKE_INPUT_SCRIPT="after-start:wait=2,snapshot after-fire:hold=ctrl:800,wait=2,snapshot after-move:hold=up:1200,wait=3,snapshot after-use:hold=spc:3000,snapshot,wait=2 after-mouse:mousebtn=1,wait=1,mousebtn=0,wait=1,mouse=64:0,wait=2,snapshot after-menu:esc,wait=2,snapshot" \
             smoke
 
       - name: Analyze temporary audible audio capture
@@ -229,6 +229,14 @@ jobs:
             --write-json build/gameplay-proof.json \
             build/status.txt
 
+      - name: Assert VM/process legitimacy gates
+        if: always()
+        run: |
+          python3 tools/check_vm_status_proof.py \
+            --require-exec \
+            --require-preempt \
+            build/status.txt
+
       - name: Assert SB16 audio continuity gates
         if: always()
         run: |
@@ -271,6 +279,7 @@ jobs:
         timeout-minutes: 8
         run: |
           set -euo pipefail
+          trap 'rm -f "$RUNNER_TEMP"/persistence-*-audio.wav' EXIT
 
           baseline="$RUNNER_TEMP/disk.before-persistence.img"
           after_write="$RUNNER_TEMP/disk.after-persistence-write.img"
@@ -347,7 +356,7 @@ jobs:
           mkdir -p build/persistence-write
           QEMU=qemu-system-x86_64 \
             QEMU_MACHINE=pc,accel=tcg \
-            QEMU_EXTRA_ARGS="-audiodev none,id=snd0 -device sb16,audiodev=snd0" \
+            QEMU_EXTRA_ARGS="-audiodev wav,id=snd0,path=$RUNNER_TEMP/persistence-write-audio.wav -device sb16,audiodev=snd0" \
             IMAGE=build/disk.img \
             BUILD_DIR=build/persistence-write \
             NC=nc \
@@ -367,7 +376,7 @@ jobs:
             mkdir -p build/persistence-load
             QEMU=qemu-system-x86_64 \
               QEMU_MACHINE=pc,accel=tcg \
-              QEMU_EXTRA_ARGS="-audiodev none,id=snd0 -device sb16,audiodev=snd0" \
+              QEMU_EXTRA_ARGS="-audiodev wav,id=snd0,path=$RUNNER_TEMP/persistence-load-audio.wav -device sb16,audiodev=snd0" \
               IMAGE=build/disk.img \
               BUILD_DIR=build/persistence-load \
               NC=nc \
@@ -392,7 +401,7 @@ jobs:
             mkdir -p build/persistence-reboot
             QEMU=qemu-system-x86_64 \
               QEMU_MACHINE=pc,accel=tcg \
-              QEMU_EXTRA_ARGS="-audiodev none,id=snd0 -device sb16,audiodev=snd0" \
+              QEMU_EXTRA_ARGS="-audiodev wav,id=snd0,path=$RUNNER_TEMP/persistence-reboot-audio.wav -device sb16,audiodev=snd0" \
               IMAGE=build/disk.img \
               BUILD_DIR=build/persistence-reboot \
               NC=nc \

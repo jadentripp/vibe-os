@@ -49,22 +49,23 @@ def valid_status(**overrides):
         "vmmhva": "C0000000",
         "vmmhpa": "00123000",
         "vmmhpt": "00124000",
-        "vmmhfree": "00000001",
+        "vmmhfree": "00124000",
         "libc": "OK",
         "c": "OK",
         "usr": "OK",
         "wad": "OK",
         "lmp": "OK",
         "heap": "OK",
-        "target": "01000000",
+        "target": "00000002",
         "ppid": "00000001",
         "entry": "01000000",
-        "stack": "0100EFE0",
+        "stack": "01FFFFE0",
         "argc": "00000001",
-        "argv": "0100EFE4",
-        "envp": "0100EFEC",
-        "argv0": "00F00000",
+        "argv": "01FFFFE4",
+        "envp": "01FFFFEC",
+        "argv0": "01FFFFF0",
         "envp0": "00000000",
+        "argvsrc": "00000002",
         "execerr": "00000000",
         "execres": "00000000",
         "doomwrite": "00000001",
@@ -712,7 +713,9 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             "--confirm-no-forbidden-artifacts",
             "--confirm-post-download-verification",
             "tar -C \"$output_parent\" -czf \"$TARBALL\" \"$output_base\"",
-            "python3 tools/check_cloud_playability_artifacts.py --human-session ./vibe-os-human-proof",
+            "python3 tools/check_cloud_playability_artifacts.py --human-session ./vibe-os-human-proof --expected-commit",
+            "--expected-scripted-proof-run-id",
+            "$SCRIPTED_PROOF_RUN_ID",
         ):
             with self.subTest(needle=needle):
                 self.assertIn(needle, script)
@@ -1197,7 +1200,16 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             write_human_manifest(artifact)
 
             result = subprocess.run(
-                [sys.executable, str(CHECKER), "--human-session", str(artifact)],
+                [
+                    sys.executable,
+                    str(CHECKER),
+                    "--human-session",
+                    str(artifact),
+                    "--expected-commit",
+                    "abcdef0",
+                    "--expected-scripted-proof-run-id",
+                    "26156172979",
+                ],
                 cwd=ROOT,
                 capture_output=True,
                 text=True,
@@ -1206,7 +1218,49 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("cloud playability artifact check OK", result.stdout)
         self.assertIn("post-download human verification OK", result.stdout)
+        self.assertIn("commit=abcdef0", result.stdout)
+        self.assertIn("scripted_proof_run_id=26156172979", result.stdout)
         self.assertIn("phase status hashes:", result.stdout)
+
+    def test_cli_human_session_mode_rejects_wrong_expected_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            write_human_notes(artifact)
+            write_human_session(artifact)
+            write_human_manifest(artifact)
+
+            wrong_commit = subprocess.run(
+                [
+                    sys.executable,
+                    str(CHECKER),
+                    "--human-session",
+                    str(artifact),
+                    "--expected-commit",
+                    "1234567",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            wrong_run = subprocess.run(
+                [
+                    sys.executable,
+                    str(CHECKER),
+                    "--human-session",
+                    str(artifact),
+                    "--expected-scripted-proof-run-id",
+                    "99999999",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(wrong_commit.returncode, 0)
+        self.assertIn("commit= must match expected commit", wrong_commit.stderr)
+        self.assertNotEqual(wrong_run.returncode, 0)
+        self.assertIn("scripted_proof_run_id= must match", wrong_run.stderr)
 
     def test_collector_builds_allowlisted_manual_human_bundle(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1254,6 +1308,9 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertTrue((output / "human-playtest-session.json").exists())
             self.assertTrue((output / "human-playtest-checklist.txt").exists())
             self.assertTrue((output / "human-playtest-manifest.json").exists())
+            checklist = (output / "human-playtest-checklist.txt").read_text()
+            self.assertIn("--expected-commit abcdef0", checklist)
+            self.assertIn("--expected-scripted-proof-run-id 26156172979", checklist)
             self.assertIn("human-playtest-checklist.txt", result.stdout)
             self.assertTrue((output / "serial.remote.log").exists())
             self.assertFalse((output / "status.persistence-write.txt").exists())

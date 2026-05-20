@@ -545,7 +545,8 @@ def validate_repo_contract() -> None:
             WORKFLOW,
             workflow,
             (
-                "QEMU_EXTRA_ARGS=\"-audiodev none,id=snd0 -device sb16,audiodev=snd0\"",
+                "audio_backend=\"-audiodev none,id=snd0 -device sb16,audiodev=snd0\"",
+                "QEMU_EXTRA_ARGS=\"$audio_backend\"",
                 "tools/check_audio_continuity_proof.py",
                 "--require-pull-stream",
                 "--baseline build/status.after-start.txt",

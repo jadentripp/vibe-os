@@ -107,13 +107,16 @@ If you just want to play Doom as fast as possible, use the one-command
 Codespaces launcher from this Mac checkout:
 
 ```sh
+./tools/play_now_codespaces.sh --preflight
 ./tools/play_now_codespaces.sh
 ```
 
-That creates or reuses a disposable GitHub Codespace, starts the real vibe-os
-boot path there, marks noVNC private, and opens/prints the noVNC browser URL.
-QEMU, the downloaded shareware WAD, disk images, pixels, and raw audio stay in
-the Codespace.
+The preflight is a Mac-side dry run: it checks GitHub CLI auth, repo/ref
+selection, git cleanliness, upstream sync, machine selection, and the noVNC port
+without creating or modifying a Codespace. The real launch creates or reuses a
+disposable GitHub Codespace, starts the real vibe-os boot path there, marks
+noVNC private, and opens/prints the noVNC browser URL. QEMU, the downloaded
+shareware WAD, disk images, pixels, and raw audio stay in the Codespace.
 
 If you already have a disposable remote Linux host or are already inside a
 Codespace, run:
@@ -301,7 +304,10 @@ fire/move/use/mouse/menu input script and validates non-pixel status fields for
 keyboard delivery, PS/2 mouse delivery, player movement, action commands, menu
 activation, and visual activity summaries. Its checker also requires coherent
 process/exec, storage, VM, audio, mouse, scheduler, and Doom file I/O telemetry
-so a green run is diagnosable from text artifacts alone.
+so a green run is diagnosable from text artifacts alone. The cloud workflows
+also run `tools/check_vm_status_proof.py`, which requires `vmmhfree` to prove
+dynamic page-table reclaim, `argvsrc=2` for the user-vector Doom exec path, and
+`peip` evidence for timer preemption between Doom and the preempt probe.
 The same workflow has an opt-in `audible_audio_proof` mode that uses a
 temporary QEMU WAV backend on the disposable runner, reduces it to aggregate
 `audio-proof.json`, validates that manifest against the same status-only SB16

@@ -152,8 +152,8 @@ It prompts the human for each VNC action, calls the collector's
 `--capture-phase` helper for all eight phases, runs the bundle collector with
 the required `--confirm-*` flags, validates the allowlisted bundle before
 download, creates `/tmp/vibe-os-human-proof.tgz`, and prints the exact `scp` and
-local `--human-session` commands. It does not launch QEMU and refuses to run on
-macOS.
+local `--human-session` command with the expected commit and scripted proof run
+ID baked in. It does not launch QEMU and refuses to run on macOS.
 
 Manual equivalent: use the collector's
 `--capture-phase` helper so the remote QEMU monitor writes one temporary memory
@@ -391,6 +391,11 @@ python3 tools/check_human_playability_proof.py \
   --menu path/to/real-wad-smoke-status/status.after-menu.txt \
   path/to/real-wad-smoke-status/status.txt
 
+python3 tools/check_vm_status_proof.py \
+  --require-exec \
+  --require-preempt \
+  path/to/real-wad-smoke-status/status.txt
+
 python3 tools/check_audio_continuity_proof.py \
   --require-pull-stream \
   --baseline path/to/real-wad-smoke-status/status.after-start.txt \
@@ -406,7 +411,9 @@ python3 tools/check_audible_audio_proof.py \
 python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
 
 python3 tools/check_cloud_playability_artifacts.py \
-  --human-session path/to/vibe-os-human-proof
+  --human-session path/to/vibe-os-human-proof \
+  --expected-commit "$(git rev-parse --short=12 HEAD)" \
+  --expected-scripted-proof-run-id "<passing-real-wad-smoke-run-id>"
 
 python3 tools/check_human_playability_proof.py \
   --require-human-session \

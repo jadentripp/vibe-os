@@ -10,6 +10,7 @@ IDLE_TIMEOUT="${IDLE_TIMEOUT:-30m}"
 RETENTION_PERIOD="${RETENTION_PERIOD:-1h}"
 NOVNC_PORT="${NOVNC_PORT:-6080}"
 OPEN_BROWSER="${OPEN_BROWSER:-1}"
+RUN_PREFLIGHT_ONLY=0
 
 usage() {
   cat <<'EOF'
@@ -31,6 +32,8 @@ Options:
   --machine NAME          Optional Codespaces machine type.
   --idle-timeout VALUE    Codespaces idle timeout. Default: 30m.
   --retention-period VAL  Codespaces retention after stop. Default: 1h.
+  --preflight, --dry-run  Check gh/git/ref/port safety and print the plan
+                          without creating, starting, or modifying a Codespace.
   --no-open               Do not open the noVNC URL automatically on macOS.
   -h, --help              Show this help.
 EOF
@@ -45,6 +48,10 @@ require_tool() {
   command -v "$1" >/dev/null 2>&1 || die "missing required local tool: $1"
 }
 
+require_gh_auth() {
+  gh auth status -h github.com >/dev/null 2>&1 || die "GitHub CLI is not authenticated for github.com; run gh auth login before launching Codespaces"
+}
+
 sanitize_display_part() {
   printf "%s" "$1" | tr '/_.' '---' | tr -cd 'A-Za-z0-9-'
 }
@@ -55,6 +62,76 @@ current_repo() {
 
 current_ref() {
   git branch --show-current 2>/dev/null || true
+}
+
+validate_novnc_port() {
+  case "$NOVNC_PORT" in
+    ''|*[!0-9]*)
+      die "NOVNC_PORT must be a TCP port number, got '$NOVNC_PORT'"
+      ;;
+  esac
+  if [ "$NOVNC_PORT" -lt 1 ] || [ "$NOVNC_PORT" -gt 65535 ]; then
+    die "NOVNC_PORT must be between 1 and 65535, got '$NOVNC_PORT'"
+  fi
+}
+
+require_clean_pushed_git_state() {
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "run this from the vibe-os git checkout so the launcher can prove it will use pushed code"
+
+  local dirty
+  dirty="$(git status --porcelain=v1 --untracked-files=all 2>/dev/null || true)"
+  if [ -n "$dirty" ]; then
+    {
+      echo "local git working tree is dirty; refusing before touching Codespaces."
+      echo "Codespaces runs pushed git state, not local uncommitted files."
+      echo "Commit/push or stash these paths first:"
+      printf "%s\n" "$dirty" | sed -n '1,12s/^/  /p'
+    } >&2
+    exit 1
+  fi
+
+  local branch
+  branch="$(current_ref)"
+  if [ -z "$branch" ] || [ "$REF" != "$branch" ]; then
+    return 0
+  fi
+
+  local upstream
+  upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)" || {
+    die "current branch '$branch' has no upstream; push it before using Codespaces as current-head proof"
+  }
+
+  local counts behind ahead
+  counts="$(git rev-list --left-right --count "$upstream...HEAD" 2>/dev/null)" || {
+    die "could not compare current branch '$branch' with upstream '$upstream'"
+  }
+  read -r behind ahead <<EOF_COUNTS
+$counts
+EOF_COUNTS
+  if [ "${behind:-0}" != "0" ] || [ "${ahead:-0}" != "0" ]; then
+    die "current branch '$branch' differs from upstream '$upstream' (ahead=${ahead:-?} behind=${behind:-?}); push/sync it before launching Codespaces"
+  fi
+}
+
+print_preflight_summary() {
+  echo "play-now Codespaces preflight OK"
+  echo "repo: $REPO"
+  echo "ref: $REF"
+  if [ -n "$CODESPACE_NAME" ]; then
+    echo "codespace: reuse $CODESPACE_NAME"
+  else
+    echo "codespace: create $DISPLAY_NAME"
+  fi
+  echo "machine: ${CODESPACE_MACHINE:-default}"
+  echo "idle timeout: $IDLE_TIMEOUT"
+  echo "retention period: $RETENTION_PERIOD"
+  echo "noVNC port: $NOVNC_PORT (private)"
+  echo "browser open: $OPEN_BROWSER"
+  echo "git state: clean and pushed for the selected current branch"
+  echo "remote preflight command: ./tools/play_now_remote.sh --preflight"
+  echo "remote start command: nohup ./tools/play_now_remote.sh"
+  echo "dry-run: Codespace was not created or modified"
+  echo "next: run without --dry-run when you are ready to start the disposable remote play session"
 }
 
 remote_start_payload() {
@@ -134,6 +211,9 @@ while [ "$#" -gt 0 ]; do
       RETENTION_PERIOD="$2"
       shift
       ;;
+    --preflight|--dry-run)
+      RUN_PREFLIGHT_ONLY=1
+      ;;
     --no-open)
       OPEN_BROWSER=0
       ;;
@@ -150,6 +230,8 @@ done
 
 require_tool gh
 require_tool git
+require_gh_auth
+validate_novnc_port
 
 if [ -z "$REPO" ]; then
   REPO="$(current_repo)"
@@ -161,20 +243,19 @@ if [ -z "$REF" ]; then
 fi
 [ -n "$REF" ] || REF="main"
 
-if [ -n "$(git status --porcelain=v1 --untracked-files=no 2>/dev/null || true)" ]; then
-  cat >&2 <<'EOF'
-Warning: local tracked files are modified. Codespaces runs pushed git state,
-not this dirty working tree. Push the branch before using this as current-head
-proof.
-EOF
+require_clean_pushed_git_state
+
+if [ -z "$CODESPACE_NAME" ] && [ -z "$DISPLAY_NAME" ]; then
+  ref_part="$(sanitize_display_part "$REF")"
+  DISPLAY_NAME="vibe-os-play-${ref_part}-$(date -u +%Y%m%d%H%M%S)"
+fi
+
+if [ "$RUN_PREFLIGHT_ONLY" = "1" ]; then
+  print_preflight_summary
+  exit 0
 fi
 
 if [ -z "$CODESPACE_NAME" ]; then
-  if [ -z "$DISPLAY_NAME" ]; then
-    ref_part="$(sanitize_display_part "$REF")"
-    DISPLAY_NAME="vibe-os-play-${ref_part}-$(date -u +%Y%m%d%H%M%S)"
-  fi
-
   echo "Creating disposable Codespace '$DISPLAY_NAME' for $REPO@$REF"
   echo "Running: gh codespace create --repo \"$REPO\" --branch \"$REF\" --devcontainer-path \".devcontainer/devcontainer.json\""
   create_args=(

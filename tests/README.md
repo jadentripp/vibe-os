@@ -46,14 +46,18 @@ boot:
   the path resolves Doom/probe table entries, parses arbitrary root-level FAT16
   `.ELF` names into the reusable probe-class slot, rejects unsafe active-slot
   reloads, seeds a scheduler-visible target context, writes an argc/argv stack
-  shape, patches the live syscall frame, marks the caller exited, and records
-  handoff/schedule/rollback counters. The same tests pin the bounded
+  shape, records `argvsrc=2` for a copied user vector, patches the live syscall
+  frame, marks the caller exited, and records handoff/schedule/rollback
+  counters. The same tests pin the bounded
   `waitpid` child scan/reap path, `WNOHANG` live-child result, fd owner
   enforcement, exec-time inheritance/close-on-exec handoff, and process-owned
   fd teardown. They also cover anonymous brk-backed `mmap` accounting and
   page-aligned tail `munmap` reclaim plus non-tail validation holes, without
   claiming that `fork`, descriptor duplication, or reusable VM objects exist
   yet.
+- `tools/check_vm_status_proof.py` requires the matching cloud status to expose
+  `vmmhfree`, `argvsrc=2`, and `peip` evidence before a VM/process artifact can
+  be accepted.
 - `tests/host/test_framebuffer_contract.py` proves the 320x200 indexed shadow,
   RGB palette to XRGB8888 conversion, 2x scaling, and centering contract without
   using rendered Doom pixels.
@@ -79,6 +83,9 @@ boot:
   cannot stand in for scripted input proof. Host tests assert that the GitHub workflow and
   smoke target invoke it, so a future green CI claim must include those status
   counters rather than framebuffer bytes.
+- `tools/check_vm_status_proof.py` separately gates the VM/process status
+  fields used by cloud artifacts, including higher-half VMM self-test,
+  syscall-driven exec handoff, and timer preemption evidence.
 - `tools/check_human_playability_proof.py` compares decoded status snapshots
   from the deterministic input phases. It requires keyboard counters to
   increase across each keyboard phase, mouse IRQ/packet/poll counters to
@@ -133,6 +140,10 @@ boot:
   cloud diagnostic upload hygiene, panic status fields, shutdown status fields,
   guard-page helper, dynamic high VMM mapping/reclaim, and brk-backed tail
   `munmap` contract without launching QEMU.
+- `tools/check_vm_status_proof.py` validates cloud status artifacts for the VM
+  legitimacy fields: `vmmhfree` must match the reclaimed dynamic page table,
+  Doom exec must report `argvsrc=2`, and `peip` must show timer IRQ switching
+  between Doom and the preempt probe.
 - `tools/check_shutdown_panic_proof.py` validates the opt-in disposable-cloud
   shutdown/panic proof contract and any downloaded proof artifact. It requires
   `shutdown-panic-proof.json` plus dedicated panic, halt, reboot-request, and

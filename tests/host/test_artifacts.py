@@ -541,7 +541,10 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("after-fire:hold=ctrl:800", real_wad_workflow)
         self.assertIn("after-move:hold=up:1200", real_wad_workflow)
         self.assertIn("after-use:hold=spc:3000,snapshot,wait=2", real_wad_workflow)
-        self.assertIn("after-mouse:mouse=24:-12,mouse=0:-12", real_wad_workflow)
+        self.assertIn(
+            "after-mouse:mousebtn=1,wait=1,mousebtn=0,wait=1,mouse=64:0",
+            real_wad_workflow,
+        )
         self.assertIn("mousebtn=1", real_wad_workflow)
         self.assertIn("after-menu:esc", real_wad_workflow)
         self.assertIn("if: always()", real_wad_workflow)

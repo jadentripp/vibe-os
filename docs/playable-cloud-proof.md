@@ -88,7 +88,7 @@ after-start:wait=2,snapshot
 after-fire:hold=ctrl:800,wait=2,snapshot
 after-move:hold=up:1200,wait=3,snapshot
 after-use:hold=spc:3000,snapshot,wait=2
-after-mouse:mouse=24:-12,mouse=0:-12,mousebtn=1,wait=1,mousebtn=0,wait=2,snapshot
+after-mouse:mousebtn=1,wait=1,mousebtn=0,wait=1,mouse=64:0,wait=2,snapshot
 after-menu:esc,wait=2,snapshot
 ```
 
@@ -170,10 +170,11 @@ The cloud proof requires these status families:
   reclaimed table frame.
 - Process/exec: `exec=OK`, `path=DOOM.ELF`, `execsys=a/b/c/d/e/f`,
   `execerr=00000000`, `execres=00000000`, `target`, `entry`, `stack`, `argc`,
-  `argv`, `envp`, `argv0`, `envp0`, `ppid`, `doom=OK`, and `doomrun=RUN` show
-  that the kernel loaded the Doom ELF, performed a syscall-driven exec handoff,
-  seeded the user ABI stack, recorded process parent metadata, and left Doom
-  running rather than merely validating bytes on disk. The six `execsys`
+  `argv`, `envp`, `argv0`, `envp0`, `argvsrc=2`, `ppid`, `doom=OK`, and
+  `doomrun=RUN` show that the kernel loaded the Doom ELF, performed a
+  syscall-driven exec handoff, seeded the user ABI stack from the copied user
+  vector, recorded process parent metadata, and left Doom running rather than
+  merely validating bytes on disk. The six `execsys`
   counters are attempts, successes, failures, handoffs, scheduled targets, and
   rollbacks.
 - Storage/libc: `wad=OK`, `lmp=OK`, `doomopen=OK`, `doomread=OK`,
@@ -256,6 +257,11 @@ The cloud proof requires these status families:
   `pspin` value beyond the seeded
   `50524545` magic from the alternate Ring 3 preempt probe.
 
+`tools/check_vm_status_proof.py` is the legitimacy ratchet for the VM/process
+status fields. It requires `vmmhfree` to match the reclaimed `vmmhpt` frame,
+`argvsrc=2` for the Doom exec path, and `peip` to cross the Doom/preempt-probe
+address spaces during timer IRQ preemption.
+
 `tools/check_real_wad_proof.py` gates the real-WAD status on both the non-pixel
 visual proof and the scripted playability proof, plus the system/process/storage
 debug contract above. A final status line by itself is not sufficient: the gate
@@ -265,6 +271,8 @@ keyboard and mouse counters plus Doom action flags and position/ammo/menu state
 can be compared across the scripted phases. It rejects
 duplicate fields, malformed hex, weak synthetic exec counters, Doom error
 strings, failed self-tests, and status lines that only prove a boot banner.
+`tools/check_vm_status_proof.py` is the executable VM/process status gate for
+the paging, exec, and preemption fields in that debug contract.
 `tools/check_human_playability_proof.py` can also compare the phase snapshots
 directly.
 `tools/check_scripted_gameplay_proof.py` is stricter about ordering than the
@@ -314,6 +322,11 @@ Escape to flip the menu bit while the game remains in `GS_LEVEL`.
      --mouse build/status.after-mouse.txt \
      --menu build/status.after-menu.txt \
      --write-json build/gameplay-proof.json \
+     build/status.txt
+
+   python3 tools/check_vm_status_proof.py \
+     --require-exec \
+     --require-preempt \
      build/status.txt
 
    python3 tools/check_audio_continuity_proof.py \
