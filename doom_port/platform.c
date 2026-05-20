@@ -326,6 +326,32 @@ static int default_config_file_contains_marker(const char* marker)
     return default_config_contains_marker(length, marker);
 }
 
+static int default_config_file_is_short_checkpoint_marker(void)
+{
+    const char* path;
+    FILE* file;
+    size_t length;
+
+    path = defaultfile ? defaultfile : "DEFAULT.CFG";
+    file = fopen(path, "r");
+    if (!file)
+        return 0;
+
+    length = fread(
+        default_config_check_buffer,
+        1,
+        sizeof(default_config_check_buffer) - 1,
+        file);
+    fclose(file);
+    default_config_check_buffer[length] = 0;
+
+    return length > 0
+        && length < 128
+        && (!default_config_contains_marker(length, "mouse_sensitivity")
+            || !default_config_contains_marker(length, "use_mouse")
+            || !default_config_contains_marker(length, "screenblocks"));
+}
+
 static int persistence_checkpoint_requested(void)
 {
     FILE* marker;
@@ -343,6 +369,10 @@ static int persistence_checkpoint_requested(void)
         && default_config_file_contains_marker("VIBE_DEFAULT")) {
         default_config_checkpoint_requested = 1;
     }
+    if (!default_config_checkpoint_requested
+        && default_config_file_is_short_checkpoint_marker()) {
+        default_config_checkpoint_requested = 1;
+    }
 
     return default_config_checkpoint_requested;
 }
@@ -355,11 +385,20 @@ static int read_save_slot_marker_request(const char* prefix, int* slot)
     size_t length;
     size_t prefix_length;
     int marker_slot;
+    int short_marker_slot;
+    int inferred_slot;
+    int large_save_seen;
+    int large_save_slots[VIBE_PERSISTENCE_SLOT_COUNT];
 
     if (!prefix || !slot)
         return 0;
 
     prefix_length = strlen(prefix);
+    short_marker_slot = -1;
+    large_save_seen = 0;
+    for (marker_slot = 0; marker_slot < VIBE_PERSISTENCE_SLOT_COUNT; ++marker_slot)
+        large_save_slots[marker_slot] = 0;
+
     for (marker_slot = 0; marker_slot < VIBE_PERSISTENCE_SLOT_COUNT; ++marker_slot) {
         path[7] = (char)('0' + marker_slot);
         marker = fopen(path, "r");
@@ -375,6 +414,31 @@ static int read_save_slot_marker_request(const char* prefix, int* slot)
             && buffer[prefix_length] >= '0'
             && buffer[prefix_length] <= '5') {
             *slot = buffer[prefix_length] - '0';
+            return 1;
+        }
+        if (length > 0 && length < sizeof(buffer) - 1) {
+            if (short_marker_slot < 0)
+                short_marker_slot = marker_slot;
+        } else if (length == sizeof(buffer) - 1) {
+            large_save_slots[marker_slot] = 1;
+            large_save_seen = 1;
+        }
+    }
+
+    if (short_marker_slot < 0)
+        return 0;
+
+    if (!strcmp(prefix, "VIBE_SAVE_") && !large_save_seen) {
+        *slot = short_marker_slot;
+        return 1;
+    }
+
+    if (!strcmp(prefix, "VIBE_LOAD_")) {
+        inferred_slot = short_marker_slot == 0
+            ? VIBE_PERSISTENCE_SLOT_COUNT - 1
+            : short_marker_slot - 1;
+        if (large_save_slots[inferred_slot]) {
+            *slot = inferred_slot;
             return 1;
         }
     }
