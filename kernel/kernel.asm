@@ -5457,7 +5457,11 @@ ata_read_sector:
     cld
     mov dx, ATA_DATA
     mov ecx, 256
-    rep insw
+.read_word:
+    in ax, dx
+    mov [edi], ax
+    add edi, 2
+    loop .read_word
     call ata_io_delay
     call ata_wait_ready
     jc .fail
@@ -5524,7 +5528,11 @@ ata_write_sector:
     cld
     mov dx, ATA_DATA
     mov ecx, 256
-    rep outsw
+.write_word:
+    mov ax, [esi]
+    out dx, ax
+    add esi, 2
+    loop .write_word
     call ata_io_delay
     call ata_wait_ready
     jc .fail
