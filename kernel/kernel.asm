@@ -4876,6 +4876,10 @@ storage_init:
     mov dword [fat_lba_base], 0
     mov dword [fat_total_sectors], 0
     mov dword [fat_last_data_cluster], 0
+    mov dword [fat_next_free_hint], 2
+    mov dword [fat_scan_start], 0
+    mov dword [fat_alloc_zero_policy], 1
+    mov dword [fat_file_lba_was_new_cluster], 0
     mov dword [wad_size], 0
     mov dword [wad_sectors_read], 0
     mov dword [wad_lump_count], 0
@@ -5847,11 +5851,22 @@ fat_alloc_cluster:
     push edx
     push edi
 
+    mov ebx, [fat_next_free_hint]
+    cmp ebx, 2
+    jae .hint_min_ok
     mov ebx, 2
+
+.hint_min_ok:
+    cmp ebx, [fat_last_data_cluster]
+    jbe .hint_ready
+    mov ebx, 2
+
+.hint_ready:
+    mov [fat_scan_start], ebx
 
 .scan_loop:
     cmp ebx, [fat_last_data_cluster]
-    ja .fail
+    ja .wrap_scan
     mov eax, ebx
     call fat_next_cluster
     jc .fail
@@ -5860,14 +5875,42 @@ fat_alloc_cluster:
     inc ebx
     jmp .scan_loop
 
+.wrap_scan:
+    mov ebx, 2
+    cmp ebx, [fat_scan_start]
+    jae .fail
+
+.wrap_loop:
+    cmp ebx, [fat_scan_start]
+    jae .fail
+    mov eax, ebx
+    call fat_next_cluster
+    jc .fail
+    cmp ax, 0
+    je .found
+    inc ebx
+    jmp .wrap_loop
+
 	.found:
 	    mov eax, ebx
 	    mov dx, 0xffff
 	    call fat_write_cluster_entry
 	    jc .fail
 	    mov eax, ebx
+	    cmp dword [fat_alloc_zero_policy], 0
+	    je .allocated
 	    call fat_zero_cluster
 	    jc .rollback_alloc
+
+	.allocated:
+	    mov edx, ebx
+	    inc edx
+	    cmp edx, [fat_last_data_cluster]
+	    jbe .store_hint
+	    mov edx, 2
+
+	.store_hint:
+	    mov [fat_next_free_hint], edx
 	    mov eax, ebx
 	    clc
 	    jmp .done
@@ -5923,6 +5966,7 @@ fat_free_chain:
 
 .validated:
     movzx ebx, word [fat_current_cluster]
+    mov [fat_next_free_hint], ebx
 
 .free_loop:
     cmp ebx, 0xfff8
@@ -6851,6 +6895,7 @@ fat_file_lba_for_write:
     push edx
     push esi
 
+    mov dword [fat_file_lba_was_new_cluster], 0
     mov esi, ebx
     mov ebx, edx
     and ebx, 511
@@ -6861,11 +6906,7 @@ fat_file_lba_for_write:
     call fat_alloc_cluster
     jc .fail
     mov [writable_first_clusters + esi * 2], ax
-    push eax
-    mov eax, esi
-    call fat_update_writable_size
-    pop eax
-    jc .first_cluster_root_fail
+    mov dword [fat_file_lba_was_new_cluster], 1
 
 .have_first_cluster:
     mov [fat_current_cluster], ax
@@ -6883,6 +6924,7 @@ fat_file_lba_for_write:
     call fat_alloc_cluster
     jc .fail
     mov [fat_new_cluster], ax
+    mov dword [fat_file_lba_was_new_cluster], 1
 	    movzx eax, word [fat_current_cluster]
 	    mov dx, [fat_new_cluster]
 	    call fat_write_cluster_entry
@@ -6921,13 +6963,6 @@ fat_file_lba_for_write:
 .fail:
     stc
     jmp .done
-
-.first_cluster_root_fail:
-    mov word [writable_first_clusters + esi * 2], 0
-    movzx eax, ax
-    xor edx, edx
-    call fat_write_cluster_entry
-    stc
 
 .done:
     pop esi
@@ -7201,13 +7236,23 @@ user_file_write:
     mov ebx, [file_io_index]
     mov esi, [file_io_fd_slot]
     mov edx, [fd_offsets + esi * 4]
+    mov dword [fat_alloc_zero_policy], 1
+    cmp edx, [writable_sizes + ebx * 4]
+    ja .allocation_policy_ready
+    mov eax, edx
+    and eax, 511
+    cmp eax, 0
+    jne .allocation_policy_ready
+    cmp dword [file_io_remaining], 512
+    jb .allocation_policy_ready
+    mov dword [fat_alloc_zero_policy], 0
+
+.allocation_policy_ready:
     call fat_file_lba_for_write
+    mov dword [fat_alloc_zero_policy], 1
     jc .fail_io
     mov [file_io_sector_lba], eax
     mov [file_io_sector_offset], ebx
-    mov edi, SECTOR_BUFFER_ADDR
-    call ata_read_sector
-    jc .fail_io
     mov eax, 512
     sub eax, [file_io_sector_offset]
     cmp eax, [file_io_remaining]
@@ -7216,6 +7261,34 @@ user_file_write:
 
 .chunk_ok:
     mov [file_io_chunk], eax
+    cmp dword [file_io_sector_offset], 0
+    jne .prepare_partial_sector
+    cmp dword [file_io_chunk], 512
+    jne .prepare_partial_sector
+    mov eax, [file_io_sector_lba]
+    mov esi, [file_io_user_ptr]
+    add esi, [file_io_done]
+    call ata_write_sector
+    jc .fail_io
+    jmp .after_sector_write
+
+.prepare_partial_sector:
+    cmp dword [fat_file_lba_was_new_cluster], 1
+    je .zero_sector_buffer
+    mov eax, [file_io_sector_lba]
+    mov edi, SECTOR_BUFFER_ADDR
+    call ata_read_sector
+    jc .fail_io
+    jmp .copy_partial_sector
+
+.zero_sector_buffer:
+    mov edi, SECTOR_BUFFER_ADDR
+    xor eax, eax
+    mov ecx, 512 / 4
+    cld
+    rep stosd
+
+.copy_partial_sector:
     mov esi, [file_io_user_ptr]
     add esi, [file_io_done]
     mov edi, SECTOR_BUFFER_ADDR
@@ -7227,6 +7300,8 @@ user_file_write:
     mov esi, SECTOR_BUFFER_ADDR
     call ata_write_sector
     jc .fail_io
+
+.after_sector_write:
     mov eax, [file_io_chunk]
     add [file_io_done], eax
     sub [file_io_remaining], eax
@@ -7237,9 +7312,6 @@ user_file_write:
     cmp edx, [writable_sizes + ebx * 4]
     jbe .loop
     mov [writable_sizes + ebx * 4], edx
-    mov eax, ebx
-    call fat_update_writable_size
-    jc .fail_io
     jmp .loop
 
 .ok:
@@ -15035,6 +15107,10 @@ ata_wait_error_failures dd 0
 fat_lba_base dd 0
 fat_total_sectors dd 0
 fat_last_data_cluster dd 0
+fat_next_free_hint dd 0
+fat_scan_start dd 0
+fat_alloc_zero_policy dd 0
+fat_file_lba_was_new_cluster dd 0
 fat_reserved_sectors dd 0
 fat_count dd 0
 fat_root_entries dd 0

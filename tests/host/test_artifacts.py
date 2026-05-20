@@ -1182,14 +1182,25 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("test dword [fd_flags + esi * 4], O_APPEND", writer)
         self.assertIn("fd_offsets", writer)
         growth_flush = writer.split("mov [writable_sizes + ebx * 4], edx", 1)[1].split(".ok:", 1)[0]
-        self.assertIn("call fat_update_writable_size", growth_flush)
+        self.assertNotIn("call fat_update_writable_size", growth_flush)
+        final_flush = writer.split(".ok:", 1)[1].split(".fail_badfd:", 1)[0]
+        self.assertIn("call fat_update_writable_size", final_flush)
+        self.assertIn("cmp dword [file_io_sector_offset], 0", writer)
+        self.assertIn("cmp dword [file_io_chunk], 512", writer)
+        self.assertIn(".prepare_partial_sector:", writer)
+        self.assertIn("cmp dword [fat_file_lba_was_new_cluster], 1", writer)
+        self.assertIn("mov dword [fat_alloc_zero_policy], 0", writer)
         allocator = kernel.split("fat_alloc_cluster:", 1)[1].split("fat_free_chain:", 1)[0]
+        self.assertIn("fat_next_free_hint", allocator)
+        self.assertIn(".wrap_scan:", allocator)
+        self.assertIn("fat_alloc_zero_policy", allocator)
         self.assertIn(".rollback_alloc:", allocator)
         free_chain = kernel.split("fat_free_chain:", 1)[1].split("fat_create_root_file:", 1)[0]
         self.assertIn("cmp ax, 0", free_chain)
         self.assertIn(".validate_loop:", free_chain)
         self.assertIn(".validated:", free_chain)
         self.assertIn(".free_loop:", free_chain)
+        self.assertIn("mov [fat_next_free_hint], ebx", free_chain)
         self.assertLess(free_chain.index(".validate_loop:"), free_chain.index(".validated:"))
         self.assertLess(free_chain.index(".validated:"), free_chain.index(".free_loop:"))
         validate_pass = free_chain.split(".validate_loop:", 1)[1].split(".validated:", 1)[0]
