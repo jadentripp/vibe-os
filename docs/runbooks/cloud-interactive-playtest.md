@@ -50,7 +50,7 @@ route instead:
 ```sh
 ./tools/play_now_codespaces.sh --web-url \
   --repo jadentripp/vibe-os \
-  --ref jt/doom-gameplay-proof
+  --ref jt/playable-rc-next
 ```
 
 Open the printed URL, create the Codespace in the GitHub web UI, and run the
@@ -60,8 +60,8 @@ If you are already inside a fresh disposable Ubuntu shell, bootstrap the same
 remote play path directly:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/jt/doom-gameplay-proof/tools/play_now_cloud_shell.sh \
-  | VIBE_REF=jt/doom-gameplay-proof bash
+curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/jt/playable-rc-next/tools/play_now_cloud_shell.sh \
+  | VIBE_REF=jt/playable-rc-next bash
 ```
 
 Optional cloud prerequisite check: run the manual **Cloud play-now preflight**

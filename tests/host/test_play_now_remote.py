@@ -712,7 +712,7 @@ class PlayNowRemoteTests(unittest.TestCase):
         cloud_shell = (ROOT / "tools" / "play_now_cloud_shell.sh").read_text()
         for needle in (
             'Refusing to bootstrap a QEMU play host on macOS',
-            'VIBE_REF:-jt/doom-gameplay-proof',
+            'VIBE_REF:-jt/playable-rc-next',
             'apt-get install -y --no-install-recommends',
             'qemu-system-x86',
             'git clone --depth=1 --branch "$REF"',
