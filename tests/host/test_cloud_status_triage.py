@@ -306,6 +306,21 @@ class CloudStatusTriageTests(unittest.TestCase):
         self.assertIn("atastat=00000080", notes[0])
         self.assertIn("atalba=00002013", notes[0])
 
+    def test_classifies_ready_wait_before_doom_frames(self):
+        primary, notes = self.classify(
+            doomrun="WAIT",
+            gameplay="WAIT",
+            doompresent="00000000",
+            doompal="00000000",
+            doomframe="00000000",
+            atawait="READY",
+            atastat="00000050",
+            atalba="00000A01",
+        )
+
+        self.assertEqual(primary, "ata-storage-stalled")
+        self.assertIn("atawait=READY", notes[0])
+
     def test_classifies_ata_timeout_even_after_exec_started(self):
         primary, notes = self.classify(ata="FAIL", atawait="BUSY", atafail="00000001", atatmo="00000001")
 

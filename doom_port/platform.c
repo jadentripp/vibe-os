@@ -698,7 +698,6 @@ void G_BuildTiccmd(ticcmd_t* cmd)
     int target_tic;
     int divisor;
 
-    checkpoint_save_slot_if_needed();
     doom_original_G_BuildTiccmd(cmd);
 
     if (!singletics || !cmd)
@@ -812,6 +811,8 @@ void I_FinishUpdate(void)
     report_doom_init_status(VIBE_DOOM_INIT_FRAME);
     pump_music_stream();
     report_gameplay_status();
+    report_save_action_status();
+    checkpoint_save_slot_if_needed();
     checkpoint_load_slot_if_needed();
     report_save_action_status();
     report_playability_status();

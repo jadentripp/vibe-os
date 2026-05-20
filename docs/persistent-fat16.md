@@ -152,8 +152,10 @@ When the cached save request is present, the port enters the original
 `G_SaveGame()` path as soon as Doom has a live level/player. Original Doom's
 `G_SaveGame()` only queues `sendsave`; the port clears that queued input path,
 promotes the queued save to `ga_savegame`, and immediately drains
-`G_DoSaveGame()` so the proof captures the real Doom serializer before later
-lazy asset lookups can stall the run.
+`G_DoSaveGame()` after reporting live gameplay/save-request status, so the cloud
+proof can distinguish a gameplay bring-up failure from a storage write stall
+while still capturing the real Doom serializer before later lazy asset lookups
+can stall the run.
 
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,
@@ -166,11 +168,11 @@ semantics today.
 This is enough for Doom defaults and save slots without turning the kernel into
 a general-purpose FAT filesystem.
 
-ATA PIO waits are bounded and status-reported. The smoke line includes
-`ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo` so a
-cloud persistence write boot that parks in `ata_wait_drq` reports the last
-operation and command-status byte instead of silently looking like a Doom
-startup/gameplay wait.
+ATA PIO waits are bounded and status-reported. The ATA path makes sure commands only start once stale `DRQ` is clear, and read/write transfers use explicit
+256-word PIO loops before waiting for the data-request phase to drain. The smoke line includes `ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo` so a
+cloud persistence write boot that parks in `ata_wait_drq` or `ata_wait_ready`
+reports the last operation and command-status byte instead of silently looking
+like a Doom startup/gameplay wait.
 
 Remaining storage gaps before a broad Doom-capable claim:
 
