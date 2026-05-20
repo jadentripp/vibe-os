@@ -2,6 +2,7 @@ NASM ?= nasm
 QEMU ?= qemu-system-x86_64
 PYTHON ?= python3
 CLANG ?= clang
+NC ?= nc
 QEMU_ACCEL ?= tcg
 QEMU_MACHINE := pc,accel=$(QEMU_ACCEL)
 ALLOW_LOCAL_VM ?= 0
@@ -11,6 +12,7 @@ SMOKE_REJECT_DOOMLOG ?=
 SMOKE_SENDKEYS ?=
 SMOKE_REQUIRE_DOOM_PRESENT ?= 0
 SMOKE_REQUIRE_KEY_EVENT ?= 0
+SMOKE_NC_TIMEOUT ?= 3
 
 BUILD_DIR := build
 STAGE1_BIN := $(BUILD_DIR)/stage1.bin
@@ -131,11 +133,11 @@ smoke: vm-consent check-tools $(IMAGE)
 	sleep 5; \
 	if [ -n "$(SMOKE_SENDKEYS)" ]; then \
 		for key in $(SMOKE_SENDKEYS); do \
-			printf "sendkey %s\n" "$$key" | nc -U $(BUILD_DIR)/monitor.sock >/dev/null; \
+			printf "sendkey %s\n" "$$key" | $(NC) -w $(SMOKE_NC_TIMEOUT) -U $(BUILD_DIR)/monitor.sock >/dev/null; \
 			sleep 1; \
 		done; \
 	fi; \
-	printf "pmemsave 0xb8000 4000 $(BUILD_DIR)/vga.bin\npmemsave 0x9d000 1024 $(BUILD_DIR)/status.bin\npmemsave 0xa0000 64000 $(BUILD_DIR)/gfx.bin\nquit\n" | nc -U $(BUILD_DIR)/monitor.sock >/dev/null; \
+	printf "pmemsave 0xb8000 4000 $(BUILD_DIR)/vga.bin\npmemsave 0x9d000 1024 $(BUILD_DIR)/status.bin\npmemsave 0xa0000 64000 $(BUILD_DIR)/gfx.bin\nquit\n" | $(NC) -w $(SMOKE_NC_TIMEOUT) -U $(BUILD_DIR)/monitor.sock >/dev/null; \
 	wait $$pid >/dev/null 2>&1 || true; \
 	test -s $(BUILD_DIR)/status.bin; \
 	perl -e 'local $$/; $$d = <>; for ($$i = 0; $$i < length($$d); $$i += 2) { $$c = ord(substr($$d, $$i, 1)); print chr($$c || 32); }' $(BUILD_DIR)/vga.bin > $(BUILD_DIR)/vga.txt; \
