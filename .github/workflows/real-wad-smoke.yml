@@ -424,7 +424,7 @@ jobs:
           if [ -z "${PERSISTENCE_SAVE_SLOT:-}" ]; then
             write_marker PERSISTENCE_CHECKPOINT_NAME ""
           else
-            write_marker SAVE_REQUEST_NAME "$slot_marker_payload"
+            write_marker SAVE_REQUEST_NAME "$PERSISTENCE_SAVE_SLOT"
           fi
 
           mkdir -p build/persistence-write
@@ -473,7 +473,7 @@ jobs:
             python3 tools/check_doom_persistence_image.py "${check_args[@]}" build/disk.img \
               | tee build/status.persistence-default-proof.txt
             cp build/disk.img "$after_write"
-            write_marker LOAD_REQUEST_NAME "$slot_marker_payload"
+            write_marker LOAD_REQUEST_NAME "$PERSISTENCE_SAVE_SLOT"
 
             mkdir -p build/persistence-load
             QEMU=qemu-system-x86_64 \
