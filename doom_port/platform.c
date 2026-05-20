@@ -383,7 +383,7 @@ static void checkpoint_default_config_if_needed(void)
     if (default_config_checkpoint_checked || !defaultfile)
         return;
 
-    if (!persistence_checkpoint_requested() || !default_config_checkpoint_ready())
+    if (!default_config_checkpoint_ready() || !persistence_checkpoint_requested())
         return;
 
     default_config_checkpoint_checked = 1;
@@ -395,7 +395,7 @@ static void checkpoint_save_slot_if_needed(void)
 {
     static char description[] = "VIBE SAVE";
 
-    if (save_checkpoint_done || !save_checkpoint_requested_once())
+    if (save_checkpoint_done)
         return;
     if (!default_config_checkpoint_ready()
         || menuactive
@@ -404,6 +404,8 @@ static void checkpoint_save_slot_if_needed(void)
         || gameaction != ga_nothing) {
         return;
     }
+    if (!save_checkpoint_requested_once())
+        return;
 
     G_SaveGame(save_checkpoint_slot, description);
     sendsave = false;
@@ -442,7 +444,7 @@ static void checkpoint_load_slot_if_needed(void)
 {
     char path[] = "doomsav0.dsg";
 
-    if (load_checkpoint_done || !load_checkpoint_requested_once())
+    if (load_checkpoint_done)
         return;
     if (!default_config_checkpoint_ready()
         || menuactive
@@ -451,6 +453,8 @@ static void checkpoint_load_slot_if_needed(void)
         || gameaction != ga_nothing) {
         return;
     }
+    if (!load_checkpoint_requested_once())
+        return;
 
     path[7] = (char)('0' + load_checkpoint_slot);
     G_LoadGame(path);

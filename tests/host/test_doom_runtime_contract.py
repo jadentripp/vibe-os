@@ -295,6 +295,20 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("static void promote_save_checkpoint_action(void)", platform)
         self.assertIn("static void flush_save_checkpoint_if_needed(void)", platform)
         self.assertIn("gameaction = ga_savegame;", platform)
+        save_checkpoint = platform.split(
+            "static void checkpoint_save_slot_if_needed(void)", 1
+        )[1].split("static void promote_save_checkpoint_action(void)", 1)[0]
+        self.assertLess(
+            save_checkpoint.index("default_config_checkpoint_ready()"),
+            save_checkpoint.index("save_checkpoint_requested_once()"),
+        )
+        load_checkpoint = platform.split(
+            "static void checkpoint_load_slot_if_needed(void)", 1
+        )[1].split("static void pump_music_stream(void)", 1)[0]
+        self.assertLess(
+            load_checkpoint.index("default_config_checkpoint_ready()"),
+            load_checkpoint.index("load_checkpoint_requested_once()"),
+        )
         self.assertIn("void G_BuildTiccmd(ticcmd_t* cmd)", platform)
         self.assertIn("doom_original_G_BuildTiccmd(cmd);", platform)
         build_ticcmd = platform.split("void G_BuildTiccmd(ticcmd_t* cmd)", 1)[1].split(
