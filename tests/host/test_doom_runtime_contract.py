@@ -295,11 +295,14 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn('default_config_file_contains_marker("VIBE_DEFAULT")', platform)
         self.assertIn("default_config_file_is_short_checkpoint_marker()", platform)
         self.assertIn("read_save_slot_marker_request(", platform)
+        self.assertIn("read_chat_macro_slot_request(", platform)
         self.assertIn("read_default_config_slot_request(", platform)
         self.assertIn("short_marker_slot", platform)
         self.assertIn("large_save_slots", platform)
         self.assertIn('"VIBE_SAVE_"', platform)
         self.assertIn('"VIBE_LOAD_"', platform)
+        self.assertIn("#define VIBE_PERSISTENCE_MIN_LEVELTIME 1", platform)
+        self.assertIn('chat_macro_contains_marker("VIBE_DEFAULT")', platform)
         self.assertIn("savegameslot = save_checkpoint_slot;", platform)
         self.assertIn('strcpy(savedescription, "VIBE SAVE");', platform)
         self.assertIn("gameaction = ga_savegame;", platform)
@@ -322,6 +325,17 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("gameplay_frame_ready_seen", platform)
         self.assertIn("gameplay_checkpoint_state_ready()", platform)
         self.assertIn("if (gameaction == ga_savegame && savedescription[0])", platform)
+        save_direct = platform.split("static void run_persistence_checkpoint_actions(void)", 1)[1].split(
+            "static void pump_music_stream", 1
+        )[0]
+        self.assertLess(
+            save_direct.index("if (gameaction == ga_savegame && savedescription[0])"),
+            save_direct.index("G_DoSaveGame();"),
+        )
+        self.assertLess(
+            save_direct.index("report_save_action_status();"),
+            save_direct.index("G_DoSaveGame();"),
+        )
         self.assertIn("G_DoSaveGame();", platform)
         self.assertIn("if (load_checkpoint_armed && gameaction == ga_loadgame)", platform)
         self.assertIn("G_DoLoadGame();", platform)

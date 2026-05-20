@@ -23,6 +23,7 @@
 
 extern doomcom_t* doomcom;
 extern char* defaultfile;
+extern char* chat_macros[];
 extern boolean sendsave;
 extern int savegameslot;
 extern char savedescription[32];
@@ -76,7 +77,7 @@ static int gameplay_frame_ready_seen;
 #define VIBE_MUSIC_STREAM_TICS \
     ((int)((VIBE_MUSIC_STREAM_BYTES * 35u) / VIBE_MUSIC_DEFAULT_SAMPLE_RATE) / 16)
 #define VIBE_DOOM_SAVE_SCRATCH_BYTES 0x2c000u
-#define VIBE_PERSISTENCE_MIN_LEVELTIME 3
+#define VIBE_PERSISTENCE_MIN_LEVELTIME 1
 #define VIBE_PERSISTENCE_SLOT_COUNT 6
 
 static void report_doom_init_status(unsigned long flags)
@@ -106,6 +107,8 @@ static unsigned long read_le32(const unsigned char* data)
         | ((unsigned long)data[2] << 16)
         | ((unsigned long)data[3] << 24);
 }
+
+static void report_save_action_status(void);
 
 static int sfx_cache_index(sfxinfo_t* sfx, int fallback)
 {
@@ -329,6 +332,33 @@ static int default_config_file_contains_marker(const char* marker)
     return default_config_contains_marker(length, marker);
 }
 
+static char* find_marker_text(char* text, const char* marker)
+{
+    size_t marker_length;
+    char* cursor;
+
+    if (!text || !marker)
+        return 0;
+
+    marker_length = strlen(marker);
+    if (!marker_length)
+        return 0;
+
+    for (cursor = text; *cursor; ++cursor) {
+        if (!strncmp(cursor, marker, marker_length))
+            return cursor;
+    }
+
+    return 0;
+}
+
+static int chat_macro_contains_marker(const char* marker)
+{
+    return marker
+        && chat_macros[0]
+        && find_marker_text(chat_macros[0], marker);
+}
+
 static int default_config_file_is_short_checkpoint_marker(void)
 {
     const char* path;
@@ -367,6 +397,10 @@ static int persistence_checkpoint_requested(void)
     if (marker) {
         default_config_checkpoint_requested = 1;
         fclose(marker);
+    }
+    if (!default_config_checkpoint_requested
+        && chat_macro_contains_marker("VIBE_DEFAULT")) {
+        default_config_checkpoint_requested = 1;
     }
     if (!default_config_checkpoint_requested
         && default_config_file_contains_marker("VIBE_DEFAULT")) {
@@ -449,6 +483,32 @@ static int read_save_slot_marker_request(const char* prefix, int* slot)
     return 0;
 }
 
+static int read_chat_macro_slot_request(const char* prefix, int* slot)
+{
+    size_t prefix_length;
+    char* macro;
+    char* match;
+
+    if (!prefix || !slot)
+        return 0;
+
+    macro = chat_macros[0];
+    if (!macro)
+        return 0;
+
+    prefix_length = strlen(prefix);
+    match = find_marker_text(macro, prefix);
+    if (!match)
+        return 0;
+
+    match += prefix_length;
+    if (*match < '0' || *match > '5')
+        return 0;
+
+    *slot = *match - '0';
+    return 1;
+}
+
 static int read_default_config_slot_request(const char* prefix, int* slot)
 {
     const char* path;
@@ -517,9 +577,14 @@ static int save_checkpoint_requested_once(void)
         return save_checkpoint_requested;
 
     save_checkpoint_request_checked = 1;
-    save_checkpoint_requested = read_default_config_slot_request(
+    save_checkpoint_requested = read_chat_macro_slot_request(
         "VIBE_SAVE_",
         &save_checkpoint_slot);
+    if (!save_checkpoint_requested) {
+        save_checkpoint_requested = read_default_config_slot_request(
+            "VIBE_SAVE_",
+            &save_checkpoint_slot);
+    }
     if (!save_checkpoint_requested) {
         save_checkpoint_requested = read_save_slot_marker_request(
             "VIBE_SAVE_",
@@ -627,8 +692,10 @@ static void run_persistence_checkpoint_actions(void)
     checkpoint_save_slot_if_needed();
     checkpoint_load_slot_if_needed();
 
-    if (gameaction == ga_savegame && savedescription[0])
+    if (gameaction == ga_savegame && savedescription[0]) {
+        report_save_action_status();
         G_DoSaveGame();
+    }
     if (load_checkpoint_armed && gameaction == ga_loadgame) {
         load_checkpoint_armed = 0;
         G_DoLoadGame();
