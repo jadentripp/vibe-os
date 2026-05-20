@@ -97,7 +97,10 @@ def status_line(**overrides):
         "pctx": "00000020",
         "pfrom": "00000002",
         "pto": "00000003",
+        "pkind": "00000002:00000003",
         "peip": "01002000:00E80000",
+        "pcr3": "00082000:00083000",
+        "pkstk": "00073000:00072000",
         "pspin": "50524590",
         "pself": "OK",
     }
@@ -296,13 +299,13 @@ class CloudStatusTriageTests(unittest.TestCase):
             doompresent="00000000",
             doompal="00000000",
             doomframe="00000000",
-            atawait="DRQ",
+            atawait="READY",
             atastat="00000080",
             atalba="00002013",
         )
 
         self.assertEqual(primary, "ata-storage-stalled")
-        self.assertIn("atawait=DRQ", notes[0])
+        self.assertIn("atawait=READY", notes[0])
         self.assertIn("atastat=00000080", notes[0])
         self.assertIn("atalba=00002013", notes[0])
 

@@ -59,8 +59,9 @@ boot:
   claiming that `fork`, descriptor duplication, or reusable VM objects exist
   yet.
 - `tools/check_vm_status_proof.py` requires the matching cloud status to expose
-  `vmmhfree`, `argvsrc=2`, and `peip` evidence before a VM/process artifact can
-  be accepted.
+  `vmmhfree`, `argvsrc=2`, `procpool=`, `fdexec=`, `wait=`, and
+  `pkind`/`peip`/`pcr3`/`pkstk` evidence before a VM/process artifact can be
+  accepted.
 - `tests/host/test_framebuffer_contract.py` proves the 320x200 indexed shadow,
   RGB palette to XRGB8888 conversion, 2x scaling, and centering contract without
   using rendered Doom pixels.
@@ -146,8 +147,9 @@ boot:
   `munmap` contract without launching QEMU.
 - `tools/check_vm_status_proof.py` validates cloud status artifacts for the VM
   legitimacy fields: `vmmhfree` must match the reclaimed dynamic page table,
-  Doom exec must report `argvsrc=2`, and `peip` must show timer IRQ switching
-  between Doom and the preempt probe.
+  Doom exec must report `argvsrc=2`, `procpool=`, `fdexec=`, and `wait=`, and
+  `pkind`/`peip`/`pcr3`/`pkstk` must show timer IRQ switching between Doom and
+  the preempt probe.
 - `tools/check_shutdown_panic_proof.py` validates the opt-in disposable-cloud
   shutdown/panic proof contract and any downloaded proof artifact. It requires
   `shutdown-panic-proof.json` plus dedicated panic, halt, reboot-request, and

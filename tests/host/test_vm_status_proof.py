@@ -40,6 +40,10 @@ def status_line(**overrides):
         "argv0": "01FFFFF0",
         "envp0": "00000000",
         "argvsrc": "00000002",
+        "procpool": "00000006/00000002/00000001/00000000/00000000",
+        "pidseq": "00000005/00000002/00000001",
+        "fdexec": "00000001/00000002/00000000/00000000",
+        "wait": "00000003/00000001/00000002/00000000/00000001/00000003/0000002A",
         "pself": "OK",
         "preempt": "00000001",
         "pirq": "00000001",
@@ -49,7 +53,10 @@ def status_line(**overrides):
         "pctx": "00000004",
         "pfrom": "00000002",
         "pto": "00000003",
+        "pkind": "00000002:00000003",
         "peip": "01002000:00E80000",
+        "pcr3": "00082000:00083000",
+        "pkstk": "00073000:00072000",
         "pspin": "50524546",
     }
     fields.update(overrides)
@@ -87,6 +94,20 @@ class VmStatusProofTests(unittest.TestCase):
             ({"entry": "00E80000"}, "entry"),
             ({"stack": "00E9FFE0"}, "stack"),
             ({"envp0": "00000001"}, "envp0"),
+            ({"procpool": "00000005/00000002/00000001/00000000/00000000"}, "bounded process records"),
+            ({"procpool": "00000006/00000001/00000001/00000000/00000000"}, "generic exec slots"),
+            ({"procpool": "00000006/00000002/00000000/00000000/00000000"}, "reused a target process slot"),
+            ({"procpool": "00000006/00000002/00000001/00000000/00000001"}, "did not overflow"),
+            ({"pidseq": "00000002/00000002/00000001"}, "advanced past the target"),
+            ({"pidseq": "00000005/00000003/00000001"}, "exec target PID"),
+            ({"pidseq": "00000005/00000002/00000000"}, "generation advanced"),
+            ({"fdexec": "00000000/00000002/00000000/00000000"}, "fd ownership handoff"),
+            ({"fdexec": "00000001/00000000/00000000/00000000"}, "fd inherited"),
+            ({"wait": "00000003/00000001/00000002/00000000/00000000/00000003/0000002A"}, "child was seeded"),
+            ({"wait": "00000003/00000000/00000002/00000000/00000001/00000003/0000002A"}, "waitpid reaped"),
+            ({"wait": "00000003/00000001/00000000/00000000/00000001/00000003/0000002A"}, "failure paths"),
+            ({"wait": "00000003/00000001/00000002/00000000/00000001/FFFFFFFF/0000002A"}, "real reaped child PID"),
+            ({"wait": "00000003/00000001/00000002/00000000/00000001/00000003/00000000"}, "exit status"),
         ):
             with self.subTest(overrides=overrides):
                 with self.assertRaisesRegex(AssertionError, message):
@@ -101,7 +122,10 @@ class VmStatusProofTests(unittest.TestCase):
             ({"pirq": "00000002"}, "pirq"),
             ({"puser": "00000000"}, "puser"),
             ({"pto": "00000002"}, "switch between processes"),
+            ({"pkind": "00000002:00000002"}, "Doom and the preempt probe"),
             ({"peip": "01002000:01003000"}, "Doom and the preempt probe"),
+            ({"pcr3": "00082000:00082000"}, "address spaces"),
+            ({"pkstk": "00073000:00073000"}, "kernel stacks"),
             ({"pspin": "50524545"}, "preempt probe executed"),
         ):
             with self.subTest(overrides=overrides):

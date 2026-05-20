@@ -38,6 +38,7 @@ PERSISTENCE_SAVE_WRITE_STATUS ?=
 PERSISTENCE_LOAD_STATUS ?=
 PERSISTENCE_REQUIRE_DEFAULT ?= 0
 PERSISTENCE_REQUIRE_SAVE_SLOT ?=
+PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF ?= 0
 
 BUILD_DIR := build
 STAGE1_BIN := $(BUILD_DIR)/stage1.bin
@@ -298,6 +299,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "musicdrops=" $(BUILD_DIR)/status.txt; \
 	grep -q "musicstream=" $(BUILD_DIR)/status.txt; \
 	grep -q "musicpull=" $(BUILD_DIR)/status.txt; \
+	grep -q "musicrend=" $(BUILD_DIR)/status.txt; \
 	grep -q "sb16=" $(BUILD_DIR)/status.txt; \
 	grep -q "dma=" $(BUILD_DIR)/status.txt; \
 	grep -q "play=" $(BUILD_DIR)/status.txt; \
@@ -420,6 +422,7 @@ persistence-image-check: $(IMAGE)
 	if [ -n "$(PERSISTENCE_SAVE_WRITE_STATUS)" ]; then args="$$args --save-write-status $(PERSISTENCE_SAVE_WRITE_STATUS)"; fi; \
 	if [ -n "$(PERSISTENCE_LOAD_STATUS)" ]; then args="$$args --load-status $(PERSISTENCE_LOAD_STATUS)"; fi; \
 	if [ "$(PERSISTENCE_REQUIRE_DEFAULT)" = "1" ]; then args="$$args --require-default"; fi; \
+	if [ "$(PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF)" = "1" ]; then args="$$args --require-dynamic-fat-proof"; fi; \
 	for slot in $(PERSISTENCE_REQUIRE_SAVE_SLOT); do args="$$args --require-save-slot $$slot"; done; \
 	$(PYTHON) tools/check_doom_persistence_image.py $$args "$(IMAGE)"
 

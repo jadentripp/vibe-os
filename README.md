@@ -114,14 +114,14 @@ When the local checkout is dirty or you want to launch from a known pushed
 branch, pin the remote repo/ref explicitly:
 
 ```sh
-VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/doom-gameplay-proof \
+VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/playable-rc-next \
   ./tools/play_now_codespaces.sh
 ```
 
 or:
 
 ```sh
-./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref jt/doom-gameplay-proof
+./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref jt/playable-rc-next
 ```
 
 Explicit repo/ref mode verifies that the GitHub repo and branch exist remotely
@@ -137,6 +137,19 @@ Codespaces scope, run `gh auth refresh -h github.com -s codespace` once. To
 check the plan without creating or modifying a Codespace, run
 `./tools/play_now_codespaces.sh --preflight` first.
 
+If local `gh` is authenticated for the repo but does not have the Codespaces
+API scope, print the browser-only creation URL instead:
+
+```sh
+./tools/play_now_codespaces.sh --web-url \
+  --repo jadentripp/vibe-os \
+  --ref jt/playable-rc-next
+```
+
+Open that URL, create the Codespace in the GitHub web UI, and use the terminal
+welcome command it prints. The devcontainer also prints the same play commands
+when you attach to a browser-created Codespace.
+
 The launcher also verifies that the selected pushed branch contains the
 devcontainer and remote play scripts before it creates a Codespace. If you want
 a GitHub-hosted prerequisite check without opening an interactive session, run
@@ -150,6 +163,14 @@ Codespace, run:
 
 ```sh
 ./tools/play_now_remote.sh
+```
+
+For a fresh remote Ubuntu shell with no local `gh` involvement, use the remote
+bootstrap helper from inside that disposable shell:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/jt/playable-rc-next/tools/play_now_cloud_shell.sh \
+  | VIBE_REF=jt/playable-rc-next bash
 ```
 
 Do not run local Mac QEMU for the quick path. See
@@ -333,8 +354,10 @@ activation, and visual activity summaries. Its checker also requires coherent
 process/exec, storage, VM, audio, mouse, scheduler, and Doom file I/O telemetry
 so a green run is diagnosable from text artifacts alone. The cloud workflows
 also run `tools/check_vm_status_proof.py`, which requires `vmmhfree` to prove
-dynamic page-table reclaim, `argvsrc=2` for the user-vector Doom exec path, and
-`peip` evidence for timer preemption between Doom and the preempt probe.
+dynamic page-table reclaim, `argvsrc=2` for the user-vector Doom exec path,
+`procpool=`/`fdexec=`/`wait=` for bounded process-slot reuse, exec-time fd
+inheritance, and userland wait/reap, and `pkind`/`peip`/`pcr3`/`pkstk` evidence
+for timer preemption between Doom and the preempt probe.
 The same workflow has an opt-in `audible_audio_proof` mode that uses a
 temporary QEMU WAV backend on the disposable runner, reduces it to aggregate
 `audio-proof.json`, validates that manifest against the same status-only SB16

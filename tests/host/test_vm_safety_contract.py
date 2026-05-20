@@ -70,6 +70,8 @@ class VmSafetyContractTests(unittest.TestCase):
             "dry-run: QEMU was not launched",
             "python3 tools/check_vm_safety_contract.py",
             "VIBE_REPO=${{ github.repository }} VIBE_REF=${{ github.ref_name }} ./tools/play_now_codespaces.sh",
+            "VIBE_REPO=${{ github.repository }} VIBE_REF=${{ github.ref_name }} ./tools/play_now_codespaces.sh --web-url",
+            "tools/play_now_cloud_shell.sh",
         ):
             with self.subTest(needle=needle):
                 self.assertIn(needle, workflow)

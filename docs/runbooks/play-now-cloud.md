@@ -12,14 +12,14 @@ When the local checkout is dirty, or when another worker owns the current
 workspace, launch from a pushed repo/ref instead:
 
 ```sh
-VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/doom-gameplay-proof \
+VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/playable-rc-next \
   ./tools/play_now_codespaces.sh
 ```
 
 or:
 
 ```sh
-./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref jt/doom-gameplay-proof
+./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref jt/playable-rc-next
 ```
 
 Explicit repo/ref mode verifies the GitHub repo and branch before Codespaces
@@ -46,11 +46,32 @@ If the launcher reports that GitHub CLI cannot access Codespaces, run:
 gh auth refresh -h github.com -s codespace
 ```
 
+If you do not want to grant that local scope right now, ask the launcher for the
+browser-only Codespaces path instead:
+
+```sh
+./tools/play_now_codespaces.sh --web-url \
+  --repo jadentripp/vibe-os \
+  --ref jt/playable-rc-next
+```
+
+That verifies the pushed repo/ref and required play files, then prints a
+GitHub `codespaces/new` URL plus the exact in-Codespace commands. Open the URL
+in the browser, create the Codespace, and run:
+
+```sh
+./tools/play_now_remote.sh --preflight --require-novnc
+./tools/play_now_remote.sh --require-novnc
+```
+
+The devcontainer prints those commands when you attach, so a Codespace created
+from the GitHub web UI has the same path as the CLI-created one.
+
 Optional dry run:
 
 ```sh
 ./tools/play_now_codespaces.sh --preflight
-VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/doom-gameplay-proof \
+VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/playable-rc-next \
   ./tools/play_now_codespaces.sh --preflight --no-open
 ```
 
@@ -70,11 +91,27 @@ Use a plain remote Ubuntu host instead when you do not want Codespaces:
 ```sh
 git clone https://github.com/jadentripp/vibe-os.git
 cd vibe-os
-git checkout jt/doom-gameplay-proof
+git checkout jt/playable-rc-next
 sudo apt-get update
 sudo apt-get install -y nasm qemu-system-x86 clang make netcat-openbsd curl novnc websockify
 ./tools/play_now_remote.sh --preflight
 ./tools/play_now_remote.sh
+```
+
+For a fresh disposable Ubuntu shell, the bootstrap helper performs that setup
+and then starts the same remote play script:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/jt/playable-rc-next/tools/play_now_cloud_shell.sh \
+  | VIBE_REF=jt/playable-rc-next bash
+```
+
+Use `--preflight-only` when you want it to stop after dependency and noVNC
+checks:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/jt/playable-rc-next/tools/play_now_cloud_shell.sh \
+  | bash -s -- --preflight-only
 ```
 
 The preflight is a dry run: it checks the remote host and exits before fetching

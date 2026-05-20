@@ -195,9 +195,12 @@ def validate_cloud_interactive_runbooks(root: Path = ROOT) -> None:
         "codespace create",
         "gh \"${create_args[@]}\"",
         "--preflight, --dry-run",
+        "--web-url",
         "require_clean_pushed_git_state",
         "local git working tree is dirty",
         "differs from upstream",
+        "print_web_fallback_hint",
+        "local gh Codespaces API: not required for this browser path",
         "play-now Codespaces preflight OK",
         "local artifact transfer: none",
         "dry-run: Codespace was not created or modified",
@@ -349,6 +352,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "python3 tools/check_vm_safety_contract.py",
         "This workflow did not launch QEMU, fetch a WAD, build disk.img, or upload logs/artifacts.",
         "VIBE_REPO=${{ github.repository }} VIBE_REF=${{ github.ref_name }} ./tools/play_now_codespaces.sh",
+        "VIBE_REPO=${{ github.repository }} VIBE_REF=${{ github.ref_name }} ./tools/play_now_codespaces.sh --web-url",
+        "tools/play_now_cloud_shell.sh",
     ):
         _require(cloud_play_workflow, needle, "cloud play-now preflight workflow")
 
@@ -423,7 +428,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         'smoke_vmmhpa_text db " vmmhpa=", 0',
         'smoke_vmmhpt_text db " vmmhpt=", 0',
         'smoke_vmmhfree_text db " vmmhfree=", 0',
-        "USER_PROBE_EXPECTED_FLAGS equ 0x00001fff",
+        "USER_PROBE_EXPECTED_FLAGS equ 0x00003fff",
         "SYS_EXEC_ARGV_SOURCE_DEFAULT equ 1",
         "SYS_EXEC_ARGV_SOURCE_USER equ 2",
         "PROCESS_RECORD_BYTES equ 168",

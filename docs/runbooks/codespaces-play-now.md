@@ -16,14 +16,14 @@ Fastest path from the Mac, with GitHub CLI authenticated for Codespaces:
 Fastest path from any checkout state is to pin the pushed repo/ref explicitly:
 
 ```sh
-VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/doom-gameplay-proof \
+VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/playable-rc-next \
   ./tools/play_now_codespaces.sh
 ```
 
 The equivalent flag form is:
 
 ```sh
-./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref jt/doom-gameplay-proof
+./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref jt/playable-rc-next
 ```
 
 Explicit repo/ref mode verifies that the GitHub repo is accessible and the
@@ -43,6 +43,20 @@ If GitHub CLI reports a missing Codespaces API scope, refresh it once:
 gh auth refresh -h github.com -s codespace
 ```
 
+Or skip local Codespaces API scope and create the same environment in the
+browser:
+
+```sh
+./tools/play_now_codespaces.sh --web-url \
+  --repo jadentripp/vibe-os \
+  --ref jt/playable-rc-next
+```
+
+Open the printed `codespaces/new` URL, confirm the branch and
+`.devcontainer/devcontainer.json`, then click `Create codespace`. When the
+browser terminal attaches, `.devcontainer/play-now-welcome.sh` prints the two
+commands to start the real vibe-os boot path.
+
 The launch creates a disposable Codespace from the current repo and branch,
 starts `./tools/play_now_remote.sh` inside it, waits for noVNC, sets port `6080`
 private, opens/prints the noVNC URL, and prints the log and delete commands.
@@ -53,7 +67,7 @@ Optional dry run:
 
 ```sh
 ./tools/play_now_codespaces.sh --preflight
-VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/doom-gameplay-proof \
+VIBE_REPO=jadentripp/vibe-os VIBE_REF=jt/playable-rc-next \
   ./tools/play_now_codespaces.sh --preflight --no-open
 ```
 
@@ -86,12 +100,12 @@ gh codespace delete -c "<codespace-name>" --force
 
 Manual browser path:
 
-1. Open the fork on GitHub.
-2. Select the branch that contains the Doom play work.
-3. Click `Code`.
-4. Open the `Codespaces` tab.
-5. Click `Create codespace on <branch>`.
-6. Wait until the Codespace finishes building the dev container.
+1. Run `./tools/play_now_codespaces.sh --web-url --repo jadentripp/vibe-os --ref <branch>`, or open `https://github.com/codespaces/new`.
+2. Select `jadentripp/vibe-os`.
+3. Select the branch that contains the Doom play work.
+4. Select `.devcontainer/devcontainer.json` if GitHub asks for a dev container configuration.
+5. Click `Create codespace`.
+6. Wait until the Codespace finishes building the dev container and prints the play welcome text.
 
 The dev container installs Python 3 plus the toolchain used by
 `./tools/play_now_remote.sh`: `nasm`, `qemu-system-x86`, `clang`, `make`,
@@ -183,3 +197,19 @@ When finished:
 
 Deleting the Codespace removes the remote `/tmp` WAD and generated VM artifacts.
 Do not copy them back into the repository.
+
+## Remote Shell Without Codespaces
+
+If Codespaces is unavailable, open any disposable Ubuntu cloud shell and run the
+bootstrap helper there:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/jt/playable-rc-next/tools/play_now_cloud_shell.sh \
+  | VIBE_REF=jt/playable-rc-next bash
+```
+
+That installs the remote play dependencies, checks out the pushed branch into
+`~/vibe-os-play-now`, runs the noVNC preflight, and starts
+`./tools/play_now_remote.sh --require-novnc` on the remote host. Tunnel or
+forward port `6080`, then open the forwarded URL with
+`/vnc.html?autoconnect=1`.

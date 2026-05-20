@@ -235,6 +235,21 @@ static int submit_music_stream_chunk(int handle, int start_voice)
     desc.sound_id = 0x4d555349u;
     desc.flags = VIBE_AUDIO_FLAG_MUSIC;
     desc.sample_rate = VIBE_MUSIC_DEFAULT_SAMPLE_RATE;
+    desc.music_format = stats.format;
+    desc.music_note_events = stats.note_on_count + stats.note_off_count;
+    desc.music_control_events = stats.controller_count
+        + stats.program_count
+        + stats.pan_count
+        + stats.expression_count
+        + stats.sustain_count
+        + stats.pitch_bend_count
+        + stats.tempo_count
+        + stats.all_notes_off_count;
+    desc.music_active_voice_peak = stats.active_voice_peak;
+    desc.music_emitted_samples = stats.emitted_samples;
+    desc.music_stream_start = stats.stream_start_sample;
+    desc.music_stream_end = stats.stream_end_sample;
+    desc.music_stream_loop_count = stats.stream_loop_count;
 
     (void)vibe_syscall3(
         VIBE_SYS_AUDIO,

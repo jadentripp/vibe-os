@@ -55,9 +55,10 @@ class ProcessExecContractTests(unittest.TestCase):
             user_probe_run.index("push dword [process_user_probe + PROC_SAVED_ESP]"),
         )
         for source in (
-            "USER_PROBE_EXPECTED_FLAGS equ 0x00001fff",
+            "USER_PROBE_EXPECTED_FLAGS equ 0x00003fff",
             "PROBE_FLAG_PROCESS_ABI = 0x800u",
             "PROBE_FLAG_NEGATIVE_SYSCALLS = 0x1000u",
+            "PROBE_FLAG_WAIT_REAP = 0x2000u",
             "SYS_GETPID = 25",
             "int user_main(int argc, char **argv, char **envp)",
             'probe_streq(argv[0], "USERPROB.ELF")',
@@ -146,6 +147,10 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn('smoke_exec_argv_text db " argv0=", 0', kernel)
         self.assertIn('smoke_exec_envp0_text db " envp0=", 0', kernel)
         self.assertIn('smoke_exec_argvsrc_text db " argvsrc=", 0', kernel)
+        self.assertIn('smoke_procpool_text db " procpool=", 0', kernel)
+        self.assertIn('smoke_pidseq_text db " pidseq=", 0', kernel)
+        self.assertIn('smoke_fdexec_text db " fdexec=", 0', kernel)
+        self.assertIn('smoke_pwait_text db " wait=", 0', kernel)
         self.assertIn("mov edx, [sys_exec_handoffs]", write_smoke)
         self.assertIn("mov edx, [sys_exec_scheduled]", write_smoke)
         self.assertIn("mov edx, [sys_exec_rollbacks]", write_smoke)
@@ -160,6 +165,28 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("mov edx, [sys_exec_last_envp]", write_smoke)
         self.assertIn("mov edx, [sys_exec_last_argv_source]", write_smoke)
         self.assertIn("mov edx, [sys_exec_last_envp0]", write_smoke)
+        for source in (
+            "mov edx, PROCESS_SLOT_COUNT",
+            "mov edx, PROCESS_GENERIC_SLOT_COUNT",
+            "mov edx, [process_slot_reuses]",
+            "mov edx, [process_generic_slot_allocations]",
+            "mov edx, [process_generic_slot_failures]",
+            "mov edx, [process_next_pid]",
+            "mov edx, [process_last_reused_pid]",
+            "mov edx, [process_last_slot_generation]",
+            "mov edx, [fd_exec_handoffs]",
+            "mov edx, [fd_exec_inherited]",
+            "mov edx, [fd_exec_closed]",
+            "mov edx, [fd_owner_closes]",
+            "mov edx, [process_wait_attempts]",
+            "mov edx, [process_wait_reaps]",
+            "mov edx, [process_wait_failures]",
+            "mov edx, [process_wait_nohang_returns]",
+            "mov edx, [process_wait_seeded_children]",
+            "mov edx, [process_wait_last_reaped_pid]",
+            "mov edx, [process_wait_last_status]",
+        ):
+            self.assertIn(source, write_smoke)
 
     def test_sys_exec_dispatch_validates_prepares_and_hands_off_exec(self):
         kernel = read_kernel()
@@ -201,7 +228,17 @@ class ProcessExecContractTests(unittest.TestCase):
         probe = (ROOT / "user" / "probe.c").read_text()
         for source in (
             "PROBE_FLAG_NEGATIVE_SYSCALLS = 0x1000u",
+            "PROBE_FLAG_WAIT_REAP = 0x2000u",
             "ERRNO_EINVAL = 22",
+            "WAIT_OPTION_WNOHANG = 0x1u",
+            "WAIT_PROOF_EXIT_STATUS = 0x2a",
+            "WAIT_PROOF_CHILD_PID = 3",
+            "static int sys_waitpid(uint32_t pid, int *status, uint32_t options)",
+            "int wait_status = 0;",
+            "sys_waitpid((uint32_t)-1, &wait_status, WAIT_OPTION_WNOHANG) == WAIT_PROOF_CHILD_PID",
+            "wait_status == WAIT_PROOF_EXIT_STATUS",
+            "sys_waitpid((uint32_t)-1, 0, WAIT_OPTION_WNOHANG) == -ERRNO_ECHILD",
+            "flags |= PROBE_FLAG_WAIT_REAP;",
             "syscall3(0x7fffffffu, 0, 0, 0) == -ERRNO_ENOSYS",
             "syscall3(SYS_MMAP, 0, 0, mmap_flags) == -ERRNO_EINVAL",
             "syscall3(SYS_MMAP, 0, 4096, mmap_fixed_flags) == -ERRNO_EINVAL",
@@ -615,18 +652,35 @@ class ProcessExecContractTests(unittest.TestCase):
     def test_waitpid_scans_children_and_reaps_exited_records(self):
         kernel = read_kernel()
         waitpid = kernel.split("process_waitpid_current:", 1)[1].split("scheduler_prepare_live_preempt_probe:", 1)[0]
+        seed = kernel.split("process_seed_wait_reap_probe_child:", 1)[1].split("process_reset_doom:", 1)[0]
+        user_probe_run = kernel.split("user_probe_run:", 1)[1].split(".fail:", 1)[0]
         handler = kernel.split(".waitpid:", 1)[1].split(".getpid:", 1)[0]
         for source in (
             "WAIT_OPTION_WNOHANG equ 0x1",
             "WAIT_SUPPORTED_OPTIONS equ WAIT_OPTION_WNOHANG",
+            "WAIT_PROOF_EXIT_STATUS equ 0x0000002a",
             "process_wait_attempts dd 0",
             "process_wait_reaps dd 0",
             "process_wait_failures dd 0",
             "process_wait_last_reaped_pid dd 0xffffffff",
             "process_wait_seen_live_child dd 0",
             "process_wait_nohang_returns dd 0",
+            "process_wait_seeded_children dd 0",
+            "process_wait_seeded_child_pid dd 0xffffffff",
         ):
             self.assertIn(source, kernel)
+        for source in (
+            "mov esi, process_preempt_probe",
+            "call process_reset_preempt_probe",
+            "mov eax, [current_pid]",
+            "mov [esi + PROC_PARENT_PID], eax",
+            "mov dword [esi + PROC_EXIT_STATUS], WAIT_PROOF_EXIT_STATUS",
+            "mov dword [esi + PROC_STATE], PROC_STATE_EXITED",
+            "mov [process_wait_seeded_child_pid], eax",
+            "inc dword [process_wait_seeded_children]",
+        ):
+            self.assertIn(source, seed)
+        self.assertIn("call process_seed_wait_reap_probe_child", user_probe_run)
         for source in (
             "call process_waitpid_current",
             "jc .bad_syscall_from_eax",

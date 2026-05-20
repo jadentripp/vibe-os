@@ -34,8 +34,11 @@ preallocated and cloned from the boot kernel map.
 `tools/check_vm_status_proof.py` is the cloud status ratchet for this layer. It
 rejects status artifacts unless `vmmhfree` equals the dynamic `vmmhpt` frame,
 the high alias is backed by a distinct PMM-managed physical frame, the Doom
-launch used `argvsrc=2` from a user argv-vector exec path, and `peip` shows a
-timer-driven switch between Doom and the preempt probe.
+launch used `argvsrc=2` from a user argv-vector exec path, `procpool=`,
+`fdexec=`, and `wait=` prove bounded slot reuse, exec-time fd inheritance, and a
+userland wait/reap path, and `pkind`, `peip`, `pcr3`, and `pkstk` show a
+timer-driven switch between Doom and the preempt probe with distinct address
+spaces and kernel stacks.
 
 ## Current Address Spaces
 
@@ -155,12 +158,14 @@ heap are adjacent and the Doom heap grows up to the stack bottom.
   READY task with a valid saved frame, switch CR3 through `process_activate`,
   load that task's kernel stack into `tss_esp0`, rewrite the live IRQ frame,
   and resume it with `iretd`. The cloud status fields distinguish the source
-  and target PIDs (`pfrom`/`pto`), their restored EIPs (`peip`), timer IRQs that
-  arrived from Ring 3 (`puser`), timer-IRQ context switches (`pirq`), quantum
-  rounds (`pround`), total context activations (`pctx`), and live spin progress
-  (`pspin`). The `pspin` sampler only dereferences the preempt probe stack while
-  `process_preempt_probe` is the active process, so the proof does not depend on
-  probe pages being visible in Doom's page directory.
+  and target PIDs (`pfrom`/`pto`), their process kinds (`pkind`), restored EIPs
+  (`peip`), selected page directories (`pcr3`), selected kernel stacks
+  (`pkstk`), timer IRQs that arrived from Ring 3 (`puser`), timer-IRQ context
+  switches (`pirq`), quantum rounds (`pround`), total context activations
+  (`pctx`), and live spin progress (`pspin`). The `pspin` sampler only
+  dereferences the preempt probe stack while `process_preempt_probe` is the
+  active process, so the proof does not depend on probe pages being visible in
+  Doom's page directory.
 - Boot/process structures are still fixed low-memory page-table pages. The
   kernel now has a bounded generic user-process pool, and can allocate
   additional page tables for new mappings after PMM is online and reclaim empty

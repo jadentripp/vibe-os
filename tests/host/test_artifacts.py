@@ -485,6 +485,7 @@ class SourceContractTests(unittest.TestCase):
         os_smoke_workflow = (ROOT / ".github" / "workflows" / "os-smoke.yml").read_text()
         real_wad_workflow = (ROOT / ".github" / "workflows" / "real-wad-smoke.yml").read_text()
         image_tool = (ROOT / "tools" / "make_wad_image.py").read_text()
+        platform = (ROOT / "doom_port" / "platform.c").read_text()
         self.assertIn("ALLOW_LOCAL_VM ?= 0", makefile)
         self.assertIn("DOOM_WAD ?=", makefile)
         self.assertIn("SMOKE_EXPECT_PROBE_GFX ?= 1", makefile)
@@ -831,12 +832,13 @@ class SourceContractTests(unittest.TestCase):
             "refill=00000000 half=00000000 mixwrap=00000000 mixover=00000000 mixunder=00000000 mixclip=00000000 "
             "steal=00000000 pitchclamp=00000000 panclamp=00000000 musicvoices=00000000 musicmix=00000000 musicloop=00000000 "
             "musicpos=00000000 musicbuf=00000000 musicunder=00000000 musicdrops=00000000 "
-            "musicstream=NONE musicpull=00000000:00000000 "
+            "musicstream=NONE musicpull=00000000:00000000 musicrend=00000000:00000000:00000000:00000000:00000000:00000000 "
             "sb16=00000000:00000000 dma=00000000 play=00000000:00000000 voiceq=00000000:00000000:00000000 musicq=00000000:00000000 "
             "mouseirq=00000001 mousepkt=00000001 mousepoll=00000001 "
             "mousebtn=00000001 mousedelta=00000018:0000000C "
             "dtick=00000059 preempt=00000001 pirq=00000001 pattempt=00000001 pskip=00000000 puser=00000004 pround=00000001 "
-            "pctx=00000004 pfrom=00000002 pto=00000003 peip=01000000:00E80000 "
+            "pctx=00000004 pfrom=00000002 pto=00000003 pkind=00000002:00000003 "
+            "peip=01000000:00E80000 pcr3=00082000:00083000 pkstk=00073000:00072000 "
             "pspin=50524546 free=00700000 ticks=00000100"
         )
         playable = "gstate=00000000 gtic=00000001 gflags=00000001 gaction=00000000 pflags=000001FF pbuttons=00000000 ppos=00010000:00020000 pdelta=00000100 keyirq=00000001 keyqueue=00000001 keypoll=00000001 keyseen=00000071 keylast=0001001B"
@@ -1019,7 +1021,10 @@ class SourceContractTests(unittest.TestCase):
             valid.replace("puser=00000004", "puser=00000000"),
             valid.replace("pfrom=00000002", "pfrom=FFFFFFFF"),
             valid.replace("pto=00000003", "pto=FFFFFFFF"),
+            valid.replace("pkind=00000002:00000003", "pkind=00000002:00000002"),
             valid.replace("peip=01000000:00E80000", "peip=00000000:00E80000"),
+            valid.replace("pcr3=00082000:00083000", "pcr3=00082000:00082000"),
+            valid.replace("pkstk=00073000:00072000", "pkstk=00073000:00073000"),
             valid.replace("pspin=50524546", "pspin=50524545"),
             valid.replace("audio=NONE", "audio=EMU"),
         )
@@ -1474,8 +1479,14 @@ class SourceContractTests(unittest.TestCase):
         self.assertGreaterEqual(scheduler.count("call scheduler_capture_preempt_spin"), 2)
         self.assertIn("mov [scheduler_last_preempt_from_pid], eax", scheduler)
         self.assertIn("mov [scheduler_last_preempt_to_pid], eax", scheduler)
+        self.assertIn("mov [scheduler_last_preempt_from_kind], eax", scheduler)
+        self.assertIn("mov [scheduler_last_preempt_to_kind], eax", scheduler)
         self.assertIn("mov [scheduler_last_preempt_from_eip], eax", scheduler)
         self.assertIn("mov [scheduler_last_preempt_to_eip], eax", scheduler)
+        self.assertIn("mov [scheduler_last_preempt_from_cr3], eax", scheduler)
+        self.assertIn("mov [scheduler_last_preempt_to_cr3], eax", scheduler)
+        self.assertIn("mov [scheduler_last_preempt_from_kstack], eax", scheduler)
+        self.assertIn("mov [scheduler_last_preempt_to_kstack], eax", scheduler)
         self.assertIn("cmp dword [current_process_ptr], process_preempt_probe", spin_capture)
         self.assertIn("mov eax, [USER_STACK_TOP - 4]", spin_capture)
         self.assertIn("mov [scheduler_preempt_spin_value], eax", spin_capture)
@@ -1511,6 +1522,9 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('smoke_pirq_text db " pirq="', kernel)
         self.assertIn('smoke_puser_text db " puser="', kernel)
         self.assertIn('smoke_peip_text db " peip="', kernel)
+        self.assertIn('smoke_pkind_text db " pkind="', kernel)
+        self.assertIn('smoke_pcr3_text db " pcr3="', kernel)
+        self.assertIn('smoke_pkstk_text db " pkstk="', kernel)
         self.assertIn('smoke_pspin_text db " pspin="', kernel)
         self.assertIn('smoke_pself_text db " pself="', kernel)
 
@@ -1775,6 +1789,7 @@ class SourceContractTests(unittest.TestCase):
             'smoke_musicdrops_text db " musicdrops="',
             'smoke_musicstream_text db " musicstream="',
             'smoke_musicpull_text db " musicpull="',
+            'smoke_musicrend_text db " musicrend="',
             'smoke_audio_text db " audio="',
         ):
             self.assertIn(source, kernel)

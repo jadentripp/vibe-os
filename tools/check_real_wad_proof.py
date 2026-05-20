@@ -20,6 +20,12 @@ DEFAULT_REJECT_PATTERNS = (
     r"r_inittextures",
 )
 PREEMPT_PROBE_MAGIC = 0x50524545
+USER_KIND_DOOM = 2
+USER_KIND_PREEMPT_PROBE = 3
+PROC_DOOM_PAGE_DIR_ADDR = 0x00082000
+PROC_PREEMPT_PAGE_DIR_ADDR = 0x00083000
+PROC_DOOM_KERNEL_STACK_TOP = 0x00073000
+PROC_PREEMPT_PROBE_KERNEL_STACK_TOP = 0x00072000
 REQUIRED_DOOM_INIT_FLAGS = 0x000001FF
 
 EXACT_FIELDS = {
@@ -182,6 +188,7 @@ SUMMARY_FIELDS = (
     "musicbuf",
     "musicunder",
     "musicdrops",
+    "musicrend",
     "sb16",
     "dma",
     "play",
@@ -220,7 +227,10 @@ SUMMARY_FIELDS = (
     "pctx",
     "pfrom",
     "pto",
+    "pkind",
     "peip",
+    "pcr3",
+    "pkstk",
     "pspin",
 )
 
@@ -449,6 +459,7 @@ def _validate_core_status(status: str) -> None:
     voiceq = _colon_tuple_field(status, "voiceq", 3)
     _colon_tuple_field(status, "sfxdma", 2)
     musicq = _colon_tuple_field(status, "musicq", 2)
+    musicrend = _colon_tuple_field(status, "musicrend", 6)
 
     attempts, successes, failures, handoffs, scheduled, rollbacks = _hex_tuple_field(
         status, "execsys", 6
@@ -506,6 +517,17 @@ def _validate_core_status(status: str) -> None:
         if musicq[0] == 0:
             raise AssertionError("musicq= must prove the music voice was queued when audio=SB16")
         _hex_field_gt(status, "musicpos", 0)
+        if musicrend[0] not in (1, 2):
+            raise AssertionError("musicrend= must record MUS or MIDI renderer format when audio=SB16")
+        for index, label in (
+            (1, "render chunk"),
+            (2, "note event"),
+            (3, "render event"),
+            (4, "active voice peak"),
+            (5, "rendered sample"),
+        ):
+            if musicrend[index] == 0:
+                raise AssertionError(f"musicrend= must prove nonzero {label} evidence when audio=SB16")
     preempt_switches = _hex_field_gt(status, "preempt", 0)
     irq_switches = _hex_field_gt(status, "pirq", 0)
     if irq_switches != preempt_switches:
@@ -522,9 +544,18 @@ def _validate_core_status(status: str) -> None:
         raise AssertionError(f"pto= must record a live target PID, got {pto:#x}")
     if pfrom == pto:
         raise AssertionError("pfrom= and pto= must prove a switch between different processes")
+    pkind = _hex_tuple_field(status, "pkind", 2, separator=":")
+    if set(pkind) != {USER_KIND_DOOM, USER_KIND_PREEMPT_PROBE}:
+        raise AssertionError("pkind= must prove a Doom/preempt-probe scheduler switch")
     from_eip, to_eip = _hex_tuple_field(status, "peip", 2, separator=":")
     if from_eip == 0 or to_eip == 0:
         raise AssertionError("peip= must record nonzero source and target EIPs")
+    pcr3 = _hex_tuple_field(status, "pcr3", 2, separator=":")
+    if set(pcr3) != {PROC_DOOM_PAGE_DIR_ADDR, PROC_PREEMPT_PAGE_DIR_ADDR}:
+        raise AssertionError("pcr3= must prove distinct Doom/preempt-probe address spaces")
+    pkstk = _hex_tuple_field(status, "pkstk", 2, separator=":")
+    if set(pkstk) != {PROC_DOOM_KERNEL_STACK_TOP, PROC_PREEMPT_PROBE_KERNEL_STACK_TOP}:
+        raise AssertionError("pkstk= must prove distinct Doom/preempt-probe kernel stacks")
     spin = _hex_field(status, "pspin")
     if spin in (0, PREEMPT_PROBE_MAGIC):
         raise AssertionError("pspin= must prove the Ring 3 preempt probe executed after seeding")

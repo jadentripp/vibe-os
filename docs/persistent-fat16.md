@@ -129,6 +129,9 @@ same-object state. The checker then revalidates FAT-copy agreement and
 reachable-cluster ownership on the mutated copy, so this is a host-verifiable
 allocation/free/truncate proof without putting a scratch file back into the real
 disk artifact.
+The Makefile wrapper exposes the same checker path with
+`PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF=1 make persistence-image-check`, keeping
+the host proof runnable without launching QEMU locally.
 
 The Doom libc buffers formatted `fprintf` output until `fflush()` / `fclose()`,
 so `M_SaveDefaults()` does not spend the cloud proof window performing one disk
@@ -140,6 +143,12 @@ workflow waits for that checkpoint before snapshotting the disk; the save-slot
 proof path skips the marker so `DOOMSAV*.DSG` runs boot from the clean captured
 baseline. `--write-status` keeps the wait honest by rejecting a `DEFAULT.CFG`
 proof until the defaults file has been opened with `O_TRUNC` and closed.
+Persistence control markers are cached during `I_ZoneBase` and checked again
+during `I_Init`; both happen before live gameplay, and the marker readers are
+one-shot even when a marker is absent. The leveltime checkpoint therefore
+consumes the cached `PERSIST.CHK`, `SAVEREQ.CHK`, or `LOADREQ.CHK` decision
+instead of scanning the FAT root directory on the frame that arms the save or
+load.
 
 The save/load cloud proof uses `SAVEREQ.CHK` and `LOADREQ.CHK` marker files to
 request a Doom save slot. The marker file size is `slot + 1`, so the Doom port

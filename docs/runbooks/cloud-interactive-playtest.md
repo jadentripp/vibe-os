@@ -44,6 +44,26 @@ remote play script there, marks the noVNC port private, and opens/prints the
 browser URL. The rest of this runbook is the manual remote-host equivalent and
 the optional human proof-capture flow.
 
+If local `gh` lacks the Codespaces API scope, use the browser-only Codespaces
+route instead:
+
+```sh
+./tools/play_now_codespaces.sh --web-url \
+  --repo jadentripp/vibe-os \
+  --ref jt/playable-rc-next
+```
+
+Open the printed URL, create the Codespace in the GitHub web UI, and run the
+welcome commands in the Codespace terminal. This still keeps QEMU remote-only.
+
+If you are already inside a fresh disposable Ubuntu shell, bootstrap the same
+remote play path directly:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/jt/playable-rc-next/tools/play_now_cloud_shell.sh \
+  | VIBE_REF=jt/playable-rc-next bash
+```
+
 Optional cloud prerequisite check: run the manual **Cloud play-now preflight**
 GitHub Actions workflow on the branch you plan to play. It installs the remote
 dependencies, runs `./tools/play_now_remote.sh --preflight --require-novnc`,

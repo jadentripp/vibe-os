@@ -57,6 +57,11 @@ class DoomMusicTests(unittest.TestCase):
             "I_PlaySong",
             "I_StopSong",
             "if (handle == current_music_handle)\n        I_StopSong(handle);",
+            "desc.music_format = stats.format;",
+            "desc.music_note_events = stats.note_on_count + stats.note_off_count;",
+            "desc.music_control_events = stats.controller_count",
+            "desc.music_active_voice_peak = stats.active_voice_peak;",
+            "desc.music_emitted_samples = stats.emitted_samples;",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, platform)
@@ -133,6 +138,8 @@ class DoomMusicTests(unittest.TestCase):
             "program changes",
             "pan, expression, sustain",
             "separate from normal Doom SFX",
+            "musicrend=",
+            "renderer provenance",
             "PC speaker fallback",
             "SB16",
         ):

@@ -54,6 +54,14 @@ typedef struct vibe_audio_sfx_desc {
     unsigned long sound_id;
     unsigned long flags;
     unsigned long sample_rate;
+    unsigned long music_format;
+    unsigned long music_note_events;
+    unsigned long music_control_events;
+    unsigned long music_active_voice_peak;
+    unsigned long music_emitted_samples;
+    unsigned long music_stream_start;
+    unsigned long music_stream_end;
+    unsigned long music_stream_loop_count;
 } vibe_audio_sfx_desc_t;
 
 enum {

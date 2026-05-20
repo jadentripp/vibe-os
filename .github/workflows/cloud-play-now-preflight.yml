@@ -67,4 +67,16 @@ jobs:
             echo "gh auth refresh -h github.com -s codespace"
             echo "VIBE_REPO=${{ github.repository }} VIBE_REF=${{ github.ref_name }} ./tools/play_now_codespaces.sh"
             echo '```'
+            echo
+            echo "If local gh does not have Codespaces scope, print a browser-only create URL:"
+            echo
+            echo '```sh'
+            echo "VIBE_REPO=${{ github.repository }} VIBE_REF=${{ github.ref_name }} ./tools/play_now_codespaces.sh --web-url"
+            echo '```'
+            echo
+            echo "From an already-disposable Ubuntu shell, bootstrap and start remotely:"
+            echo
+            echo '```sh'
+            echo "curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/tools/play_now_cloud_shell.sh | VIBE_REF=${{ github.ref_name }} bash"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

@@ -187,7 +187,10 @@ The cloud proof requires these status families:
   `doomrun=RUN` show that the kernel loaded the Doom ELF, performed a
   syscall-driven exec handoff, seeded the user ABI stack from the copied user
   vector, recorded process parent metadata, and left Doom running rather than
-  merely validating bytes on disk. The six `execsys`
+  merely validating bytes on disk. `procpool=`, `pidseq=`, `fdexec=`, and
+  `wait=` additionally show bounded process-slot reuse, PID generation
+  movement, exec-time fd inheritance, and a userland wait/reap proof. The six
+  `execsys`
   counters are attempts, successes, failures, handoffs, scheduled targets, and
   rollbacks.
 - Storage/libc: `wad=OK`, `lmp=OK`, `doomopen=OK`, `doomread=OK`,
@@ -241,7 +244,7 @@ The cloud proof requires these status families:
   progress from Doom's expected tic rate.
 - Audio/mouse observability: `audio`, `doomsound`, `sfxmix`, `sfxdma`, `voices`,
   `sfxvoices`, `musicvoices`, `musicmix`, `musicloop`, `musicpos`, `musicbuf`,
-  `musicunder`, `musicdrops`, `sb16`, `dma`, `play`, `voiceq`, `musicq`,
+  `musicunder`, `musicdrops`, `musicrend`, `sb16`, `dma`, `play`, `voiceq`, `musicq`,
   `audioirq`, `ack8`,
   `ack16`, `refill`, mixer safety counters, `mouse`,
   `mouseirq`, `mousepkt`, and `mousepoll` are required to be present and
@@ -253,7 +256,8 @@ The cloud proof requires these status families:
   proves SB16 version, DMA programming, playback start, voice queue, IRQ/refill,
   non-music SFX, `sfxdma=` SFX bytes from the IRQ-driven DMA refill mixer,
   music mixing, kernel-visible `musicpos=` progress, and pull-requested music
-  chunk service with advancing `musicpull=` counters progressed without
+  chunk service with advancing `musicpull=` counters plus `musicrend=` renderer
+  provenance progressed without
   uploading audio samples. It does not upload audio samples.
   `tools/check_audio_continuity_proof.py` checks status snapshots only and
   does not upload audio samples.
@@ -267,16 +271,19 @@ The cloud proof requires these status families:
   `sfxdma=` does not progress, and it does not upload the WAV or any captured
   samples.
 - Scheduler proof: `preempt`, `pirq`, `pattempt`, `pskip`, `puser`, `pround`,
-  `pctx`, `pfrom`, `pto`, `peip`, `pspin`, and `pself=OK` expose live PIT
-  preemption. A valid proof requires `pirq` to match `preempt`, Ring 3 timer
-  IRQs, a switch between different PIDs, nonzero source/target EIPs, and a
-  `pspin` value beyond the seeded
-  `50524545` magic from the alternate Ring 3 preempt probe.
+  `pctx`, `pfrom`, `pto`, `pkind`, `peip`, `pcr3`, `pkstk`, `pspin`, and
+  `pself=OK` expose live PIT preemption. A valid proof requires `pirq` to match
+  `preempt`, Ring 3 timer IRQs, a switch between different PIDs, Doom/preempt
+  probe kinds, nonzero source/target EIPs, distinct Doom/preempt-probe CR3s,
+  distinct Doom/preempt-probe kernel stacks, and a `pspin` value beyond the
+  seeded `50524545` magic from the alternate Ring 3 preempt probe.
 
 `tools/check_vm_status_proof.py` is the legitimacy ratchet for the VM/process
 status fields. It requires `vmmhfree` to match the reclaimed `vmmhpt` frame,
-`argvsrc=2` for the Doom exec path, and `peip` to cross the Doom/preempt-probe
-address spaces during timer IRQ preemption.
+`argvsrc=2` for the Doom exec path, `procpool=`/`fdexec=`/`wait=` for bounded
+process-slot reuse, exec-time fd inheritance, and the wait/reap proof, and
+`pkind`/`peip`/`pcr3`/`pkstk` to cross the Doom/preempt-probe tasks, user
+windows, address spaces, and kernel stacks during timer IRQ preemption.
 
 `tools/check_real_wad_proof.py` gates the real-WAD status on both the non-pixel
 visual proof and the scripted playability proof, plus the system/process/storage

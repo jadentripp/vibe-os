@@ -16,11 +16,15 @@ CODESPACES_PORT_WAIT_SECONDS="${CODESPACES_PORT_WAIT_SECONDS:-300}"
 CODESPACES_PORT_WAIT_INTERVAL="${CODESPACES_PORT_WAIT_INTERVAL:-5}"
 MAX_DISPLAY_NAME_LENGTH=48
 RUN_PREFLIGHT_ONLY=0
+PRINT_WEB_URL_ONLY=0
 GIT_STATE_SUMMARY=""
+REPO_DATABASE_ID=""
 REMOTE_PLAY_PATHS=(
   ".devcontainer/devcontainer.json"
   ".devcontainer/Dockerfile"
+  ".devcontainer/play-now-welcome.sh"
   "tools/play_now_remote.sh"
+  "tools/play_now_cloud_shell.sh"
   "tools/check_play_now_remote.py"
 )
 
@@ -54,6 +58,9 @@ Options:
   --retention-period VAL  Codespaces retention after stop. Default: 1h.
   --preflight, --dry-run  Check gh/git/ref/port safety and print the plan
                           without creating, starting, or modifying a Codespace.
+  --web-url               Print a browser-only Codespaces creation URL plus
+                          the in-Codespace play command, then exit. This does
+                          not require the gh codespace API scope.
   --no-open               Do not open the noVNC URL automatically on macOS.
   -h, --help              Show this help.
 EOF
@@ -74,7 +81,16 @@ require_gh_auth() {
 
 require_gh_codespaces_access() {
   gh api -H "Accept: application/vnd.github+json" "/user/codespaces?per_page=1" >/dev/null 2>&1 || {
-    die "GitHub CLI token cannot access Codespaces; run: gh auth refresh -h github.com -s codespace"
+    {
+      echo "GitHub CLI token cannot access Codespaces."
+      echo
+      echo "Option A, fix local gh and rerun:"
+      echo "  gh auth refresh -h github.com -s codespace"
+      echo
+      echo "Option B, no local gh Codespaces scope needed: create it in the browser, then run the remote play command inside the Codespace."
+      print_web_fallback_hint
+    } >&2
+    exit 1
   }
 }
 
@@ -139,6 +155,9 @@ verify_github_remote_ref() {
   gh repo view "$REPO" --json nameWithOwner -q .nameWithOwner >/dev/null 2>&1 || {
     die "GitHub repo '$REPO' is not accessible with the current gh auth"
   }
+  REPO_DATABASE_ID="$(
+    gh api -H "Accept: application/vnd.github+json" "/repos/$REPO" --jq .id 2>/dev/null || true
+  )"
 
   local remote_url
   local refs
@@ -152,6 +171,63 @@ verify_github_remote_ref() {
   if ! printf "%s\n" "$refs" | awk '{print $2}' | grep -Fx "$expected_ref" >/dev/null 2>&1; then
     die "GitHub branch '$REF' was not found in '$REPO'; push it first or pass a branch that exists remotely"
   fi
+}
+
+urlencode() {
+  local raw="$1"
+  local i
+  local char
+  local encoded
+  local out=""
+
+  LC_CTYPE=C
+  for ((i = 0; i < ${#raw}; i++)); do
+    char="${raw:i:1}"
+    case "$char" in
+      [A-Za-z0-9.~_-])
+        out+="$char"
+        ;;
+      *)
+        printf -v encoded '%%%02X' "'$char"
+        out+="$encoded"
+        ;;
+    esac
+  done
+  printf "%s" "$out"
+}
+
+codespaces_create_url() {
+  local encoded_ref
+  encoded_ref="$(urlencode "$REF")"
+
+  if [ -n "$REPO_DATABASE_ID" ]; then
+    printf "https://github.com/codespaces/new?hide_repo_select=true&repo=%s&ref=%s&devcontainer_path=.devcontainer%%2Fdevcontainer.json\n" \
+      "$REPO_DATABASE_ID" \
+      "$encoded_ref"
+  else
+    printf "https://github.com/codespaces/new\n"
+  fi
+}
+
+print_inside_codespace_commands() {
+  cat <<EOF
+Inside the Codespace terminal:
+  ./tools/play_now_remote.sh --preflight --require-novnc
+  ./tools/play_now_remote.sh --require-novnc
+
+Then open the forwarded private port $NOVNC_PORT URL with this path:
+  /vnc.html?autoconnect=1
+EOF
+}
+
+print_web_fallback_hint() {
+  echo "Browser Codespaces URL:"
+  echo "  $(codespaces_create_url)"
+  echo
+  echo "Repository/ref:"
+  echo "  $REPO@$REF"
+  echo
+  print_inside_codespace_commands
 }
 
 sanitize_display_part() {
@@ -318,6 +394,22 @@ print_preflight_summary() {
   echo "next: run without --dry-run when you are ready to start the disposable remote play session"
 }
 
+print_web_url_summary() {
+  echo "play-now browser Codespaces path"
+  echo "repo: $REPO"
+  echo "ref: $REF"
+  echo "noVNC port: $NOVNC_PORT (private)"
+  echo "GitHub repo/ref: verified"
+  echo "remote play payload: verified on selected ref"
+  echo "local gh Codespaces API: not required for this browser path"
+  echo "local artifact transfer: none (no WADs, disk images, pixels, raw audio, or logs copied to the Mac)"
+  echo "Codespaces create URL:"
+  echo "$(codespaces_create_url)"
+  echo
+  print_inside_codespace_commands
+  echo "dry-run: Codespace was not created or modified"
+}
+
 remote_start_payload() {
   cat <<'REMOTE'
 set -euo pipefail
@@ -413,6 +505,9 @@ while [ "$#" -gt 0 ]; do
     --preflight|--dry-run)
       RUN_PREFLIGHT_ONLY=1
       ;;
+    --web-url|--browser-url|--print-web-url)
+      PRINT_WEB_URL_ONLY=1
+      ;;
     --no-open)
       OPEN_BROWSER=0
       ;;
@@ -453,6 +548,12 @@ fi
 
 verify_github_remote_ref
 verify_remote_play_payload
+
+if [ "$PRINT_WEB_URL_ONLY" = "1" ]; then
+  print_web_url_summary
+  exit 0
+fi
+
 require_gh_codespaces_access
 
 if [ -z "$CODESPACE_NAME" ] && [ -z "$DISPLAY_NAME" ]; then

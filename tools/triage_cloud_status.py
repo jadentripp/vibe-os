@@ -97,6 +97,9 @@ SUMMARY_FIELDS = (
     "pctx",
     "pfrom",
     "pto",
+    "pkind",
+    "pcr3",
+    "pkstk",
     "peip",
     "pspin",
 )
@@ -238,7 +241,7 @@ TRIAGE_RULES = (
     ),
     TriageRule(
         "preemption-not-proven",
-        ("preempt", "pirq", "pattempt", "puser", "pround", "pctx", "pfrom", "pto", "peip", "pspin", "pself"),
+        ("preempt", "pirq", "pattempt", "puser", "pround", "pctx", "pfrom", "pto", "pkind", "peip", "pcr3", "pkstk", "pspin", "pself"),
         "Doom reached gameplay, but the status does not prove live timer-driven switching between Ring 3 tasks.",
         "Inspect scheduler_tick, the live preempt probe seeding path, and whether timer IRQs are interrupting user code.",
     ),
@@ -258,7 +261,7 @@ TRIAGE_RULES = (
         "ata-storage-stalled",
         ("ata", "ataop", "atawait", "atalba", "atastat", "ataerr", "atafail", "atatmo"),
         "The kernel is stuck in or has failed an ATA PIO wait before Doom produced frames.",
-        "Inspect ata_wait_not_busy/ata_wait_drq/ata_wait_ready, the last LBA, and the command/status bits before widening to Doom startup.",
+        "Inspect ata_wait_not_busy/ata_wait_drq/ata_wait_ready, data-port transfer state, the last LBA, and the command/status bits before widening to Doom startup.",
     ),
     TriageRule(
         "artifact-proof-failure",
@@ -760,6 +763,9 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         return "doom-timer-not-proven", notes
 
     peip = _hex_pair(fields, "peip")
+    pkind = _hex_pair(fields, "pkind")
+    pcr3 = _hex_pair(fields, "pcr3")
+    pkstk = _hex_pair(fields, "pkstk")
     pfrom = _hex(fields, "pfrom")
     pto = _hex(fields, "pto")
     spin = _hex(fields, "pspin")
@@ -777,9 +783,15 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         or pfrom in (None, 0, 0xFFFFFFFF)
         or pto in (None, 0, 0xFFFFFFFF)
         or pfrom == pto
+        or pkind is None
+        or set(pkind) != {2, 3}
         or peip is None
         or peip[0] == 0
         or peip[1] == 0
+        or pcr3 is None
+        or set(pcr3) != {0x00082000, 0x00083000}
+        or pkstk is None
+        or set(pkstk) != {0x00073000, 0x00072000}
         or spin in (None, 0, PREEMPT_PROBE_MAGIC)
     ):
         notes.append(
@@ -788,7 +800,9 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
             f"pattempt={_field(fields, 'pattempt')} "
             f"puser={_field(fields, 'puser')} pround={_field(fields, 'pround')} "
             f"pctx={_field(fields, 'pctx')} pfrom={_field(fields, 'pfrom')} "
-            f"pto={_field(fields, 'pto')} peip={_field(fields, 'peip')} "
+            f"pto={_field(fields, 'pto')} pkind={_field(fields, 'pkind')} "
+            f"peip={_field(fields, 'peip')} pcr3={_field(fields, 'pcr3')} "
+            f"pkstk={_field(fields, 'pkstk')} "
             f"pspin={_field(fields, 'pspin')} pself={_field(fields, 'pself')}"
         )
         return "preemption-not-proven", notes

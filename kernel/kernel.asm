@@ -251,7 +251,7 @@ USER_HEAP_START equ USER_STACK_TOP
 USER_HEAP_END equ 0x00f00000
 USER_HEAP_PAGE_COUNT equ (USER_HEAP_END - USER_HEAP_START) / PAGE_SIZE
 USER_HEAP_BITMAP_BYTES equ (USER_HEAP_PAGE_COUNT + 7) / 8
-USER_PROBE_EXPECTED_FLAGS equ 0x00001fff
+USER_PROBE_EXPECTED_FLAGS equ 0x00003fff
 USER_PROBE_MAGIC equ 0x13579BDF
 PREEMPT_PROBE_MAGIC equ 0x50524545
 USER_FAULT_ADDR equ 0x00010000
@@ -263,6 +263,7 @@ FD_KIND_WRITABLE equ 2
 FD_INHERIT_EXEC equ 0x1
 WAIT_OPTION_WNOHANG equ 0x1
 WAIT_SUPPORTED_OPTIONS equ WAIT_OPTION_WNOHANG
+WAIT_PROOF_EXIT_STATUS equ 0x0000002a
 WRITABLE_KNOWN_FILE_COUNT equ 7
 WRITABLE_FILE_COUNT equ 16
 WRITABLE_DEFAULT_CAPACITY equ 0x00004000
@@ -418,7 +419,15 @@ AUDIO_SFX_DESC_PITCH equ 16
 AUDIO_SFX_DESC_SOUND_ID equ 20
 AUDIO_SFX_DESC_FLAGS equ 24
 AUDIO_SFX_DESC_SAMPLE_RATE equ 28
-AUDIO_SFX_DESC_BYTES equ 32
+AUDIO_SFX_DESC_MUSIC_FORMAT equ 32
+AUDIO_SFX_DESC_MUSIC_NOTE_EVENTS equ 36
+AUDIO_SFX_DESC_MUSIC_CONTROL_EVENTS equ 40
+AUDIO_SFX_DESC_MUSIC_ACTIVE_VOICE_PEAK equ 44
+AUDIO_SFX_DESC_MUSIC_EMITTED_SAMPLES equ 48
+AUDIO_SFX_DESC_MUSIC_STREAM_START equ 52
+AUDIO_SFX_DESC_MUSIC_STREAM_END equ 56
+AUDIO_SFX_DESC_MUSIC_STREAM_LOOP_COUNT equ 60
+AUDIO_SFX_DESC_BYTES equ 64
 AUDIO_FLAG_LOOP equ 0x00000001
 AUDIO_FLAG_MUSIC equ 0x00000002
 AUDIO_FLAG_WAD_SFX equ 0x00000004
@@ -3448,6 +3457,12 @@ audio_init:
     mov dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_NONE
     mov dword [sb16_music_pull_request_count], 0
     mov dword [sb16_music_pull_refill_count], 0
+    mov dword [sb16_music_render_format], 0
+    mov dword [sb16_music_render_chunk_count], 0
+    mov dword [sb16_music_render_note_count], 0
+    mov dword [sb16_music_render_event_count], 0
+    mov dword [sb16_music_render_active_peak], 0
+    mov dword [sb16_music_render_sample_count], 0
     mov dword [sb16_pan_left_arg], 0
     mov dword [sb16_pan_right_arg], 0
     mov dword [sb16_mix_source_pos], 0
@@ -4140,6 +4155,39 @@ audio_mix_sfx_descriptor:
     pop eax
     ret
 
+sb16_record_music_render_stats:
+    push eax
+    push edx
+
+    mov eax, [esi + AUDIO_SFX_DESC_MUSIC_FORMAT]
+    cmp eax, 0
+    je .done
+    cmp eax, 2
+    ja .done
+    mov [sb16_music_render_format], eax
+    inc dword [sb16_music_render_chunk_count]
+
+    mov eax, [esi + AUDIO_SFX_DESC_MUSIC_NOTE_EVENTS]
+    add [sb16_music_render_note_count], eax
+    mov edx, eax
+    mov eax, [esi + AUDIO_SFX_DESC_MUSIC_CONTROL_EVENTS]
+    add edx, eax
+    add [sb16_music_render_event_count], edx
+
+    mov eax, [esi + AUDIO_SFX_DESC_MUSIC_ACTIVE_VOICE_PEAK]
+    cmp eax, [sb16_music_render_active_peak]
+    jbe .sample_count
+    mov [sb16_music_render_active_peak], eax
+
+.sample_count:
+    mov eax, [esi + AUDIO_SFX_DESC_MUSIC_EMITTED_SAMPLES]
+    add [sb16_music_render_sample_count], eax
+
+.done:
+    pop edx
+    pop eax
+    ret
+
 audio_register_sfx_voice:
     push eax
     push ebx
@@ -4232,6 +4280,7 @@ audio_register_sfx_voice:
     mov dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_PULL
     mov eax, [audio_sfx_length_arg]
     mov [sb16_music_stream_buffer_bytes], eax
+    call sb16_record_music_render_stats
     jmp .recount
 
 .sfx_started:
@@ -4367,6 +4416,7 @@ audio_update_sfx_voice:
     or eax, AUDIO_FLAG_MUSIC
     mov [sb16_voice_flags + ebx * 4], eax
     mov dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_PULL
+    call sb16_record_music_render_stats
     mov eax, [sb16_voice_positions + ebx * 4]
     shr eax, 16
     cmp eax, [sb16_voice_lengths + ebx * 4]
@@ -5098,6 +5148,8 @@ storage_init:
     mov dword [process_wait_last_status], 0
     mov dword [process_wait_seen_live_child], 0
     mov dword [process_wait_nohang_returns], 0
+    mov dword [process_wait_seeded_children], 0
+    mov dword [process_wait_seeded_child_pid], 0xffffffff
     mov dword [fd_exec_handoffs], 0
     mov dword [fd_exec_inherited], 0
     mov dword [fd_exec_closed], 0
@@ -5450,7 +5502,8 @@ ata_read_sector:
     mov ecx, 256
 .read_word:
     in ax, dx
-    stosw
+    mov [edi], ax
+    add edi, 2
     loop .read_word
     mov dword [ata_wait_phase], ATA_WAIT_IDLE
     call ata_io_delay
@@ -5521,8 +5574,9 @@ ata_write_sector:
     mov dx, ATA_DATA
     mov ecx, 256
 .write_word:
-    lodsw
+    mov ax, [esi]
     out dx, ax
+    add esi, 2
     loop .write_word
     mov dword [ata_wait_phase], ATA_WAIT_IDLE
     call ata_io_delay
@@ -7673,8 +7727,14 @@ scheduler_init:
     mov dword [scheduler_user_irq_ticks], 0
     mov dword [scheduler_last_preempt_from_pid], 0xffffffff
     mov dword [scheduler_last_preempt_to_pid], 0xffffffff
+    mov dword [scheduler_last_preempt_from_kind], 0
+    mov dword [scheduler_last_preempt_to_kind], 0
     mov dword [scheduler_last_preempt_from_eip], 0
     mov dword [scheduler_last_preempt_to_eip], 0
+    mov dword [scheduler_last_preempt_from_cr3], 0
+    mov dword [scheduler_last_preempt_to_cr3], 0
+    mov dword [scheduler_last_preempt_from_kstack], 0
+    mov dword [scheduler_last_preempt_to_kstack], 0
     mov dword [scheduler_preempt_probe_ready], 0
     mov dword [scheduler_preempt_spin_value], 0
     mov byte [scheduler_preempt_selftest_status], 0
@@ -7714,6 +7774,8 @@ scheduler_init:
     mov dword [process_wait_last_status], 0
     mov dword [process_wait_seen_live_child], 0
     mov dword [process_wait_nohang_returns], 0
+    mov dword [process_wait_seeded_children], 0
+    mov dword [process_wait_seeded_child_pid], 0xffffffff
     mov dword [fd_exec_handoffs], 0
     mov dword [fd_exec_inherited], 0
     mov dword [fd_exec_closed], 0
@@ -7751,6 +7813,22 @@ process_reset_preempt_probe:
     mov dword [esi + PROC_STATE], PROC_STATE_READY
     mov dword [esi + PROC_BRK], USER_HEAP_START
     mov dword [esi + PROC_ENTRY], 0
+    ret
+
+process_seed_wait_reap_probe_child:
+    push eax
+    push esi
+    mov esi, process_preempt_probe
+    call process_reset_preempt_probe
+    mov eax, [current_pid]
+    mov [esi + PROC_PARENT_PID], eax
+    mov dword [esi + PROC_EXIT_STATUS], WAIT_PROOF_EXIT_STATUS
+    mov dword [esi + PROC_STATE], PROC_STATE_EXITED
+    mov eax, [esi + PROC_PID]
+    mov [process_wait_seeded_child_pid], eax
+    inc dword [process_wait_seeded_children]
+    pop esi
+    pop eax
     ret
 
 process_reset_doom:
@@ -8483,18 +8561,33 @@ scheduler_tick:
     inc dword [scheduler_preempt_attempts]
     mov eax, [esi + PROC_PID]
     mov [scheduler_last_preempt_from_pid], eax
+    mov eax, [esi + PROC_KIND]
+    mov [scheduler_last_preempt_from_kind], eax
     mov eax, [esi + PROC_SAVED_EIP]
     mov [scheduler_last_preempt_from_eip], eax
+    mov eax, [esi + PROC_PAGE_DIR]
+    mov [scheduler_last_preempt_from_cr3], eax
+    mov eax, [esi + PROC_KERNEL_STACK_TOP]
+    mov [scheduler_last_preempt_from_kstack], eax
     mov dword [scheduler_last_preempt_to_pid], 0xffffffff
+    mov dword [scheduler_last_preempt_to_kind], 0
     mov dword [scheduler_last_preempt_to_eip], 0
+    mov dword [scheduler_last_preempt_to_cr3], 0
+    mov dword [scheduler_last_preempt_to_kstack], 0
     call scheduler_select_next_ready
     mov esi, [scheduler_next_process_ptr]
     cmp esi, 0
     je .skip_preempt
     mov eax, [esi + PROC_PID]
     mov [scheduler_last_preempt_to_pid], eax
+    mov eax, [esi + PROC_KIND]
+    mov [scheduler_last_preempt_to_kind], eax
     mov eax, [esi + PROC_SAVED_EIP]
     mov [scheduler_last_preempt_to_eip], eax
+    mov eax, [esi + PROC_PAGE_DIR]
+    mov [scheduler_last_preempt_to_cr3], eax
+    mov eax, [esi + PROC_KERNEL_STACK_TOP]
+    mov [scheduler_last_preempt_to_kstack], eax
     call process_activate
     call process_restore_irq_context
     inc dword [scheduler_preempt_switches]
@@ -9412,6 +9505,7 @@ user_probe_run:
     mov dword [user_fault_recovery], 0
     mov dword [user_wad_magic_seen], 0
     call fd_reset_all
+    call process_seed_wait_reap_probe_child
     mov byte [present_status], 0
     mov dword [present_sample_first], 0
     mov dword [present_sample_mid], 0
@@ -12845,6 +12939,86 @@ write_smoke_status:
     call smoke_copy_string
     mov edx, [sys_exec_last_argv_source]
     call smoke_write_hex32
+
+    mov esi, smoke_procpool_text
+    call smoke_copy_string
+    mov edx, PROCESS_SLOT_COUNT
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, PROCESS_GENERIC_SLOT_COUNT
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_slot_reuses]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_generic_slot_allocations]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_generic_slot_failures]
+    call smoke_write_hex32
+
+    mov esi, smoke_pidseq_text
+    call smoke_copy_string
+    mov edx, [process_next_pid]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_last_reused_pid]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_last_slot_generation]
+    call smoke_write_hex32
+
+    mov esi, smoke_fdexec_text
+    call smoke_copy_string
+    mov edx, [fd_exec_handoffs]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fd_exec_inherited]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fd_exec_closed]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fd_owner_closes]
+    call smoke_write_hex32
+
+    mov esi, smoke_pwait_text
+    call smoke_copy_string
+    mov edx, [process_wait_attempts]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_wait_reaps]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_wait_failures]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_wait_nohang_returns]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_wait_seeded_children]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_wait_last_reaped_pid]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_wait_last_status]
+    call smoke_write_hex32
     mov al, ' '
     stosb
 
@@ -13674,6 +13848,31 @@ write_smoke_status:
     mov edx, [sb16_music_pull_refill_count]
     call smoke_write_hex32
 
+    mov esi, smoke_musicrend_text
+    call smoke_copy_string
+    mov edx, [sb16_music_render_format]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_music_render_chunk_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_music_render_note_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_music_render_event_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_music_render_active_peak]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [sb16_music_render_sample_count]
+    call smoke_write_hex32
+
     mov esi, smoke_sb16ver_text
     call smoke_copy_string
     movzx edx, byte [sb16_major_version]
@@ -14009,6 +14208,15 @@ write_smoke_status:
     mov edx, [scheduler_last_preempt_to_pid]
     call smoke_write_hex32
 
+    mov esi, smoke_pkind_text
+    call smoke_copy_string
+    mov edx, [scheduler_last_preempt_from_kind]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [scheduler_last_preempt_to_kind]
+    call smoke_write_hex32
+
     mov esi, smoke_peip_text
     call smoke_copy_string
     mov edx, [scheduler_last_preempt_from_eip]
@@ -14016,6 +14224,24 @@ write_smoke_status:
     mov al, ':'
     stosb
     mov edx, [scheduler_last_preempt_to_eip]
+    call smoke_write_hex32
+
+    mov esi, smoke_pcr3_text
+    call smoke_copy_string
+    mov edx, [scheduler_last_preempt_from_cr3]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [scheduler_last_preempt_to_cr3]
+    call smoke_write_hex32
+
+    mov esi, smoke_pkstk_text
+    call smoke_copy_string
+    mov edx, [scheduler_last_preempt_from_kstack]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [scheduler_last_preempt_to_kstack]
     call smoke_write_hex32
 
     mov esi, smoke_pspin_text
@@ -14769,6 +14995,10 @@ smoke_exec_envp_ptr_text db " envp=", 0
 smoke_exec_argv_text db " argv0=", 0
 smoke_exec_envp0_text db " envp0=", 0
 smoke_exec_argvsrc_text db " argvsrc=", 0
+smoke_procpool_text db " procpool=", 0
+smoke_pidseq_text db " pidseq=", 0
+smoke_fdexec_text db " fdexec=", 0
+smoke_pwait_text db " wait=", 0
 smoke_doom_text db "doom=", 0
 smoke_doomrun_text db " doomrun=", 0
 smoke_doomexit_text db " doomexit=", 0
@@ -14867,6 +15097,7 @@ smoke_musicunder_text db " musicunder=", 0
 smoke_musicdrops_text db " musicdrops=", 0
 smoke_musicstream_text db " musicstream=", 0
 smoke_musicpull_text db " musicpull=", 0
+smoke_musicrend_text db " musicrend=", 0
 smoke_sb16ver_text db " sb16=", 0
 smoke_dmaprog_text db " dma=", 0
 smoke_play_text db " play=", 0
@@ -14912,7 +15143,10 @@ smoke_pround_text db " pround=", 0
 smoke_pctx_text db " pctx=", 0
 smoke_pfrom_text db " pfrom=", 0
 smoke_pto_text db " pto=", 0
+smoke_pkind_text db " pkind=", 0
 smoke_peip_text db " peip=", 0
+smoke_pcr3_text db " pcr3=", 0
+smoke_pkstk_text db " pkstk=", 0
 smoke_pspin_text db " pspin=", 0
 smoke_pself_text db " pself=", 0
 smoke_status_text db " ", 0
@@ -15420,8 +15654,14 @@ scheduler_preempt_skips dd 0
 scheduler_user_irq_ticks dd 0
 scheduler_last_preempt_from_pid dd 0xffffffff
 scheduler_last_preempt_to_pid dd 0xffffffff
+scheduler_last_preempt_from_kind dd 0
+scheduler_last_preempt_to_kind dd 0
 scheduler_last_preempt_from_eip dd 0
 scheduler_last_preempt_to_eip dd 0
+scheduler_last_preempt_from_cr3 dd 0
+scheduler_last_preempt_to_cr3 dd 0
+scheduler_last_preempt_from_kstack dd 0
+scheduler_last_preempt_to_kstack dd 0
 scheduler_preempt_probe_ready dd 0
 scheduler_preempt_spin_value dd 0
 scheduler_preempt_selftest_frame times 13 dd 0
@@ -15461,6 +15701,8 @@ process_wait_last_reaped_pid dd 0xffffffff
 process_wait_last_status dd 0
 process_wait_seen_live_child dd 0
 process_wait_nohang_returns dd 0
+process_wait_seeded_children dd 0
+process_wait_seeded_child_pid dd 0xffffffff
 doom_exit_code dd 0
 doom_fault_addr dd 0
 doom_fault_eip dd 0
@@ -15656,6 +15898,12 @@ sb16_music_stream_drop_count dd 0
 sb16_music_stream_mode dd AUDIO_MUSIC_STREAM_NONE
 sb16_music_pull_request_count dd 0
 sb16_music_pull_refill_count dd 0
+sb16_music_render_format dd 0
+sb16_music_render_chunk_count dd 0
+sb16_music_render_note_count dd 0
+sb16_music_render_event_count dd 0
+sb16_music_render_active_peak dd 0
+sb16_music_render_sample_count dd 0
 sb16_music_stream_calc_pos dd 0
 audio_sfx_desc_arg dd 0
 audio_sfx_handle_arg dd 0

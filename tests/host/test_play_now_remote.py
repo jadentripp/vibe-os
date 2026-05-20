@@ -40,6 +40,10 @@ class PlayNowRemoteTests(unittest.TestCase):
                   echo "jadentripp/vibe-os"
                   exit 0
                 fi
+                if [ "$1" = "api" ] && [[ "$*" == *"/repos/jadentripp/vibe-os"* ]] && [[ "$*" != *"/contents/"* ]]; then
+                  echo "${FAKE_REPO_DATABASE_ID:-123456789}"
+                  exit 0
+                fi
                 if [ "$1" = "api" ] && [[ "$*" == *"/repos/jadentripp/vibe-os/contents/"* ]]; then
                   if [ "${FAKE_PLAY_PAYLOAD_MISSING:-0}" = "1" ]; then
                     echo "missing play payload" >&2
@@ -172,15 +176,19 @@ class PlayNowRemoteTests(unittest.TestCase):
             "--idle-timeout \"$IDLE_TIMEOUT\"",
             "--retention-period \"$RETENTION_PERIOD\"",
             "--preflight, --dry-run",
+            "--web-url",
             "require_clean_pushed_git_state",
             "local git working tree is dirty",
             "differs from upstream",
+            "print_web_fallback_hint",
+            "codespaces_create_url",
             "play-now Codespaces preflight OK",
             "machine: ${CODESPACE_MACHINE:-default}",
             "noVNC port: $NOVNC_PORT (private)",
             "GitHub Codespaces API: accessible",
             "GitHub repo/ref: verified",
             "remote play payload: verified on selected ref",
+            "local gh Codespaces API: not required for this browser path",
             "explicit GitHub repo/ref selected; local checkout dirt is ignored",
             "clean and pushed for the inferred current branch",
             "local artifact transfer: none",
@@ -191,6 +199,8 @@ class PlayNowRemoteTests(unittest.TestCase):
             "gh codespace ports visibility \"$NOVNC_PORT:private\"",
             "gh codespace ports",
             "vnc.html?autoconnect=1",
+            ".devcontainer/play-now-welcome.sh",
+            "tools/play_now_cloud_shell.sh",
             "Delete when done: gh codespace delete -c \\\"$CODESPACE_NAME\\\" --force",
             "Codespaces runs pushed git state",
         ):
@@ -212,8 +222,13 @@ class PlayNowRemoteTests(unittest.TestCase):
                 self.assertNotIn(forbidden, script)
 
         self.assertTrue((ROOT / "tools" / "play_now_codespaces.sh").stat().st_mode & 0o111)
+        self.assertTrue((ROOT / "tools" / "play_now_cloud_shell.sh").stat().st_mode & 0o111)
+        self.assertTrue((ROOT / ".devcontainer" / "play-now-welcome.sh").stat().st_mode & 0o111)
+        devcontainer = (ROOT / ".devcontainer" / "devcontainer.json").read_text()
+        self.assertIn('"postAttachCommand": ".devcontainer/play-now-welcome.sh"', devcontainer)
         for doc in docs:
             self.assertIn("./tools/play_now_codespaces.sh", doc)
+            self.assertIn("--web-url", doc)
             self.assertIn("disposable", doc)
             self.assertIn("Codespace", doc)
 
@@ -263,6 +278,49 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertNotIn("codespace ports", log)
             self.assertIn("ls-remote --heads https://github.com/jadentripp/vibe-os.git jt/doom-gameplay-proof", git_log.read_text())
 
+    def test_codespaces_launcher_web_url_mode_does_not_need_codespaces_api_scope(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env, gh_log, git_log = self._codespaces_stub_env(tmp)
+            env["FAKE_CODESPACE_SCOPE_FAIL"] = "1"
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "tools" / "play_now_codespaces.sh"),
+                    "--web-url",
+                    "--repo",
+                    "jadentripp/vibe-os",
+                    "--ref",
+                    "jt/play-now-access-next",
+                    "--no-open",
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("play-now browser Codespaces path", result.stdout)
+            self.assertIn("repo: jadentripp/vibe-os", result.stdout)
+            self.assertIn("ref: jt/play-now-access-next", result.stdout)
+            self.assertIn("local gh Codespaces API: not required", result.stdout)
+            self.assertIn(
+                "https://github.com/codespaces/new?hide_repo_select=true&repo=123456789&ref=jt%2Fplay-now-access-next&devcontainer_path=.devcontainer%2Fdevcontainer.json",
+                result.stdout,
+            )
+            self.assertIn("./tools/play_now_remote.sh --preflight --require-novnc", result.stdout)
+            self.assertIn("./tools/play_now_remote.sh --require-novnc", result.stdout)
+            self.assertIn("/vnc.html?autoconnect=1", result.stdout)
+            self.assertIn("dry-run: Codespace was not created or modified", result.stdout)
+            self.assertEqual(result.stderr, "")
+
+            log = gh_log.read_text()
+            self.assertIn("api -H Accept: application/vnd.github+json /repos/jadentripp/vibe-os --jq .id", log)
+            self.assertNotIn("/user/codespaces?per_page=1", log)
+            self.assertNotIn("codespace create", log)
+            self.assertNotIn("codespace ssh", log)
+            self.assertIn("ls-remote --heads https://github.com/jadentripp/vibe-os.git jt/play-now-access-next", git_log.read_text())
+
     def test_codespaces_launcher_requires_codespaces_api_scope_before_create(self):
         with tempfile.TemporaryDirectory() as tmp:
             env, gh_log, _ = self._codespaces_stub_env(tmp)
@@ -286,6 +344,9 @@ class PlayNowRemoteTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 1)
             self.assertIn("gh auth refresh -h github.com -s codespace", result.stderr)
+            self.assertIn("Browser Codespaces URL:", result.stderr)
+            self.assertIn("https://github.com/codespaces/new?hide_repo_select=true&repo=123456789&ref=jt%2Fdoom-gameplay-proof&devcontainer_path=.devcontainer%2Fdevcontainer.json", result.stderr)
+            self.assertIn("./tools/play_now_remote.sh --require-novnc", result.stderr)
             log = gh_log.read_text()
             self.assertIn("/user/codespaces?per_page=1", log)
             self.assertNotIn("codespace create", log)
@@ -568,6 +629,34 @@ class PlayNowRemoteTests(unittest.TestCase):
         self.assertIn("NOVNC_PORT must be between 1 and 65535", result.stderr)
         self.assertNotIn("Fetching/validating", result.stdout)
 
+    def test_cloud_shell_bootstrap_refuses_macos_before_remote_setup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            self._write_stub_tool(
+                bin_dir,
+                "uname",
+                "#!/usr/bin/env bash\nprintf 'Darwin\\n'\n",
+            )
+            env = os.environ.copy()
+            env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "tools" / "play_now_cloud_shell.sh"),
+                    "--preflight-only",
+                    "--no-install",
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Refusing to bootstrap a QEMU play host on macOS", result.stderr)
+            self.assertNotIn("Remote checkout:", result.stdout)
+
     def test_play_now_script_is_remote_first_and_repo_safe(self):
         script = (ROOT / "tools" / "play_now_remote.sh").read_text()
         doc = (ROOT / "docs" / "runbooks" / "play-now-cloud.md").read_text()
@@ -611,12 +700,27 @@ class PlayNowRemoteTests(unittest.TestCase):
         for needle in (
             'Fastest safe path',
             'GitHub Codespaces',
+            '--web-url',
+            'tools/play_now_cloud_shell.sh',
             'forward port',
             'VNC does not carry game audio',
             'cloud `real-wad-smoke.yml` aggregate audio proof',
         ):
             with self.subTest(needle=needle):
                 self.assertIn(needle, doc)
+
+        cloud_shell = (ROOT / "tools" / "play_now_cloud_shell.sh").read_text()
+        for needle in (
+            'Refusing to bootstrap a QEMU play host on macOS',
+            'VIBE_REF:-jt/playable-rc-next',
+            'apt-get install -y --no-install-recommends',
+            'qemu-system-x86',
+            'git clone --depth=1 --branch "$REF"',
+            './tools/play_now_remote.sh --preflight --require-novnc',
+            'exec ./tools/play_now_remote.sh --require-novnc',
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, cloud_shell)
 
     def test_runbooks_do_not_document_local_mac_vm_override(self):
         for runbook in (
