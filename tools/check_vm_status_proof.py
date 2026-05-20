@@ -251,6 +251,9 @@ def validate_preemption(fields: dict[str, str]) -> None:
     context_switches = _hex_gt(fields, "pctx")
     if context_switches < preempt:
         raise AssertionError("pctx= must be at least the preempt switch count")
+    pair_mask = _hex(fields, "pmask")
+    if (pair_mask & 0x3) != 0x3:
+        raise AssertionError("pmask= must prove Doom/preempt-probe switches in both directions")
 
     source_pid = _hex_gt(fields, "pfrom")
     target_pid = _hex_gt(fields, "pto")
@@ -347,6 +350,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         _require(text, "wait=", label)
         _require(text, "peip", label)
         _require(text, "pkind", label)
+        _require(text, "pmask", label)
         _require(text, "pcr3", label)
         _require(text, "pkstk", label)
 

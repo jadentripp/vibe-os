@@ -7793,6 +7793,7 @@ scheduler_init:
     mov dword [scheduler_last_preempt_to_cr3], 0
     mov dword [scheduler_last_preempt_from_kstack], 0
     mov dword [scheduler_last_preempt_to_kstack], 0
+    mov dword [scheduler_preempt_pair_mask], 0
     mov dword [scheduler_preempt_probe_ready], 0
     mov dword [scheduler_preempt_spin_value], 0
     mov byte [scheduler_preempt_selftest_status], 0
@@ -8646,6 +8647,22 @@ scheduler_tick:
     mov [scheduler_last_preempt_to_cr3], eax
     mov eax, [esi + PROC_KERNEL_STACK_TOP]
     mov [scheduler_last_preempt_to_kstack], eax
+    mov eax, [scheduler_last_preempt_from_kind]
+    cmp eax, USER_KIND_DOOM
+    jne .check_preempt_probe_to_doom
+    cmp dword [scheduler_last_preempt_to_kind], USER_KIND_PREEMPT_PROBE
+    jne .pair_mask_done
+    or dword [scheduler_preempt_pair_mask], 0x1
+    jmp .pair_mask_done
+
+.check_preempt_probe_to_doom:
+    cmp eax, USER_KIND_PREEMPT_PROBE
+    jne .pair_mask_done
+    cmp dword [scheduler_last_preempt_to_kind], USER_KIND_DOOM
+    jne .pair_mask_done
+    or dword [scheduler_preempt_pair_mask], 0x2
+
+.pair_mask_done:
     call process_activate
     call process_restore_irq_context
     inc dword [scheduler_preempt_switches]
@@ -14289,6 +14306,11 @@ write_smoke_status:
     mov edx, [scheduler_context_switches]
     call smoke_write_hex32
 
+    mov esi, smoke_pmask_text
+    call smoke_copy_string
+    mov edx, [scheduler_preempt_pair_mask]
+    call smoke_write_hex32
+
     mov esi, smoke_pfrom_text
     call smoke_copy_string
     mov edx, [scheduler_last_preempt_from_pid]
@@ -15233,6 +15255,7 @@ smoke_pskip_text db " pskip=", 0
 smoke_puser_text db " puser=", 0
 smoke_pround_text db " pround=", 0
 smoke_pctx_text db " pctx=", 0
+smoke_pmask_text db " pmask=", 0
 smoke_pfrom_text db " pfrom=", 0
 smoke_pto_text db " pto=", 0
 smoke_pkind_text db " pkind=", 0
@@ -15757,6 +15780,7 @@ scheduler_last_preempt_from_cr3 dd 0
 scheduler_last_preempt_to_cr3 dd 0
 scheduler_last_preempt_from_kstack dd 0
 scheduler_last_preempt_to_kstack dd 0
+scheduler_preempt_pair_mask dd 0
 scheduler_preempt_probe_ready dd 0
 scheduler_preempt_spin_value dd 0
 scheduler_preempt_selftest_frame times 13 dd 0

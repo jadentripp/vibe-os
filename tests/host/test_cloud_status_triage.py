@@ -95,6 +95,7 @@ def status_line(**overrides):
         "puser": "00000080",
         "pround": "00000018",
         "pctx": "00000020",
+        "pmask": "00000003",
         "pfrom": "00000002",
         "pto": "00000003",
         "pkind": "00000002:00000003",
@@ -412,12 +413,18 @@ class CloudStatusTriageTests(unittest.TestCase):
         self.assertIn("gtic=00000020", notes[0])
 
     def test_classifies_missing_live_preemption_after_gameplay_is_green(self):
-        primary, notes = self.classify(preempt="00000000", pirq="00000000", pspin="50524545")
+        primary, notes = self.classify(
+            preempt="00000000",
+            pirq="00000000",
+            pmask="00000000",
+            pspin="50524545",
+        )
 
         self.assertEqual(primary, "preemption-not-proven")
         rendered = "\n".join(notes)
         self.assertIn("preempt=00000000", rendered)
         self.assertIn("pirq=00000000", rendered)
+        self.assertIn("pmask=00000000", rendered)
         self.assertIn("pspin=50524545", rendered)
 
     def test_classifies_green_status_as_needing_full_proof_gates(self):

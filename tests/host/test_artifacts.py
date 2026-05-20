@@ -844,7 +844,7 @@ class SourceContractTests(unittest.TestCase):
             "mouseirq=00000001 mousepkt=00000001 mousepoll=00000001 "
             "mousebtn=00000001 mousedelta=00000018:0000000C "
             "dtick=00000059 preempt=00000001 pirq=00000001 pattempt=00000001 pskip=00000000 puser=00000004 pround=00000001 "
-            "pctx=00000004 pfrom=00000002 pto=00000003 pkind=00000002:00000003 "
+            "pctx=00000004 pmask=00000003 pfrom=00000002 pto=00000003 pkind=00000002:00000003 "
             "peip=01000000:00E80000 pcr3=00082000:00083000 pkstk=00073000:00072000 "
             "pspin=50524546 free=00700000 ticks=00000100"
         )
@@ -1026,6 +1026,7 @@ class SourceContractTests(unittest.TestCase):
             valid.replace("pirq=00000001", "pirq=00000000"),
             valid.replace("pirq=00000001", "pirq=00000002"),
             valid.replace("puser=00000004", "puser=00000000"),
+            valid.replace("pmask=00000003", "pmask=00000001"),
             valid.replace("pfrom=00000002", "pfrom=FFFFFFFF"),
             valid.replace("pto=00000003", "pto=FFFFFFFF"),
             valid.replace("pkind=00000002:00000003", "pkind=00000002:00000002"),
@@ -1500,6 +1501,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("mov [scheduler_last_preempt_to_cr3], eax", scheduler)
         self.assertIn("mov [scheduler_last_preempt_from_kstack], eax", scheduler)
         self.assertIn("mov [scheduler_last_preempt_to_kstack], eax", scheduler)
+        self.assertIn("or dword [scheduler_preempt_pair_mask], 0x1", scheduler)
+        self.assertIn("or dword [scheduler_preempt_pair_mask], 0x2", scheduler)
         self.assertIn("cmp dword [current_process_ptr], process_preempt_probe", spin_capture)
         self.assertIn("mov eax, [USER_STACK_TOP - 4]", spin_capture)
         self.assertIn("mov [scheduler_preempt_spin_value], eax", spin_capture)
@@ -1517,6 +1520,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("mov [scheduler_next_process_ptr], edi", selector)
         self.assertIn("scheduler_preempt_selftest_frame times 13 dd 0", kernel)
         self.assertIn("scheduler_preempt_selftest_status db 0", kernel)
+        self.assertIn("scheduler_preempt_pair_mask dd 0", kernel)
         self.assertIn("call scheduler_preempt_self_test", kernel)
         self.assertIn("PREEMPT_PROBE_MAGIC equ 0x50524545", user_crt0)
         self.assertIn("cmp eax, PREEMPT_PROBE_MAGIC", user_crt0)
@@ -1536,6 +1540,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('smoke_puser_text db " puser="', kernel)
         self.assertIn('smoke_peip_text db " peip="', kernel)
         self.assertIn('smoke_pkind_text db " pkind="', kernel)
+        self.assertIn('smoke_pmask_text db " pmask="', kernel)
         self.assertIn('smoke_pcr3_text db " pcr3="', kernel)
         self.assertIn('smoke_pkstk_text db " pkstk="', kernel)
         self.assertIn('smoke_pspin_text db " pspin="', kernel)

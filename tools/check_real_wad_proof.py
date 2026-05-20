@@ -129,6 +129,7 @@ HEX_FIELDS = (
     "puser",
     "pround",
     "pctx",
+    "pmask",
     "pfrom",
     "pto",
     "pspin",
@@ -225,6 +226,7 @@ SUMMARY_FIELDS = (
     "puser",
     "pround",
     "pctx",
+    "pmask",
     "pfrom",
     "pto",
     "pkind",
@@ -536,6 +538,9 @@ def _validate_core_status(status: str) -> None:
     _hex_field_gt(status, "puser", 0)
     _hex_field_gt(status, "pround", 0)
     _hex_field_gt(status, "pctx", 0)
+    pair_mask = _hex_field(status, "pmask")
+    if (pair_mask & 0x3) != 0x3:
+        raise AssertionError("pmask= must prove Doom/preempt-probe preemption in both directions")
     pfrom = _hex_field(status, "pfrom")
     pto = _hex_field(status, "pto")
     if pfrom in (0, 0xFFFFFFFF):

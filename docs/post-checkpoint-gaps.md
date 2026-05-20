@@ -413,7 +413,7 @@ Current state:
 - Timer preemption has a real Ring 3 IRQ-frame switch path: it saves the
   interrupted task, selects a different READY process record, switches CR3/TSS,
   rewrites the live interrupt frame, and reports `pirq` plus
-  `pfrom`/`pto`/`pkind`/`peip`/`pcr3`/`pkstk`/`pspin` status. The preempt
+  `pmask`/`pfrom`/`pto`/`pkind`/`peip`/`pcr3`/`pkstk`/`pspin` status. The preempt
   probe's stack sampler is guarded to run only while that process address space
   is active.
 - The VMM has a checked higher-half seed contract: `KERNEL_HIGHER_HALF_BASE` is
@@ -428,9 +428,9 @@ Current state:
   `tools/check_vm_status_proof.py` turns those fields into a cloud gate: it
   requires `vmmhfree` to match the reclaimed `vmmhpt` frame, `argvsrc=2` for
   user-vector exec, `procpool=`/`fdexec=`/`wait=` for bounded process-slot
-  reuse, exec-time fd inheritance, and the wait/reap proof, and
-  `pkind`/`peip`/`pcr3`/`pkstk` for the timer IRQ switch between Doom and the
-  preempt probe.
+  reuse, exec-time fd inheritance, and the wait/reap proof, and `pmask` plus
+  `pkind`/`peip`/`pcr3`/`pkstk` for timer IRQ switches in both directions
+  between Doom and the preempt probe.
 
 Still missing:
 

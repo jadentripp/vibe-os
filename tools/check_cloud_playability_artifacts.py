@@ -689,6 +689,7 @@ def validate_repo_contract() -> None:
     _require(playable, "default branch", "playable cloud proof doc")
     _require(playable, "puser", "playable cloud proof doc")
     _require(playable, "pkind", "playable cloud proof doc")
+    _require(playable, "pmask", "playable cloud proof doc")
     _require(playable, "pcr3", "playable cloud proof doc")
     _require(playable, "pkstk", "playable cloud proof doc")
     _require(playable, "pspin", "playable cloud proof doc")

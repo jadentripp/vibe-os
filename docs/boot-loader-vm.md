@@ -84,10 +84,10 @@ The status proof is now executable:
 requires that `vmmhfree` match the reclaimed dynamic page table, that the Doom
 handoff report `argvsrc=2`, that `procpool=`, `fdexec=`, and `wait=` expose
 bounded slot reuse, exec-time fd inheritance, and the wait/reap proof, and that
-`pkind`/`peip`/`pcr3`/`pkstk` show an IRQ switch between Doom and the preempt
-probe with distinct address spaces and kernel stacks. It is a cloud artifact
-checker, not a claim that the running kernel has already moved to higher-half
-virtual addresses.
+`pmask` plus `pkind`/`peip`/`pcr3`/`pkstk` show IRQ switches in both directions
+between Doom and the preempt probe with distinct address spaces and kernel
+stacks. It is a cloud artifact checker, not a claim that the running kernel has
+already moved to higher-half virtual addresses.
 
 User processes get separate page directories. Those directories start as clones
 of the supervisor kernel map, then replace only the user windows with private

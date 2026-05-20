@@ -36,9 +36,9 @@ rejects status artifacts unless `vmmhfree` equals the dynamic `vmmhpt` frame,
 the high alias is backed by a distinct PMM-managed physical frame, the Doom
 launch used `argvsrc=2` from a user argv-vector exec path, `procpool=`,
 `fdexec=`, and `wait=` prove bounded slot reuse, exec-time fd inheritance, and a
-userland wait/reap path, and `pkind`, `peip`, `pcr3`, and `pkstk` show a
-timer-driven switch between Doom and the preempt probe with distinct address
-spaces and kernel stacks.
+userland wait/reap path, and `pmask`, `pkind`, `peip`, `pcr3`, and `pkstk` show
+timer-driven switches in both directions between Doom and the preempt probe with
+distinct address spaces and kernel stacks.
 
 ## Current Address Spaces
 
@@ -162,7 +162,8 @@ heap are adjacent and the Doom heap grows up to the stack bottom.
   (`peip`), selected page directories (`pcr3`), selected kernel stacks
   (`pkstk`), timer IRQs that arrived from Ring 3 (`puser`), timer-IRQ context
   switches (`pirq`), quantum rounds (`pround`), total context activations
-  (`pctx`), and live spin progress (`pspin`). The `pspin` sampler only
+  (`pctx`), the bidirectional Doom/preempt-probe pair mask (`pmask`), and live
+  spin progress (`pspin`). The `pspin` sampler only
   dereferences the preempt probe stack while `process_preempt_probe` is the
   active process, so the proof does not depend on probe pages being visible in
   Doom's page directory.
