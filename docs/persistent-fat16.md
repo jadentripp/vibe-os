@@ -112,12 +112,14 @@ agreement and reachable-cluster ownership on the mutated copy, so this is a
 host-verifiable allocation/free/truncate proof without putting a scratch file
 back into the real disk artifact.
 
-The Doom libc batches formatted `fprintf` output before issuing file writes, so
-`M_SaveDefaults()` does not spend the cloud proof window performing one disk
-syscall per character. The default real-WAD cloud workflow drives Doom's menu
-quit confirmation before snapshotting the disk, and `--write-status` keeps that
-wait honest by rejecting a `DEFAULT.CFG` proof if Doom is still running in the
-defaults writer phase.
+The Doom libc buffers formatted `fprintf` output until `fflush()` / `fclose()`,
+so `M_SaveDefaults()` does not spend the cloud proof window performing one disk
+syscall per default line. The default real-WAD cloud workflow sends the port's
+Ctrl+Alt+F12 platform quit signal before snapshotting the disk. That signal
+calls the same `I_Quit()` path as a normal Doom quit, so it still runs
+`M_SaveDefaults()` and shuts down through Doom's platform layer; `--write-status`
+keeps the wait honest by rejecting a `DEFAULT.CFG` proof if Doom is still
+running in the defaults writer phase.
 
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,

@@ -182,7 +182,10 @@ def _validate_default(fs):
     if b"\0" in data:
         raise PersistenceProofError("DEFAULT.CFG contains NUL bytes")
     if not data.endswith(b"\n"):
-        raise PersistenceProofError("DEFAULT.CFG is not newline-terminated")
+        tail = data[-1] if data else 0
+        raise PersistenceProofError(
+            f"DEFAULT.CFG is not newline-terminated (bytes={len(data)}, last=0x{tail:02X})"
+        )
     missing = [marker.decode("ascii") for marker in DEFAULT_MARKERS if marker not in data]
     if missing:
         raise PersistenceProofError(
@@ -489,6 +492,11 @@ def validate_image(
             f"free={proof['free_clusters']}"
         )
 
+    write_status_ok = False
+    if write_status_path is not None:
+        validate_default_write_status(Path(write_status_path).read_text())
+        write_status_ok = True
+
     if require_default:
         default_size = _validate_default(fs)
         _require_changed(
@@ -532,8 +540,7 @@ def validate_image(
     if reboot_status_path is not None:
         validate_reboot_status(Path(reboot_status_path).read_text())
         summary.append("reboot status runtime=OK")
-    if write_status_path is not None:
-        validate_default_write_status(Path(write_status_path).read_text())
+    if write_status_ok:
         summary.append("default write status exited=OK")
 
     if not summary:

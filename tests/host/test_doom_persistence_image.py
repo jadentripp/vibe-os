@@ -285,6 +285,24 @@ class DoomPersistenceImageTests(unittest.TestCase):
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "doomrun"):
             check_persistence.validate_default_write_status(default_write_status(doomrun="RUN"))
 
+    def test_checker_reports_write_status_failure_before_default_bytes(self):
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        image = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(image)
+        fs.write_root_file(make_wad_image.WRITABLE_DEFAULT_NAME, b"screenblocks\t\t10")
+
+        baseline_path = self.write_temp_image(baseline)
+        image_path = self.write_temp_image(image)
+        status_path = self.write_temp_text(default_write_status(doomrun="RUN"))
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "doomrun"):
+            check_persistence.validate_image(
+                image_path,
+                baseline_image=baseline_path,
+                write_status_path=status_path,
+                require_default=True,
+            )
+
     def test_checker_rejects_faulting_reboot_status(self):
         fault = reboot_status(
             doomrun="FAULT",

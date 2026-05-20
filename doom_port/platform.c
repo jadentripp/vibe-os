@@ -40,6 +40,9 @@ static int playable_origin_set;
 static int playable_origin_x;
 static int playable_origin_y;
 static int playable_initial_clip = -1;
+static int platform_quit_ctrl_down;
+static int platform_quit_alt_down;
+static int platform_quit_f12_down;
 
 #define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
 #define VIBE_MUSIC_STREAM_TICS \
@@ -107,6 +110,25 @@ static int submit_music_stream_chunk(int handle, int start_voice)
         (unsigned long)vibe_music_audio_handle(handle),
         (unsigned long)&desc);
     return 1;
+}
+
+static void track_platform_quit_signal(const vibe_doom_input_event_t* event)
+{
+    int down;
+
+    if (event->type != VIBE_DOOM_INPUT_KEYDOWN && event->type != VIBE_DOOM_INPUT_KEYUP)
+        return;
+
+    down = event->type == VIBE_DOOM_INPUT_KEYDOWN;
+    if (event->data1 == VIBE_DOOM_KEY_RCTRL)
+        platform_quit_ctrl_down = down;
+    else if (event->data1 == VIBE_DOOM_KEY_RALT)
+        platform_quit_alt_down = down;
+    else if (event->data1 == VIBE_DOOM_KEY_F12)
+        platform_quit_f12_down = down;
+
+    if (platform_quit_ctrl_down && platform_quit_alt_down && platform_quit_f12_down)
+        I_Quit();
 }
 
 static void pump_music_stream(void)
@@ -184,6 +206,7 @@ void I_StartTic(void)
         packed = vibe_syscall3(VIBE_SYS_POLL_KEY, 0, 0, 0);
         if (!vibe_doom_translate_key_event((unsigned int)packed, &translated))
             break;
+        track_platform_quit_signal(&translated);
 
         event.type = translated.type == VIBE_DOOM_INPUT_KEYDOWN ? ev_keydown : ev_keyup;
         event.data1 = translated.data1;
