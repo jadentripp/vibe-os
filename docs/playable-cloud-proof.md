@@ -40,14 +40,16 @@ The cloud proof requires these status families:
 - Storage/libc: `wad=OK`, `lmp=OK`, `doomopen=OK`, `doomread=OK`,
   `doomseek`, `doomsbrk`, `doommode`, `doomerr=00000000`,
   `doomexit=00000000`, `doomfault=00000000`, `doomfaultip=00000000`,
-  `doomfaultv=00000000`, `doomfaulterr=00000000`, `fault=0/.../0`, and
-  `doomlog` make
+  `doomfaultv=00000000`, `doomfaulterr=00000000`, `fault=0/.../0`,
+  `panic=NONE`, `shutdown=NONE`, and `doomlog` make
   WAD/FAT/syscall/process failures visible without uploading the WAD or disk
   image. On a Doom user fault, `doomfault` is CR2, `doomfaultip` is the
   faulting EIP, `doomfaultv` is the CPU exception vector, and `doomfaulterr`
   is the x86 error code. The compact `fault=` tuple records
   vector/error/eip/cs/esp/ss/cr2/pid/kind/state/last-syscall for the most
-  recent fault frame.
+  recent fault frame. `panic=KEXC` is reserved for unhandled non-Doom kernel
+  exceptions, and `shutdown=HALT`/`shutdown=REBOOT` mark intentional OS shutdown
+  paths.
 - Runtime: `gameplay=OK`, `gstate=00000000`, `gmap=00000101`, `gtic>0`, and
   `leveltime>0` prove the real engine reached E1M1 gameplay.
 - Input pipeline: `keyirq`, `keyqueue`, and `keypoll` increase from the early
@@ -66,6 +68,12 @@ The cloud proof requires these status families:
   `refill`, mixer safety counters, `mouse`,
   `mouseirq`, `mousepkt`, and `mousepoll` are required to be present and
   well-formed even when hardware is absent (`audio=NONE`, `mouse=NONE`).
+  `tools/check_audio_continuity_proof.py` is the stricter SB16 path: it compares
+  the phase snapshots using status snapshots only, requires `audio=SB16`, and
+  proves IRQ/refill, SFX, and looped music-carrier counters progressed without
+  uploading audio samples. It does not upload audio samples.
+  `tools/check_audio_continuity_proof.py` checks status snapshots only and
+  does not upload audio samples.
 - Scheduler proof: `preempt`, `pattempt`, `pskip`, and `pself=OK` expose the
   timer preemption selector and its self-test status in every cloud artifact.
 
@@ -96,6 +104,14 @@ directly.
 
    ```sh
    python3 tools/check_real_wad_proof.py \
+     --baseline build/status.early.txt \
+     --fire build/status.after-fire.txt \
+     --movement build/status.after-move.txt \
+     --use build/status.after-use.txt \
+     --menu build/status.after-menu.txt \
+     build/status.txt
+
+   python3 tools/check_audio_continuity_proof.py \
      --baseline build/status.early.txt \
      --fire build/status.after-fire.txt \
      --movement build/status.after-move.txt \

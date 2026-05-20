@@ -7,6 +7,20 @@ on:
         description: Optional URL to a DOOM1.WAD, DOOM1.WAD.gz, or zip containing DOOM1.WAD. Empty uses REAL_DOOM_WAD_URL, then the public Archive.org shareware fallback.
         required: false
         type: string
+      persistence_proof:
+        description: Also attempt a same-runner reboot persistence proof against the mutated disk image.
+        required: false
+        type: boolean
+        default: false
+      persistence_input_script:
+        description: QEMU input script for the first persistence boot. Default attempts Doom menu quit so DEFAULT.CFG is saved.
+        required: false
+        type: string
+        default: "persist-quit:esc,wait=1,up,wait=1,ret,wait=1,y,wait=2,snapshot"
+      persistence_save_slot:
+        description: Optional DOOMSAV slot number to require if the input script creates a save.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -15,10 +29,12 @@ jobs:
   smoke:
     name: Boot with validated shareware DOOM1.WAD
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     env:
       INPUT_DOOM_WAD_URL: ${{ inputs.wad_url }}
+      PERSISTENCE_INPUT_SCRIPT: ${{ inputs.persistence_input_script }}
+      PERSISTENCE_SAVE_SLOT: ${{ inputs.persistence_save_slot }}
       REAL_DOOM_WAD_URL: ${{ secrets.REAL_DOOM_WAD_URL }}
       PUBLIC_SHAREWARE_WAD_GZ_URL: https://archive.org/download/wadarchive/DATA/5b.zip/5b%2F2e249b9c5133ec987b3ea77596381dc0d6bc1d%2F5b2e249b9c5133ec987b3ea77596381dc0d6bc1d.wad.gz
       EXPECTED_WAD_SHA1: 5b2e249b9c5133ec987b3ea77596381dc0d6bc1d
@@ -108,6 +124,7 @@ jobs:
           make \
             DOOM_WAD="$WAD_PATH" \
             ALLOW_LOCAL_VM=1 \
+            QEMU_EXTRA_ARGS="-audiodev none,id=snd0 -device sb16,audiodev=snd0" \
             SMOKE_EXPECT_PROBE_GFX=0 \
             SMOKE_CAPTURE_GFX=0 \
             SMOKE_QEMU_TIMEOUT=75 \
@@ -139,6 +156,17 @@ jobs:
             --menu build/status.after-menu.txt \
             build/status.txt
 
+      - name: Assert SB16 audio continuity gates
+        if: always()
+        run: |
+          python3 tools/check_audio_continuity_proof.py \
+            --baseline build/status.early.txt \
+            --fire build/status.after-fire.txt \
+            --movement build/status.after-move.txt \
+            --use build/status.after-use.txt \
+            --menu build/status.after-menu.txt \
+            build/status.txt
+
       - name: Show smoke diagnostics
         if: always()
         run: |
@@ -148,6 +176,53 @@ jobs:
               sed -n '1,220p' "$file"
             fi
           done
+
+      - name: Attempt reboot persistence proof
+        if: ${{ inputs.persistence_proof }}
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+
+          baseline="$RUNNER_TEMP/disk.before-persistence.img"
+          check_args=(--baseline-image "$baseline" --require-default)
+          if [ -n "${PERSISTENCE_SAVE_SLOT:-}" ]; then
+            check_args+=(--require-save-slot "$PERSISTENCE_SAVE_SLOT")
+          fi
+
+          cp build/disk.img "$baseline"
+
+          mkdir -p build/persistence-write
+          QEMU=qemu-system-x86_64 \
+            QEMU_MACHINE=pc,accel=tcg \
+            QEMU_EXTRA_ARGS="-audiodev none,id=snd0 -device sb16,audiodev=snd0" \
+            IMAGE=build/disk.img \
+            BUILD_DIR=build/persistence-write \
+            NC=nc \
+            SMOKE_CAPTURE_GFX=0 \
+            SMOKE_QEMU_TIMEOUT=75 \
+            SMOKE_EARLY_SECONDS=2 \
+            SMOKE_SETTLE_SECONDS=20 \
+            SMOKE_INPUT_SCRIPT="$PERSISTENCE_INPUT_SCRIPT" \
+            tests/run_smoke_qemu.sh
+          cp build/persistence-write/status.txt build/status.persistence-write.txt
+
+          python3 tools/check_doom_persistence_image.py "${check_args[@]}" build/disk.img
+
+          mkdir -p build/persistence-reboot
+          QEMU=qemu-system-x86_64 \
+            QEMU_MACHINE=pc,accel=tcg \
+            QEMU_EXTRA_ARGS="-audiodev none,id=snd0 -device sb16,audiodev=snd0" \
+            IMAGE=build/disk.img \
+            BUILD_DIR=build/persistence-reboot \
+            NC=nc \
+            SMOKE_CAPTURE_GFX=0 \
+            SMOKE_QEMU_TIMEOUT=75 \
+            SMOKE_EARLY_SECONDS=2 \
+            SMOKE_SETTLE_SECONDS=12 \
+            tests/run_smoke_qemu.sh
+          cp build/persistence-reboot/status.txt build/status.persistence-reboot.txt
+
+          python3 tools/check_doom_persistence_image.py "${check_args[@]}" build/disk.img
 
       - name: Re-check validated WAD after smoke
         if: always()
@@ -180,3 +255,4 @@ jobs:
             build/status*.bin
             build/status*.txt
             build/*.log
+            build/persistence-*/*.log

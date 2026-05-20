@@ -79,6 +79,24 @@ class DoomSourceTests(unittest.TestCase):
         self.assertEqual(len(paths), UPSTREAM_TREE_FILE_COUNT)
         self.assertEqual(upstream_tree_sha256(), UPSTREAM_TREE_SHA256)
 
+    def test_third_party_doom_worktree_is_pristine(self):
+        result = subprocess.run(
+            [
+                "git",
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=all",
+                "--",
+                "third_party/doom",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "", result.stdout)
+
     def test_linuxdoom_tree_is_the_real_engine_drop(self):
         source_files = sorted(DOOM_SRC.glob("*.c"))
         header_files = sorted(DOOM_SRC.glob("*.h"))
@@ -144,6 +162,21 @@ class DoomSourceTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_repo_hygiene_scans_for_shortcut_runtime_paths(self):
+        checker = (ROOT / "tools" / "check_repo_hygiene.py").read_text()
+        for token in (
+            "vendor_tree_status",
+            "FORBIDDEN_RUNTIME_CONTENT",
+            "RUNTIME_SOURCE_PREFIXES",
+            "third_party/doom must remain a pristine vendor tree",
+            "runtime/build source references",
+            "shortcut Doom engine or host API token",
+            "sdl_init",
+            "xopendisplay",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token.lower(), checker.lower())
 
     def test_original_doom_links_against_vibe_os_platform_layer(self):
         data = DOOM_ELF.read_bytes()

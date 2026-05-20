@@ -103,6 +103,18 @@ Mixer safety is smoke-visible. `mixclip` counts left/right output clipping,
 counts bounded voice replacement, and the clamp counters show bad or extreme
 caller parameters that had to be made safe before mixing.
 
+Remote-safe continuity proof:
+
+`tools/check_audio_continuity_proof.py` consumes only decoded status snapshots:
+`status.early.txt`, `status.after-fire.txt`, `status.after-move.txt`,
+`status.after-use.txt`, `status.after-menu.txt`, and `status.txt`. It requires
+`audio=SB16` in every snapshot, monotonic audio counters, increasing IRQ/refill,
+SFX, and music-mix counters, nonzero SB16 ACK accounting, and a nonzero
+`musicloop=` count. That proves the emulated SB16 guest path continued to refill
+and mix across time without uploading proprietary WAD data, PCM samples, or
+rendered pixels. A run with `audio=NONE` is still useful diagnostics, but it is
+not an audible/streaming audio proof.
+
 Doom music:
 
 Music is now owned by isolated Doom port code instead of kernel assembly or the
@@ -135,6 +147,10 @@ Remaining gaps:
   balancing once the kernel owns streaming.
 - Local `make test` stays host-only and does not launch QEMU; VM smoke remains
   behind the explicit repo-owned `ALLOW_LOCAL_VM=1` opt-in.
+
+The cloud-safe continuity gate is `tools/check_audio_continuity_proof.py`. It
+checks status snapshots only: `audio=SB16`, IRQ/refill progress, SFX mixing, and
+the looped PCM carrier counters must move across the scripted cloud phases.
 
 Fallback plan:
 

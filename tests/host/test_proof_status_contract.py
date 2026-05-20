@@ -43,6 +43,8 @@ def status_line(**overrides):
         "doomfaultv": "00000000",
         "doomfaulterr": "00000000",
         "fault": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
+        "panic": "NONE",
+        "shutdown": "NONE",
         "doommode": "00000000:00000000",
         "doomlog": "ready",
         "doompresent": "00000308",
@@ -170,6 +172,8 @@ class ProofStatusContractTests(unittest.TestCase):
             status_line(doomfaultv="0000000D"),
             status_line(doomfaulterr="00000004"),
             status_line(fault="0000000E/00000004/0102F190/0000001B/0100FFE0/00000023/018F0000/00000002/00000002/00000001/00000003"),
+            status_line(panic="KEXC"),
+            status_line(shutdown="HALT"),
             status_line() + " keyirq=00000005",
         )
         for status in invalid:

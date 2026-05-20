@@ -41,6 +41,8 @@ EXACT_FIELDS = {
     "wad": "OK",
     "lmp": "OK",
     "heap": "OK",
+    "panic": "NONE",
+    "shutdown": "NONE",
 }
 
 HEX_FIELDS = (
@@ -118,6 +120,8 @@ SUMMARY_FIELDS = (
     "doomfaultv",
     "doomfaulterr",
     "fault",
+    "panic",
+    "shutdown",
     "gameplay",
     "gstate",
     "gmap",

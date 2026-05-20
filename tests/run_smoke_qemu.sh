@@ -4,6 +4,7 @@ set -u
 BUILD_DIR="${BUILD_DIR:-build}"
 QEMU="${QEMU:-qemu-system-x86_64}"
 QEMU_MACHINE="${QEMU_MACHINE:-pc,accel=tcg}"
+QEMU_EXTRA_ARGS="${QEMU_EXTRA_ARGS:-}"
 IMAGE="${IMAGE:-$BUILD_DIR/disk.img}"
 NC="${NC:-nc}"
 SMOKE_NC_TIMEOUT="${SMOKE_NC_TIMEOUT:-3}"
@@ -21,6 +22,7 @@ monitor_log="$BUILD_DIR/monitor.log"
 qemu_log="$BUILD_DIR/qemu.log"
 serial_log="$BUILD_DIR/serial.log"
 qemu_pid=""
+qemu_extra_args=()
 deadline=0
 failing=0
 
@@ -316,7 +318,11 @@ wait_for_shutdown() {
 trap cleanup EXIT INT TERM
 
 deadline=$(( $(now_s) + SMOKE_QEMU_TIMEOUT ))
-log "Starting QEMU smoke: timeout=${SMOKE_QEMU_TIMEOUT}s early=${SMOKE_EARLY_SECONDS}s settle=${SMOKE_SETTLE_SECONDS}s capture_gfx=${SMOKE_CAPTURE_GFX}."
+if [ -n "$QEMU_EXTRA_ARGS" ]; then
+  # Extra smoke arguments are repo-owned cloud knobs such as the SB16 no-audio backend.
+  qemu_extra_args=( $QEMU_EXTRA_ARGS )
+fi
+log "Starting QEMU smoke: timeout=${SMOKE_QEMU_TIMEOUT}s early=${SMOKE_EARLY_SECONDS}s settle=${SMOKE_SETTLE_SECONDS}s capture_gfx=${SMOKE_CAPTURE_GFX} extra_args=${QEMU_EXTRA_ARGS:-<none>}."
 "$QEMU" \
   -machine "$QEMU_MACHINE" \
   -drive "file=$IMAGE,format=raw,if=ide,index=0,media=disk" \
@@ -326,6 +332,7 @@ log "Starting QEMU smoke: timeout=${SMOKE_QEMU_TIMEOUT}s early=${SMOKE_EARLY_SEC
   -monitor "unix:$monitor_sock,server,nowait" \
   -no-reboot \
   -no-shutdown \
+  "${qemu_extra_args[@]}" \
   > "$qemu_log" 2>&1 &
 qemu_pid=$!
 printf '%s\n' "$qemu_pid" > "$BUILD_DIR/qemu.pid"

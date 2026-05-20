@@ -198,8 +198,8 @@ ELF_PF_R equ 0x4
 USER_ELF_LOAD_ADDR equ 0x00e40000
 USER_ELF_MAX_BYTES equ 0x00020000
 USER_CODE_ADDR equ 0x00e80000
-USER_STACK_BOTTOM equ 0x00e81000
-USER_STACK_TOP equ 0x00e82000
+USER_STACK_BOTTOM equ 0x00e90000
+USER_STACK_TOP equ 0x00ea0000
 USER_HEAP_START equ USER_STACK_TOP
 USER_HEAP_END equ 0x00f00000
 USER_PROBE_EXPECTED_FLAGS equ 0x000007ff
@@ -294,6 +294,11 @@ EXCEPTION_FRAME_EFLAGS equ 16
 EXCEPTION_FRAME_ESP equ 20
 EXCEPTION_FRAME_SS equ 24
 EXPECTED_FAULT_INSTRUCTION_BYTES equ 2
+PANIC_NONE equ 0
+PANIC_UNHANDLED_EXCEPTION equ 1
+SHUTDOWN_NONE equ 0
+SHUTDOWN_HALT equ 1
+SHUTDOWN_REBOOT equ 2
 STAT_ST_MODE equ 8
 STAT_ST_NLINK equ 12
 STAT_ST_SIZE equ 28
@@ -1124,12 +1129,16 @@ handle_command:
 .reboot:
     mov esi, reboot_message
     call print_string
+    mov dword [shutdown_state], SHUTDOWN_REBOOT
+    call write_smoke_status
     call keyboard_controller_reboot
     ret
 
 .halt:
     mov esi, halt_message
     call print_string
+    mov dword [shutdown_state], SHUTDOWN_HALT
+    call write_smoke_status
 
 .halt_loop:
     cli
@@ -9287,6 +9296,13 @@ exception_common:
 .not_expected_user_fault:
     cmp byte [current_user_kind], USER_KIND_DOOM
     je doom_user_fault
+    mov ax, DATA_SEG
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov dword [panic_status], PANIC_UNHANDLED_EXCEPTION
+    call write_smoke_status
     cli
 
 .halt:
@@ -9633,6 +9649,38 @@ write_smoke_status:
     stosb
     mov edx, [fault_last_syscall]
     call smoke_write_hex32
+
+    mov esi, smoke_panic_text
+    call smoke_copy_string
+    cmp dword [panic_status], PANIC_UNHANDLED_EXCEPTION
+    je .panic_unhandled_exception
+    mov esi, smoke_none_text
+    jmp .panic_write
+
+.panic_unhandled_exception:
+    mov esi, smoke_kexc_text
+
+.panic_write:
+    call smoke_copy_string
+
+    mov esi, smoke_shutdown_text
+    call smoke_copy_string
+    cmp dword [shutdown_state], SHUTDOWN_HALT
+    je .shutdown_halt
+    cmp dword [shutdown_state], SHUTDOWN_REBOOT
+    je .shutdown_reboot
+    mov esi, smoke_none_text
+    jmp .shutdown_write
+
+.shutdown_halt:
+    mov esi, smoke_halt_text
+    jmp .shutdown_write
+
+.shutdown_reboot:
+    mov esi, smoke_reboot_text
+
+.shutdown_write:
+    call smoke_copy_string
 
     mov esi, smoke_doomopen_text
     call smoke_copy_string
@@ -10654,6 +10702,8 @@ smoke_doomfaultip_text db " doomfaultip=", 0
 smoke_doomfaultv_text db " doomfaultv=", 0
 smoke_doomfaulterr_text db " doomfaulterr=", 0
 smoke_faultframe_text db " fault=", 0
+smoke_panic_text db " panic=", 0
+smoke_shutdown_text db " shutdown=", 0
 smoke_doomopen_text db " doomopen=", 0
 smoke_doomread_text db " doomread=", 0
 smoke_doomwrite_text db " doomwrite=", 0
@@ -10724,6 +10774,9 @@ smoke_mode13_text db "M13", 0
 smoke_lfb_text db "LFB", 0
 smoke_sb16_text db "SB16", 0
 smoke_none_text db "NONE", 0
+smoke_kexc_text db "KEXC", 0
+smoke_halt_text db "HALT", 0
+smoke_reboot_text db "REBOOT", 0
 heap_status_gap db " ", 0
 ok_text db "OK", 13, 10, 0
 fail_text db "FAIL", 13, 10, 0
@@ -11074,6 +11127,8 @@ fault_pid dd 0
 fault_kind dd 0
 fault_state dd 0
 fault_last_syscall dd 0
+panic_status dd 0
+shutdown_state dd 0
 user_wad_magic_seen dd 0
 user_brk_current dd 0
 current_pid dd 0

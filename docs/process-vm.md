@@ -22,7 +22,7 @@ read/execute-only pages can be re-marked without it.
 
 `process_user_probe` owns:
 
-- packed code/data: `USER_CODE_ADDR` through `USER_STACK_BOTTOM`
+- loaded code/rodata/data: `USER_CODE_ADDR` through `USER_STACK_BOTTOM`
 - stack: `USER_STACK_BOTTOM` through `USER_STACK_TOP`
 - heap: `USER_HEAP_START` through the current probe `brk`
 - page directory: `PROC_PROBE_PAGE_DIR_ADDR`
@@ -77,19 +77,20 @@ ELF prepare path reads each `PT_LOAD` program header's `p_flags` and marks pages
 without `ELF_PF_W` as user-readable but not writable. Writable segments, stacks,
 and pages newly exposed by `SYS_SBRK` are marked with `PTE_WRITE`.
 
-The repo linker emits separate `PT_LOAD` groups for executable, read-only, and
-writable allocated sections where those groups exist. Text-bearing segments are
-`PF_R|PF_X` and omit `PF_W`, while data and bss are carried by `PF_R|PF_W`
-segments. The user ELF prepare paths honor those flags when marking process
-pages, so text pages no longer need to remain writable just because data exists
-in the same executable.
+The repo linker emits separate page-aligned `PT_LOAD` groups for executable,
+read-only, and writable allocated sections where those groups exist. The probe
+image window is deliberately larger than one page so the loader accepts that
+real linker shape before the stack starts. Text-bearing segments are `PF_R|PF_X`
+and omit `PF_W`, while data and bss are carried by `PF_R|PF_W` segments. The user
+ELF prepare paths honor those flags when marking process pages, so text pages no
+longer need to remain writable just because data exists in the same executable.
 
 ## Guards
 
 The probe process clears a not-present guard page immediately before
 `USER_CODE_ADDR` and immediately after `USER_HEAP_END`. Doom's post-window guard
-is the unmapped PDE after `DOOM_USER_END`. More precise stack red zones are
-still blocked by the current packed user layouts, where the probe stack and heap
+is the unmapped PDE after `DOOM_USER_END`. More precise stack red zones are still
+blocked by the current compact user layouts, where each process stack and heap
 are adjacent and the Doom heap grows up to the stack bottom.
 
 ## Remaining Gaps

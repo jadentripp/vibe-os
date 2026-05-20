@@ -97,9 +97,15 @@ Current state:
   refusal, and libc save/config file modes without launching QEMU.
 - `tools/check_doom_persistence_image.py` can inspect a mutated remote image and
   require Doom-shaped `DEFAULT.CFG` text plus a `DOOMSAVN.DSG` save header
-  without exporting the WAD or rendered pixels.
+  without exporting the WAD or rendered pixels. With `--baseline-image`, it also
+  requires the requested entries to differ from the fresh pre-boot image, so
+  host-preseeded bytes do not count as a persistence proof.
 - The kernel implements FAT16 cluster allocation/free/truncate over the disk
   image, so the storage layer is no longer a read-only WAD loader.
+- The real-WAD workflow has an opt-in `persistence_proof` path that keeps the
+  disk image inside the disposable runner, boots once to attempt a Doom quit/save
+  script, runs the image checker, boots the same mutated image again, and runs
+  the checker again.
 
 Still missing:
 
@@ -109,11 +115,13 @@ Still missing:
 
 Executable gate:
 
-- Add a persistence probe mode or deterministic Doom menu script that writes a
-  save/config file, preserves the mutated disk image inside the disposable cloud
-  runner, boots it again, verifies the bytes through OS file syscalls, and then
-  runs `python3 tools/check_doom_persistence_image.py --require-default
-  --require-save-slot N build/disk.img` on that remote image before deleting it.
+- Run the opt-in `persistence_proof` cloud path with a deterministic Doom menu
+  script that writes `DEFAULT.CFG`, and optionally `DOOMSAVN.DSG`; archive only
+  status/log diagnostics, not the disk image. If it fails to drive the menu,
+  finish the same flow through the remote VNC runbook and then run
+  `python3 tools/check_doom_persistence_image.py --baseline-image
+  /tmp/vibe-os-disk.before-persistence.img --require-default --require-save-slot
+  N build/disk.img` on that remote image before deleting it.
 
 - `GAP[AUDIO] status=open category=audio gate=remote-sb16-audible-proof evidence=audio-status`
 
@@ -132,12 +140,17 @@ Still missing:
 - Music renders bounded PCM windows and loops that carrier rather than advancing
   a long-running MUS/MIDI pull/refill stream; balancing between music and SFX
   still needs real playback tuning.
+- A new `tools/check_audio_continuity_proof.py` gate can validate `audio=SB16`,
+  IRQ/refill, SFX, and looped music-carrier counter progression across status
+  snapshots without capturing audio bytes, but it still needs a current remote
+  artifact to pass.
 
 Executable gate:
 
-- Add a remote SB16 validation run that captures status counters plus a safe audio
-  observation, then harden the stream path so long music playback does not rely on
-  a single pre-rendered window.
+- Run the remote SB16 continuity checker against a real-WAD cloud artifact, then
+  add separate host audio forwarding or listener proof before calling it
+  audible. Harden the stream path so long music playback does not rely on a
+  single pre-rendered window.
 
 - `GAP[VM_POSIX] status=open category=vm-posix gate=vm-posix-contract evidence=host-and-cloud-tests`
 
@@ -173,22 +186,31 @@ Current state:
   `doomfaulterr=`, the latest trap frame is visible through `fault=`, and Doom
   startup text is tailed into `doomlog=`.
 - The interactive shell has `halt` and PS/2-controller `reboot` commands.
+- Unhandled non-Doom exceptions set `panic=KEXC`, preserve the latest
+  `fault=vector/error/eip/cs/esp/ss/cr2/pid/kind/state/syscall` tuple, write the
+  smoke status block, and then halt. Shell `halt` and `reboot` record
+  `shutdown=HALT` or `shutdown=REBOOT` before stopping/rebooting.
+- `tools/check_vm_safety_contract.py` machine-checks the local-QEMU opt-in,
+  cloud diagnostic upload hygiene, panic status fields, and shutdown status
+  fields without launching QEMU.
 
 Still missing:
 
 - The cloud smoke runner uses QEMU `-no-reboot -no-shutdown` and exits through
   the QEMU monitor `quit` command. There is no cloud proof that an OS-requested
   reboot, shutdown, or ACPI poweroff works end to end.
-- Arbitrary kernel exceptions still fall into `exception_halt` without a rich
-  panic record in the status block. A fatal kernel crash before the status block
-  is updated may only be visible through serial/QEMU logs.
+- There is no disposable-cloud proof that intentionally triggers a kernel panic
+  and captures `panic=KEXC` from the RAM status block. A fatal crash before the
+  exception handler can update status may only be visible through serial/QEMU
+  logs.
 
 Executable gate:
 
 - Add an explicit reboot/shutdown proof mode in a disposable cloud runner, or add
   an ACPI poweroff path and assert QEMU exits for that reason.
-- Add a compact panic record with vector, error code, EIP, CR2, and current
-  process kind, then make the smoke runner decode and upload it as text.
+- Add an explicit disposable panic proof mode that forces a kernel exception,
+  captures `panic=KEXC`, `shutdown=NONE`, and the compact `fault=` record, and
+  uploads only status/log diagnostics.
 
 - `GAP[HARDWARE_LIMITS] status=open category=hardware-limits gate=hardware-matrix evidence=compatibility-notes`
 

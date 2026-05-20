@@ -66,6 +66,50 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertIn("description='VIBE SAVE'", summary[1])
         self.assertIn("version='version 110'", summary[1])
 
+    def test_checker_proves_requested_entries_changed_from_baseline_image(self):
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        image = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(image)
+        fs.write_root_file(
+            make_wad_image.WRITABLE_DEFAULT_NAME,
+            b"use_mouse\t\t1\nscreenblocks\t\t9\nchatmacro0\t\t\"HELLO\"\n",
+        )
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], doom_save_payload("REBOOT PROOF"))
+
+        baseline_path = self.write_temp_image(baseline)
+        image_path = self.write_temp_image(image)
+        summary = check_persistence.validate_image(
+            image_path,
+            baseline_image=baseline_path,
+            require_default=True,
+            require_save_slots=[0],
+        )
+
+        self.assertIn("DEFAULT.CFG bytes=", summary[0])
+        self.assertIn("changed-from-baseline", summary[0])
+        self.assertIn("DOOMSAV0.DSG bytes=", summary[1])
+        self.assertIn("changed-from-baseline", summary[1])
+        self.assertIn("REBOOT PROOF", summary[1])
+
+    def test_checker_rejects_baseline_comparison_without_requested_entries(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        path = self.write_temp_image(image)
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "requires --require-default"):
+            check_persistence.validate_image(path, baseline_image=path)
+
+    def test_checker_rejects_requested_entry_unchanged_from_baseline(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        fs.write_root_file(
+            make_wad_image.WRITABLE_DEFAULT_NAME,
+            b"use_mouse\t\t1\nscreenblocks\t\t9\n",
+        )
+        path = self.write_temp_image(image)
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "DEFAULT.CFG did not change"):
+            check_persistence.validate_image(path, baseline_image=path, require_default=True)
+
     def test_checker_rejects_empty_default_or_non_doom_save(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
         fs = make_wad_image.Fat16Image(image)

@@ -5,6 +5,7 @@ CLANG ?= clang
 NC ?= nc
 QEMU_ACCEL ?= tcg
 QEMU_MACHINE := pc,accel=$(QEMU_ACCEL)
+QEMU_EXTRA_ARGS ?=
 ALLOW_LOCAL_VM ?= 0
 DOOM_WAD ?=
 SMOKE_EXPECT_PROBE_GFX ?= 1
@@ -16,6 +17,7 @@ SMOKE_REQUIRE_KEY_EVENT ?= 0
 SMOKE_REQUIRE_DOOM_GAMEPLAY ?= 0
 SMOKE_REQUIRE_REAL_WAD_PROOF ?= 0
 SMOKE_REQUIRE_HUMAN_PLAYABILITY_PROOF ?= 0
+SMOKE_REQUIRE_AUDIO_CONTINUITY ?= 0
 SMOKE_SKIP_ASSERTIONS ?= 0
 SMOKE_NC_TIMEOUT ?= 3
 SMOKE_QEMU_TIMEOUT ?= 30
@@ -23,6 +25,9 @@ SMOKE_EARLY_SECONDS ?= 2
 SMOKE_SETTLE_SECONDS ?= 5
 SMOKE_SHUTDOWN_TIMEOUT ?= 5
 SMOKE_CAPTURE_GFX ?= 1
+PERSISTENCE_BASELINE_IMAGE ?=
+PERSISTENCE_REQUIRE_DEFAULT ?= 0
+PERSISTENCE_REQUIRE_SAVE_SLOT ?=
 
 BUILD_DIR := build
 STAGE1_BIN := $(BUILD_DIR)/stage1.bin
@@ -52,7 +57,7 @@ STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 65536
 USER_PROBE_ELF_MAX_BYTES := 12288
 
-.PHONY: all build-only test doom-compile doom-link run run-headless smoke playability-gap-check cloud-playability-check clean check-tools vm-consent
+.PHONY: all build-only test doom-compile doom-link run run-headless smoke playability-gap-check vm-safety-check audio-continuity-check cloud-playability-check persistence-image-check clean check-tools vm-consent
 
 all: $(IMAGE)
 
@@ -141,6 +146,7 @@ run-headless: vm-consent check-tools $(IMAGE)
 smoke: vm-consent check-tools $(IMAGE)
 	@QEMU="$(QEMU)" \
 		QEMU_MACHINE="$(QEMU_MACHINE)" \
+		QEMU_EXTRA_ARGS="$(QEMU_EXTRA_ARGS)" \
 		IMAGE="$(IMAGE)" \
 		BUILD_DIR="$(BUILD_DIR)" \
 		NC="$(NC)" \
@@ -184,7 +190,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "wad=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "lmp=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "exec=OK" $(BUILD_DIR)/status.txt; \
-	grep -q "path=DOOM.ELF" $(BUILD_DIR)/status.txt; \
+		grep -q "path=DOOM.ELF" $(BUILD_DIR)/status.txt; \
 		grep -q "doom=OK" $(BUILD_DIR)/status.txt; \
 		grep -Eq "doomrun=(RUN|EXIT)" $(BUILD_DIR)/status.txt; \
 		grep -q "doomexit=" $(BUILD_DIR)/status.txt; \
@@ -193,6 +199,8 @@ smoke: vm-consent check-tools $(IMAGE)
 		grep -q "doomfaultv=" $(BUILD_DIR)/status.txt; \
 		grep -q "doomfaulterr=" $(BUILD_DIR)/status.txt; \
 		grep -q " fault=" $(BUILD_DIR)/status.txt; \
+		grep -Eq "panic=(NONE|KEXC)" $(BUILD_DIR)/status.txt; \
+		grep -Eq "shutdown=(NONE|HALT|REBOOT)" $(BUILD_DIR)/status.txt; \
 		grep -q "doomopen=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "doomread=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "doomwrite=" $(BUILD_DIR)/status.txt; \
@@ -289,6 +297,14 @@ smoke: vm-consent check-tools $(IMAGE)
 		if [ -f "$(BUILD_DIR)/status.after-menu.txt" ]; then human_args="$$human_args --menu $(BUILD_DIR)/status.after-menu.txt"; fi; \
 		$(PYTHON) tools/check_human_playability_proof.py $$human_args $(BUILD_DIR)/status.txt; \
 	fi; \
+	if [ "$(SMOKE_REQUIRE_AUDIO_CONTINUITY)" = "1" ]; then \
+		audio_args="--baseline $(BUILD_DIR)/status.early.txt"; \
+		if [ -f "$(BUILD_DIR)/status.after-fire.txt" ]; then audio_args="$$audio_args --fire $(BUILD_DIR)/status.after-fire.txt"; fi; \
+		if [ -f "$(BUILD_DIR)/status.after-move.txt" ]; then audio_args="$$audio_args --movement $(BUILD_DIR)/status.after-move.txt"; fi; \
+		if [ -f "$(BUILD_DIR)/status.after-use.txt" ]; then audio_args="$$audio_args --use $(BUILD_DIR)/status.after-use.txt"; fi; \
+		if [ -f "$(BUILD_DIR)/status.after-menu.txt" ]; then audio_args="$$audio_args --menu $(BUILD_DIR)/status.after-menu.txt"; fi; \
+		$(PYTHON) tools/check_audio_continuity_proof.py $$audio_args $(BUILD_DIR)/status.txt; \
+	fi; \
 	if [ -n "$(SMOKE_SENDKEYS)" ] || [ "$(SMOKE_REQUIRE_KEY_EVENT)" = "1" ]; then \
 		perl -ne '$$ok = 1 if /keyirq=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 		perl -ne '$$ok = 1 if /keyqueue=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
@@ -302,8 +318,22 @@ smoke: vm-consent check-tools $(IMAGE)
 playability-gap-check:
 	$(PYTHON) tools/check_playability_gap_ledger.py
 
-cloud-playability-check: playability-gap-check
+vm-safety-check:
+	$(PYTHON) tools/check_vm_safety_contract.py
+
+audio-continuity-check:
+	$(PYTHON) tools/check_audio_continuity_proof.py --repo-contract
+
+cloud-playability-check: playability-gap-check vm-safety-check audio-continuity-check
 	$(PYTHON) tools/check_cloud_playability_artifacts.py --repo-contract
+
+persistence-image-check: $(IMAGE)
+	@set -e; \
+	args=""; \
+	if [ -n "$(PERSISTENCE_BASELINE_IMAGE)" ]; then args="$$args --baseline-image $(PERSISTENCE_BASELINE_IMAGE)"; fi; \
+	if [ "$(PERSISTENCE_REQUIRE_DEFAULT)" = "1" ]; then args="$$args --require-default"; fi; \
+	for slot in $(PERSISTENCE_REQUIRE_SAVE_SLOT); do args="$$args --require-save-slot $$slot"; done; \
+	$(PYTHON) tools/check_doom_persistence_image.py $$args "$(IMAGE)"
 
 clean:
 	rm -rf $(BUILD_DIR)

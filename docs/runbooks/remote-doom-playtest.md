@@ -47,7 +47,8 @@ socket:
 mkdir -p build
 qemu-system-x86_64 \
   -machine pc,accel=tcg \
-  -device sb16 \
+  -audiodev none,id=snd0 \
+  -device sb16,audiodev=snd0 \
   -drive file=build/disk.img,format=raw,if=ide,index=0,media=disk \
   -boot c \
   -display vnc=127.0.0.1:1 \
@@ -87,11 +88,16 @@ Expected mouse behavior:
 
 Expected audio behavior:
 
-- `-device sb16` exposes the intended Sound Blaster 16 target to the guest.
+- `-audiodev none,id=snd0 -device sb16,audiodev=snd0` exposes the intended
+  Sound Blaster 16 target to the guest while discarding audio bytes on the
+  disposable remote host.
 - Status should report `audio=SB16` when the probe succeeds and `audio=NONE`
   when the remote QEMU/audio setup does not expose the device.
 - VNC does not carry audio. Treat sound as status/counter proof unless you also
   configure remote audio forwarding on the disposable host.
+- Run `tools/check_audio_continuity_proof.py` on the downloaded status snapshots.
+  It proves SB16 IRQ/refill, SFX, and looped music-carrier counters progressed;
+  it does not upload audio samples or prove a human heard sound.
 
 ## Status Capture
 
@@ -142,6 +148,14 @@ python3 tools/check_human_playability_proof.py \
   --menu path/to/real-wad-smoke-status/status.after-menu.txt \
   path/to/real-wad-smoke-status/status.txt
 
+python3 tools/check_audio_continuity_proof.py \
+  --baseline path/to/real-wad-smoke-status/status.early.txt \
+  --fire path/to/real-wad-smoke-status/status.after-fire.txt \
+  --movement path/to/real-wad-smoke-status/status.after-move.txt \
+  --use path/to/real-wad-smoke-status/status.after-use.txt \
+  --menu path/to/real-wad-smoke-status/status.after-menu.txt \
+  path/to/real-wad-smoke-status/status.txt
+
 python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
 ```
 
@@ -157,21 +171,37 @@ Call a remote human playtest credible only after checking all of this:
   `gmap=00000101`, increasing `gtic`/`leveltime`, nonzero `keyirq`,
   `keyqueue`, and `keypoll`, and nonzero playability flags.
 - Save/config writes are attempted from Doom and then checked after a rebooted
-  remote image before claiming persistence beyond the current host tests. Run
-  the image-local checker on the disposable host, not on the laptop:
+  remote image before claiming persistence beyond the current host tests. The
+  GitHub **Real WAD smoke** workflow has an opt-in `persistence_proof` input
+  for this path. It copies the fresh `build/disk.img` to a runner-local
+  baseline, performs a first boot with `persistence_input_script`, checks that
+  `DEFAULT.CFG` changed from that baseline, boots the same image again, and
+  checks the image a second time. If your input script creates a save, set
+  `persistence_save_slot` to require the matching `DOOMSAVN.DSG`.
+
+  For a manual remote proof, copy a baseline before booting, quit Doom through
+  its menu so `I_Quit` writes defaults, optionally create a save, boot the same
+  image again, and run the image-local checker on the disposable host, not on
+  the laptop:
 
   ```sh
+  cp build/disk.img /tmp/vibe-os-disk.before-persistence.img
+  # Boot remotely, quit Doom or create a save, then boot the same build/disk.img again.
   python3 tools/check_doom_persistence_image.py \
+    --baseline-image /tmp/vibe-os-disk.before-persistence.img \
     --require-default \
     --require-save-slot 0 \
     build/disk.img
   ```
 
   The checker reads `DEFAULT.CFG` and `DOOMSAV0.DSG` through the FAT parser and
-  prints only compact metadata, save description, and version text. Do not
-  upload `build/disk.img` because it contains the WAD.
-- Audio is described honestly: `audio=SB16` plus SFX/music mixer counters proves
-  the guest path; audible remote sound requires separate host audio forwarding.
+  prints only compact metadata, save description, version text, and whether the
+  requested entry changed from the baseline. Do not upload `build/disk.img`
+  because it contains the WAD.
+- Audio is described honestly: `audio=SB16` plus the audio continuity checker
+  proves the guest SB16 path advanced through IRQ/refill, SFX, and looped
+  music-carrier counters; audible remote sound requires separate host audio
+  forwarding.
 - Exit is handled through the QEMU monitor (`quit`) today. A graceful Doom
   quit-to-shell or reboot path is still a gap.
 
@@ -181,8 +211,9 @@ Call a remote human playtest credible only after checking all of this:
   is no aspect-correct fullscreen policy yet.
 - Mouse input has a real PS/2 path, but no cloud mouse-injection proof and no
   VNC pointer tuning policy.
-- Save/config persistence has host and filesystem coverage, but still needs a
-  real-WAD reboot proof after a human changes settings or saves a game.
+- Save/config persistence has host and filesystem coverage plus an opt-in cloud
+  workflow path, but still needs a current passing real-WAD reboot proof after
+  Doom changes settings or saves a game.
 - Music renders bounded PCM windows and loops them as an SB16 carrier voice mixed
   with SFX; long realtime music streaming and audible remote validation remain
   unfinished.

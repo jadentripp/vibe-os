@@ -78,15 +78,16 @@ without pretending that clone/wait lifecycle semantics are implemented.
 The kernel smoke status reports Doom file/runtime counters from the port ABI:
 `doomopen`, `doomread`, `doomwrite`, `doomseek`, `doomclose`, `doomsbrk`,
 `doomerr`, `doommode`, `doomexit`, `doomfault`, `doomfaultip`, `doomfaultv`,
-`doomfaulterr`, and the compact `fault` frame tuple. These are counters,
-last-open mode/flag bits, and user-mode exit/fault diagnostics, not filesystem
-internals. They prove the
+`doomfaulterr`, the compact `fault` frame tuple, `panic`, and `shutdown`. These
+are counters, last-open mode/flag bits, user-mode exit/fault diagnostics, and
+kernel stop-state markers, not filesystem internals. They prove the
 original Doom code reached the port-layer file contract while keeping FAT
 allocation and vendor Doom sources untouched.
 
 `tools/check_doom_persistence_image.py` is the non-QEMU persistence proof tool.
 After a remote/cloud run writes defaults or a save slot into a disposable
-`disk.img`, run it on that remote image with `--require-default` and
-`--require-save-slot N`. It reads only `DEFAULT.CFG` and `DOOMSAVN.DSG` through
-the FAT parser and checks for Doom-shaped defaults text plus the savegame
-description/version header.
+`disk.img`, run it on that remote image with `--baseline-image` pointing at the
+fresh pre-boot image, plus `--require-default` and optional `--require-save-slot
+N`. It reads only `DEFAULT.CFG` and `DOOMSAVN.DSG` through the FAT parser and
+checks for Doom-shaped defaults text, the savegame description/version header,
+and requested entries that changed from the baseline.

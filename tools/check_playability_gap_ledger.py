@@ -58,7 +58,8 @@ REQUIRED_GAPS = {
         "category": "shutdown-panic",
         "phrases": (
             "There is no cloud proof that an OS-requested",
-            "Arbitrary kernel exceptions still fall into `exception_halt`",
+            "panic=KEXC",
+            "shutdown=HALT",
         ),
     },
     "HARDWARE_LIMITS": {

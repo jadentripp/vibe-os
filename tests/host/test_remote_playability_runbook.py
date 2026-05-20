@@ -57,6 +57,8 @@ def valid_status(**overrides):
         "doomfaultv": "00000000",
         "doomfaulterr": "00000000",
         "fault": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
+        "panic": "NONE",
+        "shutdown": "NONE",
         "doompresent": "00000004",
         "doompal": "89ABCDEF",
         "doomframe": "13572468",
@@ -113,6 +115,81 @@ def valid_status(**overrides):
     )
 
 
+def audio_phase_statuses():
+    return {
+        "status.early.txt": valid_status(
+            gtic="00000010",
+            leveltime="00000010",
+            keyirq="00000001",
+            keyqueue="00000001",
+            keypoll="00000001",
+            doomsound="00000001",
+            sfxmix="00000001",
+            audioirq="00000001",
+            ack8="00000001",
+            refill="00000001",
+            musicmix="00000001",
+            musicloop="00000000",
+        ),
+        "status.after-fire.txt": valid_status(
+            pflags="00000005",
+            doomsound="00000002",
+            sfxmix="00000003",
+            audioirq="00000002",
+            ack8="00000002",
+            refill="00000002",
+            musicmix="00000002",
+            musicloop="00000000",
+        ),
+        "status.after-move.txt": valid_status(
+            pflags="00000023",
+            doomsound="00000002",
+            sfxmix="00000004",
+            audioirq="00000003",
+            ack8="00000003",
+            refill="00000003",
+            musicmix="00000003",
+            musicloop="00000000",
+        ),
+        "status.after-use.txt": valid_status(
+            pflags="00000009",
+            doomsound="00000003",
+            sfxmix="00000005",
+            audioirq="00000004",
+            ack8="00000004",
+            refill="00000004",
+            musicmix="00000004",
+            musicloop="00000000",
+        ),
+        "status.after-menu.txt": valid_status(
+            pflags="00000011",
+            doomsound="00000004",
+            sfxmix="00000006",
+            audioirq="00000005",
+            ack8="00000005",
+            refill="00000005",
+            musicmix="00000005",
+            musicloop="00000001",
+        ),
+        "status.txt": valid_status(
+            doomsound="00000004",
+            sfxmix="00000008",
+            audioirq="00000006",
+            ack8="00000006",
+            refill="00000006",
+            musicmix="00000006",
+            musicloop="00000001",
+        ),
+    }
+
+
+def write_valid_artifact(artifact):
+    for name, status in audio_phase_statuses().items():
+        (artifact / name).write_text(status)
+    for name in check_cloud_playability_artifacts.REQUIRED_DIAGNOSTIC_FILES:
+        (artifact / name).write_bytes(b"\x7fELF")
+
+
 class RemotePlayabilityRunbookTests(unittest.TestCase):
     def test_repo_contract_is_wired_for_remote_human_play(self):
         check_cloud_playability_artifacts.validate_repo_contract()
@@ -130,14 +207,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
     def test_downloaded_artifact_directory_rejects_wad_and_pixel_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
             artifact = Path(tmp)
-            for name in check_cloud_playability_artifacts.REQUIRED_STATUS_FILES:
-                (artifact / name).write_text(valid_status())
-            (artifact / "status.early.txt").write_text(
-                valid_status(gtic="00000010", leveltime="00000010", keyirq="00000001",
-                             keyqueue="00000001", keypoll="00000001")
-            )
-            for name in check_cloud_playability_artifacts.REQUIRED_DIAGNOSTIC_FILES:
-                (artifact / name).write_bytes(b"\x7fELF")
+            write_valid_artifact(artifact)
 
             check_cloud_playability_artifacts.validate_artifact_dir(artifact)
 
@@ -148,14 +218,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
     def test_downloaded_artifact_directory_rejects_renamed_game_or_image_payloads(self):
         with tempfile.TemporaryDirectory() as tmp:
             artifact = Path(tmp)
-            for name in check_cloud_playability_artifacts.REQUIRED_STATUS_FILES:
-                (artifact / name).write_text(valid_status())
-            (artifact / "status.early.txt").write_text(
-                valid_status(gtic="00000010", leveltime="00000010", keyirq="00000001",
-                             keyqueue="00000001", keypoll="00000001")
-            )
-            for name in check_cloud_playability_artifacts.REQUIRED_DIAGNOSTIC_FILES:
-                (artifact / name).write_bytes(b"\x7fELF")
+            write_valid_artifact(artifact)
 
             (artifact / "harmless.log").write_bytes(b"IWAD" + b"\0" * 64)
             with self.assertRaisesRegex(AssertionError, "forbidden artifact content"):
@@ -170,14 +233,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             artifact = Path(tmp)
             nested = artifact / "nested"
             nested.mkdir()
-            for name in check_cloud_playability_artifacts.REQUIRED_STATUS_FILES:
-                (artifact / name).write_text(valid_status())
-            (artifact / "status.early.txt").write_text(
-                valid_status(gtic="00000010", leveltime="00000010", keyirq="00000001",
-                             keyqueue="00000001", keypoll="00000001")
-            )
-            for name in check_cloud_playability_artifacts.REQUIRED_DIAGNOSTIC_FILES:
-                (artifact / name).write_bytes(b"\x7fELF")
+            write_valid_artifact(artifact)
 
             (nested / "status.txt").write_text(valid_status(gameplay="WAIT"))
             with self.assertRaisesRegex(AssertionError, "duplicate diagnostic file basename"):
@@ -186,8 +242,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
     def test_downloaded_artifact_failure_reports_final_status_summary(self):
         with tempfile.TemporaryDirectory() as tmp:
             artifact = Path(tmp)
-            for name in check_cloud_playability_artifacts.REQUIRED_STATUS_FILES:
-                (artifact / name).write_text(valid_status())
+            write_valid_artifact(artifact)
             (artifact / "status.txt").write_text(
                 valid_status(
                     target="FFFFFFFF",
@@ -199,10 +254,27 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                     usr="FAIL",
                 )
             )
-            for name in check_cloud_playability_artifacts.REQUIRED_DIAGNOSTIC_FILES:
-                (artifact / name).write_bytes(b"\x7fELF")
 
             with self.assertRaisesRegex(AssertionError, "final status summary: .*doomrun=FAULT"):
+                check_cloud_playability_artifacts.validate_artifact_dir(artifact)
+
+    def test_downloaded_artifact_failure_reports_audio_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            (artifact / "status.txt").write_text(
+                valid_status(
+                    doomsound="00000001",
+                    sfxmix="00000001",
+                    audioirq="00000001",
+                    ack8="00000001",
+                    refill="00000001",
+                    musicmix="00000001",
+                    musicloop="00000000",
+                )
+            )
+
+            with self.assertRaisesRegex(AssertionError, "final audio summary: .*audio=SB16"):
                 check_cloud_playability_artifacts.validate_artifact_dir(artifact)
 
     def test_prepare_shareware_wad_accepts_raw_gzip_and_zip_sources(self):

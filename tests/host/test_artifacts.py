@@ -15,6 +15,8 @@ make_wad_image = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(make_wad_image)
 SECTOR_SIZE = 512
 USER_BASE = 0x00E80000
+USER_STACK_BOTTOM = 0x00E90000
+USER_HEAP_END = 0x00F00000
 DOOM_BASE = 0x01000000
 DOOM_HEAP_START = 0x01900000
 DOOM_LIMIT = 0x02000000
@@ -156,6 +158,9 @@ class BuildArtifactTests(unittest.TestCase):
             self.assertLessEqual(p_filesz, p_memsz)
             self.assertTrue(p_flags & PF_R)
             self.assertEqual(p_align, 0x1000)
+            self.assertGreaterEqual(p_vaddr, USER_BASE)
+            self.assertLessEqual(p_vaddr + p_memsz, USER_STACK_BOTTOM)
+        self.assertLess(load_segments[-1][2] + load_segments[-1][5], USER_HEAP_END)
 
     def test_user_c_object_contains_bss_for_linker_nobits_coverage(self):
         obj = Elf32(read(BUILD / "user_probe_c.o"))
@@ -535,10 +540,13 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("build/status*.bin", real_wad_workflow)
         self.assertIn("build/status*.txt", real_wad_workflow)
         self.assertIn("build/*.log", real_wad_workflow)
-        self.assertNotIn("build/disk.img", real_wad_workflow)
         self.assertNotIn("build/gfx.bin", real_wad_workflow)
         self.assertNotIn("build/vga*.txt", real_wad_workflow)
         self.assertNotIn("build/private", real_wad_workflow)
+        real_wad_upload_block = real_wad_workflow.split("uses: actions/upload-artifact@v4", 1)[1]
+        self.assertNotIn("build/disk.img", real_wad_upload_block)
+        self.assertNotIn("build/gfx.bin", real_wad_upload_block)
+        self.assertNotIn("build/vga*.txt", real_wad_upload_block)
         os_upload_block = os_smoke_workflow.split("uses: actions/upload-artifact@v4", 1)[1]
         self.assertNotIn("build/gfx.bin", os_upload_block)
 
@@ -633,6 +641,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("doomfaultv=", kernel)
         self.assertIn("doomfaulterr=", kernel)
         self.assertIn("fault=", kernel)
+        self.assertIn("panic=", kernel)
+        self.assertIn("shutdown=", kernel)
         self.assertIn("doomopen=", kernel)
         self.assertIn("doomread=", kernel)
         self.assertIn("doomlog=", kernel)
@@ -643,6 +653,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('grep -q "doomfaultv="', makefile)
         self.assertIn('grep -q "doomfaulterr="', makefile)
         self.assertIn('grep -q " fault="', makefile)
+        self.assertIn('grep -Eq "panic=(NONE|KEXC)"', makefile)
+        self.assertIn('grep -Eq "shutdown=(NONE|HALT|REBOOT)"', makefile)
         self.assertIn('grep -q "doomopen=OK"', makefile)
         self.assertIn('grep -q "doomread=OK"', makefile)
         self.assertIn('grep -q "doomlog="', makefile)
@@ -707,6 +719,7 @@ class SourceContractTests(unittest.TestCase):
             "doomwrite=00000000 doomseek=00000001 doomclose=00000000 doomsbrk=00000001 doomerr=00000000 "
             "doomexit=00000000 doomfault=00000000 doomfaultip=00000000 doomfaultv=00000000 doomfaulterr=00000000 "
             "fault=00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000 "
+            "panic=NONE shutdown=NONE "
             "doomsound=00000000 sfxmix=00000000 voices=00000000 audioirq=00000000 ack8=00000000 ack16=00000000 "
             "refill=00000000 half=00000000 mixwrap=00000000 mixover=00000000 mixunder=00000000 mixclip=00000000 "
             "steal=00000000 pitchclamp=00000000 panclamp=00000000 musicvoices=00000000 musicmix=00000000 musicloop=00000000 "

@@ -174,6 +174,30 @@ class DoomRuntimeContractTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, libc)
 
+    def test_port_quit_preserves_original_defaults_save_behavior(self):
+        original = (ROOT / "third_party" / "doom" / "linuxdoom-1.10" / "i_system.c").read_text()
+        platform = (ROOT / "doom_port" / "platform.c").read_text()
+
+        for token in (
+            "D_QuitNetGame ();",
+            "I_ShutdownSound();",
+            "I_ShutdownMusic();",
+            "M_SaveDefaults ();",
+            "I_ShutdownGraphics();",
+            "exit(0);",
+        ):
+            self.assertIn(token, original)
+
+        for token in (
+            "D_QuitNetGame();",
+            "I_ShutdownSound();",
+            "I_ShutdownMusic();",
+            "M_SaveDefaults();",
+            "I_ShutdownGraphics();",
+            "exit(0);",
+        ):
+            self.assertIn(token, platform)
+
     def test_doom_port_has_no_host_linux_platform_api_escape_hatches(self):
         forbidden = (
             "#include <sys/socket.h>",

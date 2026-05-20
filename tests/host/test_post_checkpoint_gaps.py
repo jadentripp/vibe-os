@@ -137,7 +137,8 @@ class PostCheckpointGapTests(unittest.TestCase):
         self.assertIn("tools/check_playability_gap_ledger.py", tests_readme)
         for claim_boundary in (
             "There is no cloud proof that an OS-requested",
-            "Arbitrary kernel exceptions still fall into `exception_halt`",
+            "panic=KEXC",
+            "shutdown=HALT",
             "This is not a full POSIX environment",
             "A previous run is useful",
             "stale once the kernel/runtime changes",

@@ -92,9 +92,24 @@ def _validate_save_slot(fs, slot):
     return len(data), description.decode("ascii", "replace"), version.decode("ascii", "replace")
 
 
-def validate_image(path, *, require_default=False, require_save_slots=()):
+def _require_changed(fs, baseline_fs, name, label):
+    if baseline_fs is None:
+        return
+    current = fs.read_root_file(name)
+    baseline = baseline_fs.read_root_file(name)
+    if current == baseline:
+        raise PersistenceProofError(f"{label} did not change from baseline image")
+
+
+def validate_image(path, *, baseline_image=None, require_default=False, require_save_slots=()):
     fs = make_wad_image.Fat16Image(_read_image(path))
+    baseline_fs = make_wad_image.Fat16Image(_read_image(baseline_image)) if baseline_image else None
     summary = []
+
+    if baseline_fs is not None and not require_default and not require_save_slots:
+        raise PersistenceProofError(
+            "baseline image comparison requires --require-default or --require-save-slot"
+        )
 
     _validate_protected_entries(fs)
     _require_entry(fs, make_wad_image.WRITABLE_DEFAULT_NAME)
@@ -102,12 +117,27 @@ def validate_image(path, *, require_default=False, require_save_slots=()):
         _require_entry(fs, name)
 
     if require_default:
-        summary.append(f"DEFAULT.CFG bytes={_validate_default(fs)}")
+        default_size = _validate_default(fs)
+        _require_changed(
+            fs,
+            baseline_fs,
+            make_wad_image.WRITABLE_DEFAULT_NAME,
+            "DEFAULT.CFG",
+        )
+        suffix = " changed-from-baseline" if baseline_fs is not None else ""
+        summary.append(f"DEFAULT.CFG bytes={default_size}{suffix}")
 
     for slot in require_save_slots:
         size, description, version = _validate_save_slot(fs, slot)
+        _require_changed(
+            fs,
+            baseline_fs,
+            make_wad_image.WRITABLE_SAVE_NAMES[slot],
+            f"DOOMSAV{slot}.DSG",
+        )
+        suffix = " changed-from-baseline" if baseline_fs is not None else ""
         summary.append(
-            f"DOOMSAV{slot}.DSG bytes={size} description={description!r} version={version!r}"
+            f"DOOMSAV{slot}.DSG bytes={size}{suffix} description={description!r} version={version!r}"
         )
 
     if not summary:
@@ -126,6 +156,10 @@ def parse_args():
         help="require DEFAULT.CFG to contain Doom defaults text",
     )
     parser.add_argument(
+        "--baseline-image",
+        help="fresh image copied before the remote boot; requested entries must differ from it",
+    )
+    parser.add_argument(
         "--require-save-slot",
         action="append",
         type=int,
@@ -140,6 +174,7 @@ def main():
     args = parse_args()
     for line in validate_image(
         args.image,
+        baseline_image=args.baseline_image,
         require_default=args.require_default,
         require_save_slots=args.require_save_slot,
     ):

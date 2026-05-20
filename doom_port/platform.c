@@ -13,6 +13,7 @@
 #include "i_system.h"
 #include "i_video.h"
 #include "input.h"
+#include "m_misc.h"
 #include "music.h"
 #include "p_mobj.h"
 #include "vibe_os.h"
@@ -144,6 +145,11 @@ ticcmd_t* I_BaseTiccmd(void)
 
 void I_Quit(void)
 {
+    D_QuitNetGame();
+    I_ShutdownSound();
+    I_ShutdownMusic();
+    M_SaveDefaults();
+    I_ShutdownGraphics();
     exit(0);
 }
 

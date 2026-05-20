@@ -75,6 +75,8 @@ SUMMARY_FIELDS = (
     "doomfaultv",
     "doomfaulterr",
     "fault",
+    "panic",
+    "shutdown",
     "gfx",
     "usr",
 )

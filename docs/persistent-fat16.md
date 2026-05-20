@@ -59,7 +59,10 @@ Current kernel contract:
 without launching QEMU locally. Use `--require-default` to require Doom-shaped
 defaults text in `DEFAULT.CFG`, and `--require-save-slot N` to require a
 `DOOMSAVN.DSG` file with Doom's 24-byte save description and 16-byte
-`version ...` marker.
+`version ...` marker. For real proof, copy the fresh remote `disk.img` before
+boot and pass it back with `--baseline-image`; requested entries must differ
+from the baseline image, so preseeded host bytes do not count as Doom
+persistence.
 
 This is enough for Doom defaults and save slots without turning the kernel into
 a general-purpose FAT filesystem.

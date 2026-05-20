@@ -1,0 +1,78 @@
+import subprocess
+import sys
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+TOOLS = ROOT / "tools"
+sys.path.insert(0, str(TOOLS))
+try:
+    import check_vm_safety_contract
+finally:
+    sys.path.pop(0)
+
+
+class VmSafetyContractTests(unittest.TestCase):
+    def test_repo_contract_is_machine_checked(self):
+        check_vm_safety_contract.validate_repo_contract(ROOT)
+
+    def test_cli_reports_contract_success(self):
+        result = subprocess.run(
+            [sys.executable, str(TOOLS / "check_vm_safety_contract.py")],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("VM safety contract OK", result.stdout)
+
+    def test_kernel_writes_panic_and_shutdown_status_before_stopping(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        panic_path = kernel.split(".not_expected_user_fault:", 1)[1].split("doom_user_fault:", 1)[0]
+        reboot_path = kernel.split(".reboot:", 1)[1].split(".halt:", 1)[0]
+        halt_path = kernel.split(".halt:", 1)[1].split(".halt_loop:", 1)[0]
+        status_writer = kernel.split("write_smoke_status:", 1)[1].split("smoke_copy_string:", 1)[0]
+
+        self.assertIn("mov dword [panic_status], PANIC_UNHANDLED_EXCEPTION", panic_path)
+        self.assertIn("call write_smoke_status", panic_path)
+        self.assertLess(
+            panic_path.index("mov dword [panic_status], PANIC_UNHANDLED_EXCEPTION"),
+            panic_path.index("call write_smoke_status"),
+        )
+        self.assertIn("mov dword [shutdown_state], SHUTDOWN_REBOOT", reboot_path)
+        self.assertIn("call write_smoke_status", reboot_path)
+        self.assertIn("mov dword [shutdown_state], SHUTDOWN_HALT", halt_path)
+        self.assertIn("call write_smoke_status", halt_path)
+        self.assertIn('smoke_panic_text db " panic="', kernel)
+        self.assertIn('smoke_shutdown_text db " shutdown="', kernel)
+        self.assertIn("mov edx, [fault_eip]", status_writer)
+        self.assertIn("mov edx, [fault_cr2]", status_writer)
+
+    def test_make_test_stays_host_only_and_vm_targets_require_opt_in(self):
+        makefile = (ROOT / "Makefile").read_text()
+        self.assertIn("ALLOW_LOCAL_VM ?= 0", makefile)
+        for target in ("run", "run-headless", "smoke"):
+            with self.subTest(target=target):
+                line = next(line for line in makefile.splitlines() if line.startswith(f"{target}:"))
+                self.assertIn("vm-consent", line)
+
+        test_block = makefile.split("test:", 1)[1].split("doom-compile:", 1)[0].lower()
+        self.assertNotIn("qemu", test_block)
+
+    def test_cloud_artifacts_are_diagnostics_not_raw_vm_payloads(self):
+        for workflow_name in ("os-smoke.yml", "real-wad-smoke.yml"):
+            workflow = (ROOT / ".github" / "workflows" / workflow_name).read_text()
+            upload = workflow.split("uses: actions/upload-artifact@v4", 1)[1]
+            with self.subTest(workflow=workflow_name):
+                self.assertIn("build/status*.txt", upload)
+                self.assertIn("build/status*.bin", upload)
+                self.assertIn("build/*.log", upload)
+                self.assertNotIn("build/disk.img", upload)
+                self.assertNotIn("build/gfx.bin", upload)
+                self.assertNotIn("DOOM1.WAD", upload)
+
+
+if __name__ == "__main__":
+    unittest.main()

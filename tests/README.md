@@ -13,7 +13,9 @@ boot:
   hashes the vendored `linuxdoom-1.10` source boundary, audits the Makefile so
   original engine objects and `doom_port/*` shims stay separate, and invokes
   `tools/check_repo_hygiene.py` to reject tracked WADs, disk images, rendered
-  pixel artifacts, logs, or wrapper/source-port paths.
+  pixel artifacts, logs, wrapper/source-port paths, dirty `third_party/doom`
+  worktree state, and runtime/build references to shortcut source ports or host
+  display/audio APIs.
 - Host storage tests cover root-level 8.3 lifecycle behavior: create, readback,
   truncate, delete, cluster-chain freeing/reuse, protected WAD/ELF refusal, and
   syscall-backed `unlink`/`stat`/`fstat` libc wrappers. They also pin kernel
@@ -23,7 +25,9 @@ boot:
   `tools/check_doom_persistence_image.py` prove the non-QEMU image-inspection
   path for Doom defaults and saves: `DEFAULT.CFG` must contain Doom-shaped
   defaults text, and `DOOMSAVN.DSG` must carry Doom's save description plus
-  `version ...` header before a remote reboot run can claim persistence.
+  `version ...` header. With `--baseline-image`, requested entries must also
+  differ from the fresh pre-boot image before a remote reboot run can claim
+  persistence.
 - Host process tests prove that `SYS_EXEC` is more than a FAT loader: the path
   rejects unsafe active-slot reloads, seeds a scheduler-visible target context,
   writes an argc/argv stack shape, patches the live syscall frame, marks the
@@ -57,6 +61,10 @@ boot:
   from the deterministic input phases. It requires keyboard counters to
   increase, Doom to remain in E1M1 gameplay, player movement/action/menu flags
   to be set, and `pdelta>0` without reading WAD or framebuffer artifacts.
+- `tools/check_audio_continuity_proof.py` is the remote-safe SB16 audio gate. It
+  compares the same decoded status snapshots, requires `audio=SB16`, and proves
+  IRQ/refill, SFX, and looped music-carrier counters progressed without storing
+  audio samples. This is not a full MUS/MIDI song-position streaming proof.
 - `tests/host/test_post_checkpoint_gaps.py` guards the post-checkpoint honesty
   ledger: Doom exit/fault diagnostics, including CR2, EIP, vector, and x86
   error code, must stay visible in status, save/config persistence must be
@@ -67,11 +75,18 @@ boot:
   `docs/post-checkpoint-gaps.md` so every open Doom-capability claim has a
   concrete category, executable gate, and evidence artifact before README text
   can call it done.
+- `tools/check_vm_safety_contract.py` machine-checks the local-QEMU opt-in,
+  cloud diagnostic upload hygiene, panic status fields, and shutdown status
+  fields without launching QEMU.
 - `tools/check_cloud_playability_artifacts.py` validates the remote human-run
   runbook, workflow upload hygiene, expected non-WAD diagnostic files, and
   downloaded real-WAD status artifacts without requiring a WAD or local QEMU.
   It rejects forbidden filenames, duplicate required basenames, unexpected ELF
   binaries, and renamed WAD/disk/image payload signatures.
+- `tools/check_vm_safety_contract.py` validates the safety rail: local QEMU
+  targets must remain behind `ALLOW_LOCAL_VM=1`, host tests stay QEMU-free,
+  cloud workflows upload only status/log diagnostics for proof lanes, and kernel
+  `panic=` / `shutdown=` fields remain smoke-visible.
 - `tools/prepare_shareware_wad.py` is covered with synthetic raw/gzip/zip WAD
   sources so the remote runbook's WAD extraction and validation path is tested
   without network access or real game data.

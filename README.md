@@ -47,8 +47,10 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
   and shared per-descriptor offsets for WAD and writable file descriptors
 - WAD header/directory parsing with named-lump lookup for Doom assets
 - text UI with an interactive shell
-- local QEMU targets guarded behind an explicit opt-in
-- GitHub Actions smoke test for cloud-side boot validation
+- local QEMU targets guarded behind an explicit opt-in, plus a host-side safety
+  contract that keeps `make test` QEMU-free
+- GitHub Actions smoke tests for cloud-side boot validation with status/log
+  diagnostics on failure
 
 ## Legitimacy Boundary
 
@@ -84,8 +86,9 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
 - The detailed source-integrity contract lives in `docs/doom-provenance.md`.
   In short: `third_party/doom` is read-only vendor code, the build compiles the
   original `linuxdoom-1.10` engine objects plus isolated `doom_port/*` shims,
-  and host tests reject wrapper engines, tracked WADs, disk images, logs, and
-  rendered pixel artifacts.
+  and host tests reject dirty vendor-tree state, wrapper engines, tracked WADs,
+  disk images, logs, rendered pixel artifacts, and runtime/build references to
+  shortcut source ports or host display/audio APIs.
 
 ## Requirements
 
@@ -140,8 +143,8 @@ Current disk layout:
   `DOOMSAV5.DSG` writable root entries
 
 See `docs/persistent-fat16.md` for the bounded root-level persistence contract,
-the Doom save/config path mapping, and the remote-image checker for
-`DEFAULT.CFG` / `DOOMSAV*.DSG` proof.
+the Doom save/config path mapping, and the baseline-vs-mutated remote-image
+checker for `DEFAULT.CFG` / `DOOMSAV*.DSG` proof.
 
 See `docs/boot-loader-vm.md` for the raw-sector boot chain, protected-mode ELF
 handoff, fixed low-memory reservations, paging contract, and VM gaps.
@@ -176,6 +179,11 @@ make ALLOW_LOCAL_VM=1 smoke
 
 The repo also includes `.github/workflows/os-smoke.yml`, which builds the disk
 image, runs host artifact tests, and runs the smoke test in GitHub Actions.
+The VM safety contract is checked without launching QEMU:
+
+```sh
+make vm-safety-check
+```
 
 For a real-WAD test, run the **Real WAD smoke** workflow manually.
 You can paste a URL to `DOOM1.WAD`, `DOOM1.WAD.gz`, or a zip containing
@@ -300,13 +308,14 @@ Still required before this is actually Doom-capable:
   preemption path continuously under Doom
 - broader VM/POSIX coverage: arbitrary-path `exec`, richer `mmap`, fuller file
   semantics, descriptor duplication, and more device/ioctl contracts
-- save/config persistence proof after a real-WAD reboot using
-  `tools/check_doom_persistence_image.py`, not just host-side FAT lifecycle
-  coverage
+- current passing save/config persistence proof after a real-WAD reboot using
+  `tools/check_doom_persistence_image.py --baseline-image`, not just host-side
+  FAT lifecycle coverage
 - broader framebuffer mode support, aspect policy, fullscreen behavior, and
   dirty-rect presentation beyond the current XRGB8888 VBE path
-- audible remote SB16 validation and long-running music streaming beyond the
-  current SFX/mixer counters and bounded music PCM windows
+- remote SB16 continuity proof now has a status-only checker, but audible human
+  validation and long-running music streaming beyond the current looped PCM
+  carrier are still open
 - graceful Doom exit/reboot behavior for a human session
 - a scoped hardware/support matrix; current claims should stay bounded to the
   QEMU BIOS/IDE/PS2/VBE/SB16 target until each new device class has its own

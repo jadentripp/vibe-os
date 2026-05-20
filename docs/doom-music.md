@@ -36,9 +36,11 @@ inside that window. The kernel then keeps that buffer alive as a looped PCM carr
 in the same SB16 active-voice table used for SFX, so music and sound effects mix
 in the IRQ refill path instead of competing for a separate backend.
 Smoke status exposes `musicvoices=`, `musicmix=`, and `musicloop=` so this
-continuity is testable without claiming full song-position streaming. A later
-kernel milestone can replace the carrier voice with a dedicated
-`START_MUSIC_PCM` or pull-based streaming command.
+continuity is testable, but this is not full song-position streaming. The
+remote-safe audio checker proves that bounded PCM window remains alive as a
+looped PCM carrier across status snapshots; it does not claim a continuously
+advanced MUS/MIDI song cursor. A later kernel milestone can replace the carrier
+voice with a dedicated `START_MUSIC_PCM` or pull-based streaming command.
 
 Fallback design:
 

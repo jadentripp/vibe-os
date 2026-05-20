@@ -13,6 +13,7 @@ ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import check_real_wad_proof  # noqa: E402
+import check_audio_continuity_proof  # noqa: E402
 
 
 RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
@@ -111,6 +112,7 @@ def validate_repo_contract() -> None:
         "tools/check_cloud_playability_artifacts.py",
         "tools/check_real_wad_proof.py",
         "tools/check_human_playability_proof.py",
+        "tools/check_audio_continuity_proof.py",
         "status.after-fire.txt",
         "status.after-move.txt",
         "status.after-use.txt",
@@ -140,6 +142,8 @@ def validate_repo_contract() -> None:
     _require(readme, "docs/runbooks/remote-doom-playtest.md", "README")
     _require(tests_readme, "check_cloud_playability_artifacts.py", "tests README")
     _require(makefile, "cloud-playability-check", "Makefile")
+    _require(makefile, "persistence-image-check", "Makefile")
+    _require(makefile, "PERSISTENCE_BASELINE_IMAGE", "Makefile")
     _require(makefile, "tools/check_cloud_playability_artifacts.py --repo-contract", "Makefile")
 
     for needle in (
@@ -147,7 +151,15 @@ def validate_repo_contract() -> None:
         "SMOKE_CAPTURE_GFX=0",
         "SMOKE_SKIP_ASSERTIONS=1",
         "if: always()",
+        "QEMU_EXTRA_ARGS=\"-audiodev none,id=snd0 -device sb16,audiodev=snd0\"",
         "SMOKE_INPUT_SCRIPT=\"after-fire:hold=ctrl:800",
+        "persistence_proof:",
+        "persistence_input_script:",
+        "persistence_save_slot:",
+        "build/status.persistence-write.txt",
+        "build/status.persistence-reboot.txt",
+        "tools/check_doom_persistence_image.py",
+        "--baseline-image \"$baseline\"",
         "python3 tools/check_real_wad_proof.py \\",
         "--baseline build/status.early.txt",
         "--fire build/status.after-fire.txt",
@@ -155,10 +167,12 @@ def validate_repo_contract() -> None:
         "--use build/status.after-use.txt",
         "--menu build/status.after-menu.txt",
         "python3 tools/check_human_playability_proof.py",
+        "python3 tools/check_audio_continuity_proof.py",
         'rm -f "$WAD_PATH"',
         "build/status*.bin",
         "build/status*.txt",
         "build/*.log",
+        "build/persistence-*/*.log",
         "build/kernel.elf",
         "build/user_probe.elf",
         "build/doom.elf",
@@ -244,6 +258,19 @@ def validate_artifact_dir(artifact_dir: Path) -> None:
     except AssertionError as exc:
         raise AssertionError(
             f"{exc}; final status summary: {check_real_wad_proof.summarize_status(status)}"
+        ) from exc
+    try:
+        check_audio_continuity_proof.validate_status(
+            status,
+            baseline_status=(artifact_dir / _find_one(names, "status.early.txt")).read_text(),
+            fire_status=(artifact_dir / _find_one(names, "status.after-fire.txt")).read_text(),
+            movement_status=(artifact_dir / _find_one(names, "status.after-move.txt")).read_text(),
+            use_status=(artifact_dir / _find_one(names, "status.after-use.txt")).read_text(),
+            menu_status=(artifact_dir / _find_one(names, "status.after-menu.txt")).read_text(),
+        )
+    except AssertionError as exc:
+        raise AssertionError(
+            f"{exc}; final audio summary: {check_audio_continuity_proof.summarize_status(status)}"
         ) from exc
 
 
