@@ -997,6 +997,7 @@ void I_FinishUpdate(void)
     report_save_action_status();
     report_playability_status();
     report_player_detail_status();
+    run_persistence_checkpoint_actions();
     checkpoint_default_config_if_needed();
     if (screens[0]) {
         present.frame = screens[0];
@@ -1005,7 +1006,6 @@ void I_FinishUpdate(void)
         present.height = SCREENHEIGHT;
         (void)ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_PRESENT_INDEXED, &present);
     }
-    run_persistence_checkpoint_actions();
 }
 
 void I_WaitVBL(int count)

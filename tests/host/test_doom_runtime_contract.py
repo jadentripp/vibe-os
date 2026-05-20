@@ -316,8 +316,8 @@ class DoomRuntimeContractTests(unittest.TestCase):
             platform.index("run_persistence_checkpoint_actions();", platform.index("void I_FinishUpdate(void)")),
         )
         self.assertLess(
-            platform.index("ioctl(VIBE_DISPLAY_FD", platform.index("void I_FinishUpdate(void)")),
             platform.index("run_persistence_checkpoint_actions();", platform.index("void I_FinishUpdate(void)")),
+            platform.index("ioctl(VIBE_DISPLAY_FD", platform.index("void I_FinishUpdate(void)")),
         )
         self.assertIn("gameplay_frame_ready_seen", platform)
         self.assertIn("gameplay_checkpoint_state_ready()", platform)
