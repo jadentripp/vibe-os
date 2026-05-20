@@ -623,6 +623,32 @@ handle_command:
     call print_dec
     call newline
 
+    mov esi, doom_elf_prefix
+    call print_string
+    cmp byte [doom_elf_status], 1
+    je .doom_elf_ok
+    mov esi, fail_text
+    call print_string
+    jmp .wad_load_address
+
+.doom_elf_ok:
+    mov esi, ok_text
+    call print_string
+
+    mov esi, doom_elf_size_prefix
+    call print_string
+    mov eax, [doom_elf_size]
+    call print_dec
+    mov esi, bytes_suffix
+    call print_string
+
+    mov esi, doom_elf_cluster_prefix
+    call print_string
+    movzx eax, word [doom_elf_first_cluster]
+    call print_dec
+    call newline
+
+.wad_load_address:
     mov esi, wad_load_prefix
     call print_string
     mov eax, WAD_LOAD_ADDR
@@ -1992,6 +2018,7 @@ storage_init:
     mov byte [wad_parse_status], 0
     mov byte [user_elf_status], 0
     mov byte [user_elf_parse_status], 0
+    mov byte [doom_elf_status], 0
     mov dword [fat_lba_base], 0
     mov dword [wad_size], 0
     mov dword [wad_sectors_read], 0
@@ -2004,6 +2031,8 @@ storage_init:
     mov dword [user_elf_size], 0
     mov dword [user_elf_sectors_read], 0
     mov dword [user_entry_addr], 0
+    mov dword [doom_elf_size], 0
+    mov word [doom_elf_first_cluster], 0
 
     xor eax, eax
     mov edi, SECTOR_BUFFER_ADDR
@@ -2080,6 +2109,8 @@ storage_init:
     call pmm_reserve_pages
     call fat_load_user_elf
     jc .user_elf_fail
+    call fat_find_doom_elf
+    clc
     ret
 
 .ata_fail:
@@ -2324,6 +2355,23 @@ fat_find_user_elf:
     ret
 
 .fail:
+    stc
+    ret
+
+fat_find_doom_elf:
+    mov edi, doom_elf_name_83
+    call fat_find_file
+    jc .fail
+    mov ax, [fat_found_first_cluster]
+    mov [doom_elf_first_cluster], ax
+    mov eax, [fat_found_size]
+    mov [doom_elf_size], eax
+    mov byte [doom_elf_status], 1
+    clc
+    ret
+
+.fail:
+    mov byte [doom_elf_status], 2
     stc
     ret
 
@@ -3453,6 +3501,9 @@ playpal_prefix db "PLAYPAL offset: ", 0
 colormap_prefix db "COLORMAP offset: ", 0
 lump_size_mid db " size=", 0
 wad_cluster_prefix db "WAD first cluster: ", 0
+doom_elf_prefix db "DOOM.ELF FAT entry: ", 0
+doom_elf_size_prefix db "DOOM.ELF size: ", 0
+doom_elf_cluster_prefix db "DOOM.ELF first cluster: ", 0
 wad_load_prefix db "WAD load address: ", 0
 bytes_suffix db " bytes", 13, 10, 0
 pages_suffix db " pages", 13, 10, 0
@@ -3501,6 +3552,7 @@ cmd_halt db "halt", 0
 
 wad_name_83 db "DOOM1   WAD"
 user_elf_name_83 db "USERPROBELF"
+doom_elf_name_83 db "DOOM    ELF"
 wad_name_playpal db "PLAYPAL", 0
 wad_name_colormap db "COLORMAP"
 user_path_doom_wad db "DOOM1.WAD", 0
@@ -3577,6 +3629,7 @@ user_fault_expected db 0
 user_fault_status db 0
 user_elf_status db 0
 user_elf_parse_status db 0
+doom_elf_status db 0
 ata_status db 0
 fat_status db 0
 wad_status db 0
@@ -3612,6 +3665,7 @@ colormap_size dd 0
 user_elf_size dd 0
 user_elf_sectors_read dd 0
 user_entry_addr dd 0
+doom_elf_size dd 0
 user_phdr_ptr dd 0
 user_phdr_remaining dd 0
 user_segment_dest dd 0
@@ -3636,6 +3690,7 @@ fat_current_cluster dw 0
 fat_found_first_cluster dw 0
 wad_first_cluster dw 0
 user_elf_first_cluster dw 0
+doom_elf_first_cluster dw 0
 user_probe_cs dw 0
 user_probe_ss dw 0
 fat_sectors_per_cluster db 0

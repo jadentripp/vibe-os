@@ -21,6 +21,10 @@ def read(path):
     return path.read_bytes()
 
 
+def clusters_for_size(size):
+    return max(1, (size + SECTOR_SIZE - 1) // SECTOR_SIZE)
+
+
 class Elf32:
     def __init__(self, data):
         self.data = data
@@ -170,6 +174,8 @@ class DiskImageTests(unittest.TestCase):
         self.assertEqual(entries["DOOM1   WAD"]["cluster"], 2)
         self.assertEqual(entries["USERPROBELF"]["size"], (BUILD / "user_probe.elf").stat().st_size)
         self.assertGreater(entries["USERPROBELF"]["cluster"], entries["DOOM1   WAD"]["cluster"])
+        self.assertEqual(entries["DOOM    ELF"]["size"], (BUILD / "doom.elf").stat().st_size)
+        self.assertGreater(entries["DOOM    ELF"]["cluster"], entries["USERPROBELF"]["cluster"])
 
     def test_wad_fixture_header_and_lumps(self):
         wad = self.cluster_bytes(2, 1024 * 1024)
@@ -190,6 +196,16 @@ class DiskImageTests(unittest.TestCase):
         image_bytes = self.cluster_bytes(user["cluster"], user["size"])
         self.assertEqual(image_bytes, read(BUILD / "user_probe.elf"))
         self.assertEqual(self.fat_entry(user["cluster"]), user["cluster"] + 1)
+
+    def test_doom_elf_bytes_are_present_in_fat_data_area(self):
+        entries = self.root_entries_by_name()
+        doom = entries["DOOM    ELF"]
+        image_bytes = self.cluster_bytes(doom["cluster"], doom["size"])
+        self.assertEqual(image_bytes, read(BUILD / "doom.elf"))
+        self.assertEqual(image_bytes[:4], b"\x7fELF")
+        clusters = clusters_for_size(doom["size"])
+        self.assertEqual(self.fat_entry(doom["cluster"]), doom["cluster"] + 1)
+        self.assertEqual(self.fat_entry(doom["cluster"] + clusters - 1), 0xFFFF)
 
 
 class SourceContractTests(unittest.TestCase):

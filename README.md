@@ -28,6 +28,8 @@ workspace. The first milestone is a tiny x86 BIOS-bootable operating system:
 - freestanding i386 compile/link smoke for 57 unmodified original Doom engine
   modules against the vibe-os platform layer, excluding only the Linux `i_*`
   platform files
+- FAT16 disk image carries the linked `DOOM.ELF` user artifact alongside the
+  WAD and Ring 3 probe, with kernel-side directory discovery
 - hard-path WAD loading through an ATA PIO IDE driver and a FAT16 reader
 - WAD header/directory parsing with named-lump lookup for Doom assets
 - text UI with an interactive shell
@@ -100,7 +102,8 @@ Current disk layout:
 - LBA 0: Stage 1 MBR and partition table
 - LBA 1-16: Stage 2 bootloader
 - LBA 17-112: protected-mode kernel ELF image
-- LBA 2048+: FAT16 partition containing `DOOM1.WAD` and `USERPROB.ELF`
+- LBA 2048+: FAT16 partition containing `DOOM1.WAD`, `USERPROB.ELF`, and
+  `DOOM.ELF`
 
 ## Run
 
@@ -159,6 +162,8 @@ Already implemented:
 - official `linuxdoom-1.10` source import, with a no-modification provenance
   policy and a freestanding link smoke for the original engine plus vibe-os
   replacement `i_*` platform layer
+- `DOOM.ELF` embedded as a FAT16 root file and discovered by the kernel storage
+  path
 
 Still required before this is actually Doom-capable:
 

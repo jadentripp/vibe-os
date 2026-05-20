@@ -20,6 +20,7 @@ SECTORS_PER_FAT = 256
 DOOM_WAD_SIZE = 1024 * 1024
 DOOM_WAD_CLUSTER = 2
 USER_PROBE_NAME = b"USERPROBELF"
+DOOM_ELF_NAME = b"DOOM    ELF"
 
 
 def sector_offset(lba):
@@ -58,6 +59,8 @@ def write_cluster_chain(image, fat_entries, data_start, start_cluster, data):
     clusters_needed = (len(data) + SECTOR_SIZE - 1) // SECTOR_SIZE
     if clusters_needed == 0:
         clusters_needed = 1
+    if start_cluster + clusters_needed > len(fat_entries):
+        raise ValueError("file does not fit in the FAT16 data area")
 
     for i in range(clusters_needed):
         cluster = start_cluster + i
@@ -113,12 +116,13 @@ def build_wad():
 
 
 def main():
-    if len(sys.argv) not in (2, 5, 6):
-        raise SystemExit("usage: make_wad_image.py OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF]]")
+    if len(sys.argv) not in (2, 5, 6, 7):
+        raise SystemExit("usage: make_wad_image.py OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [DOOM_ELF]]]")
 
     image = bytearray(IMAGE_SECTORS * SECTOR_SIZE)
     boot_paths = sys.argv[2:5] if len(sys.argv) >= 5 else None
-    user_elf_path = sys.argv[5] if len(sys.argv) == 6 else None
+    user_elf_path = sys.argv[5] if len(sys.argv) >= 6 else None
+    doom_elf_path = sys.argv[6] if len(sys.argv) == 7 else None
 
     mbr = memoryview(image)[0:SECTOR_SIZE]
     if boot_paths:
@@ -182,8 +186,15 @@ def main():
         with open(user_elf_path, "rb") as f:
             user_elf = f.read()
         user_cluster = DOOM_WAD_CLUSTER + wad_clusters
-        write_cluster_chain(image, fat_entries, data_start, user_cluster, user_elf)
+        user_clusters = write_cluster_chain(image, fat_entries, data_start, user_cluster, user_elf)
         write_root_entry(root, 1, USER_PROBE_NAME, user_cluster, len(user_elf))
+
+        if doom_elf_path:
+            with open(doom_elf_path, "rb") as f:
+                doom_elf = f.read()
+            doom_cluster = user_cluster + user_clusters
+            write_cluster_chain(image, fat_entries, data_start, doom_cluster, doom_elf)
+            write_root_entry(root, 2, DOOM_ELF_NAME, doom_cluster, len(doom_elf))
 
     fat_bytes = bytearray(SECTORS_PER_FAT * SECTOR_SIZE)
     for i, value in enumerate(fat_entries):
