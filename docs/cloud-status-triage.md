@@ -8,6 +8,20 @@ The GitHub workflow also prints this classifier in the Actions log when
 `build/status.txt` exists, so most failures should already show a `primary:`
 line before you download artifacts.
 
+Fast lane selection should go through the cloud-only dispatcher:
+
+```sh
+python3 tools/run_cloud_playability.py --ref main --lane gameplay
+python3 tools/run_cloud_playability.py --ref main --lane audio
+python3 tools/run_cloud_playability.py --ref main --lane persistence --save-slot 0
+```
+
+Use `--lane persistence` while the save/load path is under repair. It sends
+`audible_audio_proof=false` and `persistence_save_slot=0`, which keeps
+FAT/save-growth failures separate from audible-audio proof failures. Use
+`--lane audio` to debug the remote aggregate audio proof without running the
+reboot persistence boot.
+
 Run the local classifier on the final status line:
 
 ```sh

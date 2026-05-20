@@ -627,14 +627,18 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("build/status*.bin", real_wad_workflow)
         self.assertIn("build/status*.txt", real_wad_workflow)
         self.assertIn("build/*.log", real_wad_workflow)
-        self.assertIn("build/persistence-*/*.txt", real_wad_workflow)
         self.assertNotIn("build/gfx.bin", real_wad_workflow)
         self.assertIn("rm -f build/vga*.bin build/vga*.txt", real_wad_workflow)
+        self.assertIn("rm -f build/persistence-*/vga*.bin build/persistence-*/vga*.txt", real_wad_workflow)
         self.assertNotIn("build/private", real_wad_workflow)
         real_wad_upload_block = real_wad_workflow.split("uses: actions/upload-artifact@v4", 1)[1]
         self.assertNotIn("build/disk.img", real_wad_upload_block)
         self.assertNotIn("build/gfx.bin", real_wad_upload_block)
         self.assertNotIn("build/vga*.txt", real_wad_upload_block)
+        self.assertNotIn("build/persistence-*/*.bin", real_wad_upload_block)
+        self.assertNotIn("build/persistence-*/*.txt", real_wad_upload_block)
+        self.assertNotIn("build/persistence-*/status*.bin", real_wad_upload_block)
+        self.assertNotIn("build/persistence-*/status*.txt", real_wad_upload_block)
         os_upload_block = os_smoke_workflow.split("uses: actions/upload-artifact@v4", 1)[1]
         self.assertNotIn("build/gfx.bin", os_upload_block)
 
@@ -1149,6 +1153,7 @@ class SourceContractTests(unittest.TestCase):
             "fat_table_cache equ FAT_TABLE_CACHE_ADDR",
             "fat_root_cache equ FAT_ROOT_CACHE_ADDR",
             "fat_alloc_map equ FAT_ALLOC_MAP_ADDR",
+            "fat_alloc_map_repairs dd 0",
             "PERSISTENCE_MARKER_COUNT equ 3",
             "ata_write_sector:",
             "fat_cache_table:",
@@ -1241,6 +1246,10 @@ class SourceContractTests(unittest.TestCase):
         self.assertNotIn("call fat_update_writable_size", growth_flush)
         final_flush = writer.split(".ok:", 1)[1].split(".fail_badfd:", 1)[0]
         self.assertIn("call fat_update_writable_size", final_flush)
+        write_refresh = writer.split(".write_span_ready:", 1)[1].split(".loop:", 1)[0]
+        self.assertIn("call fat_cache_table", write_refresh)
+        self.assertIn("call fat_build_alloc_map", write_refresh)
+        self.assertLess(write_refresh.index("call fat_cache_table"), write_refresh.index("call fat_build_alloc_map"))
         self.assertIn("cmp dword [file_io_sector_offset], 0", writer)
         self.assertIn("cmp dword [file_io_chunk], 512", writer)
         self.assertIn(".prepare_partial_sector:", writer)
@@ -1251,10 +1260,24 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn(".wrap_scan:", allocator)
         self.assertIn("fat_alloc_zero_policy", allocator)
         self.assertIn("fat_alloc_map", allocator)
+        self.assertIn("fat_alloc_map_repairs", allocator)
         self.assertIn("mov byte [fat_alloc_map + ebx], 1", allocator)
         self.assertIn("mov byte [fat_alloc_map + ebx], 0", allocator)
-        self.assertNotIn("cmp ax, 0", allocator)
+        scan_path = allocator.split(".scan_loop:", 1)[1].split(".fat_read_fail:", 1)[0]
+        self.assertLess(scan_path.index("call fat_next_cluster"), scan_path.index("cmp ax, 0"))
+        self.assertLess(scan_path.index("cmp ax, 0"), scan_path.index("je .fat_entry_free"))
+        self.assertLess(
+            scan_path.index("je .fat_entry_free"),
+            scan_path.index("mov byte [fat_alloc_map + ebx], 1"),
+        )
+        repair_path = allocator.split(".fat_entry_free:", 1)[1].split(".fat_read_fail:", 1)[0]
+        self.assertIn("inc dword [fat_alloc_map_repairs]", repair_path)
+        self.assertIn("mov byte [fat_alloc_map + ebx], 0", repair_path)
         self.assertIn(".rollback_alloc:", allocator)
+        refresh_path = allocator.split(".retry_or_fail:", 1)[1].split(".fail:", 1)[0]
+        self.assertIn("call fat_cache_table", refresh_path)
+        self.assertIn("call fat_build_alloc_map", refresh_path)
+        self.assertLess(refresh_path.index("call fat_cache_table"), refresh_path.index("call fat_build_alloc_map"))
         free_chain = kernel.split("fat_free_chain:", 1)[1].split("fat_create_root_file:", 1)[0]
         self.assertIn("cmp ax, 0", free_chain)
         self.assertIn(".validate_loop:", free_chain)
@@ -1865,6 +1888,9 @@ class SourceContractTests(unittest.TestCase):
             'smoke_musicstream_text db " musicstream="',
             'smoke_musicpull_text db " musicpull="',
             'smoke_musicrend_text db " musicrend="',
+            "sb16_music_pull_service_pending:",
+            "call sb16_music_pull_service_pending",
+            ".hold_pending_music_refill:",
             'smoke_audio_text db " audio="',
         ):
             self.assertIn(source, kernel)

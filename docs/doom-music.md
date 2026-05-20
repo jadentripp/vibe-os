@@ -86,6 +86,11 @@ explicit. This is hardware-paced pull service, not a claim that the kernel owns
 MUS/MIDI parsing or synthesis. `sfxmix=` counts only non-music sound effects,
 `sfxdma=` proves those sound effects reached the SB16 IRQ refill mixer, and
 music increments `musicmix=`.
+When the refill path has raised a pull request and the current music window
+drains before user-space answers it, the kernel now keeps the music handle alive
+and reports the unserviced request instead of counting a terminal
+`musicunder=`. A true underrun still means an unmarked music window ran dry with
+no pending pull service.
 Each music stream descriptor also carries renderer provenance from the
 port-owned MUS/MIDI renderer. The kernel records it as
 `musicrend=<format>:<chunks>:<notes>:<events>:<peak>:<samples>`, so status

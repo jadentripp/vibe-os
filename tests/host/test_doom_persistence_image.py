@@ -1072,6 +1072,13 @@ class DoomPersistenceImageTests(unittest.TestCase):
         marker_chain = fs.write_root_file(make_wad_image.SAVE_REQUEST_NAME, b"X")
         self.assertEqual(len(marker_chain), 1)
         self.assertEqual(fs.free_data_clusters(), before_free - len(marker_chain))
+        first_free_after_marker = next(
+            cluster
+            for cluster in range(2, make_wad_image.last_data_cluster() + 1)
+            if fs.fat_entry(cluster) == 0
+        )
+        self.assertEqual(first_free_after_marker, marker_chain[0] + 1)
+        self.assertLess(first_free_after_marker, make_wad_image.last_data_cluster())
         remounted = make_wad_image.Fat16Image(image)
         self.assertEqual(remounted.read_root_file(make_wad_image.SAVE_REQUEST_NAME), b"X")
         self.assertEqual(remounted.root_file_metadata(save_name)["cluster"], 0)

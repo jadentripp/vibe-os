@@ -193,6 +193,7 @@ jobs:
             build/gfx.bin
             build/doom-audio.wav
             build/shareware.wad.zip
+            build/persistence-*/*.bin
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -204,11 +205,12 @@ jobs:
                     [".github/workflows/real-wad-smoke.yml"]
                 )
 
-        self.assertEqual(len(violations), 4)
+        self.assertEqual(len(violations), 5)
         self.assertTrue(any("build/disk.img" in violation for violation in violations))
         self.assertTrue(any("build/gfx.bin" in violation for violation in violations))
         self.assertTrue(any("build/doom-audio.wav" in violation for violation in violations))
         self.assertTrue(any("build/shareware.wad.zip" in violation for violation in violations))
+        self.assertTrue(any("build/persistence-*/*.bin" in violation for violation in violations))
 
     def test_real_wad_workflow_uploads_are_allowlisted(self):
         workflow = """
@@ -223,10 +225,8 @@ jobs:
           path: |
             build/status*.txt
             build/doom.symbols
-            build/persistence-write/status.save-slot-0.wait-savewr-1.bin
-            build/persistence-write/status.save-slot-0.txt
-            build/persistence-write/status.save-slot-0.triage.txt
             build/persistence-write/save-proof.json
+            build/persistence-write/smoke.log
             build/evidence.tar
 """
         with tempfile.TemporaryDirectory() as tmpdir:

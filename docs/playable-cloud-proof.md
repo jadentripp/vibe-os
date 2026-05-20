@@ -57,6 +57,41 @@ gh workflow run os-smoke.yml \
   --ref "$branch" \
   -f expected_ref="$branch" \
   -f shutdown_panic_proof=false
+```
+
+Then use the cloud-only dispatcher for the real-WAD lane you want. It refuses
+local VM execution, accepts only an optional HTTP(S) WAD URL, and prints the
+artifact download and triage commands:
+
+```sh
+python3 tools/run_cloud_playability.py --ref "$branch" --lane gameplay
+python3 tools/run_cloud_playability.py --ref "$branch" --lane audio
+python3 tools/run_cloud_playability.py --ref "$branch" --lane persistence \
+  --save-slot 0
+```
+
+`gameplay` is the fastest proof path. `audio` enables the temporary remote WAV
+reduction to `audio-proof.json`. `persistence` intentionally leaves
+`audible_audio_proof=false` so save/load failures are isolated from audio
+flakes while the kernel FAT/save path is moving.
+
+When you want the helper to wait and pull the allowlisted status artifact:
+
+```sh
+python3 tools/run_cloud_playability.py --ref "$branch" --lane persistence \
+  --save-slot 0 \
+  --wait \
+  --download-artifacts "build/cloud-run-persistence"
+```
+
+Manual equivalent commands are still:
+
+```sh
+gh workflow run real-wad-smoke.yml \
+  --ref "$branch" \
+  -f expected_ref="$branch" \
+  -f audible_audio_proof=false \
+  -f persistence_proof=false
 
 gh workflow run real-wad-smoke.yml \
   --ref "$branch" \
@@ -67,7 +102,7 @@ gh workflow run real-wad-smoke.yml \
 gh workflow run real-wad-smoke.yml \
   --ref "$branch" \
   -f expected_ref="$branch" \
-  -f audible_audio_proof=true \
+  -f audible_audio_proof=false \
   -f persistence_save_slot=0
 ```
 

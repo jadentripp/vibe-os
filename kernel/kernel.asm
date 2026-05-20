@@ -4497,6 +4497,24 @@ sb16_mark_music_pull_refill:
     pop eax
     ret
 
+sb16_music_pull_service_pending:
+    push eax
+    cmp dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_PULL
+    jne .none
+    mov eax, [sb16_music_pull_request_count]
+    cmp eax, dword [sb16_music_pull_refill_count]
+    ja .pending
+
+.none:
+    pop eax
+    stc
+    ret
+
+.pending:
+    pop eax
+    clc
+    ret
+
 sb16_note_music_pull_request:
     push eax
     push ebx
@@ -4737,10 +4755,16 @@ sb16_refill_active_half:
     jz .finish_sfx
     test dword [sb16_voice_flags + ebx * 4], AUDIO_FLAG_STREAM_FINAL
     jnz .finish_terminal_music
+    call sb16_music_pull_service_pending
+    jnc .hold_pending_music_refill
     inc dword [sb16_music_stream_under_count]
 .finish_terminal_music:
     mov dword [sb16_music_stream_buffer_bytes], 0
     jmp .finish_clear
+
+.hold_pending_music_refill:
+    mov dword [sb16_music_stream_buffer_bytes], 0
+    jmp .advance_voice
 
 .finish_sfx:
     inc dword [sb16_sfx_voice_finished_count]
@@ -4964,6 +4988,7 @@ storage_init:
     mov dword [fat_alloc_debug_cluster], 0
     mov dword [fat_alloc_debug_refreshes], 0
     mov dword [fat_alloc_scan_refreshed], 0
+    mov dword [fat_alloc_map_repairs], 0
     mov dword [wad_size], 0
     mov dword [wad_sectors_read], 0
     mov dword [wad_lump_count], 0
@@ -6026,10 +6051,18 @@ fat_alloc_cluster:
     call fat_next_cluster
     jc .fat_read_fail
     mov [fat_alloc_last_entry], eax
-    cmp byte [fat_alloc_map + ebx], 0
-    je .found
+    cmp ax, 0
+    je .fat_entry_free
+    mov byte [fat_alloc_map + ebx], 1
     inc ebx
     jmp .scan_loop
+
+.fat_entry_free:
+    cmp byte [fat_alloc_map + ebx], 0
+    je .found
+    inc dword [fat_alloc_map_repairs]
+    mov byte [fat_alloc_map + ebx], 0
+    jmp .found
 
 .fat_read_fail:
     mov dword [fat_alloc_fail_stage], 1
@@ -6072,10 +6105,18 @@ fat_alloc_cluster:
     call fat_next_cluster
     jc .wrap_read_fail
     mov [fat_alloc_last_entry], eax
-    cmp byte [fat_alloc_map + ebx], 0
-    je .found
+    cmp ax, 0
+    je .wrap_fat_entry_free
+    mov byte [fat_alloc_map + ebx], 1
     inc ebx
     jmp .wrap_loop
+
+.wrap_fat_entry_free:
+    cmp byte [fat_alloc_map + ebx], 0
+    je .found
+    inc dword [fat_alloc_map_repairs]
+    mov byte [fat_alloc_map + ebx], 0
+    jmp .found
 
 .found:
     mov dword [fat_alloc_debug_stage], 2
@@ -6123,6 +6164,8 @@ fat_alloc_cluster:
     inc dword [fat_alloc_debug_refreshes]
     mov dword [fat_alloc_debug_stage], 0xd0
     call fat_cache_table
+    jc .fail
+    call fat_build_alloc_map
     jc .fail
     jmp .start_scan
 
@@ -7494,8 +7537,18 @@ user_file_write:
     sub eax, [fd_offsets + esi * 4]
     mov [file_write_debug_capacity], eax
     cmp [file_io_remaining], eax
-    jbe .loop
+    jbe .write_span_ready
     mov [file_io_remaining], eax
+
+.write_span_ready:
+    cmp dword [file_io_remaining], 0
+    je .loop
+    mov dword [file_write_fail_stage], 9
+    call fat_cache_table
+    jc .fail_io
+    call fat_build_alloc_map
+    jc .fail_io
+    mov dword [file_write_fail_stage], 0
 
 .loop:
     cmp dword [file_io_remaining], 0
@@ -13705,6 +13758,19 @@ write_smoke_status:
     mov edx, [fat_alloc_debug_refreshes]
     call smoke_write_hex32
 
+    mov esi, smoke_fatmap_text
+    call smoke_copy_string
+    mov edx, [fat_next_free_hint]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_alloc_scan_refreshed]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_alloc_map_repairs]
+    call smoke_write_hex32
+
     mov esi, smoke_saveact_text
     call smoke_copy_string
     mov edx, [doom_saveaction_flags]
@@ -15367,6 +15433,7 @@ smoke_saveclose_text db " saveclose=", 0
 smoke_savemode_text db " savemode=", 0
 smoke_filewrite_text db " fwr=", 0
 smoke_fatalloc_text db " fal=", 0
+smoke_fatmap_text db " fam=", 0
 smoke_saveact_text db " saveact=", 0
 smoke_savedesc_text db " savedesc=", 0
 smoke_fio_text db " fio=", 0
@@ -15807,6 +15874,7 @@ fat_alloc_debug_hint dd 0
 fat_alloc_debug_cluster dd 0
 fat_alloc_debug_refreshes dd 0
 fat_alloc_scan_refreshed dd 0
+fat_alloc_map_repairs dd 0
 fat_reserved_sectors dd 0
 fat_count dd 0
 fat_root_entries dd 0

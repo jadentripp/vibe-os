@@ -23,11 +23,11 @@ on:
         type: string
         default: "auto"
       persistence_save_slot:
-        description: Optional DOOMSAV slot number to require. Providing this also enables the marker-driven reboot save/load persistence proof.
+        description: Optional DOOMSAV slot number to require. Providing this also enables the marker-driven reboot save/load persistence proof; leave audible_audio_proof false when isolating persistence.
         required: false
         type: string
       audible_audio_proof:
-        description: Also capture temporary QEMU WAV output, reduce it to aggregate audio-proof.json, and delete the WAV.
+        description: Also capture temporary QEMU WAV output, reduce it to aggregate audio-proof.json, and delete the WAV; leave false for the fastest gameplay or persistence-only proof.
         required: false
         type: boolean
         default: false
@@ -73,6 +73,42 @@ jobs:
           fi
 
           echo "Running real-WAD smoke proof on ref '$GITHUB_REF_NAME' at commit '$GITHUB_SHA'."
+
+      - name: Summarize cloud proof lane
+        run: |
+          set -euo pipefail
+
+          lane="gameplay"
+          if [ "${AUDIBLE_AUDIO_PROOF}" = "true" ] && [ -n "${PERSISTENCE_SAVE_SLOT:-}" ]; then
+            lane="full"
+          elif [ "${AUDIBLE_AUDIO_PROOF}" = "true" ]; then
+            lane="audio"
+          elif [ -n "${PERSISTENCE_SAVE_SLOT:-}" ] || [ "${{ inputs.persistence_proof }}" = "true" ]; then
+            lane="persistence"
+          fi
+
+          echo "Proof lane: $lane"
+          echo "Artifact policy: upload status/ELF/log diagnostics only; no WADs, disk images, rendered pixels, or raw audio."
+          echo "Download command after completion:"
+          echo "gh run download $GITHUB_RUN_ID --repo $GITHUB_REPOSITORY --name real-wad-smoke-status --dir build/cloud-run-$GITHUB_RUN_ID"
+
+          {
+            echo "### Real WAD smoke"
+            echo ""
+            echo "- lane: \`$lane\`"
+            echo "- ref: \`$GITHUB_REF_NAME\`"
+            echo "- commit: \`$GITHUB_SHA\`"
+            echo "- artifact: \`real-wad-smoke-status\`"
+            echo "- local VM: refused by runbook; this job runs on a disposable GitHub-hosted runner"
+            echo "- artifact policy: no WADs, disk images, rendered pixels, or raw audio"
+            echo ""
+            echo "Persistence isolation: use \`audible_audio_proof=false\` with \`persistence_save_slot=0\` so save/load failures are not mixed with the audible-audio lane."
+            echo ""
+            echo "\`\`\`sh"
+            echo "gh run download $GITHUB_RUN_ID --repo $GITHUB_REPOSITORY --name real-wad-smoke-status --dir build/cloud-run-$GITHUB_RUN_ID"
+            echo "python3 tools/triage_cloud_status.py build/cloud-run-$GITHUB_RUN_ID/status.txt"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install OS toolchain
         run: |
@@ -562,6 +598,7 @@ jobs:
           PY
           rm -f "$WAD_PATH" "$RUNNER_TEMP/wad-source"
           rm -f build/vga*.bin build/vga*.txt
+          rm -f build/persistence-*/vga*.bin build/persistence-*/vga*.txt
 
       - name: Upload non-copyright diagnostic artifacts
         if: always()
@@ -579,7 +616,5 @@ jobs:
             build/status*.bin
             build/status*.txt
             build/*.log
-            build/persistence-*/*.bin
             build/persistence-*/*.json
             build/persistence-*/*.log
-            build/persistence-*/*.txt

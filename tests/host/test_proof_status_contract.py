@@ -549,7 +549,14 @@ class ProofStatusContractTests(unittest.TestCase):
         self.assertIn("--mouse build/status.after-mouse.txt", workflow)
         self.assertIn("--menu build/status.after-menu.txt", workflow)
         upload_block = workflow.split("Upload non-copyright diagnostic artifacts", 1)[1]
-        for forbidden in ("build/disk.img", "build/gfx.bin", "build/vga*.txt", "DOOM1.WAD"):
+        for forbidden in (
+            "build/disk.img",
+            "build/gfx.bin",
+            "build/vga*.txt",
+            "build/persistence-*/*.bin",
+            "build/persistence-*/*.txt",
+            "DOOM1.WAD",
+        ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, upload_block)
 

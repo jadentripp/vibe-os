@@ -175,6 +175,11 @@ occupied. `musicstream=PULL` names the current mode, while
 `musicpull=` records `<requests>:<refills>` so the proof checker can reject a
 claimed pull stream that never received SB16-refill requests or never served
 them. Normal early music refreshes are queued rather than counted as drops.
+If a stream window reaches its boundary after the kernel has already raised a
+pull request but before the port has serviced it, the kernel keeps the music
+voice handle alive with an empty pending window. That preserves the outstanding
+request for the next `VIBE_AUDIO_MUSIC_PULL_STATE` poll instead of retiring the
+voice and turning a scheduler-edge refill into a permanent music underrun.
 These fields let the proof checker distinguish a progressing kernel-mixed,
 request-driven stream from a single queued music sample without claiming
 kernel-owned music synthesis.
