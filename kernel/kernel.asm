@@ -4995,6 +4995,9 @@ storage_init:
     mov dword [fat_alloc_retry_copy_index], 0
     mov dword [fat_alloc_probe_first_free], 0
     mov dword [fat_alloc_probe_free_count], 0
+    mov dword [fat_lba_logical_sectors], 0
+    mov dword [fat_lba_tail_free_cluster], 0
+    mov dword [fat_lba_tail_free_count], 0
     mov dword [wad_size], 0
     mov dword [wad_sectors_read], 0
     mov dword [wad_lump_count], 0
@@ -6010,6 +6013,147 @@ fat_write_cluster_entry:
 .done:
     pop edi
     pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+fat_store_cached_cluster_entry:
+    push eax
+    push ebx
+
+    mov ebx, eax
+    shl ebx, 1
+    mov eax, [fat_sectors_per_fat]
+    shl eax, 9
+    cmp ebx, eax
+    jae .fail
+    mov [fat_table_cache + ebx], dx
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop ebx
+    pop eax
+    ret
+
+fat_flush_table:
+    push ebx
+    push ecx
+    push edx
+    push esi
+
+    xor ebx, ebx
+
+.copy_loop:
+    cmp ebx, [fat_count]
+    jae .ok
+    xor ecx, ecx
+
+.sector_loop:
+    cmp ecx, [fat_sectors_per_fat]
+    jae .next_copy
+    mov eax, [fat_sectors_per_fat]
+    mul ebx
+    add eax, [fat_start_lba]
+    add eax, ecx
+    mov esi, ecx
+    shl esi, 9
+    add esi, fat_table_cache
+    call ata_write_sector
+    jc .fail
+    inc ecx
+    jmp .sector_loop
+
+.next_copy:
+    inc ebx
+    jmp .copy_loop
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+fat_free_tail_after_current:
+    push eax
+    push ebx
+    push ecx
+    push edx
+
+    movzx ebx, ax
+    mov [fat_lba_tail_free_cluster], ebx
+    mov dword [fat_lba_tail_free_count], 0
+    cmp ebx, 2
+    jb .fail
+    cmp ebx, [fat_last_data_cluster]
+    ja .fail
+    mov ecx, [fat_last_data_cluster]
+
+.validate_loop:
+    cmp ebx, 0xfff8
+    jae .validated
+    cmp ebx, 2
+    jb .fail
+    cmp ebx, [fat_last_data_cluster]
+    ja .fail
+    cmp ecx, 0
+    je .fail
+    mov eax, ebx
+    call fat_next_cluster
+    jc .fail
+    cmp ax, 0
+    je .fail
+    movzx ebx, ax
+    dec ecx
+    jmp .validate_loop
+
+.validated:
+    movzx eax, word [fat_current_cluster]
+    mov dx, 0xffff
+    call fat_store_cached_cluster_entry
+    jc .fail
+    movzx ebx, word [fat_lba_tail_free_cluster]
+
+.free_loop:
+    cmp ebx, 0xfff8
+    jae .flush
+    mov eax, ebx
+    call fat_next_cluster
+    jc .fail
+    mov [fat_free_next_cluster], ax
+    mov eax, ebx
+    xor edx, edx
+    call fat_store_cached_cluster_entry
+    jc .fail
+    mov byte [fat_alloc_map + ebx], 0
+    inc dword [fat_lba_tail_free_count]
+    movzx ebx, word [fat_free_next_cluster]
+    jmp .free_loop
+
+.flush:
+    mov dword [fat_next_free_hint], 2
+    call fat_flush_table
+    jc .fail
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
     pop edx
     pop ecx
     pop ebx
@@ -7254,6 +7398,9 @@ fat_file_lba_for_write:
 
     mov dword [fat_lba_fail_stage], 0
     mov dword [fat_file_lba_was_new_cluster], 0
+    mov dword [fat_lba_logical_sectors], 0
+    mov dword [fat_lba_tail_free_cluster], 0
+    mov dword [fat_lba_tail_free_count], 0
     mov esi, ebx
     mov ebx, edx
     and ebx, 511
@@ -7284,10 +7431,28 @@ fat_file_lba_for_write:
     call fat_next_cluster
     jc .fail
     mov [fat_lba_next_cluster], eax
+    push eax
+    mov eax, [writable_sizes + esi * 4]
+    add eax, 511
+    shr eax, 9
+    mov [fat_lba_logical_sectors], eax
+    cmp [fat_lba_sector_index], eax
+    pop eax
+    jae .free_stale_tail_before_growth
     cmp eax, 0
     je .allocate_next_cluster
     cmp eax, 0xfff8
     jb .next_exists
+
+.free_stale_tail_before_growth:
+    cmp eax, 2
+    jb .allocate_next_cluster
+    cmp eax, 0xfff8
+    jae .allocate_next_cluster
+    mov [fat_lba_tail_free_cluster], eax
+    mov dword [fat_lba_fail_stage], 9
+    call fat_free_tail_after_current
+    jc .fail
 
 .allocate_next_cluster:
     mov dword [fat_lba_fail_stage], 3
@@ -13872,6 +14037,18 @@ write_smoke_status:
     stosb
     mov edx, [fat_alloc_probe_free_count]
     call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_lba_tail_free_cluster]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_lba_tail_free_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fat_lba_logical_sectors]
+    call smoke_write_hex32
 
     mov esi, smoke_saveact_text
     call smoke_copy_string
@@ -16130,6 +16307,9 @@ fat_lba_current_cluster dd 0
 fat_lba_next_cluster dd 0
 fat_lba_new_cluster dd 0
 fat_lba_result_lba dd 0
+fat_lba_logical_sectors dd 0
+fat_lba_tail_free_cluster dd 0
+fat_lba_tail_free_count dd 0
 fat_alloc_fail_stage dd 0
 fat_alloc_scan_start_snapshot dd 0
 fat_alloc_scan_cluster dd 0
