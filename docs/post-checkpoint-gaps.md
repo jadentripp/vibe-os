@@ -25,15 +25,19 @@ them so README and runbook wording cannot quietly drift into overclaiming.
 
 ## Latest Cloud Evidence
 
-As of 2026-05-20, manual run `26151623245` on commit `4c2c5c9` is the current
-scripted cloud truth-serum run. It passes the real-WAD, human-playability,
-SB16/audio-continuity, audible-audio manifest, persistence reboot, artifact
-hygiene, and status-triage gates. It triages as `playability-status-green`.
+As of 2026-05-20, manual run `26151623245` on kernel/runtime commit `4c2c5c9`
+is the current scripted cloud truth-serum run for the current runtime code. It
+passes the real-WAD, human-playability, SB16/audio-continuity, audible-audio
+manifest, persistence reboot, artifact hygiene, and status-triage gates. It
+triages as `playability-status-green`.
 
-This is real scripted cloud evidence for the current commit, but it is not a
-human-facing Doom-capable proof by itself. The project still needs the remote
-human playtest and the remaining hard-mode architecture gaps below before README
-or release notes should say "you can play Doom on vibe-os" without caveats.
+This is real scripted cloud evidence for the current kernel/runtime code, but it
+is not a human-facing Doom-capable proof by itself. Later commits that only
+update evidence docs/tests do not change the booted runtime. Any kernel,
+runtime, workflow, or proof-checker change must rerun the gates before becoming
+the next claimed proof point. The project still needs the remote human playtest
+and the remaining hard-mode architecture gaps below before README or release
+notes should say "you can play Doom on vibe-os" without caveats.
 
 What the current evidence proves:
 
@@ -100,13 +104,15 @@ Current state:
   counters, and run `26151623245` passes the scripted proof checkers for commit
   `4c2c5c9`.
 - The matching normal cloud `os-smoke` run `26151623239` passes the generated-WAD
-  boot smoke plus the opt-in shutdown/panic proof lane for the same commit.
+  boot smoke plus the opt-in shutdown/panic proof lane for the same
+  kernel/runtime commit.
 
 Still missing:
 
-- This exact commit has a current passing manual real-WAD cloud workflow. Future
-  kernel/runtime, workflow, or checker changes must rerun the same gate before
-  making a fresh claim.
+- This exact commit boundary is the kernel/runtime commit `4c2c5c9`, which has
+  a current passing manual real-WAD cloud workflow. Future kernel/runtime,
+  workflow, or checker changes must rerun the same gate before making a fresh
+  claim.
 - A future green run must include a final `status.txt`; `status.failure.txt`
   from a timed-out/faulted smoke is diagnostic evidence only.
 - Future status snapshot bundles must include clean early/start/fire/move/use/mouse/menu
@@ -135,11 +141,12 @@ Current state:
 
 Still missing:
 
-- The current commit has a fresh real-WAD status artifact where every required
-  field and every required phase snapshot passes the checkers. Future commits
-  must preserve the now-green scripted `usr=OK`, `use`, mouse effect, audio
-  continuity, and preemption evidence. Any regression in those fields reopens
-  this gap as an implementation bug, not just a documentation issue.
+- The current kernel/runtime commit has a fresh real-WAD status artifact where
+  every required field and every required phase snapshot passes the checkers.
+  Future commits must preserve the now-green scripted `usr=OK`, `use`, mouse
+  effect, audio continuity, and preemption evidence. Any regression in those
+  fields reopens this gap as an implementation bug, not just a documentation
+  issue.
 - Stronger gameplay proof still matters after the gates pass: the current
   counter/status proof should be paired with a remote human playtest before the
   public claim becomes "playable Doom" rather than "scripted cloud proof".

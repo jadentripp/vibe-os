@@ -240,14 +240,17 @@ temporary QEMU WAV backend on the disposable runner, reduces it to aggregate
 continuity snapshots, and deletes the WAV before upload.
 Raw audio files are not diagnostic artifacts.
 
-Current proof status: run `26151623245` on commit `4c2c5c9` is the first
-current-head scripted cloud proof that passes the serious real-WAD gates. It
-reaches `doomrun=RUN`, `doomopen=OK`, `doomread=OK`, `gameplay=OK`, `usr=OK`,
-live keyboard/mouse/SB16/preemption counters, the reboot persistence proof, and
-the aggregate audible-audio proof, and it triages as
-`playability-status-green`. The matching `os-smoke` run `26151623239` also
-passes the generated-WAD smoke and opt-in shutdown/panic proof lane. This is
-strong scripted cloud evidence, not yet a human-facing "Doom-capable" claim.
+Current proof status: run `26151623245` on kernel/runtime commit `4c2c5c9`
+is the first scripted cloud proof that passes the serious real-WAD gates for
+the current runtime code. It reaches `doomrun=RUN`, `doomopen=OK`,
+`doomread=OK`, `gameplay=OK`, `usr=OK`, live keyboard/mouse/SB16/preemption
+counters, the reboot persistence proof, and the aggregate audible-audio proof,
+and it triages as `playability-status-green`. The matching `os-smoke` run
+`26151623239` also passes the generated-WAD smoke and opt-in shutdown/panic
+proof lane for the same kernel/runtime commit. Later commits that only update
+evidence docs/tests do not change the booted runtime, but any kernel, runtime,
+workflow, or proof-checker change must rerun these gates. This is strong
+scripted cloud evidence, not yet a human-facing "Doom-capable" claim.
 
 For a human actually trying the image, use
 `docs/runbooks/remote-doom-playtest.md`. It keeps QEMU on a disposable remote
