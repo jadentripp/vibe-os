@@ -153,10 +153,35 @@ jobs:
             ],
         )
 
+    def test_real_wad_soak_json_metadata_upload_is_allowlisted(self):
+        workflow = """
+name: Real WAD soak
+jobs:
+  soak:
+    env:
+      WAD_PATH: /tmp/DOOM1.WAD
+    steps:
+      - uses: actions/upload-artifact@v4
+        with:
+          path: ${{ runner.temp }}/real-wad-soak/*.json
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            workflow_path = root / ".github" / "workflows" / "real-wad-soak.yml"
+            workflow_path.parent.mkdir(parents=True)
+            workflow_path.write_text(workflow)
+            with mock.patch.object(check_repo_hygiene, "ROOT", root):
+                violations = check_repo_hygiene.workflow_upload_violations(
+                    [".github/workflows/real-wad-soak.yml"]
+                )
+
+        self.assertEqual(violations, [])
+
     def test_current_workflow_uploads_do_not_include_forbidden_real_wad_payloads(self):
         workflows = [
             ".github/workflows/os-smoke.yml",
             ".github/workflows/real-wad-smoke.yml",
+            ".github/workflows/real-wad-soak.yml",
         ]
         self.assertEqual(check_repo_hygiene.workflow_upload_violations(workflows), [])
 
