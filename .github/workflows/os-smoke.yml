@@ -52,16 +52,13 @@ jobs:
             dir="build/proof-${phase}"
             proof_dir="build/shutdown-panic-proof"
             expect_guest_exit=0
-            guest_exit_keys=""
             no_reboot=1
             no_shutdown=1
 
             if [ "$mode" = "status-before-reset" ]; then
               expect_guest_exit=1
-              guest_exit_keys="ret"
             elif [ "$mode" = "status-before-poweroff" ]; then
               expect_guest_exit=1
-              guest_exit_keys="ret"
               no_shutdown=0
             fi
 
@@ -73,13 +70,12 @@ jobs:
               SMOKE_SKIP_ASSERTIONS=1 \
               SMOKE_CAPTURE_GFX=0 \
               SMOKE_EXPECT_GUEST_EXIT="$expect_guest_exit" \
-              SMOKE_GUEST_EXIT_KEYS="$guest_exit_keys" \
               SMOKE_NO_REBOOT="$no_reboot" \
               SMOKE_NO_SHUTDOWN="$no_shutdown" \
-              SMOKE_QEMU_TIMEOUT=30 \
+              SMOKE_QEMU_TIMEOUT=45 \
               SMOKE_EARLY_SECONDS=1 \
               SMOKE_SETTLE_SECONDS=3 \
-              SMOKE_SHUTDOWN_TIMEOUT=10 \
+              SMOKE_SHUTDOWN_TIMEOUT=25 \
               smoke
             cp "$dir/status.txt" "${proof_dir}/${status_name}"
           }

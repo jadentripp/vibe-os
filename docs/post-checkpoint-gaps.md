@@ -428,10 +428,10 @@ Current state:
   proof kernels with `SHUTDOWN_PANIC_PROOF_PANIC`,
   `SHUTDOWN_PANIC_PROOF_HALT`, `SHUTDOWN_PANIC_PROOF_REBOOT`, and
   `SHUTDOWN_PANIC_PROOF_POWEROFF` on the disposable runner. The reboot phase
-  captures status, sends a guest key to release the polling-only proof path, and
-  uses `-no-reboot` so the reset-control / PS/2 reset exits QEMU; the poweroff
-  phase captures status, releases the guest, omits `-no-shutdown`, and requires
-  the ACPI/QEMU poweroff request to exit QEMU.
+  captures status while the guest waits on PIT ticks, then uses `-no-reboot` so
+  the reset-control / PS/2 reset exits QEMU; the poweroff phase captures status
+  during the same guest-owned delay, omits `-no-shutdown`, and requires the
+  ACPI/QEMU poweroff request to exit QEMU.
 
 Still missing:
 

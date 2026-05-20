@@ -469,6 +469,7 @@ VIRTUALBOX_PM1_CNT_S5_ENABLE equ 0x3400
 RESET_CONTROL_PORT equ 0x0cf9
 RESET_CONTROL_SYSTEM equ 0x02
 RESET_CONTROL_FULL_RESET equ 0x06
+SHUTDOWN_PROOF_DELAY_TICKS equ 2000
 
 SC_LSHIFT equ 0x2a
 SC_RSHIFT equ 0x36
@@ -556,13 +557,13 @@ start:
 %ifdef SHUTDOWN_PANIC_PROOF_REBOOT
     mov dword [shutdown_state], SHUTDOWN_REBOOT
     call write_smoke_status
-    call shutdown_proof_wait_for_key
+    call shutdown_proof_wait_before_guest_exit
     call keyboard_controller_reboot
 %endif
 %ifdef SHUTDOWN_PANIC_PROOF_POWEROFF
     mov dword [shutdown_state], SHUTDOWN_POWEROFF
     call write_smoke_status
-    call shutdown_proof_wait_for_key
+    call shutdown_proof_wait_before_guest_exit
     call acpi_poweroff
 %endif
     call user_probe_run
@@ -1390,9 +1391,19 @@ acpi_poweroff:
     hlt
     jmp .wait
 
-shutdown_proof_wait_for_key:
+shutdown_proof_wait_before_guest_exit:
+    call pic_unmask_timer
+    sti
+    mov eax, [timer_ticks]
+    add eax, SHUTDOWN_PROOF_DELAY_TICKS
+    mov [shutdown_proof_target_ticks], eax
+
+.wait:
+    hlt
+    mov eax, [timer_ticks]
+    cmp eax, [shutdown_proof_target_ticks]
+    jb .wait
     cli
-    call wait_scancode
     ret
 
 skip_spaces:
@@ -13636,6 +13647,7 @@ fault_state dd 0
 fault_last_syscall dd 0
 panic_status dd 0
 shutdown_state dd 0
+shutdown_proof_target_ticks dd 0
 user_wad_magic_seen dd 0
 user_brk_current dd 0
 current_pid dd 0
