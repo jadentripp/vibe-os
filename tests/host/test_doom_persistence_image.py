@@ -279,11 +279,16 @@ class DoomPersistenceImageTests(unittest.TestCase):
         )
 
         self.assertIn("changed-from-baseline", summary[0])
-        self.assertIn("default write status exited=OK", summary)
+        self.assertIn("default write status closed=OK", summary)
 
-    def test_checker_rejects_default_write_status_before_doom_exit(self):
-        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "doomrun"):
-            check_persistence.validate_default_write_status(default_write_status(doomrun="RUN"))
+    def test_checker_accepts_running_default_write_status_after_close(self):
+        check_persistence.validate_default_write_status(default_write_status(doomrun="RUN"))
+
+    def test_checker_rejects_default_write_status_before_default_close(self):
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "doomclose"):
+            check_persistence.validate_default_write_status(
+                default_write_status(doomrun="RUN", doomclose="00000002")
+            )
 
     def test_checker_reports_write_status_failure_before_default_bytes(self):
         baseline = bytearray((BUILD / "disk.img").read_bytes())
@@ -293,9 +298,9 @@ class DoomPersistenceImageTests(unittest.TestCase):
 
         baseline_path = self.write_temp_image(baseline)
         image_path = self.write_temp_image(image)
-        status_path = self.write_temp_text(default_write_status(doomrun="RUN"))
+        status_path = self.write_temp_text(default_write_status(doomclose="00000002"))
 
-        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "doomrun"):
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "doomclose"):
             check_persistence.validate_image(
                 image_path,
                 baseline_image=baseline_path,
@@ -764,7 +769,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertIn("dynamic FAT allocation/free/truncate proof=OK", result.stdout)
         self.assertIn("survived-reboot", result.stdout)
         self.assertIn("reboot status runtime=OK", result.stdout)
-        self.assertIn("default write status exited=OK", result.stdout)
+        self.assertIn("default write status closed=OK", result.stdout)
         self.assertIn("REMOTE PROOF", result.stdout)
         self.assertNotIn("IWAD", result.stdout)
         self.assertEqual(result.stderr, "")

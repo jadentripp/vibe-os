@@ -83,7 +83,6 @@ REBOOT_POSITIVE_HEX_FIELDS = (
 )
 DEFAULT_WRITE_EXACT_FIELDS = {
     "doom": "OK",
-    "doomrun": "EXIT",
     "doomopen": "OK",
     "doomread": "OK",
     "gameplay": "OK",
@@ -401,6 +400,12 @@ def validate_default_write_status(status):
         raise PersistenceProofError("default write status is missing Aurora OS banner")
 
     fields = _status_fields(status)
+    run_state = _status_field(fields, "doomrun")
+    if run_state not in ("RUN", "EXIT"):
+        raise PersistenceProofError(
+            f"default write status doomrun= must be RUN or EXIT, got {run_state!r}"
+        )
+
     for name, expected in DEFAULT_WRITE_EXACT_FIELDS.items():
         value = _status_field(fields, name)
         if value != expected:
@@ -419,8 +424,10 @@ def validate_default_write_status(status):
     close_count = _status_hex_field(fields, "doomclose")
     if write_count == 0:
         raise PersistenceProofError("default write status doomwrite= must prove file output")
-    if close_count == 0:
-        raise PersistenceProofError("default write status doomclose= must prove file close")
+    if close_count < 3:
+        raise PersistenceProofError(
+            "default write status doomclose= must prove DEFAULT.CFG was closed"
+        )
 
     flags, _mode = _status_hex_tuple_field(fields, "doommode", 2, separator=":")
     if flags != DEFAULT_WRITE_REQUIRED_OPEN_FLAGS:
@@ -541,7 +548,7 @@ def validate_image(
         validate_reboot_status(Path(reboot_status_path).read_text())
         summary.append("reboot status runtime=OK")
     if write_status_ok:
-        summary.append("default write status exited=OK")
+        summary.append("default write status closed=OK")
 
     if not summary:
         summary.append("persistence entries present")
@@ -572,7 +579,7 @@ def parse_args():
     )
     parser.add_argument(
         "--write-status",
-        help="decoded status.txt captured from the default-writing boot; Doom must have exited cleanly after O_TRUNC defaults output",
+        help="decoded status.txt captured from the default-writing boot; Doom must have closed O_TRUNC defaults output",
     )
     parser.add_argument(
         "--require-save-slot",

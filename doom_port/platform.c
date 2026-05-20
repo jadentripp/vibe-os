@@ -22,9 +22,11 @@
 #include "z_zone.h"
 
 extern doomcom_t* doomcom;
+extern char* defaultfile;
 
 static byte doom_zone[8 * 1024 * 1024];
 static doomcom_t local_doomcom;
+static char default_config_check_buffer[16 * 1024 + 1];
 static ticcmd_t empty_ticcmd;
 static byte active_palette[256 * 3];
 static int next_sound_handle = 1;
@@ -40,6 +42,7 @@ static int playable_origin_set;
 static int playable_origin_x;
 static int playable_origin_y;
 static int playable_initial_clip = -1;
+static int default_config_checkpoint_checked;
 
 #define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
 #define VIBE_MUSIC_STREAM_TICS \
@@ -109,10 +112,59 @@ static int submit_music_stream_chunk(int handle, int start_voice)
     return 1;
 }
 
-static void track_platform_quit_signal(const vibe_doom_input_event_t* event)
+static int default_config_contains_marker(size_t length, const char* marker)
 {
-    if (event->type == VIBE_DOOM_INPUT_KEYDOWN && event->data1 == VIBE_DOOM_KEY_F12)
-        I_Quit();
+    size_t marker_length;
+    size_t index;
+
+    marker_length = strlen(marker);
+    if (marker_length == 0)
+        return 1;
+    if (marker_length > length)
+        return 0;
+
+    for (index = 0; index <= length - marker_length; ++index) {
+        if (memcmp(default_config_check_buffer + index, marker, marker_length) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+static int default_config_needs_checkpoint(void)
+{
+    const char* path;
+    FILE* file;
+    size_t length;
+
+    path = defaultfile ? defaultfile : "DEFAULT.CFG";
+    file = fopen(path, "r");
+    if (!file)
+        return 1;
+
+    length = fread(
+        default_config_check_buffer,
+        1,
+        sizeof(default_config_check_buffer) - 1,
+        file);
+    fclose(file);
+    default_config_check_buffer[length] = 0;
+
+    return length == 0
+        || default_config_check_buffer[length - 1] != '\n'
+        || !default_config_contains_marker(length, "mouse_sensitivity")
+        || !default_config_contains_marker(length, "use_mouse")
+        || !default_config_contains_marker(length, "screenblocks")
+        || !default_config_contains_marker(length, "chatmacro0");
+}
+
+static void checkpoint_default_config_if_needed(void)
+{
+    if (default_config_checkpoint_checked || !defaultfile)
+        return;
+
+    default_config_checkpoint_checked = 1;
+    if (default_config_needs_checkpoint())
+        M_SaveDefaults();
 }
 
 static void pump_music_stream(void)
@@ -190,7 +242,6 @@ void I_StartTic(void)
         packed = vibe_syscall3(VIBE_SYS_POLL_KEY, 0, 0, 0);
         if (!vibe_doom_translate_key_event((unsigned int)packed, &translated))
             break;
-        track_platform_quit_signal(&translated);
 
         event.type = translated.type == VIBE_DOOM_INPUT_KEYDOWN ? ev_keydown : ev_keyup;
         event.data1 = translated.data1;
@@ -358,6 +409,7 @@ void I_FinishUpdate(void)
 
     report_doom_init_status(VIBE_DOOM_INIT_FRAME);
     pump_music_stream();
+    checkpoint_default_config_if_needed();
     report_gameplay_status();
     report_playability_status();
     if (screens[0]) {

@@ -88,8 +88,8 @@ still have the same FAT root cluster, size, and bytes. Add `--reboot-status`
 with the second boot's decoded status so the same proof also requires a live
 Doom runtime: no user fault, panic, shutdown, or failed `usr`/`wad`/runtime
 health fields. Add `--write-status` when `DEFAULT.CFG` is proved through the
-quit path; the checker then requires the write boot to report clean Doom exit,
-the last `O_WRONLY|O_CREAT|O_TRUNC` defaults open, nonzero write/close counts,
+runtime defaults checkpoint; the checker then requires the write boot to report
+the last `O_WRONLY|O_CREAT|O_TRUNC` defaults open, a completed defaults close,
 and no user fault before accepting the disk bytes. The reboot comparison
 requires `--baseline-image` too, so a
 preseeded image can never be reported as a reboot persistence proof without also
@@ -114,12 +114,12 @@ back into the real disk artifact.
 
 The Doom libc buffers formatted `fprintf` output until `fflush()` / `fclose()`,
 so `M_SaveDefaults()` does not spend the cloud proof window performing one disk
-syscall per default line. The default real-WAD cloud workflow sends the port's
-F12 platform quit signal before snapshotting the disk. That signal calls the
-same `I_Quit()` path as a normal Doom quit, so it still runs
-`M_SaveDefaults()` and shuts down through Doom's platform layer; `--write-status`
-keeps the wait honest by rejecting a `DEFAULT.CFG` proof if Doom is still
-running in the defaults writer phase.
+syscall per default line. The port checkpoints defaults once after Doom reaches
+live frame updates when the generated `DEFAULT.CFG` is still empty, partial, or
+missing core defaults markers. The default real-WAD cloud workflow waits for
+that checkpoint before snapshotting the disk; `--write-status` keeps the wait
+honest by rejecting a `DEFAULT.CFG` proof until the defaults file has been
+opened with `O_TRUNC` and closed.
 
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,
