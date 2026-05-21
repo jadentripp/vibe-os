@@ -223,6 +223,18 @@ class DoomRuntimeContractTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, libc)
 
+    def test_port_sprintf_advances_numeric_varargs_in_format_loop(self):
+        st = (ROOT / "third_party" / "doom" / "linuxdoom-1.10" / "st_stuff.c").read_text()
+        libc = (ROOT / "doom_port" / "libc.c").read_text()
+
+        self.assertIn('sprintf(namebuf, "STFST%d%d", i, j);', st)
+        self.assertIn("case 'd':", libc)
+        self.assertIn("value = (long)va_arg(args, int);", libc)
+        self.assertIn("value = (unsigned long)va_arg(args, unsigned int);", libc)
+        self.assertIn('sprintf(text, "WILV%d%d", 1, 2);', (ROOT / "tests" / "host" / "doom_libc_allocator_test.c").read_text())
+        self.assertNotIn("static long format_signed_arg(va_list args", libc)
+        self.assertNotIn("static unsigned long format_unsigned_arg(va_list args", libc)
+
     def test_real_doom_assets_are_runtime_inputs_not_repo_payloads(self):
         docs = (ROOT / "docs" / "architecture.md").read_text()
         docs_words = " ".join(docs.split())

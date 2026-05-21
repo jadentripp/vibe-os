@@ -53,6 +53,9 @@ The Codespaces/noVNC path keeps QEMU, disk images, WAD data, framebuffer
 captures, and raw audio off the laptop. For reviewed human proof, use
 `docs/play.md`; the generated bundle is checked by
 `tools/check_cloud_playability_artifacts.py --human-session`.
+Prefer a 4+ CPU Codespace for longer noVNC play. If a 2-core session slows down,
+use the printed diagnostics helper twice about a minute apart before treating it
+as an OS runtime regression.
 
 ## Build And Prove
 

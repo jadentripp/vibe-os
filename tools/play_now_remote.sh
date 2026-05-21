@@ -193,11 +193,33 @@ echo "vibe-os play-now diagnostics"
 echo "repo: \$repo_dir"
 echo "diagnostics helper: \$diagnostics_script"
 echo "stop helper: \$stop_script"
-echo "host CPUs: \$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo unknown)"
+host_cpus="\$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo unknown)"
+echo "host CPUs: \$host_cpus"
 if [ -r /proc/loadavg ]; then
-  echo "loadavg: \$(cut -d' ' -f1-3 /proc/loadavg)"
+  loadavg="\$(cut -d' ' -f1-3 /proc/loadavg)"
+  echo "loadavg: \$loadavg"
+  python3 - "\$host_cpus" "\$loadavg" <<'PY_LOAD' || true
+import sys
+
+try:
+    cpus = int(sys.argv[1])
+    one_minute = float(sys.argv[2].split()[0])
+except (IndexError, ValueError):
+    raise SystemExit(0)
+
+if cpus <= 0:
+    raise SystemExit(0)
+
+print(f"load per CPU: 1m={one_minute / cpus:.2f}")
+if cpus <= 2 and one_minute >= cpus:
+    print(
+        "slowdown warning: 1m load is at/above available CPUs; "
+        "noVNC/QEMU can degrade under sustained contention"
+    )
+PY_LOAD
 fi
 echo "performance hint: 2-core hosts can stutter under QEMU/noVNC; prefer 4+ cloud CPUs for interactive Doom."
+echo "slowdown snapshot tip: rerun this helper about 60s later and compare status deltas before changing OS runtime code."
 if [ -s "\$port_file" ]; then
   echo "noVNC port: \$(cat "\$port_file" 2>/dev/null || true)"
 fi
@@ -505,7 +527,7 @@ echo "Stop helper: $STOP_SCRIPT"
 echo "From another remote shell, run it to inspect safe slowdown status without printing env."
 echo "The diagnostics helper does not dump environment variables."
 echo "Performance diagnostics include host CPUs/load plus filtered status fields such as inputdepth=, dtick=, preempt=, doompresent=, musicbuf=, and mixunder=."
-echo "If a 2-core host keeps stuttering while those OS status fields stay healthy, restart on a 4+ CPU Codespace or cloud VM."
+echo "If a 2-core host keeps stuttering while those OS status fields stay healthy across two snapshots, restart on a 4+ CPU Codespace or cloud VM."
 
 if command -v websockify >/dev/null 2>&1; then
   NOVNC_WEB_ROOT_RESOLVED="$(resolve_novnc_web_root)"

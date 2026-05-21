@@ -262,14 +262,16 @@ the launcher:
 gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh
 ```
 
-It reports host CPU count/load, the forwarded noVNC port, the play process,
-filtered OS serial status lines such as `inputdepth=`, `musicbuf=`,
-`musicpull=`, `mixunder=`, `dtick/preempt`, `doompresent=`, and recent
-play/noVNC logs with token-shaped values redacted. It does not print the
-Codespaces environment, GitHub tokens, WAD data, pixels, raw audio, or full
-logs. If those OS status fields look healthy but the browser still stutters on
-a 2-core host, restart on the selected 4+ CPU Codespace or a faster disposable
-cloud VM before treating it as a Doom/input regression.
+It reports host CPU count/load, load-per-CPU pressure when `/proc/loadavg` is
+available, the forwarded noVNC port, the play process, filtered OS serial status
+lines such as `inputdepth=`, `musicbuf=`, `musicpull=`, `mixunder=`,
+`dtick/preempt`, `doompresent=`, and recent play/noVNC logs with
+token-shaped values redacted. It does not print the Codespaces environment,
+GitHub tokens, WAD data, pixels, raw audio, or full logs. For slowdown that
+gets worse over time, run the helper twice about a minute apart. If those OS
+status fields keep advancing but the browser still stutters on a 2-core host,
+restart on the selected 4+ CPU Codespace or a faster disposable cloud VM before
+treating it as a Doom/input regression.
 The helper also prints a status-only cadence summary from the recent serial
 status tail: first/final/delta values for Doom tics, frame presentation,
 timer/preemption, input depth/drop, SB16 refill/music progress, and audio safety
@@ -837,6 +839,7 @@ diagnostic directory:
 
 ```sh
 python3 tools/triage_cloud_status.py path/to/real-wad-smoke-status/status.txt
+# If the run stopped before final status, triage status.failure.txt instead.
 
 python3 tools/check_real_wad_proof.py \
   --baseline path/to/real-wad-smoke-status/status.after-start.txt \

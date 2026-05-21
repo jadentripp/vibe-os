@@ -288,6 +288,7 @@ class PlayNowRemoteTests(unittest.TestCase):
             "performance caveat: 2-core Codespaces",
             "performance preference: use the selected 4+ CPU machine",
             "Slowdown check: run the Diagnostics command above",
+            "If status counters keep advancing but 2-core noVNC keeps degrading",
             "Codespaces runs pushed git state",
         ):
             with self.subTest(needle=needle):
@@ -671,7 +672,8 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("Audio proof tip: VNC is display/input only", result.stdout)
             self.assertIn("Performance note: 2-core Codespaces can play Doom", result.stdout)
             self.assertIn("4+ CPUs are preferred for interactive play", result.stdout)
-            self.assertIn("Slowdown check: run the Diagnostics command above", result.stdout)
+            self.assertIn("Slowdown check: run the Diagnostics command above twice", result.stdout)
+            self.assertIn("If status counters keep advancing but 2-core noVNC keeps degrading", result.stdout)
             self.assertEqual(result.stderr, "")
 
             log = gh_log.read_text()
@@ -1034,7 +1036,11 @@ class PlayNowRemoteTests(unittest.TestCase):
             'inputdepth=|musicbuf=|musicpull=|mixunder=',
             'does not dump environment variables',
             'performance hint: 2-core hosts can stutter under QEMU/noVNC',
+            'load per CPU: 1m=',
+            'slowdown warning: 1m load is at/above available CPUs',
+            'slowdown snapshot tip: rerun this helper about 60s later',
             'Performance diagnostics include host CPUs/load plus filtered status fields',
+            'healthy across two snapshots',
             '(access_token|token|signature|X-Amz-Signature|X-Amz-Credential)=',
             'NOVNC_WEB_ROOTS=(',
             'resolve_novnc_web_root',

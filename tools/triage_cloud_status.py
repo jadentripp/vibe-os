@@ -230,6 +230,9 @@ SAVE_STAGE_NAMES = {
 VALID_THINKER_CLASSES = {0, 1}
 VALID_SPECIAL_CLASSES = set(range(8))
 UNKNOWN_TCLASS_PATTERN = re.compile(r"doomlog=.*?Unknown\s+tclass\s+([0-9]+)\s+in\s+savegame")
+DOOMLOG_FIELD_PATTERN = re.compile(
+    r"(?:^|\s)doomlog=(.*?)(?=\s\s+[A-Za-z][A-Za-z0-9_]*=|$)"
+)
 
 
 @dataclass(frozen=True)
@@ -446,7 +449,11 @@ class SymbolMap:
 
 
 def parse_status(status: str) -> dict[str, str]:
-    return parse_status_fields(status, error_type=ValueError)
+    fields = parse_status_fields(status, error_type=ValueError)
+    doomlog = DOOMLOG_FIELD_PATTERN.search(status)
+    if doomlog is not None:
+        fields["doomlog"] = doomlog.group(1).strip()
+    return fields
 
 
 def _field(fields: dict[str, str], name: str) -> str:

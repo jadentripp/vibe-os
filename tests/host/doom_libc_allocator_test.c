@@ -617,6 +617,12 @@ int main(void)
     sprintf(text, "WILV%d%d", 1, 2);
     if (strcmp(text, "WILV12"))
         return 20;
+    sprintf(text, "STFST%d%d", 3, 0);
+    if (strcmp(text, "STFST30"))
+        return 241;
+    sprintf(text, "STFST%d%d", 3, 2);
+    if (strcmp(text, "STFST32"))
+        return 242;
     sprintf(text, "%05d", -7);
     if (strcmp(text, "-0007"))
         return 227;
@@ -648,6 +654,9 @@ int main(void)
     sprintf(text, "%X", 0x2au);
     if (strcmp(text, "2A"))
         return 236;
+    sprintf(wad_path, "STFST%d%d:%u:%x:%X", 3, 0, 42u, 0x2au, 0x2au);
+    if (strcmp(wad_path, "STFST30:42:2a:2A"))
+        return 243;
     sprintf(wad_path, "%llx %d", 0x12345678abcdef01ull, 7);
     if (sizeof(unsigned long) == 4) {
         if (strcmp(wad_path, "abcdef01 7"))

@@ -969,6 +969,70 @@ def packaged_asset_manifest(fs, packaged_assets=PACKAGED_ASSET_FILES):
     return tuple(manifest)
 
 
+def verify_embedded_wad_readback(
+    fs,
+    *,
+    expected_data=None,
+    expected_size=None,
+    expected_sha1=None,
+    expected_sha256=None,
+    name=b"DOOM1   WAD",
+):
+    """Read DOOM1.WAD through the FAT chain and verify source identity."""
+
+    name = Fat16Image.validate_root_83_name(name, allow_protected=True)
+    label = Fat16Image._entry_label(name)
+    meta = fs.root_file_metadata(name)
+    if meta is None:
+        raise ValueError(f"FAT16 image is missing {label}")
+    if meta["is_directory"]:
+        raise ValueError(f"FAT16 {label} is not a regular file")
+
+    expected = None
+    if expected_data is not None:
+        expected = bytes(expected_data)
+        if expected_size is None:
+            expected_size = len(expected)
+        if expected_sha1 is None:
+            expected_sha1 = hashlib.sha1(expected).hexdigest()
+        if expected_sha256 is None:
+            expected_sha256 = hashlib.sha256(expected).hexdigest()
+
+    data = fs.read_root_file(name)
+    if len(data) != meta["size"]:
+        raise ValueError(
+            f"FAT16 {label} readback returned {len(data)} bytes, "
+            f"but root entry records {meta['size']}"
+        )
+    if expected is not None and data != expected:
+        raise ValueError(f"FAT16 {label} bytes did not match the source WAD")
+    if expected_size is not None and len(data) != expected_size:
+        raise ValueError(
+            f"FAT16 {label} size mismatch: got {len(data)}, expected {expected_size}"
+        )
+
+    sha1 = hashlib.sha1(data).hexdigest()
+    sha256 = hashlib.sha256(data).hexdigest()
+    if expected_sha1 is not None and sha1 != expected_sha1.lower():
+        raise ValueError(
+            f"FAT16 {label} SHA-1 mismatch: got {sha1}, expected {expected_sha1}"
+        )
+    if expected_sha256 is not None and sha256 != expected_sha256.lower():
+        raise ValueError(
+            f"FAT16 {label} SHA-256 mismatch: got {sha256}, expected {expected_sha256}"
+        )
+
+    chain = fs.cluster_chain(meta["cluster"]) if meta["size"] else ()
+    return {
+        "name": label,
+        "size": len(data),
+        "cluster": meta["cluster"],
+        "clusters": len(chain),
+        "sha1": sha1,
+        "sha256": sha256,
+    }
+
+
 def validate_generated_packaged_assets(fs, packaged_assets=PACKAGED_ASSET_FILES):
     manifest = packaged_asset_manifest(fs, packaged_assets)
 

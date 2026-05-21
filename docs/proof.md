@@ -1256,8 +1256,10 @@ line.
 Use `tools/run_cloud_playability.py --lane gameplay`, `--lane audio`, or
 `--lane persistence --save-slot 0` to rerun only the red proof lane. For a
 downloaded `real-wad-smoke-status` artifact, run
-`tools/triage_cloud_status.py build/status.txt` first, then the actual proof
-checkers. Status/proof tools should parse status text through
+`tools/triage_cloud_status.py build/status.txt` first, or
+`tools/triage_cloud_status.py build/status.failure.txt` when the boot stopped
+before final status, then the actual proof checkers. Status/proof tools should
+parse status text through
 `tools/status_fields.py` so composite fields such as `execsys=a/b/c/d/e/f` stay
 intact and duplicate `key=value` fields fail loudly.
 

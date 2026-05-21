@@ -1921,28 +1921,6 @@ static int out_unsigned(
     return count;
 }
 
-static unsigned long format_unsigned_arg(va_list args, int length_modifier)
-{
-    if (length_modifier == 3)
-        return (unsigned long)va_arg(args, size_t);
-    if (length_modifier == 2)
-        return (unsigned long)va_arg(args, unsigned long long);
-    if (length_modifier == 1)
-        return va_arg(args, unsigned long);
-    return (unsigned long)va_arg(args, unsigned int);
-}
-
-static long format_signed_arg(va_list args, int length_modifier)
-{
-    if (length_modifier == 3)
-        return (long)va_arg(args, ssize_t);
-    if (length_modifier == 2)
-        return (long)va_arg(args, long long);
-    if (length_modifier == 1)
-        return va_arg(args, long);
-    return (long)va_arg(args, int);
-}
-
 static int format_to(char* buffer, size_t size, int fd, const char* format, va_list args)
 {
     char* out = buffer;
@@ -2034,9 +2012,18 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
             break;
         case 'd':
         case 'i': {
-            long value = format_signed_arg(args, length_modifier);
+            long value;
             unsigned long magnitude;
-            int negative = value < 0;
+            int negative;
+            if (length_modifier == 3)
+                value = (long)va_arg(args, ssize_t);
+            else if (length_modifier == 2)
+                value = (long)va_arg(args, long long);
+            else if (length_modifier == 1)
+                value = va_arg(args, long);
+            else
+                value = (long)va_arg(args, int);
+            negative = value < 0;
             if (value < 0) {
                 magnitude = 0ul - (unsigned long)value;
             } else {
@@ -2049,7 +2036,15 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
             break;
         }
         case 'u': {
-            unsigned long value = format_unsigned_arg(args, length_modifier);
+            unsigned long value;
+            if (length_modifier == 3)
+                value = (unsigned long)va_arg(args, size_t);
+            else if (length_modifier == 2)
+                value = (unsigned long)va_arg(args, unsigned long long);
+            else if (length_modifier == 1)
+                value = va_arg(args, unsigned long);
+            else
+                value = (unsigned long)va_arg(args, unsigned int);
             wrote = out_unsigned(out_arg, &left, fd, value, 10, width, precision, pad_zero, 0, 0);
             if (wrote < 0)
                 return -1;
@@ -2057,7 +2052,15 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
             break;
         }
         case 'o': {
-            unsigned long value = format_unsigned_arg(args, length_modifier);
+            unsigned long value;
+            if (length_modifier == 3)
+                value = (unsigned long)va_arg(args, size_t);
+            else if (length_modifier == 2)
+                value = (unsigned long)va_arg(args, unsigned long long);
+            else if (length_modifier == 1)
+                value = va_arg(args, unsigned long);
+            else
+                value = (unsigned long)va_arg(args, unsigned int);
             wrote = out_unsigned(out_arg, &left, fd, value, 8, width, precision, pad_zero, 0, 0);
             if (wrote < 0)
                 return -1;
@@ -2065,7 +2068,15 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
             break;
         }
         case 'x': {
-            unsigned long value = format_unsigned_arg(args, length_modifier);
+            unsigned long value;
+            if (length_modifier == 3)
+                value = (unsigned long)va_arg(args, size_t);
+            else if (length_modifier == 2)
+                value = (unsigned long)va_arg(args, unsigned long long);
+            else if (length_modifier == 1)
+                value = va_arg(args, unsigned long);
+            else
+                value = (unsigned long)va_arg(args, unsigned int);
             wrote = out_unsigned(out_arg, &left, fd, value, 16, width, precision, pad_zero, 0, 0);
             if (wrote < 0)
                 return -1;
@@ -2073,7 +2084,15 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
             break;
         }
         case 'X': {
-            unsigned long value = format_unsigned_arg(args, length_modifier);
+            unsigned long value;
+            if (length_modifier == 3)
+                value = (unsigned long)va_arg(args, size_t);
+            else if (length_modifier == 2)
+                value = (unsigned long)va_arg(args, unsigned long long);
+            else if (length_modifier == 1)
+                value = va_arg(args, unsigned long);
+            else
+                value = (unsigned long)va_arg(args, unsigned int);
             wrote = out_unsigned(out_arg, &left, fd, value, 16, width, precision, pad_zero, 0, 1);
             if (wrote < 0)
                 return -1;

@@ -33,6 +33,7 @@ DEFAULT_SAVE_SLOT = "0"
 LANES = ("auto", "gameplay", "audio", "persistence", "full")
 MAX_SOAK_ATTEMPTS = 20
 CLOUD_AUDIT_SCHEMA = "cloud-playability-audit-v1"
+STATUS_TRIAGE_BASENAMES = ("status.txt", "status.failure.txt")
 
 
 class CloudPlayabilityError(RuntimeError):
@@ -397,6 +398,17 @@ def infer_lane_from_artifacts(output_dir: Path) -> str:
     return "gameplay"
 
 
+def find_status_for_triage(output_dir: Path) -> Path | None:
+    for basename in STATUS_TRIAGE_BASENAMES:
+        candidate = output_dir / basename
+        if candidate.exists():
+            return candidate
+        matches = sorted(output_dir.rglob(basename))
+        if matches:
+            return matches[0]
+    return None
+
+
 def checker_worktree_path(ref: str) -> Path:
     safe = re.sub(r"[^A-Za-z0-9._-]+", "-", ref).strip("-") or "checker"
     return ROOT / "build" / "cloud-checkers" / safe[:80]
@@ -435,12 +447,12 @@ def triage_status(
     *,
     checker_root: Path | None = None,
 ) -> None:
-    status_path = output_dir / "status.txt"
-    if not status_path.exists():
-        matches = sorted(output_dir.rglob("status.txt"))
-        status_path = matches[0] if matches else status_path
-    if not status_path.exists():
-        print(f"triage: no status.txt found under {output_dir}", file=stdout)
+    status_path = find_status_for_triage(output_dir)
+    if status_path is None:
+        print(
+            f"triage: no status.txt or status.failure.txt found under {output_dir}",
+            file=stdout,
+        )
         return
     tool = "tools/triage_cloud_status.py"
     if checker_root is not None:
@@ -1016,7 +1028,8 @@ def main(
             triage_command = [sys.executable, triage_tool, str(output_dir / "status.txt")]
             audit["commands"]["triage"] = command_text(triage_command)  # type: ignore[index]
             print(
-                f"triage command: {command_text(triage_command)}",
+                f"triage command: {command_text(triage_command)} "
+                f"(fallback: {output_dir / 'status.failure.txt'})",
                 file=stdout,
             )
         elif not args.no_triage:

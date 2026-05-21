@@ -224,6 +224,14 @@ class CloudStatusTriageTests(unittest.TestCase):
         self.assertEqual(primary, "exec-failed")
         self.assertIn("successes=0x2", notes[0])
 
+    def test_shared_status_parser_keeps_spaced_doomlog_message(self):
+        fields = triage_cloud_status.parse_status(
+            "Aurora doomlog=NumForName: STFST33 not found!  doompresent=00000000"
+        )
+
+        self.assertEqual(fields["doomlog"], "NumForName: STFST33 not found!")
+        self.assertEqual(fields["doompresent"], "00000000")
+
     def test_classifies_failed_exec_handoff(self):
         primary, notes = self.classify(
             execsys="00000001/00000000/00000001/00000000/00000000/00000000",

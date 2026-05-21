@@ -71,6 +71,7 @@ class PreflightReport:
     vnc_port: int
     required_tools: tuple[ToolStatus, ...]
     novnc: NovncStatus
+    load_average: tuple[float, float, float] | None = None
 
     @property
     def missing_required_tools(self) -> tuple[str, ...]:
@@ -204,6 +205,20 @@ def _effective_cpu_count(
     return min(positive) if positive else None
 
 
+def _load_average(
+    load_average_provider: Callable[[], tuple[float, float, float]] | None = None,
+) -> tuple[float, float, float] | None:
+    provider = load_average_provider or getattr(os, "getloadavg", None)
+    if provider is None:
+        return None
+
+    try:
+        one_minute, five_minute, fifteen_minute = provider()
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
+    return (float(one_minute), float(five_minute), float(fifteen_minute))
+
+
 def check_preflight(
     *,
     env: Mapping[str, str] | None = None,
@@ -213,6 +228,7 @@ def check_preflight(
     require_novnc: bool = False,
     cpu_count_provider: Callable[[], int | None] = os.cpu_count,
     cgroup_root: Path = CGROUP_ROOT,
+    load_average_provider: Callable[[], tuple[float, float, float]] | None = None,
 ) -> PreflightReport:
     """Return a preflight report or raise before any VM action is possible."""
 
@@ -269,6 +285,7 @@ def check_preflight(
         vnc_port=vnc_port,
         required_tools=required_tools,
         novnc=novnc,
+        load_average=_load_average(load_average_provider),
     )
 
 
@@ -294,6 +311,17 @@ def render_report(report: PreflightReport) -> str:
         lines.append(f"  web root: {report.novnc.web_root or 'missing'}")
         lines.append("  browser proxy: unavailable; use an SSH VNC tunnel")
 
+    if report.load_average is None:
+        lines.append("loadavg: unavailable")
+    else:
+        one_minute, five_minute, fifteen_minute = report.load_average
+        lines.append(
+            f"loadavg: 1m={one_minute:.2f} 5m={five_minute:.2f} "
+            f"15m={fifteen_minute:.2f}"
+        )
+        if report.cpu_count:
+            lines.append(f"load per CPU: 1m={one_minute / report.cpu_count:.2f}")
+
     if report.cpu_count is None:
         lines.append(
             "performance note: 4+ host CPUs are recommended for smoother "
@@ -308,6 +336,18 @@ def render_report(report: PreflightReport) -> str:
             "performance note: choose a 4-core+ Codespace when available for "
             "smoother human playtests"
         )
+        if (
+            report.load_average is not None
+            and report.load_average[0] >= report.cpu_count
+        ):
+            lines.append(
+                "performance warning: current 1m load is at/above available "
+                "CPUs; noVNC/QEMU can degrade under sustained contention"
+            )
+            lines.append(
+                "diagnostics tip: compare status-only snapshots during slowdown "
+                "before changing OS runtime code"
+            )
     elif report.cpu_count >= 4:
         lines.append(
             "performance note: 4-core+ host detected; this is the preferred "

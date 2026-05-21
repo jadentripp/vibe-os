@@ -411,7 +411,9 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "Assert real-WAD proof gates",
         "Assert scripted human-playability gates",
         "Triage cloud status",
-        "tools/triage_cloud_status.py build/status.txt",
+        "build/status.txt build/status.failure.txt",
+        'python3 tools/triage_cloud_status.py "$status_file"',
+        "No status.txt or status.failure.txt available for triage.",
         "Show smoke diagnostics",
         'rm -f "$WAD_PATH"',
     ):

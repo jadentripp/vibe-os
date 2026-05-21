@@ -211,6 +211,51 @@ class FatContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "outside the FAT"):
             fs.fat_entry(make_wad_image.SECTORS_PER_FAT * make_wad_image.SECTOR_SIZE // 2)
 
+    def test_host_fat_reader_follows_noncontiguous_root_file_chain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_path = Path(tmp) / "disk.img"
+            subprocess.run(
+                [sys.executable, str(MAKE_WAD_IMAGE), str(image_path)],
+                check=True,
+                cwd=ROOT,
+                stdout=subprocess.DEVNULL,
+            )
+            image = bytearray(image_path.read_bytes())
+
+        fs = make_wad_image.Fat16Image(image)
+        name = b"CHAINRD BIN"
+        cluster_bytes = make_wad_image.cluster_size()
+        payload = bytes(
+            ((index * 17 + 3) & 0xFF)
+            for index in range(cluster_bytes * 2 + 37)
+        )
+        chain = fs.write_root_file(name, payload)
+        self.assertGreaterEqual(len(chain), 3)
+
+        spare = next(
+            cluster
+            for cluster in range(chain[-1] + 1, make_wad_image.last_data_cluster() + 1)
+            if fs.fat_entry(cluster) == 0
+        )
+        old_second = chain[1]
+        old_second_start = fs.cluster_offset(old_second)
+        spare_start = fs.cluster_offset(spare)
+        image[spare_start:spare_start + cluster_bytes] = image[
+            old_second_start:old_second_start + cluster_bytes
+        ]
+        image[old_second_start:old_second_start + cluster_bytes] = b"\0" * cluster_bytes
+        fs.set_fat_entry(chain[0], spare)
+        fs.set_fat_entry(spare, chain[2])
+        fs.set_fat_entry(old_second, 0)
+
+        self.assertNotEqual(
+            image[fs.cluster_offset(chain[0]):fs.cluster_offset(chain[0]) + len(payload)],
+            payload,
+        )
+        self.assertEqual(fs.read_root_file(name), payload)
+        fs.validate_fat_copies_match()
+        fs.validate_allocated_clusters_reachable()
+
     def test_kernel_fat_vfs_exposes_readonly_one_level_directory_listing(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
 

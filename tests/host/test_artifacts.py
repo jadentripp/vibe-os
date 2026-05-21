@@ -1,3 +1,4 @@
+import hashlib
 import struct
 import subprocess
 import sys
@@ -21,6 +22,7 @@ DOOM_BASE = 0x01000000
 DOOM_HEAP_START = 0x01900000
 DOOM_LIMIT = 0x02000000
 MAX_KERNEL_WAD_BYTES = 0x00500000
+REAL_SHAREWARE_WAD_SIZE = 4_196_020
 PT_LOAD = 1
 PF_X = 0x1
 PF_W = 0x2
@@ -400,8 +402,10 @@ class DiskImageTests(unittest.TestCase):
 
 
 class ExternalWadImageTests(unittest.TestCase):
-    def test_image_builder_can_package_external_real_wad_sized_file(self):
-        wad = make_test_wad(2 * 1024 * 1024 + 123)
+    def test_image_builder_round_trips_shareware_sized_external_wad_through_fat_chain(self):
+        wad = make_test_wad(REAL_SHAREWARE_WAD_SIZE)
+        expected_sha1 = hashlib.sha1(wad).hexdigest()
+        expected_sha256 = hashlib.sha256(wad).hexdigest()
 
         with tempfile.TemporaryDirectory() as tmp:
             tmpdir = Path(tmp)
@@ -416,42 +420,46 @@ class ExternalWadImageTests(unittest.TestCase):
                     "--wad",
                     str(wad_path),
                     str(image_path),
+                    str(BUILD / "stage1.bin"),
+                    str(BUILD / "stage2.bin"),
+                    str(BUILD / "kernel.elf"),
+                    str(BUILD / "user_probe.elf"),
+                    str(BUILD / "doom.elf"),
                 ],
                 check=True,
                 cwd=ROOT,
             )
 
-            image = image_path.read_bytes()
+            image = bytearray(image_path.read_bytes())
 
-        partition_lba = u32(image, 446 + 8)
-        boot = partition_lba * SECTOR_SIZE
-        reserved = u16(image, boot + 14)
-        fat_count = image[boot + 16]
-        root_entries = u16(image, boot + 17)
-        sectors_per_fat = u16(image, boot + 22)
-        root_lba = partition_lba + reserved + fat_count * sectors_per_fat
-        root_size = root_entries * 32
-        root = image[root_lba * SECTOR_SIZE:root_lba * SECTOR_SIZE + root_size]
-        data_lba = root_lba + ((root_entries * 32 + SECTOR_SIZE - 1) // SECTOR_SIZE)
+        fs = make_wad_image.Fat16Image(image)
+        manifest = make_wad_image.verify_embedded_wad_readback(fs, expected_data=wad)
+        self.assertEqual(manifest["name"], "DOOM1.WAD")
+        self.assertEqual(manifest["size"], REAL_SHAREWARE_WAD_SIZE)
+        self.assertEqual(manifest["cluster"], make_wad_image.DOOM_WAD_CLUSTER)
+        self.assertEqual(
+            manifest["clusters"],
+            make_wad_image.clusters_for_size(REAL_SHAREWARE_WAD_SIZE),
+        )
+        self.assertEqual(manifest["sha1"], expected_sha1)
+        self.assertEqual(manifest["sha256"], expected_sha256)
+        self.assertEqual(fs.read_root_file(b"DOOM1   WAD"), wad)
 
-        self.assertEqual(root[0:11], b"DOOM1   WAD")
-        self.assertEqual(u16(root, 26), 2)
-        self.assertEqual(u32(root, 28), len(wad))
-        wad_start = data_lba * SECTOR_SIZE
-        self.assertEqual(image[wad_start:wad_start + len(wad)], wad)
-        entries = {}
-        for off in range(0, root_size, 32):
-            name = root[off:off + 11]
-            if name[0] == 0:
-                break
-            entries[name.decode("ascii")] = {
-                "cluster": u16(root, off + 26),
-                "size": u32(root, off + 28),
-            }
+        fs.validate_fat_copies_match()
+        fs.validate_allocated_clusters_reachable()
+
+        entries = {
+            meta["name"].decode("ascii"): meta
+            for meta in fs.list_root_directory()
+        }
         self.assertIn("DEFAULT CFG", entries)
         self.assertIn("DOOMSAV0DSG", entries)
         self.assertEqual(entries["DEFAULT CFG"]["size"], 0)
         self.assertEqual(entries["DOOMSAV0DSG"]["size"], 0)
+        self.assertGreater(
+            entries["USERPROBELF"]["cluster"],
+            make_wad_image.DOOM_WAD_CLUSTER,
+        )
 
     def test_image_builder_rejects_wads_larger_than_kernel_loader_limit(self):
         wad = make_test_wad(MAX_KERNEL_WAD_BYTES + 1)

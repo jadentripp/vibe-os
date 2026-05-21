@@ -215,6 +215,31 @@ class PlayNowRemotePreflightTests(unittest.TestCase):
         self.assertIn("performance caveat: 2-core hosts can play Doom", rendered)
         self.assertIn("choose a 4-core+ Codespace", rendered)
 
+    def test_render_report_warns_when_two_core_load_is_saturated(self):
+        report = check_play_now_remote.PreflightReport(
+            platform_name="Linux",
+            cpu_count=2,
+            novnc_port=6080,
+            vnc_display=1,
+            vnc_port=5901,
+            required_tools=tuple(
+                check_play_now_remote.ToolStatus(name=name, path=f"/usr/bin/{name}")
+                for name in check_play_now_remote.REQUIRED_TOOLS
+            ),
+            novnc=check_play_now_remote.NovncStatus(
+                websockify="/usr/bin/websockify",
+                web_root=Path("/usr/share/novnc"),
+            ),
+            load_average=(2.5, 2.0, 1.5),
+        )
+
+        rendered = check_play_now_remote.render_report(report)
+
+        self.assertIn("loadavg: 1m=2.50 5m=2.00 15m=1.50", rendered)
+        self.assertIn("load per CPU: 1m=1.25", rendered)
+        self.assertIn("current 1m load is at/above available CPUs", rendered)
+        self.assertIn("compare status-only snapshots during slowdown", rendered)
+
     def test_render_report_marks_four_core_hosts_as_preferred(self):
         report = check_play_now_remote.PreflightReport(
             platform_name="Linux",

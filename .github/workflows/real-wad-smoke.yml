@@ -117,6 +117,7 @@ jobs:
             echo "\`\`\`sh"
             echo "gh run download $GITHUB_RUN_ID --repo $GITHUB_REPOSITORY --name real-wad-smoke-status --dir build/cloud-run-$GITHUB_RUN_ID"
             echo "python3 tools/triage_cloud_status.py build/cloud-run-$GITHUB_RUN_ID/status.txt"
+            echo "# If the boot stopped before final status, use status.failure.txt instead."
             echo "\`\`\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -333,10 +334,18 @@ jobs:
       - name: Triage cloud status
         if: always()
         run: |
-          if [ -f build/status.txt ]; then
-            python3 tools/triage_cloud_status.py build/status.txt
+          status_file=""
+          for candidate in build/status.txt build/status.failure.txt; do
+            if [ -f "$candidate" ]; then
+              status_file="$candidate"
+              break
+            fi
+          done
+
+          if [ -n "$status_file" ]; then
+            python3 tools/triage_cloud_status.py "$status_file"
           else
-            echo "No final status.txt available for triage."
+            echo "No status.txt or status.failure.txt available for triage."
           fi
 
       - name: Show smoke diagnostics
