@@ -762,7 +762,7 @@ def validate_save_write_status(status, expected_slot=None):
     if (saveaction_flags & SAVE_WRITE_REQUIRED_ACTION_FLAGS) != SAVE_WRITE_REQUIRED_ACTION_FLAGS:
         raise PersistenceProofError(
             "save write status saveact= must prove the original Doom save was "
-            "requested, described, and returned from G_DoSaveGame"
+            "requested, described, and completed through the original Doom ticker path"
         )
     savedesc_len, savedesc_hash = _status_hex_tuple_field(fields, "savedesc", 2)
     if savedesc_len == 0 or savedesc_hash == 0:
