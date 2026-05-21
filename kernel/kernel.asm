@@ -17148,8 +17148,6 @@ write_smoke_status:
     call smoke_copy_string
     mov edx, PROCESS_SLOT_COUNT
     call smoke_write_hex32
-    mov al, '/'
-    stosb
     mov edx, PROCESS_GENERIC_SLOT_COUNT
     call smoke_write_slash_hex32
     mov edx, [process_slot_reuses]
@@ -17163,8 +17161,6 @@ write_smoke_status:
     call smoke_copy_string
     mov edx, [process_next_pid]
     call smoke_write_hex32
-    mov al, '/'
-    stosb
     mov edx, [process_last_reused_pid]
     call smoke_write_slash_hex32
     mov edx, [process_last_slot_generation]
@@ -17174,8 +17170,6 @@ write_smoke_status:
     call smoke_copy_string
     mov edx, [fd_exec_handoffs]
     call smoke_write_hex32
-    mov al, '/'
-    stosb
     mov edx, [fd_exec_inherited]
     call smoke_write_slash_hex32
     mov edx, [fd_exec_closed]
@@ -17187,8 +17181,6 @@ write_smoke_status:
     call smoke_copy_string
     mov edx, [fd_dup_calls]
     call smoke_write_hex32
-    mov al, '/'
-    stosb
     mov edx, [fd_dup2_calls]
     call smoke_write_slash_hex32
     mov edx, [fd_dup3_calls]
@@ -17202,8 +17194,6 @@ write_smoke_status:
     call smoke_copy_string
     mov edx, [process_wait_attempts]
     call smoke_write_hex32
-    mov al, '/'
-    stosb
     mov edx, [process_wait_reaps]
     call smoke_write_slash_hex32
     mov edx, [process_wait_failures]
@@ -17249,8 +17239,6 @@ write_smoke_status:
     call smoke_copy_string
     mov edx, [process_vm_teardowns]
     call smoke_write_hex32
-    mov al, '/'
-    stosb
     mov edx, [process_vm_pages_cleared]
     call smoke_write_slash_hex32
     mov edx, [process_wait_vm_reaps]

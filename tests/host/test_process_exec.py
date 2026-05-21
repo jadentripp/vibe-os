@@ -268,6 +268,15 @@ class ProcessExecContractTests(unittest.TestCase):
             "mov edx, [process_wait_last_vm_pages_reclaimed]",
         ):
             self.assertIn(source, write_smoke)
+        for source in (
+            "mov edx, PROCESS_SLOT_COUNT\n    call smoke_write_hex32\n    mov al, '/'\n    stosb\n    mov edx, PROCESS_GENERIC_SLOT_COUNT\n    call smoke_write_slash_hex32",
+            "mov edx, [process_next_pid]\n    call smoke_write_hex32\n    mov al, '/'\n    stosb\n    mov edx, [process_last_reused_pid]\n    call smoke_write_slash_hex32",
+            "mov edx, [fd_exec_handoffs]\n    call smoke_write_hex32\n    mov al, '/'\n    stosb\n    mov edx, [fd_exec_inherited]\n    call smoke_write_slash_hex32",
+            "mov edx, [fd_dup_calls]\n    call smoke_write_hex32\n    mov al, '/'\n    stosb\n    mov edx, [fd_dup2_calls]\n    call smoke_write_slash_hex32",
+            "mov edx, [process_wait_attempts]\n    call smoke_write_hex32\n    mov al, '/'\n    stosb\n    mov edx, [process_wait_reaps]\n    call smoke_write_slash_hex32",
+            "mov edx, [process_vm_teardowns]\n    call smoke_write_hex32\n    mov al, '/'\n    stosb\n    mov edx, [process_vm_pages_cleared]\n    call smoke_write_slash_hex32",
+        ):
+            self.assertNotIn(source, write_smoke)
 
     def test_sys_exec_dispatch_validates_prepares_and_hands_off_exec(self):
         kernel = read_kernel()
