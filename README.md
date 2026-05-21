@@ -29,41 +29,59 @@ proof.
 
 Gameplay is playable through the safe cloud path. On May 21, 2026, a manual
 Codespaces/noVNC session on `main` booted vibe-os and reached interactive Doom;
-keyboard controls worked well enough to play, though the session slowed down
-over time on a 2-core Codespace. The launcher now warns about that target and
-prints cleanup commands for the disposable Codespace.
+keyboard controls worked well enough to play, though a 2-core Codespace slowed
+down over time. The launcher now warns about that target, prints cleanup
+commands, and keeps QEMU off the laptop.
 
-Cloud run `26201062911` on commit `121185c` reached real-WAD gameplay with
-`panic=NONE`, `usr=OK`, `doom=OK`, `doomrun=RUN`, and `gameplay=OK`. A newer
-persistence-lane run `26201081378` on commit `53eef0f` also reached E1M1 and
-triaged as `playability-status-green`, but the workflow still failed later, so
-save/load is not green.
+The latest cloud proof is green for first-boot gameplay and audio. Gameplay run
+`26202349037` reached E1M1 with real `DOOM1.WAD`, input, `doomrun=RUN`,
+`gameplay=OK`, `panic=NONE`, `musicq=00000001:00000000`, and SB16 continuity
+gates. Audio run `26202447113` also passed the audible-audio aggregate. That is
+the current "you can boot and play Doom in the cloud" proof.
 
-The latest gameplay-lane cloud run, `26202349037` on commit `bc97cc3`, is green:
-it reached E1M1 with real `DOOM1.WAD`, input, `doomrun=RUN`, `gameplay=OK`,
-`panic=NONE`, `musicq=00000001:00000000`, and SB16 continuity gates. Audio-lane
-run `26202447113` on the same commit also passed the audible-audio aggregate.
-These followed failed run `26201835975` on commit `1450b73`, which exposed a real
-port bug: the MUS parser accepted the synthetic fixture's old end marker but
-rejected the real Doom MUS end event. The parser now handles the real event and
-cloud gameplay/audio proofs are back to green. The reboot save/load proof
-remains a separate gate.
+Save/load is the big remaining playability hole. The strongest persistence
+evidence, run `26199297160`, wrote and reread `DOOMSAV0.DSG` at `25718` bytes,
+then failed during reboot load inside original Doom with
+`Unknown tclass 112 in savegame`; `savestm=` and `savethk=` diagnostics keep the
+failure localized. Persistence/save-load should only be claimed after a green
+cloud persistence run proves the save survives reboot and loads back into
+gameplay.
 
-The strongest older cloud proof reached real-WAD E1M1 on commit `ed4d00f` in
-run `26199297160`: the OS booted, read shareware `DOOM1.WAD` through the kernel
-ATA/FAT path, started Doom as a Ring 3 process, rendered frames, accepted
-scripted keyboard/mouse input, and produced SB16 audio-continuity counters. That
-run did not prove save/load; reboot load failed in original Doom with
-`Unknown tclass 112 in savegame`.
+Older scripted cloud evidence, including run `26165681561` and generated-WAD
+run `26165678183`, is historical context for the proof system, including the
+`playability-status-green` triage label, not a claim about the tip of `main`.
+The commit-level trail lives in `docs/post-checkpoint-gaps.md` and
+`docs/playable-cloud-proof.md` rather than here.
 
-Older scripted cloud evidence is still useful context, not a claim about the
-tip of `main`: run `26165681561` on commit `c525952` reached `doomrun=RUN`,
-entered E1M1, and triaged as `playability-status-green`; generated-WAD run
-`26165678183` matched that boot path. The strongest save-write proof wrote and
-reread `DOOMSAV0.DSG` at `25718` bytes before reboot load failed, with
-`savestm=` and `savethk=` diagnostics. Persistence/save-load should only be
-claimed after a green cloud persistence run proves the save survives reboot and
-loads back into gameplay.
+## How It Was Built
+
+This project has been built as a long-running agentic engineering loop. The
+main agent keeps the repo on `main`, owns integration, pushes only after local
+host checks pass, and treats GitHub Actions/Codespaces as the hardware target
+for risky VM execution. Subagents are kept busy on broad, separate slices:
+boot/process legitimacy, FAT/save persistence, graphics/input, audio, libc/ABI,
+cloud play UX, docs, and proof checkers.
+
+The prompting strategy is deliberately repetitive and evidence-driven:
+
+- Keep original `linuxdoom-1.10` source untouched; all platform work goes in
+  `doom_port/`, the kernel, tools, tests, or docs.
+- Prefer general OS subsystems over Doom-only shims, even while Doom is the
+  first serious workload.
+- Never run local QEMU on the Mac without explicit opt-in; use disposable cloud
+  runners for real boot/play tests.
+- For every claim, add a checker or status field that can fail when the claim
+  stops being true.
+- Delegate large non-overlapping work packages to subagents, then integrate
+  only reviewed diffs back on `main`.
+- Keep WADs, disk images, rendered pixels, and raw audio out of git and out of
+  uploaded artifacts.
+
+At the time this README was updated, the run had been active for more than a
+day, with the worker pool cycled through multiple generations. That is part of
+the method: lots of parallel subsystem pressure, but one integration lane and
+hard proof gates so the project does not become a pile of stitched-together
+shortcuts.
 
 ## Try It Safely
 

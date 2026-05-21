@@ -222,14 +222,12 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
     for phrase in (
         "scripted cloud evidence",
         "26165681561",
-        "c525952",
         "26165678183",
         "playability-status-green",
         "Persistence/save-load should only be claimed",
         "DOOMSAV0.DSG",
         "Where It Stands",
         "26199297160",
-        "ed4d00f",
         "25718",
         "Unknown tclass 112 in savegame",
         "savestm=",
@@ -239,6 +237,11 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
     ):
         if not _contains_phrase(readme, phrase):
             raise AssertionError(f"README missing claim-boundary phrase: {phrase}")
+    for phrase in ("c525952", "ed4d00f"):
+        if not _contains_phrase(text, phrase):
+            raise AssertionError(f"gap ledger missing historical commit phrase: {phrase}")
+    if not _contains_phrase(playable_cloud_proof, "ed4d00f"):
+        raise AssertionError("playable cloud proof doc missing latest persistence commit phrase: ed4d00f")
     if "not by itself a claim that the current branch is human-playable" not in playable_cloud_proof:
         raise AssertionError("playable cloud proof doc must keep the human-playability claim boundary")
     if "docs/post-checkpoint-gaps.md" not in readme:
