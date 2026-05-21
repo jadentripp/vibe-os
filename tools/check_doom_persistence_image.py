@@ -491,6 +491,14 @@ def validate_save_load_stream_status(status, *, slot):
         raise PersistenceProofError(
             "save load status must provide the specials stream boundary"
         )
+    if savestm["stage"] == SAVE_STAGE_UNARCHIVE_SPECIALS_AFTER:
+        next_byte = _save_stream_next_byte(savestm["value"])
+        if next_byte != SAVE_CONSISTENCY_MARKER:
+            raise PersistenceProofError(
+                "save load status savestm= after-specials marker must point at "
+                f"Doom's final 0x{SAVE_CONSISTENCY_MARKER:02X} consistency marker, "
+                f"got 0x{next_byte:02X}"
+            )
     return runtime_offsets
 
 
@@ -614,6 +622,28 @@ def parse_specials_stream(data, offset, *, slot=0):
     )
 
 
+def validate_specials_after_marker(data, offset, *, slot=0):
+    if offset < SAVE_GAMESTATE_OFFSET:
+        raise PersistenceProofError(
+            f"DOOMSAV{slot}.DSG post-specials marker offset 0x{offset:X} points inside the Doom save header"
+        )
+    final_payload_offset = len(data) - 1
+    if offset != final_payload_offset:
+        raise PersistenceProofError(
+            f"DOOMSAV{slot}.DSG post-specials marker offset 0x{offset:X} "
+            f"must point at final consistency marker 0x{final_payload_offset:X}"
+        )
+    if data[offset] != SAVE_CONSISTENCY_MARKER:
+        raise PersistenceProofError(
+            f"DOOMSAV{slot}.DSG post-specials marker at 0x{offset:X} "
+            f"must be Doom's final 0x{SAVE_CONSISTENCY_MARKER:02X} marker, got 0x{data[offset]:02X}"
+        )
+    return {
+        "offset": offset,
+        "marker": data[offset],
+    }
+
+
 def _stream_summary(prefix, parsed):
     count_text = ",".join(
         f"{name}={count}" for name, count in sorted(parsed["counts"].items())
@@ -622,6 +652,10 @@ def _stream_summary(prefix, parsed):
         f"{prefix}=OK offset=0x{parsed['offset']:X} end=0x{parsed['end_offset']:X} "
         f"{count_text}"
     )
+
+
+def _marker_summary(prefix, parsed):
+    return f"{prefix}=OK offset=0x{parsed['offset']:X} marker=0x{parsed['marker']:02X}"
 
 
 def _validate_save_slot(
@@ -711,12 +745,16 @@ def _validate_save_slot(
         thinker_offset = runtime_offsets.get("thinkers")
     if specials_offset is None:
         specials_offset = runtime_offsets.get("specials")
+    specials_after_offset = runtime_offsets.get("specials_after")
     if thinker_offset is not None:
         parsed = parse_thinker_stream(data, thinker_offset, slot=slot)
         stream_summaries.append(_stream_summary("thinkers", parsed))
     if specials_offset is not None:
         parsed = parse_specials_stream(data, specials_offset, slot=slot)
         stream_summaries.append(_stream_summary("specials", parsed))
+    elif specials_after_offset is not None:
+        parsed = validate_specials_after_marker(data, specials_after_offset, slot=slot)
+        stream_summaries.append(_marker_summary("specials-after", parsed))
     return (
         len(data),
         description.decode("ascii", "replace"),

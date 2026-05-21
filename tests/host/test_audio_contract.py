@@ -537,6 +537,8 @@ class AudioContractTests(unittest.TestCase):
             "inc dword [sb16_music_loop_count]",
             "inc dword [sb16_music_mix_count]",
             "add [sb16_music_mix_bytes], eax",
+            "cmp [sb16_music_stream_buffer_bytes], eax",
+            "sub [sb16_music_stream_buffer_bytes], eax",
             ".count_sfx_mix:",
             "sb16_active_music_voice_count dd 0",
             "sb16_music_start_count dd 0",

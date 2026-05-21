@@ -27,12 +27,24 @@ proof.
 - Original Doom source in `third_party/doom`; all OS-facing port code lives in
   `doom_port/`.
 
-Gameplay is back after the recent VM heap regression. Cloud run `26201062911`
-on commit `121185c` reached real-WAD gameplay with `panic=NONE`, `usr=OK`,
-`doom=OK`, `doomrun=RUN`, and `gameplay=OK`. A newer persistence-lane run
-`26201081378` on commit `53eef0f` also reached E1M1 and triaged as
-`playability-status-green`, but the workflow still failed later, so save/load is
-not green.
+Gameplay is playable through the safe cloud path. On May 21, 2026, a manual
+Codespaces/noVNC session on `main` booted vibe-os and reached interactive Doom;
+keyboard controls worked well enough to play, though the session slowed down
+over time on a 2-core Codespace. The launcher now warns about that target and
+prints cleanup commands for the disposable Codespace.
+
+Cloud run `26201062911` on commit `121185c` reached real-WAD gameplay with
+`panic=NONE`, `usr=OK`, `doom=OK`, `doomrun=RUN`, and `gameplay=OK`. A newer
+persistence-lane run `26201081378` on commit `53eef0f` also reached E1M1 and
+triaged as `playability-status-green`, but the workflow still failed later, so
+save/load is not green.
+
+The latest gameplay-lane cloud run, `26201835975` on commit `1450b73`, proved
+the OS still reached E1M1 with input, but failed the audio proof because music
+never queued. That was a real port bug: the MUS parser accepted the synthetic
+fixture's old end marker but rejected the real Doom MUS end event. The parser is
+fixed locally, host tests pass, and a new cloud proof is still required before
+calling audio green again.
 
 The strongest older cloud proof reached real-WAD E1M1 on commit `ed4d00f` in
 run `26199297160`: the OS booted, read shareware `DOOM1.WAD` through the kernel

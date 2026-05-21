@@ -530,6 +530,9 @@ typedef struct vibe_present_indexed {
 int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, unsigned long arg2);
 int vibe_clock_gettime(unsigned long clock_id, vibe_clock_time_t* out);
 int vibe_listdir(const char* path, vibe_dirent_t* entries, unsigned long max_entries);
+int vibe_poll_input(vibe_input_event_t* event);
+int vibe_input_status(vibe_input_status_t* status);
+int vibe_present_indexed(const vibe_present_indexed_t* present);
 unsigned long vibe_monotonic_ticks(void);
 unsigned long vibe_monotonic_milliseconds(void);
 
@@ -551,7 +554,12 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   metadata.
  * - VIBE_SYS_POLL_INPUT drains one reusable keyboard/mouse event at a time.
  *   VIBE_SYS_INPUT_STATUS reports queue capacity/depth, overflow counters,
- *   keyboard state, and mouse state without consuming queued input.
+ *   keyboard state, and mouse state without consuming queued input. The libc
+ *   wrappers `vibe_poll_input` and `vibe_input_status` pass the ABI byte sizes
+ *   explicitly so game/tool code does not need to duplicate syscall details.
+ * - `vibe_present_indexed` presents a `vibe_present_indexed_t` through the
+ *   display fd/ioctl path. `vibe_fb_info_t` advertises the maximum accepted
+ *   indexed source size and palette format before a program submits a frame.
  * - sbrk grows or shrinks the process heap. Shrink trims whole released pages
  *   from the process page tables and heap-validation bitmap.
  * - mmap is currently anonymous/private and brk-backed; munmap validates the

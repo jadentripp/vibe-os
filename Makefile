@@ -332,6 +332,7 @@ smoke: vm-consent check-tools $(IMAGE)
 		grep -q "pcmbuf=" $(BUILD_DIR)/status.txt; \
 		grep -Eq "audio=(SB16|NONE)" $(BUILD_DIR)/status.txt; \
 			grep -q "inputqueue=" $(BUILD_DIR)/status.txt; \
+			grep -Eq "inputdepth=([0-9A-F]{8}:){1}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
 			grep -q "inputpoll=" $(BUILD_DIR)/status.txt; \
 			grep -Eq "inputlast=([0-9A-F]{8}:){2}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
 			grep -q "keyirq=" $(BUILD_DIR)/status.txt; \

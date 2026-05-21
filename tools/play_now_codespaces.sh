@@ -14,6 +14,8 @@ NOVNC_PORT="${NOVNC_PORT:-6080}"
 OPEN_BROWSER="${OPEN_BROWSER:-1}"
 CODESPACES_PORT_WAIT_SECONDS="${CODESPACES_PORT_WAIT_SECONDS:-300}"
 CODESPACES_PORT_WAIT_INTERVAL="${CODESPACES_PORT_WAIT_INTERVAL:-5}"
+CODESPACES_SSH_ATTEMPTS="${CODESPACES_SSH_ATTEMPTS:-3}"
+CODESPACES_SSH_RETRY_SECONDS="${CODESPACES_SSH_RETRY_SECONDS:-10}"
 MAX_DISPLAY_NAME_LENGTH=48
 RUN_PREFLIGHT_ONLY=0
 PRINT_WEB_URL_ONLY=0
@@ -100,6 +102,27 @@ require_gh_codespaces_access() {
     } >&2
     exit 1
   }
+}
+
+sanitize_remote_error() {
+  sed -E \
+    -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*_(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*=)[^[:space:]]+/\1[redacted]/g' \
+    -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*=)(gh[pousr]_[A-Za-z0-9_]+)/\1[redacted]/g' \
+    -e 's/(Authorization: *(Bearer|token) +)[^[:space:]]+/\1[redacted]/Ig' \
+    -e 's/(access_token=)[^&[:space:]]+/\1[redacted]/Ig'
+}
+
+ssh_permission_error() {
+  grep -Eiq \
+    'Permission denied|publickey|Could not resolve hostname|connection reset|connection refused|failed to connect|The codespace is not running|codespace.*starting|codespace.*not ready' \
+    "$1"
+}
+
+print_codespace_cleanup_commands() {
+  echo "Remote log: gh codespace ssh -c \"$CODESPACE_NAME\" -- tail -f /tmp/vibe-os-play-now.log"
+  echo "Stop play-now: gh codespace ssh -c \"$CODESPACE_NAME\" -- 'if [ -s /tmp/vibe-os-play-now.pid ]; then kill \"\$(cat /tmp/vibe-os-play-now.pid)\"; fi'"
+  echo "Delete when done: gh codespace delete -c \"$CODESPACE_NAME\" --force"
+  echo "Browser cleanup: GitHub repo > Code > Codespaces > ... > Delete"
 }
 
 verify_remote_play_payload() {
@@ -435,12 +458,14 @@ print_preflight_summary() {
   echo "retention period: $RETENTION_PERIOD"
   echo "noVNC port: $NOVNC_PORT (private)"
   echo "noVNC wait timeout: ${CODESPACES_PORT_WAIT_SECONDS}s"
+  echo "SSH start attempts: $CODESPACES_SSH_ATTEMPTS"
   echo "browser open: $OPEN_BROWSER"
   echo "GitHub Codespaces API: accessible"
   echo "GitHub repo/ref: verified"
   echo "remote play payload: verified on selected ref"
   echo "git state: $GIT_STATE_SUMMARY"
   echo "local artifact transfer: none (no WADs, disk images, pixels, raw audio, or logs copied to the Mac)"
+  echo "performance caveat: default 2-core Codespaces can play Doom but may stutter during builds or noVNC streaming"
   echo "remote preflight command: ./tools/play_now_remote.sh --preflight --require-novnc"
   echo "remote start command: NOVNC_PORT=$NOVNC_PORT nohup ./tools/play_now_remote.sh --require-novnc"
   echo "dry-run: Codespace was not created or modified"
@@ -482,7 +507,11 @@ cd "$repo_dir"
 
 if [ -n "${VIBE_PLAY_REF:-}" ]; then
   git fetch --depth=1 origin "$VIBE_PLAY_REF" >/tmp/vibe-os-play-now-fetch.log 2>&1 || {
-    cat /tmp/vibe-os-play-now-fetch.log >&2
+    echo "remote git fetch failed for the selected play ref; sanitized recent output:" >&2
+    sed -E \
+      -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*_(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*=)[^[:space:]]+/\1[redacted]/g' \
+      -e 's/(access_token=)[^&[:space:]]+/\1[redacted]/Ig' \
+      /tmp/vibe-os-play-now-fetch.log | tail -n 40 >&2
     exit 1
   }
   git checkout --detach FETCH_HEAD
@@ -521,6 +550,45 @@ else
 fi
 echo "remote play log: $log_file"
 REMOTE
+}
+
+run_remote_start() {
+  local attempt
+  local err_file
+  local rc
+
+  err_file="$(mktemp "${TMPDIR:-/tmp}/vibe-os-codespace-ssh.XXXXXX")" || die "could not create temporary SSH log"
+
+  for ((attempt = 1; attempt <= CODESPACES_SSH_ATTEMPTS; attempt++)); do
+    : >"$err_file"
+    set +e
+    remote_start_payload | gh codespace ssh -c "$CODESPACE_NAME" -- env VIBE_PLAY_REF="$REF" NOVNC_PORT="$NOVNC_PORT" bash -s 2> >(sanitize_remote_error | tee "$err_file" >&2)
+    rc=$?
+    set -e
+
+    if [ "$rc" -eq 0 ]; then
+      rm -f "$err_file"
+      return 0
+    fi
+
+    if [ "$attempt" -lt "$CODESPACES_SSH_ATTEMPTS" ] && ssh_permission_error "$err_file"; then
+      echo "Codespace SSH was not ready yet (attempt $attempt/$CODESPACES_SSH_ATTEMPTS); retrying in ${CODESPACES_SSH_RETRY_SECONDS}s." >&2
+      echo "If GitHub asks to authorize Codespaces SSH, approve it in the browser and leave this retry running." >&2
+      sleep "$CODESPACES_SSH_RETRY_SECONDS"
+      continue
+    fi
+
+    {
+      echo "Could not start play-now over Codespaces SSH after attempt $attempt/$CODESPACES_SSH_ATTEMPTS."
+      echo "The remote command is passed over stdin to bash -s; the launcher does not run a shell payload via bash -lc and does not print remote env."
+      print_codespace_cleanup_commands
+    } >&2
+    rm -f "$err_file"
+    return "$rc"
+  done
+
+  rm -f "$err_file"
+  return 1
 }
 
 while [ "$#" -gt 0 ]; do
@@ -586,6 +654,8 @@ require_tool git
 validate_novnc_port
 validate_positive_integer CODESPACES_PORT_WAIT_SECONDS "$CODESPACES_PORT_WAIT_SECONDS"
 validate_positive_integer CODESPACES_PORT_WAIT_INTERVAL "$CODESPACES_PORT_WAIT_INTERVAL"
+validate_positive_integer CODESPACES_SSH_ATTEMPTS "$CODESPACES_SSH_ATTEMPTS"
+validate_positive_integer CODESPACES_SSH_RETRY_SECONDS "$CODESPACES_SSH_RETRY_SECONDS"
 
 if [ -z "$REPO" ]; then
   REPO="$(current_repo)"
@@ -663,7 +733,7 @@ else
 fi
 
 echo "Starting vibe-os Doom inside Codespace '$CODESPACE_NAME'"
-remote_start_payload | gh codespace ssh -c "$CODESPACE_NAME" -- env VIBE_PLAY_REF="$REF" NOVNC_PORT="$NOVNC_PORT" bash -s
+run_remote_start || exit $?
 
 novnc_browse_url=""
 echo "Waiting up to ${CODESPACES_PORT_WAIT_SECONDS}s for noVNC port $NOVNC_PORT"
@@ -689,8 +759,7 @@ done
 
 echo
 echo "Codespace: $CODESPACE_NAME"
-echo "Remote log: gh codespace ssh -c \"$CODESPACE_NAME\" -- tail -f /tmp/vibe-os-play-now.log"
-echo "Delete when done: gh codespace delete -c \"$CODESPACE_NAME\" --force"
+print_codespace_cleanup_commands
 
 if [ -z "$novnc_browse_url" ]; then
   echo "noVNC browse URL was not ready yet."
@@ -703,6 +772,7 @@ fi
 novnc_url="$(novnc_url_from_browse_url "$novnc_browse_url")"
 echo "Open Doom noVNC: $novnc_url"
 echo "Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu."
+echo "Performance note: default 2-core Codespaces can play Doom, but noVNC may stutter during builds or CPU contention."
 if [ "$OPEN_BROWSER" = "1" ] && [ "$(uname -s)" = "Darwin" ] && command -v open >/dev/null 2>&1; then
   open "$novnc_url" || true
 fi

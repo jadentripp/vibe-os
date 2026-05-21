@@ -411,6 +411,11 @@ class DoomInputContractTests(unittest.TestCase):
             "doom_input_last_device dd 0",
             "doom_input_last_type dd 0",
             'smoke_inputqueue_text db " inputqueue="',
+            'smoke_inputdepth_text db " inputdepth="',
+            "mov edx, [input_event_head]",
+            "sub edx, [input_event_tail]",
+            "and edx, INPUT_EVENT_QUEUE_MASK",
+            "mov edx, [input_event_drop_count]",
             'smoke_inputpoll_text db " inputpoll="',
             'smoke_inputlast_text db " inputlast="',
         ):
@@ -419,6 +424,7 @@ class DoomInputContractTests(unittest.TestCase):
 
         for source in (
             'grep -q "inputqueue="',
+            'grep -Eq "inputdepth=([0-9A-F]{8}:){1}[0-9A-F]{8}"',
             'grep -q "inputpoll="',
             'grep -Eq "inputlast=([0-9A-F]{8}:){2}[0-9A-F]{8}"',
         ):

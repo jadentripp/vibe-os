@@ -66,6 +66,15 @@ starts `./tools/play_now_remote.sh` inside it, waits for noVNC, sets port `6080`
 private, opens/prints the noVNC URL, and prints the log and delete commands.
 QEMU, the shareware WAD, `build/disk.img`, pixel output, and raw audio never run
 on or copy back to the Mac.
+If the first SSH attach fails with a permission or public-key error while the
+Codespace is still coming up, leave the launcher running. It retries the
+stdin-fed `bash -s` start command and prints a browser authorization hint
+without dumping the remote environment.
+
+The default Codespaces machine is often 2-core. That is enough for a quick Doom
+playtest, but QEMU plus noVNC can stutter while the image is building or while
+the browser stream is busy. For smoother play, pass a larger machine with
+`--machine` when available.
 
 Optional dry run:
 
@@ -102,6 +111,13 @@ Delete the disposable play environment when done:
 gh codespace delete -c "<codespace-name>" --force
 ```
 
+If a play process is still running and you want to stop it before deletion:
+
+```sh
+gh codespace ssh -c "<codespace-name>" -- \
+  'if [ -s /tmp/vibe-os-play-now.pid ]; then kill "$(cat /tmp/vibe-os-play-now.pid)"; fi'
+```
+
 Manual browser path:
 
 1. Run `./tools/play_now_codespaces.sh --web-url --repo jadentripp/vibe-os --ref <branch>`, or open `https://github.com/codespaces/new`.
@@ -127,7 +143,8 @@ creating a Codespace:
 Expected successful output includes `play-now Codespaces preflight OK`, the
 repo, ref, selected machine, `noVNC port: 6080 (private)`, the noVNC wait
 timeout, `GitHub repo/ref: verified`, `remote play payload: verified on
-selected ref`, and `local artifact transfer: none`. The dry run also prints
+selected ref`, `local artifact transfer: none`, and the 2-core performance
+caveat. The dry run also prints
 `dry-run: Codespace was not created or modified`. If it reports a dirty tree,
 missing upstream, or ahead/behind counts, either fix and push the current branch
 or rerun with explicit `--repo` and `--ref` for a branch that already exists on
@@ -215,7 +232,7 @@ proof bundle.
 
 When finished:
 
-1. Stop the play script with `Ctrl-C`.
+1. Stop the play script with `Ctrl-C`, or use the `gh codespace ssh` stop command printed by the launcher.
 2. Return to the repository on GitHub.
 3. Open `Code`.
 4. Open the `Codespaces` tab.

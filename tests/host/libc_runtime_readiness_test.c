@@ -100,6 +100,11 @@ static int mock_exec_argc;
 static char mock_exec_path[32];
 static char mock_exec_argv0[32];
 static unsigned long mock_clock_milliseconds;
+static vibe_input_event_t mock_input_event;
+static int mock_input_queued;
+static int mock_present_count;
+static unsigned long mock_present_width;
+static unsigned long mock_present_height;
 
 static int fail(int code)
 {
@@ -128,6 +133,11 @@ static void reset_mock(void)
     mock_exec_path[0] = 0;
     mock_exec_argv0[0] = 0;
     mock_clock_milliseconds = 12345;
+    memset(&mock_input_event, 0, sizeof(mock_input_event));
+    mock_input_queued = 0;
+    mock_present_count = 0;
+    mock_present_width = 0;
+    mock_present_height = 0;
     errno = 0;
 }
 
@@ -312,6 +322,42 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
         return 0;
     }
 
+    if (number == VIBE_SYS_POLL_INPUT) {
+        vibe_input_event_t* out = (vibe_input_event_t*)arg0;
+        if (!out || arg1 < sizeof(*out))
+            return -EINVAL;
+        if (!mock_input_queued)
+            return 0;
+        *out = mock_input_event;
+        mock_input_queued = 0;
+        return 1;
+    }
+
+    if (number == VIBE_SYS_INPUT_STATUS) {
+        vibe_input_status_t* out = (vibe_input_status_t*)arg0;
+        if (!out || arg1 < sizeof(*out))
+            return -EINVAL;
+        memset(out, 0, sizeof(*out));
+        out->abi_version = VIBE_INPUT_ABI_VERSION;
+        out->event_bytes = VIBE_INPUT_EVENT_BYTES;
+        out->queue_capacity = VIBE_INPUT_EVENT_QUEUE_CAPACITY;
+        out->queued_events = mock_input_queued ? 1 : 0;
+        out->capabilities = VIBE_INPUT_CAP_KEYBOARD | VIBE_INPUT_CAP_POLL_EVENT | VIBE_INPUT_CAP_STATUS;
+        return 0;
+    }
+
+    if (number == VIBE_SYS_IOCTL) {
+        vibe_present_indexed_t* present = (vibe_present_indexed_t*)arg2;
+        if (arg0 != VIBE_DISPLAY_FD || arg1 != VIBE_IOCTL_PRESENT_INDEXED)
+            return -ENOTTY;
+        if (!present || !present->frame || !present->palette || !present->width || !present->height)
+            return -EINVAL;
+        ++mock_present_count;
+        mock_present_width = present->width;
+        mock_present_height = present->height;
+        return 0;
+    }
+
     if (number == VIBE_SYS_EXEC) {
         const char* path = (const char*)arg0;
         char* const* argv = (char* const*)arg1;
@@ -338,8 +384,6 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
         return 7;
     if (number == VIBE_SYS_UNLINK || number == VIBE_SYS_FTRUNCATE)
         return -ENOSYS;
-    if (number == VIBE_SYS_IOCTL)
-        return -ENOTTY;
     return -ENOSYS;
 }
 
@@ -439,6 +483,58 @@ static int test_empty_environment_and_execve_contract(void)
     return 0;
 }
 
+static int test_generic_input_and_indexed_present_wrappers(void)
+{
+    vibe_input_event_t event;
+    vibe_input_status_t status;
+    vibe_present_indexed_t present;
+    unsigned char frame[4];
+    unsigned char palette[3];
+
+    reset_mock();
+    vibe_input_make_key_event(&mock_input_event, 77, 'z', VIBE_INPUT_KEY_PRESSED);
+    mock_input_queued = 1;
+
+    if (vibe_input_status(&status) != 0)
+        return fail(50);
+    if (status.abi_version != VIBE_INPUT_ABI_VERSION
+        || status.event_bytes != VIBE_INPUT_EVENT_BYTES
+        || status.queue_capacity != VIBE_INPUT_EVENT_QUEUE_CAPACITY
+        || status.queued_events != 1
+        || !(status.capabilities & VIBE_INPUT_CAP_POLL_EVENT))
+        return fail(51);
+
+    if (vibe_poll_input(&event) != 1)
+        return fail(52);
+    if (!vibe_input_event_is_key(&event)
+        || event.timestamp != 77
+        || event.code != 'z'
+        || event.value0 != VIBE_INPUT_KEY_PRESSED)
+        return fail(53);
+    if (vibe_poll_input(&event) != 0)
+        return fail(54);
+    if (vibe_poll_input(0) != -1 || errno != EINVAL)
+        return fail(55);
+    if (vibe_input_status(0) != -1 || errno != EINVAL)
+        return fail(56);
+
+    memset(frame, 1, sizeof(frame));
+    memset(palette, 2, sizeof(palette));
+    present.frame = frame;
+    present.palette = palette;
+    present.width = 2;
+    present.height = 2;
+    if (vibe_present_indexed(&present) != 0)
+        return fail(57);
+    if (mock_present_count != 1 || mock_present_width != 2 || mock_present_height != 2)
+        return fail(58);
+    present.frame = 0;
+    if (vibe_present_indexed(&present) != -1 || errno != EINVAL)
+        return fail(59);
+
+    return 0;
+}
+
 int main(void)
 {
     int result;
@@ -453,6 +549,10 @@ int main(void)
         return result;
 
     result = test_empty_environment_and_execve_contract();
+    if (result)
+        return result;
+
+    result = test_generic_input_and_indexed_present_wrappers();
     if (result)
         return result;
 

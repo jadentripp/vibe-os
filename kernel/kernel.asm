@@ -4941,6 +4941,13 @@ sb16_refill_active_half:
     shl eax, 1
     inc dword [sb16_music_mix_count]
     add [sb16_music_mix_bytes], eax
+    cmp [sb16_music_stream_buffer_bytes], eax
+    jae .drain_music_buffer
+    mov dword [sb16_music_stream_buffer_bytes], 0
+    jmp .check_finished
+
+.drain_music_buffer:
+    sub [sb16_music_stream_buffer_bytes], eax
     jmp .check_finished
 
 .count_sfx_mix:
@@ -13322,7 +13329,7 @@ present_indexed_frame:
     call present_update_dirty_rect
     call present_copy_indexed_shadow
     call present_update_visual_proof
-    call present_clear_lfb
+    call present_clear_lfb_if_geometry_changed
     call present_lfb_xrgb8888
     jc .fail
 
@@ -13363,6 +13370,10 @@ present_reset_status_fields:
     mov dword [present_lfb_view_y], 0
     mov dword [present_lfb_view_width], DOOM_SCREEN_WIDTH
     mov dword [present_lfb_view_height], DOOM_SCREEN_HEIGHT
+    mov dword [present_lfb_last_view_x], 0xffffffff
+    mov dword [present_lfb_last_view_y], 0xffffffff
+    mov dword [present_lfb_last_view_width], 0xffffffff
+    mov dword [present_lfb_last_view_height], 0xffffffff
     ret
 
 present_set_mode13_geometry:
@@ -13659,6 +13670,38 @@ present_select_lfb_geometry:
     pop edx
     pop ecx
     pop ebx
+    pop eax
+    ret
+
+present_clear_lfb_if_geometry_changed:
+    push eax
+
+    mov eax, [present_lfb_view_x]
+    cmp eax, [present_lfb_last_view_x]
+    jne .clear
+    mov eax, [present_lfb_view_y]
+    cmp eax, [present_lfb_last_view_y]
+    jne .clear
+    mov eax, [present_lfb_view_width]
+    cmp eax, [present_lfb_last_view_width]
+    jne .clear
+    mov eax, [present_lfb_view_height]
+    cmp eax, [present_lfb_last_view_height]
+    jne .clear
+    jmp .done
+
+.clear:
+    call present_clear_lfb
+    mov eax, [present_lfb_view_x]
+    mov [present_lfb_last_view_x], eax
+    mov eax, [present_lfb_view_y]
+    mov [present_lfb_last_view_y], eax
+    mov eax, [present_lfb_view_width]
+    mov [present_lfb_last_view_width], eax
+    mov eax, [present_lfb_view_height]
+    mov [present_lfb_last_view_height], eax
+
+.done:
     pop eax
     ret
 
@@ -16063,6 +16106,17 @@ write_smoke_status:
     mov edx, [input_event_count]
     call smoke_write_hex32
 
+    mov esi, smoke_inputdepth_text
+    call smoke_copy_string
+    mov edx, [input_event_head]
+    sub edx, [input_event_tail]
+    and edx, INPUT_EVENT_QUEUE_MASK
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [input_event_drop_count]
+    call smoke_write_hex32
+
     mov esi, smoke_inputpoll_text
     call smoke_copy_string
     mov edx, [doom_input_event_count]
@@ -17297,6 +17351,7 @@ smoke_pcm_text db " pcm=", 0
 smoke_pcmbuf_text db " pcmbuf=", 0
 smoke_audio_text db " audio=", 0
 smoke_inputqueue_text db " inputqueue=", 0
+smoke_inputdepth_text db " inputdepth=", 0
 smoke_inputpoll_text db " inputpoll=", 0
 smoke_inputlast_text db " inputlast=", 0
 smoke_keyirq_text db " keyirq=", 0
@@ -18124,6 +18179,10 @@ present_lfb_view_x dd 0
 present_lfb_view_y dd 0
 present_lfb_view_width dd DOOM_SCREEN_WIDTH
 present_lfb_view_height dd DOOM_SCREEN_HEIGHT
+present_lfb_last_view_x dd 0xffffffff
+present_lfb_last_view_y dd 0xffffffff
+present_lfb_last_view_width dd 0xffffffff
+present_lfb_last_view_height dd 0xffffffff
 framebuffer_addr dd 0
 framebuffer_pitch dd 0
 framebuffer_width dd 0

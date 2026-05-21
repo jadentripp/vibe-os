@@ -71,9 +71,10 @@ Mouse:
 - Smoke status also exposes `mousebtn=` and `mousedelta=`. Those fields are
   updated when the Doom user process consumes generic mouse events, so the proof
   distinguishes a real left-click/movement packet from an empty IRQ counter.
-- `inputqueue=`, `inputpoll=`, and `inputlast=` expose the generic queue path:
-  total generic events enqueued, Doom-consumed generic events, and the last
-  consumed event's timestamp/device/type tuple.
+- `inputqueue=`, `inputdepth=`, `inputpoll=`, and `inputlast=` expose the
+  generic queue path: total generic events enqueued,
+  `<currently queued>:<dropped>` backlog/drop telemetry, Doom-consumed generic
+  events, and the last consumed event's timestamp/device/type tuple.
 
 Host tests prove the translation without QEMU or WAD data:
 

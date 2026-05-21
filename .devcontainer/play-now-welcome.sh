@@ -11,5 +11,8 @@ Start the real vibe-os QEMU boot here, not on the Mac:
 Open the forwarded private port 6080 URL and add:
   /vnc.html?autoconnect=1
 
+Default 2-core Codespaces can play Doom, but noVNC may stutter while QEMU and
+the first build share CPU.
+
 Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu.
 EOF

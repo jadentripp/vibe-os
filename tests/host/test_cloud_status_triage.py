@@ -573,6 +573,7 @@ class CloudStatusTriageTests(unittest.TestCase):
         self.assertIn("unarchive-specials-after", rendered)
         self.assertIn("next_byte=0x1D", rendered)
         self.assertIn("unarchive_next_byte=0x01", rendered)
+        self.assertIn("post-load completion state", rendered)
 
     def test_classifies_persistence_load_not_completed_before_input_lanes(self):
         primary, notes = self.classify(

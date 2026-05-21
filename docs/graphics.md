@@ -91,5 +91,7 @@ Remaining graphics gaps:
 - It maps a single 4 MiB framebuffer page-table window, which is enough for the
   current 640-wide targets but not a general multi-monitor or large-mode mapper.
 - Dirty source rectangles are reported in status and `FBINFO`, but the renderer
-  still redraws the full centered viewport each present instead of using partial
-  hardware blits.
+  still redraws the centered viewport each present instead of using partial
+  hardware blits. The LFB backend now clears the surrounding framebuffer only
+  when the centered view geometry changes, avoiding a full-screen clear on every
+  steady-state remote/noVNC present.

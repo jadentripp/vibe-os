@@ -76,6 +76,20 @@ class PlayNowRemoteTests(unittest.TestCase):
                   exit 0
                 fi
                 if [ "$1" = "codespace" ] && [ "${2:-}" = "ssh" ]; then
+                  if [ "${FAKE_SSH_PERMISSION_FAIL_ONCE:-0}" = "1" ]; then
+                    count="$(cat "$FAKE_SSH_COUNT_FILE" 2>/dev/null || printf '0')"
+                    count="$((count + 1))"
+                    printf '%s\\n' "$count" > "$FAKE_SSH_COUNT_FILE"
+                    if [ "$count" = "1" ]; then
+                      echo "Permission denied (publickey)" >&2
+                      exit 255
+                    fi
+                  fi
+                  if [ "${FAKE_SSH_SECRET_LEAK_FAIL:-0}" = "1" ]; then
+                    echo "GITHUB_TOKEN=ghp_should_not_print" >&2
+                    echo "Authorization: Bearer should_not_print" >&2
+                    exit 1
+                  fi
                   expected_port="${EXPECTED_NOVNC_PORT:-6080}"
                   case "$*" in
                     *"NOVNC_PORT=$expected_port"*)
@@ -195,6 +209,7 @@ class PlayNowRemoteTests(unittest.TestCase):
                 "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
                 "GH_LOG": str(gh_log),
                 "GIT_LOG": str(git_log),
+                "FAKE_SSH_COUNT_FILE": str(Path(tmp) / "ssh-count.txt"),
                 "FAKE_GIT_MODE": git_mode,
             }
         )
@@ -236,6 +251,10 @@ class PlayNowRemoteTests(unittest.TestCase):
             "clean and pushed for the inferred current branch",
             "local artifact transfer: none",
             "dry-run: Codespace was not created or modified",
+            "CODESPACES_SSH_ATTEMPTS",
+            "sanitize_remote_error",
+            "ssh_permission_error",
+            "run_remote_start",
             "remote_start_payload | gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" NOVNC_PORT=\"$NOVNC_PORT\" bash -s",
             "./tools/play_now_remote.sh --preflight",
             "NOVNC_PORT=$NOVNC_PORT nohup ./tools/play_now_remote.sh",
@@ -248,6 +267,9 @@ class PlayNowRemoteTests(unittest.TestCase):
             "tools/prepare_shareware_wad.py",
             "tools/make_wad_image.py",
             "Delete when done: gh codespace delete -c \\\"$CODESPACE_NAME\\\" --force",
+            "Stop play-now:",
+            "Browser cleanup: GitHub repo > Code > Codespaces > ... > Delete",
+            "performance caveat: default 2-core Codespaces",
             "Codespaces runs pushed git state",
         ):
             with self.subTest(needle=needle):
@@ -311,6 +333,7 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("remote play payload: verified on selected ref", result.stdout)
             self.assertIn("git state: explicit GitHub repo/ref selected; local checkout dirt is ignored", result.stdout)
             self.assertIn("local artifact transfer: none", result.stdout)
+            self.assertIn("performance caveat: default 2-core Codespaces", result.stdout)
             self.assertIn("dry-run: Codespace was not created or modified", result.stdout)
             self.assertEqual(result.stderr, "")
 
@@ -563,6 +586,9 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("Starting vibe-os Doom inside Codespace 'vibe-play-existing'", result.stdout)
             self.assertIn("noVNC port 6173 is private", result.stdout)
+            self.assertIn("Stop play-now: gh codespace ssh -c \"vibe-play-existing\"", result.stdout)
+            self.assertIn("Delete when done: gh codespace delete -c \"vibe-play-existing\" --force", result.stdout)
+            self.assertIn("Browser cleanup: GitHub repo > Code > Codespaces > ... > Delete", result.stdout)
             self.assertIn(
                 "Open Doom noVNC: https://vibe-play-6173.app.github.dev/vnc.html?autoconnect=1",
                 result.stdout,
@@ -571,6 +597,7 @@ class PlayNowRemoteTests(unittest.TestCase):
                 "Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu.",
                 result.stdout,
             )
+            self.assertIn("Performance note: default 2-core Codespaces can play Doom", result.stdout)
             self.assertEqual(result.stderr, "")
 
             log = gh_log.read_text()
@@ -581,6 +608,75 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertNotIn("bash -lc", log)
             self.assertIn("codespace ports visibility 6173:private -c vibe-play-existing", log)
             self.assertNotIn("codespace create", log)
+
+    def test_codespaces_launcher_retries_initial_ssh_permission_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env, gh_log, _ = self._codespaces_stub_env(tmp)
+            env.update(
+                {
+                    "FAKE_SSH_PERMISSION_FAIL_ONCE": "1",
+                    "CODESPACES_SSH_RETRY_SECONDS": "1",
+                    "FAKE_BROWSE_URL": "https://vibe-play-6080.app.github.dev/",
+                }
+            )
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "tools" / "play_now_codespaces.sh"),
+                    "--repo",
+                    "jadentripp/vibe-os",
+                    "--ref",
+                    "jt/doom-gameplay-proof",
+                    "--codespace",
+                    "vibe-play-existing",
+                    "--no-open",
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("Codespace SSH was not ready yet", result.stderr)
+            self.assertIn("authorize Codespaces SSH", result.stderr)
+            self.assertIn("Open Doom noVNC:", result.stdout)
+            self.assertEqual(gh_log.read_text().count("codespace ssh -c vibe-play-existing"), 2)
+
+    def test_codespaces_launcher_sanitizes_ssh_failure_without_env_dump(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env, _, _ = self._codespaces_stub_env(tmp)
+            env.update(
+                {
+                    "FAKE_SSH_SECRET_LEAK_FAIL": "1",
+                    "CODESPACES_SSH_ATTEMPTS": "1",
+                }
+            )
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "tools" / "play_now_codespaces.sh"),
+                    "--repo",
+                    "jadentripp/vibe-os",
+                    "--ref",
+                    "jt/doom-gameplay-proof",
+                    "--codespace",
+                    "vibe-play-existing",
+                    "--no-open",
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("GITHUB_TOKEN=[redacted]", result.stderr)
+            self.assertIn("Authorization: Bearer [redacted]", result.stderr)
+            self.assertIn("does not print remote env", result.stderr)
+            self.assertIn("Delete when done: gh codespace delete -c \"vibe-play-existing\" --force", result.stderr)
+            self.assertNotIn("ghp_should_not_print", result.stderr)
+            self.assertNotIn("should_not_print", result.stderr)
 
     def test_codespaces_launcher_fails_closed_when_novnc_port_cannot_be_marked_private(self):
         with tempfile.TemporaryDirectory() as tmp:

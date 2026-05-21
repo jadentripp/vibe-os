@@ -1850,6 +1850,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("doom_key_down_seen dd 0", kernel)
         self.assertIn("doom_key_last_event dd 0", kernel)
         self.assertIn('smoke_inputqueue_text db " inputqueue="', kernel)
+        self.assertIn('smoke_inputdepth_text db " inputdepth="', kernel)
         self.assertIn('smoke_inputpoll_text db " inputpoll="', kernel)
         self.assertIn('smoke_inputlast_text db " inputlast="', kernel)
         self.assertIn('smoke_keyirq_text db " keyirq="', kernel)

@@ -741,6 +741,15 @@ def _persistence_load_completed(fields: dict[str, str]) -> bool:
     )
 
 
+def _load_stream_reached_final_marker(fields: dict[str, str]) -> bool:
+    savestm = _save_stream(fields)
+    return (
+        _save_stream_load_meaningful(savestm)
+        and savestm[0] == SAVE_STAGE_UNARCHIVE_SPECIALS_AFTER
+        and _save_stream_next_byte(savestm[3]) == 0x1D
+    )
+
+
 def _malformed_load_stream_kind(fields: dict[str, str]) -> str | None:
     savestm = _save_stream(fields)
     if _save_stream_load_meaningful(savestm):
@@ -839,6 +848,11 @@ def render_persistence_load_context(fields: dict[str, str], status: str | None =
         lines.append("persistence-hint: malformed thinker stream; run the save image checker with the savethk/savestm offset")
     elif kind == "stream":
         lines.append("persistence-hint: thinker boundary was reported, but the next load stream still failed")
+    elif _load_stream_reached_final_marker(fields):
+        lines.append(
+            "persistence-hint: post-load completion state; Doom returned from P_UnArchiveSpecials "
+            "with the final marker next, so inspect saveact gameaction/load-done and post-load gameplay"
+        )
     else:
         lines.append("persistence-hint: load-not-completed; saveact must include load requested and load done with ga_nothing")
     return lines

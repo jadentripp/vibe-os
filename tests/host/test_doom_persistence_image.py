@@ -1646,7 +1646,33 @@ class DoomPersistenceImageTests(unittest.TestCase):
             f"DOOMSAV0.DSG thinkers=OK offset=0x{thinker_offset:X}",
             summary[1],
         )
+        self.assertIn(
+            f"DOOMSAV0.DSG specials-after=OK offset=0x{len(payload) - 1:X} marker=0x1D",
+            summary[2],
+        )
         self.assertIn("save load status gameplay=OK slot=0", summary)
+
+    def test_checker_rejects_after_specials_status_without_final_marker_next(self):
+        payload, thinker_offset, _specials_offset = doom_save_payload_with_streams()
+        load_status_path = self.write_temp_text(
+            load_status(
+                slot=0,
+                read_bytes=len(payload),
+                leveltime=71,
+                savestm=(
+                    f"00000018/00000000/{len(payload) - 1:08X}/70017D08/00000008"
+                ),
+                savethk=(
+                    f"{thinker_offset:08X}/00000000/{thinker_offset:08X}/01006C08"
+                ),
+            )
+        )
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "final 0x1D"):
+            check_persistence.validate_save_load_stream_status(
+                load_status_path.read_text(),
+                slot=0,
+            )
 
     def test_checker_rejects_fake_save_header_with_arbitrary_tail_bytes(self):
         image = bytearray((BUILD / "disk.img").read_bytes())

@@ -63,6 +63,7 @@ class NovncStatus:
 @dataclass(frozen=True)
 class PreflightReport:
     platform_name: str
+    cpu_count: int | None
     novnc_port: int
     vnc_display: int
     vnc_port: int
@@ -176,6 +177,7 @@ def check_preflight(
 
     return PreflightReport(
         platform_name=effective_platform,
+        cpu_count=os.cpu_count(),
         novnc_port=novnc_port,
         vnc_display=vnc_display,
         vnc_port=vnc_port,
@@ -188,6 +190,7 @@ def render_report(report: PreflightReport) -> str:
     lines = [
         "play-now remote preflight OK",
         f"platform: {report.platform_name}",
+        f"host CPUs: {report.cpu_count or 'unknown'}",
         f"noVNC port: {report.novnc_port}",
         f"QEMU VNC display: :{report.vnc_display} (127.0.0.1:{report.vnc_port})",
         "required tools:",
@@ -204,6 +207,12 @@ def render_report(report: PreflightReport) -> str:
         lines.append(f"  websockify: {report.novnc.websockify or 'missing'}")
         lines.append(f"  web root: {report.novnc.web_root or 'missing'}")
         lines.append("  browser proxy: unavailable; use an SSH VNC tunnel")
+
+    if report.cpu_count is not None and report.cpu_count <= 2:
+        lines.append(
+            "performance caveat: 2-core hosts can play Doom but may stutter "
+            "while QEMU, noVNC, and builds share CPU"
+        )
 
     lines.append("dry-run: QEMU was not launched")
     lines.append("next: run ./tools/play_now_remote.sh on the remote host")

@@ -809,7 +809,7 @@ static int render_mus_pass(
             }
             if (stats)
                 ++stats->controller_count;
-        } else if (event_type == 5u) {
+        } else if (event_type == 6u) {
             synth_all_sounds_off(synth);
             return 1;
         } else {

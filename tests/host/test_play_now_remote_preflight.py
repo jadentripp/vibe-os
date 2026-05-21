@@ -131,6 +131,7 @@ class PlayNowRemotePreflightTests(unittest.TestCase):
 
         self.assertEqual(rc, 0, stderr.getvalue())
         self.assertIn("play-now remote preflight OK", stdout.getvalue())
+        self.assertIn("host CPUs:", stdout.getvalue())
         self.assertIn("noVNC port: 6080", stdout.getvalue())
         self.assertIn("QEMU VNC display: :1 (127.0.0.1:5901)", stdout.getvalue())
         self.assertIn("browser proxy: available", stdout.getvalue())
@@ -190,6 +191,28 @@ class PlayNowRemotePreflightTests(unittest.TestCase):
         self.assertIn("browser proxy: unavailable; use an SSH VNC tunnel", stdout.getvalue())
         self.assertIn("dry-run: QEMU was not launched", stdout.getvalue())
         self.assertEqual(stderr.getvalue(), "")
+
+    def test_render_report_warns_on_two_core_hosts(self):
+        report = check_play_now_remote.PreflightReport(
+            platform_name="Linux",
+            cpu_count=2,
+            novnc_port=6080,
+            vnc_display=1,
+            vnc_port=5901,
+            required_tools=tuple(
+                check_play_now_remote.ToolStatus(name=name, path=f"/usr/bin/{name}")
+                for name in check_play_now_remote.REQUIRED_TOOLS
+            ),
+            novnc=check_play_now_remote.NovncStatus(
+                websockify="/usr/bin/websockify",
+                web_root=Path("/usr/share/novnc"),
+            ),
+        )
+
+        rendered = check_play_now_remote.render_report(report)
+
+        self.assertIn("host CPUs: 2", rendered)
+        self.assertIn("performance caveat: 2-core hosts can play Doom", rendered)
 
     def test_require_novnc_fails_before_play_when_browser_proxy_is_missing(self):
         stdout = io.StringIO()

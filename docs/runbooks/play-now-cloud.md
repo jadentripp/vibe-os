@@ -35,6 +35,10 @@ port `6080`, then creates or reuses a disposable GitHub Codespace. It starts
 `6080` private, and opens/prints the noVNC URL. The Mac only controls
 Codespaces and opens a browser; it does not run QEMU, fetch the WAD, build
 `disk.img`, or copy play artifacts back.
+On initial attach, GitHub can briefly reject SSH with a permission/public-key
+error while the Codespace is still authorizing or starting. The launcher retries
+that stdin-fed `bash -s` start path, prints an authorization hint, and sanitizes
+known token-shaped stderr before showing it.
 
 Before creation, the launcher also checks the selected pushed branch for the
 required play payload: `.devcontainer/devcontainer.json`,
@@ -81,6 +85,11 @@ Optional dry run:
 VIBE_REPO=jadentripp/vibe-os VIBE_REF=main \
   ./tools/play_now_codespaces.sh --preflight --no-open
 ```
+
+The default Codespaces machine is often 2-core. Doom is playable there, but
+QEMU, noVNC, and the first build can contend for CPU, so short stutters are not
+necessarily a kernel or input regression. Use `--machine` for a larger
+Codespace when you need smoother interactive play.
 
 Optional GitHub-hosted dry run: dispatch **Cloud play-now preflight** on the
 same branch. It installs the remote dependencies on `ubuntu-latest`, runs
@@ -180,6 +189,10 @@ freshly validated WAD.
 The Mac-side Codespaces launcher does not download WADs, disk images, rendered
 pixels, raw audio, or remote logs. If you need a proof bundle later, use the
 allowlisted collector flow below instead of copying generated VM artifacts.
+When finished, delete the disposable environment with
+`gh codespace delete -c "<codespace-name>" --force` or from GitHub's
+`Code` > `Codespaces` menu. Deletion removes the remote `/tmp` WAD and generated
+VM artifacts.
 
 Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens the menu.
 VNC does not carry game audio in this quick path; current SB16 and audible audio

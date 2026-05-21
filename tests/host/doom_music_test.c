@@ -50,7 +50,7 @@ static int test_mus_fixture_renders_deterministic_pcm(void)
         0, 0,
         0x90, 0xbc, 100, 20,
         0x80, 60, 4,
-        0xd0
+        0x60
     };
     unsigned char pcm_a[4096];
     unsigned char pcm_b[4096];
@@ -165,7 +165,7 @@ static int test_mus_fixture_handles_controller_pitch_sustain_and_percussion(void
         0x00, 60,
         0x8f, 35, 8,
         0xc0, 8, 0, 4,
-        0xd0
+        0x60
     };
     unsigned char pcm[4096];
     vibe_music_render_stats_t stats;
@@ -320,7 +320,7 @@ static int test_streaming_chunks_advance_song_position(void)
         0, 0,
         0x90, 0xbc, 100, 20,
         0x80, 60, 4,
-        0xd0
+        0x60
     };
     unsigned char full[1024];
     unsigned char chunks[1024];
@@ -385,7 +385,7 @@ static int test_streaming_volume_changes_affect_future_chunks(void)
         0, 0,
         0x90, 0xbc, 120, 40,
         0x80, 60, 4,
-        0xd0
+        0x60
     };
     unsigned char loud[512];
     unsigned char quiet[512];
@@ -427,7 +427,7 @@ static int test_default_stream_chunk_is_large_enough_for_buffered_refill(void)
         0, 0,
         0x90, 0xbc, 100, 20,
         0x80, 60, 4,
-        0xd0
+        0x60
     };
     static unsigned char chunk[VIBE_MUSIC_STREAM_BYTES];
     vibe_music_render_stats_t stats;
@@ -468,7 +468,7 @@ static int test_looping_stream_wraps_long_playback_position(void)
         0, 0,
         0x90, 0xbc, 110, 20,
         0x80, 60, 4,
-        0xd0
+        0x60
     };
     unsigned char expected[512];
     unsigned char chunk[4096];
@@ -537,7 +537,7 @@ static int test_non_looping_stream_stops_at_song_end(void)
         0, 0,
         0x90, 0xbc, 100, 20,
         0x80, 60, 4,
-        0xd0
+        0x60
     };
     unsigned char chunk[257];
     vibe_music_render_stats_t stats;

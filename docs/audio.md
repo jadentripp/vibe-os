@@ -103,7 +103,10 @@ Current kernel behavior:
   request/refill state
 - records the current request-driven music stream as `musicstream=PULL`, with
   `musicpull=<requests>:<refills>` advanced by SB16 refill-side low-water
-  requests and by Doom-port chunk service
+  requests and by Doom-port chunk service. The reported `musicbuf=` window is
+  drained by the same IRQ refill mixer that consumes the music samples, so long
+  sessions can diagnose whether music service is staying ahead of hardware
+  consumption instead of seeing a stale submitted-byte count.
 - keeps the older `musicstream=PUSH` proof label documented only as the prior
   push-fed chunk mode; current hardware-paced music claims require PULL plus
   advancing `musicpull=` counters

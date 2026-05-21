@@ -54,6 +54,10 @@ through `doom_port/include`, helps other original C games:
 - memory: `malloc`, `calloc`, `realloc`, `free`, `mmap`, `munmap`
 - process: `execv`, `execve`, `execl`, `fork`, `waitpid`, `getpid`
 - devices: `ioctl`, `clock_gettime`, `vibe_clock_gettime`
+- game/tool runtime wrappers: `vibe_poll_input`, `vibe_input_status`, and
+  `vibe_present_indexed` so another original C program can consume typed input
+  and present indexed frames without copying raw syscall numbers from the Doom
+  platform shim.
 
 Missing future hooks should be added to `doom_port/include` and proved with
 host tests before a game-specific workaround is added. If a new game needs a

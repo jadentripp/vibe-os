@@ -917,6 +917,36 @@ int vibe_listdir(const char* path, vibe_dirent_t* entries, unsigned long max_ent
     return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
 }
 
+int vibe_poll_input(vibe_input_event_t* event)
+{
+    int raw;
+    if (!event) {
+        errno = EINVAL;
+        return -1;
+    }
+    raw = vibe_syscall3(
+        VIBE_SYS_POLL_INPUT,
+        (unsigned long)event,
+        (unsigned long)sizeof(*event),
+        0);
+    return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
+}
+
+int vibe_input_status(vibe_input_status_t* status)
+{
+    int raw;
+    if (!status) {
+        errno = EINVAL;
+        return -1;
+    }
+    raw = vibe_syscall3(
+        VIBE_SYS_INPUT_STATUS,
+        (unsigned long)status,
+        (unsigned long)sizeof(*status),
+        0);
+    return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
+}
+
 void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t offset)
 {
 #ifdef VIBE_LIBC_HOST_TEST
@@ -989,6 +1019,15 @@ int ioctl(int fd, unsigned long request, void* arg)
 {
     int raw = vibe_syscall3(VIBE_SYS_IOCTL, (unsigned long)fd, request, (unsigned long)arg);
     return raw < 0 ? syscall_failed(raw, ENOTTY) : raw;
+}
+
+int vibe_present_indexed(const vibe_present_indexed_t* present)
+{
+    if (!present || !present->frame || !present->palette || !present->width || !present->height) {
+        errno = EINVAL;
+        return -1;
+    }
+    return ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_PRESENT_INDEXED, (void*)present);
 }
 
 int execv(const char* path, char* const argv[])

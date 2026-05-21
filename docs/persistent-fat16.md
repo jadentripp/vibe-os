@@ -160,7 +160,11 @@ requested slot, `saverd=` bytes at least as large as the saved payload, a
 `leveltime=` at or beyond the save header leveltime. It must also carry
 `savethk=` unarchive-thinker and `savestm=` unarchive-specials stream boundaries;
 otherwise the load proof is rejected as blind even if the high-level fields look
-green. A 24-byte menu-string read
+green. If the runtime reports `savestm` at `stage=00000018`, the checker treats
+that as the post-specials position and verifies that the offset points at the
+final `0x1d` consistency marker; failures after that point are post-load
+completion-state failures, not malformed thinker/specials streams. A 24-byte
+menu-string read
 does not count as loading the game. When load fails inside Doom's savegame
 unarchiver, `savestm=` and `savethk=` expose the port-wrapper save-stream
 offsets and first marker byte without modifying the original Doom source.

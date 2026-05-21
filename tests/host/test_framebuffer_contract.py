@@ -112,6 +112,20 @@ class FramebufferContractTests(unittest.TestCase):
         self.assertIn("VIBE_FB_POLICY_ASPECT = 2", header)
         self.assertIn("VIBE_FB_FORMAT_INDEX8_RGB24 = 1", header)
 
+    def test_lfb_present_clears_only_when_view_geometry_changes(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        lfb_present = kernel.split(".lfb_present:", 1)[1].split(".success:", 1)[0]
+        clear_guard = kernel.split("present_clear_lfb_if_geometry_changed:", 1)[1].split("present_clear_lfb:", 1)[0]
+
+        self.assertIn("call present_clear_lfb_if_geometry_changed", lfb_present)
+        self.assertNotIn("call present_clear_lfb\n    call present_lfb_xrgb8888", lfb_present)
+        self.assertIn("cmp eax, [present_lfb_last_view_x]", clear_guard)
+        self.assertIn("cmp eax, [present_lfb_last_view_y]", clear_guard)
+        self.assertIn("cmp eax, [present_lfb_last_view_width]", clear_guard)
+        self.assertIn("cmp eax, [present_lfb_last_view_height]", clear_guard)
+        self.assertIn("call present_clear_lfb", clear_guard)
+        self.assertIn("present_lfb_last_view_x dd 0xffffffff", kernel)
+
     def test_dirty_rect_reports_changed_source_bounds_and_count(self):
         previous = bytearray(fb.DOOM_FRAME_BYTES)
         frame = bytearray(previous)
