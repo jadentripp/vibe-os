@@ -51,6 +51,14 @@ Not allowed:
 
 ## Mechanical Checks
 
+`tools/check_doom_source_boundary.py` is the focused host-only boundary guard.
+It compares tracked files under `third_party/doom` against `HEAD`, scans vendor
+source/build files for vibe-os or `doom_port` tokens, and checks the git index
+for staged or committed WADs, disk images, framebuffer/pixel artifacts, audio
+assets, and renamed raw WAD payloads. It intentionally ignores unrelated dirty
+files elsewhere in the repo so parent/parallel-worker changes do not mask a
+vendor-source violation.
+
 `tests/host/test_doom_source.py` records the upstream commit, verifies a
 deterministic hash over the original `linuxdoom-1.10` `.c` and `.h` files plus
 the top-level release docs, verifies a second deterministic hash over the full

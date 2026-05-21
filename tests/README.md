@@ -29,7 +29,11 @@ boot:
   references to shortcut source ports or host display/audio APIs. `.gitignore`
   is checked for the common WAD archive, screenshot/pixel, disk-image, log, and
   raw-audio spillover patterns so accidental local proof output is harder to
-  stage.
+  stage. `tests/host/test_doom_source_boundary.py` covers the narrower
+  `tools/check_doom_source_boundary.py` guard, which compares tracked vendor
+  files to `HEAD`, scans `third_party/doom` for OS-facing port tokens, and
+  checks staged/committed paths for WAD, disk-image, framebuffer, and audio
+  artifacts without launching QEMU.
 - Host storage tests cover root-level 8.3 lifecycle behavior: create, readback,
   sparse growth, descriptor `ftruncate` shrink/grow, signed seek offsets,
   truncate/resize-to-zero, delete, cluster-chain freeing/reuse,
