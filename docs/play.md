@@ -26,9 +26,9 @@ Safety contract:
   `status.*.bin`, QEMU WAV files, or other raw audio captures off the
   disposable host.
 - `CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST`: only status text, logs, ELF diagnostics,
-  `doom.symbols`, human-playtest notes/observations/checklist/session/manifest
-  files, and optional aggregate `audio-proof.json` may leave the disposable
-  host.
+  `doom.symbols`, human-playtest notes/observations/checklist/session/review/
+  manifest files, and optional aggregate `audio-proof.json` may leave the
+  disposable host.
 
 Never transfer these from the remote host: `DOOM1.WAD`, `build/disk.img`,
 framebuffer or screenshot files, `status.*.bin`, `build/doom-audio.wav`, or
@@ -365,8 +365,9 @@ allowlisted proof bundle, validates it before download, creates
 `/tmp/vibe-os-human-proof.tgz`, and prints the local post-download checker
 commands. The longer version lives in `docs/play.md`;
 its collector writes `human-playtest-observations.json` plus
-`human-playtest-checklist.txt` with the post-download checker commands and phase
-hashes to compare.
+`human-playtest-review.json` with the status-only start/fire/move/use/mouse/menu/final notes
+and remote machine shape, plus `human-playtest-checklist.txt` with the
+post-download checker commands and phase hashes to compare.
 The guided helper validates the playtester handle, scripted proof run ID, proof
 output directory, and proof tarball path before the first capture prompt. Proof
 output and the tarball must be remote scratch paths outside the git checkout.
@@ -397,8 +398,9 @@ For the copy-paste cloud path, including Codespaces and noVNC setup, use
   raw disk images, raw audio, screenshots, framebuffer dumps, rendered pixels,
   or `status.*.bin` files off the disposable host.
 - `CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST`: only status text, logs, ELF diagnostics,
-  `doom.symbols`, human-playtest notes/observations/checklist/session/manifest
-  files, and optional aggregate `audio-proof.json` may leave the disposable host.
+  `doom.symbols`, human-playtest notes/observations/checklist/session/review/
+  manifest files, and optional aggregate `audio-proof.json` may leave the
+  disposable host.
 
 Use a disposable remote Ubuntu VM, Codespace, or throwaway remote host that runs
 QEMU. The host only needs CPU emulation; hardware virtualization is helpful but
@@ -645,8 +647,9 @@ copies only status text, logs, ELF diagnostics, `doom.symbols`, optional
 `human-playtest-observations.json` with `schema=human-playtest-observations-v1`,
 writes `human-playtest-checklist.txt` with
 `schema=human-playtest-checklist-v1`, writes a structured
-`human-playtest-session.json` transcript for every manual phase, writes a
-`human-playtest-manifest.json` SHA-256 inventory, and then runs
+`human-playtest-session.json` transcript for every manual phase, writes
+`human-playtest-review.json` with the reviewer, phase notes, duration, and
+machine shape, writes a `human-playtest-manifest.json` SHA-256 inventory, and then runs
 `tools/check_cloud_playability_artifacts.py --human-session` against the bundle.
 It deliberately skips `disk.img`, WADs, status binaries, screenshots, pixel
 dumps, and raw audio:
@@ -656,7 +659,16 @@ python3 tools/collect_human_playtest_bundle.py \
   --build-dir build \
   --output-dir /tmp/vibe-os-human-proof \
   --playtester "<name-or-initials>" \
+  --reviewer "<name-or-initials>" \
   --scripted-proof-run-id "<passing-real-wad-smoke-run-id>" \
+  --machine-label "codespaces-or-disposable-cloud-host" \
+  --start-note "E1M1 visible in noVNC" \
+  --fire-note "Ctrl fire visibly responded" \
+  --move-note "Arrow movement or turning visibly responded" \
+  --use-note "Space use was accepted" \
+  --mouse-note "Mouse movement and click visibly responded" \
+  --menu-note "Escape opened the Doom menu" \
+  --final-note "Final status captured after duration window" \
   --audio status-only \
   --audio-notes "vnc-display-input-only-sb16-status" \
   --slowdown not-observed \
@@ -741,6 +753,17 @@ keys: `schema=human-playtest-notes-v2`, `commit=...`,
 `operator_no_forbidden_artifacts=confirmed`, and
 `operator_post_download_verification=required`.
 
+The companion `human-playtest-review.json` uses
+`schema=human-playtest-review-v1`. It is the status-only review manifest for the
+manual session: `reviewer=...`, playtester identity, linked scripted run,
+remote `machine_shape` (`cpu_count`, memory, OS/arch label, remote QEMU/noVNC
+endpoint), duration from `after-start` to `final`, and the required
+start/fire/move/use/mouse/menu/final phase notes. The checker validates that
+each review phase points at the expected status file and SHA-256, that the
+duration meets the 350-tick floor, and that the artifact policy still says no
+WAD data, disk image, pixels, screenshots, raw audio, forbidden artifacts, or
+local QEMU are part of the bundle.
+
 The companion `human-playtest-observations.json` uses
 `schema=human-playtest-observations-v1`. It is JSON-only status evidence for
 the operator's noVNC focus, audio, and slowdown observations, and its artifact
@@ -768,8 +791,8 @@ as fresh human evidence.
 The companion `human-playtest-manifest.json` uses
 `schema=human-playtest-manifest-v1` and is generated by the collector. It lists
 the expected status, ELF, symbol, log, optional aggregate-audio, notes,
-observations, checklist, and session files with byte counts and SHA-256 hashes,
-plus the status-only artifact policy. The artifact checker requires this
+observations, review, checklist, and session files with byte counts and SHA-256
+hashes, plus the status-only artifact policy. The artifact checker requires this
 manifest in `--human-session` mode, requires the bundle to be flat and
 allowlisted, records `requires_post_download_verification=true`, and rejects
 bundles whose file inventory or hashes changed after collection.
@@ -957,7 +980,8 @@ Call a remote human playtest credible only after checking all of this:
   Enter, Escape, and relative mouse movement/clicks all change the menu or E1M1.
 - The downloaded manual proof bundle contains `human-playtest-notes.txt`,
   `human-playtest-observations.json`, `human-playtest-checklist.txt`,
-  `human-playtest-session.json`, `human-playtest-manifest.json`,
+  `human-playtest-session.json`, `human-playtest-review.json`,
+  `human-playtest-manifest.json`,
   `status.early.txt`, `status.after-start.txt`, `status.after-fire.txt`,
   `status.after-move.txt`, `status.after-use.txt`, `status.after-mouse.txt`,
   `status.after-menu.txt`, `status.txt`, `doom.symbols`, and the diagnostic ELF
@@ -972,9 +996,14 @@ Call a remote human playtest credible only after checking all of this:
   `slowdown_notes=`, and the local
   `post-download human verification OK` line matches the remote
   `pre-download human verification OK` line.
+- The generated review is `schema=human-playtest-review-v1`, names the reviewer
+  and `machine_shape`, includes status-only start/fire/move/use/mouse/menu/final
+  notes, reports duration from `after-start` to `final`, and keeps
+  `contains_forbidden_artifacts=false`.
 - The generated checklist is `schema=human-playtest-checklist-v1`, names the
   same session ID, commit, scripted proof run ID, scripted proof URL, slowdown
-  note, phase hashes, and local checker commands you used after download.
+  note, reviewer, remote machine shape, phase review notes, phase hashes, and
+  local checker commands you used after download.
 - `tools/check_human_playability_proof.py --require-human-session` passes with
   `--human-notes`, the expected commit under test, and the linked passing
   real-WAD smoke run ID. A final-only checker pass is not enough for the manual

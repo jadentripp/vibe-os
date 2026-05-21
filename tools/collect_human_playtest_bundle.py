@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import platform
 import re
 import shutil
 import socket
@@ -89,6 +91,16 @@ NOTE_FIELD_ORDER = (
     "no_disk_upload",
     "no_pixel_upload",
 ) + tuple(check_cloud_playability_artifacts.HUMAN_OPERATOR_CONFIRMATION_FIELDS.values())
+
+REVIEW_NOTE_ARGUMENTS = (
+    ("after-start", "start_note", "--start-note", "E1M1-visible-in-noVNC"),
+    ("after-fire", "fire_note", "--fire-note", "Ctrl-fire-visible-response"),
+    ("after-move", "move_note", "--move-note", "Arrow-move-or-turn-visible-response"),
+    ("after-use", "use_note", "--use-note", "Space-use-visible-response"),
+    ("after-mouse", "mouse_note", "--mouse-note", "Mouse-move-click-visible-response"),
+    ("after-menu", "menu_note", "--menu-note", "Escape-menu-visible-response"),
+    ("final", "final_note", "--final-note", "Final-duration-window-observed"),
+)
 
 REQUIRED_CONFIRMATION_FLAGS = (
     ("confirm_scripted_proof_green", "--confirm-scripted-proof-green"),
@@ -189,6 +201,78 @@ def _safe_note_text(value: str, label: str) -> str:
             f"{label} contains unsupported characters for key=value notes: {''.join(bad)!r}"
         )
     return text
+
+
+def _review_phase_notes(args: argparse.Namespace) -> dict[str, str]:
+    notes: dict[str, str] = {}
+    missing: list[str] = []
+    for phase, attr, flag, _placeholder in REVIEW_NOTE_ARGUMENTS:
+        value = getattr(args, attr, None)
+        if value is None:
+            missing.append(flag)
+            continue
+        notes[phase] = _safe_note_text(value, flag)
+    if missing:
+        raise AssertionError(
+            "manual human review requires phase notes for start/fire/move/use/mouse/menu/final: "
+            + ", ".join(missing)
+        )
+    return notes
+
+
+def _reviewer(args: argparse.Namespace) -> str:
+    reviewer = _safe_note_text(args.reviewer or args.playtester, "--reviewer")
+    if not re.fullmatch(r"[A-Za-z0-9._-]{2,64}", reviewer):
+        raise AssertionError(
+            "--reviewer must be 2-64 characters: letters, numbers, dot, underscore, or dash"
+        )
+    return reviewer
+
+
+def _safe_machine_text(value: str, fallback: str) -> str:
+    text = " ".join((value or fallback).strip().split())
+    allowed = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,:;_/()+-")
+    cleaned = "".join(char if char in allowed else "-" for char in text)
+    cleaned = "-".join(part for part in cleaned.split("-") if part)
+    return cleaned[:160] or fallback
+
+
+def _memory_mb() -> int:
+    meminfo = Path("/proc/meminfo")
+    if meminfo.exists():
+        for line in meminfo.read_text(errors="replace").splitlines():
+            if line.startswith("MemTotal:"):
+                parts = line.split()
+                if len(parts) >= 2 and parts[1].isdigit():
+                    return max(1, int(parts[1]) // 1024)
+    try:
+        pages = os.sysconf("SC_PHYS_PAGES")
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        return max(1, int(pages) * int(page_size) // (1024 * 1024))
+    except (AttributeError, OSError, ValueError):
+        return 1
+
+
+def _machine_shape(args: argparse.Namespace) -> dict:
+    cpu_count = os.cpu_count() or 1
+    os_text = _safe_machine_text(
+        f"{platform.system()} {platform.release()}",
+        "unknown-os",
+    )
+    arch_text = _safe_machine_text(platform.machine(), "unknown-arch")
+    label = args.machine_label or f"{os_text} {arch_text} {cpu_count}cpu"
+    return {
+        "source": "remote-collector-status-only",
+        "host_class": args.remote_host,
+        "label": _safe_machine_text(label, "remote-host"),
+        "cpu_count": cpu_count,
+        "memory_mb": _memory_mb(),
+        "os": os_text,
+        "arch": arch_text,
+        "qemu_location": "remote",
+        "vnc_endpoint": "127.0.0.1:5901",
+        "vnc_tunnel": "loopback-only",
+    }
 
 
 def _audio_evidence_for_mode(mode: str) -> str:
@@ -503,10 +587,15 @@ def _print_template(args: argparse.Namespace) -> None:
     playtester = _template_value(args.playtester, "<name-or-initials>")
     run_id = _template_value(args.scripted_proof_run_id, "<passing-real-wad-smoke-run-id>")
     commit = _template_value(args.commit, "$(git rev-parse --short=12 HEAD)")
+    reviewer = _template_value(args.reviewer, playtester)
     output_dir = args.output_dir or Path("/tmp/vibe-os-human-proof")
     build_dir = args.build_dir
     monitor_socket = args.monitor_socket
     phase_guide = "\n".join(_phase_guide_lines())
+    review_args = "\n".join(
+        f"    {flag} \"{getattr(args, attr) or placeholder}\" \\"
+        for _phase, attr, flag, placeholder in REVIEW_NOTE_ARGUMENTS
+    )
     print(
         f"""human proof bundle dry-run template
 remote machine guidance:
@@ -529,8 +618,11 @@ collect command:
     --build-dir {build_dir} \\
     --output-dir {output_dir} \\
     --playtester "{playtester}" \\
+    --reviewer "{reviewer}" \\
     --scripted-proof-run-id "{run_id}" \\
     --commit "{commit}" \\
+    --machine-label "{args.machine_label or 'Codespace-or-disposable-cloud-host'}" \\
+{review_args}
     --audio {args.audio} \\
     --audio-notes "{args.audio_notes or _default_audio_notes(args.audio)}" \\
     --slowdown {args.slowdown} \\
@@ -595,6 +687,8 @@ def collect(args: argparse.Namespace) -> list[str]:
     if not build_dir.is_dir():
         raise AssertionError(f"build directory is not a directory: {build_dir}")
     _assert_empty_or_missing(output_dir)
+    phase_notes = _review_phase_notes(args)
+    reviewer = _reviewer(args)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     copied = _copy_required_status_files(build_dir, output_dir)
@@ -622,6 +716,17 @@ def collect(args: argparse.Namespace) -> list[str]:
         json.dumps(session, indent=2, sort_keys=True) + "\n"
     )
     copied.append(check_cloud_playability_artifacts.HUMAN_SESSION_FILE)
+
+    review = check_cloud_playability_artifacts.build_human_review(
+        output_dir,
+        reviewer=reviewer,
+        phase_notes=phase_notes,
+        machine_shape=_machine_shape(args),
+    )
+    (output_dir / check_cloud_playability_artifacts.HUMAN_REVIEW_FILE).write_text(
+        json.dumps(review, indent=2, sort_keys=True) + "\n"
+    )
+    copied.append(check_cloud_playability_artifacts.HUMAN_REVIEW_FILE)
 
     checklist = check_cloud_playability_artifacts.build_human_checklist(output_dir)
     (output_dir / check_cloud_playability_artifacts.HUMAN_CHECKLIST_FILE).write_text(checklist)
@@ -670,7 +775,25 @@ def main(argv: list[str]) -> int:
         help="print the status-only phase/action guide without collecting or reading artifacts",
     )
     parser.add_argument("--playtester", help="human initials or handle")
+    parser.add_argument(
+        "--reviewer",
+        help="reviewer handle for human-playtest-review.json; defaults to --playtester",
+    )
     parser.add_argument("--commit", help="commit under test; defaults to git rev-parse HEAD")
+    parser.add_argument(
+        "--machine-label",
+        help="short status-only remote machine label, such as codespaces-4-core",
+    )
+    for _phase, _attr, flag, placeholder in REVIEW_NOTE_ARGUMENTS:
+        parser.add_argument(
+            flag,
+            dest=_attr,
+            help=(
+                "short status-only human review note for the "
+                f"{check_cloud_playability_artifacts.HUMAN_REVIEW_PHASE_LABELS[_phase]} "
+                f"phase; example: {placeholder}"
+            ),
+        )
     parser.add_argument(
         "--capture-phase",
         choices=CAPTURE_PHASES,

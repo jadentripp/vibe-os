@@ -71,11 +71,16 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             "pcitable": "OK",
             "pcitabcap": "00000100",
             "pcitabuse": "00000004",
+            "pciover": "00000000",
             "pcilast": "00000100",
             "pciclassh": "89ABCDEF",
             "pcimulti": "00000001",
             "pciclsms": "00000001",
             "pciclsbr": "00000001",
+            "pciapi": "OK",
+            "pcilookms": "00000100",
+            "pcilookbr": "00000000",
+            "pcilookmiss": "FFFFFFFF",
         }
         fields.update(overrides)
         return "Aurora OS v0.2 " + " ".join(f"{key}={value}" for key, value in fields.items())
@@ -180,6 +185,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             (hardware_doc, "QEMU BIOS/IDE/PS2/VBE/SB16 is the supported target"),
             (hardware_doc, "QEMU_DEVICE_MODEL[PCI_BUS0_STATUS]"),
             (hardware_doc, "BOOT_DEVICE_BOUNDARY[UEFI_ESP_KERNEL_FILE]"),
+            (hardware_doc, "PCI_TABLE_API[READ_ONLY_LOOKUP]"),
             (hardware_doc, "NEXT_IMPLEMENTATION_CONTRACT[PCI_DRIVER_TABLE_API]"),
             (hardware_doc, "installation to arbitrary disks are outside the claim"),
             (hardware_doc, "The reusable contracts do not widen the hardware claim"),
@@ -189,6 +195,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             (tests_readme, "tools/check_hardware_support_matrix.py"),
             (tests_readme, "boot/uefi/README.md"),
             (tests_readme, "pciprobe="),
+            (tests_readme, "pciapi="),
             (runbook, "does not prove vibe-os boots directly on physical hardware"),
         ):
             with self.subTest(phrase=phrase):
@@ -206,25 +213,40 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         self.assertEqual(pci_rows["QEMU_BUS0_CONFIG"]["status"], "status-only")
         self.assertEqual(pci_rows["QEMU_BUS0_CONFIG"]["scope"], "qemu-pci-bus0")
         pci_table_rows = check_hardware_support_matrix._validate_pci_table_rows(matrix)
-        self.assertEqual(pci_table_rows["QEMU_BUS0_CLASS_TABLE"]["layout"], "bdf-id-class-header")
+        self.assertEqual(
+            pci_table_rows["QEMU_BUS0_CLASS_TABLE"]["layout"],
+            "packed-bdf-vendor-device-class-progif-header",
+        )
         self.assertEqual(pci_table_rows["QEMU_BUS0_CLASS_TABLE"]["capacity"], "256")
+        pci_api_rows = check_hardware_support_matrix._validate_pci_table_api_rows(matrix)
+        self.assertEqual(pci_api_rows["READ_ONLY_LOOKUP"]["contract"], "kernel-maintained-read-only-table")
+        self.assertEqual(pci_api_rows["READ_ONLY_LOOKUP"]["lookup"], "index-class-subclass-progif")
+        self.assertEqual(pci_api_rows["READ_ONLY_LOOKUP"]["consumers"], "future-drivers")
         pci_contract_rows = check_hardware_support_matrix._validate_pci_table_contract_rows(matrix)
         self.assertEqual(pci_contract_rows["QEMU_BUS0_SCAN"]["bus"], "0")
         self.assertEqual(pci_contract_rows["QEMU_BUS0_SCAN"]["devices"], "32")
         self.assertEqual(pci_contract_rows["QEMU_BUS0_SCAN"]["functions"], "8")
         self.assertEqual(pci_contract_rows["ENTRY_LAYOUT"]["dwords"], "4")
-        self.assertEqual(pci_contract_rows["ENTRY_LAYOUT"]["fields"], "bdf,id,class,header")
+        self.assertEqual(
+            pci_contract_rows["ENTRY_LAYOUT"]["fields"],
+            "bus,device,function,vendor-id,device-id,base-class,subclass,prog-if,header",
+        )
         self.assertEqual(pci_contract_rows["NO_DRIVER_BINDING"]["drivers"], "none")
         self.assertContainsPhrase(matrix, "The PCI table contract is intentionally narrower")
         for source in (
             "PCI_SCAN_DEVICE_COUNT equ 32",
             "PCI_SCAN_FUNCTION_COUNT equ 8",
             "PCI_TABLE_ENTRY_DWORDS equ 4",
+            "PCI_TABLE_ENTRY_SHIFT equ 4",
             "PCI_TABLE_MAX_ENTRIES equ PCI_SCAN_FUNCTION_PROBES",
             "call pci_scan_qemu",
             "pci_scan_qemu:",
             "mov edi, pci_device_table",
+            "PCI_TABLE_LOCATION_OFFSET",
+            "PCI_TABLE_VENDOR_DEVICE_OFFSET",
             "PCI_TABLE_CLASS_OFFSET",
+            "pci_table_entry_by_index:",
+            "pci_table_find_first_by_class:",
             "pci_device_table times PCI_TABLE_MAX_ENTRIES * PCI_TABLE_ENTRY_DWORDS dd 0",
             'smoke_pci_text db " pci="',
             'smoke_pciprobe_text db " pciprobe="',
@@ -235,11 +257,16 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             'smoke_pcitable_text db " pcitable="',
             'smoke_pcitabcap_text db " pcitabcap="',
             'smoke_pcitabuse_text db " pcitabuse="',
+            'smoke_pciover_text db " pciover="',
             'smoke_pcilast_text db " pcilast="',
             'smoke_pciclassh_text db " pciclassh="',
             'smoke_pcimulti_text db " pcimulti="',
             'smoke_pciclsms_text db " pciclsms="',
             'smoke_pciclsbr_text db " pciclsbr="',
+            'smoke_pciapi_text db " pciapi="',
+            'smoke_pcilookms_text db " pcilookms="',
+            'smoke_pcilookbr_text db " pcilookbr="',
+            'smoke_pcilookmiss_text db " pcilookmiss="',
         ):
             with self.subTest(source=source):
                 self.assertIn(source, kernel)
@@ -294,9 +321,13 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         self.assertEqual(next_rows["PCI_ENUMERATION"]["proof"], "cloud-class-table")
         self.assertEqual(next_rows["PCI_ENUMERATION"]["evidence"], "none")
         self.assertEqual(set(contract_rows), {"PCI_DRIVER_TABLE_API"})
-        self.assertEqual(contract_rows["PCI_DRIVER_TABLE_API"]["status"], "scaffold")
-        self.assertEqual(contract_rows["PCI_DRIVER_TABLE_API"]["requires"], "read-only-bdf-class-table")
+        self.assertEqual(contract_rows["PCI_DRIVER_TABLE_API"]["status"], "host-checked")
+        self.assertEqual(
+            contract_rows["PCI_DRIVER_TABLE_API"]["requires"],
+            "read-only-index-class-progif-lookup",
+        )
         self.assertEqual(contract_rows["PCI_DRIVER_TABLE_API"]["unlocks"], "ahci-sata,usb,apic")
+        self.assertEqual(contract_rows["PCI_DRIVER_TABLE_API"]["evidence"], "pciapi-status-fields")
         self.assertContainsPhrase(matrix, "PCI enumeration is the next implementable hardware-class unlock")
 
     def test_qemu_device_models_and_boot_device_boundaries_are_machine_readable(self):
@@ -388,9 +419,10 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         status = (
             "Aurora OS v0.2 pci=OK pciprobe=00000100 pcicount=00000004 "
             "pcifirst=00000000 pciid=12378086 pciclass=06000000 "
-            "pcitable=OK pcitabcap=00000100 pcitabuse=00000004 "
+            "pcitable=OK pcitabcap=00000100 pcitabuse=00000004 pciover=00000000 "
             "pcilast=00000100 pciclassh=89ABCDEF pcimulti=00000001 "
-            "pciclsms=00000001 pciclsbr=00000001"
+            "pciclsms=00000001 pciclsbr=00000001 pciapi=OK "
+            "pcilookms=00000100 pcilookbr=00000000 pcilookmiss=FFFFFFFF"
         )
 
         fields = check_hardware_support_matrix.validate_pci_status_text(status)
@@ -399,9 +431,10 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         none_status = (
             "Aurora OS v0.2 pci=NONE pciprobe=00000100 pcicount=00000000 "
             "pcifirst=00000000 pciid=00000000 pciclass=00000000 "
-            "pcitable=OK pcitabcap=00000100 pcitabuse=00000000 "
+            "pcitable=OK pcitabcap=00000100 pcitabuse=00000000 pciover=00000000 "
             "pcilast=00000000 pciclassh=00000000 pcimulti=00000000 "
-            "pciclsms=00000000 pciclsbr=00000000"
+            "pciclsms=00000000 pciclsbr=00000000 pciapi=OK "
+            "pcilookms=FFFFFFFF pcilookbr=FFFFFFFF pcilookmiss=FFFFFFFF"
         )
         self.assertEqual(check_hardware_support_matrix.validate_pci_status_text(none_status)["pci"], "NONE")
 
@@ -409,6 +442,14 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix.validate_pci_status_text(status.replace("pciprobe=00000100", "pciprobe=00000200"))
         with self.assertRaisesRegex(AssertionError, "pcitabuse="):
             check_hardware_support_matrix.validate_pci_status_text(status.replace("pcitabuse=00000004", "pcitabuse=00000003"))
+        with self.assertRaisesRegex(AssertionError, "pciover="):
+            check_hardware_support_matrix.validate_pci_status_text(status.replace("pciover=00000000", "pciover=00000001"))
+        with self.assertRaisesRegex(AssertionError, "pciapi="):
+            check_hardware_support_matrix.validate_pci_status_text(status.replace("pciapi=OK", "pciapi=FAIL"))
+        with self.assertRaisesRegex(AssertionError, "pcilookmiss="):
+            check_hardware_support_matrix.validate_pci_status_text(status.replace("pcilookmiss=FFFFFFFF", "pcilookmiss=00000000"))
+        with self.assertRaisesRegex(AssertionError, "pcilookms="):
+            check_hardware_support_matrix.validate_pci_status_text(status.replace("pcilookms=00000100", "pcilookms=FFFFFFFF"))
         with self.assertRaisesRegex(AssertionError, "pciclassh="):
             check_hardware_support_matrix.validate_pci_status_text(status.replace("pciclassh=89ABCDEF", "pciclassh=00000000"))
         with self.assertRaisesRegex(AssertionError, "pcifirst="):
@@ -511,6 +552,22 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, r"PROOF_REQUIREMENT\[APIC\] must keep evidence=none"):
             check_hardware_support_matrix._validate_proof_requirement_rows(broadened)
 
+    def test_checker_rejects_ahci_or_usb_support_overclaim(self):
+        matrix = (ROOT / "docs" / "architecture.md").read_text()
+        ahci_claimed = matrix.replace(
+            "SUPPORT[AHCI] status=unclaimed scope=none proof=future-ahci-sata-storage-proof evidence=none",
+            "SUPPORT[AHCI] status=claimed scope=qemu-ahci proof=cloud-smoke evidence=status.txt",
+        )
+        usb_claimed = matrix.replace(
+            "SUPPORT[USB] status=unclaimed scope=none proof=future-usb-input-storage-proof evidence=none",
+            "SUPPORT[USB] status=claimed scope=qemu-usb proof=cloud-smoke evidence=status.txt",
+        )
+
+        with self.assertRaisesRegex(AssertionError, "AHCI must be status=unclaimed"):
+            check_hardware_support_matrix._validate_support_rows(ahci_claimed)
+        with self.assertRaisesRegex(AssertionError, "USB must be status=unclaimed"):
+            check_hardware_support_matrix._validate_support_rows(usb_claimed)
+
     def test_checker_rejects_pci_table_contract_broadening(self):
         matrix = (ROOT / "docs" / "architecture.md").read_text()
         broadened_bus = matrix.replace(
@@ -529,6 +586,20 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             r"PCI_TABLE_CONTRACT\[NO_DRIVER_BINDING\] drivers must stay none",
         ):
             check_hardware_support_matrix._validate_pci_table_contract_rows(broadened_driver)
+
+        broadened_api_status = matrix.replace(
+            "PCI_TABLE_API[READ_ONLY_LOOKUP] status=status-only",
+            "PCI_TABLE_API[READ_ONLY_LOOKUP] status=claimed",
+        )
+        with self.assertRaisesRegex(AssertionError, r"PCI_TABLE_API\[READ_ONLY_LOOKUP\] status"):
+            check_hardware_support_matrix._validate_pci_table_api_rows(broadened_api_status)
+
+        broadened_api_consumers = matrix.replace(
+            "consumers=future-drivers",
+            "consumers=ahci-usb",
+        )
+        with self.assertRaisesRegex(AssertionError, r"PCI_TABLE_API\[READ_ONLY_LOOKUP\] consumers"):
+            check_hardware_support_matrix._validate_pci_table_api_rows(broadened_api_consumers)
 
     def test_checker_rejects_qemu_device_model_broadening(self):
         matrix = (ROOT / "docs" / "architecture.md").read_text()

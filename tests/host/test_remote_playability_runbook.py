@@ -20,6 +20,23 @@ GUIDED_HUMAN_PLAYTEST = ROOT / "tools" / "run_remote_human_playtest.sh"
 PREPARE = ROOT / "tools" / "prepare_shareware_wad.py"
 PLAY_NOW_REMOTE_CHECK = ROOT / "tools" / "check_play_now_remote.py"
 
+REVIEW_NOTE_ARGS = [
+    "--start-note",
+    "E1M1 visible in noVNC",
+    "--fire-note",
+    "Ctrl fire changed weapon state",
+    "--move-note",
+    "Arrow movement visibly changed position",
+    "--use-note",
+    "Space use was accepted by Doom",
+    "--mouse-note",
+    "Mouse move and click visibly responded",
+    "--menu-note",
+    "Escape opened the Doom menu",
+    "--final-note",
+    "Final capture kept the manual session alive",
+]
+
 checker_spec = importlib.util.spec_from_file_location("check_cloud_playability_artifacts", CHECKER)
 check_cloud_playability_artifacts = importlib.util.module_from_spec(checker_spec)
 checker_spec.loader.exec_module(check_cloud_playability_artifacts)
@@ -68,6 +85,16 @@ def valid_status(**overrides):
         "kmapfree": "00125000",
         "kmaplo": "10B866FA",
         "kmaphi": "10B866FA",
+        "khiexec": "OK",
+        "khieip": "C0010200",
+        "khiesp": "C006FFFC",
+        "khicr3": "00090000",
+        "khiva": "C0010000",
+        "khipa": "00010000",
+        "khistk": "C006F000",
+        "khistkpa": "0006F000",
+        "khipt": "00126000",
+        "khifree": "00126000",
         "vmmhi": "OK",
         "vmmhva": "C0000000",
         "vmmhpa": "00123000",
@@ -79,7 +106,7 @@ def valid_status(**overrides):
         "wad": "OK",
         "lmp": "OK",
         "heap": "OK",
-        "target": "00000006",
+        "target": "00000007",
         "ppid": "00000005",
         "uexec": "OK",
         "upath": "USERPROB.ELF",
@@ -94,7 +121,7 @@ def valid_status(**overrides):
         "abiargc": "00000001",
         "abiargvsrc": "00000002",
         "abiprobe": "OK",
-        "abiflags": "0000000F",
+        "abiflags": "0000001F",
         "entry": "01000000",
         "stack": "01FFFFE0",
         "argc": "00000001",
@@ -103,12 +130,14 @@ def valid_status(**overrides):
         "argv0": "01FFFFF0",
         "envp0": "00000000",
         "argvsrc": "00000002",
-        "procpool": "00000006/00000002/00000003/00000001/00000000",
-        "pidseq": "00000007/00000006/00000003",
+        "procpool": "00000006/00000002/00000004/00000002/00000000",
+        "pidseq": "00000008/00000007/00000003",
         "fdexec": "00000002/00000002/00000001/00000001",
         "fdup": "00000001/00000002/00000002/00000003/00000001",
-        "wait": "00000003/00000001/00000002/00000000/00000001/00000003/0000002A",
-        "vmreap": "00000003/00000040/00000001/00000020/00000020",
+        "wait": "00000005/00000002/00000002/00000001/00000001/00000006/0000002A",
+        "waitseed": "00000003",
+        "fork": "00000001/00000000/00000005/00000006/00000006/00000000/00000020/00000003/00000020/00000001",
+        "vmreap": "00000004/00000060/00000002/00000040/00000020",
         "execerr": "00000000",
         "execres": "00000000",
         "doomwrite": "00000001",
@@ -205,7 +234,7 @@ def valid_status(**overrides):
         "pround": "00000004",
         "pctx": "00000008",
         "pmask": "00000003",
-        "pfrom": "00000006",
+        "pfrom": "00000007",
         "pto": "00000003",
         "pkind": "00000002:00000003",
         "peip": "01002000:00E80000",
@@ -707,6 +736,50 @@ def write_human_observations(artifact):
     )
 
 
+def valid_review_phase_notes():
+    return {
+        "after-start": "E1M1 visible in noVNC",
+        "after-fire": "Ctrl fire changed weapon state",
+        "after-move": "Arrow movement visibly changed position",
+        "after-use": "Space use was accepted by Doom",
+        "after-mouse": "Mouse move and click visibly responded",
+        "after-menu": "Escape opened the Doom menu",
+        "final": "Final capture kept the manual session alive",
+    }
+
+
+def valid_machine_shape():
+    return {
+        "source": "remote-collector-status-only",
+        "host_class": "disposable",
+        "label": "codespaces-4-core",
+        "cpu_count": 4,
+        "memory_mb": 8192,
+        "os": "Linux test",
+        "arch": "x86_64",
+        "qemu_location": "remote",
+        "vnc_endpoint": "127.0.0.1:5901",
+        "vnc_tunnel": "loopback-only",
+    }
+
+
+def write_human_review(artifact, **overrides):
+    phase_notes = valid_review_phase_notes()
+    phase_notes.update(overrides.pop("phase_notes", {}))
+    machine_shape = valid_machine_shape()
+    machine_shape.update(overrides.pop("machine_shape", {}))
+    review = check_cloud_playability_artifacts.build_human_review(
+        artifact,
+        reviewer=overrides.pop("reviewer", "jt-review"),
+        phase_notes=phase_notes,
+        machine_shape=machine_shape,
+    )
+    review.update(overrides)
+    (artifact / "human-playtest-review.json").write_text(
+        json.dumps(review, indent=2, sort_keys=True) + "\n"
+    )
+
+
 def write_human_checklist(artifact):
     (artifact / "human-playtest-checklist.txt").write_text(
         check_cloud_playability_artifacts.build_human_checklist(artifact)
@@ -716,6 +789,8 @@ def write_human_checklist(artifact):
 def write_human_manifest(artifact):
     if not (artifact / "human-playtest-session.json").exists():
         write_human_session(artifact)
+    if not (artifact / "human-playtest-review.json").exists():
+        write_human_review(artifact)
     if not (artifact / "human-playtest-checklist.txt").exists():
         write_human_checklist(artifact)
     (artifact / "human-playtest-manifest.json").write_text(
@@ -1148,6 +1223,9 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             "duration gate: final must be at least 350 gtic and leveltime ticks after after-start",
             "SLOWDOWN_MODE",
             "SLOWDOWN_NOTES",
+            "REVIEWER",
+            "START_NOTE",
+            "FINAL_NOTE",
             "after-start",
             "after-fire",
             "after-move",
@@ -1156,6 +1234,14 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             "after-menu",
             "python3 tools/collect_human_playtest_bundle.py",
             "--print-phase-guide",
+            "--reviewer",
+            "--start-note",
+            "--fire-note",
+            "--move-note",
+            "--use-note",
+            "--mouse-note",
+            "--menu-note",
+            "--final-note",
             "--capture-phase \"$phase\"",
             "--confirm-scripted-proof-green",
             "--confirm-remote-vnc",
@@ -1582,9 +1668,24 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             write_valid_artifact(artifact)
             write_human_notes(artifact)
             write_human_session(artifact)
+            write_human_review(artifact)
             write_human_checklist(artifact)
 
             with self.assertRaisesRegex(AssertionError, "human manifest file"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
+    def test_downloaded_human_session_requires_review_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            write_human_notes(artifact)
+            write_human_session(artifact)
+            write_human_observations(artifact)
+
+            with self.assertRaisesRegex(AssertionError, "human review manifest file"):
                 check_cloud_playability_artifacts.validate_artifact_dir(
                     artifact,
                     require_human_notes=True,
@@ -1611,6 +1712,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             write_valid_artifact(artifact)
             write_human_notes(artifact)
             write_human_session(artifact)
+            write_human_review(artifact)
 
             with self.assertRaisesRegex(AssertionError, "human checklist file"):
                 check_cloud_playability_artifacts.validate_artifact_dir(
@@ -1663,6 +1765,25 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             session_path.write_text(json.dumps(session, indent=2, sort_keys=True) + "\n")
 
             with self.assertRaisesRegex(AssertionError, "human playtest session failed"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
+    def test_downloaded_human_session_rejects_review_tampering(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            write_human_notes(artifact)
+            write_human_session(artifact)
+            write_human_manifest(artifact)
+
+            review_path = artifact / "human-playtest-review.json"
+            review = json.loads(review_path.read_text())
+            review["machine_shape"]["cpu_count"] = 0
+            review_path.write_text(json.dumps(review, indent=2, sort_keys=True) + "\n")
+
+            with self.assertRaisesRegex(AssertionError, "human playtest review failed"):
                 check_cloud_playability_artifacts.validate_artifact_dir(
                     artifact,
                     require_human_notes=True,
@@ -1784,6 +1905,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         self.assertIn("commit=abcdef0", result.stdout)
         self.assertIn("scripted_proof_run_id=26156172979", result.stdout)
         self.assertIn("review evidence:", result.stdout)
+        self.assertIn("reviewer=jt-review", result.stdout)
+        self.assertIn("machine=codespaces-4-core", result.stdout)
         self.assertIn("audio_evidence=status-only-sb16-continuity", result.stdout)
         self.assertIn("novnc_focus=canvas-focused-before-actions", result.stdout)
         self.assertIn("phase status hashes:", result.stdout)
@@ -1861,6 +1984,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                     "26156172979",
                     "--commit",
                     "abcdef0",
+                    *REVIEW_NOTE_ARGS,
                     "--confirm-scripted-proof-green",
                     "--confirm-remote-vnc",
                     "--confirm-e1m1-visible",
@@ -1888,6 +2012,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertTrue((output / "human-playtest-notes.txt").exists())
             self.assertTrue((output / "human-playtest-observations.json").exists())
             self.assertTrue((output / "human-playtest-session.json").exists())
+            self.assertTrue((output / "human-playtest-review.json").exists())
             self.assertTrue((output / "human-playtest-checklist.txt").exists())
             self.assertTrue((output / "human-playtest-manifest.json").exists())
             checklist = (output / "human-playtest-checklist.txt").read_text()
@@ -1898,6 +2023,14 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertEqual(observations["novnc_focus"]["status"], "canvas-focused-before-actions")
             self.assertEqual(observations["audio"]["notes"], "vnc-display-input-only-sb16-status")
             self.assertFalse(observations["artifact_policy"]["contains_raw_audio"])
+            review = json.loads((output / "human-playtest-review.json").read_text())
+            self.assertEqual(review["schema"], "human-playtest-review-v1")
+            self.assertEqual(review["playtester"], "jt")
+            self.assertEqual(review["reviewer"], "jt")
+            self.assertGreaterEqual(review["machine_shape"]["cpu_count"], 1)
+            self.assertEqual(review["phase_reviews"][0]["label"], "start")
+            self.assertIn("E1M1 visible", review["phase_reviews"][0]["note"])
+            self.assertFalse(review["artifact_policy"]["contains_forbidden_artifacts"])
             self.assertIn("human-playtest-checklist.txt", result.stdout)
             self.assertTrue((output / "serial.remote.log").exists())
             redacted_log = (output / "tokens.remote.log").read_text()
@@ -1969,6 +2102,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                     "26156172979",
                     "--commit",
                     "abcdef0",
+                    *REVIEW_NOTE_ARGS,
                     "--confirm-scripted-proof-green",
                     "--confirm-remote-vnc",
                     "--confirm-e1m1-visible",
@@ -2025,6 +2159,10 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         self.assertIn("after-mouse: status.after-mouse.txt", result.stdout)
         self.assertIn("duration gate: final must be at least 350", result.stdout)
         self.assertIn("--capture-phase \"$phase\"", result.stdout)
+        self.assertIn("--reviewer", result.stdout)
+        self.assertIn("--machine-label", result.stdout)
+        self.assertIn("--start-note", result.stdout)
+        self.assertIn("--final-note", result.stdout)
         self.assertIn("--confirm-no-forbidden-artifacts", result.stdout)
         self.assertIn("post-download verification", result.stdout)
         self.assertIn("dry-run: no files were copied", result.stdout)

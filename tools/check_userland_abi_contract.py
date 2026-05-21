@@ -287,7 +287,7 @@ GENERIC_DOC_REQUIREMENTS = {
         "## Small User Runtime",
         "perform brk-style heap grows/shrinks",
         "anonymous/private mmap/munmap",
-        "classified fork",
+        "bounded fork",
         "waitpid",
         "## POSIX Gap Decomposition",
     ),
@@ -297,21 +297,19 @@ GENERIC_DOC_REQUIREMENTS = {
 POSIX_GAP_REQUIREMENTS = {
     "fork": {
         "docs/architecture.md": (
-            "`fork` exists only as a classified syscall/libc surface.",
-            "no child address-space clone",
-            "no child address-space clone, copy-on-\n  write state",
-        ),
-        "docs/architecture.md": (
-            "`SYS_FORK` is wired through the syscall table and returns `-ENOSYS`",
-            "Address-space cloning, copy-on-write or eager page copies",
+            "`SYS_FORK` now implements a bounded probe-class fork",
+            "eagerly copies present user pages into PMM-backed child frames",
+            "parent returns the child PID while the child resumes with zero",
         ),
         "doom_port/libc.c": (
             "pid_t fork(void)",
             "vibe_syscall3(VIBE_SYS_FORK, 0, 0, 0)",
             "syscall_failed(raw, ENOSYS)",
         ),
-        "user/probe.c": (
-            "syscall3(SYS_FORK, 0, 0, 0) == -ERRNO_ENOSYS",
+        "user/abi_probe.c": (
+            "child = vibe_user_fork();",
+            "vibe_user_waitpid(child, &status, VIBE_USER_WNOHANG)",
+            "shared_offset == 4",
         ),
     },
     "fd-duplication": {
@@ -320,7 +318,7 @@ POSIX_GAP_REQUIREMENTS = {
             "shared root slot with a refcounted offset/status record",
             "`dup`, `dup2`, and\n  `dup3` are public syscall/libc surfaces",
             "`fcntl(F_GETFD/F_SETFD)` is the\n  descriptor-flag milestone",
-            "There is still no fork-time fd\n  table cloning contract",
+            "fork-time fd descriptor cloning now shares open-file descriptions",
         ),
         "docs/architecture.md": (
             "fd duplication",

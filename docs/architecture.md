@@ -17,7 +17,7 @@ mode, and Stage 1 uses EDD `INT 0x13 AH=0x42` to read Stage 2 from raw disk
 sectors `LBA 1-16` into `0x00008000`.
 
 `boot/stage2.asm` is still real-mode code when it reads the kernel. It uses the
-same EDD packet path to load the prelinked kernel ELF image from `LBA 17-208`
+same EDD packet path to load the prelinked kernel ELF image from `LBA 17-272`
 into `0x00040000`, issuing 64-sector chunks so BIOSes do not have to accept one
 oversized transfer. The FAT16 partition starts at `LBA 2048`, so the raw boot
 area and filesystem do not overlap.
@@ -45,14 +45,17 @@ application, firmware memory-map handoff, or UEFI boot proof.
 ## Hardware Discovery Status
 
 After the BIOS boot chain reaches the kernel, the kernel performs one bounded
-QEMU PCI config-space status scan. `PCI_STATUS[QEMU_BUS0_CONFIG]` in
+QEMU PCI config-space table build. `PCI_STATUS[QEMU_BUS0_CONFIG]` in
 `docs/architecture.md` defines the contract: bus 0, devices 0-31, functions
 0-7 are read through `0xcf8`/`0xcfc`, and the smoke block records `pci=`,
-`pciprobe=`, `pcicount=`, `pcifirst=`, `pciid=`, and `pciclass=`.
+`pciprobe=`, `pcicount=`, `pcifirst=`, `pciid=`, `pciclass=`, `pcitabcap=`,
+`pcitabuse=`, `pciover=`, `pciapi=`, `pcilookms=`, `pcilookbr=`, and
+`pcilookmiss=`.
 
-That scan is not a boot dependency and not general PCI bus/device/function
-enumeration. It does not walk bridges, attach drivers, or change the current
-BIOS/IDE/PS2/VBE/SB16 support boundary.
+That table is not a boot dependency and not general PCI bus/device/function
+enumeration. It exposes a status-only read-only lookup boundary for future
+drivers, but it does not walk bridges, attach AHCI or USB drivers, or change the
+current BIOS/IDE/PS2/VBE/SB16 support boundary.
 
 ## ELF Handoff
 
@@ -64,7 +67,7 @@ ELF entry point. The linked kernel entry is currently `0x00010000`.
 
 The loader is intentionally small. It does not resolve relocations at boot; the
 repo linker resolves them ahead of time. Build and host tests enforce the raw
-windows: Stage 2 must fit in 8 KiB and the kernel ELF must fit in 96 KiB.
+windows: Stage 2 must fit in 8 KiB and the kernel ELF must fit in 128 KiB.
 
 ## Paging Reality
 
@@ -94,6 +97,21 @@ table after unmap. That proves the mapper can build high, non-identity kernel
 mappings after PMM is online and gives future relocation checks stable fields to
 tighten, but it does not relocate the running kernel yet.
 
+The next executable step is a transient high-trampoline proof. After the VMM can
+allocate dynamic page tables, the kernel maps the page containing
+`kernel_high_exec_trampoline` at its higher-half alias, maps the current low
+kernel stack page at its higher-half alias, switches `ESP` to that high stack,
+calls the high virtual trampoline, records the trampoline `EIP`, `ESP`, and
+`CR3`, then returns to the low caller and unmaps both aliases. The smoke status
+reports this as `khiexec=OK`, `khieip=`, `khiesp=`, `khicr3=`, `khiva=`,
+`khipa=`, `khistk=`, `khistkpa=`, `khipt=`, and `khifree=`. The checker requires
+the captured instruction pointer and stack pointer to be higher-half addresses,
+the code and stack aliases to be backed by low physical frames, `khicr3=00090000`
+while the mainline kernel is still on the bootstrap page directory, and
+`khifree=` to match the dynamic `khipt=` page table reclaimed after unmap.
+`khiexec=OK` is not a kernel relocation claim; it is a bounded proof that kernel
+text can execute briefly from a non-identity higher-half alias on a high stack.
+
 The status proof is now executable. `tools/check_vm_status_proof.py
 --require-exec status.txt` requires that `vmmhfree` match the reclaimed dynamic
 page table, that the Doom handoff report `argvsrc=2`, that `uexec=OK` and
@@ -121,10 +139,14 @@ process page-directory proof: `vmmhi=OK` shows `VMM_HIGH_TEST_VADDR` at
 `kernphys=` make the current running-kernel identity state machine-readable,
 `kmap=OK` plus `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, and
 `kmaphi=` prove the current kernel entry page can be aliased high without being
-executed there, and
+executed there, `khiexec=OK` plus `khieip=`, `khiesp=`, `khicr3=`, `khiva=`,
+`khipa=`, `khistk=`, `khistkpa=`, `khipt=`, and `khifree=` prove a bounded
+higher-half trampoline can execute on a higher-half alias of the current kernel
+stack and then reclaim its dynamic page table, and
 `pcr3=`/`pkstk=` show process switches across distinct page directories and
 low-memory kernel stacks. That is useful preparation, but `vmmhi=OK` is not a
-kernel relocation claim and `kreloc=LOW` is explicitly the non-relocated state.
+kernel relocation claim, `khiexec=OK` is not a kernel relocation claim, and
+`kreloc=LOW` is explicitly the non-relocated state.
 
 `KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity`. The running kernel
 is still linked at `0x00010000`, loaded by Stage 2 as an ELF32 image from low
@@ -245,9 +267,14 @@ Subsystem contract boundary:
 There is also a bounded PCI config-space table builder for QEMU's legacy PC
 machine model. It reads bus 0, devices 0-31, functions 0-7 through ports
 `0xcf8`/`0xcfc`, stores each present function in a fixed in-kernel
-`bdf-id-class-header` table, then emits `pci=`, `pciprobe=`, `pcicount=`,
-`pcifirst=`, `pciid=`, `pciclass=`, `pcitable=`, `pcitabcap=`, `pcitabuse=`,
-`pcilast=`, `pciclassh=`, `pcimulti=`, `pciclsms=`, and `pciclsbr=` in the
+`packed-bdf-vendor-device-class-progif-header` table. Each entry keeps logical
+bus, device, function, vendor-id, device-id, base-class, subclass, prog-if, and
+header fields in four packed dwords. The kernel also exposes read-only lookup
+helpers for index lookup and class/subclass/prog-if lookup, and records capacity,
+usage, overflow, and lookup miss status through `pci=`, `pciprobe=`,
+`pcicount=`, `pcifirst=`, `pciid=`, `pciclass=`, `pcitable=`, `pcitabcap=`,
+`pcitabuse=`, `pciover=`, `pcilast=`, `pciclassh=`, `pcimulti=`, `pciclsms=`,
+`pciclsbr=`, `pciapi=`, `pcilookms=`, `pcilookbr=`, and `pcilookmiss=` in the
 smoke status block. This is a discovery/status contract only; it does not bind
 drivers, walk secondary buses, or make AHCI, USB, or broad PCI enumeration
 supported.
@@ -270,7 +297,7 @@ diagnostics, not driver support, and must not be used as compatibility claims.
 | VBE/VGA | Claimed | QEMU VBE XRGB8888 LFB when available, VGA Mode 13h fallback | Cloud non-pixel status plus host framebuffer contract | Broad VBE mode matrix, GOP/UEFI framebuffer, physical GPU coverage |
 | SB16 | Claimed | QEMU ISA SB16-compatible guest device at `0x220` with status-visible IRQ/DMA/mixer counters | Status-only SB16 continuity checker; audible aggregate proof only when `audio-proof.json` passes | AC97/HDA/USB audio, physical sound cards, human-audible proof by default |
 | UEFI | Unclaimed | None | Future boot-path proof required before mention as supported | UEFI boot is not implemented; `boot/uefi/README.md` is a contract-only scaffold |
-| PCI enumeration | Unclaimed | None | Future table proof and driver-facing contract required before mention as supported | General PCI bus/device/function enumeration is not implemented; the bounded QEMU bus-0 status probe is not driver discovery, and AHCI or USB controllers are not used through PCI |
+| PCI enumeration | Unclaimed | None | Future disposable PCI proof plus driver consumption required before mention as supported | General PCI bus/device/function enumeration is not implemented; the bounded QEMU bus-0 table API is status-only, and AHCI or USB controllers are not used through PCI |
 | AHCI/SATA | Unclaimed | None | Future AHCI/SATA storage proof required before mention as supported | AHCI/SATA native storage is not implemented |
 | USB input/storage | Unclaimed | None | Future USB HID and mass-storage proof required before mention as supported | USB input and storage are not implemented |
 | SMP | Unclaimed | None | Future multiprocessor runtime proof required before mention as supported | Multiprocessor startup and scheduling are not implemented |
@@ -312,18 +339,23 @@ the proof artifact exists.
 Status-only hardware discovery scaffolds:
 
 - `PCI_STATUS[QEMU_BUS0_CONFIG] status=status-only scope=qemu-pci-bus0 proof=cloud-smoke-status evidence=pci-status-fields`
-- `PCI_TABLE[QEMU_BUS0_CLASS_TABLE] status=status-only scope=qemu-pci-bus0 layout=bdf-id-class-header capacity=256 evidence=pci-table-status-fields`
+- `PCI_TABLE[QEMU_BUS0_CLASS_TABLE] status=status-only scope=qemu-pci-bus0 layout=packed-bdf-vendor-device-class-progif-header capacity=256 evidence=pci-table-status-fields`
+- `PCI_TABLE_API[READ_ONLY_LOOKUP] status=status-only scope=qemu-pci-bus0 contract=kernel-maintained-read-only-table lookup=index-class-subclass-progif consumers=future-drivers evidence=pciapi-status-fields`
 - `PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN] status=status-only bus=0 devices=32 functions=8 evidence=pci-status-fields`
-- `PCI_TABLE_CONTRACT[ENTRY_LAYOUT] status=status-only dwords=4 fields=bdf,id,class,header evidence=pci-table-status-fields`
+- `PCI_TABLE_CONTRACT[ENTRY_LAYOUT] status=status-only dwords=4 fields=bus,device,function,vendor-id,device-id,base-class,subclass,prog-if,header evidence=pci-table-status-fields`
 - `PCI_TABLE_CONTRACT[NO_DRIVER_BINDING] status=guardrail consumers=status-only drivers=none evidence=negative-claims`
 
 The PCI table contract is intentionally narrower than a future PCI enumeration claim.
 `QEMU_BUS0_SCAN` pins the host-checkable bounds to bus 0, device slots 0-31,
-and functions 0-7. `ENTRY_LAYOUT` pins the table ABI that later drivers would
-need to consume before a support claim can change. `NO_DRIVER_BINDING` keeps the
-current table as diagnostics only: AHCI, USB, APIC, and other future drivers
-must not be described as discovered or usable through this table until they have
-their own proof rows and driver code.
+and functions 0-7. `ENTRY_LAYOUT` pins the packed table ABI, including the
+bus/device/function, vendor/device, class/subclass, and prog-if fields that
+later drivers would need to consume before a support claim can change.
+`PCI_TABLE_API[READ_ONLY_LOOKUP]` pins the current read-only lookup semantics:
+index lookup returns a table entry or a miss, and class/subclass/prog-if lookup
+uses explicit wildcard bytes. `NO_DRIVER_BINDING` keeps the current table as
+diagnostics only: AHCI, USB, APIC, and other future drivers must not be described
+as discovered or usable through this table until they have their own proof rows
+and driver code.
 
 Claimed hardware status proof counters:
 
@@ -357,7 +389,7 @@ than "the source contains a stub" or "QEMU still boots".
 | Future class | Minimum proof before support claim |
 | --- | --- |
 | UEFI | Build a PE32 EFI application into an ESP image, load the kernel from ESP/FAT, hand off GOP framebuffer and UEFI memory map data, call `ExitBootServices`, and boot the current kernel through OVMF in disposable cloud CI. |
-| PCI enumeration | Build a reusable PCI device table from config space, record every present bus/device/function with vendor/device/class/subclass/prog-if data, handle multifunction devices, expose a read-only driver-facing table API, and prove the table in at least one disposable QEMU PCI run without promoting status-only probes into drivers. |
+| PCI enumeration | Prove the reusable PCI device table and read-only lookup API as the primary enumeration artifact in at least one disposable QEMU PCI run, including bus/device/function, vendor/device, class/subclass/prog-if, capacity, overflow, and multifunction evidence, without promoting status-only probes into AHCI or USB drivers. |
 | AHCI/SATA | Discover an AHCI controller through PCI, map the BAR, reset the HBA, identify a SATA disk, read sectors through AHCI with the IDE path disabled for that proof, and load the WAD through that path. |
 | USB input/storage | Enumerate a USB host controller, enumerate at least one HID keyboard path and one mass-storage path, prove Doom input through USB HID, and prove WAD/file reads through USB storage with PS/2 or IDE disabled for the relevant proof. |
 | APIC | Enable Local APIC and IOAPIC, route at least timer and keyboard/storage interrupts through APIC while the legacy PIC is masked for that proof, and expose cloud status counters showing the APIC path handled the interrupts. |
@@ -391,21 +423,24 @@ docs and tests may discuss the class only as unclaimed/future/unsupported.
 ## Next Hardware-Class Unlock
 
 - `NEXT_UNLOCK[PCI_ENUMERATION] priority=first scope=qemu-pci proof=cloud-class-table evidence=none`
-- `NEXT_IMPLEMENTATION_CONTRACT[PCI_DRIVER_TABLE_API] status=scaffold scope=qemu-pci requires=read-only-bdf-class-table proof=host-check-plus-cloud-status unlocks=ahci-sata,usb,apic evidence=none`
+- `NEXT_IMPLEMENTATION_CONTRACT[PCI_DRIVER_TABLE_API] status=host-checked scope=qemu-pci requires=read-only-index-class-progif-lookup proof=host-check-plus-cloud-status unlocks=ahci-sata,usb,apic evidence=pciapi-status-fields`
 
 PCI enumeration is the next implementable hardware-class unlock. It is the
 lowest-risk bridge from today's status-only config-space table toward future
 AHCI, USB, APIC, and real-device work. The current implementation already
-produces a reusable in-kernel bus-0 PCI table and records class/subclass/prog-if
-data for every present function, but `SUPPORT[PCI_ENUMERATION]` stays
-unclaimed until a disposable cloud proof validates that table as the primary
-enumeration artifact and a driver-facing API consumes it. AHCI and USB must
-stay unclaimed until a real driver consumes that table.
+produces a reusable in-kernel bus-0 PCI table, records class/subclass/prog-if
+data for every present function, tracks capacity/overflow state, and exposes
+read-only index plus class/subclass/prog-if lookup helpers. Even so,
+`SUPPORT[PCI_ENUMERATION]` stays unclaimed until a disposable cloud proof
+validates that table as the primary enumeration artifact and a real driver
+consumes it under its own proof boundary. AHCI and USB must stay unclaimed until
+their own drivers consume that table and pass their required proof rows.
 
-The next implementation contract is deliberately small: make the existing
-`bdf-id-class-header` table readable through a stable, checked API before adding
-any AHCI, USB, or APIC driver. That lets future drivers share one proven
-enumeration boundary instead of each inventing its own config-space scan.
+The driver-table contract is deliberately small and now host-checked: future
+AHCI, USB, or APIC drivers should share the same read-only table and lookup
+helpers instead of each inventing its own config-space scan. That API boundary is
+status-only today; it is not a storage, input, interrupt, or broad PCI support
+claim.
 
 ## Rules For New Claims
 
@@ -421,9 +456,10 @@ enumeration boundary instead of each inventing its own config-space scan.
   alone can only claim the matching QEMU device model.
 - PCI status and table fields are not a PCI support claim. They prove only that
   the kernel ran the bounded QEMU bus-0 config-space scan, populated the fixed
-  `bdf-id-class-header` table, and recorded table summaries in status-only
-  diagnostics. A future PCI claim needs a new `SUPPORT[...]` row boundary or an
-  update to `SUPPORT[PCI_ENUMERATION]`.
+  `packed-bdf-vendor-device-class-progif-header` table, exposed the read-only
+  lookup helpers, and recorded table summaries in status-only diagnostics. A
+  future PCI claim needs a new `SUPPORT[...]` row boundary or an update to
+  `SUPPORT[PCI_ENUMERATION]`.
 - Compatibility language should name the device class and proof boundary. Use
   "QEMU BIOS/IDE/PS2/VBE/SB16 target" for the current scope, not "PC hardware
   support" or "real hardware support".
@@ -465,13 +501,22 @@ frame after `vmm_unmap_page` reclaims it. The kernel-entry alias proof is
 `kmap=OK` with `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, and
 `kmaphi=`: the higher-half alias of the current kernel entry page, its low
 physical backing, the dynamic alias page table, the reclaimed page table, and
-matching nonzero words read from low and high addresses. Process page directories
-are still preallocated and cloned from the boot kernel map.
+matching nonzero words read from low and high addresses. The high-trampoline
+execution proof is `khiexec=OK` with `khieip=`, `khiesp=`, `khicr3=`, `khiva=`,
+`khipa=`, `khistk=`, `khistkpa=`, `khipt=`, and `khifree=`: a bounded call into
+higher-half kernel text after switching to a higher-half stack alias, with the
+low bootstrap `CR3` recorded and the dynamic page table reclaimed afterward.
+Process page directories are still preallocated and cloned from the boot kernel
+map.
 
 `tools/check_vm_status_proof.py` is the cloud status ratchet for this layer. It
 rejects status artifacts unless `vmmhfree` equals the dynamic `vmmhpt` frame,
-the high alias is backed by a distinct PMM-managed physical frame, the Doom
-launch used `argvsrc=2` from a user argv-vector exec path, `uexec=OK` and
+the high alias is backed by a distinct PMM-managed physical frame,
+`khiexec=OK` proves a bounded higher-half trampoline with high `khieip=` and
+`khiesp=` values, non-identity `khiva=`/`khipa=` and `khistk=`/`khistkpa=`
+backing, low `khicr3=00090000`, and `khifree=` matching the reclaimed `khipt=`
+page table, the Doom launch used `argvsrc=2` from a user argv-vector exec path,
+`uexec=OK` and
 `upath=USERPROB.ELF` prove the initial probe also came through the exec
 resolver, `abiexec=OK`, `abipath=ABIPROBE.ELF`, and `abiprobe=OK` prove a
 second root-level freestanding program ran in a generic exec slot before Doom,
@@ -489,20 +534,24 @@ slot number is not enough to prove preemption after exec.
 ## Higher-Half Relocation Gap
 
 `KERNEL_RELOCATION_GAP[current]=high-alias-only`. The VM/process proof currently
-has four separate pieces: `vmmhi=OK` proves a temporary high virtual alias
+has five separate pieces: `vmmhi=OK` proves a temporary high virtual alias
 backed by a distinct PMM-managed frame, `kreloc=LOW` with `kerneip=`,
 `kernesp=`, `kerncr3=`, `kernvirt=`, and `kernphys=` proves the running kernel is
 still on the low identity contract, `kmap=OK` with `kmapva=`, `kmappa=`,
 `kmappt=`, `kmapfree=`, `kmaplo=`, and `kmaphi=` proves the current kernel entry
 page can be temporarily read through a higher-half alias with its page table
-reclaimed afterward, and process status fields such as `pcr3=`, `pkstk=`,
+reclaimed afterward, `khiexec=OK` with `khieip=`, `khiesp=`, `khicr3=`,
+`khiva=`, `khipa=`, `khistk=`, `khistkpa=`, `khipt=`, and `khifree=` proves a
+bounded high-address trampoline executed on a high stack alias and reclaimed its
+dynamic page table, and process status fields such as `pcr3=`, `pkstk=`,
 `pfrom=`, and `pto=` prove user process switches across distinct page directories
-and kernel stacks. Those fields do not prove that kernel text, kernel data, the
-active kernel stack, or the interrupt/return path are executing from
-non-identity higher-half addresses.
+and kernel stacks. Those fields do not prove that all kernel text, kernel data,
+the long-lived active kernel stack, or the interrupt/return path are executing
+from non-identity higher-half addresses.
 
 `vmmhi=OK` is not a kernel relocation claim.
 `kmap=OK` is not a kernel relocation claim.
+`khiexec=OK` is not a kernel relocation claim.
 `kreloc=LOW` is not a relocation success claim.
 
 `KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity`. Until a future
@@ -650,8 +699,12 @@ heap are adjacent and the Doom heap grows up to the stack bottom.
   is a temporary high alias plus process page-directory evidence, not
   `kreloc=OK`; `kmap=OK`, `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`,
   `kmaplo=`, and `kmaphi=` only prove a temporary high alias of the current
-  kernel entry page. The missing milestone is a non-identity higher-half kernel
-  instruction pointer, stack, active page directory, and physical backing.
+  kernel entry page, while `khiexec=OK`, `khieip=`, `khiesp=`, `khicr3=`,
+  `khiva=`, `khipa=`, `khistk=`, `khistkpa=`, `khipt=`, and `khifree=` prove
+  only a bounded high-trampoline call on a high stack alias under the low
+  bootstrap page directory. The missing milestone is persistent non-identity
+  higher-half kernel instruction pointer, stack, active page directory, and
+  physical backing.
 - Timer IRQ preemption now has an end-to-end restore path for saved Ring 3
   interrupt frames: the scheduler can save the interrupted task, pick another
   READY task with a valid saved frame, switch CR3 through `process_activate`,
@@ -766,6 +819,18 @@ target instead of returning to the caller.
   exit code. `WNOHANG` is now a real nonblocking check: if a matching child is
   live but not reapable, it returns `0`; the blocking form still returns
   `ENOSYS` until there is a sleep queue.
+- `SYS_FORK` now implements a bounded probe-class fork for the small runtime
+  path. It allocates one of the generic probe-class slots, assigns a fresh PID,
+  eagerly copies present user pages into PMM-backed child frames, copies the
+  parent's heap bitmap and saved user frame, returns the child PID in the parent
+  and zero in the child, and leaves the child READY for timer scheduling. The
+  parent returns the child PID while the child resumes with zero. The
+  child exit path records a wait-reapable zombie so `waitpid()` can reclaim the
+  cloned user mappings instead of treating fork as a counter-only event. The
+  current scope is deliberately narrow: Doom and arbitrary address-space classes
+  are not fork targets, and blocking wait queues are still missing.
+  In other words, this is a real bounded fork, but it is not a full
+  `fork`/`exec` split.
 - Open fd slots are now process-owned descriptors over shared open-file
   descriptions. `fd_lookup` rejects descriptors whose owner PID does not match
   the running process, then resolves the descriptor to the shared root slot that
@@ -777,9 +842,13 @@ target instead of returning to the caller.
   inheritable descriptors from the caller PID to the target PID and closes
   descriptors opened, duplicated, or later marked with close-on-exec. Process
   teardown, fault handling, target-slot reuse, and wait reaping all sweep
-  descriptors owned by the retiring process. This is real exec-time fd
-  inheritance/close-on-exec behavior with shared descriptions, not yet fork-time
-  descriptor duplication.
+  descriptors owned by the retiring process. Fork-time descriptor table cloning
+  is bounded to the current global fd pool. Fork-time fd descriptor cloning now
+  creates child-owned descriptors that point at the same open-file-description
+  roots, so the ABI probe can prove that a child read advances the parent's file
+  offset without reopening the file. Numeric fd values are still assigned from
+  the bounded global descriptor pool rather than a full per-process fd namespace.
+  The exact current proof phrase is fork-time descriptor table cloning.
 - The same handoff contract applies to table-backed programs and generic
   root-level `.ELF` programs. Generic userland should treat the public ABI as:
   root-only FAT16 8.3 `.ELF` path, at most `VIBE_EXEC_ARG_MAX` argv strings,
@@ -885,13 +954,15 @@ The same status line also records `execerr=<errno>`, `execres=<syscall result>`,
 probe image used the same exec resolver before it called `SYS_EXEC`. The second
 program proof is separate again:
 `abiexec=OK abipath=ABIPROBE.ELF abipid=<pid> abippid=<pid> abientry=<eip>
-abiargc=1 abiargvsrc=2 abiprobe=OK abiflags=0000000F` records that the generic
+abiargc=1 abiargvsrc=2 abiprobe=OK abiflags=0000001F` records that the generic
 root `.ELF` resolver selected a bounded generic slot, built the crt0 stack from
 a copied user argv vector, ran `user/abi_probe.c`, and observed the probe's
 success marker before Doom was launched. It also
 emits `procpool=slots/generic/reuses/galloc/gfail`, `pidseq=next/last_reused/generation`,
 `fdexec=handoffs/inherited/closed/owner_closes`, `fdup=dup/dup2/dup3/shared/cloexec`, and
-`wait=attempts/reaps/failures/nohang/seeded/last_pid/last_status`.
+`wait=attempts/reaps/failures/nohang/seeded/last_pid/last_status`,
+`waitseed=<preempt-probe-pid>`, and
+`fork=successes/failures/parent_pid/child_pid/parent_ret/child_ret/pages/fds/owned_freed/zombies`.
 It also emits `vmreap=teardowns/pages/wait_reaps/wait_pages/last_wait_pages`
 so the cloud status contract can prove a waited child had its user mappings
 cleared before the record became reusable. A successful
@@ -901,7 +972,9 @@ the user-vector path, at least one generic-slot allocation for `ABIPROBE.ELF`,
 at least one process-slot reuse, at least one fd inherited
 across exec, a successful userland `dup`/`dup2`/`dup3` shared-offset probe,
 one close-on-exec duplicated descriptor, a userland `waitpid` reap of the
-seeded exited child, and a nonzero `vmreap=` wait-reap page count. The
+seeded exited child, a successful bounded fork where the parent sees the child
+PID and the child sees zero, fork-time fd clones with a shared offset, and a
+nonzero `vmreap=` wait-reap page count. The
 initial probe bootstrap still uses `argvsrc=1` because the kernel supplies its
 own default `argv[0]`.
 
@@ -950,10 +1023,12 @@ real-WAD proof counters.
   identity-shaped user pages.
 - This is enough to launch the probe and Doom, preserve inheritable fds across
   exec, duplicate fds with shared offsets, close process-owned fds during
-  teardown, and exercise a userland `waitpid` reap path against a seeded exited child record, but it is not a robust Unix process model.
-  There is no `fork`/`exec` split, wait blocking, process groups, signal
-  delivery, fork-time descriptor table cloning, unbounded dynamic child slots, or
-  file-backed VM object lifetime.
+  teardown, exercise a userland `waitpid` reap path against a seeded exited
+  child record, and prove a bounded probe-class `fork()` with eager page copies,
+  parent/child return split, fork-time fd descriptor cloning, and wait reaping.
+  It is still not a robust Unix process model: there is no wait blocking,
+  process groups, signal delivery, copy-on-write, unbounded dynamic child slots,
+  per-process fd-number namespace, or file-backed VM object lifetime.
 - A fuller game/userland runtime still needs a libc-grade layer above the small
   `user/runtime.*` syscall wrapper seed, hierarchical path lookup, working
   directory state, dynamically sized process and fd tables, blocking scheduler
@@ -966,10 +1041,14 @@ These gaps are deliberately tracked as contracts, not merely aspirations. Each
 row names the current executable behavior and the missing general-OS behavior
 that must be added before claiming POSIX compatibility.
 
+Address-space cloning, copy-on-write or eager page copies are now split into an
+honest boundary: bounded probe-class fork proves eager page copies today, while
+copy-on-write and arbitrary address-space cloning remain future work.
+
 | Area | Current contract | Intentionally missing |
 | --- | --- | --- |
-| `fork` | `SYS_FORK` is wired through the syscall table and returns `-ENOSYS`; libc `fork()` preserves that errno and the user probe checks the classified result. | Address-space cloning, copy-on-write or eager page copies, parent/child return-value split, inherited signal state, and fork-time fd table cloning. |
-| fd duplication | Public `dup`, `dup2`, and `dup3` syscalls/libc wrappers create process-owned descriptors that share an open-file description root, including the current offset. `dup2(oldfd, oldfd)` returns the existing descriptor, `dup3(oldfd, oldfd, flags)` returns `EINVAL`, `dup3(..., O_CLOEXEC)` is closed by the next exec, and `fcntl(F_GETFD/F_SETFD)` exposes descriptor-level `FD_CLOEXEC` toggling for existing fds. | Fork-time descriptor table cloning, `fcntl(F_DUPFD*)`, dynamically growing fd tables, and per-process fd namespaces beyond the current bounded global slot pool. |
+| `fork` | `SYS_FORK` now implements a bounded probe-class fork: it uses one generic child slot, eagerly copies present user pages into PMM-backed child frames, splits parent/child returns, clones fd descriptors onto shared open-file descriptions, and leaves a wait-reapable child. | Copy-on-write, fork for Doom/arbitrary address-space classes, inherited signal state, wait blocking, orphan reparenting, unbounded child slots, and a per-process fd-number namespace. |
+| fd duplication | Public `dup`, `dup2`, and `dup3` syscalls/libc wrappers create process-owned descriptors that share an open-file description root, including the current offset. `dup2(oldfd, oldfd)` returns the existing descriptor, `dup3(oldfd, oldfd, flags)` returns `EINVAL`, `dup3(..., O_CLOEXEC)` is closed by the next exec, `fcntl(F_GETFD/F_SETFD)` exposes descriptor-level `FD_CLOEXEC`, and bounded fork clones child descriptors onto the same roots. | `fcntl(F_DUPFD*)`, dynamically growing fd tables, and per-process fd namespaces beyond the current bounded global slot pool. |
 | file-backed `mmap` | Kernel `mmap` is anonymous/private/brk-backed; `munmap` validates mapped heap ranges, reclaims tail pages, and records non-tail holes. `user/runtime.*` now provides copy-backed private fd+offset mappings by allocating anonymous pages and filling them with `pread`. | File-backed mappings, `MAP_SHARED`, `MAP_FIXED`, reusable VM object lifetime, VMA splitting/merging, page-cache backed mappings, writeback, and shared coherency. |
 | signals | User faults become kernel process status and wait-reapable abnormal exits; expected-fault recovery is a probe-only trap rewrite. | `signal`, `sigaction`, `kill`, signal masks, user handler trampolines, timer signals, and delivery across scheduler context switches. |
 | terminal/tty | Keyboard and mouse input use the typed input queue; display control uses `ioctl(VIBE_DISPLAY_FD, ...)`, with non-display ioctls classified as `ENOTTY`. | `termios`, `isatty`, controlling terminals, line discipline, process groups, job control, and `/dev/tty*` path/device semantics. |
@@ -1026,7 +1105,7 @@ The reusable surface today is:
   `vibe_file_read_at`, and `vibe_file_read_all` against the current FAT16 root
   model.
 - Process code can use `execv`/`execve`, `getpid`, `wait`/`waitpid`, and the
-  explicit `fork()` `ENOSYS` result. `argv` is bounded by `VIBE_EXEC_*`, `envp`
+  bounded probe-class `fork()` path. `argv` is bounded by `VIBE_EXEC_*`, `envp`
   is empty, and descriptors inherit across exec unless opened with
   `O_CLOEXEC`.
 
@@ -1150,10 +1229,11 @@ the advertised dimensions as true maxima.
 The port intentionally separates "present and reusable" from "not implemented
 yet" so future POSIX work has executable edges instead of vague TODOs:
 
-- `fork` exists only as a classified syscall/libc surface. `fork()` enters
-  `VIBE_SYS_FORK` and returns `ENOSYS`; no child address-space clone, copy-on-
-  write state, parent/child return split, or fork-time descriptor table clone is
-  implied by the current process ABI.
+- `fork` is bounded but real for probe-class processes. `fork()` enters
+  `VIBE_SYS_FORK`; the kernel allocates one generic child slot, eagerly copies
+  present user pages into PMM-backed child frames, splits the parent/child return
+  values, and clones fd descriptors onto shared open-file descriptions. Doom
+  and arbitrary address-space classes are still outside that contract.
 - Descriptor lifetime and fd duplication now have a bounded Unix-open-file-description milestone.
   Fds have owner PID, generation, descriptor-level close-on-exec metadata, and
   a shared root slot with a refcounted offset/status record. `dup`, `dup2`, and
@@ -1161,9 +1241,9 @@ yet" so future POSIX work has executable edges instead of vague TODOs:
   through duplicated descriptors advance one shared offset, and `dup3(...,
   O_CLOEXEC)` is closed by the next exec. `fcntl(F_GETFD/F_SETFD)` is the
   descriptor-flag milestone: callers can read or toggle `FD_CLOEXEC` on an
-  already-open fd without reopening the file. There is still no fork-time fd
-  table cloning contract, `fcntl(F_DUPFD*)`, or dynamic per-process fd
-  namespace.
+  already-open fd without reopening the file. Fork-time fd descriptor cloning
+  now shares open-file descriptions for the bounded fork path; `fcntl(F_DUPFD*)`
+  and a dynamic per-process fd namespace are still missing.
 - VM allocation is anonymous/private and brk-backed. The kernel `mmap()`
   accepts only the `MAP_PRIVATE | MAP_ANONYMOUS`, `fd == -1`, `offset == 0`,
   non-fixed path; `MAP_FIXED`, `MAP_SHARED`, and kernel file-backed VM objects are still unsupported
@@ -1193,8 +1273,8 @@ and they do not depend on Doom port hooks. The layer owns the raw `int 0x80` cal
 same `-errno` / legacy `-1` conversion rule as the Doom libc shim, and exposes
 minimal wrappers for the crt0-launched tool shape: write a complete string,
 perform brk-style heap grows/shrinks, read descriptors, seek descriptors,
-perform lseek-backed positioned reads, query `getpid`, observe the classified fork
-`ENOSYS` result, reap with `waitpid`, duplicate descriptors with
+perform lseek-backed positioned reads, query `getpid`, create a bounded
+probe-class child with `fork`, reap with `waitpid`, duplicate descriptors with
 `dup`/`dup2`/`dup3`, request anonymous/private mmap/munmap, build a
 copy-backed private file mapping from a descriptor and offset, query explicit
 heap/VM capability bits, query the monotonic clock, list a root directory,
@@ -1340,8 +1420,11 @@ reports a readonly directory, regular files report `S_IFREG` plus user read/writ
 bits where appropriate, and `S_ISDIR`/`S_ISREG` are available for small tools
 that should inspect file type instead of comparing mode constants by hand.
 
-`fork()` is deliberately classified rather than faked: it returns `ENOSYS`
-until process cloning has real address-space and file descriptor semantics.
+`fork()` is deliberately bounded rather than overclaimed: probe-class programs
+get eager user-page copies, a parent/child return split, and fd descriptors
+cloned onto shared open-file descriptions, while Doom and arbitrary
+address-space classes still return explicit errors until the process model grows
+past the generic child slots.
 `wait()/waitpid()` now enter a real process-table scanner. They return
 `ECHILD` when the current process has no matching child, validate a non-null
 status pointer, reap already-exited or faulted child records into `UNUSED`, and
@@ -1352,11 +1435,12 @@ pretending that scheduling/blocking semantics are implemented.
 The kernel fd table also records owner PID, open generation, and explicit
 inheritance flags for each allocated descriptor. Each allocated open file has a
 root fd slot with the shared offset and metadata; duplicated descriptors point
-at that root and hold a refcount until close. `fork()` does not clone descriptor
-tables yet, but exec retags inheritable descriptors from the caller PID to the
-target PID and closes descriptors opened with `O_CLOEXEC` or created with
-`dup3(..., O_CLOEXEC)`. Process teardown, fault handling, target-slot reuse,
-and wait reaping close process-owned descriptors.
+at that root and hold a refcount until close. Bounded `fork()` now clones
+matching parent descriptors into child-owned fd slots that reference the same
+open-file-description roots. Exec retags inheritable descriptors from the caller
+PID to the target PID and closes descriptors opened with `O_CLOEXEC` or created
+with `dup3(..., O_CLOEXEC)`. Process teardown, fault handling,
+target-slot reuse, and wait reaping close process-owned descriptors.
 
 ## Runtime proof
 
@@ -1665,7 +1749,7 @@ Storage install/recovery boundary:
   The exact bounded claim is that vibe-os mutates and reboots the
   repo-generated FAT16 image in disposable cloud QEMU.
 - The current generated-image layout is intentionally fixed: LBA 0 is the repo
-  MBR, LBA 1-16 is Stage 2, LBA 17-208 is the kernel ELF staging area, and
+  MBR, LBA 1-16 is Stage 2, LBA 17-272 is the kernel ELF staging area, and
   LBA 2048 is the FAT16 partition.
 - `tools/check_storage_install_boundary.py --image build/disk.img --json`
   produces an `install-image-manifest` for the current generated raw image:
@@ -1695,6 +1779,12 @@ Storage install/recovery boundary:
   repo-image fixtures with `--recovery-fixtures build/disk.img --json` and emit
   a `damaged-image-refusal-report`; those fixtures are detection/refusal only
   and do not repair user media.
+- `tools/check_storage_install_boundary.py --write-blank-image /tmp/vibe-os.img --json`
+  materializes that same blank-image construction into a new regular raw image
+  file and emits a `blank-image-file materialization manifest`. This path
+  refuses existing output paths and records that block-device writes and
+  arbitrary-device installs remain unsupported. It is useful for disposable
+  cloud handoff testing, but it is still not an arbitrary-disk installer.
 - The machine-readable install/recovery rows live in this document.
 
 - `STORAGE_BOUNDARY[GENERATED_FAT16_IMAGE] status=claimed scope=repo-built-raw-image gate=layout-manifest-plus-fat-checkers evidence=disk-img-status`

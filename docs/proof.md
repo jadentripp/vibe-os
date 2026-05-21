@@ -74,9 +74,11 @@ Current state: a person has played through the safe Codespaces/noVNC path, and
 
 Still missing: a reviewed bundle proving keyboard actions visibly affect the
 game: fire, move, use, mouse, menu, at least 350 Doom ticks, and no forbidden
-WAD/disk/pixel/raw-audio artifacts. The checker rejects forbidden
-WAD/disk/pixel/raw-audio artifacts. Do not call the project Doom-capable solely
-from informal VNC notes.
+WAD/disk/pixel/raw-audio artifacts. The reviewed bundle now has to include
+`human-playtest-review.json` with start/fire/move/use/mouse/menu/final notes,
+duration, playtester/reviewer identity, and remote machine shape. The checker
+rejects forbidden WAD/disk/pixel/raw-audio artifacts. Do not call the project
+Doom-capable solely from informal VNC notes.
 
 Executable gate: collect the human bundle with `tools/collect_human_playtest_bundle.py`
 or `tools/run_remote_human_playtest.sh`, then run
@@ -136,14 +138,19 @@ inheritance, shared-offset fd duplication, wait/reap evidence, and preemptive
 switching. Late exec rollback switches the caller back before retiring the
 failed target; the rollback counter no longer leaves a half-prepared target running.
 The small non-Doom user runtime now exposes the same reusable slice for
-future tools and games: brk-style `sbrk`, classified `fork`, `waitpid`,
-anonymous/private `mmap`/`munmap`, fd duplication, `fcntl`, monotonic clock,
-root `listdir`, and bounded `execv`. This is not a full POSIX environment.
+future tools and games: brk-style `sbrk`, bounded probe-class `fork`,
+`waitpid`, anonymous/private `mmap`/`munmap`, fd duplication, `fcntl`,
+monotonic clock, root `listdir`, and bounded `execv`. This is not a full POSIX
+environment.
 
-Still missing: the kernel is still identity-mapped at runtime, not a robust
-Unix, and still lacks the full `fork`/`exec` split, dynamic child lifetimes,
-real `fork`, fork-time fd table cloning, dynamically growing fd tables,
-file-backed `mmap`, and a complete process model beyond the fixed-slot
+Still missing: the kernel is still identity-mapped at runtime and not a robust
+Unix. The current `fork()` milestone is bounded to probe-class address spaces:
+it uses one generic child slot, eager PMM-backed page copies, parent/child return
+split, fork-time descriptor table cloning onto shared open-file descriptions,
+and waitpid reap evidence. This is a real bounded fork, but not a full
+`fork`/`exec` split. It still lacks fork for Doom/arbitrary address-space classes,
+copy-on-write, wait blocking, orphan reparenting, dynamically growing process/fd
+tables, file-backed `mmap`, and a complete process model beyond the fixed-slot
 launch/switch contract. `vmmhi=OK` and `vmmhfree=` prove high-alias preparation,
 while `kreloc=LOW`, `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and
 `kernphys=` make the current low identity kernel state explicit. `kmap=OK`,
@@ -157,8 +164,9 @@ backing.
 Executable gate: `tools/check_vm_status_proof.py --require-exec --require-preempt`.
 That gate keeps the current VM/process evidence visible through `uexec=OK`,
 `upath=USERPROB.ELF`, `abiexec=OK`, `abipath=ABIPROBE.ELF`, `abiprobe=OK`,
-`argvsrc=2`, `procpool=`, `fdexec=`, `fdup=`, `wait=`, `vmreap=`, `pmask`,
-`pkind`, `peip`, `pcr3`, `pkstk`, and `pframe` status fields.
+`argvsrc=2`, `procpool=`, `fdexec=`, `fdup=`, `wait=`, `waitseed=`, `fork=`,
+`vmreap=`, `pmask`, `pkind`, `peip`, `pcr3`, `pkstk`, and `pframe` status
+fields.
 
 - `GAP[SHUTDOWN_PANIC] status=proven category=shutdown-panic gate=panic-poweroff-proof evidence=os-smoke-26157926297`
 
@@ -241,7 +249,8 @@ aggregate, and persistence/save-load. Use `--lane gameplay`, `--lane audio`, or
 Human proof bundle files are status-only:
 `human-playtest-notes-v2`, `human-playtest-notes.txt`,
 `human-playtest-checklist.txt`, `human-playtest-session.json`,
-`human-playtest-manifest.json`, `human-playtest-observations.json`,
+`human-playtest-review.json`, `human-playtest-manifest.json`,
+`human-playtest-observations.json`,
 `post-download human verification OK`, and phase hashes. The VM/process fields
 that must stay visible include `kreloc=LOW`, `kerneip=`, `kernesp=`,
 `kerncr3=`, `kernvirt=`, `kernphys=`, `kmap=OK`, `kmapva=`, `kmappa=`,

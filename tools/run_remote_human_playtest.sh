@@ -12,8 +12,16 @@ SLOWDOWN_NOTES="${SLOWDOWN_NOTES:-}"
 NOVNC_FOCUS_MODE="${NOVNC_FOCUS_MODE:-}"
 NOVNC_FOCUS_NOTES="${NOVNC_FOCUS_NOTES:-}"
 PLAYTESTER=""
+REVIEWER=""
 SCRIPTED_PROOF_RUN_ID=""
 COMMIT_VALUE=""
+START_NOTE=""
+FIRE_NOTE=""
+MOVE_NOTE=""
+USE_NOTE=""
+MOUSE_NOTE=""
+MENU_NOTE=""
+FINAL_NOTE=""
 
 usage() {
   cat <<'EOF'
@@ -34,6 +42,8 @@ Required:
   --scripted-proof-run-id ID     Passing GitHub Actions Real WAD smoke run ID.
 
 Options:
+  --reviewer NAME                Reviewer handle for the status-only review
+                                 manifest. Defaults to --playtester.
   --build-dir PATH               Remote build dir with ELF/status/log files.
                                  Default: build
   --monitor-socket PATH          Remote QEMU monitor socket.
@@ -56,6 +66,13 @@ Options:
                                  focus-issues-observed. Default: prompt.
   --novnc-focus-notes TEXT       Short status-only noVNC focus note. If
                                  omitted, the helper prompts after capture.
+  --start-note TEXT              Status-only note after E1M1/start capture.
+  --fire-note TEXT               Status-only note after Ctrl/fire capture.
+  --move-note TEXT               Status-only note after arrow move capture.
+  --use-note TEXT                Status-only note after Space/use capture.
+  --mouse-note TEXT              Status-only note after mouse move/click capture.
+  --menu-note TEXT               Status-only note after Escape/menu capture.
+  --final-note TEXT              Status-only note after final duration capture.
   --commit HASH                  Commit under test; defaults to git HEAD.
   -h, --help                     Show this help.
 EOF
@@ -76,6 +93,11 @@ validate_human_labels() {
   if [ -n "$COMMIT_VALUE" ]; then
     [[ "$COMMIT_VALUE" =~ ^([0-9A-Fa-f]{7,40}|unknown)$ ]] || {
       die "--commit must be a 7-40 character hex commit or 'unknown'"
+    }
+  fi
+  if [ -n "$REVIEWER" ]; then
+    [[ "$REVIEWER" =~ ^[A-Za-z0-9._-]{2,64}$ ]] || {
+      die "--reviewer must be 2-64 characters: letters, numbers, dot, underscore, or dash"
     }
   fi
 }
@@ -109,6 +131,23 @@ validate_observation_notes() {
         ;;
     esac
   fi
+}
+
+prompt_phase_note() {
+  local var_name="$1"
+  local label="$2"
+  local prompt="$3"
+  local current="${!var_name:-}"
+
+  while [ -z "$current" ]; do
+    printf "%s: " "$prompt"
+    read -r current
+    if [ -z "$current" ]; then
+      echo "Please enter a short status-only note; no screenshots, audio, WAD paths, or env dumps."
+    fi
+  done
+  validate_observation_notes "$label" "$current"
+  printf -v "$var_name" '%s' "$current"
 }
 
 validate_novnc_focus_fields() {
@@ -197,6 +236,11 @@ while [ "$#" -gt 0 ]; do
       PLAYTESTER="$2"
       shift
       ;;
+    --reviewer)
+      [ "$#" -ge 2 ] || die "--reviewer requires a value"
+      REVIEWER="$2"
+      shift
+      ;;
     --scripted-proof-run-id)
       [ "$#" -ge 2 ] || die "--scripted-proof-run-id requires a value"
       SCRIPTED_PROOF_RUN_ID="$2"
@@ -252,6 +296,41 @@ while [ "$#" -gt 0 ]; do
       NOVNC_FOCUS_NOTES="$2"
       shift
       ;;
+    --start-note)
+      [ "$#" -ge 2 ] || die "--start-note requires a value"
+      START_NOTE="$2"
+      shift
+      ;;
+    --fire-note)
+      [ "$#" -ge 2 ] || die "--fire-note requires a value"
+      FIRE_NOTE="$2"
+      shift
+      ;;
+    --move-note)
+      [ "$#" -ge 2 ] || die "--move-note requires a value"
+      MOVE_NOTE="$2"
+      shift
+      ;;
+    --use-note)
+      [ "$#" -ge 2 ] || die "--use-note requires a value"
+      USE_NOTE="$2"
+      shift
+      ;;
+    --mouse-note)
+      [ "$#" -ge 2 ] || die "--mouse-note requires a value"
+      MOUSE_NOTE="$2"
+      shift
+      ;;
+    --menu-note)
+      [ "$#" -ge 2 ] || die "--menu-note requires a value"
+      MENU_NOTE="$2"
+      shift
+      ;;
+    --final-note)
+      [ "$#" -ge 2 ] || die "--final-note requires a value"
+      FINAL_NOTE="$2"
+      shift
+      ;;
     --commit)
       [ "$#" -ge 2 ] || die "--commit requires a value"
       COMMIT_VALUE="$2"
@@ -270,6 +349,7 @@ done
 
 [ -n "$PLAYTESTER" ] || die "--playtester is required"
 [ -n "$SCRIPTED_PROOF_RUN_ID" ] || die "--scripted-proof-run-id is required"
+[ -n "$REVIEWER" ] || REVIEWER="$PLAYTESTER"
 validate_human_labels
 validate_slowdown_fields
 validate_novnc_focus_fields
@@ -361,8 +441,11 @@ echo "  build dir:        $BUILD_DIR"
 echo "  monitor socket:   $MONITOR_SOCKET"
 echo "  commit:           $COMMIT_VALUE"
 echo "  scripted run ID:  $SCRIPTED_PROOF_RUN_ID"
+echo "  playtester:       $PLAYTESTER"
+echo "  reviewer:         $REVIEWER"
 echo "  proof output dir: $OUTPUT_DIR"
 echo "  proof tarball:    $TARBALL"
+echo "  remote machine:   $(uname -srm 2>/dev/null || true), cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo unknown)"
 if [ -n "$AUDIO_MODE" ]; then
   echo "  audio mode:       $AUDIO_MODE"
 else
@@ -401,6 +484,29 @@ for index in "${!PHASES[@]}"; do
     --build-dir "$BUILD_DIR" \
     --monitor-socket "$MONITOR_SOCKET" \
     --capture-phase "$phase"
+  case "$phase" in
+    after-start)
+      prompt_phase_note START_NOTE "--start-note" "Status-only start note (what the human saw after E1M1/start)"
+      ;;
+    after-fire)
+      prompt_phase_note FIRE_NOTE "--fire-note" "Status-only fire note (visible Ctrl/fire response)"
+      ;;
+    after-move)
+      prompt_phase_note MOVE_NOTE "--move-note" "Status-only move note (visible arrow movement or turning)"
+      ;;
+    after-use)
+      prompt_phase_note USE_NOTE "--use-note" "Status-only use note (visible Space/use response)"
+      ;;
+    after-mouse)
+      prompt_phase_note MOUSE_NOTE "--mouse-note" "Status-only mouse note (visible movement/click response)"
+      ;;
+    after-menu)
+      prompt_phase_note MENU_NOTE "--menu-note" "Status-only menu note (visible Escape menu response)"
+      ;;
+    final)
+      prompt_phase_note FINAL_NOTE "--final-note" "Status-only final note (duration window and final state)"
+      ;;
+  esac
   echo
 done
 
@@ -480,7 +586,16 @@ python3 tools/collect_human_playtest_bundle.py \
   --build-dir "$BUILD_DIR" \
   --output-dir "$OUTPUT_DIR" \
   --playtester "$PLAYTESTER" \
+  --reviewer "$REVIEWER" \
   --scripted-proof-run-id "$SCRIPTED_PROOF_RUN_ID" \
+  --machine-label "$(uname -srm 2>/dev/null || echo remote-host)" \
+  --start-note "$START_NOTE" \
+  --fire-note "$FIRE_NOTE" \
+  --move-note "$MOVE_NOTE" \
+  --use-note "$USE_NOTE" \
+  --mouse-note "$MOUSE_NOTE" \
+  --menu-note "$MENU_NOTE" \
+  --final-note "$FINAL_NOTE" \
   --audio "$AUDIO_MODE" \
   --audio-notes "$AUDIO_NOTES" \
   --slowdown "$SLOWDOWN_MODE" \

@@ -145,12 +145,12 @@ NEXT_UNLOCK = {
 
 NEXT_IMPLEMENTATION_CONTRACTS = {
     "PCI_DRIVER_TABLE_API": {
-        "status": "scaffold",
+        "status": "host-checked",
         "scope": "qemu-pci",
-        "requires": "read-only-bdf-class-table",
+        "requires": "read-only-index-class-progif-lookup",
         "proof": "host-check-plus-cloud-status",
         "unlocks": "ahci-sata,usb,apic",
-        "evidence": "none",
+        "evidence": "pciapi-status-fields",
     },
 }
 
@@ -369,6 +369,7 @@ REQUIRED_MATRIX_PHRASES = (
     "BOOT_DEVICE_BOUNDARY[PHYSICAL_MACHINE]",
     "The boot-device boundary is intentionally separate",
     "PCI_TABLE[QEMU_BUS0_CLASS_TABLE]",
+    "PCI_TABLE_API[READ_ONLY_LOOKUP]",
     "PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN]",
     "PCI_TABLE_CONTRACT[ENTRY_LAYOUT]",
     "PCI_TABLE_CONTRACT[NO_DRIVER_BINDING]",
@@ -378,9 +379,12 @@ REQUIRED_MATRIX_PHRASES = (
     "STATUS_PROOF[VBE_VGA]",
     "STATUS_PROOF[SB16]",
     "minimum aggregate status fields",
-    "bdf-id-class-header",
+    "packed-bdf-vendor-device-class-progif-header",
     "pcitabcap=",
     "pcitabuse=",
+    "pciover=",
+    "pciapi=",
+    "pcilookmiss=",
     "pciclassh=",
     "PROOF_REQUIREMENT[UEFI]",
     "PROOF_REQUIREMENT[AHCI]",
@@ -479,9 +483,20 @@ PCI_TABLE_REQUIREMENTS = {
     "QEMU_BUS0_CLASS_TABLE": {
         "status": "status-only",
         "scope": "qemu-pci-bus0",
-        "layout": "bdf-id-class-header",
+        "layout": "packed-bdf-vendor-device-class-progif-header",
         "capacity": "256",
         "evidence": "pci-table-status-fields",
+    },
+}
+
+PCI_TABLE_API_REQUIREMENTS = {
+    "READ_ONLY_LOOKUP": {
+        "status": "status-only",
+        "scope": "qemu-pci-bus0",
+        "contract": "kernel-maintained-read-only-table",
+        "lookup": "index-class-subclass-progif",
+        "consumers": "future-drivers",
+        "evidence": "pciapi-status-fields",
     },
 }
 
@@ -496,7 +511,7 @@ PCI_TABLE_CONTRACT_REQUIREMENTS = {
     "ENTRY_LAYOUT": {
         "status": "status-only",
         "dwords": "4",
-        "fields": "bdf,id,class,header",
+        "fields": "bus,device,function,vendor-id,device-id,base-class,subclass,prog-if,header",
         "evidence": "pci-table-status-fields",
     },
     "NO_DRIVER_BINDING": {
@@ -517,11 +532,16 @@ PCI_STATUS_FIELDS = {
     "pcitable",
     "pcitabcap",
     "pcitabuse",
+    "pciover",
     "pcilast",
     "pciclassh",
     "pcimulti",
     "pciclsms",
     "pciclsbr",
+    "pciapi",
+    "pcilookms",
+    "pcilookbr",
+    "pcilookmiss",
 }
 PCI_QEMU_BUS0_PROBES = 32 * 8
 
@@ -553,6 +573,17 @@ PCI_TABLE_RE = re.compile(
     re.MULTILINE,
 )
 
+PCI_TABLE_API_RE = re.compile(
+    r"^- `PCI_TABLE_API\[(?P<id>[A-Z0-9_]+)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"scope=(?P<scope>[a-z0-9-]+) "
+    r"contract=(?P<contract>[a-z0-9-]+) "
+    r"lookup=(?P<lookup>[a-z0-9-]+) "
+    r"consumers=(?P<consumers>[a-z0-9-]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
 PCI_TABLE_SCAN_CONTRACT_RE = re.compile(
     r"^- `PCI_TABLE_CONTRACT\[(?P<id>QEMU_BUS0_SCAN)\] "
     r"status=(?P<status>[a-z-]+) "
@@ -567,7 +598,7 @@ PCI_TABLE_LAYOUT_CONTRACT_RE = re.compile(
     r"^- `PCI_TABLE_CONTRACT\[(?P<id>ENTRY_LAYOUT)\] "
     r"status=(?P<status>[a-z-]+) "
     r"dwords=(?P<dwords>[0-9]+) "
-    r"fields=(?P<fields>[a-z0-9_,]+) "
+    r"fields=(?P<fields>[a-z0-9_,-]+) "
     r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
     re.MULTILINE,
 )
@@ -972,6 +1003,34 @@ def _validate_pci_table_rows(text: str) -> dict[str, dict[str, str]]:
     return rows
 
 
+def _validate_pci_table_api_rows(text: str) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for match in PCI_TABLE_API_RE.finditer(text):
+        row_id = match.group("id")
+        if row_id in rows:
+            raise AssertionError(f"duplicate PCI_TABLE_API row: {row_id}")
+        rows[row_id] = match.groupdict()
+
+    missing = sorted(set(PCI_TABLE_API_REQUIREMENTS) - set(rows))
+    if missing:
+        raise AssertionError(f"missing PCI_TABLE_API rows: {', '.join(missing)}")
+    extras = sorted(set(rows) - set(PCI_TABLE_API_REQUIREMENTS))
+    if extras:
+        raise AssertionError(f"unexpected PCI_TABLE_API rows: {', '.join(extras)}")
+
+    for row_id, expected in PCI_TABLE_API_REQUIREMENTS.items():
+        row = rows[row_id]
+        for key, value in expected.items():
+            if row[key] != value:
+                raise AssertionError(f"PCI_TABLE_API[{row_id}] {key} must stay {value}")
+        if "ahci" in row["consumers"] or "usb" in row["consumers"]:
+            raise AssertionError(
+                f"PCI_TABLE_API[{row_id}] must not name AHCI or USB as current consumers"
+            )
+
+    return rows
+
+
 def _validate_pci_table_contract_rows(text: str) -> dict[str, dict[str, str]]:
     rows: dict[str, dict[str, str]] = {}
     for pattern in (
@@ -1003,8 +1062,12 @@ def _validate_pci_table_contract_rows(text: str) -> dict[str, dict[str, str]]:
     capacity = int(PCI_TABLE_REQUIREMENTS["QEMU_BUS0_CLASS_TABLE"]["capacity"])
     if int(scan["devices"]) * int(scan["functions"]) != capacity:
         raise AssertionError("PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN] bounds must match table capacity")
-    if int(layout["dwords"]) != len(layout["fields"].split(",")):
-        raise AssertionError("PCI_TABLE_CONTRACT[ENTRY_LAYOUT] dwords must match field count")
+    if int(layout["dwords"]) != 4:
+        raise AssertionError("PCI_TABLE_CONTRACT[ENTRY_LAYOUT] dwords must stay 4")
+    fields = set(layout["fields"].split(","))
+    required_fields = set(PCI_TABLE_CONTRACT_REQUIREMENTS["ENTRY_LAYOUT"]["fields"].split(","))
+    if fields != required_fields:
+        raise AssertionError("PCI_TABLE_CONTRACT[ENTRY_LAYOUT] fields must name the packed API fields")
 
     return rows
 
@@ -1243,26 +1306,37 @@ def _validate_pci_source_contract(root: Path) -> None:
         "PCI_HEADER_MULTIFUNCTION_FLAG equ 0x00800000",
         "PCI_CLASS_MASS_STORAGE equ 0x01",
         "PCI_CLASS_BRIDGE equ 0x06",
+        "PCI_LOOKUP_ANY equ 0xff",
+        "PCI_LOOKUP_NOT_FOUND equ 0xffffffff",
         "PCI_SCAN_DEVICE_COUNT equ 32",
         "PCI_SCAN_FUNCTION_COUNT equ 8",
         "PCI_SCAN_FUNCTION_PROBES equ PCI_SCAN_DEVICE_COUNT * PCI_SCAN_FUNCTION_COUNT",
         "PCI_TABLE_ENTRY_DWORDS equ 4",
+        "PCI_TABLE_ENTRY_SHIFT equ 4",
         "PCI_TABLE_ENTRY_SIZE equ PCI_TABLE_ENTRY_DWORDS * 4",
-        "PCI_TABLE_BDF_OFFSET equ 0",
-        "PCI_TABLE_ID_OFFSET equ 4",
+        "PCI table entry dword 0: bus[23:16], device[15:8], function[7:0]",
+        "device-id[31:16] and vendor-id[15:0]",
+        "class[31:24], subclass[23:16], prog-if[15:8]",
+        "PCI_TABLE_LOCATION_OFFSET equ 0",
+        "PCI_TABLE_VENDOR_DEVICE_OFFSET equ 4",
         "PCI_TABLE_CLASS_OFFSET equ 8",
         "PCI_TABLE_HEADER_OFFSET equ 12",
         "PCI_TABLE_MAX_ENTRIES equ PCI_SCAN_FUNCTION_PROBES",
         "call pci_scan_qemu",
         "pci_scan_qemu:",
+        "mov byte [pci_table_api_status], 0",
         "cmp esi, PCI_SCAN_DEVICE_COUNT",
         "cmp edi, PCI_SCAN_FUNCTION_COUNT",
         "mov edi, pci_device_table",
         "rep stosd",
-        "PCI_TABLE_BDF_OFFSET",
-        "PCI_TABLE_ID_OFFSET",
+        "PCI_TABLE_LOCATION_OFFSET",
+        "PCI_TABLE_VENDOR_DEVICE_OFFSET",
         "PCI_TABLE_CLASS_OFFSET",
         "PCI_TABLE_HEADER_OFFSET",
+        "pci_table_entry_by_index:",
+        "pci_table_find_first_by_class:",
+        "pci_table_probe_lookup_contract:",
+        "call pci_table_probe_lookup_contract",
         "pci_device_table times PCI_TABLE_MAX_ENTRIES * PCI_TABLE_ENTRY_DWORDS dd 0",
         "out dx, eax",
         "in eax, dx",
@@ -1275,13 +1349,20 @@ def _validate_pci_source_contract(root: Path) -> None:
         'smoke_pcitable_text db " pcitable="',
         'smoke_pcitabcap_text db " pcitabcap="',
         'smoke_pcitabuse_text db " pcitabuse="',
+        'smoke_pciover_text db " pciover="',
         'smoke_pcilast_text db " pcilast="',
         'smoke_pciclassh_text db " pciclassh="',
         'smoke_pcimulti_text db " pcimulti="',
         'smoke_pciclsms_text db " pciclsms="',
         'smoke_pciclsbr_text db " pciclsbr="',
+        'smoke_pciapi_text db " pciapi="',
+        'smoke_pcilookms_text db " pcilookms="',
+        'smoke_pcilookbr_text db " pcilookbr="',
+        'smoke_pcilookmiss_text db " pcilookmiss="',
         "pci_probe_count dd 0",
         "pci_function_count dd 0",
+        "pci_table_count dd 0",
+        "pci_table_overflow_count dd 0",
         "pci_first_bdf dd 0",
         "pci_first_id dd 0",
         "pci_first_class dd 0",
@@ -1290,6 +1371,10 @@ def _validate_pci_source_contract(root: Path) -> None:
         "pci_multifunction_device_count dd 0",
         "pci_mass_storage_class_count dd 0",
         "pci_bridge_class_count dd 0",
+        "pci_lookup_mass_storage_bdf dd PCI_LOOKUP_NOT_FOUND",
+        "pci_lookup_bridge_bdf dd PCI_LOOKUP_NOT_FOUND",
+        "pci_lookup_miss_bdf dd PCI_LOOKUP_NOT_FOUND",
+        "pci_table_api_status db 0",
     ):
         if phrase not in kernel:
             raise AssertionError(f"kernel missing bounded PCI status contract phrase: {phrase}")
@@ -1358,20 +1443,32 @@ def validate_pci_status_text(status: str) -> dict[str, str]:
     first_class = _hex8_field(fields, "pciclass")
     table_capacity = _hex8_field(fields, "pcitabcap")
     table_used = _hex8_field(fields, "pcitabuse")
+    table_overflow = _hex8_field(fields, "pciover")
     last_bdf = _hex8_field(fields, "pcilast")
     class_hash = _hex8_field(fields, "pciclassh")
     multifunction_count = _hex8_field(fields, "pcimulti")
     mass_storage_count = _hex8_field(fields, "pciclsms")
     bridge_count = _hex8_field(fields, "pciclsbr")
+    lookup_mass_storage = _hex8_field(fields, "pcilookms")
+    lookup_bridge = _hex8_field(fields, "pcilookbr")
+    lookup_miss = _hex8_field(fields, "pcilookmiss")
 
     if fields["pcitable"] != "OK":
         raise AssertionError("pcitable= must be OK for the bounded table builder")
+    if fields["pciapi"] != "OK":
+        raise AssertionError("pciapi= must be OK for the read-only PCI table lookup API")
     if table_capacity != PCI_QEMU_BUS0_PROBES:
         raise AssertionError(f"pcitabcap= must be {PCI_QEMU_BUS0_PROBES:08X}")
-    if table_used != count:
-        raise AssertionError("pcitabuse= must match pcicount=")
+    if table_overflow == 0 and table_used != count:
+        raise AssertionError("pcitabuse= must match pcicount= when pciover= is zero")
+    if table_overflow != 0 and table_used != table_capacity:
+        raise AssertionError("pcitabuse= must equal pcitabcap= when pciover= is nonzero")
+    if table_used > count:
+        raise AssertionError("pcitabuse= must not exceed pcicount=")
     if table_used > table_capacity:
         raise AssertionError("pcitabuse= must not exceed pcitabcap=")
+    if lookup_miss != 0xFFFFFFFF:
+        raise AssertionError("pcilookmiss= must expose the PCI lookup miss sentinel")
 
     if pci_state == "NONE":
         if any(
@@ -1381,6 +1478,7 @@ def validate_pci_status_text(status: str) -> dict[str, str]:
                 first_id,
                 first_class,
                 table_used,
+                table_overflow,
                 last_bdf,
                 class_hash,
                 multifunction_count,
@@ -1389,6 +1487,8 @@ def validate_pci_status_text(status: str) -> dict[str, str]:
             )
         ):
             raise AssertionError("pci=NONE must keep PCI table counters and summaries at zero")
+        if lookup_mass_storage != 0xFFFFFFFF or lookup_bridge != 0xFFFFFFFF:
+            raise AssertionError("pci=NONE must keep PCI class lookups at the miss sentinel")
         return fields
 
     if count == 0:
@@ -1413,6 +1513,22 @@ def validate_pci_status_text(status: str) -> dict[str, str]:
         raise AssertionError("pciclassh= must summarize the populated PCI class table")
     if any(value > count for value in (multifunction_count, mass_storage_count, bridge_count)):
         raise AssertionError("PCI class-table counters must not exceed pcicount=")
+    for field_name, bdf in (
+        ("pcilookms", lookup_mass_storage),
+        ("pcilookbr", lookup_bridge),
+    ):
+        if bdf == 0xFFFFFFFF:
+            continue
+        if bdf >> 16:
+            raise AssertionError(f"{field_name}= must encode a bus-0 device/function")
+        lookup_device = (bdf >> 8) & 0xff
+        lookup_function = bdf & 0xff
+        if lookup_device >= 32 or lookup_function >= 8:
+            raise AssertionError(f"{field_name}= device/function is outside the bounded QEMU bus-0 scan")
+    if mass_storage_count and lookup_mass_storage == 0xFFFFFFFF:
+        raise AssertionError("pcilookms= must find the first mass-storage class entry when pciclsms= is nonzero")
+    if bridge_count and lookup_bridge == 0xFFFFFFFF:
+        raise AssertionError("pcilookbr= must find the first bridge class entry when pciclsbr= is nonzero")
 
     return fields
 
@@ -1504,6 +1620,7 @@ def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
     _validate_boot_device_boundary_rows(matrix_text)
     _validate_pci_status_rows(matrix_text)
     _validate_pci_table_rows(matrix_text)
+    _validate_pci_table_api_rows(matrix_text)
     _validate_pci_table_contract_rows(matrix_text)
     _validate_proof_requirement_rows(matrix_text)
     _validate_negative_claim_rows(matrix_text)

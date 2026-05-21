@@ -104,17 +104,14 @@ existing partitions, or recover damaged user disks. See
 ## Project Shape
 
 Disk layout: LBA 0 is Stage 1 MBR and partition table. LBA 1-16: Stage 2
-bootloader. LBA 17-208: protected-mode kernel ELF image. LBA 2048+ is the
+bootloader. LBA 17-272: protected-mode kernel ELF image. LBA 2048+ is the
 FAT16 partition containing `DOOM1.WAD`, `USERPROB.ELF`, `ABIPROBE.ELF`,
 `DOOM.ELF`, writable Doom config/save files, and generated asset files.
 
 ## Docs
 
-There are only a few markdown files by design:
-
-- `docs/architecture.md`: boot, VM/process, FAT, libc/runtime, input, graphics,
-  audio, hardware boundaries, and UEFI gaps.
-- `docs/proof.md`: proof gates, evidence history, open gaps, and legitimacy
-  roadmap.
-- `docs/play.md`: Codespaces/noVNC testing and reviewed human sessions.
-- `docs/doom-provenance.md`: source and WAD boundaries.
+Markdown is capped to durable surfaces, not scratch notes. Human entry points
+are this README plus `docs/play.md`. Technical and evidence contracts live in
+`docs/architecture.md`, `docs/proof.md`, and `docs/doom-provenance.md`.
+Auxiliary README files are scoped to tests, the future UEFI scaffold, and the
+vendored Doom origin record.

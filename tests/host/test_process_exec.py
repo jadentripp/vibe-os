@@ -195,6 +195,8 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn('smoke_fdexec_text db " fdexec=", 0', kernel)
         self.assertIn('smoke_fddup_text db " fdup=", 0', kernel)
         self.assertIn('smoke_pwait_text db " wait=", 0', kernel)
+        self.assertIn('smoke_waitseed_text db " waitseed=", 0', kernel)
+        self.assertIn('smoke_fork_text db " fork=", 0', kernel)
         self.assertIn('smoke_vmreap_text db " vmreap=", 0', kernel)
         self.assertIn("mov edx, [sys_exec_handoffs]", write_smoke)
         self.assertIn("mov edx, [sys_exec_scheduled]", write_smoke)
@@ -248,6 +250,17 @@ class ProcessExecContractTests(unittest.TestCase):
             "mov edx, [process_wait_seeded_children]",
             "mov edx, [process_wait_last_reaped_pid]",
             "mov edx, [process_wait_last_status]",
+            "mov edx, [process_wait_seeded_child_pid]",
+            "mov edx, [process_fork_successes]",
+            "mov edx, [process_fork_failures]",
+            "mov edx, [process_fork_parent_pid]",
+            "mov edx, [process_fork_child_pid]",
+            "mov edx, [process_fork_parent_return]",
+            "mov edx, [process_fork_child_return]",
+            "mov edx, [process_fork_pages_copied_last]",
+            "mov edx, [fd_fork_clones_last]",
+            "mov edx, [process_vm_owned_pages_freed]",
+            "mov edx, [process_exit_zombies]",
             "mov edx, [process_vm_teardowns]",
             "mov edx, [process_vm_pages_cleared]",
             "mov edx, [process_wait_vm_reaps]",
@@ -376,7 +389,9 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("jmp .exec_handoff_return", handler)
         self.assertNotIn("jmp .return", handler.split("inc dword [sys_exec_successes]", 1)[1].split(".exec_einval:", 1)[0])
         self.assertNotIn("call process_save_syscall_return_context", handoff_return)
-        self.assertIn("iretd", handoff_return)
+        context_return = kernel.split(".context_handoff_return:", 1)[1].split(".exec_handoff_return:", 1)[0]
+        self.assertIn("jmp .context_handoff_return", handoff_return)
+        self.assertIn("iretd", context_return)
 
     def test_exec_prepare_supports_user_probe_as_second_target(self):
         kernel = read_kernel()
@@ -502,7 +517,7 @@ class ProcessExecContractTests(unittest.TestCase):
             self.assertIn(source, abi_probe)
         for source in (
             "ABI_PROBE_MAGIC equ 0xA81B10BE",
-            "ABI_PROBE_EXPECTED_FLAGS equ 0x0000000f",
+            "ABI_PROBE_EXPECTED_FLAGS equ 0x0000001f",
             "exec_path_abi_probe db \"ABIPROBE.ELF\", 0",
             "abi_probe_status db 0",
             "abi_probe_exec_status db 0",
@@ -1524,10 +1539,26 @@ class ProcessExecContractTests(unittest.TestCase):
             "je .fork",
         ):
             self.assertIn(source, kernel)
-        self.assertIn("jmp .bad_syscall_enosys", fork_handler)
+        for source in (
+            "mov [process_fork_frame_ptr], esp",
+            "call process_fork_current",
+            "jc .bad_syscall_from_eax",
+            "jmp .return",
+        ):
+            self.assertIn(source, fork_handler)
         self.assertIn("pid_t fork(void)", libc)
         self.assertIn("vibe_syscall3(VIBE_SYS_FORK, 0, 0, 0)", libc)
-        self.assertIn("syscall3(SYS_FORK, 0, 0, 0) == -ERRNO_ENOSYS", probe)
+        self.assertNotIn("syscall3(SYS_FORK, 0, 0, 0) == -ERRNO_ENOSYS", probe)
+        abi_probe = (ROOT / "user" / "abi_probe.c").read_text()
+        for source in (
+            "ABI_PROBE_FLAG_FORK = 0x00000010u",
+            "child = vibe_user_fork();",
+            "return child_saw_inherited_wad() ? ABI_PROBE_FORK_WAIT_STATUS : 31;",
+            "vibe_user_waitpid(child, &status, VIBE_USER_WNOHANG)",
+            "shared_offset == 4",
+            "flags |= ABI_PROBE_FLAG_FORK;",
+        ):
+            self.assertIn(source, abi_probe)
 
         for source in (
             "FD_INHERIT_EXEC equ 0x1",
@@ -1599,7 +1630,7 @@ class ProcessExecContractTests(unittest.TestCase):
                 self.assertIn(phrase, process_doc)
         for phrase in (
             "## General-OS Gap Contract",
-            "`fork` exists only as a classified syscall/libc surface.",
+            "`fork` is bounded but real for probe-class processes.",
             "Descriptor lifetime and fd duplication now have a bounded Unix-open-file-description milestone.",
             "`fcntl(F_GETFD/F_SETFD)`",
             "VM allocation is anonymous/private and brk-backed.",

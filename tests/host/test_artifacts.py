@@ -123,7 +123,10 @@ class BuildArtifactTests(unittest.TestCase):
 
     def test_stage2_and_kernel_fit_reserved_raw_lbas(self):
         self.assertLessEqual((BUILD / "stage2.bin").stat().st_size, 16 * SECTOR_SIZE)
-        self.assertLessEqual((BUILD / "kernel.elf").stat().st_size, 192 * SECTOR_SIZE)
+        self.assertLessEqual(
+            (BUILD / "kernel.elf").stat().st_size,
+            make_wad_image.KERNEL_SECTORS * SECTOR_SIZE,
+        )
 
     def test_kernel_elf32_load_segments(self):
         elf = Elf32(read(BUILD / "kernel.elf"))

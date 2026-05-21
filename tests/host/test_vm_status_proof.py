@@ -32,6 +32,16 @@ def status_line(**overrides):
         "kmapfree": "00125000",
         "kmaplo": "10B866FA",
         "kmaphi": "10B866FA",
+        "khiexec": "OK",
+        "khieip": "C0012405",
+        "khiesp": "C006FFD8",
+        "khicr3": "00090000",
+        "khiva": "C0012000",
+        "khipa": "00012000",
+        "khistk": "C006F000",
+        "khistkpa": "0006F000",
+        "khipt": "00126000",
+        "khifree": "00126000",
         "vmmhi": "OK",
         "vmmhva": "C0000000",
         "vmmhpa": "00123000",
@@ -49,12 +59,12 @@ def status_line(**overrides):
         "abiargc": "00000001",
         "abiargvsrc": "00000002",
         "abiprobe": "OK",
-        "abiflags": "0000000F",
+        "abiflags": "0000001F",
         "doom": "OK",
         "execsys": "00000002/00000002/00000000/00000002/00000002/00000000",
         "execerr": "00000000",
         "execres": "00000000",
-        "target": "00000006",
+        "target": "00000007",
         "ppid": "00000005",
         "upid": "00000004",
         "uentry": "00E80000",
@@ -67,12 +77,14 @@ def status_line(**overrides):
         "argv0": "01FFFFF0",
         "envp0": "00000000",
         "argvsrc": "00000002",
-        "procpool": "00000006/00000002/00000003/00000001/00000000",
-        "pidseq": "00000007/00000006/00000003",
+        "procpool": "00000006/00000002/00000004/00000002/00000000",
+        "pidseq": "00000008/00000007/00000003",
         "fdexec": "00000002/00000002/00000001/00000001",
         "fdup": "00000001/00000002/00000002/00000003/00000001",
-        "wait": "00000003/00000001/00000002/00000000/00000001/00000003/0000002A",
-        "vmreap": "00000003/00000040/00000001/00000020/00000020",
+        "wait": "00000005/00000002/00000002/00000001/00000001/00000006/0000002A",
+        "waitseed": "00000003",
+        "fork": "00000001/00000000/00000005/00000006/00000006/00000000/00000020/00000003/00000020/00000001",
+        "vmreap": "00000004/00000060/00000002/00000040/00000020",
         "doomrun": "RUN",
         "gameplay": "OK",
         "pself": "OK",
@@ -84,7 +96,7 @@ def status_line(**overrides):
         "pround": "00000001",
         "pctx": "00000004",
         "pmask": "00000003",
-        "pfrom": "00000006",
+        "pfrom": "00000007",
         "pto": "00000003",
         "pkind": "00000002:00000003",
         "peip": "01002000:00E80000",
@@ -109,6 +121,7 @@ def relocated_status_line(**overrides):
         "kernphys": "00010000",
         "kmapva": "C0010000",
         "kmappa": "00010000",
+        "khicr3": "00101000",
     }
     fields.update(overrides)
     return status_line(**fields)
@@ -129,7 +142,7 @@ class VmStatusProofTests(unittest.TestCase):
         check_vm_status_proof.validate_status(
             status_line(
                 pfrom="00000003",
-                pto="00000006",
+                pto="00000007",
                 pkind="00000003:00000002",
                 peip="00E80000:01002000",
                 pcr3="00083000:00082000",
@@ -177,6 +190,7 @@ class VmStatusProofTests(unittest.TestCase):
             ({"kernvirt": "C0011000"}, "higher-half kernel entry"),
             ({"kernphys": "C0010000"}, "physical frame"),
             ({"kernphys": "C0010000", "kmappa": "C0010000"}, "physical frame"),
+            ({"khicr3": "00090000"}, "match kerncr3"),
         ):
             with self.subTest(overrides=overrides):
                 with self.assertRaisesRegex(AssertionError, message):
@@ -196,6 +210,27 @@ class VmStatusProofTests(unittest.TestCase):
             ({"kmapfree": "00126000"}, "match kmappt"),
             ({"kmaplo": "00000000", "kmaphi": "00000000"}, "nonzero bytes"),
             ({"kmaphi": "B16B00B5"}, "match kmaplo"),
+        ):
+            with self.subTest(overrides=overrides):
+                with self.assertRaisesRegex(AssertionError, message):
+                    check_vm_status_proof.validate_status(status_line(**overrides))
+
+    def test_rejects_fake_kernel_high_exec_trampoline_proof(self):
+        for overrides, message in (
+            ({"khiexec": "FAIL"}, "khiexec"),
+            ({"khieip": "00012405"}, "khieip"),
+            ({"khieip": "C0029000", "khiva": "C0029000", "khipa": "00029000"}, "khieip"),
+            ({"khiesp": "0006FFD8"}, "khiesp"),
+            ({"khicr3": "00101000"}, "low bootstrap page directory"),
+            ({"khiva": "C0013000"}, "page containing the high trampoline EIP"),
+            ({"khipa": "00013000"}, "higher-half alias of khipa"),
+            ({"khipa": "00009000"}, "low physical kernel text page"),
+            ({"khistk": "C006E000"}, "page containing the high trampoline ESP"),
+            ({"khistkpa": "0006E000"}, "higher-half alias of khistkpa"),
+            ({"khistkpa": "00070000", "khistk": "C0070000", "khiesp": "C0070FD8"}, "khiesp"),
+            ({"khipt": "00026000"}, "PMM-managed"),
+            ({"khipt": "00012000"}, "PMM-managed"),
+            ({"khifree": "00127000"}, "match khipt"),
         ):
             with self.subTest(overrides=overrides):
                 with self.assertRaisesRegex(AssertionError, message):
@@ -239,9 +274,9 @@ class VmStatusProofTests(unittest.TestCase):
             ({"procpool": "00000006/00000002/00000000/00000000/00000000"}, "reused a target process slot"),
             ({"procpool": "00000006/00000002/00000003/00000000/00000000"}, "generic exec slot was allocated"),
             ({"procpool": "00000006/00000002/00000001/00000001/00000001"}, "did not overflow"),
-            ({"pidseq": "00000006/00000006/00000003"}, "advanced past the target"),
-            ({"pidseq": "00000007/00000003/00000003"}, "exec target PID"),
-            ({"pidseq": "00000007/00000006/00000000"}, "generation advanced"),
+            ({"pidseq": "00000007/00000007/00000003"}, "advanced past the target"),
+            ({"pidseq": "00000008/00000003/00000003"}, "exec target PID"),
+            ({"pidseq": "00000008/00000007/00000000"}, "generation advanced"),
             ({"fdexec": "00000000/00000002/00000000/00000000"}, "fd ownership handoff"),
             ({"fdexec": "00000001/00000000/00000000/00000000"}, "fd inherited"),
             ({"fdexec": "00000001/00000001/00000000/00000000"}, "close-on-exec duplicated fd"),
@@ -250,16 +285,27 @@ class VmStatusProofTests(unittest.TestCase):
             ({"fdup": "00000001/00000001/00000000/00000003/00000001"}, "dup, dup2, and dup3"),
             ({"fdup": "00000001/00000001/00000001/00000002/00000001"}, "shared open-file descriptions"),
             ({"fdup": "00000001/00000001/00000001/00000003/00000000"}, "O_CLOEXEC descriptor"),
-            ({"wait": "00000003/00000001/00000002/00000000/00000000/00000003/0000002A"}, "child was seeded"),
-            ({"wait": "00000003/00000000/00000002/00000000/00000001/00000003/0000002A"}, "waitpid reaped"),
-            ({"wait": "00000003/00000001/00000000/00000000/00000001/00000003/0000002A"}, "failure paths"),
-            ({"wait": "00000003/00000001/00000002/00000000/00000001/FFFFFFFF/0000002A"}, "real reaped child PID"),
-            ({"wait": "00000003/00000001/00000002/00000000/00000001/00000003/00000000"}, "exit status"),
-            ({"vmreap": "00000000/00000040/00000001/00000020/00000020"}, "VM teardown ran"),
-            ({"vmreap": "00000003/00000000/00000001/00000020/00000020"}, "user pages were cleared"),
-            ({"vmreap": "00000003/00000040/00000000/00000020/00000020"}, "waitpid reaping invoked VM teardown"),
-            ({"vmreap": "00000003/00000040/00000001/00000000/00000020"}, "waitpid reclaimed child user pages"),
-            ({"vmreap": "00000003/00000040/00000001/00000020/00000000"}, "waitpid reclaimed child user pages"),
+            ({"wait": "00000005/00000002/00000002/00000001/00000000/00000006/0000002A"}, "child was seeded"),
+            ({"wait": "00000005/00000000/00000002/00000001/00000001/00000006/0000002A"}, "waitpid reaped"),
+            ({"wait": "00000005/00000002/00000000/00000001/00000001/00000006/0000002A"}, "failure paths"),
+            ({"wait": "00000005/00000002/00000002/00000001/00000001/FFFFFFFF/0000002A"}, "real reaped child PID"),
+            ({"wait": "00000005/00000002/00000002/00000001/00000001/00000006/00000000"}, "exit status"),
+            ({"waitseed": "FFFFFFFF"}, "seeded preempt-probe child PID"),
+            ({"fork": "00000000/00000000/00000005/00000006/00000006/00000000/00000020/00000003/00000020/00000001"}, "SYS_FORK succeeded"),
+            ({"fork": "00000001/00000001/00000005/00000006/00000006/00000000/00000020/00000003/00000020/00000001"}, "did not hit an error path"),
+            ({"fork": "00000001/00000000/00000004/00000006/00000006/00000000/00000020/00000003/00000020/00000001"}, "parent PID"),
+            ({"fork": "00000001/00000000/00000005/00000005/00000006/00000000/00000020/00000003/00000020/00000001"}, "distinct child PID"),
+            ({"fork": "00000001/00000000/00000005/00000006/00000005/00000000/00000020/00000003/00000020/00000001"}, "parent returned the child PID"),
+            ({"fork": "00000001/00000000/00000005/00000006/00000006/00000001/00000020/00000003/00000020/00000001"}, "child returned zero"),
+            ({"fork": "00000001/00000000/00000005/00000006/00000006/00000000/00000000/00000003/00000020/00000001"}, "address-space page copying"),
+            ({"fork": "00000001/00000000/00000005/00000006/00000006/00000000/00000020/00000000/00000020/00000001"}, "fd descriptor cloning"),
+            ({"fork": "00000001/00000000/00000005/00000006/00000006/00000000/00000020/00000003/00000000/00000001"}, "PMM-backed pages were reclaimed"),
+            ({"fork": "00000001/00000000/00000005/00000006/00000006/00000000/00000020/00000003/00000020/00000000"}, "wait-reapable zombie"),
+            ({"vmreap": "00000000/00000060/00000002/00000040/00000020"}, "VM teardown ran"),
+            ({"vmreap": "00000004/00000000/00000002/00000040/00000020"}, "user pages were cleared"),
+            ({"vmreap": "00000004/00000060/00000000/00000040/00000020"}, "waitpid reaping invoked VM teardown"),
+            ({"vmreap": "00000004/00000060/00000002/00000000/00000020"}, "waitpid reclaimed child user pages"),
+            ({"vmreap": "00000004/00000060/00000002/00000040/00000000"}, "waitpid reclaimed child user pages"),
         ):
             with self.subTest(overrides=overrides):
                 with self.assertRaisesRegex(AssertionError, message):
@@ -294,7 +340,7 @@ class VmStatusProofTests(unittest.TestCase):
             ({"puser": "00000000", "pframe": "00000001/00E80000/0000001B/00E9FFE0/00000023"}, "puser"),
             ({"pmask": "00000001"}, "both directions"),
             ({"pfrom": "00000002"}, "exec target PID"),
-            ({"pto": "00000006"}, "switch between processes"),
+            ({"pto": "00000007"}, "switch between processes"),
             ({"pkind": "00000002:00000002"}, "Doom and the preempt probe"),
             ({"peip": "01002000:01003000"}, "recorded source and target process kinds"),
             ({"pcr3": "00082000:00082000"}, "recorded source and target process address spaces"),
@@ -382,6 +428,8 @@ class VmStatusProofTests(unittest.TestCase):
         process_doc = (ROOT / "docs" / "architecture.md").read_text()
 
         self.assertEqual(fields["vmmhi"], "OK")
+        self.assertEqual(fields["khiexec"], "OK")
+        self.assertEqual(fields["khicr3"], "00090000")
         self.assertEqual(fields["kreloc"], "LOW")
         self.assertEqual(fields["kernvirt"], "00010000")
         self.assertEqual(fields["kernphys"], "00010000")
@@ -389,6 +437,7 @@ class VmStatusProofTests(unittest.TestCase):
             self.assertIn("KERNEL_RELOCATION_GAP[current]=high-alias-only", doc)
             self.assertIn("KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity", doc)
             self.assertIn("`vmmhi=OK` is not a kernel relocation claim", doc)
+            self.assertIn("`khiexec=OK` is not a kernel relocation claim", doc)
             self.assertIn("`kreloc=OK`", doc)
             self.assertIn("`kreloc=LOW`", doc)
 

@@ -32,8 +32,12 @@ boot:
   current kernel is still low identity-mapped. It also requires `kmap=OK`,
   `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, and `kmaphi=` so the
   current kernel entry page is temporarily aliased high, compared through low
-  and high addresses, and unmapped again while still reserving `kreloc=OK` for
-  the future non-identity higher-half milestone.
+  and high addresses, and unmapped again. The next executable rung is
+  `khiexec=OK` with `khieip=`, `khiesp=`, `khicr3=`, `khiva=`, `khipa=`,
+  `khistk=`, `khistkpa=`, `khipt=`, and `khifree=`, proving a bounded
+  higher-half trampoline call on a higher-half stack alias and page-table
+  reclaim while still reserving `kreloc=OK` for the future persistent
+  non-identity higher-half milestone.
 - `tests/host/test_doom_source.py` is the original-Doom provenance gate. It
   hashes the vendored `linuxdoom-1.10` source boundary, audits the Makefile so
   original engine objects and `doom_port/*` shims stay separate, and invokes
@@ -91,12 +95,17 @@ boot:
   enforcement, exec-time inheritance/close-on-exec handoff, and process-owned
   fd teardown. They also cover anonymous brk-backed `mmap` accounting and
   page-aligned tail `munmap` reclaim plus non-tail validation holes, without
-  claiming that `fork`, descriptor duplication, or reusable VM objects exist
-  yet.
+  claiming a full Unix process model. The bounded fork proof is intentionally
+  narrow: probe-class children get eager page copies, fork-time descriptor table
+  cloning over shared open-file descriptions, parent/child return splitting,
+  and waitpid reap evidence. It is not a full `fork`/`exec` split, while
+  Doom/arbitrary address spaces,
+  copy-on-write, blocking waits, and unbounded process/fd tables remain gaps.
 - `tools/check_vm_status_proof.py` requires the matching cloud status to expose
   `vmmhfree`, `uexec=OK`, `upath=USERPROB.ELF`, `abiexec=OK`,
   `abipath=ABIPROBE.ELF`, `abiprobe=OK`, `argvsrc=2`, `procpool=`,
-  `fdexec=`, `fdup=`, `wait=`, and `pmask` plus `pkind`/`peip`/`pcr3`/`pkstk` evidence
+  `fdexec=`, `fdup=`, `wait=`, `waitseed=`, `fork=`, and `pmask` plus
+  `pkind`/`peip`/`pcr3`/`pkstk` evidence
   before a VM/process artifact can be accepted.
 - `tools/status_fields.py` is the shared host-side status/proof parser. New
   checkers should use it for duplicate detection, eight-digit hex fields, and
@@ -168,9 +177,11 @@ boot:
   UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and physical-hardware
   support wording unless the matrix grows a claimed row and a proof boundary
   first.
-  It also requires the kernel's bounded QEMU bus-0 PCI status scan and the
-  `pci=`, `pciprobe=`, `pcicount=`, `pcifirst=`, `pciid=`, and `pciclass=`
-  smoke fields to remain status-only diagnostics rather than a broad PCI claim.
+  It also requires the kernel's bounded QEMU bus-0 PCI table and read-only
+  lookup API plus the `pci=`, `pciprobe=`, `pcicount=`, `pcifirst=`, `pciid=`,
+  `pciclass=`, `pcitabcap=`, `pcitabuse=`, `pciover=`, `pciapi=`, and
+  `pcilookmiss=` smoke fields to remain status-only diagnostics rather than a
+  broad PCI claim.
   Future hardware classes now have machine-readable `PROOF_REQUIREMENT[...]`
   rows plus active `NEGATIVE_CLAIM[...]` rows, so unsupported UEFI, PCI, AHCI,
   USB, SMP, APIC, HPET, and physical-machine wording stays tied to a concrete
@@ -190,20 +201,28 @@ boot:
   the fat-vfs-boundary manifest for root/current-directory normalization plus
   read-only one-level subdirectory access. The same manifest marks deeper
   packaged asset trees as host inventory only, while keeping arbitrary-disk
-  install and recovery rows unclaimed.
+  install and recovery rows unclaimed. With `--write-blank-image`, the checker
+  can also materialize that construction as a new regular raw image file,
+  refusing existing paths and recording a blank-image-file materialization
+  manifest without claiming block-device install support.
 - `tools/check_vm_safety_contract.py` machine-checks the local-QEMU opt-in,
   cloud diagnostic upload hygiene, panic status fields, shutdown status fields,
   guard-page helper, dynamic high VMM mapping/reclaim, kernel-entry high alias
-  status fields, and brk-backed tail `munmap` contract without launching QEMU.
+  status fields, high-trampoline execution fields, and brk-backed tail `munmap`
+  contract without launching QEMU.
 - `tools/check_vm_status_proof.py` validates cloud status artifacts for the VM
   legitimacy fields: `vmmhfree` must match the reclaimed dynamic page table,
   `kmap=OK`, `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, and
   `kmaphi=` must prove a temporary higher-half alias of the current kernel entry
-  page and page-table reclaim,
+  page and page-table reclaim, `khiexec=OK`, `khieip=`, `khiesp=`, `khicr3=`,
+  `khiva=`, `khipa=`, `khistk=`, `khistkpa=`, `khipt=`, and `khifree=` must
+  prove bounded higher-half trampoline execution on a high stack alias and
+  page-table reclaim,
   boot-probe exec must report `uexec=OK` and `upath=USERPROB.ELF`, ABI-probe
   exec must report `abiexec=OK`, `abipath=ABIPROBE.ELF`, and `abiprobe=OK`,
-  Doom exec must report `argvsrc=2`, `procpool=`, `fdexec=`, `fdup=`, `wait=`, and
-  `vmreap=`, and `pmask` plus `pkind`/`peip`/`pcr3`/`pkstk` must show
+  Doom exec must report `argvsrc=2`, `procpool=`, `fdexec=`, `fdup=`, `wait=`,
+  `waitseed=`, `fork=`, and `vmreap=`, and `pmask` plus
+  `pkind`/`peip`/`pcr3`/`pkstk` must show
   bidirectional timer IRQ switching between Doom and the preempt probe.
 - `tools/check_shutdown_panic_proof.py` validates the opt-in disposable-cloud
   shutdown/panic proof contract and any downloaded proof artifact. It requires
@@ -223,20 +242,22 @@ boot:
   binaries, raw audio files, compressed WAD archives, and renamed WAD/disk/image/audio payload
   signatures. In `--human-session` mode it also requires
   `human-playtest-checklist.txt`, `human-playtest-session.json`, and
-  `human-playtest-manifest.json`, requires a flat allowlisted bundle, rebuilds
-  the human phase transcript from the status files and notes, verifies every
-  note-level `phase_hash_*` value, verifies the generated checklist and bundle
-  inventory SHA-256 hashes, and prints a stable post-download verification ID
-  for comparison with the remote collector output. If `audio-proof.json` is
-  present, it validates that aggregate manifest too.
+  `human-playtest-review.json` plus `human-playtest-manifest.json`, requires a
+  flat allowlisted bundle, rebuilds the human phase transcript from the status
+  files and notes, verifies every note-level `phase_hash_*` value, verifies the
+  generated review/checklist and bundle inventory SHA-256 hashes, and prints a
+  stable post-download verification ID for comparison with the remote collector
+  output. If `audio-proof.json` is present, it validates that aggregate manifest
+  too.
 - `tools/collect_human_playtest_bundle.py` is the remote-host helper for manual
   VNC sessions. It does not launch QEMU; it copies only allowlisted status/log
   diagnostics and required ELF/symbol files from the disposable host build
   directory, requires explicit `--confirm-*` operator flags, writes structured
   `human-playtest-notes.txt` with phase status hashes, a
   `human-playtest-checklist.txt` review file, a `human-playtest-session.json`
-  transcript tied to the passing scripted real-WAD run ID, and
-  `human-playtest-manifest.json`, refuses proof output inside the repo, and
+  transcript tied to the passing scripted real-WAD run ID,
+  `human-playtest-review.json` with status-only phase notes and remote machine
+  shape, and `human-playtest-manifest.json`, refuses proof output inside the repo, and
   immediately invokes
   `tools/check_cloud_playability_artifacts.py --human-session`.
 - `tools/run_remote_human_playtest.sh` is the faster guided wrapper for that

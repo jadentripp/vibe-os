@@ -305,6 +305,16 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     _require(makefile, 'grep -q "kerncr3=00090000"', "Makefile")
     _require(makefile, 'grep -q "kernvirt=00010000"', "Makefile")
     _require(makefile, 'grep -q "kernphys=00010000"', "Makefile")
+    _require(makefile, 'grep -q "khiexec=OK"', "Makefile")
+    _require(makefile, 'grep -q "khieip="', "Makefile")
+    _require(makefile, 'grep -q "khiesp="', "Makefile")
+    _require(makefile, 'grep -q "khicr3=00090000"', "Makefile")
+    _require(makefile, 'grep -q "khiva="', "Makefile")
+    _require(makefile, 'grep -q "khipa="', "Makefile")
+    _require(makefile, 'grep -q "khistk="', "Makefile")
+    _require(makefile, 'grep -q "khistkpa="', "Makefile")
+    _require(makefile, 'grep -q "khipt="', "Makefile")
+    _require(makefile, 'grep -q "khifree="', "Makefile")
     _require(makefile, 'grep -q "vmmhi=OK"', "Makefile")
     _require(makefile, 'grep -q "vmmhva=C0000000"', "Makefile")
     _require(makefile, 'grep -q "vmmhpa="', "Makefile")
@@ -460,9 +470,12 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "KERNEL_RELOCATION_STATUS_LOW_IDENTITY equ 1",
         "KERNEL_RELOCATION_STATUS_MISMATCH equ 2",
         "KERNEL_HIGH_ALIAS_STATUS_OK equ 1",
+        "KERNEL_HIGH_EXEC_STATUS_OK equ 1",
         "kernel_relocation_probe:",
         "kernel_translate_current_vaddr:",
         "kernel_high_alias_self_test:",
+        "kernel_high_exec_self_test:",
+        "kernel_high_exec_trampoline:",
         "mov [kernel_relocation_eip], eax",
         "mov [kernel_relocation_esp], esp",
         "mov [kernel_relocation_cr3], eax",
@@ -474,13 +487,24 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "mov [kernel_high_alias_low_word], eax",
         "mov [kernel_high_alias_high_word], ebx",
         "mov [kernel_high_alias_reclaimed], eax",
+        "mov [kernel_high_exec_eip], eax",
+        "mov [kernel_high_exec_esp], esp",
+        "mov [kernel_high_exec_cr3], eax",
+        "mov [kernel_high_exec_vaddr], eax",
+        "mov [kernel_high_exec_phys], eax",
+        "mov [kernel_high_exec_stack_vaddr], eax",
+        "mov [kernel_high_exec_stack_phys], eax",
+        "mov [kernel_high_exec_table], eax",
+        "mov [kernel_high_exec_reclaimed], eax",
         "cmp eax, 0xffffffff",
         "cmp eax, KERNEL_HIGHER_HALF_BASE",
         "cmp eax, PAGING_DIR_ADDR",
         "cmp eax, [kernel_relocation_virt]",
         "mov byte [kernel_relocation_status], KERNEL_RELOCATION_STATUS_LOW_IDENTITY",
         "mov byte [kernel_high_alias_status], KERNEL_HIGH_ALIAS_STATUS_OK",
+        "mov byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_OK",
         "call kernel_high_alias_self_test",
+        "call kernel_high_exec_self_test",
         "vmm_dynamic_page_tables dd 0",
         "vmm_active_page_tables dd 0",
         "vmm_reclaimed_page_tables dd 0",
@@ -497,12 +521,22 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "kernel_relocation_virt dd 0",
         "kernel_relocation_phys dd 0",
         "kernel_high_alias_status db 0",
+        "kernel_high_exec_status db 0",
         "kernel_high_alias_vaddr dd 0",
         "kernel_high_alias_phys dd 0",
         "kernel_high_alias_table dd 0",
         "kernel_high_alias_reclaimed dd 0",
         "kernel_high_alias_low_word dd 0",
         "kernel_high_alias_high_word dd 0",
+        "kernel_high_exec_eip dd 0",
+        "kernel_high_exec_esp dd 0",
+        "kernel_high_exec_cr3 dd 0",
+        "kernel_high_exec_vaddr dd 0",
+        "kernel_high_exec_phys dd 0",
+        "kernel_high_exec_stack_vaddr dd 0",
+        "kernel_high_exec_stack_phys dd 0",
+        "kernel_high_exec_table dd 0",
+        "kernel_high_exec_reclaimed dd 0",
         'smoke_kreloc_text db " kreloc=", 0',
         'smoke_kerneip_text db " kerneip=", 0',
         'smoke_kernesp_text db " kernesp=", 0',
@@ -516,6 +550,16 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         'smoke_kmapfree_text db " kmapfree=", 0',
         'smoke_kmaplo_text db " kmaplo=", 0',
         'smoke_kmaphi_text db " kmaphi=", 0',
+        'smoke_khiexec_text db " khiexec=", 0',
+        'smoke_khieip_text db " khieip=", 0',
+        'smoke_khiesp_text db " khiesp=", 0',
+        'smoke_khicr3_text db " khicr3=", 0',
+        'smoke_khiva_text db " khiva=", 0',
+        'smoke_khipa_text db " khipa=", 0',
+        'smoke_khistk_text db " khistk=", 0',
+        'smoke_khistkpa_text db " khistkpa=", 0',
+        'smoke_khipt_text db " khipt=", 0',
+        'smoke_khifree_text db " khifree=", 0',
         'smoke_vmmhi_text db " vmmhi=", 0',
         'smoke_vmmhva_text db " vmmhva=", 0',
         'smoke_vmmhpa_text db " vmmhpa=", 0',
@@ -595,6 +639,16 @@ def validate_repo_contract(root: Path = ROOT) -> None:
             "`kmapfree=`",
             "`kmaplo=`",
             "`kmaphi=`",
+            "`khiexec=OK`",
+            "`khieip=`",
+            "`khiesp=`",
+            "`khicr3=`",
+            "`khiva=`",
+            "`khipa=`",
+            "`khistk=`",
+            "`khistkpa=`",
+            "`khipt=`",
+            "`khifree=`",
         ):
             _require(text, needle, label)
 
@@ -717,7 +771,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     for needle in (
         "char* doom_argv[] = { (char*)doom_path, 0 };",
         "vibe_user_fcntl(wad, ABI_PROBE_F_SETFD, ABI_PROBE_FD_CLOEXEC)",
-        "return vibe_user_execv(doom_path, doom_argv) == 0 ? 0 : 25;",
+        "return vibe_user_execv(doom_path, doom_argv) == 0 ? 0 : 26;",
     ):
         _require(abi_probe, needle, "ABI probe VM/POSIX contract")
     user_runtime = _read(root, "user/runtime.c")
@@ -837,7 +891,7 @@ def main() -> int:
         print(f"VM safety contract failed: {exc}", file=sys.stderr)
         return 1
 
-    print("VM safety contract OK: local QEMU opt-in, cloud diagnostics, safe cloud interactive playtest docs, panic/shutdown status, dynamic high VMM mapping, kernel-entry high alias, and the higher-half relocation gap are machine-checkable")
+    print("VM safety contract OK: local QEMU opt-in, cloud diagnostics, safe cloud interactive playtest docs, panic/shutdown status, dynamic high VMM mapping, kernel-entry high alias, high-trampoline execution, and the higher-half relocation gap are machine-checkable")
     return 0
 
 

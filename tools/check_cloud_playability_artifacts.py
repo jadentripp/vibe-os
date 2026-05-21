@@ -72,6 +72,8 @@ HUMAN_MANIFEST_FILE = "human-playtest-manifest.json"
 HUMAN_MANIFEST_SCHEMA = "human-playtest-manifest-v1"
 HUMAN_SESSION_FILE = "human-playtest-session.json"
 HUMAN_SESSION_SCHEMA = "human-playtest-session-v1"
+HUMAN_REVIEW_FILE = "human-playtest-review.json"
+HUMAN_REVIEW_SCHEMA = "human-playtest-review-v1"
 HUMAN_CHECKLIST_FILE = "human-playtest-checklist.txt"
 HUMAN_CHECKLIST_SCHEMA = "human-playtest-checklist-v1"
 HUMAN_OBSERVATIONS_FILE = "human-playtest-observations.json"
@@ -199,6 +201,26 @@ HUMAN_SESSION_PHASES = (
     ("after-menu", "status.after-menu.txt", "human pressed Escape and saw the Doom menu"),
     ("final", "status.txt", "final status captured after the manual session"),
 )
+HUMAN_REVIEW_PHASES = (
+    "after-start",
+    "after-fire",
+    "after-move",
+    "after-use",
+    "after-mouse",
+    "after-menu",
+    "final",
+)
+HUMAN_REVIEW_PHASE_LABELS = {
+    "after-start": "start",
+    "after-fire": "fire",
+    "after-move": "move",
+    "after-use": "use",
+    "after-mouse": "mouse",
+    "after-menu": "menu",
+    "final": "final",
+}
+HUMAN_REVIEW_MIN_DURATION_TICKS = check_human_playability_proof.HUMAN_MIN_SESSION_TICKS
+HUMAN_REVIEW_TEXT_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}")
 HUMAN_SESSION_STATUS_FIELDS = (
     "gameplay",
     "gstate",
@@ -266,6 +288,7 @@ HUMAN_SESSION_ALLOWED_EXACT_FILES = set(
         HUMAN_CHECKLIST_FILE,
         HUMAN_MANIFEST_FILE,
         HUMAN_SESSION_FILE,
+        HUMAN_REVIEW_FILE,
     )
 )
 HUMAN_SESSION_ALLOWED_PATTERNS = ("*.log",)
@@ -585,6 +608,8 @@ def validate_repo_contract() -> None:
         "schema=human-playtest-notes-v2",
         "human-playtest-observations-v1",
         "human-playtest-session.json",
+        "human-playtest-review.json",
+        "human-playtest-review-v1",
         "human-playtest-manifest.json",
         "scripted_proof=real-wad-smoke-pass",
         "scripted_proof_run_id=",
@@ -596,6 +621,15 @@ def validate_repo_contract() -> None:
         "novnc_focus=",
         "novnc_focus_notes=",
         "audio_notes=",
+        "--reviewer",
+        "--machine-label",
+        "--start-note",
+        "--fire-note",
+        "--move-note",
+        "--use-note",
+        "--mouse-note",
+        "--menu-note",
+        "--final-note",
         "--scripted-proof-run-id",
         "--confirm-scripted-proof-green",
         "--capture-phase",
@@ -650,6 +684,10 @@ def validate_repo_contract() -> None:
         "operator_post_download_verification=required",
         "pre-download human verification OK",
         "post-download human verification OK",
+        "machine_shape",
+        "reviewer=",
+        "status-only start/fire/move/use/mouse/menu/final notes",
+        "remote machine shape",
         "bundle_sha256=",
         "manifest_sha256=",
         "--human-session",
@@ -703,6 +741,14 @@ def validate_repo_contract() -> None:
         "Refusing to run the remote human playtest helper on macOS",
         "tools/collect_human_playtest_bundle.py",
         "--print-template",
+        "--reviewer",
+        "--start-note",
+        "--fire-note",
+        "--move-note",
+        "--use-note",
+        "--mouse-note",
+        "--menu-note",
+        "--final-note",
         "--capture-phase \"$phase\"",
         "--confirm-scripted-proof-green",
         "--confirm-remote-vnc",
@@ -804,6 +850,7 @@ def validate_repo_contract() -> None:
     _require(playable, "human-playtest-notes-v2", "playable cloud proof doc")
     _require(playable, "human-playtest-checklist.txt", "playable cloud proof doc")
     _require(playable, "human-playtest-session.json", "playable cloud proof doc")
+    _require(playable, "human-playtest-review.json", "playable cloud proof doc")
     _require(playable, "human-playtest-manifest.json", "playable cloud proof doc")
     _require(playable, "post-download human verification OK", "playable cloud proof doc")
     _require(playable, "-f expected_ref=\"$branch\"", "playable cloud proof doc")
@@ -821,6 +868,7 @@ def validate_repo_contract() -> None:
     _require(tests_readme, "phase_hash_*", "tests README")
     _require(tests_readme, "human-playtest-checklist.txt", "tests README")
     _require(tests_readme, "human-playtest-session.json", "tests README")
+    _require(tests_readme, "human-playtest-review.json", "tests README")
     _require(makefile, "cloud-playability-check", "Makefile")
     _require(makefile, "persistence-image-check", "Makefile")
     _require(makefile, "PERSISTENCE_BASELINE_IMAGE", "Makefile")
@@ -1273,6 +1321,16 @@ def build_human_checklist(artifact_dir: Path) -> str:
         raise AssertionError(f"missing expected human review file: {HUMAN_NOTES_FILE}")
     notes = _load_human_notes(artifact_dir / notes_name)
     session = build_human_session(artifact_dir)
+    review_name = _find_one(names, HUMAN_REVIEW_FILE)
+    if review_name is None:
+        raise AssertionError(f"missing expected human review manifest file: {HUMAN_REVIEW_FILE}")
+    review = _load_human_review(artifact_dir / review_name)
+    machine_shape = review.get("machine_shape", {})
+    if not isinstance(machine_shape, dict):
+        machine_shape = {}
+    duration = review.get("duration", {})
+    if not isinstance(duration, dict):
+        duration = {}
 
     phase_lines: list[str] = []
     for phase_name, status_file, human_action in HUMAN_SESSION_PHASES:
@@ -1295,6 +1353,12 @@ def build_human_checklist(artifact_dir: Path) -> str:
         f"scripted_proof_run_id={scripted_run_id}",
         f"scripted_proof_url={notes.get('scripted_proof_url', '')}",
         f"playtester={notes.get('playtester', '')}",
+        f"reviewer={review.get('reviewer', '')}",
+        f"machine_shape={machine_shape.get('label', '')}",
+        f"machine_cpu_count={machine_shape.get('cpu_count', '')}",
+        f"machine_memory_mb={machine_shape.get('memory_mb', '')}",
+        f"duration_gtic={duration.get('gtic', '')}",
+        f"duration_leveltime={duration.get('leveltime', '')}",
         f"slowdown={notes.get('slowdown', '')}",
         f"slowdown_notes={notes.get('slowdown_notes', '')}",
         f"novnc_focus={notes.get('novnc_focus', '')}",
@@ -1310,6 +1374,7 @@ def build_human_checklist(artifact_dir: Path) -> str:
         "- Confirm the audio evidence mode matches the actual session: status-only SB16 continuity, listener-pass, aggregate audio-proof JSON, or not-tested.",
         "- Confirm noVNC focus notes describe whether the canvas stayed focused or focus had to be retaken.",
         "- Keep slowdown notes with the bundle even when no slowdown was observed.",
+        "- Review human-playtest-review.json for the status-only start/fire/move/use/mouse/menu/final notes and remote machine shape.",
         (
             "- Run: python3 tools/check_cloud_playability_artifacts.py "
             "--human-session path/to/vibe-os-human-proof "
@@ -1326,6 +1391,13 @@ def build_human_checklist(artifact_dir: Path) -> str:
         ),
         "- Confirm no WAD, disk image, status binary, pixel, screenshot, or raw-audio file was downloaded.",
         "- Keep the bundle tied to the passing Real WAD smoke run ID before claiming human playability.",
+        "",
+        "Phase review notes",
+        *[
+            f"- {entry.get('label', entry.get('phase', ''))}: {entry.get('note', '')}"
+            for entry in review.get("phase_reviews", [])
+            if isinstance(entry, dict)
+        ],
         "",
         "Phase hashes",
         *phase_lines,
@@ -1377,6 +1449,232 @@ def validate_human_session(artifact_dir: Path, session_path: Path) -> None:
                 )
 
 
+def _session_phase_summary_int(session: dict, phase_name: str, field: str) -> int | None:
+    for phase in session.get("phases", []):
+        if not isinstance(phase, dict) or phase.get("phase") != phase_name:
+            continue
+        summary = phase.get("summary")
+        if not isinstance(summary, dict):
+            return None
+        value = summary.get(field)
+        if not isinstance(value, str):
+            return None
+        try:
+            return int(value, 16)
+        except ValueError:
+            return None
+    return None
+
+
+def _phase_contract(phase_name: str) -> tuple[str, str]:
+    for phase, status_file, human_action in HUMAN_SESSION_PHASES:
+        if phase == phase_name:
+            return status_file, human_action
+    raise AssertionError(f"unknown human review phase: {phase_name}")
+
+
+def _validate_human_review_text(value: object, label: str) -> str:
+    if not isinstance(value, str):
+        raise AssertionError(f"{label} must be status-only text")
+    if not HUMAN_REVIEW_TEXT_PATTERN.fullmatch(value):
+        raise AssertionError(
+            f"{label} must be 1-160 chars using letters, numbers, spaces, and .,:;_/()+-"
+        )
+    return value
+
+
+def _validate_machine_shape(machine_shape: object) -> dict:
+    if not isinstance(machine_shape, dict):
+        raise AssertionError(f"{HUMAN_REVIEW_FILE} machine_shape must be an object")
+    expected_literals = {
+        "source": "remote-collector-status-only",
+        "host_class": "disposable",
+        "qemu_location": "remote",
+        "vnc_endpoint": "127.0.0.1:5901",
+        "vnc_tunnel": "loopback-only",
+    }
+    for key, expected in expected_literals.items():
+        if machine_shape.get(key) != expected:
+            raise AssertionError(f"{HUMAN_REVIEW_FILE} machine_shape.{key} must be {expected}")
+    for key in ("cpu_count", "memory_mb"):
+        value = machine_shape.get(key)
+        if not isinstance(value, int) or value < 1:
+            raise AssertionError(f"{HUMAN_REVIEW_FILE} machine_shape.{key} must be a positive integer")
+    for key in ("label", "os", "arch"):
+        _validate_human_review_text(machine_shape.get(key), f"{HUMAN_REVIEW_FILE} machine_shape.{key}")
+    allowed_keys = set(expected_literals) | {"cpu_count", "memory_mb", "label", "os", "arch"}
+    extra = sorted(set(machine_shape) - allowed_keys)
+    if extra:
+        raise AssertionError(
+            f"{HUMAN_REVIEW_FILE} machine_shape has unsupported field(s): {', '.join(extra)}"
+        )
+    return dict(machine_shape)
+
+
+def build_human_review(
+    artifact_dir: Path,
+    *,
+    reviewer: str,
+    phase_notes: dict[str, str],
+    machine_shape: dict,
+) -> dict:
+    names = _relative_names(artifact_dir)
+    session_name = _find_one(names, HUMAN_SESSION_FILE)
+    if session_name is None:
+        raise AssertionError(f"missing expected human session file: {HUMAN_SESSION_FILE}")
+    session = _load_human_session(artifact_dir / session_name)
+    machine = _validate_machine_shape(machine_shape)
+    reviewer_text = _validate_human_review_text(reviewer, f"{HUMAN_REVIEW_FILE} reviewer")
+    if not re.fullmatch(r"[A-Za-z0-9._-]{2,64}", reviewer_text):
+        raise AssertionError(f"{HUMAN_REVIEW_FILE} reviewer must be a 2-64 character handle")
+
+    start_gtic = _session_phase_summary_int(session, "after-start", "gtic")
+    final_gtic = _session_phase_summary_int(session, "final", "gtic")
+    start_leveltime = _session_phase_summary_int(session, "after-start", "leveltime")
+    final_leveltime = _session_phase_summary_int(session, "final", "leveltime")
+    if (
+        start_gtic is None
+        or final_gtic is None
+        or start_leveltime is None
+        or final_leveltime is None
+    ):
+        raise AssertionError(f"{HUMAN_REVIEW_FILE} cannot compute manual session duration")
+
+    phase_reviews: list[dict] = []
+    for phase in HUMAN_REVIEW_PHASES:
+        status_file, human_action = _phase_contract(phase)
+        status_name = _find_one(names, status_file)
+        if status_name is None:
+            raise AssertionError(f"missing expected human status file: {status_file}")
+        note = _validate_human_review_text(
+            phase_notes.get(phase),
+            f"{HUMAN_REVIEW_FILE} phase_reviews.{phase}.note",
+        )
+        phase_reviews.append(
+            {
+                "phase": phase,
+                "label": HUMAN_REVIEW_PHASE_LABELS[phase],
+                "status_file": status_file,
+                "sha256": _sha256_file(artifact_dir / status_name),
+                "human_action": human_action,
+                "note": note,
+                "evidence": "operator-status-only",
+            }
+        )
+
+    return {
+        "schema": HUMAN_REVIEW_SCHEMA,
+        "source": "remote-vnc-human-review-status-only",
+        "generated_by": "tools/collect_human_playtest_bundle.py",
+        "review_status": "status-only-human-review-recorded",
+        "session_id": session.get("session_id", ""),
+        "commit": session.get("commit", ""),
+        "playtester": session.get("playtester", ""),
+        "reviewer": reviewer_text,
+        "scripted_proof_run_id": session.get("scripted_proof_run_id", ""),
+        "scripted_proof_url": session.get("scripted_proof_url", ""),
+        "machine_shape": machine,
+        "duration": {
+            "basis": "after-start-to-final-status",
+            "min_ticks_required": HUMAN_REVIEW_MIN_DURATION_TICKS,
+            "gtic": final_gtic - start_gtic,
+            "leveltime": final_leveltime - start_leveltime,
+        },
+        "phase_reviews": phase_reviews,
+        "operator_confirmations": session.get("operator_confirmations", {}),
+        "artifact_policy": {
+            "status_only": True,
+            "contains_wad_data": False,
+            "contains_disk_image": False,
+            "contains_pixels": False,
+            "contains_screenshots": False,
+            "contains_raw_audio": False,
+            "contains_forbidden_artifacts": False,
+            "permits_local_qemu": False,
+            "requires_post_download_verification": True,
+        },
+    }
+
+
+def _load_human_review(path: Path) -> dict:
+    return _load_json_object(path, HUMAN_REVIEW_FILE)
+
+
+def validate_human_review(artifact_dir: Path, review_path: Path) -> None:
+    review = _load_human_review(review_path)
+    if review.get("schema") != HUMAN_REVIEW_SCHEMA:
+        raise AssertionError(f"{HUMAN_REVIEW_FILE} schema must be {HUMAN_REVIEW_SCHEMA}")
+    if review.get("source") != "remote-vnc-human-review-status-only":
+        raise AssertionError(
+            f"{HUMAN_REVIEW_FILE} source must be remote-vnc-human-review-status-only"
+        )
+    if review.get("generated_by") != "tools/collect_human_playtest_bundle.py":
+        raise AssertionError(f"{HUMAN_REVIEW_FILE} generated_by must name the collector")
+    if review.get("review_status") != "status-only-human-review-recorded":
+        raise AssertionError(f"{HUMAN_REVIEW_FILE} review_status is invalid")
+
+    phase_entries = review.get("phase_reviews")
+    if not isinstance(phase_entries, list):
+        raise AssertionError(f"{HUMAN_REVIEW_FILE} phase_reviews must be a list")
+    phase_notes: dict[str, str] = {}
+    seen_phases: set[str] = set()
+    for entry in phase_entries:
+        if not isinstance(entry, dict):
+            raise AssertionError(f"{HUMAN_REVIEW_FILE} phase_reviews entries must be objects")
+        phase = entry.get("phase")
+        if phase not in HUMAN_REVIEW_PHASES:
+            raise AssertionError(f"{HUMAN_REVIEW_FILE} phase_reviews has invalid phase {phase!r}")
+        if phase in seen_phases:
+            raise AssertionError(f"{HUMAN_REVIEW_FILE} duplicates review phase {phase}")
+        seen_phases.add(phase)
+        phase_notes[phase] = _validate_human_review_text(
+            entry.get("note"),
+            f"{HUMAN_REVIEW_FILE} phase_reviews.{phase}.note",
+        )
+    if tuple(entry.get("phase") for entry in phase_entries) != HUMAN_REVIEW_PHASES:
+        raise AssertionError(f"{HUMAN_REVIEW_FILE} phase_reviews must follow the required phase order")
+
+    expected = build_human_review(
+        artifact_dir,
+        reviewer=review.get("reviewer", ""),
+        phase_notes=phase_notes,
+        machine_shape=review.get("machine_shape", {}),
+    )
+    if review != expected:
+        raise AssertionError(f"{HUMAN_REVIEW_FILE} does not match session, status files, and review notes")
+
+    duration = review.get("duration", {})
+    if not isinstance(duration, dict):
+        raise AssertionError(f"{HUMAN_REVIEW_FILE} duration must be an object")
+    for key in ("gtic", "leveltime"):
+        value = duration.get(key)
+        if not isinstance(value, int) or value < HUMAN_REVIEW_MIN_DURATION_TICKS:
+            raise AssertionError(
+                f"{HUMAN_REVIEW_FILE} duration.{key} must be at least "
+                f"{HUMAN_REVIEW_MIN_DURATION_TICKS}"
+            )
+
+    policy = review.get("artifact_policy")
+    if not isinstance(policy, dict):
+        raise AssertionError(f"{HUMAN_REVIEW_FILE} artifact_policy must be an object")
+    expected_policy = {
+        "status_only": True,
+        "contains_wad_data": False,
+        "contains_disk_image": False,
+        "contains_pixels": False,
+        "contains_screenshots": False,
+        "contains_raw_audio": False,
+        "contains_forbidden_artifacts": False,
+        "permits_local_qemu": False,
+        "requires_post_download_verification": True,
+    }
+    for key, expected_value in expected_policy.items():
+        if policy.get(key) is not expected_value:
+            raise AssertionError(
+                f"{HUMAN_REVIEW_FILE} artifact_policy.{key} must be {expected_value}"
+            )
+
+
 def build_human_manifest(artifact_dir: Path) -> dict:
     names = [
         name
@@ -1389,6 +1687,9 @@ def build_human_manifest(artifact_dir: Path) -> dict:
     session_name = _find_one(names, HUMAN_SESSION_FILE)
     if session_name is None:
         raise AssertionError(f"missing expected human session file: {HUMAN_SESSION_FILE}")
+    review_name = _find_one(names, HUMAN_REVIEW_FILE)
+    if review_name is None:
+        raise AssertionError(f"missing expected human review manifest file: {HUMAN_REVIEW_FILE}")
     observations_name = _find_one(names, HUMAN_OBSERVATIONS_FILE)
     if observations_name is None:
         raise AssertionError(f"missing expected human observations file: {HUMAN_OBSERVATIONS_FILE}")
@@ -1409,7 +1710,9 @@ def build_human_manifest(artifact_dir: Path) -> dict:
         "schema": HUMAN_MANIFEST_SCHEMA,
         "generated_by": "tools/collect_human_playtest_bundle.py",
         "human_notes_schema": HUMAN_NOTES_SCHEMA,
+        "human_review_schema": HUMAN_REVIEW_SCHEMA,
         "notes_file": HUMAN_NOTES_FILE,
+        "review_file": HUMAN_REVIEW_FILE,
         "commit": notes.get("commit", ""),
         "playtester": notes.get("playtester", ""),
         "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
@@ -1435,6 +1738,7 @@ def build_human_manifest(artifact_dir: Path) -> dict:
             + (
                 HUMAN_NOTES_FILE,
                 HUMAN_OBSERVATIONS_FILE,
+                HUMAN_REVIEW_FILE,
                 HUMAN_CHECKLIST_FILE,
                 HUMAN_SESSION_FILE,
             )
@@ -1463,6 +1767,12 @@ def validate_human_manifest(artifact_dir: Path, manifest_path: Path) -> None:
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} human_notes_schema must be {HUMAN_NOTES_SCHEMA}")
     if manifest.get("notes_file") != HUMAN_NOTES_FILE:
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} notes_file must be {HUMAN_NOTES_FILE}")
+    if manifest.get("human_review_schema") != HUMAN_REVIEW_SCHEMA:
+        raise AssertionError(
+            f"{HUMAN_MANIFEST_FILE} human_review_schema must be {HUMAN_REVIEW_SCHEMA}"
+        )
+    if manifest.get("review_file") != HUMAN_REVIEW_FILE:
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} review_file must be {HUMAN_REVIEW_FILE}")
 
     policy = manifest.get("artifact_policy")
     if not isinstance(policy, dict):
@@ -1489,6 +1799,7 @@ def validate_human_manifest(artifact_dir: Path, manifest_path: Path) -> None:
         + (
             HUMAN_NOTES_FILE,
             HUMAN_OBSERVATIONS_FILE,
+            HUMAN_REVIEW_FILE,
             HUMAN_CHECKLIST_FILE,
             HUMAN_SESSION_FILE,
         )
@@ -1548,6 +1859,14 @@ def validate_human_manifest(artifact_dir: Path, manifest_path: Path) -> None:
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} commit must match {HUMAN_NOTES_FILE}")
     if manifest.get("playtester") != notes.get("playtester"):
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} playtester must match {HUMAN_NOTES_FILE}")
+    review_name = _find_one(actual_names, HUMAN_REVIEW_FILE)
+    if review_name is None:
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} missing review inventory entry")
+    review = _load_human_review(artifact_dir / review_name)
+    if review.get("playtester") != notes.get("playtester"):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} review playtester must match {HUMAN_NOTES_FILE}")
+    if review.get("commit") != notes.get("commit"):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} review commit must match {HUMAN_NOTES_FILE}")
     if manifest.get("scripted_proof_run_id") != notes.get("scripted_proof_run_id"):
         raise AssertionError(
             f"{HUMAN_MANIFEST_FILE} scripted_proof_run_id must match {HUMAN_NOTES_FILE}"
@@ -1591,11 +1910,16 @@ def build_human_post_download_verification(artifact_dir: Path) -> dict:
     session_name = _find_one(names, HUMAN_SESSION_FILE)
     if session_name is None:
         raise AssertionError(f"missing expected human session file: {HUMAN_SESSION_FILE}")
+    review_name = _find_one(names, HUMAN_REVIEW_FILE)
+    if review_name is None:
+        raise AssertionError(f"missing expected human review manifest file: {HUMAN_REVIEW_FILE}")
 
     manifest_path = artifact_dir / manifest_name
     session_path = artifact_dir / session_name
+    review_path = artifact_dir / review_name
     manifest = _load_human_manifest(manifest_path)
     session = _load_human_session(session_path)
+    review = _load_human_review(review_path)
     manifest_entry = {
         "path": HUMAN_MANIFEST_FILE,
         "bytes": manifest_path.stat().st_size,
@@ -1613,6 +1937,9 @@ def build_human_post_download_verification(artifact_dir: Path) -> dict:
     attestation = session.get("human_attestation", {})
     if not isinstance(attestation, dict):
         attestation = {}
+    machine_shape = review.get("machine_shape", {})
+    if not isinstance(machine_shape, dict):
+        machine_shape = {}
     start_gtic = _phase_summary_int(session, "after-start", "gtic")
     final_gtic = _phase_summary_int(session, "final", "gtic")
     start_leveltime = _phase_summary_int(session, "after-start", "leveltime")
@@ -1623,6 +1950,7 @@ def build_human_post_download_verification(artifact_dir: Path) -> dict:
         "session_id": session.get("session_id", ""),
         "commit": session.get("commit", ""),
         "playtester": session.get("playtester", ""),
+        "reviewer": review.get("reviewer", ""),
         "scripted_proof_run_id": session.get("scripted_proof_run_id", ""),
         "phase_count": len(session.get("phases", [])),
         "duration_gtic": (
@@ -1642,10 +1970,17 @@ def build_human_post_download_verification(artifact_dir: Path) -> dict:
         "slowdown_notes": attestation.get("slowdown_notes", ""),
         "novnc_focus": attestation.get("novnc_focus", ""),
         "novnc_focus_notes": attestation.get("novnc_focus_notes", ""),
+        "machine_shape": machine_shape,
         "manifest_sha256": manifest_entry["sha256"],
         "session_sha256": _sha256_file(session_path),
+        "review_sha256": _sha256_file(review_path),
         "files": files,
         "phase_status_hashes": phase_hashes,
+        "phase_review_notes": {
+            entry.get("phase", ""): entry.get("note", "")
+            for entry in review.get("phase_reviews", [])
+            if isinstance(entry, dict)
+        },
     }
     verification["bundle_sha256"] = hashlib.sha256(
         json.dumps(verification, sort_keys=True).encode()
@@ -1658,6 +1993,9 @@ def format_human_post_download_verification(
     label: str = "post-download human verification OK",
 ) -> str:
     phase_hashes = verification.get("phase_status_hashes", {})
+    machine_shape = verification.get("machine_shape", {})
+    if not isinstance(machine_shape, dict):
+        machine_shape = {}
     phase_text = " ".join(
         f"{phase}={phase_hashes[phase][:12]}"
         for phase, _, _ in HUMAN_SESSION_PHASES
@@ -1671,6 +2009,10 @@ def format_human_post_download_verification(
         f"manifest_sha256={verification.get('manifest_sha256', '')} "
         f"files={len(verification.get('files', []))}\n"
         f"review evidence: playtester={verification.get('playtester', '')} "
+        f"reviewer={verification.get('reviewer', '')} "
+        f"machine={machine_shape.get('label', '')} "
+        f"cpus={machine_shape.get('cpu_count', '')} "
+        f"memory_mb={machine_shape.get('memory_mb', '')} "
         f"phases={verification.get('phase_count', '')} "
         f"duration_gtic={verification.get('duration_gtic', '')} "
         f"duration_leveltime={verification.get('duration_leveltime', '')} "
@@ -2382,6 +2724,15 @@ def validate_artifact_dir(
             validate_human_session(artifact_dir, artifact_dir / human_session)
         except AssertionError as exc:
             raise AssertionError(f"human playtest session failed: {exc}") from exc
+
+    human_review = _find_one(names, HUMAN_REVIEW_FILE)
+    if require_human_notes and human_review is None:
+        raise AssertionError(f"missing expected human review manifest file: {HUMAN_REVIEW_FILE}")
+    if human_review is not None:
+        try:
+            validate_human_review(artifact_dir, artifact_dir / human_review)
+        except AssertionError as exc:
+            raise AssertionError(f"human playtest review failed: {exc}") from exc
 
     human_observations = _find_one(names, HUMAN_OBSERVATIONS_FILE)
     if require_human_notes and human_observations is None:

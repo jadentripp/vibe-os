@@ -197,11 +197,15 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "VMM_HIGH_TEST_VADDR equ KERNEL_HIGHER_HALF_BASE",
             "KERNEL_RELOCATION_STATUS_LOW_IDENTITY equ 1",
             "KERNEL_HIGH_ALIAS_STATUS_OK equ 1",
+            "KERNEL_HIGH_EXEC_STATUS_OK equ 1",
             "kernel_relocation_probe:",
             "kernel_translate_current_vaddr:",
             "kernel_high_alias_self_test:",
+            "kernel_high_exec_self_test:",
+            "kernel_high_exec_trampoline:",
             "kernel_relocation_status db 0",
             "kernel_high_alias_status db 0",
+            "kernel_high_exec_status db 0",
             "kernel_relocation_eip dd 0",
             "kernel_relocation_esp dd 0",
             "kernel_relocation_cr3 dd 0",
@@ -213,6 +217,15 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "kernel_high_alias_reclaimed dd 0",
             "kernel_high_alias_low_word dd 0",
             "kernel_high_alias_high_word dd 0",
+            "kernel_high_exec_eip dd 0",
+            "kernel_high_exec_esp dd 0",
+            "kernel_high_exec_cr3 dd 0",
+            "kernel_high_exec_vaddr dd 0",
+            "kernel_high_exec_phys dd 0",
+            "kernel_high_exec_stack_vaddr dd 0",
+            "kernel_high_exec_stack_phys dd 0",
+            "kernel_high_exec_table dd 0",
+            "kernel_high_exec_reclaimed dd 0",
             'smoke_kreloc_text db " kreloc=", 0',
             'smoke_kerneip_text db " kerneip=", 0',
             'smoke_kernesp_text db " kernesp=", 0',
@@ -226,6 +239,16 @@ class BootLoaderVmContractTests(unittest.TestCase):
             'smoke_kmapfree_text db " kmapfree=", 0',
             'smoke_kmaplo_text db " kmaplo=", 0',
             'smoke_kmaphi_text db " kmaphi=", 0',
+            'smoke_khiexec_text db " khiexec=", 0',
+            'smoke_khieip_text db " khieip=", 0',
+            'smoke_khiesp_text db " khiesp=", 0',
+            'smoke_khicr3_text db " khicr3=", 0',
+            'smoke_khiva_text db " khiva=", 0',
+            'smoke_khipa_text db " khipa=", 0',
+            'smoke_khistk_text db " khistk=", 0',
+            'smoke_khistkpa_text db " khistkpa=", 0',
+            'smoke_khipt_text db " khipt=", 0',
+            'smoke_khifree_text db " khifree=", 0',
             "vmm_dynamic_page_tables dd 0",
             "vmm_active_page_tables dd 0",
             "vmm_reclaimed_page_tables dd 0",
@@ -305,10 +328,49 @@ class BootLoaderVmContractTests(unittest.TestCase):
         ):
             self.assertIn(source, high_alias_probe)
 
+        high_exec_probe = kernel.split("kernel_high_exec_self_test:", 1)[1].split("kernel_high_exec_trampoline:", 1)[0]
+        for source in (
+            "mov [kernel_high_exec_saved_low_esp], esp",
+            "mov eax, kernel_high_exec_trampoline",
+            "add eax, KERNEL_HIGHER_HALF_BASE",
+            "mov [kernel_high_exec_vaddr], eax",
+            "call kernel_translate_current_vaddr",
+            "cmp eax, KERNEL_STACK_LOW",
+            "cmp eax, KERNEL_STACK_TOP",
+            "mov [kernel_high_exec_stack_phys], eax",
+            "mov [kernel_high_exec_stack_vaddr], eax",
+            "call vmm_map_page",
+            "mov [kernel_high_exec_table], eax",
+            "mov esp, ebx",
+            "call eax",
+            "mov esp, [kernel_high_exec_saved_low_esp]",
+            "cmp eax, PAGING_DIR_ADDR",
+            "call vmm_unmap_page",
+            "mov [kernel_high_exec_reclaimed], eax",
+            "cmp eax, [kernel_high_exec_table]",
+        ):
+            self.assertIn(source, high_exec_probe)
+
+        high_exec_trampoline = kernel.split("kernel_high_exec_trampoline:", 1)[1].split("framebuffer_map_lfb:", 1)[0]
+        for source in (
+            "call .capture_eip",
+            "mov [kernel_high_exec_eip], eax",
+            "mov [kernel_high_exec_esp], esp",
+            "mov [kernel_high_exec_cr3], eax",
+            "mov byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_OK",
+            "ret",
+        ):
+            self.assertIn(source, high_exec_trampoline)
+
         vmm_self_test = kernel.split("vmm_self_test:", 1)[1].split("heap_init:", 1)[0]
         self.assertIn("call kernel_high_alias_self_test", vmm_self_test)
         self.assertIn(
             "cmp byte [kernel_high_alias_status], KERNEL_HIGH_ALIAS_STATUS_OK",
+            vmm_self_test,
+        )
+        self.assertIn("call kernel_high_exec_self_test", vmm_self_test)
+        self.assertIn(
+            "cmp byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_OK",
             vmm_self_test,
         )
 
@@ -353,6 +415,16 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "`kmapfree=`",
             "`kmaplo=`",
             "`kmaphi=`",
+            "`khiexec=OK`",
+            "`khieip=`",
+            "`khiesp=`",
+            "`khicr3=`",
+            "`khiva=`",
+            "`khipa=`",
+            "`khistk=`",
+            "`khistkpa=`",
+            "`khipt=`",
+            "`khifree=`",
         ):
             self.assertIn(source, boot_doc)
         self.assertIn("docs/architecture.md", readme)

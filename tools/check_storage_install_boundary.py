@@ -109,6 +109,7 @@ REQUIRED_PHRASES = (
     "root 8.3 plus read-only one-level subdirectory",
     "host image inventory may walk deeper packaged trees than the kernel syscall surface",
     "blank-disk-installer-manifest",
+    "blank-image-file materialization manifest",
     "damaged-image-refusal-report",
     "structural boot proof without running QEMU locally",
     "all-zero image",
@@ -1079,6 +1080,56 @@ def prove_blank_disk_install(root: Path = ROOT) -> dict[str, object]:
     }
 
 
+def materialize_blank_install_image(output_path: Path, root: Path = ROOT) -> dict[str, object]:
+    """Create a new bootable raw image file from the blank-image install path.
+
+    This is deliberately narrower than an arbitrary-device installer: the
+    output path must not already exist, so the tool cannot overwrite a disk,
+    partition, or user file by accident.
+    """
+
+    make_wad_image = load_make_wad_image()
+    inputs = _default_install_inputs(root)
+    if output_path.exists() or output_path.is_symlink():
+        raise StorageBoundaryError(f"refusing to overwrite existing output path: {output_path}")
+    output_path = output_path.resolve()
+    if not output_path.parent.is_dir():
+        raise StorageBoundaryError(f"output directory does not exist: {output_path.parent}")
+
+    image_size = make_wad_image.IMAGE_SECTORS * make_wad_image.SECTOR_SIZE
+    installed = make_wad_image.install_bootable_layout(bytearray(image_size), **inputs)
+    try:
+        with output_path.open("xb") as handle:
+            handle.write(installed)
+    except FileExistsError as exc:
+        raise StorageBoundaryError(f"refusing to overwrite existing output path: {output_path}") from exc
+    except OSError as exc:
+        raise StorageBoundaryError(f"failed to write blank install image {output_path}: {exc}") from exc
+
+    written = output_path.read_bytes()
+    if written != bytes(installed):
+        raise StorageBoundaryError(f"written blank install image did not round-trip: {output_path}")
+    manifest = _inspect_image_bytes(
+        written,
+        str(output_path),
+        artifact_inputs=inputs,
+    )
+    return {
+        "schema": "vibe-os-blank-image-file-materialization-v1",
+        "output": str(output_path),
+        "bytes_written": len(written),
+        "sha256": _sha256(written),
+        "write_safety": {
+            "output_must_not_exist": True,
+            "existing_path_refused": True,
+            "block_device_write_supported": False,
+            "arbitrary_device_install_supported": False,
+        },
+        "installed_image_manifest": manifest,
+        "claim_boundary": "new-regular-image-file-only; not arbitrary-device-installer",
+    }
+
+
 def inspect_recovery_candidate_bytes(
     image: bytes | bytearray,
     *,
@@ -1198,6 +1249,11 @@ def main(argv: list[str] | None = None) -> int:
         help="build an in-memory image from an all-zero disk and verify the install manifest",
     )
     parser.add_argument(
+        "--write-blank-image",
+        type=Path,
+        help="write a new regular raw image file from the blank-image install path; refuses existing paths",
+    )
+    parser.add_argument(
         "--recovery-candidate",
         type=Path,
         help="inspect one image as a recovery candidate and report accept/refuse",
@@ -1228,6 +1284,11 @@ def main(argv: list[str] | None = None) -> int:
             results["image_manifest"] = manifest
         if args.blank_install_proof:
             results["blank_install_proof"] = prove_blank_disk_install(ROOT)
+        if args.write_blank_image is not None:
+            results["blank_image_file"] = materialize_blank_install_image(
+                args.write_blank_image,
+                ROOT,
+            )
         if args.recovery_candidate is not None:
             results["recovery_candidate"] = inspect_recovery_candidate(args.recovery_candidate)
         if args.recovery_fixtures is not None:
@@ -1257,6 +1318,12 @@ def main(argv: list[str] | None = None) -> int:
                 f"{proof['source']['image_size']} bytes, "
                 f"{proof['installed_image_manifest']['fat16']['root_entry_count']} root entries, "
                 "structural boot proof without local QEMU"
+            )
+        if "blank_image_file" in results:
+            image_file = results["blank_image_file"]
+            print(
+                "blank image file materialization OK: "
+                f"{image_file['bytes_written']} bytes written to {image_file['output']}"
             )
         if "recovery_candidate" in results:
             report = results["recovery_candidate"]

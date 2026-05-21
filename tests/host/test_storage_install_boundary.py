@@ -383,6 +383,94 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         self.assertEqual(proof["schema"], "vibe-os-blank-disk-installer-manifest-v1")
         self.assertFalse(proof["structural_boot_proof"]["qemu_executed"])
 
+    def test_blank_image_materialization_writes_new_file_and_refuses_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "vibe-os.img"
+            manifest = check_storage_install_boundary.materialize_blank_install_image(output, ROOT)
+            make_wad_image = check_storage_install_boundary.load_make_wad_image()
+
+            self.assertEqual(
+                manifest["schema"],
+                "vibe-os-blank-image-file-materialization-v1",
+            )
+            self.assertTrue(output.is_file())
+            self.assertEqual(output.stat().st_size, manifest["bytes_written"])
+            self.assertEqual(
+                manifest["bytes_written"],
+                make_wad_image.IMAGE_SECTORS * make_wad_image.SECTOR_SIZE,
+            )
+            self.assertEqual(
+                hashlib.sha256(output.read_bytes()).hexdigest(),
+                manifest["sha256"],
+            )
+            self.assertTrue(manifest["write_safety"]["output_must_not_exist"])
+            self.assertTrue(manifest["write_safety"]["existing_path_refused"])
+            self.assertFalse(manifest["write_safety"]["block_device_write_supported"])
+            self.assertFalse(manifest["write_safety"]["arbitrary_device_install_supported"])
+            self.assertEqual(
+                manifest["claim_boundary"],
+                "new-regular-image-file-only; not arbitrary-device-installer",
+            )
+            root_names = {
+                entry["name"]
+                for entry in manifest["installed_image_manifest"]["root_entries"]
+            }
+            self.assertIn("DOOM.ELF", root_names)
+            self.assertIn("ABIPROBE.ELF", root_names)
+
+            with self.assertRaisesRegex(
+                check_storage_install_boundary.StorageBoundaryError,
+                "refusing to overwrite existing output path",
+            ):
+                check_storage_install_boundary.materialize_blank_install_image(output, ROOT)
+
+    def test_blank_image_materialization_cli_outputs_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "vibe-os.img"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(TOOL),
+                    "--write-blank-image",
+                    str(output),
+                    "--json",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+            payload = json.loads(result.stdout)
+
+        manifest = payload["blank_image_file"]
+        self.assertEqual(
+            manifest["schema"],
+            "vibe-os-blank-image-file-materialization-v1",
+        )
+        self.assertEqual(manifest["bytes_written"], 67108864)
+        self.assertIn("not arbitrary-device-installer", manifest["claim_boundary"])
+
+    def test_blank_image_materialization_cli_refuses_existing_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "existing.img"
+            output.write_bytes(b"do not overwrite me")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(TOOL),
+                    "--write-blank-image",
+                    str(output),
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("refusing to overwrite existing output path", result.stderr)
+
     def test_recovery_candidate_reports_known_good_image_as_inspect_only(self):
         report = check_storage_install_boundary.inspect_recovery_candidate(BUILD / "disk.img")
 

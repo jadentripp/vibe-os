@@ -21,6 +21,7 @@ KERNEL_HIGHER_HALF_BASE = 0xC0000000
 KERNEL_LOW_LINK_BASE = 0x00010000
 KERNEL_HIGH_LINK_BASE = KERNEL_HIGHER_HALF_BASE + KERNEL_LOW_LINK_BASE
 KERNEL_ELF_MAX_BYTES = 0x00018000
+PAGE_SIZE = 0x1000
 KERNEL_STACK_LOW = 0x00060000
 KERNEL_STACK_TOP = 0x00070000
 KERNEL_HIGH_STACK_LOW = KERNEL_HIGHER_HALF_BASE + KERNEL_STACK_LOW
@@ -40,7 +41,7 @@ SYS_EXEC_ARGV_SOURCE_USER = 2
 PROCESS_SLOT_COUNT = 6
 PROCESS_GENERIC_SLOT_COUNT = 2
 WAIT_PROOF_EXIT_STATUS = 0x2A
-ABI_PROBE_EXPECTED_FLAGS = 0xF
+ABI_PROBE_EXPECTED_FLAGS = 0x1F
 USER_PROBE_DUP_FLAG = 0x00020000
 USER_PROBE_FCNTL_FLAG = 0x00040000
 USER_KIND_DOOM = 2
@@ -213,18 +214,19 @@ def _preemption_expected_pids(fields: dict[str, str]) -> tuple[int, int]:
         _wait_failures,
         _wait_nohang,
         wait_seeded,
-        wait_last_pid,
+        _wait_last_pid,
         _wait_last_status,
     ) = _hex_tuple(fields, "wait", 7, "/")
     if wait_seeded == 0:
         _raise_preemption_failure(
             fields, "wait= must prove the preempt-probe child was seeded before scheduler proof"
         )
-    if wait_last_pid == 0 or wait_last_pid == 0xFFFFFFFF:
+    wait_seed_pid = _hex(fields, "waitseed")
+    if wait_seed_pid == 0 or wait_seed_pid == 0xFFFFFFFF:
         _raise_preemption_failure(
-            fields, "wait= must record the reaped preempt-probe child PID before scheduler proof"
+            fields, "waitseed= must record the reaped preempt-probe child PID before scheduler proof"
         )
-    return doom_pid, wait_last_pid
+    return doom_pid, wait_seed_pid
 
 
 def validate_vm_mapping(fields: dict[str, str]) -> None:
@@ -278,6 +280,7 @@ def validate_kernel_relocation_scaffold(fields: dict[str, str]) -> None:
         if eip >= KERNEL_HIGHER_HALF_BASE or esp >= KERNEL_HIGHER_HALF_BASE:
             raise AssertionError("kreloc=LOW cannot report higher-half kernel EIP or ESP")
         validate_kernel_high_alias(fields, expected_vaddr=KERNEL_HIGHER_HALF_BASE + virt, expected_phys=phys)
+        validate_kernel_high_exec(fields, relocated=False)
         return
 
     if status == "OK":
@@ -299,6 +302,7 @@ def validate_kernel_relocation_scaffold(fields: dict[str, str]) -> None:
         if phys == virt:
             raise AssertionError("kernphys= must be non-identity when kreloc=OK")
         validate_kernel_high_alias(fields, expected_vaddr=virt, expected_phys=phys)
+        validate_kernel_high_exec(fields, relocated=True)
         return
 
     raise AssertionError(f"kreloc= must be LOW or OK, got {status}")
@@ -345,6 +349,56 @@ def validate_kernel_high_alias(
         raise AssertionError("kmaplo= must record nonzero bytes read from the low kernel entry")
     if high_word != low_word:
         raise AssertionError("kmaphi= must match kmaplo= after reading the higher-half kernel alias")
+
+
+def validate_kernel_high_exec(fields: dict[str, str], *, relocated: bool) -> None:
+    _exact(fields, "khiexec", "OK")
+
+    eip = _hex(fields, "khieip")
+    esp = _hex(fields, "khiesp")
+    cr3 = _hex(fields, "khicr3")
+    vaddr = _hex(fields, "khiva")
+    phys = _hex(fields, "khipa")
+    stack_vaddr = _hex(fields, "khistk")
+    stack_phys = _hex(fields, "khistkpa")
+    table = _hex(fields, "khipt")
+    reclaimed = _hex(fields, "khifree")
+
+    _in_range(eip, KERNEL_HIGH_LINK_BASE, KERNEL_HIGH_LINK_BASE + KERNEL_ELF_MAX_BYTES, "khieip")
+    _in_range(esp, KERNEL_HIGH_STACK_LOW, KERNEL_HIGH_STACK_TOP, "khiesp")
+    _page_aligned(vaddr, "khiva")
+    _page_aligned(phys, "khipa")
+    _page_aligned(stack_vaddr, "khistk")
+    _page_aligned(stack_phys, "khistkpa")
+
+    if vaddr != (eip & ~(PAGE_SIZE - 1)):
+        raise AssertionError("khiva= must be the page containing the high trampoline EIP")
+    if not (KERNEL_LOW_LINK_BASE <= phys < KERNEL_LOW_LINK_BASE + KERNEL_ELF_MAX_BYTES):
+        raise AssertionError("khipa= must be the low physical kernel text page backing khiva")
+    if vaddr != KERNEL_HIGHER_HALF_BASE + phys:
+        raise AssertionError("khiva= must be the higher-half alias of khipa")
+    if stack_vaddr != (esp & ~(PAGE_SIZE - 1)):
+        raise AssertionError("khistk= must be the page containing the high trampoline ESP")
+    if not (KERNEL_STACK_LOW <= stack_phys < KERNEL_STACK_TOP):
+        raise AssertionError("khistkpa= must be the low physical kernel stack page backing khistk")
+    if stack_vaddr != KERNEL_HIGHER_HALF_BASE + stack_phys:
+        raise AssertionError("khistk= must be the higher-half alias of khistkpa")
+
+    if relocated:
+        expected_cr3 = _hex(fields, "kerncr3")
+        if cr3 != expected_cr3:
+            raise AssertionError("khicr3= must match kerncr3= once kreloc=OK")
+    elif cr3 != PAGING_DIR_ADDR:
+        raise AssertionError("khicr3= must prove the high trampoline still ran under the low bootstrap page directory")
+
+    if phys == vaddr or stack_phys == stack_vaddr:
+        raise AssertionError("khiexec proof must use non-identity high aliases")
+    _managed_frame(table, "khipt")
+    _managed_frame(reclaimed, "khifree")
+    if table in (phys, stack_phys):
+        raise AssertionError("khipt= must be distinct from the aliased text and stack frames")
+    if reclaimed != table:
+        raise AssertionError("khifree= must match khipt= to prove high-exec page-table reclaim")
 
 
 def validate_exec(fields: dict[str, str]) -> None:
@@ -487,6 +541,42 @@ def validate_exec(fields: dict[str, str]) -> None:
         raise AssertionError(
             f"wait= must record seeded child exit status {WAIT_PROOF_EXIT_STATUS:#x}"
         )
+    wait_seed_pid = _hex(fields, "waitseed")
+    if wait_seed_pid == 0 or wait_seed_pid == 0xFFFFFFFF:
+        raise AssertionError("waitseed= must record the seeded preempt-probe child PID")
+
+    (
+        fork_successes,
+        fork_failures,
+        fork_parent_pid,
+        fork_child_pid,
+        fork_parent_return,
+        fork_child_return,
+        fork_pages,
+        fork_fds,
+        fork_owned_freed,
+        fork_zombies,
+    ) = _hex_tuple(fields, "fork", 10, "/")
+    if fork_successes == 0:
+        raise AssertionError("fork= must prove SYS_FORK succeeded at least once")
+    if fork_failures != 0:
+        raise AssertionError("fork= must prove the bounded fork proof did not hit an error path")
+    if fork_parent_pid != abi_pid:
+        raise AssertionError("fork= parent PID must match the ABI probe PID")
+    if fork_child_pid in (0, 0xFFFFFFFF) or fork_child_pid == fork_parent_pid:
+        raise AssertionError("fork= must record a distinct child PID")
+    if fork_parent_return != fork_child_pid:
+        raise AssertionError("fork= must prove the parent returned the child PID")
+    if fork_child_return != 0:
+        raise AssertionError("fork= must prove the child returned zero")
+    if fork_pages == 0:
+        raise AssertionError("fork= must prove eager child address-space page copying")
+    if fork_fds == 0:
+        raise AssertionError("fork= must prove fork-time fd descriptor cloning")
+    if fork_owned_freed == 0:
+        raise AssertionError("fork= must prove fork child PMM-backed pages were reclaimed")
+    if fork_zombies == 0:
+        raise AssertionError("fork= must prove child exit left a wait-reapable zombie")
 
     (
         vm_teardowns,
@@ -697,12 +787,33 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         _require(text, "fdexec=", label)
         _require(text, "fdup=", label)
         _require(text, "wait=", label)
+        _require(text, "waitseed=", label)
+        _require(text, "fork=", label)
         _require(text, "vmreap=", label)
         _require(text, "peip", label)
         _require(text, "pkind", label)
         _require(text, "pmask", label)
         _require(text, "pcr3", label)
         _require(text, "pkstk", label)
+
+    for text, label in (
+        (process_vm, "process VM doc"),
+        (boot_vm, "boot loader VM doc"),
+        (tests_readme, "tests README"),
+    ):
+        for needle in (
+            "khiexec=OK",
+            "khieip=",
+            "khiesp=",
+            "khicr3=",
+            "khiva=",
+            "khipa=",
+            "khistk=",
+            "khistkpa=",
+            "khipt=",
+            "khifree=",
+        ):
+            _require(text, needle, label)
 
     for text, label in (
         (process_vm, "process VM doc"),

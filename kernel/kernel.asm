@@ -121,6 +121,7 @@ DATA_SEG equ 0x10
 USER_CODE_SEG equ 0x1b
 USER_DATA_SEG equ 0x23
 TSS_SEG equ 0x28
+KERNEL_STACK_LOW equ 0x00060000
 KERNEL_STACK_TOP equ 0x00070000
 PROC_KERNEL_PROCESS_STACK_TOP equ 0x00070000
 PROC_USER_PROBE_KERNEL_STACK_TOP equ 0x00071000
@@ -179,6 +180,9 @@ KERNEL_RELOCATION_STATUS_MISMATCH equ 2
 KERNEL_HIGH_ALIAS_STATUS_UNKNOWN equ 0
 KERNEL_HIGH_ALIAS_STATUS_OK equ 1
 KERNEL_HIGH_ALIAS_STATUS_FAIL equ 2
+KERNEL_HIGH_EXEC_STATUS_UNKNOWN equ 0
+KERNEL_HIGH_EXEC_STATUS_OK equ 1
+KERNEL_HIGH_EXEC_STATUS_FAIL equ 2
 HEAP_START equ 0x00100000
 HEAP_SIZE equ 0x00800000
 HEAP_MIN_EXT_KB equ 8192
@@ -314,7 +318,7 @@ USER_HEAP_BITMAP_BYTES equ (USER_HEAP_PAGE_COUNT + 7) / 8
 USER_PROBE_EXPECTED_FLAGS equ 0x0007ffff
 USER_PROBE_MAGIC equ 0x13579BDF
 ABI_PROBE_MAGIC equ 0xA81B10BE
-ABI_PROBE_EXPECTED_FLAGS equ 0x0000000f
+ABI_PROBE_EXPECTED_FLAGS equ 0x0000001f
 PREEMPT_PROBE_MAGIC equ 0x50524545
 USER_FAULT_ADDR equ 0x00010000
 USER_FD_BASE equ 3
@@ -669,16 +673,25 @@ PCI_CONFIG_HEADER_REG equ 0x0c
 PCI_HEADER_MULTIFUNCTION_FLAG equ 0x00800000
 PCI_CLASS_MASS_STORAGE equ 0x01
 PCI_CLASS_BRIDGE equ 0x06
+PCI_LOOKUP_ANY equ 0xff
+PCI_LOOKUP_NOT_FOUND equ 0xffffffff
 PCI_SCAN_DEVICE_COUNT equ 32
 PCI_SCAN_FUNCTION_COUNT equ 8
 PCI_SCAN_FUNCTION_PROBES equ PCI_SCAN_DEVICE_COUNT * PCI_SCAN_FUNCTION_COUNT
 PCI_TABLE_ENTRY_DWORDS equ 4
+PCI_TABLE_ENTRY_SHIFT equ 4
 PCI_TABLE_ENTRY_SIZE equ PCI_TABLE_ENTRY_DWORDS * 4
-PCI_TABLE_BDF_OFFSET equ 0
-PCI_TABLE_ID_OFFSET equ 4
+; PCI table entry dword 0: bus[23:16], device[15:8], function[7:0].
+; Dword 1 keeps device-id[31:16] and vendor-id[15:0] from config offset 0.
+; Dword 2 keeps class[31:24], subclass[23:16], prog-if[15:8], revision[7:0].
+; Dword 3 keeps the header/status dword from config offset 0x0c.
+PCI_TABLE_LOCATION_OFFSET equ 0
+PCI_TABLE_VENDOR_DEVICE_OFFSET equ 4
 PCI_TABLE_CLASS_OFFSET equ 8
 PCI_TABLE_HEADER_OFFSET equ 12
 PCI_TABLE_MAX_ENTRIES equ PCI_SCAN_FUNCTION_PROBES
+PCI_TABLE_BDF_OFFSET equ PCI_TABLE_LOCATION_OFFSET
+PCI_TABLE_ID_OFFSET equ PCI_TABLE_VENDOR_DEVICE_OFFSET
 ATA_DATA equ 0x01f0
 ATA_ERROR equ 0x01f1
 ATA_SECTOR_COUNT equ 0x01f2
@@ -1998,8 +2011,11 @@ pci_scan_qemu:
     pushad
 
     mov byte [pci_config_status], 0
+    mov byte [pci_table_api_status], 0
     mov dword [pci_probe_count], 0
     mov dword [pci_function_count], 0
+    mov dword [pci_table_count], 0
+    mov dword [pci_table_overflow_count], 0
     mov dword [pci_first_bdf], 0
     mov dword [pci_first_id], 0
     mov dword [pci_first_class], 0
@@ -2008,6 +2024,9 @@ pci_scan_qemu:
     mov dword [pci_multifunction_device_count], 0
     mov dword [pci_mass_storage_class_count], 0
     mov dword [pci_bridge_class_count], 0
+    mov dword [pci_lookup_mass_storage_bdf], PCI_LOOKUP_NOT_FOUND
+    mov dword [pci_lookup_bridge_bdf], PCI_LOOKUP_NOT_FOUND
+    mov dword [pci_lookup_miss_bdf], PCI_LOOKUP_NOT_FOUND
 
     mov edi, pci_device_table
     xor eax, eax
@@ -2076,14 +2095,19 @@ pci_scan_qemu:
     shl edx, 8
     or edx, edi
 
-    mov eax, [pci_function_count]
+    mov eax, [pci_table_count]
     cmp eax, PCI_TABLE_MAX_ENTRIES
-    jae .skip_table_store
-    shl eax, 4
-    mov [pci_device_table + eax + PCI_TABLE_BDF_OFFSET], edx
-    mov [pci_device_table + eax + PCI_TABLE_ID_OFFSET], ebp
+    jae .record_table_overflow
+    shl eax, PCI_TABLE_ENTRY_SHIFT
+    mov [pci_device_table + eax + PCI_TABLE_LOCATION_OFFSET], edx
+    mov [pci_device_table + eax + PCI_TABLE_VENDOR_DEVICE_OFFSET], ebp
     mov [pci_device_table + eax + PCI_TABLE_CLASS_OFFSET], ecx
     mov [pci_device_table + eax + PCI_TABLE_HEADER_OFFSET], ebx
+    inc dword [pci_table_count]
+    jmp .skip_table_store
+
+.record_table_overflow:
+    inc dword [pci_table_overflow_count]
 
 .skip_table_store:
     cmp byte [pci_config_status], 1
@@ -2137,6 +2161,124 @@ pci_scan_qemu:
     xor eax, eax
     mov dx, PCI_CONFIG_ADDRESS
     out dx, eax
+    popad
+    call pci_table_probe_lookup_contract
+    ret
+
+; Read-only PCI table API for future in-kernel drivers. Callers pass an index
+; in eax and receive esi=entry with CF clear, or esi=0 with CF set.
+pci_table_entry_by_index:
+    cmp eax, [pci_table_count]
+    jae .missing
+    shl eax, PCI_TABLE_ENTRY_SHIFT
+    lea esi, [pci_device_table + eax]
+    clc
+    ret
+
+.missing:
+    xor esi, esi
+    stc
+    ret
+
+; Class lookup API. Inputs are al=class, ah=subclass, bl=prog-if; use
+; PCI_LOOKUP_ANY for wildcard subclass/prog-if. On success CF is clear, esi
+; points at the table entry, eax is the index, and edx is the packed BDF.
+pci_table_find_first_by_class:
+    push ebx
+    push ecx
+    push edi
+    mov cl, al
+    mov ch, ah
+    mov dl, bl
+    xor edi, edi
+
+.entry_loop:
+    cmp edi, [pci_table_count]
+    jae .not_found
+    mov esi, edi
+    shl esi, PCI_TABLE_ENTRY_SHIFT
+    add esi, pci_device_table
+    mov eax, [esi + PCI_TABLE_CLASS_OFFSET]
+
+    mov ebx, eax
+    shr ebx, 24
+    cmp cl, PCI_LOOKUP_ANY
+    je .check_subclass
+    cmp bl, cl
+    jne .next_entry
+
+.check_subclass:
+    mov ebx, eax
+    shr ebx, 16
+    cmp ch, PCI_LOOKUP_ANY
+    je .check_prog_if
+    cmp bl, ch
+    jne .next_entry
+
+.check_prog_if:
+    mov ebx, eax
+    shr ebx, 8
+    cmp dl, PCI_LOOKUP_ANY
+    je .found
+    cmp bl, dl
+    jne .next_entry
+
+.found:
+    mov eax, edi
+    mov edx, [esi + PCI_TABLE_LOCATION_OFFSET]
+    pop edi
+    pop ecx
+    pop ebx
+    clc
+    ret
+
+.next_entry:
+    inc edi
+    jmp .entry_loop
+
+.not_found:
+    xor esi, esi
+    mov eax, PCI_LOOKUP_NOT_FOUND
+    mov edx, PCI_LOOKUP_NOT_FOUND
+    pop edi
+    pop ecx
+    pop ebx
+    stc
+    ret
+
+pci_table_probe_lookup_contract:
+    pushad
+    mov byte [pci_table_api_status], 0
+    mov dword [pci_lookup_mass_storage_bdf], PCI_LOOKUP_NOT_FOUND
+    mov dword [pci_lookup_bridge_bdf], PCI_LOOKUP_NOT_FOUND
+    mov dword [pci_lookup_miss_bdf], 0
+
+    mov eax, [pci_table_count]
+    call pci_table_entry_by_index
+    jnc .done
+    test esi, esi
+    jnz .done
+    mov dword [pci_lookup_miss_bdf], PCI_LOOKUP_NOT_FOUND
+
+    mov al, PCI_CLASS_MASS_STORAGE
+    mov ah, PCI_LOOKUP_ANY
+    mov bl, PCI_LOOKUP_ANY
+    call pci_table_find_first_by_class
+    jc .lookup_bridge
+    mov [pci_lookup_mass_storage_bdf], edx
+
+.lookup_bridge:
+    mov al, PCI_CLASS_BRIDGE
+    mov ah, PCI_LOOKUP_ANY
+    mov bl, PCI_LOOKUP_ANY
+    call pci_table_find_first_by_class
+    jc .lookup_ok
+    mov [pci_lookup_bridge_bdf], edx
+
+.lookup_ok:
+    mov byte [pci_table_api_status], 1
+
+.done:
     popad
     ret
 
@@ -2365,6 +2507,137 @@ kernel_high_alias_self_test:
 
 .done:
     popad
+    ret
+
+kernel_high_exec_self_test:
+    pushad
+
+    mov byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_FAIL
+    mov dword [kernel_high_exec_eip], 0
+    mov dword [kernel_high_exec_esp], 0
+    mov dword [kernel_high_exec_cr3], 0
+    mov dword [kernel_high_exec_vaddr], 0
+    mov dword [kernel_high_exec_phys], 0
+    mov dword [kernel_high_exec_stack_vaddr], 0
+    mov dword [kernel_high_exec_stack_phys], 0
+    mov dword [kernel_high_exec_table], 0
+    mov dword [kernel_high_exec_reclaimed], 0
+    mov [kernel_high_exec_saved_low_esp], esp
+
+    mov eax, kernel_high_exec_trampoline
+    and eax, 0xfffff000
+    add eax, KERNEL_HIGHER_HALF_BASE
+    mov [kernel_high_exec_vaddr], eax
+
+    mov eax, kernel_high_exec_trampoline
+    call kernel_translate_current_vaddr
+    cmp eax, 0xffffffff
+    je .done
+    and eax, 0xfffff000
+    cmp eax, KERNEL_HIGHER_HALF_BASE
+    jae .done
+    mov [kernel_high_exec_phys], eax
+
+    mov eax, [kernel_high_exec_saved_low_esp]
+    call kernel_translate_current_vaddr
+    cmp eax, 0xffffffff
+    je .done
+    and eax, 0xfffff000
+    cmp eax, KERNEL_STACK_LOW
+    jb .done
+    cmp eax, KERNEL_STACK_TOP
+    jae .done
+    mov [kernel_high_exec_stack_phys], eax
+    add eax, KERNEL_HIGHER_HALF_BASE
+    mov [kernel_high_exec_stack_vaddr], eax
+
+    mov eax, [kernel_high_exec_vaddr]
+    cmp eax, [kernel_high_exec_phys]
+    je .done
+    mov ebx, [kernel_high_exec_phys]
+    mov ecx, PTE_KERNEL_FLAGS
+    call vmm_map_page
+    jc .done
+    mov eax, [vmm_map_table_addr]
+    mov [kernel_high_exec_table], eax
+
+    mov eax, [kernel_high_exec_stack_vaddr]
+    cmp eax, [kernel_high_exec_stack_phys]
+    je .unmap_code
+    mov ebx, [kernel_high_exec_stack_phys]
+    mov ecx, PTE_KERNEL_FLAGS
+    call vmm_map_page
+    jc .unmap_code
+
+    mov ebx, [kernel_high_exec_saved_low_esp]
+    and ebx, 0x00000fff
+    add ebx, [kernel_high_exec_stack_vaddr]
+    mov eax, kernel_high_exec_trampoline
+    and eax, 0x00000fff
+    add eax, [kernel_high_exec_vaddr]
+    mov esp, ebx
+    call eax
+    mov esp, [kernel_high_exec_saved_low_esp]
+
+    cmp byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_OK
+    jne .unmap_both
+    mov eax, [kernel_high_exec_eip]
+    cmp eax, [kernel_high_exec_vaddr]
+    jb .mark_fail_unmap_both
+    mov ebx, [kernel_high_exec_vaddr]
+    add ebx, PAGE_SIZE
+    cmp eax, ebx
+    jae .mark_fail_unmap_both
+    mov eax, [kernel_high_exec_esp]
+    cmp eax, [kernel_high_exec_stack_vaddr]
+    jb .mark_fail_unmap_both
+    mov ebx, [kernel_high_exec_stack_vaddr]
+    add ebx, PAGE_SIZE
+    cmp eax, ebx
+    jae .mark_fail_unmap_both
+    mov eax, [kernel_high_exec_cr3]
+    cmp eax, PAGING_DIR_ADDR
+    je .unmap_both
+
+.mark_fail_unmap_both:
+    mov byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_FAIL
+
+.unmap_both:
+    mov dword [vmm_last_reclaimed_page_table], 0
+    mov eax, [kernel_high_exec_vaddr]
+    call vmm_unmap_page
+    mov eax, [kernel_high_exec_stack_vaddr]
+    call vmm_unmap_page
+    mov eax, [vmm_last_reclaimed_page_table]
+    mov [kernel_high_exec_reclaimed], eax
+    cmp byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_OK
+    jne .done
+    cmp eax, [kernel_high_exec_table]
+    je .done
+    mov byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_FAIL
+    jmp .done
+
+.unmap_code:
+    mov dword [vmm_last_reclaimed_page_table], 0
+    mov eax, [kernel_high_exec_vaddr]
+    call vmm_unmap_page
+    mov eax, [vmm_last_reclaimed_page_table]
+    mov [kernel_high_exec_reclaimed], eax
+
+.done:
+    popad
+    ret
+
+kernel_high_exec_trampoline:
+    call .capture_eip
+
+.capture_eip:
+    pop eax
+    mov [kernel_high_exec_eip], eax
+    mov [kernel_high_exec_esp], esp
+    mov eax, cr3
+    mov [kernel_high_exec_cr3], eax
+    mov byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_OK
     ret
 
 framebuffer_map_lfb:
@@ -2746,6 +3019,32 @@ vmm_clear_process_page:
     pop eax
     ret
 
+vmm_find_process_pte:
+    push eax
+    push ebx
+
+    mov edx, eax
+    shr edx, 22
+    lea edi, [ebx + edx * 4]
+    mov edx, [edi]
+    test edx, PTE_PRESENT
+    jz .fail
+    and edx, 0xfffff000
+    shr eax, 12
+    and eax, 0x000003ff
+    lea edi, [edx + eax * 4]
+    mov edx, [edi]
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop ebx
+    pop eax
+    ret
+
 vmm_clear_process_guard_page:
     call vmm_clear_process_page
     inc dword [vmm_user_guard_pages]
@@ -2782,6 +3081,10 @@ pmm_init:
 
     mov eax, HEAP_START
     mov ecx, HEAP_SIZE / PAGE_SIZE
+    call pmm_reserve_pages
+
+    mov eax, WAD_LOAD_ADDR
+    mov ecx, WAD_MAX_BYTES / PAGE_SIZE
     call pmm_reserve_pages
 
     mov eax, USER_CODE_ADDR
@@ -3102,6 +3405,9 @@ vmm_self_test:
     call pmm_free_page
     call kernel_high_alias_self_test
     cmp byte [kernel_high_alias_status], KERNEL_HIGH_ALIAS_STATUS_OK
+    jne .fail
+    call kernel_high_exec_self_test
+    cmp byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_OK
     jne .fail
     mov byte [vmm_high_mapping_status], 1
     mov byte [vmm_test_status], 1
@@ -8199,6 +8505,96 @@ fd_exec_handoff:
     pop eax
     ret
 
+fd_find_free_slot:
+    push ebx
+    push ecx
+
+    xor ebx, ebx
+    mov ecx, USER_FD_COUNT
+
+.scan_next:
+    cmp ecx, 0
+    je .fail
+    cmp byte [fd_status + ebx], FD_STATUS_FREE
+    je .found
+    inc ebx
+    dec ecx
+    jmp .scan_next
+
+.found:
+    mov eax, ebx
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop ecx
+    pop ebx
+    ret
+
+fd_fork_clone_owned_by_pid:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov [fd_fork_parent_pid], eax
+    mov [fd_fork_child_pid], edx
+    mov dword [fd_fork_clones_last], 0
+    xor esi, esi
+
+.source_next:
+    cmp esi, USER_FD_COUNT
+    jae .success
+    cmp byte [fd_status + esi], FD_STATUS_OPEN
+    jne .advance
+    mov eax, [fd_fork_parent_pid]
+    cmp [fd_owner_pids + esi * 4], eax
+    jne .advance
+    mov ebx, [fd_description_roots + esi * 4]
+    cmp ebx, USER_FD_COUNT
+    jae .fail
+    cmp byte [fd_status + ebx], FD_STATUS_OPEN
+    jne .fail
+    cmp dword [fd_refcounts + ebx * 4], 0
+    je .fail
+    call fd_find_free_slot
+    jc .fail
+    mov edi, eax
+    mov byte [fd_status + edi], FD_STATUS_OPEN
+    mov eax, [fd_fork_child_pid]
+    mov [fd_owner_pids + edi * 4], eax
+    inc dword [fd_open_generations + edi * 4]
+    mov edx, [fd_inherit_flags + esi * 4]
+    call fd_clone_descriptor
+    inc dword [fd_fork_clones_last]
+
+.advance:
+    inc esi
+    jmp .source_next
+
+.success:
+    clc
+    jmp .done
+
+.fail:
+    mov eax, [fd_fork_child_pid]
+    call fd_close_owned_by_pid
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
 writable_fd_index:
     call fd_lookup
     jc .fail
@@ -10050,6 +10446,7 @@ scheduler_init:
     mov dword [process_wait_vm_pages_reclaimed], 0
     mov dword [process_wait_last_vm_pages_reclaimed], 0
     mov dword [process_wait_vm_pages_before], 0
+    mov dword [process_vm_owned_pages_freed], 0
     mov dword [process_mmap_allocations], 0
     mov dword [process_mmap_pages_mapped], 0
     mov dword [process_mmap_last_object_kind], VM_OBJECT_KIND_NONE
@@ -10067,6 +10464,7 @@ scheduler_init:
     mov dword [process_last_munmap_base], 0
     mov dword [process_last_munmap_end], 0
     mov dword [process_exit_teardowns], 0
+    mov dword [process_exit_zombies], 0
     mov dword [process_exec_teardowns], 0
     mov dword [process_last_reused_slot], 0
     mov dword [process_last_reused_pid], 0xffffffff
@@ -10089,6 +10487,17 @@ scheduler_init:
     mov dword [process_wait_nohang_returns], 0
     mov dword [process_wait_seeded_children], 0
     mov dword [process_wait_seeded_child_pid], 0xffffffff
+    mov dword [process_fork_successes], 0
+    mov dword [process_fork_failures], 0
+    mov dword [process_fork_pages_copied_last], 0
+    mov dword [process_fork_parent_pid], 0xffffffff
+    mov dword [process_fork_child_pid], 0xffffffff
+    mov dword [process_fork_parent_return], 0xffffffff
+    mov dword [process_fork_child_return], 0xffffffff
+    mov dword [process_fork_parent_proc], 0
+    mov dword [process_fork_child_proc], 0
+    mov dword [process_exit_parent_pid], 0xffffffff
+    mov dword [process_exit_resumed_pid], 0xffffffff
     mov dword [fd_exec_handoffs], 0
     mov dword [fd_exec_inherited], 0
     mov dword [fd_exec_closed], 0
@@ -10103,6 +10512,9 @@ scheduler_init:
     mov dword [fd_dup_cloexec], 0
     mov dword [fd_last_dup_source], 0xffffffff
     mov dword [fd_last_dup_target], 0xffffffff
+    mov dword [fd_fork_clones_last], 0
+    mov dword [fd_fork_parent_pid], 0xffffffff
+    mov dword [fd_fork_child_pid], 0xffffffff
     mov byte [boot_user_exec_status], 0
     mov dword [boot_user_exec_pid], 0xffffffff
     mov dword [boot_user_exec_entry], 0
@@ -10383,6 +10795,48 @@ process_heap_range_is_mapped:
     pop ebx
     ret
 
+process_free_owned_user_page:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push edi
+
+    cmp esi, 0
+    je .done
+    cmp esi, process_kernel
+    je .done
+    mov ebx, [esi + PROC_PAGE_DIR]
+    test ebx, ebx
+    jz .done
+    call vmm_find_process_pte
+    jc .done
+    test edx, PTE_PRESENT
+    jz .done
+    test edx, PTE_USER
+    jz .done
+    mov ebx, edx
+    and ebx, 0xfffff000
+    mov ecx, eax
+    and ecx, 0xfffff000
+    cmp ebx, ecx
+    je .done
+    cmp ebx, PMM_MANAGED_START
+    jb .done
+    cmp ebx, PMM_MANAGED_END
+    jae .done
+    mov eax, ebx
+    call pmm_free_page
+    inc dword [process_vm_owned_pages_freed]
+
+.done:
+    pop edi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
 process_clear_user_range:
     push eax
     push edx
@@ -10390,6 +10844,7 @@ process_clear_user_range:
 .next:
     cmp eax, edx
     jae .done
+    call process_free_owned_user_page
     call vmm_clear_process_page
     jc .clear_heap_metadata
     inc dword [process_vm_pages_cleared]
@@ -10611,6 +11066,417 @@ process_retire_current_exit_slot:
     and dword [esi + PROC_VM_FLAGS], 0xfffffffe
 
 .done:
+    ret
+
+process_mark_current_zombie_exited:
+    push esi
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .done
+    cmp esi, process_kernel
+    je .done
+    call fd_close_owned_by_process
+    mov [esi + PROC_EXIT_STATUS], ebx
+    mov dword [esi + PROC_STATE], PROC_STATE_EXITED
+    and dword [esi + PROC_VM_FLAGS], 0xfffffffe
+    inc dword [process_exit_zombies]
+
+.done:
+    pop esi
+    ret
+
+process_restore_syscall_context:
+    push ebx
+    push edx
+    push edi
+
+    mov edi, ebx
+    mov edx, [esi + PROC_SAVED_EBP]
+    mov [edi + SYSCALL_FRAME_EBP], edx
+    mov edx, [esi + PROC_SAVED_EDI]
+    mov [edi + SYSCALL_FRAME_EDI], edx
+    mov edx, [esi + PROC_SAVED_ESI]
+    mov [edi + SYSCALL_FRAME_ESI], edx
+    mov edx, [esi + PROC_SAVED_EDX]
+    mov [edi + SYSCALL_FRAME_EDX], edx
+    mov edx, [esi + PROC_SAVED_ECX]
+    mov [edi + SYSCALL_FRAME_ECX], edx
+    mov edx, [esi + PROC_SAVED_EBX]
+    mov [edi + SYSCALL_FRAME_EBX], edx
+    mov edx, [esi + PROC_SAVED_EIP]
+    mov [edi + SYSCALL_FRAME_EIP], edx
+    mov edx, [esi + PROC_SAVED_CS]
+    mov [edi + SYSCALL_FRAME_CS], edx
+    mov edx, [esi + PROC_SAVED_EFLAGS]
+    mov [edi + SYSCALL_FRAME_EFLAGS], edx
+    mov edx, [esi + PROC_SAVED_ESP]
+    mov [edi + SYSCALL_FRAME_ESP], edx
+    mov edx, [esi + PROC_SAVED_SS]
+    mov [edi + SYSCALL_FRAME_SS], edx
+    mov eax, [esi + PROC_SAVED_EAX]
+
+    pop edi
+    pop edx
+    pop ebx
+    ret
+
+process_exit_resume_parent:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .fail
+    mov edx, [esi + PROC_PARENT_PID]
+    mov [process_exit_parent_pid], edx
+    cmp edx, 0xffffffff
+    je .fail
+    mov edi, process_table
+    mov ecx, PROCESS_SLOT_COUNT
+
+.scan_next:
+    cmp ecx, 0
+    je .fail
+    cmp edi, esi
+    je .advance
+    cmp [edi + PROC_PID], edx
+    jne .advance
+    cmp dword [edi + PROC_STATE], PROC_STATE_READY
+    je .found
+    cmp dword [edi + PROC_STATE], PROC_STATE_RUNNING
+    je .found
+    jmp .fail
+
+.advance:
+    add edi, PROCESS_RECORD_BYTES
+    dec ecx
+    jmp .scan_next
+
+.found:
+    mov esi, edi
+    call process_activate
+    mov eax, [esi + PROC_PID]
+    mov [process_exit_resumed_pid], eax
+    mov ebx, [process_exit_frame_ptr]
+    call process_restore_syscall_context
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+process_alloc_fork_child_slot:
+    push eax
+    push ecx
+    push edi
+
+    mov edi, process_generic_exec_slots
+    mov ecx, PROCESS_GENERIC_SLOT_COUNT
+
+.scan_next:
+    cmp ecx, 0
+    je .none
+    mov esi, [edi]
+    cmp esi, [current_process_ptr]
+    je .advance
+    cmp dword [esi + PROC_STATE], PROC_STATE_UNUSED
+    je .found
+
+.advance:
+    add edi, 4
+    dec ecx
+    jmp .scan_next
+
+.found:
+    mov [process_fork_child_proc], esi
+    inc dword [process_generic_slot_allocations]
+    clc
+    jmp .done
+
+.none:
+    stc
+
+.done:
+    pop edi
+    pop ecx
+    pop eax
+    ret
+
+process_fork_copy_metadata:
+    push eax
+    push ecx
+    push esi
+    push edi
+
+    mov esi, [process_fork_parent_proc]
+    mov edi, [process_fork_child_proc]
+    mov eax, [esi + PROC_PID]
+    mov [edi + PROC_PARENT_PID], eax
+    mov eax, [esi + PROC_BRK]
+    mov [edi + PROC_BRK], eax
+    mov eax, [esi + PROC_ENTRY]
+    mov [edi + PROC_ENTRY], eax
+    mov eax, [esi + PROC_EXEC_COUNT]
+    mov [edi + PROC_EXEC_COUNT], eax
+    mov eax, [esi + PROC_ARGC]
+    mov [edi + PROC_ARGC], eax
+    mov eax, [esi + PROC_ARGV]
+    mov [edi + PROC_ARGV], eax
+    mov eax, [esi + PROC_ENVP]
+    mov [edi + PROC_ENVP], eax
+    mov eax, [esi + PROC_ARGV0]
+    mov [edi + PROC_ARGV0], eax
+    mov dword [edi + PROC_EXIT_STATUS], 0
+    push esi
+    push edi
+    mov esi, [esi + PROC_HEAP_BITMAP]
+    mov edi, [edi + PROC_HEAP_BITMAP]
+    mov ecx, USER_HEAP_BITMAP_BYTES
+    cld
+    rep movsb
+    pop edi
+    pop esi
+
+    pop edi
+    pop esi
+    pop ecx
+    pop eax
+    ret
+
+process_clone_user_vm:
+    pushad
+
+    mov dword [process_fork_pages_copied_last], 0
+    mov esi, [process_fork_parent_proc]
+    mov edi, [process_fork_child_proc]
+    cmp esi, 0
+    je .fail
+    cmp edi, 0
+    je .fail
+    mov eax, [esi + PROC_PAGE_DIR]
+    test eax, eax
+    jz .fail
+    mov [process_fork_parent_page_dir], eax
+    mov eax, [edi + PROC_PAGE_DIR]
+    test eax, eax
+    jz .fail
+    mov [process_fork_child_page_dir], eax
+    mov eax, [esi + PROC_VM_REGIONS]
+    mov [process_fork_region_ptr], eax
+    mov eax, [esi + PROC_VM_REGION_COUNT]
+    mov [process_fork_regions_left], eax
+
+.region_next:
+    cmp dword [process_fork_regions_left], 0
+    je .success
+    mov edi, [process_fork_region_ptr]
+    test dword [edi + VM_REGION_FLAGS], VM_REGION_USER
+    jz .region_advance
+    mov eax, [edi + VM_REGION_BASE]
+    mov [process_fork_copy_vaddr], eax
+    mov eax, [edi + VM_REGION_END]
+    mov [process_fork_copy_end], eax
+
+.page_next:
+    mov eax, [process_fork_copy_vaddr]
+    cmp eax, [process_fork_copy_end]
+    jae .region_advance
+    mov ebx, [process_fork_parent_page_dir]
+    call vmm_find_process_pte
+    jc .page_advance
+    test edx, PTE_PRESENT
+    jz .page_advance
+    test edx, PTE_USER
+    jz .page_advance
+    mov eax, edx
+    and eax, 0x00000fff
+    mov [process_fork_copy_flags], eax
+    call pmm_alloc_page
+    test eax, eax
+    jz .fail
+    mov [process_fork_copy_phys], eax
+    mov esi, [process_fork_copy_vaddr]
+    mov edi, eax
+    mov ecx, PAGE_SIZE / 4
+    cld
+    rep movsd
+    mov eax, [process_fork_copy_vaddr]
+    mov ebx, [process_fork_child_page_dir]
+    call vmm_find_process_pte
+    jnc .child_pte_ready
+    mov eax, [process_fork_copy_phys]
+    call pmm_free_page
+    jmp .fail
+
+.child_pte_ready:
+    mov eax, [process_fork_copy_phys]
+    and eax, 0xfffff000
+    mov ebx, [process_fork_copy_flags]
+    and ebx, 0x00000fff
+    or eax, ebx
+    or eax, PTE_PRESENT
+    mov [edi], eax
+    inc dword [process_fork_pages_copied_last]
+
+.page_advance:
+    add dword [process_fork_copy_vaddr], PAGE_SIZE
+    jmp .page_next
+
+.region_advance:
+    add dword [process_fork_region_ptr], VM_REGION_BYTES
+    dec dword [process_fork_regions_left]
+    jmp .region_next
+
+.success:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    popad
+    ret
+
+process_fork_seed_child_context:
+    push eax
+    push ebx
+    push esi
+    push edi
+
+    mov esi, [process_fork_child_proc]
+    mov edi, [process_fork_frame_ptr]
+    mov dword [esi + PROC_SAVED_EAX], 0
+    mov eax, [edi + SYSCALL_FRAME_EBX]
+    mov [esi + PROC_SAVED_EBX], eax
+    mov eax, [edi + SYSCALL_FRAME_ECX]
+    mov [esi + PROC_SAVED_ECX], eax
+    mov eax, [edi + SYSCALL_FRAME_EDX]
+    mov [esi + PROC_SAVED_EDX], eax
+    mov eax, [edi + SYSCALL_FRAME_ESI]
+    mov [esi + PROC_SAVED_ESI], eax
+    mov eax, [edi + SYSCALL_FRAME_EDI]
+    mov [esi + PROC_SAVED_EDI], eax
+    mov eax, [edi + SYSCALL_FRAME_EBP]
+    mov [esi + PROC_SAVED_EBP], eax
+    mov eax, [edi + SYSCALL_FRAME_ESP]
+    mov [esi + PROC_SAVED_ESP], eax
+    mov eax, [edi + SYSCALL_FRAME_EIP]
+    mov [esi + PROC_SAVED_EIP], eax
+    mov eax, [edi + SYSCALL_FRAME_EFLAGS]
+    mov [esi + PROC_SAVED_EFLAGS], eax
+    mov eax, [edi + SYSCALL_FRAME_CS]
+    mov [esi + PROC_SAVED_CS], eax
+    mov eax, [edi + SYSCALL_FRAME_SS]
+    mov [esi + PROC_SAVED_SS], eax
+    mov dword [esi + PROC_STATE], PROC_STATE_READY
+    mov dword [esi + PROC_QUANTUM_TICKS], 0
+    or dword [esi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID
+    mov dword [process_fork_child_return], 0
+
+    pop edi
+    pop esi
+    pop ebx
+    pop eax
+    ret
+
+process_fork_rollback_child:
+    push eax
+    push esi
+
+    mov esi, [process_fork_child_proc]
+    cmp esi, 0
+    je .done
+    call fd_close_owned_by_process
+    call process_teardown_user_vm
+    mov dword [esi + PROC_STATE], PROC_STATE_UNUSED
+    mov dword [esi + PROC_PARENT_PID], 0xffffffff
+    and dword [esi + PROC_VM_FLAGS], 0xfffffffe
+
+.done:
+    pop esi
+    pop eax
+    ret
+
+process_fork_current:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov dword [process_fork_child_proc], 0
+    mov dword [process_fork_child_pid], 0xffffffff
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .enosys
+    cmp esi, process_kernel
+    je .enosys
+    mov eax, [esi + PROC_KIND]
+    cmp eax, USER_KIND_PROBE
+    je .kind_ok
+    cmp eax, USER_KIND_GENERIC
+    je .kind_ok
+    jmp .enosys
+
+.kind_ok:
+    mov [process_fork_parent_proc], esi
+    call process_alloc_fork_child_slot
+    jc .enomem
+    mov esi, [process_fork_child_proc]
+    call process_reuse_exec_target_slot
+    call process_fork_copy_metadata
+    call process_clone_user_vm
+    jc .rollback_enomem
+    mov esi, [process_fork_parent_proc]
+    mov eax, [esi + PROC_PID]
+    mov edi, [process_fork_child_proc]
+    mov edx, [edi + PROC_PID]
+    call fd_fork_clone_owned_by_pid
+    jc .rollback_enomem
+    call process_fork_seed_child_context
+    mov esi, [process_fork_parent_proc]
+    mov eax, [esi + PROC_PID]
+    mov [process_fork_parent_pid], eax
+    mov edi, [process_fork_child_proc]
+    mov eax, [edi + PROC_PID]
+    mov [process_fork_child_pid], eax
+    mov [process_fork_parent_return], eax
+    inc dword [process_fork_successes]
+    clc
+    jmp .done
+
+.rollback_enomem:
+    call process_fork_rollback_child
+
+.enomem:
+    inc dword [process_fork_failures]
+    mov eax, -ERRNO_ENOMEM
+    stc
+    jmp .done
+
+.enosys:
+    inc dword [process_fork_failures]
+    mov eax, -ERRNO_ENOSYS
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
     ret
 
 clear_fault_record:
@@ -14142,7 +15008,10 @@ syscall_handler:
     jmp .return
 
 .fork:
-    jmp .bad_syscall_enosys
+    mov [process_fork_frame_ptr], esp
+    call process_fork_current
+    jc .bad_syscall_from_eax
+    jmp .return
 
 .waitpid:
     call process_waitpid_current
@@ -14210,8 +15079,7 @@ syscall_handler:
     mov [sys_exec_last_result], eax
     jmp .bad_syscall_return
 
-.exec_handoff_return:
-    xor eax, eax
+.context_handoff_return:
     pop ebp
     pop edi
     pop esi
@@ -14219,6 +15087,10 @@ syscall_handler:
     pop ecx
     pop ebx
     iretd
+
+.exec_handoff_return:
+    xor eax, eax
+    jmp .context_handoff_return
 
 .bad_syscall:
     mov eax, 0xffffffff
@@ -14285,8 +15157,24 @@ syscall_handler:
 .exit:
     cmp byte [current_user_kind], USER_KIND_DOOM
     je .doom_exit
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .user_exit_to_kernel
+    cmp esi, process_user_probe
+    je .user_exit_to_kernel
+    cmp dword [esi + PROC_PARENT_PID], 0xffffffff
+    je .user_exit_to_kernel
+    mov [process_exit_frame_ptr], esp
+    call process_mark_current_zombie_exited
+    call process_exit_resume_parent
+    jc .user_exit_after_zombie
+    jmp .context_handoff_return
+
+.user_exit_to_kernel:
     mov byte [user_probe_status], 2
     call process_mark_current_exited
+
+.user_exit_after_zombie:
     mov ax, DATA_SEG
     mov ds, ax
     mov es, ax
@@ -16263,19 +17151,13 @@ write_smoke_status:
     mov al, '/'
     stosb
     mov edx, PROCESS_GENERIC_SLOT_COUNT
-    call smoke_write_hex32
-    mov al, '/'
-    stosb
+    call smoke_write_slash_hex32
     mov edx, [process_slot_reuses]
-    call smoke_write_hex32
-    mov al, '/'
-    stosb
+    call smoke_write_slash_hex32
     mov edx, [process_generic_slot_allocations]
-    call smoke_write_hex32
-    mov al, '/'
-    stosb
+    call smoke_write_slash_hex32
     mov edx, [process_generic_slot_failures]
-    call smoke_write_hex32
+    call smoke_write_slash_hex32
 
     mov esi, smoke_pidseq_text
     call smoke_copy_string
@@ -16284,11 +17166,9 @@ write_smoke_status:
     mov al, '/'
     stosb
     mov edx, [process_last_reused_pid]
-    call smoke_write_hex32
-    mov al, '/'
-    stosb
+    call smoke_write_slash_hex32
     mov edx, [process_last_slot_generation]
-    call smoke_write_hex32
+    call smoke_write_slash_hex32
 
     mov esi, smoke_fdexec_text
     call smoke_copy_string
@@ -16297,15 +17177,11 @@ write_smoke_status:
     mov al, '/'
     stosb
     mov edx, [fd_exec_inherited]
-    call smoke_write_hex32
-    mov al, '/'
-    stosb
+    call smoke_write_slash_hex32
     mov edx, [fd_exec_closed]
-    call smoke_write_hex32
-    mov al, '/'
-    stosb
+    call smoke_write_slash_hex32
     mov edx, [fd_owner_closes]
-    call smoke_write_hex32
+    call smoke_write_slash_hex32
 
     mov esi, smoke_fddup_text
     call smoke_copy_string
@@ -16314,19 +17190,13 @@ write_smoke_status:
     mov al, '/'
     stosb
     mov edx, [fd_dup2_calls]
-    call smoke_write_hex32
-    mov al, '/'
-    stosb
+    call smoke_write_slash_hex32
     mov edx, [fd_dup3_calls]
-    call smoke_write_hex32
-    mov al, '/'
-    stosb
+    call smoke_write_slash_hex32
     mov edx, [fd_dup_shared]
-    call smoke_write_hex32
-    mov al, '/'
-    stosb
+    call smoke_write_slash_hex32
     mov edx, [fd_dup_cloexec]
-    call smoke_write_hex32
+    call smoke_write_slash_hex32
 
     mov esi, smoke_pwait_text
     call smoke_copy_string
@@ -16335,27 +17205,45 @@ write_smoke_status:
     mov al, '/'
     stosb
     mov edx, [process_wait_reaps]
-    call smoke_write_hex32
-    mov al, '/'
-    stosb
+    call smoke_write_slash_hex32
     mov edx, [process_wait_failures]
-    call smoke_write_hex32
-    mov al, '/'
-    stosb
+    call smoke_write_slash_hex32
     mov edx, [process_wait_nohang_returns]
-    call smoke_write_hex32
-    mov al, '/'
-    stosb
+    call smoke_write_slash_hex32
     mov edx, [process_wait_seeded_children]
-    call smoke_write_hex32
-    mov al, '/'
-    stosb
+    call smoke_write_slash_hex32
     mov edx, [process_wait_last_reaped_pid]
-    call smoke_write_hex32
-    mov al, '/'
-    stosb
+    call smoke_write_slash_hex32
     mov edx, [process_wait_last_status]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_waitseed_text
+    call smoke_copy_string
+    mov edx, [process_wait_seeded_child_pid]
     call smoke_write_hex32
+
+    mov esi, smoke_fork_text
+    call smoke_copy_string
+    mov edx, [process_fork_successes]
+    call smoke_write_hex32
+    mov edx, [process_fork_failures]
+    call smoke_write_slash_hex32
+    mov edx, [process_fork_parent_pid]
+    call smoke_write_slash_hex32
+    mov edx, [process_fork_child_pid]
+    call smoke_write_slash_hex32
+    mov edx, [process_fork_parent_return]
+    call smoke_write_slash_hex32
+    mov edx, [process_fork_child_return]
+    call smoke_write_slash_hex32
+    mov edx, [process_fork_pages_copied_last]
+    call smoke_write_slash_hex32
+    mov edx, [fd_fork_clones_last]
+    call smoke_write_slash_hex32
+    mov edx, [process_vm_owned_pages_freed]
+    call smoke_write_slash_hex32
+    mov edx, [process_exit_zombies]
+    call smoke_write_slash_hex32
 
     mov esi, smoke_vmreap_text
     call smoke_copy_string
@@ -16364,19 +17252,13 @@ write_smoke_status:
     mov al, '/'
     stosb
     mov edx, [process_vm_pages_cleared]
-    call smoke_write_hex32
-    mov al, '/'
-    stosb
+    call smoke_write_slash_hex32
     mov edx, [process_wait_vm_reaps]
-    call smoke_write_hex32
-    mov al, '/'
-    stosb
+    call smoke_write_slash_hex32
     mov edx, [process_wait_vm_pages_reclaimed]
-    call smoke_write_hex32
-    mov al, '/'
-    stosb
+    call smoke_write_slash_hex32
     mov edx, [process_wait_last_vm_pages_reclaimed]
-    call smoke_write_hex32
+    call smoke_write_slash_hex32
     mov al, ' '
     stosb
 
@@ -17742,7 +18624,12 @@ write_smoke_status:
 
     mov esi, smoke_pcitabuse_text
     call smoke_copy_string
-    mov edx, [pci_function_count]
+    mov edx, [pci_table_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_pciover_text
+    call smoke_copy_string
+    mov edx, [pci_table_overflow_count]
     call smoke_write_hex32
 
     mov esi, smoke_pcilast_text
@@ -17768,6 +18655,34 @@ write_smoke_status:
     mov esi, smoke_pciclsbr_text
     call smoke_copy_string
     mov edx, [pci_bridge_class_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_pciapi_text
+    call smoke_copy_string
+    cmp byte [pci_table_api_status], 1
+    je .pciapi_ok
+    mov esi, smoke_fail_text
+    jmp .pciapi_write
+
+.pciapi_ok:
+    mov esi, smoke_ok_text
+
+.pciapi_write:
+    call smoke_copy_string
+
+    mov esi, smoke_pcilookms_text
+    call smoke_copy_string
+    mov edx, [pci_lookup_mass_storage_bdf]
+    call smoke_write_hex32
+
+    mov esi, smoke_pcilookbr_text
+    call smoke_copy_string
+    mov edx, [pci_lookup_bridge_bdf]
+    call smoke_write_hex32
+
+    mov esi, smoke_pcilookmiss_text
+    call smoke_copy_string
+    mov edx, [pci_lookup_miss_bdf]
     call smoke_write_hex32
 
     mov esi, smoke_gfx_text
@@ -18109,6 +19024,64 @@ write_smoke_status:
     mov edx, [kernel_high_alias_high_word]
     call smoke_write_hex32
 
+    mov esi, smoke_khiexec_text
+    call smoke_copy_string
+    cmp byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_OK
+    je .khiexec_ok
+    mov esi, fail_status_text
+    jmp .khiexec_write
+
+.khiexec_ok:
+    mov esi, ok_status_text
+
+.khiexec_write:
+    call smoke_copy_string
+
+    mov esi, smoke_khieip_text
+    call smoke_copy_string
+    mov edx, [kernel_high_exec_eip]
+    call smoke_write_hex32
+
+    mov esi, smoke_khiesp_text
+    call smoke_copy_string
+    mov edx, [kernel_high_exec_esp]
+    call smoke_write_hex32
+
+    mov esi, smoke_khicr3_text
+    call smoke_copy_string
+    mov edx, [kernel_high_exec_cr3]
+    call smoke_write_hex32
+
+    mov esi, smoke_khiva_text
+    call smoke_copy_string
+    mov edx, [kernel_high_exec_vaddr]
+    call smoke_write_hex32
+
+    mov esi, smoke_khipa_text
+    call smoke_copy_string
+    mov edx, [kernel_high_exec_phys]
+    call smoke_write_hex32
+
+    mov esi, smoke_khistk_text
+    call smoke_copy_string
+    mov edx, [kernel_high_exec_stack_vaddr]
+    call smoke_write_hex32
+
+    mov esi, smoke_khistkpa_text
+    call smoke_copy_string
+    mov edx, [kernel_high_exec_stack_phys]
+    call smoke_write_hex32
+
+    mov esi, smoke_khipt_text
+    call smoke_copy_string
+    mov edx, [kernel_high_exec_table]
+    call smoke_write_hex32
+
+    mov esi, smoke_khifree_text
+    call smoke_copy_string
+    mov edx, [kernel_high_exec_reclaimed]
+    call smoke_write_hex32
+
     mov esi, smoke_vmmhi_text
     call smoke_copy_string
     cmp byte [vmm_high_mapping_status], 1
@@ -18317,6 +19290,11 @@ smoke_write_hex32:
     pop ecx
     pop ebx
     ret
+
+smoke_write_slash_hex32:
+    mov al, '/'
+    stosb
+    jmp smoke_write_hex32
 
 draw_doom_status:
     push eax
@@ -18884,6 +19862,8 @@ smoke_pidseq_text db " pidseq=", 0
 smoke_fdexec_text db " fdexec=", 0
 smoke_fddup_text db " fdup=", 0
 smoke_pwait_text db " wait=", 0
+smoke_waitseed_text db " waitseed=", 0
+smoke_fork_text db " fork=", 0
 smoke_vmreap_text db " vmreap=", 0
 smoke_doom_text db "doom=", 0
 smoke_doomrun_text db " doomrun=", 0
@@ -18916,6 +19896,16 @@ smoke_kmappt_text db " kmappt=", 0
 smoke_kmapfree_text db " kmapfree=", 0
 smoke_kmaplo_text db " kmaplo=", 0
 smoke_kmaphi_text db " kmaphi=", 0
+smoke_khiexec_text db " khiexec=", 0
+smoke_khieip_text db " khieip=", 0
+smoke_khiesp_text db " khiesp=", 0
+smoke_khicr3_text db " khicr3=", 0
+smoke_khiva_text db " khiva=", 0
+smoke_khipa_text db " khipa=", 0
+smoke_khistk_text db " khistk=", 0
+smoke_khistkpa_text db " khistkpa=", 0
+smoke_khipt_text db " khipt=", 0
+smoke_khifree_text db " khifree=", 0
 smoke_vmmhi_text db " vmmhi=", 0
 smoke_vmmhva_text db " vmmhva=", 0
 smoke_vmmhpa_text db " vmmhpa=", 0
@@ -19040,11 +20030,16 @@ smoke_pciclass_text db " pciclass=", 0
 smoke_pcitable_text db " pcitable=", 0
 smoke_pcitabcap_text db " pcitabcap=", 0
 smoke_pcitabuse_text db " pcitabuse=", 0
+smoke_pciover_text db " pciover=", 0
 smoke_pcilast_text db " pcilast=", 0
 smoke_pciclassh_text db " pciclassh=", 0
 smoke_pcimulti_text db " pcimulti=", 0
 smoke_pciclsms_text db " pciclsms=", 0
 smoke_pciclsbr_text db " pciclsbr=", 0
+smoke_pciapi_text db " pciapi=", 0
+smoke_pcilookms_text db " pcilookms=", 0
+smoke_pcilookbr_text db " pcilookbr=", 0
+smoke_pcilookmiss_text db " pcilookmiss=", 0
 smoke_gfx_text db " gfx=", 0
 smoke_fb_text db " fb=", 0
 smoke_fbpolicy_text db " fbpolicy=", 0
@@ -19269,6 +20264,7 @@ vmm_test_status db 0
 vmm_high_mapping_status db 0
 kernel_relocation_status db 0
 kernel_high_alias_status db 0
+kernel_high_exec_status db 0
 heap_test_status db 0
 fpu_status db 0
 fpu_test_status db 0
@@ -19389,6 +20385,16 @@ kernel_high_alias_table dd 0
 kernel_high_alias_reclaimed dd 0
 kernel_high_alias_low_word dd 0
 kernel_high_alias_high_word dd 0
+kernel_high_exec_eip dd 0
+kernel_high_exec_esp dd 0
+kernel_high_exec_cr3 dd 0
+kernel_high_exec_vaddr dd 0
+kernel_high_exec_phys dd 0
+kernel_high_exec_stack_vaddr dd 0
+kernel_high_exec_stack_phys dd 0
+kernel_high_exec_table dd 0
+kernel_high_exec_reclaimed dd 0
+kernel_high_exec_saved_low_esp dd 0
 vmm_map_vaddr dd 0
 vmm_map_entry dd 0
 vmm_map_table_addr dd 0
@@ -19571,6 +20577,8 @@ fd_last_dup_source dd 0xffffffff
 fd_last_dup_target dd 0xffffffff
 fd_dup_root_slot dd 0
 fd_dup_flags_arg dd 0
+fd_fork_clones dd 0
+fd_fork_clones_last dd 0
 file_io_user_fd_slot dd 0
 file_io_index dd 0
 file_io_user_ptr dd 0
@@ -19700,6 +20708,7 @@ process_wait_vm_reaps dd 0
 process_wait_vm_pages_reclaimed dd 0
 process_wait_last_vm_pages_reclaimed dd 0
 process_wait_vm_pages_before dd 0
+process_vm_owned_pages_freed dd 0
 process_mmap_allocations dd 0
 process_mmap_pages_mapped dd 0
 process_mmap_last_object_kind dd 0
@@ -19717,6 +20726,7 @@ process_munmap_pages_unmapped dd 0
 process_last_munmap_base dd 0
 process_last_munmap_end dd 0
 process_exit_teardowns dd 0
+process_exit_zombies dd 0
 process_exec_teardowns dd 0
 process_last_reused_slot dd 0
 process_last_reused_pid dd 0xffffffff
@@ -19739,6 +20749,29 @@ process_wait_seen_live_child dd 0
 process_wait_nohang_returns dd 0
 process_wait_seeded_children dd 0
 process_wait_seeded_child_pid dd 0xffffffff
+process_fork_successes dd 0
+process_fork_failures dd 0
+process_fork_pages_copied_last dd 0
+process_fork_parent_pid dd 0xffffffff
+process_fork_child_pid dd 0xffffffff
+process_fork_parent_return dd 0xffffffff
+process_fork_child_return dd 0xffffffff
+process_fork_parent_proc dd 0
+process_fork_child_proc dd 0
+process_fork_frame_ptr dd 0
+process_fork_parent_page_dir dd 0
+process_fork_child_page_dir dd 0
+process_fork_region_ptr dd 0
+process_fork_regions_left dd 0
+process_fork_copy_vaddr dd 0
+process_fork_copy_end dd 0
+process_fork_copy_flags dd 0
+process_fork_copy_phys dd 0
+process_exit_frame_ptr dd 0
+process_exit_parent_pid dd 0xffffffff
+process_exit_resumed_pid dd 0xffffffff
+fd_fork_parent_pid dd 0xffffffff
+fd_fork_child_pid dd 0xffffffff
 doom_exit_code dd 0
 doom_fault_addr dd 0
 doom_fault_eip dd 0
@@ -19907,6 +20940,8 @@ present_lfb_source_y dd 0
 present_lfb_repeat_rows dd 0
 pci_probe_count dd 0
 pci_function_count dd 0
+pci_table_count dd 0
+pci_table_overflow_count dd 0
 pci_first_bdf dd 0
 pci_first_id dd 0
 pci_first_class dd 0
@@ -19915,7 +20950,11 @@ pci_class_table_hash dd 0
 pci_multifunction_device_count dd 0
 pci_mass_storage_class_count dd 0
 pci_bridge_class_count dd 0
+pci_lookup_mass_storage_bdf dd PCI_LOOKUP_NOT_FOUND
+pci_lookup_bridge_bdf dd PCI_LOOKUP_NOT_FOUND
+pci_lookup_miss_bdf dd PCI_LOOKUP_NOT_FOUND
 pci_config_status db 0
+pci_table_api_status db 0
 align 4
 pci_device_table times PCI_TABLE_MAX_ENTRIES * PCI_TABLE_ENTRY_DWORDS dd 0
 audio_status db 0

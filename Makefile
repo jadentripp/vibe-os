@@ -73,7 +73,7 @@ DOOM_G_GAME_CFLAGS := -DG_BuildTiccmd=doom_original_G_BuildTiccmd -DG_Ticker=doo
 DOOM_P_SAVEG_CFLAGS := -DP_ArchivePlayers=doom_original_P_ArchivePlayers -DP_UnArchivePlayers=doom_original_P_UnArchivePlayers -DP_ArchiveWorld=doom_original_P_ArchiveWorld -DP_UnArchiveWorld=doom_original_P_UnArchiveWorld -DP_ArchiveThinkers=doom_original_P_ArchiveThinkers -DP_UnArchiveThinkers=doom_original_P_UnArchiveThinkers -DP_ArchiveSpecials=doom_original_P_ArchiveSpecials -DP_UnArchiveSpecials=doom_original_P_UnArchiveSpecials
 
 STAGE2_MAX_BYTES := 8192
-KERNEL_ELF_MAX_BYTES := 98304
+KERNEL_ELF_MAX_BYTES := 131072
 USER_PROBE_ELF_MAX_BYTES := 12288
 USER_ABI_PROBE_ELF_MAX_BYTES := 12288
 IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF)
@@ -244,6 +244,16 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "kerncr3=00090000" $(BUILD_DIR)/status.txt; \
 	grep -q "kernvirt=00010000" $(BUILD_DIR)/status.txt; \
 	grep -q "kernphys=00010000" $(BUILD_DIR)/status.txt; \
+	grep -q "khiexec=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "khieip=" $(BUILD_DIR)/status.txt; \
+	grep -q "khiesp=" $(BUILD_DIR)/status.txt; \
+	grep -q "khicr3=00090000" $(BUILD_DIR)/status.txt; \
+	grep -q "khiva=" $(BUILD_DIR)/status.txt; \
+	grep -q "khipa=" $(BUILD_DIR)/status.txt; \
+	grep -q "khistk=" $(BUILD_DIR)/status.txt; \
+	grep -q "khistkpa=" $(BUILD_DIR)/status.txt; \
+	grep -q "khipt=" $(BUILD_DIR)/status.txt; \
+	grep -q "khifree=" $(BUILD_DIR)/status.txt; \
 	grep -q "vmmhi=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "vmmhva=C0000000" $(BUILD_DIR)/status.txt; \
 	grep -q "vmmhpa=" $(BUILD_DIR)/status.txt; \
@@ -448,7 +458,7 @@ hardware-support-check:
 	$(PYTHON) tools/check_hardware_support_matrix.py
 
 storage-install-boundary-check: $(IMAGE)
-	$(PYTHON) tools/check_storage_install_boundary.py --repo-contract --image "$(IMAGE)"
+	$(PYTHON) tools/check_storage_install_boundary.py --repo-contract --image "$(IMAGE)" --blank-install-proof
 
 vm-safety-check:
 	$(PYTHON) tools/check_vm_safety_contract.py

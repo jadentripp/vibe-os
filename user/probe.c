@@ -549,8 +549,7 @@ int user_main(int argc, char **argv, char **envp) {
     }
 
     int wait_status = 0;
-    if (syscall3(SYS_FORK, 0, 0, 0) == -ERRNO_ENOSYS
-        && sys_waitpid((uint32_t)-1, &wait_status, WAIT_OPTION_WNOHANG) == WAIT_PROOF_CHILD_PID
+    if (sys_waitpid((uint32_t)-1, &wait_status, WAIT_OPTION_WNOHANG) == WAIT_PROOF_CHILD_PID
         && wait_status == WAIT_PROOF_EXIT_STATUS
         && sys_waitpid((uint32_t)-1, 0, WAIT_OPTION_WNOHANG) == -ERRNO_ECHILD) {
         flags |= PROBE_FLAG_FORK_WAIT;
