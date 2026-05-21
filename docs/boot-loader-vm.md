@@ -79,18 +79,33 @@ frame reclaimed after unmap. This proves the mapper can build high,
 non-identity kernel mappings after PMM is online, but it does not relocate the
 running kernel yet.
 
-The status proof is now executable:
-`tools/check_vm_status_proof.py --require-exec --require-preempt status.txt`
-requires that `vmmhfree` match the reclaimed dynamic page table, that the Doom
-handoff report `argvsrc=2`, that `uexec=OK` and `upath=USERPROB.ELF` prove the
-boot probe used the same exec resolver, that `procpool=`, `fdexec=`, and `wait=`
-expose bounded slot reuse, exec-time fd inheritance, and the wait/reap proof,
-and that `pmask` plus `pkind`/`peip`/`pcr3`/`pkstk` show IRQ switches in both
-directions between Doom and the preempt probe with distinct address spaces and
-kernel stacks. The `pframe` field must also match the last rewritten Ring 3
-`iretd` target frame, so the preemption proof is not satisfied by scheduler
-accounting alone. It is a cloud artifact checker, not a claim that the running
-kernel has already moved to higher-half virtual addresses.
+The status proof is now executable. `tools/check_vm_status_proof.py
+--require-exec status.txt` requires that `vmmhfree` match the reclaimed dynamic
+page table, that the Doom handoff report `argvsrc=2`, that `uexec=OK` and
+`upath=USERPROB.ELF` prove the boot probe used the same exec resolver, and that
+`procpool=`, `fdexec=`, and `wait=` expose bounded slot reuse, exec-time fd
+inheritance, and the wait/reap proof. Real-WAD gameplay lanes also pass
+`--require-preempt`; that mode requires `pmask` plus
+`pkind`/`peip`/`pcr3`/`pkstk` to show IRQ switches in both directions between
+Doom and the preempt probe with distinct address spaces and kernel stacks. The
+`pframe` field must also match the last rewritten Ring 3 `iretd` target frame,
+so the preemption proof is not satisfied by scheduler accounting alone. It is a
+cloud artifact checker, not a claim that the running kernel has already moved to
+higher-half virtual addresses.
+
+The checker treats preemption as a live-user-workload proof. The generated-WAD
+OS smoke intentionally runs `tools/check_vm_status_proof.py --require-exec`
+without `--require-preempt`: that lane still proves paging, ELF loading, Ring 3
+exec, fd handoff, and wait/reap, but the tiny generated-WAD Doom workload can
+exit before one scheduler quantum. If a generated-WAD status is checked with
+`--require-preempt`, the useful failure signature is `doomrun=EXIT`,
+`gameplay=WAIT`, `pattempt=0`, `puser` below the scheduler quantum,
+`pspin=50524545`, and rising `pskip`; it means the preempt probe was seeded but
+never became eligible to run. Preemption stays required in the real-WAD smoke and
+soak workflows, where gameplay remains alive long enough to prove timer IRQ
+switches. A future generated-WAD lane can reclaim `--require-preempt` by adding a
+dedicated long-lived user workload that keeps two Ring 3 processes alive through
+timer IRQ switches.
 
 User processes get separate page directories. Those directories start as clones
 of the supervisor kernel map, then replace only the user windows with private

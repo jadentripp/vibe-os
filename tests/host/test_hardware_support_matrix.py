@@ -157,6 +157,8 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             (hardware_doc, "Input, audio, and FAT16 are reusable OS-facing syscall/header contracts"),
             (hardware_doc, "The reusable contracts do not widen the hardware claim"),
             (hardware_doc, "USB HID, AC97/HDA/USB audio, arbitrary FAT media, long filenames, physical sound cards, and real PC hardware remain unclaimed"),
+            (hardware_doc, "VM/process legitimacy gate is adjacent to, but separate from, the hardware matrix"),
+            (hardware_doc, "machine-required only in the real-WAD smoke and soak workflows"),
             (tests_readme, "tools/check_hardware_support_matrix.py"),
             (tests_readme, "boot/uefi/README.md"),
             (tests_readme, "pciprobe="),

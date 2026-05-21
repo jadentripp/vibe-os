@@ -250,6 +250,10 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "fixed low-memory",
             "vmmhi=OK",
             "vmmhfree=",
+            "preemption as a live-user-workload proof",
+            "generated-WAD",
+            "without `--require-preempt`",
+            "real-WAD smoke and\nsoak workflows",
         ):
             self.assertIn(source, boot_doc)
         self.assertIn("docs/boot-loader-vm.md", readme)

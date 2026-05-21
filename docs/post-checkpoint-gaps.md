@@ -464,9 +464,10 @@ Still missing:
 Executable gate:
 
 - Keep unsupported ABI calls classified as explicit errors, add host tests for
-  every new syscall contract, run `tools/check_vm_status_proof.py
-  --require-exec --require-preempt` on cloud status artifacts, and add cloud
-  tests for any VM behavior used by Doom rather than documenting it as assumed.
+  every new syscall contract, run `tools/check_vm_status_proof.py --require-exec`
+  on generated-WAD OS smoke status artifacts, keep `--require-preempt` on
+  long-lived real-WAD gameplay status artifacts, and add cloud tests for any VM
+  behavior used by Doom rather than documenting it as assumed.
 
 - `GAP[SHUTDOWN_PANIC] status=proven category=shutdown-panic gate=panic-poweroff-proof evidence=os-smoke-26157926297`
 

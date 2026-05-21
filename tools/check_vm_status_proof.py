@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from status_fields import (
+    hex8_field,
     parse_status_fields,
     require_hex8_field,
     require_hex_tuple_field,
@@ -26,6 +27,7 @@ DOOM_USER_STACK_TOP = 0x02000000
 PROBE_USER_BASE = 0x00E80000
 PROBE_USER_END = 0x00F00000
 PREEMPT_PROBE_MAGIC = 0x50524545
+SCHEDULER_QUANTUM_TICKS = 5
 SYS_EXEC_ARGV_SOURCE_USER = 2
 PROCESS_SLOT_COUNT = 6
 PROCESS_GENERIC_SLOT_COUNT = 2
@@ -53,6 +55,11 @@ def _require(text: str, needle: str, label: str) -> None:
         raise AssertionError(f"{label} missing {needle!r}")
 
 
+def _forbid(text: str, needle: str, label: str) -> None:
+    if needle in text:
+        raise AssertionError(f"{label} must not contain {needle!r}")
+
+
 def _field(fields: dict[str, str], name: str) -> str:
     return require_status_field(fields, name)
 
@@ -76,6 +83,77 @@ def _hex_gt(fields: dict[str, str], name: str, minimum: int = 0) -> int:
 
 def _hex_tuple(fields: dict[str, str], name: str, count: int, sep: str) -> tuple[int, ...]:
     return require_hex_tuple_field(fields, name, count, sep)
+
+
+def _field_or_missing(fields: dict[str, str], name: str) -> str:
+    return fields.get(name, "<missing>")
+
+
+def _preemption_context(fields: dict[str, str]) -> str:
+    names = (
+        "doomrun",
+        "gameplay",
+        "preempt",
+        "pirq",
+        "pattempt",
+        "pskip",
+        "puser",
+        "pround",
+        "pctx",
+        "pmask",
+        "pfrom",
+        "pto",
+        "pkind",
+        "peip",
+        "pcr3",
+        "pkstk",
+        "pframe",
+        "pspin",
+        "pself",
+        "ticks",
+        "dtick",
+    )
+    return " ".join(f"{name}={_field_or_missing(fields, name)}" for name in names)
+
+
+def _preemption_not_eligible_hint(fields: dict[str, str]) -> str:
+    if fields.get("pself") != "OK":
+        return ""
+
+    preempt = hex8_field(fields, "preempt")
+    attempts = hex8_field(fields, "pattempt")
+    user_ticks = hex8_field(fields, "puser")
+    spin = hex8_field(fields, "pspin")
+    doomrun = fields.get("doomrun")
+    gameplay = fields.get("gameplay")
+
+    if (
+        preempt == 0
+        and attempts == 0
+        and user_ticks is not None
+        and user_ticks < SCHEDULER_QUANTUM_TICKS
+        and spin == PREEMPT_PROBE_MAGIC
+        and doomrun not in (None, "RUN")
+        and gameplay != "OK"
+    ):
+        return (
+            "; live preemption was not eligible before this status snapshot: "
+            f"doomrun={doomrun} gameplay={gameplay} puser={user_ticks:#x} "
+            f"is below the scheduler quantum {SCHEDULER_QUANTUM_TICKS:#x}, and "
+            "pspin is still the seeded preempt-probe magic. This usually means "
+            "the generated-WAD OS smoke exited Doom before a Doom/preempt-probe "
+            "timer quantum; prove preemption with a real-WAD gameplay status or "
+            "a long-lived user workload."
+        )
+
+    return ""
+
+
+def _raise_preemption_failure(fields: dict[str, str], message: str) -> None:
+    raise AssertionError(
+        f"{message}{_preemption_not_eligible_hint(fields)}; context: "
+        f"{_preemption_context(fields)}"
+    )
 
 
 def _page_aligned(value: int, name: str) -> None:
@@ -238,72 +316,101 @@ def validate_exec(fields: dict[str, str]) -> None:
 def validate_preemption(fields: dict[str, str]) -> None:
     _exact(fields, "pself", "OK")
 
-    preempt = _hex_gt(fields, "preempt")
-    irq_switches = _hex_gt(fields, "pirq")
+    preempt = _hex(fields, "preempt")
+    if preempt == 0:
+        _raise_preemption_failure(fields, "preempt= must be greater than 0x0")
+    irq_switches = _hex(fields, "pirq")
+    if irq_switches == 0:
+        _raise_preemption_failure(fields, "pirq= must be greater than 0x0")
     if irq_switches != preempt:
-        raise AssertionError("pirq= must match preempt= to prove timer IRQ context switches")
-    _hex_gt(fields, "pattempt")
-    user_irq_ticks = _hex_gt(fields, "puser")
+        _raise_preemption_failure(
+            fields, "pirq= must match preempt= to prove timer IRQ context switches"
+        )
+    if _hex(fields, "pattempt") == 0:
+        _raise_preemption_failure(fields, "pattempt= must be greater than 0x0")
+    user_irq_ticks = _hex(fields, "puser")
+    if user_irq_ticks == 0:
+        _raise_preemption_failure(fields, "puser= must be greater than 0x0")
     if user_irq_ticks < preempt:
-        raise AssertionError("puser= must cover every timer-driven preempt switch")
-    _hex_gt(fields, "pround")
-    context_switches = _hex_gt(fields, "pctx")
+        _raise_preemption_failure(fields, "puser= must cover every timer-driven preempt switch")
+    if _hex(fields, "pround") == 0:
+        _raise_preemption_failure(fields, "pround= must be greater than 0x0")
+    context_switches = _hex(fields, "pctx")
+    if context_switches == 0:
+        _raise_preemption_failure(fields, "pctx= must be greater than 0x0")
     if context_switches < preempt:
-        raise AssertionError("pctx= must be at least the preempt switch count")
+        _raise_preemption_failure(fields, "pctx= must be at least the preempt switch count")
     pair_mask = _hex(fields, "pmask")
     if (pair_mask & 0x3) != 0x3:
-        raise AssertionError("pmask= must prove Doom/preempt-probe switches in both directions")
+        _raise_preemption_failure(
+            fields, "pmask= must prove Doom/preempt-probe switches in both directions"
+        )
 
-    source_pid = _hex_gt(fields, "pfrom")
-    target_pid = _hex_gt(fields, "pto")
+    source_pid = _hex(fields, "pfrom")
+    target_pid = _hex(fields, "pto")
+    if source_pid == 0:
+        _raise_preemption_failure(fields, "pfrom= must be greater than 0x0")
+    if target_pid == 0:
+        _raise_preemption_failure(fields, "pto= must be greater than 0x0")
     if source_pid == 0xFFFFFFFF or target_pid == 0xFFFFFFFF:
-        raise AssertionError("pfrom=/pto= must not be the no-process sentinel")
+        _raise_preemption_failure(fields, "pfrom=/pto= must not be the no-process sentinel")
     if source_pid == target_pid:
-        raise AssertionError("pfrom= and pto= must prove a switch between processes")
+        _raise_preemption_failure(fields, "pfrom= and pto= must prove a switch between processes")
 
     from_kind, to_kind = _hex_tuple(fields, "pkind", 2, ":")
     if {from_kind, to_kind} != {USER_KIND_DOOM, USER_KIND_PREEMPT_PROBE}:
-        raise AssertionError("pkind= must prove switching between Doom and the preempt probe")
+        _raise_preemption_failure(
+            fields, "pkind= must prove switching between Doom and the preempt probe"
+        )
 
     from_eip, to_eip = _hex_tuple(fields, "peip", 2, ":")
     if from_eip == 0 or to_eip == 0:
-        raise AssertionError("peip= must record nonzero source and target EIPs")
+        _raise_preemption_failure(fields, "peip= must record nonzero source and target EIPs")
     if not (
         (_is_doom_addr(from_eip) and _is_probe_addr(to_eip))
         or (_is_probe_addr(from_eip) and _is_doom_addr(to_eip))
     ):
-        raise AssertionError("peip= must prove switching between Doom and the preempt probe")
+        _raise_preemption_failure(
+            fields, "peip= must prove switching between Doom and the preempt probe"
+        )
 
     from_cr3, to_cr3 = _hex_tuple(fields, "pcr3", 2, ":")
     if {from_cr3, to_cr3} != {PROC_DOOM_PAGE_DIR_ADDR, PROC_PREEMPT_PAGE_DIR_ADDR}:
-        raise AssertionError("pcr3= must prove switching between Doom and preempt probe address spaces")
+        _raise_preemption_failure(
+            fields,
+            "pcr3= must prove switching between Doom and preempt probe address spaces",
+        )
     if from_cr3 == to_cr3:
-        raise AssertionError("pcr3= must contain distinct process page directories")
+        _raise_preemption_failure(fields, "pcr3= must contain distinct process page directories")
 
     from_kstack, to_kstack = _hex_tuple(fields, "pkstk", 2, ":")
     if {from_kstack, to_kstack} != {
         PROC_DOOM_KERNEL_STACK_TOP,
         PROC_PREEMPT_PROBE_KERNEL_STACK_TOP,
     }:
-        raise AssertionError("pkstk= must prove switching TSS kernel stacks for Doom and preempt probe")
+        _raise_preemption_failure(
+            fields, "pkstk= must prove switching TSS kernel stacks for Doom and preempt probe"
+        )
     if from_kstack == to_kstack:
-        raise AssertionError("pkstk= must contain distinct kernel stacks")
+        _raise_preemption_failure(fields, "pkstk= must contain distinct kernel stacks")
 
     spin = _hex(fields, "pspin")
     if spin in (0, PREEMPT_PROBE_MAGIC):
-        raise AssertionError("pspin= must prove the Ring 3 preempt probe executed")
+        _raise_preemption_failure(fields, "pspin= must prove the Ring 3 preempt probe executed")
 
     frame_count, frame_eip, frame_cs, frame_esp, frame_ss = _hex_tuple(fields, "pframe", 5, "/")
     if frame_count != irq_switches:
-        raise AssertionError("pframe= rewrite count must match timer IRQ context switches")
+        _raise_preemption_failure(
+            fields, "pframe= rewrite count must match timer IRQ context switches"
+        )
     if frame_eip != to_eip:
-        raise AssertionError("pframe= EIP must match the selected target context")
+        _raise_preemption_failure(fields, "pframe= EIP must match the selected target context")
     if frame_cs != USER_CODE_SEG or (frame_cs & 0x3) != 0x3:
-        raise AssertionError("pframe= CS must be the Ring 3 user code selector")
+        _raise_preemption_failure(fields, "pframe= CS must be the Ring 3 user code selector")
     if frame_esp == 0:
-        raise AssertionError("pframe= ESP must record a nonzero Ring 3 stack")
+        _raise_preemption_failure(fields, "pframe= ESP must record a nonzero Ring 3 stack")
     if frame_ss != USER_DATA_SEG or (frame_ss & 0x3) != 0x3:
-        raise AssertionError("pframe= SS must be the Ring 3 user data selector")
+        _raise_preemption_failure(fields, "pframe= SS must be the Ring 3 user data selector")
 
 
 def validate_status(
@@ -322,6 +429,7 @@ def validate_status(
 
 def validate_repo_contract(root: Path = ROOT) -> None:
     real_wad_workflow = _read(root, ".github/workflows/real-wad-smoke.yml")
+    real_wad_soak_workflow = _read(root, ".github/workflows/real-wad-soak.yml")
     os_workflow = _read(root, ".github/workflows/os-smoke.yml")
     makefile = _read(root, "Makefile")
     process_vm = _read(root, "docs/process-vm.md")
@@ -331,11 +439,17 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     tests_readme = _read(root, "tests/README.md")
     cloud_artifacts = _read(root, "tools/check_cloud_playability_artifacts.py")
 
+    _require(os_workflow, "Assert generated-WAD VM/process exec gates", "OS smoke workflow")
+    _require(os_workflow, "python3 tools/check_vm_status_proof.py", "OS smoke workflow")
+    _require(os_workflow, "--require-exec", "OS smoke workflow")
+    _forbid(os_workflow, "--require-preempt", "generated-WAD OS smoke workflow")
+
+    _require(real_wad_workflow, "Assert VM/process legitimacy gates", "real-WAD smoke workflow")
+
     for workflow, label in (
-        (real_wad_workflow, "real-WAD workflow"),
-        (os_workflow, "OS smoke workflow"),
+        (real_wad_workflow, "real-WAD smoke workflow"),
+        (real_wad_soak_workflow, "real-WAD soak workflow"),
     ):
-        _require(workflow, "Assert VM/process legitimacy gates", label)
         _require(workflow, "python3 tools/check_vm_status_proof.py", label)
         _require(workflow, "--require-exec", label)
         _require(workflow, "--require-preempt", label)

@@ -91,6 +91,17 @@ These rows name the minimum aggregate status fields a disposable QEMU proof must
 carry before the corresponding claimed hardware row can be cited. They do not
 require raw screenshots, VM logs, WAD data, pixel dumps, or raw audio in git.
 
+The VM/process legitimacy gate is adjacent to, but separate from, the hardware
+matrix. Generated-WAD OS smoke runs `tools/check_vm_status_proof.py
+--require-exec` to prove paging, Ring 3 exec, bounded process records, fd
+handoff, and wait/reap. Live PIT preemption between two user processes is
+machine-required only in the real-WAD smoke and soak workflows with
+`--require-preempt`, because those statuses keep gameplay alive long enough for
+the Doom/preempt-probe pair to switch under timer IRQs. A short generated-WAD OS
+smoke may exit Doom with `doomrun=EXIT` and `gameplay=WAIT` before one scheduler
+quantum; that is not a hardware regression or a valid preemption proof by
+itself.
+
 ## Future Proof Boundaries
 
 The `PROOF_REQUIREMENT[...]` rows define what would count before an unclaimed

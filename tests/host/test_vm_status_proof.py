@@ -48,10 +48,13 @@ def status_line(**overrides):
         "pidseq": "00000006/00000005/00000002",
         "fdexec": "00000001/00000002/00000000/00000000",
         "wait": "00000003/00000001/00000002/00000000/00000001/00000003/0000002A",
+        "doomrun": "RUN",
+        "gameplay": "OK",
         "pself": "OK",
         "preempt": "00000001",
         "pirq": "00000001",
         "pattempt": "00000001",
+        "pskip": "00000000",
         "puser": "00000004",
         "pround": "00000001",
         "pctx": "00000004",
@@ -64,6 +67,8 @@ def status_line(**overrides):
         "pkstk": "00073000:00072000",
         "pframe": "00000001/00E80000/0000001B/00E9FFE0/00000023",
         "pspin": "50524546",
+        "ticks": "00000100",
+        "dtick": "00000023",
     }
     fields.update(overrides)
     return "Aurora OS v0.2 " + " ".join(f"{key}={value}" for key, value in fields.items())
@@ -182,6 +187,46 @@ class VmStatusProofTests(unittest.TestCase):
                         require_preempt=True,
                     )
 
+    def test_short_generated_wad_status_gets_actionable_preemption_hint(self):
+        with self.assertRaisesRegex(
+            AssertionError,
+            (
+                "generated-WAD OS smoke exited Doom before a Doom/preempt-probe "
+                "timer quantum"
+            ),
+        ) as raised:
+            check_vm_status_proof.validate_status(
+                status_line(
+                    doomrun="EXIT",
+                    gameplay="WAIT",
+                    preempt="00000000",
+                    pirq="00000000",
+                    pattempt="00000000",
+                    pskip="00000097",
+                    puser="00000003",
+                    pround="00000097",
+                    pmask="00000000",
+                    pfrom="FFFFFFFF",
+                    pto="FFFFFFFF",
+                    pkind="00000000:00000000",
+                    peip="00000000:00000000",
+                    pcr3="00000000:00000000",
+                    pkstk="00000000:00000000",
+                    pframe="00000000/00000000/00000000/00000000/00000000",
+                    pspin="50524545",
+                    ticks="000002F6",
+                    dtick="00000109",
+                ),
+                require_preempt=True,
+            )
+
+        message = str(raised.exception)
+        self.assertIn("doomrun=EXIT", message)
+        self.assertIn("gameplay=WAIT", message)
+        self.assertIn("puser=00000003", message)
+        self.assertIn("pskip=00000097", message)
+        self.assertIn("prove preemption with a real-WAD gameplay status", message)
+
     def test_cli_validates_status_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "status.txt"
@@ -204,6 +249,19 @@ class VmStatusProofTests(unittest.TestCase):
 
     def test_repo_contract_is_machine_checked(self):
         check_vm_status_proof.validate_repo_contract(ROOT)
+
+    def test_repo_contract_keeps_preemption_on_long_lived_real_wad_lanes(self):
+        os_workflow = (ROOT / ".github" / "workflows" / "os-smoke.yml").read_text()
+        real_wad_smoke = (ROOT / ".github" / "workflows" / "real-wad-smoke.yml").read_text()
+        real_wad_soak = (ROOT / ".github" / "workflows" / "real-wad-soak.yml").read_text()
+
+        self.assertIn("Assert generated-WAD VM/process exec gates", os_workflow)
+        self.assertIn("--require-exec", os_workflow)
+        self.assertNotIn("--require-preempt", os_workflow)
+        self.assertIn("Assert VM/process legitimacy gates", real_wad_smoke)
+        for workflow in (real_wad_smoke, real_wad_soak):
+            self.assertIn("--require-exec", workflow)
+            self.assertIn("--require-preempt", workflow)
 
     def test_repo_contract_keeps_generic_exec_surface_documented(self):
         process_exec = (ROOT / "docs" / "process-exec.md").read_text()
