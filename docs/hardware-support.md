@@ -8,6 +8,19 @@ IDE disk attachment, PS/2 input, PIT timer interrupts, VBE/VGA display paths, an
 an optional SB16-compatible audio device. A passing host test or build-only check
 does not prove additional hardware support.
 
+Subsystem contract boundary:
+
+- Input, audio, and FAT16 are reusable OS-facing syscall/header contracts for
+  user programs, not one-off Doom hooks. Doom remains the main integration
+  proof, but public headers now expose typed input events, mixer/PCM device
+  records, and root-level FAT16 directory records with host tests that compile
+  the guest ABI directly.
+- The reusable contracts do not widen the hardware claim. Today they are proven
+  only through QEMU PS/2 input, QEMU SB16 audio, and the generated FAT16 disk
+  image. USB HID, AC97/HDA/USB audio, arbitrary FAT media, long filenames,
+  physical sound cards, and real PC hardware remain unclaimed until their own
+  rows and proof artifacts exist.
+
 There is also a bounded PCI config-space table builder for QEMU's legacy PC
 machine model. It reads bus 0, devices 0-31, functions 0-7 through ports
 `0xcf8`/`0xcfc`, stores each present function in a fixed in-kernel

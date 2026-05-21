@@ -1,3 +1,5 @@
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -6,6 +8,140 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class AudioContractTests(unittest.TestCase):
+    def test_public_audio_header_exposes_reusable_mixer_and_pcm_contract(self):
+        abi_source = r"""
+            #include "vibe_os.h"
+
+            #define CHECK(name, expr) typedef char check_##name[(expr) ? 1 : -1]
+
+            CHECK(voice_desc_size, sizeof(vibe_audio_voice_desc_t) == VIBE_AUDIO_VOICE_DESC_BYTES);
+            CHECK(voice_samples, __builtin_offsetof(vibe_audio_voice_desc_t, samples) == 0);
+            CHECK(voice_length, __builtin_offsetof(vibe_audio_voice_desc_t, length) == 4);
+            CHECK(voice_flags, __builtin_offsetof(vibe_audio_voice_desc_t, flags) == 24);
+            CHECK(voice_sample_rate, __builtin_offsetof(vibe_audio_voice_desc_t, sample_rate) == 28);
+            CHECK(voice_music_format, __builtin_offsetof(vibe_audio_voice_desc_t, music_format) == 32);
+            CHECK(voice_music_stream_start, __builtin_offsetof(vibe_audio_voice_desc_t, music_stream_start) == 52);
+            CHECK(voice_music_stream_end, __builtin_offsetof(vibe_audio_voice_desc_t, music_stream_end) == 56);
+            CHECK(voice_music_stream_loop_count,
+                __builtin_offsetof(vibe_audio_voice_desc_t, music_stream_loop_count) == 60);
+
+            CHECK(device_info_size, sizeof(vibe_audio_device_info_t) == VIBE_AUDIO_DEVICE_INFO_BYTES);
+            CHECK(device_kind, __builtin_offsetof(vibe_audio_device_info_t, device_kind) == 0);
+            CHECK(device_status, __builtin_offsetof(vibe_audio_device_info_t, status) == 4);
+            CHECK(device_caps, __builtin_offsetof(vibe_audio_device_info_t, capabilities) == 28);
+            CHECK(device_starts,
+                __builtin_offsetof(vibe_audio_device_info_t, playback_start_count) == 44);
+
+            CHECK(pcm_ring_size, sizeof(vibe_audio_pcm_ring_info_t) == VIBE_AUDIO_PCM_RING_INFO_BYTES);
+            CHECK(pcm_format, __builtin_offsetof(vibe_audio_pcm_ring_info_t, format) == 0);
+            CHECK(pcm_write_offset, __builtin_offsetof(vibe_audio_pcm_ring_info_t, write_offset) == 20);
+            CHECK(pcm_clip_count, __builtin_offsetof(vibe_audio_pcm_ring_info_t, clip_count) == 44);
+
+            CHECK(device_status_ready, VIBE_AUDIO_DEVICE_STATUS_READY == 1);
+            CHECK(device_status_absent, VIBE_AUDIO_DEVICE_STATUS_ABSENT == 2);
+            CHECK(generic_commands,
+                VIBE_AUDIO_MIXER_START == VIBE_AUDIO_START_SFX
+                && VIBE_AUDIO_MIXER_UPDATE == VIBE_AUDIO_UPDATE_SFX
+                && VIBE_AUDIO_PCM_PULL_STATE == VIBE_AUDIO_MUSIC_PULL_STATE);
+        """
+        abi = subprocess.run(
+            [
+                "clang",
+                "-target",
+                "i386-unknown-none-elf",
+                "-std=gnu89",
+                "-ffreestanding",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-I",
+                str(ROOT / "doom_port" / "include"),
+                "-x",
+                "c",
+                "-fsyntax-only",
+                "-",
+            ],
+            cwd=ROOT,
+            input=abi_source,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(abi.returncode, 0, abi.stderr)
+
+        runtime_source = r"""
+            #include "vibe_os.h"
+
+            int main(void)
+            {
+                unsigned char samples[4] = { 128, 130, 126, 128 };
+                vibe_audio_voice_desc_t voice;
+                vibe_audio_device_info_t device = { 0 };
+                vibe_audio_pcm_ring_info_t ring = { 0 };
+
+                vibe_audio_voice_desc_init(&voice, samples, 4, 11025, 96, 128, 128);
+                if (voice.samples != samples
+                    || voice.length != 4
+                    || voice.sample_rate != 11025
+                    || voice.volume != 96
+                    || voice.separation != 128
+                    || voice.pitch != 128
+                    || voice.flags != 0
+                    || voice.music_format != 0
+                    || voice.music_stream_loop_count != 0)
+                    return 1;
+
+                device.device_kind = VIBE_AUDIO_DEVICE_SB16;
+                device.status = VIBE_AUDIO_DEVICE_STATUS_READY;
+                device.capabilities = VIBE_AUDIO_CAP_PCM_RING
+                    | VIBE_AUDIO_CAP_MIXER_VOICES
+                    | VIBE_AUDIO_CAP_PULL_STREAM;
+                if (!vibe_audio_device_is_ready(&device))
+                    return 2;
+                if (!vibe_audio_device_has_capability(
+                        &device,
+                        VIBE_AUDIO_CAP_PCM_RING | VIBE_AUDIO_CAP_PULL_STREAM))
+                    return 3;
+                if (vibe_audio_device_has_capability(&device, VIBE_AUDIO_CAP_SB16_DMA))
+                    return 4;
+
+                ring.format = VIBE_AUDIO_FORMAT_U8_STEREO;
+                ring.channels = 2;
+                if (!vibe_audio_pcm_ring_is_u8_stereo(&ring))
+                    return 5;
+                ring.channels = 1;
+                if (vibe_audio_pcm_ring_is_u8_stereo(&ring))
+                    return 6;
+
+                vibe_audio_voice_desc_init(0, 0, 0, 0, 0, 0, 0);
+                return 0;
+            }
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "vibe_audio_contract"
+            build = subprocess.run(
+                [
+                    "clang",
+                    "-std=gnu89",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-I",
+                    str(ROOT / "doom_port" / "include"),
+                    "-x",
+                    "c",
+                    "-",
+                    "-o",
+                    str(binary),
+                ],
+                cwd=ROOT,
+                input=runtime_source,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(build.returncode, 0, build.stderr)
+            run = subprocess.run([str(binary)], cwd=ROOT, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
     def test_doom_platform_submits_raw_sfx_descriptors(self):
         platform = (ROOT / "doom_port" / "platform.c").read_text()
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
@@ -464,6 +600,11 @@ class AudioContractTests(unittest.TestCase):
         self.assertIn("vibe_audio_sfx_desc_t", audio_doc)
         self.assertIn("vibe_audio_device_info_t", audio_doc)
         self.assertIn("vibe_audio_pcm_ring_info_t", audio_doc)
+        self.assertIn("Reusable audio syscall surface", audio_doc)
+        self.assertIn("vibe_audio_voice_desc_init()", audio_doc)
+        self.assertIn("VIBE_AUDIO_VOICE_DESC_BYTES == 64", audio_doc)
+        self.assertIn("fixed\n  48-byte records", audio_doc)
+        self.assertIn("does\n  not make Doom WAD audio", audio_doc)
         self.assertIn("adev=", audio_doc)
         self.assertIn("pcm=", audio_doc)
         self.assertIn("pcmbuf=", audio_doc)

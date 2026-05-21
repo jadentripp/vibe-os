@@ -82,6 +82,34 @@ class PlayNowRemotePreflightTests(unittest.TestCase):
                 which=fail_if_checked,
             )
 
+    def test_invalid_vnc_display_is_reported_before_tool_lookup(self):
+        def fail_if_checked(name):
+            raise AssertionError(f"tool lookup should not happen after display refusal: {name}")
+
+        with self.assertRaisesRegex(
+            check_play_now_remote.PreflightError,
+            "VNC_DISPLAY must be a non-negative integer",
+        ):
+            check_play_now_remote.check_preflight(
+                env={"VNC_DISPLAY": "bad"},
+                platform_name="Linux",
+                which=fail_if_checked,
+            )
+
+    def test_novnc_port_must_not_overlap_qemu_vnc_port(self):
+        def fail_if_checked(name):
+            raise AssertionError(f"tool lookup should not happen after port conflict: {name}")
+
+        with self.assertRaisesRegex(
+            check_play_now_remote.PreflightError,
+            "NOVNC_PORT and VNC_DISPLAY resolve to the same loopback TCP port",
+        ):
+            check_play_now_remote.check_preflight(
+                env={"NOVNC_PORT": "5901", "VNC_DISPLAY": "1"},
+                platform_name="Linux",
+                which=fail_if_checked,
+            )
+
     def test_success_on_linux_like_host_reports_optional_novnc_without_launching_qemu(self):
         looked_up = []
 
@@ -104,10 +132,45 @@ class PlayNowRemotePreflightTests(unittest.TestCase):
         self.assertEqual(rc, 0, stderr.getvalue())
         self.assertIn("play-now remote preflight OK", stdout.getvalue())
         self.assertIn("noVNC port: 6080", stdout.getvalue())
+        self.assertIn("QEMU VNC display: :1 (127.0.0.1:5901)", stdout.getvalue())
         self.assertIn("browser proxy: available", stdout.getvalue())
         self.assertIn("dry-run: QEMU was not launched", stdout.getvalue())
         self.assertIn("qemu-system-x86_64", looked_up)
         self.assertEqual(stderr.getvalue(), "")
+
+    def test_success_uses_alternate_novnc_web_root_when_present(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        rc = check_play_now_remote.main(
+            ["--require-novnc"],
+            env={},
+            platform_name="Linux",
+            which=lambda name: fake_tool_path(name),
+            path_is_dir=lambda path: path == Path("/usr/local/share/novnc"),
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+        self.assertEqual(rc, 0, stderr.getvalue())
+        self.assertIn("web root: /usr/local/share/novnc", stdout.getvalue())
+        self.assertEqual(stderr.getvalue(), "")
+
+    def test_explicit_novnc_web_root_must_exist(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        rc = check_play_now_remote.main(
+            [],
+            env={"NOVNC_WEB_ROOT": "/missing/novnc"},
+            platform_name="Linux",
+            which=lambda name: fake_tool_path(name),
+            path_is_dir=lambda path: False,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("NOVNC_WEB_ROOT does not exist", stderr.getvalue())
 
     def test_success_without_novnc_reports_vnc_tunnel_fallback(self):
         stdout = io.StringIO()

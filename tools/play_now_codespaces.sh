@@ -163,6 +163,9 @@ validate_ref_name() {
       die "ref must be a branch name without spaces/control characters, got '$ref'"
       ;;
   esac
+  git check-ref-format --branch "$ref" >/dev/null 2>&1 || {
+    die "ref must be a valid Git branch name, got '$ref'"
+  }
 }
 
 verify_github_remote_ref() {
@@ -321,6 +324,17 @@ validate_display_name() {
   if [ "${#name}" -gt "$MAX_DISPLAY_NAME_LENGTH" ]; then
     die "Codespaces display name must be $MAX_DISPLAY_NAME_LENGTH characters or fewer, got ${#name}: '$name'"
   fi
+}
+
+validate_codespace_name() {
+  local name="$1"
+
+  [ -n "$name" ] || die "Codespace name must not be empty"
+  case "$name" in
+    *$'\n'*|*$'\r'*|*' '*|*'	'*)
+      die "Codespace name must be a single token, got '$name'"
+      ;;
+  esac
 }
 
 default_display_name() {
@@ -498,6 +512,12 @@ else
   nohup ./tools/play_now_remote.sh --require-novnc >"$log_file" 2>&1 &
   echo "$!" >"$pid_file"
   echo "vibe-os play-now started in this Codespace: pid=$(cat "$pid_file")"
+  sleep 2
+  if ! kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+    echo "vibe-os play-now exited during startup; recent remote log:" >&2
+    tail -n 80 "$log_file" >&2 || true
+    exit 1
+  fi
 fi
 echo "remote play log: $log_file"
 REMOTE
@@ -601,6 +621,9 @@ if [ -z "$CODESPACE_NAME" ] && [ -z "$DISPLAY_NAME" ]; then
 fi
 if [ -n "$DISPLAY_NAME" ]; then
   validate_display_name "$DISPLAY_NAME"
+fi
+if [ -n "$CODESPACE_NAME" ]; then
+  validate_codespace_name "$CODESPACE_NAME"
 fi
 
 if [ "$RUN_PREFLIGHT_ONLY" = "1" ]; then

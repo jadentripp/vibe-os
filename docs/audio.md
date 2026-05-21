@@ -6,6 +6,33 @@ SB16 model and the device has a simple DSP reset/version probe before the harder
 mixing work. In the hardware matrix, this is claimed only as the QEMU SB16
 device-model path until a separate physical audio proof exists.
 
+Reusable audio syscall surface:
+
+- `SYS_AUDIO` is the OS audio entrypoint for user programs. Doom is the first
+  high-pressure caller, but the command names exposed in `vibe_os.h` are the
+  reusable contract: `VIBE_AUDIO_DEVICE_START`, `VIBE_AUDIO_MIXER_START`,
+  `VIBE_AUDIO_MIXER_STOP`, `VIBE_AUDIO_MIXER_UPDATE`,
+  `VIBE_AUDIO_MIXER_IS_PLAYING`, `VIBE_AUDIO_PCM_PULL_STATE`,
+  `VIBE_AUDIO_DEVICE_INFO`, and `VIBE_AUDIO_PCM_RING_INFO`.
+- `vibe_audio_voice_desc_t` is the generic mixer voice descriptor. The older
+  `vibe_audio_sfx_desc_t` spelling remains a source-compatible typedef because
+  Doom SFX were the first submitted voices. Public headers pin the guest ABI as
+  `VIBE_AUDIO_VOICE_DESC_BYTES == 64`.
+- `vibe_audio_voice_desc_init()` initializes a caller-owned unsigned 8-bit PCM
+  voice descriptor without Doom fields or WAD assumptions. Games can then set
+  `sound_id`, `VIBE_AUDIO_FLAG_LOOP`, `VIBE_AUDIO_FLAG_MUSIC`, or stream
+  metadata as needed before submitting the descriptor.
+- `vibe_audio_device_info_t` and `vibe_audio_pcm_ring_info_t` are fixed
+  48-byte records. `vibe_audio_device_is_ready()`,
+  `vibe_audio_device_has_capability()`, and
+  `vibe_audio_pcm_ring_is_u8_stereo()` are small header helpers for generic
+  capability negotiation before a port assumes a PCM ring, mixer voices, pull
+  streams, or SB16 DMA backing.
+- The current implementation mixes interleaved unsigned 8-bit stereo into the
+  SB16 DMA ring. The public contract describes the PCM/mixer surface; it does
+  not make Doom WAD audio, MUS/MIDI parsing, raw audio assets, or a physical
+  sound card part of the repo.
+
 Current kernel behavior:
 
 - probes the SB16 DSP reset/read ports and records `audio=SB16` or `audio=NONE`

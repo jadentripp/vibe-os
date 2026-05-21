@@ -72,6 +72,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         readme = (ROOT / "README.md").read_text()
         boot_doc = (ROOT / "docs" / "boot-loader-vm.md").read_text()
         gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
+        hardware_doc = (ROOT / "docs" / "hardware-support.md").read_text()
         tests_readme = (ROOT / "tests" / "README.md").read_text()
         runbook = (ROOT / "docs" / "runbooks" / "remote-doom-playtest.md").read_text()
 
@@ -90,6 +91,9 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             (gap_doc, "pciprobe="),
             (gap_doc, "pcitabcap="),
             (gap_doc, "UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and physical hardware remain unclaimed"),
+            (hardware_doc, "Input, audio, and FAT16 are reusable OS-facing syscall/header contracts"),
+            (hardware_doc, "The reusable contracts do not widen the hardware claim"),
+            (hardware_doc, "USB HID, AC97/HDA/USB audio, arbitrary FAT media, long filenames, physical sound cards, and real PC hardware remain unclaimed"),
             (tests_readme, "tools/check_hardware_support_matrix.py"),
             (tests_readme, "boot/uefi/README.md"),
             (tests_readme, "pciprobe="),

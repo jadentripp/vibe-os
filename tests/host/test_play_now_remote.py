@@ -125,6 +125,16 @@ class PlayNowRemoteTests(unittest.TestCase):
                   printf '0123456789abcdef0123456789abcdef01234567\\trefs/heads/%s\\n' "$ref"
                   exit 0
                 fi
+                if [ "$1" = "check-ref-format" ] && [ "${2:-}" = "--branch" ]; then
+                  ref="${@: -1}"
+                  case "$ref" in
+                    *..*|*@{*|*\\\\*|*~*|*^*|*:*|*\\?*|*\\**|*\\[*|refs/*|-*|*' '*|*$'\\t'*)
+                      exit 1
+                      ;;
+                  esac
+                  printf '%s\\n' "$ref"
+                  exit 0
+                fi
                 if [ "$1" = "init" ]; then
                   exit 0
                 fi
@@ -208,6 +218,8 @@ class PlayNowRemoteTests(unittest.TestCase):
             "--preflight, --dry-run",
             "--web-url",
             "require_clean_pushed_git_state",
+            "git check-ref-format --branch",
+            "validate_codespace_name",
             "local git working tree is dirty",
             "differs from upstream",
             "print_web_fallback_hint",
@@ -693,6 +705,33 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertNotIn("/user/codespaces?per_page=1", log)
             self.assertNotIn("codespace create", log)
 
+    def test_codespaces_launcher_refuses_invalid_branch_name_before_codespaces(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env, gh_log, git_log = self._codespaces_stub_env(tmp)
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "tools" / "play_now_codespaces.sh"),
+                    "--dry-run",
+                    "--repo",
+                    "jadentripp/vibe-os",
+                    "--ref",
+                    "bad..branch",
+                    "--no-open",
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("ref must be a valid Git branch name", result.stderr)
+            self.assertIn("check-ref-format --branch bad..branch", git_log.read_text())
+            log = gh_log.read_text() if gh_log.exists() else ""
+            self.assertNotIn("/user/codespaces?per_page=1", log)
+            self.assertNotIn("codespace create", log)
+
     def test_codespaces_launcher_refuses_dirty_or_unpushed_inferred_branch_before_codespaces(self):
         for mode, message in (
             ("dirty", "local git working tree is dirty"),
@@ -808,7 +847,9 @@ class PlayNowRemoteTests(unittest.TestCase):
             'rm -f build/disk.img',
             'Reusing cached objects when valid',
             'make DOOM_WAD="$WAD_PATH"',
-            'websockify --web=/usr/share/novnc',
+            'NOVNC_WEB_ROOTS=(',
+            'resolve_novnc_web_root',
+            'websockify --web="$NOVNC_WEB_ROOT_RESOLVED"',
             '/vnc.html?autoconnect=1',
             'codespaces_novnc_url()',
             'Codespaces noVNC URL:',

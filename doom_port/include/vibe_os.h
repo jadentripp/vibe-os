@@ -53,8 +53,38 @@ typedef struct vibe_dirent {
 } vibe_dirent_t;
 
 enum {
+    VIBE_DIRENT_NAME_BYTES = 16,
+    VIBE_DIRENT_BYTES = 32,
+};
+
+enum {
+    VIBE_DIRENT_ATTR_READ_ONLY = 0x01u,
+    VIBE_DIRENT_ATTR_HIDDEN = 0x02u,
+    VIBE_DIRENT_ATTR_SYSTEM = 0x04u,
+    VIBE_DIRENT_ATTR_VOLUME_ID = 0x08u,
+    VIBE_DIRENT_ATTR_DIRECTORY = 0x10u,
+    VIBE_DIRENT_ATTR_ARCHIVE = 0x20u,
+};
+
+static inline int vibe_dirent_is_directory(const vibe_dirent_t* entry)
+{
+    return entry && (entry->attributes & VIBE_DIRENT_ATTR_DIRECTORY) != 0;
+}
+
+static inline int vibe_dirent_is_regular_file(const vibe_dirent_t* entry)
+{
+    return entry && entry->name[0] && !vibe_dirent_is_directory(entry);
+}
+
+enum {
     VIBE_AUDIO_DEVICE_NONE = 0,
     VIBE_AUDIO_DEVICE_SB16 = 1,
+};
+
+enum {
+    VIBE_AUDIO_DEVICE_STATUS_NONE = 0,
+    VIBE_AUDIO_DEVICE_STATUS_READY = 1,
+    VIBE_AUDIO_DEVICE_STATUS_ABSENT = 2,
 };
 
 enum {
@@ -119,6 +149,40 @@ typedef struct vibe_audio_sfx_desc {
 
 typedef vibe_audio_sfx_desc_t vibe_audio_voice_desc_t;
 
+enum {
+    VIBE_AUDIO_VOICE_DESC_BYTES = 64,
+};
+
+static inline void vibe_audio_voice_desc_init(
+    vibe_audio_voice_desc_t* desc,
+    const unsigned char* samples,
+    unsigned long length,
+    unsigned long sample_rate,
+    unsigned long volume,
+    unsigned long separation,
+    unsigned long pitch)
+{
+    if (!desc)
+        return;
+
+    desc->samples = samples;
+    desc->length = length;
+    desc->volume = volume;
+    desc->separation = separation;
+    desc->pitch = pitch;
+    desc->sound_id = 0;
+    desc->flags = 0;
+    desc->sample_rate = sample_rate;
+    desc->music_format = 0;
+    desc->music_note_events = 0;
+    desc->music_control_events = 0;
+    desc->music_active_voice_peak = 0;
+    desc->music_emitted_samples = 0;
+    desc->music_stream_start = 0;
+    desc->music_stream_end = 0;
+    desc->music_stream_loop_count = 0;
+}
+
 typedef struct vibe_audio_device_info {
     unsigned long device_kind;
     unsigned long status;
@@ -134,6 +198,10 @@ typedef struct vibe_audio_device_info {
     unsigned long playback_start_count;
 } vibe_audio_device_info_t;
 
+enum {
+    VIBE_AUDIO_DEVICE_INFO_BYTES = 48,
+};
+
 typedef struct vibe_audio_pcm_ring_info {
     unsigned long format;
     unsigned long channels;
@@ -148,6 +216,31 @@ typedef struct vibe_audio_pcm_ring_info {
     unsigned long overwrite_count;
     unsigned long clip_count;
 } vibe_audio_pcm_ring_info_t;
+
+enum {
+    VIBE_AUDIO_PCM_RING_INFO_BYTES = 48,
+};
+
+static inline int vibe_audio_device_is_ready(const vibe_audio_device_info_t* info)
+{
+    return info
+        && info->status == VIBE_AUDIO_DEVICE_STATUS_READY
+        && info->device_kind != VIBE_AUDIO_DEVICE_NONE;
+}
+
+static inline int vibe_audio_device_has_capability(
+    const vibe_audio_device_info_t* info,
+    unsigned long capability)
+{
+    return info && (info->capabilities & capability) == capability;
+}
+
+static inline int vibe_audio_pcm_ring_is_u8_stereo(const vibe_audio_pcm_ring_info_t* info)
+{
+    return info
+        && info->format == VIBE_AUDIO_FORMAT_U8_STEREO
+        && info->channels == 2;
+}
 
 enum {
     VIBE_AUDIO_FLAG_LOOP = 0x00000001u,
@@ -176,6 +269,17 @@ enum {
     VIBE_INPUT_EVENT_MOUSE_PACKET = 2,
 };
 
+enum {
+    VIBE_INPUT_KEY_RELEASED = 0,
+    VIBE_INPUT_KEY_PRESSED = 1,
+};
+
+enum {
+    VIBE_INPUT_MOUSE_BUTTON_LEFT = 0x01u,
+    VIBE_INPUT_MOUSE_BUTTON_RIGHT = 0x02u,
+    VIBE_INPUT_MOUSE_BUTTON_MIDDLE = 0x04u,
+};
+
 typedef struct vibe_input_event {
     unsigned long timestamp;
     unsigned long device_id;
@@ -185,6 +289,50 @@ typedef struct vibe_input_event {
     long value1;
     long value2;
 } vibe_input_event_t;
+
+enum {
+    VIBE_INPUT_EVENT_BYTES = 28,
+};
+
+static inline void vibe_input_make_key_event(
+    vibe_input_event_t* event,
+    unsigned long timestamp,
+    unsigned long code,
+    int pressed)
+{
+    if (!event)
+        return;
+
+    event->timestamp = timestamp;
+    event->device_id = VIBE_INPUT_DEVICE_KEYBOARD;
+    event->type = VIBE_INPUT_EVENT_KEY;
+    event->code = code;
+    event->value0 = pressed ? VIBE_INPUT_KEY_PRESSED : VIBE_INPUT_KEY_RELEASED;
+    event->value1 = 0;
+    event->value2 = 0;
+}
+
+static inline void vibe_input_make_mouse_packet_event(
+    vibe_input_event_t* event,
+    unsigned long timestamp,
+    unsigned long buttons,
+    long delta_x,
+    long delta_y)
+{
+    if (!event)
+        return;
+
+    event->timestamp = timestamp;
+    event->device_id = VIBE_INPUT_DEVICE_MOUSE;
+    event->type = VIBE_INPUT_EVENT_MOUSE_PACKET;
+    event->code = buttons & (
+        VIBE_INPUT_MOUSE_BUTTON_LEFT
+        | VIBE_INPUT_MOUSE_BUTTON_RIGHT
+        | VIBE_INPUT_MOUSE_BUTTON_MIDDLE);
+    event->value0 = delta_x;
+    event->value1 = delta_y;
+    event->value2 = 0;
+}
 
 enum {
     VIBE_GAMEPLAY_FLAG_MENU_ACTIVE = 0x01u,

@@ -46,6 +46,88 @@ die() {
   exit 1
 }
 
+validate_human_labels() {
+  [[ "$PLAYTESTER" =~ ^[A-Za-z0-9._-]{2,64}$ ]] || {
+    die "--playtester must be 2-64 characters: letters, numbers, dot, underscore, or dash"
+  }
+  [[ "$SCRIPTED_PROOF_RUN_ID" =~ ^[0-9]{6,32}$ ]] || {
+    die "--scripted-proof-run-id must be a 6-32 digit GitHub Actions run ID"
+  }
+  if [ -n "$COMMIT_VALUE" ]; then
+    [[ "$COMMIT_VALUE" =~ ^([0-9A-Fa-f]{7,40}|unknown)$ ]] || {
+      die "--commit must be a 7-40 character hex commit or 'unknown'"
+    }
+  fi
+}
+
+validate_remote_scratch_paths() {
+  python3 - "$OUTPUT_DIR" "$TARBALL" <<'PY'
+from pathlib import Path
+import subprocess
+import sys
+
+
+def is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def absolute_without_symlink_resolution(raw: str) -> Path:
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path.absolute()
+
+
+output_raw, tarball_raw = sys.argv[1:3]
+try:
+    repo_root = Path(
+        subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    ).resolve()
+except Exception:
+    repo_root = Path.cwd().resolve()
+
+checks = (
+    ("proof output directory", Path(output_raw).expanduser()),
+    ("proof tarball", Path(tarball_raw).expanduser()),
+)
+for label, raw_path in checks:
+    lexical = absolute_without_symlink_resolution(str(raw_path))
+    resolved = raw_path.resolve(strict=False)
+    if is_relative_to(lexical, repo_root) or is_relative_to(resolved, repo_root):
+        print(f"{label} must live outside the git checkout: {lexical}", file=sys.stderr)
+        sys.exit(1)
+    if lexical == Path(lexical.anchor):
+        print(f"{label} must not be the filesystem root: {lexical}", file=sys.stderr)
+        sys.exit(1)
+
+tarball = absolute_without_symlink_resolution(tarball_raw)
+suffixes = "".join(tarball.suffixes)
+if suffixes not in (".tgz", ".tar.gz"):
+    print("proof tarball must end in .tgz or .tar.gz", file=sys.stderr)
+    sys.exit(1)
+if tarball.exists() and tarball.is_dir():
+    print(f"proof tarball path is a directory: {tarball}", file=sys.stderr)
+    sys.exit(1)
+
+output = absolute_without_symlink_resolution(output_raw)
+try:
+    tarball.relative_to(output)
+except ValueError:
+    pass
+else:
+    print("proof tarball must not be inside the proof output directory", file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --playtester)
@@ -101,6 +183,7 @@ done
 
 [ -n "$PLAYTESTER" ] || die "--playtester is required"
 [ -n "$SCRIPTED_PROOF_RUN_ID" ] || die "--scripted-proof-run-id is required"
+validate_human_labels
 
 case "$(uname -s)" in
   Darwin)
@@ -117,6 +200,7 @@ esac
 
 command -v python3 >/dev/null 2>&1 || die "missing python3"
 command -v tar >/dev/null 2>&1 || die "missing tar"
+validate_remote_scratch_paths
 [ -d "$BUILD_DIR" ] || die "build directory does not exist: $BUILD_DIR"
 [ -S "$MONITOR_SOCKET" ] || die "remote QEMU monitor socket does not exist: $MONITOR_SOCKET"
 
@@ -133,7 +217,8 @@ esac
 
 output_parent="$(dirname "$OUTPUT_DIR")"
 output_base="$(basename "$OUTPUT_DIR")"
-mkdir -p "$output_parent"
+tarball_parent="$(dirname "$TARBALL")"
+mkdir -p "$output_parent" "$tarball_parent"
 rm -f "$TARBALL"
 
 PHASES=(

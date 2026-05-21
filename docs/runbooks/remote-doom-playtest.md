@@ -159,6 +159,11 @@ the required `--confirm-*` flags, validates the allowlisted bundle before
 download, creates `/tmp/vibe-os-human-proof.tgz`, and prints the exact `scp` and
 local `--human-session` command with the expected commit and scripted proof run
 ID baked in. It does not launch QEMU and refuses to run on macOS.
+Before the first capture prompt, it also validates that `--playtester` matches
+the notes schema, `--scripted-proof-run-id` is a numeric GitHub Actions run ID,
+and both the proof output directory and proof tarball live outside the git
+checkout. If any of those checks fail, stop and fix the remote scratch paths
+instead of collecting a session that the Mac-side checker will reject later.
 
 Manual equivalent: use the collector's
 `--capture-phase` helper so the remote QEMU monitor writes one temporary memory
@@ -302,6 +307,9 @@ If you used `tools/run_remote_human_playtest.sh`, download only the tarball it
 prints, then run the printed local checker commands and compare the local
 `post-download human verification OK` line with the remote `pre-download human
 verification OK` line.
+Do not create the tarball inside the repository checkout. The guided helper
+refuses repo-local tarball paths and only packages the flat allowlisted proof
+directory it just validated.
 
 For a fully automated truth-serum run, use the GitHub Actions **Real WAD smoke**
 workflow instead of this manual VNC path. It captures:

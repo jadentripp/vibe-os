@@ -175,7 +175,9 @@ python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
   specials. If the classifier prints `persistence-load-malformed-stream`, the
   `value` byte is the suspicious class code at `offset`; if it prints
   `persistence-load-not-completed`, the load did not prove the
-  request/read/close/done sequence yet.
+  request/read/close/done sequence yet. Default unset stream fields such as
+  `savestm=00000000/FFFFFFFF/FFFFFFFF/00000000/00000000` are ignored for lane
+  selection, so normal non-persistence runs do not look like failed load attempts.
 - `saveact=flags/gameaction/slot/reports` separates requested-vs-completed
   Doom actions. For load proof, the flags must include load requested
   (`0x20`) and load done (`0x40`), `gameaction` must be zero after the load,

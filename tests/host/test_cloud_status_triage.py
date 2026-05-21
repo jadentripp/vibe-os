@@ -527,8 +527,31 @@ class CloudStatusTriageTests(unittest.TestCase):
         self.assertIn("primary: persistence-load-malformed-stream", rendered)
         self.assertIn("kind=specials", rendered)
         self.assertIn("persistence-load-stream: stage=0x17", rendered)
+        self.assertIn("unarchive-specials-before", rendered)
         self.assertIn("value=0x70", rendered)
         self.assertIn("malformed specials stream", rendered)
+
+    def test_render_diagnosis_recovers_unknown_tclass_from_raw_doomlog(self):
+        rendered = triage_cloud_status.render_diagnosis(
+            status_line(
+                doomrun="EXIT",
+                doomexit="00000001",
+                doomerr="00000006",
+                doomerrno="FFFFFFEA",
+                doomsav="0000000B/00000000",
+                saverd="00006476/00000001",
+                saveclose="00000001",
+                saveact="00000060/00000003/00000000/0000003A",
+                savestm="00000017/00000000/00002A65/00016D08/00000007",
+                savethk="FFFFFFFF/00000000/00002A64/00006C08",
+                doomlog="Unknown tclass 112 in savegame",
+            )
+        )
+
+        self.assertIn("primary: persistence-load-malformed-stream", rendered)
+        self.assertIn("kind=specials", rendered)
+        self.assertIn("unknown_tclass=112 (0x70)", rendered)
+        self.assertIn("offset=0x2A65", rendered)
 
     def test_classifies_persistence_load_not_completed_before_input_lanes(self):
         primary, notes = self.classify(
@@ -551,6 +574,19 @@ class CloudStatusTriageTests(unittest.TestCase):
         rendered = "\n".join(notes)
         self.assertIn("saveclose=00000000", rendered)
         self.assertIn("saveact=00000020/00000003/00000000/00000003", rendered)
+
+    def test_unset_savestream_fields_do_not_create_load_attempt(self):
+        primary, notes = self.classify(
+            doomsav="00000000/FFFFFFFF",
+            saverd="00000000/00000000",
+            saveclose="00000000",
+            saveact="00000000/00000000/FFFFFFFF/00000000",
+            savestm="00000000/FFFFFFFF/FFFFFFFF/00000000/00000000",
+            savethk="FFFFFFFF/00000000/FFFFFFFF/00000000",
+        )
+
+        self.assertEqual(primary, "playability-status-green")
+        self.assertIn("no obvious first-failure", notes[0])
 
     def test_classifies_frames_without_gameplay(self):
         primary, notes = self.classify(gameplay="WAIT", leveltime="00000000")

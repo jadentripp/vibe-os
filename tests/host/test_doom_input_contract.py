@@ -8,6 +8,132 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class DoomInputContractTests(unittest.TestCase):
+    def test_public_input_header_exposes_game_agnostic_event_contract(self):
+        abi_source = r"""
+            #include "vibe_os.h"
+
+            #define CHECK(name, expr) typedef char check_##name[(expr) ? 1 : -1]
+
+            CHECK(input_event_size, sizeof(vibe_input_event_t) == VIBE_INPUT_EVENT_BYTES);
+            CHECK(input_event_timestamp, __builtin_offsetof(vibe_input_event_t, timestamp) == 0);
+            CHECK(input_event_device_id, __builtin_offsetof(vibe_input_event_t, device_id) == 4);
+            CHECK(input_event_type, __builtin_offsetof(vibe_input_event_t, type) == 8);
+            CHECK(input_event_code, __builtin_offsetof(vibe_input_event_t, code) == 12);
+            CHECK(input_event_value0, __builtin_offsetof(vibe_input_event_t, value0) == 16);
+            CHECK(input_event_value1, __builtin_offsetof(vibe_input_event_t, value1) == 20);
+            CHECK(input_event_value2, __builtin_offsetof(vibe_input_event_t, value2) == 24);
+            CHECK(input_key_pressed, VIBE_INPUT_KEY_PRESSED == 1);
+            CHECK(input_key_released, VIBE_INPUT_KEY_RELEASED == 0);
+            CHECK(input_mouse_buttons,
+                (VIBE_INPUT_MOUSE_BUTTON_LEFT
+                | VIBE_INPUT_MOUSE_BUTTON_RIGHT
+                | VIBE_INPUT_MOUSE_BUTTON_MIDDLE) == 7);
+        """
+        abi = subprocess.run(
+            [
+                "clang",
+                "-target",
+                "i386-unknown-none-elf",
+                "-std=gnu89",
+                "-ffreestanding",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-I",
+                str(ROOT / "doom_port" / "include"),
+                "-x",
+                "c",
+                "-fsyntax-only",
+                "-",
+            ],
+            cwd=ROOT,
+            input=abi_source,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(abi.returncode, 0, abi.stderr)
+
+        runtime_source = r"""
+            #include "vibe_os.h"
+
+            int main(void)
+            {
+                vibe_input_event_t event;
+
+                vibe_input_make_key_event(&event, 44, 'w', 1);
+                if (event.timestamp != 44
+                    || event.device_id != VIBE_INPUT_DEVICE_KEYBOARD
+                    || event.type != VIBE_INPUT_EVENT_KEY
+                    || event.code != 'w'
+                    || event.value0 != VIBE_INPUT_KEY_PRESSED
+                    || event.value1 != 0
+                    || event.value2 != 0)
+                    return 1;
+
+                vibe_input_make_key_event(&event, 45, 'w', 0);
+                if (event.value0 != VIBE_INPUT_KEY_RELEASED)
+                    return 2;
+
+                vibe_input_make_mouse_packet_event(
+                    &event,
+                    46,
+                    VIBE_INPUT_MOUSE_BUTTON_LEFT | VIBE_INPUT_MOUSE_BUTTON_MIDDLE | 0xf0u,
+                    -3,
+                    5);
+                if (event.timestamp != 46
+                    || event.device_id != VIBE_INPUT_DEVICE_MOUSE
+                    || event.type != VIBE_INPUT_EVENT_MOUSE_PACKET
+                    || event.code != (VIBE_INPUT_MOUSE_BUTTON_LEFT | VIBE_INPUT_MOUSE_BUTTON_MIDDLE)
+                    || event.value0 != -3
+                    || event.value1 != 5
+                    || event.value2 != 0)
+                    return 3;
+
+                vibe_input_make_key_event(0, 0, 0, 0);
+                vibe_input_make_mouse_packet_event(0, 0, 0, 0, 0);
+                return 0;
+            }
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "vibe_input_contract"
+            build = subprocess.run(
+                [
+                    "clang",
+                    "-std=gnu89",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-I",
+                    str(ROOT / "doom_port" / "include"),
+                    "-x",
+                    "c",
+                    "-",
+                    "-o",
+                    str(binary),
+                ],
+                cwd=ROOT,
+                input=runtime_source,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(build.returncode, 0, build.stderr)
+            run = subprocess.run([str(binary)], cwd=ROOT, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
+    def test_input_docs_name_generic_queue_not_doom_only_helper(self):
+        docs = (ROOT / "docs" / "input.md").read_text()
+
+        for source in (
+            "the queue contract is\n  not Doom-specific",
+            "VIBE_INPUT_EVENT_BYTES == 28",
+            "vibe_input_make_key_event()",
+            "vibe_input_make_mouse_packet_event()",
+            "future games",
+            "Game-specific\n  button remapping belongs in the consuming port",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, docs)
+
     def test_doom_port_input_translation_helper(self):
         with tempfile.TemporaryDirectory() as tmp:
             binary = Path(tmp) / "doom_input_test"

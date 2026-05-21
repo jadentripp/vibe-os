@@ -65,6 +65,14 @@ SAVE_STAGE_ARCHIVE_SPECIALS_BEFORE = 0x07
 SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE = 0x15
 SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE = 0x17
 SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED = 0x1A
+SAVE_STREAM_UNSET_OFFSET = 0xFFFFFFFF
+SAVE_STAGE_NAMES = {
+    SAVE_STAGE_ARCHIVE_THINKERS_BEFORE: "archive-thinkers-before",
+    SAVE_STAGE_ARCHIVE_SPECIALS_BEFORE: "archive-specials-before",
+    SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE: "unarchive-thinkers-before",
+    SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE: "unarchive-specials-before",
+    SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED: "unarchive-thinkers-repaired",
+}
 FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
 DEFAULT_ASSIGNMENT_PATTERN = re.compile(r"^([A-Za-z0-9_]+)\s+(.+)$")
 REBOOT_EXACT_FIELDS = {
@@ -379,7 +387,11 @@ def _parse_save_stream_offset(value, label):
     return offset
 
 
-def _runtime_stream_offsets(status):
+def _save_stage_name(stage):
+    return SAVE_STAGE_NAMES.get(stage, f"unknown-stage-0x{stage:X}")
+
+
+def _runtime_stream_offsets(status, *, expected_slot=None):
     if status is None:
         return {}
     fields = _status_fields(status)
@@ -388,15 +400,29 @@ def _runtime_stream_offsets(status):
         stage, slot, offset, value, reports = _status_hex_tuple_field(fields, "savestm", 5)
         offsets["savestm"] = {
             "stage": stage,
+            "stage_name": _save_stage_name(stage),
             "slot": slot,
             "offset": offset,
             "value": value,
             "reports": reports,
         }
-        if stage == SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE:
-            offsets["specials"] = offset
-        elif stage == SAVE_STAGE_ARCHIVE_SPECIALS_BEFORE:
-            offsets["archive_specials"] = offset
+        if reports != 0:
+            if expected_slot is not None and slot != expected_slot:
+                raise PersistenceProofError(
+                    f"save stream status savestm= slot must be {expected_slot}, got {slot}"
+                )
+            if offset == SAVE_STREAM_UNSET_OFFSET:
+                raise PersistenceProofError(
+                    "save stream status savestm= reported an unset stream offset"
+                )
+            if stage in (SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE, SAVE_STAGE_ARCHIVE_SPECIALS_BEFORE):
+                offsets["specials"] = offset
+            elif stage == SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE:
+                offsets["thinkers"] = offset
+            elif stage == SAVE_STAGE_ARCHIVE_THINKERS_BEFORE:
+                offsets["archive_thinkers"] = offset
+            elif stage == SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED:
+                offsets["repaired_thinkers"] = offset
     if "savethk" in fields:
         archive_offset, archive_value, unarchive_offset, unarchive_value = (
             _status_hex_tuple_field(fields, "savethk", 4)
@@ -407,11 +433,50 @@ def _runtime_stream_offsets(status):
             "unarchive_offset": unarchive_offset,
             "unarchive_value": unarchive_value,
         }
-        if unarchive_offset != 0xFFFFFFFF:
+        if unarchive_offset != SAVE_STREAM_UNSET_OFFSET:
             offsets["thinkers"] = unarchive_offset
-        elif archive_offset != 0xFFFFFFFF:
+        elif archive_offset != SAVE_STREAM_UNSET_OFFSET:
             offsets["thinkers"] = archive_offset
     return offsets
+
+
+def validate_save_load_stream_status(status, *, slot):
+    runtime_offsets = _runtime_stream_offsets(status, expected_slot=slot)
+    savethk = runtime_offsets.get("savethk")
+    if savethk is None:
+        raise PersistenceProofError(
+            "save load status savethk= must prove the unarchive thinker stream boundary"
+        )
+    if savethk["unarchive_offset"] == SAVE_STREAM_UNSET_OFFSET:
+        raise PersistenceProofError(
+            "save load status savethk= must report the unarchive thinker stream offset"
+        )
+
+    savestm = runtime_offsets.get("savestm")
+    if savestm is None:
+        raise PersistenceProofError(
+            "save load status savestm= must prove the unarchive specials stream boundary"
+        )
+    if savestm["reports"] == 0:
+        raise PersistenceProofError(
+            "save load status savestm= must include at least one save-stream report"
+        )
+    if savestm["stage"] == SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED:
+        raise PersistenceProofError(
+            "save load status savestm= reports a repaired thinker stream; "
+            "this cannot be claimed as an original Doom save/load proof"
+        )
+    if savestm["stage"] != SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE:
+        raise PersistenceProofError(
+            "save load status savestm= must reach the original Doom "
+            "P_UnArchiveSpecials entrypoint before save/load proof can be green; "
+            f"got {_save_stage_name(savestm['stage'])}"
+        )
+    if "thinkers" not in runtime_offsets or "specials" not in runtime_offsets:
+        raise PersistenceProofError(
+            "save load status must provide both thinker and specials stream offsets"
+        )
+    return runtime_offsets
 
 
 def _require_save_offset(data, offset, label):
@@ -626,7 +691,7 @@ def _validate_save_slot(
         )
 
     stream_summaries = []
-    runtime_offsets = _runtime_stream_offsets(stream_status)
+    runtime_offsets = _runtime_stream_offsets(stream_status, expected_slot=slot)
     if thinker_offset is None:
         thinker_offset = runtime_offsets.get("thinkers")
     if specials_offset is None:
@@ -714,6 +779,8 @@ def _format_save_status_diagnostics(status):
         "savemode",
         "saveact",
         "savedesc",
+        "savestm",
+        "savethk",
         "doomwrite",
         "doomclose",
         "doommode",
@@ -755,6 +822,27 @@ def _format_save_slot_diagnostics(fs, slot, status=None):
         f"{label} diagnostics: {', '.join(pieces)}"
         f"{_format_save_status_diagnostics(status)}"
     )
+
+
+def _require_save_write_covers_payload(status, *, slot, save_size):
+    fields = _status_fields(status)
+    saveload_flags, saveload_slot = _status_hex_tuple_field(fields, "doomsav", 2)
+    if saveload_slot != slot:
+        raise PersistenceProofError(
+            f"save write status doomsav= slot must be {slot}, got {saveload_slot}"
+        )
+    if (saveload_flags & SAVELOAD_EVENT_WRITE) == 0:
+        raise PersistenceProofError(
+            "save write status doomsav= must include a DOOMSAV write event"
+        )
+    save_write_bytes, save_write_events = _status_hex_tuple_field(fields, "savewr", 2)
+    if save_write_events == 0:
+        raise PersistenceProofError("save write status savewr= must report a write event")
+    if save_write_bytes < save_size:
+        raise PersistenceProofError(
+            f"save write status savewr= must cover the full persisted DOOMSAV{slot}.DSG payload "
+            f"({save_write_bytes} < {save_size})"
+        )
 
 
 def _require_reboot_survived(fs, reboot_fs, name, label):
@@ -1108,6 +1196,8 @@ def validate_image(
         raise PersistenceProofError("--write-status requires --require-default")
     if save_write_status_path is not None and not require_save_slots:
         raise PersistenceProofError("--save-write-status requires --require-save-slot")
+    if save_write_status_path is not None and len(require_save_slots) != 1:
+        raise PersistenceProofError("--save-write-status requires exactly one --require-save-slot")
     if load_status_path is not None and len(require_save_slots) != 1:
         raise PersistenceProofError("--load-status requires exactly one --require-save-slot")
     if load_status_path is not None and reboot_fs is None:
@@ -1153,11 +1243,10 @@ def validate_image(
     save_write_status_ok = False
     save_write_status_text = None
     if save_write_status_path is not None:
-        expected_save_slot = require_save_slots[0] if len(require_save_slots) == 1 else None
         save_write_status_text = Path(save_write_status_path).read_text()
         validate_save_write_status(
             save_write_status_text,
-            expected_slot=expected_save_slot,
+            expected_slot=require_save_slots[0],
         )
         save_write_status_ok = True
     load_status_text = Path(load_status_path).read_text() if load_status_path is not None else None
@@ -1218,6 +1307,12 @@ def validate_image(
             "leveltime": leveltime,
             "stream_summaries": stream_summaries,
         }
+        if save_write_status_text is not None:
+            _require_save_write_covers_payload(
+                save_write_status_text,
+                slot=slot,
+                save_size=size,
+            )
         _require_fresh_save_baseline(
             baseline_fs,
             make_wad_image.WRITABLE_SAVE_NAMES[slot],
@@ -1261,6 +1356,7 @@ def validate_image(
             game_map=info["game_map"],
             leveltime=info["leveltime"],
         )
+        validate_save_load_stream_status(load_status_text, slot=slot)
         summary.append(f"save load status gameplay=OK slot={slot}")
     if write_status_ok:
         summary.append("default write status closed=OK")

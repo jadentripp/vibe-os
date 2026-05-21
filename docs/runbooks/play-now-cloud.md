@@ -25,7 +25,9 @@ or:
 Explicit repo/ref mode verifies the GitHub repo and branch before Codespaces
 creation and ignores unrelated local dirt. Inferred current-branch mode still
 requires a clean checkout synced with upstream, because that mode uses local git
-state as proof of what will run remotely.
+state as proof of what will run remotely. Branch names are checked with Git's
+normal branch-name validator before any Codespaces API call, so typoed or
+malformed refs fail while the Mac is still in preflight.
 
 The launcher checks GitHub CLI auth, repo/ref selection, machine selection, and
 port `6080`, then creates or reuses a disposable GitHub Codespace. It starts
@@ -106,6 +108,11 @@ To use a different noVNC port, set `NOVNC_PORT` on the Mac before the launch
 and before the optional dry run. The launcher validates that port locally,
 passes the same value into the Codespace, waits for that exact forwarded port,
 and fails closed if GitHub CLI cannot mark it private.
+Inside the remote host, preflight also validates `VNC_DISPLAY` and refuses a
+configuration where the QEMU VNC port and noVNC port overlap. noVNC is served
+from the first available web root among `/usr/share/novnc`,
+`/usr/local/share/novnc`, and `/opt/homebrew/share/novnc`, or from an explicit
+`NOVNC_WEB_ROOT` when set.
 
 Use a plain remote Ubuntu host instead when you do not want Codespaces:
 
@@ -190,3 +197,6 @@ post-download checker commands. The longer version lives in
 `docs/runbooks/remote-doom-playtest.md`; its collector writes
 `human-playtest-checklist.txt` with the post-download checker commands and phase
 hashes to compare.
+The guided helper validates the playtester handle, scripted proof run ID, proof
+output directory, and proof tarball path before the first capture prompt. Proof
+output and the tarball must be remote scratch paths outside the git checkout.

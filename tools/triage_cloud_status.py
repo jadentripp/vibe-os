@@ -185,8 +185,20 @@ SAVEACTION_LOAD_DONE = 0x0040
 SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE = 0x15
 SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE = 0x17
 SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED = 0x1A
+SAVE_STREAM_UNSET_OFFSET = 0xFFFFFFFF
+SAVE_LOAD_STREAM_STAGES = {
+    SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE,
+    SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE,
+    SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED,
+}
+SAVE_STAGE_NAMES = {
+    SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE: "unarchive-thinkers-before",
+    SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE: "unarchive-specials-before",
+    SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED: "unarchive-thinkers-repaired",
+}
 VALID_THINKER_CLASSES = {0, 1}
 VALID_SPECIAL_CLASSES = set(range(8))
+UNKNOWN_TCLASS_PATTERN = re.compile(r"doomlog=.*?Unknown\s+tclass\s+([0-9]+)\s+in\s+savegame")
 
 
 @dataclass(frozen=True)
@@ -661,16 +673,50 @@ def _save_thinker(fields: dict[str, str]) -> tuple[int, int, int, int] | None:
     return _hex_tuple(fields, "savethk", 4)
 
 
+def _save_stage_name(stage: int) -> str:
+    return SAVE_STAGE_NAMES.get(stage, f"unknown-stage-0x{stage:X}")
+
+
+def _save_stream_load_meaningful(savestm: tuple[int, int, int, int, int] | None) -> bool:
+    if savestm is None:
+        return False
+    stage, slot, offset, _value, reports = savestm
+    return (
+        reports != 0
+        and stage in SAVE_LOAD_STREAM_STAGES
+        and slot != SAVE_STREAM_UNSET_OFFSET
+        and offset != SAVE_STREAM_UNSET_OFFSET
+    )
+
+
+def _save_thinker_load_meaningful(savethk: tuple[int, int, int, int] | None) -> bool:
+    if savethk is None:
+        return False
+    _archive_offset, _archive_value, unarchive_offset, _unarchive_value = savethk
+    return unarchive_offset not in (0, SAVE_STREAM_UNSET_OFFSET)
+
+
+def _doomlog_unknown_tclass(status: str | None) -> int | None:
+    if status is None:
+        return None
+    match = UNKNOWN_TCLASS_PATTERN.search(status)
+    if match is None:
+        return None
+    return int(match.group(1), 10)
+
+
 def _persistence_load_attempted(fields: dict[str, str]) -> bool:
     doomsav = _hex_tuple(fields, "doomsav", 2)
     saverd = _hex_tuple(fields, "saverd", 2)
     saveact = _save_action(fields)
+    savestm = _save_stream(fields)
+    savethk = _save_thinker(fields)
     return (
         (doomsav is not None and (doomsav[0] & SAVELOAD_EVENT_READ) != 0)
         or (saverd is not None and (saverd[0] != 0 or saverd[1] != 0))
         or (saveact is not None and (saveact[0] & SAVEACTION_LOAD_REQUESTED) != 0)
-        or _save_stream(fields) is not None
-        or _save_thinker(fields) is not None
+        or _save_stream_load_meaningful(savestm)
+        or _save_thinker_load_meaningful(savethk)
     )
 
 
@@ -690,7 +736,7 @@ def _persistence_load_completed(fields: dict[str, str]) -> bool:
 
 def _malformed_load_stream_kind(fields: dict[str, str]) -> str | None:
     savestm = _save_stream(fields)
-    if savestm is not None:
+    if _save_stream_load_meaningful(savestm):
         stage, _slot, _offset, value, reports = savestm
         if reports != 0 and stage == SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE and value not in VALID_THINKER_CLASSES:
             return "thinker"
@@ -699,13 +745,13 @@ def _malformed_load_stream_kind(fields: dict[str, str]) -> str | None:
 
     savethk = _save_thinker(fields)
     doom_error = (_hex(fields, "doomerr") or 0) != 0 or fields.get("doomrun") == "EXIT"
-    if doom_error and savethk is not None:
+    if doom_error and _save_thinker_load_meaningful(savethk):
         archive_offset, _archive_value, unarchive_offset, unarchive_value = savethk
-        if unarchive_offset not in (0, 0xFFFFFFFF) and unarchive_value not in VALID_THINKER_CLASSES:
+        if unarchive_offset not in (0, SAVE_STREAM_UNSET_OFFSET) and unarchive_value not in VALID_THINKER_CLASSES:
             return "thinker"
-        if archive_offset not in (0, 0xFFFFFFFF) and unarchive_offset not in (0, 0xFFFFFFFF):
+        if archive_offset not in (0, SAVE_STREAM_UNSET_OFFSET) and unarchive_offset not in (0, SAVE_STREAM_UNSET_OFFSET):
             return "stream"
-    if doom_error and savestm is not None:
+    if doom_error and _save_stream_load_meaningful(savestm):
         stage = savestm[0]
         if stage == SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE:
             return "thinker"
@@ -744,7 +790,7 @@ def _persistence_load_not_completed(fields: dict[str, str]) -> bool:
     )
 
 
-def render_persistence_load_context(fields: dict[str, str]) -> list[str]:
+def render_persistence_load_context(fields: dict[str, str], status: str | None = None) -> list[str]:
     kind = _malformed_load_stream_kind(fields)
     prefix = "persistence-load-malformed-stream" if kind is not None else "persistence-load-not-completed"
     lines = [
@@ -759,7 +805,7 @@ def render_persistence_load_context(fields: dict[str, str]) -> list[str]:
         stage, slot, offset, value, reports = savestm
         lines.append(
             "persistence-load-stream: "
-            f"stage=0x{stage:X} slot={slot} offset=0x{offset:X} "
+            f"stage=0x{stage:X}({_save_stage_name(stage)}) slot={slot} offset=0x{offset:X} "
             f"value=0x{value:X} reports={reports}"
         )
     savethk = _save_thinker(fields)
@@ -769,6 +815,11 @@ def render_persistence_load_context(fields: dict[str, str]) -> list[str]:
             "persistence-load-thinkers: "
             f"archive_offset=0x{archive_offset:X} archive_value=0x{archive_value:X} "
             f"unarchive_offset=0x{unarchive_offset:X} unarchive_value=0x{unarchive_value:X}"
+        )
+    unknown_tclass = _doomlog_unknown_tclass(status)
+    if unknown_tclass is not None:
+        lines.append(
+            f"persistence-doomlog: unknown_tclass={unknown_tclass} (0x{unknown_tclass:02X})"
         )
     if kind == "specials":
         lines.append("persistence-hint: malformed specials stream; run the save image checker with the savestm offset")
@@ -1161,7 +1212,7 @@ def render_diagnosis(
     if primary == "persistence-save-growth-allocation-partial":
         lines.extend(f"- {note}" for note in render_persistence_save_context(fields))
     if primary in ("persistence-load-malformed-stream", "persistence-load-not-completed"):
-        lines.extend(f"- {note}" for note in render_persistence_load_context(fields))
+        lines.extend(f"- {note}" for note in render_persistence_load_context(fields, status))
     if primary == "doom-init-stalled":
         lines.extend(f"- {note}" for note in render_doom_init_context(fields))
     if rule is not None:

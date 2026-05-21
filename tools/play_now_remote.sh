@@ -6,8 +6,15 @@ DOOM_WAD_URL="${DOOM_WAD_URL:-$PUBLIC_SHAREWARE_WAD_GZ_URL}"
 WAD_PATH="${WAD_PATH:-/tmp/vibe-os-DOOM1.WAD}"
 VNC_DISPLAY="${VNC_DISPLAY:-1}"
 NOVNC_PORT="${NOVNC_PORT:-6080}"
+NOVNC_WEB_ROOT="${NOVNC_WEB_ROOT:-}"
 PLAY_BUILD_DIR="${PLAY_BUILD_DIR:-build/play-now}"
 VNC_PORT=""
+NOVNC_WEB_ROOT_RESOLVED=""
+NOVNC_WEB_ROOTS=(
+  "/usr/share/novnc"
+  "/usr/local/share/novnc"
+  "/opt/homebrew/share/novnc"
+)
 
 usage() {
   cat <<'EOF'
@@ -85,6 +92,24 @@ ensure_loopback_port_free() {
   if loopback_port_in_use "$port"; then
     fail_remote "$label port 127.0.0.1:$port is already in use; stop the old remote play session or choose another port"
   fi
+}
+
+resolve_novnc_web_root() {
+  local root
+
+  if [ -n "$NOVNC_WEB_ROOT" ]; then
+    [ -d "$NOVNC_WEB_ROOT" ] || fail_remote "NOVNC_WEB_ROOT does not exist: $NOVNC_WEB_ROOT"
+    printf "%s\n" "$NOVNC_WEB_ROOT"
+    return 0
+  fi
+
+  for root in "${NOVNC_WEB_ROOTS[@]}"; do
+    if [ -d "$root" ]; then
+      printf "%s\n" "$root"
+      return 0
+    fi
+  done
+  return 0
 }
 
 ensure_wad_path_outside_repo() {
@@ -172,9 +197,12 @@ if [ "$RUN_PREFLIGHT_ONLY" = "1" ]; then
   exit 0
 fi
 
+if command -v websockify >/dev/null 2>&1; then
+  NOVNC_WEB_ROOT_RESOLVED="$(resolve_novnc_web_root)"
+fi
 ensure_wad_path_outside_repo
 ensure_loopback_port_free "QEMU VNC" "$VNC_PORT"
-if command -v websockify >/dev/null 2>&1 && [ -d /usr/share/novnc ]; then
+if command -v websockify >/dev/null 2>&1 && [ -n "$NOVNC_WEB_ROOT_RESOLVED" ]; then
   ensure_loopback_port_free "noVNC" "$NOVNC_PORT"
 fi
 
@@ -216,8 +244,8 @@ rm -f build/disk.img
 make DOOM_WAD="$WAD_PATH"
 mkdir -p "$PLAY_BUILD_DIR"
 
-if command -v websockify >/dev/null 2>&1 && [ -d /usr/share/novnc ]; then
-  websockify --web=/usr/share/novnc "127.0.0.1:$NOVNC_PORT" "127.0.0.1:$VNC_PORT" \
+if command -v websockify >/dev/null 2>&1 && [ -n "$NOVNC_WEB_ROOT_RESOLVED" ]; then
+  websockify --web="$NOVNC_WEB_ROOT_RESOLVED" "127.0.0.1:$NOVNC_PORT" "127.0.0.1:$VNC_PORT" \
     >"$PLAY_BUILD_DIR/novnc.log" 2>&1 &
   WEBSOCKIFY_PID="$!"
   sleep 1
@@ -225,6 +253,7 @@ if command -v websockify >/dev/null 2>&1 && [ -d /usr/share/novnc ]; then
     wait "$WEBSOCKIFY_PID" 2>/dev/null || true
     fail_remote "websockify exited before noVNC was ready; see $PLAY_BUILD_DIR/novnc.log"
   fi
+  echo "noVNC web root: $NOVNC_WEB_ROOT_RESOLVED"
   echo "noVNC tunnel/local URL: http://127.0.0.1:$NOVNC_PORT/vnc.html?autoconnect=1"
   if codespaces_url="$(codespaces_novnc_url)" && [ -n "$codespaces_url" ]; then
     echo "Codespaces noVNC URL: $codespaces_url"

@@ -88,9 +88,11 @@ def doom_mobj_record(*, state=1, mobj_type=0, player=0):
     return bytes(record)
 
 
-def doom_save_payload_with_streams(*, thinker_records=(), special_classes=b"\x07"):
+def doom_save_payload_with_streams(
+    *, description="STREAM PROOF", thinker_records=(), special_classes=b"\x07"
+):
     payload = bytearray()
-    payload.extend(b"STREAM PROOF".ljust(24, b"\0"))
+    payload.extend(description.encode("ascii")[:23].ljust(24, b"\0"))
     payload.extend(b"version 110".ljust(16, b"\0"))
     payload.extend(b"\x03\x01\x01\x01\x00\x00\x00\x00\x00\x46")
     while len(payload) % 4:
@@ -290,7 +292,7 @@ def save_write_status(slot=1, **overrides):
         "doommode": "00000301:000001B6",
         "doomsav": f"0000000D/{slot:08X}",
         "saverd": "00000000/00000000",
-        "savewr": "00001000/00000001",
+        "savewr": "00002000/00000001",
         "saveclose": "00000001",
         "savemode": "00000301:000001B6",
         "saveact": f"0000001C/00000000/{slot:08X}/00000003",
@@ -601,7 +603,9 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertIn("save write status closed=OK", summary)
 
     def test_checker_gates_save_load_status_when_claiming_playable_save_slot(self):
-        save_payload = doom_save_payload("VIBE-SLOT-1")
+        save_payload, thinker_offset, specials_offset = doom_save_payload_with_streams(
+            description="VIBE-SLOT-1"
+        )
         baseline = bytearray((BUILD / "disk.img").read_bytes())
         after_write = bytearray(baseline)
         fs = make_wad_image.Fat16Image(after_write)
@@ -613,7 +617,13 @@ class DoomPersistenceImageTests(unittest.TestCase):
         reboot_path = self.write_temp_image(after_reboot)
         status_path = self.write_temp_text(save_write_status(slot=1))
         load_status_path = self.write_temp_text(
-            load_status(slot=1, read_bytes=len(save_payload), leveltime=71)
+            load_status(
+                slot=1,
+                read_bytes=len(save_payload),
+                leveltime=71,
+                savestm=f"00000017/00000001/{specials_offset:08X}/00000007/00000008",
+                savethk=f"{thinker_offset:08X}/00000000/{thinker_offset:08X}/00000000",
+            )
         )
 
         summary = check_persistence.validate_image(
@@ -630,6 +640,14 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertIn("DOOMSAV1.DSG bytes=", summary[0])
         self.assertIn("description='VIBE-SLOT-1'", summary[0])
         self.assertIn("survived-reboot", summary[0])
+        self.assertIn(
+            f"DOOMSAV1.DSG thinkers=OK offset=0x{thinker_offset:X}",
+            summary[1],
+        )
+        self.assertIn(
+            f"DOOMSAV1.DSG specials=OK offset=0x{specials_offset:X}",
+            summary[2],
+        )
         self.assertIn("reboot status runtime=OK", summary)
         self.assertIn("save load status gameplay=OK slot=1", summary)
 
@@ -693,6 +711,30 @@ class DoomPersistenceImageTests(unittest.TestCase):
             check_persistence.validate_save_write_status(save_write_status(saveact="00000000/00000000/00000001/00000000"))
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "savedesc"):
             check_persistence.validate_save_write_status(save_write_status(savedesc="00000000/00000000"))
+
+    def test_checker_rejects_save_write_status_shorter_than_persisted_save_payload(self):
+        save_payload = doom_save_payload("SHORT STATUS")
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        image = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(image)
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], save_payload)
+
+        baseline_path = self.write_temp_image(baseline)
+        image_path = self.write_temp_image(image)
+        status_path = self.write_temp_text(
+            save_write_status(slot=0, savewr="00000400/00000001")
+        )
+
+        with self.assertRaisesRegex(
+            check_persistence.PersistenceProofError,
+            "cover the full persisted DOOMSAV0.DSG payload",
+        ):
+            check_persistence.validate_image(
+                image_path,
+                baseline_image=baseline_path,
+                save_write_status_path=status_path,
+                require_save_slots=[0],
+            )
 
     def test_checker_reports_partial_save_write_signature_on_short_save_slot(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
@@ -816,6 +858,69 @@ class DoomPersistenceImageTests(unittest.TestCase):
                 reboot_status_path=queued_path,
                 save_write_status_path=status_path,
                 load_status_path=queued_path,
+                require_save_slots=[0],
+            )
+
+    def test_checker_rejects_blind_save_load_status_without_stream_offsets(self):
+        save_payload = doom_save_payload("BLIND LOAD")
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        after_write = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(after_write)
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], save_payload)
+
+        baseline_path = self.write_temp_image(baseline)
+        write_path = self.write_temp_image(after_write)
+        reboot_path = self.write_temp_image(bytearray(after_write))
+        status_path = self.write_temp_text(save_write_status(slot=0))
+        load_status_path = self.write_temp_text(
+            load_status(slot=0, read_bytes=len(save_payload), leveltime=80)
+        )
+
+        with self.assertRaisesRegex(
+            check_persistence.PersistenceProofError,
+            "savethk= must prove the unarchive thinker stream boundary",
+        ):
+            check_persistence.validate_image(
+                reboot_path,
+                baseline_image=baseline_path,
+                reboot_baseline_image=write_path,
+                reboot_status_path=load_status_path,
+                save_write_status_path=status_path,
+                load_status_path=load_status_path,
+                require_save_slots=[0],
+            )
+
+    def test_checker_rejects_save_load_stream_status_for_wrong_slot(self):
+        save_payload, thinker_offset, specials_offset = doom_save_payload_with_streams(
+            description="WRONG STREAM"
+        )
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        after_write = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(after_write)
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], save_payload)
+
+        baseline_path = self.write_temp_image(baseline)
+        write_path = self.write_temp_image(after_write)
+        reboot_path = self.write_temp_image(bytearray(after_write))
+        status_path = self.write_temp_text(save_write_status(slot=0))
+        load_status_path = self.write_temp_text(
+            load_status(
+                slot=0,
+                read_bytes=len(save_payload),
+                leveltime=80,
+                savestm=f"00000017/00000001/{specials_offset:08X}/00000007/00000008",
+                savethk=f"{thinker_offset:08X}/00000000/{thinker_offset:08X}/00000000",
+            )
+        )
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "savestm= slot must be 0"):
+            check_persistence.validate_image(
+                reboot_path,
+                baseline_image=baseline_path,
+                reboot_baseline_image=write_path,
+                reboot_status_path=load_status_path,
+                save_write_status_path=status_path,
+                load_status_path=load_status_path,
                 require_save_slots=[0],
             )
 

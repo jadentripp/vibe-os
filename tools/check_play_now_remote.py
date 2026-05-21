@@ -22,6 +22,7 @@ REQUIRED_TOOLS = (
 )
 
 DEFAULT_NOVNC_PORT = "6080"
+DEFAULT_VNC_DISPLAY = "1"
 
 NOVNC_WEB_ROOTS = (
     Path("/usr/share/novnc"),
@@ -63,6 +64,8 @@ class NovncStatus:
 class PreflightReport:
     platform_name: str
     novnc_port: int
+    vnc_display: int
+    vnc_port: int
     required_tools: tuple[ToolStatus, ...]
     novnc: NovncStatus
 
@@ -89,6 +92,36 @@ def _validate_tcp_port(name: str, raw_value: str) -> int:
     return port
 
 
+def _validate_vnc_display(raw_value: str) -> tuple[int, int]:
+    if not raw_value.isdigit():
+        raise PreflightError(
+            f"VNC_DISPLAY must be a non-negative integer, got {raw_value!r}"
+        )
+
+    display = int(raw_value, 10)
+    if display > 59635:
+        raise PreflightError(
+            "VNC_DISPLAY must map to a TCP port between 5900 and 65535, "
+            f"got {raw_value!r}"
+        )
+    return display, 5900 + display
+
+
+def _find_novnc_web_root(
+    *,
+    env: Mapping[str, str],
+    path_is_dir: Callable[[Path], bool],
+) -> Path | None:
+    explicit = env.get("NOVNC_WEB_ROOT", "")
+    if explicit:
+        path = Path(explicit)
+        if not path_is_dir(path):
+            raise PreflightError(f"NOVNC_WEB_ROOT does not exist: {explicit}")
+        return path
+
+    return next((root for root in NOVNC_WEB_ROOTS if path_is_dir(root)), None)
+
+
 def check_preflight(
     *,
     env: Mapping[str, str] | None = None,
@@ -104,6 +137,14 @@ def check_preflight(
     novnc_port = _validate_tcp_port(
         "NOVNC_PORT", effective_env.get("NOVNC_PORT", DEFAULT_NOVNC_PORT)
     )
+    vnc_display, vnc_port = _validate_vnc_display(
+        effective_env.get("VNC_DISPLAY", DEFAULT_VNC_DISPLAY)
+    )
+    if novnc_port == vnc_port:
+        raise PreflightError(
+            "NOVNC_PORT and VNC_DISPLAY resolve to the same loopback TCP port "
+            f"127.0.0.1:{novnc_port}"
+        )
 
     if _is_macos(effective_platform) and not _local_vm_allowed(effective_env):
         raise PreflightError(
@@ -125,7 +166,7 @@ def check_preflight(
             + UBUNTU_INSTALL_HINT
         )
 
-    web_root = next((root for root in NOVNC_WEB_ROOTS if path_is_dir(root)), None)
+    web_root = _find_novnc_web_root(env=effective_env, path_is_dir=path_is_dir)
     novnc = NovncStatus(websockify=which("websockify"), web_root=web_root)
     if require_novnc and not novnc.available:
         raise PreflightError(
@@ -136,6 +177,8 @@ def check_preflight(
     return PreflightReport(
         platform_name=effective_platform,
         novnc_port=novnc_port,
+        vnc_display=vnc_display,
+        vnc_port=vnc_port,
         required_tools=required_tools,
         novnc=novnc,
     )
@@ -146,6 +189,7 @@ def render_report(report: PreflightReport) -> str:
         "play-now remote preflight OK",
         f"platform: {report.platform_name}",
         f"noVNC port: {report.novnc_port}",
+        f"QEMU VNC display: :{report.vnc_display} (127.0.0.1:{report.vnc_port})",
         "required tools:",
     ]
     for tool in report.required_tools:

@@ -2,6 +2,7 @@ import gzip
 import hashlib
 import importlib.util
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -906,6 +907,44 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertIn("tools/run_remote_human_playtest.sh", doc)
             self.assertIn("--scripted-proof-run-id", doc)
             self.assertIn("--playtester", doc)
+
+    def test_guided_remote_human_playtest_refuses_repo_local_tarball_before_capture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            bin_dir = tmpdir / "bin"
+            bin_dir.mkdir()
+            uname = bin_dir / "uname"
+            uname.write_text("#!/usr/bin/env bash\nprintf 'Linux\\n'\n")
+            uname.chmod(0o755)
+            env = os.environ.copy()
+            env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(GUIDED_HUMAN_PLAYTEST),
+                    "--playtester",
+                    "jt",
+                    "--scripted-proof-run-id",
+                    "26156172979",
+                    "--build-dir",
+                    "/tmp",
+                    "--monitor-socket",
+                    "/tmp/vibe-os-missing-monitor.sock",
+                    "--output-dir",
+                    "/tmp/vibe-os-human-proof",
+                    "--tarball",
+                    str(ROOT / "build" / "human-proof.tgz"),
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("proof tarball must live outside the git checkout", result.stderr)
+            self.assertNotIn("monitor socket does not exist", result.stderr)
 
     def test_cli_repo_contract_is_host_only(self):
         result = subprocess.run(

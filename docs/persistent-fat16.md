@@ -16,6 +16,27 @@ writes the root entry's first-cluster and size fields. Reads use the persisted
 root-entry size, so a fresh image behaves like empty defaults/save slots while
 later boots can read back data written into the image.
 
+Reusable FAT16 syscall surface:
+
+- The supported userland filesystem surface is a root-level 8.3 FAT16 contract,
+  not a Doom save-file shortcut. `open`, `read`, `write`, `lseek`, `close`,
+  `unlink`, `stat`, `fstat`, `ftruncate`, `truncate`, and `vibe_listdir` all
+  operate through the shared fd/FAT path used by Doom and by future games and
+  tools.
+- `vibe_listdir("/")` returns fixed-size `vibe_dirent_t` records for live root
+  entries. Public headers pin `VIBE_DIRENT_NAME_BYTES == 16` and
+  `VIBE_DIRENT_BYTES == 32`, expose FAT attribute bits such as
+  `VIBE_DIRENT_ATTR_DIRECTORY`, and provide `vibe_dirent_is_directory()` plus
+  `vibe_dirent_is_regular_file()` for callers that want to scan the generated
+  image without copying Doom-specific filename knowledge.
+- The generic path intentionally remains small: root/current-directory prefixes
+  normalize to the FAT root, valid 8.3 names are accepted, and real
+  subdirectory traversal, long filenames, rename, timestamps, ownership, and
+  delete-while-open semantics are outside the current syscall contract.
+- Host tests and image checkers exercise this surface without committing WADs,
+  mutated disks, pixel dumps, or raw audio captures. Scratch files such as
+  `FATPROOF.TMP` are created only inside in-memory checker copies.
+
 Current kernel contract:
 
 - Supported syscalls: `open`, `read`, `write`, `lseek`, `close`, `unlink`,
@@ -128,12 +149,18 @@ For save-slot proof, add `--save-write-status` with the first boot's decoded
 status; current save-slot reboot proof refuses to pass without that write-boot
 runtime evidence, and the checker requires Doom to be live, fault-free, writing,
 closing, and using an `O_WRONLY|O_CREAT|O_TRUNC` save-file open before the
-`DOOMSAVN.DSG` bytes and reboot comparison count. To claim save/load
+`DOOMSAVN.DSG` bytes and reboot comparison count. The reported `savewr=` byte
+count must cover the full persisted save payload, so an out-of-band full
+`DOOMSAVN.DSG` image cannot be paired with a short write status and pass. To
+claim save/load
 playability, add `--load-status` from the reboot boot after a scripted Doom
 load-menu path. That status must include `doomsav=` open/read/close bits for the
 requested slot, `saverd=` bytes at least as large as the saved payload, a
 `saveclose=` event, `gameplay=OK`, the saved episode/map in `gmap=`, and
-`leveltime=` at or beyond the save header leveltime. A 24-byte menu-string read
+`leveltime=` at or beyond the save header leveltime. It must also carry
+`savethk=` unarchive-thinker and `savestm=` unarchive-specials stream boundaries;
+otherwise the load proof is rejected as blind even if the high-level fields look
+green. A 24-byte menu-string read
 does not count as loading the game. When load fails inside Doom's savegame
 unarchiver, `savestm=` and `savethk=` expose the port-wrapper save-stream
 offsets and first marker byte without modifying the original Doom source.

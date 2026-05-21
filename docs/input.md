@@ -12,10 +12,20 @@ Generic ABI:
 - A return value of `1` means an event was copied; `0` means the queue is empty.
 - Each event carries `timestamp`, `device_id`, `type`, `code`, and three signed
   value fields. The current device IDs are keyboard `1` and mouse `2`.
-- Keyboard events use type `VIBE_INPUT_EVENT_KEY`, `code` as the Doom-compatible
-  key code, and `value0` as press (`1`) or release (`0`).
+- Keyboard events use type `VIBE_INPUT_EVENT_KEY`, `code` as the current
+  kernel key code, and `value0` as `VIBE_INPUT_KEY_PRESSED` (`1`) or
+  `VIBE_INPUT_KEY_RELEASED` (`0`). The current key-code set is
+  Doom-compatible because Doom is the first caller, but the queue contract is
+  not Doom-specific.
 - Mouse packet events use type `VIBE_INPUT_EVENT_MOUSE_PACKET`, `code` as the
   PS/2 button mask, `value0` as signed X delta, and `value1` as signed Y delta.
+- Public headers pin the guest ABI as `VIBE_INPUT_EVENT_BYTES == 28` and expose
+  `vibe_input_make_key_event()` plus `vibe_input_make_mouse_packet_event()` so
+  future games can construct or replay typed events without depending on
+  Doom's translation helpers.
+- `VIBE_INPUT_MOUSE_BUTTON_LEFT`, `VIBE_INPUT_MOUSE_BUTTON_RIGHT`, and
+  `VIBE_INPUT_MOUSE_BUTTON_MIDDLE` name the raw PS/2 button bits. Game-specific
+  button remapping belongs in the consuming port, not in the kernel queue.
 
 Keyboard:
 

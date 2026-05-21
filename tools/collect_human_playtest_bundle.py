@@ -104,9 +104,15 @@ def _git_head() -> str:
 
 
 def _assert_output_location(output_dir: Path) -> None:
+    raw_output = output_dir.expanduser()
+    if not raw_output.is_absolute():
+        raw_output = Path.cwd() / raw_output
+    lexical_output = raw_output.absolute()
     resolved_output = output_dir.resolve()
     resolved_root = ROOT.resolve()
-    if _path_is_relative_to(resolved_output, resolved_root):
+    if _path_is_relative_to(lexical_output, resolved_root) or _path_is_relative_to(
+        resolved_output, resolved_root
+    ):
         raise AssertionError(
             "proof output must live outside the repository; use /tmp or another "
             "remote scratch directory so diagnostics cannot be accidentally committed"
