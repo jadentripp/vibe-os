@@ -7,12 +7,16 @@ builder, `build_host_artifacts.py`, that emits untracked `BOOTX64.EFI`,
 `esp.img`, and `manifest.json` files for host checks. Those artifacts are
 host-artifact-only packaging evidence; the builder does not run OVMF, does not
 enter UEFI boot services, and does not load the kernel. SUPPORT[UEFI] remains unclaimed
-in `docs/architecture.md`.
+in `docs/architecture.txt`.
 
 The current boot path is still the BIOS MBR plus raw-LBA Stage 2 loader described
-in `docs/architecture.md`. Future UEFI work must keep that path working unless
+in `docs/architecture.txt`. Future UEFI work must keep that path working unless
 the project deliberately retires it, and must not describe vibe-os as
 UEFI-bootable until each row below has real source, build, and proof evidence.
+The disposable-cloud OVMF path starts as workflow/checker scaffolding only:
+`ovmf_cloud_proof.py` can emit a QEMU-free contract manifest locally, while
+`.github/workflows/uefi-ovmf-proof.yml` has manual GitHub Actions modes for a
+future OVMF attempt or proof run.
 
 ## Machine-Readable Contract
 
@@ -48,6 +52,18 @@ boot support.
 - `UEFI_HOST_ARTIFACT[ESP_FAT_IMAGE] status=host-buildable kind=fat16-esp-file-layout proof=host-fat-directory-check evidence=build-host-artifacts`
 - `UEFI_HOST_ARTIFACT[NO_VM_BOOT] status=host-checked kind=no-ovmf-or-qemu-execution proof=source-contract-check evidence=check-hardware-support-matrix`
 
+The `UEFI_CLOUD_PROOF[...]` rows describe the opt-in cloud OVMF proof scaffold.
+They are not UEFI boot evidence. Contract mode is host-only and QEMU-free, and
+attempt/prove modes are restricted to GitHub Actions Ubuntu runners unless a
+developer explicitly opens the Linux lab escape hatch. The default artifact
+upload policy is JSON manifests only; ESP images, EFI binaries, pflash vars,
+disk images, serial captures, and VM logs stay runner-local scratch.
+
+- `UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH] status=scaffolded runner=github-actions-ubuntu mode=contract-attempt-prove evidence=uefi-ovmf-proof.yml`
+- `UEFI_CLOUD_PROOF[OVMF_ATTEMPT] status=scaffolded runner=github-actions-ubuntu mode=manual-qemu-ovmf evidence=ovmf-cloud-proof-script`
+- `UEFI_CLOUD_PROOF[SUPPORT_GUARD] status=guardrail runner=host-check mode=support-uefi-unclaimed evidence=check-hardware-support-matrix`
+- `UEFI_CLOUD_PROOF[ARTIFACT_POLICY] status=guardrail runner=github-actions-ubuntu mode=json-manifests-only evidence=workflow-artifact-policy`
+
 ## First Implementation Rules
 
 - Produce an explicit UEFI application artifact rather than reusing the BIOS
@@ -64,5 +80,8 @@ boot support.
   services, if any, are still intentionally unavailable afterward.
 - Add a host-only build/check target before any local VM proof, and keep local
   VM execution behind the existing opt-in safety rail.
+- Keep OVMF proof runs opt-in on disposable cloud runners until a future loader
+  emits a kernel-entry proof marker; contract checks must not require local Mac
+  QEMU.
 - Keep WADs, disk images, screenshots, pixel dumps, raw audio, and VM logs out of
   git and out of default proof artifacts.

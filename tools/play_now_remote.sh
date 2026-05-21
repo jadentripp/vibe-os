@@ -278,8 +278,10 @@ def parse_cpu_range_list(raw_value):
     return count or None
 
 
-def effective_cpu_count():
-    candidates = [os.cpu_count()]
+def cpu_diagnostics():
+    online_count = os.cpu_count()
+    cgroup_quota_count = None
+    cgroup_cpuset_count = None
     root = Path("/sys/fs/cgroup")
     cpu_max = read_text(root / "cpu.max")
     if cpu_max:
@@ -292,7 +294,7 @@ def effective_cpu_count():
                 pass
             else:
                 if quota > 0 and period > 0:
-                    candidates.append(max(1, (quota + period - 1) // period))
+                    cgroup_quota_count = max(1, (quota + period - 1) // period)
     quota_raw = read_text(root / "cpu" / "cpu.cfs_quota_us")
     period_raw = read_text(root / "cpu" / "cpu.cfs_period_us")
     if quota_raw and period_raw:
@@ -303,13 +305,52 @@ def effective_cpu_count():
             pass
         else:
             if quota > 0 and period > 0:
-                candidates.append(max(1, (quota + period - 1) // period))
+                cgroup_quota_count = max(1, (quota + period - 1) // period)
     for relative in ("cpuset.cpus.effective", "cpuset.cpus", "cpuset/cpuset.cpus"):
         parsed = parse_cpu_range_list(read_text(root / relative))
         if parsed:
-            candidates.append(parsed)
-    positive = [candidate for candidate in candidates if candidate and candidate > 0]
-    return min(positive) if positive else None
+            cgroup_cpuset_count = parsed
+            break
+
+    candidates = (
+        ("online", online_count),
+        ("cgroup-quota", cgroup_quota_count),
+        ("cgroup-cpuset", cgroup_cpuset_count),
+    )
+    positive = [
+        (source, count)
+        for source, count in candidates
+        if count is not None and count > 0
+    ]
+    if not positive:
+        return {
+            "effective_count": None,
+            "online_count": online_count,
+            "cgroup_quota_count": cgroup_quota_count,
+            "cgroup_cpuset_count": cgroup_cpuset_count,
+            "limiting_source": "unknown",
+        }
+
+    effective_count = min(count for _, count in positive)
+    cgroup_limits = [
+        source
+        for source, count in positive
+        if source.startswith("cgroup-") and count == effective_count
+    ]
+    limiting_source = "+".join(cgroup_limits) if cgroup_limits else next(
+        source for source, count in positive if count == effective_count
+    )
+    return {
+        "effective_count": effective_count,
+        "online_count": online_count,
+        "cgroup_quota_count": cgroup_quota_count,
+        "cgroup_cpuset_count": cgroup_cpuset_count,
+        "limiting_source": limiting_source,
+    }
+
+
+def effective_cpu_count():
+    return cpu_diagnostics()["effective_count"]
 
 
 def load_average():
@@ -513,7 +554,8 @@ def cadence_summary():
     }
 
 
-host_cpus = effective_cpu_count()
+cpu_info = cpu_diagnostics()
+host_cpus = cpu_info["effective_count"]
 loads = load_average()
 load_per_cpu = None
 pressure = False
@@ -552,6 +594,7 @@ print(
             },
             "host": {
                 "cpus": host_cpus,
+                "cpu_diagnostics": cpu_info,
                 "load_average": {
                     "one_minute": round(loads[0], 2),
                     "five_minute": round(loads[1], 2),
@@ -587,32 +630,134 @@ echo "vibe-os play-now diagnostics"
 echo "repo: \$repo_dir"
 echo "diagnostics helper: \$diagnostics_script"
 echo "stop helper: \$stop_script"
-host_cpus="\$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo unknown)"
-echo "host CPUs: \$host_cpus"
-if [ -r /proc/loadavg ]; then
-  loadavg="\$(cut -d' ' -f1-3 /proc/loadavg)"
-  echo "loadavg: \$loadavg"
-  python3 - "\$host_cpus" "\$loadavg" <<'PY_LOAD' || true
-import sys
+python3 - <<'PY_HOST' || true
+import os
+from pathlib import Path
 
-try:
-    cpus = int(sys.argv[1])
-    one_minute = float(sys.argv[2].split()[0])
-except (IndexError, ValueError):
-    raise SystemExit(0)
 
-if cpus <= 0:
-    raise SystemExit(0)
+def read_text(path):
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return None
 
-print(f"load per CPU: 1m={one_minute / cpus:.2f}")
-if cpus <= 2 and one_minute >= cpus:
-    print(
-        "slowdown warning: 1m load is at/above available CPUs; "
-        "noVNC/QEMU can degrade under sustained contention"
+
+def parse_cpu_range_list(raw_value):
+    if not raw_value:
+        return None
+    count = 0
+    for chunk in raw_value.split(","):
+        part = chunk.strip()
+        if not part:
+            continue
+        if "-" in part:
+            start_raw, end_raw = part.split("-", 1)
+            if not start_raw.isdigit() or not end_raw.isdigit():
+                return None
+            start = int(start_raw, 10)
+            end = int(end_raw, 10)
+            if end < start:
+                return None
+            count += end - start + 1
+        elif part.isdigit():
+            count += 1
+        else:
+            return None
+    return count or None
+
+
+def cgroup_quota_cpu_count(root):
+    cpu_max = read_text(root / "cpu.max")
+    if cpu_max:
+        parts = cpu_max.split()
+        if len(parts) >= 2 and parts[0] != "max":
+            try:
+                quota = int(parts[0], 10)
+                period = int(parts[1], 10)
+            except ValueError:
+                return None
+            if quota > 0 and period > 0:
+                return max(1, (quota + period - 1) // period)
+    quota_raw = read_text(root / "cpu" / "cpu.cfs_quota_us")
+    period_raw = read_text(root / "cpu" / "cpu.cfs_period_us")
+    if quota_raw and period_raw:
+        try:
+            quota = int(quota_raw, 10)
+            period = int(period_raw, 10)
+        except ValueError:
+            return None
+        if quota > 0 and period > 0:
+            return max(1, (quota + period - 1) // period)
+    return None
+
+
+def cgroup_cpuset_cpu_count(root):
+    for relative in ("cpuset.cpus.effective", "cpuset.cpus", "cpuset/cpuset.cpus"):
+        parsed = parse_cpu_range_list(read_text(root / relative))
+        if parsed:
+            return parsed
+    return None
+
+
+def cpu_diagnostics():
+    root = Path("/sys/fs/cgroup")
+    online = os.cpu_count()
+    quota = cgroup_quota_cpu_count(root)
+    cpuset = cgroup_cpuset_cpu_count(root)
+    candidates = (
+        ("online", online),
+        ("cgroup-quota", quota),
+        ("cgroup-cpuset", cpuset),
     )
-PY_LOAD
-fi
+    positive = [
+        (source, count)
+        for source, count in candidates
+        if count is not None and count > 0
+    ]
+    if not positive:
+        return None, online, quota, cpuset, "unknown"
+    effective = min(count for _, count in positive)
+    cgroup_limits = [
+        source
+        for source, count in positive
+        if source.startswith("cgroup-") and count == effective
+    ]
+    limiting_source = "+".join(cgroup_limits) if cgroup_limits else next(
+        source for source, count in positive if count == effective
+    )
+    return effective, online, quota, cpuset, limiting_source
+
+
+def value_or_unknown(value):
+    return value if value is not None else "unknown"
+
+
+effective, online, quota, cpuset, limit = cpu_diagnostics()
+print(f"host CPUs: {value_or_unknown(effective)}")
+print(
+    "host CPU basis: "
+    f"effective={value_or_unknown(effective)} "
+    f"online={value_or_unknown(online)} "
+    f"cgroup_quota={value_or_unknown(quota)} "
+    f"cgroup_cpuset={value_or_unknown(cpuset)} "
+    f"limit={limit}"
+)
+try:
+    one_minute, five_minute, fifteen_minute = os.getloadavg()
+except (AttributeError, OSError):
+    print("loadavg: unavailable")
+else:
+    print(f"loadavg: 1m={one_minute:.2f} 5m={five_minute:.2f} 15m={fifteen_minute:.2f}")
+    if effective:
+        print(f"load per CPU: 1m={one_minute / effective:.2f}")
+        if effective <= 2 and one_minute >= effective:
+            print(
+                "slowdown warning: 1m load is at/above available CPUs; "
+                "noVNC/QEMU can degrade under sustained contention"
+            )
+PY_HOST
 echo "performance hint: 2-core hosts can stutter under QEMU/noVNC; prefer 4+ cloud CPUs for interactive Doom."
+echo "2-core slowdown triage: if gtic/leveltime/doompresent/dtick keep advancing while noVNC degrades, recreate on a 4+ CPU Codespace before changing OS runtime code."
 echo "slowdown snapshot tip: rerun this helper about 60s later and compare status deltas before changing OS runtime code."
 if [ -s "\$port_file" ]; then
   echo "noVNC port: \$(cat "\$port_file" 2>/dev/null || true)"
@@ -922,6 +1067,7 @@ echo "From another remote shell, run it to inspect safe slowdown status without 
 echo "Machine-readable diagnostics: $DIAGNOSTICS_SCRIPT --json"
 echo "The diagnostics helper does not dump environment variables."
 echo "Performance diagnostics include host CPUs/load plus filtered status fields such as inputdepth=, dtick=, preempt=, doompresent=, musicbuf=, and mixunder=."
+echo "CPU diagnostics distinguish online CPUs from effective cgroup quota/cpuset limits."
 echo "If a 2-core host keeps stuttering while those OS status fields stay healthy across two snapshots, restart on a 4+ CPU Codespace or cloud VM."
 
 if command -v websockify >/dev/null 2>&1; then

@@ -16,6 +16,10 @@ enum {
     VIBE_USER_MAP_FIXED = 0x10u,
     VIBE_USER_MAP_ANONYMOUS = 0x20u,
     VIBE_USER_WNOHANG = 0x1u,
+    VIBE_USER_O_CLOEXEC = 0x0800u,
+    VIBE_USER_F_GETFD = 1,
+    VIBE_USER_F_SETFD = 2,
+    VIBE_USER_FD_CLOEXEC = 1,
 };
 
 enum {
@@ -58,5 +62,140 @@ int vibe_user_clock_monotonic(vibe_clock_time_t* out);
 int vibe_user_listdir(const char* path, vibe_dirent_t* entries, unsigned long max_entries);
 int vibe_user_execv(const char* path, char* const argv[]);
 void vibe_user_report_probe(unsigned long magic, unsigned long flags);
+
+static inline int vibe_user_waitpid_nohang_reap_exact(long pid, int* status, unsigned long max_polls)
+{
+    unsigned long poll;
+    int result;
+
+    if (pid <= 0 || !max_polls)
+        return -22;
+
+    for (poll = 0; poll < max_polls; ++poll) {
+        result = vibe_user_waitpid(pid, status, VIBE_USER_WNOHANG);
+        if (result == pid)
+            return result;
+        if (result < 0)
+            return result;
+        if (result != 0)
+            return -10;
+    }
+
+    return 0;
+}
+
+static inline int vibe_user_get_cloexec(int fd, int* out)
+{
+    int raw;
+
+    if (!out)
+        return -22;
+
+    raw = vibe_user_fcntl(fd, VIBE_USER_F_GETFD, 0);
+    if (raw < 0)
+        return raw;
+
+    *out = (raw & VIBE_USER_FD_CLOEXEC) ? 1 : 0;
+    return 0;
+}
+
+static inline int vibe_user_set_cloexec(int fd, int enabled)
+{
+    return vibe_user_fcntl(
+        fd,
+        VIBE_USER_F_SETFD,
+        enabled ? VIBE_USER_FD_CLOEXEC : 0);
+}
+
+static inline int vibe_user_dirent_name_eq(const vibe_dirent_t* entry, const char* name)
+{
+    return entry && name && vibe_user_streq(entry->name, name);
+}
+
+static inline int vibe_user_listdir_find(const char* path, const char* name, vibe_dirent_t* out)
+{
+    vibe_dirent_t entries[16];
+    int count;
+    int index;
+
+    if (!path || !name)
+        return -22;
+
+    count = vibe_user_listdir(path, entries, 16);
+    if (count < 0)
+        return count;
+
+    for (index = 0; index < count; ++index) {
+        if (vibe_user_dirent_name_eq(&entries[index], name)) {
+            if (out)
+                *out = entries[index];
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static inline int vibe_user_bounded_string_ok(const char* text, unsigned long max_bytes)
+{
+    unsigned long index;
+
+    if (!text || !max_bytes)
+        return 0;
+
+    for (index = 0; index < max_bytes; ++index) {
+        if (text[index] == 0)
+            return index != 0;
+    }
+
+    return 0;
+}
+
+static inline int vibe_user_validate_exec_argv(const char* path, char* const argv[], unsigned long* out_argc)
+{
+    unsigned long argc = 0;
+
+    if (out_argc)
+        *out_argc = 0;
+    if (!vibe_user_bounded_string_ok(path, VIBE_EXEC_PATH_MAX))
+        return -22;
+
+    if (!argv) {
+        if (out_argc)
+            *out_argc = 1;
+        return 0;
+    }
+
+    while (argc < VIBE_EXEC_ARG_MAX) {
+        if (!argv[argc]) {
+            if (argc == 0)
+                return -22;
+            if (out_argc)
+                *out_argc = argc;
+            return 0;
+        }
+        if (!vibe_user_bounded_string_ok(argv[argc], VIBE_EXEC_ARG_STR_MAX))
+            return -22;
+        ++argc;
+    }
+
+    return -22;
+}
+
+static inline int vibe_user_execv_checked(const char* path, char* const argv[])
+{
+    int result = vibe_user_validate_exec_argv(path, argv, 0);
+
+    if (result < 0)
+        return result;
+    return vibe_user_execv(path, argv);
+}
+
+static inline int vibe_user_execve(const char* path, char* const argv[], char* const envp[])
+{
+    if (envp && envp[0])
+        return -38;
+    return vibe_user_execv_checked(path, argv);
+}
 
 #endif

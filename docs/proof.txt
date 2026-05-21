@@ -70,14 +70,15 @@ Executable gate: `tools/check_real_wad_proof.py` plus
 - `GAP[HUMAN_PLAYTEST] status=open category=human-playtest gate=remote-doom-playtest.md evidence=human-session-notes`
 
 Current state: a person has played through the safe Codespaces/noVNC path, and
-`docs/play.md` describes the remote VNC playtest flow.
+`docs/play.txt` describes the remote VNC playtest flow.
 
 Still missing: a reviewed bundle proving keyboard actions visibly affect the
 game: fire, move, use, mouse, menu, at least 350 Doom ticks, and no forbidden
 WAD/disk/pixel/raw-audio artifacts. The reviewed bundle now has to include
 `human-playtest-review.json` with start/fire/move/use/mouse/menu/final notes,
-duration, playtester/reviewer identity, remote machine shape, and phase hashes
-that match the status files. The generated reviewer checklist must be runnable
+duration, playtester/reviewer identity, remote machine shape, explicit
+commit/ref/scripted-run/session identity, phase hashes that match the status
+files, and minimum tick/counter deltas. The generated reviewer checklist must be runnable
 after the noVNC session and after download, and it must carry the same action
 notes and no-forbidden-artifact policy as the notes/review/manifest. The
 checker rejects forbidden WAD/disk/pixel/raw-audio artifacts and now spells out
@@ -103,12 +104,14 @@ arbitrary disks or recovery from unknown damaged media; broader storage boot
 path work remains open.
 
 The host storage/install checker now emits explicit `artifact-integrity`,
-`bootable-image-construction`, and `fat-vfs-boundary` manifest sections. Those
+`bootable-image-construction`, `cluster-accounting-manifest`, and
+`fat-vfs-boundary` manifest sections. Those
 sections prove fixed raw image construction from repo build artifacts, root 8.3
 path normalization, a host-only `dynamic-root-lifecycle manifest`, allocation
-growth/shrink/free/truncate behavior with freed-cluster scrubbing, and the
-read-only one-level subdirectory boundary, while keeping arbitrary disk
-install/recovery and nested kernel traversal unclaimed.
+growth/shrink/free/truncate/delete behavior with freed-cluster scrubbing,
+free-space accounting, no-space failure atomicity, and the read-only one-level
+subdirectory boundary, while keeping arbitrary disk install/recovery and nested
+kernel traversal unclaimed.
 
 Executable gate: `tools/check_doom_persistence_image.py` with baseline,
 after-write snapshot, write status, save-write status, load status, and reboot
@@ -117,7 +120,12 @@ status. Run `26151623245` passes that reboot proof for `DEFAULT.CFG`; Historical
 Storage boundary rows remain explicit:
 `STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL] status=unclaimed`,
 `STORAGE_BOUNDARY[ARBITRARY_DISK_RECOVERY] status=unclaimed`, and
-`STORAGE_REQUIREMENT[INSTALLER] requires=blank-disk-to-bootable-vibe-os`.
+`STORAGE_PROOF_REQUIREMENT[INSTALLER] requires=blank-disk-to-bootable-vibe-os`.
+The generic filesystem rows include
+`STORAGE_SUBSYSTEM[PATH_NORMALIZATION] status=host-proven`,
+`STORAGE_SUBSYSTEM[ROOT_WRITE_TRUNCATE_DELETE] status=host-proven`,
+`STORAGE_SUBSYSTEM[FREE_SPACE_ACCOUNTING] status=host-proven`, and
+`STORAGE_SUBSYSTEM[FAILURE_ATOMICITY] status=host-proven`.
 The install manifest proves a fixed BIOS/MBR raw image layout and blank
 in-memory image construction from current build artifacts. It still does not
 select a real device, preserve unknown user data, repair damaged media, or
@@ -127,7 +135,8 @@ prove an installer against arbitrary partition tables.
 
 Current state: status-only SB16 continuity and aggregate audible output proof
 are green. The proof covers DMA/refill, SFX, streamed music chunks, music pull
-progress, and an aggregate `audio-proof.json` without raw audio upload.
+progress, SFX DMA/output byte conservation, and an aggregate `audio-proof.json`
+without raw audio upload.
 
 Still missing: human audio quality notes without uploading raw Doom audio and a
 more complete hardware-paced kernel pull/refill stream remain polish, not
@@ -146,8 +155,9 @@ failed target; the rollback counter no longer leaves a half-prepared target runn
 The small non-Doom user runtime now exposes the same reusable slice for
 future tools and games: brk-style `sbrk`, bounded probe-class `fork`,
 `waitpid`, anonymous/private `mmap`/`munmap`, fd duplication, `fcntl`,
-monotonic clock, root `listdir`, and bounded `execv`. This is not a full POSIX
-environment.
+monotonic clock, root `listdir`, bounded `execv`, checked empty-env `execve`,
+fd close-on-exec helpers, exact-child nohang reap, listdir search, and
+copy-backed private file mappings. This is not a full POSIX environment.
 
 Still missing: the kernel is still identity-mapped at runtime and not a robust
 Unix. The current `fork()` milestone is bounded to probe-class address spaces:
@@ -162,9 +172,13 @@ while `kreloc=LOW`, `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and
 `kernphys=` make the current low identity kernel state explicit. `kmap=OK`,
 `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, and `kmaphi=` prove
 only that the current kernel entry page can be temporarily read through a
-higher-half alias and then unmapped. None of those fields are relocated-kernel
-execution until a future proof reports `kreloc=OK` with a higher-half
-instruction pointer, stack, active page directory, and non-identity physical
+higher-half alias and then unmapped. `kpmap=OK`, `kpva=`, `kppa=`, `kppages=`,
+`kppt=`, `kpcr3=`, `kpdirs=`, `kpxlat=`, `kplast=`, `kplo=`, `kphi=`,
+`kpsva=`, `kpspa=`, `kpspages=`, and `kpsxlat=` now prove a persistent
+higher-half alias for the kernel text and low kernel stack windows across fixed
+process page directories. None of those fields are relocated-kernel execution
+until a future proof reports `kreloc=OK` with a higher-half instruction pointer,
+stack pointer, active relocation page directory, and non-identity physical
 backing.
 
 Executable gate: `tools/check_vm_status_proof.py --require-exec --require-preempt`.
@@ -191,20 +205,28 @@ Executable gate: `tools/check_shutdown_panic_proof.py` plus
 - `GAP[HARDWARE_LIMITS] status=open category=hardware-limits gate=check_hardware_support_matrix.py evidence=support-matrix`
 
 Current state: the claimed target is QEMU BIOS/IDE/PS2/VBE/SB16. The scoped
-matrix is `docs/architecture.md`, whose machine-readable `SUPPORT[...]`,
+matrix is `docs/architecture.txt`, whose machine-readable `SUPPORT[...]`,
 `PCI_STATUS[...]`, and device-boundary rows are guarded by
 `check_hardware_support_matrix.py`; `boot/uefi/CONTRACT.txt` keeps the
 contract-only UEFI scaffold and `UEFI_BOOT[...]` rows visible. It also runs the
 opt-in `boot/uefi/build_host_artifacts.py` path in a tempdir and parses the
 generated PE/COFF EFI application plus FAT16 ESP-style image as
-host-artifact-only packaging evidence.
+host-artifact-only packaging evidence. The new OVMF cloud path is scaffolded,
+not claimed: `boot/uefi/ovmf_cloud_proof.py` runs in QEMU-free contract mode
+for host checks, and `.github/workflows/uefi-ovmf-proof.yml` exposes manual
+GitHub Actions `contract`, `attempt`, and `prove` modes for disposable Ubuntu
+runners. The generated manifest keeps `support_claim=unclaimed` and
+`uefi_boot_rows_moved=false`.
 
 Still missing: UEFI boot, PCI enumeration, AHCI, USB, SMP, APIC, HPET, physical
 hardware, install/recovery and hardware support outside the current generated
 FAT16 image, and any broader storage boot path story. The host-built UEFI
 artifacts do not prove OVMF execution, GOP, memory-map handoff,
-`ExitBootServices`, or kernel entry. QEMU evidence alone does not prove physical
-hardware.
+`ExitBootServices`, or kernel entry. The OVMF scaffold still has the same
+blockers: the EFI application is an `EFI_UNSUPPORTED` stub, no ESP kernel
+reader exists, GOP and UEFI memory-map handoff are missing, `ExitBootServices`
+is not called, and the current kernel is not entered from OVMF. QEMU evidence
+alone does not prove physical hardware.
 
 Executable gate: add or update a `SUPPORT[...]` row, add a proof boundary, and
 make the corresponding cloud/host checker pass.
@@ -229,7 +251,7 @@ machine-readable proof boundary before they become user-facing claims.
 
 ## Remote Doom Playtest Runbook
 
-The safe path is `docs/play.md`. Host checks stay local-only:
+The safe path is `docs/play.txt`. Host checks stay local-only:
 
 ```sh
 make ALLOW_LOCAL_VM=0 DOOM_WAD= build-only
@@ -246,6 +268,7 @@ gh workflow run real-wad-soak.yml --ref "$branch" -f expected_ref="$branch"
 python3 tools/run_cloud_playability.py --ref "$branch" --lane gameplay --wait --download-artifacts build/cloud-run-gameplay
 python3 tools/run_cloud_playability.py --ref "$branch" --lane audio --wait --download-artifacts build/cloud-run-audio
 python3 tools/run_cloud_playability.py --ref "$branch" --lane persistence --wait --download-artifacts build/cloud-run-persistence
+python3 tools/run_cloud_playability.py --ref "$branch" --lane full --latest-run --download-artifacts build/cloud-latest-full --checker-ref run --write-audit-log build/cloud-latest-full/cloud-playability-audit.json
 ```
 
 For repeated soak dispatch, use the Run workflow branch selector carefully: the
@@ -255,7 +278,16 @@ guards the intended proof ref.
 The helper's failure lanes are gameplay/input, SB16 continuity, audible audio
 aggregate, and persistence/save-load. Use `--lane gameplay`, `--lane audio`, or
 `--lane persistence` to rerun only the red lane; persistence isolation can set
-`audible_audio_proof=false`. Soak runs use `--soak-attempts`.
+`audible_audio_proof=false`. Soak runs use `--soak-attempts`. Use
+`--latest-run` when the proof already exists and the task is to download,
+triage, and check the newest workflow-dispatch artifact for a specific ref
+without starting another GitHub Actions run. Use `--checker-ref run` with an
+existing run so downloaded proof artifacts are checked by the run's own checker
+code instead of whatever the local checkout happens to contain. The optional
+audit JSON records the requested ref, effective lane, smoke/soak workflow,
+artifact policy, run metadata, checker ref, download/check commands, failure
+lanes, and rerun lanes; it is proof bookkeeping, not a stronger claim than the
+status artifacts themselves.
 
 Human proof bundle files are status-only:
 `human-playtest-notes-v2`, `human-playtest-notes.txt`,
@@ -263,11 +295,14 @@ Human proof bundle files are status-only:
 `human-playtest-review.json`, `human-playtest-manifest.json`,
 `human-playtest-observations.json`,
 `post-download human verification OK`, action notes, no screenshot/raw-audio
-attestations, and phase hashes. The VM/process fields
+attestations, `schema=human-playtest-manifest-v2`, run identity, machine shape,
+350-tick duration minimums, keyboard/mouse counter minimums, and phase hashes. The VM/process fields
 that must stay visible include `kreloc=LOW`, `kerneip=`, `kernesp=`,
 `kerncr3=`, `kernvirt=`, `kernphys=`, `kmap=OK`, `kmapva=`, `kmappa=`,
-`kmappt=`, `kmapfree=`, `kmaplo=`, `kmaphi=`, `puser`, `pkind`, `pmask`,
-`pcr3`, `pkstk`, and `pspin`.
+`kmappt=`, `kmapfree=`, `kmaplo=`, `kmaphi=`, `kpmap=OK`, `kpva=`, `kppa=`,
+`kppages=`, `kppt=`, `kpcr3=`, `kpdirs=`, `kpxlat=`, `kplast=`, `kplo=`,
+`kphi=`, `kpsva=`, `kpspa=`, `kpspages=`, `kpsxlat=`, `puser`, `pkind`,
+`pmask`, `pcr3`, `pkstk`, and `pspin`.
 
 ## Fault And Save Diagnostics
 

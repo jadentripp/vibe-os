@@ -300,9 +300,6 @@ RUNTIME_BUILD_FILES = {
 README_MAX_LINES = 160
 ALLOWED_MARKDOWN_PATHS = {
     "README.md",
-    "docs/architecture.md",
-    "docs/play.md",
-    "docs/proof.md",
     "third_party/doom/ORIGIN.md",
 }
 README_FORBIDDEN_PATTERNS = (

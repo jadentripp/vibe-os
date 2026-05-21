@@ -236,7 +236,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertNotIn("static unsigned long format_unsigned_arg(va_list args", libc)
 
     def test_real_doom_assets_are_runtime_inputs_not_repo_payloads(self):
-        docs = (ROOT / "docs" / "architecture.md").read_text()
+        docs = (ROOT / "docs" / "architecture.txt").read_text()
         docs_words = " ".join(docs.split())
         hygiene = (ROOT / "tools" / "check_repo_hygiene.py").read_text()
 
@@ -429,7 +429,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
     def test_kernel_smoke_exposes_file_runtime_counters_not_fat_internals(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
         makefile = (ROOT / "Makefile").read_text()
-        docs = (ROOT / "docs" / "architecture.md").read_text()
+        docs = (ROOT / "docs" / "architecture.txt").read_text()
 
         for token in (
             "doom_close_count",

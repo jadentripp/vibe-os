@@ -28,9 +28,9 @@ import check_scripted_gameplay_proof  # noqa: E402
 import check_vm_status_proof  # noqa: E402
 
 
-RUNBOOK = ROOT / "docs" / "play.md"
-PLAY_NOW_RUNBOOK = ROOT / "docs" / "play.md"
-PLAYABLE_DOC = ROOT / "docs" / "proof.md"
+RUNBOOK = ROOT / "docs" / "play.txt"
+PLAY_NOW_RUNBOOK = ROOT / "docs" / "play.txt"
+PLAYABLE_DOC = ROOT / "docs" / "proof.txt"
 OS_WORKFLOW = ROOT / ".github" / "workflows" / "os-smoke.yml"
 WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
 SOAK_WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-soak.yml"
@@ -69,7 +69,7 @@ SOAK_ATTEMPT_SCHEMA = "real-wad-soak-attempt-v1"
 HUMAN_NOTES_FILE = "human-playtest-notes.txt"
 HUMAN_NOTES_SCHEMA = "human-playtest-notes-v2"
 HUMAN_MANIFEST_FILE = "human-playtest-manifest.json"
-HUMAN_MANIFEST_SCHEMA = "human-playtest-manifest-v1"
+HUMAN_MANIFEST_SCHEMA = "human-playtest-manifest-v2"
 HUMAN_SESSION_FILE = "human-playtest-session.json"
 HUMAN_SESSION_SCHEMA = "human-playtest-session-v1"
 HUMAN_REVIEW_FILE = "human-playtest-review.json"
@@ -176,6 +176,7 @@ REQUIRED_HUMAN_NOTE_FIELDS = {
 }
 REQUIRED_FREEFORM_HUMAN_NOTE_FIELDS = (
     "commit",
+    "ref",
     "playtester",
     "scripted_proof_run_id",
     "scripted_proof_url",
@@ -189,6 +190,7 @@ OPTIONAL_HUMAN_NOTE_FIELDS = {
 }
 HUMAN_NOTE_FIELD_PATTERNS = {
     "commit": r"(?:[0-9A-Fa-f]{7,40}|unknown)",
+    "ref": r"[A-Za-z0-9._/@+-]{1,160}",
     "playtester": r"[A-Za-z0-9._-]{2,64}",
     "scripted_proof_run_id": r"[0-9]{6,32}",
     "scripted_proof_url": r"https://github\.com/jadentripp/vibe-os/actions/runs/[0-9]{6,32}",
@@ -235,6 +237,18 @@ HUMAN_REVIEW_PHASE_LABELS = {
     "final": "final",
 }
 HUMAN_REVIEW_MIN_DURATION_TICKS = check_human_playability_proof.HUMAN_MIN_SESSION_TICKS
+HUMAN_REVIEW_MINIMUMS = {
+    "phase_count": len(HUMAN_SESSION_PHASES),
+    "action_notes_required": len(HUMAN_PHASE_ACTION_NOTE_KEYS),
+    "duration_gtic": HUMAN_REVIEW_MIN_DURATION_TICKS,
+    "duration_leveltime": HUMAN_REVIEW_MIN_DURATION_TICKS,
+    "keyirq_delta": 4,
+    "keyqueue_delta": 4,
+    "keypoll_delta": 4,
+    "mouseirq_delta": 1,
+    "mousepkt_delta": 1,
+    "mousepoll_delta": 1,
+}
 HUMAN_REVIEW_TEXT_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}")
 HUMAN_SESSION_STATUS_FIELDS = (
     "gameplay",
@@ -626,11 +640,13 @@ def validate_repo_contract() -> None:
         "human-playtest-review.json",
         "human-playtest-review-v1",
         "human-playtest-manifest.json",
+        "human-playtest-manifest-v2",
         "scripted_proof=real-wad-smoke-pass",
         "scripted_proof_run_id=",
         "scripted_proof_url=",
         "scripted_proof_checked=green-before-human-session",
         "proof_basis=scripted-green-plus-remote-vnc-human",
+        "ref=",
         "slowdown=",
         "slowdown_notes=",
         "novnc_focus=",
@@ -646,6 +662,7 @@ def validate_repo_contract() -> None:
         "no_screenshot_upload=yes",
         "no_raw_audio_upload=yes",
         "--reviewer",
+        "--ref",
         "--machine-label",
         "--start-note",
         "--fire-note",
@@ -710,6 +727,10 @@ def validate_repo_contract() -> None:
         "post-download human verification OK",
         "Reviewer runnable checklist",
         "machine_shape",
+        "counter_minimums=",
+        "counter deltas:",
+        "identity",
+        "run identity",
         "reviewer=",
         "status-only start/fire/move/use/mouse/menu/final notes",
         "remote machine shape",
@@ -767,6 +788,7 @@ def validate_repo_contract() -> None:
         "tools/collect_human_playtest_bundle.py",
         "--print-template",
         "--reviewer",
+        "--ref",
         "--start-note",
         "--fire-note",
         "--move-note",
@@ -1143,6 +1165,7 @@ def _human_session_id(notes: dict[str, str], phases: list[dict]) -> str:
     identity = {
         "schema": HUMAN_SESSION_SCHEMA,
         "commit": notes.get("commit", ""),
+        "ref": notes.get("ref", ""),
         "playtester": notes.get("playtester", ""),
         "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
         "operator_confirmations": _operator_confirmations_from_notes(notes),
@@ -1214,6 +1237,7 @@ def build_human_session(
         "generated_by": "tools/collect_human_playtest_bundle.py",
         "collected_at_utc": collected_at_utc or _utc_now_text(),
         "commit": notes.get("commit", ""),
+        "ref": notes.get("ref", ""),
         "playtester": notes.get("playtester", ""),
         "scripted_proof": notes.get("scripted_proof", ""),
         "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
@@ -1280,6 +1304,7 @@ def build_human_observations(artifact_dir: Path) -> dict:
         "source": "remote-vnc-human-session-status-only",
         "generated_by": "tools/collect_human_playtest_bundle.py",
         "commit": notes.get("commit", ""),
+        "ref": notes.get("ref", ""),
         "playtester": notes.get("playtester", ""),
         "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
         "phase_action_notes": _phase_action_notes_from_notes(notes),
@@ -1395,6 +1420,7 @@ def build_human_checklist(artifact_dir: Path) -> str:
         "generated_by=tools/collect_human_playtest_bundle.py",
         f"session_id={session['session_id']}",
         f"commit={commit}",
+        f"ref={notes.get('ref', '')}",
         f"scripted_proof_run_id={scripted_run_id}",
         f"scripted_proof_url={notes.get('scripted_proof_url', '')}",
         f"playtester={notes.get('playtester', '')}",
@@ -1404,6 +1430,8 @@ def build_human_checklist(artifact_dir: Path) -> str:
         f"machine_memory_mb={machine_shape.get('memory_mb', '')}",
         f"duration_gtic={duration.get('gtic', '')}",
         f"duration_leveltime={duration.get('leveltime', '')}",
+        f"min_duration_ticks={HUMAN_REVIEW_MIN_DURATION_TICKS}",
+        f"counter_minimums={json.dumps(HUMAN_REVIEW_MINIMUMS, sort_keys=True)}",
         f"slowdown={notes.get('slowdown', '')}",
         f"slowdown_notes={notes.get('slowdown_notes', '')}",
         f"novnc_focus={notes.get('novnc_focus', '')}",
@@ -1514,6 +1542,35 @@ def _session_phase_summary_int(session: dict, phase_name: str, field: str) -> in
     return None
 
 
+def _human_counter_deltas_from_session(session: dict) -> dict[str, int]:
+    pairs = {
+        "duration_gtic": ("after-start", "final", "gtic"),
+        "duration_leveltime": ("after-start", "final", "leveltime"),
+        "keyirq_delta": ("after-start", "after-menu", "keyirq"),
+        "keyqueue_delta": ("after-start", "after-menu", "keyqueue"),
+        "keypoll_delta": ("after-start", "after-menu", "keypoll"),
+        "mouseirq_delta": ("after-start", "after-mouse", "mouseirq"),
+        "mousepkt_delta": ("after-start", "after-mouse", "mousepkt"),
+        "mousepoll_delta": ("after-start", "after-mouse", "mousepoll"),
+    }
+    deltas: dict[str, int] = {}
+    for label, (start_phase, end_phase, field) in pairs.items():
+        start = _session_phase_summary_int(session, start_phase, field)
+        end = _session_phase_summary_int(session, end_phase, field)
+        if start is None or end is None:
+            raise AssertionError(f"{HUMAN_REVIEW_FILE} cannot compute {label}")
+        deltas[label] = end - start
+    deltas["phase_count"] = len(session.get("phases", []))
+    return deltas
+
+
+def _validate_human_minimums(deltas: dict[str, int], label: str) -> None:
+    for key, minimum in HUMAN_REVIEW_MINIMUMS.items():
+        value = deltas.get(key)
+        if not isinstance(value, int) or value < minimum:
+            raise AssertionError(f"{label} {key} must be at least {minimum}, got {value!r}")
+
+
 def _phase_contract(phase_name: str) -> tuple[str, str]:
     for phase, status_file, human_action in HUMAN_SESSION_PHASES:
         if phase == phase_name:
@@ -1591,6 +1648,8 @@ def build_human_review(
         or final_leveltime is None
     ):
         raise AssertionError(f"{HUMAN_REVIEW_FILE} cannot compute manual session duration")
+    counter_deltas = _human_counter_deltas_from_session(session)
+    counter_deltas["action_notes_required"] = len(HUMAN_REVIEW_PHASES)
 
     phase_reviews: list[dict] = []
     for phase in HUMAN_REVIEW_PHASES:
@@ -1628,6 +1687,7 @@ def build_human_review(
         "review_status": "status-only-human-review-recorded",
         "session_id": session.get("session_id", ""),
         "commit": session.get("commit", ""),
+        "ref": session.get("ref", ""),
         "playtester": session.get("playtester", ""),
         "reviewer": reviewer_text,
         "scripted_proof_run_id": session.get("scripted_proof_run_id", ""),
@@ -1639,6 +1699,8 @@ def build_human_review(
             "gtic": final_gtic - start_gtic,
             "leveltime": final_leveltime - start_leveltime,
         },
+        "minimums": dict(HUMAN_REVIEW_MINIMUMS),
+        "counter_deltas": counter_deltas,
         "phase_reviews": phase_reviews,
         "operator_confirmations": session.get("operator_confirmations", {}),
         "artifact_policy": {
@@ -1712,6 +1774,12 @@ def validate_human_review(artifact_dir: Path, review_path: Path) -> None:
                 f"{HUMAN_REVIEW_FILE} duration.{key} must be at least "
                 f"{HUMAN_REVIEW_MIN_DURATION_TICKS}"
             )
+    if review.get("minimums") != HUMAN_REVIEW_MINIMUMS:
+        raise AssertionError(f"{HUMAN_REVIEW_FILE} minimums must match the checker contract")
+    counter_deltas = review.get("counter_deltas")
+    if not isinstance(counter_deltas, dict):
+        raise AssertionError(f"{HUMAN_REVIEW_FILE} counter_deltas must be an object")
+    _validate_human_minimums(counter_deltas, f"{HUMAN_REVIEW_FILE} counter_deltas")
 
     policy = review.get("artifact_policy")
     if not isinstance(policy, dict):
@@ -1757,6 +1825,8 @@ def build_human_manifest(artifact_dir: Path) -> dict:
         raise AssertionError(f"missing expected human checklist file: {HUMAN_CHECKLIST_FILE}")
     notes_path = artifact_dir / notes_name
     notes = _load_human_notes(notes_path)
+    session = _load_human_session(artifact_dir / session_name)
+    review = _load_human_review(artifact_dir / review_name)
     files = [
         {
             "path": name,
@@ -1770,10 +1840,29 @@ def build_human_manifest(artifact_dir: Path) -> dict:
         "generated_by": "tools/collect_human_playtest_bundle.py",
         "human_notes_schema": HUMAN_NOTES_SCHEMA,
         "human_review_schema": HUMAN_REVIEW_SCHEMA,
+        "human_session_schema": HUMAN_SESSION_SCHEMA,
+        "human_observations_schema": HUMAN_OBSERVATIONS_SCHEMA,
+        "human_checklist_schema": HUMAN_CHECKLIST_SCHEMA,
         "notes_file": HUMAN_NOTES_FILE,
         "review_file": HUMAN_REVIEW_FILE,
+        "session_file": HUMAN_SESSION_FILE,
+        "observations_file": HUMAN_OBSERVATIONS_FILE,
+        "checklist_file": HUMAN_CHECKLIST_FILE,
+        "identity": {
+            "source": "remote-vnc-human-proof-bundle",
+            "session_id": session.get("session_id", ""),
+            "commit": notes.get("commit", ""),
+            "ref": notes.get("ref", ""),
+            "playtester": notes.get("playtester", ""),
+            "reviewer": review.get("reviewer", ""),
+            "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
+            "scripted_proof_url": notes.get("scripted_proof_url", ""),
+        },
         "commit": notes.get("commit", ""),
+        "ref": notes.get("ref", ""),
         "playtester": notes.get("playtester", ""),
+        "reviewer": review.get("reviewer", ""),
+        "session_id": session.get("session_id", ""),
         "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
         "scripted_proof_url": notes.get("scripted_proof_url", ""),
         "slowdown": notes.get("slowdown", ""),
@@ -1781,6 +1870,16 @@ def build_human_manifest(artifact_dir: Path) -> dict:
         "audio": notes.get("audio", ""),
         "audio_evidence": notes.get("audio_evidence", ""),
         "phase_action_notes": _phase_action_notes_from_notes(notes),
+        "phase_status_hashes": session.get("phase_status_hashes", {}),
+        "phase_review_notes": {
+            entry.get("phase", ""): entry.get("note", "")
+            for entry in review.get("phase_reviews", [])
+            if isinstance(entry, dict)
+        },
+        "machine_shape": review.get("machine_shape", {}),
+        "duration": review.get("duration", {}),
+        "minimums": dict(HUMAN_REVIEW_MINIMUMS),
+        "counter_deltas": review.get("counter_deltas", {}),
         "artifact_policy": {
             "allowlisted_status_only": True,
             "contains_wad_data": False,
@@ -1833,8 +1932,28 @@ def validate_human_manifest(artifact_dir: Path, manifest_path: Path) -> None:
         raise AssertionError(
             f"{HUMAN_MANIFEST_FILE} human_review_schema must be {HUMAN_REVIEW_SCHEMA}"
         )
+    if manifest.get("human_session_schema") != HUMAN_SESSION_SCHEMA:
+        raise AssertionError(
+            f"{HUMAN_MANIFEST_FILE} human_session_schema must be {HUMAN_SESSION_SCHEMA}"
+        )
+    if manifest.get("human_observations_schema") != HUMAN_OBSERVATIONS_SCHEMA:
+        raise AssertionError(
+            f"{HUMAN_MANIFEST_FILE} human_observations_schema must be {HUMAN_OBSERVATIONS_SCHEMA}"
+        )
+    if manifest.get("human_checklist_schema") != HUMAN_CHECKLIST_SCHEMA:
+        raise AssertionError(
+            f"{HUMAN_MANIFEST_FILE} human_checklist_schema must be {HUMAN_CHECKLIST_SCHEMA}"
+        )
     if manifest.get("review_file") != HUMAN_REVIEW_FILE:
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} review_file must be {HUMAN_REVIEW_FILE}")
+    if manifest.get("session_file") != HUMAN_SESSION_FILE:
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} session_file must be {HUMAN_SESSION_FILE}")
+    if manifest.get("observations_file") != HUMAN_OBSERVATIONS_FILE:
+        raise AssertionError(
+            f"{HUMAN_MANIFEST_FILE} observations_file must be {HUMAN_OBSERVATIONS_FILE}"
+        )
+    if manifest.get("checklist_file") != HUMAN_CHECKLIST_FILE:
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} checklist_file must be {HUMAN_CHECKLIST_FILE}")
 
     policy = manifest.get("artifact_policy")
     if not isinstance(policy, dict):
@@ -1921,16 +2040,41 @@ def validate_human_manifest(artifact_dir: Path, manifest_path: Path) -> None:
     notes = _load_human_notes(artifact_dir / notes_name)
     if manifest.get("commit") != notes.get("commit"):
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} commit must match {HUMAN_NOTES_FILE}")
+    if manifest.get("ref") != notes.get("ref"):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} ref must match {HUMAN_NOTES_FILE}")
     if manifest.get("playtester") != notes.get("playtester"):
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} playtester must match {HUMAN_NOTES_FILE}")
     review_name = _find_one(actual_names, HUMAN_REVIEW_FILE)
     if review_name is None:
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} missing review inventory entry")
     review = _load_human_review(artifact_dir / review_name)
+    session_name = _find_one(actual_names, HUMAN_SESSION_FILE)
+    if session_name is None:
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} missing session inventory entry")
+    session = _load_human_session(artifact_dir / session_name)
     if review.get("playtester") != notes.get("playtester"):
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} review playtester must match {HUMAN_NOTES_FILE}")
     if review.get("commit") != notes.get("commit"):
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} review commit must match {HUMAN_NOTES_FILE}")
+    if review.get("ref") != notes.get("ref"):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} review ref must match {HUMAN_NOTES_FILE}")
+    if manifest.get("reviewer") != review.get("reviewer"):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} reviewer must match {HUMAN_REVIEW_FILE}")
+    if manifest.get("session_id") != session.get("session_id"):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} session_id must match {HUMAN_SESSION_FILE}")
+    identity = manifest.get("identity")
+    expected_identity = {
+        "source": "remote-vnc-human-proof-bundle",
+        "session_id": session.get("session_id", ""),
+        "commit": notes.get("commit", ""),
+        "ref": notes.get("ref", ""),
+        "playtester": notes.get("playtester", ""),
+        "reviewer": review.get("reviewer", ""),
+        "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
+        "scripted_proof_url": notes.get("scripted_proof_url", ""),
+    }
+    if identity != expected_identity:
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} identity must match notes, session, and review")
     if manifest.get("scripted_proof_run_id") != notes.get("scripted_proof_run_id"):
         raise AssertionError(
             f"{HUMAN_MANIFEST_FILE} scripted_proof_run_id must match {HUMAN_NOTES_FILE}"
@@ -1951,6 +2095,31 @@ def validate_human_manifest(artifact_dir: Path, manifest_path: Path) -> None:
         raise AssertionError(
             f"{HUMAN_MANIFEST_FILE} phase_action_notes must match {HUMAN_NOTES_FILE}"
         )
+    if manifest.get("phase_status_hashes") != session.get("phase_status_hashes"):
+        raise AssertionError(
+            f"{HUMAN_MANIFEST_FILE} phase_status_hashes must match {HUMAN_SESSION_FILE}"
+        )
+    expected_review_notes = {
+        entry.get("phase", ""): entry.get("note", "")
+        for entry in review.get("phase_reviews", [])
+        if isinstance(entry, dict)
+    }
+    if manifest.get("phase_review_notes") != expected_review_notes:
+        raise AssertionError(
+            f"{HUMAN_MANIFEST_FILE} phase_review_notes must match {HUMAN_REVIEW_FILE}"
+        )
+    if manifest.get("machine_shape") != review.get("machine_shape"):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} machine_shape must match {HUMAN_REVIEW_FILE}")
+    if manifest.get("duration") != review.get("duration"):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} duration must match {HUMAN_REVIEW_FILE}")
+    if manifest.get("minimums") != HUMAN_REVIEW_MINIMUMS:
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} minimums must match the checker contract")
+    counter_deltas = manifest.get("counter_deltas")
+    if counter_deltas != review.get("counter_deltas"):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} counter_deltas must match {HUMAN_REVIEW_FILE}")
+    if not isinstance(counter_deltas, dict):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} counter_deltas must be an object")
+    _validate_human_minimums(counter_deltas, f"{HUMAN_MANIFEST_FILE} counter_deltas")
 
 
 def _phase_summary_int(session: dict, phase_name: str, field: str) -> int | None:
@@ -2017,6 +2186,7 @@ def build_human_post_download_verification(artifact_dir: Path) -> dict:
         "source": "remote-vnc-human-session-post-download",
         "session_id": session.get("session_id", ""),
         "commit": session.get("commit", ""),
+        "ref": session.get("ref", ""),
         "playtester": session.get("playtester", ""),
         "reviewer": review.get("reviewer", ""),
         "scripted_proof_run_id": session.get("scripted_proof_run_id", ""),
@@ -2039,6 +2209,8 @@ def build_human_post_download_verification(artifact_dir: Path) -> dict:
         "novnc_focus": attestation.get("novnc_focus", ""),
         "novnc_focus_notes": attestation.get("novnc_focus_notes", ""),
         "machine_shape": machine_shape,
+        "minimums": manifest.get("minimums", {}),
+        "counter_deltas": manifest.get("counter_deltas", {}),
         "manifest_sha256": manifest_entry["sha256"],
         "session_sha256": _sha256_file(session_path),
         "review_sha256": _sha256_file(review_path),
@@ -2069,9 +2241,24 @@ def format_human_post_download_verification(
         for phase, _, _ in HUMAN_SESSION_PHASES
         if phase in phase_hashes
     )
+    counter_deltas = verification.get("counter_deltas", {})
+    if not isinstance(counter_deltas, dict):
+        counter_deltas = {}
+    counter_text = " ".join(
+        f"{key}={counter_deltas.get(key, '')}"
+        for key in (
+            "keyirq_delta",
+            "keyqueue_delta",
+            "keypoll_delta",
+            "mouseirq_delta",
+            "mousepkt_delta",
+            "mousepoll_delta",
+        )
+    )
     return (
         f"{label}: session_id={verification.get('session_id', '')} "
         f"commit={verification.get('commit', '')} "
+        f"ref={verification.get('ref', '')} "
         f"scripted_proof_run_id={verification.get('scripted_proof_run_id', '')} "
         f"bundle_sha256={verification.get('bundle_sha256', '')} "
         f"manifest_sha256={verification.get('manifest_sha256', '')} "
@@ -2088,6 +2275,7 @@ def format_human_post_download_verification(
         f"audio_evidence={verification.get('audio_evidence', '')} "
         f"novnc_focus={verification.get('novnc_focus', '')} "
         f"slowdown={verification.get('slowdown', '')}\n"
+        f"counter deltas: {counter_text}\n"
         f"phase status hashes: {phase_text}"
     )
 

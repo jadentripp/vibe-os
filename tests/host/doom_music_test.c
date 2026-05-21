@@ -648,6 +648,73 @@ static int test_default_stream_chunk_is_large_enough_for_buffered_refill(void)
     return 0;
 }
 
+static int test_stream_snapshot_exposes_reusable_stream_contract(void)
+{
+    static unsigned char mus_lump[] = {
+        'M', 'U', 'S', 0x1a,
+        8, 0,
+        16, 0,
+        1, 0,
+        0, 0,
+        0, 0,
+        0, 0,
+        0x90, 0xbc, 100, 20,
+        0x80, 60, 4,
+        0x60
+    };
+    unsigned char chunk[512];
+    vibe_music_stream_snapshot_t snapshot;
+    vibe_music_render_stats_t stats;
+    int handle;
+
+    vibe_music_init();
+    if (vibe_music_stream_snapshot(1, &snapshot))
+        return 180;
+    if (snapshot.format != VIBE_MUSIC_FORMAT_NONE || snapshot.flags != 0)
+        return 181;
+
+    handle = vibe_music_register_song(mus_lump);
+    if (handle <= 0)
+        return 182;
+    vibe_music_stream_begin(handle, VIBE_MUSIC_DEFAULT_SAMPLE_RATE, 90, 1);
+
+    if (!vibe_music_stream_snapshot(handle, &snapshot))
+        return 183;
+    if (snapshot.format != VIBE_MUSIC_FORMAT_MUS)
+        return 184;
+    if ((snapshot.flags & VIBE_MUSIC_STREAM_FLAG_VALID_SONG) == 0)
+        return 185;
+    if ((snapshot.flags & VIBE_MUSIC_STREAM_FLAG_ACTIVE) == 0)
+        return 186;
+    if ((snapshot.flags & VIBE_MUSIC_STREAM_FLAG_LOOPING) == 0)
+        return 187;
+    if (snapshot.sample_rate != VIBE_MUSIC_DEFAULT_SAMPLE_RATE || snapshot.volume != 90)
+        return 188;
+    if (!snapshot.song_samples || snapshot.loop_samples != snapshot.song_samples)
+        return 189;
+    if (snapshot.position != 0 || snapshot.chunk_index != 0)
+        return 190;
+
+    if (vibe_music_stream_render(handle, chunk, sizeof(chunk), &stats) != sizeof(chunk))
+        return 191;
+    if (!vibe_music_stream_snapshot(handle, &snapshot))
+        return 192;
+    if (snapshot.position != sizeof(chunk) || snapshot.chunk_index != 1)
+        return 193;
+    if (snapshot.loop_count != vibe_music_stream_loop_count(handle))
+        return 194;
+
+    vibe_music_stream_stop(handle);
+    if (!vibe_music_stream_snapshot(handle, &snapshot))
+        return 195;
+    if ((snapshot.flags & VIBE_MUSIC_STREAM_FLAG_ACTIVE) != 0)
+        return 196;
+    if ((snapshot.flags & VIBE_MUSIC_STREAM_FLAG_VALID_SONG) == 0)
+        return 197;
+
+    return 0;
+}
+
 static int test_looping_stream_wraps_long_playback_position(void)
 {
     static unsigned char mus_lump[] = {
@@ -908,6 +975,10 @@ int main(void)
         return result;
 
     result = test_default_stream_chunk_is_large_enough_for_buffered_refill();
+    if (result)
+        return result;
+
+    result = test_stream_snapshot_exposes_reusable_stream_contract();
     if (result)
         return result;
 

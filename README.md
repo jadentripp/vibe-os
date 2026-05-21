@@ -27,7 +27,7 @@ the same disk image, and loads the save back into gameplay.
 The human-facing boundary is narrower. A reviewed remote noVNC session still
 has to show a person playing from the documented bundle before this README
 treats that lane as proven. Long-form evidence, historical failures, and
-workflow dispatch examples live in `docs/proof.md` rather than here.
+workflow dispatch examples live in `docs/proof.txt` rather than here.
 
 ## Working Model
 
@@ -62,7 +62,7 @@ Mac unless you explicitly opt in.
 
 The Codespaces/noVNC path keeps QEMU, disk images, WAD data, framebuffer
 captures, and raw audio off the laptop. For reviewed human proof, use
-`docs/play.md`; the generated bundle is checked by
+`docs/play.txt`; the generated bundle is checked by
 `tools/check_cloud_playability_artifacts.py --human-session`.
 Prefer a 4+ CPU Codespace for longer noVNC play. If a 2-core session slows down,
 use the printed diagnostics helper twice about a minute apart before treating it
@@ -79,8 +79,11 @@ make ALLOW_LOCAL_VM=0 cloud-playability-check
 ```
 
 Real-WAD proofs run in GitHub Actions, Codespaces, or disposable cloud hosts.
-Use `docs/proof.md` and `docs/play.md` for dispatch commands and artifact
-checks.
+Use `docs/proof.txt` and `docs/play.txt` for dispatch commands and artifact
+checks. For an already-dispatched proof, use
+`tools/run_cloud_playability.py --latest-run --ref <branch>` to download and
+check the latest artifact for that ref, optionally writing the audit JSON next
+to the downloaded status-only bundle.
 
 ## Claim Boundaries
 
@@ -96,13 +99,13 @@ and SUPPORT[UEFI] remains unclaimed. The opt-in
 checks a PE/COFF EFI stub plus FAT16 ESP-style image, but it does not run OVMF
 or load the kernel. PCI fields such as `pci=`, `pciprobe=`, and `pcitabcap=`
 plus the `PCI_TABLE[...]` / `PCI_TABLE_CONTRACT[...]` rows are status-only QEMU
-bus-0 diagnostics; see `docs/architecture.md`.
+bus-0 diagnostics; see `docs/architecture.txt`.
 
 The storage claim is also bounded. The OS mutates and reboots the repo-generated
 FAT16 disk image in disposable cloud QEMU, but vibe-os is not an installable OS
 for arbitrary disks. It does not partition blank media, discover unknown
 existing partitions, or recover damaged user disks. See
-`docs/architecture.md` for the exact install and recovery boundary.
+`docs/architecture.txt` for the exact install and recovery boundary.
 
 ## Project Shape
 
@@ -113,10 +116,10 @@ FAT16 partition containing `DOOM1.WAD`, `USERPROB.ELF`, `ABIPROBE.ELF`,
 
 ## Docs
 
-Markdown is capped to durable surfaces, not scratch notes. Human entry points
-are this README plus `docs/play.md`. Technical and evidence contracts live in
-`docs/architecture.md`, `docs/proof.md`, and `docs/doom-provenance.txt`.
+Markdown is reserved for this README plus the Doom vendor-origin note that the
+pristine-source checker expects at `third_party/doom/ORIGIN.md`. Human runbooks
+and technical proof contracts live as plain text: `docs/play.txt`,
+`docs/architecture.txt`, `docs/proof.txt`, and `docs/doom-provenance.txt`.
 Internal notes that still need to be tracked but should not look like more
-project documentation live as plain text contracts: `tests/strategy.txt` and
-`boot/uefi/CONTRACT.txt`. The only auxiliary Markdown file is
-`third_party/doom/ORIGIN.md`, which records the vendored Doom source origin.
+project documentation live as plain text contracts too: `tests/strategy.txt`
+and `boot/uefi/CONTRACT.txt`.

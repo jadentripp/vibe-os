@@ -299,6 +299,27 @@ def assert_free_cluster_budget_count(free_clusters):
         )
 
 
+def fat16_allocation_accounting(fs):
+    free_clusters = fs.free_data_clusters()
+    used_clusters = sum(
+        1 for cluster in range(2, last_data_cluster() + 1)
+        if fs.fat_entry(cluster) != 0
+    )
+    data_clusters = data_cluster_count()
+    accounted_clusters = free_clusters + used_clusters
+    if accounted_clusters != data_clusters:
+        raise ValueError("FAT16 free/used cluster accounting does not cover the data area")
+    return {
+        "schema": "vibe-os-fat16-cluster-accounting-v1",
+        "data_clusters": data_clusters,
+        "free_clusters": free_clusters,
+        "used_clusters": used_clusters,
+        "accounted_clusters": accounted_clusters,
+        "minimum_os_created_file_clusters": MIN_OS_CREATED_FILE_CLUSTERS,
+        "free_cluster_budget_ok": free_clusters >= MIN_OS_CREATED_FILE_CLUSTERS,
+    }
+
+
 def write_fat_copies(image, fat_start, fat_entries):
     fat_bytes = bytearray(SECTORS_PER_FAT * SECTOR_SIZE)
     for i, value in enumerate(fat_entries):
@@ -1126,6 +1147,7 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
     proof_name = Fat16Image.validate_root_83_name(proof_name)
     if fs.root_file_metadata(proof_name) is not None:
         raise ValueError("dynamic FAT proof scratch file already exists")
+    proof_label = Fat16Image._entry_label(proof_name)
 
     def remount_and_validate():
         mounted = Fat16Image(fs.image)
@@ -1133,15 +1155,37 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
         mounted.validate_allocated_clusters_reachable()
         return mounted
 
+    def image_digest():
+        return hashlib.sha256(bytes(fs.image)).hexdigest()
+
+    def accounting_snapshot(label):
+        fs.validate_fat_copies_match()
+        fs.validate_allocated_clusters_reachable()
+        return {"label": label, **fat16_allocation_accounting(fs)}
+
+    def operation_manifest(operation, *, size, chain, free_before, free_after, remount_readback=True):
+        return {
+            "operation": operation,
+            "path": f"/{proof_label}",
+            "size": size,
+            "clusters": len(chain),
+            "free_clusters_before": free_before,
+            "free_clusters_after": free_after,
+            "remount_readback": remount_readback,
+        }
+
     validate_generated_asset_readme(fs)
     fs.validate_fat_copies_match()
     fs.validate_allocated_clusters_reachable()
     before_free = fs.free_data_clusters()
     if before_free < 8:
         raise ValueError("not enough free clusters for dynamic FAT proof")
+    initial_accounting = accounting_snapshot("before")
+    operations = []
 
     cluster_bytes = cluster_size()
     payload = b"A" * (cluster_bytes + 29)
+    free_before_operation = fs.free_data_clusters()
     first_chain = fs.write_root_file(proof_name, payload)
     if len(first_chain) != clusters_for_size(len(payload)):
         raise ValueError("dynamic FAT proof initial allocation used an unexpected cluster count")
@@ -1159,8 +1203,18 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
         raise ValueError("dynamic FAT proof initial write did not survive remount metadata")
     if remounted.read_root_file(proof_name) != payload:
         raise ValueError("dynamic FAT proof initial write did not survive remount readback")
+    operations.append(
+        operation_manifest(
+            "create-write",
+            size=len(payload),
+            chain=first_chain,
+            free_before=free_before_operation,
+            free_after=fs.free_data_clusters(),
+        )
+    )
 
     sparse_offset = cluster_bytes * 3 + 17
+    free_before_operation = fs.free_data_clusters()
     grown_chain = fs.write_root_file_at(proof_name, sparse_offset, b"END")
     grown = fs.read_root_file(proof_name)
     if len(grown) != sparse_offset + 3:
@@ -1180,8 +1234,18 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
         raise ValueError("dynamic FAT proof sparse write did not survive remount size")
     if remounted.read_root_file(proof_name) != grown:
         raise ValueError("dynamic FAT proof sparse write did not survive remount readback")
+    operations.append(
+        operation_manifest(
+            "sparse-grow-write",
+            size=len(grown),
+            chain=grown_chain,
+            free_before=free_before_operation,
+            free_after=fs.free_data_clusters(),
+        )
+    )
 
     shrunk_size = cluster_bytes + 1
+    free_before_operation = fs.free_data_clusters()
     shrunk_chain = fs.resize_root_file(proof_name, shrunk_size)
     shrunk = fs.read_root_file(proof_name)
     if len(shrunk) != shrunk_size or shrunk != payload[:shrunk_size]:
@@ -1205,7 +1269,17 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
         raise ValueError("dynamic FAT proof shrink did not survive remount chain")
     if remounted.read_root_file(proof_name) != shrunk:
         raise ValueError("dynamic FAT proof shrink did not survive remount readback")
+    operations.append(
+        operation_manifest(
+            "shrink-truncate",
+            size=len(shrunk),
+            chain=shrunk_chain,
+            free_before=free_before_operation,
+            free_after=fs.free_data_clusters(),
+        )
+    )
 
+    free_before_operation = fs.free_data_clusters()
     truncated = fs.truncate_root_file(proof_name)
     if truncated != shrunk_chain:
         raise ValueError("dynamic FAT proof truncate did not free the current chain")
@@ -1226,8 +1300,18 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
         raise ValueError("dynamic FAT proof truncate did not survive remount metadata")
     if remounted.read_root_file(proof_name) != b"":
         raise ValueError("dynamic FAT proof truncate did not survive remount readback")
+    operations.append(
+        operation_manifest(
+            "truncate-empty",
+            size=0,
+            chain=(),
+            free_before=free_before_operation,
+            free_after=fs.free_data_clusters(),
+        )
+    )
 
     replacement = b"recreated after truncate\n"
+    free_before_operation = fs.free_data_clusters()
     replacement_chain = fs.write_root_file(proof_name, replacement)
     if fs.root_entry_offset(proof_name) != first_entry:
         raise ValueError("dynamic FAT proof rewrite did not reuse the same live root entry")
@@ -1238,6 +1322,45 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
         raise ValueError("dynamic FAT proof rewrite did not survive remount root-slot reuse")
     if remounted.read_root_file(proof_name) != replacement:
         raise ValueError("dynamic FAT proof rewrite did not survive remount readback")
+    operations.append(
+        operation_manifest(
+            "rewrite-after-truncate",
+            size=len(replacement),
+            chain=replacement_chain,
+            free_before=free_before_operation,
+            free_after=fs.free_data_clusters(),
+        )
+    )
+
+    failure_before_digest = image_digest()
+    failure_before_free = fs.free_data_clusters()
+    failure_before_chain = fs.cluster_chain(replacement_chain[0])
+    try:
+        fs.allocate_clusters(failure_before_free + 1)
+    except ValueError as exc:
+        failure_reason = str(exc)
+    else:
+        raise ValueError("dynamic FAT proof no-space allocation unexpectedly succeeded")
+    if image_digest() != failure_before_digest:
+        raise ValueError("dynamic FAT proof no-space allocation changed image bytes")
+    if fs.free_data_clusters() != failure_before_free:
+        raise ValueError("dynamic FAT proof no-space allocation changed free cluster accounting")
+    if fs.cluster_chain(replacement_chain[0]) != failure_before_chain:
+        raise ValueError("dynamic FAT proof no-space allocation changed the live file chain")
+    failure_atomicity = {
+        "schema": "vibe-os-fat16-failure-atomicity-v1",
+        "operation": "allocate-too-many-clusters",
+        "path": f"/{proof_label}",
+        "result": "refused",
+        "reason": failure_reason,
+        "requested_clusters": failure_before_free + 1,
+        "free_clusters_before": failure_before_free,
+        "free_clusters_after": fs.free_data_clusters(),
+        "image_sha256_unchanged": True,
+        "live_chain_unchanged": True,
+    }
+
+    free_before_operation = fs.free_data_clusters()
     deleted = fs.delete_root_file(proof_name)
     if deleted != replacement_chain:
         raise ValueError("dynamic FAT proof delete did not free the replacement chain")
@@ -1252,6 +1375,15 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
     remounted = remount_and_validate()
     if remounted.root_file_metadata(proof_name) is not None:
         raise ValueError("dynamic FAT proof delete did not survive remount")
+    operations.append(
+        operation_manifest(
+            "delete",
+            size=0,
+            chain=(),
+            free_before=free_before_operation,
+            free_after=fs.free_data_clusters(),
+        )
+    )
     reused_entry = fs.create_or_reuse_root_entry(proof_name)
     if reused_entry != first_entry:
         raise ValueError("dynamic FAT proof create did not reuse the deleted root slot")
@@ -1260,14 +1392,25 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
 
     fs.validate_fat_copies_match()
     fs.validate_allocated_clusters_reachable()
+    final_accounting = accounting_snapshot("after")
+    if final_accounting["free_clusters"] != initial_accounting["free_clusters"]:
+        raise ValueError("dynamic FAT proof did not restore the initial free-cluster count")
     return {
-        "proof_name": Fat16Image._entry_label(proof_name),
+        "proof_name": proof_label,
         "initial_clusters": len(first_chain),
         "grown_clusters": len(grown_chain),
         "shrunk_clusters": len(shrunk_chain),
         "free_clusters": before_free,
         "remount_readback": True,
         "freed_cluster_scrub": True,
+        "operations": operations,
+        "initial_accounting": initial_accounting,
+        "final_accounting": final_accounting,
+        "failure_atomicity": failure_atomicity,
+        "root_slot_reuse": {
+            "entry_offset": first_entry,
+            "deleted_slot_reused": True,
+        },
     }
 
 

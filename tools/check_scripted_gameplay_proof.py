@@ -19,7 +19,7 @@ from status_fields import (
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
-PLAYABLE_DOC = ROOT / "docs" / "proof.md"
+PLAYABLE_DOC = ROOT / "docs" / "proof.txt"
 MAKEFILE = ROOT / "Makefile"
 
 SCHEMA = "scripted-gameplay-proof-v1"
@@ -1173,7 +1173,7 @@ def _read_phase_statuses(paths: dict[str, Path]) -> dict[str, str]:
 
 def validate_repo_contract(root: Path = ROOT) -> None:
     workflow = (root / ".github" / "workflows" / "real-wad-smoke.yml").read_text()
-    playable_doc = (root / "docs" / "proof.md").read_text()
+    playable_doc = (root / "docs" / "proof.txt").read_text()
     makefile = (root / "Makefile").read_text()
 
     for needle in (

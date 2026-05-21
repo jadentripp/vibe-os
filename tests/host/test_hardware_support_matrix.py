@@ -14,6 +14,13 @@ finally:
     sys.path.pop(0)
 
 
+def doc_text(name):
+    txt_path = ROOT / "docs" / f"{name}.txt"
+    if txt_path.exists():
+        return txt_path.read_text()
+    return (ROOT / "docs" / f"{name}.md").read_text()
+
+
 class HardwareSupportMatrixTests(unittest.TestCase):
     def assertContainsPhrase(self, text, phrase):
         self.assertIn(" ".join(phrase.split()), " ".join(text.split()))
@@ -90,7 +97,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
 
     def test_matrix_rows_define_claimed_and_unclaimed_device_classes(self):
         rows = check_hardware_support_matrix.validate_repo_contract(ROOT)
-        matrix = (ROOT / "docs" / "architecture.md").read_text()
+        matrix = doc_text("architecture")
         target = check_hardware_support_matrix._validate_current_target_row(matrix)
 
         claimed = {support_id for support_id, row in rows.items() if row["status"] == "claimed"}
@@ -162,15 +169,15 @@ class HardwareSupportMatrixTests(unittest.TestCase):
 
     def test_hardware_boundary_is_visible_from_main_claim_surfaces(self):
         readme = (ROOT / "README.md").read_text()
-        boot_doc = (ROOT / "docs" / "architecture.md").read_text()
-        gap_doc = (ROOT / "docs" / "proof.md").read_text()
-        hardware_doc = (ROOT / "docs" / "architecture.md").read_text()
+        boot_doc = doc_text("architecture")
+        gap_doc = doc_text("proof")
+        hardware_doc = doc_text("architecture")
         tests_readme = (ROOT / "tests" / "strategy.txt").read_text()
-        runbook = (ROOT / "docs" / "play.md").read_text()
+        runbook = doc_text("play")
 
         for text, phrase in (
             (readme, "That evidence is limited to the emulated device model"),
-            (readme, "docs/architecture.md"),
+            (readme, "docs/architecture.txt"),
             (readme, "boot/uefi/CONTRACT.txt"),
             (readme, "boot/uefi/build_host_artifacts.py"),
             (readme, "pci="),
@@ -178,10 +185,14 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             (boot_doc, "SUPPORT[UEFI] remains unclaimed"),
             (boot_doc, "UEFI_HOST_ARTIFACT[PE_COFF_STUB]"),
             (boot_doc, "host-buildable PE/COFF and FAT16 ESP artifacts"),
+            (boot_doc, "manual GitHub Actions OVMF scaffold"),
+            (boot_doc, "contract mode that is QEMU-free"),
             (boot_doc, "PCI_STATUS[QEMU_BUS0_CONFIG]"),
             (gap_doc, "check_hardware_support_matrix.py"),
             (gap_doc, "UEFI_BOOT[...]"),
             (gap_doc, "UEFI_HOST_ARTIFACT[...]"),
+            (gap_doc, "ovmf_cloud_proof.py"),
+            (gap_doc, "support_claim=unclaimed"),
             (gap_doc, "host-artifact-only packaging evidence"),
             (gap_doc, "PCI_STATUS[...]"),
             (gap_doc, "PCI_TABLE[...]"),
@@ -193,6 +204,8 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             (hardware_doc, "QEMU BIOS/IDE/PS2/VBE/SB16 is the supported target"),
             (hardware_doc, "QEMU_DEVICE_MODEL[PCI_BUS0_STATUS]"),
             (hardware_doc, "BOOT_DEVICE_BOUNDARY[UEFI_ESP_KERNEL_FILE]"),
+            (hardware_doc, "UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH]"),
+            (hardware_doc, "json-manifests-only"),
             (hardware_doc, "PCI_TABLE_API[READ_ONLY_LOOKUP]"),
             (hardware_doc, "PCI_TABLE_CONSUMER[STORAGE_CLASS_PROBE]"),
             (hardware_doc, "NEXT_IMPLEMENTATION_CONTRACT[PCI_DRIVER_TABLE_API]"),
@@ -213,7 +226,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
 
     def test_pci_status_probe_is_bounded_and_not_a_support_claim(self):
         rows = check_hardware_support_matrix.validate_repo_contract(ROOT)
-        matrix = (ROOT / "docs" / "architecture.md").read_text()
+        matrix = doc_text("architecture")
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
         pci_rows = check_hardware_support_matrix._validate_pci_status_rows(matrix)
 
@@ -294,7 +307,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
 
     def test_unclaimed_hardware_has_future_proof_and_negative_claim_rows(self):
         check_hardware_support_matrix.validate_repo_contract(ROOT)
-        matrix = (ROOT / "docs" / "architecture.md").read_text()
+        matrix = doc_text("architecture")
         proof_rows = check_hardware_support_matrix._validate_proof_requirement_rows(matrix)
         negative_rows = check_hardware_support_matrix._validate_negative_claim_rows(matrix)
 
@@ -332,7 +345,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         self.assertEqual(negative_rows["PHYSICAL_HARDWARE"]["claim"], "no-physical-machine-proof")
 
     def test_next_hardware_unlock_is_pci_enumeration(self):
-        matrix = (ROOT / "docs" / "architecture.md").read_text()
+        matrix = doc_text("architecture")
         next_rows = check_hardware_support_matrix._validate_next_unlock_rows(matrix)
         contract_rows = check_hardware_support_matrix._validate_next_implementation_contract_rows(matrix)
 
@@ -352,7 +365,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         self.assertContainsPhrase(matrix, "PCI enumeration is the next implementable hardware-class unlock")
 
     def test_qemu_device_models_and_boot_device_boundaries_are_machine_readable(self):
-        matrix = (ROOT / "docs" / "architecture.md").read_text()
+        matrix = doc_text("architecture")
         qemu_rows = check_hardware_support_matrix._validate_qemu_device_model_rows(matrix)
         boot_rows = check_hardware_support_matrix._validate_boot_device_boundary_rows(matrix)
 
@@ -372,7 +385,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         self.assertContainsPhrase(matrix, "The boot-device boundary is intentionally separate")
 
     def test_claimed_hardware_rows_name_machine_checked_status_counters(self):
-        matrix = (ROOT / "docs" / "architecture.md").read_text()
+        matrix = doc_text("architecture")
         rows = check_hardware_support_matrix._validate_status_proof_rows(matrix)
 
         self.assertEqual(
@@ -392,7 +405,9 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         scaffold = (ROOT / "boot" / "uefi" / "CONTRACT.txt").read_text()
         uefi_device_rows = check_hardware_support_matrix._validate_uefi_boot_device_rows(scaffold)
         uefi_host_rows = check_hardware_support_matrix._validate_uefi_host_artifact_rows(scaffold)
+        uefi_cloud_rows = check_hardware_support_matrix._validate_uefi_cloud_proof_rows(scaffold)
         uefi_artifacts = check_hardware_support_matrix.validate_uefi_host_artifact_build(ROOT)
+        uefi_cloud = check_hardware_support_matrix.validate_uefi_ovmf_cloud_scaffold(ROOT)
         makefile = (ROOT / "Makefile").read_text()
 
         self.assertEqual(rows["UEFI"]["status"], "unclaimed")
@@ -428,9 +443,21 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             set(uefi_host_rows),
             {"PE_COFF_STUB", "ESP_FAT_IMAGE", "NO_VM_BOOT"},
         )
+        self.assertEqual(
+            set(uefi_cloud_rows),
+            {"WORKFLOW_DISPATCH", "OVMF_ATTEMPT", "SUPPORT_GUARD", "ARTIFACT_POLICY"},
+        )
         self.assertEqual(uefi_host_rows["PE_COFF_STUB"]["status"], "host-buildable")
         self.assertEqual(uefi_host_rows["ESP_FAT_IMAGE"]["proof"], "host-fat-directory-check")
         self.assertEqual(uefi_host_rows["NO_VM_BOOT"]["kind"], "no-ovmf-or-qemu-execution")
+        self.assertEqual(uefi_cloud_rows["WORKFLOW_DISPATCH"]["runner"], "github-actions-ubuntu")
+        self.assertEqual(uefi_cloud_rows["OVMF_ATTEMPT"]["mode"], "manual-qemu-ovmf")
+        self.assertEqual(uefi_cloud_rows["SUPPORT_GUARD"]["mode"], "support-uefi-unclaimed")
+        self.assertEqual(uefi_cloud["manifest"]["mode"], "contract")
+        self.assertEqual(uefi_cloud["manifest"]["support_claim"], "unclaimed")
+        self.assertFalse(uefi_cloud["manifest"]["uefi_boot_rows_moved"])
+        self.assertFalse(uefi_cloud["manifest"]["local_mac_qemu_required"])
+        self.assertEqual(uefi_cloud["manifest"]["ovmf"]["execution"], "not-run")
         self.assertEqual(uefi_artifacts["manifest"]["claim"], "host-artifact-only-no-uefi-boot-proof")
         self.assertEqual(uefi_artifacts["manifest"]["vm_execution"], "not-run")
         self.assertEqual(uefi_artifacts["pe"]["subsystem"], 10)
@@ -439,6 +466,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         self.assertGreater(uefi_artifacts["esp"]["bootx64_size"], 0)
         self.assertContainsPhrase(scaffold, "future boot-device proof boundary")
         self.assertContainsPhrase(scaffold, "host-artifact-only")
+        self.assertContainsPhrase(scaffold, "contract checks must not require local Mac QEMU")
         self.assertNotIn("boot/uefi", makefile)
 
     def test_cli_reports_contract_success(self):
@@ -544,7 +572,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         self.assertIn("claimed hardware status OK", result.stdout)
 
     def test_checker_rejects_claimed_scope_broadening(self):
-        matrix = (ROOT / "docs" / "architecture.md").read_text()
+        matrix = doc_text("architecture")
         broadened = matrix.replace(
             "SUPPORT[IDE_ATA_PIO] status=claimed scope=qemu-ide",
             "SUPPORT[IDE_ATA_PIO] status=claimed scope=pc-storage",
@@ -554,7 +582,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix._validate_support_rows(broadened)
 
     def test_checker_rejects_current_target_broadening(self):
-        matrix = (ROOT / "docs" / "architecture.md").read_text()
+        matrix = doc_text("architecture")
         broadened = matrix.replace(
             "excludes=uefi,physical-hardware,general-pci,ahci-sata,usb-input-storage,apic-ioapic,hpet,smp,arbitrary-disk-install",
             "excludes=uefi,physical-hardware,general-pci",
@@ -574,7 +602,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix._validate_uefi_boot_rows(broadened)
 
     def test_checker_rejects_retired_negative_claim_without_proof(self):
-        matrix = (ROOT / "docs" / "architecture.md").read_text()
+        matrix = doc_text("architecture")
         broadened = matrix.replace(
             "NEGATIVE_CLAIM[USB] status=active",
             "NEGATIVE_CLAIM[USB] status=retired",
@@ -584,7 +612,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix._validate_negative_claim_rows(broadened)
 
     def test_checker_rejects_future_proof_requirement_claiming_evidence(self):
-        matrix = (ROOT / "docs" / "architecture.md").read_text()
+        matrix = doc_text("architecture")
         broadened = matrix.replace(
             "PROOF_REQUIREMENT[APIC] status=future artifact=apic-cloud-irq requires=lapic-ioapic-pic-masked evidence=none",
             "PROOF_REQUIREMENT[APIC] status=future artifact=apic-cloud-irq requires=lapic-ioapic-pic-masked evidence=status.txt",
@@ -594,7 +622,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix._validate_proof_requirement_rows(broadened)
 
     def test_checker_rejects_ahci_or_usb_support_overclaim(self):
-        matrix = (ROOT / "docs" / "architecture.md").read_text()
+        matrix = doc_text("architecture")
         ahci_claimed = matrix.replace(
             "SUPPORT[AHCI] status=unclaimed scope=none proof=future-ahci-sata-storage-proof evidence=none",
             "SUPPORT[AHCI] status=claimed scope=qemu-ahci proof=cloud-smoke evidence=status.txt",
@@ -610,7 +638,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix._validate_support_rows(usb_claimed)
 
     def test_checker_rejects_pci_table_contract_broadening(self):
-        matrix = (ROOT / "docs" / "architecture.md").read_text()
+        matrix = doc_text("architecture")
         broadened_bus = matrix.replace(
             "PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN] status=status-only bus=0",
             "PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN] status=status-only bus=all",
@@ -643,7 +671,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix._validate_pci_table_api_rows(broadened_api_consumers)
 
     def test_checker_rejects_qemu_device_model_broadening(self):
-        matrix = (ROOT / "docs" / "architecture.md").read_text()
+        matrix = doc_text("architecture")
         broadened_machine = matrix.replace(
             "QEMU_DEVICE_MODEL[SB16] status=claimed machine=qemu-legacy-pc",
             "QEMU_DEVICE_MODEL[SB16] status=claimed machine=physical-pc",
@@ -659,7 +687,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix._validate_qemu_device_model_rows(broadened_status)
 
     def test_checker_rejects_future_boot_device_becoming_claimed_without_evidence(self):
-        matrix = (ROOT / "docs" / "architecture.md").read_text()
+        matrix = doc_text("architecture")
         broadened = matrix.replace(
             "BOOT_DEVICE_BOUNDARY[USB_MASS_STORAGE] status=future",
             "BOOT_DEVICE_BOUNDARY[USB_MASS_STORAGE] status=claimed",
@@ -693,6 +721,19 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             r"UEFI_HOST_ARTIFACT\[PE_COFF_STUB\] status must stay host-buildable",
         ):
             check_hardware_support_matrix._validate_uefi_host_artifact_rows(broadened)
+
+    def test_checker_rejects_uefi_cloud_proof_overclaim(self):
+        scaffold = (ROOT / "boot" / "uefi" / "CONTRACT.txt").read_text()
+        broadened = scaffold.replace(
+            "UEFI_CLOUD_PROOF[OVMF_ATTEMPT] status=scaffolded",
+            "UEFI_CLOUD_PROOF[OVMF_ATTEMPT] status=proven",
+        )
+
+        with self.assertRaisesRegex(
+            AssertionError,
+            r"UEFI_CLOUD_PROOF\[OVMF_ATTEMPT\] status must stay scaffolded",
+        ):
+            check_hardware_support_matrix._validate_uefi_cloud_proof_rows(broadened)
 
     def test_checker_rejects_unsupported_hardware_implementation_wording(self):
         for claim in (

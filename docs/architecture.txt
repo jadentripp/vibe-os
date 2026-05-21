@@ -36,7 +36,7 @@ claims. It defines the future `UEFI_BOOT[...]` rows for a PE/COFF entry, ESP/FAT
 kernel load, GOP framebuffer handoff, UEFI memory map capture,
 `ExitBootServices`, ELF32-compatible kernel handoff, and separate opt-in build
 integration. Every `UEFI_BOOT[...]` row remains `status=unimplemented`, and
-SUPPORT[UEFI] remains unclaimed in `docs/architecture.md`.
+SUPPORT[UEFI] remains unclaimed in `docs/architecture.txt`.
 
 The scaffold is not part of the current Makefile image path. Today the booted
 artifact is still the BIOS raw-sector chain above; there is no firmware
@@ -50,11 +50,19 @@ that `EFI/BOOT/BOOTX64.EFI` plus `VIBEOS/KERNEL.ELF` are packaged as files. The
 manifest claim is `host-artifact-only-no-uefi-boot-proof`; it is not an OVMF
 boot, not kernel loading, and not a UEFI row implementation.
 
+The next rung is a manual GitHub Actions OVMF scaffold, not a support claim.
+`boot/uefi/ovmf_cloud_proof.py` has a contract mode that is QEMU-free and emits
+`ovmf-proof-manifest.json` plus the host artifacts; its attempt/prove modes are
+reserved for `.github/workflows/uefi-ovmf-proof.yml` on disposable Ubuntu
+runners. The manifest keeps `support_claim=unclaimed`,
+`uefi_boot_rows_moved=false`, and lists the remaining OVMF blockers until a
+future EFI loader proves kernel entry.
+
 ## Hardware Discovery Status
 
 After the BIOS boot chain reaches the kernel, the kernel performs one bounded
 QEMU PCI config-space table build. `PCI_STATUS[QEMU_BUS0_CONFIG]` in
-`docs/architecture.md` defines the contract: bus 0, devices 0-31, functions
+`docs/architecture.txt` defines the contract: bus 0, devices 0-31, functions
 0-7 are read through `0xcf8`/`0xcfc`, and the smoke block records `pci=`,
 `pciprobe=`, `pcicount=`, `pcifirst=`, `pciid=`, `pciclass=`, `pcitabcap=`,
 `pcitabuse=`, `pciover=`, `pciapi=`, `pcilookms=`, `pcilookbr=`, and
@@ -120,6 +128,23 @@ while the mainline kernel is still on the bootstrap page directory, and
 `khiexec=OK` is not a kernel relocation claim; it is a bounded proof that kernel
 text can execute briefly from a non-identity higher-half alias on a high stack.
 
+The durable preparation step is now a persistent high-alias map:
+`KERNEL_RELOCATION_GAP[current]=persistent-high-alias-window`. After the
+transient trampoline succeeds, the kernel keeps the full low-linked kernel ELF
+window mapped at its higher-half alias and also keeps the low kernel stack
+window mapped at its higher-half alias. The same high PDE is copied into the
+fixed probe, preempt-probe, Doom, and generic process page directories, so the
+alias is present when the kernel runs under those address spaces. Status reports
+this as `kpmap=OK`, `kpva=`, `kppa=`, `kppages=`, `kppt=`, `kpcr3=`, `kpdirs=`,
+`kpxlat=`, `kplast=`, `kplo=`, `kphi=`, `kpsva=`, `kpspa=`, `kpspages=`, and
+`kpsxlat=`. The checker requires non-identity virtual/physical pairs, a
+PMM-managed persistent page table, page-table translations for the first and
+last text pages, a full kernel-stack alias translation, matching low/high text
+bytes, and `kpdirs=0000003f` to prove the high PDE reached every fixed process
+page directory. `kpmap=OK` still is not a relocation claim; it proves that the
+non-identity higher-half text and stack aliases persist beyond a throwaway
+self-test.
+
 The status proof is now executable. `tools/check_vm_status_proof.py
 --require-exec status.txt` requires that `vmmhfree` match the reclaimed dynamic
 page table, that the Doom handoff report `argvsrc=2`, that `uexec=OK` and
@@ -139,9 +164,11 @@ higher-half virtual addresses.
 
 ## Higher-Half Relocation Gap
 
-`KERNEL_RELOCATION_GAP[current]=high-alias-only`. The current proof combines the
-dynamic high-alias self-test above with a low-identity relocation scaffold and
-process page-directory proof: `vmmhi=OK` shows `VMM_HIGH_TEST_VADDR` at
+`KERNEL_RELOCATION_GAP[current]=high-alias-only` is the older baseline; the
+stronger current slice is
+`KERNEL_RELOCATION_GAP[current]=persistent-high-alias-window`. The current proof
+combines the dynamic high-alias self-test above with a low-identity relocation
+scaffold and process page-directory proof: `vmmhi=OK` shows `VMM_HIGH_TEST_VADDR` at
 `0xc0000000` can be mapped to a distinct PMM-managed frame and then unmapped,
 `kreloc=LOW` plus `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and
 `kernphys=` make the current running-kernel identity state machine-readable,
@@ -150,11 +177,15 @@ process page-directory proof: `vmmhi=OK` shows `VMM_HIGH_TEST_VADDR` at
 executed there, `khiexec=OK` plus `khieip=`, `khiesp=`, `khicr3=`, `khiva=`,
 `khipa=`, `khistk=`, `khistkpa=`, `khipt=`, and `khifree=` prove a bounded
 higher-half trampoline can execute on a higher-half alias of the current kernel
-stack and then reclaim its dynamic page table, and
-`pcr3=`/`pkstk=` show process switches across distinct page directories and
-low-memory kernel stacks. That is useful preparation, but `vmmhi=OK` is not a
-kernel relocation claim, `khiexec=OK` is not a kernel relocation claim, and
-`kreloc=LOW` is explicitly the non-relocated state.
+stack and then reclaim its dynamic page table, `kpmap=OK` plus `kpva=`,
+`kppa=`, `kppages=`, `kppt=`, `kpcr3=`, `kpdirs=`, `kpxlat=`, `kplast=`,
+`kplo=`, `kphi=`, `kpsva=`, `kpspa=`, `kpspages=`, and `kpsxlat=` prove a
+persistent high mapping for the kernel text window and low kernel stack window
+across the fixed process page directories, and `pcr3=`/`pkstk=` show process
+switches across distinct page directories and low-memory kernel stacks. That is
+useful preparation, but `vmmhi=OK` is not a kernel relocation claim,
+`khiexec=OK` is not a kernel relocation claim, `kpmap=OK` is not a kernel
+relocation claim, and `kreloc=LOW` is explicitly the non-relocated state.
 
 `KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity`. The running kernel
 is still linked at `0x00010000`, loaded by Stage 2 as an ELF32 image from low
@@ -163,10 +194,10 @@ physical memory, and entered through the low ELF entry. Paging then loads
 contract therefore treats `kreloc=OK` as a future milestone that must prove the
 kernel is executing from higher-half virtual addresses with non-identity backing.
 That future proof needs `kreloc=OK` status evidence in `kerneip=`, `kernesp=`,
-`kerncr3=`, `kernvirt=`, and `kernphys=` plus the `kmap=OK` alias fields above
-so host checks can distinguish a real relocated instruction pointer, stack,
-active page directory, and physical backing from both the current low-identity
-scaffold and the one-page high aliases.
+`kerncr3=`, `kernvirt=`, and `kernphys=` plus the `kmap=OK` and `kpmap=OK`
+alias fields above so host checks can distinguish a real relocated instruction
+pointer, stack, active page directory, and physical backing from the current
+low-identity scaffold and high-alias preparation.
 
 The checker treats preemption as a live-user-workload proof. The generated-WAD
 OS smoke intentionally runs `tools/check_vm_status_proof.py --require-exec`
@@ -359,6 +390,19 @@ the FAT16 image is parsed by host checks to confirm the `BOOTX64.EFI` and
 map capture, `ExitBootServices`, kernel handoff, OVMF boot, or any physical
 machine behavior.
 
+UEFI cloud proof scaffold:
+
+- `UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH] status=scaffolded runner=github-actions-ubuntu mode=contract-attempt-prove evidence=uefi-ovmf-proof.yml`
+- `UEFI_CLOUD_PROOF[OVMF_ATTEMPT] status=scaffolded runner=github-actions-ubuntu mode=manual-qemu-ovmf evidence=ovmf-cloud-proof-script`
+- `UEFI_CLOUD_PROOF[SUPPORT_GUARD] status=guardrail runner=host-check mode=support-uefi-unclaimed evidence=check-hardware-support-matrix`
+- `UEFI_CLOUD_PROOF[ARTIFACT_POLICY] status=guardrail runner=github-actions-ubuntu mode=json-manifests-only evidence=workflow-artifact-policy`
+
+These rows pin the workflow/checker scaffolding only. The workflow is
+manual-dispatch, contract mode is QEMU-free, and the default uploaded artifact
+surface is JSON manifests only. Attempt/prove modes may run OVMF on the
+disposable runner, but `prove` must fail until the loader reaches the current
+kernel through OVMF and records a kernel-entry proof marker.
+
 Status-only hardware discovery scaffolds:
 
 - `PCI_STATUS[QEMU_BUS0_CONFIG] status=status-only scope=qemu-pci-bus0 proof=cloud-smoke-status evidence=pci-status-fields`
@@ -545,7 +589,10 @@ the high alias is backed by a distinct PMM-managed physical frame,
 `khiexec=OK` proves a bounded higher-half trampoline with high `khieip=` and
 `khiesp=` values, non-identity `khiva=`/`khipa=` and `khistk=`/`khistkpa=`
 backing, low `khicr3=00090000`, and `khifree=` matching the reclaimed `khipt=`
-page table, the Doom launch used `argvsrc=2` from a user argv-vector exec path,
+page table, `kpmap=OK` proves persistent higher-half text and stack aliases with
+`kpva=`, `kppa=`, `kppages=`, `kppt=`, `kpcr3=`, `kpdirs=`, `kpxlat=`,
+`kplast=`, `kplo=`, `kphi=`, `kpsva=`, `kpspa=`, `kpspages=`, and `kpsxlat=`,
+the Doom launch used `argvsrc=2` from a user argv-vector exec path,
 `uexec=OK` and
 `upath=USERPROB.ELF` prove the initial probe also came through the exec
 resolver, `abiexec=OK`, `abipath=ABIPROBE.ELF`, and `abiprobe=OK` prove a
@@ -563,8 +610,10 @@ slot number is not enough to prove preemption after exec.
 
 ## Higher-Half Relocation Gap
 
-`KERNEL_RELOCATION_GAP[current]=high-alias-only`. The VM/process proof currently
-has five separate pieces: `vmmhi=OK` proves a temporary high virtual alias
+`KERNEL_RELOCATION_GAP[current]=high-alias-only` remains the historical
+baseline name; the active stronger contract is
+`KERNEL_RELOCATION_GAP[current]=persistent-high-alias-window`. The VM/process proof currently
+has six separate pieces: `vmmhi=OK` proves a temporary high virtual alias
 backed by a distinct PMM-managed frame, `kreloc=LOW` with `kerneip=`,
 `kernesp=`, `kerncr3=`, `kernvirt=`, and `kernphys=` proves the running kernel is
 still on the low identity contract, `kmap=OK` with `kmapva=`, `kmappa=`,
@@ -573,24 +622,31 @@ page can be temporarily read through a higher-half alias with its page table
 reclaimed afterward, `khiexec=OK` with `khieip=`, `khiesp=`, `khicr3=`,
 `khiva=`, `khipa=`, `khistk=`, `khistkpa=`, `khipt=`, and `khifree=` proves a
 bounded high-address trampoline executed on a high stack alias and reclaimed its
-dynamic page table, and process status fields such as `pcr3=`, `pkstk=`,
-`pfrom=`, and `pto=` prove user process switches across distinct page directories
-and kernel stacks. Those fields do not prove that all kernel text, kernel data,
-the long-lived active kernel stack, or the interrupt/return path are executing
+dynamic page table, `kpmap=OK` with `kpva=`, `kppa=`, `kppages=`, `kppt=`,
+`kpcr3=`, `kpdirs=`, `kpxlat=`, `kplast=`, `kplo=`, `kphi=`, `kpsva=`,
+`kpspa=`, `kpspages=`, and `kpsxlat=` proves a persistent higher-half alias for
+the kernel text and low kernel stack windows across the fixed process page
+directories, and process status fields such as `pcr3=`, `pkstk=`, `pfrom=`, and
+`pto=` prove user process switches across distinct page directories and kernel
+stacks. Those fields do not prove that kernel data, the long-lived active
+instruction pointer/stack pointer, or the interrupt/return path are executing
 from non-identity higher-half addresses.
 
 `vmmhi=OK` is not a kernel relocation claim.
 `kmap=OK` is not a kernel relocation claim.
 `khiexec=OK` is not a kernel relocation claim.
+`kpmap=OK` is not a kernel relocation claim.
 `kreloc=LOW` is not a relocation success claim.
 
 `KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity`. Until a future
 artifact reports `kreloc=OK` with host-checked `kerneip=`, `kernesp=`,
 `kerncr3=`, `kernvirt=`, `kernphys=`, `kmap=OK`, `kmapva=`, `kmappa=`,
-`kmappt=`, `kmapfree=`, `kmaplo=`, and `kmaphi=` evidence, the honest claim
-remains: the kernel can create high aliases after PMM is online, including an
-alias of its current entry page, but the running kernel itself still lives on the
-low identity mapping.
+`kmappt=`, `kmapfree=`, `kmaplo=`, `kmaphi=`, `kpmap=OK`, `kpva=`, `kppa=`,
+`kppages=`, `kppt=`, `kpcr3=`, `kpdirs=`, `kpxlat=`, `kplast=`, `kplo=`,
+`kphi=`, `kpsva=`, `kpspa=`, `kpspages=`, and `kpsxlat=` evidence, the honest
+claim remains: the kernel can create and keep high aliases after PMM is online,
+including aliases of its current text and low stack windows, but the running
+kernel itself still lives on the low identity mapping.
 
 ## Current Address Spaces
 
@@ -726,15 +782,14 @@ heap are adjacent and the Doom heap grows up to the stack bottom.
 - The design still uses identity-mapped physical frames rather than relocating
   per-process user pages onto arbitrary PMM frames.
 - Running-kernel relocation is not implemented yet. The checked high-half proof
-  is a temporary high alias plus process page-directory evidence, not
-  `kreloc=OK`; `kmap=OK`, `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`,
-  `kmaplo=`, and `kmaphi=` only prove a temporary high alias of the current
-  kernel entry page, while `khiexec=OK`, `khieip=`, `khiesp=`, `khicr3=`,
-  `khiva=`, `khipa=`, `khistk=`, `khistkpa=`, `khipt=`, and `khifree=` prove
-  only a bounded high-trampoline call on a high stack alias under the low
-  bootstrap page directory. The missing milestone is persistent non-identity
-  higher-half kernel instruction pointer, stack, active page directory, and
-  physical backing.
+  is a temporary alias, a bounded high-trampoline call, and a persistent
+  higher-half text/stack alias window, not `kreloc=OK`; `kpmap=OK`, `kpva=`,
+  `kppa=`, `kppages=`, `kppt=`, `kpcr3=`, `kpdirs=`, `kpxlat=`, `kplast=`,
+  `kplo=`, `kphi=`, `kpsva=`, `kpspa=`, `kpspages=`, and `kpsxlat=` prove that
+  the high aliases exist across fixed process page directories, but `kerneip=`
+  and `kernesp=` still report the low identity runtime. The missing milestone is
+  persistent non-identity higher-half kernel instruction pointer, stack pointer,
+  active relocation page directory, and physical backing.
 - Timer IRQ preemption now has an end-to-end restore path for saved Ring 3
   interrupt frames: the scheduler can save the interrupted task, pick another
   READY task with a valid saved frame, switch CR3 through `process_activate`,
@@ -984,7 +1039,7 @@ The same status line also records `execerr=<errno>`, `execres=<syscall result>`,
 probe image used the same exec resolver before it called `SYS_EXEC`. The second
 program proof is separate again:
 `abiexec=OK abipath=ABIPROBE.ELF abipid=<pid> abippid=<pid> abientry=<eip>
-abiargc=1 abiargvsrc=2 abiprobe=OK abiflags=0000001F` records that the generic
+abiargc=1 abiargvsrc=2 abiprobe=OK abiflags=0000003F` records that the generic
 root `.ELF` resolver selected a bounded generic slot, built the crt0 stack from
 a copied user argv vector, ran `user/abi_probe.c`, and observed the probe's
 success marker before Doom was launched. It also
@@ -1129,6 +1184,9 @@ The reusable surface today is:
 - Audio: `SYS_AUDIO` accepts generic `vibe_audio_voice_desc_t` voice commands
   and reports `vibe_audio_device_info_t` / `vibe_audio_pcm_ring_info_t` device
   state. Doom WAD SFX and music parsing remain only one caller of that mixer.
+  Music code also exposes `vibe_music_stream_snapshot_t` for host-testable
+  stream cursor state, so future games can validate active/looping/chunk
+  progress without scraping Doom smoke text.
 - Generic file consumers can use `open`, `read`, `write`, `lseek`, `pread`,
   `pwrite`, `close`, `dup`, `dup2`, `dup3`, `stat`, `fstat`, `unlink`,
   `ftruncate`, `truncate`, `vibe_listdir`, `vibe_file_size`,
@@ -1284,7 +1342,10 @@ yet" so future POSIX work has executable edges instead of vague TODOs:
   mapping down if the read path fails. That is real generic userland support,
   but it is not a shared page-cache or kernel VMA object.
 - `USER_RUNTIME_CONTRACT[FILE_PRIVATE_MMAP] status=host-and-abi-probed api=vibe_user_mmap_file_private semantics=anonymous-copy-pread-preserve-offset-zero-tail-unmap-on-read-failure evidence=user-runtime-host-test,ABIPROBE.ELF`
-- `USER_RUNTIME_CONTRACT[WAIT_REAP_HELPER] status=host-and-abi-probed api=vibe_user_waitpid_nohang_reap semantics=bounded-WNOHANG-exact-child-reap-post-reap-ECHILD evidence=user-runtime-host-test,ABIPROBE.ELF`
+- `USER_RUNTIME_CONTRACT[WAIT_REAP_HELPER] status=host-and-abi-probed api=vibe_user_waitpid_nohang_reap_exact semantics=bounded-WNOHANG-exact-child-reap-post-reap-ECHILD evidence=user-runtime-host-test,ABIPROBE.ELF`
+- `USER_RUNTIME_CONTRACT[EXEC_ENV_HELPER] status=host-and-abi-probed api=vibe_user_execve,vibe_user_validate_exec_argv semantics=bounded-path-argv-empty-envp-only-nonempty-envp-ENOSYS evidence=user-runtime-host-test,ABIPROBE.ELF`
+- `USER_RUNTIME_CONTRACT[LISTDIR_FIND_HELPER] status=host-and-abi-probed api=vibe_user_listdir_find semantics=root-or-one-level-listdir-search-with-dirent-copy evidence=user-runtime-host-test,ABIPROBE.ELF`
+- `USER_RUNTIME_CONTRACT[FD_CLOEXEC_HELPER] status=host-probed api=vibe_user_get_cloexec,vibe_user_set_cloexec semantics=descriptor-FD_CLOEXEC-read-toggle evidence=user-runtime-host-test`
 - POSIX signal delivery is absent. User faults are kernel trap/process-state
   events, not `SIGSEGV` or `sigaction`; there is no public `signal.h`, signal
   mask, `kill`, interval timer signal, or handler trampoline ABI.
@@ -1447,6 +1508,11 @@ slot is active.
 The libc `environ` pointer is present and points at an empty, null-terminated
 environment vector. `execve()` accepts `NULL` or empty `envp` only and returns
 `ENOSYS` for non-empty environments until environment copying exists.
+The small non-Doom runtime mirrors that boundary with `vibe_user_execve()` and
+`vibe_user_validate_exec_argv()`: callers get a host-testable `EINVAL` before
+entering the kernel for empty paths, overlong paths, empty argv vectors, or argv
+strings that exceed `VIBE_EXEC_ARG_STR_MAX`, and a host-testable `ENOSYS` for
+non-empty environments.
 
 Directory and metadata support is intentionally narrow but explicit. `stat("/")`
 reports a readonly directory, regular files report `S_IFREG` plus user read/write
@@ -1798,7 +1864,8 @@ Storage install/recovery boundary:
   non-overlap, FAT BPB total-sector and hidden-sector fields, FAT/root/data
   geometry, root-entry inventory, recursive FAT directory/file inventory,
   read-only packaged-asset hashes, free/used cluster accounting, FAT-copy
-  agreement, and cluster ownership. The manifest now includes an
+  agreement, cluster ownership, and a `cluster-accounting-manifest` with
+  machine-readable free/used/accounted data-cluster counts. The manifest now includes an
   `artifact-integrity manifest` section that hashes the whole image, verifies
   the patched MBR/stage1 sector, and refuses raw Stage 2 or kernel bytes that
   do not match the current repo build artifacts. It also includes a
@@ -1807,8 +1874,9 @@ Storage install/recovery boundary:
   declared write ranges without implying an arbitrary-device installer. A
   `fat-vfs-boundary manifest` section records the root/current-directory
   normalization samples, the read-only `/ASSETS/README.TXT` one-level
-  subdirectory proof, a host-only `dynamic-root-lifecycle manifest`, mutation
-  refusals below that directory, and the boundary
+  subdirectory proof, a host-only `dynamic-root-lifecycle manifest`, per-step
+  create/write/grow/shrink/truncate/delete/free-space accounting, no-space
+  failure atomicity, mutation refusals below that directory, and the boundary
   between host-recursive packaged-asset inventory and the narrower kernel
   syscall surface.
   That manifest is intentionally scoped to `build/disk.img`.
@@ -1836,6 +1904,20 @@ Storage install/recovery boundary:
 - `STORAGE_BOUNDARY[DAMAGED_IMAGE_REFUSAL] status=proven scope=repo-layout-damaged-fixtures gate=damaged-image-refusal-report evidence=check_storage_install_boundary.py`
 - `STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL] status=unclaimed scope=none gate=future-installer-proof evidence=none`
 - `STORAGE_BOUNDARY[ARBITRARY_DISK_RECOVERY] status=unclaimed scope=none gate=future-recovery-proof evidence=none`
+
+Generic FAT16/VFS subsystem proof rows:
+
+- `STORAGE_SUBSYSTEM[PATH_NORMALIZATION] status=host-proven scope=root-current-dir-8.3-and-readonly-one-level gate=fat-vfs-boundary evidence=install-image-manifest`
+- `STORAGE_SUBSYSTEM[DIRECTORY_READ_BOUNDARY] status=host-proven scope=root-plus-readonly-one-level-list-read gate=filesystem-tree-manifest evidence=check_storage_install_boundary.py`
+- `STORAGE_SUBSYSTEM[ROOT_WRITE_TRUNCATE_DELETE] status=host-proven scope=dynamic-root-8.3-files gate=dynamic-root-lifecycle evidence=check_doom_persistence_image.py`
+- `STORAGE_SUBSYSTEM[FREE_SPACE_ACCOUNTING] status=host-proven scope=fat16-data-clusters gate=cluster-accounting-manifest evidence=install-image-manifest`
+- `STORAGE_SUBSYSTEM[FAILURE_ATOMICITY] status=host-proven scope=no-space-allocation-refusal gate=dynamic-root-lifecycle evidence=make_wad_image.py`
+- `STORAGE_SUBSYSTEM[READONLY_ASSET_MUTATION_REFUSAL] status=host-proven scope=packaged-subdirectory-assets gate=fat-vfs-boundary evidence=install-image-manifest`
+
+These rows are filesystem subsystem claims, not Doom-only persistence claims.
+They keep path normalization, directory read boundaries, root file mutation,
+free-space accounting, and failure atomicity visible as machine-readable proof
+surfaces for future games and tools.
 
   `STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL]` and
   `STORAGE_BOUNDARY[ARBITRARY_DISK_RECOVERY]` stay unclaimed until a future proof
@@ -2193,6 +2275,10 @@ kernel-owned music synthesis.
 The checker now treats `musicbuf=` as stream-health evidence: across the
 scripted snapshots it must move, and the stream-update counter must advance more
 than once, so a single static music carrier cannot satisfy the audio proof.
+It also conserves the SFX output lane: `sfxdma=` byte deltas must match
+`sfxbytes=` output deltas, and the DMA mix count cannot outrun `sfxmix=`.
+That keeps a submit-only counter, a non-DMA helper path, or a music-only carrier
+from being reported as IRQ-mixed SFX audio.
 When gameplay cadence fields are present, the checker also derives OS audio
 cadence from status only: Doom tic/frame progress (`gtic=`, `leveltime=`, and
 `doompresent=`) must coexist with advancing SB16 IRQ/refill and pull-refill
@@ -2211,6 +2297,11 @@ ring snapshot, `musicpull=` / `musicbuf=` / `musicpos=` prove stream service,
 and `voices=` / `sfxvoices=` / `musicvoices=` keep mixer lane accounting
 separate. This is the reusable device/ring/stream/mixer status contract; Doom is
 the first caller, not the shape of the ABI.
+The contract now records mixer-lane conservation too:
+`sfx_output_delta`, `sfx_dma_output_delta`,
+`sfx_dma_output_matches_sfx_output`, `music_render_chunk_delta`, and
+`music_render_sample_delta` live under `os_audio_contract.mixer_lanes` in the
+aggregate audible manifest.
 It also requires `musicrend=` renderer provenance to show MUS/MIDI format,
 rendered chunks, note events, total render events, active renderer voice peak,
 and emitted samples; a music flag plus carrier PCM cannot satisfy that lane.

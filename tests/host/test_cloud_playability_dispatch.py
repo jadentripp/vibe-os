@@ -136,6 +136,46 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
             result.stdout,
         )
 
+    def test_latest_run_for_ref_can_download_without_dispatching(self):
+        result = self.run_helper(
+            "--dry-run",
+            "--latest-run",
+            "--lane",
+            "full",
+            "--repo",
+            "jadentripp/vibe-os",
+            "--ref",
+            "main",
+            "--download-artifacts",
+            "build/cloud-latest-main",
+            "--checker-ref",
+            "run",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("latest: gh run list --repo jadentripp/vibe-os", result.stdout)
+        self.assertIn("--workflow real-wad-smoke.yml", result.stdout)
+        self.assertIn("--branch main", result.stdout)
+        self.assertIn("latest run: resolved after gh run list", result.stdout)
+        self.assertIn("run: LATEST_RUN_ID", result.stdout)
+        self.assertIn("checker ref: detached LATEST_HEAD_SHA", result.stdout)
+        self.assertIn("download: gh run download LATEST_RUN_ID", result.stdout)
+        self.assertNotIn("dispatch:", result.stdout)
+
+    def test_latest_run_and_run_id_are_mutually_exclusive(self):
+        result = self.run_helper(
+            "--dry-run",
+            "--latest-run",
+            "--run-id",
+            "12345",
+            "--lane",
+            "gameplay",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("--latest-run and --run-id are mutually exclusive", result.stderr)
+        self.assertNotIn("dispatch:", result.stdout)
+
     def test_auto_lane_is_not_valid_for_new_dispatch(self):
         result = self.run_helper("--dry-run", "--lane", "auto")
 
@@ -247,6 +287,12 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
         self.assertEqual(audit["workflow"], "real-wad-smoke.yml")
         self.assertEqual(audit["artifact"], "real-wad-smoke-status")
         self.assertEqual(audit["local_vm"], "refused")
+        self.assertFalse(audit["ref_resolution"]["latest_run_for_ref"])
+        self.assertEqual(audit["lanes"]["effective_lane"], "audio")
+        self.assertTrue(audit["lanes"]["gameplay"]["requested"])
+        self.assertTrue(audit["lanes"]["audio"]["requested"])
+        self.assertFalse(audit["lanes"]["persistence"]["requested"])
+        self.assertFalse(audit["lanes"]["audio"]["raw_audio_uploaded"])
         self.assertFalse(audit["artifact_policy"]["contains_wad_data"])
         self.assertTrue(audit["long_session_diagnostics"]["status_only"])
         self.assertIn(
@@ -401,8 +447,8 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
         script = HELPER.read_text()
         workflow = (ROOT / ".github" / "workflows" / "real-wad-smoke.yml").read_text()
         soak_workflow = (ROOT / ".github" / "workflows" / "real-wad-soak.yml").read_text()
-        playable_doc = (ROOT / "docs" / "proof.md").read_text()
-        triage_doc = (ROOT / "docs" / "proof.md").read_text()
+        playable_doc = (ROOT / "docs" / "proof.txt").read_text()
+        triage_doc = (ROOT / "docs" / "proof.txt").read_text()
 
         self.assertTrue(HELPER.stat().st_mode & 0o111)
         for forbidden in (

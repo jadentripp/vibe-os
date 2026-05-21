@@ -14,7 +14,16 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MATRIX = ROOT / "docs" / "architecture.md"
+
+
+def _doc_contract_path(root: Path, name: str) -> Path:
+    txt_path = root / "docs" / f"{name}.txt"
+    if txt_path.exists():
+        return txt_path
+    return root / "docs" / f"{name}.md"
+
+
+MATRIX = _doc_contract_path(ROOT, "architecture")
 
 CLAIMED_CLASSES = {
     "BIOS_BOOT",
@@ -366,6 +375,9 @@ REQUIRED_MATRIX_PHRASES = (
     "UEFI_HOST_ARTIFACT[PE_COFF_STUB]",
     "host-buildable PE/COFF and FAT16 ESP artifacts",
     "host-artifact-only-no-uefi-boot-proof",
+    "UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH]",
+    "manual GitHub Actions OVMF scaffold",
+    "contract mode is QEMU-free",
     "QEMU_DEVICE_MODEL[BIOS_BOOT]",
     "QEMU_DEVICE_MODEL[PCI_BUS0_STATUS]",
     "These rows are the machine-readable reason the current claim is QEMU-only",
@@ -419,22 +431,22 @@ REQUIRED_MATRIX_PHRASES = (
 
 REQUIRED_CROSS_DOC_LINKS = {
     "README.md": (
-        "docs/architecture.md",
+        "docs/architecture.txt",
         "boot/uefi/CONTRACT.txt",
         "QEMU BIOS/IDE/PS2/VBE/SB16",
         "That evidence is limited to the emulated device model",
         "SUPPORT[UEFI] remains unclaimed",
         "pci=",
     ),
-    "docs/architecture.md": (
+    "docs/architecture.txt": (
         "boot/uefi/CONTRACT.txt",
         "contract-only UEFI scaffold",
         "UEFI_BOOT[...]",
         "SUPPORT[UEFI] remains unclaimed",
         "PCI_STATUS[QEMU_BUS0_CONFIG]",
     ),
-    "docs/proof.md": (
-        "docs/architecture.md",
+    "docs/proof.txt": (
+        "docs/architecture.txt",
         "boot/uefi/CONTRACT.txt",
         "UEFI_BOOT[...]",
         "SUPPORT[...]",
@@ -442,11 +454,11 @@ REQUIRED_CROSS_DOC_LINKS = {
         "check_hardware_support_matrix.py",
     ),
     "docs/doom-provenance.txt": (
-        "docs/architecture.md",
+        "docs/architecture.txt",
         "broad PC",
     ),
-    "docs/play.md": (
-        "docs/architecture.md",
+    "docs/play.txt": (
+        "docs/architecture.txt",
         "does not prove vibe-os boots directly on physical hardware",
     ),
     "tests/strategy.txt": (
@@ -499,6 +511,33 @@ UEFI_HOST_ARTIFACT_REQUIREMENTS = {
         "kind": "no-ovmf-or-qemu-execution",
         "proof": "source-contract-check",
         "evidence": "check-hardware-support-matrix",
+    },
+}
+
+UEFI_CLOUD_PROOF_REQUIREMENTS = {
+    "WORKFLOW_DISPATCH": {
+        "status": "scaffolded",
+        "runner": "github-actions-ubuntu",
+        "mode": "contract-attempt-prove",
+        "evidence": "uefi-ovmf-proof.yml",
+    },
+    "OVMF_ATTEMPT": {
+        "status": "scaffolded",
+        "runner": "github-actions-ubuntu",
+        "mode": "manual-qemu-ovmf",
+        "evidence": "ovmf-cloud-proof-script",
+    },
+    "SUPPORT_GUARD": {
+        "status": "guardrail",
+        "runner": "host-check",
+        "mode": "support-uefi-unclaimed",
+        "evidence": "check-hardware-support-matrix",
+    },
+    "ARTIFACT_POLICY": {
+        "status": "guardrail",
+        "runner": "github-actions-ubuntu",
+        "mode": "json-manifests-only",
+        "evidence": "workflow-artifact-policy",
     },
 }
 
@@ -777,6 +816,15 @@ UEFI_HOST_ARTIFACT_RE = re.compile(
     re.MULTILINE,
 )
 
+UEFI_CLOUD_PROOF_RE = re.compile(
+    r"^- `UEFI_CLOUD_PROOF\[(?P<id>[A-Z0-9_]+)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"runner=(?P<runner>[a-z0-9-]+) "
+    r"mode=(?P<mode>[a-z0-9-]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
 OVERCLAIM_PATTERNS = (
     re.compile(r"\bsupports?\s+UEFI\b", re.IGNORECASE),
     re.compile(r"\bUEFI\s+support\b", re.IGNORECASE),
@@ -840,10 +888,11 @@ def _contains_phrase(text: str, phrase: str) -> bool:
 
 def _repo_text_files(root: Path) -> list[Path]:
     files = [root / "README.md", root / "tests" / "strategy.txt"]
-    files.extend(sorted((root / "boot").rglob("*.md")))
-    files.extend(sorted((root / "docs").rglob("*.md")))
+    for suffix in ("*.md", "*.txt"):
+        files.extend(sorted((root / "boot").rglob(suffix)))
+        files.extend(sorted((root / "docs").rglob(suffix)))
     files.extend(sorted((root / "tests").rglob("test_*.py")))
-    return [path for path in files if path.exists()]
+    return sorted({path for path in files if path.exists()})
 
 
 def _has_negative_context(line: str) -> bool:
@@ -1041,6 +1090,32 @@ def _validate_uefi_host_artifact_rows(text: str) -> dict[str, dict[str, str]]:
         for key, value in expected.items():
             if row[key] != value:
                 raise AssertionError(f"UEFI_HOST_ARTIFACT[{row_id}] {key} must stay {value}")
+
+    return rows
+
+
+def _validate_uefi_cloud_proof_rows(text: str) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for match in UEFI_CLOUD_PROOF_RE.finditer(text):
+        row_id = match.group("id")
+        if row_id in rows:
+            raise AssertionError(f"duplicate UEFI_CLOUD_PROOF row: {row_id}")
+        rows[row_id] = match.groupdict()
+
+    missing = sorted(set(UEFI_CLOUD_PROOF_REQUIREMENTS) - set(rows))
+    if missing:
+        raise AssertionError(f"missing UEFI_CLOUD_PROOF rows: {', '.join(missing)}")
+    extras = sorted(set(rows) - set(UEFI_CLOUD_PROOF_REQUIREMENTS))
+    if extras:
+        raise AssertionError(f"unexpected UEFI_CLOUD_PROOF rows: {', '.join(extras)}")
+
+    for row_id, expected in UEFI_CLOUD_PROOF_REQUIREMENTS.items():
+        row = rows[row_id]
+        for key, value in expected.items():
+            if row[key] != value:
+                raise AssertionError(f"UEFI_CLOUD_PROOF[{row_id}] {key} must stay {value}")
+        if row["status"] not in {"scaffolded", "guardrail"}:
+            raise AssertionError(f"UEFI_CLOUD_PROOF[{row_id}] must not become boot evidence")
 
     return rows
 
@@ -1250,6 +1325,118 @@ def validate_uefi_host_artifact_build(root: Path = ROOT) -> dict[str, object]:
     pe_info = _validate_pe32plus_efi_application(efi_application)
     esp_info = _validate_fat16_esp_image(esp_image, efi_application, kernel)
     return {"pe": pe_info, "esp": esp_info, "manifest": manifest}
+
+
+def validate_uefi_ovmf_cloud_scaffold(root: Path = ROOT) -> dict[str, object]:
+    script = root / "boot" / "uefi" / "ovmf_cloud_proof.py"
+    workflow = root / ".github" / "workflows" / "uefi-ovmf-proof.yml"
+    if not script.exists():
+        raise AssertionError("missing boot/uefi/ovmf_cloud_proof.py")
+    if not workflow.exists():
+        raise AssertionError("missing .github/workflows/uefi-ovmf-proof.yml")
+
+    script_text = _read(script)
+    for phrase in (
+        "GITHUB_ACTIONS",
+        "RUNNER_OS",
+        "platform.system() == \"Darwin\"",
+        "support_claim",
+        "unclaimed",
+        "uefi_boot_rows_moved",
+        "local_mac_qemu_required",
+        "ExitBootServices",
+        "uploads_json_manifests_only",
+        "uploads_vm_logs",
+        "mode == \"prove\"",
+        "kernel_booted",
+    ):
+        if phrase not in script_text:
+            raise AssertionError(f"boot/uefi/ovmf_cloud_proof.py missing scaffold phrase: {phrase}")
+
+    for forbidden in ("boot/stage1.asm", "boot/stage2.asm", "kernel/kernel.asm"):
+        if forbidden in script_text:
+            raise AssertionError("UEFI OVMF proof scaffold must not depend on BIOS boot sources")
+
+    kernel = b"\x7fELFovmf-cloud-contract-check\n" + bytes(range(32))
+    with tempfile.TemporaryDirectory(prefix="vibe-uefi-ovmf-contract-") as tmp:
+        tmp_path = Path(tmp)
+        kernel_path = tmp_path / "kernel.elf"
+        out_dir = tmp_path / "out"
+        kernel_path.write_bytes(kernel)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--kernel",
+                str(kernel_path),
+                "--out-dir",
+                str(out_dir),
+                "--mode",
+                "contract",
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                "boot/uefi/ovmf_cloud_proof.py contract mode failed: "
+                + (result.stderr.strip() or result.stdout.strip())
+            )
+        manifest = json.loads((out_dir / "ovmf-proof-manifest.json").read_text(encoding="utf-8"))
+
+    if manifest["mode"] != "contract":
+        raise AssertionError("UEFI OVMF contract manifest must record mode=contract")
+    if manifest["support_claim"] != "unclaimed":
+        raise AssertionError("UEFI OVMF contract manifest must keep support_claim=unclaimed")
+    if manifest["uefi_boot_rows_moved"] is not False:
+        raise AssertionError("UEFI OVMF contract manifest must not move UEFI_BOOT rows")
+    if manifest["local_mac_qemu_required"] is not False:
+        raise AssertionError("UEFI OVMF contract mode must not require local Mac QEMU")
+    if manifest["ovmf"]["execution"] != "not-run":
+        raise AssertionError("UEFI OVMF contract mode must not run firmware")
+    if "ExitBootServices is not called" not in manifest["remaining_blockers"]:
+        raise AssertionError("UEFI OVMF manifest must keep ExitBootServices as a blocker")
+    artifact_policy = manifest["artifact_policy"]
+    for key in ("uploads_esp_image", "uploads_efi_binary", "uploads_pflash_vars", "uploads_vm_logs"):
+        if artifact_policy[key] is not False:
+            raise AssertionError(f"UEFI OVMF artifact policy must keep {key}=false")
+
+    workflow_text = _read(workflow)
+    for phrase in (
+        "workflow_dispatch:",
+        "proof_mode:",
+        "contract",
+        "attempt",
+        "prove",
+        "runs-on: ubuntu-latest",
+        "qemu-system-x86 ovmf",
+        "inputs.proof_mode != 'contract'",
+        "make DOOM_WAD= build/kernel.elf",
+        "boot/uefi/ovmf_cloud_proof.py",
+        "--mode \"${{ inputs.proof_mode }}\"",
+        "tools/check_hardware_support_matrix.py",
+        "build/uefi-ovmf-proof/**/*.json",
+    ):
+        if phrase not in workflow_text:
+            raise AssertionError(f"UEFI OVMF workflow missing phrase: {phrase}")
+
+    for forbidden in (
+        "\n  push:",
+        "\n  pull_request:",
+        "ALLOW_LOCAL_VM=1",
+        "esp.img",
+        "BOOTX64.EFI",
+        "OVMF_VARS.fd",
+        "*.img",
+        "*.fd",
+        "*.log",
+        "serial*.txt",
+    ):
+        if forbidden in workflow_text:
+            raise AssertionError(f"UEFI OVMF workflow must not contain {forbidden.strip()}")
+
+    return {"manifest": manifest, "workflow": str(workflow.relative_to(root))}
 
 
 def _validate_pci_status_rows(text: str) -> dict[str, dict[str, str]]:
@@ -1595,6 +1782,7 @@ def _validate_uefi_scaffold(root: Path) -> dict[str, dict[str, str]]:
     rows = _validate_uefi_boot_rows(text)
     _validate_uefi_boot_device_rows(text)
     _validate_uefi_host_artifact_rows(text)
+    _validate_uefi_cloud_proof_rows(text)
 
     for phrase in (
         "contract-only placeholder",
@@ -1613,6 +1801,10 @@ def _validate_uefi_scaffold(root: Path) -> dict[str, dict[str, str]]:
         "must not describe vibe-os as UEFI-bootable",
         "ExitBootServices",
         "keep local VM execution behind the existing opt-in safety rail",
+        "UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH]",
+        "Contract mode is host-only and QEMU-free",
+        "GitHub Actions Ubuntu runners",
+        "contract checks must not require local Mac QEMU",
         "exact machine inventory and disposable media details",
     ):
         if not _contains_phrase(text, phrase):
@@ -1623,6 +1815,7 @@ def _validate_uefi_scaffold(root: Path) -> dict[str, dict[str, str]]:
         raise AssertionError("boot/uefi must not be wired into the current Makefile image path")
 
     validate_uefi_host_artifact_build(root)
+    validate_uefi_ovmf_cloud_scaffold(root)
     return rows
 
 
@@ -1722,8 +1915,9 @@ def _validate_pci_source_contract(root: Path) -> None:
 
 
 def _validate_claim_wording(root: Path) -> None:
+    matrix_path = _doc_contract_path(root, "architecture")
     for path in _repo_text_files(root):
-        if path == MATRIX:
+        if path == matrix_path:
             continue
         rel = path.relative_to(root)
         _validate_no_unbounded_claims(str(rel), _read(path))
@@ -1955,7 +2149,7 @@ def validate_claimed_hardware_status_text(status: str) -> dict[str, str]:
 
 
 def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
-    matrix_text = _read(root / "docs" / "architecture.md")
+    matrix_text = _read(_doc_contract_path(root, "architecture"))
 
     for phrase in REQUIRED_MATRIX_PHRASES:
         if not _contains_phrase(matrix_text, phrase):

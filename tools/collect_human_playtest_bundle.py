@@ -54,6 +54,7 @@ CAPTURE_REQUIRED_STATUS_FIELDS = tuple(
 NOTE_FIELD_ORDER = (
     "schema",
     "commit",
+    "ref",
     "scripted_proof",
     "scripted_proof_run_id",
     "scripted_proof_url",
@@ -190,6 +191,34 @@ def _git_head() -> str:
         ).strip()
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
+
+
+def _git_ref() -> str:
+    for env_name in ("VIBE_PLAY_REF", "GITHUB_REF_NAME", "GITHUB_HEAD_REF"):
+        value = os.environ.get(env_name, "").strip()
+        if value:
+            return _safe_ref_text(value)
+    try:
+        ref = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=ROOT,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        return _safe_ref_text(ref)
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+
+
+def _safe_ref_text(value: str) -> str:
+    text = value.strip()
+    if not text:
+        raise AssertionError("--ref must not be empty")
+    if len(text) > 160:
+        raise AssertionError("--ref must be 160 characters or fewer")
+    if not re.fullmatch(r"[A-Za-z0-9._/@+-]+", text):
+        raise AssertionError("--ref may contain only letters, numbers, dot, underscore, slash, at, plus, or dash")
+    return text
 
 
 def _safe_note_text(value: str, label: str) -> str:
@@ -531,6 +560,7 @@ def _write_human_notes(
     fields = {
         "schema": check_cloud_playability_artifacts.HUMAN_NOTES_SCHEMA,
         "commit": args.commit or _git_head(),
+        "ref": _safe_ref_text(args.ref or _git_ref()),
         "scripted_proof": "real-wad-smoke-pass",
         "scripted_proof_run_id": args.scripted_proof_run_id,
         "scripted_proof_url": (
@@ -605,6 +635,7 @@ def _print_template(args: argparse.Namespace) -> None:
     playtester = _template_value(args.playtester, "<name-or-initials>")
     run_id = _template_value(args.scripted_proof_run_id, "<passing-real-wad-smoke-run-id>")
     commit = _template_value(args.commit, "$(git rev-parse --short=12 HEAD)")
+    ref = _template_value(args.ref, "${VIBE_PLAY_REF:-$(git rev-parse --abbrev-ref HEAD)}")
     reviewer = _template_value(args.reviewer, playtester)
     output_dir = args.output_dir or Path("/tmp/vibe-os-human-proof")
     build_dir = args.build_dir
@@ -641,6 +672,7 @@ collect command:
     --reviewer "{reviewer}" \\
     --scripted-proof-run-id "{run_id}" \\
     --commit "{commit}" \\
+    --ref "{ref}" \\
     --machine-label "{args.machine_label or 'Codespace-or-disposable-cloud-host'}" \\
 {review_args}
     --audio {args.audio} \\
@@ -800,6 +832,10 @@ def main(argv: list[str]) -> int:
         help="reviewer handle for human-playtest-review.json; defaults to --playtester",
     )
     parser.add_argument("--commit", help="commit under test; defaults to git rev-parse HEAD")
+    parser.add_argument(
+        "--ref",
+        help="git ref under test; defaults to VIBE_PLAY_REF, GitHub ref env, or git branch",
+    )
     parser.add_argument(
         "--machine-label",
         help="short status-only remote machine label, such as codespaces-4-core",

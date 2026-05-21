@@ -10,8 +10,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CLOUD_RUNBOOKS = (
-    "docs/play.md",
-    "docs/play.md",
+    "docs/play.txt",
+    "docs/play.txt",
 )
 CLOUD_POLICY_MARKERS = (
     "CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC",
@@ -145,8 +145,8 @@ def validate_cloud_runbook_text(text: str, label: str) -> None:
 
 def validate_cloud_interactive_runbooks(root: Path = ROOT) -> None:
     runbooks = {relative: _read(root, relative) for relative in CLOUD_RUNBOOKS}
-    cloud = runbooks["docs/play.md"]
-    remote = runbooks["docs/play.md"]
+    cloud = runbooks["docs/play.txt"]
+    remote = runbooks["docs/play.txt"]
     play_now_script = _read(root, "tools/play_now_remote.sh")
     codespaces_script = _read(root, "tools/play_now_codespaces.sh")
     human_playtest_script = _read(root, "tools/run_remote_human_playtest.sh")
@@ -256,7 +256,7 @@ def validate_cloud_interactive_runbooks(root: Path = ROOT) -> None:
             )
 
     for needle in (
-        "docs/play.md",
+        "docs/play.txt",
         "CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC",
         "CLOUD_PLAYTEST_REMOTE_QEMU_ONLY",
         "CLOUD_PLAYTEST_FORBIDDEN_UPLOADS",
@@ -275,11 +275,11 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     stage2 = _read(root, "boot/stage2.asm")
     kernel = _read(root, "kernel/kernel.asm")
     probe = _read(root, "user/probe.c")
-    process_doc = _read(root, "docs/architecture.md")
-    process_vm_doc = _read(root, "docs/architecture.md")
-    boot_vm_doc = _read(root, "docs/architecture.md")
-    doom_runtime_doc = _read(root, "docs/architecture.md")
-    gap_doc = _read(root, "docs/proof.md")
+    process_doc = _read(root, "docs/architecture.txt")
+    process_vm_doc = _read(root, "docs/architecture.txt")
+    boot_vm_doc = _read(root, "docs/architecture.txt")
+    doom_runtime_doc = _read(root, "docs/architecture.txt")
+    gap_doc = _read(root, "docs/proof.txt")
     tests_readme = _read(root, "tests/strategy.txt")
 
     validate_cloud_interactive_runbooks(root)
@@ -471,11 +471,19 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "KERNEL_RELOCATION_STATUS_MISMATCH equ 2",
         "KERNEL_HIGH_ALIAS_STATUS_OK equ 1",
         "KERNEL_HIGH_EXEC_STATUS_OK equ 1",
+        "KERNEL_PERSISTENT_ALIAS_STATUS_OK equ 1",
+        "KERNEL_PERSISTENT_ALIAS_BYTES equ 0x00020000",
+        "KERNEL_PERSISTENT_ALIAS_PAGES equ KERNEL_PERSISTENT_ALIAS_BYTES / PAGE_SIZE",
+        "KERNEL_STACK_ALIAS_PAGES equ (KERNEL_STACK_TOP - KERNEL_STACK_LOW) / PAGE_SIZE",
+        "KERNEL_PERSISTENT_DIR_MASK equ 0x0000003f",
         "kernel_relocation_probe:",
         "kernel_translate_current_vaddr:",
         "kernel_high_alias_self_test:",
         "kernel_high_exec_self_test:",
         "kernel_high_exec_trampoline:",
+        "kernel_persistent_alias_self_test:",
+        "kernel_persistent_map_range:",
+        "kernel_persistent_alias_install_process_dirs:",
         "mov [kernel_relocation_eip], eax",
         "mov [kernel_relocation_esp], esp",
         "mov [kernel_relocation_cr3], eax",
@@ -496,6 +504,18 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "mov [kernel_high_exec_stack_phys], eax",
         "mov [kernel_high_exec_table], eax",
         "mov [kernel_high_exec_reclaimed], eax",
+        "mov [kernel_persistent_alias_vaddr], eax",
+        "mov [kernel_persistent_alias_phys], eax",
+        "mov [kernel_persistent_alias_table], eax",
+        "mov [kernel_persistent_alias_cr3], eax",
+        "mov dword [kernel_persistent_alias_dir_mask]",
+        "mov [kernel_persistent_alias_xlat], eax",
+        "mov [kernel_persistent_alias_last_xlat], eax",
+        "mov [kernel_persistent_alias_low_word], eax",
+        "mov [kernel_persistent_alias_high_word], eax",
+        "mov [kernel_persistent_stack_vaddr], eax",
+        "mov [kernel_persistent_stack_phys], eax",
+        "mov [kernel_persistent_stack_xlat], eax",
         "cmp eax, 0xffffffff",
         "cmp eax, KERNEL_HIGHER_HALF_BASE",
         "cmp eax, PAGING_DIR_ADDR",
@@ -503,8 +523,15 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "mov byte [kernel_relocation_status], KERNEL_RELOCATION_STATUS_LOW_IDENTITY",
         "mov byte [kernel_high_alias_status], KERNEL_HIGH_ALIAS_STATUS_OK",
         "mov byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_OK",
+        "mov byte [kernel_persistent_alias_status], KERNEL_PERSISTENT_ALIAS_STATUS_OK",
         "call kernel_high_alias_self_test",
         "call kernel_high_exec_self_test",
+        "call kernel_persistent_alias_self_test",
+        "PROC_PROBE_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)",
+        "PROC_PREEMPT_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)",
+        "PROC_DOOM_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)",
+        "PROC_GENERIC0_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)",
+        "PROC_GENERIC1_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)",
         "vmm_dynamic_page_tables dd 0",
         "vmm_active_page_tables dd 0",
         "vmm_reclaimed_page_tables dd 0",
@@ -522,6 +549,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "kernel_relocation_phys dd 0",
         "kernel_high_alias_status db 0",
         "kernel_high_exec_status db 0",
+        "kernel_persistent_alias_status db 0",
         "kernel_high_alias_vaddr dd 0",
         "kernel_high_alias_phys dd 0",
         "kernel_high_alias_table dd 0",
@@ -537,6 +565,20 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "kernel_high_exec_stack_phys dd 0",
         "kernel_high_exec_table dd 0",
         "kernel_high_exec_reclaimed dd 0",
+        "kernel_persistent_alias_vaddr dd 0",
+        "kernel_persistent_alias_phys dd 0",
+        "kernel_persistent_alias_pages dd 0",
+        "kernel_persistent_alias_table dd 0",
+        "kernel_persistent_alias_cr3 dd 0",
+        "kernel_persistent_alias_dir_mask dd 0",
+        "kernel_persistent_alias_xlat dd 0",
+        "kernel_persistent_alias_last_xlat dd 0",
+        "kernel_persistent_alias_low_word dd 0",
+        "kernel_persistent_alias_high_word dd 0",
+        "kernel_persistent_stack_vaddr dd 0",
+        "kernel_persistent_stack_phys dd 0",
+        "kernel_persistent_stack_pages dd 0",
+        "kernel_persistent_stack_xlat dd 0",
         'smoke_kreloc_text db " kreloc=", 0',
         'smoke_kerneip_text db " kerneip=", 0',
         'smoke_kernesp_text db " kernesp=", 0',
@@ -560,6 +602,21 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         'smoke_khistkpa_text db " khistkpa=", 0',
         'smoke_khipt_text db " khipt=", 0',
         'smoke_khifree_text db " khifree=", 0',
+        'smoke_kpmap_text db " kpmap=", 0',
+        'smoke_kpva_text db " kpva=", 0',
+        'smoke_kppa_text db " kppa=", 0',
+        'smoke_kppages_text db " kppages=", 0',
+        'smoke_kppt_text db " kppt=", 0',
+        'smoke_kpcr3_text db " kpcr3=", 0',
+        'smoke_kpdirs_text db " kpdirs=", 0',
+        'smoke_kpxlat_text db " kpxlat=", 0',
+        'smoke_kplast_text db " kplast=", 0',
+        'smoke_kplo_text db " kplo=", 0',
+        'smoke_kphi_text db " kphi=", 0',
+        'smoke_kpsva_text db " kpsva=", 0',
+        'smoke_kpspa_text db " kpspa=", 0',
+        'smoke_kpspages_text db " kpspages=", 0',
+        'smoke_kpsxlat_text db " kpsxlat=", 0',
         'smoke_vmmhi_text db " vmmhi=", 0',
         'smoke_vmmhva_text db " vmmhva=", 0',
         'smoke_vmmhpa_text db " vmmhpa=", 0',
@@ -623,6 +680,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     ):
         for needle in (
             "KERNEL_RELOCATION_GAP[current]=high-alias-only",
+            "KERNEL_RELOCATION_GAP[current]=persistent-high-alias-window",
             "KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity",
             "`vmmhi=OK` is not a kernel relocation claim",
             "`kreloc=LOW`",
@@ -649,6 +707,21 @@ def validate_repo_contract(root: Path = ROOT) -> None:
             "`khistkpa=`",
             "`khipt=`",
             "`khifree=`",
+            "`kpmap=OK`",
+            "`kpva=`",
+            "`kppa=`",
+            "`kppages=`",
+            "`kppt=`",
+            "`kpcr3=`",
+            "`kpdirs=`",
+            "`kpxlat=`",
+            "`kplast=`",
+            "`kplo=`",
+            "`kphi=`",
+            "`kpsva=`",
+            "`kpspa=`",
+            "`kpspages=`",
+            "`kpsxlat=`",
         ):
             _require(text, needle, label)
 

@@ -405,7 +405,7 @@ jobs:
     def test_docs_keep_legit_but_playable_first_positioning(self):
         readme = " ".join((ROOT / "README.md").read_text().split())
         provenance = " ".join((ROOT / "docs" / "doom-provenance.txt").read_text().split())
-        runtime = " ".join((ROOT / "docs" / "architecture.md").read_text().split())
+        runtime = " ".join((ROOT / "docs" / "architecture.txt").read_text().split())
 
         for text, token in (
             (readme, '"legit but playable first"'),
@@ -428,9 +428,9 @@ jobs:
     def test_markdown_surface_stays_capped_to_durable_entry_points(self):
         tracked = [
             "README.md",
-            "docs/architecture.md",
-            "docs/play.md",
-            "docs/proof.md",
+            "docs/architecture.txt",
+            "docs/play.txt",
+            "docs/proof.txt",
             "docs/roadmap.md",
             "tests/README.md",
             "third_party/doom/ORIGIN.md",
@@ -439,6 +439,10 @@ jobs:
 
         self.assertTrue(any("docs/roadmap.md" in violation for violation in violations))
         self.assertTrue(any("tests/README.md" in violation for violation in violations))
+        self.assertFalse(any("docs/architecture.txt" in violation for violation in violations))
+        self.assertFalse(any("docs/play.txt" in violation for violation in violations))
+        self.assertFalse(any("docs/proof.txt" in violation for violation in violations))
+        self.assertFalse(any("third_party/doom/ORIGIN.md" in violation for violation in violations))
         self.assertEqual(
             check_repo_hygiene.markdown_surface_violations(
                 sorted(check_repo_hygiene.ALLOWED_MARKDOWN_PATHS)

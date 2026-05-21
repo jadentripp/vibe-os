@@ -14,7 +14,7 @@ class UserRuntimeContractTests(unittest.TestCase):
         source = (ROOT / "user" / "runtime.c").read_text()
         abi_probe = (ROOT / "user" / "abi_probe.c").read_text()
         makefile = (ROOT / "Makefile").read_text()
-        runtime_doc = (ROOT / "docs" / "architecture.md").read_text()
+        runtime_doc = (ROOT / "docs" / "architecture.txt").read_text()
 
         for token in (
             "int vibe_user_syscall3(",
@@ -30,10 +30,13 @@ class UserRuntimeContractTests(unittest.TestCase):
             "int vibe_user_fork(void);",
             "int vibe_user_waitpid(long pid, int* status, unsigned long options);",
             "int vibe_user_waitpid_nohang_reap(long pid, int* status, unsigned long max_polls);",
+            "int vibe_user_waitpid_nohang_reap_exact(long pid, int* status, unsigned long max_polls)",
             "int vibe_user_dup(int oldfd);",
             "int vibe_user_dup2(int oldfd, int newfd);",
             "int vibe_user_dup3(int oldfd, int newfd, unsigned long flags);",
             "int vibe_user_fcntl(int fd, int cmd, unsigned long arg);",
+            "int vibe_user_get_cloexec(int fd, int* out)",
+            "int vibe_user_set_cloexec(int fd, int enabled)",
             "int vibe_user_mmap(void** out, unsigned long length, unsigned long prot, unsigned long flags);",
             "int vibe_user_mmap_anon(void** out, unsigned long length, unsigned long prot);",
             "int vibe_user_mmap_file(",
@@ -43,8 +46,24 @@ class UserRuntimeContractTests(unittest.TestCase):
             "unsigned long vibe_user_vm_capabilities(void);",
             "int vibe_user_clock_monotonic(",
             "int vibe_user_listdir(",
+            "int vibe_user_dirent_name_eq(",
+            "int vibe_user_listdir_find(",
+            "int vibe_user_validate_exec_argv(",
             "int vibe_user_execv(",
+            "int vibe_user_execv_checked(",
+            "int vibe_user_execve(",
             "void vibe_user_report_probe(",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, header)
+
+        for token in (
+            "static inline int vibe_user_waitpid_nohang_reap_exact(",
+            "static inline int vibe_user_get_cloexec(",
+            "static inline int vibe_user_set_cloexec(",
+            "static inline int vibe_user_listdir_find(",
+            "static inline int vibe_user_validate_exec_argv(",
+            "static inline int vibe_user_execve(",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, header)
@@ -80,8 +99,9 @@ class UserRuntimeContractTests(unittest.TestCase):
         self.assertIn("vibe_user_clock_monotonic(&now)", abi_probe)
         self.assertIn("vibe_user_fcntl(wad, ABI_PROBE_F_SETFD, ABI_PROBE_FD_CLOEXEC)", abi_probe)
         self.assertIn("prove_file_private_mapping(wad_path)", abi_probe)
-        self.assertIn("vibe_user_waitpid_nohang_reap(child, &status, ABI_PROBE_FORK_WAIT_SPINS)", abi_probe)
+        self.assertIn("vibe_user_waitpid_nohang_reap_exact(child, &status, ABI_PROBE_FORK_WAIT_SPINS)", abi_probe)
         self.assertIn("duplicate_reap == -ABI_PROBE_ERRNO_ECHILD", abi_probe)
+        self.assertIn("vibe_user_execve(doom_path, doom_argv, nonempty_env) != -38", abi_probe)
         self.assertIn("vibe_user_execv(doom_path, doom_argv)", abi_probe)
         self.assertIn("USER_RUNTIME_C_SRC := user/runtime.c", makefile)
         self.assertIn("$(USER_RUNTIME_C_OBJ) $(USER_ABI_PROBE_C_OBJ)", makefile)
@@ -92,8 +112,8 @@ class UserRuntimeContractTests(unittest.TestCase):
     def test_user_runtime_stays_inside_current_general_os_contract(self):
         header = (ROOT / "user" / "runtime.h").read_text()
         source = (ROOT / "user" / "runtime.c").read_text()
-        process_doc = (ROOT / "docs" / "architecture.md").read_text()
-        runtime_doc = (ROOT / "docs" / "architecture.md").read_text()
+        process_doc = (ROOT / "docs" / "architecture.txt").read_text()
+        runtime_doc = (ROOT / "docs" / "architecture.txt").read_text()
 
         for token in (
             "VIBE_SYS_EXEC",
@@ -114,6 +134,13 @@ class UserRuntimeContractTests(unittest.TestCase):
         ):
             with self.subTest(token=token):
                 self.assertIn(token, source)
+
+        for token in (
+            "VIBE_EXEC_ARG_MAX",
+            "VIBE_EXEC_ARG_STR_MAX",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, header)
 
         for token in (
             "VIBE_SYS_IOCTL",
@@ -137,6 +164,9 @@ class UserRuntimeContractTests(unittest.TestCase):
         self.assertIn("## General-OS Gap Contract", runtime_doc)
         self.assertIn("small non-Doom user programs", runtime_doc)
         self.assertIn("USER_RUNTIME_CONTRACT[WAIT_REAP_HELPER]", runtime_doc)
+        self.assertIn("USER_RUNTIME_CONTRACT[EXEC_ENV_HELPER]", runtime_doc)
+        self.assertIn("USER_RUNTIME_CONTRACT[LISTDIR_FIND_HELPER]", runtime_doc)
+        self.assertIn("USER_RUNTIME_CONTRACT[FD_CLOEXEC_HELPER]", runtime_doc)
         self.assertIn("USER_RUNTIME_CONTRACT[FILE_PRIVATE_MMAP]", runtime_doc)
 
     def test_user_runtime_has_host_proof(self):

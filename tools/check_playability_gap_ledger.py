@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LEDGER = ROOT / "docs" / "proof.md"
+LEDGER = ROOT / "docs" / "proof.txt"
 HYGIENE_TOOL = ROOT / "tools" / "check_repo_hygiene.py"
 
 REQUIRED_GAPS = {
@@ -73,7 +73,7 @@ REQUIRED_GAPS = {
         "category": "hardware-limits",
         "phrases": (
             "QEMU BIOS/IDE/PS2/VBE/SB16",
-            "docs/architecture.md",
+            "docs/architecture.txt",
             "SUPPORT[...]",
             "check_hardware_support_matrix.py",
             "physical hardware",
@@ -84,8 +84,6 @@ REQUIRED_GAPS = {
 LATEST_RUN_PHRASES = (
     "Latest Cloud Evidence",
     "latest full real-WAD cloud run",
-    "26213330282",
-    "26213233516",
     "25718",
     "persistence-proof-green",
     "VIBE SAVE",
@@ -154,6 +152,10 @@ GAP_RE = re.compile(
     re.MULTILINE,
 )
 
+LATEST_FULL_RUN_RE = re.compile(
+    r"latest full real-WAD cloud run is `(?P<run_id>[0-9]{6,32})`"
+)
+
 
 def _gap_blocks(text: str):
     matches = list(GAP_RE.finditer(text))
@@ -174,8 +176,53 @@ def readme_policy_violations(root: Path = ROOT) -> list[str]:
     return check_repo_hygiene.readme_policy_violations(root)
 
 
+def latest_full_run_id(text: str) -> str:
+    match = LATEST_FULL_RUN_RE.search(text)
+    if match is None:
+        raise AssertionError("gap ledger missing latest full real-WAD cloud run id")
+    return match.group("run_id")
+
+
+def validate_latest_evidence_freshness(
+    *,
+    text: str,
+    gaps: dict[str, dict[str, str]],
+    matches_and_blocks: list[tuple[re.Match[str], str]],
+) -> None:
+    latest_run = latest_full_run_id(text)
+    if "As of 2026-05-21" not in text:
+        raise AssertionError("latest cloud evidence must carry an absolute freshness date")
+
+    proven_latest_gaps = ("CLOUD_BOOT", "REAL_GAMEPLAY", "PERSISTENCE", "AUDIO")
+    for gap_id in proven_latest_gaps:
+        evidence = gaps[gap_id]["evidence"]
+        expected = f"real-wad-smoke-{latest_run}"
+        if evidence != expected:
+            raise AssertionError(
+                f"{gap_id} evidence must match latest cloud run {expected}, got {evidence}"
+            )
+
+    cloud_blocks = {
+        match.group("id"): block
+        for match, block in matches_and_blocks
+        if match.group("id") in proven_latest_gaps
+    }
+    for gap_id, block in cloud_blocks.items():
+        if latest_run not in block:
+            raise AssertionError(f"{gap_id} block does not mention latest run {latest_run}")
+
+    stale_latest_patterns = (
+        r"historical .* is the latest",
+        r"current branch still needs .* after push",
+    )
+    normalized = " ".join(text.split())
+    for pattern in stale_latest_patterns:
+        if re.search(pattern, normalized, re.IGNORECASE):
+            raise AssertionError(f"gap ledger mixes stale proof history into latest claim: {pattern}")
+
+
 def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
-    text = (root / "docs" / "proof.md").read_text()
+    text = (root / "docs" / "proof.txt").read_text()
     matches_and_blocks = list(_gap_blocks(text))
     gaps: dict[str, dict[str, str]] = {}
 
@@ -212,10 +259,16 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
             if not _contains_phrase(block, phrase):
                 raise AssertionError(f"{gap_id} missing phrase: {phrase}")
 
+    validate_latest_evidence_freshness(
+        text=text,
+        gaps=gaps,
+        matches_and_blocks=matches_and_blocks,
+    )
+
     readme = (root / "README.md").read_text()
     tests_readme = (root / "tests" / "strategy.txt").read_text()
-    playable_cloud_proof = (root / "docs" / "proof.md").read_text()
-    hardware_support = (root / "docs" / "architecture.md").read_text()
+    playable_cloud_proof = (root / "docs" / "proof.txt").read_text()
+    hardware_support = (root / "docs" / "architecture.txt").read_text()
     makefile = (root / "Makefile").read_text()
     for phrase in LATEST_RUN_PHRASES:
         if not _contains_phrase(text, phrase):
@@ -238,7 +291,7 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         "loads the save back into gameplay",
         "Status",
         "Long-form evidence, historical failures, and workflow dispatch examples",
-        "workflow dispatch examples live in `docs/proof.md`",
+        "workflow dispatch examples live in `docs/proof.txt`",
     ):
         if not _contains_phrase(readme, phrase):
             raise AssertionError(f"README missing claim-boundary phrase: {phrase}")
@@ -259,12 +312,9 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         raise AssertionError("README should not carry concrete proof run IDs")
     if re.search(r"\bcommit\s+`?[0-9a-f]{7,40}`?\b", readme_without_code_names, re.IGNORECASE):
         raise AssertionError("README should not carry concrete commit hashes")
-    for phrase in ("26213330282", "26213233516"):
-        if not _contains_phrase(text, phrase):
-            raise AssertionError(f"gap ledger missing current proof run phrase: {phrase}")
     if "not by itself a claim that the current branch is human-playable" not in playable_cloud_proof:
         raise AssertionError("playable cloud proof doc must keep the human-playability claim boundary")
-    if "docs/proof.md" not in readme:
+    if "docs/proof.txt" not in readme:
         raise AssertionError("README must point to the gap ledger")
     if "Claim Boundaries" not in readme:
         raise AssertionError("README must keep the Doom-capable claim boundary visible")

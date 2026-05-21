@@ -262,9 +262,9 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     kernel = _read(root, "kernel/kernel.asm")
     workflow = _read(root, ".github/workflows/os-smoke.yml")
     vm_checker = _read(root, "tools/check_vm_safety_contract.py")
-    gap_doc = _read(root, "docs/proof.md")
-    playable_doc = _read(root, "docs/proof.md")
-    remote_runbook = _read(root, "docs/play.md")
+    gap_doc = _read(root, "docs/proof.txt")
+    playable_doc = _read(root, "docs/proof.txt")
+    remote_runbook = _read(root, "docs/play.txt")
     tests_readme = _read(root, "tests/strategy.txt")
 
     for needle in (

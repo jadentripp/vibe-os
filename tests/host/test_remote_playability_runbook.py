@@ -95,6 +95,21 @@ def valid_status(**overrides):
         "khistkpa": "0006F000",
         "khipt": "00126000",
         "khifree": "00126000",
+        "kpmap": "OK",
+        "kpva": "C0010000",
+        "kppa": "00010000",
+        "kppages": "00000020",
+        "kppt": "00127000",
+        "kpcr3": "00090000",
+        "kpdirs": "0000003F",
+        "kpxlat": "00010000",
+        "kplast": "0002F000",
+        "kplo": "10B866FA",
+        "kphi": "10B866FA",
+        "kpsva": "C0060000",
+        "kpspa": "00060000",
+        "kpspages": "00000010",
+        "kpsxlat": "00060000",
         "vmmhi": "OK",
         "vmmhva": "C0000000",
         "vmmhpa": "00123000",
@@ -649,6 +664,7 @@ def write_human_notes(artifact, **overrides):
     fields = {
         "schema": "human-playtest-notes-v2",
         "commit": "abcdef0",
+        "ref": "main",
         "scripted_proof": "real-wad-smoke-pass",
         "scripted_proof_run_id": "26156172979",
         "scripted_proof_url": "https://github.com/jadentripp/vibe-os/actions/runs/26156172979",
@@ -1072,7 +1088,12 @@ def valid_audio_proof_manifest():
                     "sfx_lane_counter": "sfxmix",
                     "music_lane_counter": "musicmix",
                     "sfx_delta": "00000007",
+                    "sfx_output_delta": "00001000",
+                    "sfx_dma_output_delta": "00001000",
+                    "sfx_dma_output_matches_sfx_output": True,
                     "music_delta": "00000005",
+                    "music_render_chunk_delta": "00000005",
+                    "music_render_sample_delta": "00028000",
                     "human_listener_lane": "not-proven-by-status",
                 },
                 "claim": (
@@ -1153,7 +1174,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
     def test_play_now_codespaces_safety_polish_is_documented_and_static_checked(self):
         codespaces_script = (ROOT / "tools" / "play_now_codespaces.sh").read_text()
         remote_script = (ROOT / "tools" / "play_now_remote.sh").read_text()
-        play_now_doc = (ROOT / "docs" / "play.md").read_text()
+        play_now_doc = (ROOT / "docs" / "play.txt").read_text()
 
         for needle in (
             "redact_remote_stream",
@@ -1213,8 +1234,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
 
     def test_guided_remote_human_playtest_helper_is_safe_and_wires_collector(self):
         script = GUIDED_HUMAN_PLAYTEST.read_text()
-        play_now = (ROOT / "docs" / "play.md").read_text()
-        remote = (ROOT / "docs" / "play.md").read_text()
+        play_now = (ROOT / "docs" / "play.txt").read_text()
+        remote = (ROOT / "docs" / "play.txt").read_text()
 
         for needle in (
             "Usage: tools/run_remote_human_playtest.sh --playtester NAME --scripted-proof-run-id RUN_ID",
@@ -1237,6 +1258,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             "SLOWDOWN_MODE",
             "SLOWDOWN_NOTES",
             "REVIEWER",
+            "REF_VALUE",
             "START_NOTE",
             "FINAL_NOTE",
             "after-start",
@@ -1248,6 +1270,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             "python3 tools/collect_human_playtest_bundle.py",
             "--print-phase-guide",
             "--reviewer",
+            "--ref",
             "--start-note",
             "--fire-note",
             "--move-note",
@@ -1916,6 +1939,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         self.assertIn("cloud playability artifact check OK", result.stdout)
         self.assertIn("post-download human verification OK", result.stdout)
         self.assertIn("commit=abcdef0", result.stdout)
+        self.assertIn("ref=main", result.stdout)
         self.assertIn("scripted_proof_run_id=26156172979", result.stdout)
         self.assertIn("review evidence:", result.stdout)
         self.assertIn("reviewer=jt-review", result.stdout)
@@ -1923,6 +1947,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         self.assertIn("audio_evidence=status-only-sb16-continuity", result.stdout)
         self.assertIn("novnc_focus=canvas-focused-before-actions", result.stdout)
         self.assertIn("phase status hashes:", result.stdout)
+        self.assertIn("counter deltas:", result.stdout)
 
     def test_cli_human_session_mode_rejects_wrong_expected_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1997,6 +2022,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                     "26156172979",
                     "--commit",
                     "abcdef0",
+                    "--ref",
+                    "main",
                     *REVIEW_NOTE_ARGS,
                     "--confirm-scripted-proof-green",
                     "--confirm-remote-vnc",
@@ -2029,6 +2056,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertTrue((output / "human-playtest-checklist.txt").exists())
             self.assertTrue((output / "human-playtest-manifest.json").exists())
             notes_text = (output / "human-playtest-notes.txt").read_text()
+            self.assertIn("ref=main", notes_text)
             self.assertIn("action_note_fire=Ctrl fire changed weapon state", notes_text)
             self.assertIn("no_screenshot_upload=yes", notes_text)
             self.assertIn("no_raw_audio_upload=yes", notes_text)
@@ -2039,6 +2067,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertIn("Confirm the action notes below describe human noVNC actions", checklist)
             observations = json.loads((output / "human-playtest-observations.json").read_text())
             self.assertEqual(observations["schema"], "human-playtest-observations-v1")
+            self.assertEqual(observations["ref"], "main")
             self.assertEqual(observations["novnc_focus"]["status"], "canvas-focused-before-actions")
             self.assertEqual(observations["audio"]["notes"], "vnc-display-input-only-sb16-status")
             self.assertEqual(
@@ -2049,6 +2078,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertFalse(observations["artifact_policy"]["contains_forbidden_artifacts"])
             review = json.loads((output / "human-playtest-review.json").read_text())
             self.assertEqual(review["schema"], "human-playtest-review-v1")
+            self.assertEqual(review["ref"], "main")
             self.assertEqual(review["playtester"], "jt")
             self.assertEqual(review["reviewer"], "jt")
             self.assertGreaterEqual(review["machine_shape"]["cpu_count"], 1)
@@ -2056,7 +2086,17 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertEqual(review["phase_reviews"][0]["note_key"], "action_note_start")
             self.assertIn("E1M1 visible", review["phase_reviews"][0]["note"])
             self.assertFalse(review["artifact_policy"]["contains_forbidden_artifacts"])
+            self.assertEqual(review["minimums"]["duration_gtic"], 350)
+            self.assertGreaterEqual(review["counter_deltas"]["keyirq_delta"], 4)
             manifest = json.loads((output / "human-playtest-manifest.json").read_text())
+            self.assertEqual(manifest["schema"], "human-playtest-manifest-v2")
+            self.assertEqual(manifest["identity"]["ref"], "main")
+            self.assertEqual(manifest["identity"]["reviewer"], "jt")
+            self.assertEqual(manifest["session_id"], review["session_id"])
+            self.assertEqual(manifest["machine_shape"], review["machine_shape"])
+            self.assertEqual(manifest["duration"], review["duration"])
+            self.assertEqual(manifest["minimums"]["duration_gtic"], 350)
+            self.assertEqual(manifest["counter_deltas"], review["counter_deltas"])
             self.assertFalse(manifest["artifact_policy"]["contains_screenshots"])
             self.assertFalse(manifest["artifact_policy"]["contains_forbidden_artifacts"])
             self.assertEqual(
@@ -2196,6 +2236,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         self.assertIn("duration gate: final must be at least 350", result.stdout)
         self.assertIn("--capture-phase \"$phase\"", result.stdout)
         self.assertIn("--reviewer", result.stdout)
+        self.assertIn("--ref", result.stdout)
         self.assertIn("--machine-label", result.stdout)
         self.assertIn("--start-note", result.stdout)
         self.assertIn("--final-note", result.stdout)

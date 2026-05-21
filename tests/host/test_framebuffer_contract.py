@@ -184,7 +184,7 @@ class FramebufferContractTests(unittest.TestCase):
         fb.validate_present_indexed_descriptor(info, frame, palette, 160, 100)
 
     def test_graphics_doc_records_os_level_framebuffer_boundaries(self):
-        docs = (ROOT / "docs" / "architecture.md").read_text()
+        docs = (ROOT / "docs" / "architecture.txt").read_text()
         for token in (
             "If VBE discovery or mode set fails, Stage 2 falls back to VGA Mode 13h",
             "The only accepted source today is Doom's 320x200 index8 frame",

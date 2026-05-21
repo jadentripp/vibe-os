@@ -42,6 +42,21 @@ def status_line(**overrides):
         "khistkpa": "0006F000",
         "khipt": "00126000",
         "khifree": "00126000",
+        "kpmap": "OK",
+        "kpva": "C0010000",
+        "kppa": "00010000",
+        "kppages": "00000020",
+        "kppt": "00127000",
+        "kpcr3": "00090000",
+        "kpdirs": "0000003F",
+        "kpxlat": "00010000",
+        "kplast": "0002F000",
+        "kplo": "10B866FA",
+        "kphi": "10B866FA",
+        "kpsva": "C0060000",
+        "kpspa": "00060000",
+        "kpspages": "00000010",
+        "kpsxlat": "00060000",
         "vmmhi": "OK",
         "vmmhva": "C0000000",
         "vmmhpa": "00123000",
@@ -122,6 +137,7 @@ def relocated_status_line(**overrides):
         "kmapva": "C0010000",
         "kmappa": "00010000",
         "khicr3": "00101000",
+        "kpcr3": "00101000",
     }
     fields.update(overrides)
     return status_line(**fields)
@@ -219,7 +235,7 @@ class VmStatusProofTests(unittest.TestCase):
         for overrides, message in (
             ({"khiexec": "FAIL"}, "khiexec"),
             ({"khieip": "00012405"}, "khieip"),
-            ({"khieip": "C0029000", "khiva": "C0029000", "khipa": "00029000"}, "khieip"),
+            ({"khieip": "C0031000", "khiva": "C0031000", "khipa": "00031000"}, "khieip"),
             ({"khiesp": "0006FFD8"}, "khiesp"),
             ({"khicr3": "00101000"}, "low bootstrap page directory"),
             ({"khiva": "C0013000"}, "page containing the high trampoline EIP"),
@@ -231,6 +247,32 @@ class VmStatusProofTests(unittest.TestCase):
             ({"khipt": "00026000"}, "PMM-managed"),
             ({"khipt": "00012000"}, "PMM-managed"),
             ({"khifree": "00127000"}, "match khipt"),
+        ):
+            with self.subTest(overrides=overrides):
+                with self.assertRaisesRegex(AssertionError, message):
+                    check_vm_status_proof.validate_status(status_line(**overrides))
+
+    def test_rejects_fake_persistent_kernel_high_alias_proof(self):
+        for overrides, message in (
+            ({"kpmap": "FAIL"}, "kpmap"),
+            ({"kpva": "C0011000"}, "persistent higher-half kernel text base"),
+            ({"kpva": "00010000"}, "persistent higher-half kernel text base"),
+            ({"kppa": "00011000"}, "kernel text physical base"),
+            ({"kppa": "C0010000"}, "physical frame"),
+            ({"kppages": "00000017"}, "kernel ELF window"),
+            ({"kppt": "00027000"}, "PMM-managed"),
+            ({"kppt": "00010000"}, "PMM-managed"),
+            ({"kpcr3": "00082000"}, "active kernel relocation CR3"),
+            ({"kpdirs": "0000001F"}, "every fixed process page directory"),
+            ({"kpdirs": "FFFFFFFF"}, "every fixed process page directory"),
+            ({"kpxlat": "00011000"}, "translate kpva"),
+            ({"kplast": "00026000"}, "last persistent kernel alias page"),
+            ({"kplo": "00000000", "kphi": "00000000"}, "nonzero bytes"),
+            ({"kphi": "B16B00B5"}, "match kplo"),
+            ({"kpsva": "C0061000"}, "higher-half alias of kpspa"),
+            ({"kpspa": "00061000"}, "low kernel stack base"),
+            ({"kpspages": "0000000F"}, "whole low kernel stack window"),
+            ({"kpsxlat": "00061000"}, "translate kpsva"),
         ):
             with self.subTest(overrides=overrides):
                 with self.assertRaisesRegex(AssertionError, message):
@@ -424,20 +466,25 @@ class VmStatusProofTests(unittest.TestCase):
 
     def test_status_proof_does_not_overclaim_running_kernel_relocation(self):
         fields = check_vm_status_proof.parse_status(status_line())
-        boot_doc = (ROOT / "docs" / "architecture.md").read_text()
-        process_doc = (ROOT / "docs" / "architecture.md").read_text()
+        boot_doc = (ROOT / "docs" / "architecture.txt").read_text()
+        process_doc = (ROOT / "docs" / "architecture.txt").read_text()
 
         self.assertEqual(fields["vmmhi"], "OK")
         self.assertEqual(fields["khiexec"], "OK")
         self.assertEqual(fields["khicr3"], "00090000")
+        self.assertEqual(fields["kpmap"], "OK")
+        self.assertEqual(fields["kpcr3"], "00090000")
+        self.assertEqual(fields["kpdirs"], "0000003F")
         self.assertEqual(fields["kreloc"], "LOW")
         self.assertEqual(fields["kernvirt"], "00010000")
         self.assertEqual(fields["kernphys"], "00010000")
         for doc in (boot_doc, process_doc):
             self.assertIn("KERNEL_RELOCATION_GAP[current]=high-alias-only", doc)
+            self.assertIn("KERNEL_RELOCATION_GAP[current]=persistent-high-alias-window", doc)
             self.assertIn("KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity", doc)
             self.assertIn("`vmmhi=OK` is not a kernel relocation claim", doc)
             self.assertIn("`khiexec=OK` is not a kernel relocation claim", doc)
+            self.assertIn("`kpmap=OK` is not a kernel relocation claim", doc)
             self.assertIn("`kreloc=OK`", doc)
             self.assertIn("`kreloc=LOW`", doc)
 
@@ -455,8 +502,8 @@ class VmStatusProofTests(unittest.TestCase):
             self.assertIn("--require-preempt", workflow)
 
     def test_repo_contract_keeps_generic_exec_surface_documented(self):
-        process_exec = (ROOT / "docs" / "architecture.md").read_text()
-        process_vm = (ROOT / "docs" / "architecture.md").read_text()
+        process_exec = (ROOT / "docs" / "architecture.txt").read_text()
+        process_vm = (ROOT / "docs" / "architecture.txt").read_text()
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
 
         for source in (

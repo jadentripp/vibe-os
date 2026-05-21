@@ -7,14 +7,15 @@ enum {
     ABI_PROBE_FLAG_ROOT = 0x00000004u,
     ABI_PROBE_FLAG_FCNTL = 0x00000008u,
     ABI_PROBE_FLAG_FORK = 0x00000010u,
-    ABI_PROBE_SUCCESS_FLAGS = ABI_PROBE_FLAG_ARGS | ABI_PROBE_FLAG_CLOCK | ABI_PROBE_FLAG_ROOT | ABI_PROBE_FLAG_FCNTL | ABI_PROBE_FLAG_FORK,
-    ABI_PROBE_F_GETFD = 1,
-    ABI_PROBE_F_SETFD = 2,
-    ABI_PROBE_FD_CLOEXEC = 1,
+    ABI_PROBE_FLAG_EXEC_ENV = 0x00000020u,
+    ABI_PROBE_SUCCESS_FLAGS = ABI_PROBE_FLAG_ARGS | ABI_PROBE_FLAG_CLOCK | ABI_PROBE_FLAG_ROOT | ABI_PROBE_FLAG_FCNTL | ABI_PROBE_FLAG_FORK | ABI_PROBE_FLAG_EXEC_ENV,
     ABI_PROBE_SEEK_SET = 0,
     ABI_PROBE_SEEK_CUR = 1,
     ABI_PROBE_SEEK_END = 2,
     ABI_PROBE_ERRNO_ECHILD = 10,
+    ABI_PROBE_F_GETFD = VIBE_USER_F_GETFD,
+    ABI_PROBE_F_SETFD = VIBE_USER_F_SETFD,
+    ABI_PROBE_FD_CLOEXEC = VIBE_USER_FD_CLOEXEC,
     ABI_PROBE_FORK_WAIT_STATUS = 0x2a,
     ABI_PROBE_FORK_WAIT_SPINS = 200000,
     ABI_PROBE_MAP_BYTES = 4096,
@@ -69,7 +70,7 @@ static int prove_fork_clone(const char* wad_path)
         return 0;
     }
 
-    reaped = vibe_user_waitpid_nohang_reap(child, &status, ABI_PROBE_FORK_WAIT_SPINS);
+    reaped = vibe_user_waitpid_nohang_reap_exact(child, &status, ABI_PROBE_FORK_WAIT_SPINS);
     if (reaped == child) {
         int duplicate_reap = vibe_user_waitpid(child, 0, VIBE_USER_WNOHANG);
         int shared_offset = vibe_user_lseek(fork_wad, 0, ABI_PROBE_SEEK_CUR);
@@ -170,6 +171,8 @@ int user_main(int argc, char** argv, char** envp)
     const char doom_path[] = "DOOM.ELF";
     const char wad_path[] = "DOOM1.WAD";
     char* doom_argv[] = { (char*)doom_path, 0 };
+    char* empty_env[] = { 0 };
+    char* nonempty_env[] = { (char*)"TOOL_MODE=probe", 0 };
     unsigned int flags = 0;
     int pid = vibe_user_getpid();
     int root_count = vibe_user_listdir("/", root_entries, 16);
@@ -215,6 +218,11 @@ int user_main(int argc, char** argv, char** envp)
     if (!prove_fork_clone(wad_path))
         return 24;
     flags |= ABI_PROBE_FLAG_FORK;
+    if (vibe_user_execve(doom_path, doom_argv, nonempty_env) != -38)
+        return 28;
+    if (vibe_user_execve("", doom_argv, empty_env) != -22)
+        return 29;
+    flags |= ABI_PROBE_FLAG_EXEC_ENV;
 
     vibe_user_write_all(1, "abi probe ok\n");
     vibe_user_report_probe(ABI_PROBE_MAGIC, flags);

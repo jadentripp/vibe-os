@@ -23,12 +23,12 @@ from status_fields import parse_hex8, parse_status_fields  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
 MAKEFILE = ROOT / "Makefile"
-AUDIO_DOC = ROOT / "docs" / "architecture.md"
-MUSIC_DOC = ROOT / "docs" / "architecture.md"
+AUDIO_DOC = ROOT / "docs" / "architecture.txt"
+MUSIC_DOC = ROOT / "docs" / "architecture.txt"
 MUSIC_IMPL = ROOT / "doom_port" / "music.c"
 MUSIC_HEADER = ROOT / "doom_port" / "music.h"
-PLAYABLE_DOC = ROOT / "docs" / "proof.md"
-RUNBOOK = ROOT / "docs" / "play.md"
+PLAYABLE_DOC = ROOT / "docs" / "proof.txt"
+RUNBOOK = ROOT / "docs" / "play.txt"
 ARTIFACT_CHECKER = ROOT / "tools" / "check_cloud_playability_artifacts.py"
 
 SCHEMA = "vibe-os-audible-audio-proof-v6"
@@ -1533,7 +1533,31 @@ def _validate_os_audio_contract(contract: dict[str, Any]) -> None:
     if lanes.get("sfx_lane_counter") != "sfxmix" or lanes.get("music_lane_counter") != "musicmix":
         raise AssertionError("manifest os_audio_contract.mixer_lanes must name sfxmix and musicmix")
     _contract_hex(lanes.get("sfx_delta"), "os_audio_contract.mixer_lanes.sfx_delta", positive=True)
+    _contract_hex(
+        lanes.get("sfx_output_delta"),
+        "os_audio_contract.mixer_lanes.sfx_output_delta",
+        positive=True,
+    )
+    _contract_hex(
+        lanes.get("sfx_dma_output_delta"),
+        "os_audio_contract.mixer_lanes.sfx_dma_output_delta",
+        positive=True,
+    )
+    if lanes.get("sfx_dma_output_matches_sfx_output") is not True:
+        raise AssertionError(
+            "manifest os_audio_contract.mixer_lanes must conserve SFX DMA/output bytes"
+        )
     _contract_hex(lanes.get("music_delta"), "os_audio_contract.mixer_lanes.music_delta", positive=True)
+    _contract_hex(
+        lanes.get("music_render_chunk_delta"),
+        "os_audio_contract.mixer_lanes.music_render_chunk_delta",
+        positive=True,
+    )
+    _contract_hex(
+        lanes.get("music_render_sample_delta"),
+        "os_audio_contract.mixer_lanes.music_render_sample_delta",
+        positive=True,
+    )
     if lanes.get("human_listener_lane") != "not-proven-by-status":
         raise AssertionError("manifest os_audio_contract.mixer_lanes must keep human listener lane separate")
 

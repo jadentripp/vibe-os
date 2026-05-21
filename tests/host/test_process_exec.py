@@ -519,14 +519,16 @@ class ProcessExecContractTests(unittest.TestCase):
             '#include "runtime.h"',
             "ABI_PROBE_MAGIC = 0xA81B10BEu",
             "ABI_PROBE_SUCCESS_FLAGS",
+            "ABI_PROBE_FLAG_EXEC_ENV = 0x00000020u",
             'const char doom_path[] = "DOOM.ELF";',
             "vibe_user_report_probe(ABI_PROBE_MAGIC, flags);",
+            "vibe_user_execve(doom_path, doom_argv, nonempty_env) != -38",
             "vibe_user_execv(doom_path, doom_argv)",
         ):
             self.assertIn(source, abi_probe)
         for source in (
             "ABI_PROBE_MAGIC equ 0xA81B10BE",
-            "ABI_PROBE_EXPECTED_FLAGS equ 0x0000001f",
+            "ABI_PROBE_EXPECTED_FLAGS equ 0x0000003f",
             "exec_path_abi_probe db \"ABIPROBE.ELF\", 0",
             "abi_probe_status db 0",
             "abi_probe_exec_status db 0",
@@ -714,8 +716,8 @@ class ProcessExecContractTests(unittest.TestCase):
 
     def test_late_exec_handoff_failure_restores_caller_before_rollback(self):
         kernel = read_kernel()
-        process_doc = (ROOT / "docs" / "architecture.md").read_text()
-        gap_doc = (ROOT / "docs" / "proof.md").read_text()
+        process_doc = (ROOT / "docs" / "architecture.txt").read_text()
+        gap_doc = (ROOT / "docs" / "proof.txt").read_text()
         handoff = kernel.split("process_exec_handoff_current:", 1)[1].split("process_exec_seed_argv_stack:", 1)[0]
         late_rollback = handoff.split(".eio_after_activate:", 1)[1].split(".eio:", 1)[0]
 
@@ -826,8 +828,8 @@ class ProcessExecContractTests(unittest.TestCase):
         kernel = read_kernel()
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
         libc = (ROOT / "doom_port" / "libc.c").read_text()
-        process_doc = (ROOT / "docs" / "architecture.md").read_text()
-        vm_doc = (ROOT / "docs" / "architecture.md").read_text()
+        process_doc = (ROOT / "docs" / "architecture.txt").read_text()
+        vm_doc = (ROOT / "docs" / "architecture.txt").read_text()
 
         for kernel_source, header_source in (
             ("SYS_EXEC_PATH_MAX equ 16", "VIBE_EXEC_PATH_MAX = 16"),
@@ -1508,7 +1510,7 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertNotIn("cmp byte [doom_load_segment_count], 1", draw_status)
 
     def test_process_exec_doc_keeps_fixed_slot_process_gap_honest(self):
-        process_doc = (ROOT / "docs" / "architecture.md").read_text()
+        process_doc = (ROOT / "docs" / "architecture.txt").read_text()
 
         for phrase in (
             "arbitrary root-level FAT16 `.ELF` paths",
@@ -1533,8 +1535,8 @@ class ProcessExecContractTests(unittest.TestCase):
         fcntl = (ROOT / "doom_port" / "include" / "fcntl.h").read_text()
         libc = (ROOT / "doom_port" / "libc.c").read_text()
         mman = (ROOT / "doom_port" / "include" / "sys" / "mman.h").read_text()
-        process_doc = (ROOT / "docs" / "architecture.md").read_text()
-        runtime_doc = (ROOT / "docs" / "architecture.md").read_text()
+        process_doc = (ROOT / "docs" / "architecture.txt").read_text()
+        runtime_doc = (ROOT / "docs" / "architecture.txt").read_text()
         probe = (ROOT / "user" / "probe.c").read_text()
         include_dir = ROOT / "doom_port" / "include"
 
@@ -1561,16 +1563,18 @@ class ProcessExecContractTests(unittest.TestCase):
         abi_probe = (ROOT / "user" / "abi_probe.c").read_text()
         for source in (
             "ABI_PROBE_FLAG_FORK = 0x00000010u",
+            "ABI_PROBE_FLAG_EXEC_ENV = 0x00000020u",
             "child = vibe_user_fork();",
             "int child_status = child_saw_inherited_wad() ? ABI_PROBE_FORK_WAIT_STATUS : 31;",
             "vibe_user_exit(child_status);",
-            "vibe_user_waitpid_nohang_reap(child, &status, ABI_PROBE_FORK_WAIT_SPINS)",
+            "vibe_user_waitpid_nohang_reap_exact(child, &status, ABI_PROBE_FORK_WAIT_SPINS)",
             "duplicate_reap == -ABI_PROBE_ERRNO_ECHILD",
             "shared_offset == 4",
             "prove_file_private_mapping(wad_path)",
             "vibe_user_lseek(fd, 0, ABI_PROBE_SEEK_CUR) != 7",
             "mapped_tail_is_zero",
             "flags |= ABI_PROBE_FLAG_FORK;",
+            "flags |= ABI_PROBE_FLAG_EXEC_ENV;",
         ):
             self.assertIn(source, abi_probe)
 

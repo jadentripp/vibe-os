@@ -244,7 +244,11 @@ def os_audio_contract(
     request_delta="00000005",
     refill_delta="00000005",
     sfx_delta="00000001",
+    sfx_output_delta="00000001",
+    sfx_dma_output_delta="00000001",
     music_delta="00000001",
+    music_render_chunk_delta="00000001",
+    music_render_sample_delta="00000001",
     position_delta="000003FF",
 ):
     return {
@@ -295,7 +299,12 @@ def os_audio_contract(
             "sfx_lane_counter": "sfxmix",
             "music_lane_counter": "musicmix",
             "sfx_delta": sfx_delta,
+            "sfx_output_delta": sfx_output_delta,
+            "sfx_dma_output_delta": sfx_dma_output_delta,
+            "sfx_dma_output_matches_sfx_output": sfx_output_delta == sfx_dma_output_delta,
             "music_delta": music_delta,
+            "music_render_chunk_delta": music_render_chunk_delta,
+            "music_render_sample_delta": music_render_sample_delta,
             "human_listener_lane": "not-proven-by-status",
         },
         "claim": (
@@ -574,6 +583,13 @@ class AudibleAudioProofTests(unittest.TestCase):
         ] = False
         with self.assertRaisesRegex(AssertionError, "active half"):
             check_audible_audio_proof.validate_manifest(collapsed_ring)
+
+        collapsed_sfx_bytes = json.loads(json.dumps(manifest))
+        collapsed_sfx_bytes["continuity"]["os_audio_contract"]["mixer_lanes"][
+            "sfx_dma_output_matches_sfx_output"
+        ] = False
+        with self.assertRaisesRegex(AssertionError, "SFX DMA/output bytes"):
+            check_audible_audio_proof.validate_manifest(collapsed_sfx_bytes)
 
     def test_cli_writes_and_validates_manifest_without_uploading_wav(self):
         with tempfile.TemporaryDirectory() as tmp:

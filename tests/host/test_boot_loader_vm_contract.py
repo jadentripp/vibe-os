@@ -16,6 +16,13 @@ def text(path):
     return path.read_text()
 
 
+def doc_text(name):
+    txt_path = ROOT / "docs" / f"{name}.txt"
+    if txt_path.exists():
+        return text(txt_path)
+    return text(ROOT / "docs" / f"{name}.md")
+
+
 def equ_value(source, name):
     match = re.search(rf"^{re.escape(name)}\s+equ\s+([^\n;]+)", source, re.MULTILINE)
     if not match:
@@ -198,14 +205,23 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "KERNEL_RELOCATION_STATUS_LOW_IDENTITY equ 1",
             "KERNEL_HIGH_ALIAS_STATUS_OK equ 1",
             "KERNEL_HIGH_EXEC_STATUS_OK equ 1",
+            "KERNEL_PERSISTENT_ALIAS_STATUS_OK equ 1",
+            "KERNEL_PERSISTENT_ALIAS_BYTES equ 0x00020000",
+            "KERNEL_PERSISTENT_ALIAS_PAGES equ KERNEL_PERSISTENT_ALIAS_BYTES / PAGE_SIZE",
+            "KERNEL_STACK_ALIAS_PAGES equ (KERNEL_STACK_TOP - KERNEL_STACK_LOW) / PAGE_SIZE",
+            "KERNEL_PERSISTENT_DIR_MASK equ 0x0000003f",
             "kernel_relocation_probe:",
             "kernel_translate_current_vaddr:",
             "kernel_high_alias_self_test:",
             "kernel_high_exec_self_test:",
             "kernel_high_exec_trampoline:",
+            "kernel_persistent_alias_self_test:",
+            "kernel_persistent_map_range:",
+            "kernel_persistent_alias_install_process_dirs:",
             "kernel_relocation_status db 0",
             "kernel_high_alias_status db 0",
             "kernel_high_exec_status db 0",
+            "kernel_persistent_alias_status db 0",
             "kernel_relocation_eip dd 0",
             "kernel_relocation_esp dd 0",
             "kernel_relocation_cr3 dd 0",
@@ -226,6 +242,20 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "kernel_high_exec_stack_phys dd 0",
             "kernel_high_exec_table dd 0",
             "kernel_high_exec_reclaimed dd 0",
+            "kernel_persistent_alias_vaddr dd 0",
+            "kernel_persistent_alias_phys dd 0",
+            "kernel_persistent_alias_pages dd 0",
+            "kernel_persistent_alias_table dd 0",
+            "kernel_persistent_alias_cr3 dd 0",
+            "kernel_persistent_alias_dir_mask dd 0",
+            "kernel_persistent_alias_xlat dd 0",
+            "kernel_persistent_alias_last_xlat dd 0",
+            "kernel_persistent_alias_low_word dd 0",
+            "kernel_persistent_alias_high_word dd 0",
+            "kernel_persistent_stack_vaddr dd 0",
+            "kernel_persistent_stack_phys dd 0",
+            "kernel_persistent_stack_pages dd 0",
+            "kernel_persistent_stack_xlat dd 0",
             'smoke_kreloc_text db " kreloc=", 0',
             'smoke_kerneip_text db " kerneip=", 0',
             'smoke_kernesp_text db " kernesp=", 0',
@@ -249,6 +279,21 @@ class BootLoaderVmContractTests(unittest.TestCase):
             'smoke_khistkpa_text db " khistkpa=", 0',
             'smoke_khipt_text db " khipt=", 0',
             'smoke_khifree_text db " khifree=", 0',
+            'smoke_kpmap_text db " kpmap=", 0',
+            'smoke_kpva_text db " kpva=", 0',
+            'smoke_kppa_text db " kppa=", 0',
+            'smoke_kppages_text db " kppages=", 0',
+            'smoke_kppt_text db " kppt=", 0',
+            'smoke_kpcr3_text db " kpcr3=", 0',
+            'smoke_kpdirs_text db " kpdirs=", 0',
+            'smoke_kpxlat_text db " kpxlat=", 0',
+            'smoke_kplast_text db " kplast=", 0',
+            'smoke_kplo_text db " kplo=", 0',
+            'smoke_kphi_text db " kphi=", 0',
+            'smoke_kpsva_text db " kpsva=", 0',
+            'smoke_kpspa_text db " kpspa=", 0',
+            'smoke_kpspages_text db " kpspages=", 0',
+            'smoke_kpsxlat_text db " kpsxlat=", 0',
             "vmm_dynamic_page_tables dd 0",
             "vmm_active_page_tables dd 0",
             "vmm_reclaimed_page_tables dd 0",
@@ -362,6 +407,29 @@ class BootLoaderVmContractTests(unittest.TestCase):
         ):
             self.assertIn(source, high_exec_trampoline)
 
+        persistent_alias_probe = kernel.split("kernel_persistent_alias_self_test:", 1)[1].split("framebuffer_map_lfb:", 1)[0]
+        for source in (
+            "mov byte [kernel_persistent_alias_status], KERNEL_PERSISTENT_ALIAS_STATUS_FAIL",
+            "mov dword [kernel_persistent_alias_pages], KERNEL_PERSISTENT_ALIAS_PAGES",
+            "mov dword [kernel_persistent_stack_pages], KERNEL_STACK_ALIAS_PAGES",
+            "mov [kernel_persistent_alias_cr3], eax",
+            "call kernel_persistent_map_range",
+            "call kernel_persistent_alias_install_process_dirs",
+            "cmp dword [kernel_persistent_alias_dir_mask], KERNEL_PERSISTENT_DIR_MASK",
+            "call kernel_translate_current_vaddr",
+            "mov [kernel_persistent_alias_xlat], eax",
+            "mov [kernel_persistent_alias_last_xlat], eax",
+            "mov [kernel_persistent_stack_xlat], eax",
+            "mov [kernel_persistent_alias_high_word], eax",
+            "mov byte [kernel_persistent_alias_status], KERNEL_PERSISTENT_ALIAS_STATUS_OK",
+            "PROC_PROBE_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)",
+            "PROC_PREEMPT_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)",
+            "PROC_DOOM_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)",
+            "PROC_GENERIC0_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)",
+            "PROC_GENERIC1_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)",
+        ):
+            self.assertIn(source, persistent_alias_probe)
+
         vmm_self_test = kernel.split("vmm_self_test:", 1)[1].split("heap_init:", 1)[0]
         self.assertIn("call kernel_high_alias_self_test", vmm_self_test)
         self.assertIn(
@@ -373,11 +441,16 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "cmp byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_OK",
             vmm_self_test,
         )
+        self.assertIn("call kernel_persistent_alias_self_test", vmm_self_test)
+        self.assertIn(
+            "cmp byte [kernel_persistent_alias_status], KERNEL_PERSISTENT_ALIAS_STATUS_OK",
+            vmm_self_test,
+        )
 
     def test_boot_vm_docs_state_current_limits_without_overclaiming(self):
-        boot_doc = text(ROOT / "docs" / "architecture.md")
+        boot_doc = doc_text("architecture")
         uefi_scaffold = text(ROOT / "boot" / "uefi" / "CONTRACT.txt")
-        process_doc = text(ROOT / "docs" / "architecture.md")
+        process_doc = doc_text("architecture")
         readme = text(ROOT / "README.md")
         tests_readme = text(ROOT / "tests" / "strategy.txt")
 
@@ -399,6 +472,7 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "without `--require-preempt`",
             "real-WAD smoke and\nsoak workflows",
             "KERNEL_RELOCATION_GAP[current]=high-alias-only",
+            "KERNEL_RELOCATION_GAP[current]=persistent-high-alias-window",
             "KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity",
             "`vmmhi=OK` is not a kernel relocation claim",
             "`kreloc=LOW`",
@@ -425,14 +499,31 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "`khistkpa=`",
             "`khipt=`",
             "`khifree=`",
+            "`kpmap=OK`",
+            "`kpva=`",
+            "`kppa=`",
+            "`kppages=`",
+            "`kppt=`",
+            "`kpcr3=`",
+            "`kpdirs=`",
+            "`kpxlat=`",
+            "`kplast=`",
+            "`kplo=`",
+            "`kphi=`",
+            "`kpsva=`",
+            "`kpspa=`",
+            "`kpspages=`",
+            "`kpsxlat=`",
         ):
             self.assertIn(source, boot_doc)
-        self.assertIn("docs/architecture.md", readme)
+        self.assertIn("docs/architecture.txt", readme)
         self.assertIn("Boot/loader/VM contract", tests_readme)
         self.assertIn("fixed low-memory page-table pages", process_doc)
         self.assertIn("KERNEL_RELOCATION_GAP[current]=high-alias-only", process_doc)
+        self.assertIn("KERNEL_RELOCATION_GAP[current]=persistent-high-alias-window", process_doc)
         self.assertIn("KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity", process_doc)
         self.assertIn("`vmmhi=OK` is not a kernel relocation claim", process_doc)
+        self.assertIn("`kpmap=OK` is not a kernel relocation claim", process_doc)
         self.assertIn("records a single last-mapping object descriptor tagged", process_doc)
         self.assertIn("not a reusable object table or lookup structure yet", process_doc)
         self.assertIn("this remains a brk-backed", process_doc)
@@ -444,6 +535,51 @@ class BootLoaderVmContractTests(unittest.TestCase):
         self.assertIn("UEFI_HOST_ARTIFACT[NO_VM_BOOT]", uefi_scaffold)
         self.assertIn("SUPPORT[UEFI] remains unclaimed", uefi_scaffold)
         self.assertNotIn("UEFI_BOOT[ENTRY] status=implemented", uefi_scaffold)
+
+    def test_uefi_ovmf_workflow_is_manual_cloud_scaffold(self):
+        workflow = text(ROOT / ".github" / "workflows" / "uefi-ovmf-proof.yml")
+        scaffold = text(ROOT / "boot" / "uefi" / "CONTRACT.txt")
+        proof_script = text(ROOT / "boot" / "uefi" / "ovmf_cloud_proof.py")
+
+        for source in (
+            "workflow_dispatch:",
+            "proof_mode:",
+            "runs-on: ubuntu-latest",
+            "inputs.proof_mode != 'contract'",
+            "qemu-system-x86 ovmf",
+            "make DOOM_WAD= build/kernel.elf",
+            "boot/uefi/ovmf_cloud_proof.py",
+            "tools/check_hardware_support_matrix.py",
+            "build/uefi-ovmf-proof/**/*.json",
+        ):
+            self.assertIn(source, workflow)
+        for forbidden in (
+            "\n  push:",
+            "\n  pull_request:",
+            "ALLOW_LOCAL_VM=1",
+            "esp.img",
+            "BOOTX64.EFI",
+            "*.img",
+            "*.fd",
+            "*.log",
+        ):
+            self.assertNotIn(forbidden, workflow)
+
+        for source in (
+            "GITHUB_ACTIONS",
+            "RUNNER_OS",
+            "platform.system() == \"Darwin\"",
+            "support_claim",
+            "unclaimed",
+            "uefi_boot_rows_moved",
+            "local_mac_qemu_required",
+            "ExitBootServices",
+            "mode == \"prove\"",
+        ):
+            self.assertIn(source, proof_script)
+        self.assertIn("UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH]", scaffold)
+        self.assertIn("contract checks must not require local Mac QEMU", " ".join(scaffold.split()))
+        self.assertNotIn("UEFI_BOOT_DEVICE[OVMF_BOOT] status=implemented", scaffold)
 
 
 if __name__ == "__main__":

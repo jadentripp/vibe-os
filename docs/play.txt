@@ -139,6 +139,16 @@ possible, selects the smallest 4+ CPU machine for smoother interactive play.
 Pass `--machine` to override that choice. In browser-only `--web-url` mode,
 select a 4-core+ machine in GitHub's creation screen when available; GitHub's
 default is the lowest valid machine and may land back on the slow 2-core shape.
+The launcher prints the machine list command and the resize command:
+
+```sh
+gh api "/repos/<owner>/<repo>/codespaces/machines?ref=<branch>" --jq '.machines[] | [.cpus, .name, .display_name] | @tsv'
+gh codespace edit -c "<codespace-name>" --machine "<4-plus-cpu-machine-name>"
+```
+
+Use those before a long manual play session if an existing Codespace was created
+on a 2-core machine. Resizing is still remote-only; it does not copy WADs,
+logs, pixels, disk images, or raw audio to the Mac.
 Inside the remote host, `./tools/play_now_remote.sh --preflight` reports the
 effective CPU count using cgroup quota/cpuset limits when available, so a
 container capped to 2 cores still gets the slowdown warning even if the backing
@@ -281,21 +291,22 @@ gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh -
 ```
 
 It reports host CPU count/load, load-per-CPU pressure when `/proc/loadavg` is
-available, the forwarded noVNC port, the play process, filtered OS serial status
-lines such as `inputdepth=`, `musicbuf=`, `musicpull=`, `mixunder=`,
-`dtick/preempt`, `doompresent=`, and recent play/noVNC logs with
-token-shaped values redacted. It does not print the Codespaces environment,
-GitHub tokens, WAD data, pixels, raw audio, or full logs. For slowdown that
-gets worse over time, run the helper twice about a minute apart. If those OS
-status fields keep advancing but the browser still stutters on a 2-core host,
-restart on the selected 4+ CPU Codespace or a faster disposable cloud VM before
-treating it as a Doom/input regression.
+available, the effective CPU basis (`online`, cgroup quota, and cgroup cpuset),
+the forwarded noVNC port, the play process, filtered OS serial status lines such
+as `inputdepth=`, `musicbuf=`, `musicpull=`, `mixunder=`, `dtick/preempt`,
+`doompresent=`, and recent play/noVNC logs with token-shaped values redacted.
+It does not print the Codespaces environment, GitHub tokens, WAD data, pixels,
+raw audio, or full logs. For slowdown that gets worse over time, run the helper
+twice about a minute apart. If those OS status fields keep advancing but the
+browser still stutters on a 2-core host, restart on the selected 4+ CPU
+Codespace or a faster disposable cloud VM before treating it as a Doom/input
+regression.
 The `--json` form emits `schema=vibe-os-play-now-diagnostics-v1` with
-status-only host load, process age/CPU, noVNC port/log readiness, serial
-cadence deltas, the conservative diagnosis, and rerun recommendations. It
-intentionally omits log text, environment variables, WAD data, disk images,
-pixels, and raw audio so two long-session snapshots can be compared by a tool
-without scraping human output.
+status-only host CPU basis, host load, process age/CPU, noVNC port/log
+readiness, serial cadence deltas, the conservative diagnosis, and rerun
+recommendations. It intentionally omits log text, environment variables, WAD
+data, disk images, pixels, and raw audio so two long-session snapshots can be
+compared by a tool without scraping human output.
 The helper also prints a status-only cadence summary from the recent serial
 status tail: first/final/delta values for Doom tics, frame presentation,
 timer/preemption, input depth/drop, SB16 refill/music progress, and audio safety
@@ -315,6 +326,8 @@ gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh -
 gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-stop.sh
 gh codespace ports -c "<codespace-name>"
 gh api /user/codespaces/<codespace-name> --jq .machine
+gh api "/repos/<owner>/<repo>/codespaces/machines?ref=<branch>" --jq '.machines[] | [.cpus, .name, .display_name] | @tsv'
+gh codespace edit -c "<codespace-name>" --machine "<4-plus-cpu-machine-name>"
 gh codespace ssh -c "<codespace-name>" -- \
   'if [ -s /tmp/vibe-os-play-now.pid ]; then kill "$(cat /tmp/vibe-os-play-now.pid)"; fi'
 gh codespace delete -c "<codespace-name>" --force
@@ -363,7 +376,7 @@ a green Real WAD smoke run, records a slowdown level and short status-only
 slowdown note, records noVNC focus and the audio observation mode, writes the
 allowlisted proof bundle, validates it before download, creates
 `/tmp/vibe-os-human-proof.tgz`, and prints the local post-download checker
-commands. The longer version lives in `docs/play.md`;
+commands. The longer version lives in `docs/play.txt`;
 its collector writes `human-playtest-observations.json` plus
 `human-playtest-review.json` with the status-only start/fire/move/use/mouse/menu/final notes
 and remote machine shape, plus `human-playtest-checklist.txt` with the
@@ -387,7 +400,7 @@ the laptop and without committing or uploading WAD data, disk images, or Doom
 pixels to the repository.
 
 For the copy-paste cloud path, including Codespaces and noVNC setup, use
-`docs/play.md`. The safety rail is the same here:
+`docs/play.txt`. The safety rail is the same here:
 
 - `CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC`: do not run QEMU, `make run`,
   `make run-headless`, `make smoke`, or the local-VM opt-in flag
@@ -406,7 +419,7 @@ Use a disposable remote Ubuntu VM, Codespace, or throwaway remote host that runs
 QEMU. The host only needs CPU emulation; hardware virtualization is helpful but
 not required because the runbook uses QEMU TCG. This does not prove vibe-os boots
 directly on physical hardware; that remains outside the current
-`docs/architecture.md` matrix claims.
+`docs/architecture.txt` matrix claims.
 
 ## Remote Host Setup
 
@@ -547,7 +560,8 @@ python3 tools/collect_human_playtest_bundle.py \
   --output-dir /tmp/vibe-os-human-proof \
   --playtester "<name-or-initials>" \
   --scripted-proof-run-id "<passing-real-wad-smoke-run-id>" \
-  --commit "$(git rev-parse --short=12 HEAD)"
+  --commit "$(git rev-parse --short=12 HEAD)" \
+  --ref "${VIBE_PLAY_REF:-$(git rev-parse --abbrev-ref HEAD)}"
 ```
 
 The template includes the capture loop, collector command, tarball command,
@@ -667,6 +681,7 @@ python3 tools/collect_human_playtest_bundle.py \
   --playtester "<name-or-initials>" \
   --reviewer "<name-or-initials>" \
   --scripted-proof-run-id "<passing-real-wad-smoke-run-id>" \
+  --ref "${VIBE_PLAY_REF:-$(git rev-parse --abbrev-ref HEAD)}" \
   --machine-label "codespaces-or-disposable-cloud-host" \
   --start-note "E1M1 visible in noVNC" \
   --fire-note "Ctrl fire visibly responded" \
@@ -800,15 +815,25 @@ The checker rebuilds it from the notes and status files so stale checklist text
 cannot pass as fresh human evidence. Its `Reviewer runnable checklist` section
 is the checklist a reviewer should run after the noVNC session and after
 downloading only the allowlisted bundle.
+It includes `counter_minimums=` so the reviewer can see the current tick and
+input-counter thresholds without reverse-engineering the JSON. The local
+post-download output also prints a `counter deltas:` line with the observed
+keyboard and mouse counter movement.
 
 The companion `human-playtest-manifest.json` uses
-`schema=human-playtest-manifest-v1` and is generated by the collector. It lists
+`schema=human-playtest-manifest-v2` and is generated by the collector. It lists
 the expected status, ELF, symbol, log, optional aggregate-audio, notes,
 observations, review, checklist, and session files with byte counts and SHA-256
-hashes, plus the status-only artifact policy. The artifact checker requires this
+hashes, plus explicit run identity (`commit`, `ref`, scripted proof run ID,
+scripted proof URL, session ID, playtester, and reviewer), remote machine
+shape, phase hashes, action notes, review notes, duration, counter deltas, and
+the status-only artifact policy. The manifest records the checker minimums for
+phase count, action notes, 350-tick `gtic`/`leveltime` duration, keyboard
+counter deltas, and mouse counter deltas. The artifact checker requires this
 manifest in `--human-session` mode, requires the bundle to be flat and
 allowlisted, records `requires_post_download_verification=true`, and rejects
-bundles whose file inventory or hashes changed after collection.
+bundles whose file inventory, identity, machine shape, hashes, duration,
+counters, or artifact policy changed after collection.
 
 Download `/tmp/vibe-os-human-proof` or a tarball of it. Do not download
 `build/disk.img` or `/tmp/DOOM1.WAD`.
@@ -1129,7 +1154,7 @@ Call a remote human playtest credible only after checking all of this:
   remote listening notes exist.
 - Doom exit/reboot behavior is not polished for a human session.
 - Hardware support remains bounded to the QEMU BIOS/IDE/PS2/VBE/SB16 target in
-  `docs/architecture.md`; this runbook does not prove UEFI, PCI
+  `docs/architecture.txt`; this runbook does not prove UEFI, PCI
   enumeration, AHCI, USB, SMP, APIC, HPET, or physical-hardware support.
 
 Cleanup:

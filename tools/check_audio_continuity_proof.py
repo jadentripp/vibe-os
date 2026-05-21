@@ -17,12 +17,12 @@ from status_fields import parse_hex8, parse_status_fields, summarize_status_fiel
 
 WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
 MAKEFILE = ROOT / "Makefile"
-AUDIO_DOC = ROOT / "docs" / "architecture.md"
-MUSIC_DOC = ROOT / "docs" / "architecture.md"
+AUDIO_DOC = ROOT / "docs" / "architecture.txt"
+MUSIC_DOC = ROOT / "docs" / "architecture.txt"
 MUSIC_IMPL = ROOT / "doom_port" / "music.c"
 MUSIC_HEADER = ROOT / "doom_port" / "music.h"
-PLAYABLE_DOC = ROOT / "docs" / "proof.md"
-RUNBOOK = ROOT / "docs" / "play.md"
+PLAYABLE_DOC = ROOT / "docs" / "proof.txt"
+RUNBOOK = ROOT / "docs" / "play.txt"
 SMOKE_RUNNER = ROOT / "tests" / "run_smoke_qemu.sh"
 
 SNAPSHOT_ORDER = ("baseline", "fire", "movement", "use", "menu", "final")
@@ -449,6 +449,38 @@ def _assert_voice_lane_consistency(snapshots: list[tuple[str, dict[str, str]]]) 
                 f"{label} voices= must equal sfxvoices= plus musicvoices=, "
                 f"got {voices:08X} != {sfxvoices:08X}+{musicvoices:08X}"
             )
+
+
+def _assert_sfx_dma_output_consistency(snapshots: list[tuple[str, dict[str, str]]]) -> None:
+    first_label, first_fields = snapshots[0]
+    last_label, last_fields = snapshots[-1]
+    first_sfxbytes = _hex_tuple(first_fields, "sfxbytes", first_label, 2)
+    last_sfxbytes = _hex_tuple(last_fields, "sfxbytes", last_label, 2)
+    first_sfxdma = _hex_tuple(first_fields, "sfxdma", first_label, 2)
+    last_sfxdma = _hex_tuple(last_fields, "sfxdma", last_label, 2)
+
+    for label, fields in snapshots:
+        sfxmix = _hex(fields, "sfxmix", label)
+        sfxbytes = _hex_tuple(fields, "sfxbytes", label, 2)
+        sfxdma = _hex_tuple(fields, "sfxdma", label, 2)
+        if sfxdma[0] > sfxmix:
+            raise AssertionError(
+                f"{label} sfxdma= mix count cannot exceed sfxmix= lane count, "
+                f"got {sfxdma[0]:08X}>{sfxmix:08X}"
+            )
+        if sfxdma[1] > sfxbytes[1]:
+            raise AssertionError(
+                f"{label} sfxdma= bytes cannot exceed sfxbytes= output bytes, "
+                f"got {sfxdma[1]:08X}>{sfxbytes[1]:08X}"
+            )
+
+    output_delta = last_sfxbytes[1] - first_sfxbytes[1]
+    dma_delta = last_sfxdma[1] - first_sfxdma[1]
+    if output_delta != dma_delta:
+        raise AssertionError(
+            "sfxbytes= output delta must match sfxdma= byte delta for IRQ-mixed SFX, "
+            f"got {output_delta:08X} output and {dma_delta:08X} DMA bytes"
+        )
 
 
 def _assert_music_stream_health(
@@ -928,7 +960,15 @@ def build_os_audio_contract(
             "sfx_lane_counter": "sfxmix",
             "music_lane_counter": "musicmix",
             "sfx_delta": _counter_delta_summary(snapshots, "sfxmix")["delta"],
+            "sfx_output_delta": _tuple_delta_summary(snapshots, "sfxbytes", 2, 1)["delta"],
+            "sfx_dma_output_delta": _tuple_delta_summary(snapshots, "sfxdma", 2, 1)["delta"],
+            "sfx_dma_output_matches_sfx_output": (
+                _tuple_delta_summary(snapshots, "sfxbytes", 2, 1)["delta"]
+                == _tuple_delta_summary(snapshots, "sfxdma", 2, 1)["delta"]
+            ),
             "music_delta": _counter_delta_summary(snapshots, "musicmix")["delta"],
+            "music_render_chunk_delta": _tuple_delta_summary(snapshots, "musicrend", 6, 1)["delta"],
+            "music_render_sample_delta": _tuple_delta_summary(snapshots, "musicrend", 6, 5)["delta"],
             "human_listener_lane": "not-proven-by-status",
         },
         "claim": (
@@ -1056,6 +1096,7 @@ def validate_status(
         1,
         "scripted fire SB16 DMA SFX refill bytes",
     )
+    _assert_sfx_dma_output_consistency(snapshots)
     for name, maximum in MAX_SAFETY_DELTAS.items():
         _assert_max_delta(snapshots, name, maximum, "audio safety")
     _assert_music_render_evidence(snapshots)

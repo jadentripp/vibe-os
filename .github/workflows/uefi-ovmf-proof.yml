@@ -1,0 +1,63 @@
+name: UEFI OVMF proof scaffold
+
+on:
+  workflow_dispatch:
+    inputs:
+      proof_mode:
+        description: contract is QEMU-free; attempt records an OVMF run; prove fails unless the kernel boots.
+        required: true
+        type: choice
+        default: contract
+        options:
+          - contract
+          - attempt
+          - prove
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  uefi-ovmf:
+    name: UEFI OVMF scaffold
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install host build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm clang make
+
+      - name: Install disposable OVMF runner tools
+        if: ${{ inputs.proof_mode != 'contract' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+
+      - name: Build kernel ELF for ESP packaging
+        run: make DOOM_WAD= build/kernel.elf
+
+      - name: Run UEFI OVMF proof scaffold
+        run: |
+          python3 boot/uefi/ovmf_cloud_proof.py \
+            --kernel build/kernel.elf \
+            --out-dir build/uefi-ovmf-proof \
+            --mode "${{ inputs.proof_mode }}"
+
+      - name: Re-check support matrix guardrails
+        run: python3 tools/check_hardware_support_matrix.py
+
+      - name: Upload UEFI proof manifests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uefi-ovmf-proof-manifests
+          if-no-files-found: ignore
+          path: |
+            build/uefi-ovmf-proof/**/*.json

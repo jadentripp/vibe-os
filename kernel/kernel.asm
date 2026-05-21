@@ -183,6 +183,13 @@ KERNEL_HIGH_ALIAS_STATUS_FAIL equ 2
 KERNEL_HIGH_EXEC_STATUS_UNKNOWN equ 0
 KERNEL_HIGH_EXEC_STATUS_OK equ 1
 KERNEL_HIGH_EXEC_STATUS_FAIL equ 2
+KERNEL_PERSISTENT_ALIAS_STATUS_UNKNOWN equ 0
+KERNEL_PERSISTENT_ALIAS_STATUS_OK equ 1
+KERNEL_PERSISTENT_ALIAS_STATUS_FAIL equ 2
+KERNEL_PERSISTENT_ALIAS_BYTES equ 0x00020000
+KERNEL_PERSISTENT_ALIAS_PAGES equ KERNEL_PERSISTENT_ALIAS_BYTES / PAGE_SIZE
+KERNEL_STACK_ALIAS_PAGES equ (KERNEL_STACK_TOP - KERNEL_STACK_LOW) / PAGE_SIZE
+KERNEL_PERSISTENT_DIR_MASK equ 0x0000003f
 HEAP_START equ 0x00100000
 HEAP_SIZE equ 0x00800000
 HEAP_MIN_EXT_KB equ 8192
@@ -318,7 +325,7 @@ USER_HEAP_BITMAP_BYTES equ (USER_HEAP_PAGE_COUNT + 7) / 8
 USER_PROBE_EXPECTED_FLAGS equ 0x0007ffff
 USER_PROBE_MAGIC equ 0x13579BDF
 ABI_PROBE_MAGIC equ 0xA81B10BE
-ABI_PROBE_EXPECTED_FLAGS equ 0x0000001f
+ABI_PROBE_EXPECTED_FLAGS equ 0x0000003f
 PREEMPT_PROBE_MAGIC equ 0x50524545
 USER_FAULT_ADDR equ 0x00010000
 USER_FD_BASE equ 3
@@ -2666,6 +2673,179 @@ kernel_high_exec_trampoline:
     mov byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_OK
     ret
 
+kernel_persistent_alias_self_test:
+    pushad
+
+    mov byte [kernel_persistent_alias_status], KERNEL_PERSISTENT_ALIAS_STATUS_FAIL
+    mov dword [kernel_persistent_alias_vaddr], 0
+    mov dword [kernel_persistent_alias_phys], 0
+    mov dword [kernel_persistent_alias_pages], 0
+    mov dword [kernel_persistent_alias_table], 0
+    mov dword [kernel_persistent_alias_cr3], 0
+    mov dword [kernel_persistent_alias_dir_mask], 0
+    mov dword [kernel_persistent_alias_xlat], 0
+    mov dword [kernel_persistent_alias_last_xlat], 0
+    mov dword [kernel_persistent_alias_low_word], 0
+    mov dword [kernel_persistent_alias_high_word], 0
+    mov dword [kernel_persistent_stack_vaddr], 0
+    mov dword [kernel_persistent_stack_phys], 0
+    mov dword [kernel_persistent_stack_pages], 0
+    mov dword [kernel_persistent_stack_xlat], 0
+
+    mov eax, start
+    and eax, 0xfffff000
+    mov [kernel_persistent_alias_phys], eax
+    add eax, KERNEL_HIGHER_HALF_BASE
+    mov [kernel_persistent_alias_vaddr], eax
+    mov dword [kernel_persistent_alias_pages], KERNEL_PERSISTENT_ALIAS_PAGES
+
+    mov eax, KERNEL_STACK_LOW
+    mov [kernel_persistent_stack_phys], eax
+    add eax, KERNEL_HIGHER_HALF_BASE
+    mov [kernel_persistent_stack_vaddr], eax
+    mov dword [kernel_persistent_stack_pages], KERNEL_STACK_ALIAS_PAGES
+
+    mov eax, cr3
+    mov [kernel_persistent_alias_cr3], eax
+    cmp eax, PAGING_DIR_ADDR
+    jne .done
+
+    mov esi, [kernel_persistent_alias_phys]
+    mov eax, [esi]
+    mov [kernel_persistent_alias_low_word], eax
+
+    mov esi, [kernel_persistent_alias_phys]
+    mov edi, [kernel_persistent_alias_vaddr]
+    mov ecx, KERNEL_PERSISTENT_ALIAS_PAGES
+    call kernel_persistent_map_range
+    jc .done
+
+    mov esi, [kernel_persistent_stack_phys]
+    mov edi, [kernel_persistent_stack_vaddr]
+    mov ecx, KERNEL_STACK_ALIAS_PAGES
+    call kernel_persistent_map_range
+    jc .done
+
+    mov eax, [kernel_persistent_alias_table]
+    test eax, 0x00000fff
+    jnz .done
+    cmp eax, PMM_MANAGED_START
+    jb .done
+    cmp eax, PMM_MANAGED_END
+    jae .done
+
+    call kernel_persistent_alias_install_process_dirs
+    cmp dword [kernel_persistent_alias_dir_mask], KERNEL_PERSISTENT_DIR_MASK
+    jne .done
+
+    mov eax, [kernel_persistent_alias_vaddr]
+    call kernel_translate_current_vaddr
+    mov [kernel_persistent_alias_xlat], eax
+    cmp eax, [kernel_persistent_alias_phys]
+    jne .done
+
+    mov eax, [kernel_persistent_alias_pages]
+    dec eax
+    shl eax, 12
+    mov ebx, [kernel_persistent_alias_vaddr]
+    add ebx, eax
+    mov eax, ebx
+    call kernel_translate_current_vaddr
+    mov [kernel_persistent_alias_last_xlat], eax
+    mov ebx, [kernel_persistent_alias_pages]
+    dec ebx
+    shl ebx, 12
+    add ebx, [kernel_persistent_alias_phys]
+    cmp eax, ebx
+    jne .done
+
+    mov eax, [kernel_persistent_stack_vaddr]
+    call kernel_translate_current_vaddr
+    mov [kernel_persistent_stack_xlat], eax
+    cmp eax, [kernel_persistent_stack_phys]
+    jne .done
+
+    mov edi, [kernel_persistent_alias_vaddr]
+    mov eax, [edi]
+    mov [kernel_persistent_alias_high_word], eax
+    cmp eax, [kernel_persistent_alias_low_word]
+    jne .done
+    test eax, eax
+    jz .done
+
+    mov byte [kernel_persistent_alias_status], KERNEL_PERSISTENT_ALIAS_STATUS_OK
+
+.done:
+    popad
+    ret
+
+kernel_persistent_map_range:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+.map_next:
+    test ecx, ecx
+    jz .ok
+    push ecx
+    mov eax, edi
+    mov ebx, esi
+    mov ecx, PTE_KERNEL_FLAGS
+    call vmm_map_page
+    pop ecx
+    jc .fail
+    cmp dword [kernel_persistent_alias_table], 0
+    jne .mapped
+    mov eax, [vmm_map_table_addr]
+    mov [kernel_persistent_alias_table], eax
+
+.mapped:
+    add esi, PAGE_SIZE
+    add edi, PAGE_SIZE
+    dec ecx
+    jmp .map_next
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+kernel_persistent_alias_install_process_dirs:
+    push eax
+
+    mov eax, [PAGING_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)]
+    test eax, PTE_PRESENT
+    jz .done
+    mov dword [kernel_persistent_alias_dir_mask], 0x00000001
+    mov [PROC_PROBE_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)], eax
+    or dword [kernel_persistent_alias_dir_mask], 0x00000002
+    mov [PROC_PREEMPT_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)], eax
+    or dword [kernel_persistent_alias_dir_mask], 0x00000004
+    mov [PROC_DOOM_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)], eax
+    or dword [kernel_persistent_alias_dir_mask], 0x00000008
+    mov [PROC_GENERIC0_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)], eax
+    or dword [kernel_persistent_alias_dir_mask], 0x00000010
+    mov [PROC_GENERIC1_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)], eax
+    or dword [kernel_persistent_alias_dir_mask], 0x00000020
+
+.done:
+    pop eax
+    ret
+
 framebuffer_map_lfb:
     pushad
 
@@ -3434,6 +3614,9 @@ vmm_self_test:
     jne .fail
     call kernel_high_exec_self_test
     cmp byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_OK
+    jne .fail
+    call kernel_persistent_alias_self_test
+    cmp byte [kernel_persistent_alias_status], KERNEL_PERSISTENT_ALIAS_STATUS_OK
     jne .fail
     mov byte [vmm_high_mapping_status], 1
     mov byte [vmm_test_status], 1
@@ -19119,6 +19302,89 @@ write_smoke_status:
     mov edx, [kernel_high_exec_reclaimed]
     call smoke_write_hex32
 
+    mov esi, smoke_kpmap_text
+    call smoke_copy_string
+    cmp byte [kernel_persistent_alias_status], KERNEL_PERSISTENT_ALIAS_STATUS_OK
+    je .kpmap_ok
+    mov esi, fail_status_text
+    jmp .kpmap_write
+
+.kpmap_ok:
+    mov esi, ok_status_text
+
+.kpmap_write:
+    call smoke_copy_string
+
+    mov esi, smoke_kpva_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_alias_vaddr]
+    call smoke_write_hex32
+
+    mov esi, smoke_kppa_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_alias_phys]
+    call smoke_write_hex32
+
+    mov esi, smoke_kppages_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_alias_pages]
+    call smoke_write_hex32
+
+    mov esi, smoke_kppt_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_alias_table]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpcr3_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_alias_cr3]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpdirs_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_alias_dir_mask]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpxlat_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_alias_xlat]
+    call smoke_write_hex32
+
+    mov esi, smoke_kplast_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_alias_last_xlat]
+    call smoke_write_hex32
+
+    mov esi, smoke_kplo_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_alias_low_word]
+    call smoke_write_hex32
+
+    mov esi, smoke_kphi_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_alias_high_word]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpsva_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_stack_vaddr]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpspa_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_stack_phys]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpspages_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_stack_pages]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpsxlat_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_stack_xlat]
+    call smoke_write_hex32
+
     mov esi, smoke_vmmhi_text
     call smoke_copy_string
     cmp byte [vmm_high_mapping_status], 1
@@ -19943,6 +20209,21 @@ smoke_khistk_text db " khistk=", 0
 smoke_khistkpa_text db " khistkpa=", 0
 smoke_khipt_text db " khipt=", 0
 smoke_khifree_text db " khifree=", 0
+smoke_kpmap_text db " kpmap=", 0
+smoke_kpva_text db " kpva=", 0
+smoke_kppa_text db " kppa=", 0
+smoke_kppages_text db " kppages=", 0
+smoke_kppt_text db " kppt=", 0
+smoke_kpcr3_text db " kpcr3=", 0
+smoke_kpdirs_text db " kpdirs=", 0
+smoke_kpxlat_text db " kpxlat=", 0
+smoke_kplast_text db " kplast=", 0
+smoke_kplo_text db " kplo=", 0
+smoke_kphi_text db " kphi=", 0
+smoke_kpsva_text db " kpsva=", 0
+smoke_kpspa_text db " kpspa=", 0
+smoke_kpspages_text db " kpspages=", 0
+smoke_kpsxlat_text db " kpsxlat=", 0
 smoke_vmmhi_text db " vmmhi=", 0
 smoke_vmmhva_text db " vmmhva=", 0
 smoke_vmmhpa_text db " vmmhpa=", 0
@@ -20305,6 +20586,7 @@ vmm_high_mapping_status db 0
 kernel_relocation_status db 0
 kernel_high_alias_status db 0
 kernel_high_exec_status db 0
+kernel_persistent_alias_status db 0
 heap_test_status db 0
 fpu_status db 0
 fpu_test_status db 0
@@ -20435,6 +20717,20 @@ kernel_high_exec_stack_phys dd 0
 kernel_high_exec_table dd 0
 kernel_high_exec_reclaimed dd 0
 kernel_high_exec_saved_low_esp dd 0
+kernel_persistent_alias_vaddr dd 0
+kernel_persistent_alias_phys dd 0
+kernel_persistent_alias_pages dd 0
+kernel_persistent_alias_table dd 0
+kernel_persistent_alias_cr3 dd 0
+kernel_persistent_alias_dir_mask dd 0
+kernel_persistent_alias_xlat dd 0
+kernel_persistent_alias_last_xlat dd 0
+kernel_persistent_alias_low_word dd 0
+kernel_persistent_alias_high_word dd 0
+kernel_persistent_stack_vaddr dd 0
+kernel_persistent_stack_phys dd 0
+kernel_persistent_stack_pages dd 0
+kernel_persistent_stack_xlat dd 0
 vmm_map_vaddr dd 0
 vmm_map_entry dd 0
 vmm_map_table_addr dd 0

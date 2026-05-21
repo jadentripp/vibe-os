@@ -242,6 +242,26 @@ def run_view_command(repo: str, run_id: str) -> list[str]:
     ]
 
 
+def latest_run_list_command(repo: str, ref: str, workflow: str) -> list[str]:
+    return [
+        "gh",
+        "run",
+        "list",
+        "--repo",
+        repo,
+        "--workflow",
+        workflow,
+        "--branch",
+        ref,
+        "--event",
+        "workflow_dispatch",
+        "--limit",
+        "10",
+        "--json",
+        "databaseId,createdAt,headBranch,headSha,status,conclusion,url,workflowName",
+    ]
+
+
 def run_command(
     command: Sequence[str],
     *,
@@ -276,23 +296,7 @@ def summarize_run(run: Mapping[str, object]) -> list[str]:
 
 
 def latest_run_for_ref(repo: str, ref: str, workflow: str) -> dict[str, object]:
-    command = [
-        "gh",
-        "run",
-        "list",
-        "--repo",
-        repo,
-        "--workflow",
-        workflow,
-        "--branch",
-        ref,
-        "--event",
-        "workflow_dispatch",
-        "--limit",
-        "10",
-        "--json",
-        "databaseId,createdAt,headBranch,headSha,status,conclusion,url",
-    ]
+    command = latest_run_list_command(repo, ref, workflow)
     result = run_command(command, capture_json=True)
     runs = json.loads(result.stdout or "[]")
     if not runs:
@@ -434,6 +438,36 @@ def infer_lane_from_artifacts(output_dir: Path) -> str:
     if has_audio:
         return "audio"
     return "gameplay"
+
+
+def lane_audit(
+    *,
+    lane: str,
+    config: LaneConfig,
+    soak: SoakConfig | None,
+) -> dict[str, object]:
+    return {
+        "effective_lane": None if lane == "auto" else lane,
+        "inferred_after_download": lane == "auto",
+        "gameplay": {
+            "requested": True,
+            "workflow": SOAK_WORKFLOW if soak else SMOKE_WORKFLOW,
+            "checker": "tools/check_cloud_playability_artifacts.py --require-gameplay-proof",
+        },
+        "audio": {
+            "requested": bool(config.audible_audio_proof),
+            "workflow_input": "audible_audio_proof",
+            "checker": "tools/check_audible_audio_proof.py audio-proof.json",
+            "raw_audio_uploaded": False,
+        },
+        "persistence": {
+            "requested": config.persistence_enabled,
+            "workflow_input": "persistence_proof",
+            "save_slot": config.persistence_save_slot if config.persistence_enabled else None,
+            "checker": "tools/triage_persistence_artifacts.py",
+            "supported_by_soak": False,
+        },
+    }
 
 
 def find_status_for_triage(output_dir: Path) -> Path | None:
@@ -736,6 +770,14 @@ def main(
         help="inspect/download an existing run instead of dispatching a new one",
     )
     parser.add_argument(
+        "--latest-run",
+        action="store_true",
+        help=(
+            "inspect/download the latest workflow_dispatch run for --ref and the "
+            "selected smoke/soak workflow instead of dispatching a new run"
+        ),
+    )
+    parser.add_argument(
         "--checker-ref",
         default="",
         help=(
@@ -814,6 +856,8 @@ def main(
         )
         save_slot = validate_save_slot(args.save_slot)
         wad_url = validate_wad_url(args.wad_url)
+        if args.latest_run and args.run_id:
+            raise CloudPlayabilityError("--latest-run and --run-id are mutually exclusive")
         if args.lane == "auto":
             if not args.run_id and not args.download_artifacts:
                 raise CloudPlayabilityError(
@@ -828,13 +872,15 @@ def main(
             requested=args.soak,
             attempts_raw=args.soak_attempts,
             min_passes_raw=args.soak_min_passes,
-            run_id=args.run_id,
+            run_id=args.run_id or ("latest" if args.latest_run else ""),
         )
         if args.download_artifacts and not args.wait and not args.run_id:
-            raise CloudPlayabilityError(
-                "--download-artifacts with a new dispatch requires --wait so the "
-                "status artifact exists, or --run-id to inspect an existing run"
-            )
+            if not args.latest_run:
+                raise CloudPlayabilityError(
+                    "--download-artifacts with a new dispatch requires --wait so the "
+                    "status artifact exists, or --run-id/--latest-run to inspect an "
+                    "existing run"
+                )
     except CloudPlayabilityError as exc:
         print(f"cloud playability failed: {exc}", file=stderr)
         return 1
@@ -882,6 +928,12 @@ def main(
             "contains_pixels": False,
             "contains_raw_audio": False,
         },
+        "ref_resolution": {
+            "requested_ref": args.ref,
+            "workflow_dispatch_branch": args.ref,
+            "latest_run_for_ref": args.latest_run,
+        },
+        "lanes": lane_audit(lane=args.lane, config=config, soak=soak),
         "long_session_diagnostics": {
             "preflight_json": "python3 tools/check_play_now_remote.py --require-novnc --json",
             "codespaces_text": "gh codespace ssh -c <codespace-name> -- /tmp/vibe-os-play-now-diagnostics.sh",
@@ -901,7 +953,37 @@ def main(
     metadata: dict[str, object] | None = None
     checker_root: Path | None = None
     run_conclusion = 0
-    if not run_id:
+    if args.latest_run:
+        command = latest_run_list_command(args.repo, args.ref, workflow)
+        audit["commands"]["latest"] = command_text(command)  # type: ignore[index]
+        print(f"latest: {command_text(command)}", file=stdout)
+        if args.dry_run:
+            run_id = "LATEST_RUN_ID"
+            metadata = {
+                "databaseId": run_id,
+                "workflowName": workflow,
+                "headBranch": args.ref,
+                "headSha": "LATEST_HEAD_SHA",
+                "status": "completed",
+                "conclusion": "success",
+                "url": f"https://github.com/{args.repo}/actions/runs/{run_id}",
+            }
+            audit["run_metadata"] = metadata
+            print("latest run: resolved after gh run list", file=stdout)
+            for line in summarize_run(metadata):
+                print(line, file=stdout)
+        else:
+            try:
+                metadata = latest_run_for_ref(args.repo, args.ref, workflow)
+                audit["run_metadata"] = metadata
+                run_id = str(metadata["databaseId"])
+                print("latest run: resolved", file=stdout)
+                for line in summarize_run(metadata):
+                    print(line, file=stdout)
+            except (CloudPlayabilityError, subprocess.CalledProcessError, KeyError) as exc:
+                print(f"cloud playability failed: could not resolve latest run: {exc}", file=stderr)
+                return 1
+    elif not run_id:
         if soak:
             if not soak.attempts:
                 print(
@@ -1104,6 +1186,9 @@ def main(
                     inferred_lane = infer_lane_from_artifacts(output_dir)
                     effective_config = lane_config(inferred_lane, save_slot)
                     audit["lane_effective"] = inferred_lane
+                    lanes = lane_audit(lane=inferred_lane, config=effective_config, soak=soak)
+                    lanes["inferred_after_download"] = True
+                    audit["lanes"] = lanes
                     print(f"lane inferred: {inferred_lane}", file=stdout)
                     checker = artifact_checker_command(
                         output_dir,

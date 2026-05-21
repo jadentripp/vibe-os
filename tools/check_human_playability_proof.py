@@ -209,6 +209,7 @@ HUMAN_AUDIO_EVIDENCE_BY_MODE = {
 }
 HUMAN_NOTE_PATTERNS = {
     "commit": r"(?:[0-9A-Fa-f]{7,40}|unknown)",
+    "ref": r"[A-Za-z0-9._/@+-]{1,160}",
     "playtester": r"[A-Za-z0-9._-]{2,64}",
     "scripted_proof_run_id": r"[0-9]{6,32}",
     "scripted_proof_url": r"https://github\.com/jadentripp/vibe-os/actions/runs/[0-9]{6,32}",
@@ -564,6 +565,7 @@ def _human_session_evidence_summary(
     return (
         "human-session evidence: "
         f"commit={notes.get('commit', 'not-supplied')} "
+        f"ref={notes.get('ref', 'not-supplied')} "
         f"scripted_proof_run_id={notes.get('scripted_proof_run_id', 'not-supplied')} "
         f"playtester={notes.get('playtester', 'not-supplied')} "
         f"duration_gtic={gtic_delta} duration_leveltime={leveltime_delta} "

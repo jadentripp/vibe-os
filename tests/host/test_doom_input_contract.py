@@ -284,7 +284,7 @@ class DoomInputContractTests(unittest.TestCase):
             self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
 
     def test_input_docs_name_generic_queue_not_doom_only_helper(self):
-        docs = (ROOT / "docs" / "architecture.md").read_text()
+        docs = (ROOT / "docs" / "architecture.txt").read_text()
 
         for source in (
             "the queue contract is\n  not Doom-specific",

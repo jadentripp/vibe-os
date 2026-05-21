@@ -173,6 +173,7 @@ def write_human_session_bundle(tmpdir, *, final_tick="000001B0", commit="abcdef1
     notes = {
         "schema": "human-playtest-notes-v2",
         "commit": commit,
+        "ref": "main",
         "scripted_proof": "real-wad-smoke-pass",
         "scripted_proof_run_id": "1234567890",
         "scripted_proof_url": "https://github.com/jadentripp/vibe-os/actions/runs/1234567890",
@@ -219,6 +220,8 @@ def write_human_session_bundle(tmpdir, *, final_tick="000001B0", commit="abcdef1
         "no_wad_upload": "yes",
         "no_disk_upload": "yes",
         "no_pixel_upload": "yes",
+        "no_screenshot_upload": "yes",
+        "no_raw_audio_upload": "yes",
         "operator_scripted_proof_green": "confirmed",
         "operator_remote_vnc": "confirmed",
         "operator_e1m1_visible": "confirmed",

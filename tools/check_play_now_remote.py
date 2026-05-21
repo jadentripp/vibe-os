@@ -64,6 +64,15 @@ class NovncStatus:
 
 
 @dataclass(frozen=True)
+class CpuDiagnostics:
+    effective_count: int | None
+    online_count: int | None
+    cgroup_quota_count: int | None
+    cgroup_cpuset_count: int | None
+    limiting_source: str
+
+
+@dataclass(frozen=True)
 class PreflightReport:
     platform_name: str
     cpu_count: int | None
@@ -73,6 +82,7 @@ class PreflightReport:
     required_tools: tuple[ToolStatus, ...]
     novnc: NovncStatus
     load_average: tuple[float, float, float] | None = None
+    cpu_diagnostics: CpuDiagnostics | None = None
 
     @property
     def missing_required_tools(self) -> tuple[str, ...]:
@@ -197,13 +207,59 @@ def _effective_cpu_count(
     cpu_count_provider: Callable[[], int | None] = os.cpu_count,
     cgroup_root: Path = CGROUP_ROOT,
 ) -> int | None:
-    candidates = [
-        cpu_count_provider(),
-        _cgroup_quota_cpu_count(cgroup_root),
-        _cgroup_cpuset_cpu_count(cgroup_root),
+    return _cpu_diagnostics(
+        cpu_count_provider=cpu_count_provider,
+        cgroup_root=cgroup_root,
+    ).effective_count
+
+
+def _cpu_diagnostics(
+    *,
+    cpu_count_provider: Callable[[], int | None] = os.cpu_count,
+    cgroup_root: Path = CGROUP_ROOT,
+) -> CpuDiagnostics:
+    online_count = cpu_count_provider()
+    cgroup_quota_count = _cgroup_quota_cpu_count(cgroup_root)
+    cgroup_cpuset_count = _cgroup_cpuset_cpu_count(cgroup_root)
+    candidates = (
+        ("online", online_count),
+        ("cgroup-quota", cgroup_quota_count),
+        ("cgroup-cpuset", cgroup_cpuset_count),
+    )
+    positive = [
+        (source, count)
+        for source, count in candidates
+        if count is not None and count > 0
     ]
-    positive = [count for count in candidates if count is not None and count > 0]
-    return min(positive) if positive else None
+    if not positive:
+        return CpuDiagnostics(
+            effective_count=None,
+            online_count=online_count,
+            cgroup_quota_count=cgroup_quota_count,
+            cgroup_cpuset_count=cgroup_cpuset_count,
+            limiting_source="unknown",
+        )
+
+    effective_count = min(count for _, count in positive)
+    cgroup_limits = {
+        source: count
+        for source, count in positive
+        if source.startswith("cgroup-") and count == effective_count
+    }
+    if cgroup_limits:
+        limiting_source = "+".join(cgroup_limits)
+    else:
+        limiting_source = next(
+            source for source, count in positive if count == effective_count
+        )
+
+    return CpuDiagnostics(
+        effective_count=effective_count,
+        online_count=online_count,
+        cgroup_quota_count=cgroup_quota_count,
+        cgroup_cpuset_count=cgroup_cpuset_count,
+        limiting_source=limiting_source,
+    )
 
 
 def _load_average(
@@ -218,6 +274,18 @@ def _load_average(
     except (AttributeError, OSError, TypeError, ValueError):
         return None
     return (float(one_minute), float(five_minute), float(fifteen_minute))
+
+
+def _report_cpu_diagnostics(report: PreflightReport) -> CpuDiagnostics:
+    if report.cpu_diagnostics is not None:
+        return report.cpu_diagnostics
+    return CpuDiagnostics(
+        effective_count=report.cpu_count,
+        online_count=None,
+        cgroup_quota_count=None,
+        cgroup_cpuset_count=None,
+        limiting_source="unknown",
+    )
 
 
 def check_preflight(
@@ -275,26 +343,37 @@ def check_preflight(
             "Ubuntu setup: " + UBUNTU_INSTALL_HINT
         )
 
+    cpu_diagnostics = _cpu_diagnostics(
+        cpu_count_provider=cpu_count_provider,
+        cgroup_root=cgroup_root,
+    )
     return PreflightReport(
         platform_name=effective_platform,
-        cpu_count=_effective_cpu_count(
-            cpu_count_provider=cpu_count_provider,
-            cgroup_root=cgroup_root,
-        ),
+        cpu_count=cpu_diagnostics.effective_count,
         novnc_port=novnc_port,
         vnc_display=vnc_display,
         vnc_port=vnc_port,
         required_tools=required_tools,
         novnc=novnc,
         load_average=_load_average(load_average_provider),
+        cpu_diagnostics=cpu_diagnostics,
     )
 
 
 def render_report(report: PreflightReport) -> str:
+    cpu_diagnostics = _report_cpu_diagnostics(report)
     lines = [
         "play-now remote preflight OK",
         f"platform: {report.platform_name}",
         f"host CPUs: {report.cpu_count or 'unknown'}",
+        (
+            "host CPU basis: "
+            f"effective={cpu_diagnostics.effective_count or 'unknown'} "
+            f"online={cpu_diagnostics.online_count or 'unknown'} "
+            f"cgroup_quota={cpu_diagnostics.cgroup_quota_count or 'unknown'} "
+            f"cgroup_cpuset={cpu_diagnostics.cgroup_cpuset_count or 'unknown'} "
+            f"limit={cpu_diagnostics.limiting_source}"
+        ),
         f"noVNC port: {report.novnc_port}",
         f"QEMU VNC display: :{report.vnc_display} (127.0.0.1:{report.vnc_port})",
         "required tools:",
@@ -337,6 +416,15 @@ def render_report(report: PreflightReport) -> str:
             "performance note: choose a 4-core+ Codespace when available for "
             "smoother human playtests"
         )
+        lines.append(
+            "2-core slowdown triage: if gtic/leveltime/doompresent/dtick keep "
+            "advancing while noVNC degrades, recreate on a 4+ CPU Codespace "
+            "before changing OS runtime code"
+        )
+        lines.append(
+            "recommended Codespaces shape: 4+ CPU; the Mac launcher prefers "
+            "the smallest available 4+ CPU machine for new CLI-created sessions"
+        )
         if (
             report.load_average is not None
             and report.load_average[0] >= report.cpu_count
@@ -363,6 +451,7 @@ def render_report(report: PreflightReport) -> str:
 def report_to_json(report: PreflightReport) -> dict[str, object]:
     """Return a stable machine-readable preflight report."""
 
+    cpu_diagnostics = _report_cpu_diagnostics(report)
     warnings: list[str] = []
     recommendations: list[str] = []
     if report.cpu_count is None:
@@ -412,6 +501,13 @@ def report_to_json(report: PreflightReport) -> dict[str, object]:
         "schema": "vibe-os-play-now-preflight-v1",
         "platform": report.platform_name,
         "host_cpus": report.cpu_count,
+        "cpu_diagnostics": {
+            "effective_count": cpu_diagnostics.effective_count,
+            "online_count": cpu_diagnostics.online_count,
+            "cgroup_quota_count": cpu_diagnostics.cgroup_quota_count,
+            "cgroup_cpuset_count": cpu_diagnostics.cgroup_cpuset_count,
+            "limiting_source": cpu_diagnostics.limiting_source,
+        },
         "ports": {
             "novnc": report.novnc_port,
             "vnc_display": report.vnc_display,

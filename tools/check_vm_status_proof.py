@@ -20,12 +20,15 @@ ROOT = Path(__file__).resolve().parents[1]
 KERNEL_HIGHER_HALF_BASE = 0xC0000000
 KERNEL_LOW_LINK_BASE = 0x00010000
 KERNEL_HIGH_LINK_BASE = KERNEL_HIGHER_HALF_BASE + KERNEL_LOW_LINK_BASE
-KERNEL_ELF_MAX_BYTES = 0x00018000
+KERNEL_ELF_MAX_BYTES = 0x00020000
 PAGE_SIZE = 0x1000
 KERNEL_STACK_LOW = 0x00060000
 KERNEL_STACK_TOP = 0x00070000
 KERNEL_HIGH_STACK_LOW = KERNEL_HIGHER_HALF_BASE + KERNEL_STACK_LOW
 KERNEL_HIGH_STACK_TOP = KERNEL_HIGHER_HALF_BASE + KERNEL_STACK_TOP
+KERNEL_PERSISTENT_ALIAS_PAGES = KERNEL_ELF_MAX_BYTES // PAGE_SIZE
+KERNEL_STACK_ALIAS_PAGES = (KERNEL_STACK_TOP - KERNEL_STACK_LOW) // PAGE_SIZE
+KERNEL_PERSISTENT_DIR_MASK = 0x3F
 PAGING_DIR_ADDR = 0x00090000
 PMM_MANAGED_START = 0x00100000
 PMM_MANAGED_END = 0x02000000
@@ -281,6 +284,12 @@ def validate_kernel_relocation_scaffold(fields: dict[str, str]) -> None:
             raise AssertionError("kreloc=LOW cannot report higher-half kernel EIP or ESP")
         validate_kernel_high_alias(fields, expected_vaddr=KERNEL_HIGHER_HALF_BASE + virt, expected_phys=phys)
         validate_kernel_high_exec(fields, relocated=False)
+        validate_kernel_persistent_alias(
+            fields,
+            expected_vaddr=KERNEL_HIGHER_HALF_BASE + virt,
+            expected_phys=phys,
+            expected_cr3=cr3,
+        )
         return
 
     if status == "OK":
@@ -303,6 +312,12 @@ def validate_kernel_relocation_scaffold(fields: dict[str, str]) -> None:
             raise AssertionError("kernphys= must be non-identity when kreloc=OK")
         validate_kernel_high_alias(fields, expected_vaddr=virt, expected_phys=phys)
         validate_kernel_high_exec(fields, relocated=True)
+        validate_kernel_persistent_alias(
+            fields,
+            expected_vaddr=virt,
+            expected_phys=phys,
+            expected_cr3=cr3,
+        )
         return
 
     raise AssertionError(f"kreloc= must be LOW or OK, got {status}")
@@ -399,6 +414,84 @@ def validate_kernel_high_exec(fields: dict[str, str], *, relocated: bool) -> Non
         raise AssertionError("khipt= must be distinct from the aliased text and stack frames")
     if reclaimed != table:
         raise AssertionError("khifree= must match khipt= to prove high-exec page-table reclaim")
+
+
+def validate_kernel_persistent_alias(
+    fields: dict[str, str],
+    *,
+    expected_vaddr: int,
+    expected_phys: int,
+    expected_cr3: int,
+) -> None:
+    _exact(fields, "kpmap", "OK")
+
+    vaddr = _hex(fields, "kpva")
+    phys = _hex(fields, "kppa")
+    pages = _hex(fields, "kppages")
+    table = _hex(fields, "kppt")
+    cr3 = _hex(fields, "kpcr3")
+    dir_mask = _hex(fields, "kpdirs")
+    xlat = _hex(fields, "kpxlat")
+    last_xlat = _hex(fields, "kplast")
+    low_word = _hex(fields, "kplo")
+    high_word = _hex(fields, "kphi")
+    stack_vaddr = _hex(fields, "kpsva")
+    stack_phys = _hex(fields, "kpspa")
+    stack_pages = _hex(fields, "kpspages")
+    stack_xlat = _hex(fields, "kpsxlat")
+
+    _page_aligned(vaddr, "kpva")
+    _page_aligned(phys, "kppa")
+    if vaddr != expected_vaddr:
+        raise AssertionError(f"kpva= must be the persistent higher-half kernel text base, got {vaddr:#x}")
+    if vaddr < KERNEL_HIGHER_HALF_BASE:
+        raise AssertionError(f"kpva= must be in the higher half, got {vaddr:#x}")
+    if phys >= KERNEL_HIGHER_HALF_BASE:
+        raise AssertionError("kppa= must be a physical frame, not a higher-half virtual address")
+    if phys != expected_phys:
+        raise AssertionError(f"kppa= must match the kernel text physical base {expected_phys:#x}, got {phys:#x}")
+    if vaddr == phys:
+        raise AssertionError("kpva= and kppa= must prove a non-identity persistent kernel alias")
+    if pages != KERNEL_PERSISTENT_ALIAS_PAGES:
+        raise AssertionError(
+            f"kppages= must cover the kernel ELF window ({KERNEL_PERSISTENT_ALIAS_PAGES:#x} pages), got {pages:#x}"
+        )
+
+    _managed_frame(table, "kppt")
+    if table in (phys, stack_phys):
+        raise AssertionError("kppt= must be distinct from aliased kernel text and stack frames")
+    if cr3 != expected_cr3:
+        raise AssertionError("kpcr3= must match the active kernel relocation CR3")
+    if dir_mask != KERNEL_PERSISTENT_DIR_MASK:
+        raise AssertionError(
+            f"kpdirs= must prove the high kernel PDE was installed in every fixed process page directory, got {dir_mask:#x}"
+        )
+    if xlat != phys:
+        raise AssertionError("kpxlat= must translate kpva= back to kppa=")
+    expected_last = phys + ((pages - 1) * PAGE_SIZE)
+    if last_xlat != expected_last:
+        raise AssertionError(
+            f"kplast= must translate the last persistent kernel alias page to {expected_last:#x}, got {last_xlat:#x}"
+        )
+    if low_word == 0:
+        raise AssertionError("kplo= must record nonzero bytes read from low kernel text")
+    if high_word != low_word:
+        raise AssertionError("kphi= must match kplo= through the persistent higher-half alias")
+
+    _page_aligned(stack_vaddr, "kpsva")
+    _page_aligned(stack_phys, "kpspa")
+    if stack_phys != KERNEL_STACK_LOW:
+        raise AssertionError(f"kpspa= must be the low kernel stack base, got {stack_phys:#x}")
+    if stack_vaddr != KERNEL_HIGHER_HALF_BASE + stack_phys:
+        raise AssertionError("kpsva= must be the higher-half alias of kpspa=")
+    if stack_pages != KERNEL_STACK_ALIAS_PAGES:
+        raise AssertionError(
+            f"kpspages= must cover the whole low kernel stack window ({KERNEL_STACK_ALIAS_PAGES:#x} pages), got {stack_pages:#x}"
+        )
+    if stack_xlat != stack_phys:
+        raise AssertionError("kpsxlat= must translate kpsva= back to kpspa=")
+    if stack_vaddr == stack_phys:
+        raise AssertionError("kpsva= and kpspa= must prove a non-identity persistent stack alias")
 
 
 def validate_exec(fields: dict[str, str]) -> None:
@@ -727,10 +820,10 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     real_wad_soak_workflow = _read(root, ".github/workflows/real-wad-soak.yml")
     os_workflow = _read(root, ".github/workflows/os-smoke.yml")
     makefile = _read(root, "Makefile")
-    process_vm = _read(root, "docs/architecture.md")
-    boot_vm = _read(root, "docs/architecture.md")
-    gaps = _read(root, "docs/proof.md")
-    playable = _read(root, "docs/proof.md")
+    process_vm = _read(root, "docs/architecture.txt")
+    boot_vm = _read(root, "docs/architecture.txt")
+    gaps = _read(root, "docs/proof.txt")
+    playable = _read(root, "docs/proof.txt")
     tests_readme = _read(root, "tests/strategy.txt")
     cloud_artifacts = _read(root, "tools/check_cloud_playability_artifacts.py")
 
@@ -819,11 +912,36 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         (process_vm, "process VM doc"),
         (boot_vm, "boot loader VM doc"),
         (gaps, "gap ledger"),
+        (playable, "playable proof doc"),
+    ):
+        for needle in (
+            "kpmap=OK",
+            "kpva=",
+            "kppa=",
+            "kppages=",
+            "kppt=",
+            "kpcr3=",
+            "kpdirs=",
+            "kpxlat=",
+            "kplast=",
+            "kplo=",
+            "kphi=",
+            "kpsva=",
+            "kpspa=",
+            "kpspages=",
+            "kpsxlat=",
+        ):
+            _require(text, needle, label)
+
+    for text, label in (
+        (process_vm, "process VM doc"),
+        (boot_vm, "boot loader VM doc"),
+        (gaps, "gap ledger"),
     ):
         _require(text, "pframe", label)
 
-    process_exec = _read(root, "docs/architecture.md")
-    doom_runtime = _read(root, "docs/architecture.md")
+    process_exec = _read(root, "docs/architecture.txt")
+    doom_runtime = _read(root, "docs/architecture.txt")
     for text, label in (
         (process_vm, "process VM doc"),
         (process_exec, "process exec doc"),

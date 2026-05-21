@@ -87,17 +87,17 @@ Honest:
 - vibe-os has a real x86 boot path, protected-mode kernel, ATA/FAT storage,
   framebuffer/input/timer/audio/syscall runtime work, and a freestanding Doom
   link using original id Software sources plus `doom_port` shims.
-- Those hardware-facing claims are bounded by `docs/architecture.md` to the
+- Those hardware-facing claims are bounded by `docs/architecture.txt` to the
   current QEMU BIOS/IDE/PS2/VBE/SB16 device-model proof.
 - The local generated WAD fixture proves the storage and loader path without
   shipping game data.
 - The manual real-WAD cloud workflow is the current truth-serum path because it
   fetches a validated shareware `DOOM1.WAD` in a disposable runner, boots the OS,
   and uploads only non-WAD diagnostics.
-- The fastest safe human try path is `docs/play.md`: use a
+- The fastest safe human try path is `docs/play.txt`: use a
   disposable remote Linux host or GitHub Codespace and run
   `./tools/play_now_remote.sh` there, not local Mac QEMU. The longer reviewed
-  human proof flow lives in `docs/play.md`.
+  human proof flow lives in `docs/play.txt`.
 - The current cloud status may honestly say scripted playability/input and
   aggregate audible audio have been cloud-proven. Persistence/save-load should
   only be claimed when the matching cloud persistence lane is green; the current

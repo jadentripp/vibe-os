@@ -15,6 +15,7 @@ PLAYTESTER=""
 REVIEWER=""
 SCRIPTED_PROOF_RUN_ID=""
 COMMIT_VALUE=""
+REF_VALUE="${VIBE_PLAY_REF:-}"
 START_NOTE=""
 FIRE_NOTE=""
 MOVE_NOTE=""
@@ -74,6 +75,8 @@ Options:
   --menu-note TEXT               Status-only note after Escape/menu capture.
   --final-note TEXT              Status-only note after final duration capture.
   --commit HASH                  Commit under test; defaults to git HEAD.
+  --ref REF                      Git ref under test; defaults to VIBE_PLAY_REF
+                                 or the current git branch.
   -h, --help                     Show this help.
 EOF
 }
@@ -116,6 +119,11 @@ validate_human_labels() {
   if [ -n "$COMMIT_VALUE" ]; then
     [[ "$COMMIT_VALUE" =~ ^([0-9A-Fa-f]{7,40}|unknown)$ ]] || {
       die "--commit must be a 7-40 character hex commit or 'unknown'"
+    }
+  fi
+  if [ -n "$REF_VALUE" ]; then
+    [[ "$REF_VALUE" =~ ^[A-Za-z0-9._/@+-]{1,160}$ ]] || {
+      die "--ref may contain only letters, numbers, dot, underscore, slash, at, plus, or dash"
     }
   fi
   if [ -n "$REVIEWER" ]; then
@@ -359,6 +367,11 @@ while [ "$#" -gt 0 ]; do
       COMMIT_VALUE="$2"
       shift
       ;;
+    --ref)
+      [ "$#" -ge 2 ] || die "--ref requires a value"
+      REF_VALUE="$2"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -401,6 +414,12 @@ if [ -z "$COMMIT_VALUE" ]; then
   COMMIT_VALUE="$(git rev-parse --short=12 HEAD 2>/dev/null || true)"
   [ -n "$COMMIT_VALUE" ] || die "could not resolve git HEAD; pass --commit HASH explicitly"
 fi
+if [ -z "$REF_VALUE" ]; then
+  command -v git >/dev/null 2>&1 || die "missing git; pass --ref REF explicitly"
+  REF_VALUE="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  [ -n "$REF_VALUE" ] || die "could not resolve git ref; pass --ref REF explicitly"
+fi
+validate_human_labels
 
 if [ -n "$AUDIO_MODE" ]; then
   case "$AUDIO_MODE" in
@@ -474,6 +493,7 @@ echo "Remote human Doom proof capture"
 echo "  build dir:        $BUILD_DIR"
 echo "  monitor socket:   $MONITOR_SOCKET"
 echo "  commit:           $COMMIT_VALUE"
+echo "  ref:              $REF_VALUE"
 echo "  scripted run ID:  $SCRIPTED_PROOF_RUN_ID"
 echo "  playtester:       $PLAYTESTER"
 echo "  reviewer:         $REVIEWER"
@@ -640,6 +660,7 @@ python3 tools/collect_human_playtest_bundle.py \
   --novnc-focus "$NOVNC_FOCUS_MODE" \
   --novnc-focus-notes "$NOVNC_FOCUS_NOTES" \
   --commit "$COMMIT_VALUE" \
+  --ref "$REF_VALUE" \
   --confirm-scripted-proof-green \
   --confirm-remote-vnc \
   --confirm-e1m1-visible \

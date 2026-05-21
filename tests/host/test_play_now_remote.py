@@ -1,5 +1,8 @@
+import io
+import json
 import os
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
@@ -7,6 +10,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+PLAY_RUNBOOK = ROOT / "docs" / "play.txt"
+sys.path.insert(0, str(ROOT / "tools"))
+try:
+    import check_play_now_remote
+finally:
+    sys.path.pop(0)
 
 
 class PlayNowRemoteTests(unittest.TestCase):
@@ -228,7 +237,7 @@ class PlayNowRemoteTests(unittest.TestCase):
         script = (ROOT / "tools" / "play_now_codespaces.sh").read_text()
         docs = [
             (ROOT / "README.md").read_text(),
-            (ROOT / "docs" / "play.md").read_text(),
+            PLAY_RUNBOOK.read_text(),
         ]
 
         for needle in (
@@ -253,6 +262,8 @@ class PlayNowRemoteTests(unittest.TestCase):
             "select_preferred_codespace_machine",
             "/repos/$REPO/codespaces/machines?ref=$(urlencode \"$REF\")",
             "machine selection: $MACHINE_SELECTION_SUMMARY",
+            "machine choices: gh api",
+            "resize existing Codespace: gh codespace edit",
             "noVNC port: $NOVNC_PORT (private)",
             "GitHub Codespaces API: accessible",
             "GitHub repo/ref: verified",
@@ -281,6 +292,8 @@ class PlayNowRemoteTests(unittest.TestCase):
             "tools/make_wad_image.py",
             "List ports: gh codespace ports -c \\\"$CODESPACE_NAME\\\"",
             "Inspect machine: gh api /user/codespaces/$CODESPACE_NAME --jq .machine",
+            "List machine choices: gh api",
+            "Resize for smoother play: gh codespace edit",
             "Delete when done: gh codespace delete -c \\\"$CODESPACE_NAME\\\" --force",
             "Stop play-now:",
             "Diagnostics: gh codespace ssh -c \\\"$CODESPACE_NAME\\\" -- /tmp/vibe-os-play-now-diagnostics.sh",
@@ -356,6 +369,8 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("GitHub repo/ref: verified", result.stdout)
             self.assertIn("remote play payload: verified on selected ref", result.stdout)
             self.assertIn("git state: explicit GitHub repo/ref selected; local checkout dirt is ignored", result.stdout)
+            self.assertIn("machine choices: gh api", result.stdout)
+            self.assertIn("resize existing Codespace: gh codespace edit", result.stdout)
             self.assertIn("local artifact transfer: none", result.stdout)
             self.assertIn("performance caveat: 2-core Codespaces", result.stdout)
             self.assertIn("performance preference: use the selected 4+ CPU machine", result.stdout)
@@ -442,6 +457,8 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("ref: jt/play-now-access-next", result.stdout)
             self.assertIn("local gh Codespaces API: not required", result.stdout)
             self.assertIn("machine guidance: choose a 4-core+ Codespaces machine", result.stdout)
+            self.assertIn("machine choices after create: gh api", result.stdout)
+            self.assertIn("resize existing Codespace: gh codespace edit", result.stdout)
             self.assertIn(
                 "https://github.com/codespaces/new?hide_repo_select=true&repo=123456789&ref=jt%2Fplay-now-access-next&devcontainer_path=.devcontainer%2Fdevcontainer.json",
                 result.stdout,
@@ -487,6 +504,7 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("ref: main", result.stdout)
             self.assertIn("local gh auth: optional for this browser path", result.stdout)
             self.assertIn("machine guidance: choose a 4-core+ Codespaces machine", result.stdout)
+            self.assertIn("resize existing Codespace: gh codespace edit", result.stdout)
             self.assertIn("Codespaces create URL:\nhttps://github.com/codespaces/new", result.stdout)
             self.assertIn("./tools/play_now_remote.sh --require-novnc", result.stdout)
             self.assertEqual(result.stderr, "")
@@ -655,6 +673,8 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("Stop play-now: gh codespace ssh -c \"vibe-play-existing\"", result.stdout)
             self.assertIn("List ports: gh codespace ports -c \"vibe-play-existing\"", result.stdout)
             self.assertIn("Inspect machine: gh api /user/codespaces/vibe-play-existing --jq .machine", result.stdout)
+            self.assertIn("List machine choices: gh api", result.stdout)
+            self.assertIn("Resize for smoother play: gh codespace edit -c \"vibe-play-existing\"", result.stdout)
             self.assertIn(
                 "Diagnostics: gh codespace ssh -c \"vibe-play-existing\" -- /tmp/vibe-os-play-now-diagnostics.sh",
                 result.stdout,
@@ -976,6 +996,62 @@ class PlayNowRemoteTests(unittest.TestCase):
         self.assertIn("VNC_DISPLAY must be a non-negative integer", result.stderr)
         self.assertNotIn("Fetching/validating", result.stdout)
 
+    def test_remote_preflight_reports_cpu_basis_for_two_core_slowdown_triage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cgroup = Path(tmp)
+            (cgroup / "cpu.max").write_text("200000 100000\n")
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            rc = check_play_now_remote.main(
+                ["--json"],
+                env={},
+                platform_name="Linux",
+                which=lambda name: f"/usr/bin/{name}",
+                path_is_dir=lambda path: path == Path("/usr/share/novnc"),
+                cpu_count_provider=lambda: 16,
+                cgroup_root=cgroup,
+                load_average_provider=lambda: (2.5, 2.0, 1.5),
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+        self.assertEqual(rc, 0, stderr.getvalue())
+        report = json.loads(stdout.getvalue())
+        self.assertEqual(report["host_cpus"], 2)
+        self.assertEqual(report["cpu_diagnostics"]["effective_count"], 2)
+        self.assertEqual(report["cpu_diagnostics"]["online_count"], 16)
+        self.assertEqual(report["cpu_diagnostics"]["cgroup_quota_count"], 2)
+        self.assertEqual(report["cpu_diagnostics"]["limiting_source"], "cgroup-quota")
+        self.assertEqual(report["load_per_cpu_1m"], 1.25)
+        self.assertIn(
+            "Current 1m load is at/above available CPUs",
+            " ".join(report["performance"]["warnings"]),
+        )
+
+    def test_remote_preflight_uses_cgroup_cpuset_as_cpu_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cgroup = Path(tmp)
+            (cgroup / "cpuset.cpus.effective").write_text("0-1\n")
+
+            report = check_play_now_remote.check_preflight(
+                env={},
+                platform_name="Linux",
+                which=lambda name: f"/usr/bin/{name}",
+                path_is_dir=lambda path: path == Path("/usr/share/novnc"),
+                cpu_count_provider=lambda: 16,
+                cgroup_root=cgroup,
+            )
+
+        rendered = check_play_now_remote.render_report(report)
+        self.assertEqual(report.cpu_count, 2)
+        self.assertIsNotNone(report.cpu_diagnostics)
+        self.assertEqual(report.cpu_diagnostics.online_count, 16)
+        self.assertEqual(report.cpu_diagnostics.cgroup_cpuset_count, 2)
+        self.assertEqual(report.cpu_diagnostics.limiting_source, "cgroup-cpuset")
+        self.assertIn("host CPU basis:", rendered)
+        self.assertIn("2-core slowdown triage:", rendered)
+        self.assertIn("recommended Codespaces shape: 4+ CPU", rendered)
+
     def test_cloud_shell_bootstrap_refuses_macos_before_remote_setup(self):
         with tempfile.TemporaryDirectory() as tmp:
             bin_dir = Path(tmp) / "bin"
@@ -1006,7 +1082,7 @@ class PlayNowRemoteTests(unittest.TestCase):
 
     def test_play_now_script_is_remote_first_and_repo_safe(self):
         script = (ROOT / "tools" / "play_now_remote.sh").read_text()
-        doc = (ROOT / "docs" / "play.md").read_text()
+        doc = PLAY_RUNBOOK.read_text()
 
         for needle in (
             'Usage: tools/play_now_remote.sh [--preflight|--dry-run] [--require-novnc]',
@@ -1040,11 +1116,14 @@ class PlayNowRemoteTests(unittest.TestCase):
             'grep -E',
             'inputdepth=|musicbuf=|musicpull=|mixunder=',
             'does not dump environment variables',
+            'host CPU basis: ',
             'performance hint: 2-core hosts can stutter under QEMU/noVNC',
+            '2-core slowdown triage: if gtic/leveltime/doompresent/dtick keep advancing',
             'load per CPU: 1m=',
             'slowdown warning: 1m load is at/above available CPUs',
             'slowdown snapshot tip: rerun this helper about 60s later',
             'Performance diagnostics include host CPUs/load plus filtered status fields',
+            'CPU diagnostics distinguish online CPUs from effective cgroup quota/cpuset limits',
             'healthy across two snapshots',
             '(access_token|token|signature|X-Amz-Signature|X-Amz-Credential)=',
             'NOVNC_WEB_ROOTS=(',
@@ -1080,6 +1159,8 @@ class PlayNowRemoteTests(unittest.TestCase):
             'forward port',
             'selects the smallest 4+ CPU machine',
             'gh api /user/codespaces/<codespace-name> --jq .machine',
+            'gh codespace edit -c "<codespace-name>" --machine "<4-plus-cpu-machine-name>"',
+            'effective CPU basis',
             'VNC does not carry game audio',
             'cloud `real-wad-smoke.yml` aggregate audio proof',
             '/tmp/vibe-os-play-now-diagnostics.sh',
@@ -1104,7 +1185,7 @@ class PlayNowRemoteTests(unittest.TestCase):
                 self.assertIn(needle, cloud_shell)
 
     def test_runbooks_do_not_document_local_mac_vm_override(self):
-        text = (ROOT / "docs" / "play.md").read_text()
+        text = PLAY_RUNBOOK.read_text()
         self.assertNotIn("ALLOW_LOCAL_VM=1", text)
         self.assertNotIn("brew install qemu", text)
 

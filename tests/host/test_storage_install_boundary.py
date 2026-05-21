@@ -35,6 +35,23 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         self.assertEqual(rows["ARBITRARY_DISK_RECOVERY"]["status"], "unclaimed")
         self.assertEqual(rows["ARBITRARY_DISK_RECOVERY"]["evidence"], "none")
 
+    def test_storage_subsystem_rows_keep_fat_vfs_generic_and_machine_readable(self):
+        text = (ROOT / "docs" / "architecture.txt").read_text()
+        rows = check_storage_install_boundary.parse_rows(text, "STORAGE_SUBSYSTEM")
+
+        self.assertEqual(
+            set(rows),
+            set(check_storage_install_boundary.EXPECTED_SUBSYSTEM_ROWS),
+        )
+        self.assertEqual(rows["PATH_NORMALIZATION"]["status"], "host-proven")
+        self.assertEqual(rows["ROOT_WRITE_TRUNCATE_DELETE"]["gate"], "dynamic-root-lifecycle")
+        self.assertEqual(rows["FREE_SPACE_ACCOUNTING"]["gate"], "cluster-accounting-manifest")
+        self.assertEqual(rows["FAILURE_ATOMICITY"]["scope"], "no-space-allocation-refusal")
+        self.assertEqual(
+            rows["READONLY_ASSET_MUTATION_REFUSAL"]["gate"],
+            "fat-vfs-boundary",
+        )
+
     def test_checker_rejects_unbounded_install_or_recovery_claims(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -45,8 +62,8 @@ class StorageInstallBoundaryTests(unittest.TestCase):
             for relative in (
                 "README.md",
                 "tests/strategy.txt",
-                "docs/architecture.md",
-                "docs/proof.md",
+                "docs/architecture.txt",
+                "docs/proof.txt",
                 "tools/check_storage_install_boundary.py",
             ):
                 src = ROOT / relative
@@ -67,13 +84,13 @@ class StorageInstallBoundaryTests(unittest.TestCase):
 
     def test_install_boundary_is_visible_from_main_claim_surfaces(self):
         readme = (ROOT / "README.md").read_text()
-        persistence_doc = (ROOT / "docs" / "architecture.md").read_text()
-        gap_doc = (ROOT / "docs" / "proof.md").read_text()
+        persistence_doc = (ROOT / "docs" / "architecture.txt").read_text()
+        gap_doc = (ROOT / "docs" / "proof.txt").read_text()
         tests_readme = (ROOT / "tests" / "strategy.txt").read_text()
 
         for text, phrase in (
             (readme, "not an installable OS for arbitrary disks"),
-            (readme, "docs/architecture.md"),
+            (readme, "docs/architecture.txt"),
             (persistence_doc, "not an arbitrary-disk install or recovery proof"),
             (persistence_doc, "install-image-manifest"),
             (gap_doc, "STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL] status=unclaimed"),
@@ -124,6 +141,17 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         self.assertEqual(
             manifest["fat16"]["minimum_os_created_file_clusters"],
             check_storage_install_boundary.load_make_wad_image().MIN_OS_CREATED_FILE_CLUSTERS,
+        )
+        cluster_accounting = manifest["cluster_accounting"]
+        self.assertEqual(cluster_accounting["schema"], "vibe-os-fat16-cluster-accounting-v1")
+        self.assertTrue(cluster_accounting["free_cluster_budget_ok"])
+        self.assertEqual(
+            cluster_accounting["free_clusters"],
+            manifest["fat16"]["free_clusters"],
+        )
+        self.assertEqual(
+            cluster_accounting["accounted_clusters"],
+            manifest["fat16"]["data_clusters"],
         )
         integrity = manifest["artifact_integrity"]
         self.assertEqual(integrity["schema"], "vibe-os-image-artifact-integrity-v1")
@@ -202,6 +230,17 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         self.assertEqual(fat_vfs["schema"], "vibe-os-fat-vfs-boundary-v1")
         self.assertTrue(fat_vfs["host_checked"])
         self.assertEqual(
+            set(fat_vfs["proof_rows"]),
+            {
+                "STORAGE_SUBSYSTEM[PATH_NORMALIZATION]",
+                "STORAGE_SUBSYSTEM[DIRECTORY_READ_BOUNDARY]",
+                "STORAGE_SUBSYSTEM[ROOT_WRITE_TRUNCATE_DELETE]",
+                "STORAGE_SUBSYSTEM[FREE_SPACE_ACCOUNTING]",
+                "STORAGE_SUBSYSTEM[FAILURE_ATOMICITY]",
+                "STORAGE_SUBSYSTEM[READONLY_ASSET_MUTATION_REFUSAL]",
+            },
+        )
+        self.assertEqual(
             fat_vfs["kernel_syscall_surface"]["supported_path_contract"],
             "root 8.3 plus read-only one-level subdirectory",
         )
@@ -226,6 +265,41 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         self.assertLess(lifecycle["shrunk_clusters"], lifecycle["grown_clusters"])
         self.assertTrue(lifecycle["remount_readback"])
         self.assertTrue(lifecycle["freed_cluster_scrub"])
+        self.assertEqual(
+            [entry["operation"] for entry in lifecycle["operations"]],
+            [
+                "create-write",
+                "sparse-grow-write",
+                "shrink-truncate",
+                "truncate-empty",
+                "rewrite-after-truncate",
+                "delete",
+            ],
+        )
+        for operation in lifecycle["operations"]:
+            with self.subTest(operation=operation["operation"]):
+                self.assertEqual(operation["path"], "/FATPROOF.TMP")
+                self.assertTrue(operation["remount_readback"])
+                if operation["operation"] in ("create-write", "sparse-grow-write", "rewrite-after-truncate"):
+                    self.assertGreaterEqual(
+                        operation["free_clusters_before"],
+                        operation["free_clusters_after"],
+                    )
+                else:
+                    self.assertLessEqual(
+                        operation["free_clusters_before"],
+                        operation["free_clusters_after"],
+                    )
+        self.assertEqual(
+            lifecycle["initial_accounting"]["free_clusters"],
+            lifecycle["final_accounting"]["free_clusters"],
+        )
+        self.assertTrue(lifecycle["final_accounting"]["free_cluster_budget_ok"])
+        self.assertEqual(lifecycle["failure_atomicity"]["schema"], "vibe-os-fat16-failure-atomicity-v1")
+        self.assertEqual(lifecycle["failure_atomicity"]["result"], "refused")
+        self.assertTrue(lifecycle["failure_atomicity"]["image_sha256_unchanged"])
+        self.assertTrue(lifecycle["failure_atomicity"]["live_chain_unchanged"])
+        self.assertTrue(lifecycle["root_slot_reuse"]["deleted_slot_reused"])
         self.assertEqual(
             {
                 entry["operation"]

@@ -107,6 +107,10 @@ class DoomMusicTests(unittest.TestCase):
             "stream_song_samples",
             "stream_chunk_index",
             "stream_chunk_bytes",
+            "vibe_music_stream_snapshot_t",
+            "VIBE_MUSIC_STREAM_FLAG_ACTIVE",
+            "VIBE_MUSIC_STREAM_FLAG_LOOPING",
+            "VIBE_MUSIC_STREAM_FLAG_VALID_SONG",
             "vibe_music_register_song",
             "vibe_music_stream_begin",
             "vibe_music_stream_render",
@@ -115,12 +119,15 @@ class DoomMusicTests(unittest.TestCase):
             "vibe_music_stream_song_samples",
             "vibe_music_stream_loop_samples",
             "vibe_music_stream_loop_count",
+            "vibe_music_stream_snapshot",
             "vibe_music_render_pcm",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, music_h)
 
         for token in (
+            "clear_stream_snapshot",
+            "VIBE_MUSIC_STREAM_FLAG_VALID_SONG",
             "render_mus_pass",
             "VIBE_MUSIC_MUS_EVENT_SCORE_END",
             "render_midi_pass",
@@ -150,7 +157,7 @@ class DoomMusicTests(unittest.TestCase):
                 self.assertIn(token, music_c)
 
     def test_music_docs_describe_architecture_and_fallbacks(self):
-        music_doc = (ROOT / "docs" / "architecture.md").read_text()
+        music_doc = (ROOT / "docs" / "architecture.txt").read_text()
 
         for token in (
             "MUS parser",

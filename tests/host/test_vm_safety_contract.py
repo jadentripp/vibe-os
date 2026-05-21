@@ -30,7 +30,7 @@ class VmSafetyContractTests(unittest.TestCase):
 
     def test_cloud_interactive_runbooks_are_machine_checked(self):
         check_vm_safety_contract.validate_cloud_interactive_runbooks(ROOT)
-        cloud = (ROOT / "docs" / "play.md").read_text()
+        cloud = (ROOT / "docs" / "play.txt").read_text()
 
         for needle in (
             "CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC",

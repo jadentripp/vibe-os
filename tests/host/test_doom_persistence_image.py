@@ -414,6 +414,40 @@ class DoomPersistenceImageTests(unittest.TestCase):
         fs = make_wad_image.Fat16Image(image)
         self.assertIsNone(fs.root_file_metadata(make_wad_image.DYNAMIC_FAT_PROOF_NAME))
 
+    def test_dynamic_fat_proof_reports_generic_vfs_allocation_invariants(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        proof = make_wad_image.prove_dynamic_fat16_mutation(make_wad_image.Fat16Image(image))
+
+        self.assertEqual(proof["proof_name"], "FATPROOF.TMP")
+        self.assertEqual(
+            [entry["operation"] for entry in proof["operations"]],
+            [
+                "create-write",
+                "sparse-grow-write",
+                "shrink-truncate",
+                "truncate-empty",
+                "rewrite-after-truncate",
+                "delete",
+            ],
+        )
+        self.assertEqual(
+            proof["initial_accounting"]["schema"],
+            "vibe-os-fat16-cluster-accounting-v1",
+        )
+        self.assertEqual(
+            proof["initial_accounting"]["free_clusters"],
+            proof["final_accounting"]["free_clusters"],
+        )
+        self.assertTrue(proof["final_accounting"]["free_cluster_budget_ok"])
+        self.assertEqual(
+            proof["failure_atomicity"]["operation"],
+            "allocate-too-many-clusters",
+        )
+        self.assertEqual(proof["failure_atomicity"]["result"], "refused")
+        self.assertTrue(proof["failure_atomicity"]["image_sha256_unchanged"])
+        self.assertTrue(proof["failure_atomicity"]["live_chain_unchanged"])
+        self.assertTrue(proof["root_slot_reuse"]["deleted_slot_reused"])
+
     def test_fresh_doom_state_entries_are_unallocated_not_preallocated(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
         fs = make_wad_image.Fat16Image(image)
@@ -1845,8 +1879,8 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertEqual(result.stderr, "")
 
     def test_persistence_doc_keeps_dynamic_fs_and_storage_boot_gaps_explicit(self):
-        persistent_doc = (ROOT / "docs" / "architecture.md").read_text()
-        gap_doc = (ROOT / "docs" / "proof.md").read_text()
+        persistent_doc = (ROOT / "docs" / "architecture.txt").read_text()
+        gap_doc = (ROOT / "docs" / "proof.txt").read_text()
         makefile = (ROOT / "Makefile").read_text()
 
         for phrase in (
@@ -1863,6 +1897,9 @@ class DoomPersistenceImageTests(unittest.TestCase):
             "dynamic filesystem behavior",
             "FATPROOF.TMP",
             "root/current-directory prefix normalization",
+            "STORAGE_SUBSYSTEM[PATH_NORMALIZATION] status=host-proven",
+            "STORAGE_SUBSYSTEM[FAILURE_ATOMICITY] status=host-proven",
+            "cluster-accounting-manifest",
             "PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF=1 make persistence-image-check",
         ):
             with self.subTest(phrase=phrase):

@@ -43,6 +43,11 @@ class CloudPlayabilityArtifactHumanBundleTests(unittest.TestCase):
             self.assertIn("no_raw_audio_upload=yes", notes)
 
             manifest = json.loads((artifact / "human-playtest-manifest.json").read_text())
+            self.assertEqual(manifest["schema"], "human-playtest-manifest-v2")
+            self.assertEqual(manifest["identity"]["ref"], "main")
+            self.assertEqual(manifest["identity"]["scripted_proof_run_id"], "26156172979")
+            self.assertEqual(manifest["minimums"]["duration_gtic"], 350)
+            self.assertGreaterEqual(manifest["counter_deltas"]["keyirq_delta"], 4)
             self.assertFalse(manifest["artifact_policy"]["contains_screenshots"])
             self.assertFalse(manifest["artifact_policy"]["contains_forbidden_artifacts"])
             self.assertEqual(

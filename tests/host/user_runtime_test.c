@@ -17,11 +17,13 @@ static int mock_wait_reaped;
 static int mock_munmap_count;
 static int mock_exec_count;
 static const char* mock_exec_path;
+static unsigned long mock_exec_argv;
 static int mock_close_count;
 static int mock_probe_count;
 static unsigned long mock_probe_magic;
 static unsigned long mock_probe_flags;
 static int mock_force_legacy_error;
+static int mock_fd_flags;
 
 static char* mock_user_buffer(unsigned long address, unsigned long count)
 {
@@ -140,9 +142,11 @@ int vibe_user_syscall3(unsigned int number, unsigned long arg0, unsigned long ar
         if (arg0 != 4)
             return -9;
         if (arg1 == 1)
-            return 1;
-        if (arg1 == 2 && arg2 <= 1)
+            return mock_fd_flags;
+        if (arg1 == 2 && arg2 <= 1) {
+            mock_fd_flags = (int)arg2;
             return 0;
+        }
         return -22;
     }
 
@@ -195,7 +199,8 @@ int vibe_user_syscall3(unsigned int number, unsigned long arg0, unsigned long ar
     if (number == VIBE_SYS_EXEC) {
         ++mock_exec_count;
         mock_exec_path = (const char*)arg0;
-        return arg1 ? 0 : -22;
+        mock_exec_argv = arg1;
+        return arg0 ? 0 : -22;
     }
 
     if (number == VIBE_SYS_USER_PROBE) {
@@ -221,10 +226,16 @@ int main(void)
     vibe_dirent_t entries[MOCK_MAX_DIRENTS];
     char read_buffer[4];
     char* argv[] = { "TOOL.ELF", 0 };
+    char* empty_env[] = { 0 };
+    char* nonempty_env[] = { "A=B", 0 };
+    char long_path[VIBE_EXEC_PATH_MAX + 1];
+    char long_arg[VIBE_EXEC_ARG_STR_MAX + 1];
+    unsigned long argc = 0;
     void* old_break = 0;
     void* mapped = 0;
     void* file_mapped = 0;
     int wait_status = 0;
+    int index;
 
     if (vibe_user_syscall_errno(-13, 5) != 13)
         return fail(1);
@@ -254,6 +265,12 @@ int main(void)
         return fail(37);
     if (vibe_user_waitpid_nohang_reap(3, &wait_status, 0) != -22)
         return fail(38);
+    mock_wait_reaped = 0;
+    wait_status = 0;
+    if (vibe_user_waitpid_nohang_reap_exact(3, &wait_status, 3) != 3 || wait_status != 0x2a)
+        return fail(43);
+    if (vibe_user_waitpid_nohang_reap_exact(-1, &wait_status, 3) != -22)
+        return fail(44);
     if (vibe_user_sbrk(4096, &old_break) != 0 || old_break != (void*)0x00400000)
         return fail(22);
     if (vibe_user_sbrk(-4096, &old_break) != 0 || old_break != (void*)0x00401000)
@@ -296,8 +313,14 @@ int main(void)
         return fail(36);
     if (vibe_user_dup(4) != 5 || vibe_user_dup2(4, 8) != 8 || vibe_user_dup3(4, 9, 0x0800u) != 9)
         return fail(8);
-    if (vibe_user_open("TOOL.TXT", 0, 0) != 4 || vibe_user_fcntl(4, 1, 0) != 1 || vibe_user_fcntl(4, 2, 1) != 0)
+    if (vibe_user_open("TOOL.TXT", 0, 0) != 4 || vibe_user_fcntl(4, 1, 0) != 0 || vibe_user_fcntl(4, 2, 1) != 0)
         return fail(13);
+    if (vibe_user_get_cloexec(4, &wait_status) != 0 || wait_status != 1)
+        return fail(45);
+    if (vibe_user_set_cloexec(4, 0) != 0 || vibe_user_get_cloexec(4, &wait_status) != 0 || wait_status != 0)
+        return fail(46);
+    if (vibe_user_get_cloexec(4, 0) != -22)
+        return fail(47);
     if (vibe_user_lseek(4, 6, 0) != 6)
         return fail(15);
     if (vibe_user_pread(4, read_buffer, 3, 2) != 3
@@ -315,8 +338,50 @@ int main(void)
         return fail(9);
     if (vibe_user_listdir("/", entries, MOCK_MAX_DIRENTS) != 1 || !vibe_user_streq(entries[0].name, "TOOL"))
         return fail(10);
+    if (vibe_user_listdir_find("/", "TOOL", entries) != 1 || !vibe_user_streq(entries[0].name, "TOOL"))
+        return fail(48);
+    if (vibe_user_listdir_find("/", "MISSING", entries) != 0)
+        return fail(49);
+    if (!vibe_user_dirent_name_eq(entries, "TOOL") || vibe_user_dirent_name_eq(0, "TOOL"))
+        return fail(50);
+    if (vibe_user_validate_exec_argv("TOOL.ELF", argv, &argc) != 0 || argc != 1)
+        return fail(51);
+    if (vibe_user_validate_exec_argv("TOOL.ELF", 0, &argc) != 0 || argc != 1)
+        return fail(52);
+    long_path[0] = 'A';
+    long_path[1] = 'B';
+    long_path[2] = 'C';
+    long_path[3] = 'D';
+    long_path[4] = 'E';
+    long_path[5] = 'F';
+    long_path[6] = 'G';
+    long_path[7] = 'H';
+    long_path[8] = 'I';
+    long_path[9] = 'J';
+    long_path[10] = 'K';
+    long_path[11] = 'L';
+    long_path[12] = 'M';
+    long_path[13] = 'N';
+    long_path[14] = 'O';
+    long_path[15] = 'P';
+    long_path[16] = 0;
+    if (vibe_user_validate_exec_argv(long_path, argv, &argc) != -22)
+        return fail(53);
+    for (index = 0; index < VIBE_EXEC_ARG_STR_MAX; ++index)
+        long_arg[index] = 'A';
+    long_arg[VIBE_EXEC_ARG_STR_MAX] = 0;
+    argv[0] = long_arg;
+    if (vibe_user_validate_exec_argv("TOOL.ELF", argv, &argc) != -22)
+        return fail(54);
+    argv[0] = "TOOL.ELF";
     if (vibe_user_execv("TOOL.ELF", argv) != 0 || mock_exec_count != 1 || !vibe_user_streq(mock_exec_path, "TOOL.ELF"))
         return fail(11);
+    if (vibe_user_execv_checked("", argv) != -22 || mock_exec_count != 1)
+        return fail(55);
+    if (vibe_user_execve("TOOL.ELF", argv, nonempty_env) != -38 || mock_exec_count != 1)
+        return fail(56);
+    if (vibe_user_execve("TOOL.ELF", 0, empty_env) != 0 || mock_exec_count != 2 || mock_exec_argv != 0)
+        return fail(57);
     vibe_user_report_probe(0x1234u, 0x55u);
     if (mock_probe_count != 1 || mock_probe_magic != 0x1234u || mock_probe_flags != 0x55u)
         return fail(12);

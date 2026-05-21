@@ -768,6 +768,23 @@ class AudioContinuityProofTests(unittest.TestCase):
                 menu_status=snapshots["menu"],
             )
 
+    def test_rejects_sfx_output_bytes_without_matching_dma_bytes(self):
+        snapshots = snapshot_statuses()
+        snapshots["final"] = snapshots["final"].replace(
+            "sfxbytes=00001000:00002000",
+            "sfxbytes=00001000:00002400",
+        )
+
+        with self.assertRaisesRegex(AssertionError, "sfxbytes=.*sfxdma=.*IRQ-mixed SFX"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+            )
+
     def test_rejects_new_clip_underrun_or_drop_counters(self):
         for field, message in (
             ("mixclip", "mixclip=.*audio safety"),

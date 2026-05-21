@@ -12,6 +12,12 @@ enum {
     VIBE_MUSIC_FORMAT_MIDI = 2,
 };
 
+enum {
+    VIBE_MUSIC_STREAM_FLAG_ACTIVE = 0x00000001u,
+    VIBE_MUSIC_STREAM_FLAG_LOOPING = 0x00000002u,
+    VIBE_MUSIC_STREAM_FLAG_VALID_SONG = 0x00000004u,
+};
+
 typedef struct vibe_music_render_stats {
     unsigned long format;
     unsigned long note_on_count;
@@ -40,6 +46,18 @@ typedef struct vibe_music_render_stats {
     unsigned long stream_chunk_bytes;
 } vibe_music_render_stats_t;
 
+typedef struct vibe_music_stream_snapshot {
+    unsigned long format;
+    unsigned long flags;
+    unsigned long sample_rate;
+    unsigned long volume;
+    unsigned long position;
+    unsigned long song_samples;
+    unsigned long loop_samples;
+    unsigned long loop_count;
+    unsigned long chunk_index;
+} vibe_music_stream_snapshot_t;
+
 void vibe_music_init(void);
 int vibe_music_detect(const void* data);
 int vibe_music_register_song(void* data);
@@ -55,6 +73,7 @@ unsigned long vibe_music_stream_position(int handle);
 unsigned long vibe_music_stream_song_samples(int handle);
 unsigned long vibe_music_stream_loop_samples(int handle);
 unsigned long vibe_music_stream_loop_count(int handle);
+int vibe_music_stream_snapshot(int handle, vibe_music_stream_snapshot_t* snapshot);
 unsigned long vibe_music_stream_render(
     int handle,
     unsigned char* out,

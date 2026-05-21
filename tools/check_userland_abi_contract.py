@@ -45,7 +45,7 @@ ABI_REQUIREMENTS = {
             "int vibe_clock_gettime(unsigned long clock_id, vibe_clock_time_t* out)",
             "int clock_gettime(clockid_t clock_id, struct timespec* tp)",
         ),
-        "docs/architecture.md": (
+        "docs/architecture.txt": (
             "The reusable user/kernel contract is `VIBE_SYS_CLOCK_GETTIME`",
             "new consumers should use the monotonic clock API",
         ),
@@ -65,7 +65,7 @@ ABI_REQUIREMENTS = {
             "int vibe_drain_input(vibe_input_event_t* events, unsigned long max_events)",
             "int vibe_input_status(vibe_input_status_t* status)",
         ),
-        "docs/architecture.md": (
+        "docs/architecture.txt": (
             "Generic ABI:",
             "the queue contract is\n  not Doom-specific",
             "future games can construct or replay typed events",
@@ -84,7 +84,7 @@ ABI_REQUIREMENTS = {
             "int vibe_fb_get_info(vibe_fb_info_t* info)",
             "int vibe_present_indexed_checked(const vibe_present_indexed_t* present)",
         ),
-        "docs/architecture.md": (
+        "docs/architecture.txt": (
             "The framebuffer contract is intentionally split into three reusable layers",
             "stable and generic enough for future indexed\ngames",
         ),
@@ -109,7 +109,7 @@ ABI_REQUIREMENTS = {
             "int vibe_audio_mixer_start(unsigned long handle, const vibe_audio_voice_desc_t* desc)",
             "int vibe_audio_stream_info(unsigned long handle, vibe_audio_stream_info_t* info)",
         ),
-        "docs/architecture.md": (
+        "docs/architecture.txt": (
             "Reusable audio syscall surface:",
             "Doom is the first\n  high-pressure caller",
             "reusable contract:",
@@ -149,7 +149,7 @@ ABI_REQUIREMENTS = {
             "int vibe_listdir(const char* path, vibe_dirent_t* entries, unsigned long max_entries)",
             "int vibe_file_read_all(const char* path, void* buffer, unsigned long capacity, unsigned long* out_size)",
         ),
-        "docs/architecture.md": (
+        "docs/architecture.txt": (
             "Generic file consumers",
             "`vibe_file_size` and `vibe_file_read_all`",
             "`vibe_listdir`",
@@ -191,7 +191,7 @@ ABI_REQUIREMENTS = {
             "pid_t fork(void)",
             "pid_t waitpid(pid_t pid, int* status, int options)",
         ),
-        "docs/architecture.md": (
+        "docs/architecture.txt": (
             "## Second Freestanding Program Contract",
             "`user/abi_probe.c` is the in-tree second program proof.",
             "`build/abi_probe.elf` and packages it as root `ABIPROBE.ELF`",
@@ -208,6 +208,7 @@ ABI_REQUIREMENTS = {
             "vibe_user_clock_monotonic(&now)",
             "vibe_user_listdir(\"/\", root_entries, 16)",
             "vibe_user_fcntl(wad, ABI_PROBE_F_SETFD, ABI_PROBE_FD_CLOEXEC)",
+            "vibe_user_execve(doom_path, doom_argv, nonempty_env) != -38",
             "vibe_user_report_probe(ABI_PROBE_MAGIC, flags)",
             "vibe_user_execv(doom_path, doom_argv)",
             'const char doom_path[] = "DOOM.ELF";',
@@ -222,10 +223,13 @@ ABI_REQUIREMENTS = {
             "int vibe_user_fork(void);",
             "int vibe_user_waitpid(long pid, int* status, unsigned long options);",
             "int vibe_user_waitpid_nohang_reap(long pid, int* status, unsigned long max_polls);",
+            "int vibe_user_waitpid_nohang_reap_exact(long pid, int* status, unsigned long max_polls)",
             "int vibe_user_dup(int oldfd);",
             "int vibe_user_dup2(int oldfd, int newfd);",
             "int vibe_user_dup3(int oldfd, int newfd, unsigned long flags);",
             "int vibe_user_fcntl(int fd, int cmd, unsigned long arg);",
+            "int vibe_user_get_cloexec(int fd, int* out)",
+            "int vibe_user_set_cloexec(int fd, int enabled)",
             "int vibe_user_mmap(void** out, unsigned long length, unsigned long prot, unsigned long flags);",
             "int vibe_user_mmap_anon(void** out, unsigned long length, unsigned long prot);",
             "VIBE_USER_VM_CAP_FILE_PRIVATE_COPY",
@@ -236,7 +240,12 @@ ABI_REQUIREMENTS = {
             "unsigned long vibe_user_vm_capabilities(void);",
             "int vibe_user_clock_monotonic(",
             "int vibe_user_listdir(",
+            "int vibe_user_dirent_name_eq(",
+            "int vibe_user_listdir_find(",
+            "int vibe_user_validate_exec_argv(",
             "int vibe_user_execv(",
+            "int vibe_user_execv_checked(",
+            "int vibe_user_execve(",
             "void vibe_user_report_probe(",
         ),
         "user/runtime.c": (
@@ -275,14 +284,14 @@ ABI_REQUIREMENTS = {
 
 
 GENERIC_DOC_REQUIREMENTS = {
-    "docs/architecture.md": (
+    "docs/architecture.txt": (
         "## General-Purpose ABI Audit",
         "A second freestanding C program does not need to include Doom headers",
         "The reusable surface today is:",
         "The ABI is reusable, but not POSIX-complete.",
         "## General-OS Gap Contract",
     ),
-    "docs/architecture.md": (
+    "docs/architecture.txt": (
         "`--root-elf NAME.ELF=PATH` packages additional checked or generated",
         "root-level 8.3 `.ELF` images without changing the boot path",
         "The generic pool is reusable, but it is still small and static.",
@@ -291,6 +300,9 @@ GENERIC_DOC_REQUIREMENTS = {
         "anonymous/private mmap/munmap",
         "bounded fork",
         "waitpid",
+        "USER_RUNTIME_CONTRACT[EXEC_ENV_HELPER]",
+        "USER_RUNTIME_CONTRACT[LISTDIR_FIND_HELPER]",
+        "USER_RUNTIME_CONTRACT[FD_CLOEXEC_HELPER]",
         "## POSIX Gap Decomposition",
     ),
 }
@@ -298,7 +310,7 @@ GENERIC_DOC_REQUIREMENTS = {
 
 POSIX_GAP_REQUIREMENTS = {
     "fork": {
-        "docs/architecture.md": (
+        "docs/architecture.txt": (
             "`SYS_FORK` now implements a bounded probe-class fork",
             "eagerly copies present user pages into PMM-backed child frames",
             "parent returns the child PID while the child resumes with zero",
@@ -311,20 +323,20 @@ POSIX_GAP_REQUIREMENTS = {
         ),
         "user/abi_probe.c": (
             "child = vibe_user_fork();",
-            "vibe_user_waitpid_nohang_reap(child, &status, ABI_PROBE_FORK_WAIT_SPINS)",
+            "vibe_user_waitpid_nohang_reap_exact(child, &status, ABI_PROBE_FORK_WAIT_SPINS)",
             "duplicate_reap == -ABI_PROBE_ERRNO_ECHILD",
             "shared_offset == 4",
         ),
     },
     "fd-duplication": {
-        "docs/architecture.md": (
+        "docs/architecture.txt": (
             "Descriptor lifetime and fd duplication now have a bounded Unix-open-file-description milestone.",
             "shared root slot with a refcounted offset/status record",
             "`dup`, `dup2`, and\n  `dup3` are public syscall/libc surfaces",
             "`fcntl(F_GETFD/F_SETFD)` is the\n  descriptor-flag milestone",
             "fork-time fd descriptor cloning now shares open-file descriptions",
         ),
-        "docs/architecture.md": (
+        "docs/architecture.txt": (
             "fd duplication",
             "Public `dup`, `dup2`, and `dup3` syscalls/libc wrappers",
             "`fcntl(F_GETFD/F_SETFD)`",
@@ -351,7 +363,7 @@ POSIX_GAP_REQUIREMENTS = {
         ),
     },
     "file-backed-mmap": {
-        "docs/architecture.md": (
+        "docs/architecture.txt": (
             "VM allocation is anonymous/private and brk-backed.",
             "copy-backed private file mapping",
             "not a shared page-cache or kernel VMA object",
@@ -388,23 +400,23 @@ POSIX_GAP_REQUIREMENTS = {
         ),
     },
     "signals": {
-        "docs/architecture.md": (
+        "docs/architecture.txt": (
             "POSIX signal delivery is absent.",
             "there is no public `signal.h`, signal\n  mask, `kill`, interval timer signal, or handler trampoline ABI",
         ),
-        "docs/architecture.md": (
+        "docs/architecture.txt": (
             "signals",
             "`signal`, `sigaction`, `kill`, signal masks",
             "delivery across scheduler context switches",
         ),
     },
     "terminal-tty": {
-        "docs/architecture.md": (
+        "docs/architecture.txt": (
             "Terminal/tty behavior is absent.",
             "unknown display ioctls return\n  `ENOTTY`",
             "there is no stdin/stdout tty device, `termios`, `isatty`",
         ),
-        "docs/architecture.md": (
+        "docs/architecture.txt": (
             "terminal/tty",
             "classified as `ENOTTY`",
             "`termios`, `isatty`, controlling terminals",
@@ -415,12 +427,12 @@ POSIX_GAP_REQUIREMENTS = {
         ),
     },
     "dynamic-process-lifetimes": {
-        "docs/architecture.md": (
+        "docs/architecture.txt": (
             "Dynamic process lifetimes are bounded.",
             "no dynamically\n  growing process table",
             "or\n  unbounded child lifecycle manager",
         ),
-        "docs/architecture.md": (
+        "docs/architecture.txt": (
             "dynamic process lifetimes",
             "two-entry static probe-class pool",
             "Dynamically allocated process records, unbounded child slots",
@@ -430,7 +442,7 @@ POSIX_GAP_REQUIREMENTS = {
 
 
 STALE_DOC_WORDING = {
-    "docs/architecture.md": (
+    "docs/architecture.txt": (
         "the current exec handoff still resets the global fd table",
     ),
 }

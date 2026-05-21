@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build"
-DOC = ROOT / "docs" / "architecture.md"
+DOC = ROOT / "docs" / "architecture.txt"
 MAKE_WAD_IMAGE = ROOT / "tools" / "make_wad_image.py"
 SECTOR_SIZE = 512
 
@@ -94,6 +94,45 @@ EXPECTED_REQUIREMENTS = {
     },
 }
 
+EXPECTED_SUBSYSTEM_ROWS = {
+    "PATH_NORMALIZATION": {
+        "status": "host-proven",
+        "scope": "root-current-dir-8.3-and-readonly-one-level",
+        "gate": "fat-vfs-boundary",
+        "evidence": "install-image-manifest",
+    },
+    "DIRECTORY_READ_BOUNDARY": {
+        "status": "host-proven",
+        "scope": "root-plus-readonly-one-level-list-read",
+        "gate": "filesystem-tree-manifest",
+        "evidence": "check_storage_install_boundary.py",
+    },
+    "ROOT_WRITE_TRUNCATE_DELETE": {
+        "status": "host-proven",
+        "scope": "dynamic-root-8.3-files",
+        "gate": "dynamic-root-lifecycle",
+        "evidence": "check_doom_persistence_image.py",
+    },
+    "FREE_SPACE_ACCOUNTING": {
+        "status": "host-proven",
+        "scope": "fat16-data-clusters",
+        "gate": "cluster-accounting-manifest",
+        "evidence": "install-image-manifest",
+    },
+    "FAILURE_ATOMICITY": {
+        "status": "host-proven",
+        "scope": "no-space-allocation-refusal",
+        "gate": "dynamic-root-lifecycle",
+        "evidence": "make_wad_image.py",
+    },
+    "READONLY_ASSET_MUTATION_REFUSAL": {
+        "status": "host-proven",
+        "scope": "packaged-subdirectory-assets",
+        "gate": "fat-vfs-boundary",
+        "evidence": "install-image-manifest",
+    },
+}
+
 REQUIRED_PHRASES = (
     "not an installable general OS on arbitrary disks",
     "mutates and reboots the repo-generated FAT16 image",
@@ -107,6 +146,8 @@ REQUIRED_PHRASES = (
     "bootable-image-construction manifest",
     "fat-vfs-boundary manifest",
     "dynamic-root-lifecycle manifest",
+    "STORAGE_SUBSYSTEM[PATH_NORMALIZATION] status=host-proven",
+    "STORAGE_SUBSYSTEM[FAILURE_ATOMICITY] status=host-proven",
     "root 8.3 plus read-only one-level subdirectory",
     "host image inventory may walk deeper packaged trees than the kernel syscall surface",
     "blank-disk-installer-manifest",
@@ -122,13 +163,13 @@ REQUIRED_CROSS_DOC_LINKS = {
     "README.md": (
         "not an installable OS for arbitrary disks",
         "does not partition blank media",
-        "docs/architecture.md",
+        "docs/architecture.txt",
     ),
-    "docs/architecture.md": (
+    "docs/architecture.txt": (
         "not an arbitrary-disk install or recovery proof",
         "install-image-manifest",
     ),
-    "docs/proof.md": (
+    "docs/proof.txt": (
         "STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL] status=unclaimed",
         "blank-disk-to-bootable-vibe-os",
     ),
@@ -231,7 +272,9 @@ def contains_phrase(text: str, phrase: str) -> bool:
 
 def repo_text_files(root: Path) -> list[Path]:
     files = [root / "README.md", root / "tests" / "strategy.txt"]
-    files.extend(sorted((root / "docs").rglob("*.md")))
+    docs = set((root / "docs").rglob("*.md"))
+    docs.update((root / "docs").rglob("*.txt"))
+    files.extend(sorted(docs))
     files.extend(sorted((root / "tests").rglob("test_*.py")))
     files.append(root / "tools" / "check_storage_install_boundary.py")
     return [path for path in files if path.exists()]
@@ -265,7 +308,7 @@ def validate_claim_wording(root: Path) -> None:
 
 
 def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
-    doc = root / "docs" / "architecture.md"
+    doc = root / "docs" / "architecture.txt"
     text = doc.read_text()
     normalized = " ".join(text.split())
     for phrase in REQUIRED_PHRASES:
@@ -274,8 +317,10 @@ def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
 
     boundaries = parse_rows(text, "STORAGE_BOUNDARY")
     requirements = parse_rows(text, "STORAGE_PROOF_REQUIREMENT")
+    subsystems = parse_rows(text, "STORAGE_SUBSYSTEM")
     require_expected_rows(boundaries, EXPECTED_BOUNDARIES, "STORAGE_BOUNDARY")
     require_expected_rows(requirements, EXPECTED_REQUIREMENTS, "STORAGE_PROOF_REQUIREMENT")
+    require_expected_rows(subsystems, EXPECTED_SUBSYSTEM_ROWS, "STORAGE_SUBSYSTEM")
     validate_cross_doc_links(root)
     validate_claim_wording(root)
     return boundaries
@@ -437,6 +482,14 @@ def _fat_vfs_boundary_manifest(fs, make_wad_image, packaged_assets: list[dict[st
     return {
         "schema": "vibe-os-fat-vfs-boundary-v1",
         "host_checked": True,
+        "proof_rows": [
+            "STORAGE_SUBSYSTEM[PATH_NORMALIZATION]",
+            "STORAGE_SUBSYSTEM[DIRECTORY_READ_BOUNDARY]",
+            "STORAGE_SUBSYSTEM[ROOT_WRITE_TRUNCATE_DELETE]",
+            "STORAGE_SUBSYSTEM[FREE_SPACE_ACCOUNTING]",
+            "STORAGE_SUBSYSTEM[FAILURE_ATOMICITY]",
+            "STORAGE_SUBSYSTEM[READONLY_ASSET_MUTATION_REFUSAL]",
+        ],
         "kernel_syscall_surface": {
             "supported_path_contract": "root 8.3 plus read-only one-level subdirectory",
             "root_normalization": _normalize_path_samples(
@@ -785,6 +838,10 @@ def _inspect_image_bytes(
         make_wad_image.assert_free_cluster_budget_count(free_clusters)
     except ValueError as exc:
         raise StorageBoundaryError(str(exc)) from exc
+    try:
+        cluster_accounting = make_wad_image.fat16_allocation_accounting(fs)
+    except ValueError as exc:
+        raise StorageBoundaryError(str(exc)) from exc
 
     root_entries = []
     for meta in fs.live_root_entries():
@@ -894,6 +951,7 @@ def _inspect_image_bytes(
             ),
             "kernel_syscall_max_file_depth": 2,
         },
+        "cluster_accounting": cluster_accounting,
         "required_writable_root_entries": list(required_writable),
         "packaged_assets": packaged_assets,
         "filesystem_entries": filesystem_entries,
