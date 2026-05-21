@@ -160,12 +160,11 @@ When the cached save request is present, the port enters the original
 `G_SaveGame()` path as soon as Doom has a live level/player. Original Doom's
 `G_SaveGame()` only queues `sendsave`; the port leaves that queue intact so the
 original `G_BuildTiccmd()` and `G_Ticker()` path turns it into
-`ga_savegame` and drains `G_DoSaveGame()` on the normal Doom ticker schedule.
-The port reports the request before the queued tic and reports completion only
-after the original path clears the save description. That keeps the cloud proof
-able to distinguish a missing marker from a serializer/storage stall while
-capturing the real Doom serializer at the same lifecycle boundary a menu save
-would use.
+`ga_savegame`. The port then drains `G_DoSaveGame()` immediately after original
+`G_Ticker()` promotes that action, while the original save description is still
+present. That avoids re-processing the same queued save command on the next
+tick as a `NET GAME` save while still capturing the real Doom serializer after
+the original input/gameaction lifecycle has accepted the save.
 
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,

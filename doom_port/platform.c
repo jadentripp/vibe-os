@@ -30,6 +30,7 @@ extern char savedescription[32];
 void doom_original_G_BuildTiccmd(ticcmd_t* cmd);
 void doom_original_G_Ticker(void);
 void G_SaveGame(int slot, char* description);
+void G_DoSaveGame(void);
 void G_LoadGame(char* name);
 
 static byte doom_zone[8 * 1024 * 1024];
@@ -777,9 +778,9 @@ void G_Ticker(void)
 
     if (save_checkpoint_started
         && !save_checkpoint_done
-        && !sendsave
-        && !savedescription[0]
-        && gameaction == ga_nothing) {
+        && gameaction == ga_savegame
+        && savedescription[0]) {
+        G_DoSaveGame();
         save_checkpoint_done = 1;
         report_save_action_status();
     }
