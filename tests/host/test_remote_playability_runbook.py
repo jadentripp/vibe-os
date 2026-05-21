@@ -136,7 +136,7 @@ def valid_status(**overrides):
         "abiargc": "00000001",
         "abiargvsrc": "00000002",
         "abiprobe": "OK",
-        "abiflags": "0000001F",
+        "abiflags": "0000003F",
         "entry": "01000000",
         "stack": "01FFFFE0",
         "argc": "00000001",

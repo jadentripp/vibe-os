@@ -74,7 +74,7 @@ def status_line(**overrides):
         "abiargc": "00000001",
         "abiargvsrc": "00000002",
         "abiprobe": "OK",
-        "abiflags": "0000001F",
+        "abiflags": "0000003F",
         "doom": "OK",
         "execsys": "00000002/00000002/00000000/00000002/00000002/00000000",
         "execerr": "00000000",
