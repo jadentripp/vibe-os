@@ -8,36 +8,24 @@ input through the same PS/2 device paths a human would use, Doom consumes those
 events through the generic input queue, and the kernel exports
 compact counters and state deltas from Doom.
 
-This file describes the required green path. A scripted green run is not by itself a claim that the current branch is human-playable.
-Save persistence is not green yet. The latest persistence run, `26199297160` on
-`ed4d00f`, boots the kernel, reaches the real-WAD playability checks, writes and
-reads a full `DOOMSAV0.DSG` payload of `25718` bytes, and then exits during the
-rebooted load with `Unknown tclass 112 in savegame`. The current diagnostic
-fields, `savestm=` and `savethk=`, show the save/load thinker boundary agrees at
-`0x2A64`; treat the specials-stream load failure as the active blocker, not as a
-playable-save claim. Exact proof must rerun after doc, workflow, checker,
-kernel, or runtime changes.
-Cloud triage now separates persistence failures into short-write,
-malformed-stream, and load-not-completed lanes. For this latest signature, expect
-`tools/triage_cloud_status.py` to choose `persistence-load-malformed-stream`
-when `savestm=00000017/.../00000070/...` and `doomerr`/`doomrun=EXIT` show the
-original Doom load rejected the specials stream.
-The latest known green **gameplay/audio** evidence before those changes is
-manual **Real WAD smoke** run `26170007704` on commit `a2714a6`: its real-WAD,
-scripted human-playability, scripted gameplay transition, VM/process, SB16
-continuity, mouse turn proof, and audible aggregate manifest steps passed.
-Manual **Real WAD smoke** run `26170007795` on the same commit also passed those
-first-boot gates, but its overall conclusion was red because the opt-in reboot
-persistence step failed, so it must not be cited as a green persistence proof.
-The gameplay/audio proof lane is now explicitly validated as its own bundle with
-`gameplay-proof.json` and, when requested, `audio-proof.json`, before any
-persistence step runs.
-Persistence/save-load is deliberately separate; it needs its own matching green
-opt-in persistence run before being claimed. Current save-slot proof must include
-the first boot's decoded `--save-write-status` runtime gate plus the rebooted
-image comparison and `--load-status` evidence that Doom read the full
-`DOOMSAV*.DSG` payload back into gameplay, so changed save bytes alone do not
-count. A human-facing playable claim still needs
+This file describes the required green path. A scripted green run is not by itself a claim that the current branch is human-playable, and it is not enough without the reviewed remote VNC bundle.
+Persistence/save-load is now green on the current cloud proof path. Manual
+**Real WAD smoke** run `26203744974` on `f9a688e` booted the validated shareware
+WAD, passed real-WAD gameplay, scripted human-playability, scripted gameplay
+transition, VM/process, SB16 continuity, artifact hygiene, and status triage,
+then wrote `DOOMSAV0.DSG` at `25718` bytes, rebooted the same disk image, read
+the save payload back, closed it, and returned to gameplay. The downloaded
+artifact triages as `persistence-proof-green`, with `first-boot`,
+`save-write`, `reboot-load`, and `manifest/status` all passing.
+
+Cloud triage still separates persistence failures into short-write,
+malformed-stream, load-not-completed, checker/artifact mismatch, and green
+write/load lanes. The older `Unknown tclass 112 in savegame` failure remains
+historical repair context, not the current blocker. Current save-slot proof must
+include the first boot's decoded save-write runtime gate plus the rebooted image
+comparison and `--load-status` evidence that Doom read the full `DOOMSAV*.DSG`
+payload back into gameplay, so changed save bytes alone do not count. A
+human-facing playable claim still needs
 a recorded remote VNC playtest bundle from `docs/runbooks/remote-doom-playtest.md`, with
 structured `human-playtest-notes-v2` notes, required operator confirmations,
 per-phase status SHA-256 fields, a phase-by-phase

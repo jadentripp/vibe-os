@@ -33,15 +33,11 @@ controls worked well enough to play, though a 2-core Codespace slowed down over
 time. The launcher now warns about that target, prints cleanup commands, and
 keeps QEMU off the laptop.
 
-The cloud proof is green for first-boot gameplay and audio: the OS reaches E1M1
-with real `DOOM1.WAD`, accepts input, keeps Doom running as a Ring 3 process,
-and exercises the SB16/audio path. That is the current "you can boot and play
-Doom in the cloud" claim.
-
-Save/load is the big remaining playability hole. The OS can write and reread a
-`DOOMSAV*.DSG` payload, but reboot load has not yet earned a green persistence
-proof. Persistence/save-load should only be claimed after a cloud run proves the
-save survives reboot and loads back into gameplay.
+The cloud proof is green for first-boot gameplay, SB16/audio continuity, and
+save/load persistence: the OS reaches E1M1 with real `DOOM1.WAD`, accepts input,
+keeps Doom running as a Ring 3 process, writes `DOOMSAV*.DSG`, reboots the same
+disk image, and loads the save back into gameplay. That is the current "you can
+boot, play, save, reboot, and load Doom in the cloud" claim.
 
 Detailed evidence, historical failures, and exact proof artifacts live in
 `docs/post-checkpoint-gaps.md` and `docs/playable-cloud-proof.md` rather than
@@ -119,10 +115,11 @@ python3 tools/run_cloud_playability.py --repo jadentripp/vibe-os --ref main \
 
 ## Claim Boundaries
 
-Do not call vibe-os a finished Doom-capable OS until `main` has a green
-real-WAD gameplay run, a green save/load persistence reboot run, and a reviewed
+Do not call vibe-os a finished Doom-capable OS until `main` has green scripted
+real-WAD gameplay, green save/load persistence reboot proof, and a reviewed
 remote human noVNC session where keyboard and mouse actions visibly affect
-gameplay.
+gameplay. The scripted cloud gates are green; the formal human playtest bundle
+is still the remaining user-facing proof.
 
 Generated IWAD-shaped fixtures are useful for public CI, but they do not count
 as a real Doom proof. Checked-in WAD files, disk images, framebuffer dumps, and

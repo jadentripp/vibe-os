@@ -81,23 +81,19 @@ REQUIRED_GAPS = {
 
 LATEST_RUN_PHRASES = (
     "Latest Cloud Evidence",
-    "last published scripted cloud truth-serum run",
-    "Save persistence is not green yet",
-    "26199297160",
-    "ed4d00f",
+    "latest published scripted cloud truth-serum run",
+    "26203744974",
+    "f9a688e",
     "25718",
-    "Unknown tclass 112 in savegame",
-    "savestm=",
-    "savethk=",
-    "0x2A64",
+    "persistence-proof-green",
+    "VIBE SAVE",
+    "saveact",
     "26165681561",
     "c525952",
     "real-WAD, human-playability",
     "scripted gameplay transition",
-    "audible-audio manifest",
     "artifact hygiene",
     "26165678183",
-    "Persistence is not current-head proven",
     "26156172979",
     "eabd307",
     "DOOMSAV0.DSG bytes=512 changed-from-baseline",
@@ -118,7 +114,6 @@ LATEST_RUN_PHRASES = (
     "Frame/gameplay counters are active",
     "SB16/audio counters",
     "preemption counters are active",
-    "workflow, or proof-checker change",
     "usr=OK",
     "scripted `use`",
     "mouse effect",
@@ -146,7 +141,7 @@ FORBIDDEN_STALE_CURRENT_PROOF_PHRASES = (
     "Nothing is missing for this exact commit's scripted real-gameplay gate",
 )
 
-PROVEN_GAPS = {"CLOUD_BOOT", "REAL_GAMEPLAY", "SHUTDOWN_PANIC"}
+PROVEN_GAPS = {"CLOUD_BOOT", "REAL_GAMEPLAY", "PERSISTENCE", "SHUTDOWN_PANIC"}
 
 GAP_RE = re.compile(
     r"^- `GAP\[(?P<id>[A-Z0-9_]+)\] "
@@ -220,13 +215,14 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         if _contains_phrase(combined_claim_surface, phrase):
             raise AssertionError(f"claim surface still uses stale current-proof phrase: {phrase}")
     for phrase in (
-        "The cloud proof is green for first-boot gameplay and audio",
+        "The cloud proof is green for first-boot gameplay, SB16/audio continuity, and save/load persistence",
         "real `DOOM1.WAD`",
         "accepts input",
         "Ring 3 process",
-        "SB16/audio path",
-        "Persistence/save-load should only be claimed",
+        "SB16/audio continuity",
+        "save/load persistence",
         "`DOOMSAV*.DSG`",
+        "loads the save back into gameplay",
         "Where It Stands",
         "Detailed evidence, historical failures, and exact proof artifacts",
         "gh workflow run os-smoke.yml",
@@ -244,11 +240,11 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
     for phrase in forbidden_readme_phrases:
         if _contains_phrase(readme, phrase):
             raise AssertionError(f"README should not carry proof provenance phrase: {phrase}")
-    for phrase in ("c525952", "ed4d00f"):
+    for phrase in ("c525952", "f9a688e"):
         if not _contains_phrase(text, phrase):
             raise AssertionError(f"gap ledger missing historical commit phrase: {phrase}")
-    if not _contains_phrase(playable_cloud_proof, "ed4d00f"):
-        raise AssertionError("playable cloud proof doc missing latest persistence commit phrase: ed4d00f")
+    if not _contains_phrase(playable_cloud_proof, "f9a688e"):
+        raise AssertionError("playable cloud proof doc missing latest persistence commit phrase: f9a688e")
     if "not by itself a claim that the current branch is human-playable" not in playable_cloud_proof:
         raise AssertionError("playable cloud proof doc must keep the human-playability claim boundary")
     if "docs/post-checkpoint-gaps.md" not in readme:

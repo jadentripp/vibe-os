@@ -245,6 +245,35 @@ class PersistenceArtifactTriageTests(unittest.TestCase):
         self.assertIn("sha256 mismatch", rendered)
         self.assertIn("artifact/checker evidence is inconsistent", result.interpretation)
 
+    def test_save_write_input_no_effect_is_green_when_save_write_is_proven(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_green_package(artifact)
+            (artifact / "status.persistence-write.txt").write_text(
+                status_line(
+                    pflags="00000023",
+                    keyseen="00000001",
+                    pdelta="00000000",
+                    pangledelta="00000000",
+                    mousepkt="00000000",
+                    doomsav="0000000D/00000000",
+                    savewr="00006476/00000001",
+                    saveclose="00000001",
+                    savemode="00000301:000001B6",
+                    savedesc="00000009/0A118936",
+                ),
+                encoding="utf-8",
+            )
+            write_manifest(artifact)
+
+            result = triage_persistence_artifacts.triage_artifact_dir(artifact)
+            rendered = triage_persistence_artifacts.render_report(result)
+
+        self.assertEqual(result.overall, "persistence-proof-green")
+        self.assertEqual(result.phase("save-write").state, "pass")
+        self.assertEqual(result.phase("save-write").classification, "persistence-save-write-green")
+        self.assertIn("persistence triage only requires nonzero DOOMSAV write/close", rendered)
+
     def test_load_phase_save_write_zero_does_not_become_save_write_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             artifact = Path(tmp)

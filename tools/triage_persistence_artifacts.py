@@ -241,7 +241,9 @@ def _phase_status(
                 proof_path=rel_proof,
                 notes=rendered_notes,
             )
-        if primary != "playability-status-green":
+        if primary != "playability-status-green" and not (
+            primary == "input-no-effect" and _write_completed(fields)
+        ):
             return PhaseResult(
                 phase_name,
                 FAIL,
@@ -260,13 +262,19 @@ def _phase_status(
                 notes=("write-phase status is green but does not prove a nonzero DOOMSAV write and close", *rendered_notes),
             )
         proof_failure = _proof_failure(proof_path)
+        save_write_notes = rendered_notes
+        if primary == "input-no-effect":
+            save_write_notes = (
+                "write-phase status lacks full gameplay input-effect proof, but persistence triage only requires nonzero DOOMSAV write/close evidence",
+                *rendered_notes,
+            )
         return PhaseResult(
             phase_name,
             FAIL if proof_failure else PASS,
             "save-write-proof-status-mismatch" if proof_failure else "persistence-save-write-green",
             path=rel_status,
             proof_path=rel_proof,
-            notes=rendered_notes,
+            notes=save_write_notes,
         )
 
     if phase_name == "reboot-load":

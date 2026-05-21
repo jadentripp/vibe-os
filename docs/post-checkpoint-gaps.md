@@ -25,23 +25,22 @@ them so README and runbook wording cannot quietly drift into overclaiming.
 
 ## Latest Cloud Evidence
 
-As of 2026-05-21, manual run `26199297160` on commit `ed4d00f` is the last
+As of 2026-05-21, manual run `26203744974` on commit `f9a688e` is the latest
 published scripted cloud truth-serum run for the pushed branch. Its first boot
 passes the real-WAD, human-playability, scripted gameplay transition,
-VM/process, SB16/audio-continuity, audible-audio manifest, artifact hygiene,
-and status-triage gates.
-Save persistence is not green yet: the reboot/load phase writes and rereads a
-full `DOOMSAV0.DSG` payload of `25718` bytes, then exits inside original Doom
-with `Unknown tclass 112 in savegame`. The new `savestm=` and `savethk=`
-diagnostics show the save/load thinker boundary agrees at `0x2A64`; the active
-failure is now around the specials stream, not the older short-write FAT save
-growth bug. This is real scripted cloud evidence for the current runtime, but it
-is not a human-facing Doom-capable proof by itself. Persistence is not
-current-head proven. Any doc, kernel, runtime,
-workflow, or proof-checker change must rerun the gates before becoming the next
-claimed proof point. The project still needs a green save/load persistence proof,
-the remote human playtest, and the remaining hard-mode architecture gaps below
-before README or release notes should say "you can play Doom on vibe-os" without
+VM/process, SB16/audio-continuity, artifact hygiene, and status-triage gates.
+The same run passes save/load persistence: the write proof reports
+`DOOMSAV0.DSG bytes=25718 changed-from-baseline description='VIBE SAVE'
+version='version 110' leveltime=33`, then the reboot/load proof reads the same
+save payload, closes it, records `saveact` load-done, and returns to
+`gameplay=OK`. `tools/triage_persistence_artifacts.py` classifies the downloaded
+artifact as `persistence-proof-green`, with `first-boot`, `save-write`,
+`reboot-load`, and `manifest/status` all passing.
+
+This is real scripted cloud evidence for the current runtime, but it is not a
+human-facing Doom-capable proof by itself. The project still needs the formal
+remote human playtest bundle and the remaining hard-mode architecture gaps below
+before README or release notes should say "finished Doom-capable OS" without
 caveats.
 
 Historical repair context: run `26196214650` on `2788c00` reached the real-WAD
@@ -242,7 +241,7 @@ Executable gate:
   post-download verification line must match the remote pre-download
   verification line before the human packet counts as evidence.
 
-- `GAP[PERSISTENCE] status=open category=persistence gate=reboot-persistence-proof evidence=needs-current-real-wad-persistence-run`
+- `GAP[PERSISTENCE] status=proven category=persistence gate=reboot-persistence-proof evidence=real-wad-smoke-26203744974`
 
 Current state:
 
@@ -317,12 +316,10 @@ Current state:
 
 Still missing:
 
-- Current-head persistence is not proven. The latest current-head real-WAD proof
-  is run `26165681561` on commit `c525952`, and it intentionally skipped the
-  opt-in persistence path. A new green cloud run with either
-  `persistence_proof=true` or `persistence_save_slot=N` must prove `DEFAULT.CFG`
-  or a matching `DOOMSAVN.DSG` save-slot plus full save/load gameplay before
-  the current branch can claim save/load persistence.
+- This proof is cloud-runner scoped and status-driven. It proves the generated
+  FAT16 disk image can persist a Doom save across reboot and load it back into
+  gameplay in the disposable QEMU target; it is not a general install/recovery
+  story for arbitrary disks.
 - The writable FAT path is now a general root-level 8.3 VFS/FAT layer with
   descriptor truncation, signed seek offsets, sparse-write zero filling, and
   generic dynamic root entries. It is still not full POSIX: no writable
