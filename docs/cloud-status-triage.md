@@ -59,6 +59,23 @@ save-slot write, inspect `status.persistence-write.status.save-slot-0.txt` and
 its matching `.triage.txt` first; those files are allowed diagnostics, not proof
 relaxations.
 
+For a downloaded persistence package, run the host-only artifact triage before
+chasing kernel/FAT code:
+
+```sh
+python3 tools/triage_persistence_artifacts.py build/cloud-run-fa06111-persistence
+```
+
+The helper only reads status/proof text and `gameplay-proof.json`; it does not
+require WADs, disk images, screenshots, pixels, or audio. It reports four lanes:
+`first-boot`, `save-write`, `reboot-load`, and `manifest/status`. A
+`manifest-status-mismatch` or incomplete-artifact result points at checker or
+upload evidence drift. A `persistence-save-*` result points at the first
+save/write boot. A `persistence-load-*` result points at the reboot/load boot.
+Importantly, the load lane ignores `savewr=00000000/00000000` for save-write
+triage: a pure reboot-load phase can have zero write counters while still
+showing a real load failure through `saverd`, `saveclose`, and `saveact`.
+
 Run the local classifier on the final status line:
 
 ```sh
