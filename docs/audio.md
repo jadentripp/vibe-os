@@ -279,6 +279,14 @@ observable progress; stalls point at guest progress, audio cadence, or audio
 pressure separately.
 In checker output and manifests, this OS audio cadence summary is an aggregate
 status-only diagnostic.
+The same status-only OS audio contract is now named directly in the audible
+manifest as `os_audio_contract`. It is deliberately generic: `adev=` proves a
+ready device and capabilities, `pcm=` proves sample format, `pcmbuf=` proves the
+ring geometry and active half, `half=` is the IRQ phase that must agree with the
+ring snapshot, `musicpull=` / `musicbuf=` / `musicpos=` prove stream service,
+and `voices=` / `sfxvoices=` / `musicvoices=` keep mixer lane accounting
+separate. This is the reusable device/ring/stream/mixer status contract; Doom is
+the first caller, not the shape of the ABI.
 It also requires `musicrend=` renderer provenance to show MUS/MIDI format,
 rendered chunks, note events, total render events, active renderer voice peak,
 and emitted samples; a music flag plus carrier PCM cannot satisfy that lane.
@@ -314,6 +322,7 @@ Remote-safe continuity proof:
 `audio=SB16` in every snapshot, `adev=` to identify a ready generic SB16 audio
 device with PCM-ring/mixer/pull-stream/SB16-DMA capabilities, `pcm=` to expose
 unsigned 8-bit stereo at 11025 Hz, `pcmbuf=` to expose the two-period PCM ring,
+`pcmbuf=` active-half status to match the IRQ `half=` field,
 a nonzero `sb16=` DSP version, nonzero `dma=`
 programming and `play=` start counters, nonzero `voiceq=` and `musicq=` queue
 counters, nonzero `sfxq=`, `sfxbytes=`, `sfxdma=`, `sfxsrc=`, and `sfxlast=`
@@ -368,7 +377,10 @@ flat or while `sfxdma=` fails to advance through the IRQ refill path, and its
 continuity summary now records separate `mix_lanes` deltas for non-music SFX,
 music, stream updates, music position, and shared SB16 IRQ/refill progress plus
 a `stream_health` object with buffer floor/peak/final values, under/drop deltas,
-and position-per-update metadata. It also records
+and position-per-update metadata. It also records an `os_audio_contract` object
+for the status-only OS audio subsystem lane: device capability readiness,
+two-period PCM ring coherence, `pcmbuf=` / `half=` phase agreement, ordered
+pull-refill stream service, and SFX/music mixer lane separation. It also records
 `stream_contract` metadata that records `musicstream=PULL`, the reusable
 device/ring/stream/mixer OS audio surfaces, `playability_cadence` metadata when
 the status snapshots include tic/frame counters, `mixer_safety` thresholds for
@@ -376,9 +388,10 @@ clip-free, underrun-free, and
 drop-free playback, plus a scripted fire-phase proof so a manifest cannot pass
 on carrier or music activity alone.
 New manifests also include a `proof_contracts` block that names the lanes as
-OS-level contracts: aggregate machine-audible output, human-listened quality,
-music legitimacy, and future hardware-paced mixer/refill playback. The aggregate
-lane proves non-silent remote QEMU output plus SB16 continuity only.
+OS-level contracts: status-only OS audio subsystem, aggregate machine-audible
+output, human-listened quality, music legitimacy, and future hardware-paced
+mixer/refill playback. The aggregate lane proves non-silent remote QEMU output
+plus SB16 continuity only.
 human-listened quality is a separate lane that needs remote audio forwarding and
 listener notes, without uploading captured Doom audio. The future hardware-paced
 mixer/refill playback ABI is also a separate lane: the current path proves SB16
@@ -404,9 +417,17 @@ sustain, pitch bend, percussion mapping, active notes, and peak voice use,
 schedules MUS/MIDI delays, and renders deterministic unsigned 8-bit PCM with a
 small integer square/noise synth. The renderer is deliberately freestanding: it
 does not call host MIDI, audio, math, or operating-system libraries.
+The parser supports Standard MIDI format 0 and MUS parser behavior including
+MUS event type 6 score-end handling, rejection of the old event type 5 shortcut,
+unterminated MUS variable-length delays, grouped MUS events, pitch bend, program
+changes, pan, expression, sustain, program changes, larger streamed chunks,
+non-looping songs stop at their parsed song end, and zero-duration songs do not
+become silent looping streams.
+The exact host contract phrase is: zero-duration songs do not become silent looping streams.
 
 `I_RegisterSong` stores the cached WAD lump pointer, and `I_PlaySong` now starts
 a port-owned stateful stream cursor instead of rendering one permanent carrier.
+The first chunk render is deferred to the normal tic/frame/sound update pump.
 The platform layer renders 32768-byte streamed music chunks from the current
 song position and submits the first chunk through `VIBE_AUDIO_MIXER_START`; later
 Doom sound, tic, and frame hooks poll `VIBE_AUDIO_PCM_PULL_STATE` and call
@@ -420,15 +441,47 @@ smoke status.
 `musicstream=PULL` and advancing `musicpull=` counters make the current
 request-driven status explicit; `tools/check_audio_continuity_proof.py
 --require-pull-stream` is the host-only contract that rejects stale pushed-only
-proofs. This still does not mean the kernel parses MUS/MIDI itself.
+proofs. This stays separate from normal Doom SFX and still does not mean the
+kernel parses MUS/MIDI itself.
 Runtime music volume updates feed `vibe_music_stream_set_volume`, so new chunks
 use Doom's latest music volume without restarting the song cursor.
 Looping songs measure one parsed song pass and wrap only the renderer's
 internal start point, keeping the public stream cursor cumulative for long
 playback while avoiding the old bounded loop-pass failure.
 The kernel can later grow a first-class pull/refill command without changing the
-MUS/MIDI parser or Doom's original sources. See `docs/doom-music.md` for the
-full pipeline and fallback design.
+MUS/MIDI parser or Doom's original sources. The music pipeline, fallback design,
+and proof boundaries live in this audio contract rather than a separate music
+note.
+
+Music legitimacy roadmap as OS contracts:
+
+- Current parser legitimacy: `musicrend=` records MUS/MIDI format, render
+  chunks, note events, total render events, active renderer voice peak, and
+  emitted samples from `doom_port/music.c`, which rejects a music-flagged
+  carrier tone while leaving MUS/MIDI parsing in the port.
+- Current stream legitimacy: `VIBE_AUDIO_STREAM_INFO`, `musicstream=PULL`,
+  `musicpull=`, `musicpos=`, and changing `musicbuf=` prove the SB16 refill
+  path paced user-space chunk service and that the kernel mixer consumed those
+  chunks over time.
+- Current OS audio subsystem legitimacy: `os_audio_contract` proves generic
+  device/ring/stream/mixer status coherence from `adev=`, `pcm=`, `pcmbuf=`,
+  `half=`, `musicpull=`, `voices=`, `sfxvoices=`, and `musicvoices=` without
+  depending on Doom WAD bytes or captured audio samples.
+- Current audible legitimacy: aggregate `audio-proof.json` can prove
+  machine-audible remote output plus status-only SB16 continuity.
+  Human-listened quality is a separate lane; it still needs remote audio
+  forwarding plus listener notes.
+- Future playback legitimacy: a future hardware-paced mixer/refill playback ABI
+  should move payload service away from `VIBE_AUDIO_MIXER_UPDATE` and into a
+  first-class kernel-owned music ring or mixer/refill stream command while
+  preserving status-only request/refill, renderer provenance, buffer health,
+  and safety counters.
+
+The long-running music streaming contract uses song-position proof and
+long-playback wrap behavior to keep looping music honest over time. Buffered
+coverage is the real stream invariant: rendered samples plus the initial queued
+window must cover consumed `musicpos=` plus the final queued window, so a
+carrier or static stream window cannot pass as parsed music.
 
 Audio quality and music legitimacy roadmap as OS contracts:
 
@@ -436,6 +489,10 @@ Audio quality and music legitimacy roadmap as OS contracts:
   machine-audible output from QEMU's WAV backend, status-only SB16 continuity,
   non-music SFX activity, and parser-backed music counters. It is not a
   human-listened quality pass.
+- Current OS audio subsystem contract: `os_audio_contract` proves generic
+  device/ring/stream/mixer status coherence from `adev=`, `pcm=`, `pcmbuf=`,
+  `half=`, `musicpull=`, `voices=`, `sfxvoices=`, and `musicvoices=` without
+  depending on Doom WAD bytes or captured audio samples.
 - Current music legitimacy contract: `VIBE_AUDIO_STREAM_INFO`,
   `musicstream=PULL`, `musicpull=`, `musicrend=`, `musicpos=`, and
   `musicbuf=` prove the OS-visible pull/refill stream shape while the Doom port

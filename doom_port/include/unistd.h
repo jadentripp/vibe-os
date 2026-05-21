@@ -11,6 +11,8 @@
 
 ssize_t read(int fd, void* buffer, size_t count);
 ssize_t write(int fd, const void* buffer, size_t count);
+ssize_t pread(int fd, void* buffer, size_t count, off_t offset);
+ssize_t pwrite(int fd, const void* buffer, size_t count, off_t offset);
 int close(int fd);
 int dup(int oldfd);
 int dup2(int oldfd, int newfd);

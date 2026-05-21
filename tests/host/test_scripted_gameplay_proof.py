@@ -322,6 +322,28 @@ class ScriptedGameplayProofTests(unittest.TestCase):
             manifest["performance_diagnostics"]["long_run_cadence"]["play_window"]["counters"]["gtic"]["delta"],
             "000000C0",
         )
+        self.assertEqual(
+            manifest["performance_diagnostics"]["long_run_cadence"]["play_window"]["duration"]["approx_seconds_at_35hz"],
+            "5.49",
+        )
+        self.assertEqual(
+            manifest["performance_diagnostics"]["long_run_cadence"]["play_window"]["health"]["input_dropped"],
+            "00000000",
+        )
+        self.assertEqual(
+            manifest["performance_diagnostics"]["long_run_cadence"]["phase_windows"]["use->mouse"]["ratios"]["frames_per_1024_gtic"],
+            "000002AA",
+        )
+        self.assertEqual(
+            manifest["performance_diagnostics"]["long_run_cadence"]["slowdown_triage"]["primary_lane"],
+            "remote-presentation-throughput",
+        )
+        self.assertIn(
+            "4+ CPU",
+            " ".join(
+                manifest["performance_diagnostics"]["long_run_cadence"]["slowdown_triage"]["status_only_next_steps"]
+            ),
+        )
         check_scripted_gameplay_proof.validate_manifest(manifest, snapshots=statuses)
 
     def test_rejects_dirty_start_or_non_cumulative_player_proof(self):
@@ -394,6 +416,11 @@ class ScriptedGameplayProofTests(unittest.TestCase):
         short_window["mouse"] = short_window["mouse"].replace("leveltime=00000140", "leveltime=000000A0")
         with self.assertRaisesRegex(AssertionError, "long-run-window-too-short"):
             check_scripted_gameplay_proof.require_long_run_cadence(short_window)
+        short_manifest = check_scripted_gameplay_proof.build_manifest(short_window)
+        self.assertEqual(
+            short_manifest["performance_diagnostics"]["long_run_cadence"]["slowdown_triage"]["primary_lane"],
+            "cadence-evidence-gap",
+        )
 
         audio_stall = scripted_statuses()
         audio_stall["mouse"] = audio_stall["mouse"].replace("audioirq=00000100", "audioirq=00000040")

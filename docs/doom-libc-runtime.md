@@ -40,10 +40,11 @@ The reusable surface today is:
 - Audio: `SYS_AUDIO` accepts generic `vibe_audio_voice_desc_t` voice commands
   and reports `vibe_audio_device_info_t` / `vibe_audio_pcm_ring_info_t` device
   state. Doom WAD SFX and music parsing remain only one caller of that mixer.
-- Generic file consumers can use `open`, `read`, `write`, `lseek`, `close`,
-  `dup`, `dup2`, `dup3`, `stat`, `fstat`, `unlink`, `ftruncate`, `truncate`,
-  `vibe_listdir`, `vibe_file_size`, and `vibe_file_read_all` against the
-  current FAT16 root model.
+- Generic file consumers can use `open`, `read`, `write`, `lseek`, `pread`,
+  `pwrite`, `close`, `dup`, `dup2`, `dup3`, `stat`, `fstat`, `unlink`,
+  `ftruncate`, `truncate`, `vibe_listdir`, `vibe_file_size`,
+  `vibe_file_read_at`, and `vibe_file_read_all` against the current FAT16 root
+  model.
 - Process code can use `execv`/`execve`, `getpid`, `wait`/`waitpid`, and the
   explicit `fork()` `ENOSYS` result. `argv` is bounded by `VIBE_EXEC_*`, `envp`
   is empty, and descriptors inherit across exec unless opened with
@@ -97,6 +98,73 @@ process growth, reusable file-backed VM objects, direct RGB presents, larger
 present sources, and audio formats beyond the current unsigned 8-bit stereo
 mixer path.
 
+## Input And Framebuffer ABI
+
+The Doom port uses the same public input and framebuffer ABI that future games
+should use. These contracts are OS surfaces, not private Doom hooks.
+
+Input Generic ABI:
+
+- `SYS_POLL_INPUT` writes one `vibe_input_event_t` to the supplied user pointer
+  and returns `1` when an event was copied or `0` when the queue is empty.
+- `VIBE_SYS_INPUT_STATUS` writes one `vibe_input_status_t` without consuming
+  queued events.
+- Keyboard events carry device id `1`, type `VIBE_INPUT_EVENT_KEY`, a key code,
+  and pressed/released state. The current key-code set is Doom-compatible
+  because Doom is the first caller, but the queue contract is
+  not Doom-specific.
+- Mouse packet events carry device id `2`, type
+  `VIBE_INPUT_EVENT_MOUSE_PACKET`, PS/2 button bits, and signed relative X/Y
+  deltas. Button remapping belongs in the consuming port.
+- Public helpers such as `vibe_input_make_key_event()` and
+  `vibe_input_make_mouse_packet_event()` mean future games can construct or
+  replay typed events without depending on Doom's translation helpers.
+  In short: future games can construct or replay typed events through the same
+  ABI without linking Doom input code.
+- Queue overflow is overwrite-oldest with a visible `dropped_events` counter,
+  so programs that need lossless input can check `vibe_input_status_t`.
+- Public headers pin the input ABI as `VIBE_INPUT_EVENT_BYTES == 28`,
+  `VIBE_INPUT_STATUS_BYTES == 112`, `VIBE_INPUT_EVENT_VALUE_COUNT`, and
+  `VIBE_INPUT_KEY_STATE_BITS`. `vibe_input_key_is_pressed()`,
+  `vibe_input_key_is_released()`, `vibe_input_mouse_button_is_supported()`,
+  `vibe_input_mouse_button_is_down()`, `vibe_input_mouse_delta()`,
+  `vibe_input_mouse_has_motion()`, `vibe_input_status_abi_is_current()`,
+  `vibe_input_status_mouse_button_is_down()`, and
+  `vibe_input_status_mouse_delta()` are generic helpers over the same
+  `vibe_input_status_t`.
+- Mouse constants include `VIBE_INPUT_MOUSE_AXIS_X`, `VIBE_INPUT_MOUSE_AXIS_Y`,
+  and `VIBE_INPUT_MOUSE_BUTTON_MASK`. Raw PS/2 button order is preserved.
+  Game-specific
+  button remapping belongs in the consuming port.
+- The input status record exposes `keyboard_down_count`, `keyboard_state`, and
+  `mouse_buttons` as generic state snapshots.
+- The PS/2 auxiliary device path feeds this same `SYS_POLL_INPUT` queue.
+
+The framebuffer contract is intentionally split into three reusable layers:
+
+- Physical framebuffer discovery from boot info, with current public backend
+  values `VIBE_FB_BACKEND_MODE13` and `VIBE_FB_BACKEND_LFB_XRGB8888`.
+- Indexed present source descriptors through `VIBE_IOCTL_PRESENT_INDEXED`, with
+  the current accepted format `VIBE_FB_FORMAT_INDEX8_RGB24`.
+- Kernel presentation policy through `VIBE_IOCTL_FBINFO`, including backend,
+  pitch, capabilities, viewport geometry, fixed present size, and dirty source
+  bounds.
+
+The `vibe_fb_info_t` layout is stable and generic enough for future indexed
+games: clients should key off `present_format`, `max_present_width`,
+`max_present_height`, and `capabilities` instead of assuming Doom. Current
+graphics proof stays status-only through fields such as `fb`, `fbpolicy`,
+`fbgeom`, `fbdirty`, `doompresent`, `doompal`, and `doomframe`; real-WAD cloud
+runs do not upload rendered pixels.
+
+If VBE discovery or mode set fails, Stage 2 falls back to VGA Mode 13h. The only accepted source today is Doom's 320x200 index8 frame, and
+`VIBE_FB_CAP_FIXED_PRESENT_SIZE` means callers must present exactly
+`max_present_width` by `max_present_height`. The info record keeps source aspect width/height,
+pixel aspect metadata, and Dirty source bounds in
+source-frame coordinates, not target pixels. `vibe_present_indexed_checked`
+validates the descriptor before the ioctl. Future indexed backends can clear that bit and treat
+the advertised dimensions as true maxima.
+
 ## General-OS Gap Contract
 
 The port intentionally separates "present and reusable" from "not implemented
@@ -139,7 +207,8 @@ small non-Doom user programs and freestanding tools. They do not try to be libc
 and they do not depend on Doom port hooks. The layer owns the raw `int 0x80` call stub, centralizes the
 same `-errno` / legacy `-1` conversion rule as the Doom libc shim, and exposes
 minimal wrappers for the crt0-launched tool shape: write a complete string,
-read `getpid`, duplicate descriptors with `dup`/`dup2`/`dup3`, query the
+read descriptors, seek descriptors, perform lseek-backed positioned reads,
+query `getpid`, duplicate descriptors with `dup`/`dup2`/`dup3`, query the
 monotonic clock, list a root directory, `execv` another root `.ELF`, and report
 a probe status word.
 
@@ -207,11 +276,15 @@ supports precision-limited strings, and accepts the C89 `l` integer modifier.
 It intentionally does not claim floating-point, locale, left-alignment, or the
 full POSIX flag matrix.
 
-Small non-Doom tools can also use `vibe_file_size` and `vibe_file_read_all` for
-bounded whole-file reads. These helpers are still descriptor-backed and report
-normal `errno` values: directories are rejected as `EISDIR`, undersized caller
-buffers return `ENOSPC` after reporting the needed size, and kernel-classified
-file failures preserve the underlying errno.
+Small non-Doom tools can also use `vibe_file_size` and `vibe_file_read_all`,
+plus `vibe_file_read_at`, for bounded asset reads. These helpers are still
+descriptor-backed and report normal `errno` values: directories are rejected as
+`EISDIR`, undersized whole-file caller buffers return `ENOSPC` after reporting
+the needed size, and kernel-classified file failures preserve the underlying
+errno. `pread()` and `pwrite()` are implemented in libc with `lseek()`/I/O/
+restore sequencing, so single-threaded game ports can read WAD/PAK-style
+directory tables and lumps at fixed offsets without permanently moving the
+descriptor position. They are not an atomic kernel primitive yet.
 
 ## Memory, Device, And Process ABI
 

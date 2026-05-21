@@ -150,7 +150,7 @@ class DoomMusicTests(unittest.TestCase):
                 self.assertIn(token, music_c)
 
     def test_music_docs_describe_architecture_and_fallbacks(self):
-        music_doc = (ROOT / "docs" / "doom-music.md").read_text()
+        music_doc = (ROOT / "docs" / "audio.md").read_text()
 
         for token in (
             "MUS parser",

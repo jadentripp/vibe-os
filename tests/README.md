@@ -172,7 +172,7 @@ boot:
   must stay out of the current Makefile image path until a separate opt-in UEFI
   build exists.
 - `tools/check_storage_install_boundary.py` parses
-  `docs/storage-install-boundary.md` so generated-image persistence proof cannot
+  `docs/persistent-fat16.md` so generated-image persistence proof cannot
   drift into an installable-OS claim. With `--image build/disk.img --json`, it
   emits an `install-image-manifest` covering the repo MBR, raw boot/kernel
   regions, FAT16 BPB, root-entry inventory, FAT-copy agreement, and cluster

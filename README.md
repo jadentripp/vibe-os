@@ -85,7 +85,7 @@ The storage claim is also bounded. The OS mutates and reboots the repo-generated
 FAT16 disk image in disposable cloud QEMU, but vibe-os is not an installable OS
 for arbitrary disks. It does not partition blank media, discover unknown
 existing partitions, or recover damaged user disks. See
-`docs/storage-install-boundary.md` for the exact install and recovery boundary.
+`docs/persistent-fat16.md` for the exact install and recovery boundary.
 
 ## Project Shape
 
@@ -107,8 +107,8 @@ FAT16 partition containing `DOOM1.WAD`, `USERPROB.ELF`, `ABIPROBE.ELF`,
 - `docs/runbooks/remote-doom-playtest.md` covers reviewed human sessions.
 - `docs/doom-provenance.md` documents source and WAD boundaries.
 - `docs/process-exec.md` covers the ABI-probe exec chain.
-- `docs/persistent-fat16.md` covers save/load and FAT behavior.
-- `docs/storage-install-boundary.md` keeps install/recovery claims bounded.
+- `docs/persistent-fat16.md` covers save/load, FAT behavior, and storage
+  install/recovery boundaries.
 - `docs/audio.md` covers SB16/SFX/music evidence.
 - `docs/hardware-support.md` keeps hardware and PCI table claims honest.
 - `docs/boot-loader-vm.md` covers the BIOS boot, loader, and VM contract.

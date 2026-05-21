@@ -215,6 +215,158 @@ else
 fi
 
 echo
+echo "status cadence summary (safe serial-log subset):"
+if [ -s "\$serial_log" ]; then
+  python3 - "\$serial_log" <<'PY_DIAGNOSTICS' || true
+import re
+import sys
+from pathlib import Path
+
+STATUS_FIELD_RE = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
+HEX8_RE = re.compile(r"^[0-9A-Fa-f]{8}$")
+COUNTERS = (
+    "gtic",
+    "leveltime",
+    "doompresent",
+    "dtick",
+    "preempt",
+    "pirq",
+    "pattempt",
+    "pskip",
+    "puser",
+    "inputqueue",
+    "inputpoll",
+    "audioirq",
+    "refill",
+    "musicpos",
+    "mixunder",
+    "musicunder",
+    "musicdrops",
+)
+
+
+def parse_fields(line):
+    fields = {}
+    for match in STATUS_FIELD_RE.finditer(line):
+        fields.setdefault(match.group(1), match.group(2))
+    return fields
+
+
+def hex_value(fields, name):
+    value = fields.get(name)
+    if value is None or not HEX8_RE.fullmatch(value):
+        return None
+    return int(value, 16)
+
+
+def tuple_hex(fields, name, parts):
+    raw = fields.get(name)
+    if raw is None:
+        return None
+    chunks = raw.split(":")
+    if len(chunks) != parts or any(not HEX8_RE.fullmatch(chunk) for chunk in chunks):
+        return None
+    return tuple(int(chunk, 16) for chunk in chunks)
+
+
+def fmt_hex(value):
+    return f"{value & 0xFFFFFFFF:08X}"
+
+
+def fmt_delta(value):
+    if value is None:
+        return "<missing>"
+    if value < 0:
+        return f"-{abs(value):08X}"
+    return fmt_hex(value)
+
+
+def counter_line(name, first, final):
+    start = hex_value(first, name)
+    end = hex_value(final, name)
+    if start is None or end is None:
+        return f"{name}: <missing>"
+    return f"{name}: first={fmt_hex(start)} final={fmt_hex(end)} delta={fmt_delta(end - start)}"
+
+
+path = Path(sys.argv[1])
+lines = path.read_text(errors="replace").splitlines()
+samples = []
+for line in lines:
+    fields = parse_fields(line)
+    if "gtic" in fields and "leveltime" in fields:
+        samples.append(fields)
+
+if len(samples) < 2:
+    print("cadence: not enough status samples yet")
+    raise SystemExit(0)
+
+first = samples[0]
+final = samples[-1]
+print(f"samples: {len(samples)}")
+for name in COUNTERS:
+    print(counter_line(name, first, final))
+
+input_first = tuple_hex(first, "inputdepth", 2)
+input_final = tuple_hex(final, "inputdepth", 2)
+music_first = tuple_hex(first, "musicpull", 2)
+music_final = tuple_hex(final, "musicpull", 2)
+if input_first is not None and input_final is not None:
+    print(
+        "inputdepth: "
+        f"queued={fmt_hex(input_first[0])}->{fmt_hex(input_final[0])} "
+        f"dropped_delta={fmt_delta(input_final[1] - input_first[1])}"
+    )
+else:
+    print("inputdepth: <missing>")
+if music_first is not None and music_final is not None:
+    print(
+        "musicpull: "
+        f"requests_delta={fmt_delta(music_final[0] - music_first[0])} "
+        f"refills_delta={fmt_delta(music_final[1] - music_first[1])}"
+    )
+else:
+    print("musicpull: <missing>")
+
+deltas = {name: None for name in COUNTERS}
+for name in COUNTERS:
+    start = hex_value(first, name)
+    end = hex_value(final, name)
+    if start is not None and end is not None:
+        deltas[name] = end - start
+
+input_drop_delta = None
+if input_first is not None and input_final is not None:
+    input_drop_delta = input_final[1] - input_first[1]
+music_refill_delta = None
+if music_first is not None and music_final is not None:
+    music_refill_delta = music_final[1] - music_first[1]
+
+if any(deltas[name] is None for name in ("gtic", "leveltime", "doompresent", "dtick")):
+    diagnosis = "cadence-evidence-gap: core Doom/frame counters are missing"
+elif any((deltas[name] or 0) <= 0 for name in ("gtic", "leveltime", "doompresent", "dtick")):
+    diagnosis = "guest-cadence-stalled: Doom/frame/timer counters did not all advance"
+elif any(deltas[name] is None for name in ("pirq", "preempt", "puser")):
+    diagnosis = "cadence-evidence-gap: scheduler counters are missing"
+elif any((deltas[name] or 0) <= 0 for name in ("pirq", "preempt", "puser")):
+    diagnosis = "scheduler-cadence-stalled: timer/preemption/user IRQ counters did not all advance"
+elif input_drop_delta is not None and input_drop_delta > 0:
+    diagnosis = "input-loss-observed: inputdepth dropped counter increased"
+elif any((deltas[name] or 0) > 0 for name in ("mixunder", "musicunder", "musicdrops")):
+    diagnosis = "audio-pressure-observed: audio safety counters increased"
+elif any(deltas[name] is None for name in ("audioirq", "refill", "musicpos")) or music_refill_delta is None:
+    diagnosis = "cadence-evidence-gap: audio cadence counters are missing"
+elif any((deltas[name] or 0) <= 0 for name in ("audioirq", "refill", "musicpos")) or music_refill_delta <= 0:
+    diagnosis = "audio-cadence-stalled: SB16/music counters did not all advance"
+else:
+    diagnosis = "remote-presentation-throughput-likely: OS-side cadence advanced; inspect CPU quota/load and noVNC/QEMU display throughput"
+print(f"diagnosis: {diagnosis}")
+PY_DIAGNOSTICS
+else
+  echo "serial log not ready: \$serial_log"
+fi
+
+echo
 echo "recent OS status lines (safe serial-log subset):"
 if [ -s "\$serial_log" ]; then
   grep -E 'panic=|doom=|doomrun=|gameplay=|inputdepth=|musicbuf=|musicpull=|mixunder=|dtick=|preempt=|doompresent|sfxmix=|sfxdma=|musicq=|musicmix=|musicstream=|audio=|timer=|keyboard=|mouse=' "\$serial_log" \\

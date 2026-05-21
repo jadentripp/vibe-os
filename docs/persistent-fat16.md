@@ -65,8 +65,11 @@ Current kernel contract:
   `/ASSETS`, stat the README, open it read-only, read it, and seek within it.
   The host image builder/checker uses the same FAT mutator to package additional
   normalized 8.3 asset paths such as `/ASSETS/MAPS/E1M1.MAP` and
-  `/ASSETS/TEXTURES/PAL0.BIN`; those nested files are host-proved image content
-  for future games/tools, not a kernel nested-path syscall claim yet.
+  `/ASSETS/TEXTURES/PAL0.BIN`. `tools/make_wad_image.py --asset
+  /GAME/DATA/LEVEL1.MAP=host-file` can add more read-only packaged files below
+  directories for future games/tools, and the host manifest reports their
+  normalized paths, sizes, clusters, and SHA-256 hashes. Those nested files are
+  host-proved image content, not a kernel nested-path syscall claim yet.
   Attempts to open one-level subdirectory files with write, create, truncate,
   or append flags return `EACCES`; descriptor `ftruncate` on the resulting
   read-only fd returns `EBADF`; `unlink` remains root-8.3-only and rejects
@@ -247,13 +250,24 @@ Storage install/recovery boundary:
 
 - The persistence proof is a generated-image proof, not an arbitrary-disk
   install or recovery proof. It proves that the repo image layout can be
-  mutated, rebooted, and inspected; it does not prove vibe-os can partition a
-  blank disk, preserve an unknown existing disk, or repair damaged user media.
+  mutated, rebooted, and inspected; it is not an installable general OS on
+  arbitrary disks and it does not prove vibe-os can partition a blank disk,
+  discover arbitrary existing partitions, preserve an unknown existing disk, or
+  repair damaged user media.
+  It does not partition a blank disk, does not discover arbitrary existing
+  partitions, and does not repair corrupted user disks.
+  The exact bounded claim is that vibe-os mutates and reboots the
+  repo-generated FAT16 image in disposable cloud QEMU.
+- The current generated-image layout is intentionally fixed: LBA 0 is the repo
+  MBR, LBA 1-16 is Stage 2, LBA 17-208 is the kernel ELF staging area, and
+  LBA 2048 is the FAT16 partition.
 - `tools/check_storage_install_boundary.py --image build/disk.img --json`
   produces an `install-image-manifest` for the current generated raw image:
   MBR/FAT16 layout, unused partition-table slots, raw Stage 2/kernel region
   non-overlap, FAT BPB total-sector and hidden-sector fields, FAT/root/data
-  geometry, root-entry inventory, FAT-copy agreement, and cluster ownership.
+  geometry, root-entry inventory, recursive FAT directory/file inventory,
+  read-only packaged-asset hashes, free/used cluster accounting, FAT-copy
+  agreement, and cluster ownership.
   That manifest is intentionally scoped to `build/disk.img`.
 - `tools/check_storage_install_boundary.py --blank-install-proof --json`
   performs a host-only blank install proof from an in-memory all-zero image. It
@@ -264,15 +278,27 @@ Storage install/recovery boundary:
   repo-image fixtures with `--recovery-fixtures build/disk.img --json` and emit
   a `damaged-image-refusal-report`; those fixtures are detection/refusal only
   and do not repair user media.
-- The machine-readable install/recovery rows live in
-  `docs/storage-install-boundary.md`. `STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL]`
-  and `STORAGE_BOUNDARY[ARBITRARY_DISK_RECOVERY]` stay unclaimed until a future
-  proof starts from blank or damaged media and reaches the same boot,
-  persistence, and recovery gates through a real installer or recovery path.
+- The machine-readable install/recovery rows live in this document.
+
+- `STORAGE_BOUNDARY[GENERATED_FAT16_IMAGE] status=claimed scope=repo-built-raw-image gate=layout-manifest-plus-fat-checkers evidence=disk-img-status`
+- `STORAGE_BOUNDARY[CLOUD_MUTATE_REBOOT] status=proven scope=disposable-qemu-disk-image gate=reboot-persistence-proof evidence=real-wad-smoke-26203744974`
+- `STORAGE_BOUNDARY[HOST_RECOVERY_INSPECTION] status=claimed scope=host-generated-image-inspection gate=install-image-manifest evidence=check_storage_install_boundary.py`
+- `STORAGE_BOUNDARY[BLANK_IMAGE_HOST_INSTALL] status=proven scope=in-memory-blank-disk-image gate=blank-disk-installer-manifest evidence=check_storage_install_boundary.py`
+- `STORAGE_BOUNDARY[DAMAGED_IMAGE_REFUSAL] status=proven scope=repo-layout-damaged-fixtures gate=damaged-image-refusal-report evidence=check_storage_install_boundary.py`
+- `STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL] status=unclaimed scope=none gate=future-installer-proof evidence=none`
+- `STORAGE_BOUNDARY[ARBITRARY_DISK_RECOVERY] status=unclaimed scope=none gate=future-recovery-proof evidence=none`
+
+  `STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL]` and
+  `STORAGE_BOUNDARY[ARBITRARY_DISK_RECOVERY]` stay unclaimed until a future proof
+  starts from blank or damaged media and reaches the same boot, persistence, and
+  recovery gates through a real installer or recovery path.
   A safe arbitrary-disk installer would also need explicit device selection,
   read-only preflight inventory, refusal on unknown existing data by default,
   opt-in destructive confirmation for exact byte ranges, a dry-run manifest,
   and post-write verification that no unapproved ranges changed.
+- `STORAGE_PROOF_REQUIREMENT[INSTALLER] status=future artifact=installer-cloud-disk requires=blank-disk-to-bootable-vibe-os evidence=none`
+- `STORAGE_PROOF_REQUIREMENT[RECOVERY] status=future artifact=damaged-image-recovery-report requires=detect-and-repair-or-refuse evidence=none`
+- `STORAGE_PROOF_REQUIREMENT[ARBITRARY_MEDIA] status=future artifact=media-matrix-proof requires=explicit-device-and-layout-rows evidence=none`
 
 The Doom libc buffers formatted `fprintf` output until `fflush()` / `fclose()`,
 so `M_SaveDefaults()` does not spend the cloud proof window performing one disk

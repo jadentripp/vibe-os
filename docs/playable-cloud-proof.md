@@ -228,6 +228,14 @@ counters advanced without input drops or audio safety regressions. If a
 Codespaces/noVNC play session still slows down while this verdict stays healthy,
 triage should start with remote QEMU TCG/noVNC/display throughput rather than
 assuming Doom is building an OS-side input queue.
+The long-run cadence object is also status-only. It records `duration`,
+`health`, normalized ratios, and per-phase windows such as `use->mouse`, plus a
+`slowdown_triage.primary_lane` hint. A healthy long-run proof points first at
+`remote-presentation-throughput`; input drops, audio underruns, or stalled
+preemption instead point back at the corresponding OS-side status lane. The
+single-run smoke artifact may be too short to prove this lane; the repeated
+soak path is the preferred way to gather longer status cadence without
+uploading WADs, disk images, pixels, raw status text, logs, or raw audio.
 
 ## Repeated Cloud Soak
 
@@ -572,6 +580,23 @@ proof gates can still fail on snapshot-baseline details such as
 audio baseline continuity, or missing early/start/fire/move/use/
 mouse/menu snapshots. Read the checker error literally before changing kernel
 code.
+
+For slowdown-specific evidence, prefer the status-only cadence lane before
+guessing from noVNC feel:
+
+```sh
+python3 tools/run_cloud_playability.py --ref "$branch" --lane audio \
+  --soak-attempts 3 \
+  --soak-min-passes 3 \
+  --wait \
+  --download-artifacts "build/cloud-soak-audio"
+```
+
+The downloaded soak summary contains per-attempt `status_cadence` entries copied
+from `gameplay-proof.json`. For a single downloaded smoke artifact, rerun the
+scripted checker with `--require-long-run-cadence` only if the input script
+captured a long enough pre-menu window; otherwise treat
+`long-run-window-too-short` as an evidence gap and use the soak lane.
 
 Shutdown and panic claims are separate from normal playability. The opt-in
 `shutdown_panic_proof` lane must be validated with

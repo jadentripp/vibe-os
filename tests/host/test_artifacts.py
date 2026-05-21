@@ -1920,7 +1920,7 @@ class SourceContractTests(unittest.TestCase):
         platform = (ROOT / "doom_port" / "platform.c").read_text()
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
         makefile = (ROOT / "Makefile").read_text()
-        mouse_doc = (ROOT / "docs" / "input.md").read_text()
+        mouse_doc = (ROOT / "docs" / "doom-libc-runtime.md").read_text()
         for source in (
             "SYS_POLL_MOUSE equ 14",
             "SYS_POLL_INPUT equ 28",

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import hashlib
 import struct
 from pathlib import Path
 
@@ -211,6 +212,16 @@ def parse_root_elf_arg(value):
     if not path:
         raise ValueError("--root-elf path must not be empty")
     return root83_from_display_name(display_name, required_ext="ELF"), Path(path)
+
+
+def parse_asset_arg(value):
+    if "=" not in value:
+        raise ValueError("--asset must be IMAGE_8.3_PATH=HOST_PATH")
+    display_path, path = value.split("=", 1)
+    if not path:
+        raise ValueError("--asset host path must not be empty")
+    fat83_path_from_display_path(display_path)
+    return display_path, Path(path)
 
 
 def allocate_cluster_chain(fat_entries, clusters_needed):
@@ -891,36 +902,77 @@ class Fat16Image:
         return self.read_file_at_path(fat83_path_from_display_path(display_path))
 
 
-def packaged_asset_manifest(fs):
-    manifest = []
-    for display_path, expected in PACKAGED_ASSET_FILES:
+def _reserved_packaged_root_names():
+    writable_names = tuple(name for name, _byte_capacity in WRITABLE_DYNAMIC_FILES)
+    return PROTECTED_ROOT_NAMES + writable_names
+
+
+def normalized_packaged_assets(packaged_assets):
+    normalized = []
+    seen = set()
+    reserved_root_names = set(_reserved_packaged_root_names())
+    for display_path, data in packaged_assets:
         path = fat83_path_from_display_path(display_path)
+        label = Fat16Image._path_label(path)
+        if path in seen:
+            raise ValueError(f"duplicate packaged asset path {label}")
+        seen.add(path)
+        if len(path) == 1:
+            if path[0] in reserved_root_names:
+                raise ValueError(f"packaged asset path {label} is reserved for boot or writable state")
+            raise ValueError(f"packaged asset path {label} must include a directory component")
+        normalized.append((label, path, bytes(data)))
+    return tuple(normalized)
+
+
+def package_asset_files(fs, packaged_assets):
+    manifest = []
+    for label, path, data in normalized_packaged_assets(packaged_assets):
+        chain = fs.write_packaged_file_at_path(path, data)
+        manifest.append(
+            {
+                "path": label,
+                "size": len(data),
+                "clusters": len(chain),
+                "cluster": chain[0] if chain else 0,
+                "depth": len(path),
+                "sha256": hashlib.sha256(data).hexdigest(),
+            }
+        )
+    return tuple(manifest)
+
+
+def packaged_asset_manifest(fs, packaged_assets=PACKAGED_ASSET_FILES):
+    manifest = []
+    for label, path, expected in normalized_packaged_assets(packaged_assets):
         meta = fs.entry_metadata_at_path(path)
-        label = "/" + "/".join(Fat16Image._entry_label(name) for name in path)
         if meta is None:
             raise ValueError(f"generated FAT16 image is missing {label}")
         if meta["is_directory"]:
             raise ValueError(f"generated FAT16 {label} is not a regular file")
         if meta["size"] != len(expected):
             raise ValueError(f"generated FAT16 {label} has the wrong size")
-        if fs.read_file_at_path(path) != expected:
+        data = fs.read_file_at_path(path)
+        if data != expected:
             raise ValueError(f"generated FAT16 {label} bytes did not round-trip")
+        chain = fs.cluster_chain(meta["cluster"]) if meta["size"] else ()
         manifest.append(
             {
                 "path": label,
                 "size": meta["size"],
                 "cluster": meta["cluster"],
+                "clusters": len(chain),
                 "depth": len(path),
+                "sha256": hashlib.sha256(data).hexdigest(),
             }
         )
     return tuple(manifest)
 
 
-def validate_generated_packaged_assets(fs):
-    manifest = packaged_asset_manifest(fs)
+def validate_generated_packaged_assets(fs, packaged_assets=PACKAGED_ASSET_FILES):
+    manifest = packaged_asset_manifest(fs, packaged_assets)
 
-    for display_path, expected in PACKAGED_ASSET_FILES:
-        path = fat83_path_from_display_path(display_path)
+    for _label, path, expected in normalized_packaged_assets(packaged_assets):
         if len(path) < 2:
             continue
         for operation, mutate in (
@@ -1263,6 +1315,7 @@ def install_bootable_layout(
     user_elf_path=None,
     doom_elf_path=None,
     extra_root_elves=(),
+    extra_packaged_assets=(),
 ):
     """Lay the vibe-os boot/FAT image onto an already-blank disk buffer."""
 
@@ -1278,6 +1331,11 @@ def install_bootable_layout(
         raise ValueError("stage1, stage2, and kernel paths must be provided together")
     if doom_elf_path is not None and user_elf_path is None:
         raise ValueError("doom ELF packaging requires a user probe ELF path")
+
+    packaged_assets = tuple(PACKAGED_ASSET_FILES) + tuple(
+        (display_path, bytes(data)) for display_path, data in extra_packaged_assets
+    )
+    normalized_packaged_assets(packaged_assets)
 
     boot_paths = (
         (stage1_path, stage2_path, kernel_path)
@@ -1365,9 +1423,8 @@ def install_bootable_layout(
 
     write_fat_copies(image, fat_start, fat_entries)
     fs = Fat16Image(image)
-    for display_path, data in PACKAGED_ASSET_FILES:
-        fs.write_packaged_file_at_display_path(display_path, data)
-    validate_generated_packaged_assets(fs)
+    package_asset_files(fs, packaged_assets)
+    validate_generated_packaged_assets(fs, packaged_assets)
 
     next_root_index = 0
     while next_root_index < ROOT_ENTRIES:
@@ -1404,11 +1461,18 @@ def parse_args():
         metavar="NAME.ELF=PATH",
         help="package an additional root-level FAT16 8.3 user ELF",
     )
+    parser.add_argument(
+        "--asset",
+        action="append",
+        default=[],
+        metavar="IMAGE_8.3_PATH=HOST_PATH",
+        help="package an additional read-only FAT16 asset file at a normalized 8.3 path",
+    )
     parser.add_argument("paths", nargs="+")
     args = parser.parse_args()
 
     if len(args.paths) not in (1, 4, 5, 6):
-        parser.error("usage: make_wad_image.py [--wad PATH] [--root-elf NAME.ELF=PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [DOOM_ELF]]]")
+        parser.error("usage: make_wad_image.py [--wad PATH] [--root-elf NAME.ELF=PATH] [--asset IMAGE_8.3_PATH=HOST_PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [DOOM_ELF]]]")
     return args
 
 
@@ -1425,6 +1489,12 @@ def main():
         if not path.is_file():
             raise ValueError(f"{path} is not a file")
 
+    extra_packaged_assets = []
+    for display_path, path in (parse_asset_arg(value) for value in args.asset):
+        if not path.is_file():
+            raise ValueError(f"{path} is not a file")
+        extra_packaged_assets.append((display_path, path.read_bytes()))
+
     output_path = args.paths[0]
     boot_paths = args.paths[1:4] if len(args.paths) >= 4 else None
     user_elf_path = args.paths[4] if len(args.paths) >= 5 else None
@@ -1438,6 +1508,7 @@ def main():
         user_elf_path=user_elf_path,
         doom_elf_path=doom_elf_path,
         extra_root_elves=extra_root_elves,
+        extra_packaged_assets=extra_packaged_assets,
     )
 
     with open(output_path, "wb") as f:

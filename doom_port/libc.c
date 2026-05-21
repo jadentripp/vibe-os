@@ -810,6 +810,57 @@ off_t lseek(int fd, off_t offset, int whence)
     return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
 }
 
+static ssize_t positioned_io(
+    int fd,
+    void* buffer,
+    size_t count,
+    off_t offset,
+    int write_mode)
+{
+    off_t original;
+    ssize_t result;
+    int saved_errno;
+
+    if (offset < 0 || (!buffer && count)) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    original = lseek(fd, 0, SEEK_CUR);
+    if (original < 0)
+        return -1;
+
+    if (lseek(fd, offset, SEEK_SET) < 0) {
+        saved_errno = errno;
+        (void)lseek(fd, original, SEEK_SET);
+        errno = saved_errno;
+        return -1;
+    }
+
+    result = write_mode ? write(fd, buffer, count) : read(fd, buffer, count);
+    saved_errno = errno;
+
+    if (lseek(fd, original, SEEK_SET) < 0) {
+        if (result < 0)
+            errno = saved_errno;
+        return -1;
+    }
+
+    if (result < 0)
+        errno = saved_errno;
+    return result;
+}
+
+ssize_t pread(int fd, void* buffer, size_t count, off_t offset)
+{
+    return positioned_io(fd, buffer, count, offset, 0);
+}
+
+ssize_t pwrite(int fd, const void* buffer, size_t count, off_t offset)
+{
+    return positioned_io(fd, (void*)buffer, count, offset, 1);
+}
+
 int vibe_clock_gettime(unsigned long clock_id, vibe_clock_time_t* out)
 {
     int raw;
@@ -1050,6 +1101,44 @@ int vibe_file_size(const char* path, unsigned long* out_size)
     }
 
     *out_size = (unsigned long)st.st_size;
+    return 0;
+}
+
+int vibe_file_read_at(
+    const char* path,
+    unsigned long offset,
+    void* buffer,
+    unsigned long count,
+    unsigned long* out_read)
+{
+    int fd;
+    ssize_t got;
+    int saved_errno;
+
+    if (!path || (count && !buffer)) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (offset > 0x7ffffffful) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+
+    fd = open(path, O_RDONLY);
+    if (fd < 0)
+        return -1;
+
+    got = pread(fd, buffer, count, (off_t)offset);
+    saved_errno = errno;
+    if (close(fd) < 0 && got >= 0)
+        return -1;
+    if (got < 0) {
+        errno = saved_errno;
+        return -1;
+    }
+
+    if (out_read)
+        *out_read = (unsigned long)got;
     return 0;
 }
 

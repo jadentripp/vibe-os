@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -53,9 +54,6 @@ class StorageInstallBoundaryTests(unittest.TestCase):
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 dst.write_text(src.read_text())
 
-            (root / "docs" / "storage-install-boundary.md").write_text(
-                (ROOT / "docs" / "storage-install-boundary.md").read_text()
-            )
             check_storage_install_boundary.validate_repo_contract(root)
 
             readme = root / "README.md"
@@ -75,7 +73,7 @@ class StorageInstallBoundaryTests(unittest.TestCase):
 
         for text, phrase in (
             (readme, "not an installable OS for arbitrary disks"),
-            (readme, "docs/storage-install-boundary.md"),
+            (readme, "docs/persistent-fat16.md"),
             (persistence_doc, "not an arbitrary-disk install or recovery proof"),
             (persistence_doc, "install-image-manifest"),
             (gap_doc, "STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL] status=unclaimed"),
@@ -116,8 +114,24 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         )
         self.assertGreater(manifest["fat16"]["free_clusters"], 4096)
         self.assertEqual(
+            manifest["fat16"]["free_clusters"] + manifest["fat16"]["used_clusters"],
+            manifest["fat16"]["data_clusters"],
+        )
+        self.assertEqual(
+            manifest["fat16"]["accounted_clusters"],
+            manifest["fat16"]["data_clusters"],
+        )
+        self.assertEqual(
+            manifest["fat16"]["minimum_os_created_file_clusters"],
+            check_storage_install_boundary.load_make_wad_image().MIN_OS_CREATED_FILE_CLUSTERS,
+        )
+        self.assertEqual(
             manifest["fat16"]["packaged_asset_count"],
             len(check_storage_install_boundary.load_make_wad_image().PACKAGED_ASSET_FILES),
+        )
+        self.assertGreaterEqual(
+            manifest["fat16"]["filesystem_file_count"],
+            manifest["fat16"]["packaged_asset_count"],
         )
         root_names = {entry["name"] for entry in manifest["root_entries"]}
         self.assertIn("DOOM1.WAD", root_names)
@@ -140,10 +154,65 @@ class StorageInstallBoundaryTests(unittest.TestCase):
             with self.subTest(path=entry["path"]):
                 self.assertGreater(entry["cluster"], 1)
                 self.assertGreater(entry["size"], 0)
+                self.assertGreater(entry["clusters"], 0)
                 self.assertEqual(len(entry["sha256"]), 64)
+        filesystem_paths = {entry["path"] for entry in manifest["filesystem_entries"]}
+        self.assertIn("/ASSETS", filesystem_paths)
+        self.assertIn("/ASSETS/MAPS/E1M1.MAP", filesystem_paths)
         self.assertEqual(
             manifest["claim_boundary"],
             "generated-image-layout-only; not arbitrary-disk-install-proof",
+        )
+
+    def test_manifest_includes_cli_packaged_extra_asset_tree_and_accounting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            asset = tmp_path / "level1.map"
+            payload = b"title=manifest proof\nspawn=east\n"
+            asset.write_bytes(payload)
+            image = tmp_path / "disk.img"
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(check_storage_install_boundary.MAKE_WAD_IMAGE),
+                    "--root-elf",
+                    f"ABIPROBE.ELF={BUILD / 'abi_probe.elf'}",
+                    "--asset",
+                    f"/game/data/level1.map={asset}",
+                    str(image),
+                    str(BUILD / "stage1.bin"),
+                    str(BUILD / "stage2.bin"),
+                    str(BUILD / "kernel.elf"),
+                    str(BUILD / "user_probe.elf"),
+                    str(BUILD / "doom.elf"),
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+
+            manifest = check_storage_install_boundary.inspect_image(image)
+
+        entries = {entry["path"]: entry for entry in manifest["filesystem_entries"]}
+        self.assertTrue(entries["/GAME"]["directory"])
+        self.assertTrue(entries["/GAME/DATA"]["directory"])
+        self.assertFalse(entries["/GAME/DATA/LEVEL1.MAP"]["directory"])
+        self.assertEqual(entries["/GAME/DATA/LEVEL1.MAP"]["size"], len(payload))
+        self.assertEqual(entries["/GAME/DATA/LEVEL1.MAP"]["clusters"], 1)
+        self.assertEqual(
+            entries["/GAME/DATA/LEVEL1.MAP"]["sha256"],
+            hashlib.sha256(payload).hexdigest(),
+        )
+        self.assertEqual(
+            manifest["fat16"]["free_clusters"] + manifest["fat16"]["used_clusters"],
+            manifest["fat16"]["data_clusters"],
+        )
+        self.assertGreaterEqual(
+            manifest["fat16"]["filesystem_file_clusters"],
+            entries["/GAME/DATA/LEVEL1.MAP"]["clusters"],
         )
 
     def test_manifest_cli_outputs_json(self):

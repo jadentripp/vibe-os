@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build"
-DOC = ROOT / "docs" / "storage-install-boundary.md"
+DOC = ROOT / "docs" / "persistent-fat16.md"
 MAKE_WAD_IMAGE = ROOT / "tools" / "make_wad_image.py"
 SECTOR_SIZE = 512
 
@@ -115,7 +115,7 @@ REQUIRED_CROSS_DOC_LINKS = {
     "README.md": (
         "not an installable OS for arbitrary disks",
         "does not partition blank media",
-        "docs/storage-install-boundary.md",
+        "docs/persistent-fat16.md",
     ),
     "docs/persistent-fat16.md": (
         "not an arbitrary-disk install or recovery proof",
@@ -258,7 +258,7 @@ def validate_claim_wording(root: Path) -> None:
 
 
 def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
-    doc = root / "docs" / "storage-install-boundary.md"
+    doc = root / "docs" / "persistent-fat16.md"
     text = doc.read_text()
     normalized = " ".join(text.split())
     for phrase in REQUIRED_PHRASES:
@@ -289,6 +289,63 @@ def _require_zero_region(raw: bytes | bytearray, start: int, end: int, label: st
 
 def _sha256(raw: bytes | bytearray) -> str:
     return hashlib.sha256(bytes(raw)).hexdigest()
+
+
+def _fat_file_cluster_count(fs, meta: dict[str, object]) -> int:
+    if int(meta["size"]) == 0:
+        return 0
+    return len(fs.cluster_chain(int(meta["cluster"])))
+
+
+def _filesystem_tree_manifest(fs, make_wad_image) -> tuple[list[dict[str, object]], dict[str, object]]:
+    entries: list[dict[str, object]] = []
+    file_count = 0
+    directory_count = 0
+    total_file_bytes = 0
+    file_clusters = 0
+
+    def walk(path: tuple[bytes, ...]) -> None:
+        nonlocal file_count, directory_count, total_file_bytes, file_clusters
+        for meta in fs.list_directory(path):
+            name = meta["name"]
+            if name in (b".          ", b"..         "):
+                continue
+            child_path = path + (name,)
+            entry = {
+                "path": make_wad_image.Fat16Image._path_label(child_path),
+                "name": make_wad_image.Fat16Image._entry_label(name),
+                "attr": f"0x{meta['attr']:02x}",
+                "cluster": meta["cluster"],
+                "size": meta["size"],
+                "directory": bool(meta["is_directory"]),
+                "depth": len(child_path),
+            }
+            if meta["is_directory"]:
+                directory_count += 1
+                entries.append(entry)
+                walk(child_path)
+                continue
+
+            data = fs.read_file_at_path(child_path)
+            clusters = _fat_file_cluster_count(fs, meta)
+            file_count += 1
+            total_file_bytes += int(meta["size"])
+            file_clusters += clusters
+            entry.update(
+                {
+                    "clusters": clusters,
+                    "sha256": _sha256(data),
+                }
+            )
+            entries.append(entry)
+
+    walk(())
+    return entries, {
+        "files": file_count,
+        "directories": directory_count,
+        "file_bytes": total_file_bytes,
+        "file_clusters": file_clusters,
+    }
 
 
 def _read_artifact(path: Path, label: str) -> bytes:
@@ -434,6 +491,19 @@ def _inspect_image_bytes(image: bytes | bytearray, image_label: str) -> dict[str
     except ValueError as exc:
         raise StorageBoundaryError(str(exc)) from exc
 
+    data_clusters = make_wad_image.data_cluster_count()
+    free_clusters = fs.free_data_clusters()
+    used_clusters = sum(
+        1 for cluster in range(2, make_wad_image.last_data_cluster() + 1)
+        if fs.fat_entry(cluster) != 0
+    )
+    if free_clusters + used_clusters != data_clusters:
+        raise StorageBoundaryError("FAT free/used cluster accounting does not cover the data area")
+    try:
+        make_wad_image.assert_free_cluster_budget_count(free_clusters)
+    except ValueError as exc:
+        raise StorageBoundaryError(str(exc)) from exc
+
     root_entries = []
     for meta in fs.live_root_entries():
         root_entries.append(
@@ -471,6 +541,9 @@ def _inspect_image_bytes(image: bytes | bytearray, image_label: str) -> dict[str
             )
     except ValueError as exc:
         raise StorageBoundaryError(str(exc)) from exc
+    filesystem_entries, filesystem_summary = _filesystem_tree_manifest(fs, make_wad_image)
+    packaged_asset_bytes = sum(int(entry["size"]) for entry in packaged_assets)
+    packaged_asset_clusters = sum(int(entry["clusters"]) for entry in packaged_assets)
 
     return {
         "schema": "vibe-os-install-image-manifest-v1",
@@ -499,7 +572,7 @@ def _inspect_image_bytes(image: bytes | bytearray, image_label: str) -> dict[str
             "data_lba": data_lba,
             "data_sectors": data_sectors,
             "usable_data_sectors": usable_data_sectors,
-            "data_clusters": make_wad_image.data_cluster_count(),
+            "data_clusters": data_clusters,
             "last_data_cluster": last_data_cluster,
             "fat_entry_capacity": fat_entry_capacity,
             "bytes_per_sector": _u16(image, boot + 11),
@@ -511,11 +584,21 @@ def _inspect_image_bytes(image: bytes | bytearray, image_label: str) -> dict[str
             "total_sectors": _u32(image, boot + 32),
             "media_descriptor": f"0x{image[boot + 21]:02x}",
             "root_entry_count": len(root_entries),
-            "free_clusters": fs.free_data_clusters(),
+            "free_clusters": free_clusters,
+            "used_clusters": used_clusters,
+            "accounted_clusters": free_clusters + used_clusters,
+            "minimum_os_created_file_clusters": make_wad_image.MIN_OS_CREATED_FILE_CLUSTERS,
             "packaged_asset_count": len(packaged_assets),
+            "packaged_asset_bytes": packaged_asset_bytes,
+            "packaged_asset_clusters": packaged_asset_clusters,
+            "filesystem_file_count": filesystem_summary["files"],
+            "filesystem_directory_count": filesystem_summary["directories"],
+            "filesystem_file_bytes": filesystem_summary["file_bytes"],
+            "filesystem_file_clusters": filesystem_summary["file_clusters"],
         },
         "required_writable_root_entries": list(required_writable),
         "packaged_assets": packaged_assets,
+        "filesystem_entries": filesystem_entries,
         "root_entries": root_entries,
         "claim_boundary": "generated-image-layout-only; not arbitrary-disk-install-proof",
     }

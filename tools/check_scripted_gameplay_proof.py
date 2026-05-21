@@ -583,6 +583,45 @@ def _window_counter_progress(
     }
 
 
+def _cadence_duration(gtic_delta: int, leveltime_delta: int) -> dict[str, str]:
+    return {
+        "doom_tics": _hex8(gtic_delta),
+        "leveltime_tics": _hex8(leveltime_delta),
+        "approx_seconds_at_35hz": f"{gtic_delta / 35:.2f}",
+    }
+
+
+def _cadence_health(
+    *,
+    gtic_delta: int,
+    leveltime_delta: int,
+    frame_delta: int,
+    dtick_delta: int,
+    pirq_delta: int,
+    preempt_delta: int,
+    puser_delta: int,
+    audioirq_delta: int,
+    refill_delta: int,
+    musicpos_delta: int,
+    pull_refill_delta: int,
+    input_drop_delta: int,
+    audio_pressure: bool,
+) -> dict[str, object]:
+    return {
+        "doom_progress": gtic_delta > 0 and leveltime_delta > 0,
+        "frame_progress": frame_delta > 0 and dtick_delta > 0,
+        "scheduler_progress": pirq_delta > 0 and preempt_delta > 0 and puser_delta > 0,
+        "audio_progress": (
+            audioirq_delta > 0
+            and refill_delta > 0
+            and musicpos_delta > 0
+            and pull_refill_delta > 0
+        ),
+        "input_dropped": _hex8(input_drop_delta),
+        "audio_pressure": audio_pressure,
+    }
+
+
 def _build_cadence_window(
     snapshots: dict[str, str],
     start_phase: str,
@@ -595,20 +634,44 @@ def _build_cadence_window(
     gtic_delta = _delta(counters["gtic"])
     leveltime_delta = _delta(counters["leveltime"])
     frame_delta = _delta(counters["doompresent"])
+    dtick_delta = _delta(counters["dtick"])
     pirq_delta = _delta(counters["pirq"])
+    preempt_delta = _delta(counters["preempt"])
+    puser_delta = _delta(counters["puser"])
     audioirq_delta = _delta(counters["audioirq"])
     refill_delta = _delta(counters["refill"])
     musicpos_delta = _delta(counters["musicpos"])
     pull_refill_delta = _delta(musicpull["refills"])
     pskip_delta = _delta(counters["pskip"])
     pattempt_delta = _delta(counters["pattempt"])
+    input_drop_delta = _delta(inputdepth["dropped"])
+    audio_pressure = any(
+        _delta(counters[name]) > 0
+        for name in ("mixunder", "musicunder", "musicdrops")
+    )
 
     return {
         "from": start_phase,
         "to": final_phase,
+        "duration": _cadence_duration(gtic_delta, leveltime_delta),
         "counters": counters,
         "inputdepth": inputdepth,
         "musicpull": musicpull,
+        "health": _cadence_health(
+            gtic_delta=gtic_delta,
+            leveltime_delta=leveltime_delta,
+            frame_delta=frame_delta,
+            dtick_delta=dtick_delta,
+            pirq_delta=pirq_delta,
+            preempt_delta=preempt_delta,
+            puser_delta=puser_delta,
+            audioirq_delta=audioirq_delta,
+            refill_delta=refill_delta,
+            musicpos_delta=musicpos_delta,
+            pull_refill_delta=pull_refill_delta,
+            input_drop_delta=input_drop_delta,
+            audio_pressure=audio_pressure,
+        ),
         "ratios": {
             "frames_per_1024_gtic": _hex8((frame_delta * 1024) // gtic_delta if gtic_delta else 0),
             "leveltime_per_1024_gtic": _hex8((leveltime_delta * 1024) // gtic_delta if gtic_delta else 0),
@@ -622,10 +685,82 @@ def _build_cadence_window(
     }
 
 
+def _build_phase_cadence_windows(snapshots: dict[str, str]) -> dict[str, dict[str, object]]:
+    windows = {}
+    for before, after in zip(PHASE_ORDER, PHASE_ORDER[1:]):
+        windows[f"{before}->{after}"] = _build_cadence_window(snapshots, before, after)
+    return windows
+
+
+def _slowdown_triage_for_verdict(verdict: str) -> dict[str, object]:
+    if verdict == LONG_RUN_CADENCE_HEALTHY:
+        return {
+            "primary_lane": "remote-presentation-throughput",
+            "operator_hint": (
+                "OS-side Doom/frame/input/audio/scheduler cadence stayed healthy; "
+                "if noVNC still slows down, inspect cloud CPU quota/load and noVNC/QEMU display throughput first"
+            ),
+            "status_only_next_steps": [
+                "compare play_window ratios across soak attempts",
+                "run the play-now diagnostics helper during the slow session",
+                "prefer a 4+ CPU Codespace or faster disposable cloud VM before changing guest code",
+            ],
+        }
+    if verdict == "long-run-window-too-short":
+        return {
+            "primary_lane": "cadence-evidence-gap",
+            "operator_hint": "the status snapshots do not include a long enough pre-menu gameplay window",
+            "status_only_next_steps": [
+                "rerun the real-WAD soak path with --require-long-run-cadence",
+                "inspect gameplay-proof.json long_run_cadence after download",
+            ],
+        }
+    if verdict == "input-loss-observed":
+        return {
+            "primary_lane": "os-input-queue",
+            "operator_hint": "input drops were recorded in status, so inspect generic input drain before blaming noVNC",
+            "status_only_next_steps": [
+                "compare inputdepth queued/dropped deltas by phase",
+                "check keyqueue/keypoll and mousepkt/mousepoll progression",
+            ],
+        }
+    if verdict == "audio-pressure-observed" or verdict == "audio-cadence-stalled":
+        return {
+            "primary_lane": "os-audio-cadence",
+            "operator_hint": "audio service or safety counters are the first status-visible slowdown lane",
+            "status_only_next_steps": [
+                "run the SB16 continuity checker on the same phase snapshots",
+                "compare audioirq/refill/musicpull/musicpos deltas by phase",
+            ],
+        }
+    if verdict == "scheduler-cadence-stalled":
+        return {
+            "primary_lane": "os-scheduler-cadence",
+            "operator_hint": "timer IRQ/preemption/user-window counters stalled during gameplay",
+            "status_only_next_steps": [
+                "inspect pirq/preempt/puser deltas and VM/process proof output",
+            ],
+        }
+    if verdict == "guest-cadence-stalled":
+        return {
+            "primary_lane": "doom-frame-cadence",
+            "operator_hint": "Doom tics advanced but frame or Doom-time status cadence stalled",
+            "status_only_next_steps": [
+                "compare doompresent and dtick deltas against gtic/leveltime",
+            ],
+        }
+    return {
+        "primary_lane": "unknown-cadence-lane",
+        "operator_hint": "long-run cadence produced an unrecognized verdict; read the interpretation literally",
+        "status_only_next_steps": ["inspect gameplay-proof.json long_run_cadence"],
+    }
+
+
 def _build_long_run_cadence(snapshots: dict[str, str]) -> dict[str, object]:
     play_window = _build_cadence_window(snapshots, LONG_RUN_WINDOW_START, LONG_RUN_WINDOW_END)
     session_window = _build_cadence_window(snapshots, "start", "final")
     menu_tail_window = _build_cadence_window(snapshots, "menu", "final")
+    phase_windows = _build_phase_cadence_windows(snapshots)
 
     play_counters = play_window["counters"]
     play_musicpull = play_window["musicpull"]
@@ -700,18 +835,22 @@ def _build_long_run_cadence(snapshots: dict[str, str]) -> dict[str, object]:
             "musicunder",
             "musicdrops",
         ],
+        "slowdown_triage": _slowdown_triage_for_verdict(verdict),
         "play_window": play_window,
         "session_window": session_window,
         "menu_tail_window": menu_tail_window,
+        "phase_windows": phase_windows,
     }
 
 
 def require_long_run_cadence(snapshots: dict[str, str]) -> None:
     cadence = _build_long_run_cadence(snapshots)
     if cadence.get("verdict") != LONG_RUN_CADENCE_HEALTHY:
+        triage = cadence.get("slowdown_triage", {})
+        primary_lane = triage.get("primary_lane", "unknown-cadence-lane") if isinstance(triage, dict) else "unknown-cadence-lane"
         raise AssertionError(
             "long-run cadence must show pre-menu Doom/frame/scheduler/audio progress, "
-            f"got {cadence.get('verdict')}: {cadence.get('interpretation')}"
+            f"got {cadence.get('verdict')} ({primary_lane}): {cadence.get('interpretation')}"
         )
 
 

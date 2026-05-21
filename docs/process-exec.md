@@ -174,9 +174,10 @@ To launch that program today:
 - In the new image, consume `argc`, `argv`, and `envp` from crt0. Other images
   packaged with `--root-elf`, for example `TOOL.ELF` or `GAME.ELF`, can use
   `getpid`, `waitpid`, `clock_gettime(CLOCK_MONOTONIC)`, `open`/`read`/
-  `write`/`stat`/`ftruncate`, `vibe_listdir`, `vibe_poll_input`,
-  `vibe_input_status`, `vibe_fb_get_info`, `vibe_present_indexed_checked`, and
-  the `SYS_AUDIO` command records without depending on Doom source.
+  `write`/`pread`/`pwrite`/`stat`/`ftruncate`, `vibe_file_read_at`,
+  `vibe_listdir`, `vibe_poll_input`, `vibe_input_status`, `vibe_fb_get_info`,
+  `vibe_present_indexed_checked`, and the `SYS_AUDIO` command records without
+  depending on Doom source.
 
 The generic pool is reusable, but it is still small and static. Generic exec is
 good enough for a second utility, launcher, or indexed-framebuffer game loaded

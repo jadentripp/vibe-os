@@ -239,6 +239,72 @@ def analyze_args(paths):
     }
 
 
+def os_audio_contract(
+    *,
+    request_delta="00000005",
+    refill_delta="00000005",
+    sfx_delta="00000001",
+    music_delta="00000001",
+    position_delta="000003FF",
+):
+    return {
+        "lane": check_audible_audio_proof.STATUS_ONLY_OS_AUDIO_SUBSYSTEM_LANE,
+        "status_fields": {
+            "device": "adev",
+            "sample_format": "pcm",
+            "ring": "pcmbuf",
+            "irq_phase": "half",
+            "stream": "musicstream/musicpull/musicbuf/musicpos",
+            "mixer_lanes": "voices/sfxvoices/musicvoices/sfxmix/musicmix",
+        },
+        "device": {
+            "kind": "SB16",
+            "ready": True,
+            "capabilities": ["pcm-ring", "mixer-voices", "pull-stream", "sb16-dma"],
+            "required_capabilities_present": True,
+            "playback_start_count": "00000001",
+        },
+        "pcm_ring": {
+            "format": "u8-stereo",
+            "channels": 2,
+            "sample_rate": 11025,
+            "ring_bytes": "00001000",
+            "period_bytes": "00000800",
+            "write_offset": "00000000",
+            "active_half": "00000001",
+            "two_period_ring": True,
+            "active_half_matches_half": True,
+            "irq_delta": "00000005",
+            "refill_delta": "00000005",
+        },
+        "stream": {
+            "mode": "PULL",
+            "request_delta": request_delta,
+            "refill_delta": refill_delta,
+            "ordered_refills": True,
+            "bounded_pending_requests": True,
+            "pending_peak": "00000000",
+            "buffer_initial": "00002000",
+            "buffer_final": "00002000",
+            "position_delta": position_delta,
+            "payload_owner": "doom_port/music.c",
+            "service_command": "VIBE_AUDIO_MIXER_UPDATE",
+        },
+        "mixer_lanes": {
+            "voice_total_matches_lanes": True,
+            "sfx_lane_counter": "sfxmix",
+            "music_lane_counter": "musicmix",
+            "sfx_delta": sfx_delta,
+            "music_delta": music_delta,
+            "human_listener_lane": "not-proven-by-status",
+        },
+        "claim": (
+            "status-only generic device/ring/stream/mixer contract; Doom SFX, "
+            "parser-backed music, and human-listened quality remain separate lanes"
+        ),
+    }
+
+
 class AudibleAudioProofTests(unittest.TestCase):
     def test_analyzes_temporary_wav_into_aggregate_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -259,6 +325,24 @@ class AudibleAudioProofTests(unittest.TestCase):
         self.assertEqual(manifest["status"]["adev"], "00000001:00000001:0000000F")
         self.assertEqual(manifest["status"]["pcm"], "00000001:00000002:00002B11")
         self.assertEqual(manifest["status"]["pcmbuf"], "00001000:00000800:00000000:00000001")
+        self.assertEqual(manifest["status"]["half"], "00000001")
+        self.assertEqual(
+            manifest["proof_contracts"]["os_audio_subsystem"]["lane"],
+            "status-only-os-audio-subsystem",
+        )
+        self.assertTrue(manifest["continuity"]["os_audio_contract"]["device"]["ready"])
+        self.assertEqual(
+            manifest["continuity"]["os_audio_contract"]["device"]["capabilities"],
+            ["pcm-ring", "mixer-voices", "pull-stream", "sb16-dma"],
+        )
+        self.assertTrue(
+            manifest["continuity"]["os_audio_contract"]["pcm_ring"]["active_half_matches_half"]
+        )
+        self.assertEqual(manifest["continuity"]["os_audio_contract"]["stream"]["mode"], "PULL")
+        self.assertEqual(
+            manifest["continuity"]["os_audio_contract"]["mixer_lanes"]["human_listener_lane"],
+            "not-proven-by-status",
+        )
         self.assertTrue(manifest["continuity"]["non_music_sfx_progress"])
         self.assertGreater(int(manifest["continuity"]["mix_lanes"]["non_music_sfx"]["dma_bytes_delta"], 16), 0)
         self.assertGreaterEqual(manifest["continuity"]["mix_lanes"]["non_music_sfx"]["active_voice_snapshots"], 0)
@@ -340,6 +424,26 @@ class AudibleAudioProofTests(unittest.TestCase):
 
             with self.assertRaisesRegex(AssertionError, "duplicate audio= field"):
                 check_audible_audio_proof._status_summary(status_path)
+
+    def test_rejects_incoherent_generic_pcm_ring_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            wav_path = tmpdir / "doom-audio.wav"
+            write_tone_wav(wav_path)
+            paths = write_status_files(tmpdir)
+            paths["final"].write_text(
+                paths["final"].read_text().replace(
+                    "pcmbuf=00001000:00000800:00000000:00000001",
+                    "pcmbuf=00001000:00000800:00000000:00000000",
+                )
+            )
+
+            with self.assertRaisesRegex(AssertionError, "pcmbuf=.*active half.*half="):
+                check_audible_audio_proof.analyze_wav(
+                    wav_path,
+                    paths["final"],
+                    **analyze_args(paths),
+                )
 
     def test_rejects_non_silent_carrier_when_sfx_counters_do_not_progress(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -438,6 +542,38 @@ class AudibleAudioProofTests(unittest.TestCase):
         wrong_group["continuity"]["renderer_contract"]["mus_grouped_event_fixture"] = False
         with self.assertRaisesRegex(AssertionError, "grouped MUS event"):
             check_audible_audio_proof.validate_manifest(wrong_group)
+
+    def test_manifest_rejects_collapsed_os_audio_lanes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            wav_path = tmpdir / "doom-audio.wav"
+            write_tone_wav(wav_path)
+            paths = write_status_files(tmpdir)
+
+            manifest = check_audible_audio_proof.analyze_wav(
+                wav_path,
+                paths["final"],
+                **analyze_args(paths),
+            )
+
+        missing = json.loads(json.dumps(manifest))
+        del missing["continuity"]["os_audio_contract"]
+        with self.assertRaisesRegex(AssertionError, "os_audio_contract"):
+            check_audible_audio_proof.validate_manifest(missing)
+
+        collapsed_listener = json.loads(json.dumps(manifest))
+        collapsed_listener["continuity"]["os_audio_contract"]["mixer_lanes"][
+            "human_listener_lane"
+        ] = "proven-by-status"
+        with self.assertRaisesRegex(AssertionError, "human listener lane"):
+            check_audible_audio_proof.validate_manifest(collapsed_listener)
+
+        collapsed_ring = json.loads(json.dumps(manifest))
+        collapsed_ring["continuity"]["os_audio_contract"]["pcm_ring"][
+            "active_half_matches_half"
+        ] = False
+        with self.assertRaisesRegex(AssertionError, "active half"):
+            check_audible_audio_proof.validate_manifest(collapsed_ring)
 
     def test_cli_writes_and_validates_manifest_without_uploading_wav(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -647,6 +783,7 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "musicq": "00000001:00000000",
                 "audioirq": "00000006",
                 "refill": "00000006",
+                "half": "00000001",
                 "sfxmix": "00000002",
                 "sfxq": "00000002:00000000:00000000:00000002",
                 "sfxbytes": "00000800:00001000",
@@ -773,6 +910,7 @@ class AudibleAudioProofTests(unittest.TestCase):
                     },
                     "claim": "musicstream=PULL proves SB16 refill requested chunk service",
                 },
+                "os_audio_contract": os_audio_contract(),
                 "mixer_safety": {
                     "mixclip_delta": "00000000",
                     "musicunder_delta": "00000000",

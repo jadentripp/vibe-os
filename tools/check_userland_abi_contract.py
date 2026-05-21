@@ -65,7 +65,7 @@ ABI_REQUIREMENTS = {
             "int vibe_drain_input(vibe_input_event_t* events, unsigned long max_events)",
             "int vibe_input_status(vibe_input_status_t* status)",
         ),
-        "docs/input.md": (
+        "docs/doom-libc-runtime.md": (
             "Generic ABI:",
             "the queue contract is\n  not Doom-specific",
             "future games can construct or replay typed events",
@@ -84,7 +84,7 @@ ABI_REQUIREMENTS = {
             "int vibe_fb_get_info(vibe_fb_info_t* info)",
             "int vibe_present_indexed_checked(const vibe_present_indexed_t* present)",
         ),
-        "docs/graphics.md": (
+        "docs/doom-libc-runtime.md": (
             "The framebuffer contract is intentionally split into three reusable layers",
             "stable and generic enough for future indexed\ngames",
         ),

@@ -18,7 +18,7 @@ from status_fields import parse_hex8, parse_status_fields, summarize_status_fiel
 WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
 MAKEFILE = ROOT / "Makefile"
 AUDIO_DOC = ROOT / "docs" / "audio.md"
-MUSIC_DOC = ROOT / "docs" / "doom-music.md"
+MUSIC_DOC = ROOT / "docs" / "audio.md"
 MUSIC_IMPL = ROOT / "doom_port" / "music.c"
 MUSIC_HEADER = ROOT / "doom_port" / "music.h"
 PLAYABLE_DOC = ROOT / "docs" / "playable-cloud-proof.md"
@@ -120,6 +120,27 @@ PLAYABILITY_CADENCE_HEALTHY = "os-audio-cadence-observed"
 CURRENT_MUSIC_PAYLOAD_OWNER = "doom_port/music.c"
 CURRENT_MUSIC_SERVICE_COMMAND = "VIBE_AUDIO_MIXER_UPDATE"
 FUTURE_HARDWARE_MIXER_REFILL_PLAYBACK = "future hardware-paced mixer/refill playback ABI"
+AUDIO_DEVICE_SB16 = 1
+AUDIO_DEVICE_STATUS_READY = 1
+AUDIO_PCM_FORMAT_U8_STEREO = 1
+AUDIO_OUTPUT_CHANNELS = 2
+AUDIO_OUTPUT_SAMPLE_RATE = 11025
+AUDIO_CAP_PCM_RING = 0x00000001
+AUDIO_CAP_MIXER_VOICES = 0x00000002
+AUDIO_CAP_PULL_STREAM = 0x00000004
+AUDIO_CAP_SB16_DMA = 0x00000008
+AUDIO_REQUIRED_CAPABILITIES = (
+    AUDIO_CAP_PCM_RING
+    | AUDIO_CAP_MIXER_VOICES
+    | AUDIO_CAP_PULL_STREAM
+    | AUDIO_CAP_SB16_DMA
+)
+AUDIO_CAPABILITY_NAMES = (
+    (AUDIO_CAP_PCM_RING, "pcm-ring"),
+    (AUDIO_CAP_MIXER_VOICES, "mixer-voices"),
+    (AUDIO_CAP_PULL_STREAM, "pull-stream"),
+    (AUDIO_CAP_SB16_DMA, "sb16-dma"),
+)
 MUS_SCORE_END_EVENT_TYPE = 6
 MUS_RESERVED_EVENT_TYPE = 5
 MUS_MAX_VARIABLE_DELAY_BYTES = 4
@@ -664,29 +685,33 @@ def _assert_music_render_covers_stream_service(
         )
 
 
+def _audio_capability_names(capabilities: int) -> list[str]:
+    return [name for bit, name in AUDIO_CAPABILITY_NAMES if capabilities & bit]
+
+
 def _assert_audio_device_contract(snapshots: list[tuple[str, dict[str, str]]]) -> None:
     for label, fields in snapshots:
         device_kind, device_status, capabilities = _hex_tuple(fields, "adev", label, 3)
-        if device_kind != 1:
+        if device_kind != AUDIO_DEVICE_SB16:
             raise AssertionError(f"{label} adev= must report SB16 device kind 00000001")
-        if device_status != 1:
+        if device_status != AUDIO_DEVICE_STATUS_READY:
             raise AssertionError(f"{label} adev= must report ready status 00000001")
-        required_caps = 0x00000001 | 0x00000002 | 0x00000004 | 0x00000008
-        if capabilities & required_caps != required_caps:
+        if capabilities & AUDIO_REQUIRED_CAPABILITIES != AUDIO_REQUIRED_CAPABILITIES:
             raise AssertionError(
                 f"{label} adev= capabilities must include PCM ring, mixer voices, "
                 "pull stream, and SB16 DMA"
             )
 
         pcm_format, channels, sample_rate = _hex_tuple(fields, "pcm", label, 3)
-        if pcm_format != 1:
+        if pcm_format != AUDIO_PCM_FORMAT_U8_STEREO:
             raise AssertionError(f"{label} pcm= must use unsigned 8-bit stereo format 00000001")
-        if channels != 2:
+        if channels != AUDIO_OUTPUT_CHANNELS:
             raise AssertionError(f"{label} pcm= must expose two output channels")
-        if sample_rate != 11025:
+        if sample_rate != AUDIO_OUTPUT_SAMPLE_RATE:
             raise AssertionError(f"{label} pcm= must expose the SB16 output rate 11025")
 
         ring_bytes, period_bytes, write_offset, active_half = _hex_tuple(fields, "pcmbuf", label, 4)
+        status_half = _hex(fields, "half", label)
         if ring_bytes == 0 or period_bytes == 0:
             raise AssertionError(f"{label} pcmbuf= must expose nonzero ring and period bytes")
         if period_bytes * 2 != ring_bytes:
@@ -695,6 +720,8 @@ def _assert_audio_device_contract(snapshots: list[tuple[str, dict[str, str]]]) -
             raise AssertionError(f"{label} pcmbuf= write offset must stay inside the PCM ring")
         if active_half not in (0, 1):
             raise AssertionError(f"{label} pcmbuf= active half must be 0 or 1")
+        if active_half != status_half:
+            raise AssertionError(f"{label} pcmbuf= active half must match half= IRQ phase")
 
 
 def _hex8(value: int) -> str:
@@ -820,6 +847,94 @@ def build_playability_cadence(
         },
         "safety": safety,
         "audio_pressure": audio_pressure,
+    }
+
+
+def build_os_audio_contract(
+    snapshots: list[tuple[str, dict[str, str]]],
+) -> dict[str, object]:
+    """Build a status-only OS audio device/ring/stream/mixer contract summary."""
+
+    _first_label, first_fields = snapshots[0]
+    last_label, last_fields = snapshots[-1]
+    device_kind, device_status, capabilities = _hex_tuple(last_fields, "adev", last_label, 3)
+    pcm_format, channels, sample_rate = _hex_tuple(last_fields, "pcm", last_label, 3)
+    ring_bytes, period_bytes, write_offset, active_half = _hex_tuple(
+        last_fields,
+        "pcmbuf",
+        last_label,
+        4,
+    )
+    half_matches = all(
+        _hex_tuple(fields, "pcmbuf", label, 4)[3] == _hex(fields, "half", label)
+        for label, fields in snapshots
+    )
+    pull_pairs = [_hex_tuple(fields, "musicpull", label, 2) for label, fields in snapshots]
+    pending = [max(0, request - refill) for request, refill in pull_pairs]
+    voice_lanes_match = all(
+        _hex(fields, "voices", label)
+        == _hex(fields, "sfxvoices", label) + _hex(fields, "musicvoices", label)
+        for label, fields in snapshots
+    )
+    requested, refilled = pull_pairs[-1]
+
+    return {
+        "lane": "status-only-os-audio-subsystem",
+        "status_fields": {
+            "device": "adev",
+            "sample_format": "pcm",
+            "ring": "pcmbuf",
+            "irq_phase": "half",
+            "stream": "musicstream/musicpull/musicbuf/musicpos",
+            "mixer_lanes": "voices/sfxvoices/musicvoices/sfxmix/musicmix",
+        },
+        "device": {
+            "kind": "SB16" if device_kind == AUDIO_DEVICE_SB16 else f"unknown-{device_kind:08X}",
+            "ready": device_status == AUDIO_DEVICE_STATUS_READY,
+            "capabilities": _audio_capability_names(capabilities),
+            "required_capabilities_present": (
+                capabilities & AUDIO_REQUIRED_CAPABILITIES == AUDIO_REQUIRED_CAPABILITIES
+            ),
+            "playback_start_count": last_fields["play"].split(":")[0],
+        },
+        "pcm_ring": {
+            "format": "u8-stereo" if pcm_format == AUDIO_PCM_FORMAT_U8_STEREO else f"unknown-{pcm_format:08X}",
+            "channels": channels,
+            "sample_rate": sample_rate,
+            "ring_bytes": f"{ring_bytes:08X}",
+            "period_bytes": f"{period_bytes:08X}",
+            "write_offset": f"{write_offset:08X}",
+            "active_half": f"{active_half:08X}",
+            "two_period_ring": ring_bytes > 0 and period_bytes * 2 == ring_bytes,
+            "active_half_matches_half": half_matches,
+            "irq_delta": _counter_delta_summary(snapshots, "audioirq")["delta"],
+            "refill_delta": _counter_delta_summary(snapshots, "refill")["delta"],
+        },
+        "stream": {
+            "mode": last_fields["musicstream"],
+            "request_delta": _tuple_delta_summary(snapshots, "musicpull", 2, 0)["delta"],
+            "refill_delta": _tuple_delta_summary(snapshots, "musicpull", 2, 1)["delta"],
+            "ordered_refills": refilled <= requested,
+            "bounded_pending_requests": max(pending) <= MAX_PENDING_PULL_REQUESTS,
+            "pending_peak": f"{max(pending):08X}",
+            "buffer_initial": first_fields["musicbuf"],
+            "buffer_final": last_fields["musicbuf"],
+            "position_delta": _counter_delta_summary(snapshots, "musicpos")["delta"],
+            "payload_owner": CURRENT_MUSIC_PAYLOAD_OWNER,
+            "service_command": CURRENT_MUSIC_SERVICE_COMMAND,
+        },
+        "mixer_lanes": {
+            "voice_total_matches_lanes": voice_lanes_match,
+            "sfx_lane_counter": "sfxmix",
+            "music_lane_counter": "musicmix",
+            "sfx_delta": _counter_delta_summary(snapshots, "sfxmix")["delta"],
+            "music_delta": _counter_delta_summary(snapshots, "musicmix")["delta"],
+            "human_listener_lane": "not-proven-by-status",
+        },
+        "claim": (
+            "status-only generic device/ring/stream/mixer contract; Doom SFX, "
+            "parser-backed music, and human-listened quality remain separate lanes"
+        ),
     }
 
 
@@ -1010,6 +1125,8 @@ def validate_repo_contract() -> None:
                 "adev=",
                 "pcm=",
                 "pcmbuf=",
+                "os_audio_contract",
+                "pcmbuf=` active-half status to match the IRQ `half=` field",
                 "sfxmix= counts non-music Doom SFX only",
                 "sfxq=",
                 "sfxbytes=",
@@ -1036,6 +1153,7 @@ def validate_repo_contract() -> None:
                 "stream-health evidence",
                 "playability_cadence",
                 "OS audio cadence",
+                "status-only OS audio subsystem lane",
                 "single static music carrier",
                 "no new mixclip=, musicunder=, or musicdrops=",
                 "Aggregate audible-output proof (not human listener approval)",
@@ -1069,6 +1187,7 @@ def validate_repo_contract() -> None:
                 "long-playback wrap",
                 "static stream window",
                 "Music legitimacy roadmap as OS contracts",
+                "os_audio_contract",
                 "future hardware-paced mixer/refill playback ABI",
             ),
         ),
@@ -1205,8 +1324,9 @@ def main(argv: list[str]) -> int:
         return 1
 
     print(
-        "audio continuity proof OK: SB16 IRQ/refill, SFX DMA refill, and "
-        "kernel-visible music stream counters progressed across status snapshots; "
+        "audio continuity proof OK: generic device/ring/stream status, SB16 "
+        "IRQ/refill, SFX DMA refill, and kernel-visible music stream counters "
+        "progressed across status snapshots; "
         "human-listened quality and future hardware-paced mixer/refill playback remain separate lanes"
     )
     return 0

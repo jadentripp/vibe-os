@@ -6,7 +6,9 @@
 #define MOCK_MAX_DIRENTS 4
 
 static char mock_write_buffer[64];
+static const char mock_read_data[] = "abcdef";
 static int mock_write_length;
+static int mock_file_pos;
 static int mock_exec_count;
 static const char* mock_exec_path;
 static int mock_close_count;
@@ -33,6 +35,45 @@ int vibe_user_syscall3(unsigned int number, unsigned long arg0, unsigned long ar
 
     if (number == VIBE_SYS_OPEN)
         return arg0 && arg1 == 0 && arg2 == 0 ? 4 : -22;
+
+    if (number == VIBE_SYS_READ) {
+        char* out = (char*)arg1;
+        int count = (int)arg2;
+        int available;
+        int index;
+
+        if (arg0 != 4 || (!out && count))
+            return -22;
+        available = (int)sizeof(mock_read_data) - 1 - mock_file_pos;
+        if (available < 0)
+            available = 0;
+        if (count > available)
+            count = available;
+        for (index = 0; index < count; ++index)
+            out[index] = mock_read_data[mock_file_pos + index];
+        mock_file_pos += count;
+        return count;
+    }
+
+    if (number == VIBE_SYS_LSEEK) {
+        int offset = (int)arg1;
+        int next;
+
+        if (arg0 != 4)
+            return -9;
+        if (arg2 == 0)
+            next = offset;
+        else if (arg2 == 1)
+            next = mock_file_pos + offset;
+        else if (arg2 == 2)
+            next = (int)sizeof(mock_read_data) - 1 + offset;
+        else
+            return -22;
+        if (next < 0)
+            return -22;
+        mock_file_pos = next;
+        return mock_file_pos;
+    }
 
     if (number == VIBE_SYS_CLOSE) {
         if (arg0 != 4)
@@ -113,6 +154,7 @@ int main(void)
 {
     vibe_clock_time_t now;
     vibe_dirent_t entries[MOCK_MAX_DIRENTS];
+    char read_buffer[4];
     char* argv[] = { "TOOL.ELF", 0 };
 
     if (vibe_user_syscall_errno(-13, 5) != 13)
@@ -135,6 +177,17 @@ int main(void)
         return fail(8);
     if (vibe_user_open("TOOL.TXT", 0, 0) != 4 || vibe_user_fcntl(4, 1, 0) != 1 || vibe_user_fcntl(4, 2, 1) != 0)
         return fail(13);
+    if (vibe_user_lseek(4, 6, 0) != 6)
+        return fail(15);
+    if (vibe_user_pread(4, read_buffer, 3, 2) != 3
+        || read_buffer[0] != 'c'
+        || read_buffer[1] != 'd'
+        || read_buffer[2] != 'e')
+        return fail(16);
+    if (vibe_user_lseek(4, 0, 1) != 6)
+        return fail(17);
+    if (vibe_user_pread(4, read_buffer, 1, -1) != -22)
+        return fail(18);
     if (vibe_user_close(4) != 0 || mock_close_count != 1)
         return fail(14);
     if (vibe_user_clock_monotonic(&now) != 0 || now.frequency_hz != VIBE_CLOCK_MONOTONIC_HZ)

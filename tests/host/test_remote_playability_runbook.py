@@ -784,6 +784,7 @@ def valid_audio_proof_manifest():
             "ack8": "00000006",
             "ack16": "00000000",
             "refill": "00000006",
+            "half": "00000001",
             "doomsound": "00000008",
             "sfxmix": "00000008",
             "sfxq": "00000004:00000000:00000001:00000001",
@@ -926,6 +927,62 @@ def valid_audio_proof_manifest():
                     "musicstream=PULL proves SB16 refill requested chunk service"
                 ),
             },
+            "os_audio_contract": {
+                "lane": "status-only-os-audio-subsystem",
+                "status_fields": {
+                    "device": "adev",
+                    "sample_format": "pcm",
+                    "ring": "pcmbuf",
+                    "irq_phase": "half",
+                    "stream": "musicstream/musicpull/musicbuf/musicpos",
+                    "mixer_lanes": "voices/sfxvoices/musicvoices/sfxmix/musicmix",
+                },
+                "device": {
+                    "kind": "SB16",
+                    "ready": True,
+                    "capabilities": ["pcm-ring", "mixer-voices", "pull-stream", "sb16-dma"],
+                    "required_capabilities_present": True,
+                    "playback_start_count": "00000001",
+                },
+                "pcm_ring": {
+                    "format": "u8-stereo",
+                    "channels": 2,
+                    "sample_rate": 11025,
+                    "ring_bytes": "00001000",
+                    "period_bytes": "00000800",
+                    "write_offset": "00000000",
+                    "active_half": "00000001",
+                    "two_period_ring": True,
+                    "active_half_matches_half": True,
+                    "irq_delta": "00000005",
+                    "refill_delta": "00000005",
+                },
+                "stream": {
+                    "mode": "PULL",
+                    "request_delta": "00000005",
+                    "refill_delta": "00000005",
+                    "ordered_refills": True,
+                    "bounded_pending_requests": True,
+                    "pending_peak": "00000001",
+                    "buffer_initial": "00001000",
+                    "buffer_final": "00001400",
+                    "position_delta": "000013FF",
+                    "payload_owner": "doom_port/music.c",
+                    "service_command": "VIBE_AUDIO_MIXER_UPDATE",
+                },
+                "mixer_lanes": {
+                    "voice_total_matches_lanes": True,
+                    "sfx_lane_counter": "sfxmix",
+                    "music_lane_counter": "musicmix",
+                    "sfx_delta": "00000007",
+                    "music_delta": "00000005",
+                    "human_listener_lane": "not-proven-by-status",
+                },
+                "claim": (
+                    "status-only generic device/ring/stream/mixer contract; Doom SFX, "
+                    "parser-backed music, and human-listened quality remain separate lanes"
+                ),
+            },
             "mixer_safety": {
                 "mixclip_delta": "00000000",
                 "musicunder_delta": "00000000",
@@ -1018,6 +1075,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             "write_play_now_metadata",
             "cleanup_play_now_metadata",
             'if [ "$recorded_pid" = "$$" ]; then',
+            "status cadence summary (safe serial-log subset)",
+            "remote-presentation-throughput-likely",
             "performance hint: 2-core hosts can stutter under QEMU/noVNC",
         ):
             with self.subTest(needle=needle):
@@ -1027,6 +1086,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         self.assertIn("/tmp/vibe-os-play-now.pid", play_now_doc)
         self.assertIn("/tmp/vibe-os-play-now.novnc-port", play_now_doc)
         self.assertIn("signed URL parameters", play_now_doc)
+        self.assertIn("status-only cadence summary", play_now_doc)
         self.assertIn("2-core", play_now_doc)
         self.assertIn("4+ CPU", play_now_doc)
         self.assertIn("private", play_now_doc)

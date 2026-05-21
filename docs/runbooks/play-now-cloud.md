@@ -265,6 +265,12 @@ Codespaces environment, GitHub tokens, WAD data, pixels, raw audio, or full
 logs. If those OS status fields look healthy but the browser still stutters on
 a 2-core host, restart on the selected 4+ CPU Codespace or a faster disposable
 cloud VM before treating it as a Doom/input regression.
+The helper also prints a status-only cadence summary from the recent serial
+status tail: first/final/delta values for Doom tics, frame presentation,
+timer/preemption, input depth/drop, SB16 refill/music progress, and audio safety
+counters. The diagnosis is intentionally conservative: healthy status deltas
+point at remote presentation throughput, while input drops, audio pressure, or
+preemption stalls point back at the relevant OS lane.
 Remote fetch/startup errors use the same redaction rules for GitHub tokens,
 authorization headers, common secret environment values, and signed URL parameters
 before they are printed locally.

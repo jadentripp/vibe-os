@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -397,6 +398,69 @@ class FatContractTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     make_wad_image.fat83_path_from_display_path(bad)
 
+    def test_cli_can_package_extra_readonly_assets_for_non_doom_payloads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            host_asset = tmp_path / "level1.map"
+            host_asset.write_bytes(b"title=training\nspawn=west\n")
+            image_path = tmp_path / "disk.img"
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(MAKE_WAD_IMAGE),
+                    "--asset",
+                    f"/game/data/level1.map={host_asset}",
+                    str(image_path),
+                ],
+                check=True,
+                cwd=ROOT,
+                stdout=subprocess.DEVNULL,
+            )
+            fs = make_wad_image.Fat16Image(bytearray(image_path.read_bytes()))
+
+        asset_path = (b"GAME       ", b"DATA       ", b"LEVEL1  MAP")
+        self.assertEqual(fs.read_file_at_path(asset_path), b"title=training\nspawn=west\n")
+        game_meta = fs.entry_metadata_at_path((b"GAME       ",))
+        data_meta = fs.entry_metadata_at_path((b"GAME       ", b"DATA       "))
+        self.assertTrue(game_meta["is_directory"])
+        self.assertTrue(data_meta["is_directory"])
+
+        manifest = make_wad_image.packaged_asset_manifest(
+            fs,
+            make_wad_image.PACKAGED_ASSET_FILES
+            + (("/game/data/level1.map", b"title=training\nspawn=west\n"),),
+        )
+        packaged = {entry["path"]: entry for entry in manifest}
+        self.assertEqual(
+            packaged["/GAME/DATA/LEVEL1.MAP"]["sha256"],
+            hashlib.sha256(b"title=training\nspawn=west\n").hexdigest(),
+        )
+        self.assertEqual(packaged["/GAME/DATA/LEVEL1.MAP"]["clusters"], 1)
+        fs.validate_allocated_clusters_reachable()
+
+    def test_packaged_asset_manifest_rejects_duplicates_and_reserved_root_names(self):
+        for assets, message in (
+            (
+                (
+                    ("/assets/one.txt", b"one"),
+                    (r".\ASSETS\ONE.TXT", b"two"),
+                ),
+                "duplicate packaged asset path /ASSETS/ONE.TXT",
+            ),
+            (
+                (("/DEFAULT.CFG", b"reserved"),),
+                "reserved for boot or writable state",
+            ),
+            (
+                (("/DOOM1.WAD", b"reserved"),),
+                "reserved for boot or writable state",
+            ),
+        ):
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(ValueError, message):
+                    make_wad_image.normalized_packaged_assets(assets)
+
     def test_host_fat_image_mutates_root_83_files_but_rejects_subdirectory_writes(self):
         with tempfile.TemporaryDirectory() as tmp:
             image_path = Path(tmp) / "disk.img"
@@ -469,6 +533,13 @@ class FatContractTests(unittest.TestCase):
                 "/ASSETS/TEXTURES/PAL0.BIN",
             },
         )
+        self.assertEqual(
+            {entry["clusters"] for entry in manifest},
+            {1},
+        )
+        for entry in manifest:
+            with self.subTest(path=entry["path"]):
+                self.assertEqual(len(entry["sha256"]), 64)
         self.assertEqual(
             fs.read_file_at_display_path("/assets/maps/e1m1.map"),
             b"name=E1M1\nmusic=D_E1M1\n",

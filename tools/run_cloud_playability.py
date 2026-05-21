@@ -463,6 +463,10 @@ def lane_failure_report(
                 f"{sys.executable} tools/check_cloud_playability_artifacts.py "
                 f"--soak-summary {output_dir}"
             ),
+            (
+                "  long-run cadence/noVNC slowdown: inspect "
+                f"{output_dir / 'real-wad-soak-summary.json'} status_cadence entries"
+            ),
             "  persistence: not requested by real-wad-soak.yml; run --lane persistence separately",
         ]
 
@@ -481,6 +485,19 @@ def lane_failure_report(
             f"--movement {output_dir / 'status.after-move.txt'} "
             f"--use {output_dir / 'status.after-use.txt'} "
             f"--menu {output_dir / 'status.after-menu.txt'} "
+            f"{output_dir / 'status.txt'}"
+        ),
+        (
+            "  long-run cadence/noVNC slowdown: "
+            f"{sys.executable} tools/check_scripted_gameplay_proof.py "
+            f"--start {output_dir / 'status.after-start.txt'} "
+            f"--fire {output_dir / 'status.after-fire.txt'} "
+            f"--movement {output_dir / 'status.after-move.txt'} "
+            f"--use {output_dir / 'status.after-use.txt'} "
+            f"--mouse {output_dir / 'status.after-mouse.txt'} "
+            f"--menu {output_dir / 'status.after-menu.txt'} "
+            f"--write-json {output_dir / 'gameplay-proof.json'} "
+            f"--require-long-run-cadence "
             f"{output_dir / 'status.txt'}"
         ),
     ]
@@ -594,6 +611,16 @@ def lane_rerun_report(
                 lane="persistence",
                 extra=("--save-slot", save_slot),
                 output_dir="build/cloud-run-persistence",
+            )
+        ),
+        (
+            "  long-run cadence/noVNC slowdown: "
+            + helper_command(
+                repo=repo,
+                ref=ref,
+                lane="audio",
+                extra=("--soak-attempts", "3", "--soak-min-passes", "3"),
+                output_dir="build/cloud-soak-audio",
             )
         ),
     ]

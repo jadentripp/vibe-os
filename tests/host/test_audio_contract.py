@@ -683,6 +683,10 @@ class AudioContractTests(unittest.TestCase):
         self.assertIn("VIBE_AUDIO_PCM_PULL_STATE", audio_doc)
         self.assertIn("VIBE_AUDIO_STREAM_INFO", audio_doc)
         self.assertIn("device/ring/stream/mixer", audio_doc)
+        self.assertIn("os_audio_contract", audio_doc)
+        self.assertIn("pcmbuf=` active-half status to match the IRQ `half=` field", audio_doc)
+        self.assertIn("status-only OS audio subsystem lane", audio_doc)
+        self.assertIn("device/ring/stream/mixer status coherence", audio_doc)
         self.assertIn("playability_cadence", audio_doc)
         self.assertIn("OS audio cadence", audio_doc)
         self.assertIn("pending music window", audio_doc)
@@ -717,10 +721,14 @@ class AudioContractTests(unittest.TestCase):
     def test_audio_checkers_pin_proof_lanes_without_vm_audio(self):
         audible_checker = (ROOT / "tools" / "check_audible_audio_proof.py").read_text()
         continuity_checker = (ROOT / "tools" / "check_audio_continuity_proof.py").read_text()
-        music_doc = (ROOT / "docs" / "doom-music.md").read_text()
+        music_doc = (ROOT / "docs" / "audio.md").read_text()
 
         for source in (
             "aggregate-machine-audible-output",
+            "status-only-os-audio-subsystem",
+            "os_audio_subsystem",
+            "os_audio_contract",
+            "pcmbuf= active half must match half= IRQ phase",
             "human-listened-quality",
             "not-proven-by-this-manifest",
             "future-hardware-paced-mixer-refill-playback",
@@ -738,6 +746,7 @@ class AudioContractTests(unittest.TestCase):
             "CURRENT_MUSIC_PAYLOAD_OWNER",
             "CURRENT_MUSIC_SERVICE_COMMAND",
             "FUTURE_HARDWARE_MIXER_REFILL_PLAYBACK",
+            "build_os_audio_contract",
             "human-listened quality and future hardware-paced mixer/refill playback remain separate lanes",
         ):
             with self.subTest(source=source):
@@ -745,8 +754,10 @@ class AudioContractTests(unittest.TestCase):
 
         for source in (
             "Music legitimacy roadmap as OS contracts",
+            "os_audio_contract",
             "Current parser legitimacy",
             "Current stream legitimacy",
+            "Current OS audio subsystem legitimacy",
             "Current audible legitimacy",
             "Future playback legitimacy",
             "Human-listened quality is a separate lane",

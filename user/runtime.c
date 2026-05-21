@@ -48,6 +48,44 @@ int vibe_user_open(const char* path, unsigned long flags, unsigned long mode)
     return vibe_user_syscall3(VIBE_SYS_OPEN, (unsigned long)path, flags, mode);
 }
 
+int vibe_user_read(int fd, void* buffer, unsigned long count)
+{
+    if (!buffer && count)
+        return -22;
+    return vibe_user_syscall3(VIBE_SYS_READ, (unsigned long)fd, (unsigned long)buffer, count);
+}
+
+int vibe_user_lseek(int fd, long offset, unsigned long whence)
+{
+    return vibe_user_syscall3(VIBE_SYS_LSEEK, (unsigned long)fd, (unsigned long)offset, whence);
+}
+
+int vibe_user_pread(int fd, void* buffer, unsigned long count, long offset)
+{
+    int original;
+    int result;
+    int restore;
+
+    if (offset < 0 || (!buffer && count))
+        return -22;
+
+    original = vibe_user_lseek(fd, 0, 1);
+    if (original < 0)
+        return original;
+
+    result = vibe_user_lseek(fd, offset, 0);
+    if (result < 0) {
+        (void)vibe_user_lseek(fd, original, 0);
+        return result;
+    }
+
+    result = vibe_user_read(fd, buffer, count);
+    restore = vibe_user_lseek(fd, original, 0);
+    if (restore < 0 && result >= 0)
+        return restore;
+    return result;
+}
+
 int vibe_user_close(int fd)
 {
     return vibe_user_syscall3(VIBE_SYS_CLOSE, (unsigned long)fd, 0, 0);

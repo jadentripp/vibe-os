@@ -24,14 +24,15 @@ from status_fields import parse_hex8, parse_status_fields  # noqa: E402
 WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
 MAKEFILE = ROOT / "Makefile"
 AUDIO_DOC = ROOT / "docs" / "audio.md"
-MUSIC_DOC = ROOT / "docs" / "doom-music.md"
+MUSIC_DOC = ROOT / "docs" / "audio.md"
 MUSIC_IMPL = ROOT / "doom_port" / "music.c"
 MUSIC_HEADER = ROOT / "doom_port" / "music.h"
 PLAYABLE_DOC = ROOT / "docs" / "playable-cloud-proof.md"
 RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
 ARTIFACT_CHECKER = ROOT / "tools" / "check_cloud_playability_artifacts.py"
 
-SCHEMA = "vibe-os-audible-audio-proof-v5"
+SCHEMA = "vibe-os-audible-audio-proof-v6"
+STATUS_ONLY_OS_AUDIO_SUBSYSTEM_LANE = "status-only-os-audio-subsystem"
 AGGREGATE_AUDIBLE_OUTPUT_LANE = "aggregate-machine-audible-output"
 HUMAN_LISTENED_QUALITY_LANE = "human-listened-quality"
 MUSIC_LEGITIMACY_LANE = "os-music-legitimacy-contract"
@@ -79,6 +80,17 @@ def _asset_provenance() -> dict[str, Any]:
 
 def _proof_contracts() -> dict[str, Any]:
     return {
+        "os_audio_subsystem": {
+            "lane": STATUS_ONLY_OS_AUDIO_SUBSYSTEM_LANE,
+            "proves": (
+                "status-only generic device/ring/stream/mixer coherence via "
+                "adev=, pcm=, pcmbuf=, half=, musicpull=, and lane counters"
+            ),
+            "does_not_prove": (
+                "Doom asset ownership, subjective listener quality, or "
+                "kernel-owned MUS/MIDI synthesis"
+            ),
+        },
         "aggregate_audible_output": {
             "lane": AGGREGATE_AUDIBLE_OUTPUT_LANE,
             "proves": (
@@ -221,6 +233,8 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         raise AssertionError("status pcmbuf= must expose a two-period PCM ring")
     if write_offset >= ring_bytes or active_half not in (0, 1):
         raise AssertionError("status pcmbuf= must expose a valid write offset and active half")
+    if active_half != _hex_value(fields, "half"):
+        raise AssertionError("status pcmbuf= active half must match half= IRQ phase")
     return {
         "audio": fields["audio"],
         "doomrun": fields["doomrun"],
@@ -235,6 +249,7 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         "ack8": fields.get("ack8", "00000000"),
         "ack16": fields.get("ack16", "00000000"),
         "refill": fields["refill"],
+        "half": fields["half"],
         "sfxmix": fields["sfxmix"],
         "sfxq": fields["sfxq"],
         "sfxbytes": fields["sfxbytes"],
@@ -407,6 +422,10 @@ def _continuity_summary(
     }
     ordered_fields = [
         snapshot_fields[label]
+        for label in ("baseline", "fire", "movement", "use", "menu", "final")
+    ]
+    ordered_snapshots = [
+        (label, snapshot_fields[label])
         for label in ("baseline", "fire", "movement", "use", "menu", "final")
     ]
     music_buffers = [_hex_value(fields, "musicbuf") for fields in ordered_fields]
@@ -584,14 +603,10 @@ def _continuity_summary(
         },
         "stream_health": stream_health,
         "stream_contract": stream_contract,
+        "os_audio_contract": check_audio_continuity_proof.build_os_audio_contract(ordered_snapshots),
         "renderer_contract": renderer_contract,
         "mixer_safety": mixer_safety,
-        "playability_cadence": check_audio_continuity_proof.build_playability_cadence(
-            [
-                (label, snapshot_fields[label])
-                for label in ("baseline", "fire", "movement", "use", "menu", "final")
-            ]
-        ),
+        "playability_cadence": check_audio_continuity_proof.build_playability_cadence(ordered_snapshots),
         "scripted_phase_proof": fire_phase,
         "progress": progress,
         "claim": (
@@ -956,7 +971,7 @@ def validate_manifest(
             raise AssertionError(f"manifest status.{counter} must be eight hex digits")
         if int(value, 16) <= 0:
             raise AssertionError(f"manifest status.{counter} must be nonzero")
-    for counter in ("dma", "sfxvoices", "musicbuf", "musicunder", "musicdrops"):
+    for counter in ("dma", "half", "sfxvoices", "musicbuf", "musicunder", "musicdrops"):
         value = status.get(counter)
         if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
             raise AssertionError(f"manifest status.{counter} must be eight hex digits")
@@ -1000,6 +1015,8 @@ def validate_manifest(
         raise AssertionError("manifest status.pcmbuf must expose a two-period PCM ring")
     if write_offset >= ring_bytes or active_half not in (0, 1):
         raise AssertionError("manifest status.pcmbuf must expose a valid write offset and active half")
+    if active_half != int(status["half"], 16):
+        raise AssertionError("manifest status.pcmbuf active half must match status.half")
 
     if continuity.get("gate") != "tools/check_audio_continuity_proof.py":
         raise AssertionError("manifest continuity.gate must name the audio continuity checker")
@@ -1065,6 +1082,9 @@ def validate_manifest(
     stream_contract = continuity.get("stream_contract")
     if not isinstance(stream_contract, dict):
         raise AssertionError("manifest continuity.stream_contract must be an object")
+    os_audio_contract = continuity.get("os_audio_contract")
+    if not isinstance(os_audio_contract, dict):
+        raise AssertionError("manifest continuity.os_audio_contract must be an object")
     playability_cadence = continuity.get("playability_cadence")
     if playability_cadence is not None and not isinstance(playability_cadence, dict):
         raise AssertionError("manifest continuity.playability_cadence must be an object when present")
@@ -1223,6 +1243,7 @@ def validate_manifest(
     future_step = stream_contract.get("future_legitimacy_step")
     if future_step is not None and "kernel-owned music ring" not in future_step:
         raise AssertionError("manifest stream contract future step must mention kernel-owned music ring")
+    _validate_os_audio_contract(os_audio_contract)
     if renderer_contract is not None:
         if renderer_contract.get("status_counter") != "musicrend":
             raise AssertionError("manifest renderer contract must name musicrend")
@@ -1424,6 +1445,103 @@ def _validate_proof_contracts(proof_contracts: Any) -> None:
                 )
 
 
+def _contract_hex(value: Any, path: str, *, positive: bool = False) -> int:
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
+        raise AssertionError(f"manifest {path} must be eight hex digits")
+    parsed = int(value, 16)
+    if positive and parsed <= 0:
+        raise AssertionError(f"manifest {path} must be nonzero")
+    return parsed
+
+
+def _validate_os_audio_contract(contract: dict[str, Any]) -> None:
+    if contract.get("lane") != STATUS_ONLY_OS_AUDIO_SUBSYSTEM_LANE:
+        raise AssertionError("manifest os_audio_contract.lane must be status-only-os-audio-subsystem")
+
+    status_fields = contract.get("status_fields")
+    if not isinstance(status_fields, dict):
+        raise AssertionError("manifest os_audio_contract.status_fields must be an object")
+    expected_fields = {
+        "device": "adev",
+        "sample_format": "pcm",
+        "ring": "pcmbuf",
+        "irq_phase": "half",
+        "stream": "musicstream/musicpull/musicbuf/musicpos",
+        "mixer_lanes": "voices/sfxvoices/musicvoices/sfxmix/musicmix",
+    }
+    for key, expected in expected_fields.items():
+        if status_fields.get(key) != expected:
+            raise AssertionError(f"manifest os_audio_contract.status_fields.{key} must be {expected!r}")
+
+    device = contract.get("device")
+    ring = contract.get("pcm_ring")
+    stream = contract.get("stream")
+    lanes = contract.get("mixer_lanes")
+    if not all(isinstance(value, dict) for value in (device, ring, stream, lanes)):
+        raise AssertionError("manifest os_audio_contract must contain device, pcm_ring, stream, and mixer_lanes")
+
+    if device.get("kind") != "SB16" or device.get("ready") is not True:
+        raise AssertionError("manifest os_audio_contract.device must prove a ready SB16 device")
+    capabilities = device.get("capabilities")
+    if not isinstance(capabilities, list):
+        raise AssertionError("manifest os_audio_contract.device.capabilities must be a list")
+    for capability in ("pcm-ring", "mixer-voices", "pull-stream", "sb16-dma"):
+        if capability not in capabilities:
+            raise AssertionError(
+                f"manifest os_audio_contract.device.capabilities must include {capability}"
+            )
+    if device.get("required_capabilities_present") is not True:
+        raise AssertionError("manifest os_audio_contract.device required capabilities must be present")
+    _contract_hex(device.get("playback_start_count"), "os_audio_contract.device.playback_start_count", positive=True)
+
+    if ring.get("format") != "u8-stereo":
+        raise AssertionError("manifest os_audio_contract.pcm_ring.format must be u8-stereo")
+    if ring.get("channels") != 2 or ring.get("sample_rate") != 11025:
+        raise AssertionError("manifest os_audio_contract.pcm_ring must prove stereo 11025 Hz output")
+    ring_bytes = _contract_hex(ring.get("ring_bytes"), "os_audio_contract.pcm_ring.ring_bytes", positive=True)
+    period_bytes = _contract_hex(ring.get("period_bytes"), "os_audio_contract.pcm_ring.period_bytes", positive=True)
+    write_offset = _contract_hex(ring.get("write_offset"), "os_audio_contract.pcm_ring.write_offset")
+    active_half = _contract_hex(ring.get("active_half"), "os_audio_contract.pcm_ring.active_half")
+    if period_bytes * 2 != ring_bytes or ring.get("two_period_ring") is not True:
+        raise AssertionError("manifest os_audio_contract.pcm_ring must prove a two-period ring")
+    if write_offset >= ring_bytes or active_half not in (0, 1):
+        raise AssertionError("manifest os_audio_contract.pcm_ring must expose valid offset and active half")
+    if ring.get("active_half_matches_half") is not True:
+        raise AssertionError("manifest os_audio_contract.pcm_ring must match pcmbuf active half to half=")
+    _contract_hex(ring.get("irq_delta"), "os_audio_contract.pcm_ring.irq_delta", positive=True)
+    _contract_hex(ring.get("refill_delta"), "os_audio_contract.pcm_ring.refill_delta", positive=True)
+
+    if stream.get("mode") != "PULL":
+        raise AssertionError("manifest os_audio_contract.stream.mode must be PULL")
+    _contract_hex(stream.get("request_delta"), "os_audio_contract.stream.request_delta", positive=True)
+    _contract_hex(stream.get("refill_delta"), "os_audio_contract.stream.refill_delta", positive=True)
+    _contract_hex(stream.get("pending_peak"), "os_audio_contract.stream.pending_peak")
+    _contract_hex(stream.get("buffer_initial"), "os_audio_contract.stream.buffer_initial")
+    _contract_hex(stream.get("buffer_final"), "os_audio_contract.stream.buffer_final")
+    _contract_hex(stream.get("position_delta"), "os_audio_contract.stream.position_delta", positive=True)
+    if stream.get("ordered_refills") is not True:
+        raise AssertionError("manifest os_audio_contract.stream must prove ordered refills")
+    if stream.get("bounded_pending_requests") is not True:
+        raise AssertionError("manifest os_audio_contract.stream must prove bounded pending pull requests")
+    if stream.get("payload_owner") != "doom_port/music.c":
+        raise AssertionError("manifest os_audio_contract.stream payload owner must be doom_port/music.c")
+    if stream.get("service_command") != "VIBE_AUDIO_MIXER_UPDATE":
+        raise AssertionError("manifest os_audio_contract.stream service command must be VIBE_AUDIO_MIXER_UPDATE")
+
+    if lanes.get("voice_total_matches_lanes") is not True:
+        raise AssertionError("manifest os_audio_contract.mixer_lanes must prove voice lane totals")
+    if lanes.get("sfx_lane_counter") != "sfxmix" or lanes.get("music_lane_counter") != "musicmix":
+        raise AssertionError("manifest os_audio_contract.mixer_lanes must name sfxmix and musicmix")
+    _contract_hex(lanes.get("sfx_delta"), "os_audio_contract.mixer_lanes.sfx_delta", positive=True)
+    _contract_hex(lanes.get("music_delta"), "os_audio_contract.mixer_lanes.music_delta", positive=True)
+    if lanes.get("human_listener_lane") != "not-proven-by-status":
+        raise AssertionError("manifest os_audio_contract.mixer_lanes must keep human listener lane separate")
+
+    claim = contract.get("claim")
+    if not isinstance(claim, str) or "human-listened quality" not in claim:
+        raise AssertionError("manifest os_audio_contract.claim must separate human-listened quality")
+
+
 def validate_repo_contract() -> None:
     workflow = WORKFLOW.read_text()
     makefile = MAKEFILE.read_text()
@@ -1467,6 +1585,8 @@ def validate_repo_contract() -> None:
                 "adev=",
                 "pcm=",
                 "pcmbuf=",
+                "os_audio_contract",
+                "status-only OS audio subsystem lane",
                 "sfxmix= counts non-music Doom SFX only",
                 "sfxbytes=",
                 "sfxdma=",
@@ -1485,6 +1605,7 @@ def validate_repo_contract() -> None:
                 "unterminated MUS variable-length delays",
                 "grouped MUS events",
                 "stream_contract",
+                "device/ring/stream/mixer status coherence",
                 "playability_cadence",
                 "device/ring/stream/mixer",
                 "musicstream=PULL",
@@ -1504,6 +1625,7 @@ def validate_repo_contract() -> None:
             (
                 "long-running music streaming contract",
                 "song-position",
+                "os_audio_contract",
                 "MUS event type 6",
                 "event type 5",
                 "unterminated MUS variable-length delays",

@@ -35,6 +35,8 @@
 #define open vibe_test_open
 #define read vibe_test_read
 #define write vibe_test_write
+#define pread vibe_test_pread
+#define pwrite vibe_test_pwrite
 #define close vibe_test_close
 #define lseek vibe_test_lseek
 #define ftruncate vibe_test_ftruncate
@@ -490,6 +492,7 @@ static int test_stat_directory_listdir_and_clock_contracts(void)
     unsigned long file_size;
     unsigned long read_size;
     char read_buffer[8];
+    int fd;
 
     reset_mock();
     if (stat("/", &st) != 0 || !S_ISDIR(st.st_mode) || S_ISREG(st.st_mode))
@@ -516,6 +519,32 @@ static int test_stat_directory_listdir_and_clock_contracts(void)
         || errno != ENOSPC
         || read_size != 4)
         return fail(24);
+    fd = open("tool.txt", O_RDWR);
+    if (fd < 0)
+        return fail(73);
+    if (lseek(fd, 0, SEEK_END) != 4)
+        return fail(74);
+    memset(read_buffer, 0, sizeof(read_buffer));
+    if (pread(fd, read_buffer, 2, 1) != 2 || read_buffer[0] != 'a' || read_buffer[1] != 'm')
+        return fail(75);
+    if (lseek(fd, 0, SEEK_CUR) != 4)
+        return fail(76);
+    if (pwrite(fd, "XY", 2, 1) != 2)
+        return fail(77);
+    if (lseek(fd, 0, SEEK_CUR) != 4)
+        return fail(78);
+    memset(read_buffer, 0, sizeof(read_buffer));
+    if (vibe_file_read_at("tool.txt", 0, read_buffer, 4, &read_size) != 0
+        || read_size != 4
+        || strcmp(read_buffer, "gXYe"))
+        return fail(79);
+    if (vibe_file_read_at("tool.txt", 0x80000000ul, read_buffer, 1, &read_size) != -1
+        || errno != EOVERFLOW)
+        return fail(80);
+    if (pread(fd, read_buffer, 1, -1) != -1 || errno != EINVAL)
+        return fail(81);
+    if (close(fd) != 0)
+        return fail(82);
     if (fcntl(file->fd, F_GETFD) != 0)
         return fail(21);
     if (fcntl(file->fd, F_SETFD, FD_CLOEXEC) != 0)

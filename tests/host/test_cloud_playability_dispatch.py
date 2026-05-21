@@ -148,6 +148,9 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
         self.assertIn("failure lanes:", audio.stdout)
         self.assertIn("gameplay/input:", audio.stdout)
         self.assertIn("SB16 continuity:", audio.stdout)
+        self.assertIn("long-run cadence/noVNC slowdown:", audio.stdout)
+        self.assertIn("--require-long-run-cadence", audio.stdout)
+        self.assertIn("tools/check_scripted_gameplay_proof.py", audio.stdout)
         self.assertIn("audible audio aggregate:", audio.stdout)
         self.assertIn("build/cloud-run-12345/audio-proof.json", audio.stdout)
         self.assertIn("persistence/save-load: not requested for this lane", audio.stdout)
@@ -159,6 +162,10 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
         self.assertIn("persistence/save-load red:", audio.stdout)
         self.assertIn(
             "--lane persistence --save-slot 0 --wait --download-artifacts build/cloud-run-persistence",
+            audio.stdout,
+        )
+        self.assertIn(
+            "--lane audio --soak-attempts 3 --soak-min-passes 3 --wait --download-artifacts build/cloud-soak-audio",
             audio.stdout,
         )
         self.assertIn("tools/triage_cloud_status.py build/cloud-run-12345/status.txt", audio.stdout)
@@ -271,6 +278,8 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
         )
         self.assertIn("failure lanes:", result.stdout)
         self.assertIn("gameplay/audio soak:", result.stdout)
+        self.assertIn("long-run cadence/noVNC slowdown:", result.stdout)
+        self.assertIn("real-wad-soak-summary.json status_cadence entries", result.stdout)
         self.assertIn("persistence: not requested by real-wad-soak.yml", result.stdout)
         self.assertIn("rerun only the red lane:", result.stdout)
         self.assertIn("audio soak red:", result.stdout)
