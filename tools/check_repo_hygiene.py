@@ -771,7 +771,7 @@ def markdown_surface_violations(paths: list[str]) -> list[str]:
         violations.append(
             "Markdown surface has unexpected tracked files: "
             + ", ".join(extra)
-            + "; merge durable contracts into README.md, docs/*.md, or plain text."
+            + "; merge durable contracts into README.md, docs/*.txt, or plain text."
         )
     if missing:
         violations.append(
