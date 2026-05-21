@@ -27,31 +27,25 @@ proof.
 - Original Doom source in `third_party/doom`; all OS-facing port code lives in
   `doom_port/`.
 
-Gameplay is playable through the safe cloud path. On May 21, 2026, a manual
-Codespaces/noVNC session on `main` booted vibe-os and reached interactive Doom;
-keyboard controls worked well enough to play, though a 2-core Codespace slowed
-down over time. The launcher now warns about that target, prints cleanup
-commands, and keeps QEMU off the laptop.
+Gameplay is playable through the safe cloud path. A manual Codespaces/noVNC
+session on `main` booted vibe-os and reached interactive Doom; keyboard
+controls worked well enough to play, though a 2-core Codespace slowed down over
+time. The launcher now warns about that target, prints cleanup commands, and
+keeps QEMU off the laptop.
 
-The latest cloud proof is green for first-boot gameplay and audio. Gameplay run
-`26202349037` reached E1M1 with real `DOOM1.WAD`, input, `doomrun=RUN`,
-`gameplay=OK`, `panic=NONE`, `musicq=00000001:00000000`, and SB16 continuity
-gates. Audio run `26202447113` also passed the audible-audio aggregate. That is
-the current "you can boot and play Doom in the cloud" proof.
+The cloud proof is green for first-boot gameplay and audio: the OS reaches E1M1
+with real `DOOM1.WAD`, accepts input, keeps Doom running as a Ring 3 process,
+and exercises the SB16/audio path. That is the current "you can boot and play
+Doom in the cloud" claim.
 
-Save/load is the big remaining playability hole. The strongest persistence
-evidence, run `26199297160`, wrote and reread `DOOMSAV0.DSG` at `25718` bytes,
-then failed during reboot load inside original Doom with
-`Unknown tclass 112 in savegame`; `savestm=` and `savethk=` diagnostics keep the
-failure localized. Persistence/save-load should only be claimed after a green
-cloud persistence run proves the save survives reboot and loads back into
-gameplay.
+Save/load is the big remaining playability hole. The OS can write and reread a
+`DOOMSAV*.DSG` payload, but reboot load has not yet earned a green persistence
+proof. Persistence/save-load should only be claimed after a cloud run proves the
+save survives reboot and loads back into gameplay.
 
-Older scripted cloud evidence, including run `26165681561` and generated-WAD
-run `26165678183`, is historical context for the proof system, including the
-`playability-status-green` triage label, not a claim about the tip of `main`.
-The commit-level trail lives in `docs/post-checkpoint-gaps.md` and
-`docs/playable-cloud-proof.md` rather than here.
+Detailed evidence, historical failures, and exact proof artifacts live in
+`docs/post-checkpoint-gaps.md` and `docs/playable-cloud-proof.md` rather than
+here.
 
 ## How It Was Built
 
@@ -77,9 +71,7 @@ The prompting strategy is deliberately repetitive and evidence-driven:
 - Keep WADs, disk images, rendered pixels, and raw audio out of git and out of
   uploaded artifacts.
 
-At the time this README was updated, the run had been active for more than a
-day, with the worker pool cycled through multiple generations. That is part of
-the method: lots of parallel subsystem pressure, but one integration lane and
+The method is lots of parallel subsystem pressure, but one integration lane and
 hard proof gates so the project does not become a pile of stitched-together
 shortcuts.
 

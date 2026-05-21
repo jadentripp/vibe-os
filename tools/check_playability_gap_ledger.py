@@ -220,23 +220,30 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         if _contains_phrase(combined_claim_surface, phrase):
             raise AssertionError(f"claim surface still uses stale current-proof phrase: {phrase}")
     for phrase in (
-        "scripted cloud evidence",
-        "26165681561",
-        "26165678183",
-        "playability-status-green",
+        "The cloud proof is green for first-boot gameplay and audio",
+        "real `DOOM1.WAD`",
+        "accepts input",
+        "Ring 3 process",
+        "SB16/audio path",
         "Persistence/save-load should only be claimed",
-        "DOOMSAV0.DSG",
+        "`DOOMSAV*.DSG`",
         "Where It Stands",
-        "26199297160",
-        "25718",
-        "Unknown tclass 112 in savegame",
-        "savestm=",
-        "savethk=",
+        "Detailed evidence, historical failures, and exact proof artifacts",
         "gh workflow run os-smoke.yml",
         "gh workflow run real-wad-smoke.yml",
     ):
         if not _contains_phrase(readme, phrase):
             raise AssertionError(f"README missing claim-boundary phrase: {phrase}")
+    forbidden_readme_phrases = (
+        "commit-level trail",
+        "commit `",
+        "run `261",
+        "run `262",
+        "At the time this README was updated",
+    )
+    for phrase in forbidden_readme_phrases:
+        if _contains_phrase(readme, phrase):
+            raise AssertionError(f"README should not carry proof provenance phrase: {phrase}")
     for phrase in ("c525952", "ed4d00f"):
         if not _contains_phrase(text, phrase):
             raise AssertionError(f"gap ledger missing historical commit phrase: {phrase}")
