@@ -153,6 +153,63 @@ class FatContractTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, docs)
 
+    def test_generated_fat_geometry_keeps_partition_and_data_boundaries_explicit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_path = Path(tmp) / "disk.img"
+            subprocess.run(
+                [sys.executable, str(MAKE_WAD_IMAGE), str(image_path)],
+                check=True,
+                cwd=ROOT,
+                stdout=subprocess.DEVNULL,
+            )
+            image = bytearray(image_path.read_bytes())
+
+        fs = make_wad_image.Fat16Image(image)
+        self.assertEqual(fs.partition_lba, make_wad_image.PARTITION_START)
+        self.assertEqual(fs.root_lba, 2561)
+        self.assertEqual(fs.data_lba, 2593)
+        self.assertLess(
+            make_wad_image.KERNEL_LBA + make_wad_image.KERNEL_SECTORS,
+            fs.partition_lba,
+        )
+
+        partition_end = make_wad_image.PARTITION_START + make_wad_image.PARTITION_SECTORS
+        data_sectors = partition_end - fs.data_lba
+        usable_data_sectors = make_wad_image.data_cluster_count() * make_wad_image.SECTORS_PER_CLUSTER
+        self.assertGreaterEqual(data_sectors, usable_data_sectors)
+        self.assertLess(
+            data_sectors - usable_data_sectors,
+            make_wad_image.SECTORS_PER_CLUSTER,
+        )
+        self.assertGreater(
+            make_wad_image.SECTORS_PER_FAT * make_wad_image.SECTOR_SIZE // 2,
+            make_wad_image.last_data_cluster(),
+        )
+
+    def test_fat_reader_rejects_cluster_indexes_outside_data_and_fat_bounds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_path = Path(tmp) / "disk.img"
+            subprocess.run(
+                [sys.executable, str(MAKE_WAD_IMAGE), str(image_path)],
+                check=True,
+                cwd=ROOT,
+                stdout=subprocess.DEVNULL,
+            )
+            fs = make_wad_image.Fat16Image(bytearray(image_path.read_bytes()))
+
+        last_cluster = make_wad_image.last_data_cluster()
+        self.assertGreaterEqual(fs.fat_entry(last_cluster), 0)
+        self.assertEqual(
+            fs.cluster_offset(last_cluster),
+            make_wad_image.sector_offset(
+                fs.data_lba + (last_cluster - 2) * make_wad_image.SECTORS_PER_CLUSTER
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "outside the data area"):
+            fs.cluster_offset(last_cluster + 1)
+        with self.assertRaisesRegex(ValueError, "outside the FAT"):
+            fs.fat_entry(make_wad_image.SECTORS_PER_FAT * make_wad_image.SECTOR_SIZE // 2)
+
     def test_kernel_fat_vfs_exposes_readonly_one_level_directory_listing(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
 

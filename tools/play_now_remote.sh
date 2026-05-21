@@ -9,6 +9,8 @@ NOVNC_PORT="${NOVNC_PORT:-6080}"
 NOVNC_WEB_ROOT="${NOVNC_WEB_ROOT:-}"
 PLAY_BUILD_DIR="${PLAY_BUILD_DIR:-build/play-now}"
 DIAGNOSTICS_SCRIPT="${DIAGNOSTICS_SCRIPT:-/tmp/vibe-os-play-now-diagnostics.sh}"
+PLAY_NOW_PID_FILE="${PLAY_NOW_PID_FILE:-/tmp/vibe-os-play-now.pid}"
+PLAY_NOW_PORT_FILE="${PLAY_NOW_PORT_FILE:-/tmp/vibe-os-play-now.novnc-port}"
 VNC_PORT=""
 NOVNC_WEB_ROOT_RESOLVED=""
 NOVNC_WEB_ROOTS=(
@@ -150,6 +152,8 @@ write_diagnostics_helper() {
   local repo_dir_q
   local play_build_abs_q
   local diagnostics_script_q
+  local pid_file_q
+  local port_file_q
 
   repo_dir="$(pwd)"
   mkdir -p "$PLAY_BUILD_DIR"
@@ -157,6 +161,8 @@ write_diagnostics_helper() {
   printf -v repo_dir_q '%q' "$repo_dir"
   printf -v play_build_abs_q '%q' "$play_build_abs"
   printf -v diagnostics_script_q '%q' "$DIAGNOSTICS_SCRIPT"
+  printf -v pid_file_q '%q' "$PLAY_NOW_PID_FILE"
+  printf -v port_file_q '%q' "$PLAY_NOW_PORT_FILE"
 
   cat >"$DIAGNOSTICS_SCRIPT" <<EOF_DIAGNOSTICS
 #!/usr/bin/env bash
@@ -165,9 +171,9 @@ set -euo pipefail
 repo_dir=$repo_dir_q
 play_build_dir=$play_build_abs_q
 diagnostics_script=$diagnostics_script_q
-pid_file="/tmp/vibe-os-play-now.pid"
+pid_file=$pid_file_q
 log_file="/tmp/vibe-os-play-now.log"
-port_file="/tmp/vibe-os-play-now.novnc-port"
+port_file=$port_file_q
 serial_log="\$play_build_dir/serial.log"
 novnc_log="\$play_build_dir/novnc.log"
 
@@ -229,6 +235,20 @@ else
 fi
 EOF_DIAGNOSTICS
   chmod +x "$DIAGNOSTICS_SCRIPT"
+}
+
+write_play_now_metadata() {
+  printf "%s\n" "$$" >"$PLAY_NOW_PID_FILE"
+  printf "%s\n" "$NOVNC_PORT" >"$PLAY_NOW_PORT_FILE"
+}
+
+cleanup_play_now_metadata() {
+  local recorded_pid
+
+  recorded_pid="$(cat "$PLAY_NOW_PID_FILE" 2>/dev/null || true)"
+  if [ "$recorded_pid" = "$$" ]; then
+    rm -f "$PLAY_NOW_PID_FILE" "$PLAY_NOW_PORT_FILE"
+  fi
 }
 
 RUN_PREFLIGHT_ONLY=0
@@ -319,6 +339,7 @@ cleanup() {
     kill "$WEBSOCKIFY_PID" >/dev/null 2>&1 || true
     wait "$WEBSOCKIFY_PID" 2>/dev/null || true
   fi
+  cleanup_play_now_metadata
 }
 terminate() {
   cleanup
@@ -326,6 +347,8 @@ terminate() {
 }
 trap cleanup EXIT
 trap terminate INT TERM
+
+write_play_now_metadata
 
 echo "Fetching/validating shareware DOOM1.WAD into $WAD_PATH"
 echo "Remote artifact policy: WADs, disk images, pixels, raw audio, and logs stay on this disposable host unless a separate allowlisted proof collector is used."

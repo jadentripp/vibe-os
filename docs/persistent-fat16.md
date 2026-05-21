@@ -246,14 +246,19 @@ Storage install/recovery boundary:
   blank disk, preserve an unknown existing disk, or repair damaged user media.
 - `tools/check_storage_install_boundary.py --image build/disk.img --json`
   produces an `install-image-manifest` for the current generated raw image:
-  MBR/FAT16 layout, raw Stage 2/kernel regions, FAT BPB fields, root-entry
-  inventory, FAT-copy agreement, and cluster ownership. That manifest is
-  intentionally scoped to `build/disk.img`.
+  MBR/FAT16 layout, unused partition-table slots, raw Stage 2/kernel region
+  non-overlap, FAT BPB total-sector and hidden-sector fields, FAT/root/data
+  geometry, root-entry inventory, FAT-copy agreement, and cluster ownership.
+  That manifest is intentionally scoped to `build/disk.img`.
 - The machine-readable install/recovery rows live in
   `docs/storage-install-boundary.md`. `STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL]`
   and `STORAGE_BOUNDARY[ARBITRARY_DISK_RECOVERY]` stay unclaimed until a future
   proof starts from blank or damaged media and reaches the same boot,
   persistence, and recovery gates through a real installer or recovery path.
+  A safe arbitrary-disk installer would also need explicit device selection,
+  read-only preflight inventory, refusal on unknown existing data by default,
+  opt-in destructive confirmation for exact byte ranges, a dry-run manifest,
+  and post-write verification that no unapproved ranges changed.
 
 The Doom libc buffers formatted `fprintf` output until `fflush()` / `fclose()`,
 so `M_SaveDefaults()` does not spend the cloud proof window performing one disk

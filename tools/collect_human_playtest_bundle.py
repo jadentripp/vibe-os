@@ -101,6 +101,16 @@ REQUIRED_CONFIRMATION_FLAGS = (
 )
 
 SLOWDOWN_CHOICES = ("not-observed", "mild", "moderate", "severe")
+PHASE_STATUS_SIGNALS = {
+    "early": "baseline counters before manual input",
+    "after-start": "gameplay=OK, E1M1, menu inactive",
+    "after-fire": "keyseen fire bit plus attack/refire/ammo status",
+    "after-move": "movement key bit plus position or turn progress",
+    "after-use": "use key bit plus use-command status",
+    "after-mouse": "mouse counters, button, and nonzero movement delta",
+    "after-menu": "menu key bit plus menu-active status",
+    "final": "duration gate crossed and all manual action bits retained",
+}
 
 
 def _path_is_relative_to(path: Path, parent: Path) -> bool:
@@ -245,6 +255,19 @@ def _capture_status_summary(status_path: Path) -> str:
             "shutdown",
         ),
     )
+
+
+def _phase_guide_lines() -> list[str]:
+    lines = ["status-only phase guide:"]
+    for phase, status_file, human_action in check_cloud_playability_artifacts.HUMAN_SESSION_PHASES:
+        lines.append(
+            f"  - {phase}: {status_file}; action={human_action}; "
+            f"expected={PHASE_STATUS_SIGNALS[phase]}"
+        )
+    lines.append(
+        "  - duration gate: final must be at least 350 gtic and leveltime ticks after after-start"
+    )
+    return lines
 
 
 def _send_monitor_command(monitor_socket: Path, command: str, timeout_seconds: float) -> str:
@@ -394,12 +417,15 @@ def _print_template(args: argparse.Namespace) -> None:
     output_dir = args.output_dir or Path("/tmp/vibe-os-human-proof")
     build_dir = args.build_dir
     monitor_socket = args.monitor_socket
+    phase_guide = "\n".join(_phase_guide_lines())
     print(
         f"""human proof bundle dry-run template
 remote machine guidance:
   - run inside a disposable Linux host or Codespace, never macOS QEMU
   - prefer 4+ cloud CPUs for noVNC plus QEMU TCG; 2-core hosts can stutter
   - keep WADs, disk images, status binaries, pixels, screenshots, and raw audio remote-only
+
+{phase_guide}
 
 capture commands:
   for phase in early after-start after-fire after-move after-use after-mouse after-menu final; do
@@ -538,6 +564,11 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="print exact status-only human proof commands without collecting or reading artifacts",
     )
+    parser.add_argument(
+        "--print-phase-guide",
+        action="store_true",
+        help="print the status-only phase/action guide without collecting or reading artifacts",
+    )
     parser.add_argument("--playtester", help="human initials or handle")
     parser.add_argument("--commit", help="commit under test; defaults to git rev-parse HEAD")
     parser.add_argument(
@@ -666,6 +697,9 @@ def main(argv: list[str]) -> int:
         help="operator confirms the downloaded bundle must be rechecked locally with --human-session",
     )
     args = parser.parse_args(argv)
+    if args.print_phase_guide:
+        print("\n".join(_phase_guide_lines()))
+        return 0
     if args.print_template:
         _print_template(args)
         return 0
@@ -678,6 +712,10 @@ def main(argv: list[str]) -> int:
             return 1
         print(f"human status capture OK: {status_path}")
         print(f"status audit summary: {_capture_status_summary(status_path)}")
+        print(
+            f"phase expectation: {args.capture_phase} -> {status_path.name}; "
+            f"{PHASE_STATUS_SIGNALS[args.capture_phase]}"
+        )
         return 0
 
     for attr, flag in REQUIRED_CONFIRMATION_FLAGS:

@@ -112,8 +112,9 @@ sanitize_remote_error() {
   sed -E \
     -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*_(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*=)[^[:space:]]+/\1[redacted]/g' \
     -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*=)(gh[pousr]_[A-Za-z0-9_]+)/\1[redacted]/g' \
+    -e 's/(gh[pousr]_[A-Za-z0-9_]+)/[redacted]/g' \
     -e 's/(Authorization: *(Bearer|token) +)[^[:space:]]+/\1[redacted]/Ig' \
-    -e 's/(access_token=)[^&[:space:]]+/\1[redacted]/Ig'
+    -e 's/((access_token|token|signature|X-Amz-Signature|X-Amz-Credential)=)[^&[:space:]]+/\1[redacted]/Ig'
 }
 
 ssh_permission_error() {
@@ -541,6 +542,15 @@ remote_start_payload() {
 set -euo pipefail
 
 repo_dir="${VIBE_CODESPACE_REPO_DIR:-}"
+redact_remote_stream() {
+  sed -E \
+    -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*_(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*=)[^[:space:]]+/\1[redacted]/g' \
+    -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*=)(gh[pousr]_[A-Za-z0-9_]+)/\1[redacted]/g' \
+    -e 's/(gh[pousr]_[A-Za-z0-9_]+)/[redacted]/g' \
+    -e 's/(Authorization: *(Bearer|token) +)[^[:space:]]+/\1[redacted]/Ig' \
+    -e 's/((access_token|token|signature|X-Amz-Signature|X-Amz-Credential)=)[^&[:space:]]+/\1[redacted]/Ig'
+}
+
 if [ -z "$repo_dir" ]; then
   for candidate in /workspaces/*; do
     if [ -e "$candidate/.git" ]; then
@@ -555,10 +565,7 @@ cd "$repo_dir"
 if [ -n "${VIBE_PLAY_REF:-}" ]; then
   git fetch --depth=1 origin "$VIBE_PLAY_REF" >/tmp/vibe-os-play-now-fetch.log 2>&1 || {
     echo "remote git fetch failed for the selected play ref; sanitized recent output:" >&2
-    sed -E \
-      -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*_(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*=)[^[:space:]]+/\1[redacted]/g' \
-      -e 's/(access_token=)[^&[:space:]]+/\1[redacted]/Ig' \
-      /tmp/vibe-os-play-now-fetch.log | tail -n 40 >&2
+    redact_remote_stream </tmp/vibe-os-play-now-fetch.log | tail -n 40 >&2
     exit 1
   }
   git checkout --detach FETCH_HEAD
@@ -591,7 +598,7 @@ else
   sleep 2
   if ! kill -0 "$(cat "$pid_file")" 2>/dev/null; then
     echo "vibe-os play-now exited during startup; recent remote log:" >&2
-    tail -n 80 "$log_file" >&2 || true
+    tail -n 80 "$log_file" | redact_remote_stream >&2 || true
     exit 1
   fi
 fi

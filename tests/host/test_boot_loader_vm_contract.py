@@ -264,11 +264,23 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "generated-WAD",
             "without `--require-preempt`",
             "real-WAD smoke and\nsoak workflows",
+            "KERNEL_RELOCATION_GAP[current]=high-alias-only",
+            "KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity",
+            "`vmmhi=OK` is not a kernel relocation claim",
+            "`kreloc=OK`",
+            "`kerneip=`",
+            "`kernesp=`",
+            "`kerncr3=`",
+            "`kernvirt=`",
+            "`kernphys=`",
         ):
             self.assertIn(source, boot_doc)
         self.assertIn("docs/boot-loader-vm.md", readme)
         self.assertIn("Boot/loader/VM contract", tests_readme)
         self.assertIn("fixed low-memory page-table pages", process_doc)
+        self.assertIn("KERNEL_RELOCATION_GAP[current]=high-alias-only", process_doc)
+        self.assertIn("KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity", process_doc)
+        self.assertIn("`vmmhi=OK` is not a kernel relocation claim", process_doc)
         self.assertIn("records a single last-mapping object descriptor tagged", process_doc)
         self.assertIn("not a reusable object table or lookup structure yet", process_doc)
         self.assertIn("this remains a brk-backed", process_doc)

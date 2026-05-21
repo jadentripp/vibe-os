@@ -18,6 +18,7 @@ CHECKER = ROOT / "tools" / "check_cloud_playability_artifacts.py"
 COLLECTOR = ROOT / "tools" / "collect_human_playtest_bundle.py"
 GUIDED_HUMAN_PLAYTEST = ROOT / "tools" / "run_remote_human_playtest.sh"
 PREPARE = ROOT / "tools" / "prepare_shareware_wad.py"
+PLAY_NOW_REMOTE_CHECK = ROOT / "tools" / "check_play_now_remote.py"
 
 checker_spec = importlib.util.spec_from_file_location("check_cloud_playability_artifacts", CHECKER)
 check_cloud_playability_artifacts = importlib.util.module_from_spec(checker_spec)
@@ -26,6 +27,14 @@ checker_spec.loader.exec_module(check_cloud_playability_artifacts)
 prepare_spec = importlib.util.spec_from_file_location("prepare_shareware_wad", PREPARE)
 prepare_shareware_wad = importlib.util.module_from_spec(prepare_spec)
 prepare_spec.loader.exec_module(prepare_shareware_wad)
+
+play_now_remote_spec = importlib.util.spec_from_file_location(
+    "check_play_now_remote",
+    PLAY_NOW_REMOTE_CHECK,
+)
+check_play_now_remote = importlib.util.module_from_spec(play_now_remote_spec)
+sys.modules[play_now_remote_spec.name] = check_play_now_remote
+play_now_remote_spec.loader.exec_module(check_play_now_remote)
 
 
 def valid_status(**overrides):
@@ -941,6 +950,62 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
     def test_repo_contract_is_wired_for_remote_human_play(self):
         check_cloud_playability_artifacts.validate_repo_contract()
 
+    def test_play_now_codespaces_safety_polish_is_documented_and_static_checked(self):
+        codespaces_script = (ROOT / "tools" / "play_now_codespaces.sh").read_text()
+        remote_script = (ROOT / "tools" / "play_now_remote.sh").read_text()
+        codespaces_doc = (ROOT / "docs" / "runbooks" / "codespaces-play-now.md").read_text()
+        cloud_doc = (ROOT / "docs" / "runbooks" / "play-now-cloud.md").read_text()
+
+        for needle in (
+            "redact_remote_stream",
+            "tail -n 80 \"$log_file\" | redact_remote_stream",
+            "(access_token|token|signature|X-Amz-Signature|X-Amz-Credential)=",
+            "gh[pousr]_",
+            "gh codespace ports visibility \"$NOVNC_PORT:private\"",
+            "noVNC port $NOVNC_PORT is private",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, codespaces_script)
+
+        for needle in (
+            'PLAY_NOW_PID_FILE="${PLAY_NOW_PID_FILE:-/tmp/vibe-os-play-now.pid}"',
+            'PLAY_NOW_PORT_FILE="${PLAY_NOW_PORT_FILE:-/tmp/vibe-os-play-now.novnc-port}"',
+            "write_play_now_metadata",
+            "cleanup_play_now_metadata",
+            'if [ "$recorded_pid" = "$$" ]; then',
+            "performance hint: 2-core hosts can stutter under QEMU/noVNC",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, remote_script)
+
+        for doc in (codespaces_doc, cloud_doc):
+            self.assertIn("effective CPU count", doc)
+            self.assertIn("/tmp/vibe-os-play-now.pid", doc)
+            self.assertIn("/tmp/vibe-os-play-now.novnc-port", doc)
+            self.assertIn("signed URL parameters", doc)
+            self.assertIn("2-core", doc)
+            self.assertIn("4+ CPU", doc)
+            self.assertIn("private", doc)
+
+    def test_remote_preflight_uses_cgroup_quota_for_codespaces_slowdown_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cgroup = Path(tmp)
+            (cgroup / "cpu.max").write_text("200000 100000\n")
+
+            report = check_play_now_remote.check_preflight(
+                env={},
+                platform_name="Linux",
+                which=lambda name: f"/usr/bin/{name}",
+                path_is_dir=lambda path: path == Path("/usr/share/novnc"),
+                cpu_count_provider=lambda: 16,
+                cgroup_root=cgroup,
+            )
+
+            rendered = check_play_now_remote.render_report(report)
+            self.assertEqual(report.cpu_count, 2)
+            self.assertIn("host CPUs: 2", rendered)
+            self.assertIn("performance caveat: 2-core hosts can play Doom", rendered)
+
     def test_guided_remote_human_playtest_helper_is_safe_and_wires_collector(self):
         script = GUIDED_HUMAN_PLAYTEST.read_text()
         cloud = (ROOT / "docs" / "runbooks" / "cloud-interactive-playtest.md").read_text()
@@ -955,6 +1020,12 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             "OUTPUT_DIR=\"${OUTPUT_DIR:-/tmp/vibe-os-human-proof}\"",
             "TARBALL=\"${TARBALL:-/tmp/vibe-os-human-proof.tgz}\"",
             "PHASES=(",
+            "PHASE_STATUS_FILES=(",
+            "PHASE_EXPECTED_SIGNALS=(",
+            "Phase capture plan:",
+            "Expected status signal:",
+            "Collector output file:",
+            "duration gate: final must be at least 350 gtic and leveltime ticks after after-start",
             "SLOWDOWN_MODE",
             "SLOWDOWN_NOTES",
             "after-start",
@@ -964,6 +1035,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             "after-mouse",
             "after-menu",
             "python3 tools/collect_human_playtest_bundle.py",
+            "--print-phase-guide",
             "--capture-phase \"$phase\"",
             "--confirm-scripted-proof-green",
             "--confirm-remote-vnc",
@@ -1725,12 +1797,39 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("human proof bundle dry-run template", result.stdout)
         self.assertIn("prefer 4+ cloud CPUs", result.stdout)
+        self.assertIn("status-only phase guide:", result.stdout)
+        self.assertIn("after-mouse: status.after-mouse.txt", result.stdout)
+        self.assertIn("duration gate: final must be at least 350", result.stdout)
         self.assertIn("--capture-phase \"$phase\"", result.stdout)
         self.assertIn("--confirm-no-forbidden-artifacts", result.stdout)
         self.assertIn("post-download verification", result.stdout)
         self.assertIn("dry-run: no files were copied", result.stdout)
         self.assertNotIn("DOOM1.WAD", result.stdout)
         self.assertFalse(output.exists())
+
+    def test_collector_print_phase_guide_is_dry_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_build = Path(tmp) / "missing-build"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(COLLECTOR),
+                    "--build-dir",
+                    str(missing_build),
+                    "--print-phase-guide",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("status-only phase guide:", result.stdout)
+        self.assertIn("after-fire: status.after-fire.txt", result.stdout)
+        self.assertIn("keyseen fire bit", result.stdout)
+        self.assertIn("after-menu: status.after-menu.txt", result.stdout)
+        self.assertIn("duration gate: final must be at least 350", result.stdout)
+        self.assertNotIn("DOOM1.WAD", result.stdout)
 
     def test_human_notes_reject_unknown_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1833,6 +1932,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("human status capture OK", result.stdout)
             self.assertIn("status audit summary:", result.stdout)
+            self.assertIn("phase expectation: after-fire -> status.after-fire.txt", result.stdout)
+            self.assertIn("keyseen fire bit", result.stdout)
             self.assertEqual(len(commands), 1)
             self.assertTrue(commands[0].startswith("pmemsave 0x9d000 8192 "))
             self.assertEqual(

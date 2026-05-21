@@ -331,7 +331,7 @@ rendered pixels. A run with
 `audio=NONE` is still useful diagnostics, but it is not an audible/streaming
 audio proof.
 
-Human-audible remote proof:
+Aggregate audible-output proof (not human listener approval):
 
 The next proof lane is `tools/check_audible_audio_proof.py`. The real-WAD
 workflow has an opt-in `audible_audio_proof` input that swaps the disposable
@@ -366,6 +366,15 @@ the status snapshots include tic/frame counters, `mixer_safety` thresholds for
 clip-free, underrun-free, and
 drop-free playback, plus a scripted fire-phase proof so a manifest cannot pass
 on carrier or music activity alone.
+New manifests also include a `proof_contracts` block that names the lanes as
+OS-level contracts: aggregate machine-audible output, human-listened quality,
+music legitimacy, and future hardware-paced mixer/refill playback. The aggregate
+lane proves non-silent remote QEMU output plus SB16 continuity only.
+human-listened quality is a separate lane that needs remote audio forwarding and
+listener notes, without uploading captured Doom audio. The future hardware-paced
+mixer/refill playback ABI is also a separate lane: the current path proves SB16
+IRQ/refill request timing and DMA/ring counters, while music payload service
+still arrives through `VIBE_AUDIO_MIXER_UPDATE`.
 The listener-quality metadata is still aggregate only: active span,
 leading/trailing inactive windows, clipping ratio, crest factor, zero-crossing
 rate, machine-audible thresholds, and an explicit note that subjective human
@@ -411,6 +420,24 @@ playback while avoiding the old bounded loop-pass failure.
 The kernel can later grow a first-class pull/refill command without changing the
 MUS/MIDI parser or Doom's original sources. See `docs/doom-music.md` for the
 full pipeline and fallback design.
+
+Audio quality and music legitimacy roadmap as OS contracts:
+
+- Current audible-output contract: `audio-proof.json` proves aggregate
+  machine-audible output from QEMU's WAV backend, status-only SB16 continuity,
+  non-music SFX activity, and parser-backed music counters. It is not a
+  human-listened quality pass.
+- Current music legitimacy contract: `VIBE_AUDIO_STREAM_INFO`,
+  `musicstream=PULL`, `musicpull=`, `musicrend=`, `musicpos=`, and
+  `musicbuf=` prove the OS-visible pull/refill stream shape while the Doom port
+  still owns MUS/MIDI parsing and chunk rendering.
+- future hardware-paced mixer/refill playback ABI: move payload service away
+  from `VIBE_AUDIO_MIXER_UPDATE` into a first-class kernel-owned music ring or
+  mixer/refill stream command, while preserving status-only request/refill,
+  renderer provenance, buffer health, and safety counters.
+- Future human-listened quality pass: use remote audio forwarding for listening
+  notes about balance, clipping, loops, stutter, and musical plausibility. The
+  notes can be uploaded; captured Doom audio must not be.
 
 Remaining gaps:
 

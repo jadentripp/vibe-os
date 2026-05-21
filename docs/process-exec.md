@@ -263,3 +263,18 @@ real-WAD proof counters.
   directory state, dynamically sized process and fd tables, blocking scheduler
   waits, signals, threads, richer framebuffer present formats, and audio
   formats beyond the current unsigned 8-bit stereo mixer contract.
+
+## POSIX Gap Decomposition
+
+These gaps are deliberately tracked as contracts, not merely aspirations. Each
+row names the current executable behavior and the missing general-OS behavior
+that must be added before claiming POSIX compatibility.
+
+| Area | Current contract | Intentionally missing |
+| --- | --- | --- |
+| `fork` | `SYS_FORK` is wired through the syscall table and returns `-ENOSYS`; libc `fork()` preserves that errno and the user probe checks the classified result. | Address-space cloning, copy-on-write or eager page copies, parent/child return-value split, inherited signal state, and fork-time fd table cloning. |
+| fd duplication | Fds are owned by PID, carry generations, inherit across exec unless `O_CLOEXEC`, and are swept during exec rollback, exit, fault, slot reuse, and wait reap. | Public `dup`/`dup2`/`dup3`, shared open-file descriptions, shared offsets, descriptor refcounts, and fork-time descriptor duplication. |
+| file-backed `mmap` | `mmap` is anonymous/private/brk-backed; `munmap` validates mapped heap ranges, reclaims tail pages, and records non-tail holes. | File-backed mappings, `MAP_SHARED`, `MAP_FIXED`, reusable VM object lifetime, VMA splitting/merging, and page-cache backed mappings. |
+| signals | User faults become kernel process status and wait-reapable abnormal exits; expected-fault recovery is a probe-only trap rewrite. | `signal`, `sigaction`, `kill`, signal masks, user handler trampolines, timer signals, and delivery across scheduler context switches. |
+| terminal/tty | Keyboard and mouse input use the typed input queue; display control uses `ioctl(VIBE_DISPLAY_FD, ...)`, with non-display ioctls classified as `ENOTTY`. | `termios`, `isatty`, controlling terminals, line discipline, process groups, job control, and `/dev/tty*` path/device semantics. |
+| dynamic process lifetimes | Generic exec uses a two-entry static probe-class pool, fresh PIDs, slot generations, teardown of stale mappings, and wait reaping for exited/faulted children. | Dynamically allocated process records, unbounded child slots, orphan reparenting, blocking wait queues, long-lived parent shells, and arbitrary address-space classes. |

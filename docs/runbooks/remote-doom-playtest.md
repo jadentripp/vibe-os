@@ -171,6 +171,17 @@ local post-download checkers, cleanup notes, the safe artifact policy, and the
 4+ CPU Codespaces/noVNC recommendation. It ends with
 `dry-run: no files were copied`, and QEMU is not launched.
 
+For a shorter checklist when the command shape is already familiar, print only
+the phase guide:
+
+```sh
+python3 tools/collect_human_playtest_bundle.py --print-phase-guide
+```
+
+That lists each phase, the status filename it writes, the human action expected
+between captures, the status-only signal the checker will later look for, and
+the 350-tick duration gate from `after-start` to `final`.
+
 It prompts the human for each VNC action, calls the collector's
 `--capture-phase` helper for all eight phases, runs the bundle collector with
 the required `--confirm-*` flags, validates the allowlisted bundle before
@@ -178,8 +189,10 @@ download, creates `/tmp/vibe-os-human-proof.tgz`, and prints the exact `scp` and
 local `--human-session` command with the expected commit and scripted proof run
 ID baked in. Before capture it asks the operator to confirm the linked Real WAD
 smoke run is green; after capture it records slowdown as `not-observed`, `mild`,
-`moderate`, or `severe` plus a short status-only note. It does not launch QEMU
-and refuses to run on macOS.
+`moderate`, or `severe` plus a short status-only note. At startup and before
+each capture it prints the phase's output filename and expected status-only
+signal, so the operator can catch a wrong capture order before packaging the
+bundle. It does not launch QEMU and refuses to run on macOS.
 Before the first capture prompt, it also validates that `--playtester` matches
 the notes schema, `--scripted-proof-run-id` is a numeric GitHub Actions run ID,
 and both the proof output directory and proof tarball live outside the git
@@ -232,7 +245,8 @@ The helper understands only the eight proof phases: `early`, `after-start`,
 `after-fire`, `after-move`, `after-use`, `after-mouse`, `after-menu`, and
 `final`. `final` is written to `build/status.txt`; the other phases are written
 to `build/status.<phase>.txt`. Each successful capture prints
-`human status capture OK` plus a compact `status audit summary:` line. If the
+`human status capture OK`, a compact `status audit summary:` line, and the
+phase expectation for the status-only signal being captured. If the
 captured status page is missing any field required by
 `human-playtest-session.json`, the helper fails immediately and deletes the
 temporary `status.*.bin` capture instead of letting a weak phase reach the

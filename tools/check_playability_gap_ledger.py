@@ -82,12 +82,15 @@ REQUIRED_GAPS = {
 LATEST_RUN_PHRASES = (
     "Latest Cloud Evidence",
     "latest published scripted cloud truth-serum run",
-    "26203744974",
-    "f9a688e",
+    "26205557019",
+    "bfd04e8",
+    "26205496796",
     "25718",
     "persistence-proof-green",
     "VIBE SAVE",
     "saveact",
+    "26203744974",
+    "f9a688e",
     "26165681561",
     "c525952",
     "real-WAD, human-playability",
@@ -138,6 +141,7 @@ FORBIDDEN_STALE_CURRENT_PROOF_PHRASES = (
     "is the current scripted cloud truth-serum run for the current runtime code",
     "is the current scripted cloud proof that passes the serious real-WAD gates for the current runtime code",
     "Nothing is missing for this exact commit's scripted cloud-boot gate: `c525952`",
+    "The current branch still needs the same gate rerun after push",
     "Nothing is missing for this exact commit's scripted real-gameplay gate",
 )
 
@@ -269,11 +273,13 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         raise AssertionError("README should not carry concrete proof run IDs")
     if re.search(r"\bcommit\s+`?[0-9a-f]{7,40}`?\b", readme_without_code_names, re.IGNORECASE):
         raise AssertionError("README should not carry concrete commit hashes")
-    for phrase in ("c525952", "f9a688e"):
+    for phrase in ("bfd04e8", "c525952", "f9a688e"):
         if not _contains_phrase(text, phrase):
             raise AssertionError(f"gap ledger missing historical commit phrase: {phrase}")
+    if not _contains_phrase(playable_cloud_proof, "bfd04e8"):
+        raise AssertionError("playable cloud proof doc missing latest persistence commit phrase: bfd04e8")
     if not _contains_phrase(playable_cloud_proof, "f9a688e"):
-        raise AssertionError("playable cloud proof doc missing latest persistence commit phrase: f9a688e")
+        raise AssertionError("playable cloud proof doc missing historical persistence commit phrase: f9a688e")
     if "not by itself a claim that the current branch is human-playable" not in playable_cloud_proof:
         raise AssertionError("playable cloud proof doc must keep the human-playability claim boundary")
     if "docs/post-checkpoint-gaps.md" not in readme:

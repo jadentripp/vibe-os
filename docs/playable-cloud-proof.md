@@ -8,15 +8,23 @@ input through the same PS/2 device paths a human would use, Doom consumes those
 events through the generic input queue, and the kernel exports
 compact counters and state deltas from Doom.
 
-This file describes the required green path. A scripted green run is not by itself a claim that the current branch is human-playable, and it is not enough without the reviewed remote VNC bundle.
+This file describes the required green path. A scripted green run is not by itself a claim that the current branch is human-playable, and it is not enough
+without the reviewed remote VNC bundle.
+
 Persistence/save-load is now green on the current cloud proof path. Manual
-**Real WAD smoke** run `26203744974` on `f9a688e` booted the validated shareware
-WAD, passed real-WAD gameplay, scripted human-playability, scripted gameplay
-transition, VM/process, SB16 continuity, artifact hygiene, and status triage,
-then wrote `DOOMSAV0.DSG` at `25718` bytes, rebooted the same disk image, read
-the save payload back, closed it, and returned to gameplay. The downloaded
-artifact triages as `persistence-proof-green`, with `first-boot`,
-`save-write`, `reboot-load`, and `manifest/status` all passing.
+**Real WAD smoke** full-lane run `26205557019` on `bfd04e8` booted the validated
+shareware WAD, passed real-WAD gameplay, scripted human-playability, scripted
+gameplay transition, VM/process, SB16 continuity, audible aggregate proof,
+artifact hygiene, and status triage, then wrote `DOOMSAV0.DSG` at `25718`
+bytes, rebooted the same disk image, read the save payload back, closed it, and
+returned to gameplay. The downloaded artifact triages as
+`persistence-proof-green`, with `first-boot`, `save-write`, `reboot-load`, and
+`manifest/status` all passing. The matching push-triggered **OS smoke** run
+`26205496796` on the same commit also passed the generated-WAD boot and
+VM/process exec gates.
+
+Older green runs such as `26203744974` on `f9a688e` remain useful repair
+history, but they are no longer the latest current-head evidence.
 
 Cloud triage still separates persistence failures into short-write,
 malformed-stream, load-not-completed, checker/artifact mismatch, and green

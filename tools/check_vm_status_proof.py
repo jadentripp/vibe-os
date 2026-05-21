@@ -578,6 +578,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         _require(text, "pframe", label)
 
     process_exec = _read(root, "docs/process-exec.md")
+    doom_runtime = _read(root, "docs/doom-libc-runtime.md")
     for text, label in (
         (process_vm, "process VM doc"),
         (process_exec, "process exec doc"),
@@ -586,6 +587,19 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         _require(text, "pfrom", label)
         _require(text, "pto", label)
         _require(text, "preempt", label)
+
+    for text, label in (
+        (process_exec, "process exec doc"),
+        (doom_runtime, "Doom libc runtime doc"),
+    ):
+        _require(text, "fork", label)
+        _require(text, "fd duplication", label)
+        _require(text, "file-backed", label)
+        _require(text, "signals", label)
+        _require(text, "terminal", label)
+        _require(text, "dynamic process", label)
+        _require(text, "ENOSYS", label)
+        _require(text, "ENOTTY", label)
 
 
 def main(argv: list[str] | None = None) -> int:

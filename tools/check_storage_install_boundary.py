@@ -260,6 +260,11 @@ def _u32(raw: bytes | bytearray, offset: int) -> int:
     return int.from_bytes(raw[offset:offset + 4], "little")
 
 
+def _require_zero_region(raw: bytes | bytearray, start: int, end: int, label: str) -> None:
+    if any(raw[start:end]):
+        raise StorageBoundaryError(f"{label} must be zero-filled")
+
+
 def inspect_image(image_path: Path) -> dict[str, object]:
     make_wad_image = load_make_wad_image()
     image = bytearray(image_path.read_bytes())
@@ -270,6 +275,8 @@ def inspect_image(image_path: Path) -> dict[str, object]:
         raise StorageBoundaryError("missing MBR boot signature")
 
     entry = 446
+    for other_entry in range(entry + 16, entry + 64, 16):
+        _require_zero_region(image, other_entry, other_entry + 16, "unused MBR partition entry")
     if image[entry + 4] != 0x06:
         raise StorageBoundaryError("MBR partition type is not FAT16 type 0x06")
     partition_lba = _u32(image, entry + 8)
@@ -280,6 +287,14 @@ def inspect_image(image_path: Path) -> dict[str, object]:
         raise StorageBoundaryError(
             f"partition sectors {partition_sectors}, expected {make_wad_image.PARTITION_SECTORS}"
         )
+    partition_end_lba = partition_lba + partition_sectors
+    if partition_end_lba != make_wad_image.IMAGE_SECTORS:
+        raise StorageBoundaryError(
+            f"partition ends at LBA {partition_end_lba}, expected {make_wad_image.IMAGE_SECTORS}"
+        )
+    raw_kernel_end = make_wad_image.KERNEL_LBA + make_wad_image.KERNEL_SECTORS
+    if raw_kernel_end > partition_lba:
+        raise StorageBoundaryError("raw kernel staging region overlaps the FAT16 partition")
 
     boot = partition_lba * make_wad_image.SECTOR_SIZE
     if image[boot + 510:boot + 512] != b"\x55\xaa":
@@ -300,6 +315,34 @@ def inspect_image(image_path: Path) -> dict[str, object]:
         raise StorageBoundaryError("FAT sectors-per-FAT does not match image contract")
     if _u32(image, boot + 28) != make_wad_image.PARTITION_START:
         raise StorageBoundaryError("FAT hidden-sector count does not match partition start")
+    if _u16(image, boot + 19) != 0:
+        raise StorageBoundaryError("FAT 16-bit total-sector field must be zero for this image size")
+    if _u32(image, boot + 32) != make_wad_image.PARTITION_SECTORS:
+        raise StorageBoundaryError("FAT 32-bit total-sector field does not match partition size")
+    if image[boot + 21] != 0xF8:
+        raise StorageBoundaryError("FAT media descriptor does not match fixed-disk contract")
+    if image[boot + 36] != 0x80:
+        raise StorageBoundaryError("FAT drive number does not match BIOS hard-disk contract")
+
+    fat_lba = partition_lba + make_wad_image.RESERVED_SECTORS
+    root_lba = fat_lba + make_wad_image.FAT_COUNT * make_wad_image.SECTORS_PER_FAT
+    data_lba = root_lba + make_wad_image.ROOT_DIR_SECTORS
+    fat_bytes = make_wad_image.SECTORS_PER_FAT * make_wad_image.SECTOR_SIZE
+    fat_entry_capacity = fat_bytes // 2
+    last_data_cluster = make_wad_image.last_data_cluster()
+    if fat_entry_capacity <= last_data_cluster:
+        raise StorageBoundaryError("FAT table is too small for the advertised data area")
+    if data_lba >= partition_end_lba:
+        raise StorageBoundaryError("FAT metadata consumes the entire partition")
+    data_sectors = partition_end_lba - data_lba
+    usable_data_sectors = make_wad_image.data_cluster_count() * make_wad_image.SECTORS_PER_CLUSTER
+    if data_sectors < usable_data_sectors:
+        raise StorageBoundaryError("FAT data area is smaller than the advertised cluster count")
+    if data_sectors - usable_data_sectors >= make_wad_image.SECTORS_PER_CLUSTER:
+        raise StorageBoundaryError("FAT data area leaves more than one partial cluster unused")
+    first_fat = boot + make_wad_image.RESERVED_SECTORS * make_wad_image.SECTOR_SIZE
+    if _u16(image, first_fat) != 0xFFF8 or _u16(image, first_fat + 2) != make_wad_image.FAT16_EOC_VALUE:
+        raise StorageBoundaryError("FAT reserved entries do not match FAT16 fixed-disk contract")
 
     fs = make_wad_image.Fat16Image(image)
     try:
@@ -325,6 +368,14 @@ def inspect_image(image_path: Path) -> dict[str, object]:
     for required in ("DOOM1.WAD", "USERPROB.ELF", "DOOM.ELF"):
         if required not in protected_names:
             raise StorageBoundaryError(f"missing protected root entry {required}")
+    root_names = {entry["name"] for entry in root_entries}
+    required_writable = tuple(
+        make_wad_image.Fat16Image._entry_label(name)
+        for name, _byte_capacity in make_wad_image.WRITABLE_DYNAMIC_FILES
+    )
+    for required in required_writable:
+        if required not in root_names:
+            raise StorageBoundaryError(f"missing writable root placeholder {required}")
 
     return {
         "schema": "vibe-os-install-image-manifest-v1",
@@ -343,18 +394,31 @@ def inspect_image(image_path: Path) -> dict[str, object]:
             "stage2_sectors": make_wad_image.STAGE2_SECTORS,
             "kernel_lba": make_wad_image.KERNEL_LBA,
             "kernel_sectors": make_wad_image.KERNEL_SECTORS,
+            "kernel_end_lba": raw_kernel_end,
         },
         "fat16": {
             "lba": partition_lba,
+            "end_lba": partition_end_lba,
+            "fat_lba": fat_lba,
+            "root_lba": root_lba,
+            "data_lba": data_lba,
+            "data_sectors": data_sectors,
+            "usable_data_sectors": usable_data_sectors,
+            "data_clusters": make_wad_image.data_cluster_count(),
+            "last_data_cluster": last_data_cluster,
+            "fat_entry_capacity": fat_entry_capacity,
             "bytes_per_sector": _u16(image, boot + 11),
             "sectors_per_cluster": image[boot + 13],
             "reserved_sectors": _u16(image, boot + 14),
             "fat_count": image[boot + 16],
             "root_entries": _u16(image, boot + 17),
             "sectors_per_fat": _u16(image, boot + 22),
+            "total_sectors": _u32(image, boot + 32),
+            "media_descriptor": f"0x{image[boot + 21]:02x}",
             "root_entry_count": len(root_entries),
             "free_clusters": fs.free_data_clusters(),
         },
+        "required_writable_root_entries": list(required_writable),
         "root_entries": root_entries,
         "claim_boundary": "generated-image-layout-only; not arbitrary-disk-install-proof",
     }

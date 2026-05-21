@@ -143,6 +143,26 @@ distinguish a hardware-paced pull request and real position advance from a
 static stream window. The open legitimacy step is kernel-owned rendering or a
 first-class music ring, not the request timing itself.
 
+Music legitimacy roadmap as OS contracts:
+
+- Current parser legitimacy: `musicrend=` records MUS/MIDI format, render
+  chunks, note events, total render events, active renderer voice peak, and
+  emitted samples from `doom_port/music.c`. This rejects a music-flagged carrier
+  tone, but it does not claim the kernel owns MUS/MIDI synthesis.
+- Current stream legitimacy: `musicstream=PULL`, `musicpull=`,
+  `VIBE_AUDIO_STREAM_INFO`, `musicpos=`, and changing `musicbuf=` prove that the
+  SB16 refill path paced user-space chunk service and that the kernel mixer
+  consumed those chunks over time.
+- Current audible legitimacy: aggregate `audio-proof.json` can prove
+  machine-audible remote output plus status-only SB16 continuity.
+  Human-listened quality is a separate lane; it still needs remote audio
+  forwarding plus listener notes.
+- Future playback legitimacy: a future hardware-paced mixer/refill playback ABI
+  should move music payload transfer away from `VIBE_AUDIO_MIXER_UPDATE` and
+  into a first-class kernel-owned music ring or stream-refill command while
+  keeping the same status-only request/refill and renderer-provenance proof
+  shape.
+
 To fully close the music gap, the kernel should own more of the stream payload
 path instead of using `VIBE_AUDIO_MIXER_UPDATE` as the service command. The proof
 should remain status-only and copyright-safe:

@@ -91,8 +91,26 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         self.assertEqual(manifest["mbr"]["partition_lba"], 2048)
         self.assertEqual(manifest["raw_regions"]["stage2_lba"], 1)
         self.assertEqual(manifest["raw_regions"]["kernel_lba"], 17)
+        self.assertLess(
+            manifest["raw_regions"]["kernel_end_lba"],
+            manifest["fat16"]["lba"],
+        )
         self.assertEqual(manifest["fat16"]["lba"], 2048)
+        self.assertEqual(manifest["fat16"]["end_lba"], 131072)
+        self.assertEqual(manifest["fat16"]["fat_lba"], 2049)
+        self.assertEqual(manifest["fat16"]["root_lba"], 2561)
+        self.assertEqual(manifest["fat16"]["data_lba"], 2593)
         self.assertEqual(manifest["fat16"]["bytes_per_sector"], 512)
+        self.assertEqual(manifest["fat16"]["total_sectors"], 129024)
+        self.assertEqual(manifest["fat16"]["media_descriptor"], "0xf8")
+        self.assertGreater(
+            manifest["fat16"]["fat_entry_capacity"],
+            manifest["fat16"]["last_data_cluster"],
+        )
+        self.assertLess(
+            manifest["fat16"]["data_sectors"] - manifest["fat16"]["usable_data_sectors"],
+            manifest["fat16"]["sectors_per_cluster"],
+        )
         self.assertGreater(manifest["fat16"]["free_clusters"], 4096)
         root_names = {entry["name"] for entry in manifest["root_entries"]}
         self.assertIn("DOOM1.WAD", root_names)
@@ -100,6 +118,8 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         self.assertIn("DOOM.ELF", root_names)
         self.assertIn("DEFAULT.CFG", root_names)
         self.assertIn("DOOMSAV0.DSG", root_names)
+        self.assertIn("DEFAULT.CFG", manifest["required_writable_root_entries"])
+        self.assertIn("DOOMSAV5.DSG", manifest["required_writable_root_entries"])
         self.assertEqual(
             manifest["claim_boundary"],
             "generated-image-layout-only; not arbitrary-disk-install-proof",
@@ -134,6 +154,76 @@ class StorageInstallBoundaryTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 check_storage_install_boundary.StorageBoundaryError,
                 "partition type",
+            ):
+                check_storage_install_boundary.inspect_image(bad)
+
+    def test_manifest_rejects_missing_writable_placeholder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "bad.img"
+            image = bytearray((BUILD / "disk.img").read_bytes())
+            root = (2048 + 1 + 2 * 256) * 512
+            found = False
+            for offset in range(root, root + 512 * 32, 32):
+                if image[offset:offset + 11] == b"DEFAULT CFG":
+                    image[offset:offset + 11] = b"MISSING CFG"
+                    found = True
+                    break
+            self.assertTrue(found)
+            bad.write_bytes(image)
+            with self.assertRaisesRegex(
+                check_storage_install_boundary.StorageBoundaryError,
+                "missing writable root placeholder DEFAULT.CFG",
+            ):
+                check_storage_install_boundary.inspect_image(bad)
+
+    def test_manifest_rejects_extra_mbr_partition_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "bad.img"
+            image = bytearray((BUILD / "disk.img").read_bytes())
+            image[446 + 16 + 4] = 0x06
+            bad.write_bytes(image)
+            with self.assertRaisesRegex(
+                check_storage_install_boundary.StorageBoundaryError,
+                "unused MBR partition entry",
+            ):
+                check_storage_install_boundary.inspect_image(bad)
+
+    def test_manifest_rejects_fat_hidden_sector_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "bad.img"
+            image = bytearray((BUILD / "disk.img").read_bytes())
+            boot = 2048 * 512
+            image[boot + 28:boot + 32] = (2047).to_bytes(4, "little")
+            bad.write_bytes(image)
+            with self.assertRaisesRegex(
+                check_storage_install_boundary.StorageBoundaryError,
+                "hidden-sector",
+            ):
+                check_storage_install_boundary.inspect_image(bad)
+
+    def test_manifest_rejects_fat_total_sector_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "bad.img"
+            image = bytearray((BUILD / "disk.img").read_bytes())
+            boot = 2048 * 512
+            image[boot + 32:boot + 36] = (129023).to_bytes(4, "little")
+            bad.write_bytes(image)
+            with self.assertRaisesRegex(
+                check_storage_install_boundary.StorageBoundaryError,
+                "total-sector",
+            ):
+                check_storage_install_boundary.inspect_image(bad)
+
+    def test_manifest_rejects_bad_fat_reserved_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "bad.img"
+            image = bytearray((BUILD / "disk.img").read_bytes())
+            first_fat = (2048 + 1) * 512
+            image[first_fat:first_fat + 2] = (0).to_bytes(2, "little")
+            bad.write_bytes(image)
+            with self.assertRaisesRegex(
+                check_storage_install_boundary.StorageBoundaryError,
+                "reserved entries",
             ):
                 check_storage_install_boundary.inspect_image(bad)
 

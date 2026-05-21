@@ -116,6 +116,9 @@ PROGRESS_TUPLE_COMPONENTS = (
 MIN_MUSIC_STREAM_UPDATE_DELTA = 2
 PLAYABILITY_CADENCE_FIELDS = ("gtic", "leveltime", "doompresent")
 PLAYABILITY_CADENCE_HEALTHY = "os-audio-cadence-observed"
+CURRENT_MUSIC_PAYLOAD_OWNER = "doom_port/music.c"
+CURRENT_MUSIC_SERVICE_COMMAND = "VIBE_AUDIO_MIXER_UPDATE"
+FUTURE_HARDWARE_MIXER_REFILL_PLAYBACK = "future hardware-paced mixer/refill playback ABI"
 TUPLE_FIELDS = {
     "sb16": 2,
     "play": 2,
@@ -955,6 +958,9 @@ def validate_repo_contract() -> None:
                 "OS audio cadence",
                 "single static music carrier",
                 "no new mixclip=, musicunder=, or musicdrops=",
+                "Aggregate audible-output proof (not human listener approval)",
+                "human-listened quality is a separate lane",
+                "future hardware-paced mixer/refill playback ABI",
             ),
         ),
         (
@@ -979,6 +985,8 @@ def validate_repo_contract() -> None:
                 "rendered-sample delta",
                 "long-playback wrap",
                 "static stream window",
+                "Music legitimacy roadmap as OS contracts",
+                "future hardware-paced mixer/refill playback ABI",
             ),
         ),
         (
@@ -1113,7 +1121,8 @@ def main(argv: list[str]) -> int:
 
     print(
         "audio continuity proof OK: SB16 IRQ/refill, SFX DMA refill, and "
-        "kernel-visible music stream counters progressed across status snapshots"
+        "kernel-visible music stream counters progressed across status snapshots; "
+        "human-listened quality and future hardware-paced mixer/refill playback remain separate lanes"
     )
     return 0
 

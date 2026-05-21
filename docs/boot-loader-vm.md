@@ -96,6 +96,26 @@ so the preemption proof is not satisfied by scheduler accounting alone. It is a
 cloud artifact checker, not a claim that the running kernel has already moved to
 higher-half virtual addresses.
 
+## Higher-Half Relocation Gap
+
+`KERNEL_RELOCATION_GAP[current]=high-alias-only`. The current proof combines the
+dynamic high-alias self-test above with process page-directory proof: `vmmhi=OK`
+shows `VMM_HIGH_TEST_VADDR` at `0xc0000000` can be mapped to a distinct
+PMM-managed frame and then unmapped, while `pcr3=`/`pkstk=` show process
+switches across distinct page directories and low-memory kernel stacks. That is
+useful preparation, but `vmmhi=OK` is not a kernel relocation claim.
+
+`KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity`. The running kernel
+is still linked at `0x00010000`, loaded by Stage 2 as an ELF32 image from low
+physical memory, and entered through the low ELF entry. Paging then loads
+`PAGING_DIR_ADDR` into `CR3` and keeps the first 32 MiB identity mapped. The host
+contract therefore reserves `kreloc=OK` for a future milestone that proves the
+kernel is executing from higher-half virtual addresses with non-identity backing.
+That future proof needs status evidence such as `kerneip=`, `kernesp=`,
+`kerncr3=`, `kernvirt=`, and `kernphys=` so host checks can distinguish a real
+relocated instruction pointer, stack, active page directory, and physical backing
+from the current one-page high alias.
+
 The checker treats preemption as a live-user-workload proof. The generated-WAD
 OS smoke intentionally runs `tools/check_vm_status_proof.py --require-exec`
 without `--require-preempt`: that lane still proves paging, ELF loading, Ring 3

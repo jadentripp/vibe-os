@@ -50,6 +50,52 @@ class UserRuntimeContractTests(unittest.TestCase):
         self.assertIn("`user/runtime.h` and `user/runtime.c`", runtime_doc)
         self.assertIn("small non-Doom user programs", runtime_doc)
 
+    def test_user_runtime_stays_inside_current_general_os_contract(self):
+        header = (ROOT / "user" / "runtime.h").read_text()
+        source = (ROOT / "user" / "runtime.c").read_text()
+        process_doc = (ROOT / "docs" / "process-exec.md").read_text()
+        runtime_doc = (ROOT / "docs" / "doom-libc-runtime.md").read_text()
+
+        for token in (
+            "VIBE_SYS_EXEC",
+            "VIBE_SYS_GETPID",
+            "VIBE_SYS_CLOCK_GETTIME",
+            "VIBE_SYS_LISTDIR",
+            "VIBE_SYS_USER_PROBE",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, source)
+
+        for token in (
+            "VIBE_SYS_FORK",
+            "VIBE_SYS_WAITPID",
+            "VIBE_SYS_MMAP",
+            "VIBE_SYS_MUNMAP",
+            "VIBE_SYS_IOCTL",
+            "VIBE_SYS_DUP",
+            "VIBE_SYS_SIGNAL",
+            "VIBE_SYS_TTY",
+        ):
+            with self.subTest(token=token):
+                self.assertNotIn(token, header)
+                self.assertNotIn(token, source)
+
+        for token in (
+            "vibe_user_fork",
+            "vibe_user_wait",
+            "vibe_user_dup",
+            "vibe_user_mmap",
+            "vibe_user_signal",
+            "vibe_user_tty",
+        ):
+            with self.subTest(token=token):
+                self.assertNotIn(token, header)
+                self.assertNotIn(token, source)
+
+        self.assertIn("## POSIX Gap Decomposition", process_doc)
+        self.assertIn("## General-OS Gap Contract", runtime_doc)
+        self.assertIn("small non-Doom user programs", runtime_doc)
+
     def test_user_runtime_has_host_proof(self):
         source = ROOT / "tests" / "host" / "user_runtime_test.c"
 

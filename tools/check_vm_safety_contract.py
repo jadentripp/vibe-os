@@ -271,10 +271,12 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     os_workflow = _read(root, ".github/workflows/os-smoke.yml")
     real_wad_workflow = _read(root, ".github/workflows/real-wad-smoke.yml")
     cloud_play_workflow = _read(root, ".github/workflows/cloud-play-now-preflight.yml")
+    stage2 = _read(root, "boot/stage2.asm")
     kernel = _read(root, "kernel/kernel.asm")
     probe = _read(root, "user/probe.c")
     process_doc = _read(root, "docs/process-exec.md")
     process_vm_doc = _read(root, "docs/process-vm.md")
+    boot_vm_doc = _read(root, "docs/boot-loader-vm.md")
     doom_runtime_doc = _read(root, "docs/doom-libc-runtime.md")
     gap_doc = _read(root, "docs/post-checkpoint-gaps.md")
     tests_readme = _read(root, "tests/README.md")
@@ -303,6 +305,9 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     _require(makefile, 'grep -q "vmmhfree="', "Makefile")
     _require(makefile, 'grep -Eq "panic=(NONE|KEXC)"', "Makefile")
     _require(makefile, 'grep -Eq "shutdown=(NONE|HALT|REBOOT|POWEROFF)"', "Makefile")
+    _require(makefile, "tools/link_elf32.py -o $@ --base 0x10000", "kernel low-link contract")
+    _require(stage2, "KERNEL_PHYS equ 0x00010000", "Stage 2 low-load contract")
+    _require(stage2, "jmp eax", "Stage 2 low-entry contract")
 
     for needle in (
         "trap cleanup EXIT INT TERM",
@@ -475,6 +480,54 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "mov byte [vmm_high_mapping_status], 1",
     ):
         _require(kernel, needle, "kernel VM contract")
+
+    for needle in (
+        "%else\nKERNEL_BASE equ 0x10000\norg KERNEL_BASE\n%endif",
+        "PAGING_DIR_ADDR equ 0x00090000",
+        "PAGING_TABLES_ADDR equ 0x00091000",
+        "PAGING_TABLES_ADDR | PTE_KERNEL_FLAGS",
+        "mov eax, PAGING_DIR_ADDR",
+        "mov cr3, eax",
+    ):
+        _require(kernel, needle, "running-kernel identity contract")
+
+    for text, label in (
+        (boot_vm_doc, "boot loader VM docs"),
+        (process_vm_doc, "process VM docs"),
+    ):
+        for needle in (
+            "KERNEL_RELOCATION_GAP[current]=high-alias-only",
+            "KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity",
+            "`vmmhi=OK` is not a kernel relocation claim",
+            "`kreloc=OK`",
+            "`kerneip=`",
+            "`kernesp=`",
+            "`kerncr3=`",
+            "`kernvirt=`",
+            "`kernphys=`",
+        ):
+            _require(text, needle, label)
+
+    for text, label in (
+        (kernel, "kernel"),
+        (makefile, "Makefile"),
+        (os_workflow, "OS smoke workflow"),
+        (real_wad_workflow, "real-WAD workflow"),
+    ):
+        for forbidden in (
+            "smoke_kreloc_text",
+            'grep -q "kreloc=OK"',
+            " kreloc=OK",
+            "kerneip=",
+            "kernesp=",
+            "kerncr3=",
+            "kernvirt=",
+            "kernphys=",
+        ):
+            if forbidden in text:
+                raise AssertionError(
+                    f"{label} must not claim running-kernel relocation with {forbidden!r}"
+                )
 
     vmm_map = kernel.split("vmm_map_page:", 1)[1].split("vmm_unmap_page:", 1)[0]
     for needle in (
@@ -694,7 +747,7 @@ def main() -> int:
         print(f"VM safety contract failed: {exc}", file=sys.stderr)
         return 1
 
-    print("VM safety contract OK: local QEMU opt-in, cloud diagnostics, safe cloud interactive playtest docs, panic/shutdown status, and dynamic high VMM mapping are machine-checkable")
+    print("VM safety contract OK: local QEMU opt-in, cloud diagnostics, safe cloud interactive playtest docs, panic/shutdown status, dynamic high VMM mapping, and the higher-half relocation gap are machine-checkable")
     return 0
 
 

@@ -685,8 +685,54 @@ class AudioContractTests(unittest.TestCase):
         self.assertIn("VIBE_AUDIO_MIXER_UPDATE", audio_doc)
         self.assertIn("streamed music chunks", audio_doc)
         self.assertIn("PC speaker fallback", audio_doc)
+        self.assertIn("Aggregate audible-output proof (not human listener approval)", audio_doc)
+        self.assertIn("proof_contracts", audio_doc)
+        self.assertIn("human-listened quality is a separate lane", audio_doc)
+        self.assertIn("future hardware-paced mixer/refill playback ABI", audio_doc)
+        self.assertIn("Audio quality and music legitimacy roadmap as OS contracts", audio_doc)
         self.assertNotIn("MUS/MIDI synthesis is not implemented", audio_doc)
         self.assertNotIn("Doom SFX are not mixed into PCM yet", audio_doc)
+
+    def test_audio_checkers_pin_proof_lanes_without_vm_audio(self):
+        audible_checker = (ROOT / "tools" / "check_audible_audio_proof.py").read_text()
+        continuity_checker = (ROOT / "tools" / "check_audio_continuity_proof.py").read_text()
+        music_doc = (ROOT / "docs" / "doom-music.md").read_text()
+
+        for source in (
+            "aggregate-machine-audible-output",
+            "human-listened-quality",
+            "not-proven-by-this-manifest",
+            "future-hardware-paced-mixer-refill-playback",
+            "current_payload_owner",
+            "doom_port/music.c",
+            "current_service_command",
+            "VIBE_AUDIO_MIXER_UPDATE",
+            "first-class kernel-owned music ring or mixer/refill stream ABI",
+            "human-listened quality and future hardware-paced mixer/refill playback",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, audible_checker)
+
+        for source in (
+            "CURRENT_MUSIC_PAYLOAD_OWNER",
+            "CURRENT_MUSIC_SERVICE_COMMAND",
+            "FUTURE_HARDWARE_MIXER_REFILL_PLAYBACK",
+            "human-listened quality and future hardware-paced mixer/refill playback remain separate lanes",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, continuity_checker)
+
+        for source in (
+            "Music legitimacy roadmap as OS contracts",
+            "Current parser legitimacy",
+            "Current stream legitimacy",
+            "Current audible legitimacy",
+            "Future playback legitimacy",
+            "Human-listened quality is a separate lane",
+            "future hardware-paced mixer/refill playback ABI",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, music_doc)
 
 
 if __name__ == "__main__":

@@ -1372,3 +1372,91 @@ class ProcessExecContractTests(unittest.TestCase):
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, process_doc)
+
+    def test_posix_general_os_gaps_are_executable_contracts(self):
+        kernel = read_kernel()
+        header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
+        unistd = (ROOT / "doom_port" / "include" / "unistd.h").read_text()
+        libc = (ROOT / "doom_port" / "libc.c").read_text()
+        mman = (ROOT / "doom_port" / "include" / "sys" / "mman.h").read_text()
+        process_doc = (ROOT / "docs" / "process-exec.md").read_text()
+        runtime_doc = (ROOT / "docs" / "doom-libc-runtime.md").read_text()
+        probe = (ROOT / "user" / "probe.c").read_text()
+        include_dir = ROOT / "doom_port" / "include"
+
+        fork_handler = kernel.split(".fork:", 1)[1].split(".waitpid:", 1)[0]
+        mmap_handler = kernel.split(".mmap:", 1)[1].split(".munmap:", 1)[0]
+        ioctl_handler = kernel.split(".ioctl:", 1)[1].split(".ioctl_fbinfo:", 1)[0]
+
+        for source in (
+            "SYS_FORK equ 23",
+            "cmp eax, SYS_FORK",
+            "je .fork",
+        ):
+            self.assertIn(source, kernel)
+        self.assertIn("jmp .bad_syscall_enosys", fork_handler)
+        self.assertIn("pid_t fork(void)", libc)
+        self.assertIn("vibe_syscall3(VIBE_SYS_FORK, 0, 0, 0)", libc)
+        self.assertIn("syscall3(SYS_FORK, 0, 0, 0) == -ERRNO_ENOSYS", probe)
+
+        for source in (
+            "FD_INHERIT_EXEC equ 0x1",
+            "fd_owner_pids times USER_FD_COUNT dd 0xffffffff",
+            "fd_open_generations times USER_FD_COUNT dd 0",
+            "fd_inherit_flags times USER_FD_COUNT dd 0",
+        ):
+            self.assertIn(source, kernel)
+        for source in (
+            "VIBE_SYS_DUP",
+            "VIBE_SYS_DUP2",
+            "VIBE_SYS_DUP3",
+            "VIBE_SYS_SIGNAL",
+            "VIBE_SYS_SIGACTION",
+            "VIBE_SYS_KILL",
+            "VIBE_SYS_TTY",
+        ):
+            self.assertNotIn(source, header)
+        for source in (
+            "int dup(",
+            "int dup2(",
+            "int dup3(",
+            "int isatty(",
+        ):
+            self.assertNotIn(source, unistd)
+            self.assertNotIn(source, libc)
+
+        self.assertIn("#define MAP_SHARED 0x01", mman)
+        self.assertIn("#define MAP_FIXED 0x10", mman)
+        self.assertIn("test dword [mmap_flags_arg], MMAP_MAP_FIXED", mmap_handler)
+        self.assertIn("jnz .bad_syscall_einval", mmap_handler)
+        self.assertIn("if (!(flags & MAP_ANONYMOUS) || fd != -1 || !(flags & MAP_PRIVATE) || (flags & MAP_SHARED))", libc)
+        self.assertIn("syscall3(SYS_MMAP, 0, 4096, mmap_fixed_flags) == -ERRNO_EINVAL", probe)
+
+        self.assertFalse((include_dir / "signal.h").exists())
+        self.assertFalse((include_dir / "termios.h").exists())
+        self.assertIn("cmp ebx, IOCTL_DISPLAY_FD", ioctl_handler)
+        self.assertIn("jne .bad_syscall_enotty", ioctl_handler)
+        self.assertIn("syscall_failed(raw, ENOTTY)", libc)
+
+        for phrase in (
+            "## POSIX Gap Decomposition",
+            "Address-space cloning, copy-on-write or eager page copies",
+            "Public `dup`/`dup2`/`dup3`",
+            "File-backed mappings, `MAP_SHARED`, `MAP_FIXED`",
+            "`signal`, `sigaction`, `kill`, signal masks",
+            "`termios`, `isatty`, controlling terminals",
+            "Dynamically allocated process records, unbounded child slots",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, process_doc)
+        for phrase in (
+            "## General-OS Gap Contract",
+            "`fork` exists only as a classified syscall/libc surface.",
+            "Descriptor lifetime is exec-aware, not Unix-open-file-description aware.",
+            "VM allocation is anonymous/private and brk-backed.",
+            "POSIX signal delivery is absent.",
+            "Terminal/tty behavior is absent.",
+            "Dynamic process lifetimes are bounded.",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, runtime_doc)

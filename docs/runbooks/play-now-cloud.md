@@ -95,6 +95,10 @@ possible, selects the smallest 4+ CPU machine for smoother interactive play.
 Pass `--machine` to override that choice. In browser-only `--web-url` mode,
 select a 4-core+ machine in GitHub's creation screen when available; GitHub's
 default is the lowest valid machine and may land back on the slow 2-core shape.
+Inside the remote host, `./tools/play_now_remote.sh --preflight` reports the
+effective CPU count using cgroup quota/cpuset limits when available, so a
+container capped to 2 cores still gets the slowdown warning even if the backing
+host exposes more CPUs.
 
 Optional GitHub-hosted dry run: dispatch **Cloud play-now preflight** on the
 same branch. It installs the remote dependencies on `ubuntu-latest`, runs
@@ -217,6 +221,9 @@ Codespaces environment, GitHub tokens, WAD data, pixels, raw audio, or full
 logs. If those OS status fields look healthy but the browser still stutters on
 a 2-core host, restart on the selected 4+ CPU Codespace or a faster disposable
 cloud VM before treating it as a Doom/input regression.
+Remote fetch/startup errors use the same redaction rules for GitHub tokens,
+authorization headers, common secret environment values, and signed URL parameters
+before they are printed locally.
 Useful cleanup and inspection commands are printed by the launcher and are safe
 to keep in your notes:
 
@@ -234,6 +241,10 @@ When finished, delete the disposable environment with
 `gh codespace delete -c "<codespace-name>" --force` or from GitHub's
 `Code` > `Codespaces` menu. Deletion removes the remote `/tmp` WAD and generated
 VM artifacts.
+On normal play-script exit, `/tmp/vibe-os-play-now.pid` and
+`/tmp/vibe-os-play-now.novnc-port` are removed automatically. If the remote host
+is killed hard, the next launcher run treats stale metadata as stale and rewrites
+it before starting.
 
 Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens the menu.
 VNC does not carry game audio in this quick path; current SB16 and audible audio
@@ -250,6 +261,8 @@ python3 tools/collect_human_playtest_bundle.py --print-template \
   --playtester jt \
   --scripted-proof-run-id "<passing-real-wad-smoke-run-id>"
 
+python3 tools/collect_human_playtest_bundle.py --print-phase-guide
+
 ./tools/run_remote_human_playtest.sh \
   --playtester jt \
   --scripted-proof-run-id "<passing-real-wad-smoke-run-id>"
@@ -257,11 +270,14 @@ python3 tools/collect_human_playtest_bundle.py --print-template \
 
 The dry-run template prints the exact status-only capture, collect, download,
 verify, cleanup, and safe artifact policy commands without reading artifacts or
-launching QEMU. The guided helper then prompts for the playable Doom actions,
-captures each status phase through the remote monitor socket, asks you to tie
-the session to a green Real WAD smoke run, records a slowdown level and short
-status-only slowdown note, writes the allowlisted proof bundle, validates it
-before download, creates `/tmp/vibe-os-human-proof.tgz`, and prints the local
+launching QEMU. The shorter phase guide repeats just the phase order, output
+status filenames, expected human action, expected status-only signal, and
+350-tick duration gate. The guided helper then prompts for the playable Doom
+actions, prints the expected status signal before each capture, captures each
+status phase through the remote monitor socket, asks you to tie the session to
+a green Real WAD smoke run, records a slowdown level and short status-only
+slowdown note, writes the allowlisted proof bundle, validates it before
+download, creates `/tmp/vibe-os-human-proof.tgz`, and prints the local
 post-download checker commands. The longer version lives in
 `docs/runbooks/remote-doom-playtest.md`; its collector writes
 `human-playtest-checklist.txt` with the post-download checker commands and phase

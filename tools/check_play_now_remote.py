@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import platform
 import shutil
@@ -23,6 +24,7 @@ REQUIRED_TOOLS = (
 
 DEFAULT_NOVNC_PORT = "6080"
 DEFAULT_VNC_DISPLAY = "1"
+CGROUP_ROOT = Path("/sys/fs/cgroup")
 
 NOVNC_WEB_ROOTS = (
     Path("/usr/share/novnc"),
@@ -123,6 +125,85 @@ def _find_novnc_web_root(
     return next((root for root in NOVNC_WEB_ROOTS if path_is_dir(root)), None)
 
 
+def _read_text(path: Path) -> str | None:
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return None
+
+
+def _parse_cpu_range_list(raw_value: str) -> int | None:
+    count = 0
+    for chunk in raw_value.split(","):
+        part = chunk.strip()
+        if not part:
+            continue
+        if "-" in part:
+            start_raw, end_raw = part.split("-", 1)
+            if not start_raw.isdigit() or not end_raw.isdigit():
+                return None
+            start = int(start_raw, 10)
+            end = int(end_raw, 10)
+            if end < start:
+                return None
+            count += end - start + 1
+        elif part.isdigit():
+            count += 1
+        else:
+            return None
+    return count or None
+
+
+def _cgroup_quota_cpu_count(cgroup_root: Path) -> int | None:
+    cpu_max = _read_text(cgroup_root / "cpu.max")
+    if cpu_max:
+        parts = cpu_max.split()
+        if len(parts) >= 2 and parts[0] != "max":
+            try:
+                quota = int(parts[0], 10)
+                period = int(parts[1], 10)
+            except ValueError:
+                return None
+            if quota > 0 and period > 0:
+                return max(1, math.ceil(quota / period))
+
+    quota_raw = _read_text(cgroup_root / "cpu" / "cpu.cfs_quota_us")
+    period_raw = _read_text(cgroup_root / "cpu" / "cpu.cfs_period_us")
+    if quota_raw and period_raw:
+        try:
+            quota = int(quota_raw, 10)
+            period = int(period_raw, 10)
+        except ValueError:
+            return None
+        if quota > 0 and period > 0:
+            return max(1, math.ceil(quota / period))
+    return None
+
+
+def _cgroup_cpuset_cpu_count(cgroup_root: Path) -> int | None:
+    for relative in ("cpuset.cpus.effective", "cpuset.cpus", "cpuset/cpuset.cpus"):
+        raw_value = _read_text(cgroup_root / relative)
+        if raw_value:
+            parsed = _parse_cpu_range_list(raw_value)
+            if parsed:
+                return parsed
+    return None
+
+
+def _effective_cpu_count(
+    *,
+    cpu_count_provider: Callable[[], int | None] = os.cpu_count,
+    cgroup_root: Path = CGROUP_ROOT,
+) -> int | None:
+    candidates = [
+        cpu_count_provider(),
+        _cgroup_quota_cpu_count(cgroup_root),
+        _cgroup_cpuset_cpu_count(cgroup_root),
+    ]
+    positive = [count for count in candidates if count is not None and count > 0]
+    return min(positive) if positive else None
+
+
 def check_preflight(
     *,
     env: Mapping[str, str] | None = None,
@@ -130,6 +211,8 @@ def check_preflight(
     which: Callable[[str], str | None] = shutil.which,
     path_is_dir: Callable[[Path], bool] = Path.is_dir,
     require_novnc: bool = False,
+    cpu_count_provider: Callable[[], int | None] = os.cpu_count,
+    cgroup_root: Path = CGROUP_ROOT,
 ) -> PreflightReport:
     """Return a preflight report or raise before any VM action is possible."""
 
@@ -177,7 +260,10 @@ def check_preflight(
 
     return PreflightReport(
         platform_name=effective_platform,
-        cpu_count=os.cpu_count(),
+        cpu_count=_effective_cpu_count(
+            cpu_count_provider=cpu_count_provider,
+            cgroup_root=cgroup_root,
+        ),
         novnc_port=novnc_port,
         vnc_display=vnc_display,
         vnc_port=vnc_port,

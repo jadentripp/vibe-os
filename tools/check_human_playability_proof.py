@@ -445,6 +445,26 @@ def validate_human_session_status(
             ) from exc
 
 
+def _human_session_evidence_summary(
+    snapshots: dict[str, str | None],
+    min_duration_ticks: int,
+) -> str:
+    start = snapshots["after-start"]
+    final = snapshots["final"]
+    mouse = snapshots.get("after-mouse")
+    assert start is not None and final is not None
+    gtic_delta = _counter_delta(start, final, "gtic")
+    leveltime_delta = _counter_delta(start, final, "leveltime")
+    mouse_delta = _field(mouse, "mousedelta") if mouse is not None else "not-supplied"
+    phase_order = "->".join(phase for phase, _note_key, _status_file in HUMAN_SESSION_PHASES)
+    return (
+        "human-session evidence: "
+        f"duration_gtic={gtic_delta} duration_leveltime={leveltime_delta} "
+        f"required_ticks={min_duration_ticks} phases={phase_order} "
+        f"mouse_delta={mouse_delta}"
+    )
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -837,23 +857,29 @@ def main(argv: list[str]) -> int:
             mouse_status=snapshots["mouse"],
             menu_status=snapshots["menu"],
         )
+        human_session_summary = ""
         if args.require_human_session:
             if args.min_human_duration_ticks < 1:
                 raise AssertionError("--min-human-duration-ticks must be positive")
             if args.human_notes is None:
                 raise AssertionError("--require-human-session requires --human-notes")
+            human_session_snapshots = {
+                "early": snapshots["baseline"],
+                "after-start": snapshots["start"],
+                "after-fire": snapshots["fire"],
+                "after-move": snapshots["movement"],
+                "after-use": snapshots["use"],
+                "after-mouse": snapshots["mouse"],
+                "after-menu": snapshots["menu"],
+                "final": final_status,
+            }
             validate_human_session_status(
-                {
-                    "early": snapshots["baseline"],
-                    "after-start": snapshots["start"],
-                    "after-fire": snapshots["fire"],
-                    "after-move": snapshots["movement"],
-                    "after-use": snapshots["use"],
-                    "after-mouse": snapshots["mouse"],
-                    "after-menu": snapshots["menu"],
-                    "final": final_status,
-                },
+                human_session_snapshots,
                 min_duration_ticks=args.min_human_duration_ticks,
+            )
+            human_session_summary = _human_session_evidence_summary(
+                human_session_snapshots,
+                args.min_human_duration_ticks,
             )
             validate_human_notes(
                 args.human_notes,
@@ -872,6 +898,7 @@ def main(argv: list[str]) -> int:
             "human-playability proof OK: manual remote VNC session phases, notes, "
             "duration, status hashes, and artifact hygiene verified"
         )
+        print(human_session_summary)
     else:
         print(
             "human-playability proof OK: scripted start/fire/use/move/mouse/menu changed Doom state without WAD pixels"

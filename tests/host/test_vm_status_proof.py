@@ -289,6 +289,19 @@ class VmStatusProofTests(unittest.TestCase):
     def test_repo_contract_is_machine_checked(self):
         check_vm_status_proof.validate_repo_contract(ROOT)
 
+    def test_status_proof_does_not_overclaim_running_kernel_relocation(self):
+        fields = check_vm_status_proof.parse_status(status_line())
+        boot_doc = (ROOT / "docs" / "boot-loader-vm.md").read_text()
+        process_doc = (ROOT / "docs" / "process-vm.md").read_text()
+
+        self.assertEqual(fields["vmmhi"], "OK")
+        self.assertNotIn("kreloc", fields)
+        for doc in (boot_doc, process_doc):
+            self.assertIn("KERNEL_RELOCATION_GAP[current]=high-alias-only", doc)
+            self.assertIn("KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity", doc)
+            self.assertIn("`vmmhi=OK` is not a kernel relocation claim", doc)
+            self.assertIn("`kreloc=OK`", doc)
+
     def test_repo_contract_keeps_preemption_on_long_lived_real_wad_lanes(self):
         os_workflow = (ROOT / ".github" / "workflows" / "os-smoke.yml").read_text()
         real_wad_smoke = (ROOT / ".github" / "workflows" / "real-wad-smoke.yml").read_text()

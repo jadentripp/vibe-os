@@ -32,6 +32,10 @@ RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
 ARTIFACT_CHECKER = ROOT / "tools" / "check_cloud_playability_artifacts.py"
 
 SCHEMA = "vibe-os-audible-audio-proof-v5"
+AGGREGATE_AUDIBLE_OUTPUT_LANE = "aggregate-machine-audible-output"
+HUMAN_LISTENED_QUALITY_LANE = "human-listened-quality"
+MUSIC_LEGITIMACY_LANE = "os-music-legitimacy-contract"
+FUTURE_HARDWARE_MIXER_REFILL_LANE = "future-hardware-paced-mixer-refill-playback"
 FORBIDDEN_MANIFEST_KEYS = {
     "asset_bytes",
     "audio_bytes",
@@ -70,6 +74,52 @@ def _asset_provenance() -> dict[str, Any]:
             "Doom SFX and MUS/MIDI bytes come from the selected WAD at runtime; "
             "the repo and this manifest do not ship or upload those assets."
         ),
+    }
+
+
+def _proof_contracts() -> dict[str, Any]:
+    return {
+        "aggregate_audible_output": {
+            "lane": AGGREGATE_AUDIBLE_OUTPUT_LANE,
+            "proves": (
+                "remote QEMU WAV backend produced non-silent output reduced to "
+                "aggregate metrics and tied to SB16 continuity counters"
+            ),
+            "does_not_prove": (
+                "subjective human-listened quality, mix balance, or polished music"
+            ),
+        },
+        "human_listened_quality": {
+            "lane": HUMAN_LISTENED_QUALITY_LANE,
+            "status": "not-proven-by-this-manifest",
+            "required_evidence": (
+                "remote audio forwarding plus listener notes, without uploading "
+                "captured Doom audio"
+            ),
+        },
+        "music_legitimacy": {
+            "lane": MUSIC_LEGITIMACY_LANE,
+            "current_payload_owner": "doom_port/music.c",
+            "current_service_command": "VIBE_AUDIO_MIXER_UPDATE",
+            "current_os_contract": (
+                "VIBE_AUDIO_STREAM_INFO plus musicstream=PULL, musicpull=, "
+                "musicrend=, and musicpos="
+            ),
+            "future_legitimacy_step": (
+                "first-class kernel-owned music ring or mixer/refill stream ABI"
+            ),
+        },
+        "hardware_paced_playback": {
+            "lane": FUTURE_HARDWARE_MIXER_REFILL_LANE,
+            "current_proof": (
+                "SB16 IRQ/refill timing and DMA/ring counters pace user-space "
+                "chunk service"
+            ),
+            "not_yet_proven": (
+                "hardware-paced mixer/refill playback owns music payload transfer "
+                "without VIBE_AUDIO_MIXER_UPDATE"
+            ),
+        },
     }
 
 
@@ -411,6 +461,9 @@ def _continuity_summary(
         "pull_counters": final_fields["musicpull"],
         "hardware_paced": final_fields["musicstream"] == "PULL",
         "current_push_proof": final_fields["musicstream"] == "PUSH",
+        "current_payload_owner": "doom_port/music.c",
+        "current_service_command": "VIBE_AUDIO_MIXER_UPDATE",
+        "future_legitimacy_step": "first-class kernel-owned music ring or mixer/refill stream ABI",
         "os_surfaces": {
             "device": "VIBE_AUDIO_DEVICE_INFO",
             "ring": "VIBE_AUDIO_PCM_RING_INFO",
@@ -419,9 +472,9 @@ def _continuity_summary(
         },
         "claim": (
             "the reusable OS audio device/ring/stream/mixer contract proves "
-            "kernel SB16 refill requests drove music chunk service; "
-            "voiceq= still records the user-rendered buffer submissions and does not claim "
-            "kernel-owned MUS synthesis"
+            "kernel SB16 refill requests paced music chunk service; "
+            "voiceq= still records the port-rendered buffer submissions and does not claim "
+            "kernel-owned MUS synthesis or future hardware-paced mixer/refill playback"
         ),
     }
     renderer_contract = {
@@ -505,7 +558,8 @@ def _continuity_summary(
             "music chunks are advanced by a kernel-visible stream-position contract, "
             "musicstream= names whether that proof is PUSH or PULL, "
             "aggregate listener-quality metadata is machine checked, but subjective "
-            "human approval is still unproven"
+            "human-listened quality and future hardware-paced mixer/refill playback "
+            "are still unproven"
         ),
     }
 
@@ -707,9 +761,11 @@ def analyze_wav(
             "notes": (
                 "This proof validates aggregate machine-audible output and SB16 "
                 "continuity only; VNC does not carry audio by default, and this "
-                "is not a human listening pass."
+                "is not a human listening pass or a future hardware-paced mixer/refill "
+                "playback proof."
             ),
         },
+        "proof_contracts": _proof_contracts(),
         "status": _status_summary(status_path),
         "continuity": continuity,
         "asset_provenance": _asset_provenance(),
@@ -761,6 +817,7 @@ def validate_manifest(
     analysis = manifest.get("analysis")
     quality = manifest.get("quality")
     listener_quality = manifest.get("listener_quality")
+    proof_contracts = manifest.get("proof_contracts")
     status = manifest.get("status")
     continuity = manifest.get("continuity")
     asset_provenance = manifest.get("asset_provenance")
@@ -837,6 +894,8 @@ def validate_manifest(
         raise AssertionError("manifest listener_quality.notes must state that this is not a human listening pass")
     if "VNC does not carry audio by default" not in notes:
         raise AssertionError("manifest listener_quality.notes must state that VNC does not carry audio by default")
+    if proof_contracts is not None:
+        _validate_proof_contracts(proof_contracts)
 
     expected_provenance = _asset_provenance()
     for key, expected in expected_provenance.items():
@@ -1087,6 +1146,15 @@ def validate_manifest(
             raise AssertionError("manifest PULL stream contract must have nonzero musicpull counters")
         if int(refill, 16) > int(request, 16):
             raise AssertionError("manifest PULL stream contract cannot refill more chunks than requested")
+    if stream_contract.get("current_payload_owner") is not None:
+        if stream_contract.get("current_payload_owner") != "doom_port/music.c":
+            raise AssertionError("manifest stream contract must name doom_port/music.c as payload owner")
+    if stream_contract.get("current_service_command") is not None:
+        if stream_contract.get("current_service_command") != "VIBE_AUDIO_MIXER_UPDATE":
+            raise AssertionError("manifest stream contract must name VIBE_AUDIO_MIXER_UPDATE")
+    future_step = stream_contract.get("future_legitimacy_step")
+    if future_step is not None and "kernel-owned music ring" not in future_step:
+        raise AssertionError("manifest stream contract future step must mention kernel-owned music ring")
     if renderer_contract is not None:
         if renderer_contract.get("status_counter") != "musicrend":
             raise AssertionError("manifest renderer contract must name musicrend")
@@ -1260,6 +1328,22 @@ def validate_manifest(
         raise AssertionError("manifest artifact_policy.audible_evidence must be aggregate-cloud-output-status")
 
 
+def _validate_proof_contracts(proof_contracts: Any) -> None:
+    if not isinstance(proof_contracts, dict):
+        raise AssertionError("manifest proof_contracts must be an object")
+    expected = _proof_contracts()
+    for group, expected_contract in expected.items():
+        contract = proof_contracts.get(group)
+        if not isinstance(contract, dict):
+            raise AssertionError(f"manifest proof_contracts.{group} must be an object")
+        for key, expected_value in expected_contract.items():
+            value = contract.get(key)
+            if value != expected_value:
+                raise AssertionError(
+                    f"manifest proof_contracts.{group}.{key} must be {expected_value!r}"
+                )
+
+
 def validate_repo_contract() -> None:
     workflow = WORKFLOW.read_text()
     makefile = MAKEFILE.read_text()
@@ -1327,6 +1411,9 @@ def validate_repo_contract() -> None:
                 "Doom audio assets come from WAD lumps",
                 "VNC does not carry audio by default",
                 "raw audio must not be uploaded",
+                "Aggregate audible-output proof (not human listener approval)",
+                "human-listened quality is a separate lane",
+                "future hardware-paced mixer/refill playback ABI",
             ),
         ),
         (
@@ -1339,6 +1426,8 @@ def validate_repo_contract() -> None:
                 "event type 5",
                 "stateful stream cursor",
                 "long-playback wrap",
+                "Music legitimacy roadmap as OS contracts",
+                "future hardware-paced mixer/refill playback ABI",
             ),
         ),
         (

@@ -48,6 +48,24 @@ rewritten Ring 3 IRQ return frame. The checker ties those process IDs back to
 the Doom exec target PID and the seeded wait/reap child PID, so a stale static
 slot number is not enough to prove preemption after exec.
 
+## Higher-Half Relocation Gap
+
+`KERNEL_RELOCATION_GAP[current]=high-alias-only`. The VM/process proof currently
+has two separate pieces: `vmmhi=OK` proves a temporary high virtual alias backed
+by a distinct PMM-managed frame, and process status fields such as `pcr3=`,
+`pkstk=`, `pfrom=`, and `pto=` prove user process switches across distinct page
+directories and kernel stacks. Those fields do not prove that kernel text,
+kernel data, the active kernel stack, or the interrupt/return path are executing
+from non-identity higher-half addresses.
+
+`vmmhi=OK` is not a kernel relocation claim.
+
+`KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity`. Until a future
+artifact reports `kreloc=OK` with host-checked `kerneip=`, `kernesp=`,
+`kerncr3=`, `kernvirt=`, and `kernphys=` evidence, the honest claim remains:
+the kernel can create a high alias after PMM is online, but the running kernel
+itself still lives on the low identity mapping.
+
 ## Current Address Spaces
 
 `process_user_probe` owns:
@@ -181,6 +199,10 @@ heap are adjacent and the Doom heap grows up to the stack bottom.
 
 - The design still uses identity-mapped physical frames rather than relocating
   per-process user pages onto arbitrary PMM frames.
+- Running-kernel relocation is not implemented yet. The checked high-half proof
+  is a temporary high alias plus process page-directory evidence, not
+  `kreloc=OK`; the missing milestone is a non-identity higher-half kernel
+  instruction pointer, stack, active page directory, and physical backing.
 - Timer IRQ preemption now has an end-to-end restore path for saved Ring 3
   interrupt frames: the scheduler can save the interrupted task, pick another
   READY task with a valid saved frame, switch CR3 through `process_activate`,

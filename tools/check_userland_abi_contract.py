@@ -223,18 +223,137 @@ GENERIC_DOC_REQUIREMENTS = {
         "A second freestanding C program does not need to include Doom headers",
         "The reusable surface today is:",
         "The ABI is reusable, but not POSIX-complete.",
+        "## General-OS Gap Contract",
     ),
     "docs/process-exec.md": (
         "`--root-elf NAME.ELF=PATH` packages additional checked or generated",
         "root-level 8.3 `.ELF` images without changing the boot path",
         "The generic pool is reusable, but it is still small and static.",
+        "## POSIX Gap Decomposition",
     ),
+}
+
+
+POSIX_GAP_REQUIREMENTS = {
+    "fork": {
+        "docs/doom-libc-runtime.md": (
+            "`fork` exists only as a classified syscall/libc surface.",
+            "no child address-space clone",
+            "no child address-space clone, copy-on-\n  write state",
+        ),
+        "docs/process-exec.md": (
+            "`SYS_FORK` is wired through the syscall table and returns `-ENOSYS`",
+            "Address-space cloning, copy-on-write or eager page copies",
+        ),
+        "doom_port/libc.c": (
+            "pid_t fork(void)",
+            "vibe_syscall3(VIBE_SYS_FORK, 0, 0, 0)",
+            "syscall_failed(raw, ENOSYS)",
+        ),
+        "user/probe.c": (
+            "syscall3(SYS_FORK, 0, 0, 0) == -ERRNO_ENOSYS",
+        ),
+    },
+    "fd-duplication": {
+        "docs/doom-libc-runtime.md": (
+            "Descriptor lifetime is exec-aware, not Unix-open-file-description aware.",
+            "There is no public `dup`,\n  `dup2`, or `dup3` wrapper/syscall",
+            "no fork-time fd duplication contract",
+        ),
+        "docs/process-exec.md": (
+            "fd duplication",
+            "Public `dup`/`dup2`/`dup3`",
+            "fork-time descriptor duplication",
+        ),
+    },
+    "file-backed-mmap": {
+        "docs/doom-libc-runtime.md": (
+            "VM allocation is anonymous/private and brk-backed.",
+            "`MAP_FIXED`, `MAP_SHARED`, and file-backed mappings are rejected",
+        ),
+        "docs/process-exec.md": (
+            "file-backed `mmap`",
+            "File-backed mappings, `MAP_SHARED`, `MAP_FIXED`",
+            "reusable VM object lifetime",
+        ),
+        "doom_port/libc.c": (
+            "if (!(flags & MAP_ANONYMOUS) || fd != -1 || !(flags & MAP_PRIVATE) || (flags & MAP_SHARED))",
+            "errno = ENOSYS;",
+        ),
+        "user/probe.c": (
+            "syscall3(SYS_MMAP, 0, 4096, mmap_fixed_flags) == -ERRNO_EINVAL",
+        ),
+    },
+    "signals": {
+        "docs/doom-libc-runtime.md": (
+            "POSIX signal delivery is absent.",
+            "there is no public `signal.h`, signal\n  mask, `kill`, interval timer signal, or handler trampoline ABI",
+        ),
+        "docs/process-exec.md": (
+            "signals",
+            "`signal`, `sigaction`, `kill`, signal masks",
+            "delivery across scheduler context switches",
+        ),
+    },
+    "terminal-tty": {
+        "docs/doom-libc-runtime.md": (
+            "Terminal/tty behavior is absent.",
+            "unknown display ioctls return\n  `ENOTTY`",
+            "there is no stdin/stdout tty device, `termios`, `isatty`",
+        ),
+        "docs/process-exec.md": (
+            "terminal/tty",
+            "classified as `ENOTTY`",
+            "`termios`, `isatty`, controlling terminals",
+        ),
+        "doom_port/libc.c": (
+            "int ioctl(int fd, unsigned long request, void* arg)",
+            "syscall_failed(raw, ENOTTY)",
+        ),
+    },
+    "dynamic-process-lifetimes": {
+        "docs/doom-libc-runtime.md": (
+            "Dynamic process lifetimes are bounded.",
+            "no dynamically\n  growing process table",
+            "or\n  unbounded child lifecycle manager",
+        ),
+        "docs/process-exec.md": (
+            "dynamic process lifetimes",
+            "two-entry static probe-class pool",
+            "Dynamically allocated process records, unbounded child slots",
+        ),
+    },
 }
 
 
 STALE_DOC_WORDING = {
     "docs/doom-libc-runtime.md": (
         "the current exec handoff still resets the global fd table",
+    ),
+}
+
+
+ABSENT_PUBLIC_POSIX_SURFACE = {
+    "doom_port/include/vibe_os.h": (
+        "VIBE_SYS_DUP",
+        "VIBE_SYS_DUP2",
+        "VIBE_SYS_DUP3",
+        "VIBE_SYS_SIGNAL",
+        "VIBE_SYS_SIGACTION",
+        "VIBE_SYS_KILL",
+        "VIBE_SYS_TTY",
+    ),
+    "doom_port/include/unistd.h": (
+        "int dup(",
+        "int dup2(",
+        "int dup3(",
+        "int isatty(",
+    ),
+    "doom_port/libc.c": (
+        "int dup(",
+        "int dup2(",
+        "int dup3(",
+        "int isatty(",
     ),
 }
 
@@ -248,7 +367,14 @@ def main():
     for relative_path, tokens in GENERIC_DOC_REQUIREMENTS.items():
         require_tokens(failures, relative_path, tokens)
 
+    for category, files in POSIX_GAP_REQUIREMENTS.items():
+        for relative_path, tokens in files.items():
+            require_tokens(failures, relative_path, tokens, category=category)
+
     for relative_path, tokens in STALE_DOC_WORDING.items():
+        reject_tokens(failures, relative_path, tokens)
+
+    for relative_path, tokens in ABSENT_PUBLIC_POSIX_SURFACE.items():
         reject_tokens(failures, relative_path, tokens)
 
     if failures:

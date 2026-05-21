@@ -132,6 +132,11 @@ gh codespace ssh -c "<codespace-name>" -- \
   'if [ -s /tmp/vibe-os-play-now.pid ]; then kill "$(cat /tmp/vibe-os-play-now.pid)"; fi'
 ```
 
+The remote play script records its own `/tmp/vibe-os-play-now.pid` and
+`/tmp/vibe-os-play-now.novnc-port` while it is running and removes them on a
+normal exit. If the Codespace is killed hard, rerunning the launcher treats a
+stale PID file as stale state and rewrites it before starting.
+
 For slowdown triage while the game is running, use the diagnostics command
 printed by the launcher:
 
@@ -237,8 +242,10 @@ In the Codespace terminal:
 ./tools/play_now_remote.sh --require-novnc
 ```
 
-The preflight is a dry run: it checks host safety and dependencies, then exits
-before fetching a WAD, building, or launching QEMU. `--require-novnc` keeps the
+The preflight is a dry run: it checks host safety, dependency availability,
+effective CPU count from cgroup quotas/cpuset when available, and noVNC/VNC port
+safety, then exits before fetching a WAD, building, or launching QEMU.
+`--require-novnc` keeps the
 Codespaces path browser-first: if noVNC is missing, fix the Codespace instead
 of silently falling back to a raw VNC-only setup. The play script fetches and
 validates the shareware `DOOM1.WAD` into `/tmp/vibe-os-DOOM1.WAD`, outside the
@@ -273,9 +280,11 @@ Controls: arrows move and turn, Ctrl fires, Space uses, and Escape opens the
 menu. noVNC does not carry game audio in this fast path.
 
 The Codespaces launcher never downloads the remote WAD, disk image, rendered
-pixels, raw audio, screenshots, or remote logs to the Mac. Use the separate
-allowlisted proof collector only when you intentionally need a status-only human
-proof bundle.
+pixels, raw audio, screenshots, or remote logs to the Mac. Remote fetch/startup
+errors and diagnostics redact GitHub tokens, authorization headers, common
+secret environment values, and signed URL parameters before printing. Use the
+separate allowlisted proof collector only when you intentionally need a
+status-only human proof bundle.
 
 ## Destroy The Codespace
 

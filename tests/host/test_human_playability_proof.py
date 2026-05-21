@@ -481,6 +481,11 @@ class HumanPlayabilityProofTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("manual remote VNC session", result.stdout)
+        self.assertIn("human-session evidence:", result.stdout)
+        self.assertIn("duration_gtic=", result.stdout)
+        self.assertIn("required_ticks=350", result.stdout)
+        self.assertIn("phases=early->after-start->after-fire", result.stdout)
+        self.assertIn("mouse_delta=00000018:0000000C", result.stdout)
 
     def test_manual_human_session_rejects_short_duration(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -57,6 +57,36 @@ process growth, reusable file-backed VM objects, direct RGB presents, larger
 present sources, and audio formats beyond the current unsigned 8-bit stereo
 mixer path.
 
+## General-OS Gap Contract
+
+The port intentionally separates "present and reusable" from "not implemented
+yet" so future POSIX work has executable edges instead of vague TODOs:
+
+- `fork` exists only as a classified syscall/libc surface. `fork()` enters
+  `VIBE_SYS_FORK` and returns `ENOSYS`; no child address-space clone, copy-on-
+  write state, parent/child return split, or fork-time descriptor table clone is
+  implied by the current process ABI.
+- Descriptor lifetime is exec-aware, not Unix-open-file-description aware.
+  Fds have owner PID, generation, and `O_CLOEXEC` inheritance metadata, and exec
+  retags inheritable slots to the target PID. There is no public `dup`,
+  `dup2`, or `dup3` wrapper/syscall, no shared offset/reference-count object,
+  and no fork-time fd duplication contract.
+- VM allocation is anonymous/private and brk-backed. `mmap()` accepts only the
+  `MAP_PRIVATE | MAP_ANONYMOUS`, `fd == -1`, `offset == 0`, non-fixed path;
+  `MAP_FIXED`, `MAP_SHARED`, and file-backed mappings are rejected before a port
+  can accidentally depend on reusable VM object lifetime.
+- POSIX signal delivery is absent. User faults are kernel trap/process-state
+  events, not `SIGSEGV` or `sigaction`; there is no public `signal.h`, signal
+  mask, `kill`, interval timer signal, or handler trampoline ABI.
+- Terminal/tty behavior is absent. Input is the typed event queue and display
+  control is `ioctl(VIBE_DISPLAY_FD, ...)`; unknown display ioctls return
+  `ENOTTY`, but there is no stdin/stdout tty device, `termios`, `isatty`, job
+  control, or controlling-terminal model.
+- Dynamic process lifetimes are bounded. Exec can select reusable static slots
+  and `waitpid` can reap exited/faulted children, but there is no dynamically
+  growing process table, orphan reparenting, blocking sleep queue for waits, or
+  unbounded child lifecycle manager.
+
 ## Small User Runtime
 
 `user/runtime.h` and `user/runtime.c` are the reusable non-Doom runtime seed for

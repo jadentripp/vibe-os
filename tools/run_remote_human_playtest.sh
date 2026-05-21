@@ -23,6 +23,8 @@ builds the allowlisted human proof bundle, validates it before download, and
 prints the exact local download/check commands.
 For a read-only command plan first, run:
   python3 tools/collect_human_playtest_bundle.py --print-template --build-dir build --output-dir /tmp/vibe-os-human-proof --playtester NAME --scripted-proof-run-id RUN_ID
+For a shorter phase checklist only, run:
+  python3 tools/collect_human_playtest_bundle.py --print-phase-guide
 
 Required:
   --playtester NAME              Initials or handle for the human session.
@@ -279,6 +281,28 @@ PHASE_PROMPTS=(
   "Let the session run long enough to cross the duration gate, then press Enter."
 )
 
+PHASE_STATUS_FILES=(
+  status.early.txt
+  status.after-start.txt
+  status.after-fire.txt
+  status.after-move.txt
+  status.after-use.txt
+  status.after-mouse.txt
+  status.after-menu.txt
+  status.txt
+)
+
+PHASE_EXPECTED_SIGNALS=(
+  "baseline counters before manual input"
+  "gameplay=OK, E1M1, menu inactive"
+  "keyseen fire bit plus attack/refire/ammo status"
+  "movement key bit plus position or turn progress"
+  "use key bit plus use-command status"
+  "mouse counters, button, and nonzero movement delta"
+  "menu key bit plus menu-active status"
+  "duration gate crossed and all manual action bits retained"
+)
+
 echo "Remote human Doom proof capture"
 echo "  build dir:        $BUILD_DIR"
 echo "  monitor socket:   $MONITOR_SOCKET"
@@ -289,6 +313,13 @@ echo "  proof tarball:    $TARBALL"
 echo
 echo "Keep QEMU running in the other remote SSH shell. Do not download WADs,"
 echo "disk images, framebuffer data, screenshots, status binaries, or raw audio."
+echo
+echo "Phase capture plan:"
+for index in "${!PHASES[@]}"; do
+  echo "  ${PHASES[$index]} -> ${PHASE_STATUS_FILES[$index]}: ${PHASE_EXPECTED_SIGNALS[$index]}"
+done
+echo "  duration gate: final must be at least 350 gtic and leveltime ticks after after-start"
+echo
 echo "Before continuing, confirm the scripted Real WAD smoke run ID is green:"
 echo "  https://github.com/jadentripp/vibe-os/actions/runs/$SCRIPTED_PROOF_RUN_ID"
 printf "Press Enter after confirming that linked run is green..."
@@ -299,6 +330,8 @@ for index in "${!PHASES[@]}"; do
   phase="${PHASES[$index]}"
   prompt="${PHASE_PROMPTS[$index]}"
   echo "[$phase] $prompt"
+  echo "Expected status signal: ${PHASE_EXPECTED_SIGNALS[$index]}"
+  echo "Collector output file: ${PHASE_STATUS_FILES[$index]}"
   printf "Press Enter when ready to capture %s..." "$phase"
   read -r _
   python3 tools/collect_human_playtest_bundle.py \
