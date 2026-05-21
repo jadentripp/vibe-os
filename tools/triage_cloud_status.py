@@ -712,6 +712,26 @@ def _doomlog_unknown_tclass(status: str | None) -> int | None:
     return int(match.group(1), 10)
 
 
+def _status_unknown_tclass(fields: dict[str, str]) -> tuple[int, str] | None:
+    savestm = _save_stream(fields)
+    if _save_stream_load_meaningful(savestm):
+        stage, _slot, _offset, value, _reports = savestm
+        next_byte = _save_stream_next_byte(value)
+        if stage == SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE and next_byte not in VALID_THINKER_CLASSES:
+            return next_byte, "savestm"
+        if stage == SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE and next_byte not in VALID_SPECIAL_CLASSES:
+            return next_byte, "savestm"
+
+    savethk = _save_thinker(fields)
+    if _save_thinker_load_meaningful(savethk):
+        _archive_offset, _archive_value, _unarchive_offset, unarchive_value = savethk
+        next_byte = _save_stream_next_byte(unarchive_value)
+        if next_byte not in VALID_THINKER_CLASSES:
+            return next_byte, "savethk"
+
+    return None
+
+
 def _persistence_load_attempted(fields: dict[str, str]) -> bool:
     doomsav = _hex_tuple(fields, "doomsav", 2)
     saverd = _hex_tuple(fields, "saverd", 2)
@@ -845,6 +865,12 @@ def render_persistence_load_context(fields: dict[str, str], status: str | None =
             f"archive_offset=0x{archive_offset:X} archive_value=0x{archive_value:X} "
             f"unarchive_offset=0x{unarchive_offset:X} unarchive_value=0x{unarchive_value:X} "
             f"unarchive_next_byte=0x{_save_stream_next_byte(unarchive_value):02X}"
+        )
+    status_unknown_tclass = _status_unknown_tclass(fields)
+    if status_unknown_tclass is not None:
+        value, source = status_unknown_tclass
+        lines.append(
+            f"persistence-status: unknown_tclass={value} (0x{value:02X}) from {source}"
         )
     unknown_tclass = _doomlog_unknown_tclass(status)
     if unknown_tclass is not None:

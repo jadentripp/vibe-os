@@ -49,9 +49,12 @@ KERNEL_ELF := $(BUILD_DIR)/kernel.elf
 USER_CRT0_OBJ := $(BUILD_DIR)/user_crt0.o
 USER_PROBE_C_OBJ := $(BUILD_DIR)/user_probe_c.o
 USER_PROBE_ELF := $(BUILD_DIR)/user_probe.elf
+USER_ABI_PROBE_C_OBJ := $(BUILD_DIR)/user_abi_probe_c.o
+USER_ABI_PROBE_ELF := $(BUILD_DIR)/abi_probe.elf
 IMAGE := $(BUILD_DIR)/disk.img
 C_RUNTIME_SRC := kernel/c_runtime_probe.c
 USER_PROBE_C_SRC := user/probe.c
+USER_ABI_PROBE_C_SRC := user/abi_probe.c
 DOOM_SRC_DIR := third_party/doom/linuxdoom-1.10
 DOOM_PORT_INCLUDE_DIR := doom_port/include
 DOOM_PORT_BUILD_DIR := $(BUILD_DIR)/doom
@@ -70,13 +73,15 @@ DOOM_P_SAVEG_CFLAGS := -DP_ArchivePlayers=doom_original_P_ArchivePlayers -DP_UnA
 STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 98304
 USER_PROBE_ELF_MAX_BYTES := 12288
+USER_ABI_PROBE_ELF_MAX_BYTES := 12288
+IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF)
 
 .PHONY: all build-only test doom-compile doom-link run run-headless smoke playability-host-check playability-gap-check hardware-support-check vm-safety-check shutdown-panic-proof-check scripted-gameplay-proof-check audio-continuity-check audible-audio-proof-check cloud-playability-check persistence-image-check clean check-tools vm-consent
 
 all: $(IMAGE)
 
 build-only: $(IMAGE) doom-link
-	@printf "Build-only check OK: %s and %s are present.\n" "$(IMAGE)" "$(DOOM_ELF)"
+	@printf "Build-only check OK: %s, %s, and %s are present.\n" "$(IMAGE)" "$(DOOM_ELF)" "$(USER_ABI_PROBE_ELF)"
 
 test: $(IMAGE) doom-link
 	$(PYTHON) -m unittest discover -s tests/host -p 'test_*.py'
@@ -142,6 +147,9 @@ $(USER_CRT0_OBJ): user/crt0.asm | $(BUILD_DIR)
 $(USER_PROBE_C_OBJ): $(USER_PROBE_C_SRC) | $(BUILD_DIR)
 	$(CLANG) $(FREESTANDING_I386_CFLAGS) -c $< -o $@
 
+$(USER_ABI_PROBE_C_OBJ): $(USER_ABI_PROBE_C_SRC) doom_port/include/vibe_os.h | $(BUILD_DIR)
+	$(CLANG) $(FREESTANDING_I386_CFLAGS) -I$(DOOM_PORT_INCLUDE_DIR) -c $< -o $@
+
 $(DOOM_PORT_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c Makefile | $(DOOM_PORT_BUILD_DIR)
 	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) -c $< -o $@
 
@@ -161,11 +169,15 @@ $(USER_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_PROBE_C_OBJ) tools/link_elf32.py | $(
 	$(PYTHON) tools/link_elf32.py -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_PROBE_C_OBJ)
 	@test $$(wc -c < $@) -le $(USER_PROBE_ELF_MAX_BYTES) || { echo "user probe ELF exceeds $(USER_PROBE_ELF_MAX_BYTES) bytes"; exit 1; }
 
-$(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF) tools/make_wad_image.py
+$(USER_ABI_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_ABI_PROBE_C_OBJ) tools/link_elf32.py | $(BUILD_DIR)
+	$(PYTHON) tools/link_elf32.py -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_ABI_PROBE_C_OBJ)
+	@test $$(wc -c < $@) -le $(USER_ABI_PROBE_ELF_MAX_BYTES) || { echo "ABI probe ELF exceeds $(USER_ABI_PROBE_ELF_MAX_BYTES) bytes"; exit 1; }
+
+$(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) tools/make_wad_image.py
 	@if [ -n "$(DOOM_WAD)" ]; then \
-		$(PYTHON) tools/make_wad_image.py --wad "$(DOOM_WAD)" $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF); \
+		$(PYTHON) tools/make_wad_image.py --wad "$(DOOM_WAD)" $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF); \
 	else \
-		$(PYTHON) tools/make_wad_image.py $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF); \
+		$(PYTHON) tools/make_wad_image.py $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF); \
 	fi
 	@printf "Built %s\n" "$@"
 

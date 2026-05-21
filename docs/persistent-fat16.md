@@ -36,6 +36,10 @@ Reusable FAT16 syscall surface:
   subdirectory component can be listed read-only. Nested traversal, opening
   files inside subdirectories, long filenames, rename, timestamps, ownership,
   and delete-while-open semantics are outside the current syscall contract.
+- Directory/file mismatches now use reusable errno classifications instead of
+  Doom-shaped fallbacks: opening or unlinking a directory as a file returns
+  `EISDIR`, while asking `vibe_listdir` to list an existing regular file
+  returns `ENOTDIR`.
 - Host tests and image checkers exercise this surface without committing WADs,
   mutated disks, pixel dumps, or raw audio captures. Scratch files such as
   `FATPROOF.TMP` are created only inside in-memory checker copies.
@@ -104,7 +108,10 @@ Current kernel contract:
 - Supported validation: nested path traversal, empty names, long filenames, and
   unsupported characters are rejected; leading root separators and `./` prefixes
   are path normalization only, not subdirectory traversal. Existing directories
-  cannot be opened as generic writable files or shadowed by `O_CREAT`.
+  cannot be opened as generic writable files, unlinked through the file-delete
+  path, or shadowed by `O_CREAT`; those directory-as-file calls return
+  `EISDIR`. `vibe_listdir` still requires an actual directory and reports
+  `ENOTDIR` for an existing regular file.
   `DOOM1.WAD`, `USERPROB.ELF`, and `DOOM.ELF` remain protected read-only
   entries and cannot be deleted, truncated, or opened writable. Unknown `open`
   flag bits are rejected as `EINVAL` in the kernel, even if libc callers
@@ -181,7 +188,15 @@ completion-state failures, not malformed thinker/specials streams. A 24-byte
 menu-string read
 does not count as loading the game. When load fails inside Doom's savegame
 unarchiver, `savestm=` and `savethk=` expose the port-wrapper save-stream
-offsets and first marker byte without modifying the original Doom source.
+offsets and class bytes without modifying the original Doom source. Normal
+wrapper entry/exit samples report the byte currently at `save_p`; if original
+Doom raises `I_Error` while reading thinker or specials class bytes, the port
+emits one final status-only sample from `save_p - 1`, so the top byte in
+`savestm`/`savethk` is the offending class that Doom already consumed. That
+lets a status line alone identify failures such as `Unknown tclass 112` as
+`next_byte=0x70` at the failing save-stream offset, while `doomsav=`,
+`saverd=`, `savewr=`, `saveclose=`, and FAT checker output still decide whether
+the bytes reached the image cleanly.
 The reboot comparison requires `--baseline-image` too, so a preseeded image can
 never be reported as a reboot persistence proof without also proving the
 requested bytes changed from the fresh image. With a baseline image present, the

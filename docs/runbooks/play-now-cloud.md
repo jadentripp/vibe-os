@@ -65,7 +65,8 @@ browser-only Codespaces path instead:
 
 That verifies the pushed repo/ref and required play files, then prints a
 GitHub `codespaces/new` URL plus the exact in-Codespace commands. Open the URL
-in the browser, create the Codespace, and run:
+in the browser, select a 4-core+ machine when GitHub offers one, create the
+Codespace, and run:
 
 ```sh
 ./tools/play_now_remote.sh --preflight --require-novnc
@@ -88,9 +89,12 @@ VIBE_REPO=jadentripp/vibe-os VIBE_REF=main \
 
 The default Codespaces machine is often 2-core. Doom is playable there, but
 QEMU, noVNC, and the first build can contend for CPU, so short stutters are not
-necessarily a kernel or input regression. Use `--machine` for a larger
-Codespace when you need smoother interactive play; 4-core+ is the preferred
-shape for longer human playtests.
+necessarily a kernel or input regression. For CLI-created Codespaces, the
+launcher asks GitHub for available machines on the selected repo/ref and, when
+possible, selects the smallest 4+ CPU machine for smoother interactive play.
+Pass `--machine` to override that choice. In browser-only `--web-url` mode,
+select a 4-core+ machine in GitHub's creation screen when available; GitHub's
+default is the lowest valid machine and may land back on the slow 2-core shape.
 
 Optional GitHub-hosted dry run: dispatch **Cloud play-now preflight** on the
 same branch. It installs the remote dependencies on `ubuntu-latest`, runs
@@ -141,6 +145,10 @@ sudo apt-get install -y nasm qemu-system-x86 clang make netcat-openbsd curl novn
 ./tools/play_now_remote.sh
 ```
 
+For interactive play on a plain cloud VM, choose 4+ vCPUs when possible. A
+2-vCPU VM is useful for smoke checks, but noVNC plus QEMU TCG can stutter enough
+to make manual Doom control feel worse than the OS status actually is.
+
 For a fresh disposable Ubuntu shell, the bootstrap helper performs that setup
 and then starts the same remote play script:
 
@@ -190,16 +198,34 @@ freshly validated WAD.
 The Mac-side Codespaces launcher does not download WADs, disk images, rendered
 pixels, raw audio, or remote logs. If you need a proof bundle later, use the
 allowlisted collector flow below instead of copying generated VM artifacts.
-For live slowdown triage, use the diagnostics command printed by the launcher:
+For live slowdown triage, use the status-only diagnostics command printed by
+the launcher:
 
 ```sh
 gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh
 ```
 
-It reports process/load, the forwarded noVNC port, filtered OS serial status
-lines such as `inputdepth=`, `musicbuf=`, `musicpull=`, `mixunder=`,
-`dtick/preempt`, and recent play/noVNC logs with token-shaped values redacted.
-It does not print the Codespaces environment.
+It reports host CPU count/load, the forwarded noVNC port, the play process,
+filtered OS serial status lines such as `inputdepth=`, `musicbuf=`,
+`musicpull=`, `mixunder=`, `dtick/preempt`, `doompresent=`, and recent
+play/noVNC logs with token-shaped values redacted. It does not print the
+Codespaces environment, GitHub tokens, WAD data, pixels, raw audio, or full
+logs. If those OS status fields look healthy but the browser still stutters on
+a 2-core host, restart on the selected 4+ CPU Codespace or a faster disposable
+cloud VM before treating it as a Doom/input regression.
+Useful cleanup and inspection commands are printed by the launcher and are safe
+to keep in your notes:
+
+```sh
+gh codespace ssh -c "<codespace-name>" -- tail -f /tmp/vibe-os-play-now.log
+gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh
+gh codespace ports -c "<codespace-name>"
+gh api /user/codespaces/<codespace-name> --jq .machine
+gh codespace ssh -c "<codespace-name>" -- \
+  'if [ -s /tmp/vibe-os-play-now.pid ]; then kill "$(cat /tmp/vibe-os-play-now.pid)"; fi'
+gh codespace delete -c "<codespace-name>" --force
+```
+
 When finished, delete the disposable environment with
 `gh codespace delete -c "<codespace-name>" --force` or from GitHub's
 `Code` > `Codespaces` menu. Deletion removes the remote `/tmp` WAD and generated

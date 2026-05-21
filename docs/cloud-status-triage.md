@@ -72,6 +72,9 @@ require WADs, disk images, screenshots, pixels, or audio. It reports four lanes:
 `manifest-status-mismatch` or incomplete-artifact result points at checker or
 upload evidence drift. A `persistence-save-*` result points at the first
 save/write boot. A `persistence-load-*` result points at the reboot/load boot.
+The save/write lane is not a full movement/input proof; `input-no-effect` is not
+fatal there when the status and proof text show a nonzero `DOOMSAV*.DSG` write
+and close.
 Importantly, the load lane ignores `savewr=00000000/00000000` for save-write
 triage: a pure reboot-load phase can have zero write counters while still
 showing a real load failure through `saverd`, `saveclose`, and `saveact`.
@@ -196,7 +199,12 @@ python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
   specials and `stage=00000018` means original `P_UnArchiveSpecials` returned.
   The stream value packs `next_byte` in bits 31..24 plus pointer/alignment
   detail in the lower bytes, so `01006C08` means class byte `01`, not an
-  invalid 32-bit class. If the classifier prints
+  invalid 32-bit class. For original Doom `I_Error` failures inside thinker or
+  specials class reads, the final wrapper sample reports the byte Doom just
+  consumed at `save_p - 1`; a status like
+  `savestm=00000017/.../00002A65/70016D08/...` therefore identifies the
+  offending class as `0x70` (`112`) at offset `0x2A65` without needing
+  `doomlog` text or a disk/WAD upload. If the classifier prints
   `persistence-load-malformed-stream`, the decoded `next_byte` is the suspicious
   class code at `offset`; if it prints `persistence-load-not-completed`, the
   load did not prove the request/read/close/done sequence yet. When

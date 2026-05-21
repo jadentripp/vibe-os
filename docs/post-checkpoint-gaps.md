@@ -47,6 +47,10 @@ Historical repair context: run `26196214650` on `2788c00` reached the real-WAD
 playability checks but failed earlier because `DOOMSAV0.DSG` was truncated to
 1024 bytes after the first write. Its `flb=`/`fcl=` diagnostics narrowed that
 older blocker to FAT save growth and chain clipping.
+Another historical save/load blocker was `Unknown tclass 112 in savegame`; the
+port-owned status diagnostics now expose `savestm=` and `savethk=` stream
+fields so malformed thinker/specials class bytes can be triaged without
+uploading the save file or editing original Doom source.
 
 What the last published evidence proves:
 

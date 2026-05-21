@@ -16,11 +16,13 @@ CODESPACES_PORT_WAIT_SECONDS="${CODESPACES_PORT_WAIT_SECONDS:-300}"
 CODESPACES_PORT_WAIT_INTERVAL="${CODESPACES_PORT_WAIT_INTERVAL:-5}"
 CODESPACES_SSH_ATTEMPTS="${CODESPACES_SSH_ATTEMPTS:-3}"
 CODESPACES_SSH_RETRY_SECONDS="${CODESPACES_SSH_RETRY_SECONDS:-10}"
+CODESPACES_MIN_INTERACTIVE_CPUS="${CODESPACES_MIN_INTERACTIVE_CPUS:-4}"
 MAX_DISPLAY_NAME_LENGTH=48
 RUN_PREFLIGHT_ONLY=0
 PRINT_WEB_URL_ONLY=0
 GIT_STATE_SUMMARY=""
 REPO_DATABASE_ID=""
+MACHINE_SELECTION_SUMMARY=""
 REMOTE_PLAY_PATHS=(
   ".devcontainer/devcontainer.json"
   ".devcontainer/Dockerfile"
@@ -58,7 +60,9 @@ Options:
   --ref BRANCH            Branch/ref to use. Default: current git branch.
   --codespace NAME        Reuse an existing Codespace instead of creating one.
   --display-name NAME     Display name for a newly created Codespace.
-  --machine NAME          Optional Codespaces machine type.
+  --machine NAME          Optional Codespaces machine type. If omitted for a
+                          new CLI-created Codespace, prefer the smallest
+                          available 4+ CPU machine for interactive play.
   --idle-timeout VALUE    Codespaces idle timeout. Default: 30m.
   --retention-period VAL  Codespaces retention after stop. Default: 1h.
   --preflight, --dry-run  Check gh/git/ref/port safety and print the plan
@@ -121,6 +125,8 @@ ssh_permission_error() {
 print_codespace_cleanup_commands() {
   echo "Remote log: gh codespace ssh -c \"$CODESPACE_NAME\" -- tail -f /tmp/vibe-os-play-now.log"
   echo "Diagnostics: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh"
+  echo "List ports: gh codespace ports -c \"$CODESPACE_NAME\""
+  echo "Inspect machine: gh api /user/codespaces/$CODESPACE_NAME --jq .machine"
   echo "Stop play-now: gh codespace ssh -c \"$CODESPACE_NAME\" -- 'if [ -s /tmp/vibe-os-play-now.pid ]; then kill \"\$(cat /tmp/vibe-os-play-now.pid)\"; fi'"
   echo "Delete when done: gh codespace delete -c \"$CODESPACE_NAME\" --force"
   echo "Browser cleanup: GitHub repo > Code > Codespaces > ... > Delete"
@@ -333,6 +339,43 @@ validate_positive_integer() {
   fi
 }
 
+select_preferred_codespace_machine() {
+  local api_path
+  local selected
+  local cpus
+  local machine_name
+  local display_name
+
+  if [ -n "$CODESPACE_MACHINE" ]; then
+    MACHINE_SELECTION_SUMMARY="explicit machine selected by --machine/CODESPACE_MACHINE"
+    return 0
+  fi
+
+  if [ -n "$CODESPACE_NAME" ]; then
+    MACHINE_SELECTION_SUMMARY="reusing existing Codespace; inspect/change its machine before play if it is still 2-core"
+    return 0
+  fi
+
+  api_path="/repos/$REPO/codespaces/machines?ref=$(urlencode "$REF")"
+  selected="$(
+    gh api -H "Accept: application/vnd.github+json" "$api_path" \
+      --jq ".machines[] | select((.cpus // 0) >= $CODESPACES_MIN_INTERACTIVE_CPUS) | [.cpus, .name, .display_name] | @tsv" \
+      2>/dev/null \
+      | sort -n \
+      | head -n 1
+  )" || true
+
+  if [ -n "$selected" ]; then
+    IFS=$'\t' read -r cpus machine_name display_name <<EOF_MACHINE
+$selected
+EOF_MACHINE
+    CODESPACE_MACHINE="$machine_name"
+    MACHINE_SELECTION_SUMMARY="selected $machine_name (${display_name:-${cpus} CPUs}) for smoother interactive play"
+  else
+    MACHINE_SELECTION_SUMMARY="could not find an available ${CODESPACES_MIN_INTERACTIVE_CPUS}+ CPU machine; using GitHub default and expect possible 2-core stutter"
+  fi
+}
+
 validate_display_name() {
   local name="$1"
 
@@ -458,6 +501,7 @@ print_preflight_summary() {
   echo "idle timeout: $IDLE_TIMEOUT"
   echo "retention period: $RETENTION_PERIOD"
   echo "noVNC port: $NOVNC_PORT (private)"
+  echo "machine selection: $MACHINE_SELECTION_SUMMARY"
   echo "noVNC wait timeout: ${CODESPACES_PORT_WAIT_SECONDS}s"
   echo "SSH start attempts: $CODESPACES_SSH_ATTEMPTS"
   echo "browser open: $OPEN_BROWSER"
@@ -466,7 +510,8 @@ print_preflight_summary() {
   echo "remote play payload: verified on selected ref"
   echo "git state: $GIT_STATE_SUMMARY"
   echo "local artifact transfer: none (no WADs, disk images, pixels, raw audio, or logs copied to the Mac)"
-  echo "performance caveat: default 2-core Codespaces can play Doom but may stutter during builds or noVNC streaming"
+  echo "performance caveat: 2-core Codespaces can play Doom but may stutter during builds or noVNC streaming"
+  echo "performance preference: use the selected 4+ CPU machine for interactive Doom when available"
   echo "remote preflight command: ./tools/play_now_remote.sh --preflight --require-novnc"
   echo "remote start command: NOVNC_PORT=$NOVNC_PORT nohup ./tools/play_now_remote.sh --require-novnc"
   echo "dry-run: Codespace was not created or modified"
@@ -483,6 +528,7 @@ print_web_url_summary() {
   echo "local gh Codespaces API: not required for this browser path"
   echo "local gh auth: optional for this browser path"
   echo "local artifact transfer: none (no WADs, disk images, pixels, raw audio, or logs copied to the Mac)"
+  echo "machine guidance: choose a 4-core+ Codespaces machine in the browser when available; GitHub defaults to the lowest valid machine"
   echo "Codespaces create URL:"
   echo "$(codespaces_create_url)"
   echo
@@ -657,6 +703,7 @@ validate_positive_integer CODESPACES_PORT_WAIT_SECONDS "$CODESPACES_PORT_WAIT_SE
 validate_positive_integer CODESPACES_PORT_WAIT_INTERVAL "$CODESPACES_PORT_WAIT_INTERVAL"
 validate_positive_integer CODESPACES_SSH_ATTEMPTS "$CODESPACES_SSH_ATTEMPTS"
 validate_positive_integer CODESPACES_SSH_RETRY_SECONDS "$CODESPACES_SSH_RETRY_SECONDS"
+validate_positive_integer CODESPACES_MIN_INTERACTIVE_CPUS "$CODESPACES_MIN_INTERACTIVE_CPUS"
 
 if [ -z "$REPO" ]; then
   REPO="$(current_repo)"
@@ -686,6 +733,7 @@ fi
 require_tool gh
 require_gh_auth
 require_gh_codespaces_access
+select_preferred_codespace_machine
 
 if [ -z "$CODESPACE_NAME" ] && [ -z "$DISPLAY_NAME" ]; then
   DISPLAY_NAME="$(default_display_name "$REF")"
@@ -705,6 +753,7 @@ fi
 if [ -z "$CODESPACE_NAME" ]; then
   echo "Creating disposable Codespace '$DISPLAY_NAME' for $REPO@$REF"
   echo "Running: gh codespace create --repo \"$REPO\" --branch \"$REF\" --devcontainer-path \".devcontainer/devcontainer.json\""
+  echo "Machine selection: $MACHINE_SELECTION_SUMMARY"
   create_args=(
     codespace create
     --repo "$REPO"
@@ -773,7 +822,7 @@ fi
 novnc_url="$(novnc_url_from_browse_url "$novnc_browse_url")"
 echo "Open Doom noVNC: $novnc_url"
 echo "Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu."
-echo "Performance note: default 2-core Codespaces can play Doom, but noVNC may stutter during builds or CPU contention."
+echo "Performance note: 2-core Codespaces can play Doom, but noVNC may stutter during builds or CPU contention; 4+ CPUs are preferred for interactive play."
 echo "Slowdown check: run the Diagnostics command above; it prints only safe process/load and OS status-log lines."
 if [ "$OPEN_BROWSER" = "1" ] && [ "$(uname -s)" = "Darwin" ] && command -v open >/dev/null 2>&1; then
   open "$novnc_url" || true

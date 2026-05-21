@@ -44,7 +44,16 @@ class PlayNowRemoteTests(unittest.TestCase):
                   echo "jadentripp/vibe-os"
                   exit 0
                 fi
-                if [ "$1" = "api" ] && [[ "$*" == *"/repos/jadentripp/vibe-os"* ]] && [[ "$*" != *"/contents/"* ]]; then
+                if [ "$1" = "api" ] && [[ "$*" == *"/repos/jadentripp/vibe-os/codespaces/machines"* ]]; then
+                  if [ "${FAKE_MACHINE_API_FAIL:-0}" = "1" ]; then
+                    echo '{"message":"machine list unavailable","status":"503"}' >&2
+                    exit 70
+                  fi
+                  printf '4\\tstandardLinux\\t4 cores, 16 GB RAM, 64 GB storage\\n'
+                  printf '8\\tpremiumLinux\\t8 cores, 32 GB RAM, 64 GB storage\\n'
+                  exit 0
+                fi
+                if [ "$1" = "api" ] && [[ "$*" == *"/repos/jadentripp/vibe-os"* ]] && [[ "$*" != *"/contents/"* ]] && [[ "$*" != *"/codespaces/machines"* ]]; then
                   if [ "${FAKE_REPO_ID_FAIL:-0}" = "1" ]; then
                     echo '{"message":"API rate limit exceeded","status":"403"}'
                     exit 1
@@ -241,12 +250,17 @@ class PlayNowRemoteTests(unittest.TestCase):
             "codespaces_create_url",
             "play-now Codespaces preflight OK",
             "machine: ${CODESPACE_MACHINE:-default}",
+            "CODESPACES_MIN_INTERACTIVE_CPUS",
+            "select_preferred_codespace_machine",
+            "/repos/$REPO/codespaces/machines?ref=$(urlencode \"$REF\")",
+            "machine selection: $MACHINE_SELECTION_SUMMARY",
             "noVNC port: $NOVNC_PORT (private)",
             "GitHub Codespaces API: accessible",
             "GitHub repo/ref: verified",
             "remote play payload: verified on selected ref",
             "local gh Codespaces API: not required for this browser path",
             "local gh auth: optional for this browser path",
+            "machine guidance: choose a 4-core+ Codespaces machine in the browser when available",
             "explicit GitHub repo/ref selected; local checkout dirt is ignored",
             "clean and pushed for the inferred current branch",
             "local artifact transfer: none",
@@ -266,11 +280,14 @@ class PlayNowRemoteTests(unittest.TestCase):
             "tools/play_now_cloud_shell.sh",
             "tools/prepare_shareware_wad.py",
             "tools/make_wad_image.py",
+            "List ports: gh codespace ports -c \\\"$CODESPACE_NAME\\\"",
+            "Inspect machine: gh api /user/codespaces/$CODESPACE_NAME --jq .machine",
             "Delete when done: gh codespace delete -c \\\"$CODESPACE_NAME\\\" --force",
             "Stop play-now:",
             "Diagnostics: gh codespace ssh -c \\\"$CODESPACE_NAME\\\" -- /tmp/vibe-os-play-now-diagnostics.sh",
             "Browser cleanup: GitHub repo > Code > Codespaces > ... > Delete",
-            "performance caveat: default 2-core Codespaces",
+            "performance caveat: 2-core Codespaces",
+            "performance preference: use the selected 4+ CPU machine",
             "Slowdown check: run the Diagnostics command above",
             "Codespaces runs pushed git state",
         ):
@@ -330,12 +347,17 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("repo: jadentripp/vibe-os", result.stdout)
             self.assertIn("ref: jt/doom-gameplay-proof", result.stdout)
             self.assertIn("machine: basicLinux32gb", result.stdout)
+            self.assertIn(
+                "machine selection: explicit machine selected by --machine/CODESPACE_MACHINE",
+                result.stdout,
+            )
             self.assertIn("noVNC port: 6080 (private)", result.stdout)
             self.assertIn("GitHub repo/ref: verified", result.stdout)
             self.assertIn("remote play payload: verified on selected ref", result.stdout)
             self.assertIn("git state: explicit GitHub repo/ref selected; local checkout dirt is ignored", result.stdout)
             self.assertIn("local artifact transfer: none", result.stdout)
-            self.assertIn("performance caveat: default 2-core Codespaces", result.stdout)
+            self.assertIn("performance caveat: 2-core Codespaces", result.stdout)
+            self.assertIn("performance preference: use the selected 4+ CPU machine", result.stdout)
             self.assertIn("dry-run: Codespace was not created or modified", result.stdout)
             self.assertEqual(result.stderr, "")
 
@@ -354,6 +376,43 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("cat-file -e FETCH_HEAD:tools/play_now_remote.sh", git_calls)
             self.assertIn("cat-file -e FETCH_HEAD:tools/prepare_shareware_wad.py", git_calls)
             self.assertIn("cat-file -e FETCH_HEAD:tools/make_wad_image.py", git_calls)
+
+    def test_codespaces_launcher_selects_four_core_machine_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env, gh_log, _ = self._codespaces_stub_env(tmp)
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "tools" / "play_now_codespaces.sh"),
+                    "--dry-run",
+                    "--repo",
+                    "jadentripp/vibe-os",
+                    "--ref",
+                    "jt/doom-gameplay-proof",
+                    "--no-open",
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("machine: standardLinux", result.stdout)
+            self.assertIn(
+                "machine selection: selected standardLinux (4 cores, 16 GB RAM, 64 GB storage) for smoother interactive play",
+                result.stdout,
+            )
+            self.assertIn("performance preference: use the selected 4+ CPU machine", result.stdout)
+            self.assertEqual(result.stderr, "")
+
+            log = gh_log.read_text()
+            self.assertIn(
+                "api -H Accept: application/vnd.github+json /repos/jadentripp/vibe-os/codespaces/machines?ref=jt%2Fdoom-gameplay-proof",
+                log,
+            )
+            self.assertNotIn("codespace create", log)
+            self.assertNotIn("codespace ssh", log)
 
     def test_codespaces_launcher_web_url_mode_does_not_need_codespaces_api_scope(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -381,6 +440,7 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("repo: jadentripp/vibe-os", result.stdout)
             self.assertIn("ref: jt/play-now-access-next", result.stdout)
             self.assertIn("local gh Codespaces API: not required", result.stdout)
+            self.assertIn("machine guidance: choose a 4-core+ Codespaces machine", result.stdout)
             self.assertIn(
                 "https://github.com/codespaces/new?hide_repo_select=true&repo=123456789&ref=jt%2Fplay-now-access-next&devcontainer_path=.devcontainer%2Fdevcontainer.json",
                 result.stdout,
@@ -394,6 +454,7 @@ class PlayNowRemoteTests(unittest.TestCase):
             log = gh_log.read_text()
             self.assertIn("api -H Accept: application/vnd.github+json /repos/jadentripp/vibe-os --jq .id", log)
             self.assertNotIn("/user/codespaces?per_page=1", log)
+            self.assertNotIn("/codespaces/machines", log)
             self.assertNotIn("codespace create", log)
             self.assertNotIn("codespace ssh", log)
             self.assertIn("ls-remote --heads https://github.com/jadentripp/vibe-os.git jt/play-now-access-next", git_log.read_text())
@@ -424,6 +485,7 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("repo: jadentripp/vibe-os", result.stdout)
             self.assertIn("ref: main", result.stdout)
             self.assertIn("local gh auth: optional for this browser path", result.stdout)
+            self.assertIn("machine guidance: choose a 4-core+ Codespaces machine", result.stdout)
             self.assertIn("Codespaces create URL:\nhttps://github.com/codespaces/new", result.stdout)
             self.assertIn("./tools/play_now_remote.sh --require-novnc", result.stdout)
             self.assertEqual(result.stderr, "")
@@ -431,6 +493,7 @@ class PlayNowRemoteTests(unittest.TestCase):
             log = gh_log.read_text()
             self.assertIn("auth status -h github.com", log)
             self.assertNotIn("/user/codespaces?per_page=1", log)
+            self.assertNotIn("/codespaces/machines", log)
             self.assertNotIn("codespace create", log)
             self.assertIn(
                 "ls-remote --heads https://github.com/jadentripp/vibe-os.git main",
@@ -589,6 +652,8 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("Starting vibe-os Doom inside Codespace 'vibe-play-existing'", result.stdout)
             self.assertIn("noVNC port 6173 is private", result.stdout)
             self.assertIn("Stop play-now: gh codespace ssh -c \"vibe-play-existing\"", result.stdout)
+            self.assertIn("List ports: gh codespace ports -c \"vibe-play-existing\"", result.stdout)
+            self.assertIn("Inspect machine: gh api /user/codespaces/vibe-play-existing --jq .machine", result.stdout)
             self.assertIn(
                 "Diagnostics: gh codespace ssh -c \"vibe-play-existing\" -- /tmp/vibe-os-play-now-diagnostics.sh",
                 result.stdout,
@@ -603,7 +668,8 @@ class PlayNowRemoteTests(unittest.TestCase):
                 "Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu.",
                 result.stdout,
             )
-            self.assertIn("Performance note: default 2-core Codespaces can play Doom", result.stdout)
+            self.assertIn("Performance note: 2-core Codespaces can play Doom", result.stdout)
+            self.assertIn("4+ CPUs are preferred for interactive play", result.stdout)
             self.assertIn("Slowdown check: run the Diagnostics command above", result.stdout)
             self.assertEqual(result.stderr, "")
 
@@ -962,6 +1028,9 @@ class PlayNowRemoteTests(unittest.TestCase):
             'grep -E',
             'inputdepth=|musicbuf=|musicpull=|mixunder=',
             'does not dump environment variables',
+            'performance hint: 2-core hosts can stutter under QEMU/noVNC',
+            'Performance diagnostics include host CPUs/load plus filtered status fields',
+            '(access_token|token|signature|X-Amz-Signature|X-Amz-Credential)=',
             'NOVNC_WEB_ROOTS=(',
             'resolve_novnc_web_root',
             'websockify --web="$NOVNC_WEB_ROOT_RESOLVED"',
@@ -993,6 +1062,8 @@ class PlayNowRemoteTests(unittest.TestCase):
             '--web-url',
             'tools/play_now_cloud_shell.sh',
             'forward port',
+            'selects the smallest 4+ CPU machine',
+            'gh api /user/codespaces/<codespace-name> --jq .machine',
             'VNC does not carry game audio',
             'cloud `real-wad-smoke.yml` aggregate audio proof',
             '/tmp/vibe-os-play-now-diagnostics.sh',

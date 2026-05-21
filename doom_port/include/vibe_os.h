@@ -601,7 +601,9 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   root subdirectories into fixed `vibe_dirent_t` records. Names are
  *   normalized 8.3 display names, and `stat("/")` plus `stat("/ASSETS")`
  *   style directory metadata report readonly directories. File opens remain
- *   root-level only.
+ *   root-level only. Directory/file mismatches are classified for small tools:
+ *   opening or unlinking a directory as a file returns `EISDIR`, while listing
+ *   an existing regular file returns `ENOTDIR`.
  * - VIBE_SYS_POLL_INPUT drains one reusable keyboard/mouse event at a time.
  *   VIBE_SYS_INPUT_STATUS reports queue capacity/depth, overflow counters,
  *   keyboard state, and mouse state without consuming queued input. The libc

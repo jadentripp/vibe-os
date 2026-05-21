@@ -801,10 +801,11 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("unsigned long tic = (unsigned long)gametic;", platform)
         self.assertIn("tic = (unsigned long)leveltime;", platform)
         self.assertIn("(unsigned long)leveltime", platform)
-        self.assertIn("repair_missing_mobj_classes", save_debug)
-        self.assertIn("VIBE_SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED", save_debug)
-        self.assertIn("*class_p = VIBE_SAVE_TCLASS_MOBJ;", save_debug)
-        self.assertIn("thinker_function != (unsigned long)P_MobjThinker", save_debug)
+        self.assertIn("void vibe_doom_save_stream_note_error(void)", save_debug)
+        self.assertIn("static unsigned long active_save_stream_stage;", save_debug)
+        self.assertIn("stream_p = save_p - 1;", save_debug)
+        self.assertNotIn("repair_missing_mobj_classes", save_debug)
+        self.assertNotIn("*class_p =", save_debug)
         for source in (
             "SYS_GAMEPLAY_STATUS equ 15",
             "DOOM_INIT_STATUS_FLAG equ 0x40000000",
@@ -1432,7 +1433,9 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("test eax, 0x80000000", lseek_path)
         unlink_path = kernel.split(".unlink:", 1)[1].split(".stat:", 1)[0]
         self.assertIn("call fat_open_name_is_protected", unlink_path)
-        self.assertIn("call fat_find_file", unlink_path)
+        self.assertIn("call fat_find_root_entry_any", unlink_path)
+        self.assertIn("test byte [fat_found_attributes], FAT_ATTR_DIRECTORY", unlink_path)
+        self.assertIn("jnz .bad_syscall_eisdir", unlink_path)
         self.assertIn("call fat_find_writable_slot_for_found", unlink_path)
         self.assertIn("call fat_delete_found_file", unlink_path)
         self.assertIn("call fat_close_writable_fds_for_slot", unlink_path)

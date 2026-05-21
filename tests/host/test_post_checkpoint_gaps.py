@@ -128,7 +128,8 @@ class PostCheckpointGapTests(unittest.TestCase):
         self.assertIn("The FAT16 image has root entries for `DEFAULT.CFG`", gap_doc)
         self.assertIn("Run `26151623245` passes that reboot proof for `DEFAULT.CFG`", gap_doc)
         self.assertIn("Historical run `26156172979` passes the save-slot reboot proof", gap_doc)
-        self.assertIn("Current-head persistence is not proven", gap_doc)
+        self.assertIn("passes save/load persistence", gap_doc)
+        self.assertIn("persistence-proof-green", gap_doc)
         self.assertIn("captures the fresh baseline immediately after rebuilding", gap_doc)
         self.assertIn("same disk image is booted again", gap_doc)
         self.assertIn("reboot comparison now requires the fresh baseline", gap_doc)
@@ -158,7 +159,8 @@ class PostCheckpointGapTests(unittest.TestCase):
             "shutdown=REBOOT",
             "shutdown=POWEROFF",
             "This is not a full POSIX environment",
-            "Save persistence is not green yet",
+            "passes save/load persistence",
+            "persistence-proof-green",
             "DOOMSAV0.DSG",
             "25718",
             "Unknown tclass 112 in savegame",
@@ -192,26 +194,25 @@ class PostCheckpointGapTests(unittest.TestCase):
 
         for phrase in (
             "Latest Cloud Evidence",
-            "last published scripted cloud truth-serum run",
-            "Save persistence is not green yet",
-            "26199297160",
-            "ed4d00f",
+            "latest published scripted cloud truth-serum run",
+            "26203744974",
+            "f9a688e",
+            "passes save/load persistence",
+            "persistence-proof-green",
             "25718",
             "Unknown tclass 112 in savegame",
             "savestm=",
             "savethk=",
-            "0x2A64",
             "historical repair context",
             "human-facing Doom-capable proof",
             "26165681561",
             "c525952",
             "scripted gameplay transition",
             "26165678183",
-            "Persistence is not current-head proven",
             "26156172979",
             "eabd307",
             "real-WAD, human-playability",
-            "audible-audio manifest",
+            "audio-proof.json",
             "artifact hygiene",
             "DOOMSAV0.DSG bytes=512 changed-from-baseline",
             "survived-reboot description='VIBESAVE'",
@@ -231,7 +232,7 @@ class PostCheckpointGapTests(unittest.TestCase):
             "Frame/gameplay counters are active",
             "Scripted keyboard input, mouse input, SB16/audio counters",
             "preemption counters are active",
-            "workflow, or proof-checker change",
+            "Future commits must preserve",
             "scripted `usr=OK`, `use`, mouse effect, audio",
             "check_audio_continuity_proof.py",
             "26149570191",
@@ -288,7 +289,7 @@ class PostCheckpointGapTests(unittest.TestCase):
                 "CLOUD_BOOT": "proven",
                 "REAL_GAMEPLAY": "proven",
                 "HUMAN_PLAYTEST": "open",
-                "PERSISTENCE": "open",
+                "PERSISTENCE": "proven",
                 "AUDIO": "open",
                 "VM_POSIX": "open",
                 "SHUTDOWN_PANIC": "proven",

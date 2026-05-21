@@ -17,6 +17,7 @@ class FatContractTests(unittest.TestCase):
     def test_public_fat_header_exposes_reusable_root_listing_contract(self):
         abi_source = r"""
             #include "vibe_os.h"
+            #include "errno.h"
 
             #define CHECK(name, expr) typedef char check_##name[(expr) ? 1 : -1]
 
@@ -30,6 +31,8 @@ class FatContractTests(unittest.TestCase):
             CHECK(dirent_directory_attr, VIBE_DIRENT_ATTR_DIRECTORY == 0x10u);
             CHECK(dirent_archive_attr, VIBE_DIRENT_ATTR_ARCHIVE == 0x20u);
             CHECK(listdir_syscall, VIBE_SYS_LISTDIR == 30);
+            CHECK(enotdir_errno, ENOTDIR == 20);
+            CHECK(eisdir_errno, EISDIR == 21);
         """
         abi = subprocess.run(
             [
@@ -125,6 +128,8 @@ class FatContractTests(unittest.TestCase):
             "VIBE_DIRENT_ATTR_DIRECTORY",
             "vibe_dirent_is_directory",
             "vibe_dirent_is_regular_file",
+            "EISDIR",
+            "ENOTDIR",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, header)
@@ -136,6 +141,8 @@ class FatContractTests(unittest.TestCase):
             "one root-level subdirectory",
             "vibe_dirent_is_regular_file",
             "future games and tools",
+            "EISDIR",
+            "ENOTDIR",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, normalized_docs)
@@ -153,7 +160,7 @@ class FatContractTests(unittest.TestCase):
             "fat_list_subdir_cluster:",
             "call fat_find_root_entry_any",
             "test byte [fat_found_attributes], FAT_ATTR_DIRECTORY",
-            "jnz .bad_syscall_eacces",
+            "jnz .bad_syscall_eisdir",
             "call fat_list_user_dir",
         ):
             with self.subTest(source=source):
@@ -167,6 +174,38 @@ class FatContractTests(unittest.TestCase):
         self.assertIn("call fat_parse_user_root83", listdir_section)
         self.assertIn("call fat_list_subdir_cluster", listdir_section)
         self.assertIn("cmp byte [esi], '.'", listdir_section)
+
+    def test_kernel_classifies_directory_file_mismatches(self):
+        errno_h = (ROOT / "doom_port" / "include" / "errno.h").read_text()
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+
+        for source in (
+            "#define ENOTDIR 20",
+            "#define EISDIR 21",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, errno_h)
+
+        for source in (
+            "ERRNO_ENOTDIR equ 20",
+            "ERRNO_EISDIR equ 21",
+            ".bad_syscall_enotdir:",
+            ".bad_syscall_eisdir:",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, kernel)
+
+        open_section = kernel.split(".open_generic_found:", 1)[1].split(".read:", 1)[0]
+        self.assertIn("jnz .bad_syscall_eisdir", open_section)
+
+        unlink_section = kernel.split(".unlink:", 1)[1].split(".stat:", 1)[0]
+        self.assertIn("call fat_find_root_entry_any", unlink_section)
+        self.assertIn("test byte [fat_found_attributes], FAT_ATTR_DIRECTORY", unlink_section)
+        self.assertIn("jnz .bad_syscall_eisdir", unlink_section)
+
+        listdir_section = kernel.split("fat_list_user_dir:", 1)[1].split("fat_list_subdir_cluster:", 1)[0]
+        self.assertIn("jz .fail_enotdir", listdir_section)
+        self.assertIn("mov eax, -ERRNO_ENOTDIR", listdir_section)
 
     def test_kernel_root_listdir_validates_user_buffer_by_entry_count(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()

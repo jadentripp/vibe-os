@@ -49,8 +49,9 @@ The reusable surface today is:
   is empty, and descriptors inherit across exec unless opened with
   `O_CLOEXEC`.
 
-The ABI is reusable, but not POSIX-complete. The current model lacks a generic
-program packaging rule, directories for open/exec traversal, long filenames,
+The ABI is reusable, but not POSIX-complete. The image builder can package
+additional root-level 8.3 `.ELF` files with `--root-elf NAME.ELF=PATH`, but the
+runtime model still lacks directories for open/exec traversal, long filenames,
 environment copying, true `fork`, blocking waits, signals, threads, dynamic
 process growth, reusable file-backed VM objects, direct RGB presents, larger
 present sources, and audio formats beyond the current unsigned 8-bit stereo

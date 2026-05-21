@@ -154,6 +154,9 @@ for Doom to process ticks and captures a decoded status artifact. The final
 status is captured after the menu phase. `tests/run_smoke_qemu.sh` still
 supports the older `SMOKE_SENDKEYS` fallback, but `SMOKE_INPUT_SCRIPT` is the
 deterministic playability path.
+The mouse turn proof is status-only: the scripted mouse phase waits for
+`pangledelta` to change after PS/2 mouse movement, then records the compact
+phase snapshot without storing pixels or raw input logs.
 The `after-start` snapshot is the clean pre-input checkpoint: the port starts
 Doom directly in E1M1, the checker verifies it is already `GS_LEVEL`, and later
 phases must mutate state from that baseline.

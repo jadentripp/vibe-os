@@ -218,6 +218,7 @@ int user_main(int argc, char **argv, char **envp) {
     const char hello[] = "user C probe\n";
     const char wad_path[] = "DOOM1.WAD";
     const char doom_path[] = "DOOM.ELF";
+    const char abi_probe_path[] = "ABIPROBE.ELF";
     const char default_path[] = "DEFAULT.CFG";
     const char writable_payload[] = "persist-ok\n";
     char *doom_argv[] = {(char *)doom_path, (char *)0};
@@ -278,6 +279,7 @@ int user_main(int argc, char **argv, char **envp) {
     if (root_count > 0) {
         int saw_wad = 0;
         int saw_probe = 0;
+        int saw_abi_probe = 0;
         for (int i = 0; i < root_count; ++i) {
             if (probe_streq(root_entries[i].name, "DOOM1.WAD")
                 && root_entries[i].size > 4
@@ -291,8 +293,14 @@ int user_main(int argc, char **argv, char **envp) {
                 && root_entries[i].first_cluster >= 2) {
                 saw_probe = 1;
             }
+            if (probe_streq(root_entries[i].name, abi_probe_path)
+                && root_entries[i].size > 4
+                && (root_entries[i].mode & S_IFREG)
+                && root_entries[i].first_cluster >= 2) {
+                saw_abi_probe = 1;
+            }
         }
-        if (saw_wad && saw_probe && sys_listdir("doom", root_entries, 1) == -ERRNO_EINVAL) {
+        if (saw_wad && saw_probe && saw_abi_probe && sys_listdir("doom", root_entries, 1) == -ERRNO_EINVAL) {
             flags |= PROBE_FLAG_LISTDIR;
         }
     }

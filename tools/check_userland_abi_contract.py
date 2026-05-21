@@ -165,9 +165,27 @@ ABI_REQUIREMENTS = {
         ),
         "docs/process-exec.md": (
             "## Second Freestanding Program Contract",
-            "A second freestanding C program uses the same launch ABI as the probe and Doom.",
-            "`execv(\"HELLO.ELF\", argv)`",
+            "`user/abi_probe.c` is the in-tree second program proof.",
+            "`build/abi_probe.elf` and packages it as root `ABIPROBE.ELF`",
+            "`execv(\"ABIPROBE.ELF\", argv)`",
             "PID-preserving address-space overlay",
+        ),
+        "user/abi_probe.c": (
+            "int user_main(int argc, char** argv, char** envp)",
+            "VIBE_SYS_GETPID",
+            "VIBE_SYS_CLOCK_GETTIME",
+            "VIBE_SYS_LISTDIR",
+            'streq(argv[0], "ABIPROBE.ELF")',
+        ),
+        "Makefile": (
+            "USER_ABI_PROBE_C_SRC := user/abi_probe.c",
+            "USER_ABI_PROBE_ELF := $(BUILD_DIR)/abi_probe.elf",
+            "--root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF)",
+        ),
+        "tools/make_wad_image.py": (
+            "--root-elf",
+            "parse_root_elf_arg",
+            "root83_from_display_name",
         ),
     },
 }
@@ -181,8 +199,8 @@ GENERIC_DOC_REQUIREMENTS = {
         "The ABI is reusable, but not POSIX-complete.",
     ),
     "docs/process-exec.md": (
-        "The in-tree image builder still places only",
-        "kernel change is required for another root-level 8.3 `.ELF` name",
+        "`--root-elf NAME.ELF=PATH` packages additional checked or generated",
+        "root-level 8.3 `.ELF` images without changing the boot path",
         "The generic pool is reusable, but it is still small and static.",
     ),
 }

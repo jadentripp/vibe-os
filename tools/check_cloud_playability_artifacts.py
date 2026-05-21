@@ -737,8 +737,9 @@ def validate_repo_contract() -> None:
             raise AssertionError(f"runbook should not instruct local/pixel artifact path {forbidden!r}")
 
     _require(playable, "Remote Doom Playtest Runbook", "playable cloud proof doc")
-    _require(playable, "Save persistence is not green yet", "playable cloud proof doc")
-    _require(playable, "26199297160", "playable cloud proof doc")
+    _require(playable, "Persistence/save-load is now green", "playable cloud proof doc")
+    _require(playable, "persistence-proof-green", "playable cloud proof doc")
+    _require(playable, "26203744974", "playable cloud proof doc")
     _require(playable, "Unknown tclass 112 in savegame", "playable cloud proof doc")
     _require(playable, "gh workflow run os-smoke.yml", "playable cloud proof doc")
     _require(playable, "gh workflow run real-wad-smoke.yml", "playable cloud proof doc")

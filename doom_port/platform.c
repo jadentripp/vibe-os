@@ -31,6 +31,7 @@ void doom_original_G_BuildTiccmd(ticcmd_t* cmd);
 void doom_original_G_Ticker(void);
 void G_SaveGame(int slot, char* description);
 void G_LoadGame(char* name);
+void vibe_doom_save_stream_note_error(void);
 
 static byte doom_zone[8 * 1024 * 1024];
 static doomcom_t local_doomcom;
@@ -494,6 +495,7 @@ static void checkpoint_load_slot_if_needed(void)
         return;
 
     path[7] = (char)('0' + load_checkpoint_slot);
+    savegameslot = load_checkpoint_slot;
     load_checkpoint_started = 1;
     load_checkpoint_post_tic_pending = 0;
     report_save_action_status();
@@ -680,6 +682,7 @@ void I_Error(char* error, ...)
     vsnprintf(buffer, sizeof(buffer), error, args);
     va_end(args);
 
+    vibe_doom_save_stream_note_error();
     fprintf(stderr, "doom error: %s\n", buffer);
     exit(1);
 }

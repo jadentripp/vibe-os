@@ -480,6 +480,8 @@ ERRNO_EBADF equ 9
 ERRNO_ECHILD equ 10
 ERRNO_ENOMEM equ 12
 ERRNO_EACCES equ 13
+ERRNO_ENOTDIR equ 20
+ERRNO_EISDIR equ 21
 ERRNO_EINVAL equ 22
 ERRNO_EMFILE equ 24
 ERRNO_ENOTTY equ 25
@@ -8414,7 +8416,7 @@ fat_list_user_dir:
     call fat_find_root_entry_any
     jc .fail_enoent
     test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
-    jz .fail_inval
+    jz .fail_enotdir
     mov ax, [fat_found_first_cluster]
     cmp ax, 2
     jb .fail_eio
@@ -8459,6 +8461,11 @@ fat_list_user_dir:
 
 .fail_eio:
     mov eax, -ERRNO_EIO
+    stc
+    jmp .done
+
+.fail_enotdir:
+    mov eax, -ERRNO_ENOTDIR
     stc
     jmp .done
 
@@ -11914,7 +11921,7 @@ syscall_handler:
 
 .open_generic_found:
     test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
-    jnz .bad_syscall_eacces
+    jnz .bad_syscall_eisdir
     call fat_bind_found_writable_slot
     jc .bad_syscall_enomem
     mov edx, [fat_open_slot]
@@ -12586,8 +12593,10 @@ syscall_handler:
     call fat_open_name_is_protected
     jc .bad_syscall_eacces
     mov edi, fat_open_name_buffer
-    call fat_find_file
+    call fat_find_root_entry_any
     jc .bad_syscall_enoent
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jnz .bad_syscall_eisdir
     mov dword [fat_unlink_slot], 0xffffffff
     call fat_find_writable_slot_for_found
     jc .unlink_delete
@@ -13141,6 +13150,14 @@ syscall_handler:
 
 .bad_syscall_eacces:
     mov eax, -ERRNO_EACCES
+    jmp .bad_syscall_return
+
+.bad_syscall_enotdir:
+    mov eax, -ERRNO_ENOTDIR
+    jmp .bad_syscall_return
+
+.bad_syscall_eisdir:
+    mov eax, -ERRNO_EISDIR
     jmp .bad_syscall_return
 
 .bad_syscall_einval:

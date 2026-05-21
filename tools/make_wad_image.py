@@ -130,6 +130,34 @@ def write_root_entry(root, index, name, first_cluster, size):
     write_le32(root, offset + 28, size)
 
 
+def root83_from_display_name(display_name, *, required_ext=None):
+    if not display_name:
+        raise ValueError("FAT16 root name must not be empty")
+    if any(separator in display_name for separator in ("/", "\\")):
+        raise ValueError("FAT16 root name must be a root-level 8.3 name")
+
+    parts = display_name.upper().split(".")
+    if len(parts) != 2:
+        raise ValueError("FAT16 root name must be written as NAME.EXT")
+    base, ext = parts
+    if not base or len(base) > 8 or not ext or len(ext) > 3:
+        raise ValueError("FAT16 root name must fit 8.3")
+    if required_ext and ext != required_ext:
+        raise ValueError(f"FAT16 root name must use .{required_ext}")
+
+    raw = (base.ljust(8) + ext.ljust(3)).encode("ascii")
+    return Fat16Image.validate_root_83_name(raw)
+
+
+def parse_root_elf_arg(value):
+    if "=" not in value:
+        raise ValueError("--root-elf must be NAME.ELF=PATH")
+    display_name, path = value.split("=", 1)
+    if not path:
+        raise ValueError("--root-elf path must not be empty")
+    return root83_from_display_name(display_name, required_ext="ELF"), Path(path)
+
+
 def allocate_cluster_chain(fat_entries, clusters_needed):
     if clusters_needed <= 0:
         return ()
@@ -1022,16 +1050,33 @@ def parse_args():
         metavar="PATH",
         help="use this external DOOM1.WAD/PWAD instead of the generated test fixture",
     )
+    parser.add_argument(
+        "--root-elf",
+        action="append",
+        default=[],
+        metavar="NAME.ELF=PATH",
+        help="package an additional root-level FAT16 8.3 user ELF",
+    )
     parser.add_argument("paths", nargs="+")
     args = parser.parse_args()
 
     if len(args.paths) not in (1, 4, 5, 6):
-        parser.error("usage: make_wad_image.py [--wad PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [DOOM_ELF]]]")
+        parser.error("usage: make_wad_image.py [--wad PATH] [--root-elf NAME.ELF=PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [DOOM_ELF]]]")
     return args
 
 
 def main():
     args = parse_args()
+    extra_root_elves = [parse_root_elf_arg(value) for value in args.root_elf]
+    seen_root_elves = set()
+    for name, path in extra_root_elves:
+        if name in PROTECTED_ROOT_NAMES:
+            raise ValueError(f"protected root ELF entry {Fat16Image._entry_label(name)}")
+        if name in seen_root_elves:
+            raise ValueError(f"duplicate root ELF entry {Fat16Image._entry_label(name)}")
+        seen_root_elves.add(name)
+        if not path.is_file():
+            raise ValueError(f"{path} is not a file")
 
     image = bytearray(IMAGE_SECTORS * SECTOR_SIZE)
     output_path = args.paths[0]
@@ -1113,6 +1158,12 @@ def main():
             doom_cluster, _doom_clusters = write_cluster_chain(image, fat_entries, data_start, doom_elf)
             write_root_entry(root, next_root_index, DOOM_ELF_NAME, doom_cluster, len(doom_elf))
             next_root_index += 1
+
+    for name, path in extra_root_elves:
+        elf = path.read_bytes()
+        elf_cluster, _elf_clusters = write_cluster_chain(image, fat_entries, data_start, elf)
+        write_root_entry(root, next_root_index, name, elf_cluster, len(elf))
+        next_root_index += 1
 
     for name, _byte_capacity in WRITABLE_DYNAMIC_FILES:
         write_root_entry(root, next_root_index, name, 0, 0)

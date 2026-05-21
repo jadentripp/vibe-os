@@ -176,7 +176,7 @@ redact_stream() {
     -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*_(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*=)[^[:space:]]+/\\1[redacted]/g' \\
     -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*=)(gh[pousr]_[A-Za-z0-9_]+)/\\1[redacted]/g' \\
     -e 's/(Authorization: *(Bearer|token) +)[^[:space:]]+/\\1[redacted]/Ig' \\
-    -e 's/(access_token=)[^&[:space:]]+/\\1[redacted]/Ig'
+    -e 's/((access_token|token|signature|X-Amz-Signature|X-Amz-Credential)=)[^&[:space:]]+/\\1[redacted]/Ig'
 }
 
 echo "vibe-os play-now diagnostics"
@@ -186,6 +186,7 @@ echo "host CPUs: \$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null |
 if [ -r /proc/loadavg ]; then
   echo "loadavg: \$(cut -d' ' -f1-3 /proc/loadavg)"
 fi
+echo "performance hint: 2-core hosts can stutter under QEMU/noVNC; prefer 4+ cloud CPUs for interactive Doom."
 if [ -s "\$port_file" ]; then
   echo "noVNC port: \$(cat "\$port_file" 2>/dev/null || true)"
 fi
@@ -288,6 +289,8 @@ write_diagnostics_helper
 echo "Diagnostics helper: $DIAGNOSTICS_SCRIPT"
 echo "From another remote shell, run it to inspect safe slowdown status without printing env."
 echo "The diagnostics helper does not dump environment variables."
+echo "Performance diagnostics include host CPUs/load plus filtered status fields such as inputdepth=, dtick=, preempt=, doompresent=, musicbuf=, and mixunder=."
+echo "If a 2-core host keeps stuttering while those OS status fields stay healthy, restart on a 4+ CPU Codespace or cloud VM."
 
 if command -v websockify >/dev/null 2>&1; then
   NOVNC_WEB_ROOT_RESOLVED="$(resolve_novnc_web_root)"
