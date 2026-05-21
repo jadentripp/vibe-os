@@ -193,8 +193,12 @@ python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
 - `saveact=flags/gameaction/slot/reports` separates requested-vs-completed
   Doom actions. For load proof, the flags must include load requested
   (`0x20`) and load done (`0x40`), `gameaction` must be zero after the load,
-  and `reports` must be nonzero. A status with only `0x20` is a
-  load-not-completed lane even if `saverd` read the full file.
+  and `reports` must be nonzero. The port now delays load done until a later
+  playable level tick after `G_DoLoadGame` returns; a status such as
+  `saveact=00000060/00000003/...` reached the final marker but still sampled
+  pre-completion `ga_loadgame`, so it is a post-load completion-state failure.
+  A status with only `0x20` is a load-not-completed lane even if `saverd` read
+  the full file.
 - `doominit=flags/reports` records first Doom port milestones: entry, `I_Init`,
   zone allocation, network, sound, graphics, palette, tic polling, and first
   frame. Missing bits localize startup stalls before gameplay fields become

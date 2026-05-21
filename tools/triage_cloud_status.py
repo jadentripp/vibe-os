@@ -750,6 +750,15 @@ def _load_stream_reached_final_marker(fields: dict[str, str]) -> bool:
     )
 
 
+def _load_done_before_post_tic(fields: dict[str, str]) -> bool:
+    saveact = _save_action(fields)
+    return (
+        saveact is not None
+        and (saveact[0] & SAVEACTION_LOAD_DONE) != 0
+        and saveact[1] != 0
+    )
+
+
 def _malformed_load_stream_kind(fields: dict[str, str]) -> str | None:
     savestm = _save_stream(fields)
     if _save_stream_load_meaningful(savestm):
@@ -848,6 +857,11 @@ def render_persistence_load_context(fields: dict[str, str], status: str | None =
         lines.append("persistence-hint: malformed thinker stream; run the save image checker with the savethk/savestm offset")
     elif kind == "stream":
         lines.append("persistence-hint: thinker boundary was reported, but the next load stream still failed")
+    elif _load_stream_reached_final_marker(fields) and _load_done_before_post_tic(fields):
+        lines.append(
+            "persistence-hint: load-done was sampled before post-load ga_nothing; "
+            "the Doom port must delay load completion until a later playable level tick"
+        )
     elif _load_stream_reached_final_marker(fields):
         lines.append(
             "persistence-hint: post-load completion state; Doom returned from P_UnArchiveSpecials "

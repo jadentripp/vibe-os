@@ -96,6 +96,80 @@ static int test_mus_fixture_renders_deterministic_pcm(void)
     return 0;
 }
 
+static int test_mus_score_end_is_type_6_and_type_5_is_invalid(void)
+{
+    static unsigned char valid_mus_lump[] = {
+        'M', 'U', 'S', 0x1a,
+        8, 0,
+        16, 0,
+        1, 0,
+        0, 0,
+        0, 0,
+        0, 0,
+        0x90, 0xbc, 100, 20,
+        0x80, 60, 4,
+        0x60
+    };
+    static unsigned char old_bad_marker_mus_lump[] = {
+        'M', 'U', 'S', 0x1a,
+        8, 0,
+        16, 0,
+        1, 0,
+        0, 0,
+        0, 0,
+        0, 0,
+        0x90, 0xbc, 100, 20,
+        0x80, 60, 4,
+        0xd0
+    };
+    unsigned char pcm[2048];
+    vibe_music_render_stats_t stats;
+    unsigned long rendered;
+    unsigned long i;
+
+    rendered = vibe_music_render_pcm(
+        valid_mus_lump,
+        pcm,
+        sizeof(pcm),
+        VIBE_MUSIC_DEFAULT_SAMPLE_RATE,
+        127,
+        0,
+        &stats);
+    if (rendered != sizeof(pcm))
+        return 150;
+    if (stats.format != VIBE_MUSIC_FORMAT_MUS)
+        return 151;
+    if (stats.score_end_count != 1 || stats.invalid_event_count != 0)
+        return 152;
+    if (stats.note_on_count != 1 || stats.note_off_count != 1)
+        return 153;
+    if (!count_non_silence(pcm, sizeof(pcm)))
+        return 154;
+
+    for (i = 0; i < sizeof(pcm); ++i)
+        pcm[i] = 7;
+    rendered = vibe_music_render_pcm(
+        old_bad_marker_mus_lump,
+        pcm,
+        sizeof(pcm),
+        VIBE_MUSIC_DEFAULT_SAMPLE_RATE,
+        127,
+        0,
+        &stats);
+    if (rendered != 0)
+        return 155;
+    if (stats.format != VIBE_MUSIC_FORMAT_MUS)
+        return 156;
+    if (stats.score_end_count != 0 || stats.invalid_event_count != 1)
+        return 157;
+    if (stats.emitted_samples != 0)
+        return 158;
+    if (count_non_silence(pcm, sizeof(pcm)))
+        return 159;
+
+    return 0;
+}
+
 static int test_midi_fixture_renders_note_events(void)
 {
     static unsigned char midi_lump[] = {
@@ -670,6 +744,10 @@ int main(void)
     int result;
 
     result = test_mus_fixture_renders_deterministic_pcm();
+    if (result)
+        return result;
+
+    result = test_mus_score_end_is_type_6_and_type_5_is_invalid();
     if (result)
         return result;
 

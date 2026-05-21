@@ -25,6 +25,8 @@ WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
 MAKEFILE = ROOT / "Makefile"
 AUDIO_DOC = ROOT / "docs" / "audio.md"
 MUSIC_DOC = ROOT / "docs" / "doom-music.md"
+MUSIC_IMPL = ROOT / "doom_port" / "music.c"
+MUSIC_HEADER = ROOT / "doom_port" / "music.h"
 PLAYABLE_DOC = ROOT / "docs" / "playable-cloud-proof.md"
 RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
 ARTIFACT_CHECKER = ROOT / "tools" / "check_cloud_playability_artifacts.py"
@@ -406,6 +408,17 @@ def _continuity_summary(
             "kernel-owned MUS synthesis"
         ),
     }
+    renderer_contract = {
+        "status_counter": "musicrend",
+        "parser_owner": "doom_port/music.c",
+        "mus_score_end_event_type": 6,
+        "mus_reserved_event_type_rejected": 5,
+        "claim": (
+            "musicrend= proves parsed renderer activity in status; host renderer "
+            "tests separately pin real MUS score-end parsing so event type 5 "
+            "cannot pass as a fixture-only end marker"
+        ),
+    }
     return {
         "gate": "tools/check_audio_continuity_proof.py",
         "snapshots": ["baseline", "fire", "movement", "use", "menu", "final"],
@@ -461,6 +474,7 @@ def _continuity_summary(
         },
         "stream_health": stream_health,
         "stream_contract": stream_contract,
+        "renderer_contract": renderer_contract,
         "mixer_safety": mixer_safety,
         "scripted_phase_proof": fire_phase,
         "progress": progress,
@@ -929,6 +943,9 @@ def validate_manifest(
     stream_contract = continuity.get("stream_contract")
     if not isinstance(stream_contract, dict):
         raise AssertionError("manifest continuity.stream_contract must be an object")
+    renderer_contract = continuity.get("renderer_contract")
+    if renderer_contract is not None and not isinstance(renderer_contract, dict):
+        raise AssertionError("manifest continuity.renderer_contract must be an object when present")
     mixer_safety = continuity.get("mixer_safety")
     if not isinstance(mixer_safety, dict):
         raise AssertionError("manifest continuity.mixer_safety must be an object")
@@ -1032,6 +1049,15 @@ def validate_manifest(
             raise AssertionError("manifest PULL stream contract must have nonzero musicpull counters")
         if int(refill, 16) > int(request, 16):
             raise AssertionError("manifest PULL stream contract cannot refill more chunks than requested")
+    if renderer_contract is not None:
+        if renderer_contract.get("status_counter") != "musicrend":
+            raise AssertionError("manifest renderer contract must name musicrend")
+        if renderer_contract.get("parser_owner") != "doom_port/music.c":
+            raise AssertionError("manifest renderer contract must name doom_port/music.c")
+        if renderer_contract.get("mus_score_end_event_type") != 6:
+            raise AssertionError("manifest renderer contract must pin MUS score end to event type 6")
+        if renderer_contract.get("mus_reserved_event_type_rejected") != 5:
+            raise AssertionError("manifest renderer contract must reject MUS event type 5")
     for key in (
         "buffer_floor",
         "buffer_peak",
@@ -1145,6 +1171,8 @@ def validate_repo_contract() -> None:
     makefile = MAKEFILE.read_text()
     audio_doc = AUDIO_DOC.read_text()
     music_doc = MUSIC_DOC.read_text()
+    music_impl = MUSIC_IMPL.read_text()
+    music_header = MUSIC_HEADER.read_text()
     playable_doc = PLAYABLE_DOC.read_text()
     runbook = RUNBOOK.read_text()
     artifact_checker = ARTIFACT_CHECKER.read_text()
@@ -1193,6 +1221,8 @@ def validate_repo_contract() -> None:
                 "musicpos=",
                 "musicbuf=",
                 "musicrend=",
+                "event type 6",
+                "event type 5",
                 "stream_contract",
                 "musicstream=PULL",
                 "listener-quality metadata",
@@ -1208,8 +1238,28 @@ def validate_repo_contract() -> None:
             (
                 "long-running music streaming contract",
                 "song-position",
+                "MUS event type 6",
+                "event type 5",
                 "stateful stream cursor",
                 "long-playback wrap",
+            ),
+        ),
+        (
+            MUSIC_IMPL,
+            music_impl,
+            (
+                "VIBE_MUSIC_MUS_EVENT_SCORE_END 6u",
+                "event_type == VIBE_MUSIC_MUS_EVENT_SCORE_END",
+                "++stats->score_end_count",
+                "++stats->invalid_event_count",
+            ),
+        ),
+        (
+            MUSIC_HEADER,
+            music_header,
+            (
+                "score_end_count",
+                "invalid_event_count",
             ),
         ),
         (

@@ -60,12 +60,43 @@ REQUIRED_PORT_SOURCES = {
 }
 
 REUSABLE_LIBC_HOOKS = {
-    "files": ("open", "read", "write", "close", "lseek", "access", "unlink"),
+    "files": (
+        "open",
+        "read",
+        "write",
+        "close",
+        "lseek",
+        "access",
+        "unlink",
+        "vibe_file_size",
+        "vibe_file_read_all",
+    ),
     "metadata": ("stat", "fstat", "mkdir", "vibe_listdir"),
     "stdio": ("fopen", "fread", "fwrite", "fseek", "fflush", "fclose"),
-    "memory": ("malloc", "calloc", "realloc", "free", "mmap", "munmap"),
+    "memory": (
+        "malloc",
+        "calloc",
+        "realloc",
+        "free",
+        "mmap",
+        "munmap",
+        "vibe_mmap_anon",
+        "vibe_heap_capabilities",
+        "vibe_vm_capabilities",
+    ),
     "process": ("execv", "execve", "execl", "fork", "waitpid", "getpid"),
-    "devices": ("ioctl", "clock_gettime", "vibe_clock_gettime"),
+    "devices": (
+        "ioctl",
+        "clock_gettime",
+        "vibe_clock_gettime",
+        "vibe_clock_monotonic",
+        "vibe_poll_input",
+        "vibe_drain_input",
+        "vibe_input_status",
+        "vibe_fb_get_info",
+        "vibe_present_indexed",
+        "vibe_present_indexed_checked",
+    ),
 }
 
 FORBIDDEN_VENDOR_TOKENS = ("VIBE_SYS_", "vibe_syscall", "vibe_os.h", "doom_port")

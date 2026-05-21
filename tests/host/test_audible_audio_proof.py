@@ -282,6 +282,10 @@ class AudibleAudioProofTests(unittest.TestCase):
         self.assertTrue(manifest["continuity"]["mixer_safety"]["drop_free"])
         self.assertEqual(manifest["continuity"]["stream_contract"]["mode"], "PULL")
         self.assertTrue(manifest["continuity"]["stream_contract"]["hardware_paced"])
+        self.assertEqual(manifest["continuity"]["renderer_contract"]["status_counter"], "musicrend")
+        self.assertEqual(manifest["continuity"]["renderer_contract"]["parser_owner"], "doom_port/music.c")
+        self.assertEqual(manifest["continuity"]["renderer_contract"]["mus_score_end_event_type"], 6)
+        self.assertEqual(manifest["continuity"]["renderer_contract"]["mus_reserved_event_type_rejected"], 5)
         self.assertEqual(manifest["continuity"]["scripted_phase_proof"]["baseline_snapshot"], "baseline")
         self.assertEqual(manifest["continuity"]["scripted_phase_proof"]["fire_snapshot"], "fire")
         self.assertTrue(manifest["continuity"]["scripted_phase_proof"]["requires_scripted_fire_sfx"])
@@ -392,6 +396,29 @@ class AudibleAudioProofTests(unittest.TestCase):
         music_only_fire["continuity"]["scripted_phase_proof"]["sfxmix_delta"] = "00000000"
         with self.assertRaisesRegex(AssertionError, "scripted fire SFX"):
             check_audible_audio_proof.validate_manifest(music_only_fire)
+
+    def test_manifest_rejects_wrong_renderer_contract_when_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            wav_path = tmpdir / "doom-audio.wav"
+            write_tone_wav(wav_path)
+            paths = write_status_files(tmpdir)
+
+            manifest = check_audible_audio_proof.analyze_wav(
+                wav_path,
+                paths["final"],
+                **analyze_args(paths),
+            )
+
+        wrong_score_end = json.loads(json.dumps(manifest))
+        wrong_score_end["continuity"]["renderer_contract"]["mus_score_end_event_type"] = 5
+        with self.assertRaisesRegex(AssertionError, "event type 6"):
+            check_audible_audio_proof.validate_manifest(wrong_score_end)
+
+        wrong_reserved = json.loads(json.dumps(manifest))
+        wrong_reserved["continuity"]["renderer_contract"]["mus_reserved_event_type_rejected"] = 6
+        with self.assertRaisesRegex(AssertionError, "event type 5"):
+            check_audible_audio_proof.validate_manifest(wrong_reserved)
 
     def test_cli_writes_and_validates_manifest_without_uploading_wav(self):
         with tempfile.TemporaryDirectory() as tmp:

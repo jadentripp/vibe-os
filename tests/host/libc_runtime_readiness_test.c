@@ -105,6 +105,9 @@ static int mock_input_queued;
 static int mock_present_count;
 static unsigned long mock_present_width;
 static unsigned long mock_present_height;
+static int mock_fb_supports_indexed;
+static unsigned long mock_fb_max_width;
+static unsigned long mock_fb_max_height;
 
 static int fail(int code)
 {
@@ -138,6 +141,9 @@ static void reset_mock(void)
     mock_present_count = 0;
     mock_present_width = 0;
     mock_present_height = 0;
+    mock_fb_supports_indexed = 1;
+    mock_fb_max_width = 320;
+    mock_fb_max_height = 200;
     errno = 0;
 }
 
@@ -347,15 +353,39 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
     }
 
     if (number == VIBE_SYS_IOCTL) {
-        vibe_present_indexed_t* present = (vibe_present_indexed_t*)arg2;
-        if (arg0 != VIBE_DISPLAY_FD || arg1 != VIBE_IOCTL_PRESENT_INDEXED)
+        if (arg0 != VIBE_DISPLAY_FD)
             return -ENOTTY;
-        if (!present || !present->frame || !present->palette || !present->width || !present->height)
-            return -EINVAL;
-        ++mock_present_count;
-        mock_present_width = present->width;
-        mock_present_height = present->height;
-        return 0;
+        if (arg1 == VIBE_IOCTL_FBINFO) {
+            vibe_fb_info_t* info = (vibe_fb_info_t*)arg2;
+            if (!info)
+                return -EINVAL;
+            memset(info, 0, sizeof(*info));
+            info->width = 640;
+            info->height = 400;
+            info->pitch = 640 * 4;
+            info->backend = VIBE_FB_BACKEND_LFB_XRGB8888;
+            info->capabilities = mock_fb_supports_indexed
+                ? VIBE_FB_CAP_PRESENT_INDEXED | VIBE_FB_CAP_PRESENT_RGB_PALETTE
+                : 0;
+            info->present_format = mock_fb_supports_indexed ? VIBE_FB_FORMAT_INDEX8_RGB24 : 0;
+            info->max_present_width = mock_fb_max_width;
+            info->max_present_height = mock_fb_max_height;
+            return 0;
+        }
+        if (arg1 == VIBE_IOCTL_PRESENT_INDEXED) {
+            vibe_present_indexed_t* present = (vibe_present_indexed_t*)arg2;
+            if (!present || !present->frame || !present->palette || !present->width || !present->height)
+                return -EINVAL;
+            if (mock_fb_max_width && present->width > mock_fb_max_width)
+                return -EINVAL;
+            if (mock_fb_max_height && present->height > mock_fb_max_height)
+                return -EINVAL;
+            ++mock_present_count;
+            mock_present_width = present->width;
+            mock_present_height = present->height;
+            return 0;
+        }
+        return -ENOTTY;
     }
 
     if (number == VIBE_SYS_EXEC) {
@@ -429,10 +459,16 @@ static int test_stat_directory_listdir_and_clock_contracts(void)
     struct stat st;
     vibe_dirent_t entries[2];
     struct timespec ts;
+    vibe_clock_time_t now;
+    unsigned long file_size;
+    unsigned long read_size;
+    char read_buffer[8];
 
     reset_mock();
     if (stat("/", &st) != 0 || !S_ISDIR(st.st_mode) || S_ISREG(st.st_mode))
         return fail(30);
+    if (vibe_file_size("/", &file_size) != -1 || errno != EISDIR)
+        return fail(29);
     if (vibe_listdir("/", entries, 2) != 0)
         return fail(31);
     if (vibe_listdir("missing", entries, 2) != -1 || errno != EINVAL)
@@ -440,6 +476,19 @@ static int test_stat_directory_listdir_and_clock_contracts(void)
     file = fopen("tool.txt", "w");
     if (!file)
         return fail(33);
+    if (fwrite("game", 1, 4, file) != 4 || fflush(file) != 0)
+        return fail(28);
+    if (vibe_file_size("tool.txt", &file_size) != 0 || file_size != 4)
+        return fail(27);
+    memset(read_buffer, 0, sizeof(read_buffer));
+    if (vibe_file_read_all("tool.txt", read_buffer, sizeof(read_buffer), &read_size) != 0)
+        return fail(26);
+    if (read_size != 4 || strcmp(read_buffer, "game"))
+        return fail(25);
+    if (vibe_file_read_all("tool.txt", read_buffer, 3, &read_size) != -1
+        || errno != ENOSPC
+        || read_size != 4)
+        return fail(24);
     if (vibe_listdir("/", entries, 2) != 1)
         return fail(34);
     if (!vibe_dirent_is_regular_file(&entries[0]) || vibe_dirent_is_directory(&entries[0]))
@@ -450,8 +499,16 @@ static int test_stat_directory_listdir_and_clock_contracts(void)
         return fail(37);
     if (ts.tv_sec != 12 || ts.tv_nsec != 345000000)
         return fail(38);
+    if (vibe_clock_monotonic(&now) != 0
+        || now.milliseconds != 12345
+        || vibe_clock_ticks_to_milliseconds(12345, VIBE_CLOCK_MONOTONIC_HZ) != 123450)
+        return fail(23);
     if (clock_gettime(0, &ts) != -1 || errno != EINVAL)
         return fail(39);
+    if (vibe_syscall_errno(-EACCES, EIO) != EACCES
+        || vibe_syscall_errno(-1, ENOENT) != ENOENT
+        || vibe_syscall_errno(5, EIO) != 0)
+        return fail(22);
     return 0;
 }
 
@@ -485,8 +542,9 @@ static int test_empty_environment_and_execve_contract(void)
 
 static int test_generic_input_and_indexed_present_wrappers(void)
 {
-    vibe_input_event_t event;
+    vibe_input_event_t events[2];
     vibe_input_status_t status;
+    vibe_fb_info_t info;
     vibe_present_indexed_t present;
     unsigned char frame[4];
     unsigned char palette[3];
@@ -501,22 +559,25 @@ static int test_generic_input_and_indexed_present_wrappers(void)
         || status.event_bytes != VIBE_INPUT_EVENT_BYTES
         || status.queue_capacity != VIBE_INPUT_EVENT_QUEUE_CAPACITY
         || status.queued_events != 1
-        || !(status.capabilities & VIBE_INPUT_CAP_POLL_EVENT))
+        || !vibe_input_status_has_capability(&status, VIBE_INPUT_CAP_POLL_EVENT)
+        || vibe_input_status_queue_is_empty(&status))
         return fail(51);
 
-    if (vibe_poll_input(&event) != 1)
+    if (vibe_drain_input(events, 2) != 1)
         return fail(52);
-    if (!vibe_input_event_is_key(&event)
-        || event.timestamp != 77
-        || event.code != 'z'
-        || event.value0 != VIBE_INPUT_KEY_PRESSED)
+    if (!vibe_input_event_is_key(&events[0])
+        || events[0].timestamp != 77
+        || events[0].code != 'z'
+        || events[0].value0 != VIBE_INPUT_KEY_PRESSED)
         return fail(53);
-    if (vibe_poll_input(&event) != 0)
+    if (vibe_drain_input(events, 2) != 0)
         return fail(54);
     if (vibe_poll_input(0) != -1 || errno != EINVAL)
         return fail(55);
     if (vibe_input_status(0) != -1 || errno != EINVAL)
         return fail(56);
+    if (vibe_drain_input(0, 1) != -1 || errno != EINVAL)
+        return fail(60);
 
     memset(frame, 1, sizeof(frame));
     memset(palette, 2, sizeof(palette));
@@ -524,13 +585,34 @@ static int test_generic_input_and_indexed_present_wrappers(void)
     present.palette = palette;
     present.width = 2;
     present.height = 2;
-    if (vibe_present_indexed(&present) != 0)
+    if (vibe_fb_get_info(&info) != 0)
+        return fail(61);
+    if (!vibe_fb_can_present_indexed(&info, &present)
+        || info.max_present_width != 320
+        || info.max_present_height != 200)
+        return fail(62);
+    if (vibe_present_indexed_checked(&present) != 0)
         return fail(57);
     if (mock_present_count != 1 || mock_present_width != 2 || mock_present_height != 2)
         return fail(58);
     present.frame = 0;
     if (vibe_present_indexed(&present) != -1 || errno != EINVAL)
         return fail(59);
+    present.frame = frame;
+    present.width = 321;
+    if (vibe_present_indexed_checked(&present) != -1 || errno != EINVAL)
+        return fail(63);
+    present.width = 2;
+    mock_fb_supports_indexed = 0;
+    if (vibe_present_indexed_checked(&present) != -1 || errno != ENOSYS)
+        return fail(64);
+    if (vibe_heap_capabilities() != (VIBE_HEAP_CAP_SBRK_GROW | VIBE_HEAP_CAP_SBRK_SHRINK))
+        return fail(65);
+    if (!(vibe_vm_capabilities() & VIBE_VM_CAP_ANON_PRIVATE)
+        || !(vibe_vm_capabilities() & VIBE_VM_CAP_BRK_BACKED))
+        return fail(66);
+    if (vibe_mmap_anon(4096, PROT_READ | PROT_WRITE) == MAP_FAILED)
+        return fail(67);
 
     return 0;
 }

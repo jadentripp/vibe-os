@@ -268,8 +268,10 @@ class PlayNowRemoteTests(unittest.TestCase):
             "tools/make_wad_image.py",
             "Delete when done: gh codespace delete -c \\\"$CODESPACE_NAME\\\" --force",
             "Stop play-now:",
+            "Diagnostics: gh codespace ssh -c \\\"$CODESPACE_NAME\\\" -- /tmp/vibe-os-play-now-diagnostics.sh",
             "Browser cleanup: GitHub repo > Code > Codespaces > ... > Delete",
             "performance caveat: default 2-core Codespaces",
+            "Slowdown check: run the Diagnostics command above",
             "Codespaces runs pushed git state",
         ):
             with self.subTest(needle=needle):
@@ -587,6 +589,10 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("Starting vibe-os Doom inside Codespace 'vibe-play-existing'", result.stdout)
             self.assertIn("noVNC port 6173 is private", result.stdout)
             self.assertIn("Stop play-now: gh codespace ssh -c \"vibe-play-existing\"", result.stdout)
+            self.assertIn(
+                "Diagnostics: gh codespace ssh -c \"vibe-play-existing\" -- /tmp/vibe-os-play-now-diagnostics.sh",
+                result.stdout,
+            )
             self.assertIn("Delete when done: gh codespace delete -c \"vibe-play-existing\" --force", result.stdout)
             self.assertIn("Browser cleanup: GitHub repo > Code > Codespaces > ... > Delete", result.stdout)
             self.assertIn(
@@ -598,6 +604,7 @@ class PlayNowRemoteTests(unittest.TestCase):
                 result.stdout,
             )
             self.assertIn("Performance note: default 2-core Codespaces can play Doom", result.stdout)
+            self.assertIn("Slowdown check: run the Diagnostics command above", result.stdout)
             self.assertEqual(result.stderr, "")
 
             log = gh_log.read_text()
@@ -674,6 +681,10 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("GITHUB_TOKEN=[redacted]", result.stderr)
             self.assertIn("Authorization: Bearer [redacted]", result.stderr)
             self.assertIn("does not print remote env", result.stderr)
+            self.assertIn(
+                "Diagnostics: gh codespace ssh -c \"vibe-play-existing\" -- /tmp/vibe-os-play-now-diagnostics.sh",
+                result.stderr,
+            )
             self.assertIn("Delete when done: gh codespace delete -c \"vibe-play-existing\" --force", result.stderr)
             self.assertNotIn("ghp_should_not_print", result.stderr)
             self.assertNotIn("should_not_print", result.stderr)
@@ -945,6 +956,12 @@ class PlayNowRemoteTests(unittest.TestCase):
             'rm -f build/disk.img',
             'Reusing cached objects when valid',
             'make DOOM_WAD="$WAD_PATH"',
+            'DIAGNOSTICS_SCRIPT="${DIAGNOSTICS_SCRIPT:-/tmp/vibe-os-play-now-diagnostics.sh}"',
+            'write_diagnostics_helper',
+            'recent OS status lines (safe serial-log subset)',
+            'grep -E',
+            'inputdepth=|musicbuf=|musicpull=|mixunder=',
+            'does not dump environment variables',
             'NOVNC_WEB_ROOTS=(',
             'resolve_novnc_web_root',
             'websockify --web="$NOVNC_WEB_ROOT_RESOLVED"',
@@ -965,6 +982,7 @@ class PlayNowRemoteTests(unittest.TestCase):
             'actions/upload-artifact',
             'build/gfx.bin',
             'build/doom-audio.wav',
+            'printenv',
         ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, script)
@@ -977,6 +995,8 @@ class PlayNowRemoteTests(unittest.TestCase):
             'forward port',
             'VNC does not carry game audio',
             'cloud `real-wad-smoke.yml` aggregate audio proof',
+            '/tmp/vibe-os-play-now-diagnostics.sh',
+            'token-shaped values redacted',
         ):
             with self.subTest(needle=needle):
                 self.assertIn(needle, doc)

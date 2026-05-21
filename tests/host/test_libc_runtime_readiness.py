@@ -14,24 +14,50 @@ class LibcRuntimeReadinessTests(unittest.TestCase):
         libc = (ROOT / "doom_port" / "libc.c").read_text()
 
         for token in (
+            "int vibe_syscall_errno(int raw_result, int fallback_errno);",
+            "int vibe_clock_monotonic(vibe_clock_time_t* out);",
+            "unsigned long vibe_clock_ticks_to_milliseconds",
+            "int vibe_file_size(const char* path, unsigned long* out_size);",
+            "int vibe_file_read_all(",
             "int vibe_poll_input(vibe_input_event_t* event);",
+            "int vibe_drain_input(vibe_input_event_t* events, unsigned long max_events);",
             "int vibe_input_status(vibe_input_status_t* status);",
+            "int vibe_fb_get_info(vibe_fb_info_t* info);",
+            "int vibe_fb_can_present_indexed(",
             "int vibe_present_indexed(const vibe_present_indexed_t* present);",
+            "int vibe_present_indexed_checked(const vibe_present_indexed_t* present);",
+            "unsigned long vibe_heap_capabilities(void);",
+            "unsigned long vibe_vm_capabilities(void);",
+            "void* vibe_mmap_anon(unsigned long length, int prot);",
             "`vibe_poll_input` and `vibe_input_status`",
-            "`vibe_present_indexed` presents a `vibe_present_indexed_t`",
+            "`vibe_drain_input` is a bounded nonblocking drain helper",
+            "`vibe_fb_get_info` queries the reusable framebuffer contract",
+            "`vibe_vm_capabilities` and `vibe_mmap_anon`",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, header)
 
         for token in (
+            "int vibe_syscall_errno(int raw_result, int fallback_errno)",
+            "int vibe_clock_monotonic(vibe_clock_time_t* out)",
+            "int vibe_file_size(const char* path, unsigned long* out_size)",
+            "int vibe_file_read_all(",
             "int vibe_poll_input(vibe_input_event_t* event)",
             "VIBE_SYS_POLL_INPUT",
             "(unsigned long)sizeof(*event)",
+            "int vibe_drain_input(vibe_input_event_t* events, unsigned long max_events)",
             "int vibe_input_status(vibe_input_status_t* status)",
             "VIBE_SYS_INPUT_STATUS",
             "(unsigned long)sizeof(*status)",
+            "int vibe_fb_get_info(vibe_fb_info_t* info)",
+            "VIBE_IOCTL_FBINFO",
+            "int vibe_fb_can_present_indexed(",
             "int vibe_present_indexed(const vibe_present_indexed_t* present)",
             "ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_PRESENT_INDEXED",
+            "int vibe_present_indexed_checked(const vibe_present_indexed_t* present)",
+            "unsigned long vibe_heap_capabilities(void)",
+            "unsigned long vibe_vm_capabilities(void)",
+            "void* vibe_mmap_anon(unsigned long length, int prot)",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, libc)

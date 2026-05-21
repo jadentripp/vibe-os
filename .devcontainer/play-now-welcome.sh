@@ -12,7 +12,14 @@ Open the forwarded private port 6080 URL and add:
   /vnc.html?autoconnect=1
 
 Default 2-core Codespaces can play Doom, but noVNC may stutter while QEMU and
-the first build share CPU.
+the first build share CPU. A 4-core+ Codespace is the smoother target for
+longer human playtests.
+
+If play slows down, open a second Codespaces terminal and run:
+  /tmp/vibe-os-play-now-diagnostics.sh
+
+That helper prints process/load and filtered OS status-log lines only; it does
+not dump environment variables.
 
 Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu.
 EOF

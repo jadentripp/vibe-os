@@ -53,6 +53,18 @@ typedef struct vibe_clock_time {
     unsigned long flags;
 } vibe_clock_time_t;
 
+enum {
+    VIBE_HEAP_CAP_SBRK_GROW = 0x00000001u,
+    VIBE_HEAP_CAP_SBRK_SHRINK = 0x00000002u,
+};
+
+enum {
+    VIBE_VM_CAP_ANON_PRIVATE = 0x00000001u,
+    VIBE_VM_CAP_BRK_BACKED = 0x00000002u,
+    VIBE_VM_CAP_TAIL_MUNMAP_RECLAIM = 0x00000004u,
+    VIBE_VM_CAP_NONTAIL_MUNMAP_HOLES = 0x00000008u,
+};
+
 typedef struct vibe_dirent {
     char name[16];
     unsigned long size;
@@ -402,6 +414,18 @@ static inline int vibe_input_status_has_overflow(const vibe_input_status_t* stat
     return status && status->dropped_events != 0;
 }
 
+static inline int vibe_input_status_has_capability(
+    const vibe_input_status_t* status,
+    unsigned long capability)
+{
+    return status && (status->capabilities & capability) == capability;
+}
+
+static inline int vibe_input_status_queue_is_empty(const vibe_input_status_t* status)
+{
+    return status && status->queued_events == 0;
+}
+
 static inline int vibe_input_status_key_is_down(
     const vibe_input_status_t* status,
     unsigned long code)
@@ -520,6 +544,11 @@ enum {
     VIBE_FB_FORMAT_INDEX8_RGB24 = 1,
 };
 
+enum {
+    VIBE_FB_INDEXED_PALETTE_COLORS = 256,
+    VIBE_FB_RGB24_PALETTE_BYTES = 256 * 3,
+};
+
 typedef struct vibe_present_indexed {
     const void* frame;
     const void* palette;
@@ -528,11 +557,23 @@ typedef struct vibe_present_indexed {
 } vibe_present_indexed_t;
 
 int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, unsigned long arg2);
+int vibe_syscall_errno(int raw_result, int fallback_errno);
 int vibe_clock_gettime(unsigned long clock_id, vibe_clock_time_t* out);
+int vibe_clock_monotonic(vibe_clock_time_t* out);
+unsigned long vibe_clock_ticks_to_milliseconds(unsigned long ticks, unsigned long frequency_hz);
 int vibe_listdir(const char* path, vibe_dirent_t* entries, unsigned long max_entries);
+int vibe_file_size(const char* path, unsigned long* out_size);
+int vibe_file_read_all(const char* path, void* buffer, unsigned long capacity, unsigned long* out_size);
 int vibe_poll_input(vibe_input_event_t* event);
+int vibe_drain_input(vibe_input_event_t* events, unsigned long max_events);
 int vibe_input_status(vibe_input_status_t* status);
+int vibe_fb_get_info(vibe_fb_info_t* info);
+int vibe_fb_can_present_indexed(const vibe_fb_info_t* info, const vibe_present_indexed_t* present);
 int vibe_present_indexed(const vibe_present_indexed_t* present);
+int vibe_present_indexed_checked(const vibe_present_indexed_t* present);
+unsigned long vibe_heap_capabilities(void);
+unsigned long vibe_vm_capabilities(void);
+void* vibe_mmap_anon(unsigned long length, int prot);
 unsigned long vibe_monotonic_ticks(void);
 unsigned long vibe_monotonic_milliseconds(void);
 
@@ -542,12 +583,20 @@ unsigned long vibe_monotonic_milliseconds(void);
  * - Failure returns -errno when the kernel can classify the error.
  * - Legacy kernel paths may still return -1; libc maps those through the
  *   operation-specific fallback errno.
+ * - `vibe_syscall_errno` centralizes that conversion for small ports that call
+ *   `vibe_syscall3` directly and still want POSIX-shaped errno values.
  * - File flags use the O_* constants from fcntl.h, including O_ACCMODE and
  *   O_CLOEXEC.
  * - ftruncate resizes writable root-level FAT16 files by descriptor. Growth
  *   zero-fills new bytes, and shrink frees tail clusters through the FAT layer.
+ * - `vibe_file_size` and `vibe_file_read_all` are convenience wrappers for
+ *   small tools and games that need whole-file asset/config reads without
+ *   learning the descriptor syscall details. They still inherit the current
+ *   root FAT16 path model.
  * - VIBE_SYS_CLOCK_GETTIME exposes a reusable monotonic PIT-derived clock. It
  *   reports 100 Hz ticks and milliseconds only; it is not an RTC or wall clock.
+ *   `vibe_clock_monotonic` and `vibe_clock_ticks_to_milliseconds` are generic
+ *   helpers for game loops that do not want Doom's 35 Hz tic conversion.
  * - VIBE_SYS_LISTDIR lists cached FAT16 root entries into fixed
  *   `vibe_dirent_t` records. It is readonly and root-only for now; names are
  *   normalized 8.3 display names, and `stat("/")` reports readonly directory
@@ -557,14 +606,21 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   keyboard state, and mouse state without consuming queued input. The libc
  *   wrappers `vibe_poll_input` and `vibe_input_status` pass the ABI byte sizes
  *   explicitly so game/tool code does not need to duplicate syscall details.
- * - `vibe_present_indexed` presents a `vibe_present_indexed_t` through the
- *   display fd/ioctl path. `vibe_fb_info_t` advertises the maximum accepted
- *   indexed source size and palette format before a program submits a frame.
+ *   `vibe_drain_input` is a bounded nonblocking drain helper for per-frame
+ *   event pumps.
+ * - `vibe_fb_get_info` queries the reusable framebuffer contract, and
+ *   `vibe_present_indexed_checked` verifies the advertised caps/format/size
+ *   before presenting a `vibe_present_indexed_t` through the display fd/ioctl
+ *   path. `vibe_fb_info_t` advertises the maximum accepted indexed source size
+ *   and palette format before a program submits a frame.
  * - sbrk grows or shrinks the process heap. Shrink trims whole released pages
  *   from the process page tables and heap-validation bitmap.
+ *   `vibe_heap_capabilities` exposes this as grow+shrink brk-style heap only.
  * - mmap is currently anonymous/private and brk-backed; munmap validates the
  *   mapping range, tail munmap moves brk back, and valid non-tail munmap
  *   punches validation holes without creating reusable VM objects.
+ *   `vibe_vm_capabilities` and `vibe_mmap_anon` make the supported VM subset
+ *   explicit for ports that would otherwise probe file-backed/shared mappings.
  * - execv passes a bounded argv vector to the process handoff. Table entries
  *   cover Doom/probe images; other root-level FAT16 .ELF names use reusable
  *   probe-class slots. File descriptors inherit across exec unless opened with

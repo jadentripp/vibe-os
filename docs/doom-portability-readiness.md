@@ -49,15 +49,28 @@ The same libc/platform surface, centered in `doom_port/libc.c` and declared
 through `doom_port/include`, helps other original C games:
 
 - files: `open`, `read`, `write`, `close`, `lseek`, `access`, `unlink`
+- whole-file helpers: `vibe_file_size`, `vibe_file_read_all`
 - metadata: `stat`, `fstat`, `mkdir`, `vibe_listdir`
 - stdio: `fopen`, `fread`, `fwrite`, `fseek`, `fflush`, `fclose`
-- memory: `malloc`, `calloc`, `realloc`, `free`, `mmap`, `munmap`
+- memory: `malloc`, `calloc`, `realloc`, `free`, `mmap`, `munmap`,
+  `vibe_mmap_anon`
+- capability queries: `vibe_heap_capabilities`, `vibe_vm_capabilities`
 - process: `execv`, `execve`, `execl`, `fork`, `waitpid`, `getpid`
-- devices: `ioctl`, `clock_gettime`, `vibe_clock_gettime`
+- time: `clock_gettime`, `vibe_clock_gettime`, `vibe_clock_monotonic`,
+  `vibe_clock_ticks_to_milliseconds`
+- devices: `ioctl`, `vibe_fb_get_info`, `vibe_present_indexed`,
+  `vibe_present_indexed_checked`
 - game/tool runtime wrappers: `vibe_poll_input`, `vibe_input_status`, and
-  `vibe_present_indexed` so another original C program can consume typed input
-  and present indexed frames without copying raw syscall numbers from the Doom
-  platform shim.
+  `vibe_drain_input` so another original C program can consume typed input
+  without copying raw syscall numbers from the Doom platform shim.
+
+These hooks are intentionally honest about the present kernel surface. The
+framebuffer wrapper can query `vibe_fb_info_t` and preflight an indexed present
+against advertised caps, but the kernel still accepts only the current indexed
+RGB24 source contract. The memory helpers expose anonymous private mappings and
+brk-backed heap growth/shrink; file-backed mappings, shared mappings, a real VMA
+table, and broad directory paths are still future kernel work rather than hidden
+Doom-specific shortcuts.
 
 Missing future hooks should be added to `doom_port/include` and proved with
 host tests before a game-specific workaround is added. If a new game needs a

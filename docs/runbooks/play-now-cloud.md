@@ -89,7 +89,8 @@ VIBE_REPO=jadentripp/vibe-os VIBE_REF=main \
 The default Codespaces machine is often 2-core. Doom is playable there, but
 QEMU, noVNC, and the first build can contend for CPU, so short stutters are not
 necessarily a kernel or input regression. Use `--machine` for a larger
-Codespace when you need smoother interactive play.
+Codespace when you need smoother interactive play; 4-core+ is the preferred
+shape for longer human playtests.
 
 Optional GitHub-hosted dry run: dispatch **Cloud play-now preflight** on the
 same branch. It installs the remote dependencies on `ubuntu-latest`, runs
@@ -189,6 +190,16 @@ freshly validated WAD.
 The Mac-side Codespaces launcher does not download WADs, disk images, rendered
 pixels, raw audio, or remote logs. If you need a proof bundle later, use the
 allowlisted collector flow below instead of copying generated VM artifacts.
+For live slowdown triage, use the diagnostics command printed by the launcher:
+
+```sh
+gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh
+```
+
+It reports process/load, the forwarded noVNC port, filtered OS serial status
+lines such as `inputdepth=`, `musicbuf=`, `musicpull=`, `mixunder=`,
+`dtick/preempt`, and recent play/noVNC logs with token-shaped values redacted.
+It does not print the Codespaces environment.
 When finished, delete the disposable environment with
 `gh codespace delete -c "<codespace-name>" --force` or from GitHub's
 `Code` > `Codespaces` menu. Deletion removes the remote `/tmp` WAD and generated

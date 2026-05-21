@@ -301,12 +301,18 @@ static int is_doom_data_dir(const char* path)
         || !strcasecmp(path, "doomdata");
 }
 
+int vibe_syscall_errno(int raw_result, int fallback_errno)
+{
+    if (raw_result >= 0)
+        return 0;
+    if (raw_result < -1)
+        return -raw_result;
+    return fallback_errno > 0 ? fallback_errno : EIO;
+}
+
 static int syscall_failed(int raw, int fallback_errno)
 {
-    if (raw < -1)
-        errno = -raw;
-    else
-        errno = fallback_errno;
+    errno = vibe_syscall_errno(raw, fallback_errno);
     return -1;
 }
 
@@ -758,11 +764,54 @@ int vibe_clock_gettime(unsigned long clock_id, vibe_clock_time_t* out)
     return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
 }
 
+int vibe_clock_monotonic(vibe_clock_time_t* out)
+{
+    return vibe_clock_gettime(VIBE_CLOCK_MONOTONIC, out);
+}
+
+static unsigned long scale_remainder_ticks_to_milliseconds(
+    unsigned long remainder_ticks,
+    unsigned long frequency_hz)
+{
+    unsigned long accumulator = 0;
+    unsigned long milliseconds = 0;
+    unsigned int step;
+
+    if (!remainder_ticks || !frequency_hz)
+        return 0;
+
+    for (step = 0; step < 1000u; ++step) {
+        unsigned long gap = frequency_hz - accumulator;
+        if (remainder_ticks >= gap) {
+            accumulator = remainder_ticks - gap;
+            ++milliseconds;
+        } else {
+            accumulator += remainder_ticks;
+        }
+    }
+    return milliseconds;
+}
+
+unsigned long vibe_clock_ticks_to_milliseconds(unsigned long ticks, unsigned long frequency_hz)
+{
+    unsigned long whole_seconds;
+    unsigned long remainder_ticks;
+
+    if (!frequency_hz)
+        return 0;
+    whole_seconds = ticks / frequency_hz;
+    remainder_ticks = ticks - whole_seconds * frequency_hz;
+    if (whole_seconds > ((unsigned long)-1) / 1000ul)
+        return (unsigned long)-1;
+    return whole_seconds * 1000ul
+        + scale_remainder_ticks_to_milliseconds(remainder_ticks, frequency_hz);
+}
+
 unsigned long vibe_monotonic_ticks(void)
 {
     vibe_clock_time_t now;
 
-    if (vibe_clock_gettime(VIBE_CLOCK_MONOTONIC, &now) < 0)
+    if (vibe_clock_monotonic(&now) < 0)
         return 0;
     return now.ticks;
 }
@@ -771,7 +820,7 @@ unsigned long vibe_monotonic_milliseconds(void)
 {
     vibe_clock_time_t now;
 
-    if (vibe_clock_gettime(VIBE_CLOCK_MONOTONIC, &now) < 0)
+    if (vibe_clock_monotonic(&now) < 0)
         return 0;
     return now.milliseconds;
 }
@@ -785,7 +834,7 @@ int clock_gettime(clockid_t clock_id, struct timespec* tp)
         return -1;
     }
 
-    if (vibe_clock_gettime(VIBE_CLOCK_MONOTONIC, &now) < 0)
+    if (vibe_clock_monotonic(&now) < 0)
         return -1;
 
     tp->tv_sec = (time_t)(now.milliseconds / 1000u);
@@ -917,6 +966,79 @@ int vibe_listdir(const char* path, vibe_dirent_t* entries, unsigned long max_ent
     return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
 }
 
+int vibe_file_size(const char* path, unsigned long* out_size)
+{
+    struct stat st;
+
+    if (!path || !out_size) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (stat(path, &st) < 0)
+        return -1;
+    if (!S_ISREG(st.st_mode)) {
+        errno = EISDIR;
+        return -1;
+    }
+    if (st.st_size < 0) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+
+    *out_size = (unsigned long)st.st_size;
+    return 0;
+}
+
+int vibe_file_read_all(const char* path, void* buffer, unsigned long capacity, unsigned long* out_size)
+{
+    unsigned long size;
+    unsigned long done;
+    int fd;
+    int saved_errno;
+    ssize_t got;
+
+    if (!path || (capacity && !buffer)) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (vibe_file_size(path, &size) < 0)
+        return -1;
+    if (out_size)
+        *out_size = size;
+    if (size > capacity) {
+        errno = ENOSPC;
+        return -1;
+    }
+
+    fd = open(path, O_RDONLY);
+    if (fd < 0)
+        return -1;
+
+    done = 0;
+    while (done < size) {
+        got = read(fd, (unsigned char*)buffer + done, size - done);
+        if (got < 0) {
+            saved_errno = errno;
+            (void)close(fd);
+            errno = saved_errno;
+            return -1;
+        }
+        if (got == 0) {
+            saved_errno = EIO;
+            (void)close(fd);
+            errno = saved_errno;
+            return -1;
+        }
+        done += (unsigned long)got;
+    }
+
+    if (close(fd) < 0)
+        return -1;
+    return 0;
+}
+
 int vibe_poll_input(vibe_input_event_t* event)
 {
     int raw;
@@ -932,6 +1054,28 @@ int vibe_poll_input(vibe_input_event_t* event)
     return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
 }
 
+int vibe_drain_input(vibe_input_event_t* events, unsigned long max_events)
+{
+    unsigned long count;
+    int raw;
+
+    if (max_events && !events) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    count = 0;
+    while (count < max_events) {
+        raw = vibe_poll_input(&events[count]);
+        if (raw < 0)
+            return -1;
+        if (raw == 0)
+            break;
+        ++count;
+    }
+    return (int)count;
+}
+
 int vibe_input_status(vibe_input_status_t* status)
 {
     int raw;
@@ -945,6 +1089,24 @@ int vibe_input_status(vibe_input_status_t* status)
         (unsigned long)sizeof(*status),
         0);
     return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
+}
+
+unsigned long vibe_heap_capabilities(void)
+{
+    return VIBE_HEAP_CAP_SBRK_GROW | VIBE_HEAP_CAP_SBRK_SHRINK;
+}
+
+unsigned long vibe_vm_capabilities(void)
+{
+    return VIBE_VM_CAP_ANON_PRIVATE
+        | VIBE_VM_CAP_BRK_BACKED
+        | VIBE_VM_CAP_TAIL_MUNMAP_RECLAIM
+        | VIBE_VM_CAP_NONTAIL_MUNMAP_HOLES;
+}
+
+void* vibe_mmap_anon(unsigned long length, int prot)
+{
+    return mmap(0, (size_t)length, prot, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 }
 
 void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t offset)
@@ -1021,6 +1183,30 @@ int ioctl(int fd, unsigned long request, void* arg)
     return raw < 0 ? syscall_failed(raw, ENOTTY) : raw;
 }
 
+int vibe_fb_get_info(vibe_fb_info_t* info)
+{
+    if (!info) {
+        errno = EINVAL;
+        return -1;
+    }
+    return ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_FBINFO, info);
+}
+
+int vibe_fb_can_present_indexed(const vibe_fb_info_t* info, const vibe_present_indexed_t* present)
+{
+    if (!info || !present || !present->frame || !present->palette || !present->width || !present->height)
+        return 0;
+    if (!(info->capabilities & VIBE_FB_CAP_PRESENT_INDEXED))
+        return 0;
+    if (info->present_format != VIBE_FB_FORMAT_INDEX8_RGB24)
+        return 0;
+    if (info->max_present_width && present->width > info->max_present_width)
+        return 0;
+    if (info->max_present_height && present->height > info->max_present_height)
+        return 0;
+    return 1;
+}
+
 int vibe_present_indexed(const vibe_present_indexed_t* present)
 {
     if (!present || !present->frame || !present->palette || !present->width || !present->height) {
@@ -1028,6 +1214,29 @@ int vibe_present_indexed(const vibe_present_indexed_t* present)
         return -1;
     }
     return ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_PRESENT_INDEXED, (void*)present);
+}
+
+int vibe_present_indexed_checked(const vibe_present_indexed_t* present)
+{
+    vibe_fb_info_t info;
+
+    if (!present || !present->frame || !present->palette || !present->width || !present->height) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (vibe_fb_get_info(&info) < 0)
+        return -1;
+    if (!(info.capabilities & VIBE_FB_CAP_PRESENT_INDEXED)
+        || info.present_format != VIBE_FB_FORMAT_INDEX8_RGB24) {
+        errno = ENOSYS;
+        return -1;
+    }
+    if (!vibe_fb_can_present_indexed(&info, present)) {
+        errno = EINVAL;
+        return -1;
+    }
+    return vibe_present_indexed(present);
 }
 
 int execv(const char* path, char* const argv[])

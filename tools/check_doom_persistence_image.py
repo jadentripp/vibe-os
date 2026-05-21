@@ -1181,11 +1181,12 @@ def validate_save_load_status(status, *, slot, save_size, episode, game_map, lev
     if (saveaction_flags & SAVE_LOAD_REQUIRED_ACTION_FLAGS) != SAVE_LOAD_REQUIRED_ACTION_FLAGS:
         raise PersistenceProofError(
             "save load status saveact= must prove the original Doom load was "
-            "requested and completed after G_DoLoadGame returned"
+            "requested and completed after a post-load gameplay tick"
         )
     if saveaction_gameaction != 0:
         raise PersistenceProofError(
-            f"save load status saveact= gameaction must be ga_nothing after load, got {saveaction_gameaction}"
+            "save load status saveact= gameaction must be ga_nothing after a "
+            f"post-load gameplay tick, got {saveaction_gameaction}"
         )
 
     expected_map = (episode << 8) | game_map

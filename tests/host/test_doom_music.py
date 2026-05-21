@@ -60,6 +60,7 @@ class DoomMusicTests(unittest.TestCase):
             "desc.music_format = stats.format;",
             "desc.music_note_events = stats.note_on_count + stats.note_off_count;",
             "desc.music_control_events = stats.controller_count",
+            "+ stats.score_end_count",
             "desc.music_active_voice_peak = stats.active_voice_peak;",
             "desc.music_emitted_samples = stats.emitted_samples;",
         ):
@@ -93,6 +94,8 @@ class DoomMusicTests(unittest.TestCase):
             "sustain_count",
             "pitch_bend_count",
             "percussion_note_count",
+            "score_end_count",
+            "invalid_event_count",
             "active_voice_peak",
             "loop_count",
             "stream_start_sample",
@@ -113,6 +116,7 @@ class DoomMusicTests(unittest.TestCase):
 
         for token in (
             "render_mus_pass",
+            "VIBE_MUSIC_MUS_EVENT_SCORE_END",
             "render_midi_pass",
             "synth_note_on",
             "synth_render_until",
@@ -132,6 +136,8 @@ class DoomMusicTests(unittest.TestCase):
             "stream_song_samples",
             "stream_loop_samples",
             "stream_loop_count",
+            "stats->score_end_count",
+            "stats->invalid_event_count",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, music_c)
@@ -151,6 +157,8 @@ class DoomMusicTests(unittest.TestCase):
             "larger streamed chunks",
             "non-looping songs stop at their parsed song end",
             "zero-duration songs do not become silent looping streams",
+            "MUS event type 6",
+            "event type 5",
             "pitch bend",
             "program changes",
             "pan, expression, sustain",

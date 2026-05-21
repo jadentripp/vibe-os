@@ -29,9 +29,11 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "#define EBADF 9",
             "#define ECHILD 10",
             "#define ENOMEM 12",
+            "#define EISDIR 21",
             "#define EINVAL 22",
             "#define EMFILE 24",
             "#define ENOTTY 25",
+            "#define ENOSPC 28",
             "#define ENOSYS 38",
         ):
             with self.subTest(token=token):
@@ -41,7 +43,8 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("static int validate_open_flags", libc)
         self.assertIn("O_CLOEXEC", libc)
         self.assertIn("access_mode == O_ACCMODE", libc)
-        self.assertIn("raw < -1", libc)
+        self.assertIn("int vibe_syscall_errno(int raw_result, int fallback_errno)", libc)
+        self.assertIn("raw_result < -1", libc)
         for token in (
             "ERRNO_ENOENT equ 2",
             "ERRNO_EBADF equ 9",

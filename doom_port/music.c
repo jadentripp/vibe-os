@@ -12,6 +12,12 @@
 #define VIBE_MUSIC_PITCH_BEND_MAX 16383u
 #define VIBE_MUSIC_MIDI_PERCUSSION_CHANNEL 9u
 #define VIBE_MUSIC_MUS_PERCUSSION_CHANNEL 15u
+#define VIBE_MUSIC_MUS_EVENT_RELEASE_NOTE 0u
+#define VIBE_MUSIC_MUS_EVENT_PLAY_NOTE 1u
+#define VIBE_MUSIC_MUS_EVENT_PITCH_BEND 2u
+#define VIBE_MUSIC_MUS_EVENT_SYSTEM 3u
+#define VIBE_MUSIC_MUS_EVENT_CONTROLLER 4u
+#define VIBE_MUSIC_MUS_EVENT_SCORE_END 6u
 
 typedef struct vibe_music_song {
     void* data;
@@ -136,6 +142,8 @@ static void reset_stats(vibe_music_render_stats_t* stats, int format)
     stats->all_notes_off_count = 0;
     stats->active_voice_peak = 0;
     stats->tempo_count = 0;
+    stats->score_end_count = 0;
+    stats->invalid_event_count = 0;
     stats->loop_count = 0;
     stats->clipped_samples = 0;
     stats->emitted_samples = 0;
@@ -721,14 +729,14 @@ static int render_mus_pass(
         channel = mus_channel_to_midi(descriptor & 0x0fu);
         last_in_group = descriptor & 0x80u;
 
-        if (event_type == 0u) {
+        if (event_type == VIBE_MUSIC_MUS_EVENT_RELEASE_NOTE) {
             unsigned int note;
 
             if (pos >= end)
                 return 0;
             note = data[pos++] & 0x7fu;
             synth_note_off(synth, channel, note, stats);
-        } else if (event_type == 1u) {
+        } else if (event_type == VIBE_MUSIC_MUS_EVENT_PLAY_NOTE) {
             unsigned int note;
             unsigned int volume;
             unsigned char note_byte;
@@ -744,14 +752,14 @@ static int render_mus_pass(
             }
             volume = synth->channel_volume[channel];
             synth_note_on(synth, channel, note, volume, stats);
-        } else if (event_type == 2u) {
+        } else if (event_type == VIBE_MUSIC_MUS_EVENT_PITCH_BEND) {
             unsigned int bend;
 
             if (pos >= end)
                 return 0;
             bend = ((unsigned int)data[pos++] & 0x7fu) << 7;
             synth_set_pitch_bend(synth, channel, bend, stats);
-        } else if (event_type == 3u) {
+        } else if (event_type == VIBE_MUSIC_MUS_EVENT_SYSTEM) {
             unsigned int system_event;
 
             if (pos >= end)
@@ -772,7 +780,7 @@ static int render_mus_pass(
             }
             if (stats)
                 ++stats->controller_count;
-        } else if (event_type == 4u) {
+        } else if (event_type == VIBE_MUSIC_MUS_EVENT_CONTROLLER) {
             unsigned int controller;
             unsigned int value;
 
@@ -809,10 +817,14 @@ static int render_mus_pass(
             }
             if (stats)
                 ++stats->controller_count;
-        } else if (event_type == 6u) {
+        } else if (event_type == VIBE_MUSIC_MUS_EVENT_SCORE_END) {
+            if (stats)
+                ++stats->score_end_count;
             synth_all_sounds_off(synth);
             return 1;
         } else {
+            if (stats)
+                ++stats->invalid_event_count;
             return 0;
         }
 

@@ -74,7 +74,8 @@ without dumping the remote environment.
 The default Codespaces machine is often 2-core. That is enough for a quick Doom
 playtest, but QEMU plus noVNC can stutter while the image is building or while
 the browser stream is busy. For smoother play, pass a larger machine with
-`--machine` when available.
+`--machine` when available; a 4-core+ Codespace is the preferred shape for
+longer human playtests.
 
 Optional dry run:
 
@@ -118,6 +119,17 @@ gh codespace ssh -c "<codespace-name>" -- \
   'if [ -s /tmp/vibe-os-play-now.pid ]; then kill "$(cat /tmp/vibe-os-play-now.pid)"; fi'
 ```
 
+For slowdown triage while the game is running, use the diagnostics command
+printed by the launcher:
+
+```sh
+gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh
+```
+
+The helper prints only process/load, noVNC port, filtered OS serial status
+lines, and recent play/noVNC logs with token-shaped values redacted. It does
+not print the Codespaces environment.
+
 Manual browser path:
 
 1. Run `./tools/play_now_codespaces.sh --web-url --repo jadentripp/vibe-os --ref <branch>`, or open `https://github.com/codespaces/new`.
@@ -144,7 +156,7 @@ Expected successful output includes `play-now Codespaces preflight OK`, the
 repo, ref, selected machine, `noVNC port: 6080 (private)`, the noVNC wait
 timeout, `GitHub repo/ref: verified`, `remote play payload: verified on
 selected ref`, `local artifact transfer: none`, and the 2-core performance
-caveat. The dry run also prints
+caveat plus 4-core+ guidance. The dry run also prints
 `dry-run: Codespace was not created or modified`. If it reports a dirty tree,
 missing upstream, or ahead/behind counts, either fix and push the current branch
 or rerun with explicit `--repo` and `--ref` for a branch that already exists on

@@ -11,7 +11,9 @@ Current behavior:
 - includes a MUS parser for score events from WAD lump bytes, including note on,
   note off, MUS-to-MIDI channel mapping for percussion, pitch bend, system
   events, program changes, pan, expression, sustain, all-notes-off handling,
-  score end, and MUS variable-length delays
+  score end, and MUS variable-length delays. MUS event type 6 is the only score
+  end marker; event type 5 remains invalid/reserved and is rejected instead of
+  accepted as a fixture-only end shortcut.
 - parses Standard MIDI format 0 tracks, including running status, note on,
   note off, controller volume, pan, expression, sustain, pitch bend, program
   changes, tempo meta events, SysEx skip, and end-of-track
@@ -101,7 +103,11 @@ port-owned MUS/MIDI renderer. The kernel records it as
 snapshots can distinguish parsed song events rendered into the music lane from a
 music-flagged carrier tone. Format `1` is MUS and format `2` is Standard MIDI;
 the remaining fields are cumulative render chunks, note events, total render
-events, renderer active-voice peak, and emitted samples.
+events, renderer active-voice peak, and emitted samples. Host renderer stats now
+also count MUS score-end events and invalid events directly. Those extra stats
+are not exposed as new status fields, but they pin the parser contract: a real
+type-6 score end is accepted and the old type-5 fixture marker returns silence
+with invalid-event evidence.
 
 The remote-safe audio checker now proves that the SB16 path mixed non-music SFX,
 mixed music, accepted streamed music chunk updates, and advanced kernel-visible
@@ -183,6 +189,8 @@ and feeds it tiny MUS and MIDI fixtures. The tests verify format detection,
 channel state, tempo/controller handling, pitch bend, program changes, pan,
 expression, sustain, percussion channel mapping, streaming volume updates,
 long-playback wrap behavior, larger streamed chunks, non-looping songs stop at their parsed song end,
-zero-duration songs do not become silent looping streams, looping,
+zero-duration songs do not become silent looping streams, real MUS event type 6
+score-end handling, rejection of the old event type 5 fixture-only marker,
+looping,
 deterministic output, invalid input silence, and non-silent unsigned 8-bit PCM
 generation without launching QEMU.

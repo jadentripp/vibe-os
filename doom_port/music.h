@@ -26,6 +26,8 @@ typedef struct vibe_music_render_stats {
     unsigned long all_notes_off_count;
     unsigned long active_voice_peak;
     unsigned long tempo_count;
+    unsigned long score_end_count;
+    unsigned long invalid_event_count;
     unsigned long loop_count;
     unsigned long clipped_samples;
     unsigned long emitted_samples;

@@ -72,6 +72,9 @@ static int load_checkpoint_requested;
 static int load_checkpoint_slot;
 static int load_checkpoint_done;
 static int load_checkpoint_started;
+static int load_checkpoint_post_tic_pending;
+static int load_checkpoint_post_tic_leveltime;
+static int load_checkpoint_post_tic_gametic;
 static unsigned char vibe_key_down[256];
 
 #define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
@@ -277,6 +280,7 @@ static int submit_music_stream_chunk(int handle, int start_voice)
         + stats.sustain_count
         + stats.pitch_bend_count
         + stats.tempo_count
+        + stats.score_end_count
         + stats.all_notes_off_count;
     desc.music_active_voice_peak = stats.active_voice_peak;
     desc.music_emitted_samples = stats.emitted_samples;
@@ -491,8 +495,20 @@ static void checkpoint_load_slot_if_needed(void)
 
     path[7] = (char)('0' + load_checkpoint_slot);
     load_checkpoint_started = 1;
+    load_checkpoint_post_tic_pending = 0;
     report_save_action_status();
     G_LoadGame(path);
+}
+
+static int load_checkpoint_post_load_ready(void)
+{
+    return gameaction == ga_nothing
+        && gamestate == GS_LEVEL
+        && leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME
+        && consoleplayer >= 0
+        && consoleplayer < MAXPLAYERS
+        && playeringame[consoleplayer]
+        && players[consoleplayer].mo;
 }
 
 static void pump_music_stream(void)
@@ -823,13 +839,21 @@ void G_Ticker(void)
         report_save_action_status();
     }
 
-    if (load_checkpoint_started
-        && !load_checkpoint_done
-        && gameaction == ga_nothing
-        && gamestate == GS_LEVEL
-        && leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME) {
-        load_checkpoint_done = 1;
-        report_save_action_status();
+    if (load_checkpoint_started && !load_checkpoint_done) {
+        if (!load_checkpoint_post_tic_pending && load_checkpoint_post_load_ready()) {
+            load_checkpoint_post_tic_pending = 1;
+            load_checkpoint_post_tic_leveltime = leveltime;
+            load_checkpoint_post_tic_gametic = gametic;
+            report_save_action_status();
+            return;
+        }
+        if (load_checkpoint_post_tic_pending
+            && load_checkpoint_post_load_ready()
+            && leveltime > load_checkpoint_post_tic_leveltime
+            && gametic != load_checkpoint_post_tic_gametic) {
+            load_checkpoint_done = 1;
+            report_save_action_status();
+        }
     }
 }
 

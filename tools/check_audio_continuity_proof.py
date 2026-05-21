@@ -19,6 +19,8 @@ WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
 MAKEFILE = ROOT / "Makefile"
 AUDIO_DOC = ROOT / "docs" / "audio.md"
 MUSIC_DOC = ROOT / "docs" / "doom-music.md"
+MUSIC_IMPL = ROOT / "doom_port" / "music.c"
+MUSIC_HEADER = ROOT / "doom_port" / "music.h"
 PLAYABLE_DOC = ROOT / "docs" / "playable-cloud-proof.md"
 RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
 SMOKE_RUNNER = ROOT / "tests" / "run_smoke_qemu.sh"
@@ -732,6 +734,8 @@ def validate_repo_contract() -> None:
     makefile = MAKEFILE.read_text()
     audio_doc = AUDIO_DOC.read_text()
     music_doc = MUSIC_DOC.read_text()
+    music_impl = MUSIC_IMPL.read_text()
+    music_header = MUSIC_HEADER.read_text()
     playable_doc = PLAYABLE_DOC.read_text()
     runbook = RUNBOOK.read_text()
     smoke_runner = SMOKE_RUNNER.read_text()
@@ -789,6 +793,8 @@ def validate_repo_contract() -> None:
                 "musicpull=",
                 "musicrend=",
                 "rendered-sample delta",
+                "event type 6",
+                "event type 5",
                 "stream-health evidence",
                 "single static music carrier",
                 "no new mixclip=, musicunder=, or musicdrops=",
@@ -810,10 +816,30 @@ def validate_repo_contract() -> None:
                 "musicstream=PULL",
                 "musicpull=",
                 "musicrend=",
+                "MUS event type 6",
+                "event type 5",
                 "zero-duration songs do not become silent looping streams",
                 "rendered-sample delta",
                 "long-playback wrap",
                 "static stream window",
+            ),
+        ),
+        (
+            MUSIC_IMPL,
+            music_impl,
+            (
+                "VIBE_MUSIC_MUS_EVENT_SCORE_END 6u",
+                "event_type == VIBE_MUSIC_MUS_EVENT_SCORE_END",
+                "++stats->score_end_count",
+                "++stats->invalid_event_count",
+            ),
+        ),
+        (
+            MUSIC_HEADER,
+            music_header,
+            (
+                "score_end_count",
+                "invalid_event_count",
             ),
         ),
         (

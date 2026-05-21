@@ -8,6 +8,7 @@ VNC_DISPLAY="${VNC_DISPLAY:-1}"
 NOVNC_PORT="${NOVNC_PORT:-6080}"
 NOVNC_WEB_ROOT="${NOVNC_WEB_ROOT:-}"
 PLAY_BUILD_DIR="${PLAY_BUILD_DIR:-build/play-now}"
+DIAGNOSTICS_SCRIPT="${DIAGNOSTICS_SCRIPT:-/tmp/vibe-os-play-now-diagnostics.sh}"
 VNC_PORT=""
 NOVNC_WEB_ROOT_RESOLVED=""
 NOVNC_WEB_ROOTS=(
@@ -143,6 +144,92 @@ sys.exit(1)
 PY
 }
 
+write_diagnostics_helper() {
+  local repo_dir
+  local play_build_abs
+  local repo_dir_q
+  local play_build_abs_q
+  local diagnostics_script_q
+
+  repo_dir="$(pwd)"
+  mkdir -p "$PLAY_BUILD_DIR"
+  play_build_abs="$(cd "$PLAY_BUILD_DIR" && pwd)"
+  printf -v repo_dir_q '%q' "$repo_dir"
+  printf -v play_build_abs_q '%q' "$play_build_abs"
+  printf -v diagnostics_script_q '%q' "$DIAGNOSTICS_SCRIPT"
+
+  cat >"$DIAGNOSTICS_SCRIPT" <<EOF_DIAGNOSTICS
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir=$repo_dir_q
+play_build_dir=$play_build_abs_q
+diagnostics_script=$diagnostics_script_q
+pid_file="/tmp/vibe-os-play-now.pid"
+log_file="/tmp/vibe-os-play-now.log"
+port_file="/tmp/vibe-os-play-now.novnc-port"
+serial_log="\$play_build_dir/serial.log"
+novnc_log="\$play_build_dir/novnc.log"
+
+redact_stream() {
+  sed -E \\
+    -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*_(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*=)[^[:space:]]+/\\1[redacted]/g' \\
+    -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*=)(gh[pousr]_[A-Za-z0-9_]+)/\\1[redacted]/g' \\
+    -e 's/(Authorization: *(Bearer|token) +)[^[:space:]]+/\\1[redacted]/Ig' \\
+    -e 's/(access_token=)[^&[:space:]]+/\\1[redacted]/Ig'
+}
+
+echo "vibe-os play-now diagnostics"
+echo "repo: \$repo_dir"
+echo "diagnostics helper: \$diagnostics_script"
+echo "host CPUs: \$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo unknown)"
+if [ -r /proc/loadavg ]; then
+  echo "loadavg: \$(cut -d' ' -f1-3 /proc/loadavg)"
+fi
+if [ -s "\$port_file" ]; then
+  echo "noVNC port: \$(cat "\$port_file" 2>/dev/null || true)"
+fi
+
+if [ -s "\$pid_file" ]; then
+  pid="\$(cat "\$pid_file" 2>/dev/null || true)"
+  if [ -n "\$pid" ] && kill -0 "\$pid" 2>/dev/null; then
+    echo "play-now pid: \$pid (running)"
+    ps -p "\$pid" -o pid=,etime=,pcpu=,pmem=,comm= 2>/dev/null | sed 's/^/play-now process: /' || true
+  else
+    echo "play-now pid: \${pid:-unknown} (not running)"
+  fi
+else
+  echo "play-now pid: missing"
+fi
+
+echo
+echo "recent OS status lines (safe serial-log subset):"
+if [ -s "\$serial_log" ]; then
+  grep -E 'panic=|doom=|doomrun=|gameplay=|inputdepth=|musicbuf=|musicpull=|mixunder=|dtick=|preempt=|doompresent|sfxmix=|sfxdma=|musicq=|musicmix=|musicstream=|audio=|timer=|keyboard=|mouse=' "\$serial_log" \\
+    | tail -n "\${VIBE_DIAG_LINES:-120}" || true
+else
+  echo "serial log not ready: \$serial_log"
+fi
+
+echo
+echo "recent play launcher log:"
+if [ -s "\$log_file" ]; then
+  tail -n 80 "\$log_file" | redact_stream || true
+else
+  echo "play launcher log not ready: \$log_file"
+fi
+
+echo
+echo "recent noVNC log:"
+if [ -s "\$novnc_log" ]; then
+  tail -n 40 "\$novnc_log" | redact_stream || true
+else
+  echo "noVNC log not ready: \$novnc_log"
+fi
+EOF_DIAGNOSTICS
+  chmod +x "$DIAGNOSTICS_SCRIPT"
+}
+
 RUN_PREFLIGHT_ONLY=0
 REQUIRE_NOVNC=0
 while [ "$#" -gt 0 ]; do
@@ -196,6 +283,11 @@ python3 tools/check_play_now_remote.py "${preflight_args[@]}"
 if [ "$RUN_PREFLIGHT_ONLY" = "1" ]; then
   exit 0
 fi
+
+write_diagnostics_helper
+echo "Diagnostics helper: $DIAGNOSTICS_SCRIPT"
+echo "From another remote shell, run it to inspect safe slowdown status without printing env."
+echo "The diagnostics helper does not dump environment variables."
 
 if command -v websockify >/dev/null 2>&1; then
   NOVNC_WEB_ROOT_RESOLVED="$(resolve_novnc_web_root)"

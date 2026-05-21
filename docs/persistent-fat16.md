@@ -157,7 +157,11 @@ playability, add `--load-status` from the reboot boot after a scripted Doom
 load-menu path. That status must include `doomsav=` open/read/close bits for the
 requested slot, `saverd=` bytes at least as large as the saved payload, a
 `saveclose=` event, `gameplay=OK`, the saved episode/map in `gmap=`, and
-`leveltime=` at or beyond the save header leveltime. It must also carry
+`leveltime=` at or beyond the save header leveltime. The port only sets
+the load-done bit after `G_DoLoadGame` has returned, the level is live, and a
+later Doom level tick has advanced with a valid player mobj; this keeps stale
+pre-load gameplay snapshots from passing as playable reboot persistence. It must
+also carry
 `savethk=` unarchive-thinker and `savestm=` unarchive-specials stream boundaries;
 otherwise the load proof is rejected as blind even if the high-level fields look
 green. If the runtime reports `savestm` at `stage=00000018`, the checker treats

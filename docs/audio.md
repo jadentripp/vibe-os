@@ -96,6 +96,11 @@ Current kernel behavior:
   `musicrend=<format>:<chunks>:<notes>:<events>:<peak>:<samples>`, where
   format is the port-owned MUS or MIDI renderer and the counters prove the
   submitted music stream came from parsed song events, not a raw carrier tone
+- keeps MUS parser end-of-score handling pinned by host stats: event type 6 is
+  accepted as score end, while event type 5 is rejected as an invalid/reserved
+  event. The status proof still uses the six-field `musicrend=` ABI; the
+  host-side renderer tests are what prevent a fake fixture marker from standing
+  in for real Doom MUS parsing.
 - exposes `VIBE_AUDIO_PCM_PULL_STATE` / `VIBE_AUDIO_MUSIC_PULL_STATE` so
   Doom-port music service and SB16 refill-side pull requests have an explicit
   source-level contract; the older `VIBE_AUDIO_PCM_BUFFERED_BYTES` query remains
@@ -239,6 +244,9 @@ than once, so a single static music carrier cannot satisfy the audio proof.
 It also requires `musicrend=` renderer provenance to show MUS/MIDI format,
 rendered chunks, note events, total render events, active renderer voice peak,
 and emitted samples; a music flag plus carrier PCM cannot satisfy that lane.
+The parser-side stats separately prove that a real MUS score end was seen when
+the test fixture uses event type 6, and that the old type-5 shortcut is an
+invalid event that produces no stream payload.
 The rendered-sample delta must also cover the kernel-visible `musicpos=` delta,
 so a stream service proof cannot advance by submitting empty or silent chunks
 that the mixer never had enough parser-backed payload to consume.

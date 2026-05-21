@@ -213,6 +213,29 @@ class PlayNowRemotePreflightTests(unittest.TestCase):
 
         self.assertIn("host CPUs: 2", rendered)
         self.assertIn("performance caveat: 2-core hosts can play Doom", rendered)
+        self.assertIn("choose a 4-core+ Codespace", rendered)
+
+    def test_render_report_marks_four_core_hosts_as_preferred(self):
+        report = check_play_now_remote.PreflightReport(
+            platform_name="Linux",
+            cpu_count=4,
+            novnc_port=6080,
+            vnc_display=1,
+            vnc_port=5901,
+            required_tools=tuple(
+                check_play_now_remote.ToolStatus(name=name, path=f"/usr/bin/{name}")
+                for name in check_play_now_remote.REQUIRED_TOOLS
+            ),
+            novnc=check_play_now_remote.NovncStatus(
+                websockify="/usr/bin/websockify",
+                web_root=Path("/usr/share/novnc"),
+            ),
+        )
+
+        rendered = check_play_now_remote.render_report(report)
+
+        self.assertIn("host CPUs: 4", rendered)
+        self.assertIn("4-core+ host detected", rendered)
 
     def test_require_novnc_fails_before_play_when_browser_proxy_is_missing(self):
         stdout = io.StringIO()

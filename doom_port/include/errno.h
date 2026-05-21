@@ -10,9 +10,11 @@ extern int errno;
 #define ECHILD 10
 #define ENOMEM 12
 #define EACCES 13
+#define EISDIR 21
 #define EINVAL 22
 #define EMFILE 24
 #define ENOTTY 25
+#define ENOSPC 28
 #define ENOSYS 38
 #define EOVERFLOW 75
 

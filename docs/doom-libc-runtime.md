@@ -70,6 +70,12 @@ Generic tools can rely on stdio write buffering being drained by either
 runtime-readiness test keeps that behavior covered separately from Doom's save
 and defaults paths.
 
+Small non-Doom tools can also use `vibe_file_size` and `vibe_file_read_all` for
+bounded whole-file reads. These helpers are still descriptor-backed and report
+normal `errno` values: directories are rejected as `EISDIR`, undersized caller
+buffers return `ENOSPC` after reporting the needed size, and kernel-classified
+file failures preserve the underlying errno.
+
 ## Memory, Device, And Process ABI
 
 The libc allocator is a small first-fit heap over `SYS_SBRK`. Allocations are
@@ -92,6 +98,9 @@ VMA table. `munmap()` validates the supplied user range, punches validation
 holes for non-tail ranges, and moves `brk` back for tail releases.
 File-backed mappings, `MAP_FIXED`, and shared mappings are rejected before libc
 enters the kernel.
+`vibe_heap_capabilities`, `vibe_vm_capabilities`, and `vibe_mmap_anon` make that
+limited model explicit for ports that need to choose between arena allocation,
+anonymous scratch memory, and unsupported file-backed mapping paths.
 
 Display device control is exposed through `ioctl(VIBE_DISPLAY_FD, ...)`.
 `VIBE_IOCTL_FBINFO` fills a `vibe_fb_info_t` with the active framebuffer
@@ -100,6 +109,9 @@ and dirty-source fields. `VIBE_IOCTL_PRESENT_INDEXED` accepts a
 `vibe_present_indexed_t` describing a 320x200 indexed frame plus 256-entry RGB
 palette. Doom's `I_FinishUpdate` now uses this ioctl path while the older
 `SYS_PRESENT` remains available for the low-level probe.
+Generic ports should call `vibe_fb_get_info` and then
+`vibe_present_indexed_checked` when they want libc to reject unsupported formats
+or oversized sources before entering the present ioctl.
 
 `execv()` passes a bounded `argv` vector through the syscall ABI. Doom and the
 boot probe keep table-backed launch entries, and other root-level FAT16 `.ELF`

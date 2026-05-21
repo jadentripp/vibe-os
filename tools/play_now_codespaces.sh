@@ -120,6 +120,7 @@ ssh_permission_error() {
 
 print_codespace_cleanup_commands() {
   echo "Remote log: gh codespace ssh -c \"$CODESPACE_NAME\" -- tail -f /tmp/vibe-os-play-now.log"
+  echo "Diagnostics: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh"
   echo "Stop play-now: gh codespace ssh -c \"$CODESPACE_NAME\" -- 'if [ -s /tmp/vibe-os-play-now.pid ]; then kill \"\$(cat /tmp/vibe-os-play-now.pid)\"; fi'"
   echo "Delete when done: gh codespace delete -c \"$CODESPACE_NAME\" --force"
   echo "Browser cleanup: GitHub repo > Code > Codespaces > ... > Delete"
@@ -773,6 +774,7 @@ novnc_url="$(novnc_url_from_browse_url "$novnc_browse_url")"
 echo "Open Doom noVNC: $novnc_url"
 echo "Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu."
 echo "Performance note: default 2-core Codespaces can play Doom, but noVNC may stutter during builds or CPU contention."
+echo "Slowdown check: run the Diagnostics command above; it prints only safe process/load and OS status-log lines."
 if [ "$OPEN_BROWSER" = "1" ] && [ "$(uname -s)" = "Darwin" ] && command -v open >/dev/null 2>&1; then
   open "$novnc_url" || true
 fi

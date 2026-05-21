@@ -208,10 +208,24 @@ def render_report(report: PreflightReport) -> str:
         lines.append(f"  web root: {report.novnc.web_root or 'missing'}")
         lines.append("  browser proxy: unavailable; use an SSH VNC tunnel")
 
-    if report.cpu_count is not None and report.cpu_count <= 2:
+    if report.cpu_count is None:
+        lines.append(
+            "performance note: 4+ host CPUs are recommended for smoother "
+            "QEMU/noVNC play"
+        )
+    elif report.cpu_count <= 2:
         lines.append(
             "performance caveat: 2-core hosts can play Doom but may stutter "
             "while QEMU, noVNC, and builds share CPU"
+        )
+        lines.append(
+            "performance note: choose a 4-core+ Codespace when available for "
+            "smoother human playtests"
+        )
+    elif report.cpu_count >= 4:
+        lines.append(
+            "performance note: 4-core+ host detected; this is the preferred "
+            "shape for smoother human playtests"
         )
 
     lines.append("dry-run: QEMU was not launched")

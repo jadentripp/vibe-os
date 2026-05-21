@@ -861,6 +861,37 @@ class DoomPersistenceImageTests(unittest.TestCase):
                 require_save_slots=[0],
             )
 
+    def test_checker_rejects_load_done_before_post_load_gameplay_tick(self):
+        save_payload = doom_save_payload("EARLY DONE")
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        after_write = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(after_write)
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], save_payload)
+
+        baseline_path = self.write_temp_image(baseline)
+        write_path = self.write_temp_image(after_write)
+        reboot_path = self.write_temp_image(bytearray(after_write))
+        status_path = self.write_temp_text(save_write_status(slot=0))
+        early_done_path = self.write_temp_text(
+            load_status(
+                slot=0,
+                read_bytes=len(save_payload),
+                leveltime=80,
+                saveact="00000060/00000003/00000000/0000003A",
+            )
+        )
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "post-load gameplay tick"):
+            check_persistence.validate_image(
+                reboot_path,
+                baseline_image=baseline_path,
+                reboot_baseline_image=write_path,
+                reboot_status_path=early_done_path,
+                save_write_status_path=status_path,
+                load_status_path=early_done_path,
+                require_save_slots=[0],
+            )
+
     def test_checker_rejects_blind_save_load_status_without_stream_offsets(self):
         save_payload = doom_save_payload("BLIND LOAD")
         baseline = bytearray((BUILD / "disk.img").read_bytes())
