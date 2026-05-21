@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 import platform
@@ -359,6 +360,91 @@ def render_report(report: PreflightReport) -> str:
     return "\n".join(lines) + "\n"
 
 
+def report_to_json(report: PreflightReport) -> dict[str, object]:
+    """Return a stable machine-readable preflight report."""
+
+    warnings: list[str] = []
+    recommendations: list[str] = []
+    if report.cpu_count is None:
+        shape = "unknown"
+        recommendations.append(
+            "Use a 4+ CPU Codespace or disposable cloud VM for smoother long sessions."
+        )
+    elif report.cpu_count <= 2:
+        shape = "two-core"
+        warnings.append(
+            "2-core hosts can play Doom but may stutter while QEMU, noVNC, and builds share CPU."
+        )
+        recommendations.append(
+            "Prefer a 4+ CPU Codespace for longer human playtests."
+        )
+    elif report.cpu_count >= 4:
+        shape = "preferred-4-plus-core"
+        recommendations.append(
+            "Host shape is preferred for interactive noVNC play."
+        )
+    else:
+        shape = "three-core"
+        recommendations.append(
+            "A 4+ CPU host is still preferred for longer human playtests."
+        )
+
+    load_average: dict[str, float] | None = None
+    load_per_cpu_1m: float | None = None
+    if report.load_average is not None:
+        one_minute, five_minute, fifteen_minute = report.load_average
+        load_average = {
+            "one_minute": round(one_minute, 2),
+            "five_minute": round(five_minute, 2),
+            "fifteen_minute": round(fifteen_minute, 2),
+        }
+        if report.cpu_count:
+            load_per_cpu_1m = round(one_minute / report.cpu_count, 2)
+            if one_minute >= report.cpu_count:
+                warnings.append(
+                    "Current 1m load is at/above available CPUs; noVNC/QEMU can degrade under sustained contention."
+                )
+                recommendations.append(
+                    "Compare status-only diagnostics snapshots during slowdown before changing OS runtime code."
+                )
+
+    return {
+        "schema": "vibe-os-play-now-preflight-v1",
+        "platform": report.platform_name,
+        "host_cpus": report.cpu_count,
+        "ports": {
+            "novnc": report.novnc_port,
+            "vnc_display": report.vnc_display,
+            "vnc": report.vnc_port,
+        },
+        "required_tools": {
+            tool.name: {"present": tool.present, "path": tool.path}
+            for tool in report.required_tools
+        },
+        "novnc": {
+            "available": report.novnc.available,
+            "websockify": report.novnc.websockify,
+            "web_root": str(report.novnc.web_root) if report.novnc.web_root else None,
+        },
+        "load_average": load_average,
+        "load_per_cpu_1m": load_per_cpu_1m,
+        "performance": {
+            "host_shape": shape,
+            "warnings": warnings,
+            "recommendations": recommendations,
+        },
+        "long_session_diagnostics": {
+            "text_command": "/tmp/vibe-os-play-now-diagnostics.sh",
+            "json_command": "/tmp/vibe-os-play-now-diagnostics.sh --json",
+            "safe_artifacts_only": True,
+        },
+        "dry_run": {
+            "qemu_launched": False,
+            "local_artifacts_copied": False,
+        },
+    }
+
+
 def main(
     argv: list[str] | None = None,
     *,
@@ -368,6 +454,9 @@ def main(
     platform_name: str | None = None,
     which: Callable[[str], str | None] = shutil.which,
     path_is_dir: Callable[[Path], bool] = Path.is_dir,
+    cpu_count_provider: Callable[[], int | None] = os.cpu_count,
+    cgroup_root: Path = CGROUP_ROOT,
+    load_average_provider: Callable[[], tuple[float, float, float]] | None = None,
 ) -> int:
     parser = argparse.ArgumentParser(
         description="Dry-run preflight for the remote vibe-os Doom play path."
@@ -376,6 +465,11 @@ def main(
         "--require-novnc",
         action="store_true",
         help="fail unless websockify and a noVNC web root are available",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit a machine-readable preflight report",
     )
     args = parser.parse_args(argv)
 
@@ -386,13 +480,19 @@ def main(
             which=which,
             path_is_dir=path_is_dir,
             require_novnc=args.require_novnc,
+            cpu_count_provider=cpu_count_provider,
+            cgroup_root=cgroup_root,
+            load_average_provider=load_average_provider,
         )
     except PreflightError as exc:
         print(f"play-now remote preflight failed: {exc}", file=stderr)
         print("dry-run: QEMU was not launched", file=stderr)
         return 1
 
-    stdout.write(render_report(report))
+    if args.json:
+        stdout.write(json.dumps(report_to_json(report), indent=2, sort_keys=True) + "\n")
+    else:
+        stdout.write(render_report(report))
     return 0
 
 

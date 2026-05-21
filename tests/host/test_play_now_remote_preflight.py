@@ -1,5 +1,7 @@
 import io
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -137,6 +139,44 @@ class PlayNowRemotePreflightTests(unittest.TestCase):
         self.assertIn("browser proxy: available", stdout.getvalue())
         self.assertIn("dry-run: QEMU was not launched", stdout.getvalue())
         self.assertIn("qemu-system-x86_64", looked_up)
+        self.assertEqual(stderr.getvalue(), "")
+
+    def test_json_success_reports_machine_readable_playability_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cgroup = Path(tmp)
+            (cgroup / "cpu.max").write_text("200000 100000\n")
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            rc = check_play_now_remote.main(
+                ["--require-novnc", "--json"],
+                env={"NOVNC_PORT": "6173", "VNC_DISPLAY": "2"},
+                platform_name="Linux",
+                which=lambda name: fake_tool_path(name),
+                path_is_dir=lambda path: path == Path("/usr/share/novnc"),
+                cpu_count_provider=lambda: 16,
+                cgroup_root=cgroup,
+                load_average_provider=lambda: (2.5, 2.0, 1.5),
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+        self.assertEqual(rc, 0, stderr.getvalue())
+        report = json.loads(stdout.getvalue())
+        self.assertEqual(report["schema"], "vibe-os-play-now-preflight-v1")
+        self.assertEqual(report["host_cpus"], 2)
+        self.assertEqual(report["ports"]["novnc"], 6173)
+        self.assertEqual(report["ports"]["vnc_display"], 2)
+        self.assertEqual(report["ports"]["vnc"], 5902)
+        self.assertTrue(report["novnc"]["available"])
+        self.assertEqual(report["load_average"]["one_minute"], 2.5)
+        self.assertEqual(report["load_per_cpu_1m"], 1.25)
+        self.assertEqual(report["performance"]["host_shape"], "two-core")
+        self.assertTrue(report["performance"]["warnings"])
+        self.assertEqual(
+            report["long_session_diagnostics"]["json_command"],
+            "/tmp/vibe-os-play-now-diagnostics.sh --json",
+        )
+        self.assertFalse(report["dry_run"]["qemu_launched"])
         self.assertEqual(stderr.getvalue(), "")
 
     def test_success_uses_alternate_novnc_web_root_when_present(self):

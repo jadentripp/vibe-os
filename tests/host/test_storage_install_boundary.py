@@ -141,6 +141,27 @@ class StorageInstallBoundaryTests(unittest.TestCase):
                 self.assertTrue(region["matches_installed_region"])
                 self.assertGreater(region["padded_zero_bytes"], 0)
                 self.assertEqual(len(region["sha256"]), 64)
+        construction = manifest["bootable_image_construction"]
+        self.assertEqual(construction["schema"], "vibe-os-bootable-image-construction-v1")
+        self.assertEqual(
+            construction["output_kind"],
+            "fixed-size raw BIOS MBR disk image with FAT16 partition",
+        )
+        self.assertFalse(construction["qemu_executed_by_checker"])
+        self.assertEqual(construction["image_size"], manifest["image_size"])
+        self.assertEqual(
+            {entry["component"] for entry in construction["boot_flow"]},
+            {"stage1-mbr", "stage2", "kernel", "fat16-payload"},
+        )
+        self.assertEqual(
+            {entry["name"] for entry in construction["declared_write_ranges"]},
+            {"mbr-stage1-partition-table", "stage2", "kernel", "fat16-partition"},
+        )
+        self.assertIn("arbitrary existing disks", construction["unsupported_targets"])
+        self.assertEqual(
+            construction["claim_boundary"],
+            "fixed-raw-bootable-image-construction-only; not arbitrary-device-installer",
+        )
         self.assertEqual(
             manifest["fat16"]["packaged_asset_count"],
             len(check_storage_install_boundary.load_make_wad_image().PACKAGED_ASSET_FILES),
@@ -175,6 +196,53 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         filesystem_paths = {entry["path"] for entry in manifest["filesystem_entries"]}
         self.assertIn("/ASSETS", filesystem_paths)
         self.assertIn("/ASSETS/MAPS/E1M1.MAP", filesystem_paths)
+        self.assertEqual(manifest["fat16"]["filesystem_max_depth"], 3)
+        self.assertEqual(manifest["fat16"]["kernel_syscall_max_file_depth"], 2)
+        fat_vfs = manifest["fat_vfs_boundary"]
+        self.assertEqual(fat_vfs["schema"], "vibe-os-fat-vfs-boundary-v1")
+        self.assertTrue(fat_vfs["host_checked"])
+        self.assertEqual(
+            fat_vfs["kernel_syscall_surface"]["supported_path_contract"],
+            "root 8.3 plus read-only one-level subdirectory",
+        )
+        self.assertEqual(
+            fat_vfs["kernel_syscall_surface"]["root_normalization"]["normalized_path"],
+            "/README.TXT",
+        )
+        self.assertTrue(
+            fat_vfs["kernel_syscall_surface"]["root_normalization"]["all_samples_match"]
+        )
+        self.assertEqual(
+            fat_vfs["kernel_syscall_surface"]["one_level_subdirectory_normalization"]["normalized_path"],
+            "/ASSETS/README.TXT",
+        )
+        self.assertFalse(fat_vfs["kernel_syscall_surface"]["nested_traversal_supported"])
+        self.assertFalse(fat_vfs["kernel_syscall_surface"]["writable_subdirectories_supported"])
+        self.assertFalse(fat_vfs["kernel_syscall_surface"]["long_filenames_supported"])
+        self.assertEqual(
+            {
+                entry["operation"]
+                for entry in fat_vfs["read_only_one_level_subdirectory"]["mutation_refusals"]
+            },
+            {"write", "create", "truncate", "unlink"},
+        )
+        self.assertEqual(
+            fat_vfs["read_only_one_level_subdirectory"]["path"],
+            "/ASSETS/README.TXT",
+        )
+        self.assertEqual(
+            {
+                entry["path"]
+                for entry in fat_vfs["host_image_inventory"]["nested_packaged_entries"]
+            },
+            {"/ASSETS/MAPS/E1M1.MAP", "/ASSETS/TEXTURES/PAL0.BIN"},
+        )
+        self.assertTrue(
+            all(
+                entry["kernel_syscall_claim"] == "unsupported-nested-traversal"
+                for entry in fat_vfs["host_image_inventory"]["nested_packaged_entries"]
+            )
+        )
         self.assertEqual(
             manifest["claim_boundary"],
             "generated-image-layout-only; not arbitrary-disk-install-proof",
@@ -263,6 +331,21 @@ class StorageInstallBoundaryTests(unittest.TestCase):
             proof["claim_boundary"],
             "blank-image-host-install-only; not arbitrary-disk-install-proof",
         )
+        construction = proof["bootable_image_construction"]
+        self.assertEqual(construction["schema"], "vibe-os-bootable-image-construction-v1")
+        self.assertFalse(construction["qemu_executed_by_checker"])
+        self.assertEqual(
+            {entry["role"] for entry in construction["source_artifact_roles"]},
+            {
+                "stage1",
+                "stage2",
+                "kernel",
+                "user-probe-elf",
+                "doom-elf",
+                "extra-root-elf",
+            },
+        )
+        self.assertIn("damaged-media repair", construction["unsupported_targets"])
 
         structural = proof["structural_boot_proof"]
         self.assertFalse(structural["qemu_executed"])

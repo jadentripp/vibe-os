@@ -167,6 +167,71 @@ int vibe_user_mmap_anon(void** out, unsigned long length, unsigned long prot)
         VIBE_USER_MAP_PRIVATE | VIBE_USER_MAP_ANONYMOUS);
 }
 
+int vibe_user_mmap_file(
+    void** out,
+    unsigned long length,
+    unsigned long prot,
+    unsigned long flags,
+    int fd,
+    long offset)
+{
+    void* mapped = 0;
+    unsigned long copied = 0;
+    unsigned long chunk;
+    unsigned long request_offset;
+    int result;
+
+    if (!out)
+        return -22;
+    *out = 0;
+    if (!length || fd < 0 || offset < 0)
+        return -22;
+    if (!prot || (prot & ~(VIBE_USER_PROT_READ | VIBE_USER_PROT_WRITE | VIBE_USER_PROT_EXEC)))
+        return -22;
+    if (flags != VIBE_USER_MAP_PRIVATE)
+        return -22;
+
+    result = vibe_user_mmap_anon(out, length, prot);
+    if (result < 0)
+        return result;
+
+    mapped = *out;
+    while (copied < length) {
+        if (copied > (unsigned long)((long)((~0ul) >> 1)) - (unsigned long)offset) {
+            (void)vibe_user_munmap(mapped, length);
+            *out = 0;
+            return -22;
+        }
+
+        chunk = length - copied;
+        if (chunk > 0x7ffffffful)
+            chunk = 0x7ffffffful;
+        request_offset = (unsigned long)offset + copied;
+
+        result = vibe_user_pread(
+            fd,
+            (unsigned char*)mapped + copied,
+            chunk,
+            (long)request_offset);
+        if (result < 0) {
+            (void)vibe_user_munmap(mapped, length);
+            *out = 0;
+            return result;
+        }
+        if (result == 0)
+            break;
+
+        copied += (unsigned long)result;
+    }
+
+    return 0;
+}
+
+int vibe_user_mmap_file_private(void** out, unsigned long length, unsigned long prot, int fd, long offset)
+{
+    return vibe_user_mmap_file(out, length, prot, VIBE_USER_MAP_PRIVATE, fd, offset);
+}
+
 int vibe_user_munmap(void* addr, unsigned long length)
 {
     if (!addr || !length)
@@ -184,7 +249,8 @@ unsigned long vibe_user_vm_capabilities(void)
     return VIBE_VM_CAP_ANON_PRIVATE
         | VIBE_VM_CAP_BRK_BACKED
         | VIBE_VM_CAP_TAIL_MUNMAP_RECLAIM
-        | VIBE_VM_CAP_NONTAIL_MUNMAP_HOLES;
+        | VIBE_VM_CAP_NONTAIL_MUNMAP_HOLES
+        | VIBE_USER_VM_CAP_FILE_PRIVATE_COPY;
 }
 
 int vibe_user_clock_monotonic(vibe_clock_time_t* out)

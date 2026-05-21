@@ -17,6 +17,7 @@ longer human playtests.
 
 If play slows down, open a second Codespaces terminal and run:
   /tmp/vibe-os-play-now-diagnostics.sh
+  /tmp/vibe-os-play-now-diagnostics.sh --json
 
 That helper prints process/load and filtered OS status-log lines only; it does
 not dump environment variables.

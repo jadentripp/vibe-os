@@ -19,9 +19,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 KERNEL_HIGHER_HALF_BASE = 0xC0000000
 KERNEL_LOW_LINK_BASE = 0x00010000
+KERNEL_HIGH_LINK_BASE = KERNEL_HIGHER_HALF_BASE + KERNEL_LOW_LINK_BASE
 KERNEL_ELF_MAX_BYTES = 0x00018000
 KERNEL_STACK_LOW = 0x00060000
 KERNEL_STACK_TOP = 0x00070000
+KERNEL_HIGH_STACK_LOW = KERNEL_HIGHER_HALF_BASE + KERNEL_STACK_LOW
+KERNEL_HIGH_STACK_TOP = KERNEL_HIGHER_HALF_BASE + KERNEL_STACK_TOP
 PAGING_DIR_ADDR = 0x00090000
 PMM_MANAGED_START = 0x00100000
 PMM_MANAGED_END = 0x02000000
@@ -252,32 +255,96 @@ def validate_vm_mapping(fields: dict[str, str]) -> None:
 
 def validate_kernel_relocation_scaffold(fields: dict[str, str]) -> None:
     status = _field(fields, "kreloc")
-    if status == "OK":
-        raise AssertionError("kreloc=OK is reserved for running-kernel non-identity execution")
-    if status != "LOW":
-        raise AssertionError(f"kreloc= must be LOW until the running kernel is relocated, got {status}")
-
     eip = _hex(fields, "kerneip")
     esp = _hex(fields, "kernesp")
     cr3 = _hex(fields, "kerncr3")
     virt = _hex(fields, "kernvirt")
     phys = _hex(fields, "kernphys")
 
-    _in_range(
-        eip,
-        KERNEL_LOW_LINK_BASE,
-        KERNEL_LOW_LINK_BASE + KERNEL_ELF_MAX_BYTES,
-        "kerneip",
-    )
-    _in_range(esp, KERNEL_STACK_LOW, KERNEL_STACK_TOP, "kernesp")
-    if cr3 != PAGING_DIR_ADDR:
-        raise AssertionError(f"kerncr3= must be the low kernel page directory, got {cr3:#x}")
-    if virt != KERNEL_LOW_LINK_BASE:
-        raise AssertionError(f"kernvirt= must be the low linked kernel entry, got {virt:#x}")
-    if phys != virt:
-        raise AssertionError("kernphys= must match kernvirt= while kreloc=LOW")
-    if eip >= KERNEL_HIGHER_HALF_BASE or esp >= KERNEL_HIGHER_HALF_BASE:
-        raise AssertionError("kreloc=LOW cannot report higher-half kernel EIP or ESP")
+    if status == "LOW":
+        _in_range(
+            eip,
+            KERNEL_LOW_LINK_BASE,
+            KERNEL_LOW_LINK_BASE + KERNEL_ELF_MAX_BYTES,
+            "kerneip",
+        )
+        _in_range(esp, KERNEL_STACK_LOW, KERNEL_STACK_TOP, "kernesp")
+        if cr3 != PAGING_DIR_ADDR:
+            raise AssertionError(f"kerncr3= must be the low kernel page directory, got {cr3:#x}")
+        if virt != KERNEL_LOW_LINK_BASE:
+            raise AssertionError(f"kernvirt= must be the low linked kernel entry, got {virt:#x}")
+        if phys != virt:
+            raise AssertionError("kernphys= must match kernvirt= while kreloc=LOW")
+        if eip >= KERNEL_HIGHER_HALF_BASE or esp >= KERNEL_HIGHER_HALF_BASE:
+            raise AssertionError("kreloc=LOW cannot report higher-half kernel EIP or ESP")
+        validate_kernel_high_alias(fields, expected_vaddr=KERNEL_HIGHER_HALF_BASE + virt, expected_phys=phys)
+        return
+
+    if status == "OK":
+        _in_range(
+            eip,
+            KERNEL_HIGH_LINK_BASE,
+            KERNEL_HIGH_LINK_BASE + KERNEL_ELF_MAX_BYTES,
+            "kerneip",
+        )
+        _in_range(esp, KERNEL_HIGH_STACK_LOW, KERNEL_HIGH_STACK_TOP, "kernesp")
+        _managed_frame(cr3, "kerncr3")
+        if cr3 == PAGING_DIR_ADDR:
+            raise AssertionError("kerncr3= must not be the low bootstrap page directory for kreloc=OK")
+        if virt != KERNEL_HIGH_LINK_BASE:
+            raise AssertionError(f"kernvirt= must be the higher-half kernel entry, got {virt:#x}")
+        _page_aligned(phys, "kernphys")
+        if phys >= KERNEL_HIGHER_HALF_BASE:
+            raise AssertionError("kernphys= must remain a physical frame, not a higher-half virtual address")
+        if phys == virt:
+            raise AssertionError("kernphys= must be non-identity when kreloc=OK")
+        validate_kernel_high_alias(fields, expected_vaddr=virt, expected_phys=phys)
+        return
+
+    raise AssertionError(f"kreloc= must be LOW or OK, got {status}")
+
+
+def validate_kernel_high_alias(
+    fields: dict[str, str],
+    *,
+    expected_vaddr: int,
+    expected_phys: int,
+) -> None:
+    _exact(fields, "kmap", "OK")
+
+    alias_vaddr = _hex(fields, "kmapva")
+    alias_phys = _hex(fields, "kmappa")
+    alias_table = _hex(fields, "kmappt")
+    alias_reclaimed = _hex(fields, "kmapfree")
+    low_word = _hex(fields, "kmaplo")
+    high_word = _hex(fields, "kmaphi")
+
+    _page_aligned(alias_vaddr, "kmapva")
+    _page_aligned(alias_phys, "kmappa")
+    if alias_vaddr != expected_vaddr:
+        raise AssertionError(
+            f"kmapva= must be the higher-half alias of the kernel entry page, got {alias_vaddr:#x}"
+        )
+    if alias_vaddr < KERNEL_HIGHER_HALF_BASE:
+        raise AssertionError(f"kmapva= must be in the higher half, got {alias_vaddr:#x}")
+    if alias_phys >= KERNEL_HIGHER_HALF_BASE:
+        raise AssertionError("kmappa= must be a physical frame, not a higher-half virtual address")
+    if alias_phys != expected_phys:
+        raise AssertionError(
+            f"kmappa= must match the kernel entry physical page {expected_phys:#x}, got {alias_phys:#x}"
+        )
+    if alias_phys == alias_vaddr:
+        raise AssertionError("kmapva= and kmappa= must prove a non-identity kernel text alias")
+    _managed_frame(alias_table, "kmappt")
+    _managed_frame(alias_reclaimed, "kmapfree")
+    if alias_table == alias_phys:
+        raise AssertionError("kmappt= must be distinct from the aliased kernel text frame")
+    if alias_reclaimed != alias_table:
+        raise AssertionError("kmapfree= must match kmappt= to prove kernel-alias page-table reclaim")
+    if low_word == 0:
+        raise AssertionError("kmaplo= must record nonzero bytes read from the low kernel entry")
+    if high_word != low_word:
+        raise AssertionError("kmaphi= must match kmaplo= after reading the higher-half kernel alias")
 
 
 def validate_exec(fields: dict[str, str]) -> None:
@@ -612,6 +679,13 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         _require(text, "kerncr3=", label)
         _require(text, "kernvirt=", label)
         _require(text, "kernphys=", label)
+        _require(text, "kmap=OK", label)
+        _require(text, "kmapva=", label)
+        _require(text, "kmappa=", label)
+        _require(text, "kmappt=", label)
+        _require(text, "kmapfree=", label)
+        _require(text, "kmaplo=", label)
+        _require(text, "kmaphi=", label)
         _require(text, "vmmhfree", label)
         _require(text, "uexec=OK", label)
         _require(text, "upath=USERPROB.ELF", label)

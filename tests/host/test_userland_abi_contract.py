@@ -22,6 +22,7 @@ class UserlandAbiContractTests(unittest.TestCase):
             result.stdout + result.stderr,
         )
         self.assertIn("Userland ABI contract OK", result.stdout)
+        self.assertIn("copy-backed file-private mmap", result.stdout)
 
 
 if __name__ == "__main__":

@@ -86,9 +86,13 @@ frame reclaimed after unmap. The kernel also records the relocation scaffold as
 `kernphys=`. Today those fields prove the opposite of relocation: the current
 kernel instruction pointer and stack are still low, `kerncr3=00090000` names the
 low kernel page directory, and `kernvirt=00010000` matches `kernphys=00010000`.
-This proves the mapper can build high, non-identity kernel mappings after PMM is
-online and gives future relocation checks stable fields to tighten, but it does
-not relocate the running kernel yet.
+The next-step kernel-text alias is separate: `kmap=OK`, `kmapva=`, `kmappa=`,
+`kmappt=`, `kmapfree=`, `kmaplo=`, and `kmaphi=` prove the VMM can temporarily
+map the current low kernel entry page at its higher-half alias, read matching
+nonzero bytes through the low and high addresses, and reclaim the dynamic page
+table after unmap. That proves the mapper can build high, non-identity kernel
+mappings after PMM is online and gives future relocation checks stable fields to
+tighten, but it does not relocate the running kernel yet.
 
 The status proof is now executable. `tools/check_vm_status_proof.py
 --require-exec status.txt` requires that `vmmhfree` match the reclaimed dynamic
@@ -114,7 +118,10 @@ dynamic high-alias self-test above with a low-identity relocation scaffold and
 process page-directory proof: `vmmhi=OK` shows `VMM_HIGH_TEST_VADDR` at
 `0xc0000000` can be mapped to a distinct PMM-managed frame and then unmapped,
 `kreloc=LOW` plus `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and
-`kernphys=` make the current running-kernel identity state machine-readable, and
+`kernphys=` make the current running-kernel identity state machine-readable,
+`kmap=OK` plus `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, and
+`kmaphi=` prove the current kernel entry page can be aliased high without being
+executed there, and
 `pcr3=`/`pkstk=` show process switches across distinct page directories and
 low-memory kernel stacks. That is useful preparation, but `vmmhi=OK` is not a
 kernel relocation claim and `kreloc=LOW` is explicitly the non-relocated state.
@@ -123,13 +130,13 @@ kernel relocation claim and `kreloc=LOW` is explicitly the non-relocated state.
 is still linked at `0x00010000`, loaded by Stage 2 as an ELF32 image from low
 physical memory, and entered through the low ELF entry. Paging then loads
 `PAGING_DIR_ADDR` into `CR3` and keeps the first 32 MiB identity mapped. The host
-contract therefore reserves `kreloc=OK` for a future milestone that proves the
+contract therefore treats `kreloc=OK` as a future milestone that must prove the
 kernel is executing from higher-half virtual addresses with non-identity backing.
-That future proof needs `kreloc=OK` status evidence in the existing `kerneip=`,
-`kernesp=`, `kerncr3=`, `kernvirt=`, and `kernphys=` fields so host checks can
-distinguish a real relocated instruction pointer, stack, active page directory,
-and physical backing from both the current low-identity scaffold and the
-one-page high alias.
+That future proof needs `kreloc=OK` status evidence in `kerneip=`, `kernesp=`,
+`kerncr3=`, `kernvirt=`, and `kernphys=` plus the `kmap=OK` alias fields above
+so host checks can distinguish a real relocated instruction pointer, stack,
+active page directory, and physical backing from both the current low-identity
+scaffold and the one-page high aliases.
 
 The checker treats preemption as a live-user-workload proof. The generated-WAD
 OS smoke intentionally runs `tools/check_vm_status_proof.py --require-exec`
@@ -454,8 +461,12 @@ accounting. The current runtime proof is a high-half non-identity self-test at
 `0xc0000000`. The status line exposes that proof as `vmmhi=OK`, `vmmhva=`,
 `vmmhpa=`, `vmmhpt=`, and `vmmhfree=`: the high virtual alias, the distinct PMM
 frame touched through it, the dynamic page-table frame, and the same page-table
-frame after `vmm_unmap_page` reclaims it. Process page directories are still
-preallocated and cloned from the boot kernel map.
+frame after `vmm_unmap_page` reclaims it. The kernel-entry alias proof is
+`kmap=OK` with `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, and
+`kmaphi=`: the higher-half alias of the current kernel entry page, its low
+physical backing, the dynamic alias page table, the reclaimed page table, and
+matching nonzero words read from low and high addresses. Process page directories
+are still preallocated and cloned from the boot kernel map.
 
 `tools/check_vm_status_proof.py` is the cloud status ratchet for this layer. It
 rejects status artifacts unless `vmmhfree` equals the dynamic `vmmhpt` frame,
@@ -478,23 +489,29 @@ slot number is not enough to prove preemption after exec.
 ## Higher-Half Relocation Gap
 
 `KERNEL_RELOCATION_GAP[current]=high-alias-only`. The VM/process proof currently
-has three separate pieces: `vmmhi=OK` proves a temporary high virtual alias
+has four separate pieces: `vmmhi=OK` proves a temporary high virtual alias
 backed by a distinct PMM-managed frame, `kreloc=LOW` with `kerneip=`,
 `kernesp=`, `kerncr3=`, `kernvirt=`, and `kernphys=` proves the running kernel is
-still on the low identity contract, and process status fields such as `pcr3=`,
-`pkstk=`, `pfrom=`, and `pto=` prove user process switches across distinct page
-directories and kernel stacks. Those fields do not prove that kernel text,
-kernel data, the active kernel stack, or the interrupt/return path are executing
-from non-identity higher-half addresses.
+still on the low identity contract, `kmap=OK` with `kmapva=`, `kmappa=`,
+`kmappt=`, `kmapfree=`, `kmaplo=`, and `kmaphi=` proves the current kernel entry
+page can be temporarily read through a higher-half alias with its page table
+reclaimed afterward, and process status fields such as `pcr3=`, `pkstk=`,
+`pfrom=`, and `pto=` prove user process switches across distinct page directories
+and kernel stacks. Those fields do not prove that kernel text, kernel data, the
+active kernel stack, or the interrupt/return path are executing from
+non-identity higher-half addresses.
 
 `vmmhi=OK` is not a kernel relocation claim.
+`kmap=OK` is not a kernel relocation claim.
 `kreloc=LOW` is not a relocation success claim.
 
 `KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity`. Until a future
 artifact reports `kreloc=OK` with host-checked `kerneip=`, `kernesp=`,
-`kerncr3=`, `kernvirt=`, and `kernphys=` evidence, the honest claim remains:
-the kernel can create a high alias after PMM is online, but the running kernel
-itself still lives on the low identity mapping.
+`kerncr3=`, `kernvirt=`, `kernphys=`, `kmap=OK`, `kmapva=`, `kmappa=`,
+`kmappt=`, `kmapfree=`, `kmaplo=`, and `kmaphi=` evidence, the honest claim
+remains: the kernel can create high aliases after PMM is online, including an
+alias of its current entry page, but the running kernel itself still lives on the
+low identity mapping.
 
 ## Current Address Spaces
 
@@ -631,7 +648,9 @@ heap are adjacent and the Doom heap grows up to the stack bottom.
   per-process user pages onto arbitrary PMM frames.
 - Running-kernel relocation is not implemented yet. The checked high-half proof
   is a temporary high alias plus process page-directory evidence, not
-  `kreloc=OK`; the missing milestone is a non-identity higher-half kernel
+  `kreloc=OK`; `kmap=OK`, `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`,
+  `kmaplo=`, and `kmaphi=` only prove a temporary high alias of the current
+  kernel entry page. The missing milestone is a non-identity higher-half kernel
   instruction pointer, stack, active page directory, and physical backing.
 - Timer IRQ preemption now has an end-to-end restore path for saved Ring 3
   interrupt frames: the scheduler can save the interrupted task, pick another
@@ -951,7 +970,7 @@ that must be added before claiming POSIX compatibility.
 | --- | --- | --- |
 | `fork` | `SYS_FORK` is wired through the syscall table and returns `-ENOSYS`; libc `fork()` preserves that errno and the user probe checks the classified result. | Address-space cloning, copy-on-write or eager page copies, parent/child return-value split, inherited signal state, and fork-time fd table cloning. |
 | fd duplication | Public `dup`, `dup2`, and `dup3` syscalls/libc wrappers create process-owned descriptors that share an open-file description root, including the current offset. `dup2(oldfd, oldfd)` returns the existing descriptor, `dup3(oldfd, oldfd, flags)` returns `EINVAL`, `dup3(..., O_CLOEXEC)` is closed by the next exec, and `fcntl(F_GETFD/F_SETFD)` exposes descriptor-level `FD_CLOEXEC` toggling for existing fds. | Fork-time descriptor table cloning, `fcntl(F_DUPFD*)`, dynamically growing fd tables, and per-process fd namespaces beyond the current bounded global slot pool. |
-| file-backed `mmap` | `mmap` is anonymous/private/brk-backed; `munmap` validates mapped heap ranges, reclaims tail pages, and records non-tail holes. | File-backed mappings, `MAP_SHARED`, `MAP_FIXED`, reusable VM object lifetime, VMA splitting/merging, and page-cache backed mappings. |
+| file-backed `mmap` | Kernel `mmap` is anonymous/private/brk-backed; `munmap` validates mapped heap ranges, reclaims tail pages, and records non-tail holes. `user/runtime.*` now provides copy-backed private fd+offset mappings by allocating anonymous pages and filling them with `pread`. | File-backed mappings, `MAP_SHARED`, `MAP_FIXED`, reusable VM object lifetime, VMA splitting/merging, page-cache backed mappings, writeback, and shared coherency. |
 | signals | User faults become kernel process status and wait-reapable abnormal exits; expected-fault recovery is a probe-only trap rewrite. | `signal`, `sigaction`, `kill`, signal masks, user handler trampolines, timer signals, and delivery across scheduler context switches. |
 | terminal/tty | Keyboard and mouse input use the typed input queue; display control uses `ioctl(VIBE_DISPLAY_FD, ...)`, with non-display ioctls classified as `ENOTTY`. | `termios`, `isatty`, controlling terminals, line discipline, process groups, job control, and `/dev/tty*` path/device semantics. |
 | dynamic process lifetimes | Generic exec uses a two-entry static probe-class pool, fresh PIDs, slot generations, teardown of stale mappings, and wait reaping for exited/faulted children. | Dynamically allocated process records, unbounded child slots, orphan reparenting, blocking wait queues, long-lived parent shells, and arbitrary address-space classes. |
@@ -1145,10 +1164,15 @@ yet" so future POSIX work has executable edges instead of vague TODOs:
   already-open fd without reopening the file. There is still no fork-time fd
   table cloning contract, `fcntl(F_DUPFD*)`, or dynamic per-process fd
   namespace.
-- VM allocation is anonymous/private and brk-backed. `mmap()` accepts only the
-  `MAP_PRIVATE | MAP_ANONYMOUS`, `fd == -1`, `offset == 0`, non-fixed path;
-  `MAP_FIXED`, `MAP_SHARED`, and file-backed mappings are rejected before a port
-  can accidentally depend on reusable VM object lifetime.
+- VM allocation is anonymous/private and brk-backed. The kernel `mmap()`
+  accepts only the `MAP_PRIVATE | MAP_ANONYMOUS`, `fd == -1`, `offset == 0`,
+  non-fixed path; `MAP_FIXED`, `MAP_SHARED`, and kernel file-backed VM objects are still unsupported
+  before a port can accidentally depend on reusable VM
+  object lifetime. The small user runtime now adds a copy-backed private file
+  mapping helper for fd+offset asset ranges: it allocates anonymous pages,
+  populates them with `pread`, preserves the descriptor offset, and tears the
+  mapping down if the read path fails. That is real generic userland support,
+  but it is not a shared page-cache or kernel VMA object.
 - POSIX signal delivery is absent. User faults are kernel trap/process-state
   events, not `SIGSEGV` or `sigaction`; there is no public `signal.h`, signal
   mask, `kill`, interval timer signal, or handler trampoline ABI.
@@ -1171,7 +1195,8 @@ minimal wrappers for the crt0-launched tool shape: write a complete string,
 perform brk-style heap grows/shrinks, read descriptors, seek descriptors,
 perform lseek-backed positioned reads, query `getpid`, observe the classified fork
 `ENOSYS` result, reap with `waitpid`, duplicate descriptors with
-`dup`/`dup2`/`dup3`, request anonymous/private mmap/munmap, query explicit
+`dup`/`dup2`/`dup3`, request anonymous/private mmap/munmap, build a
+copy-backed private file mapping from a descriptor and offset, query explicit
 heap/VM capability bits, query the monotonic clock, list a root directory,
 `execv` another root `.ELF`, and report a probe status word.
 
@@ -1271,9 +1296,20 @@ VMA table. `munmap()` validates the supplied user range, punches validation
 holes for non-tail ranges, and moves `brk` back for tail releases.
 File-backed mappings, `MAP_FIXED`, and shared mappings are rejected before libc
 enters the kernel.
-`vibe_heap_capabilities`, `vibe_vm_capabilities`, and `vibe_mmap_anon` make that
-limited model explicit for ports that need to choose between arena allocation,
-anonymous scratch memory, and unsupported file-backed mapping paths.
+
+The reusable small-user runtime has a narrower file-backed mmap milestone above
+that kernel ABI: `vibe_user_mmap_file(..., VIBE_USER_MAP_PRIVATE, fd, offset)`
+and `vibe_user_mmap_file_private` allocate anonymous pages, fill them with
+`vibe_user_pread`, preserve the caller's descriptor offset, leave any short
+read tail as zero-filled anonymous memory, and unmap on read failure. The
+capability bit `VIBE_USER_VM_CAP_FILE_PRIVATE_COPY` deliberately names this as
+copy-backed private file mapping. It lets freestanding tools and future game
+ports use fd+offset mapped asset ranges without baking in Doom WAD behavior,
+while still making clear that `MAP_FIXED`, `MAP_SHARED`, and kernel
+file-backed VM objects are still unsupported. `vibe_heap_capabilities`,
+`vibe_vm_capabilities`, and `vibe_mmap_anon` make that limited model explicit
+for ports that need to choose between arena allocation, anonymous scratch
+memory, copy-backed private file ranges, and unsupported shared mapping paths.
 
 Display device control is exposed through `ioctl(VIBE_DISPLAY_FD, ...)`.
 `VIBE_IOCTL_FBINFO` fills a `vibe_fb_info_t` with the active framebuffer
@@ -1404,6 +1440,8 @@ Reusable FAT16 syscall surface:
   subdirectory can be opened read-only. Nested traversal, writable
   subdirectories, long filenames, rename, timestamps, ownership, and
   delete-while-open semantics are outside the current syscall contract.
+  In checker vocabulary this is the root 8.3 plus read-only one-level
+  subdirectory contract.
 - Directory/file mismatches now use reusable errno classifications instead of
   Doom-shaped fallbacks: opening or unlinking a directory as a file returns
   `EISDIR`, while asking `vibe_listdir` to list an existing regular file
@@ -1435,6 +1473,9 @@ Current kernel contract:
   directories for future games/tools, and the host manifest reports their
   normalized paths, sizes, clusters, and SHA-256 hashes. Those nested files are
   host-proved image content, not a kernel nested-path syscall claim yet.
+  The host image inventory may walk deeper packaged trees than the kernel
+  syscall surface; the checker records those nested entries as unsupported
+  kernel traversal instead of promoting them into the userland VFS contract.
   Attempts to open one-level subdirectory files with write, create, truncate,
   or append flags return `EACCES`; descriptor `ftruncate` on the resulting
   read-only fd returns `EBADF`; `unlink` remains root-8.3-only and rejects
@@ -1635,7 +1676,15 @@ Storage install/recovery boundary:
   agreement, and cluster ownership. The manifest now includes an
   `artifact-integrity manifest` section that hashes the whole image, verifies
   the patched MBR/stage1 sector, and refuses raw Stage 2 or kernel bytes that
-  do not match the current repo build artifacts.
+  do not match the current repo build artifacts. It also includes a
+  `bootable-image-construction manifest` section that spells out the fixed raw
+  BIOS/MBR image construction from Stage 1, Stage 2, kernel, FAT16 payload, and
+  declared write ranges without implying an arbitrary-device installer. A
+  `fat-vfs-boundary manifest` section records the root/current-directory
+  normalization samples, the read-only `/ASSETS/README.TXT` one-level
+  subdirectory proof, mutation refusals below that directory, and the boundary
+  between host-recursive packaged-asset inventory and the narrower kernel
+  syscall surface.
   That manifest is intentionally scoped to `build/disk.img`.
 - `tools/check_storage_install_boundary.py --blank-install-proof --json`
   performs a host-only blank install proof from an in-memory all-zero image. It

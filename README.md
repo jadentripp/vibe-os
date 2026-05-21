@@ -31,12 +31,23 @@ workflow dispatch examples live in `docs/proof.md` rather than here.
 
 ## Working Model
 
-The repo stays on one integration lane, `main`, while implementation work is
-split across boot/process, FAT/storage, graphics/input, audio, libc/ABI, cloud
-play UX, docs, and proof checkers. Serious claims become executable contracts,
-`third_party/doom` stays pristine, VM execution happens in disposable cloud
-environments by default, and Doom-specific pressure is used to harden reusable
-OS interfaces instead of adding shortcuts.
+The repo stays on one integration lane, `main`. Work is split by subsystem:
+boot/process, VM, FAT/storage, graphics/input, audio, libc/ABI, cloud play UX,
+docs, and proof checkers. Larger slices are delegated to parallel agents with
+separate ownership boundaries, then merged through the same proof gates instead
+of through long-lived branches.
+
+The prompting strategy is intentionally mechanical: make a claim, turn it into a
+host or cloud checker, implement the smallest real OS subsystem that can satisfy
+that checker, and keep the failure artifacts honest. That is why the project has
+proof scripts for things like original Doom provenance, WAD hygiene, FAT
+mutation, Ring 3 exec, preemption, save/load persistence, audio continuity, and
+safe cloud play.
+
+Doom is the pressure test, not the excuse for shortcuts. Doom-specific needs are
+used to harden reusable interfaces: file descriptors and VFS, generic input
+events, clock syscalls, framebuffer ioctls, audio device/ring/stream contracts,
+process launch, VM, FAT mutation, and a freestanding libc.
 
 ## Try It Safely
 
@@ -92,21 +103,18 @@ existing partitions, or recover damaged user disks. See
 
 ## Project Shape
 
-The OS is intentionally Doom-first, but the subsystems are being built as
-general OS surfaces instead of one-off Doom hooks: file descriptors and VFS,
-generic input events, clock syscalls, framebuffer ioctls, audio device/ring/
-stream contracts, process launch, VM, FAT mutation, and a freestanding libc.
-
 Disk layout: LBA 0 is Stage 1 MBR and partition table. LBA 1-16: Stage 2
 bootloader. LBA 17-208: protected-mode kernel ELF image. LBA 2048+ is the
 FAT16 partition containing `DOOM1.WAD`, `USERPROB.ELF`, `ABIPROBE.ELF`,
 `DOOM.ELF`, writable Doom config/save files, and generated asset files.
 
-## Deeper Docs
+## Docs
 
-- `docs/architecture.md` is the technical contract: boot, VM/process, FAT,
-  libc/runtime, input, graphics, audio, hardware boundaries, and UEFI gaps.
-- `docs/proof.md` explains proof gates, evidence history, current gaps, and
-  the legitimacy roadmap.
-- `docs/play.md` covers Codespaces/noVNC testing and reviewed human sessions.
-- `docs/doom-provenance.md` documents source and WAD boundaries.
+There are only a few markdown files by design:
+
+- `docs/architecture.md`: boot, VM/process, FAT, libc/runtime, input, graphics,
+  audio, hardware boundaries, and UEFI gaps.
+- `docs/proof.md`: proof gates, evidence history, open gaps, and legitimacy
+  roadmap.
+- `docs/play.md`: Codespaces/noVNC testing and reviewed human sessions.
+- `docs/doom-provenance.md`: source and WAD boundaries.

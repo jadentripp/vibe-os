@@ -35,6 +35,8 @@ class UserRuntimeContractTests(unittest.TestCase):
             "int vibe_user_fcntl(int fd, int cmd, unsigned long arg);",
             "int vibe_user_mmap(void** out, unsigned long length, unsigned long prot, unsigned long flags);",
             "int vibe_user_mmap_anon(void** out, unsigned long length, unsigned long prot);",
+            "int vibe_user_mmap_file(",
+            "int vibe_user_mmap_file_private(void** out, unsigned long length, unsigned long prot, int fd, long offset);",
             "int vibe_user_munmap(void* addr, unsigned long length);",
             "unsigned long vibe_user_heap_capabilities(void);",
             "unsigned long vibe_user_vm_capabilities(void);",
@@ -54,6 +56,8 @@ class UserRuntimeContractTests(unittest.TestCase):
             "VIBE_SYS_WAITPID",
             "VIBE_SYS_MMAP",
             "VIBE_SYS_MUNMAP",
+            "vibe_user_mmap_file",
+            "vibe_user_pread",
             "VIBE_SYS_CLOCK_GETTIME",
             "VIBE_SYS_LISTDIR",
             "VIBE_SYS_READ",
@@ -78,6 +82,7 @@ class UserRuntimeContractTests(unittest.TestCase):
         self.assertIn("$(USER_RUNTIME_C_OBJ) $(USER_ABI_PROBE_C_OBJ)", makefile)
         self.assertIn("`user/runtime.h` and `user/runtime.c`", runtime_doc)
         self.assertIn("small non-Doom user programs", runtime_doc)
+        self.assertIn("copy-backed private file mapping", runtime_doc)
 
     def test_user_runtime_stays_inside_current_general_os_contract(self):
         header = (ROOT / "user" / "runtime.h").read_text()

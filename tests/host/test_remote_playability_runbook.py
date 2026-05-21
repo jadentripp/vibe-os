@@ -61,6 +61,13 @@ def valid_status(**overrides):
         "kerncr3": "00090000",
         "kernvirt": "00010000",
         "kernphys": "00010000",
+        "kmap": "OK",
+        "kmapva": "C0010000",
+        "kmappa": "00010000",
+        "kmappt": "00125000",
+        "kmapfree": "00125000",
+        "kmaplo": "10B866FA",
+        "kmaphi": "10B866FA",
         "vmmhi": "OK",
         "vmmhva": "C0000000",
         "vmmhpa": "00123000",
@@ -1081,6 +1088,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             "write_play_now_metadata",
             "cleanup_play_now_metadata",
             'if [ "$recorded_pid" = "$$" ]; then',
+            "vibe-os-play-now-diagnostics-v1",
+            '"primary_lane": lane',
             "status cadence summary (safe serial-log subset)",
             "remote-presentation-throughput-likely",
             "performance hint: 2-core hosts can stutter under QEMU/noVNC",
@@ -1093,6 +1102,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         self.assertIn("/tmp/vibe-os-play-now.novnc-port", play_now_doc)
         self.assertIn("signed URL parameters", play_now_doc)
         self.assertIn("status-only cadence summary", play_now_doc)
+        self.assertIn("/tmp/vibe-os-play-now-diagnostics.sh --json", play_now_doc)
+        self.assertIn("schema=vibe-os-play-now-diagnostics-v1", play_now_doc)
         self.assertIn("2-core", play_now_doc)
         self.assertIn("4+ CPU", play_now_doc)
         self.assertIn("private", play_now_doc)

@@ -248,6 +248,15 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
         self.assertEqual(audit["artifact"], "real-wad-smoke-status")
         self.assertEqual(audit["local_vm"], "refused")
         self.assertFalse(audit["artifact_policy"]["contains_wad_data"])
+        self.assertTrue(audit["long_session_diagnostics"]["status_only"])
+        self.assertIn(
+            "--json",
+            audit["long_session_diagnostics"]["codespaces_json"],
+        )
+        self.assertIn(
+            "check_play_now_remote.py --require-novnc --json",
+            audit["long_session_diagnostics"]["preflight_json"],
+        )
         self.assertIn("gh run view 12345", audit["commands"]["metadata"])
         self.assertIn("gh run download 12345", audit["commands"]["download"])
         self.assertIn("--require-audible-proof", audit["commands"]["check"])

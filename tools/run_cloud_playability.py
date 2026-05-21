@@ -882,6 +882,12 @@ def main(
             "contains_pixels": False,
             "contains_raw_audio": False,
         },
+        "long_session_diagnostics": {
+            "preflight_json": "python3 tools/check_play_now_remote.py --require-novnc --json",
+            "codespaces_text": "gh codespace ssh -c <codespace-name> -- /tmp/vibe-os-play-now-diagnostics.sh",
+            "codespaces_json": "gh codespace ssh -c <codespace-name> -- /tmp/vibe-os-play-now-diagnostics.sh --json",
+            "status_only": True,
+        },
         "commands": {},
         "failure_lanes": [],
         "rerun_lanes": [],

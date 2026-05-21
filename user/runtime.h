@@ -8,6 +8,7 @@ enum {
 };
 
 enum {
+    VIBE_USER_MAP_SHARED = 0x1u,
     VIBE_USER_PROT_READ = 0x1u,
     VIBE_USER_PROT_WRITE = 0x2u,
     VIBE_USER_PROT_EXEC = 0x4u,
@@ -15,6 +16,10 @@ enum {
     VIBE_USER_MAP_FIXED = 0x10u,
     VIBE_USER_MAP_ANONYMOUS = 0x20u,
     VIBE_USER_WNOHANG = 0x1u,
+};
+
+enum {
+    VIBE_USER_VM_CAP_FILE_PRIVATE_COPY = 0x00010000u,
 };
 
 int vibe_user_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, unsigned long arg2);
@@ -36,6 +41,14 @@ int vibe_user_dup3(int oldfd, int newfd, unsigned long flags);
 int vibe_user_fcntl(int fd, int cmd, unsigned long arg);
 int vibe_user_mmap(void** out, unsigned long length, unsigned long prot, unsigned long flags);
 int vibe_user_mmap_anon(void** out, unsigned long length, unsigned long prot);
+int vibe_user_mmap_file(
+    void** out,
+    unsigned long length,
+    unsigned long prot,
+    unsigned long flags,
+    int fd,
+    long offset);
+int vibe_user_mmap_file_private(void** out, unsigned long length, unsigned long prot, int fd, long offset);
 int vibe_user_munmap(void* addr, unsigned long length);
 unsigned long vibe_user_heap_capabilities(void);
 unsigned long vibe_user_vm_capabilities(void);

@@ -7,8 +7,9 @@ boot:
   FAT16 disk image, WAD fixture, and build/source contracts.
 - `tests/host/test_external_suite_leverage.py` is the agentic host-suite
   leverage layer: it runs a libc conformance subset harness, compares syscall
-  numbers and ABI layouts across the public headers/kernel table, fuzzes FAT
-  fixture corruption classes, links/rejects ELF loader-style fixtures, checks
+  numbers for every exported `VIBE_SYS_*` entry against the kernel table, pins
+  ABI layouts across the public headers, fuzzes FAT fixture corruption classes,
+  links/rejects ELF loader-style fixtures, checks
   WAD parser boundaries, and exercises artifact-hygiene sniffers. It uses only
   stdlib Python plus the existing C toolchain and does not launch QEMU.
 - `make playability-host-check` is the fast host-only playability readiness
@@ -28,7 +29,10 @@ boot:
   `vmmhi=OK`, `vmmhva=`, `vmmhpa=`, `vmmhpt=`, and `vmmhfree=`. The same host
   gate now pins the running-kernel relocation scaffold as `kreloc=LOW` with
   `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and `kernphys=`, proving the
-  current kernel is still low identity-mapped while reserving `kreloc=OK` for
+  current kernel is still low identity-mapped. It also requires `kmap=OK`,
+  `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, and `kmaphi=` so the
+  current kernel entry page is temporarily aliased high, compared through low
+  and high addresses, and unmapped again while still reserving `kreloc=OK` for
   the future non-identity higher-half milestone.
 - `tests/host/test_doom_source.py` is the original-Doom provenance gate. It
   hashes the vendored `linuxdoom-1.10` source boundary, audits the Makefile so
@@ -57,8 +61,10 @@ boot:
   corrupt-chain validation before mutation, FAT-copy agreement,
   duplicate-root/cross-link/orphaned-cluster rejection, protected WAD/ELF
   refusal, and syscall-backed `unlink`/`stat`/`fstat` libc wrappers. They also
-  pin kernel rejection of unknown `open` flags, `EMFILE` fd exhaustion, and the
-  Doom-only `c:\doomdata` `mkdir` shim.
+  pin root/current-directory path normalization, the boundary between host
+  recursive asset packaging and the kernel's read-only one-level subdirectory
+  surface, kernel rejection of unknown `open` flags, `EMFILE` fd exhaustion,
+  and the Doom-only `c:\doomdata` `mkdir` shim.
 - `tests/host/test_doom_persistence_image.py` and
   `tools/check_doom_persistence_image.py` prove the non-QEMU image-inspection
   path for Doom defaults and saves: `DEFAULT.CFG` must contain complete
@@ -179,15 +185,21 @@ boot:
   `docs/architecture.md` so generated-image persistence proof cannot
   drift into an installable-OS claim. With `--image build/disk.img --json`, it
   emits an `install-image-manifest` covering the repo MBR, raw boot/kernel
-  regions, raw artifact identity, FAT16 BPB, root-entry inventory, FAT-copy
-  agreement, and cluster ownership, while keeping arbitrary-disk install and
-  recovery rows unclaimed.
+  regions, raw artifact identity, the bootable-image-construction manifest,
+  FAT16 BPB, root-entry inventory, FAT-copy agreement, cluster ownership, and
+  the fat-vfs-boundary manifest for root/current-directory normalization plus
+  read-only one-level subdirectory access. The same manifest marks deeper
+  packaged asset trees as host inventory only, while keeping arbitrary-disk
+  install and recovery rows unclaimed.
 - `tools/check_vm_safety_contract.py` machine-checks the local-QEMU opt-in,
   cloud diagnostic upload hygiene, panic status fields, shutdown status fields,
-  guard-page helper, dynamic high VMM mapping/reclaim, and brk-backed tail
-  `munmap` contract without launching QEMU.
+  guard-page helper, dynamic high VMM mapping/reclaim, kernel-entry high alias
+  status fields, and brk-backed tail `munmap` contract without launching QEMU.
 - `tools/check_vm_status_proof.py` validates cloud status artifacts for the VM
   legitimacy fields: `vmmhfree` must match the reclaimed dynamic page table,
+  `kmap=OK`, `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, and
+  `kmaphi=` must prove a temporary higher-half alias of the current kernel entry
+  page and page-table reclaim,
   boot-probe exec must report `uexec=OK` and `upath=USERPROB.ELF`, ABI-probe
   exec must report `abiexec=OK`, `abipath=ABIPROBE.ELF`, and `abiprobe=OK`,
   Doom exec must report `argvsrc=2`, `procpool=`, `fdexec=`, `fdup=`, `wait=`, and

@@ -119,6 +119,18 @@ VIBE_REPO=jadentripp/vibe-os VIBE_REF=main \
   ./tools/play_now_codespaces.sh --preflight --no-open
 ```
 
+For a machine-readable remote host preflight from inside a Codespace or
+disposable Linux shell, use:
+
+```sh
+python3 tools/check_play_now_remote.py --require-novnc --json
+```
+
+That JSON reports the effective CPU count, cgroup-limited host shape, load
+average, noVNC/VNC ports, required tool paths, noVNC availability, and the
+safe long-session diagnostics commands. It is a dry run and never launches
+QEMU.
+
 The default Codespaces machine is often 2-core. Doom is playable there, but
 QEMU, noVNC, and the first build can contend for CPU, so short stutters are not
 necessarily a kernel or input regression. For CLI-created Codespaces, the
@@ -265,6 +277,7 @@ the launcher:
 
 ```sh
 gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh
+gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh --json
 ```
 
 It reports host CPU count/load, load-per-CPU pressure when `/proc/loadavg` is
@@ -277,6 +290,12 @@ gets worse over time, run the helper twice about a minute apart. If those OS
 status fields keep advancing but the browser still stutters on a 2-core host,
 restart on the selected 4+ CPU Codespace or a faster disposable cloud VM before
 treating it as a Doom/input regression.
+The `--json` form emits `schema=vibe-os-play-now-diagnostics-v1` with
+status-only host load, process age/CPU, noVNC port/log readiness, serial
+cadence deltas, the conservative diagnosis, and rerun recommendations. It
+intentionally omits log text, environment variables, WAD data, disk images,
+pixels, and raw audio so two long-session snapshots can be compared by a tool
+without scraping human output.
 The helper also prints a status-only cadence summary from the recent serial
 status tail: first/final/delta values for Doom tics, frame presentation,
 timer/preemption, input depth/drop, SB16 refill/music progress, and audio safety
@@ -292,6 +311,7 @@ to keep in your notes:
 ```sh
 gh codespace ssh -c "<codespace-name>" -- tail -f /tmp/vibe-os-play-now.log
 gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh
+gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh --json
 gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-stop.sh
 gh codespace ports -c "<codespace-name>"
 gh api /user/codespaces/<codespace-name> --jq .machine

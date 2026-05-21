@@ -94,6 +94,12 @@ Still missing: persistence is proven for the generated FAT16 image, not for
 arbitrary disks or recovery from unknown damaged media; broader storage boot
 path work remains open.
 
+The host storage/install checker now emits explicit `artifact-integrity`,
+`bootable-image-construction`, and `fat-vfs-boundary` manifest sections. Those
+sections prove fixed raw image construction from repo build artifacts, root 8.3
+path normalization, and the read-only one-level subdirectory boundary, while
+keeping arbitrary disk install/recovery and nested kernel traversal unclaimed.
+
 Executable gate: `tools/check_doom_persistence_image.py` with baseline,
 after-write snapshot, write status, save-write status, load status, and reboot
 status. Run `26151623245` passes that reboot proof for `DEFAULT.CFG`; Historical run `26156172979` passes the save-slot reboot proof. The reboot comparison now requires the fresh baseline.
@@ -102,6 +108,10 @@ Storage boundary rows remain explicit:
 `STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL] status=unclaimed`,
 `STORAGE_BOUNDARY[ARBITRARY_DISK_RECOVERY] status=unclaimed`, and
 `STORAGE_REQUIREMENT[INSTALLER] requires=blank-disk-to-bootable-vibe-os`.
+The install manifest proves a fixed BIOS/MBR raw image layout and blank
+in-memory image construction from current build artifacts. It still does not
+select a real device, preserve unknown user data, repair damaged media, or
+prove an installer against arbitrary partition tables.
 
 - `GAP[AUDIO] status=proven category=audio gate=remote-sb16-audible-proof evidence=real-wad-smoke-26213330282`
 
@@ -134,8 +144,13 @@ real `fork`, fork-time fd table cloning, dynamically growing fd tables,
 file-backed `mmap`, and a complete process model beyond the fixed-slot
 launch/switch contract. `vmmhi=OK` and `vmmhfree=` prove high-alias preparation,
 while `kreloc=LOW`, `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and
-`kernphys=` make the current low identity kernel state explicit; none of those
-fields are relocated-kernel execution until a future proof reports `kreloc=OK`.
+`kernphys=` make the current low identity kernel state explicit. `kmap=OK`,
+`kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, and `kmaphi=` prove
+only that the current kernel entry page can be temporarily read through a
+higher-half alias and then unmapped. None of those fields are relocated-kernel
+execution until a future proof reports `kreloc=OK` with a higher-half
+instruction pointer, stack, active page directory, and non-identity physical
+backing.
 
 Executable gate: `tools/check_vm_status_proof.py --require-exec --require-preempt`.
 That gate keeps the current VM/process evidence visible through `uexec=OK`,
@@ -227,8 +242,9 @@ Human proof bundle files are status-only:
 `human-playtest-manifest.json`, `human-playtest-observations.json`,
 `post-download human verification OK`, and phase hashes. The VM/process fields
 that must stay visible include `kreloc=LOW`, `kerneip=`, `kernesp=`,
-`kerncr3=`, `kernvirt=`, `kernphys=`, `puser`, `pkind`, `pmask`, `pcr3`,
-`pkstk`, and `pspin`.
+`kerncr3=`, `kernvirt=`, `kernphys=`, `kmap=OK`, `kmapva=`, `kmappa=`,
+`kmappt=`, `kmapfree=`, `kmaplo=`, `kmaphi=`, `puser`, `pkind`, `pmask`,
+`pcr3`, `pkstk`, and `pspin`.
 
 ## Fault And Save Diagnostics
 

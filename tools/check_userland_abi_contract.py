@@ -227,6 +227,9 @@ ABI_REQUIREMENTS = {
             "int vibe_user_fcntl(int fd, int cmd, unsigned long arg);",
             "int vibe_user_mmap(void** out, unsigned long length, unsigned long prot, unsigned long flags);",
             "int vibe_user_mmap_anon(void** out, unsigned long length, unsigned long prot);",
+            "VIBE_USER_VM_CAP_FILE_PRIVATE_COPY",
+            "int vibe_user_mmap_file(",
+            "int vibe_user_mmap_file_private(void** out, unsigned long length, unsigned long prot, int fd, long offset);",
             "int vibe_user_munmap(void* addr, unsigned long length);",
             "unsigned long vibe_user_heap_capabilities(void);",
             "unsigned long vibe_user_vm_capabilities(void);",
@@ -248,6 +251,8 @@ ABI_REQUIREMENTS = {
             "VIBE_SYS_DUP2",
             "VIBE_SYS_DUP3",
             "VIBE_SYS_FCNTL",
+            "vibe_user_mmap_file",
+            "vibe_user_pread",
             "VIBE_SYS_EXEC",
             "VIBE_SYS_CLOCK_GETTIME",
             "VIBE_SYS_LISTDIR",
@@ -346,12 +351,24 @@ POSIX_GAP_REQUIREMENTS = {
     "file-backed-mmap": {
         "docs/architecture.md": (
             "VM allocation is anonymous/private and brk-backed.",
-            "`MAP_FIXED`, `MAP_SHARED`, and file-backed mappings are rejected",
-        ),
-        "docs/architecture.md": (
+            "copy-backed private file mapping",
+            "not a shared page-cache or kernel VMA object",
+            "`MAP_FIXED`, `MAP_SHARED`, and kernel file-backed VM objects are still unsupported",
             "file-backed `mmap`",
             "File-backed mappings, `MAP_SHARED`, `MAP_FIXED`",
             "reusable VM object lifetime",
+        ),
+        "user/runtime.h": (
+            "VIBE_USER_VM_CAP_FILE_PRIVATE_COPY",
+            "int vibe_user_mmap_file(",
+            "int vibe_user_mmap_file_private(void** out, unsigned long length, unsigned long prot, int fd, long offset);",
+        ),
+        "user/runtime.c": (
+            "VIBE_USER_VM_CAP_FILE_PRIVATE_COPY",
+            "int vibe_user_mmap_file(",
+            "vibe_user_mmap_anon(out, length, prot)",
+            "vibe_user_pread(",
+            "(void)vibe_user_munmap(mapped, length);",
         ),
         "doom_port/libc.c": (
             "if (!(flags & MAP_ANONYMOUS) || fd != -1 || !(flags & MAP_PRIVATE) || (flags & MAP_SHARED))",
@@ -451,7 +468,7 @@ def main():
             print(f"- {failure}", file=sys.stderr)
         return 1
 
-    print("Userland ABI contract OK: generic clock/input/framebuffer/audio/file/process surface is documented.")
+    print("Userland ABI contract OK: generic clock/input/framebuffer/audio/file/process and copy-backed file-private mmap surface is documented.")
     return 0
 
 

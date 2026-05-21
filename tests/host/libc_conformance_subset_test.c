@@ -182,6 +182,10 @@ int main(void)
     input_status.abi_version = VIBE_INPUT_ABI_VERSION;
     input_status.event_bytes = VIBE_INPUT_EVENT_BYTES;
     input_status.queue_capacity = VIBE_INPUT_EVENT_QUEUE_CAPACITY;
+    input_status.total_events = 7;
+    input_status.queued_events = 2;
+    input_status.polled_events = 4;
+    input_status.dropped_events = 1;
     input_status.capabilities = VIBE_INPUT_CAP_KEYBOARD | VIBE_INPUT_CAP_MOUSE;
     input_status.keyboard_state[57 >> 5] = 1ul << (57 & 31);
     input_status.mouse_buttons = VIBE_INPUT_MOUSE_BUTTON_RIGHT;
@@ -192,6 +196,22 @@ int main(void)
         || !vibe_input_status_mouse_button_is_down(&input_status, VIBE_INPUT_MOUSE_BUTTON_RIGHT)
         || !vibe_input_status_mouse_has_motion(&input_status))
         return fail(22);
+    if (vibe_input_status_queued_events(&input_status) != 2
+        || vibe_input_status_available_events(&input_status) != 61
+        || vibe_input_status_queue_is_full(&input_status)
+        || !vibe_input_status_counters_are_consistent(&input_status))
+        return fail(29);
+    input_status.queued_events = VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY;
+    input_status.polled_events = 0;
+    input_status.dropped_events = 0;
+    input_status.total_events = VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY;
+    if (!vibe_input_status_queue_is_full(&input_status)
+        || vibe_input_status_available_events(&input_status) != 0
+        || !vibe_input_status_counters_are_consistent(&input_status))
+        return fail(30);
+    input_status.total_events = 0;
+    if (vibe_input_status_counters_are_consistent(&input_status))
+        return fail(31);
 
     vibe_audio_voice_desc_init(&voice, bytes, sizeof(bytes), 11025, 100, 128, 0);
     if (voice.samples != bytes || voice.length != sizeof(bytes) || voice.sample_rate != 11025)

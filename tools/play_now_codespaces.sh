@@ -126,6 +126,7 @@ ssh_permission_error() {
 print_codespace_cleanup_commands() {
   echo "Remote log: gh codespace ssh -c \"$CODESPACE_NAME\" -- tail -f /tmp/vibe-os-play-now.log"
   echo "Diagnostics: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh"
+  echo "Diagnostics JSON: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh --json"
   echo "Status: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh"
   echo "List ports: gh codespace ports -c \"$CODESPACE_NAME\""
   echo "Inspect machine: gh api /user/codespaces/$CODESPACE_NAME --jq .machine"

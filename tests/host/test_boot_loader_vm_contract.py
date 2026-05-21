@@ -196,20 +196,36 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "KERNEL_HIGHER_HALF_PDE_INDEX equ KERNEL_HIGHER_HALF_BASE >> 22",
             "VMM_HIGH_TEST_VADDR equ KERNEL_HIGHER_HALF_BASE",
             "KERNEL_RELOCATION_STATUS_LOW_IDENTITY equ 1",
+            "KERNEL_HIGH_ALIAS_STATUS_OK equ 1",
             "kernel_relocation_probe:",
             "kernel_translate_current_vaddr:",
+            "kernel_high_alias_self_test:",
             "kernel_relocation_status db 0",
+            "kernel_high_alias_status db 0",
             "kernel_relocation_eip dd 0",
             "kernel_relocation_esp dd 0",
             "kernel_relocation_cr3 dd 0",
             "kernel_relocation_virt dd 0",
             "kernel_relocation_phys dd 0",
+            "kernel_high_alias_vaddr dd 0",
+            "kernel_high_alias_phys dd 0",
+            "kernel_high_alias_table dd 0",
+            "kernel_high_alias_reclaimed dd 0",
+            "kernel_high_alias_low_word dd 0",
+            "kernel_high_alias_high_word dd 0",
             'smoke_kreloc_text db " kreloc=", 0',
             'smoke_kerneip_text db " kerneip=", 0',
             'smoke_kernesp_text db " kernesp=", 0',
             'smoke_kerncr3_text db " kerncr3=", 0',
             'smoke_kernvirt_text db " kernvirt=", 0',
             'smoke_kernphys_text db " kernphys=", 0',
+            'smoke_kmap_text db " kmap=", 0',
+            'smoke_kmapva_text db " kmapva=", 0',
+            'smoke_kmappa_text db " kmappa=", 0',
+            'smoke_kmappt_text db " kmappt=", 0',
+            'smoke_kmapfree_text db " kmapfree=", 0',
+            'smoke_kmaplo_text db " kmaplo=", 0',
+            'smoke_kmaphi_text db " kmaphi=", 0',
             "vmm_dynamic_page_tables dd 0",
             "vmm_active_page_tables dd 0",
             "vmm_reclaimed_page_tables dd 0",
@@ -269,6 +285,33 @@ class BootLoaderVmContractTests(unittest.TestCase):
         ):
             self.assertIn(source, relocation_probe)
 
+        high_alias_probe = kernel.split("kernel_high_alias_self_test:", 1)[1].split("framebuffer_map_lfb:", 1)[0]
+        for source in (
+            "add eax, KERNEL_HIGHER_HALF_BASE",
+            "mov [kernel_high_alias_vaddr], eax",
+            "call kernel_translate_current_vaddr",
+            "cmp eax, 0xffffffff",
+            "cmp eax, KERNEL_HIGHER_HALF_BASE",
+            "mov [kernel_high_alias_phys], eax",
+            "call vmm_map_page",
+            "mov [kernel_high_alias_table], eax",
+            "mov esi, start",
+            "mov [kernel_high_alias_low_word], eax",
+            "mov [kernel_high_alias_high_word], ebx",
+            "mov byte [kernel_high_alias_status], KERNEL_HIGH_ALIAS_STATUS_OK",
+            "call vmm_unmap_page",
+            "mov [kernel_high_alias_reclaimed], eax",
+            "cmp eax, [kernel_high_alias_table]",
+        ):
+            self.assertIn(source, high_alias_probe)
+
+        vmm_self_test = kernel.split("vmm_self_test:", 1)[1].split("heap_init:", 1)[0]
+        self.assertIn("call kernel_high_alias_self_test", vmm_self_test)
+        self.assertIn(
+            "cmp byte [kernel_high_alias_status], KERNEL_HIGH_ALIAS_STATUS_OK",
+            vmm_self_test,
+        )
+
     def test_boot_vm_docs_state_current_limits_without_overclaiming(self):
         boot_doc = text(ROOT / "docs" / "architecture.md")
         uefi_scaffold = text(ROOT / "boot" / "uefi" / "README.md")
@@ -303,6 +346,13 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "`kerncr3=`",
             "`kernvirt=`",
             "`kernphys=`",
+            "`kmap=OK`",
+            "`kmapva=`",
+            "`kmappa=`",
+            "`kmappt=`",
+            "`kmapfree=`",
+            "`kmaplo=`",
+            "`kmaphi=`",
         ):
             self.assertIn(source, boot_doc)
         self.assertIn("docs/architecture.md", readme)

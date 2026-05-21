@@ -25,6 +25,13 @@ def status_line(**overrides):
         "kerncr3": "00090000",
         "kernvirt": "00010000",
         "kernphys": "00010000",
+        "kmap": "OK",
+        "kmapva": "C0010000",
+        "kmappa": "00010000",
+        "kmappt": "00125000",
+        "kmapfree": "00125000",
+        "kmaplo": "10B866FA",
+        "kmaphi": "10B866FA",
         "vmmhi": "OK",
         "vmmhva": "C0000000",
         "vmmhpa": "00123000",
@@ -92,6 +99,21 @@ def status_line(**overrides):
     return "Aurora OS v0.2 " + " ".join(f"{key}={value}" for key, value in fields.items())
 
 
+def relocated_status_line(**overrides):
+    fields = {
+        "kreloc": "OK",
+        "kerneip": "C0010200",
+        "kernesp": "C006FFFC",
+        "kerncr3": "00101000",
+        "kernvirt": "C0010000",
+        "kernphys": "00010000",
+        "kmapva": "C0010000",
+        "kmappa": "00010000",
+    }
+    fields.update(overrides)
+    return status_line(**fields)
+
+
 class VmStatusProofTests(unittest.TestCase):
     def test_valid_status_proves_vm_exec_and_timer_preemption(self):
         check_vm_status_proof.validate_status(
@@ -131,14 +153,49 @@ class VmStatusProofTests(unittest.TestCase):
 
     def test_rejects_overclaimed_or_incoherent_kernel_relocation_scaffold(self):
         for overrides, message in (
-            ({"kreloc": "OK"}, "reserved"),
-            ({"kreloc": "WAIT"}, "must be LOW"),
+            ({"kreloc": "WAIT"}, "must be LOW or OK"),
             ({"kerneip": "00008000"}, "kerneip"),
             ({"kernesp": "00070000"}, "kernesp"),
             ({"kerncr3": "00082000"}, "kerncr3"),
             ({"kernvirt": "00011000"}, "low linked kernel entry"),
             ({"kernphys": "00110000"}, "match kernvirt"),
             ({"kerneip": "C0001000"}, "kerneip"),
+        ):
+            with self.subTest(overrides=overrides):
+                with self.assertRaisesRegex(AssertionError, message):
+                    check_vm_status_proof.validate_status(status_line(**overrides))
+
+    def test_accepts_explicit_future_relocated_kernel_contract_shape(self):
+        check_vm_status_proof.validate_status(relocated_status_line())
+
+    def test_rejects_fake_relocated_kernel_contract(self):
+        for overrides, message in (
+            ({"kerneip": "00010200"}, "kerneip"),
+            ({"kernesp": "0006FFFC"}, "kernesp"),
+            ({"kerncr3": "00090000"}, "PMM-managed"),
+            ({"kerncr3": "00101001"}, "page-aligned"),
+            ({"kernvirt": "C0011000"}, "higher-half kernel entry"),
+            ({"kernphys": "C0010000"}, "physical frame"),
+            ({"kernphys": "C0010000", "kmappa": "C0010000"}, "physical frame"),
+        ):
+            with self.subTest(overrides=overrides):
+                with self.assertRaisesRegex(AssertionError, message):
+                    check_vm_status_proof.validate_status(
+                        relocated_status_line(**overrides)
+                    )
+
+    def test_rejects_missing_or_fake_kernel_high_alias_scaffold(self):
+        for overrides, message in (
+            ({"kmap": "FAIL"}, "kmap"),
+            ({"kmapva": "C0000000"}, "higher-half alias of the kernel entry"),
+            ({"kmapva": "00010000"}, "higher-half alias of the kernel entry"),
+            ({"kmappa": "00110000"}, "kernel entry physical page"),
+            ({"kmappa": "C0010000"}, "physical frame"),
+            ({"kmappt": "00025000"}, "PMM-managed"),
+            ({"kmappt": "00010000"}, "PMM-managed"),
+            ({"kmapfree": "00126000"}, "match kmappt"),
+            ({"kmaplo": "00000000", "kmaphi": "00000000"}, "nonzero bytes"),
+            ({"kmaphi": "B16B00B5"}, "match kmaplo"),
         ):
             with self.subTest(overrides=overrides):
                 with self.assertRaisesRegex(AssertionError, message):

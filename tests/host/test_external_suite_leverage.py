@@ -147,39 +147,11 @@ class ExternalSuiteLeverageTests(unittest.TestCase):
 
     def test_syscall_numbers_match_public_header_and_kernel_table(self):
         header_numbers, kernel_numbers = parse_syscall_numbers()
-        external_surface = (
-            "EXIT",
-            "WRITE",
-            "SBRK",
-            "OPEN",
-            "READ",
-            "LSEEK",
-            "CLOSE",
-            "AUDIO",
-            "POLL_MOUSE",
-            "GAMEPLAY_STATUS",
-            "EXEC",
-            "UNLINK",
-            "STAT",
-            "FSTAT",
-            "MMAP",
-            "MUNMAP",
-            "IOCTL",
-            "FORK",
-            "WAITPID",
-            "GETPID",
-            "FTRUNCATE",
-            "POLL_INPUT",
-            "CLOCK_GETTIME",
-            "LISTDIR",
-            "INPUT_STATUS",
-            "DUP",
-            "DUP2",
-            "DUP3",
-        )
-        for name in external_surface:
+
+        # The public header is the ABI small games and tools compile against.
+        # Any VIBE_SYS_* number exported there must match the kernel table.
+        for name in sorted(header_numbers):
             with self.subTest(syscall=name):
-                self.assertIn(name, header_numbers)
                 self.assertIn(name, kernel_numbers)
                 self.assertEqual(header_numbers[name], kernel_numbers[name])
 
@@ -192,9 +164,12 @@ class ExternalSuiteLeverageTests(unittest.TestCase):
             #define CHECK(name, expr) typedef char check_##name[(expr) ? 1 : -1]
 
             CHECK(open_flags, O_ACCMODE == 0x0003 && O_CLOEXEC == 0x0800);
+            CHECK(syscall_fcntl, VIBE_SYS_FCNTL == 35);
             CHECK(clock_bytes, sizeof(vibe_clock_time_t) == 16);
             CHECK(dirent_bytes, sizeof(vibe_dirent_t) == VIBE_DIRENT_BYTES);
             CHECK(dirent_attr_offset, __builtin_offsetof(vibe_dirent_t, attributes) == 28);
+            CHECK(input_queue_usable, VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY == 63);
+            CHECK(input_overflow_policy, VIBE_INPUT_QUEUE_OVERFLOW_DROP_OLDEST == 1);
             CHECK(input_event_bytes, sizeof(vibe_input_event_t) == VIBE_INPUT_EVENT_BYTES);
             CHECK(input_event_value0_offset, __builtin_offsetof(vibe_input_event_t, value0) == 16);
             CHECK(input_status_bytes, sizeof(vibe_input_status_t) == VIBE_INPUT_STATUS_BYTES);

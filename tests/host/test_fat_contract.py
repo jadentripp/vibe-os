@@ -140,6 +140,9 @@ class FatContractTests(unittest.TestCase):
             "root-level 8.3",
             "vibe_listdir",
             "one root-level subdirectory",
+            "root 8.3 plus read-only one-level subdirectory",
+            "fat-vfs-boundary manifest",
+            "host image inventory may walk deeper packaged trees than the kernel syscall surface",
             "open`/`read`/`lseek`/`stat`/`fstat`",
             "/ASSETS/README.TXT",
             "vibe_dirent_is_regular_file",
@@ -153,6 +156,47 @@ class FatContractTests(unittest.TestCase):
         for forbidden in ("DOOM1.WAD bytes", "disk.img artifact", "raw sector dump"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, docs)
+
+    def test_host_fat_path_normalization_marks_kernel_subdirectory_boundary(self):
+        root_spellings = {
+            make_wad_image.fat83_path_from_display_path(sample)
+            for sample in ("README.TXT", "/README.TXT", r"\README.TXT", "./readme.txt")
+        }
+        self.assertEqual(root_spellings, {(b"README  TXT",)})
+
+        one_level_spellings = {
+            make_wad_image.fat83_path_from_display_path(sample)
+            for sample in (
+                "ASSETS/README.TXT",
+                "/ASSETS/README.TXT",
+                r"\assets\readme.txt",
+                "./assets/readme.txt",
+            )
+        }
+        self.assertEqual(
+            one_level_spellings,
+            {(b"ASSETS     ", b"README  TXT")},
+        )
+
+        nested_host_path = make_wad_image.fat83_path_from_display_path(
+            "/assets/maps/e1m1.map"
+        )
+        self.assertEqual(
+            nested_host_path,
+            (b"ASSETS     ", b"MAPS       ", b"E1M1    MAP"),
+        )
+
+        for bad in (
+            "",
+            "/",
+            "/assets/../readme.txt",
+            "/assets/readme.long",
+            "/too-long-name.txt",
+            "/bad+name.txt",
+        ):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    make_wad_image.fat83_path_from_display_path(bad)
 
     def test_generated_fat_geometry_keeps_partition_and_data_boundaries_explicit(self):
         with tempfile.TemporaryDirectory() as tmp:

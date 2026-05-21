@@ -104,6 +104,10 @@ REQUIRED_PHRASES = (
     "LBA 2048 is the FAT16 partition",
     "install-image-manifest",
     "artifact-integrity manifest",
+    "bootable-image-construction manifest",
+    "fat-vfs-boundary manifest",
+    "root 8.3 plus read-only one-level subdirectory",
+    "host image inventory may walk deeper packaged trees than the kernel syscall surface",
     "blank-disk-installer-manifest",
     "damaged-image-refusal-report",
     "structural boot proof without running QEMU locally",
@@ -349,6 +353,131 @@ def _filesystem_tree_manifest(fs, make_wad_image) -> tuple[list[dict[str, object
     }
 
 
+def _normalize_path_samples(make_wad_image, samples: tuple[str, ...]) -> dict[str, object]:
+    normalized = [
+        make_wad_image.Fat16Image._path_label(
+            make_wad_image.fat83_path_from_display_path(sample)
+        )
+        for sample in samples
+    ]
+    if len(set(normalized)) != 1:
+        raise StorageBoundaryError(
+            "FAT16 path normalization samples did not resolve to one 8.3 path: "
+            + ", ".join(normalized)
+        )
+    return {
+        "samples": list(samples),
+        "normalized_path": normalized[0],
+        "all_samples_match": True,
+    }
+
+
+def _rejected_path_samples(make_wad_image, samples: tuple[str, ...]) -> list[dict[str, str]]:
+    rejected = []
+    for sample in samples:
+        try:
+            make_wad_image.fat83_path_from_display_path(sample)
+        except ValueError as exc:
+            rejected.append({"sample": sample, "reason": str(exc)})
+        else:
+            raise StorageBoundaryError(f"unsupported FAT16 path sample was accepted: {sample}")
+    return rejected
+
+
+def _fat_vfs_boundary_manifest(fs, make_wad_image, packaged_assets: list[dict[str, object]]) -> dict[str, object]:
+    readme_path = make_wad_image.ASSET_README_PATH
+    readme_label = make_wad_image.Fat16Image._path_label(readme_path)
+    readme_meta = fs.entry_metadata_at_path(readme_path)
+    if readme_meta is None:
+        raise StorageBoundaryError(f"generated FAT16 image is missing {readme_label}")
+    if readme_meta["is_directory"]:
+        raise StorageBoundaryError(f"generated FAT16 {readme_label} is a directory")
+    readme_bytes = fs.read_file_at_path(readme_path)
+    if readme_bytes != make_wad_image.ASSET_README_BYTES:
+        raise StorageBoundaryError(f"generated FAT16 {readme_label} bytes did not round-trip")
+
+    mutation_refusals = []
+    for operation, mutate in (
+        ("write", lambda: fs.write_file_at_path(readme_path, b"mutate")),
+        ("create", lambda: fs.create_file_at_path(readme_path)),
+        ("truncate", lambda: fs.truncate_file_at_path(readme_path)),
+        ("unlink", lambda: fs.delete_file_at_path(readme_path)),
+    ):
+        try:
+            mutate()
+        except PermissionError as exc:
+            mutation_refusals.append({"operation": operation, "result": "refused", "reason": str(exc)})
+        except Exception as exc:
+            raise StorageBoundaryError(
+                f"generated FAT16 {readme_label} readonly {operation} returned {type(exc).__name__}: {exc}"
+            ) from exc
+        else:
+            raise StorageBoundaryError(f"generated FAT16 {readme_label} allowed readonly {operation}")
+    if fs.read_file_at_path(readme_path) != readme_bytes:
+        raise StorageBoundaryError(f"generated FAT16 {readme_label} changed during mutation refusal")
+
+    nested_host_inventory = [
+        {
+            "path": entry["path"],
+            "depth": entry["depth"],
+            "kernel_syscall_claim": "unsupported-nested-traversal",
+        }
+        for entry in packaged_assets
+        if int(entry["depth"]) > 2
+    ]
+
+    return {
+        "schema": "vibe-os-fat-vfs-boundary-v1",
+        "host_checked": True,
+        "kernel_syscall_surface": {
+            "supported_path_contract": "root 8.3 plus read-only one-level subdirectory",
+            "root_normalization": _normalize_path_samples(
+                make_wad_image,
+                ("README.TXT", "/README.TXT", "\\README.TXT", "./README.TXT"),
+            ),
+            "one_level_subdirectory_normalization": _normalize_path_samples(
+                make_wad_image,
+                (
+                    "ASSETS/README.TXT",
+                    "/ASSETS/README.TXT",
+                    "\\ASSETS\\README.TXT",
+                    "./assets/readme.txt",
+                ),
+            ),
+            "unsupported_path_samples": _rejected_path_samples(
+                make_wad_image,
+                (
+                    "",
+                    "/",
+                    "/ASSETS/../README.TXT",
+                    "/ASSETS/README.LONG",
+                    "/TOOLONGNAME.TXT",
+                    "/BAD+NAME.TXT",
+                ),
+            ),
+            "nested_traversal_supported": False,
+            "writable_subdirectories_supported": False,
+            "long_filenames_supported": False,
+        },
+        "read_only_one_level_subdirectory": {
+            "path": readme_label,
+            "size": readme_meta["size"],
+            "cluster": readme_meta["cluster"],
+            "sha256": _sha256(readme_bytes),
+            "mutation_refusals": mutation_refusals,
+        },
+        "host_image_inventory": {
+            "recursive_tree_walk_supported": True,
+            "nested_packaged_entries": nested_host_inventory,
+            "claim_boundary": (
+                "host image inventory may walk deeper packaged trees than the "
+                "kernel syscall surface"
+            ),
+        },
+        "claim_boundary": "fat-vfs-boundary-host-proof; not full-posix-filesystem-proof",
+    }
+
+
 def _read_artifact(path: Path, label: str) -> bytes:
     if not path.is_file():
         raise StorageBoundaryError(f"missing {label} artifact: {path}")
@@ -466,6 +595,81 @@ def _artifact_integrity_manifest(
         "raw_regions": raw_regions,
         "declared_write_ranges": list(_declared_install_write_ranges(make_wad_image)),
         "claim_boundary": "repo-build-artifact-identity-only; not arbitrary-media-proof",
+    }
+
+
+def _artifact_input_roles(artifact_inputs: dict[str, object]) -> list[dict[str, object]]:
+    role_specs = (
+        ("stage1", "stage1_path"),
+        ("stage2", "stage2_path"),
+        ("kernel", "kernel_path"),
+        ("user-probe-elf", "user_elf_path"),
+        ("doom-elf", "doom_elf_path"),
+    )
+    roles = []
+    for role, key in role_specs:
+        path = artifact_inputs.get(key)
+        if path is None:
+            continue
+        roles.append({"role": role, "path": str(path)})
+    for name, path in artifact_inputs.get("extra_root_elves", ()):
+        roles.append(
+            {
+                "role": "extra-root-elf",
+                "fat83_name": load_make_wad_image().Fat16Image._entry_label(name),
+                "path": str(path),
+            }
+        )
+    return roles
+
+
+def _bootable_image_construction_manifest(
+    make_wad_image,
+    image_label: str,
+    artifact_inputs: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "schema": "vibe-os-bootable-image-construction-v1",
+        "image": image_label,
+        "output_kind": "fixed-size raw BIOS MBR disk image with FAT16 partition",
+        "image_size": make_wad_image.IMAGE_SECTORS * make_wad_image.SECTOR_SIZE,
+        "qemu_executed_by_checker": False,
+        "source_artifact_roles": _artifact_input_roles(artifact_inputs),
+        "boot_flow": [
+            {
+                "component": "stage1-mbr",
+                "lba": 0,
+                "sectors": 1,
+                "construction": "stage1 artifact patched with repo disk id and fixed FAT16 partition entry",
+            },
+            {
+                "component": "stage2",
+                "lba": make_wad_image.STAGE2_LBA,
+                "sectors": make_wad_image.STAGE2_SECTORS,
+                "construction": "raw artifact copied into a zero-padded reserved boot region",
+            },
+            {
+                "component": "kernel",
+                "lba": make_wad_image.KERNEL_LBA,
+                "sectors": make_wad_image.KERNEL_SECTORS,
+                "construction": "raw kernel ELF copied into a zero-padded staging region",
+            },
+            {
+                "component": "fat16-payload",
+                "lba": make_wad_image.PARTITION_START,
+                "sectors": make_wad_image.PARTITION_SECTORS,
+                "construction": "FAT16 partition containing root ELF entries, writable root 8.3 state, and packaged read-only assets",
+            },
+        ],
+        "declared_write_ranges": list(_declared_install_write_ranges(make_wad_image)),
+        "unsupported_targets": [
+            "arbitrary existing disks",
+            "unknown partition tables",
+            "partial-device installs",
+            "in-place user-data preservation",
+            "damaged-media repair",
+        ],
+        "claim_boundary": "fixed-raw-bootable-image-construction-only; not arbitrary-device-installer",
     }
 
 
@@ -613,10 +817,17 @@ def _inspect_image_bytes(
     filesystem_entries, filesystem_summary = _filesystem_tree_manifest(fs, make_wad_image)
     packaged_asset_bytes = sum(int(entry["size"]) for entry in packaged_assets)
     packaged_asset_clusters = sum(int(entry["clusters"]) for entry in packaged_assets)
+    effective_artifact_inputs = artifact_inputs or _default_boot_artifact_inputs(ROOT)
     artifact_integrity = _artifact_integrity_manifest(
         image,
-        artifact_inputs or _default_boot_artifact_inputs(ROOT),
+        effective_artifact_inputs,
     )
+    bootable_image_construction = _bootable_image_construction_manifest(
+        make_wad_image,
+        image_label,
+        effective_artifact_inputs,
+    )
+    fat_vfs_boundary = _fat_vfs_boundary_manifest(fs, make_wad_image, packaged_assets)
 
     return {
         "schema": "vibe-os-install-image-manifest-v1",
@@ -668,12 +879,19 @@ def _inspect_image_bytes(
             "filesystem_directory_count": filesystem_summary["directories"],
             "filesystem_file_bytes": filesystem_summary["file_bytes"],
             "filesystem_file_clusters": filesystem_summary["file_clusters"],
+            "filesystem_max_depth": max(
+                (int(entry["depth"]) for entry in filesystem_entries),
+                default=0,
+            ),
+            "kernel_syscall_max_file_depth": 2,
         },
         "required_writable_root_entries": list(required_writable),
         "packaged_assets": packaged_assets,
         "filesystem_entries": filesystem_entries,
         "root_entries": root_entries,
+        "bootable_image_construction": bootable_image_construction,
         "artifact_integrity": artifact_integrity,
+        "fat_vfs_boundary": fat_vfs_boundary,
         "claim_boundary": "generated-image-layout-only; not arbitrary-disk-install-proof",
     }
 
@@ -835,6 +1053,11 @@ def prove_blank_disk_install(root: Path = ROOT) -> dict[str, object]:
             "nonblank_target_refusal": nonblank_refusal,
         },
         "declared_write_ranges": list(declared_ranges),
+        "bootable_image_construction": _bootable_image_construction_manifest(
+            make_wad_image,
+            "blank-install://in-memory",
+            inputs,
+        ),
         "write_audit": sector_audit,
         "structural_boot_proof": {
             "qemu_executed": False,

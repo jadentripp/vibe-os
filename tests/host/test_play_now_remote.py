@@ -284,6 +284,7 @@ class PlayNowRemoteTests(unittest.TestCase):
             "Delete when done: gh codespace delete -c \\\"$CODESPACE_NAME\\\" --force",
             "Stop play-now:",
             "Diagnostics: gh codespace ssh -c \\\"$CODESPACE_NAME\\\" -- /tmp/vibe-os-play-now-diagnostics.sh",
+            "Diagnostics JSON: gh codespace ssh -c \\\"$CODESPACE_NAME\\\" -- /tmp/vibe-os-play-now-diagnostics.sh --json",
             "Browser cleanup: GitHub repo > Code > Codespaces > ... > Delete",
             "performance caveat: 2-core Codespaces",
             "performance preference: use the selected 4+ CPU machine",
@@ -1027,6 +1028,10 @@ class PlayNowRemoteTests(unittest.TestCase):
             'make DOOM_WAD="$WAD_PATH"',
             'DIAGNOSTICS_SCRIPT="${DIAGNOSTICS_SCRIPT:-/tmp/vibe-os-play-now-diagnostics.sh}"',
             'write_diagnostics_helper',
+            'Usage: /tmp/vibe-os-play-now-diagnostics.sh [--json]',
+            '"schema": "vibe-os-play-now-diagnostics-v1"',
+            '"primary_lane": lane',
+            'Machine-readable diagnostics: $DIAGNOSTICS_SCRIPT --json',
             'status cadence summary (safe serial-log subset)',
             'remote-presentation-throughput-likely',
             'input-loss-observed',
@@ -1079,6 +1084,8 @@ class PlayNowRemoteTests(unittest.TestCase):
             'cloud `real-wad-smoke.yml` aggregate audio proof',
             '/tmp/vibe-os-play-now-diagnostics.sh',
             'token-shaped values redacted',
+            'vibe-os-play-now-diagnostics-v1',
+            'check_play_now_remote.py --require-novnc --json',
         ):
             with self.subTest(needle=needle):
                 self.assertIn(needle, doc)

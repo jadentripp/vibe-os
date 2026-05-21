@@ -176,6 +176,9 @@ VMM_HIGH_TEST_MAGIC equ 0x48494d4d
 KERNEL_RELOCATION_STATUS_UNKNOWN equ 0
 KERNEL_RELOCATION_STATUS_LOW_IDENTITY equ 1
 KERNEL_RELOCATION_STATUS_MISMATCH equ 2
+KERNEL_HIGH_ALIAS_STATUS_UNKNOWN equ 0
+KERNEL_HIGH_ALIAS_STATUS_OK equ 1
+KERNEL_HIGH_ALIAS_STATUS_FAIL equ 2
 HEAP_START equ 0x00100000
 HEAP_SIZE equ 0x00800000
 HEAP_MIN_EXT_KB equ 8192
@@ -2303,6 +2306,67 @@ kernel_translate_current_vaddr:
     pop ebx
     ret
 
+kernel_high_alias_self_test:
+    pushad
+
+    mov byte [kernel_high_alias_status], KERNEL_HIGH_ALIAS_STATUS_FAIL
+    mov eax, start
+    and eax, 0xfffff000
+    add eax, KERNEL_HIGHER_HALF_BASE
+    mov [kernel_high_alias_vaddr], eax
+
+    mov eax, start
+    call kernel_translate_current_vaddr
+    cmp eax, 0xffffffff
+    je .done
+    and eax, 0xfffff000
+    cmp eax, KERNEL_HIGHER_HALF_BASE
+    jae .done
+    mov [kernel_high_alias_phys], eax
+
+    mov eax, [kernel_high_alias_vaddr]
+    cmp eax, [kernel_high_alias_phys]
+    je .done
+
+    mov ebx, [kernel_high_alias_phys]
+    mov ecx, PTE_KERNEL_FLAGS
+    call vmm_map_page
+    jc .done
+    mov eax, [vmm_map_table_addr]
+    mov [kernel_high_alias_table], eax
+
+    mov esi, start
+    mov eax, [esi]
+    mov [kernel_high_alias_low_word], eax
+
+    mov edi, [kernel_high_alias_vaddr]
+    mov edx, start
+    and edx, 0x00000fff
+    add edi, edx
+    mov ebx, [edi]
+    mov [kernel_high_alias_high_word], ebx
+
+    cmp eax, ebx
+    jne .unmap
+    test eax, eax
+    jz .unmap
+    mov byte [kernel_high_alias_status], KERNEL_HIGH_ALIAS_STATUS_OK
+
+.unmap:
+    mov eax, [kernel_high_alias_vaddr]
+    call vmm_unmap_page
+    mov eax, [vmm_last_reclaimed_page_table]
+    mov [kernel_high_alias_reclaimed], eax
+    cmp byte [kernel_high_alias_status], KERNEL_HIGH_ALIAS_STATUS_OK
+    jne .done
+    cmp eax, [kernel_high_alias_table]
+    je .done
+    mov byte [kernel_high_alias_status], KERNEL_HIGH_ALIAS_STATUS_FAIL
+
+.done:
+    popad
+    ret
+
 framebuffer_map_lfb:
     pushad
 
@@ -3036,6 +3100,9 @@ vmm_self_test:
     jne .high_free_fail
     mov eax, ebx
     call pmm_free_page
+    call kernel_high_alias_self_test
+    cmp byte [kernel_high_alias_status], KERNEL_HIGH_ALIAS_STATUS_OK
+    jne .fail
     mov byte [vmm_high_mapping_status], 1
     mov byte [vmm_test_status], 1
     ret
@@ -17999,6 +18066,49 @@ write_smoke_status:
     mov edx, [kernel_relocation_phys]
     call smoke_write_hex32
 
+    mov esi, smoke_kmap_text
+    call smoke_copy_string
+    cmp byte [kernel_high_alias_status], KERNEL_HIGH_ALIAS_STATUS_OK
+    je .kmap_ok
+    mov esi, fail_status_text
+    jmp .kmap_write
+
+.kmap_ok:
+    mov esi, ok_status_text
+
+.kmap_write:
+    call smoke_copy_string
+
+    mov esi, smoke_kmapva_text
+    call smoke_copy_string
+    mov edx, [kernel_high_alias_vaddr]
+    call smoke_write_hex32
+
+    mov esi, smoke_kmappa_text
+    call smoke_copy_string
+    mov edx, [kernel_high_alias_phys]
+    call smoke_write_hex32
+
+    mov esi, smoke_kmappt_text
+    call smoke_copy_string
+    mov edx, [kernel_high_alias_table]
+    call smoke_write_hex32
+
+    mov esi, smoke_kmapfree_text
+    call smoke_copy_string
+    mov edx, [kernel_high_alias_reclaimed]
+    call smoke_write_hex32
+
+    mov esi, smoke_kmaplo_text
+    call smoke_copy_string
+    mov edx, [kernel_high_alias_low_word]
+    call smoke_write_hex32
+
+    mov esi, smoke_kmaphi_text
+    call smoke_copy_string
+    mov edx, [kernel_high_alias_high_word]
+    call smoke_write_hex32
+
     mov esi, smoke_vmmhi_text
     call smoke_copy_string
     cmp byte [vmm_high_mapping_status], 1
@@ -18799,6 +18909,13 @@ smoke_kernesp_text db " kernesp=", 0
 smoke_kerncr3_text db " kerncr3=", 0
 smoke_kernvirt_text db " kernvirt=", 0
 smoke_kernphys_text db " kernphys=", 0
+smoke_kmap_text db " kmap=", 0
+smoke_kmapva_text db " kmapva=", 0
+smoke_kmappa_text db " kmappa=", 0
+smoke_kmappt_text db " kmappt=", 0
+smoke_kmapfree_text db " kmapfree=", 0
+smoke_kmaplo_text db " kmaplo=", 0
+smoke_kmaphi_text db " kmaphi=", 0
 smoke_vmmhi_text db " vmmhi=", 0
 smoke_vmmhva_text db " vmmhva=", 0
 smoke_vmmhpa_text db " vmmhpa=", 0
@@ -19151,6 +19268,7 @@ pmm_test_status db 0
 vmm_test_status db 0
 vmm_high_mapping_status db 0
 kernel_relocation_status db 0
+kernel_high_alias_status db 0
 heap_test_status db 0
 fpu_status db 0
 fpu_test_status db 0
@@ -19265,6 +19383,12 @@ kernel_relocation_esp dd 0
 kernel_relocation_cr3 dd 0
 kernel_relocation_virt dd 0
 kernel_relocation_phys dd 0
+kernel_high_alias_vaddr dd 0
+kernel_high_alias_phys dd 0
+kernel_high_alias_table dd 0
+kernel_high_alias_reclaimed dd 0
+kernel_high_alias_low_word dd 0
+kernel_high_alias_high_word dd 0
 vmm_map_vaddr dd 0
 vmm_map_entry dd 0
 vmm_map_table_addr dd 0
