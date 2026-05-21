@@ -585,6 +585,86 @@ static int test_non_looping_stream_stops_at_song_end(void)
     return 0;
 }
 
+static int test_zero_duration_song_does_not_emit_silent_stream_chunks(void)
+{
+    static unsigned char midi_lump[] = {
+        'M', 'T', 'h', 'd',
+        0, 0, 0, 6,
+        0, 0,
+        0, 1,
+        0, 96,
+        'M', 'T', 'r', 'k',
+        0, 0, 0, 4,
+        0x00, 0xff, 0x2f, 0x00
+    };
+    unsigned char pcm[256];
+    vibe_music_render_stats_t stats;
+    int handle;
+    unsigned long rendered;
+    unsigned long i;
+
+    if (vibe_music_detect(midi_lump) != VIBE_MUSIC_FORMAT_MIDI)
+        return 130;
+
+    for (i = 0; i < sizeof(pcm); ++i)
+        pcm[i] = 1;
+    rendered = vibe_music_render_pcm(
+        midi_lump,
+        pcm,
+        sizeof(pcm),
+        VIBE_MUSIC_DEFAULT_SAMPLE_RATE,
+        127,
+        0,
+        &stats);
+    if (rendered != 0)
+        return 131;
+    if (stats.format != VIBE_MUSIC_FORMAT_MIDI || stats.emitted_samples != 0)
+        return 132;
+    if (count_non_silence(pcm, sizeof(pcm)))
+        return 133;
+
+    for (i = 0; i < sizeof(pcm); ++i)
+        pcm[i] = 2;
+    rendered = vibe_music_render_pcm(
+        midi_lump,
+        pcm,
+        sizeof(pcm),
+        VIBE_MUSIC_DEFAULT_SAMPLE_RATE,
+        127,
+        1,
+        &stats);
+    if (rendered != 0)
+        return 134;
+    if (stats.format != VIBE_MUSIC_FORMAT_MIDI || stats.emitted_samples != 0)
+        return 135;
+    if (count_non_silence(pcm, sizeof(pcm)))
+        return 136;
+
+    vibe_music_init();
+    handle = vibe_music_register_song(midi_lump);
+    if (handle <= 0)
+        return 137;
+    vibe_music_stream_begin(handle, VIBE_MUSIC_DEFAULT_SAMPLE_RATE, 127, 1);
+    if (vibe_music_stream_song_samples(handle) != 0)
+        return 138;
+    if (vibe_music_stream_loop_samples(handle) != 0)
+        return 139;
+
+    for (i = 0; i < sizeof(pcm); ++i)
+        pcm[i] = 3;
+    rendered = vibe_music_stream_render(handle, pcm, sizeof(pcm), &stats);
+    if (rendered != 0)
+        return 140;
+    if (stats.format != VIBE_MUSIC_FORMAT_MIDI || stats.emitted_samples != 0)
+        return 141;
+    if (vibe_music_stream_position(handle) != 0 || vibe_music_stream_loop_count(handle) != 0)
+        return 142;
+    if (count_non_silence(pcm, sizeof(pcm)))
+        return 143;
+
+    return 0;
+}
+
 int main(void)
 {
     int result;
@@ -622,6 +702,10 @@ int main(void)
         return result;
 
     result = test_non_looping_stream_stops_at_song_end();
+    if (result)
+        return result;
+
+    result = test_zero_duration_song_does_not_emit_silent_stream_chunks();
     if (result)
         return result;
 

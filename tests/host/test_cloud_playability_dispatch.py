@@ -101,6 +101,12 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
             "tools/check_cloud_playability_artifacts.py build/cloud-run-12345 --require-gameplay-proof --require-audible-proof",
             audio.stdout,
         )
+        self.assertIn("failure lanes:", audio.stdout)
+        self.assertIn("gameplay/input:", audio.stdout)
+        self.assertIn("SB16 continuity:", audio.stdout)
+        self.assertIn("audible audio aggregate:", audio.stdout)
+        self.assertIn("build/cloud-run-12345/audio-proof.json", audio.stdout)
+        self.assertIn("persistence/save-load: not requested for this lane", audio.stdout)
         self.assertIn("tools/triage_cloud_status.py build/cloud-run-12345/status.txt", audio.stdout)
         self.assertIn("dry-run: artifact was not downloaded", audio.stdout)
 
@@ -116,6 +122,10 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
         self.assertEqual(persistence.returncode, 0, persistence.stdout + persistence.stderr)
         self.assertIn("--require-gameplay-proof", persistence.stdout)
         self.assertNotIn("--require-audible-proof", persistence.stdout)
+        self.assertIn("audible audio aggregate: not requested for this lane", persistence.stdout)
+        self.assertIn("persistence/save-load:", persistence.stdout)
+        self.assertIn("status.persistence-load.txt", persistence.stdout)
+        self.assertIn("tools/triage_cloud_status.py build/cloud-run-12345/status.persistence-load.txt", persistence.stdout)
 
     def test_soak_mode_dispatches_repeated_json_metadata_workflow(self):
         result = self.run_helper(
@@ -167,6 +177,9 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
             "tools/check_cloud_playability_artifacts.py --soak-summary build/cloud-soak-67890",
             result.stdout,
         )
+        self.assertIn("failure lanes:", result.stdout)
+        self.assertIn("gameplay/audio soak:", result.stdout)
+        self.assertIn("persistence: not requested by real-wad-soak.yml", result.stdout)
         self.assertIn("soak metadata has no raw status text", result.stdout)
         self.assertIn("dry-run: artifact was not downloaded", result.stdout)
 
@@ -253,6 +266,7 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
 
         for needle in (
             "Summarize cloud proof lane",
+            "Failure lanes: gameplay/input, SB16 continuity, audible audio aggregate, and persistence/save-load",
             "Persistence isolation",
             "gh run download $GITHUB_RUN_ID",
             "python3 tools/triage_cloud_status.py build/cloud-run-$GITHUB_RUN_ID/status.txt",
@@ -269,6 +283,7 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
                 self.assertIn("--lane persistence", doc)
                 self.assertIn("audible_audio_proof=false", doc)
                 self.assertIn("--soak-attempts", doc)
+                self.assertIn("failure lanes", doc.lower())
 
         for needle in (
             "Summarize soak proof lane",

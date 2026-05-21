@@ -774,6 +774,8 @@ def valid_audio_proof_manifest():
                 "pull_refill_delta": "00000005",
                 "position_delta": "000013FF",
                 "position_delta_per_update_floor": "00000300",
+                "rendered_sample_delta": "00028000",
+                "rendered_sample_covers_position": True,
             },
             "stream_contract": {
                 "mode": "PULL",

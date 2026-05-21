@@ -132,6 +132,81 @@ NEXT_UNLOCK = {
     },
 }
 
+STATUS_PROOFS = {
+    "IDE_ATA_PIO": {
+        "scope": "qemu-ide",
+        "fields": (
+            "ata",
+            "ataop",
+            "atawait",
+            "atalba",
+            "atastat",
+            "ataerr",
+            "atafail",
+            "atatmo",
+        ),
+        "evidence": "status.txt",
+    },
+    "PS2_KEYBOARD": {
+        "scope": "qemu-ps2",
+        "fields": (
+            "inputqueue",
+            "inputpoll",
+            "inputlast",
+            "keyirq",
+            "keyqueue",
+            "keypoll",
+            "keyseen",
+            "keylast",
+        ),
+        "evidence": "status-after-key-phases",
+    },
+    "PS2_MOUSE": {
+        "scope": "qemu-ps2",
+        "fields": (
+            "mouse",
+            "mouseirq",
+            "mousepkt",
+            "mousepoll",
+            "mousebtn",
+            "mousedelta",
+        ),
+        "evidence": "status-after-mouse",
+    },
+    "VBE_VGA": {
+        "scope": "qemu-vbe-vga",
+        "fields": (
+            "gfx",
+            "fb",
+            "fbpolicy",
+            "fbgeom",
+            "fbdirty",
+            "doompresent",
+            "doompal",
+            "doomframe",
+            "doomnonzero",
+            "doomcolors",
+        ),
+        "evidence": "framebuffer-status",
+    },
+    "SB16": {
+        "scope": "qemu-sb16",
+        "fields": (
+            "audio",
+            "sb16",
+            "dma",
+            "play",
+            "audioirq",
+            "ack8",
+            "refill",
+            "sfxdma",
+            "musicpull",
+            "pcmbuf",
+        ),
+        "evidence": "audio-status",
+    },
+}
+
 REQUIRED_MATRIX_PHRASES = (
     "QEMU's legacy PC machine model",
     "BIOS boot",
@@ -157,6 +232,12 @@ REQUIRED_MATRIX_PHRASES = (
     "Claimed rows prove only the named QEMU device-model path",
     "Status-only rows are diagnostics, not driver support",
     "PCI_TABLE[QEMU_BUS0_CLASS_TABLE]",
+    "STATUS_PROOF[IDE_ATA_PIO]",
+    "STATUS_PROOF[PS2_KEYBOARD]",
+    "STATUS_PROOF[PS2_MOUSE]",
+    "STATUS_PROOF[VBE_VGA]",
+    "STATUS_PROOF[SB16]",
+    "minimum aggregate status fields",
     "bdf-id-class-header",
     "pcitabcap=",
     "pcitabuse=",
@@ -319,6 +400,15 @@ NEXT_UNLOCK_RE = re.compile(
     r"priority=(?P<priority>[a-z0-9-]+) "
     r"scope=(?P<scope>[a-z0-9-]+) "
     r"proof=(?P<proof>[a-z0-9-]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
+STATUS_PROOF_RE = re.compile(
+    r"^- `STATUS_PROOF\[(?P<id>[A-Z0-9_]+)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"scope=(?P<scope>[a-z0-9-]+) "
+    r"fields=(?P<fields>[a-z0-9_,]+) "
     r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
     re.MULTILINE,
 )
@@ -604,6 +694,38 @@ def _validate_next_unlock_rows(text: str) -> dict[str, dict[str, str]]:
     return rows
 
 
+def _validate_status_proof_rows(text: str) -> dict[str, dict[str, object]]:
+    rows: dict[str, dict[str, object]] = {}
+    for match in STATUS_PROOF_RE.finditer(text):
+        row_id = match.group("id")
+        if row_id in rows:
+            raise AssertionError(f"duplicate STATUS_PROOF row: {row_id}")
+        row = match.groupdict()
+        row["fields"] = tuple(row["fields"].split(","))
+        rows[row_id] = row
+
+    missing = sorted(set(STATUS_PROOFS) - set(rows))
+    if missing:
+        raise AssertionError(f"missing STATUS_PROOF rows: {', '.join(missing)}")
+    extras = sorted(set(rows) - set(STATUS_PROOFS))
+    if extras:
+        raise AssertionError(f"unexpected STATUS_PROOF rows: {', '.join(extras)}")
+
+    for row_id, expected in STATUS_PROOFS.items():
+        row = rows[row_id]
+        if row["status"] != "required":
+            raise AssertionError(f"STATUS_PROOF[{row_id}] must stay status=required")
+        if row["scope"] != expected["scope"]:
+            raise AssertionError(f"STATUS_PROOF[{row_id}] scope must stay {expected['scope']}")
+        if row["fields"] != expected["fields"]:
+            expected_fields = ",".join(expected["fields"])
+            raise AssertionError(f"STATUS_PROOF[{row_id}] fields must stay {expected_fields}")
+        if row["evidence"] != expected["evidence"]:
+            raise AssertionError(f"STATUS_PROOF[{row_id}] evidence must stay {expected['evidence']}")
+
+    return rows
+
+
 def _validate_uefi_scaffold(root: Path) -> dict[str, dict[str, str]]:
     text = _read(root / "boot" / "uefi" / "README.md")
     rows = _validate_uefi_boot_rows(text)
@@ -725,6 +847,22 @@ def _hex8_field(fields: dict[str, str], name: str) -> int:
     return int(value, 16)
 
 
+def _hex_tuple_field(fields: dict[str, str], name: str, count: int, sep: str = ":") -> tuple[int, ...]:
+    value = fields.get(name)
+    if value is None:
+        raise AssertionError(f"status missing {name}= field")
+    parts = value.split(sep)
+    if len(parts) != count or any(HEX8_RE.fullmatch(part) is None for part in parts):
+        raise AssertionError(f"{name}= must contain {count} 8-digit hex fields separated by {sep!r}")
+    return tuple(int(part, 16) for part in parts)
+
+
+def _require_fields(fields: dict[str, str], names: tuple[str, ...], label: str) -> None:
+    missing = sorted(set(names) - set(fields))
+    if missing:
+        raise AssertionError(f"status missing {label} fields: {', '.join(missing)}")
+
+
 def validate_pci_status_text(status: str) -> dict[str, str]:
     fields = _parse_status_fields(status)
     missing = sorted(PCI_STATUS_FIELDS - set(fields))
@@ -804,6 +942,80 @@ def validate_pci_status_text(status: str) -> dict[str, str]:
     return fields
 
 
+def validate_claimed_hardware_status_text(status: str) -> dict[str, str]:
+    fields = _parse_status_fields(status)
+    for proof_id, proof in STATUS_PROOFS.items():
+        _require_fields(fields, proof["fields"], proof_id)
+
+    if fields["ata"] != "OK":
+        raise AssertionError("ata= must be OK for claimed IDE/ATA PIO proof")
+    if fields["ataop"] not in {"READ", "WRITE"}:
+        raise AssertionError("ataop= must prove a completed ATA READ or WRITE")
+    if fields["atawait"] != "IDLE":
+        raise AssertionError("atawait= must return to IDLE after the ATA proof transfer")
+    _hex8_field(fields, "atalba")
+    _hex8_field(fields, "atastat")
+    if _hex8_field(fields, "ataerr") != 0:
+        raise AssertionError("ataerr= must be zero for claimed IDE/ATA PIO proof")
+    if _hex8_field(fields, "atafail") != 0:
+        raise AssertionError("atafail= must be zero for claimed IDE/ATA PIO proof")
+    if _hex8_field(fields, "atatmo") != 0:
+        raise AssertionError("atatmo= must be zero for claimed IDE/ATA PIO proof")
+
+    for name in ("inputqueue", "inputpoll", "keyirq", "keyqueue", "keypoll", "keyseen"):
+        if _hex8_field(fields, name) == 0:
+            raise AssertionError(f"{name}= must be nonzero for claimed PS/2 keyboard proof")
+    input_last = _hex_tuple_field(fields, "inputlast", 3)
+    if input_last[1] == 0 or input_last[2] == 0:
+        raise AssertionError("inputlast= must record a keyboard or mouse device/type proof")
+    _hex8_field(fields, "keylast")
+
+    if fields["mouse"] != "OK":
+        raise AssertionError("mouse= must be OK for claimed PS/2 mouse proof")
+    for name in ("mouseirq", "mousepkt", "mousepoll", "mousebtn"):
+        if _hex8_field(fields, name) == 0:
+            raise AssertionError(f"{name}= must be nonzero for claimed PS/2 mouse proof")
+    mouse_dx, mouse_dy = _hex_tuple_field(fields, "mousedelta", 2)
+    if mouse_dx == 0 and mouse_dy == 0:
+        raise AssertionError("mousedelta= must record scripted mouse movement")
+
+    if fields["gfx"] != "OK":
+        raise AssertionError("gfx= must be OK for claimed VBE/VGA proof")
+    if fields["fb"] not in {"LFB", "M13"}:
+        raise AssertionError("fb= must be LFB or M13 for claimed VBE/VGA proof")
+    if fields["fbpolicy"] not in {"ASP", "SQ", "M13"}:
+        raise AssertionError("fbpolicy= must be ASP, SQ, or M13 for claimed VBE/VGA proof")
+    _hex_tuple_field(fields, "fbgeom", 5)
+    _hex_tuple_field(fields, "fbdirty", 5)
+    for name in ("doompresent", "doompal", "doomframe", "doomnonzero", "doomcolors"):
+        if _hex8_field(fields, name) == 0:
+            raise AssertionError(f"{name}= must be nonzero for claimed VBE/VGA proof")
+
+    if fields["audio"] != "SB16":
+        raise AssertionError("audio= must be SB16 for claimed SB16 proof")
+    sb16_major, _sb16_minor = _hex_tuple_field(fields, "sb16", 2)
+    if sb16_major == 0:
+        raise AssertionError("sb16= must expose a nonzero DSP major version")
+    for name in ("dma", "audioirq", "ack8", "refill"):
+        if _hex8_field(fields, name) == 0:
+            raise AssertionError(f"{name}= must be nonzero for claimed SB16 proof")
+    play_start, _play_stop = _hex_tuple_field(fields, "play", 2)
+    if play_start == 0:
+        raise AssertionError("play= must record a playback start for claimed SB16 proof")
+    sfx_dma_count, sfx_dma_bytes = _hex_tuple_field(fields, "sfxdma", 2)
+    if sfx_dma_count == 0 or sfx_dma_bytes == 0:
+        raise AssertionError("sfxdma= must record DMA SFX refill work for claimed SB16 proof")
+    pull_requests, pull_refills = _hex_tuple_field(fields, "musicpull", 2)
+    if pull_requests == 0 or pull_refills == 0:
+        raise AssertionError("musicpull= must record hardware-paced pull-stream work")
+    pcm_buffer_size, pcm_block_size, _pcm_write_pos, _pcm_half = _hex_tuple_field(fields, "pcmbuf", 4)
+    if pcm_buffer_size == 0 or pcm_block_size == 0:
+        raise AssertionError("pcmbuf= must expose nonzero SB16 PCM buffer geometry")
+
+    validate_pci_status_text(status)
+    return fields
+
+
 def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
     matrix_text = _read(root / "docs" / "hardware-support.md")
 
@@ -817,6 +1029,7 @@ def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
     _validate_proof_requirement_rows(matrix_text)
     _validate_negative_claim_rows(matrix_text)
     _validate_next_unlock_rows(matrix_text)
+    _validate_status_proof_rows(matrix_text)
     _validate_uefi_scaffold(root)
     _validate_pci_source_contract(root)
 
@@ -833,19 +1046,33 @@ def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--status", type=Path, help="optional QEMU status.txt to validate for bounded PCI fields")
+    parser.add_argument(
+        "--claimed-hardware-status",
+        type=Path,
+        help="optional QEMU status.txt to validate against claimed hardware proof counters",
+    )
     args = parser.parse_args()
 
     try:
         rows = validate_repo_contract()
         if args.status is not None:
             validate_pci_status_text(args.status.read_text(encoding="utf-8"))
+        if args.claimed_hardware_status is not None:
+            validate_claimed_hardware_status_text(
+                args.claimed_hardware_status.read_text(encoding="utf-8")
+            )
     except AssertionError as exc:
         print(f"hardware support matrix failed: {exc}", file=sys.stderr)
         return 1
 
     claimed = sum(1 for row in rows.values() if row["status"] == "claimed")
     unclaimed = sum(1 for row in rows.values() if row["status"] == "unclaimed")
-    status_suffix = "; PCI status OK" if args.status is not None else ""
+    status_checks = []
+    if args.status is not None:
+        status_checks.append("PCI status OK")
+    if args.claimed_hardware_status is not None:
+        status_checks.append("claimed hardware status OK")
+    status_suffix = f"; {', '.join(status_checks)}" if status_checks else ""
     print(
         "hardware support matrix OK: "
         f"{claimed} bounded claimed classes, {unclaimed} unclaimed classes"

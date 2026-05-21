@@ -72,6 +72,7 @@ static int load_checkpoint_requested;
 static int load_checkpoint_slot;
 static int load_checkpoint_done;
 static int load_checkpoint_started;
+static unsigned char vibe_key_down[256];
 
 #define VIBE_MUSIC_AUDIO_HANDLE_BASE 0x4d550000u
 #define VIBE_SFX_DEFAULT_SAMPLE_RATE 11025u
@@ -238,7 +239,7 @@ static int submit_music_stream_chunk(int handle, int start_voice)
         &stats);
 
     if (!rendered) {
-        if (!current_music_looping && current_music_handle == handle) {
+        if (current_music_handle == handle) {
             (void)vibe_syscall3(
                 VIBE_SYS_AUDIO,
                 VIBE_AUDIO_MIXER_STOP,
@@ -587,11 +588,23 @@ void I_StartTic(void)
         if (!vibe_doom_translate_input_event(&input, &translated))
             continue;
 
-        if (translated.type == VIBE_DOOM_INPUT_KEYDOWN)
+        if (translated.type == VIBE_DOOM_INPUT_KEYDOWN) {
+            unsigned int key;
+
+            key = (unsigned int)translated.data1 & 0xffu;
+            if (vibe_key_down[key])
+                continue;
+            vibe_key_down[key] = 1;
             event.type = ev_keydown;
-        else if (translated.type == VIBE_DOOM_INPUT_KEYUP)
+        } else if (translated.type == VIBE_DOOM_INPUT_KEYUP) {
+            unsigned int key;
+
+            key = (unsigned int)translated.data1 & 0xffu;
+            if (!vibe_key_down[key])
+                continue;
+            vibe_key_down[key] = 0;
             event.type = ev_keyup;
-        else if (translated.type == VIBE_DOOM_INPUT_MOUSE)
+        } else if (translated.type == VIBE_DOOM_INPUT_MOUSE)
             event.type = ev_mouse;
         else
             continue;

@@ -21,6 +21,7 @@ void _exit(int status);
 int execl(const char* path, const char* arg, ...);
 int execv(const char* path, char* const argv[]);
 int execve(const char* path, char* const argv[], char* const envp[]);
+extern char** environ;
 pid_t fork(void);
 pid_t getpid(void);
 

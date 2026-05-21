@@ -138,6 +138,24 @@ class VmStatusProofTests(unittest.TestCase):
                         require_exec=True,
                     )
 
+    def test_rejects_missing_or_out_of_range_exec_stack_evidence(self):
+        for overrides, message in (
+            ({"argc": "00000000"}, "one-argument"),
+            ({"argc": "00000002"}, "one-argument"),
+            ({"argv": "00000000"}, "argv="),
+            ({"envp": "00000000"}, "envp="),
+            ({"argv0": "00000000"}, "argv0="),
+            ({"argv": "00E7FFF0"}, "argv="),
+            ({"envp": "02000000"}, "envp="),
+            ({"argv0": "02000000"}, "argv0="),
+        ):
+            with self.subTest(overrides=overrides):
+                with self.assertRaisesRegex(AssertionError, message):
+                    check_vm_status_proof.validate_status(
+                        status_line(**overrides),
+                        require_exec=True,
+                    )
+
     def test_rejects_counter_only_preemption(self):
         for overrides, message in (
             ({"pself": "FAIL"}, "pself"),
@@ -186,6 +204,34 @@ class VmStatusProofTests(unittest.TestCase):
 
     def test_repo_contract_is_machine_checked(self):
         check_vm_status_proof.validate_repo_contract(ROOT)
+
+    def test_repo_contract_keeps_generic_exec_surface_documented(self):
+        process_exec = (ROOT / "docs" / "process-exec.md").read_text()
+        process_vm = (ROOT / "docs" / "process-vm.md").read_text()
+        header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
+
+        for source in (
+            "root-level `.ELF` programs",
+            "root-only FAT16 8.3 `.ELF` path",
+            "`VIBE_EXEC_ARG_MAX` argv strings",
+            "an empty `envp` vector",
+            "descriptors limited to fd slots not opened with",
+        ):
+            self.assertIn(source, process_exec)
+        for source in (
+            "target-specific stack bounds",
+            "shared argv stack builder",
+            "process-owned fd\nretagging for inheritable descriptors",
+            "future root-level game or tool ELFs",
+        ):
+            self.assertIn(source, process_vm)
+        for source in (
+            "VIBE_EXEC_PATH_MAX = 16",
+            "VIBE_EXEC_ARG_MAX = 8",
+            "VIBE_EXEC_ARG_STR_MAX = 64",
+            "execve accepts NULL or empty envp only",
+        ):
+            self.assertIn(source, header)
 
     def test_cli_reports_repo_contract_success(self):
         result = subprocess.run(

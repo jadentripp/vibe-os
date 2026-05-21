@@ -157,6 +157,10 @@ python3 tools/run_cloud_playability.py --ref <branch> --lane audio \
 The first command downloads and triages the allowlisted single-run status
 artifact. The second downloads the JSON-only soak metadata and validates its
 summary.
+The helper prints a separate failure-lane block after every download command:
+gameplay/input, SB16 continuity, audible audio aggregate when requested, and
+persistence/save-load when requested. Treat those as independent repair lanes
+instead of upgrading a partial proof into a broader claim.
 
 ## Run The Play Script
 

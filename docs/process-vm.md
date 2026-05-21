@@ -37,10 +37,11 @@ the high alias is backed by a distinct PMM-managed physical frame, the Doom
 launch used `argvsrc=2` from a user argv-vector exec path, `uexec=OK` and
 `upath=USERPROB.ELF` prove the initial probe also came through the exec
 resolver, `procpool=`, `fdexec=`, and `wait=` prove bounded slot reuse,
-exec-time fd inheritance, and a userland wait/reap path, and `pmask`, `pkind`,
-`peip`, `pcr3`, `pkstk`, and `pframe` show timer-driven switches in both
-directions between Doom and the preempt probe with distinct address spaces,
-kernel stacks, and a rewritten Ring 3 IRQ return frame.
+exec-time fd inheritance, a userland wait/reap path, and fault statuses that
+can be reaped instead of staying stale, and `pmask`, `pkind`, `peip`, `pcr3`,
+`pkstk`, and `pframe` show timer-driven switches in both directions between
+Doom and the preempt probe with distinct address spaces, kernel stacks, and a
+rewritten Ring 3 IRQ return frame.
 
 ## Current Address Spaces
 
@@ -66,7 +67,12 @@ root-level FAT16 `.ELF` exec fallback. They use the probe-class virtual layout
 and have their own page directories, PDE-3 page tables, kernel stack tops, slot
 reuse accounting, and fresh PIDs. They are selected at exec time from
 `process_generic_exec_slots`, so a generic utility no longer has to overwrite
-the boot probe process record.
+the boot probe process record. Once selected, they use the same process
+handoff machinery as table-backed Doom: target-specific stack bounds, the
+shared argv stack builder, a kernel-seeded empty `envp`, process-owned fd
+retagging for inheritable descriptors, and `O_CLOEXEC` close-on-exec cleanup.
+That keeps the VM contract useful for future root-level game or tool ELFs
+instead of only proving the Doom slot.
 
 `process_doom` owns:
 

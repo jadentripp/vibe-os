@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -16,6 +17,68 @@ finally:
 class HardwareSupportMatrixTests(unittest.TestCase):
     def assertContainsPhrase(self, text, phrase):
         self.assertIn(" ".join(phrase.split()), " ".join(text.split()))
+
+    def claimed_hardware_status(self, **overrides):
+        fields = {
+            "ata": "OK",
+            "ataop": "READ",
+            "atawait": "IDLE",
+            "atalba": "00000042",
+            "atastat": "00000040",
+            "ataerr": "00000000",
+            "atafail": "00000000",
+            "atatmo": "00000000",
+            "inputqueue": "00000008",
+            "inputpoll": "00000008",
+            "inputlast": "0000002A:00000001:00000001",
+            "keyirq": "00000004",
+            "keyqueue": "00000004",
+            "keypoll": "00000004",
+            "keyseen": "00000071",
+            "keylast": "0001001B",
+            "mouse": "OK",
+            "mouseirq": "00000001",
+            "mousepkt": "00000001",
+            "mousepoll": "00000001",
+            "mousebtn": "00000001",
+            "mousedelta": "00000018:0000000C",
+            "gfx": "OK",
+            "fb": "LFB",
+            "fbpolicy": "ASP",
+            "fbgeom": "00000000:00000000:00000280:000001E0:00000002",
+            "fbdirty": "00000000:00000000:00000140:000000C8:00000100",
+            "doompresent": "00000002",
+            "doompal": "11111111",
+            "doomframe": "22222222",
+            "doomnonzero": "00001000",
+            "doomcolors": "00000040",
+            "audio": "SB16",
+            "sb16": "00000004:00000005",
+            "dma": "00000001",
+            "play": "00000001:00000000",
+            "audioirq": "00000002",
+            "ack8": "00000002",
+            "refill": "00000002",
+            "sfxdma": "00000002:00000800",
+            "musicpull": "00000002:00000002",
+            "pcmbuf": "00002000:00000400:00000000:00000001",
+            "pci": "OK",
+            "pciprobe": "00000100",
+            "pcicount": "00000004",
+            "pcifirst": "00000000",
+            "pciid": "12378086",
+            "pciclass": "06000000",
+            "pcitable": "OK",
+            "pcitabcap": "00000100",
+            "pcitabuse": "00000004",
+            "pcilast": "00000100",
+            "pciclassh": "89ABCDEF",
+            "pcimulti": "00000001",
+            "pciclsms": "00000001",
+            "pciclsbr": "00000001",
+        }
+        fields.update(overrides)
+        return "Aurora OS v0.2 " + " ".join(f"{key}={value}" for key, value in fields.items())
 
     def test_matrix_rows_define_claimed_and_unclaimed_device_classes(self):
         rows = check_hardware_support_matrix.validate_repo_contract(ROOT)
@@ -188,6 +251,21 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         self.assertEqual(next_rows["PCI_ENUMERATION"]["evidence"], "none")
         self.assertContainsPhrase(matrix, "PCI enumeration is the next implementable hardware-class unlock")
 
+    def test_claimed_hardware_rows_name_machine_checked_status_counters(self):
+        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        rows = check_hardware_support_matrix._validate_status_proof_rows(matrix)
+
+        self.assertEqual(
+            set(rows),
+            {"IDE_ATA_PIO", "PS2_KEYBOARD", "PS2_MOUSE", "VBE_VGA", "SB16"},
+        )
+        self.assertEqual(rows["IDE_ATA_PIO"]["fields"][0:3], ("ata", "ataop", "atawait"))
+        self.assertIn("keyirq", rows["PS2_KEYBOARD"]["fields"])
+        self.assertIn("mousepkt", rows["PS2_MOUSE"]["fields"])
+        self.assertIn("fbgeom", rows["VBE_VGA"]["fields"])
+        self.assertIn("audioirq", rows["SB16"]["fields"])
+        self.assertContainsPhrase(matrix, "minimum aggregate status fields")
+
     def test_uefi_scaffold_is_contract_only_and_unclaimed(self):
         rows = check_hardware_support_matrix.validate_repo_contract(ROOT)
         uefi_rows = check_hardware_support_matrix._validate_uefi_scaffold(ROOT)
@@ -257,6 +335,51 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix.validate_pci_status_text(status.replace("pcifirst=00000000", "pcifirst=00002000"))
         with self.assertRaisesRegex(AssertionError, "status missing PCI fields"):
             check_hardware_support_matrix.validate_pci_status_text("Aurora OS v0.2 pci=OK")
+
+    def test_checker_validates_claimed_hardware_status_counters(self):
+        fields = check_hardware_support_matrix.validate_claimed_hardware_status_text(
+            self.claimed_hardware_status()
+        )
+        self.assertEqual(fields["ata"], "OK")
+        self.assertEqual(fields["audio"], "SB16")
+
+        for overrides, message in (
+            ({"ata": "FAIL"}, "ata="),
+            ({"atawait": "DRQ"}, "atawait="),
+            ({"keyirq": "00000000"}, "keyirq="),
+            ({"mouse": "NONE"}, "mouse="),
+            ({"mousedelta": "00000000:00000000"}, "mousedelta="),
+            ({"fb": "GOP"}, "fb="),
+            ({"doompresent": "00000000"}, "doompresent="),
+            ({"audio": "NONE"}, "audio="),
+            ({"sb16": "00000000:00000000"}, "sb16="),
+            ({"musicpull": "00000000:00000000"}, "musicpull="),
+            ({"pciprobe": "00000020"}, "pciprobe="),
+        ):
+            with self.subTest(overrides=overrides):
+                with self.assertRaisesRegex(AssertionError, message):
+                    check_hardware_support_matrix.validate_claimed_hardware_status_text(
+                        self.claimed_hardware_status(**overrides)
+                    )
+
+    def test_cli_validates_claimed_hardware_status_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "status.txt"
+            path.write_text(self.claimed_hardware_status())
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(TOOLS / "check_hardware_support_matrix.py"),
+                    "--claimed-hardware-status",
+                    str(path),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("claimed hardware status OK", result.stdout)
 
     def test_checker_rejects_claimed_scope_broadening(self):
         matrix = (ROOT / "docs" / "hardware-support.md").read_text()

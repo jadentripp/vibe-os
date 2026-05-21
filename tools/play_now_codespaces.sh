@@ -663,8 +663,7 @@ else
 fi
 
 echo "Starting vibe-os Doom inside Codespace '$CODESPACE_NAME'"
-payload="$(remote_start_payload)"
-gh codespace ssh -c "$CODESPACE_NAME" -- env VIBE_PLAY_REF="$REF" NOVNC_PORT="$NOVNC_PORT" bash -lc "$payload"
+remote_start_payload | gh codespace ssh -c "$CODESPACE_NAME" -- env VIBE_PLAY_REF="$REF" NOVNC_PORT="$NOVNC_PORT" bash -s
 
 novnc_browse_url=""
 echo "Waiting up to ${CODESPACES_PORT_WAIT_SECONDS}s for noVNC port $NOVNC_PORT"

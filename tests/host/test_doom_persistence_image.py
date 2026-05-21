@@ -1606,6 +1606,48 @@ class DoomPersistenceImageTests(unittest.TestCase):
         )
         self.assertIn("save load status gameplay=OK slot=0", summary)
 
+    def test_checker_accepts_runtime_savestm_after_specials_completion(self):
+        payload, thinker_offset, _specials_offset = doom_save_payload_with_streams()
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        after_write = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(after_write)
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], payload)
+        after_reboot = bytearray(after_write)
+
+        baseline_path = self.write_temp_image(baseline)
+        write_path = self.write_temp_image(after_write)
+        reboot_path = self.write_temp_image(after_reboot)
+        status_path = self.write_temp_text(save_write_status(slot=0))
+        load_status_path = self.write_temp_text(
+            load_status(
+                slot=0,
+                read_bytes=len(payload),
+                leveltime=71,
+                savestm=(
+                    f"00000018/00000000/{len(payload) - 1:08X}/1D017D08/00000008"
+                ),
+                savethk=(
+                    f"{thinker_offset:08X}/00000000/{thinker_offset:08X}/01006C08"
+                ),
+            )
+        )
+
+        summary = check_persistence.validate_image(
+            reboot_path,
+            baseline_image=baseline_path,
+            reboot_baseline_image=write_path,
+            reboot_status_path=load_status_path,
+            save_write_status_path=status_path,
+            load_status_path=load_status_path,
+            require_save_slots=[0],
+        )
+
+        self.assertIn(
+            f"DOOMSAV0.DSG thinkers=OK offset=0x{thinker_offset:X}",
+            summary[1],
+        )
+        self.assertIn("save load status gameplay=OK slot=0", summary)
+
     def test_checker_rejects_fake_save_header_with_arbitrary_tail_bytes(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
         fs = make_wad_image.Fat16Image(image)

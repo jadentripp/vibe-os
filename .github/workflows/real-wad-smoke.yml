@@ -89,6 +89,7 @@ jobs:
 
           echo "Proof lane: $lane"
           echo "Artifact policy: upload status/ELF/log diagnostics only; no WADs, disk images, rendered pixels, or raw audio."
+          echo "Failure lanes: gameplay/input, SB16 continuity, audible audio aggregate, and persistence/save-load are checked or triaged separately."
           echo "Download command after completion:"
           echo "gh run download $GITHUB_RUN_ID --repo $GITHUB_REPOSITORY --name real-wad-smoke-status --dir build/cloud-run-$GITHUB_RUN_ID"
 
@@ -101,6 +102,12 @@ jobs:
             echo "- artifact: \`real-wad-smoke-status\`"
             echo "- local VM: refused by runbook; this job runs on a disposable GitHub-hosted runner"
             echo "- artifact policy: no WADs, disk images, rendered pixels, or raw audio"
+            echo ""
+            echo "Failure lanes stay separate:"
+            echo "- gameplay/input: \`tools/check_cloud_playability_artifacts.py --require-gameplay-proof\`"
+            echo "- SB16 continuity: \`tools/check_audio_continuity_proof.py\`"
+            echo "- audible audio aggregate: \`tools/check_audible_audio_proof.py build/audio-proof.json\` when requested"
+            echo "- persistence/save-load: \`status.persistence-*.txt\` plus \`tools/triage_cloud_status.py\` when requested"
             echo ""
             echo "Persistence isolation: use \`audible_audio_proof=false\` with \`persistence_save_slot=0\` so save/load failures are not mixed with the audible-audio lane."
             echo ""

@@ -530,6 +530,44 @@ def _assert_music_render_evidence(snapshots: list[tuple[str, dict[str, str]]]) -
     _assert_tuple_component_progress(snapshots, "musicrend", 6, 5, "rendered sample")
 
 
+def _assert_music_render_covers_stream_service(
+    snapshots: list[tuple[str, dict[str, str]]],
+    *,
+    use_pull_stream: bool,
+) -> None:
+    first_label, first_fields = snapshots[0]
+    last_label, last_fields = snapshots[-1]
+    if use_pull_stream:
+        first_service = _hex_tuple(first_fields, "musicpull", first_label, 2)[1]
+        last_service = _hex_tuple(last_fields, "musicpull", last_label, 2)[1]
+        service_label = "musicpull= refill"
+    else:
+        first_service = _hex_tuple(first_fields, "voiceq", first_label, 3)[2]
+        last_service = _hex_tuple(last_fields, "voiceq", last_label, 3)[2]
+        service_label = "voiceq= stream update"
+
+    first_render = _hex_tuple(first_fields, "musicrend", first_label, 6)
+    last_render = _hex_tuple(last_fields, "musicrend", last_label, 6)
+    first_pos = _hex(first_fields, "musicpos", first_label)
+    last_pos = _hex(last_fields, "musicpos", last_label)
+
+    service_delta = last_service - first_service
+    render_chunk_delta = last_render[1] - first_render[1]
+    rendered_sample_delta = last_render[5] - first_render[5]
+    consumed_sample_delta = last_pos - first_pos
+
+    if render_chunk_delta < service_delta:
+        raise AssertionError(
+            "musicrend= render chunk delta must cover stream service updates, "
+            f"got {render_chunk_delta:08X} chunks for {service_delta:08X} {service_label} updates"
+        )
+    if rendered_sample_delta < consumed_sample_delta:
+        raise AssertionError(
+            "musicrend= rendered sample delta must cover musicpos= consumed samples, "
+            f"got {rendered_sample_delta:08X} rendered for {consumed_sample_delta:08X} consumed"
+        )
+
+
 def _assert_audio_device_contract(snapshots: list[tuple[str, dict[str, str]]]) -> None:
     for label, fields in snapshots:
         device_kind, device_status, capabilities = _hex_tuple(fields, "adev", label, 3)
@@ -682,6 +720,10 @@ def validate_status(
         use_pull_stream=uses_pull_stream or require_pull_stream,
     )
     _assert_music_render_evidence(snapshots)
+    _assert_music_render_covers_stream_service(
+        snapshots,
+        use_pull_stream=uses_pull_stream or require_pull_stream,
+    )
     _assert_audio_device_contract(snapshots)
 
 
@@ -746,6 +788,7 @@ def validate_repo_contract() -> None:
                 "musicstream=PULL",
                 "musicpull=",
                 "musicrend=",
+                "rendered-sample delta",
                 "stream-health evidence",
                 "single static music carrier",
                 "no new mixclip=, musicunder=, or musicdrops=",
@@ -767,6 +810,8 @@ def validate_repo_contract() -> None:
                 "musicstream=PULL",
                 "musicpull=",
                 "musicrend=",
+                "zero-duration songs do not become silent looping streams",
+                "rendered-sample delta",
                 "long-playback wrap",
                 "static stream window",
             ),

@@ -500,7 +500,7 @@ class CloudStatusTriageTests(unittest.TestCase):
             saveclose="00000002",
             savemode="00000000:00000000",
             saveact="00000020/00000003/00000000/00000004",
-            savestm="00000017/00000000/00002A64/00000070/00000008",
+            savestm="00000017/00000000/00002A64/70000000/00000008",
             savethk="00002A64/00000000/00002A64/00000000",
         )
 
@@ -508,7 +508,7 @@ class CloudStatusTriageTests(unittest.TestCase):
         rendered = "\n".join(notes)
         self.assertIn("kind=specials", rendered)
         self.assertIn("doomerr=00000070", rendered)
-        self.assertIn("savestm=00000017/00000000/00002A64/00000070/00000008", rendered)
+        self.assertIn("savestm=00000017/00000000/00002A64/70000000/00000008", rendered)
 
     def test_render_diagnosis_adds_persistence_load_malformed_stream_context(self):
         rendered = triage_cloud_status.render_diagnosis(
@@ -519,7 +519,7 @@ class CloudStatusTriageTests(unittest.TestCase):
                 saverd="00006476/00000003",
                 saveclose="00000002",
                 saveact="00000020/00000003/00000000/00000004",
-                savestm="00000017/00000000/00002A64/00000070/00000008",
+                savestm="00000017/00000000/00002A64/70000000/00000008",
                 savethk="00002A64/00000000/00002A64/00000000",
             )
         )
@@ -528,7 +528,8 @@ class CloudStatusTriageTests(unittest.TestCase):
         self.assertIn("kind=specials", rendered)
         self.assertIn("persistence-load-stream: stage=0x17", rendered)
         self.assertIn("unarchive-specials-before", rendered)
-        self.assertIn("value=0x70", rendered)
+        self.assertIn("value=0x70000000", rendered)
+        self.assertIn("next_byte=0x70", rendered)
         self.assertIn("malformed specials stream", rendered)
 
     def test_render_diagnosis_recovers_unknown_tclass_from_raw_doomlog(self):
@@ -542,8 +543,8 @@ class CloudStatusTriageTests(unittest.TestCase):
                 saverd="00006476/00000001",
                 saveclose="00000001",
                 saveact="00000060/00000003/00000000/0000003A",
-                savestm="00000017/00000000/00002A65/00016D08/00000007",
-                savethk="FFFFFFFF/00000000/00002A64/00006C08",
+                savestm="00000017/00000000/00002A65/70016D08/00000007",
+                savethk="FFFFFFFF/00000000/00002A64/01006C08",
                 doomlog="Unknown tclass 112 in savegame",
             )
         )
@@ -552,6 +553,26 @@ class CloudStatusTriageTests(unittest.TestCase):
         self.assertIn("kind=specials", rendered)
         self.assertIn("unknown_tclass=112 (0x70)", rendered)
         self.assertIn("offset=0x2A65", rendered)
+
+    def test_latest_packed_save_stream_values_do_not_false_positive_malformed(self):
+        rendered = triage_cloud_status.render_diagnosis(
+            status_line(
+                doomrun="EXIT",
+                doomerr="00000006",
+                doomerrno="FFFFFFEA",
+                doomsav="0000000B/00000000",
+                saverd="00006476/00000001",
+                saveclose="00000001",
+                saveact="00000060/00000003/00000000/0000003A",
+                savestm="00000018/00000000/00006475/1D017D08/00000008",
+                savethk="FFFFFFFF/00000000/00002A64/01006C08",
+            )
+        )
+
+        self.assertIn("primary: persistence-load-not-completed", rendered)
+        self.assertIn("unarchive-specials-after", rendered)
+        self.assertIn("next_byte=0x1D", rendered)
+        self.assertIn("unarchive_next_byte=0x01", rendered)
 
     def test_classifies_persistence_load_not_completed_before_input_lanes(self):
         primary, notes = self.classify(

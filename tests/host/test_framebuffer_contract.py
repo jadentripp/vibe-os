@@ -1,6 +1,10 @@
 import unittest
+from pathlib import Path
 
 from tools import framebuffer_contract as fb
+
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def fixture_frame():
@@ -81,6 +85,10 @@ class FramebufferContractTests(unittest.TestCase):
 
     def test_fbinfo_contract_advertises_reusable_display_capabilities(self):
         lfb = fb.fbinfo_contract("lfb", width=800, height=600)
+        self.assertEqual(lfb["backend"], fb.BACKEND_LFB_XRGB8888)
+        self.assertEqual(lfb["source_name"], fb.DOOM_SOURCE.name)
+        self.assertEqual((lfb["source_width"], lfb["source_height"]), (320, 200))
+        self.assertEqual(lfb["source_aspect_height"], 240)
         self.assertEqual(lfb["present_format"], fb.FORMAT_INDEX8_RGB24)
         self.assertEqual((lfb["max_present_width"], lfb["max_present_height"]), (320, 200))
         self.assertEqual(lfb["frame_bytes"], fb.DOOM_FRAME_BYTES)
@@ -92,9 +100,17 @@ class FramebufferContractTests(unittest.TestCase):
         self.assertEqual(lfb["capabilities"] & fb.CAP_DIRTY_SOURCE_RECT, fb.CAP_DIRTY_SOURCE_RECT)
 
         mode13 = fb.fbinfo_contract("mode13")
+        self.assertEqual(mode13["backend"], fb.BACKEND_MODE13)
         self.assertEqual(mode13["present_format"], fb.FORMAT_INDEX8_RGB24)
         self.assertFalse(mode13["capabilities"] & fb.CAP_XRGB8888_LFB)
         self.assertEqual(mode13["capabilities"] & fb.CAP_MODE13_SHADOW, fb.CAP_MODE13_SHADOW)
+
+    def test_public_header_declares_backend_ids_for_fbinfo(self):
+        header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
+        self.assertIn("VIBE_FB_BACKEND_MODE13 = 1", header)
+        self.assertIn("VIBE_FB_BACKEND_LFB_XRGB8888 = 2", header)
+        self.assertIn("VIBE_FB_POLICY_ASPECT = 2", header)
+        self.assertIn("VIBE_FB_FORMAT_INDEX8_RGB24 = 1", header)
 
     def test_dirty_rect_reports_changed_source_bounds_and_count(self):
         previous = bytearray(fb.DOOM_FRAME_BYTES)
@@ -110,19 +126,69 @@ class FramebufferContractTests(unittest.TestCase):
     def test_visual_proof_fields_are_aggregate_only(self):
         frame = fixture_frame()
         palette = fixture_palette()
-        proof = fb.visual_proof_fields(frame, palette)
+        proof = fb.present_proof_fields(frame, palette)
 
-        self.assertEqual(set(proof), {"doompal", "doomframe", "doomnonzero", "doomcolors"})
-        self.assertEqual(proof["doomnonzero"], fb.DOOM_FRAME_BYTES - frame.count(0))
-        self.assertGreater(proof["doompal"], 0)
-        self.assertGreater(proof["doomframe"], 0)
-        self.assertGreater(proof["doomcolors"], 0)
+        self.assertEqual(set(proof), {"palette_hash", "frame_hash", "nonzero_pixels", "color_transitions"})
+        self.assertEqual(proof["nonzero_pixels"], fb.DOOM_FRAME_BYTES - frame.count(0))
+        self.assertGreater(proof["palette_hash"], 0)
+        self.assertGreater(proof["frame_hash"], 0)
+        self.assertGreater(proof["color_transitions"], 0)
 
         changed = bytearray(frame)
         changed[123] ^= 0x7F
-        changed_proof = fb.visual_proof_fields(bytes(changed), palette)
-        self.assertNotEqual(changed_proof["doomframe"], proof["doomframe"])
-        self.assertEqual(changed_proof["doompal"], proof["doompal"])
+        changed_proof = fb.present_proof_fields(bytes(changed), palette)
+        self.assertNotEqual(changed_proof["frame_hash"], proof["frame_hash"])
+        self.assertEqual(changed_proof["palette_hash"], proof["palette_hash"])
+
+        status_proof = fb.visual_proof_fields(frame, palette)
+        self.assertEqual(status_proof["doompal"], proof["palette_hash"])
+        self.assertEqual(status_proof["doomframe"], proof["frame_hash"])
+        self.assertEqual(status_proof["doomnonzero"], proof["nonzero_pixels"])
+        self.assertEqual(status_proof["doomcolors"], proof["color_transitions"])
+
+    def test_status_display_validator_is_source_format_driven(self):
+        fields = {
+            "fb": "LFB",
+            "fbpolicy": "ASP",
+            "fbgeom": "00000050:0000003C:00000280:000001E0:00000002",
+            "fbdirty": "0000000A:00000014:00000015:00000006:00000002",
+        }
+
+        display = fb.validate_status_display_fields(fields)
+
+        self.assertEqual(display["backend"], "LFB")
+        self.assertEqual(display["policy"], "ASP")
+        self.assertEqual((display["view_x"], display["view_y"]), (80, 60))
+        self.assertEqual((display["view_width"], display["view_height"]), (640, 480))
+        self.assertEqual(display["dirty"], (10, 20, 21, 6, 2))
+
+        future_source = fb.IndexedSourceFormat(
+            name="future-game-index8",
+            width=160,
+            height=100,
+            aspect_height=120,
+        )
+        future_fields = {
+            "fb": "LFB",
+            "fbpolicy": "ASP",
+            "fbgeom": "00000000:00000000:00000140:000000F0:00000002",
+            "fbdirty": "00000000:00000000:00000000:00000000:00000000",
+        }
+        self.assertEqual(
+            fb.validate_status_display_fields(future_fields, source=future_source)["view_height"],
+            240,
+        )
+
+    def test_status_display_validator_rejects_out_of_bounds_dirty_source_rect(self):
+        fields = {
+            "fb": "M13",
+            "fbpolicy": "M13",
+            "fbgeom": "00000000:00000000:00000140:000000C8:00000001",
+            "fbdirty": "0000013F:000000C7:00000002:00000001:00000001",
+        }
+
+        with self.assertRaisesRegex(AssertionError, "bounds exceed the source frame"):
+            fb.validate_status_display_fields(fields)
 
     def test_rejects_wrong_frame_or_palette_sizes(self):
         palette = fixture_palette()

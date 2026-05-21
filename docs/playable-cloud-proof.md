@@ -86,6 +86,10 @@ python3 tools/run_cloud_playability.py --ref "$branch" --lane persistence \
 reduction to `audio-proof.json`. `persistence` intentionally leaves
 `audible_audio_proof=false` so save/load failures are isolated from audio
 flakes while the kernel FAT/save path is moving.
+Downloaded artifacts now print explicit failure lanes: gameplay/input, SB16
+continuity, audible audio aggregate when requested, and persistence/save-load
+when requested. Keep those boundaries intact when deciding what the current
+branch actually proves.
 When persistence fails before a top-level copy step runs, the artifact still
 includes mirrored phase status and triage text such as
 `status.persistence-write.status.save-slot-0.txt`; WADs, disk images, pixels,

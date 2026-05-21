@@ -1097,6 +1097,8 @@ int main(void)
             return 220;
         if (mock_ftruncate_syscalls != 4)
             return 221;
+        if (mock_open_syscalls != 3 || mock_close_syscalls != 3)
+            return 222;
     }
 
     mock_reset();

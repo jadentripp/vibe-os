@@ -236,6 +236,9 @@ than once, so a single static music carrier cannot satisfy the audio proof.
 It also requires `musicrend=` renderer provenance to show MUS/MIDI format,
 rendered chunks, note events, total render events, active renderer voice peak,
 and emitted samples; a music flag plus carrier PCM cannot satisfy that lane.
+The rendered-sample delta must also cover the kernel-visible `musicpos=` delta,
+so a stream service proof cannot advance by submitting empty or silent chunks
+that the mixer never had enough parser-backed payload to consume.
 The same gate now also rejects audio proofs with new `mixclip=`, `musicunder=`,
 or `musicdrops=` deltas across the scripted window, and requires IRQ/refill
 movement across the phase snapshots plus Doom sound-call/SFX-mix progress by the
@@ -267,7 +270,8 @@ increasing `musicpos=`, a progressing `voiceq=` stream-update component,
 visible `musicbuf=` / `musicunder=` / `musicdrops=` health fields,
 `musicstream=PULL` for the current
 SB16-refill-requested music proof, monotonic and advancing `musicpull=` counters
-and `musicrend=` renderer-provenance counters,
+and `musicrend=` renderer-provenance counters whose rendered-sample delta covers
+the consumed `musicpos=` delta,
 for hardware-paced request/service evidence, coherent lane accounting where
 `voices=` equals `sfxvoices=` plus
 `musicvoices=`, at least one active music voice snapshot, at least one buffered

@@ -10,6 +10,9 @@ Generic ABI:
 - `SYS_POLL_INPUT` writes one `vibe_input_event_t` to the user pointer supplied
   in arg0 and requires arg1 to be at least `sizeof(vibe_input_event_t)`.
 - A return value of `1` means an event was copied; `0` means the queue is empty.
+- `VIBE_SYS_INPUT_STATUS` (`SYS_INPUT_STATUS` in the kernel table) writes one
+  `vibe_input_status_t` to the user pointer supplied in arg0 and requires arg1
+  to be at least `sizeof(vibe_input_status_t)`.
 - Each event carries `timestamp`, `device_id`, `type`, `code`, and three signed
   value fields. The current device IDs are keyboard `1` and mouse `2`.
 - Keyboard events use type `VIBE_INPUT_EVENT_KEY`, `code` as the current
@@ -23,9 +26,22 @@ Generic ABI:
   `vibe_input_make_key_event()` plus `vibe_input_make_mouse_packet_event()` so
   future games can construct or replay typed events without depending on
   Doom's translation helpers.
+- Public headers also pin `VIBE_INPUT_STATUS_BYTES == 112`. The status record
+  reports the ABI version, event size, queue capacity, queued event count,
+  total enqueued events, total polled events, `dropped_events`, capability bits,
+  keyboard IRQ/event counts, `keyboard_down_count`, the last keyboard code, a
+  256-bit `keyboard_state` bitmap keyed by event `code`, mouse
+  IRQ/packet/sync-loss counts, current `mouse_buttons`, signed cumulative mouse
+  deltas, and the last generic event device/type. This status API is a proof
+  and health surface; polling it must not consume input events.
 - `VIBE_INPUT_MOUSE_BUTTON_LEFT`, `VIBE_INPUT_MOUSE_BUTTON_RIGHT`, and
   `VIBE_INPUT_MOUSE_BUTTON_MIDDLE` name the raw PS/2 button bits. Game-specific
   button remapping belongs in the consuming port, not in the kernel queue.
+- Queue overflow semantics are overwrite-oldest: when the shared input ring is
+  full, the kernel advances the tail, writes the new event, and increments
+  `dropped_events`. Programs that require lossless input can compare
+  `total_events`, `polled_events`, `queued_events`, and `dropped_events` from
+  `vibe_input_status_t`.
 
 Keyboard:
 
@@ -50,6 +66,8 @@ Mouse:
   carries signed Y delta.
 - The port maps PS/2 left/right/middle order into Doom's left/middle/right button
   order, then applies a small 4x relative-motion scale before posting `ev_mouse`.
+- The generic status path keeps raw PS/2 button state in `mouse_buttons`; Doom's
+  button-order remap remains only in `doom_port/input.c`.
 - Smoke status also exposes `mousebtn=` and `mousedelta=`. Those fields are
   updated when the Doom user process consumes generic mouse events, so the proof
   distinguishes a real left-click/movement packet from an empty IRQ counter.

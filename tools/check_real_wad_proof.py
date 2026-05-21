@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import check_human_playability_proof
+import framebuffer_contract
 from status_fields import (
     parse_status_fields,
     require_hex8_field,
@@ -405,34 +406,7 @@ def _colon_tuple_field(status: str, name: str, count: int) -> tuple[int, ...]:
 
 
 def _display_geometry_fields(status: str) -> None:
-    backend = _field(status, "fb")
-    policy = _field(status, "fbpolicy")
-    if backend == "M13":
-        if policy != "M13":
-            raise AssertionError(f"fbpolicy= must be M13 for fb=M13, got {policy!r}")
-    elif backend == "LFB":
-        if policy not in ("ASP", "SQ"):
-            raise AssertionError(f"fbpolicy= must be ASP or SQ for fb=LFB, got {policy!r}")
-    else:
-        raise AssertionError(f"fb= must be LFB or M13, got {backend!r}")
-
-    x, y, width, height, scale = _colon_tuple_field(status, "fbgeom", 5)
-    dirty_x, dirty_y, dirty_width, dirty_height, dirty_count = _colon_tuple_field(status, "fbdirty", 5)
-    if policy == "M13":
-        if (x, y, width, height, scale) != (0, 0, 320, 200, 1):
-            raise AssertionError(f"fbgeom= for M13 must be 0:0:320:200:1, got {_field(status, 'fbgeom')!r}")
-    elif policy == "ASP":
-        if width != 320 * scale or height != 240 * scale or scale < 2:
-            raise AssertionError(f"fbgeom= ASP must be 320x240 integer-scaled, got {_field(status, 'fbgeom')!r}")
-    elif policy == "SQ":
-        if width != 320 * scale or height != 200 * scale or scale < 2:
-            raise AssertionError(f"fbgeom= SQ must be 320x200 integer-scaled, got {_field(status, 'fbgeom')!r}")
-    if dirty_x >= 320 or dirty_y >= 200:
-        raise AssertionError(f"fbdirty= origin must be inside the Doom source frame, got {_field(status, 'fbdirty')!r}")
-    if dirty_count and (dirty_width == 0 or dirty_height == 0):
-        raise AssertionError(f"fbdirty= changed pixels need nonzero bounds, got {_field(status, 'fbdirty')!r}")
-    if dirty_width > 320 or dirty_height > 200:
-        raise AssertionError(f"fbdirty= bounds exceed the Doom source frame, got {_field(status, 'fbdirty')!r}")
+    framebuffer_contract.validate_status_display_fields(_status_fields(status))
 
 
 def _open_mode_field(status: str, name: str) -> None:

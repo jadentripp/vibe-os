@@ -236,7 +236,7 @@ class PlayNowRemoteTests(unittest.TestCase):
             "clean and pushed for the inferred current branch",
             "local artifact transfer: none",
             "dry-run: Codespace was not created or modified",
-            "gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" NOVNC_PORT=\"$NOVNC_PORT\" bash -lc \"$payload\"",
+            "remote_start_payload | gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" NOVNC_PORT=\"$NOVNC_PORT\" bash -s",
             "./tools/play_now_remote.sh --preflight",
             "NOVNC_PORT=$NOVNC_PORT nohup ./tools/play_now_remote.sh",
             "gh codespace ports visibility \"$NOVNC_PORT:private\"",
@@ -259,6 +259,7 @@ class PlayNowRemoteTests(unittest.TestCase):
             "python3 tools/prepare_shareware_wad.py",
             "gh codespace cp",
             "scp ",
+            "bash -lc \"$payload\"",
             "build/disk.img",
             "DOOM1.WAD",
             "doom-audio.wav",
@@ -574,9 +575,10 @@ class PlayNowRemoteTests(unittest.TestCase):
 
             log = gh_log.read_text()
             self.assertIn(
-                "codespace ssh -c vibe-play-existing -- env VIBE_PLAY_REF=jt/doom-gameplay-proof NOVNC_PORT=6173 bash -lc",
+                "codespace ssh -c vibe-play-existing -- env VIBE_PLAY_REF=jt/doom-gameplay-proof NOVNC_PORT=6173 bash -s",
                 log,
             )
+            self.assertNotIn("bash -lc", log)
             self.assertIn("codespace ports visibility 6173:private -c vibe-play-existing", log)
             self.assertNotIn("codespace create", log)
 

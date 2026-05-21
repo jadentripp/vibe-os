@@ -21,6 +21,10 @@ Use `--lane persistence` while the save/load path is under repair. It sends
 FAT/save-growth failures separate from audible-audio proof failures. Use
 `--lane audio` to debug the remote aggregate audio proof without running the
 reboot persistence boot.
+When artifacts are downloaded, the dispatcher prints separate failure lanes for
+gameplay/input, SB16 continuity, optional audible audio aggregate, and optional
+persistence/save-load. Use that block as the first split before reading this
+status-field map.
 
 To wait for the cloud run, download the allowlisted status artifact, triage it,
 and run the artifact checker in one loop:
@@ -106,7 +110,7 @@ python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
 | `missing-wad-open-read` | `doomopen!=OK`, `doomread!=OK`, weak `doomwad=open/read/seek/magic`, nonzero `doomerr`, nonzero `doomerrno`, suspicious `doommode`, or Doom error text in `doomlog` | Doom did not successfully open/read/seek the WAD through the libc/syscall/FAT path. If `doomrun=FAULT` is also present, fix the fault first because WAD I/O may simply not have been reached. | Doom libc path mapping, `open/read/lseek`, FAT file lookup, WAD protection rules. |
 | `persistence-save-write-failed` | `doomsav` names a save slot, `savewr=00000000/00000000`, nonzero `doomerrno`, negative `fwr` result, or `fio`/`fal` allocation failure fields | Doom reached gameplay and attempted a DOOMSAV write, but the save payload did not complete. This can be the only red gate after playability/audio/preemption already passed. | Persistence status first; then FAT free-cluster budget, dynamic allocation, truncate/free-chain refresh, or write-path repair using `fwr`, `fio`, and `fal`. |
 | `persistence-save-growth-allocation-partial` | `doomsav` names a save slot, `savewr=00000400/00000001` or another positive short write, `fwr` result is positive but less than the requested save length, `fal=000000E0/...`, and `fio` shows allocation was reached | Doom reached gameplay, opened/truncated `DOOMSAV*.DSG`, wrote the first save cluster, then failed while allocating/growing the rest of the save file. This should outrank input/playability snapshot complaints during the reboot persistence boot. | FAT save-growth allocation: inspect free-cluster scan state, last data cluster, truncate/free-chain refresh, and why the allocator returned `E0` after a short positive write. Newer kernels also emit `fam` and `fac` for free-hint, FAT-copy retry, and free-cluster probe state. |
-| `persistence-load-malformed-stream` | Reboot load status has `doomsav`/`saverd` read evidence plus `savestm=` or `savethk=` at an unarchive thinker/specials stage, usually with nonzero `doomerr` or `doomrun=EXIT` | Doom read the save payload back, but the original load path rejected the serialized thinker or specials stream, for example an unknown class byte. This is not a short write and not a generic input/playability failure. | Use `savestm=stage/slot/offset/value/reports` and `savethk=archive_offset/archive_value/unarchive_offset/unarchive_value` to pick thinker vs specials, then run the persistence image checker with that stream offset. |
+| `persistence-load-malformed-stream` | Reboot load status has `doomsav`/`saverd` read evidence plus `savestm=` or `savethk=` at an unarchive thinker/specials stage, usually with nonzero `doomerr` or `doomrun=EXIT` | Doom read the save payload back, but the original load path rejected the serialized thinker or specials stream, for example an unknown class byte. The stream `value` fields are packed diagnostics; the suspicious class byte is the top byte. This is not a short write and not a generic input/playability failure. | Use `savestm=stage/slot/offset/value/reports` and `savethk=archive_offset/archive_value/unarchive_offset/unarchive_value` to pick thinker vs specials, then run the persistence image checker with that stream offset. |
 | `persistence-load-not-completed` | Reboot load status has `doomsav`/`saverd` evidence, but `saveclose=00000000`, `doomsav` lacks close, `saveact` lacks load-done, `saveact` still has a nonzero gameaction, or no gameplay return is proven | Doom started the reboot load path but did not prove `G_DoLoadGame` completed and returned to gameplay. This should outrank input snapshot complaints during the persistence boot. | Inspect `saverd`, `saveclose`, `saveact`, and the expected DOOMSAV payload size before looking at gameplay/input counters. |
 | `doom-init-stalled` | `doominit` is missing, malformed, has missing milestone bits, or has a zero report count after WAD I/O is green | Doom entered user mode and WAD I/O is visible, but the port did not report all first startup milestones. | Decode `doominit`, then inspect the last reported platform hook and nearby Doom startup log text. |
 | `frames-no-gameplay` | Nonzero `doompresent`, `doompal`, or `doomframe`, but `gameplay!=OK`, `gstate!=00000000`, `gmap!=00000101`, or `leveltime=00000000` | The renderer is alive, but the engine has not proved E1M1 `GS_LEVEL` gameplay. | Doom startup state, WAD/game mode selection, title/menu/error path, gameplay status reporting. |
@@ -172,12 +176,16 @@ python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
   `savethk=archive_offset/archive_value/unarchive_offset/unarchive_value` are
   the first fields to read after a reboot-load failure. `stage=00000015` points
   at unarchiving thinkers, while `stage=00000017` points at unarchiving
-  specials. If the classifier prints `persistence-load-malformed-stream`, the
-  `value` byte is the suspicious class code at `offset`; if it prints
-  `persistence-load-not-completed`, the load did not prove the
-  request/read/close/done sequence yet. Default unset stream fields such as
-  `savestm=00000000/FFFFFFFF/FFFFFFFF/00000000/00000000` are ignored for lane
-  selection, so normal non-persistence runs do not look like failed load attempts.
+  specials and `stage=00000018` means original `P_UnArchiveSpecials` returned.
+  The stream value packs `next_byte` in bits 31..24 plus pointer/alignment
+  detail in the lower bytes, so `01006C08` means class byte `01`, not an
+  invalid 32-bit class. If the classifier prints
+  `persistence-load-malformed-stream`, the decoded `next_byte` is the suspicious
+  class code at `offset`; if it prints `persistence-load-not-completed`, the
+  load did not prove the request/read/close/done sequence yet. Default unset
+  stream fields such as `savestm=00000000/FFFFFFFF/FFFFFFFF/00000000/00000000`
+  are ignored for lane selection, so normal non-persistence runs do not look
+  like failed load attempts.
 - `saveact=flags/gameaction/slot/reports` separates requested-vs-completed
   Doom actions. For load proof, the flags must include load requested
   (`0x20`) and load done (`0x40`), `gameaction` must be zero after the load,

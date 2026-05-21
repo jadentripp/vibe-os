@@ -184,16 +184,19 @@ SAVEACTION_LOAD_REQUESTED = 0x0020
 SAVEACTION_LOAD_DONE = 0x0040
 SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE = 0x15
 SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE = 0x17
+SAVE_STAGE_UNARCHIVE_SPECIALS_AFTER = 0x18
 SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED = 0x1A
 SAVE_STREAM_UNSET_OFFSET = 0xFFFFFFFF
 SAVE_LOAD_STREAM_STAGES = {
     SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE,
     SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE,
+    SAVE_STAGE_UNARCHIVE_SPECIALS_AFTER,
     SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED,
 }
 SAVE_STAGE_NAMES = {
     SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE: "unarchive-thinkers-before",
     SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE: "unarchive-specials-before",
+    SAVE_STAGE_UNARCHIVE_SPECIALS_AFTER: "unarchive-specials-after",
     SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED: "unarchive-thinkers-repaired",
 }
 VALID_THINKER_CLASSES = {0, 1}
@@ -677,6 +680,10 @@ def _save_stage_name(stage: int) -> str:
     return SAVE_STAGE_NAMES.get(stage, f"unknown-stage-0x{stage:X}")
 
 
+def _save_stream_next_byte(value: int) -> int:
+    return (value >> 24) & 0xFF
+
+
 def _save_stream_load_meaningful(savestm: tuple[int, int, int, int, int] | None) -> bool:
     if savestm is None:
         return False
@@ -738,16 +745,18 @@ def _malformed_load_stream_kind(fields: dict[str, str]) -> str | None:
     savestm = _save_stream(fields)
     if _save_stream_load_meaningful(savestm):
         stage, _slot, _offset, value, reports = savestm
-        if reports != 0 and stage == SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE and value not in VALID_THINKER_CLASSES:
+        next_byte = _save_stream_next_byte(value)
+        if reports != 0 and stage == SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE and next_byte not in VALID_THINKER_CLASSES:
             return "thinker"
-        if reports != 0 and stage == SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE and value not in VALID_SPECIAL_CLASSES:
+        if reports != 0 and stage == SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE and next_byte not in VALID_SPECIAL_CLASSES:
             return "specials"
 
     savethk = _save_thinker(fields)
     doom_error = (_hex(fields, "doomerr") or 0) != 0 or fields.get("doomrun") == "EXIT"
     if doom_error and _save_thinker_load_meaningful(savethk):
         archive_offset, _archive_value, unarchive_offset, unarchive_value = savethk
-        if unarchive_offset not in (0, SAVE_STREAM_UNSET_OFFSET) and unarchive_value not in VALID_THINKER_CLASSES:
+        unarchive_next = _save_stream_next_byte(unarchive_value)
+        if unarchive_offset not in (0, SAVE_STREAM_UNSET_OFFSET) and unarchive_next not in VALID_THINKER_CLASSES:
             return "thinker"
         if archive_offset not in (0, SAVE_STREAM_UNSET_OFFSET) and unarchive_offset not in (0, SAVE_STREAM_UNSET_OFFSET):
             return "stream"
@@ -757,6 +766,8 @@ def _malformed_load_stream_kind(fields: dict[str, str]) -> str | None:
             return "thinker"
         if stage == SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE:
             return "specials"
+        if stage == SAVE_STAGE_UNARCHIVE_SPECIALS_AFTER:
+            return None
         if stage == SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED:
             return "stream"
     return None
@@ -806,7 +817,7 @@ def render_persistence_load_context(fields: dict[str, str], status: str | None =
         lines.append(
             "persistence-load-stream: "
             f"stage=0x{stage:X}({_save_stage_name(stage)}) slot={slot} offset=0x{offset:X} "
-            f"value=0x{value:X} reports={reports}"
+            f"value=0x{value:X} next_byte=0x{_save_stream_next_byte(value):02X} reports={reports}"
         )
     savethk = _save_thinker(fields)
     if savethk is not None:
@@ -814,7 +825,8 @@ def render_persistence_load_context(fields: dict[str, str], status: str | None =
         lines.append(
             "persistence-load-thinkers: "
             f"archive_offset=0x{archive_offset:X} archive_value=0x{archive_value:X} "
-            f"unarchive_offset=0x{unarchive_offset:X} unarchive_value=0x{unarchive_value:X}"
+            f"unarchive_offset=0x{unarchive_offset:X} unarchive_value=0x{unarchive_value:X} "
+            f"unarchive_next_byte=0x{_save_stream_next_byte(unarchive_value):02X}"
         )
     unknown_tclass = _doomlog_unknown_tclass(status)
     if unknown_tclass is not None:

@@ -264,6 +264,7 @@ class AudibleAudioProofTests(unittest.TestCase):
         self.assertGreaterEqual(manifest["continuity"]["mix_lanes"]["non_music_sfx"]["active_voice_snapshots"], 0)
         self.assertGreater(manifest["continuity"]["mix_lanes"]["music"]["buffered_window_snapshots"], 0)
         self.assertGreaterEqual(manifest["continuity"]["stream_health"]["distinct_buffer_windows"], 2)
+        self.assertTrue(manifest["continuity"]["stream_health"]["rendered_sample_covers_position"])
         self.assertGreaterEqual(manifest["analysis"]["active_windows"], 3)
         self.assertGreater(manifest["quality"]["active_span_ms"], 0)
         self.assertGreater(manifest["quality"]["zero_crossing_rate_per_sec"], 0)
@@ -542,6 +543,8 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "pull_refill_delta": "00000001",
                     "position_delta": "000003FF",
                     "position_delta_per_update_floor": "000003FF",
+                    "rendered_sample_delta": "00008000",
+                    "rendered_sample_covers_position": True,
                 },
                 "stream_contract": {
                     "mode": "PULL",
@@ -697,6 +700,8 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "pull_refill_delta": "00000005",
                     "position_delta": "000003FF",
                     "position_delta_per_update_floor": "000003FF",
+                    "rendered_sample_delta": "00028000",
+                    "rendered_sample_covers_position": True,
                 },
                 "stream_contract": {
                     "mode": "PULL",

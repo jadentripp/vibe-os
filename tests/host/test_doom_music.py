@@ -150,6 +150,7 @@ class DoomMusicTests(unittest.TestCase):
             "deferred to the normal tic/frame/sound update pump",
             "larger streamed chunks",
             "non-looping songs stop at their parsed song end",
+            "zero-duration songs do not become silent looping streams",
             "pitch bend",
             "program changes",
             "pan, expression, sustain",

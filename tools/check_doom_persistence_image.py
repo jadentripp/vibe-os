@@ -64,6 +64,7 @@ SAVE_STAGE_ARCHIVE_THINKERS_BEFORE = 0x05
 SAVE_STAGE_ARCHIVE_SPECIALS_BEFORE = 0x07
 SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE = 0x15
 SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE = 0x17
+SAVE_STAGE_UNARCHIVE_SPECIALS_AFTER = 0x18
 SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED = 0x1A
 SAVE_STREAM_UNSET_OFFSET = 0xFFFFFFFF
 SAVE_STAGE_NAMES = {
@@ -71,6 +72,7 @@ SAVE_STAGE_NAMES = {
     SAVE_STAGE_ARCHIVE_SPECIALS_BEFORE: "archive-specials-before",
     SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE: "unarchive-thinkers-before",
     SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE: "unarchive-specials-before",
+    SAVE_STAGE_UNARCHIVE_SPECIALS_AFTER: "unarchive-specials-after",
     SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED: "unarchive-thinkers-repaired",
 }
 FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
@@ -391,6 +393,10 @@ def _save_stage_name(stage):
     return SAVE_STAGE_NAMES.get(stage, f"unknown-stage-0x{stage:X}")
 
 
+def _save_stream_next_byte(value):
+    return (value >> 24) & 0xFF
+
+
 def _runtime_stream_offsets(status, *, expected_slot=None):
     if status is None:
         return {}
@@ -417,6 +423,8 @@ def _runtime_stream_offsets(status, *, expected_slot=None):
                 )
             if stage in (SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE, SAVE_STAGE_ARCHIVE_SPECIALS_BEFORE):
                 offsets["specials"] = offset
+            elif stage == SAVE_STAGE_UNARCHIVE_SPECIALS_AFTER:
+                offsets["specials_after"] = offset
             elif stage == SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE:
                 offsets["thinkers"] = offset
             elif stage == SAVE_STAGE_ARCHIVE_THINKERS_BEFORE:
@@ -466,15 +474,22 @@ def validate_save_load_stream_status(status, *, slot):
             "save load status savestm= reports a repaired thinker stream; "
             "this cannot be claimed as an original Doom save/load proof"
         )
-    if savestm["stage"] != SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE:
+    if savestm["stage"] not in (
+        SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE,
+        SAVE_STAGE_UNARCHIVE_SPECIALS_AFTER,
+    ):
         raise PersistenceProofError(
             "save load status savestm= must reach the original Doom "
             "P_UnArchiveSpecials entrypoint before save/load proof can be green; "
             f"got {_save_stage_name(savestm['stage'])}"
         )
-    if "thinkers" not in runtime_offsets or "specials" not in runtime_offsets:
+    if "thinkers" not in runtime_offsets:
         raise PersistenceProofError(
-            "save load status must provide both thinker and specials stream offsets"
+            "save load status must provide the thinker stream offset"
+        )
+    if "specials" not in runtime_offsets and "specials_after" not in runtime_offsets:
+        raise PersistenceProofError(
+            "save load status must provide the specials stream boundary"
         )
     return runtime_offsets
 

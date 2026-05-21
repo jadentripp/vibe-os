@@ -69,6 +69,10 @@ that marked chunk is a normal terminal state, while an unmarked music window
 that runs dry with no pending service still increments `musicunder=`. That
 keeps intermission or one-shot music honest in the port layer and gives the
 platform hook a clean zero-render signal to stop the SB16 music voice.
+Valid but zero-duration MUS/MIDI inputs are treated as no stream payload, even
+when Doom asked for looping playback. The renderer clears the caller buffer to
+unsigned silence and returns zero bytes instead of manufacturing an endless
+silent music stream.
 
 This is a meaningful step past the old single bounded PCM carrier and the old
 Doom-tick-pushed chunks. The current port still renders 32768-byte chunks at
@@ -107,8 +111,10 @@ lane progress, the music lane must be active in at least one snapshot, and at
 least one music snapshot must show a buffered stream window. It now also
 requires more than one stream update and changing `musicbuf=` values so the
 proof includes stream-health movement instead of a static carrier. It also
-requires advancing `musicrend=` renderer-provenance counters, so a carrier-only
-music voice cannot pass as actual MUS/MIDI rendering. The gate also
+requires advancing `musicrend=` renderer-provenance counters, and the
+rendered-sample delta must cover the consumed `musicpos=` delta, so a
+carrier-only or empty-chunk music voice cannot pass as actual MUS/MIDI
+rendering. The gate also
 requires the scripted fire phase to advance Doom sound calls and non-music SFX
 mixing plus `sfxdma=` IRQ-refill output, so music-only, carrier-only, or
 submit-only output cannot stand in for firing the shotgun in the play proof. It
@@ -177,5 +183,6 @@ and feeds it tiny MUS and MIDI fixtures. The tests verify format detection,
 channel state, tempo/controller handling, pitch bend, program changes, pan,
 expression, sustain, percussion channel mapping, streaming volume updates,
 long-playback wrap behavior, larger streamed chunks, non-looping songs stop at their parsed song end,
-looping, deterministic output, invalid input silence, and non-silent unsigned
-8-bit PCM generation without launching QEMU.
+zero-duration songs do not become silent looping streams, looping,
+deterministic output, invalid input silence, and non-silent unsigned 8-bit PCM
+generation without launching QEMU.

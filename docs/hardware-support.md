@@ -79,6 +79,18 @@ Status-only hardware discovery scaffolds:
 - `PCI_STATUS[QEMU_BUS0_CONFIG] status=status-only scope=qemu-pci-bus0 proof=cloud-smoke-status evidence=pci-status-fields`
 - `PCI_TABLE[QEMU_BUS0_CLASS_TABLE] status=status-only scope=qemu-pci-bus0 layout=bdf-id-class-header capacity=256 evidence=pci-table-status-fields`
 
+Claimed hardware status proof counters:
+
+- `STATUS_PROOF[IDE_ATA_PIO] status=required scope=qemu-ide fields=ata,ataop,atawait,atalba,atastat,ataerr,atafail,atatmo evidence=status.txt`
+- `STATUS_PROOF[PS2_KEYBOARD] status=required scope=qemu-ps2 fields=inputqueue,inputpoll,inputlast,keyirq,keyqueue,keypoll,keyseen,keylast evidence=status-after-key-phases`
+- `STATUS_PROOF[PS2_MOUSE] status=required scope=qemu-ps2 fields=mouse,mouseirq,mousepkt,mousepoll,mousebtn,mousedelta evidence=status-after-mouse`
+- `STATUS_PROOF[VBE_VGA] status=required scope=qemu-vbe-vga fields=gfx,fb,fbpolicy,fbgeom,fbdirty,doompresent,doompal,doomframe,doomnonzero,doomcolors evidence=framebuffer-status`
+- `STATUS_PROOF[SB16] status=required scope=qemu-sb16 fields=audio,sb16,dma,play,audioirq,ack8,refill,sfxdma,musicpull,pcmbuf evidence=audio-status`
+
+These rows name the minimum aggregate status fields a disposable QEMU proof must
+carry before the corresponding claimed hardware row can be cited. They do not
+require raw screenshots, VM logs, WAD data, pixel dumps, or raw audio in git.
+
 ## Future Proof Boundaries
 
 The `PROOF_REQUIREMENT[...]` rows define what would count before an unclaimed

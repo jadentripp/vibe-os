@@ -20,8 +20,12 @@ struct stat
 
 #define S_IFREG 0100000
 #define S_IFDIR 0040000
+#define S_IFMT  0170000
 #define S_IRUSR 0000400
 #define S_IWUSR 0000200
+
+#define S_ISREG(mode) (((mode) & S_IFMT) == S_IFREG)
+#define S_ISDIR(mode) (((mode) & S_IFMT) == S_IFDIR)
 
 int stat(const char* path, struct stat* out);
 int fstat(int fd, struct stat* out);

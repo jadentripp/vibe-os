@@ -551,6 +551,37 @@ class AudioContinuityProofTests(unittest.TestCase):
                 menu_status=snapshots["menu"],
             )
 
+    def test_rejects_renderer_samples_that_do_not_cover_consumed_music_position(self):
+        snapshots = snapshot_statuses()
+        replacements = {
+            "00000001:00000001:00000002:00000003:00000001:00008000":
+                "00000001:00000001:00000002:00000003:00000001:00008000",
+            "00000001:00000002:00000004:00000006:00000001:00010000":
+                "00000001:00000002:00000004:00000006:00000001:00008001",
+            "00000001:00000003:00000006:00000009:00000001:00018000":
+                "00000001:00000003:00000006:00000009:00000001:00008002",
+            "00000001:00000004:00000008:0000000C:00000001:00020000":
+                "00000001:00000004:00000008:0000000C:00000001:00008003",
+            "00000001:00000005:0000000A:0000000F:00000001:00028000":
+                "00000001:00000005:0000000A:0000000F:00000001:00008004",
+            "00000001:00000006:0000000C:00000012:00000001:00030000":
+                "00000001:00000006:0000000C:00000012:00000001:00008005",
+        }
+        for label, status in list(snapshots.items()):
+            for before, after in replacements.items():
+                status = status.replace(before, after)
+            snapshots[label] = status
+
+        with self.assertRaisesRegex(AssertionError, "rendered sample delta"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+            )
+
     def test_rejects_too_little_irq_refill_continuity_for_phase_proof(self):
         snapshots = snapshot_statuses()
         snapshots["use"] = snapshots["use"].replace("audioirq=00000004", "audioirq=00000003")

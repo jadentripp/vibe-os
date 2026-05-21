@@ -364,6 +364,7 @@ def _continuity_summary(
     )
     update_delta = int(stream_update_progress["delta"], 16)
     position_delta = int(progress["musicpos"]["delta"], 16)
+    rendered_sample_delta = int(progress["musicrend_sample"]["delta"], 16)
     stream_health = {
         "buffer_floor": f"{min(music_buffers):08X}",
         "buffer_peak": f"{max(music_buffers):08X}",
@@ -379,6 +380,8 @@ def _continuity_summary(
         "pull_refill_delta": progress["musicpull_refill"]["delta"],
         "position_delta": progress["musicpos"]["delta"],
         "position_delta_per_update_floor": f"{(position_delta // update_delta) if update_delta else 0:08X}",
+        "rendered_sample_delta": progress["musicrend_sample"]["delta"],
+        "rendered_sample_covers_position": rendered_sample_delta >= position_delta,
     }
     mixer_safety = {
         "mixclip_delta": safety_progress["mixclip"]["delta"],
@@ -1041,13 +1044,22 @@ def validate_manifest(
         "pull_refill_delta",
         "position_delta",
         "position_delta_per_update_floor",
+        "rendered_sample_delta",
     ):
         value = stream_health.get(key)
         if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
             raise AssertionError(f"manifest continuity.stream_health.{key} must be eight hex digits")
-    for key in ("buffer_peak", "stream_update_delta", "position_delta", "position_delta_per_update_floor"):
+    for key in (
+        "buffer_peak",
+        "stream_update_delta",
+        "position_delta",
+        "position_delta_per_update_floor",
+        "rendered_sample_delta",
+    ):
         if int(stream_health[key], 16) <= 0:
             raise AssertionError(f"manifest continuity.stream_health.{key} must be nonzero")
+    if stream_health.get("rendered_sample_covers_position") is not True:
+        raise AssertionError("manifest stream health must show rendered samples cover music position")
     if int(stream_health["stream_update_delta"], 16) < check_audio_continuity_proof.MIN_MUSIC_STREAM_UPDATE_DELTA:
         raise AssertionError("manifest stream health stream_update_delta is below proof threshold")
     if int(stream_health["under_delta"], 16) > MAX_MUSIC_UNDERRUN_DELTA:

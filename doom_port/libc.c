@@ -16,6 +16,7 @@
 #include "vibe_os.h"
 
 #define VIBE_FILE_WRITE_BUFFER 4096
+#define VIBE_FILE_POOL_SIZE 4
 #define VIBE_TRACKED_FDS 32
 
 struct vibe_doom_file {
@@ -44,6 +45,8 @@ int errno;
 static struct vibe_doom_file stdin_file = { 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, { 0 } };
 static struct vibe_doom_file stdout_file = { 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, { 0 } };
 static struct vibe_doom_file stderr_file = { 2, 0, 0, 1, 0, 1, 0, 0, 0, 0, { 0 } };
+static FILE file_pool[VIBE_FILE_POOL_SIZE];
+static char* empty_environment[] = { 0 };
 static alloc_header_t* alloc_head;
 static alloc_header_t* alloc_tail;
 static unsigned char tracked_save_fd[VIBE_TRACKED_FDS];
@@ -52,6 +55,7 @@ static unsigned char tracked_save_slot[VIBE_TRACKED_FDS];
 FILE* stdin = &stdin_file;
 FILE* stdout = &stdout_file;
 FILE* stderr = &stderr_file;
+char** environ = empty_environment;
 
 static int write_all_fd(int fd, const char* data, size_t length);
 static int stream_flush_write(FILE* stream);
@@ -804,6 +808,7 @@ int truncate(const char* path, off_t length)
 {
     int fd;
     int result;
+    int close_result;
     int saved_errno;
 
     if (!path || length < 0) {
@@ -817,7 +822,8 @@ int truncate(const char* path, off_t length)
 
     result = ftruncate(fd, length);
     saved_errno = errno;
-    if (close(fd) < 0 && result == 0)
+    close_result = close(fd);
+    if (close_result < 0 && result == 0)
         return -1;
     if (result < 0)
         errno = saved_errno;
@@ -1120,7 +1126,6 @@ static int parse_fopen_mode(const char* mode, int* flags, int* readable, int* wr
 
 FILE* fopen(const char* path, const char* mode)
 {
-    static FILE file_pool[4];
     int fd;
     int i;
     int flags;
@@ -1134,7 +1139,7 @@ FILE* fopen(const char* path, const char* mode)
     fd = open(path, flags, 0666);
     if (fd < 0)
         return 0;
-    for (i = 0; i < 4; ++i) {
+    for (i = 0; i < VIBE_FILE_POOL_SIZE; ++i) {
         if (!file_pool[i].used) {
             file_pool[i].used = 1;
             file_pool[i].fd = fd;
@@ -1262,8 +1267,21 @@ int fclose(FILE* stream)
 
 int fflush(FILE* stream)
 {
-    if (!stream)
-        return 0;
+    int i;
+    int result = 0;
+
+    if (!stream) {
+        if (stream_flush_write(stdout) < 0)
+            result = EOF;
+        if (stream_flush_write(stderr) < 0)
+            result = EOF;
+        for (i = 0; i < VIBE_FILE_POOL_SIZE; ++i) {
+            if (file_pool[i].used && file_pool[i].writable
+                && stream_flush_write(&file_pool[i]) < 0)
+                result = EOF;
+        }
+        return result;
+    }
     if (!stream->used) {
         errno = EBADF;
         return EOF;

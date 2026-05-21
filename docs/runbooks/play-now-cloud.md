@@ -103,6 +103,11 @@ python3 tools/run_cloud_playability.py --ref main --lane audio \
 The first two commands prove and open the interactive noVNC path. The latter
 two print the exact GitHub Actions proof and soak dispatches without launching
 local QEMU or downloading forbidden artifacts.
+When downloading proof artifacts, the helper prints separate failure lanes for
+gameplay/input, SB16 continuity, optional audible audio aggregate, and optional
+persistence/save-load triage. Keep those boundaries intact: a green gameplay
+artifact is not a persistence proof, and an audio flake should not obscure a
+save/load failure.
 
 To use a different noVNC port, set `NOVNC_PORT` on the Mac before the launch
 and before the optional dry run. The launcher validates that port locally,

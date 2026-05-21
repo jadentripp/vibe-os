@@ -74,9 +74,11 @@ target instead of returning to the caller.
   The current implementation scans the static process table for children of the
   calling process, supports `pid == -1` and exact positive PIDs, validates a
   non-null status pointer, reaps `EXITED`/`FAULTED` child records back to
-  `UNUSED`, and reports the stored exit status. `WNOHANG` is now a real
-  nonblocking check: if a matching child is live but not reapable, it returns
-  `0`; the blocking form still returns `ENOSYS` until there is a sleep queue.
+  `UNUSED`, and reports the stored exit status. Faulted children carry an
+  abnormal status derived from the fault vector instead of leaking a stale zero
+  exit code. `WNOHANG` is now a real nonblocking check: if a matching child is
+  live but not reapable, it returns `0`; the blocking form still returns
+  `ENOSYS` until there is a sleep queue.
 - Open fd slots are now process-owned. `fd_lookup` rejects descriptors whose
   owner PID does not match the running process, `exec` retags slots marked
   `FD_INHERIT_EXEC` from the caller PID to the target PID, and slots opened with
@@ -84,6 +86,13 @@ target instead of returning to the caller.
   teardown, fault handling, target-slot reuse, and wait reaping all sweep
   descriptors owned by the retiring process. This is real exec-time fd
   inheritance/close-on-exec behavior, not yet fork-time descriptor duplication.
+- The same handoff contract applies to table-backed programs and generic
+  root-level `.ELF` programs. Generic userland should treat the public ABI as:
+  root-only FAT16 8.3 `.ELF` path, at most `VIBE_EXEC_ARG_MAX` argv strings,
+  each bounded by `VIBE_EXEC_ARG_STR_MAX`, an argv pointer vector copied before
+  the old address space is retired, an empty `envp` vector seeded by the
+  kernel, and inherited descriptors limited to fd slots not opened with
+  `O_CLOEXEC`. That is the reusable contract for post-Doom games and tools.
 - The initial Ring 3 probe is loaded through `process_exec_path` and
   bootstrapped through the same stack builder before entering crt0. It receives
   `argc == 1`, `argv[0] == "USERPROB.ELF"`, `argv[1] == NULL`, and an empty
@@ -108,12 +117,16 @@ self-test. It marks the seeded context READY with a valid Ring 3 frame, so the
 round-robin selector can pick it just like a timer-saved task. The exec path also
 records the selected target in `scheduler_next_process_ptr`/`scheduler_next_pid`
 before activation, giving host contracts a concrete scheduler integration point
-instead of only proving that bytes were loaded. The preemption proof now records
-a bidirectional pair mask (`pmask`), switched process kinds (`pkind`), EIPs
-(`peip`), page directories (`pcr3`), kernel stacks (`pkstk`), and the rewritten
-IRQ return frame (`pframe`) so the cloud gate has to prove Doom/preempt-probe
-CR3/TSS switches and a Ring 3 `iretd` target in both directions, not only
-scheduler counter increments.
+instead of only proving that bytes were loaded. The timer IRQ path passes the
+live `pushad`/interrupt frame pointer into `scheduler_tick`, saves the old user
+frame, selects a READY process with a valid Ring 3 frame, switches CR3 and
+`tss_esp0` through `process_activate`, restores the selected frame into the IRQ
+return slot, and then `iretd`s to that user context. The preemption proof now
+records a bidirectional pair mask (`pmask`), switched process kinds (`pkind`),
+EIPs (`peip`), page directories (`pcr3`), kernel stacks (`pkstk`), and the
+rewritten IRQ return frame (`pframe`) so the cloud gate has to prove
+Doom/preempt-probe CR3/TSS switches and a Ring 3 `iretd` target in both
+directions, not only scheduler counter increments.
 
 ## Status And Rollback Counters
 
@@ -171,7 +184,8 @@ real-WAD proof counters.
   page directories. This is dynamic target selection, not dynamic process-table
   growth.
 - `argv` copying is intentionally bounded to a small static vector; environment
-  copying is not implemented yet, so libc exposes an empty `envp` contract.
+  copying is not implemented yet, so libc exposes an empty `envp` contract and
+  `execve()` rejects non-empty environments with `ENOSYS`.
 - Page-table structures and process records are still static, but exec targets
   now reuse slots with fresh PIDs and teardown of stale user PTEs. Brk-backed
   `munmap` can clear process heap PTEs, track non-tail holes in per-process heap

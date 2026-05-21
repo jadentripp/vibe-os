@@ -403,6 +403,51 @@ class ProcessExecContractTests(unittest.TestCase):
         ):
             self.assertIn(source, page_spaces)
 
+    def test_generic_exec_targets_share_userland_argv_envp_and_fd_handoff(self):
+        kernel = read_kernel()
+        generic = kernel.split("process_exec_resolve_generic_root83:", 1)[1].split("process_exec_prepare_elf_image:", 1)[0]
+        user_targets = kernel.split("process_is_user_exec_target:", 1)[1].split("process_alloc_generic_exec_slot:", 1)[0]
+        prepare = kernel.split("process_exec_prepare_elf_image:", 1)[1].split("process_exec_handoff_current:", 1)[0]
+        handoff = kernel.split("process_exec_handoff_current:", 1)[1].split("process_exec_seed_argv_stack:", 1)[0]
+        argv = kernel.split("process_exec_seed_argv_stack:", 1)[1].split("process_exec_patch_syscall_frame:", 1)[0]
+
+        self.assertIn("call process_alloc_generic_exec_slot", generic)
+        self.assertIn("mov dword [process_exec_load_addr], USER_ELF_LOAD_ADDR", generic)
+        self.assertIn("mov [process_exec_target], esi", generic)
+        self.assertNotIn("process_doom", generic)
+        for source in (
+            "cmp eax, process_user_probe",
+            "cmp eax, process_generic0",
+            "cmp eax, process_generic1",
+        ):
+            self.assertIn(source, user_targets)
+        for source in (
+            "call process_is_user_exec_target",
+            "call user_elf_prepare",
+            "mov eax, [user_entry_addr]",
+        ):
+            self.assertIn(source, prepare)
+        self.assertIn("call fd_exec_handoff", handoff)
+        self.assertIn("call process_reset_user_exec_target", handoff)
+        self.assertLess(
+            handoff.index("call fd_exec_handoff"),
+            handoff.index("call process_seed_initial_user_context"),
+        )
+        for source in (
+            "mov eax, [edx + PROC_STACK_TOP]",
+            "cmp eax, [edx + PROC_STACK_BOTTOM]",
+            "mov [edx + PROC_ARGC], eax",
+            "mov [edx + PROC_ARGV], eax",
+            "mov [edx + PROC_ENVP], eax",
+            "mov [edx + PROC_ARGV0], eax",
+            "mov [edx + PROC_SAVED_ESP], eax",
+            "mov dword [ebx + ecx * 4], 0",
+            "mov dword [ebx + ecx * 4 + 4], 0",
+        ):
+            self.assertIn(source, argv)
+        self.assertNotIn("DOOM_USER_STACK", argv)
+        self.assertNotIn("process_doom", argv)
+
     def test_sys_exec_copies_a_bounded_user_path_and_reports_status(self):
         kernel = read_kernel()
         copy_path = kernel.split("sys_exec_copy_user_path:", 1)[1].split("user_range_validate:", 1)[0]
@@ -641,6 +686,53 @@ class ProcessExecContractTests(unittest.TestCase):
         ):
             self.assertIn(source, stage_kernel_arg)
 
+    def test_public_exec_abi_exposes_generic_bounds_and_empty_envp_contract(self):
+        kernel = read_kernel()
+        header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
+        libc = (ROOT / "doom_port" / "libc.c").read_text()
+        process_doc = (ROOT / "docs" / "process-exec.md").read_text()
+        vm_doc = (ROOT / "docs" / "process-vm.md").read_text()
+
+        for kernel_source, header_source in (
+            ("SYS_EXEC_PATH_MAX equ 16", "VIBE_EXEC_PATH_MAX = 16"),
+            ("SYS_EXEC_ARG_MAX equ 8", "VIBE_EXEC_ARG_MAX = 8"),
+            ("SYS_EXEC_ARG_STR_MAX equ 64", "VIBE_EXEC_ARG_STR_MAX = 64"),
+            ("SYS_EXEC_ARGV_SOURCE_DEFAULT equ 1", "VIBE_EXEC_ARGV_SOURCE_DEFAULT = 1"),
+            ("SYS_EXEC_ARGV_SOURCE_USER equ 2", "VIBE_EXEC_ARGV_SOURCE_USER = 2"),
+        ):
+            self.assertIn(kernel_source, kernel)
+            self.assertIn(header_source, header)
+        for source in (
+            "execve accepts NULL or empty envp only",
+            "root-level FAT16 .ELF names use reusable",
+            "O_CLOEXEC",
+            "VIBE_EXEC_* exposes the current path and argv bounds",
+        ):
+            self.assertIn(source, header)
+        for source in (
+            "if (envp && envp[0])",
+            "errno = ENOSYS",
+            "return execv(path, argv);",
+        ):
+            self.assertIn(source, libc)
+        for source in (
+            "The same handoff contract applies to table-backed programs and generic",
+            "`VIBE_EXEC_ARG_MAX` argv strings",
+            "`VIBE_EXEC_ARG_STR_MAX`",
+            "an empty `envp` vector",
+            "not opened with",
+            "`O_CLOEXEC`",
+            "That is the reusable contract for post-Doom games and tools.",
+        ):
+            self.assertIn(source, process_doc)
+        for source in (
+            "Once selected, they use the same process\nhandoff machinery as table-backed Doom",
+            "kernel-seeded empty `envp`",
+            "`O_CLOEXEC` close-on-exec cleanup",
+            "future root-level game or tool ELFs",
+        ):
+            self.assertIn(source, vm_doc)
+
     def test_process_records_capture_exec_parent_and_user_abi_metadata(self):
         kernel = read_kernel()
         reset = kernel.split("process_reset_accounting:", 1)[1].split("clear_fault_record:", 1)[0]
@@ -765,6 +857,101 @@ class ProcessExecContractTests(unittest.TestCase):
             "mov eax, -ERRNO_ECHILD",
         ):
             self.assertIn(source, waitpid)
+
+    def test_faulted_process_exit_status_is_wait_reapable(self):
+        kernel = read_kernel()
+        faulted = kernel.split("process_mark_current_faulted:", 1)[1].split("process_waitpid_current:", 1)[0]
+        waitpid = kernel.split("process_waitpid_current:", 1)[1].split("scheduler_prepare_live_preempt_probe:", 1)[0]
+
+        self.assertIn("PROCESS_FAULT_EXIT_STATUS_BASE equ 0x00000080", kernel)
+        for source in (
+            "mov eax, [fault_vector]",
+            "and eax, 0xff",
+            "or eax, PROCESS_FAULT_EXIT_STATUS_BASE",
+            "mov [esi + PROC_EXIT_STATUS], eax",
+            "mov dword [esi + PROC_STATE], PROC_STATE_FAULTED",
+        ):
+            self.assertIn(source, faulted)
+        self.assertLess(
+            faulted.index("mov [esi + PROC_EXIT_STATUS], eax"),
+            faulted.index("mov dword [esi + PROC_STATE], PROC_STATE_FAULTED"),
+        )
+        self.assertIn("cmp eax, PROC_STATE_FAULTED", waitpid)
+        self.assertIn("mov ebx, [esi + PROC_EXIT_STATUS]", waitpid)
+        self.assertIn("mov [process_wait_last_status], ebx", waitpid)
+
+    def test_timer_irq_rewrites_the_live_interrupt_frame_for_preemption(self):
+        kernel = read_kernel()
+        irq_timer = kernel.split("irq_timer:", 1)[1].split("irq_keyboard:", 1)[0]
+        tick = kernel.split("scheduler_tick:", 1)[1].split("process_save_irq_context:", 1)[0]
+
+        for source in (
+            "pushad",
+            "inc dword [timer_ticks]",
+            "mov ebx, esp",
+            "call scheduler_tick",
+            "out 0x20, al",
+            "popad",
+            "iretd",
+        ):
+            self.assertIn(source, irq_timer)
+        self.assertLess(irq_timer.index("mov ebx, esp"), irq_timer.index("call scheduler_tick"))
+        self.assertLess(irq_timer.index("call scheduler_tick"), irq_timer.index("out 0x20, al"))
+        self.assertLess(irq_timer.index("popad"), irq_timer.index("iretd"))
+        for source in (
+            "mov eax, [ebx + 36]",
+            "test eax, 3",
+            "jz .skip_preempt",
+            "call process_save_irq_context",
+            "call scheduler_select_next_ready",
+            "call process_activate",
+            "call process_restore_irq_context",
+            "inc dword [scheduler_irq_frame_rewrites]",
+            "mov eax, [ebx + 32]",
+            "mov [scheduler_last_irq_frame_eip], eax",
+            "mov eax, [ebx + 36]",
+            "mov [scheduler_last_irq_frame_cs], eax",
+            "mov eax, [ebx + 44]",
+            "mov [scheduler_last_irq_frame_esp], eax",
+            "mov eax, [ebx + 48]",
+            "mov [scheduler_last_irq_frame_ss], eax",
+            "inc dword [scheduler_irq_context_switches]",
+        ):
+            self.assertIn(source, tick)
+        self.assertLess(tick.index("call process_save_irq_context"), tick.index("call scheduler_select_next_ready"))
+        self.assertLess(tick.index("call process_activate"), tick.index("call process_restore_irq_context"))
+        self.assertLess(tick.index("call process_restore_irq_context"), tick.index("inc dword [scheduler_irq_frame_rewrites]"))
+
+    def test_process_activation_switches_address_space_and_kernel_stack(self):
+        kernel = read_kernel()
+        activate = kernel.split("process_activate:", 1)[1].split("process_return_to_kernel:", 1)[0]
+        tick = kernel.split("scheduler_tick:", 1)[1].split("process_save_irq_context:", 1)[0]
+
+        for source in (
+            "mov dword [ebx + PROC_STATE], PROC_STATE_READY",
+            "mov [current_process_ptr], esi",
+            "mov eax, [esi + PROC_PAGE_DIR]",
+            "mov cr3, eax",
+            "mov eax, [esi + PROC_KERNEL_STACK_TOP]",
+            "mov [tss_esp0], eax",
+            "mov word [tss_ss0], DATA_SEG",
+            "mov dword [esi + PROC_STATE], PROC_STATE_RUNNING",
+            "inc dword [scheduler_context_switches]",
+        ):
+            self.assertIn(source, activate)
+        self.assertLess(activate.index("mov cr3, eax"), activate.index("mov [tss_esp0], eax"))
+        self.assertLess(activate.index("mov [tss_esp0], eax"), activate.index("mov dword [esi + PROC_STATE], PROC_STATE_RUNNING"))
+        for source in (
+            "mov eax, [esi + PROC_PAGE_DIR]",
+            "mov [scheduler_last_preempt_from_cr3], eax",
+            "mov eax, [esi + PROC_KERNEL_STACK_TOP]",
+            "mov [scheduler_last_preempt_from_kstack], eax",
+            "mov eax, [esi + PROC_PAGE_DIR]",
+            "mov [scheduler_last_preempt_to_cr3], eax",
+            "mov eax, [esi + PROC_KERNEL_STACK_TOP]",
+            "mov [scheduler_last_preempt_to_kstack], eax",
+        ):
+            self.assertIn(source, tick)
 
     def test_anonymous_mmap_tail_munmap_reclaims_brk_backed_pages(self):
         kernel = read_kernel()

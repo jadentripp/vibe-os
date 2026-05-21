@@ -65,6 +65,10 @@ The tiny stdio scanner intentionally covers the original Doom patterns used for
 defaults and saves: `%s`, `%[^\n]`, `%i`, `%d`, `%x`, literal text, and
 whitespace. That includes save/version reads such as `sscanf("version 110",
 "version %i", ...)`, so the port does not need a patched Doom parser.
+Generic tools can rely on stdio write buffering being drained by either
+`fflush(stream)`, `fclose(stream)`, or process-wide `fflush(NULL)`. The host
+runtime-readiness test keeps that behavior covered separately from Doom's save
+and defaults paths.
 
 ## Memory, Device, And Process ABI
 
@@ -104,6 +108,14 @@ window. That is useful for small user utilities, but it is still not a Unix
 loader: there are no directories, long filenames, dynamic process slots, or
 environment copying, and probe-class self-reexec is rejected while the current
 slot is active.
+The libc `environ` pointer is present and points at an empty, null-terminated
+environment vector. `execve()` accepts `NULL` or empty `envp` only and returns
+`ENOSYS` for non-empty environments until environment copying exists.
+
+Directory and metadata support is intentionally narrow but explicit. `stat("/")`
+reports a readonly directory, regular files report `S_IFREG` plus user read/write
+bits where appropriate, and `S_ISDIR`/`S_ISREG` are available for small tools
+that should inspect file type instead of comparing mode constants by hand.
 
 `fork()` is deliberately classified rather than faked: it returns `ENOSYS`
 until process cloning has real address-space and file descriptor semantics.

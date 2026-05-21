@@ -30,6 +30,15 @@ enum {
     VIBE_SYS_POLL_INPUT = 28,
     VIBE_SYS_CLOCK_GETTIME = 29,
     VIBE_SYS_LISTDIR = 30,
+    VIBE_SYS_INPUT_STATUS = 31,
+};
+
+enum {
+    VIBE_EXEC_PATH_MAX = 16,
+    VIBE_EXEC_ARG_MAX = 8,
+    VIBE_EXEC_ARG_STR_MAX = 64,
+    VIBE_EXEC_ARGV_SOURCE_DEFAULT = 1,
+    VIBE_EXEC_ARGV_SOURCE_USER = 2,
 };
 
 enum {
@@ -270,6 +279,11 @@ enum {
 };
 
 enum {
+    VIBE_INPUT_ABI_VERSION = 1,
+    VIBE_INPUT_EVENT_QUEUE_CAPACITY = 64,
+};
+
+enum {
     VIBE_INPUT_KEY_RELEASED = 0,
     VIBE_INPUT_KEY_PRESSED = 1,
 };
@@ -278,6 +292,13 @@ enum {
     VIBE_INPUT_MOUSE_BUTTON_LEFT = 0x01u,
     VIBE_INPUT_MOUSE_BUTTON_RIGHT = 0x02u,
     VIBE_INPUT_MOUSE_BUTTON_MIDDLE = 0x04u,
+};
+
+enum {
+    VIBE_INPUT_CAP_KEYBOARD = 0x00000001u,
+    VIBE_INPUT_CAP_MOUSE = 0x00000002u,
+    VIBE_INPUT_CAP_POLL_EVENT = 0x00000004u,
+    VIBE_INPUT_CAP_STATUS = 0x00000008u,
 };
 
 typedef struct vibe_input_event {
@@ -292,6 +313,34 @@ typedef struct vibe_input_event {
 
 enum {
     VIBE_INPUT_EVENT_BYTES = 28,
+};
+
+typedef struct vibe_input_status {
+    unsigned long abi_version;
+    unsigned long event_bytes;
+    unsigned long queue_capacity;
+    unsigned long queued_events;
+    unsigned long total_events;
+    unsigned long polled_events;
+    unsigned long dropped_events;
+    unsigned long capabilities;
+    unsigned long keyboard_irq_count;
+    unsigned long keyboard_event_count;
+    unsigned long keyboard_down_count;
+    unsigned long keyboard_last_code;
+    unsigned long keyboard_state[8];
+    unsigned long mouse_irq_count;
+    unsigned long mouse_packet_count;
+    unsigned long mouse_sync_loss_count;
+    unsigned long mouse_buttons;
+    long mouse_delta_x_total;
+    long mouse_delta_y_total;
+    unsigned long last_event_device_id;
+    unsigned long last_event_type;
+} vibe_input_status_t;
+
+enum {
+    VIBE_INPUT_STATUS_BYTES = 112,
 };
 
 static inline void vibe_input_make_key_event(
@@ -332,6 +381,34 @@ static inline void vibe_input_make_mouse_packet_event(
     event->value0 = delta_x;
     event->value1 = delta_y;
     event->value2 = 0;
+}
+
+static inline int vibe_input_event_is_key(const vibe_input_event_t* event)
+{
+    return event
+        && event->device_id == VIBE_INPUT_DEVICE_KEYBOARD
+        && event->type == VIBE_INPUT_EVENT_KEY;
+}
+
+static inline int vibe_input_event_is_mouse_packet(const vibe_input_event_t* event)
+{
+    return event
+        && event->device_id == VIBE_INPUT_DEVICE_MOUSE
+        && event->type == VIBE_INPUT_EVENT_MOUSE_PACKET;
+}
+
+static inline int vibe_input_status_has_overflow(const vibe_input_status_t* status)
+{
+    return status && status->dropped_events != 0;
+}
+
+static inline int vibe_input_status_key_is_down(
+    const vibe_input_status_t* status,
+    unsigned long code)
+{
+    return status
+        && code < 256
+        && (status->keyboard_state[code >> 5] & (1ul << (code & 31))) != 0;
 }
 
 enum {
@@ -421,6 +498,11 @@ typedef struct vibe_fb_info {
 } vibe_fb_info_t;
 
 enum {
+    VIBE_FB_BACKEND_MODE13 = 1,
+    VIBE_FB_BACKEND_LFB_XRGB8888 = 2,
+};
+
+enum {
     VIBE_FB_POLICY_MODE13 = 1,
     VIBE_FB_POLICY_ASPECT = 2,
     VIBE_FB_POLICY_SQUARE = 3,
@@ -467,6 +549,9 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   `vibe_dirent_t` records. It is readonly and root-only for now; names are
  *   normalized 8.3 display names, and `stat("/")` reports readonly directory
  *   metadata.
+ * - VIBE_SYS_POLL_INPUT drains one reusable keyboard/mouse event at a time.
+ *   VIBE_SYS_INPUT_STATUS reports queue capacity/depth, overflow counters,
+ *   keyboard state, and mouse state without consuming queued input.
  * - sbrk grows or shrinks the process heap. Shrink trims whole released pages
  *   from the process page tables and heap-validation bitmap.
  * - mmap is currently anonymous/private and brk-backed; munmap validates the
@@ -475,7 +560,10 @@ unsigned long vibe_monotonic_milliseconds(void);
  * - execv passes a bounded argv vector to the process handoff. Table entries
  *   cover Doom/probe images; other root-level FAT16 .ELF names use reusable
  *   probe-class slots. File descriptors inherit across exec unless opened with
- *   O_CLOEXEC. envp is intentionally empty for now.
+ *   O_CLOEXEC. VIBE_EXEC_* exposes the current path and argv bounds to generic
+ *   userland programs. execve accepts NULL or empty envp only; the kernel seeds
+ *   an empty envp terminator for every launched image until environment copying
+ *   exists.
  * - getpid returns the active static process id.
  * - fork returns ENOSYS until address-space cloning exists. wait/waitpid scan
  *   parent-PID metadata, reap EXITED/FAULTED children, support WNOHANG, and

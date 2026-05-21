@@ -60,6 +60,32 @@ VIBE_INPUT_EVENT_VALUE1 equ 20
 VIBE_INPUT_EVENT_VALUE2 equ 24
 VIBE_INPUT_EVENT_BYTES equ 28
 VIBE_INPUT_EVENT_DWORDS equ VIBE_INPUT_EVENT_BYTES / 4
+VIBE_INPUT_STATUS_ABI_VERSION equ 0
+VIBE_INPUT_STATUS_EVENT_BYTES equ 4
+VIBE_INPUT_STATUS_QUEUE_CAPACITY equ 8
+VIBE_INPUT_STATUS_QUEUED_EVENTS equ 12
+VIBE_INPUT_STATUS_TOTAL_EVENTS equ 16
+VIBE_INPUT_STATUS_POLLED_EVENTS equ 20
+VIBE_INPUT_STATUS_DROPPED_EVENTS equ 24
+VIBE_INPUT_STATUS_CAPABILITIES equ 28
+VIBE_INPUT_STATUS_KEYBOARD_IRQ_COUNT equ 32
+VIBE_INPUT_STATUS_KEYBOARD_EVENT_COUNT equ 36
+VIBE_INPUT_STATUS_KEYBOARD_DOWN_COUNT equ 40
+VIBE_INPUT_STATUS_KEYBOARD_LAST_CODE equ 44
+VIBE_INPUT_STATUS_KEYBOARD_STATE equ 48
+VIBE_INPUT_STATUS_MOUSE_IRQ_COUNT equ 80
+VIBE_INPUT_STATUS_MOUSE_PACKET_COUNT equ 84
+VIBE_INPUT_STATUS_MOUSE_SYNC_LOSS_COUNT equ 88
+VIBE_INPUT_STATUS_MOUSE_BUTTONS equ 92
+VIBE_INPUT_STATUS_MOUSE_DELTA_X_TOTAL equ 96
+VIBE_INPUT_STATUS_MOUSE_DELTA_Y_TOTAL equ 100
+VIBE_INPUT_STATUS_LAST_EVENT_DEVICE_ID equ 104
+VIBE_INPUT_STATUS_LAST_EVENT_TYPE equ 108
+VIBE_INPUT_STATUS_BYTES equ 112
+VIBE_INPUT_CAP_KEYBOARD equ 0x00000001
+VIBE_INPUT_CAP_MOUSE equ 0x00000002
+VIBE_INPUT_CAP_POLL_EVENT equ 0x00000004
+VIBE_INPUT_CAP_STATUS equ 0x00000008
 DOOM_SCREEN_WIDTH equ 320
 DOOM_SCREEN_HEIGHT equ 200
 DOOM_FRAME_BYTES equ DOOM_SCREEN_WIDTH * DOOM_SCREEN_HEIGHT
@@ -291,6 +317,7 @@ FD_INHERIT_EXEC equ 0x1
 WAIT_OPTION_WNOHANG equ 0x1
 WAIT_SUPPORTED_OPTIONS equ WAIT_OPTION_WNOHANG
 WAIT_PROOF_EXIT_STATUS equ 0x0000002a
+PROCESS_FAULT_EXIT_STATUS_BASE equ 0x00000080
 WRITABLE_KNOWN_FILE_COUNT equ 9
 WRITABLE_FILE_COUNT equ 16
 WRITABLE_DEFAULT_CAPACITY equ 0x00004000
@@ -335,6 +362,7 @@ SYS_FTRUNCATE equ 27
 SYS_POLL_INPUT equ 28
 SYS_CLOCK_GETTIME equ 29
 SYS_LISTDIR equ 30
+SYS_INPUT_STATUS equ 31
 PLAYABLE_STATUS_FLAG equ 0x80000000
 DOOM_INIT_STATUS_FLAG equ 0x40000000
 SAVELOAD_STATUS_FLAG equ 0x20000000
@@ -9643,6 +9671,10 @@ process_mark_current_faulted:
     je .done
     call fd_close_owned_by_process
     call process_teardown_user_vm
+    mov eax, [fault_vector]
+    and eax, 0xff
+    or eax, PROCESS_FAULT_EXIT_STATUS_BASE
+    mov [esi + PROC_EXIT_STATUS], eax
     mov dword [esi + PROC_STATE], PROC_STATE_FAULTED
 
 .done:
@@ -11305,6 +11337,8 @@ syscall_handler:
     je .clock_gettime
     cmp eax, SYS_LISTDIR
     je .listdir
+    cmp eax, SYS_INPUT_STATUS
+    je .input_status
     jmp .bad_syscall_enosys
 
 .user_probe:
@@ -11868,6 +11902,72 @@ syscall_handler:
     jmp .return
 
 .poll_input_empty:
+    xor eax, eax
+    jmp .return
+
+.input_status:
+    mov [syscall_ptr_arg], ebx
+    cmp ecx, VIBE_INPUT_STATUS_BYTES
+    jb .bad_syscall_einval
+    mov eax, ebx
+    mov ebx, VIBE_INPUT_STATUS_BYTES
+    call user_range_validate
+    jc .bad_syscall_einval
+    mov edi, [syscall_ptr_arg]
+    mov dword [edi + VIBE_INPUT_STATUS_ABI_VERSION], 1
+    mov dword [edi + VIBE_INPUT_STATUS_EVENT_BYTES], VIBE_INPUT_EVENT_BYTES
+    mov dword [edi + VIBE_INPUT_STATUS_QUEUE_CAPACITY], INPUT_EVENT_QUEUE_SIZE
+    mov eax, [input_event_head]
+    sub eax, [input_event_tail]
+    and eax, INPUT_EVENT_QUEUE_MASK
+    mov [edi + VIBE_INPUT_STATUS_QUEUED_EVENTS], eax
+    mov eax, [input_event_count]
+    mov [edi + VIBE_INPUT_STATUS_TOTAL_EVENTS], eax
+    mov eax, [input_event_poll_count]
+    mov [edi + VIBE_INPUT_STATUS_POLLED_EVENTS], eax
+    mov eax, [input_event_drop_count]
+    mov [edi + VIBE_INPUT_STATUS_DROPPED_EVENTS], eax
+    mov dword [edi + VIBE_INPUT_STATUS_CAPABILITIES], VIBE_INPUT_CAP_KEYBOARD | VIBE_INPUT_CAP_MOUSE | VIBE_INPUT_CAP_POLL_EVENT | VIBE_INPUT_CAP_STATUS
+    mov eax, [keyboard_irq_count]
+    mov [edi + VIBE_INPUT_STATUS_KEYBOARD_IRQ_COUNT], eax
+    mov eax, [keyboard_event_count]
+    mov [edi + VIBE_INPUT_STATUS_KEYBOARD_EVENT_COUNT], eax
+    mov eax, [input_keyboard_down_count]
+    mov [edi + VIBE_INPUT_STATUS_KEYBOARD_DOWN_COUNT], eax
+    mov eax, [input_keyboard_last_code]
+    mov [edi + VIBE_INPUT_STATUS_KEYBOARD_LAST_CODE], eax
+    mov eax, [input_keyboard_state + 0]
+    mov [edi + VIBE_INPUT_STATUS_KEYBOARD_STATE + 0], eax
+    mov eax, [input_keyboard_state + 4]
+    mov [edi + VIBE_INPUT_STATUS_KEYBOARD_STATE + 4], eax
+    mov eax, [input_keyboard_state + 8]
+    mov [edi + VIBE_INPUT_STATUS_KEYBOARD_STATE + 8], eax
+    mov eax, [input_keyboard_state + 12]
+    mov [edi + VIBE_INPUT_STATUS_KEYBOARD_STATE + 12], eax
+    mov eax, [input_keyboard_state + 16]
+    mov [edi + VIBE_INPUT_STATUS_KEYBOARD_STATE + 16], eax
+    mov eax, [input_keyboard_state + 20]
+    mov [edi + VIBE_INPUT_STATUS_KEYBOARD_STATE + 20], eax
+    mov eax, [input_keyboard_state + 24]
+    mov [edi + VIBE_INPUT_STATUS_KEYBOARD_STATE + 24], eax
+    mov eax, [input_keyboard_state + 28]
+    mov [edi + VIBE_INPUT_STATUS_KEYBOARD_STATE + 28], eax
+    mov eax, [mouse_irq_count]
+    mov [edi + VIBE_INPUT_STATUS_MOUSE_IRQ_COUNT], eax
+    mov eax, [mouse_packet_count]
+    mov [edi + VIBE_INPUT_STATUS_MOUSE_PACKET_COUNT], eax
+    mov eax, [mouse_sync_loss_count]
+    mov [edi + VIBE_INPUT_STATUS_MOUSE_SYNC_LOSS_COUNT], eax
+    mov eax, [input_mouse_buttons]
+    mov [edi + VIBE_INPUT_STATUS_MOUSE_BUTTONS], eax
+    mov eax, [input_mouse_delta_x_total]
+    mov [edi + VIBE_INPUT_STATUS_MOUSE_DELTA_X_TOTAL], eax
+    mov eax, [input_mouse_delta_y_total]
+    mov [edi + VIBE_INPUT_STATUS_MOUSE_DELTA_Y_TOTAL], eax
+    mov eax, [input_last_event_device]
+    mov [edi + VIBE_INPUT_STATUS_LAST_EVENT_DEVICE_ID], eax
+    mov eax, [input_last_event_type]
+    mov [edi + VIBE_INPUT_STATUS_LAST_EVENT_TYPE], eax
     xor eax, eax
     jmp .return
 
@@ -13720,6 +13820,22 @@ input_reset_queue:
     mov dword [input_event_tail], 0
     mov dword [input_event_count], 0
     mov dword [input_event_poll_count], 0
+    mov dword [input_event_drop_count], 0
+    mov dword [input_keyboard_down_count], 0
+    mov dword [input_keyboard_last_code], 0
+    mov dword [input_keyboard_state + 0], 0
+    mov dword [input_keyboard_state + 4], 0
+    mov dword [input_keyboard_state + 8], 0
+    mov dword [input_keyboard_state + 12], 0
+    mov dword [input_keyboard_state + 16], 0
+    mov dword [input_keyboard_state + 20], 0
+    mov dword [input_keyboard_state + 24], 0
+    mov dword [input_keyboard_state + 28], 0
+    mov dword [input_mouse_buttons], 0
+    mov dword [input_mouse_delta_x_total], 0
+    mov dword [input_mouse_delta_y_total], 0
+    mov dword [input_last_event_device], 0
+    mov dword [input_last_event_type], 0
     mov dword [doom_input_event_count], 0
     mov dword [doom_input_last_timestamp], 0
     mov dword [doom_input_last_device], 0
@@ -13882,6 +13998,7 @@ input_queue_key_event:
     and edx, INPUT_EVENT_QUEUE_MASK
     cmp edx, [input_event_tail]
     jne .space_available
+    inc dword [input_event_drop_count]
     mov ecx, [input_event_tail]
     inc ecx
     and ecx, INPUT_EVENT_QUEUE_MASK
@@ -13907,6 +14024,26 @@ input_queue_key_event:
     mov [edi + VIBE_INPUT_EVENT_VALUE0], ecx
     mov dword [edi + VIBE_INPUT_EVENT_VALUE1], 0
     mov dword [edi + VIBE_INPUT_EVENT_VALUE2], 0
+    mov ecx, [esp + 16]
+    and ecx, 0xff
+    mov [input_keyboard_last_code], ecx
+    test dword [esp + 16], KEY_EVENT_DOWN
+    jz .key_released
+    bt dword [input_keyboard_state], ecx
+    jc .key_state_done
+    bts dword [input_keyboard_state], ecx
+    inc dword [input_keyboard_down_count]
+    jmp .key_state_done
+
+.key_released:
+    bt dword [input_keyboard_state], ecx
+    jnc .key_state_done
+    btr dword [input_keyboard_state], ecx
+    dec dword [input_keyboard_down_count]
+
+.key_state_done:
+    mov dword [input_last_event_device], VIBE_INPUT_DEVICE_KEYBOARD
+    mov dword [input_last_event_type], VIBE_INPUT_EVENT_KEY
     mov edx, ebx
     inc edx
     and edx, INPUT_EVENT_QUEUE_MASK
@@ -13933,6 +14070,7 @@ input_queue_mouse_packet_event:
     and edx, INPUT_EVENT_QUEUE_MASK
     cmp edx, [input_event_tail]
     jne .space_available
+    inc dword [input_event_drop_count]
     mov ecx, [input_event_tail]
     inc ecx
     and ecx, INPUT_EVENT_QUEUE_MASK
@@ -13958,6 +14096,19 @@ input_queue_mouse_packet_event:
     movsx ecx, cl
     mov [edi + VIBE_INPUT_EVENT_VALUE1], ecx
     mov dword [edi + VIBE_INPUT_EVENT_VALUE2], 0
+    mov ecx, [esp + 16]
+    and ecx, 0x07
+    mov [input_mouse_buttons], ecx
+    mov ecx, [esp + 16]
+    shr ecx, 8
+    movsx ecx, cl
+    add [input_mouse_delta_x_total], ecx
+    mov ecx, [esp + 16]
+    shr ecx, 16
+    movsx ecx, cl
+    add [input_mouse_delta_y_total], ecx
+    mov dword [input_last_event_device], VIBE_INPUT_DEVICE_MOUSE
+    mov dword [input_last_event_type], VIBE_INPUT_EVENT_MOUSE_PACKET
     mov edx, ebx
     inc edx
     and edx, INPUT_EVENT_QUEUE_MASK
@@ -17929,6 +18080,15 @@ input_event_head dd 0
 input_event_tail dd 0
 input_event_count dd 0
 input_event_poll_count dd 0
+input_event_drop_count dd 0
+input_keyboard_down_count dd 0
+input_keyboard_last_code dd 0
+input_keyboard_state times 8 dd 0
+input_mouse_buttons dd 0
+input_mouse_delta_x_total dd 0
+input_mouse_delta_y_total dd 0
+input_last_event_device dd 0
+input_last_event_type dd 0
 key_event_head dd 0
 key_event_tail dd 0
 keyboard_irq_count dd 0

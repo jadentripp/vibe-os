@@ -337,6 +337,62 @@ def triage_status(output_dir: Path, stdout: TextIO) -> None:
     run_command([sys.executable, "tools/triage_cloud_status.py", str(status_path)])
 
 
+def lane_failure_report(
+    *,
+    output_dir: Path,
+    config: LaneConfig,
+    soak: bool,
+) -> list[str]:
+    if soak:
+        return [
+            "failure lanes:",
+            (
+                "  gameplay/audio soak: "
+                f"{sys.executable} tools/check_cloud_playability_artifacts.py "
+                f"--soak-summary {output_dir}"
+            ),
+            "  persistence: not requested by real-wad-soak.yml; run --lane persistence separately",
+        ]
+
+    report = [
+        "failure lanes:",
+        (
+            "  gameplay/input: "
+            f"{sys.executable} tools/check_cloud_playability_artifacts.py "
+            f"{output_dir} --require-gameplay-proof"
+        ),
+        (
+            "  SB16 continuity: "
+            f"{sys.executable} tools/check_audio_continuity_proof.py "
+            f"--baseline {output_dir / 'status.after-start.txt'} "
+            f"--fire {output_dir / 'status.after-fire.txt'} "
+            f"--movement {output_dir / 'status.after-move.txt'} "
+            f"--use {output_dir / 'status.after-use.txt'} "
+            f"--menu {output_dir / 'status.after-menu.txt'} "
+            f"{output_dir / 'status.txt'}"
+        ),
+    ]
+    if config.audible_audio_proof:
+        report.append(
+            "  audible audio aggregate: "
+            f"{sys.executable} tools/check_audible_audio_proof.py "
+            f"{output_dir / 'audio-proof.json'}"
+        )
+    else:
+        report.append("  audible audio aggregate: not requested for this lane")
+
+    if config.persistence_enabled:
+        report.append(
+            "  persistence/save-load: "
+            "inspect status.persistence-*.txt and run "
+            f"{sys.executable} tools/triage_cloud_status.py "
+            f"{output_dir / 'status.persistence-load.txt'}"
+        )
+    else:
+        report.append("  persistence/save-load: not requested for this lane")
+    return report
+
+
 def render_lane_help(lane: str, config: LaneConfig) -> str:
     if lane == "gameplay":
         return "fast gameplay/input proof; audio WAV capture and persistence are off"
@@ -571,6 +627,12 @@ def main(
         print(f"download: {shlex.join(command)}", file=stdout)
         checker = artifact_checker_command(output_dir, config, soak=soak is not None)
         print(f"check: {shlex.join(checker)}", file=stdout)
+        for line in lane_failure_report(
+            output_dir=output_dir,
+            config=config,
+            soak=soak is not None,
+        ):
+            print(line, file=stdout)
         if not args.no_triage and soak is None:
             print(
                 f"triage command: {shlex.join([sys.executable, 'tools/triage_cloud_status.py', str(output_dir / 'status.txt')])}",
