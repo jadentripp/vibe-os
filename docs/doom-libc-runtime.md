@@ -68,21 +68,34 @@ whitespace. That includes save/version reads such as `sscanf("version 110",
 
 ## Memory, Device, And Process ABI
 
+The libc allocator is a small first-fit heap over `SYS_SBRK`. Allocations are
+16-byte aligned, freed blocks are reused, oversized free blocks are split, and
+adjacent free blocks are coalesced on `free()` and on shrinking `realloc()`.
+That keeps temporary C-runtime allocations from leaving avoidable holes before
+later larger requests. The kernel `SYS_SBRK` ABI now accepts negative
+increments as a brk-style trim path: it moves the process break down, unmaps
+only fully released heap pages, clears their heap-bitmap validation bits, and
+returns the old break.
+
 `mmap()` is syscall-backed for the practical porting case Doom-adjacent code
 usually wants: anonymous, private memory with `fd == -1` and `offset == 0`.
 The kernel implements it as a page-rounded allocation from the current
 process heap, maps the new pages with user permissions derived from `prot`, and
-returns a zero-filled range. `munmap()` validates the supplied user range but is
-currently non-reclaiming because the kernel heap window is still monotonic.
+returns a zero-filled range. Successful mappings also update a single
+`VM_OBJECT_KIND_ANON_BRK` last-object descriptor with base/end/prot/flags so
+host contracts can distinguish the current brk-backed object model from a real
+VMA table. `munmap()` validates the supplied user range, punches validation
+holes for non-tail ranges, and moves `brk` back for tail releases.
 File-backed mappings, `MAP_FIXED`, and shared mappings are rejected before libc
 enters the kernel.
 
 Display device control is exposed through `ioctl(VIBE_DISPLAY_FD, ...)`.
 `VIBE_IOCTL_FBINFO` fills a `vibe_fb_info_t` with the active framebuffer
-contract, and `VIBE_IOCTL_PRESENT_INDEXED` accepts a `vibe_present_indexed_t`
-describing a 320x200 indexed frame plus 256-entry RGB palette. Doom's
-`I_FinishUpdate` now uses this ioctl path while the older `SYS_PRESENT` remains
-available for the low-level probe.
+contract, including capability bits, present format, max present size, geometry,
+and dirty-source fields. `VIBE_IOCTL_PRESENT_INDEXED` accepts a
+`vibe_present_indexed_t` describing a 320x200 indexed frame plus 256-entry RGB
+palette. Doom's `I_FinishUpdate` now uses this ioctl path while the older
+`SYS_PRESENT` remains available for the low-level probe.
 
 `execv()` passes a bounded `argv` vector through the syscall ABI. Doom and the
 boot probe keep table-backed launch entries, and other root-level FAT16 `.ELF`
@@ -140,5 +153,6 @@ that mode too, and the status gate rejects user faults, panics, shutdowns, and
 failed Doom runtime health fields so persisted bytes alone cannot count as
 proof. For save/load playability, add `--load-status` from a reboot boot after
 the scripted load menu path; the checker requires a full `DOOMSAVN.DSG` payload
-read and post-load `gameplay=OK` status whose map and leveltime match the saved
-header.
+read, `doomrun=RUN`, wrapper load-requested/load-done `saveact` bits after
+`G_DoLoadGame` has returned to `ga_nothing`, and post-load `gameplay=OK` status
+whose map and leveltime match the saved header.

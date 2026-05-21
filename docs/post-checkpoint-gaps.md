@@ -25,26 +25,29 @@ them so README and runbook wording cannot quietly drift into overclaiming.
 
 ## Latest Cloud Evidence
 
-As of 2026-05-20, manual run `26165681561` on kernel/runtime commit `c525952`
-is the last published scripted cloud truth-serum run before the current branch
-changes. It passes the real-WAD, human-playability, scripted gameplay transition,
-SB16/audio-continuity, audible-audio manifest, artifact hygiene, and
-status-triage gates. It triages as `playability-status-green`. Persistence is
-not current-head proven by that run because it was intentionally dispatched with
-`persistence_proof=false`.
+As of 2026-05-21, manual run `26199297160` on commit `ed4d00f` is the last
+published scripted cloud truth-serum run for the pushed branch. Its first boot
+passes the real-WAD, human-playability, scripted gameplay transition,
+VM/process, SB16/audio-continuity, audible-audio manifest, artifact hygiene,
+and status-triage gates.
+Save persistence is not green yet: the reboot/load phase writes and rereads a
+full `DOOMSAV0.DSG` payload of `25718` bytes, then exits inside original Doom
+with `Unknown tclass 112 in savegame`. The new `savestm=` and `savethk=`
+diagnostics show the save/load thinker boundary agrees at `0x2A64`; the active
+failure is now around the specials stream, not the older short-write FAT save
+growth bug. This is real scripted cloud evidence for the current runtime, but it
+is not a human-facing Doom-capable proof by itself. Persistence is not
+current-head proven. Any doc, kernel, runtime,
+workflow, or proof-checker change must rerun the gates before becoming the next
+claimed proof point. The project still needs a green save/load persistence proof,
+the remote human playtest, and the remaining hard-mode architecture gaps below
+before README or release notes should say "you can play Doom on vibe-os" without
+caveats.
 
-Current-head cloud proof state: save persistence is not green yet. The current
-runtime's latest persistence run, `26196214650` on `2788c00`, reaches the
-real-WAD playability checks, then fails the save-growth gate because
-`DOOMSAV0.DSG` is still truncated to 1024 bytes after the first write. The
-latest `flb=`/`fcl=` diagnostics show the active failure is still in FAT save
-growth and chain clipping, not Doom startup. This is real scripted cloud
-evidence for the current runtime, but it is not a human-facing Doom-capable
-proof by itself. Any doc, kernel, runtime, workflow, or proof-checker change
-must rerun the gates before becoming the next claimed proof point. The project
-still needs a green save/load persistence proof, the remote human playtest, and
-the remaining hard-mode architecture gaps below before README or release notes
-should say "you can play Doom on vibe-os" without caveats.
+Historical repair context: run `26196214650` on `2788c00` reached the real-WAD
+playability checks but failed earlier because `DOOMSAV0.DSG` was truncated to
+1024 bytes after the first write. Its `flb=`/`fcl=` diagnostics narrowed that
+older blocker to FAT save growth and chain clipping.
 
 What the last published evidence proves:
 
@@ -320,9 +323,11 @@ Still missing:
   `persistence_proof=true` or `persistence_save_slot=N` must prove `DEFAULT.CFG`
   or a matching `DOOMSAVN.DSG` save-slot plus full save/load gameplay before
   the current branch can claim save/load persistence.
-- The writable FAT path is still Doom-shaped, not full dynamic writable FS semantics:
-  root-level 8.3 files, bounded dynamic entries, no subdirectories,
-  no rename, no long filenames, and no POSIX delete-while-open behavior.
+- The writable FAT path is now a general root-level 8.3 VFS/FAT layer with
+  descriptor truncation, signed seek offsets, sparse-write zero filling, and
+  generic dynamic root entries. It is still not full POSIX: no writable
+  subdirectories, no rename, no long filenames, and no POSIX delete-while-open
+  behavior.
 - There is not yet a broader storage boot path story beyond mutating and
   rebooting the generated FAT16 image inside the disposable proof workflow.
 
@@ -405,7 +410,9 @@ Current state:
 - The `SYS_EXEC` handoff now restores the caller if argv stack seeding or live
   syscall-frame patching fails after the target address space was activated, so
   the rollback counter no longer leaves a half-prepared target running. Status
-  reports `argvsrc=2` when Doom's ABI stack came from the copied user vector.
+  reports `uexec=OK`/`upath=USERPROB.ELF` when the boot probe came through the
+  shared exec resolver and `argvsrc=2` when Doom's ABI stack came from the copied
+  user vector.
 - Exec targets reuse their table slots with fresh PIDs, stale user PTE teardown,
   and stack-PTE rearming before image load. Exit and failed exec paths retire
   user mappings instead of only changing process state.
@@ -417,9 +424,11 @@ Current state:
 - Timer preemption has a real Ring 3 IRQ-frame switch path: it saves the
   interrupted task, selects a different READY process record, switches CR3/TSS,
   rewrites the live interrupt frame, and reports `pirq` plus
-  `pmask`/`pfrom`/`pto`/`pkind`/`peip`/`pcr3`/`pkstk`/`pspin` status. The preempt
-  probe's stack sampler is guarded to run only while that process address space
-  is active.
+  `pmask`/`pfrom`/`pto`/`pkind`/`peip`/`pcr3`/`pkstk`/`pframe`/`pspin` status.
+  The `pframe` tuple records the last IRQ-frame rewrite count plus the
+  Ring 3 `EIP`/`CS`/`ESP`/`SS` that `iretd` will consume, so host gates can
+  reject counter-only preemption evidence. The preempt probe's stack sampler is
+  guarded to run only while that process address space is active.
 - The VMM has a checked higher-half seed contract: `KERNEL_HIGHER_HALF_BASE` is
   `0xc0000000`, `vmm_map_page` can allocate a missing page table from PMM after
   PMM is online, and `vmm_unmap_page` returns an empty PMM-backed page-table
@@ -430,8 +439,9 @@ Current state:
   and reclaimed table frame are visible without a framebuffer dump. This is a
   legitimate non-identity mapping capability, not a relocated running kernel.
   `tools/check_vm_status_proof.py` turns those fields into a cloud gate: it
-  requires `vmmhfree` to match the reclaimed `vmmhpt` frame, `argvsrc=2` for
-  user-vector exec, `procpool=`/`fdexec=`/`wait=` for bounded process-slot
+  requires `vmmhfree` to match the reclaimed `vmmhpt` frame,
+  `uexec=OK`/`upath=USERPROB.ELF` for boot-probe exec, `argvsrc=2` for
+  user-vector Doom exec, `procpool=`/`fdexec=`/`wait=` for bounded process-slot
   reuse, exec-time fd inheritance, and the wait/reap proof, and `pmask` plus
   `pkind`/`peip`/`pcr3`/`pkstk` for timer IRQ switches in both directions
   between Doom and the preempt probe.

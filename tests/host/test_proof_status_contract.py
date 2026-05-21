@@ -25,11 +25,15 @@ def status_line(**overrides):
     fields = {
         "exec": "OK",
         "path": "DOOM.ELF",
+        "uexec": "OK",
+        "upath": "USERPROB.ELF",
+        "upid": "00000004",
+        "uentry": "00E80000",
         "execsys": "00000001/00000001/00000000/00000001/00000001/00000000",
         "execerr": "00000000",
         "execres": "00000000",
-        "target": "00000003",
-        "ppid": "00000001",
+        "target": "00000005",
+        "ppid": "00000004",
         "entry": "01000000",
         "stack": "0100EFE0",
         "argc": "00000001",
@@ -108,11 +112,17 @@ def status_line(**overrides):
         "musicstream": "NONE",
         "musicpull": "00000000:00000000",
         "musicrend": "00000000:00000000:00000000:00000000:00000000:00000000",
+        "adev": "00000000:00000002:00000000",
+        "pcm": "00000001:00000002:00002B11",
+        "pcmbuf": "00001000:00000800:00000000:00000000",
         "sb16": "00000000:00000000",
         "dma": "00000000",
         "play": "00000000:00000000",
         "voiceq": "00000000:00000000:00000000",
         "musicq": "00000000:00000000",
+        "inputqueue": "00000007",
+        "inputpoll": "00000007",
+        "inputlast": "00000060:00000001:00000001",
         "audio": "NONE",
         "keyirq": "00000005",
         "keyqueue": "00000005",
@@ -144,6 +154,7 @@ def status_line(**overrides):
         "peip": "01002000:00E80000",
         "pcr3": "00082000:00083000",
         "pkstk": "00073000:00072000",
+        "pframe": "00000008/00E80000/0000001B/00E9FFE0/00000023",
         "pspin": "50524590",
         "pself": "OK",
         "pg": "ON",
@@ -387,6 +398,11 @@ class ProofStatusContractTests(unittest.TestCase):
             status_line(peip="00000000:00E80000"),
             status_line(pcr3="00082000:00082000"),
             status_line(pkstk="00073000:00073000"),
+            status_line(pframe="00000000/00E80000/0000001B/00E9FFE0/00000023"),
+            status_line(pframe="00000008/01002000/0000001B/00E9FFE0/00000023"),
+            status_line(pframe="00000008/00E80000/00000008/00E9FFE0/00000023"),
+            status_line(pframe="00000008/00E80000/0000001B/00000000/00000023"),
+            status_line(pframe="00000008/00E80000/0000001B/00E9FFE0/00000010"),
             status_line(pspin="50524545"),
             status_line(pflags="0000003F"),
             status_line(doomfaultip="0102F190"),
@@ -538,6 +554,10 @@ class ProofStatusContractTests(unittest.TestCase):
             check_human_playability_proof.validate_status(
                 status_line(keyirq="00000002") + " keyirq=00000003"
             )
+
+    def test_real_wad_checker_rejects_duplicate_status_fields(self):
+        with self.assertRaisesRegex(AssertionError, "duplicate keyirq= field"):
+            validate_real_wad_status(status_line(keyirq="00000002") + " keyirq=00000003")
 
     def test_workflow_artifacts_are_status_only_for_real_wad_proof(self):
         workflow = (ROOT / ".github" / "workflows" / "real-wad-smoke.yml").read_text()

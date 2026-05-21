@@ -80,6 +80,36 @@ def doom_save_payload_at_size(size):
     return doom_save_payload(tail_size=size - base_size)
 
 
+def doom_mobj_record(*, state=1, mobj_type=0, player=0):
+    record = bytearray(check_persistence.DOOM_MOBJ_RECORD_BYTES)
+    struct.pack_into("<I", record, check_persistence.DOOM_MOBJ_STATE_OFFSET, state)
+    struct.pack_into("<I", record, check_persistence.DOOM_MOBJ_TYPE_OFFSET, mobj_type)
+    struct.pack_into("<I", record, check_persistence.DOOM_MOBJ_PLAYER_OFFSET, player)
+    return bytes(record)
+
+
+def doom_save_payload_with_streams(*, thinker_records=(), special_classes=b"\x07"):
+    payload = bytearray()
+    payload.extend(b"STREAM PROOF".ljust(24, b"\0"))
+    payload.extend(b"version 110".ljust(16, b"\0"))
+    payload.extend(b"\x03\x01\x01\x01\x00\x00\x00\x00\x00\x46")
+    while len(payload) % 4:
+        payload.append(0)
+    payload.extend(doom_player_record())
+    payload.extend(bytes(((index * 19 + 5) & 0xFF for index in range(4096))))
+    thinker_offset = len(payload)
+    for thinker_record in thinker_records:
+        payload.append(1)  # tc_mobj
+        while len(payload) % 4:
+            payload.append(0)
+        payload.extend(thinker_record)
+    payload.append(0)  # tc_end
+    specials_offset = len(payload)
+    payload.extend(special_classes)
+    payload.append(check_persistence.SAVE_CONSISTENCY_MARKER)
+    return bytes(payload), thinker_offset, specials_offset
+
+
 def append_root_file_in_place(fs, name, data):
     """Append to a root file by extending its FAT chain, not by rewriting it."""
 
@@ -165,11 +195,15 @@ def reboot_status(**overrides):
     fields = {
         "exec": "OK",
         "path": "DOOM.ELF",
+        "uexec": "OK",
+        "upath": "USERPROB.ELF",
+        "upid": "00000004",
+        "uentry": "00E80000",
         "execsys": "00000001/00000001/00000000/00000001/00000001/00000000",
         "execerr": "00000000",
         "execres": "00000000",
-        "target": "00000002",
-        "ppid": "00000001",
+        "target": "00000005",
+        "ppid": "00000004",
         "entry": "0102F730",
         "stack": "01FFFFB0",
         "argc": "00000001",
@@ -284,6 +318,7 @@ def load_status(slot=1, read_bytes=0x1200, leveltime=0x60, **overrides):
         "savewr": "00000000/00000000",
         "saveclose": "00000002",
         "savemode": "00000000:00000000",
+        "saveact": f"00000060/00000000/{slot:08X}/00000003",
         "leveltime": f"{leveltime:08X}",
         "gmap": "00000101",
     }
@@ -751,6 +786,37 @@ class DoomPersistenceImageTests(unittest.TestCase):
                 save_write_status_path=status_path,
                 load_status_path=wrong_slot_path,
                 require_save_slots=[2],
+            )
+
+    def test_checker_rejects_save_load_status_before_original_load_completion(self):
+        save_payload = doom_save_payload("MENU ONLY")
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        after_write = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(after_write)
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], save_payload)
+
+        baseline_path = self.write_temp_image(baseline)
+        write_path = self.write_temp_image(after_write)
+        reboot_path = self.write_temp_image(bytearray(after_write))
+        status_path = self.write_temp_text(save_write_status(slot=0))
+        queued_path = self.write_temp_text(
+            load_status(
+                slot=0,
+                read_bytes=len(save_payload),
+                leveltime=80,
+                saveact="00000020/00000003/00000000/00000003",
+            )
+        )
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "requested and completed"):
+            check_persistence.validate_image(
+                reboot_path,
+                baseline_image=baseline_path,
+                reboot_baseline_image=write_path,
+                reboot_status_path=queued_path,
+                save_write_status_path=status_path,
+                load_status_path=queued_path,
+                require_save_slots=[0],
             )
 
     def test_checker_rejects_default_write_status_before_default_close(self):
@@ -1272,6 +1338,169 @@ class DoomPersistenceImageTests(unittest.TestCase):
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "serialized game-state"):
             check_persistence.validate_image(path, require_save_slots=[0])
 
+    def test_checker_validates_doom_specials_stream_from_explicit_offset(self):
+        payload, thinker_offset, specials_offset = doom_save_payload_with_streams(
+            thinker_records=(doom_mobj_record(state=1, mobj_type=0, player=1),)
+        )
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        image = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(image)
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], payload)
+        baseline_path = self.write_temp_image(baseline)
+        path = self.write_temp_image(image)
+
+        summary = check_persistence.validate_image(
+            path,
+            baseline_image=baseline_path,
+            require_save_slots=[0],
+            save_thinker_offset=thinker_offset,
+            save_specials_offset=specials_offset,
+        )
+
+        self.assertIn("DOOMSAV0.DSG bytes=", summary[0])
+        self.assertIn(
+            f"DOOMSAV0.DSG thinkers=OK offset=0x{thinker_offset:X}",
+            summary[1],
+        )
+        self.assertIn("tc_mobj=1", summary[1])
+        self.assertIn("tc_end=1", summary[1])
+        self.assertIn(
+            f"DOOMSAV0.DSG specials=OK offset=0x{specials_offset:X}",
+            summary[2],
+        )
+        self.assertIn("tc_endspecials=1", summary[2])
+
+    def test_checker_rejects_doom_thinker_mobj_with_invalid_state_index(self):
+        payload, thinker_offset, _specials_offset = doom_save_payload_with_streams(
+            thinker_records=(
+                doom_mobj_record(state=check_persistence.DOOM_NUM_STATES, mobj_type=0, player=0),
+            )
+        )
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], payload)
+        path = self.write_temp_image(image)
+
+        with self.assertRaises(check_persistence.PersistenceProofError) as raised:
+            check_persistence.validate_image(
+                path,
+                require_save_slots=[0],
+                save_thinker_offset=thinker_offset,
+            )
+
+        message = str(raised.exception)
+        self.assertIn("malformed thinker stream", message)
+        self.assertIn("tc_mobj semantic state index", message)
+        self.assertIn("DOOMSAV0.DSG diagnostics", message)
+
+    def test_checker_rejects_doom_thinker_mobj_with_invalid_type_or_player_index(self):
+        cases = (
+            (
+                doom_mobj_record(
+                    state=1,
+                    mobj_type=check_persistence.DOOM_NUM_MOBJ_TYPES,
+                    player=0,
+                ),
+                "tc_mobj semantic type index",
+            ),
+            (
+                doom_mobj_record(
+                    state=1,
+                    mobj_type=0,
+                    player=check_persistence.DOOM_MAXPLAYERS + 1,
+                ),
+                "tc_mobj semantic player index",
+            ),
+        )
+
+        for record, expected in cases:
+            with self.subTest(expected=expected):
+                payload, thinker_offset, _specials_offset = doom_save_payload_with_streams(
+                    thinker_records=(record,)
+                )
+                image = bytearray((BUILD / "disk.img").read_bytes())
+                fs = make_wad_image.Fat16Image(image)
+                fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], payload)
+                path = self.write_temp_image(image)
+
+                with self.assertRaisesRegex(
+                    check_persistence.PersistenceProofError,
+                    expected,
+                ):
+                    check_persistence.validate_image(
+                        path,
+                        require_save_slots=[0],
+                        save_thinker_offset=thinker_offset,
+                    )
+
+    def test_checker_rejects_malformed_doom_specials_stream_tclass_112(self):
+        payload, _thinker_offset, specials_offset = doom_save_payload_with_streams(
+            special_classes=b"\x70"
+        )
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        fs = make_wad_image.Fat16Image(image)
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], payload)
+        path = self.write_temp_image(image)
+
+        with self.assertRaises(check_persistence.PersistenceProofError) as raised:
+            check_persistence.validate_image(
+                path,
+                require_save_slots=[0],
+                save_specials_offset=specials_offset,
+            )
+
+        message = str(raised.exception)
+        self.assertIn("malformed specials stream", message)
+        self.assertIn("unknown special tclass 112", message)
+        self.assertIn("DOOMSAV0.DSG diagnostics", message)
+        self.assertNotIn("real Doom save payload", message)
+
+    def test_checker_uses_runtime_savestm_offset_for_specials_stream(self):
+        payload, thinker_offset, specials_offset = doom_save_payload_with_streams()
+        baseline = bytearray((BUILD / "disk.img").read_bytes())
+        after_write = bytearray(baseline)
+        fs = make_wad_image.Fat16Image(after_write)
+        fs.write_root_file(make_wad_image.WRITABLE_SAVE_NAMES[0], payload)
+        after_reboot = bytearray(after_write)
+
+        baseline_path = self.write_temp_image(baseline)
+        write_path = self.write_temp_image(after_write)
+        reboot_path = self.write_temp_image(after_reboot)
+        status_path = self.write_temp_text(save_write_status(slot=0))
+        load_status_path = self.write_temp_text(
+            load_status(
+                slot=0,
+                read_bytes=len(payload),
+                leveltime=71,
+                savestm=(
+                    f"00000017/00000000/{specials_offset:08X}/00000007/00000008"
+                ),
+                savethk=(
+                    f"{thinker_offset:08X}/00000000/{thinker_offset:08X}/00000000"
+                ),
+            )
+        )
+
+        summary = check_persistence.validate_image(
+            reboot_path,
+            baseline_image=baseline_path,
+            reboot_baseline_image=write_path,
+            reboot_status_path=load_status_path,
+            save_write_status_path=status_path,
+            load_status_path=load_status_path,
+            require_save_slots=[0],
+        )
+
+        self.assertIn(
+            f"DOOMSAV0.DSG thinkers=OK offset=0x{thinker_offset:X}",
+            summary[1],
+        )
+        self.assertIn(
+            f"DOOMSAV0.DSG specials=OK offset=0x{specials_offset:X}",
+            summary[2],
+        )
+        self.assertIn("save load status gameplay=OK slot=0", summary)
+
     def test_checker_rejects_fake_save_header_with_arbitrary_tail_bytes(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
         fs = make_wad_image.Fat16Image(image)
@@ -1407,7 +1636,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         for phrase in (
             "Writable semantics are still deliberately narrow",
             "root-level 8.3 files",
-            "no subdirectories",
+            "no writable",
             "no rename",
             "no long filenames",
             "no POSIX delete-while-open behavior",
@@ -1417,13 +1646,15 @@ class DoomPersistenceImageTests(unittest.TestCase):
             "--require-dynamic-fat-proof",
             "dynamic filesystem behavior",
             "FATPROOF.TMP",
+            "root/current-directory prefix normalization",
             "PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF=1 make persistence-image-check",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, persistent_doc)
         self.assertIn("PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF ?= 0", makefile)
         self.assertIn("--require-dynamic-fat-proof", makefile)
-        self.assertIn("dynamic writable FS", gap_doc)
+        self.assertIn("general root-level 8.3 VFS/FAT layer", gap_doc)
+        self.assertIn("generic dynamic root entries", gap_doc)
         self.assertIn("dynamic FAT allocation, free", gap_doc)
         self.assertIn("storage boot path", gap_doc)
 

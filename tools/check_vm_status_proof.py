@@ -4,14 +4,17 @@
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from pathlib import Path
 
+from status_fields import (
+    parse_status_fields,
+    require_hex8_field,
+    require_hex_tuple_field,
+    require_status_field,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
-
-FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
 
 KERNEL_HIGHER_HALF_BASE = 0xC0000000
 PMM_MANAGED_START = 0x00100000
@@ -29,6 +32,8 @@ PROCESS_GENERIC_SLOT_COUNT = 2
 WAIT_PROOF_EXIT_STATUS = 0x2A
 USER_KIND_DOOM = 2
 USER_KIND_PREEMPT_PROBE = 3
+USER_CODE_SEG = 0x1B
+USER_DATA_SEG = 0x23
 PROC_DOOM_PAGE_DIR_ADDR = 0x00082000
 PROC_PREEMPT_PAGE_DIR_ADDR = 0x00083000
 PROC_DOOM_KERNEL_STACK_TOP = 0x00073000
@@ -36,7 +41,7 @@ PROC_PREEMPT_PROBE_KERNEL_STACK_TOP = 0x00072000
 
 
 def parse_status(text: str) -> dict[str, str]:
-    return {match.group(1): match.group(2) for match in FIELD_PATTERN.finditer(text)}
+    return parse_status_fields(text, error_type=AssertionError)
 
 
 def _read(root: Path, relative: str) -> str:
@@ -49,10 +54,7 @@ def _require(text: str, needle: str, label: str) -> None:
 
 
 def _field(fields: dict[str, str], name: str) -> str:
-    try:
-        return fields[name]
-    except KeyError as exc:
-        raise AssertionError(f"status missing {name}=") from exc
+    return require_status_field(fields, name)
 
 
 def _exact(fields: dict[str, str], name: str, expected: str) -> None:
@@ -62,10 +64,7 @@ def _exact(fields: dict[str, str], name: str, expected: str) -> None:
 
 
 def _hex(fields: dict[str, str], name: str) -> int:
-    value = _field(fields, name)
-    if not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
-        raise AssertionError(f"{name}= must be an 8-digit hexadecimal value, got {value!r}")
-    return int(value, 16)
+    return require_hex8_field(fields, name)
 
 
 def _hex_gt(fields: dict[str, str], name: str, minimum: int = 0) -> int:
@@ -76,16 +75,7 @@ def _hex_gt(fields: dict[str, str], name: str, minimum: int = 0) -> int:
 
 
 def _hex_tuple(fields: dict[str, str], name: str, count: int, sep: str) -> tuple[int, ...]:
-    value = _field(fields, name)
-    parts = value.split(sep)
-    if len(parts) != count:
-        raise AssertionError(f"{name}= must contain {count} hex fields separated by {sep!r}")
-    parsed: list[int] = []
-    for part in parts:
-        if not re.fullmatch(r"[0-9A-Fa-f]{8}", part):
-            raise AssertionError(f"{name}= contains non-hex component {part!r}")
-        parsed.append(int(part, 16))
-    return tuple(parsed)
+    return require_hex_tuple_field(fields, name, count, sep)
 
 
 def _page_aligned(value: int, name: str) -> None:
@@ -143,6 +133,8 @@ def validate_vm_mapping(fields: dict[str, str]) -> None:
 def validate_exec(fields: dict[str, str]) -> None:
     _exact(fields, "exec", "OK")
     _exact(fields, "path", "DOOM.ELF")
+    _exact(fields, "uexec", "OK")
+    _exact(fields, "upath", "USERPROB.ELF")
     _exact(fields, "doom", "OK")
 
     attempts, successes, failures, handoffs, scheduled, rollbacks = _hex_tuple(
@@ -159,8 +151,13 @@ def validate_exec(fields: dict[str, str]) -> None:
 
     target = _hex_gt(fields, "target")
     parent = _hex_gt(fields, "ppid")
+    boot_user_pid = _hex_gt(fields, "upid")
+    boot_user_entry = _hex_gt(fields, "uentry")
+    _in_range(boot_user_entry, PROBE_USER_BASE, PROBE_USER_END, "uentry")
     if target == parent:
         raise AssertionError("target= and ppid= must prove exec entered a new process")
+    if parent != boot_user_pid:
+        raise AssertionError("ppid= must match upid= to prove Doom was execed by the boot user process")
 
     entry = _hex_gt(fields, "entry")
     stack = _hex_gt(fields, "stack")
@@ -246,7 +243,9 @@ def validate_preemption(fields: dict[str, str]) -> None:
     if irq_switches != preempt:
         raise AssertionError("pirq= must match preempt= to prove timer IRQ context switches")
     _hex_gt(fields, "pattempt")
-    _hex_gt(fields, "puser")
+    user_irq_ticks = _hex_gt(fields, "puser")
+    if user_irq_ticks < preempt:
+        raise AssertionError("puser= must cover every timer-driven preempt switch")
     _hex_gt(fields, "pround")
     context_switches = _hex_gt(fields, "pctx")
     if context_switches < preempt:
@@ -293,6 +292,18 @@ def validate_preemption(fields: dict[str, str]) -> None:
     spin = _hex(fields, "pspin")
     if spin in (0, PREEMPT_PROBE_MAGIC):
         raise AssertionError("pspin= must prove the Ring 3 preempt probe executed")
+
+    frame_count, frame_eip, frame_cs, frame_esp, frame_ss = _hex_tuple(fields, "pframe", 5, "/")
+    if frame_count != irq_switches:
+        raise AssertionError("pframe= rewrite count must match timer IRQ context switches")
+    if frame_eip != to_eip:
+        raise AssertionError("pframe= EIP must match the selected target context")
+    if frame_cs != USER_CODE_SEG or (frame_cs & 0x3) != 0x3:
+        raise AssertionError("pframe= CS must be the Ring 3 user code selector")
+    if frame_esp == 0:
+        raise AssertionError("pframe= ESP must record a nonzero Ring 3 stack")
+    if frame_ss != USER_DATA_SEG or (frame_ss & 0x3) != 0x3:
+        raise AssertionError("pframe= SS must be the Ring 3 user data selector")
 
 
 def validate_status(
@@ -344,6 +355,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     ):
         _require(text, "tools/check_vm_status_proof.py", label)
         _require(text, "vmmhfree", label)
+        _require(text, "uexec=OK", label)
+        _require(text, "upath=USERPROB.ELF", label)
         _require(text, "argvsrc=2", label)
         _require(text, "procpool=", label)
         _require(text, "fdexec=", label)
@@ -353,6 +366,13 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         _require(text, "pmask", label)
         _require(text, "pcr3", label)
         _require(text, "pkstk", label)
+
+    for text, label in (
+        (process_vm, "process VM doc"),
+        (boot_vm, "boot loader VM doc"),
+        (gaps, "gap ledger"),
+    ):
+        _require(text, "pframe", label)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -1,10 +1,10 @@
 # Process Exec And Launch
 
-The boot path still routes Doom through the generic exec table, but `SYS_EXEC`
-is no longer just a loader helper. It now prepares a table-supported image,
-builds a scheduler-visible user context for the target process record, patches
-the live syscall return frame, and `iretd`s into the target instead of returning
-to the caller.
+The boot path now routes both the initial Ring 3 probe and Doom through the
+generic exec table. `SYS_EXEC` is no longer just a loader helper: it prepares a
+table-supported image, builds a scheduler-visible user context for the target
+process record, patches the live syscall return frame, and `iretd`s into the
+target instead of returning to the caller.
 
 ## Loader Contract
 
@@ -14,17 +14,23 @@ to the caller.
   Doom address window; the boot probe stays table-backed because it owns the
   initial probe address window.
 - If a path is not in the table, `process_exec_resolve_generic_root83` parses a
-  root-level FAT16 8.3 path, accepts only `.ELF` files, allocates one of the
-  bounded generic user slots, resolves the file through the FAT root directory,
-  and loads it into that probe-class address window. This makes
-  `SYS_EXEC("HELLO.ELF")` a real FAT16 lookup with a reusable target selected at
-  runtime instead of a hard-coded string table miss, while still rejecting
-  subdirectories, long names, and non-ELF payloads.
+  root-level FAT16 8.3 path, accepts only `.ELF` files, normalizes leading root
+  separators and `./` current-directory prefixes, allocates one of the bounded
+  generic user slots, resolves the file through the FAT root directory, and
+  loads it into that probe-class address window. This makes
+  `SYS_EXEC("HELLO.ELF")` and `SYS_EXEC("./HELLO.ELF")` real FAT16 lookups with
+  reusable targets selected at runtime instead of hard-coded string table
+  misses, while still rejecting subdirectories, long names, and non-ELF
+  payloads.
 - `process_exec_path` resolves the copied path through the table or generic
   root-ELF fallback, rejects an active target slot when syscall mode requests
   active-process safety, loads the file through the common FAT reader, validates
   ELF magic, and delegates segment preparation to the matching user-image
   parser.
+- The storage boot path no longer preloads `USERPROB.ELF` or `DOOM.ELF` through
+  image-specific FAT helpers. The first probe is prepared by
+  `process_exec_path("USERPROB.ELF")`; the probe then reaches Doom with
+  `SYS_EXEC("DOOM.ELF")`.
 - Failure paths set `process_exec_last_error` before returning carry, so syscall
   error handling can distinguish invalid paths, missing files, unsafe active
   target reloads, and loader/ELF I/O failures.
@@ -78,10 +84,10 @@ to the caller.
   teardown, fault handling, target-slot reuse, and wait reaping all sweep
   descriptors owned by the retiring process. This is real exec-time fd
   inheritance/close-on-exec behavior, not yet fork-time descriptor duplication.
-- The initial Ring 3 probe is bootstrapped through the same stack builder before
-  entering crt0. It receives `argc == 1`, `argv[0] == "USERPROB.ELF"`,
-  `argv[1] == NULL`, and an empty `envp`, then verifies that `getpid()` reports
-  its fixed process id from user mode.
+- The initial Ring 3 probe is loaded through `process_exec_path` and
+  bootstrapped through the same stack builder before entering crt0. It receives
+  `argc == 1`, `argv[0] == "USERPROB.ELF"`, `argv[1] == NULL`, and an empty
+  `envp`, then verifies that `getpid()` reports a live user process id.
 - The Ring 3 probe arms its intentional page-fault check with a recovery EIP.
   The fault handler records the frame, clears the expectation, rewrites the
   saved exception EIP to the recovery label, drops vector/error from the trap
@@ -104,9 +110,10 @@ records the selected target in `scheduler_next_process_ptr`/`scheduler_next_pid`
 before activation, giving host contracts a concrete scheduler integration point
 instead of only proving that bytes were loaded. The preemption proof now records
 a bidirectional pair mask (`pmask`), switched process kinds (`pkind`), EIPs
-(`peip`), page directories (`pcr3`), and kernel stacks (`pkstk`) so the cloud
-gate has to prove Doom/preempt-probe CR3/TSS switches in both directions, not
-only scheduler counter increments.
+(`peip`), page directories (`pcr3`), kernel stacks (`pkstk`), and the rewritten
+IRQ return frame (`pframe`) so the cloud gate has to prove Doom/preempt-probe
+CR3/TSS switches and a Ring 3 `iretd` target in both directions, not only
+scheduler counter increments.
 
 ## Status And Rollback Counters
 
@@ -117,8 +124,10 @@ Smoke status still includes `exec=OK path=...`, and `execsys=` now reports:
 The same status line also records `execerr=<errno>`, `execres=<syscall result>`,
 `target=<pid>`, `ppid=<pid>`, `entry=<eip>`, `stack=<esp>`, `argc=<n>`,
 `argv=<ptr>`, `envp=<ptr>`, `argv0=<ptr>`, `envp0=<word>`, and
-`argvsrc=<source>`. It also emits `procpool=slots/generic/reuses/galloc/gfail`,
-`pidseq=next/last_reused/generation`,
+`argvsrc=<source>`. The boot-probe loader proof is separate:
+`uexec=OK upath=USERPROB.ELF upid=<pid> uentry=<eip>` records that the initial
+probe image used the same exec resolver before it called `SYS_EXEC`. It also
+emits `procpool=slots/generic/reuses/galloc/gfail`, `pidseq=next/last_reused/generation`,
 `fdexec=handoffs/inherited/closed/owner_closes`, and
 `wait=attempts/reaps/failures/nohang/seeded/last_pid/last_status`. A successful
 Doom launch should have zero `execerr`/`execres`, nonzero argc/argv/envp
@@ -152,9 +161,11 @@ real-WAD proof counters.
 ## Remaining Gaps
 
 - Exec now accepts arbitrary root-level FAT16 `.ELF` paths for a bounded generic
-  probe-class pool, but it is not a full path resolver: there are no
-  directories, long filenames, interpreter/shebang handling, environment
-  copying, or dynamically chosen address-space classes.
+  probe-class pool and normalizes root/current-directory prefixes, but it is not
+  a full path resolver: userland can list the FAT root and stat the root
+  directory, but exec cannot traverse subdirectories, long filenames,
+  interpreter/shebang handling, environment copying, or dynamically chosen
+  address-space classes.
 - Generic executables no longer overwrite the boot probe slot, but the pool is
   still statically sized to two process records and two prebuilt probe-style
   page directories. This is dynamic target selection, not dynamic process-table

@@ -21,15 +21,84 @@ static unsigned int pack_mouse(unsigned int buttons, int x, int y)
         | (((unsigned int)(unsigned char)y) << 16);
 }
 
+static vibe_input_event_t input_key(unsigned long timestamp, unsigned int key, int down)
+{
+    vibe_input_event_t input;
+
+    input.timestamp = timestamp;
+    input.device_id = VIBE_INPUT_DEVICE_KEYBOARD;
+    input.type = VIBE_INPUT_EVENT_KEY;
+    input.code = key;
+    input.value0 = down ? 1 : 0;
+    input.value1 = 0;
+    input.value2 = 0;
+    return input;
+}
+
+static vibe_input_event_t input_mouse(unsigned long timestamp, unsigned int buttons, int x, int y)
+{
+    vibe_input_event_t input;
+
+    input.timestamp = timestamp;
+    input.device_id = VIBE_INPUT_DEVICE_MOUSE;
+    input.type = VIBE_INPUT_EVENT_MOUSE_PACKET;
+    input.code = buttons;
+    input.value0 = x;
+    input.value1 = y;
+    input.value2 = 0;
+    return input;
+}
+
 int main(void)
 {
     vibe_doom_input_event_t event;
+    vibe_input_event_t input;
 
-    CHECK(vibe_doom_translate_key_event(pack_key(VIBE_DOOM_KEY_UPARROW, 1), &event));
+    input = input_key(123, VIBE_DOOM_KEY_UPARROW, 1);
+    CHECK(vibe_doom_translate_input_event(&input, &event));
     CHECK(event.type == VIBE_DOOM_INPUT_KEYDOWN);
     CHECK(event.data1 == VIBE_DOOM_KEY_UPARROW);
     CHECK(event.data2 == 0);
     CHECK(event.data3 == 0);
+
+    input = input_key(124, VIBE_DOOM_KEY_ESCAPE, 0);
+    CHECK(vibe_doom_translate_input_event(&input, &event));
+    CHECK(event.type == VIBE_DOOM_INPUT_KEYUP);
+    CHECK(event.data1 == VIBE_DOOM_KEY_ESCAPE);
+
+    input = input_key(125, 0, 1);
+    CHECK(!vibe_doom_translate_input_event(&input, &event));
+    CHECK(event.type == VIBE_DOOM_INPUT_NONE);
+    input.type = VIBE_INPUT_EVENT_NONE;
+    input.code = VIBE_DOOM_KEY_ENTER;
+    CHECK(!vibe_doom_translate_input_event(&input, &event));
+    CHECK(event.type == VIBE_DOOM_INPUT_NONE);
+
+    input = input_mouse(126, 0x01u, 2, -3);
+    CHECK(vibe_doom_translate_input_event(&input, &event));
+    CHECK(event.type == VIBE_DOOM_INPUT_MOUSE);
+    CHECK(event.data1 == 0x01);
+    CHECK(event.data2 == 8);
+    CHECK(event.data3 == -12);
+
+    input = input_mouse(127, 0x02u, -1, 1);
+    CHECK(vibe_doom_translate_input_event(&input, &event));
+    CHECK(event.data1 == 0x04);
+    CHECK(event.data2 == -4);
+    CHECK(event.data3 == 4);
+
+    input = input_mouse(128, 0x04u, 0, 0);
+    CHECK(vibe_doom_translate_input_event(&input, &event));
+    CHECK(event.data1 == 0x02);
+
+    input.device_id = VIBE_INPUT_DEVICE_KEYBOARD;
+    input.type = VIBE_INPUT_EVENT_MOUSE_PACKET;
+    CHECK(!vibe_doom_translate_input_event(&input, &event));
+    CHECK(event.type == VIBE_DOOM_INPUT_NONE);
+
+    CHECK(vibe_doom_translate_key_event(pack_key(VIBE_DOOM_KEY_UPARROW, 1), &event));
+    CHECK(event.type == VIBE_DOOM_INPUT_KEYDOWN);
+    CHECK(event.data1 == VIBE_DOOM_KEY_UPARROW);
 
     CHECK(vibe_doom_translate_key_event(pack_key(VIBE_DOOM_KEY_ESCAPE, 0), &event));
     CHECK(event.type == VIBE_DOOM_INPUT_KEYUP);

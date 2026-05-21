@@ -170,6 +170,17 @@ class ShutdownPanicProofTests(unittest.TestCase):
             with self.assertRaisesRegex(AssertionError, "shutdown-halt shutdown="):
                 check_shutdown_panic_proof.validate_artifact_dir(artifact)
 
+    def test_rejects_duplicate_shutdown_status_field(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            (artifact / "status.shutdown-halt.txt").write_text(
+                status_line(panic="NONE", shutdown="HALT") + " shutdown=NONE"
+            )
+
+            with self.assertRaisesRegex(AssertionError, "duplicate shutdown= field"):
+                check_shutdown_panic_proof.validate_artifact_dir(artifact)
+
     def test_rejects_panic_without_fault_frame(self):
         with tempfile.TemporaryDirectory() as tmp:
             artifact = Path(tmp)

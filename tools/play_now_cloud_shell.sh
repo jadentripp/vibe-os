@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_URL="${VIBE_REPO_URL:-https://github.com/jadentripp/vibe-os.git}"
-REF="${VIBE_REF:-jt/playable-rc-next}"
+REF="${VIBE_REF:-main}"
 WORKDIR="${VIBE_PLAY_DIR:-$HOME/vibe-os-play-now}"
 START_REMOTE=1
 INSTALL_DEPS=1
@@ -18,7 +18,7 @@ the remote play script.
 
 Options:
   --repo-url URL       Git repository to clone. Default: public vibe-os repo.
-  --ref BRANCH         Branch to play. Default: VIBE_REF or jt/playable-rc-next.
+  --ref BRANCH         Branch to play. Default: VIBE_REF or main.
   --dir PATH           Remote checkout directory. Default: ~/vibe-os-play-now.
   --preflight-only     Install/clone/check only; do not start QEMU/noVNC.
   --no-install         Skip apt dependency installation.

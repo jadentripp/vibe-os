@@ -78,6 +78,8 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "VIBE_SYS_GETPID = 25",
             "VIBE_IOCTL_FBINFO",
             "VIBE_IOCTL_PRESENT_INDEXED",
+            "VIBE_FB_CAP_PRESENT_INDEXED",
+            "VIBE_FB_FORMAT_INDEX8_RGB24",
             "typedef struct vibe_fb_info",
             "typedef struct vibe_present_indexed",
             "tail munmap moves brk back",
@@ -117,6 +119,9 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "call vmm_mark_process_user_write_range",
             "VIBE_IOCTL_FBINFO equ 0x00005601",
             "VIBE_IOCTL_PRESENT_INDEXED equ 0x00005602",
+            "VIBE_FB_INFO_CAPABILITIES equ 68",
+            "VIBE_FB_INFO_BYTES equ 84",
+            "VIBE_FB_FORMAT_INDEX8_RGB24 equ 1",
             "jmp .bad_syscall_enosys",
             "call process_waitpid_current",
             "ERRNO_ECHILD",
@@ -129,9 +134,15 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "PROBE_FLAG_FORK_WAIT = 0x400u",
             "PROBE_FLAG_PROCESS_ABI = 0x800u",
             "PROBE_FLAG_NEGATIVE_SYSCALLS = 0x1000u",
+            "PROBE_FLAG_FTRUNCATE = 0x4000u",
+            "PROBE_FLAG_SBRK_SHRINK = 0x8000u",
+            "PROBE_FLAG_LISTDIR = 0x10000u",
             "SYS_MMAP = 20",
             "SYS_IOCTL = 22",
             "SYS_GETPID = 25",
+            "SYS_LISTDIR = 30",
+            "VIBE_FB_CAP_PRESENT_INDEXED",
+            "VIBE_FB_FORMAT_INDEX8_RGB24",
         ):
             self.assertIn(token, probe)
 
@@ -201,6 +212,8 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "user-owned or validated shareware WAD outside git",
             "Do not track or upload",
             "WAD files, disk images, raw audio captures, screenshots, framebuffer dumps",
+            "`VM_OBJECT_KIND_ANON_BRK` last-object descriptor",
+            "distinguish the current brk-backed object model from a real VMA table",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, docs_words)

@@ -9,6 +9,13 @@ import sys
 from pathlib import Path
 
 import check_human_playability_proof
+from status_fields import (
+    parse_status_fields,
+    require_hex8_field,
+    require_hex_tuple_field,
+    require_status_field,
+    summarize_status_fields,
+)
 
 
 DEFAULT_REJECT_PATTERNS = (
@@ -22,6 +29,8 @@ DEFAULT_REJECT_PATTERNS = (
 PREEMPT_PROBE_MAGIC = 0x50524545
 USER_KIND_DOOM = 2
 USER_KIND_PREEMPT_PROBE = 3
+USER_CODE_SEG = 0x1B
+USER_DATA_SEG = 0x23
 PROC_DOOM_PAGE_DIR_ADDR = 0x00082000
 PROC_PREEMPT_PAGE_DIR_ADDR = 0x00083000
 PROC_DOOM_KERNEL_STACK_TOP = 0x00073000
@@ -113,6 +122,8 @@ HEX_FIELDS = (
     "musicunder",
     "musicdrops",
     "dma",
+    "inputqueue",
+    "inputpoll",
     "keyirq",
     "keyqueue",
     "keypoll",
@@ -137,7 +148,6 @@ HEX_FIELDS = (
     "ticks",
 )
 
-FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
 REQUIRED_SNAPSHOT_LABELS = ("baseline", "start", "fire", "movement", "use", "mouse", "menu")
 SUMMARY_FIELDS = (
     "exec",
@@ -179,6 +189,9 @@ SUMMARY_FIELDS = (
     "doompresent",
     "doompal",
     "doomframe",
+    "adev",
+    "pcm",
+    "pcmbuf",
     "sfxmix",
     "sfxdma",
     "sfxvoices",
@@ -195,6 +208,9 @@ SUMMARY_FIELDS = (
     "play",
     "voiceq",
     "musicq",
+    "inputqueue",
+    "inputpoll",
+    "inputlast",
     "pflags",
     "gflags",
     "keyirq",
@@ -233,26 +249,18 @@ SUMMARY_FIELDS = (
     "peip",
     "pcr3",
     "pkstk",
+    "pframe",
     "pspin",
 )
 
 
 def _field(status: str, name: str) -> str:
     fields = _status_fields(status)
-    value = fields.get(name)
-    if value is None:
-        raise AssertionError(f"missing {name}= field")
-    return value
+    return require_status_field(fields, name)
 
 
 def _status_fields(status: str) -> dict[str, str]:
-    fields: dict[str, str] = {}
-    for match in FIELD_PATTERN.finditer(status):
-        name = match.group(1)
-        if name in fields:
-            raise AssertionError(f"duplicate {name}= field")
-        fields[name] = match.group(2)
-    return fields
+    return parse_status_fields(status, error_type=AssertionError, require_any=False)
 
 
 def summarize_status(status: str) -> str:
@@ -262,14 +270,11 @@ def summarize_status(status: str) -> str:
         fields = _status_fields(status)
     except AssertionError as exc:
         return f"unparseable status: {exc}"
-    return " ".join(f"{name}={fields.get(name, '<missing>')}" for name in SUMMARY_FIELDS)
+    return summarize_status_fields(fields, SUMMARY_FIELDS)
 
 
 def _hex_field(status: str, name: str) -> int:
-    value = _field(status, name)
-    if not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
-        raise AssertionError(f"{name}= must be eight hex digits, got {value!r}")
-    return int(value, 16)
+    return require_hex8_field(_status_fields(status), name)
 
 
 def _hex_field_gt(status: str, name: str, minimum: int) -> int:
@@ -293,14 +298,7 @@ def _choice_field(status: str, name: str, choices: tuple[str, ...]) -> None:
 
 
 def _hex_tuple_field(status: str, name: str, count: int, separator: str = "/") -> tuple[int, ...]:
-    value = _field(status, name)
-    parts = value.split(separator)
-    if len(parts) != count:
-        raise AssertionError(f"{name}= must have {count} hex parts separated by {separator!r}")
-    for part in parts:
-        if not re.fullmatch(r"[0-9A-Fa-f]{8}", part):
-            raise AssertionError(f"{name}= part must be eight hex digits, got {part!r}")
-    return tuple(int(part, 16) for part in parts)
+    return require_hex_tuple_field(_status_fields(status), name, count, separator)
 
 
 def _doom_init_field(status: str) -> tuple[int, int]:
@@ -459,9 +457,13 @@ def _validate_core_status(status: str) -> None:
     sb16_version = _colon_tuple_field(status, "sb16", 2)
     play = _colon_tuple_field(status, "play", 2)
     voiceq = _colon_tuple_field(status, "voiceq", 3)
+    adev = _colon_tuple_field(status, "adev", 3)
+    pcm = _colon_tuple_field(status, "pcm", 3)
+    pcmbuf = _colon_tuple_field(status, "pcmbuf", 4)
     _colon_tuple_field(status, "sfxdma", 2)
     musicq = _colon_tuple_field(status, "musicq", 2)
     musicrend = _colon_tuple_field(status, "musicrend", 6)
+    _colon_tuple_field(status, "inputlast", 3)
 
     attempts, successes, failures, handoffs, scheduled, rollbacks = _hex_tuple_field(
         status, "execsys", 6
@@ -509,6 +511,14 @@ def _validate_core_status(status: str) -> None:
         )
     audio = _field(status, "audio")
     if audio == "SB16":
+        if adev[0] != 1 or adev[1] != 1 or (adev[2] & 0x0000000F) != 0x0000000F:
+            raise AssertionError("adev= must prove a ready generic SB16 audio device contract")
+        if pcm != (1, 2, 11025):
+            raise AssertionError("pcm= must prove unsigned 8-bit stereo at 11025 Hz")
+        if pcmbuf[0] == 0 or pcmbuf[1] * 2 != pcmbuf[0]:
+            raise AssertionError("pcmbuf= must expose a two-period PCM ring")
+        if pcmbuf[2] >= pcmbuf[0] or pcmbuf[3] not in (0, 1):
+            raise AssertionError("pcmbuf= must expose a valid write offset and active half")
         if sb16_version[0] == 0:
             raise AssertionError("sb16= must expose a nonzero SB16 DSP major version when audio=SB16")
         _hex_field_gt(status, "dma", 0)
@@ -535,7 +545,9 @@ def _validate_core_status(status: str) -> None:
     if irq_switches != preempt_switches:
         raise AssertionError("pirq= must match preempt= to prove timer IRQ-driven switches")
     _hex_field_gt(status, "pattempt", 0)
-    _hex_field_gt(status, "puser", 0)
+    user_irq_ticks = _hex_field_gt(status, "puser", 0)
+    if user_irq_ticks < preempt_switches:
+        raise AssertionError("puser= must cover every timer-driven preempt switch")
     _hex_field_gt(status, "pround", 0)
     _hex_field_gt(status, "pctx", 0)
     pair_mask = _hex_field(status, "pmask")
@@ -564,6 +576,17 @@ def _validate_core_status(status: str) -> None:
     spin = _hex_field(status, "pspin")
     if spin in (0, PREEMPT_PROBE_MAGIC):
         raise AssertionError("pspin= must prove the Ring 3 preempt probe executed after seeding")
+    frame_count, frame_eip, frame_cs, frame_esp, frame_ss = _hex_tuple_field(status, "pframe", 5)
+    if frame_count != irq_switches:
+        raise AssertionError("pframe= rewrite count must match pirq=")
+    if frame_eip != to_eip:
+        raise AssertionError("pframe= must record the live iretd target EIP")
+    if frame_cs != USER_CODE_SEG or (frame_cs & 0x3) != 0x3:
+        raise AssertionError("pframe= must record a Ring 3 code selector")
+    if frame_esp == 0:
+        raise AssertionError("pframe= must record a nonzero Ring 3 stack")
+    if frame_ss != USER_DATA_SEG or (frame_ss & 0x3) != 0x3:
+        raise AssertionError("pframe= must record a Ring 3 data selector")
 
 
 def validate_status(

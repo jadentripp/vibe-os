@@ -96,6 +96,44 @@ jobs:
           echo "SOAK_MIN_PASSES=$min_passes" >> "$GITHUB_ENV"
           echo "SOAK_DIR=$RUNNER_TEMP/real-wad-soak" >> "$GITHUB_ENV"
 
+      - name: Summarize soak proof lane
+        run: |
+          set -euo pipefail
+
+          lane="gameplay"
+          if [ "${AUDIBLE_AUDIO_PROOF}" = "true" ]; then
+            lane="audio"
+          fi
+
+          echo "Soak lane: $lane"
+          echo "Attempts: $SOAK_ATTEMPTS"
+          echo "Required passes: $SOAK_MIN_PASSES"
+          echo "Artifact policy: upload JSON soak metadata only; no WADs, disk images, rendered pixels, raw audio, logs, or raw status text."
+          echo "Download command after completion:"
+          echo "gh run download $GITHUB_RUN_ID --repo $GITHUB_REPOSITORY --name real-wad-soak-metadata --dir build/cloud-soak-$GITHUB_RUN_ID"
+
+          {
+            echo "### Real WAD soak"
+            echo ""
+            echo "- lane: \`$lane\`"
+            echo "- attempts: \`$SOAK_ATTEMPTS\`"
+            echo "- required passes: \`$SOAK_MIN_PASSES\`"
+            echo "- ref: \`$GITHUB_REF_NAME\`"
+            echo "- commit: \`$GITHUB_SHA\`"
+            echo "- artifact: \`real-wad-soak-metadata\`"
+            echo "- local VM: refused by runbook; this job runs on a disposable GitHub-hosted runner"
+            echo "- artifact policy: JSON soak metadata only; no WADs, disk images, rendered pixels, raw audio, logs, or raw status text"
+            echo ""
+            echo "Validate the downloaded metadata locally:"
+            echo ""
+            echo "\`\`\`sh"
+            echo "gh run download $GITHUB_RUN_ID --repo $GITHUB_REPOSITORY --name real-wad-soak-metadata --dir build/cloud-soak-$GITHUB_RUN_ID"
+            echo "python3 tools/check_cloud_playability_artifacts.py --soak-summary build/cloud-soak-$GITHUB_RUN_ID"
+            echo "\`\`\`"
+            echo ""
+            echo "For failed attempts that need raw status triage, dispatch a single-run gameplay or audio lane and download \`real-wad-smoke-status\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Fetch and validate shareware WAD
         run: |
           set -euo pipefail

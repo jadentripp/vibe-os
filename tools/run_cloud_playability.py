@@ -23,11 +23,14 @@ from typing import Mapping, Sequence, TextIO
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = "real-wad-smoke.yml"
-ARTIFACT = "real-wad-smoke-status"
+SMOKE_WORKFLOW = "real-wad-smoke.yml"
+SMOKE_ARTIFACT = "real-wad-smoke-status"
+SOAK_WORKFLOW = "real-wad-soak.yml"
+SOAK_ARTIFACT = "real-wad-soak-metadata"
 DEFAULT_REPO = "jadentripp/vibe-os"
 DEFAULT_SAVE_SLOT = "0"
 LANES = ("gameplay", "audio", "persistence", "full")
+MAX_SOAK_ATTEMPTS = 20
 
 
 class CloudPlayabilityError(RuntimeError):
@@ -44,6 +47,12 @@ class LaneConfig:
         return self.persistence_save_slot != ""
 
 
+@dataclass(frozen=True)
+class SoakConfig:
+    attempts: int
+    min_passes: int
+
+
 def lane_config(lane: str, save_slot: str) -> LaneConfig:
     if lane == "gameplay":
         return LaneConfig(audible_audio_proof=False, persistence_save_slot="")
@@ -54,6 +63,58 @@ def lane_config(lane: str, save_slot: str) -> LaneConfig:
     if lane == "full":
         return LaneConfig(audible_audio_proof=True, persistence_save_slot=save_slot)
     raise CloudPlayabilityError(f"unknown proof lane: {lane}")
+
+
+def validate_positive_integer(
+    option: str,
+    raw: str,
+    *,
+    maximum: int | None = None,
+) -> int:
+    if not raw.isdigit():
+        raise CloudPlayabilityError(f"{option} must be a positive integer, got {raw!r}")
+    value = int(raw, 10)
+    if value < 1:
+        raise CloudPlayabilityError(f"{option} must be a positive integer, got {raw!r}")
+    if maximum is not None and value > maximum:
+        raise CloudPlayabilityError(f"{option} is capped at {maximum}, got {value}")
+    return value
+
+
+def validate_soak_config(
+    *,
+    lane: str,
+    requested: bool,
+    attempts_raw: str,
+    min_passes_raw: str,
+    run_id: str,
+) -> SoakConfig | None:
+    if not requested and not attempts_raw and not min_passes_raw:
+        return None
+    if lane in {"persistence", "full"}:
+        raise CloudPlayabilityError(
+            "real-wad-soak.yml repeats the gameplay/audio proof only; use "
+            "--lane gameplay or --lane audio with --soak-attempts, and run "
+            "the persistence lane separately"
+        )
+    if not attempts_raw:
+        if min_passes_raw:
+            raise CloudPlayabilityError("--soak-min-passes requires --soak-attempts")
+        if run_id:
+            return SoakConfig(attempts=0, min_passes=0)
+        raise CloudPlayabilityError("--soak dispatch requires --soak-attempts")
+
+    attempts = validate_positive_integer(
+        "--soak-attempts", attempts_raw, maximum=MAX_SOAK_ATTEMPTS
+    )
+    min_passes = (
+        attempts
+        if not min_passes_raw
+        else validate_positive_integer("--soak-min-passes", min_passes_raw)
+    )
+    if min_passes > attempts:
+        raise CloudPlayabilityError("--soak-min-passes cannot exceed --soak-attempts")
+    return SoakConfig(attempts=attempts, min_passes=min_passes)
 
 
 def validate_save_slot(raw: str) -> str:
@@ -92,7 +153,7 @@ def bool_field(value: bool) -> str:
     return "true" if value else "false"
 
 
-def build_workflow_fields(
+def build_smoke_workflow_fields(
     *,
     ref: str,
     wad_url: str,
@@ -110,8 +171,27 @@ def build_workflow_fields(
     return fields
 
 
+def build_soak_workflow_fields(
+    *,
+    ref: str,
+    wad_url: str,
+    config: LaneConfig,
+    soak: SoakConfig,
+) -> list[tuple[str, str]]:
+    fields = [
+        ("expected_ref", ref),
+        ("attempts", str(soak.attempts)),
+        ("min_passes", str(soak.min_passes)),
+        ("audible_audio_proof", bool_field(config.audible_audio_proof)),
+    ]
+    if wad_url:
+        fields.append(("wad_url", wad_url))
+    return fields
+
+
 def workflow_run_command(
     *,
+    workflow: str,
     repo: str,
     ref: str,
     fields: Sequence[tuple[str, str]],
@@ -120,7 +200,7 @@ def workflow_run_command(
         "gh",
         "workflow",
         "run",
-        WORKFLOW,
+        workflow,
         "--repo",
         repo,
         "--ref",
@@ -146,7 +226,7 @@ def run_command(
     )
 
 
-def latest_run_for_ref(repo: str, ref: str) -> dict[str, object]:
+def latest_run_for_ref(repo: str, ref: str, workflow: str) -> dict[str, object]:
     command = [
         "gh",
         "run",
@@ -154,7 +234,7 @@ def latest_run_for_ref(repo: str, ref: str) -> dict[str, object]:
         "--repo",
         repo,
         "--workflow",
-        WORKFLOW,
+        workflow,
         "--branch",
         ref,
         "--event",
@@ -168,7 +248,7 @@ def latest_run_for_ref(repo: str, ref: str) -> dict[str, object]:
     runs = json.loads(result.stdout or "[]")
     if not runs:
         raise CloudPlayabilityError(
-            f"could not find a recent {WORKFLOW} workflow_dispatch run for ref {ref!r}"
+            f"could not find a recent {workflow} workflow_dispatch run for ref {ref!r}"
         )
     return runs[0]
 
@@ -177,6 +257,7 @@ def find_dispatched_run(
     *,
     repo: str,
     ref: str,
+    workflow: str,
     created_after: datetime,
     attempts: int = 30,
     delay_seconds: float = 2.0,
@@ -185,7 +266,7 @@ def find_dispatched_run(
     last_error: Exception | None = None
     for _ in range(attempts):
         try:
-            run = latest_run_for_ref(repo, ref)
+            run = latest_run_for_ref(repo, ref, workflow)
             created_at = str(run.get("createdAt", ""))
             if created_at:
                 parsed = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
@@ -199,7 +280,12 @@ def find_dispatched_run(
     raise CloudPlayabilityError("could not resolve dispatched run before timeout")
 
 
-def download_artifact_command(repo: str, run_id: str, output_dir: Path) -> list[str]:
+def download_artifact_command(
+    repo: str,
+    run_id: str,
+    output_dir: Path,
+    artifact: str,
+) -> list[str]:
     return [
         "gh",
         "run",
@@ -208,13 +294,26 @@ def download_artifact_command(repo: str, run_id: str, output_dir: Path) -> list[
         "--repo",
         repo,
         "--name",
-        ARTIFACT,
+        artifact,
         "--dir",
         str(output_dir),
     ]
 
 
-def artifact_checker_command(output_dir: Path, config: LaneConfig) -> list[str]:
+def artifact_checker_command(
+    output_dir: Path,
+    config: LaneConfig,
+    *,
+    soak: bool,
+) -> list[str]:
+    if soak:
+        return [
+            sys.executable,
+            "tools/check_cloud_playability_artifacts.py",
+            "--soak-summary",
+            str(output_dir),
+        ]
+
     command = [
         sys.executable,
         "tools/check_cloud_playability_artifacts.py",
@@ -297,6 +396,30 @@ def main(
         help="inspect/download an existing run instead of dispatching a new one",
     )
     parser.add_argument(
+        "--soak-attempts",
+        default="",
+        help=(
+            "dispatch real-wad-soak.yml instead of a single smoke run; valid with "
+            "--lane gameplay or --lane audio, capped at 20 attempts"
+        ),
+    )
+    parser.add_argument(
+        "--soak",
+        action="store_true",
+        help=(
+            "use the real-wad-soak.yml metadata artifact for --run-id inspection. "
+            "New soak dispatches still require --soak-attempts."
+        ),
+    )
+    parser.add_argument(
+        "--soak-min-passes",
+        default="",
+        help=(
+            "required passing attempts for --soak-attempts. Empty means every "
+            "attempt must pass."
+        ),
+    )
+    parser.add_argument(
         "--wait",
         action="store_true",
         help="watch the cloud run and return its conclusion",
@@ -335,6 +458,13 @@ def main(
         save_slot = validate_save_slot(args.save_slot)
         wad_url = validate_wad_url(args.wad_url)
         config = lane_config(args.lane, save_slot)
+        soak = validate_soak_config(
+            lane=args.lane,
+            requested=args.soak,
+            attempts_raw=args.soak_attempts,
+            min_passes_raw=args.soak_min_passes,
+            run_id=args.run_id,
+        )
         if args.download_artifacts and not args.wait and not args.run_id:
             raise CloudPlayabilityError(
                 "--download-artifacts with a new dispatch requires --wait so the "
@@ -348,14 +478,51 @@ def main(
     print(f"repo: {args.repo}", file=stdout)
     print(f"ref: {args.ref}", file=stdout)
     print(f"lane: {args.lane} ({render_lane_help(args.lane, config)})", file=stdout)
+    if soak:
+        if soak.attempts:
+            print(
+                f"mode: repeated soak ({SOAK_WORKFLOW}, attempts={soak.attempts}, "
+                f"min_passes={soak.min_passes})",
+                file=stdout,
+            )
+        else:
+            print(f"mode: repeated soak ({SOAK_WORKFLOW}, existing run)", file=stdout)
+    else:
+        print(f"mode: single smoke ({SMOKE_WORKFLOW})", file=stdout)
     print("local VM: refused; this helper dispatches GitHub Actions only", file=stdout)
     print("artifact policy: no WADs, disk images, rendered pixels, or raw audio", file=stdout)
+
+    workflow = SOAK_WORKFLOW if soak else SMOKE_WORKFLOW
+    artifact = SOAK_ARTIFACT if soak else SMOKE_ARTIFACT
 
     run_id = args.run_id
     run_conclusion = 0
     if not run_id:
-        fields = build_workflow_fields(ref=args.ref, wad_url=wad_url, config=config)
-        command = workflow_run_command(repo=args.repo, ref=args.ref, fields=fields)
+        if soak:
+            if not soak.attempts:
+                print(
+                    "cloud playability failed: --soak dispatch requires --soak-attempts",
+                    file=stderr,
+                )
+                return 1
+            fields = build_soak_workflow_fields(
+                ref=args.ref,
+                wad_url=wad_url,
+                config=config,
+                soak=soak,
+            )
+        else:
+            fields = build_smoke_workflow_fields(
+                ref=args.ref,
+                wad_url=wad_url,
+                config=config,
+            )
+        command = workflow_run_command(
+            workflow=workflow,
+            repo=args.repo,
+            ref=args.ref,
+            fields=fields,
+        )
         print(f"dispatch: {shlex.join(command)}", file=stdout)
         if args.dry_run:
             print("dry-run: workflow was not dispatched", file=stdout)
@@ -366,6 +533,7 @@ def main(
                 run = find_dispatched_run(
                     repo=args.repo,
                     ref=args.ref,
+                    workflow=workflow,
                     created_after=created_after,
                 )
                 run_id = str(run["databaseId"])
@@ -399,13 +567,20 @@ def main(
             )
             return 1
         output_dir = args.download_artifacts
-        command = download_artifact_command(args.repo, run_id, output_dir)
+        command = download_artifact_command(args.repo, run_id, output_dir, artifact)
         print(f"download: {shlex.join(command)}", file=stdout)
-        checker = artifact_checker_command(output_dir, config)
+        checker = artifact_checker_command(output_dir, config, soak=soak is not None)
         print(f"check: {shlex.join(checker)}", file=stdout)
-        if not args.no_triage:
+        if not args.no_triage and soak is None:
             print(
                 f"triage command: {shlex.join([sys.executable, 'tools/triage_cloud_status.py', str(output_dir / 'status.txt')])}",
+                file=stdout,
+            )
+        elif not args.no_triage:
+            print(
+                "triage: soak metadata has no raw status text; validate the JSON "
+                "summary here, and use a single-run gameplay/audio lane to debug "
+                "a failed attempt",
                 file=stdout,
             )
         if args.dry_run:
@@ -414,7 +589,7 @@ def main(
             try:
                 output_dir.mkdir(parents=True, exist_ok=True)
                 run_command(command)
-                if not args.no_triage:
+                if not args.no_triage and soak is None:
                     triage_status(output_dir, stdout)
                 run_command(checker)
             except subprocess.CalledProcessError as exc:

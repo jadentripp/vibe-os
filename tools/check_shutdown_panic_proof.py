@@ -6,17 +6,16 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
-import re
 import sys
 from pathlib import Path
 from typing import Any
 
+from status_fields import parse_status_fields, require_hex_tuple_field
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "shutdown-panic-proof-v1"
 MANIFEST_NAME = "shutdown-panic-proof.json"
 
-FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
 FORBIDDEN_ARTIFACT_PATTERNS = (
     "*.wad",
     "*.WAD",
@@ -102,13 +101,7 @@ def _require(text: str, needle: str, label: str) -> None:
 
 
 def _status_fields(status: str) -> dict[str, str]:
-    fields: dict[str, str] = {}
-    for match in FIELD_PATTERN.finditer(status):
-        name = match.group(1)
-        if name in fields:
-            raise AssertionError(f"duplicate {name}= field")
-        fields[name] = match.group(2)
-    return fields
+    return parse_status_fields(status, error_type=AssertionError, require_any=False)
 
 
 def _field(fields: dict[str, str], name: str) -> str:
@@ -119,16 +112,7 @@ def _field(fields: dict[str, str], name: str) -> str:
 
 
 def _hex_tuple_field(fields: dict[str, str], name: str, count: int) -> tuple[int, ...]:
-    value = _field(fields, name)
-    parts = value.split("/")
-    if len(parts) != count:
-        raise AssertionError(f"{name}= must have {count} hex parts separated by '/'")
-    parsed = []
-    for part in parts:
-        if not re.fullmatch(r"[0-9A-Fa-f]{8}", part):
-            raise AssertionError(f"{name}= part must be eight hex digits, got {part!r}")
-        parsed.append(int(part, 16))
-    return tuple(parsed)
+    return require_hex_tuple_field(fields, name, count, error_type=AssertionError)
 
 
 def _relative_names(root: Path) -> list[str]:

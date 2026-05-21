@@ -18,11 +18,15 @@ def status_line(**overrides):
     fields = {
         "exec": "OK",
         "path": "DOOM.ELF",
+        "uexec": "OK",
+        "upath": "USERPROB.ELF",
+        "upid": "00000004",
+        "uentry": "00E80000",
         "execsys": "00000001/00000001/00000000/00000001/00000001/00000000",
         "execerr": "00000000",
         "execres": "00000000",
-        "target": "00000003",
-        "ppid": "00000001",
+        "target": "00000005",
+        "ppid": "00000004",
         "entry": "01000000",
         "stack": "0100EFE0",
         "argc": "00000001",
@@ -71,6 +75,9 @@ def status_line(**overrides):
         "pangledelta": "01000000",
         "pammo": "00000031",
         "prefire": "00000000",
+        "inputqueue": "00000007",
+        "inputpoll": "00000007",
+        "inputlast": "00000060:00000001:00000001",
         "keyirq": "00000002",
         "keyqueue": "00000002",
         "keypoll": "00000002",
@@ -102,6 +109,7 @@ def status_line(**overrides):
         "peip": "01002000:00E80000",
         "pcr3": "00082000:00083000",
         "pkstk": "00073000:00072000",
+        "pframe": "00000008/00E80000/0000001B/00E9FFE0/00000023",
         "pspin": "50524590",
         "pself": "OK",
     }
@@ -137,6 +145,8 @@ class CloudStatusTriageTests(unittest.TestCase):
             "missing-wad-open-read",
             "persistence-save-write-failed",
             "persistence-save-growth-allocation-partial",
+            "persistence-load-malformed-stream",
+            "persistence-load-not-completed",
             "doom-init-stalled",
             "frames-no-gameplay",
             "input-no-effect",
@@ -188,6 +198,19 @@ class CloudStatusTriageTests(unittest.TestCase):
 
         self.assertEqual(primary, "exec-not-attempted")
         self.assertIn("target=FFFFFFFF", notes[0])
+
+    def test_shared_status_parser_rejects_duplicate_fields(self):
+        with self.assertRaisesRegex(ValueError, "duplicate doomrun= field"):
+            triage_cloud_status.parse_status("Aurora doomrun=RUN doomrun=FAULT")
+
+    def test_shared_status_parser_keeps_tuple_values_intact(self):
+        fields = triage_cloud_status.parse_status(
+            "Aurora execsys=00000001/00000002/00000000/00000003/00000004/00000000"
+        )
+
+        primary, notes = triage_cloud_status.classify(fields)
+        self.assertEqual(primary, "exec-failed")
+        self.assertIn("successes=0x2", notes[0])
 
     def test_classifies_failed_exec_handoff(self):
         primary, notes = self.classify(
@@ -461,10 +484,73 @@ class CloudStatusTriageTests(unittest.TestCase):
         )
 
         self.assertIn("primary: persistence-save-growth-allocation-partial", rendered)
+        self.assertIn("persistence-short-write: wrote=0x400", rendered)
         self.assertIn("persistence-partial-save: wrote=0x400", rendered)
         self.assertIn("requested=0x40000", rendered)
         self.assertIn("FAT allocation exhausted", rendered)
         self.assertIn("next: Hand off to FAT save-growth allocation", rendered)
+
+    def test_classifies_persistence_load_malformed_specials_stream(self):
+        primary, notes = self.classify(
+            doomrun="EXIT",
+            doomerr="00000070",
+            doomsav="0000000B/00000000",
+            saverd="00006476/00000003",
+            savewr="00000000/00000000",
+            saveclose="00000002",
+            savemode="00000000:00000000",
+            saveact="00000020/00000003/00000000/00000004",
+            savestm="00000017/00000000/00002A64/00000070/00000008",
+            savethk="00002A64/00000000/00002A64/00000000",
+        )
+
+        self.assertEqual(primary, "persistence-load-malformed-stream")
+        rendered = "\n".join(notes)
+        self.assertIn("kind=specials", rendered)
+        self.assertIn("doomerr=00000070", rendered)
+        self.assertIn("savestm=00000017/00000000/00002A64/00000070/00000008", rendered)
+
+    def test_render_diagnosis_adds_persistence_load_malformed_stream_context(self):
+        rendered = triage_cloud_status.render_diagnosis(
+            status_line(
+                doomrun="EXIT",
+                doomerr="00000070",
+                doomsav="0000000B/00000000",
+                saverd="00006476/00000003",
+                saveclose="00000002",
+                saveact="00000020/00000003/00000000/00000004",
+                savestm="00000017/00000000/00002A64/00000070/00000008",
+                savethk="00002A64/00000000/00002A64/00000000",
+            )
+        )
+
+        self.assertIn("primary: persistence-load-malformed-stream", rendered)
+        self.assertIn("kind=specials", rendered)
+        self.assertIn("persistence-load-stream: stage=0x17", rendered)
+        self.assertIn("value=0x70", rendered)
+        self.assertIn("malformed specials stream", rendered)
+
+    def test_classifies_persistence_load_not_completed_before_input_lanes(self):
+        primary, notes = self.classify(
+            doomsav="00000003/00000000",
+            saverd="00006476/00000003",
+            savewr="00000000/00000000",
+            saveclose="00000000",
+            savemode="00000000:00000000",
+            saveact="00000020/00000003/00000000/00000003",
+            keyseen="00000001",
+            pflags="00000023",
+            pangledelta="00000000",
+            mousepkt="00000000",
+            mousepoll="00000000",
+            mousebtn="00000000",
+            mousedelta="00000000:00000000",
+        )
+
+        self.assertEqual(primary, "persistence-load-not-completed")
+        rendered = "\n".join(notes)
+        self.assertIn("saveclose=00000000", rendered)
+        self.assertIn("saveact=00000020/00000003/00000000/00000003", rendered)
 
     def test_classifies_frames_without_gameplay(self):
         primary, notes = self.classify(gameplay="WAIT", leveltime="00000000")
@@ -511,6 +597,7 @@ class CloudStatusTriageTests(unittest.TestCase):
             preempt="00000000",
             pirq="00000000",
             pmask="00000000",
+            pframe="00000000/00000000/00000000/00000000/00000000",
             pspin="50524545",
         )
 
@@ -519,6 +606,7 @@ class CloudStatusTriageTests(unittest.TestCase):
         self.assertIn("preempt=00000000", rendered)
         self.assertIn("pirq=00000000", rendered)
         self.assertIn("pmask=00000000", rendered)
+        self.assertIn("pframe=00000000/00000000/00000000/00000000/00000000", rendered)
         self.assertIn("pspin=50524545", rendered)
 
     def test_classifies_green_status_as_needing_full_proof_gates(self):

@@ -107,7 +107,7 @@ Expected mouse behavior:
   real-WAD workflow now injects `mouse_move` plus a button click and
   captures `status.after-mouse.txt`; the checker requires `mouseirq`,
   `mousepkt`, and `mousepoll` to increase, proving the event reached Doom
-  through `SYS_POLL_MOUSE`.
+  through `SYS_POLL_INPUT`.
 - In a manual VNC session, relative movement and the first three buttons should
   turn/aim/fire through normal Doom `ev_mouse` events. VNC grab/release and
   host pointer acceleration are still worth noting in the playtest notes.

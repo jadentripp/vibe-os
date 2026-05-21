@@ -1,5 +1,6 @@
 typedef unsigned int uint32_t;
 typedef unsigned int size_t;
+typedef int int32_t;
 
 enum {
     SYS_USER_PROBE = 1,
@@ -10,6 +11,7 @@ enum {
     SYS_READ = 7,
     SYS_LSEEK = 8,
     SYS_PRESENT = 10,
+    SYS_CLOSE = 12,
     SYS_EXEC = 16,
     SYS_MMAP = 20,
     SYS_MUNMAP = 21,
@@ -17,6 +19,8 @@ enum {
     SYS_FORK = 23,
     SYS_WAITPID = 24,
     SYS_GETPID = 25,
+    SYS_FTRUNCATE = 27,
+    SYS_LISTDIR = 30,
 };
 
 enum {
@@ -36,6 +40,9 @@ enum {
     PROBE_FLAG_PROCESS_ABI = 0x800u,
     PROBE_FLAG_NEGATIVE_SYSCALLS = 0x1000u,
     PROBE_FLAG_WAIT_REAP = 0x2000u,
+    PROBE_FLAG_FTRUNCATE = 0x4000u,
+    PROBE_FLAG_SBRK_SHRINK = 0x8000u,
+    PROBE_FLAG_LISTDIR = 0x10000u,
 };
 
 enum {
@@ -49,9 +56,18 @@ enum {
     VIBE_DISPLAY_FD = 1u,
     VIBE_IOCTL_FBINFO = 0x00005601u,
     VIBE_IOCTL_PRESENT_INDEXED = 0x00005602u,
+    VIBE_FB_CAP_PRESENT_INDEXED = 0x00000001u,
+    VIBE_FB_CAP_PRESENT_RGB_PALETTE = 0x00000002u,
+    VIBE_FB_FORMAT_INDEX8_RGB24 = 1u,
     WAIT_OPTION_WNOHANG = 0x1u,
     WAIT_PROOF_EXIT_STATUS = 0x2a,
     WAIT_PROOF_CHILD_PID = 3,
+    O_RDWR = 0x0002u,
+    O_CREAT = 0x0100u,
+    O_TRUNC = 0x0200u,
+    SEEK_SET = 0,
+    SEEK_END = 2,
+    S_IFREG = 0100000u,
     ERRNO_EINVAL = 22,
     ERRNO_ECHILD = 10,
     ERRNO_ENOSYS = 38,
@@ -64,6 +80,21 @@ struct vibe_fb_info {
     uint32_t backend;
     uint32_t frame_bytes;
     uint32_t palette_bytes;
+    uint32_t scale;
+    uint32_t view_x;
+    uint32_t view_y;
+    uint32_t view_width;
+    uint32_t view_height;
+    uint32_t policy;
+    uint32_t dirty_x;
+    uint32_t dirty_y;
+    uint32_t dirty_width;
+    uint32_t dirty_height;
+    uint32_t dirty_count;
+    uint32_t capabilities;
+    uint32_t present_format;
+    uint32_t max_present_width;
+    uint32_t max_present_height;
 };
 
 struct vibe_present_indexed {
@@ -71,6 +102,14 @@ struct vibe_present_indexed {
     const void *palette;
     uint32_t width;
     uint32_t height;
+};
+
+struct vibe_dirent {
+    char name[16];
+    uint32_t size;
+    uint32_t mode;
+    uint32_t first_cluster;
+    uint32_t attributes;
 };
 
 static inline int syscall3(uint32_t number, uint32_t arg0, uint32_t arg1, uint32_t arg2) {
@@ -87,7 +126,7 @@ static int sys_write(int fd, const void *buffer, size_t length) {
     return syscall3(SYS_WRITE, (uint32_t)fd, (uint32_t)buffer, (uint32_t)length);
 }
 
-static void *sys_sbrk(size_t increment) {
+static void *sys_sbrk(int32_t increment) {
     int result = syscall3(SYS_SBRK, (uint32_t)increment, 0, 0);
     return result < 0 ? (void *)0 : (void *)(uint32_t)result;
 }
@@ -96,12 +135,24 @@ static int sys_open(const char *path) {
     return syscall3(SYS_OPEN, (uint32_t)path, 0, 0);
 }
 
+static int sys_open_flags(const char *path, uint32_t flags) {
+    return syscall3(SYS_OPEN, (uint32_t)path, flags, 0666);
+}
+
 static int sys_read(int fd, void *buffer, size_t length) {
     return syscall3(SYS_READ, (uint32_t)fd, (uint32_t)buffer, (uint32_t)length);
 }
 
 static int sys_lseek(int fd, uint32_t offset, int whence) {
     return syscall3(SYS_LSEEK, (uint32_t)fd, offset, (uint32_t)whence);
+}
+
+static int sys_ftruncate(int fd, uint32_t length) {
+    return syscall3(SYS_FTRUNCATE, (uint32_t)fd, length, 0);
+}
+
+static int sys_listdir(const char *path, struct vibe_dirent *entries, uint32_t max_entries) {
+    return syscall3(SYS_LISTDIR, (uint32_t)path, (uint32_t)entries, max_entries);
 }
 
 static int sys_present(const void *frame, const void *palette) {
@@ -172,8 +223,10 @@ int user_main(int argc, char **argv, char **envp) {
     char *doom_argv[] = {(char *)doom_path, (char *)0};
     static struct vibe_fb_info fbinfo;
     static struct vibe_present_indexed present;
+    static struct vibe_dirent root_entries[16];
     uint32_t flags = 0;
     int mmap_hole_ok = 0;
+    int pid = syscall3(SYS_GETPID, 0, 0, 0);
 
     if (argc == 1
         && argv
@@ -182,7 +235,7 @@ int user_main(int argc, char **argv, char **envp) {
         && argv[1] == (char *)0
         && envp
         && envp[0] == (char *)0
-        && syscall3(SYS_GETPID, 0, 0, 0) == 1) {
+        && pid > 0) {
         flags |= PROBE_FLAG_PROCESS_ABI;
     }
 
@@ -193,6 +246,13 @@ int user_main(int argc, char **argv, char **envp) {
     void *heap = sys_sbrk(64);
     if (heap) {
         flags |= PROBE_FLAG_SBRK;
+    }
+
+    unsigned char *trim = (unsigned char *)sys_sbrk(4096);
+    if (trim
+        && sys_sbrk(-4096) == trim + 4096
+        && sys_write(1, trim + 4096, 1) == -ERRNO_EINVAL) {
+        flags |= PROBE_FLAG_SBRK_SHRINK;
     }
 
     int wad = sys_open(wad_path);
@@ -210,14 +270,37 @@ int user_main(int argc, char **argv, char **envp) {
         }
     }
 
-    if (wad >= 0 && sys_lseek(wad, 4, 0) == 4) {
+    if (wad >= 0 && sys_lseek(wad, 4, SEEK_SET) == 4) {
         flags |= PROBE_FLAG_LSEEK;
     }
 
-    int defaults = sys_open(default_path);
+    int root_count = sys_listdir("/", root_entries, 16);
+    if (root_count > 0) {
+        int saw_wad = 0;
+        int saw_probe = 0;
+        for (int i = 0; i < root_count; ++i) {
+            if (probe_streq(root_entries[i].name, "DOOM1.WAD")
+                && root_entries[i].size > 4
+                && (root_entries[i].mode & S_IFREG)
+                && root_entries[i].first_cluster >= 2) {
+                saw_wad = 1;
+            }
+            if (probe_streq(root_entries[i].name, "USERPROB.ELF")
+                && root_entries[i].size > 4
+                && (root_entries[i].mode & S_IFREG)
+                && root_entries[i].first_cluster >= 2) {
+                saw_probe = 1;
+            }
+        }
+        if (saw_wad && saw_probe && sys_listdir("doom", root_entries, 1) == -ERRNO_EINVAL) {
+            flags |= PROBE_FLAG_LISTDIR;
+        }
+    }
+
+    int defaults = sys_open_flags(default_path, O_RDWR | O_CREAT | O_TRUNC);
     if (defaults >= 0
         && sys_write(defaults, writable_payload, sizeof(writable_payload) - 1) == (int)(sizeof(writable_payload) - 1)
-        && sys_lseek(defaults, 0, 0) == 0
+        && sys_lseek(defaults, 0, SEEK_SET) == 0
         && sys_read(defaults, readback, sizeof(writable_payload) - 1) == (int)(sizeof(writable_payload) - 1)) {
         int matches = 1;
         for (size_t i = 0; i < sizeof(writable_payload) - 1; ++i) {
@@ -228,6 +311,22 @@ int user_main(int argc, char **argv, char **envp) {
         if (matches) {
             flags |= PROBE_FLAG_WRITABLE_FILE;
         }
+    }
+
+    if (defaults >= 0
+        && sys_ftruncate(defaults, 4) == 0
+        && sys_lseek(defaults, (uint32_t)-2, SEEK_END) == 2
+        && sys_read(defaults, readback, 2) == 2
+        && readback[0] == 'r'
+        && readback[1] == 's'
+        && sys_ftruncate(defaults, 8) == 0
+        && sys_lseek(defaults, 4, SEEK_SET) == 4
+        && sys_read(defaults, readback, 4) == 4
+        && readback[0] == 0
+        && readback[1] == 0
+        && readback[2] == 0
+        && readback[3] == 0) {
+        flags |= PROBE_FLAG_FTRUNCATE;
     }
 
     unsigned char *hole = sys_mmap(8192, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS);
@@ -258,7 +357,12 @@ int user_main(int argc, char **argv, char **envp) {
         }
         if (sys_ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_FBINFO, &fbinfo) == 0
             && fbinfo.frame_bytes == DOOM_FRAME_BYTES
-            && fbinfo.palette_bytes == DOOM_PALETTE_BYTES) {
+            && fbinfo.palette_bytes == DOOM_PALETTE_BYTES
+            && fbinfo.max_present_width == 320
+            && fbinfo.max_present_height == 200
+            && fbinfo.present_format == VIBE_FB_FORMAT_INDEX8_RGB24
+            && (fbinfo.capabilities & VIBE_FB_CAP_PRESENT_INDEXED)
+            && (fbinfo.capabilities & VIBE_FB_CAP_PRESENT_RGB_PALETTE)) {
             flags |= PROBE_FLAG_IOCTL_FBINFO;
         }
         present.frame = frame;

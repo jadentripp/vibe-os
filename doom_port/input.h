@@ -1,6 +1,8 @@
 #ifndef VIBE_DOOM_PORT_INPUT_H
 #define VIBE_DOOM_PORT_INPUT_H
 
+#include "vibe_os.h"
+
 enum {
     VIBE_DOOM_INPUT_NONE = 0,
     VIBE_DOOM_INPUT_KEYDOWN = 1,
@@ -44,6 +46,7 @@ typedef struct vibe_doom_input_event {
     int data3;
 } vibe_doom_input_event_t;
 
+int vibe_doom_translate_input_event(const vibe_input_event_t* input, vibe_doom_input_event_t* event);
 int vibe_doom_translate_key_event(unsigned int packed, vibe_doom_input_event_t* event);
 int vibe_doom_translate_mouse_event(unsigned int packed, vibe_doom_input_event_t* event);
 

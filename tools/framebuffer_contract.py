@@ -17,6 +17,12 @@ VISUAL_PROOF_ADD = 0x01000193
 POLICY_MODE13 = "mode13"
 POLICY_ASPECT = "aspect"
 POLICY_SQUARE = "square"
+CAP_PRESENT_INDEXED = 0x00000001
+CAP_PRESENT_RGB_PALETTE = 0x00000002
+CAP_XRGB8888_LFB = 0x00000004
+CAP_MODE13_SHADOW = 0x00000008
+CAP_DIRTY_SOURCE_RECT = 0x00000010
+FORMAT_INDEX8_RGB24 = 1
 
 
 def validate_indexed_inputs(frame: bytes, palette: bytes) -> None:
@@ -178,6 +184,52 @@ def scale_2x_xrgb8888_centered(
     height: int = 480,
 ) -> bytes:
     return scale_xrgb8888_centered(frame, palette, width, height)
+
+
+def fbinfo_contract(backend: str = "lfb", width: int = 640, height: int = 480) -> dict[str, int | str]:
+    if backend == "mode13":
+        geometry = {
+            "width": DOOM_WIDTH,
+            "height": DOOM_HEIGHT,
+            "pitch": DOOM_WIDTH,
+            "x": 0,
+            "y": 0,
+            "scaled_width": DOOM_WIDTH,
+            "scaled_height": DOOM_HEIGHT,
+            "scale": 1,
+            "policy": POLICY_MODE13,
+        }
+        capabilities = CAP_PRESENT_INDEXED | CAP_PRESENT_RGB_PALETTE | CAP_MODE13_SHADOW | CAP_DIRTY_SOURCE_RECT
+    elif backend == "lfb":
+        geometry = lfb_geometry(width, height)
+        capabilities = (
+            CAP_PRESENT_INDEXED
+            | CAP_PRESENT_RGB_PALETTE
+            | CAP_XRGB8888_LFB
+            | CAP_MODE13_SHADOW
+            | CAP_DIRTY_SOURCE_RECT
+        )
+    else:
+        raise ValueError(f"unknown backend: {backend}")
+
+    return {
+        "width": geometry["width"],
+        "height": geometry["height"],
+        "pitch": geometry["pitch"],
+        "backend": backend,
+        "frame_bytes": DOOM_FRAME_BYTES,
+        "palette_bytes": PALETTE_BYTES,
+        "scale": geometry["scale"],
+        "view_x": geometry["x"],
+        "view_y": geometry["y"],
+        "view_width": geometry["scaled_width"],
+        "view_height": geometry["scaled_height"],
+        "policy": geometry["policy"],
+        "capabilities": capabilities,
+        "present_format": FORMAT_INDEX8_RGB24,
+        "max_present_width": DOOM_WIDTH,
+        "max_present_height": DOOM_HEIGHT,
+    }
 
 
 def present_contract(

@@ -9,9 +9,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "tools" / "check_scripted_gameplay_proof.py"
+TOOLS = ROOT / "tools"
+sys.path.insert(0, str(TOOLS))
 spec = importlib.util.spec_from_file_location("check_scripted_gameplay_proof", TOOL)
 check_scripted_gameplay_proof = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(check_scripted_gameplay_proof)
+try:
+    spec.loader.exec_module(check_scripted_gameplay_proof)
+finally:
+    sys.path.pop(0)
 
 
 def make_status(**overrides):
@@ -33,6 +38,9 @@ def make_status(**overrides):
         "pammo": "00000032",
         "prefire": "00000000",
         "pweapon": "00000002",
+        "inputqueue": "00000000",
+        "inputpoll": "00000000",
+        "inputlast": "00000000:00000000:00000000",
         "keyirq": "00000000",
         "keyqueue": "00000000",
         "keypoll": "00000000",
@@ -63,6 +71,9 @@ def scripted_statuses():
             keyirq="00000001",
             keyqueue="00000001",
             keypoll="00000001",
+            inputqueue="00000001",
+            inputpoll="00000001",
+            inputlast="00000040:00000001:00000001",
             keyseen="00000010",
             keylast="0001019D",
             pflags="000000C5",
@@ -76,6 +87,9 @@ def scripted_statuses():
             keyirq="00000002",
             keyqueue="00000002",
             keypoll="00000002",
+            inputqueue="00000002",
+            inputpoll="00000002",
+            inputlast="00000060:00000001:00000001",
             keyseen="00000011",
             keylast="000101AD",
             pflags="000000E7",
@@ -90,6 +104,9 @@ def scripted_statuses():
             keyirq="00000003",
             keyqueue="00000003",
             keypoll="00000003",
+            inputqueue="00000003",
+            inputpoll="00000003",
+            inputlast="00000080:00000001:00000001",
             keyseen="00000031",
             keylast="00010020",
             pflags="000000EF",
@@ -104,6 +121,9 @@ def scripted_statuses():
             keyirq="00000003",
             keyqueue="00000003",
             keypoll="00000003",
+            inputqueue="00000005",
+            inputpoll="00000005",
+            inputlast="000000A0:00000002:00000002",
             keyseen="00000031",
             keylast="00010020",
             pflags="000001EF",
@@ -125,6 +145,9 @@ def scripted_statuses():
             keyirq="00000004",
             keyqueue="00000004",
             keypoll="00000004",
+            inputqueue="00000006",
+            inputpoll="00000006",
+            inputlast="000000C0:00000001:00000001",
             keyseen="00000071",
             keylast="0001001B",
             pflags="000001FF",
@@ -146,6 +169,9 @@ def scripted_statuses():
             keyirq="00000004",
             keyqueue="00000004",
             keypoll="00000004",
+            inputqueue="00000006",
+            inputpoll="00000006",
+            inputlast="000000C0:00000001:00000001",
             keyseen="00000071",
             keylast="0001001B",
             pflags="000001FF",
@@ -208,6 +234,25 @@ class ScriptedGameplayProofTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AssertionError, "pflags"):
             check_scripted_gameplay_proof.validate_statuses(lost_fire)
+
+    def test_shared_status_parser_rejects_duplicate_fields_and_keeps_tuples(self):
+        fields = check_scripted_gameplay_proof._status_fields(
+            "Aurora gameplay=OK inputlast=00000040:00000001:00000001 "
+            "execsys=00000001/00000002/00000003"
+        )
+        self.assertEqual(fields["inputlast"], "00000040:00000001:00000001")
+        self.assertEqual(fields["execsys"], "00000001/00000002/00000003")
+        self.assertEqual(
+            check_scripted_gameplay_proof._position_field(
+                "Aurora ppos=00010000:00020000", "ppos"
+            ),
+            (0x00010000, 0x00020000),
+        )
+
+        duplicate_start = scripted_statuses()
+        duplicate_start["start"] += " pflags=00000001"
+        with self.assertRaisesRegex(AssertionError, "start snapshot: duplicate pflags= field"):
+            check_scripted_gameplay_proof.validate_statuses(duplicate_start)
 
     def test_rejects_missing_state_change_in_each_runtime_lane(self):
         cases = {

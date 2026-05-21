@@ -55,6 +55,9 @@ def status_line(**overrides):
         "musicstream": "PULL",
         "musicpull": "00000000:00000000",
         "musicrend": "00000001:00000006:0000000C:00000012:00000001:00030000",
+        "adev": "00000001:00000001:0000000F",
+        "pcm": "00000001:00000002:00002B11",
+        "pcmbuf": "00001000:00000800:00000000:00000001",
         "dma": "00000001",
         "play": "00000001:00000000",
         "voiceq": "00000002:00000000:00000001",
@@ -253,6 +256,9 @@ class AudibleAudioProofTests(unittest.TestCase):
 
         self.assertEqual(manifest["schema"], check_audible_audio_proof.SCHEMA)
         self.assertEqual(manifest["status"]["audio"], "SB16")
+        self.assertEqual(manifest["status"]["adev"], "00000001:00000001:0000000F")
+        self.assertEqual(manifest["status"]["pcm"], "00000001:00000002:00002B11")
+        self.assertEqual(manifest["status"]["pcmbuf"], "00001000:00000800:00000000:00000001")
         self.assertTrue(manifest["continuity"]["non_music_sfx_progress"])
         self.assertGreater(int(manifest["continuity"]["mix_lanes"]["non_music_sfx"]["dma_bytes_delta"], 16), 0)
         self.assertGreaterEqual(manifest["continuity"]["mix_lanes"]["non_music_sfx"]["active_voice_snapshots"], 0)
@@ -312,6 +318,14 @@ class AudibleAudioProofTests(unittest.TestCase):
                     paths["final"],
                     **analyze_args(paths),
                 )
+
+    def test_rejects_duplicate_status_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            status_path = Path(tmp) / "status.txt"
+            status_path.write_text(status_line() + " audio=NONE")
+
+            with self.assertRaisesRegex(AssertionError, "duplicate audio= field"):
+                check_audible_audio_proof._status_summary(status_path)
 
     def test_rejects_non_silent_carrier_when_sfx_counters_do_not_progress(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -599,6 +613,9 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "musicstream": "PULL",
                 "musicpull": "00000005:00000005",
                 "musicrend": "00000001:00000006:0000000C:00000012:00000001:00030000",
+                "adev": "00000001:00000001:0000000F",
+                "pcm": "00000001:00000002:00002B11",
+                "pcmbuf": "00001000:00000800:00000000:00000001",
             },
             "continuity": {
                 "gate": "tools/check_audio_continuity_proof.py",

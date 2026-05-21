@@ -33,6 +33,9 @@ class ProcessExecContractTests(unittest.TestCase):
         user_probe_run = kernel.split("user_probe_run:", 1)[1].split(".fail:", 1)[0]
         for source in (
             "mov esi, exec_path_user_probe",
+            "xor edi, edi",
+            "call process_exec_path",
+            "mov byte [boot_user_exec_status], 1",
             "call sys_exec_stage_kernel_arg",
             "call process_seed_initial_user_context",
             "call process_activate",
@@ -42,6 +45,10 @@ class ProcessExecContractTests(unittest.TestCase):
             "xor ebp, ebp",
         ):
             self.assertIn(source, user_probe_run)
+        self.assertLess(
+            user_probe_run.index("call process_exec_path"),
+            user_probe_run.index("call sys_exec_stage_kernel_arg"),
+        )
         self.assertLess(
             user_probe_run.index("call sys_exec_stage_kernel_arg"),
             user_probe_run.index("call process_exec_seed_argv_stack"),
@@ -55,16 +62,21 @@ class ProcessExecContractTests(unittest.TestCase):
             user_probe_run.index("push dword [process_user_probe + PROC_SAVED_ESP]"),
         )
         for source in (
-            "USER_PROBE_EXPECTED_FLAGS equ 0x00003fff",
+            "USER_PROBE_EXPECTED_FLAGS equ 0x0001ffff",
             "PROBE_FLAG_PROCESS_ABI = 0x800u",
             "PROBE_FLAG_NEGATIVE_SYSCALLS = 0x1000u",
             "PROBE_FLAG_WAIT_REAP = 0x2000u",
+            "PROBE_FLAG_FTRUNCATE = 0x4000u",
+            "PROBE_FLAG_SBRK_SHRINK = 0x8000u",
+            "PROBE_FLAG_LISTDIR = 0x10000u",
             "SYS_GETPID = 25",
+            "SYS_LISTDIR = 30",
             "int user_main(int argc, char **argv, char **envp)",
             'probe_streq(argv[0], "USERPROB.ELF")',
             "argv[1] == (char *)0",
             "envp[0] == (char *)0",
-            "syscall3(SYS_GETPID, 0, 0, 0) == 1",
+            "int pid = syscall3(SYS_GETPID, 0, 0, 0);",
+            "pid > 0",
         ):
             self.assertIn(source, kernel if source.startswith("USER_PROBE_EXPECTED") else probe)
 
@@ -94,9 +106,12 @@ class ProcessExecContractTests(unittest.TestCase):
             "process_exec_name83_buffer times 11 db 0",
             "mov edi, process_exec_name83_buffer",
             "mov ecx, SYS_EXEC_PATH_MAX - 1",
+            ".skip_prefix:",
+            ".skip_dot_prefix:",
             "cmp al, '/'",
             "cmp al, 0x5c",
             "cmp al, '.'",
+            "add esi, 2",
             "sub al, 32",
             "cmp byte [process_exec_name83_buffer + 8], 'E'",
             "cmp byte [process_exec_name83_buffer + 9], 'L'",
@@ -121,6 +136,20 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("mov ecx, [process_exec_max_bytes]", exec_path)
         self.assertIn(".try_generic_root83:", resolver)
         self.assertIn("call process_exec_resolve_generic_root83", resolver)
+
+    def test_storage_boot_no_longer_preloads_user_or_doom_with_special_loaders(self):
+        kernel = read_kernel()
+        storage = kernel.split("storage_init:", 1)[1].split("ata_io_delay:", 1)[0]
+        user_probe_run = kernel.split("user_probe_run:", 1)[1].split(".fail:", 1)[0]
+        self.assertNotIn("fat_find_user_elf:", kernel)
+        self.assertNotIn("fat_load_user_elf:", kernel)
+        self.assertNotIn("fat_find_doom_elf:", kernel)
+        self.assertNotIn("fat_load_doom_elf:", kernel)
+        self.assertNotIn("doom_user_run:", kernel)
+        self.assertNotIn("call user_elf_prepare", user_probe_run)
+        self.assertNotIn("call doom_elf_prepare", storage)
+        self.assertIn("call process_exec_path", user_probe_run)
+        self.assertIn("call fat_find_file", kernel.split("process_exec_path:", 1)[1].split("process_exec_resolve_path:", 1)[0])
 
     def test_exec_status_is_reported_to_smoke_and_cli_status(self):
         kernel = read_kernel()
@@ -147,6 +176,10 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn('smoke_exec_argv_text db " argv0=", 0', kernel)
         self.assertIn('smoke_exec_envp0_text db " envp0=", 0', kernel)
         self.assertIn('smoke_exec_argvsrc_text db " argvsrc=", 0', kernel)
+        self.assertIn('smoke_userexec_text db " uexec=", 0', kernel)
+        self.assertIn('smoke_userexec_path_text db " upath=", 0', kernel)
+        self.assertIn('smoke_userexec_pid_text db " upid=", 0', kernel)
+        self.assertIn('smoke_userexec_entry_text db " uentry=", 0', kernel)
         self.assertIn('smoke_procpool_text db " procpool=", 0', kernel)
         self.assertIn('smoke_pidseq_text db " pidseq=", 0', kernel)
         self.assertIn('smoke_fdexec_text db " fdexec=", 0', kernel)
@@ -165,6 +198,10 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("mov edx, [sys_exec_last_envp]", write_smoke)
         self.assertIn("mov edx, [sys_exec_last_argv_source]", write_smoke)
         self.assertIn("mov edx, [sys_exec_last_envp0]", write_smoke)
+        self.assertIn("cmp byte [boot_user_exec_status], 1", write_smoke)
+        self.assertIn("mov esi, exec_path_user_probe", write_smoke)
+        self.assertIn("mov edx, [boot_user_exec_pid]", write_smoke)
+        self.assertIn("mov edx, [boot_user_exec_entry]", write_smoke)
         for source in (
             "mov edx, PROCESS_SLOT_COUNT",
             "mov edx, PROCESS_GENERIC_SLOT_COUNT",
@@ -229,6 +266,9 @@ class ProcessExecContractTests(unittest.TestCase):
         for source in (
             "PROBE_FLAG_NEGATIVE_SYSCALLS = 0x1000u",
             "PROBE_FLAG_WAIT_REAP = 0x2000u",
+            "PROBE_FLAG_FTRUNCATE = 0x4000u",
+            "PROBE_FLAG_SBRK_SHRINK = 0x8000u",
+            "PROBE_FLAG_LISTDIR = 0x10000u",
             "ERRNO_EINVAL = 22",
             "WAIT_OPTION_WNOHANG = 0x1u",
             "WAIT_PROOF_EXIT_STATUS = 0x2a",
@@ -245,6 +285,7 @@ class ProcessExecContractTests(unittest.TestCase):
             "syscall3(SYS_MUNMAP, 0, 4096, 0) == -ERRNO_EINVAL",
             "syscall3(SYS_WAITPID, (uint32_t)-1, USER_FAULT_ADDR, 0) == -ERRNO_EINVAL",
             "flags |= PROBE_FLAG_NEGATIVE_SYSCALLS;",
+            "flags |= PROBE_FLAG_LISTDIR;",
         ):
             self.assertIn(source, probe)
         handler = kernel.split("syscall_handler:", 1)[1].split(".user_probe:", 1)[0]
@@ -397,7 +438,7 @@ class ProcessExecContractTests(unittest.TestCase):
         seed = kernel.split("process_seed_initial_user_context:", 1)[1].split("process_activate:", 1)[0]
         for source in (
             "call process_reset_doom",
-            "call process_reset_user_probe",
+            "call process_reset_user_exec_target",
             "call process_seed_initial_user_context",
             "call process_activate",
             "call process_exec_seed_argv_stack",
@@ -726,12 +767,15 @@ class ProcessExecContractTests(unittest.TestCase):
     def test_anonymous_mmap_tail_munmap_reclaims_brk_backed_pages(self):
         kernel = read_kernel()
         probe = (ROOT / "user" / "probe.c").read_text()
+        sbrk = kernel.split(".sbrk:", 1)[1].split(".open:", 1)[0]
         mmap = kernel.split(".mmap:", 1)[1].split(".munmap:", 1)[0]
         munmap = kernel.split(".munmap:", 1)[1].split(".ioctl:", 1)[0]
         scheduler_init = kernel.split("scheduler_init:", 1)[1].split("process_reset_user_probe:", 1)[0]
         for source in (
             "process_mmap_allocations dd 0",
             "process_mmap_pages_mapped dd 0",
+            "process_sbrk_shrink_calls dd 0",
+            "process_sbrk_pages_released dd 0",
             "process_munmap_attempts dd 0",
             "process_munmap_pages_released dd 0",
             "process_munmap_non_tail_kept dd 0",
@@ -742,11 +786,25 @@ class ProcessExecContractTests(unittest.TestCase):
             "process_heap_mark_range:",
             "process_heap_clear_range:",
             "process_heap_range_is_mapped:",
+            "VM_OBJECT_KIND_NONE equ 0",
+            "VM_OBJECT_KIND_ANON_BRK equ 1",
+            "process_mmap_last_object_kind dd 0",
+            "process_mmap_last_base dd 0",
+            "process_mmap_last_end dd 0",
+            "process_mmap_last_prot dd 0",
+            "process_mmap_last_flags dd 0",
         ):
             self.assertIn(source, kernel)
         for source in (
             "mov dword [process_mmap_allocations], 0",
             "mov dword [process_mmap_pages_mapped], 0",
+            "mov dword [process_mmap_last_object_kind], VM_OBJECT_KIND_NONE",
+            "mov dword [process_mmap_last_base], 0",
+            "mov dword [process_mmap_last_end], 0",
+            "mov dword [process_mmap_last_prot], 0",
+            "mov dword [process_mmap_last_flags], 0",
+            "mov dword [process_sbrk_shrink_calls], 0",
+            "mov dword [process_sbrk_pages_released], 0",
             "mov dword [process_munmap_attempts], 0",
             "mov dword [process_munmap_pages_released], 0",
             "mov dword [process_munmap_non_tail_kept], 0",
@@ -757,9 +815,25 @@ class ProcessExecContractTests(unittest.TestCase):
         ):
             self.assertIn(source, scheduler_init)
         for source in (
+            "test ebx, 0x80000000",
+            "jnz .sbrk_shrink",
+            ".sbrk_shrink:",
+            "cmp edx, [esi + PROC_HEAP_START]",
+            "call process_clear_user_range",
+            "add [process_sbrk_pages_released], eax",
+            "inc dword [process_sbrk_shrink_calls]",
+            "mov eax, [sbrk_old_brk]",
+        ):
+            self.assertIn(source, sbrk)
+        for source in (
             "add [process_mmap_pages_mapped], eax",
             "inc dword [process_mmap_allocations]",
             "call process_heap_mark_range",
+            "mov dword [process_mmap_last_object_kind], VM_OBJECT_KIND_ANON_BRK",
+            "mov [process_mmap_last_base], eax",
+            "mov [process_mmap_last_end], eax",
+            "mov [process_mmap_last_prot], eax",
+            "mov [process_mmap_last_flags], eax",
             "mov eax, [mmap_base_arg]",
         ):
             self.assertIn(source, mmap)
@@ -788,6 +862,8 @@ class ProcessExecContractTests(unittest.TestCase):
         validator = kernel.split("user_range_validate:", 1)[1].split("doom_log_char:", 1)[0]
         self.assertIn("call process_heap_range_is_mapped", validator)
         self.assertIn("unsigned char *hole = sys_mmap(8192", probe)
+        self.assertIn("sys_sbrk(-4096) == trim + 4096", probe)
+        self.assertIn("sys_write(1, trim + 4096, 1) == -ERRNO_EINVAL", probe)
         self.assertIn("sys_munmap(hole, 4096) == 0", probe)
         self.assertIn("sys_write(1, hole, 1) == -ERRNO_EINVAL", probe)
         self.assertIn("if (mmap_hole_ok && sys_munmap(video, DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES) == 0)", probe)

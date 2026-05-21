@@ -27,10 +27,23 @@ selects one of two present backends:
 
 Userland can drive the same path through a small device-control ABI on
 `VIBE_DISPLAY_FD`. `VIBE_IOCTL_FBINFO` reports the active dimensions, pitch,
-backend, and indexed-frame byte counts. `VIBE_IOCTL_PRESENT_INDEXED` validates a
-`vibe_present_indexed_t` descriptor, then presents the described 320x200 indexed
-frame through the same backend as `SYS_PRESENT`. Doom now uses this ioctl path;
-the syscall is kept as a low-level compatibility/probe entrypoint.
+backend, indexed-frame byte counts, max present size, present format, and
+capability bits. Today the advertised present format is
+`VIBE_FB_FORMAT_INDEX8_RGB24`: an 8-bit indexed frame plus a 256-entry RGB
+palette. `VIBE_IOCTL_PRESENT_INDEXED` validates a `vibe_present_indexed_t`
+descriptor, then presents the described 320x200 indexed frame through the same
+backend as `SYS_PRESENT`. Doom now uses this ioctl path; the syscall is kept as
+a low-level compatibility/probe entrypoint.
+
+The framebuffer info capability bits make the boundary reusable by non-Doom
+clients without guessing kernel internals:
+
+- `VIBE_FB_CAP_PRESENT_INDEXED`: `VIBE_IOCTL_PRESENT_INDEXED` is supported.
+- `VIBE_FB_CAP_PRESENT_RGB_PALETTE`: indexed presents use an RGB24 palette.
+- `VIBE_FB_CAP_XRGB8888_LFB`: the active backend renders into an XRGB8888 LFB.
+- `VIBE_FB_CAP_MODE13_SHADOW`: the 320x200 indexed shadow is maintained.
+- `VIBE_FB_CAP_DIRTY_SOURCE_RECT`: `FBINFO` dirty fields describe source-frame
+  changes since the previous present.
 
 CI still may capture `build/gfx.bin` locally inside the runner as a byte-level
 contract check, but uploaded artifacts exclude rendered Doom pixels. Real-WAD
@@ -45,6 +58,9 @@ artifacts. Real-WAD smoke also excludes `disk.img` and WAD data.
 Remaining graphics gaps:
 
 - The LFB path only accepts XRGB8888-compatible VBE modes.
+- The present ABI is now discoverable, but the only accepted present format is
+  still a 320x200 indexed frame plus RGB24 palette; direct RGB framebuffer
+  presents remain future work.
 - It maps a single 4 MiB framebuffer page-table window, which is enough for the
   current 640-wide targets but not a general multi-monitor or large-mode mapper.
 - The kernel accounts dirty source rectangles and reports them in status, but it

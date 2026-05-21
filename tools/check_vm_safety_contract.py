@@ -272,6 +272,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     kernel = _read(root, "kernel/kernel.asm")
     probe = _read(root, "user/probe.c")
     process_doc = _read(root, "docs/process-exec.md")
+    process_vm_doc = _read(root, "docs/process-vm.md")
+    doom_runtime_doc = _read(root, "docs/doom-libc-runtime.md")
     gap_doc = _read(root, "docs/post-checkpoint-gaps.md")
     tests_readme = _read(root, "tests/README.md")
 
@@ -431,7 +433,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         'smoke_vmmhpa_text db " vmmhpa=", 0',
         'smoke_vmmhpt_text db " vmmhpt=", 0',
         'smoke_vmmhfree_text db " vmmhfree=", 0',
-        "USER_PROBE_EXPECTED_FLAGS equ 0x00003fff",
+        "USER_PROBE_EXPECTED_FLAGS equ 0x0001ffff",
         "SYS_EXEC_ARGV_SOURCE_DEFAULT equ 1",
         "SYS_EXEC_ARGV_SOURCE_USER equ 2",
         "PROCESS_RECORD_BYTES equ 168",
@@ -440,6 +442,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "process_heap_mark_range:",
         "process_heap_clear_range:",
         "process_heap_range_is_mapped:",
+        "process_sbrk_shrink_calls dd 0",
+        "process_sbrk_pages_released dd 0",
         "PROCESS_SLOT_COUNT equ 6",
         "PROCESS_GENERIC_SLOT_COUNT equ 2",
         "USER_KIND_GENERIC equ 4",
@@ -491,11 +495,44 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         _require(vmm_unmap, needle, "dynamic VMM unmapper")
 
     munmap = kernel.split(".munmap:", 1)[1].split(".ioctl:", 1)[0]
+    sbrk = kernel.split(".sbrk:", 1)[1].split(".open:", 1)[0]
     for needle in (
+        "test ebx, 0x80000000",
+        "jnz .sbrk_shrink",
+        ".sbrk_shrink:",
+        "cmp edx, [esi + PROC_HEAP_START]",
+        "call process_clear_user_range",
+        "add [process_sbrk_pages_released], eax",
+        "inc dword [process_sbrk_shrink_calls]",
+        "mov eax, [sbrk_old_brk]",
+    ):
+        _require(sbrk, needle, "brk shrink")
+    for needle in (
+        "VM_OBJECT_KIND_NONE equ 0",
+        "VM_OBJECT_KIND_ANON_BRK equ 1",
+        "process_mmap_last_object_kind dd 0",
+        "process_mmap_last_base dd 0",
+        "process_mmap_last_end dd 0",
+        "process_mmap_last_prot dd 0",
+        "process_mmap_last_flags dd 0",
+        "mov dword [process_mmap_last_object_kind], VM_OBJECT_KIND_NONE",
         "process_munmap_pages_released dd 0",
         "process_munmap_non_tail_kept dd 0",
         "process_munmap_holes_punched dd 0",
         "process_munmap_pages_unmapped dd 0",
+    ):
+        _require(kernel, needle, "brk-backed mmap/munmap metadata")
+
+    mmap = kernel.split(".mmap:", 1)[1].split(".munmap:", 1)[0]
+    for needle in (
+        "mov dword [process_mmap_last_object_kind], VM_OBJECT_KIND_ANON_BRK",
+        "mov [process_mmap_last_base], eax",
+        "mov [process_mmap_last_end], eax",
+        "mov [process_mmap_last_prot], eax",
+        "mov [process_mmap_last_flags], eax",
+    ):
+        _require(mmap, needle, "brk-backed mmap object metadata")
+    for needle in (
         "inc dword [process_munmap_attempts]",
         "and eax, PAGE_SIZE - 1",
         "call user_range_validate",
@@ -507,16 +544,19 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "inc dword [process_munmap_holes_punched]",
         "add [process_munmap_pages_unmapped], eax",
     ):
-        _require(kernel if needle.endswith(" dd 0") else munmap, needle, "brk-backed munmap")
+        _require(munmap, needle, "brk-backed munmap")
 
     for needle in (
         "PROBE_FLAG_NEGATIVE_SYSCALLS = 0x1000u",
+        "PROBE_FLAG_SBRK_SHRINK = 0x8000u",
         "ERRNO_EINVAL = 22",
         "syscall3(0x7fffffffu, 0, 0, 0) == -ERRNO_ENOSYS",
         "syscall3(SYS_MMAP, 0, 0, mmap_flags) == -ERRNO_EINVAL",
         "syscall3(SYS_MUNMAP, 0, 4096, 0) == -ERRNO_EINVAL",
         "syscall3(SYS_WAITPID, (uint32_t)-1, USER_FAULT_ADDR, 0) == -ERRNO_EINVAL",
         "unsigned char *hole = sys_mmap(8192",
+        "sys_sbrk(-4096) == trim + 4096",
+        "sys_write(1, trim + 4096, 1) == -ERRNO_EINVAL",
         "sys_munmap(hole, 4096) == 0",
         "sys_write(1, hole, 1) == -ERRNO_EINVAL",
         "mmap_hole_ok && sys_munmap(video, DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES) == 0",
@@ -546,6 +586,18 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     _require(process_doc, "`argvsrc=2`", "process exec docs")
     _require(process_doc, "two-entry generic probe-class pool", "process exec docs")
     _require(process_doc, "negative syscall probe bit", "process exec docs")
+    for needle in (
+        "records a single last-mapping object descriptor tagged",
+        "`VM_OBJECT_KIND_ANON_BRK`",
+        "not a reusable object table or lookup structure yet",
+        "this remains a brk-backed",
+    ):
+        _require(process_vm_doc, needle, "process VM docs")
+    for needle in (
+        "`VM_OBJECT_KIND_ANON_BRK` last-object descriptor",
+        "host contracts can distinguish",
+    ):
+        _require(doom_runtime_doc, needle, "Doom libc runtime docs")
 
     panic_path = kernel.split(".not_expected_user_fault:", 1)[1].split("doom_user_fault:", 1)[0]
     _require(panic_path, "mov dword [panic_status], PANIC_UNHANDLED_EXCEPTION", "kernel panic path")

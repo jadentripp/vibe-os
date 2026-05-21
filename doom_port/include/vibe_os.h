@@ -26,17 +26,70 @@ enum {
     VIBE_SYS_WAITPID = 24,
     VIBE_SYS_GETPID = 25,
     VIBE_SYS_PLAYER_DETAIL_STATUS = 26,
+    VIBE_SYS_FTRUNCATE = 27,
+    VIBE_SYS_POLL_INPUT = 28,
+    VIBE_SYS_CLOCK_GETTIME = 29,
+    VIBE_SYS_LISTDIR = 30,
 };
 
 enum {
-    VIBE_AUDIO_INIT = 1,
-    VIBE_AUDIO_START_SFX = 2,
-    VIBE_AUDIO_STOP_SFX = 3,
-    VIBE_AUDIO_UPDATE_SFX = 4,
-    VIBE_AUDIO_SHUTDOWN = 5,
-    VIBE_AUDIO_IS_PLAYING = 6,
-    VIBE_AUDIO_BUFFERED_BYTES = 7,
-    VIBE_AUDIO_MUSIC_PULL_STATE = 8,
+    VIBE_CLOCK_MONOTONIC = 1,
+    VIBE_CLOCK_MONOTONIC_HZ = 100,
+};
+
+typedef struct vibe_clock_time {
+    unsigned long ticks;
+    unsigned long frequency_hz;
+    unsigned long milliseconds;
+    unsigned long flags;
+} vibe_clock_time_t;
+
+typedef struct vibe_dirent {
+    char name[16];
+    unsigned long size;
+    unsigned long mode;
+    unsigned long first_cluster;
+    unsigned long attributes;
+} vibe_dirent_t;
+
+enum {
+    VIBE_AUDIO_DEVICE_NONE = 0,
+    VIBE_AUDIO_DEVICE_SB16 = 1,
+};
+
+enum {
+    VIBE_AUDIO_FORMAT_U8_STEREO = 1,
+};
+
+enum {
+    VIBE_AUDIO_CAP_PCM_RING = 0x00000001u,
+    VIBE_AUDIO_CAP_MIXER_VOICES = 0x00000002u,
+    VIBE_AUDIO_CAP_PULL_STREAM = 0x00000004u,
+    VIBE_AUDIO_CAP_SB16_DMA = 0x00000008u,
+};
+
+enum {
+    VIBE_AUDIO_DEVICE_START = 1,
+    VIBE_AUDIO_MIXER_START = 2,
+    VIBE_AUDIO_MIXER_STOP = 3,
+    VIBE_AUDIO_MIXER_UPDATE = 4,
+    VIBE_AUDIO_DEVICE_SHUTDOWN = 5,
+    VIBE_AUDIO_MIXER_IS_PLAYING = 6,
+    VIBE_AUDIO_PCM_BUFFERED_BYTES = 7,
+    VIBE_AUDIO_PCM_PULL_STATE = 8,
+    VIBE_AUDIO_DEVICE_INFO = 9,
+    VIBE_AUDIO_PCM_RING_INFO = 10,
+};
+
+enum {
+    VIBE_AUDIO_INIT = VIBE_AUDIO_DEVICE_START,
+    VIBE_AUDIO_START_SFX = VIBE_AUDIO_MIXER_START,
+    VIBE_AUDIO_STOP_SFX = VIBE_AUDIO_MIXER_STOP,
+    VIBE_AUDIO_UPDATE_SFX = VIBE_AUDIO_MIXER_UPDATE,
+    VIBE_AUDIO_SHUTDOWN = VIBE_AUDIO_DEVICE_SHUTDOWN,
+    VIBE_AUDIO_IS_PLAYING = VIBE_AUDIO_MIXER_IS_PLAYING,
+    VIBE_AUDIO_BUFFERED_BYTES = VIBE_AUDIO_PCM_BUFFERED_BYTES,
+    VIBE_AUDIO_MUSIC_PULL_STATE = VIBE_AUDIO_PCM_PULL_STATE,
 };
 
 enum {
@@ -64,6 +117,38 @@ typedef struct vibe_audio_sfx_desc {
     unsigned long music_stream_loop_count;
 } vibe_audio_sfx_desc_t;
 
+typedef vibe_audio_sfx_desc_t vibe_audio_voice_desc_t;
+
+typedef struct vibe_audio_device_info {
+    unsigned long device_kind;
+    unsigned long status;
+    unsigned long sample_rate;
+    unsigned long channels;
+    unsigned long format;
+    unsigned long ring_bytes;
+    unsigned long period_bytes;
+    unsigned long capabilities;
+    unsigned long active_voices;
+    unsigned long irq_count;
+    unsigned long refill_count;
+    unsigned long playback_start_count;
+} vibe_audio_device_info_t;
+
+typedef struct vibe_audio_pcm_ring_info {
+    unsigned long format;
+    unsigned long channels;
+    unsigned long sample_rate;
+    unsigned long ring_bytes;
+    unsigned long period_bytes;
+    unsigned long write_offset;
+    unsigned long active_half;
+    unsigned long queued_bytes;
+    unsigned long mixed_bytes;
+    unsigned long underrun_count;
+    unsigned long overwrite_count;
+    unsigned long clip_count;
+} vibe_audio_pcm_ring_info_t;
+
 enum {
     VIBE_AUDIO_FLAG_LOOP = 0x00000001u,
     VIBE_AUDIO_FLAG_MUSIC = 0x00000002u,
@@ -79,6 +164,27 @@ enum {
 enum {
     VIBE_MOUSE_EVENT_VALID = 0x01000000u,
 };
+
+enum {
+    VIBE_INPUT_DEVICE_KEYBOARD = 1,
+    VIBE_INPUT_DEVICE_MOUSE = 2,
+};
+
+enum {
+    VIBE_INPUT_EVENT_NONE = 0,
+    VIBE_INPUT_EVENT_KEY = 1,
+    VIBE_INPUT_EVENT_MOUSE_PACKET = 2,
+};
+
+typedef struct vibe_input_event {
+    unsigned long timestamp;
+    unsigned long device_id;
+    unsigned long type;
+    unsigned long code;
+    long value0;
+    long value1;
+    long value2;
+} vibe_input_event_t;
 
 enum {
     VIBE_GAMEPLAY_FLAG_MENU_ACTIVE = 0x01u,
@@ -160,12 +266,28 @@ typedef struct vibe_fb_info {
     unsigned long dirty_width;
     unsigned long dirty_height;
     unsigned long dirty_count;
+    unsigned long capabilities;
+    unsigned long present_format;
+    unsigned long max_present_width;
+    unsigned long max_present_height;
 } vibe_fb_info_t;
 
 enum {
     VIBE_FB_POLICY_MODE13 = 1,
     VIBE_FB_POLICY_ASPECT = 2,
     VIBE_FB_POLICY_SQUARE = 3,
+};
+
+enum {
+    VIBE_FB_CAP_PRESENT_INDEXED = 0x00000001u,
+    VIBE_FB_CAP_PRESENT_RGB_PALETTE = 0x00000002u,
+    VIBE_FB_CAP_XRGB8888_LFB = 0x00000004u,
+    VIBE_FB_CAP_MODE13_SHADOW = 0x00000008u,
+    VIBE_FB_CAP_DIRTY_SOURCE_RECT = 0x00000010u,
+};
+
+enum {
+    VIBE_FB_FORMAT_INDEX8_RGB24 = 1,
 };
 
 typedef struct vibe_present_indexed {
@@ -176,6 +298,10 @@ typedef struct vibe_present_indexed {
 } vibe_present_indexed_t;
 
 int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, unsigned long arg2);
+int vibe_clock_gettime(unsigned long clock_id, vibe_clock_time_t* out);
+int vibe_listdir(const char* path, vibe_dirent_t* entries, unsigned long max_entries);
+unsigned long vibe_monotonic_ticks(void);
+unsigned long vibe_monotonic_milliseconds(void);
 
 /*
  * Doom port syscall ABI:
@@ -185,6 +311,16 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
  *   operation-specific fallback errno.
  * - File flags use the O_* constants from fcntl.h, including O_ACCMODE and
  *   O_CLOEXEC.
+ * - ftruncate resizes writable root-level FAT16 files by descriptor. Growth
+ *   zero-fills new bytes, and shrink frees tail clusters through the FAT layer.
+ * - VIBE_SYS_CLOCK_GETTIME exposes a reusable monotonic PIT-derived clock. It
+ *   reports 100 Hz ticks and milliseconds only; it is not an RTC or wall clock.
+ * - VIBE_SYS_LISTDIR lists cached FAT16 root entries into fixed
+ *   `vibe_dirent_t` records. It is readonly and root-only for now; names are
+ *   normalized 8.3 display names, and `stat("/")` reports readonly directory
+ *   metadata.
+ * - sbrk grows or shrinks the process heap. Shrink trims whole released pages
+ *   from the process page tables and heap-validation bitmap.
  * - mmap is currently anonymous/private and brk-backed; munmap validates the
  *   mapping range, tail munmap moves brk back, and valid non-tail munmap
  *   punches validation holes without creating reusable VM objects.

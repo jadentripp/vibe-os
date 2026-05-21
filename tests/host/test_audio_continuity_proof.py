@@ -48,6 +48,9 @@ def status_line(**overrides):
         "musicstream": "PULL",
         "musicpull": "00000000:00000000",
         "musicrend": "00000001:00000001:00000002:00000003:00000001:00008000",
+        "adev": "00000001:00000001:0000000F",
+        "pcm": "00000001:00000002:00002B11",
+        "pcmbuf": "00001000:00000800:00000000:00000001",
         "sb16": "00000004:00000005",
         "dma": "00000001",
         "play": "00000001:00000000",
@@ -201,6 +204,20 @@ class AudioContinuityProofTests(unittest.TestCase):
             use_status=snapshots["use"],
             menu_status=snapshots["menu"],
         )
+
+    def test_rejects_duplicate_status_fields(self):
+        snapshots = snapshot_statuses()
+        snapshots["final"] += " audio=NONE"
+
+        with self.assertRaisesRegex(AssertionError, "duplicate audio= field"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+            )
 
     def test_rejects_audio_none_for_audible_proof(self):
         snapshots = snapshot_statuses()

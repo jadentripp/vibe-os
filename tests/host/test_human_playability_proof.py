@@ -9,9 +9,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "tools" / "check_human_playability_proof.py"
+sys.path.insert(0, str(ROOT / "tools"))
 spec = importlib.util.spec_from_file_location("check_human_playability_proof", TOOL)
 check_human_playability_proof = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(check_human_playability_proof)
+try:
+    spec.loader.exec_module(check_human_playability_proof)
+finally:
+    sys.path.pop(0)
 
 
 def make_status(**overrides):
@@ -219,6 +223,19 @@ def write_human_session_bundle(tmpdir, *, final_tick="000001B0", commit="abcdef1
 class HumanPlayabilityProofTests(unittest.TestCase):
     def test_accepts_final_status_with_keyboard_counters(self):
         check_human_playability_proof.validate_status(make_status())
+
+    def test_rejects_duplicate_human_phase_status_field(self):
+        with self.assertRaisesRegex(AssertionError, "fire snapshot: duplicate keyseen= field"):
+            check_human_playability_proof.validate_status(
+                make_status(),
+                start_status=make_status(gtic="00000010", leveltime="00000010"),
+                fire_status=make_status(
+                    gtic="00000020",
+                    leveltime="00000020",
+                    keyseen="00000010",
+                )
+                + " keyseen=00000011",
+            )
 
     def test_requires_keyboard_and_runtime_deltas_from_baseline(self):
         baseline = make_status(

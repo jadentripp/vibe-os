@@ -106,7 +106,7 @@ python3 tools/run_cloud_playability.py --ref "$branch" --lane persistence \
 ## Claim Boundaries
 
 The hardware claim is bounded to QEMU BIOS/IDE/PS2/VBE/SB16. This is not broad
-PC or physical hardware support. See `docs/hardware-support.md`;
+PC or physical hardware compatibility. See `docs/hardware-support.md`;
 `boot/uefi/README.md` is only a contract scaffold, and SUPPORT[UEFI] remains
 unclaimed. Status fields such as `pci=`, `pciprobe=`, `pcicount=`, `pcifirst=`,
 `pciid=`, and `pciclass=` are diagnostics, not a PCI support claim.
@@ -127,8 +127,8 @@ helper's `pre-download human verification OK` with the local
 
 ## Disk Layout
 
-LBA 0 is Stage 1 MBR and partition table. LBA 1-16 is Stage 2. LBA 17-208 is
-the protected-mode kernel ELF. LBA 2048+ is the FAT16 partition containing
+LBA 0 is Stage 1 MBR and partition table. LBA 1-16: Stage 2 bootloader.
+LBA 17-208: protected-mode kernel ELF image. LBA 2048+ is the FAT16 partition containing
 `DOOM1.WAD`, `USERPROB.ELF`, `DOOM.ELF`, writable `DEFAULT.CFG`, and
 `DOOMSAV0.DSG` through `DOOMSAV5.DSG`.
 

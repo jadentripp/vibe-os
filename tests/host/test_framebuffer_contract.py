@@ -79,6 +79,23 @@ class FramebufferContractTests(unittest.TestCase):
         self.assertEqual((geometry["x"], geometry["y"]), (32, 24))
         self.assertEqual((geometry["scaled_width"], geometry["scaled_height"]), (960, 720))
 
+    def test_fbinfo_contract_advertises_reusable_display_capabilities(self):
+        lfb = fb.fbinfo_contract("lfb", width=800, height=600)
+        self.assertEqual(lfb["present_format"], fb.FORMAT_INDEX8_RGB24)
+        self.assertEqual((lfb["max_present_width"], lfb["max_present_height"]), (320, 200))
+        self.assertEqual(lfb["frame_bytes"], fb.DOOM_FRAME_BYTES)
+        self.assertEqual(lfb["palette_bytes"], fb.PALETTE_BYTES)
+        self.assertEqual(lfb["capabilities"] & fb.CAP_PRESENT_INDEXED, fb.CAP_PRESENT_INDEXED)
+        self.assertEqual(lfb["capabilities"] & fb.CAP_PRESENT_RGB_PALETTE, fb.CAP_PRESENT_RGB_PALETTE)
+        self.assertEqual(lfb["capabilities"] & fb.CAP_XRGB8888_LFB, fb.CAP_XRGB8888_LFB)
+        self.assertEqual(lfb["capabilities"] & fb.CAP_MODE13_SHADOW, fb.CAP_MODE13_SHADOW)
+        self.assertEqual(lfb["capabilities"] & fb.CAP_DIRTY_SOURCE_RECT, fb.CAP_DIRTY_SOURCE_RECT)
+
+        mode13 = fb.fbinfo_contract("mode13")
+        self.assertEqual(mode13["present_format"], fb.FORMAT_INDEX8_RGB24)
+        self.assertFalse(mode13["capabilities"] & fb.CAP_XRGB8888_LFB)
+        self.assertEqual(mode13["capabilities"] & fb.CAP_MODE13_SHADOW, fb.CAP_MODE13_SHADOW)
+
     def test_dirty_rect_reports_changed_source_bounds_and_count(self):
         previous = bytearray(fb.DOOM_FRAME_BYTES)
         frame = bytearray(previous)

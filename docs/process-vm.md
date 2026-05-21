@@ -34,11 +34,13 @@ preallocated and cloned from the boot kernel map.
 `tools/check_vm_status_proof.py` is the cloud status ratchet for this layer. It
 rejects status artifacts unless `vmmhfree` equals the dynamic `vmmhpt` frame,
 the high alias is backed by a distinct PMM-managed physical frame, the Doom
-launch used `argvsrc=2` from a user argv-vector exec path, `procpool=`,
-`fdexec=`, and `wait=` prove bounded slot reuse, exec-time fd inheritance, and a
-userland wait/reap path, and `pmask`, `pkind`, `peip`, `pcr3`, and `pkstk` show
-timer-driven switches in both directions between Doom and the preempt probe with
-distinct address spaces and kernel stacks.
+launch used `argvsrc=2` from a user argv-vector exec path, `uexec=OK` and
+`upath=USERPROB.ELF` prove the initial probe also came through the exec
+resolver, `procpool=`, `fdexec=`, and `wait=` prove bounded slot reuse,
+exec-time fd inheritance, and a userland wait/reap path, and `pmask`, `pkind`,
+`peip`, `pcr3`, `pkstk`, and `pframe` show timer-driven switches in both
+directions between Doom and the preempt probe with distinct address spaces,
+kernel stacks, and a rewritten Ring 3 IRQ return frame.
 
 ## Current Address Spaces
 
@@ -80,30 +82,39 @@ user window, faults instead of passing the page-table permission check.
 
 Heap windows are reserved in the process metadata, but they are not all granted
 to Ring 3 at process start. Each process record now also points at a compact
-heap-page bitmap. `SYS_SBRK` and `SYS_MMAP` mark newly covered heap pages in
-both the page tables and that bitmap, then flush the active CR3 before returning
-to user mode. The syscall validator checks heap pointers against the current
-process `brk` and requires every covered heap page to still be marked mapped.
+heap-page bitmap. Positive `SYS_SBRK` calls and `SYS_MMAP` mark newly covered
+heap pages in both the page tables and that bitmap, then flush the active CR3
+before returning to user mode. Negative `SYS_SBRK` calls are a brk-style trim
+path: the kernel rejects underflow below the process heap start, moves `brk`
+down, unmaps only whole pages that are no longer covered by the new break, and
+clears those heap-bitmap bits. The syscall validator checks heap pointers
+against the current process `brk` and requires every covered heap page to still
+be marked mapped.
 
 `SYS_MMAP` currently shares that heap window rather than allocating independent
 VM objects. It accepts only anonymous/private mappings, rounds the requested
 length to whole pages, marks the new pages in the current process page
 directory, zero-fills the returned range, records the mapped pages in the heap
-bitmap, and advances `brk`. `SYS_MUNMAP` requires a page-aligned base, rounds
-the length, validates that the range belongs to the current process, and clears
-the process PTEs plus heap-bitmap bits for the range. Tail releases also move
-`brk` back to the unmapped base and increment tail-release counters. Non-tail
-valid ranges now punch real validation holes and increment separate
-hole-accounting counters, but they still do not create reusable VM objects, so
-this remains a brk-backed allocator contract rather than a full VMA tree.
+bitmap, records a single last-mapping object descriptor tagged
+`VM_OBJECT_KIND_ANON_BRK`, and advances `brk`. That descriptor preserves the
+base, end, prot, and flags for host-testable pressure toward real VM-object
+tracking, but it is not a reusable object table or lookup structure yet.
+`SYS_MUNMAP` requires a page-aligned base, rounds the length, validates that the
+range belongs to the current process, and clears the process PTEs plus
+heap-bitmap bits for the range. Tail releases also move `brk` back to the
+unmapped base and increment tail-release counters. Non-tail valid ranges now
+punch real validation holes and increment separate hole-accounting counters.
+They still do not create reusable VM objects; this remains a brk-backed allocator contract rather than a full VMA tree.
 
 The Ring 3 probe treats that as a live ABI contract rather than a doc-only
-claim: it requires its successful anonymous mapping to survive framebuffer and
-ioctl use, first punches a non-tail heap hole and proves a syscall using that
-hole is rejected with `-EINVAL`, requires the tail `munmap` to return success,
-and separately checks that zero-length, fixed, null, and invalid pointer-style
-memory calls return classified `-EINVAL` errors instead of falling through to
-ambiguous `-1` results.
+claim: it grows with `sbrk`, trims a page with negative `sbrk`, proves the
+released page is rejected by syscall pointer validation, requires its successful
+anonymous mapping to survive framebuffer and ioctl use, first punches a
+non-tail heap hole and proves a syscall using that hole is rejected with
+`-EINVAL`, requires the tail `munmap` to return success, and separately checks
+that zero-length, fixed, null, and invalid pointer-style memory calls return
+classified `-EINVAL` errors instead of falling through to ambiguous `-1`
+results.
 
 ## Process Lifecycle
 
@@ -160,7 +171,8 @@ heap are adjacent and the Doom heap grows up to the stack bottom.
   and resume it with `iretd`. The cloud status fields distinguish the source
   and target PIDs (`pfrom`/`pto`), their process kinds (`pkind`), restored EIPs
   (`peip`), selected page directories (`pcr3`), selected kernel stacks
-  (`pkstk`), timer IRQs that arrived from Ring 3 (`puser`), timer-IRQ context
+  (`pkstk`), the last rewritten `iretd` frame (`pframe`), timer IRQs that
+  arrived from Ring 3 (`puser`), timer-IRQ context
   switches (`pirq`), quantum rounds (`pround`), total context activations
   (`pctx`), the bidirectional Doom/preempt-probe pair mask (`pmask`), and live
   spin progress (`pspin`). The `pspin` sampler only

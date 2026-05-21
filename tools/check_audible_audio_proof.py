@@ -19,6 +19,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import check_audio_continuity_proof  # noqa: E402
+from status_fields import parse_hex8, parse_status_fields  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
 MAKEFILE = ROOT / "Makefile"
@@ -29,7 +30,6 @@ RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
 ARTIFACT_CHECKER = ROOT / "tools" / "check_cloud_playability_artifacts.py"
 
 SCHEMA = "vibe-os-audible-audio-proof-v5"
-FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
 FORBIDDEN_MANIFEST_KEYS = {
     "asset_bytes",
     "audio_bytes",
@@ -72,22 +72,17 @@ def _asset_provenance() -> dict[str, Any]:
 
 
 def _status_fields(status: str) -> dict[str, str]:
-    fields: dict[str, str] = {}
-    for match in FIELD_PATTERN.finditer(status):
-        name = match.group(1)
-        if name in fields:
-            raise AssertionError(f"duplicate {name}= field")
-        fields[name] = match.group(2)
-    return fields
+    return parse_status_fields(status, error_type=AssertionError, require_any=False)
 
 
 def _hex_value(fields: dict[str, str], name: str) -> int:
     value = fields.get(name)
     if value is None:
         raise AssertionError(f"status missing {name}= field")
-    if not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
+    parsed = parse_hex8(value)
+    if parsed is None:
         raise AssertionError(f"{name}= must be eight hex digits, got {value!r}")
-    return int(value, 16)
+    return parsed
 
 
 def _hex_positive(fields: dict[str, str], name: str) -> int:
@@ -105,7 +100,7 @@ def _hex_tuple(fields: dict[str, str], name: str, count: int) -> tuple[int, ...]
     if len(parts) != count:
         raise AssertionError(f"{name}= must have {count} colon-separated hex parts")
     for part in parts:
-        if not re.fullmatch(r"[0-9A-Fa-f]{8}", part):
+        if parse_hex8(part) is None:
             raise AssertionError(f"{name}= part must be eight hex digits, got {part!r}")
     return tuple(int(part, 16) for part in parts)
 
@@ -161,6 +156,19 @@ def _status_summary(status_path: Path) -> dict[str, str]:
     if fields.get("musicstream") not in check_audio_continuity_proof.MUSIC_STREAM_MODES:
         raise AssertionError(f"status musicstream= must be a known mode, got {fields.get('musicstream')!r}")
     _hex_tuple(fields, "musicpull", 2)
+    adev_kind, adev_status, adev_caps = _hex_tuple(fields, "adev", 3)
+    if adev_kind != 1 or adev_status != 1:
+        raise AssertionError("status adev= must prove a ready generic SB16 audio device")
+    if adev_caps & 0x0000000F != 0x0000000F:
+        raise AssertionError("status adev= must include PCM ring, mixer, pull-stream, and SB16 DMA caps")
+    pcm_format, channels, sample_rate = _hex_tuple(fields, "pcm", 3)
+    if (pcm_format, channels, sample_rate) != (1, 2, 11025):
+        raise AssertionError("status pcm= must prove unsigned 8-bit stereo at 11025 Hz")
+    ring_bytes, period_bytes, write_offset, active_half = _hex_tuple(fields, "pcmbuf", 4)
+    if ring_bytes == 0 or period_bytes == 0 or period_bytes * 2 != ring_bytes:
+        raise AssertionError("status pcmbuf= must expose a two-period PCM ring")
+    if write_offset >= ring_bytes or active_half not in (0, 1):
+        raise AssertionError("status pcmbuf= must expose a valid write offset and active half")
     return {
         "audio": fields["audio"],
         "doomrun": fields["doomrun"],
@@ -191,6 +199,9 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         "musicstream": fields["musicstream"],
         "musicpull": fields["musicpull"],
         "musicrend": fields["musicrend"],
+        "adev": fields["adev"],
+        "pcm": fields["pcm"],
+        "pcmbuf": fields["pcmbuf"],
     }
 
 
@@ -681,7 +692,8 @@ def _reject_forbidden_manifest_payload(value: Any, path: str = "$") -> None:
         for key, child in value.items():
             lowered = str(key).lower()
             if lowered in FORBIDDEN_MANIFEST_KEYS:
-                raise AssertionError(f"manifest contains forbidden raw-audio key at {path}.{key}")
+                if not (path == "$.status" and lowered == "pcm"):
+                    raise AssertionError(f"manifest contains forbidden raw-audio key at {path}.{key}")
             _reject_forbidden_manifest_payload(child, f"{path}.{key}")
     elif isinstance(value, list):
         if len(value) > 64:
@@ -824,6 +836,9 @@ def validate_manifest(
         ("musicq", 2),
         ("musicpull", 2),
         ("musicrend", 6),
+        ("adev", 3),
+        ("pcm", 3),
+        ("pcmbuf", 4),
     ):
         value = status.get(name)
         if not isinstance(value, str):
@@ -835,6 +850,17 @@ def validate_manifest(
             raise AssertionError(f"manifest status.{name} first counter must be nonzero")
         if name in ("sfxbytes", "sfxdma", "sfxlast") and int(parts[1], 16) <= 0:
             raise AssertionError(f"manifest status.{name} second counter must be nonzero")
+    if status["adev"] != "00000001:00000001:0000000F":
+        raise AssertionError("manifest status.adev must prove the generic SB16 audio device contract")
+    if status["pcm"] != "00000001:00000002:00002B11":
+        raise AssertionError("manifest status.pcm must prove unsigned 8-bit stereo at 11025 Hz")
+    ring_bytes, period_bytes, write_offset, active_half = (
+        int(part, 16) for part in status["pcmbuf"].split(":")
+    )
+    if ring_bytes == 0 or period_bytes * 2 != ring_bytes:
+        raise AssertionError("manifest status.pcmbuf must expose a two-period PCM ring")
+    if write_offset >= ring_bytes or active_half not in (0, 1):
+        raise AssertionError("manifest status.pcmbuf must expose a valid write offset and active half")
 
     if continuity.get("gate") != "tools/check_audio_continuity_proof.py":
         raise AssertionError("manifest continuity.gate must name the audio continuity checker")
@@ -1140,6 +1166,9 @@ def validate_repo_contract() -> None:
             audio_doc,
             (
                 "tools/check_audible_audio_proof.py",
+                "adev=",
+                "pcm=",
+                "pcmbuf=",
                 "sfxmix= counts non-music Doom SFX only",
                 "sfxbytes=",
                 "sfxdma=",

@@ -29,6 +29,21 @@ class AudioContractTests(unittest.TestCase):
             "VIBE_AUDIO_FLAG_MUSIC",
             "VIBE_AUDIO_FLAG_WAD_SFX",
             "VIBE_AUDIO_FLAG_STREAM_FINAL",
+            "VIBE_AUDIO_DEVICE_SB16",
+            "VIBE_AUDIO_FORMAT_U8_STEREO",
+            "VIBE_AUDIO_CAP_PCM_RING",
+            "VIBE_AUDIO_CAP_MIXER_VOICES",
+            "VIBE_AUDIO_DEVICE_INFO",
+            "VIBE_AUDIO_PCM_RING_INFO",
+            "vibe_audio_device_info_t",
+            "vibe_audio_pcm_ring_info_t",
+            "typedef vibe_audio_sfx_desc_t vibe_audio_voice_desc_t;",
+            "VIBE_AUDIO_MIXER_START",
+            "VIBE_AUDIO_MIXER_STOP",
+            "VIBE_AUDIO_MIXER_UPDATE",
+            "VIBE_AUDIO_MIXER_IS_PLAYING",
+            "VIBE_AUDIO_PCM_BUFFERED_BYTES",
+            "VIBE_AUDIO_PCM_PULL_STATE",
             "VIBE_AUDIO_IS_PLAYING",
             "VIBE_AUDIO_BUFFERED_BYTES",
             "VIBE_AUDIO_MUSIC_PULL_STATE",
@@ -39,7 +54,7 @@ class AudioContractTests(unittest.TestCase):
 
         for source in (
             "#include \"z_zone.h\"",
-            "vibe_audio_sfx_desc_t desc;",
+            "vibe_audio_voice_desc_t desc;",
             "sfxinfo_t* sfx = &S_sfx[id];",
             "sfx->data = W_CacheLumpNum(sfx->lumpnum, PU_STATIC);",
             "lump_length = W_LumpLength(sfx->lumpnum);",
@@ -57,12 +72,55 @@ class AudioContractTests(unittest.TestCase):
             "desc.flags = sample_flags;",
             "desc.sample_rate = sample_rate;",
             "(unsigned long)&desc",
-            "VIBE_AUDIO_START_SFX",
-            "VIBE_AUDIO_UPDATE_SFX",
-            "VIBE_AUDIO_IS_PLAYING",
-            "VIBE_AUDIO_MUSIC_PULL_STATE",
+            "VIBE_AUDIO_MIXER_START",
+            "VIBE_AUDIO_MIXER_UPDATE",
+            "VIBE_AUDIO_MIXER_IS_PLAYING",
+            "VIBE_AUDIO_PCM_PULL_STATE",
         ):
             self.assertIn(source, platform)
+
+    def test_kernel_exposes_generic_audio_device_and_pcm_ring_contract(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        makefile = (ROOT / "Makefile").read_text()
+
+        for source in (
+            "AUDIO_CMD_DEVICE_INFO equ 9",
+            "AUDIO_CMD_PCM_RING_INFO equ 10",
+            "AUDIO_CMD_MIXER_START equ AUDIO_CMD_START_SFX",
+            "AUDIO_CMD_PCM_PULL_STATE equ AUDIO_CMD_MUSIC_PULL_STATE",
+            "AUDIO_DEVICE_SB16 equ 1",
+            "AUDIO_PCM_FORMAT_U8_STEREO equ 1",
+            "AUDIO_CAP_PCM_RING equ 0x00000001",
+            "AUDIO_CAP_MIXER_VOICES equ 0x00000002",
+            "AUDIO_CAP_PULL_STREAM equ 0x00000004",
+            "AUDIO_CAP_SB16_DMA equ 0x00000008",
+            "AUDIO_DEVICE_INFO_KIND equ 0",
+            "AUDIO_DEVICE_INFO_BYTES equ 48",
+            "AUDIO_PCM_RING_INFO_FORMAT equ 0",
+            "AUDIO_PCM_RING_INFO_BYTES equ 48",
+            "audio_write_device_info:",
+            "audio_write_pcm_ring_info:",
+            "cmp ebx, AUDIO_CMD_DEVICE_INFO",
+            "cmp ebx, AUDIO_CMD_PCM_RING_INFO",
+            "call audio_write_device_info",
+            "call audio_write_pcm_ring_info",
+            "mov dword [edi + AUDIO_DEVICE_INFO_KIND], AUDIO_DEVICE_SB16",
+            "mov dword [edi + AUDIO_PCM_RING_INFO_FORMAT], AUDIO_PCM_FORMAT_U8_STEREO",
+            "mov eax, [sb16_dma_buffer_size]",
+            "mov eax, [sb16_dma_write_pos]",
+            "smoke_audiodev_text db \" adev=\"",
+            "smoke_pcm_text db \" pcm=\"",
+            "smoke_pcmbuf_text db \" pcmbuf=\"",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, kernel)
+
+        for source in (
+            'grep -q "adev="',
+            'grep -q "pcm="',
+            'grep -q "pcmbuf="',
+        ):
+            self.assertIn(source, makefile)
 
     def test_kernel_mixes_sfx_into_sb16_dma_buffer(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
@@ -326,6 +384,8 @@ class AudioContractTests(unittest.TestCase):
             "AUDIO_FLAG_MUSIC equ 0x00000002",
             "AUDIO_CMD_IS_PLAYING equ 6",
             "AUDIO_CMD_BUFFERED_BYTES equ 7",
+            "AUDIO_CMD_DEVICE_INFO equ 9",
+            "AUDIO_CMD_PCM_RING_INFO equ 10",
             "AUDIO_MUSIC_HANDLE_BASE equ 0x4d550000",
             "or dword [audio_sfx_flags_arg], AUDIO_FLAG_MUSIC",
             ".refresh_stream_window:",
@@ -379,9 +439,9 @@ class AudioContractTests(unittest.TestCase):
             "desc.music_note_events = stats.note_on_count + stats.note_off_count;",
             "desc.music_emitted_samples = stats.emitted_samples;",
             "vibe_music_audio_handle(handle)",
-            "VIBE_AUDIO_START_SFX",
-            "VIBE_AUDIO_UPDATE_SFX",
-            "VIBE_AUDIO_MUSIC_PULL_STATE",
+            "VIBE_AUDIO_MIXER_START",
+            "VIBE_AUDIO_MIXER_UPDATE",
+            "VIBE_AUDIO_PCM_PULL_STATE",
             "current_music_pull_seen",
             "pump_music_stream",
             "report_doom_init_status(VIBE_DOOM_INIT_TIC);\n    pump_music_stream();",
@@ -402,6 +462,11 @@ class AudioContractTests(unittest.TestCase):
         audio_doc = (ROOT / "docs" / "audio.md").read_text()
 
         self.assertIn("vibe_audio_sfx_desc_t", audio_doc)
+        self.assertIn("vibe_audio_device_info_t", audio_doc)
+        self.assertIn("vibe_audio_pcm_ring_info_t", audio_doc)
+        self.assertIn("adev=", audio_doc)
+        self.assertIn("pcm=", audio_doc)
+        self.assertIn("pcmbuf=", audio_doc)
         self.assertIn("interleaved unsigned 8-bit stereo", audio_doc)
         self.assertIn("Doom's original squared pan law", audio_doc)
         self.assertIn("16.16 source position", audio_doc)
@@ -415,8 +480,8 @@ class AudioContractTests(unittest.TestCase):
         self.assertIn("sfxsrc=", audio_doc)
         self.assertIn("sfxlast=", audio_doc)
         self.assertIn("sfxmix=` counts only normal Doom SFX voices", audio_doc)
-        self.assertIn("VIBE_AUDIO_IS_PLAYING", audio_doc)
-        self.assertIn("VIBE_AUDIO_MUSIC_PULL_STATE", audio_doc)
+        self.assertIn("VIBE_AUDIO_MIXER_IS_PLAYING", audio_doc)
+        self.assertIn("VIBE_AUDIO_PCM_PULL_STATE", audio_doc)
         self.assertIn("pending music window", audio_doc)
         self.assertIn("mixwrap", audio_doc)
         self.assertIn("mixover", audio_doc)
@@ -434,8 +499,8 @@ class AudioContractTests(unittest.TestCase):
         self.assertIn("active voice table", audio_doc)
         self.assertIn("Doom music:", audio_doc)
         self.assertIn("deterministic unsigned 8-bit PCM", audio_doc)
-        self.assertIn("VIBE_AUDIO_START_SFX", audio_doc)
-        self.assertIn("VIBE_AUDIO_UPDATE_SFX", audio_doc)
+        self.assertIn("VIBE_AUDIO_MIXER_START", audio_doc)
+        self.assertIn("VIBE_AUDIO_MIXER_UPDATE", audio_doc)
         self.assertIn("streamed music chunks", audio_doc)
         self.assertIn("PC speaker fallback", audio_doc)
         self.assertNotIn("MUS/MIDI synthesis is not implemented", audio_doc)

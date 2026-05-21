@@ -182,6 +182,9 @@ HUMAN_SESSION_STATUS_FIELDS = (
     "mousebtn",
     "mousedelta",
     "audio",
+    "adev",
+    "pcm",
+    "pcmbuf",
     "vmmhi",
     "vmmhva",
     "vmmhpa",
@@ -344,6 +347,9 @@ SOAK_STATUS_SUMMARY_FIELDS = (
     "mousebtn",
     "mousedelta",
     "audio",
+    "adev",
+    "pcm",
+    "pcmbuf",
     "vmmhi",
     "vmmhva",
     "vmmhpa",
@@ -676,7 +682,9 @@ def validate_repo_contract() -> None:
             raise AssertionError(f"runbook should not instruct local/pixel artifact path {forbidden!r}")
 
     _require(playable, "Remote Doom Playtest Runbook", "playable cloud proof doc")
-    _require(playable, "Current-head cloud proof state: save persistence is not green yet", "playable cloud proof doc")
+    _require(playable, "Save persistence is not green yet", "playable cloud proof doc")
+    _require(playable, "26199297160", "playable cloud proof doc")
+    _require(playable, "Unknown tclass 112 in savegame", "playable cloud proof doc")
     _require(playable, "gh workflow run os-smoke.yml", "playable cloud proof doc")
     _require(playable, "gh workflow run real-wad-smoke.yml", "playable cloud proof doc")
     _require(playable, "tools/collect_human_playtest_bundle.py", "playable cloud proof doc")
@@ -694,7 +702,9 @@ def validate_repo_contract() -> None:
     _require(playable, "pkstk", "playable cloud proof doc")
     _require(playable, "pspin", "playable cloud proof doc")
     _require(readme, "docs/runbooks/remote-doom-playtest.md", "README")
-    _require(readme, "Current-head cloud proof state: save persistence is not green yet", "README")
+    _require(readme, "Where It Stands", "README")
+    _require(readme, "26199297160", "README")
+    _require(readme, "Unknown tclass 112 in savegame", "README")
     _require(readme, "gh workflow run os-smoke.yml", "README")
     _require(readme, "gh workflow run real-wad-smoke.yml", "README")
     _require(readme, "gh workflow run real-wad-soak.yml", "README")
@@ -705,7 +715,7 @@ def validate_repo_contract() -> None:
     _require(readme, "post-download human verification OK", "README")
     _require(tests_readme, "check_cloud_playability_artifacts.py", "tests README")
     _require(tests_readme, "expected_ref", "tests README")
-    _require(tests_readme, "Current-head cloud proof state", "tests README")
+    _require(tests_readme, "fresh save-persistence proof note", "tests README")
     _require(tests_readme, "collect_human_playtest_bundle.py", "tests README")
     _require(tests_readme, "phase_hash_*", "tests README")
     _require(tests_readme, "human-playtest-checklist.txt", "tests README")

@@ -225,7 +225,7 @@ static unsigned char* cache_sfx_samples(
 
 static int submit_music_stream_chunk(int handle, int start_voice)
 {
-    vibe_audio_sfx_desc_t desc;
+    vibe_audio_voice_desc_t desc;
     vibe_music_render_stats_t stats;
     unsigned long rendered;
     unsigned int buffer_index;
@@ -241,7 +241,7 @@ static int submit_music_stream_chunk(int handle, int start_voice)
         if (!current_music_looping && current_music_handle == handle) {
             (void)vibe_syscall3(
                 VIBE_SYS_AUDIO,
-                VIBE_AUDIO_STOP_SFX,
+                VIBE_AUDIO_MIXER_STOP,
                 (unsigned long)vibe_music_audio_handle(handle),
                 0);
             current_music_handle = 0;
@@ -285,7 +285,7 @@ static int submit_music_stream_chunk(int handle, int start_voice)
 
     (void)vibe_syscall3(
         VIBE_SYS_AUDIO,
-        start_voice ? VIBE_AUDIO_START_SFX : VIBE_AUDIO_UPDATE_SFX,
+        start_voice ? VIBE_AUDIO_MIXER_START : VIBE_AUDIO_MIXER_UPDATE,
         (unsigned long)vibe_music_audio_handle(handle),
         (unsigned long)&desc);
     return 1;
@@ -298,7 +298,7 @@ static void stop_music_stream_handle(int handle)
 
     (void)vibe_syscall3(
         VIBE_SYS_AUDIO,
-        VIBE_AUDIO_STOP_SFX,
+        VIBE_AUDIO_MIXER_STOP,
         (unsigned long)vibe_music_audio_handle(handle),
         0);
     vibe_music_stream_stop(handle);
@@ -476,6 +476,8 @@ static void checkpoint_load_slot_if_needed(void)
 
     if (load_checkpoint_done)
         return;
+    if (load_checkpoint_started)
+        return;
     if (!default_config_checkpoint_ready()
         || menuactive
         || sendsave
@@ -490,8 +492,6 @@ static void checkpoint_load_slot_if_needed(void)
     load_checkpoint_started = 1;
     report_save_action_status();
     G_LoadGame(path);
-    load_checkpoint_done = 1;
-    report_save_action_status();
 }
 
 static void pump_music_stream(void)
@@ -509,14 +509,14 @@ static void pump_music_stream(void)
 
     start_voice = vibe_syscall3(
         VIBE_SYS_AUDIO,
-        VIBE_AUDIO_IS_PLAYING,
+        VIBE_AUDIO_MIXER_IS_PLAYING,
         (unsigned long)vibe_music_audio_handle(current_music_handle),
         0) <= 0;
     if (start_voice) {
         if (submit_music_stream_chunk(current_music_handle, start_voice)) {
             current_music_pull_seen = vibe_syscall3(
                 VIBE_SYS_AUDIO,
-                VIBE_AUDIO_MUSIC_PULL_STATE,
+                VIBE_AUDIO_PCM_PULL_STATE,
                 (unsigned long)vibe_music_audio_handle(current_music_handle),
                 0);
             current_music_next_tic = now + music_stream_tics();
@@ -528,7 +528,7 @@ static void pump_music_stream(void)
 
     pull_request = vibe_syscall3(
         VIBE_SYS_AUDIO,
-        VIBE_AUDIO_MUSIC_PULL_STATE,
+        VIBE_AUDIO_PCM_PULL_STATE,
         (unsigned long)vibe_music_audio_handle(current_music_handle),
         0);
     if (pull_request == current_music_pull_seen) {
@@ -564,7 +564,7 @@ byte* I_ZoneBase(int* size)
 
 int I_GetTime(void)
 {
-    return vibe_syscall3(VIBE_SYS_TIME, 0, 0, 0);
+    return (int)((vibe_monotonic_milliseconds() * 35u) / 1000u);
 }
 
 void I_StartFrame(void)
@@ -574,31 +574,28 @@ void I_StartFrame(void)
 void I_StartTic(void)
 {
     int i;
-    int packed;
     event_t event;
+    vibe_input_event_t input;
     vibe_doom_input_event_t translated;
 
     report_doom_init_status(VIBE_DOOM_INIT_TIC);
     pump_music_stream();
 
-    for (i = 0; i < 32; ++i) {
-        packed = vibe_syscall3(VIBE_SYS_POLL_KEY, 0, 0, 0);
-        if (!vibe_doom_translate_key_event((unsigned int)packed, &translated))
+    for (i = 0; i < 64; ++i) {
+        if (vibe_syscall3(VIBE_SYS_POLL_INPUT, (unsigned long)&input, sizeof(input), 0) <= 0)
             break;
+        if (!vibe_doom_translate_input_event(&input, &translated))
+            continue;
 
-        event.type = translated.type == VIBE_DOOM_INPUT_KEYDOWN ? ev_keydown : ev_keyup;
-        event.data1 = translated.data1;
-        event.data2 = translated.data2;
-        event.data3 = translated.data3;
-        D_PostEvent(&event);
-    }
+        if (translated.type == VIBE_DOOM_INPUT_KEYDOWN)
+            event.type = ev_keydown;
+        else if (translated.type == VIBE_DOOM_INPUT_KEYUP)
+            event.type = ev_keyup;
+        else if (translated.type == VIBE_DOOM_INPUT_MOUSE)
+            event.type = ev_mouse;
+        else
+            continue;
 
-    for (i = 0; i < 32; ++i) {
-        packed = vibe_syscall3(VIBE_SYS_POLL_MOUSE, 0, 0, 0);
-        if (!vibe_doom_translate_mouse_event((unsigned int)packed, &translated))
-            break;
-
-        event.type = ev_mouse;
         event.data1 = translated.data1;
         event.data2 = translated.data2;
         event.data3 = translated.data3;
@@ -812,6 +809,15 @@ void G_Ticker(void)
         save_checkpoint_done = 1;
         report_save_action_status();
     }
+
+    if (load_checkpoint_started
+        && !load_checkpoint_done
+        && gameaction == ga_nothing
+        && gamestate == GS_LEVEL
+        && leveltime >= VIBE_PERSISTENCE_MIN_LEVELTIME) {
+        load_checkpoint_done = 1;
+        report_save_action_status();
+    }
 }
 
 static void report_playability_status(void)
@@ -960,7 +966,7 @@ void I_InitSound(void)
 {
     report_doom_init_status(VIBE_DOOM_INIT_SOUND);
     vibe_music_init();
-    (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_INIT, 0, 0);
+    (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_DEVICE_START, 0, 0);
 }
 
 void I_UpdateSound(void)
@@ -975,7 +981,7 @@ void I_SubmitSound(void)
 
 void I_ShutdownSound(void)
 {
-    (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_SHUTDOWN, 0, 0);
+    (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_DEVICE_SHUTDOWN, 0, 0);
 }
 
 void I_SetChannels(void)
@@ -1002,7 +1008,7 @@ int I_StartSound(int id, int vol, int sep, int pitch, int priority)
     (void)priority;
     {
         int handle = next_sound_handle++;
-        vibe_audio_sfx_desc_t desc;
+        vibe_audio_voice_desc_t desc;
         sfxinfo_t* sfx = &S_sfx[id];
         unsigned long sample_length;
         unsigned long sample_rate;
@@ -1029,7 +1035,7 @@ int I_StartSound(int id, int vol, int sep, int pitch, int priority)
 
         (void)vibe_syscall3(
             VIBE_SYS_AUDIO,
-            VIBE_AUDIO_START_SFX,
+            VIBE_AUDIO_MIXER_START,
             (unsigned long)handle,
             (unsigned long)&desc);
         return handle;
@@ -1038,17 +1044,17 @@ int I_StartSound(int id, int vol, int sep, int pitch, int priority)
 
 void I_StopSound(int handle)
 {
-    (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_STOP_SFX, (unsigned long)handle, 0);
+    (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_MIXER_STOP, (unsigned long)handle, 0);
 }
 
 int I_SoundIsPlaying(int handle)
 {
-    return vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_IS_PLAYING, (unsigned long)handle, 0) > 0;
+    return vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_MIXER_IS_PLAYING, (unsigned long)handle, 0) > 0;
 }
 
 void I_UpdateSoundParams(int handle, int vol, int sep, int pitch)
 {
-    vibe_audio_sfx_desc_t desc;
+    vibe_audio_voice_desc_t desc;
 
     memset(&desc, 0, sizeof(desc));
     desc.volume = (unsigned long)(vol & 0xff);
@@ -1057,7 +1063,7 @@ void I_UpdateSoundParams(int handle, int vol, int sep, int pitch)
 
     (void)vibe_syscall3(
         VIBE_SYS_AUDIO,
-        VIBE_AUDIO_UPDATE_SFX,
+        VIBE_AUDIO_MIXER_UPDATE,
         (unsigned long)handle,
         (unsigned long)&desc);
 }
@@ -1098,7 +1104,7 @@ void I_PauseSong(int handle)
     current_music_paused = 1;
     (void)vibe_syscall3(
         VIBE_SYS_AUDIO,
-        VIBE_AUDIO_STOP_SFX,
+        VIBE_AUDIO_MIXER_STOP,
         (unsigned long)vibe_music_audio_handle(handle),
         0);
 }

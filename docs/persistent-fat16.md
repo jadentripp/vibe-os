@@ -9,7 +9,7 @@ persistent state:
 - `DOOMSAV0.DSG` through `DOOMSAV5.DSG`: 256 KiB per save slot.
 
 Each pre-created file starts with root-directory size 0 and first cluster 0.
-The kernel also accepts small root-level 8.3 create/open requests from user
+The kernel also accepts root-level 8.3 create/open requests from user
 processes. It keeps a per-descriptor seek offset in a small reusable fd table,
 allocates free clusters as writes extend a file, updates both FAT copies, and
 writes the root entry's first-cluster and size fields. Reads use the persisted
@@ -19,26 +19,35 @@ later boots can read back data written into the image.
 Current kernel contract:
 
 - Supported syscalls: `open`, `read`, `write`, `lseek`, `close`, `unlink`,
-  `stat`, and `fstat`.
+  `stat`, `fstat`, root `listdir`, and descriptor `ftruncate`. The Doom libc
+  also exposes `truncate(path, size)` through `open` plus `ftruncate`.
 - Supported writable paths: `DEFAULT.CFG` and `doomsav0.dsg` through
   `doomsav5.dsg`, plus their unmodified Doom DOS/CD-ROM forms such as
   `c:\doomdata\default.cfg` and `c:\doomdata\doomsav3.dsg`. Arbitrary valid
   root-level 8.3 names can also be opened with write/create/truncate-style
-  flags. Existing dynamic root files can be opened read-only for readback.
+  flags. The generic VFS parser normalizes root/current-directory spellings such
+  as `/README.TXT`, `\README.TXT`, and `./README.TXT` to the same FAT16 root
+  entry while still rejecting real subdirectory components. Existing dynamic
+  root files can be opened read-only for readback.
 - Supported persistence model: dynamic root-level FAT16 allocation for the
-  known 8.3 Doom defaults/save files and a bounded dynamic file table for
+  known 8.3 Doom defaults/save files and a reusable dynamic file table for
   additional root entries.
+  This is enough for Doom defaults and save slots, while the broader filesystem
+  contract remains intentionally smaller than POSIX.
 - Supported descriptor model: WAD reads and writable root files share the same
   open fd table, so duplicate opens get independent offsets and `close`
   releases the descriptor slot. The fd table is intentionally small and bounded;
   exhaustion returns `EMFILE`.
-- Supported growth: file size can grow up to the per-file guard capacity.
-- Supported truncation: `O_TRUNC` frees the old cluster chain, resets first
-  cluster to 0, and persists size 0. The kernel validates the whole FAT chain
-  before mutating entries, so a corrupt loop or out-of-range pointer fails
-  without partially freeing the file. Writable `open(..., O_TRUNC)` also
-  reserves an fd slot before truncating, so `EMFILE` cannot erase Doom defaults
-  or saves.
+- Supported growth: file size can grow through `write` after `lseek` or through
+  `ftruncate`; sparse gaps are zero-filled before they become readable file
+  data. Known Doom state files retain their small guard capacities, while
+  generic root 8.3 files use the FAT/free-space path rather than the old
+  Doom-save-sized ceiling.
+- Supported truncation: `O_TRUNC` still frees the old cluster chain, resets
+  first cluster to 0, and persists size 0. `ftruncate` can also shrink a file in
+  place, freeing tail clusters after validating the chain, or grow it with
+  zero-filled bytes. Writable `open(..., O_TRUNC)` reserves an fd slot before
+  truncating, so `EMFILE` cannot erase Doom defaults or saves.
 - Supported allocation hygiene: newly allocated clusters are zero-filled before
   they become file data, FAT updates are written to both FAT copies, and root
   entry size/first-cluster metadata is updated after successful writes. The
@@ -58,18 +67,23 @@ Current kernel contract:
 - Supported creation: missing known root entries are created on storage init and
   can be recreated with `O_CREAT` after deletion.
 - Supported metadata: `stat` and `fstat` report regular-file mode, one link, and
-  size for protected WAD/ELF files and writable root files. Timestamps, owners,
-  and device fields are zero.
+  size for protected WAD/ELF files and writable root files. `stat("/")` reports
+  readonly directory mode for the FAT root. `VIBE_SYS_LISTDIR`/`vibe_listdir`
+  copies readonly fixed-size `vibe_dirent_t` records for live root entries,
+  including normalized 8.3 display name, size, mode, first cluster, and raw FAT
+  attributes. Timestamps, owners, and device fields are zero.
 - Supported validation: subdirectories, path traversal, empty names, long
-  filenames, and unsupported characters are rejected; `DOOM1.WAD`,
-  `USERPROB.ELF`, and `DOOM.ELF` remain protected read-only entries and cannot
-  be deleted, truncated, or opened writable. Unknown `open` flag bits are
-  rejected as `EINVAL` in the kernel, even if libc callers normally filter them
-  first.
-- Unsupported in the kernel syscall surface: subdirectories, long filenames, no rename,
-  timestamps, ownership, permissions beyond read-only versus writable
-  regular-file mode, and no POSIX delete-while-open behavior. This kernel
-  deliberately invalidates descriptors when their root entry is unlinked.
+  filenames, and unsupported characters are rejected; leading root separators
+  and `./` prefixes are path normalization only, not subdirectory traversal.
+  `DOOM1.WAD`, `USERPROB.ELF`, and `DOOM.ELF` remain protected read-only
+  entries and cannot be deleted, truncated, or opened writable. Unknown `open`
+  flag bits are rejected as `EINVAL` in the kernel, even if libc callers
+  normally filter them first.
+- Unsupported in the kernel syscall surface: subdirectory listing/traversal,
+  long filenames, rename, timestamps, ownership, permissions beyond read-only
+  directory/regular-file versus writable regular-file mode, and no POSIX delete-while-open behavior.
+  This kernel deliberately invalidates descriptors when their root entry is
+  unlinked.
 
 `tools/check_doom_persistence_image.py` validates a remote/cloud-mutated image
 without launching QEMU locally. Use `--require-default` to require Doom-shaped
@@ -84,6 +98,20 @@ mistaken for Doom-written persistence. The save validator requires Doom's
 `playeringame` flags, nonzero `leveltime`, a plausible archived i386
 `player_t` record, enough non-uniform serialized world/game-state bytes, and
 the final `0x1d` consistency marker written by `G_DoSaveGame`.
+When passed `--save-thinker-offset` or `--save-specials-offset`, the checker
+also walks Doom's original save-stream class bytes from that offset. The
+thinker pass accepts only `tc_mobj` records followed by `tc_end` and validates
+each archived mobj's WAD-independent state/type/player indexes against Doom's
+original `states`, `mobjinfo`, and player ranges; the specials pass accepts
+only Doom's `tc_ceiling`, `tc_door`, `tc_floor`, `tc_plat`,
+`tc_flash`, `tc_strobe`, `tc_glow`, and final `tc_endspecials` classes, with
+the final specials terminator immediately before the `0x1d` consistency
+marker. If `--load-status` or `--save-write-status` includes runtime
+`savestm=` / `savethk=` fields, the checker can derive those stream offsets
+without extra CLI flags and reports `thinkers=OK` / `specials=OK` summaries.
+This lets cloud artifacts separate FAT short-write failures, which still show
+up as size/cluster/read diagnostics, from malformed Doom stream failures such
+as `unknown special tclass 112`.
 
 For real proof, copy the fresh remote `disk.img` before boot and pass it back
 with `--baseline-image`; requested entries must differ from the baseline image.
@@ -116,8 +144,9 @@ checker also verifies both FAT copies agree, every allocated data cluster is
 owned by exactly one live root entry, and protected `DOOM1.WAD`, `USERPROB.ELF`,
 and `DOOM.ELF` entries have unchanged metadata and bytes. The checker-side FAT
 reader can list the root directory and follow simple read-only 8.3 subdirectory
-entries for lookup/readback proof; this is deliberately a validation/tooling
-capability until the kernel grows a real directory syscall contract.
+entries for lookup/readback proof. The kernel now exposes the root listing
+piece of that contract to user processes; read-only subdirectory traversal is
+still host-tooling-only.
 
 Add `--require-dynamic-fat-proof` when the artifact should also prove the image
 still supports dynamic filesystem behavior. That option mutates an in-memory
@@ -174,12 +203,9 @@ The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,
 resize-to-zero, delete, deleted root-slot reuse, zero-fill checks, FAT-copy
 agreement, root directory listing, and read-only subdirectory lookup/readback.
-That is a test harness for image inspection; the kernel-facing truncate contract
-remains `O_TRUNC` to zero, because Doom only needs config/save replacement
-semantics today.
-
-This is enough for Doom defaults and save slots without turning the kernel into
-a general-purpose FAT filesystem.
+Kernel contract tests now also pin descriptor-level `ftruncate`, signed
+`lseek(..., SEEK_END)` offsets, sparse-write gap zeroing, and root/current-directory prefix normalization for generic 8.3 paths, so the executable proof
+covers behavior needed by games and tools beyond Doom save replacement.
 
 ATA PIO waits are bounded and status-reported. The ATA path makes sure commands only start once stale `DRQ` is clear, labels the explicit 256-word PIO loops as
 `atawait=DATA`, and waits for the data-request phase to drain after the loop.
@@ -191,9 +217,10 @@ startup/gameplay wait.
 Remaining storage gaps before a broad Doom-capable claim:
 
 - Writable semantics are still deliberately narrow: kernel syscalls handle
-  root-level 8.3 files, bounded dynamic root entries, no subdirectories, no rename,
-  no long filenames, no timestamps/ownership, and no POSIX delete-while-open behavior.
-  Host-side validation can now inspect read-only
+  root-level 8.3 files, reusable dynamic root entries, and readonly root
+  directory listing, but no subdirectories for user processes, no writable
+  subdirectories, no rename, no long filenames, no timestamps/ownership, and no
+  POSIX delete-while-open behavior. Host-side validation can inspect read-only
   subdirectory trees, but user processes cannot create or traverse them yet.
 - The storage proof is image-level and cloud-runner scoped. The OS can mutate
   the generated FAT16 disk image, but there is not yet a broader storage boot

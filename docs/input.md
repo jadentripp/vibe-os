@@ -1,12 +1,25 @@
-# Doom Input Contract
+# Input Event Contract
 
-The original Doom tree stays unmodified. The OS-facing port drains kernel input
-syscalls in `doom_port/platform.c`, translates them through `doom_port/input.c`,
-and posts normal Doom `event_t` values.
+The original Doom tree stays unmodified. PS/2 keyboard and mouse IRQs now feed a
+generic kernel input queue, and the OS-facing Doom port drains that queue with
+`SYS_POLL_INPUT` in `doom_port/platform.c`. `doom_port/input.c` translates typed
+kernel events into normal Doom `event_t` values.
+
+Generic ABI:
+
+- `SYS_POLL_INPUT` writes one `vibe_input_event_t` to the user pointer supplied
+  in arg0 and requires arg1 to be at least `sizeof(vibe_input_event_t)`.
+- A return value of `1` means an event was copied; `0` means the queue is empty.
+- Each event carries `timestamp`, `device_id`, `type`, `code`, and three signed
+  value fields. The current device IDs are keyboard `1` and mouse `2`.
+- Keyboard events use type `VIBE_INPUT_EVENT_KEY`, `code` as the Doom-compatible
+  key code, and `value0` as press (`1`) or release (`0`).
+- Mouse packet events use type `VIBE_INPUT_EVENT_MOUSE_PACKET`, `code` as the
+  PS/2 button mask, `value0` as signed X delta, and `value1` as signed Y delta.
 
 Keyboard:
 
-- `SYS_POLL_KEY` returns one packed event at a time.
+- `SYS_POLL_KEY` remains as the legacy packed-key drain for compatibility.
 - Bit `0x00010000` marks a valid event.
 - Bit `0x00000100` marks press versus release.
 - Bits `0..7` already contain Doom's key code, matching `doomdef.h`.
@@ -15,21 +28,24 @@ Keyboard:
 - Extended `0xe0` scancodes cover arrows, keypad Enter, right Ctrl/Alt, and Delete
   as Doom Backspace.
 - Smoke status exposes `keyseen=` as a cumulative bitmask updated only when the
-  Doom user process consumes `SYS_POLL_KEY`. The real-WAD proof requires the
+  Doom user process consumes generic key events. The real-WAD proof requires the
   scripted Up/Ctrl/Space/Escape bits, so a random IRQ counter cannot satisfy
   the keyboard lane. `keylast=` keeps the last packed key event for triage.
 
 Mouse:
 
-- `SYS_POLL_MOUSE` returns one packed PS/2 packet event at a time.
+- `SYS_POLL_MOUSE` remains as the legacy packed-mouse drain for compatibility.
 - Bit `0x01000000` marks a valid event.
 - Bits `0..2` carry PS/2 button state, byte 1 carries signed X delta, and byte 2
   carries signed Y delta.
 - The port maps PS/2 left/right/middle order into Doom's left/middle/right button
   order, then applies a small 4x relative-motion scale before posting `ev_mouse`.
 - Smoke status also exposes `mousebtn=` and `mousedelta=`. Those fields are
-  updated when the Doom user process consumes `SYS_POLL_MOUSE`, so the proof
+  updated when the Doom user process consumes generic mouse events, so the proof
   distinguishes a real left-click/movement packet from an empty IRQ counter.
+- `inputqueue=`, `inputpoll=`, and `inputlast=` expose the generic queue path:
+  total generic events enqueued, Doom-consumed generic events, and the last
+  consumed event's timestamp/device/type tuple.
 
 Host tests prove the translation without QEMU or WAD data:
 

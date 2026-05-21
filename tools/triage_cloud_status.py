@@ -9,8 +9,14 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from status_fields import (
+    hex8_field,
+    hex_tuple_field,
+    parse_hex8,
+    parse_status_fields,
+    summarize_status_fields,
+)
 
-FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
 SUMMARY_FIELDS = (
     "exec",
     "path",
@@ -69,6 +75,9 @@ SUMMARY_FIELDS = (
     "pangledelta",
     "pammo",
     "prefire",
+    "inputqueue",
+    "inputpoll",
+    "inputlast",
     "keyirq",
     "keyqueue",
     "keypoll",
@@ -105,6 +114,7 @@ SUMMARY_FIELDS = (
     "pcr3",
     "pkstk",
     "peip",
+    "pframe",
     "pspin",
     "doomsav",
     "saverd",
@@ -162,10 +172,21 @@ PAGE_FAULT_ERROR_BITS = (
     (4, "instruction-fetch"),
 )
 PREEMPT_PROBE_MAGIC = 0x50524545
+USER_CODE_SEG = 0x1B
+USER_DATA_SEG = 0x23
 PLAYABILITY_REQUIRED_FLAGS = 0x0000013F
 PLAYABILITY_FIRE_STATE_FLAGS = 0x000000C0
 KEY_SEEN_SCRIPTED_FLAGS = 0x00000071
 REQUIRED_DOOM_INIT_FLAGS = 0x000001FF
+SAVELOAD_EVENT_READ = 0x0002
+SAVELOAD_EVENT_CLOSE = 0x0008
+SAVEACTION_LOAD_REQUESTED = 0x0020
+SAVEACTION_LOAD_DONE = 0x0040
+SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE = 0x15
+SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE = 0x17
+SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED = 0x1A
+VALID_THINKER_CLASSES = {0, 1}
+VALID_SPECIAL_CLASSES = set(range(8))
 
 
 @dataclass(frozen=True)
@@ -232,6 +253,18 @@ TRIAGE_RULES = (
         "Hand off to FAT save-growth allocation: inspect the last data cluster/free scan and why the allocator returned E0 after a short positive write.",
     ),
     TriageRule(
+        "persistence-load-malformed-stream",
+        ("doomsav", "saverd", "saveclose", "saveact", "savestm", "savethk", "doomerr"),
+        "Doom read the saved payload back but the unarchive thinker/specials stream is malformed.",
+        "Use savestm/savethk to choose thinker vs specials parsing, then inspect the save stream checker failure at that offset.",
+    ),
+    TriageRule(
+        "persistence-load-not-completed",
+        ("doomsav", "saverd", "saveclose", "saveact", "savestm", "savethk", "doomerr"),
+        "Doom started the reboot load path, but did not prove G_DoLoadGame completed and returned to gameplay.",
+        "Inspect saverd/saveclose/saveact first; then compare load-status with the persisted DOOMSAV size.",
+    ),
+    TriageRule(
         "doom-init-stalled",
         ("doominit", "doomlog", "doomopen", "doomread", "doomwad", "gameplay", "doompresent"),
         "Doom entered user mode but did not report all first initialization milestones.",
@@ -273,7 +306,7 @@ TRIAGE_RULES = (
     ),
     TriageRule(
         "preemption-not-proven",
-        ("preempt", "pirq", "pattempt", "puser", "pround", "pctx", "pmask", "pfrom", "pto", "pkind", "peip", "pcr3", "pkstk", "pspin", "pself"),
+        ("preempt", "pirq", "pattempt", "puser", "pround", "pctx", "pmask", "pfrom", "pto", "pkind", "peip", "pcr3", "pkstk", "pframe", "pspin", "pself"),
         "Doom reached gameplay, but the status does not prove live timer-driven switching between Ring 3 tasks.",
         "Inspect scheduler_tick, the live preempt probe seeding path, and whether timer IRQs are interrupting user code.",
     ),
@@ -364,15 +397,7 @@ class SymbolMap:
 
 
 def parse_status(status: str) -> dict[str, str]:
-    fields: dict[str, str] = {}
-    for match in FIELD_PATTERN.finditer(status):
-        name = match.group(1)
-        if name in fields:
-            raise ValueError(f"duplicate {name}= field")
-        fields[name] = match.group(2)
-    if not fields:
-        raise ValueError("no key=value status fields found")
-    return fields
+    return parse_status_fields(status, error_type=ValueError)
 
 
 def _field(fields: dict[str, str], name: str) -> str:
@@ -380,10 +405,7 @@ def _field(fields: dict[str, str], name: str) -> str:
 
 
 def _hex(fields: dict[str, str], name: str) -> int | None:
-    value = fields.get(name)
-    if value is None or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
-        return None
-    return int(value, 16)
+    return hex8_field(fields, name)
 
 
 def _hex_nonzero(fields: dict[str, str], *names: str) -> bool:
@@ -391,18 +413,7 @@ def _hex_nonzero(fields: dict[str, str], *names: str) -> bool:
 
 
 def _execsys(fields: dict[str, str]) -> tuple[int, ...] | None:
-    value = fields.get("execsys")
-    if value is None:
-        return None
-    parts = value.split("/")
-    if len(parts) != len(EXECSYS_NAMES):
-        return None
-    parsed: list[int] = []
-    for part in parts:
-        if not re.fullmatch(r"[0-9A-Fa-f]{8}", part):
-            return None
-        parsed.append(int(part, 16))
-    return tuple(parsed)
+    return hex_tuple_field(fields, "execsys", len(EXECSYS_NAMES))
 
 
 def _hex_pair(fields: dict[str, str], name: str) -> tuple[int, int] | None:
@@ -420,19 +431,7 @@ def _hex_pair(fields: dict[str, str], name: str) -> tuple[int, int] | None:
 
 
 def _hex_tuple(fields: dict[str, str], name: str, count: int) -> tuple[int, ...] | None:
-    value = fields.get(name)
-    if value is None:
-        return None
-    parts = value.split("/")
-    if len(parts) != count:
-        return None
-    parsed: list[int] = []
-    for part in parts:
-        item = _parse_hex_field(part)
-        if item is None:
-            return None
-        parsed.append(item)
-    return tuple(parsed)
+    return hex_tuple_field(fields, name, count)
 
 
 def _exec_detail(fields: dict[str, str]) -> str:
@@ -446,13 +445,11 @@ def _exec_detail(fields: dict[str, str]) -> str:
 
 
 def summarize(fields: dict[str, str]) -> str:
-    return " ".join(f"{name}={fields.get(name, '<missing>')}" for name in SUMMARY_FIELDS)
+    return summarize_status_fields(fields, SUMMARY_FIELDS)
 
 
 def _parse_hex_field(value: str) -> int | None:
-    if not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
-        return None
-    return int(value, 16)
+    return parse_hex8(value)
 
 
 def _fault_tuple(fields: dict[str, str]) -> dict[str, int] | None:
@@ -652,6 +649,138 @@ def _persistence_save_growth_allocation_partial(fields: dict[str, str]) -> bool:
     return fat_allocator_failed_after_refresh and file_io_reached_allocation
 
 
+def _save_action(fields: dict[str, str]) -> tuple[int, int, int, int] | None:
+    return _hex_tuple(fields, "saveact", 4)
+
+
+def _save_stream(fields: dict[str, str]) -> tuple[int, int, int, int, int] | None:
+    return _hex_tuple(fields, "savestm", 5)
+
+
+def _save_thinker(fields: dict[str, str]) -> tuple[int, int, int, int] | None:
+    return _hex_tuple(fields, "savethk", 4)
+
+
+def _persistence_load_attempted(fields: dict[str, str]) -> bool:
+    doomsav = _hex_tuple(fields, "doomsav", 2)
+    saverd = _hex_tuple(fields, "saverd", 2)
+    saveact = _save_action(fields)
+    return (
+        (doomsav is not None and (doomsav[0] & SAVELOAD_EVENT_READ) != 0)
+        or (saverd is not None and (saverd[0] != 0 or saverd[1] != 0))
+        or (saveact is not None and (saveact[0] & SAVEACTION_LOAD_REQUESTED) != 0)
+        or _save_stream(fields) is not None
+        or _save_thinker(fields) is not None
+    )
+
+
+def _persistence_load_completed(fields: dict[str, str]) -> bool:
+    saveact = _save_action(fields)
+    if saveact is None:
+        return False
+    flags, gameaction, _slot, reports = saveact
+    return (
+        (flags & (SAVEACTION_LOAD_REQUESTED | SAVEACTION_LOAD_DONE))
+        == (SAVEACTION_LOAD_REQUESTED | SAVEACTION_LOAD_DONE)
+        and gameaction == 0
+        and reports != 0
+        and fields.get("gameplay") == "OK"
+    )
+
+
+def _malformed_load_stream_kind(fields: dict[str, str]) -> str | None:
+    savestm = _save_stream(fields)
+    if savestm is not None:
+        stage, _slot, _offset, value, reports = savestm
+        if reports != 0 and stage == SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE and value not in VALID_THINKER_CLASSES:
+            return "thinker"
+        if reports != 0 and stage == SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE and value not in VALID_SPECIAL_CLASSES:
+            return "specials"
+
+    savethk = _save_thinker(fields)
+    doom_error = (_hex(fields, "doomerr") or 0) != 0 or fields.get("doomrun") == "EXIT"
+    if doom_error and savethk is not None:
+        archive_offset, _archive_value, unarchive_offset, unarchive_value = savethk
+        if unarchive_offset not in (0, 0xFFFFFFFF) and unarchive_value not in VALID_THINKER_CLASSES:
+            return "thinker"
+        if archive_offset not in (0, 0xFFFFFFFF) and unarchive_offset not in (0, 0xFFFFFFFF):
+            return "stream"
+    if doom_error and savestm is not None:
+        stage = savestm[0]
+        if stage == SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE:
+            return "thinker"
+        if stage == SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE:
+            return "specials"
+        if stage == SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED:
+            return "stream"
+    return None
+
+
+def _persistence_load_malformed_stream(fields: dict[str, str]) -> bool:
+    return _persistence_load_attempted(fields) and _malformed_load_stream_kind(fields) is not None
+
+
+def _persistence_load_not_completed(fields: dict[str, str]) -> bool:
+    if not _persistence_load_attempted(fields):
+        return False
+    if _persistence_load_malformed_stream(fields):
+        return False
+    saveclose = _hex(fields, "saveclose")
+    saverd = _hex_tuple(fields, "saverd", 2)
+    saveact = _save_action(fields)
+    doomsav = _hex_tuple(fields, "doomsav", 2)
+    missing_close = saveclose is not None and saveclose == 0
+    incomplete_read_close_flags = doomsav is not None and (doomsav[0] & SAVELOAD_EVENT_CLOSE) == 0
+    missing_done = saveact is not None and (
+        (saveact[0] & SAVEACTION_LOAD_DONE) == 0 or saveact[1] != 0 or saveact[3] == 0
+    )
+    missing_read = saverd is not None and (saverd[0] == 0 or saverd[1] == 0)
+    return (
+        missing_close
+        or incomplete_read_close_flags
+        or missing_done
+        or missing_read
+        or not _persistence_load_completed(fields)
+    )
+
+
+def render_persistence_load_context(fields: dict[str, str]) -> list[str]:
+    kind = _malformed_load_stream_kind(fields)
+    prefix = "persistence-load-malformed-stream" if kind is not None else "persistence-load-not-completed"
+    lines = [
+        f"{prefix}: "
+        f"kind={kind or '<none>'} doomerr={_field(fields, 'doomerr')} doomrun={_field(fields, 'doomrun')} "
+        f"doomsav={_field(fields, 'doomsav')} saverd={_field(fields, 'saverd')} "
+        f"saveclose={_field(fields, 'saveclose')} saveact={_field(fields, 'saveact')} "
+        f"savestm={_field(fields, 'savestm')} savethk={_field(fields, 'savethk')}",
+    ]
+    savestm = _save_stream(fields)
+    if savestm is not None:
+        stage, slot, offset, value, reports = savestm
+        lines.append(
+            "persistence-load-stream: "
+            f"stage=0x{stage:X} slot={slot} offset=0x{offset:X} "
+            f"value=0x{value:X} reports={reports}"
+        )
+    savethk = _save_thinker(fields)
+    if savethk is not None:
+        archive_offset, archive_value, unarchive_offset, unarchive_value = savethk
+        lines.append(
+            "persistence-load-thinkers: "
+            f"archive_offset=0x{archive_offset:X} archive_value=0x{archive_value:X} "
+            f"unarchive_offset=0x{unarchive_offset:X} unarchive_value=0x{unarchive_value:X}"
+        )
+    if kind == "specials":
+        lines.append("persistence-hint: malformed specials stream; run the save image checker with the savestm offset")
+    elif kind == "thinker":
+        lines.append("persistence-hint: malformed thinker stream; run the save image checker with the savethk/savestm offset")
+    elif kind == "stream":
+        lines.append("persistence-hint: thinker boundary was reported, but the next load stream still failed")
+    else:
+        lines.append("persistence-hint: load-not-completed; saveact must include load requested and load done with ga_nothing")
+    return lines
+
+
 def render_persistence_save_context(fields: dict[str, str]) -> list[str]:
     lines = [
         "persistence-save: "
@@ -668,6 +797,12 @@ def render_persistence_save_context(fields: dict[str, str]) -> list[str]:
     fio = _hex_tuple(fields, "fio", 20)
     fwr = _hex_tuple(fields, "fwr", 11)
     savewr = _hex_tuple(fields, "savewr", 2)
+    if fwr is not None and savewr is not None and 0 < fwr[1] < fwr[9]:
+        lines.append(
+            "persistence-short-write: "
+            f"wrote={savewr[0]:#x} write_count={savewr[1]:#x} "
+            f"requested={fwr[9]:#x} result={fwr[1]:#x}"
+        )
     if _persistence_save_growth_allocation_partial(fields) and fwr is not None and savewr is not None:
         lines.append(
             "persistence-partial-save: "
@@ -792,13 +927,6 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
             )
         return "doom-user-fault", notes
 
-    if doomrun == "EXIT" or (_hex(fields, "doomexit") or 0) != 0:
-        notes.append(
-            "doom-user-exit: "
-            f"doomrun={_field(fields, 'doomrun')} doomexit={_field(fields, 'doomexit')}"
-        )
-        return "doom-user-exit", notes
-
     doomwad = _hex_tuple(fields, "doomwad", 4)
     if fields.get("doomopen") != "OK" or fields.get("doomread") != "OK" or doomwad is None or doomwad[0] == 0 or doomwad[1] == 0 or doomwad[2] == 0 or doomwad[3] != 0x44415749:
         notes.append(
@@ -819,6 +947,27 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
             f"gameplay={_field(fields, 'gameplay')} doompresent={_field(fields, 'doompresent')}"
         )
         return "doom-init-stalled", notes
+
+    if _persistence_load_malformed_stream(fields):
+        kind = _malformed_load_stream_kind(fields) or "stream"
+        notes.append(
+            "persistence-load-malformed-stream: "
+            f"kind={kind} doomerr={_field(fields, 'doomerr')} doomrun={_field(fields, 'doomrun')} "
+            f"doomsav={_field(fields, 'doomsav')} saverd={_field(fields, 'saverd')} "
+            f"saveclose={_field(fields, 'saveclose')} saveact={_field(fields, 'saveact')} "
+            f"savestm={_field(fields, 'savestm')} savethk={_field(fields, 'savethk')}"
+        )
+        return "persistence-load-malformed-stream", notes
+
+    if _persistence_load_not_completed(fields):
+        notes.append(
+            "persistence-load-not-completed: "
+            f"doomerr={_field(fields, 'doomerr')} doomrun={_field(fields, 'doomrun')} "
+            f"doomsav={_field(fields, 'doomsav')} saverd={_field(fields, 'saverd')} "
+            f"saveclose={_field(fields, 'saveclose')} saveact={_field(fields, 'saveact')} "
+            f"savestm={_field(fields, 'savestm')} savethk={_field(fields, 'savethk')}"
+        )
+        return "persistence-load-not-completed", notes
 
     if _persistence_save_write_failed(fields):
         if _persistence_save_growth_allocation_partial(fields):
@@ -841,6 +990,13 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
             f"fio={_field(fields, 'fio')} flb={_field(fields, 'flb')} fcl={_field(fields, 'fcl')}"
         )
         return "persistence-save-write-failed", notes
+
+    if doomrun == "EXIT" or (_hex(fields, "doomexit") or 0) != 0:
+        notes.append(
+            "doom-user-exit: "
+            f"doomrun={_field(fields, 'doomrun')} doomexit={_field(fields, 'doomexit')}"
+        )
+        return "doom-user-exit", notes
 
     if doomrun != "RUN":
         notes.append(f"doom-not-running: doomrun={_field(fields, 'doomrun')}")
@@ -866,7 +1022,11 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
     pflags = _hex(fields, "pflags") or 0
     keyseen = _hex(fields, "keyseen") or 0
     if (
-        (_hex(fields, "keyirq") or 0) == 0
+        (_hex(fields, "inputqueue") or 0) == 0
+        or (_hex(fields, "inputpoll") or 0) == 0
+        or fields.get("inputlast") is None
+        or fields.get("inputlast") == "00000000:00000000:00000000"
+        or (_hex(fields, "keyirq") or 0) == 0
         or (_hex(fields, "keyqueue") or 0) == 0
         or (_hex(fields, "keypoll") or 0) == 0
         or (keyseen & KEY_SEEN_SCRIPTED_FLAGS) != KEY_SEEN_SCRIPTED_FLAGS
@@ -883,6 +1043,8 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
     ):
         notes.append(
             "input-no-effect: "
+            f"inputqueue={_field(fields, 'inputqueue')} inputpoll={_field(fields, 'inputpoll')} "
+            f"inputlast={_field(fields, 'inputlast')} "
             f"keyirq={_field(fields, 'keyirq')} keyqueue={_field(fields, 'keyqueue')} "
             f"keypoll={_field(fields, 'keypoll')} keyseen={_field(fields, 'keyseen')} "
             f"pflags={_field(fields, 'pflags')} "
@@ -915,6 +1077,7 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
     pkind = _hex_pair(fields, "pkind")
     pcr3 = _hex_pair(fields, "pcr3")
     pkstk = _hex_pair(fields, "pkstk")
+    pframe = _hex_tuple(fields, "pframe", 5)
     pfrom = _hex(fields, "pfrom")
     pto = _hex(fields, "pto")
     spin = _hex(fields, "pspin")
@@ -928,6 +1091,7 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         or irq_switches != preempt_switches
         or (_hex(fields, "pattempt") or 0) == 0
         or (_hex(fields, "puser") or 0) == 0
+        or (_hex(fields, "puser") or 0) < (preempt_switches or 0)
         or (_hex(fields, "pround") or 0) == 0
         or (_hex(fields, "pctx") or 0) == 0
         or pair_mask is None
@@ -944,6 +1108,14 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         or set(pcr3) != {0x00082000, 0x00083000}
         or pkstk is None
         or set(pkstk) != {0x00073000, 0x00072000}
+        or pframe is None
+        or pframe[0] != irq_switches
+        or pframe[1] != peip[1]
+        or pframe[2] != USER_CODE_SEG
+        or (pframe[2] & 0x3) != 0x3
+        or pframe[3] == 0
+        or pframe[4] != USER_DATA_SEG
+        or (pframe[4] & 0x3) != 0x3
         or spin in (None, 0, PREEMPT_PROBE_MAGIC)
     ):
         notes.append(
@@ -956,6 +1128,7 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
             f"pto={_field(fields, 'pto')} pkind={_field(fields, 'pkind')} "
             f"peip={_field(fields, 'peip')} pcr3={_field(fields, 'pcr3')} "
             f"pkstk={_field(fields, 'pkstk')} "
+            f"pframe={_field(fields, 'pframe')} "
             f"pspin={_field(fields, 'pspin')} pself={_field(fields, 'pself')}"
         )
         return "preemption-not-proven", notes
@@ -987,6 +1160,8 @@ def render_diagnosis(
         lines.extend(f"- {note}" for note in render_persistence_save_context(fields))
     if primary == "persistence-save-growth-allocation-partial":
         lines.extend(f"- {note}" for note in render_persistence_save_context(fields))
+    if primary in ("persistence-load-malformed-stream", "persistence-load-not-completed"):
+        lines.extend(f"- {note}" for note in render_persistence_load_context(fields))
     if primary == "doom-init-stalled":
         lines.extend(f"- {note}" for note in render_doom_init_context(fields))
     if rule is not None:

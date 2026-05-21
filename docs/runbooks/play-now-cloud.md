@@ -86,6 +86,22 @@ same branch. It installs the remote dependencies on `ubuntu-latest`, runs
 contract, and uploads no artifacts. It is useful when you want to know the
 remote host shape is ready before spending a Codespace.
 
+The short safe hardware-lab loop is:
+
+```sh
+./tools/play_now_codespaces.sh --preflight --repo jadentripp/vibe-os --ref main
+./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref main
+python3 tools/run_cloud_playability.py --ref main --lane gameplay --dry-run
+python3 tools/run_cloud_playability.py --ref main --lane audio \
+  --soak-attempts 3 \
+  --soak-min-passes 3 \
+  --dry-run
+```
+
+The first two commands prove and open the interactive noVNC path. The latter
+two print the exact GitHub Actions proof and soak dispatches without launching
+local QEMU or downloading forbidden artifacts.
+
 To use a different noVNC port, set `NOVNC_PORT` on the Mac before the launch
 and before the optional dry run. The launcher validates that port locally,
 passes the same value into the Codespace, waits for that exact forwarded port,
@@ -110,6 +126,8 @@ and then starts the same remote play script:
 curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/main/tools/play_now_cloud_shell.sh \
   | VIBE_REF=main bash
 ```
+
+If `VIBE_REF` is omitted, the bootstrap helper defaults to `main`.
 
 Use `--preflight-only` when you want it to stop after dependency and noVNC
 checks:

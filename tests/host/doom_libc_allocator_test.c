@@ -36,6 +36,9 @@
 #define write vibe_test_write
 #define close vibe_test_close
 #define lseek vibe_test_lseek
+#define ftruncate vibe_test_ftruncate
+#define truncate vibe_test_truncate
+#define clock_gettime vibe_test_clock_gettime
 #define access vibe_test_access
 #define unlink vibe_test_unlink
 #define remove vibe_test_remove
@@ -107,9 +110,11 @@ static int mock_close_syscalls;
 static int mock_unlink_syscalls;
 static int mock_stat_syscalls;
 static int mock_fstat_syscalls;
+static int mock_ftruncate_syscalls;
 static int mock_ioctl_syscalls;
 static int mock_exec_syscalls;
 static int mock_getpid_syscalls;
+static int mock_clock_syscalls;
 static int mock_present_count;
 static int mock_exec_last_argc;
 static char mock_exec_last_path[64];
@@ -137,9 +142,11 @@ static void mock_reset(void)
     mock_unlink_syscalls = 0;
     mock_stat_syscalls = 0;
     mock_fstat_syscalls = 0;
+    mock_ftruncate_syscalls = 0;
     mock_ioctl_syscalls = 0;
     mock_exec_syscalls = 0;
     mock_getpid_syscalls = 0;
+    mock_clock_syscalls = 0;
     mock_present_count = 0;
     mock_exec_last_argc = 0;
     mock_exec_last_path[0] = 0;
@@ -227,6 +234,18 @@ static int mock_fd_can_write(int fd)
 
 int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, unsigned long arg2)
 {
+    if (number == VIBE_SYS_CLOCK_GETTIME) {
+        vibe_clock_time_t* out = (vibe_clock_time_t*)arg1;
+        ++mock_clock_syscalls;
+        if (arg0 != VIBE_CLOCK_MONOTONIC || !out || arg2 < sizeof(*out))
+            return -EINVAL;
+        out->ticks = 1234;
+        out->frequency_hz = VIBE_CLOCK_MONOTONIC_HZ;
+        out->milliseconds = 12340;
+        out->flags = 0;
+        return 0;
+    }
+
     if (number == VIBE_SYS_OPEN) {
         const char* path = (const char*)arg0;
         int flags = (int)arg1;
@@ -370,6 +389,26 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
         return 0;
     }
 
+    if (number == VIBE_SYS_FTRUNCATE) {
+        int fd = (int)arg0;
+        int length = (int)arg1;
+        struct mock_file* file;
+        ++mock_ftruncate_syscalls;
+        if (fd < 0 || fd >= MOCK_MAX_FDS || !mock_fds[fd].used || !mock_fd_can_write(fd))
+            return -EBADF;
+        if (length < 0)
+            return -EINVAL;
+        if (length > MOCK_FILE_CAPACITY)
+            return -EIO;
+        file = &mock_files[mock_fds[fd].file_index];
+        if (length > file->size)
+            memset(file->data + file->size, 0, (size_t)(length - file->size));
+        else if (length < file->size)
+            memset(file->data + length, 0, (size_t)(file->size - length));
+        file->size = length;
+        return 0;
+    }
+
     if (number == VIBE_SYS_IOCTL) {
         int fd = (int)arg0;
         unsigned long request = arg1;
@@ -384,6 +423,10 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
             info->backend = 2;
             info->frame_bytes = 320 * 200;
             info->palette_bytes = 256 * 3;
+            info->capabilities = VIBE_FB_CAP_PRESENT_INDEXED | VIBE_FB_CAP_PRESENT_RGB_PALETTE;
+            info->present_format = VIBE_FB_FORMAT_INDEX8_RGB24;
+            info->max_present_width = 320;
+            info->max_present_height = 200;
             return 0;
         }
         if (request == VIBE_IOCTL_PRESENT_INDEXED) {
@@ -539,6 +582,26 @@ int main(void)
         return 16;
     if (!bytes_match(a, 32, 43))
         return 17;
+
+    vibe_libc_host_heap_reset();
+    a = malloc(128);
+    b = malloc(64);
+    c = malloc(32);
+    if (!a || !b || !c)
+        return 222;
+    used = vibe_libc_host_heap_used();
+    fill_bytes(a, 32, 13);
+    free(b);
+    grown = realloc(a, 32);
+    if (grown != a)
+        return 223;
+    if (!bytes_match(grown, 32, 13))
+        return 224;
+    reused = malloc(144);
+    if (!reused)
+        return 225;
+    if (vibe_libc_host_heap_used() != used)
+        return 226;
 
     if (calloc((size_t)-1, 2))
         return 18;
@@ -992,6 +1055,51 @@ int main(void)
     }
 
     mock_reset();
+    if (mock_seed_file("resize.txt", "abcdef") < 0)
+        return 204;
+    {
+        char zeros[3];
+        char tail[3];
+        int fd = open("resize.txt", O_RDWR);
+        struct stat st;
+        if (fd < 0)
+            return 205;
+        if (ftruncate(fd, -1) != -1 || errno != EINVAL)
+            return 206;
+        if (ftruncate(fd, 3) != 0)
+            return 207;
+        if (fstat(fd, &st) != 0 || st.st_size != 3)
+            return 208;
+        if (lseek(fd, -2, SEEK_END) != 1)
+            return 209;
+        if (read(fd, tail, 2) != 2 || memcmp(tail, "bc", 2))
+            return 210;
+        if (ftruncate(fd, 6) != 0)
+            return 211;
+        if (lseek(fd, 3, SEEK_SET) != 3)
+            return 212;
+        if (read(fd, zeros, sizeof(zeros)) != (ssize_t)sizeof(zeros))
+            return 213;
+        if (zeros[0] != 0 || zeros[1] != 0 || zeros[2] != 0)
+            return 214;
+        if (close(fd) != 0)
+            return 215;
+        if (truncate("resize.txt", 2) != 0)
+            return 216;
+        if (stat("resize.txt", &st) != 0 || st.st_size != 2)
+            return 217;
+        fd = open("resize.txt", O_RDONLY);
+        if (fd < 0)
+            return 218;
+        if (ftruncate(fd, 1) != -1 || errno != EBADF)
+            return 219;
+        if (close(fd) != 0)
+            return 220;
+        if (mock_ftruncate_syscalls != 4)
+            return 221;
+    }
+
+    mock_reset();
     vibe_libc_host_heap_reset();
     {
         unsigned char* mapped = mmap(0, 8192, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -1023,6 +1131,12 @@ int main(void)
             return 131;
         if (info.width != 640 || info.height != 400 || info.frame_bytes != 320 * 200 || info.palette_bytes != 256 * 3)
             return 132;
+        if (info.present_format != VIBE_FB_FORMAT_INDEX8_RGB24
+            || info.max_present_width != 320
+            || info.max_present_height != 200
+            || !(info.capabilities & VIBE_FB_CAP_PRESENT_INDEXED)
+            || !(info.capabilities & VIBE_FB_CAP_PRESENT_RGB_PALETTE))
+            return 132;
         present.frame = &frame;
         present.palette = &palette;
         present.width = 320;
@@ -1049,6 +1163,33 @@ int main(void)
             return 139;
         if (wait(&status) != -1 || errno != ECHILD)
             return 140;
+    }
+
+    mock_reset();
+    {
+        vibe_clock_time_t now;
+        struct timespec ts;
+        if (vibe_clock_gettime(VIBE_CLOCK_MONOTONIC, &now) != 0)
+            return 148;
+        if (now.ticks != 1234
+            || now.frequency_hz != VIBE_CLOCK_MONOTONIC_HZ
+            || now.milliseconds != 12340
+            || now.flags != 0)
+            return 149;
+        if (vibe_monotonic_ticks() != 1234)
+            return 150;
+        if (vibe_monotonic_milliseconds() != 12340)
+            return 151;
+        if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+            return 152;
+        if (ts.tv_sec != 12 || ts.tv_nsec != 340000000L)
+            return 153;
+        if (clock_gettime(0, &ts) != -1 || errno != EINVAL)
+            return 154;
+        if (vibe_clock_gettime(VIBE_CLOCK_MONOTONIC, 0) != -1 || errno != EINVAL)
+            return 155;
+        if (mock_clock_syscalls != 4)
+            return 156;
     }
 
     mock_reset();

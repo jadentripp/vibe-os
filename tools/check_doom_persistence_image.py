@@ -35,10 +35,36 @@ MIN_SAVE_BYTES = 4096
 SAVE_CONSISTENCY_MARKER = 0x1D
 DOOM_PLAYER_RECORD_BYTES = 280
 DOOM_PLAYER_RECORD_SCAN_BYTES = 4
+DOOM_MOBJ_RECORD_BYTES = 156
+DOOM_MOBJ_TYPE_OFFSET = 88
+DOOM_MOBJ_STATE_OFFSET = 100
+DOOM_MOBJ_PLAYER_OFFSET = 132
+DOOM_NUM_STATES = 967
+DOOM_NUM_MOBJ_TYPES = 137
+DOOM_MAXPLAYERS = 4
 MIN_ARCHIVED_WORLD_BYTES = 1024
 MIN_SERIALIZED_NONZERO_BYTES = 64
 MIN_SERIALIZED_DISTINCT_BYTES = 8
 REQUIRED_DOOM_INIT_FLAGS = 0x000001FF
+DOOM_THINKER_CLASSES = {
+    0: ("tc_end", 0),
+    1: ("tc_mobj", DOOM_MOBJ_RECORD_BYTES),
+}
+DOOM_SPECIAL_CLASSES = {
+    0: ("tc_ceiling", 52),
+    1: ("tc_door", 40),
+    2: ("tc_floor", 44),
+    3: ("tc_plat", 56),
+    4: ("tc_flash", 36),
+    5: ("tc_strobe", 36),
+    6: ("tc_glow", 28),
+    7: ("tc_endspecials", 0),
+}
+SAVE_STAGE_ARCHIVE_THINKERS_BEFORE = 0x05
+SAVE_STAGE_ARCHIVE_SPECIALS_BEFORE = 0x07
+SAVE_STAGE_UNARCHIVE_THINKERS_BEFORE = 0x15
+SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE = 0x17
+SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED = 0x1A
 FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
 DEFAULT_ASSIGNMENT_PATTERN = re.compile(r"^([A-Za-z0-9_]+)\s+(.+)$")
 REBOOT_EXACT_FIELDS = {
@@ -126,9 +152,12 @@ SAVELOAD_REQUIRED_LOAD_FLAGS = SAVELOAD_EVENT_OPEN | SAVELOAD_EVENT_READ | SAVEL
 SAVEACTION_DESCRIPTION = 0x0004
 SAVEACTION_SAVE_REQUESTED = 0x0008
 SAVEACTION_SAVE_DONE = 0x0010
+SAVEACTION_LOAD_REQUESTED = 0x0020
+SAVEACTION_LOAD_DONE = 0x0040
 SAVE_WRITE_REQUIRED_ACTION_FLAGS = (
     SAVEACTION_DESCRIPTION | SAVEACTION_SAVE_REQUESTED | SAVEACTION_SAVE_DONE
 )
+SAVE_LOAD_REQUIRED_ACTION_FLAGS = SAVEACTION_LOAD_REQUESTED | SAVEACTION_LOAD_DONE
 
 spec = importlib.util.spec_from_file_location("make_wad_image", MAKE_WAD_IMAGE)
 make_wad_image = importlib.util.module_from_spec(spec)
@@ -149,6 +178,10 @@ def _u32le(raw, offset):
 
 def _s32le(raw, offset):
     return int.from_bytes(raw[offset:offset + 4], "little", signed=True)
+
+
+def _align4(offset):
+    return offset + ((4 - (offset & 3)) & 3)
 
 
 def _read_image(path):
@@ -336,7 +369,189 @@ def _find_plausible_player_record(data, slot):
     )
 
 
-def _validate_save_slot(fs, slot):
+def _parse_save_stream_offset(value, label):
+    try:
+        offset = int(str(value), 0)
+    except ValueError as exc:
+        raise PersistenceProofError(f"{label} must be an integer offset, got {value!r}") from exc
+    if offset < 0:
+        raise PersistenceProofError(f"{label} must not be negative")
+    return offset
+
+
+def _runtime_stream_offsets(status):
+    if status is None:
+        return {}
+    fields = _status_fields(status)
+    offsets = {}
+    if "savestm" in fields:
+        stage, slot, offset, value, reports = _status_hex_tuple_field(fields, "savestm", 5)
+        offsets["savestm"] = {
+            "stage": stage,
+            "slot": slot,
+            "offset": offset,
+            "value": value,
+            "reports": reports,
+        }
+        if stage == SAVE_STAGE_UNARCHIVE_SPECIALS_BEFORE:
+            offsets["specials"] = offset
+        elif stage == SAVE_STAGE_ARCHIVE_SPECIALS_BEFORE:
+            offsets["archive_specials"] = offset
+    if "savethk" in fields:
+        archive_offset, archive_value, unarchive_offset, unarchive_value = (
+            _status_hex_tuple_field(fields, "savethk", 4)
+        )
+        offsets["savethk"] = {
+            "archive_offset": archive_offset,
+            "archive_value": archive_value,
+            "unarchive_offset": unarchive_offset,
+            "unarchive_value": unarchive_value,
+        }
+        if unarchive_offset != 0xFFFFFFFF:
+            offsets["thinkers"] = unarchive_offset
+        elif archive_offset != 0xFFFFFFFF:
+            offsets["thinkers"] = archive_offset
+    return offsets
+
+
+def _require_save_offset(data, offset, label):
+    if offset < SAVE_GAMESTATE_OFFSET:
+        raise PersistenceProofError(
+            f"{label} offset 0x{offset:X} points inside the Doom save header"
+        )
+    final_payload_offset = len(data) - 1
+    if offset >= final_payload_offset:
+        raise PersistenceProofError(
+            f"{label} offset 0x{offset:X} points outside serialized game-state bytes"
+        )
+
+
+def _validate_mobj_record_semantics(data, record_offset, class_offset, slot):
+    # Doom saves mobj_t->state/type/player as small table/player indexes, not pointers.
+    state = _u32le(data, record_offset + DOOM_MOBJ_STATE_OFFSET)
+    mobj_type = _u32le(data, record_offset + DOOM_MOBJ_TYPE_OFFSET)
+    player = _u32le(data, record_offset + DOOM_MOBJ_PLAYER_OFFSET)
+
+    if state >= DOOM_NUM_STATES:
+        raise PersistenceProofError(
+            f"DOOMSAV{slot}.DSG malformed thinker stream at 0x{class_offset:X}: "
+            f"tc_mobj semantic state index {state} outside 0..{DOOM_NUM_STATES - 1}"
+        )
+    if mobj_type >= DOOM_NUM_MOBJ_TYPES:
+        raise PersistenceProofError(
+            f"DOOMSAV{slot}.DSG malformed thinker stream at 0x{class_offset:X}: "
+            f"tc_mobj semantic type index {mobj_type} outside 0..{DOOM_NUM_MOBJ_TYPES - 1}"
+        )
+    if player > DOOM_MAXPLAYERS:
+        raise PersistenceProofError(
+            f"DOOMSAV{slot}.DSG malformed thinker stream at 0x{class_offset:X}: "
+            f"tc_mobj semantic player index {player} outside 0..{DOOM_MAXPLAYERS}"
+        )
+
+
+def parse_thinker_stream(data, offset, *, slot=0):
+    """Parse Doom's P_ArchiveThinkers class stream from a save payload."""
+
+    _require_save_offset(data, offset, f"DOOMSAV{slot}.DSG thinker stream")
+    cursor = offset
+    counts = {}
+    final_payload_offset = len(data) - 1
+    while cursor < final_payload_offset:
+        class_offset = cursor
+        tclass = data[cursor]
+        cursor += 1
+        name, record_size = DOOM_THINKER_CLASSES.get(tclass, (None, None))
+        if name is None:
+            raise PersistenceProofError(
+                f"DOOMSAV{slot}.DSG malformed thinker stream at 0x{class_offset:X}: "
+                f"unknown tclass {tclass}"
+            )
+        counts[name] = counts.get(name, 0) + 1
+        if name == "tc_end":
+            return {
+                "offset": offset,
+                "end_offset": class_offset + 1,
+                "counts": counts,
+                "terminator": name,
+            }
+        record_offset = _align4(cursor)
+        record_end = record_offset + record_size
+        if record_end > final_payload_offset:
+            raise PersistenceProofError(
+                f"DOOMSAV{slot}.DSG malformed thinker stream at 0x{class_offset:X}: "
+                f"{name} record runs past save payload"
+            )
+        if name == "tc_mobj":
+            _validate_mobj_record_semantics(data, record_offset, class_offset, slot)
+        cursor = record_end
+    raise PersistenceProofError(
+        f"DOOMSAV{slot}.DSG malformed thinker stream from 0x{offset:X}: "
+        "missing tc_end before final consistency marker"
+    )
+
+
+def parse_specials_stream(data, offset, *, slot=0):
+    """Parse Doom's P_ArchiveSpecials class stream from a save payload."""
+
+    _require_save_offset(data, offset, f"DOOMSAV{slot}.DSG specials stream")
+    cursor = offset
+    counts = {}
+    final_payload_offset = len(data) - 1
+    while cursor < final_payload_offset:
+        class_offset = cursor
+        tclass = data[cursor]
+        cursor += 1
+        name, record_size = DOOM_SPECIAL_CLASSES.get(tclass, (None, None))
+        if name is None:
+            raise PersistenceProofError(
+                f"DOOMSAV{slot}.DSG malformed specials stream at 0x{class_offset:X}: "
+                f"unknown special tclass {tclass}"
+            )
+        counts[name] = counts.get(name, 0) + 1
+        if name == "tc_endspecials":
+            if class_offset + 1 != final_payload_offset:
+                raise PersistenceProofError(
+                    f"DOOMSAV{slot}.DSG malformed specials stream at 0x{class_offset:X}: "
+                    "tc_endspecials is not immediately followed by Doom's final consistency marker"
+                )
+            return {
+                "offset": offset,
+                "end_offset": class_offset + 1,
+                "counts": counts,
+                "terminator": name,
+            }
+        record_offset = _align4(cursor)
+        record_end = record_offset + record_size
+        if record_end > final_payload_offset:
+            raise PersistenceProofError(
+                f"DOOMSAV{slot}.DSG malformed specials stream at 0x{class_offset:X}: "
+                f"{name} record runs past save payload"
+            )
+        cursor = record_end
+    raise PersistenceProofError(
+        f"DOOMSAV{slot}.DSG malformed specials stream from 0x{offset:X}: "
+        "missing tc_endspecials before final consistency marker"
+    )
+
+
+def _stream_summary(prefix, parsed):
+    count_text = ",".join(
+        f"{name}={count}" for name, count in sorted(parsed["counts"].items())
+    )
+    return (
+        f"{prefix}=OK offset=0x{parsed['offset']:X} end=0x{parsed['end_offset']:X} "
+        f"{count_text}"
+    )
+
+
+def _validate_save_slot(
+    fs,
+    slot,
+    *,
+    thinker_offset=None,
+    specials_offset=None,
+    stream_status=None,
+):
     if slot < 0 or slot >= len(make_wad_image.WRITABLE_SAVE_NAMES):
         raise PersistenceProofError(f"save slot {slot} is outside DOOMSAV0.DSG..DOOMSAV5.DSG")
 
@@ -409,6 +624,19 @@ def _validate_save_slot(fs, slot):
         raise PersistenceProofError(
             f"DOOMSAV{slot}.DSG serialized game-state bytes are too uniform for a Doom save"
         )
+
+    stream_summaries = []
+    runtime_offsets = _runtime_stream_offsets(stream_status)
+    if thinker_offset is None:
+        thinker_offset = runtime_offsets.get("thinkers")
+    if specials_offset is None:
+        specials_offset = runtime_offsets.get("specials")
+    if thinker_offset is not None:
+        parsed = parse_thinker_stream(data, thinker_offset, slot=slot)
+        stream_summaries.append(_stream_summary("thinkers", parsed))
+    if specials_offset is not None:
+        parsed = parse_specials_stream(data, specials_offset, slot=slot)
+        stream_summaries.append(_stream_summary("specials", parsed))
     return (
         len(data),
         description.decode("ascii", "replace"),
@@ -417,6 +645,7 @@ def _validate_save_slot(fs, slot):
         episode,
         game_map,
         leveltime,
+        stream_summaries,
     )
 
 
@@ -799,6 +1028,25 @@ def validate_save_load_status(status, *, slot, save_size, episode, game_map, lev
     if _status_hex_field(fields, "saveclose") == 0:
         raise PersistenceProofError("save load status saveclose= must prove a DOOMSAV close")
 
+    saveaction_flags, saveaction_gameaction, saveaction_slot, saveaction_reports = (
+        _status_hex_tuple_field(fields, "saveact", 4)
+    )
+    if saveaction_slot != slot:
+        raise PersistenceProofError(
+            f"save load status saveact= slot must be {slot}, got {saveaction_slot}"
+        )
+    if saveaction_reports == 0:
+        raise PersistenceProofError("save load status saveact= must prove Doom action reporting")
+    if (saveaction_flags & SAVE_LOAD_REQUIRED_ACTION_FLAGS) != SAVE_LOAD_REQUIRED_ACTION_FLAGS:
+        raise PersistenceProofError(
+            "save load status saveact= must prove the original Doom load was "
+            "requested and completed after G_DoLoadGame returned"
+        )
+    if saveaction_gameaction != 0:
+        raise PersistenceProofError(
+            f"save load status saveact= gameaction must be ga_nothing after load, got {saveaction_gameaction}"
+        )
+
     expected_map = (episode << 8) | game_map
     actual_map = _status_hex_field(fields, "gmap")
     if actual_map != expected_map:
@@ -828,6 +1076,8 @@ def validate_image(
     require_save_slots=(),
     require_save_descriptions=None,
     require_dynamic_fat_proof=False,
+    save_thinker_offset=None,
+    save_specials_offset=None,
 ):
     image = _read_image(path)
     fs = make_wad_image.Fat16Image(image)
@@ -910,6 +1160,7 @@ def validate_image(
             expected_slot=expected_save_slot,
         )
         save_write_status_ok = True
+    load_status_text = Path(load_status_path).read_text() if load_status_path is not None else None
 
     if require_default:
         default_size = _validate_default(fs)
@@ -932,9 +1183,25 @@ def validate_image(
 
     save_slot_infos = {}
     for slot in require_save_slots:
+        stream_status_text = load_status_text or save_write_status_text
         try:
-            size, description, version, skill, episode, game_map, leveltime = (
-                _validate_save_slot(fs, slot)
+            (
+                size,
+                description,
+                version,
+                skill,
+                episode,
+                game_map,
+                leveltime,
+                stream_summaries,
+            ) = (
+                _validate_save_slot(
+                    fs,
+                    slot,
+                    thinker_offset=save_thinker_offset,
+                    specials_offset=save_specials_offset,
+                    stream_status=stream_status_text,
+                )
             )
         except PersistenceProofError as exc:
             diagnostics = _format_save_slot_diagnostics(fs, slot, save_write_status_text)
@@ -949,6 +1216,7 @@ def validate_image(
             "episode": episode,
             "game_map": game_map,
             "leveltime": leveltime,
+            "stream_summaries": stream_summaries,
         }
         _require_fresh_save_baseline(
             baseline_fs,
@@ -974,6 +1242,10 @@ def validate_image(
             f"DOOMSAV{slot}.DSG bytes={size}{suffix} "
             f"description={description!r} version={version!r} leveltime={leveltime}"
         )
+        summary.extend(
+            f"DOOMSAV{slot}.DSG {stream_summary}"
+            for stream_summary in stream_summaries
+        )
 
     if reboot_status_path is not None:
         validate_reboot_status(Path(reboot_status_path).read_text())
@@ -982,7 +1254,7 @@ def validate_image(
         slot = require_save_slots[0]
         info = save_slot_infos[slot]
         validate_save_load_status(
-            Path(load_status_path).read_text(),
+            load_status_text,
             slot=slot,
             save_size=info["size"],
             episode=info["episode"],
@@ -1054,6 +1326,14 @@ def parse_args():
         action="store_true",
         help="mutate an in-memory copy to prove dynamic FAT create/grow/shrink/truncate/delete behavior",
     )
+    parser.add_argument(
+        "--save-thinker-offset",
+        help="byte offset inside DOOMSAVN.DSG where Doom's thinker class stream starts; accepts decimal or 0x-prefixed hex",
+    )
+    parser.add_argument(
+        "--save-specials-offset",
+        help="byte offset inside DOOMSAVN.DSG where Doom's specials class stream starts; accepts decimal or 0x-prefixed hex",
+    )
     return parser.parse_args()
 
 
@@ -1093,6 +1373,16 @@ def main():
             args.require_save_description
         ),
         require_dynamic_fat_proof=args.require_dynamic_fat_proof,
+        save_thinker_offset=(
+            _parse_save_stream_offset(args.save_thinker_offset, "--save-thinker-offset")
+            if args.save_thinker_offset is not None
+            else None
+        ),
+        save_specials_offset=(
+            _parse_save_stream_offset(args.save_specials_offset, "--save-specials-offset")
+            if args.save_specials_offset is not None
+            else None
+        ),
     ):
         print(line)
 

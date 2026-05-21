@@ -10,6 +10,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "vibe_os.h"
@@ -571,6 +572,8 @@ void* realloc(void* ptr, size_t size)
 
     if (old_header->size >= size) {
         alloc_split(old_header, size);
+        if (old_header->next)
+            alloc_coalesce_next(old_header->next);
         return ptr;
     }
 
@@ -734,6 +737,93 @@ off_t lseek(int fd, off_t offset, int whence)
     return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
 }
 
+int vibe_clock_gettime(unsigned long clock_id, vibe_clock_time_t* out)
+{
+    int raw;
+
+    if (!out) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    raw = vibe_syscall3(
+        VIBE_SYS_CLOCK_GETTIME,
+        clock_id,
+        (unsigned long)out,
+        (unsigned long)sizeof(*out));
+    return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
+}
+
+unsigned long vibe_monotonic_ticks(void)
+{
+    vibe_clock_time_t now;
+
+    if (vibe_clock_gettime(VIBE_CLOCK_MONOTONIC, &now) < 0)
+        return 0;
+    return now.ticks;
+}
+
+unsigned long vibe_monotonic_milliseconds(void)
+{
+    vibe_clock_time_t now;
+
+    if (vibe_clock_gettime(VIBE_CLOCK_MONOTONIC, &now) < 0)
+        return 0;
+    return now.milliseconds;
+}
+
+int clock_gettime(clockid_t clock_id, struct timespec* tp)
+{
+    vibe_clock_time_t now;
+
+    if (!tp || clock_id != CLOCK_MONOTONIC) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (vibe_clock_gettime(VIBE_CLOCK_MONOTONIC, &now) < 0)
+        return -1;
+
+    tp->tv_sec = (time_t)(now.milliseconds / 1000u);
+    tp->tv_nsec = (long)((now.milliseconds % 1000u) * 1000000u);
+    return 0;
+}
+
+int ftruncate(int fd, off_t length)
+{
+    int raw;
+    if (length < 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    raw = vibe_syscall3(VIBE_SYS_FTRUNCATE, (unsigned long)fd, (unsigned long)length, 0);
+    return raw < 0 ? syscall_failed(raw, EIO) : raw;
+}
+
+int truncate(const char* path, off_t length)
+{
+    int fd;
+    int result;
+    int saved_errno;
+
+    if (!path || length < 0) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    fd = open(path, O_WRONLY);
+    if (fd < 0)
+        return -1;
+
+    result = ftruncate(fd, length);
+    saved_errno = errno;
+    if (close(fd) < 0 && result == 0)
+        return -1;
+    if (result < 0)
+        errno = saved_errno;
+    return result;
+}
+
 int access(const char* path, int mode)
 {
     int fd;
@@ -804,6 +894,21 @@ int stat(const char* path, struct stat* out)
     }
     raw = vibe_syscall3(VIBE_SYS_STAT, (unsigned long)mapped_path(path), (unsigned long)out, 0);
     return raw < 0 ? syscall_failed(raw, ENOENT) : raw;
+}
+
+int vibe_listdir(const char* path, vibe_dirent_t* entries, unsigned long max_entries)
+{
+    int raw;
+    if (!path) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (max_entries && !entries) {
+        errno = EINVAL;
+        return -1;
+    }
+    raw = vibe_syscall3(VIBE_SYS_LISTDIR, (unsigned long)path, (unsigned long)entries, max_entries);
+    return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
 }
 
 void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t offset)

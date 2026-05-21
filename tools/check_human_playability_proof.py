@@ -10,6 +10,13 @@ import re
 import sys
 from pathlib import Path
 
+from status_fields import (
+    parse_hex8,
+    parse_hex_tuple,
+    parse_status_fields,
+    summarize_status_fields,
+)
+
 
 DEFAULT_REJECT_PATTERNS = (
     r"doom error",
@@ -67,7 +74,6 @@ REQUIRED_FINAL_PFLAGS_WITH_USE_SNAPSHOT = (
 )
 REQUIRED_FIRE_STATE_PFLAGS = PFLAG_AMMO_DELTA | PFLAG_REFIRE
 
-FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
 SUMMARY_FIELDS = (
     "gameplay",
     "gstate",
@@ -199,13 +205,7 @@ FORBIDDEN_ARTIFACT_SIGNATURES = (
 
 
 def _status_fields(status: str) -> dict[str, str]:
-    fields: dict[str, str] = {}
-    for match in FIELD_PATTERN.finditer(status):
-        name = match.group(1)
-        if name in fields:
-            raise AssertionError(f"duplicate {name}= field")
-        fields[name] = match.group(2)
-    return fields
+    return parse_status_fields(status, error_type=AssertionError, require_any=False)
 
 
 def summarize_status(status: str) -> str:
@@ -215,7 +215,7 @@ def summarize_status(status: str) -> str:
         fields = _status_fields(status)
     except AssertionError as exc:
         return f"unparseable status: {exc}"
-    return " ".join(f"{name}={fields.get(name, '<missing>')}" for name in SUMMARY_FIELDS)
+    return summarize_status_fields(fields, SUMMARY_FIELDS)
 
 
 def _field(status: str, name: str) -> str:
@@ -228,9 +228,10 @@ def _field(status: str, name: str) -> str:
 
 def _hex_field(status: str, name: str) -> int:
     value = _field(status, name)
-    if not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
+    parsed = parse_hex8(value)
+    if parsed is None:
         raise AssertionError(f"{name}= must be eight hex digits, got {value!r}")
-    return int(value, 16)
+    return parsed
 
 
 def _hex_field_gt(status: str, name: str, minimum: int) -> int:
@@ -248,10 +249,11 @@ def _hex_field_eq(status: str, name: str, expected: int, label: str) -> None:
 
 def _position_field(status: str, name: str) -> tuple[int, int]:
     value = _field(status, name)
-    if not re.fullmatch(r"[0-9A-Fa-f]{8}:[0-9A-Fa-f]{8}", value):
+    parsed = parse_hex_tuple(value, 2, sep=":")
+    if parsed is None:
         raise AssertionError(f"{name}= must be two eight-digit hex coordinates, got {value!r}")
-    left, right = value.split(":")
-    return int(left, 16), int(right, 16)
+    left, right = parsed
+    return left, right
 
 
 def _assert_position_changed(before: str, after: str, before_label: str, after_label: str) -> None:

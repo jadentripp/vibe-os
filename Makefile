@@ -232,6 +232,10 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "lmp=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "exec=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "path=DOOM.ELF" $(BUILD_DIR)/status.txt; \
+	grep -q "uexec=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "upath=USERPROB.ELF" $(BUILD_DIR)/status.txt; \
+	grep -q "upid=" $(BUILD_DIR)/status.txt; \
+	grep -q "uentry=" $(BUILD_DIR)/status.txt; \
 	grep -q "doom=OK" $(BUILD_DIR)/status.txt; \
 	grep -Eq "doomrun=(RUN|EXIT)" $(BUILD_DIR)/status.txt; \
 	grep -q "doomexit=" $(BUILD_DIR)/status.txt; \
@@ -319,12 +323,18 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "musicpull=" $(BUILD_DIR)/status.txt; \
 	grep -q "musicrend=" $(BUILD_DIR)/status.txt; \
 	grep -q "sb16=" $(BUILD_DIR)/status.txt; \
-	grep -q "dma=" $(BUILD_DIR)/status.txt; \
-	grep -q "play=" $(BUILD_DIR)/status.txt; \
-	grep -q "voiceq=" $(BUILD_DIR)/status.txt; \
-	grep -q "musicq=" $(BUILD_DIR)/status.txt; \
-	grep -Eq "audio=(SB16|NONE)" $(BUILD_DIR)/status.txt; \
-		grep -q "keyirq=" $(BUILD_DIR)/status.txt; \
+		grep -q "dma=" $(BUILD_DIR)/status.txt; \
+		grep -q "play=" $(BUILD_DIR)/status.txt; \
+		grep -q "voiceq=" $(BUILD_DIR)/status.txt; \
+		grep -q "musicq=" $(BUILD_DIR)/status.txt; \
+		grep -q "adev=" $(BUILD_DIR)/status.txt; \
+		grep -q "pcm=" $(BUILD_DIR)/status.txt; \
+		grep -q "pcmbuf=" $(BUILD_DIR)/status.txt; \
+		grep -Eq "audio=(SB16|NONE)" $(BUILD_DIR)/status.txt; \
+			grep -q "inputqueue=" $(BUILD_DIR)/status.txt; \
+			grep -q "inputpoll=" $(BUILD_DIR)/status.txt; \
+			grep -Eq "inputlast=([0-9A-F]{8}:){2}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
+			grep -q "keyirq=" $(BUILD_DIR)/status.txt; \
 		grep -q "keyqueue=" $(BUILD_DIR)/status.txt; \
 		grep -q "keypoll=" $(BUILD_DIR)/status.txt; \
 		grep -q "keyseen=" $(BUILD_DIR)/status.txt; \
@@ -392,8 +402,10 @@ smoke: vm-consent check-tools $(IMAGE)
 		if [ -f "$(BUILD_DIR)/status.after-menu.txt" ]; then audio_args="$$audio_args --menu $(BUILD_DIR)/status.after-menu.txt"; fi; \
 		$(PYTHON) tools/check_audio_continuity_proof.py --require-pull-stream $$audio_args $(BUILD_DIR)/status.txt; \
 	fi; \
-	if [ -n "$(SMOKE_SENDKEYS)" ] || [ "$(SMOKE_REQUIRE_KEY_EVENT)" = "1" ]; then \
-			perl -ne '$$ok = 1 if /keyirq=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+		if [ -n "$(SMOKE_SENDKEYS)" ] || [ "$(SMOKE_REQUIRE_KEY_EVENT)" = "1" ]; then \
+				perl -ne '$$ok = 1 if /inputqueue=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+				perl -ne '$$ok = 1 if /inputpoll=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+				perl -ne '$$ok = 1 if /keyirq=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 			perl -ne '$$ok = 1 if /keyqueue=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 			perl -ne '$$ok = 1 if /keypoll=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 			perl -ne '$$ok = 1 if /keyseen=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \

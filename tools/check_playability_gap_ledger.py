@@ -82,11 +82,14 @@ REQUIRED_GAPS = {
 LATEST_RUN_PHRASES = (
     "Latest Cloud Evidence",
     "last published scripted cloud truth-serum run",
-    "Current-head cloud proof state: save persistence is not green yet",
-    "26196214650",
-    "2788c00",
-    "flb=",
-    "fcl=",
+    "Save persistence is not green yet",
+    "26199297160",
+    "ed4d00f",
+    "25718",
+    "Unknown tclass 112 in savegame",
+    "savestm=",
+    "savethk=",
+    "0x2A64",
     "26165681561",
     "c525952",
     "real-WAD, human-playability",
@@ -223,9 +226,14 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         "26165678183",
         "playability-status-green",
         "Persistence/save-load should only be claimed",
-        "Current-head cloud proof state: save persistence is not green yet",
         "DOOMSAV0.DSG",
-        "1024 bytes",
+        "Where It Stands",
+        "26199297160",
+        "ed4d00f",
+        "25718",
+        "Unknown tclass 112 in savegame",
+        "savestm=",
+        "savethk=",
         "gh workflow run os-smoke.yml",
         "gh workflow run real-wad-smoke.yml",
     ):
@@ -235,7 +243,7 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         raise AssertionError("playable cloud proof doc must keep the human-playability claim boundary")
     if "docs/post-checkpoint-gaps.md" not in readme:
         raise AssertionError("README must point to the gap ledger")
-    if "What Is Still Not Proven" not in readme:
+    if "Claim Boundaries" not in readme:
         raise AssertionError("README must keep the Doom-capable claim boundary visible")
     if "tools/check_playability_gap_ledger.py" not in tests_readme:
         raise AssertionError("tests README must document the gap-ledger checker")

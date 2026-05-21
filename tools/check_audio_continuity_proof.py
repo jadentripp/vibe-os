@@ -4,12 +4,17 @@
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from status_fields import parse_hex8, parse_status_fields, summarize_status_fields  # noqa: E402
+
 WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
 MAKEFILE = ROOT / "Makefile"
 AUDIO_DOC = ROOT / "docs" / "audio.md"
@@ -18,7 +23,6 @@ PLAYABLE_DOC = ROOT / "docs" / "playable-cloud-proof.md"
 RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
 SMOKE_RUNNER = ROOT / "tests" / "run_smoke_qemu.sh"
 
-FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
 SNAPSHOT_ORDER = ("baseline", "fire", "movement", "use", "menu", "final")
 REQUIRED_AUDIO_FIELDS = (
     "audio",
@@ -53,6 +57,9 @@ REQUIRED_AUDIO_FIELDS = (
     "musicstream",
     "musicpull",
     "musicrend",
+    "adev",
+    "pcm",
+    "pcmbuf",
     "sb16",
     "dma",
     "play",
@@ -116,6 +123,9 @@ TUPLE_FIELDS = {
     "musicq": 2,
     "musicpull": 2,
     "musicrend": 6,
+    "adev": 3,
+    "pcm": 3,
+    "pcmbuf": 4,
 }
 MUSIC_STREAM_MODES = ("NONE", "PUSH", "PULL")
 SUMMARY_FIELDS = (
@@ -151,6 +161,9 @@ SUMMARY_FIELDS = (
     "musicstream",
     "musicpull",
     "musicrend",
+    "adev",
+    "pcm",
+    "pcmbuf",
     "sb16",
     "dma",
     "play",
@@ -164,13 +177,7 @@ SUMMARY_FIELDS = (
 
 
 def _status_fields(status: str) -> dict[str, str]:
-    fields: dict[str, str] = {}
-    for match in FIELD_PATTERN.finditer(status):
-        name = match.group(1)
-        if name in fields:
-            raise AssertionError(f"duplicate {name}= field")
-        fields[name] = match.group(2)
-    return fields
+    return parse_status_fields(status, error_type=AssertionError, require_any=False)
 
 
 def summarize_status(status: str) -> str:
@@ -178,16 +185,17 @@ def summarize_status(status: str) -> str:
         fields = _status_fields(status)
     except AssertionError as exc:
         return f"unparseable status: {exc}"
-    return " ".join(f"{name}={fields.get(name, '<missing>')}" for name in SUMMARY_FIELDS)
+    return summarize_status_fields(fields, SUMMARY_FIELDS)
 
 
 def _hex(fields: dict[str, str], name: str, label: str) -> int:
     value = fields.get(name)
     if value is None:
         raise AssertionError(f"{label} snapshot missing {name}= field")
-    if not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
+    parsed = parse_hex8(value)
+    if parsed is None:
         raise AssertionError(f"{label} {name}= must be eight hex digits, got {value!r}")
-    return int(value, 16)
+    return parsed
 
 
 def _hex_tuple(fields: dict[str, str], name: str, label: str, count: int) -> tuple[int, ...]:
@@ -198,7 +206,7 @@ def _hex_tuple(fields: dict[str, str], name: str, label: str, count: int) -> tup
     if len(parts) != count:
         raise AssertionError(f"{label} {name}= must have {count} colon-separated hex parts")
     for part in parts:
-        if not re.fullmatch(r"[0-9A-Fa-f]{8}", part):
+        if parse_hex8(part) is None:
             raise AssertionError(f"{label} {name}= part must be eight hex digits, got {part!r}")
     return tuple(int(part, 16) for part in parts)
 
@@ -522,6 +530,39 @@ def _assert_music_render_evidence(snapshots: list[tuple[str, dict[str, str]]]) -
     _assert_tuple_component_progress(snapshots, "musicrend", 6, 5, "rendered sample")
 
 
+def _assert_audio_device_contract(snapshots: list[tuple[str, dict[str, str]]]) -> None:
+    for label, fields in snapshots:
+        device_kind, device_status, capabilities = _hex_tuple(fields, "adev", label, 3)
+        if device_kind != 1:
+            raise AssertionError(f"{label} adev= must report SB16 device kind 00000001")
+        if device_status != 1:
+            raise AssertionError(f"{label} adev= must report ready status 00000001")
+        required_caps = 0x00000001 | 0x00000002 | 0x00000004 | 0x00000008
+        if capabilities & required_caps != required_caps:
+            raise AssertionError(
+                f"{label} adev= capabilities must include PCM ring, mixer voices, "
+                "pull stream, and SB16 DMA"
+            )
+
+        pcm_format, channels, sample_rate = _hex_tuple(fields, "pcm", label, 3)
+        if pcm_format != 1:
+            raise AssertionError(f"{label} pcm= must use unsigned 8-bit stereo format 00000001")
+        if channels != 2:
+            raise AssertionError(f"{label} pcm= must expose two output channels")
+        if sample_rate != 11025:
+            raise AssertionError(f"{label} pcm= must expose the SB16 output rate 11025")
+
+        ring_bytes, period_bytes, write_offset, active_half = _hex_tuple(fields, "pcmbuf", label, 4)
+        if ring_bytes == 0 or period_bytes == 0:
+            raise AssertionError(f"{label} pcmbuf= must expose nonzero ring and period bytes")
+        if period_bytes * 2 != ring_bytes:
+            raise AssertionError(f"{label} pcmbuf= period bytes must be half of the PCM ring")
+        if write_offset >= ring_bytes:
+            raise AssertionError(f"{label} pcmbuf= write offset must stay inside the PCM ring")
+        if active_half not in (0, 1):
+            raise AssertionError(f"{label} pcmbuf= active half must be 0 or 1")
+
+
 def validate_status(
     final_status: str,
     baseline_status: str,
@@ -641,6 +682,7 @@ def validate_status(
         use_pull_stream=uses_pull_stream or require_pull_stream,
     )
     _assert_music_render_evidence(snapshots)
+    _assert_audio_device_contract(snapshots)
 
 
 def validate_repo_contract() -> None:
@@ -685,6 +727,9 @@ def validate_repo_contract() -> None:
             (
                 "tools/check_audio_continuity_proof.py",
                 "audio=SB16",
+                "adev=",
+                "pcm=",
+                "pcmbuf=",
                 "sfxmix= counts non-music Doom SFX only",
                 "sfxq=",
                 "sfxbytes=",
@@ -711,8 +756,8 @@ def validate_repo_contract() -> None:
             music_doc,
             (
                 "stateful stream cursor",
-                "VIBE_AUDIO_MUSIC_PULL_STATE",
-                "VIBE_AUDIO_UPDATE_SFX",
+                "VIBE_AUDIO_PCM_PULL_STATE",
+                "VIBE_AUDIO_MIXER_UPDATE",
                 "hardware-paced pull request",
                 "separate from normal Doom SFX",
                 "musicpos=",

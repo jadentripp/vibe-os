@@ -53,6 +53,10 @@ class DoomInputContractTests(unittest.TestCase):
             "DOOM_KEY_F12 equ 0xd8",
             "KEY_EVENT_DOWN equ 0x00000100",
             "KEY_EVENT_VALID equ 0x00010000",
+            "SYS_POLL_INPUT equ 28",
+            "VIBE_INPUT_EVENT_BYTES equ 28",
+            "VIBE_INPUT_DEVICE_KEYBOARD equ 1",
+            "VIBE_INPUT_DEVICE_MOUSE equ 2",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, kernel)
@@ -97,11 +101,15 @@ class DoomInputContractTests(unittest.TestCase):
     def test_platform_drains_keyboard_and_mouse_through_translation_helpers(self):
         platform = (ROOT / "doom_port" / "platform.c").read_text()
         makefile = (ROOT / "Makefile").read_text()
+        header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
 
         for source in (
             '#include "input.h"',
+            "vibe_input_event_t input",
             "vibe_doom_input_event_t translated",
-            "vibe_doom_translate_key_event",
+            "vibe_syscall3(VIBE_SYS_POLL_INPUT",
+            "sizeof(input)",
+            "vibe_doom_translate_input_event",
             "checkpoint_default_config_if_needed();",
             "checkpoint_save_slot_if_needed();",
             "checkpoint_load_slot_if_needed();",
@@ -150,9 +158,9 @@ class DoomInputContractTests(unittest.TestCase):
             "G_LoadGame(path);",
             "load_checkpoint_started = 1;",
             "VIBE_DOOM_INPUT_KEYDOWN",
+            "VIBE_DOOM_INPUT_MOUSE",
             "ev_keydown",
             "ev_keyup",
-            "vibe_doom_translate_mouse_event",
             "event.type = ev_mouse",
         ):
             with self.subTest(source=source):
@@ -165,6 +173,45 @@ class DoomInputContractTests(unittest.TestCase):
         self.assertNotIn("fread", slot_request)
 
         self.assertIn("doom_port/input.c", makefile)
+        for source in (
+            "VIBE_SYS_POLL_INPUT = 28",
+            "typedef struct vibe_input_event",
+            "VIBE_INPUT_EVENT_KEY",
+            "VIBE_INPUT_EVENT_MOUSE_PACKET",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, header)
+
+    def test_kernel_generic_input_queue_records_typed_events(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        makefile = (ROOT / "Makefile").read_text()
+
+        for source in (
+            "input_event_queue times INPUT_EVENT_QUEUE_SIZE * VIBE_INPUT_EVENT_DWORDS dd 0",
+            "input_queue_key_event:",
+            "input_queue_mouse_packet_event:",
+            "call input_queue_key_event",
+            "call input_queue_mouse_packet_event",
+            ".poll_input:",
+            "call doom_record_input_event",
+            "doom_input_event_count dd 0",
+            "doom_input_last_timestamp dd 0",
+            "doom_input_last_device dd 0",
+            "doom_input_last_type dd 0",
+            'smoke_inputqueue_text db " inputqueue="',
+            'smoke_inputpoll_text db " inputpoll="',
+            'smoke_inputlast_text db " inputlast="',
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, kernel)
+
+        for source in (
+            'grep -q "inputqueue="',
+            'grep -q "inputpoll="',
+            'grep -Eq "inputlast=([0-9A-F]{8}:){2}[0-9A-F]{8}"',
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, makefile)
 
     def test_raw_player_detail_status_exports_gameplay_state(self):
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()

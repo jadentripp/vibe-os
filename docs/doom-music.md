@@ -42,7 +42,7 @@ pointers through `vibe_music_register_song`, start a stateful stream cursor with
 path. `I_PlaySong` only starts the stream cursor; the first chunk render is
 deferred to the normal tic/frame/sound update pump so startup cannot block
 inside the synthesizer before Doom reaches gameplay status. The first chunk uses
-`VIBE_AUDIO_START_SFX`; subsequent chunks use `VIBE_AUDIO_UPDATE_SFX` so the
+`VIBE_AUDIO_MIXER_START`; subsequent chunks use `VIBE_AUDIO_MIXER_UPDATE` so the
 kernel refreshes the music voice's sample window without changing Doom's
 original sources. The temporary music handle space is separated with
 `VIBE_MUSIC_AUDIO_HANDLE_BASE`, so the kernel can distinguish music voices from
@@ -50,7 +50,7 @@ normal Doom SFX handles. The descriptor also marks the voice with
 `VIBE_AUDIO_FLAG_MUSIC`.
 Runtime music volume changes call `vibe_music_stream_set_volume`, so future
 chunks honor Doom's current music volume without resetting the song position.
-The platform hook now polls `VIBE_AUDIO_MUSIC_PULL_STATE` before rendering a new
+The platform hook now polls `VIBE_AUDIO_PCM_PULL_STATE` before rendering a new
 chunk after the initial music start. The kernel keeps the currently mixed window
 plus one pending music window, promotes the pending window from the SB16 IRQ
 refill path when the current one drains, and raises the next pull request from
@@ -80,7 +80,7 @@ sound effects mix in the IRQ refill path instead of competing for a separate
 backend. Smoke status exposes `musicvoices=`, `musicmix=`, `musicpos=`,
 `musicbuf=`, `musicunder=`, `musicdrops=`, and the third `voiceq=` component so
 this continuity is testable and separate from normal Doom SFX. It also exposes
-`VIBE_AUDIO_MUSIC_PULL_STATE`, `musicstream=PULL`, and
+`VIBE_AUDIO_PCM_PULL_STATE`, `musicstream=PULL`, and
 `musicpull=<requests>:<refills>` to make the current request/service contract
 explicit. This is hardware-paced pull service, not a claim that the kernel owns
 MUS/MIDI parsing or synthesis. `sfxmix=` counts only non-music sound effects,
@@ -118,7 +118,7 @@ advancing `musicpull=` request and refill counters, with the refill count never
 exceeding requests, plus `voiceq=` update-service evidence for the chunks the
 port rendered. The checker treats this lane as separate from normal Doom SFX
 even if the final snapshot lands after the active music voice drained.
-A later kernel milestone can replace `VIBE_AUDIO_UPDATE_SFX` service chunks with
+A later kernel milestone can replace `VIBE_AUDIO_MIXER_UPDATE` service chunks with
 a dedicated kernel-owned music ring or in-kernel renderer, but it should keep
 the same request/refill proof shape.
 
@@ -132,7 +132,7 @@ static stream window. The open legitimacy step is kernel-owned rendering or a
 first-class music ring, not the request timing itself.
 
 To fully close the music gap, the kernel should own more of the stream payload
-path instead of using `VIBE_AUDIO_UPDATE_SFX` as the service command. The proof
+path instead of using `VIBE_AUDIO_MIXER_UPDATE` as the service command. The proof
 should remain status-only and copyright-safe:
 
 - `musicstream=PULL` only when the active music path is paced by SB16 refill
@@ -158,7 +158,7 @@ should remain status-only and copyright-safe:
 
 That contract preserves the current parser/renderer work: the port can keep
 parsing original Doom MUS/MIDI lumps outside `third_party/doom`, while the next
-legitimacy step moves from request-serviced `UPDATE_SFX` chunks toward a
+legitimacy step moves from request-serviced `VIBE_AUDIO_MIXER_UPDATE` chunks toward a
 dedicated music stream ABI or kernel-owned renderer.
 
 Fallback design:

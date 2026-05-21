@@ -6,10 +6,16 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import re
 import sys
 from pathlib import Path
 
+from status_fields import (
+    parse_status_fields,
+    require_hex8_field,
+    require_hex_tuple_field,
+    require_status_field,
+    summarize_status_fields,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
@@ -20,7 +26,6 @@ SCHEMA = "scripted-gameplay-proof-v1"
 SOURCE = "real-wad-cloud-scripted-gameplay"
 GATE = "tools/check_scripted_gameplay_proof.py"
 
-FIELD_PATTERN = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z0-9_]*)=([^\s]+)")
 PHASE_ORDER = ("start", "fire", "movement", "use", "mouse", "menu", "final")
 AUTO_STATUS_NAMES = {
     "start": "status.after-start.txt",
@@ -33,6 +38,7 @@ AUTO_STATUS_NAMES = {
 }
 
 RUN_COUNTERS = ("gtic", "leveltime")
+INPUT_COUNTERS = ("inputqueue", "inputpoll")
 KEY_COUNTERS = ("keyirq", "keyqueue", "keypoll")
 MOUSE_COUNTERS = ("mouseirq", "mousepkt", "mousepoll")
 
@@ -143,6 +149,9 @@ SUMMARY_FIELDS = (
     "pammo",
     "prefire",
     "pweapon",
+    "inputqueue",
+    "inputpoll",
+    "inputlast",
     "keyirq",
     "keyqueue",
     "keypoll",
@@ -162,13 +171,7 @@ def _require(text: str, needle: str, label: str) -> None:
 
 
 def _status_fields(status: str) -> dict[str, str]:
-    fields: dict[str, str] = {}
-    for match in FIELD_PATTERN.finditer(status):
-        name = match.group(1)
-        if name in fields:
-            raise AssertionError(f"duplicate {name}= field")
-        fields[name] = match.group(2)
-    return fields
+    return parse_status_fields(status, error_type=AssertionError)
 
 
 def summarize_status(status: str) -> str:
@@ -176,30 +179,22 @@ def summarize_status(status: str) -> str:
         fields = _status_fields(status)
     except AssertionError as exc:
         return f"unparseable status: {exc}"
-    return " ".join(f"{name}={fields.get(name, '<missing>')}" for name in SUMMARY_FIELDS)
+    return summarize_status_fields(fields, SUMMARY_FIELDS)
 
 
 def _field(status: str, name: str) -> str:
     fields = _status_fields(status)
-    value = fields.get(name)
-    if value is None:
-        raise AssertionError(f"missing {name}= field")
-    return value
+    return require_status_field(fields, name, error_type=AssertionError)
 
 
 def _hex_field(status: str, name: str) -> int:
-    value = _field(status, name)
-    if not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
-        raise AssertionError(f"{name}= must be eight hex digits, got {value!r}")
-    return int(value, 16)
+    fields = _status_fields(status)
+    return require_hex8_field(fields, name, error_type=AssertionError)
 
 
 def _position_field(status: str, name: str) -> tuple[int, int]:
-    value = _field(status, name)
-    if not re.fullmatch(r"[0-9A-Fa-f]{8}:[0-9A-Fa-f]{8}", value):
-        raise AssertionError(f"{name}= must be two eight-digit hex coordinates, got {value!r}")
-    left, right = value.split(":")
-    return int(left, 16), int(right, 16)
+    fields = _status_fields(status)
+    return require_hex_tuple_field(fields, name, 2, sep=":", error_type=AssertionError)
 
 
 def _hex8(value: int) -> str:
@@ -365,6 +360,12 @@ def _require_timeline(snapshots: dict[str, str]) -> None:
     _assert_not_decreasing(snapshots["use"], snapshots["mouse"], KEY_COUNTERS, "use", "mouse")
     _assert_increasing(snapshots["mouse"], snapshots["menu"], KEY_COUNTERS, "mouse", "menu")
     _assert_not_decreasing(snapshots["menu"], snapshots["final"], KEY_COUNTERS, "menu", "final")
+    _assert_increasing(snapshots["start"], snapshots["fire"], INPUT_COUNTERS, "start", "fire")
+    _assert_increasing(snapshots["fire"], snapshots["movement"], INPUT_COUNTERS, "fire", "movement")
+    _assert_increasing(snapshots["movement"], snapshots["use"], INPUT_COUNTERS, "movement", "use")
+    _assert_increasing(snapshots["use"], snapshots["mouse"], INPUT_COUNTERS, "use", "mouse")
+    _assert_increasing(snapshots["mouse"], snapshots["menu"], INPUT_COUNTERS, "mouse", "menu")
+    _assert_not_decreasing(snapshots["menu"], snapshots["final"], INPUT_COUNTERS, "menu", "final")
 
 
 def _require_movement(snapshots: dict[str, str]) -> None:
@@ -485,15 +486,22 @@ def build_manifest(snapshots: dict[str, str], paths: dict[str, Path] | None = No
             "pammo": _field(start, "pammo"),
             "prefire": _field(start, "prefire"),
             "pweapon": _field(start, "pweapon"),
+            "inputqueue": _field(start, "inputqueue"),
+            "inputpoll": _field(start, "inputpoll"),
+            "inputlast": _field(start, "inputlast"),
         },
         "transitions": {
             "fire": {
+                "inputpoll": _field(snapshots["fire"], "inputpoll"),
+                "inputlast": _field(snapshots["fire"], "inputlast"),
                 "keyseen": _field(snapshots["fire"], "keyseen"),
                 "pflags": _field(snapshots["fire"], "pflags"),
                 "pammo": _field(snapshots["fire"], "pammo"),
                 "prefire": _field(snapshots["fire"], "prefire"),
             },
             "movement": {
+                "inputpoll": _field(movement, "inputpoll"),
+                "inputlast": _field(movement, "inputlast"),
                 "keyseen": _field(movement, "keyseen"),
                 "pflags": _field(movement, "pflags"),
                 "start_ppos": _field(start, "ppos"),
@@ -501,10 +509,14 @@ def build_manifest(snapshots: dict[str, str], paths: dict[str, Path] | None = No
                 "pdelta": _field(movement, "pdelta"),
             },
             "use": {
+                "inputpoll": _field(snapshots["use"], "inputpoll"),
+                "inputlast": _field(snapshots["use"], "inputlast"),
                 "keyseen": _field(snapshots["use"], "keyseen"),
                 "pflags": _field(snapshots["use"], "pflags"),
             },
             "mouse": {
+                "inputpoll": _field(mouse, "inputpoll"),
+                "inputlast": _field(mouse, "inputlast"),
                 "mouseirq": _field(mouse, "mouseirq"),
                 "mousepkt": _field(mouse, "mousepkt"),
                 "mousepoll": _field(mouse, "mousepoll"),
@@ -515,6 +527,8 @@ def build_manifest(snapshots: dict[str, str], paths: dict[str, Path] | None = No
                 "pangledelta": _field(mouse, "pangledelta"),
             },
             "menu": {
+                "inputpoll": _field(snapshots["menu"], "inputpoll"),
+                "inputlast": _field(snapshots["menu"], "inputlast"),
                 "keyseen": _field(snapshots["menu"], "keyseen"),
                 "gflags": _field(snapshots["menu"], "gflags"),
                 "pflags": _field(snapshots["menu"], "pflags"),
@@ -531,6 +545,8 @@ def build_manifest(snapshots: dict[str, str], paths: dict[str, Path] | None = No
             "pangledelta": _field(final, "pangledelta"),
             "pammo": _field(final, "pammo"),
             "prefire": _field(final, "prefire"),
+            "inputpoll": _field(final, "inputpoll"),
+            "inputlast": _field(final, "inputlast"),
         },
     }
 

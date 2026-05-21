@@ -117,6 +117,89 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
         self.assertIn("--require-gameplay-proof", persistence.stdout)
         self.assertNotIn("--require-audible-proof", persistence.stdout)
 
+    def test_soak_mode_dispatches_repeated_json_metadata_workflow(self):
+        result = self.run_helper(
+            "--dry-run",
+            "--lane",
+            "audio",
+            "--repo",
+            "jadentripp/vibe-os",
+            "--ref",
+            "main",
+            "--soak-attempts",
+            "3",
+            "--soak-min-passes",
+            "2",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("mode: repeated soak (real-wad-soak.yml, attempts=3, min_passes=2)", result.stdout)
+        self.assertIn(
+            "gh workflow run real-wad-soak.yml --repo jadentripp/vibe-os --ref main",
+            result.stdout,
+        )
+        self.assertIn("-f expected_ref=main", result.stdout)
+        self.assertIn("-f attempts=3", result.stdout)
+        self.assertIn("-f min_passes=2", result.stdout)
+        self.assertIn("-f audible_audio_proof=true", result.stdout)
+        self.assertNotIn("persistence_save_slot", result.stdout)
+        self.assertIn("dry-run: workflow was not dispatched", result.stdout)
+
+    def test_soak_artifact_download_uses_json_summary_checker(self):
+        result = self.run_helper(
+            "--dry-run",
+            "--lane",
+            "audio",
+            "--run-id",
+            "67890",
+            "--soak",
+            "--download-artifacts",
+            "build/cloud-soak-67890",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("mode: repeated soak (real-wad-soak.yml, existing run)", result.stdout)
+        self.assertIn(
+            "gh run download 67890 --repo jadentripp/vibe-os --name real-wad-soak-metadata --dir build/cloud-soak-67890",
+            result.stdout,
+        )
+        self.assertIn(
+            "tools/check_cloud_playability_artifacts.py --soak-summary build/cloud-soak-67890",
+            result.stdout,
+        )
+        self.assertIn("soak metadata has no raw status text", result.stdout)
+        self.assertIn("dry-run: artifact was not downloaded", result.stdout)
+
+    def test_soak_mode_refuses_persistence_lanes_and_bad_thresholds(self):
+        persistence = self.run_helper(
+            "--dry-run",
+            "--lane",
+            "persistence",
+            "--soak-attempts",
+            "3",
+        )
+        self.assertEqual(persistence.returncode, 1)
+        self.assertIn("real-wad-soak.yml repeats the gameplay/audio proof only", persistence.stderr)
+        self.assertNotIn("dispatch:", persistence.stdout)
+
+        threshold = self.run_helper(
+            "--dry-run",
+            "--lane",
+            "audio",
+            "--soak-attempts",
+            "2",
+            "--soak-min-passes",
+            "3",
+        )
+        self.assertEqual(threshold.returncode, 1)
+        self.assertIn("--soak-min-passes cannot exceed --soak-attempts", threshold.stderr)
+        self.assertNotIn("dispatch:", threshold.stdout)
+
+        missing_attempts = self.run_helper("--dry-run", "--lane", "audio", "--soak")
+        self.assertEqual(missing_attempts.returncode, 1)
+        self.assertIn("--soak dispatch requires --soak-attempts", missing_attempts.stderr)
+        self.assertNotIn("dispatch:", missing_attempts.stdout)
+
     def test_refuses_local_vm_execution_and_local_wad_paths(self):
         local_env = self.run_helper("--dry-run", "--lane", "gameplay", env={"ALLOW_LOCAL_VM": "1"})
         self.assertEqual(local_env.returncode, 1)
@@ -153,6 +236,7 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
     def test_script_workflow_and_docs_capture_cloud_only_contract(self):
         script = HELPER.read_text()
         workflow = (ROOT / ".github" / "workflows" / "real-wad-smoke.yml").read_text()
+        soak_workflow = (ROOT / ".github" / "workflows" / "real-wad-soak.yml").read_text()
         playable_doc = (ROOT / "docs" / "playable-cloud-proof.md").read_text()
         triage_doc = (ROOT / "docs" / "cloud-status-triage.md").read_text()
 
@@ -184,6 +268,17 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
                 self.assertIn("--lane audio", doc)
                 self.assertIn("--lane persistence", doc)
                 self.assertIn("audible_audio_proof=false", doc)
+                self.assertIn("--soak-attempts", doc)
+
+        for needle in (
+            "Summarize soak proof lane",
+            "gh run download $GITHUB_RUN_ID",
+            "real-wad-soak-metadata",
+            "tools/check_cloud_playability_artifacts.py --soak-summary",
+            "JSON soak metadata only",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, soak_workflow)
 
 
 if __name__ == "__main__":

@@ -82,12 +82,15 @@ running kernel yet.
 The status proof is now executable:
 `tools/check_vm_status_proof.py --require-exec --require-preempt status.txt`
 requires that `vmmhfree` match the reclaimed dynamic page table, that the Doom
-handoff report `argvsrc=2`, that `procpool=`, `fdexec=`, and `wait=` expose
-bounded slot reuse, exec-time fd inheritance, and the wait/reap proof, and that
-`pmask` plus `pkind`/`peip`/`pcr3`/`pkstk` show IRQ switches in both directions
-between Doom and the preempt probe with distinct address spaces and kernel
-stacks. It is a cloud artifact checker, not a claim that the running kernel has
-already moved to higher-half virtual addresses.
+handoff report `argvsrc=2`, that `uexec=OK` and `upath=USERPROB.ELF` prove the
+boot probe used the same exec resolver, that `procpool=`, `fdexec=`, and `wait=`
+expose bounded slot reuse, exec-time fd inheritance, and the wait/reap proof,
+and that `pmask` plus `pkind`/`peip`/`pcr3`/`pkstk` show IRQ switches in both
+directions between Doom and the preempt probe with distinct address spaces and
+kernel stacks. The `pframe` field must also match the last rewritten Ring 3
+`iretd` target frame, so the preemption proof is not satisfied by scheduler
+accounting alone. It is a cloud artifact checker, not a claim that the running
+kernel has already moved to higher-half virtual addresses.
 
 User processes get separate page directories. Those directories start as clones
 of the supervisor kernel map, then replace only the user windows with private

@@ -4,18 +4,24 @@ The playable-Doom milestone is only proved when the cloud CI proof gates pass
 without uploading WADs, disk images, framebuffer dumps, or rendered WAD pixels.
 The intended proof is status-driven: the OS boots the validated shareware
 `DOOM1.WAD`, Doom autostarts E1M1, QEMU injects deterministic keyboard and mouse
-input through the same PS/2 paths a human would use, and the kernel exports
+input through the same PS/2 device paths a human would use, Doom consumes those
+events through the generic input queue, and the kernel exports
 compact counters and state deltas from Doom.
 
 This file describes the required green path. A scripted green run is not by itself a claim that the current branch is human-playable.
-Current-head cloud proof state: save persistence is not green yet. The current
-runtime's latest persistence run, `26196214650` on `2788c00`, boots the kernel,
-reaches the real-WAD playability checks, and then fails the save-growth gate
-because `DOOMSAV0.DSG` is still truncated to 1024 bytes after the first write.
-The current diagnostic fields narrow that failure to FAT save growth around
-`flb=` and `fcl=`. Treat that as the active blocker, not as a playable-save
-claim. Exact current-head proof must rerun after doc, workflow, checker, kernel,
-or runtime changes.
+Save persistence is not green yet. The latest persistence run, `26199297160` on
+`ed4d00f`, boots the kernel, reaches the real-WAD playability checks, writes and
+reads a full `DOOMSAV0.DSG` payload of `25718` bytes, and then exits during the
+rebooted load with `Unknown tclass 112 in savegame`. The current diagnostic
+fields, `savestm=` and `savethk=`, show the save/load thinker boundary agrees at
+`0x2A64`; treat the specials-stream load failure as the active blocker, not as a
+playable-save claim. Exact proof must rerun after doc, workflow, checker,
+kernel, or runtime changes.
+Cloud triage now separates persistence failures into short-write,
+malformed-stream, and load-not-completed lanes. For this latest signature, expect
+`tools/triage_cloud_status.py` to choose `persistence-load-malformed-stream`
+when `savestm=00000017/.../00000070/...` and `doomerr`/`doomrun=EXIT` show the
+original Doom load rejected the specials stream.
 The latest known green **gameplay/audio** evidence before those changes is
 manual **Real WAD smoke** run `26170007704` on commit `a2714a6`: its real-WAD,
 scripted human-playability, scripted gameplay transition, VM/process, SB16
@@ -131,12 +137,9 @@ branch, run the repeated proof:
 
 ```sh
 branch=$(git branch --show-current)
-gh workflow run real-wad-soak.yml \
-  --ref "$branch" \
-  -f expected_ref="$branch" \
-  -f attempts=3 \
-  -f min_passes=3 \
-  -f audible_audio_proof=true
+python3 tools/run_cloud_playability.py --ref "$branch" --lane audio \
+  --soak-attempts 3 \
+  --soak-min-passes 3
 ```
 
 ## Deterministic Script
@@ -188,16 +191,23 @@ and the artifact policy. It is intentionally not a replacement for the
 single-run diagnostic artifact when a new failure needs deep triage.
 
 To soak the branch you are currently testing, dispatch the workflow with an
-explicit ref guard:
+explicit ref guard through the cloud-only helper:
 
 ```sh
 branch=$(git branch --show-current)
-gh workflow run real-wad-soak.yml \
-  --ref "$branch" \
-  -f expected_ref="$branch" \
-  -f attempts=3 \
-  -f min_passes=3 \
-  -f audible_audio_proof=true
+python3 tools/run_cloud_playability.py --ref "$branch" --lane audio \
+  --soak-attempts 3 \
+  --soak-min-passes 3 \
+  --wait \
+  --download-artifacts "build/cloud-soak-audio"
+```
+
+For an existing **Real WAD soak** run, use `--soak` to download and validate
+the JSON metadata artifact without guessing the original attempt count:
+
+```sh
+python3 tools/run_cloud_playability.py --run-id RUN_ID --soak \
+  --download-artifacts "build/cloud-soak-RUN_ID"
 ```
 
 `expected_ref` is an early workflow guard: it fails before toolchain install or
@@ -219,6 +229,17 @@ python3 tools/check_cloud_playability_artifacts.py \
   --soak-summary path/to/real-wad-soak-metadata
 ```
 
+The manual equivalent remains:
+
+```sh
+gh workflow run real-wad-soak.yml \
+  --ref "$branch" \
+  -f expected_ref="$branch" \
+  -f attempts=3 \
+  -f min_passes=3 \
+  -f audible_audio_proof=true
+```
+
 ## Non-Pixel Evidence
 
 The cloud proof requires these status families:
@@ -229,13 +250,15 @@ The cloud proof requires these status families:
   are alive in the smoke VM. The `vmmhva`/`vmmhpa`/`vmmhpt`/`vmmhfree` fields
   additionally show the high-half alias, backing frame, dynamic page table, and
   reclaimed table frame.
-- Process/exec: `exec=OK`, `path=DOOM.ELF`, `execsys=a/b/c/d/e/f`,
-  `execerr=00000000`, `execres=00000000`, `target`, `entry`, `stack`, `argc`,
-  `argv`, `envp`, `argv0`, `envp0`, `argvsrc=2`, `ppid`, `doom=OK`, and
-  `doomrun=RUN` show that the kernel loaded the Doom ELF, performed a
-  syscall-driven exec handoff, seeded the user ABI stack from the copied user
-  vector, recorded process parent metadata, and left Doom running rather than
-  merely validating bytes on disk. `procpool=`, `pidseq=`, `fdexec=`, and
+- Process/exec: `exec=OK`, `path=DOOM.ELF`, `uexec=OK`,
+  `upath=USERPROB.ELF`, `execsys=a/b/c/d/e/f`, `execerr=00000000`,
+  `execres=00000000`, `target`, `entry`, `stack`, `argc`, `argv`, `envp`,
+  `argv0`, `envp0`, `argvsrc=2`, `ppid`, `upid`, `uentry`, `doom=OK`, and
+  `doomrun=RUN` show that the kernel loaded the boot probe and Doom through the
+  exec resolver, performed a syscall-driven Doom handoff, seeded the user ABI
+  stack from the copied user vector, recorded process parent metadata, and left
+  Doom running rather than merely validating bytes on disk. `procpool=`,
+  `pidseq=`, `fdexec=`, and
   `wait=` additionally show bounded process-slot reuse, PID generation
   movement, exec-time fd inheritance, and a userland wait/reap proof. The six
   `execsys`
@@ -260,10 +283,11 @@ The cloud proof requires these status families:
   and reboot/poweroff proof must observe QEMU exit from the guest request.
 - Runtime: `gameplay=OK`, `gstate=00000000`, `gmap=00000101`, `gtic>0`, and
   `leveltime>0` prove the real engine reached E1M1 gameplay.
-- Input pipeline: `keyirq`, `keyqueue`, and `keypoll` increase from the early
-  snapshot through the fire, movement, use, and menu snapshots, while `keyseen`
-  and `keylast` prove the scripted Up/Ctrl/Space/Escape keys were the keys Doom
-  consumed through `SYS_POLL_KEY`.
+- Input pipeline: `inputqueue`, `inputpoll`, and `inputlast` expose the generic
+  queue path used by Doom. `keyirq`, `keyqueue`, and `keypoll` increase from the
+  early snapshot through the fire, movement, use, and menu snapshots, while
+  `keyseen` and `keylast` prove the scripted Up/Ctrl/Space/Escape keys were the
+  keys Doom consumed through `SYS_POLL_INPUT`.
 - Player/action deltas: `pflags` records cumulative player, movement, attack,
   use, menu, position-delta, ammo-delta, refire, and turn observations;
   `pdelta>0`
@@ -272,7 +296,7 @@ The cloud proof requires these status families:
   key was delivered. The raw `pammo`/`prefire` fields must also change across
   the fire phase, so Ctrl cannot pass as a key counter or cumulative flag alone.
 - Mouse turn proof: `status.after-mouse.txt` must include both PS/2 mouse
-  IRQ/packet/poll counters, the `pflags` turn bit, and a raw `pangle` /
+  IRQ/packet/generic-poll counters, the `pflags` turn bit, and a raw `pangle` /
   `pangledelta` change from Doom gameplay state. The runtime sets the turn bit
   from Doom's live `ticcmd.angleturn` when sampled, or from a durable
   player-angle delta after Doom has applied the command, so mouse proof cannot
@@ -290,22 +314,23 @@ The cloud proof requires these status families:
 - Doom timer proof: `dtick` is the kernel's 35 Hz Doom time conversion and must
   equal `floor(ticks * 35 / 100)`, so the real-WAD checker can distinguish PIT
   progress from Doom's expected tic rate.
-- Audio/mouse observability: `audio`, `doomsound`, `sfxmix`, `sfxdma`, `voices`,
-  `sfxvoices`, `musicvoices`, `musicmix`, `musicloop`, `musicpos`, `musicbuf`,
-  `musicunder`, `musicdrops`, `musicrend`, `sb16`, `dma`, `play`, `voiceq`, `musicq`,
-  `audioirq`, `ack8`,
+- Audio/mouse observability: `audio`, `adev`, `pcm`, `pcmbuf`, `doomsound`,
+  `sfxmix`, `sfxdma`, `voices`, `sfxvoices`, `musicvoices`, `musicmix`,
+  `musicloop`, `musicpos`, `musicbuf`, `musicunder`, `musicdrops`, `musicrend`,
+  `sb16`, `dma`, `play`, `voiceq`, `musicq`, `audioirq`, `ack8`,
   `ack16`, `refill`, mixer safety counters, `mouse`,
   `mouseirq`, `mousepkt`, and `mousepoll` are required to be present and
   well-formed. The automated mouse phase requires `mouse=OK` and proves IRQ12,
-  packet decode, and Doom `SYS_POLL_MOUSE` consumption increased without
+  packet decode, and Doom generic-input consumption increased without
   uploading pixels.
   `tools/check_audio_continuity_proof.py` is the stricter SB16 path: it compares
-  the phase snapshots using status snapshots only, requires `audio=SB16`, and
-  proves SB16 version, DMA programming, playback start, voice queue, IRQ/refill,
-  non-music SFX, `sfxdma=` SFX bytes from the IRQ-driven DMA refill mixer,
-  music mixing, kernel-visible `musicpos=` progress, and pull-requested music
-  chunk service with advancing `musicpull=` counters plus `musicrend=` renderer
-  provenance progressed without
+  the phase snapshots using status snapshots only, requires `audio=SB16`,
+  proves the generic audio device/PCM ring contract through `adev=`, `pcm=`, and
+  `pcmbuf=`, and proves SB16 version, DMA programming, playback start, voice
+  queue, IRQ/refill, non-music SFX, `sfxdma=` SFX bytes from the IRQ-driven DMA
+  refill mixer, music mixing, kernel-visible `musicpos=` progress, and
+  pull-requested music chunk service with advancing `musicpull=` counters plus
+  `musicrend=` renderer provenance progressed without
   uploading audio samples. It does not upload audio samples.
   `tools/check_audio_continuity_proof.py` checks status snapshots only and
   does not upload audio samples.
@@ -329,8 +354,9 @@ The cloud proof requires these status families:
 
 `tools/check_vm_status_proof.py` is the legitimacy ratchet for the VM/process
 status fields. It requires `vmmhfree` to match the reclaimed `vmmhpt` frame,
-`argvsrc=2` for the Doom exec path, `procpool=`/`fdexec=`/`wait=` for bounded
-process-slot reuse, exec-time fd inheritance, and the wait/reap proof, and
+`uexec=OK`/`upath=USERPROB.ELF` for the boot probe, `argvsrc=2` for the Doom
+exec path, `procpool=`/`fdexec=`/`wait=` for bounded process-slot reuse,
+exec-time fd inheritance, and the wait/reap proof, and
 `pmask` plus `pkind`/`peip`/`pcr3`/`pkstk` to cross the Doom/preempt-probe tasks,
 user windows, address spaces, and kernel stacks in both directions during timer
 IRQ preemption.

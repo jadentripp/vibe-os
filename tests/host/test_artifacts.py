@@ -696,12 +696,14 @@ class SourceContractTests(unittest.TestCase):
             "DOOM_USER_HEAP_END equ 0x01f00000",
             "DOOM_USER_STACK_BOTTOM equ DOOM_USER_HEAP_END",
             "DOOM_USER_STACK_TOP equ DOOM_ELF_LIMIT",
-            "fat_load_doom_elf:",
             "doom_elf_prepare:",
-            "doom_user_run:",
+            "process_exec_path:",
+            "process_exec_handoff_current:",
             "draw_doom_status:",
         ):
             self.assertIn(source, kernel)
+        self.assertNotIn("fat_load_doom_elf:", kernel)
+        self.assertNotIn("doom_user_run:", kernel)
         makefile = (ROOT / "Makefile").read_text()
         self.assertIn('grep -q "doom=OK"', makefile)
         self.assertIn("WAD_MAX_BYTES equ 0x00500000", kernel)
@@ -762,6 +764,7 @@ class SourceContractTests(unittest.TestCase):
     def test_doom_autostarts_e1m1_and_reports_gameplay_state(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
         platform = (ROOT / "doom_port" / "platform.c").read_text()
+        save_debug = (ROOT / "doom_port" / "save_debug.c").read_text()
         start = (ROOT / "doom_port" / "start.c").read_text()
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
         makefile = (ROOT / "Makefile").read_text()
@@ -788,9 +791,16 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("singletics = true;", platform)
         self.assertIn("flags |= VIBE_GAMEPLAY_FLAG_SINGLETICS;", platform)
         self.assertIn("VIBE_DOOM_SAVEACTION_STATUS", platform)
+        self.assertIn("load_checkpoint_started", platform)
+        self.assertIn("&& gameaction == ga_nothing", platform)
+        self.assertIn("load_checkpoint_done = 1;", platform)
         self.assertIn("unsigned long tic = (unsigned long)gametic;", platform)
         self.assertIn("tic = (unsigned long)leveltime;", platform)
         self.assertIn("(unsigned long)leveltime", platform)
+        self.assertIn("repair_missing_mobj_classes", save_debug)
+        self.assertIn("VIBE_SAVE_STAGE_UNARCHIVE_THINKERS_REPAIRED", save_debug)
+        self.assertIn("*class_p = VIBE_SAVE_TCLASS_MOBJ;", save_debug)
+        self.assertIn("thinker_function != (unsigned long)P_MobjThinker", save_debug)
         for source in (
             "SYS_GAMEPLAY_STATUS equ 15",
             "DOOM_INIT_STATUS_FLAG equ 0x40000000",
@@ -810,6 +820,7 @@ class SourceContractTests(unittest.TestCase):
             "doom_savestream_stage dd 0",
             "doom_savethinker_archive_offset dd 0xffffffff",
             "doom_savethinker_unarchive_offset dd 0xffffffff",
+            "cmp dword [doom_savestream_stage], 0x1a",
             "doom_gameplay_status dd 0",
             "doom_gameplay_report_count dd 0",
             "doom_game_state dd 0",
@@ -874,13 +885,15 @@ class SourceContractTests(unittest.TestCase):
             "steal=00000000 pitchclamp=00000000 panclamp=00000000 musicvoices=00000000 musicmix=00000000 musicloop=00000000 "
             "musicpos=00000000 musicbuf=00000000 musicunder=00000000 musicdrops=00000000 "
             "musicstream=NONE musicpull=00000000:00000000 musicrend=00000000:00000000:00000000:00000000:00000000:00000000 "
+            "adev=00000000:00000002:00000000 pcm=00000001:00000002:00002B11 pcmbuf=00001000:00000800:00000000:00000000 "
             "sb16=00000000:00000000 dma=00000000 play=00000000:00000000 voiceq=00000000:00000000:00000000 musicq=00000000:00000000 "
+            "inputqueue=00000007 inputpoll=00000007 inputlast=00000060:00000001:00000001 "
             "mouseirq=00000001 mousepkt=00000001 mousepoll=00000001 "
             "mousebtn=00000001 mousedelta=00000018:0000000C "
             "dtick=00000059 preempt=00000001 pirq=00000001 pattempt=00000001 pskip=00000000 puser=00000004 pround=00000001 "
             "pctx=00000004 pmask=00000003 pfrom=00000002 pto=00000003 pkind=00000002:00000003 "
             "peip=01000000:00E80000 pcr3=00082000:00083000 pkstk=00073000:00072000 "
-            "pspin=50524546 free=00700000 ticks=00000100"
+            "pframe=00000001/00E80000/0000001B/00E9FFE0/00000023 pspin=50524546 free=00700000 ticks=00000100"
         )
         playable = "gstate=00000000 gtic=00000001 gflags=00000001 gaction=00000000 pflags=000001FF pbuttons=00000000 ppos=00010000:00020000 pdelta=00000100 keyirq=00000001 keyqueue=00000001 keypoll=00000001 keyseen=00000071 keylast=0001001B"
         valid = f"Aurora OS v0.2 {core} gameplay=OK gmap=00000101 leveltime=00000001 doompresent=00000008 {visual.replace('doomframe=13572468', 'doomframe=88888888')} {playable} doomlog=ready"
@@ -1067,6 +1080,9 @@ class SourceContractTests(unittest.TestCase):
             valid.replace("peip=01000000:00E80000", "peip=00000000:00E80000"),
             valid.replace("pcr3=00082000:00083000", "pcr3=00082000:00082000"),
             valid.replace("pkstk=00073000:00072000", "pkstk=00073000:00073000"),
+            valid.replace("pframe=00000001/00E80000/0000001B/00E9FFE0/00000023", "pframe=00000000/00E80000/0000001B/00E9FFE0/00000023"),
+            valid.replace("pframe=00000001/00E80000/0000001B/00E9FFE0/00000023", "pframe=00000001/01000000/0000001B/00E9FFE0/00000023"),
+            valid.replace("pframe=00000001/00E80000/0000001B/00E9FFE0/00000023", "pframe=00000001/00E80000/00000008/00E9FFE0/00000023"),
             valid.replace("pspin=50524546", "pspin=50524545"),
             valid.replace("audio=NONE", "audio=EMU"),
         )
@@ -1101,7 +1117,11 @@ class SourceContractTests(unittest.TestCase):
         sbrk = kernel.split(".sbrk:", 1)[1].split(".open:", 1)[0]
         self.assertIn("mov esi, [current_process_ptr]", sbrk)
         self.assertIn("mov eax, [esi + PROC_BRK]", sbrk)
+        self.assertIn("test ebx, 0x80000000", sbrk)
+        self.assertIn("jnz .sbrk_shrink", sbrk)
         self.assertIn("cmp edx, [esi + PROC_HEAP_END]", sbrk)
+        self.assertIn("cmp edx, [esi + PROC_HEAP_START]", sbrk)
+        self.assertIn("call process_clear_user_range", sbrk)
         self.assertIn("mov [esi + PROC_BRK], edx", sbrk)
 
     def test_kernel_has_dynamic_fat16_writable_file_path(self):
@@ -1145,12 +1165,16 @@ class SourceContractTests(unittest.TestCase):
             "O_KNOWN_MASK equ O_ACCMODE | O_CREAT | O_TRUNC | O_APPEND | O_CLOEXEC",
             "WRITABLE_KNOWN_FILE_COUNT equ 9",
             "WRITABLE_FILE_COUNT equ 16",
-            "WRITABLE_GENERIC_CAPACITY equ 0x00040000",
+            "WRITABLE_GENERIC_CAPACITY equ 0x7fffffff",
             "SYS_UNLINK equ 17",
             "SYS_STAT equ 18",
             "SYS_FSTAT equ 19",
+            "SYS_FTRUNCATE equ 27",
+            "SYS_LISTDIR equ 30",
+            "STAT_MODE_READONLY_DIR equ STAT_S_IFDIR | STAT_S_IRUSR",
             "STAT_MODE_READONLY_REG equ STAT_S_IFREG | STAT_S_IRUSR",
             "STAT_MODE_WRITABLE_REG equ STAT_S_IFREG | STAT_S_IRUSR | STAT_S_IWUSR",
+            "VIBE_DIRENT_BYTES equ 32",
             "ATA_CMD_WRITE_SECTORS equ 0x30",
             "FAT_ROOT_CACHE_SECTORS equ 32",
             "FAT_TABLE_CACHE_SECTORS equ 256",
@@ -1186,6 +1210,8 @@ class SourceContractTests(unittest.TestCase):
             "fat_file_lba_for_offset:",
             "fat_delete_found_file:",
             "fat_truncate_writable_file:",
+            "fat_zero_writable_range:",
+            "fat_resize_writable_file:",
             "fat_update_writable_size:",
             "stat_fill_user:",
             "fd_reset_all:",
@@ -1213,6 +1239,17 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('user_path_savereq db "SAVEREQ.CHK", 0', kernel)
         self.assertIn('user_path_loadreq db "LOADREQ.CHK", 0', kernel)
         open_path = kernel.split(".open:", 1)[1].split(".read:", 1)[0]
+        root83_parser = kernel.split("fat_parse_user_root83:", 1)[1].split("fat_open_name_is_protected:", 1)[0]
+        for source in (
+            "mov ebx, 16",
+            ".skip_prefix:",
+            ".skip_dot_prefix:",
+            "cmp al, '/'",
+            "cmp al, 0x5c",
+            "add esi, 2",
+            "sub ecx, 2",
+        ):
+            self.assertIn(source, root83_parser)
         self.assertIn("and eax, O_KNOWN_MASK", open_path)
         self.assertIn("cmp eax, [syscall_open_flags]", open_path)
         self.assertIn("and eax, O_ACCMODE", open_path)
@@ -1255,8 +1292,10 @@ class SourceContractTests(unittest.TestCase):
         final_flush = writer.split(".ok:", 1)[1].split(".fail_badfd:", 1)[0]
         self.assertIn("call fat_update_writable_size", final_flush)
         write_refresh = writer.split(".write_span_ready:", 1)[1].split(".loop:", 1)[0]
+        self.assertIn("call fat_zero_writable_range", write_refresh)
         self.assertIn("call fat_cache_table", write_refresh)
         self.assertIn("call fat_build_alloc_map", write_refresh)
+        self.assertLess(write_refresh.index("call fat_zero_writable_range"), write_refresh.index("call fat_cache_table"))
         self.assertLess(write_refresh.index("call fat_cache_table"), write_refresh.index("call fat_build_alloc_map"))
         self.assertIn("cmp dword [file_io_sector_offset], 0", writer)
         self.assertIn("cmp dword [file_io_chunk], 512", writer)
@@ -1315,13 +1354,17 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("fat_lba_new_cluster", fat_write_locator)
         self.assertIn("fat_lba_result_lba", fat_write_locator)
         cluster_growth = fat_write_locator.split(".cluster_loop:", 1)[1].split(".have_cluster:", 1)[0]
-        eof_guard = cluster_growth.split(".follow_existing_chain:", 1)[1].split("sub edx, ecx", 1)[0]
-        self.assertIn("mov eax, [fat_lba_sector_index]", eof_guard)
-        self.assertIn("cmp eax, [fat_lba_logical_sectors]", eof_guard)
-        self.assertIn("jae .extend_after_current", eof_guard)
+        boundary_guard = cluster_growth.split("mov [fat_lba_next_boundary], eax", 1)[1].split(".follow_existing_chain:", 1)[0]
+        self.assertIn("cmp eax, [fat_lba_logical_sectors]", boundary_guard)
+        self.assertIn("jb .follow_existing_chain", boundary_guard)
+        self.assertIn("jmp .extend_after_current", boundary_guard)
+        follow_path = cluster_growth.split(".follow_existing_chain:", 1)[1].split(".extend_after_current:", 1)[0]
         self.assertLess(cluster_growth.index("call fat_next_cluster"), cluster_growth.index("cmp eax, 0"))
-        self.assertLess(cluster_growth.index("cmp eax, 0"), cluster_growth.index("je .allocate_next_cluster"))
-        self.assertLess(cluster_growth.index("je .allocate_next_cluster"), cluster_growth.index("cmp eax, 0xfff8"))
+        self.assertNotIn("je .allocate_next_cluster", follow_path)
+        self.assertIn("jb .fail", follow_path)
+        self.assertIn("jmp .fail", follow_path)
+        self.assertLess(follow_path.index("cmp eax, 2"), follow_path.index("jb .fail"))
+        self.assertLess(follow_path.index("jb .fail"), follow_path.index("cmp eax, 0xfff8"))
         self.assertLess(cluster_growth.index("cmp eax, 0xfff8"), cluster_growth.index("jb .next_exists"))
         self.assertLess(cluster_growth.index(".allocate_next_cluster:"), cluster_growth.index("call fat_alloc_cluster"))
         allocation_link = cluster_growth.split(".allocate_next_cluster:", 1)[1].split(".linked_new_cluster:", 1)[0]
@@ -1380,6 +1423,9 @@ class SourceContractTests(unittest.TestCase):
         user_reader = kernel.split("user_file_read:", 1)[1].split("user_file_write:", 1)[0]
         self.assertIn("call fat_file_lba_for_offset", user_reader)
         self.assertNotIn("call fat_file_lba_for_write", user_reader)
+        lseek_path = kernel.split("user_file_lseek:", 1)[1].split("wad_validate_range:", 1)[0]
+        self.assertIn("jo .fail_inval", lseek_path)
+        self.assertIn("test eax, 0x80000000", lseek_path)
         unlink_path = kernel.split(".unlink:", 1)[1].split(".stat:", 1)[0]
         self.assertIn("call fat_open_name_is_protected", unlink_path)
         self.assertIn("call fat_find_file", unlink_path)
@@ -1388,7 +1434,10 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("call fat_close_writable_fds_for_slot", unlink_path)
         self.assertIn("call fat_clear_writable_slot", unlink_path)
         stat_path = kernel.split(".stat:", 1)[1].split(".fstat:", 1)[0]
+        self.assertIn("call fat_user_path_is_root", stat_path)
+        self.assertIn(".stat_root:", stat_path)
         self.assertIn("call stat_fill_user", stat_path)
+        self.assertIn("STAT_MODE_READONLY_DIR", stat_path)
         self.assertIn("STAT_MODE_READONLY_REG", stat_path)
         self.assertIn("STAT_MODE_WRITABLE_REG", stat_path)
         self.assertIn("call fat_open_name_marker_index", stat_path)
@@ -1403,15 +1452,37 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("call fd_lookup", fstat_path)
         self.assertIn("call stat_fill_user", fstat_path)
         self.assertIn("cmp byte [fd_kinds + eax], FD_KIND_WAD", fstat_path)
+        ftruncate_path = kernel.split(".ftruncate:", 1)[1].split(".mmap:", 1)[0]
+        self.assertIn("call fd_lookup", ftruncate_path)
+        self.assertIn("cmp byte [fd_kinds + eax], FD_KIND_WRITABLE", ftruncate_path)
+        self.assertIn("and edx, O_ACCMODE", ftruncate_path)
+        self.assertIn("call fat_resize_writable_file", ftruncate_path)
         self.assertIn("ERRNO_EMFILE equ 24", kernel)
         self.assertIn(".bad_syscall_emfile:", kernel)
         self.assertIn("VIBE_SYS_UNLINK = 17", header)
         self.assertIn("VIBE_SYS_STAT = 18", header)
         self.assertIn("VIBE_SYS_FSTAT = 19", header)
+        self.assertIn("VIBE_SYS_FTRUNCATE = 27", header)
+        self.assertIn("VIBE_SYS_LISTDIR = 30", header)
+        self.assertIn("typedef struct vibe_dirent", header)
         self.assertIn("vibe_syscall3(VIBE_SYS_UNLINK", libc)
         self.assertIn("vibe_syscall3(VIBE_SYS_STAT", libc)
         self.assertIn("vibe_syscall3(VIBE_SYS_FSTAT", libc)
+        self.assertIn("vibe_syscall3(VIBE_SYS_FTRUNCATE", libc)
+        self.assertIn("vibe_syscall3(VIBE_SYS_LISTDIR", libc)
+        listdir_path = kernel.split(".listdir:", 1)[1].split(".ftruncate:", 1)[0]
+        self.assertIn("call fat_list_root_dir", listdir_path)
+        lister = kernel.split("fat_list_root_dir:", 1)[1].split("user_file_read:", 1)[0]
+        self.assertIn("call fat_user_path_is_root", lister)
+        self.assertIn("call fat_fill_dirent_from_root_entry", lister)
+        self.assertIn("test al, 0x08", lister)
+        formatter = kernel.split("fat_fill_dirent_from_root_entry:", 1)[1].split("fat_list_root_dir:", 1)[0]
+        self.assertIn("VIBE_DIRENT_FIRST_CLUSTER", formatter)
         self.assertIn("PROBE_FLAG_WRITABLE_FILE = 0x40u", probe)
+        self.assertIn("PROBE_FLAG_FTRUNCATE = 0x4000u", probe)
+        self.assertIn("PROBE_FLAG_SBRK_SHRINK = 0x8000u", probe)
+        self.assertIn("PROBE_FLAG_LISTDIR = 0x10000u", probe)
+        self.assertIn("sys_listdir(\"/\", root_entries, 16)", probe)
         self.assertIn("DEFAULT.CFG", probe)
         self.assertIn('return "DEFAULT.CFG";', libc)
 
@@ -1618,6 +1689,11 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("mov [scheduler_last_preempt_to_cr3], eax", scheduler)
         self.assertIn("mov [scheduler_last_preempt_from_kstack], eax", scheduler)
         self.assertIn("mov [scheduler_last_preempt_to_kstack], eax", scheduler)
+        self.assertIn("inc dword [scheduler_irq_frame_rewrites]", scheduler)
+        self.assertIn("mov [scheduler_last_irq_frame_eip], eax", scheduler)
+        self.assertIn("mov [scheduler_last_irq_frame_cs], eax", scheduler)
+        self.assertIn("mov [scheduler_last_irq_frame_esp], eax", scheduler)
+        self.assertIn("mov [scheduler_last_irq_frame_ss], eax", scheduler)
         self.assertIn("or dword [scheduler_preempt_pair_mask], 0x1", scheduler)
         self.assertIn("or dword [scheduler_preempt_pair_mask], 0x2", scheduler)
         self.assertIn("cmp dword [current_process_ptr], process_preempt_probe", spin_capture)
@@ -1638,6 +1714,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("scheduler_preempt_selftest_frame times 13 dd 0", kernel)
         self.assertIn("scheduler_preempt_selftest_status db 0", kernel)
         self.assertIn("scheduler_preempt_pair_mask dd 0", kernel)
+        self.assertIn("scheduler_irq_frame_rewrites dd 0", kernel)
         self.assertIn("call scheduler_preempt_self_test", kernel)
         self.assertIn("PREEMPT_PROBE_MAGIC equ 0x50524545", user_crt0)
         self.assertIn("cmp eax, PREEMPT_PROBE_MAGIC", user_crt0)
@@ -1660,17 +1737,31 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('smoke_pmask_text db " pmask="', kernel)
         self.assertIn('smoke_pcr3_text db " pcr3="', kernel)
         self.assertIn('smoke_pkstk_text db " pkstk="', kernel)
+        self.assertIn('smoke_pframe_text db " pframe="', kernel)
         self.assertIn('smoke_pspin_text db " pspin="', kernel)
         self.assertIn('smoke_pself_text db " pself="', kernel)
 
     def test_doom_port_uses_kernel_time_syscall(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
         platform = (ROOT / "doom_port" / "platform.c").read_text()
         libc = (ROOT / "doom_port" / "libc.c").read_text()
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
         self.assertIn("VIBE_SYS_TIME = 9", header)
+        self.assertIn("VIBE_SYS_CLOCK_GETTIME = 29", header)
+        self.assertIn("VIBE_CLOCK_MONOTONIC_HZ = 100", header)
+        self.assertIn("typedef struct vibe_clock_time", header)
         self.assertIn("int vibe_syscall3", header)
+        self.assertIn("int vibe_clock_gettime", header)
+        self.assertIn("unsigned long vibe_monotonic_milliseconds", header)
         self.assertIn("int vibe_syscall3(", libc)
-        self.assertIn("return vibe_syscall3(VIBE_SYS_TIME, 0, 0, 0);", platform)
+        self.assertIn("vibe_syscall3(\n        VIBE_SYS_CLOCK_GETTIME", libc)
+        self.assertIn("int clock_gettime(clockid_t clock_id, struct timespec* tp)", libc)
+        self.assertIn("return (int)((vibe_monotonic_milliseconds() * 35u) / 1000u);", platform)
+        self.assertIn("SYS_CLOCK_GETTIME equ 29", kernel)
+        self.assertIn("CLOCK_MONOTONIC_HZ equ 100", kernel)
+        self.assertIn(".clock_gettime:", kernel)
+        self.assertIn('smoke_clockhz_text db " clockhz="', kernel)
+        self.assertIn('smoke_clockms_text db " clockms="', kernel)
         self.assertIn('!strcmp(name, "HOME")', libc)
         self.assertIn('!strcmp(name, "DOOMWADDIR")', libc)
 
@@ -1733,10 +1824,14 @@ class SourceContractTests(unittest.TestCase):
         platform = (ROOT / "doom_port" / "platform.c").read_text()
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
         self.assertIn("SYS_POLL_KEY equ 11", kernel)
+        self.assertIn("SYS_POLL_INPUT equ 28", kernel)
         self.assertIn("SYS_POLL_KEY", kernel)
         self.assertIn("KEY_EVENT_VALID equ 0x00010000", kernel)
+        self.assertIn("VIBE_INPUT_EVENT_KEY equ 1", kernel)
+        self.assertIn("input_event_queue times INPUT_EVENT_QUEUE_SIZE * VIBE_INPUT_EVENT_DWORDS dd 0", kernel)
         self.assertIn("key_event_queue times KEY_QUEUE_SIZE dd 0", kernel)
         self.assertIn("keyboard_queue_scancode:", kernel)
+        self.assertIn("input_queue_key_event:", kernel)
         self.assertIn("doom_scancode_map:", kernel)
         self.assertIn("irq_keyboard:", kernel)
         self.assertIn("inc dword [keyboard_irq_count]", kernel)
@@ -1749,9 +1844,14 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("keyboard_irq_count dd 0", kernel)
         self.assertIn("keyboard_event_count dd 0", kernel)
         self.assertIn("doom_key_event_count dd 0", kernel)
+        self.assertIn("doom_input_event_count dd 0", kernel)
         self.assertIn("doom_record_key_event:", kernel)
+        self.assertIn("doom_record_input_event:", kernel)
         self.assertIn("doom_key_down_seen dd 0", kernel)
         self.assertIn("doom_key_last_event dd 0", kernel)
+        self.assertIn('smoke_inputqueue_text db " inputqueue="', kernel)
+        self.assertIn('smoke_inputpoll_text db " inputpoll="', kernel)
+        self.assertIn('smoke_inputlast_text db " inputlast="', kernel)
         self.assertIn('smoke_keyirq_text db " keyirq="', kernel)
         self.assertIn('smoke_keyqueue_text db " keyqueue="', kernel)
         self.assertIn('smoke_keypoll_text db " keypoll="', kernel)
@@ -1763,6 +1863,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("mov edx, [doom_key_down_seen]", kernel)
         self.assertIn("mov edx, [doom_key_last_event]", kernel)
         self.assertIn("VIBE_SYS_POLL_KEY = 11", header)
+        self.assertIn("VIBE_SYS_POLL_INPUT = 28", header)
+        self.assertIn("typedef struct vibe_input_event", header)
         self.assertIn("VIBE_KEY_EVENT_VALID", header)
         self.assertIn("VIBE_KEY_EVENT_DOWN", header)
         self.assertIn("#include \"d_event.h\"", platform)
@@ -1777,10 +1879,15 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('grep -q "keypoll="', makefile)
         self.assertIn('grep -q "keyseen="', makefile)
         self.assertIn('grep -q "keylast="', makefile)
+        self.assertIn('grep -q "inputqueue="', makefile)
+        self.assertIn('grep -q "inputpoll="', makefile)
+        self.assertIn("/inputqueue=([0-9A-F]{8})/", makefile)
+        self.assertIn("/inputpoll=([0-9A-F]{8})/", makefile)
         self.assertIn("/keyirq=([0-9A-F]{8})/", makefile)
         self.assertIn("/keyqueue=([0-9A-F]{8})/", makefile)
         self.assertIn("/keypoll=([0-9A-F]{8})/", makefile)
-        self.assertIn("vibe_syscall3(VIBE_SYS_POLL_KEY", platform)
+        self.assertIn("vibe_syscall3(VIBE_SYS_POLL_INPUT", platform)
+        self.assertIn("vibe_doom_translate_input_event", platform)
         self.assertIn("ev_keydown", platform)
         self.assertIn("ev_keyup", platform)
         self.assertIn("D_PostEvent(&event)", platform)
@@ -1793,19 +1900,24 @@ class SourceContractTests(unittest.TestCase):
         mouse_doc = (ROOT / "docs" / "mouse-input.md").read_text()
         for source in (
             "SYS_POLL_MOUSE equ 14",
+            "SYS_POLL_INPUT equ 28",
             "PS2_COMMAND_ENABLE_AUX equ 0xa8",
             "PS2_COMMAND_WRITE_AUX equ 0xd4",
             "PS2_MOUSE_SET_DEFAULTS equ 0xf6",
             "PS2_MOUSE_ENABLE_DATA equ 0xf4",
             "MOUSE_EVENT_VALID equ 0x01000000",
+            "VIBE_INPUT_EVENT_MOUSE_PACKET equ 2",
             "ps2_mouse_init:",
             "ps2_mouse_send_command:",
             "irq_mouse:",
             "mouse_queue_byte:",
             "mouse_decode_packet:",
+            "input_queue_mouse_packet_event:",
             "mouse_event_queue times MOUSE_QUEUE_SIZE dd 0",
+            "input_event_queue times INPUT_EVENT_QUEUE_SIZE * VIBE_INPUT_EVENT_DWORDS dd 0",
             "doom_mouse_event_count dd 0",
             "doom_record_mouse_event:",
+            "doom_record_input_event:",
             "doom_mouse_buttons_seen dd 0",
             "doom_mouse_delta_x dd 0",
             "doom_mouse_delta_y dd 0",
@@ -1822,12 +1934,14 @@ class SourceContractTests(unittest.TestCase):
             self.assertIn(source, kernel)
         for source in (
             "VIBE_SYS_POLL_MOUSE = 14",
+            "VIBE_SYS_POLL_INPUT = 28",
             "VIBE_MOUSE_EVENT_VALID = 0x01000000u",
+            "VIBE_INPUT_EVENT_MOUSE_PACKET",
         ):
             self.assertIn(source, header)
-        self.assertIn("vibe_syscall3(VIBE_SYS_POLL_MOUSE", platform)
+        self.assertIn("vibe_syscall3(VIBE_SYS_POLL_INPUT", platform)
         self.assertIn("event.type = ev_mouse", platform)
-        self.assertIn("vibe_doom_translate_mouse_event", platform)
+        self.assertIn("vibe_doom_translate_input_event", platform)
         self.assertIn("doom_port/input.c", makefile)
         self.assertIn('grep -Eq "mouse=(OK|NONE)"', makefile)
         self.assertIn('grep -q "mouseirq="', makefile)
@@ -1836,7 +1950,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('grep -q "mousebtn="', makefile)
         self.assertIn('grep -q "mousedelta="', makefile)
         self.assertIn("PS/2 auxiliary device", mouse_doc)
-        self.assertIn("SYS_POLL_MOUSE", mouse_doc)
+        self.assertIn("SYS_POLL_INPUT", mouse_doc)
 
     def test_doom_sound_calls_flow_to_sb16_audio_scaffold(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
@@ -1925,6 +2039,9 @@ class SourceContractTests(unittest.TestCase):
             'smoke_musicstream_text db " musicstream="',
             'smoke_musicpull_text db " musicpull="',
             'smoke_musicrend_text db " musicrend="',
+            'smoke_audiodev_text db " adev="',
+            'smoke_pcm_text db " pcm="',
+            'smoke_pcmbuf_text db " pcmbuf="',
             "sb16_music_pull_service_pending:",
             "call sb16_music_pull_service_pending",
             ".hold_pending_music_refill:",
@@ -1933,25 +2050,28 @@ class SourceContractTests(unittest.TestCase):
             self.assertIn(source, kernel)
         for source in (
             "VIBE_SYS_AUDIO = 13",
-            "VIBE_AUDIO_START_SFX = 2",
-            "VIBE_AUDIO_UPDATE_SFX = 4",
+            "VIBE_AUDIO_DEVICE_INFO = 9",
+            "VIBE_AUDIO_PCM_RING_INFO = 10",
+            "VIBE_AUDIO_MIXER_START = 2",
+            "VIBE_AUDIO_START_SFX = VIBE_AUDIO_MIXER_START",
+            "VIBE_AUDIO_UPDATE_SFX = VIBE_AUDIO_MIXER_UPDATE",
             "VIBE_AUDIO_FLAG_LOOP",
             "VIBE_AUDIO_FLAG_MUSIC",
             "VIBE_AUDIO_FLAG_WAD_SFX",
         ):
             self.assertIn(source, header)
         for source in (
-            "vibe_audio_sfx_desc_t desc",
+            "vibe_audio_voice_desc_t desc",
             "cache_sfx_samples(id, sfx, &sample_length, &sample_rate, &sample_flags)",
             "desc.samples = samples",
             "desc.length = sample_length",
             "desc.flags = sample_flags",
             "desc.sample_rate = sample_rate",
             "VIBE_SYS_AUDIO",
-            "VIBE_AUDIO_INIT",
-            "VIBE_AUDIO_START_SFX",
-            "VIBE_AUDIO_STOP_SFX",
-            "VIBE_AUDIO_UPDATE_SFX",
+            "VIBE_AUDIO_DEVICE_START",
+            "VIBE_AUDIO_MIXER_START",
+            "VIBE_AUDIO_MIXER_STOP",
+            "VIBE_AUDIO_MIXER_UPDATE",
             "(unsigned long)&desc",
         ):
             self.assertIn(source, platform)
@@ -1964,6 +2084,9 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('grep -q "sfxvoices="', makefile)
         self.assertIn('grep -q "musicmix="', makefile)
         self.assertIn('grep -q "musicpos="', makefile)
+        self.assertIn('grep -q "adev="', makefile)
+        self.assertIn('grep -q "pcm="', makefile)
+        self.assertIn('grep -q "pcmbuf="', makefile)
         self.assertIn('grep -q "dma="', makefile)
         self.assertIn('grep -q "voiceq="', makefile)
         self.assertIn('grep -Eq "audio=(SB16|NONE)"', makefile)

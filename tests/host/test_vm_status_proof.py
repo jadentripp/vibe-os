@@ -26,12 +26,16 @@ def status_line(**overrides):
         "vmmhfree": "00124000",
         "exec": "OK",
         "path": "DOOM.ELF",
+        "uexec": "OK",
+        "upath": "USERPROB.ELF",
         "doom": "OK",
         "execsys": "00000001/00000001/00000000/00000001/00000001/00000000",
         "execerr": "00000000",
         "execres": "00000000",
-        "target": "00000002",
-        "ppid": "00000001",
+        "target": "00000005",
+        "ppid": "00000004",
+        "upid": "00000004",
+        "uentry": "00E80000",
         "entry": "01000000",
         "stack": "01FFFFE0",
         "argc": "00000001",
@@ -41,7 +45,7 @@ def status_line(**overrides):
         "envp0": "00000000",
         "argvsrc": "00000002",
         "procpool": "00000006/00000002/00000001/00000000/00000000",
-        "pidseq": "00000005/00000002/00000001",
+        "pidseq": "00000006/00000005/00000002",
         "fdexec": "00000001/00000002/00000000/00000000",
         "wait": "00000003/00000001/00000002/00000000/00000001/00000003/0000002A",
         "pself": "OK",
@@ -58,6 +62,7 @@ def status_line(**overrides):
         "peip": "01002000:00E80000",
         "pcr3": "00082000:00083000",
         "pkstk": "00073000:00072000",
+        "pframe": "00000001/00E80000/0000001B/00E9FFE0/00000023",
         "pspin": "50524546",
     }
     fields.update(overrides)
@@ -88,10 +93,26 @@ class VmStatusProofTests(unittest.TestCase):
                 with self.assertRaisesRegex(AssertionError, message):
                     check_vm_status_proof.validate_status(status_line(**overrides))
 
+    def test_shared_status_parser_rejects_duplicate_vm_fields(self):
+        with self.assertRaisesRegex(AssertionError, "duplicate pg= field"):
+            check_vm_status_proof.validate_status(status_line() + " pg=OFF")
+
+    def test_shared_status_parser_rejects_malformed_hex_tuple(self):
+        with self.assertRaisesRegex(AssertionError, "execsys= must contain 6 hex fields"):
+            check_vm_status_proof.validate_status(
+                status_line(execsys="00000001/NOTHEX00/00000000"),
+                require_exec=True,
+            )
+
     def test_rejects_kernel_default_or_same_process_exec_evidence(self):
         for overrides, message in (
             ({"argvsrc": "00000001"}, "user argv-vector"),
-            ({"target": "00000001"}, "new process"),
+            ({"uexec": "FAIL"}, "uexec"),
+            ({"upath": "BOOT.ELF"}, "upath"),
+            ({"upid": "00000000"}, "upid"),
+            ({"uentry": "01000000"}, "uentry"),
+            ({"ppid": "00000001"}, "ppid= must match upid"),
+            ({"target": "00000004"}, "new process"),
             ({"entry": "00E80000"}, "entry"),
             ({"stack": "00E9FFE0"}, "stack"),
             ({"envp0": "00000001"}, "envp0"),
@@ -99,9 +120,9 @@ class VmStatusProofTests(unittest.TestCase):
             ({"procpool": "00000006/00000001/00000001/00000000/00000000"}, "generic exec slots"),
             ({"procpool": "00000006/00000002/00000000/00000000/00000000"}, "reused a target process slot"),
             ({"procpool": "00000006/00000002/00000001/00000000/00000001"}, "did not overflow"),
-            ({"pidseq": "00000002/00000002/00000001"}, "advanced past the target"),
-            ({"pidseq": "00000005/00000003/00000001"}, "exec target PID"),
-            ({"pidseq": "00000005/00000002/00000000"}, "generation advanced"),
+            ({"pidseq": "00000005/00000005/00000002"}, "advanced past the target"),
+            ({"pidseq": "00000006/00000003/00000002"}, "exec target PID"),
+            ({"pidseq": "00000006/00000005/00000000"}, "generation advanced"),
             ({"fdexec": "00000000/00000002/00000000/00000000"}, "fd ownership handoff"),
             ({"fdexec": "00000001/00000000/00000000/00000000"}, "fd inherited"),
             ({"wait": "00000003/00000001/00000002/00000000/00000000/00000003/0000002A"}, "child was seeded"),
@@ -122,6 +143,7 @@ class VmStatusProofTests(unittest.TestCase):
             ({"pself": "FAIL"}, "pself"),
             ({"pirq": "00000002"}, "pirq"),
             ({"puser": "00000000"}, "puser"),
+            ({"puser": "00000000", "pframe": "00000001/00E80000/0000001B/00E9FFE0/00000023"}, "puser"),
             ({"pmask": "00000001"}, "both directions"),
             ({"pto": "00000002"}, "switch between processes"),
             ({"pkind": "00000002:00000002"}, "Doom and the preempt probe"),
@@ -129,6 +151,11 @@ class VmStatusProofTests(unittest.TestCase):
             ({"pcr3": "00082000:00082000"}, "address spaces"),
             ({"pkstk": "00073000:00073000"}, "kernel stacks"),
             ({"pspin": "50524545"}, "preempt probe executed"),
+            ({"pframe": "00000000/00E80000/0000001B/00E9FFE0/00000023"}, "rewrite count"),
+            ({"pframe": "00000001/01002000/0000001B/00E9FFE0/00000023"}, "selected target"),
+            ({"pframe": "00000001/00E80000/00000008/00E9FFE0/00000023"}, "Ring 3 user code"),
+            ({"pframe": "00000001/00E80000/0000001B/00000000/00000023"}, "nonzero Ring 3 stack"),
+            ({"pframe": "00000001/00E80000/0000001B/00E9FFE0/00000010"}, "Ring 3 user data"),
         ):
             with self.subTest(overrides=overrides):
                 with self.assertRaisesRegex(AssertionError, message):

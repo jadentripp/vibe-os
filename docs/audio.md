@@ -10,6 +10,16 @@ Current kernel behavior:
 
 - probes the SB16 DSP reset/read ports and records `audio=SB16` or `audio=NONE`
   in the smoke status block
+- exposes a generic audio device contract through `SYS_AUDIO`, including
+  `VIBE_AUDIO_DEVICE_INFO` / `vibe_audio_device_info_t` for device identity and
+  capabilities plus `VIBE_AUDIO_PCM_RING_INFO` / `vibe_audio_pcm_ring_info_t` for
+  PCM ring geometry, current write offset, active half, queued bytes, mixed
+  bytes, and safety counters
+- reports the generic contract in status as `adev=<kind>:<status>:<caps>`,
+  `pcm=<format>:<channels>:<rate>`, and
+  `pcmbuf=<ring-bytes>:<period-bytes>:<write-offset>:<active-half>` before the
+  SB16-specific status fields; current SB16 proof expects `adev=1:1:0x0f`,
+  unsigned 8-bit stereo PCM, a 4096-byte ring, and 2048-byte periods
 - configures SB16 mixer IRQ/DMA routing for IRQ 5, 8-bit DMA 1, and 16-bit DMA 5
 - owns a 4096-byte, 4096-byte-aligned unsigned-silence DMA buffer in low kernel
   memory for ISA DMA reachability
@@ -21,7 +31,11 @@ Current kernel behavior:
 - installs an IRQ 5 handler that reads the 8-bit DSP status/ack port, reads the
   16-bit ack port, records which ACK paths were pending, and advances
   half-buffer refill accounting while playback is active
-- exposes `SYS_AUDIO`/`VIBE_SYS_AUDIO` for the Doom platform layer
+- exposes `SYS_AUDIO`/`VIBE_SYS_AUDIO` as the kernel audio entrypoint. Doom uses
+  the generic mixer command names (`VIBE_AUDIO_MIXER_START`,
+  `VIBE_AUDIO_MIXER_STOP`, `VIBE_AUDIO_MIXER_UPDATE`,
+  `VIBE_AUDIO_MIXER_IS_PLAYING`, and `VIBE_AUDIO_PCM_PULL_STATE`); the older
+  `VIBE_AUDIO_*_SFX` spellings remain source aliases for compatibility.
 - records Doom sound calls as `doomsound=<hex count>` plus last command, handle,
   and packed parameters in kernel memory
 - accepts Doom SFX descriptors from the platform layer and reports real,
@@ -34,17 +48,19 @@ Current kernel behavior:
   sample pointer, length, fixed-point current position, volume, separation,
   pitch, panned left/right gains, pitch step, start order, and explicit voice
   flags
-- handles `START_SFX`, `STOP_SFX`, and `UPDATE_SFX` by registering, clearing, or
-  retuning active voices before the next DMA half-buffer refill
-- answers Doom's `I_SoundIsPlaying` through `VIBE_AUDIO_IS_PLAYING` by checking
+- handles `VIBE_AUDIO_MIXER_START`, `VIBE_AUDIO_MIXER_STOP`, and
+  `VIBE_AUDIO_MIXER_UPDATE` by registering, clearing, or retuning active voices
+  before the next DMA half-buffer refill
+- answers Doom's `I_SoundIsPlaying` through `VIBE_AUDIO_MIXER_IS_PLAYING` by checking
   the same active voice table used by the IRQ mixer
 - steals the oldest non-music active voice when all eight slots are full, falling
   back to the oldest music voice only if every slot is music, so new SFX stay
   bounded without usually cutting the music bed
 - reports audio init, playback, voice queue, IRQ, and mixer ring health in smoke status:
-  `sb16=`, `dma=`, `play=`, `voiceq=`, `sfxq=`, `sfxbytes=`, `sfxdma=`,
-  `sfxsrc=`, `sfxlast=`, `musicq=`, `voices=`, `sfxvoices=`, `audioirq=`,
-  `ack8=`, `ack16=`, `refill=`, `half=`, `mixwrap=`, `mixover=`,
+  `adev=`, `pcm=`, `pcmbuf=`, `sb16=`, `dma=`, `play=`, `voiceq=`, `sfxq=`,
+  `sfxbytes=`, `sfxdma=`, `sfxsrc=`, `sfxlast=`, `musicq=`, `voices=`,
+  `sfxvoices=`, `audioirq=`, `ack8=`, `ack16=`, `refill=`, `half=`, `mixwrap=`,
+  `mixover=`,
   `mixunder=`, `mixclip=`, `steal=`, `pitchclamp=`, and `panclamp=`
 - reports music-carrier and stream-window health separately as `musicvoices=`,
   `musicmix=`, `musicloop=`, `musicpos=`, `musicbuf=`, `musicunder=`,
@@ -53,10 +69,11 @@ Current kernel behavior:
   `musicrend=<format>:<chunks>:<notes>:<events>:<peak>:<samples>`, where
   format is the port-owned MUS or MIDI renderer and the counters prove the
   submitted music stream came from parsed song events, not a raw carrier tone
-- exposes `VIBE_AUDIO_MUSIC_PULL_STATE` so Doom-port music service and SB16
-  refill-side pull requests have an explicit source-level contract; the older
-  `VIBE_AUDIO_BUFFERED_BYTES` query remains defined for diagnostic buffer
-  inspection, but the music proof follows pull request/refill state
+- exposes `VIBE_AUDIO_PCM_PULL_STATE` / `VIBE_AUDIO_MUSIC_PULL_STATE` so
+  Doom-port music service and SB16 refill-side pull requests have an explicit
+  source-level contract; the older `VIBE_AUDIO_PCM_BUFFERED_BYTES` query remains
+  defined for diagnostic buffer inspection, but the music proof follows pull
+  request/refill state
 - records the current request-driven music stream as `musicstream=PULL`, with
   `musicpull=<requests>:<refills>` advanced by SB16 refill-side low-water
   requests and by Doom-port chunk service
@@ -64,8 +81,8 @@ Current kernel behavior:
   push-fed chunk mode; current hardware-paced music claims require PULL plus
   advancing `musicpull=` counters
 - keeps one queued pending music window per active music voice, so an early
-  `VIBE_AUDIO_UPDATE_SFX` can be promoted by the IRQ refill path when the current
-  music window drains instead of replacing it or forcing a dry carrier
+  `VIBE_AUDIO_MIXER_UPDATE` can be promoted by the IRQ refill path when the
+  current music window drains instead of replacing it or forcing a dry carrier
 
 SB16 constants in `kernel/kernel.asm`:
 
@@ -84,16 +101,18 @@ SB16 constants in `kernel/kernel.asm`:
 
 The Doom platform layer keeps original Doom source pristine, resolves the `ds*`
 sound lump for `I_StartSound`, caches the lump, strips the 8-byte Doom sound
-header, and passes a small `vibe_audio_sfx_desc_t` through `SYS_AUDIO`. The
-descriptor contains the raw unsigned 8-bit PCM sample pointer, length, volume,
-separation, pitch, Doom sound id, flags, and source sample rate. Normal SFX are
-tagged with `VIBE_AUDIO_FLAG_WAD_SFX` after the platform validates the Doom
-sound header and pads the sample data with unsigned silence to the original
-Linux Doom mixer quantum. The music bridge submits `VIBE_AUDIO_FLAG_MUSIC`;
-looping is now handled by the port-owned song cursor instead of by looping a
-short kernel sample window. For non-looping songs, the port tags the last
-rendered chunk with `VIBE_AUDIO_FLAG_STREAM_FINAL` so the kernel can distinguish
-a normal terminal chunk drain from an unserved pull request.
+header, and passes a small `vibe_audio_voice_desc_t` through `SYS_AUDIO`. This
+is the generic mixer voice descriptor; `vibe_audio_sfx_desc_t` is retained as a
+compatibility typedef because the first caller is Doom SFX. The descriptor
+contains the raw unsigned 8-bit PCM sample pointer, length, volume, separation,
+pitch, Doom sound id, flags, and source sample rate. Normal SFX are tagged with
+`VIBE_AUDIO_FLAG_WAD_SFX` after the platform validates the Doom sound header and
+pads the sample data with unsigned silence to the original Linux Doom mixer
+quantum. The music bridge submits `VIBE_AUDIO_FLAG_MUSIC`; looping is now
+handled by the port-owned song cursor instead of by looping a short kernel
+sample window. For non-looping songs, the port tags the last rendered chunk with
+`VIBE_AUDIO_FLAG_STREAM_FINAL` so the kernel can distinguish a normal terminal
+chunk drain from an unserved pull request.
 Doom audio assets come from WAD lumps selected at runtime. The repo does not
 ship Doom SFX, MUS, MIDI, WAD bytes, or pre-rendered audio assets for this
 proof lane; `ds*` SFX lumps and MUS/MIDI song lumps are loaded from the caller's
@@ -141,16 +160,17 @@ submissions. These are deliberately smoke-visible so host tests can pin the
 source contract without requiring local QEMU or real Doom pixels/audio assets.
 
 Active SFX playback has bounded state instead of only one-shot submissions.
-`START_SFX` validates the descriptor and user sample range, then writes, reuses,
-or steals one of eight voice slots. `STOP_SFX` clears the matching handle, and
-`UPDATE_SFX` refreshes volume, separation, pitch, derived pan gains, and pitch
-step for the existing handle. For music handles it can also replace the active
-sample pointer and length when the current window has already drained, or queue
-one pending streamed music chunk when the current window is still playing. The
-refill path promotes that pending window exactly at the source boundary and
-continues mixing without retiring the music voice. Doom's port layer now queries
-`VIBE_AUDIO_MUSIC_PULL_STATE` instead of using its own buffered-byte low-water
-policy. The kernel raises a hardware-paced pull request from the SB16 IRQ refill
+`VIBE_AUDIO_MIXER_START` validates the descriptor and user sample range, then
+writes, reuses, or steals one of eight voice slots. `VIBE_AUDIO_MIXER_STOP`
+clears the matching handle, and `VIBE_AUDIO_MIXER_UPDATE` refreshes volume,
+separation, pitch, derived pan gains, and pitch step for the existing handle.
+For music handles it can also replace the active sample pointer and length when
+the current window has already drained, or queue one pending streamed music chunk
+when the current window is still playing. The refill path promotes that pending
+window exactly at the source boundary and continues mixing without retiring the
+music voice. Doom's port layer now queries `VIBE_AUDIO_PCM_PULL_STATE` instead
+of using its own buffered-byte low-water policy. The kernel raises a
+hardware-paced pull request from the SB16 IRQ refill
 path when the active plus pending music buffer falls below the three-quarter
 stream-window low-water mark, and the port renders exactly the next bounded
 chunk to service that request. The port still owns MUS/MIDI parsing and PCM
@@ -162,8 +182,8 @@ high pitch, and retires non-looping voices that reach the end of their sample.
 Loop-flagged voices still wrap their source position back to zero for fallback
 or non-streamed callers, but Doom music now advances by request-serviced chunks
 rather than by looping one bounded carrier.
-Doom's `I_SoundIsPlaying` now calls back into the audio syscall and returns true
-only while that handle is still active in the mixer voice table.
+Doom's `I_SoundIsPlaying` now calls back through `VIBE_AUDIO_MIXER_IS_PLAYING`
+and returns true only while that handle is still active in the mixer voice table.
 
 The kernel now exposes a stream-visible music contract. `musicpos=` is the
 cumulative music source bytes consumed by the IRQ refill mixer, `musicbuf=` is
@@ -178,7 +198,7 @@ them. Normal early music refreshes are queued rather than counted as drops.
 If a stream window reaches its boundary after the kernel has already raised a
 pull request but before the port has serviced it, the kernel keeps the music
 voice handle alive with an empty pending window. That preserves the outstanding
-request for the next `VIBE_AUDIO_MUSIC_PULL_STATE` poll instead of retiring the
+request for the next `VIBE_AUDIO_PCM_PULL_STATE` poll instead of retiring the
 voice and turning a scheduler-edge refill into a permanent music underrun.
 These fields let the proof checker distinguish a progressing kernel-mixed,
 request-driven stream from a single queued music sample without claiming
@@ -207,7 +227,10 @@ Remote-safe continuity proof:
 `tools/check_audio_continuity_proof.py` consumes only decoded status snapshots:
 `status.after-start.txt`, `status.after-fire.txt`, `status.after-move.txt`,
 `status.after-use.txt`, `status.after-menu.txt`, and `status.txt`. It requires
-`audio=SB16` in every snapshot, a nonzero `sb16=` DSP version, nonzero `dma=`
+`audio=SB16` in every snapshot, `adev=` to identify a ready generic SB16 audio
+device with PCM-ring/mixer/pull-stream/SB16-DMA capabilities, `pcm=` to expose
+unsigned 8-bit stereo at 11025 Hz, `pcmbuf=` to expose the two-period PCM ring,
+a nonzero `sb16=` DSP version, nonzero `dma=`
 programming and `play=` start counters, nonzero `voiceq=` and `musicq=` queue
 counters, nonzero `sfxq=`, `sfxbytes=`, `sfxdma=`, `sfxsrc=`, and `sfxlast=`
 SFX-source proof, monotonic audio counters, increasing IRQ/refill, non-music SFX
@@ -289,9 +312,9 @@ does not call host MIDI, audio, math, or operating-system libraries.
 `I_RegisterSong` stores the cached WAD lump pointer, and `I_PlaySong` now starts
 a port-owned stateful stream cursor instead of rendering one permanent carrier.
 The platform layer renders 32768-byte streamed music chunks from the current
-song position and submits the first chunk through `VIBE_AUDIO_START_SFX`; later
-Doom sound, tic, and frame hooks poll `VIBE_AUDIO_MUSIC_PULL_STATE` and call
-`VIBE_AUDIO_UPDATE_SFX` only when the kernel has raised a hardware-paced pull
+song position and submits the first chunk through `VIBE_AUDIO_MIXER_START`; later
+Doom sound, tic, and frame hooks poll `VIBE_AUDIO_PCM_PULL_STATE` and call
+`VIBE_AUDIO_MIXER_UPDATE` only when the kernel has raised a hardware-paced pull
 request from the SB16 refill path. The music architecture keeps targeting the same SB16
 DMA/refill output path, so the parser/renderer work shares SFX voice stealing,
 clipping, silence, and status accounting. The extra `musicvoices=`, `musicmix=`,
@@ -314,7 +337,7 @@ full pipeline and fallback design.
 Remaining gaps:
 
 - Music now advances a stateful song-position cursor in the Doom port and
-  services kernel pull requests with `VIBE_AUDIO_UPDATE_SFX`. The SB16 IRQ
+  services kernel pull requests with `VIBE_AUDIO_MIXER_UPDATE`. The SB16 IRQ
   refill path owns request timing and `musicpull=` accounting, but the Doom port
   still renders the MUS/MIDI chunk in response. The `musicrend=` counters now
   prove those service chunks came from parsed MUS/MIDI renderer activity rather

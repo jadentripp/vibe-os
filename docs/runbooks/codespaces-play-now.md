@@ -141,6 +141,23 @@ the remote runner preflight with `--require-novnc` on `ubuntu-latest`, checks
 the VM safety contract, and does not fetch a WAD, build `disk.img`, launch QEMU,
 or upload artifacts.
 
+After interactive play, use the cloud-only proof helper for machine evidence
+instead of copying anything out of the Codespace:
+
+```sh
+python3 tools/run_cloud_playability.py --ref <branch> --lane gameplay --wait \
+  --download-artifacts build/cloud-run-gameplay
+python3 tools/run_cloud_playability.py --ref <branch> --lane audio \
+  --soak-attempts 3 \
+  --soak-min-passes 3 \
+  --wait \
+  --download-artifacts build/cloud-soak-audio
+```
+
+The first command downloads and triages the allowlisted single-run status
+artifact. The second downloads the JSON-only soak metadata and validates its
+summary.
+
 ## Run The Play Script
 
 In the Codespace terminal:
@@ -215,8 +232,9 @@ curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/main/tools/play_
   | VIBE_REF=main bash
 ```
 
-That installs the remote play dependencies, checks out the pushed branch into
-`~/vibe-os-play-now`, runs the noVNC preflight, and starts
+Omit `VIBE_REF` to use `main`. That installs the remote play dependencies,
+checks out the pushed branch into `~/vibe-os-play-now`, runs the noVNC
+preflight, and starts
 `./tools/play_now_remote.sh --require-novnc` on the remote host. Tunnel or
 forward port `6080`, then open the forwarded URL with
 `/vnc.html?autoconnect=1`.

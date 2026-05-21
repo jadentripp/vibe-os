@@ -31,7 +31,8 @@ boot:
   raw-audio spillover patterns so accidental local proof output is harder to
   stage.
 - Host storage tests cover root-level 8.3 lifecycle behavior: create, readback,
-  sparse growth, truncate/resize-to-zero, delete, cluster-chain freeing/reuse,
+  sparse growth, descriptor `ftruncate` shrink/grow, signed seek offsets,
+  truncate/resize-to-zero, delete, cluster-chain freeing/reuse,
   corrupt-chain validation before mutation, FAT-copy agreement,
   duplicate-root/cross-link/orphaned-cluster rejection, protected WAD/ELF
   refusal, and syscall-backed `unlink`/`stat`/`fstat` libc wrappers. They also
@@ -66,9 +67,12 @@ boot:
   claiming that `fork`, descriptor duplication, or reusable VM objects exist
   yet.
 - `tools/check_vm_status_proof.py` requires the matching cloud status to expose
-  `vmmhfree`, `argvsrc=2`, `procpool=`, `fdexec=`, `wait=`, and `pmask` plus
-  `pkind`/`peip`/`pcr3`/`pkstk` evidence before a VM/process artifact can be
-  accepted.
+  `vmmhfree`, `uexec=OK`, `upath=USERPROB.ELF`, `argvsrc=2`, `procpool=`,
+  `fdexec=`, `wait=`, and `pmask` plus `pkind`/`peip`/`pcr3`/`pkstk` evidence
+  before a VM/process artifact can be accepted.
+- `tools/status_fields.py` is the shared host-side status/proof parser. New
+  checkers should use it for duplicate detection, eight-digit hex fields, and
+  slash/colon tuple fields instead of open-coding status regexes.
 - `tests/host/test_framebuffer_contract.py` proves the 320x200 indexed shadow,
   RGB palette to XRGB8888 conversion, 2x scaling, and centering contract without
   using rendered Doom pixels.
@@ -88,7 +92,7 @@ boot:
 - `tools/check_real_wad_proof.py` is the source-level truth-serum gate for that
   real-WAD status proof. It now validates the wider debug contract too:
   VM/kernel health, syscall exec counters, FAT/WAD file access, Doom runtime
-  counters, audio/mouse telemetry fields, live scheduler-preemption proof, and
+	  counters, generic input/audio/mouse telemetry fields, live scheduler-preemption proof, and
   non-pixel visual summaries. It requires the early/start/fire/move/use/mouse/menu status
   snapshots as well as the final status, so a single good-looking final line
   cannot stand in for scripted input proof. Host tests assert that the GitHub workflow and
@@ -99,7 +103,7 @@ boot:
   syscall-driven exec handoff, and timer preemption evidence.
 - `tools/check_human_playability_proof.py` compares decoded status snapshots
   from the deterministic input phases. It requires keyboard counters to
-  increase across each keyboard phase, mouse IRQ/packet/poll counters to
+  increase across each keyboard phase, mouse IRQ/packet/generic-poll counters to
   advance during the mouse phase, Doom to remain in E1M1 gameplay, `keyseen` to
   record Up/Ctrl/Space/Escape, player movement/action/menu flags to be set,
   `pdelta>0`, `ppos` to change after the movement phase, fire to change
@@ -107,11 +111,12 @@ boot:
   `ticcmd.angleturn` or the resulting player-angle delta, and Escape to flip the
   menu bit without reading WAD or framebuffer artifacts.
 - `tools/check_audio_continuity_proof.py` is the remote-safe SB16 audio gate. It
-  compares the same decoded status snapshots, requires `audio=SB16`, and proves
-  IRQ/refill, non-music SFX, `sfxdma=` IRQ-refill SFX output, music mixing,
-  `voiceq=` stream-update counters, and kernel-visible `musicpos=` progress
-  without storing audio samples. This is still not a kernel-owned MUS/MIDI
-  renderer proof.
+  compares the same decoded status snapshots, requires `audio=SB16`, proves the
+  generic `adev=` / `pcm=` / `pcmbuf=` audio-device and PCM-ring contract, and
+  proves IRQ/refill, non-music SFX, `sfxdma=` IRQ-refill SFX output, music
+  mixing, `voiceq=` stream-update counters, and kernel-visible `musicpos=`
+  progress without storing audio samples. This is still not a kernel-owned
+  MUS/MIDI renderer proof.
 - `tools/check_audible_audio_proof.py` is the optional remote audible-output
   gate. In cloud it analyzes a temporary QEMU WAV capture into aggregate
   `audio-proof.json`, validates non-silent duration/window/RMS/peak metrics tied
@@ -154,9 +159,10 @@ boot:
   `munmap` contract without launching QEMU.
 - `tools/check_vm_status_proof.py` validates cloud status artifacts for the VM
   legitimacy fields: `vmmhfree` must match the reclaimed dynamic page table,
-  Doom exec must report `argvsrc=2`, `procpool=`, `fdexec=`, and `wait=`, and
-  `pmask` plus `pkind`/`peip`/`pcr3`/`pkstk` must show bidirectional timer IRQ
-  switching between Doom and the preempt probe.
+  boot-probe exec must report `uexec=OK` and `upath=USERPROB.ELF`, Doom exec
+  must report `argvsrc=2`, `procpool=`, `fdexec=`, and `wait=`, and `pmask` plus
+  `pkind`/`peip`/`pcr3`/`pkstk` must show bidirectional timer IRQ switching
+  between Doom and the preempt probe.
 - `tools/check_shutdown_panic_proof.py` validates the opt-in disposable-cloud
   shutdown/panic proof contract and any downloaded proof artifact. It requires
   `shutdown-panic-proof.json` plus dedicated panic, halt, reboot-request, and
@@ -165,7 +171,7 @@ boot:
 - `tools/check_cloud_playability_artifacts.py` validates the remote human-run
   runbook, workflow upload hygiene, expected non-WAD diagnostic files, and
   downloaded real-WAD status artifacts without requiring a WAD or local QEMU.
-  The docs it checks must keep a `Current-head cloud proof state` note plus the
+  The docs it checks must keep a fresh save-persistence proof note plus the
   explicit `gh workflow run os-smoke.yml`, `real-wad-smoke.yml`, and soak
   dispatch commands, so host-only changes cannot masquerade as cloud proof.
   The repo contract also locks the repeated **Real WAD soak** workflow's
