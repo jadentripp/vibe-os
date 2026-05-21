@@ -128,6 +128,39 @@ rewritten IRQ return frame (`pframe`) so the cloud gate has to prove
 Doom/preempt-probe CR3/TSS switches and a Ring 3 `iretd` target in both
 directions, not only scheduler counter increments.
 
+## Second Freestanding Program Contract
+
+A second freestanding C program uses the same launch ABI as the probe and Doom.
+The current simplest shape is a freestanding i386 ELF linked with
+`user/crt0.asm`, exporting `user_main(int argc, char **argv, char **envp)`, and
+including `doom_port/include/vibe_os.h` plus the small libc headers it needs.
+It can either call `vibe_syscall3` through `doom_port/libc.c` or use its own
+small `int 0x80` wrapper the way `user/probe.c` does.
+
+To launch that program today:
+
+- Build it as a flat root-level FAT16 8.3 `.ELF`, for example `HELLO.ELF`.
+- Place that file in the FAT root. The in-tree image builder still places only
+  `USERPROB.ELF`, `DOOM.ELF`, `DOOM1.WAD`, and the writable root fixtures, so
+  a checked-in second program needs a host image/build rule extension or a
+  post-build FAT write step. The kernel-side resolver is already generic; no
+  kernel change is required for another root-level 8.3 `.ELF` name.
+- From an existing user process, call `execv("HELLO.ELF", argv)` or the raw
+  `SYS_EXEC` ABI with flags zero. The kernel copies the bounded argv vector
+  before retiring the caller address space, seeds an empty `envp`, assigns a
+  fresh PID, and inherits only descriptors not opened with `O_CLOEXEC`.
+- In the new image, consume `argc`, `argv`, and `envp` from crt0. The image can
+  use `getpid`, `waitpid`, `clock_gettime(CLOCK_MONOTONIC)`, `open`/`read`/
+  `write`/`stat`/`ftruncate`, `vibe_listdir`, `vibe_poll_input`,
+  `vibe_input_status`, `vibe_fb_get_info`, `vibe_present_indexed_checked`, and
+  the `SYS_AUDIO` command records without depending on Doom source.
+
+The generic pool is reusable, but it is still small and static. Generic exec is
+good enough for a second utility, launcher, or indexed-framebuffer game loaded
+from the FAT root. It is not yet enough for a shell that continuously starts
+unbounded children, dynamically chooses address-space classes, traverses
+directories, or keeps a Unix parent alive across an overlay-style exec.
+
 ## Status And Rollback Counters
 
 Smoke status still includes `exec=OK path=...`, and `execsys=` now reports:
@@ -199,3 +232,9 @@ real-WAD proof counters.
   There is no `fork`/`exec` split, wait blocking, process groups, signal
   delivery, fork-time fd duplication, unbounded dynamic child slots, or
   file-backed VM object lifetime.
+- A fuller game/userland runtime still needs a general program packaging path
+  for additional ELF files, a reusable crt0/libc template outside the Doom port,
+  hierarchical path lookup, working directory state, dynamically sized process
+  and fd tables, blocking scheduler waits, signals, threads, richer framebuffer
+  present formats, and audio formats beyond the current unsigned 8-bit stereo
+  mixer contract.

@@ -20,6 +20,42 @@ logs, ELF files, symbols, and aggregate JSON proof only. Do not track or upload
 WAD files, disk images, raw audio captures, screenshots, framebuffer dumps, or
 rendered pixel artifacts.
 
+## General-Purpose ABI Audit
+
+A second freestanding C program does not need to include Doom headers or call
+Doom port hooks. Doom is the first large consumer, but the public surface is the
+small `vibe_os.h` syscall ABI plus libc/POSIX-shaped wrappers in
+`doom_port/libc.c`.
+
+The reusable surface today is:
+
+- Clock: `VIBE_SYS_CLOCK_GETTIME`, `vibe_clock_monotonic`, and
+  `clock_gettime(CLOCK_MONOTONIC)` expose monotonic PIT time for game loops and
+  tools. This is not wall-clock time.
+- Input: `vibe_poll_input`, `vibe_drain_input`, and `vibe_input_status` expose
+  typed keyboard/mouse events and queue health without Doom translation.
+- Framebuffer: `vibe_fb_get_info`, `vibe_present_indexed`, and
+  `vibe_present_indexed_checked` expose the discoverable indexed-present
+  contract through `VIBE_DISPLAY_FD` and display ioctls.
+- Audio: `SYS_AUDIO` accepts generic `vibe_audio_voice_desc_t` voice commands
+  and reports `vibe_audio_device_info_t` / `vibe_audio_pcm_ring_info_t` device
+  state. Doom WAD SFX and music parsing remain only one caller of that mixer.
+- Generic file consumers can use `open`, `read`, `write`, `lseek`, `close`,
+  `stat`, `fstat`, `unlink`, `ftruncate`, `truncate`, `vibe_listdir`,
+  `vibe_file_size`, and `vibe_file_read_all` against the current FAT16 root
+  model.
+- Process code can use `execv`/`execve`, `getpid`, `wait`/`waitpid`, and the
+  explicit `fork()` `ENOSYS` result. `argv` is bounded by `VIBE_EXEC_*`, `envp`
+  is empty, and descriptors inherit across exec unless opened with
+  `O_CLOEXEC`.
+
+The ABI is reusable, but not POSIX-complete. The current model lacks a generic
+program packaging rule, directories for open/exec traversal, long filenames,
+environment copying, true `fork`, blocking waits, signals, threads, dynamic
+process growth, reusable file-backed VM objects, direct RGB presents, larger
+present sources, and audio formats beyond the current unsigned 8-bit stereo
+mixer path.
+
 ## File ABI
 
 User mode calls `vibe_syscall3` with the syscall numbers in
@@ -139,9 +175,10 @@ waits, and nonzero wait options still return explicit errors instead of
 pretending that scheduling/blocking semantics are implemented.
 
 The kernel fd table also records owner PID, open generation, and explicit
-inheritance flags for each allocated fd. This is metadata only for now: `fork()`
-does not clone descriptors yet, and the current exec handoff still resets the
-global fd table before entering the new image.
+inheritance flags for each allocated fd. `fork()` does not clone descriptors
+yet, but exec retags inheritable descriptors from the caller PID to the target
+PID and closes descriptors opened with `O_CLOEXEC`. Process teardown, fault
+handling, target-slot reuse, and wait reaping close process-owned descriptors.
 
 ## Runtime proof
 
