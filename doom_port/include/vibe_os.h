@@ -597,10 +597,11 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   reports 100 Hz ticks and milliseconds only; it is not an RTC or wall clock.
  *   `vibe_clock_monotonic` and `vibe_clock_ticks_to_milliseconds` are generic
  *   helpers for game loops that do not want Doom's 35 Hz tic conversion.
- * - VIBE_SYS_LISTDIR lists cached FAT16 root entries into fixed
- *   `vibe_dirent_t` records. It is readonly and root-only for now; names are
- *   normalized 8.3 display names, and `stat("/")` reports readonly directory
- *   metadata.
+ * - VIBE_SYS_LISTDIR lists cached FAT16 root entries and read-only one-level
+ *   root subdirectories into fixed `vibe_dirent_t` records. Names are
+ *   normalized 8.3 display names, and `stat("/")` plus `stat("/ASSETS")`
+ *   style directory metadata report readonly directories. File opens remain
+ *   root-level only.
  * - VIBE_SYS_POLL_INPUT drains one reusable keyboard/mouse event at a time.
  *   VIBE_SYS_INPUT_STATUS reports queue capacity/depth, overflow counters,
  *   keyboard state, and mouse state without consuming queued input. The libc

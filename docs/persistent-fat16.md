@@ -24,15 +24,18 @@ Reusable FAT16 syscall surface:
   operate through the shared fd/FAT path used by Doom and by future games and
   tools.
 - `vibe_listdir("/")` returns fixed-size `vibe_dirent_t` records for live root
-  entries. Public headers pin `VIBE_DIRENT_NAME_BYTES == 16` and
+  entries, and `vibe_listdir("/ASSETS")` can list a single read-only root-level
+  FAT16 subdirectory when the generated image contains one. Public headers pin
+  `VIBE_DIRENT_NAME_BYTES == 16` and
   `VIBE_DIRENT_BYTES == 32`, expose FAT attribute bits such as
   `VIBE_DIRENT_ATTR_DIRECTORY`, and provide `vibe_dirent_is_directory()` plus
   `vibe_dirent_is_regular_file()` for callers that want to scan the generated
   image without copying Doom-specific filename knowledge.
 - The generic path intentionally remains small: root/current-directory prefixes
-  normalize to the FAT root, valid 8.3 names are accepted, and real
-  subdirectory traversal, long filenames, rename, timestamps, ownership, and
-  delete-while-open semantics are outside the current syscall contract.
+  normalize to the FAT root, valid 8.3 names are accepted, and one root-level
+  subdirectory component can be listed read-only. Nested traversal, opening
+  files inside subdirectories, long filenames, rename, timestamps, ownership,
+  and delete-while-open semantics are outside the current syscall contract.
 - Host tests and image checkers exercise this surface without committing WADs,
   mutated disks, pixel dumps, or raw audio captures. Scratch files such as
   `FATPROOF.TMP` are created only inside in-memory checker copies.
@@ -89,19 +92,24 @@ Current kernel contract:
   can be recreated with `O_CREAT` after deletion.
 - Supported metadata: `stat` and `fstat` report regular-file mode, one link, and
   size for protected WAD/ELF files and writable root files. `stat("/")` reports
-  readonly directory mode for the FAT root. `VIBE_SYS_LISTDIR`/`vibe_listdir`
-  copies readonly fixed-size `vibe_dirent_t` records for live root entries,
-  including normalized 8.3 display name, size, mode, first cluster, and raw FAT
-  attributes. Timestamps, owners, and device fields are zero.
-- Supported validation: subdirectories, path traversal, empty names, long
-  filenames, and unsupported characters are rejected; leading root separators
-  and `./` prefixes are path normalization only, not subdirectory traversal.
+  readonly directory mode for the FAT root, and `stat("/ASSETS")` reports
+  readonly directory mode for a matching root-level directory entry instead of
+  treating it as a regular file. `VIBE_SYS_LISTDIR`/`vibe_listdir` copies
+  readonly fixed-size `vibe_dirent_t` records for live root entries and for
+  one-level root subdirectories, including normalized 8.3 display name, size,
+  mode, first cluster, and raw FAT attributes. Timestamps, owners, and device
+  fields are zero.
+- Supported validation: nested path traversal, empty names, long filenames, and
+  unsupported characters are rejected; leading root separators and `./` prefixes
+  are path normalization only, not subdirectory traversal. Existing directories
+  cannot be opened as generic writable files or shadowed by `O_CREAT`.
   `DOOM1.WAD`, `USERPROB.ELF`, and `DOOM.ELF` remain protected read-only
   entries and cannot be deleted, truncated, or opened writable. Unknown `open`
   flag bits are rejected as `EINVAL` in the kernel, even if libc callers
   normally filter them first.
-- Unsupported in the kernel syscall surface: subdirectory listing/traversal,
-  long filenames, rename, timestamps, ownership, permissions beyond read-only
+- Unsupported in the kernel syscall surface: nested subdirectory traversal,
+  opening files by subdirectory path, writable subdirectories, long filenames,
+  rename, timestamps, ownership, permissions beyond read-only
   directory/regular-file versus writable regular-file mode, and no POSIX delete-while-open behavior.
   This kernel deliberately invalidates descriptors when their root entry is
   unlinked.
@@ -179,9 +187,9 @@ checker also verifies both FAT copies agree, every allocated data cluster is
 owned by exactly one live root entry, and protected `DOOM1.WAD`, `USERPROB.ELF`,
 and `DOOM.ELF` entries have unchanged metadata and bytes. The checker-side FAT
 reader can list the root directory and follow simple read-only 8.3 subdirectory
-entries for lookup/readback proof. The kernel now exposes the root listing
-piece of that contract to user processes; read-only subdirectory traversal is
-still host-tooling-only.
+entries for lookup/readback proof. The kernel now exposes the root listing and
+one-level subdirectory listing pieces of that contract to user processes;
+opening files inside those subdirectories is still host-tooling-only.
 
 Add `--require-dynamic-fat-proof` when the artifact should also prove the image
 still supports dynamic filesystem behavior. That option mutates an in-memory
@@ -252,11 +260,12 @@ startup/gameplay wait.
 Remaining storage gaps before a broad Doom-capable claim:
 
 - Writable semantics are still deliberately narrow: kernel syscalls handle
-  root-level 8.3 files, reusable dynamic root entries, and readonly root
-  directory listing, but no subdirectories for user processes, no writable
-  subdirectories, no rename, no long filenames, no timestamps/ownership, and no
-  POSIX delete-while-open behavior. Host-side validation can inspect read-only
-  subdirectory trees, but user processes cannot create or traverse them yet.
+  root-level 8.3 files, reusable dynamic root entries, readonly root directory
+  listing, and readonly listing of one root-level subdirectory, but no nested
+  traversal, no opening files inside subdirectories, no writable subdirectories,
+  no rename, no long filenames, no timestamps/ownership, and no POSIX
+  delete-while-open behavior. Host-side validation can inspect read-only
+  subdirectory trees more deeply than the kernel syscall surface can.
 - The storage proof is image-level and cloud-runner scoped. The OS can mutate
   the generated FAT16 disk image, but there is not yet a broader storage boot
   path story for installing, selecting, or safely recovering persistent media

@@ -1,10 +1,16 @@
+import importlib.util
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+MAKE_WAD_IMAGE = ROOT / "tools" / "make_wad_image.py"
+spec = importlib.util.spec_from_file_location("make_wad_image", MAKE_WAD_IMAGE)
+make_wad_image = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(make_wad_image)
 
 
 class FatContractTests(unittest.TestCase):
@@ -127,6 +133,7 @@ class FatContractTests(unittest.TestCase):
             "Reusable FAT16 syscall surface",
             "root-level 8.3",
             "vibe_listdir",
+            "one root-level subdirectory",
             "vibe_dirent_is_regular_file",
             "future games and tools",
         ):
@@ -136,6 +143,64 @@ class FatContractTests(unittest.TestCase):
         for forbidden in ("DOOM1.WAD bytes", "disk.img artifact", "raw sector dump"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, docs)
+
+    def test_kernel_fat_vfs_exposes_readonly_one_level_directory_listing(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+
+        for source in (
+            "fat_find_root_entry_any:",
+            "fat_list_user_dir:",
+            "fat_list_subdir_cluster:",
+            "call fat_find_root_entry_any",
+            "test byte [fat_found_attributes], FAT_ATTR_DIRECTORY",
+            "jnz .bad_syscall_eacces",
+            "call fat_list_user_dir",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, kernel)
+
+        stat_section = kernel.split(".stat:", 1)[1].split(".fstat:", 1)[0]
+        self.assertIn("call fat_find_root_entry_any", stat_section)
+        self.assertIn("STAT_MODE_READONLY_DIR", stat_section)
+
+        listdir_section = kernel.split("fat_list_user_dir:", 1)[1].split("fat_list_root_dir:", 1)[0]
+        self.assertIn("call fat_parse_user_root83", listdir_section)
+        self.assertIn("call fat_list_subdir_cluster", listdir_section)
+        self.assertIn("cmp byte [esi], '.'", listdir_section)
+
+    def test_host_fat_image_subdirectory_round_trip_matches_kernel_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_path = Path(tmp) / "disk.img"
+            subprocess.run(
+                [sys.executable, str(MAKE_WAD_IMAGE), str(image_path)],
+                check=True,
+                cwd=ROOT,
+                stdout=subprocess.DEVNULL,
+            )
+            image = bytearray(image_path.read_bytes())
+
+        fs = make_wad_image.Fat16Image(image)
+
+        fs.create_subdirectory(b"ASSETS     ")
+        fs.write_directory_file(b"ASSETS     ", b"SPRITE  BIN", b"sprite-bytes")
+        fs.write_directory_file(b"ASSETS     ", b"LEVEL   DAT", b"level-bytes")
+        fs.validate_allocated_clusters_reachable()
+
+        root_entries = fs.list_root_directory()
+        asset_entry = next(entry for entry in root_entries if entry["name"] == b"ASSETS     ")
+        self.assertTrue(asset_entry["is_directory"])
+        self.assertEqual(asset_entry["size"], 0)
+
+        names = {entry["name"] for entry in fs.list_directory((b"ASSETS     ",))}
+        self.assertIn(b"SPRITE  BIN", names)
+        self.assertIn(b"LEVEL   DAT", names)
+        self.assertEqual(
+            fs.read_file_at_path((b"ASSETS     ", b"SPRITE  BIN")),
+            b"sprite-bytes",
+        )
+
+        with self.assertRaises(IsADirectoryError):
+            fs.write_root_file(b"ASSETS     ", b"not-a-file")
 
 
 if __name__ == "__main__":

@@ -465,6 +465,9 @@ STAT_S_IWUSR equ 0x00000080
 STAT_MODE_READONLY_REG equ STAT_S_IFREG | STAT_S_IRUSR
 STAT_MODE_WRITABLE_REG equ STAT_S_IFREG | STAT_S_IRUSR | STAT_S_IWUSR
 STAT_MODE_READONLY_DIR equ STAT_S_IFDIR | STAT_S_IRUSR
+FAT_ATTR_VOLUME_ID equ 0x08
+FAT_ATTR_DIRECTORY equ 0x10
+FAT_ATTR_ARCHIVE equ 0x20
 VIBE_DIRENT_NAME equ 0
 VIBE_DIRENT_SIZE equ 16
 VIBE_DIRENT_MODE equ 20
@@ -5232,6 +5235,9 @@ storage_init:
     mov dword [fat_lba_branch_code], 0
     mov dword [fat_lba_branch_cluster], 0
     mov dword [fat_lba_branch_next], 0
+    mov dword [fat_list_dir_lba], 0
+    mov dword [fat_list_dir_sectors_left], 0
+    mov word [fat_list_dir_cluster], 0
     mov dword [fat_clip_debug_stage], 0
     mov dword [fat_clip_debug_index], 0
     mov dword [fat_clip_debug_size], 0
@@ -5240,6 +5246,7 @@ storage_init:
     mov dword [fat_clip_debug_current], 0
     mov dword [fat_clip_debug_next], 0
     mov dword [fat_clip_debug_result], 0
+    mov byte [fat_found_attributes], 0
     mov dword [wad_size], 0
     mov dword [wad_sectors_read], 0
     mov dword [wad_lump_count], 0
@@ -6110,6 +6117,64 @@ fat_find_file:
     mov eax, [fat_root_lba]
     add eax, ebx
     mov [fat_found_root_lba], eax
+    mov al, [esi + 11]
+    mov [fat_found_attributes], al
+    mov eax, esi
+    sub eax, fat_root_cache
+    and eax, 511
+    mov [fat_found_root_offset], eax
+    mov ax, [esi + 26]
+    mov [fat_found_first_cluster], ax
+    mov eax, [esi + 28]
+    mov [fat_found_size], eax
+    clc
+    ret
+
+.fail:
+    stc
+    ret
+
+fat_find_root_entry_any:
+    mov [fat_search_name], edi
+    xor ebx, ebx
+
+.sector_loop:
+    cmp ebx, [fat_root_sectors]
+    jae .fail
+    mov esi, ebx
+    shl esi, 9
+    add esi, fat_root_cache
+    mov ecx, 16
+
+.entry_loop:
+    cmp byte [esi], 0
+    je .fail
+    cmp byte [esi], 0xe5
+    je .next_entry
+    mov al, [esi + 11]
+    test al, FAT_ATTR_VOLUME_ID
+    jnz .next_entry
+    push ebx
+    push ecx
+    mov edi, [fat_search_name]
+    call fat_name_match
+    pop ecx
+    pop ebx
+    cmp al, 1
+    je .found
+
+.next_entry:
+    add esi, 32
+    loop .entry_loop
+    inc ebx
+    jmp .sector_loop
+
+.found:
+    mov eax, [fat_root_lba]
+    add eax, ebx
+    mov [fat_found_root_lba], eax
+    mov al, [esi + 11]
+    mov [fat_found_attributes], al
     mov eax, esi
     sub eax, fat_root_cache
     and eax, 511
@@ -6730,6 +6795,7 @@ fat_create_root_file:
     mov [fat_found_root_offset], eax
     mov word [fat_found_first_cluster], 0
     mov dword [fat_found_size], 0
+    mov byte [fat_found_attributes], FAT_ATTR_ARCHIVE
     mov eax, [fat_found_root_lba]
     mov esi, ebx
     shl esi, 9
@@ -8331,6 +8397,178 @@ fat_fill_dirent_from_root_entry:
     pop ecx
     pop ebx
     pop eax
+    ret
+
+fat_list_user_dir:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    call fat_user_path_is_root
+    jnc .root
+    call fat_parse_user_root83
+    jc .fail_inval
+    mov edi, fat_open_name_buffer
+    call fat_find_root_entry_any
+    jc .fail_enoent
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .fail_inval
+    mov ax, [fat_found_first_cluster]
+    cmp ax, 2
+    jb .fail_eio
+    mov [fat_list_dir_cluster], ax
+    mov eax, [syscall_dirent_max]
+    cmp eax, FAT_ROOT_CACHE_SECTORS * 16
+    ja .fail_inval
+    mov [fat_list_max], eax
+    mov eax, [syscall_dirent_ptr]
+    mov [fat_list_user_ptr], eax
+    mov dword [fat_list_copied], 0
+    cmp eax, 0
+    je .ok
+    mov eax, [syscall_dirent_max]
+    shl eax, 5
+    mov ebx, eax
+    mov eax, [fat_list_user_ptr]
+    call user_range_validate
+    jc .fail_inval
+    call fat_list_subdir_cluster
+    jc .done
+    jmp .done
+
+.root:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    call fat_list_root_dir
+    ret
+
+.ok:
+    mov eax, [fat_list_copied]
+    clc
+    jmp .done
+
+.fail_enoent:
+    mov eax, -ERRNO_ENOENT
+    stc
+    jmp .done
+
+.fail_eio:
+    mov eax, -ERRNO_EIO
+    stc
+    jmp .done
+
+.fail_inval:
+    mov eax, -ERRNO_EINVAL
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+fat_list_subdir_cluster:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    movzx ebx, word [fat_list_dir_cluster]
+
+.cluster_loop:
+    cmp ebx, 2
+    jb .ok
+    cmp ebx, [fat_last_data_cluster]
+    ja .fail_eio
+    mov eax, ebx
+    sub eax, 2
+    movzx edx, byte [fat_sectors_per_cluster]
+    mul edx
+    add eax, [fat_data_lba]
+    mov [fat_list_dir_lba], eax
+    movzx eax, byte [fat_sectors_per_cluster]
+    mov [fat_list_dir_sectors_left], eax
+
+.sector_loop:
+    cmp dword [fat_list_dir_sectors_left], 0
+    je .next_cluster
+    mov eax, [fat_list_dir_lba]
+    mov edi, SECTOR_BUFFER_ADDR
+    call ata_read_sector
+    jc .fail_eio
+    inc dword [fat_list_dir_lba]
+    dec dword [fat_list_dir_sectors_left]
+    mov esi, SECTOR_BUFFER_ADDR
+    mov ecx, 16
+
+.entry_loop:
+    cmp byte [esi], 0
+    je .ok
+    cmp byte [esi], 0xe5
+    je .next_entry
+    cmp byte [esi], '.'
+    je .next_entry
+    mov al, [esi + 11]
+    test al, FAT_ATTR_VOLUME_ID
+    jnz .next_entry
+    mov eax, [fat_list_copied]
+    cmp eax, [fat_list_max]
+    jae .ok
+    push ebx
+    push ecx
+    push esi
+    mov edi, [fat_list_user_ptr]
+    mov ebx, eax
+    shl ebx, 5
+    add edi, ebx
+    call fat_fill_dirent_from_root_entry
+    pop esi
+    pop ecx
+    pop ebx
+    inc dword [fat_list_copied]
+
+.next_entry:
+    add esi, 32
+    loop .entry_loop
+    jmp .sector_loop
+
+.next_cluster:
+    movzx eax, word [fat_list_dir_cluster]
+    call fat_next_cluster
+    jc .fail_eio
+    cmp eax, 2
+    jb .ok
+    cmp eax, 0xfff8
+    jae .ok
+    cmp eax, [fat_last_data_cluster]
+    ja .fail_eio
+    mov [fat_list_dir_cluster], ax
+    mov ebx, eax
+    jmp .cluster_loop
+
+.ok:
+    mov eax, [fat_list_copied]
+    clc
+    jmp .done
+
+.fail_eio:
+    mov eax, -ERRNO_EIO
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
     ret
 
 fat_list_root_dir:
@@ -11665,7 +11903,7 @@ syscall_handler:
     call fat_open_name_is_protected
     jc .bad_syscall_eacces
     mov edi, fat_open_name_buffer
-    call fat_find_file
+    call fat_find_root_entry_any
     jnc .open_generic_found
     test dword [syscall_open_flags], O_CREAT
     jz .bad_syscall_enoent
@@ -11674,6 +11912,8 @@ syscall_handler:
     jc .bad_syscall_enomem
 
 .open_generic_found:
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jnz .bad_syscall_eacces
     call fat_bind_found_writable_slot
     jc .bad_syscall_enomem
     mov edx, [fat_open_slot]
@@ -12396,10 +12636,15 @@ syscall_handler:
     call fat_open_name_marker_index
     jnc .stat_persistence_marker
     mov edi, fat_open_name_buffer
-    call fat_find_file
+    call fat_find_root_entry_any
     jc .bad_syscall_enoent
     mov eax, [fat_found_size]
     mov edx, STAT_MODE_WRITABLE_REG
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .stat_found_entry
+    mov edx, STAT_MODE_READONLY_DIR
+
+.stat_found_entry:
     call stat_fill_user
     jc .bad_syscall_einval
     xor eax, eax
@@ -12488,7 +12733,7 @@ syscall_handler:
     mov [syscall_ptr_arg], ebx
     mov [syscall_dirent_ptr], ecx
     mov [syscall_dirent_max], edx
-    call fat_list_root_dir
+    call fat_list_user_dir
     jc .bad_syscall_from_eax
     jmp .return
 
@@ -17909,6 +18154,8 @@ fat_lba_next_boundary dd 0
 fat_lba_branch_code dd 0
 fat_lba_branch_cluster dd 0
 fat_lba_branch_next dd 0
+fat_list_dir_lba dd 0
+fat_list_dir_sectors_left dd 0
 fat_clip_debug_stage dd 0
 fat_clip_debug_index dd 0
 fat_clip_debug_size dd 0
@@ -18325,6 +18572,7 @@ writable_root_offsets times WRITABLE_FILE_COUNT dd 0
 writable_offsets times WRITABLE_FILE_COUNT dd 0
 fat_current_cluster dw 0
 fat_found_first_cluster dw 0
+fat_list_dir_cluster dw 0
 wad_first_cluster dw 0
 user_elf_first_cluster dw 0
 doom_elf_first_cluster dw 0
@@ -18335,6 +18583,7 @@ writable_first_clusters times WRITABLE_FILE_COUNT dw 0
 user_probe_cs dw 0
 user_probe_ss dw 0
 fat_sectors_per_cluster db 0
+fat_found_attributes db 0
 fat_open_dot_seen db 0
 fat_open_base_len db 0
 fat_open_ext_len db 0

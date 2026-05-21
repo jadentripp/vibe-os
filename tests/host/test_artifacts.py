@@ -1475,7 +1475,12 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("vibe_syscall3(VIBE_SYS_FTRUNCATE", libc)
         self.assertIn("vibe_syscall3(VIBE_SYS_LISTDIR", libc)
         listdir_path = kernel.split(".listdir:", 1)[1].split(".ftruncate:", 1)[0]
-        self.assertIn("call fat_list_root_dir", listdir_path)
+        self.assertIn("call fat_list_user_dir", listdir_path)
+        user_lister = kernel.split("fat_list_user_dir:", 1)[1].split("fat_list_root_dir:", 1)[0]
+        self.assertIn("fat_list_root_dir", user_lister)
+        self.assertIn("call fat_list_subdir_cluster", user_lister)
+        self.assertIn("call fat_find_root_entry_any", user_lister)
+        self.assertIn("test byte [fat_found_attributes], FAT_ATTR_DIRECTORY", user_lister)
         lister = kernel.split("fat_list_root_dir:", 1)[1].split("user_file_read:", 1)[0]
         self.assertIn("call fat_user_path_is_root", lister)
         self.assertIn("call fat_fill_dirent_from_root_entry", lister)
