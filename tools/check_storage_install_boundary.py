@@ -131,7 +131,7 @@ REQUIRED_CROSS_DOC_LINKS = {
         "STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL] status=unclaimed",
         "blank-disk-to-bootable-vibe-os",
     ),
-    "tests/README.md": (
+    "tests/strategy.txt": (
         "tools/check_storage_install_boundary.py",
         "install-image-manifest",
     ),
@@ -229,7 +229,7 @@ def contains_phrase(text: str, phrase: str) -> bool:
 
 
 def repo_text_files(root: Path) -> list[Path]:
-    files = [root / "README.md", root / "tests" / "README.md"]
+    files = [root / "README.md", root / "tests" / "strategy.txt"]
     files.extend(sorted((root / "docs").rglob("*.md")))
     files.extend(sorted((root / "tests").rglob("test_*.py")))
     files.append(root / "tools" / "check_storage_install_boundary.py")

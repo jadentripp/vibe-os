@@ -280,7 +280,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     boot_vm_doc = _read(root, "docs/architecture.md")
     doom_runtime_doc = _read(root, "docs/architecture.md")
     gap_doc = _read(root, "docs/proof.md")
-    tests_readme = _read(root, "tests/README.md")
+    tests_readme = _read(root, "tests/strategy.txt")
 
     validate_cloud_interactive_runbooks(root)
 
@@ -880,8 +880,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "tools/check_vm_safety_contract.py",
     ):
         _require(gap_doc, needle, "gap ledger")
-    _require(tests_readme, "tools/check_vm_safety_contract.py", "tests README")
-    _require(tests_readme, "tools/check_shutdown_panic_proof.py", "tests README")
+    _require(tests_readme, "tools/check_vm_safety_contract.py", "test strategy doc")
+    _require(tests_readme, "tools/check_shutdown_panic_proof.py", "test strategy doc")
 
 
 def main() -> int:

@@ -187,7 +187,7 @@ Executable gate: `tools/check_shutdown_panic_proof.py` plus
 Current state: the claimed target is QEMU BIOS/IDE/PS2/VBE/SB16. The scoped
 matrix is `docs/architecture.md`, whose machine-readable `SUPPORT[...]`,
 `PCI_STATUS[...]`, and device-boundary rows are guarded by
-`check_hardware_support_matrix.py`; `boot/uefi/README.md` keeps the
+`check_hardware_support_matrix.py`; `boot/uefi/CONTRACT.txt` keeps the
 contract-only UEFI scaffold and `UEFI_BOOT[...]` rows visible.
 
 Still missing: UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, physical

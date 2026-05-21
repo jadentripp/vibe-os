@@ -141,7 +141,7 @@ class PostCheckpointGapTests(unittest.TestCase):
 
     def test_docs_keep_large_post_checkpoint_gaps_explicit(self):
         readme = (ROOT / "README.md").read_text()
-        tests_readme = (ROOT / "tests" / "README.md").read_text()
+        tests_readme = (ROOT / "tests" / "strategy.txt").read_text()
         gap_doc = (ROOT / "docs" / "proof.md").read_text()
         playable_doc = (ROOT / "docs" / "proof.md").read_text()
         process_doc = (ROOT / "docs" / "architecture.md").read_text()

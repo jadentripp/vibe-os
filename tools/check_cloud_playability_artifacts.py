@@ -35,7 +35,7 @@ OS_WORKFLOW = ROOT / ".github" / "workflows" / "os-smoke.yml"
 WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
 SOAK_WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-soak.yml"
 README = ROOT / "README.md"
-TESTS_README = ROOT / "tests" / "README.md"
+TESTS_README = ROOT / "tests" / "strategy.txt"
 MAKEFILE = ROOT / "Makefile"
 HUMAN_PLAYTEST_SCRIPT = ROOT / "tools" / "run_remote_human_playtest.sh"
 CODESPACES_PLAY_SCRIPT = ROOT / "tools" / "play_now_codespaces.sh"
@@ -723,7 +723,7 @@ def validate_repo_contract() -> None:
 
     for text, label in (
         (play_now_runbook, "play-now cloud runbook"),
-        (tests_readme, "tests README"),
+        (tests_readme, "test strategy doc"),
     ):
         _require(text, "tools/run_remote_human_playtest.sh", label)
         _require(text, "--scripted-proof-run-id", label)
@@ -861,14 +861,14 @@ def validate_repo_contract() -> None:
     _require(playable, "pcr3", "playable cloud proof doc")
     _require(playable, "pkstk", "playable cloud proof doc")
     _require(playable, "pspin", "playable cloud proof doc")
-    _require(tests_readme, "check_cloud_playability_artifacts.py", "tests README")
-    _require(tests_readme, "expected_ref", "tests README")
-    _require(tests_readme, "fresh save-persistence proof note", "tests README")
-    _require(tests_readme, "collect_human_playtest_bundle.py", "tests README")
-    _require(tests_readme, "phase_hash_*", "tests README")
-    _require(tests_readme, "human-playtest-checklist.txt", "tests README")
-    _require(tests_readme, "human-playtest-session.json", "tests README")
-    _require(tests_readme, "human-playtest-review.json", "tests README")
+    _require(tests_readme, "check_cloud_playability_artifacts.py", "test strategy doc")
+    _require(tests_readme, "expected_ref", "test strategy doc")
+    _require(tests_readme, "fresh save-persistence proof note", "test strategy doc")
+    _require(tests_readme, "collect_human_playtest_bundle.py", "test strategy doc")
+    _require(tests_readme, "phase_hash_*", "test strategy doc")
+    _require(tests_readme, "human-playtest-checklist.txt", "test strategy doc")
+    _require(tests_readme, "human-playtest-session.json", "test strategy doc")
+    _require(tests_readme, "human-playtest-review.json", "test strategy doc")
     _require(makefile, "cloud-playability-check", "Makefile")
     _require(makefile, "persistence-image-check", "Makefile")
     _require(makefile, "PERSISTENCE_BASELINE_IMAGE", "Makefile")

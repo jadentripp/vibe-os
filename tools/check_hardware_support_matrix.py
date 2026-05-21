@@ -409,14 +409,14 @@ REQUIRED_MATRIX_PHRASES = (
 REQUIRED_CROSS_DOC_LINKS = {
     "README.md": (
         "docs/architecture.md",
-        "boot/uefi/README.md",
+        "boot/uefi/CONTRACT.txt",
         "QEMU BIOS/IDE/PS2/VBE/SB16",
         "That evidence is limited to the emulated device model",
         "SUPPORT[UEFI] remains unclaimed",
         "pci=",
     ),
     "docs/architecture.md": (
-        "boot/uefi/README.md",
+        "boot/uefi/CONTRACT.txt",
         "contract-only UEFI scaffold",
         "UEFI_BOOT[...]",
         "SUPPORT[UEFI] remains unclaimed",
@@ -424,13 +424,13 @@ REQUIRED_CROSS_DOC_LINKS = {
     ),
     "docs/proof.md": (
         "docs/architecture.md",
-        "boot/uefi/README.md",
+        "boot/uefi/CONTRACT.txt",
         "UEFI_BOOT[...]",
         "SUPPORT[...]",
         "PCI_STATUS[...]",
         "check_hardware_support_matrix.py",
     ),
-    "docs/doom-provenance.md": (
+    "docs/doom-provenance.txt": (
         "docs/architecture.md",
         "broad PC",
     ),
@@ -438,9 +438,9 @@ REQUIRED_CROSS_DOC_LINKS = {
         "docs/architecture.md",
         "does not prove vibe-os boots directly on physical hardware",
     ),
-    "tests/README.md": (
+    "tests/strategy.txt": (
         "tools/check_hardware_support_matrix.py",
-        "boot/uefi/README.md",
+        "boot/uefi/CONTRACT.txt",
         "UEFI_BOOT[...]",
         "QEMU BIOS/IDE/PS2/VBE/SB16",
         "pciprobe=",
@@ -773,7 +773,7 @@ def _contains_phrase(text: str, phrase: str) -> bool:
 
 
 def _repo_text_files(root: Path) -> list[Path]:
-    files = [root / "README.md", root / "tests" / "README.md"]
+    files = [root / "README.md", root / "tests" / "strategy.txt"]
     files.extend(sorted((root / "boot").rglob("*.md")))
     files.extend(sorted((root / "docs").rglob("*.md")))
     files.extend(sorted((root / "tests").rglob("test_*.py")))
@@ -1268,7 +1268,7 @@ def _validate_status_proof_rows(text: str) -> dict[str, dict[str, object]]:
 
 
 def _validate_uefi_scaffold(root: Path) -> dict[str, dict[str, str]]:
-    text = _read(root / "boot" / "uefi" / "README.md")
+    text = _read(root / "boot" / "uefi" / "CONTRACT.txt")
     rows = _validate_uefi_boot_rows(text)
     _validate_uefi_boot_device_rows(text)
 
@@ -1286,7 +1286,7 @@ def _validate_uefi_scaffold(root: Path) -> dict[str, dict[str, str]]:
         "exact machine inventory and disposable media details",
     ):
         if not _contains_phrase(text, phrase):
-            raise AssertionError(f"boot/uefi/README.md missing UEFI scaffold phrase: {phrase}")
+            raise AssertionError(f"boot/uefi/CONTRACT.txt missing UEFI scaffold phrase: {phrase}")
 
     makefile = _read(root / "Makefile")
     if "boot/uefi" in makefile:

@@ -31,7 +31,7 @@ loader.
 
 ## UEFI Scaffold Boundary
 
-`boot/uefi/README.md` is a contract-only UEFI scaffold. It defines the future
+`boot/uefi/CONTRACT.txt` is a contract-only UEFI scaffold. It defines the future
 `UEFI_BOOT[...]` rows for a PE/COFF entry, ESP/FAT kernel load, GOP framebuffer
 handoff, UEFI memory map capture, `ExitBootServices`, ELF32-compatible kernel
 handoff, and separate opt-in build integration. Every row remains
@@ -296,7 +296,7 @@ diagnostics, not driver support, and must not be used as compatibility claims.
 | PIT | Claimed | Legacy PIT timer tick and Doom 35 Hz conversion | Cloud smoke status counters | HPET, APIC timer, TSC scheduling |
 | VBE/VGA | Claimed | QEMU VBE XRGB8888 LFB when available, VGA Mode 13h fallback | Cloud non-pixel status plus host framebuffer contract | Broad VBE mode matrix, GOP/UEFI framebuffer, physical GPU coverage |
 | SB16 | Claimed | QEMU ISA SB16-compatible guest device at `0x220` with status-visible IRQ/DMA/mixer counters | Status-only SB16 continuity checker; audible aggregate proof only when `audio-proof.json` passes | AC97/HDA/USB audio, physical sound cards, human-audible proof by default |
-| UEFI | Unclaimed | None | Future boot-path proof required before mention as supported | UEFI boot is not implemented; `boot/uefi/README.md` is a contract-only scaffold |
+| UEFI | Unclaimed | None | Future boot-path proof required before mention as supported | UEFI boot is not implemented; `boot/uefi/CONTRACT.txt` is a contract-only scaffold |
 | PCI enumeration | Unclaimed | None | Future disposable PCI proof plus driver consumption required before mention as supported | General PCI bus/device/function enumeration is not implemented; the bounded QEMU bus-0 table API is status-only, and AHCI or USB controllers are not used through PCI |
 | AHCI/SATA | Unclaimed | None | Future AHCI/SATA storage proof required before mention as supported | AHCI/SATA native storage is not implemented |
 | USB input/storage | Unclaimed | None | Future USB HID and mass-storage proof required before mention as supported | USB input and storage are not implemented |

@@ -265,7 +265,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     gap_doc = _read(root, "docs/proof.md")
     playable_doc = _read(root, "docs/proof.md")
     remote_runbook = _read(root, "docs/play.md")
-    tests_readme = _read(root, "tests/README.md")
+    tests_readme = _read(root, "tests/strategy.txt")
 
     for needle in (
         "KERNEL_EXTRA_NASMFLAGS ?=",
@@ -337,7 +337,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     ):
         _require(text, "shutdown_panic_proof", label)
         _require(text, "tools/check_shutdown_panic_proof.py", label)
-    _require(tests_readme, "check_shutdown_panic_proof.py", "tests README")
+    _require(tests_readme, "check_shutdown_panic_proof.py", "test strategy doc")
 
 
 def main(argv: list[str]) -> int:

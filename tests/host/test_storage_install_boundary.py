@@ -44,7 +44,7 @@ class StorageInstallBoundaryTests(unittest.TestCase):
 
             for relative in (
                 "README.md",
-                "tests/README.md",
+                "tests/strategy.txt",
                 "docs/architecture.md",
                 "docs/proof.md",
                 "tools/check_storage_install_boundary.py",
@@ -69,7 +69,7 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         readme = (ROOT / "README.md").read_text()
         persistence_doc = (ROOT / "docs" / "architecture.md").read_text()
         gap_doc = (ROOT / "docs" / "proof.md").read_text()
-        tests_readme = (ROOT / "tests" / "README.md").read_text()
+        tests_readme = (ROOT / "tests" / "strategy.txt").read_text()
 
         for text, phrase in (
             (readme, "not an installable OS for arbitrary disks"),

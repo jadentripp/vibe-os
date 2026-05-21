@@ -731,7 +731,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     boot_vm = _read(root, "docs/architecture.md")
     gaps = _read(root, "docs/proof.md")
     playable = _read(root, "docs/proof.md")
-    tests_readme = _read(root, "tests/README.md")
+    tests_readme = _read(root, "tests/strategy.txt")
     cloud_artifacts = _read(root, "tools/check_cloud_playability_artifacts.py")
 
     _require(os_workflow, "Assert generated-WAD VM/process exec gates", "OS smoke workflow")
@@ -760,7 +760,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         (boot_vm, "boot loader VM doc"),
         (gaps, "gap ledger"),
         (playable, "playable proof doc"),
-        (tests_readme, "tests README"),
+        (tests_readme, "test strategy doc"),
     ):
         _require(text, "tools/check_vm_status_proof.py", label)
         _require(text, "kreloc=LOW", label)
@@ -799,7 +799,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     for text, label in (
         (process_vm, "process VM doc"),
         (boot_vm, "boot loader VM doc"),
-        (tests_readme, "tests README"),
+        (tests_readme, "test strategy doc"),
     ):
         for needle in (
             "khiexec=OK",

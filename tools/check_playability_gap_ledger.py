@@ -213,7 +213,7 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
                 raise AssertionError(f"{gap_id} missing phrase: {phrase}")
 
     readme = (root / "README.md").read_text()
-    tests_readme = (root / "tests" / "README.md").read_text()
+    tests_readme = (root / "tests" / "strategy.txt").read_text()
     playable_cloud_proof = (root / "docs" / "proof.md").read_text()
     hardware_support = (root / "docs" / "architecture.md").read_text()
     makefile = (root / "Makefile").read_text()
@@ -269,9 +269,9 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
     if "Claim Boundaries" not in readme:
         raise AssertionError("README must keep the Doom-capable claim boundary visible")
     if "tools/check_playability_gap_ledger.py" not in tests_readme:
-        raise AssertionError("tests README must document the gap-ledger checker")
+        raise AssertionError("test strategy doc must document the gap-ledger checker")
     if "make playability-host-check" not in tests_readme:
-        raise AssertionError("tests README must document the host-only playability gate")
+        raise AssertionError("test strategy doc must document the host-only playability gate")
     if "make playability-host-check" not in playable_cloud_proof:
         raise AssertionError("playable cloud proof doc must prefer the host-only playability gate")
     host_target = re.search(

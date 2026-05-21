@@ -376,10 +376,10 @@ class BootLoaderVmContractTests(unittest.TestCase):
 
     def test_boot_vm_docs_state_current_limits_without_overclaiming(self):
         boot_doc = text(ROOT / "docs" / "architecture.md")
-        uefi_scaffold = text(ROOT / "boot" / "uefi" / "README.md")
+        uefi_scaffold = text(ROOT / "boot" / "uefi" / "CONTRACT.txt")
         process_doc = text(ROOT / "docs" / "architecture.md")
         readme = text(ROOT / "README.md")
-        tests_readme = text(ROOT / "tests" / "README.md")
+        tests_readme = text(ROOT / "tests" / "strategy.txt")
 
         for source in (
             "no GRUB",
@@ -436,7 +436,7 @@ class BootLoaderVmContractTests(unittest.TestCase):
         self.assertIn("records a single last-mapping object descriptor tagged", process_doc)
         self.assertIn("not a reusable object table or lookup structure yet", process_doc)
         self.assertIn("this remains a brk-backed", process_doc)
-        self.assertIn("boot/uefi/README.md", readme)
+        self.assertIn("boot/uefi/CONTRACT.txt", readme)
         self.assertIn("contract-only UEFI scaffold", boot_doc)
         self.assertIn("status=unimplemented", uefi_scaffold)
         self.assertIn("SUPPORT[UEFI] remains unclaimed", uefi_scaffold)

@@ -90,7 +90,7 @@ raw audio captures are forbidden.
 
 The hardware claim is bounded to QEMU BIOS/IDE/PS2/VBE/SB16: BIOS, IDE/ATA,
 PS/2, VBE/Mode 13h, and SB16-style audio. That evidence is limited to the
-emulated device model. `boot/uefi/README.md` is a contract-only UEFI scaffold,
+emulated device model. `boot/uefi/CONTRACT.txt` is a contract-only UEFI scaffold,
 and SUPPORT[UEFI] remains unclaimed. PCI fields such as `pci=`, `pciprobe=`,
 and `pcitabcap=` plus the `PCI_TABLE[...]` / `PCI_TABLE_CONTRACT[...]` rows are
 status-only QEMU bus-0 diagnostics; see `docs/architecture.md`.
@@ -112,6 +112,8 @@ FAT16 partition containing `DOOM1.WAD`, `USERPROB.ELF`, `ABIPROBE.ELF`,
 
 Markdown is capped to durable surfaces, not scratch notes. Human entry points
 are this README plus `docs/play.md`. Technical and evidence contracts live in
-`docs/architecture.md`, `docs/proof.md`, and `docs/doom-provenance.md`.
-Auxiliary README files are scoped to tests, the future UEFI scaffold, and the
-vendored Doom origin record.
+`docs/architecture.md`, `docs/proof.md`, and `docs/doom-provenance.txt`.
+Internal notes that still need to be tracked but should not look like more
+project documentation live as plain text contracts: `tests/strategy.txt` and
+`boot/uefi/CONTRACT.txt`. The only auxiliary Markdown file is
+`third_party/doom/ORIGIN.md`, which records the vendored Doom source origin.

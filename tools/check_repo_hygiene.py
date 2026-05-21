@@ -298,6 +298,13 @@ RUNTIME_BUILD_FILES = {
 }
 
 README_MAX_LINES = 160
+ALLOWED_MARKDOWN_PATHS = {
+    "README.md",
+    "docs/architecture.md",
+    "docs/play.md",
+    "docs/proof.md",
+    "third_party/doom/ORIGIN.md",
+}
 README_FORBIDDEN_PATTERNS = (
     ("commit hash", r"\b[0-9a-f]{7,40}\b"),
     ("run ID", r"\brun[-_ ]?id\b|\bworkflow[-_ ]?run\b|\bscripted[_ -]proof[_ -]run[_ -]id\b"),
@@ -758,6 +765,24 @@ def readme_policy_violations(root: Path = ROOT) -> list[str]:
     return violations
 
 
+def markdown_surface_violations(paths: list[str]) -> list[str]:
+    markdown_paths = sorted(path for path in paths if path.lower().endswith(".md"))
+    extra = [path for path in markdown_paths if path not in ALLOWED_MARKDOWN_PATHS]
+    missing = sorted(path for path in ALLOWED_MARKDOWN_PATHS if path not in markdown_paths)
+    violations: list[str] = []
+    if extra:
+        violations.append(
+            "Markdown surface has unexpected tracked files: "
+            + ", ".join(extra)
+            + "; merge durable contracts into README.md, docs/*.md, or plain text."
+        )
+    if missing:
+        violations.append(
+            "Markdown surface is missing durable entry points: " + ", ".join(missing)
+        )
+    return violations
+
+
 def find_violations(paths: list[str]) -> list[str]:
     violations: list[str] = []
     for path in paths:
@@ -809,6 +834,7 @@ def main() -> int:
     violations.extend(vendor_policy_violations())
     violations.extend(workflow_upload_violations(paths))
     violations.extend(readme_policy_violations())
+    violations.extend(markdown_surface_violations(paths))
     violations.extend(
         f"{entry}: third_party/doom must remain a pristine vendor tree"
         for entry in vendor_tree_status()

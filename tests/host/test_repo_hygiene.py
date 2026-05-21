@@ -404,7 +404,7 @@ jobs:
 
     def test_docs_keep_legit_but_playable_first_positioning(self):
         readme = " ".join((ROOT / "README.md").read_text().split())
-        provenance = " ".join((ROOT / "docs" / "doom-provenance.md").read_text().split())
+        provenance = " ".join((ROOT / "docs" / "doom-provenance.txt").read_text().split())
         runtime = " ".join((ROOT / "docs" / "architecture.md").read_text().split())
 
         for text, token in (
@@ -424,6 +424,27 @@ jobs:
     def test_top_level_readme_stays_concise_claim_surface(self):
         violations = check_repo_hygiene.readme_policy_violations(ROOT)
         self.assertEqual(violations, [])
+
+    def test_markdown_surface_stays_capped_to_durable_entry_points(self):
+        tracked = [
+            "README.md",
+            "docs/architecture.md",
+            "docs/play.md",
+            "docs/proof.md",
+            "docs/roadmap.md",
+            "tests/README.md",
+            "third_party/doom/ORIGIN.md",
+        ]
+        violations = check_repo_hygiene.markdown_surface_violations(tracked)
+
+        self.assertTrue(any("docs/roadmap.md" in violation for violation in violations))
+        self.assertTrue(any("tests/README.md" in violation for violation in violations))
+        self.assertEqual(
+            check_repo_hygiene.markdown_surface_violations(
+                sorted(check_repo_hygiene.ALLOWED_MARKDOWN_PATHS)
+            ),
+            [],
+        )
 
     def test_top_level_readme_policy_rejects_task_lists_and_proof_ledgers(self):
         readme = "\n".join(
@@ -455,7 +476,7 @@ jobs:
         self.assertTrue(any("overclaiming phrase" in violation for violation in violations))
 
     def test_detailed_docs_may_retain_exact_source_evidence(self):
-        provenance = (ROOT / "docs" / "doom-provenance.md").read_text()
+        provenance = (ROOT / "docs" / "doom-provenance.txt").read_text()
         self.assertIn(check_repo_hygiene.UPSTREAM_COMMIT, provenance)
 
 

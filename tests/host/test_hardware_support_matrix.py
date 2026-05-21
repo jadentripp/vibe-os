@@ -162,13 +162,13 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         boot_doc = (ROOT / "docs" / "architecture.md").read_text()
         gap_doc = (ROOT / "docs" / "proof.md").read_text()
         hardware_doc = (ROOT / "docs" / "architecture.md").read_text()
-        tests_readme = (ROOT / "tests" / "README.md").read_text()
+        tests_readme = (ROOT / "tests" / "strategy.txt").read_text()
         runbook = (ROOT / "docs" / "play.md").read_text()
 
         for text, phrase in (
             (readme, "That evidence is limited to the emulated device model"),
             (readme, "docs/architecture.md"),
-            (readme, "boot/uefi/README.md"),
+            (readme, "boot/uefi/CONTRACT.txt"),
             (readme, "pci="),
             (boot_doc, "contract-only UEFI scaffold"),
             (boot_doc, "SUPPORT[UEFI] remains unclaimed"),
@@ -193,7 +193,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             (hardware_doc, "VM/process legitimacy gate is adjacent to, but separate from, the hardware matrix"),
             (hardware_doc, "machine-required only in the real-WAD smoke and soak workflows"),
             (tests_readme, "tools/check_hardware_support_matrix.py"),
-            (tests_readme, "boot/uefi/README.md"),
+            (tests_readme, "boot/uefi/CONTRACT.txt"),
             (tests_readme, "pciprobe="),
             (tests_readme, "pciapi="),
             (runbook, "does not prove vibe-os boots directly on physical hardware"),
@@ -368,7 +368,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
     def test_uefi_scaffold_is_contract_only_and_unclaimed(self):
         rows = check_hardware_support_matrix.validate_repo_contract(ROOT)
         uefi_rows = check_hardware_support_matrix._validate_uefi_scaffold(ROOT)
-        scaffold = (ROOT / "boot" / "uefi" / "README.md").read_text()
+        scaffold = (ROOT / "boot" / "uefi" / "CONTRACT.txt").read_text()
         uefi_device_rows = check_hardware_support_matrix._validate_uefi_boot_device_rows(scaffold)
         makefile = (ROOT / "Makefile").read_text()
 
@@ -523,7 +523,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix._validate_current_target_row(broadened)
 
     def test_checker_rejects_uefi_scaffold_becoming_claimed_without_evidence(self):
-        scaffold = (ROOT / "boot" / "uefi" / "README.md").read_text()
+        scaffold = (ROOT / "boot" / "uefi" / "CONTRACT.txt").read_text()
         broadened = scaffold.replace(
             "UEFI_BOOT[ENTRY] status=unimplemented",
             "UEFI_BOOT[ENTRY] status=implemented",
@@ -628,7 +628,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix._validate_boot_device_boundary_rows(broadened)
 
     def test_checker_rejects_uefi_boot_device_claims_without_evidence(self):
-        scaffold = (ROOT / "boot" / "uefi" / "README.md").read_text()
+        scaffold = (ROOT / "boot" / "uefi" / "CONTRACT.txt").read_text()
         broadened = scaffold.replace(
             "UEFI_BOOT_DEVICE[OVMF_BOOT] status=unimplemented",
             "UEFI_BOOT_DEVICE[OVMF_BOOT] status=implemented",
