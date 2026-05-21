@@ -7,7 +7,7 @@ The `GAP[...]` rows are machine-readable and are checked by
 
 ## Latest Cloud Evidence
 
-As of 2026-05-21, the latest full real-WAD cloud run is `26222218819`.
+As of 2026-05-21, the latest full real-WAD cloud run is `26222591945`.
 It is full-lane green: `playability-status-green`, `doomrun=RUN`,
 `doomopen=OK`, `doomread=OK`, IWAD detection, scripted gameplay transition,
 artifact hygiene, `usr=OK`, scripted `usr=OK`, `use`, mouse effect,
@@ -24,8 +24,7 @@ pixels, and raw audio are not uploaded.
 This run also re-proves the fixed real MUS end-event path: audible proof,
 audio continuity, music stream counters, and scripted gameplay all pass with
 the real shareware WAD. The matching push-triggered OS smoke run for the same
-OS code is `26222212234`. A later docs/hygiene-only push is checked by
-`26222413193`.
+OS code is `26222581300`.
 
 A manual Codespaces/noVNC session on 2026-05-21 also played Doom from `main`.
 Keyboard controls worked, but a 2-core Codespace slowed down over time. That is
@@ -48,7 +47,7 @@ historical repair / blocker after notes, not the current proof basis.
 
 ## Gap Rows
 
-- `GAP[CLOUD_BOOT] status=proven category=cloud-boot gate=real-wad-smoke.yml evidence=real-wad-smoke-26222218819`
+- `GAP[CLOUD_BOOT] status=proven category=cloud-boot gate=real-wad-smoke.yml evidence=real-wad-smoke-26222591945`
 
 Current state: the manual real-WAD cloud workflow boots the repo OS in
 disposable QEMU and is tied to the exact commit/ref chosen by the workflow.
@@ -59,7 +58,7 @@ hardware boot remains a hardware-limit gap.
 Executable gate: `gh workflow run real-wad-smoke.yml --ref "$branch"` followed
 by the downloaded artifact checks.
 
-- `GAP[REAL_GAMEPLAY] status=proven category=real-gameplay gate=check_real_wad_proof.py evidence=real-wad-smoke-26222218819`
+- `GAP[REAL_GAMEPLAY] status=proven category=real-gameplay gate=check_real_wad_proof.py evidence=real-wad-smoke-26222591945`
 
 Current state: `tools/check_real_wad_proof.py` proves Doom reaches `GS_LEVEL`
 on E1M1, not just startup text. Stronger gameplay proof now comes from the
@@ -95,7 +94,7 @@ or `tools/run_remote_human_playtest.sh`, then run
 `tools/check_cloud_playability_artifacts.py --human-session` and
 `check_human_playability_proof.py --require-human-session`.
 
-- `GAP[PERSISTENCE] status=proven category=persistence gate=reboot-persistence-proof evidence=real-wad-smoke-26222218819`
+- `GAP[PERSISTENCE] status=proven category=persistence gate=reboot-persistence-proof evidence=real-wad-smoke-26222591945`
 
 Current state: Persistence/save-load is now green. The cloud reboot proof writes
 `DOOMSAV0.DSG`, captures the fresh baseline immediately after rebuilding, the
@@ -136,7 +135,7 @@ in-memory image construction from current build artifacts. It still does not
 select a real device, preserve unknown user data, repair damaged media, or
 prove an installer against arbitrary partition tables.
 
-- `GAP[AUDIO] status=proven category=audio gate=remote-sb16-audible-proof evidence=real-wad-smoke-26222218819`
+- `GAP[AUDIO] status=proven category=audio gate=remote-sb16-audible-proof evidence=real-wad-smoke-26222591945`
 
 Current state: status-only SB16 continuity and aggregate audible output proof
 are green. The proof covers DMA/refill, SFX, streamed music chunks, music pull
