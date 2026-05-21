@@ -23,11 +23,11 @@ oversized transfer. The FAT16 partition starts at `LBA 2048`, so the raw boot
 area and filesystem do not overlap.
 
 Before entering the kernel, Stage 2 records the BIOS memory/video data it needs
-in the low-memory boot-info block, attempts VBE linear-framebuffer setup with a
-Mode 13h fallback, enables A20 through port `0x92`, loads its own flat GDT, sets
-`CR0.PE`, and uses a far jump to enter 32-bit protected mode. The protected-mode
-entry sets flat data selectors and a temporary stack, then calls the Stage 2 ELF
-loader.
+in the low-memory boot-info block, including an E820 memory map when firmware
+provides one. It attempts VBE linear-framebuffer setup with a Mode 13h fallback,
+enables A20 through port `0x92`, loads its own flat GDT, sets `CR0.PE`, and uses
+a far jump to enter 32-bit protected mode. The protected-mode entry sets flat
+data selectors and a temporary stack, then calls the Stage 2 ELF loader.
 
 ## UEFI Loader/Proof Boundary
 

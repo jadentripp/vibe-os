@@ -107,9 +107,18 @@ BOOT_VIDEO_GREEN_MASK equ BOOT_INFO_ADDR + 32
 BOOT_VIDEO_GREEN_POS equ BOOT_INFO_ADDR + 33
 BOOT_VIDEO_BLUE_MASK equ BOOT_INFO_ADDR + 34
 BOOT_VIDEO_BLUE_POS equ BOOT_INFO_ADDR + 35
+BOOT_E820_MAGIC_ADDR equ BOOT_INFO_ADDR + 36
+BOOT_E820_COUNT equ BOOT_INFO_ADDR + 40
+BOOT_E820_ENTRY_SIZE_ADDR equ BOOT_INFO_ADDR + 42
+BOOT_E820_MAP_ADDR_PTR equ BOOT_INFO_ADDR + 44
 BOOT_VIDEO_FLAG_VBE equ 0x0001
 BOOT_VIDEO_FLAG_LFB equ 0x0002
 BOOT_VIDEO_FLAG_XRGB8888 equ 0x0004
+BOOT_E820_MAGIC equ 0x30323845
+E820_MAP_ADDR equ 0x00007100
+E820_ENTRY_SIZE equ 24
+E820_MAX_ENTRIES equ 32
+E820_TYPE_USABLE equ 1
 VIDEO_BACKEND_MODE13 equ 1
 VIDEO_BACKEND_LFB_XRGB8888 equ 2
 PRESENT_POLICY_MODE13 equ 1
@@ -170,6 +179,9 @@ PMM_FRAME_MAP_ADDR equ 0x00099000
 PMM_MANAGED_START equ 0x00100000
 PMM_MANAGED_END equ 0x02000000
 PMM_MANAGED_PAGES equ (PMM_MANAGED_END - PMM_MANAGED_START) / PAGE_SIZE
+PMM_SOURCE_NONE equ 0
+PMM_SOURCE_LEGACY_INT15 equ 1
+PMM_SOURCE_E820 equ 2
 VMM_TEST_VADDR equ 0x00f00000
 VMM_TEST_MAGIC equ 0x564d4d21
 VMM_HIGH_TEST_VADDR equ KERNEL_HIGHER_HALF_BASE
@@ -187,6 +199,10 @@ KERNEL_HIGH_EXEC_STACK_MAGIC equ 0x48485354
 KERNEL_PERSISTENT_ALIAS_STATUS_UNKNOWN equ 0
 KERNEL_PERSISTENT_ALIAS_STATUS_OK equ 1
 KERNEL_PERSISTENT_ALIAS_STATUS_FAIL equ 2
+KERNEL_PERSISTENT_EXEC_STATUS_UNKNOWN equ 0
+KERNEL_PERSISTENT_EXEC_STATUS_OK equ 1
+KERNEL_PERSISTENT_EXEC_STATUS_FAIL equ 2
+KERNEL_PERSISTENT_EXEC_STACK_MAGIC equ 0x4b504558
 KERNEL_PERSISTENT_ALIAS_BYTES equ 0x00020000
 KERNEL_PERSISTENT_ALIAS_PAGES equ KERNEL_PERSISTENT_ALIAS_BYTES / PAGE_SIZE
 KERNEL_STACK_ALIAS_PAGES equ (KERNEL_STACK_TOP - KERNEL_STACK_LOW) / PAGE_SIZE
@@ -2734,6 +2750,21 @@ kernel_persistent_alias_self_test:
     mov dword [kernel_persistent_stack_phys], 0
     mov dword [kernel_persistent_stack_pages], 0
     mov dword [kernel_persistent_stack_xlat], 0
+    mov byte [kernel_persistent_exec_status], KERNEL_PERSISTENT_EXEC_STATUS_FAIL
+    mov dword [kernel_persistent_exec_eip], 0
+    mov dword [kernel_persistent_exec_esp], 0
+    mov dword [kernel_persistent_exec_cr3], 0
+    mov dword [kernel_persistent_exec_vaddr], 0
+    mov dword [kernel_persistent_exec_phys], 0
+    mov dword [kernel_persistent_exec_stack_vaddr], 0
+    mov dword [kernel_persistent_exec_stack_phys], 0
+    mov dword [kernel_persistent_exec_xlat], 0
+    mov dword [kernel_persistent_exec_stack_xlat], 0
+    mov dword [kernel_persistent_exec_stack_probe_vaddr], 0
+    mov dword [kernel_persistent_exec_stack_probe_phys], 0
+    mov dword [kernel_persistent_exec_stack_probe_word], 0
+    mov dword [kernel_persistent_exec_return_eip], 0
+    mov dword [kernel_persistent_exec_saved_low_esp], 0
 
     mov eax, start
     and eax, 0xfffff000
@@ -2816,10 +2847,140 @@ kernel_persistent_alias_self_test:
     test eax, eax
     jz .done
 
+    call kernel_persistent_high_exec_self_test
+    cmp byte [kernel_persistent_exec_status], KERNEL_PERSISTENT_EXEC_STATUS_OK
+    jne .done
+
     mov byte [kernel_persistent_alias_status], KERNEL_PERSISTENT_ALIAS_STATUS_OK
 
 .done:
     popad
+    ret
+
+kernel_persistent_high_exec_self_test:
+    pushad
+
+    mov [kernel_persistent_exec_saved_low_esp], esp
+
+    mov eax, kernel_persistent_high_exec_trampoline
+    call kernel_translate_current_vaddr
+    cmp eax, 0xffffffff
+    je .done
+    and eax, 0xfffff000
+    cmp eax, [kernel_persistent_alias_phys]
+    jb .done
+    mov ebx, [kernel_persistent_alias_pages]
+    shl ebx, 12
+    add ebx, [kernel_persistent_alias_phys]
+    cmp eax, ebx
+    jae .done
+    mov [kernel_persistent_exec_phys], eax
+    add eax, KERNEL_HIGHER_HALF_BASE
+    mov [kernel_persistent_exec_vaddr], eax
+
+    mov eax, [kernel_persistent_exec_saved_low_esp]
+    call kernel_translate_current_vaddr
+    cmp eax, 0xffffffff
+    je .done
+    and eax, 0xfffff000
+    cmp eax, KERNEL_STACK_LOW
+    jb .done
+    cmp eax, KERNEL_STACK_TOP
+    jae .done
+    mov [kernel_persistent_exec_stack_phys], eax
+    add eax, KERNEL_HIGHER_HALF_BASE
+    mov [kernel_persistent_exec_stack_vaddr], eax
+
+    mov eax, [kernel_persistent_exec_vaddr]
+    call kernel_translate_current_vaddr
+    mov [kernel_persistent_exec_xlat], eax
+    cmp eax, [kernel_persistent_exec_phys]
+    jne .done
+
+    mov eax, [kernel_persistent_exec_stack_vaddr]
+    call kernel_translate_current_vaddr
+    mov [kernel_persistent_exec_stack_xlat], eax
+    cmp eax, [kernel_persistent_exec_stack_phys]
+    jne .done
+
+    mov ebx, [kernel_persistent_exec_saved_low_esp]
+    and ebx, 0x00000fff
+    add ebx, [kernel_persistent_exec_stack_vaddr]
+    mov eax, kernel_persistent_high_exec_trampoline
+    and eax, 0x00000fff
+    add eax, [kernel_persistent_exec_vaddr]
+    mov esp, ebx
+    call eax
+    mov esp, [kernel_persistent_exec_saved_low_esp]
+
+    cmp byte [kernel_persistent_exec_status], KERNEL_PERSISTENT_EXEC_STATUS_OK
+    jne .done
+    mov eax, [kernel_persistent_exec_stack_probe_word]
+    cmp eax, KERNEL_PERSISTENT_EXEC_STACK_MAGIC
+    jne .mark_fail
+    mov eax, [kernel_persistent_exec_stack_probe_vaddr]
+    cmp eax, [kernel_persistent_exec_stack_vaddr]
+    jb .mark_fail
+    mov ebx, [kernel_persistent_exec_stack_vaddr]
+    add ebx, PAGE_SIZE
+    cmp eax, ebx
+    jae .mark_fail
+    mov ebx, eax
+    and ebx, 0x00000fff
+    add ebx, [kernel_persistent_exec_stack_phys]
+    mov [kernel_persistent_exec_stack_probe_phys], ebx
+    cmp dword [ebx], KERNEL_PERSISTENT_EXEC_STACK_MAGIC
+    jne .mark_fail
+    mov eax, [kernel_persistent_exec_eip]
+    cmp eax, [kernel_persistent_exec_vaddr]
+    jb .mark_fail
+    mov ebx, [kernel_persistent_exec_vaddr]
+    add ebx, PAGE_SIZE
+    cmp eax, ebx
+    jae .mark_fail
+    mov eax, [kernel_persistent_exec_esp]
+    cmp eax, [kernel_persistent_exec_stack_vaddr]
+    jb .mark_fail
+    mov ebx, [kernel_persistent_exec_stack_vaddr]
+    add ebx, PAGE_SIZE
+    cmp eax, ebx
+    jae .mark_fail
+    mov eax, [kernel_persistent_exec_cr3]
+    cmp eax, [kernel_persistent_alias_cr3]
+    jne .mark_fail
+    mov eax, [kernel_persistent_exec_return_eip]
+    cmp eax, start
+    jb .mark_fail
+    mov ebx, start
+    add ebx, KERNEL_PERSISTENT_ALIAS_BYTES
+    cmp eax, ebx
+    jae .mark_fail
+    jmp .done
+
+.mark_fail:
+    mov byte [kernel_persistent_exec_status], KERNEL_PERSISTENT_EXEC_STATUS_FAIL
+
+.done:
+    popad
+    ret
+
+kernel_persistent_high_exec_trampoline:
+    call .capture_eip
+
+.capture_eip:
+    pop eax
+    mov [kernel_persistent_exec_eip], eax
+    mov eax, [esp]
+    mov [kernel_persistent_exec_return_eip], eax
+    push dword KERNEL_PERSISTENT_EXEC_STACK_MAGIC
+    mov [kernel_persistent_exec_stack_probe_vaddr], esp
+    mov eax, [esp]
+    mov [kernel_persistent_exec_stack_probe_word], eax
+    pop eax
+    mov [kernel_persistent_exec_esp], esp
+    mov eax, cr3
+    mov [kernel_persistent_exec_cr3], eax
+    mov byte [kernel_persistent_exec_status], KERNEL_PERSISTENT_EXEC_STATUS_OK
     ret
 
 kernel_persistent_map_range:
@@ -3301,12 +3462,20 @@ vmm_clear_process_guard_page:
 
 pmm_init:
     push eax
+    push ebx
     push ecx
+    push edx
+    push esi
     push edi
 
     mov dword [pmm_total_pages], 0
     mov dword [pmm_free_pages], 0
     mov dword [pmm_used_pages], 0
+    mov dword [pmm_e820_entries], 0
+    mov dword [pmm_e820_usable_pages], 0
+    mov dword [pmm_e820_last_base], 0
+    mov dword [pmm_e820_last_end], 0
+    mov byte [pmm_source], PMM_SOURCE_NONE
     mov byte [pmm_test_status], 0
 
     mov edi, PMM_FRAME_MAP_ADDR
@@ -3314,6 +3483,40 @@ pmm_init:
     mov ecx, PMM_MANAGED_PAGES
     rep stosb
 
+    cmp dword [BOOT_E820_MAGIC_ADDR], BOOT_E820_MAGIC
+    jne .legacy_int15
+    movzx ecx, word [BOOT_E820_COUNT]
+    test ecx, ecx
+    jz .legacy_int15
+    cmp ecx, E820_MAX_ENTRIES
+    jbe .e820_count_ok
+    mov ecx, E820_MAX_ENTRIES
+
+.e820_count_ok:
+    mov [pmm_e820_entries], ecx
+    mov dword [pmm_total_pages], PMM_MANAGED_PAGES
+    mov dword [pmm_used_pages], PMM_MANAGED_PAGES
+    mov esi, [BOOT_E820_MAP_ADDR_PTR]
+    test esi, esi
+    jnz .e820_loop
+    mov esi, E820_MAP_ADDR
+
+.e820_loop:
+    cmp dword [esi + 16], E820_TYPE_USABLE
+    jne .e820_next
+    call pmm_mark_e820_usable_entry
+
+.e820_next:
+    add esi, E820_ENTRY_SIZE
+    loop .e820_loop
+
+    cmp dword [pmm_free_pages], 0
+    je .legacy_int15
+    mov byte [pmm_source], PMM_SOURCE_E820
+    jmp .reserve_fixed
+
+.legacy_int15:
+    mov byte [pmm_source], PMM_SOURCE_LEGACY_INT15
     movzx eax, word [BOOT_INFO_ADDR + 4]
     shr eax, 2
     cmp eax, PMM_MANAGED_PAGES
@@ -3328,6 +3531,7 @@ pmm_init:
     mov al, 1
     rep stosb
 
+.reserve_fixed:
     mov eax, HEAP_START
     mov ecx, HEAP_SIZE / PAGE_SIZE
     call pmm_reserve_pages
@@ -3349,7 +3553,92 @@ pmm_init:
     call pmm_reserve_pages
 
     pop edi
+    pop esi
+    pop edx
     pop ecx
+    pop ebx
+    pop eax
+    ret
+
+pmm_mark_e820_usable_entry:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push edi
+
+    cmp dword [esi + 4], 0
+    jne .done
+
+    mov eax, [esi]
+    mov ebx, [esi + 8]
+    mov edx, [esi + 12]
+    mov ecx, ebx
+    or ecx, edx
+    jz .done
+
+    mov edi, eax
+    add edi, ebx
+    jc .saturate_end
+    test edx, edx
+    jz .end_ready
+
+.saturate_end:
+    mov edi, 0xffffffff
+
+.end_ready:
+    cmp edi, PMM_MANAGED_START
+    jbe .done
+    cmp eax, PMM_MANAGED_END
+    jae .done
+    cmp eax, PMM_MANAGED_START
+    jae .start_ready
+    mov eax, PMM_MANAGED_START
+
+.start_ready:
+    cmp edi, PMM_MANAGED_END
+    jbe .clip_ready
+    mov edi, PMM_MANAGED_END
+
+.clip_ready:
+    add eax, PAGE_SIZE - 1
+    and eax, 0xfffff000
+    and edi, 0xfffff000
+    cmp eax, edi
+    jae .done
+
+    mov [pmm_e820_last_base], eax
+    mov [pmm_e820_last_end], edi
+    sub eax, PMM_MANAGED_START
+    shr eax, 12
+    mov ebx, eax
+    sub edi, PMM_MANAGED_START
+    shr edi, 12
+    mov ecx, edi
+    sub ecx, ebx
+    mov edi, PMM_FRAME_MAP_ADDR
+    add edi, ebx
+
+.mark_next:
+    cmp ecx, 0
+    je .done
+    cmp byte [edi], 1
+    je .advance
+    mov byte [edi], 1
+    inc dword [pmm_free_pages]
+    dec dword [pmm_used_pages]
+    inc dword [pmm_e820_usable_pages]
+
+.advance:
+    inc edi
+    dec ecx
+    jmp .mark_next
+
+.done:
+    pop edi
+    pop edx
+    pop ecx
+    pop ebx
     pop eax
     ret
 
@@ -10670,21 +10959,63 @@ wad_parse:
 idt_init:
     pushad
 
-    mov edi, idt_start
-    mov eax, exception_halt
-    mov ecx, 32
-
-.exceptions:
-    call idt_set_gate
-    loop .exceptions
-
     mov edi, idt_start + (0 * 8)
     mov eax, exception_divide_error
     mov bl, 10001110b
     call idt_set_gate_attr
 
+    mov edi, idt_start + (1 * 8)
+    mov eax, exception_debug
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (2 * 8)
+    mov eax, exception_nmi
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (3 * 8)
+    mov eax, exception_breakpoint
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (4 * 8)
+    mov eax, exception_overflow
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (5 * 8)
+    mov eax, exception_bound_range
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
     mov edi, idt_start + (6 * 8)
     mov eax, exception_invalid_opcode
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (7 * 8)
+    mov eax, exception_device_not_available
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (8 * 8)
+    mov eax, exception_double_fault
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (9 * 8)
+    mov eax, exception_coprocessor_segment
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (10 * 8)
+    mov eax, exception_invalid_tss
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (11 * 8)
+    mov eax, exception_segment_not_present
     mov bl, 10001110b
     call idt_set_gate_attr
 
@@ -10700,6 +11031,91 @@ idt_init:
 
     mov edi, idt_start + (14 * 8)
     mov eax, page_fault_handler
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (15 * 8)
+    mov eax, exception_reserved_15
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (16 * 8)
+    mov eax, exception_x87_fpu
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (17 * 8)
+    mov eax, exception_alignment_check
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (18 * 8)
+    mov eax, exception_machine_check
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (19 * 8)
+    mov eax, exception_simd_fpu
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (20 * 8)
+    mov eax, exception_virtualization
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (21 * 8)
+    mov eax, exception_control_protection
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (22 * 8)
+    mov eax, exception_reserved_22
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (23 * 8)
+    mov eax, exception_reserved_23
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (24 * 8)
+    mov eax, exception_reserved_24
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (25 * 8)
+    mov eax, exception_reserved_25
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (26 * 8)
+    mov eax, exception_reserved_26
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (27 * 8)
+    mov eax, exception_reserved_27
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (28 * 8)
+    mov eax, exception_hypervisor
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (29 * 8)
+    mov eax, exception_vmm_communication
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (30 * 8)
+    mov eax, exception_security
+    mov bl, 10001110b
+    call idt_set_gate_attr
+
+    mov edi, idt_start + (31 * 8)
+    mov eax, exception_reserved_31
     mov bl, 10001110b
     call idt_set_gate_attr
 
@@ -12150,7 +12566,7 @@ scheduler_tick:
     call scheduler_capture_preempt_spin
     mov eax, [ebx + 36]
     test eax, 3
-    jz .account_current
+    jz .kernel_irq_frame
     inc dword [scheduler_user_irq_ticks]
 
 .account_current:
@@ -12228,6 +12644,11 @@ scheduler_tick:
 
 .skip_preempt:
     inc dword [scheduler_preempt_skips]
+    jmp .done
+
+.kernel_irq_frame:
+    inc dword [esi + PROC_TICKS]
+    inc dword [esi + PROC_QUANTUM_TICKS]
 
 .done:
     call scheduler_capture_preempt_spin
@@ -12451,9 +12872,46 @@ scheduler_preempt_self_test:
     jne .done
     cmp dword [scheduler_next_process_ptr], process_preempt_probe
     jne .done
+
+    mov esi, process_user_probe
+    mov dword [current_process_ptr], esi
+    mov dword [current_pid], 1
+    mov dword [esi + PROC_STATE], PROC_STATE_RUNNING
+    mov dword [esi + PROC_QUANTUM_TICKS], SCHEDULER_QUANTUM_TICKS
+    mov edi, scheduler_preempt_selftest_frame
+    xor eax, eax
+    mov ecx, 13
+    cld
+    rep stosd
+    mov dword [scheduler_preempt_selftest_frame + 32], start
+    mov dword [scheduler_preempt_selftest_frame + 36], CODE_SEG
+    mov dword [scheduler_preempt_selftest_frame + 40], 0x00000202
+    mov ebx, scheduler_preempt_selftest_frame
+    call scheduler_tick
+
+    mov esi, process_user_probe
+    test dword [esi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID
+    jz .done
+    cmp dword [esi + PROC_SAVED_EAX], 0x11111111
+    jne .done
+    cmp dword [esi + PROC_SAVED_EIP], USER_CODE_ADDR
+    jne .done
+    cmp dword [esi + PROC_SAVED_CS], USER_CODE_SEG
+    jne .done
+    cmp dword [esi + PROC_SAVED_ESP], USER_STACK_TOP - 16
+    jne .done
+    cmp dword [esi + PROC_SAVED_SS], USER_DATA_SEG
+    jne .done
+
     mov byte [scheduler_preempt_selftest_status], 1
 
 .done:
+    mov dword [current_process_ptr], process_kernel
+    mov dword [current_pid], 0
+    mov byte [current_user_kind], USER_KIND_NONE
+    mov dword [tss_esp0], KERNEL_STACK_TOP
+    mov word [tss_ss0], DATA_SEG
+    mov dword [process_kernel + PROC_STATE], PROC_STATE_RUNNING
     mov dword [scheduler_rr_cursor], 0
     mov dword [scheduler_next_pid], 0xffffffff
     mov dword [scheduler_next_process_ptr], 0
@@ -17120,27 +17578,112 @@ doom_record_input_event:
     pop eax
     ret
 
-exception_divide_error:
+%macro EXCEPTION_NO_ERROR_BODY 1
     push dword 0
-    push dword 0
+    push dword %1
     jmp exception_common
+%endmacro
+
+%macro EXCEPTION_ERROR_BODY 1
+    push dword %1
+    jmp exception_common
+%endmacro
+
+exception_divide_error:
+    EXCEPTION_NO_ERROR_BODY 0
+
+exception_debug:
+    EXCEPTION_NO_ERROR_BODY 1
+
+exception_nmi:
+    EXCEPTION_NO_ERROR_BODY 2
+
+exception_breakpoint:
+    EXCEPTION_NO_ERROR_BODY 3
+
+exception_overflow:
+    EXCEPTION_NO_ERROR_BODY 4
+
+exception_bound_range:
+    EXCEPTION_NO_ERROR_BODY 5
 
 exception_invalid_opcode:
-    push dword 0
-    push dword 6
-    jmp exception_common
+    EXCEPTION_NO_ERROR_BODY 6
+
+exception_device_not_available:
+    EXCEPTION_NO_ERROR_BODY 7
+
+exception_double_fault:
+    EXCEPTION_ERROR_BODY 8
+
+exception_coprocessor_segment:
+    EXCEPTION_NO_ERROR_BODY 9
+
+exception_invalid_tss:
+    EXCEPTION_ERROR_BODY 10
+
+exception_segment_not_present:
+    EXCEPTION_ERROR_BODY 11
 
 exception_stack_fault:
-    push dword 12
-    jmp exception_common
+    EXCEPTION_ERROR_BODY 12
 
 exception_general_protection:
-    push dword 13
-    jmp exception_common
+    EXCEPTION_ERROR_BODY 13
 
 page_fault_handler:
-    push dword 14
-    jmp exception_common
+    EXCEPTION_ERROR_BODY 14
+
+exception_reserved_15:
+    EXCEPTION_NO_ERROR_BODY 15
+
+exception_x87_fpu:
+    EXCEPTION_NO_ERROR_BODY 16
+
+exception_alignment_check:
+    EXCEPTION_ERROR_BODY 17
+
+exception_machine_check:
+    EXCEPTION_NO_ERROR_BODY 18
+
+exception_simd_fpu:
+    EXCEPTION_NO_ERROR_BODY 19
+
+exception_virtualization:
+    EXCEPTION_NO_ERROR_BODY 20
+
+exception_control_protection:
+    EXCEPTION_ERROR_BODY 21
+
+exception_reserved_22:
+    EXCEPTION_NO_ERROR_BODY 22
+
+exception_reserved_23:
+    EXCEPTION_NO_ERROR_BODY 23
+
+exception_reserved_24:
+    EXCEPTION_NO_ERROR_BODY 24
+
+exception_reserved_25:
+    EXCEPTION_NO_ERROR_BODY 25
+
+exception_reserved_26:
+    EXCEPTION_NO_ERROR_BODY 26
+
+exception_reserved_27:
+    EXCEPTION_NO_ERROR_BODY 27
+
+exception_hypervisor:
+    EXCEPTION_NO_ERROR_BODY 28
+
+exception_vmm_communication:
+    EXCEPTION_ERROR_BODY 29
+
+exception_security:
+    EXCEPTION_ERROR_BODY 30
+
+exception_reserved_31:
+    EXCEPTION_NO_ERROR_BODY 31
 
 exception_halt:
     push dword 0
@@ -17148,6 +17691,8 @@ exception_halt:
     jmp exception_common
 
 exception_common:
+    mov [esp - 4], eax
+    mov [esp - 8], esi
     mov eax, [esp + EXCEPTION_FRAME_VECTOR]
     mov [fault_vector], eax
     mov eax, [esp + EXCEPTION_FRAME_ERROR]
@@ -17192,6 +17737,9 @@ exception_common:
 
     cmp dword [fault_vector], 14
     jne .not_expected_user_fault
+    mov eax, [fault_cs]
+    test eax, 3
+    jz .not_expected_user_fault
     cmp byte [user_fault_expected], 1
     jne .not_expected_user_fault
     mov byte [user_fault_expected], 0
@@ -17210,12 +17758,19 @@ exception_common:
     add dword [esp + EXCEPTION_FRAME_EIP], EXPECTED_FAULT_INSTRUCTION_BYTES
 
 .expected_fault_return:
+    mov eax, [esp - 4]
+    mov esi, [esp - 8]
     add esp, 8
     iretd
 
 .not_expected_user_fault:
+    mov eax, [fault_cs]
+    test eax, 3
+    jz .kernel_panic
     cmp byte [current_user_kind], USER_KIND_DOOM
     je doom_user_fault
+
+.kernel_panic:
     mov ax, DATA_SEG
     mov ds, ax
     mov es, ax
@@ -17283,8 +17838,7 @@ irq_mouse:
     iretd
 
 irq_audio:
-    push eax
-    push edx
+    pushad
     inc dword [sb16_irq_count]
     mov dx, SB16_DSP_READ_STATUS
     in al, dx
@@ -17309,8 +17863,7 @@ irq_audio:
 .send_eoi:
     mov al, 0x20
     out 0x20, al
-    pop edx
-    pop eax
+    popad
     iretd
 
 irq_ignore_master:
@@ -19384,6 +19937,33 @@ write_smoke_status:
 
 .pmm_write:
     call smoke_copy_string
+
+    mov esi, smoke_e820_text
+    call smoke_copy_string
+    cmp byte [pmm_source], PMM_SOURCE_E820
+    je .e820_ok
+    cmp byte [pmm_source], PMM_SOURCE_LEGACY_INT15
+    je .e820_legacy
+    mov esi, fail_status_text
+    jmp .e820_write
+
+.e820_ok:
+    mov esi, smoke_ok_text
+    jmp .e820_write
+
+.e820_legacy:
+    mov esi, smoke_legacy_text
+
+.e820_write:
+    call smoke_copy_string
+    mov esi, smoke_e820cnt_text
+    call smoke_copy_string
+    mov edx, [pmm_e820_entries]
+    call smoke_write_hex32
+    mov esi, smoke_e820free_text
+    call smoke_copy_string
+    mov edx, [pmm_e820_usable_pages]
+    call smoke_write_hex32
     mov al, ' '
     stosb
 
@@ -19665,6 +20245,84 @@ write_smoke_status:
     mov esi, smoke_kpsxlat_text
     call smoke_copy_string
     mov edx, [kernel_persistent_stack_xlat]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpexec_text
+    call smoke_copy_string
+    cmp byte [kernel_persistent_exec_status], KERNEL_PERSISTENT_EXEC_STATUS_OK
+    je .kpexec_ok
+    mov esi, fail_status_text
+    jmp .kpexec_write
+
+.kpexec_ok:
+    mov esi, ok_status_text
+
+.kpexec_write:
+    call smoke_copy_string
+
+    mov esi, smoke_kpeip_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_exec_eip]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpesp_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_exec_esp]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpecr3_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_exec_cr3]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpeva_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_exec_vaddr]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpepa_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_exec_phys]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpestk_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_exec_stack_vaddr]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpestkpa_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_exec_stack_phys]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpexlat_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_exec_xlat]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpesxlat_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_exec_stack_xlat]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpeslot_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_exec_stack_probe_vaddr]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpeslotpa_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_exec_stack_probe_phys]
+    call smoke_write_hex32
+
+    mov esi, smoke_kpesword_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_exec_stack_probe_word]
+    call smoke_write_hex32
+
+    mov esi, smoke_kperet_text
+    call smoke_copy_string
+    mov edx, [kernel_persistent_exec_return_eip]
     call smoke_write_hex32
 
     mov esi, smoke_vmmhi_text
@@ -20513,6 +21171,20 @@ smoke_kpsva_text db " kpsva=", 0
 smoke_kpspa_text db " kpspa=", 0
 smoke_kpspages_text db " kpspages=", 0
 smoke_kpsxlat_text db " kpsxlat=", 0
+smoke_kpexec_text db " kpexec=", 0
+smoke_kpeip_text db " kpeip=", 0
+smoke_kpesp_text db " kpesp=", 0
+smoke_kpecr3_text db " kpecr3=", 0
+smoke_kpeva_text db " kpeva=", 0
+smoke_kpepa_text db " kpepa=", 0
+smoke_kpestk_text db " kpestk=", 0
+smoke_kpestkpa_text db " kpestkpa=", 0
+smoke_kpexlat_text db " kpexlat=", 0
+smoke_kpesxlat_text db " kpesxlat=", 0
+smoke_kpeslot_text db " kpeslot=", 0
+smoke_kpeslotpa_text db " kpeslotpa=", 0
+smoke_kpesword_text db " kpesword=", 0
+smoke_kperet_text db " kperet=", 0
 smoke_vmmhi_text db " vmmhi=", 0
 smoke_vmmhva_text db " vmmhva=", 0
 smoke_vmmhpa_text db " vmmhpa=", 0
@@ -20672,6 +21344,9 @@ smoke_pkstk_text db " pkstk=", 0
 smoke_pframe_text db " pframe=", 0
 smoke_pspin_text db " pspin=", 0
 smoke_pself_text db " pself=", 0
+smoke_e820_text db " e820=", 0
+smoke_e820cnt_text db " e820cnt=", 0
+smoke_e820free_text db " e820free=", 0
 smoke_status_text db " ", 0
 smoke_ok_text db "OK", 0
 smoke_fail_text db "FAIL", 0
@@ -20683,6 +21358,7 @@ smoke_fault_text db "FAULT", 0
 smoke_low_text db "LOW", 0
 smoke_low_only_text db "LOW_ONLY", 0
 smoke_hiexec_tmp_text db "HIEXEC_TMP", 0
+smoke_legacy_text db "LEGACY", 0
 smoke_mode13_text db "M13", 0
 smoke_lfb_text db "LFB", 0
 smoke_aspect_text db "ASP", 0
@@ -20878,6 +21554,7 @@ kernel_relocation_status db 0
 kernel_high_alias_status db 0
 kernel_high_exec_status db 0
 kernel_persistent_alias_status db 0
+kernel_persistent_exec_status db 0
 heap_test_status db 0
 fpu_status db 0
 fpu_test_status db 0
@@ -20978,6 +21655,12 @@ align 4
 pmm_total_pages dd 0
 pmm_free_pages dd 0
 pmm_used_pages dd 0
+pmm_e820_entries dd 0
+pmm_e820_usable_pages dd 0
+pmm_e820_last_base dd 0
+pmm_e820_last_end dd 0
+pmm_source db 0
+align 4
 vmm_static_page_tables dd 0
 vmm_dynamic_page_tables dd 0
 vmm_active_page_tables dd 0
@@ -21028,6 +21711,20 @@ kernel_persistent_stack_vaddr dd 0
 kernel_persistent_stack_phys dd 0
 kernel_persistent_stack_pages dd 0
 kernel_persistent_stack_xlat dd 0
+kernel_persistent_exec_eip dd 0
+kernel_persistent_exec_esp dd 0
+kernel_persistent_exec_cr3 dd 0
+kernel_persistent_exec_vaddr dd 0
+kernel_persistent_exec_phys dd 0
+kernel_persistent_exec_stack_vaddr dd 0
+kernel_persistent_exec_stack_phys dd 0
+kernel_persistent_exec_xlat dd 0
+kernel_persistent_exec_stack_xlat dd 0
+kernel_persistent_exec_stack_probe_vaddr dd 0
+kernel_persistent_exec_stack_probe_phys dd 0
+kernel_persistent_exec_stack_probe_word dd 0
+kernel_persistent_exec_return_eip dd 0
+kernel_persistent_exec_saved_low_esp dd 0
 vmm_map_vaddr dd 0
 vmm_map_entry dd 0
 vmm_map_table_addr dd 0

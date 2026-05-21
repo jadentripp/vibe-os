@@ -34,9 +34,18 @@ BOOT_VIDEO_GREEN_MASK equ BOOT_INFO_ADDR + 32
 BOOT_VIDEO_GREEN_POS equ BOOT_INFO_ADDR + 33
 BOOT_VIDEO_BLUE_MASK equ BOOT_INFO_ADDR + 34
 BOOT_VIDEO_BLUE_POS equ BOOT_INFO_ADDR + 35
+BOOT_E820_MAGIC_ADDR equ BOOT_INFO_ADDR + 36
+BOOT_E820_COUNT equ BOOT_INFO_ADDR + 40
+BOOT_E820_ENTRY_SIZE_ADDR equ BOOT_INFO_ADDR + 42
+BOOT_E820_MAP_ADDR_PTR equ BOOT_INFO_ADDR + 44
 BOOT_VIDEO_FLAG_VBE equ 0x0001
 BOOT_VIDEO_FLAG_LFB equ 0x0002
 BOOT_VIDEO_FLAG_XRGB8888 equ 0x0004
+BOOT_E820_MAGIC equ 0x30323845
+E820_SMAP equ 0x534d4150
+E820_MAP_ADDR equ 0x7100
+E820_ENTRY_SIZE equ 24
+E820_MAX_ENTRIES equ 32
 VBE_INFO_ADDR equ 0x6000
 VBE_MODE_INFO_ADDR equ 0x6200
 CODE_SEG equ gdt_code - gdt_start
@@ -66,6 +75,7 @@ start:
 .skip_ext_mem:
     mov al, [boot_drive]
     mov [BOOT_INFO_ADDR + 2], al
+    call collect_e820_map
 
     call require_edd
 
@@ -91,6 +101,67 @@ require_edd:
     jne disk_error
     test cx, 0x0001
     jz disk_error
+    ret
+
+collect_e820_map:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push bp
+    push es
+
+    xor ax, ax
+    mov es, ax
+    mov dword [BOOT_E820_MAGIC_ADDR], 0
+    mov word [BOOT_E820_COUNT], 0
+    mov word [BOOT_E820_ENTRY_SIZE_ADDR], E820_ENTRY_SIZE
+    mov dword [BOOT_E820_MAP_ADDR_PTR], E820_MAP_ADDR
+
+    xor ebx, ebx
+    xor bp, bp
+    mov di, E820_MAP_ADDR
+
+.next_entry:
+    cmp bp, E820_MAX_ENTRIES
+    jae .finish
+
+    mov dword [es:di + 20], 1
+    mov eax, 0xe820
+    mov edx, E820_SMAP
+    mov ecx, E820_ENTRY_SIZE
+    int 0x15
+    jc .finish
+    cmp eax, E820_SMAP
+    jne .finish
+    cmp ecx, 20
+    jb .finish
+
+    mov eax, [es:di + 8]
+    or eax, [es:di + 12]
+    jz .maybe_continue
+    inc bp
+    add di, E820_ENTRY_SIZE
+
+.maybe_continue:
+    test ebx, ebx
+    jnz .next_entry
+
+.finish:
+    test bp, bp
+    jz .done
+    mov [BOOT_E820_COUNT], bp
+    mov dword [BOOT_E820_MAGIC_ADDR], BOOT_E820_MAGIC
+
+.done:
+    pop es
+    pop bp
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 load_kernel_elf_sectors:
