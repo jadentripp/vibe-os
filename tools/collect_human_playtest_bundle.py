@@ -83,13 +83,17 @@ NOTE_FIELD_ORDER = (
     "novnc_focus_notes",
     "status_capture",
     "session_phases",
-) + tuple(check_cloud_playability_artifacts.HUMAN_PHASE_HASH_NOTE_KEYS.values()) + (
+) + tuple(check_cloud_playability_artifacts.HUMAN_PHASE_ACTION_NOTE_KEYS.values()) + tuple(
+    check_cloud_playability_artifacts.HUMAN_PHASE_HASH_NOTE_KEYS.values()
+) + (
     "diagnostics",
     "proof_bundle",
     "no_local_qemu",
     "no_wad_upload",
     "no_disk_upload",
     "no_pixel_upload",
+    "no_screenshot_upload",
+    "no_raw_audio_upload",
 ) + tuple(check_cloud_playability_artifacts.HUMAN_OPERATOR_CONFIRMATION_FIELDS.values())
 
 REVIEW_NOTE_ARGUMENTS = (
@@ -424,9 +428,12 @@ def _capture_status_summary(status_path: Path) -> str:
 def _phase_guide_lines() -> list[str]:
     lines = ["status-only phase guide:"]
     for phase, status_file, human_action in check_cloud_playability_artifacts.HUMAN_SESSION_PHASES:
+        hash_note = check_cloud_playability_artifacts.HUMAN_PHASE_HASH_NOTE_KEYS[phase]
+        action_note = check_cloud_playability_artifacts.HUMAN_PHASE_ACTION_NOTE_KEYS.get(phase)
+        note_text = f"; action_note={action_note}" if action_note else ""
         lines.append(
             f"  - {phase}: {status_file}; action={human_action}; "
-            f"expected={PHASE_STATUS_SIGNALS[phase]}"
+            f"expected={PHASE_STATUS_SIGNALS[phase]}; hash_note={hash_note}{note_text}"
         )
     lines.append(
         "  - duration gate: final must be at least 350 gtic and leveltime ticks after after-start"
@@ -503,7 +510,11 @@ def capture_status_phase(args: argparse.Namespace) -> Path:
     return status_path
 
 
-def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
+def _write_human_notes(
+    args: argparse.Namespace,
+    output_dir: Path,
+    phase_notes: dict[str, str],
+) -> None:
     phase_hash_fields = {}
     for phase, status_file, _human_action in check_cloud_playability_artifacts.HUMAN_SESSION_PHASES:
         status_path = output_dir / status_file
@@ -512,6 +523,10 @@ def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
         phase_hash_fields[
             check_cloud_playability_artifacts.HUMAN_PHASE_HASH_NOTE_KEYS[phase]
         ] = check_cloud_playability_artifacts._sha256_file(status_path)
+    phase_action_note_fields = {
+        check_cloud_playability_artifacts.HUMAN_PHASE_ACTION_NOTE_KEYS[phase]: note
+        for phase, note in phase_notes.items()
+    }
 
     fields = {
         "schema": check_cloud_playability_artifacts.HUMAN_NOTES_SCHEMA,
@@ -558,6 +573,8 @@ def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
         "no_wad_upload": "yes",
         "no_disk_upload": "yes",
         "no_pixel_upload": "yes",
+        "no_screenshot_upload": "yes",
+        "no_raw_audio_upload": "yes",
         "operator_scripted_proof_green": "confirmed",
         "operator_remote_vnc": "confirmed",
         "operator_e1m1_visible": "confirmed",
@@ -574,6 +591,7 @@ def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
         "operator_no_forbidden_artifacts": "confirmed",
         "operator_post_download_verification": "required",
     }
+    fields.update(phase_action_note_fields)
     fields.update(phase_hash_fields)
     notes = "\n".join(f"{key}={fields[key]}" for key in NOTE_FIELD_ORDER) + "\n"
     (output_dir / check_cloud_playability_artifacts.HUMAN_NOTES_FILE).write_text(notes)
@@ -602,6 +620,8 @@ remote machine guidance:
   - run inside a disposable Linux host or Codespace, never macOS QEMU
   - prefer 4+ cloud CPUs for noVNC plus QEMU TCG; 2-core hosts can stutter
   - keep WADs, disk images, status binaries, pixels, screenshots, and raw audio remote-only
+  - record short human action notes for start/fire/move/use/mouse/menu/final
+  - compare every phase_hash_* value after download before marking the proof reviewed
 
 {phase_guide}
 
@@ -699,7 +719,7 @@ def collect(args: argparse.Namespace) -> list[str]:
     for name in OPTIONAL_EXACT_FILES:
         if _copy_exact(build_dir, output_dir, name, required=False):
             copied.append(name)
-    _write_human_notes(args, output_dir)
+    _write_human_notes(args, output_dir, phase_notes)
     copied.append(check_cloud_playability_artifacts.HUMAN_NOTES_FILE)
 
     if args.audio == "audio-proof-json-pass" and not (output_dir / "audio-proof.json").exists():

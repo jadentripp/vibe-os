@@ -422,6 +422,64 @@ class Fat16Image:
         write_le16(self.image, entry + 26, first_cluster)
         write_le32(self.image, entry + 28, size)
 
+    def _root_free_entry_offset(self):
+        root_start = self.root_lba * SECTOR_SIZE
+        for offset in range(0, self.root_size, 32):
+            entry = root_start + offset
+            if self.image[entry] in (0, 0xE5):
+                return entry
+        raise ValueError("FAT16 root directory is full")
+
+    def _link_cluster_chain(self, chain):
+        for index, cluster in enumerate(chain):
+            next_cluster = FAT16_EOC_VALUE if index == len(chain) - 1 else chain[index + 1]
+            self.set_fat_entry(cluster, next_cluster)
+
+    def _write_file_bytes_to_chain(self, chain, data):
+        remaining = memoryview(data)
+        for cluster in chain:
+            start = self.cluster_offset(cluster)
+            chunk = remaining[:cluster_size()]
+            self.image[start:start + len(chunk)] = chunk
+            if len(chunk) < cluster_size():
+                clear_start = start + len(chunk)
+                self.image[clear_start:start + cluster_size()] = bytes(
+                    cluster_size() - len(chunk)
+                )
+            remaining = remaining[len(chunk):]
+
+    def _release_clusters(self, chain):
+        for cluster in chain:
+            self.set_fat_entry(cluster, 0)
+            start = self.cluster_offset(cluster)
+            self.image[start:start + cluster_size()] = bytes(cluster_size())
+
+    def _replace_file_entry(self, entry, name, attr, data):
+        data = bytes(data)
+        first_cluster = read_le16(self.image, entry + 26)
+        old_chain = self.cluster_chain(first_cluster) if first_cluster else ()
+        clusters_needed = clusters_for_size(len(data)) if data else 0
+
+        if clusters_needed == 0:
+            self._release_clusters(old_chain)
+            self._write_directory_entry(entry, name, attr, 0, 0)
+            return ()
+
+        if len(old_chain) >= clusters_needed:
+            chain = old_chain[:clusters_needed]
+            freed = old_chain[clusters_needed:]
+            self._link_cluster_chain(chain)
+            self._write_file_bytes_to_chain(chain, data)
+            self._release_clusters(freed)
+        else:
+            extra = self.allocate_clusters(clusters_needed - len(old_chain))
+            chain = old_chain + extra
+            self._link_cluster_chain(chain)
+            self._write_file_bytes_to_chain(chain, data)
+
+        self._write_directory_entry(entry, name, attr, chain[0], len(data))
+        return chain
+
     def live_root_entries(self):
         entries = []
         for entry in self._directory_entry_offsets(None):
@@ -525,18 +583,12 @@ class Fat16Image:
 
     def create_or_reuse_root_entry(self, name):
         name = self.validate_root_83_name(name)
-        root_start = self.root_lba * SECTOR_SIZE
         existing = self.root_entry_offset(name)
         if existing is not None:
             return existing
-        for offset in range(0, self.root_size, 32):
-            entry = root_start + offset
-            if self.image[entry] in (0, 0xE5):
-                self.image[entry:entry + 32] = b"\0" * 32
-                self.image[entry:entry + 11] = name
-                self.image[entry + 11] = FAT_ATTR_ARCHIVE
-                return entry
-        raise ValueError("FAT16 root directory is full")
+        entry = self._root_free_entry_offset()
+        self._write_directory_entry(entry, name, FAT_ATTR_ARCHIVE, 0, 0)
+        return entry
 
     def allocate_clusters(self, count):
         chain = []
@@ -582,8 +634,7 @@ class Fat16Image:
 
     def free_chain(self, first_cluster):
         freed = self.cluster_chain(first_cluster)
-        for cluster in freed:
-            self.set_fat_entry(cluster, 0)
+        self._release_clusters(freed)
         return freed
 
     def root_file_metadata(self, name):
@@ -747,21 +798,13 @@ class Fat16Image:
         self._reject_subdirectory_mutation(path, "unlink")
 
     def write_root_file(self, name, data):
-        entry = self.create_or_reuse_root_entry(name)
+        name = self.validate_root_83_name(name)
+        entry = self.root_entry_offset(name)
+        if entry is None:
+            entry = self._root_free_entry_offset()
         if self.image[entry + 11] & FAT_ATTR_DIRECTORY:
             raise IsADirectoryError(name)
-        first_cluster = read_le16(self.image, entry + 26)
-        if first_cluster:
-            self.free_chain(first_cluster)
-        chain = self.allocate_clusters(clusters_for_size(len(data))) if data else ()
-        for index, cluster in enumerate(chain):
-            lba = self.data_lba + (cluster - 2) * SECTORS_PER_CLUSTER
-            start = sector_offset(lba)
-            chunk = data[index * cluster_size():(index + 1) * cluster_size()]
-            self.image[start:start + len(chunk)] = chunk
-        write_le16(self.image, entry + 26, chain[0] if chain else 0)
-        write_le32(self.image, entry + 28, len(data))
-        return chain
+        return self._replace_file_entry(entry, name, FAT_ATTR_ARCHIVE, data)
 
     def write_root_file_at(self, name, offset, data):
         name = self.validate_root_83_name(name)
@@ -801,15 +844,14 @@ class Fat16Image:
         keep_count = clusters_for_size(size)
         kept = chain[:keep_count]
         freed = chain[keep_count:]
-        self.set_fat_entry(kept[-1], FAT16_EOC_VALUE)
-        for cluster in freed:
-            self.set_fat_entry(cluster, 0)
+        self._link_cluster_chain(kept)
 
         last_cluster_used = size % cluster_size()
         if last_cluster_used:
             last_start = self.cluster_offset(kept[-1])
             clear_start = last_start + last_cluster_used
             self.image[clear_start:last_start + cluster_size()] = bytes(cluster_size() - last_cluster_used)
+        self._release_clusters(freed)
         write_le32(self.image, entry + 28, size)
         return kept
 
@@ -880,20 +922,10 @@ class Fat16Image:
         entry = self._directory_entry_offset(parent_cluster, file_name)
         if entry is None:
             entry = self._directory_free_entry_offset(parent_cluster)
-            self._write_directory_entry(entry, file_name, FAT_ATTR_ARCHIVE, 0, 0)
         if self.image[entry + 11] & FAT_ATTR_DIRECTORY:
             raise IsADirectoryError(file_name)
 
-        first_cluster = read_le16(self.image, entry + 26)
-        if first_cluster:
-            self.free_chain(first_cluster)
-        chain = self.allocate_clusters(clusters_for_size(len(data))) if data else ()
-        for index, cluster in enumerate(chain):
-            start = self.cluster_offset(cluster)
-            chunk = data[index * cluster_size():(index + 1) * cluster_size()]
-            self.image[start:start + len(chunk)] = chunk
-        self._write_directory_entry(entry, file_name, FAT_ATTR_ARCHIVE, chain[0] if chain else 0, len(data))
-        return chain
+        return self._replace_file_entry(entry, file_name, FAT_ATTR_ARCHIVE, data)
 
     def write_packaged_file_at_display_path(self, display_path, data):
         return self.write_packaged_file_at_path(fat83_path_from_display_path(display_path), data)
@@ -1161,6 +1193,9 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
     for cluster in grown_chain[len(shrunk_chain):]:
         if fs.fat_entry(cluster) != 0:
             raise ValueError("dynamic FAT proof shrink left a freed cluster allocated")
+        cluster_start = fs.cluster_offset(cluster)
+        if fs.image[cluster_start:cluster_start + cluster_bytes] != b"\0" * cluster_bytes:
+            raise ValueError("dynamic FAT proof shrink did not scrub a freed cluster")
     clear_start = fs.cluster_offset(shrunk_chain[-1]) + 1
     clear_end = fs.cluster_offset(shrunk_chain[-1]) + cluster_bytes
     if fs.image[clear_start:clear_end] != b"\0" * (cluster_bytes - 1):
@@ -1174,6 +1209,10 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
     truncated = fs.truncate_root_file(proof_name)
     if truncated != shrunk_chain:
         raise ValueError("dynamic FAT proof truncate did not free the current chain")
+    for cluster in truncated:
+        cluster_start = fs.cluster_offset(cluster)
+        if fs.image[cluster_start:cluster_start + cluster_bytes] != b"\0" * cluster_bytes:
+            raise ValueError("dynamic FAT proof truncate did not scrub a freed cluster")
     truncated_meta = fs.root_file_metadata(proof_name)
     if truncated_meta is None or truncated_meta["cluster"] != 0 or truncated_meta["size"] != 0:
         raise ValueError("dynamic FAT proof truncate did not reset root metadata")
@@ -1202,6 +1241,10 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
     deleted = fs.delete_root_file(proof_name)
     if deleted != replacement_chain:
         raise ValueError("dynamic FAT proof delete did not free the replacement chain")
+    for cluster in deleted:
+        cluster_start = fs.cluster_offset(cluster)
+        if fs.image[cluster_start:cluster_start + cluster_bytes] != b"\0" * cluster_bytes:
+            raise ValueError("dynamic FAT proof delete did not scrub a freed cluster")
     if fs.root_file_metadata(proof_name) is not None:
         raise ValueError("dynamic FAT proof delete left a live root entry")
     if fs.free_data_clusters() != before_free:
@@ -1224,6 +1267,7 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
         "shrunk_clusters": len(shrunk_chain),
         "free_clusters": before_free,
         "remount_readback": True,
+        "freed_cluster_scrub": True,
     }
 
 

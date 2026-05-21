@@ -36,6 +36,7 @@ int vibe_user_getpid(void);
 void vibe_user_exit(int status);
 int vibe_user_fork(void);
 int vibe_user_waitpid(long pid, int* status, unsigned long options);
+int vibe_user_waitpid_nohang_reap(long pid, int* status, unsigned long max_polls);
 int vibe_user_dup(int oldfd);
 int vibe_user_dup2(int oldfd, int newfd);
 int vibe_user_dup3(int oldfd, int newfd, unsigned long flags);

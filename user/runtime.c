@@ -128,6 +128,23 @@ int vibe_user_waitpid(long pid, int* status, unsigned long options)
     return vibe_user_syscall3(VIBE_SYS_WAITPID, (unsigned long)pid, (unsigned long)status, options);
 }
 
+int vibe_user_waitpid_nohang_reap(long pid, int* status, unsigned long max_polls)
+{
+    unsigned long poll;
+    int result;
+
+    if (!max_polls)
+        return -22;
+
+    for (poll = 0; poll < max_polls; ++poll) {
+        result = vibe_user_waitpid(pid, status, VIBE_USER_WNOHANG);
+        if (result != 0)
+            return result;
+    }
+
+    return 0;
+}
+
 int vibe_user_dup(int oldfd)
 {
     return vibe_user_syscall3(VIBE_SYS_DUP, (unsigned long)oldfd, 0, 0);

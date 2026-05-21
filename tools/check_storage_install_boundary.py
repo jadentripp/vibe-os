@@ -106,6 +106,7 @@ REQUIRED_PHRASES = (
     "artifact-integrity manifest",
     "bootable-image-construction manifest",
     "fat-vfs-boundary manifest",
+    "dynamic-root-lifecycle manifest",
     "root 8.3 plus read-only one-level subdirectory",
     "host image inventory may walk deeper packaged trees than the kernel syscall surface",
     "blank-disk-installer-manifest",
@@ -426,6 +427,12 @@ def _fat_vfs_boundary_manifest(fs, make_wad_image, packaged_assets: list[dict[st
         for entry in packaged_assets
         if int(entry["depth"]) > 2
     ]
+    dynamic_root_lifecycle = {
+        "schema": "vibe-os-dynamic-root-lifecycle-v1",
+        **make_wad_image.prove_dynamic_fat16_mutation(
+            make_wad_image.Fat16Image(bytearray(fs.image))
+        ),
+    }
 
     return {
         "schema": "vibe-os-fat-vfs-boundary-v1",
@@ -460,6 +467,7 @@ def _fat_vfs_boundary_manifest(fs, make_wad_image, packaged_assets: list[dict[st
             "writable_subdirectories_supported": False,
             "long_filenames_supported": False,
         },
+        "dynamic_root_lifecycle": dynamic_root_lifecycle,
         "read_only_one_level_subdirectory": {
             "path": readme_label,
             "size": readme_meta["size"],

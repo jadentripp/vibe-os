@@ -81,6 +81,9 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             "pcilookms": "00000100",
             "pcilookbr": "00000000",
             "pcilookmiss": "FFFFFFFF",
+            "pcicons": "OK",
+            "pcilookide": "00000100",
+            "pcilookahci": "FFFFFFFF",
         }
         fields.update(overrides)
         return "Aurora OS v0.2 " + " ".join(f"{key}={value}" for key, value in fields.items())
@@ -169,12 +172,17 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             (readme, "That evidence is limited to the emulated device model"),
             (readme, "docs/architecture.md"),
             (readme, "boot/uefi/CONTRACT.txt"),
+            (readme, "boot/uefi/build_host_artifacts.py"),
             (readme, "pci="),
             (boot_doc, "contract-only UEFI scaffold"),
             (boot_doc, "SUPPORT[UEFI] remains unclaimed"),
+            (boot_doc, "UEFI_HOST_ARTIFACT[PE_COFF_STUB]"),
+            (boot_doc, "host-buildable PE/COFF and FAT16 ESP artifacts"),
             (boot_doc, "PCI_STATUS[QEMU_BUS0_CONFIG]"),
             (gap_doc, "check_hardware_support_matrix.py"),
             (gap_doc, "UEFI_BOOT[...]"),
+            (gap_doc, "UEFI_HOST_ARTIFACT[...]"),
+            (gap_doc, "host-artifact-only packaging evidence"),
             (gap_doc, "PCI_STATUS[...]"),
             (gap_doc, "PCI_TABLE[...]"),
             (gap_doc, "pciprobe="),
@@ -186,6 +194,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             (hardware_doc, "QEMU_DEVICE_MODEL[PCI_BUS0_STATUS]"),
             (hardware_doc, "BOOT_DEVICE_BOUNDARY[UEFI_ESP_KERNEL_FILE]"),
             (hardware_doc, "PCI_TABLE_API[READ_ONLY_LOOKUP]"),
+            (hardware_doc, "PCI_TABLE_CONSUMER[STORAGE_CLASS_PROBE]"),
             (hardware_doc, "NEXT_IMPLEMENTATION_CONTRACT[PCI_DRIVER_TABLE_API]"),
             (hardware_doc, "installation to arbitrary disks are outside the claim"),
             (hardware_doc, "The reusable contracts do not widen the hardware claim"),
@@ -196,6 +205,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             (tests_readme, "boot/uefi/CONTRACT.txt"),
             (tests_readme, "pciprobe="),
             (tests_readme, "pciapi="),
+            (tests_readme, "pcilookahci="),
             (runbook, "does not prove vibe-os boots directly on physical hardware"),
         ):
             with self.subTest(phrase=phrase):
@@ -222,6 +232,10 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         self.assertEqual(pci_api_rows["READ_ONLY_LOOKUP"]["contract"], "kernel-maintained-read-only-table")
         self.assertEqual(pci_api_rows["READ_ONLY_LOOKUP"]["lookup"], "index-class-subclass-progif")
         self.assertEqual(pci_api_rows["READ_ONLY_LOOKUP"]["consumers"], "future-drivers")
+        pci_consumer_rows = check_hardware_support_matrix._validate_pci_table_consumer_rows(matrix)
+        self.assertEqual(pci_consumer_rows["STORAGE_CLASS_PROBE"]["consumes"], "read-only-lookup")
+        self.assertEqual(pci_consumer_rows["STORAGE_CLASS_PROBE"]["lookup"], "ide-ahci-class")
+        self.assertEqual(pci_consumer_rows["STORAGE_CLASS_PROBE"]["drivers"], "none")
         pci_contract_rows = check_hardware_support_matrix._validate_pci_table_contract_rows(matrix)
         self.assertEqual(pci_contract_rows["QEMU_BUS0_SCAN"]["bus"], "0")
         self.assertEqual(pci_contract_rows["QEMU_BUS0_SCAN"]["devices"], "32")
@@ -239,6 +253,9 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             "PCI_TABLE_ENTRY_DWORDS equ 4",
             "PCI_TABLE_ENTRY_SHIFT equ 4",
             "PCI_TABLE_MAX_ENTRIES equ PCI_SCAN_FUNCTION_PROBES",
+            "PCI_SUBCLASS_IDE equ 0x01",
+            "PCI_SUBCLASS_AHCI equ 0x06",
+            "PCI_PROGIF_AHCI equ 0x01",
             "call pci_scan_qemu",
             "pci_scan_qemu:",
             "mov edi, pci_device_table",
@@ -247,6 +264,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             "PCI_TABLE_CLASS_OFFSET",
             "pci_table_entry_by_index:",
             "pci_table_find_first_by_class:",
+            "mov byte [pci_table_consumer_status], 1",
             "pci_device_table times PCI_TABLE_MAX_ENTRIES * PCI_TABLE_ENTRY_DWORDS dd 0",
             'smoke_pci_text db " pci="',
             'smoke_pciprobe_text db " pciprobe="',
@@ -267,6 +285,9 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             'smoke_pcilookms_text db " pcilookms="',
             'smoke_pcilookbr_text db " pcilookbr="',
             'smoke_pcilookmiss_text db " pcilookmiss="',
+            'smoke_pcicons_text db " pcicons="',
+            'smoke_pcilookide_text db " pcilookide="',
+            'smoke_pcilookahci_text db " pcilookahci="',
         ):
             with self.subTest(source=source):
                 self.assertIn(source, kernel)
@@ -370,6 +391,8 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         uefi_rows = check_hardware_support_matrix._validate_uefi_scaffold(ROOT)
         scaffold = (ROOT / "boot" / "uefi" / "CONTRACT.txt").read_text()
         uefi_device_rows = check_hardware_support_matrix._validate_uefi_boot_device_rows(scaffold)
+        uefi_host_rows = check_hardware_support_matrix._validate_uefi_host_artifact_rows(scaffold)
+        uefi_artifacts = check_hardware_support_matrix.validate_uefi_host_artifact_build(ROOT)
         makefile = (ROOT / "Makefile").read_text()
 
         self.assertEqual(rows["UEFI"]["status"], "unclaimed")
@@ -401,7 +424,21 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             uefi_device_rows["NO_RAW_LBA_FALLBACK"]["requires"],
             "no-stage2-raw-lba-dependency",
         )
+        self.assertEqual(
+            set(uefi_host_rows),
+            {"PE_COFF_STUB", "ESP_FAT_IMAGE", "NO_VM_BOOT"},
+        )
+        self.assertEqual(uefi_host_rows["PE_COFF_STUB"]["status"], "host-buildable")
+        self.assertEqual(uefi_host_rows["ESP_FAT_IMAGE"]["proof"], "host-fat-directory-check")
+        self.assertEqual(uefi_host_rows["NO_VM_BOOT"]["kind"], "no-ovmf-or-qemu-execution")
+        self.assertEqual(uefi_artifacts["manifest"]["claim"], "host-artifact-only-no-uefi-boot-proof")
+        self.assertEqual(uefi_artifacts["manifest"]["vm_execution"], "not-run")
+        self.assertEqual(uefi_artifacts["pe"]["subsystem"], 10)
+        self.assertEqual(uefi_artifacts["pe"]["machine"], "x86_64")
+        self.assertEqual(uefi_artifacts["esp"]["filesystem"], "FAT16")
+        self.assertGreater(uefi_artifacts["esp"]["bootx64_size"], 0)
         self.assertContainsPhrase(scaffold, "future boot-device proof boundary")
+        self.assertContainsPhrase(scaffold, "host-artifact-only")
         self.assertNotIn("boot/uefi", makefile)
 
     def test_cli_reports_contract_success(self):
@@ -422,7 +459,8 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             "pcitable=OK pcitabcap=00000100 pcitabuse=00000004 pciover=00000000 "
             "pcilast=00000100 pciclassh=89ABCDEF pcimulti=00000001 "
             "pciclsms=00000001 pciclsbr=00000001 pciapi=OK "
-            "pcilookms=00000100 pcilookbr=00000000 pcilookmiss=FFFFFFFF"
+            "pcilookms=00000100 pcilookbr=00000000 pcilookmiss=FFFFFFFF "
+            "pcicons=OK pcilookide=00000100 pcilookahci=FFFFFFFF"
         )
 
         fields = check_hardware_support_matrix.validate_pci_status_text(status)
@@ -434,7 +472,8 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             "pcitable=OK pcitabcap=00000100 pcitabuse=00000000 pciover=00000000 "
             "pcilast=00000000 pciclassh=00000000 pcimulti=00000000 "
             "pciclsms=00000000 pciclsbr=00000000 pciapi=OK "
-            "pcilookms=FFFFFFFF pcilookbr=FFFFFFFF pcilookmiss=FFFFFFFF"
+            "pcilookms=FFFFFFFF pcilookbr=FFFFFFFF pcilookmiss=FFFFFFFF "
+            "pcicons=OK pcilookide=FFFFFFFF pcilookahci=FFFFFFFF"
         )
         self.assertEqual(check_hardware_support_matrix.validate_pci_status_text(none_status)["pci"], "NONE")
 
@@ -446,6 +485,8 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix.validate_pci_status_text(status.replace("pciover=00000000", "pciover=00000001"))
         with self.assertRaisesRegex(AssertionError, "pciapi="):
             check_hardware_support_matrix.validate_pci_status_text(status.replace("pciapi=OK", "pciapi=FAIL"))
+        with self.assertRaisesRegex(AssertionError, "pcicons="):
+            check_hardware_support_matrix.validate_pci_status_text(status.replace("pcicons=OK", "pcicons=FAIL"))
         with self.assertRaisesRegex(AssertionError, "pcilookmiss="):
             check_hardware_support_matrix.validate_pci_status_text(status.replace("pcilookmiss=FFFFFFFF", "pcilookmiss=00000000"))
         with self.assertRaisesRegex(AssertionError, "pcilookms="):
@@ -639,6 +680,19 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             r"UEFI_BOOT_DEVICE\[OVMF_BOOT\] must stay status=unimplemented",
         ):
             check_hardware_support_matrix._validate_uefi_boot_device_rows(broadened)
+
+    def test_checker_rejects_uefi_host_artifact_overclaim(self):
+        scaffold = (ROOT / "boot" / "uefi" / "CONTRACT.txt").read_text()
+        broadened = scaffold.replace(
+            "UEFI_HOST_ARTIFACT[PE_COFF_STUB] status=host-buildable",
+            "UEFI_HOST_ARTIFACT[PE_COFF_STUB] status=claimed",
+        )
+
+        with self.assertRaisesRegex(
+            AssertionError,
+            r"UEFI_HOST_ARTIFACT\[PE_COFF_STUB\] status must stay host-buildable",
+        ):
+            check_hardware_support_matrix._validate_uefi_host_artifact_rows(broadened)
 
     def test_checker_rejects_unsupported_hardware_implementation_wording(self):
         for claim in (

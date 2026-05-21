@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
+import struct
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -359,6 +363,9 @@ REQUIRED_MATRIX_PHRASES = (
     "QEMU BIOS/IDE/PS2/VBE/SB16 is the supported target",
     "AHCI/SATA, USB input/storage, APIC/IOAPIC, HPET, SMP",
     "installation to arbitrary disks are outside the claim",
+    "UEFI_HOST_ARTIFACT[PE_COFF_STUB]",
+    "host-buildable PE/COFF and FAT16 ESP artifacts",
+    "host-artifact-only-no-uefi-boot-proof",
     "QEMU_DEVICE_MODEL[BIOS_BOOT]",
     "QEMU_DEVICE_MODEL[PCI_BUS0_STATUS]",
     "These rows are the machine-readable reason the current claim is QEMU-only",
@@ -370,6 +377,7 @@ REQUIRED_MATRIX_PHRASES = (
     "The boot-device boundary is intentionally separate",
     "PCI_TABLE[QEMU_BUS0_CLASS_TABLE]",
     "PCI_TABLE_API[READ_ONLY_LOOKUP]",
+    "PCI_TABLE_CONSUMER[STORAGE_CLASS_PROBE]",
     "PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN]",
     "PCI_TABLE_CONTRACT[ENTRY_LAYOUT]",
     "PCI_TABLE_CONTRACT[NO_DRIVER_BINDING]",
@@ -385,6 +393,9 @@ REQUIRED_MATRIX_PHRASES = (
     "pciover=",
     "pciapi=",
     "pcilookmiss=",
+    "pcicons=",
+    "pcilookide=",
+    "pcilookahci=",
     "pciclassh=",
     "PROOF_REQUIREMENT[UEFI]",
     "PROOF_REQUIREMENT[AHCI]",
@@ -470,6 +481,27 @@ UEFI_BOOT_DEVICE_REQUIREMENTS = {
     },
 }
 
+UEFI_HOST_ARTIFACT_REQUIREMENTS = {
+    "PE_COFF_STUB": {
+        "status": "host-buildable",
+        "kind": "pe32plus-efi-application-stub",
+        "proof": "host-pe-coff-header-check",
+        "evidence": "build-host-artifacts",
+    },
+    "ESP_FAT_IMAGE": {
+        "status": "host-buildable",
+        "kind": "fat16-esp-file-layout",
+        "proof": "host-fat-directory-check",
+        "evidence": "build-host-artifacts",
+    },
+    "NO_VM_BOOT": {
+        "status": "host-checked",
+        "kind": "no-ovmf-or-qemu-execution",
+        "proof": "source-contract-check",
+        "evidence": "check-hardware-support-matrix",
+    },
+}
+
 PCI_STATUS_REQUIREMENTS = {
     "QEMU_BUS0_CONFIG": {
         "status": "status-only",
@@ -497,6 +529,17 @@ PCI_TABLE_API_REQUIREMENTS = {
         "lookup": "index-class-subclass-progif",
         "consumers": "future-drivers",
         "evidence": "pciapi-status-fields",
+    },
+}
+
+PCI_TABLE_CONSUMER_REQUIREMENTS = {
+    "STORAGE_CLASS_PROBE": {
+        "status": "status-only",
+        "scope": "qemu-pci-bus0",
+        "consumes": "read-only-lookup",
+        "lookup": "ide-ahci-class",
+        "drivers": "none",
+        "evidence": "pcicons-pcilookide-pcilookahci-status-fields",
     },
 }
 
@@ -542,6 +585,9 @@ PCI_STATUS_FIELDS = {
     "pcilookms",
     "pcilookbr",
     "pcilookmiss",
+    "pcicons",
+    "pcilookide",
+    "pcilookahci",
 }
 PCI_QEMU_BUS0_PROBES = 32 * 8
 
@@ -580,6 +626,17 @@ PCI_TABLE_API_RE = re.compile(
     r"contract=(?P<contract>[a-z0-9-]+) "
     r"lookup=(?P<lookup>[a-z0-9-]+) "
     r"consumers=(?P<consumers>[a-z0-9-]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
+PCI_TABLE_CONSUMER_RE = re.compile(
+    r"^- `PCI_TABLE_CONSUMER\[(?P<id>[A-Z0-9_]+)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"scope=(?P<scope>[a-z0-9-]+) "
+    r"consumes=(?P<consumes>[a-z0-9-]+) "
+    r"lookup=(?P<lookup>[a-z0-9-]+) "
+    r"drivers=(?P<drivers>[a-z0-9-]+) "
     r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
     re.MULTILINE,
 )
@@ -706,6 +763,15 @@ UEFI_BOOT_DEVICE_RE = re.compile(
     r"^- `UEFI_BOOT_DEVICE\[(?P<id>[A-Z0-9_]+)\] "
     r"status=(?P<status>[a-z-]+) "
     r"requires=(?P<requires>[a-z0-9-]+) "
+    r"proof=(?P<proof>[a-z0-9-]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
+UEFI_HOST_ARTIFACT_RE = re.compile(
+    r"^- `UEFI_HOST_ARTIFACT\[(?P<id>[A-Z0-9_]+)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"kind=(?P<kind>[a-z0-9+-]+) "
     r"proof=(?P<proof>[a-z0-9-]+) "
     r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
     re.MULTILINE,
@@ -955,6 +1021,237 @@ def _validate_uefi_boot_device_rows(text: str) -> dict[str, dict[str, str]]:
     return rows
 
 
+def _validate_uefi_host_artifact_rows(text: str) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for match in UEFI_HOST_ARTIFACT_RE.finditer(text):
+        row_id = match.group("id")
+        if row_id in rows:
+            raise AssertionError(f"duplicate UEFI_HOST_ARTIFACT row: {row_id}")
+        rows[row_id] = match.groupdict()
+
+    missing = sorted(set(UEFI_HOST_ARTIFACT_REQUIREMENTS) - set(rows))
+    if missing:
+        raise AssertionError(f"missing UEFI_HOST_ARTIFACT rows: {', '.join(missing)}")
+    extras = sorted(set(rows) - set(UEFI_HOST_ARTIFACT_REQUIREMENTS))
+    if extras:
+        raise AssertionError(f"unexpected UEFI_HOST_ARTIFACT rows: {', '.join(extras)}")
+
+    for row_id, expected in UEFI_HOST_ARTIFACT_REQUIREMENTS.items():
+        row = rows[row_id]
+        for key, value in expected.items():
+            if row[key] != value:
+                raise AssertionError(f"UEFI_HOST_ARTIFACT[{row_id}] {key} must stay {value}")
+
+    return rows
+
+
+def _read_fat16_name(entries: bytes, name: bytes) -> dict[str, int | bytes]:
+    for offset in range(0, len(entries), 32):
+        entry = entries[offset : offset + 32]
+        if not entry or entry[0] == 0:
+            break
+        if entry[0] == 0xE5 or entry[11] == 0x0F:
+            continue
+        if entry[0:11] == name:
+            return {
+                "name": entry[0:11],
+                "attr": entry[11],
+                "cluster": struct.unpack_from("<H", entry, 26)[0],
+                "size": struct.unpack_from("<I", entry, 28)[0],
+            }
+    raise AssertionError(f"ESP image missing FAT entry {name!r}")
+
+
+def _validate_pe32plus_efi_application(data: bytes) -> dict[str, int | str]:
+    if data[0:2] != b"MZ":
+        raise AssertionError("BOOTX64.EFI missing MZ DOS header")
+    pe_offset = struct.unpack_from("<I", data, 0x3C)[0]
+    if data[pe_offset : pe_offset + 4] != b"PE\0\0":
+        raise AssertionError("BOOTX64.EFI missing PE/COFF signature")
+
+    file_header = pe_offset + 4
+    machine, section_count, _timestamp, _symbols, _symbol_count, optional_size, _chars = (
+        struct.unpack_from("<HHIIIHH", data, file_header)
+    )
+    if machine != 0x8664:
+        raise AssertionError("BOOTX64.EFI must be an x86_64 PE/COFF image")
+    if section_count != 1:
+        raise AssertionError("BOOTX64.EFI must keep one .text section in the host stub")
+    if optional_size != 0xF0:
+        raise AssertionError("BOOTX64.EFI must use a PE32+ optional header")
+
+    optional = file_header + 20
+    if struct.unpack_from("<H", data, optional)[0] != 0x20B:
+        raise AssertionError("BOOTX64.EFI optional header must be PE32+")
+    entry_rva = struct.unpack_from("<I", data, optional + 16)[0]
+    image_base = struct.unpack_from("<Q", data, optional + 24)[0]
+    section_alignment = struct.unpack_from("<I", data, optional + 32)[0]
+    file_alignment = struct.unpack_from("<I", data, optional + 36)[0]
+    size_of_headers = struct.unpack_from("<I", data, optional + 60)[0]
+    subsystem = struct.unpack_from("<H", data, optional + 68)[0]
+    if subsystem != 10:
+        raise AssertionError("BOOTX64.EFI must declare IMAGE_SUBSYSTEM_EFI_APPLICATION")
+    if section_alignment != 0x1000 or file_alignment != 0x200:
+        raise AssertionError("BOOTX64.EFI must keep stable section/file alignment")
+    if size_of_headers != 0x200:
+        raise AssertionError("BOOTX64.EFI must keep a 512-byte header block")
+
+    section = optional + optional_size
+    name, virtual_size, virtual_address, raw_size, raw_pointer, _reloc, _lines, _reloc_count, _line_count, characteristics = (
+        struct.unpack_from("<8sIIIIIIHHI", data, section)
+    )
+    if name.rstrip(b"\0") != b".text":
+        raise AssertionError("BOOTX64.EFI host stub must contain a .text section")
+    if entry_rva < virtual_address or entry_rva >= virtual_address + virtual_size:
+        raise AssertionError("BOOTX64.EFI entry point must land inside .text")
+    if raw_pointer != 0x200 or raw_size < virtual_size:
+        raise AssertionError("BOOTX64.EFI .text raw layout changed unexpectedly")
+    if characteristics & 0x60000020 != 0x60000020:
+        raise AssertionError("BOOTX64.EFI .text must be code, execute, and read")
+
+    entry_offset = raw_pointer + (entry_rva - virtual_address)
+    expected_entry = b"\x48\xb8" + struct.pack("<Q", 0x8000000000000003) + b"\xc3"
+    if data[entry_offset : entry_offset + len(expected_entry)] != expected_entry:
+        raise AssertionError("BOOTX64.EFI host stub must return EFI_UNSUPPORTED")
+
+    return {
+        "machine": "x86_64",
+        "subsystem": subsystem,
+        "entry_rva": entry_rva,
+        "image_base": image_base,
+        "section_count": section_count,
+    }
+
+
+def _validate_fat16_esp_image(data: bytes, efi_application: bytes, kernel: bytes) -> dict[str, int | str]:
+    if len(data) < 512 or data[510:512] != b"\x55\xAA":
+        raise AssertionError("esp.img missing FAT boot-sector signature")
+    bytes_per_sector = struct.unpack_from("<H", data, 11)[0]
+    sectors_per_cluster = data[13]
+    reserved_sectors = struct.unpack_from("<H", data, 14)[0]
+    fat_count = data[16]
+    root_entries = struct.unpack_from("<H", data, 17)[0]
+    total_sectors = struct.unpack_from("<H", data, 19)[0]
+    sectors_per_fat = struct.unpack_from("<H", data, 22)[0]
+    filesystem = data[54:62]
+    if bytes_per_sector != 512 or sectors_per_cluster != 1:
+        raise AssertionError("esp.img must use 512-byte sectors and one-sector clusters")
+    if fat_count != 2 or filesystem != b"FAT16   ":
+        raise AssertionError("esp.img must be a two-FAT FAT16 image")
+    if total_sectors * bytes_per_sector != len(data):
+        raise AssertionError("esp.img byte length must match the FAT16 boot sector")
+
+    root_dir_sectors = ((root_entries * 32) + bytes_per_sector - 1) // bytes_per_sector
+    first_root_sector = reserved_sectors + fat_count * sectors_per_fat
+    first_data_sector = first_root_sector + root_dir_sectors
+    cluster_size = bytes_per_sector * sectors_per_cluster
+    fat = data[reserved_sectors * bytes_per_sector : (reserved_sectors + sectors_per_fat) * bytes_per_sector]
+    root = data[
+        first_root_sector * bytes_per_sector : (first_root_sector + root_dir_sectors) * bytes_per_sector
+    ]
+
+    def cluster_offset(cluster: int) -> int:
+        if cluster < 2:
+            raise AssertionError("FAT chain pointed at an invalid cluster")
+        return (first_data_sector + (cluster - 2) * sectors_per_cluster) * bytes_per_sector
+
+    def read_chain(cluster: int) -> bytes:
+        chunks: list[bytes] = []
+        seen: set[int] = set()
+        current = cluster
+        while 2 <= current < 0xFFF8:
+            if current in seen:
+                raise AssertionError("FAT chain loop detected in esp.img")
+            seen.add(current)
+            offset = cluster_offset(current)
+            chunks.append(data[offset : offset + cluster_size])
+            current = struct.unpack_from("<H", fat, current * 2)[0]
+        if current < 0xFFF8:
+            raise AssertionError("FAT chain did not end with an EOC marker")
+        return b"".join(chunks)
+
+    efi_dir = _read_fat16_name(root, b"EFI        ")
+    vibeos_dir = _read_fat16_name(root, b"VIBEOS     ")
+    if efi_dir["attr"] & 0x10 != 0x10 or vibeos_dir["attr"] & 0x10 != 0x10:
+        raise AssertionError("ESP root must contain EFI and VIBEOS directories")
+
+    efi_dir_data = read_chain(int(efi_dir["cluster"]))
+    boot_dir = _read_fat16_name(efi_dir_data, b"BOOT       ")
+    if boot_dir["attr"] & 0x10 != 0x10:
+        raise AssertionError("ESP image must contain EFI/BOOT directory")
+    boot_dir_data = read_chain(int(boot_dir["cluster"]))
+    boot_file = _read_fat16_name(boot_dir_data, b"BOOTX64 EFI")
+    boot_payload = read_chain(int(boot_file["cluster"]))[: int(boot_file["size"])]
+    if boot_payload != efi_application:
+        raise AssertionError("EFI/BOOT/BOOTX64.EFI bytes in esp.img must match BOOTX64.EFI")
+
+    vibeos_dir_data = read_chain(int(vibeos_dir["cluster"]))
+    kernel_file = _read_fat16_name(vibeos_dir_data, b"KERNEL  ELF")
+    kernel_payload = read_chain(int(kernel_file["cluster"]))[: int(kernel_file["size"])]
+    if kernel_payload != kernel:
+        raise AssertionError("VIBEOS/KERNEL.ELF bytes in esp.img must match the input kernel")
+
+    return {
+        "filesystem": "FAT16",
+        "total_sectors": total_sectors,
+        "bootx64_size": int(boot_file["size"]),
+        "kernel_size": int(kernel_file["size"]),
+    }
+
+
+def validate_uefi_host_artifact_build(root: Path = ROOT) -> dict[str, object]:
+    script = root / "boot" / "uefi" / "build_host_artifacts.py"
+    if not script.exists():
+        raise AssertionError("missing boot/uefi/build_host_artifacts.py")
+    script_text = _read(script)
+    for forbidden in ("qemu-system", "OVMF_CODE", "OVMF_VARS", "ALLOW_LOCAL_VM", "subprocess"):
+        if forbidden in script_text:
+            raise AssertionError(
+                "boot/uefi/build_host_artifacts.py must stay host-only and must not run firmware"
+            )
+
+    kernel = b"\x7fELFhost-uefi-artifact-check\n" + bytes(range(32))
+    with tempfile.TemporaryDirectory(prefix="vibe-uefi-host-") as tmp:
+        tmp_path = Path(tmp)
+        kernel_path = tmp_path / "kernel.elf"
+        out_dir = tmp_path / "out"
+        kernel_path.write_bytes(kernel)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--kernel",
+                str(kernel_path),
+                "--out-dir",
+                str(out_dir),
+                "--quiet",
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                "boot/uefi/build_host_artifacts.py failed: "
+                + (result.stderr.strip() or result.stdout.strip())
+            )
+
+        efi_application = (out_dir / "BOOTX64.EFI").read_bytes()
+        esp_image = (out_dir / "esp.img").read_bytes()
+        manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
+
+    if manifest["claim"] != "host-artifact-only-no-uefi-boot-proof":
+        raise AssertionError("UEFI host manifest must keep the no-boot-proof claim")
+    if manifest["vm_execution"] != "not-run":
+        raise AssertionError("UEFI host manifest must keep VM execution disabled")
+    if manifest["esp_paths"] != ["EFI/BOOT/BOOTX64.EFI", "VIBEOS/KERNEL.ELF"]:
+        raise AssertionError("UEFI host manifest must keep the checked ESP paths")
+
+    pe_info = _validate_pe32plus_efi_application(efi_application)
+    esp_info = _validate_fat16_esp_image(esp_image, efi_application, kernel)
+    return {"pe": pe_info, "esp": esp_info, "manifest": manifest}
+
+
 def _validate_pci_status_rows(text: str) -> dict[str, dict[str, str]]:
     rows: dict[str, dict[str, str]] = {}
     for match in PCI_STATUS_RE.finditer(text):
@@ -1027,6 +1324,32 @@ def _validate_pci_table_api_rows(text: str) -> dict[str, dict[str, str]]:
             raise AssertionError(
                 f"PCI_TABLE_API[{row_id}] must not name AHCI or USB as current consumers"
             )
+
+    return rows
+
+
+def _validate_pci_table_consumer_rows(text: str) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for match in PCI_TABLE_CONSUMER_RE.finditer(text):
+        row_id = match.group("id")
+        if row_id in rows:
+            raise AssertionError(f"duplicate PCI_TABLE_CONSUMER row: {row_id}")
+        rows[row_id] = match.groupdict()
+
+    missing = sorted(set(PCI_TABLE_CONSUMER_REQUIREMENTS) - set(rows))
+    if missing:
+        raise AssertionError(f"missing PCI_TABLE_CONSUMER rows: {', '.join(missing)}")
+    extras = sorted(set(rows) - set(PCI_TABLE_CONSUMER_REQUIREMENTS))
+    if extras:
+        raise AssertionError(f"unexpected PCI_TABLE_CONSUMER rows: {', '.join(extras)}")
+
+    for row_id, expected in PCI_TABLE_CONSUMER_REQUIREMENTS.items():
+        row = rows[row_id]
+        for key, value in expected.items():
+            if row[key] != value:
+                raise AssertionError(f"PCI_TABLE_CONSUMER[{row_id}] {key} must stay {value}")
+        if row["drivers"] != "none":
+            raise AssertionError(f"PCI_TABLE_CONSUMER[{row_id}] must not claim driver binding")
 
     return rows
 
@@ -1271,11 +1594,18 @@ def _validate_uefi_scaffold(root: Path) -> dict[str, dict[str, str]]:
     text = _read(root / "boot" / "uefi" / "CONTRACT.txt")
     rows = _validate_uefi_boot_rows(text)
     _validate_uefi_boot_device_rows(text)
+    _validate_uefi_host_artifact_rows(text)
 
     for phrase in (
         "contract-only placeholder",
         "does not contain a UEFI binary",
         "does not contain a UEFI binary, a PE/COFF image",
+        "opt-in host artifact builder",
+        "BOOTX64.EFI",
+        "VIBEOS/KERNEL.ELF",
+        "host-artifact-only",
+        "UEFI_HOST_ARTIFACT[PE_COFF_STUB]",
+        "does not run OVMF",
         "SUPPORT[UEFI] remains unclaimed",
         "UEFI_BOOT_DEVICE[ESP_IMAGE]",
         "future boot-device proof boundary",
@@ -1292,6 +1622,7 @@ def _validate_uefi_scaffold(root: Path) -> dict[str, dict[str, str]]:
     if "boot/uefi" in makefile:
         raise AssertionError("boot/uefi must not be wired into the current Makefile image path")
 
+    validate_uefi_host_artifact_build(root)
     return rows
 
 
@@ -1306,6 +1637,9 @@ def _validate_pci_source_contract(root: Path) -> None:
         "PCI_HEADER_MULTIFUNCTION_FLAG equ 0x00800000",
         "PCI_CLASS_MASS_STORAGE equ 0x01",
         "PCI_CLASS_BRIDGE equ 0x06",
+        "PCI_SUBCLASS_IDE equ 0x01",
+        "PCI_SUBCLASS_AHCI equ 0x06",
+        "PCI_PROGIF_AHCI equ 0x01",
         "PCI_LOOKUP_ANY equ 0xff",
         "PCI_LOOKUP_NOT_FOUND equ 0xffffffff",
         "PCI_SCAN_DEVICE_COUNT equ 32",
@@ -1337,6 +1671,7 @@ def _validate_pci_source_contract(root: Path) -> None:
         "pci_table_find_first_by_class:",
         "pci_table_probe_lookup_contract:",
         "call pci_table_probe_lookup_contract",
+        "mov byte [pci_table_consumer_status], 1",
         "pci_device_table times PCI_TABLE_MAX_ENTRIES * PCI_TABLE_ENTRY_DWORDS dd 0",
         "out dx, eax",
         "in eax, dx",
@@ -1359,6 +1694,9 @@ def _validate_pci_source_contract(root: Path) -> None:
         'smoke_pcilookms_text db " pcilookms="',
         'smoke_pcilookbr_text db " pcilookbr="',
         'smoke_pcilookmiss_text db " pcilookmiss="',
+        'smoke_pcicons_text db " pcicons="',
+        'smoke_pcilookide_text db " pcilookide="',
+        'smoke_pcilookahci_text db " pcilookahci="',
         "pci_probe_count dd 0",
         "pci_function_count dd 0",
         "pci_table_count dd 0",
@@ -1373,8 +1711,11 @@ def _validate_pci_source_contract(root: Path) -> None:
         "pci_bridge_class_count dd 0",
         "pci_lookup_mass_storage_bdf dd PCI_LOOKUP_NOT_FOUND",
         "pci_lookup_bridge_bdf dd PCI_LOOKUP_NOT_FOUND",
+        "pci_lookup_ide_bdf dd PCI_LOOKUP_NOT_FOUND",
+        "pci_lookup_ahci_bdf dd PCI_LOOKUP_NOT_FOUND",
         "pci_lookup_miss_bdf dd PCI_LOOKUP_NOT_FOUND",
         "pci_table_api_status db 0",
+        "pci_table_consumer_status db 0",
     ):
         if phrase not in kernel:
             raise AssertionError(f"kernel missing bounded PCI status contract phrase: {phrase}")
@@ -1452,11 +1793,15 @@ def validate_pci_status_text(status: str) -> dict[str, str]:
     lookup_mass_storage = _hex8_field(fields, "pcilookms")
     lookup_bridge = _hex8_field(fields, "pcilookbr")
     lookup_miss = _hex8_field(fields, "pcilookmiss")
+    lookup_ide = _hex8_field(fields, "pcilookide")
+    lookup_ahci = _hex8_field(fields, "pcilookahci")
 
     if fields["pcitable"] != "OK":
         raise AssertionError("pcitable= must be OK for the bounded table builder")
     if fields["pciapi"] != "OK":
         raise AssertionError("pciapi= must be OK for the read-only PCI table lookup API")
+    if fields["pcicons"] != "OK":
+        raise AssertionError("pcicons= must be OK for the read-only PCI table consumer proof")
     if table_capacity != PCI_QEMU_BUS0_PROBES:
         raise AssertionError(f"pcitabcap= must be {PCI_QEMU_BUS0_PROBES:08X}")
     if table_overflow == 0 and table_used != count:
@@ -1487,7 +1832,7 @@ def validate_pci_status_text(status: str) -> dict[str, str]:
             )
         ):
             raise AssertionError("pci=NONE must keep PCI table counters and summaries at zero")
-        if lookup_mass_storage != 0xFFFFFFFF or lookup_bridge != 0xFFFFFFFF:
+        if any(value != 0xFFFFFFFF for value in (lookup_mass_storage, lookup_bridge, lookup_ide, lookup_ahci)):
             raise AssertionError("pci=NONE must keep PCI class lookups at the miss sentinel")
         return fields
 
@@ -1516,6 +1861,8 @@ def validate_pci_status_text(status: str) -> dict[str, str]:
     for field_name, bdf in (
         ("pcilookms", lookup_mass_storage),
         ("pcilookbr", lookup_bridge),
+        ("pcilookide", lookup_ide),
+        ("pcilookahci", lookup_ahci),
     ):
         if bdf == 0xFFFFFFFF:
             continue
@@ -1621,6 +1968,7 @@ def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
     _validate_pci_status_rows(matrix_text)
     _validate_pci_table_rows(matrix_text)
     _validate_pci_table_api_rows(matrix_text)
+    _validate_pci_table_consumer_rows(matrix_text)
     _validate_pci_table_contract_rows(matrix_text)
     _validate_proof_requirement_rows(matrix_text)
     _validate_negative_claim_rows(matrix_text)

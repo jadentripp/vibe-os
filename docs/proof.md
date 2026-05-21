@@ -76,9 +76,13 @@ Still missing: a reviewed bundle proving keyboard actions visibly affect the
 game: fire, move, use, mouse, menu, at least 350 Doom ticks, and no forbidden
 WAD/disk/pixel/raw-audio artifacts. The reviewed bundle now has to include
 `human-playtest-review.json` with start/fire/move/use/mouse/menu/final notes,
-duration, playtester/reviewer identity, and remote machine shape. The checker
-rejects forbidden WAD/disk/pixel/raw-audio artifacts. Do not call the project
-Doom-capable solely from informal VNC notes.
+duration, playtester/reviewer identity, remote machine shape, and phase hashes
+that match the status files. The generated reviewer checklist must be runnable
+after the noVNC session and after download, and it must carry the same action
+notes and no-forbidden-artifact policy as the notes/review/manifest. The
+checker rejects forbidden WAD/disk/pixel/raw-audio artifacts and now spells out
+screenshots as forbidden too. Do not call the project Doom-capable solely from
+informal VNC notes.
 
 Executable gate: collect the human bundle with `tools/collect_human_playtest_bundle.py`
 or `tools/run_remote_human_playtest.sh`, then run
@@ -101,8 +105,10 @@ path work remains open.
 The host storage/install checker now emits explicit `artifact-integrity`,
 `bootable-image-construction`, and `fat-vfs-boundary` manifest sections. Those
 sections prove fixed raw image construction from repo build artifacts, root 8.3
-path normalization, and the read-only one-level subdirectory boundary, while
-keeping arbitrary disk install/recovery and nested kernel traversal unclaimed.
+path normalization, a host-only `dynamic-root-lifecycle manifest`, allocation
+growth/shrink/free/truncate behavior with freed-cluster scrubbing, and the
+read-only one-level subdirectory boundary, while keeping arbitrary disk
+install/recovery and nested kernel traversal unclaimed.
 
 Executable gate: `tools/check_doom_persistence_image.py` with baseline,
 after-write snapshot, write status, save-write status, load status, and reboot
@@ -188,12 +194,17 @@ Current state: the claimed target is QEMU BIOS/IDE/PS2/VBE/SB16. The scoped
 matrix is `docs/architecture.md`, whose machine-readable `SUPPORT[...]`,
 `PCI_STATUS[...]`, and device-boundary rows are guarded by
 `check_hardware_support_matrix.py`; `boot/uefi/CONTRACT.txt` keeps the
-contract-only UEFI scaffold and `UEFI_BOOT[...]` rows visible.
+contract-only UEFI scaffold and `UEFI_BOOT[...]` rows visible. It also runs the
+opt-in `boot/uefi/build_host_artifacts.py` path in a tempdir and parses the
+generated PE/COFF EFI application plus FAT16 ESP-style image as
+host-artifact-only packaging evidence.
 
-Still missing: UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, physical
+Still missing: UEFI boot, PCI enumeration, AHCI, USB, SMP, APIC, HPET, physical
 hardware, install/recovery and hardware support outside the current generated
-FAT16 image, and any broader storage boot path story. QEMU evidence alone does
-not prove physical hardware.
+FAT16 image, and any broader storage boot path story. The host-built UEFI
+artifacts do not prove OVMF execution, GOP, memory-map handoff,
+`ExitBootServices`, or kernel entry. QEMU evidence alone does not prove physical
+hardware.
 
 Executable gate: add or update a `SUPPORT[...]` row, add a proof boundary, and
 make the corresponding cloud/host checker pass.
@@ -251,7 +262,8 @@ Human proof bundle files are status-only:
 `human-playtest-checklist.txt`, `human-playtest-session.json`,
 `human-playtest-review.json`, `human-playtest-manifest.json`,
 `human-playtest-observations.json`,
-`post-download human verification OK`, and phase hashes. The VM/process fields
+`post-download human verification OK`, action notes, no screenshot/raw-audio
+attestations, and phase hashes. The VM/process fields
 that must stay visible include `kreloc=LOW`, `kerneip=`, `kernesp=`,
 `kerncr3=`, `kernvirt=`, `kernphys=`, `kmap=OK`, `kmapva=`, `kmappa=`,
 `kmappt=`, `kmapfree=`, `kmaplo=`, `kmaphi=`, `puser`, `pkind`, `pmask`,
@@ -305,6 +317,10 @@ and does not upload audio samples. `audible_audio_proof` produces
 continuity proof rather than human listener approval.
 
 Hardware boundary: UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and
-physical hardware remain unclaimed. `UEFI_BOOT[...]`, `PCI_STATUS[...]`,
-`PCI_TABLE[...]`, `pciprobe=`, and `pcitabcap=` are status/proof-boundary
-fields only until a hardware support row claims more.
+physical hardware remain unclaimed. `UEFI_BOOT[...]`,
+`UEFI_HOST_ARTIFACT[...]`, `PCI_STATUS[...]`, `PCI_TABLE[...]`, `pciprobe=`,
+and `pcitabcap=` are status/proof-boundary fields only until a hardware support
+row claims more. `pcicons=OK`,
+`pcilookide=`, and `pcilookahci=` add a status-only kernel consumer proof that
+the read-only PCI table can be queried for storage-class intent; they do not
+claim AHCI, driver binding, or broad PCI support.

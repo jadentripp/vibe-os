@@ -13,8 +13,11 @@ enum {
     ABI_PROBE_FD_CLOEXEC = 1,
     ABI_PROBE_SEEK_SET = 0,
     ABI_PROBE_SEEK_CUR = 1,
+    ABI_PROBE_SEEK_END = 2,
+    ABI_PROBE_ERRNO_ECHILD = 10,
     ABI_PROBE_FORK_WAIT_STATUS = 0x2a,
     ABI_PROBE_FORK_WAIT_SPINS = 200000,
+    ABI_PROBE_MAP_BYTES = 4096,
 };
 
 static int root_contains(const vibe_dirent_t* entries, int count, const char* name)
@@ -45,6 +48,7 @@ static int prove_fork_clone(const char* wad_path)
 {
     int status = 0;
     int child;
+    int reaped;
     int fork_wad = vibe_user_open(wad_path, 0, 0);
 
     if (fork_wad < 0)
@@ -65,21 +69,98 @@ static int prove_fork_clone(const char* wad_path)
         return 0;
     }
 
-    for (int spin = 0; spin < ABI_PROBE_FORK_WAIT_SPINS; ++spin) {
-        int reaped = vibe_user_waitpid(child, &status, VIBE_USER_WNOHANG);
-        if (reaped == child) {
-            int shared_offset = vibe_user_lseek(fork_wad, 0, ABI_PROBE_SEEK_CUR);
-            (void)vibe_user_close(fork_wad);
-            return status == ABI_PROBE_FORK_WAIT_STATUS && shared_offset == 4;
-        }
-        if (reaped < 0) {
-            (void)vibe_user_close(fork_wad);
-            return 0;
-        }
+    reaped = vibe_user_waitpid_nohang_reap(child, &status, ABI_PROBE_FORK_WAIT_SPINS);
+    if (reaped == child) {
+        int duplicate_reap = vibe_user_waitpid(child, 0, VIBE_USER_WNOHANG);
+        int shared_offset = vibe_user_lseek(fork_wad, 0, ABI_PROBE_SEEK_CUR);
+        (void)vibe_user_close(fork_wad);
+        return status == ABI_PROBE_FORK_WAIT_STATUS
+            && shared_offset == 4
+            && duplicate_reap == -ABI_PROBE_ERRNO_ECHILD;
+    }
+    if (reaped < 0) {
+        (void)vibe_user_close(fork_wad);
+        return 0;
     }
 
     (void)vibe_user_close(fork_wad);
     return 0;
+}
+
+static int mapped_tail_is_zero(const unsigned char* mapped, unsigned long start)
+{
+    unsigned long index;
+
+    for (index = start; index < 16; ++index) {
+        if (mapped[index] != 0)
+            return 0;
+    }
+    return 1;
+}
+
+static int prove_file_private_mapping(const char* wad_path)
+{
+    unsigned char* mapped = 0;
+    unsigned char* tail = 0;
+    unsigned char original_first = 0;
+    int fd = vibe_user_open(wad_path, 0, 0);
+    int file_size;
+    int tail_offset;
+    int tail_live_bytes;
+    int ok = 0;
+
+    if (fd < 0)
+        return 0;
+    if (vibe_user_lseek(fd, 7, ABI_PROBE_SEEK_SET) != 7)
+        goto out;
+    if (vibe_user_mmap_file_private(
+            (void**)&mapped,
+            ABI_PROBE_MAP_BYTES,
+            VIBE_USER_PROT_READ | VIBE_USER_PROT_WRITE,
+            fd,
+            0) != 0)
+        goto out;
+    if (vibe_user_lseek(fd, 0, ABI_PROBE_SEEK_CUR) != 7)
+        goto out_unmap_mapped;
+    if (!((mapped[0] == 'I' || mapped[0] == 'P') && mapped[1] == 'W' && mapped[2] == 'A' && mapped[3] == 'D'))
+        goto out_unmap_mapped;
+
+    mapped[0] = 'X';
+    if (vibe_user_lseek(fd, 0, ABI_PROBE_SEEK_SET) != 0)
+        goto out_unmap_mapped;
+    if (vibe_user_read(fd, &original_first, 1) != 1)
+        goto out_unmap_mapped;
+    if (!(original_first == 'I' || original_first == 'P'))
+        goto out_unmap_mapped;
+    if (vibe_user_munmap(mapped, ABI_PROBE_MAP_BYTES) != 0)
+        goto out;
+    mapped = 0;
+
+    file_size = vibe_user_lseek(fd, 0, ABI_PROBE_SEEK_END);
+    if (file_size < 2)
+        goto out;
+    tail_offset = file_size - 2;
+    tail_live_bytes = file_size - tail_offset;
+    if (vibe_user_mmap_file_private(
+            (void**)&tail,
+            ABI_PROBE_MAP_BYTES,
+            VIBE_USER_PROT_READ | VIBE_USER_PROT_WRITE,
+            fd,
+            tail_offset) != 0)
+        goto out;
+    if (!mapped_tail_is_zero(tail, (unsigned long)tail_live_bytes))
+        goto out_unmap_tail;
+    ok = 1;
+
+out_unmap_tail:
+    if (tail)
+        (void)vibe_user_munmap(tail, ABI_PROBE_MAP_BYTES);
+out_unmap_mapped:
+    if (mapped)
+        (void)vibe_user_munmap(mapped, ABI_PROBE_MAP_BYTES);
+out:
+    (void)vibe_user_close(fd);
+    return ok;
 }
 
 int user_main(int argc, char** argv, char** envp)
@@ -129,6 +210,8 @@ int user_main(int argc, char** argv, char** envp)
     if (vibe_user_close(wad) != 0)
         return 23;
     flags |= ABI_PROBE_FLAG_FCNTL;
+    if (!prove_file_private_mapping(wad_path))
+        return 24;
     if (!prove_fork_clone(wad_path))
         return 24;
     flags |= ABI_PROBE_FLAG_FORK;

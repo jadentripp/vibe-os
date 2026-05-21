@@ -181,7 +181,9 @@ boot:
   lookup API plus the `pci=`, `pciprobe=`, `pcicount=`, `pcifirst=`, `pciid=`,
   `pciclass=`, `pcitabcap=`, `pcitabuse=`, `pciover=`, `pciapi=`, and
   `pcilookmiss=` smoke fields to remain status-only diagnostics rather than a
-  broad PCI claim.
+  broad PCI claim. `pcicons=`, `pcilookide=`, and `pcilookahci=` prove a
+  kernel consumer can query the table for storage-class intent without binding
+  or activating an AHCI driver.
   Future hardware classes now have machine-readable `PROOF_REQUIREMENT[...]`
   rows plus active `NEGATIVE_CLAIM[...]` rows, so unsupported UEFI, PCI, AHCI,
   USB, SMP, APIC, HPET, and physical-machine wording stays tied to a concrete

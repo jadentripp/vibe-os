@@ -673,6 +673,9 @@ PCI_CONFIG_HEADER_REG equ 0x0c
 PCI_HEADER_MULTIFUNCTION_FLAG equ 0x00800000
 PCI_CLASS_MASS_STORAGE equ 0x01
 PCI_CLASS_BRIDGE equ 0x06
+PCI_SUBCLASS_IDE equ 0x01
+PCI_SUBCLASS_AHCI equ 0x06
+PCI_PROGIF_AHCI equ 0x01
 PCI_LOOKUP_ANY equ 0xff
 PCI_LOOKUP_NOT_FOUND equ 0xffffffff
 PCI_SCAN_DEVICE_COUNT equ 32
@@ -2012,6 +2015,7 @@ pci_scan_qemu:
 
     mov byte [pci_config_status], 0
     mov byte [pci_table_api_status], 0
+    mov byte [pci_table_consumer_status], 0
     mov dword [pci_probe_count], 0
     mov dword [pci_function_count], 0
     mov dword [pci_table_count], 0
@@ -2026,6 +2030,8 @@ pci_scan_qemu:
     mov dword [pci_bridge_class_count], 0
     mov dword [pci_lookup_mass_storage_bdf], PCI_LOOKUP_NOT_FOUND
     mov dword [pci_lookup_bridge_bdf], PCI_LOOKUP_NOT_FOUND
+    mov dword [pci_lookup_ide_bdf], PCI_LOOKUP_NOT_FOUND
+    mov dword [pci_lookup_ahci_bdf], PCI_LOOKUP_NOT_FOUND
     mov dword [pci_lookup_miss_bdf], PCI_LOOKUP_NOT_FOUND
 
     mov edi, pci_device_table
@@ -2249,8 +2255,11 @@ pci_table_find_first_by_class:
 pci_table_probe_lookup_contract:
     pushad
     mov byte [pci_table_api_status], 0
+    mov byte [pci_table_consumer_status], 0
     mov dword [pci_lookup_mass_storage_bdf], PCI_LOOKUP_NOT_FOUND
     mov dword [pci_lookup_bridge_bdf], PCI_LOOKUP_NOT_FOUND
+    mov dword [pci_lookup_ide_bdf], PCI_LOOKUP_NOT_FOUND
+    mov dword [pci_lookup_ahci_bdf], PCI_LOOKUP_NOT_FOUND
     mov dword [pci_lookup_miss_bdf], 0
 
     mov eax, [pci_table_count]
@@ -2272,11 +2281,28 @@ pci_table_probe_lookup_contract:
     mov ah, PCI_LOOKUP_ANY
     mov bl, PCI_LOOKUP_ANY
     call pci_table_find_first_by_class
-    jc .lookup_ok
+    jc .lookup_ide
     mov [pci_lookup_bridge_bdf], edx
+
+.lookup_ide:
+    mov al, PCI_CLASS_MASS_STORAGE
+    mov ah, PCI_SUBCLASS_IDE
+    mov bl, PCI_LOOKUP_ANY
+    call pci_table_find_first_by_class
+    jc .lookup_ahci
+    mov [pci_lookup_ide_bdf], edx
+
+.lookup_ahci:
+    mov al, PCI_CLASS_MASS_STORAGE
+    mov ah, PCI_SUBCLASS_AHCI
+    mov bl, PCI_PROGIF_AHCI
+    call pci_table_find_first_by_class
+    jc .lookup_ok
+    mov [pci_lookup_ahci_bdf], edx
 
 .lookup_ok:
     mov byte [pci_table_api_status], 1
+    mov byte [pci_table_consumer_status], 1
 
 .done:
     popad
@@ -18673,6 +18699,29 @@ write_smoke_status:
     mov edx, [pci_lookup_miss_bdf]
     call smoke_write_hex32
 
+    mov esi, smoke_pcicons_text
+    call smoke_copy_string
+    cmp byte [pci_table_consumer_status], 1
+    je .pcicons_ok
+    mov esi, smoke_fail_text
+    jmp .pcicons_write
+
+.pcicons_ok:
+    mov esi, smoke_ok_text
+
+.pcicons_write:
+    call smoke_copy_string
+
+    mov esi, smoke_pcilookide_text
+    call smoke_copy_string
+    mov edx, [pci_lookup_ide_bdf]
+    call smoke_write_hex32
+
+    mov esi, smoke_pcilookahci_text
+    call smoke_copy_string
+    mov edx, [pci_lookup_ahci_bdf]
+    call smoke_write_hex32
+
     mov esi, smoke_gfx_text
     call smoke_copy_string
     cmp byte [present_status], 1
@@ -20028,6 +20077,9 @@ smoke_pciapi_text db " pciapi=", 0
 smoke_pcilookms_text db " pcilookms=", 0
 smoke_pcilookbr_text db " pcilookbr=", 0
 smoke_pcilookmiss_text db " pcilookmiss=", 0
+smoke_pcicons_text db " pcicons=", 0
+smoke_pcilookide_text db " pcilookide=", 0
+smoke_pcilookahci_text db " pcilookahci=", 0
 smoke_gfx_text db " gfx=", 0
 smoke_fb_text db " fb=", 0
 smoke_fbpolicy_text db " fbpolicy=", 0
@@ -20940,9 +20992,12 @@ pci_mass_storage_class_count dd 0
 pci_bridge_class_count dd 0
 pci_lookup_mass_storage_bdf dd PCI_LOOKUP_NOT_FOUND
 pci_lookup_bridge_bdf dd PCI_LOOKUP_NOT_FOUND
+pci_lookup_ide_bdf dd PCI_LOOKUP_NOT_FOUND
+pci_lookup_ahci_bdf dd PCI_LOOKUP_NOT_FOUND
 pci_lookup_miss_bdf dd PCI_LOOKUP_NOT_FOUND
 pci_config_status db 0
 pci_table_api_status db 0
+pci_table_consumer_status db 0
 align 4
 pci_device_table times PCI_TABLE_MAX_ENTRIES * PCI_TABLE_ENTRY_DWORDS dd 0
 audio_status db 0

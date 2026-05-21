@@ -592,6 +592,63 @@ class FatContractTests(unittest.TestCase):
         self.assertEqual(fs.read_file_at_path(readonly_path), b"readonly")
         fs.validate_allocated_clusters_reachable()
 
+    def test_host_root_file_replacement_preserves_data_on_allocation_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_path = Path(tmp) / "disk.img"
+            subprocess.run(
+                [sys.executable, str(MAKE_WAD_IMAGE), str(image_path)],
+                check=True,
+                cwd=ROOT,
+                stdout=subprocess.DEVNULL,
+            )
+            fs = make_wad_image.Fat16Image(bytearray(image_path.read_bytes()))
+
+        cluster_bytes = make_wad_image.cluster_size()
+        name = b"PLAYER  DAT"
+        filler_name = b"FILLER  BIN"
+        original = bytes((index * 11 + 7) & 0xFF for index in range(cluster_bytes + 33))
+        original_chain = fs.write_root_file(name, original)
+        original_entry = fs.root_entry_offset(name)
+
+        filler_entry = fs.create_or_reuse_root_entry(filler_name)
+        filler_chain = fs.allocate_clusters(fs.free_data_clusters())
+        make_wad_image.write_le16(fs.image, filler_entry + 26, filler_chain[0])
+        make_wad_image.write_le32(
+            fs.image,
+            filler_entry + 28,
+            len(filler_chain) * cluster_bytes,
+        )
+        self.assertEqual(fs.free_data_clusters(), 0)
+        fs.validate_allocated_clusters_reachable()
+
+        with self.assertRaisesRegex(ValueError, "does not fit"):
+            fs.write_root_file(name, original + b"X" * cluster_bytes)
+
+        self.assertEqual(fs.root_entry_offset(name), original_entry)
+        self.assertEqual(fs.root_file_metadata(name)["cluster"], original_chain[0])
+        self.assertEqual(fs.cluster_chain(original_chain[0]), original_chain)
+        self.assertEqual(fs.read_root_file(name), original)
+        self.assertEqual(fs.free_data_clusters(), 0)
+        fs.validate_fat_copies_match()
+        fs.validate_allocated_clusters_reachable()
+
+        self.assertEqual(fs.delete_root_file(filler_name), filler_chain)
+        grown_payload = b"G" * (cluster_bytes * 3 + 11)
+        grown_chain = fs.write_root_file(name, grown_payload)
+        self.assertGreater(len(grown_chain), len(original_chain))
+
+        shrunk_chain = fs.resize_root_file(name, cluster_bytes + 1)
+        self.assertLess(len(shrunk_chain), len(grown_chain))
+        tail_start = fs.cluster_offset(shrunk_chain[-1]) + 1
+        tail_end = fs.cluster_offset(shrunk_chain[-1]) + cluster_bytes
+        self.assertEqual(fs.image[tail_start:tail_end], b"\0" * (cluster_bytes - 1))
+        for cluster in grown_chain[len(shrunk_chain):]:
+            with self.subTest(cluster=cluster):
+                self.assertEqual(fs.fat_entry(cluster), 0)
+                start = fs.cluster_offset(cluster)
+                self.assertEqual(fs.image[start:start + cluster_bytes], b"\0" * cluster_bytes)
+        fs.validate_allocated_clusters_reachable()
+
     def test_generated_image_seeds_readonly_one_level_asset_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             image_path = Path(tmp) / "disk.img"

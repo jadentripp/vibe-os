@@ -31,16 +31,24 @@ loader.
 
 ## UEFI Scaffold Boundary
 
-`boot/uefi/CONTRACT.txt` is a contract-only UEFI scaffold. It defines the future
-`UEFI_BOOT[...]` rows for a PE/COFF entry, ESP/FAT kernel load, GOP framebuffer
-handoff, UEFI memory map capture, `ExitBootServices`, ELF32-compatible kernel
-handoff, and separate opt-in build integration. Every row remains
-`status=unimplemented`, and SUPPORT[UEFI] remains unclaimed in
-`docs/architecture.md`.
+`boot/uefi/CONTRACT.txt` is a contract-only UEFI scaffold for boot-support
+claims. It defines the future `UEFI_BOOT[...]` rows for a PE/COFF entry, ESP/FAT
+kernel load, GOP framebuffer handoff, UEFI memory map capture,
+`ExitBootServices`, ELF32-compatible kernel handoff, and separate opt-in build
+integration. Every `UEFI_BOOT[...]` row remains `status=unimplemented`, and
+SUPPORT[UEFI] remains unclaimed in `docs/architecture.md`.
 
 The scaffold is not part of the current Makefile image path. Today the booted
-artifact is still the BIOS raw-sector chain above; there is no ESP image, UEFI
-application, firmware memory-map handoff, or UEFI boot proof.
+artifact is still the BIOS raw-sector chain above; there is no firmware
+memory-map handoff, `ExitBootServices` handoff, OVMF run, or UEFI boot proof.
+
+The directory now has one opt-in host-only build/check slice:
+`boot/uefi/build_host_artifacts.py` emits untracked `BOOTX64.EFI`, `esp.img`,
+and `manifest.json` files. The checker parses the PE/COFF header, verifies the
+EFI application subsystem, reads the FAT16 image directory tree, and confirms
+that `EFI/BOOT/BOOTX64.EFI` plus `VIBEOS/KERNEL.ELF` are packaged as files. The
+manifest claim is `host-artifact-only-no-uefi-boot-proof`; it is not an OVMF
+boot, not kernel loading, and not a UEFI row implementation.
 
 ## Hardware Discovery Status
 
@@ -275,9 +283,11 @@ usage, overflow, and lookup miss status through `pci=`, `pciprobe=`,
 `pcicount=`, `pcifirst=`, `pciid=`, `pciclass=`, `pcitable=`, `pcitabcap=`,
 `pcitabuse=`, `pciover=`, `pcilast=`, `pciclassh=`, `pcimulti=`, `pciclsms=`,
 `pciclsbr=`, `pciapi=`, `pcilookms=`, `pcilookbr=`, and `pcilookmiss=` in the
-smoke status block. This is a discovery/status contract only; it does not bind
-drivers, walk secondary buses, or make AHCI, USB, or broad PCI enumeration
-supported.
+smoke status block. A small status-only storage-class consumer now uses that
+same read-only lookup API to query IDE and AHCI class entries and emits
+`pcicons=`, `pcilookide=`, and `pcilookahci=`. This is still a
+discovery/status contract only; it does not bind or activate drivers, walk
+secondary buses, or make AHCI, USB, or broad PCI enumeration supported.
 
 ## Matrix
 
@@ -336,11 +346,25 @@ attached to QEMU IDE. A future ESP, AHCI/SATA disk, USB mass-storage device, or
 physical machine boot must move its matching row from `status=future` only after
 the proof artifact exists.
 
+UEFI host artifact boundary:
+
+- `UEFI_HOST_ARTIFACT[PE_COFF_STUB] status=host-buildable kind=pe32plus-efi-application-stub proof=host-pe-coff-header-check evidence=build-host-artifacts`
+- `UEFI_HOST_ARTIFACT[ESP_FAT_IMAGE] status=host-buildable kind=fat16-esp-file-layout proof=host-fat-directory-check evidence=build-host-artifacts`
+- `UEFI_HOST_ARTIFACT[NO_VM_BOOT] status=host-checked kind=no-ovmf-or-qemu-execution proof=source-contract-check evidence=check-hardware-support-matrix`
+
+These rows prove host-buildable PE/COFF and FAT16 ESP artifacts only. The EFI
+application is a minimal x86_64 PE32+ stub that returns `EFI_UNSUPPORTED`, and
+the FAT16 image is parsed by host checks to confirm the `BOOTX64.EFI` and
+`KERNEL.ELF` file paths. They do not prove GOP framebuffer handoff, UEFI memory
+map capture, `ExitBootServices`, kernel handoff, OVMF boot, or any physical
+machine behavior.
+
 Status-only hardware discovery scaffolds:
 
 - `PCI_STATUS[QEMU_BUS0_CONFIG] status=status-only scope=qemu-pci-bus0 proof=cloud-smoke-status evidence=pci-status-fields`
 - `PCI_TABLE[QEMU_BUS0_CLASS_TABLE] status=status-only scope=qemu-pci-bus0 layout=packed-bdf-vendor-device-class-progif-header capacity=256 evidence=pci-table-status-fields`
 - `PCI_TABLE_API[READ_ONLY_LOOKUP] status=status-only scope=qemu-pci-bus0 contract=kernel-maintained-read-only-table lookup=index-class-subclass-progif consumers=future-drivers evidence=pciapi-status-fields`
+- `PCI_TABLE_CONSUMER[STORAGE_CLASS_PROBE] status=status-only scope=qemu-pci-bus0 consumes=read-only-lookup lookup=ide-ahci-class drivers=none evidence=pcicons-pcilookide-pcilookahci-status-fields`
 - `PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN] status=status-only bus=0 devices=32 functions=8 evidence=pci-status-fields`
 - `PCI_TABLE_CONTRACT[ENTRY_LAYOUT] status=status-only dwords=4 fields=bus,device,function,vendor-id,device-id,base-class,subclass,prog-if,header evidence=pci-table-status-fields`
 - `PCI_TABLE_CONTRACT[NO_DRIVER_BINDING] status=guardrail consumers=status-only drivers=none evidence=negative-claims`
@@ -352,10 +376,13 @@ bus/device/function, vendor/device, class/subclass, and prog-if fields that
 later drivers would need to consume before a support claim can change.
 `PCI_TABLE_API[READ_ONLY_LOOKUP]` pins the current read-only lookup semantics:
 index lookup returns a table entry or a miss, and class/subclass/prog-if lookup
-uses explicit wildcard bytes. `NO_DRIVER_BINDING` keeps the current table as
-diagnostics only: AHCI, USB, APIC, and other future drivers must not be described
-as discovered or usable through this table until they have their own proof rows
-and driver code.
+uses explicit wildcard bytes. `PCI_TABLE_CONSUMER[STORAGE_CLASS_PROBE]` proves a
+kernel caller outside the scanner can consume the API for storage-class intent:
+IDE class lookup uses class `0x01`, subclass `0x01`, and wildcard prog-if, while
+AHCI lookup uses class `0x01`, subclass `0x06`, prog-if `0x01`. `NO_DRIVER_BINDING`
+keeps the current table as diagnostics only: AHCI, USB, APIC, and other future
+drivers must not be described as discovered or usable through this table until
+they have their own proof rows and driver code.
 
 Claimed hardware status proof counters:
 
@@ -430,7 +457,10 @@ lowest-risk bridge from today's status-only config-space table toward future
 AHCI, USB, APIC, and real-device work. The current implementation already
 produces a reusable in-kernel bus-0 PCI table, records class/subclass/prog-if
 data for every present function, tracks capacity/overflow state, and exposes
-read-only index plus class/subclass/prog-if lookup helpers. Even so,
+read-only index plus class/subclass/prog-if lookup helpers. The next rung now
+has a status-only kernel consumer that queries IDE and AHCI storage-class
+entries through those helpers and reports `pcicons=`, `pcilookide=`, and
+`pcilookahci=`. Even so,
 `SUPPORT[PCI_ENUMERATION]` stays unclaimed until a disposable cloud proof
 validates that table as the primary enumeration artifact and a real driver
 consumes it under its own proof boundary. AHCI and USB must stay unclaimed until
@@ -1253,6 +1283,8 @@ yet" so future POSIX work has executable edges instead of vague TODOs:
   populates them with `pread`, preserves the descriptor offset, and tears the
   mapping down if the read path fails. That is real generic userland support,
   but it is not a shared page-cache or kernel VMA object.
+- `USER_RUNTIME_CONTRACT[FILE_PRIVATE_MMAP] status=host-and-abi-probed api=vibe_user_mmap_file_private semantics=anonymous-copy-pread-preserve-offset-zero-tail-unmap-on-read-failure evidence=user-runtime-host-test,ABIPROBE.ELF`
+- `USER_RUNTIME_CONTRACT[WAIT_REAP_HELPER] status=host-and-abi-probed api=vibe_user_waitpid_nohang_reap semantics=bounded-WNOHANG-exact-child-reap-post-reap-ECHILD evidence=user-runtime-host-test,ABIPROBE.ELF`
 - POSIX signal delivery is absent. User faults are kernel trap/process-state
   events, not `SIGSEGV` or `sigaction`; there is no public `signal.h`, signal
   mask, `kill`, interval timer signal, or handler trampoline ABI.
@@ -1274,11 +1306,12 @@ same `-errno` / legacy `-1` conversion rule as the Doom libc shim, and exposes
 minimal wrappers for the crt0-launched tool shape: write a complete string,
 perform brk-style heap grows/shrinks, read descriptors, seek descriptors,
 perform lseek-backed positioned reads, query `getpid`, create a bounded
-probe-class child with `fork`, reap with `waitpid`, duplicate descriptors with
-`dup`/`dup2`/`dup3`, request anonymous/private mmap/munmap, build a
-copy-backed private file mapping from a descriptor and offset, query explicit
-heap/VM capability bits, query the monotonic clock, list a root directory,
-`execv` another root `.ELF`, and report a probe status word.
+probe-class child with `fork`, reap with `waitpid`, poll an exact child through
+bounded `WNOHANG` reaps, duplicate descriptors with `dup`/`dup2`/`dup3`,
+request anonymous/private mmap/munmap, build a copy-backed private file mapping
+from a descriptor and offset, query explicit heap/VM capability bits, query the
+monotonic clock, list a root directory, `execv` another root `.ELF`, and report
+a probe status word.
 
 `user/abi_probe.c` now consumes that runtime instead of carrying its own inline
 syscall assembly. That keeps the second-program proof honest: future small
@@ -1585,8 +1618,13 @@ Current kernel contract:
   truncating, so `EMFILE` cannot erase Doom defaults or saves.
 - Supported allocation hygiene: newly allocated clusters are zero-filled before
   they become file data, FAT updates are written to both FAT copies, and root
-  entry size/first-cluster metadata is updated after successful writes. The
-  host image checker now walks the root directory plus read-only subdirectory
+  entry size/first-cluster metadata is updated after successful writes.
+  Root-file replacement reuses existing clusters where possible and allocates
+  any needed tail clusters before relinking the old chain, so a no-space grow
+  failure preserves the existing file bytes, size, first cluster, and reachable
+  FAT chain. Freed tail, truncate, and delete clusters are scrubbed before they
+  return to the free pool. The host image checker now walks the root directory
+  plus read-only subdirectory
   trees, rejects duplicate live names within a directory, cross-linked file or
   directory chains, and allocated data clusters that are not reachable from any
   live directory entry, so leaked clusters cannot pass as healthy persistence
@@ -1728,7 +1766,10 @@ back, so the proof covers read-after-remount behavior rather than only
 same-object state. The checker then revalidates FAT-copy agreement and
 reachable-cluster ownership on the mutated copy, so this is a host-verifiable
 allocation/free/truncate proof without putting a scratch file back into the real
-disk artifact. The same proof also requires the generated `/ASSETS/README.TXT`
+disk artifact. The install-image `fat-vfs-boundary` section carries the same
+host-only `dynamic-root-lifecycle manifest`, including cluster growth,
+shrinkage, remount readback, and freed-cluster scrubbing. The same proof also
+requires the generated `/ASSETS/README.TXT`
 plus nested `/ASSETS/MAPS/E1M1.MAP` and `/ASSETS/TEXTURES/PAL0.BIN` packages to
 exist, round-trip with the expected bytes, and reject host-modeled write,
 create, truncate, and unlink attempts below read-only subdirectories.
@@ -1766,7 +1807,8 @@ Storage install/recovery boundary:
   declared write ranges without implying an arbitrary-device installer. A
   `fat-vfs-boundary manifest` section records the root/current-directory
   normalization samples, the read-only `/ASSETS/README.TXT` one-level
-  subdirectory proof, mutation refusals below that directory, and the boundary
+  subdirectory proof, a host-only `dynamic-root-lifecycle manifest`, mutation
+  refusals below that directory, and the boundary
   between host-recursive packaged-asset inventory and the narrower kernel
   syscall surface.
   That manifest is intentionally scoped to `build/disk.img`.

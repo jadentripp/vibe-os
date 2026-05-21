@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import gzip
 import hashlib
+import io
 import re
 import sys
+import zipfile
 from pathlib import Path
 
 from status_fields import (
@@ -128,6 +131,15 @@ HUMAN_SESSION_PHASES = (
     ("after-menu", "phase_hash_after_menu", "status.after-menu.txt"),
     ("final", "phase_hash_final", "status.txt"),
 )
+HUMAN_PHASE_ACTION_NOTE_KEYS = {
+    "after-start": "action_note_start",
+    "after-fire": "action_note_fire",
+    "after-move": "action_note_move",
+    "after-use": "action_note_use",
+    "after-mouse": "action_note_mouse",
+    "after-menu": "action_note_menu",
+    "final": "action_note_final",
+}
 HUMAN_REQUIRED_NOTE_VALUES = {
     "schema": ("human-playtest-notes-v2",),
     "scripted_proof": ("real-wad-smoke-pass",),
@@ -186,6 +198,8 @@ HUMAN_REQUIRED_NOTE_VALUES = {
 }
 HUMAN_OPTIONAL_NOTE_VALUES = {
     "audio": ("status-only", "listener-pass", "audio-proof-json-pass", "not-tested"),
+    "no_screenshot_upload": ("yes",),
+    "no_raw_audio_upload": ("yes",),
 }
 HUMAN_AUDIO_EVIDENCE_BY_MODE = {
     "status-only": "status-only-sb16-continuity",
@@ -203,6 +217,10 @@ HUMAN_NOTE_PATTERNS = {
     "novnc_focus_notes": r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}",
     "audio_notes": r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}",
     **{note_key: r"[0-9A-Fa-f]{64}" for _, note_key, _ in HUMAN_SESSION_PHASES},
+}
+HUMAN_OPTIONAL_NOTE_PATTERNS = {
+    note_key: r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}"
+    for note_key in HUMAN_PHASE_ACTION_NOTE_KEYS.values()
 }
 FORBIDDEN_ARTIFACT_PATTERNS = (
     "*.wad",
@@ -236,6 +254,42 @@ FORBIDDEN_ARTIFACT_PATTERNS = (
 FORBIDDEN_ARTIFACT_SIGNATURES = (
     (b"IWAD", "WAD/IWAD payload"),
     (b"PWAD", "WAD/PWAD payload"),
+    (b"\x89PNG\r\n\x1a\n", "PNG image"),
+    (b"BM", "BMP image"),
+    (b"P6", "PPM image"),
+    (b"P5", "PGM image"),
+    (b"QFI\xfb", "QCOW2 disk image"),
+    (b"RIFF", "RIFF/WAV audio"),
+    (b"ID3", "MP3 audio"),
+    (b"OggS", "Ogg audio"),
+    (b"fLaC", "FLAC audio"),
+    (b"FORM", "AIFF audio"),
+)
+FORBIDDEN_ARCHIVE_SUFFIXES = (
+    ".wad",
+    ".iwad",
+    ".pwad",
+    ".img",
+    ".iso",
+    ".raw",
+    ".qcow2",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".bmp",
+    ".ppm",
+    ".pgm",
+    ".wav",
+    ".wave",
+    ".mp3",
+    ".ogg",
+    ".oga",
+    ".flac",
+    ".aiff",
+    ".aif",
+    ".au",
 )
 
 
@@ -504,6 +558,9 @@ def _human_session_evidence_summary(
     mouse_delta = _field(mouse, "mousedelta") if mouse is not None else "not-supplied"
     phase_order = "->".join(phase for phase, _note_key, _status_file in HUMAN_SESSION_PHASES)
     notes = _load_human_notes(notes_path) if notes_path is not None else {}
+    action_note_count = sum(
+        1 for note_key in HUMAN_PHASE_ACTION_NOTE_KEYS.values() if notes.get(note_key)
+    )
     return (
         "human-session evidence: "
         f"commit={notes.get('commit', 'not-supplied')} "
@@ -511,6 +568,7 @@ def _human_session_evidence_summary(
         f"playtester={notes.get('playtester', 'not-supplied')} "
         f"duration_gtic={gtic_delta} duration_leveltime={leveltime_delta} "
         f"required_ticks={min_duration_ticks} phases={phase_order} "
+        f"action_notes={action_note_count}/{len(HUMAN_PHASE_ACTION_NOTE_KEYS)} "
         f"mouse_delta={mouse_delta} audio={notes.get('audio', 'not-supplied')} "
         f"audio_evidence={notes.get('audio_evidence', 'not-supplied')} "
         f"novnc_focus={notes.get('novnc_focus', 'not-supplied')} "
@@ -560,6 +618,7 @@ def validate_human_notes(
         set(HUMAN_REQUIRED_NOTE_VALUES)
         | set(HUMAN_OPTIONAL_NOTE_VALUES)
         | set(HUMAN_NOTE_PATTERNS)
+        | set(HUMAN_OPTIONAL_NOTE_PATTERNS)
     )
     extra_keys = sorted(set(notes) - allowed_keys)
     if extra_keys:
@@ -589,6 +648,10 @@ def validate_human_notes(
         if actual is None:
             raise AssertionError(f"{notes_path.name} missing {key}= field")
         if not re.fullmatch(pattern, actual):
+            raise AssertionError(f"{notes_path.name} {key}= has invalid value {actual!r}")
+    for key, pattern in HUMAN_OPTIONAL_NOTE_PATTERNS.items():
+        actual = notes.get(key)
+        if actual is not None and not re.fullmatch(pattern, actual):
             raise AssertionError(f"{notes_path.name} {key}= has invalid value {actual!r}")
 
     commit = notes["commit"]
@@ -646,6 +709,39 @@ def validate_artifact_hygiene(artifact_dir: Path) -> None:
         for signature, label in FORBIDDEN_ARTIFACT_SIGNATURES:
             if prefix.startswith(signature):
                 raise AssertionError(f"forbidden {label} signature present in {rel}")
+        if prefix.startswith(b"\x1f\x8b"):
+            try:
+                inflated = gzip.decompress(path.read_bytes())
+            except OSError:
+                inflated = b""
+            for signature, label in FORBIDDEN_ARTIFACT_SIGNATURES:
+                if inflated.startswith(signature):
+                    raise AssertionError(f"forbidden gzip-compressed {label} present in {rel}")
+            if len(inflated) >= 0x8006 and inflated[0x8001:0x8006] == b"CD001":
+                raise AssertionError(f"forbidden gzip-compressed ISO image present in {rel}")
+            if len(inflated) >= 512 and inflated[510:512] == b"\x55\xaa" and b"FAT" in inflated[:512]:
+                raise AssertionError(f"forbidden gzip-compressed raw FAT disk image present in {rel}")
+        if prefix.startswith(b"PK\x03\x04"):
+            try:
+                with zipfile.ZipFile(io.BytesIO(path.read_bytes())) as archive:
+                    for info in archive.infolist():
+                        inner_name = Path(info.filename).name.lower()
+                        if inner_name.endswith(FORBIDDEN_ARCHIVE_SUFFIXES):
+                            raise AssertionError(
+                                f"forbidden zip member artifact present in {rel}: {info.filename}"
+                            )
+                        if info.file_size > 0:
+                            with archive.open(info) as member:
+                                inner_prefix = member.read(16)
+                            for signature, label in FORBIDDEN_ARTIFACT_SIGNATURES:
+                                if inner_prefix.startswith(signature):
+                                    raise AssertionError(
+                                        f"forbidden zip member {label} present in {rel}: {info.filename}"
+                                    )
+            except zipfile.BadZipFile:
+                pass
+        if len(prefix) >= 512 and prefix[510:512] == b"\x55\xaa" and b"FAT" in prefix[:512]:
+            raise AssertionError(f"forbidden raw FAT disk image signature present in {rel}")
 
 
 def validate_status(

@@ -117,7 +117,7 @@ int vibe_user_syscall3(unsigned int number, unsigned long arg0, unsigned long ar
     if (number == VIBE_SYS_WAITPID) {
         int* status = (int*)arg1;
 
-        if ((long)arg0 != -1 || arg2 != VIBE_USER_WNOHANG)
+        if (((long)arg0 != -1 && (long)arg0 != 3) || arg2 != VIBE_USER_WNOHANG)
             return -22;
         if (mock_wait_reaped)
             return -10;
@@ -248,6 +248,12 @@ int main(void)
         return fail(20);
     if (vibe_user_waitpid(-1, &wait_status, VIBE_USER_WNOHANG) != -10)
         return fail(21);
+    mock_wait_reaped = 0;
+    wait_status = 0;
+    if (vibe_user_waitpid_nohang_reap(3, &wait_status, 3) != 3 || wait_status != 0x2a)
+        return fail(37);
+    if (vibe_user_waitpid_nohang_reap(3, &wait_status, 0) != -22)
+        return fail(38);
     if (vibe_user_sbrk(4096, &old_break) != 0 || old_break != (void*)0x00400000)
         return fail(22);
     if (vibe_user_sbrk(-4096, &old_break) != 0 || old_break != (void*)0x00401000)
@@ -275,9 +281,18 @@ int main(void)
         return fail(33);
     if (vibe_user_munmap(file_mapped, 4096) != 0 || mock_munmap_count != 2)
         return fail(34);
+    mock_file_pos = 2;
+    if (vibe_user_mmap_file_private(&file_mapped, 8192, VIBE_USER_PROT_READ | VIBE_USER_PROT_WRITE, 4, 5) != 0 || file_mapped != (void*)MOCK_MMAP_BASE)
+        return fail(39);
+    if (mock_mmap_region[0] != 'f' || mock_mmap_region[1] != 0 || mock_mmap_region[4096] != 0)
+        return fail(40);
+    if (mock_file_pos != 2)
+        return fail(41);
+    if (vibe_user_munmap(file_mapped, 8192) != 0 || mock_munmap_count != 3)
+        return fail(42);
     if (vibe_user_mmap_file(&file_mapped, 4096, VIBE_USER_PROT_READ | VIBE_USER_PROT_WRITE, VIBE_USER_MAP_SHARED, 4, 0) != -22)
         return fail(35);
-    if (vibe_user_mmap_file_private(&file_mapped, 8192, VIBE_USER_PROT_READ | VIBE_USER_PROT_WRITE, 3, 0) != -9 || file_mapped != 0 || mock_munmap_count != 3)
+    if (vibe_user_mmap_file_private(&file_mapped, 8192, VIBE_USER_PROT_READ | VIBE_USER_PROT_WRITE, 3, 0) != -9 || file_mapped != 0 || mock_munmap_count != 4)
         return fail(36);
     if (vibe_user_dup(4) != 5 || vibe_user_dup2(4, 8) != 8 || vibe_user_dup3(4, 9, 0x0800u) != 9)
         return fail(8);

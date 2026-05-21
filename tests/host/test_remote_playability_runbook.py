@@ -680,12 +680,21 @@ def write_human_notes(artifact, **overrides):
         "session_phases": (
             "early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final"
         ),
+        "action_note_start": "E1M1 visible in noVNC",
+        "action_note_fire": "Ctrl fire changed weapon state",
+        "action_note_move": "Arrow movement visibly changed position",
+        "action_note_use": "Space use was accepted by Doom",
+        "action_note_mouse": "Mouse move and click visibly responded",
+        "action_note_menu": "Escape opened the Doom menu",
+        "action_note_final": "Final capture kept the manual session alive",
         "diagnostics": "non-wad-status-only",
         "proof_bundle": "allowlisted-status-only",
         "no_local_qemu": "yes",
         "no_wad_upload": "yes",
         "no_disk_upload": "yes",
         "no_pixel_upload": "yes",
+        "no_screenshot_upload": "yes",
+        "no_raw_audio_upload": "yes",
         "operator_scripted_proof_green": "confirmed",
         "operator_remote_vnc": "confirmed",
         "operator_e1m1_visible": "confirmed",
@@ -1217,10 +1226,14 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             "PHASES=(",
             "PHASE_STATUS_FILES=(",
             "PHASE_EXPECTED_SIGNALS=(",
+            "PHASE_HASH_KEYS=(",
             "Phase capture plan:",
             "Expected status signal:",
             "Collector output file:",
+            "Phase status hash:",
             "duration gate: final must be at least 350 gtic and leveltime ticks after after-start",
+            "remote_memory_mb",
+            "remote_machine_label",
             "SLOWDOWN_MODE",
             "SLOWDOWN_NOTES",
             "REVIEWER",
@@ -2015,22 +2028,41 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertTrue((output / "human-playtest-review.json").exists())
             self.assertTrue((output / "human-playtest-checklist.txt").exists())
             self.assertTrue((output / "human-playtest-manifest.json").exists())
+            notes_text = (output / "human-playtest-notes.txt").read_text()
+            self.assertIn("action_note_fire=Ctrl fire changed weapon state", notes_text)
+            self.assertIn("no_screenshot_upload=yes", notes_text)
+            self.assertIn("no_raw_audio_upload=yes", notes_text)
             checklist = (output / "human-playtest-checklist.txt").read_text()
             self.assertIn("--expected-commit abcdef0", checklist)
             self.assertIn("--expected-scripted-proof-run-id 26156172979", checklist)
+            self.assertIn("Reviewer runnable checklist", checklist)
+            self.assertIn("Confirm the action notes below describe human noVNC actions", checklist)
             observations = json.loads((output / "human-playtest-observations.json").read_text())
             self.assertEqual(observations["schema"], "human-playtest-observations-v1")
             self.assertEqual(observations["novnc_focus"]["status"], "canvas-focused-before-actions")
             self.assertEqual(observations["audio"]["notes"], "vnc-display-input-only-sb16-status")
+            self.assertEqual(
+                observations["phase_action_notes"]["after-fire"],
+                "Ctrl fire changed weapon state",
+            )
             self.assertFalse(observations["artifact_policy"]["contains_raw_audio"])
+            self.assertFalse(observations["artifact_policy"]["contains_forbidden_artifacts"])
             review = json.loads((output / "human-playtest-review.json").read_text())
             self.assertEqual(review["schema"], "human-playtest-review-v1")
             self.assertEqual(review["playtester"], "jt")
             self.assertEqual(review["reviewer"], "jt")
             self.assertGreaterEqual(review["machine_shape"]["cpu_count"], 1)
             self.assertEqual(review["phase_reviews"][0]["label"], "start")
+            self.assertEqual(review["phase_reviews"][0]["note_key"], "action_note_start")
             self.assertIn("E1M1 visible", review["phase_reviews"][0]["note"])
             self.assertFalse(review["artifact_policy"]["contains_forbidden_artifacts"])
+            manifest = json.loads((output / "human-playtest-manifest.json").read_text())
+            self.assertFalse(manifest["artifact_policy"]["contains_screenshots"])
+            self.assertFalse(manifest["artifact_policy"]["contains_forbidden_artifacts"])
+            self.assertEqual(
+                manifest["phase_action_notes"]["after-menu"],
+                "Escape opened the Doom menu",
+            )
             self.assertIn("human-playtest-checklist.txt", result.stdout)
             self.assertTrue((output / "serial.remote.log").exists())
             redacted_log = (output / "tokens.remote.log").read_text()
@@ -2155,8 +2187,12 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("human proof bundle dry-run template", result.stdout)
         self.assertIn("prefer 4+ cloud CPUs", result.stdout)
+        self.assertIn("record short human action notes", result.stdout)
+        self.assertIn("compare every phase_hash_* value", result.stdout)
         self.assertIn("status-only phase guide:", result.stdout)
         self.assertIn("after-mouse: status.after-mouse.txt", result.stdout)
+        self.assertIn("hash_note=phase_hash_after_mouse", result.stdout)
+        self.assertIn("action_note=action_note_mouse", result.stdout)
         self.assertIn("duration gate: final must be at least 350", result.stdout)
         self.assertIn("--capture-phase \"$phase\"", result.stdout)
         self.assertIn("--reviewer", result.stdout)
@@ -2189,6 +2225,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         self.assertIn("status-only phase guide:", result.stdout)
         self.assertIn("after-fire: status.after-fire.txt", result.stdout)
         self.assertIn("keyseen fire bit", result.stdout)
+        self.assertIn("hash_note=phase_hash_after_fire", result.stdout)
+        self.assertIn("action_note=action_note_fire", result.stdout)
         self.assertIn("after-menu: status.after-menu.txt", result.stdout)
         self.assertIn("duration gate: final must be at least 350", result.stdout)
         self.assertNotIn("DOOM1.WAD", result.stdout)

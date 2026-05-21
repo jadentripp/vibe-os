@@ -89,6 +89,15 @@ HUMAN_PHASE_HASH_NOTE_KEYS = {
     "after-menu": "phase_hash_after_menu",
     "final": "phase_hash_final",
 }
+HUMAN_PHASE_ACTION_NOTE_KEYS = {
+    "after-start": "action_note_start",
+    "after-fire": "action_note_fire",
+    "after-move": "action_note_move",
+    "after-use": "action_note_use",
+    "after-mouse": "action_note_mouse",
+    "after-menu": "action_note_menu",
+    "final": "action_note_final",
+}
 HUMAN_OPERATOR_CONFIRMATION_FIELDS = {
     "scripted_proof_green": "operator_scripted_proof_green",
     "remote_vnc": "operator_remote_vnc",
@@ -147,6 +156,8 @@ REQUIRED_HUMAN_NOTE_FIELDS = {
     "no_wad_upload": ("yes",),
     "no_disk_upload": ("yes",),
     "no_pixel_upload": ("yes",),
+    "no_screenshot_upload": ("yes",),
+    "no_raw_audio_upload": ("yes",),
     "operator_scripted_proof_green": ("confirmed",),
     "operator_remote_vnc": ("confirmed",),
     "operator_e1m1_visible": ("confirmed",),
@@ -172,7 +183,7 @@ REQUIRED_FREEFORM_HUMAN_NOTE_FIELDS = (
     "slowdown_notes",
     "novnc_focus_notes",
     "audio_notes",
-) + tuple(HUMAN_PHASE_HASH_NOTE_KEYS.values())
+) + tuple(HUMAN_PHASE_ACTION_NOTE_KEYS.values()) + tuple(HUMAN_PHASE_HASH_NOTE_KEYS.values())
 OPTIONAL_HUMAN_NOTE_FIELDS = {
     "audio": ("status-only", "listener-pass", "audio-proof-json-pass", "not-tested"),
 }
@@ -185,6 +196,10 @@ HUMAN_NOTE_FIELD_PATTERNS = {
     "slowdown_notes": r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}",
     "novnc_focus_notes": r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}",
     "audio_notes": r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}",
+    **{
+        note_key: r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}"
+        for note_key in HUMAN_PHASE_ACTION_NOTE_KEYS.values()
+    },
     **{
         note_key: r"[0-9A-Fa-f]{64}"
         for note_key in HUMAN_PHASE_HASH_NOTE_KEYS.values()
@@ -621,6 +636,15 @@ def validate_repo_contract() -> None:
         "novnc_focus=",
         "novnc_focus_notes=",
         "audio_notes=",
+        "action_note_start=",
+        "action_note_fire=",
+        "action_note_move=",
+        "action_note_use=",
+        "action_note_mouse=",
+        "action_note_menu=",
+        "action_note_final=",
+        "no_screenshot_upload=yes",
+        "no_raw_audio_upload=yes",
         "--reviewer",
         "--machine-label",
         "--start-note",
@@ -684,6 +708,7 @@ def validate_repo_contract() -> None:
         "operator_post_download_verification=required",
         "pre-download human verification OK",
         "post-download human verification OK",
+        "Reviewer runnable checklist",
         "machine_shape",
         "reviewer=",
         "status-only start/fire/move/use/mouse/menu/final notes",
@@ -750,6 +775,9 @@ def validate_repo_contract() -> None:
         "--menu-note",
         "--final-note",
         "--capture-phase \"$phase\"",
+        "PHASE_HASH_KEYS=(",
+        "Phase status hash:",
+        "remote_machine_label",
         "--confirm-scripted-proof-green",
         "--confirm-remote-vnc",
         "--confirm-e1m1-visible",
@@ -1119,6 +1147,7 @@ def _human_session_id(notes: dict[str, str], phases: list[dict]) -> str:
         "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
         "operator_confirmations": _operator_confirmations_from_notes(notes),
         "phase_status_hashes": _phase_status_hashes_from_notes(notes),
+        "phase_action_notes": _phase_action_notes_from_notes(notes),
         "phases": [
             {
                 "phase": phase["phase"],
@@ -1135,6 +1164,13 @@ def _phase_status_hashes_from_notes(notes: dict[str, str]) -> dict[str, str]:
     return {
         phase: notes.get(note_key, "")
         for phase, note_key in HUMAN_PHASE_HASH_NOTE_KEYS.items()
+    }
+
+
+def _phase_action_notes_from_notes(notes: dict[str, str]) -> dict[str, str]:
+    return {
+        phase: notes.get(note_key, "")
+        for phase, note_key in HUMAN_PHASE_ACTION_NOTE_KEYS.items()
     }
 
 
@@ -1186,6 +1222,7 @@ def build_human_session(
         "proof_basis": notes.get("proof_basis", ""),
         "phase_order": [phase for phase, _, _ in HUMAN_SESSION_PHASES],
         "phase_status_hashes": _phase_status_hashes_from_notes(notes),
+        "phase_action_notes": _phase_action_notes_from_notes(notes),
         "status_capture": notes.get("status_capture", ""),
         "remote_endpoint": {
             "qemu_location": notes.get("qemu_location", ""),
@@ -1215,6 +1252,8 @@ def build_human_session(
             "no_wad_upload": notes.get("no_wad_upload", ""),
             "no_disk_upload": notes.get("no_disk_upload", ""),
             "no_pixel_upload": notes.get("no_pixel_upload", ""),
+            "no_screenshot_upload": notes.get("no_screenshot_upload", ""),
+            "no_raw_audio_upload": notes.get("no_raw_audio_upload", ""),
         },
         "operator_confirmations": _operator_confirmations_from_notes(notes),
         "validation_gates": [
@@ -1243,6 +1282,7 @@ def build_human_observations(artifact_dir: Path) -> dict:
         "commit": notes.get("commit", ""),
         "playtester": notes.get("playtester", ""),
         "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
+        "phase_action_notes": _phase_action_notes_from_notes(notes),
         "novnc_focus": {
             "status": notes.get("novnc_focus", ""),
             "notes": notes.get("novnc_focus_notes", ""),
@@ -1266,6 +1306,7 @@ def build_human_observations(artifact_dir: Path) -> dict:
             "contains_pixels": False,
             "contains_screenshots": False,
             "contains_raw_audio": False,
+            "contains_forbidden_artifacts": False,
             "permits_local_qemu": False,
         },
     }
@@ -1302,6 +1343,7 @@ def validate_human_observations(artifact_dir: Path, observations_path: Path) -> 
         "contains_pixels",
         "contains_screenshots",
         "contains_raw_audio",
+        "contains_forbidden_artifacts",
         "permits_local_qemu",
     ):
         if key == "status_only":
@@ -1338,8 +1380,11 @@ def build_human_checklist(artifact_dir: Path) -> str:
         if status_name is None:
             raise AssertionError(f"missing expected human status file: {status_file}")
         digest = _sha256_file(artifact_dir / status_name)
+        action_note_key = HUMAN_PHASE_ACTION_NOTE_KEYS.get(phase_name)
+        action_note = notes.get(action_note_key, "") if action_note_key else ""
+        suffix = f" note={action_note}" if action_note else ""
         phase_lines.append(
-            f"- {phase_name}: {status_file} sha256={digest} action={human_action}"
+            f"- {phase_name}: {status_file} sha256={digest} action={human_action}{suffix}"
         )
 
     commit = notes.get("commit", "")
@@ -1366,11 +1411,14 @@ def build_human_checklist(artifact_dir: Path) -> str:
         f"audio={notes.get('audio', '')}",
         f"audio_evidence={notes.get('audio_evidence', '')}",
         f"audio_notes={notes.get('audio_notes', '')}",
+        f"no_screenshot_upload={notes.get('no_screenshot_upload', '')}",
+        f"no_raw_audio_upload={notes.get('no_raw_audio_upload', '')}",
         "",
-        "Post-download checklist",
+        "Reviewer runnable checklist",
         "- Compare the local post-download human verification OK line with the saved remote pre-download human verification OK line.",
         "- Confirm the linked Real WAD smoke run was green before this human session.",
         "- Confirm E1M1 was visible, Ctrl/fire responded, arrow movement or turning responded, Space/use responded, mouse movement/click responded, and Escape opened the menu.",
+        "- Confirm the action notes below describe human noVNC actions, not monitor-synthesized input.",
         "- Confirm the audio evidence mode matches the actual session: status-only SB16 continuity, listener-pass, aggregate audio-proof JSON, or not-tested.",
         "- Confirm noVNC focus notes describe whether the canvas stayed focused or focus had to be retaken.",
         "- Keep slowdown notes with the bundle even when no slowdown was observed.",
@@ -1389,7 +1437,7 @@ def build_human_checklist(artifact_dir: Path) -> str:
             f"--expected-scripted-proof-run-id {scripted_run_id} "
             "path/to/vibe-os-human-proof/status.txt"
         ),
-        "- Confirm no WAD, disk image, status binary, pixel, screenshot, or raw-audio file was downloaded.",
+        "- Confirm no WAD, disk image, status binary, pixel, screenshot, raw-audio, or other forbidden artifact was downloaded.",
         "- Keep the bundle tied to the passing Real WAD smoke run ID before claiming human playability.",
         "",
         "Phase review notes",
@@ -1519,6 +1567,10 @@ def build_human_review(
     machine_shape: dict,
 ) -> dict:
     names = _relative_names(artifact_dir)
+    notes_name = _find_one(names, HUMAN_NOTES_FILE)
+    if notes_name is None:
+        raise AssertionError(f"missing expected human review file: {HUMAN_NOTES_FILE}")
+    notes = _load_human_notes(artifact_dir / notes_name)
     session_name = _find_one(names, HUMAN_SESSION_FILE)
     if session_name is None:
         raise AssertionError(f"missing expected human session file: {HUMAN_SESSION_FILE}")
@@ -1546,14 +1598,21 @@ def build_human_review(
         status_name = _find_one(names, status_file)
         if status_name is None:
             raise AssertionError(f"missing expected human status file: {status_file}")
+        note_key = HUMAN_PHASE_ACTION_NOTE_KEYS[phase]
         note = _validate_human_review_text(
             phase_notes.get(phase),
             f"{HUMAN_REVIEW_FILE} phase_reviews.{phase}.note",
         )
+        if notes.get(note_key) != note:
+            raise AssertionError(
+                f"{HUMAN_REVIEW_FILE} phase_reviews.{phase}.note must match "
+                f"{HUMAN_NOTES_FILE} {note_key}="
+            )
         phase_reviews.append(
             {
                 "phase": phase,
                 "label": HUMAN_REVIEW_PHASE_LABELS[phase],
+                "note_key": note_key,
                 "status_file": status_file,
                 "sha256": _sha256_file(artifact_dir / status_name),
                 "human_action": human_action,
@@ -1721,12 +1780,15 @@ def build_human_manifest(artifact_dir: Path) -> dict:
         "novnc_focus": notes.get("novnc_focus", ""),
         "audio": notes.get("audio", ""),
         "audio_evidence": notes.get("audio_evidence", ""),
+        "phase_action_notes": _phase_action_notes_from_notes(notes),
         "artifact_policy": {
             "allowlisted_status_only": True,
             "contains_wad_data": False,
             "contains_disk_image": False,
             "contains_pixels": False,
+            "contains_screenshots": False,
             "contains_raw_audio": False,
+            "contains_forbidden_artifacts": False,
             "requires_remote_qemu": True,
             "permits_local_qemu": False,
             "requires_post_download_verification": True,
@@ -1782,7 +1844,9 @@ def validate_human_manifest(artifact_dir: Path, manifest_path: Path) -> None:
         "contains_wad_data": False,
         "contains_disk_image": False,
         "contains_pixels": False,
+        "contains_screenshots": False,
         "contains_raw_audio": False,
+        "contains_forbidden_artifacts": False,
         "requires_remote_qemu": True,
         "permits_local_qemu": False,
         "requires_post_download_verification": True,
@@ -1883,6 +1947,10 @@ def validate_human_manifest(artifact_dir: Path, manifest_path: Path) -> None:
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} audio must match {HUMAN_NOTES_FILE}")
     if manifest.get("audio_evidence") != notes.get("audio_evidence"):
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} audio_evidence must match {HUMAN_NOTES_FILE}")
+    if manifest.get("phase_action_notes") != _phase_action_notes_from_notes(notes):
+        raise AssertionError(
+            f"{HUMAN_MANIFEST_FILE} phase_action_notes must match {HUMAN_NOTES_FILE}"
+        )
 
 
 def _phase_summary_int(session: dict, phase_name: str, field: str) -> int | None:

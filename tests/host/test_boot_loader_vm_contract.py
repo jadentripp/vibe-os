@@ -437,8 +437,11 @@ class BootLoaderVmContractTests(unittest.TestCase):
         self.assertIn("not a reusable object table or lookup structure yet", process_doc)
         self.assertIn("this remains a brk-backed", process_doc)
         self.assertIn("boot/uefi/CONTRACT.txt", readme)
+        self.assertIn("boot/uefi/build_host_artifacts.py", readme)
         self.assertIn("contract-only UEFI scaffold", boot_doc)
+        self.assertIn("host-artifact-only-no-uefi-boot-proof", boot_doc)
         self.assertIn("status=unimplemented", uefi_scaffold)
+        self.assertIn("UEFI_HOST_ARTIFACT[NO_VM_BOOT]", uefi_scaffold)
         self.assertIn("SUPPORT[UEFI] remains unclaimed", uefi_scaffold)
         self.assertNotIn("UEFI_BOOT[ENTRY] status=implemented", uefi_scaffold)
 

@@ -2,8 +2,12 @@
 
 This directory is a contract-only placeholder for a future UEFI boot path. It
 does not contain a UEFI binary, a PE/COFF image, an EFI System Partition layout,
-or a loader that can boot vibe-os today. SUPPORT[UEFI] remains unclaimed in
-`docs/architecture.md`.
+or a loader that can boot vibe-os today. It does contain an opt-in host artifact
+builder, `build_host_artifacts.py`, that emits untracked `BOOTX64.EFI`,
+`esp.img`, and `manifest.json` files for host checks. Those artifacts are
+host-artifact-only packaging evidence; the builder does not run OVMF, does not
+enter UEFI boot services, and does not load the kernel. SUPPORT[UEFI] remains unclaimed
+in `docs/architecture.md`.
 
 The current boot path is still the BIOS MBR plus raw-LBA Stage 2 loader described
 in `docs/architecture.md`. Future UEFI work must keep that path working unless
@@ -32,6 +36,17 @@ removed.
 - `UEFI_BOOT_DEVICE[OVMF_BOOT] status=unimplemented requires=ovmf-loads-efi-from-esp proof=future-boot-run evidence=none`
 - `UEFI_BOOT_DEVICE[NO_RAW_LBA_FALLBACK] status=unimplemented requires=no-stage2-raw-lba-dependency proof=future-contract-check evidence=none`
 - `UEFI_BOOT_DEVICE[PHYSICAL_MEDIA] status=unimplemented requires=machine-inventory-disposable-media proof=future-lab-run evidence=none`
+
+The `UEFI_HOST_ARTIFACT[...]` rows are also machine-readable. They are the only
+implemented host-build/check slice here: a minimal x86_64 PE32+ EFI application
+stub that returns `EFI_UNSUPPORTED`, a FAT16 ESP-style image containing
+`EFI/BOOT/BOOTX64.EFI` plus `VIBEOS/KERNEL.ELF`, and a source-level guard that
+no OVMF/QEMU VM boot is part of the check. These rows must not be cited as UEFI
+boot support.
+
+- `UEFI_HOST_ARTIFACT[PE_COFF_STUB] status=host-buildable kind=pe32plus-efi-application-stub proof=host-pe-coff-header-check evidence=build-host-artifacts`
+- `UEFI_HOST_ARTIFACT[ESP_FAT_IMAGE] status=host-buildable kind=fat16-esp-file-layout proof=host-fat-directory-check evidence=build-host-artifacts`
+- `UEFI_HOST_ARTIFACT[NO_VM_BOOT] status=host-checked kind=no-ovmf-or-qemu-execution proof=source-contract-check evidence=check-hardware-support-matrix`
 
 ## First Implementation Rules
 

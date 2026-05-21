@@ -1564,8 +1564,12 @@ class ProcessExecContractTests(unittest.TestCase):
             "child = vibe_user_fork();",
             "int child_status = child_saw_inherited_wad() ? ABI_PROBE_FORK_WAIT_STATUS : 31;",
             "vibe_user_exit(child_status);",
-            "vibe_user_waitpid(child, &status, VIBE_USER_WNOHANG)",
+            "vibe_user_waitpid_nohang_reap(child, &status, ABI_PROBE_FORK_WAIT_SPINS)",
+            "duplicate_reap == -ABI_PROBE_ERRNO_ECHILD",
             "shared_offset == 4",
+            "prove_file_private_mapping(wad_path)",
+            "vibe_user_lseek(fd, 0, ABI_PROBE_SEEK_CUR) != 7",
+            "mapped_tail_is_zero",
             "flags |= ABI_PROBE_FLAG_FORK;",
         ):
             self.assertIn(source, abi_probe)

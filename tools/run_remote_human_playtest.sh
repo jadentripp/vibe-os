@@ -83,6 +83,29 @@ die() {
   exit 1
 }
 
+remote_cpu_count() {
+  getconf _NPROCESSORS_ONLN 2>/dev/null || echo unknown
+}
+
+remote_memory_mb() {
+  awk '/^MemTotal:/ { printf "%d", int($2 / 1024); found=1 } END { if (!found) print "unknown" }' /proc/meminfo 2>/dev/null || echo unknown
+}
+
+remote_machine_label() {
+  printf "%s cpus=%s memory_mb=%s" "$(uname -srm 2>/dev/null || echo remote-host)" "$(remote_cpu_count)" "$(remote_memory_mb)"
+}
+
+phase_status_hash() {
+  python3 - "$1" <<'PY'
+import hashlib
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+print(hashlib.sha256(path.read_bytes()).hexdigest())
+PY
+}
+
 validate_human_labels() {
   [[ "$PLAYTESTER" =~ ^[A-Za-z0-9._-]{2,64}$ ]] || {
     die "--playtester must be 2-64 characters: letters, numbers, dot, underscore, or dash"
@@ -436,6 +459,17 @@ PHASE_EXPECTED_SIGNALS=(
   "duration gate crossed and all manual action bits retained"
 )
 
+PHASE_HASH_KEYS=(
+  phase_hash_early
+  phase_hash_after_start
+  phase_hash_after_fire
+  phase_hash_after_move
+  phase_hash_after_use
+  phase_hash_after_mouse
+  phase_hash_after_menu
+  phase_hash_final
+)
+
 echo "Remote human Doom proof capture"
 echo "  build dir:        $BUILD_DIR"
 echo "  monitor socket:   $MONITOR_SOCKET"
@@ -445,7 +479,8 @@ echo "  playtester:       $PLAYTESTER"
 echo "  reviewer:         $REVIEWER"
 echo "  proof output dir: $OUTPUT_DIR"
 echo "  proof tarball:    $TARBALL"
-echo "  remote machine:   $(uname -srm 2>/dev/null || true), cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo unknown)"
+MACHINE_LABEL="$(remote_machine_label)"
+echo "  remote machine:   $MACHINE_LABEL"
 if [ -n "$AUDIO_MODE" ]; then
   echo "  audio mode:       $AUDIO_MODE"
 else
@@ -462,7 +497,7 @@ echo "disk images, framebuffer data, screenshots, status binaries, or raw audio.
 echo
 echo "Phase capture plan:"
 for index in "${!PHASES[@]}"; do
-  echo "  ${PHASES[$index]} -> ${PHASE_STATUS_FILES[$index]}: ${PHASE_EXPECTED_SIGNALS[$index]}"
+  echo "  ${PHASES[$index]} -> ${PHASE_STATUS_FILES[$index]} (${PHASE_HASH_KEYS[$index]}): ${PHASE_EXPECTED_SIGNALS[$index]}"
 done
 echo "  duration gate: final must be at least 350 gtic and leveltime ticks after after-start"
 echo
@@ -484,6 +519,8 @@ for index in "${!PHASES[@]}"; do
     --build-dir "$BUILD_DIR" \
     --monitor-socket "$MONITOR_SOCKET" \
     --capture-phase "$phase"
+  status_path="$BUILD_DIR/${PHASE_STATUS_FILES[$index]}"
+  echo "Phase status hash: ${PHASE_HASH_KEYS[$index]}=$(phase_status_hash "$status_path")"
   case "$phase" in
     after-start)
       prompt_phase_note START_NOTE "--start-note" "Status-only start note (what the human saw after E1M1/start)"
@@ -588,7 +625,7 @@ python3 tools/collect_human_playtest_bundle.py \
   --playtester "$PLAYTESTER" \
   --reviewer "$REVIEWER" \
   --scripted-proof-run-id "$SCRIPTED_PROOF_RUN_ID" \
-  --machine-label "$(uname -srm 2>/dev/null || echo remote-host)" \
+  --machine-label "$MACHINE_LABEL" \
   --start-note "$START_NOTE" \
   --fire-note "$FIRE_NOTE" \
   --move-note "$MOVE_NOTE" \

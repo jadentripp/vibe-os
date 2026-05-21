@@ -219,6 +219,13 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         self.assertFalse(fat_vfs["kernel_syscall_surface"]["nested_traversal_supported"])
         self.assertFalse(fat_vfs["kernel_syscall_surface"]["writable_subdirectories_supported"])
         self.assertFalse(fat_vfs["kernel_syscall_surface"]["long_filenames_supported"])
+        lifecycle = fat_vfs["dynamic_root_lifecycle"]
+        self.assertEqual(lifecycle["schema"], "vibe-os-dynamic-root-lifecycle-v1")
+        self.assertEqual(lifecycle["proof_name"], "FATPROOF.TMP")
+        self.assertGreater(lifecycle["grown_clusters"], lifecycle["initial_clusters"])
+        self.assertLess(lifecycle["shrunk_clusters"], lifecycle["grown_clusters"])
+        self.assertTrue(lifecycle["remount_readback"])
+        self.assertTrue(lifecycle["freed_cluster_scrub"])
         self.assertEqual(
             {
                 entry["operation"]

@@ -91,9 +91,12 @@ raw audio captures are forbidden.
 The hardware claim is bounded to QEMU BIOS/IDE/PS2/VBE/SB16: BIOS, IDE/ATA,
 PS/2, VBE/Mode 13h, and SB16-style audio. That evidence is limited to the
 emulated device model. `boot/uefi/CONTRACT.txt` is a contract-only UEFI scaffold,
-and SUPPORT[UEFI] remains unclaimed. PCI fields such as `pci=`, `pciprobe=`,
-and `pcitabcap=` plus the `PCI_TABLE[...]` / `PCI_TABLE_CONTRACT[...]` rows are
-status-only QEMU bus-0 diagnostics; see `docs/architecture.md`.
+and SUPPORT[UEFI] remains unclaimed. The opt-in
+`boot/uefi/build_host_artifacts.py` path is host-artifact-only: it builds and
+checks a PE/COFF EFI stub plus FAT16 ESP-style image, but it does not run OVMF
+or load the kernel. PCI fields such as `pci=`, `pciprobe=`, and `pcitabcap=`
+plus the `PCI_TABLE[...]` / `PCI_TABLE_CONTRACT[...]` rows are status-only QEMU
+bus-0 diagnostics; see `docs/architecture.md`.
 
 The storage claim is also bounded. The OS mutates and reboots the repo-generated
 FAT16 disk image in disposable cloud QEMU, but vibe-os is not an installable OS
