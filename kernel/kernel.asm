@@ -47,6 +47,7 @@ MOUSE_QUEUE_MASK equ MOUSE_QUEUE_SIZE - 1
 MOUSE_EVENT_VALID equ 0x01000000
 INPUT_EVENT_QUEUE_SIZE equ 64
 INPUT_EVENT_QUEUE_MASK equ INPUT_EVENT_QUEUE_SIZE - 1
+VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY equ INPUT_EVENT_QUEUE_SIZE - 1
 VIBE_INPUT_DEVICE_KEYBOARD equ 1
 VIBE_INPUT_DEVICE_MOUSE equ 2
 VIBE_INPUT_EVENT_KEY equ 1
@@ -172,6 +173,9 @@ VMM_TEST_VADDR equ 0x00f00000
 VMM_TEST_MAGIC equ 0x564d4d21
 VMM_HIGH_TEST_VADDR equ KERNEL_HIGHER_HALF_BASE
 VMM_HIGH_TEST_MAGIC equ 0x48494d4d
+KERNEL_RELOCATION_STATUS_UNKNOWN equ 0
+KERNEL_RELOCATION_STATUS_LOW_IDENTITY equ 1
+KERNEL_RELOCATION_STATUS_MISMATCH equ 2
 HEAP_START equ 0x00100000
 HEAP_SIZE equ 0x00800000
 HEAP_MIN_EXT_KB equ 8192
@@ -755,6 +759,7 @@ start:
     call pic_remap_and_mask
     call pit_init_100hz
     call paging_init
+    call kernel_relocation_probe
     call framebuffer_init
     call pmm_init
     call pmm_self_test
@@ -2220,6 +2225,82 @@ paging_init:
 .flush:
     mov byte [paging_status], 1
     popad
+    ret
+
+kernel_relocation_probe:
+    mov [kernel_relocation_esp], esp
+    pushad
+
+    mov eax, cr3
+    mov [kernel_relocation_cr3], eax
+    call .capture_eip
+
+.capture_eip:
+    pop eax
+    mov [kernel_relocation_eip], eax
+    mov eax, start
+    mov [kernel_relocation_virt], eax
+    call kernel_translate_current_vaddr
+    mov [kernel_relocation_phys], eax
+
+    mov byte [kernel_relocation_status], KERNEL_RELOCATION_STATUS_MISMATCH
+    mov eax, [kernel_relocation_eip]
+    cmp eax, KERNEL_HIGHER_HALF_BASE
+    jae .done
+    mov eax, [kernel_relocation_esp]
+    cmp eax, KERNEL_HIGHER_HALF_BASE
+    jae .done
+    mov eax, [kernel_relocation_cr3]
+    cmp eax, PAGING_DIR_ADDR
+    jne .done
+    mov eax, [kernel_relocation_phys]
+    cmp eax, [kernel_relocation_virt]
+    jne .done
+    mov byte [kernel_relocation_status], KERNEL_RELOCATION_STATUS_LOW_IDENTITY
+
+.done:
+    popad
+    ret
+
+kernel_translate_current_vaddr:
+    push ebx
+    push ecx
+    push edx
+    push edi
+
+    mov ebx, eax
+    mov edx, [kernel_relocation_cr3]
+    and edx, 0xfffff000
+    mov ecx, ebx
+    shr ecx, 22
+    lea edi, [edx + ecx * 4]
+    mov edx, [edi]
+    test edx, PTE_PRESENT
+    jz .missing
+
+    and edx, 0xfffff000
+    mov ecx, ebx
+    shr ecx, 12
+    and ecx, 0x000003ff
+    lea edi, [edx + ecx * 4]
+    mov edx, [edi]
+    test edx, PTE_PRESENT
+    jz .missing
+
+    mov eax, edx
+    and eax, 0xfffff000
+    and ebx, 0x00000fff
+    add eax, ebx
+    jmp .done
+
+.missing:
+    mov eax, 0xffffffff
+
+.done:
+    pop edi
+    pop edx
+    pop ecx
+    pop ebx
     ret
 
 framebuffer_map_lfb:
@@ -17442,6 +17523,23 @@ write_smoke_status:
     mov edx, [input_event_drop_count]
     call smoke_write_hex32
 
+    mov esi, smoke_inputstat_text
+    call smoke_copy_string
+    mov edx, [input_event_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [input_event_poll_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [input_event_drop_count]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY
+    call smoke_write_hex32
+
     mov esi, smoke_inputpoll_text
     call smoke_copy_string
     mov edx, [doom_input_event_count]
@@ -17862,6 +17960,44 @@ write_smoke_status:
 
 .vmm_write:
     call smoke_copy_string
+
+    mov esi, smoke_kreloc_text
+    call smoke_copy_string
+    cmp byte [kernel_relocation_status], KERNEL_RELOCATION_STATUS_LOW_IDENTITY
+    je .kreloc_low
+    mov esi, fail_status_text
+    jmp .kreloc_write
+
+.kreloc_low:
+    mov esi, smoke_low_text
+
+.kreloc_write:
+    call smoke_copy_string
+
+    mov esi, smoke_kerneip_text
+    call smoke_copy_string
+    mov edx, [kernel_relocation_eip]
+    call smoke_write_hex32
+
+    mov esi, smoke_kernesp_text
+    call smoke_copy_string
+    mov edx, [kernel_relocation_esp]
+    call smoke_write_hex32
+
+    mov esi, smoke_kerncr3_text
+    call smoke_copy_string
+    mov edx, [kernel_relocation_cr3]
+    call smoke_write_hex32
+
+    mov esi, smoke_kernvirt_text
+    call smoke_copy_string
+    mov edx, [kernel_relocation_virt]
+    call smoke_write_hex32
+
+    mov esi, smoke_kernphys_text
+    call smoke_copy_string
+    mov edx, [kernel_relocation_phys]
+    call smoke_write_hex32
 
     mov esi, smoke_vmmhi_text
     call smoke_copy_string
@@ -18657,6 +18793,12 @@ smoke_atastat_text db " atastat=", 0
 smoke_ataerr_text db " ataerr=", 0
 smoke_atafail_text db " atafail=", 0
 smoke_atatmo_text db " atatmo=", 0
+smoke_kreloc_text db " kreloc=", 0
+smoke_kerneip_text db " kerneip=", 0
+smoke_kernesp_text db " kernesp=", 0
+smoke_kerncr3_text db " kerncr3=", 0
+smoke_kernvirt_text db " kernvirt=", 0
+smoke_kernphys_text db " kernphys=", 0
 smoke_vmmhi_text db " vmmhi=", 0
 smoke_vmmhva_text db " vmmhva=", 0
 smoke_vmmhpa_text db " vmmhpa=", 0
@@ -18758,6 +18900,7 @@ smoke_pcmbuf_text db " pcmbuf=", 0
 smoke_audio_text db " audio=", 0
 smoke_inputqueue_text db " inputqueue=", 0
 smoke_inputdepth_text db " inputdepth=", 0
+smoke_inputstat_text db " inputstat=", 0
 smoke_inputpoll_text db " inputpoll=", 0
 smoke_inputlast_text db " inputlast=", 0
 smoke_keyirq_text db " keyirq=", 0
@@ -18815,6 +18958,7 @@ smoke_wait_text db "WAIT", 0
 smoke_run_text db "RUN", 0
 smoke_exit_text db "EXIT", 0
 smoke_fault_text db "FAULT", 0
+smoke_low_text db "LOW", 0
 smoke_mode13_text db "M13", 0
 smoke_lfb_text db "LFB", 0
 smoke_aspect_text db "ASP", 0
@@ -19006,6 +19150,7 @@ vmm_status db 0
 pmm_test_status db 0
 vmm_test_status db 0
 vmm_high_mapping_status db 0
+kernel_relocation_status db 0
 heap_test_status db 0
 fpu_status db 0
 fpu_test_status db 0
@@ -19115,6 +19260,11 @@ vmm_user_guard_pages dd 0
 vmm_high_test_phys dd 0
 vmm_high_test_table dd 0
 vmm_high_test_reclaimed dd 0
+kernel_relocation_eip dd 0
+kernel_relocation_esp dd 0
+kernel_relocation_cr3 dd 0
+kernel_relocation_virt dd 0
+kernel_relocation_phys dd 0
 vmm_map_vaddr dd 0
 vmm_map_entry dd 0
 vmm_map_table_addr dd 0

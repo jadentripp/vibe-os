@@ -83,41 +83,18 @@ REQUIRED_GAPS = {
 
 LATEST_RUN_PHRASES = (
     "Latest Cloud Evidence",
-    "latest published scripted cloud truth-serum run",
-    "26206176284",
-    "7390468",
-    "26205557019",
-    "bfd04e8",
-    "26205496796",
+    "latest full real-WAD cloud run",
+    "26211510477",
+    "26211492819",
     "25718",
     "persistence-proof-green",
     "VIBE SAVE",
     "saveact",
-    "not a post-fix full-lane green run",
-    "musicrend= rendered sample delta must keep pace",
-    "corrected buffered-coverage",
-    "known audio-checker false red",
-    "fresh post-fix cloud run",
-    "26203744974",
-    "f9a688e",
-    "26165681561",
-    "c525952",
-    "real-WAD, human-playability",
+    "full-lane green",
+    "manual Codespaces/noVNC session",
+    "2-core Codespace",
     "scripted gameplay transition",
     "artifact hygiene",
-    "26165678183",
-    "26156172979",
-    "eabd307",
-    "DOOMSAV0.DSG bytes=512 changed-from-baseline",
-    "survived-reboot description='VIBESAVE'",
-    "reboot status runtime=OK",
-    "26150621804",
-    "1db3a7a",
-    "usr=FAIL",
-    "failed the proof gate",
-    "26149350434",
-    "da9c136",
-    "then-current scripted checker",
     "playability-status-green",
     "doomrun=RUN",
     "doomopen=OK",
@@ -131,18 +108,7 @@ LATEST_RUN_PHRASES = (
     "mouse effect",
     "audio-continuity",
     "check_audio_continuity_proof.py",
-    "26149570191",
-    "memset+0x20",
-    "doomfaultip=01029F20",
     "audio-proof.json",
-    "26146035600",
-    "269dbb8",
-    "FindResponseFile+0x34",
-    "doomfaultip=01003224",
-    "26146488906",
-    "34eb98d",
-    "W_AddFile+0x246",
-    "doomfaultip=01024D06",
     "human-facing Doom-capable proof",
 )
 
@@ -160,7 +126,7 @@ USER_FACING_ROADMAP_PHRASES = (
     "Playable now:",
     "scripted-cloud playable in the disposable QEMU proof lane",
     "playable through the repo's cloud proof lane with status-only artifacts",
-    "does not yet mean a finished, general-purpose OS, a recorded human playtest, or current-head full-lane green",
+    "does not yet mean a finished, general-purpose OS or a recorded human playtest bundle",
     "Next playability polish:",
     "formal remote VNC human playtest bundle for the current commit",
     "--require-human-session",
@@ -177,7 +143,7 @@ USER_FACING_ROADMAP_PHRASES = (
     "machine-readable proof boundary before they become user-facing claims",
 )
 
-PROVEN_GAPS = {"CLOUD_BOOT", "REAL_GAMEPLAY", "PERSISTENCE", "SHUTDOWN_PANIC"}
+PROVEN_GAPS = {"CLOUD_BOOT", "REAL_GAMEPLAY", "PERSISTENCE", "AUDIO", "SHUTDOWN_PANIC"}
 
 GAP_RE = re.compile(
     r"^- `GAP\[(?P<id>[A-Z0-9_]+)\] "
@@ -293,15 +259,9 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         raise AssertionError("README should not carry concrete proof run IDs")
     if re.search(r"\bcommit\s+`?[0-9a-f]{7,40}`?\b", readme_without_code_names, re.IGNORECASE):
         raise AssertionError("README should not carry concrete commit hashes")
-    for phrase in ("7390468", "bfd04e8", "c525952", "f9a688e"):
+    for phrase in ("26211510477", "26211492819"):
         if not _contains_phrase(text, phrase):
-            raise AssertionError(f"gap ledger missing historical commit phrase: {phrase}")
-    if not _contains_phrase(playable_cloud_proof, "7390468"):
-        raise AssertionError("playable cloud proof doc missing latest persistence commit phrase: 7390468")
-    if not _contains_phrase(playable_cloud_proof, "bfd04e8"):
-        raise AssertionError("playable cloud proof doc missing previous full-lane commit phrase: bfd04e8")
-    if not _contains_phrase(playable_cloud_proof, "f9a688e"):
-        raise AssertionError("playable cloud proof doc missing historical persistence commit phrase: f9a688e")
+            raise AssertionError(f"gap ledger missing current proof run phrase: {phrase}")
     if "not by itself a claim that the current branch is human-playable" not in playable_cloud_proof:
         raise AssertionError("playable cloud proof doc must keep the human-playability claim boundary")
     if "docs/proof.md" not in readme:

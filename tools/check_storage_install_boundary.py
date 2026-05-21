@@ -103,6 +103,7 @@ REQUIRED_PHRASES = (
     "LBA 0 is the repo MBR",
     "LBA 2048 is the FAT16 partition",
     "install-image-manifest",
+    "artifact-integrity manifest",
     "blank-disk-installer-manifest",
     "damaged-image-refusal-report",
     "structural boot proof without running QEMU locally",
@@ -405,7 +406,75 @@ def _expected_installed_mbr(stage1_path: Path) -> bytes:
     return bytes(mbr)
 
 
-def _inspect_image_bytes(image: bytes | bytearray, image_label: str) -> dict[str, object]:
+def _default_boot_artifact_inputs(root: Path = ROOT) -> dict[str, Path]:
+    build = root / "build"
+    inputs = {
+        "stage1_path": build / "stage1.bin",
+        "stage2_path": build / "stage2.bin",
+        "kernel_path": build / "kernel.elf",
+    }
+    for label, path in (
+        ("stage1", inputs["stage1_path"]),
+        ("stage2", inputs["stage2_path"]),
+        ("kernel", inputs["kernel_path"]),
+    ):
+        _read_artifact(path, label)
+    return inputs
+
+
+def _artifact_integrity_manifest(
+    image: bytes | bytearray,
+    artifact_inputs: dict[str, object],
+) -> dict[str, object]:
+    make_wad_image = load_make_wad_image()
+    stage1_path = artifact_inputs["stage1_path"]
+    expected_mbr = _expected_installed_mbr(stage1_path)
+    installed_mbr = bytes(image[:make_wad_image.SECTOR_SIZE])
+    if installed_mbr != expected_mbr:
+        raise StorageBoundaryError("MBR/stage1 installed bytes do not match patched stage1 artifact")
+
+    raw_regions = [
+        _require_artifact_region(
+            image,
+            lba=make_wad_image.STAGE2_LBA,
+            sectors=make_wad_image.STAGE2_SECTORS,
+            path=artifact_inputs["stage2_path"],
+            label="stage2",
+        ),
+        _require_artifact_region(
+            image,
+            lba=make_wad_image.KERNEL_LBA,
+            sectors=make_wad_image.KERNEL_SECTORS,
+            path=artifact_inputs["kernel_path"],
+            label="kernel",
+        ),
+    ]
+    return {
+        "schema": "vibe-os-image-artifact-integrity-v1",
+        "image_sha256": _sha256(image),
+        "all_match": True,
+        "stage1_mbr": {
+            "label": "mbr-stage1-partition-table",
+            "path": str(stage1_path),
+            "artifact_sha256": _sha256(_read_artifact(stage1_path, "stage1")),
+            "installed_sha256": _sha256(installed_mbr),
+            "bytes": make_wad_image.SECTOR_SIZE,
+            "lba": 0,
+            "sectors": 1,
+            "matches_patched_artifact": True,
+        },
+        "raw_regions": raw_regions,
+        "declared_write_ranges": list(_declared_install_write_ranges(make_wad_image)),
+        "claim_boundary": "repo-build-artifact-identity-only; not arbitrary-media-proof",
+    }
+
+
+def _inspect_image_bytes(
+    image: bytes | bytearray,
+    image_label: str,
+    *,
+    artifact_inputs: dict[str, object] | None = None,
+) -> dict[str, object]:
     make_wad_image = load_make_wad_image()
     image = bytearray(image)
     expected_size = make_wad_image.IMAGE_SECTORS * make_wad_image.SECTOR_SIZE
@@ -544,6 +613,10 @@ def _inspect_image_bytes(image: bytes | bytearray, image_label: str) -> dict[str
     filesystem_entries, filesystem_summary = _filesystem_tree_manifest(fs, make_wad_image)
     packaged_asset_bytes = sum(int(entry["size"]) for entry in packaged_assets)
     packaged_asset_clusters = sum(int(entry["clusters"]) for entry in packaged_assets)
+    artifact_integrity = _artifact_integrity_manifest(
+        image,
+        artifact_inputs or _default_boot_artifact_inputs(ROOT),
+    )
 
     return {
         "schema": "vibe-os-install-image-manifest-v1",
@@ -600,6 +673,7 @@ def _inspect_image_bytes(image: bytes | bytearray, image_label: str) -> dict[str
         "packaged_assets": packaged_assets,
         "filesystem_entries": filesystem_entries,
         "root_entries": root_entries,
+        "artifact_integrity": artifact_integrity,
         "claim_boundary": "generated-image-layout-only; not arbitrary-disk-install-proof",
     }
 
@@ -709,7 +783,11 @@ def prove_blank_disk_install(root: Path = ROOT) -> dict[str, object]:
         raise StorageBoundaryError("blank installer accepted a non-empty target")
 
     installed = make_wad_image.install_bootable_layout(blank, **inputs)
-    manifest = _inspect_image_bytes(installed, "blank-install://in-memory")
+    manifest = _inspect_image_bytes(
+        installed,
+        "blank-install://in-memory",
+        artifact_inputs=inputs,
+    )
 
     expected_mbr = _expected_installed_mbr(inputs["stage1_path"])
     if installed[:make_wad_image.SECTOR_SIZE] != expected_mbr:
@@ -844,12 +922,22 @@ def _damage_crosslinked_root_entry(image: bytearray, make_wad_image) -> None:
     make_wad_image.write_le16(image, beta_entry + 26, chain[0])
 
 
+def _damage_stage2_artifact_mismatch(image: bytearray, make_wad_image) -> None:
+    image[sector_offset(make_wad_image.STAGE2_LBA)] ^= 0x01
+
+
+def _damage_kernel_artifact_mismatch(image: bytearray, make_wad_image) -> None:
+    image[sector_offset(make_wad_image.KERNEL_LBA)] ^= 0x01
+
+
 DAMAGED_FIXTURES = (
     ("missing-mbr-signature", _damage_missing_mbr_signature),
     ("extra-mbr-partition-entry", _damage_extra_partition_entry),
     ("fat-copy-divergence", _damage_fat_copy_divergence),
     ("missing-protected-wad-entry", _damage_missing_protected_entry),
     ("crosslinked-root-entry", _damage_crosslinked_root_entry),
+    ("stage2-artifact-mismatch", _damage_stage2_artifact_mismatch),
+    ("kernel-artifact-mismatch", _damage_kernel_artifact_mismatch),
 )
 
 

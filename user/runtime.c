@@ -43,6 +43,21 @@ int vibe_user_write_all(int fd, const char* text)
     return raw == (int)length ? 0 : -vibe_user_syscall_errno(raw, 5);
 }
 
+int vibe_user_sbrk(long increment, void** previous_break)
+{
+    int raw;
+
+    if (!previous_break)
+        return -22;
+
+    raw = vibe_user_syscall3(VIBE_SYS_SBRK, (unsigned long)increment, 0, 0);
+    if (raw < 0)
+        return -vibe_user_syscall_errno(raw, 12);
+
+    *previous_break = (void*)(unsigned long)raw;
+    return 0;
+}
+
 int vibe_user_open(const char* path, unsigned long flags, unsigned long mode)
 {
     return vibe_user_syscall3(VIBE_SYS_OPEN, (unsigned long)path, flags, mode);
@@ -96,6 +111,16 @@ int vibe_user_getpid(void)
     return vibe_user_syscall3(VIBE_SYS_GETPID, 0, 0, 0);
 }
 
+int vibe_user_fork(void)
+{
+    return vibe_user_syscall3(VIBE_SYS_FORK, 0, 0, 0);
+}
+
+int vibe_user_waitpid(long pid, int* status, unsigned long options)
+{
+    return vibe_user_syscall3(VIBE_SYS_WAITPID, (unsigned long)pid, (unsigned long)status, options);
+}
+
 int vibe_user_dup(int oldfd)
 {
     return vibe_user_syscall3(VIBE_SYS_DUP, (unsigned long)oldfd, 0, 0);
@@ -114,6 +139,52 @@ int vibe_user_dup3(int oldfd, int newfd, unsigned long flags)
 int vibe_user_fcntl(int fd, int cmd, unsigned long arg)
 {
     return vibe_user_syscall3(VIBE_SYS_FCNTL, (unsigned long)fd, (unsigned long)cmd, arg);
+}
+
+int vibe_user_mmap(void** out, unsigned long length, unsigned long prot, unsigned long flags)
+{
+    unsigned long packed;
+    int raw;
+
+    if (!out || !length)
+        return -22;
+
+    packed = ((flags & 0xffffu) << 16) | (prot & 0xffffu);
+    raw = vibe_user_syscall3(VIBE_SYS_MMAP, 0, length, packed);
+    if (raw < 0)
+        return -vibe_user_syscall_errno(raw, 12);
+
+    *out = (void*)(unsigned long)raw;
+    return 0;
+}
+
+int vibe_user_mmap_anon(void** out, unsigned long length, unsigned long prot)
+{
+    return vibe_user_mmap(
+        out,
+        length,
+        prot,
+        VIBE_USER_MAP_PRIVATE | VIBE_USER_MAP_ANONYMOUS);
+}
+
+int vibe_user_munmap(void* addr, unsigned long length)
+{
+    if (!addr || !length)
+        return -22;
+    return vibe_user_syscall3(VIBE_SYS_MUNMAP, (unsigned long)addr, length, 0);
+}
+
+unsigned long vibe_user_heap_capabilities(void)
+{
+    return VIBE_HEAP_CAP_SBRK_GROW | VIBE_HEAP_CAP_SBRK_SHRINK;
+}
+
+unsigned long vibe_user_vm_capabilities(void)
+{
+    return VIBE_VM_CAP_ANON_PRIVATE
+        | VIBE_VM_CAP_BRK_BACKED
+        | VIBE_VM_CAP_TAIL_MUNMAP_RECLAIM
+        | VIBE_VM_CAP_NONTAIL_MUNMAP_HOLES;
 }
 
 int vibe_user_clock_monotonic(vibe_clock_time_t* out)

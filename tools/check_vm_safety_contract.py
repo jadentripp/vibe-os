@@ -299,6 +299,12 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     _require(makefile, "shutdown-panic-proof-check:", "Makefile")
     _require(makefile, "tools/check_shutdown_panic_proof.py --repo-contract", "Makefile")
     _require(makefile, "KERNEL_EXTRA_NASMFLAGS ?=", "Makefile")
+    _require(makefile, 'grep -q "kreloc=LOW"', "Makefile")
+    _require(makefile, 'grep -q "kerneip="', "Makefile")
+    _require(makefile, 'grep -q "kernesp="', "Makefile")
+    _require(makefile, 'grep -q "kerncr3=00090000"', "Makefile")
+    _require(makefile, 'grep -q "kernvirt=00010000"', "Makefile")
+    _require(makefile, 'grep -q "kernphys=00010000"', "Makefile")
     _require(makefile, 'grep -q "vmmhi=OK"', "Makefile")
     _require(makefile, 'grep -q "vmmhva=C0000000"', "Makefile")
     _require(makefile, 'grep -q "vmmhpa="', "Makefile")
@@ -451,6 +457,19 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "KERNEL_HIGHER_HALF_BASE equ 0xc0000000",
         "KERNEL_HIGHER_HALF_PDE_INDEX equ KERNEL_HIGHER_HALF_BASE >> 22",
         "VMM_HIGH_TEST_VADDR equ KERNEL_HIGHER_HALF_BASE",
+        "KERNEL_RELOCATION_STATUS_LOW_IDENTITY equ 1",
+        "KERNEL_RELOCATION_STATUS_MISMATCH equ 2",
+        "kernel_relocation_probe:",
+        "kernel_translate_current_vaddr:",
+        "mov [kernel_relocation_eip], eax",
+        "mov [kernel_relocation_esp], esp",
+        "mov [kernel_relocation_cr3], eax",
+        "mov [kernel_relocation_virt], eax",
+        "mov [kernel_relocation_phys], eax",
+        "cmp eax, KERNEL_HIGHER_HALF_BASE",
+        "cmp eax, PAGING_DIR_ADDR",
+        "cmp eax, [kernel_relocation_virt]",
+        "mov byte [kernel_relocation_status], KERNEL_RELOCATION_STATUS_LOW_IDENTITY",
         "vmm_dynamic_page_tables dd 0",
         "vmm_active_page_tables dd 0",
         "vmm_reclaimed_page_tables dd 0",
@@ -460,6 +479,18 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "vmm_high_test_table dd 0",
         "vmm_high_test_reclaimed dd 0",
         "vmm_high_mapping_status db 0",
+        "kernel_relocation_status db 0",
+        "kernel_relocation_eip dd 0",
+        "kernel_relocation_esp dd 0",
+        "kernel_relocation_cr3 dd 0",
+        "kernel_relocation_virt dd 0",
+        "kernel_relocation_phys dd 0",
+        'smoke_kreloc_text db " kreloc=", 0',
+        'smoke_kerneip_text db " kerneip=", 0',
+        'smoke_kernesp_text db " kernesp=", 0',
+        'smoke_kerncr3_text db " kerncr3=", 0',
+        'smoke_kernvirt_text db " kernvirt=", 0',
+        'smoke_kernphys_text db " kernphys=", 0',
         'smoke_vmmhi_text db " vmmhi=", 0',
         'smoke_vmmhva_text db " vmmhva=", 0',
         'smoke_vmmhpa_text db " vmmhpa=", 0',
@@ -511,6 +542,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "PAGING_DIR_ADDR equ 0x00090000",
         "PAGING_TABLES_ADDR equ 0x00091000",
         "PAGING_TABLES_ADDR | PTE_KERNEL_FLAGS",
+        "call kernel_relocation_probe",
         "mov eax, PAGING_DIR_ADDR",
         "mov cr3, eax",
     ):
@@ -524,6 +556,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
             "KERNEL_RELOCATION_GAP[current]=high-alias-only",
             "KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity",
             "`vmmhi=OK` is not a kernel relocation claim",
+            "`kreloc=LOW`",
             "`kreloc=OK`",
             "`kerneip=`",
             "`kernesp=`",
@@ -540,14 +573,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         (real_wad_workflow, "real-WAD workflow"),
     ):
         for forbidden in (
-            "smoke_kreloc_text",
             'grep -q "kreloc=OK"',
             " kreloc=OK",
-            "kerneip=",
-            "kernesp=",
-            "kerncr3=",
-            "kernvirt=",
-            "kernphys=",
         ):
             if forbidden in text:
                 raise AssertionError(

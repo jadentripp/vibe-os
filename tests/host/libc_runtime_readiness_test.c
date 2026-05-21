@@ -112,6 +112,11 @@ static int mock_fb_supports_indexed;
 static int mock_fb_fixed_present_size;
 static unsigned long mock_fb_max_width;
 static unsigned long mock_fb_max_height;
+static int mock_audio_started;
+static int mock_audio_playing;
+static unsigned long mock_audio_handle;
+static vibe_audio_voice_desc_t mock_audio_voice;
+static int mock_audio_update_count;
 
 static int fail(int code)
 {
@@ -149,6 +154,11 @@ static void reset_mock(void)
     mock_fb_fixed_present_size = 1;
     mock_fb_max_width = 320;
     mock_fb_max_height = 200;
+    mock_audio_started = 0;
+    mock_audio_playing = 0;
+    mock_audio_handle = 0;
+    memset(&mock_audio_voice, 0, sizeof(mock_audio_voice));
+    mock_audio_update_count = 0;
     errno = 0;
 }
 
@@ -370,8 +380,96 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
         out->event_bytes = VIBE_INPUT_EVENT_BYTES;
         out->queue_capacity = VIBE_INPUT_EVENT_QUEUE_CAPACITY;
         out->queued_events = mock_input_queued ? 1 : 0;
+        out->total_events = mock_input_queued ? 1 : 0;
+        out->polled_events = 0;
+        out->dropped_events = 0;
         out->capabilities = VIBE_INPUT_CAP_KEYBOARD | VIBE_INPUT_CAP_POLL_EVENT | VIBE_INPUT_CAP_STATUS;
         return 0;
+    }
+
+    if (number == VIBE_SYS_AUDIO) {
+        unsigned long command = arg0;
+        if (command == VIBE_AUDIO_DEVICE_START) {
+            mock_audio_started = 1;
+            return VIBE_AUDIO_DEVICE_STATUS_READY;
+        }
+        if (command == VIBE_AUDIO_DEVICE_SHUTDOWN) {
+            mock_audio_started = 0;
+            mock_audio_playing = 0;
+            return VIBE_AUDIO_DEVICE_STATUS_ABSENT;
+        }
+        if (command == VIBE_AUDIO_MIXER_START || command == VIBE_AUDIO_MIXER_UPDATE) {
+            vibe_audio_voice_desc_t* desc = (vibe_audio_voice_desc_t*)arg2;
+            if (!desc)
+                return -EINVAL;
+            mock_audio_handle = arg1;
+            mock_audio_voice = *desc;
+            if (command == VIBE_AUDIO_MIXER_START)
+                mock_audio_playing = 1;
+            else
+                ++mock_audio_update_count;
+            return 0;
+        }
+        if (command == VIBE_AUDIO_MIXER_STOP) {
+            if (arg1 == mock_audio_handle)
+                mock_audio_playing = 0;
+            return 0;
+        }
+        if (command == VIBE_AUDIO_MIXER_IS_PLAYING)
+            return mock_audio_playing && arg1 == mock_audio_handle;
+        if (command == VIBE_AUDIO_PCM_BUFFERED_BYTES)
+            return 256;
+        if (command == VIBE_AUDIO_PCM_PULL_STATE)
+            return 5;
+        if (command == VIBE_AUDIO_DEVICE_INFO) {
+            vibe_audio_device_info_t* out = (vibe_audio_device_info_t*)arg1;
+            if (!out)
+                return -EINVAL;
+            memset(out, 0, sizeof(*out));
+            out->device_kind = VIBE_AUDIO_DEVICE_SB16;
+            out->status = mock_audio_started
+                ? VIBE_AUDIO_DEVICE_STATUS_READY
+                : VIBE_AUDIO_DEVICE_STATUS_ABSENT;
+            out->sample_rate = 11025;
+            out->channels = 2;
+            out->format = VIBE_AUDIO_FORMAT_U8_STEREO;
+            out->ring_bytes = 32768;
+            out->period_bytes = 16384;
+            out->capabilities = VIBE_AUDIO_CAP_PCM_RING
+                | VIBE_AUDIO_CAP_MIXER_VOICES
+                | VIBE_AUDIO_CAP_PULL_STREAM;
+            out->active_voices = mock_audio_playing ? 1 : 0;
+            return 0;
+        }
+        if (command == VIBE_AUDIO_PCM_RING_INFO) {
+            vibe_audio_pcm_ring_info_t* out = (vibe_audio_pcm_ring_info_t*)arg1;
+            if (!out)
+                return -EINVAL;
+            memset(out, 0, sizeof(*out));
+            out->format = VIBE_AUDIO_FORMAT_U8_STEREO;
+            out->channels = 2;
+            out->sample_rate = 11025;
+            out->ring_bytes = 32768;
+            out->period_bytes = 16384;
+            out->queued_bytes = 256;
+            out->mixed_bytes = 512;
+            return 0;
+        }
+        if (command == VIBE_AUDIO_STREAM_INFO) {
+            vibe_audio_stream_info_t* out = (vibe_audio_stream_info_t*)arg2;
+            if (!out)
+                return -EINVAL;
+            memset(out, 0, sizeof(*out));
+            out->stream_mode = VIBE_AUDIO_MUSIC_STREAM_PULL;
+            out->flags = VIBE_AUDIO_STREAM_FLAG_PULL | VIBE_AUDIO_STREAM_FLAG_REFILL_PENDING;
+            out->handle = arg1;
+            out->pull_request_count = 5;
+            out->pull_refill_count = 4;
+            out->pending_pull_requests = 1;
+            out->queued_bytes = 256;
+            return 0;
+        }
+        return -EINVAL;
     }
 
     if (number == VIBE_SYS_IOCTL) {
@@ -624,7 +722,9 @@ static int test_generic_input_and_indexed_present_wrappers(void)
         || status.queue_capacity != VIBE_INPUT_EVENT_QUEUE_CAPACITY
         || status.queued_events != 1
         || !vibe_input_status_has_capability(&status, VIBE_INPUT_CAP_POLL_EVENT)
-        || vibe_input_status_queue_is_empty(&status))
+        || vibe_input_status_queue_is_empty(&status)
+        || vibe_input_status_available_events(&status) != 62
+        || !vibe_input_status_counters_are_consistent(&status))
         return fail(51);
 
     if (vibe_drain_input(events, 2) != 1)
@@ -700,6 +800,57 @@ static int test_generic_input_and_indexed_present_wrappers(void)
     return 0;
 }
 
+static int test_generic_audio_wrappers(void)
+{
+    unsigned char bytes[4] = { 128, 129, 127, 128 };
+    vibe_audio_voice_desc_t voice;
+    vibe_audio_device_info_t device;
+    vibe_audio_pcm_ring_info_t ring;
+    vibe_audio_stream_info_t stream;
+
+    reset_mock();
+    vibe_audio_voice_desc_init(&voice, bytes, sizeof(bytes), 11025, 96, 128, 128);
+
+    if (vibe_audio_device_start() != VIBE_AUDIO_DEVICE_STATUS_READY || !mock_audio_started)
+        return fail(83);
+    if (vibe_audio_mixer_start(42, &voice) != 0 || !mock_audio_playing)
+        return fail(84);
+    if (mock_audio_handle != 42
+        || mock_audio_voice.samples != bytes
+        || mock_audio_voice.length != sizeof(bytes)
+        || mock_audio_voice.sample_rate != 11025)
+        return fail(85);
+    voice.volume = 64;
+    if (vibe_audio_mixer_update(42, &voice) != 0 || mock_audio_update_count != 1)
+        return fail(86);
+    if (vibe_audio_mixer_is_playing(42) != 1)
+        return fail(87);
+    if (vibe_audio_pcm_buffered_bytes(42) != 256)
+        return fail(88);
+    if (vibe_audio_pcm_pull_state(42) != 5)
+        return fail(89);
+    if (vibe_audio_device_info(&device) != 0
+        || !vibe_audio_device_is_ready(&device)
+        || !vibe_audio_device_has_capability(&device, VIBE_AUDIO_CAP_PULL_STREAM))
+        return fail(90);
+    if (vibe_audio_pcm_ring_info(&ring) != 0 || !vibe_audio_pcm_ring_is_u8_stereo(&ring))
+        return fail(91);
+    if (vibe_audio_stream_info(42, &stream) != 0
+        || !vibe_audio_stream_matches_handle(&stream, 42)
+        || !vibe_audio_stream_has_new_refill_request(&stream, 4))
+        return fail(92);
+    if (vibe_audio_mixer_stop(42) != 0 || vibe_audio_mixer_is_playing(42) != 0)
+        return fail(93);
+    if (vibe_audio_mixer_start(43, 0) != -1 || errno != EINVAL)
+        return fail(94);
+    if (vibe_audio_device_info(0) != -1 || errno != EINVAL)
+        return fail(95);
+    if (vibe_audio_device_shutdown() != VIBE_AUDIO_DEVICE_STATUS_ABSENT || mock_audio_started)
+        return fail(96);
+
+    return 0;
+}
+
 int main(void)
 {
     int result;
@@ -718,6 +869,10 @@ int main(void)
         return result;
 
     result = test_generic_input_and_indexed_present_wrappers();
+    if (result)
+        return result;
+
+    result = test_generic_audio_wrappers();
     if (result)
         return result;
 

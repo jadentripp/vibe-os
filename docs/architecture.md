@@ -81,9 +81,14 @@ verifies the non-identity physical frame changed, unmaps the alias, and frees th
 test frame. The smoke status now reports `vmmhi=OK`, `vmmhva=`, `vmmhpa=`,
 `vmmhpt=`, and `vmmhfree=` so status-only artifacts show the high virtual alias,
 the non-identity PMM frame, the dynamic page-table frame, and the page-table
-frame reclaimed after unmap. This proves the mapper can build high,
-non-identity kernel mappings after PMM is online, but it does not relocate the
-running kernel yet.
+frame reclaimed after unmap. The kernel also records the relocation scaffold as
+`kreloc=LOW` with `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and
+`kernphys=`. Today those fields prove the opposite of relocation: the current
+kernel instruction pointer and stack are still low, `kerncr3=00090000` names the
+low kernel page directory, and `kernvirt=00010000` matches `kernphys=00010000`.
+This proves the mapper can build high, non-identity kernel mappings after PMM is
+online and gives future relocation checks stable fields to tighten, but it does
+not relocate the running kernel yet.
 
 The status proof is now executable. `tools/check_vm_status_proof.py
 --require-exec status.txt` requires that `vmmhfree` match the reclaimed dynamic
@@ -105,11 +110,14 @@ higher-half virtual addresses.
 ## Higher-Half Relocation Gap
 
 `KERNEL_RELOCATION_GAP[current]=high-alias-only`. The current proof combines the
-dynamic high-alias self-test above with process page-directory proof: `vmmhi=OK`
-shows `VMM_HIGH_TEST_VADDR` at `0xc0000000` can be mapped to a distinct
-PMM-managed frame and then unmapped, while `pcr3=`/`pkstk=` show process
-switches across distinct page directories and low-memory kernel stacks. That is
-useful preparation, but `vmmhi=OK` is not a kernel relocation claim.
+dynamic high-alias self-test above with a low-identity relocation scaffold and
+process page-directory proof: `vmmhi=OK` shows `VMM_HIGH_TEST_VADDR` at
+`0xc0000000` can be mapped to a distinct PMM-managed frame and then unmapped,
+`kreloc=LOW` plus `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and
+`kernphys=` make the current running-kernel identity state machine-readable, and
+`pcr3=`/`pkstk=` show process switches across distinct page directories and
+low-memory kernel stacks. That is useful preparation, but `vmmhi=OK` is not a
+kernel relocation claim and `kreloc=LOW` is explicitly the non-relocated state.
 
 `KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity`. The running kernel
 is still linked at `0x00010000`, loaded by Stage 2 as an ELF32 image from low
@@ -117,10 +125,11 @@ physical memory, and entered through the low ELF entry. Paging then loads
 `PAGING_DIR_ADDR` into `CR3` and keeps the first 32 MiB identity mapped. The host
 contract therefore reserves `kreloc=OK` for a future milestone that proves the
 kernel is executing from higher-half virtual addresses with non-identity backing.
-That future proof needs status evidence such as `kerneip=`, `kernesp=`,
-`kerncr3=`, `kernvirt=`, and `kernphys=` so host checks can distinguish a real
-relocated instruction pointer, stack, active page directory, and physical backing
-from the current one-page high alias.
+That future proof needs `kreloc=OK` status evidence in the existing `kerneip=`,
+`kernesp=`, `kerncr3=`, `kernvirt=`, and `kernphys=` fields so host checks can
+distinguish a real relocated instruction pointer, stack, active page directory,
+and physical backing from both the current low-identity scaffold and the
+one-page high alias.
 
 The checker treats preemption as a live-user-workload proof. The generated-WAD
 OS smoke intentionally runs `tools/check_vm_status_proof.py --require-exec`
@@ -469,14 +478,17 @@ slot number is not enough to prove preemption after exec.
 ## Higher-Half Relocation Gap
 
 `KERNEL_RELOCATION_GAP[current]=high-alias-only`. The VM/process proof currently
-has two separate pieces: `vmmhi=OK` proves a temporary high virtual alias backed
-by a distinct PMM-managed frame, and process status fields such as `pcr3=`,
+has three separate pieces: `vmmhi=OK` proves a temporary high virtual alias
+backed by a distinct PMM-managed frame, `kreloc=LOW` with `kerneip=`,
+`kernesp=`, `kerncr3=`, `kernvirt=`, and `kernphys=` proves the running kernel is
+still on the low identity contract, and process status fields such as `pcr3=`,
 `pkstk=`, `pfrom=`, and `pto=` prove user process switches across distinct page
 directories and kernel stacks. Those fields do not prove that kernel text,
 kernel data, the active kernel stack, or the interrupt/return path are executing
 from non-identity higher-half addresses.
 
 `vmmhi=OK` is not a kernel relocation claim.
+`kreloc=LOW` is not a relocation success claim.
 
 `KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity`. Until a future
 artifact reports `kreloc=OK` with host-checked `kerneip=`, `kernesp=`,
@@ -1156,10 +1168,12 @@ small non-Doom user programs and freestanding tools. They do not try to be libc
 and they do not depend on Doom port hooks. The layer owns the raw `int 0x80` call stub, centralizes the
 same `-errno` / legacy `-1` conversion rule as the Doom libc shim, and exposes
 minimal wrappers for the crt0-launched tool shape: write a complete string,
-read descriptors, seek descriptors, perform lseek-backed positioned reads,
-query `getpid`, duplicate descriptors with `dup`/`dup2`/`dup3`, query the
-monotonic clock, list a root directory, `execv` another root `.ELF`, and report
-a probe status word.
+perform brk-style heap grows/shrinks, read descriptors, seek descriptors,
+perform lseek-backed positioned reads, query `getpid`, observe the classified fork
+`ENOSYS` result, reap with `waitpid`, duplicate descriptors with
+`dup`/`dup2`/`dup3`, request anonymous/private mmap/munmap, query explicit
+heap/VM capability bits, query the monotonic clock, list a root directory,
+`execv` another root `.ELF`, and report a probe status word.
 
 `user/abi_probe.c` now consumes that runtime instead of carrying its own inline
 syscall assembly. That keeps the second-program proof honest: future small
@@ -1618,7 +1632,10 @@ Storage install/recovery boundary:
   non-overlap, FAT BPB total-sector and hidden-sector fields, FAT/root/data
   geometry, root-entry inventory, recursive FAT directory/file inventory,
   read-only packaged-asset hashes, free/used cluster accounting, FAT-copy
-  agreement, and cluster ownership.
+  agreement, and cluster ownership. The manifest now includes an
+  `artifact-integrity manifest` section that hashes the whole image, verifies
+  the patched MBR/stage1 sector, and refuses raw Stage 2 or kernel bytes that
+  do not match the current repo build artifacts.
   That manifest is intentionally scoped to `build/disk.img`.
 - `tools/check_storage_install_boundary.py --blank-install-proof --json`
   performs a host-only blank install proof from an in-memory all-zero image. It

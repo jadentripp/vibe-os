@@ -133,13 +133,8 @@ static int query_music_stream_info(int handle, vibe_audio_stream_info_t* info)
 
     memset(info, 0, sizeof(*info));
     audio_handle = (unsigned long)vibe_music_audio_handle(handle);
-    if (vibe_syscall3(
-            VIBE_SYS_AUDIO,
-            VIBE_AUDIO_STREAM_INFO,
-            audio_handle,
-            (unsigned long)info) != 0) {
+    if (vibe_audio_stream_info(audio_handle, info) != 0)
         return 0;
-    }
 
     return vibe_audio_stream_matches_handle(info, audio_handle)
         && vibe_audio_stream_refills_are_ordered(info);
@@ -158,11 +153,10 @@ static void remember_music_stream_info(const vibe_audio_stream_info_t* info)
 
 static void remember_music_pull_count(int handle)
 {
-    current_music_pull_seen = vibe_syscall3(
-        VIBE_SYS_AUDIO,
-        VIBE_AUDIO_PCM_PULL_STATE,
-        (unsigned long)vibe_music_audio_handle(handle),
-        0);
+    int pull_count;
+
+    pull_count = vibe_audio_pcm_pull_state((unsigned long)vibe_music_audio_handle(handle));
+    current_music_pull_seen = pull_count > 0 ? (unsigned long)pull_count : 0;
 }
 
 static unsigned long read_le16(const unsigned char* data)
@@ -287,11 +281,7 @@ static int submit_music_stream_chunk(int handle, int start_voice)
 
     if (!rendered) {
         if (current_music_handle == handle) {
-            (void)vibe_syscall3(
-                VIBE_SYS_AUDIO,
-                VIBE_AUDIO_MIXER_STOP,
-                (unsigned long)vibe_music_audio_handle(handle),
-                0);
+            (void)vibe_audio_mixer_stop((unsigned long)vibe_music_audio_handle(handle));
             current_music_handle = 0;
             current_music_next_tic = 0;
             vibe_music_stream_stop(handle);
@@ -332,11 +322,13 @@ static int submit_music_stream_chunk(int handle, int start_voice)
     desc.music_stream_end = stats.stream_end_sample;
     desc.music_stream_loop_count = stats.stream_loop_count;
 
-    (void)vibe_syscall3(
-        VIBE_SYS_AUDIO,
-        start_voice ? VIBE_AUDIO_MIXER_START : VIBE_AUDIO_MIXER_UPDATE,
-        (unsigned long)vibe_music_audio_handle(handle),
-        (unsigned long)&desc);
+    (void)(start_voice
+        ? vibe_audio_mixer_start(
+            (unsigned long)vibe_music_audio_handle(handle),
+            &desc)
+        : vibe_audio_mixer_update(
+            (unsigned long)vibe_music_audio_handle(handle),
+            &desc));
     return 1;
 }
 
@@ -345,11 +337,7 @@ static void stop_music_stream_handle(int handle)
     if (handle <= 0)
         return;
 
-    (void)vibe_syscall3(
-        VIBE_SYS_AUDIO,
-        VIBE_AUDIO_MIXER_STOP,
-        (unsigned long)vibe_music_audio_handle(handle),
-        0);
+    (void)vibe_audio_mixer_stop((unsigned long)vibe_music_audio_handle(handle));
     vibe_music_stream_stop(handle);
 }
 
@@ -560,6 +548,7 @@ static void pump_music_stream(void)
 {
     int now;
     int start_voice;
+    int raw_pull_request;
     vibe_audio_stream_info_t stream_info;
     unsigned long pull_request;
 
@@ -570,11 +559,8 @@ static void pump_music_stream(void)
     if (current_music_next_tic && now < current_music_next_tic)
         return;
 
-    start_voice = vibe_syscall3(
-        VIBE_SYS_AUDIO,
-        VIBE_AUDIO_MIXER_IS_PLAYING,
-        (unsigned long)vibe_music_audio_handle(current_music_handle),
-        0) <= 0;
+    start_voice = vibe_audio_mixer_is_playing(
+        (unsigned long)vibe_music_audio_handle(current_music_handle)) <= 0;
     if (start_voice) {
         if (submit_music_stream_chunk(current_music_handle, start_voice)) {
             if (query_music_stream_info(current_music_handle, &stream_info))
@@ -615,11 +601,9 @@ static void pump_music_stream(void)
         return;
     }
 
-    pull_request = vibe_syscall3(
-        VIBE_SYS_AUDIO,
-        VIBE_AUDIO_PCM_PULL_STATE,
-        (unsigned long)vibe_music_audio_handle(current_music_handle),
-        0);
+    raw_pull_request = vibe_audio_pcm_pull_state(
+        (unsigned long)vibe_music_audio_handle(current_music_handle));
+    pull_request = raw_pull_request > 0 ? (unsigned long)raw_pull_request : 0;
     if (pull_request == current_music_pull_seen) {
         current_music_next_tic = now + 1;
         return;
@@ -1073,7 +1057,7 @@ void I_InitSound(void)
 {
     report_doom_init_status(VIBE_DOOM_INIT_SOUND);
     vibe_music_init();
-    (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_DEVICE_START, 0, 0);
+    (void)vibe_audio_device_start();
 }
 
 void I_UpdateSound(void)
@@ -1088,7 +1072,7 @@ void I_SubmitSound(void)
 
 void I_ShutdownSound(void)
 {
-    (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_DEVICE_SHUTDOWN, 0, 0);
+    (void)vibe_audio_device_shutdown();
 }
 
 void I_SetChannels(void)
@@ -1140,23 +1124,19 @@ int I_StartSound(int id, int vol, int sep, int pitch, int priority)
         desc.flags = sample_flags;
         desc.sample_rate = sample_rate;
 
-        (void)vibe_syscall3(
-            VIBE_SYS_AUDIO,
-            VIBE_AUDIO_MIXER_START,
-            (unsigned long)handle,
-            (unsigned long)&desc);
+        (void)vibe_audio_mixer_start((unsigned long)handle, &desc);
         return handle;
     }
 }
 
 void I_StopSound(int handle)
 {
-    (void)vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_MIXER_STOP, (unsigned long)handle, 0);
+    (void)vibe_audio_mixer_stop((unsigned long)handle);
 }
 
 int I_SoundIsPlaying(int handle)
 {
-    return vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_MIXER_IS_PLAYING, (unsigned long)handle, 0) > 0;
+    return vibe_audio_mixer_is_playing((unsigned long)handle) > 0;
 }
 
 void I_UpdateSoundParams(int handle, int vol, int sep, int pitch)
@@ -1168,11 +1148,7 @@ void I_UpdateSoundParams(int handle, int vol, int sep, int pitch)
     desc.separation = (unsigned long)(sep & 0xff);
     desc.pitch = (unsigned long)(pitch & 0xff);
 
-    (void)vibe_syscall3(
-        VIBE_SYS_AUDIO,
-        VIBE_AUDIO_MIXER_UPDATE,
-        (unsigned long)handle,
-        (unsigned long)&desc);
+    (void)vibe_audio_mixer_update((unsigned long)handle, &desc);
 }
 
 void I_InitMusic(void)
@@ -1212,11 +1188,7 @@ void I_PauseSong(int handle)
     if (handle <= 0)
         return;
     current_music_paused = 1;
-    (void)vibe_syscall3(
-        VIBE_SYS_AUDIO,
-        VIBE_AUDIO_MIXER_STOP,
-        (unsigned long)vibe_music_audio_handle(handle),
-        0);
+    (void)vibe_audio_mixer_stop((unsigned long)vibe_music_audio_handle(handle));
 }
 
 void I_ResumeSong(int handle)

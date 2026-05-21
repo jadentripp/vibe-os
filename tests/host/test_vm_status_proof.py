@@ -19,6 +19,12 @@ def status_line(**overrides):
         "pg": "ON",
         "pmm": "OK",
         "vmm": "OK",
+        "kreloc": "LOW",
+        "kerneip": "00010200",
+        "kernesp": "0006FFFC",
+        "kerncr3": "00090000",
+        "kernvirt": "00010000",
+        "kernphys": "00010000",
         "vmmhi": "OK",
         "vmmhva": "C0000000",
         "vmmhpa": "00123000",
@@ -118,6 +124,21 @@ class VmStatusProofTests(unittest.TestCase):
             ({"vmmhpa": "00023000"}, "PMM-managed"),
             ({"vmmhpa": "00124000"}, "different frames"),
             ({"vmmhfree": "00125000"}, "match vmmhpt"),
+        ):
+            with self.subTest(overrides=overrides):
+                with self.assertRaisesRegex(AssertionError, message):
+                    check_vm_status_proof.validate_status(status_line(**overrides))
+
+    def test_rejects_overclaimed_or_incoherent_kernel_relocation_scaffold(self):
+        for overrides, message in (
+            ({"kreloc": "OK"}, "reserved"),
+            ({"kreloc": "WAIT"}, "must be LOW"),
+            ({"kerneip": "00008000"}, "kerneip"),
+            ({"kernesp": "00070000"}, "kernesp"),
+            ({"kerncr3": "00082000"}, "kerncr3"),
+            ({"kernvirt": "00011000"}, "low linked kernel entry"),
+            ({"kernphys": "00110000"}, "match kernvirt"),
+            ({"kerneip": "C0001000"}, "kerneip"),
         ):
             with self.subTest(overrides=overrides):
                 with self.assertRaisesRegex(AssertionError, message):
@@ -304,12 +325,15 @@ class VmStatusProofTests(unittest.TestCase):
         process_doc = (ROOT / "docs" / "architecture.md").read_text()
 
         self.assertEqual(fields["vmmhi"], "OK")
-        self.assertNotIn("kreloc", fields)
+        self.assertEqual(fields["kreloc"], "LOW")
+        self.assertEqual(fields["kernvirt"], "00010000")
+        self.assertEqual(fields["kernphys"], "00010000")
         for doc in (boot_doc, process_doc):
             self.assertIn("KERNEL_RELOCATION_GAP[current]=high-alias-only", doc)
             self.assertIn("KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity", doc)
             self.assertIn("`vmmhi=OK` is not a kernel relocation claim", doc)
             self.assertIn("`kreloc=OK`", doc)
+            self.assertIn("`kreloc=LOW`", doc)
 
     def test_repo_contract_keeps_preemption_on_long_lived_real_wad_lanes(self):
         os_workflow = (ROOT / ".github" / "workflows" / "os-smoke.yml").read_text()

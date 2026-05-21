@@ -1191,6 +1191,127 @@ int vibe_file_read_all(const char* path, void* buffer, unsigned long capacity, u
     return 0;
 }
 
+int vibe_audio_device_start(void)
+{
+    int raw;
+
+    raw = vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_DEVICE_START, 0, 0);
+    return raw < 0 ? syscall_failed(raw, EIO) : raw;
+}
+
+int vibe_audio_device_shutdown(void)
+{
+    int raw;
+
+    raw = vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_DEVICE_SHUTDOWN, 0, 0);
+    return raw < 0 ? syscall_failed(raw, EIO) : raw;
+}
+
+int vibe_audio_mixer_start(unsigned long handle, const vibe_audio_voice_desc_t* desc)
+{
+    int raw;
+
+    if (!desc) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    raw = vibe_syscall3(
+        VIBE_SYS_AUDIO,
+        VIBE_AUDIO_MIXER_START,
+        handle,
+        (unsigned long)desc);
+    return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
+}
+
+int vibe_audio_mixer_stop(unsigned long handle)
+{
+    int raw;
+
+    raw = vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_MIXER_STOP, handle, 0);
+    return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
+}
+
+int vibe_audio_mixer_update(unsigned long handle, const vibe_audio_voice_desc_t* desc)
+{
+    int raw;
+
+    if (!desc) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    raw = vibe_syscall3(
+        VIBE_SYS_AUDIO,
+        VIBE_AUDIO_MIXER_UPDATE,
+        handle,
+        (unsigned long)desc);
+    return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
+}
+
+int vibe_audio_mixer_is_playing(unsigned long handle)
+{
+    int raw;
+
+    raw = vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_MIXER_IS_PLAYING, handle, 0);
+    return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
+}
+
+int vibe_audio_pcm_buffered_bytes(unsigned long handle)
+{
+    int raw;
+
+    raw = vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_PCM_BUFFERED_BYTES, handle, 0);
+    return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
+}
+
+int vibe_audio_pcm_pull_state(unsigned long handle)
+{
+    int raw;
+
+    raw = vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_PCM_PULL_STATE, handle, 0);
+    return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
+}
+
+int vibe_audio_device_info(vibe_audio_device_info_t* info)
+{
+    int raw;
+
+    if (!info) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    raw = vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_DEVICE_INFO, (unsigned long)info, 0);
+    return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
+}
+
+int vibe_audio_pcm_ring_info(vibe_audio_pcm_ring_info_t* info)
+{
+    int raw;
+
+    if (!info) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    raw = vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_PCM_RING_INFO, (unsigned long)info, 0);
+    return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
+}
+
+int vibe_audio_stream_info(unsigned long handle, vibe_audio_stream_info_t* info)
+{
+    int raw;
+
+    if (!info) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    raw = vibe_syscall3(VIBE_SYS_AUDIO, VIBE_AUDIO_STREAM_INFO, handle, (unsigned long)info);
+    return raw < 0 ? syscall_failed(raw, EINVAL) : raw;
+}
+
 int vibe_poll_input(vibe_input_event_t* event)
 {
     int raw;

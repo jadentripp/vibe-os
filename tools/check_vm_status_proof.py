@@ -18,6 +18,11 @@ from status_fields import (
 ROOT = Path(__file__).resolve().parents[1]
 
 KERNEL_HIGHER_HALF_BASE = 0xC0000000
+KERNEL_LOW_LINK_BASE = 0x00010000
+KERNEL_ELF_MAX_BYTES = 0x00018000
+KERNEL_STACK_LOW = 0x00060000
+KERNEL_STACK_TOP = 0x00070000
+PAGING_DIR_ADDR = 0x00090000
 PMM_MANAGED_START = 0x00100000
 PMM_MANAGED_END = 0x02000000
 DOOM_USER_BASE = 0x01000000
@@ -223,6 +228,7 @@ def validate_vm_mapping(fields: dict[str, str]) -> None:
     _exact(fields, "pg", "ON")
     _exact(fields, "pmm", "OK")
     _exact(fields, "vmm", "OK")
+    validate_kernel_relocation_scaffold(fields)
     _exact(fields, "vmmhi", "OK")
 
     vaddr = _hex(fields, "vmmhva")
@@ -242,6 +248,36 @@ def validate_vm_mapping(fields: dict[str, str]) -> None:
         raise AssertionError("vmmhpa= and vmmhpt= must describe different frames")
     if reclaimed != table:
         raise AssertionError("vmmhfree= must match vmmhpt= to prove page-table reclaim")
+
+
+def validate_kernel_relocation_scaffold(fields: dict[str, str]) -> None:
+    status = _field(fields, "kreloc")
+    if status == "OK":
+        raise AssertionError("kreloc=OK is reserved for running-kernel non-identity execution")
+    if status != "LOW":
+        raise AssertionError(f"kreloc= must be LOW until the running kernel is relocated, got {status}")
+
+    eip = _hex(fields, "kerneip")
+    esp = _hex(fields, "kernesp")
+    cr3 = _hex(fields, "kerncr3")
+    virt = _hex(fields, "kernvirt")
+    phys = _hex(fields, "kernphys")
+
+    _in_range(
+        eip,
+        KERNEL_LOW_LINK_BASE,
+        KERNEL_LOW_LINK_BASE + KERNEL_ELF_MAX_BYTES,
+        "kerneip",
+    )
+    _in_range(esp, KERNEL_STACK_LOW, KERNEL_STACK_TOP, "kernesp")
+    if cr3 != PAGING_DIR_ADDR:
+        raise AssertionError(f"kerncr3= must be the low kernel page directory, got {cr3:#x}")
+    if virt != KERNEL_LOW_LINK_BASE:
+        raise AssertionError(f"kernvirt= must be the low linked kernel entry, got {virt:#x}")
+    if phys != virt:
+        raise AssertionError("kernphys= must match kernvirt= while kreloc=LOW")
+    if eip >= KERNEL_HIGHER_HALF_BASE or esp >= KERNEL_HIGHER_HALF_BASE:
+        raise AssertionError("kreloc=LOW cannot report higher-half kernel EIP or ESP")
 
 
 def validate_exec(fields: dict[str, str]) -> None:
@@ -570,6 +606,12 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         (tests_readme, "tests README"),
     ):
         _require(text, "tools/check_vm_status_proof.py", label)
+        _require(text, "kreloc=LOW", label)
+        _require(text, "kerneip=", label)
+        _require(text, "kernesp=", label)
+        _require(text, "kerncr3=", label)
+        _require(text, "kernvirt=", label)
+        _require(text, "kernphys=", label)
         _require(text, "vmmhfree", label)
         _require(text, "uexec=OK", label)
         _require(text, "upath=USERPROB.ELF", label)

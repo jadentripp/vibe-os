@@ -9,6 +9,9 @@ static char mock_write_buffer[64];
 static const char mock_read_data[] = "abcdef";
 static int mock_write_length;
 static int mock_file_pos;
+static int mock_brk = 0x00400000;
+static int mock_wait_reaped;
+static int mock_munmap_count;
 static int mock_exec_count;
 static const char* mock_exec_path;
 static int mock_close_count;
@@ -31,6 +34,17 @@ int vibe_user_syscall3(unsigned int number, unsigned long arg0, unsigned long ar
             mock_write_buffer[index] = text[index];
         mock_write_length = (int)length;
         return (int)length;
+    }
+
+    if (number == VIBE_SYS_SBRK) {
+        long increment = (long)arg0;
+        int old = mock_brk;
+        int next = mock_brk + (int)increment;
+
+        if (next < 0x00400000 || next > 0x00410000)
+            return -12;
+        mock_brk = next;
+        return old;
     }
 
     if (number == VIBE_SYS_OPEN)
@@ -85,6 +99,22 @@ int vibe_user_syscall3(unsigned int number, unsigned long arg0, unsigned long ar
     if (number == VIBE_SYS_GETPID)
         return 7;
 
+    if (number == VIBE_SYS_FORK)
+        return -38;
+
+    if (number == VIBE_SYS_WAITPID) {
+        int* status = (int*)arg1;
+
+        if ((long)arg0 != -1 || arg2 != VIBE_USER_WNOHANG)
+            return -22;
+        if (mock_wait_reaped)
+            return -10;
+        if (status)
+            *status = 0x2a;
+        mock_wait_reaped = 1;
+        return 3;
+    }
+
     if (number == VIBE_SYS_DUP)
         return arg0 == 4 ? 5 : -9;
 
@@ -102,6 +132,26 @@ int vibe_user_syscall3(unsigned int number, unsigned long arg0, unsigned long ar
         if (arg1 == 2 && arg2 <= 1)
             return 0;
         return -22;
+    }
+
+    if (number == VIBE_SYS_MMAP) {
+        unsigned long prot = arg2 & 0xffffu;
+        unsigned long flags = arg2 >> 16;
+
+        if (arg0 != 0 || arg1 == 0)
+            return -22;
+        if (flags != (VIBE_USER_MAP_PRIVATE | VIBE_USER_MAP_ANONYMOUS))
+            return -22;
+        if ((prot & (VIBE_USER_PROT_READ | VIBE_USER_PROT_WRITE)) != (VIBE_USER_PROT_READ | VIBE_USER_PROT_WRITE))
+            return -22;
+        return 0x00408000;
+    }
+
+    if (number == VIBE_SYS_MUNMAP) {
+        if (arg0 != 0x00408000u || arg1 != 4096 || arg2 != 0)
+            return -22;
+        ++mock_munmap_count;
+        return 0;
     }
 
     if (number == VIBE_SYS_CLOCK_GETTIME) {
@@ -156,6 +206,9 @@ int main(void)
     vibe_dirent_t entries[MOCK_MAX_DIRENTS];
     char read_buffer[4];
     char* argv[] = { "TOOL.ELF", 0 };
+    void* old_break = 0;
+    void* mapped = 0;
+    int wait_status = 0;
 
     if (vibe_user_syscall_errno(-13, 5) != 13)
         return fail(1);
@@ -173,6 +226,30 @@ int main(void)
     mock_force_legacy_error = 0;
     if (vibe_user_getpid() != 7)
         return fail(7);
+    if (vibe_user_fork() != -38)
+        return fail(19);
+    if (vibe_user_waitpid(-1, &wait_status, VIBE_USER_WNOHANG) != 3 || wait_status != 0x2a)
+        return fail(20);
+    if (vibe_user_waitpid(-1, &wait_status, VIBE_USER_WNOHANG) != -10)
+        return fail(21);
+    if (vibe_user_sbrk(4096, &old_break) != 0 || old_break != (void*)0x00400000)
+        return fail(22);
+    if (vibe_user_sbrk(-4096, &old_break) != 0 || old_break != (void*)0x00401000)
+        return fail(23);
+    if (vibe_user_sbrk(4096, 0) != -22)
+        return fail(24);
+    if (vibe_user_mmap_anon(&mapped, 4096, VIBE_USER_PROT_READ | VIBE_USER_PROT_WRITE) != 0 || mapped != (void*)0x00408000)
+        return fail(25);
+    if (vibe_user_mmap(&mapped, 4096, VIBE_USER_PROT_READ, VIBE_USER_MAP_FIXED) != -22)
+        return fail(26);
+    if (vibe_user_munmap(mapped, 4096) != 0 || mock_munmap_count != 1)
+        return fail(27);
+    if (vibe_user_munmap(0, 4096) != -22)
+        return fail(28);
+    if ((vibe_user_heap_capabilities() & (VIBE_HEAP_CAP_SBRK_GROW | VIBE_HEAP_CAP_SBRK_SHRINK)) != (VIBE_HEAP_CAP_SBRK_GROW | VIBE_HEAP_CAP_SBRK_SHRINK))
+        return fail(29);
+    if ((vibe_user_vm_capabilities() & (VIBE_VM_CAP_ANON_PRIVATE | VIBE_VM_CAP_NONTAIL_MUNMAP_HOLES)) != (VIBE_VM_CAP_ANON_PRIVATE | VIBE_VM_CAP_NONTAIL_MUNMAP_HOLES))
+        return fail(30);
     if (vibe_user_dup(4) != 5 || vibe_user_dup2(4, 8) != 8 || vibe_user_dup3(4, 9, 0x0800u) != 9)
         return fail(8);
     if (vibe_user_open("TOOL.TXT", 0, 0) != 4 || vibe_user_fcntl(4, 1, 0) != 1 || vibe_user_fcntl(4, 2, 1) != 0)

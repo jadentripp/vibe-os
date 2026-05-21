@@ -125,6 +125,22 @@ class StorageInstallBoundaryTests(unittest.TestCase):
             manifest["fat16"]["minimum_os_created_file_clusters"],
             check_storage_install_boundary.load_make_wad_image().MIN_OS_CREATED_FILE_CLUSTERS,
         )
+        integrity = manifest["artifact_integrity"]
+        self.assertEqual(integrity["schema"], "vibe-os-image-artifact-integrity-v1")
+        self.assertTrue(integrity["all_match"])
+        self.assertTrue(integrity["stage1_mbr"]["matches_patched_artifact"])
+        self.assertEqual(integrity["stage1_mbr"]["lba"], 0)
+        self.assertEqual(
+            {region["label"] for region in integrity["raw_regions"]},
+            {"stage2", "kernel"},
+        )
+        for digest_name in ("image_sha256",):
+            self.assertEqual(len(integrity[digest_name]), 64)
+        for region in integrity["raw_regions"]:
+            with self.subTest(region=region["label"]):
+                self.assertTrue(region["matches_installed_region"])
+                self.assertGreater(region["padded_zero_bytes"], 0)
+                self.assertEqual(len(region["sha256"]), 64)
         self.assertEqual(
             manifest["fat16"]["packaged_asset_count"],
             len(check_storage_install_boundary.load_make_wad_image().PACKAGED_ASSET_FILES),
@@ -313,6 +329,8 @@ class StorageInstallBoundaryTests(unittest.TestCase):
                 "fixture:fat-copy-divergence",
                 "fixture:missing-protected-wad-entry",
                 "fixture:crosslinked-root-entry",
+                "fixture:stage2-artifact-mismatch",
+                "fixture:kernel-artifact-mismatch",
             },
         )
         for report in suite["fixtures"]:
@@ -339,7 +357,7 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         suite = payload["recovery_fixtures"]
         self.assertTrue(suite["all_refused"])
-        self.assertEqual(len(suite["fixtures"]), 5)
+        self.assertEqual(len(suite["fixtures"]), 7)
 
     def test_manifest_rejects_wrong_partition_type(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -422,6 +440,33 @@ class StorageInstallBoundaryTests(unittest.TestCase):
                 "reserved entries",
             ):
                 check_storage_install_boundary.inspect_image(bad)
+
+    def test_manifest_rejects_raw_artifact_mismatches(self):
+        make_wad_image = check_storage_install_boundary.load_make_wad_image()
+        for label, offset, message in (
+            ("stage1", 0, "MBR/stage1 installed bytes"),
+            (
+                "stage2",
+                check_storage_install_boundary.sector_offset(make_wad_image.STAGE2_LBA),
+                "stage2 installed bytes",
+            ),
+            (
+                "kernel",
+                check_storage_install_boundary.sector_offset(make_wad_image.KERNEL_LBA),
+                "kernel installed bytes",
+            ),
+        ):
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    bad = Path(tmp) / "bad.img"
+                    image = bytearray((BUILD / "disk.img").read_bytes())
+                    image[offset] ^= 0x01
+                    bad.write_bytes(image)
+                    with self.assertRaisesRegex(
+                        check_storage_install_boundary.StorageBoundaryError,
+                        message,
+                    ):
+                        check_storage_install_boundary.inspect_image(bad)
 
 
 if __name__ == "__main__":

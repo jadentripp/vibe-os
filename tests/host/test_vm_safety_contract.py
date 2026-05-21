@@ -161,6 +161,12 @@ rsync -av "$VIBE_CLOUD_HOST:~/vibe-os-cloud-playtest/build/disk.img" .
         self.assertIn("shutdown-panic-proof-check:", makefile)
         self.assertIn("tools/check_shutdown_panic_proof.py --repo-contract", makefile)
         for needle in (
+            'grep -q "kreloc=LOW"',
+            'grep -q "kerneip="',
+            'grep -q "kernesp="',
+            'grep -q "kerncr3=00090000"',
+            'grep -q "kernvirt=00010000"',
+            'grep -q "kernphys=00010000"',
             'grep -q "vmmhi=OK"',
             'grep -q "vmmhva=C0000000"',
             'grep -q "vmmhpa="',

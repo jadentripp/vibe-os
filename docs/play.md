@@ -149,6 +149,9 @@ python3 tools/run_cloud_playability.py --ref main --lane audio \
   --soak-min-passes 3 \
   --write-audit-log build/cloud-soak-audio/cloud-playability-audit.json \
   --dry-run
+python3 tools/run_cloud_playability.py --ref main --lane persistence \
+  --write-audit-log build/cloud-run-persistence/cloud-playability-audit.json \
+  --dry-run
 ```
 
 The first two commands prove and open the interactive noVNC path. The latter
@@ -162,6 +165,8 @@ gameplay/input, SB16 continuity, optional audible audio aggregate, and optional
 persistence/save-load triage. Keep those boundaries intact: a green gameplay
 artifact is not a persistence proof, and an audio flake should not obscure a
 save/load failure.
+Persistence isolation leaves `audible_audio_proof=false` so that save/load
+triage is not blocked by an unrelated audible-audio aggregate result.
 The same output includes a `rerun only the red lane` block. Use the gameplay
 command for boot/input regressions, the audio command for SB16 or aggregate
 audio failures, and the persistence command for save/load failures instead of

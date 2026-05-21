@@ -1881,6 +1881,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("doom_key_last_event dd 0", kernel)
         self.assertIn('smoke_inputqueue_text db " inputqueue="', kernel)
         self.assertIn('smoke_inputdepth_text db " inputdepth="', kernel)
+        self.assertIn('smoke_inputstat_text db " inputstat="', kernel)
         self.assertIn('smoke_inputpoll_text db " inputpoll="', kernel)
         self.assertIn('smoke_inputlast_text db " inputlast="', kernel)
         self.assertIn('smoke_keyirq_text db " keyirq="', kernel)
@@ -1911,6 +1912,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('grep -q "keyseen="', makefile)
         self.assertIn('grep -q "keylast="', makefile)
         self.assertIn('grep -q "inputqueue="', makefile)
+        self.assertIn('grep -Eq "inputstat=([0-9A-F]{8}:){3}[0-9A-F]{8}"', makefile)
         self.assertIn('grep -q "inputpoll="', makefile)
         self.assertIn("/inputqueue=([0-9A-F]{8})/", makefile)
         self.assertIn("/inputpoll=([0-9A-F]{8})/", makefile)
@@ -2099,12 +2101,12 @@ class SourceContractTests(unittest.TestCase):
             "desc.length = sample_length",
             "desc.flags = sample_flags",
             "desc.sample_rate = sample_rate",
-            "VIBE_SYS_AUDIO",
-            "VIBE_AUDIO_DEVICE_START",
-            "VIBE_AUDIO_MIXER_START",
-            "VIBE_AUDIO_MIXER_STOP",
-            "VIBE_AUDIO_MIXER_UPDATE",
-            "(unsigned long)&desc",
+            "vibe_audio_device_start()",
+            "vibe_audio_device_shutdown()",
+            "vibe_audio_mixer_start((unsigned long)handle, &desc)",
+            "vibe_audio_mixer_stop((unsigned long)handle)",
+            "vibe_audio_mixer_update((unsigned long)handle, &desc)",
+            "vibe_audio_mixer_is_playing((unsigned long)handle)",
         ):
             self.assertIn(source, platform)
         self.assertIn('grep -q "doomsound="', makefile)

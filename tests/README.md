@@ -25,7 +25,11 @@ boot:
   `vmm_map_page` can allocate a missing page table from PMM and the VMM self-test
   maps a high non-identity alias before unmapping it, after which an empty
   PMM-backed page-table frame is reclaimed. The smoke contract exposes that as
-  `vmmhi=OK`, `vmmhva=`, `vmmhpa=`, `vmmhpt=`, and `vmmhfree=`.
+  `vmmhi=OK`, `vmmhva=`, `vmmhpa=`, `vmmhpt=`, and `vmmhfree=`. The same host
+  gate now pins the running-kernel relocation scaffold as `kreloc=LOW` with
+  `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and `kernphys=`, proving the
+  current kernel is still low identity-mapped while reserving `kreloc=OK` for
+  the future non-identity higher-half milestone.
 - `tests/host/test_doom_source.py` is the original-Doom provenance gate. It
   hashes the vendored `linuxdoom-1.10` source boundary, audits the Makefile so
   original engine objects and `doom_port/*` shims stay separate, and invokes
@@ -175,8 +179,9 @@ boot:
   `docs/architecture.md` so generated-image persistence proof cannot
   drift into an installable-OS claim. With `--image build/disk.img --json`, it
   emits an `install-image-manifest` covering the repo MBR, raw boot/kernel
-  regions, FAT16 BPB, root-entry inventory, FAT-copy agreement, and cluster
-  ownership, while keeping arbitrary-disk install and recovery rows unclaimed.
+  regions, raw artifact identity, FAT16 BPB, root-entry inventory, FAT-copy
+  agreement, and cluster ownership, while keeping arbitrary-disk install and
+  recovery rows unclaimed.
 - `tools/check_vm_safety_contract.py` machine-checks the local-QEMU opt-in,
   cloud diagnostic upload hygiene, panic status fields, shutdown status fields,
   guard-page helper, dynamic high VMM mapping/reclaim, and brk-backed tail

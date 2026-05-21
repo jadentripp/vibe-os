@@ -195,6 +195,21 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "KERNEL_HIGHER_HALF_BASE equ 0xc0000000",
             "KERNEL_HIGHER_HALF_PDE_INDEX equ KERNEL_HIGHER_HALF_BASE >> 22",
             "VMM_HIGH_TEST_VADDR equ KERNEL_HIGHER_HALF_BASE",
+            "KERNEL_RELOCATION_STATUS_LOW_IDENTITY equ 1",
+            "kernel_relocation_probe:",
+            "kernel_translate_current_vaddr:",
+            "kernel_relocation_status db 0",
+            "kernel_relocation_eip dd 0",
+            "kernel_relocation_esp dd 0",
+            "kernel_relocation_cr3 dd 0",
+            "kernel_relocation_virt dd 0",
+            "kernel_relocation_phys dd 0",
+            'smoke_kreloc_text db " kreloc=", 0',
+            'smoke_kerneip_text db " kerneip=", 0',
+            'smoke_kernesp_text db " kernesp=", 0',
+            'smoke_kerncr3_text db " kerncr3=", 0',
+            'smoke_kernvirt_text db " kernvirt=", 0',
+            'smoke_kernphys_text db " kernphys=", 0',
             "vmm_dynamic_page_tables dd 0",
             "vmm_active_page_tables dd 0",
             "vmm_reclaimed_page_tables dd 0",
@@ -240,6 +255,20 @@ class BootLoaderVmContractTests(unittest.TestCase):
         self.assertIn("jne .high_free_fail", vmm_self_test)
         self.assertIn("mov byte [vmm_high_mapping_status], 1", vmm_self_test)
 
+        relocation_probe = kernel.split("kernel_relocation_probe:", 1)[1].split("kernel_translate_current_vaddr:", 1)[0]
+        for source in (
+            "mov [kernel_relocation_esp], esp",
+            "mov [kernel_relocation_cr3], eax",
+            "mov [kernel_relocation_eip], eax",
+            "mov eax, start",
+            "call kernel_translate_current_vaddr",
+            "cmp eax, KERNEL_HIGHER_HALF_BASE",
+            "cmp eax, PAGING_DIR_ADDR",
+            "cmp eax, [kernel_relocation_virt]",
+            "mov byte [kernel_relocation_status], KERNEL_RELOCATION_STATUS_LOW_IDENTITY",
+        ):
+            self.assertIn(source, relocation_probe)
+
     def test_boot_vm_docs_state_current_limits_without_overclaiming(self):
         boot_doc = text(ROOT / "docs" / "architecture.md")
         uefi_scaffold = text(ROOT / "boot" / "uefi" / "README.md")
@@ -267,6 +296,7 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "KERNEL_RELOCATION_GAP[current]=high-alias-only",
             "KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity",
             "`vmmhi=OK` is not a kernel relocation claim",
+            "`kreloc=LOW`",
             "`kreloc=OK`",
             "`kerneip=`",
             "`kernesp=`",

@@ -67,6 +67,8 @@ class DoomInputContractTests(unittest.TestCase):
             CHECK(input_status_bytes, VIBE_INPUT_STATUS_BYTES == 112);
             CHECK(input_abi_version, VIBE_INPUT_ABI_VERSION == 1);
             CHECK(input_queue_capacity, VIBE_INPUT_EVENT_QUEUE_CAPACITY == 64);
+            CHECK(input_queue_usable_capacity, VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY == 63);
+            CHECK(input_queue_drop_policy, VIBE_INPUT_QUEUE_OVERFLOW_DROP_OLDEST == 1);
             CHECK(input_event_value_count, VIBE_INPUT_EVENT_VALUE_COUNT == 3);
             CHECK(input_key_state_bits, VIBE_INPUT_KEY_STATE_BITS == 256);
             CHECK(input_mouse_axis_x, VIBE_INPUT_MOUSE_AXIS_X == 0);
@@ -179,6 +181,10 @@ class DoomInputContractTests(unittest.TestCase):
                     status.abi_version = VIBE_INPUT_ABI_VERSION;
                     status.event_bytes = VIBE_INPUT_EVENT_BYTES;
                     status.queue_capacity = VIBE_INPUT_EVENT_QUEUE_CAPACITY;
+                    status.queued_events = 2;
+                    status.total_events = 5;
+                    status.polled_events = 2;
+                    status.dropped_events = 1;
                     status.capabilities = VIBE_INPUT_CAP_KEYBOARD | VIBE_INPUT_CAP_MOUSE;
                     status.keyboard_state[0] = 0;
                     status.keyboard_state[3] = 0;
@@ -187,6 +193,28 @@ class DoomInputContractTests(unittest.TestCase):
                     status.mouse_delta_y_total = 9;
                     if (!vibe_input_status_abi_is_current(&status))
                         return 23;
+                    if (vibe_input_status_queued_events(&status) != 2
+                        || vibe_input_status_available_events(&status) != 61
+                        || vibe_input_status_queue_is_full(&status)
+                        || !vibe_input_status_counters_are_consistent(&status))
+                        return 26;
+                    status.queued_events = VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY;
+                    status.total_events = status.queued_events
+                        + status.polled_events
+                        + status.dropped_events;
+                    if (!vibe_input_status_queue_is_full(&status)
+                        || vibe_input_status_available_events(&status) != 0
+                        || !vibe_input_status_counters_are_consistent(&status))
+                        return 27;
+                    status.queued_events = VIBE_INPUT_EVENT_QUEUE_CAPACITY;
+                    status.total_events = status.queued_events
+                        + status.polled_events
+                        + status.dropped_events;
+                    if (vibe_input_status_counters_are_consistent(&status))
+                        return 28;
+                    status.queued_events = 0;
+                    status.dropped_events = 0;
+                    status.total_events = status.polled_events + status.dropped_events;
                     if (!vibe_input_status_has_capability(&status, VIBE_INPUT_CAP_KEYBOARD)
                         || vibe_input_status_has_capability(&status, VIBE_INPUT_CAP_STATUS))
                         return 24;
@@ -290,6 +318,34 @@ class DoomInputContractTests(unittest.TestCase):
         ):
             with self.subTest(source=source):
                 self.assertIn(source, docs)
+
+    def test_generic_input_smoke_status_proves_queue_accounting(self):
+        def hex_tuple(value, count):
+            parts = value.split(":")
+            self.assertEqual(len(parts), count)
+            return tuple(int(part, 16) for part in parts)
+
+        def assert_queue_status(status, expected_usable):
+            fields = dict(part.split("=", 1) for part in status.split())
+            depth, depth_dropped = hex_tuple(fields["inputdepth"], 2)
+            total, polled, dropped, usable = hex_tuple(fields["inputstat"], 4)
+            self.assertEqual(usable, expected_usable)
+            self.assertEqual(dropped, depth_dropped)
+            self.assertLessEqual(depth, usable)
+            self.assertEqual(total, depth + polled + dropped)
+
+        assert_queue_status(
+            "inputqueue=00000005 inputdepth=00000002:00000001 "
+            "inputstat=00000005:00000002:00000001:0000003F",
+            63,
+        )
+
+        with self.assertRaises(AssertionError):
+            assert_queue_status(
+                "inputqueue=00000005 inputdepth=00000040:00000001 "
+                "inputstat=00000005:00000002:00000001:0000003F",
+                63,
+            )
 
     def test_doom_port_input_translation_helper(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -478,6 +534,7 @@ class DoomInputContractTests(unittest.TestCase):
         for source in (
             "input_event_queue times INPUT_EVENT_QUEUE_SIZE * VIBE_INPUT_EVENT_DWORDS dd 0",
             "input_event_drop_count dd 0",
+            "VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY",
             "input_keyboard_down_count dd 0",
             "input_keyboard_state times 8 dd 0",
             "input_mouse_buttons dd 0",
@@ -501,10 +558,13 @@ class DoomInputContractTests(unittest.TestCase):
             "doom_input_last_type dd 0",
             'smoke_inputqueue_text db " inputqueue="',
             'smoke_inputdepth_text db " inputdepth="',
+            'smoke_inputstat_text db " inputstat="',
             "mov edx, [input_event_head]",
             "sub edx, [input_event_tail]",
             "and edx, INPUT_EVENT_QUEUE_MASK",
             "mov edx, [input_event_drop_count]",
+            "mov edx, [input_event_poll_count]",
+            "mov edx, VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY",
             'smoke_inputpoll_text db " inputpoll="',
             'smoke_inputlast_text db " inputlast="',
         ):
@@ -514,6 +574,7 @@ class DoomInputContractTests(unittest.TestCase):
         for source in (
             'grep -q "inputqueue="',
             'grep -Eq "inputdepth=([0-9A-F]{8}:){1}[0-9A-F]{8}"',
+            'grep -Eq "inputstat=([0-9A-F]{8}:){3}[0-9A-F]{8}"',
             'grep -q "inputpoll="',
             'grep -Eq "inputlast=([0-9A-F]{8}:){2}[0-9A-F]{8}"',
         ):

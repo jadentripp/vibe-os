@@ -370,8 +370,13 @@ enum {
 enum {
     VIBE_INPUT_ABI_VERSION = 1,
     VIBE_INPUT_EVENT_QUEUE_CAPACITY = 64,
+    VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY = VIBE_INPUT_EVENT_QUEUE_CAPACITY - 1,
     VIBE_INPUT_EVENT_VALUE_COUNT = 3,
     VIBE_INPUT_KEY_STATE_BITS = 256,
+};
+
+enum {
+    VIBE_INPUT_QUEUE_OVERFLOW_DROP_OLDEST = 1,
 };
 
 enum {
@@ -580,6 +585,33 @@ static inline int vibe_input_status_has_capability(
 static inline int vibe_input_status_queue_is_empty(const vibe_input_status_t* status)
 {
     return status && status->queued_events == 0;
+}
+
+static inline unsigned long vibe_input_status_queued_events(const vibe_input_status_t* status)
+{
+    return status ? status->queued_events : 0;
+}
+
+static inline unsigned long vibe_input_status_available_events(const vibe_input_status_t* status)
+{
+    if (!status || status->queued_events >= VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY)
+        return 0;
+    return VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY - status->queued_events;
+}
+
+static inline int vibe_input_status_queue_is_full(const vibe_input_status_t* status)
+{
+    return status && status->queued_events >= VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY;
+}
+
+static inline int vibe_input_status_counters_are_consistent(const vibe_input_status_t* status)
+{
+    if (!vibe_input_status_abi_is_current(status))
+        return 0;
+    if (status->queued_events > VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY)
+        return 0;
+    return status->total_events
+        == status->queued_events + status->polled_events + status->dropped_events;
 }
 
 static inline int vibe_input_status_key_is_down(
@@ -853,6 +885,17 @@ int vibe_file_read_at(
     unsigned long count,
     unsigned long* out_read);
 int vibe_file_read_all(const char* path, void* buffer, unsigned long capacity, unsigned long* out_size);
+int vibe_audio_device_start(void);
+int vibe_audio_device_shutdown(void);
+int vibe_audio_mixer_start(unsigned long handle, const vibe_audio_voice_desc_t* desc);
+int vibe_audio_mixer_stop(unsigned long handle);
+int vibe_audio_mixer_update(unsigned long handle, const vibe_audio_voice_desc_t* desc);
+int vibe_audio_mixer_is_playing(unsigned long handle);
+int vibe_audio_pcm_buffered_bytes(unsigned long handle);
+int vibe_audio_pcm_pull_state(unsigned long handle);
+int vibe_audio_device_info(vibe_audio_device_info_t* info);
+int vibe_audio_pcm_ring_info(vibe_audio_pcm_ring_info_t* info);
+int vibe_audio_stream_info(unsigned long handle, vibe_audio_stream_info_t* info);
 int vibe_poll_input(vibe_input_event_t* event);
 int vibe_drain_input(vibe_input_event_t* events, unsigned long max_events);
 int vibe_input_status(vibe_input_status_t* status);
@@ -907,8 +950,15 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   explicitly so game/tool code does not need to duplicate syscall details.
  *   `vibe_drain_input` is a bounded nonblocking drain helper for per-frame
  *   event pumps. Inline helpers expose key press/release checks, raw PS/2
- *   mouse buttons, relative X/Y deltas, and status ABI validation so consumers
- *   can stay out of Doom's event translation layer.
+ *   mouse buttons, relative X/Y deltas, queue depth/counter invariants, and
+ *   status ABI validation so consumers can stay out of Doom's event
+ *   translation layer. The queue stores 64 slots with one empty sentinel, so
+ *   `VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY` is the observable full depth; on
+ *   overflow the kernel drops the oldest queued event and increments
+ *   `dropped_events`.
+ * - `vibe_audio_*` wrappers hide the VIBE_SYS_AUDIO command numbers and
+ *   argument ordering for device/ring/stream/mixer calls. Future ports should
+ *   use the generic mixer/device helpers rather than Doom's I_* platform glue.
  * - `vibe_fb_get_info` queries the reusable framebuffer contract, and
  *   `vibe_present_indexed_checked` verifies the advertised caps/format/size
  *   before presenting a `vibe_present_indexed_t` through the display fd/ioctl

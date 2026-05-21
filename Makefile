@@ -238,6 +238,12 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "pg=ON" $(BUILD_DIR)/status.txt; \
 	grep -q "pmm=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "vmm=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "kreloc=LOW" $(BUILD_DIR)/status.txt; \
+	grep -q "kerneip=" $(BUILD_DIR)/status.txt; \
+	grep -q "kernesp=" $(BUILD_DIR)/status.txt; \
+	grep -q "kerncr3=00090000" $(BUILD_DIR)/status.txt; \
+	grep -q "kernvirt=00010000" $(BUILD_DIR)/status.txt; \
+	grep -q "kernphys=00010000" $(BUILD_DIR)/status.txt; \
 	grep -q "vmmhi=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "vmmhva=C0000000" $(BUILD_DIR)/status.txt; \
 	grep -q "vmmhpa=" $(BUILD_DIR)/status.txt; \
@@ -351,6 +357,7 @@ smoke: vm-consent check-tools $(IMAGE)
 		grep -Eq "audio=(SB16|NONE)" $(BUILD_DIR)/status.txt; \
 			grep -q "inputqueue=" $(BUILD_DIR)/status.txt; \
 			grep -Eq "inputdepth=([0-9A-F]{8}:){1}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
+			grep -Eq "inputstat=([0-9A-F]{8}:){3}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
 			grep -q "inputpoll=" $(BUILD_DIR)/status.txt; \
 			grep -Eq "inputlast=([0-9A-F]{8}:){2}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
 			grep -q "keyirq=" $(BUILD_DIR)/status.txt; \
