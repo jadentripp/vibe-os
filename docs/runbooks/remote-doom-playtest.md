@@ -158,7 +158,10 @@ It prompts the human for each VNC action, calls the collector's
 the required `--confirm-*` flags, validates the allowlisted bundle before
 download, creates `/tmp/vibe-os-human-proof.tgz`, and prints the exact `scp` and
 local `--human-session` command with the expected commit and scripted proof run
-ID baked in. It does not launch QEMU and refuses to run on macOS.
+ID baked in. Before capture it asks the operator to confirm the linked Real WAD
+smoke run is green; after capture it records slowdown as `not-observed`, `mild`,
+`moderate`, or `severe` plus a short status-only note. It does not launch QEMU
+and refuses to run on macOS.
 Before the first capture prompt, it also validates that `--playtester` matches
 the notes schema, `--scripted-proof-run-id` is a numeric GitHub Actions run ID,
 and both the proof output directory and proof tarball live outside the git
@@ -231,7 +234,17 @@ python3 tools/collect_human_playtest_bundle.py \
   --playtester "<name-or-initials>" \
   --scripted-proof-run-id "<passing-real-wad-smoke-run-id>" \
   --audio status-only \
+  --slowdown not-observed \
+  --slowdown-notes "not-observed-during-capture" \
+  --confirm-scripted-proof-green \
   --confirm-remote-vnc \
+  --confirm-e1m1-visible \
+  --confirm-keyboard-fire \
+  --confirm-keyboard-move \
+  --confirm-keyboard-use \
+  --confirm-mouse-action \
+  --confirm-menu-escape \
+  --confirm-slowdown-notes \
   --confirm-phase-actions \
   --confirm-phase-status-hashes \
   --confirm-no-forbidden-artifacts \
@@ -243,16 +256,22 @@ python3 tools/collect_human_playtest_bundle.py \
 validated aggregate `audio-proof.json`. `--scripted-proof-run-id` must be the
 GitHub Actions **Real WAD smoke** run ID that already passed for the code being
 human-played. The `--confirm-*` flags are deliberate operator confirmations:
-they say the playtester used the remote VNC display, tried the named phase
-actions, captured status after each phase, excluded WAD/disk/pixel/raw-audio
-artifacts, and will rerun the checker after download. Keep subjective comments
-in extra text keys if useful, but do not store screenshots, audio captures,
-WADs, disk images, `status.*.bin` files, or ad hoc binaries in the proof
-directory.
+they say the linked scripted run was green first, the playtester used the remote
+VNC display, E1M1 was visible, Ctrl/fire worked, arrow movement or turning
+worked, Space/use worked, mouse movement/click worked, Escape opened the menu,
+slowdown was recorded honestly, the named status phase files were captured
+after the actions, WAD/disk/pixel/raw-audio artifacts were excluded, and the
+checker will be rerun after download. Keep subjective comments in
+`--slowdown-notes` or separate status-only notes if useful, but do not store
+screenshots, audio captures, WADs, disk images, `status.*.bin` files, or ad hoc
+binaries in the proof directory.
 
 If you need to audit the exact notes format, the collector writes these required
 keys: `schema=human-playtest-notes-v2`, `commit=...`,
 `scripted_proof=real-wad-smoke-pass`, `scripted_proof_run_id=...`,
+`scripted_proof_url=https://github.com/jadentripp/vibe-os/actions/runs/...`,
+`scripted_proof_checked=green-before-human-session`,
+`proof_basis=scripted-green-plus-remote-vnc-human`,
 `playtester=...`, `remote_host=disposable`, `qemu_location=remote`,
 `qemu_display=127.0.0.1:1`, `monitor_socket=unix-monitor-socket`,
 `vnc_tunnel=loopback-only`, `vnc_endpoint=127.0.0.1:5901`,
@@ -261,6 +280,9 @@ keys: `schema=human-playtest-notes-v2`, `commit=...`,
 `visual_evidence=e1m1-visible-via-remote-vnc`,
 `keyboard_evidence=fire-move-use-menu-visible`,
 `mouse_evidence=motion-click-visible`,
+`menu_evidence=escape-menu-visible`,
+`slowdown=not-observed|mild|moderate|severe`,
+`slowdown_notes=...`,
 `status_capture=monitor-pmemsave-0x9d000`,
 `session_phases=early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final`,
 `phase_hash_early=...`, `phase_hash_after_start=...`,
@@ -269,7 +291,15 @@ keys: `schema=human-playtest-notes-v2`, `commit=...`,
 `phase_hash_after_menu=...`, `phase_hash_final=...`,
 `diagnostics=non-wad-status-only`, `proof_bundle=allowlisted-status-only`,
 `no_local_qemu=yes`, `no_wad_upload=yes`, `no_disk_upload=yes`, and
-`no_pixel_upload=yes`, `operator_remote_vnc=confirmed`,
+`no_pixel_upload=yes`, `operator_scripted_proof_green=confirmed`,
+`operator_remote_vnc=confirmed`,
+`operator_e1m1_visible=confirmed`,
+`operator_keyboard_fire=confirmed`,
+`operator_keyboard_move=confirmed`,
+`operator_keyboard_use=confirmed`,
+`operator_mouse_action=confirmed`,
+`operator_menu_escape=confirmed`,
+`operator_slowdown_notes=recorded`,
 `operator_phase_actions=confirmed`,
 `operator_phase_status_hashes=confirmed`,
 `operator_no_forbidden_artifacts=confirmed`, and
@@ -478,12 +508,14 @@ Call a remote human playtest credible only after checking all of this:
   files, was produced with `tools/collect_human_playtest_bundle.py`, and
   `tools/check_cloud_playability_artifacts.py --human-session` passes.
 - The notes are `schema=human-playtest-notes-v2`, include every `phase_hash_*`
-  field, include the five `operator_*` confirmation fields, and the local
+  field, include the per-control `operator_*` confirmation fields, include
+  `scripted_proof_url=`, `scripted_proof_checked=green-before-human-session`,
+  and `slowdown=` / `slowdown_notes=`, and the local
   `post-download human verification OK` line matches the remote
   `pre-download human verification OK` line.
 - The generated checklist is `schema=human-playtest-checklist-v1`, names the
-  same session ID, commit, scripted proof run ID, phase hashes, and local
-  checker commands you used after download.
+  same session ID, commit, scripted proof run ID, scripted proof URL, slowdown
+  note, phase hashes, and local checker commands you used after download.
 - `tools/check_human_playability_proof.py --require-human-session` passes with
   `--human-notes`, the expected commit under test, and the linked passing
   real-WAD smoke run ID. A final-only checker pass is not enough for the manual

@@ -177,6 +177,14 @@ use, mouse, and menu phases, and can write
 `gameplay-proof.json` with schema `scripted-gameplay-proof-v1`. The manifest
 contains status byte counts and SHA-256 hashes plus the compact transition
 fields, not WAD bytes, disk images, framebuffer dumps, screenshots, or audio.
+It also includes status-only performance diagnostics. Those diagnostics compare
+`doompresent`, `dtick`, `inputdepth`, `musicpull`, audio safety counters, and
+preemption counters across the same phase snapshots. A healthy proof reports
+`os-pipeline-healthy`, which means the OS-side frame/timer/input/audio/scheduler
+counters advanced without input drops or audio safety regressions. If a
+Codespaces/noVNC play session still slows down while this verdict stays healthy,
+triage should start with remote QEMU TCG/noVNC/display throughput rather than
+assuming Doom is building an OS-side input queue.
 
 ## Repeated Cloud Soak
 
@@ -386,6 +394,12 @@ bits rather than merely showing a final aggregate. It then requires movement to
 change `ppos`, the mouse phase to advance IRQ/packet/poll counters and set
 Doom gameplay turn proof bit while retaining button/motion proof, and
 Escape to flip the menu bit while the game remains in `GS_LEVEL`.
+The same manifest's performance diagnostics distinguish remote presentation
+slowdown from OS pressure: `os-input-backlog` or `os-input-loss` points at
+generic input drain/drop trouble, `os-audio-pressure` points at SB16 refill or
+mixer pacing, `os-preemption-stalled` points at timer scheduling, and
+`os-pipeline-healthy` means those OS-side counters stayed healthy even if
+noVNC felt slow.
 
 ## Safe Remote Runbook
 

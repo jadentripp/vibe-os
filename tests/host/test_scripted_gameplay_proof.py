@@ -52,6 +52,18 @@ def make_status(**overrides):
         "mousepoll": "00000000",
         "mousebtn": "00000000",
         "mousedelta": "00000000:00000000",
+        "doompresent": "00000010",
+        "dtick": "00000020",
+        "inputdepth": "00000000:00000000",
+        "musicbuf": "00002000",
+        "musicpull": "00000000:00000000",
+        "mixunder": "00000000",
+        "musicunder": "00000000",
+        "musicdrops": "00000000",
+        "preempt": "00000001",
+        "pirq": "00000001",
+        "pattempt": "00000001",
+        "puser": "00000001",
     }
     fields.update(overrides)
     return "Aurora OS v0.2 " + " ".join(
@@ -74,6 +86,14 @@ def scripted_statuses():
             inputqueue="00000001",
             inputpoll="00000001",
             inputlast="00000040:00000001:00000001",
+            doompresent="00000020",
+            dtick="00000040",
+            musicbuf="00001C00",
+            musicpull="00000001:00000001",
+            preempt="00000002",
+            pirq="00000002",
+            pattempt="00000002",
+            puser="00000002",
             keyseen="00000010",
             keylast="0001019D",
             pflags="000000C5",
@@ -90,6 +110,14 @@ def scripted_statuses():
             inputqueue="00000002",
             inputpoll="00000002",
             inputlast="00000060:00000001:00000001",
+            doompresent="00000030",
+            dtick="00000060",
+            musicbuf="00001800",
+            musicpull="00000002:00000002",
+            preempt="00000003",
+            pirq="00000003",
+            pattempt="00000003",
+            puser="00000003",
             keyseen="00000011",
             keylast="000101AD",
             pflags="000000E7",
@@ -107,6 +135,14 @@ def scripted_statuses():
             inputqueue="00000003",
             inputpoll="00000003",
             inputlast="00000080:00000001:00000001",
+            doompresent="00000040",
+            dtick="00000080",
+            musicbuf="00001400",
+            musicpull="00000003:00000003",
+            preempt="00000004",
+            pirq="00000004",
+            pattempt="00000004",
+            puser="00000004",
             keyseen="00000031",
             keylast="00010020",
             pflags="000000EF",
@@ -124,6 +160,14 @@ def scripted_statuses():
             inputqueue="00000005",
             inputpoll="00000005",
             inputlast="000000A0:00000002:00000002",
+            doompresent="00000050",
+            dtick="000000A0",
+            musicbuf="00001000",
+            musicpull="00000004:00000004",
+            preempt="00000005",
+            pirq="00000005",
+            pattempt="00000005",
+            puser="00000005",
             keyseen="00000031",
             keylast="00010020",
             pflags="000001EF",
@@ -148,6 +192,14 @@ def scripted_statuses():
             inputqueue="00000006",
             inputpoll="00000006",
             inputlast="000000C0:00000001:00000001",
+            doompresent="00000060",
+            dtick="000000C0",
+            musicbuf="00000C00",
+            musicpull="00000005:00000005",
+            preempt="00000006",
+            pirq="00000006",
+            pattempt="00000006",
+            puser="00000006",
             keyseen="00000071",
             keylast="0001001B",
             pflags="000001FF",
@@ -172,6 +224,14 @@ def scripted_statuses():
             inputqueue="00000006",
             inputpoll="00000006",
             inputlast="000000C0:00000001:00000001",
+            doompresent="00000060",
+            dtick="000000C0",
+            musicbuf="00000C00",
+            musicpull="00000005:00000005",
+            preempt="00000006",
+            pirq="00000006",
+            pattempt="00000006",
+            puser="00000006",
             keyseen="00000071",
             keylast="0001001B",
             pflags="000001FF",
@@ -212,6 +272,16 @@ class ScriptedGameplayProofTests(unittest.TestCase):
         self.assertEqual(manifest["transitions"]["movement"]["movement_ppos"], "00010020:00020000")
         self.assertEqual(manifest["transitions"]["mouse"]["pangledelta"], "01000000")
         self.assertEqual(manifest["transitions"]["mouse"]["pflags"], "000001EF")
+        self.assertEqual(manifest["performance_diagnostics"]["verdict"], "os-pipeline-healthy")
+        self.assertEqual(manifest["performance_diagnostics"]["frames"]["delta"], "00000050")
+        self.assertEqual(
+            manifest["performance_diagnostics"]["input"]["queue"]["dropped"]["delta"],
+            "00000000",
+        )
+        self.assertEqual(
+            manifest["performance_diagnostics"]["audio"]["music_pull"]["refills"]["delta"],
+            "00000005",
+        )
         check_scripted_gameplay_proof.validate_manifest(manifest, snapshots=statuses)
 
     def test_rejects_dirty_start_or_non_cumulative_player_proof(self):
@@ -253,6 +323,27 @@ class ScriptedGameplayProofTests(unittest.TestCase):
         duplicate_start["start"] += " pflags=00000001"
         with self.assertRaisesRegex(AssertionError, "start snapshot: duplicate pflags= field"):
             check_scripted_gameplay_proof.validate_statuses(duplicate_start)
+
+    def test_performance_diagnostics_classify_os_backlog_without_pixels(self):
+        statuses = scripted_statuses()
+        statuses["final"] = statuses["final"].replace(
+            "inputdepth=00000000:00000000",
+            "inputdepth=00000009:00000000",
+        )
+
+        manifest = check_scripted_gameplay_proof.build_manifest(statuses)
+
+        diagnostics = manifest["performance_diagnostics"]
+        self.assertEqual(diagnostics["verdict"], "os-input-backlog")
+        self.assertIn("OS-side input drain pressure", diagnostics["interpretation"])
+        self.assertEqual(diagnostics["input"]["events"]["max_queued"], "00000009")
+
+    def test_rejects_missing_performance_observability_fields(self):
+        statuses = scripted_statuses()
+        statuses["start"] = statuses["start"].replace(" doompresent=00000010", "")
+
+        with self.assertRaisesRegex(AssertionError, "start missing performance field doompresent="):
+            check_scripted_gameplay_proof.validate_statuses(statuses)
 
     def test_rejects_missing_state_change_in_each_runtime_lane(self):
         cases = {

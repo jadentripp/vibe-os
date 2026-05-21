@@ -220,9 +220,11 @@ disposable host:
 ```
 
 The helper prompts for the playable Doom actions, captures each status phase
-through the remote monitor socket, writes the allowlisted proof bundle, validates
-it before download, creates `/tmp/vibe-os-human-proof.tgz`, and prints the local
-post-download checker commands. The longer version lives in
+through the remote monitor socket, asks you to tie the session to a green Real
+WAD smoke run, records a slowdown level and short status-only slowdown note,
+writes the allowlisted proof bundle, validates it before download, creates
+`/tmp/vibe-os-human-proof.tgz`, and prints the local post-download checker
+commands. The longer version lives in
 `docs/runbooks/remote-doom-playtest.md`; its collector writes
 `human-playtest-checklist.txt` with the post-download checker commands and phase
 hashes to compare.

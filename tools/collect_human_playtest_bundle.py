@@ -48,6 +48,9 @@ NOTE_FIELD_ORDER = (
     "commit",
     "scripted_proof",
     "scripted_proof_run_id",
+    "scripted_proof_url",
+    "scripted_proof_checked",
+    "proof_basis",
     "playtester",
     "remote_host",
     "qemu_location",
@@ -63,6 +66,9 @@ NOTE_FIELD_ORDER = (
     "visual_evidence",
     "keyboard_evidence",
     "mouse_evidence",
+    "menu_evidence",
+    "slowdown",
+    "slowdown_notes",
     "status_capture",
     "session_phases",
 ) + tuple(check_cloud_playability_artifacts.HUMAN_PHASE_HASH_NOTE_KEYS.values()) + (
@@ -75,12 +81,22 @@ NOTE_FIELD_ORDER = (
 ) + tuple(check_cloud_playability_artifacts.HUMAN_OPERATOR_CONFIRMATION_FIELDS.values())
 
 REQUIRED_CONFIRMATION_FLAGS = (
+    ("confirm_scripted_proof_green", "--confirm-scripted-proof-green"),
     ("confirm_remote_vnc", "--confirm-remote-vnc"),
+    ("confirm_e1m1_visible", "--confirm-e1m1-visible"),
+    ("confirm_keyboard_fire", "--confirm-keyboard-fire"),
+    ("confirm_keyboard_move", "--confirm-keyboard-move"),
+    ("confirm_keyboard_use", "--confirm-keyboard-use"),
+    ("confirm_mouse_action", "--confirm-mouse-action"),
+    ("confirm_menu_escape", "--confirm-menu-escape"),
+    ("confirm_slowdown_notes", "--confirm-slowdown-notes"),
     ("confirm_phase_actions", "--confirm-phase-actions"),
     ("confirm_phase_status_hashes", "--confirm-phase-status-hashes"),
     ("confirm_no_forbidden_artifacts", "--confirm-no-forbidden-artifacts"),
     ("confirm_post_download_verification", "--confirm-post-download-verification"),
 )
+
+SLOWDOWN_CHOICES = ("not-observed", "mild", "moderate", "severe")
 
 
 def _path_is_relative_to(path: Path, parent: Path) -> bool:
@@ -101,6 +117,21 @@ def _git_head() -> str:
         ).strip()
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
+
+
+def _safe_note_text(value: str, label: str) -> str:
+    text = " ".join(value.strip().split())
+    if not text:
+        raise AssertionError(f"{label} must not be empty")
+    if len(text) > 160:
+        raise AssertionError(f"{label} must be 160 characters or fewer")
+    allowed = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,:;_/()+-")
+    bad = sorted({char for char in text if char not in allowed})
+    if bad:
+        raise AssertionError(
+            f"{label} contains unsupported characters for key=value notes: {''.join(bad)!r}"
+        )
+    return text
 
 
 def _assert_output_location(output_dir: Path) -> None:
@@ -257,6 +288,11 @@ def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
         "commit": args.commit or _git_head(),
         "scripted_proof": "real-wad-smoke-pass",
         "scripted_proof_run_id": args.scripted_proof_run_id,
+        "scripted_proof_url": (
+            f"https://github.com/jadentripp/vibe-os/actions/runs/{args.scripted_proof_run_id}"
+        ),
+        "scripted_proof_checked": "green-before-human-session",
+        "proof_basis": "scripted-green-plus-remote-vnc-human",
         "playtester": args.playtester,
         "remote_host": args.remote_host,
         "qemu_location": "remote",
@@ -272,6 +308,9 @@ def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
         "visual_evidence": "e1m1-visible-via-remote-vnc",
         "keyboard_evidence": "fire-move-use-menu-visible",
         "mouse_evidence": "motion-click-visible",
+        "menu_evidence": "escape-menu-visible",
+        "slowdown": args.slowdown,
+        "slowdown_notes": _safe_note_text(args.slowdown_notes, "--slowdown-notes"),
         "status_capture": "monitor-pmemsave-0x9d000",
         "session_phases": (
             "early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final"
@@ -282,7 +321,15 @@ def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
         "no_wad_upload": "yes",
         "no_disk_upload": "yes",
         "no_pixel_upload": "yes",
+        "operator_scripted_proof_green": "confirmed",
         "operator_remote_vnc": "confirmed",
+        "operator_e1m1_visible": "confirmed",
+        "operator_keyboard_fire": "confirmed",
+        "operator_keyboard_move": "confirmed",
+        "operator_keyboard_use": "confirmed",
+        "operator_mouse_action": "confirmed",
+        "operator_menu_escape": "confirmed",
+        "operator_slowdown_notes": "recorded",
         "operator_phase_actions": "confirmed",
         "operator_phase_status_hashes": "confirmed",
         "operator_no_forbidden_artifacts": "confirmed",
@@ -414,14 +461,65 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--keyboard", default="pass", choices=("pass",))
     parser.add_argument("--mouse", default="pass", choices=("pass",))
     parser.add_argument(
+        "--slowdown",
+        default="not-observed",
+        choices=SLOWDOWN_CHOICES,
+        help="human slowdown observation during the remote VNC session",
+    )
+    parser.add_argument(
+        "--slowdown-notes",
+        default="not-observed-during-capture",
+        help="short status-only slowdown note; no screenshots, audio, or env dumps",
+    )
+    parser.add_argument(
         "--audio",
         default="status-only",
         choices=("status-only", "listener-pass", "audio-proof-json-pass", "not-tested"),
     )
     parser.add_argument(
+        "--confirm-scripted-proof-green",
+        action="store_true",
+        help="operator confirms the linked Real WAD smoke run was green before human play",
+    )
+    parser.add_argument(
         "--confirm-remote-vnc",
         action="store_true",
         help="operator confirms they used the remote VNC display, not local QEMU",
+    )
+    parser.add_argument(
+        "--confirm-e1m1-visible",
+        action="store_true",
+        help="operator confirms E1M1 or a playable Doom view was visible before action proof",
+    )
+    parser.add_argument(
+        "--confirm-keyboard-fire",
+        action="store_true",
+        help="operator confirms Ctrl/fire visibly affected Doom",
+    )
+    parser.add_argument(
+        "--confirm-keyboard-move",
+        action="store_true",
+        help="operator confirms arrow-key movement or turning visibly affected Doom",
+    )
+    parser.add_argument(
+        "--confirm-keyboard-use",
+        action="store_true",
+        help="operator confirms Space/use visibly affected Doom",
+    )
+    parser.add_argument(
+        "--confirm-mouse-action",
+        action="store_true",
+        help="operator confirms remote mouse movement/click visibly affected Doom",
+    )
+    parser.add_argument(
+        "--confirm-menu-escape",
+        action="store_true",
+        help="operator confirms Escape visibly opened the Doom menu",
+    )
+    parser.add_argument(
+        "--confirm-slowdown-notes",
+        action="store_true",
+        help="operator confirms slowdown notes were recorded, even if none was observed",
     )
     parser.add_argument(
         "--confirm-phase-actions",

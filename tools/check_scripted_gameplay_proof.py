@@ -41,6 +41,24 @@ RUN_COUNTERS = ("gtic", "leveltime")
 INPUT_COUNTERS = ("inputqueue", "inputpoll")
 KEY_COUNTERS = ("keyirq", "keyqueue", "keypoll")
 MOUSE_COUNTERS = ("mouseirq", "mousepkt", "mousepoll")
+FRAME_COUNTERS = ("doompresent",)
+TIMER_COUNTERS = ("dtick",)
+PREEMPT_COUNTERS = ("preempt", "pirq", "pattempt", "puser")
+AUDIO_SAFETY_COUNTERS = ("mixunder", "musicunder", "musicdrops")
+PERFORMANCE_REQUIRED_FIELDS = (
+    "doompresent",
+    "dtick",
+    "inputdepth",
+    "musicbuf",
+    "musicpull",
+    "mixunder",
+    "musicunder",
+    "musicdrops",
+    "preempt",
+    "pirq",
+    "pattempt",
+    "puser",
+)
 
 MENU_ACTIVE_FLAG = 0x1
 KEY_SEEN_UP = 0x00000001
@@ -162,6 +180,18 @@ SUMMARY_FIELDS = (
     "mousepoll",
     "mousebtn",
     "mousedelta",
+    "doompresent",
+    "dtick",
+    "inputdepth",
+    "musicbuf",
+    "musicpull",
+    "mixunder",
+    "musicunder",
+    "musicdrops",
+    "preempt",
+    "pirq",
+    "pattempt",
+    "puser",
 )
 
 
@@ -195,6 +225,11 @@ def _hex_field(status: str, name: str) -> int:
 def _position_field(status: str, name: str) -> tuple[int, int]:
     fields = _status_fields(status)
     return require_hex_tuple_field(fields, name, 2, sep=":", error_type=AssertionError)
+
+
+def _tuple_field(status: str, name: str, parts: int) -> tuple[int, ...]:
+    fields = _status_fields(status)
+    return require_hex_tuple_field(fields, name, parts, sep=":", error_type=AssertionError)
 
 
 def _hex8(value: int) -> str:
@@ -238,6 +273,42 @@ def _assert_not_decreasing(before: str, after: str, fields: tuple[str, ...], bef
                 f"{after_label} {name}= must not decrease after {before_label}, "
                 f"got {before_value:08X}->{after_value:08X}"
             )
+
+
+def _assert_tuple_not_decreasing(
+    before: str,
+    after: str,
+    field: str,
+    parts: int,
+    before_label: str,
+    after_label: str,
+) -> None:
+    before_values = _tuple_field(before, field, parts)
+    after_values = _tuple_field(after, field, parts)
+    for index, (before_value, after_value) in enumerate(zip(before_values, after_values)):
+        if after_value < before_value:
+            raise AssertionError(
+                f"{after_label} {field}= component {index} must not decrease after {before_label}, "
+                f"got {before_value:08X}->{after_value:08X}"
+            )
+
+
+def _assert_tuple_component_not_decreasing(
+    before: str,
+    after: str,
+    field: str,
+    parts: int,
+    index: int,
+    before_label: str,
+    after_label: str,
+) -> None:
+    before_value = _tuple_field(before, field, parts)[index]
+    after_value = _tuple_field(after, field, parts)[index]
+    if after_value < before_value:
+        raise AssertionError(
+            f"{after_label} {field}= component {index} must not decrease after {before_label}, "
+            f"got {before_value:08X}->{after_value:08X}"
+        )
 
 
 def _require_mask(status: str, field: str, mask: int, label: str) -> int:
@@ -368,6 +439,151 @@ def _require_timeline(snapshots: dict[str, str]) -> None:
     _assert_not_decreasing(snapshots["menu"], snapshots["final"], INPUT_COUNTERS, "menu", "final")
 
 
+def _require_performance_observability(snapshots: dict[str, str]) -> None:
+    for phase in PHASE_ORDER:
+        status = snapshots[phase]
+        fields = _status_fields(status)
+        for name in PERFORMANCE_REQUIRED_FIELDS:
+            if name not in fields:
+                raise AssertionError(f"{phase} missing performance field {name}=")
+        _tuple_field(status, "inputdepth", 2)
+        _tuple_field(status, "musicpull", 2)
+        for name in PERFORMANCE_REQUIRED_FIELDS:
+            if name not in ("inputdepth", "musicpull"):
+                _hex_field(status, name)
+
+    previous_phase = "start"
+    previous_status = snapshots[previous_phase]
+    for phase in ("fire", "movement", "use", "mouse", "menu", "final"):
+        status = snapshots[phase]
+        _assert_not_decreasing(
+            previous_status,
+            status,
+            FRAME_COUNTERS + TIMER_COUNTERS + PREEMPT_COUNTERS + AUDIO_SAFETY_COUNTERS,
+            previous_phase,
+            phase,
+        )
+        _assert_tuple_component_not_decreasing(previous_status, status, "inputdepth", 2, 1, previous_phase, phase)
+        _assert_tuple_not_decreasing(previous_status, status, "musicpull", 2, previous_phase, phase)
+        previous_phase = phase
+        previous_status = status
+
+    _assert_increasing(snapshots["start"], snapshots["menu"], FRAME_COUNTERS, "start", "menu")
+    _assert_increasing(snapshots["start"], snapshots["menu"], TIMER_COUNTERS, "start", "menu")
+    _assert_increasing(snapshots["start"], snapshots["menu"], PREEMPT_COUNTERS, "start", "menu")
+
+
+def _counter_progress(snapshots: dict[str, str], name: str) -> dict[str, str]:
+    start = _hex_field(snapshots["start"], name)
+    final = _hex_field(snapshots["final"], name)
+    return {
+        "start": _hex8(start),
+        "final": _hex8(final),
+        "delta": _hex8(final - start),
+    }
+
+
+def _tuple_progress(snapshots: dict[str, str], name: str, labels: tuple[str, ...]) -> dict[str, dict[str, str]]:
+    start_values = _tuple_field(snapshots["start"], name, len(labels))
+    final_values = _tuple_field(snapshots["final"], name, len(labels))
+    progress = {}
+    for label, start, final in zip(labels, start_values, final_values):
+        progress[label] = {
+            "start": _hex8(start),
+            "final": _hex8(final),
+            "delta": _hex8(final - start),
+        }
+    return progress
+
+
+def _max_tuple_component(snapshots: dict[str, str], name: str, parts: int, index: int) -> int:
+    return max(_tuple_field(snapshots[phase], name, parts)[index] for phase in PHASE_ORDER)
+
+
+def _gauge_summary(snapshots: dict[str, str], name: str) -> dict[str, str | bool]:
+    values = [_hex_field(snapshots[phase], name) for phase in PHASE_ORDER]
+    return {
+        "start": _hex8(values[0]),
+        "final": _hex8(values[-1]),
+        "min": _hex8(min(values)),
+        "max": _hex8(max(values)),
+        "changed": len(set(values)) > 1,
+    }
+
+
+def _build_performance_diagnostics(snapshots: dict[str, str]) -> dict:
+    frame = _counter_progress(snapshots, "doompresent")
+    timer = {
+        "ticks": _counter_progress(snapshots, "gtic"),
+        "leveltime": _counter_progress(snapshots, "leveltime"),
+        "doom_time": _counter_progress(snapshots, "dtick"),
+    }
+    queue = _tuple_progress(snapshots, "inputdepth", ("queued", "dropped"))
+    input_events = {
+        "enqueued": _counter_progress(snapshots, "inputqueue"),
+        "polled": _counter_progress(snapshots, "inputpoll"),
+        "max_queued": _hex8(_max_tuple_component(snapshots, "inputdepth", 2, 0)),
+    }
+    audio = {
+        "music_buffer": _gauge_summary(snapshots, "musicbuf"),
+        "music_pull": _tuple_progress(snapshots, "musicpull", ("requests", "refills")),
+        "mixer_underruns": _counter_progress(snapshots, "mixunder"),
+        "music_underruns": _counter_progress(snapshots, "musicunder"),
+        "music_drops": _counter_progress(snapshots, "musicdrops"),
+    }
+    scheduler = {
+        "preemptions": _counter_progress(snapshots, "preempt"),
+        "timer_irqs": _counter_progress(snapshots, "pirq"),
+        "attempts": _counter_progress(snapshots, "pattempt"),
+        "user_irqs": _counter_progress(snapshots, "puser"),
+    }
+
+    queued_final = int(queue["queued"]["final"], 16)
+    queued_max = int(input_events["max_queued"], 16)
+    dropped_delta = int(queue["dropped"]["delta"], 16)
+    music_under_delta = int(audio["music_underruns"]["delta"], 16)
+    music_drop_delta = int(audio["music_drops"]["delta"], 16)
+    mix_under_delta = int(audio["mixer_underruns"]["delta"], 16)
+    preempt_delta = int(scheduler["preemptions"]["delta"], 16)
+    frame_delta = int(frame["delta"], 16)
+    dtick_delta = int(timer["doom_time"]["delta"], 16)
+
+    if dropped_delta:
+        verdict = "os-input-loss"
+        interpretation = "input queue drops increased during the script; investigate kernel input backlog before blaming noVNC"
+    elif queued_final or queued_max > 8:
+        verdict = "os-input-backlog"
+        interpretation = "input remained queued during the script; slowdown may include OS-side input drain pressure"
+    elif music_under_delta or music_drop_delta or mix_under_delta:
+        verdict = "os-audio-pressure"
+        interpretation = "audio safety counters increased during the script; investigate SB16 refill or mixer pacing"
+    elif preempt_delta == 0:
+        verdict = "os-preemption-stalled"
+        interpretation = "timer preemption did not advance during the script"
+    elif frame_delta == 0 or dtick_delta == 0:
+        verdict = "guest-progress-stalled"
+        interpretation = "Doom frame or 35 Hz timer counters did not advance during the script"
+    else:
+        verdict = "os-pipeline-healthy"
+        interpretation = (
+            "frame, timer, input, audio, and preemption counters advanced without queue drops; "
+            "if noVNC still feels slower over time, suspect QEMU TCG/noVNC/display throughput first"
+        )
+
+    return {
+        "verdict": verdict,
+        "interpretation": interpretation,
+        "frames": frame,
+        "timer": timer,
+        "input": {
+            "queue": queue,
+            "events": input_events,
+        },
+        "audio": audio,
+        "scheduler": scheduler,
+    }
+
+
 def _require_movement(snapshots: dict[str, str]) -> None:
     start_pos = _position_field(snapshots["start"], "ppos")
     move_pos = _position_field(snapshots["movement"], "ppos")
@@ -441,6 +657,7 @@ def validate_statuses(snapshots: dict[str, str]) -> None:
     _require_fire_state(snapshots)
     _require_mouse(snapshots)
     _require_menu(snapshots)
+    _require_performance_observability(snapshots)
 
 
 def _sha256_bytes(data: bytes) -> str:
@@ -548,6 +765,7 @@ def build_manifest(snapshots: dict[str, str], paths: dict[str, Path] | None = No
             "inputpoll": _field(final, "inputpoll"),
             "inputlast": _field(final, "inputlast"),
         },
+        "performance_diagnostics": _build_performance_diagnostics(snapshots),
     }
 
 
@@ -618,6 +836,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "clean E1M1 start",
         "cumulative key/player proof",
         "mouse turn proof",
+        "performance diagnostics",
+        "os-pipeline-healthy",
         "gameplay-proof.json",
     ):
         _require(playable_doc, needle, "playable cloud proof doc")

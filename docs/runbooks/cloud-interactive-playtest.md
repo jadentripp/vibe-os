@@ -195,8 +195,10 @@ cd ~/vibe-os-cloud-playtest
 The guided helper asks the human to perform each VNC action, captures the eight
 status phases through `build/play-now/monitor.sock`, runs the collector with the
 required operator confirmations, prints `pre-download human verification OK`,
-builds `/tmp/vibe-os-human-proof.tgz`, and prints the local `scp` plus
-post-download verification commands.
+records a slowdown level and short status-only slowdown note, builds
+`/tmp/vibe-os-human-proof.tgz`, and prints the local `scp` plus post-download
+verification commands. It also requires the operator to confirm that the linked
+Real WAD smoke run was green before the human session.
 
 Manual equivalent, if you need to capture phases one at a time:
 
@@ -235,7 +237,17 @@ python3 tools/collect_human_playtest_bundle.py \
   --playtester "<name-or-initials>" \
   --scripted-proof-run-id "<passing-real-wad-smoke-run-id>" \
   --audio status-only \
+  --slowdown not-observed \
+  --slowdown-notes "not-observed-during-capture" \
+  --confirm-scripted-proof-green \
   --confirm-remote-vnc \
+  --confirm-e1m1-visible \
+  --confirm-keyboard-fire \
+  --confirm-keyboard-move \
+  --confirm-keyboard-use \
+  --confirm-mouse-action \
+  --confirm-menu-escape \
+  --confirm-slowdown-notes \
   --confirm-phase-actions \
   --confirm-phase-status-hashes \
   --confirm-no-forbidden-artifacts \

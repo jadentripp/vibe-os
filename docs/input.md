@@ -75,6 +75,11 @@ Mouse:
   generic queue path: total generic events enqueued,
   `<currently queued>:<dropped>` backlog/drop telemetry, Doom-consumed generic
   events, and the last consumed event's timestamp/device/type tuple.
+- The scripted gameplay proof copies `inputdepth` into
+  `gameplay-proof.json` performance diagnostics. `os-pipeline-healthy` means
+  the queue did not drop events and did not retain a backlog at the final
+  snapshot. `os-input-backlog` or `os-input-loss` means slowdown triage should
+  investigate the generic input queue before blaming noVNC or QEMU throughput.
 
 Host tests prove the translation without QEMU or WAD data:
 

@@ -76,6 +76,11 @@ They prove graphics through aggregate status fields only:
   policy, centered viewport, and integer scale.
 - Dirty source bounds: `fbdirty=x:y:width:height:count` reports changed pixels
   in source-frame coordinates, not target pixels.
+- Cloud slowdown triage also tracks `doompresent` across scripted gameplay
+  phases in `gameplay-proof.json` performance diagnostics. If `doompresent` and
+  `dtick` continue to advance while `inputdepth`, `musicpull`, and `preempt`
+  stay healthy, a slow noVNC session is more likely remote QEMU/display
+  throughput than a stalled guest renderer.
 
 `tools/framebuffer_contract.py` is the host reference for this contract. It
 models the indexed source format explicitly, mirrors the LFB scaler, maps generic

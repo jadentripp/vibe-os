@@ -88,7 +88,15 @@ HUMAN_PHASE_HASH_NOTE_KEYS = {
     "final": "phase_hash_final",
 }
 HUMAN_OPERATOR_CONFIRMATION_FIELDS = {
+    "scripted_proof_green": "operator_scripted_proof_green",
     "remote_vnc": "operator_remote_vnc",
+    "e1m1_visible": "operator_e1m1_visible",
+    "keyboard_fire": "operator_keyboard_fire",
+    "keyboard_move": "operator_keyboard_move",
+    "keyboard_use": "operator_keyboard_use",
+    "mouse_action": "operator_mouse_action",
+    "menu_escape": "operator_menu_escape",
+    "slowdown_notes": "operator_slowdown_notes",
     "phase_actions": "operator_phase_actions",
     "phase_status_hashes": "operator_phase_status_hashes",
     "no_forbidden_artifacts": "operator_no_forbidden_artifacts",
@@ -97,6 +105,8 @@ HUMAN_OPERATOR_CONFIRMATION_FIELDS = {
 REQUIRED_HUMAN_NOTE_FIELDS = {
     "schema": (HUMAN_NOTES_SCHEMA,),
     "scripted_proof": ("real-wad-smoke-pass",),
+    "scripted_proof_checked": ("green-before-human-session",),
+    "proof_basis": ("scripted-green-plus-remote-vnc-human",),
     "remote_host": ("disposable",),
     "qemu_location": ("remote",),
     "qemu_display": ("127.0.0.1:1",),
@@ -110,6 +120,7 @@ REQUIRED_HUMAN_NOTE_FIELDS = {
     "visual_evidence": ("e1m1-visible-via-remote-vnc",),
     "keyboard_evidence": ("fire-move-use-menu-visible",),
     "mouse_evidence": ("motion-click-visible",),
+    "menu_evidence": ("escape-menu-visible",),
     "status_capture": ("monitor-pmemsave-0x9d000",),
     "session_phases": (
         "early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final",
@@ -120,7 +131,15 @@ REQUIRED_HUMAN_NOTE_FIELDS = {
     "no_wad_upload": ("yes",),
     "no_disk_upload": ("yes",),
     "no_pixel_upload": ("yes",),
+    "operator_scripted_proof_green": ("confirmed",),
     "operator_remote_vnc": ("confirmed",),
+    "operator_e1m1_visible": ("confirmed",),
+    "operator_keyboard_fire": ("confirmed",),
+    "operator_keyboard_move": ("confirmed",),
+    "operator_keyboard_use": ("confirmed",),
+    "operator_mouse_action": ("confirmed",),
+    "operator_menu_escape": ("confirmed",),
+    "operator_slowdown_notes": ("recorded",),
     "operator_phase_actions": ("confirmed",),
     "operator_phase_status_hashes": ("confirmed",),
     "operator_no_forbidden_artifacts": ("confirmed",),
@@ -130,6 +149,9 @@ REQUIRED_FREEFORM_HUMAN_NOTE_FIELDS = (
     "commit",
     "playtester",
     "scripted_proof_run_id",
+    "scripted_proof_url",
+    "slowdown",
+    "slowdown_notes",
 ) + tuple(HUMAN_PHASE_HASH_NOTE_KEYS.values())
 OPTIONAL_HUMAN_NOTE_FIELDS = {
     "audio": ("status-only", "listener-pass", "audio-proof-json-pass", "not-tested"),
@@ -138,6 +160,9 @@ HUMAN_NOTE_FIELD_PATTERNS = {
     "commit": r"(?:[0-9A-Fa-f]{7,40}|unknown)",
     "playtester": r"[A-Za-z0-9._-]{2,64}",
     "scripted_proof_run_id": r"[0-9]{6,32}",
+    "scripted_proof_url": r"https://github\.com/jadentripp/vibe-os/actions/runs/[0-9]{6,32}",
+    "slowdown": r"(?:not-observed|mild|moderate|severe)",
+    "slowdown_notes": r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}",
     **{
         note_key: r"[0-9A-Fa-f]{64}"
         for note_key in HUMAN_PHASE_HASH_NOTE_KEYS.values()
@@ -514,10 +539,23 @@ def validate_repo_contract() -> None:
         "human-playtest-manifest.json",
         "scripted_proof=real-wad-smoke-pass",
         "scripted_proof_run_id=",
+        "scripted_proof_url=",
+        "scripted_proof_checked=green-before-human-session",
+        "proof_basis=scripted-green-plus-remote-vnc-human",
+        "slowdown=",
+        "slowdown_notes=",
         "--scripted-proof-run-id",
+        "--confirm-scripted-proof-green",
         "--capture-phase",
         "human status capture OK",
         "--confirm-remote-vnc",
+        "--confirm-e1m1-visible",
+        "--confirm-keyboard-fire",
+        "--confirm-keyboard-move",
+        "--confirm-keyboard-use",
+        "--confirm-mouse-action",
+        "--confirm-menu-escape",
+        "--confirm-slowdown-notes",
         "--confirm-phase-actions",
         "--confirm-phase-status-hashes",
         "--confirm-no-forbidden-artifacts",
@@ -528,6 +566,7 @@ def validate_repo_contract() -> None:
         "visual_evidence=e1m1-visible-via-remote-vnc",
         "keyboard_evidence=fire-move-use-menu-visible",
         "mouse_evidence=motion-click-visible",
+        "menu_evidence=escape-menu-visible",
         "status_capture=monitor-pmemsave-0x9d000",
         "session_phases=early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final",
         "phase_hash_early=",
@@ -538,7 +577,15 @@ def validate_repo_contract() -> None:
         "phase_hash_after_mouse=",
         "phase_hash_after_menu=",
         "phase_hash_final=",
+        "operator_scripted_proof_green=confirmed",
         "operator_remote_vnc=confirmed",
+        "operator_e1m1_visible=confirmed",
+        "operator_keyboard_fire=confirmed",
+        "operator_keyboard_move=confirmed",
+        "operator_keyboard_use=confirmed",
+        "operator_mouse_action=confirmed",
+        "operator_menu_escape=confirmed",
+        "operator_slowdown_notes=recorded",
         "operator_phase_actions=confirmed",
         "operator_phase_status_hashes=confirmed",
         "operator_no_forbidden_artifacts=confirmed",
@@ -602,7 +649,15 @@ def validate_repo_contract() -> None:
         "Refusing to run the remote human playtest helper on macOS",
         "tools/collect_human_playtest_bundle.py",
         "--capture-phase \"$phase\"",
+        "--confirm-scripted-proof-green",
         "--confirm-remote-vnc",
+        "--confirm-e1m1-visible",
+        "--confirm-keyboard-fire",
+        "--confirm-keyboard-move",
+        "--confirm-keyboard-use",
+        "--confirm-mouse-action",
+        "--confirm-menu-escape",
+        "--confirm-slowdown-notes",
         "--confirm-phase-actions",
         "--confirm-phase-status-hashes",
         "--confirm-no-forbidden-artifacts",
@@ -703,8 +758,6 @@ def validate_repo_contract() -> None:
     _require(playable, "pspin", "playable cloud proof doc")
     _require(readme, "docs/runbooks/remote-doom-playtest.md", "README")
     _require(readme, "Where It Stands", "README")
-    _require(readme, "26199297160", "README")
-    _require(readme, "Unknown tclass 112 in savegame", "README")
     _require(readme, "gh workflow run os-smoke.yml", "README")
     _require(readme, "gh workflow run real-wad-smoke.yml", "README")
     _require(readme, "gh workflow run real-wad-soak.yml", "README")
@@ -1014,6 +1067,9 @@ def build_human_session(
         "playtester": notes.get("playtester", ""),
         "scripted_proof": notes.get("scripted_proof", ""),
         "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
+        "scripted_proof_url": notes.get("scripted_proof_url", ""),
+        "scripted_proof_checked": notes.get("scripted_proof_checked", ""),
+        "proof_basis": notes.get("proof_basis", ""),
         "phase_order": [phase for phase, _, _ in HUMAN_SESSION_PHASES],
         "phase_status_hashes": _phase_status_hashes_from_notes(notes),
         "status_capture": notes.get("status_capture", ""),
@@ -1034,6 +1090,9 @@ def build_human_session(
             "visual_evidence": notes.get("visual_evidence", ""),
             "keyboard_evidence": notes.get("keyboard_evidence", ""),
             "mouse_evidence": notes.get("mouse_evidence", ""),
+            "menu_evidence": notes.get("menu_evidence", ""),
+            "slowdown": notes.get("slowdown", ""),
+            "slowdown_notes": notes.get("slowdown_notes", ""),
             "no_local_qemu": notes.get("no_local_qemu", ""),
             "no_wad_upload": notes.get("no_wad_upload", ""),
             "no_disk_upload": notes.get("no_disk_upload", ""),
@@ -1080,10 +1139,16 @@ def build_human_checklist(artifact_dir: Path) -> str:
         f"session_id={session['session_id']}",
         f"commit={commit}",
         f"scripted_proof_run_id={scripted_run_id}",
+        f"scripted_proof_url={notes.get('scripted_proof_url', '')}",
         f"playtester={notes.get('playtester', '')}",
+        f"slowdown={notes.get('slowdown', '')}",
+        f"slowdown_notes={notes.get('slowdown_notes', '')}",
         "",
         "Post-download checklist",
         "- Compare the local post-download human verification OK line with the saved remote pre-download human verification OK line.",
+        "- Confirm the linked Real WAD smoke run was green before this human session.",
+        "- Confirm E1M1 was visible, Ctrl/fire responded, arrow movement or turning responded, Space/use responded, mouse movement/click responded, and Escape opened the menu.",
+        "- Keep slowdown notes with the bundle even when no slowdown was observed.",
         (
             "- Run: python3 tools/check_cloud_playability_artifacts.py "
             "--human-session path/to/vibe-os-human-proof "
@@ -1183,6 +1248,9 @@ def build_human_manifest(artifact_dir: Path) -> dict:
         "notes_file": HUMAN_NOTES_FILE,
         "commit": notes.get("commit", ""),
         "playtester": notes.get("playtester", ""),
+        "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
+        "scripted_proof_url": notes.get("scripted_proof_url", ""),
+        "slowdown": notes.get("slowdown", ""),
         "artifact_policy": {
             "allowlisted_status_only": True,
             "contains_wad_data": False,
@@ -1303,6 +1371,16 @@ def validate_human_manifest(artifact_dir: Path, manifest_path: Path) -> None:
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} commit must match {HUMAN_NOTES_FILE}")
     if manifest.get("playtester") != notes.get("playtester"):
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} playtester must match {HUMAN_NOTES_FILE}")
+    if manifest.get("scripted_proof_run_id") != notes.get("scripted_proof_run_id"):
+        raise AssertionError(
+            f"{HUMAN_MANIFEST_FILE} scripted_proof_run_id must match {HUMAN_NOTES_FILE}"
+        )
+    if manifest.get("scripted_proof_url") != notes.get("scripted_proof_url"):
+        raise AssertionError(
+            f"{HUMAN_MANIFEST_FILE} scripted_proof_url must match {HUMAN_NOTES_FILE}"
+        )
+    if manifest.get("slowdown") != notes.get("slowdown"):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} slowdown must match {HUMAN_NOTES_FILE}")
 
 
 def build_human_post_download_verification(artifact_dir: Path) -> dict:
@@ -1489,6 +1567,11 @@ def validate_human_notes(
         raise AssertionError(
             f"{HUMAN_NOTES_FILE} scripted_proof_run_id= must match "
             f"{expected_scripted_proof_run_id}, got {notes['scripted_proof_run_id']}"
+        )
+    expected_url = f"https://github.com/jadentripp/vibe-os/actions/runs/{notes['scripted_proof_run_id']}"
+    if notes.get("scripted_proof_url") != expected_url:
+        raise AssertionError(
+            f"{HUMAN_NOTES_FILE} scripted_proof_url= must match scripted_proof_run_id="
         )
     if artifact_dir is not None:
         names = _relative_names(artifact_dir)

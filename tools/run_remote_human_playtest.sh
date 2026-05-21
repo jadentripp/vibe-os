@@ -6,6 +6,8 @@ MONITOR_SOCKET="${MONITOR_SOCKET:-build/play-now/monitor.sock}"
 OUTPUT_DIR="${OUTPUT_DIR:-/tmp/vibe-os-human-proof}"
 TARBALL="${TARBALL:-/tmp/vibe-os-human-proof.tgz}"
 AUDIO_MODE="${AUDIO_MODE:-status-only}"
+SLOWDOWN_MODE="${SLOWDOWN_MODE:-}"
+SLOWDOWN_NOTES="${SLOWDOWN_NOTES:-}"
 PLAYTESTER=""
 SCRIPTED_PROOF_RUN_ID=""
 COMMIT_VALUE=""
@@ -36,6 +38,10 @@ Options:
   --audio MODE                   status-only, listener-pass,
                                  audio-proof-json-pass, or not-tested.
                                  Default: status-only
+  --slowdown LEVEL               not-observed, mild, moderate, or severe.
+                                 If omitted, the helper prompts after capture.
+  --slowdown-notes TEXT          Short status-only slowdown note. If omitted,
+                                 the helper prompts after capture.
   --commit HASH                  Commit under test; defaults to git HEAD.
   -h, --help                     Show this help.
 EOF
@@ -57,6 +63,23 @@ validate_human_labels() {
     [[ "$COMMIT_VALUE" =~ ^([0-9A-Fa-f]{7,40}|unknown)$ ]] || {
       die "--commit must be a 7-40 character hex commit or 'unknown'"
     }
+  fi
+}
+
+validate_slowdown_fields() {
+  if [ -n "$SLOWDOWN_MODE" ]; then
+    case "$SLOWDOWN_MODE" in
+      not-observed|mild|moderate|severe) ;;
+      *) die "--slowdown must be not-observed, mild, moderate, or severe" ;;
+    esac
+  fi
+  if [ -n "$SLOWDOWN_NOTES" ]; then
+    [ "${#SLOWDOWN_NOTES}" -le 160 ] || die "--slowdown-notes must be 160 characters or fewer"
+    case "$SLOWDOWN_NOTES" in
+      *"="*|*$'\n'*|*$'\r'*|*$'\t'*)
+        die "--slowdown-notes must be single-line status text without key separators"
+        ;;
+    esac
   fi
 }
 
@@ -165,6 +188,16 @@ while [ "$#" -gt 0 ]; do
       AUDIO_MODE="$2"
       shift
       ;;
+    --slowdown)
+      [ "$#" -ge 2 ] || die "--slowdown requires a value"
+      SLOWDOWN_MODE="$2"
+      shift
+      ;;
+    --slowdown-notes)
+      [ "$#" -ge 2 ] || die "--slowdown-notes requires a value"
+      SLOWDOWN_NOTES="$2"
+      shift
+      ;;
     --commit)
       [ "$#" -ge 2 ] || die "--commit requires a value"
       COMMIT_VALUE="$2"
@@ -184,6 +217,7 @@ done
 [ -n "$PLAYTESTER" ] || die "--playtester is required"
 [ -n "$SCRIPTED_PROOF_RUN_ID" ] || die "--scripted-proof-run-id is required"
 validate_human_labels
+validate_slowdown_fields
 
 case "$(uname -s)" in
   Darwin)
@@ -253,6 +287,10 @@ echo "  proof tarball:    $TARBALL"
 echo
 echo "Keep QEMU running in the other remote SSH shell. Do not download WADs,"
 echo "disk images, framebuffer data, screenshots, status binaries, or raw audio."
+echo "Before continuing, confirm the scripted Real WAD smoke run ID is green:"
+echo "  https://github.com/jadentripp/vibe-os/actions/runs/$SCRIPTED_PROOF_RUN_ID"
+printf "Press Enter after confirming that linked run is green..."
+read -r _
 echo
 
 for index in "${!PHASES[@]}"; do
@@ -268,14 +306,42 @@ for index in "${!PHASES[@]}"; do
   echo
 done
 
+if [ -z "$SLOWDOWN_MODE" ]; then
+  while true; do
+    printf "Slowdown observed? [not-observed/mild/moderate/severe] "
+    read -r SLOWDOWN_MODE
+    case "$SLOWDOWN_MODE" in
+      not-observed|mild|moderate|severe) break ;;
+      *) echo "Please enter not-observed, mild, moderate, or severe." ;;
+    esac
+  done
+fi
+
+if [ -z "$SLOWDOWN_NOTES" ]; then
+  printf "Short slowdown note, status-only, no logs/env/screenshots: "
+  read -r SLOWDOWN_NOTES
+  [ -n "$SLOWDOWN_NOTES" ] || SLOWDOWN_NOTES="not-observed-during-capture"
+fi
+validate_slowdown_fields
+
 python3 tools/collect_human_playtest_bundle.py \
   --build-dir "$BUILD_DIR" \
   --output-dir "$OUTPUT_DIR" \
   --playtester "$PLAYTESTER" \
   --scripted-proof-run-id "$SCRIPTED_PROOF_RUN_ID" \
   --audio "$AUDIO_MODE" \
+  --slowdown "$SLOWDOWN_MODE" \
+  --slowdown-notes "$SLOWDOWN_NOTES" \
   --commit "$COMMIT_VALUE" \
+  --confirm-scripted-proof-green \
   --confirm-remote-vnc \
+  --confirm-e1m1-visible \
+  --confirm-keyboard-fire \
+  --confirm-keyboard-move \
+  --confirm-keyboard-use \
+  --confirm-mouse-action \
+  --confirm-menu-escape \
+  --confirm-slowdown-notes \
   --confirm-phase-actions \
   --confirm-phase-status-hashes \
   --confirm-no-forbidden-artifacts \
