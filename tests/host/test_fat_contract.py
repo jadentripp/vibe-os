@@ -168,6 +168,27 @@ class FatContractTests(unittest.TestCase):
         self.assertIn("call fat_list_subdir_cluster", listdir_section)
         self.assertIn("cmp byte [esi], '.'", listdir_section)
 
+    def test_kernel_root_listdir_validates_user_buffer_by_entry_count(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        root_listdir = kernel.split("fat_list_root_dir:", 1)[1].split("user_file_read:", 1)[0]
+
+        self.assertIn(
+            "mov eax, [syscall_dirent_max]\n"
+            "    shl eax, 5\n"
+            "    mov ebx, eax\n"
+            "    mov eax, [fat_list_user_ptr]\n"
+            "    call user_range_validate",
+            root_listdir,
+        )
+        self.assertNotIn(
+            "mov eax, [fat_list_user_ptr]\n"
+            "    shl eax, 5\n"
+            "    mov ebx, eax\n"
+            "    mov eax, [fat_list_user_ptr]\n"
+            "    call user_range_validate",
+            root_listdir,
+        )
+
     def test_host_fat_image_subdirectory_round_trip_matches_kernel_contract(self):
         with tempfile.TemporaryDirectory() as tmp:
             image_path = Path(tmp) / "disk.img"

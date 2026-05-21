@@ -8589,6 +8589,7 @@ fat_list_root_dir:
     mov dword [fat_list_copied], 0
     cmp eax, 0
     je .ok
+    mov eax, [syscall_dirent_max]
     shl eax, 5
     mov ebx, eax
     mov eax, [fat_list_user_ptr]

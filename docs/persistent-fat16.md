@@ -98,7 +98,9 @@ Current kernel contract:
   readonly fixed-size `vibe_dirent_t` records for live root entries and for
   one-level root subdirectories, including normalized 8.3 display name, size,
   mode, first cluster, and raw FAT attributes. Timestamps, owners, and device
-  fields are zero.
+  fields are zero. Both root and subdirectory listings validate the user buffer
+  by `max_entries * VIBE_DIRENT_BYTES`, so the reusable syscall contract does
+  not depend on the caller's pointer value.
 - Supported validation: nested path traversal, empty names, long filenames, and
   unsupported characters are rejected; leading root separators and `./` prefixes
   are path normalization only, not subdirectory traversal. Existing directories
