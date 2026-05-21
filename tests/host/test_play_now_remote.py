@@ -229,7 +229,6 @@ class PlayNowRemoteTests(unittest.TestCase):
         docs = [
             (ROOT / "README.md").read_text(),
             (ROOT / "docs" / "runbooks" / "play-now-cloud.md").read_text(),
-            (ROOT / "docs" / "runbooks" / "codespaces-play-now.md").read_text(),
         ]
 
         for needle in (
@@ -1090,8 +1089,7 @@ class PlayNowRemoteTests(unittest.TestCase):
     def test_runbooks_do_not_document_local_mac_vm_override(self):
         for runbook in (
             "play-now-cloud.md",
-            "codespaces-play-now.md",
-            "cloud-interactive-playtest.md",
+            "remote-doom-playtest.md",
         ):
             text = (ROOT / "docs" / "runbooks" / runbook).read_text()
             with self.subTest(runbook=runbook):

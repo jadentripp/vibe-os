@@ -120,6 +120,9 @@ PLAYABILITY_CADENCE_HEALTHY = "os-audio-cadence-observed"
 CURRENT_MUSIC_PAYLOAD_OWNER = "doom_port/music.c"
 CURRENT_MUSIC_SERVICE_COMMAND = "VIBE_AUDIO_MIXER_UPDATE"
 FUTURE_HARDWARE_MIXER_REFILL_PLAYBACK = "future hardware-paced mixer/refill playback ABI"
+MUS_SCORE_END_EVENT_TYPE = 6
+MUS_RESERVED_EVENT_TYPE = 5
+MUS_MAX_VARIABLE_DELAY_BYTES = 4
 TUPLE_FIELDS = {
     "sb16": 2,
     "play": 2,
@@ -1028,6 +1031,8 @@ def validate_repo_contract() -> None:
                 "buffered coverage",
                 "event type 6",
                 "event type 5",
+                "unterminated MUS variable-length delays",
+                "grouped MUS events",
                 "stream-health evidence",
                 "playability_cadence",
                 "OS audio cadence",
@@ -1056,6 +1061,8 @@ def validate_repo_contract() -> None:
                 "musicrend=",
                 "MUS event type 6",
                 "event type 5",
+                "unterminated MUS variable-length delays",
+                "grouped MUS events",
                 "zero-duration songs do not become silent looping streams",
                 "rendered-sample delta",
                 "coverage is the real stream invariant",
@@ -1071,6 +1078,8 @@ def validate_repo_contract() -> None:
             (
                 "VIBE_MUSIC_MUS_EVENT_SCORE_END 6u",
                 "event_type == VIBE_MUSIC_MUS_EVENT_SCORE_END",
+                "read_mus_delay",
+                "mus_parse_fail",
                 "++stats->score_end_count",
                 "++stats->invalid_event_count",
             ),

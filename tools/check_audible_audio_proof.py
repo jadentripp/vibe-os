@@ -517,12 +517,16 @@ def _continuity_summary(
     renderer_contract = {
         "status_counter": "musicrend",
         "parser_owner": "doom_port/music.c",
-        "mus_score_end_event_type": 6,
-        "mus_reserved_event_type_rejected": 5,
+        "mus_score_end_event_type": check_audio_continuity_proof.MUS_SCORE_END_EVENT_TYPE,
+        "mus_reserved_event_type_rejected": check_audio_continuity_proof.MUS_RESERVED_EVENT_TYPE,
+        "mus_max_variable_delay_bytes": check_audio_continuity_proof.MUS_MAX_VARIABLE_DELAY_BYTES,
+        "mus_variable_delay_requires_terminator": True,
+        "mus_grouped_event_fixture": True,
         "claim": (
             "musicrend= proves parsed renderer activity in status; host renderer "
-            "tests separately pin real MUS score-end parsing so event type 5 "
-            "cannot pass as a fixture-only end marker"
+            "tests separately pin real MUS score-end parsing, grouped event "
+            "handling, and strict variable-delay termination so event type 5 "
+            "or a truncated delay cannot pass as a fixture-only shortcut"
         ),
     }
     return {
@@ -1228,6 +1232,12 @@ def validate_manifest(
             raise AssertionError("manifest renderer contract must pin MUS score end to event type 6")
         if renderer_contract.get("mus_reserved_event_type_rejected") != 5:
             raise AssertionError("manifest renderer contract must reject MUS event type 5")
+        if renderer_contract.get("mus_max_variable_delay_bytes") != 4:
+            raise AssertionError("manifest renderer contract must pin MUS variable delay to four bytes")
+        if renderer_contract.get("mus_variable_delay_requires_terminator") is not True:
+            raise AssertionError("manifest renderer contract must require a terminated MUS delay")
+        if renderer_contract.get("mus_grouped_event_fixture") is not True:
+            raise AssertionError("manifest renderer contract must include grouped MUS event fixture proof")
     for key in (
         "buffer_floor",
         "buffer_peak",
@@ -1472,6 +1482,8 @@ def validate_repo_contract() -> None:
                 "musicrend=",
                 "event type 6",
                 "event type 5",
+                "unterminated MUS variable-length delays",
+                "grouped MUS events",
                 "stream_contract",
                 "playability_cadence",
                 "device/ring/stream/mixer",
@@ -1494,6 +1506,8 @@ def validate_repo_contract() -> None:
                 "song-position",
                 "MUS event type 6",
                 "event type 5",
+                "unterminated MUS variable-length delays",
+                "grouped MUS events",
                 "stateful stream cursor",
                 "long-playback wrap",
                 "Music legitimacy roadmap as OS contracts",
@@ -1506,6 +1520,8 @@ def validate_repo_contract() -> None:
             (
                 "VIBE_MUSIC_MUS_EVENT_SCORE_END 6u",
                 "event_type == VIBE_MUSIC_MUS_EVENT_SCORE_END",
+                "read_mus_delay",
+                "mus_parse_fail",
                 "++stats->score_end_count",
                 "++stats->invalid_event_count",
             ),

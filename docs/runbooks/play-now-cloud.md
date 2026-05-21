@@ -8,6 +8,33 @@ to play from the local checkout:
 ./tools/play_now_codespaces.sh
 ```
 
+Safety contract:
+
+- No local VM/QEMU on the Mac.
+- `CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC`: do not run `qemu-system-*`,
+  `make run`, `make run-headless`, `make smoke`, or the local-VM opt-in flag
+  on the Mac.
+- `CLOUD_PLAYTEST_REMOTE_QEMU_ONLY`: QEMU commands in this document run only on
+  a disposable remote Ubuntu host, GitHub Codespace, or equivalent cloud shell.
+- `CLOUD_PLAYTEST_FORBIDDEN_UPLOADS`: never copy or upload WADs, `disk.img`,
+  raw disk images, screenshots, framebuffer dumps, rendered pixels,
+  `status.*.bin`, QEMU WAV files, or other raw audio captures off the
+  disposable host.
+- `CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST`: only status text, logs, ELF diagnostics,
+  `doom.symbols`, human-playtest notes/observations/checklist/session/manifest
+  files, and optional aggregate `audio-proof.json` may leave the disposable
+  host.
+
+Never transfer these from the remote host: `DOOM1.WAD`, `build/disk.img`,
+framebuffer or screenshot files, `status.*.bin`, `build/doom-audio.wav`, or
+other raw audio. If a remote audio proof was attempted, clean it up before
+destroying the disposable host:
+
+```sh
+rm -f /tmp/vibe-os-DOOM1.WAD
+rm -f ~/vibe-os-cloud-playtest/build/doom-audio.wav
+```
+
 When the local checkout is dirty, or when another worker owns the current
 workspace, launch from a pushed repo/ref instead:
 
@@ -157,6 +184,14 @@ sudo apt-get install -y nasm qemu-system-x86 clang make netcat-openbsd curl novn
 ./tools/play_now_remote.sh
 ```
 
+The explicit manual WAD/image build, when you need to separate it from the play
+script, is:
+
+```sh
+python3 tools/prepare_shareware_wad.py --output /tmp/DOOM1.WAD
+make DOOM_WAD=/tmp/DOOM1.WAD
+```
+
 For interactive play on a plain cloud VM, choose 4+ vCPUs when possible. A
 2-vCPU VM is useful for smoke checks, but noVNC plus QEMU TCG can stutter enough
 to make manual Doom control feel worse than the OS status actually is.
@@ -198,6 +233,11 @@ ssh -L 5901:127.0.0.1:5901 user@remote-host
 ```
 
 Then connect a VNC client to `localhost:5901`.
+For a long-lived tunnel-only terminal, use the no-command form:
+
+```sh
+ssh -N -L 5901:127.0.0.1:5901 user@remote-host
+```
 
 The script refuses to run QEMU on macOS. Use a disposable remote Linux host or
 Codespace for playtesting. It fetches the validated shareware `DOOM1.WAD` to
@@ -234,6 +274,7 @@ to keep in your notes:
 ```sh
 gh codespace ssh -c "<codespace-name>" -- tail -f /tmp/vibe-os-play-now.log
 gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh
+gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-stop.sh
 gh codespace ports -c "<codespace-name>"
 gh api /user/codespaces/<codespace-name> --jq .machine
 gh codespace ssh -c "<codespace-name>" -- \
@@ -241,7 +282,8 @@ gh codespace ssh -c "<codespace-name>" -- \
 gh codespace delete -c "<codespace-name>" --force
 ```
 
-When finished, delete the disposable environment with
+When finished, destroy the disposable Codespace or remote host. Delete the
+disposable environment with
 `gh codespace delete -c "<codespace-name>" --force` or from GitHub's
 `Code` > `Codespaces` menu. Deletion removes the remote `/tmp` WAD and generated
 VM artifacts.
@@ -280,12 +322,18 @@ status filenames, expected human action, expected status-only signal, and
 actions, prints the expected status signal before each capture, captures each
 status phase through the remote monitor socket, asks you to tie the session to
 a green Real WAD smoke run, records a slowdown level and short status-only
-slowdown note, records the audio observation mode, writes the allowlisted proof
-bundle, validates it before download, creates `/tmp/vibe-os-human-proof.tgz`,
-and prints the local post-download checker commands. The longer version lives in
-`docs/runbooks/remote-doom-playtest.md`; its collector writes
+slowdown note, records noVNC focus and the audio observation mode, writes the
+allowlisted proof bundle, validates it before download, creates
+`/tmp/vibe-os-human-proof.tgz`, and prints the local post-download checker
+commands. The longer version lives in `docs/runbooks/remote-doom-playtest.md`;
+its collector writes `human-playtest-observations.json` plus
 `human-playtest-checklist.txt` with the post-download checker commands and phase
 hashes to compare.
 The guided helper validates the playtester handle, scripted proof run ID, proof
 output directory, and proof tarball path before the first capture prompt. Proof
 output and the tarball must be remote scratch paths outside the git checkout.
+After downloading the allowlisted proof bundle, verify it locally with:
+
+```sh
+python3 tools/check_cloud_playability_artifacts.py --human-session ./vibe-os-human-proof
+```

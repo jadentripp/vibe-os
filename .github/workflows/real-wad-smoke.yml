@@ -351,7 +351,7 @@ jobs:
 
       - name: Attempt reboot persistence proof
         id: persistence_proof
-        if: ${{ always() && (inputs.persistence_proof || inputs.persistence_save_slot != '') }}
+        if: ${{ always() && steps.boot_real_wad.outcome == 'success' && (inputs.persistence_proof || inputs.persistence_save_slot != '') }}
         timeout-minutes: 15
         run: |
           set -euo pipefail

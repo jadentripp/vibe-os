@@ -166,6 +166,8 @@ class DoomMusicTests(unittest.TestCase):
             "zero-duration songs do not become silent looping streams",
             "MUS event type 6",
             "event type 5",
+            "unterminated MUS variable-length delays",
+            "grouped MUS events",
             "pitch bend",
             "program changes",
             "pan, expression, sustain",

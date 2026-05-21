@@ -96,8 +96,8 @@ Honest:
   and uploads only non-WAD diagnostics.
 - The fastest safe human try path is `docs/runbooks/play-now-cloud.md`: use a
   disposable remote Linux host or GitHub Codespace and run
-  `./tools/play_now_remote.sh` there, not local Mac QEMU. The longer interactive
-  proof flow lives in `docs/runbooks/cloud-interactive-playtest.md`.
+  `./tools/play_now_remote.sh` there, not local Mac QEMU. The longer reviewed
+  human proof flow lives in `docs/runbooks/remote-doom-playtest.md`.
 - The current cloud status may honestly say scripted playability/input and
   aggregate audible audio have been cloud-proven. Persistence/save-load should
   only be claimed when the matching cloud persistence lane is green; the current
@@ -125,3 +125,24 @@ Before saying "you can play Doom on vibe-os", require a current real-WAD cloud
 workflow pass, status proof that Doom reaches E1M1 gameplay, deterministic input
 proof that keyboard actions affect game state, and a reviewed path for trying it
 interactively on a disposable remote QEMU host or a cloud VM.
+
+## Portability Readiness
+
+The host-only portability boundary checker is
+`tools/check_doom_portability_boundary.py`. It verifies the `third_party/doom`
+vendor tree is pristine, rejects Vibe OS syscall tokens inside original Doom
+sources, and records the narrow compile boundary used by the port.
+
+The build currently compiles 57 original linuxdoom C files from
+`third_party/doom/linuxdoom-1.10` without editing the vendor tree. It excludes
+only the original platform files `i_main.c`, `i_system.c`, `i_video.c`,
+`i_sound.c`, and `i_net.c`; those are replaced by `doom_port/start.c`,
+`doom_port/platform.c`, `doom_port/input.c`, `doom_port/music.c`, and
+`doom_port/libc.c`. Two original files, `g_game.c` and `p_saveg.c`, still
+compile from the original source but use preprocessor symbol renames so the port
+layer can wrap save/load diagnostics without patching the source drop.
+
+Reusable hooks for future original C games live in `doom_port/include` and
+`doom_port/libc.c`: file I/O, stdio, heap/mmap helpers, process calls, clocks,
+input polling, framebuffer present/query calls, and audio/device ioctls should
+grow there before a game-specific workaround is added.

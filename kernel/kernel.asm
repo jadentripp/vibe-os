@@ -304,10 +304,10 @@ USER_HEAP_START equ USER_STACK_TOP
 USER_HEAP_END equ 0x00f00000
 USER_HEAP_PAGE_COUNT equ (USER_HEAP_END - USER_HEAP_START) / PAGE_SIZE
 USER_HEAP_BITMAP_BYTES equ (USER_HEAP_PAGE_COUNT + 7) / 8
-USER_PROBE_EXPECTED_FLAGS equ 0x0003ffff
+USER_PROBE_EXPECTED_FLAGS equ 0x0007ffff
 USER_PROBE_MAGIC equ 0x13579BDF
 ABI_PROBE_MAGIC equ 0xA81B10BE
-ABI_PROBE_EXPECTED_FLAGS equ 0x00000007
+ABI_PROBE_EXPECTED_FLAGS equ 0x0000000f
 PREEMPT_PROBE_MAGIC equ 0x50524545
 USER_FAULT_ADDR equ 0x00010000
 USER_FD_BASE equ 3
@@ -319,6 +319,9 @@ FD_KIND_WAD equ 1
 FD_KIND_WRITABLE equ 2
 FD_KIND_READONLY_FILE equ 3
 FD_INHERIT_EXEC equ 0x1
+FD_CLOEXEC equ 0x1
+F_GETFD equ 1
+F_SETFD equ 2
 WAIT_OPTION_WNOHANG equ 0x1
 WAIT_SUPPORTED_OPTIONS equ WAIT_OPTION_WNOHANG
 WAIT_PROOF_EXIT_STATUS equ 0x0000002a
@@ -371,6 +374,7 @@ SYS_INPUT_STATUS equ 31
 SYS_DUP equ 32
 SYS_DUP2 equ 33
 SYS_DUP3 equ 34
+SYS_FCNTL equ 35
 PLAYABLE_STATUS_FLAG equ 0x80000000
 DOOM_INIT_STATUS_FLAG equ 0x40000000
 SAVELOAD_STATUS_FLAG equ 0x20000000
@@ -12302,6 +12306,8 @@ syscall_handler:
     je .dup2
     cmp eax, SYS_DUP3
     je .dup3
+    cmp eax, SYS_FCNTL
+    je .fcntl
     jmp .bad_syscall_enosys
 
 .user_probe:
@@ -13110,6 +13116,42 @@ syscall_handler:
 
 .dup_same_fd:
     mov eax, ecx
+    jmp .return
+
+.fcntl:
+    call fd_lookup_descriptor
+    jc .bad_syscall_ebadf
+    mov esi, eax
+    cmp ecx, F_GETFD
+    je .fcntl_getfd
+    cmp ecx, F_SETFD
+    je .fcntl_setfd
+    jmp .bad_syscall_einval
+
+.fcntl_getfd:
+    mov eax, [fd_inherit_flags + esi * 4]
+    test eax, FD_INHERIT_EXEC
+    jz .fcntl_getfd_cloexec
+    xor eax, eax
+    jmp .return
+
+.fcntl_getfd_cloexec:
+    mov eax, FD_CLOEXEC
+    jmp .return
+
+.fcntl_setfd:
+    mov eax, edx
+    and eax, 0xfffffffe
+    jnz .bad_syscall_einval
+    test edx, FD_CLOEXEC
+    jz .fcntl_setfd_inherit
+    mov dword [fd_inherit_flags + esi * 4], 0
+    xor eax, eax
+    jmp .return
+
+.fcntl_setfd_inherit:
+    mov dword [fd_inherit_flags + esi * 4], FD_INHERIT_EXEC
+    xor eax, eax
     jmp .return
 
 .audio:

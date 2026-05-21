@@ -111,8 +111,11 @@ yet" so future POSIX work has executable edges instead of vague TODOs:
   a shared root slot with a refcounted offset/status record. `dup`, `dup2`, and
   `dup3` are public syscall/libc surfaces; the Ring 3 probe verifies that reads
   through duplicated descriptors advance one shared offset, and `dup3(...,
-  O_CLOEXEC)` is closed by the next exec. There is still no fork-time fd table
-  cloning contract, `fcntl(F_DUPFD*)`, or dynamic per-process fd namespace.
+  O_CLOEXEC)` is closed by the next exec. `fcntl(F_GETFD/F_SETFD)` is the
+  descriptor-flag milestone: callers can read or toggle `FD_CLOEXEC` on an
+  already-open fd without reopening the file. There is still no fork-time fd
+  table cloning contract, `fcntl(F_DUPFD*)`, or dynamic per-process fd
+  namespace.
 - VM allocation is anonymous/private and brk-backed. `mmap()` accepts only the
   `MAP_PRIVATE | MAP_ANONYMOUS`, `fd == -1`, `offset == 0`, non-fixed path;
   `MAP_FIXED`, `MAP_SHARED`, and file-backed mappings are rejected before a port

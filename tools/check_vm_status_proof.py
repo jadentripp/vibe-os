@@ -32,8 +32,9 @@ SYS_EXEC_ARGV_SOURCE_USER = 2
 PROCESS_SLOT_COUNT = 6
 PROCESS_GENERIC_SLOT_COUNT = 2
 WAIT_PROOF_EXIT_STATUS = 0x2A
-ABI_PROBE_EXPECTED_FLAGS = 0x7
+ABI_PROBE_EXPECTED_FLAGS = 0xF
 USER_PROBE_DUP_FLAG = 0x00020000
+USER_PROBE_FCNTL_FLAG = 0x00040000
 USER_KIND_DOOM = 2
 USER_KIND_PREEMPT_PROBE = 3
 USER_CODE_SEG = 0x1B
@@ -273,6 +274,8 @@ def validate_exec(fields: dict[str, str]) -> None:
     _in_range(boot_user_entry, PROBE_USER_BASE, PROBE_USER_END, "uentry")
     if (boot_user_flags & USER_PROBE_DUP_FLAG) != USER_PROBE_DUP_FLAG:
         raise AssertionError("uflags= must prove the user probe dup shared-offset checks ran")
+    if (boot_user_flags & USER_PROBE_FCNTL_FLAG) != USER_PROBE_FCNTL_FLAG:
+        raise AssertionError("uflags= must prove the user probe fcntl FD_CLOEXEC checks ran")
     abi_pid = _hex_gt(fields, "abipid")
     abi_parent = _hex_gt(fields, "abippid")
     abi_entry = _hex_gt(fields, "abientry")

@@ -9,6 +9,7 @@ NOVNC_PORT="${NOVNC_PORT:-6080}"
 NOVNC_WEB_ROOT="${NOVNC_WEB_ROOT:-}"
 PLAY_BUILD_DIR="${PLAY_BUILD_DIR:-build/play-now}"
 DIAGNOSTICS_SCRIPT="${DIAGNOSTICS_SCRIPT:-/tmp/vibe-os-play-now-diagnostics.sh}"
+STOP_SCRIPT="${STOP_SCRIPT:-/tmp/vibe-os-play-now-stop.sh}"
 PLAY_NOW_PID_FILE="${PLAY_NOW_PID_FILE:-/tmp/vibe-os-play-now.pid}"
 PLAY_NOW_PORT_FILE="${PLAY_NOW_PORT_FILE:-/tmp/vibe-os-play-now.novnc-port}"
 VNC_PORT=""
@@ -152,6 +153,7 @@ write_diagnostics_helper() {
   local repo_dir_q
   local play_build_abs_q
   local diagnostics_script_q
+  local stop_script_q
   local pid_file_q
   local port_file_q
 
@@ -161,6 +163,7 @@ write_diagnostics_helper() {
   printf -v repo_dir_q '%q' "$repo_dir"
   printf -v play_build_abs_q '%q' "$play_build_abs"
   printf -v diagnostics_script_q '%q' "$DIAGNOSTICS_SCRIPT"
+  printf -v stop_script_q '%q' "$STOP_SCRIPT"
   printf -v pid_file_q '%q' "$PLAY_NOW_PID_FILE"
   printf -v port_file_q '%q' "$PLAY_NOW_PORT_FILE"
 
@@ -171,6 +174,7 @@ set -euo pipefail
 repo_dir=$repo_dir_q
 play_build_dir=$play_build_abs_q
 diagnostics_script=$diagnostics_script_q
+stop_script=$stop_script_q
 pid_file=$pid_file_q
 log_file="/tmp/vibe-os-play-now.log"
 port_file=$port_file_q
@@ -188,6 +192,7 @@ redact_stream() {
 echo "vibe-os play-now diagnostics"
 echo "repo: \$repo_dir"
 echo "diagnostics helper: \$diagnostics_script"
+echo "stop helper: \$stop_script"
 echo "host CPUs: \$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo unknown)"
 if [ -r /proc/loadavg ]; then
   echo "loadavg: \$(cut -d' ' -f1-3 /proc/loadavg)"
@@ -235,6 +240,43 @@ else
 fi
 EOF_DIAGNOSTICS
   chmod +x "$DIAGNOSTICS_SCRIPT"
+
+  cat >"$STOP_SCRIPT" <<EOF_STOP
+#!/usr/bin/env bash
+set -euo pipefail
+
+pid_file=$pid_file_q
+port_file=$port_file_q
+log_file="/tmp/vibe-os-play-now.log"
+
+if [ ! -s "\$pid_file" ]; then
+  echo "vibe-os play-now is not running: missing \$pid_file"
+  rm -f "\$port_file"
+  exit 0
+fi
+
+pid="\$(cat "\$pid_file" 2>/dev/null || true)"
+if [ -z "\$pid" ] || ! kill -0 "\$pid" 2>/dev/null; then
+  echo "vibe-os play-now is not running: stale pid \${pid:-unknown}"
+  rm -f "\$pid_file" "\$port_file"
+  exit 0
+fi
+
+echo "stopping vibe-os play-now pid=\$pid"
+kill "\$pid" 2>/dev/null || true
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if ! kill -0 "\$pid" 2>/dev/null; then
+    rm -f "\$pid_file" "\$port_file"
+    echo "vibe-os play-now stopped"
+    exit 0
+  fi
+  sleep 1
+done
+
+echo "vibe-os play-now pid=\$pid still running after TERM; inspect \$log_file before deleting the Codespace" >&2
+exit 1
+EOF_STOP
+  chmod +x "$STOP_SCRIPT"
 }
 
 write_play_now_metadata() {
@@ -307,6 +349,7 @@ fi
 
 write_diagnostics_helper
 echo "Diagnostics helper: $DIAGNOSTICS_SCRIPT"
+echo "Stop helper: $STOP_SCRIPT"
 echo "From another remote shell, run it to inspect safe slowdown status without printing env."
 echo "The diagnostics helper does not dump environment variables."
 echo "Performance diagnostics include host CPUs/load plus filtered status fields such as inputdepth=, dtick=, preempt=, doompresent=, musicbuf=, and mixunder=."

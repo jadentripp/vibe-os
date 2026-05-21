@@ -781,6 +781,29 @@ int dup3(int oldfd, int newfd, int flags)
     return raw < 0 ? syscall_failed(raw, EBADF) : raw;
 }
 
+int fcntl(int fd, int cmd, ...)
+{
+    unsigned long arg = 0;
+    int raw;
+    va_list args;
+
+    if (cmd == F_SETFD) {
+        va_start(args, cmd);
+        arg = (unsigned long)va_arg(args, int);
+        va_end(args);
+        if (arg & ~FD_CLOEXEC) {
+            errno = EINVAL;
+            return -1;
+        }
+    } else if (cmd != F_GETFD) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    raw = vibe_syscall3(VIBE_SYS_FCNTL, (unsigned long)fd, (unsigned long)cmd, arg);
+    return raw < 0 ? syscall_failed(raw, EBADF) : raw;
+}
+
 off_t lseek(int fd, off_t offset, int whence)
 {
     int raw = vibe_syscall3(VIBE_SYS_LSEEK, (unsigned long)fd, (unsigned long)offset, (unsigned long)whence);

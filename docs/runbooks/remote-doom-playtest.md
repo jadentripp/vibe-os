@@ -4,19 +4,20 @@ This is the safe human-run path for playing vibe-os Doom without running QEMU on
 the laptop and without committing or uploading WAD data, disk images, or Doom
 pixels to the repository.
 
-For the copy-paste cloud path, including noVNC and SPICE options, use
-`docs/runbooks/cloud-interactive-playtest.md`. The safety rail is the same here:
+For the copy-paste cloud path, including Codespaces and noVNC setup, use
+`docs/runbooks/play-now-cloud.md`. The safety rail is the same here:
 
 - `CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC`: do not run QEMU, `make run`,
-  `make run-headless`, `make smoke`, or `ALLOW_LOCAL_VM=1` on the Mac.
+  `make run-headless`, `make smoke`, or the local-VM opt-in flag
+  on the Mac.
 - `CLOUD_PLAYTEST_REMOTE_QEMU_ONLY`: QEMU commands in this runbook are for the
   disposable remote host only.
 - `CLOUD_PLAYTEST_FORBIDDEN_UPLOADS`: never upload or copy WADs, `disk.img`,
   raw disk images, raw audio, screenshots, framebuffer dumps, rendered pixels,
   or `status.*.bin` files off the disposable host.
 - `CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST`: only status text, logs, ELF diagnostics,
-  `doom.symbols`, human-playtest notes/checklist/session/manifest files, and
-  optional aggregate `audio-proof.json` may leave the disposable host.
+  `doom.symbols`, human-playtest notes/observations/checklist/session/manifest
+  files, and optional aggregate `audio-proof.json` may leave the disposable host.
 
 Use a disposable remote Ubuntu VM, Codespace, or throwaway remote host that runs
 QEMU. The host only needs CPU emulation; hardware virtualization is helpful but
@@ -189,10 +190,11 @@ download, creates `/tmp/vibe-os-human-proof.tgz`, and prints the exact `scp` and
 local `--human-session` command with the expected commit and scripted proof run
 ID baked in. Before capture it asks the operator to confirm the linked Real WAD
 smoke run is green; after capture it records slowdown as `not-observed`, `mild`,
-`moderate`, or `severe` plus a short status-only note. It also records the audio
-observation mode as `status-only`, `listener-pass`, `audio-proof-json-pass`, or
-`not-tested`; use `status-only` for the noVNC-only path because VNC proves
-display/input, not audible output. At startup and before each capture it prints
+`moderate`, or `severe` plus a short status-only note. It also records noVNC
+focus and the audio observation mode as `status-only`, `listener-pass`,
+`audio-proof-json-pass`, or `not-tested`; use `status-only` for the noVNC-only
+path because VNC proves display/input, not audible output. At startup and before
+each capture it prints
 the phase's output filename and expected status-only signal, so the operator can
 catch a wrong capture order before packaging the bundle. It does not launch QEMU
 and refuses to run on macOS.
@@ -259,9 +261,11 @@ Collect the manual proof bundle on the disposable remote host. Use an empty
 scratch directory outside the repository. The collector does not launch QEMU; it
 copies only status text, logs, ELF diagnostics, `doom.symbols`, optional
 `audio-proof.json`, writes `human-playtest-notes.txt`, writes
-`human-playtest-checklist.txt` with `schema=human-playtest-checklist-v1`, writes
-a structured `human-playtest-session.json` transcript for every manual phase,
-writes a `human-playtest-manifest.json` SHA-256 inventory, and then runs
+`human-playtest-observations.json` with `schema=human-playtest-observations-v1`,
+writes `human-playtest-checklist.txt` with
+`schema=human-playtest-checklist-v1`, writes a structured
+`human-playtest-session.json` transcript for every manual phase, writes a
+`human-playtest-manifest.json` SHA-256 inventory, and then runs
 `tools/check_cloud_playability_artifacts.py --human-session` against the bundle.
 It deliberately skips `disk.img`, WADs, status binaries, screenshots, pixel
 dumps, and raw audio:
@@ -273,8 +277,11 @@ python3 tools/collect_human_playtest_bundle.py \
   --playtester "<name-or-initials>" \
   --scripted-proof-run-id "<passing-real-wad-smoke-run-id>" \
   --audio status-only \
+  --audio-notes "vnc-display-input-only-sb16-status" \
   --slowdown not-observed \
   --slowdown-notes "not-observed-during-capture" \
+  --novnc-focus canvas-focused-before-actions \
+  --novnc-focus-notes "canvas-clicked-before-each-manual-action" \
   --confirm-scripted-proof-green \
   --confirm-remote-vnc \
   --confirm-e1m1-visible \
@@ -285,6 +292,7 @@ python3 tools/collect_human_playtest_bundle.py \
   --confirm-menu-escape \
   --confirm-audio-observation \
   --confirm-slowdown-notes \
+  --confirm-novnc-focus-observation \
   --confirm-phase-actions \
   --confirm-phase-status-hashes \
   --confirm-no-forbidden-artifacts \
@@ -299,11 +307,11 @@ human-played. The `--confirm-*` flags are deliberate operator confirmations:
 they say the linked scripted run was green first, the playtester used the remote
 VNC display, E1M1 was visible, Ctrl/fire worked, arrow movement or turning
 worked, Space/use worked, mouse movement/click worked, Escape opened the menu,
-audio was recorded in the right mode for the session, slowdown was recorded
-honestly, the named status phase files were captured after the actions,
-WAD/disk/pixel/raw-audio artifacts were excluded, and the checker will be rerun
-after download. Keep subjective comments in
-`--slowdown-notes` or separate status-only notes if useful, but do not store
+audio was recorded in the right mode for the session, noVNC focus was recorded,
+slowdown was recorded honestly, the named status phase files were captured
+after the actions, WAD/disk/pixel/raw-audio artifacts were excluded, and the
+checker will be rerun after download. Keep subjective comments in
+`--slowdown-notes`, `--novnc-focus-notes`, or `--audio-notes`, but do not store
 screenshots, audio captures, WADs, disk images, `status.*.bin` files, or ad hoc
 binaries in the proof directory.
 
@@ -318,13 +326,16 @@ keys: `schema=human-playtest-notes-v2`, `commit=...`,
 `vnc_tunnel=loopback-only`, `vnc_endpoint=127.0.0.1:5901`,
 `wad=shareware-v1.9-validated-remote-only`, `display=pass`,
 `keyboard=pass`, `mouse=pass`, `audio=status-only|listener-pass|audio-proof-json-pass|not-tested`,
+`novnc_focus=canvas-focused-before-actions|focus-retaken-during-session|focus-issues-observed`,
 `visual_evidence=e1m1-visible-via-remote-vnc`,
 `keyboard_evidence=fire-move-use-menu-visible`,
 `mouse_evidence=motion-click-visible`,
 `menu_evidence=escape-menu-visible`,
 `audio_evidence=status-only-sb16-continuity|remote-listener-heard-output|aggregate-audio-proof-json|audio-not-tested`,
+`audio_notes=...`,
 `slowdown=not-observed|mild|moderate|severe`,
 `slowdown_notes=...`,
+`novnc_focus_notes=...`,
 `status_capture=monitor-pmemsave-0x9d000`,
 `session_phases=early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final`,
 `phase_hash_early=...`, `phase_hash_after_start=...`,
@@ -343,10 +354,18 @@ keys: `schema=human-playtest-notes-v2`, `commit=...`,
 `operator_menu_escape=confirmed`,
 `operator_audio_observation=recorded`,
 `operator_slowdown_notes=recorded`,
+`operator_novnc_focus_observation=recorded`,
 `operator_phase_actions=confirmed`,
 `operator_phase_status_hashes=confirmed`,
 `operator_no_forbidden_artifacts=confirmed`, and
 `operator_post_download_verification=required`.
+
+The companion `human-playtest-observations.json` uses
+`schema=human-playtest-observations-v1`. It is JSON-only status evidence for
+the operator's noVNC focus, audio, and slowdown observations, and its artifact
+policy explicitly says it contains no WAD data, disk image, pixels,
+screenshots, raw audio, or local-QEMU proof. The checker rebuilds it from the
+notes and fails if the JSON drifts from the recorded observations.
 
 The companion `human-playtest-session.json` uses
 `schema=human-playtest-session-v1`. It records the remote endpoint, human
@@ -368,11 +387,11 @@ as fresh human evidence.
 The companion `human-playtest-manifest.json` uses
 `schema=human-playtest-manifest-v1` and is generated by the collector. It lists
 the expected status, ELF, symbol, log, optional aggregate-audio, notes,
-checklist, and session files with byte counts and SHA-256 hashes, plus the
-status-only artifact policy. The artifact checker requires this manifest in
-`--human-session` mode, requires the bundle to be flat and allowlisted, records
-`requires_post_download_verification=true`, and rejects bundles whose file
-inventory or hashes changed after collection.
+observations, checklist, and session files with byte counts and SHA-256 hashes,
+plus the status-only artifact policy. The artifact checker requires this
+manifest in `--human-session` mode, requires the bundle to be flat and
+allowlisted, records `requires_post_download_verification=true`, and rejects
+bundles whose file inventory or hashes changed after collection.
 
 Download `/tmp/vibe-os-human-proof` or a tarball of it. Do not download
 `build/disk.img` or `/tmp/DOOM1.WAD`.
@@ -555,8 +574,8 @@ Call a remote human playtest credible only after checking all of this:
 - Verify keyboard and mouse actions visibly affect Doom: Arrow keys, Ctrl, Space,
   Enter, Escape, and relative mouse movement/clicks all change the menu or E1M1.
 - The downloaded manual proof bundle contains `human-playtest-notes.txt`,
-  `human-playtest-checklist.txt`, `human-playtest-session.json`,
-  `human-playtest-manifest.json`,
+  `human-playtest-observations.json`, `human-playtest-checklist.txt`,
+  `human-playtest-session.json`, `human-playtest-manifest.json`,
   `status.early.txt`, `status.after-start.txt`, `status.after-fire.txt`,
   `status.after-move.txt`, `status.after-use.txt`, `status.after-mouse.txt`,
   `status.after-menu.txt`, `status.txt`, `doom.symbols`, and the diagnostic ELF
@@ -565,7 +584,9 @@ Call a remote human playtest credible only after checking all of this:
 - The notes are `schema=human-playtest-notes-v2`, include every `phase_hash_*`
   field, include the per-control `operator_*` confirmation fields, include
   `scripted_proof_url=`, `scripted_proof_checked=green-before-human-session`,
-  `audio_evidence=`, `operator_audio_observation=recorded`, and `slowdown=` /
+  `audio_evidence=`, `audio_notes=`, `operator_audio_observation=recorded`,
+  `novnc_focus=`, `novnc_focus_notes=`,
+  `operator_novnc_focus_observation=recorded`, and `slowdown=` /
   `slowdown_notes=`, and the local
   `post-download human verification OK` line matches the remote
   `pre-download human verification OK` line.

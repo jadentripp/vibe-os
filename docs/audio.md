@@ -118,7 +118,9 @@ Current kernel behavior:
   accepted as score end, while event type 5 is rejected as an invalid/reserved
   event. The status proof still uses the six-field `musicrend=` ABI; the
   host-side renderer tests are what prevent a fake fixture marker from standing
-  in for real Doom MUS parsing.
+  in for real Doom MUS parsing. The same fixtures now cover grouped MUS events,
+  system all-notes-off, and rejection of unterminated MUS variable-length
+  delays so malformed event groups cannot masquerade as valid buffered music.
 - exposes `VIBE_AUDIO_PCM_PULL_STATE` / `VIBE_AUDIO_MUSIC_PULL_STATE` so
   Doom-port music service and SB16 refill-side pull requests have an explicit
   source-level contract; the older `VIBE_AUDIO_PCM_BUFFERED_BYTES` query remains
@@ -282,7 +284,9 @@ rendered chunks, note events, total render events, active renderer voice peak,
 and emitted samples; a music flag plus carrier PCM cannot satisfy that lane.
 The parser-side stats separately prove that a real MUS score end was seen when
 the test fixture uses event type 6, and that the old type-5 shortcut is an
-invalid event that produces no stream payload.
+invalid event that produces no stream payload. They also prove grouped MUS
+events and reject unterminated MUS variable-length delays before the continuity
+checker trusts the six-field renderer status as parser-backed music.
 The rendered-sample delta is checked with stream buffering, not as a naked
 counter comparison: rendered samples plus the initial `musicbuf=` window must
 cover consumed `musicpos=` samples plus the final `musicbuf=` window. That

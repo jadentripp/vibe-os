@@ -6,8 +6,11 @@ MONITOR_SOCKET="${MONITOR_SOCKET:-build/play-now/monitor.sock}"
 OUTPUT_DIR="${OUTPUT_DIR:-/tmp/vibe-os-human-proof}"
 TARBALL="${TARBALL:-/tmp/vibe-os-human-proof.tgz}"
 AUDIO_MODE="${AUDIO_MODE:-}"
+AUDIO_NOTES="${AUDIO_NOTES:-}"
 SLOWDOWN_MODE="${SLOWDOWN_MODE:-}"
 SLOWDOWN_NOTES="${SLOWDOWN_NOTES:-}"
+NOVNC_FOCUS_MODE="${NOVNC_FOCUS_MODE:-}"
+NOVNC_FOCUS_NOTES="${NOVNC_FOCUS_NOTES:-}"
 PLAYTESTER=""
 SCRIPTED_PROOF_RUN_ID=""
 COMMIT_VALUE=""
@@ -42,10 +45,17 @@ Options:
   --audio MODE                   status-only, listener-pass,
                                  audio-proof-json-pass, or not-tested.
                                  Default: prompt; Enter selects status-only.
+  --audio-notes TEXT             Short status-only audio note. If omitted,
+                                 the helper derives one from --audio.
   --slowdown LEVEL               not-observed, mild, moderate, or severe.
                                  If omitted, the helper prompts after capture.
   --slowdown-notes TEXT          Short status-only slowdown note. If omitted,
                                  the helper prompts after capture.
+  --novnc-focus MODE             canvas-focused-before-actions,
+                                 focus-retaken-during-session, or
+                                 focus-issues-observed. Default: prompt.
+  --novnc-focus-notes TEXT       Short status-only noVNC focus note. If
+                                 omitted, the helper prompts after capture.
   --commit HASH                  Commit under test; defaults to git HEAD.
   -h, --help                     Show this help.
 EOF
@@ -85,6 +95,31 @@ validate_slowdown_fields() {
         ;;
     esac
   fi
+}
+
+validate_observation_notes() {
+  local label="$1"
+  local value="$2"
+
+  if [ -n "$value" ]; then
+    [ "${#value}" -le 160 ] || die "$label must be 160 characters or fewer"
+    case "$value" in
+      *"="*|*$'\n'*|*$'\r'*|*$'\t'*)
+        die "$label must be single-line status text without key separators"
+        ;;
+    esac
+  fi
+}
+
+validate_novnc_focus_fields() {
+  if [ -n "$NOVNC_FOCUS_MODE" ]; then
+    case "$NOVNC_FOCUS_MODE" in
+      canvas-focused-before-actions|focus-retaken-during-session|focus-issues-observed) ;;
+      *) die "--novnc-focus must be canvas-focused-before-actions, focus-retaken-during-session, or focus-issues-observed" ;;
+    esac
+  fi
+  validate_observation_notes "--novnc-focus-notes" "$NOVNC_FOCUS_NOTES"
+  validate_observation_notes "--audio-notes" "$AUDIO_NOTES"
 }
 
 validate_remote_scratch_paths() {
@@ -192,6 +227,11 @@ while [ "$#" -gt 0 ]; do
       AUDIO_MODE="$2"
       shift
       ;;
+    --audio-notes)
+      [ "$#" -ge 2 ] || die "--audio-notes requires a value"
+      AUDIO_NOTES="$2"
+      shift
+      ;;
     --slowdown)
       [ "$#" -ge 2 ] || die "--slowdown requires a value"
       SLOWDOWN_MODE="$2"
@@ -200,6 +240,16 @@ while [ "$#" -gt 0 ]; do
     --slowdown-notes)
       [ "$#" -ge 2 ] || die "--slowdown-notes requires a value"
       SLOWDOWN_NOTES="$2"
+      shift
+      ;;
+    --novnc-focus)
+      [ "$#" -ge 2 ] || die "--novnc-focus requires a value"
+      NOVNC_FOCUS_MODE="$2"
+      shift
+      ;;
+    --novnc-focus-notes)
+      [ "$#" -ge 2 ] || die "--novnc-focus-notes requires a value"
+      NOVNC_FOCUS_NOTES="$2"
       shift
       ;;
     --commit)
@@ -222,6 +272,7 @@ done
 [ -n "$SCRIPTED_PROOF_RUN_ID" ] || die "--scripted-proof-run-id is required"
 validate_human_labels
 validate_slowdown_fields
+validate_novnc_focus_fields
 
 case "$(uname -s)" in
   Darwin)
@@ -317,6 +368,11 @@ if [ -n "$AUDIO_MODE" ]; then
 else
   echo "  audio mode:       prompt after capture"
 fi
+if [ -n "$NOVNC_FOCUS_MODE" ]; then
+  echo "  noVNC focus:      $NOVNC_FOCUS_MODE"
+else
+  echo "  noVNC focus:      prompt after capture"
+fi
 echo
 echo "Keep QEMU running in the other remote SSH shell. Do not download WADs,"
 echo "disk images, framebuffer data, screenshots, status binaries, or raw audio."
@@ -391,6 +447,34 @@ case "$AUDIO_MODE" in
     echo "Audio evidence recorded as not-tested for this manual VNC session."
     ;;
 esac
+if [ -z "$AUDIO_NOTES" ]; then
+  case "$AUDIO_MODE" in
+    status-only) AUDIO_NOTES="vnc-display-input-only-sb16-status" ;;
+    listener-pass) AUDIO_NOTES="remote-audio-forwarding-listener-confirmed" ;;
+    audio-proof-json-pass) AUDIO_NOTES="aggregate-audio-proof-json-validated" ;;
+    not-tested) AUDIO_NOTES="audio-not-tested-in-manual-session" ;;
+  esac
+fi
+validate_observation_notes "--audio-notes" "$AUDIO_NOTES"
+
+if [ -z "$NOVNC_FOCUS_MODE" ]; then
+  while true; do
+    printf "noVNC focus observation? [canvas-focused-before-actions/focus-retaken-during-session/focus-issues-observed] "
+    read -r NOVNC_FOCUS_MODE
+    NOVNC_FOCUS_MODE="${NOVNC_FOCUS_MODE:-canvas-focused-before-actions}"
+    case "$NOVNC_FOCUS_MODE" in
+      canvas-focused-before-actions|focus-retaken-during-session|focus-issues-observed) break ;;
+      *) echo "Please enter canvas-focused-before-actions, focus-retaken-during-session, or focus-issues-observed." ;;
+    esac
+  done
+fi
+
+if [ -z "$NOVNC_FOCUS_NOTES" ]; then
+  printf "Short noVNC focus note, status-only, no logs/env/screenshots: "
+  read -r NOVNC_FOCUS_NOTES
+  [ -n "$NOVNC_FOCUS_NOTES" ] || NOVNC_FOCUS_NOTES="canvas-clicked-before-each-manual-action"
+fi
+validate_novnc_focus_fields
 
 python3 tools/collect_human_playtest_bundle.py \
   --build-dir "$BUILD_DIR" \
@@ -398,8 +482,11 @@ python3 tools/collect_human_playtest_bundle.py \
   --playtester "$PLAYTESTER" \
   --scripted-proof-run-id "$SCRIPTED_PROOF_RUN_ID" \
   --audio "$AUDIO_MODE" \
+  --audio-notes "$AUDIO_NOTES" \
   --slowdown "$SLOWDOWN_MODE" \
   --slowdown-notes "$SLOWDOWN_NOTES" \
+  --novnc-focus "$NOVNC_FOCUS_MODE" \
+  --novnc-focus-notes "$NOVNC_FOCUS_NOTES" \
   --commit "$COMMIT_VALUE" \
   --confirm-scripted-proof-green \
   --confirm-remote-vnc \
@@ -411,6 +498,7 @@ python3 tools/collect_human_playtest_bundle.py \
   --confirm-menu-escape \
   --confirm-audio-observation \
   --confirm-slowdown-notes \
+  --confirm-novnc-focus-observation \
   --confirm-phase-actions \
   --confirm-phase-status-hashes \
   --confirm-no-forbidden-artifacts \

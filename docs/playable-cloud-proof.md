@@ -100,6 +100,9 @@ Downloaded artifacts now print explicit failure lanes: gameplay/input, SB16
 continuity, audible audio aggregate when requested, and persistence/save-load
 when requested. Keep those boundaries intact when deciding what the current
 branch actually proves.
+The reboot persistence proof is skipped when the first real-WAD boot step fails,
+because a second boot cannot prove save/load until the primary boot has produced
+usable status snapshots.
 When persistence fails before a top-level copy step runs, the artifact still
 includes mirrored phase status and triage text such as
 `status.persistence-write.status.save-slot-0.txt`; WADs, disk images, pixels,
@@ -540,3 +543,37 @@ the local checker prints a `post-download human verification OK` line with
 `session_id`, `bundle_sha256`, `manifest_sha256`, and short phase hashes to
 compare against the remote collector's `pre-download human verification OK`
 line.
+
+## Cloud Triage
+
+Use `tools/run_cloud_playability.py --lane gameplay`, `--lane audio`, or
+`--lane persistence --save-slot 0` to rerun only the red proof lane. For a
+downloaded `real-wad-smoke-status` artifact, run
+`tools/triage_cloud_status.py build/status.txt` first, then the actual proof
+checkers. Status/proof tools should parse status text through
+`tools/status_fields.py` so composite fields such as `execsys=a/b/c/d/e/f` stay
+intact and duplicate `key=value` fields fail loudly.
+
+The classifier names the first repair lane with these stable labels:
+`exec-not-attempted`, `exec-failed`, `doom-user-fault`, `kernel-panic`,
+`os-shutdown-requested`, `ata-storage-stalled`, `missing-wad-open-read`,
+`persistence-save-write-failed`, `persistence-save-growth-allocation-partial`,
+`persistence-load-malformed-stream`, `persistence-load-not-completed`,
+`doom-init-stalled`, `frames-no-gameplay`, `input-no-effect`,
+`doom-timer-not-proven`, `preemption-not-proven`,
+`long-run-cadence-not-proven`, `artifact-proof-failure`, and
+`playability-status-green`.
+
+`ata-storage-stalled` covers `atawait=BUSY`, `atawait=DRQ`, `atawait=READY`, or `atawait=DATA`
+before Doom frames, or nonzero `atafail` / `atatmo`; use `ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo` for detail.
+If `doomrun=RUN`, WAD I/O is green, and input/audio/preemption counters active,
+proof gates can still fail on snapshot-baseline details such as
+`usr=OK` consistency, scripted `use` phase progression, mouse baseline/effect evidence,
+audio baseline continuity, or missing early/start/fire/move/use/
+mouse/menu snapshots. Read the checker error literally before changing kernel
+code.
+
+Shutdown and panic claims are separate from normal playability. The opt-in
+`shutdown_panic_proof` lane must be validated with
+`tools/check_shutdown_panic_proof.py`; a QEMU monitor cleanup or ordinary failed
+boot is not guest halt/reboot/poweroff evidence.

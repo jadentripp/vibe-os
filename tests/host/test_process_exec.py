@@ -64,17 +64,18 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertNotIn("mov edi, USER_HEAP_START", user_probe_run)
         self.assertNotIn("(USER_HEAP_END - USER_HEAP_START) / 4", user_probe_run)
         for source in (
-            "USER_PROBE_EXPECTED_FLAGS equ 0x0003ffff",
+            "USER_PROBE_EXPECTED_FLAGS equ 0x0007ffff",
             "PROBE_FLAG_PROCESS_ABI = 0x800u",
             "PROBE_FLAG_NEGATIVE_SYSCALLS = 0x1000u",
             "PROBE_FLAG_WAIT_REAP = 0x2000u",
             "PROBE_FLAG_FTRUNCATE = 0x4000u",
             "PROBE_FLAG_SBRK_SHRINK = 0x8000u",
             "PROBE_FLAG_LISTDIR = 0x10000u",
-            "PROBE_FLAG_DUP = 0x20000u",
+            "PROBE_FLAG_FCNTL = 0x40000u",
             "PROBE_FLAG_DUP = 0x20000u",
             "SYS_GETPID = 25",
             "SYS_LISTDIR = 30",
+            "SYS_FCNTL = 35",
             "int user_main(int argc, char **argv, char **envp)",
             'probe_streq(argv[0], "USERPROB.ELF")',
             "argv[1] == (char *)0",
@@ -82,7 +83,8 @@ class ProcessExecContractTests(unittest.TestCase):
             "int pid = syscall3(SYS_GETPID, 0, 0, 0);",
             "pid > 0",
         ):
-            self.assertIn(source, kernel if source.startswith("USER_PROBE_EXPECTED") else probe)
+            expected_source = kernel if source.startswith("USER_PROBE_EXPECTED") else probe
+            self.assertIn(source, expected_source)
 
     def test_process_exec_resolves_table_paths_and_generic_fat16_elves(self):
         kernel = read_kernel()
@@ -500,7 +502,7 @@ class ProcessExecContractTests(unittest.TestCase):
             self.assertIn(source, abi_probe)
         for source in (
             "ABI_PROBE_MAGIC equ 0xA81B10BE",
-            "ABI_PROBE_EXPECTED_FLAGS equ 0x00000007",
+            "ABI_PROBE_EXPECTED_FLAGS equ 0x0000000f",
             "exec_path_abi_probe db \"ABIPROBE.ELF\", 0",
             "abi_probe_status db 0",
             "abi_probe_exec_status db 0",
@@ -1325,6 +1327,7 @@ class ProcessExecContractTests(unittest.TestCase):
         probe = (ROOT / "user" / "probe.c").read_text()
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
         unistd = (ROOT / "doom_port" / "include" / "unistd.h").read_text()
+        fcntl = (ROOT / "doom_port" / "include" / "fcntl.h").read_text()
         libc = (ROOT / "doom_port" / "libc.c").read_text()
         handler = kernel.split("syscall_handler:", 1)[1].split("user_range_validate:", 1)[0]
         fd_clone = kernel.split("fd_clone_descriptor:", 1)[1].split("fd_close_slot:", 1)[0]
@@ -1333,30 +1336,37 @@ class ProcessExecContractTests(unittest.TestCase):
             "SYS_DUP equ 32",
             "SYS_DUP2 equ 33",
             "SYS_DUP3 equ 34",
+            "SYS_FCNTL equ 35",
             "cmp eax, SYS_DUP",
             "je .dup",
             "cmp eax, SYS_DUP2",
             "je .dup2",
             "cmp eax, SYS_DUP3",
             "je .dup3",
+            "cmp eax, SYS_FCNTL",
+            "je .fcntl",
             "VIBE_SYS_DUP = 32",
             "VIBE_SYS_DUP2 = 33",
             "VIBE_SYS_DUP3 = 34",
+            "VIBE_SYS_FCNTL = 35",
         ):
             self.assertIn(source, kernel if source.startswith("SYS_") or source.startswith("cmp ") or source.startswith("je ") else header)
         for source in (
             "int dup(int oldfd);",
             "int dup2(int oldfd, int newfd);",
             "int dup3(int oldfd, int newfd, int flags);",
+            "int fcntl(int fd, int cmd, ...);",
         ):
-            self.assertIn(source, unistd)
+            self.assertIn(source, unistd if source.startswith("int dup") else fcntl)
         for source in (
             "int dup(int oldfd)",
             "int dup2(int oldfd, int newfd)",
             "int dup3(int oldfd, int newfd, int flags)",
+            "int fcntl(int fd, int cmd, ...)",
             "vibe_syscall3(VIBE_SYS_DUP",
             "vibe_syscall3(VIBE_SYS_DUP2",
             "vibe_syscall3(VIBE_SYS_DUP3",
+            "vibe_syscall3(VIBE_SYS_FCNTL",
             "clone_save_fd_tracking(oldfd, raw)",
         ):
             self.assertIn(source, libc)
@@ -1381,6 +1391,7 @@ class ProcessExecContractTests(unittest.TestCase):
             ".dup:",
             ".dup2:",
             ".dup3:",
+            ".fcntl:",
             "inc dword [fd_dup_calls]",
             "inc dword [fd_dup2_calls]",
             "inc dword [fd_dup3_calls]",
@@ -1389,19 +1400,29 @@ class ProcessExecContractTests(unittest.TestCase):
             "je .bad_syscall_einval",
             "call fd_clone_descriptor",
             "inc dword [fd_dup_cloexec]",
+            "cmp ecx, F_GETFD",
+            "cmp ecx, F_SETFD",
+            "mov eax, FD_CLOEXEC",
+            "mov dword [fd_inherit_flags + esi * 4], 0",
+            "mov dword [fd_inherit_flags + esi * 4], FD_INHERIT_EXEC",
         ):
             self.assertIn(source, handler)
         for source in (
             "PROBE_FLAG_DUP = 0x20000u",
+            "PROBE_FLAG_FCNTL = 0x40000u",
             "static int sys_dup(int fd)",
             "static int sys_dup2(int oldfd, int newfd)",
             "static int sys_dup3(int oldfd, int newfd, uint32_t flags)",
+            "static int sys_fcntl(int fd, int cmd, uint32_t arg)",
             "sys_dup(defaults)",
             "sys_dup2(dup_fd, DUP2_TARGET_FD) == DUP2_TARGET_FD",
             "sys_dup3(defaults, DUP3_TARGET_FD, O_CLOEXEC) == DUP3_TARGET_FD",
             "sys_dup2(dup_fd, dup_fd) == dup_fd",
             "sys_dup3(dup_fd, dup_fd, 0) == -ERRNO_EINVAL",
             "flags |= PROBE_FLAG_DUP;",
+            "sys_fcntl(defaults, F_SETFD, FD_CLOEXEC) == 0",
+            "sys_fcntl(defaults, F_GETFD, 0) == FD_CLOEXEC",
+            "flags |= PROBE_FLAG_FCNTL;",
         ):
             self.assertIn(source, probe)
 
@@ -1485,6 +1506,7 @@ class ProcessExecContractTests(unittest.TestCase):
         kernel = read_kernel()
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
         unistd = (ROOT / "doom_port" / "include" / "unistd.h").read_text()
+        fcntl = (ROOT / "doom_port" / "include" / "fcntl.h").read_text()
         libc = (ROOT / "doom_port" / "libc.c").read_text()
         mman = (ROOT / "doom_port" / "include" / "sys" / "mman.h").read_text()
         process_doc = (ROOT / "docs" / "process-exec.md").read_text()
@@ -1517,12 +1539,14 @@ class ProcessExecContractTests(unittest.TestCase):
             "SYS_DUP equ 32",
             "SYS_DUP2 equ 33",
             "SYS_DUP3 equ 34",
+            "SYS_FCNTL equ 35",
         ):
             self.assertIn(source, kernel)
         for source in (
             "VIBE_SYS_DUP",
             "VIBE_SYS_DUP2",
             "VIBE_SYS_DUP3",
+            "VIBE_SYS_FCNTL",
         ):
             self.assertIn(source, header)
         for source in (
@@ -1539,6 +1563,8 @@ class ProcessExecContractTests(unittest.TestCase):
         ):
             self.assertIn(source, unistd)
             self.assertIn(source, libc)
+        self.assertIn("int fcntl(int fd, int cmd, ...);", fcntl)
+        self.assertIn("int fcntl(int fd, int cmd, ...)", libc)
         for source in (
             "int isatty(",
         ):
@@ -1562,6 +1588,7 @@ class ProcessExecContractTests(unittest.TestCase):
             "## POSIX Gap Decomposition",
             "Address-space cloning, copy-on-write or eager page copies",
             "Public `dup`, `dup2`, and `dup3` syscalls/libc wrappers",
+            "`fcntl(F_GETFD/F_SETFD)`",
             "Fork-time descriptor table cloning",
             "File-backed mappings, `MAP_SHARED`, `MAP_FIXED`",
             "`signal`, `sigaction`, `kill`, signal masks",
@@ -1574,6 +1601,7 @@ class ProcessExecContractTests(unittest.TestCase):
             "## General-OS Gap Contract",
             "`fork` exists only as a classified syscall/libc surface.",
             "Descriptor lifetime and fd duplication now have a bounded Unix-open-file-description milestone.",
+            "`fcntl(F_GETFD/F_SETFD)`",
             "VM allocation is anonymous/private and brk-backed.",
             "POSIX signal delivery is absent.",
             "Terminal/tty behavior is absent.",

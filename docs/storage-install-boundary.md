@@ -41,7 +41,11 @@ verifies the generated raw image shape and prints an
 FAT16 partition type/start/end, non-overlap with the raw Stage 2/kernel staging
 regions, BPB total-sector and hidden-sector fields, FAT/root/data geometry,
 FAT reserved entries, FAT-copy/cluster-ownership health, and live root-entry
-inventory.
+inventory. It also reads back the generated packaged asset paths under
+`/ASSETS`, including nested normalized 8.3 paths, and reports their sizes,
+clusters, and hashes in the manifest. That is host image-content proof only;
+the kernel syscall surface still advertises just the narrower path support
+documented in `docs/persistent-fat16.md`.
 
 The checker intentionally refuses to widen the claim. A passing manifest means
 "this repo-built image has the expected boot/FAT layout and recoverable root

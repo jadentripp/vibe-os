@@ -290,6 +290,11 @@ class AudibleAudioProofTests(unittest.TestCase):
         self.assertEqual(manifest["continuity"]["renderer_contract"]["parser_owner"], "doom_port/music.c")
         self.assertEqual(manifest["continuity"]["renderer_contract"]["mus_score_end_event_type"], 6)
         self.assertEqual(manifest["continuity"]["renderer_contract"]["mus_reserved_event_type_rejected"], 5)
+        self.assertEqual(manifest["continuity"]["renderer_contract"]["mus_max_variable_delay_bytes"], 4)
+        self.assertTrue(
+            manifest["continuity"]["renderer_contract"]["mus_variable_delay_requires_terminator"]
+        )
+        self.assertTrue(manifest["continuity"]["renderer_contract"]["mus_grouped_event_fixture"])
         self.assertEqual(manifest["continuity"]["scripted_phase_proof"]["baseline_snapshot"], "baseline")
         self.assertEqual(manifest["continuity"]["scripted_phase_proof"]["fire_snapshot"], "fire")
         self.assertTrue(manifest["continuity"]["scripted_phase_proof"]["requires_scripted_fire_sfx"])
@@ -423,6 +428,16 @@ class AudibleAudioProofTests(unittest.TestCase):
         wrong_reserved["continuity"]["renderer_contract"]["mus_reserved_event_type_rejected"] = 6
         with self.assertRaisesRegex(AssertionError, "event type 5"):
             check_audible_audio_proof.validate_manifest(wrong_reserved)
+
+        wrong_delay = json.loads(json.dumps(manifest))
+        wrong_delay["continuity"]["renderer_contract"]["mus_variable_delay_requires_terminator"] = False
+        with self.assertRaisesRegex(AssertionError, "terminated MUS delay"):
+            check_audible_audio_proof.validate_manifest(wrong_delay)
+
+        wrong_group = json.loads(json.dumps(manifest))
+        wrong_group["continuity"]["renderer_contract"]["mus_grouped_event_fixture"] = False
+        with self.assertRaisesRegex(AssertionError, "grouped MUS event"):
+            check_audible_audio_proof.validate_manifest(wrong_group)
 
     def test_cli_writes_and_validates_manifest_without_uploading_wav(self):
         with tempfile.TemporaryDirectory() as tmp:

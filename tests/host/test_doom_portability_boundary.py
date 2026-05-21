@@ -87,7 +87,7 @@ class DoomPortabilityBoundaryTests(unittest.TestCase):
                 self.assertTrue(names.issubset(set(hooks[group])))
 
     def test_portability_readiness_doc_tracks_checker_contract(self):
-        docs = (ROOT / "docs" / "doom-portability-readiness.md").read_text()
+        docs = (ROOT / "docs" / "doom-provenance.md").read_text()
         checker = (ROOT / "tools" / "check_doom_portability_boundary.py").read_text()
 
         for token in (

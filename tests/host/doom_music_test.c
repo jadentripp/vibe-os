@@ -270,6 +270,118 @@ static int test_mus_fixture_handles_controller_pitch_sustain_and_percussion(void
     return 0;
 }
 
+static int test_mus_fixture_handles_grouped_real_events_and_system_controls(void)
+{
+    static unsigned char mus_lump[] = {
+        'M', 'U', 'S', 0x1a,
+        16, 0,
+        16, 0,
+        1, 0,
+        0, 0,
+        0, 0,
+        0, 0,
+        0x40, 0, 40,
+        0x40, 4, 32,
+        0x90, 0xbc, 100, 8,
+        0x20, 64,
+        0xb0, 11, 1,
+        0x60
+    };
+    unsigned char pcm[2048];
+    vibe_music_render_stats_t stats;
+    unsigned long rendered;
+
+    rendered = vibe_music_render_pcm(
+        mus_lump,
+        pcm,
+        sizeof(pcm),
+        VIBE_MUSIC_DEFAULT_SAMPLE_RATE,
+        127,
+        0,
+        &stats);
+
+    if (rendered != sizeof(pcm))
+        return 160;
+    if (count_non_silence(pcm, sizeof(pcm)) < 256)
+        return 161;
+    if (stats.program_count != 1 || stats.pan_count != 1)
+        return 162;
+    if (stats.pitch_bend_count != 1)
+        return 163;
+    if (stats.controller_count != 3 || stats.all_notes_off_count != 1)
+        return 164;
+    if (stats.note_on_count != 1 || stats.note_off_count != 0)
+        return 165;
+    if (stats.score_end_count != 1 || stats.invalid_event_count != 0)
+        return 166;
+
+    return 0;
+}
+
+static int test_mus_rejects_unterminated_delay_and_reserved_system_event(void)
+{
+    static unsigned char truncated_delay_mus_lump[] = {
+        'M', 'U', 'S', 0x1a,
+        4, 0,
+        16, 0,
+        1, 0,
+        0, 0,
+        0, 0,
+        0, 0,
+        0x90, 0xbc, 100, 0x81
+    };
+    static unsigned char reserved_system_mus_lump[] = {
+        'M', 'U', 'S', 0x1a,
+        3, 0,
+        16, 0,
+        1, 0,
+        0, 0,
+        0, 0,
+        0, 0,
+        0xb0, 15, 0
+    };
+    unsigned char pcm[512];
+    vibe_music_render_stats_t stats;
+    unsigned long rendered;
+    unsigned long i;
+
+    for (i = 0; i < sizeof(pcm); ++i)
+        pcm[i] = 7;
+    rendered = vibe_music_render_pcm(
+        truncated_delay_mus_lump,
+        pcm,
+        sizeof(pcm),
+        VIBE_MUSIC_DEFAULT_SAMPLE_RATE,
+        127,
+        0,
+        &stats);
+    if (rendered != 0)
+        return 170;
+    if (stats.format != VIBE_MUSIC_FORMAT_MUS || stats.invalid_event_count != 1)
+        return 171;
+    if (count_non_silence(pcm, sizeof(pcm)))
+        return 172;
+
+    for (i = 0; i < sizeof(pcm); ++i)
+        pcm[i] = 9;
+    rendered = vibe_music_render_pcm(
+        reserved_system_mus_lump,
+        pcm,
+        sizeof(pcm),
+        VIBE_MUSIC_DEFAULT_SAMPLE_RATE,
+        127,
+        0,
+        &stats);
+    if (rendered != 0)
+        return 173;
+    if (stats.format != VIBE_MUSIC_FORMAT_MUS || stats.invalid_event_count != 1)
+        return 174;
+    if (count_non_silence(pcm, sizeof(pcm)))
+        return 175;
+
+    return 0;
+}
+
 static int test_midi_fixture_handles_running_status_and_richer_channel_state(void)
 {
     static unsigned char midi_lump[] = {
@@ -768,6 +880,14 @@ int main(void)
         return result;
 
     result = test_mus_fixture_handles_controller_pitch_sustain_and_percussion();
+    if (result)
+        return result;
+
+    result = test_mus_fixture_handles_grouped_real_events_and_system_controls();
+    if (result)
+        return result;
+
+    result = test_mus_rejects_unterminated_delay_and_reserved_system_event();
     if (result)
         return result;
 

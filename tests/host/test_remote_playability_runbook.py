@@ -72,7 +72,7 @@ def valid_status(**overrides):
         "upath": "USERPROB.ELF",
         "upid": "00000004",
         "uentry": "00E80000",
-        "uflags": "0003FFFF",
+        "uflags": "0007FFFF",
         "abiexec": "OK",
         "abipath": "ABIPROBE.ELF",
         "abipid": "00000005",
@@ -81,7 +81,7 @@ def valid_status(**overrides):
         "abiargc": "00000001",
         "abiargvsrc": "00000002",
         "abiprobe": "OK",
-        "abiflags": "00000007",
+        "abiflags": "0000000F",
         "entry": "01000000",
         "stack": "01FFFFE0",
         "argc": "00000001",
@@ -629,8 +629,11 @@ def write_human_notes(artifact, **overrides):
         "mouse_evidence": "motion-click-visible",
         "menu_evidence": "escape-menu-visible",
         "audio_evidence": "status-only-sb16-continuity",
+        "audio_notes": "vnc-display-input-only-sb16-status",
         "slowdown": "not-observed",
         "slowdown_notes": "not-observed-during-capture",
+        "novnc_focus": "canvas-focused-before-actions",
+        "novnc_focus_notes": "canvas-clicked-before-each-manual-action",
         "status_capture": "monitor-pmemsave-0x9d000",
         "session_phases": (
             "early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final"
@@ -651,6 +654,7 @@ def write_human_notes(artifact, **overrides):
         "operator_menu_escape": "confirmed",
         "operator_audio_observation": "recorded",
         "operator_slowdown_notes": "recorded",
+        "operator_novnc_focus_observation": "recorded",
         "operator_phase_actions": "confirmed",
         "operator_phase_status_hashes": "confirmed",
         "operator_no_forbidden_artifacts": "confirmed",
@@ -664,12 +668,25 @@ def write_human_notes(artifact, **overrides):
 
 
 def write_human_session(artifact):
+    if not (artifact / "human-playtest-observations.json").exists():
+        write_human_observations(artifact)
     (artifact / "human-playtest-session.json").write_text(
         json.dumps(
             check_cloud_playability_artifacts.build_human_session(
                 artifact,
                 collected_at_utc="2026-05-20T00:00:00Z",
             ),
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+
+
+def write_human_observations(artifact):
+    (artifact / "human-playtest-observations.json").write_text(
+        json.dumps(
+            check_cloud_playability_artifacts.build_human_observations(artifact),
             indent=2,
             sort_keys=True,
         )
@@ -982,8 +999,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
     def test_play_now_codespaces_safety_polish_is_documented_and_static_checked(self):
         codespaces_script = (ROOT / "tools" / "play_now_codespaces.sh").read_text()
         remote_script = (ROOT / "tools" / "play_now_remote.sh").read_text()
-        codespaces_doc = (ROOT / "docs" / "runbooks" / "codespaces-play-now.md").read_text()
-        cloud_doc = (ROOT / "docs" / "runbooks" / "play-now-cloud.md").read_text()
+        play_now_doc = (ROOT / "docs" / "runbooks" / "play-now-cloud.md").read_text()
 
         for needle in (
             "redact_remote_stream",
@@ -1007,14 +1023,13 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             with self.subTest(needle=needle):
                 self.assertIn(needle, remote_script)
 
-        for doc in (codespaces_doc, cloud_doc):
-            self.assertIn("effective CPU count", doc)
-            self.assertIn("/tmp/vibe-os-play-now.pid", doc)
-            self.assertIn("/tmp/vibe-os-play-now.novnc-port", doc)
-            self.assertIn("signed URL parameters", doc)
-            self.assertIn("2-core", doc)
-            self.assertIn("4+ CPU", doc)
-            self.assertIn("private", doc)
+        self.assertIn("effective CPU count", play_now_doc)
+        self.assertIn("/tmp/vibe-os-play-now.pid", play_now_doc)
+        self.assertIn("/tmp/vibe-os-play-now.novnc-port", play_now_doc)
+        self.assertIn("signed URL parameters", play_now_doc)
+        self.assertIn("2-core", play_now_doc)
+        self.assertIn("4+ CPU", play_now_doc)
+        self.assertIn("private", play_now_doc)
 
     def test_remote_preflight_uses_cgroup_quota_for_codespaces_slowdown_warning(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1037,7 +1052,6 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
 
     def test_guided_remote_human_playtest_helper_is_safe_and_wires_collector(self):
         script = GUIDED_HUMAN_PLAYTEST.read_text()
-        cloud = (ROOT / "docs" / "runbooks" / "cloud-interactive-playtest.md").read_text()
         play_now = (ROOT / "docs" / "runbooks" / "play-now-cloud.md").read_text()
         remote = (ROOT / "docs" / "runbooks" / "remote-doom-playtest.md").read_text()
 
@@ -1076,6 +1090,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             "--confirm-menu-escape",
             "--confirm-audio-observation",
             "--confirm-slowdown-notes",
+            "--confirm-novnc-focus-observation",
             "--confirm-phase-actions",
             "--confirm-phase-status-hashes",
             "--confirm-no-forbidden-artifacts",
@@ -1102,7 +1117,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                 self.assertNotIn(forbidden, script)
 
         self.assertTrue(GUIDED_HUMAN_PLAYTEST.stat().st_mode & 0o111)
-        for doc in (cloud, play_now, remote):
+        for doc in (play_now, remote):
             self.assertIn("tools/run_remote_human_playtest.sh", doc)
             self.assertIn("--scripted-proof-run-id", doc)
             self.assertIn("--playtester", doc)
@@ -1498,6 +1513,21 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                     require_human_notes=True,
                 )
 
+    def test_downloaded_human_session_requires_observations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            write_human_notes(artifact)
+            write_human_session(artifact)
+            write_human_manifest(artifact)
+            (artifact / "human-playtest-observations.json").unlink()
+
+            with self.assertRaisesRegex(AssertionError, "human observations file"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
     def test_downloaded_human_session_requires_generated_checklist(self):
         with tempfile.TemporaryDirectory() as tmp:
             artifact = Path(tmp)
@@ -1556,6 +1586,25 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             session_path.write_text(json.dumps(session, indent=2, sort_keys=True) + "\n")
 
             with self.assertRaisesRegex(AssertionError, "human playtest session failed"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
+    def test_downloaded_human_session_rejects_observations_tampering(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            write_human_notes(artifact)
+            write_human_session(artifact)
+            write_human_manifest(artifact)
+
+            observations_path = artifact / "human-playtest-observations.json"
+            observations = json.loads(observations_path.read_text())
+            observations["audio"]["notes"] = "changed-after-collection"
+            observations_path.write_text(json.dumps(observations, indent=2, sort_keys=True) + "\n")
+
+            with self.assertRaisesRegex(AssertionError, "human playtest observations failed"):
                 check_cloud_playability_artifacts.validate_artifact_dir(
                     artifact,
                     require_human_notes=True,
@@ -1659,6 +1708,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         self.assertIn("scripted_proof_run_id=26156172979", result.stdout)
         self.assertIn("review evidence:", result.stdout)
         self.assertIn("audio_evidence=status-only-sb16-continuity", result.stdout)
+        self.assertIn("novnc_focus=canvas-focused-before-actions", result.stdout)
         self.assertIn("phase status hashes:", result.stdout)
 
     def test_cli_human_session_mode_rejects_wrong_expected_identity(self):
@@ -1744,6 +1794,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                     "--confirm-menu-escape",
                     "--confirm-audio-observation",
                     "--confirm-slowdown-notes",
+                    "--confirm-novnc-focus-observation",
                     "--confirm-phase-actions",
                     "--confirm-phase-status-hashes",
                     "--confirm-no-forbidden-artifacts",
@@ -1758,12 +1809,18 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertIn("human playtest bundle OK", result.stdout)
             self.assertIn("pre-download human verification OK", result.stdout)
             self.assertTrue((output / "human-playtest-notes.txt").exists())
+            self.assertTrue((output / "human-playtest-observations.json").exists())
             self.assertTrue((output / "human-playtest-session.json").exists())
             self.assertTrue((output / "human-playtest-checklist.txt").exists())
             self.assertTrue((output / "human-playtest-manifest.json").exists())
             checklist = (output / "human-playtest-checklist.txt").read_text()
             self.assertIn("--expected-commit abcdef0", checklist)
             self.assertIn("--expected-scripted-proof-run-id 26156172979", checklist)
+            observations = json.loads((output / "human-playtest-observations.json").read_text())
+            self.assertEqual(observations["schema"], "human-playtest-observations-v1")
+            self.assertEqual(observations["novnc_focus"]["status"], "canvas-focused-before-actions")
+            self.assertEqual(observations["audio"]["notes"], "vnc-display-input-only-sb16-status")
+            self.assertFalse(observations["artifact_policy"]["contains_raw_audio"])
             self.assertIn("human-playtest-checklist.txt", result.stdout)
             self.assertTrue((output / "serial.remote.log").exists())
             redacted_log = (output / "tokens.remote.log").read_text()
@@ -1845,6 +1902,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                     "--confirm-menu-escape",
                     "--confirm-audio-observation",
                     "--confirm-slowdown-notes",
+                    "--confirm-novnc-focus-observation",
                     "--confirm-phase-actions",
                     "--confirm-phase-status-hashes",
                     "--confirm-no-forbidden-artifacts",
@@ -1957,6 +2015,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                 "--confirm-menu-escape",
                 "--confirm-audio-observation",
                 "--confirm-slowdown-notes",
+                "--confirm-novnc-focus-observation",
                 "--confirm-phase-actions",
                 "--confirm-phase-status-hashes",
                 "--confirm-no-forbidden-artifacts",

@@ -86,19 +86,22 @@ target instead of returning to the caller.
   owns the file offset, kind, flags, and size metadata. `dup`, `dup2`, and
   `dup3` create refcounted descriptors pointing at that root, so reads and
   seeks through either fd observe one offset. `dup3(..., O_CLOEXEC)` makes only
-  the new descriptor close-on-exec. `exec` retags inheritable descriptors from
-  the caller PID to the target PID and closes descriptors opened or duplicated
-  with close-on-exec. Process teardown, fault handling, target-slot reuse, and
-  wait reaping all sweep descriptors owned by the retiring process. This is real
-  exec-time fd inheritance/close-on-exec behavior with shared descriptions, not
-  yet fork-time descriptor duplication.
+  the new descriptor close-on-exec, and `fcntl(F_GETFD/F_SETFD)` lets userland
+  inspect or toggle `FD_CLOEXEC` on an existing descriptor. `exec` retags
+  inheritable descriptors from the caller PID to the target PID and closes
+  descriptors opened, duplicated, or later marked with close-on-exec. Process
+  teardown, fault handling, target-slot reuse, and wait reaping all sweep
+  descriptors owned by the retiring process. This is real exec-time fd
+  inheritance/close-on-exec behavior with shared descriptions, not yet fork-time
+  descriptor duplication.
 - The same handoff contract applies to table-backed programs and generic
   root-level `.ELF` programs. Generic userland should treat the public ABI as:
   root-only FAT16 8.3 `.ELF` path, at most `VIBE_EXEC_ARG_MAX` argv strings,
   each bounded by `VIBE_EXEC_ARG_STR_MAX`, an argv pointer vector copied before
   the old address space is retired, an empty `envp` vector seeded by the
   kernel, and inherited descriptors limited to fd slots not opened with
-  `O_CLOEXEC`. That is the reusable contract for post-Doom games and tools.
+  `O_CLOEXEC` or marked `FD_CLOEXEC` with `fcntl(F_SETFD)`.
+  That is the reusable contract for post-Doom games and tools.
 - The initial Ring 3 probe is loaded through `process_exec_path` and
   bootstrapped through the same stack builder before entering crt0. It receives
   `argc == 1`, `argv[0] == "USERPROB.ELF"`, `argv[1] == NULL`, and an empty
@@ -195,7 +198,7 @@ The same status line also records `execerr=<errno>`, `execres=<syscall result>`,
 probe image used the same exec resolver before it called `SYS_EXEC`. The second
 program proof is separate again:
 `abiexec=OK abipath=ABIPROBE.ELF abipid=<pid> abippid=<pid> abientry=<eip>
-abiargc=1 abiargvsrc=2 abiprobe=OK abiflags=00000007` records that the generic
+abiargc=1 abiargvsrc=2 abiprobe=OK abiflags=0000000F` records that the generic
 root `.ELF` resolver selected a bounded generic slot, built the crt0 stack from
 a copied user argv vector, ran `user/abi_probe.c`, and observed the probe's
 success marker before Doom was launched. It also
@@ -279,7 +282,7 @@ that must be added before claiming POSIX compatibility.
 | Area | Current contract | Intentionally missing |
 | --- | --- | --- |
 | `fork` | `SYS_FORK` is wired through the syscall table and returns `-ENOSYS`; libc `fork()` preserves that errno and the user probe checks the classified result. | Address-space cloning, copy-on-write or eager page copies, parent/child return-value split, inherited signal state, and fork-time fd table cloning. |
-| fd duplication | Public `dup`, `dup2`, and `dup3` syscalls/libc wrappers create process-owned descriptors that share an open-file description root, including the current offset. `dup2(oldfd, oldfd)` returns the existing descriptor, `dup3(oldfd, oldfd, flags)` returns `EINVAL`, and `dup3(..., O_CLOEXEC)` is closed by the next exec. | Fork-time descriptor table cloning, `fcntl(F_DUPFD*)`, dynamically growing fd tables, and per-process fd namespaces beyond the current bounded global slot pool. |
+| fd duplication | Public `dup`, `dup2`, and `dup3` syscalls/libc wrappers create process-owned descriptors that share an open-file description root, including the current offset. `dup2(oldfd, oldfd)` returns the existing descriptor, `dup3(oldfd, oldfd, flags)` returns `EINVAL`, `dup3(..., O_CLOEXEC)` is closed by the next exec, and `fcntl(F_GETFD/F_SETFD)` exposes descriptor-level `FD_CLOEXEC` toggling for existing fds. | Fork-time descriptor table cloning, `fcntl(F_DUPFD*)`, dynamically growing fd tables, and per-process fd namespaces beyond the current bounded global slot pool. |
 | file-backed `mmap` | `mmap` is anonymous/private/brk-backed; `munmap` validates mapped heap ranges, reclaims tail pages, and records non-tail holes. | File-backed mappings, `MAP_SHARED`, `MAP_FIXED`, reusable VM object lifetime, VMA splitting/merging, and page-cache backed mappings. |
 | signals | User faults become kernel process status and wait-reapable abnormal exits; expected-fault recovery is a probe-only trap rewrite. | `signal`, `sigaction`, `kill`, signal masks, user handler trampolines, timer signals, and delivery across scheduler context switches. |
 | terminal/tty | Keyboard and mouse input use the typed input queue; display control uses `ioctl(VIBE_DISPLAY_FD, ...)`, with non-display ioctls classified as `ENOTTY`. | `termios`, `isatty`, controlling terminals, line discipline, process groups, job control, and `/dev/tty*` path/device semantics. |

@@ -126,9 +126,11 @@ ssh_permission_error() {
 print_codespace_cleanup_commands() {
   echo "Remote log: gh codespace ssh -c \"$CODESPACE_NAME\" -- tail -f /tmp/vibe-os-play-now.log"
   echo "Diagnostics: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh"
+  echo "Status: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh"
   echo "List ports: gh codespace ports -c \"$CODESPACE_NAME\""
   echo "Inspect machine: gh api /user/codespaces/$CODESPACE_NAME --jq .machine"
-  echo "Stop play-now: gh codespace ssh -c \"$CODESPACE_NAME\" -- 'if [ -s /tmp/vibe-os-play-now.pid ]; then kill \"\$(cat /tmp/vibe-os-play-now.pid)\"; fi'"
+  echo "Stop play-now: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-stop.sh"
+  echo "Fallback stop: gh codespace ssh -c \"$CODESPACE_NAME\" -- 'if [ -s /tmp/vibe-os-play-now.pid ]; then kill \"\$(cat /tmp/vibe-os-play-now.pid)\"; fi'"
   echo "Delete when done: gh codespace delete -c \"$CODESPACE_NAME\" --force"
   echo "Browser cleanup: GitHub repo > Code > Codespaces > ... > Delete"
 }
@@ -829,8 +831,8 @@ fi
 novnc_url="$(novnc_url_from_browse_url "$novnc_browse_url")"
 echo "Open Doom noVNC: $novnc_url"
 echo "Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu."
-echo "Human proof tip: click the noVNC canvas before each recorded action; in a second remote shell run ./tools/run_remote_human_playtest.sh --playtester NAME --scripted-proof-run-id RUN_ID."
-echo "Audio proof tip: VNC is display/input only; record audio as status-only, listener-pass, audio-proof-json-pass, or not-tested in the guided helper."
+echo "Human proof tip: click the noVNC canvas before each recorded action; the guided helper records focus, audio, and slowdown observations as status-only evidence."
+echo "Audio proof tip: VNC is display/input only; record audio as status-only, listener-pass, audio-proof-json-pass, or not-tested in the guided helper without copying raw audio."
 echo "Performance note: 2-core Codespaces can play Doom, but noVNC may stutter during builds or CPU contention; 4+ CPUs are preferred for interactive play."
 echo "Slowdown check: run the Diagnostics command above; it prints only safe process/load and OS status-log lines."
 if [ "$OPEN_BROWSER" = "1" ] && [ "$(uname -s)" = "Darwin" ] && command -v open >/dev/null 2>&1; then

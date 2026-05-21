@@ -680,7 +680,18 @@ static int read_midi_var(
     return 0;
 }
 
-static unsigned long read_mus_delay(const unsigned char* data, unsigned long end, unsigned long* pos)
+static int mus_parse_fail(vibe_music_render_stats_t* stats)
+{
+    if (stats)
+        ++stats->invalid_event_count;
+    return 0;
+}
+
+static int read_mus_delay(
+    const unsigned char* data,
+    unsigned long end,
+    unsigned long* pos,
+    unsigned long* out)
 {
     unsigned long value;
     unsigned int i;
@@ -690,16 +701,18 @@ static unsigned long read_mus_delay(const unsigned char* data, unsigned long end
         unsigned char b;
 
         if (*pos >= end)
-            return value;
+            return 0;
 
         b = data[*pos];
         *pos += 1;
         value = (value << 7) | (unsigned long)(b & 0x7fu);
-        if (!(b & 0x80u))
-            break;
+        if (!(b & 0x80u)) {
+            *out = value;
+            return 1;
+        }
     }
 
-    return value;
+    return 0;
 }
 
 static int render_mus_pass(
@@ -717,6 +730,8 @@ static int render_mus_pass(
     score_start = read_le16(data + 6);
     if (score_start < 16u || !score_len)
         return 0;
+    if (score_start > (unsigned long)-1 - score_len)
+        return mus_parse_fail(stats);
 
     pos = score_start;
     end = score_start + score_len;
@@ -736,7 +751,7 @@ static int render_mus_pass(
             unsigned int note;
 
             if (pos >= end)
-                return 0;
+                return mus_parse_fail(stats);
             note = data[pos++] & 0x7fu;
             synth_note_off(synth, channel, note, stats);
         } else if (event_type == VIBE_MUSIC_MUS_EVENT_PLAY_NOTE) {
@@ -745,12 +760,12 @@ static int render_mus_pass(
             unsigned char note_byte;
 
             if (pos >= end)
-                return 0;
+                return mus_parse_fail(stats);
             note_byte = data[pos++];
             note = note_byte & 0x7fu;
             if (note_byte & 0x80u) {
                 if (pos >= end)
-                    return 0;
+                    return mus_parse_fail(stats);
                 synth->channel_volume[channel] = data[pos++] & 0x7fu;
             }
             volume = synth->channel_volume[channel];
@@ -759,14 +774,14 @@ static int render_mus_pass(
             unsigned int bend;
 
             if (pos >= end)
-                return 0;
+                return mus_parse_fail(stats);
             bend = ((unsigned int)data[pos++] & 0x7fu) << 7;
             synth_set_pitch_bend(synth, channel, bend, stats);
         } else if (event_type == VIBE_MUSIC_MUS_EVENT_SYSTEM) {
             unsigned int system_event;
 
             if (pos >= end)
-                return 0;
+                return mus_parse_fail(stats);
             system_event = data[pos++] & 0x7fu;
             if (system_event == 10u)
                 synth_channel_all_sounds_off(synth, channel);
@@ -776,11 +791,8 @@ static int render_mus_pass(
                     ++stats->all_notes_off_count;
             } else if (system_event == 14u) {
                 synth_reset_channel_controls(synth, channel);
-            } else if (system_event == 15u) {
-                synth_all_notes_off(synth);
-                if (stats)
-                    ++stats->all_notes_off_count;
-            }
+            } else if (system_event != 12u && system_event != 13u)
+                return mus_parse_fail(stats);
             if (stats)
                 ++stats->controller_count;
         } else if (event_type == VIBE_MUSIC_MUS_EVENT_CONTROLLER) {
@@ -788,7 +800,7 @@ static int render_mus_pass(
             unsigned int value;
 
             if (end - pos < 2u)
-                return 0;
+                return mus_parse_fail(stats);
             controller = data[pos++] & 0x7fu;
             value = data[pos++] & 0x7fu;
             if (controller == 0u) {
@@ -826,16 +838,15 @@ static int render_mus_pass(
             synth_all_sounds_off(synth);
             return 1;
         } else {
-            if (stats)
-                ++stats->invalid_event_count;
-            return 0;
+            return mus_parse_fail(stats);
         }
 
         if (last_in_group) {
             unsigned long delay;
             unsigned long samples;
 
-            delay = read_mus_delay(data, end, &pos);
+            if (!read_mus_delay(data, end, &pos, &delay))
+                return mus_parse_fail(stats);
             samples = mus_delay_to_samples(delay, synth->sample_rate);
             synth_render_until(synth, sink, capped_add(sink->cursor, samples, (unsigned long)-1), stats);
         }

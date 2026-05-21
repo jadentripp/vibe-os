@@ -195,8 +195,11 @@ def write_human_session_bundle(tmpdir, *, final_tick="000001B0", commit="abcdef1
         "mouse_evidence": "motion-click-visible",
         "menu_evidence": "escape-menu-visible",
         "audio_evidence": "status-only-sb16-continuity",
+        "audio_notes": "vnc-display-input-only-sb16-status",
         "slowdown": "not-observed",
         "slowdown_notes": "not-observed-during-capture",
+        "novnc_focus": "canvas-focused-before-actions",
+        "novnc_focus_notes": "canvas-clicked-before-each-manual-action",
         "status_capture": "monitor-pmemsave-0x9d000",
         "session_phases": (
             "early,after-start,after-fire,after-move,after-use,after-mouse,"
@@ -226,6 +229,7 @@ def write_human_session_bundle(tmpdir, *, final_tick="000001B0", commit="abcdef1
         "operator_menu_escape": "confirmed",
         "operator_audio_observation": "recorded",
         "operator_slowdown_notes": "recorded",
+        "operator_novnc_focus_observation": "recorded",
         "operator_phase_actions": "confirmed",
         "operator_phase_status_hashes": "confirmed",
         "operator_no_forbidden_artifacts": "confirmed",
@@ -489,6 +493,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
         self.assertIn("phases=early->after-start->after-fire", result.stdout)
         self.assertIn("mouse_delta=00000018:0000000C", result.stdout)
         self.assertIn("audio_evidence=status-only-sb16-continuity", result.stdout)
+        self.assertIn("novnc_focus=canvas-focused-before-actions", result.stdout)
 
     def test_manual_human_session_rejects_short_duration(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -88,6 +88,7 @@ struct mock_fd {
     int used;
     int pos;
     int flags;
+    int fd_flags;
 };
 
 static unsigned char mock_file_data[MOCK_FILE_CAPACITY];
@@ -271,6 +272,23 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
         mock_fds[fd].used = 0;
         ++mock_close_count;
         return 0;
+    }
+
+    if (number == VIBE_SYS_FCNTL) {
+        int fd = (int)arg0;
+        int cmd = (int)arg1;
+        int flags = (int)arg2;
+        if (fd < 0 || fd >= MOCK_MAX_FDS || !mock_fds[fd].used)
+            return -EBADF;
+        if (cmd == F_GETFD)
+            return mock_fds[fd].fd_flags;
+        if (cmd == F_SETFD) {
+            if (flags & ~FD_CLOEXEC)
+                return -EINVAL;
+            mock_fds[fd].fd_flags = flags;
+            return 0;
+        }
+        return -EINVAL;
     }
 
     if (number == VIBE_SYS_FSTAT) {
@@ -498,6 +516,14 @@ static int test_stat_directory_listdir_and_clock_contracts(void)
         || errno != ENOSPC
         || read_size != 4)
         return fail(24);
+    if (fcntl(file->fd, F_GETFD) != 0)
+        return fail(21);
+    if (fcntl(file->fd, F_SETFD, FD_CLOEXEC) != 0)
+        return fail(20);
+    if (fcntl(file->fd, F_GETFD) != FD_CLOEXEC)
+        return fail(19);
+    if (fcntl(file->fd, F_SETFD, FD_CLOEXEC | 0x10) != -1 || errno != EINVAL)
+        return fail(18);
     if (vibe_listdir("/", entries, 2) != 1)
         return fail(34);
     if (!vibe_dirent_is_regular_file(&entries[0]) || vibe_dirent_is_directory(&entries[0]))

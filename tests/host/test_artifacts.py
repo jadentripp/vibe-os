@@ -586,7 +586,7 @@ class SourceContractTests(unittest.TestCase):
             real_wad_workflow,
         )
         self.assertIn(
-            "if: ${{ always() && (inputs.persistence_proof || inputs.persistence_save_slot != '') }}",
+            "if: ${{ always() && steps.boot_real_wad.outcome == 'success' && (inputs.persistence_proof || inputs.persistence_save_slot != '') }}",
             real_wad_workflow,
         )
         self.assertIn('cp build/disk.img "$RUNNER_TEMP/disk.before-persistence.img"', real_wad_workflow)

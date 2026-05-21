@@ -350,7 +350,7 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
         workflow = (ROOT / ".github" / "workflows" / "real-wad-smoke.yml").read_text()
         soak_workflow = (ROOT / ".github" / "workflows" / "real-wad-soak.yml").read_text()
         playable_doc = (ROOT / "docs" / "playable-cloud-proof.md").read_text()
-        triage_doc = (ROOT / "docs" / "cloud-status-triage.md").read_text()
+        triage_doc = (ROOT / "docs" / "playable-cloud-proof.md").read_text()
 
         self.assertTrue(HELPER.stat().st_mode & 0o111)
         for forbidden in (

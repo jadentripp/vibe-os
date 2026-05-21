@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CLOUD_RUNBOOKS = (
-    "docs/runbooks/cloud-interactive-playtest.md",
+    "docs/runbooks/play-now-cloud.md",
     "docs/runbooks/remote-doom-playtest.md",
 )
 CLOUD_POLICY_MARKERS = (
@@ -145,7 +145,7 @@ def validate_cloud_runbook_text(text: str, label: str) -> None:
 
 def validate_cloud_interactive_runbooks(root: Path = ROOT) -> None:
     runbooks = {relative: _read(root, relative) for relative in CLOUD_RUNBOOKS}
-    cloud = runbooks["docs/runbooks/cloud-interactive-playtest.md"]
+    cloud = runbooks["docs/runbooks/play-now-cloud.md"]
     remote = runbooks["docs/runbooks/remote-doom-playtest.md"]
     play_now_script = _read(root, "tools/play_now_remote.sh")
     codespaces_script = _read(root, "tools/play_now_codespaces.sh")
@@ -256,7 +256,7 @@ def validate_cloud_interactive_runbooks(root: Path = ROOT) -> None:
             )
 
     for needle in (
-        "docs/runbooks/cloud-interactive-playtest.md",
+        "docs/runbooks/play-now-cloud.md",
         "CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC",
         "CLOUD_PLAYTEST_REMOTE_QEMU_ONLY",
         "CLOUD_PLAYTEST_FORBIDDEN_UPLOADS",
@@ -463,7 +463,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         'smoke_vmmhpa_text db " vmmhpa=", 0',
         'smoke_vmmhpt_text db " vmmhpt=", 0',
         'smoke_vmmhfree_text db " vmmhfree=", 0',
-        "USER_PROBE_EXPECTED_FLAGS equ 0x0003ffff",
+        "USER_PROBE_EXPECTED_FLAGS equ 0x0007ffff",
         "SYS_EXEC_ARGV_SOURCE_DEFAULT equ 1",
         "SYS_EXEC_ARGV_SOURCE_USER equ 2",
         "PROCESS_RECORD_BYTES equ 168",
@@ -645,6 +645,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "sys_dup(defaults)",
         "sys_dup2(dup_fd, DUP2_TARGET_FD) == DUP2_TARGET_FD",
         "sys_dup3(defaults, DUP3_TARGET_FD, O_CLOEXEC) == DUP3_TARGET_FD",
+        "sys_fcntl(defaults, F_SETFD, FD_CLOEXEC) == 0",
         "mmap_hole_ok && sys_munmap(video, DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES) == 0",
         "char *abi_probe_argv[] = {(char *)abi_probe_path, (char *)0};",
         "return sys_execv(abi_probe_path, abi_probe_argv) == 0 ? 0 : 1;",
@@ -654,7 +655,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     abi_probe = _read(root, "user/abi_probe.c")
     for needle in (
         "char* doom_argv[] = { (char*)doom_path, 0 };",
-        "return vibe_user_execv(doom_path, doom_argv) == 0 ? 0 : 19;",
+        "vibe_user_fcntl(wad, ABI_PROBE_F_SETFD, ABI_PROBE_FD_CLOEXEC)",
+        "return vibe_user_execv(doom_path, doom_argv) == 0 ? 0 : 25;",
     ):
         _require(abi_probe, needle, "ABI probe VM/POSIX contract")
     user_runtime = _read(root, "user/runtime.c")

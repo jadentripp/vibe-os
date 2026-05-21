@@ -13,7 +13,9 @@ Current behavior:
   events, program changes, pan, expression, sustain, all-notes-off handling,
   score end, and MUS variable-length delays. MUS event type 6 is the only score
   end marker; event type 5 remains invalid/reserved and is rejected instead of
-  accepted as a fixture-only end shortcut.
+  accepted as a fixture-only end shortcut. The parser also rejects
+  unterminated MUS variable-length delays and reserved system events rather than
+  treating malformed grouped MUS events as zero-delay playback.
 - parses Standard MIDI format 0 tracks, including running status, note on,
   note off, controller volume, pan, expression, sustain, pitch bend, program
   changes, tempo meta events, SysEx skip, and end-of-track
@@ -110,7 +112,10 @@ events, renderer active-voice peak, and emitted samples. Host renderer stats now
 also count MUS score-end events and invalid events directly. Those extra stats
 are not exposed as new status fields, but they pin the parser contract: a real
 type-6 score end is accepted and the old type-5 fixture marker returns silence
-with invalid-event evidence.
+with invalid-event evidence. Host fixtures now cover grouped MUS events before a
+single delay, system all-notes-off, and failure for unterminated MUS
+variable-length delays so buffered music proof cannot lean on a permissive
+fixture-only parser.
 
 The remote-safe audio checker now proves that the SB16 path mixed non-music SFX,
 mixed music, accepted streamed music chunk updates, and advanced kernel-visible
@@ -212,7 +217,8 @@ Host proof:
 `tests/host/doom_music_test.c` builds the renderer directly into a host binary
 and feeds it tiny MUS and MIDI fixtures. The tests verify format detection,
 channel state, tempo/controller handling, pitch bend, program changes, pan,
-expression, sustain, percussion channel mapping, streaming volume updates,
+expression, sustain, percussion channel mapping, grouped MUS events,
+unterminated MUS variable-length delays, streaming volume updates,
 long-playback wrap behavior, larger streamed chunks, non-looping songs stop at their parsed song end,
 zero-duration songs do not become silent looping streams, real MUS event type 6
 score-end handling, rejection of the old event type 5 fixture-only marker,

@@ -264,7 +264,6 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     vm_checker = _read(root, "tools/check_vm_safety_contract.py")
     gap_doc = _read(root, "docs/post-checkpoint-gaps.md")
     playable_doc = _read(root, "docs/playable-cloud-proof.md")
-    triage_doc = _read(root, "docs/cloud-status-triage.md")
     remote_runbook = _read(root, "docs/runbooks/remote-doom-playtest.md")
     tests_readme = _read(root, "tests/README.md")
 
@@ -334,7 +333,6 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     _require(gap_doc, "status-before-poweroff", "gap ledger")
     for text, label in (
         (playable_doc, "playable cloud proof doc"),
-        (triage_doc, "cloud status triage doc"),
         (remote_runbook, "remote Doom playtest runbook"),
     ):
         _require(text, "shutdown_panic_proof", label)

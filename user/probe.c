@@ -25,6 +25,7 @@ enum {
     SYS_DUP = 32,
     SYS_DUP2 = 33,
     SYS_DUP3 = 34,
+    SYS_FCNTL = 35,
 };
 
 enum {
@@ -48,6 +49,7 @@ enum {
     PROBE_FLAG_SBRK_SHRINK = 0x8000u,
     PROBE_FLAG_LISTDIR = 0x10000u,
     PROBE_FLAG_DUP = 0x20000u,
+    PROBE_FLAG_FCNTL = 0x40000u,
 };
 
 enum {
@@ -72,6 +74,9 @@ enum {
     O_CREAT = 0x0100u,
     O_TRUNC = 0x0200u,
     O_CLOEXEC = 0x0800u,
+    F_GETFD = 1,
+    F_SETFD = 2,
+    FD_CLOEXEC = 1,
     DUP2_TARGET_FD = 8,
     DUP3_TARGET_FD = 9,
     SEEK_SET = 0,
@@ -188,6 +193,10 @@ static int sys_dup2(int oldfd, int newfd) {
 
 static int sys_dup3(int oldfd, int newfd, uint32_t flags) {
     return syscall3(SYS_DUP3, (uint32_t)oldfd, (uint32_t)newfd, flags);
+}
+
+static int sys_fcntl(int fd, int cmd, uint32_t arg) {
+    return syscall3(SYS_FCNTL, (uint32_t)fd, (uint32_t)cmd, arg);
 }
 
 static int sys_stat(const char *path, struct stat *out) {
@@ -477,6 +486,17 @@ int user_main(int argc, char **argv, char **envp) {
         if (dup_ok) {
             flags |= PROBE_FLAG_DUP;
         }
+    }
+
+    if (defaults >= 0
+        && sys_fcntl(defaults, F_GETFD, 0) == 0
+        && sys_fcntl(defaults, F_SETFD, FD_CLOEXEC) == 0
+        && sys_fcntl(defaults, F_GETFD, 0) == FD_CLOEXEC
+        && sys_fcntl(defaults, F_SETFD, 0) == 0
+        && sys_fcntl(defaults, F_GETFD, 0) == 0
+        && sys_fcntl(defaults, F_SETFD, FD_CLOEXEC | 0x10u) == -ERRNO_EINVAL
+        && sys_fcntl(99, F_GETFD, 0) == -ERRNO_EBADF) {
+        flags |= PROBE_FLAG_FCNTL;
     }
 
     unsigned char *hole = sys_mmap(8192, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS);

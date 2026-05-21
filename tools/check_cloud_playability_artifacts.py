@@ -29,9 +29,7 @@ import check_vm_status_proof  # noqa: E402
 
 
 RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
-INTERACTIVE_RUNBOOK = ROOT / "docs" / "runbooks" / "cloud-interactive-playtest.md"
 PLAY_NOW_RUNBOOK = ROOT / "docs" / "runbooks" / "play-now-cloud.md"
-CODESPACES_RUNBOOK = ROOT / "docs" / "runbooks" / "codespaces-play-now.md"
 PLAYABLE_DOC = ROOT / "docs" / "playable-cloud-proof.md"
 OS_WORKFLOW = ROOT / ".github" / "workflows" / "os-smoke.yml"
 WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
@@ -76,6 +74,8 @@ HUMAN_SESSION_FILE = "human-playtest-session.json"
 HUMAN_SESSION_SCHEMA = "human-playtest-session-v1"
 HUMAN_CHECKLIST_FILE = "human-playtest-checklist.txt"
 HUMAN_CHECKLIST_SCHEMA = "human-playtest-checklist-v1"
+HUMAN_OBSERVATIONS_FILE = "human-playtest-observations.json"
+HUMAN_OBSERVATIONS_SCHEMA = "human-playtest-observations-v1"
 HUMAN_POST_DOWNLOAD_VERIFICATION_SCHEMA = "human-playtest-post-download-verification-v1"
 HUMAN_PHASE_HASH_NOTE_KEYS = {
     "early": "phase_hash_early",
@@ -98,6 +98,7 @@ HUMAN_OPERATOR_CONFIRMATION_FIELDS = {
     "menu_escape": "operator_menu_escape",
     "audio_observation": "operator_audio_observation",
     "slowdown_notes": "operator_slowdown_notes",
+    "novnc_focus_observation": "operator_novnc_focus_observation",
     "phase_actions": "operator_phase_actions",
     "phase_status_hashes": "operator_phase_status_hashes",
     "no_forbidden_artifacts": "operator_no_forbidden_artifacts",
@@ -124,6 +125,11 @@ REQUIRED_HUMAN_NOTE_FIELDS = {
     "display": ("pass",),
     "keyboard": ("pass",),
     "mouse": ("pass",),
+    "novnc_focus": (
+        "canvas-focused-before-actions",
+        "focus-retaken-during-session",
+        "focus-issues-observed",
+    ),
     "visual_evidence": ("e1m1-visible-via-remote-vnc",),
     "keyboard_evidence": ("fire-move-use-menu-visible",),
     "mouse_evidence": ("motion-click-visible",),
@@ -149,6 +155,7 @@ REQUIRED_HUMAN_NOTE_FIELDS = {
     "operator_menu_escape": ("confirmed",),
     "operator_audio_observation": ("recorded",),
     "operator_slowdown_notes": ("recorded",),
+    "operator_novnc_focus_observation": ("recorded",),
     "operator_phase_actions": ("confirmed",),
     "operator_phase_status_hashes": ("confirmed",),
     "operator_no_forbidden_artifacts": ("confirmed",),
@@ -161,6 +168,8 @@ REQUIRED_FREEFORM_HUMAN_NOTE_FIELDS = (
     "scripted_proof_url",
     "slowdown",
     "slowdown_notes",
+    "novnc_focus_notes",
+    "audio_notes",
 ) + tuple(HUMAN_PHASE_HASH_NOTE_KEYS.values())
 OPTIONAL_HUMAN_NOTE_FIELDS = {
     "audio": ("status-only", "listener-pass", "audio-proof-json-pass", "not-tested"),
@@ -172,6 +181,8 @@ HUMAN_NOTE_FIELD_PATTERNS = {
     "scripted_proof_url": r"https://github\.com/jadentripp/vibe-os/actions/runs/[0-9]{6,32}",
     "slowdown": r"(?:not-observed|mild|moderate|severe)",
     "slowdown_notes": r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}",
+    "novnc_focus_notes": r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}",
+    "audio_notes": r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}",
     **{
         note_key: r"[0-9A-Fa-f]{64}"
         for note_key in HUMAN_PHASE_HASH_NOTE_KEYS.values()
@@ -245,6 +256,7 @@ HUMAN_SESSION_ALLOWED_EXACT_FILES = set(
     + (
         OPTIONAL_AUDIO_PROOF_FILE,
         HUMAN_NOTES_FILE,
+        HUMAN_OBSERVATIONS_FILE,
         HUMAN_CHECKLIST_FILE,
         HUMAN_MANIFEST_FILE,
         HUMAN_SESSION_FILE,
@@ -527,9 +539,7 @@ def _workflow_step_block(workflow: str, needle: str) -> str:
 
 def validate_repo_contract() -> None:
     runbook = _read(RUNBOOK)
-    interactive_runbook = _read(INTERACTIVE_RUNBOOK)
     play_now_runbook = _read(PLAY_NOW_RUNBOOK)
-    codespaces_runbook = _read(CODESPACES_RUNBOOK)
     playable = _read(PLAYABLE_DOC)
     os_workflow = _read(OS_WORKFLOW)
     workflow = _read(WORKFLOW)
@@ -558,8 +568,10 @@ def validate_repo_contract() -> None:
         "tools/triage_cloud_status.py",
         "human-playtest-notes.txt",
         "human-playtest-checklist.txt",
+        "human-playtest-observations.json",
         "schema=human-playtest-checklist-v1",
         "schema=human-playtest-notes-v2",
+        "human-playtest-observations-v1",
         "human-playtest-session.json",
         "human-playtest-manifest.json",
         "scripted_proof=real-wad-smoke-pass",
@@ -569,6 +581,9 @@ def validate_repo_contract() -> None:
         "proof_basis=scripted-green-plus-remote-vnc-human",
         "slowdown=",
         "slowdown_notes=",
+        "novnc_focus=",
+        "novnc_focus_notes=",
+        "audio_notes=",
         "--scripted-proof-run-id",
         "--confirm-scripted-proof-green",
         "--capture-phase",
@@ -583,6 +598,7 @@ def validate_repo_contract() -> None:
         "--confirm-menu-escape",
         "--confirm-audio-observation",
         "--confirm-slowdown-notes",
+        "--confirm-novnc-focus-observation",
         "--confirm-phase-actions",
         "--confirm-phase-status-hashes",
         "--confirm-no-forbidden-artifacts",
@@ -595,6 +611,7 @@ def validate_repo_contract() -> None:
         "mouse_evidence=motion-click-visible",
         "menu_evidence=escape-menu-visible",
         "audio_evidence=",
+        "operator_novnc_focus_observation=recorded",
         "status_capture=monitor-pmemsave-0x9d000",
         "session_phases=early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final",
         "phase_hash_early=",
@@ -655,7 +672,6 @@ def validate_repo_contract() -> None:
         _require(runbook, needle, "remote playtest runbook")
 
     for text, label in (
-        (interactive_runbook, "cloud interactive playtest runbook"),
         (play_now_runbook, "play-now cloud runbook"),
         (tests_readme, "tests README"),
     ):
@@ -664,7 +680,6 @@ def validate_repo_contract() -> None:
         _require(text, "--playtester", label)
     for text, label in (
         (play_now_runbook, "play-now cloud runbook"),
-        (codespaces_runbook, "Codespaces play-now runbook"),
         (readme, "README"),
     ):
         _require(text, "./tools/play_now_codespaces.sh", label)
@@ -687,6 +702,7 @@ def validate_repo_contract() -> None:
         "--confirm-menu-escape",
         "--confirm-audio-observation",
         "--confirm-slowdown-notes",
+        "--confirm-novnc-focus-observation",
         "--confirm-phase-actions",
         "--confirm-phase-status-hashes",
         "--confirm-no-forbidden-artifacts",
@@ -848,7 +864,7 @@ def validate_repo_contract() -> None:
         "Capture fresh persistence baseline",
         "Providing this also enables the marker-driven reboot save/load persistence proof",
         "if: ${{ inputs.persistence_proof || inputs.persistence_save_slot != '' }}",
-        "if: ${{ always() && (inputs.persistence_proof || inputs.persistence_save_slot != '') }}",
+        "if: ${{ always() && steps.boot_real_wad.outcome == 'success' && (inputs.persistence_proof || inputs.persistence_save_slot != '') }}",
         "cp build/disk.img \"$RUNNER_TEMP/disk.before-persistence.img\"",
         "check_args=(--baseline-image \"$baseline\")",
         "check_args+=(--require-default)",
@@ -1128,8 +1144,11 @@ def build_human_session(
             "mouse_evidence": notes.get("mouse_evidence", ""),
             "menu_evidence": notes.get("menu_evidence", ""),
             "audio_evidence": notes.get("audio_evidence", ""),
+            "audio_notes": notes.get("audio_notes", ""),
             "slowdown": notes.get("slowdown", ""),
             "slowdown_notes": notes.get("slowdown_notes", ""),
+            "novnc_focus": notes.get("novnc_focus", ""),
+            "novnc_focus_notes": notes.get("novnc_focus_notes", ""),
             "no_local_qemu": notes.get("no_local_qemu", ""),
             "no_wad_upload": notes.get("no_wad_upload", ""),
             "no_disk_upload": notes.get("no_disk_upload", ""),
@@ -1147,6 +1166,90 @@ def build_human_session(
     }
     session["session_id"] = _human_session_id(notes, phases)
     return session
+
+
+def build_human_observations(artifact_dir: Path) -> dict:
+    names = _relative_names(artifact_dir)
+    notes_name = _find_one(names, HUMAN_NOTES_FILE)
+    if notes_name is None:
+        raise AssertionError(f"missing expected human review file: {HUMAN_NOTES_FILE}")
+    notes = _load_human_notes(artifact_dir / notes_name)
+    return {
+        "schema": HUMAN_OBSERVATIONS_SCHEMA,
+        "source": "remote-vnc-human-session-status-only",
+        "generated_by": "tools/collect_human_playtest_bundle.py",
+        "commit": notes.get("commit", ""),
+        "playtester": notes.get("playtester", ""),
+        "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
+        "novnc_focus": {
+            "status": notes.get("novnc_focus", ""),
+            "notes": notes.get("novnc_focus_notes", ""),
+            "evidence": "operator-status-only",
+        },
+        "slowdown": {
+            "level": notes.get("slowdown", ""),
+            "notes": notes.get("slowdown_notes", ""),
+            "evidence": "operator-status-only",
+        },
+        "audio": {
+            "mode": notes.get("audio", ""),
+            "evidence": notes.get("audio_evidence", ""),
+            "notes": notes.get("audio_notes", ""),
+            "vnc_carries_audio_by_default": False,
+        },
+        "artifact_policy": {
+            "status_only": True,
+            "contains_wad_data": False,
+            "contains_disk_image": False,
+            "contains_pixels": False,
+            "contains_screenshots": False,
+            "contains_raw_audio": False,
+            "permits_local_qemu": False,
+        },
+    }
+
+
+def _load_human_observations(path: Path) -> dict:
+    return _load_json_object(path, HUMAN_OBSERVATIONS_FILE)
+
+
+def validate_human_observations(artifact_dir: Path, observations_path: Path) -> None:
+    observations = _load_human_observations(observations_path)
+    if observations.get("schema") != HUMAN_OBSERVATIONS_SCHEMA:
+        raise AssertionError(
+            f"{HUMAN_OBSERVATIONS_FILE} schema must be {HUMAN_OBSERVATIONS_SCHEMA}"
+        )
+    if observations.get("source") != "remote-vnc-human-session-status-only":
+        raise AssertionError(
+            f"{HUMAN_OBSERVATIONS_FILE} source must be remote-vnc-human-session-status-only"
+        )
+    if observations.get("generated_by") != "tools/collect_human_playtest_bundle.py":
+        raise AssertionError(f"{HUMAN_OBSERVATIONS_FILE} generated_by must name the collector")
+
+    expected = build_human_observations(artifact_dir)
+    if observations != expected:
+        raise AssertionError(f"{HUMAN_OBSERVATIONS_FILE} does not match human notes")
+
+    policy = observations.get("artifact_policy")
+    if not isinstance(policy, dict):
+        raise AssertionError(f"{HUMAN_OBSERVATIONS_FILE} artifact_policy must be an object")
+    for key in (
+        "status_only",
+        "contains_wad_data",
+        "contains_disk_image",
+        "contains_pixels",
+        "contains_screenshots",
+        "contains_raw_audio",
+        "permits_local_qemu",
+    ):
+        if key == "status_only":
+            expected_value = True
+        else:
+            expected_value = False
+        if policy.get(key) is not expected_value:
+            raise AssertionError(
+                f"{HUMAN_OBSERVATIONS_FILE} artifact_policy.{key} must be {expected_value}"
+            )
 
 
 def build_human_checklist(artifact_dir: Path) -> str:
@@ -1180,14 +1283,18 @@ def build_human_checklist(artifact_dir: Path) -> str:
         f"playtester={notes.get('playtester', '')}",
         f"slowdown={notes.get('slowdown', '')}",
         f"slowdown_notes={notes.get('slowdown_notes', '')}",
+        f"novnc_focus={notes.get('novnc_focus', '')}",
+        f"novnc_focus_notes={notes.get('novnc_focus_notes', '')}",
         f"audio={notes.get('audio', '')}",
         f"audio_evidence={notes.get('audio_evidence', '')}",
+        f"audio_notes={notes.get('audio_notes', '')}",
         "",
         "Post-download checklist",
         "- Compare the local post-download human verification OK line with the saved remote pre-download human verification OK line.",
         "- Confirm the linked Real WAD smoke run was green before this human session.",
         "- Confirm E1M1 was visible, Ctrl/fire responded, arrow movement or turning responded, Space/use responded, mouse movement/click responded, and Escape opened the menu.",
         "- Confirm the audio evidence mode matches the actual session: status-only SB16 continuity, listener-pass, aggregate audio-proof JSON, or not-tested.",
+        "- Confirm noVNC focus notes describe whether the canvas stayed focused or focus had to be retaken.",
         "- Keep slowdown notes with the bundle even when no slowdown was observed.",
         (
             "- Run: python3 tools/check_cloud_playability_artifacts.py "
@@ -1268,6 +1375,9 @@ def build_human_manifest(artifact_dir: Path) -> dict:
     session_name = _find_one(names, HUMAN_SESSION_FILE)
     if session_name is None:
         raise AssertionError(f"missing expected human session file: {HUMAN_SESSION_FILE}")
+    observations_name = _find_one(names, HUMAN_OBSERVATIONS_FILE)
+    if observations_name is None:
+        raise AssertionError(f"missing expected human observations file: {HUMAN_OBSERVATIONS_FILE}")
     checklist_name = _find_one(names, HUMAN_CHECKLIST_FILE)
     if checklist_name is None:
         raise AssertionError(f"missing expected human checklist file: {HUMAN_CHECKLIST_FILE}")
@@ -1291,6 +1401,7 @@ def build_human_manifest(artifact_dir: Path) -> dict:
         "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
         "scripted_proof_url": notes.get("scripted_proof_url", ""),
         "slowdown": notes.get("slowdown", ""),
+        "novnc_focus": notes.get("novnc_focus", ""),
         "audio": notes.get("audio", ""),
         "audio_evidence": notes.get("audio_evidence", ""),
         "artifact_policy": {
@@ -1307,7 +1418,12 @@ def build_human_manifest(artifact_dir: Path) -> dict:
             REQUIRED_STATUS_FILES
             + REQUIRED_DIAGNOSTIC_FILES
             + REQUIRED_SYMBOL_FILES
-            + (HUMAN_NOTES_FILE, HUMAN_CHECKLIST_FILE, HUMAN_SESSION_FILE)
+            + (
+                HUMAN_NOTES_FILE,
+                HUMAN_OBSERVATIONS_FILE,
+                HUMAN_CHECKLIST_FILE,
+                HUMAN_SESSION_FILE,
+            )
         ),
         "files": files,
     }
@@ -1356,7 +1472,12 @@ def validate_human_manifest(artifact_dir: Path, manifest_path: Path) -> None:
         REQUIRED_STATUS_FILES
         + REQUIRED_DIAGNOSTIC_FILES
         + REQUIRED_SYMBOL_FILES
-        + (HUMAN_NOTES_FILE, HUMAN_CHECKLIST_FILE, HUMAN_SESSION_FILE)
+        + (
+            HUMAN_NOTES_FILE,
+            HUMAN_OBSERVATIONS_FILE,
+            HUMAN_CHECKLIST_FILE,
+            HUMAN_SESSION_FILE,
+        )
     )
     if required_files != expected_required:
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} required_files does not match checker contract")
@@ -1423,6 +1544,8 @@ def validate_human_manifest(artifact_dir: Path, manifest_path: Path) -> None:
         )
     if manifest.get("slowdown") != notes.get("slowdown"):
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} slowdown must match {HUMAN_NOTES_FILE}")
+    if manifest.get("novnc_focus") != notes.get("novnc_focus"):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} novnc_focus must match {HUMAN_NOTES_FILE}")
     if manifest.get("audio") != notes.get("audio"):
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} audio must match {HUMAN_NOTES_FILE}")
     if manifest.get("audio_evidence") != notes.get("audio_evidence"):
@@ -1500,7 +1623,11 @@ def build_human_post_download_verification(artifact_dir: Path) -> dict:
         ),
         "audio": attestation.get("audio", ""),
         "audio_evidence": attestation.get("audio_evidence", ""),
+        "audio_notes": attestation.get("audio_notes", ""),
         "slowdown": attestation.get("slowdown", ""),
+        "slowdown_notes": attestation.get("slowdown_notes", ""),
+        "novnc_focus": attestation.get("novnc_focus", ""),
+        "novnc_focus_notes": attestation.get("novnc_focus_notes", ""),
         "manifest_sha256": manifest_entry["sha256"],
         "session_sha256": _sha256_file(session_path),
         "files": files,
@@ -1535,6 +1662,7 @@ def format_human_post_download_verification(
         f"duration_leveltime={verification.get('duration_leveltime', '')} "
         f"audio={verification.get('audio', '')} "
         f"audio_evidence={verification.get('audio_evidence', '')} "
+        f"novnc_focus={verification.get('novnc_focus', '')} "
         f"slowdown={verification.get('slowdown', '')}\n"
         f"phase status hashes: {phase_text}"
     )
@@ -2240,6 +2368,15 @@ def validate_artifact_dir(
             validate_human_session(artifact_dir, artifact_dir / human_session)
         except AssertionError as exc:
             raise AssertionError(f"human playtest session failed: {exc}") from exc
+
+    human_observations = _find_one(names, HUMAN_OBSERVATIONS_FILE)
+    if require_human_notes and human_observations is None:
+        raise AssertionError(f"missing expected human observations file: {HUMAN_OBSERVATIONS_FILE}")
+    if human_observations is not None:
+        try:
+            validate_human_observations(artifact_dir, artifact_dir / human_observations)
+        except AssertionError as exc:
+            raise AssertionError(f"human playtest observations failed: {exc}") from exc
 
     human_checklist = _find_one(names, HUMAN_CHECKLIST_FILE)
     if require_human_notes and human_checklist is None:

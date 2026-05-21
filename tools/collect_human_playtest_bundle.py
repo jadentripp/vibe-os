@@ -74,8 +74,11 @@ NOTE_FIELD_ORDER = (
     "mouse_evidence",
     "menu_evidence",
     "audio_evidence",
+    "audio_notes",
     "slowdown",
     "slowdown_notes",
+    "novnc_focus",
+    "novnc_focus_notes",
     "status_capture",
     "session_phases",
 ) + tuple(check_cloud_playability_artifacts.HUMAN_PHASE_HASH_NOTE_KEYS.values()) + (
@@ -98,6 +101,7 @@ REQUIRED_CONFIRMATION_FLAGS = (
     ("confirm_menu_escape", "--confirm-menu-escape"),
     ("confirm_audio_observation", "--confirm-audio-observation"),
     ("confirm_slowdown_notes", "--confirm-slowdown-notes"),
+    ("confirm_novnc_focus_observation", "--confirm-novnc-focus-observation"),
     ("confirm_phase_actions", "--confirm-phase-actions"),
     ("confirm_phase_status_hashes", "--confirm-phase-status-hashes"),
     ("confirm_no_forbidden_artifacts", "--confirm-no-forbidden-artifacts"),
@@ -105,6 +109,11 @@ REQUIRED_CONFIRMATION_FLAGS = (
 )
 
 SLOWDOWN_CHOICES = ("not-observed", "mild", "moderate", "severe")
+NOVNC_FOCUS_CHOICES = (
+    "canvas-focused-before-actions",
+    "focus-retaken-during-session",
+    "focus-issues-observed",
+)
 PHASE_STATUS_SIGNALS = {
     "early": "baseline counters before manual input",
     "after-start": "gameplay=OK, E1M1, menu inactive",
@@ -184,6 +193,15 @@ def _safe_note_text(value: str, label: str) -> str:
 
 def _audio_evidence_for_mode(mode: str) -> str:
     return check_cloud_playability_artifacts.HUMAN_AUDIO_EVIDENCE_BY_MODE[mode]
+
+
+def _default_audio_notes(mode: str) -> str:
+    return {
+        "status-only": "vnc-display-input-only-sb16-status",
+        "listener-pass": "remote-audio-forwarding-listener-confirmed",
+        "audio-proof-json-pass": "aggregate-audio-proof-json-validated",
+        "not-tested": "audio-not-tested-in-manual-session",
+    }[mode]
 
 
 def _redact_log_text(text: str) -> str:
@@ -438,8 +456,14 @@ def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
         "mouse_evidence": "motion-click-visible",
         "menu_evidence": "escape-menu-visible",
         "audio_evidence": _audio_evidence_for_mode(args.audio),
+        "audio_notes": _safe_note_text(
+            args.audio_notes or _default_audio_notes(args.audio),
+            "--audio-notes",
+        ),
         "slowdown": args.slowdown,
         "slowdown_notes": _safe_note_text(args.slowdown_notes, "--slowdown-notes"),
+        "novnc_focus": args.novnc_focus,
+        "novnc_focus_notes": _safe_note_text(args.novnc_focus_notes, "--novnc-focus-notes"),
         "status_capture": "monitor-pmemsave-0x9d000",
         "session_phases": (
             "early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final"
@@ -460,6 +484,7 @@ def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
         "operator_menu_escape": "confirmed",
         "operator_audio_observation": "recorded",
         "operator_slowdown_notes": "recorded",
+        "operator_novnc_focus_observation": "recorded",
         "operator_phase_actions": "confirmed",
         "operator_phase_status_hashes": "confirmed",
         "operator_no_forbidden_artifacts": "confirmed",
@@ -507,8 +532,11 @@ collect command:
     --scripted-proof-run-id "{run_id}" \\
     --commit "{commit}" \\
     --audio {args.audio} \\
+    --audio-notes "{args.audio_notes or _default_audio_notes(args.audio)}" \\
     --slowdown {args.slowdown} \\
     --slowdown-notes "{args.slowdown_notes}" \\
+    --novnc-focus {args.novnc_focus} \\
+    --novnc-focus-notes "{args.novnc_focus_notes}" \\
     --confirm-scripted-proof-green \\
     --confirm-remote-vnc \\
     --confirm-e1m1-visible \\
@@ -519,6 +547,7 @@ collect command:
     --confirm-menu-escape \\
     --confirm-audio-observation \\
     --confirm-slowdown-notes \\
+    --confirm-novnc-focus-observation \\
     --confirm-phase-actions \\
     --confirm-phase-status-hashes \\
     --confirm-no-forbidden-artifacts \\
@@ -581,6 +610,12 @@ def collect(args: argparse.Namespace) -> list[str]:
 
     if args.audio == "audio-proof-json-pass" and not (output_dir / "audio-proof.json").exists():
         raise AssertionError("audio=audio-proof-json-pass requires audio-proof.json")
+
+    observations = check_cloud_playability_artifacts.build_human_observations(output_dir)
+    (output_dir / check_cloud_playability_artifacts.HUMAN_OBSERVATIONS_FILE).write_text(
+        json.dumps(observations, indent=2, sort_keys=True) + "\n"
+    )
+    copied.append(check_cloud_playability_artifacts.HUMAN_OBSERVATIONS_FILE)
 
     session = check_cloud_playability_artifacts.build_human_session(output_dir)
     (output_dir / check_cloud_playability_artifacts.HUMAN_SESSION_FILE).write_text(
@@ -697,6 +732,21 @@ def main(argv: list[str]) -> int:
         choices=("status-only", "listener-pass", "audio-proof-json-pass", "not-tested"),
     )
     parser.add_argument(
+        "--audio-notes",
+        help="short status-only audio observation note; no raw audio, screenshots, or env dumps",
+    )
+    parser.add_argument(
+        "--novnc-focus",
+        default="canvas-focused-before-actions",
+        choices=NOVNC_FOCUS_CHOICES,
+        help="operator noVNC canvas focus observation during the remote session",
+    )
+    parser.add_argument(
+        "--novnc-focus-notes",
+        default="canvas-clicked-before-each-manual-action",
+        help="short status-only noVNC focus note; no screenshots or env dumps",
+    )
+    parser.add_argument(
         "--confirm-scripted-proof-green",
         action="store_true",
         help="operator confirms the linked Real WAD smoke run was green before human play",
@@ -748,6 +798,11 @@ def main(argv: list[str]) -> int:
         "--confirm-slowdown-notes",
         action="store_true",
         help="operator confirms slowdown notes were recorded, even if none was observed",
+    )
+    parser.add_argument(
+        "--confirm-novnc-focus-observation",
+        action="store_true",
+        help="operator confirms noVNC canvas focus observations were recorded",
     )
     parser.add_argument(
         "--confirm-phase-actions",

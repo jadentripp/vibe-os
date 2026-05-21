@@ -63,6 +63,10 @@ Current kernel contract:
 - Supported asset paths: generated images package `/ASSETS/README.TXT` as a
   root-level 8.3 directory plus one regular file below it. Userland can list
   `/ASSETS`, stat the README, open it read-only, read it, and seek within it.
+  The host image builder/checker uses the same FAT mutator to package additional
+  normalized 8.3 asset paths such as `/ASSETS/MAPS/E1M1.MAP` and
+  `/ASSETS/TEXTURES/PAL0.BIN`; those nested files are host-proved image content
+  for future games/tools, not a kernel nested-path syscall claim yet.
   Attempts to open one-level subdirectory files with write, create, truncate,
   or append flags return `EACCES`; descriptor `ftruncate` on the resulting
   read-only fd returns `EBADF`; `unlink` remains root-8.3-only and rejects
@@ -232,8 +236,9 @@ same-object state. The checker then revalidates FAT-copy agreement and
 reachable-cluster ownership on the mutated copy, so this is a host-verifiable
 allocation/free/truncate proof without putting a scratch file back into the real
 disk artifact. The same proof also requires the generated `/ASSETS/README.TXT`
-package to exist, round-trip with the expected bytes, and reject host-modeled
-write, create, truncate, and unlink attempts below that read-only subdirectory.
+plus nested `/ASSETS/MAPS/E1M1.MAP` and `/ASSETS/TEXTURES/PAL0.BIN` packages to
+exist, round-trip with the expected bytes, and reject host-modeled write,
+create, truncate, and unlink attempts below read-only subdirectories.
 The Makefile wrapper exposes the same checker path with
 `PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF=1 make persistence-image-check`, keeping
 the host proof runnable without launching QEMU locally.

@@ -43,6 +43,16 @@ int vibe_user_write_all(int fd, const char* text)
     return raw == (int)length ? 0 : -vibe_user_syscall_errno(raw, 5);
 }
 
+int vibe_user_open(const char* path, unsigned long flags, unsigned long mode)
+{
+    return vibe_user_syscall3(VIBE_SYS_OPEN, (unsigned long)path, flags, mode);
+}
+
+int vibe_user_close(int fd)
+{
+    return vibe_user_syscall3(VIBE_SYS_CLOSE, (unsigned long)fd, 0, 0);
+}
+
 int vibe_user_getpid(void)
 {
     return vibe_user_syscall3(VIBE_SYS_GETPID, 0, 0, 0);
@@ -61,6 +71,11 @@ int vibe_user_dup2(int oldfd, int newfd)
 int vibe_user_dup3(int oldfd, int newfd, unsigned long flags)
 {
     return vibe_user_syscall3(VIBE_SYS_DUP3, (unsigned long)oldfd, (unsigned long)newfd, flags);
+}
+
+int vibe_user_fcntl(int fd, int cmd, unsigned long arg)
+{
+    return vibe_user_syscall3(VIBE_SYS_FCNTL, (unsigned long)fd, (unsigned long)cmd, arg);
 }
 
 int vibe_user_clock_monotonic(vibe_clock_time_t* out)

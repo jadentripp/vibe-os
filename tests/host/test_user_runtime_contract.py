@@ -20,10 +20,13 @@ class UserRuntimeContractTests(unittest.TestCase):
             "int vibe_user_syscall3(",
             "int vibe_user_syscall_errno(",
             "int vibe_user_write_all(",
+            "int vibe_user_open(const char* path, unsigned long flags, unsigned long mode);",
+            "int vibe_user_close(int fd);",
             "int vibe_user_getpid(void);",
             "int vibe_user_dup(int oldfd);",
             "int vibe_user_dup2(int oldfd, int newfd);",
             "int vibe_user_dup3(int oldfd, int newfd, unsigned long flags);",
+            "int vibe_user_fcntl(int fd, int cmd, unsigned long arg);",
             "int vibe_user_clock_monotonic(",
             "int vibe_user_listdir(",
             "int vibe_user_execv(",
@@ -41,6 +44,7 @@ class UserRuntimeContractTests(unittest.TestCase):
             "VIBE_SYS_DUP",
             "VIBE_SYS_DUP2",
             "VIBE_SYS_DUP3",
+            "VIBE_SYS_FCNTL",
             "VIBE_SYS_USER_PROBE",
         ):
             with self.subTest(token=token):
@@ -50,6 +54,7 @@ class UserRuntimeContractTests(unittest.TestCase):
         self.assertNotIn("static inline int syscall3", abi_probe)
         self.assertNotIn('"int $0x80"', abi_probe)
         self.assertIn("vibe_user_clock_monotonic(&now)", abi_probe)
+        self.assertIn("vibe_user_fcntl(wad, ABI_PROBE_F_SETFD, ABI_PROBE_FD_CLOEXEC)", abi_probe)
         self.assertIn("vibe_user_execv(doom_path, doom_argv)", abi_probe)
         self.assertIn("USER_RUNTIME_C_SRC := user/runtime.c", makefile)
         self.assertIn("$(USER_RUNTIME_C_OBJ) $(USER_ABI_PROBE_C_OBJ)", makefile)
@@ -65,6 +70,9 @@ class UserRuntimeContractTests(unittest.TestCase):
         for token in (
             "VIBE_SYS_EXEC",
             "VIBE_SYS_GETPID",
+            "VIBE_SYS_OPEN",
+            "VIBE_SYS_CLOSE",
+            "VIBE_SYS_FCNTL",
             "VIBE_SYS_CLOCK_GETTIME",
             "VIBE_SYS_LISTDIR",
             "VIBE_SYS_USER_PROBE",

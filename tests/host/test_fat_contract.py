@@ -346,6 +346,57 @@ class FatContractTests(unittest.TestCase):
         with self.assertRaises(IsADirectoryError):
             fs.write_root_file(b"ASSETS     ", b"not-a-file")
 
+    def test_host_fat_image_packages_nested_display_paths_with_83_normalization(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_path = Path(tmp) / "disk.img"
+            subprocess.run(
+                [sys.executable, str(MAKE_WAD_IMAGE), str(image_path)],
+                check=True,
+                cwd=ROOT,
+                stdout=subprocess.DEVNULL,
+            )
+            fs = make_wad_image.Fat16Image(bytearray(image_path.read_bytes()))
+
+        normalized = make_wad_image.fat83_path_from_display_path(
+            r".\assets\maps/e1m1.map"
+        )
+        self.assertEqual(
+            normalized,
+            (b"ASSETS     ", b"MAPS       ", b"E1M1    MAP"),
+        )
+
+        payload = b"spawn=player1\nsky=1\n"
+        chain = fs.write_packaged_file_at_display_path(
+            r".\assets\maps/e1m1.map",
+            payload,
+        )
+        self.assertGreaterEqual(len(chain), 1)
+        self.assertEqual(fs.read_file_at_display_path("/ASSETS/MAPS/E1M1.MAP"), payload)
+        self.assertTrue(
+            fs.entry_metadata_at_path((b"ASSETS     ", b"MAPS       "))["is_directory"]
+        )
+        self.assertEqual(
+            fs.entry_metadata_at_path(normalized)["cluster"],
+            chain[0],
+        )
+        fs.validate_allocated_clusters_reachable()
+
+        fs.write_packaged_file_at_display_path("/assets/maps/e1m1.map", b"short\n")
+        self.assertEqual(fs.read_file_at_path(normalized), b"short\n")
+        fs.validate_allocated_clusters_reachable()
+
+        for bad in (
+            "",
+            "/",
+            "/assets/../save.dat",
+            "/asset-name-that-is-too-long/readme.txt",
+            "/assets/name.longext",
+            "/assets/bad+name.txt",
+        ):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    make_wad_image.fat83_path_from_display_path(bad)
+
     def test_host_fat_image_mutates_root_83_files_but_rejects_subdirectory_writes(self):
         with tempfile.TemporaryDirectory() as tmp:
             image_path = Path(tmp) / "disk.img"
@@ -408,6 +459,19 @@ class FatContractTests(unittest.TestCase):
         self.assertEqual(
             fs.read_file_at_path(make_wad_image.ASSET_README_PATH),
             make_wad_image.ASSET_README_BYTES,
+        )
+        manifest = make_wad_image.validate_generated_packaged_assets(fs)
+        self.assertEqual(
+            {entry["path"] for entry in manifest},
+            {
+                "/ASSETS/README.TXT",
+                "/ASSETS/MAPS/E1M1.MAP",
+                "/ASSETS/TEXTURES/PAL0.BIN",
+            },
+        )
+        self.assertEqual(
+            fs.read_file_at_display_path("/assets/maps/e1m1.map"),
+            b"name=E1M1\nmusic=D_E1M1\n",
         )
 
 

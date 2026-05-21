@@ -115,6 +115,10 @@ class StorageInstallBoundaryTests(unittest.TestCase):
             manifest["fat16"]["sectors_per_cluster"],
         )
         self.assertGreater(manifest["fat16"]["free_clusters"], 4096)
+        self.assertEqual(
+            manifest["fat16"]["packaged_asset_count"],
+            len(check_storage_install_boundary.load_make_wad_image().PACKAGED_ASSET_FILES),
+        )
         root_names = {entry["name"] for entry in manifest["root_entries"]}
         self.assertIn("DOOM1.WAD", root_names)
         self.assertIn("USERPROB.ELF", root_names)
@@ -123,6 +127,20 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         self.assertIn("DOOMSAV0.DSG", root_names)
         self.assertIn("DEFAULT.CFG", manifest["required_writable_root_entries"])
         self.assertIn("DOOMSAV5.DSG", manifest["required_writable_root_entries"])
+        packaged_paths = {entry["path"] for entry in manifest["packaged_assets"]}
+        self.assertEqual(
+            packaged_paths,
+            {
+                "/ASSETS/README.TXT",
+                "/ASSETS/MAPS/E1M1.MAP",
+                "/ASSETS/TEXTURES/PAL0.BIN",
+            },
+        )
+        for entry in manifest["packaged_assets"]:
+            with self.subTest(path=entry["path"]):
+                self.assertGreater(entry["cluster"], 1)
+                self.assertGreater(entry["size"], 0)
+                self.assertEqual(len(entry["sha256"]), 64)
         self.assertEqual(
             manifest["claim_boundary"],
             "generated-image-layout-only; not arbitrary-disk-install-proof",

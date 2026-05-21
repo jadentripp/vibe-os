@@ -459,6 +459,18 @@ def _inspect_image_bytes(image: bytes | bytearray, image_label: str) -> dict[str
     for required in required_writable:
         if required not in root_names:
             raise StorageBoundaryError(f"missing writable root placeholder {required}")
+    try:
+        packaged_assets = []
+        for asset in make_wad_image.validate_generated_packaged_assets(fs):
+            path = make_wad_image.fat83_path_from_display_path(asset["path"])
+            packaged_assets.append(
+                {
+                    **asset,
+                    "sha256": _sha256(fs.read_file_at_path(path)),
+                }
+            )
+    except ValueError as exc:
+        raise StorageBoundaryError(str(exc)) from exc
 
     return {
         "schema": "vibe-os-install-image-manifest-v1",
@@ -500,8 +512,10 @@ def _inspect_image_bytes(image: bytes | bytearray, image_label: str) -> dict[str
             "media_descriptor": f"0x{image[boot + 21]:02x}",
             "root_entry_count": len(root_entries),
             "free_clusters": fs.free_data_clusters(),
+            "packaged_asset_count": len(packaged_assets),
         },
         "required_writable_root_entries": list(required_writable),
+        "packaged_assets": packaged_assets,
         "root_entries": root_entries,
         "claim_boundary": "generated-image-layout-only; not arbitrary-disk-install-proof",
     }

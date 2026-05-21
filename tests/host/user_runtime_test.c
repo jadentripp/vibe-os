@@ -9,6 +9,7 @@ static char mock_write_buffer[64];
 static int mock_write_length;
 static int mock_exec_count;
 static const char* mock_exec_path;
+static int mock_close_count;
 static int mock_probe_count;
 static unsigned long mock_probe_magic;
 static unsigned long mock_probe_flags;
@@ -30,6 +31,16 @@ int vibe_user_syscall3(unsigned int number, unsigned long arg0, unsigned long ar
         return (int)length;
     }
 
+    if (number == VIBE_SYS_OPEN)
+        return arg0 && arg1 == 0 && arg2 == 0 ? 4 : -22;
+
+    if (number == VIBE_SYS_CLOSE) {
+        if (arg0 != 4)
+            return -9;
+        ++mock_close_count;
+        return 0;
+    }
+
     if (number == VIBE_SYS_GETPID)
         return 7;
 
@@ -41,6 +52,16 @@ int vibe_user_syscall3(unsigned int number, unsigned long arg0, unsigned long ar
 
     if (number == VIBE_SYS_DUP3)
         return arg0 == 4 && arg1 == 9 && arg2 == 0x0800u ? 9 : -22;
+
+    if (number == VIBE_SYS_FCNTL) {
+        if (arg0 != 4)
+            return -9;
+        if (arg1 == 1)
+            return 1;
+        if (arg1 == 2 && arg2 <= 1)
+            return 0;
+        return -22;
+    }
 
     if (number == VIBE_SYS_CLOCK_GETTIME) {
         vibe_clock_time_t* out = (vibe_clock_time_t*)arg1;
@@ -112,6 +133,10 @@ int main(void)
         return fail(7);
     if (vibe_user_dup(4) != 5 || vibe_user_dup2(4, 8) != 8 || vibe_user_dup3(4, 9, 0x0800u) != 9)
         return fail(8);
+    if (vibe_user_open("TOOL.TXT", 0, 0) != 4 || vibe_user_fcntl(4, 1, 0) != 1 || vibe_user_fcntl(4, 2, 1) != 0)
+        return fail(13);
+    if (vibe_user_close(4) != 0 || mock_close_count != 1)
+        return fail(14);
     if (vibe_user_clock_monotonic(&now) != 0 || now.frequency_hz != VIBE_CLOCK_MONOTONIC_HZ)
         return fail(9);
     if (vibe_user_listdir("/", entries, MOCK_MAX_DIRENTS) != 1 || !vibe_user_streq(entries[0].name, "TOOL"))

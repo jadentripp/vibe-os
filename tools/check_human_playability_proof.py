@@ -143,6 +143,11 @@ HUMAN_REQUIRED_NOTE_VALUES = {
     "display": ("pass",),
     "keyboard": ("pass",),
     "mouse": ("pass",),
+    "novnc_focus": (
+        "canvas-focused-before-actions",
+        "focus-retaken-during-session",
+        "focus-issues-observed",
+    ),
     "visual_evidence": ("e1m1-visible-via-remote-vnc",),
     "keyboard_evidence": ("fire-move-use-menu-visible",),
     "mouse_evidence": ("motion-click-visible",),
@@ -173,6 +178,7 @@ HUMAN_REQUIRED_NOTE_VALUES = {
     "operator_menu_escape": ("confirmed",),
     "operator_audio_observation": ("recorded",),
     "operator_slowdown_notes": ("recorded",),
+    "operator_novnc_focus_observation": ("recorded",),
     "operator_phase_actions": ("confirmed",),
     "operator_phase_status_hashes": ("confirmed",),
     "operator_no_forbidden_artifacts": ("confirmed",),
@@ -194,6 +200,8 @@ HUMAN_NOTE_PATTERNS = {
     "scripted_proof_url": r"https://github\.com/jadentripp/vibe-os/actions/runs/[0-9]{6,32}",
     "slowdown": r"(?:not-observed|mild|moderate|severe)",
     "slowdown_notes": r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}",
+    "novnc_focus_notes": r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}",
+    "audio_notes": r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}",
     **{note_key: r"[0-9A-Fa-f]{64}" for _, note_key, _ in HUMAN_SESSION_PHASES},
 }
 FORBIDDEN_ARTIFACT_PATTERNS = (
@@ -505,6 +513,7 @@ def _human_session_evidence_summary(
         f"required_ticks={min_duration_ticks} phases={phase_order} "
         f"mouse_delta={mouse_delta} audio={notes.get('audio', 'not-supplied')} "
         f"audio_evidence={notes.get('audio_evidence', 'not-supplied')} "
+        f"novnc_focus={notes.get('novnc_focus', 'not-supplied')} "
         f"slowdown={notes.get('slowdown', 'not-supplied')}"
     )
 

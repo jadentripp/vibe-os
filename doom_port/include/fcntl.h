@@ -11,6 +11,12 @@
 #define O_CLOEXEC 0x0800
 #define O_BINARY 0x0000
 
+#define F_GETFD 1
+#define F_SETFD 2
+
+#define FD_CLOEXEC 1
+
 int open(const char* path, int flags, ...);
+int fcntl(int fd, int cmd, ...);
 
 #endif

@@ -34,6 +34,7 @@ enum {
     VIBE_SYS_DUP = 32,
     VIBE_SYS_DUP2 = 33,
     VIBE_SYS_DUP3 = 34,
+    VIBE_SYS_FCNTL = 35,
 };
 
 enum {
@@ -870,7 +871,8 @@ unsigned long vibe_monotonic_milliseconds(void);
  * - File flags use the O_* constants from fcntl.h, including O_ACCMODE and
  *   O_CLOEXEC. dup/dup2/dup3 create new descriptors that share the same open
  *   file description offset/status; dup3 accepts O_CLOEXEC for the new
- *   descriptor.
+ *   descriptor. fcntl(F_GETFD/F_SETFD) exposes descriptor-level FD_CLOEXEC so
+ *   ports can audit or change exec inheritance after open/dup.
  * - ftruncate resizes writable root-level FAT16 files by descriptor. Growth
  *   zero-fills new bytes, and shrink frees tail clusters through the FAT layer.
  * - `vibe_file_size` and `vibe_file_read_all` are convenience wrappers for
@@ -918,8 +920,10 @@ unsigned long vibe_monotonic_milliseconds(void);
  * - execv passes a bounded argv vector to the process handoff. Table entries
  *   cover Doom/probe images; other root-level FAT16 .ELF names use reusable
  *   probe-class slots. File descriptors inherit across exec unless opened with
- *   O_CLOEXEC or created by dup3 with O_CLOEXEC. Duplicated descriptors share
- *   offsets across exec until a close-on-exec descriptor is retired. VIBE_EXEC_* exposes the current path and argv bounds to generic userland programs.
+ *   O_CLOEXEC, created by dup3 with O_CLOEXEC, or marked FD_CLOEXEC through
+ *   fcntl(F_SETFD). Duplicated descriptors share offsets across exec until a
+ *   close-on-exec descriptor is retired.
+ *   VIBE_EXEC_* exposes the current path and argv bounds to generic userland programs.
  *   execve accepts NULL or empty envp only; the kernel seeds an empty envp
  *   terminator for every launched image until environment copying exists.
  * - getpid returns the active static process id.

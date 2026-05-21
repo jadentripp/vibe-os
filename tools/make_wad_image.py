@@ -51,6 +51,11 @@ ASSET_DIR_NAME = b"ASSETS     "
 ASSET_README_NAME = b"README  TXT"
 ASSET_README_BYTES = b"vibe-os FAT16 one-level asset file\n"
 ASSET_README_PATH = (ASSET_DIR_NAME, ASSET_README_NAME)
+PACKAGED_ASSET_FILES = (
+    ("/assets/readme.txt", ASSET_README_BYTES),
+    ("/assets/maps/e1m1.map", b"name=E1M1\nmusic=D_E1M1\n"),
+    ("./assets/textures/pal0.bin", bytes(range(32))),
+)
 SYNTHETIC_PATCH_NAME = "SYNTHPCH"
 SHAREWARE_SWITCH_TEXTURES = (
     "SW1BRCOM", "SW2BRCOM",
@@ -162,6 +167,43 @@ def root83_from_display_name(display_name, *, required_ext=None):
     return Fat16Image.validate_root_83_name(raw)
 
 
+def fat83_from_display_component(component):
+    if not isinstance(component, str):
+        raise ValueError("FAT16 path component must be text")
+    component = component.strip()
+    if not component or component in (".", ".."):
+        raise ValueError("FAT16 path component must be a real 8.3 name")
+    if any(separator in component for separator in ("/", "\\")):
+        raise ValueError("FAT16 path component must not contain a separator")
+
+    parts = component.upper().split(".")
+    if len(parts) > 2:
+        raise ValueError("FAT16 path component must contain at most one extension separator")
+    base = parts[0]
+    ext = parts[1] if len(parts) == 2 else ""
+    if not base or len(base) > 8 or len(ext) > 3:
+        raise ValueError("FAT16 path component must fit 8.3")
+    raw = (base.ljust(8) + ext.ljust(3)).encode("ascii")
+    return Fat16Image.validate_root_83_name(raw, allow_protected=True)
+
+
+def fat83_path_from_display_path(display_path):
+    if not isinstance(display_path, str):
+        raise ValueError("FAT16 path must be text")
+    normalized = display_path.replace("\\", "/")
+    components = []
+    for raw_component in normalized.split("/"):
+        component = raw_component.strip()
+        if not component or component == ".":
+            continue
+        if component == "..":
+            raise ValueError("FAT16 path must not traverse upward")
+        components.append(fat83_from_display_component(component))
+    if not components:
+        raise ValueError("FAT16 path must name at least one 8.3 component")
+    return tuple(components)
+
+
 def parse_root_elf_arg(value):
     if "=" not in value:
         raise ValueError("--root-elf must be NAME.ELF=PATH")
@@ -234,12 +276,26 @@ def assert_free_cluster_budget(fat_entries):
     for cluster in range(2, last_data_cluster() + 1):
         if fat_entries[cluster] == 0:
             free_clusters += 1
+    assert_free_cluster_budget_count(free_clusters)
+
+
+def assert_free_cluster_budget_count(free_clusters):
     if free_clusters < MIN_OS_CREATED_FILE_CLUSTERS:
         raise ValueError(
             "FAT16 image leaves only "
             f"{free_clusters} free clusters, below the OS-created file budget "
             f"of {MIN_OS_CREATED_FILE_CLUSTERS}"
         )
+
+
+def write_fat_copies(image, fat_start, fat_entries):
+    fat_bytes = bytearray(SECTORS_PER_FAT * SECTOR_SIZE)
+    for i, value in enumerate(fat_entries):
+        struct.pack_into("<H", fat_bytes, i * 2, value)
+
+    for fat_index in range(FAT_COUNT):
+        start = sector_offset(fat_start + fat_index * SECTORS_PER_FAT)
+        image[start:start + len(fat_bytes)] = fat_bytes
 
 
 class Fat16Image:
@@ -771,33 +827,48 @@ class Fat16Image:
         return freed
 
     def create_subdirectory(self, name):
+        return self.ensure_directory_at_path((name,))
+
+    def _create_child_directory(self, parent_cluster, name):
         name = self.validate_root_83_name(name)
-        entry = self.root_entry_offset(name)
+        entry = self._directory_entry_offset(parent_cluster, name)
         if entry is not None:
             if not (self.image[entry + 11] & FAT_ATTR_DIRECTORY):
                 raise FileExistsError(name)
             return read_le16(self.image, entry + 26)
 
-        entry = self.create_or_reuse_root_entry(name)
+        entry = self._directory_free_entry_offset(parent_cluster)
         chain = self.allocate_clusters(1)
         cluster = chain[0]
         self._write_directory_entry(entry, name, FAT_ATTR_DIRECTORY, cluster, 0)
 
         directory_start = self.cluster_offset(cluster)
         self._write_directory_entry(directory_start, b".          ", FAT_ATTR_DIRECTORY, cluster, 0)
-        self._write_directory_entry(directory_start + 32, b"..         ", FAT_ATTR_DIRECTORY, 0, 0)
+        self._write_directory_entry(directory_start + 32, b"..         ", FAT_ATTR_DIRECTORY, parent_cluster or 0, 0)
         return cluster
 
-    def write_directory_file(self, directory_name, file_name, data):
-        directory_name = self.validate_root_83_name(directory_name)
-        file_name = self.validate_root_83_name(file_name)
-        directory_meta = self.root_file_metadata(directory_name)
-        if directory_meta is None or not directory_meta["is_directory"]:
-            raise FileNotFoundError(directory_name)
+    def ensure_directory_at_path(self, path):
+        path = self._validated_path(path)
+        parent_cluster = None
+        for name in path:
+            parent_cluster = self._create_child_directory(parent_cluster, name)
+        return parent_cluster or 0
 
-        entry = self._directory_entry_offset(directory_meta["cluster"], file_name)
+    def write_directory_file(self, directory_name, file_name, data):
+        return self.write_packaged_file_at_path((directory_name, file_name), data)
+
+    def write_packaged_file_at_path(self, path, data):
+        path = self._validated_path(path)
+        if not path:
+            raise ValueError("FAT16 packaged file path must not be empty")
+        if len(path) == 1:
+            return self.write_root_file(path[0], data)
+
+        parent_cluster = self.ensure_directory_at_path(path[:-1])
+        file_name = path[-1]
+        entry = self._directory_entry_offset(parent_cluster, file_name)
         if entry is None:
-            entry = self._directory_free_entry_offset(directory_meta["cluster"])
+            entry = self._directory_free_entry_offset(parent_cluster)
             self._write_directory_entry(entry, file_name, FAT_ATTR_ARCHIVE, 0, 0)
         if self.image[entry + 11] & FAT_ATTR_DIRECTORY:
             raise IsADirectoryError(file_name)
@@ -813,8 +884,66 @@ class Fat16Image:
         self._write_directory_entry(entry, file_name, FAT_ATTR_ARCHIVE, chain[0] if chain else 0, len(data))
         return chain
 
+    def write_packaged_file_at_display_path(self, display_path, data):
+        return self.write_packaged_file_at_path(fat83_path_from_display_path(display_path), data)
+
+    def read_file_at_display_path(self, display_path):
+        return self.read_file_at_path(fat83_path_from_display_path(display_path))
+
+
+def packaged_asset_manifest(fs):
+    manifest = []
+    for display_path, expected in PACKAGED_ASSET_FILES:
+        path = fat83_path_from_display_path(display_path)
+        meta = fs.entry_metadata_at_path(path)
+        label = "/" + "/".join(Fat16Image._entry_label(name) for name in path)
+        if meta is None:
+            raise ValueError(f"generated FAT16 image is missing {label}")
+        if meta["is_directory"]:
+            raise ValueError(f"generated FAT16 {label} is not a regular file")
+        if meta["size"] != len(expected):
+            raise ValueError(f"generated FAT16 {label} has the wrong size")
+        if fs.read_file_at_path(path) != expected:
+            raise ValueError(f"generated FAT16 {label} bytes did not round-trip")
+        manifest.append(
+            {
+                "path": label,
+                "size": meta["size"],
+                "cluster": meta["cluster"],
+                "depth": len(path),
+            }
+        )
+    return tuple(manifest)
+
+
+def validate_generated_packaged_assets(fs):
+    manifest = packaged_asset_manifest(fs)
+
+    for display_path, expected in PACKAGED_ASSET_FILES:
+        path = fat83_path_from_display_path(display_path)
+        if len(path) < 2:
+            continue
+        for operation, mutate in (
+            ("write", lambda path=path: fs.write_file_at_path(path, b"mutate")),
+            ("create", lambda path=path: fs.create_file_at_path(path)),
+            ("truncate", lambda path=path: fs.truncate_file_at_path(path)),
+            ("unlink", lambda path=path: fs.delete_file_at_path(path)),
+        ):
+            try:
+                mutate()
+            except (PermissionError, NotADirectoryError):
+                pass
+            else:
+                label = "/" + "/".join(Fat16Image._entry_label(name) for name in path)
+                raise ValueError(f"generated FAT16 {label} allowed readonly {operation}")
+        if fs.read_file_at_path(path) != expected:
+            raise ValueError("generated FAT16 readonly asset changed during mutation refusal")
+
+    return manifest
+
 
 def validate_generated_asset_readme(fs):
+    validate_generated_packaged_assets(fs)
     root_meta = fs.entry_metadata_at_path((ASSET_DIR_NAME,))
     if root_meta is None:
         raise ValueError("generated FAT16 image is missing /ASSETS")
@@ -832,19 +961,6 @@ def validate_generated_asset_readme(fs):
         raise ValueError("generated FAT16 /ASSETS/README.TXT has the wrong size")
     if fs.read_file_at_path(ASSET_README_PATH) != ASSET_README_BYTES:
         raise ValueError("generated FAT16 /ASSETS/README.TXT bytes did not round-trip")
-
-    for operation, mutate in (
-        ("write", lambda: fs.write_file_at_path(ASSET_README_PATH, b"mutate")),
-        ("create", lambda: fs.create_file_at_path(ASSET_README_PATH)),
-        ("truncate", lambda: fs.truncate_file_at_path(ASSET_README_PATH)),
-        ("unlink", lambda: fs.delete_file_at_path(ASSET_README_PATH)),
-    ):
-        try:
-            mutate()
-        except PermissionError:
-            pass
-        else:
-            raise ValueError(f"generated FAT16 /ASSETS/README.TXT allowed readonly {operation}")
 
     return readme_meta
 
@@ -1247,41 +1363,27 @@ def install_bootable_layout(
         write_root_entry(root, next_root_index, name, elf_cluster, len(elf))
         next_root_index += 1
 
-    asset_dir_cluster, _asset_dir_clusters = write_cluster_chain(
-        image,
-        fat_entries,
-        data_start,
-        bytes(cluster_size()),
-    )
-    asset_file_cluster, _asset_file_clusters = write_cluster_chain(
-        image,
-        fat_entries,
-        data_start,
-        ASSET_README_BYTES,
-    )
-    asset_dir = memoryview(image)[
-        sector_offset(data_start + (asset_dir_cluster - 2) * SECTORS_PER_CLUSTER):
-        sector_offset(data_start + (asset_dir_cluster - 1) * SECTORS_PER_CLUSTER)
-    ]
-    write_fat_directory_entry(asset_dir, 0, b".          ", FAT_ATTR_DIRECTORY, asset_dir_cluster, 0)
-    write_fat_directory_entry(asset_dir, 1, b"..         ", FAT_ATTR_DIRECTORY, 0, 0)
-    write_fat_directory_entry(asset_dir, 2, ASSET_README_NAME, FAT_ATTR_ARCHIVE, asset_file_cluster, len(ASSET_README_BYTES))
-    write_fat_directory_entry(root, next_root_index, ASSET_DIR_NAME, FAT_ATTR_DIRECTORY, asset_dir_cluster, 0)
-    next_root_index += 1
+    write_fat_copies(image, fat_start, fat_entries)
+    fs = Fat16Image(image)
+    for display_path, data in PACKAGED_ASSET_FILES:
+        fs.write_packaged_file_at_display_path(display_path, data)
+    validate_generated_packaged_assets(fs)
+
+    next_root_index = 0
+    while next_root_index < ROOT_ENTRIES:
+        entry = next_root_index * 32
+        if root[entry] in (0, 0xE5):
+            break
+        next_root_index += 1
+    if next_root_index >= ROOT_ENTRIES:
+        raise ValueError("FAT16 root directory is full")
 
     for name, _byte_capacity in WRITABLE_DYNAMIC_FILES:
         write_root_entry(root, next_root_index, name, 0, 0)
         next_root_index += 1
 
-    assert_free_cluster_budget(fat_entries)
-
-    fat_bytes = bytearray(SECTORS_PER_FAT * SECTOR_SIZE)
-    for i, value in enumerate(fat_entries):
-        struct.pack_into("<H", fat_bytes, i * 2, value)
-
-    for fat_index in range(FAT_COUNT):
-        start = sector_offset(fat_start + fat_index * SECTORS_PER_FAT)
-        image[start:start + len(fat_bytes)] = fat_bytes
+    assert_free_cluster_budget_count(fs.free_data_clusters())
+    fs.validate_allocated_clusters_reachable()
 
     return image
 
