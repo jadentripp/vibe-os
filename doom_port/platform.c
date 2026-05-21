@@ -774,23 +774,19 @@ void G_BuildTiccmd(ticcmd_t* cmd)
 
 static void clear_consumed_save_ticcmd(void)
 {
-    int consumed_tic;
-    int divisor;
+    int slot;
 
     if (consoleplayer < 0 || consoleplayer >= MAXPLAYERS)
         return;
 
-    divisor = ticdup > 0 ? ticdup : 1;
-    consumed_tic = (gametic / divisor) % BACKUPTICS;
-    if (consumed_tic < 0)
-        consumed_tic += BACKUPTICS;
+    for (slot = 0; slot < BACKUPTICS; ++slot) {
+        if (!(netcmds[consoleplayer][slot].buttons & BT_SPECIAL))
+            continue;
+        if ((netcmds[consoleplayer][slot].buttons & BT_SPECIALMASK) != BTS_SAVEGAME)
+            continue;
 
-    if (!(netcmds[consoleplayer][consumed_tic].buttons & BT_SPECIAL))
-        return;
-    if ((netcmds[consoleplayer][consumed_tic].buttons & BT_SPECIALMASK) != BTS_SAVEGAME)
-        return;
-
-    netcmds[consoleplayer][consumed_tic].buttons = 0;
+        netcmds[consoleplayer][slot].buttons = 0;
+    }
 }
 
 void G_Ticker(void)
