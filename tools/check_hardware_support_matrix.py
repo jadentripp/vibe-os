@@ -372,11 +372,11 @@ REQUIRED_MATRIX_PHRASES = (
     "QEMU BIOS/IDE/PS2/VBE/SB16 is the supported target",
     "AHCI/SATA, USB input/storage, APIC/IOAPIC, HPET, SMP",
     "installation to arbitrary disks are outside the claim",
-    "UEFI_HOST_ARTIFACT[PE_COFF_STUB]",
-    "host-buildable PE/COFF and FAT16 ESP artifacts",
-    "host-artifact-only-no-uefi-boot-proof",
+    "UEFI_HOST_ARTIFACT[PE_COFF_LOADER]",
+    "host-buildable PE/COFF loader and FAT16 ESP artifacts",
+    "host-built-uefi-loader-no-kernel-entry-proof",
     "UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH]",
-    "manual GitHub Actions OVMF scaffold",
+    "manual GitHub Actions OVMF loader proof",
     "contract mode is QEMU-free",
     "QEMU_DEVICE_MODEL[BIOS_BOOT]",
     "QEMU_DEVICE_MODEL[PCI_BUS0_STATUS]",
@@ -440,7 +440,7 @@ REQUIRED_CROSS_DOC_LINKS = {
     ),
     "docs/architecture.txt": (
         "boot/uefi/CONTRACT.txt",
-        "contract-only UEFI scaffold",
+        "UEFI loader/proof boundary",
         "UEFI_BOOT[...]",
         "SUPPORT[UEFI] remains unclaimed",
         "PCI_STATUS[QEMU_BUS0_CONFIG]",
@@ -471,33 +471,82 @@ REQUIRED_CROSS_DOC_LINKS = {
 }
 
 UEFI_BOOT_REQUIREMENTS = {
-    "ENTRY": {"requires": "pe32-efi-application", "proof": "future-host-build"},
-    "ESP_STORAGE": {"requires": "fat-esp-kernel-read", "proof": "future-host-build"},
-    "FRAMEBUFFER": {"requires": "gop-boot-info", "proof": "future-host-build"},
-    "MEMORY_MAP": {"requires": "uefi-memory-map", "proof": "future-host-build"},
-    "EXIT_BOOT_SERVICES": {"requires": "exit-before-kernel-handoff", "proof": "future-boot-run"},
-    "KERNEL_HANDOFF": {"requires": "elf32-entry-compatible", "proof": "future-boot-run"},
-    "BUILD_INTEGRATION": {"requires": "separate-opt-in-target", "proof": "future-host-build"},
+    "ENTRY": {
+        "status": "host-built",
+        "requires": "pe32-efi-loader",
+        "proof": "host-pe-coff-loader-check",
+        "evidence": "build-host-artifacts",
+    },
+    "ESP_STORAGE": {
+        "status": "loader-implemented",
+        "requires": "fat-esp-kernel-read",
+        "proof": "source-and-host-build",
+        "evidence": "loader.asm",
+    },
+    "FRAMEBUFFER": {
+        "status": "loader-implemented",
+        "requires": "gop-info-collection",
+        "proof": "source-and-host-build",
+        "evidence": "loader.asm",
+    },
+    "MEMORY_MAP": {
+        "status": "loader-implemented",
+        "requires": "uefi-memory-map",
+        "proof": "source-and-host-build",
+        "evidence": "loader.asm",
+    },
+    "EXIT_BOOT_SERVICES": {
+        "status": "cloud-proof-target",
+        "requires": "exit-before-kernel-handoff",
+        "proof": "ovmf-debugcon-marker",
+        "evidence": "uefi-ovmf-proof.yml",
+    },
+    "KERNEL_HANDOFF": {
+        "status": "blocked",
+        "requires": "elf32-entry-compatible",
+        "proof": "future-mode-switch-handoff",
+        "evidence": "ovmf-proof-manifest",
+    },
+    "BUILD_INTEGRATION": {
+        "status": "host-built",
+        "requires": "separate-opt-in-target",
+        "proof": "host-artifact-build",
+        "evidence": "build-host-artifacts",
+    },
 }
 
 UEFI_BOOT_DEVICE_REQUIREMENTS = {
-    "ESP_IMAGE": {"requires": "fat-esp-kernel-file", "proof": "future-host-build"},
-    "OVMF_BOOT": {"requires": "ovmf-loads-efi-from-esp", "proof": "future-boot-run"},
+    "ESP_IMAGE": {
+        "status": "host-built",
+        "requires": "fat-esp-kernel-file",
+        "proof": "host-fat-directory-check",
+        "evidence": "build-host-artifacts",
+    },
+    "OVMF_BOOT": {
+        "status": "cloud-proof-target",
+        "requires": "ovmf-loads-efi-from-esp",
+        "proof": "github-actions-ovmf",
+        "evidence": "uefi-ovmf-proof.yml",
+    },
     "NO_RAW_LBA_FALLBACK": {
+        "status": "host-checked",
         "requires": "no-stage2-raw-lba-dependency",
-        "proof": "future-contract-check",
+        "proof": "source-contract-check",
+        "evidence": "loader.asm",
     },
     "PHYSICAL_MEDIA": {
+        "status": "unimplemented",
         "requires": "machine-inventory-disposable-media",
         "proof": "future-lab-run",
+        "evidence": "none",
     },
 }
 
 UEFI_HOST_ARTIFACT_REQUIREMENTS = {
-    "PE_COFF_STUB": {
+    "PE_COFF_LOADER": {
         "status": "host-buildable",
-        "kind": "pe32plus-efi-application-stub",
-        "proof": "host-pe-coff-header-check",
+        "kind": "pe32plus-efi-loader-proof-application",
+        "proof": "host-pe-coff-loader-check",
         "evidence": "build-host-artifacts",
     },
     "ESP_FAT_IMAGE": {
@@ -518,13 +567,13 @@ UEFI_CLOUD_PROOF_REQUIREMENTS = {
     "WORKFLOW_DISPATCH": {
         "status": "scaffolded",
         "runner": "github-actions-ubuntu",
-        "mode": "contract-attempt-prove",
+        "mode": "contract-attempt-prove-exitbs",
         "evidence": "uefi-ovmf-proof.yml",
     },
     "OVMF_ATTEMPT": {
         "status": "scaffolded",
         "runner": "github-actions-ubuntu",
-        "mode": "manual-qemu-ovmf",
+        "mode": "manual-qemu-ovmf-debugcon",
         "evidence": "ovmf-cloud-proof-script",
     },
     "SUPPORT_GUARD": {
@@ -1025,14 +1074,9 @@ def _validate_uefi_boot_rows(text: str) -> dict[str, dict[str, str]]:
 
     for row_id, expected in UEFI_BOOT_REQUIREMENTS.items():
         row = rows[row_id]
-        if row["status"] != "unimplemented":
-            raise AssertionError(f"UEFI_BOOT[{row_id}] must stay status=unimplemented")
-        if row["requires"] != expected["requires"]:
-            raise AssertionError(f"UEFI_BOOT[{row_id}] requires must stay {expected['requires']}")
-        if row["proof"] != expected["proof"]:
-            raise AssertionError(f"UEFI_BOOT[{row_id}] proof must stay {expected['proof']}")
-        if row["evidence"] != "none":
-            raise AssertionError(f"UEFI_BOOT[{row_id}] must keep evidence=none until implemented")
+        for key, value in expected.items():
+            if row[key] != value:
+                raise AssertionError(f"UEFI_BOOT[{row_id}] {key} must stay {value}")
 
     return rows
 
@@ -1054,18 +1098,9 @@ def _validate_uefi_boot_device_rows(text: str) -> dict[str, dict[str, str]]:
 
     for row_id, expected in UEFI_BOOT_DEVICE_REQUIREMENTS.items():
         row = rows[row_id]
-        if row["status"] != "unimplemented":
-            raise AssertionError(f"UEFI_BOOT_DEVICE[{row_id}] must stay status=unimplemented")
-        if row["requires"] != expected["requires"]:
-            raise AssertionError(
-                f"UEFI_BOOT_DEVICE[{row_id}] requires must stay {expected['requires']}"
-            )
-        if row["proof"] != expected["proof"]:
-            raise AssertionError(f"UEFI_BOOT_DEVICE[{row_id}] proof must stay {expected['proof']}")
-        if row["evidence"] != "none":
-            raise AssertionError(
-                f"UEFI_BOOT_DEVICE[{row_id}] must keep evidence=none until implemented"
-            )
+        for key, value in expected.items():
+            if row[key] != value:
+                raise AssertionError(f"UEFI_BOOT_DEVICE[{row_id}] {key} must stay {value}")
 
     return rows
 
@@ -1151,7 +1186,7 @@ def _validate_pe32plus_efi_application(data: bytes) -> dict[str, int | str]:
     if machine != 0x8664:
         raise AssertionError("BOOTX64.EFI must be an x86_64 PE/COFF image")
     if section_count != 1:
-        raise AssertionError("BOOTX64.EFI must keep one .text section in the host stub")
+        raise AssertionError("BOOTX64.EFI must keep one .text section in the host loader")
     if optional_size != 0xF0:
         raise AssertionError("BOOTX64.EFI must use a PE32+ optional header")
 
@@ -1176,18 +1211,29 @@ def _validate_pe32plus_efi_application(data: bytes) -> dict[str, int | str]:
         struct.unpack_from("<8sIIIIIIHHI", data, section)
     )
     if name.rstrip(b"\0") != b".text":
-        raise AssertionError("BOOTX64.EFI host stub must contain a .text section")
+        raise AssertionError("BOOTX64.EFI host loader must contain a .text section")
     if entry_rva < virtual_address or entry_rva >= virtual_address + virtual_size:
         raise AssertionError("BOOTX64.EFI entry point must land inside .text")
     if raw_pointer != 0x200 or raw_size < virtual_size:
         raise AssertionError("BOOTX64.EFI .text raw layout changed unexpectedly")
-    if characteristics & 0x60000020 != 0x60000020:
-        raise AssertionError("BOOTX64.EFI .text must be code, execute, and read")
+    if characteristics & 0xE0000020 != 0xE0000020:
+        raise AssertionError("BOOTX64.EFI .text must be code, execute, read, and write")
 
     entry_offset = raw_pointer + (entry_rva - virtual_address)
     expected_entry = b"\x48\xb8" + struct.pack("<Q", 0x8000000000000003) + b"\xc3"
-    if data[entry_offset : entry_offset + len(expected_entry)] != expected_entry:
-        raise AssertionError("BOOTX64.EFI host stub must return EFI_UNSUPPORTED")
+    if data[entry_offset : entry_offset + len(expected_entry)] == expected_entry:
+        raise AssertionError("BOOTX64.EFI must not be the old EFI_UNSUPPORTED stub")
+    text = data[raw_pointer : raw_pointer + raw_size]
+    for marker in (
+        b"VIBEUEFI step=entry",
+        b"VIBEUEFI step=esp-kernel-read",
+        b"VIBEUEFI step=gop",
+        b"VIBEUEFI step=memory-map",
+        b"VIBEUEFI step=exit-boot-services status=success",
+        b"VIBEUEFI step=kernel-handoff status=blocked",
+    ):
+        if marker not in text:
+            raise AssertionError(f"BOOTX64.EFI loader missing proof marker {marker!r}")
 
     return {
         "machine": "x86_64",
@@ -1195,6 +1241,7 @@ def _validate_pe32plus_efi_application(data: bytes) -> dict[str, int | str]:
         "entry_rva": entry_rva,
         "image_base": image_base,
         "section_count": section_count,
+        "loader_kind": "uefi-loader-proof-application",
     }
 
 
@@ -1279,7 +1326,7 @@ def validate_uefi_host_artifact_build(root: Path = ROOT) -> dict[str, object]:
     if not script.exists():
         raise AssertionError("missing boot/uefi/build_host_artifacts.py")
     script_text = _read(script)
-    for forbidden in ("qemu-system", "OVMF_CODE", "OVMF_VARS", "ALLOW_LOCAL_VM", "subprocess"):
+    for forbidden in ("qemu-system", "OVMF_CODE", "OVMF_VARS", "ALLOW_LOCAL_VM"):
         if forbidden in script_text:
             raise AssertionError(
                 "boot/uefi/build_host_artifacts.py must stay host-only and must not run firmware"
@@ -1315,12 +1362,25 @@ def validate_uefi_host_artifact_build(root: Path = ROOT) -> dict[str, object]:
         esp_image = (out_dir / "esp.img").read_bytes()
         manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
 
-    if manifest["claim"] != "host-artifact-only-no-uefi-boot-proof":
-        raise AssertionError("UEFI host manifest must keep the no-boot-proof claim")
+    if manifest["claim"] != "host-built-uefi-loader-no-kernel-entry-proof":
+        raise AssertionError("UEFI host manifest must keep the no-kernel-entry-proof claim")
     if manifest["vm_execution"] != "not-run":
         raise AssertionError("UEFI host manifest must keep VM execution disabled")
     if manifest["esp_paths"] != ["EFI/BOOT/BOOTX64.EFI", "VIBEOS/KERNEL.ELF"]:
         raise AssertionError("UEFI host manifest must keep the checked ESP paths")
+    if manifest["efi_loader_kind"] != "loader-proof-application":
+        raise AssertionError("UEFI host manifest must identify the real loader application")
+    for feature in (
+        "esp-kernel-read",
+        "gop-framebuffer-info",
+        "uefi-memory-map",
+        "exit-boot-services",
+        "debugcon-proof-markers",
+    ):
+        if feature not in manifest["efi_loader_features"]:
+            raise AssertionError(f"UEFI host manifest missing loader feature {feature}")
+    if manifest["kernel_handoff"] != "blocked-uefi64-to-elf32-protected-mode-transition":
+        raise AssertionError("UEFI host manifest must keep the kernel handoff blocker explicit")
 
     pe_info = _validate_pe32plus_efi_application(efi_application)
     esp_info = _validate_fat16_esp_image(esp_image, efi_application, kernel)
@@ -1340,6 +1400,9 @@ def validate_uefi_ovmf_cloud_scaffold(root: Path = ROOT) -> dict[str, object]:
         "GITHUB_ACTIONS",
         "RUNNER_OS",
         "platform.system() == \"Darwin\"",
+        "_parse_debugcon_markers",
+        "debugcon_markers",
+        "exit_boot_services",
         "support_claim",
         "unclaimed",
         "uefi_boot_rows_moved",
@@ -1389,18 +1452,22 @@ def validate_uefi_ovmf_cloud_scaffold(root: Path = ROOT) -> dict[str, object]:
         raise AssertionError("UEFI OVMF contract manifest must record mode=contract")
     if manifest["support_claim"] != "unclaimed":
         raise AssertionError("UEFI OVMF contract manifest must keep support_claim=unclaimed")
-    if manifest["uefi_boot_rows_moved"] is not False:
-        raise AssertionError("UEFI OVMF contract manifest must not move UEFI_BOOT rows")
+    if manifest["uefi_boot_rows_moved"] is not True:
+        raise AssertionError("UEFI OVMF contract manifest must record the intermediate UEFI_BOOT rows")
     if manifest["local_mac_qemu_required"] is not False:
         raise AssertionError("UEFI OVMF contract mode must not require local Mac QEMU")
     if manifest["ovmf"]["execution"] != "not-run":
         raise AssertionError("UEFI OVMF contract mode must not run firmware")
-    if "ExitBootServices is not called" not in manifest["remaining_blockers"]:
-        raise AssertionError("UEFI OVMF manifest must keep ExitBootServices as a blocker")
+    if manifest["ovmf"]["proof_target"] != "exit-boot-services-debugcon-marker":
+        raise AssertionError("UEFI OVMF contract manifest must name the ExitBootServices proof target")
+    if "the loader stops after ExitBootServices instead of switching to 32-bit protected mode" not in manifest["remaining_blockers"]:
+        raise AssertionError("UEFI OVMF manifest must keep the kernel handoff blocker")
     artifact_policy = manifest["artifact_policy"]
     for key in ("uploads_esp_image", "uploads_efi_binary", "uploads_pflash_vars", "uploads_vm_logs"):
         if artifact_policy[key] is not False:
             raise AssertionError(f"UEFI OVMF artifact policy must keep {key}=false")
+    if artifact_policy["uploads_parsed_debugcon_markers"] is not True:
+        raise AssertionError("UEFI OVMF artifact policy must allow parsed debugcon markers in JSON")
 
     workflow_text = _read(workflow)
     for phrase in (
@@ -1785,14 +1852,13 @@ def _validate_uefi_scaffold(root: Path) -> dict[str, dict[str, str]]:
     _validate_uefi_cloud_proof_rows(text)
 
     for phrase in (
-        "contract-only placeholder",
-        "does not contain a UEFI binary",
-        "does not contain a UEFI binary, a PE/COFF image",
+        "real loader/proof application",
+        "does not yet contain a kernel-entry handoff",
         "opt-in host artifact builder",
         "BOOTX64.EFI",
         "VIBEOS/KERNEL.ELF",
-        "host-artifact-only",
-        "UEFI_HOST_ARTIFACT[PE_COFF_STUB]",
+        "host-built-uefi-loader-no-kernel-entry-proof",
+        "UEFI_HOST_ARTIFACT[PE_COFF_LOADER]",
         "does not run OVMF",
         "SUPPORT[UEFI] remains unclaimed",
         "UEFI_BOOT_DEVICE[ESP_IMAGE]",
@@ -1800,7 +1866,7 @@ def _validate_uefi_scaffold(root: Path) -> dict[str, dict[str, str]]:
         "NO_RAW_LBA_FALLBACK",
         "must not describe vibe-os as UEFI-bootable",
         "ExitBootServices",
-        "keep local VM execution behind the existing opt-in safety rail",
+        "64-bit UEFI to 32-bit protected-mode transition",
         "UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH]",
         "Contract mode is host-only and QEMU-free",
         "GitHub Actions Ubuntu runners",

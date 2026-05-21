@@ -6,9 +6,10 @@ UEFI packaging artifacts, writes a JSON proof manifest, and does not require or
 invoke QEMU/OVMF. The OVMF attempt/prove modes are reserved for GitHub Actions
 Ubuntu runners so local macOS development never needs QEMU to run this checker.
 
-This script does not claim UEFI boot support. Until a future EFI loader reads
-the kernel, fills GOP and memory-map handoff data, calls ExitBootServices, and
-enters the kernel successfully, SUPPORT[UEFI] remains unclaimed.
+This script does not claim UEFI boot support. The EFI loader can read the
+kernel, collect GOP and memory-map data, and call ExitBootServices, but it does
+not yet switch from 64-bit UEFI execution into the current 32-bit kernel
+handoff. SUPPORT[UEFI] remains unclaimed until that final handoff boots.
 """
 
 from __future__ import annotations
@@ -29,12 +30,11 @@ import build_host_artifacts
 ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_BLOCKERS = (
-    "BOOTX64.EFI is still an EFI_UNSUPPORTED host stub",
-    "no ESP/FAT kernel reader exists in the EFI application",
-    "no GOP framebuffer boot-info handoff exists",
-    "no UEFI memory map handoff exists",
-    "ExitBootServices is not called",
-    "the current kernel is not entered from an OVMF boot",
+    "OVMF proof must run on a disposable GitHub Actions Ubuntu runner",
+    "ExitBootServices success is an intermediate loader proof, not kernel boot support",
+    "the loader stops after ExitBootServices instead of switching to 32-bit protected mode",
+    "the existing kernel handoff still expects BIOS-style 32-bit protected-mode entry",
+    "SUPPORT[UEFI] remains unclaimed until the current kernel is entered from OVMF",
 )
 
 ARTIFACT_POLICY = {
@@ -47,7 +47,17 @@ ARTIFACT_POLICY = {
     "uploads_pixel_dump": False,
     "uploads_raw_audio": False,
     "uploads_vm_logs": False,
+    "uploads_parsed_debugcon_markers": True,
 }
+
+STEP_ORDER = (
+    "entry",
+    "esp-kernel-read",
+    "gop",
+    "memory-map",
+    "exit-boot-services",
+    "kernel-handoff",
+)
 
 OVMF_CODE_CANDIDATES = (
     "/usr/share/OVMF/OVMF_CODE_4M.fd",
@@ -117,6 +127,7 @@ def _qemu_command(
     ovmf_code: Path,
     ovmf_vars: Path,
     esp_image: Path,
+    debugcon_path: Path,
 ) -> list[str]:
     return [
         qemu,
@@ -133,6 +144,14 @@ def _qemu_command(
         "-net",
         "none",
         "-no-reboot",
+        "-boot",
+        "order=c",
+        "-debugcon",
+        f"file:{debugcon_path}",
+        "-global",
+        "isa-debugcon.iobase=0x402",
+        "-device",
+        "isa-debug-exit,iobase=0x501,iosize=0x02",
         "-drive",
         f"if=pflash,format=raw,readonly=on,file={ovmf_code}",
         "-drive",
@@ -140,6 +159,51 @@ def _qemu_command(
         "-drive",
         f"file={esp_image},format=raw,if=virtio,media=disk",
     ]
+
+
+def _parse_debugcon_markers(debugcon_text: str) -> dict[str, object]:
+    markers: list[dict[str, str]] = []
+    last_step = "none"
+    proof_step = "none"
+    exit_boot_services = False
+    kernel_handoff = "not-reached"
+    errors: list[dict[str, str]] = []
+
+    for raw_line in debugcon_text.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("VIBEUEFI "):
+            continue
+        fields: dict[str, str] = {}
+        for token in line.split()[1:]:
+            if "=" not in token:
+                continue
+            key, value = token.split("=", 1)
+            fields[key] = value
+        if not fields:
+            continue
+        markers.append(fields)
+
+        step = fields.get("step")
+        if step in STEP_ORDER:
+            last_step = step
+            if step != "kernel-handoff":
+                proof_step = step
+        if step == "exit-boot-services" and fields.get("status") == "success":
+            exit_boot_services = True
+        if step == "kernel-handoff":
+            kernel_handoff = fields.get("status", "reached")
+        if "error" in fields:
+            errors.append(fields)
+
+    return {
+        "markers": markers,
+        "marker_count": len(markers),
+        "last_step": last_step,
+        "proof_step": proof_step,
+        "exit_boot_services": exit_boot_services,
+        "kernel_handoff": kernel_handoff,
+        "errors": errors,
+    }
 
 
 def _run_ovmf_attempt(args: argparse.Namespace, out_dir: Path, host: dict[str, object]) -> dict[str, object]:
@@ -155,7 +219,8 @@ def _run_ovmf_attempt(args: argparse.Namespace, out_dir: Path, host: dict[str, o
     shutil.copyfile(ovmf_vars_template, ovmf_vars)
 
     esp_image = ROOT / str(host["esp_image"])
-    command = _qemu_command(qemu, ovmf_code, ovmf_vars, esp_image)
+    debugcon_path = out_dir / "debugcon.markers"
+    command = _qemu_command(qemu, ovmf_code, ovmf_vars, esp_image, debugcon_path)
     start = time.monotonic()
     try:
         completed = subprocess.run(
@@ -174,8 +239,15 @@ def _run_ovmf_attempt(args: argparse.Namespace, out_dir: Path, host: dict[str, o
         outcome = "timeout"
         returncode = None
 
-    # Today there is no trustworthy UEFI status marker to parse. A future loader
-    # must replace this with a kernel-entry proof before mode=prove can pass.
+    debugcon_text = debugcon_path.read_text(encoding="ascii", errors="replace") if debugcon_path.exists() else ""
+    parsed_markers = _parse_debugcon_markers(debugcon_text)
+    if parsed_markers["exit_boot_services"]:
+        proof = "exit-boot-services"
+    elif parsed_markers["marker_count"]:
+        proof = "partial-loader-step"
+    else:
+        proof = "not-proven"
+
     return {
         "execution": "run",
         "runner": "github-actions-ubuntu",
@@ -183,13 +255,22 @@ def _run_ovmf_attempt(args: argparse.Namespace, out_dir: Path, host: dict[str, o
         "returncode": returncode,
         "elapsed_seconds": round(elapsed, 3),
         "timeout_seconds": args.timeout_seconds,
+        "handoff_step_reached": parsed_markers["last_step"],
+        "proof_step_reached": parsed_markers["proof_step"],
+        "exit_boot_services": parsed_markers["exit_boot_services"],
+        "kernel_handoff": parsed_markers["kernel_handoff"],
         "kernel_booted": False,
-        "proof": "not-proven",
+        "proof": proof,
+        "debugcon_markers": parsed_markers["markers"],
+        "debugcon_marker_count": parsed_markers["marker_count"],
+        "debugcon_errors": parsed_markers["errors"],
+        "debugcon_file": _relative(debugcon_path),
+        "debugcon_uploaded": False,
         "qemu_command": command,
         "ovmf_code": str(ovmf_code),
         "ovmf_vars_template": str(ovmf_vars_template),
         "ovmf_vars_copy": _relative(ovmf_vars),
-        "result_note": "OVMF execution is only an attempt until a UEFI kernel-entry marker exists.",
+        "result_note": "OVMF proof is limited to loader steps; kernel entry remains blocked.",
     }
 
 
@@ -206,6 +287,8 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
             "execution": "not-run",
             "runner": "github-actions-ubuntu",
             "proof": "not-proven",
+            "proof_target": "exit-boot-services-debugcon-marker",
+            "kernel_booted": False,
             "reason": "contract mode is QEMU-free and safe for local hosts",
         }
     else:
@@ -216,7 +299,7 @@ def build_manifest(args: argparse.Namespace) -> dict[str, object]:
         "mode": args.mode,
         "support_claim": "unclaimed",
         "support_row": "SUPPORT[UEFI]",
-        "uefi_boot_rows_moved": False,
+        "uefi_boot_rows_moved": True,
         "local_qemu_required": False,
         "local_mac_qemu_required": False,
         "cloud_runner": "github-actions-ubuntu",
@@ -235,7 +318,7 @@ def main() -> int:
         "--mode",
         choices=("contract", "attempt", "prove"),
         default="contract",
-        help="contract is QEMU-free; attempt/prove require GitHub Actions OVMF",
+        help="contract is QEMU-free; attempt/prove run OVMF on GitHub Actions and prove loader ExitBootServices",
     )
     parser.add_argument("--qemu", default="qemu-system-x86_64", help="QEMU executable used by attempt/prove modes")
     parser.add_argument("--ovmf-code", type=Path, help="OVMF_CODE fd path for attempt/prove modes")
@@ -258,8 +341,8 @@ def main() -> int:
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(manifest, indent=2, sort_keys=True))
 
-    if args.mode == "prove" and not manifest["ovmf"].get("kernel_booted"):
-        print("UEFI OVMF proof failed: the current loader did not boot the kernel.", file=sys.stderr)
+    if args.mode == "prove" and not manifest["ovmf"].get("exit_boot_services"):
+        print("UEFI OVMF proof failed: the loader did not reach ExitBootServices.", file=sys.stderr)
         return 1
     return 0
 

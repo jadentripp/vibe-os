@@ -1,54 +1,61 @@
 # UEFI Boot Path Scaffold
 
-This directory is a contract-only placeholder for a future UEFI boot path. It
-does not contain a UEFI binary, a PE/COFF image, an EFI System Partition layout,
-or a loader that can boot vibe-os today. It does contain an opt-in host artifact
-builder, `build_host_artifacts.py`, that emits untracked `BOOTX64.EFI`,
-`esp.img`, and `manifest.json` files for host checks. Those artifacts are
-host-artifact-only packaging evidence; the builder does not run OVMF, does not
-enter UEFI boot services, and does not load the kernel. SUPPORT[UEFI] remains unclaimed
-in `docs/architecture.txt`.
+This directory is no longer an `EFI_UNSUPPORTED` placeholder. It contains a real
+loader/proof application in `loader.asm` plus an opt-in host artifact builder,
+`build_host_artifacts.py`, that emits untracked `BOOTX64.EFI`, `esp.img`, and
+`manifest.json` files for host checks. The loader can read
+`VIBEOS/KERNEL.ELF` from the ESP, collect GOP framebuffer facts, capture the
+UEFI memory map, and call `ExitBootServices` during the disposable-cloud OVMF
+proof path. It does not yet contain a kernel-entry handoff: the current kernel
+still expects a BIOS-style 32-bit protected-mode entry, and the loader stops
+after `ExitBootServices` with a debug marker instead of switching from 64-bit
+UEFI into that handoff. SUPPORT[UEFI] remains unclaimed in
+`docs/architecture.txt`.
+
+The remaining kernel-entry blocker is the 64-bit UEFI to 32-bit protected-mode
+transition.
 
 The current boot path is still the BIOS MBR plus raw-LBA Stage 2 loader described
 in `docs/architecture.txt`. Future UEFI work must keep that path working unless
 the project deliberately retires it, and must not describe vibe-os as
-UEFI-bootable until each row below has real source, build, and proof evidence.
-The disposable-cloud OVMF path starts as workflow/checker scaffolding only:
-`ovmf_cloud_proof.py` can emit a QEMU-free contract manifest locally, while
-`.github/workflows/uefi-ovmf-proof.yml` has manual GitHub Actions modes for a
-future OVMF attempt or proof run.
+UEFI-bootable until the kernel-entry row below has real source, build, and
+cloud proof evidence. `ovmf_cloud_proof.py` can emit a QEMU-free contract
+manifest locally, while `.github/workflows/uefi-ovmf-proof.yml` has manual
+GitHub Actions modes for an OVMF attempt or an ExitBootServices proof run.
 
 ## Machine-Readable Contract
 
-The `UEFI_BOOT[...]` rows are machine-readable. They describe prerequisites for
-a future implementation; every row is intentionally `status=unimplemented`.
+The `UEFI_BOOT[...]` rows are machine-readable. They describe the current
+intermediate rung: host-built loader pieces exist, the OVMF proof target is
+ExitBootServices, and kernel entry remains blocked.
 
-- `UEFI_BOOT[ENTRY] status=unimplemented requires=pe32-efi-application proof=future-host-build evidence=none`
-- `UEFI_BOOT[ESP_STORAGE] status=unimplemented requires=fat-esp-kernel-read proof=future-host-build evidence=none`
-- `UEFI_BOOT[FRAMEBUFFER] status=unimplemented requires=gop-boot-info proof=future-host-build evidence=none`
-- `UEFI_BOOT[MEMORY_MAP] status=unimplemented requires=uefi-memory-map proof=future-host-build evidence=none`
-- `UEFI_BOOT[EXIT_BOOT_SERVICES] status=unimplemented requires=exit-before-kernel-handoff proof=future-boot-run evidence=none`
-- `UEFI_BOOT[KERNEL_HANDOFF] status=unimplemented requires=elf32-entry-compatible proof=future-boot-run evidence=none`
-- `UEFI_BOOT[BUILD_INTEGRATION] status=unimplemented requires=separate-opt-in-target proof=future-host-build evidence=none`
+- `UEFI_BOOT[ENTRY] status=host-built requires=pe32-efi-loader proof=host-pe-coff-loader-check evidence=build-host-artifacts`
+- `UEFI_BOOT[ESP_STORAGE] status=loader-implemented requires=fat-esp-kernel-read proof=source-and-host-build evidence=loader.asm`
+- `UEFI_BOOT[FRAMEBUFFER] status=loader-implemented requires=gop-info-collection proof=source-and-host-build evidence=loader.asm`
+- `UEFI_BOOT[MEMORY_MAP] status=loader-implemented requires=uefi-memory-map proof=source-and-host-build evidence=loader.asm`
+- `UEFI_BOOT[EXIT_BOOT_SERVICES] status=cloud-proof-target requires=exit-before-kernel-handoff proof=ovmf-debugcon-marker evidence=uefi-ovmf-proof.yml`
+- `UEFI_BOOT[KERNEL_HANDOFF] status=blocked requires=elf32-entry-compatible proof=future-mode-switch-handoff evidence=ovmf-proof-manifest`
+- `UEFI_BOOT[BUILD_INTEGRATION] status=host-built requires=separate-opt-in-target proof=host-artifact-build evidence=build-host-artifacts`
 
 The `UEFI_BOOT_DEVICE[...]` rows pin the future boot-device proof boundary. A
 UEFI loader is not enough by itself; the proof must show how the loader is
 packaged, where the kernel is read from, and which boot-device assumptions were
 removed.
 
-- `UEFI_BOOT_DEVICE[ESP_IMAGE] status=unimplemented requires=fat-esp-kernel-file proof=future-host-build evidence=none`
-- `UEFI_BOOT_DEVICE[OVMF_BOOT] status=unimplemented requires=ovmf-loads-efi-from-esp proof=future-boot-run evidence=none`
-- `UEFI_BOOT_DEVICE[NO_RAW_LBA_FALLBACK] status=unimplemented requires=no-stage2-raw-lba-dependency proof=future-contract-check evidence=none`
+- `UEFI_BOOT_DEVICE[ESP_IMAGE] status=host-built requires=fat-esp-kernel-file proof=host-fat-directory-check evidence=build-host-artifacts`
+- `UEFI_BOOT_DEVICE[OVMF_BOOT] status=cloud-proof-target requires=ovmf-loads-efi-from-esp proof=github-actions-ovmf evidence=uefi-ovmf-proof.yml`
+- `UEFI_BOOT_DEVICE[NO_RAW_LBA_FALLBACK] status=host-checked requires=no-stage2-raw-lba-dependency proof=source-contract-check evidence=loader.asm`
 - `UEFI_BOOT_DEVICE[PHYSICAL_MEDIA] status=unimplemented requires=machine-inventory-disposable-media proof=future-lab-run evidence=none`
 
-The `UEFI_HOST_ARTIFACT[...]` rows are also machine-readable. They are the only
-implemented host-build/check slice here: a minimal x86_64 PE32+ EFI application
-stub that returns `EFI_UNSUPPORTED`, a FAT16 ESP-style image containing
-`EFI/BOOT/BOOTX64.EFI` plus `VIBEOS/KERNEL.ELF`, and a source-level guard that
-no OVMF/QEMU VM boot is part of the check. These rows must not be cited as UEFI
-boot support.
+The `UEFI_HOST_ARTIFACT[...]` rows are also machine-readable. They cover a
+host-buildable x86_64 PE32+ loader/proof application, a FAT16 ESP-style image
+containing `EFI/BOOT/BOOTX64.EFI` plus `VIBEOS/KERNEL.ELF`, and a source-level
+guard that no OVMF/QEMU VM boot is part of the host check; the host check does
+not run OVMF. These rows must not be cited as UEFI boot support. The manifest
+claim is
+`host-built-uefi-loader-no-kernel-entry-proof`.
 
-- `UEFI_HOST_ARTIFACT[PE_COFF_STUB] status=host-buildable kind=pe32plus-efi-application-stub proof=host-pe-coff-header-check evidence=build-host-artifacts`
+- `UEFI_HOST_ARTIFACT[PE_COFF_LOADER] status=host-buildable kind=pe32plus-efi-loader-proof-application proof=host-pe-coff-loader-check evidence=build-host-artifacts`
 - `UEFI_HOST_ARTIFACT[ESP_FAT_IMAGE] status=host-buildable kind=fat16-esp-file-layout proof=host-fat-directory-check evidence=build-host-artifacts`
 - `UEFI_HOST_ARTIFACT[NO_VM_BOOT] status=host-checked kind=no-ovmf-or-qemu-execution proof=source-contract-check evidence=check-hardware-support-matrix`
 
@@ -56,11 +63,12 @@ The `UEFI_CLOUD_PROOF[...]` rows describe the opt-in cloud OVMF proof scaffold.
 They are not UEFI boot evidence. Contract mode is host-only and QEMU-free, and
 attempt/prove modes are restricted to GitHub Actions Ubuntu runners unless a
 developer explicitly opens the Linux lab escape hatch. The default artifact
-upload policy is JSON manifests only; ESP images, EFI binaries, pflash vars,
-disk images, serial captures, and VM logs stay runner-local scratch.
+upload policy is JSON manifests only; parsed debugcon markers may appear inside
+the manifest, while ESP images, EFI binaries, pflash vars, disk images, raw
+serial captures, and VM logs stay runner-local scratch.
 
-- `UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH] status=scaffolded runner=github-actions-ubuntu mode=contract-attempt-prove evidence=uefi-ovmf-proof.yml`
-- `UEFI_CLOUD_PROOF[OVMF_ATTEMPT] status=scaffolded runner=github-actions-ubuntu mode=manual-qemu-ovmf evidence=ovmf-cloud-proof-script`
+- `UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH] status=scaffolded runner=github-actions-ubuntu mode=contract-attempt-prove-exitbs evidence=uefi-ovmf-proof.yml`
+- `UEFI_CLOUD_PROOF[OVMF_ATTEMPT] status=scaffolded runner=github-actions-ubuntu mode=manual-qemu-ovmf-debugcon evidence=ovmf-cloud-proof-script`
 - `UEFI_CLOUD_PROOF[SUPPORT_GUARD] status=guardrail runner=host-check mode=support-uefi-unclaimed evidence=check-hardware-support-matrix`
 - `UEFI_CLOUD_PROOF[ARTIFACT_POLICY] status=guardrail runner=github-actions-ubuntu mode=json-manifests-only evidence=workflow-artifact-policy`
 
@@ -74,14 +82,13 @@ disk images, serial captures, and VM logs stay runner-local scratch.
   physical hardware notes must include exact machine inventory and disposable
   media details.
 - Fill a boot-info handoff that preserves the existing kernel expectations for
-  memory, framebuffer, and entry point data, or change those expectations with a
-  matching host-checked contract.
-- Call `ExitBootServices` before kernel entry and document which firmware
-  services, if any, are still intentionally unavailable afterward.
+  memory, framebuffer, protected-mode entry, and entry point data, or change
+  those expectations with a matching host-checked contract.
+- Keep `ExitBootServices` before kernel entry and document which firmware
+  services, if any, are intentionally unavailable afterward.
 - Add a host-only build/check target before any local VM proof, and keep local
   VM execution behind the existing opt-in safety rail.
-- Keep OVMF proof runs opt-in on disposable cloud runners until a future loader
-  emits a kernel-entry proof marker; contract checks must not require local Mac
-  QEMU.
+- Keep OVMF proof runs opt-in on disposable cloud runners until the loader emits
+  a kernel-entry proof marker; contract checks must not require local Mac QEMU.
 - Keep WADs, disk images, screenshots, pixel dumps, raw audio, and VM logs out of
   git and out of default proof artifacts.

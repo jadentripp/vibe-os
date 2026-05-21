@@ -205,6 +205,7 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "KERNEL_RELOCATION_STATUS_LOW_IDENTITY equ 1",
             "KERNEL_HIGH_ALIAS_STATUS_OK equ 1",
             "KERNEL_HIGH_EXEC_STATUS_OK equ 1",
+            "KERNEL_HIGH_EXEC_STACK_MAGIC equ 0x48485354",
             "KERNEL_PERSISTENT_ALIAS_STATUS_OK equ 1",
             "KERNEL_PERSISTENT_ALIAS_BYTES equ 0x00020000",
             "KERNEL_PERSISTENT_ALIAS_PAGES equ KERNEL_PERSISTENT_ALIAS_BYTES / PAGE_SIZE",
@@ -242,6 +243,12 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "kernel_high_exec_stack_phys dd 0",
             "kernel_high_exec_table dd 0",
             "kernel_high_exec_reclaimed dd 0",
+            "kernel_high_exec_xlat dd 0",
+            "kernel_high_exec_stack_xlat dd 0",
+            "kernel_high_exec_stack_probe_vaddr dd 0",
+            "kernel_high_exec_stack_probe_phys dd 0",
+            "kernel_high_exec_stack_probe_word dd 0",
+            "kernel_high_exec_return_eip dd 0",
             "kernel_persistent_alias_vaddr dd 0",
             "kernel_persistent_alias_phys dd 0",
             "kernel_persistent_alias_pages dd 0",
@@ -257,6 +264,7 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "kernel_persistent_stack_pages dd 0",
             "kernel_persistent_stack_xlat dd 0",
             'smoke_kreloc_text db " kreloc=", 0',
+            'smoke_krelocstep_text db " krelocstep=", 0',
             'smoke_kerneip_text db " kerneip=", 0',
             'smoke_kernesp_text db " kernesp=", 0',
             'smoke_kerncr3_text db " kerncr3=", 0',
@@ -279,6 +287,12 @@ class BootLoaderVmContractTests(unittest.TestCase):
             'smoke_khistkpa_text db " khistkpa=", 0',
             'smoke_khipt_text db " khipt=", 0',
             'smoke_khifree_text db " khifree=", 0',
+            'smoke_khixlat_text db " khixlat=", 0',
+            'smoke_khisxlat_text db " khisxlat=", 0',
+            'smoke_khislot_text db " khislot=", 0',
+            'smoke_khislotpa_text db " khislotpa=", 0',
+            'smoke_khisword_text db " khisword=", 0',
+            'smoke_khiret_text db " khiret=", 0',
             'smoke_kpmap_text db " kpmap=", 0',
             'smoke_kpva_text db " kpva=", 0',
             'smoke_kppa_text db " kppa=", 0',
@@ -386,9 +400,13 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "mov [kernel_high_exec_stack_vaddr], eax",
             "call vmm_map_page",
             "mov [kernel_high_exec_table], eax",
+            "mov [kernel_high_exec_xlat], eax",
+            "mov [kernel_high_exec_stack_xlat], eax",
             "mov esp, ebx",
             "call eax",
             "mov esp, [kernel_high_exec_saved_low_esp]",
+            "cmp dword [ebx], KERNEL_HIGH_EXEC_STACK_MAGIC",
+            "mov [kernel_high_exec_stack_probe_phys], ebx",
             "cmp eax, PAGING_DIR_ADDR",
             "call vmm_unmap_page",
             "mov [kernel_high_exec_reclaimed], eax",
@@ -400,6 +418,10 @@ class BootLoaderVmContractTests(unittest.TestCase):
         for source in (
             "call .capture_eip",
             "mov [kernel_high_exec_eip], eax",
+            "mov [kernel_high_exec_return_eip], eax",
+            "push dword KERNEL_HIGH_EXEC_STACK_MAGIC",
+            "mov [kernel_high_exec_stack_probe_vaddr], esp",
+            "mov [kernel_high_exec_stack_probe_word], eax",
             "mov [kernel_high_exec_esp], esp",
             "mov [kernel_high_exec_cr3], eax",
             "mov byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_OK",
@@ -476,6 +498,7 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity",
             "`vmmhi=OK` is not a kernel relocation claim",
             "`kreloc=LOW`",
+            "`krelocstep=HIEXEC_TMP`",
             "`kreloc=OK`",
             "`kerneip=`",
             "`kernesp=`",
@@ -499,6 +522,12 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "`khistkpa=`",
             "`khipt=`",
             "`khifree=`",
+            "`khixlat=`",
+            "`khisxlat=`",
+            "`khislot=`",
+            "`khislotpa=`",
+            "`khisword=`",
+            "`khiret=`",
             "`kpmap=OK`",
             "`kpva=`",
             "`kppa=`",
@@ -529,9 +558,9 @@ class BootLoaderVmContractTests(unittest.TestCase):
         self.assertIn("this remains a brk-backed", process_doc)
         self.assertIn("boot/uefi/CONTRACT.txt", readme)
         self.assertIn("boot/uefi/build_host_artifacts.py", readme)
-        self.assertIn("contract-only UEFI scaffold", boot_doc)
-        self.assertIn("host-artifact-only-no-uefi-boot-proof", boot_doc)
-        self.assertIn("status=unimplemented", uefi_scaffold)
+        self.assertIn("UEFI loader/proof boundary", boot_doc)
+        self.assertIn("host-built-uefi-loader-no-kernel-entry-proof", boot_doc)
+        self.assertIn("UEFI_BOOT[KERNEL_HANDOFF] status=blocked", uefi_scaffold)
         self.assertIn("UEFI_HOST_ARTIFACT[NO_VM_BOOT]", uefi_scaffold)
         self.assertIn("SUPPORT[UEFI] remains unclaimed", uefi_scaffold)
         self.assertNotIn("UEFI_BOOT[ENTRY] status=implemented", uefi_scaffold)
@@ -574,6 +603,8 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "uefi_boot_rows_moved",
             "local_mac_qemu_required",
             "ExitBootServices",
+            "debugcon_markers",
+            "exit_boot_services",
             "mode == \"prove\"",
         ):
             self.assertIn(source, proof_script)

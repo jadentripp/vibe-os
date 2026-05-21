@@ -300,6 +300,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     _require(makefile, "tools/check_shutdown_panic_proof.py --repo-contract", "Makefile")
     _require(makefile, "KERNEL_EXTRA_NASMFLAGS ?=", "Makefile")
     _require(makefile, 'grep -q "kreloc=LOW"', "Makefile")
+    _require(makefile, 'grep -q "krelocstep=HIEXEC_TMP"', "Makefile")
     _require(makefile, 'grep -q "kerneip="', "Makefile")
     _require(makefile, 'grep -q "kernesp="', "Makefile")
     _require(makefile, 'grep -q "kerncr3=00090000"', "Makefile")
@@ -315,6 +316,12 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     _require(makefile, 'grep -q "khistkpa="', "Makefile")
     _require(makefile, 'grep -q "khipt="', "Makefile")
     _require(makefile, 'grep -q "khifree="', "Makefile")
+    _require(makefile, 'grep -q "khixlat="', "Makefile")
+    _require(makefile, 'grep -q "khisxlat="', "Makefile")
+    _require(makefile, 'grep -q "khislot="', "Makefile")
+    _require(makefile, 'grep -q "khislotpa="', "Makefile")
+    _require(makefile, 'grep -q "khisword=48485354"', "Makefile")
+    _require(makefile, 'grep -q "khiret="', "Makefile")
     _require(makefile, 'grep -q "vmmhi=OK"', "Makefile")
     _require(makefile, 'grep -q "vmmhva=C0000000"', "Makefile")
     _require(makefile, 'grep -q "vmmhpa="', "Makefile")
@@ -471,6 +478,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "KERNEL_RELOCATION_STATUS_MISMATCH equ 2",
         "KERNEL_HIGH_ALIAS_STATUS_OK equ 1",
         "KERNEL_HIGH_EXEC_STATUS_OK equ 1",
+        "KERNEL_HIGH_EXEC_STACK_MAGIC equ 0x48485354",
         "KERNEL_PERSISTENT_ALIAS_STATUS_OK equ 1",
         "KERNEL_PERSISTENT_ALIAS_BYTES equ 0x00020000",
         "KERNEL_PERSISTENT_ALIAS_PAGES equ KERNEL_PERSISTENT_ALIAS_BYTES / PAGE_SIZE",
@@ -504,6 +512,12 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "mov [kernel_high_exec_stack_phys], eax",
         "mov [kernel_high_exec_table], eax",
         "mov [kernel_high_exec_reclaimed], eax",
+        "mov [kernel_high_exec_xlat], eax",
+        "mov [kernel_high_exec_stack_xlat], eax",
+        "mov [kernel_high_exec_stack_probe_vaddr], esp",
+        "mov [kernel_high_exec_stack_probe_phys], ebx",
+        "mov [kernel_high_exec_stack_probe_word], eax",
+        "mov [kernel_high_exec_return_eip], eax",
         "mov [kernel_persistent_alias_vaddr], eax",
         "mov [kernel_persistent_alias_phys], eax",
         "mov [kernel_persistent_alias_table], eax",
@@ -520,6 +534,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "cmp eax, KERNEL_HIGHER_HALF_BASE",
         "cmp eax, PAGING_DIR_ADDR",
         "cmp eax, [kernel_relocation_virt]",
+        "mov edx, cr3",
+        "cmp dword [ebx], KERNEL_HIGH_EXEC_STACK_MAGIC",
         "mov byte [kernel_relocation_status], KERNEL_RELOCATION_STATUS_LOW_IDENTITY",
         "mov byte [kernel_high_alias_status], KERNEL_HIGH_ALIAS_STATUS_OK",
         "mov byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_OK",
@@ -565,6 +581,12 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "kernel_high_exec_stack_phys dd 0",
         "kernel_high_exec_table dd 0",
         "kernel_high_exec_reclaimed dd 0",
+        "kernel_high_exec_xlat dd 0",
+        "kernel_high_exec_stack_xlat dd 0",
+        "kernel_high_exec_stack_probe_vaddr dd 0",
+        "kernel_high_exec_stack_probe_phys dd 0",
+        "kernel_high_exec_stack_probe_word dd 0",
+        "kernel_high_exec_return_eip dd 0",
         "kernel_persistent_alias_vaddr dd 0",
         "kernel_persistent_alias_phys dd 0",
         "kernel_persistent_alias_pages dd 0",
@@ -580,6 +602,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "kernel_persistent_stack_pages dd 0",
         "kernel_persistent_stack_xlat dd 0",
         'smoke_kreloc_text db " kreloc=", 0',
+        'smoke_krelocstep_text db " krelocstep=", 0',
         'smoke_kerneip_text db " kerneip=", 0',
         'smoke_kernesp_text db " kernesp=", 0',
         'smoke_kerncr3_text db " kerncr3=", 0',
@@ -602,6 +625,12 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         'smoke_khistkpa_text db " khistkpa=", 0',
         'smoke_khipt_text db " khipt=", 0',
         'smoke_khifree_text db " khifree=", 0',
+        'smoke_khixlat_text db " khixlat=", 0',
+        'smoke_khisxlat_text db " khisxlat=", 0',
+        'smoke_khislot_text db " khislot=", 0',
+        'smoke_khislotpa_text db " khislotpa=", 0',
+        'smoke_khisword_text db " khisword=", 0',
+        'smoke_khiret_text db " khiret=", 0',
         'smoke_kpmap_text db " kpmap=", 0',
         'smoke_kpva_text db " kpva=", 0',
         'smoke_kppa_text db " kppa=", 0',
@@ -684,6 +713,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
             "KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity",
             "`vmmhi=OK` is not a kernel relocation claim",
             "`kreloc=LOW`",
+            "`krelocstep=HIEXEC_TMP`",
             "`kreloc=OK`",
             "`kerneip=`",
             "`kernesp=`",
@@ -707,6 +737,12 @@ def validate_repo_contract(root: Path = ROOT) -> None:
             "`khistkpa=`",
             "`khipt=`",
             "`khifree=`",
+            "`khixlat=`",
+            "`khisxlat=`",
+            "`khislot=`",
+            "`khislotpa=`",
+            "`khisword=`",
+            "`khiret=`",
             "`kpmap=OK`",
             "`kpva=`",
             "`kppa=`",

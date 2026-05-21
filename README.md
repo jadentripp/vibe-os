@@ -78,6 +78,13 @@ python3 -m unittest discover -s tests/host -p 'test_*.py'
 make ALLOW_LOCAL_VM=0 cloud-playability-check
 ```
 
+After local slices land on `main`, the post-merge cloud lane pins all three
+manual proofs to one commit and downloads only status-only artifacts:
+
+```sh
+python3 tools/run_post_merge_cloud_proof.py --ref main --wait --download-dir build/post-merge-cloud-main
+```
+
 Real-WAD proofs run in GitHub Actions, Codespaces, or disposable cloud hosts.
 Use `docs/proof.txt` and `docs/play.txt` for dispatch commands and artifact
 checks. For an already-dispatched proof, use
@@ -93,11 +100,13 @@ raw audio captures are forbidden.
 
 The hardware claim is bounded to QEMU BIOS/IDE/PS2/VBE/SB16: BIOS, IDE/ATA,
 PS/2, VBE/Mode 13h, and SB16-style audio. That evidence is limited to the
-emulated device model. `boot/uefi/CONTRACT.txt` is a contract-only UEFI scaffold,
-and SUPPORT[UEFI] remains unclaimed. The opt-in
-`boot/uefi/build_host_artifacts.py` path is host-artifact-only: it builds and
-checks a PE/COFF EFI stub plus FAT16 ESP-style image, but it does not run OVMF
-or load the kernel. PCI fields such as `pci=`, `pciprobe=`, and `pcitabcap=`
+emulated device model. `boot/uefi/CONTRACT.txt` now has an opt-in UEFI
+loader/proof path, and SUPPORT[UEFI] remains unclaimed. The
+`boot/uefi/build_host_artifacts.py` path is host-only: it builds and checks a
+PE/COFF EFI loader plus FAT16 ESP-style image. The GitHub Actions OVMF workflow
+can prove loader steps up to `ExitBootServices`, but the current kernel handoff
+is still blocked on the 64-bit UEFI to 32-bit protected-mode transition. PCI
+fields such as `pci=`, `pciprobe=`, and `pcitabcap=`
 plus the `PCI_TABLE[...]` / `PCI_TABLE_CONTRACT[...]` rows are status-only QEMU
 bus-0 diagnostics; see `docs/architecture.txt`.
 

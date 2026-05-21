@@ -239,6 +239,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "pmm=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "vmm=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "kreloc=LOW" $(BUILD_DIR)/status.txt; \
+	grep -q "krelocstep=HIEXEC_TMP" $(BUILD_DIR)/status.txt; \
 	grep -q "kerneip=" $(BUILD_DIR)/status.txt; \
 	grep -q "kernesp=" $(BUILD_DIR)/status.txt; \
 	grep -q "kerncr3=00090000" $(BUILD_DIR)/status.txt; \
@@ -254,6 +255,12 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "khistkpa=" $(BUILD_DIR)/status.txt; \
 	grep -q "khipt=" $(BUILD_DIR)/status.txt; \
 	grep -q "khifree=" $(BUILD_DIR)/status.txt; \
+	grep -q "khixlat=" $(BUILD_DIR)/status.txt; \
+	grep -q "khisxlat=" $(BUILD_DIR)/status.txt; \
+	grep -q "khislot=" $(BUILD_DIR)/status.txt; \
+	grep -q "khislotpa=" $(BUILD_DIR)/status.txt; \
+	grep -q "khisword=48485354" $(BUILD_DIR)/status.txt; \
+	grep -q "khiret=" $(BUILD_DIR)/status.txt; \
 	grep -q "vmmhi=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "vmmhva=C0000000" $(BUILD_DIR)/status.txt; \
 	grep -q "vmmhpa=" $(BUILD_DIR)/status.txt; \

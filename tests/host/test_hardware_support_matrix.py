@@ -181,11 +181,11 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             (readme, "boot/uefi/CONTRACT.txt"),
             (readme, "boot/uefi/build_host_artifacts.py"),
             (readme, "pci="),
-            (boot_doc, "contract-only UEFI scaffold"),
+            (boot_doc, "UEFI loader/proof boundary"),
             (boot_doc, "SUPPORT[UEFI] remains unclaimed"),
-            (boot_doc, "UEFI_HOST_ARTIFACT[PE_COFF_STUB]"),
-            (boot_doc, "host-buildable PE/COFF and FAT16 ESP artifacts"),
-            (boot_doc, "manual GitHub Actions OVMF scaffold"),
+            (boot_doc, "UEFI_HOST_ARTIFACT[PE_COFF_LOADER]"),
+            (boot_doc, "host-buildable PE/COFF loader and FAT16 ESP artifacts"),
+            (boot_doc, "manual GitHub Actions OVMF loader proof"),
             (boot_doc, "contract mode that is QEMU-free"),
             (boot_doc, "PCI_STATUS[QEMU_BUS0_CONFIG]"),
             (gap_doc, "check_hardware_support_matrix.py"),
@@ -193,7 +193,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             (gap_doc, "UEFI_HOST_ARTIFACT[...]"),
             (gap_doc, "ovmf_cloud_proof.py"),
             (gap_doc, "support_claim=unclaimed"),
-            (gap_doc, "host-artifact-only packaging evidence"),
+            (gap_doc, "host-built-uefi-loader-no-kernel-entry-proof"),
             (gap_doc, "PCI_STATUS[...]"),
             (gap_doc, "PCI_TABLE[...]"),
             (gap_doc, "pciprobe="),
@@ -399,7 +399,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         self.assertIn("audioirq", rows["SB16"]["fields"])
         self.assertContainsPhrase(matrix, "minimum aggregate status fields")
 
-    def test_uefi_scaffold_is_contract_only_and_unclaimed(self):
+    def test_uefi_loader_proof_boundary_is_intermediate_and_unclaimed(self):
         rows = check_hardware_support_matrix.validate_repo_contract(ROOT)
         uefi_rows = check_hardware_support_matrix._validate_uefi_scaffold(ROOT)
         scaffold = (ROOT / "boot" / "uefi" / "CONTRACT.txt").read_text()
@@ -426,46 +426,69 @@ class HardwareSupportMatrixTests(unittest.TestCase):
                 "BUILD_INTEGRATION",
             },
         )
-        for row_id, row in uefi_rows.items():
-            with self.subTest(row_id=row_id):
-                self.assertEqual(row["status"], "unimplemented")
-                self.assertEqual(row["evidence"], "none")
+        self.assertEqual(uefi_rows["ENTRY"]["status"], "host-built")
+        self.assertEqual(uefi_rows["ESP_STORAGE"]["status"], "loader-implemented")
+        self.assertEqual(uefi_rows["FRAMEBUFFER"]["status"], "loader-implemented")
+        self.assertEqual(uefi_rows["MEMORY_MAP"]["status"], "loader-implemented")
+        self.assertEqual(uefi_rows["EXIT_BOOT_SERVICES"]["status"], "cloud-proof-target")
+        self.assertEqual(uefi_rows["KERNEL_HANDOFF"]["status"], "blocked")
+        self.assertEqual(uefi_rows["KERNEL_HANDOFF"]["proof"], "future-mode-switch-handoff")
+        self.assertEqual(uefi_rows["BUILD_INTEGRATION"]["status"], "host-built")
         self.assertEqual(
             set(uefi_device_rows),
             {"ESP_IMAGE", "OVMF_BOOT", "NO_RAW_LBA_FALLBACK", "PHYSICAL_MEDIA"},
         )
         self.assertEqual(uefi_device_rows["ESP_IMAGE"]["requires"], "fat-esp-kernel-file")
+        self.assertEqual(uefi_device_rows["ESP_IMAGE"]["status"], "host-built")
+        self.assertEqual(uefi_device_rows["OVMF_BOOT"]["status"], "cloud-proof-target")
         self.assertEqual(
             uefi_device_rows["NO_RAW_LBA_FALLBACK"]["requires"],
             "no-stage2-raw-lba-dependency",
         )
+        self.assertEqual(uefi_device_rows["NO_RAW_LBA_FALLBACK"]["status"], "host-checked")
+        self.assertEqual(uefi_device_rows["PHYSICAL_MEDIA"]["status"], "unimplemented")
+        self.assertEqual(uefi_device_rows["PHYSICAL_MEDIA"]["evidence"], "none")
         self.assertEqual(
             set(uefi_host_rows),
-            {"PE_COFF_STUB", "ESP_FAT_IMAGE", "NO_VM_BOOT"},
+            {"PE_COFF_LOADER", "ESP_FAT_IMAGE", "NO_VM_BOOT"},
         )
         self.assertEqual(
             set(uefi_cloud_rows),
             {"WORKFLOW_DISPATCH", "OVMF_ATTEMPT", "SUPPORT_GUARD", "ARTIFACT_POLICY"},
         )
-        self.assertEqual(uefi_host_rows["PE_COFF_STUB"]["status"], "host-buildable")
+        self.assertEqual(uefi_host_rows["PE_COFF_LOADER"]["status"], "host-buildable")
         self.assertEqual(uefi_host_rows["ESP_FAT_IMAGE"]["proof"], "host-fat-directory-check")
         self.assertEqual(uefi_host_rows["NO_VM_BOOT"]["kind"], "no-ovmf-or-qemu-execution")
         self.assertEqual(uefi_cloud_rows["WORKFLOW_DISPATCH"]["runner"], "github-actions-ubuntu")
-        self.assertEqual(uefi_cloud_rows["OVMF_ATTEMPT"]["mode"], "manual-qemu-ovmf")
+        self.assertEqual(uefi_cloud_rows["OVMF_ATTEMPT"]["mode"], "manual-qemu-ovmf-debugcon")
         self.assertEqual(uefi_cloud_rows["SUPPORT_GUARD"]["mode"], "support-uefi-unclaimed")
         self.assertEqual(uefi_cloud["manifest"]["mode"], "contract")
         self.assertEqual(uefi_cloud["manifest"]["support_claim"], "unclaimed")
-        self.assertFalse(uefi_cloud["manifest"]["uefi_boot_rows_moved"])
+        self.assertTrue(uefi_cloud["manifest"]["uefi_boot_rows_moved"])
         self.assertFalse(uefi_cloud["manifest"]["local_mac_qemu_required"])
         self.assertEqual(uefi_cloud["manifest"]["ovmf"]["execution"], "not-run")
-        self.assertEqual(uefi_artifacts["manifest"]["claim"], "host-artifact-only-no-uefi-boot-proof")
+        self.assertEqual(
+            uefi_cloud["manifest"]["ovmf"]["proof_target"],
+            "exit-boot-services-debugcon-marker",
+        )
+        self.assertEqual(
+            uefi_artifacts["manifest"]["claim"],
+            "host-built-uefi-loader-no-kernel-entry-proof",
+        )
         self.assertEqual(uefi_artifacts["manifest"]["vm_execution"], "not-run")
+        self.assertEqual(
+            uefi_artifacts["manifest"]["kernel_handoff"],
+            "blocked-uefi64-to-elf32-protected-mode-transition",
+        )
+        self.assertIn("exit-boot-services", uefi_artifacts["manifest"]["efi_loader_features"])
         self.assertEqual(uefi_artifacts["pe"]["subsystem"], 10)
         self.assertEqual(uefi_artifacts["pe"]["machine"], "x86_64")
+        self.assertEqual(uefi_artifacts["pe"]["loader_kind"], "uefi-loader-proof-application")
         self.assertEqual(uefi_artifacts["esp"]["filesystem"], "FAT16")
         self.assertGreater(uefi_artifacts["esp"]["bootx64_size"], 0)
         self.assertContainsPhrase(scaffold, "future boot-device proof boundary")
-        self.assertContainsPhrase(scaffold, "host-artifact-only")
+        self.assertContainsPhrase(scaffold, "host-built-uefi-loader-no-kernel-entry-proof")
+        self.assertContainsPhrase(scaffold, "64-bit UEFI to 32-bit protected-mode transition")
         self.assertContainsPhrase(scaffold, "contract checks must not require local Mac QEMU")
         self.assertNotIn("boot/uefi", makefile)
 
@@ -594,11 +617,11 @@ class HardwareSupportMatrixTests(unittest.TestCase):
     def test_checker_rejects_uefi_scaffold_becoming_claimed_without_evidence(self):
         scaffold = (ROOT / "boot" / "uefi" / "CONTRACT.txt").read_text()
         broadened = scaffold.replace(
-            "UEFI_BOOT[ENTRY] status=unimplemented",
-            "UEFI_BOOT[ENTRY] status=implemented",
+            "UEFI_BOOT[ENTRY] status=host-built",
+            "UEFI_BOOT[ENTRY] status=claimed",
         )
 
-        with self.assertRaisesRegex(AssertionError, r"UEFI_BOOT\[ENTRY\] must stay status=unimplemented"):
+        with self.assertRaisesRegex(AssertionError, r"UEFI_BOOT\[ENTRY\] status must stay host-built"):
             check_hardware_support_matrix._validate_uefi_boot_rows(broadened)
 
     def test_checker_rejects_retired_negative_claim_without_proof(self):
@@ -699,26 +722,26 @@ class HardwareSupportMatrixTests(unittest.TestCase):
     def test_checker_rejects_uefi_boot_device_claims_without_evidence(self):
         scaffold = (ROOT / "boot" / "uefi" / "CONTRACT.txt").read_text()
         broadened = scaffold.replace(
-            "UEFI_BOOT_DEVICE[OVMF_BOOT] status=unimplemented",
+            "UEFI_BOOT_DEVICE[OVMF_BOOT] status=cloud-proof-target",
             "UEFI_BOOT_DEVICE[OVMF_BOOT] status=implemented",
         )
 
         with self.assertRaisesRegex(
             AssertionError,
-            r"UEFI_BOOT_DEVICE\[OVMF_BOOT\] must stay status=unimplemented",
+            r"UEFI_BOOT_DEVICE\[OVMF_BOOT\] status must stay cloud-proof-target",
         ):
             check_hardware_support_matrix._validate_uefi_boot_device_rows(broadened)
 
     def test_checker_rejects_uefi_host_artifact_overclaim(self):
         scaffold = (ROOT / "boot" / "uefi" / "CONTRACT.txt").read_text()
         broadened = scaffold.replace(
-            "UEFI_HOST_ARTIFACT[PE_COFF_STUB] status=host-buildable",
-            "UEFI_HOST_ARTIFACT[PE_COFF_STUB] status=claimed",
+            "UEFI_HOST_ARTIFACT[PE_COFF_LOADER] status=host-buildable",
+            "UEFI_HOST_ARTIFACT[PE_COFF_LOADER] status=claimed",
         )
 
         with self.assertRaisesRegex(
             AssertionError,
-            r"UEFI_HOST_ARTIFACT\[PE_COFF_STUB\] status must stay host-buildable",
+            r"UEFI_HOST_ARTIFACT\[PE_COFF_LOADER\] status must stay host-buildable",
         ):
             check_hardware_support_matrix._validate_uefi_host_artifact_rows(broadened)
 

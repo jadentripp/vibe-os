@@ -183,6 +183,7 @@ KERNEL_HIGH_ALIAS_STATUS_FAIL equ 2
 KERNEL_HIGH_EXEC_STATUS_UNKNOWN equ 0
 KERNEL_HIGH_EXEC_STATUS_OK equ 1
 KERNEL_HIGH_EXEC_STATUS_FAIL equ 2
+KERNEL_HIGH_EXEC_STACK_MAGIC equ 0x48485354
 KERNEL_PERSISTENT_ALIAS_STATUS_UNKNOWN equ 0
 KERNEL_PERSISTENT_ALIAS_STATUS_OK equ 1
 KERNEL_PERSISTENT_ALIAS_STATUS_FAIL equ 2
@@ -496,6 +497,7 @@ STAT_S_IWUSR equ 0x00000080
 STAT_MODE_READONLY_REG equ STAT_S_IFREG | STAT_S_IRUSR
 STAT_MODE_WRITABLE_REG equ STAT_S_IFREG | STAT_S_IRUSR | STAT_S_IWUSR
 STAT_MODE_READONLY_DIR equ STAT_S_IFDIR | STAT_S_IRUSR
+FAT_ATTR_READ_ONLY equ 0x01
 FAT_ATTR_VOLUME_ID equ 0x08
 FAT_ATTR_DIRECTORY equ 0x10
 FAT_ATTR_ARCHIVE equ 0x20
@@ -2447,7 +2449,7 @@ kernel_translate_current_vaddr:
     push edi
 
     mov ebx, eax
-    mov edx, [kernel_relocation_cr3]
+    mov edx, cr3
     and edx, 0xfffff000
     mov ecx, ebx
     shr ecx, 22
@@ -2555,6 +2557,12 @@ kernel_high_exec_self_test:
     mov dword [kernel_high_exec_stack_phys], 0
     mov dword [kernel_high_exec_table], 0
     mov dword [kernel_high_exec_reclaimed], 0
+    mov dword [kernel_high_exec_xlat], 0
+    mov dword [kernel_high_exec_stack_xlat], 0
+    mov dword [kernel_high_exec_stack_probe_vaddr], 0
+    mov dword [kernel_high_exec_stack_probe_phys], 0
+    mov dword [kernel_high_exec_stack_probe_word], 0
+    mov dword [kernel_high_exec_return_eip], 0
     mov [kernel_high_exec_saved_low_esp], esp
 
     mov eax, kernel_high_exec_trampoline
@@ -2602,6 +2610,18 @@ kernel_high_exec_self_test:
     call vmm_map_page
     jc .unmap_code
 
+    mov eax, [kernel_high_exec_vaddr]
+    call kernel_translate_current_vaddr
+    mov [kernel_high_exec_xlat], eax
+    cmp eax, [kernel_high_exec_phys]
+    jne .mark_fail_unmap_both
+
+    mov eax, [kernel_high_exec_stack_vaddr]
+    call kernel_translate_current_vaddr
+    mov [kernel_high_exec_stack_xlat], eax
+    cmp eax, [kernel_high_exec_stack_phys]
+    jne .mark_fail_unmap_both
+
     mov ebx, [kernel_high_exec_saved_low_esp]
     and ebx, 0x00000fff
     add ebx, [kernel_high_exec_stack_vaddr]
@@ -2614,6 +2634,22 @@ kernel_high_exec_self_test:
 
     cmp byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_OK
     jne .unmap_both
+    mov eax, [kernel_high_exec_stack_probe_word]
+    cmp eax, KERNEL_HIGH_EXEC_STACK_MAGIC
+    jne .mark_fail_unmap_both
+    mov eax, [kernel_high_exec_stack_probe_vaddr]
+    cmp eax, [kernel_high_exec_stack_vaddr]
+    jb .mark_fail_unmap_both
+    mov ebx, [kernel_high_exec_stack_vaddr]
+    add ebx, PAGE_SIZE
+    cmp eax, ebx
+    jae .mark_fail_unmap_both
+    mov ebx, eax
+    and ebx, 0x00000fff
+    add ebx, [kernel_high_exec_stack_phys]
+    mov [kernel_high_exec_stack_probe_phys], ebx
+    cmp dword [ebx], KERNEL_HIGH_EXEC_STACK_MAGIC
+    jne .mark_fail_unmap_both
     mov eax, [kernel_high_exec_eip]
     cmp eax, [kernel_high_exec_vaddr]
     jb .mark_fail_unmap_both
@@ -2667,6 +2703,13 @@ kernel_high_exec_trampoline:
 .capture_eip:
     pop eax
     mov [kernel_high_exec_eip], eax
+    mov eax, [esp]
+    mov [kernel_high_exec_return_eip], eax
+    push dword KERNEL_HIGH_EXEC_STACK_MAGIC
+    mov [kernel_high_exec_stack_probe_vaddr], esp
+    mov eax, [esp]
+    mov [kernel_high_exec_stack_probe_word], eax
+    pop eax
     mov [kernel_high_exec_esp], esp
     mov eax, cr3
     mov [kernel_high_exec_cr3], eax
@@ -5940,6 +5983,7 @@ storage_init:
     mov dword [fat_list_dir_lba], 0
     mov dword [fat_list_dir_sectors_left], 0
     mov word [fat_list_dir_cluster], 0
+    mov word [fat_parent_dir_cluster], 0
     mov dword [fat_clip_debug_stage], 0
     mov dword [fat_clip_debug_index], 0
     mov dword [fat_clip_debug_size], 0
@@ -8154,6 +8198,106 @@ fat_find_subdir_entry:
     pop ebx
     ret
 
+fat_create_subdir_file:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov [fat_search_name], edi
+    movzx ebx, ax
+
+.cluster_loop:
+    cmp ebx, 2
+    jb .fail
+    cmp ebx, [fat_last_data_cluster]
+    ja .fail
+    mov eax, ebx
+    sub eax, 2
+    movzx edx, byte [fat_sectors_per_cluster]
+    mul edx
+    add eax, [fat_data_lba]
+    mov [fat_list_dir_lba], eax
+    movzx eax, byte [fat_sectors_per_cluster]
+    mov [fat_list_dir_sectors_left], eax
+
+.sector_loop:
+    cmp dword [fat_list_dir_sectors_left], 0
+    je .next_cluster
+    mov eax, [fat_list_dir_lba]
+    mov edi, SECTOR_BUFFER_ADDR
+    call ata_read_sector
+    jc .fail
+    mov edx, [fat_list_dir_lba]
+    inc dword [fat_list_dir_lba]
+    dec dword [fat_list_dir_sectors_left]
+    mov esi, SECTOR_BUFFER_ADDR
+    mov ecx, 16
+
+.entry_loop:
+    cmp byte [esi], 0
+    je .create_here
+    cmp byte [esi], 0xe5
+    je .create_here
+    add esi, 32
+    loop .entry_loop
+    jmp .sector_loop
+
+.next_cluster:
+    mov eax, ebx
+    call fat_next_cluster
+    jc .fail
+    cmp eax, 2
+    jb .fail
+    cmp eax, 0xfff8
+    jae .fail
+    mov ebx, eax
+    jmp .cluster_loop
+
+.create_here:
+    push edx
+    push esi
+    mov edi, esi
+    xor eax, eax
+    mov ecx, 32 / 4
+    cld
+    rep stosd
+    pop esi
+    mov edi, esi
+    mov esi, [fat_search_name]
+    mov ecx, 11
+    cld
+    rep movsb
+    mov byte [edi], FAT_ATTR_ARCHIVE
+    pop edx
+    mov [fat_found_root_lba], edx
+    mov eax, edi
+    sub eax, 11
+    sub eax, SECTOR_BUFFER_ADDR
+    and eax, 511
+    mov [fat_found_root_offset], eax
+    mov word [fat_found_first_cluster], 0
+    mov dword [fat_found_size], 0
+    mov byte [fat_found_attributes], FAT_ATTR_ARCHIVE
+    mov eax, [fat_found_root_lba]
+    mov esi, SECTOR_BUFFER_ADDR
+    call ata_write_sector
+    jc .fail
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
 fat_open_name_is_protected:
     push esi
     push edi
@@ -9056,10 +9200,20 @@ fat_update_writable_size:
     mov eax, [writable_root_lbas + ebx * 4]
     sub eax, [fat_root_lba]
     cmp eax, [fat_root_sectors]
-    jae .fail
+    jae .load_directory_sector
     mov esi, eax
     shl esi, 9
     add esi, fat_root_cache
+    jmp .update_entry
+
+.load_directory_sector:
+    mov eax, [writable_root_lbas + ebx * 4]
+    mov edi, SECTOR_BUFFER_ADDR
+    call ata_read_sector
+    jc .fail
+    mov esi, SECTOR_BUFFER_ADDR
+
+.update_entry:
     mov edx, [writable_root_offsets + ebx * 4]
     mov ax, [writable_first_clusters + ebx * 2]
     mov [esi + edx + 26], ax
@@ -9434,10 +9588,20 @@ fat_delete_found_file:
     mov eax, [fat_found_root_lba]
     sub eax, [fat_root_lba]
     cmp eax, [fat_root_sectors]
-    jae .fail
+    jae .load_directory_sector
     mov esi, eax
     shl esi, 9
     add esi, fat_root_cache
+    jmp .clear_entry
+
+.load_directory_sector:
+    mov eax, [fat_found_root_lba]
+    mov edi, SECTOR_BUFFER_ADDR
+    call ata_read_sector
+    jc .fail
+    mov esi, SECTOR_BUFFER_ADDR
+
+.clear_entry:
     mov edx, [fat_found_root_offset]
     mov byte [esi + edx], 0xe5
     mov word [esi + edx + 26], 0
@@ -13858,8 +14022,40 @@ syscall_handler:
     test dword [syscall_open_flags], O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND
     jz .open_generic_try_subdir_readonly
     call fat_parse_user_subdir_file83
-    jnc .bad_syscall_eacces
+    jnc .open_generic_subdir_writable
     jmp .open_generic_parse_root83
+
+.open_generic_subdir_writable:
+    mov edi, fat_subdir_name_buffer
+    call fat_find_root_entry_any
+    jc .bad_syscall_enoent
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .bad_syscall_enotdir
+    test byte [fat_found_attributes], FAT_ATTR_READ_ONLY
+    jnz .bad_syscall_eacces
+    mov ax, [fat_found_first_cluster]
+    cmp ax, 2
+    jb .bad_syscall_eio
+    mov [fat_parent_dir_cluster], ax
+    mov edi, fat_open_name_buffer
+    call fat_find_subdir_entry
+    jnc .open_generic_subdir_found
+    test dword [syscall_open_flags], O_CREAT
+    jz .bad_syscall_enoent
+    mov ax, [fat_parent_dir_cluster]
+    mov edi, fat_open_name_buffer
+    call fat_create_subdir_file
+    jc .bad_syscall_enomem
+
+.open_generic_subdir_found:
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jnz .bad_syscall_eisdir
+    test byte [fat_found_attributes], FAT_ATTR_READ_ONLY
+    jnz .bad_syscall_eacces
+    call fat_bind_found_writable_slot
+    jc .bad_syscall_enomem
+    mov edx, [fat_open_slot]
+    jmp .open_writable_ready
 
 .open_generic_try_subdir_readonly:
     call fat_parse_user_subdir_file83
@@ -13907,6 +14103,8 @@ syscall_handler:
 .open_generic_found:
     test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
     jnz .bad_syscall_eisdir
+    test byte [fat_found_attributes], FAT_ATTR_READ_ONLY
+    jnz .bad_syscall_eacces
     call fat_bind_found_writable_slot
     jc .bad_syscall_enomem
     mov edx, [fat_open_slot]
@@ -14727,6 +14925,8 @@ syscall_handler:
 
 .unlink:
     mov [syscall_ptr_arg], ebx
+    call fat_parse_user_subdir_file83
+    jnc .unlink_subdir
     call fat_parse_user_root83
     jc .bad_syscall_einval
     call fat_open_name_is_protected
@@ -14736,6 +14936,8 @@ syscall_handler:
     jc .bad_syscall_enoent
     test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
     jnz .bad_syscall_eisdir
+    test byte [fat_found_attributes], FAT_ATTR_READ_ONLY
+    jnz .bad_syscall_eacces
     mov dword [fat_unlink_slot], 0xffffffff
     call fat_find_writable_slot_for_found
     jc .unlink_delete
@@ -14752,6 +14954,41 @@ syscall_handler:
     call fat_clear_writable_slot
 
 .unlink_ok:
+    xor eax, eax
+    jmp .return
+
+.unlink_subdir:
+    mov edi, fat_subdir_name_buffer
+    call fat_find_root_entry_any
+    jc .bad_syscall_enoent
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .bad_syscall_enotdir
+    test byte [fat_found_attributes], FAT_ATTR_READ_ONLY
+    jnz .bad_syscall_eacces
+    mov ax, [fat_found_first_cluster]
+    cmp ax, 2
+    jb .bad_syscall_eio
+    mov edi, fat_open_name_buffer
+    call fat_find_subdir_entry
+    jc .bad_syscall_enoent
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jnz .bad_syscall_eisdir
+    test byte [fat_found_attributes], FAT_ATTR_READ_ONLY
+    jnz .bad_syscall_eacces
+    mov dword [fat_unlink_slot], 0xffffffff
+    call fat_find_writable_slot_for_found
+    jc .unlink_subdir_delete
+    mov [fat_unlink_slot], eax
+
+.unlink_subdir_delete:
+    call fat_delete_found_file
+    jc .bad_syscall_eio
+    mov eax, [fat_unlink_slot]
+    cmp eax, 0xffffffff
+    je .unlink_ok
+    call fat_close_writable_fds_for_slot
+    mov eax, [fat_unlink_slot]
+    call fat_clear_writable_slot
     xor eax, eax
     jmp .return
 
@@ -19176,6 +19413,21 @@ write_smoke_status:
 .kreloc_write:
     call smoke_copy_string
 
+    mov esi, smoke_krelocstep_text
+    call smoke_copy_string
+    cmp byte [kernel_relocation_status], KERNEL_RELOCATION_STATUS_LOW_IDENTITY
+    jne .krelocstep_low_only
+    cmp byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_OK
+    jne .krelocstep_low_only
+    mov esi, smoke_hiexec_tmp_text
+    jmp .krelocstep_write
+
+.krelocstep_low_only:
+    mov esi, smoke_low_only_text
+
+.krelocstep_write:
+    call smoke_copy_string
+
     mov esi, smoke_kerneip_text
     call smoke_copy_string
     mov edx, [kernel_relocation_eip]
@@ -19300,6 +19552,36 @@ write_smoke_status:
     mov esi, smoke_khifree_text
     call smoke_copy_string
     mov edx, [kernel_high_exec_reclaimed]
+    call smoke_write_hex32
+
+    mov esi, smoke_khixlat_text
+    call smoke_copy_string
+    mov edx, [kernel_high_exec_xlat]
+    call smoke_write_hex32
+
+    mov esi, smoke_khisxlat_text
+    call smoke_copy_string
+    mov edx, [kernel_high_exec_stack_xlat]
+    call smoke_write_hex32
+
+    mov esi, smoke_khislot_text
+    call smoke_copy_string
+    mov edx, [kernel_high_exec_stack_probe_vaddr]
+    call smoke_write_hex32
+
+    mov esi, smoke_khislotpa_text
+    call smoke_copy_string
+    mov edx, [kernel_high_exec_stack_probe_phys]
+    call smoke_write_hex32
+
+    mov esi, smoke_khisword_text
+    call smoke_copy_string
+    mov edx, [kernel_high_exec_stack_probe_word]
+    call smoke_write_hex32
+
+    mov esi, smoke_khiret_text
+    call smoke_copy_string
+    mov edx, [kernel_high_exec_return_eip]
     call smoke_write_hex32
 
     mov esi, smoke_kpmap_text
@@ -20187,6 +20469,7 @@ smoke_ataerr_text db " ataerr=", 0
 smoke_atafail_text db " atafail=", 0
 smoke_atatmo_text db " atatmo=", 0
 smoke_kreloc_text db " kreloc=", 0
+smoke_krelocstep_text db " krelocstep=", 0
 smoke_kerneip_text db " kerneip=", 0
 smoke_kernesp_text db " kernesp=", 0
 smoke_kerncr3_text db " kerncr3=", 0
@@ -20209,6 +20492,12 @@ smoke_khistk_text db " khistk=", 0
 smoke_khistkpa_text db " khistkpa=", 0
 smoke_khipt_text db " khipt=", 0
 smoke_khifree_text db " khifree=", 0
+smoke_khixlat_text db " khixlat=", 0
+smoke_khisxlat_text db " khisxlat=", 0
+smoke_khislot_text db " khislot=", 0
+smoke_khislotpa_text db " khislotpa=", 0
+smoke_khisword_text db " khisword=", 0
+smoke_khiret_text db " khiret=", 0
 smoke_kpmap_text db " kpmap=", 0
 smoke_kpva_text db " kpva=", 0
 smoke_kppa_text db " kppa=", 0
@@ -20392,6 +20681,8 @@ smoke_run_text db "RUN", 0
 smoke_exit_text db "EXIT", 0
 smoke_fault_text db "FAULT", 0
 smoke_low_text db "LOW", 0
+smoke_low_only_text db "LOW_ONLY", 0
+smoke_hiexec_tmp_text db "HIEXEC_TMP", 0
 smoke_mode13_text db "M13", 0
 smoke_lfb_text db "LFB", 0
 smoke_aspect_text db "ASP", 0
@@ -20716,6 +21007,12 @@ kernel_high_exec_stack_vaddr dd 0
 kernel_high_exec_stack_phys dd 0
 kernel_high_exec_table dd 0
 kernel_high_exec_reclaimed dd 0
+kernel_high_exec_xlat dd 0
+kernel_high_exec_stack_xlat dd 0
+kernel_high_exec_stack_probe_vaddr dd 0
+kernel_high_exec_stack_probe_phys dd 0
+kernel_high_exec_stack_probe_word dd 0
+kernel_high_exec_return_eip dd 0
 kernel_high_exec_saved_low_esp dd 0
 kernel_persistent_alias_vaddr dd 0
 kernel_persistent_alias_phys dd 0
@@ -21414,6 +21711,7 @@ writable_offsets times WRITABLE_FILE_COUNT dd 0
 fat_current_cluster dw 0
 fat_found_first_cluster dw 0
 fat_list_dir_cluster dw 0
+fat_parent_dir_cluster dw 0
 wad_first_cluster dw 0
 user_elf_first_cluster dw 0
 doom_elf_first_cluster dw 0

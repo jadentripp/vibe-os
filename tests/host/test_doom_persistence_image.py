@@ -1886,7 +1886,7 @@ class DoomPersistenceImageTests(unittest.TestCase):
         for phrase in (
             "Writable semantics are still deliberately narrow",
             "root-level 8.3 files",
-            "no writable",
+            "writable create/truncate/unlink behavior for",
             "no rename",
             "no long filenames",
             "no POSIX delete-while-open behavior",

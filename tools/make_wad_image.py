@@ -52,6 +52,9 @@ ASSET_DIR_NAME = b"ASSETS     "
 ASSET_README_NAME = b"README  TXT"
 ASSET_README_BYTES = b"vibe-os FAT16 one-level asset file\n"
 ASSET_README_PATH = (ASSET_DIR_NAME, ASSET_README_NAME)
+STATE_DIR_NAME = b"STATE      "
+STATE_PROOF_NAME = b"SESSION DAT"
+STATE_PROOF_PATH = (STATE_DIR_NAME, STATE_PROOF_NAME)
 PACKAGED_ASSET_FILES = (
     ("/assets/readme.txt", ASSET_README_BYTES),
     ("/assets/maps/e1m1.map", b"name=E1M1\nmusic=D_E1M1\n"),
@@ -774,23 +777,6 @@ class Fat16Image:
     def _validated_path(self, path):
         return tuple(self.validate_root_83_name(name, allow_protected=True) for name in path)
 
-    def _reject_subdirectory_mutation(self, path, operation):
-        path = self._validated_path(path)
-        label = self._path_label(path)
-        if len(path) < 2:
-            raise ValueError(f"FAT16 {operation} path must include a subdirectory component")
-        if len(path) > 2:
-            raise NotADirectoryError(label)
-
-        parent = self.entry_metadata_at_path((path[0],))
-        if parent is None:
-            raise FileNotFoundError(label)
-        if not parent["is_directory"]:
-            raise NotADirectoryError(label)
-        if operation != "create" and self.entry_metadata_at_path(path) is None:
-            raise FileNotFoundError(label)
-        raise PermissionError(f"FAT16 subdirectory path {label} is read-only")
-
     def create_file_at_path(self, path):
         path = self._validated_path(path)
         if len(path) == 1:
@@ -798,25 +784,68 @@ class Fat16Image:
             if self.image[entry + 11] & FAT_ATTR_DIRECTORY:
                 raise IsADirectoryError(self._path_label(path))
             return entry
-        self._reject_subdirectory_mutation(path, "create")
+        parent_cluster, entry = self._writable_child_entry(path, create=True)
+        del parent_cluster
+        return entry
 
     def write_file_at_path(self, path, data):
         path = self._validated_path(path)
         if len(path) == 1:
             return self.write_root_file(path[0], data)
-        self._reject_subdirectory_mutation(path, "write")
+        _parent_cluster, entry = self._writable_child_entry(path, create=True)
+        return self._replace_file_entry(entry, path[-1], FAT_ATTR_ARCHIVE, data)
 
     def truncate_file_at_path(self, path):
         path = self._validated_path(path)
         if len(path) == 1:
             return self.truncate_root_file(path[0])
-        self._reject_subdirectory_mutation(path, "truncate")
+        _parent_cluster, entry = self._writable_child_entry(path, create=False)
+        first_cluster = read_le16(self.image, entry + 26)
+        freed = self.free_chain(first_cluster) if first_cluster else ()
+        self._write_directory_entry(entry, path[-1], FAT_ATTR_ARCHIVE, 0, 0)
+        return freed
 
     def delete_file_at_path(self, path):
         path = self._validated_path(path)
         if len(path) == 1:
             return self.delete_root_file(path[0])
-        self._reject_subdirectory_mutation(path, "unlink")
+        _parent_cluster, entry = self._writable_child_entry(path, create=False)
+        first_cluster = read_le16(self.image, entry + 26)
+        freed = self.free_chain(first_cluster) if first_cluster else ()
+        self.image[entry] = 0xE5
+        write_le16(self.image, entry + 26, 0)
+        write_le32(self.image, entry + 28, 0)
+        return freed
+
+    def _writable_child_entry(self, path, *, create):
+        if len(path) < 2:
+            raise ValueError("FAT16 subdirectory path must include a file name")
+
+        label = self._path_label(path)
+        parent_path = path[:-1]
+        parent = self.entry_metadata_at_path(parent_path)
+        if parent is None:
+            raise FileNotFoundError(label)
+        if not parent["is_directory"]:
+            raise NotADirectoryError(label)
+        if parent["attr"] & FAT_ATTR_READ_ONLY:
+            raise PermissionError(f"FAT16 parent directory {self._path_label(parent_path)} is read-only")
+
+        parent_cluster = parent["cluster"]
+        entry = self._directory_entry_offset(parent_cluster, path[-1])
+        if entry is None:
+            if not create:
+                raise FileNotFoundError(label)
+            entry = self._directory_free_entry_offset(parent_cluster)
+            self._write_directory_entry(entry, path[-1], FAT_ATTR_ARCHIVE, 0, 0)
+            return parent_cluster, entry
+
+        attr = self.image[entry + 11]
+        if attr & FAT_ATTR_DIRECTORY:
+            raise IsADirectoryError(label)
+        if attr & FAT_ATTR_READ_ONLY:
+            raise PermissionError(f"FAT16 path {label} is read-only")
+        return parent_cluster, entry
 
     def write_root_file(self, name, data):
         name = self.validate_root_83_name(name)
@@ -903,33 +932,35 @@ class Fat16Image:
     def create_subdirectory(self, name):
         return self.ensure_directory_at_path((name,))
 
-    def _create_child_directory(self, parent_cluster, name):
+    def _create_child_directory(self, parent_cluster, name, attr=FAT_ATTR_DIRECTORY):
         name = self.validate_root_83_name(name)
         entry = self._directory_entry_offset(parent_cluster, name)
         if entry is not None:
             if not (self.image[entry + 11] & FAT_ATTR_DIRECTORY):
                 raise FileExistsError(name)
+            if attr & FAT_ATTR_READ_ONLY and not (self.image[entry + 11] & FAT_ATTR_READ_ONLY):
+                self.image[entry + 11] |= FAT_ATTR_READ_ONLY
             return read_le16(self.image, entry + 26)
 
         entry = self._directory_free_entry_offset(parent_cluster)
         chain = self.allocate_clusters(1)
         cluster = chain[0]
-        self._write_directory_entry(entry, name, FAT_ATTR_DIRECTORY, cluster, 0)
+        self._write_directory_entry(entry, name, attr, cluster, 0)
 
         directory_start = self.cluster_offset(cluster)
-        self._write_directory_entry(directory_start, b".          ", FAT_ATTR_DIRECTORY, cluster, 0)
+        self._write_directory_entry(directory_start, b".          ", attr, cluster, 0)
         self._write_directory_entry(directory_start + 32, b"..         ", FAT_ATTR_DIRECTORY, parent_cluster or 0, 0)
         return cluster
 
-    def ensure_directory_at_path(self, path):
+    def ensure_directory_at_path(self, path, *, attr=FAT_ATTR_DIRECTORY):
         path = self._validated_path(path)
         parent_cluster = None
         for name in path:
-            parent_cluster = self._create_child_directory(parent_cluster, name)
+            parent_cluster = self._create_child_directory(parent_cluster, name, attr)
         return parent_cluster or 0
 
     def write_directory_file(self, directory_name, file_name, data):
-        return self.write_packaged_file_at_path((directory_name, file_name), data)
+        return self.write_file_at_path((directory_name, file_name), data)
 
     def write_packaged_file_at_path(self, path, data):
         path = self._validated_path(path)
@@ -938,7 +969,10 @@ class Fat16Image:
         if len(path) == 1:
             return self.write_root_file(path[0], data)
 
-        parent_cluster = self.ensure_directory_at_path(path[:-1])
+        parent_cluster = self.ensure_directory_at_path(
+            path[:-1],
+            attr=FAT_ATTR_DIRECTORY | FAT_ATTR_READ_ONLY,
+        )
         file_name = path[-1]
         entry = self._directory_entry_offset(parent_cluster, file_name)
         if entry is None:
@@ -946,7 +980,7 @@ class Fat16Image:
         if self.image[entry + 11] & FAT_ATTR_DIRECTORY:
             raise IsADirectoryError(file_name)
 
-        return self._replace_file_entry(entry, file_name, FAT_ATTR_ARCHIVE, data)
+        return self._replace_file_entry(entry, file_name, FAT_ATTR_ARCHIVE | FAT_ATTR_READ_ONLY, data)
 
     def write_packaged_file_at_display_path(self, display_path, data):
         return self.write_packaged_file_at_path(fat83_path_from_display_path(display_path), data)
@@ -957,7 +991,7 @@ class Fat16Image:
 
 def _reserved_packaged_root_names():
     writable_names = tuple(name for name, _byte_capacity in WRITABLE_DYNAMIC_FILES)
-    return PROTECTED_ROOT_NAMES + writable_names
+    return PROTECTED_ROOT_NAMES + writable_names + (STATE_DIR_NAME,)
 
 
 def normalized_packaged_assets(packaged_assets):
@@ -1414,6 +1448,164 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
     }
 
 
+def prove_subdirectory_file_mutation(fs, path=STATE_PROOF_PATH):
+    """Exercise a writable one-level game-state directory on an image copy."""
+
+    path = fs._validated_path(path)
+    if len(path) != 2:
+        raise ValueError("subdirectory mutation proof currently uses one directory plus one file")
+    label = Fat16Image._path_label(path)
+    directory = fs.entry_metadata_at_path(path[:-1])
+    if directory is None:
+        raise ValueError(f"subdirectory mutation proof is missing {Fat16Image._path_label(path[:-1])}")
+    if not directory["is_directory"]:
+        raise ValueError("subdirectory mutation proof parent is not a directory")
+    if directory["attr"] & FAT_ATTR_READ_ONLY:
+        raise ValueError("subdirectory mutation proof parent is read-only")
+    if fs.entry_metadata_at_path(path) is not None:
+        raise ValueError(f"subdirectory mutation proof scratch file already exists: {label}")
+
+    def remount_and_validate():
+        mounted = Fat16Image(fs.image)
+        mounted.validate_fat_copies_match()
+        mounted.validate_allocated_clusters_reachable()
+        return mounted
+
+    def operation_manifest(operation, *, size, chain, free_before, free_after):
+        return {
+            "operation": operation,
+            "path": label,
+            "size": size,
+            "clusters": len(chain),
+            "free_clusters_before": free_before,
+            "free_clusters_after": free_after,
+            "remount_readback": True,
+        }
+
+    fs.validate_fat_copies_match()
+    fs.validate_allocated_clusters_reachable()
+    before_free = fs.free_data_clusters()
+    operations = []
+
+    cluster_bytes = cluster_size()
+    payload = b"state-slot=alpha\n" + b"A" * (cluster_bytes + 13)
+    free_before_operation = fs.free_data_clusters()
+    first_chain = fs.write_file_at_path(path, payload)
+    if len(first_chain) != clusters_for_size(len(payload)):
+        raise ValueError("subdirectory mutation proof initial write used unexpected clusters")
+    if fs.read_file_at_path(path) != payload:
+        raise ValueError("subdirectory mutation proof initial write did not round-trip")
+    if fs.free_data_clusters() != before_free - len(first_chain):
+        raise ValueError("subdirectory mutation proof initial write consumed unexpected clusters")
+    remounted = remount_and_validate()
+    if remounted.read_file_at_path(path) != payload:
+        raise ValueError("subdirectory mutation proof initial write did not survive remount")
+    operations.append(
+        operation_manifest(
+            "create-write",
+            size=len(payload),
+            chain=first_chain,
+            free_before=free_before_operation,
+            free_after=fs.free_data_clusters(),
+        )
+    )
+
+    grown = payload + b"B" * cluster_bytes + b"tail"
+    free_before_operation = fs.free_data_clusters()
+    grown_chain = fs.write_file_at_path(path, grown)
+    if len(grown_chain) <= len(first_chain):
+        raise ValueError("subdirectory mutation proof grow did not allocate another cluster")
+    if fs.read_file_at_path(path) != grown:
+        raise ValueError("subdirectory mutation proof grow did not round-trip")
+    remounted = remount_and_validate()
+    if remounted.read_file_at_path(path) != grown:
+        raise ValueError("subdirectory mutation proof grow did not survive remount")
+    operations.append(
+        operation_manifest(
+            "rewrite-grow",
+            size=len(grown),
+            chain=grown_chain,
+            free_before=free_before_operation,
+            free_after=fs.free_data_clusters(),
+        )
+    )
+
+    free_before_operation = fs.free_data_clusters()
+    truncated = fs.truncate_file_at_path(path)
+    for cluster in truncated:
+        start = fs.cluster_offset(cluster)
+        if fs.image[start:start + cluster_bytes] != b"\0" * cluster_bytes:
+            raise ValueError("subdirectory mutation proof truncate did not scrub a freed cluster")
+    empty_meta = fs.entry_metadata_at_path(path)
+    if empty_meta is None or empty_meta["cluster"] != 0 or empty_meta["size"] != 0:
+        raise ValueError("subdirectory mutation proof truncate did not reset metadata")
+    remounted = remount_and_validate()
+    if remounted.read_file_at_path(path) != b"":
+        raise ValueError("subdirectory mutation proof truncate did not survive remount")
+    operations.append(
+        operation_manifest(
+            "truncate-empty",
+            size=0,
+            chain=(),
+            free_before=free_before_operation,
+            free_after=fs.free_data_clusters(),
+        )
+    )
+
+    replacement = b"state-slot=beta\n"
+    free_before_operation = fs.free_data_clusters()
+    replacement_chain = fs.write_file_at_path(path, replacement)
+    if fs.read_file_at_path(path) != replacement:
+        raise ValueError("subdirectory mutation proof rewrite did not round-trip")
+    remounted = remount_and_validate()
+    if remounted.read_file_at_path(path) != replacement:
+        raise ValueError("subdirectory mutation proof rewrite did not survive remount")
+    operations.append(
+        operation_manifest(
+            "rewrite-after-truncate",
+            size=len(replacement),
+            chain=replacement_chain,
+            free_before=free_before_operation,
+            free_after=fs.free_data_clusters(),
+        )
+    )
+
+    free_before_operation = fs.free_data_clusters()
+    deleted = fs.delete_file_at_path(path)
+    if deleted != replacement_chain:
+        raise ValueError("subdirectory mutation proof delete did not free the replacement chain")
+    if fs.entry_metadata_at_path(path) is not None:
+        raise ValueError("subdirectory mutation proof delete left a live entry")
+    if fs.free_data_clusters() != before_free:
+        raise ValueError("subdirectory mutation proof did not restore free clusters")
+    remounted = remount_and_validate()
+    if remounted.entry_metadata_at_path(path) is not None:
+        raise ValueError("subdirectory mutation proof delete did not survive remount")
+    operations.append(
+        operation_manifest(
+            "delete",
+            size=0,
+            chain=(),
+            free_before=free_before_operation,
+            free_after=fs.free_data_clusters(),
+        )
+    )
+
+    fs.validate_fat_copies_match()
+    fs.validate_allocated_clusters_reachable()
+    return {
+        "proof_name": label,
+        "directory": Fat16Image._path_label(path[:-1]),
+        "initial_clusters": len(first_chain),
+        "grown_clusters": len(grown_chain),
+        "final_free_clusters": fs.free_data_clusters(),
+        "free_clusters_restored": fs.free_data_clusters() == before_free,
+        "remount_readback": True,
+        "freed_cluster_scrub": True,
+        "operations": operations,
+    }
+
+
 def wad_name(name):
     raw = name.encode("ascii")
     if len(raw) > 8:
@@ -1674,6 +1866,7 @@ def install_bootable_layout(
 
     write_fat_copies(image, fat_start, fat_entries)
     fs = Fat16Image(image)
+    fs.ensure_directory_at_path((STATE_DIR_NAME,))
     package_asset_files(fs, packaged_assets)
     validate_generated_packaged_assets(fs, packaged_assets)
 

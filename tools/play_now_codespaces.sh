@@ -127,6 +127,7 @@ print_codespace_cleanup_commands() {
   echo "Remote log: gh codespace ssh -c \"$CODESPACE_NAME\" -- tail -f /tmp/vibe-os-play-now.log"
   echo "Diagnostics: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh"
   echo "Diagnostics JSON: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh --json"
+  echo "Diagnostics watch: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh --watch"
   echo "Status: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh"
   echo "List ports: gh codespace ports -c \"$CODESPACE_NAME\""
   echo "Inspect machine: gh api /user/codespaces/$CODESPACE_NAME --jq .machine"
@@ -522,6 +523,7 @@ print_preflight_summary() {
   echo "performance preference: use the selected 4+ CPU machine for interactive Doom when available"
   echo "remote preflight command: ./tools/play_now_remote.sh --preflight --require-novnc"
   echo "remote start command: NOVNC_PORT=$NOVNC_PORT nohup ./tools/play_now_remote.sh --require-novnc"
+  echo "remote diagnostics watch command: /tmp/vibe-os-play-now-diagnostics.sh --watch"
   echo "dry-run: Codespace was not created or modified"
   echo "next: run without --dry-run when you are ready to start the disposable remote play session"
 }
@@ -842,6 +844,7 @@ echo "Human proof tip: click the noVNC canvas before each recorded action; the g
 echo "Audio proof tip: VNC is display/input only; record audio as status-only, listener-pass, audio-proof-json-pass, or not-tested in the guided helper without copying raw audio."
 echo "Performance note: 2-core Codespaces can play Doom, but noVNC may stutter during builds or CPU contention; 4+ CPUs are preferred for interactive play."
 echo "Slowdown check: run the Diagnostics command above twice, about 60s apart; it prints only safe process/load and OS status-log lines."
+echo "Slowdown watch: run the Diagnostics watch command above while playing to sample cgroup CPU pressure and status counters over time."
 echo "If status counters keep advancing but 2-core noVNC keeps degrading, recreate on a 4+ CPU Codespace before changing OS runtime code."
 if [ "$OPEN_BROWSER" = "1" ] && [ "$(uname -s)" = "Darwin" ] && command -v open >/dev/null 2>&1; then
   open "$novnc_url" || true

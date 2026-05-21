@@ -1,10 +1,10 @@
-name: UEFI OVMF proof scaffold
+name: UEFI OVMF loader proof
 
 on:
   workflow_dispatch:
     inputs:
       proof_mode:
-        description: contract is QEMU-free; attempt records an OVMF run; prove fails unless the kernel boots.
+        description: contract is QEMU-free; attempt records OVMF loader markers; prove requires ExitBootServices.
         required: true
         type: choice
         default: contract
@@ -12,6 +12,14 @@ on:
           - contract
           - attempt
           - prove
+      expected_ref:
+        description: Optional branch/ref guard. Set this to the branch you meant to prove; the job fails before toolchain install if the selected workflow ref differs.
+        required: false
+        type: string
+      expected_sha:
+        description: Optional exact commit guard. Set this to the main commit you meant to prove; the job fails before toolchain install if GITHUB_SHA differs.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -21,13 +29,33 @@ env:
 
 jobs:
   uefi-ovmf:
-    name: UEFI OVMF scaffold
+    name: UEFI OVMF loader proof
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    env:
+      INPUT_EXPECTED_REF: ${{ inputs.expected_ref }}
+      INPUT_EXPECTED_SHA: ${{ inputs.expected_sha }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+
+      - name: Confirm selected proof ref
+        run: |
+          set -euo pipefail
+
+          if [ -n "${INPUT_EXPECTED_REF:-}" ] && [ "$GITHUB_REF_NAME" != "$INPUT_EXPECTED_REF" ]; then
+            echo "expected_ref '$INPUT_EXPECTED_REF' does not match selected workflow ref '$GITHUB_REF_NAME'." >&2
+            echo "Use the Run workflow branch selector or gh workflow run uefi-ovmf-proof.yml --ref '$INPUT_EXPECTED_REF'." >&2
+            exit 1
+          fi
+          if [ -n "${INPUT_EXPECTED_SHA:-}" ] && [ "$GITHUB_SHA" != "$INPUT_EXPECTED_SHA" ]; then
+            echo "expected_sha '$INPUT_EXPECTED_SHA' does not match selected workflow commit '$GITHUB_SHA'." >&2
+            echo "Fetch/push main first, then rerun the post-merge cloud proof lane for the exact commit." >&2
+            exit 1
+          fi
+
+          echo "Running UEFI OVMF proof on ref '$GITHUB_REF_NAME' at commit '$GITHUB_SHA'."
 
       - name: Install host build tools
         run: |
@@ -52,6 +80,41 @@ jobs:
 
       - name: Re-check support matrix guardrails
         run: python3 tools/check_hardware_support_matrix.py
+
+      - name: Write cloud proof run identity
+        if: always()
+        run: |
+          mkdir -p build/uefi-ovmf-proof
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = {
+              "schema": "cloud-proof-run-v1",
+              "workflow": "uefi-ovmf-proof.yml",
+              "artifact": "uefi-ovmf-proof-manifests",
+              "ref": os.environ.get("GITHUB_REF_NAME", ""),
+              "sha": os.environ.get("GITHUB_SHA", ""),
+              "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+              "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+              "runner": "github-actions-ubuntu",
+              "local_qemu_required": False,
+              "artifact_policy": {
+                  "status_only": True,
+                  "uploads_json_manifests_only": True,
+                  "contains_wad_data": False,
+                  "contains_disk_image": False,
+                  "contains_screenshots": False,
+                  "contains_pixels": False,
+                  "contains_raw_audio": False,
+              },
+          }
+          Path("build/uefi-ovmf-proof/cloud-proof-run.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
 
       - name: Upload UEFI proof manifests
         if: always()

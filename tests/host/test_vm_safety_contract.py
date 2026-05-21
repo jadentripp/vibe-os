@@ -162,6 +162,7 @@ rsync -av "$VIBE_CLOUD_HOST:~/vibe-os-cloud-playtest/build/disk.img" .
         self.assertIn("tools/check_shutdown_panic_proof.py --repo-contract", makefile)
         for needle in (
             'grep -q "kreloc=LOW"',
+            'grep -q "krelocstep=HIEXEC_TMP"',
             'grep -q "kerneip="',
             'grep -q "kernesp="',
             'grep -q "kerncr3=00090000"',
@@ -177,6 +178,12 @@ rsync -av "$VIBE_CLOUD_HOST:~/vibe-os-cloud-playtest/build/disk.img" .
             'grep -q "khistkpa="',
             'grep -q "khipt="',
             'grep -q "khifree="',
+            'grep -q "khixlat="',
+            'grep -q "khisxlat="',
+            'grep -q "khislot="',
+            'grep -q "khislotpa="',
+            'grep -q "khisword=48485354"',
+            'grep -q "khiret="',
             'grep -q "vmmhi=OK"',
             'grep -q "vmmhva=C0000000"',
             'grep -q "vmmhpa="',

@@ -272,6 +272,7 @@ REAL_WAD_ALLOWED_UPLOAD_PATTERNS = (
     "build/user_probe.elf",
     "build/doom.elf",
     "build/doom.symbols",
+    "build/cloud-proof-run.json",
     "build/audio-proof.json",
     "build/gameplay-proof.json",
     "real-wad-soak/*.json",
@@ -282,6 +283,7 @@ REAL_WAD_ALLOWED_UPLOAD_PATTERNS = (
     "build/*.log",
     "build/persistence-*/*.json",
     "build/persistence-*/*.log",
+    "build/persistence-*/*.txt",
 )
 
 RUNTIME_SOURCE_PREFIXES = (

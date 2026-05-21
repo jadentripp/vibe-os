@@ -501,6 +501,7 @@ echo "  proof output dir: $OUTPUT_DIR"
 echo "  proof tarball:    $TARBALL"
 MACHINE_LABEL="$(remote_machine_label)"
 echo "  remote machine:   $MACHINE_LABEL"
+echo "  slowdown sampler: /tmp/vibe-os-play-now-diagnostics.sh --watch"
 if [ -n "$AUDIO_MODE" ]; then
   echo "  audio mode:       $AUDIO_MODE"
 else
@@ -514,6 +515,8 @@ fi
 echo
 echo "Keep QEMU running in the other remote SSH shell. Do not download WADs,"
 echo "disk images, framebuffer data, screenshots, status binaries, or raw audio."
+echo "For slowdown-over-time notes, run the sampler in a third remote shell while"
+echo "the session is playable; it prints status-only CPU/cgroup and OS counters."
 echo
 echo "Phase capture plan:"
 for index in "${!PHASES[@]}"; do

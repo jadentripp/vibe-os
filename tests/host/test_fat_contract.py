@@ -140,11 +140,13 @@ class FatContractTests(unittest.TestCase):
             "root-level 8.3",
             "vibe_listdir",
             "one root-level subdirectory",
-            "root 8.3 plus read-only one-level subdirectory",
+            "root 8.3 plus read-only assets and writable one-level state directory",
+            "dynamic-subdirectory-lifecycle manifest",
             "fat-vfs-boundary manifest",
             "host image inventory may walk deeper packaged trees than the kernel syscall surface",
             "open`/`read`/`lseek`/`stat`/`fstat`",
             "/ASSETS/README.TXT",
+            "/STATE",
             "vibe_dirent_is_regular_file",
             "future games and tools",
             "EISDIR",
@@ -300,19 +302,22 @@ class FatContractTests(unittest.TestCase):
         fs.validate_fat_copies_match()
         fs.validate_allocated_clusters_reachable()
 
-    def test_kernel_fat_vfs_exposes_readonly_one_level_directory_listing(self):
+    def test_kernel_fat_vfs_exposes_one_level_directory_listing_and_state_mutation(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
 
         for source in (
+            "FAT_ATTR_READ_ONLY equ 0x01",
             "fat_find_root_entry_any:",
             "fat_parse_user_subdir_file83:",
             "fat_find_subdir_entry:",
+            "fat_create_subdir_file:",
             "readonly_file_read:",
             "readonly_file_lseek:",
             "fat_list_user_dir:",
             "fat_list_subdir_cluster:",
             "call fat_find_root_entry_any",
             "test byte [fat_found_attributes], FAT_ATTR_DIRECTORY",
+            "test byte [fat_found_attributes], FAT_ATTR_READ_ONLY",
             "jnz .bad_syscall_eisdir",
             "call fat_list_user_dir",
             "FD_KIND_READONLY_FILE equ 3",
@@ -332,9 +337,12 @@ class FatContractTests(unittest.TestCase):
             "test dword [syscall_open_flags], O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND\n"
             "    jz .open_generic_try_subdir_readonly\n"
             "    call fat_parse_user_subdir_file83\n"
-            "    jnc .bad_syscall_eacces",
+            "    jnc .open_generic_subdir_writable",
             open_section,
         )
+        self.assertIn(".open_generic_subdir_writable:", open_section)
+        self.assertIn("call fat_create_subdir_file", open_section)
+        self.assertIn("call fat_bind_found_writable_slot", open_section)
         self.assertIn("mov byte [fd_kinds + eax], FD_KIND_READONLY_FILE", open_section)
         self.assertIn("mov [fd_file_sizes + eax * 4], edx", open_section)
 
@@ -367,11 +375,16 @@ class FatContractTests(unittest.TestCase):
         self.assertIn("jnz .bad_syscall_eisdir", open_section)
 
         unlink_section = kernel.split(".unlink:", 1)[1].split(".stat:", 1)[0]
+        self.assertIn("call fat_parse_user_subdir_file83", unlink_section)
+        self.assertIn("jnc .unlink_subdir", unlink_section)
         self.assertIn("call fat_parse_user_root83", unlink_section)
         self.assertIn("jc .bad_syscall_einval", unlink_section)
         self.assertIn("call fat_find_root_entry_any", unlink_section)
         self.assertIn("test byte [fat_found_attributes], FAT_ATTR_DIRECTORY", unlink_section)
+        self.assertIn("test byte [fat_found_attributes], FAT_ATTR_READ_ONLY", unlink_section)
         self.assertIn("jnz .bad_syscall_eisdir", unlink_section)
+        self.assertIn(".unlink_subdir:", unlink_section)
+        self.assertIn("call fat_delete_found_file", unlink_section)
 
         listdir_section = kernel.split("fat_list_user_dir:", 1)[1].split("fat_list_subdir_cluster:", 1)[0]
         self.assertIn("jz .fail_enotdir", listdir_section)
@@ -415,26 +428,26 @@ class FatContractTests(unittest.TestCase):
 
         fs = make_wad_image.Fat16Image(image)
 
-        fs.create_subdirectory(b"ASSETS     ")
-        fs.write_directory_file(b"ASSETS     ", b"SPRITE  BIN", b"sprite-bytes")
-        fs.write_directory_file(b"ASSETS     ", b"LEVEL   DAT", b"level-bytes")
+        fs.create_subdirectory(b"CONFIG  DIR")
+        fs.write_directory_file(b"CONFIG  DIR", b"SPRITE  BIN", b"sprite-bytes")
+        fs.write_directory_file(b"CONFIG  DIR", b"LEVEL   DAT", b"level-bytes")
         fs.validate_allocated_clusters_reachable()
 
         root_entries = fs.list_root_directory()
-        asset_entry = next(entry for entry in root_entries if entry["name"] == b"ASSETS     ")
+        asset_entry = next(entry for entry in root_entries if entry["name"] == b"CONFIG  DIR")
         self.assertTrue(asset_entry["is_directory"])
         self.assertEqual(asset_entry["size"], 0)
 
-        names = {entry["name"] for entry in fs.list_directory((b"ASSETS     ",))}
+        names = {entry["name"] for entry in fs.list_directory((b"CONFIG  DIR",))}
         self.assertIn(b"SPRITE  BIN", names)
         self.assertIn(b"LEVEL   DAT", names)
         self.assertEqual(
-            fs.read_file_at_path((b"ASSETS     ", b"SPRITE  BIN")),
+            fs.read_file_at_path((b"CONFIG  DIR", b"SPRITE  BIN")),
             b"sprite-bytes",
         )
 
         with self.assertRaises(IsADirectoryError):
-            fs.write_root_file(b"ASSETS     ", b"not-a-file")
+            fs.write_root_file(b"CONFIG  DIR", b"not-a-file")
 
     def test_host_fat_image_packages_nested_display_paths_with_83_normalization(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -550,7 +563,7 @@ class FatContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, message):
                     make_wad_image.normalized_packaged_assets(assets)
 
-    def test_host_fat_image_mutates_root_83_files_but_rejects_subdirectory_writes(self):
+    def test_host_fat_image_mutates_root_and_state_directory_files_but_rejects_readonly_assets(self):
         with tempfile.TemporaryDirectory() as tmp:
             image_path = Path(tmp) / "disk.img"
             subprocess.run(
@@ -573,23 +586,33 @@ class FatContractTests(unittest.TestCase):
         self.assertIsNone(fs.entry_metadata_at_path(root_path))
         fs.validate_allocated_clusters_reachable()
 
-        fs.create_subdirectory(b"ASSETS2    ")
-        fs.write_directory_file(b"ASSETS2    ", b"README  TXT", b"readonly")
-        readonly_path = (b"ASSETS2    ", b"README  TXT")
-        self.assertEqual(fs.read_file_at_path(readonly_path), b"readonly")
+        state_path = (make_wad_image.STATE_DIR_NAME, b"SESSION DAT")
+        fs.write_file_at_path(state_path, b"state one")
+        self.assertEqual(fs.read_file_at_path(state_path), b"state one")
+        fs.write_file_at_path(state_path, b"state one plus more")
+        self.assertEqual(fs.read_file_at_path(state_path), b"state one plus more")
+        self.assertGreater(len(fs.truncate_file_at_path(state_path)), 0)
+        self.assertEqual(fs.read_file_at_path(state_path), b"")
+        fs.write_file_at_path(state_path, b"state two")
+        self.assertGreater(len(fs.delete_file_at_path(state_path)), 0)
+        self.assertIsNone(fs.entry_metadata_at_path(state_path))
+        fs.validate_allocated_clusters_reachable()
+
+        readonly_path = make_wad_image.ASSET_README_PATH
+        self.assertEqual(fs.read_file_at_path(readonly_path), make_wad_image.ASSET_README_BYTES)
 
         for operation, mutate in (
             ("write", lambda: fs.write_file_at_path(readonly_path, b"nope")),
             ("create", lambda: fs.create_file_at_path(readonly_path)),
             ("truncate", lambda: fs.truncate_file_at_path(readonly_path)),
             ("unlink", lambda: fs.delete_file_at_path(readonly_path)),
-            ("create-missing", lambda: fs.create_file_at_path((b"ASSETS2    ", b"NEWFILE TXT"))),
+            ("create-missing", lambda: fs.create_file_at_path((make_wad_image.ASSET_DIR_NAME, b"NEWFILE TXT"))),
         ):
             with self.subTest(operation=operation):
                 with self.assertRaises(PermissionError):
                     mutate()
 
-        self.assertEqual(fs.read_file_at_path(readonly_path), b"readonly")
+        self.assertEqual(fs.read_file_at_path(readonly_path), make_wad_image.ASSET_README_BYTES)
         fs.validate_allocated_clusters_reachable()
 
     def test_host_root_file_replacement_preserves_data_on_allocation_failure(self):
@@ -662,6 +685,15 @@ class FatContractTests(unittest.TestCase):
 
         root_names = {entry["name"] for entry in fs.list_root_directory()}
         self.assertIn(make_wad_image.ASSET_DIR_NAME, root_names)
+        self.assertIn(make_wad_image.STATE_DIR_NAME, root_names)
+        self.assertFalse(
+            fs.entry_metadata_at_path((make_wad_image.STATE_DIR_NAME,))["attr"]
+            & make_wad_image.FAT_ATTR_READ_ONLY
+        )
+        self.assertTrue(
+            fs.entry_metadata_at_path((make_wad_image.ASSET_DIR_NAME,))["attr"]
+            & make_wad_image.FAT_ATTR_READ_ONLY
+        )
         asset_names = {entry["name"] for entry in fs.list_directory((make_wad_image.ASSET_DIR_NAME,))}
         self.assertIn(make_wad_image.ASSET_README_NAME, asset_names)
         readme_meta = make_wad_image.validate_generated_asset_readme(fs)

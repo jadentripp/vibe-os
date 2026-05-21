@@ -29,6 +29,7 @@ KERNEL_HIGH_STACK_TOP = KERNEL_HIGHER_HALF_BASE + KERNEL_STACK_TOP
 KERNEL_PERSISTENT_ALIAS_PAGES = KERNEL_ELF_MAX_BYTES // PAGE_SIZE
 KERNEL_STACK_ALIAS_PAGES = (KERNEL_STACK_TOP - KERNEL_STACK_LOW) // PAGE_SIZE
 KERNEL_PERSISTENT_DIR_MASK = 0x3F
+KERNEL_HIGH_EXEC_STACK_MAGIC = 0x48485354
 PAGING_DIR_ADDR = 0x00090000
 PMM_MANAGED_START = 0x00100000
 PMM_MANAGED_END = 0x02000000
@@ -260,6 +261,7 @@ def validate_vm_mapping(fields: dict[str, str]) -> None:
 
 def validate_kernel_relocation_scaffold(fields: dict[str, str]) -> None:
     status = _field(fields, "kreloc")
+    step = _field(fields, "krelocstep")
     eip = _hex(fields, "kerneip")
     esp = _hex(fields, "kernesp")
     cr3 = _hex(fields, "kerncr3")
@@ -267,6 +269,10 @@ def validate_kernel_relocation_scaffold(fields: dict[str, str]) -> None:
     phys = _hex(fields, "kernphys")
 
     if status == "LOW":
+        if step != "HIEXEC_TMP":
+            raise AssertionError(
+                f"krelocstep= must be HIEXEC_TMP while kreloc=LOW, got {step}"
+            )
         _in_range(
             eip,
             KERNEL_LOW_LINK_BASE,
@@ -293,6 +299,8 @@ def validate_kernel_relocation_scaffold(fields: dict[str, str]) -> None:
         return
 
     if status == "OK":
+        if step != "FULL":
+            raise AssertionError(f"krelocstep= must be FULL once kreloc=OK, got {step}")
         _in_range(
             eip,
             KERNEL_HIGH_LINK_BASE,
@@ -378,6 +386,12 @@ def validate_kernel_high_exec(fields: dict[str, str], *, relocated: bool) -> Non
     stack_phys = _hex(fields, "khistkpa")
     table = _hex(fields, "khipt")
     reclaimed = _hex(fields, "khifree")
+    xlat = _hex(fields, "khixlat")
+    stack_xlat = _hex(fields, "khisxlat")
+    stack_slot = _hex(fields, "khislot")
+    stack_slot_phys = _hex(fields, "khislotpa")
+    stack_word = _hex(fields, "khisword")
+    return_eip = _hex(fields, "khiret")
 
     _in_range(eip, KERNEL_HIGH_LINK_BASE, KERNEL_HIGH_LINK_BASE + KERNEL_ELF_MAX_BYTES, "khieip")
     _in_range(esp, KERNEL_HIGH_STACK_LOW, KERNEL_HIGH_STACK_TOP, "khiesp")
@@ -398,13 +412,41 @@ def validate_kernel_high_exec(fields: dict[str, str], *, relocated: bool) -> Non
         raise AssertionError("khistkpa= must be the low physical kernel stack page backing khistk")
     if stack_vaddr != KERNEL_HIGHER_HALF_BASE + stack_phys:
         raise AssertionError("khistk= must be the higher-half alias of khistkpa")
+    if xlat != phys:
+        raise AssertionError("khixlat= must translate khiva= back to khipa=")
+    if stack_xlat != stack_phys:
+        raise AssertionError("khisxlat= must translate khistk= back to khistkpa=")
+    if not (stack_vaddr <= stack_slot < stack_vaddr + PAGE_SIZE):
+        raise AssertionError("khislot= must be a high-stack slot inside khistk=")
+    expected_slot_phys = stack_phys + (stack_slot & (PAGE_SIZE - 1))
+    if stack_slot_phys != expected_slot_phys:
+        raise AssertionError(
+            f"khislotpa= must be the low physical backing for khislot=, got {stack_slot_phys:#x}"
+        )
+    if stack_word != KERNEL_HIGH_EXEC_STACK_MAGIC:
+        raise AssertionError(
+            f"khisword= must prove a high-stack write of {KERNEL_HIGH_EXEC_STACK_MAGIC:08X}"
+        )
 
     if relocated:
         expected_cr3 = _hex(fields, "kerncr3")
         if cr3 != expected_cr3:
             raise AssertionError("khicr3= must match kerncr3= once kreloc=OK")
+        _in_range(
+            return_eip,
+            KERNEL_HIGH_LINK_BASE,
+            KERNEL_HIGH_LINK_BASE + KERNEL_ELF_MAX_BYTES,
+            "khiret",
+        )
     elif cr3 != PAGING_DIR_ADDR:
         raise AssertionError("khicr3= must prove the high trampoline still ran under the low bootstrap page directory")
+    else:
+        _in_range(
+            return_eip,
+            KERNEL_LOW_LINK_BASE,
+            KERNEL_LOW_LINK_BASE + KERNEL_ELF_MAX_BYTES,
+            "khiret",
+        )
 
     if phys == vaddr or stack_phys == stack_vaddr:
         raise AssertionError("khiexec proof must use non-identity high aliases")
@@ -857,6 +899,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     ):
         _require(text, "tools/check_vm_status_proof.py", label)
         _require(text, "kreloc=LOW", label)
+        _require(text, "krelocstep=HIEXEC_TMP", label)
         _require(text, "kerneip=", label)
         _require(text, "kernesp=", label)
         _require(text, "kerncr3=", label)
@@ -905,6 +948,12 @@ def validate_repo_contract(root: Path = ROOT) -> None:
             "khistkpa=",
             "khipt=",
             "khifree=",
+            "khixlat=",
+            "khisxlat=",
+            "khislot=",
+            "khislotpa=",
+            "khisword=",
+            "khiret=",
         ):
             _require(text, needle, label)
 

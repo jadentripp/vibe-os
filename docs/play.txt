@@ -288,25 +288,30 @@ the launcher:
 ```sh
 gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh
 gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh --json
+gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh --watch
 ```
 
 It reports host CPU count/load, load-per-CPU pressure when `/proc/loadavg` is
 available, the effective CPU basis (`online`, cgroup quota, and cgroup cpuset),
-the forwarded noVNC port, the play process, filtered OS serial status lines such
-as `inputdepth=`, `musicbuf=`, `musicpull=`, `mixunder=`, `dtick/preempt`,
-`doompresent=`, and recent play/noVNC logs with token-shaped values redacted.
+safe cgroup CPU runtime pressure (`cpu.stat` throttling counters and
+`cpu.pressure` PSI when the host exposes them), the forwarded noVNC port, the
+play process, filtered OS serial status lines such as `inputdepth=`,
+`musicbuf=`, `musicpull=`, `mixunder=`, `dtick/preempt`, `doompresent=`, and
+recent play/noVNC logs with token-shaped values redacted.
 It does not print the Codespaces environment, GitHub tokens, WAD data, pixels,
 raw audio, or full logs. For slowdown that gets worse over time, run the helper
-twice about a minute apart. If those OS status fields keep advancing but the
-browser still stutters on a 2-core host, restart on the selected 4+ CPU
-Codespace or a faster disposable cloud VM before treating it as a Doom/input
-regression.
+twice about a minute apart, or use `--watch` to print six status-only snapshots
+one minute apart while playing. For shorter or longer local observation
+windows, use `--samples <count> --interval <seconds>`. If cgroup throttling or
+PSI climbs while those OS status fields keep advancing but the browser still
+stutters on a 2-core host, restart on the selected 4+ CPU Codespace or a faster
+disposable cloud VM before treating it as a Doom/input regression.
 The `--json` form emits `schema=vibe-os-play-now-diagnostics-v1` with
 status-only host CPU basis, host load, process age/CPU, noVNC port/log
-readiness, serial cadence deltas, the conservative diagnosis, and rerun
-recommendations. It intentionally omits log text, environment variables, WAD
-data, disk images, pixels, and raw audio so two long-session snapshots can be
-compared by a tool without scraping human output.
+readiness, cgroup CPU `stat` and `pressure` fields, serial cadence deltas, the
+conservative diagnosis, and rerun recommendations. It intentionally omits log
+text, environment variables, WAD data, disk images, pixels, and raw audio so two
+long-session snapshots can be compared by a tool without scraping human output.
 The helper also prints a status-only cadence summary from the recent serial
 status tail: first/final/delta values for Doom tics, frame presentation,
 timer/preemption, input depth/drop, SB16 refill/music progress, and audio safety
@@ -323,6 +328,7 @@ to keep in your notes:
 gh codespace ssh -c "<codespace-name>" -- tail -f /tmp/vibe-os-play-now.log
 gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh
 gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh --json
+gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-diagnostics.sh --watch
 gh codespace ssh -c "<codespace-name>" -- /tmp/vibe-os-play-now-stop.sh
 gh codespace ports -c "<codespace-name>"
 gh api /user/codespaces/<codespace-name> --jq .machine
@@ -381,6 +387,11 @@ its collector writes `human-playtest-observations.json` plus
 `human-playtest-review.json` with the status-only start/fire/move/use/mouse/menu/final notes
 and remote machine shape, plus `human-playtest-checklist.txt` with the
 post-download checker commands and phase hashes to compare.
+If the session is meant to evaluate slowdown over time, run
+`/tmp/vibe-os-play-now-diagnostics.sh --watch` in a third remote shell while the
+human keeps playing. Keep the resulting notes status-only: cgroup CPU pressure,
+throttling counters, load, process age/CPU, and filtered serial counter deltas
+are okay; screenshots, raw audio, WADs, disk images, and full VM logs are not.
 The guided helper validates the playtester handle, scripted proof run ID, proof
 output directory, and proof tarball path before the first capture prompt. Proof
 output and the tarball must be remote scratch paths outside the git checkout.

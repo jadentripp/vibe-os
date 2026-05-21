@@ -97,13 +97,13 @@ EXPECTED_REQUIREMENTS = {
 EXPECTED_SUBSYSTEM_ROWS = {
     "PATH_NORMALIZATION": {
         "status": "host-proven",
-        "scope": "root-current-dir-8.3-and-readonly-one-level",
+        "scope": "root-current-dir-8.3-and-one-level-subdirectory",
         "gate": "fat-vfs-boundary",
         "evidence": "install-image-manifest",
     },
     "DIRECTORY_READ_BOUNDARY": {
         "status": "host-proven",
-        "scope": "root-plus-readonly-one-level-list-read",
+        "scope": "root-plus-one-level-list-read",
         "gate": "filesystem-tree-manifest",
         "evidence": "check_storage_install_boundary.py",
     },
@@ -112,6 +112,12 @@ EXPECTED_SUBSYSTEM_ROWS = {
         "scope": "dynamic-root-8.3-files",
         "gate": "dynamic-root-lifecycle",
         "evidence": "check_doom_persistence_image.py",
+    },
+    "SUBDIRECTORY_WRITE_TRUNCATE_DELETE": {
+        "status": "host-proven",
+        "scope": "one-level-writable-state-dir-8.3-files",
+        "gate": "dynamic-subdirectory-lifecycle",
+        "evidence": "check_storage_install_boundary.py",
     },
     "FREE_SPACE_ACCOUNTING": {
         "status": "host-proven",
@@ -148,7 +154,8 @@ REQUIRED_PHRASES = (
     "dynamic-root-lifecycle manifest",
     "STORAGE_SUBSYSTEM[PATH_NORMALIZATION] status=host-proven",
     "STORAGE_SUBSYSTEM[FAILURE_ATOMICITY] status=host-proven",
-    "root 8.3 plus read-only one-level subdirectory",
+    "root 8.3 plus read-only assets and writable one-level state directory",
+    "dynamic-subdirectory-lifecycle manifest",
     "host image inventory may walk deeper packaged trees than the kernel syscall surface",
     "blank-disk-installer-manifest",
     "blank-image-file materialization manifest",
@@ -478,6 +485,12 @@ def _fat_vfs_boundary_manifest(fs, make_wad_image, packaged_assets: list[dict[st
             make_wad_image.Fat16Image(bytearray(fs.image))
         ),
     }
+    dynamic_subdirectory_lifecycle = {
+        "schema": "vibe-os-dynamic-subdirectory-lifecycle-v1",
+        **make_wad_image.prove_subdirectory_file_mutation(
+            make_wad_image.Fat16Image(bytearray(fs.image))
+        ),
+    }
 
     return {
         "schema": "vibe-os-fat-vfs-boundary-v1",
@@ -486,12 +499,13 @@ def _fat_vfs_boundary_manifest(fs, make_wad_image, packaged_assets: list[dict[st
             "STORAGE_SUBSYSTEM[PATH_NORMALIZATION]",
             "STORAGE_SUBSYSTEM[DIRECTORY_READ_BOUNDARY]",
             "STORAGE_SUBSYSTEM[ROOT_WRITE_TRUNCATE_DELETE]",
+            "STORAGE_SUBSYSTEM[SUBDIRECTORY_WRITE_TRUNCATE_DELETE]",
             "STORAGE_SUBSYSTEM[FREE_SPACE_ACCOUNTING]",
             "STORAGE_SUBSYSTEM[FAILURE_ATOMICITY]",
             "STORAGE_SUBSYSTEM[READONLY_ASSET_MUTATION_REFUSAL]",
         ],
         "kernel_syscall_surface": {
-            "supported_path_contract": "root 8.3 plus read-only one-level subdirectory",
+            "supported_path_contract": "root 8.3 plus read-only assets and writable one-level state directory",
             "root_normalization": _normalize_path_samples(
                 make_wad_image,
                 ("README.TXT", "/README.TXT", "\\README.TXT", "./README.TXT"),
@@ -503,6 +517,15 @@ def _fat_vfs_boundary_manifest(fs, make_wad_image, packaged_assets: list[dict[st
                     "/ASSETS/README.TXT",
                     "\\ASSETS\\README.TXT",
                     "./assets/readme.txt",
+                ),
+            ),
+            "writable_subdirectory_normalization": _normalize_path_samples(
+                make_wad_image,
+                (
+                    "STATE/SESSION.DAT",
+                    "/STATE/SESSION.DAT",
+                    "\\STATE\\SESSION.DAT",
+                    "./state/session.dat",
                 ),
             ),
             "unsupported_path_samples": _rejected_path_samples(
@@ -517,10 +540,12 @@ def _fat_vfs_boundary_manifest(fs, make_wad_image, packaged_assets: list[dict[st
                 ),
             ),
             "nested_traversal_supported": False,
-            "writable_subdirectories_supported": False,
+            "writable_subdirectories_supported": True,
+            "writable_subdirectory_scope": "pre-existing non-read-only one-level directories",
             "long_filenames_supported": False,
         },
         "dynamic_root_lifecycle": dynamic_root_lifecycle,
+        "dynamic_subdirectory_lifecycle": dynamic_subdirectory_lifecycle,
         "read_only_one_level_subdirectory": {
             "path": readme_label,
             "size": readme_meta["size"],
@@ -720,7 +745,7 @@ def _bootable_image_construction_manifest(
                 "component": "fat16-payload",
                 "lba": make_wad_image.PARTITION_START,
                 "sectors": make_wad_image.PARTITION_SECTORS,
-                "construction": "FAT16 partition containing root ELF entries, writable root 8.3 state, and packaged read-only assets",
+                "construction": "FAT16 partition containing root ELF entries, writable root 8.3 state, writable one-level game state, and packaged read-only assets",
             },
         ],
         "declared_write_ranges": list(_declared_install_write_ranges(make_wad_image)),

@@ -14,6 +14,10 @@ on:
         description: Optional branch/ref guard. Set this to the branch you meant to smoke; the job fails before toolchain install if the selected workflow ref differs.
         required: false
         type: string
+      expected_sha:
+        description: Optional exact commit guard. Set this to the main commit you meant to smoke; the job fails before toolchain install if GITHUB_SHA differs.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -28,6 +32,7 @@ jobs:
     timeout-minutes: 10
     env:
       INPUT_EXPECTED_REF: ${{ inputs.expected_ref }}
+      INPUT_EXPECTED_SHA: ${{ inputs.expected_sha }}
 
     steps:
       - name: Check out repository
@@ -40,6 +45,11 @@ jobs:
           if [ -n "${INPUT_EXPECTED_REF:-}" ] && [ "$GITHUB_REF_NAME" != "$INPUT_EXPECTED_REF" ]; then
             echo "expected_ref '$INPUT_EXPECTED_REF' does not match selected workflow ref '$GITHUB_REF_NAME'." >&2
             echo "Use the Run workflow branch selector or gh workflow run os-smoke.yml --ref '$INPUT_EXPECTED_REF'." >&2
+            exit 1
+          fi
+          if [ -n "${INPUT_EXPECTED_SHA:-}" ] && [ "$GITHUB_SHA" != "$INPUT_EXPECTED_SHA" ]; then
+            echo "expected_sha '$INPUT_EXPECTED_SHA' does not match selected workflow commit '$GITHUB_SHA'." >&2
+            echo "Fetch/push main first, then rerun the post-merge cloud proof lane for the exact commit." >&2
             exit 1
           fi
 
@@ -170,6 +180,52 @@ jobs:
           python3 tools/check_shutdown_panic_proof.py \
             --manifest build/shutdown-panic-proof/shutdown-panic-proof.json \
             build/shutdown-panic-proof
+
+      - name: Write cloud proof run identity
+        if: always()
+        run: |
+          mkdir -p build
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = {
+              "schema": "cloud-proof-run-v1",
+              "workflow": "os-smoke.yml",
+              "artifact": "aurora-os-smoke-proof-status",
+              "ref": os.environ.get("GITHUB_REF_NAME", ""),
+              "sha": os.environ.get("GITHUB_SHA", ""),
+              "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+              "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+              "runner": "github-actions-ubuntu",
+              "local_qemu_required": False,
+              "artifact_policy": {
+                  "status_only": True,
+                  "contains_wad_data": False,
+                  "contains_disk_image": False,
+                  "contains_screenshots": False,
+                  "contains_pixels": False,
+                  "contains_raw_audio": False,
+              },
+          }
+          Path("build/cloud-proof-run.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload status-only proof artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurora-os-smoke-proof-status
+          if-no-files-found: ignore
+          path: |
+            build/cloud-proof-run.json
+            build/status*.txt
+            build/shutdown-panic-proof/**/*.json
+            build/shutdown-panic-proof/**/*.txt
 
       - name: Upload smoke diagnostics
         if: always()

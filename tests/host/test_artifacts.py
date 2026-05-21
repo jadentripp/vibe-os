@@ -651,7 +651,11 @@ class SourceContractTests(unittest.TestCase):
         self.assertNotIn("build/gfx.bin", real_wad_upload_block)
         self.assertNotIn("build/vga*.txt", real_wad_upload_block)
         self.assertNotIn("build/persistence-*/*.bin", real_wad_upload_block)
-        self.assertNotIn("build/persistence-*/*.txt", real_wad_upload_block)
+        status_only_upload_block = real_wad_workflow.split("name: real-wad-smoke-proof-status", 1)[1].split("name: real-wad-smoke-status", 1)[0]
+        self.assertIn("build/cloud-proof-run.json", status_only_upload_block)
+        self.assertIn("build/persistence-*/*.txt", status_only_upload_block)
+        diagnostics_upload_block = real_wad_workflow.split("name: real-wad-smoke-status", 1)[1].split("Summarize proof lane outcomes", 1)[0]
+        self.assertNotIn("build/persistence-*/*.txt", diagnostics_upload_block)
         self.assertNotIn("build/persistence-*/status*.bin", real_wad_upload_block)
         self.assertNotIn("build/persistence-*/status*.txt", real_wad_upload_block)
         os_upload_block = os_smoke_workflow.split("uses: actions/upload-artifact@v4", 1)[1]
@@ -1437,11 +1441,17 @@ class SourceContractTests(unittest.TestCase):
         root_size_updater = kernel.split("fat_update_writable_size:", 1)[1].split("fat_truncate_writable_file:", 1)[0]
         self.assertIn("add esi, fat_root_cache", root_size_updater)
         self.assertIn("call ata_write_sector", root_size_updater)
-        self.assertNotIn("call ata_read_sector", root_size_updater)
+        root_cached_update = root_size_updater.split(".load_directory_sector:", 1)[0]
+        self.assertNotIn("call ata_read_sector", root_cached_update)
+        self.assertIn(".load_directory_sector:", root_size_updater)
+        self.assertIn("call ata_read_sector", root_size_updater)
         root_deleter = kernel.split("fat_delete_found_file:", 1)[1].split("stat_fill_user:", 1)[0]
         self.assertIn("add esi, fat_root_cache", root_deleter)
         self.assertIn("call ata_write_sector", root_deleter)
-        self.assertNotIn("call ata_read_sector", root_deleter)
+        root_cached_delete = root_deleter.split(".load_directory_sector:", 1)[0]
+        self.assertNotIn("call ata_read_sector", root_cached_delete)
+        self.assertIn(".load_directory_sector:", root_deleter)
+        self.assertIn("call ata_read_sector", root_deleter)
         reader = kernel.split(".read:", 1)[1].split(".lseek:", 1)[0]
         self.assertIn("call fd_lookup", reader)
         self.assertIn("cmp byte [fd_kinds + eax], FD_KIND_WAD", reader)

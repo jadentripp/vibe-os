@@ -141,10 +141,117 @@ USER_FACING_ROADMAP_PHRASES = (
     "machine-readable proof boundary before they become user-facing claims",
 )
 
+POST_PLAYABLE_GAPS = {
+    "FULL_KRELOC_OK": {
+        "category": "runtime-relocation",
+        "gate": "vm-status-kreloc-full",
+        "evidence": "kreloc-ok-artifact",
+        "phrases": (
+            "must not be described as full relocation",
+            "kreloc=OK",
+            "krelocstep=FULL",
+            "higher-half `kerneip=`",
+            "higher-half `kernesp=`",
+            "active relocation `kerncr3=`",
+            "post-relocation syscall, interrupt, and return-path evidence",
+        ),
+    },
+    "UEFI_KERNEL_HANDOFF": {
+        "category": "uefi-handoff",
+        "gate": "ovmf-kernel-entry-proof",
+        "evidence": "uefi-kernel-entry-marker",
+        "phrases": (
+            "not actual UEFI kernel handoff",
+            "ExitBootServices",
+            "current ELF32 kernel",
+            "kernel-owned entry/status marker",
+            "UEFI_BOOT[...]",
+            "SUPPORT[UEFI]",
+        ),
+    },
+    "STORAGE_INSTALL_RECOVERY": {
+        "category": "storage-install-recovery",
+        "gate": "installer-recovery-proof",
+        "evidence": "storage-boundary-rows",
+        "phrases": (
+            "not broader storage install/recovery",
+            "explicit device selection",
+            "dry-run byte-range manifest",
+            "blank disk to bootable vibe-os",
+            "damaged media repair-or-refuse behavior",
+            "post-write verification",
+        ),
+    },
+    "HUMAN_PLAYTEST_BUNDLE": {
+        "category": "human-playtest",
+        "gate": "human-playtest-bundle-review",
+        "evidence": "human-session-bundle",
+        "phrases": (
+            "informal noVNC notes do not prove human playability",
+            "human-playtest-review.json",
+            "commit/ref/scripted-run/session identity",
+            "matching phase hashes",
+            "at least 350 Doom ticks",
+            "no WAD/disk/pixel/screenshot/raw-audio artifacts",
+        ),
+    },
+    "HARDWARE_PACED_AUDIO_STREAM": {
+        "category": "audio-runtime",
+        "gate": "kernel-owned-audio-stream-proof",
+        "evidence": "audio-stream-contract",
+        "phrases": (
+            "musicstream=PULL",
+            "musicpull=",
+            "payload service still arrives through `VIBE_AUDIO_MIXER_UPDATE`",
+            "first-class kernel-owned music ring",
+            "mixer/refill stream command",
+            "no new `mixclip=`, `musicunder=`, or `musicdrops=` regressions",
+        ),
+    },
+    "PROCESS_MODEL_LIMITS": {
+        "category": "process-model",
+        "gate": "process-model-expansion-proof",
+        "evidence": "vm-posix-contract",
+        "phrases": (
+            "bounded process slots",
+            "probe-class `fork`",
+            "not a robust Unix process model",
+            "full `fork`/`exec` split",
+            "dynamic process and fd tables",
+            "file-backed `mmap`",
+            "teardown/reclamation evidence",
+        ),
+    },
+}
+
+POST_PLAYABLE_ARCHITECTURE_PHRASES = (
+    "The actual UEFI kernel handoff remains a post-playable gap",
+    "SUPPORT[UEFI]",
+    "KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity",
+    "POST_PLAYABLE_GAP[FULL_KRELOC_OK]",
+    "POST_PLAYABLE_GAP[PROCESS_MODEL_LIMITS]",
+    "POST_PLAYABLE_GAP[STORAGE_INSTALL_RECOVERY]",
+    "POST_PLAYABLE_GAP[HARDWARE_PACED_AUDIO_STREAM]",
+    "STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL] status=unclaimed",
+    "STORAGE_BOUNDARY[ARBITRARY_DISK_RECOVERY] status=unclaimed",
+    "future hardware-paced mixer/refill playback ABI",
+    "move payload service away from `VIBE_AUDIO_MIXER_UPDATE`",
+    "not a robust Unix process model",
+)
+
 PROVEN_GAPS = {"CLOUD_BOOT", "REAL_GAMEPLAY", "PERSISTENCE", "AUDIO", "SHUTDOWN_PANIC"}
 
 GAP_RE = re.compile(
     r"^- `GAP\[(?P<id>[A-Z0-9_]+)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"category=(?P<category>[a-z0-9-]+) "
+    r"gate=(?P<gate>[a-zA-Z0-9_.:-]+) "
+    r"evidence=(?P<evidence>[a-zA-Z0-9_.:-]+)`",
+    re.MULTILINE,
+)
+
+POST_PLAYABLE_GAP_RE = re.compile(
+    r"^- `POST_PLAYABLE_GAP\[(?P<id>[A-Z0-9_]+)\] "
     r"status=(?P<status>[a-z-]+) "
     r"category=(?P<category>[a-z0-9-]+) "
     r"gate=(?P<gate>[a-zA-Z0-9_.:-]+) "
@@ -159,6 +266,13 @@ LATEST_FULL_RUN_RE = re.compile(
 
 def _gap_blocks(text: str):
     matches = list(GAP_RE.finditer(text))
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        yield match, text[match.start() : end]
+
+
+def _post_playable_gap_blocks(text: str):
+    matches = list(POST_PLAYABLE_GAP_RE.finditer(text))
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
         yield match, text[match.start() : end]
@@ -221,6 +335,54 @@ def validate_latest_evidence_freshness(
             raise AssertionError(f"gap ledger mixes stale proof history into latest claim: {pattern}")
 
 
+def validate_post_playable_backlog(root: Path = ROOT) -> dict[str, dict[str, str]]:
+    text = (root / "docs" / "proof.txt").read_text()
+    architecture = (root / "docs" / "architecture.txt").read_text()
+    matches_and_blocks = list(_post_playable_gap_blocks(text))
+    rows: dict[str, dict[str, str]] = {}
+
+    if "Post-Playable Hardware/Runtime Backlog" not in text:
+        raise AssertionError("gap ledger missing post-playable backlog section")
+    if "These rows are intentionally not proof claims" not in text:
+        raise AssertionError("post-playable backlog must say rows are not proof claims")
+
+    for match, _block in matches_and_blocks:
+        row_id = match.group("id")
+        if row_id in rows:
+            raise AssertionError(f"duplicate post-playable gap id: {row_id}")
+        rows[row_id] = match.groupdict()
+        if match.group("status") != "open":
+            raise AssertionError(f"{row_id} must stay status=open until its gate is proven")
+
+    missing = sorted(set(POST_PLAYABLE_GAPS) - set(rows))
+    if missing:
+        raise AssertionError(f"missing post-playable gap ids: {', '.join(missing)}")
+
+    extras = sorted(set(rows) - set(POST_PLAYABLE_GAPS))
+    if extras:
+        raise AssertionError(f"unexpected post-playable gap ids: {', '.join(extras)}")
+
+    for row_id, contract in POST_PLAYABLE_GAPS.items():
+        row = rows[row_id]
+        for field in ("category", "gate", "evidence"):
+            if row[field] != contract[field]:
+                raise AssertionError(
+                    f"{row_id} {field} {row[field]} != {contract[field]}"
+                )
+        block = next(
+            block for match, block in matches_and_blocks if match.group("id") == row_id
+        )
+        for phrase in contract["phrases"]:
+            if not _contains_phrase(block, phrase):
+                raise AssertionError(f"{row_id} missing phrase: {phrase}")
+
+    for phrase in POST_PLAYABLE_ARCHITECTURE_PHRASES:
+        if not _contains_phrase(architecture, phrase):
+            raise AssertionError(f"architecture doc missing post-playable phrase: {phrase}")
+
+    return rows
+
+
 def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
     text = (root / "docs" / "proof.txt").read_text()
     matches_and_blocks = list(_gap_blocks(text))
@@ -276,6 +438,7 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
     for phrase in USER_FACING_ROADMAP_PHRASES:
         if not _contains_phrase(text, phrase):
             raise AssertionError(f"gap ledger missing user-facing roadmap phrase: {phrase}")
+    validate_post_playable_backlog(root)
     combined_claim_surface = "\n".join((text, readme, playable_cloud_proof))
     for phrase in FORBIDDEN_STALE_CURRENT_PROOF_PHRASES:
         if _contains_phrase(combined_claim_surface, phrase):

@@ -338,8 +338,10 @@ jobs:
         with:
           path: |
             build/status*.txt
+            build/cloud-proof-run.json
             build/doom.symbols
             build/persistence-write/save-proof.json
+            build/persistence-write/status.txt
             build/persistence-write/smoke.log
             build/evidence.tar
 """
@@ -400,7 +402,8 @@ jobs:
         self.assertIn("python3 tools/triage_cloud_status.py \"$file\" | tee \"$triage_file\"", workflow)
         self.assertIn("cp \"$file\" \"build/status.${phase}.${name}\"", workflow)
         self.assertIn("build/status*.txt", workflow)
-        self.assertNotIn("build/persistence-*/*.txt", check_repo_hygiene.upload_path_lines(workflow))
+        self.assertIn("build/persistence-*/*.txt", check_repo_hygiene.upload_path_lines(workflow))
+        self.assertIn("build/cloud-proof-run.json", check_repo_hygiene.upload_path_lines(workflow))
 
     def test_docs_keep_legit_but_playable_first_positioning(self):
         readme = " ".join((ROOT / "README.md").read_text().split())

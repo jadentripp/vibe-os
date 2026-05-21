@@ -73,6 +73,7 @@ def valid_status(**overrides):
         "pmm": "OK",
         "vmm": "OK",
         "kreloc": "LOW",
+        "krelocstep": "HIEXEC_TMP",
         "kerneip": "00010200",
         "kernesp": "0006FFFC",
         "kerncr3": "00090000",
@@ -95,6 +96,12 @@ def valid_status(**overrides):
         "khistkpa": "0006F000",
         "khipt": "00126000",
         "khifree": "00126000",
+        "khixlat": "00010000",
+        "khisxlat": "0006F000",
+        "khislot": "C006FFF8",
+        "khislotpa": "0006FFF8",
+        "khisword": "48485354",
+        "khiret": "00010220",
         "kpmap": "OK",
         "kpva": "C0010000",
         "kppa": "00010000",
@@ -1198,6 +1205,11 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             "status cadence summary (safe serial-log subset)",
             "remote-presentation-throughput-likely",
             "performance hint: 2-core hosts can stutter under QEMU/noVNC",
+            "Usage: /tmp/vibe-os-play-now-diagnostics.sh [--json] [--watch]",
+            "Over-time diagnostics: $DIAGNOSTICS_SCRIPT --watch",
+            "cgroup cpu.stat: ",
+            "cgroup cpu.pressure: ",
+            "Cgroup pressure diagnostics include cpu.stat throttling counters and cpu.pressure PSI",
         ):
             with self.subTest(needle=needle):
                 self.assertIn(needle, remote_script)
@@ -1208,7 +1220,11 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         self.assertIn("signed URL parameters", play_now_doc)
         self.assertIn("status-only cadence summary", play_now_doc)
         self.assertIn("/tmp/vibe-os-play-now-diagnostics.sh --json", play_now_doc)
+        self.assertIn("/tmp/vibe-os-play-now-diagnostics.sh --watch", play_now_doc)
         self.assertIn("schema=vibe-os-play-now-diagnostics-v1", play_now_doc)
+        self.assertIn("cpu.stat", play_now_doc)
+        self.assertIn("cpu.pressure", play_now_doc)
+        self.assertIn("--samples <count> --interval <seconds>", play_now_doc)
         self.assertIn("2-core", play_now_doc)
         self.assertIn("4+ CPU", play_now_doc)
         self.assertIn("private", play_now_doc)
@@ -1217,6 +1233,15 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cgroup = Path(tmp)
             (cgroup / "cpu.max").write_text("200000 100000\n")
+            (cgroup / "cpu.stat").write_text(
+                "usage_usec 1000\n"
+                "nr_periods 20\n"
+                "nr_throttled 5\n"
+                "throttled_usec 800\n"
+            )
+            (cgroup / "cpu.pressure").write_text(
+                "some avg10=10.00 avg60=2.00 avg300=1.00 total=444\n"
+            )
 
             report = check_play_now_remote.check_preflight(
                 env={},
@@ -1231,6 +1256,10 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertEqual(report.cpu_count, 2)
             self.assertIn("host CPUs: 2", rendered)
             self.assertIn("performance caveat: 2-core hosts can play Doom", rendered)
+            self.assertIn("cgroup cpu.stat:", rendered)
+            self.assertIn("nr_throttled=5", rendered)
+            self.assertIn("cgroup cpu.pressure:", rendered)
+            self.assertIn("performance warning: cgroup CPU throttling is visible", rendered)
 
     def test_guided_remote_human_playtest_helper_is_safe_and_wires_collector(self):
         script = GUIDED_HUMAN_PLAYTEST.read_text()
@@ -1255,6 +1284,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             "duration gate: final must be at least 350 gtic and leveltime ticks after after-start",
             "remote_memory_mb",
             "remote_machine_label",
+            "slowdown sampler: /tmp/vibe-os-play-now-diagnostics.sh --watch",
+            "status-only CPU/cgroup and OS counters",
             "SLOWDOWN_MODE",
             "SLOWDOWN_NOTES",
             "REVIEWER",

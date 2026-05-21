@@ -29,34 +29,41 @@ Mode 13h fallback, enables A20 through port `0x92`, loads its own flat GDT, sets
 entry sets flat data selectors and a temporary stack, then calls the Stage 2 ELF
 loader.
 
-## UEFI Scaffold Boundary
+## UEFI Loader/Proof Boundary
 
-`boot/uefi/CONTRACT.txt` is a contract-only UEFI scaffold for boot-support
-claims. It defines the future `UEFI_BOOT[...]` rows for a PE/COFF entry, ESP/FAT
-kernel load, GOP framebuffer handoff, UEFI memory map capture,
-`ExitBootServices`, ELF32-compatible kernel handoff, and separate opt-in build
-integration. Every `UEFI_BOOT[...]` row remains `status=unimplemented`, and
-SUPPORT[UEFI] remains unclaimed in `docs/architecture.txt`.
+`boot/uefi/CONTRACT.txt` is a UEFI loader/proof boundary for boot-support
+claims. It defines the current `UEFI_BOOT[...]` rows for a PE/COFF loader,
+ESP/FAT kernel read, GOP framebuffer fact collection, UEFI memory map capture,
+`ExitBootServices`, the still-blocked ELF32-compatible kernel handoff, and
+separate opt-in build integration. SUPPORT[UEFI] remains unclaimed in
+`docs/architecture.txt`.
 
-The scaffold is not part of the current Makefile image path. Today the booted
-artifact is still the BIOS raw-sector chain above; there is no firmware
-memory-map handoff, `ExitBootServices` handoff, OVMF run, or UEFI boot proof.
+The UEFI path is not part of the current Makefile image path. Today the booted
+artifact is still the BIOS raw-sector chain above; the UEFI loader/proof app is
+an opt-in artifact and does not boot the current kernel.
 
-The directory now has one opt-in host-only build/check slice:
-`boot/uefi/build_host_artifacts.py` emits untracked `BOOTX64.EFI`, `esp.img`,
-and `manifest.json` files. The checker parses the PE/COFF header, verifies the
-EFI application subsystem, reads the FAT16 image directory tree, and confirms
-that `EFI/BOOT/BOOTX64.EFI` plus `VIBEOS/KERNEL.ELF` are packaged as files. The
-manifest claim is `host-artifact-only-no-uefi-boot-proof`; it is not an OVMF
-boot, not kernel loading, and not a UEFI row implementation.
+The directory has one opt-in host-only build/check slice:
+`boot/uefi/build_host_artifacts.py` assembles `loader.asm` and emits untracked
+`BOOTX64.EFI`, `esp.img`, and `manifest.json` files. The checker parses the
+PE/COFF header, verifies the EFI application subsystem, checks for the loader's
+debugcon proof markers, reads the FAT16 image directory tree, and confirms that
+`EFI/BOOT/BOOTX64.EFI` plus `VIBEOS/KERNEL.ELF` are packaged as files. The
+manifest claim is `host-built-uefi-loader-no-kernel-entry-proof`; it is not an
+OVMF proof run and not a UEFI support claim.
 
-The next rung is a manual GitHub Actions OVMF scaffold, not a support claim.
+The next rung is a manual GitHub Actions OVMF loader proof, not a support claim.
 `boot/uefi/ovmf_cloud_proof.py` has a contract mode that is QEMU-free and emits
 `ovmf-proof-manifest.json` plus the host artifacts; its attempt/prove modes are
 reserved for `.github/workflows/uefi-ovmf-proof.yml` on disposable Ubuntu
-runners. The manifest keeps `support_claim=unclaimed`,
-`uefi_boot_rows_moved=false`, and lists the remaining OVMF blockers until a
-future EFI loader proves kernel entry.
+runners. The manifest keeps `support_claim=unclaimed`, records
+`uefi_boot_rows_moved=true` for the intermediate loader rows, parses only
+loader-owned debugcon markers into JSON, and lists the remaining blocker: the
+64-bit UEFI to 32-bit protected-mode kernel handoff.
+
+The actual UEFI kernel handoff remains a post-playable gap until an OVMF
+artifact proves `ExitBootServices` followed by a jump into the current kernel
+and a kernel-owned entry/status marker. Host-built PE/COFF and ESP artifacts are
+not enough to claim `SUPPORT[UEFI]`.
 
 ## Hardware Discovery Status
 
@@ -101,10 +108,11 @@ test frame. The smoke status now reports `vmmhi=OK`, `vmmhva=`, `vmmhpa=`,
 `vmmhpt=`, and `vmmhfree=` so status-only artifacts show the high virtual alias,
 the non-identity PMM frame, the dynamic page-table frame, and the page-table
 frame reclaimed after unmap. The kernel also records the relocation scaffold as
-`kreloc=LOW` with `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and
-`kernphys=`. Today those fields prove the opposite of relocation: the current
-kernel instruction pointer and stack are still low, `kerncr3=00090000` names the
-low kernel page directory, and `kernvirt=00010000` matches `kernphys=00010000`.
+`kreloc=LOW` with `krelocstep=HIEXEC_TMP`, `kerneip=`, `kernesp=`, `kerncr3=`,
+`kernvirt=`, and `kernphys=`. Today those fields prove the opposite of full
+relocation: the current long-lived kernel instruction pointer and stack are
+still low, `kerncr3=00090000` names the low kernel page directory, and
+`kernvirt=00010000` matches `kernphys=00010000`.
 The next-step kernel-text alias is separate: `kmap=OK`, `kmapva=`, `kmappa=`,
 `kmappt=`, `kmapfree=`, `kmaplo=`, and `kmaphi=` prove the VMM can temporarily
 map the current low kernel entry page at its higher-half alias, read matching
@@ -113,20 +121,25 @@ table after unmap. That proves the mapper can build high, non-identity kernel
 mappings after PMM is online and gives future relocation checks stable fields to
 tighten, but it does not relocate the running kernel yet.
 
-The next executable step is a transient high-trampoline proof. After the VMM can
-allocate dynamic page tables, the kernel maps the page containing
+The next executable step is a transient high-trampoline proof:
+`KERNEL_RELOCATION_GAP[current]=temporary-high-exec-trampoline`. After the VMM
+can allocate dynamic page tables, the kernel maps the page containing
 `kernel_high_exec_trampoline` at its higher-half alias, maps the current low
 kernel stack page at its higher-half alias, switches `ESP` to that high stack,
-calls the high virtual trampoline, records the trampoline `EIP`, `ESP`, and
-`CR3`, then returns to the low caller and unmaps both aliases. The smoke status
+calls the high virtual trampoline, records the trampoline `EIP`, `ESP`, active
+`CR3`, translated code/stack backing, and a stack write made through the high
+alias, then returns to the low caller and unmaps both aliases. The smoke status
 reports this as `khiexec=OK`, `khieip=`, `khiesp=`, `khicr3=`, `khiva=`,
-`khipa=`, `khistk=`, `khistkpa=`, `khipt=`, and `khifree=`. The checker requires
-the captured instruction pointer and stack pointer to be higher-half addresses,
-the code and stack aliases to be backed by low physical frames, `khicr3=00090000`
-while the mainline kernel is still on the bootstrap page directory, and
-`khifree=` to match the dynamic `khipt=` page table reclaimed after unmap.
-`khiexec=OK` is not a kernel relocation claim; it is a bounded proof that kernel
-text can execute briefly from a non-identity higher-half alias on a high stack.
+`khipa=`, `khistk=`, `khistkpa=`, `khipt=`, `khifree=`, `khixlat=`,
+`khisxlat=`, `khislot=`, `khislotpa=`, `khisword=`, and `khiret=`. The checker
+requires the captured instruction pointer and stack pointer to be higher-half
+addresses, `khixlat=`/`khisxlat=` to translate those aliases back to low
+physical frames, `khisword=48485354` at `khislot=`/`khislotpa=` to prove a real
+high-stack write, low `khiret=` to prove this is still a temporary trampoline
+that returns to the low caller, `khicr3=00090000` while the mainline kernel is
+still on the bootstrap page directory, and `khifree=` to match the dynamic
+`khipt=` page table reclaimed after unmap. `khiexec=OK` is not a kernel
+relocation claim; `krelocstep=HIEXEC_TMP` is the honest intermediate state.
 
 The durable preparation step is now a persistent high-alias map:
 `KERNEL_RELOCATION_GAP[current]=persistent-high-alias-window`. After the
@@ -165,19 +178,22 @@ higher-half virtual addresses.
 ## Higher-Half Relocation Gap
 
 `KERNEL_RELOCATION_GAP[current]=high-alias-only` is the older baseline; the
-stronger current slice is
+stronger current slices are
+`KERNEL_RELOCATION_GAP[current]=temporary-high-exec-trampoline` and
 `KERNEL_RELOCATION_GAP[current]=persistent-high-alias-window`. The current proof
 combines the dynamic high-alias self-test above with a low-identity relocation
-scaffold and process page-directory proof: `vmmhi=OK` shows `VMM_HIGH_TEST_VADDR` at
-`0xc0000000` can be mapped to a distinct PMM-managed frame and then unmapped,
-`kreloc=LOW` plus `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and
-`kernphys=` make the current running-kernel identity state machine-readable,
-`kmap=OK` plus `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, and
-`kmaphi=` prove the current kernel entry page can be aliased high without being
-executed there, `khiexec=OK` plus `khieip=`, `khiesp=`, `khicr3=`, `khiva=`,
-`khipa=`, `khistk=`, `khistkpa=`, `khipt=`, and `khifree=` prove a bounded
-higher-half trampoline can execute on a higher-half alias of the current kernel
-stack and then reclaim its dynamic page table, `kpmap=OK` plus `kpva=`,
+scaffold and process page-directory proof: `vmmhi=OK` shows `VMM_HIGH_TEST_VADDR`
+at `0xc0000000` can be mapped to a distinct PMM-managed frame and then unmapped,
+`kreloc=LOW` plus `krelocstep=HIEXEC_TMP`, `kerneip=`, `kernesp=`, `kerncr3=`,
+`kernvirt=`, and `kernphys=` make the current running-kernel identity state
+machine-readable, `kmap=OK` plus `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`,
+`kmaplo=`, and `kmaphi=` prove the current kernel entry page can be aliased high
+without being executed there, `khiexec=OK` plus `khieip=`, `khiesp=`,
+`khicr3=`, `khiva=`, `khipa=`, `khistk=`, `khistkpa=`, `khipt=`, `khifree=`,
+`khixlat=`, `khisxlat=`, `khislot=`, `khislotpa=`, `khisword=`, and `khiret=`
+prove a bounded higher-half trampoline can execute on a higher-half alias of the
+current kernel stack, write through that high stack alias, return to the low
+caller, and then reclaim its dynamic page table, `kpmap=OK` plus `kpva=`,
 `kppa=`, `kppages=`, `kppt=`, `kpcr3=`, `kpdirs=`, `kpxlat=`, `kplast=`,
 `kplo=`, `kphi=`, `kpsva=`, `kpspa=`, `kpspages=`, and `kpsxlat=` prove a
 persistent high mapping for the kernel text window and low kernel stack window
@@ -379,25 +395,24 @@ the proof artifact exists.
 
 UEFI host artifact boundary:
 
-- `UEFI_HOST_ARTIFACT[PE_COFF_STUB] status=host-buildable kind=pe32plus-efi-application-stub proof=host-pe-coff-header-check evidence=build-host-artifacts`
+- `UEFI_HOST_ARTIFACT[PE_COFF_LOADER] status=host-buildable kind=pe32plus-efi-loader-proof-application proof=host-pe-coff-loader-check evidence=build-host-artifacts`
 - `UEFI_HOST_ARTIFACT[ESP_FAT_IMAGE] status=host-buildable kind=fat16-esp-file-layout proof=host-fat-directory-check evidence=build-host-artifacts`
 - `UEFI_HOST_ARTIFACT[NO_VM_BOOT] status=host-checked kind=no-ovmf-or-qemu-execution proof=source-contract-check evidence=check-hardware-support-matrix`
 
-These rows prove host-buildable PE/COFF and FAT16 ESP artifacts only. The EFI
-application is a minimal x86_64 PE32+ stub that returns `EFI_UNSUPPORTED`, and
-the FAT16 image is parsed by host checks to confirm the `BOOTX64.EFI` and
-`KERNEL.ELF` file paths. They do not prove GOP framebuffer handoff, UEFI memory
-map capture, `ExitBootServices`, kernel handoff, OVMF boot, or any physical
-machine behavior.
+These rows prove host-buildable PE/COFF loader and FAT16 ESP artifacts only.
+The EFI application is an x86_64 PE32+ loader/proof app assembled from
+`boot/uefi/loader.asm`, and the FAT16 image is parsed by host checks to confirm
+the `BOOTX64.EFI` and `KERNEL.ELF` file paths. They do not prove kernel handoff,
+OVMF boot, or any physical machine behavior.
 
 UEFI cloud proof scaffold:
 
-- `UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH] status=scaffolded runner=github-actions-ubuntu mode=contract-attempt-prove evidence=uefi-ovmf-proof.yml`
-- `UEFI_CLOUD_PROOF[OVMF_ATTEMPT] status=scaffolded runner=github-actions-ubuntu mode=manual-qemu-ovmf evidence=ovmf-cloud-proof-script`
+- `UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH] status=scaffolded runner=github-actions-ubuntu mode=contract-attempt-prove-exitbs evidence=uefi-ovmf-proof.yml`
+- `UEFI_CLOUD_PROOF[OVMF_ATTEMPT] status=scaffolded runner=github-actions-ubuntu mode=manual-qemu-ovmf-debugcon evidence=ovmf-cloud-proof-script`
 - `UEFI_CLOUD_PROOF[SUPPORT_GUARD] status=guardrail runner=host-check mode=support-uefi-unclaimed evidence=check-hardware-support-matrix`
 - `UEFI_CLOUD_PROOF[ARTIFACT_POLICY] status=guardrail runner=github-actions-ubuntu mode=json-manifests-only evidence=workflow-artifact-policy`
 
-These rows pin the workflow/checker scaffolding only. The workflow is
+These rows pin the workflow/checker path only. The workflow is
 manual-dispatch, contract mode is QEMU-free, and the default uploaded artifact
 surface is JSON manifests only. Attempt/prove modes may run OVMF on the
 disposable runner, but `prove` must fail until the loader reaches the current
@@ -577,9 +592,11 @@ frame after `vmm_unmap_page` reclaims it. The kernel-entry alias proof is
 physical backing, the dynamic alias page table, the reclaimed page table, and
 matching nonzero words read from low and high addresses. The high-trampoline
 execution proof is `khiexec=OK` with `khieip=`, `khiesp=`, `khicr3=`, `khiva=`,
-`khipa=`, `khistk=`, `khistkpa=`, `khipt=`, and `khifree=`: a bounded call into
-higher-half kernel text after switching to a higher-half stack alias, with the
-low bootstrap `CR3` recorded and the dynamic page table reclaimed afterward.
+`khipa=`, `khistk=`, `khistkpa=`, `khipt=`, `khifree=`, `khixlat=`,
+`khisxlat=`, `khislot=`, `khislotpa=`, `khisword=`, and `khiret=`: a bounded
+call into higher-half kernel text after switching to a higher-half stack alias,
+with active low bootstrap `CR3`, high-to-low translations, a high-stack write,
+the low return address, and the dynamic page table reclaimed afterward.
 Process page directories are still preallocated and cloned from the boot kernel
 map.
 
@@ -588,8 +605,10 @@ rejects status artifacts unless `vmmhfree` equals the dynamic `vmmhpt` frame,
 the high alias is backed by a distinct PMM-managed physical frame,
 `khiexec=OK` proves a bounded higher-half trampoline with high `khieip=` and
 `khiesp=` values, non-identity `khiva=`/`khipa=` and `khistk=`/`khistkpa=`
-backing, low `khicr3=00090000`, and `khifree=` matching the reclaimed `khipt=`
-page table, `kpmap=OK` proves persistent higher-half text and stack aliases with
+backing, `khixlat=`/`khisxlat=` translations, `khisword=48485354` written
+through `khislot=` with low backing at `khislotpa=`, low `khiret=`, low
+`khicr3=00090000`, and `khifree=` matching the reclaimed `khipt=` page table,
+`kpmap=OK` proves persistent higher-half text and stack aliases with
 `kpva=`, `kppa=`, `kppages=`, `kppt=`, `kpcr3=`, `kpdirs=`, `kpxlat=`,
 `kplast=`, `kplo=`, `kphi=`, `kpsva=`, `kpspa=`, `kpspages=`, and `kpsxlat=`,
 the Doom launch used `argvsrc=2` from a user argv-vector exec path,
@@ -611,18 +630,22 @@ slot number is not enough to prove preemption after exec.
 ## Higher-Half Relocation Gap
 
 `KERNEL_RELOCATION_GAP[current]=high-alias-only` remains the historical
-baseline name; the active stronger contract is
+baseline name; the active stronger contracts are
+`KERNEL_RELOCATION_GAP[current]=temporary-high-exec-trampoline` and
 `KERNEL_RELOCATION_GAP[current]=persistent-high-alias-window`. The VM/process proof currently
 has six separate pieces: `vmmhi=OK` proves a temporary high virtual alias
-backed by a distinct PMM-managed frame, `kreloc=LOW` with `kerneip=`,
-`kernesp=`, `kerncr3=`, `kernvirt=`, and `kernphys=` proves the running kernel is
-still on the low identity contract, `kmap=OK` with `kmapva=`, `kmappa=`,
+backed by a distinct PMM-managed frame, `kreloc=LOW` with
+`krelocstep=HIEXEC_TMP`, `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and
+`kernphys=` proves the running kernel is still on the low identity contract,
+`kmap=OK` with `kmapva=`, `kmappa=`,
 `kmappt=`, `kmapfree=`, `kmaplo=`, and `kmaphi=` proves the current kernel entry
 page can be temporarily read through a higher-half alias with its page table
 reclaimed afterward, `khiexec=OK` with `khieip=`, `khiesp=`, `khicr3=`,
-`khiva=`, `khipa=`, `khistk=`, `khistkpa=`, `khipt=`, and `khifree=` proves a
-bounded high-address trampoline executed on a high stack alias and reclaimed its
-dynamic page table, `kpmap=OK` with `kpva=`, `kppa=`, `kppages=`, `kppt=`,
+`khiva=`, `khipa=`, `khistk=`, `khistkpa=`, `khipt=`, `khifree=`, `khixlat=`,
+`khisxlat=`, `khislot=`, `khislotpa=`, `khisword=`, and `khiret=` proves a
+bounded high-address trampoline executed on a high stack alias, wrote through
+that high stack, returned to the low caller, and reclaimed its dynamic page
+table, `kpmap=OK` with `kpva=`, `kppa=`, `kppages=`, `kppt=`,
 `kpcr3=`, `kpdirs=`, `kpxlat=`, `kplast=`, `kplo=`, `kphi=`, `kpsva=`,
 `kpspa=`, `kpspages=`, and `kpsxlat=` proves a persistent higher-half alias for
 the kernel text and low kernel stack windows across the fixed process page
@@ -636,17 +659,24 @@ from non-identity higher-half addresses.
 `kmap=OK` is not a kernel relocation claim.
 `khiexec=OK` is not a kernel relocation claim.
 `kpmap=OK` is not a kernel relocation claim.
+`krelocstep=HIEXEC_TMP` is not a full relocation claim.
 `kreloc=LOW` is not a relocation success claim.
 
 `KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity`. Until a future
-artifact reports `kreloc=OK` with host-checked `kerneip=`, `kernesp=`,
-`kerncr3=`, `kernvirt=`, `kernphys=`, `kmap=OK`, `kmapva=`, `kmappa=`,
-`kmappt=`, `kmapfree=`, `kmaplo=`, `kmaphi=`, `kpmap=OK`, `kpva=`, `kppa=`,
+artifact reports `kreloc=OK` with `krelocstep=FULL` and host-checked
+`kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, `kernphys=`, `kmap=OK`,
+`kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, `kmaphi=`,
+`khiexec=OK`, `khieip=`, `khiesp=`, `khicr3=`, `khiret=`, `kpmap=OK`, `kpva=`, `kppa=`,
 `kppages=`, `kppt=`, `kpcr3=`, `kpdirs=`, `kpxlat=`, `kplast=`, `kplo=`,
 `kphi=`, `kpsva=`, `kpspa=`, `kpspages=`, and `kpsxlat=` evidence, the honest
 claim remains: the kernel can create and keep high aliases after PMM is online,
 including aliases of its current text and low stack windows, but the running
 kernel itself still lives on the low identity mapping.
+
+This is the architecture anchor for
+`POST_PLAYABLE_GAP[FULL_KRELOC_OK]`: that row closes only when `kreloc=OK` and
+`krelocstep=FULL` prove the long-lived kernel instruction pointer, stack, active
+page directory, and physical backing are non-identity higher-half state.
 
 ## Current Address Spaces
 
@@ -1119,6 +1149,10 @@ real-WAD proof counters.
   directory state, dynamically sized process and fd tables, blocking scheduler
   waits, signals, threads, richer framebuffer present formats, and audio
   formats beyond the current unsigned 8-bit stereo mixer contract.
+
+This is the architecture anchor for
+`POST_PLAYABLE_GAP[PROCESS_MODEL_LIMITS]`: bounded process slots and probe-class
+`fork()` stay useful evidence, but they are not the final process model.
 
 ## POSIX Gap Decomposition
 
@@ -1608,10 +1642,13 @@ Reusable FAT16 syscall surface:
   operate through the shared fd/FAT path used by Doom and by future games and
   tools.
 - `vibe_listdir("/")` returns fixed-size `vibe_dirent_t` records for live root
-  entries, `vibe_listdir("/ASSETS")` can list a single read-only root-level
-  FAT16 subdirectory when the generated image contains one, and read-only
+  entries, `vibe_listdir("/ASSETS")` can list a read-only root-level FAT16
+  asset directory when the generated image contains one, and
   `open`/`read`/`lseek`/`stat`/`fstat` can resolve one file below that
-  directory such as `/ASSETS/README.TXT`. Public headers pin
+  directory such as `/ASSETS/README.TXT`. The generated image also seeds
+  `/STATE` as a non-read-only one-level game/tool state directory where
+  `open(O_CREAT|O_RDWR)`, `write`, `ftruncate`, readback, and `unlink` use the
+  same FAT allocation and fd machinery as root-level files. Public headers pin
   `VIBE_DIRENT_NAME_BYTES == 16` and
   `VIBE_DIRENT_BYTES == 32`, expose FAT attribute bits such as
   `VIBE_DIRENT_ATTR_DIRECTORY`, and provide `vibe_dirent_is_directory()` plus
@@ -1619,12 +1656,13 @@ Reusable FAT16 syscall surface:
   image without copying Doom-specific filename knowledge.
 - The generic path intentionally remains small: root/current-directory prefixes
   normalize to the FAT root, valid 8.3 names are accepted, one root-level
-  subdirectory component can be listed read-only, and one file below that
-  subdirectory can be opened read-only. Nested traversal, writable
-  subdirectories, long filenames, rename, timestamps, ownership, and
-  delete-while-open semantics are outside the current syscall contract.
-  In checker vocabulary this is the root 8.3 plus read-only one-level
-  subdirectory contract.
+  subdirectory component can be listed, one file below that subdirectory can be
+  opened read-only, and one file below a pre-existing non-read-only directory
+  can be created, grown, truncated, read back, and unlinked. Nested traversal,
+  mkdir/rmdir, long filenames, rename, timestamps, ownership, and
+  POSIX delete-while-open semantics are outside the current syscall contract.
+  In checker vocabulary this is the root 8.3 plus read-only assets and writable
+  one-level state directory contract.
 - Directory/file mismatches now use reusable errno classifications instead of
   Doom-shaped fallbacks: opening or unlinking a directory as a file returns
   `EISDIR`, while asking `vibe_listdir` to list an existing regular file
@@ -1641,11 +1679,14 @@ Current kernel contract:
 - Supported writable paths: `DEFAULT.CFG` and `doomsav0.dsg` through
   `doomsav5.dsg`, plus their unmodified Doom DOS/CD-ROM forms such as
   `c:\doomdata\default.cfg` and `c:\doomdata\doomsav3.dsg`. Arbitrary valid
-  root-level 8.3 names can also be opened with write/create/truncate-style
+  root-level 8.3 names, plus valid one-level 8.3 files below pre-existing
+  non-read-only directories such as `/STATE/SESSION.DAT`, can also be opened
+  with write/create/truncate-style
   flags. The generic VFS parser normalizes root/current-directory spellings such
   as `/README.TXT`, `\README.TXT`, and `./README.TXT` to the same FAT16 root
-  entry while still rejecting real subdirectory components. Existing dynamic
-  root files can be opened read-only for readback.
+  entry, and normalizes one-level spellings such as `/STATE/SESSION.DAT` for
+  the bounded subdirectory path. Existing dynamic root and state-directory files
+  can be opened read-only for readback.
 - Supported asset paths: generated images package `/ASSETS/README.TXT` as a
   root-level 8.3 directory plus one regular file below it. Userland can list
   `/ASSETS`, stat the README, open it read-only, read it, and seek within it.
@@ -1659,13 +1700,14 @@ Current kernel contract:
   The host image inventory may walk deeper packaged trees than the kernel
   syscall surface; the checker records those nested entries as unsupported
   kernel traversal instead of promoting them into the userland VFS contract.
-  Attempts to open one-level subdirectory files with write, create, truncate,
-  or append flags return `EACCES`; descriptor `ftruncate` on the resulting
-  read-only fd returns `EBADF`; `unlink` remains root-8.3-only and rejects
-  subdirectory paths with `EINVAL` before it can touch FAT metadata.
+  Packaged asset directories and files carry the FAT read-only attribute.
+  Attempts to open, create, truncate, or unlink files below read-only asset
+  directories return `EACCES`; descriptor `ftruncate` on the resulting read-only
+  fd returns `EBADF`.
 - Supported persistence model: dynamic root-level FAT16 allocation for the
-  known 8.3 Doom defaults/save files and a reusable dynamic file table for
-  additional root entries.
+  known 8.3 Doom defaults/save files, a reusable dynamic file table for
+  additional root entries, and the same table/FAT update path for one-level
+  files below writable state directories.
   This is enough for Doom defaults and save slots, while the broader filesystem
   contract remains intentionally smaller than POSIX.
 - Supported descriptor model: WAD reads and writable root files share the same
@@ -1690,8 +1732,7 @@ Current kernel contract:
   failure preserves the existing file bytes, size, first cluster, and reachable
   FAT chain. Freed tail, truncate, and delete clusters are scrubbed before they
   return to the free pool. The host image checker now walks the root directory
-  plus read-only subdirectory
-  trees, rejects duplicate live names within a directory, cross-linked file or
+  plus subdirectory trees, rejects duplicate live names within a directory, cross-linked file or
   directory chains, and allocated data clusters that are not reachable from any
   live directory entry, so leaked clusters cannot pass as healthy persistence
   evidence.
@@ -1706,8 +1747,8 @@ Current kernel contract:
 - Supported creation: missing known root entries are created on storage init and
   can be recreated with `O_CREAT` after deletion.
 - Supported metadata: `stat` and `fstat` report regular-file mode, one link, and
-  size for protected WAD/ELF files, writable root files, and read-only
-  one-level subdirectory files. `stat("/")` reports readonly directory mode for
+  size for protected WAD/ELF files, writable root files, read-only one-level
+  asset files, and writable one-level state files. `stat("/")` reports readonly directory mode for
   the FAT root, and `stat("/ASSETS")` reports readonly directory mode for a
   matching root-level directory entry instead of treating it as a regular file.
   `VIBE_SYS_LISTDIR`/`vibe_listdir` copies readonly fixed-size `vibe_dirent_t`
@@ -1730,9 +1771,9 @@ Current kernel contract:
   flag bits are rejected as `EINVAL` in the kernel, even if libc callers
   normally filter them first.
 - Unsupported in the kernel syscall surface: nested subdirectory traversal,
-  writable subdirectories, long filenames, rename, timestamps, ownership,
-  permissions beyond read-only
-  directory/regular-file versus writable regular-file mode, and no POSIX delete-while-open behavior.
+  mkdir/rmdir, long filenames, rename, timestamps, ownership, permissions
+  beyond the FAT read-only bit and directory/regular-file versus writable
+  regular-file mode, and no POSIX delete-while-open behavior.
   This kernel deliberately invalidates descriptors when their root entry is
   unlinked.
 
@@ -1816,10 +1857,12 @@ requested bytes changed from the fresh image. With a baseline image present, the
 checker also verifies both FAT copies agree, every allocated data cluster is
 owned by exactly one live root entry, and protected `DOOM1.WAD`, `USERPROB.ELF`,
 and `DOOM.ELF` entries have unchanged metadata and bytes. The checker-side FAT
-reader can list the root directory and follow simple read-only 8.3 subdirectory
-entries for lookup/readback proof. The kernel now exposes the root listing,
-one-level subdirectory listing, and read-only one-level subdirectory
-lookup/open/read/stat pieces of that contract to user processes.
+reader can list the root directory, follow simple 8.3 subdirectory entries for
+lookup/readback proof, and exercise writable one-level state files on an
+in-memory image copy. The kernel now exposes root listing, one-level
+subdirectory listing, read-only asset lookup/open/read/stat, and bounded
+one-level state-file create/write/truncate/unlink pieces of that contract to
+user processes.
 
 Add `--require-dynamic-fat-proof` when the artifact should also prove the image
 still supports dynamic filesystem behavior. That option mutates an in-memory
@@ -1834,8 +1877,11 @@ reachable-cluster ownership on the mutated copy, so this is a host-verifiable
 allocation/free/truncate proof without putting a scratch file back into the real
 disk artifact. The install-image `fat-vfs-boundary` section carries the same
 host-only `dynamic-root-lifecycle manifest`, including cluster growth,
-shrinkage, remount readback, and freed-cluster scrubbing. The same proof also
-requires the generated `/ASSETS/README.TXT`
+shrinkage, remount readback, and freed-cluster scrubbing. It also carries a
+`dynamic-subdirectory-lifecycle manifest` for `/STATE/SESSION.DAT`, proving
+create/write/grow/truncate/rewrite/delete behavior under a writable one-level
+directory without mutating the checked artifact. The same proof also requires
+the generated `/ASSETS/README.TXT`
 plus nested `/ASSETS/MAPS/E1M1.MAP` and `/ASSETS/TEXTURES/PAL0.BIN` packages to
 exist, round-trip with the expected bytes, and reject host-modeled write,
 create, truncate, and unlink attempts below read-only subdirectories.
@@ -1874,11 +1920,12 @@ Storage install/recovery boundary:
   declared write ranges without implying an arbitrary-device installer. A
   `fat-vfs-boundary manifest` section records the root/current-directory
   normalization samples, the read-only `/ASSETS/README.TXT` one-level
-  subdirectory proof, a host-only `dynamic-root-lifecycle manifest`, per-step
-  create/write/grow/shrink/truncate/delete/free-space accounting, no-space
-  failure atomicity, mutation refusals below that directory, and the boundary
-  between host-recursive packaged-asset inventory and the narrower kernel
-  syscall surface.
+  subdirectory proof, a host-only `dynamic-root-lifecycle manifest`, a
+  host-only `dynamic-subdirectory-lifecycle manifest` for `/STATE/SESSION.DAT`,
+  per-step create/write/grow/shrink/truncate/delete/free-space accounting,
+  no-space failure atomicity, mutation refusals below read-only asset
+  directories, and the boundary between host-recursive packaged-asset inventory
+  and the narrower kernel syscall surface.
   That manifest is intentionally scoped to `build/disk.img`.
 - `tools/check_storage_install_boundary.py --blank-install-proof --json`
   performs a host-only blank install proof from an in-memory all-zero image. It
@@ -1907,17 +1954,19 @@ Storage install/recovery boundary:
 
 Generic FAT16/VFS subsystem proof rows:
 
-- `STORAGE_SUBSYSTEM[PATH_NORMALIZATION] status=host-proven scope=root-current-dir-8.3-and-readonly-one-level gate=fat-vfs-boundary evidence=install-image-manifest`
-- `STORAGE_SUBSYSTEM[DIRECTORY_READ_BOUNDARY] status=host-proven scope=root-plus-readonly-one-level-list-read gate=filesystem-tree-manifest evidence=check_storage_install_boundary.py`
+- `STORAGE_SUBSYSTEM[PATH_NORMALIZATION] status=host-proven scope=root-current-dir-8.3-and-one-level-subdirectory gate=fat-vfs-boundary evidence=install-image-manifest`
+- `STORAGE_SUBSYSTEM[DIRECTORY_READ_BOUNDARY] status=host-proven scope=root-plus-one-level-list-read gate=filesystem-tree-manifest evidence=check_storage_install_boundary.py`
 - `STORAGE_SUBSYSTEM[ROOT_WRITE_TRUNCATE_DELETE] status=host-proven scope=dynamic-root-8.3-files gate=dynamic-root-lifecycle evidence=check_doom_persistence_image.py`
+- `STORAGE_SUBSYSTEM[SUBDIRECTORY_WRITE_TRUNCATE_DELETE] status=host-proven scope=one-level-writable-state-dir-8.3-files gate=dynamic-subdirectory-lifecycle evidence=check_storage_install_boundary.py`
 - `STORAGE_SUBSYSTEM[FREE_SPACE_ACCOUNTING] status=host-proven scope=fat16-data-clusters gate=cluster-accounting-manifest evidence=install-image-manifest`
 - `STORAGE_SUBSYSTEM[FAILURE_ATOMICITY] status=host-proven scope=no-space-allocation-refusal gate=dynamic-root-lifecycle evidence=make_wad_image.py`
 - `STORAGE_SUBSYSTEM[READONLY_ASSET_MUTATION_REFUSAL] status=host-proven scope=packaged-subdirectory-assets gate=fat-vfs-boundary evidence=install-image-manifest`
 
 These rows are filesystem subsystem claims, not Doom-only persistence claims.
 They keep path normalization, directory read boundaries, root file mutation,
-free-space accounting, and failure atomicity visible as machine-readable proof
-surfaces for future games and tools.
+one-level state-directory mutation, free-space accounting, and failure
+atomicity visible as machine-readable proof surfaces for future games and
+tools.
 
   `STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL]` and
   `STORAGE_BOUNDARY[ARBITRARY_DISK_RECOVERY]` stay unclaimed until a future proof
@@ -1927,6 +1976,8 @@ surfaces for future games and tools.
   read-only preflight inventory, refusal on unknown existing data by default,
   opt-in destructive confirmation for exact byte ranges, a dry-run manifest,
   and post-write verification that no unapproved ranges changed.
+  This is the architecture anchor for
+  `POST_PLAYABLE_GAP[STORAGE_INSTALL_RECOVERY]`.
 - `STORAGE_PROOF_REQUIREMENT[INSTALLER] status=future artifact=installer-cloud-disk requires=blank-disk-to-bootable-vibe-os evidence=none`
 - `STORAGE_PROOF_REQUIREMENT[RECOVERY] status=future artifact=damaged-image-recovery-report requires=detect-and-repair-or-refuse evidence=none`
 - `STORAGE_PROOF_REQUIREMENT[ARBITRARY_MEDIA] status=future artifact=media-matrix-proof requires=explicit-device-and-layout-rows evidence=none`
@@ -1969,7 +2020,8 @@ serializer.
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,
 resize-to-zero, delete, deleted root-slot reuse, zero-fill checks, FAT-copy
-agreement, root directory listing, and read-only subdirectory lookup/readback.
+agreement, root directory listing, read-only subdirectory lookup/readback, and
+writable one-level state-directory mutation.
 Kernel contract tests now also pin descriptor-level `ftruncate`, signed
 `lseek(..., SEEK_END)` offsets, sparse-write gap zeroing, and root/current-directory prefix normalization for generic 8.3 paths, so the executable proof
 covers behavior needed by games and tools beyond Doom save replacement.
@@ -1985,12 +2037,14 @@ Remaining storage gaps before a broad Doom-capable claim:
 
 - Writable semantics are still deliberately narrow: kernel syscalls handle
   root-level 8.3 files, reusable dynamic root entries, readonly root directory
-  listing, readonly listing of one root-level subdirectory, and read-only files
-  one level below that subdirectory, but no nested traversal, no writable
-  subdirectories, no writable create/truncate/unlink behavior below
-  subdirectories, no rename, no long filenames, no timestamps/ownership, and no POSIX
-  delete-while-open behavior. Host-side validation can inspect read-only
-  subdirectory trees more deeply than the kernel syscall surface can.
+  listing, listing of one root-level subdirectory, read-only files below
+  read-only asset directories, and writable create/truncate/unlink behavior for
+  files below pre-existing non-read-only one-level directories such as
+  `/STATE`. There is still no nested traversal, no mkdir/rmdir, no rename,
+  no long filenames, no timestamps/ownership, and no POSIX delete-while-open
+  behavior.
+  Host-side validation can inspect read-only subdirectory trees more deeply than
+  the kernel syscall surface can.
 - The storage proof is image-level and cloud-runner scoped. The OS can mutate
   the generated FAT16 disk image, but there is not yet a broader storage boot
   path story for installing, selecting, or safely recovering persistent media
@@ -2491,6 +2545,8 @@ Music legitimacy roadmap as OS contracts:
   first-class kernel-owned music ring or mixer/refill stream command while
   preserving status-only request/refill, renderer provenance, buffer health,
   and safety counters.
+  This is the architecture anchor for
+  `POST_PLAYABLE_GAP[HARDWARE_PACED_AUDIO_STREAM]`.
 
 The long-running music streaming contract uses song-position proof and
 long-playback wrap behavior to keep looping music honest over time. Buffered

@@ -45,6 +45,10 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         )
         self.assertEqual(rows["PATH_NORMALIZATION"]["status"], "host-proven")
         self.assertEqual(rows["ROOT_WRITE_TRUNCATE_DELETE"]["gate"], "dynamic-root-lifecycle")
+        self.assertEqual(
+            rows["SUBDIRECTORY_WRITE_TRUNCATE_DELETE"]["gate"],
+            "dynamic-subdirectory-lifecycle",
+        )
         self.assertEqual(rows["FREE_SPACE_ACCOUNTING"]["gate"], "cluster-accounting-manifest")
         self.assertEqual(rows["FAILURE_ATOMICITY"]["scope"], "no-space-allocation-refusal")
         self.assertEqual(
@@ -224,6 +228,7 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         filesystem_paths = {entry["path"] for entry in manifest["filesystem_entries"]}
         self.assertIn("/ASSETS", filesystem_paths)
         self.assertIn("/ASSETS/MAPS/E1M1.MAP", filesystem_paths)
+        self.assertIn("/STATE", filesystem_paths)
         self.assertEqual(manifest["fat16"]["filesystem_max_depth"], 3)
         self.assertEqual(manifest["fat16"]["kernel_syscall_max_file_depth"], 2)
         fat_vfs = manifest["fat_vfs_boundary"]
@@ -235,6 +240,7 @@ class StorageInstallBoundaryTests(unittest.TestCase):
                 "STORAGE_SUBSYSTEM[PATH_NORMALIZATION]",
                 "STORAGE_SUBSYSTEM[DIRECTORY_READ_BOUNDARY]",
                 "STORAGE_SUBSYSTEM[ROOT_WRITE_TRUNCATE_DELETE]",
+                "STORAGE_SUBSYSTEM[SUBDIRECTORY_WRITE_TRUNCATE_DELETE]",
                 "STORAGE_SUBSYSTEM[FREE_SPACE_ACCOUNTING]",
                 "STORAGE_SUBSYSTEM[FAILURE_ATOMICITY]",
                 "STORAGE_SUBSYSTEM[READONLY_ASSET_MUTATION_REFUSAL]",
@@ -242,7 +248,7 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         )
         self.assertEqual(
             fat_vfs["kernel_syscall_surface"]["supported_path_contract"],
-            "root 8.3 plus read-only one-level subdirectory",
+            "root 8.3 plus read-only assets and writable one-level state directory",
         )
         self.assertEqual(
             fat_vfs["kernel_syscall_surface"]["root_normalization"]["normalized_path"],
@@ -255,8 +261,12 @@ class StorageInstallBoundaryTests(unittest.TestCase):
             fat_vfs["kernel_syscall_surface"]["one_level_subdirectory_normalization"]["normalized_path"],
             "/ASSETS/README.TXT",
         )
+        self.assertEqual(
+            fat_vfs["kernel_syscall_surface"]["writable_subdirectory_normalization"]["normalized_path"],
+            "/STATE/SESSION.DAT",
+        )
         self.assertFalse(fat_vfs["kernel_syscall_surface"]["nested_traversal_supported"])
-        self.assertFalse(fat_vfs["kernel_syscall_surface"]["writable_subdirectories_supported"])
+        self.assertTrue(fat_vfs["kernel_syscall_surface"]["writable_subdirectories_supported"])
         self.assertFalse(fat_vfs["kernel_syscall_surface"]["long_filenames_supported"])
         lifecycle = fat_vfs["dynamic_root_lifecycle"]
         self.assertEqual(lifecycle["schema"], "vibe-os-dynamic-root-lifecycle-v1")
@@ -300,6 +310,26 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         self.assertTrue(lifecycle["failure_atomicity"]["image_sha256_unchanged"])
         self.assertTrue(lifecycle["failure_atomicity"]["live_chain_unchanged"])
         self.assertTrue(lifecycle["root_slot_reuse"]["deleted_slot_reused"])
+        subdir_lifecycle = fat_vfs["dynamic_subdirectory_lifecycle"]
+        self.assertEqual(
+            subdir_lifecycle["schema"],
+            "vibe-os-dynamic-subdirectory-lifecycle-v1",
+        )
+        self.assertEqual(subdir_lifecycle["proof_name"], "/STATE/SESSION.DAT")
+        self.assertEqual(subdir_lifecycle["directory"], "/STATE")
+        self.assertGreater(subdir_lifecycle["grown_clusters"], subdir_lifecycle["initial_clusters"])
+        self.assertTrue(subdir_lifecycle["free_clusters_restored"])
+        self.assertTrue(subdir_lifecycle["remount_readback"])
+        self.assertEqual(
+            [entry["operation"] for entry in subdir_lifecycle["operations"]],
+            [
+                "create-write",
+                "rewrite-grow",
+                "truncate-empty",
+                "rewrite-after-truncate",
+                "delete",
+            ],
+        )
         self.assertEqual(
             {
                 entry["operation"]

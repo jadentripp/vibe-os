@@ -298,10 +298,12 @@ class PlayNowRemoteTests(unittest.TestCase):
             "Stop play-now:",
             "Diagnostics: gh codespace ssh -c \\\"$CODESPACE_NAME\\\" -- /tmp/vibe-os-play-now-diagnostics.sh",
             "Diagnostics JSON: gh codespace ssh -c \\\"$CODESPACE_NAME\\\" -- /tmp/vibe-os-play-now-diagnostics.sh --json",
+            "Diagnostics watch: gh codespace ssh -c \\\"$CODESPACE_NAME\\\" -- /tmp/vibe-os-play-now-diagnostics.sh --watch",
             "Browser cleanup: GitHub repo > Code > Codespaces > ... > Delete",
             "performance caveat: 2-core Codespaces",
             "performance preference: use the selected 4+ CPU machine",
             "Slowdown check: run the Diagnostics command above",
+            "Slowdown watch: run the Diagnostics watch command above",
             "If status counters keep advancing but 2-core noVNC keeps degrading",
             "Codespaces runs pushed git state",
         ):
@@ -679,6 +681,10 @@ class PlayNowRemoteTests(unittest.TestCase):
                 "Diagnostics: gh codespace ssh -c \"vibe-play-existing\" -- /tmp/vibe-os-play-now-diagnostics.sh",
                 result.stdout,
             )
+            self.assertIn(
+                "Diagnostics watch: gh codespace ssh -c \"vibe-play-existing\" -- /tmp/vibe-os-play-now-diagnostics.sh --watch",
+                result.stdout,
+            )
             self.assertIn("Delete when done: gh codespace delete -c \"vibe-play-existing\" --force", result.stdout)
             self.assertIn("Browser cleanup: GitHub repo > Code > Codespaces > ... > Delete", result.stdout)
             self.assertIn(
@@ -694,6 +700,7 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("Performance note: 2-core Codespaces can play Doom", result.stdout)
             self.assertIn("4+ CPUs are preferred for interactive play", result.stdout)
             self.assertIn("Slowdown check: run the Diagnostics command above twice", result.stdout)
+            self.assertIn("Slowdown watch: run the Diagnostics watch command above", result.stdout)
             self.assertIn("If status counters keep advancing but 2-core noVNC keeps degrading", result.stdout)
             self.assertEqual(result.stderr, "")
 
@@ -773,6 +780,10 @@ class PlayNowRemoteTests(unittest.TestCase):
             self.assertIn("does not print remote env", result.stderr)
             self.assertIn(
                 "Diagnostics: gh codespace ssh -c \"vibe-play-existing\" -- /tmp/vibe-os-play-now-diagnostics.sh",
+                result.stderr,
+            )
+            self.assertIn(
+                "Diagnostics watch: gh codespace ssh -c \"vibe-play-existing\" -- /tmp/vibe-os-play-now-diagnostics.sh --watch",
                 result.stderr,
             )
             self.assertIn("Delete when done: gh codespace delete -c \"vibe-play-existing\" --force", result.stderr)
@@ -1000,6 +1011,18 @@ class PlayNowRemoteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cgroup = Path(tmp)
             (cgroup / "cpu.max").write_text("200000 100000\n")
+            (cgroup / "cpu.stat").write_text(
+                "usage_usec 1000\n"
+                "user_usec 600\n"
+                "system_usec 400\n"
+                "nr_periods 10\n"
+                "nr_throttled 4\n"
+                "throttled_usec 250\n"
+            )
+            (cgroup / "cpu.pressure").write_text(
+                "some avg10=12.50 avg60=3.00 avg300=1.00 total=12345\n"
+                "full avg10=2.50 avg60=1.00 avg300=0.50 total=678\n"
+            )
             stdout = io.StringIO()
             stderr = io.StringIO()
             rc = check_play_now_remote.main(
@@ -1023,8 +1046,15 @@ class PlayNowRemoteTests(unittest.TestCase):
         self.assertEqual(report["cpu_diagnostics"]["cgroup_quota_count"], 2)
         self.assertEqual(report["cpu_diagnostics"]["limiting_source"], "cgroup-quota")
         self.assertEqual(report["load_per_cpu_1m"], 1.25)
+        self.assertEqual(report["cgroup_cpu"]["stat"]["nr_throttled"], 4)
+        self.assertEqual(report["cgroup_cpu"]["throttled_period_ratio"], 0.4)
+        self.assertEqual(report["cgroup_cpu"]["pressure"]["some"]["avg10"], 12.5)
         self.assertIn(
             "Current 1m load is at/above available CPUs",
+            " ".join(report["performance"]["warnings"]),
+        )
+        self.assertIn(
+            "Cgroup CPU throttling is visible",
             " ".join(report["performance"]["warnings"]),
         )
 
@@ -1105,9 +1135,14 @@ class PlayNowRemoteTests(unittest.TestCase):
             'DIAGNOSTICS_SCRIPT="${DIAGNOSTICS_SCRIPT:-/tmp/vibe-os-play-now-diagnostics.sh}"',
             'write_diagnostics_helper',
             'Usage: /tmp/vibe-os-play-now-diagnostics.sh [--json]',
+            '--watch',
+            '--samples COUNT',
+            'diagnostics sample \\$sample_index/\\$SAMPLE_COUNT',
             '"schema": "vibe-os-play-now-diagnostics-v1"',
             '"primary_lane": lane',
+            '"cgroup_cpu": cgroup_cpu',
             'Machine-readable diagnostics: $DIAGNOSTICS_SCRIPT --json',
+            'Over-time diagnostics: $DIAGNOSTICS_SCRIPT --watch',
             'status cadence summary (safe serial-log subset)',
             'remote-presentation-throughput-likely',
             'input-loss-observed',
@@ -1117,13 +1152,18 @@ class PlayNowRemoteTests(unittest.TestCase):
             'inputdepth=|musicbuf=|musicpull=|mixunder=',
             'does not dump environment variables',
             'host CPU basis: ',
+            'cgroup cpu.stat: ',
+            'cgroup cpu.pressure: ',
+            'cgroup throttle ratio: ',
             'performance hint: 2-core hosts can stutter under QEMU/noVNC',
             '2-core slowdown triage: if gtic/leveltime/doompresent/dtick keep advancing',
             'load per CPU: 1m=',
             'slowdown warning: 1m load is at/above available CPUs',
+            'slowdown warning: cgroup CPU throttling is visible',
             'slowdown snapshot tip: rerun this helper about 60s later',
             'Performance diagnostics include host CPUs/load plus filtered status fields',
             'CPU diagnostics distinguish online CPUs from effective cgroup quota/cpuset limits',
+            'Cgroup pressure diagnostics include cpu.stat throttling counters and cpu.pressure PSI',
             'healthy across two snapshots',
             '(access_token|token|signature|X-Amz-Signature|X-Amz-Credential)=',
             'NOVNC_WEB_ROOTS=(',
@@ -1166,6 +1206,8 @@ class PlayNowRemoteTests(unittest.TestCase):
             '/tmp/vibe-os-play-now-diagnostics.sh',
             'token-shaped values redacted',
             'vibe-os-play-now-diagnostics-v1',
+            '--watch',
+            '--samples <count> --interval <seconds>',
             'check_play_now_remote.py --require-novnc --json',
         ):
             with self.subTest(needle=needle):

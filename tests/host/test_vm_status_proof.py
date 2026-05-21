@@ -20,6 +20,7 @@ def status_line(**overrides):
         "pmm": "OK",
         "vmm": "OK",
         "kreloc": "LOW",
+        "krelocstep": "HIEXEC_TMP",
         "kerneip": "00010200",
         "kernesp": "0006FFFC",
         "kerncr3": "00090000",
@@ -42,6 +43,12 @@ def status_line(**overrides):
         "khistkpa": "0006F000",
         "khipt": "00126000",
         "khifree": "00126000",
+        "khixlat": "00012000",
+        "khisxlat": "0006F000",
+        "khislot": "C006FFD4",
+        "khislotpa": "0006FFD4",
+        "khisword": "48485354",
+        "khiret": "00012618",
         "kpmap": "OK",
         "kpva": "C0010000",
         "kppa": "00010000",
@@ -129,6 +136,7 @@ def status_line(**overrides):
 def relocated_status_line(**overrides):
     fields = {
         "kreloc": "OK",
+        "krelocstep": "FULL",
         "kerneip": "C0010200",
         "kernesp": "C006FFFC",
         "kerncr3": "00101000",
@@ -137,6 +145,7 @@ def relocated_status_line(**overrides):
         "kmapva": "C0010000",
         "kmappa": "00010000",
         "khicr3": "00101000",
+        "khiret": "C0012618",
         "kpcr3": "00101000",
     }
     fields.update(overrides)
@@ -183,6 +192,7 @@ class VmStatusProofTests(unittest.TestCase):
     def test_rejects_overclaimed_or_incoherent_kernel_relocation_scaffold(self):
         for overrides, message in (
             ({"kreloc": "WAIT"}, "must be LOW or OK"),
+            ({"krelocstep": "LOW_ONLY"}, "krelocstep"),
             ({"kerneip": "00008000"}, "kerneip"),
             ({"kernesp": "00070000"}, "kernesp"),
             ({"kerncr3": "00082000"}, "kerncr3"),
@@ -207,6 +217,8 @@ class VmStatusProofTests(unittest.TestCase):
             ({"kernphys": "C0010000"}, "physical frame"),
             ({"kernphys": "C0010000", "kmappa": "C0010000"}, "physical frame"),
             ({"khicr3": "00090000"}, "match kerncr3"),
+            ({"krelocstep": "HIEXEC_TMP"}, "krelocstep"),
+            ({"khiret": "00012618"}, "khiret"),
         ):
             with self.subTest(overrides=overrides):
                 with self.assertRaisesRegex(AssertionError, message):
@@ -244,6 +256,12 @@ class VmStatusProofTests(unittest.TestCase):
             ({"khistk": "C006E000"}, "page containing the high trampoline ESP"),
             ({"khistkpa": "0006E000"}, "higher-half alias of khistkpa"),
             ({"khistkpa": "00070000", "khistk": "C0070000", "khiesp": "C0070FD8"}, "khiesp"),
+            ({"khixlat": "00013000"}, "translate khiva"),
+            ({"khisxlat": "0006E000"}, "translate khistk"),
+            ({"khislot": "C006EFFC"}, "high-stack slot"),
+            ({"khislotpa": "0006FFD0"}, "low physical backing"),
+            ({"khisword": "00000000"}, "high-stack write"),
+            ({"khiret": "C0012618"}, "khiret"),
             ({"khipt": "00026000"}, "PMM-managed"),
             ({"khipt": "00012000"}, "PMM-managed"),
             ({"khifree": "00127000"}, "match khipt"),
@@ -472,6 +490,10 @@ class VmStatusProofTests(unittest.TestCase):
         self.assertEqual(fields["vmmhi"], "OK")
         self.assertEqual(fields["khiexec"], "OK")
         self.assertEqual(fields["khicr3"], "00090000")
+        self.assertEqual(fields["krelocstep"], "HIEXEC_TMP")
+        self.assertEqual(fields["khixlat"], fields["khipa"])
+        self.assertEqual(fields["khisxlat"], fields["khistkpa"])
+        self.assertEqual(fields["khisword"], "48485354")
         self.assertEqual(fields["kpmap"], "OK")
         self.assertEqual(fields["kpcr3"], "00090000")
         self.assertEqual(fields["kpdirs"], "0000003F")
@@ -480,11 +502,13 @@ class VmStatusProofTests(unittest.TestCase):
         self.assertEqual(fields["kernphys"], "00010000")
         for doc in (boot_doc, process_doc):
             self.assertIn("KERNEL_RELOCATION_GAP[current]=high-alias-only", doc)
+            self.assertIn("KERNEL_RELOCATION_GAP[current]=temporary-high-exec-trampoline", doc)
             self.assertIn("KERNEL_RELOCATION_GAP[current]=persistent-high-alias-window", doc)
             self.assertIn("KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity", doc)
             self.assertIn("`vmmhi=OK` is not a kernel relocation claim", doc)
             self.assertIn("`khiexec=OK` is not a kernel relocation claim", doc)
             self.assertIn("`kpmap=OK` is not a kernel relocation claim", doc)
+            self.assertIn("`krelocstep=HIEXEC_TMP`", doc)
             self.assertIn("`kreloc=OK`", doc)
             self.assertIn("`kreloc=LOW`", doc)
 

@@ -2,19 +2,24 @@
 """Build opt-in host-only UEFI packaging artifacts.
 
 This script deliberately stops at artifact construction. It does not run OVMF,
-does not call QEMU, does not load the current kernel, and does not prove UEFI
-boot support. The generated EFI application is a PE32+ x86_64 stub that returns
-EFI_UNSUPPORTED; the ESP image proves only the host-packaged FAT path shape.
+does not call QEMU, and does not prove UEFI boot support. The generated EFI
+application is a PE32+ x86_64 loader/proof application assembled from
+loader.asm. It can read VIBEOS/KERNEL.ELF, collect GOP and UEFI memory-map
+facts, and call ExitBootServices under OVMF, but the current kernel handoff is
+still blocked on a 64-bit UEFI to 32-bit protected-mode transition.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import struct
+import tempfile
 from pathlib import Path
 
 
+ROOT = Path(__file__).resolve().parents[2]
 SECTOR_SIZE = 512
 TOTAL_SECTORS = 8192
 SECTORS_PER_CLUSTER = 1
@@ -27,16 +32,34 @@ PE_SECTION_ALIGNMENT = 0x1000
 PE_HEADERS_SIZE = 0x200
 PE_TEXT_RVA = 0x1000
 PE_TEXT_RAW_POINTER = 0x200
-EFI_UNSUPPORTED = 0x8000000000000003
 
 
 def align_up(value: int, alignment: int) -> int:
     return (value + alignment - 1) // alignment * alignment
 
 
-def build_pe32plus_efi_stub() -> bytes:
-    """Return a minimal x86_64 PE/COFF EFI application stub."""
-    text = b"\x48\xb8" + struct.pack("<Q", EFI_UNSUPPORTED) + b"\xc3"
+def assemble_loader(loader_source: Path, nasm: str) -> bytes:
+    """Assemble the flat x86_64 UEFI loader payload."""
+    if not loader_source.exists():
+        raise FileNotFoundError(f"missing UEFI loader source: {loader_source}")
+
+    with tempfile.TemporaryDirectory(prefix="vibe-uefi-loader-") as tmp:
+        out_path = Path(tmp) / "loader.bin"
+        completed = subprocess.run(
+            [nasm, "-f", "bin", str(loader_source), "-o", str(out_path)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or completed.stdout.strip()
+            raise RuntimeError(f"failed to assemble UEFI loader with {nasm}: {detail}")
+        return out_path.read_bytes()
+
+
+def build_pe32plus_efi_application(text: bytes) -> bytes:
+    """Wrap a flat x86_64 payload as a PE32+ EFI application."""
     text_raw_size = align_up(len(text), PE_FILE_ALIGNMENT)
     size_of_image = align_up(PE_TEXT_RVA + len(text), PE_SECTION_ALIGNMENT)
 
@@ -104,7 +127,7 @@ def build_pe32plus_efi_stub() -> bytes:
         0,
         0,
         0,
-        0x60000020,  # code, execute, read
+        0xE0000020,  # code, execute, read, write
     )
 
     headers = dos + b"PE\0\0" + file_header + optional_header + section_header
@@ -259,13 +282,21 @@ def build_fat16_esp_image(efi_application: bytes, kernel: bytes) -> bytes:
     return bytes(image)
 
 
-def build_artifacts(kernel_path: Path, out_dir: Path) -> dict[str, object]:
+def build_artifacts(
+    kernel_path: Path,
+    out_dir: Path,
+    *,
+    loader_source: Path | None = None,
+    nasm: str = "nasm",
+) -> dict[str, object]:
     kernel = kernel_path.read_bytes()
     if not kernel:
         raise ValueError("kernel input must not be empty")
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    efi_application = build_pe32plus_efi_stub()
+    loader_source = loader_source or Path(__file__).with_name("loader.asm")
+    loader_payload = assemble_loader(loader_source, nasm)
+    efi_application = build_pe32plus_efi_application(loader_payload)
     esp_image = build_fat16_esp_image(efi_application, kernel)
 
     efi_path = out_dir / "BOOTX64.EFI"
@@ -275,13 +306,23 @@ def build_artifacts(kernel_path: Path, out_dir: Path) -> dict[str, object]:
     esp_path.write_bytes(esp_image)
 
     manifest = {
-        "claim": "host-artifact-only-no-uefi-boot-proof",
+        "claim": "host-built-uefi-loader-no-kernel-entry-proof",
         "efi_application": efi_path.name,
         "efi_subsystem": "efi-application",
         "efi_machine": "x86_64",
+        "efi_loader_source": str(loader_source),
+        "efi_loader_kind": "loader-proof-application",
+        "efi_loader_features": [
+            "esp-kernel-read",
+            "gop-framebuffer-info",
+            "uefi-memory-map",
+            "exit-boot-services",
+            "debugcon-proof-markers",
+        ],
         "esp_image": esp_path.name,
         "esp_format": "fat16-superfloppy",
         "esp_paths": ["EFI/BOOT/BOOTX64.EFI", "VIBEOS/KERNEL.ELF"],
+        "kernel_handoff": "blocked-uefi64-to-elf32-protected-mode-transition",
         "kernel_source": str(kernel_path),
         "vm_execution": "not-run",
     }
@@ -293,10 +334,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--kernel", type=Path, required=True, help="kernel ELF bytes to package at VIBEOS/KERNEL.ELF")
     parser.add_argument("--out-dir", type=Path, required=True, help="directory for BOOTX64.EFI, esp.img, manifest.json")
+    parser.add_argument("--loader-source", type=Path, default=Path(__file__).with_name("loader.asm"), help="NASM source for the EFI loader payload")
+    parser.add_argument("--nasm", default="nasm", help="NASM executable used to assemble loader.asm")
     parser.add_argument("--quiet", action="store_true", help="suppress the manifest summary")
     args = parser.parse_args()
 
-    manifest = build_artifacts(args.kernel, args.out_dir)
+    manifest = build_artifacts(args.kernel, args.out_dir, loader_source=args.loader_source, nasm=args.nasm)
     if not args.quiet:
         print(json.dumps(manifest, indent=2, sort_keys=True))
     return 0

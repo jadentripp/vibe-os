@@ -197,6 +197,24 @@ class PostCheckpointGapTests(unittest.TestCase):
             "install/recovery and hardware support outside the current generated FAT16 image",
             "QEMU BIOS/IDE/PS2/VBE/SB16 device model",
             "machine-readable proof boundary before they become user-facing claims",
+            "Post-Playable Hardware/Runtime Backlog",
+            "These rows are intentionally not proof claims",
+            "POST_PLAYABLE_GAP[FULL_KRELOC_OK] status=open",
+            "POST_PLAYABLE_GAP[UEFI_KERNEL_HANDOFF] status=open",
+            "POST_PLAYABLE_GAP[STORAGE_INSTALL_RECOVERY] status=open",
+            "POST_PLAYABLE_GAP[HUMAN_PLAYTEST_BUNDLE] status=open",
+            "POST_PLAYABLE_GAP[HARDWARE_PACED_AUDIO_STREAM] status=open",
+            "POST_PLAYABLE_GAP[PROCESS_MODEL_LIMITS] status=open",
+            "kreloc=OK",
+            "krelocstep=FULL",
+            "actual UEFI kernel handoff",
+            "blank disk to bootable vibe-os",
+            "damaged media repair-or-refuse behavior",
+            "no WAD/disk/pixel/screenshot/raw-audio artifacts",
+            "payload service still arrives through `VIBE_AUDIO_MIXER_UPDATE`",
+            "first-class kernel-owned music ring",
+            "full `fork`/`exec` split",
+            "teardown/reclamation evidence",
         ):
             with self.subTest(claim_boundary=claim_boundary):
                 self.assertContainsPhrase(gap_doc, claim_boundary)
@@ -207,6 +225,26 @@ class PostCheckpointGapTests(unittest.TestCase):
         self.assertIn("not yet a broader storage boot", persistence_doc)
         self.assertIn("SUPPORT[PHYSICAL_HARDWARE] status=unclaimed", hardware_doc)
         self.assertContainsPhrase(hardware_doc, "QEMU evidence alone can only claim")
+        self.assertContainsPhrase(
+            process_doc,
+            "POST_PLAYABLE_GAP[PROCESS_MODEL_LIMITS]",
+        )
+        self.assertContainsPhrase(
+            hardware_doc,
+            "The actual UEFI kernel handoff remains a post-playable gap",
+        )
+        self.assertContainsPhrase(
+            persistence_doc,
+            "POST_PLAYABLE_GAP[STORAGE_INSTALL_RECOVERY]",
+        )
+        self.assertContainsPhrase(
+            process_doc,
+            "POST_PLAYABLE_GAP[FULL_KRELOC_OK]",
+        )
+        self.assertContainsPhrase(
+            hardware_doc,
+            "POST_PLAYABLE_GAP[HARDWARE_PACED_AUDIO_STREAM]",
+        )
 
     def test_latest_cloud_evidence_tracks_run_but_not_playable_claim(self):
         gap_doc = (ROOT / "docs" / "proof.txt").read_text()
@@ -326,6 +364,44 @@ class PostCheckpointGapTests(unittest.TestCase):
                 "vm-posix",
                 "shutdown-panic",
                 "hardware-limits",
+            },
+        )
+
+    def test_post_playable_backlog_rows_are_machine_readable(self):
+        rows = check_playability_gap_ledger.validate_post_playable_backlog(ROOT)
+
+        self.assertEqual(
+            set(rows),
+            {
+                "FULL_KRELOC_OK",
+                "UEFI_KERNEL_HANDOFF",
+                "STORAGE_INSTALL_RECOVERY",
+                "HUMAN_PLAYTEST_BUNDLE",
+                "HARDWARE_PACED_AUDIO_STREAM",
+                "PROCESS_MODEL_LIMITS",
+            },
+        )
+        self.assertEqual({row["status"] for row in rows.values()}, {"open"})
+        self.assertEqual(
+            {row_id: row["category"] for row_id, row in rows.items()},
+            {
+                "FULL_KRELOC_OK": "runtime-relocation",
+                "UEFI_KERNEL_HANDOFF": "uefi-handoff",
+                "STORAGE_INSTALL_RECOVERY": "storage-install-recovery",
+                "HUMAN_PLAYTEST_BUNDLE": "human-playtest",
+                "HARDWARE_PACED_AUDIO_STREAM": "audio-runtime",
+                "PROCESS_MODEL_LIMITS": "process-model",
+            },
+        )
+        self.assertEqual(
+            {row_id: row["gate"] for row_id, row in rows.items()},
+            {
+                "FULL_KRELOC_OK": "vm-status-kreloc-full",
+                "UEFI_KERNEL_HANDOFF": "ovmf-kernel-entry-proof",
+                "STORAGE_INSTALL_RECOVERY": "installer-recovery-proof",
+                "HUMAN_PLAYTEST_BUNDLE": "human-playtest-bundle-review",
+                "HARDWARE_PACED_AUDIO_STREAM": "kernel-owned-audio-stream-proof",
+                "PROCESS_MODEL_LIMITS": "process-model-expansion-proof",
             },
         )
 

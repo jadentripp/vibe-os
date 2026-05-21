@@ -28,14 +28,16 @@ boot:
   PMM-backed page-table frame is reclaimed. The smoke contract exposes that as
   `vmmhi=OK`, `vmmhva=`, `vmmhpa=`, `vmmhpt=`, and `vmmhfree=`. The same host
   gate now pins the running-kernel relocation scaffold as `kreloc=LOW` with
-  `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and `kernphys=`, proving the
-  current kernel is still low identity-mapped. It also requires `kmap=OK`,
+  `krelocstep=HIEXEC_TMP`, `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and
+  `kernphys=`, proving the current kernel is still low identity-mapped. It also requires `kmap=OK`,
   `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, and `kmaphi=` so the
   current kernel entry page is temporarily aliased high, compared through low
   and high addresses, and unmapped again. The next executable rung is
   `khiexec=OK` with `khieip=`, `khiesp=`, `khicr3=`, `khiva=`, `khipa=`,
-  `khistk=`, `khistkpa=`, `khipt=`, and `khifree=`, proving a bounded
-  higher-half trampoline call on a higher-half stack alias and page-table
+  `khistk=`, `khistkpa=`, `khipt=`, `khifree=`, `khixlat=`, `khisxlat=`,
+  `khislot=`, `khislotpa=`, `khisword=`, and `khiret=`, proving a bounded
+  higher-half trampoline call on a higher-half stack alias, active `CR3`,
+  translated non-identity backing, a high-stack write, and page-table
   reclaim while still reserving `kreloc=OK` for the future persistent
   non-identity higher-half milestone.
 - `tests/host/test_doom_source.py` is the original-Doom provenance gate. It
@@ -66,9 +68,10 @@ boot:
   duplicate-root/cross-link/orphaned-cluster rejection, protected WAD/ELF
   refusal, and syscall-backed `unlink`/`stat`/`fstat` libc wrappers. They also
   pin root/current-directory path normalization, the boundary between host
-  recursive asset packaging and the kernel's read-only one-level subdirectory
-  surface, kernel rejection of unknown `open` flags, `EMFILE` fd exhaustion,
-  and the Doom-only `c:\doomdata` `mkdir` shim.
+  recursive asset packaging and the kernel's bounded one-level subdirectory
+  surface, writable `/STATE` file lifecycle proof, kernel rejection of unknown
+  `open` flags, `EMFILE` fd exhaustion, and the Doom-only `c:\doomdata`
+  `mkdir` shim.
 - `tests/host/test_doom_persistence_image.py` and
   `tools/check_doom_persistence_image.py` prove the non-QEMU image-inspection
   path for Doom defaults and saves: `DEFAULT.CFG` must contain complete
@@ -190,20 +193,21 @@ boot:
   future proof instead of becoming advertising copy.
   The same checker pins `NEXT_UNLOCK[PCI_ENUMERATION]` as the next hardware
   class to implement before AHCI or USB can honestly move forward.
-  It also checks the contract-only `boot/uefi/CONTRACT.txt` scaffold: each
-  `UEFI_BOOT[...]` row must stay unimplemented with no evidence, and `boot/uefi`
-  must stay out of the current Makefile image path until a separate opt-in UEFI
-  build exists.
+  It also checks the `boot/uefi/CONTRACT.txt` loader/proof boundary: the
+  `UEFI_BOOT[...]` rows must stay at the documented intermediate states, the
+  kernel handoff row must stay blocked until OVMF reaches the current kernel,
+  and `boot/uefi` must stay out of the current Makefile image path.
 - `tools/check_storage_install_boundary.py` parses
   `docs/architecture.txt` so generated-image persistence proof cannot
   drift into an installable-OS claim. With `--image build/disk.img --json`, it
   emits an `install-image-manifest` covering the repo MBR, raw boot/kernel
   regions, raw artifact identity, the bootable-image-construction manifest,
   FAT16 BPB, root-entry inventory, FAT-copy agreement, cluster ownership, and
-  the fat-vfs-boundary manifest for root/current-directory normalization plus
-  read-only one-level subdirectory access. The same manifest marks deeper
-  packaged asset trees as host inventory only, while keeping arbitrary-disk
-  install and recovery rows unclaimed. With `--write-blank-image`, the checker
+  the fat-vfs-boundary manifest for root/current-directory normalization,
+  read-only one-level asset access, and the dynamic-subdirectory-lifecycle
+  proof for writable `/STATE` files. The same manifest marks deeper packaged
+  asset trees as host inventory only, while keeping arbitrary-disk install and
+  recovery rows unclaimed. With `--write-blank-image`, the checker
   can also materialize that construction as a new regular raw image file,
   refusing existing paths and recording a blank-image-file materialization
   manifest without claiming block-device install support.
@@ -217,9 +221,10 @@ boot:
   `kmap=OK`, `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, and
   `kmaphi=` must prove a temporary higher-half alias of the current kernel entry
   page and page-table reclaim, `khiexec=OK`, `khieip=`, `khiesp=`, `khicr3=`,
-  `khiva=`, `khipa=`, `khistk=`, `khistkpa=`, `khipt=`, and `khifree=` must
-  prove bounded higher-half trampoline execution on a high stack alias and
-  page-table reclaim,
+  `khiva=`, `khipa=`, `khistk=`, `khistkpa=`, `khipt=`, `khifree=`,
+  `khixlat=`, `khisxlat=`, `khislot=`, `khislotpa=`, `khisword=`, and
+  `khiret=` must prove bounded higher-half trampoline execution on a high stack
+  alias, translated backing, a high-stack write, and page-table reclaim,
   boot-probe exec must report `uexec=OK` and `upath=USERPROB.ELF`, ABI-probe
   exec must report `abiexec=OK`, `abipath=ABIPROBE.ELF`, and `abiprobe=OK`,
   Doom exec must report `argvsrc=2`, `procpool=`, `fdexec=`, `fdup=`, `wait=`,

@@ -182,27 +182,89 @@ serial_log="\$play_build_dir/serial.log"
 novnc_log="\$play_build_dir/novnc.log"
 
 JSON_OUTPUT=0
-case "\${1:-}" in
-  "")
-    ;;
-  --json)
-    JSON_OUTPUT=1
-    ;;
-  -h|--help)
-    cat <<'EOF_HELP'
-Usage: /tmp/vibe-os-play-now-diagnostics.sh [--json]
+SAMPLE_COUNT=1
+SAMPLE_INTERVAL=60
+RUN_SINGLE=0
+
+validate_positive_integer_arg() {
+  local name="\$1"
+  local value="\$2"
+
+  case "\$value" in
+    ''|*[!0-9]*)
+      echo "\$name must be a positive integer, got '\$value'" >&2
+      exit 2
+      ;;
+  esac
+  if [ "\$value" -lt 1 ]; then
+    echo "\$name must be a positive integer, got '\$value'" >&2
+    exit 2
+  fi
+}
+
+while [ "\$#" -gt 0 ]; do
+  case "\$1" in
+    --json)
+      JSON_OUTPUT=1
+      ;;
+    --samples|--sample-count)
+      [ "\$#" -ge 2 ] || { echo "\$1 requires a count" >&2; exit 2; }
+      SAMPLE_COUNT="\$2"
+      shift
+      ;;
+    --interval|--sample-interval)
+      [ "\$#" -ge 2 ] || { echo "\$1 requires seconds" >&2; exit 2; }
+      SAMPLE_INTERVAL="\$2"
+      shift
+      ;;
+    --watch)
+      SAMPLE_COUNT="\${VIBE_DIAG_WATCH_SAMPLES:-6}"
+      SAMPLE_INTERVAL="\${VIBE_DIAG_WATCH_INTERVAL:-60}"
+      ;;
+    --single)
+      RUN_SINGLE=1
+      ;;
+    -h|--help)
+      cat <<'EOF_HELP'
+Usage: /tmp/vibe-os-play-now-diagnostics.sh [--json] [--watch] [--samples COUNT] [--interval SECONDS]
 
 Print status-only remote play diagnostics. The text view is for humans; --json
 emits a machine-readable long-session snapshot without environment variables,
 WAD data, pixels, disk images, or raw audio.
+
+Options:
+  --json                  Emit one machine-readable status snapshot.
+  --watch                 Print six status-only snapshots, one minute apart.
+  --samples COUNT         Print COUNT text snapshots. Default: 1.
+  --interval SECONDS      Delay between repeated snapshots. Default: 60.
 EOF_HELP
-    exit 0
-    ;;
-  *)
-    echo "unknown diagnostics argument: \$1" >&2
+      exit 0
+      ;;
+    *)
+      echo "unknown diagnostics argument: \$1" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+validate_positive_integer_arg --samples "\$SAMPLE_COUNT"
+validate_positive_integer_arg --interval "\$SAMPLE_INTERVAL"
+if [ "\$SAMPLE_COUNT" -gt 1 ] && [ "\$RUN_SINGLE" != "1" ]; then
+  if [ "\$JSON_OUTPUT" = "1" ]; then
+    echo "--json cannot be combined with repeated sampling; run one JSON snapshot per sample if needed" >&2
     exit 2
-    ;;
-esac
+  fi
+  for ((sample_index = 1; sample_index <= SAMPLE_COUNT; sample_index++)); do
+    echo
+    echo "diagnostics sample \$sample_index/\$SAMPLE_COUNT at \$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    "\$diagnostics_script" --single
+    if [ "\$sample_index" -lt "\$SAMPLE_COUNT" ]; then
+      sleep "\$SAMPLE_INTERVAL"
+    fi
+  done
+  exit 0
+fi
 
 redact_stream() {
   sed -E \\
@@ -278,6 +340,40 @@ def parse_cpu_range_list(raw_value):
     return count or None
 
 
+def parse_int_key_value_lines(raw_value):
+    parsed = {}
+    for line in raw_value.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        try:
+            parsed[parts[0]] = int(parts[1], 10)
+        except ValueError:
+            continue
+    return parsed
+
+
+def parse_pressure_lines(raw_value):
+    pressure = {}
+    for line in raw_value.splitlines():
+        parts = line.split()
+        if not parts:
+            continue
+        label = parts[0]
+        values = {}
+        for item in parts[1:]:
+            if "=" not in item:
+                continue
+            key, raw_item_value = item.split("=", 1)
+            try:
+                values[key] = int(raw_item_value, 10) if key == "total" else float(raw_item_value)
+            except ValueError:
+                continue
+        if values:
+            pressure[label] = values
+    return pressure
+
+
 def cpu_diagnostics():
     online_count = os.cpu_count()
     cgroup_quota_count = None
@@ -346,6 +442,33 @@ def cpu_diagnostics():
         "cgroup_quota_count": cgroup_quota_count,
         "cgroup_cpuset_count": cgroup_cpuset_count,
         "limiting_source": limiting_source,
+    }
+
+
+def cgroup_cpu_status():
+    root = Path("/sys/fs/cgroup")
+    stat = {}
+    for relative in ("cpu.stat", "cpu/cpu.stat"):
+        stat = parse_int_key_value_lines(read_text(root / relative))
+        if stat:
+            break
+
+    pressure = {}
+    for relative in ("cpu.pressure", "cpu/cpu.pressure"):
+        pressure = parse_pressure_lines(read_text(root / relative))
+        if pressure:
+            break
+
+    throttled_period_ratio = None
+    nr_periods = stat.get("nr_periods")
+    nr_throttled = stat.get("nr_throttled")
+    if nr_periods and nr_periods > 0 and nr_throttled is not None:
+        throttled_period_ratio = round(nr_throttled / nr_periods, 4)
+
+    return {
+        "stat": stat,
+        "pressure": pressure,
+        "throttled_period_ratio": throttled_period_ratio,
     }
 
 
@@ -555,6 +678,7 @@ def cadence_summary():
 
 
 cpu_info = cpu_diagnostics()
+cgroup_cpu = cgroup_cpu_status()
 host_cpus = cpu_info["effective_count"]
 loads = load_average()
 load_per_cpu = None
@@ -570,6 +694,8 @@ if host_cpus is not None and host_cpus <= 2:
     recommendations.append("Prefer a 4+ CPU Codespace or cloud VM for longer noVNC play.")
 if pressure:
     recommendations.append("Host load is saturated; compare another status snapshot after 60s before changing OS runtime code.")
+if cgroup_cpu["throttled_period_ratio"] is not None and cgroup_cpu["throttled_period_ratio"] > 0:
+    recommendations.append("Cgroup CPU throttling is visible; run --watch while playing or resize to a 4+ CPU Codespace.")
 if cadence["diagnosis"] == "remote-presentation-throughput-likely":
     recommendations.append("OS-side cadence advanced; inspect CPU quota/load and noVNC/QEMU display throughput first.")
 elif cadence["diagnosis"] in {"serial-log-not-ready", "not-enough-status-samples"}:
@@ -604,6 +730,7 @@ print(
                 else None,
                 "load_per_cpu_1m": load_per_cpu,
                 "load_saturated": pressure,
+                "cgroup_cpu": cgroup_cpu,
             },
             "novnc": {
                 "port": read_text(port_file) or None,
@@ -666,6 +793,44 @@ def parse_cpu_range_list(raw_value):
     return count or None
 
 
+def parse_int_key_value_lines(raw_value):
+    if not raw_value:
+        return {}
+    parsed = {}
+    for line in raw_value.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        try:
+            parsed[parts[0]] = int(parts[1], 10)
+        except ValueError:
+            continue
+    return parsed
+
+
+def parse_pressure_lines(raw_value):
+    if not raw_value:
+        return {}
+    pressure = {}
+    for line in raw_value.splitlines():
+        parts = line.split()
+        if not parts:
+            continue
+        label = parts[0]
+        values = {}
+        for item in parts[1:]:
+            if "=" not in item:
+                continue
+            key, raw_item_value = item.split("=", 1)
+            try:
+                values[key] = int(raw_item_value, 10) if key == "total" else float(raw_item_value)
+            except ValueError:
+                continue
+        if values:
+            pressure[label] = values
+    return pressure
+
+
 def cgroup_quota_cpu_count(root):
     cpu_max = read_text(root / "cpu.max")
     if cpu_max:
@@ -697,6 +862,33 @@ def cgroup_cpuset_cpu_count(root):
         if parsed:
             return parsed
     return None
+
+
+def cgroup_cpu_status():
+    root = Path("/sys/fs/cgroup")
+    stat = {}
+    for relative in ("cpu.stat", "cpu/cpu.stat"):
+        stat = parse_int_key_value_lines(read_text(root / relative))
+        if stat:
+            break
+
+    pressure = {}
+    for relative in ("cpu.pressure", "cpu/cpu.pressure"):
+        pressure = parse_pressure_lines(read_text(root / relative))
+        if pressure:
+            break
+
+    throttled_period_ratio = None
+    nr_periods = stat.get("nr_periods")
+    nr_throttled = stat.get("nr_throttled")
+    if nr_periods and nr_periods > 0 and nr_throttled is not None:
+        throttled_period_ratio = round(nr_throttled / nr_periods, 4)
+
+    return {
+        "stat": stat,
+        "pressure": pressure,
+        "throttled_period_ratio": throttled_period_ratio,
+    }
 
 
 def cpu_diagnostics():
@@ -733,6 +925,7 @@ def value_or_unknown(value):
 
 
 effective, online, quota, cpuset, limit = cpu_diagnostics()
+cgroup_cpu = cgroup_cpu_status()
 print(f"host CPUs: {value_or_unknown(effective)}")
 print(
     "host CPU basis: "
@@ -755,6 +948,45 @@ else:
                 "slowdown warning: 1m load is at/above available CPUs; "
                 "noVNC/QEMU can degrade under sustained contention"
             )
+
+if cgroup_cpu["stat"]:
+    preferred_stat_keys = (
+        "usage_usec",
+        "user_usec",
+        "system_usec",
+        "nr_periods",
+        "nr_throttled",
+        "throttled_usec",
+    )
+    fields = [
+        f"{key}={cgroup_cpu['stat'][key]}"
+        for key in preferred_stat_keys
+        if key in cgroup_cpu["stat"]
+    ]
+    print("cgroup cpu.stat: " + " ".join(fields))
+    if cgroup_cpu["throttled_period_ratio"] is not None:
+        print(
+            "cgroup throttle ratio: "
+            f"nr_throttled/nr_periods={cgroup_cpu['throttled_period_ratio']:.4f}"
+        )
+
+if cgroup_cpu["pressure"]:
+    fields = []
+    for label in ("some", "full"):
+        values = cgroup_cpu["pressure"].get(label)
+        if not values:
+            continue
+        for key in ("avg10", "avg60", "avg300", "total"):
+            if key in values:
+                fields.append(f"{label}.{key}={values[key]}")
+    if fields:
+        print("cgroup cpu.pressure: " + " ".join(fields))
+
+if cgroup_cpu["throttled_period_ratio"] is not None and cgroup_cpu["throttled_period_ratio"] > 0:
+    print(
+        "slowdown warning: cgroup CPU throttling is visible; "
+        "collect --watch samples or resize to 4+ CPUs"
+    )
 PY_HOST
 echo "performance hint: 2-core hosts can stutter under QEMU/noVNC; prefer 4+ cloud CPUs for interactive Doom."
 echo "2-core slowdown triage: if gtic/leveltime/doompresent/dtick keep advancing while noVNC degrades, recreate on a 4+ CPU Codespace before changing OS runtime code."
@@ -1065,9 +1297,11 @@ echo "Diagnostics helper: $DIAGNOSTICS_SCRIPT"
 echo "Stop helper: $STOP_SCRIPT"
 echo "From another remote shell, run it to inspect safe slowdown status without printing env."
 echo "Machine-readable diagnostics: $DIAGNOSTICS_SCRIPT --json"
+echo "Over-time diagnostics: $DIAGNOSTICS_SCRIPT --watch (or --samples 6 --interval 60)"
 echo "The diagnostics helper does not dump environment variables."
 echo "Performance diagnostics include host CPUs/load plus filtered status fields such as inputdepth=, dtick=, preempt=, doompresent=, musicbuf=, and mixunder=."
 echo "CPU diagnostics distinguish online CPUs from effective cgroup quota/cpuset limits."
+echo "Cgroup pressure diagnostics include cpu.stat throttling counters and cpu.pressure PSI when available."
 echo "If a 2-core host keeps stuttering while those OS status fields stay healthy across two snapshots, restart on a 4+ CPU Codespace or cloud VM."
 
 if command -v websockify >/dev/null 2>&1; then

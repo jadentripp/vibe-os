@@ -73,6 +73,13 @@ class CpuDiagnostics:
 
 
 @dataclass(frozen=True)
+class CgroupCpuRuntime:
+    stat: Mapping[str, int]
+    pressure: Mapping[str, Mapping[str, float | int]]
+    throttled_period_ratio: float | None
+
+
+@dataclass(frozen=True)
 class PreflightReport:
     platform_name: str
     cpu_count: int | None
@@ -83,6 +90,7 @@ class PreflightReport:
     novnc: NovncStatus
     load_average: tuple[float, float, float] | None = None
     cpu_diagnostics: CpuDiagnostics | None = None
+    cgroup_cpu: CgroupCpuRuntime | None = None
 
     @property
     def missing_required_tools(self) -> tuple[str, ...]:
@@ -166,6 +174,50 @@ def _parse_cpu_range_list(raw_value: str) -> int | None:
     return count or None
 
 
+def _parse_int_key_value_lines(raw_value: str | None) -> dict[str, int]:
+    if not raw_value:
+        return {}
+
+    parsed: dict[str, int] = {}
+    for line in raw_value.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        try:
+            parsed[parts[0]] = int(parts[1], 10)
+        except ValueError:
+            continue
+    return parsed
+
+
+def _parse_pressure_lines(raw_value: str | None) -> dict[str, dict[str, float | int]]:
+    if not raw_value:
+        return {}
+
+    pressure: dict[str, dict[str, float | int]] = {}
+    for line in raw_value.splitlines():
+        parts = line.split()
+        if not parts:
+            continue
+        label = parts[0]
+        values: dict[str, float | int] = {}
+        for item in parts[1:]:
+            if "=" not in item:
+                continue
+            key, raw_item_value = item.split("=", 1)
+            try:
+                values[key] = (
+                    int(raw_item_value, 10)
+                    if key == "total"
+                    else float(raw_item_value)
+                )
+            except ValueError:
+                continue
+        if values:
+            pressure[label] = values
+    return pressure
+
+
 def _cgroup_quota_cpu_count(cgroup_root: Path) -> int | None:
     cpu_max = _read_text(cgroup_root / "cpu.max")
     if cpu_max:
@@ -200,6 +252,32 @@ def _cgroup_cpuset_cpu_count(cgroup_root: Path) -> int | None:
             if parsed:
                 return parsed
     return None
+
+
+def _cgroup_cpu_runtime(cgroup_root: Path) -> CgroupCpuRuntime:
+    stat: dict[str, int] = {}
+    for relative in ("cpu.stat", "cpu/cpu.stat"):
+        stat = _parse_int_key_value_lines(_read_text(cgroup_root / relative))
+        if stat:
+            break
+
+    pressure: dict[str, dict[str, float | int]] = {}
+    for relative in ("cpu.pressure", "cpu/cpu.pressure"):
+        pressure = _parse_pressure_lines(_read_text(cgroup_root / relative))
+        if pressure:
+            break
+
+    throttled_period_ratio = None
+    nr_periods = stat.get("nr_periods")
+    nr_throttled = stat.get("nr_throttled")
+    if nr_periods and nr_periods > 0 and nr_throttled is not None:
+        throttled_period_ratio = round(nr_throttled / nr_periods, 4)
+
+    return CgroupCpuRuntime(
+        stat=stat,
+        pressure=pressure,
+        throttled_period_ratio=throttled_period_ratio,
+    )
 
 
 def _effective_cpu_count(
@@ -347,6 +425,7 @@ def check_preflight(
         cpu_count_provider=cpu_count_provider,
         cgroup_root=cgroup_root,
     )
+    cgroup_cpu = _cgroup_cpu_runtime(cgroup_root)
     return PreflightReport(
         platform_name=effective_platform,
         cpu_count=cpu_diagnostics.effective_count,
@@ -357,11 +436,13 @@ def check_preflight(
         novnc=novnc,
         load_average=_load_average(load_average_provider),
         cpu_diagnostics=cpu_diagnostics,
+        cgroup_cpu=cgroup_cpu,
     )
 
 
 def render_report(report: PreflightReport) -> str:
     cpu_diagnostics = _report_cpu_diagnostics(report)
+    cgroup_cpu = report.cgroup_cpu
     lines = [
         "play-now remote preflight OK",
         f"platform: {report.platform_name}",
@@ -401,6 +482,39 @@ def render_report(report: PreflightReport) -> str:
         )
         if report.cpu_count:
             lines.append(f"load per CPU: 1m={one_minute / report.cpu_count:.2f}")
+
+    if cgroup_cpu is not None and cgroup_cpu.stat:
+        preferred_stat_keys = (
+            "usage_usec",
+            "user_usec",
+            "system_usec",
+            "nr_periods",
+            "nr_throttled",
+            "throttled_usec",
+        )
+        stat_fields = [
+            f"{key}={cgroup_cpu.stat[key]}"
+            for key in preferred_stat_keys
+            if key in cgroup_cpu.stat
+        ]
+        lines.append("cgroup cpu.stat: " + " ".join(stat_fields))
+        if cgroup_cpu.throttled_period_ratio is not None:
+            lines.append(
+                "cgroup throttle ratio: "
+                f"nr_throttled/nr_periods={cgroup_cpu.throttled_period_ratio:.4f}"
+            )
+
+    if cgroup_cpu is not None and cgroup_cpu.pressure:
+        pressure_fields = []
+        for label in ("some", "full"):
+            values = cgroup_cpu.pressure.get(label)
+            if not values:
+                continue
+            for key in ("avg10", "avg60", "avg300", "total"):
+                if key in values:
+                    pressure_fields.append(f"{label}.{key}={values[key]}")
+        if pressure_fields:
+            lines.append("cgroup cpu.pressure: " + " ".join(pressure_fields))
 
     if report.cpu_count is None:
         lines.append(
@@ -443,6 +557,16 @@ def render_report(report: PreflightReport) -> str:
             "shape for smoother human playtests"
         )
 
+    if (
+        cgroup_cpu is not None
+        and cgroup_cpu.throttled_period_ratio is not None
+        and cgroup_cpu.throttled_period_ratio > 0
+    ):
+        lines.append(
+            "performance warning: cgroup CPU throttling is visible; "
+            "sample diagnostics over time or resize to 4+ CPUs"
+        )
+
     lines.append("dry-run: QEMU was not launched")
     lines.append("next: run ./tools/play_now_remote.sh on the remote host")
     return "\n".join(lines) + "\n"
@@ -452,6 +576,11 @@ def report_to_json(report: PreflightReport) -> dict[str, object]:
     """Return a stable machine-readable preflight report."""
 
     cpu_diagnostics = _report_cpu_diagnostics(report)
+    cgroup_cpu = report.cgroup_cpu or CgroupCpuRuntime(
+        stat={},
+        pressure={},
+        throttled_period_ratio=None,
+    )
     warnings: list[str] = []
     recommendations: list[str] = []
     if report.cpu_count is None:
@@ -497,6 +626,17 @@ def report_to_json(report: PreflightReport) -> dict[str, object]:
                     "Compare status-only diagnostics snapshots during slowdown before changing OS runtime code."
                 )
 
+    if (
+        cgroup_cpu.throttled_period_ratio is not None
+        and cgroup_cpu.throttled_period_ratio > 0
+    ):
+        warnings.append(
+            "Cgroup CPU throttling is visible; sustained noVNC/QEMU slowdown may be host quota pressure."
+        )
+        recommendations.append(
+            "Use /tmp/vibe-os-play-now-diagnostics.sh --watch while playing, or resize to a 4+ CPU Codespace."
+        )
+
     return {
         "schema": "vibe-os-play-now-preflight-v1",
         "platform": report.platform_name,
@@ -524,6 +664,14 @@ def report_to_json(report: PreflightReport) -> dict[str, object]:
         },
         "load_average": load_average,
         "load_per_cpu_1m": load_per_cpu_1m,
+        "cgroup_cpu": {
+            "stat": dict(cgroup_cpu.stat),
+            "pressure": {
+                label: dict(values)
+                for label, values in cgroup_cpu.pressure.items()
+            },
+            "throttled_period_ratio": cgroup_cpu.throttled_period_ratio,
+        },
         "performance": {
             "host_shape": shape,
             "warnings": warnings,
