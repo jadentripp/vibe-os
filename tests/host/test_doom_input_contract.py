@@ -140,6 +140,7 @@ class DoomInputContractTests(unittest.TestCase):
             "&& gameaction == ga_savegame",
             "&& savedescription[0]",
             "G_DoSaveGame();",
+            "clear_consumed_save_ticcmd();",
             "save_checkpoint_done = 1;",
             "G_LoadGame(path);",
             "load_checkpoint_started = 1;",

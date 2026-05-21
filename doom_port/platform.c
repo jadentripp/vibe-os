@@ -772,6 +772,27 @@ void G_BuildTiccmd(ticcmd_t* cmd)
     netcmds[consoleplayer][target_tic] = *cmd;
 }
 
+static void clear_consumed_save_ticcmd(void)
+{
+    int consumed_tic;
+    int divisor;
+
+    if (consoleplayer < 0 || consoleplayer >= MAXPLAYERS)
+        return;
+
+    divisor = ticdup > 0 ? ticdup : 1;
+    consumed_tic = (gametic / divisor) % BACKUPTICS;
+    if (consumed_tic < 0)
+        consumed_tic += BACKUPTICS;
+
+    if (!(netcmds[consoleplayer][consumed_tic].buttons & BT_SPECIAL))
+        return;
+    if ((netcmds[consoleplayer][consumed_tic].buttons & BT_SPECIALMASK) != BTS_SAVEGAME)
+        return;
+
+    netcmds[consoleplayer][consumed_tic].buttons = 0;
+}
+
 void G_Ticker(void)
 {
     doom_original_G_Ticker();
@@ -781,6 +802,7 @@ void G_Ticker(void)
         && gameaction == ga_savegame
         && savedescription[0]) {
         G_DoSaveGame();
+        clear_consumed_save_ticcmd();
         save_checkpoint_done = 1;
         report_save_action_status();
     }

@@ -330,6 +330,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("&& gameaction == ga_savegame", ticker)
         self.assertIn("&& savedescription[0]", ticker)
         self.assertIn("G_DoSaveGame();", ticker)
+        self.assertIn("clear_consumed_save_ticcmd();", ticker)
         self.assertIn("save_checkpoint_done = 1;", ticker)
         self.assertIn("report_save_action_status();", ticker)
         finish_update = platform.split("void I_FinishUpdate(void)", 1)[1].split(
@@ -340,6 +341,9 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn("(cmd->buttons & BT_SPECIALMASK) != BTS_SAVEGAME", platform)
         self.assertIn("target_tic = (gametic / divisor) % BACKUPTICS;", platform)
         self.assertIn("netcmds[consoleplayer][target_tic] = *cmd;", platform)
+        self.assertIn("static void clear_consumed_save_ticcmd(void)", platform)
+        self.assertIn("consumed_tic = (gametic / divisor) % BACKUPTICS;", platform)
+        self.assertIn("netcmds[consoleplayer][consumed_tic].buttons = 0;", platform)
         self.assertIn("if (sendsave)", original)
         self.assertIn("cmd->buttons = BT_SPECIAL | BTS_SAVEGAME", original)
         self.assertNotIn("doom_original_G_BuildTiccmd", original)
