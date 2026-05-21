@@ -30,7 +30,6 @@ extern char savedescription[32];
 void doom_original_G_BuildTiccmd(ticcmd_t* cmd);
 void doom_original_G_Ticker(void);
 void G_SaveGame(int slot, char* description);
-void G_DoSaveGame(void);
 void G_LoadGame(char* name);
 
 static byte doom_zone[8 * 1024 * 1024];
@@ -64,6 +63,7 @@ static int save_checkpoint_request_checked;
 static int save_checkpoint_requested;
 static int save_checkpoint_slot;
 static int save_checkpoint_done;
+static int save_checkpoint_promoted;
 static int save_checkpoint_started;
 static unsigned long save_checkpoint_desc_hash;
 static unsigned long save_checkpoint_desc_len;
@@ -794,11 +794,21 @@ void G_Ticker(void)
     doom_original_G_Ticker();
 
     if (save_checkpoint_started
+        && !save_checkpoint_promoted
         && !save_checkpoint_done
         && gameaction == ga_savegame
         && savedescription[0]) {
-        G_DoSaveGame();
         clear_consumed_save_ticcmd();
+        save_checkpoint_promoted = 1;
+        report_save_action_status();
+        return;
+    }
+
+    if (save_checkpoint_promoted
+        && !save_checkpoint_done
+        && !sendsave
+        && !savedescription[0]
+        && gameaction == ga_nothing) {
         save_checkpoint_done = 1;
         report_save_action_status();
     }

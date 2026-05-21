@@ -160,14 +160,13 @@ When the cached save request is present, the port enters the original
 `G_SaveGame()` path as soon as Doom has a live level/player. Original Doom's
 `G_SaveGame()` only queues `sendsave`; the port leaves that queue intact so the
 original `G_BuildTiccmd()` and `G_Ticker()` path turns it into
-`ga_savegame`. The port then drains `G_DoSaveGame()` immediately after original
-`G_Ticker()` promotes that action, while the original save description is still
-present. After the serializer runs, the port clears outstanding save-special
-bits from Doom's circular ticcmd buffer for the console player. That avoids
-re-processing the same queued save command when either the normal `maketic`
-slot or the port's `gametic` bridge slot wraps as a `NET GAME` save while still
-capturing the real Doom serializer after the original input/gameaction lifecycle
-has accepted the save.
+`ga_savegame`. As soon as the action is promoted, the port clears outstanding
+save-special bits from Doom's circular ticcmd buffer for the console player,
+then leaves `ga_savegame` for original Doom to drain at the top of the next
+`G_Ticker()`. That avoids re-processing the same queued save command when either
+the normal `maketic` slot or the port's `gametic` bridge slot wraps as a
+`NET GAME` save while still preserving original Doom's save timing and
+serializer.
 
 The host-side `Fat16Image` mutator in `tools/make_wad_image.py` exercises sparse
 writes, growth, replacement, in-place shrink with tail-cluster freeing,
