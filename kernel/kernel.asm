@@ -10866,10 +10866,6 @@ user_probe_run:
     xor eax, eax
     mov ecx, PAGE_SIZE / 4
     rep stosd
-    mov edi, USER_HEAP_START
-    xor eax, eax
-    mov ecx, (USER_HEAP_END - USER_HEAP_START) / 4
-    rep stosd
     mov esi, exec_path_user_probe
     call sys_exec_stage_kernel_arg
     jc .fail
@@ -11397,6 +11393,8 @@ syscall_handler:
     jc .bad_syscall_enomem
     cmp edx, [esi + PROC_HEAP_END]
     ja .bad_syscall_enomem
+    mov [sbrk_old_brk], eax
+    mov [sbrk_new_brk], edx
     push eax
     push edx
     mov ebx, [esi + PROC_PAGE_DIR]
@@ -11414,6 +11412,14 @@ syscall_handler:
 .sbrk_restore_brk:
     pop edx
     pop eax
+    mov edi, [sbrk_old_brk]
+    mov ecx, [sbrk_new_brk]
+    sub ecx, edi
+    xor eax, eax
+    cld
+    rep stosb
+    mov eax, [sbrk_old_brk]
+    mov edx, [sbrk_new_brk]
     call process_heap_mark_range
     mov [esi + PROC_BRK], edx
     mov [current_user_brk], edx
@@ -12441,6 +12447,9 @@ syscall_handler:
     cmp esi, 0
     je .bad_syscall_enomem
     mov eax, [esi + PROC_BRK]
+    add eax, PAGE_SIZE - 1
+    jc .bad_syscall_enomem
+    and eax, 0xfffff000
     mov [mmap_base_arg], eax
     mov edx, eax
     add edx, [mmap_len_arg]

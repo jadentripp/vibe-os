@@ -61,6 +61,8 @@ class ProcessExecContractTests(unittest.TestCase):
             user_probe_run.index("call process_exec_seed_argv_stack"),
             user_probe_run.index("push dword [process_user_probe + PROC_SAVED_ESP]"),
         )
+        self.assertNotIn("mov edi, USER_HEAP_START", user_probe_run)
+        self.assertNotIn("(USER_HEAP_END - USER_HEAP_START) / 4", user_probe_run)
         for source in (
             "USER_PROBE_EXPECTED_FLAGS equ 0x0001ffff",
             "PROBE_FLAG_PROCESS_ABI = 0x800u",
@@ -817,6 +819,14 @@ class ProcessExecContractTests(unittest.TestCase):
         for source in (
             "test ebx, 0x80000000",
             "jnz .sbrk_shrink",
+            "mov [sbrk_old_brk], eax",
+            "mov [sbrk_new_brk], edx",
+            "mov edi, [sbrk_old_brk]",
+            "mov ecx, [sbrk_new_brk]",
+            "rep stosb",
+            "mov eax, [sbrk_old_brk]",
+            "mov edx, [sbrk_new_brk]",
+            "call process_heap_mark_range",
             ".sbrk_shrink:",
             "cmp edx, [esi + PROC_HEAP_START]",
             "call process_clear_user_range",
@@ -837,6 +847,14 @@ class ProcessExecContractTests(unittest.TestCase):
             "mov eax, [mmap_base_arg]",
         ):
             self.assertIn(source, mmap)
+        self.assertIn(
+            "mov eax, [esi + PROC_BRK]\n"
+            "    add eax, PAGE_SIZE - 1\n"
+            "    jc .bad_syscall_enomem\n"
+            "    and eax, 0xfffff000\n"
+            "    mov [mmap_base_arg], eax",
+            mmap,
+        )
         for source in (
             "inc dword [process_munmap_attempts]",
             "and eax, PAGE_SIZE - 1",
