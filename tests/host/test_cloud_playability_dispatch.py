@@ -80,8 +80,26 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
         self.assertEqual(persistence.returncode, 0, persistence.stdout + persistence.stderr)
         self.assertIn("lane: persistence", persistence.stdout)
         self.assertIn("-f audible_audio_proof=false", persistence.stdout)
+        self.assertIn("-f persistence_proof=true", persistence.stdout)
         self.assertIn("-f persistence_save_slot=0", persistence.stdout)
         self.assertIn("isolated from audio flakes", persistence.stdout)
+
+        full = self.run_helper(
+            "--dry-run",
+            "--lane",
+            "full",
+            "--repo",
+            "jadentripp/vibe-os",
+            "--ref",
+            "main",
+            "--save-slot",
+            "0",
+        )
+        self.assertEqual(full.returncode, 0, full.stdout + full.stderr)
+        self.assertIn("lane: full", full.stdout)
+        self.assertIn("-f audible_audio_proof=true", full.stdout)
+        self.assertIn("-f persistence_proof=true", full.stdout)
+        self.assertIn("-f persistence_save_slot=0", full.stdout)
 
     def test_existing_run_can_infer_lane_and_use_detached_run_checker(self):
         result = self.run_helper(
@@ -187,6 +205,22 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
         self.assertIn("persistence/save-load:", persistence.stdout)
         self.assertIn("status.persistence-load.txt", persistence.stdout)
         self.assertIn("tools/triage_cloud_status.py build/cloud-run-12345/status.persistence-load.txt", persistence.stdout)
+        self.assertIn("tools/triage_persistence_artifacts.py build/cloud-run-12345", persistence.stdout)
+        self.assertIn("requires persistence-proof-green", persistence.stdout)
+
+        full = self.run_helper(
+            "--dry-run",
+            "--lane",
+            "full",
+            "--run-id",
+            "12345",
+            "--download-artifacts",
+            "build/cloud-run-12345",
+        )
+        self.assertEqual(full.returncode, 0, full.stdout + full.stderr)
+        self.assertIn("--require-gameplay-proof --require-audible-proof", full.stdout)
+        self.assertIn("tools/triage_persistence_artifacts.py build/cloud-run-12345", full.stdout)
+        self.assertIn("requires persistence-proof-green", full.stdout)
 
     def test_dry_run_can_write_machine_readable_audit_log(self):
         with tempfile.TemporaryDirectory() as tmp:

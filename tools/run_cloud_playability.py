@@ -170,7 +170,7 @@ def build_smoke_workflow_fields(
     fields = [
         ("expected_ref", ref),
         ("audible_audio_proof", bool_field(config.audible_audio_proof)),
-        ("persistence_proof", "false"),
+        ("persistence_proof", bool_field(config.persistence_enabled)),
     ]
     if wad_url:
         fields.append(("wad_url", wad_url))
@@ -376,6 +376,44 @@ def artifact_checker_command(
     if config.audible_audio_proof:
         command.append("--require-audible-proof")
     return command
+
+
+def persistence_checker_command(
+    output_dir: Path,
+    *,
+    checker_root: Path | None = None,
+    json_output: bool = False,
+) -> list[str]:
+    tool = "tools/triage_persistence_artifacts.py"
+    if checker_root is not None:
+        tool = str(checker_root / tool)
+    command = [sys.executable, tool]
+    if json_output:
+        command.append("--json")
+    command.append(str(output_dir))
+    return command
+
+
+def verify_persistence_artifacts(
+    output_dir: Path,
+    *,
+    checker_root: Path | None,
+    stdout: TextIO,
+) -> None:
+    command = persistence_checker_command(
+        output_dir,
+        checker_root=checker_root,
+        json_output=True,
+    )
+    result = run_command(command, capture_json=True)
+    report = json.loads(result.stdout or "{}")
+    overall = report.get("overall")
+    print(f"persistence check: overall={overall}", file=stdout)
+    if overall != "persistence-proof-green":
+        raise CloudPlayabilityError(
+            f"persistence artifact triage was {overall!r}, expected "
+            "persistence-proof-green"
+        )
 
 
 def infer_lane_from_artifacts(output_dir: Path) -> str:
@@ -1003,6 +1041,17 @@ def main(
             )
             audit["commands"]["check"] = command_text(checker)  # type: ignore[index]
             print(f"check: {command_text(checker)}", file=stdout)
+            if effective_config.persistence_enabled and soak is None:
+                persistence_command = persistence_checker_command(
+                    output_dir,
+                    checker_root=checker_root,
+                )
+                audit["commands"]["persistence_check"] = command_text(persistence_command)  # type: ignore[index]
+                print(
+                    f"persistence check: {command_text(persistence_command)} "
+                    "(requires persistence-proof-green)",
+                    file=stdout,
+                )
         failure_lanes = lane_failure_report(
             output_dir=output_dir,
             config=config,
@@ -1058,11 +1107,28 @@ def main(
                     )
                     audit["commands"]["check"] = command_text(checker)  # type: ignore[index]
                     print(f"check: {command_text(checker)}", file=stdout)
+                    if effective_config.persistence_enabled and soak is None:
+                        persistence_command = persistence_checker_command(
+                            output_dir,
+                            checker_root=checker_root,
+                        )
+                        audit["commands"]["persistence_check"] = command_text(persistence_command)  # type: ignore[index]
+                        print(
+                            f"persistence check: {command_text(persistence_command)} "
+                            "(requires persistence-proof-green)",
+                            file=stdout,
+                        )
                 if not args.no_triage and soak is None:
                     triage_status(output_dir, stdout, checker_root=checker_root)
                 if checker is None:
                     raise CloudPlayabilityError("internal error: no artifact checker selected")
                 run_command(checker)
+                if effective_config.persistence_enabled and soak is None:
+                    verify_persistence_artifacts(
+                        output_dir,
+                        checker_root=checker_root,
+                        stdout=stdout,
+                    )
             except CloudPlayabilityError as exc:
                 print(f"cloud playability artifact check failed: {exc}", file=stderr)
                 return 1
