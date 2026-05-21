@@ -106,6 +106,7 @@ static int mock_present_count;
 static unsigned long mock_present_width;
 static unsigned long mock_present_height;
 static int mock_fb_supports_indexed;
+static int mock_fb_fixed_present_size;
 static unsigned long mock_fb_max_width;
 static unsigned long mock_fb_max_height;
 
@@ -142,6 +143,7 @@ static void reset_mock(void)
     mock_present_width = 0;
     mock_present_height = 0;
     mock_fb_supports_indexed = 1;
+    mock_fb_fixed_present_size = 1;
     mock_fb_max_width = 320;
     mock_fb_max_height = 200;
     errno = 0;
@@ -367,6 +369,8 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
             info->capabilities = mock_fb_supports_indexed
                 ? VIBE_FB_CAP_PRESENT_INDEXED | VIBE_FB_CAP_PRESENT_RGB_PALETTE
                 : 0;
+            if (mock_fb_supports_indexed && mock_fb_fixed_present_size)
+                info->capabilities |= VIBE_FB_CAP_FIXED_PRESENT_SIZE;
             info->present_format = mock_fb_supports_indexed ? VIBE_FB_FORMAT_INDEX8_RGB24 : 0;
             info->max_present_width = mock_fb_max_width;
             info->max_present_height = mock_fb_max_height;
@@ -376,10 +380,15 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
             vibe_present_indexed_t* present = (vibe_present_indexed_t*)arg2;
             if (!present || !present->frame || !present->palette || !present->width || !present->height)
                 return -EINVAL;
-            if (mock_fb_max_width && present->width > mock_fb_max_width)
-                return -EINVAL;
-            if (mock_fb_max_height && present->height > mock_fb_max_height)
-                return -EINVAL;
+            if (mock_fb_supports_indexed) {
+                if (mock_fb_fixed_present_size
+                    && (present->width != mock_fb_max_width || present->height != mock_fb_max_height))
+                    return -EINVAL;
+                if (!mock_fb_fixed_present_size && mock_fb_max_width && present->width > mock_fb_max_width)
+                    return -EINVAL;
+                if (!mock_fb_fixed_present_size && mock_fb_max_height && present->height > mock_fb_max_height)
+                    return -EINVAL;
+            }
             ++mock_present_count;
             mock_present_width = present->width;
             mock_present_height = present->height;
@@ -546,8 +555,8 @@ static int test_generic_input_and_indexed_present_wrappers(void)
     vibe_input_status_t status;
     vibe_fb_info_t info;
     vibe_present_indexed_t present;
-    unsigned char frame[4];
-    unsigned char palette[3];
+    unsigned char frame[320 * 200];
+    unsigned char palette[VIBE_FB_RGB24_PALETTE_BYTES];
 
     reset_mock();
     vibe_input_make_key_event(&mock_input_event, 77, 'z', VIBE_INPUT_KEY_PRESSED);
@@ -583,8 +592,8 @@ static int test_generic_input_and_indexed_present_wrappers(void)
     memset(palette, 2, sizeof(palette));
     present.frame = frame;
     present.palette = palette;
-    present.width = 2;
-    present.height = 2;
+    present.width = 320;
+    present.height = 200;
     if (vibe_fb_get_info(&info) != 0)
         return fail(61);
     if (!vibe_fb_can_present_indexed(&info, &present)
@@ -593,16 +602,35 @@ static int test_generic_input_and_indexed_present_wrappers(void)
         return fail(62);
     if (vibe_present_indexed_checked(&present) != 0)
         return fail(57);
-    if (mock_present_count != 1 || mock_present_width != 2 || mock_present_height != 2)
+    if (mock_present_count != 1 || mock_present_width != 320 || mock_present_height != 200)
         return fail(58);
     present.frame = 0;
     if (vibe_present_indexed(&present) != -1 || errno != EINVAL)
         return fail(59);
     present.frame = frame;
-    present.width = 321;
+    present.width = 319;
     if (vibe_present_indexed_checked(&present) != -1 || errno != EINVAL)
         return fail(63);
-    present.width = 2;
+
+    mock_fb_fixed_present_size = 0;
+    present.width = 160;
+    present.height = 100;
+    if (vibe_fb_get_info(&info) != 0)
+        return fail(68);
+    if (!vibe_fb_can_present_indexed(&info, &present))
+        return fail(69);
+    if (vibe_present_indexed_checked(&present) != 0)
+        return fail(70);
+    if (mock_present_count != 2 || mock_present_width != 160 || mock_present_height != 100)
+        return fail(71);
+    present.width = 321;
+    present.height = 200;
+    if (vibe_present_indexed_checked(&present) != -1 || errno != EINVAL)
+        return fail(72);
+
+    present.width = 320;
+    present.height = 200;
+    mock_fb_fixed_present_size = 1;
     mock_fb_supports_indexed = 0;
     if (vibe_present_indexed_checked(&present) != -1 || errno != ENOSYS)
         return fail(64);

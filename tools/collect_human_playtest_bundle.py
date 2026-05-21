@@ -25,6 +25,7 @@ ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import check_cloud_playability_artifacts  # noqa: E402
+from status_fields import parse_status_fields, summarize_status_fields  # noqa: E402
 
 
 REQUIRED_EXACT_FILES = (
@@ -41,6 +42,9 @@ OPTIONAL_EXACT_FILES = (
 ALLOWLIST_PATTERNS = ("*.log",)
 CAPTURE_PHASES = tuple(
     phase for phase, _status_file, _human_action in check_cloud_playability_artifacts.HUMAN_SESSION_PHASES
+)
+CAPTURE_REQUIRED_STATUS_FIELDS = tuple(
+    check_cloud_playability_artifacts.HUMAN_SESSION_STATUS_FIELDS
 )
 
 NOTE_FIELD_ORDER = (
@@ -207,6 +211,42 @@ def _assert_monitor_filename_safe(path: Path) -> None:
         )
 
 
+def _capture_status_summary(status_path: Path) -> str:
+    fields = parse_status_fields(
+        status_path.read_text(),
+        error_type=AssertionError,
+        require_any=True,
+    )
+    missing = [name for name in CAPTURE_REQUIRED_STATUS_FIELDS if name not in fields]
+    if missing:
+        preview = ", ".join(missing[:8])
+        extra = "" if len(missing) <= 8 else f", and {len(missing) - 8} more"
+        raise AssertionError(
+            f"{status_path.name} is missing required human-session status field(s): "
+            f"{preview}{extra}"
+        )
+    return summarize_status_fields(
+        fields,
+        (
+            "gameplay",
+            "gstate",
+            "gmap",
+            "gtic",
+            "leveltime",
+            "keyirq",
+            "keyqueue",
+            "keypoll",
+            "mouseirq",
+            "mousepkt",
+            "mousepoll",
+            "pflags",
+            "gflags",
+            "panic",
+            "shutdown",
+        ),
+    )
+
+
 def _send_monitor_command(monitor_socket: Path, command: str, timeout_seconds: float) -> str:
     if not monitor_socket.exists():
         raise AssertionError(f"monitor socket does not exist: {monitor_socket}")
@@ -269,7 +309,10 @@ def capture_status_phase(args: argparse.Namespace) -> Path:
         temp_bin.unlink(missing_ok=True)
         raise AssertionError(f"QEMU monitor wrote an empty status capture: {temp_bin}")
     status_path.write_text(raw.replace(b"\0", b" ").decode("latin-1", errors="replace"))
-    temp_bin.unlink(missing_ok=True)
+    try:
+        _capture_status_summary(status_path)
+    finally:
+        temp_bin.unlink(missing_ok=True)
     return status_path
 
 
@@ -338,6 +381,82 @@ def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
     fields.update(phase_hash_fields)
     notes = "\n".join(f"{key}={fields[key]}" for key in NOTE_FIELD_ORDER) + "\n"
     (output_dir / check_cloud_playability_artifacts.HUMAN_NOTES_FILE).write_text(notes)
+
+
+def _template_value(value: str | None, placeholder: str) -> str:
+    return value if value else placeholder
+
+
+def _print_template(args: argparse.Namespace) -> None:
+    playtester = _template_value(args.playtester, "<name-or-initials>")
+    run_id = _template_value(args.scripted_proof_run_id, "<passing-real-wad-smoke-run-id>")
+    commit = _template_value(args.commit, "$(git rev-parse --short=12 HEAD)")
+    output_dir = args.output_dir or Path("/tmp/vibe-os-human-proof")
+    build_dir = args.build_dir
+    monitor_socket = args.monitor_socket
+    print(
+        f"""human proof bundle dry-run template
+remote machine guidance:
+  - run inside a disposable Linux host or Codespace, never macOS QEMU
+  - prefer 4+ cloud CPUs for noVNC plus QEMU TCG; 2-core hosts can stutter
+  - keep WADs, disk images, status binaries, pixels, screenshots, and raw audio remote-only
+
+capture commands:
+  for phase in early after-start after-fire after-move after-use after-mouse after-menu final; do
+    python3 tools/collect_human_playtest_bundle.py \\
+      --build-dir {build_dir} \\
+      --monitor-socket {monitor_socket} \\
+      --capture-phase "$phase"
+  done
+
+collect command:
+  python3 tools/collect_human_playtest_bundle.py \\
+    --build-dir {build_dir} \\
+    --output-dir {output_dir} \\
+    --playtester "{playtester}" \\
+    --scripted-proof-run-id "{run_id}" \\
+    --commit "{commit}" \\
+    --audio {args.audio} \\
+    --slowdown {args.slowdown} \\
+    --slowdown-notes "{args.slowdown_notes}" \\
+    --confirm-scripted-proof-green \\
+    --confirm-remote-vnc \\
+    --confirm-e1m1-visible \\
+    --confirm-keyboard-fire \\
+    --confirm-keyboard-move \\
+    --confirm-keyboard-use \\
+    --confirm-mouse-action \\
+    --confirm-menu-escape \\
+    --confirm-slowdown-notes \\
+    --confirm-phase-actions \\
+    --confirm-phase-status-hashes \\
+    --confirm-no-forbidden-artifacts \\
+    --confirm-post-download-verification
+
+remote package command:
+  tar -C "$(dirname "{output_dir}")" -czf /tmp/vibe-os-human-proof.tgz "$(basename "{output_dir}")"
+
+local post-download verification:
+  rm -rf ./vibe-os-human-proof
+  tar -xzf ./vibe-os-human-proof.tgz
+  python3 tools/check_cloud_playability_artifacts.py \\
+    --human-session ./vibe-os-human-proof \\
+    --expected-commit "{commit}" \\
+    --expected-scripted-proof-run-id "{run_id}"
+  python3 tools/check_human_playability_proof.py \\
+    --require-human-session \\
+    --human-notes ./vibe-os-human-proof/human-playtest-notes.txt \\
+    --expected-commit "{commit}" \\
+    --expected-scripted-proof-run-id "{run_id}" \\
+    ./vibe-os-human-proof/status.txt
+
+cleanup:
+  - delete the disposable Codespace/remote host after downloading only the tarball
+  - delete remote WAD and disk-image scratch files with the host
+  - compare post-download human verification OK with the saved pre-download line
+dry-run: no files were copied, QEMU was not launched, and no artifacts were read
+"""
+    )
 
 
 def collect(args: argparse.Namespace) -> list[str]:
@@ -413,6 +532,11 @@ def main(argv: list[str]) -> int:
         "--output-dir",
         type=Path,
         help="empty scratch directory outside the repo, for example /tmp/vibe-os-human-proof",
+    )
+    parser.add_argument(
+        "--print-template",
+        action="store_true",
+        help="print exact status-only human proof commands without collecting or reading artifacts",
     )
     parser.add_argument("--playtester", help="human initials or handle")
     parser.add_argument("--commit", help="commit under test; defaults to git rev-parse HEAD")
@@ -542,6 +666,10 @@ def main(argv: list[str]) -> int:
         help="operator confirms the downloaded bundle must be rechecked locally with --human-session",
     )
     args = parser.parse_args(argv)
+    if args.print_template:
+        _print_template(args)
+        return 0
+
     if args.capture_phase:
         try:
             status_path = capture_status_phase(args)
@@ -549,6 +677,7 @@ def main(argv: list[str]) -> int:
             print(f"human status capture failed: {exc}", file=sys.stderr)
             return 1
         print(f"human status capture OK: {status_path}")
+        print(f"status audit summary: {_capture_status_summary(status_path)}")
         return 0
 
     for attr, flag in REQUIRED_CONFIRMATION_FLAGS:

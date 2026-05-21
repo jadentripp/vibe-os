@@ -22,10 +22,10 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("mov byte [doom_run_status], 4", launcher)
         self.assertNotIn("call doom_user_run", launcher)
         self.assertIn("SYS_EXEC = 16", probe)
-        self.assertIn('const char doom_path[] = "DOOM.ELF";', probe)
-        self.assertIn("char *doom_argv[] = {(char *)doom_path, (char *)0};", probe)
         self.assertIn("trigger_expected_fault();", probe)
-        self.assertIn("return sys_execv(doom_path, doom_argv) == 0 ? 0 : 1;", probe)
+        self.assertIn("char *abi_probe_argv[] = {(char *)abi_probe_path, (char *)0};", probe)
+        self.assertIn("return sys_execv(abi_probe_path, abi_probe_argv) == 0 ? 0 : 1;", probe)
+        self.assertNotIn("return sys_execv(doom_path, doom_argv) == 0 ? 0 : 1;", probe)
 
     def test_initial_user_probe_gets_real_arg_stack_before_crt0(self):
         kernel = read_kernel()
@@ -182,10 +182,15 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn('smoke_userexec_path_text db " upath=", 0', kernel)
         self.assertIn('smoke_userexec_pid_text db " upid=", 0', kernel)
         self.assertIn('smoke_userexec_entry_text db " uentry=", 0', kernel)
+        self.assertIn('smoke_abiexec_text db " abiexec=", 0', kernel)
+        self.assertIn('smoke_abiexec_path_text db " abipath=", 0', kernel)
+        self.assertIn('smoke_abiprobe_text db " abiprobe=", 0', kernel)
+        self.assertIn('smoke_abiflags_text db " abiflags=", 0', kernel)
         self.assertIn('smoke_procpool_text db " procpool=", 0', kernel)
         self.assertIn('smoke_pidseq_text db " pidseq=", 0', kernel)
         self.assertIn('smoke_fdexec_text db " fdexec=", 0', kernel)
         self.assertIn('smoke_pwait_text db " wait=", 0', kernel)
+        self.assertIn('smoke_vmreap_text db " vmreap=", 0', kernel)
         self.assertIn("mov edx, [sys_exec_handoffs]", write_smoke)
         self.assertIn("mov edx, [sys_exec_scheduled]", write_smoke)
         self.assertIn("mov edx, [sys_exec_rollbacks]", write_smoke)
@@ -204,6 +209,15 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("mov esi, exec_path_user_probe", write_smoke)
         self.assertIn("mov edx, [boot_user_exec_pid]", write_smoke)
         self.assertIn("mov edx, [boot_user_exec_entry]", write_smoke)
+        self.assertIn("cmp byte [abi_probe_exec_status], 1", write_smoke)
+        self.assertIn("cmp byte [abi_probe_status], 1", write_smoke)
+        self.assertIn("mov esi, exec_path_abi_probe", write_smoke)
+        self.assertIn("mov edx, [abi_probe_exec_pid]", write_smoke)
+        self.assertIn("mov edx, [abi_probe_exec_parent_pid]", write_smoke)
+        self.assertIn("mov edx, [abi_probe_exec_entry]", write_smoke)
+        self.assertIn("mov edx, [abi_probe_exec_argc]", write_smoke)
+        self.assertIn("mov edx, [abi_probe_exec_argv_source]", write_smoke)
+        self.assertIn("mov edx, [abi_probe_flags_seen]", write_smoke)
         for source in (
             "mov edx, PROCESS_SLOT_COUNT",
             "mov edx, PROCESS_GENERIC_SLOT_COUNT",
@@ -224,6 +238,11 @@ class ProcessExecContractTests(unittest.TestCase):
             "mov edx, [process_wait_seeded_children]",
             "mov edx, [process_wait_last_reaped_pid]",
             "mov edx, [process_wait_last_status]",
+            "mov edx, [process_vm_teardowns]",
+            "mov edx, [process_vm_pages_cleared]",
+            "mov edx, [process_wait_vm_reaps]",
+            "mov edx, [process_wait_vm_pages_reclaimed]",
+            "mov edx, [process_wait_last_vm_pages_reclaimed]",
         ):
             self.assertIn(source, write_smoke)
 
@@ -448,6 +467,47 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertNotIn("DOOM_USER_STACK", argv)
         self.assertNotIn("process_doom", argv)
 
+    def test_user_probe_chains_through_abi_probe_before_doom(self):
+        kernel = read_kernel()
+        probe = (ROOT / "user" / "probe.c").read_text()
+        abi_probe = (ROOT / "user" / "abi_probe.c").read_text()
+        handler = kernel.split(".user_probe:", 1)[1].split(".expect_fault:", 1)[0]
+        recorder = kernel.split("process_record_abi_exec_success:", 1)[1].split("kernel_streq:", 1)[0]
+
+        for source in (
+            'const char abi_probe_path[] = "ABIPROBE.ELF";',
+            "char *abi_probe_argv[] = {(char *)abi_probe_path, (char *)0};",
+            "return sys_execv(abi_probe_path, abi_probe_argv) == 0 ? 0 : 1;",
+        ):
+            self.assertIn(source, probe)
+        for source in (
+            '#include "runtime.h"',
+            "ABI_PROBE_MAGIC = 0xA81B10BEu",
+            "ABI_PROBE_SUCCESS_FLAGS",
+            'const char doom_path[] = "DOOM.ELF";',
+            "vibe_user_report_probe(ABI_PROBE_MAGIC, flags);",
+            "vibe_user_execv(doom_path, doom_argv)",
+        ):
+            self.assertIn(source, abi_probe)
+        for source in (
+            "ABI_PROBE_MAGIC equ 0xA81B10BE",
+            "ABI_PROBE_EXPECTED_FLAGS equ 0x00000007",
+            "exec_path_abi_probe db \"ABIPROBE.ELF\", 0",
+            "abi_probe_status db 0",
+            "abi_probe_exec_status db 0",
+        ):
+            self.assertIn(source, kernel)
+        self.assertIn("cmp ebx, ABI_PROBE_MAGIC", handler)
+        self.assertIn("mov [abi_probe_magic_seen], ebx", handler)
+        self.assertIn("mov [abi_probe_flags_seen], ecx", handler)
+        self.assertIn("cmp ecx, ABI_PROBE_EXPECTED_FLAGS", handler)
+        self.assertIn("mov byte [abi_probe_status], 1", handler)
+        self.assertIn("mov edi, exec_path_abi_probe", recorder)
+        self.assertIn("mov byte [abi_probe_exec_status], 1", recorder)
+        self.assertIn("mov [abi_probe_exec_pid], eax", recorder)
+        self.assertIn("mov [abi_probe_exec_parent_pid], eax", recorder)
+        self.assertIn("mov [abi_probe_exec_argv_source], eax", recorder)
+
     def test_sys_exec_copies_a_bounded_user_path_and_reports_status(self):
         kernel = read_kernel()
         copy_path = kernel.split("sys_exec_copy_user_path:", 1)[1].split("user_range_validate:", 1)[0]
@@ -532,6 +592,10 @@ class ProcessExecContractTests(unittest.TestCase):
             "process_slot_reuses dd 0",
             "process_vm_teardowns dd 0",
             "process_vm_pages_cleared dd 0",
+            "process_wait_vm_reaps dd 0",
+            "process_wait_vm_pages_reclaimed dd 0",
+            "process_wait_last_vm_pages_reclaimed dd 0",
+            "process_wait_vm_pages_before dd 0",
             "process_exit_teardowns dd 0",
             "process_exec_teardowns dd 0",
             "process_last_reused_pid dd 0xffffffff",
@@ -575,6 +639,43 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("mov dword [esi + PROC_STATE], PROC_STATE_EXITED", retire_exec)
         self.assertIn("inc dword [process_exit_teardowns]", retire_exit)
         self.assertIn("call process_retire_current_exit_slot", mark_exit)
+
+    def test_wait_reap_runs_child_vm_teardown_and_restores_preempt_probe_image(self):
+        kernel = read_kernel()
+        wait = kernel.split("process_waitpid_current:", 1)[1].split("scheduler_prepare_live_preempt_probe:", 1)[0]
+        scheduler_prepare = kernel.split("scheduler_prepare_live_preempt_probe:", 1)[1].split("scheduler_capture_preempt_spin:", 1)[0]
+        restore_image = kernel.split("process_restore_user_image_vm:", 1)[1].split("process_reuse_exec_target_slot:", 1)[0]
+        clear_page = kernel.split("vmm_clear_process_page:", 1)[1].split("vmm_clear_process_guard_page:", 1)[0]
+        clear_range = kernel.split("process_clear_user_range:", 1)[1].split("process_teardown_user_vm:", 1)[0]
+
+        for source in (
+            "call fd_close_owned_by_process",
+            "mov eax, [process_vm_pages_cleared]",
+            "mov [process_wait_vm_pages_before], eax",
+            "call process_teardown_user_vm",
+            "sub eax, [process_wait_vm_pages_before]",
+            "mov [process_wait_last_vm_pages_reclaimed], eax",
+            "add [process_wait_vm_pages_reclaimed], eax",
+            "inc dword [process_wait_vm_reaps]",
+            "mov dword [esi + PROC_STATE], PROC_STATE_UNUSED",
+        ):
+            self.assertIn(source, wait)
+        self.assertIn("call process_restore_user_image_vm", scheduler_prepare)
+        self.assertIn("call process_restore_user_stack_vm", scheduler_prepare)
+        self.assertLess(
+            scheduler_prepare.index("call process_restore_user_image_vm"),
+            scheduler_prepare.index("call process_restore_user_stack_vm"),
+        )
+        for source in (
+            "mov eax, [esi + PROC_BASE]",
+            "mov edx, [esi + PROC_HEAP_START]",
+            "call vmm_mark_process_user_range",
+        ):
+            self.assertIn(source, restore_image)
+        self.assertIn("test dword [edi], PTE_PRESENT", clear_page)
+        self.assertIn("stc", clear_page)
+        self.assertIn("jc .clear_heap_metadata", clear_range)
+        self.assertLess(clear_range.index("call vmm_clear_process_page"), clear_range.index("inc dword [process_vm_pages_cleared]"))
 
     def test_late_exec_handoff_failure_restores_caller_before_rollback(self):
         kernel = read_kernel()
@@ -953,6 +1054,32 @@ class ProcessExecContractTests(unittest.TestCase):
         ):
             self.assertIn(source, tick)
 
+    def test_scheduler_selects_only_ready_user_irq_frames(self):
+        kernel = read_kernel()
+        selector = kernel.split("scheduler_select_next_ready:", 1)[1].split("scheduler_preempt_self_test:", 1)[0]
+
+        for source in (
+            "cmp dword [edi + PROC_STATE], PROC_STATE_READY",
+            "test dword [edi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID",
+            "test dword [edi + PROC_SAVED_CS], 3",
+            "cmp dword [edi + PROC_SAVED_EIP], 0",
+            "mov [scheduler_next_process_ptr], edi",
+            "mov [scheduler_next_pid], edx",
+        ):
+            self.assertIn(source, selector)
+        self.assertLess(
+            selector.index("cmp dword [edi + PROC_STATE], PROC_STATE_READY"),
+            selector.index("test dword [edi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID"),
+        )
+        self.assertLess(
+            selector.index("test dword [edi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID"),
+            selector.index("test dword [edi + PROC_SAVED_CS], 3"),
+        )
+        self.assertLess(
+            selector.index("test dword [edi + PROC_SAVED_CS], 3"),
+            selector.index("cmp dword [edi + PROC_SAVED_EIP], 0"),
+        )
+
     def test_anonymous_mmap_tail_munmap_reclaims_brk_backed_pages(self):
         kernel = read_kernel()
         probe = (ROOT / "user" / "probe.c").read_text()
@@ -1193,7 +1320,7 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn("call process_seed_initial_user_context", selftest)
         self.assertIn("cmp dword [scheduler_next_process_ptr], process_preempt_probe", selftest)
 
-    def test_expected_probe_fault_recovers_then_execs_doom(self):
+    def test_expected_probe_fault_recovers_then_execs_abi_probe(self):
         kernel = read_kernel()
         probe = (ROOT / "user" / "probe.c").read_text()
         expect_fault = kernel.split(".expect_fault:", 1)[1].split(".write:", 1)[0]
@@ -1213,7 +1340,7 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn('"int $0x80', probe)
         self.assertIn('"1:', probe)
         self.assertNotIn("&&after_expected_fault", probe)
-        self.assertIn("return sys_execv(doom_path, doom_argv) == 0 ? 0 : 1;", probe)
+        self.assertIn("return sys_execv(abi_probe_path, abi_probe_argv) == 0 ? 0 : 1;", probe)
 
     def test_split_doom_elf_segments_still_count_as_loaded(self):
         kernel = read_kernel()

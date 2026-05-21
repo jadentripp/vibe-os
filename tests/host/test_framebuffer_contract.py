@@ -98,12 +98,63 @@ class FramebufferContractTests(unittest.TestCase):
         self.assertEqual(lfb["capabilities"] & fb.CAP_XRGB8888_LFB, fb.CAP_XRGB8888_LFB)
         self.assertEqual(lfb["capabilities"] & fb.CAP_MODE13_SHADOW, fb.CAP_MODE13_SHADOW)
         self.assertEqual(lfb["capabilities"] & fb.CAP_DIRTY_SOURCE_RECT, fb.CAP_DIRTY_SOURCE_RECT)
+        self.assertEqual(lfb["capabilities"] & fb.CAP_FIXED_PRESENT_SIZE, fb.CAP_FIXED_PRESENT_SIZE)
 
         mode13 = fb.fbinfo_contract("mode13")
         self.assertEqual(mode13["backend"], fb.BACKEND_MODE13)
         self.assertEqual(mode13["present_format"], fb.FORMAT_INDEX8_RGB24)
         self.assertFalse(mode13["capabilities"] & fb.CAP_XRGB8888_LFB)
         self.assertEqual(mode13["capabilities"] & fb.CAP_MODE13_SHADOW, fb.CAP_MODE13_SHADOW)
+        self.assertEqual(mode13["capabilities"] & fb.CAP_FIXED_PRESENT_SIZE, fb.CAP_FIXED_PRESENT_SIZE)
+
+    def test_mode13_fbinfo_is_legacy_fallback_with_the_same_present_abi(self):
+        mode13 = fb.fbinfo_contract("mode13")
+
+        self.assertEqual(mode13["backend"], fb.BACKEND_MODE13)
+        self.assertEqual((mode13["width"], mode13["height"], mode13["pitch"]), (320, 200, 320))
+        self.assertEqual((mode13["view_x"], mode13["view_y"]), (0, 0))
+        self.assertEqual((mode13["view_width"], mode13["view_height"], mode13["scale"]), (320, 200, 1))
+        self.assertEqual(mode13["policy"], fb.POLICY_MODE13)
+        self.assertEqual(mode13["present_format"], fb.FORMAT_INDEX8_RGB24)
+        self.assertTrue(fb.can_present_indexed_descriptor(mode13, 320, 200))
+        self.assertFalse(mode13["capabilities"] & fb.CAP_XRGB8888_LFB)
+
+    def test_fixed_present_size_cap_matches_kernel_ioctl_validation(self):
+        info = fb.fbinfo_contract("lfb", width=800, height=600)
+
+        self.assertEqual(
+            fb.present_size_contract(info),
+            {"kind": "fixed", "format": fb.FORMAT_INDEX8_RGB24, "max_width": 320, "max_height": 200},
+        )
+        self.assertTrue(fb.can_present_indexed_descriptor(info, 320, 200))
+        self.assertFalse(fb.can_present_indexed_descriptor(info, 319, 200))
+        self.assertFalse(fb.can_present_indexed_descriptor(info, 320, 199))
+        self.assertFalse(fb.can_present_indexed_descriptor(info, 321, 200))
+
+        variable_size_info = dict(info)
+        variable_size_info["capabilities"] &= ~fb.CAP_FIXED_PRESENT_SIZE
+        self.assertEqual(fb.present_size_contract(variable_size_info)["kind"], "bounded")
+        self.assertTrue(fb.can_present_indexed_descriptor(variable_size_info, 160, 100))
+        self.assertFalse(fb.can_present_indexed_descriptor(variable_size_info, 321, 200))
+        self.assertFalse(fb.can_present_indexed_descriptor(variable_size_info, 320, 201))
+
+        unsupported = dict(info, present_format=0)
+        self.assertFalse(fb.can_present_indexed_descriptor(unsupported, 320, 200))
+
+    def test_graphics_doc_records_os_level_framebuffer_boundaries(self):
+        docs = (ROOT / "docs" / "graphics.md").read_text()
+        for token in (
+            "If VBE discovery or mode set fails, Stage 2 falls back to VGA Mode 13h",
+            "The only accepted source today is Doom's 320x200 index8 frame",
+            "`VIBE_FB_CAP_FIXED_PRESENT_SIZE`",
+            "`max_present_width` by `max_present_height`",
+            "Dirty source bounds",
+            "source-frame coordinates, not target pixels",
+            "Future indexed backends can clear that bit",
+            "true maxima",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, docs)
 
     def test_public_header_declares_backend_ids_for_fbinfo(self):
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
@@ -111,6 +162,7 @@ class FramebufferContractTests(unittest.TestCase):
         self.assertIn("VIBE_FB_BACKEND_LFB_XRGB8888 = 2", header)
         self.assertIn("VIBE_FB_POLICY_ASPECT = 2", header)
         self.assertIn("VIBE_FB_FORMAT_INDEX8_RGB24 = 1", header)
+        self.assertIn("VIBE_FB_CAP_FIXED_PRESENT_SIZE = 0x00000020u", header)
 
     def test_lfb_present_clears_only_when_view_geometry_changes(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
@@ -136,6 +188,16 @@ class FramebufferContractTests(unittest.TestCase):
 
         self.assertEqual(dirty, {"x": 10, "y": 20, "width": 21, "height": 6, "count": 2})
         self.assertEqual(fb.dirty_rect(bytes(frame), bytes(frame))["count"], 0)
+
+    def test_initial_present_dirty_rect_compares_against_zero_source_frame(self):
+        palette = fixture_palette()
+        frame = bytearray(fb.DOOM_FRAME_BYTES)
+        frame[0] = 1
+        frame[fb.DOOM_FRAME_BYTES - 1] = 2
+
+        result = fb.present_contract(bytes(frame), palette)
+
+        self.assertEqual(result["dirty"], {"x": 0, "y": 0, "width": 320, "height": 200, "count": 2})
 
     def test_visual_proof_fields_are_aggregate_only(self):
         frame = fixture_frame()

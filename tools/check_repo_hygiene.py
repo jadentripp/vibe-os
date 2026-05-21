@@ -6,6 +6,7 @@ from __future__ import annotations
 import fnmatch
 import gzip
 import hashlib
+import re
 import subprocess
 import sys
 import tarfile
@@ -261,6 +262,17 @@ RUNTIME_BUILD_FILES = {
     ".github/workflows/os-smoke.yml",
     ".github/workflows/real-wad-smoke.yml",
 }
+
+README_MAX_LINES = 160
+README_FORBIDDEN_PATTERNS = (
+    ("commit hash", r"\b[0-9a-f]{7,40}\b"),
+    ("run ID", r"\brun[-_ ]?id\b|\bworkflow[-_ ]?run\b|\bscripted[_ -]proof[_ -]run[_ -]id\b"),
+    ("long decimal run identifier", r"\b\d{9,}\b"),
+    ("task-list checkbox", r"^\s*-\s*\[[ xX]\]"),
+    ("TODO marker", r"\b(?:TODO|FIXME)\b"),
+    ("gap ledger row", r"\bGAP\["),
+    ("proof transcript field", r"\b(?:commit=|scripted_proof_run_id=|phase_hash_|verification_id=)\b"),
+)
 
 
 def tracked_files() -> list[str]:
@@ -566,6 +578,27 @@ def is_runtime_or_build_source(path: str) -> bool:
     return path in RUNTIME_BUILD_FILES or path.startswith(RUNTIME_SOURCE_PREFIXES)
 
 
+def readme_policy_violations(root: Path = ROOT) -> list[str]:
+    readme = root / "README.md"
+    text = readme.read_text(errors="ignore")
+    lines = text.splitlines()
+    violations: list[str] = []
+    if len(lines) > README_MAX_LINES:
+        violations.append(
+            f"README.md: top-level README has {len(lines)} lines, max {README_MAX_LINES}; "
+            "move proof history, task lists, and command transcripts into docs/"
+        )
+
+    for label, pattern in README_FORBIDDEN_PATTERNS:
+        regex = re.compile(pattern, re.IGNORECASE | re.MULTILINE)
+        if regex.search(text):
+            violations.append(
+                f"README.md: top-level README must stay concise and not advertise {label}; "
+                "move detailed proof evidence into docs/"
+            )
+    return violations
+
+
 def find_violations(paths: list[str]) -> list[str]:
     violations: list[str] = []
     for path in paths:
@@ -607,6 +640,7 @@ def main() -> int:
     violations = find_violations(paths)
     violations.extend(vendor_policy_violations())
     violations.extend(workflow_upload_violations(paths))
+    violations.extend(readme_policy_violations())
     violations.extend(
         f"{entry}: third_party/doom must remain a pristine vendor tree"
         for entry in vendor_tree_status()

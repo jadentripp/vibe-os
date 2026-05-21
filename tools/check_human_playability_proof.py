@@ -131,6 +131,8 @@ HUMAN_SESSION_PHASES = (
 HUMAN_REQUIRED_NOTE_VALUES = {
     "schema": ("human-playtest-notes-v2",),
     "scripted_proof": ("real-wad-smoke-pass",),
+    "scripted_proof_checked": ("green-before-human-session",),
+    "proof_basis": ("scripted-green-plus-remote-vnc-human",),
     "remote_host": ("disposable",),
     "qemu_location": ("remote",),
     "qemu_display": ("127.0.0.1:1",),
@@ -144,6 +146,7 @@ HUMAN_REQUIRED_NOTE_VALUES = {
     "visual_evidence": ("e1m1-visible-via-remote-vnc",),
     "keyboard_evidence": ("fire-move-use-menu-visible",),
     "mouse_evidence": ("motion-click-visible",),
+    "menu_evidence": ("escape-menu-visible",),
     "status_capture": ("monitor-pmemsave-0x9d000",),
     "session_phases": (
         "early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final",
@@ -154,7 +157,15 @@ HUMAN_REQUIRED_NOTE_VALUES = {
     "no_wad_upload": ("yes",),
     "no_disk_upload": ("yes",),
     "no_pixel_upload": ("yes",),
+    "operator_scripted_proof_green": ("confirmed",),
     "operator_remote_vnc": ("confirmed",),
+    "operator_e1m1_visible": ("confirmed",),
+    "operator_keyboard_fire": ("confirmed",),
+    "operator_keyboard_move": ("confirmed",),
+    "operator_keyboard_use": ("confirmed",),
+    "operator_mouse_action": ("confirmed",),
+    "operator_menu_escape": ("confirmed",),
+    "operator_slowdown_notes": ("recorded",),
     "operator_phase_actions": ("confirmed",),
     "operator_phase_status_hashes": ("confirmed",),
     "operator_no_forbidden_artifacts": ("confirmed",),
@@ -167,6 +178,9 @@ HUMAN_NOTE_PATTERNS = {
     "commit": r"(?:[0-9A-Fa-f]{7,40}|unknown)",
     "playtester": r"[A-Za-z0-9._-]{2,64}",
     "scripted_proof_run_id": r"[0-9]{6,32}",
+    "scripted_proof_url": r"https://github\.com/jadentripp/vibe-os/actions/runs/[0-9]{6,32}",
+    "slowdown": r"(?:not-observed|mild|moderate|severe)",
+    "slowdown_notes": r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}",
     **{note_key: r"[0-9A-Fa-f]{64}" for _, note_key, _ in HUMAN_SESSION_PHASES},
 }
 FORBIDDEN_ARTIFACT_PATTERNS = (
@@ -469,6 +483,16 @@ def validate_human_notes(
     """Validate collector notes against the current status files and identity."""
 
     notes = _load_human_notes(notes_path)
+    allowed_keys = (
+        set(HUMAN_REQUIRED_NOTE_VALUES)
+        | set(HUMAN_OPTIONAL_NOTE_VALUES)
+        | set(HUMAN_NOTE_PATTERNS)
+    )
+    extra_keys = sorted(set(notes) - allowed_keys)
+    if extra_keys:
+        raise AssertionError(
+            f"{notes_path.name} has unsupported field(s): {', '.join(extra_keys)}"
+        )
     for key, expected_values in HUMAN_REQUIRED_NOTE_VALUES.items():
         actual = notes.get(key)
         if actual not in expected_values:
@@ -502,6 +526,11 @@ def validate_human_notes(
         raise AssertionError(
             f"{notes_path.name} scripted_proof_run_id= must match "
             f"{expected_scripted_proof_run_id}, got {notes['scripted_proof_run_id']}"
+        )
+    expected_url = f"https://github.com/jadentripp/vibe-os/actions/runs/{notes['scripted_proof_run_id']}"
+    if notes["scripted_proof_url"] != expected_url:
+        raise AssertionError(
+            f"{notes_path.name} scripted_proof_url= must match scripted_proof_run_id="
         )
 
     for phase, note_key, status_file in HUMAN_SESSION_PHASES:

@@ -714,9 +714,13 @@ class SourceContractTests(unittest.TestCase):
         probe = (ROOT / "user" / "probe.c").read_text()
         makefile = (ROOT / "Makefile").read_text()
         self.assertIn("USER_KIND_DOOM equ 2", kernel)
-        self.assertIn("const char doom_path[] = \"DOOM.ELF\";", probe)
-        self.assertIn("char *doom_argv[] = {(char *)doom_path, (char *)0};", probe)
-        self.assertIn("return sys_execv(doom_path, doom_argv) == 0 ? 0 : 1;", probe)
+        self.assertIn("const char abi_probe_path[] = \"ABIPROBE.ELF\";", probe)
+        self.assertIn("char *abi_probe_argv[] = {(char *)abi_probe_path, (char *)0};", probe)
+        self.assertIn("return sys_execv(abi_probe_path, abi_probe_argv) == 0 ? 0 : 1;", probe)
+        abi_probe = (ROOT / "user" / "abi_probe.c").read_text()
+        self.assertIn("const char doom_path[] = \"DOOM.ELF\";", abi_probe)
+        self.assertIn("char* doom_argv[] = { (char*)doom_path, 0 };", abi_probe)
+        self.assertIn("vibe_user_execv(doom_path, doom_argv)", abi_probe)
         self.assertIn("process_exec_handoff_current:", kernel)
         self.assertIn("call process_exec_seed_argv_stack", kernel)
         self.assertIn("call process_exec_patch_syscall_frame", kernel)
@@ -2065,6 +2069,7 @@ class SourceContractTests(unittest.TestCase):
             "VIBE_SYS_AUDIO = 13",
             "VIBE_AUDIO_DEVICE_INFO = 9",
             "VIBE_AUDIO_PCM_RING_INFO = 10",
+            "VIBE_AUDIO_STREAM_INFO = 11",
             "VIBE_AUDIO_MIXER_START = 2",
             "VIBE_AUDIO_START_SFX = VIBE_AUDIO_MIXER_START",
             "VIBE_AUDIO_UPDATE_SFX = VIBE_AUDIO_MIXER_UPDATE",

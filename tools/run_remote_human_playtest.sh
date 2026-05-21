@@ -21,6 +21,8 @@ tools/play_now_remote.sh is running QEMU there. The script prompts for each
 manual Doom action, captures the status page through the remote QEMU monitor,
 builds the allowlisted human proof bundle, validates it before download, and
 prints the exact local download/check commands.
+For a read-only command plan first, run:
+  python3 tools/collect_human_playtest_bundle.py --print-template --build-dir build --output-dir /tmp/vibe-os-human-proof --playtester NAME --scripted-proof-run-id RUN_ID
 
 Required:
   --playtester NAME              Initials or handle for the human session.
@@ -362,6 +364,7 @@ cat <<'EOF'
   tar -xzf ./vibe-os-human-proof.tgz
 EOF
 echo "  python3 tools/check_cloud_playability_artifacts.py --human-session ./vibe-os-human-proof --expected-commit \"$COMMIT_VALUE\" --expected-scripted-proof-run-id \"$SCRIPTED_PROOF_RUN_ID\""
+echo "  python3 tools/check_human_playability_proof.py --require-human-session --human-notes ./vibe-os-human-proof/human-playtest-notes.txt --expected-commit \"$COMMIT_VALUE\" --expected-scripted-proof-run-id \"$SCRIPTED_PROOF_RUN_ID\" ./vibe-os-human-proof/status.txt"
 echo
 echo "Compare the local post-download human verification OK line with the"
 echo "pre-download human verification OK line printed above."

@@ -47,6 +47,10 @@ WRITABLE_DYNAMIC_FILES = (
 MIN_OS_CREATED_FILE_CLUSTERS = 4096
 PROTECTED_ROOT_NAMES = (b"DOOM1   WAD", USER_PROBE_NAME, DOOM_ELF_NAME)
 DYNAMIC_FAT_PROOF_NAME = b"FATPROOFTMP"
+ASSET_DIR_NAME = b"ASSETS     "
+ASSET_README_NAME = b"README  TXT"
+ASSET_README_BYTES = b"vibe-os FAT16 one-level asset file\n"
+ASSET_README_PATH = (ASSET_DIR_NAME, ASSET_README_NAME)
 SYNTHETIC_PATCH_NAME = "SYNTHPCH"
 SHAREWARE_SWITCH_TEXTURES = (
     "SW1BRCOM", "SW2BRCOM",
@@ -128,6 +132,15 @@ def write_root_entry(root, index, name, first_cluster, size):
     root[offset + 11] = FAT_ATTR_ARCHIVE
     write_le16(root, offset + 26, first_cluster)
     write_le32(root, offset + 28, size)
+
+
+def write_fat_directory_entry(directory, index, name, attr, first_cluster, size):
+    offset = index * 32
+    directory[offset:offset + 32] = b"\0" * 32
+    directory[offset:offset + 11] = name
+    directory[offset + 11] = attr
+    write_le16(directory, offset + 26, first_cluster)
+    write_le32(directory, offset + 28, size)
 
 
 def root83_from_display_name(display_name, *, required_ext=None):
@@ -619,6 +632,53 @@ class Fat16Image:
             raise IsADirectoryError(path)
         return self._read_file_from_meta(meta)
 
+    def _validated_path(self, path):
+        return tuple(self.validate_root_83_name(name, allow_protected=True) for name in path)
+
+    def _reject_subdirectory_mutation(self, path, operation):
+        path = self._validated_path(path)
+        label = self._path_label(path)
+        if len(path) < 2:
+            raise ValueError(f"FAT16 {operation} path must include a subdirectory component")
+        if len(path) > 2:
+            raise NotADirectoryError(label)
+
+        parent = self.entry_metadata_at_path((path[0],))
+        if parent is None:
+            raise FileNotFoundError(label)
+        if not parent["is_directory"]:
+            raise NotADirectoryError(label)
+        if operation != "create" and self.entry_metadata_at_path(path) is None:
+            raise FileNotFoundError(label)
+        raise PermissionError(f"FAT16 subdirectory path {label} is read-only")
+
+    def create_file_at_path(self, path):
+        path = self._validated_path(path)
+        if len(path) == 1:
+            entry = self.create_or_reuse_root_entry(path[0])
+            if self.image[entry + 11] & FAT_ATTR_DIRECTORY:
+                raise IsADirectoryError(self._path_label(path))
+            return entry
+        self._reject_subdirectory_mutation(path, "create")
+
+    def write_file_at_path(self, path, data):
+        path = self._validated_path(path)
+        if len(path) == 1:
+            return self.write_root_file(path[0], data)
+        self._reject_subdirectory_mutation(path, "write")
+
+    def truncate_file_at_path(self, path):
+        path = self._validated_path(path)
+        if len(path) == 1:
+            return self.truncate_root_file(path[0])
+        self._reject_subdirectory_mutation(path, "truncate")
+
+    def delete_file_at_path(self, path):
+        path = self._validated_path(path)
+        if len(path) == 1:
+            return self.delete_root_file(path[0])
+        self._reject_subdirectory_mutation(path, "unlink")
+
     def write_root_file(self, name, data):
         entry = self.create_or_reuse_root_entry(name)
         if self.image[entry + 11] & FAT_ATTR_DIRECTORY:
@@ -754,6 +814,41 @@ class Fat16Image:
         return chain
 
 
+def validate_generated_asset_readme(fs):
+    root_meta = fs.entry_metadata_at_path((ASSET_DIR_NAME,))
+    if root_meta is None:
+        raise ValueError("generated FAT16 image is missing /ASSETS")
+    if not root_meta["is_directory"]:
+        raise ValueError("generated FAT16 /ASSETS entry is not a directory")
+    if root_meta["size"] != 0:
+        raise ValueError("generated FAT16 /ASSETS directory must have size 0")
+
+    readme_meta = fs.entry_metadata_at_path(ASSET_README_PATH)
+    if readme_meta is None:
+        raise ValueError("generated FAT16 image is missing /ASSETS/README.TXT")
+    if readme_meta["is_directory"]:
+        raise ValueError("generated FAT16 /ASSETS/README.TXT is not a regular file")
+    if readme_meta["size"] != len(ASSET_README_BYTES):
+        raise ValueError("generated FAT16 /ASSETS/README.TXT has the wrong size")
+    if fs.read_file_at_path(ASSET_README_PATH) != ASSET_README_BYTES:
+        raise ValueError("generated FAT16 /ASSETS/README.TXT bytes did not round-trip")
+
+    for operation, mutate in (
+        ("write", lambda: fs.write_file_at_path(ASSET_README_PATH, b"mutate")),
+        ("create", lambda: fs.create_file_at_path(ASSET_README_PATH)),
+        ("truncate", lambda: fs.truncate_file_at_path(ASSET_README_PATH)),
+        ("unlink", lambda: fs.delete_file_at_path(ASSET_README_PATH)),
+    ):
+        try:
+            mutate()
+        except PermissionError:
+            pass
+        else:
+            raise ValueError(f"generated FAT16 /ASSETS/README.TXT allowed readonly {operation}")
+
+    return readme_meta
+
+
 def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
     """Exercise dynamic root-file FAT allocation on an in-memory image copy.
 
@@ -774,6 +869,7 @@ def prove_dynamic_fat16_mutation(fs, proof_name=DYNAMIC_FAT_PROOF_NAME):
         mounted.validate_allocated_clusters_reachable()
         return mounted
 
+    validate_generated_asset_readme(fs)
     fs.validate_fat_copies_match()
     fs.validate_allocated_clusters_reachable()
     before_free = fs.free_data_clusters()
@@ -1164,6 +1260,15 @@ def main():
         elf_cluster, _elf_clusters = write_cluster_chain(image, fat_entries, data_start, elf)
         write_root_entry(root, next_root_index, name, elf_cluster, len(elf))
         next_root_index += 1
+
+    asset_dir_cluster, _asset_dir_clusters = write_cluster_chain(image, fat_entries, data_start, bytes(cluster_size()))
+    asset_file_cluster, _asset_file_clusters = write_cluster_chain(image, fat_entries, data_start, ASSET_README_BYTES)
+    asset_dir = memoryview(image)[sector_offset(data_start + (asset_dir_cluster - 2) * SECTORS_PER_CLUSTER):sector_offset(data_start + (asset_dir_cluster - 1) * SECTORS_PER_CLUSTER)]
+    write_fat_directory_entry(asset_dir, 0, b".          ", FAT_ATTR_DIRECTORY, asset_dir_cluster, 0)
+    write_fat_directory_entry(asset_dir, 1, b"..         ", FAT_ATTR_DIRECTORY, 0, 0)
+    write_fat_directory_entry(asset_dir, 2, ASSET_README_NAME, FAT_ATTR_ARCHIVE, asset_file_cluster, len(ASSET_README_BYTES))
+    write_fat_directory_entry(root, next_root_index, ASSET_DIR_NAME, FAT_ATTR_DIRECTORY, asset_dir_cluster, 0)
+    next_root_index += 1
 
     for name, _byte_capacity in WRITABLE_DYNAMIC_FILES:
         write_root_entry(root, next_root_index, name, 0, 0)

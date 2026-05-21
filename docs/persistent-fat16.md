@@ -24,18 +24,21 @@ Reusable FAT16 syscall surface:
   operate through the shared fd/FAT path used by Doom and by future games and
   tools.
 - `vibe_listdir("/")` returns fixed-size `vibe_dirent_t` records for live root
-  entries, and `vibe_listdir("/ASSETS")` can list a single read-only root-level
-  FAT16 subdirectory when the generated image contains one. Public headers pin
+  entries, `vibe_listdir("/ASSETS")` can list a single read-only root-level
+  FAT16 subdirectory when the generated image contains one, and read-only
+  `open`/`read`/`lseek`/`stat`/`fstat` can resolve one file below that
+  directory such as `/ASSETS/README.TXT`. Public headers pin
   `VIBE_DIRENT_NAME_BYTES == 16` and
   `VIBE_DIRENT_BYTES == 32`, expose FAT attribute bits such as
   `VIBE_DIRENT_ATTR_DIRECTORY`, and provide `vibe_dirent_is_directory()` plus
   `vibe_dirent_is_regular_file()` for callers that want to scan the generated
   image without copying Doom-specific filename knowledge.
 - The generic path intentionally remains small: root/current-directory prefixes
-  normalize to the FAT root, valid 8.3 names are accepted, and one root-level
-  subdirectory component can be listed read-only. Nested traversal, opening
-  files inside subdirectories, long filenames, rename, timestamps, ownership,
-  and delete-while-open semantics are outside the current syscall contract.
+  normalize to the FAT root, valid 8.3 names are accepted, one root-level
+  subdirectory component can be listed read-only, and one file below that
+  subdirectory can be opened read-only. Nested traversal, writable
+  subdirectories, long filenames, rename, timestamps, ownership, and
+  delete-while-open semantics are outside the current syscall contract.
 - Directory/file mismatches now use reusable errno classifications instead of
   Doom-shaped fallbacks: opening or unlinking a directory as a file returns
   `EISDIR`, while asking `vibe_listdir` to list an existing regular file
@@ -57,6 +60,13 @@ Current kernel contract:
   as `/README.TXT`, `\README.TXT`, and `./README.TXT` to the same FAT16 root
   entry while still rejecting real subdirectory components. Existing dynamic
   root files can be opened read-only for readback.
+- Supported asset paths: generated images package `/ASSETS/README.TXT` as a
+  root-level 8.3 directory plus one regular file below it. Userland can list
+  `/ASSETS`, stat the README, open it read-only, read it, and seek within it.
+  Attempts to open one-level subdirectory files with write, create, truncate,
+  or append flags return `EACCES`; descriptor `ftruncate` on the resulting
+  read-only fd returns `EBADF`; `unlink` remains root-8.3-only and rejects
+  subdirectory paths with `EINVAL` before it can touch FAT metadata.
 - Supported persistence model: dynamic root-level FAT16 allocation for the
   known 8.3 Doom defaults/save files and a reusable dynamic file table for
   additional root entries.
@@ -95,16 +105,17 @@ Current kernel contract:
 - Supported creation: missing known root entries are created on storage init and
   can be recreated with `O_CREAT` after deletion.
 - Supported metadata: `stat` and `fstat` report regular-file mode, one link, and
-  size for protected WAD/ELF files and writable root files. `stat("/")` reports
-  readonly directory mode for the FAT root, and `stat("/ASSETS")` reports
-  readonly directory mode for a matching root-level directory entry instead of
-  treating it as a regular file. `VIBE_SYS_LISTDIR`/`vibe_listdir` copies
-  readonly fixed-size `vibe_dirent_t` records for live root entries and for
-  one-level root subdirectories, including normalized 8.3 display name, size,
-  mode, first cluster, and raw FAT attributes. Timestamps, owners, and device
-  fields are zero. Both root and subdirectory listings validate the user buffer
-  by `max_entries * VIBE_DIRENT_BYTES`, so the reusable syscall contract does
-  not depend on the caller's pointer value.
+  size for protected WAD/ELF files, writable root files, and read-only
+  one-level subdirectory files. `stat("/")` reports readonly directory mode for
+  the FAT root, and `stat("/ASSETS")` reports readonly directory mode for a
+  matching root-level directory entry instead of treating it as a regular file.
+  `VIBE_SYS_LISTDIR`/`vibe_listdir` copies readonly fixed-size `vibe_dirent_t`
+  records for live root entries and for one-level root subdirectories,
+  including normalized 8.3 display name, size, mode, first cluster, and raw FAT
+  attributes. Timestamps, owners, and device fields are zero. Both root and
+  subdirectory listings validate the user buffer by
+  `max_entries * VIBE_DIRENT_BYTES`, so the reusable syscall contract does not
+  depend on the caller's pointer value.
 - Supported validation: nested path traversal, empty names, long filenames, and
   unsupported characters are rejected; leading root separators and `./` prefixes
   are path normalization only, not subdirectory traversal. Existing directories
@@ -113,12 +124,13 @@ Current kernel contract:
   `EISDIR`. `vibe_listdir` still requires an actual directory and reports
   `ENOTDIR` for an existing regular file.
   `DOOM1.WAD`, `USERPROB.ELF`, and `DOOM.ELF` remain protected read-only
-  entries and cannot be deleted, truncated, or opened writable. Unknown `open`
+  entries and cannot be deleted, truncated, or opened writable. Read-only
+  subdirectory files also reject write/create/truncate opens. Unknown `open`
   flag bits are rejected as `EINVAL` in the kernel, even if libc callers
   normally filter them first.
 - Unsupported in the kernel syscall surface: nested subdirectory traversal,
-  opening files by subdirectory path, writable subdirectories, long filenames,
-  rename, timestamps, ownership, permissions beyond read-only
+  writable subdirectories, long filenames, rename, timestamps, ownership,
+  permissions beyond read-only
   directory/regular-file versus writable regular-file mode, and no POSIX delete-while-open behavior.
   This kernel deliberately invalidates descriptors when their root entry is
   unlinked.
@@ -204,9 +216,9 @@ checker also verifies both FAT copies agree, every allocated data cluster is
 owned by exactly one live root entry, and protected `DOOM1.WAD`, `USERPROB.ELF`,
 and `DOOM.ELF` entries have unchanged metadata and bytes. The checker-side FAT
 reader can list the root directory and follow simple read-only 8.3 subdirectory
-entries for lookup/readback proof. The kernel now exposes the root listing and
-one-level subdirectory listing pieces of that contract to user processes;
-opening files inside those subdirectories is still host-tooling-only.
+entries for lookup/readback proof. The kernel now exposes the root listing,
+one-level subdirectory listing, and read-only one-level subdirectory
+lookup/open/read/stat pieces of that contract to user processes.
 
 Add `--require-dynamic-fat-proof` when the artifact should also prove the image
 still supports dynamic filesystem behavior. That option mutates an in-memory
@@ -219,10 +231,29 @@ back, so the proof covers read-after-remount behavior rather than only
 same-object state. The checker then revalidates FAT-copy agreement and
 reachable-cluster ownership on the mutated copy, so this is a host-verifiable
 allocation/free/truncate proof without putting a scratch file back into the real
-disk artifact.
+disk artifact. The same proof also requires the generated `/ASSETS/README.TXT`
+package to exist, round-trip with the expected bytes, and reject host-modeled
+write, create, truncate, and unlink attempts below that read-only subdirectory.
 The Makefile wrapper exposes the same checker path with
 `PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF=1 make persistence-image-check`, keeping
 the host proof runnable without launching QEMU locally.
+
+Storage install/recovery boundary:
+
+- The persistence proof is a generated-image proof, not an arbitrary-disk
+  install or recovery proof. It proves that the repo image layout can be
+  mutated, rebooted, and inspected; it does not prove vibe-os can partition a
+  blank disk, preserve an unknown existing disk, or repair damaged user media.
+- `tools/check_storage_install_boundary.py --image build/disk.img --json`
+  produces an `install-image-manifest` for the current generated raw image:
+  MBR/FAT16 layout, raw Stage 2/kernel regions, FAT BPB fields, root-entry
+  inventory, FAT-copy agreement, and cluster ownership. That manifest is
+  intentionally scoped to `build/disk.img`.
+- The machine-readable install/recovery rows live in
+  `docs/storage-install-boundary.md`. `STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL]`
+  and `STORAGE_BOUNDARY[ARBITRARY_DISK_RECOVERY]` stay unclaimed until a future
+  proof starts from blank or damaged media and reaches the same boot,
+  persistence, and recovery gates through a real installer or recovery path.
 
 The Doom libc buffers formatted `fprintf` output until `fflush()` / `fclose()`,
 so `M_SaveDefaults()` does not spend the cloud proof window performing one disk
@@ -278,9 +309,10 @@ Remaining storage gaps before a broad Doom-capable claim:
 
 - Writable semantics are still deliberately narrow: kernel syscalls handle
   root-level 8.3 files, reusable dynamic root entries, readonly root directory
-  listing, and readonly listing of one root-level subdirectory, but no nested
-  traversal, no opening files inside subdirectories, no writable subdirectories,
-  no rename, no long filenames, no timestamps/ownership, and no POSIX
+  listing, readonly listing of one root-level subdirectory, and read-only files
+  one level below that subdirectory, but no nested traversal, no writable
+  subdirectories, no writable create/truncate/unlink behavior below
+  subdirectories, no rename, no long filenames, no timestamps/ownership, and no POSIX
   delete-while-open behavior. Host-side validation can inspect read-only
   subdirectory trees more deeply than the kernel syscall surface can.
 - The storage proof is image-level and cloud-runner scoped. The OS can mutate

@@ -19,15 +19,16 @@ class UserProgramPackagingTests(unittest.TestCase):
         source = (ROOT / "user" / "abi_probe.c").read_text()
 
         for token in (
-            '#include "vibe_os.h"',
+            '#include "runtime.h"',
             "int user_main(int argc, char** argv, char** envp)",
-            "VIBE_SYS_GETPID",
-            "VIBE_SYS_CLOCK_GETTIME",
-            "VIBE_SYS_LISTDIR",
             "VIBE_CLOCK_MONOTONIC",
-            'streq(argv[0], "ABIPROBE.ELF")',
+            'vibe_user_streq(argv[0], "ABIPROBE.ELF")',
             'root_contains(root_entries, root_count, "ABIPROBE.ELF")',
-            'write_all(1, "abi probe ok\\n")',
+            'vibe_user_write_all(1, "abi probe ok\\n")',
+            "vibe_user_getpid()",
+            "vibe_user_clock_monotonic(&now)",
+            "vibe_user_listdir(\"/\", root_entries, 16)",
+            "vibe_user_execv(doom_path, doom_argv)",
         ):
             self.assertIn(token, source)
 
@@ -42,16 +43,17 @@ class UserProgramPackagingTests(unittest.TestCase):
 
         for token in (
             "USER_ABI_PROBE_C_SRC := user/abi_probe.c",
+            "USER_RUNTIME_C_SRC := user/runtime.c",
             "USER_ABI_PROBE_ELF := $(BUILD_DIR)/abi_probe.elf",
             "--root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF)",
-            "$(USER_ABI_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_ABI_PROBE_C_OBJ) tools/link_elf32.py",
+            "$(USER_ABI_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_RUNTIME_C_OBJ) $(USER_ABI_PROBE_C_OBJ) tools/link_elf32.py",
             "$(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF)",
         ):
             self.assertIn(token, makefile)
 
         self.assertIn('const char abi_probe_path[] = "ABIPROBE.ELF";', user_probe)
         self.assertIn("saw_abi_probe", user_probe)
-        self.assertNotIn("sys_execv(abi_probe_path", user_probe)
+        self.assertIn("sys_execv(abi_probe_path", user_probe)
 
     def test_generated_fat_image_contains_second_root_elf(self):
         image = bytearray((BUILD / "disk.img").read_bytes())

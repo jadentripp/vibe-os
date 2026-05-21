@@ -306,6 +306,8 @@ USER_HEAP_PAGE_COUNT equ (USER_HEAP_END - USER_HEAP_START) / PAGE_SIZE
 USER_HEAP_BITMAP_BYTES equ (USER_HEAP_PAGE_COUNT + 7) / 8
 USER_PROBE_EXPECTED_FLAGS equ 0x0001ffff
 USER_PROBE_MAGIC equ 0x13579BDF
+ABI_PROBE_MAGIC equ 0xA81B10BE
+ABI_PROBE_EXPECTED_FLAGS equ 0x00000007
 PREEMPT_PROBE_MAGIC equ 0x50524545
 USER_FAULT_ADDR equ 0x00010000
 USER_FD_BASE equ 3
@@ -313,6 +315,7 @@ USER_FD_COUNT equ 16
 FD_KIND_FREE equ 0
 FD_KIND_WAD equ 1
 FD_KIND_WRITABLE equ 2
+FD_KIND_READONLY_FILE equ 3
 FD_INHERIT_EXEC equ 0x1
 WAIT_OPTION_WNOHANG equ 0x1
 WAIT_SUPPORTED_OPTIONS equ WAIT_OPTION_WNOHANG
@@ -394,6 +397,7 @@ VIBE_FB_CAP_PRESENT_RGB_PALETTE equ 0x00000002
 VIBE_FB_CAP_XRGB8888_LFB equ 0x00000004
 VIBE_FB_CAP_MODE13_SHADOW equ 0x00000008
 VIBE_FB_CAP_DIRTY_SOURCE_RECT equ 0x00000010
+VIBE_FB_CAP_FIXED_PRESENT_SIZE equ 0x00000020
 VIBE_FB_FORMAT_INDEX8_RGB24 equ 1
 VIBE_FB_INFO_WIDTH equ 0
 VIBE_FB_INFO_HEIGHT equ 4
@@ -496,6 +500,7 @@ AUDIO_CMD_BUFFERED_BYTES equ 7
 AUDIO_CMD_MUSIC_PULL_STATE equ 8
 AUDIO_CMD_DEVICE_INFO equ 9
 AUDIO_CMD_PCM_RING_INFO equ 10
+AUDIO_CMD_STREAM_INFO equ 11
 AUDIO_CMD_DEVICE_START equ AUDIO_CMD_INIT
 AUDIO_CMD_MIXER_START equ AUDIO_CMD_START_SFX
 AUDIO_CMD_MIXER_STOP equ AUDIO_CMD_STOP_SFX
@@ -554,6 +559,22 @@ AUDIO_PCM_RING_INFO_UNDERRUN_COUNT equ 36
 AUDIO_PCM_RING_INFO_OVERWRITE_COUNT equ 40
 AUDIO_PCM_RING_INFO_CLIP_COUNT equ 44
 AUDIO_PCM_RING_INFO_BYTES equ 48
+AUDIO_STREAM_INFO_MODE equ 0
+AUDIO_STREAM_INFO_FLAGS equ 4
+AUDIO_STREAM_INFO_HANDLE equ 8
+AUDIO_STREAM_INFO_PULL_REQUEST_COUNT equ 12
+AUDIO_STREAM_INFO_PULL_REFILL_COUNT equ 16
+AUDIO_STREAM_INFO_PENDING_PULL_REQUESTS equ 20
+AUDIO_STREAM_INFO_QUEUED_BYTES equ 24
+AUDIO_STREAM_INFO_LOW_WATER_BYTES equ 28
+AUDIO_STREAM_INFO_ACTIVE_MUSIC_VOICES equ 32
+AUDIO_STREAM_INFO_UNDERRUN_COUNT equ 36
+AUDIO_STREAM_INFO_DROP_COUNT equ 40
+AUDIO_STREAM_INFO_POSITION_BYTES equ 44
+AUDIO_STREAM_INFO_BYTES equ 48
+AUDIO_STREAM_FLAG_PULL equ 0x00000001
+AUDIO_STREAM_FLAG_REFILL_PENDING equ 0x00000002
+AUDIO_STREAM_FLAG_ACTIVE equ 0x00000004
 AUDIO_FLAG_LOOP equ 0x00000001
 AUDIO_FLAG_MUSIC equ 0x00000002
 AUDIO_FLAG_WAD_SFX equ 0x00000004
@@ -2550,12 +2571,19 @@ vmm_clear_process_page:
     lea edi, [ebx + edx * 4]
     mov edx, [edi]
     test edx, PTE_PRESENT
-    jz .done
+    jz .absent
     and edx, 0xfffff000
     shr eax, 12
     and eax, 0x3ff
     lea edi, [edx + eax * 4]
+    test dword [edi], PTE_PRESENT
+    jz .absent
     and dword [edi], 0xfffffffe
+    clc
+    jmp .done
+
+.absent:
+    stc
 
 .done:
     pop edi
@@ -5275,6 +5303,7 @@ storage_init:
     mov dword [fd_indices + ebx * 4], 0
     mov dword [fd_offsets + ebx * 4], 0
     mov dword [fd_flags + ebx * 4], 0
+    mov dword [fd_file_sizes + ebx * 4], 0
     mov dword [fd_owner_pids + ebx * 4], 0xffffffff
     mov dword [fd_open_generations + ebx * 4], 0
     mov dword [fd_inherit_flags + ebx * 4], 0
@@ -7174,6 +7203,276 @@ fat_parse_user_root83:
     pop ebx
     ret
 
+fat_parse_user_subdir_file83:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov eax, [syscall_ptr_arg]
+    mov ebx, 32
+    call user_range_validate
+    jc .fail
+    mov edi, fat_subdir_name_buffer
+    mov al, ' '
+    mov ecx, 11
+    cld
+    rep stosb
+    mov edi, fat_open_name_buffer
+    mov al, ' '
+    mov ecx, 11
+    cld
+    rep stosb
+    mov esi, [syscall_ptr_arg]
+    mov byte [fat_path_component_index], 0
+    mov byte [fat_open_base_len], 0
+    mov byte [fat_open_ext_len], 0
+    mov byte [fat_open_dot_seen], 0
+    mov ecx, 32
+
+.skip_prefix:
+    mov al, [esi]
+    cmp al, '/'
+    je .skip_one_prefix_char
+    cmp al, 0x5c
+    je .skip_one_prefix_char
+    cmp al, '.'
+    jne .char_loop
+    mov al, [esi + 1]
+    cmp al, '/'
+    je .skip_dot_prefix
+    cmp al, 0x5c
+    je .skip_dot_prefix
+    jmp .char_loop
+
+.skip_one_prefix_char:
+    inc esi
+    dec ecx
+    js .fail
+    jmp .skip_prefix
+
+.skip_dot_prefix:
+    add esi, 2
+    sub ecx, 2
+    js .fail
+    jmp .skip_prefix
+
+.char_loop:
+    cmp ecx, 0
+    je .fail
+    lodsb
+    dec ecx
+    cmp al, 0
+    je .finish
+    cmp al, '/'
+    je .separator
+    cmp al, 0x5c
+    je .separator
+    cmp al, '.'
+    je .dot
+    cmp al, 'a'
+    jb .validate_char
+    cmp al, 'z'
+    ja .validate_char
+    sub al, 32
+
+.validate_char:
+    cmp al, 'A'
+    jb .check_digit
+    cmp al, 'Z'
+    jbe .store_char
+
+.check_digit:
+    cmp al, '0'
+    jb .check_extra
+    cmp al, '9'
+    jbe .store_char
+
+.check_extra:
+    cmp al, '_'
+    je .store_char
+    cmp al, '-'
+    je .store_char
+    jmp .fail
+
+.dot:
+    cmp byte [fat_open_base_len], 0
+    je .fail
+    cmp byte [fat_open_dot_seen], 0
+    jne .fail
+    mov byte [fat_open_dot_seen], 1
+    jmp .char_loop
+
+.store_char:
+    cmp byte [fat_path_component_index], 0
+    je .store_dir_char
+    mov edi, fat_open_name_buffer
+    jmp .store_component_char
+
+.store_dir_char:
+    mov edi, fat_subdir_name_buffer
+
+.store_component_char:
+    cmp byte [fat_open_dot_seen], 0
+    jne .store_ext
+    movzx edx, byte [fat_open_base_len]
+    cmp edx, 8
+    jae .fail
+    mov [edi + edx], al
+    inc byte [fat_open_base_len]
+    jmp .char_loop
+
+.store_ext:
+    movzx edx, byte [fat_open_ext_len]
+    cmp edx, 3
+    jae .fail
+    mov [edi + 8 + edx], al
+    inc byte [fat_open_ext_len]
+    jmp .char_loop
+
+.separator:
+    cmp byte [fat_path_component_index], 0
+    jne .fail
+    cmp byte [fat_open_base_len], 0
+    je .fail
+    cmp byte [fat_open_dot_seen], 0
+    je .dir_ok
+    cmp byte [fat_open_ext_len], 0
+    je .fail
+
+.dir_ok:
+    mov byte [fat_path_component_index], 1
+    mov byte [fat_open_base_len], 0
+    mov byte [fat_open_ext_len], 0
+    mov byte [fat_open_dot_seen], 0
+    jmp .char_loop
+
+.finish:
+    cmp byte [fat_path_component_index], 1
+    jne .fail
+    cmp byte [fat_open_base_len], 0
+    je .fail
+    cmp byte [fat_open_dot_seen], 0
+    je .ok
+    cmp byte [fat_open_ext_len], 0
+    je .fail
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+fat_find_subdir_entry:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov [fat_search_name], edi
+    movzx ebx, ax
+
+.cluster_loop:
+    cmp ebx, 2
+    jb .fail
+    cmp ebx, [fat_last_data_cluster]
+    ja .fail
+    mov eax, ebx
+    sub eax, 2
+    movzx edx, byte [fat_sectors_per_cluster]
+    mul edx
+    add eax, [fat_data_lba]
+    mov [fat_list_dir_lba], eax
+    movzx eax, byte [fat_sectors_per_cluster]
+    mov [fat_list_dir_sectors_left], eax
+
+.sector_loop:
+    cmp dword [fat_list_dir_sectors_left], 0
+    je .next_cluster
+    mov eax, [fat_list_dir_lba]
+    mov edi, SECTOR_BUFFER_ADDR
+    call ata_read_sector
+    jc .fail
+    mov edx, [fat_list_dir_lba]
+    inc dword [fat_list_dir_lba]
+    dec dword [fat_list_dir_sectors_left]
+    mov esi, SECTOR_BUFFER_ADDR
+    mov ecx, 16
+
+.entry_loop:
+    cmp byte [esi], 0
+    je .fail
+    cmp byte [esi], 0xe5
+    je .next_entry
+    cmp byte [esi], '.'
+    je .next_entry
+    mov al, [esi + 11]
+    test al, FAT_ATTR_VOLUME_ID
+    jnz .next_entry
+    push ebx
+    push ecx
+    push edx
+    mov edi, [fat_search_name]
+    call fat_name_match
+    pop edx
+    pop ecx
+    pop ebx
+    cmp al, 1
+    je .found
+
+.next_entry:
+    add esi, 32
+    loop .entry_loop
+    jmp .sector_loop
+
+.next_cluster:
+    mov eax, ebx
+    call fat_next_cluster
+    jc .fail
+    cmp eax, 2
+    jb .fail
+    cmp eax, 0xfff8
+    jae .fail
+    mov ebx, eax
+    jmp .cluster_loop
+
+.found:
+    mov [fat_found_root_lba], edx
+    mov al, [esi + 11]
+    mov [fat_found_attributes], al
+    mov eax, esi
+    sub eax, SECTOR_BUFFER_ADDR
+    and eax, 511
+    mov [fat_found_root_offset], eax
+    mov ax, [esi + 26]
+    mov [fat_found_first_cluster], ax
+    mov eax, [esi + 28]
+    mov [fat_found_size], eax
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
 fat_open_name_is_protected:
     push esi
     push edi
@@ -7381,6 +7680,7 @@ fat_close_writable_fds_for_slot:
     mov dword [fd_indices + ebx * 4], 0
     mov dword [fd_offsets + ebx * 4], 0
     mov dword [fd_flags + ebx * 4], 0
+    mov dword [fd_file_sizes + ebx * 4], 0
     mov dword [fd_owner_pids + ebx * 4], 0xffffffff
     mov dword [fd_inherit_flags + ebx * 4], 0
 
@@ -7426,6 +7726,7 @@ fd_reset_all:
     mov dword [fd_indices + ebx * 4], 0
     mov dword [fd_offsets + ebx * 4], 0
     mov dword [fd_flags + ebx * 4], 0
+    mov dword [fd_file_sizes + ebx * 4], 0
     mov dword [fd_owner_pids + ebx * 4], 0xffffffff
     mov dword [fd_inherit_flags + ebx * 4], 0
     inc ebx
@@ -7499,6 +7800,7 @@ fd_clear_slot:
     mov dword [fd_indices + ebx * 4], 0
     mov dword [fd_offsets + ebx * 4], 0
     mov dword [fd_flags + ebx * 4], 0
+    mov dword [fd_file_sizes + ebx * 4], 0
     mov dword [fd_owner_pids + ebx * 4], 0xffffffff
     mov dword [fd_inherit_flags + ebx * 4], 0
     ret
@@ -7594,6 +7896,19 @@ writable_fd_index:
     cmp byte [writable_status + ebx], 1
     jne .fail
     mov [file_io_index], ebx
+    clc
+    ret
+
+.fail:
+    stc
+    ret
+
+readonly_fd_index:
+    call fd_lookup
+    jc .fail
+    cmp byte [fd_kinds + eax], FD_KIND_READONLY_FILE
+    jne .fail
+    mov [file_io_index], eax
     clc
     ret
 
@@ -9028,6 +9343,133 @@ user_file_lseek:
     stc
     ret
 
+readonly_file_read:
+    call readonly_fd_index
+    jc .fail_badfd
+    mov esi, [file_io_fd_slot]
+    mov [file_io_user_ptr], ecx
+    mov [file_io_remaining], edx
+    mov dword [file_io_done], 0
+    mov eax, ecx
+    mov ebx, edx
+    call user_range_validate
+    jc .fail_inval
+    mov eax, [fd_file_sizes + esi * 4]
+    cmp [fd_offsets + esi * 4], eax
+    jb .have_readable_bytes
+    mov dword [file_io_remaining], 0
+    jmp .loop
+
+.have_readable_bytes:
+    sub eax, [fd_offsets + esi * 4]
+    cmp [file_io_remaining], eax
+    jbe .loop
+    mov [file_io_remaining], eax
+
+.loop:
+    cmp dword [file_io_remaining], 0
+    je .ok
+    mov esi, [file_io_fd_slot]
+    mov edx, [fd_offsets + esi * 4]
+    mov ax, [fd_indices + esi * 4]
+    call fat_file_lba_for_offset
+    jc .fail_io
+    mov [file_io_sector_offset], ebx
+    mov edi, SECTOR_BUFFER_ADDR
+    call ata_read_sector
+    jc .fail_io
+    mov eax, 512
+    sub eax, [file_io_sector_offset]
+    cmp eax, [file_io_remaining]
+    jbe .chunk_ok
+    mov eax, [file_io_remaining]
+
+.chunk_ok:
+    mov [file_io_chunk], eax
+    mov esi, SECTOR_BUFFER_ADDR
+    add esi, [file_io_sector_offset]
+    mov edi, [file_io_user_ptr]
+    add edi, [file_io_done]
+    mov ecx, [file_io_chunk]
+    cld
+    rep movsb
+    mov eax, [file_io_chunk]
+    add [file_io_done], eax
+    sub [file_io_remaining], eax
+    mov esi, [file_io_fd_slot]
+    add [fd_offsets + esi * 4], eax
+    jmp .loop
+
+.ok:
+    mov eax, [file_io_done]
+    clc
+    ret
+
+.fail_badfd:
+    mov eax, -ERRNO_EBADF
+    stc
+    ret
+
+.fail_inval:
+    mov eax, -ERRNO_EINVAL
+    stc
+    ret
+
+.fail_io:
+    mov eax, -ERRNO_EIO
+    stc
+    ret
+
+readonly_file_lseek:
+    call readonly_fd_index
+    jc .fail_badfd
+    mov esi, [file_io_fd_slot]
+    cmp edx, 0
+    je .seek_set
+    cmp edx, 1
+    je .seek_cur
+    cmp edx, 2
+    je .seek_end
+    jmp .fail_inval
+
+.seek_set:
+    mov eax, ecx
+    test eax, 0x80000000
+    jnz .fail_inval
+    jmp .seek_validate
+
+.seek_cur:
+    mov eax, [fd_offsets + esi * 4]
+    add eax, ecx
+    jo .fail_inval
+    test eax, 0x80000000
+    jnz .fail_inval
+    jmp .seek_validate
+
+.seek_end:
+    mov eax, [fd_file_sizes + esi * 4]
+    add eax, ecx
+    jo .fail_inval
+    test eax, 0x80000000
+    jnz .fail_inval
+
+.seek_validate:
+    cmp eax, [fd_file_sizes + esi * 4]
+    ja .fail_inval
+    mov [fd_offsets + esi * 4], eax
+    clc
+    ret
+
+.fail_badfd:
+    mov eax, -ERRNO_EBADF
+    stc
+    ret
+
+.fail_inval:
+    mov eax, -ERRNO_EINVAL
+    stc
+    ret
+
 wad_validate_range:
     push edx
 
@@ -9290,6 +9732,10 @@ scheduler_init:
     mov dword [process_slot_reuses], 0
     mov dword [process_vm_teardowns], 0
     mov dword [process_vm_pages_cleared], 0
+    mov dword [process_wait_vm_reaps], 0
+    mov dword [process_wait_vm_pages_reclaimed], 0
+    mov dword [process_wait_last_vm_pages_reclaimed], 0
+    mov dword [process_wait_vm_pages_before], 0
     mov dword [process_mmap_allocations], 0
     mov dword [process_mmap_pages_mapped], 0
     mov dword [process_mmap_last_object_kind], VM_OBJECT_KIND_NONE
@@ -9339,6 +9785,15 @@ scheduler_init:
     mov byte [boot_user_exec_status], 0
     mov dword [boot_user_exec_pid], 0xffffffff
     mov dword [boot_user_exec_entry], 0
+    mov byte [abi_probe_status], 0
+    mov byte [abi_probe_exec_status], 0
+    mov dword [abi_probe_magic_seen], 0
+    mov dword [abi_probe_flags_seen], 0
+    mov dword [abi_probe_exec_pid], 0xffffffff
+    mov dword [abi_probe_exec_parent_pid], 0xffffffff
+    mov dword [abi_probe_exec_entry], 0
+    mov dword [abi_probe_exec_argc], 0
+    mov dword [abi_probe_exec_argv_source], 0
 
     mov esi, process_kernel
     call process_reset_accounting
@@ -9615,12 +10070,15 @@ process_clear_user_range:
     cmp eax, edx
     jae .done
     call vmm_clear_process_page
+    jc .clear_heap_metadata
+    inc dword [process_vm_pages_cleared]
+
+.clear_heap_metadata:
     push edx
     mov edx, eax
     add edx, PAGE_SIZE
     call process_heap_clear_range
     pop edx
-    inc dword [process_vm_pages_cleared]
     add eax, PAGE_SIZE
     jmp .next
 
@@ -9685,6 +10143,27 @@ process_restore_user_stack_vm:
     mov eax, [esi + PROC_STACK_BOTTOM]
     mov edx, [esi + PROC_STACK_TOP]
     call vmm_mark_process_user_write_range
+
+.done:
+    pop edx
+    pop ebx
+    pop eax
+    ret
+
+process_restore_user_image_vm:
+    push eax
+    push ebx
+    push edx
+    cmp esi, 0
+    je .done
+    cmp esi, process_kernel
+    je .done
+    mov ebx, [esi + PROC_PAGE_DIR]
+    cmp ebx, 0
+    je .done
+    mov eax, [esi + PROC_BASE]
+    mov edx, [esi + PROC_HEAP_START]
+    call vmm_mark_process_user_range
 
 .done:
     pop edx
@@ -10027,6 +10506,14 @@ process_waitpid_current:
 .reap_without_status:
     inc dword [process_wait_reaps]
     call fd_close_owned_by_process
+    mov eax, [process_vm_pages_cleared]
+    mov [process_wait_vm_pages_before], eax
+    call process_teardown_user_vm
+    mov eax, [process_vm_pages_cleared]
+    sub eax, [process_wait_vm_pages_before]
+    mov [process_wait_last_vm_pages_reclaimed], eax
+    add [process_wait_vm_pages_reclaimed], eax
+    inc dword [process_wait_vm_reaps]
     mov dword [esi + PROC_STATE], PROC_STATE_UNUSED
     mov dword [esi + PROC_PARENT_PID], 0xffffffff
     and dword [esi + PROC_VM_FLAGS], 0xfffffffe
@@ -10064,6 +10551,7 @@ scheduler_prepare_live_preempt_probe:
     push esi
     mov esi, process_preempt_probe
     call process_reset_preempt_probe
+    call process_restore_user_image_vm
     call process_restore_user_stack_vm
     mov dword [esi + PROC_ENTRY], USER_CODE_ADDR
     call process_seed_initial_user_context
@@ -10857,11 +11345,22 @@ process_exec_handoff_current:
     call process_reset_user_exec_target
     mov eax, [process_exec_entry]
     mov [esi + PROC_ENTRY], eax
+    cmp esi, process_user_probe
+    jne .seed_context
     mov byte [user_probe_status], 0
     mov byte [user_fault_expected], 0
     mov byte [user_fault_status], 0
     mov dword [user_probe_magic_seen], 0
     mov dword [user_probe_flags_seen], 0
+    mov byte [abi_probe_status], 0
+    mov byte [abi_probe_exec_status], 0
+    mov dword [abi_probe_magic_seen], 0
+    mov dword [abi_probe_flags_seen], 0
+    mov dword [abi_probe_exec_pid], 0xffffffff
+    mov dword [abi_probe_exec_parent_pid], 0xffffffff
+    mov dword [abi_probe_exec_entry], 0
+    mov dword [abi_probe_exec_argc], 0
+    mov dword [abi_probe_exec_argv_source], 0
     mov dword [user_fault_addr], 0
     mov dword [user_fault_recovery], 0
 
@@ -10895,6 +11394,7 @@ process_exec_handoff_current:
     mov [sys_exec_last_target_entry], eax
     mov eax, [esi + PROC_SAVED_ESP]
     mov [sys_exec_last_target_stack], eax
+    call process_record_abi_exec_success
     inc dword [esi + PROC_EXEC_COUNT]
     call process_exec_patch_syscall_frame
     jc .eio_after_activate
@@ -11074,6 +11574,41 @@ process_exec_patch_syscall_frame:
     stc
 
 .done:
+    pop ebx
+    pop eax
+    ret
+
+process_record_abi_exec_success:
+    push eax
+    push ebx
+    push esi
+    push edi
+
+    mov esi, [process_exec_path_ptr]
+    cmp esi, 0
+    je .done
+    mov edi, exec_path_abi_probe
+    call kernel_streq
+    cmp al, 1
+    jne .done
+    mov ebx, [process_exec_target]
+    cmp ebx, 0
+    je .done
+    mov byte [abi_probe_exec_status], 1
+    mov eax, [ebx + PROC_PID]
+    mov [abi_probe_exec_pid], eax
+    mov eax, [ebx + PROC_PARENT_PID]
+    mov [abi_probe_exec_parent_pid], eax
+    mov eax, [ebx + PROC_ENTRY]
+    mov [abi_probe_exec_entry], eax
+    mov eax, [sys_exec_last_argc]
+    mov [abi_probe_exec_argc], eax
+    mov eax, [sys_exec_last_argv_source]
+    mov [abi_probe_exec_argv_source], eax
+
+.done:
+    pop edi
+    pop esi
     pop ebx
     pop eax
     ret
@@ -11597,6 +12132,8 @@ syscall_handler:
 .user_probe:
     cmp byte [current_user_kind], USER_KIND_PREEMPT_PROBE
     je .user_probe_skip
+    cmp ebx, ABI_PROBE_MAGIC
+    je .abi_probe
     mov [user_probe_magic_seen], ebx
     mov [user_probe_flags_seen], ecx
     movzx edx, word [esp + 28]
@@ -11604,6 +12141,20 @@ syscall_handler:
     movzx edx, word [esp + 40]
     mov [user_probe_ss], dx
     mov byte [user_probe_status], 1
+    xor eax, eax
+    jmp .return
+
+.abi_probe:
+    mov [abi_probe_magic_seen], ebx
+    mov [abi_probe_flags_seen], ecx
+    cmp ecx, ABI_PROBE_EXPECTED_FLAGS
+    jne .abi_probe_fail
+    mov byte [abi_probe_status], 1
+    xor eax, eax
+    jmp .return
+
+.abi_probe_fail:
+    mov byte [abi_probe_status], 2
     xor eax, eax
     jmp .return
 
@@ -11901,11 +12452,48 @@ syscall_handler:
     mov dword [fd_indices + eax * 4], 0
     mov dword [fd_offsets + eax * 4], 0
     mov dword [fd_flags + eax * 4], 0
+    mov dword [fd_file_sizes + eax * 4], 0
     mov dword [fd_owner_pids + eax * 4], 0xffffffff
     mov dword [fd_inherit_flags + eax * 4], 0
     jmp .bad_syscall_eio
 
 .open_generic_root83:
+    test dword [syscall_open_flags], O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND
+    jz .open_generic_try_subdir_readonly
+    call fat_parse_user_subdir_file83
+    jnc .bad_syscall_eacces
+    jmp .open_generic_parse_root83
+
+.open_generic_try_subdir_readonly:
+    call fat_parse_user_subdir_file83
+    jc .open_generic_parse_root83
+    mov edi, fat_subdir_name_buffer
+    call fat_find_root_entry_any
+    jc .bad_syscall_enoent
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .bad_syscall_enotdir
+    mov ax, [fat_found_first_cluster]
+    cmp ax, 2
+    jb .bad_syscall_eio
+    mov edi, fat_open_name_buffer
+    call fat_find_subdir_entry
+    jc .bad_syscall_enoent
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jnz .bad_syscall_eisdir
+    call fd_alloc
+    jc .bad_syscall_emfile
+    mov byte [fd_kinds + eax], FD_KIND_READONLY_FILE
+    movzx edx, word [fat_found_first_cluster]
+    mov [fd_indices + eax * 4], edx
+    mov dword [fd_offsets + eax * 4], 0
+    mov edx, [syscall_open_flags]
+    mov [fd_flags + eax * 4], edx
+    mov edx, [fat_found_size]
+    mov [fd_file_sizes + eax * 4], edx
+    add eax, USER_FD_BASE
+    jmp .return
+
+.open_generic_parse_root83:
     call fat_parse_user_root83
     jc .bad_syscall_einval
     call fat_open_name_is_protected
@@ -11932,7 +12520,14 @@ syscall_handler:
     jc .bad_syscall_ebadf
     cmp byte [fd_kinds + eax], FD_KIND_WAD
     je .read_wad
+    cmp byte [fd_kinds + eax], FD_KIND_READONLY_FILE
+    je .read_readonly_file
     call user_file_read
+    jc .bad_syscall_from_eax
+    jmp .return
+
+.read_readonly_file:
+    call readonly_file_read
     jc .bad_syscall_from_eax
     jmp .return
 
@@ -11988,7 +12583,14 @@ syscall_handler:
     jc .bad_syscall_ebadf
     cmp byte [fd_kinds + eax], FD_KIND_WAD
     je .lseek_wad
+    cmp byte [fd_kinds + eax], FD_KIND_READONLY_FILE
+    je .lseek_readonly_file
     call user_file_lseek
+    jc .bad_syscall_from_eax
+    jmp .return
+
+.lseek_readonly_file:
+    call readonly_file_lseek
     jc .bad_syscall_from_eax
     jmp .return
 
@@ -12234,6 +12836,7 @@ syscall_handler:
     mov dword [fd_indices + eax * 4], 0
     mov dword [fd_offsets + eax * 4], 0
     mov dword [fd_flags + eax * 4], 0
+    mov dword [fd_file_sizes + eax * 4], 0
     mov dword [fd_owner_pids + eax * 4], 0xffffffff
     mov dword [fd_inherit_flags + eax * 4], 0
 
@@ -12275,6 +12878,8 @@ syscall_handler:
     je .audio_device_info
     cmp ebx, AUDIO_CMD_PCM_RING_INFO
     je .audio_pcm_ring_info
+    cmp ebx, AUDIO_CMD_STREAM_INFO
+    je .audio_stream_info
     jmp .audio_status
 
 .audio_init_cmd:
@@ -12371,6 +12976,12 @@ syscall_handler:
 
 .audio_pcm_ring_info:
     call audio_write_pcm_ring_info
+    jc .bad_syscall_einval
+    xor eax, eax
+    jmp .return
+
+.audio_stream_info:
+    call audio_write_stream_info
     jc .bad_syscall_einval
     xor eax, eax
     jmp .return
@@ -12626,6 +13237,27 @@ syscall_handler:
     mov edi, user_path_doom_wad
     call user_path_equals
     jnc .stat_wad
+    call fat_parse_user_subdir_file83
+    jc .stat_parse_root83
+    mov edi, fat_subdir_name_buffer
+    call fat_find_root_entry_any
+    jc .bad_syscall_enoent
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .bad_syscall_enotdir
+    mov ax, [fat_found_first_cluster]
+    cmp ax, 2
+    jb .bad_syscall_eio
+    mov edi, fat_open_name_buffer
+    call fat_find_subdir_entry
+    jc .bad_syscall_enoent
+    mov eax, [fat_found_size]
+    mov edx, STAT_MODE_READONLY_REG
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .stat_found_entry
+    mov edx, STAT_MODE_READONLY_DIR
+    jmp .stat_found_entry
+
+.stat_parse_root83:
     call fat_parse_user_root83
     jc .bad_syscall_einval
     mov esi, fat_open_name_buffer
@@ -12717,6 +13349,8 @@ syscall_handler:
     jc .bad_syscall_ebadf
     cmp byte [fd_kinds + eax], FD_KIND_WAD
     je .fstat_wad
+    cmp byte [fd_kinds + eax], FD_KIND_READONLY_FILE
+    je .fstat_readonly_file
     cmp byte [fd_kinds + eax], FD_KIND_WRITABLE
     jne .bad_syscall_ebadf
     mov ebx, [fd_indices + eax * 4]
@@ -12726,6 +13360,14 @@ syscall_handler:
     jne .bad_syscall_ebadf
     mov eax, [writable_sizes + ebx * 4]
     mov edx, STAT_MODE_WRITABLE_REG
+    call stat_fill_user
+    jc .bad_syscall_einval
+    xor eax, eax
+    jmp .return
+
+.fstat_readonly_file:
+    mov eax, [fd_file_sizes + eax * 4]
+    mov edx, STAT_MODE_READONLY_REG
     call stat_fill_user
     jc .bad_syscall_einval
     xor eax, eax
@@ -13001,7 +13643,7 @@ syscall_handler:
     mov [edi + VIBE_FB_INFO_DIRTY_HEIGHT], eax
     mov eax, [present_dirty_count]
     mov [edi + VIBE_FB_INFO_DIRTY_COUNT], eax
-    mov eax, VIBE_FB_CAP_PRESENT_INDEXED | VIBE_FB_CAP_PRESENT_RGB_PALETTE | VIBE_FB_CAP_MODE13_SHADOW | VIBE_FB_CAP_DIRTY_SOURCE_RECT
+    mov eax, VIBE_FB_CAP_PRESENT_INDEXED | VIBE_FB_CAP_PRESENT_RGB_PALETTE | VIBE_FB_CAP_MODE13_SHADOW | VIBE_FB_CAP_DIRTY_SOURCE_RECT | VIBE_FB_CAP_FIXED_PRESENT_SIZE
     cmp byte [video_backend], VIDEO_BACKEND_LFB_XRGB8888
     jne .ioctl_fbinfo_caps_ready
     or eax, VIBE_FB_CAP_XRGB8888_LFB
@@ -15088,6 +15730,75 @@ write_smoke_status:
     mov edx, [boot_user_exec_entry]
     call smoke_write_hex32
 
+    mov esi, smoke_abiexec_text
+    call smoke_copy_string
+    cmp byte [abi_probe_exec_status], 1
+    jne .abiexec_not_ok
+    cmp byte [abi_probe_status], 1
+    jne .abiexec_not_ok
+    mov esi, smoke_ok_text
+    jmp .abiexec_write
+
+.abiexec_not_ok:
+    cmp byte [abi_probe_exec_status], 2
+    je .abiexec_fail
+    cmp byte [abi_probe_status], 2
+    je .abiexec_fail
+    mov esi, smoke_wait_text
+    jmp .abiexec_write
+
+.abiexec_fail:
+    mov esi, smoke_fail_text
+
+.abiexec_write:
+    call smoke_copy_string
+    mov esi, smoke_abiexec_path_text
+    call smoke_copy_string
+    mov esi, exec_path_abi_probe
+    call smoke_copy_string
+    mov esi, smoke_abiexec_pid_text
+    call smoke_copy_string
+    mov edx, [abi_probe_exec_pid]
+    call smoke_write_hex32
+    mov esi, smoke_abiexec_ppid_text
+    call smoke_copy_string
+    mov edx, [abi_probe_exec_parent_pid]
+    call smoke_write_hex32
+    mov esi, smoke_abiexec_entry_text
+    call smoke_copy_string
+    mov edx, [abi_probe_exec_entry]
+    call smoke_write_hex32
+    mov esi, smoke_abiexec_argc_text
+    call smoke_copy_string
+    mov edx, [abi_probe_exec_argc]
+    call smoke_write_hex32
+    mov esi, smoke_abiexec_argvsrc_text
+    call smoke_copy_string
+    mov edx, [abi_probe_exec_argv_source]
+    call smoke_write_hex32
+    mov esi, smoke_abiprobe_text
+    call smoke_copy_string
+    cmp byte [abi_probe_status], 1
+    je .abiprobe_ok
+    cmp byte [abi_probe_status], 2
+    je .abiprobe_fail
+    mov esi, smoke_wait_text
+    jmp .abiprobe_write
+
+.abiprobe_ok:
+    mov esi, smoke_ok_text
+    jmp .abiprobe_write
+
+.abiprobe_fail:
+    mov esi, smoke_fail_text
+
+.abiprobe_write:
+    call smoke_copy_string
+    mov esi, smoke_abiflags_text
+    call smoke_copy_string
+    mov edx, [abi_probe_flags_seen]
+    call smoke_write_hex32
+
     mov esi, smoke_procpool_text
     call smoke_copy_string
     mov edx, PROCESS_SLOT_COUNT
@@ -15166,6 +15877,27 @@ write_smoke_status:
     mov al, '/'
     stosb
     mov edx, [process_wait_last_status]
+    call smoke_write_hex32
+
+    mov esi, smoke_vmreap_text
+    call smoke_copy_string
+    mov edx, [process_vm_teardowns]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_vm_pages_cleared]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_wait_vm_reaps]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_wait_vm_pages_reclaimed]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [process_wait_last_vm_pages_reclaimed]
     call smoke_write_hex32
     mov al, ' '
     stosb
@@ -17378,6 +18110,75 @@ print_hex32:
     pop eax
     ret
 
+audio_write_stream_info:
+    push eax
+    push ebx
+    push ecx
+    push edi
+
+    mov eax, edx
+    mov ebx, AUDIO_STREAM_INFO_BYTES
+    call user_range_validate
+    jc .fail
+
+    mov edi, edx
+    mov eax, [sb16_music_stream_mode]
+    mov [edi + AUDIO_STREAM_INFO_MODE], eax
+    xor eax, eax
+    cmp dword [sb16_music_stream_mode], AUDIO_MUSIC_STREAM_PULL
+    jne .pull_flag_ready
+    or eax, AUDIO_STREAM_FLAG_PULL
+
+.pull_flag_ready:
+    cmp dword [sb16_active_music_voice_count], 0
+    je .active_flag_ready
+    or eax, AUDIO_STREAM_FLAG_ACTIVE
+
+.active_flag_ready:
+    mov ebx, [sb16_music_pull_request_count]
+    cmp ebx, dword [sb16_music_pull_refill_count]
+    jbe .pending_flag_ready
+    or eax, AUDIO_STREAM_FLAG_REFILL_PENDING
+
+.pending_flag_ready:
+    mov [edi + AUDIO_STREAM_INFO_FLAGS], eax
+    mov [edi + AUDIO_STREAM_INFO_HANDLE], ecx
+    mov eax, [sb16_music_pull_request_count]
+    mov [edi + AUDIO_STREAM_INFO_PULL_REQUEST_COUNT], eax
+    mov eax, [sb16_music_pull_refill_count]
+    mov [edi + AUDIO_STREAM_INFO_PULL_REFILL_COUNT], eax
+    mov eax, [sb16_music_pull_request_count]
+    sub eax, [sb16_music_pull_refill_count]
+    jnc .pending_ready
+    xor eax, eax
+
+.pending_ready:
+    mov [edi + AUDIO_STREAM_INFO_PENDING_PULL_REQUESTS], eax
+    mov eax, [sb16_music_stream_buffer_bytes]
+    mov [edi + AUDIO_STREAM_INFO_QUEUED_BYTES], eax
+    mov dword [edi + AUDIO_STREAM_INFO_LOW_WATER_BYTES], AUDIO_MUSIC_PULL_LOW_WATER_BYTES
+    mov eax, [sb16_active_music_voice_count]
+    mov [edi + AUDIO_STREAM_INFO_ACTIVE_MUSIC_VOICES], eax
+    mov eax, [sb16_music_stream_under_count]
+    mov [edi + AUDIO_STREAM_INFO_UNDERRUN_COUNT], eax
+    mov eax, [sb16_music_stream_drop_count]
+    mov [edi + AUDIO_STREAM_INFO_DROP_COUNT], eax
+    mov eax, [sb16_music_stream_pos_bytes]
+    mov [edi + AUDIO_STREAM_INFO_POSITION_BYTES], eax
+    xor eax, eax
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
 banner db 13, 10
        db "Aurora OS v0.2", 13, 10
        db "32-bit protected mode kernel online.", 13, 10
@@ -17492,10 +18293,20 @@ smoke_userexec_text db " uexec=", 0
 smoke_userexec_path_text db " upath=", 0
 smoke_userexec_pid_text db " upid=", 0
 smoke_userexec_entry_text db " uentry=", 0
+smoke_abiexec_text db " abiexec=", 0
+smoke_abiexec_path_text db " abipath=", 0
+smoke_abiexec_pid_text db " abipid=", 0
+smoke_abiexec_ppid_text db " abippid=", 0
+smoke_abiexec_entry_text db " abientry=", 0
+smoke_abiexec_argc_text db " abiargc=", 0
+smoke_abiexec_argvsrc_text db " abiargvsrc=", 0
+smoke_abiprobe_text db " abiprobe=", 0
+smoke_abiflags_text db " abiflags=", 0
 smoke_procpool_text db " procpool=", 0
 smoke_pidseq_text db " pidseq=", 0
 smoke_fdexec_text db " fdexec=", 0
 smoke_pwait_text db " wait=", 0
+smoke_vmreap_text db " vmreap=", 0
 smoke_doom_text db "doom=", 0
 smoke_doomrun_text db " doomrun=", 0
 smoke_doomexit_text db " doomexit=", 0
@@ -17730,6 +18541,7 @@ user_elf_name_83 db "USERPROBELF"
 doom_elf_name_83 db "DOOM    ELF"
 exec_path_doom db "DOOM.ELF", 0
 exec_path_user_probe db "USERPROB.ELF", 0
+exec_path_abi_probe db "ABIPROBE.ELF", 0
 default_cfg_name_83 db "DEFAULT CFG"
 doomsav0_name_83 db "DOOMSAV0DSG"
 doomsav1_name_83 db "DOOMSAV1DSG"
@@ -17873,6 +18685,8 @@ user_fault_status db 0
 user_elf_status db 0
 user_elf_parse_status db 0
 boot_user_exec_status db 0
+abi_probe_status db 0
+abi_probe_exec_status db 0
 doom_elf_status db 0
 doom_elf_load_status db 0
 doom_elf_parse_status db 0
@@ -18113,6 +18927,7 @@ fat_list_max dd 0
 fat_list_copied dd 0
 fat_list_entry_ptr dd 0
 fat_list_output_ptr dd 0
+fat_subdir_file_size dd 0
 mmap_addr_arg dd 0
 mmap_len_arg dd 0
 mmap_prot_arg dd 0
@@ -18128,6 +18943,7 @@ align 4
 fd_indices times USER_FD_COUNT dd 0
 fd_offsets times USER_FD_COUNT dd 0
 fd_flags times USER_FD_COUNT dd 0
+fd_file_sizes times USER_FD_COUNT dd 0
 fd_owner_pids times USER_FD_COUNT dd 0xffffffff
 fd_open_generations times USER_FD_COUNT dd 0
 fd_inherit_flags times USER_FD_COUNT dd 0
@@ -18190,6 +19006,13 @@ fat_alloc_last_entry dd 0
 fat_alloc_last_data_snapshot dd 0
 user_probe_magic_seen dd 0
 user_probe_flags_seen dd 0
+abi_probe_magic_seen dd 0
+abi_probe_flags_seen dd 0
+abi_probe_exec_pid dd 0xffffffff
+abi_probe_exec_parent_pid dd 0xffffffff
+abi_probe_exec_entry dd 0
+abi_probe_exec_argc dd 0
+abi_probe_exec_argv_source dd 0
 user_fault_addr dd 0
 user_fault_recovery dd 0
 fault_vector dd 0
@@ -18255,6 +19078,10 @@ process_next_pid dd 4
 process_slot_reuses dd 0
 process_vm_teardowns dd 0
 process_vm_pages_cleared dd 0
+process_wait_vm_reaps dd 0
+process_wait_vm_pages_reclaimed dd 0
+process_wait_last_vm_pages_reclaimed dd 0
+process_wait_vm_pages_before dd 0
 process_mmap_allocations dd 0
 process_mmap_pages_mapped dd 0
 process_mmap_last_object_kind dd 0
@@ -18606,6 +19433,8 @@ fat_open_dot_seen db 0
 fat_open_base_len db 0
 fat_open_ext_len db 0
 fat_open_name_buffer times 11 db 0
+fat_subdir_name_buffer times 11 db 0
+fat_path_component_index db 0
 user_load_segment_count db 0
 doom_load_segment_count db 0
 present_status db 0

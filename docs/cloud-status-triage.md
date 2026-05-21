@@ -35,6 +35,27 @@ python3 tools/run_cloud_playability.py --ref main --lane audio \
   --download-artifacts build/cloud-run-audio
 ```
 
+For an existing run, let the helper identify the proof lane from the downloaded
+artifact and run the checker from the cloud run's own commit:
+
+```sh
+python3 tools/run_cloud_playability.py --run-id RUN_ID \
+  --lane auto \
+  --checker-ref run \
+  --download-artifacts build/cloud-run-RUN_ID \
+  --write-audit-log build/cloud-run-RUN_ID/cloud-playability-audit.json
+```
+
+This prints `gh run view` metadata, the run URL/status/conclusion fields when
+available, the `gh run download` command, the inferred checker gates, and the
+status triage command. The detached checker worktree keeps old audio vs
+persistence proof artifacts reproducible when local dirty checker files have
+already changed.
+The audit log mirrors those printed commands plus the workflow/artifact name,
+artifact policy, checker ref/worktree, download directory, and failure-lane
+block in `schema=cloud-playability-audit-v1` JSON so a human can review the
+same proof after the current shared tree has been pushed and changed again.
+
 To measure repeatability without raw status/log uploads, use the soak mode. It
 downloads `real-wad-soak-metadata` and validates the JSON-only summary:
 

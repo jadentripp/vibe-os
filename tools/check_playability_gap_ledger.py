@@ -141,6 +141,28 @@ FORBIDDEN_STALE_CURRENT_PROOF_PHRASES = (
     "Nothing is missing for this exact commit's scripted real-gameplay gate",
 )
 
+USER_FACING_ROADMAP_PHRASES = (
+    "User-Facing Legitimacy Roadmap",
+    "Playable now:",
+    "scripted-cloud playable in the disposable QEMU proof lane",
+    "playable through the repo's cloud proof lane with status-only artifacts",
+    "does not yet mean a finished, general-purpose OS or a recorded human playtest",
+    "Next playability polish:",
+    "formal remote VNC human playtest bundle for the current commit",
+    "--require-human-session",
+    "human audio quality notes without uploading raw Doom audio",
+    "hardware-paced kernel pull/refill stream",
+    "Legit general-OS milestones:",
+    "non-identity higher-half contract",
+    "dynamic child lifetimes",
+    "real `fork`",
+    "fd duplication",
+    "file-backed `mmap`",
+    "install/recovery and hardware support outside the current generated FAT16 image",
+    "QEMU BIOS/IDE/PS2/VBE/SB16 device model",
+    "machine-readable proof boundary before they become user-facing claims",
+)
+
 PROVEN_GAPS = {"CLOUD_BOOT", "REAL_GAMEPLAY", "PERSISTENCE", "SHUTDOWN_PANIC"}
 
 GAP_RE = re.compile(
@@ -210,6 +232,9 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
     for phrase in LATEST_RUN_PHRASES:
         if not _contains_phrase(text, phrase):
             raise AssertionError(f"gap ledger missing latest-run phrase: {phrase}")
+    for phrase in USER_FACING_ROADMAP_PHRASES:
+        if not _contains_phrase(text, phrase):
+            raise AssertionError(f"gap ledger missing user-facing roadmap phrase: {phrase}")
     combined_claim_surface = "\n".join((text, readme, playable_cloud_proof))
     for phrase in FORBIDDEN_STALE_CURRENT_PROOF_PHRASES:
         if _contains_phrase(combined_claim_surface, phrase):
@@ -224,9 +249,8 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         "`DOOMSAV*.DSG`",
         "loads the save back into gameplay",
         "Where It Stands",
-        "Detailed evidence, historical failures, and exact proof artifacts",
-        "gh workflow run os-smoke.yml",
-        "gh workflow run real-wad-smoke.yml",
+        "Long-form evidence, historical failures, and workflow dispatch examples",
+        "workflow dispatch examples live in `docs/post-checkpoint-gaps.md` and",
     ):
         if not _contains_phrase(readme, phrase):
             raise AssertionError(f"README missing claim-boundary phrase: {phrase}")
@@ -240,6 +264,11 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
     for phrase in forbidden_readme_phrases:
         if _contains_phrase(readme, phrase):
             raise AssertionError(f"README should not carry proof provenance phrase: {phrase}")
+    readme_without_code_names = re.sub(r"`[^`]+`", " ", readme)
+    if re.search(r"\brun\s+`?\d{9,}`?", readme_without_code_names, re.IGNORECASE):
+        raise AssertionError("README should not carry concrete proof run IDs")
+    if re.search(r"\bcommit\s+`?[0-9a-f]{7,40}`?\b", readme_without_code_names, re.IGNORECASE):
+        raise AssertionError("README should not carry concrete commit hashes")
     for phrase in ("c525952", "f9a688e"):
         if not _contains_phrase(text, phrase):
             raise AssertionError(f"gap ledger missing historical commit phrase: {phrase}")

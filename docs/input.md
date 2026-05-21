@@ -35,8 +35,19 @@ Generic ABI:
   deltas, and the last generic event device/type. This status API is a proof
   and health surface; polling it must not consume input events.
 - `VIBE_INPUT_MOUSE_BUTTON_LEFT`, `VIBE_INPUT_MOUSE_BUTTON_RIGHT`, and
-  `VIBE_INPUT_MOUSE_BUTTON_MIDDLE` name the raw PS/2 button bits. Game-specific
+  `VIBE_INPUT_MOUSE_BUTTON_MIDDLE` name the raw PS/2 button bits, and
+  `VIBE_INPUT_MOUSE_BUTTON_MASK` names the supported bit range.
+- Raw PS/2 button order is preserved in generic events and status.
+  Game-specific
   button remapping belongs in the consuming port, not in the kernel queue.
+- `vibe_input_mouse_buttons()`, `vibe_input_mouse_button_is_down()`,
+  `vibe_input_mouse_delta_x()`, `vibe_input_mouse_delta_y()`, and
+  `vibe_input_mouse_has_motion()` normalize mouse packet reads for any future
+  user program. The matching status helpers
+  `vibe_input_status_mouse_buttons()`,
+  `vibe_input_status_mouse_button_is_down()`, and
+  `vibe_input_status_mouse_has_motion()` expose the same raw-button and
+  cumulative-motion semantics without consuming events.
 - Queue overflow semantics are overwrite-oldest: when the shared input ring is
   full, the kernel advances the tail, writes the new event, and increments
   `dropped_events`. Programs that require lossless input can compare

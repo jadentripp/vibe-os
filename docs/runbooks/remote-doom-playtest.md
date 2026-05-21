@@ -153,6 +153,24 @@ is the guided helper from a second SSH shell on the disposable host:
   --scripted-proof-run-id "<passing-real-wad-smoke-run-id>"
 ```
 
+Before a live capture, you can print the exact status-only command template
+without reading artifacts or touching QEMU:
+
+```sh
+python3 tools/collect_human_playtest_bundle.py \
+  --print-template \
+  --build-dir build \
+  --output-dir /tmp/vibe-os-human-proof \
+  --playtester "<name-or-initials>" \
+  --scripted-proof-run-id "<passing-real-wad-smoke-run-id>" \
+  --commit "$(git rev-parse --short=12 HEAD)"
+```
+
+The template includes the capture loop, collector command, tarball command,
+local post-download checkers, cleanup notes, the safe artifact policy, and the
+4+ CPU Codespaces/noVNC recommendation. It ends with
+`dry-run: no files were copied`, and QEMU is not launched.
+
 It prompts the human for each VNC action, calls the collector's
 `--capture-phase` helper for all eight phases, runs the bundle collector with
 the required `--confirm-*` flags, validates the allowlisted bundle before
@@ -214,7 +232,11 @@ The helper understands only the eight proof phases: `early`, `after-start`,
 `after-fire`, `after-move`, `after-use`, `after-mouse`, `after-menu`, and
 `final`. `final` is written to `build/status.txt`; the other phases are written
 to `build/status.<phase>.txt`. Each successful capture prints
-`human status capture OK`.
+`human status capture OK` plus a compact `status audit summary:` line. If the
+captured status page is missing any field required by
+`human-playtest-session.json`, the helper fails immediately and deletes the
+temporary `status.*.bin` capture instead of letting a weak phase reach the
+bundle step.
 
 Collect the manual proof bundle on the disposable remote host. Use an empty
 scratch directory outside the repository. The collector does not launch QEMU; it
@@ -337,6 +359,10 @@ If you used `tools/run_remote_human_playtest.sh`, download only the tarball it
 prints, then run the printed local checker commands and compare the local
 `post-download human verification OK` line with the remote `pre-download human
 verification OK` line.
+The guided helper prints both post-download gates: the bundle-level
+`tools/check_cloud_playability_artifacts.py --human-session` command and the
+strict `tools/check_human_playability_proof.py --require-human-session` command
+with the same expected commit and scripted Real WAD smoke run ID.
 Do not create the tarball inside the repository checkout. The guided helper
 refuses repo-local tarball paths and only packages the flat allowlisted proof
 directory it just validated.

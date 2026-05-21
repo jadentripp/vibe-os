@@ -105,6 +105,44 @@ What still fails:
   semantics, broader graphics policy, more complete music streaming, and
   hardware classes beyond the current QEMU BIOS/IDE/PS2/VBE/SB16 target.
 
+## User-Facing Legitimacy Roadmap
+
+Playable now:
+
+- It is fair to say the real `DOOM1.WAD` path is scripted-cloud playable in the
+  disposable QEMU proof lane: Doom runs as a Ring 3 process, opens and reads the
+  WAD, reaches E1M1 gameplay, accepts scripted keyboard and mouse actions, emits
+  SB16/audio continuity plus aggregate audible-output proof, and persists then
+  reloads a save slot.
+- Keep the caveat attached: this means "playable through the repo's cloud proof
+  lane with status-only artifacts." It does not yet mean a finished,
+  general-purpose OS or a recorded human playtest.
+
+Next playability polish:
+
+- Complete the formal remote VNC human playtest bundle for the current commit,
+  including notes, phase hashes, post-download verification, and the strict
+  `--require-human-session` checker.
+- Tune the user-facing session quality: smoother first-run remote play steps,
+  keyboard/menu confidence from a person, mouse confirmation in the same
+  session, and human audio quality notes without uploading raw Doom audio.
+- Move music toward a hardware-paced kernel pull/refill stream and tune SFX/music
+  balance so the audible proof becomes pleasant playback evidence, not just a
+  non-silent aggregate.
+
+Legit general-OS milestones:
+
+- Relocate the running kernel onto the non-identity higher-half contract instead
+  of only proving high aliases and process page directories.
+- Grow VM/POSIX semantics beyond the fixed-slot process model: dynamic child
+  lifetimes, real `fork`, fd duplication, file-backed `mmap`, reusable VM
+  objects, signals, terminal behavior, and broader syscall coverage.
+- Prove install/recovery and hardware support outside the current generated
+  FAT16 image and QEMU BIOS/IDE/PS2/VBE/SB16 device model: UEFI, AHCI/SATA, USB,
+  SMP, APIC/HPET, broader PCI/device discovery, and physical hardware each need
+  their own machine-readable proof boundary before they become user-facing
+  claims.
+
 Earlier red runs kept for context:
 
 - Manual real-WAD run `26150621804` on commit `1db3a7a` reached gameplay and
@@ -324,6 +362,13 @@ Still missing:
   FAT16 disk image can persist a Doom save across reboot and load it back into
   gameplay in the disposable QEMU target; it is not a general install/recovery
   story for arbitrary disks.
+- Install/recovery remains its own claim boundary:
+  `STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL] status=unclaimed` and
+  `STORAGE_BOUNDARY[ARBITRARY_DISK_RECOVERY] status=unclaimed`. The current
+  host checker can produce an `install-image-manifest` for the repo-generated
+  image, but the next real proof must start from `blank-disk-to-bootable-vibe-os`
+  and separately prove `detect-and-repair-or-refuse` behavior for damaged image
+  fixtures.
 - The writable FAT path is now a general root-level 8.3 VFS/FAT layer with
   descriptor truncation, signed seek offsets, sparse-write zero filling, and
   generic dynamic root entries. It is still not full POSIX: no writable
@@ -412,8 +457,9 @@ Current state:
   syscall-frame patching fails after the target address space was activated, so
   the rollback counter no longer leaves a half-prepared target running. Status
   reports `uexec=OK`/`upath=USERPROB.ELF` when the boot probe came through the
-  shared exec resolver and `argvsrc=2` when Doom's ABI stack came from the copied
-  user vector.
+  shared exec resolver, `abiexec=OK`/`abipath=ABIPROBE.ELF`/`abiprobe=OK` when
+  the packaged ABI probe ran through a generic root `.ELF` slot, and `argvsrc=2`
+  when Doom's ABI stack came from the copied user vector.
 - Exec targets reuse their table slots with fresh PIDs, stale user PTE teardown,
   and stack-PTE rearming before image load. Exit and failed exec paths retire
   user mappings instead of only changing process state.
@@ -441,9 +487,11 @@ Current state:
   legitimate non-identity mapping capability, not a relocated running kernel.
   `tools/check_vm_status_proof.py` turns those fields into a cloud gate: it
   requires `vmmhfree` to match the reclaimed `vmmhpt` frame,
-  `uexec=OK`/`upath=USERPROB.ELF` for boot-probe exec, `argvsrc=2` for
-  user-vector Doom exec, `procpool=`/`fdexec=`/`wait=` for bounded process-slot
-  reuse, exec-time fd inheritance, and the wait/reap proof, and `pmask` plus
+  `uexec=OK`/`upath=USERPROB.ELF` for boot-probe exec,
+  `abiexec=OK`/`abipath=ABIPROBE.ELF`/`abiprobe=OK` for the generic ABI probe,
+  `argvsrc=2` for user-vector Doom exec, `procpool=`/`fdexec=`/`wait=`/`vmreap=` for bounded
+  process-slot reuse, exec-time fd inheritance, the wait/reap proof, and child
+  VM teardown during reap, and `pmask` plus
   `pkind`/`peip`/`pcr3`/`pkstk` for timer IRQ switches in both directions
   between Doom and the preempt probe.
 

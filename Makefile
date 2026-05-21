@@ -50,11 +50,13 @@ USER_CRT0_OBJ := $(BUILD_DIR)/user_crt0.o
 USER_PROBE_C_OBJ := $(BUILD_DIR)/user_probe_c.o
 USER_PROBE_ELF := $(BUILD_DIR)/user_probe.elf
 USER_ABI_PROBE_C_OBJ := $(BUILD_DIR)/user_abi_probe_c.o
+USER_RUNTIME_C_OBJ := $(BUILD_DIR)/user_runtime_c.o
 USER_ABI_PROBE_ELF := $(BUILD_DIR)/abi_probe.elf
 IMAGE := $(BUILD_DIR)/disk.img
 C_RUNTIME_SRC := kernel/c_runtime_probe.c
 USER_PROBE_C_SRC := user/probe.c
 USER_ABI_PROBE_C_SRC := user/abi_probe.c
+USER_RUNTIME_C_SRC := user/runtime.c
 DOOM_SRC_DIR := third_party/doom/linuxdoom-1.10
 DOOM_PORT_INCLUDE_DIR := doom_port/include
 DOOM_PORT_BUILD_DIR := $(BUILD_DIR)/doom
@@ -76,7 +78,7 @@ USER_PROBE_ELF_MAX_BYTES := 12288
 USER_ABI_PROBE_ELF_MAX_BYTES := 12288
 IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF)
 
-.PHONY: all build-only test doom-compile doom-link run run-headless smoke playability-host-check playability-gap-check hardware-support-check vm-safety-check shutdown-panic-proof-check scripted-gameplay-proof-check audio-continuity-check audible-audio-proof-check cloud-playability-check persistence-image-check clean check-tools vm-consent
+.PHONY: all build-only test doom-compile doom-link run run-headless smoke playability-host-check playability-gap-check hardware-support-check storage-install-boundary-check vm-safety-check shutdown-panic-proof-check scripted-gameplay-proof-check audio-continuity-check audible-audio-proof-check cloud-playability-check persistence-image-check clean check-tools vm-consent
 
 all: $(IMAGE)
 
@@ -100,9 +102,10 @@ playability-host-check:
 	$(PYTHON) tools/check_repo_hygiene.py
 	$(MAKE) --no-print-directory ALLOW_LOCAL_VM=0 cloud-playability-check
 	$(MAKE) --no-print-directory ALLOW_LOCAL_VM=0 DOOM_WAD= PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF=1 persistence-image-check
+	$(MAKE) --no-print-directory ALLOW_LOCAL_VM=0 DOOM_WAD= storage-install-boundary-check
 	git diff --check
 	git diff --cached --check
-	@printf "Playability host check OK: hygiene, original Doom provenance, dynamic FAT persistence image, cloud artifact/runbook contracts, and play-now script contracts passed without local QEMU.\n"
+	@printf "Playability host check OK: hygiene, original Doom provenance, dynamic FAT persistence image, storage install-boundary manifest, cloud artifact/runbook contracts, and play-now script contracts passed without local QEMU.\n"
 
 check-tools:
 	@command -v $(NASM) >/dev/null || { echo "missing nasm"; exit 1; }
@@ -147,7 +150,10 @@ $(USER_CRT0_OBJ): user/crt0.asm | $(BUILD_DIR)
 $(USER_PROBE_C_OBJ): $(USER_PROBE_C_SRC) | $(BUILD_DIR)
 	$(CLANG) $(FREESTANDING_I386_CFLAGS) -c $< -o $@
 
-$(USER_ABI_PROBE_C_OBJ): $(USER_ABI_PROBE_C_SRC) doom_port/include/vibe_os.h | $(BUILD_DIR)
+$(USER_ABI_PROBE_C_OBJ): $(USER_ABI_PROBE_C_SRC) user/runtime.h doom_port/include/vibe_os.h | $(BUILD_DIR)
+	$(CLANG) $(FREESTANDING_I386_CFLAGS) -I$(DOOM_PORT_INCLUDE_DIR) -c $< -o $@
+
+$(USER_RUNTIME_C_OBJ): $(USER_RUNTIME_C_SRC) user/runtime.h doom_port/include/vibe_os.h | $(BUILD_DIR)
 	$(CLANG) $(FREESTANDING_I386_CFLAGS) -I$(DOOM_PORT_INCLUDE_DIR) -c $< -o $@
 
 $(DOOM_PORT_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c Makefile | $(DOOM_PORT_BUILD_DIR)
@@ -169,8 +175,8 @@ $(USER_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_PROBE_C_OBJ) tools/link_elf32.py | $(
 	$(PYTHON) tools/link_elf32.py -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_PROBE_C_OBJ)
 	@test $$(wc -c < $@) -le $(USER_PROBE_ELF_MAX_BYTES) || { echo "user probe ELF exceeds $(USER_PROBE_ELF_MAX_BYTES) bytes"; exit 1; }
 
-$(USER_ABI_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_ABI_PROBE_C_OBJ) tools/link_elf32.py | $(BUILD_DIR)
-	$(PYTHON) tools/link_elf32.py -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_ABI_PROBE_C_OBJ)
+$(USER_ABI_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_RUNTIME_C_OBJ) $(USER_ABI_PROBE_C_OBJ) tools/link_elf32.py | $(BUILD_DIR)
+	$(PYTHON) tools/link_elf32.py -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_RUNTIME_C_OBJ) $(USER_ABI_PROBE_C_OBJ)
 	@test $$(wc -c < $@) -le $(USER_ABI_PROBE_ELF_MAX_BYTES) || { echo "ABI probe ELF exceeds $(USER_ABI_PROBE_ELF_MAX_BYTES) bytes"; exit 1; }
 
 $(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) tools/make_wad_image.py
@@ -433,6 +439,9 @@ playability-gap-check:
 
 hardware-support-check:
 	$(PYTHON) tools/check_hardware_support_matrix.py
+
+storage-install-boundary-check: $(IMAGE)
+	$(PYTHON) tools/check_storage_install_boundary.py --repo-contract --image "$(IMAGE)"
 
 vm-safety-check:
 	$(PYTHON) tools/check_vm_safety_contract.py

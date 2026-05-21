@@ -28,6 +28,7 @@ class DoomInputContractTests(unittest.TestCase):
                 (VIBE_INPUT_MOUSE_BUTTON_LEFT
                 | VIBE_INPUT_MOUSE_BUTTON_RIGHT
                 | VIBE_INPUT_MOUSE_BUTTON_MIDDLE) == 7);
+            CHECK(input_mouse_button_mask, VIBE_INPUT_MOUSE_BUTTON_MASK == 7);
             CHECK(input_status_size, sizeof(vibe_input_status_t) == VIBE_INPUT_STATUS_BYTES);
             CHECK(input_status_abi_version, __builtin_offsetof(vibe_input_status_t, abi_version) == 0);
             CHECK(input_status_event_bytes, __builtin_offsetof(vibe_input_status_t, event_bytes) == 4);
@@ -130,16 +131,36 @@ class DoomInputContractTests(unittest.TestCase):
 
                 if (!vibe_input_event_is_mouse_packet(&event) || vibe_input_event_is_key(&event))
                     return 4;
+                if (vibe_input_mouse_buttons(&event)
+                    != (VIBE_INPUT_MOUSE_BUTTON_LEFT | VIBE_INPUT_MOUSE_BUTTON_MIDDLE))
+                    return 11;
+                if (!vibe_input_mouse_button_is_down(&event, VIBE_INPUT_MOUSE_BUTTON_LEFT)
+                    || !vibe_input_mouse_button_is_down(&event, VIBE_INPUT_MOUSE_BUTTON_MIDDLE)
+                    || vibe_input_mouse_button_is_down(&event, VIBE_INPUT_MOUSE_BUTTON_RIGHT)
+                    || vibe_input_mouse_button_is_down(&event, 0x08u))
+                    return 12;
+                if (vibe_input_mouse_delta_x(&event) != -3
+                    || vibe_input_mouse_delta_y(&event) != 5
+                    || !vibe_input_mouse_has_motion(&event))
+                    return 13;
 
                 vibe_input_make_key_event(&event, 47, 'a', 1);
                 if (!vibe_input_event_is_key(&event) || vibe_input_event_is_mouse_packet(&event))
                     return 5;
+                if (vibe_input_mouse_buttons(&event) != 0
+                    || vibe_input_mouse_delta_x(&event) != 0
+                    || vibe_input_mouse_delta_y(&event) != 0
+                    || vibe_input_mouse_has_motion(&event))
+                    return 14;
 
                 {
                     vibe_input_status_t status;
                     status.dropped_events = 0;
                     status.keyboard_state[0] = 0;
                     status.keyboard_state[3] = 0;
+                    status.mouse_buttons = 0xf2u;
+                    status.mouse_delta_x_total = 0;
+                    status.mouse_delta_y_total = 9;
                     if (vibe_input_status_has_overflow(&status))
                         return 6;
                     status.dropped_events = 1;
@@ -152,6 +173,17 @@ class DoomInputContractTests(unittest.TestCase):
                         return 9;
                     if (vibe_input_status_key_is_down(&status, 256))
                         return 10;
+                    if (vibe_input_status_mouse_buttons(&status) != VIBE_INPUT_MOUSE_BUTTON_RIGHT)
+                        return 15;
+                    if (!vibe_input_status_mouse_button_is_down(&status, VIBE_INPUT_MOUSE_BUTTON_RIGHT)
+                        || vibe_input_status_mouse_button_is_down(&status, VIBE_INPUT_MOUSE_BUTTON_LEFT)
+                        || vibe_input_status_mouse_button_is_down(&status, 0x08u))
+                        return 16;
+                    if (!vibe_input_status_mouse_has_motion(&status))
+                        return 17;
+                    status.mouse_delta_y_total = 0;
+                    if (vibe_input_status_mouse_has_motion(&status))
+                        return 18;
                 }
 
                 vibe_input_make_key_event(0, 0, 0, 0);
@@ -200,8 +232,13 @@ class DoomInputContractTests(unittest.TestCase):
             "keyboard_down_count",
             "keyboard_state",
             "mouse_buttons",
+            "VIBE_INPUT_MOUSE_BUTTON_MASK",
+            "vibe_input_mouse_button_is_down()",
+            "vibe_input_mouse_has_motion()",
+            "vibe_input_status_mouse_button_is_down()",
             "future games",
             "Game-specific\n  button remapping belongs in the consuming port",
+            "Raw PS/2 button order is preserved",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, docs)

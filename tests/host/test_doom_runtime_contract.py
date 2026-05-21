@@ -82,6 +82,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "VIBE_IOCTL_FBINFO",
             "VIBE_IOCTL_PRESENT_INDEXED",
             "VIBE_FB_CAP_PRESENT_INDEXED",
+            "VIBE_FB_CAP_FIXED_PRESENT_SIZE",
             "VIBE_FB_FORMAT_INDEX8_RGB24",
             "typedef struct vibe_fb_info",
             "typedef struct vibe_present_indexed",
@@ -124,6 +125,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "VIBE_IOCTL_PRESENT_INDEXED equ 0x00005602",
             "VIBE_FB_INFO_CAPABILITIES equ 68",
             "VIBE_FB_INFO_BYTES equ 84",
+            "VIBE_FB_CAP_FIXED_PRESENT_SIZE equ 0x00000020",
             "VIBE_FB_FORMAT_INDEX8_RGB24 equ 1",
             "jmp .bad_syscall_enosys",
             "call process_waitpid_current",
@@ -145,6 +147,7 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "SYS_GETPID = 25",
             "SYS_LISTDIR = 30",
             "VIBE_FB_CAP_PRESENT_INDEXED",
+            "VIBE_FB_CAP_FIXED_PRESENT_SIZE",
             "VIBE_FB_FORMAT_INDEX8_RGB24",
         ):
             self.assertIn(token, probe)

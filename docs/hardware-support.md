@@ -8,6 +8,12 @@ IDE disk attachment, PS/2 input, PIT timer interrupts, VBE/VGA display paths, an
 an optional SB16-compatible audio device. A passing host test or build-only check
 does not prove additional hardware support.
 
+- `CURRENT_TARGET[QEMU_LEGACY_PC] status=claimed machine=qemu-legacy-pc includes=bios,ide-ata-pio,ps2-keyboard,ps2-mouse,vbe-vga,sb16 excludes=uefi,physical-hardware,general-pci,arbitrary-disk-install evidence=support-rows`
+
+That row is the short version of the contract: QEMU BIOS/IDE/PS2/VBE/SB16 is
+the supported target; UEFI, physical hardware, general PCI, and installation to
+arbitrary disks are outside the claim until their own proof rows change.
+
 Subsystem contract boundary:
 
 - Input, audio, and FAT16 are reusable OS-facing syscall/header contracts for
@@ -78,6 +84,17 @@ Status-only hardware discovery scaffolds:
 
 - `PCI_STATUS[QEMU_BUS0_CONFIG] status=status-only scope=qemu-pci-bus0 proof=cloud-smoke-status evidence=pci-status-fields`
 - `PCI_TABLE[QEMU_BUS0_CLASS_TABLE] status=status-only scope=qemu-pci-bus0 layout=bdf-id-class-header capacity=256 evidence=pci-table-status-fields`
+- `PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN] status=status-only bus=0 devices=32 functions=8 evidence=pci-status-fields`
+- `PCI_TABLE_CONTRACT[ENTRY_LAYOUT] status=status-only dwords=4 fields=bdf,id,class,header evidence=pci-table-status-fields`
+- `PCI_TABLE_CONTRACT[NO_DRIVER_BINDING] status=guardrail consumers=status-only drivers=none evidence=negative-claims`
+
+The PCI table contract is intentionally narrower than PCI enumeration support.
+`QEMU_BUS0_SCAN` pins the host-checkable bounds to bus 0, device slots 0-31,
+and functions 0-7. `ENTRY_LAYOUT` pins the table ABI that later drivers would
+need to consume before a support claim can change. `NO_DRIVER_BINDING` keeps the
+current table as diagnostics only: AHCI, USB, APIC, and other future drivers
+must not be described as discovered or usable through this table until they have
+their own proof rows and driver code.
 
 Claimed hardware status proof counters:
 

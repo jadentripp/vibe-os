@@ -111,12 +111,16 @@ python3 tools/run_cloud_playability.py --ref main --lane gameplay --dry-run
 python3 tools/run_cloud_playability.py --ref main --lane audio \
   --soak-attempts 3 \
   --soak-min-passes 3 \
+  --write-audit-log build/cloud-soak-audio/cloud-playability-audit.json \
   --dry-run
 ```
 
 The first two commands prove and open the interactive noVNC path. The latter
 two print the exact GitHub Actions proof and soak dispatches without launching
-local QEMU or downloading forbidden artifacts.
+local QEMU or downloading forbidden artifacts. Add `--write-audit-log` to
+downloaded proof runs when handing evidence to another person; the JSON records
+the workflow, artifact name, commands, checker ref, artifact policy, and
+failure lanes printed by the helper.
 When downloading proof artifacts, the helper prints separate failure lanes for
 gameplay/input, SB16 continuity, optional audible audio aggregate, and optional
 persistence/save-load triage. Keep those boundaries intact: a green gameplay
@@ -240,17 +244,25 @@ To turn the same remote session into a human proof bundle, leave
 disposable host:
 
 ```sh
+python3 tools/collect_human_playtest_bundle.py --print-template \
+  --build-dir build \
+  --output-dir /tmp/vibe-os-human-proof \
+  --playtester jt \
+  --scripted-proof-run-id "<passing-real-wad-smoke-run-id>"
+
 ./tools/run_remote_human_playtest.sh \
   --playtester jt \
   --scripted-proof-run-id "<passing-real-wad-smoke-run-id>"
 ```
 
-The helper prompts for the playable Doom actions, captures each status phase
-through the remote monitor socket, asks you to tie the session to a green Real
-WAD smoke run, records a slowdown level and short status-only slowdown note,
-writes the allowlisted proof bundle, validates it before download, creates
-`/tmp/vibe-os-human-proof.tgz`, and prints the local post-download checker
-commands. The longer version lives in
+The dry-run template prints the exact status-only capture, collect, download,
+verify, cleanup, and safe artifact policy commands without reading artifacts or
+launching QEMU. The guided helper then prompts for the playable Doom actions,
+captures each status phase through the remote monitor socket, asks you to tie
+the session to a green Real WAD smoke run, records a slowdown level and short
+status-only slowdown note, writes the allowlisted proof bundle, validates it
+before download, creates `/tmp/vibe-os-human-proof.tgz`, and prints the local
+post-download checker commands. The longer version lives in
 `docs/runbooks/remote-doom-playtest.md`; its collector writes
 `human-playtest-checklist.txt` with the post-download checker commands and phase
 hashes to compare.

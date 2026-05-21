@@ -120,6 +120,8 @@ enum {
 };
 
 enum {
+    /* Reusable OS audio commands: device lifecycle, mixer voice control,
+       PCM ring diagnostics, and pull-stream service state. */
     VIBE_AUDIO_DEVICE_START = 1,
     VIBE_AUDIO_MIXER_START = 2,
     VIBE_AUDIO_MIXER_STOP = 3,
@@ -130,6 +132,7 @@ enum {
     VIBE_AUDIO_PCM_PULL_STATE = 8,
     VIBE_AUDIO_DEVICE_INFO = 9,
     VIBE_AUDIO_PCM_RING_INFO = 10,
+    VIBE_AUDIO_STREAM_INFO = 11,
 };
 
 enum {
@@ -205,6 +208,8 @@ static inline void vibe_audio_voice_desc_init(
 }
 
 typedef struct vibe_audio_device_info {
+    /* Device-level capability record for callers before assuming an SB16
+       backing device, PCM ring, mixer voices, or pull streams. */
     unsigned long device_kind;
     unsigned long status;
     unsigned long sample_rate;
@@ -224,6 +229,8 @@ enum {
 };
 
 typedef struct vibe_audio_pcm_ring_info {
+    /* PCM-ring geometry and safety counters. This is the reusable device
+       stream buffer contract, not a Doom WAD or SFX descriptor. */
     unsigned long format;
     unsigned long channels;
     unsigned long sample_rate;
@@ -240,6 +247,30 @@ typedef struct vibe_audio_pcm_ring_info {
 
 enum {
     VIBE_AUDIO_PCM_RING_INFO_BYTES = 48,
+};
+
+typedef struct vibe_audio_stream_info {
+    /* Pull-stream service snapshot for hardware-paced refill loops. The stream
+       may carry music or any caller-owned PCM; Doom is only the first user. */
+    unsigned long stream_mode;
+    unsigned long flags;
+    unsigned long handle;
+    unsigned long pull_request_count;
+    unsigned long pull_refill_count;
+    unsigned long pending_pull_requests;
+    unsigned long queued_bytes;
+    unsigned long low_water_bytes;
+    unsigned long active_music_voices;
+    unsigned long underrun_count;
+    unsigned long drop_count;
+    unsigned long position_bytes;
+} vibe_audio_stream_info_t;
+
+enum {
+    VIBE_AUDIO_STREAM_INFO_BYTES = 48,
+    VIBE_AUDIO_STREAM_FLAG_PULL = 0x00000001u,
+    VIBE_AUDIO_STREAM_FLAG_REFILL_PENDING = 0x00000002u,
+    VIBE_AUDIO_STREAM_FLAG_ACTIVE = 0x00000004u,
 };
 
 static inline int vibe_audio_device_is_ready(const vibe_audio_device_info_t* info)
@@ -261,6 +292,20 @@ static inline int vibe_audio_pcm_ring_is_u8_stereo(const vibe_audio_pcm_ring_inf
     return info
         && info->format == VIBE_AUDIO_FORMAT_U8_STEREO
         && info->channels == 2;
+}
+
+static inline int vibe_audio_stream_uses_pull(const vibe_audio_stream_info_t* info)
+{
+    return info
+        && info->stream_mode == VIBE_AUDIO_MUSIC_STREAM_PULL
+        && (info->flags & VIBE_AUDIO_STREAM_FLAG_PULL) != 0;
+}
+
+static inline int vibe_audio_stream_needs_refill(const vibe_audio_stream_info_t* info)
+{
+    return info
+        && info->pending_pull_requests != 0
+        && (info->flags & VIBE_AUDIO_STREAM_FLAG_REFILL_PENDING) != 0;
 }
 
 enum {
@@ -304,6 +349,7 @@ enum {
     VIBE_INPUT_MOUSE_BUTTON_LEFT = 0x01u,
     VIBE_INPUT_MOUSE_BUTTON_RIGHT = 0x02u,
     VIBE_INPUT_MOUSE_BUTTON_MIDDLE = 0x04u,
+    VIBE_INPUT_MOUSE_BUTTON_MASK = 0x07u,
 };
 
 enum {
@@ -386,10 +432,7 @@ static inline void vibe_input_make_mouse_packet_event(
     event->timestamp = timestamp;
     event->device_id = VIBE_INPUT_DEVICE_MOUSE;
     event->type = VIBE_INPUT_EVENT_MOUSE_PACKET;
-    event->code = buttons & (
-        VIBE_INPUT_MOUSE_BUTTON_LEFT
-        | VIBE_INPUT_MOUSE_BUTTON_RIGHT
-        | VIBE_INPUT_MOUSE_BUTTON_MIDDLE);
+    event->code = buttons & VIBE_INPUT_MOUSE_BUTTON_MASK;
     event->value0 = delta_x;
     event->value1 = delta_y;
     event->value2 = 0;
@@ -407,6 +450,39 @@ static inline int vibe_input_event_is_mouse_packet(const vibe_input_event_t* eve
     return event
         && event->device_id == VIBE_INPUT_DEVICE_MOUSE
         && event->type == VIBE_INPUT_EVENT_MOUSE_PACKET;
+}
+
+static inline unsigned long vibe_input_mouse_buttons(const vibe_input_event_t* event)
+{
+    if (!vibe_input_event_is_mouse_packet(event))
+        return 0;
+
+    return event->code & VIBE_INPUT_MOUSE_BUTTON_MASK;
+}
+
+static inline int vibe_input_mouse_button_is_down(
+    const vibe_input_event_t* event,
+    unsigned long button)
+{
+    return button
+        && (button & ~VIBE_INPUT_MOUSE_BUTTON_MASK) == 0
+        && (vibe_input_mouse_buttons(event) & button) == button;
+}
+
+static inline long vibe_input_mouse_delta_x(const vibe_input_event_t* event)
+{
+    return vibe_input_event_is_mouse_packet(event) ? event->value0 : 0;
+}
+
+static inline long vibe_input_mouse_delta_y(const vibe_input_event_t* event)
+{
+    return vibe_input_event_is_mouse_packet(event) ? event->value1 : 0;
+}
+
+static inline int vibe_input_mouse_has_motion(const vibe_input_event_t* event)
+{
+    return vibe_input_event_is_mouse_packet(event)
+        && (event->value0 != 0 || event->value1 != 0);
 }
 
 static inline int vibe_input_status_has_overflow(const vibe_input_status_t* status)
@@ -433,6 +509,26 @@ static inline int vibe_input_status_key_is_down(
     return status
         && code < 256
         && (status->keyboard_state[code >> 5] & (1ul << (code & 31))) != 0;
+}
+
+static inline unsigned long vibe_input_status_mouse_buttons(const vibe_input_status_t* status)
+{
+    return status ? status->mouse_buttons & VIBE_INPUT_MOUSE_BUTTON_MASK : 0;
+}
+
+static inline int vibe_input_status_mouse_button_is_down(
+    const vibe_input_status_t* status,
+    unsigned long button)
+{
+    return button
+        && (button & ~VIBE_INPUT_MOUSE_BUTTON_MASK) == 0
+        && (vibe_input_status_mouse_buttons(status) & button) == button;
+}
+
+static inline int vibe_input_status_mouse_has_motion(const vibe_input_status_t* status)
+{
+    return status
+        && (status->mouse_delta_x_total != 0 || status->mouse_delta_y_total != 0);
 }
 
 enum {
@@ -538,6 +634,7 @@ enum {
     VIBE_FB_CAP_XRGB8888_LFB = 0x00000004u,
     VIBE_FB_CAP_MODE13_SHADOW = 0x00000008u,
     VIBE_FB_CAP_DIRTY_SOURCE_RECT = 0x00000010u,
+    VIBE_FB_CAP_FIXED_PRESENT_SIZE = 0x00000020u,
 };
 
 enum {
@@ -614,8 +711,11 @@ unsigned long vibe_monotonic_milliseconds(void);
  * - `vibe_fb_get_info` queries the reusable framebuffer contract, and
  *   `vibe_present_indexed_checked` verifies the advertised caps/format/size
  *   before presenting a `vibe_present_indexed_t` through the display fd/ioctl
- *   path. `vibe_fb_info_t` advertises the maximum accepted indexed source size
- *   and palette format before a program submits a frame.
+ *   path. `vibe_fb_info_t` advertises the accepted indexed source size and
+ *   palette format before a program submits a frame. When
+ *   `VIBE_FB_CAP_FIXED_PRESENT_SIZE` is set, callers must submit exactly
+ *   `max_present_width` by `max_present_height`; future variable-size present
+ *   formats can clear that bit and treat those fields as true maxima.
  * - sbrk grows or shrinks the process heap. Shrink trims whole released pages
  *   from the process page tables and heap-validation bitmap.
  *   `vibe_heap_capabilities` exposes this as grow+shrink brk-style heap only.

@@ -114,6 +114,8 @@ PROGRESS_TUPLE_COMPONENTS = (
     ("voiceq", 3, 2, "stream update"),
 )
 MIN_MUSIC_STREAM_UPDATE_DELTA = 2
+PLAYABILITY_CADENCE_FIELDS = ("gtic", "leveltime", "doompresent")
+PLAYABILITY_CADENCE_HEALTHY = "os-audio-cadence-observed"
 TUPLE_FIELDS = {
     "sb16": 2,
     "play": 2,
@@ -175,6 +177,9 @@ SUMMARY_FIELDS = (
     "doomopen",
     "doomread",
     "gameplay",
+    "gtic",
+    "leveltime",
+    "doompresent",
 )
 
 
@@ -552,6 +557,8 @@ def _assert_music_render_covers_stream_service(
     last_render = _hex_tuple(last_fields, "musicrend", last_label, 6)
     first_pos = _hex(first_fields, "musicpos", first_label)
     last_pos = _hex(last_fields, "musicpos", last_label)
+    first_buffer = _hex(first_fields, "musicbuf", first_label)
+    last_buffer = _hex(last_fields, "musicbuf", last_label)
 
     service_delta = last_service - first_service
     render_chunk_delta = last_render[1] - first_render[1]
@@ -565,8 +572,15 @@ def _assert_music_render_covers_stream_service(
         )
     if rendered_sample_delta < consumed_sample_delta:
         raise AssertionError(
-            "musicrend= rendered sample delta must cover musicpos= consumed samples, "
+            "musicrend= rendered sample delta must keep pace with musicpos= consumed samples, "
             f"got {rendered_sample_delta:08X} rendered for {consumed_sample_delta:08X} consumed"
+        )
+    if rendered_sample_delta + first_buffer < consumed_sample_delta + last_buffer:
+        raise AssertionError(
+            "musicrend= rendered sample delta plus initial musicbuf= must cover "
+            "musicpos= consumed samples plus final musicbuf=, "
+            f"got {rendered_sample_delta:08X} rendered + {first_buffer:08X} buffered "
+            f"for {consumed_sample_delta:08X} consumed + {last_buffer:08X} buffered"
         )
 
 
@@ -601,6 +615,145 @@ def _assert_audio_device_contract(snapshots: list[tuple[str, dict[str, str]]]) -
             raise AssertionError(f"{label} pcmbuf= write offset must stay inside the PCM ring")
         if active_half not in (0, 1):
             raise AssertionError(f"{label} pcmbuf= active half must be 0 or 1")
+
+
+def _hex8(value: int) -> str:
+    return f"{value & 0xFFFFFFFF:08X}"
+
+
+def _counter_delta_summary(
+    snapshots: list[tuple[str, dict[str, str]]],
+    name: str,
+) -> dict[str, str]:
+    first_label, first_fields = snapshots[0]
+    last_label, last_fields = snapshots[-1]
+    first = _hex(first_fields, name, first_label)
+    last = _hex(last_fields, name, last_label)
+    return {
+        "start": _hex8(first),
+        "final": _hex8(last),
+        "delta": _hex8(last - first),
+    }
+
+
+def _tuple_delta_summary(
+    snapshots: list[tuple[str, dict[str, str]]],
+    name: str,
+    count: int,
+    index: int,
+) -> dict[str, str]:
+    first_label, first_fields = snapshots[0]
+    last_label, last_fields = snapshots[-1]
+    first = _hex_tuple(first_fields, name, first_label, count)[index]
+    last = _hex_tuple(last_fields, name, last_label, count)[index]
+    return {
+        "start": _hex8(first),
+        "final": _hex8(last),
+        "delta": _hex8(last - first),
+    }
+
+
+def _has_complete_hex_fields(
+    snapshots: list[tuple[str, dict[str, str]]],
+    names: tuple[str, ...],
+) -> bool:
+    return all(
+        name in fields and parse_hex8(fields[name]) is not None
+        for _, fields in snapshots
+        for name in names
+    )
+
+
+def build_playability_cadence(
+    snapshots: list[tuple[str, dict[str, str]]],
+) -> dict[str, object]:
+    """Summarize optional OS-side audio cadence vs Doom progress fields."""
+
+    if not _has_complete_hex_fields(snapshots, PLAYABILITY_CADENCE_FIELDS):
+        missing = [
+            name
+            for name in PLAYABILITY_CADENCE_FIELDS
+            if not all(name in fields for _, fields in snapshots)
+        ]
+        return {
+            "available": False,
+            "verdict": "status-fields-unavailable",
+            "status_fields": list(PLAYABILITY_CADENCE_FIELDS),
+            "reason": "missing status fields: " + ", ".join(missing or PLAYABILITY_CADENCE_FIELDS),
+        }
+
+    progress = {
+        name: _counter_delta_summary(snapshots, name)
+        for name in PLAYABILITY_CADENCE_FIELDS
+    }
+    audioirq = _counter_delta_summary(snapshots, "audioirq")
+    refill = _counter_delta_summary(snapshots, "refill")
+    pull_refill = _tuple_delta_summary(snapshots, "musicpull", 2, 1)
+    musicpos = _counter_delta_summary(snapshots, "musicpos")
+    safety = {
+        name: _counter_delta_summary(snapshots, name)
+        for name in ("mixclip", "musicunder", "musicdrops")
+    }
+
+    frame_delta = int(progress["doompresent"]["delta"], 16)
+    gtic_delta = int(progress["gtic"]["delta"], 16)
+    leveltime_delta = int(progress["leveltime"]["delta"], 16)
+    audioirq_delta = int(audioirq["delta"], 16)
+    refill_delta = int(refill["delta"], 16)
+    pull_refill_delta = int(pull_refill["delta"], 16)
+    musicpos_delta = int(musicpos["delta"], 16)
+    audio_pressure = any(int(entry["delta"], 16) > 0 for entry in safety.values())
+
+    if frame_delta == 0 or gtic_delta == 0 or leveltime_delta == 0:
+        verdict = "guest-progress-stalled"
+        interpretation = "Doom frame/tic counters did not advance while checking audio cadence"
+    elif audio_pressure:
+        verdict = "os-audio-pressure"
+        interpretation = "audio safety counters increased during the audio proof window"
+    elif audioirq_delta == 0 or refill_delta == 0 or pull_refill_delta == 0:
+        verdict = "audio-cadence-stalled"
+        interpretation = "Doom progressed but SB16 IRQ/refill/pull service did not all advance"
+    else:
+        verdict = PLAYABILITY_CADENCE_HEALTHY
+        interpretation = (
+            "Doom frame/tic progress, SB16 IRQ/refill progress, and pull-stream "
+            "service all advanced without audio safety regressions"
+        )
+
+    return {
+        "available": True,
+        "verdict": verdict,
+        "interpretation": interpretation,
+        "status_fields": list(PLAYABILITY_CADENCE_FIELDS),
+        "progress": {
+            **progress,
+            "audioirq": audioirq,
+            "refill": refill,
+            "musicpull_refill": pull_refill,
+            "musicpos": musicpos,
+        },
+        "ratios": {
+            "audioirq_delta_per_frame_floor": _hex8(audioirq_delta // frame_delta if frame_delta else 0),
+            "refill_delta_per_frame_floor": _hex8(refill_delta // frame_delta if frame_delta else 0),
+            "pull_refill_delta_per_frame_floor": _hex8(pull_refill_delta // frame_delta if frame_delta else 0),
+            "musicpos_delta_per_leveltime_floor": _hex8(musicpos_delta // leveltime_delta if leveltime_delta else 0),
+        },
+        "safety": safety,
+        "audio_pressure": audio_pressure,
+    }
+
+
+def _assert_playability_cadence_if_present(
+    snapshots: list[tuple[str, dict[str, str]]],
+) -> None:
+    cadence = build_playability_cadence(snapshots)
+    if cadence.get("available") is not True:
+        return
+    if cadence.get("verdict") != PLAYABILITY_CADENCE_HEALTHY:
+        raise AssertionError(
+            "playability cadence must show Doom progress with advancing audio service, "
+            f"got {cadence.get('verdict')}"
+        )
 
 
 def validate_status(
@@ -727,6 +880,7 @@ def validate_status(
         use_pull_stream=uses_pull_stream or require_pull_stream,
     )
     _assert_audio_device_contract(snapshots)
+    _assert_playability_cadence_if_present(snapshots)
 
 
 def validate_repo_contract() -> None:
@@ -784,6 +938,7 @@ def validate_repo_contract() -> None:
                 "sfxlast=",
                 "VIBE_AUDIO_FLAG_WAD_SFX",
                 "VIBE_AUDIO_MUSIC_PULL_STATE",
+                "VIBE_AUDIO_STREAM_INFO",
                 "hardware-paced pull request",
                 "musicpos=",
                 "musicbuf=",
@@ -796,6 +951,8 @@ def validate_repo_contract() -> None:
                 "event type 6",
                 "event type 5",
                 "stream-health evidence",
+                "playability_cadence",
+                "OS audio cadence",
                 "single static music carrier",
                 "no new mixclip=, musicunder=, or musicdrops=",
             ),

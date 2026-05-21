@@ -32,6 +32,7 @@ SYS_EXEC_ARGV_SOURCE_USER = 2
 PROCESS_SLOT_COUNT = 6
 PROCESS_GENERIC_SLOT_COUNT = 2
 WAIT_PROOF_EXIT_STATUS = 0x2A
+ABI_PROBE_EXPECTED_FLAGS = 0x7
 USER_KIND_DOOM = 2
 USER_KIND_PREEMPT_PROBE = 3
 USER_CODE_SEG = 0x1B
@@ -40,6 +41,19 @@ PROC_DOOM_PAGE_DIR_ADDR = 0x00082000
 PROC_PREEMPT_PAGE_DIR_ADDR = 0x00083000
 PROC_DOOM_KERNEL_STACK_TOP = 0x00073000
 PROC_PREEMPT_PROBE_KERNEL_STACK_TOP = 0x00072000
+PROCESS_KIND_EIP_RANGES = {
+    USER_KIND_DOOM: ((DOOM_USER_BASE, DOOM_USER_STACK_TOP),),
+    USER_KIND_PREEMPT_PROBE: ((PROBE_USER_BASE, PROBE_USER_END),),
+}
+PROCESS_KIND_PAGE_DIRS = {
+    USER_KIND_DOOM: {PROC_DOOM_PAGE_DIR_ADDR},
+    USER_KIND_PREEMPT_PROBE: {PROC_PREEMPT_PAGE_DIR_ADDR},
+}
+PROCESS_KIND_KERNEL_STACKS = {
+    USER_KIND_DOOM: {PROC_DOOM_KERNEL_STACK_TOP},
+    USER_KIND_PREEMPT_PROBE: {PROC_PREEMPT_PROBE_KERNEL_STACK_TOP},
+}
+PREEMPTION_REQUIRED_KIND_PAIR = {USER_KIND_DOOM, USER_KIND_PREEMPT_PROBE}
 
 
 def parse_status(text: str) -> dict[str, str]:
@@ -175,12 +189,32 @@ def _in_range(value: int, start: int, end: int, name: str) -> None:
         raise AssertionError(f"{name}= {value:#x} outside expected range {start:#x}..{end:#x}")
 
 
-def _is_doom_addr(value: int) -> bool:
-    return DOOM_USER_BASE <= value < DOOM_USER_STACK_TOP
+def _addr_matches_kind(kind: int, value: int) -> bool:
+    return any(
+        start <= value < end for start, end in PROCESS_KIND_EIP_RANGES.get(kind, ())
+    )
 
 
-def _is_probe_addr(value: int) -> bool:
-    return PROBE_USER_BASE <= value < PROBE_USER_END
+def _preemption_expected_pids(fields: dict[str, str]) -> tuple[int, int]:
+    doom_pid = _hex_gt(fields, "target")
+    (
+        _wait_attempts,
+        _wait_reaps,
+        _wait_failures,
+        _wait_nohang,
+        wait_seeded,
+        wait_last_pid,
+        _wait_last_status,
+    ) = _hex_tuple(fields, "wait", 7, "/")
+    if wait_seeded == 0:
+        _raise_preemption_failure(
+            fields, "wait= must prove the preempt-probe child was seeded before scheduler proof"
+        )
+    if wait_last_pid == 0 or wait_last_pid == 0xFFFFFFFF:
+        _raise_preemption_failure(
+            fields, "wait= must record the reaped preempt-probe child PID before scheduler proof"
+        )
+    return doom_pid, wait_last_pid
 
 
 def validate_vm_mapping(fields: dict[str, str]) -> None:
@@ -213,13 +247,16 @@ def validate_exec(fields: dict[str, str]) -> None:
     _exact(fields, "path", "DOOM.ELF")
     _exact(fields, "uexec", "OK")
     _exact(fields, "upath", "USERPROB.ELF")
+    _exact(fields, "abiexec", "OK")
+    _exact(fields, "abipath", "ABIPROBE.ELF")
+    _exact(fields, "abiprobe", "OK")
     _exact(fields, "doom", "OK")
 
     attempts, successes, failures, handoffs, scheduled, rollbacks = _hex_tuple(
         fields, "execsys", 6, "/"
     )
-    if attempts == 0 or successes == 0 or handoffs == 0 or scheduled == 0:
-        raise AssertionError("execsys= must prove a successful syscall exec handoff")
+    if attempts < 2 or successes < 2 or handoffs < 2 or scheduled < 2:
+        raise AssertionError("execsys= must prove ABI-probe and Doom syscall exec handoffs")
     if failures != 0 or rollbacks != 0:
         raise AssertionError("execsys= must prove no exec failures or rollbacks")
     if _hex(fields, "execerr") != 0:
@@ -232,10 +269,27 @@ def validate_exec(fields: dict[str, str]) -> None:
     boot_user_pid = _hex_gt(fields, "upid")
     boot_user_entry = _hex_gt(fields, "uentry")
     _in_range(boot_user_entry, PROBE_USER_BASE, PROBE_USER_END, "uentry")
+    abi_pid = _hex_gt(fields, "abipid")
+    abi_parent = _hex_gt(fields, "abippid")
+    abi_entry = _hex_gt(fields, "abientry")
+    abi_argc = _hex(fields, "abiargc")
+    abi_argv_source = _hex(fields, "abiargvsrc")
+    abi_flags = _hex(fields, "abiflags")
+    _in_range(abi_entry, PROBE_USER_BASE, PROBE_USER_END, "abientry")
+    if abi_parent != boot_user_pid:
+        raise AssertionError("abippid= must match upid= to prove USERPROB execed ABIPROBE")
+    if abi_argc != 1:
+        raise AssertionError(f"abiargc= must prove the one-argument ABI probe exec stack, got {abi_argc:#x}")
+    if abi_argv_source != SYS_EXEC_ARGV_SOURCE_USER:
+        raise AssertionError("abiargvsrc= must be 2 to prove ABIPROBE used the user argv-vector copy path")
+    if abi_flags != ABI_PROBE_EXPECTED_FLAGS:
+        raise AssertionError(
+            f"abiflags= must record ABI probe success flags {ABI_PROBE_EXPECTED_FLAGS:#x}"
+        )
     if target == parent:
         raise AssertionError("target= and ppid= must prove exec entered a new process")
-    if parent != boot_user_pid:
-        raise AssertionError("ppid= must match upid= to prove Doom was execed by the boot user process")
+    if parent != abi_pid:
+        raise AssertionError("ppid= must match abipid= to prove Doom was execed after ABIPROBE")
 
     entry = _hex_gt(fields, "entry")
     stack = _hex_gt(fields, "stack")
@@ -258,7 +312,7 @@ def validate_exec(fields: dict[str, str]) -> None:
     if argv_source != SYS_EXEC_ARGV_SOURCE_USER:
         raise AssertionError("argvsrc= must be 2 to prove the user argv-vector copy path")
 
-    process_slots, generic_slots, slot_reuses, _generic_allocs, generic_failures = _hex_tuple(
+    process_slots, generic_slots, slot_reuses, generic_allocs, generic_failures = _hex_tuple(
         fields, "procpool", 5, "/"
     )
     if process_slots != PROCESS_SLOT_COUNT:
@@ -271,6 +325,8 @@ def validate_exec(fields: dict[str, str]) -> None:
         )
     if slot_reuses == 0:
         raise AssertionError("procpool= must prove exec reused a target process slot")
+    if generic_allocs == 0:
+        raise AssertionError("procpool= must prove a generic exec slot was allocated")
     if generic_failures != 0:
         raise AssertionError("procpool= must prove the bounded generic pool did not overflow")
 
@@ -311,6 +367,22 @@ def validate_exec(fields: dict[str, str]) -> None:
         raise AssertionError(
             f"wait= must record seeded child exit status {WAIT_PROOF_EXIT_STATUS:#x}"
         )
+
+    (
+        vm_teardowns,
+        vm_pages_cleared,
+        wait_vm_reaps,
+        wait_vm_pages,
+        wait_last_vm_pages,
+    ) = _hex_tuple(fields, "vmreap", 5, "/")
+    if vm_teardowns == 0:
+        raise AssertionError("vmreap= must prove process VM teardown ran")
+    if vm_pages_cleared == 0:
+        raise AssertionError("vmreap= must prove process user pages were cleared")
+    if wait_vm_reaps == 0:
+        raise AssertionError("vmreap= must prove waitpid reaping invoked VM teardown")
+    if wait_vm_pages == 0 or wait_last_vm_pages == 0:
+        raise AssertionError("vmreap= must prove waitpid reclaimed child user pages")
 
 
 def validate_preemption(fields: dict[str, str]) -> None:
@@ -358,7 +430,7 @@ def validate_preemption(fields: dict[str, str]) -> None:
         _raise_preemption_failure(fields, "pfrom= and pto= must prove a switch between processes")
 
     from_kind, to_kind = _hex_tuple(fields, "pkind", 2, ":")
-    if {from_kind, to_kind} != {USER_KIND_DOOM, USER_KIND_PREEMPT_PROBE}:
+    if {from_kind, to_kind} != PREEMPTION_REQUIRED_KIND_PAIR:
         _raise_preemption_failure(
             fields, "pkind= must prove switching between Doom and the preempt probe"
         )
@@ -366,33 +438,46 @@ def validate_preemption(fields: dict[str, str]) -> None:
     from_eip, to_eip = _hex_tuple(fields, "peip", 2, ":")
     if from_eip == 0 or to_eip == 0:
         _raise_preemption_failure(fields, "peip= must record nonzero source and target EIPs")
-    if not (
-        (_is_doom_addr(from_eip) and _is_probe_addr(to_eip))
-        or (_is_probe_addr(from_eip) and _is_doom_addr(to_eip))
+    if not _addr_matches_kind(from_kind, from_eip) or not _addr_matches_kind(
+        to_kind, to_eip
     ):
         _raise_preemption_failure(
-            fields, "peip= must prove switching between Doom and the preempt probe"
+            fields,
+            "peip= must match the recorded source and target process kinds",
         )
 
     from_cr3, to_cr3 = _hex_tuple(fields, "pcr3", 2, ":")
-    if {from_cr3, to_cr3} != {PROC_DOOM_PAGE_DIR_ADDR, PROC_PREEMPT_PAGE_DIR_ADDR}:
+    if (
+        from_cr3 not in PROCESS_KIND_PAGE_DIRS.get(from_kind, set())
+        or to_cr3 not in PROCESS_KIND_PAGE_DIRS.get(to_kind, set())
+    ):
         _raise_preemption_failure(
             fields,
-            "pcr3= must prove switching between Doom and preempt probe address spaces",
+            "pcr3= must match the recorded source and target process address spaces",
         )
     if from_cr3 == to_cr3:
         _raise_preemption_failure(fields, "pcr3= must contain distinct process page directories")
 
     from_kstack, to_kstack = _hex_tuple(fields, "pkstk", 2, ":")
-    if {from_kstack, to_kstack} != {
-        PROC_DOOM_KERNEL_STACK_TOP,
-        PROC_PREEMPT_PROBE_KERNEL_STACK_TOP,
-    }:
+    if (
+        from_kstack not in PROCESS_KIND_KERNEL_STACKS.get(from_kind, set())
+        or to_kstack not in PROCESS_KIND_KERNEL_STACKS.get(to_kind, set())
+    ):
         _raise_preemption_failure(
-            fields, "pkstk= must prove switching TSS kernel stacks for Doom and preempt probe"
+            fields,
+            "pkstk= must match the recorded source and target process kernel stacks",
         )
     if from_kstack == to_kstack:
         _raise_preemption_failure(fields, "pkstk= must contain distinct kernel stacks")
+
+    doom_pid, preempt_probe_pid = _preemption_expected_pids(fields)
+    expected_from_pid = doom_pid if from_kind == USER_KIND_DOOM else preempt_probe_pid
+    expected_to_pid = doom_pid if to_kind == USER_KIND_DOOM else preempt_probe_pid
+    if source_pid != expected_from_pid or target_pid != expected_to_pid:
+        _raise_preemption_failure(
+            fields,
+            "pfrom=/pto= must match the exec target PID and reaped preempt-probe PID",
+        )
 
     spin = _hex(fields, "pspin")
     if spin in (0, PREEMPT_PROBE_MAGIC):
@@ -471,10 +556,14 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         _require(text, "vmmhfree", label)
         _require(text, "uexec=OK", label)
         _require(text, "upath=USERPROB.ELF", label)
+        _require(text, "abiexec=OK", label)
+        _require(text, "abipath=ABIPROBE.ELF", label)
+        _require(text, "abiprobe=OK", label)
         _require(text, "argvsrc=2", label)
         _require(text, "procpool=", label)
         _require(text, "fdexec=", label)
         _require(text, "wait=", label)
+        _require(text, "vmreap=", label)
         _require(text, "peip", label)
         _require(text, "pkind", label)
         _require(text, "pmask", label)
@@ -487,6 +576,16 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         (gaps, "gap ledger"),
     ):
         _require(text, "pframe", label)
+
+    process_exec = _read(root, "docs/process-exec.md")
+    for text, label in (
+        (process_vm, "process VM doc"),
+        (process_exec, "process exec doc"),
+    ):
+        _require(text, "exec target PID", label)
+        _require(text, "pfrom", label)
+        _require(text, "pto", label)
+        _require(text, "preempt", label)
 
 
 def main(argv: list[str] | None = None) -> int:

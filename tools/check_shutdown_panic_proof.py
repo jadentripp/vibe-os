@@ -263,8 +263,10 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     workflow = _read(root, ".github/workflows/os-smoke.yml")
     vm_checker = _read(root, "tools/check_vm_safety_contract.py")
     gap_doc = _read(root, "docs/post-checkpoint-gaps.md")
+    playable_doc = _read(root, "docs/playable-cloud-proof.md")
+    triage_doc = _read(root, "docs/cloud-status-triage.md")
+    remote_runbook = _read(root, "docs/runbooks/remote-doom-playtest.md")
     tests_readme = _read(root, "tests/README.md")
-    readme = _read(root, "README.md")
 
     for needle in (
         "KERNEL_EXTRA_NASMFLAGS ?=",
@@ -330,7 +332,13 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     _require(gap_doc, "status-before-cleanup", "gap ledger")
     _require(gap_doc, "status-before-reset", "gap ledger")
     _require(gap_doc, "status-before-poweroff", "gap ledger")
-    _require(readme, "shutdown_panic_proof", "README")
+    for text, label in (
+        (playable_doc, "playable cloud proof doc"),
+        (triage_doc, "cloud status triage doc"),
+        (remote_runbook, "remote Doom playtest runbook"),
+    ):
+        _require(text, "shutdown_panic_proof", label)
+        _require(text, "tools/check_shutdown_panic_proof.py", label)
     _require(tests_readme, "check_shutdown_panic_proof.py", "tests README")
 
 

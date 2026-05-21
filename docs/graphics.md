@@ -9,7 +9,9 @@ info block at `0x7000`.
 
 If VBE discovery or mode set fails, Stage 2 falls back to VGA Mode 13h and
 records the legacy `0xA0000`, 320x200, 8-bpp indexed surface in the same boot
-info block.
+info block. That fallback changes the physical target, not the userland present
+contract: callers still discover `VIBE_DISPLAY_FD`, query `VIBE_IOCTL_FBINFO`,
+and submit the same indexed-present descriptor.
 
 ## Runtime Contract
 
@@ -20,7 +22,9 @@ The framebuffer contract is intentionally split into three reusable layers:
   `VIBE_FB_BACKEND_MODE13` and `VIBE_FB_BACKEND_LFB_XRGB8888`.
 - Present source: user space submits a bounded indexed source frame plus an RGB
   palette. The only accepted source today is Doom's 320x200 index8 frame with a
-  256-entry RGB24 palette, advertised as `VIBE_FB_FORMAT_INDEX8_RGB24`.
+  256-entry RGB24 palette, advertised as `VIBE_FB_FORMAT_INDEX8_RGB24`. The
+  accepted descriptor width and height are fixed at 320x200 while
+  `VIBE_FB_CAP_FIXED_PRESENT_SIZE` is set.
 - Presentation policy: the kernel maps that source into the active target. Mode
   13h is a 1:1 indexed copy. LFB backends preserve the indexed shadow and render
   a centered XRGB8888 viewport.
@@ -36,8 +40,12 @@ ioctl path; `SYS_PRESENT` remains a low-level compatibility/probe entrypoint.
 The `vibe_fb_info_t` layout is stable and generic enough for future indexed
 games: clients should key off `present_format`, `max_present_width`,
 `max_present_height`, and `capabilities` instead of assuming Doom. The current
-implementation still accepts only 320x200 `INDEX8_RGB24` presents, so new games
-larger than that need a new present format or an expanded max-present contract.
+implementation sets `VIBE_FB_CAP_FIXED_PRESENT_SIZE`, so those width/height
+fields describe the exact accepted indexed source size, not a variable-size
+range. Future indexed backends can clear that bit and treat the same fields as
+true maxima for any nonzero descriptor size that is no larger than the advertised
+boundary. New source formats should add or negotiate a new `present_format`
+instead of silently changing the meaning of `INDEX8_RGB24`.
 
 ## Scaling Policy
 
@@ -61,6 +69,9 @@ The kernel selects one of these policies:
 - `VIBE_FB_CAP_MODE13_SHADOW`: the indexed source shadow is maintained.
 - `VIBE_FB_CAP_DIRTY_SOURCE_RECT`: `FBINFO` dirty fields describe source-frame
   changes since the previous present.
+- `VIBE_FB_CAP_FIXED_PRESENT_SIZE`: `VIBE_IOCTL_PRESENT_INDEXED` accepts exactly
+  `max_present_width` by `max_present_height`. Callers should reject smaller
+  frames locally when this bit is set.
 
 ## Status And Proof
 
@@ -97,6 +108,8 @@ Remaining graphics gaps:
   current 640-wide targets but not a general multi-monitor or large-mode mapper.
 - Dirty source rectangles are reported in status and `FBINFO`, but the renderer
   still redraws the centered viewport each present instead of using partial
-  hardware blits. The LFB backend now clears the surrounding framebuffer only
-  when the centered view geometry changes, avoiding a full-screen clear on every
-  steady-state remote/noVNC present.
+  hardware blits. The first present is compared against an all-zero indexed
+  source frame; subsequent presents compare against the previous indexed source.
+  A zero changed-pixel count must report zero bounds. The LFB backend now clears
+  the surrounding framebuffer only when the centered view geometry changes,
+  avoiding a full-screen clear on every steady-state remote/noVNC present.

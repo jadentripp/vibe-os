@@ -37,12 +37,20 @@ class AudioContractTests(unittest.TestCase):
             CHECK(pcm_write_offset, __builtin_offsetof(vibe_audio_pcm_ring_info_t, write_offset) == 20);
             CHECK(pcm_clip_count, __builtin_offsetof(vibe_audio_pcm_ring_info_t, clip_count) == 44);
 
+            CHECK(stream_info_size, sizeof(vibe_audio_stream_info_t) == VIBE_AUDIO_STREAM_INFO_BYTES);
+            CHECK(stream_mode, __builtin_offsetof(vibe_audio_stream_info_t, stream_mode) == 0);
+            CHECK(stream_handle, __builtin_offsetof(vibe_audio_stream_info_t, handle) == 8);
+            CHECK(stream_pending,
+                __builtin_offsetof(vibe_audio_stream_info_t, pending_pull_requests) == 20);
+            CHECK(stream_position, __builtin_offsetof(vibe_audio_stream_info_t, position_bytes) == 44);
+
             CHECK(device_status_ready, VIBE_AUDIO_DEVICE_STATUS_READY == 1);
             CHECK(device_status_absent, VIBE_AUDIO_DEVICE_STATUS_ABSENT == 2);
             CHECK(generic_commands,
                 VIBE_AUDIO_MIXER_START == VIBE_AUDIO_START_SFX
                 && VIBE_AUDIO_MIXER_UPDATE == VIBE_AUDIO_UPDATE_SFX
-                && VIBE_AUDIO_PCM_PULL_STATE == VIBE_AUDIO_MUSIC_PULL_STATE);
+                && VIBE_AUDIO_PCM_PULL_STATE == VIBE_AUDIO_MUSIC_PULL_STATE
+                && VIBE_AUDIO_STREAM_INFO == 11);
         """
         abi = subprocess.run(
             [
@@ -77,6 +85,7 @@ class AudioContractTests(unittest.TestCase):
                 vibe_audio_voice_desc_t voice;
                 vibe_audio_device_info_t device = { 0 };
                 vibe_audio_pcm_ring_info_t ring = { 0 };
+                vibe_audio_stream_info_t stream = { 0 };
 
                 vibe_audio_voice_desc_init(&voice, samples, 4, 11025, 96, 128, 128);
                 if (voice.samples != samples
@@ -111,6 +120,17 @@ class AudioContractTests(unittest.TestCase):
                 ring.channels = 1;
                 if (vibe_audio_pcm_ring_is_u8_stereo(&ring))
                     return 6;
+                stream.stream_mode = VIBE_AUDIO_MUSIC_STREAM_PULL;
+                stream.flags = VIBE_AUDIO_STREAM_FLAG_PULL
+                    | VIBE_AUDIO_STREAM_FLAG_REFILL_PENDING;
+                stream.pending_pull_requests = 1;
+                if (!vibe_audio_stream_uses_pull(&stream))
+                    return 7;
+                if (!vibe_audio_stream_needs_refill(&stream))
+                    return 8;
+                stream.pending_pull_requests = 0;
+                if (vibe_audio_stream_needs_refill(&stream))
+                    return 9;
 
                 vibe_audio_voice_desc_init(0, 0, 0, 0, 0, 0, 0);
                 return 0;
@@ -171,8 +191,11 @@ class AudioContractTests(unittest.TestCase):
             "VIBE_AUDIO_CAP_MIXER_VOICES",
             "VIBE_AUDIO_DEVICE_INFO",
             "VIBE_AUDIO_PCM_RING_INFO",
+            "VIBE_AUDIO_STREAM_INFO",
+            "Pull-stream service snapshot",
             "vibe_audio_device_info_t",
             "vibe_audio_pcm_ring_info_t",
+            "vibe_audio_stream_info_t",
             "typedef vibe_audio_sfx_desc_t vibe_audio_voice_desc_t;",
             "VIBE_AUDIO_MIXER_START",
             "VIBE_AUDIO_MIXER_STOP",
@@ -222,6 +245,7 @@ class AudioContractTests(unittest.TestCase):
         for source in (
             "AUDIO_CMD_DEVICE_INFO equ 9",
             "AUDIO_CMD_PCM_RING_INFO equ 10",
+            "AUDIO_CMD_STREAM_INFO equ 11",
             "AUDIO_CMD_MIXER_START equ AUDIO_CMD_START_SFX",
             "AUDIO_CMD_PCM_PULL_STATE equ AUDIO_CMD_MUSIC_PULL_STATE",
             "AUDIO_DEVICE_SB16 equ 1",
@@ -234,16 +258,24 @@ class AudioContractTests(unittest.TestCase):
             "AUDIO_DEVICE_INFO_BYTES equ 48",
             "AUDIO_PCM_RING_INFO_FORMAT equ 0",
             "AUDIO_PCM_RING_INFO_BYTES equ 48",
+            "AUDIO_STREAM_INFO_MODE equ 0",
+            "AUDIO_STREAM_INFO_BYTES equ 48",
+            "AUDIO_STREAM_FLAG_REFILL_PENDING equ 0x00000002",
             "audio_write_device_info:",
             "audio_write_pcm_ring_info:",
+            "audio_write_stream_info:",
             "cmp ebx, AUDIO_CMD_DEVICE_INFO",
             "cmp ebx, AUDIO_CMD_PCM_RING_INFO",
+            "cmp ebx, AUDIO_CMD_STREAM_INFO",
             "call audio_write_device_info",
             "call audio_write_pcm_ring_info",
+            "call audio_write_stream_info",
             "mov dword [edi + AUDIO_DEVICE_INFO_KIND], AUDIO_DEVICE_SB16",
             "mov dword [edi + AUDIO_PCM_RING_INFO_FORMAT], AUDIO_PCM_FORMAT_U8_STEREO",
             "mov eax, [sb16_dma_buffer_size]",
             "mov eax, [sb16_dma_write_pos]",
+            "mov [edi + AUDIO_STREAM_INFO_PULL_REQUEST_COUNT], eax",
+            "mov dword [edi + AUDIO_STREAM_INFO_LOW_WATER_BYTES], AUDIO_MUSIC_PULL_LOW_WATER_BYTES",
             "smoke_audiodev_text db \" adev=\"",
             "smoke_pcm_text db \" pcm=\"",
             "smoke_pcmbuf_text db \" pcmbuf=\"",
@@ -522,6 +554,7 @@ class AudioContractTests(unittest.TestCase):
             "AUDIO_CMD_BUFFERED_BYTES equ 7",
             "AUDIO_CMD_DEVICE_INFO equ 9",
             "AUDIO_CMD_PCM_RING_INFO equ 10",
+            "AUDIO_CMD_STREAM_INFO equ 11",
             "AUDIO_MUSIC_HANDLE_BASE equ 0x4d550000",
             "or dword [audio_sfx_flags_arg], AUDIO_FLAG_MUSIC",
             ".refresh_stream_window:",
@@ -563,6 +596,7 @@ class AudioContractTests(unittest.TestCase):
             "sb16_mark_music_pull_refill:",
             ".audio_buffered_bytes:",
             ".audio_music_pull_state:",
+            ".audio_stream_info:",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, kernel)
@@ -602,6 +636,7 @@ class AudioContractTests(unittest.TestCase):
         self.assertIn("vibe_audio_sfx_desc_t", audio_doc)
         self.assertIn("vibe_audio_device_info_t", audio_doc)
         self.assertIn("vibe_audio_pcm_ring_info_t", audio_doc)
+        self.assertIn("vibe_audio_stream_info_t", audio_doc)
         self.assertIn("Reusable audio syscall surface", audio_doc)
         self.assertIn("vibe_audio_voice_desc_init()", audio_doc)
         self.assertIn("VIBE_AUDIO_VOICE_DESC_BYTES == 64", audio_doc)
@@ -625,6 +660,10 @@ class AudioContractTests(unittest.TestCase):
         self.assertIn("sfxmix=` counts only normal Doom SFX voices", audio_doc)
         self.assertIn("VIBE_AUDIO_MIXER_IS_PLAYING", audio_doc)
         self.assertIn("VIBE_AUDIO_PCM_PULL_STATE", audio_doc)
+        self.assertIn("VIBE_AUDIO_STREAM_INFO", audio_doc)
+        self.assertIn("device/ring/stream/mixer", audio_doc)
+        self.assertIn("playability_cadence", audio_doc)
+        self.assertIn("OS audio cadence", audio_doc)
         self.assertIn("pending music window", audio_doc)
         self.assertIn("mixwrap", audio_doc)
         self.assertIn("mixover", audio_doc)

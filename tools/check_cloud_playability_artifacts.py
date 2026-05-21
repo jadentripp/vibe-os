@@ -525,6 +525,7 @@ def validate_repo_contract() -> None:
         "real-wad-soak-summary.json",
         "tools/collect_human_playtest_bundle.py",
         "tools/run_remote_human_playtest.sh",
+        "--print-template",
         "tools/check_real_wad_proof.py",
         "tools/check_human_playability_proof.py",
         "tools/check_audio_continuity_proof.py",
@@ -548,6 +549,7 @@ def validate_repo_contract() -> None:
         "--confirm-scripted-proof-green",
         "--capture-phase",
         "human status capture OK",
+        "dry-run: no files were copied",
         "--confirm-remote-vnc",
         "--confirm-e1m1-visible",
         "--confirm-keyboard-fire",
@@ -628,12 +630,12 @@ def validate_repo_contract() -> None:
     for text, label in (
         (interactive_runbook, "cloud interactive playtest runbook"),
         (play_now_runbook, "play-now cloud runbook"),
-        (readme, "README"),
         (tests_readme, "tests README"),
     ):
         _require(text, "tools/run_remote_human_playtest.sh", label)
         _require(text, "--scripted-proof-run-id", label)
         _require(text, "--playtester", label)
+    _require(readme, "tools/run_remote_human_playtest.sh", "README")
 
     for text, label in (
         (play_now_runbook, "play-now cloud runbook"),
@@ -648,6 +650,7 @@ def validate_repo_contract() -> None:
         "Usage: tools/run_remote_human_playtest.sh --playtester NAME --scripted-proof-run-id RUN_ID",
         "Refusing to run the remote human playtest helper on macOS",
         "tools/collect_human_playtest_bundle.py",
+        "--print-template",
         "--capture-phase \"$phase\"",
         "--confirm-scripted-proof-green",
         "--confirm-remote-vnc",
@@ -759,13 +762,13 @@ def validate_repo_contract() -> None:
     _require(playable, "pspin", "playable cloud proof doc")
     _require(readme, "docs/runbooks/remote-doom-playtest.md", "README")
     _require(readme, "Where It Stands", "README")
-    _require(readme, "gh workflow run os-smoke.yml", "README")
-    _require(readme, "gh workflow run real-wad-smoke.yml", "README")
-    _require(readme, "gh workflow run real-wad-soak.yml", "README")
+    _require(readme, "Real-WAD proofs run in GitHub Actions, Codespaces, or disposable cloud hosts", "README")
+    _require(readme, "Use the proof docs and runbooks for the current dispatch commands", "README")
     _require(readme, "tools/collect_human_playtest_bundle.py", "README")
     _require(readme, "human-playtest-notes-v2", "README")
     _require(readme, "human-playtest-checklist.txt", "README")
     _require(readme, "human-playtest-session.json", "README")
+    _require(readme, "human-playtest-manifest.json", "README")
     _require(readme, "post-download human verification OK", "README")
     _require(tests_readme, "check_cloud_playability_artifacts.py", "tests README")
     _require(tests_readme, "expected_ref", "tests README")
@@ -1538,6 +1541,16 @@ def validate_human_notes(
     expected_scripted_proof_run_id: str | None = None,
 ) -> None:
     notes = _load_human_notes(path)
+    allowed_keys = (
+        set(REQUIRED_FREEFORM_HUMAN_NOTE_FIELDS)
+        | set(REQUIRED_HUMAN_NOTE_FIELDS)
+        | set(OPTIONAL_HUMAN_NOTE_FIELDS)
+    )
+    extra_keys = sorted(set(notes) - allowed_keys)
+    if extra_keys:
+        raise AssertionError(
+            f"{HUMAN_NOTES_FILE} has unsupported field(s): {', '.join(extra_keys)}"
+        )
     for key in REQUIRED_FREEFORM_HUMAN_NOTE_FIELDS:
         if key not in notes:
             raise AssertionError(f"{HUMAN_NOTES_FILE} missing {key}=")

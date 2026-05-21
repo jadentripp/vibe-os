@@ -307,6 +307,38 @@ jobs:
             with self.subTest(token=token):
                 self.assertIn(token, text)
 
+    def test_top_level_readme_stays_concise_claim_surface(self):
+        violations = check_repo_hygiene.readme_policy_violations(ROOT)
+        self.assertEqual(violations, [])
+
+    def test_top_level_readme_policy_rejects_task_lists_and_proof_ledgers(self):
+        readme = "\n".join(
+            [
+                "# vibe-os",
+                "",
+                "Concise claim surface.",
+                "",
+                "- [ ] rerun cloud smoke before release",
+                "- Latest proof commit abcdef0123456789abcdef0123456789abcdef01",
+                "- scripted_proof_run_id=26156172979",
+                "- GAP[PLAYABLE]: collect phase_hash_after_fire evidence",
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "README.md").write_text(readme)
+            violations = check_repo_hygiene.readme_policy_violations(root)
+
+        self.assertTrue(any("task-list checkbox" in violation for violation in violations))
+        self.assertTrue(any("commit hash" in violation for violation in violations))
+        self.assertTrue(any("run ID" in violation for violation in violations))
+        self.assertTrue(any("gap ledger row" in violation for violation in violations))
+        self.assertTrue(any("proof transcript field" in violation for violation in violations))
+
+    def test_detailed_docs_may_retain_exact_source_evidence(self):
+        provenance = (ROOT / "docs" / "doom-provenance.md").read_text()
+        self.assertIn(check_repo_hygiene.UPSTREAM_COMMIT, provenance)
+
 
 if __name__ == "__main__":
     unittest.main()

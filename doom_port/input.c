@@ -79,7 +79,11 @@ int vibe_doom_translate_input_event(const vibe_input_event_t* input, vibe_doom_i
 
     if (input->device_id == VIBE_INPUT_DEVICE_MOUSE
         && input->type == VIBE_INPUT_EVENT_MOUSE_PACKET) {
-        return translate_mouse_fields((unsigned int)input->code, input->value0, input->value1, event);
+        return translate_mouse_fields(
+            (unsigned int)vibe_input_mouse_buttons(input),
+            vibe_input_mouse_delta_x(input),
+            vibe_input_mouse_delta_y(input),
+            event);
     }
 
     return 0;

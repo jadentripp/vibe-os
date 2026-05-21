@@ -29,11 +29,13 @@ Smoke counters:
 - `inputqueue=`, `inputpoll=`, and `inputlast=` expose the shared input queue
   before the Doom-specific mouse proof fields.
 
-The bridge exposes relative movement and the first three PS/2 buttons. PS/2
-reports left/right/middle, while Doom's original X11 path treats buttons as
-left/middle/right, so the port remaps those bits before posting the event. Raw
-signed deltas are scaled by 4 to match the coarser feel of the original Linux
-mouse path.
+The generic OS bridge exposes relative movement and the first three PS/2
+buttons in raw PS/2 order: left/right/middle. Public `vibe_os.h` helpers mask
+unsupported button bits, test raw button state, and read signed X/Y motion from
+`VIBE_INPUT_EVENT_MOUSE_PACKET` without requiring Doom headers. Doom's original
+X11 path treats buttons as left/middle/right, so `doom_port/input.c` performs
+that game-specific remap before posting `ev_mouse`. Raw signed deltas are
+scaled by 4 there to match the coarser feel of the original Linux mouse path.
 
 The cloud smoke runner accepts `mouse=DX:DY` and `mousebtn=MASK` actions in
 `SMOKE_INPUT_SCRIPT`. The real-WAD workflow uses those actions to capture

@@ -57,6 +57,22 @@ process growth, reusable file-backed VM objects, direct RGB presents, larger
 present sources, and audio formats beyond the current unsigned 8-bit stereo
 mixer path.
 
+## Small User Runtime
+
+`user/runtime.h` and `user/runtime.c` are the reusable non-Doom runtime seed for
+small non-Doom user programs and freestanding tools. They do not try to be libc
+and they do not depend on Doom port hooks. The layer owns the raw `int 0x80` call stub, centralizes the
+same `-errno` / legacy `-1` conversion rule as the Doom libc shim, and exposes
+minimal wrappers for the crt0-launched tool shape: write a complete string,
+read `getpid`, query the monotonic clock, list a root directory, `execv` another
+root `.ELF`, and report a probe status word.
+
+`user/abi_probe.c` now consumes that runtime instead of carrying its own inline
+syscall assembly. That keeps the second-program proof honest: future small
+non-Doom user programs can include the same header, link the same source with
+`user/crt0.asm`, and stay on the public `vibe_os.h` syscall ABI while the Doom
+libc remains available for POSIX-shaped ports.
+
 ## File ABI
 
 User mode calls `vibe_syscall3` with the syscall numbers in
@@ -142,13 +158,15 @@ anonymous scratch memory, and unsupported file-backed mapping paths.
 Display device control is exposed through `ioctl(VIBE_DISPLAY_FD, ...)`.
 `VIBE_IOCTL_FBINFO` fills a `vibe_fb_info_t` with the active framebuffer
 contract, including capability bits, present format, max present size, geometry,
-and dirty-source fields. `VIBE_IOCTL_PRESENT_INDEXED` accepts a
+and dirty-source fields. The current backend advertises
+`VIBE_FB_CAP_FIXED_PRESENT_SIZE`, so the advertised present size is exact rather
+than a range. `VIBE_IOCTL_PRESENT_INDEXED` accepts a
 `vibe_present_indexed_t` describing a 320x200 indexed frame plus 256-entry RGB
 palette. Doom's `I_FinishUpdate` now uses this ioctl path while the older
 `SYS_PRESENT` remains available for the low-level probe.
 Generic ports should call `vibe_fb_get_info` and then
 `vibe_present_indexed_checked` when they want libc to reject unsupported formats
-or oversized sources before entering the present ioctl.
+or wrong-size sources before entering the present ioctl.
 
 `execv()` passes a bounded `argv` vector through the syscall ABI. Doom and the
 boot probe keep table-backed launch entries, and other root-level FAT16 `.ELF`

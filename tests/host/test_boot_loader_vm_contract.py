@@ -59,7 +59,17 @@ class BootLoaderVmContractTests(unittest.TestCase):
         self.assertLessEqual(kernel_lba + kernel_sectors, partition_start)
         self.assertEqual(make_var_value(makefile, "STAGE2_MAX_BYTES"), stage2_sectors * SECTOR_SIZE)
         self.assertEqual(make_var_value(makefile, "KERNEL_ELF_MAX_BYTES"), kernel_sectors * SECTOR_SIZE)
-        self.assertIn(f"LBA {stage2_lba}-{stage2_lba + stage2_sectors - 1}: Stage 2 bootloader", readme)
+        normalized_readme = " ".join(readme.split())
+        self.assertTrue(
+            (
+                f"LBA {stage2_lba}-{stage2_lba + stage2_sectors - 1}: Stage 2 bootloader"
+                in normalized_readme
+            )
+            or (
+                f"LBA {stage2_lba}-{stage2_lba + stage2_sectors - 1} is Stage 2"
+                in normalized_readme
+            )
+        )
         self.assertIn(
             f"LBA {kernel_lba}-{kernel_lba + kernel_sectors - 1}: protected-mode kernel ELF image",
             readme,

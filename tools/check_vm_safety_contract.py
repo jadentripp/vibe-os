@@ -444,6 +444,10 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "process_heap_mark_range:",
         "process_heap_clear_range:",
         "process_heap_range_is_mapped:",
+        "process_wait_vm_reaps dd 0",
+        "process_wait_vm_pages_reclaimed dd 0",
+        "process_wait_last_vm_pages_reclaimed dd 0",
+        'smoke_vmreap_text db " vmreap=", 0',
         "process_sbrk_shrink_calls dd 0",
         "process_sbrk_pages_released dd 0",
         "PROCESS_SLOT_COUNT equ 6",
@@ -562,13 +566,69 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "sys_munmap(hole, 4096) == 0",
         "sys_write(1, hole, 1) == -ERRNO_EINVAL",
         "mmap_hole_ok && sys_munmap(video, DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES) == 0",
-        "char *doom_argv[] = {(char *)doom_path, (char *)0};",
-        "return sys_execv(doom_path, doom_argv) == 0 ? 0 : 1;",
+        "char *abi_probe_argv[] = {(char *)abi_probe_path, (char *)0};",
+        "return sys_execv(abi_probe_path, abi_probe_argv) == 0 ? 0 : 1;",
     ):
         _require(probe, needle, "user probe VM/POSIX contract")
 
+    abi_probe = _read(root, "user/abi_probe.c")
+    for needle in (
+        "char* doom_argv[] = { (char*)doom_path, 0 };",
+        "return vibe_user_execv(doom_path, doom_argv) == 0 ? 0 : 19;",
+    ):
+        _require(abi_probe, needle, "ABI probe VM/POSIX contract")
+    user_runtime = _read(root, "user/runtime.c")
+    for needle in (
+        "int vibe_user_syscall3(",
+        "int $0x80",
+        "VIBE_SYS_EXEC",
+    ):
+        _require(user_runtime, needle, "user runtime syscall contract")
+
     validator = kernel.split("user_range_validate:", 1)[1].split("doom_log_char:", 1)[0]
     _require(validator, "call process_heap_range_is_mapped", "heap mapping validator")
+    wait_reap = kernel.split("process_waitpid_current:", 1)[1].split("scheduler_prepare_live_preempt_probe:", 1)[0]
+    for needle in (
+        "call process_teardown_user_vm",
+        "add [process_wait_vm_pages_reclaimed], eax",
+        "inc dword [process_wait_vm_reaps]",
+    ):
+        _require(wait_reap, needle, "waitpid VM reap")
+    scheduler_prepare = kernel.split("scheduler_prepare_live_preempt_probe:", 1)[1].split("scheduler_capture_preempt_spin:", 1)[0]
+    _require(scheduler_prepare, "call process_restore_user_image_vm", "preempt probe restore")
+    scheduler_tick = kernel.split("scheduler_tick:", 1)[1].split("process_save_irq_context:", 1)[0]
+    scheduler_select = kernel.split("scheduler_select_next_ready:", 1)[1].split("scheduler_preempt_self_test:", 1)[0]
+    for needle in (
+        "call process_save_irq_context",
+        "call scheduler_select_next_ready",
+        "mov [scheduler_last_preempt_from_pid], eax",
+        "mov [scheduler_last_preempt_to_pid], eax",
+        "mov [scheduler_last_preempt_from_cr3], eax",
+        "mov [scheduler_last_preempt_to_cr3], eax",
+        "mov [scheduler_last_preempt_from_kstack], eax",
+        "mov [scheduler_last_preempt_to_kstack], eax",
+        "call process_activate",
+        "call process_restore_irq_context",
+        "inc dword [scheduler_irq_frame_rewrites]",
+    ):
+        _require(scheduler_tick, needle, "timer preemption save/restore contract")
+    if not (
+        scheduler_tick.index("call process_save_irq_context")
+        < scheduler_tick.index("call scheduler_select_next_ready")
+        < scheduler_tick.index("call process_activate")
+        < scheduler_tick.index("call process_restore_irq_context")
+        < scheduler_tick.index("inc dword [scheduler_irq_frame_rewrites]")
+    ):
+        raise AssertionError("timer preemption save/restore contract has unsafe ordering")
+    for needle in (
+        "cmp dword [edi + PROC_STATE], PROC_STATE_READY",
+        "test dword [edi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID",
+        "test dword [edi + PROC_SAVED_CS], 3",
+        "cmp dword [edi + PROC_SAVED_EIP], 0",
+        "mov [scheduler_next_process_ptr], edi",
+        "mov [scheduler_next_pid], edx",
+    ):
+        _require(scheduler_select, needle, "round-robin user-frame selection contract")
 
     copy_argv = kernel.split("sys_exec_copy_argv:", 1)[1].split("sys_exec_copy_user_arg_string:", 1)[0]
     _require(copy_argv, "mov dword [sys_exec_last_argv_source], SYS_EXEC_ARGV_SOURCE_USER", "exec argv source proof")
@@ -593,6 +653,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "`VM_OBJECT_KIND_ANON_BRK`",
         "not a reusable object table or lookup structure yet",
         "this remains a brk-backed",
+        "`vmreap=`",
     ):
         _require(process_vm_doc, needle, "process VM docs")
     for needle in (

@@ -63,6 +63,7 @@ CAP_PRESENT_RGB_PALETTE = 0x00000002
 CAP_XRGB8888_LFB = 0x00000004
 CAP_MODE13_SHADOW = 0x00000008
 CAP_DIRTY_SOURCE_RECT = 0x00000010
+CAP_FIXED_PRESENT_SIZE = 0x00000020
 FORMAT_INDEX8_RGB24 = 1
 PROOF_STATUS_FIELD_MAP = {
     "palette_hash": "doompal",
@@ -307,7 +308,13 @@ def fbinfo_contract(
             "policy": POLICY_MODE13,
         }
         backend_id = BACKEND_MODE13
-        capabilities = CAP_PRESENT_INDEXED | CAP_PRESENT_RGB_PALETTE | CAP_MODE13_SHADOW | CAP_DIRTY_SOURCE_RECT
+        capabilities = (
+            CAP_PRESENT_INDEXED
+            | CAP_PRESENT_RGB_PALETTE
+            | CAP_MODE13_SHADOW
+            | CAP_DIRTY_SOURCE_RECT
+            | CAP_FIXED_PRESENT_SIZE
+        )
     elif backend == "lfb":
         geometry = lfb_geometry(width, height, source=source)
         backend_id = BACKEND_LFB_XRGB8888
@@ -317,6 +324,7 @@ def fbinfo_contract(
             | CAP_XRGB8888_LFB
             | CAP_MODE13_SHADOW
             | CAP_DIRTY_SOURCE_RECT
+            | CAP_FIXED_PRESENT_SIZE
         )
     else:
         raise ValueError(f"unknown backend: {backend}")
@@ -342,6 +350,43 @@ def fbinfo_contract(
         "present_format": FORMAT_INDEX8_RGB24,
         "max_present_width": source.width,
         "max_present_height": source.height,
+    }
+
+
+def can_present_indexed_descriptor(
+    info: dict[str, int | str],
+    width: int,
+    height: int,
+) -> bool:
+    if width <= 0 or height <= 0:
+        return False
+    capabilities = int(info.get("capabilities", 0))
+    if not capabilities & CAP_PRESENT_INDEXED:
+        return False
+    if info.get("present_format") != FORMAT_INDEX8_RGB24:
+        return False
+
+    max_width = int(info.get("max_present_width", 0))
+    max_height = int(info.get("max_present_height", 0))
+    if capabilities & CAP_FIXED_PRESENT_SIZE:
+        return width == max_width and height == max_height
+    if max_width and width > max_width:
+        return False
+    if max_height and height > max_height:
+        return False
+    return True
+
+
+def present_size_contract(info: dict[str, int | str]) -> dict[str, int | str]:
+    capabilities = int(info.get("capabilities", 0))
+    max_width = int(info.get("max_present_width", 0))
+    max_height = int(info.get("max_present_height", 0))
+    kind = "fixed" if capabilities & CAP_FIXED_PRESENT_SIZE else "bounded"
+    return {
+        "kind": kind,
+        "format": int(info.get("present_format", 0)),
+        "max_width": max_width,
+        "max_height": max_height,
     }
 
 

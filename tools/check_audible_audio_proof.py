@@ -367,7 +367,12 @@ def _continuity_summary(
     update_delta = int(stream_update_progress["delta"], 16)
     position_delta = int(progress["musicpos"]["delta"], 16)
     rendered_sample_delta = int(progress["musicrend_sample"]["delta"], 16)
+    initial_buffer = music_buffers[0]
+    final_buffer = music_buffers[-1]
+    rendered_plus_initial_buffer = rendered_sample_delta + initial_buffer
+    consumed_plus_final_buffer = position_delta + final_buffer
     stream_health = {
+        "buffer_initial": f"{initial_buffer:08X}",
         "buffer_floor": f"{min(music_buffers):08X}",
         "buffer_peak": f"{max(music_buffers):08X}",
         "buffer_final": final_fields["musicbuf"],
@@ -383,7 +388,11 @@ def _continuity_summary(
         "position_delta": progress["musicpos"]["delta"],
         "position_delta_per_update_floor": f"{(position_delta // update_delta) if update_delta else 0:08X}",
         "rendered_sample_delta": progress["musicrend_sample"]["delta"],
-        "rendered_sample_covers_position": rendered_sample_delta >= position_delta,
+        "rendered_plus_initial_buffer": f"{rendered_plus_initial_buffer:08X}",
+        "consumed_plus_final_buffer": f"{consumed_plus_final_buffer:08X}",
+        "rendered_sample_covers_position": (
+            rendered_plus_initial_buffer >= consumed_plus_final_buffer
+        ),
     }
     mixer_safety = {
         "mixclip_delta": safety_progress["mixclip"]["delta"],
@@ -402,8 +411,15 @@ def _continuity_summary(
         "pull_counters": final_fields["musicpull"],
         "hardware_paced": final_fields["musicstream"] == "PULL",
         "current_push_proof": final_fields["musicstream"] == "PUSH",
+        "os_surfaces": {
+            "device": "VIBE_AUDIO_DEVICE_INFO",
+            "ring": "VIBE_AUDIO_PCM_RING_INFO",
+            "stream": "VIBE_AUDIO_STREAM_INFO",
+            "mixer": "VIBE_AUDIO_MIXER_START/UPDATE/STOP/IS_PLAYING",
+        },
         "claim": (
-            "musicstream=PULL proves kernel SB16 refill requests drove music chunk service; "
+            "the reusable OS audio device/ring/stream/mixer contract proves "
+            "kernel SB16 refill requests drove music chunk service; "
             "voiceq= still records the user-rendered buffer submissions and does not claim "
             "kernel-owned MUS synthesis"
         ),
@@ -476,6 +492,12 @@ def _continuity_summary(
         "stream_contract": stream_contract,
         "renderer_contract": renderer_contract,
         "mixer_safety": mixer_safety,
+        "playability_cadence": check_audio_continuity_proof.build_playability_cadence(
+            [
+                (label, snapshot_fields[label])
+                for label in ("baseline", "fire", "movement", "use", "menu", "final")
+            ]
+        ),
         "scripted_phase_proof": fire_phase,
         "progress": progress,
         "claim": (
@@ -943,6 +965,9 @@ def validate_manifest(
     stream_contract = continuity.get("stream_contract")
     if not isinstance(stream_contract, dict):
         raise AssertionError("manifest continuity.stream_contract must be an object")
+    playability_cadence = continuity.get("playability_cadence")
+    if playability_cadence is not None and not isinstance(playability_cadence, dict):
+        raise AssertionError("manifest continuity.playability_cadence must be an object when present")
     renderer_contract = continuity.get("renderer_contract")
     if renderer_contract is not None and not isinstance(renderer_contract, dict):
         raise AssertionError("manifest continuity.renderer_contract must be an object when present")
@@ -1039,6 +1064,19 @@ def validate_manifest(
         raise AssertionError("manifest stream contract must name musicstream")
     if not isinstance(stream_contract.get("pull_counters"), str):
         raise AssertionError("manifest stream contract must record musicpull counters")
+    os_surfaces = stream_contract.get("os_surfaces")
+    if os_surfaces is not None:
+        if not isinstance(os_surfaces, dict):
+            raise AssertionError("manifest stream contract os_surfaces must be an object")
+        expected_surfaces = {
+            "device": "VIBE_AUDIO_DEVICE_INFO",
+            "ring": "VIBE_AUDIO_PCM_RING_INFO",
+            "stream": "VIBE_AUDIO_STREAM_INFO",
+            "mixer": "VIBE_AUDIO_MIXER_START/UPDATE/STOP/IS_PLAYING",
+        }
+        for key, expected in expected_surfaces.items():
+            if os_surfaces.get(key) != expected:
+                raise AssertionError(f"manifest stream contract os_surfaces.{key} must be {expected}")
     if stream_contract["mode"] == "PUSH" and stream_contract.get("current_push_proof") is not True:
         raise AssertionError("manifest stream contract must mark current PUSH proof")
     if stream_contract["mode"] == "PULL" and stream_contract.get("hardware_paced") is not True:
@@ -1075,6 +1113,10 @@ def validate_manifest(
         value = stream_health.get(key)
         if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
             raise AssertionError(f"manifest continuity.stream_health.{key} must be eight hex digits")
+    for key in ("buffer_initial", "rendered_plus_initial_buffer", "consumed_plus_final_buffer"):
+        value = stream_health.get(key)
+        if value is not None and (not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value)):
+            raise AssertionError(f"manifest continuity.stream_health.{key} must be eight hex digits when present")
     for key in (
         "buffer_peak",
         "stream_update_delta",
@@ -1084,14 +1126,66 @@ def validate_manifest(
     ):
         if int(stream_health[key], 16) <= 0:
             raise AssertionError(f"manifest continuity.stream_health.{key} must be nonzero")
+    for key in ("rendered_plus_initial_buffer", "consumed_plus_final_buffer"):
+        if key in stream_health and int(stream_health[key], 16) <= 0:
+            raise AssertionError(f"manifest continuity.stream_health.{key} must be nonzero")
     if stream_health.get("rendered_sample_covers_position") is not True:
-        raise AssertionError("manifest stream health must show rendered samples cover music position")
+        raise AssertionError(
+            "manifest stream health must show rendered samples plus initial "
+            "musicbuf cover music position plus final musicbuf"
+        )
     if int(stream_health["stream_update_delta"], 16) < check_audio_continuity_proof.MIN_MUSIC_STREAM_UPDATE_DELTA:
         raise AssertionError("manifest stream health stream_update_delta is below proof threshold")
     if int(stream_health["under_delta"], 16) > MAX_MUSIC_UNDERRUN_DELTA:
         raise AssertionError("manifest stream health under_delta exceeds proof threshold")
     if int(stream_health["drop_delta"], 16) > MAX_MUSIC_DROP_DELTA:
         raise AssertionError("manifest stream health drop_delta exceeds proof threshold")
+
+    if playability_cadence is not None:
+        if not isinstance(playability_cadence.get("available"), bool):
+            raise AssertionError("manifest playability_cadence.available must be boolean")
+        verdict = playability_cadence.get("verdict")
+        if not isinstance(verdict, str):
+            raise AssertionError("manifest playability_cadence.verdict must be a string")
+        if playability_cadence["available"]:
+            if verdict != check_audio_continuity_proof.PLAYABILITY_CADENCE_HEALTHY:
+                raise AssertionError("manifest playability_cadence verdict must be healthy when available")
+            progress_obj = playability_cadence.get("progress")
+            ratios = playability_cadence.get("ratios")
+            safety = playability_cadence.get("safety")
+            if not isinstance(progress_obj, dict) or not isinstance(ratios, dict) or not isinstance(safety, dict):
+                raise AssertionError("manifest playability_cadence must include progress, ratios, and safety")
+            for name in ("gtic", "leveltime", "doompresent", "audioirq", "refill", "musicpull_refill", "musicpos"):
+                entry = progress_obj.get(name)
+                if not isinstance(entry, dict):
+                    raise AssertionError(f"manifest playability_cadence.progress.{name} must be an object")
+                for key in ("start", "final", "delta"):
+                    value = entry.get(key)
+                    if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
+                        raise AssertionError(
+                            f"manifest playability_cadence.progress.{name}.{key} must be eight hex digits"
+                        )
+                if int(entry["delta"], 16) <= 0:
+                    raise AssertionError(f"manifest playability_cadence.progress.{name}.delta must be nonzero")
+            for key in (
+                "audioirq_delta_per_frame_floor",
+                "refill_delta_per_frame_floor",
+                "pull_refill_delta_per_frame_floor",
+                "musicpos_delta_per_leveltime_floor",
+            ):
+                value = ratios.get(key)
+                if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
+                    raise AssertionError(f"manifest playability_cadence.ratios.{key} must be eight hex digits")
+            if playability_cadence.get("audio_pressure") is not False:
+                raise AssertionError("manifest playability_cadence.audio_pressure must be false")
+            for name in ("mixclip", "musicunder", "musicdrops"):
+                entry = safety.get(name)
+                if not isinstance(entry, dict) or int(entry.get("delta", "1"), 16) != 0:
+                    raise AssertionError(f"manifest playability_cadence.safety.{name}.delta must be zero")
+        else:
+            reason = playability_cadence.get("reason")
+            if not isinstance(reason, str) or not reason:
+                raise AssertionError("manifest unavailable playability_cadence must include a reason")
 
     for key in (
         "mixclip_delta",
@@ -1220,10 +1314,13 @@ def validate_repo_contract() -> None:
                 "status-only SB16 continuity",
                 "musicpos=",
                 "musicbuf=",
+                "VIBE_AUDIO_STREAM_INFO",
                 "musicrend=",
                 "event type 6",
                 "event type 5",
                 "stream_contract",
+                "playability_cadence",
+                "device/ring/stream/mixer",
                 "musicstream=PULL",
                 "listener-quality metadata",
                 "stream-health",

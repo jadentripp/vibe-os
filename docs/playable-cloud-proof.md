@@ -92,6 +92,33 @@ python3 tools/run_cloud_playability.py --ref "$branch" --lane persistence \
   --download-artifacts "build/cloud-run-persistence"
 ```
 
+For existing runs, prefer the reproducible inspection form. `--lane auto`
+infers the lane from the downloaded allowlisted files: `audio-proof.json`
+selects the audio gate, `status.persistence*.txt` selects the persistence gate,
+and both together select the combined gate. `--checker-ref run` checks out a
+detached copy of the exact run commit under `build/cloud-checkers/`, so the
+download is judged by the checker/ref that produced the cloud proof even if the
+local shared worktree has moved on:
+
+```sh
+python3 tools/run_cloud_playability.py --run-id "$GITHUB_RUN_ID" \
+  --lane auto \
+  --checker-ref run \
+  --download-artifacts "build/cloud-run-$GITHUB_RUN_ID" \
+  --write-audit-log "build/cloud-run-$GITHUB_RUN_ID/cloud-playability-audit.json"
+```
+
+The helper prints the `gh run view` metadata command, run URL/status/conclusion
+fields when available, the detached checker checkout command, the artifact
+download command, the checker command, and the status triage command. That is
+the intended agent handoff surface; avoid reconstructing those commands from
+Actions logs by hand. The optional audit JSON uses
+`schema=cloud-playability-audit-v1` and records the selected repo/ref, lane,
+workflow/artifact name, no-local-VM and artifact policy, run metadata when
+available, detached checker ref/worktree, download directory, checker command,
+triage command, and the printed failure-lane block so a later reviewer can
+replay exactly what was checked.
+
 Manual equivalent commands are still:
 
 ```sh
@@ -254,16 +281,18 @@ The cloud proof requires these status families:
   additionally show the high-half alias, backing frame, dynamic page table, and
   reclaimed table frame.
 - Process/exec: `exec=OK`, `path=DOOM.ELF`, `uexec=OK`,
-  `upath=USERPROB.ELF`, `execsys=a/b/c/d/e/f`, `execerr=00000000`,
+  `upath=USERPROB.ELF`, `abiexec=OK`, `abipath=ABIPROBE.ELF`,
+  `abiprobe=OK`, `execsys=a/b/c/d/e/f`, `execerr=00000000`,
   `execres=00000000`, `target`, `entry`, `stack`, `argc`, `argv`, `envp`,
   `argv0`, `envp0`, `argvsrc=2`, `ppid`, `upid`, `uentry`, `doom=OK`, and
   `doomrun=RUN` show that the kernel loaded the boot probe and Doom through the
-  exec resolver, performed a syscall-driven Doom handoff, seeded the user ABI
-  stack from the copied user vector, recorded process parent metadata, and left
-  Doom running rather than merely validating bytes on disk. `procpool=`,
-  `pidseq=`, `fdexec=`, and
-  `wait=` additionally show bounded process-slot reuse, PID generation
-  movement, exec-time fd inheritance, and a userland wait/reap proof. The six
+  exec resolver, ran the packaged ABI probe as a generic root `.ELF`, performed
+  a syscall-driven Doom handoff, seeded the user ABI stack from the copied user
+  vector, recorded process parent metadata, and left Doom running rather than
+  merely validating bytes on disk. `procpool=`,
+  `pidseq=`, `fdexec=`, `wait=`, and `vmreap=` additionally show bounded
+  process-slot reuse, PID generation movement, exec-time fd inheritance, a
+  userland wait/reap proof, and child VM teardown during reap. The six
   `execsys`
   counters are attempts, successes, failures, handoffs, scheduled targets, and
   rollbacks.
@@ -357,9 +386,11 @@ The cloud proof requires these status families:
 
 `tools/check_vm_status_proof.py` is the legitimacy ratchet for the VM/process
 status fields. It requires `vmmhfree` to match the reclaimed `vmmhpt` frame,
-`uexec=OK`/`upath=USERPROB.ELF` for the boot probe, `argvsrc=2` for the Doom
-exec path, `procpool=`/`fdexec=`/`wait=` for bounded process-slot reuse,
-exec-time fd inheritance, and the wait/reap proof, and
+`uexec=OK`/`upath=USERPROB.ELF` for the boot probe,
+`abiexec=OK`/`abipath=ABIPROBE.ELF`/`abiprobe=OK` for the generic ABI probe,
+`argvsrc=2` for the Doom exec path, `procpool=`/`fdexec=`/`wait=`/`vmreap=`
+for bounded process-slot reuse, exec-time fd inheritance, the wait/reap proof,
+and child VM teardown during reap, and
 `pmask` plus `pkind`/`peip`/`pcr3`/`pkstk` to cross the Doom/preempt-probe tasks,
 user windows, address spaces, and kernel stacks in both directions during timer
 IRQ preemption.

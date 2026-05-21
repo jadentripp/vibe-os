@@ -231,7 +231,13 @@ REQUIRED_MATRIX_PHRASES = (
     "QEMU evidence alone can only claim the matching QEMU device model",
     "Claimed rows prove only the named QEMU device-model path",
     "Status-only rows are diagnostics, not driver support",
+    "CURRENT_TARGET[QEMU_LEGACY_PC]",
+    "QEMU BIOS/IDE/PS2/VBE/SB16 is the supported target",
+    "installation to arbitrary disks are outside the claim",
     "PCI_TABLE[QEMU_BUS0_CLASS_TABLE]",
+    "PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN]",
+    "PCI_TABLE_CONTRACT[ENTRY_LAYOUT]",
+    "PCI_TABLE_CONTRACT[NO_DRIVER_BINDING]",
     "STATUS_PROOF[IDE_ATA_PIO]",
     "STATUS_PROOF[PS2_KEYBOARD]",
     "STATUS_PROOF[PS2_MOUSE]",
@@ -331,6 +337,28 @@ PCI_TABLE_REQUIREMENTS = {
     },
 }
 
+PCI_TABLE_CONTRACT_REQUIREMENTS = {
+    "QEMU_BUS0_SCAN": {
+        "status": "status-only",
+        "bus": "0",
+        "devices": "32",
+        "functions": "8",
+        "evidence": "pci-status-fields",
+    },
+    "ENTRY_LAYOUT": {
+        "status": "status-only",
+        "dwords": "4",
+        "fields": "bdf,id,class,header",
+        "evidence": "pci-table-status-fields",
+    },
+    "NO_DRIVER_BINDING": {
+        "status": "guardrail",
+        "consumers": "status-only",
+        "drivers": "none",
+        "evidence": "negative-claims",
+    },
+}
+
 PCI_STATUS_FIELDS = {
     "pci",
     "pciprobe",
@@ -377,6 +405,34 @@ PCI_TABLE_RE = re.compile(
     re.MULTILINE,
 )
 
+PCI_TABLE_SCAN_CONTRACT_RE = re.compile(
+    r"^- `PCI_TABLE_CONTRACT\[(?P<id>QEMU_BUS0_SCAN)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"bus=(?P<bus>[0-9]+) "
+    r"devices=(?P<devices>[0-9]+) "
+    r"functions=(?P<functions>[0-9]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
+PCI_TABLE_LAYOUT_CONTRACT_RE = re.compile(
+    r"^- `PCI_TABLE_CONTRACT\[(?P<id>ENTRY_LAYOUT)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"dwords=(?P<dwords>[0-9]+) "
+    r"fields=(?P<fields>[a-z0-9_,]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
+PCI_TABLE_GUARDRAIL_CONTRACT_RE = re.compile(
+    r"^- `PCI_TABLE_CONTRACT\[(?P<id>NO_DRIVER_BINDING)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"consumers=(?P<consumers>[a-z0-9-]+) "
+    r"drivers=(?P<drivers>[a-z0-9-]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
 PROOF_REQUIREMENT_RE = re.compile(
     r"^- `PROOF_REQUIREMENT\[(?P<id>[A-Z0-9_]+)\] "
     r"status=(?P<status>[a-z-]+) "
@@ -409,6 +465,16 @@ STATUS_PROOF_RE = re.compile(
     r"status=(?P<status>[a-z-]+) "
     r"scope=(?P<scope>[a-z0-9-]+) "
     r"fields=(?P<fields>[a-z0-9_,]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
+CURRENT_TARGET_RE = re.compile(
+    r"^- `CURRENT_TARGET\[(?P<id>[A-Z0-9_]+)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"machine=(?P<machine>[a-z0-9-]+) "
+    r"includes=(?P<includes>[a-z0-9_,-]+) "
+    r"excludes=(?P<excludes>[a-z0-9_,-]+) "
     r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
     re.MULTILINE,
 )
@@ -539,6 +605,49 @@ def _validate_support_rows(text: str) -> dict[str, dict[str, str]]:
     return rows
 
 
+def _validate_current_target_row(text: str) -> dict[str, str]:
+    matches = list(CURRENT_TARGET_RE.finditer(text))
+    if len(matches) != 1:
+        raise AssertionError("hardware matrix must contain exactly one CURRENT_TARGET row")
+    row = matches[0].groupdict()
+    if row["id"] != "QEMU_LEGACY_PC":
+        raise AssertionError("CURRENT_TARGET row must be QEMU_LEGACY_PC")
+    if row["status"] != "claimed":
+        raise AssertionError("CURRENT_TARGET[QEMU_LEGACY_PC] must stay status=claimed")
+    if row["machine"] != "qemu-legacy-pc":
+        raise AssertionError("CURRENT_TARGET[QEMU_LEGACY_PC] must stay machine=qemu-legacy-pc")
+
+    includes = set(row["includes"].split(","))
+    excludes = set(row["excludes"].split(","))
+    expected_includes = {
+        "bios",
+        "ide-ata-pio",
+        "ps2-keyboard",
+        "ps2-mouse",
+        "vbe-vga",
+        "sb16",
+    }
+    expected_excludes = {
+        "uefi",
+        "physical-hardware",
+        "general-pci",
+        "arbitrary-disk-install",
+    }
+    if includes != expected_includes:
+        raise AssertionError(
+            "CURRENT_TARGET[QEMU_LEGACY_PC] includes must stay "
+            + ",".join(sorted(expected_includes))
+        )
+    if excludes != expected_excludes:
+        raise AssertionError(
+            "CURRENT_TARGET[QEMU_LEGACY_PC] excludes must stay "
+            + ",".join(sorted(expected_excludes))
+        )
+    if row["evidence"] != "support-rows":
+        raise AssertionError("CURRENT_TARGET[QEMU_LEGACY_PC] evidence must stay support-rows")
+    return row
+
+
 def _validate_uefi_boot_rows(text: str) -> dict[str, dict[str, str]]:
     rows: dict[str, dict[str, str]] = {}
     for match in UEFI_BOOT_RE.finditer(text):
@@ -612,6 +721,43 @@ def _validate_pci_table_rows(text: str) -> dict[str, dict[str, str]]:
         for key, value in expected.items():
             if row[key] != value:
                 raise AssertionError(f"PCI_TABLE[{row_id}] {key} must stay {value}")
+
+    return rows
+
+
+def _validate_pci_table_contract_rows(text: str) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for pattern in (
+        PCI_TABLE_SCAN_CONTRACT_RE,
+        PCI_TABLE_LAYOUT_CONTRACT_RE,
+        PCI_TABLE_GUARDRAIL_CONTRACT_RE,
+    ):
+        for match in pattern.finditer(text):
+            row_id = match.group("id")
+            if row_id in rows:
+                raise AssertionError(f"duplicate PCI_TABLE_CONTRACT row: {row_id}")
+            rows[row_id] = match.groupdict()
+
+    missing = sorted(set(PCI_TABLE_CONTRACT_REQUIREMENTS) - set(rows))
+    if missing:
+        raise AssertionError(f"missing PCI_TABLE_CONTRACT rows: {', '.join(missing)}")
+    extras = sorted(set(rows) - set(PCI_TABLE_CONTRACT_REQUIREMENTS))
+    if extras:
+        raise AssertionError(f"unexpected PCI_TABLE_CONTRACT rows: {', '.join(extras)}")
+
+    for row_id, expected in PCI_TABLE_CONTRACT_REQUIREMENTS.items():
+        row = rows[row_id]
+        for key, value in expected.items():
+            if row[key] != value:
+                raise AssertionError(f"PCI_TABLE_CONTRACT[{row_id}] {key} must stay {value}")
+
+    scan = rows["QEMU_BUS0_SCAN"]
+    layout = rows["ENTRY_LAYOUT"]
+    capacity = int(PCI_TABLE_REQUIREMENTS["QEMU_BUS0_CLASS_TABLE"]["capacity"])
+    if int(scan["devices"]) * int(scan["functions"]) != capacity:
+        raise AssertionError("PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN] bounds must match table capacity")
+    if int(layout["dwords"]) != len(layout["fields"].split(",")):
+        raise AssertionError("PCI_TABLE_CONTRACT[ENTRY_LAYOUT] dwords must match field count")
 
     return rows
 
@@ -1024,8 +1170,10 @@ def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
             raise AssertionError(f"hardware support matrix missing phrase: {phrase}")
 
     rows = _validate_support_rows(matrix_text)
+    _validate_current_target_row(matrix_text)
     _validate_pci_status_rows(matrix_text)
     _validate_pci_table_rows(matrix_text)
+    _validate_pci_table_contract_rows(matrix_text)
     _validate_proof_requirement_rows(matrix_text)
     _validate_negative_claim_rows(matrix_text)
     _validate_next_unlock_rows(matrix_text)

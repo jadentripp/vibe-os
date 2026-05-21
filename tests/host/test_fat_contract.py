@@ -139,6 +139,8 @@ class FatContractTests(unittest.TestCase):
             "root-level 8.3",
             "vibe_listdir",
             "one root-level subdirectory",
+            "open`/`read`/`lseek`/`stat`/`fstat`",
+            "/ASSETS/README.TXT",
             "vibe_dirent_is_regular_file",
             "future games and tools",
             "EISDIR",
@@ -156,19 +158,38 @@ class FatContractTests(unittest.TestCase):
 
         for source in (
             "fat_find_root_entry_any:",
+            "fat_parse_user_subdir_file83:",
+            "fat_find_subdir_entry:",
+            "readonly_file_read:",
+            "readonly_file_lseek:",
             "fat_list_user_dir:",
             "fat_list_subdir_cluster:",
             "call fat_find_root_entry_any",
             "test byte [fat_found_attributes], FAT_ATTR_DIRECTORY",
             "jnz .bad_syscall_eisdir",
             "call fat_list_user_dir",
+            "FD_KIND_READONLY_FILE equ 3",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, kernel)
 
         stat_section = kernel.split(".stat:", 1)[1].split(".fstat:", 1)[0]
+        self.assertIn("call fat_parse_user_subdir_file83", stat_section)
+        self.assertIn("call fat_find_subdir_entry", stat_section)
         self.assertIn("call fat_find_root_entry_any", stat_section)
         self.assertIn("STAT_MODE_READONLY_DIR", stat_section)
+
+        open_section = kernel.split(".open_generic_root83:", 1)[1].split(".read:", 1)[0]
+        self.assertIn("call fat_parse_user_subdir_file83", open_section)
+        self.assertIn(
+            "test dword [syscall_open_flags], O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND\n"
+            "    jz .open_generic_try_subdir_readonly\n"
+            "    call fat_parse_user_subdir_file83\n"
+            "    jnc .bad_syscall_eacces",
+            open_section,
+        )
+        self.assertIn("mov byte [fd_kinds + eax], FD_KIND_READONLY_FILE", open_section)
+        self.assertIn("mov [fd_file_sizes + eax * 4], edx", open_section)
 
         listdir_section = kernel.split("fat_list_user_dir:", 1)[1].split("fat_list_root_dir:", 1)[0]
         self.assertIn("call fat_parse_user_root83", listdir_section)
@@ -199,6 +220,8 @@ class FatContractTests(unittest.TestCase):
         self.assertIn("jnz .bad_syscall_eisdir", open_section)
 
         unlink_section = kernel.split(".unlink:", 1)[1].split(".stat:", 1)[0]
+        self.assertIn("call fat_parse_user_root83", unlink_section)
+        self.assertIn("jc .bad_syscall_einval", unlink_section)
         self.assertIn("call fat_find_root_entry_any", unlink_section)
         self.assertIn("test byte [fat_found_attributes], FAT_ATTR_DIRECTORY", unlink_section)
         self.assertIn("jnz .bad_syscall_eisdir", unlink_section)
@@ -206,6 +229,10 @@ class FatContractTests(unittest.TestCase):
         listdir_section = kernel.split("fat_list_user_dir:", 1)[1].split("fat_list_subdir_cluster:", 1)[0]
         self.assertIn("jz .fail_enotdir", listdir_section)
         self.assertIn("mov eax, -ERRNO_ENOTDIR", listdir_section)
+
+        ftruncate_section = kernel.split(".ftruncate:", 1)[1].split(".mmap:", 1)[0]
+        self.assertIn("cmp byte [fd_kinds + eax], FD_KIND_WRITABLE", ftruncate_section)
+        self.assertIn("jne .bad_syscall_ebadf", ftruncate_section)
 
     def test_kernel_root_listdir_validates_user_buffer_by_entry_count(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
@@ -261,6 +288,70 @@ class FatContractTests(unittest.TestCase):
 
         with self.assertRaises(IsADirectoryError):
             fs.write_root_file(b"ASSETS     ", b"not-a-file")
+
+    def test_host_fat_image_mutates_root_83_files_but_rejects_subdirectory_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_path = Path(tmp) / "disk.img"
+            subprocess.run(
+                [sys.executable, str(MAKE_WAD_IMAGE), str(image_path)],
+                check=True,
+                cwd=ROOT,
+                stdout=subprocess.DEVNULL,
+            )
+            fs = make_wad_image.Fat16Image(bytearray(image_path.read_bytes()))
+
+        root_path = (b"NOTES   TXT",)
+        fs.create_file_at_path(root_path)
+        fs.write_file_at_path(root_path, b"hello")
+        fs.write_file_at_path(root_path, b"hello world")
+        self.assertEqual(fs.read_file_at_path(root_path), b"hello world")
+        fs.truncate_file_at_path(root_path)
+        self.assertEqual(fs.read_file_at_path(root_path), b"")
+        fs.write_file_at_path(root_path, b"again")
+        self.assertGreater(len(fs.delete_file_at_path(root_path)), 0)
+        self.assertIsNone(fs.entry_metadata_at_path(root_path))
+        fs.validate_allocated_clusters_reachable()
+
+        fs.create_subdirectory(b"ASSETS2    ")
+        fs.write_directory_file(b"ASSETS2    ", b"README  TXT", b"readonly")
+        readonly_path = (b"ASSETS2    ", b"README  TXT")
+        self.assertEqual(fs.read_file_at_path(readonly_path), b"readonly")
+
+        for operation, mutate in (
+            ("write", lambda: fs.write_file_at_path(readonly_path, b"nope")),
+            ("create", lambda: fs.create_file_at_path(readonly_path)),
+            ("truncate", lambda: fs.truncate_file_at_path(readonly_path)),
+            ("unlink", lambda: fs.delete_file_at_path(readonly_path)),
+            ("create-missing", lambda: fs.create_file_at_path((b"ASSETS2    ", b"NEWFILE TXT"))),
+        ):
+            with self.subTest(operation=operation):
+                with self.assertRaises(PermissionError):
+                    mutate()
+
+        self.assertEqual(fs.read_file_at_path(readonly_path), b"readonly")
+        fs.validate_allocated_clusters_reachable()
+
+    def test_generated_image_seeds_readonly_one_level_asset_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_path = Path(tmp) / "disk.img"
+            subprocess.run(
+                [sys.executable, str(MAKE_WAD_IMAGE), str(image_path)],
+                check=True,
+                cwd=ROOT,
+                stdout=subprocess.DEVNULL,
+            )
+            fs = make_wad_image.Fat16Image(bytearray(image_path.read_bytes()))
+
+        root_names = {entry["name"] for entry in fs.list_root_directory()}
+        self.assertIn(make_wad_image.ASSET_DIR_NAME, root_names)
+        asset_names = {entry["name"] for entry in fs.list_directory((make_wad_image.ASSET_DIR_NAME,))}
+        self.assertIn(make_wad_image.ASSET_README_NAME, asset_names)
+        readme_meta = make_wad_image.validate_generated_asset_readme(fs)
+        self.assertEqual(readme_meta["size"], len(make_wad_image.ASSET_README_BYTES))
+        self.assertEqual(
+            fs.read_file_at_path(make_wad_image.ASSET_README_PATH),
+            make_wad_image.ASSET_README_BYTES,
+        )
 
 
 if __name__ == "__main__":

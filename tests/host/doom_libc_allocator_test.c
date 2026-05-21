@@ -423,7 +423,9 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
             info->backend = 2;
             info->frame_bytes = 320 * 200;
             info->palette_bytes = 256 * 3;
-            info->capabilities = VIBE_FB_CAP_PRESENT_INDEXED | VIBE_FB_CAP_PRESENT_RGB_PALETTE;
+            info->capabilities = VIBE_FB_CAP_PRESENT_INDEXED
+                | VIBE_FB_CAP_PRESENT_RGB_PALETTE
+                | VIBE_FB_CAP_FIXED_PRESENT_SIZE;
             info->present_format = VIBE_FB_FORMAT_INDEX8_RGB24;
             info->max_present_width = 320;
             info->max_present_height = 200;
@@ -1137,7 +1139,8 @@ int main(void)
             || info.max_present_width != 320
             || info.max_present_height != 200
             || !(info.capabilities & VIBE_FB_CAP_PRESENT_INDEXED)
-            || !(info.capabilities & VIBE_FB_CAP_PRESENT_RGB_PALETTE))
+            || !(info.capabilities & VIBE_FB_CAP_PRESENT_RGB_PALETTE)
+            || !(info.capabilities & VIBE_FB_CAP_FIXED_PRESENT_SIZE))
             return 132;
         present.frame = &frame;
         present.palette = &palette;

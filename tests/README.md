@@ -29,7 +29,10 @@ boot:
   references to shortcut source ports or host display/audio APIs. `.gitignore`
   is checked for the common WAD archive, screenshot/pixel, disk-image, log, and
   raw-audio spillover patterns so accidental local proof output is harder to
-  stage. `tests/host/test_doom_source_boundary.py` covers the narrower
+  stage. The same hygiene gate keeps the top-level `README.md` as a concise
+  claim surface: exact commit hashes, run IDs, proof-transcript fields, gap rows,
+  and Markdown task lists belong in detailed docs or artifacts, not in the
+  README. `tests/host/test_doom_source_boundary.py` covers the narrower
   `tools/check_doom_source_boundary.py` guard, which compares tracked vendor
   files to `HEAD`, scans `third_party/doom` for OS-facing port tokens, and
   checks staged/committed paths for WAD, disk-image, framebuffer, and audio
@@ -71,7 +74,8 @@ boot:
   claiming that `fork`, descriptor duplication, or reusable VM objects exist
   yet.
 - `tools/check_vm_status_proof.py` requires the matching cloud status to expose
-  `vmmhfree`, `uexec=OK`, `upath=USERPROB.ELF`, `argvsrc=2`, `procpool=`,
+  `vmmhfree`, `uexec=OK`, `upath=USERPROB.ELF`, `abiexec=OK`,
+  `abipath=ABIPROBE.ELF`, `abiprobe=OK`, `argvsrc=2`, `procpool=`,
   `fdexec=`, `wait=`, and `pmask` plus `pkind`/`peip`/`pcr3`/`pkstk` evidence
   before a VM/process artifact can be accepted.
 - `tools/status_fields.py` is the shared host-side status/proof parser. New
@@ -157,16 +161,23 @@ boot:
   `UEFI_BOOT[...]` row must stay unimplemented with no evidence, and `boot/uefi`
   must stay out of the current Makefile image path until a separate opt-in UEFI
   build exists.
+- `tools/check_storage_install_boundary.py` parses
+  `docs/storage-install-boundary.md` so generated-image persistence proof cannot
+  drift into an installable-OS claim. With `--image build/disk.img --json`, it
+  emits an `install-image-manifest` covering the repo MBR, raw boot/kernel
+  regions, FAT16 BPB, root-entry inventory, FAT-copy agreement, and cluster
+  ownership, while keeping arbitrary-disk install and recovery rows unclaimed.
 - `tools/check_vm_safety_contract.py` machine-checks the local-QEMU opt-in,
   cloud diagnostic upload hygiene, panic status fields, shutdown status fields,
   guard-page helper, dynamic high VMM mapping/reclaim, and brk-backed tail
   `munmap` contract without launching QEMU.
 - `tools/check_vm_status_proof.py` validates cloud status artifacts for the VM
   legitimacy fields: `vmmhfree` must match the reclaimed dynamic page table,
-  boot-probe exec must report `uexec=OK` and `upath=USERPROB.ELF`, Doom exec
-  must report `argvsrc=2`, `procpool=`, `fdexec=`, and `wait=`, and `pmask` plus
-  `pkind`/`peip`/`pcr3`/`pkstk` must show bidirectional timer IRQ switching
-  between Doom and the preempt probe.
+  boot-probe exec must report `uexec=OK` and `upath=USERPROB.ELF`, ABI-probe
+  exec must report `abiexec=OK`, `abipath=ABIPROBE.ELF`, and `abiprobe=OK`,
+  Doom exec must report `argvsrc=2`, `procpool=`, `fdexec=`, `wait=`, and
+  `vmreap=`, and `pmask` plus `pkind`/`peip`/`pcr3`/`pkstk` must show
+  bidirectional timer IRQ switching between Doom and the preempt probe.
 - `tools/check_shutdown_panic_proof.py` validates the opt-in disposable-cloud
   shutdown/panic proof contract and any downloaded proof artifact. It requires
   `shutdown-panic-proof.json` plus dedicated panic, halt, reboot-request, and
@@ -177,7 +188,8 @@ boot:
   downloaded real-WAD status artifacts without requiring a WAD or local QEMU.
   The docs it checks must keep a fresh save-persistence proof note plus the
   explicit `gh workflow run os-smoke.yml`, `real-wad-smoke.yml`, and soak
-  dispatch commands, so host-only changes cannot masquerade as cloud proof.
+  dispatch commands in the proof docs/runbooks, while README stays a concise
+  claim surface instead of a proof transcript.
   The repo contract also locks the repeated **Real WAD soak** workflow's
   `expected_ref` branch guard and default-branch dispatch limitation docs.
   It rejects forbidden filenames, duplicate required basenames, unexpected ELF

@@ -192,21 +192,41 @@ instead of copying anything out of the Codespace:
 
 ```sh
 python3 tools/run_cloud_playability.py --ref <branch> --lane gameplay --wait \
-  --download-artifacts build/cloud-run-gameplay
+  --download-artifacts build/cloud-run-gameplay \
+  --write-audit-log build/cloud-run-gameplay/cloud-playability-audit.json
 python3 tools/run_cloud_playability.py --ref <branch> --lane audio \
   --soak-attempts 3 \
   --soak-min-passes 3 \
   --wait \
-  --download-artifacts build/cloud-soak-audio
+  --download-artifacts build/cloud-soak-audio \
+  --write-audit-log build/cloud-soak-audio/cloud-playability-audit.json
 ```
 
 The first command downloads and triages the allowlisted single-run status
 artifact. The second downloads the JSON-only soak metadata and validates its
 summary.
+The audit JSON records the exact `gh`, checker, triage, workflow, artifact, and
+failure-lane information that was printed, so the proof is reviewable after the
+branch and shared worktree have moved on.
 The helper prints a separate failure-lane block after every download command:
 gameplay/input, SB16 continuity, audible audio aggregate when requested, and
 persistence/save-load when requested. Treat those as independent repair lanes
 instead of upgrading a partial proof into a broader claim.
+
+For a formal human proof from the running Codespace, open a second Codespace
+terminal and print the dry-run bundle template before capture:
+
+```sh
+python3 tools/collect_human_playtest_bundle.py --print-template \
+  --build-dir build \
+  --output-dir /tmp/vibe-os-human-proof \
+  --playtester "<name-or-initials>" \
+  --scripted-proof-run-id "<passing-real-wad-smoke-run-id>"
+```
+
+It prints the exact status capture, collect, tarball, local post-download
+verification, cleanup, safe artifact policy, and 4+ CPU noVNC guidance without
+reading artifacts or launching QEMU.
 
 ## Run The Play Script
 

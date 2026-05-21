@@ -1200,6 +1200,10 @@ int vibe_fb_can_present_indexed(const vibe_fb_info_t* info, const vibe_present_i
         return 0;
     if (info->present_format != VIBE_FB_FORMAT_INDEX8_RGB24)
         return 0;
+    if ((info->capabilities & VIBE_FB_CAP_FIXED_PRESENT_SIZE)
+        && (present->width != info->max_present_width
+            || present->height != info->max_present_height))
+        return 0;
     if (info->max_present_width && present->width > info->max_present_width)
         return 0;
     if (info->max_present_height && present->height > info->max_present_height)

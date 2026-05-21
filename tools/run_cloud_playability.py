@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import shlex
 import subprocess
 import sys
@@ -29,8 +30,9 @@ SOAK_WORKFLOW = "real-wad-soak.yml"
 SOAK_ARTIFACT = "real-wad-soak-metadata"
 DEFAULT_REPO = "jadentripp/vibe-os"
 DEFAULT_SAVE_SLOT = "0"
-LANES = ("gameplay", "audio", "persistence", "full")
+LANES = ("auto", "gameplay", "audio", "persistence", "full")
 MAX_SOAK_ATTEMPTS = 20
+CLOUD_AUDIT_SCHEMA = "cloud-playability-audit-v1"
 
 
 class CloudPlayabilityError(RuntimeError):
@@ -54,6 +56,11 @@ class SoakConfig:
 
 
 def lane_config(lane: str, save_slot: str) -> LaneConfig:
+    if lane == "auto":
+        raise CloudPlayabilityError(
+            "--lane auto is only valid while inspecting downloaded artifacts; "
+            "choose gameplay, audio, persistence, or full for a new dispatch"
+        )
     if lane == "gameplay":
         return LaneConfig(audible_audio_proof=False, persistence_save_slot="")
     if lane == "audio":
@@ -211,6 +218,29 @@ def workflow_run_command(
     return command
 
 
+def command_text(command: Sequence[str]) -> str:
+    return shlex.join([str(part) for part in command])
+
+
+def write_audit_log(path: Path, audit: Mapping[str, object], stdout: TextIO) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n")
+    print(f"audit log: {path}", file=stdout)
+
+
+def run_view_command(repo: str, run_id: str) -> list[str]:
+    return [
+        "gh",
+        "run",
+        "view",
+        run_id,
+        "--repo",
+        repo,
+        "--json",
+        "databaseId,workflowName,headBranch,headSha,status,conclusion,url,event,createdAt,updatedAt",
+    ]
+
+
 def run_command(
     command: Sequence[str],
     *,
@@ -224,6 +254,24 @@ def run_command(
         text=True,
         stdout=subprocess.PIPE if capture_json else None,
     )
+
+
+def run_metadata(repo: str, run_id: str) -> dict[str, object]:
+    result = run_command(run_view_command(repo, run_id), capture_json=True)
+    return json.loads(result.stdout or "{}")
+
+
+def summarize_run(run: Mapping[str, object]) -> list[str]:
+    fields = {
+        "run": run.get("databaseId", ""),
+        "workflow": run.get("workflowName", ""),
+        "branch": run.get("headBranch", ""),
+        "sha": run.get("headSha", ""),
+        "status": run.get("status", ""),
+        "conclusion": run.get("conclusion", ""),
+        "url": run.get("url", ""),
+    }
+    return [f"{name}: {value}" for name, value in fields.items() if value]
 
 
 def latest_run_for_ref(repo: str, ref: str, workflow: str) -> dict[str, object]:
@@ -305,18 +353,22 @@ def artifact_checker_command(
     config: LaneConfig,
     *,
     soak: bool,
+    checker_root: Path | None = None,
 ) -> list[str]:
+    tool = "tools/check_cloud_playability_artifacts.py"
+    if checker_root is not None:
+        tool = str(checker_root / tool)
     if soak:
         return [
             sys.executable,
-            "tools/check_cloud_playability_artifacts.py",
+            tool,
             "--soak-summary",
             str(output_dir),
         ]
 
     command = [
         sys.executable,
-        "tools/check_cloud_playability_artifacts.py",
+        tool,
         str(output_dir),
         "--require-gameplay-proof",
     ]
@@ -325,7 +377,64 @@ def artifact_checker_command(
     return command
 
 
-def triage_status(output_dir: Path, stdout: TextIO) -> None:
+def infer_lane_from_artifacts(output_dir: Path) -> str:
+    if (output_dir / "real-wad-soak-summary.json").exists() or list(
+        output_dir.rglob("real-wad-soak-summary.json")
+    ):
+        return "audio"
+    has_audio = (output_dir / "audio-proof.json").exists() or bool(
+        list(output_dir.rglob("audio-proof.json"))
+    )
+    has_persistence = any(output_dir.glob("status.persistence*.txt")) or bool(
+        list(output_dir.rglob("status.persistence*.txt"))
+    )
+    if has_audio and has_persistence:
+        return "full"
+    if has_persistence:
+        return "persistence"
+    if has_audio:
+        return "audio"
+    return "gameplay"
+
+
+def checker_worktree_path(ref: str) -> Path:
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", ref).strip("-") or "checker"
+    return ROOT / "build" / "cloud-checkers" / safe[:80]
+
+
+def prepare_checker_worktree(ref: str, *, dry_run: bool, stdout: TextIO) -> Path:
+    path = checker_worktree_path(ref)
+    print(f"checker ref: detached {ref}", file=stdout)
+    print(f"checker worktree: {path}", file=stdout)
+    command = ["git", "worktree", "add", "--detach", str(path), ref]
+    print(f"checker checkout: {shlex.join(command)}", file=stdout)
+    if dry_run:
+        return path
+    if path.exists():
+        head = run_command(
+            ["git", "-C", str(path), "rev-parse", "HEAD"],
+            capture_json=True,
+        ).stdout.strip()
+        requested = run_command(
+            ["git", "rev-parse", ref],
+            capture_json=True,
+        ).stdout.strip()
+        if head != requested:
+            raise CloudPlayabilityError(
+                f"checker worktree {path} already exists at {head}, not {requested}"
+            )
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    run_command(command)
+    return path
+
+
+def triage_status(
+    output_dir: Path,
+    stdout: TextIO,
+    *,
+    checker_root: Path | None = None,
+) -> None:
     status_path = output_dir / "status.txt"
     if not status_path.exists():
         matches = sorted(output_dir.rglob("status.txt"))
@@ -333,8 +442,11 @@ def triage_status(output_dir: Path, stdout: TextIO) -> None:
     if not status_path.exists():
         print(f"triage: no status.txt found under {output_dir}", file=stdout)
         return
+    tool = "tools/triage_cloud_status.py"
+    if checker_root is not None:
+        tool = str(checker_root / tool)
     print(f"triage: {status_path}", file=stdout)
-    run_command([sys.executable, "tools/triage_cloud_status.py", str(status_path)])
+    run_command([sys.executable, tool, str(status_path)])
 
 
 def lane_failure_report(
@@ -427,7 +539,8 @@ def main(
         choices=LANES,
         default="gameplay",
         help=(
-            "proof lane: gameplay is fastest; audio isolates audible proof; "
+            "proof lane: auto infers after artifact download for existing runs; "
+            "gameplay is fastest; audio isolates audible proof; "
             "persistence isolates save/load with audio off; full combines both"
         ),
     )
@@ -450,6 +563,15 @@ def main(
         "--run-id",
         default="",
         help="inspect/download an existing run instead of dispatching a new one",
+    )
+    parser.add_argument(
+        "--checker-ref",
+        default="",
+        help=(
+            "run artifact checks from a detached git worktree at this ref. Use "
+            "'run' with --run-id to use the run head SHA, keeping old cloud "
+            "proofs reproducible when local checkers have moved on."
+        ),
     )
     parser.add_argument(
         "--soak-attempts",
@@ -496,6 +618,14 @@ def main(
         help="print the GitHub Actions commands without running them",
     )
     parser.add_argument(
+        "--write-audit-log",
+        type=Path,
+        help=(
+            "write a machine-readable JSON audit record of the selected workflow, "
+            "artifact policy, run metadata, commands, checker ref, and failure lanes"
+        ),
+    )
+    parser.add_argument(
         "--local",
         action="store_true",
         help=argparse.SUPPRESS,
@@ -513,7 +643,15 @@ def main(
         )
         save_slot = validate_save_slot(args.save_slot)
         wad_url = validate_wad_url(args.wad_url)
-        config = lane_config(args.lane, save_slot)
+        if args.lane == "auto":
+            if not args.run_id and not args.download_artifacts:
+                raise CloudPlayabilityError(
+                    "--lane auto needs --run-id and/or --download-artifacts; "
+                    "choose a concrete lane for new dispatch"
+                )
+            config = LaneConfig(audible_audio_proof=False, persistence_save_slot="")
+        else:
+            config = lane_config(args.lane, save_slot)
         soak = validate_soak_config(
             lane=args.lane,
             requested=args.soak,
@@ -533,7 +671,13 @@ def main(
     print("vibe-os cloud playability", file=stdout)
     print(f"repo: {args.repo}", file=stdout)
     print(f"ref: {args.ref}", file=stdout)
-    print(f"lane: {args.lane} ({render_lane_help(args.lane, config)})", file=stdout)
+    if args.lane == "auto":
+        print(
+            "lane: auto (infer gameplay/audio/persistence/full from downloaded artifacts)",
+            file=stdout,
+        )
+    else:
+        print(f"lane: {args.lane} ({render_lane_help(args.lane, config)})", file=stdout)
     if soak:
         if soak.attempts:
             print(
@@ -550,8 +694,34 @@ def main(
 
     workflow = SOAK_WORKFLOW if soak else SMOKE_WORKFLOW
     artifact = SOAK_ARTIFACT if soak else SMOKE_ARTIFACT
+    audit: dict[str, object] = {
+        "schema": CLOUD_AUDIT_SCHEMA,
+        "repo": args.repo,
+        "ref": args.ref,
+        "lane_requested": args.lane,
+        "lane_effective": None if args.lane == "auto" else args.lane,
+        "mode": "soak" if soak else "smoke",
+        "workflow": workflow,
+        "artifact": artifact,
+        "dry_run": args.dry_run,
+        "local_vm": "refused",
+        "artifact_policy": {
+            "contains_wad_data": False,
+            "contains_disk_image": False,
+            "contains_pixels": False,
+            "contains_raw_audio": False,
+        },
+        "commands": {},
+        "failure_lanes": [],
+        "run_metadata": None,
+        "checker_ref": None,
+        "checker_worktree": None,
+        "download_dir": None,
+    }
 
     run_id = args.run_id
+    metadata: dict[str, object] | None = None
+    checker_root: Path | None = None
     run_conclusion = 0
     if not run_id:
         if soak:
@@ -579,7 +749,8 @@ def main(
             ref=args.ref,
             fields=fields,
         )
-        print(f"dispatch: {shlex.join(command)}", file=stdout)
+        audit["commands"]["dispatch"] = command_text(command)  # type: ignore[index]
+        print(f"dispatch: {command_text(command)}", file=stdout)
         if args.dry_run:
             print("dry-run: workflow was not dispatched", file=stdout)
         else:
@@ -592,22 +763,68 @@ def main(
                     workflow=workflow,
                     created_after=created_after,
                 )
+                metadata = run
+                audit["run_metadata"] = run
                 run_id = str(run["databaseId"])
-                print(f"run: {run_id}", file=stdout)
-                if run.get("url"):
-                    print(f"url: {run['url']}", file=stdout)
+                for line in summarize_run(run):
+                    print(line, file=stdout)
             except (CloudPlayabilityError, subprocess.CalledProcessError) as exc:
                 print(f"cloud playability failed: {exc}", file=stderr)
                 return 1
     else:
         print(f"run: {run_id}", file=stdout)
+        metadata_command = run_view_command(args.repo, run_id)
+        audit["commands"]["metadata"] = command_text(metadata_command)  # type: ignore[index]
+        print(f"metadata: {command_text(metadata_command)}", file=stdout)
+        if not args.dry_run:
+            try:
+                metadata = run_metadata(args.repo, run_id)
+                audit["run_metadata"] = metadata
+                for line in summarize_run(metadata):
+                    print(line, file=stdout)
+            except (json.JSONDecodeError, subprocess.CalledProcessError) as exc:
+                print(f"cloud playability failed: could not read run metadata: {exc}", file=stderr)
+                return 1
+
+    if args.checker_ref:
+        checker_ref = args.checker_ref
+        if checker_ref == "run":
+            if metadata is None:
+                if args.dry_run:
+                    checker_ref = "RUN_HEAD_SHA"
+                else:
+                    print(
+                        "cloud playability failed: --checker-ref run requires --run-id metadata",
+                        file=stderr,
+                    )
+                    return 1
+            else:
+                checker_ref = str(metadata.get("headSha") or "")
+                if not checker_ref:
+                    print(
+                        "cloud playability failed: run metadata did not include headSha",
+                        file=stderr,
+                    )
+                    return 1
+        try:
+            checker_root = prepare_checker_worktree(
+                checker_ref,
+                dry_run=args.dry_run,
+                stdout=stdout,
+            )
+            audit["checker_ref"] = checker_ref
+            audit["checker_worktree"] = str(checker_root)
+        except (CloudPlayabilityError, subprocess.CalledProcessError) as exc:
+            print(f"cloud playability failed: {exc}", file=stderr)
+            return 1
 
     if args.dry_run and not run_id and (args.wait or args.download_artifacts):
         run_id = "RUN_ID"
 
     if args.wait and run_id:
         command = ["gh", "run", "watch", run_id, "--repo", args.repo, "--exit-status"]
-        print(f"watch: {shlex.join(command)}", file=stdout)
+        audit["commands"]["watch"] = command_text(command)  # type: ignore[index]
+        print(f"watch: {command_text(command)}", file=stdout)
         if not args.dry_run:
             try:
                 run_command(command)
@@ -624,18 +841,50 @@ def main(
             return 1
         output_dir = args.download_artifacts
         command = download_artifact_command(args.repo, run_id, output_dir, artifact)
-        print(f"download: {shlex.join(command)}", file=stdout)
-        checker = artifact_checker_command(output_dir, config, soak=soak is not None)
-        print(f"check: {shlex.join(checker)}", file=stdout)
-        for line in lane_failure_report(
+        audit["commands"]["download"] = command_text(command)  # type: ignore[index]
+        audit["download_dir"] = str(output_dir)
+        print(f"download: {command_text(command)}", file=stdout)
+        effective_config = config
+        if args.lane == "auto" and args.dry_run:
+            print(
+                "lane inference: after download, inspect audio-proof.json and "
+                "status.persistence*.txt before selecting checker gates",
+                file=stdout,
+            )
+        checker: list[str] | None = None
+        if args.lane == "auto":
+            checker_tool = "tools/check_cloud_playability_artifacts.py"
+            if checker_root is not None:
+                checker_tool = str(checker_root / checker_tool)
+            print(
+                f"check: deferred until lane inference ({sys.executable} {checker_tool})",
+                file=stdout,
+            )
+        else:
+            checker = artifact_checker_command(
+                output_dir,
+                effective_config,
+                soak=soak is not None,
+                checker_root=checker_root,
+            )
+            audit["commands"]["check"] = command_text(checker)  # type: ignore[index]
+            print(f"check: {command_text(checker)}", file=stdout)
+        failure_lanes = lane_failure_report(
             output_dir=output_dir,
             config=config,
             soak=soak is not None,
-        ):
+        )
+        audit["failure_lanes"] = failure_lanes
+        for line in failure_lanes:
             print(line, file=stdout)
         if not args.no_triage and soak is None:
+            triage_tool = "tools/triage_cloud_status.py"
+            if checker_root is not None:
+                triage_tool = str(checker_root / triage_tool)
+            triage_command = [sys.executable, triage_tool, str(output_dir / "status.txt")]
+            audit["commands"]["triage"] = command_text(triage_command)  # type: ignore[index]
             print(
-                f"triage command: {shlex.join([sys.executable, 'tools/triage_cloud_status.py', str(output_dir / 'status.txt')])}",
+                f"triage command: {command_text(triage_command)}",
                 file=stdout,
             )
         elif not args.no_triage:
@@ -651,12 +900,33 @@ def main(
             try:
                 output_dir.mkdir(parents=True, exist_ok=True)
                 run_command(command)
+                if args.lane == "auto":
+                    inferred_lane = infer_lane_from_artifacts(output_dir)
+                    effective_config = lane_config(inferred_lane, save_slot)
+                    audit["lane_effective"] = inferred_lane
+                    print(f"lane inferred: {inferred_lane}", file=stdout)
+                    checker = artifact_checker_command(
+                        output_dir,
+                        effective_config,
+                        soak=soak is not None,
+                        checker_root=checker_root,
+                    )
+                    audit["commands"]["check"] = command_text(checker)  # type: ignore[index]
+                    print(f"check: {command_text(checker)}", file=stdout)
                 if not args.no_triage and soak is None:
-                    triage_status(output_dir, stdout)
+                    triage_status(output_dir, stdout, checker_root=checker_root)
+                if checker is None:
+                    raise CloudPlayabilityError("internal error: no artifact checker selected")
                 run_command(checker)
+            except CloudPlayabilityError as exc:
+                print(f"cloud playability artifact check failed: {exc}", file=stderr)
+                return 1
             except subprocess.CalledProcessError as exc:
                 print(f"cloud playability artifact check failed: {exc}", file=stderr)
                 return exc.returncode
+
+    if args.write_audit_log:
+        write_audit_log(args.write_audit_log, audit, stdout)
 
     return run_conclusion
 

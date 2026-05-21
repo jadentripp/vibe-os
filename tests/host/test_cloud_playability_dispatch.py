@@ -1,6 +1,8 @@
+import json
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -81,6 +83,48 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
         self.assertIn("-f persistence_save_slot=0", persistence.stdout)
         self.assertIn("isolated from audio flakes", persistence.stdout)
 
+    def test_existing_run_can_infer_lane_and_use_detached_run_checker(self):
+        result = self.run_helper(
+            "--dry-run",
+            "--lane",
+            "auto",
+            "--run-id",
+            "12345",
+            "--download-artifacts",
+            "build/cloud-run-12345",
+            "--checker-ref",
+            "run",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("lane: auto (infer gameplay/audio/persistence/full", result.stdout)
+        self.assertIn(
+            "metadata: gh run view 12345 --repo jadentripp/vibe-os --json",
+            result.stdout,
+        )
+        self.assertIn("checker ref: detached RUN_HEAD_SHA", result.stdout)
+        self.assertIn("git worktree add --detach", result.stdout)
+        self.assertIn("download: gh run download 12345", result.stdout)
+        self.assertIn(
+            "lane inference: after download, inspect audio-proof.json and status.persistence*.txt",
+            result.stdout,
+        )
+        self.assertIn(
+            "build/cloud-checkers/RUN_HEAD_SHA/tools/check_cloud_playability_artifacts.py",
+            result.stdout,
+        )
+        self.assertIn(
+            "build/cloud-checkers/RUN_HEAD_SHA/tools/triage_cloud_status.py",
+            result.stdout,
+        )
+
+    def test_auto_lane_is_not_valid_for_new_dispatch(self):
+        result = self.run_helper("--dry-run", "--lane", "auto")
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("--lane auto needs --run-id and/or --download-artifacts", result.stderr)
+        self.assertNotIn("dispatch:", result.stdout)
+
     def test_artifact_download_commands_match_lane_requirements(self):
         audio = self.run_helper(
             "--dry-run",
@@ -126,6 +170,40 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
         self.assertIn("persistence/save-load:", persistence.stdout)
         self.assertIn("status.persistence-load.txt", persistence.stdout)
         self.assertIn("tools/triage_cloud_status.py build/cloud-run-12345/status.persistence-load.txt", persistence.stdout)
+
+    def test_dry_run_can_write_machine_readable_audit_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            audit_path = Path(tmp) / "cloud-playability-audit.json"
+            result = self.run_helper(
+                "--dry-run",
+                "--lane",
+                "audio",
+                "--run-id",
+                "12345",
+                "--download-artifacts",
+                "build/cloud-run-12345",
+                "--write-audit-log",
+                str(audit_path),
+            )
+            audit = json.loads(audit_path.read_text())
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("audit log:", result.stdout)
+        self.assertEqual(audit["schema"], "cloud-playability-audit-v1")
+        self.assertEqual(audit["repo"], "jadentripp/vibe-os")
+        self.assertEqual(audit["lane_requested"], "audio")
+        self.assertEqual(audit["lane_effective"], "audio")
+        self.assertEqual(audit["workflow"], "real-wad-smoke.yml")
+        self.assertEqual(audit["artifact"], "real-wad-smoke-status")
+        self.assertEqual(audit["local_vm"], "refused")
+        self.assertFalse(audit["artifact_policy"]["contains_wad_data"])
+        self.assertIn("gh run view 12345", audit["commands"]["metadata"])
+        self.assertIn("gh run download 12345", audit["commands"]["download"])
+        self.assertIn("--require-audible-proof", audit["commands"]["check"])
+        self.assertTrue(
+            any("SB16 continuity" in line for line in audit["failure_lanes"]),
+            audit["failure_lanes"],
+        )
 
     def test_soak_mode_dispatches_repeated_json_metadata_workflow(self):
         result = self.run_helper(

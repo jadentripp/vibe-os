@@ -81,13 +81,22 @@ int main(void)
     CHECK(event.data2 == 8);
     CHECK(event.data3 == -12);
 
-    input = input_mouse(127, 0x02u, -1, 1);
+    input = input_mouse(127, 0xf2u, -1, 1);
+    CHECK(vibe_input_mouse_buttons(&input) == VIBE_INPUT_MOUSE_BUTTON_RIGHT);
+    CHECK(vibe_input_mouse_button_is_down(&input, VIBE_INPUT_MOUSE_BUTTON_RIGHT));
+    CHECK(!vibe_input_mouse_button_is_down(&input, VIBE_INPUT_MOUSE_BUTTON_LEFT));
+    CHECK(!vibe_input_mouse_button_is_down(&input, 0x08u));
+    CHECK(vibe_input_mouse_delta_x(&input) == -1);
+    CHECK(vibe_input_mouse_delta_y(&input) == 1);
+    CHECK(vibe_input_mouse_has_motion(&input));
     CHECK(vibe_doom_translate_input_event(&input, &event));
     CHECK(event.data1 == 0x04);
     CHECK(event.data2 == -4);
     CHECK(event.data3 == 4);
 
     input = input_mouse(128, 0x04u, 0, 0);
+    CHECK(vibe_input_mouse_button_is_down(&input, VIBE_INPUT_MOUSE_BUTTON_MIDDLE));
+    CHECK(!vibe_input_mouse_has_motion(&input));
     CHECK(vibe_doom_translate_input_event(&input, &event));
     CHECK(event.data1 == 0x02);
 
@@ -95,6 +104,9 @@ int main(void)
     input.type = VIBE_INPUT_EVENT_MOUSE_PACKET;
     CHECK(!vibe_doom_translate_input_event(&input, &event));
     CHECK(event.type == VIBE_DOOM_INPUT_NONE);
+    CHECK(vibe_input_mouse_buttons(&input) == 0);
+    CHECK(vibe_input_mouse_delta_x(&input) == 0);
+    CHECK(vibe_input_mouse_delta_y(&input) == 0);
 
     CHECK(vibe_doom_translate_key_event(pack_key(VIBE_DOOM_KEY_UPARROW, 1), &event));
     CHECK(event.type == VIBE_DOOM_INPUT_KEYDOWN);

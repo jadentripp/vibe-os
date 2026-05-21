@@ -1,7 +1,8 @@
 # Process Exec And Launch
 
 The boot path now routes both the initial Ring 3 probe and Doom through the
-generic exec table. `SYS_EXEC` is no longer just a loader helper: it prepares a
+generic exec table, and the boot probe now chains through a packaged
+`ABIPROBE.ELF` before Doom. `SYS_EXEC` is no longer just a loader helper: it prepares a
 table-supported image, builds a scheduler-visible user context for the target
 process record, patches the live syscall return frame, and `iretd`s into the
 target instead of returning to the caller.
@@ -122,22 +123,28 @@ live `pushad`/interrupt frame pointer into `scheduler_tick`, saves the old user
 frame, selects a READY process with a valid Ring 3 frame, switches CR3 and
 `tss_esp0` through `process_activate`, restores the selected frame into the IRQ
 return slot, and then `iretd`s to that user context. The preemption proof now
-records a bidirectional pair mask (`pmask`), switched process kinds (`pkind`),
-EIPs (`peip`), page directories (`pcr3`), kernel stacks (`pkstk`), and the
-rewritten IRQ return frame (`pframe`) so the cloud gate has to prove
-Doom/preempt-probe CR3/TSS switches and a Ring 3 `iretd` target in both
-directions, not only scheduler counter increments.
+records a bidirectional pair mask (`pmask`), source/target process IDs
+(`pfrom`/`pto`), switched process kinds (`pkind`), EIPs (`peip`), page
+directories (`pcr3`), kernel stacks (`pkstk`), and the rewritten IRQ return
+frame (`pframe`) so the cloud gate has to prove Doom/preempt-probe CR3/TSS
+switches and a Ring 3 `iretd` target in both directions, not only scheduler
+counter increments. The status checker now ties those IDs to the current Doom
+exec target PID and the preempt-probe child PID recorded by the wait/reap
+proof, which keeps preemption evidence aligned with the current process model
+instead of static slot numbers.
 
 ## Second Freestanding Program Contract
 
 `user/abi_probe.c` is the in-tree second program proof. It is a freestanding
 i386 C program linked with `user/crt0.asm`, exports
 `user_main(int argc, char **argv, char **envp)`, uses the public
-`doom_port/include/vibe_os.h` ABI constants, and carries its own small
-`int 0x80` wrapper so it does not link against Doom or the Doom port runtime.
+`doom_port/include/vibe_os.h` ABI constants through `user/runtime.h` and
+`user/runtime.c`, so it does not link against Doom or the Doom port runtime.
 It checks the crt0 argument/envp handoff, `getpid`, the monotonic clock
 syscall, and root `listdir` against `ABIPROBE.ELF`, `USERPROB.ELF`, and
-`DOOM.ELF`.
+`DOOM.ELF`. When those checks pass, `ABIPROBE.ELF` records its success and then execs `DOOM.ELF`
+with the same bounded user argv-vector path; this makes the packaged second
+program part of the normal launch chain instead of a disk-only listing.
 
 To launch that program today:
 
@@ -152,7 +159,10 @@ To launch that program today:
 - From an existing user process, call `execv("ABIPROBE.ELF", argv)` or the raw
   `SYS_EXEC` ABI with flags zero. The kernel copies the bounded argv vector
   before retiring the caller address space, seeds an empty `envp`, assigns a
-  fresh PID, and inherits only descriptors not opened with `O_CLOEXEC`.
+  fresh PID, and inherits only descriptors not opened with `O_CLOEXEC`. In the
+  checked boot chain, `USERPROB.ELF` execs `ABIPROBE.ELF`; the ABI probe records
+  `abiprobe=OK` and then execs Doom, so the later Doom handoff cannot hide
+  whether the second freestanding program actually ran.
 - In the new image, consume `argc`, `argv`, and `envp` from crt0. Other images
   packaged with `--root-elf`, for example `TOOL.ELF` or `GAME.ELF`, can use
   `getpid`, `waitpid`, `clock_gettime(CLOCK_MONOTONIC)`, `open`/`read`/
@@ -177,14 +187,25 @@ The same status line also records `execerr=<errno>`, `execres=<syscall result>`,
 `argv=<ptr>`, `envp=<ptr>`, `argv0=<ptr>`, `envp0=<word>`, and
 `argvsrc=<source>`. The boot-probe loader proof is separate:
 `uexec=OK upath=USERPROB.ELF upid=<pid> uentry=<eip>` records that the initial
-probe image used the same exec resolver before it called `SYS_EXEC`. It also
+probe image used the same exec resolver before it called `SYS_EXEC`. The second
+program proof is separate again:
+`abiexec=OK abipath=ABIPROBE.ELF abipid=<pid> abippid=<pid> abientry=<eip>
+abiargc=1 abiargvsrc=2 abiprobe=OK abiflags=00000007` records that the generic
+root `.ELF` resolver selected a bounded generic slot, built the crt0 stack from
+a copied user argv vector, ran `user/abi_probe.c`, and observed the probe's
+success marker before Doom was launched. It also
 emits `procpool=slots/generic/reuses/galloc/gfail`, `pidseq=next/last_reused/generation`,
 `fdexec=handoffs/inherited/closed/owner_closes`, and
-`wait=attempts/reaps/failures/nohang/seeded/last_pid/last_status`. A successful
+`wait=attempts/reaps/failures/nohang/seeded/last_pid/last_status`.
+It also emits `vmreap=teardowns/pages/wait_reaps/wait_pages/last_wait_pages`
+so the cloud status contract can prove a waited child had its user mappings
+cleared before the record became reusable. A successful
 Doom launch should have zero `execerr`/`execres`, nonzero argc/argv/envp
 pointers, `envp0 == 0`, nonzero target entry/stack addresses, `argvsrc=2` for
-the user-vector path, at least one process-slot reuse, at least one fd inherited
-across exec, and a userland `waitpid` reap of the seeded exited child. The
+the user-vector path, at least one generic-slot allocation for `ABIPROBE.ELF`,
+at least one process-slot reuse, at least one fd inherited
+across exec, a userland `waitpid` reap of the seeded exited child, and a
+nonzero `vmreap=` wait-reap page count. The
 initial probe bootstrap still uses `argvsrc=1` because the kernel supplies its
 own default `argv[0]`.
 
@@ -237,8 +258,8 @@ real-WAD proof counters.
   There is no `fork`/`exec` split, wait blocking, process groups, signal
   delivery, fork-time fd duplication, unbounded dynamic child slots, or
   file-backed VM object lifetime.
-- A fuller game/userland runtime still needs a reusable crt0/libc template
-  outside the Doom port include tree, hierarchical path lookup, working
+- A fuller game/userland runtime still needs a libc-grade layer above the small
+  `user/runtime.*` syscall wrapper seed, hierarchical path lookup, working
   directory state, dynamically sized process and fd tables, blocking scheduler
   waits, signals, threads, richer framebuffer present formats, and audio
   formats beyond the current unsigned 8-bit stereo mixer contract.

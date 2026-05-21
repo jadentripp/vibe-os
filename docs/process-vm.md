@@ -36,12 +36,17 @@ rejects status artifacts unless `vmmhfree` equals the dynamic `vmmhpt` frame,
 the high alias is backed by a distinct PMM-managed physical frame, the Doom
 launch used `argvsrc=2` from a user argv-vector exec path, `uexec=OK` and
 `upath=USERPROB.ELF` prove the initial probe also came through the exec
-resolver, `procpool=`, `fdexec=`, and `wait=` prove bounded slot reuse,
-exec-time fd inheritance, a userland wait/reap path, and fault statuses that
-can be reaped instead of staying stale, and `pmask`, `pkind`, `peip`, `pcr3`,
-`pkstk`, and `pframe` show timer-driven switches in both directions between
-Doom and the preempt probe with distinct address spaces, kernel stacks, and a
-rewritten Ring 3 IRQ return frame.
+resolver, `abiexec=OK`, `abipath=ABIPROBE.ELF`, and `abiprobe=OK` prove a
+second root-level freestanding program ran in a generic exec slot before Doom,
+`procpool=`, `fdexec=`, `wait=`, and `vmreap=` prove bounded slot reuse,
+exec-time fd inheritance, a userland wait/reap path, child VM teardown during
+reap, and fault statuses that can be reaped instead of staying stale, and
+`pmask`, `pfrom`/`pto`, `pkind`, `peip`, `pcr3`, `pkstk`, and `pframe`
+show timer-driven switches in both directions between Doom and the preempt
+probe with distinct process identities, address spaces, kernel stacks, and a
+rewritten Ring 3 IRQ return frame. The checker ties those process IDs back to
+the Doom exec target PID and the seeded wait/reap child PID, so a stale static
+slot number is not enough to prove preemption after exec.
 
 ## Current Address Spaces
 
@@ -135,7 +140,13 @@ copied user vector (`argvsrc=2`), patches the interrupted syscall frame, retires
 the caller's user mappings, and then activates the target process record. Failed exec paths
 retire any half-prepared target slot before reporting rollback. `SYS_EXIT`,
 fault retirement, target-slot reuse, and wait reaping also close descriptors
-owned by the retiring process before the record becomes reusable.
+owned by the retiring process before the record becomes reusable. The wait
+reaper now invokes the same user-VM teardown path and reports it as
+`vmreap=teardowns/pages/wait_reaps/wait_pages/last_wait_pages`, so cloud status
+can distinguish a logical zombie-state transition from actual child address
+space cleanup. Because the seeded wait child is reused as the later preempt
+probe, the scheduler preparation path explicitly restores that probe image and
+stack before marking it runnable again.
 
 ## Permissions
 
@@ -181,7 +192,11 @@ heap are adjacent and the Doom heap grows up to the stack bottom.
   arrived from Ring 3 (`puser`), timer-IRQ context
   switches (`pirq`), quantum rounds (`pround`), total context activations
   (`pctx`), the bidirectional Doom/preempt-probe pair mask (`pmask`), and live
-  spin progress (`pspin`). The `pspin` sampler only
+  spin progress (`pspin`). The proof checker validates those fields as a
+  coherent process chain: `pfrom`/`pto` must name the current Doom exec target
+  PID and the preempt probe PID that was previously seeded and reaped by
+  `waitpid`, while `pkind`, `peip`, `pcr3`, and `pkstk` must agree with the
+  recorded source and target kinds in either switch direction. The `pspin` sampler only
   dereferences the preempt probe stack while `process_preempt_probe` is the
   active process, so the proof does not depend on probe pages being visible in
   Doom's page directory.

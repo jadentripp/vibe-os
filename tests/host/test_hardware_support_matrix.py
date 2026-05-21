@@ -82,6 +82,8 @@ class HardwareSupportMatrixTests(unittest.TestCase):
 
     def test_matrix_rows_define_claimed_and_unclaimed_device_classes(self):
         rows = check_hardware_support_matrix.validate_repo_contract(ROOT)
+        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        target = check_hardware_support_matrix._validate_current_target_row(matrix)
 
         claimed = {support_id for support_id, row in rows.items() if row["status"] == "claimed"}
         unclaimed = {support_id for support_id, row in rows.items() if row["status"] == "unclaimed"}
@@ -130,6 +132,15 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             with self.subTest(support_id=support_id):
                 self.assertEqual(rows[support_id]["scope"], "none")
                 self.assertEqual(rows[support_id]["evidence"], "none")
+        self.assertEqual(target["machine"], "qemu-legacy-pc")
+        self.assertEqual(
+            set(target["includes"].split(",")),
+            {"bios", "ide-ata-pio", "ps2-keyboard", "ps2-mouse", "vbe-vga", "sb16"},
+        )
+        self.assertEqual(
+            set(target["excludes"].split(",")),
+            {"uefi", "physical-hardware", "general-pci", "arbitrary-disk-install"},
+        )
 
     def test_hardware_boundary_is_visible_from_main_claim_surfaces(self):
         readme = (ROOT / "README.md").read_text()
@@ -155,6 +166,9 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             (gap_doc, "pcitabcap="),
             (gap_doc, "UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and physical hardware remain unclaimed"),
             (hardware_doc, "Input, audio, and FAT16 are reusable OS-facing syscall/header contracts"),
+            (hardware_doc, "CURRENT_TARGET[QEMU_LEGACY_PC]"),
+            (hardware_doc, "QEMU BIOS/IDE/PS2/VBE/SB16 is the supported target"),
+            (hardware_doc, "installation to arbitrary disks are outside the claim"),
             (hardware_doc, "The reusable contracts do not widen the hardware claim"),
             (hardware_doc, "USB HID, AC97/HDA/USB audio, arbitrary FAT media, long filenames, physical sound cards, and real PC hardware remain unclaimed"),
             (hardware_doc, "VM/process legitimacy gate is adjacent to, but separate from, the hardware matrix"),
@@ -181,6 +195,14 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         pci_table_rows = check_hardware_support_matrix._validate_pci_table_rows(matrix)
         self.assertEqual(pci_table_rows["QEMU_BUS0_CLASS_TABLE"]["layout"], "bdf-id-class-header")
         self.assertEqual(pci_table_rows["QEMU_BUS0_CLASS_TABLE"]["capacity"], "256")
+        pci_contract_rows = check_hardware_support_matrix._validate_pci_table_contract_rows(matrix)
+        self.assertEqual(pci_contract_rows["QEMU_BUS0_SCAN"]["bus"], "0")
+        self.assertEqual(pci_contract_rows["QEMU_BUS0_SCAN"]["devices"], "32")
+        self.assertEqual(pci_contract_rows["QEMU_BUS0_SCAN"]["functions"], "8")
+        self.assertEqual(pci_contract_rows["ENTRY_LAYOUT"]["dwords"], "4")
+        self.assertEqual(pci_contract_rows["ENTRY_LAYOUT"]["fields"], "bdf,id,class,header")
+        self.assertEqual(pci_contract_rows["NO_DRIVER_BINDING"]["drivers"], "none")
+        self.assertContainsPhrase(matrix, "The PCI table contract is intentionally narrower")
         for source in (
             "PCI_SCAN_DEVICE_COUNT equ 32",
             "PCI_SCAN_FUNCTION_COUNT equ 8",
@@ -393,6 +415,16 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "IDE_ATA_PIO scope must stay qemu-ide"):
             check_hardware_support_matrix._validate_support_rows(broadened)
 
+    def test_checker_rejects_current_target_broadening(self):
+        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        broadened = matrix.replace(
+            "excludes=uefi,physical-hardware,general-pci,arbitrary-disk-install",
+            "excludes=uefi,physical-hardware",
+        )
+
+        with self.assertRaisesRegex(AssertionError, r"CURRENT_TARGET\[QEMU_LEGACY_PC\] excludes"):
+            check_hardware_support_matrix._validate_current_target_row(broadened)
+
     def test_checker_rejects_uefi_scaffold_becoming_claimed_without_evidence(self):
         scaffold = (ROOT / "boot" / "uefi" / "README.md").read_text()
         broadened = scaffold.replace(
@@ -422,6 +454,25 @@ class HardwareSupportMatrixTests(unittest.TestCase):
 
         with self.assertRaisesRegex(AssertionError, r"PROOF_REQUIREMENT\[APIC\] must keep evidence=none"):
             check_hardware_support_matrix._validate_proof_requirement_rows(broadened)
+
+    def test_checker_rejects_pci_table_contract_broadening(self):
+        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        broadened_bus = matrix.replace(
+            "PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN] status=status-only bus=0",
+            "PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN] status=status-only bus=all",
+        )
+        with self.assertRaisesRegex(AssertionError, "missing PCI_TABLE_CONTRACT rows"):
+            check_hardware_support_matrix._validate_pci_table_contract_rows(broadened_bus)
+
+        broadened_driver = matrix.replace(
+            "PCI_TABLE_CONTRACT[NO_DRIVER_BINDING] status=guardrail consumers=status-only drivers=none",
+            "PCI_TABLE_CONTRACT[NO_DRIVER_BINDING] status=guardrail consumers=status-only drivers=ahci",
+        )
+        with self.assertRaisesRegex(
+            AssertionError,
+            r"PCI_TABLE_CONTRACT\[NO_DRIVER_BINDING\] drivers must stay none",
+        ):
+            check_hardware_support_matrix._validate_pci_table_contract_rows(broadened_driver)
 
 
 if __name__ == "__main__":

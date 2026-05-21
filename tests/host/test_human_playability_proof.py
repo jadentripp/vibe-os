@@ -175,6 +175,9 @@ def write_human_session_bundle(tmpdir, *, final_tick="000001B0", commit="abcdef1
         "commit": commit,
         "scripted_proof": "real-wad-smoke-pass",
         "scripted_proof_run_id": "1234567890",
+        "scripted_proof_url": "https://github.com/jadentripp/vibe-os/actions/runs/1234567890",
+        "scripted_proof_checked": "green-before-human-session",
+        "proof_basis": "scripted-green-plus-remote-vnc-human",
         "playtester": "jt",
         "remote_host": "disposable",
         "qemu_location": "remote",
@@ -190,6 +193,9 @@ def write_human_session_bundle(tmpdir, *, final_tick="000001B0", commit="abcdef1
         "visual_evidence": "e1m1-visible-via-remote-vnc",
         "keyboard_evidence": "fire-move-use-menu-visible",
         "mouse_evidence": "motion-click-visible",
+        "menu_evidence": "escape-menu-visible",
+        "slowdown": "not-observed",
+        "slowdown_notes": "not-observed-during-capture",
         "status_capture": "monitor-pmemsave-0x9d000",
         "session_phases": (
             "early,after-start,after-fire,after-move,after-use,after-mouse,"
@@ -209,7 +215,15 @@ def write_human_session_bundle(tmpdir, *, final_tick="000001B0", commit="abcdef1
         "no_wad_upload": "yes",
         "no_disk_upload": "yes",
         "no_pixel_upload": "yes",
+        "operator_scripted_proof_green": "confirmed",
         "operator_remote_vnc": "confirmed",
+        "operator_e1m1_visible": "confirmed",
+        "operator_keyboard_fire": "confirmed",
+        "operator_keyboard_move": "confirmed",
+        "operator_keyboard_use": "confirmed",
+        "operator_mouse_action": "confirmed",
+        "operator_menu_escape": "confirmed",
+        "operator_slowdown_notes": "recorded",
         "operator_phase_actions": "confirmed",
         "operator_phase_status_hashes": "confirmed",
         "operator_no_forbidden_artifacts": "confirmed",
@@ -534,6 +548,29 @@ class HumanPlayabilityProofTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("phase_hash_after_fire", result.stderr)
+
+    def test_manual_human_session_rejects_unknown_note_field(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            notes = write_human_session_bundle(tmpdir)
+            with notes.open("a") as handle:
+                handle.write("screenshot_path=not-allowed\n")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(TOOL),
+                    "--require-human-session",
+                    "--human-notes",
+                    str(notes),
+                    str(tmpdir / "status.txt"),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unsupported field", result.stderr)
 
     def test_manual_human_session_rejects_forbidden_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -57,12 +57,21 @@ def valid_status(**overrides):
         "wad": "OK",
         "lmp": "OK",
         "heap": "OK",
-        "target": "00000005",
-        "ppid": "00000004",
+        "target": "00000006",
+        "ppid": "00000005",
         "uexec": "OK",
         "upath": "USERPROB.ELF",
         "upid": "00000004",
         "uentry": "00E80000",
+        "abiexec": "OK",
+        "abipath": "ABIPROBE.ELF",
+        "abipid": "00000005",
+        "abippid": "00000004",
+        "abientry": "00E80000",
+        "abiargc": "00000001",
+        "abiargvsrc": "00000002",
+        "abiprobe": "OK",
+        "abiflags": "00000007",
         "entry": "01000000",
         "stack": "01FFFFE0",
         "argc": "00000001",
@@ -71,10 +80,11 @@ def valid_status(**overrides):
         "argv0": "01FFFFF0",
         "envp0": "00000000",
         "argvsrc": "00000002",
-        "procpool": "00000006/00000002/00000001/00000000/00000000",
-        "pidseq": "00000006/00000005/00000002",
-        "fdexec": "00000001/00000002/00000000/00000000",
+        "procpool": "00000006/00000002/00000003/00000001/00000000",
+        "pidseq": "00000007/00000006/00000003",
+        "fdexec": "00000002/00000002/00000000/00000001",
         "wait": "00000003/00000001/00000002/00000000/00000001/00000003/0000002A",
+        "vmreap": "00000003/00000040/00000001/00000020/00000020",
         "execerr": "00000000",
         "execres": "00000000",
         "doomwrite": "00000001",
@@ -171,7 +181,7 @@ def valid_status(**overrides):
         "pround": "00000004",
         "pctx": "00000008",
         "pmask": "00000003",
-        "pfrom": "00000002",
+        "pfrom": "00000006",
         "pto": "00000003",
         "pkind": "00000002:00000003",
         "peip": "01002000:00E80000",
@@ -189,7 +199,7 @@ def valid_status(**overrides):
         "mouse": "OK",
         "doommode": "00000000:00000000",
         "ppos": "00010000:00020000",
-        "execsys": "00000001/00000001/00000000/00000001/00000001/00000000",
+        "execsys": "00000002/00000002/00000000/00000002/00000002/00000000",
         "doomsamp": "00000001:00000002:00000003",
         "doomlog": "ready",
     }
@@ -833,6 +843,7 @@ def valid_audio_proof_manifest():
             "stream_health": {
                 "buffered_window_snapshots": 5,
                 "distinct_buffer_windows": 4,
+                "buffer_initial": "00001000",
                 "buffer_floor": "00000100",
                 "buffer_peak": "00001400",
                 "buffer_final": "00001400",
@@ -846,6 +857,8 @@ def valid_audio_proof_manifest():
                 "position_delta": "000013FF",
                 "position_delta_per_update_floor": "00000300",
                 "rendered_sample_delta": "00028000",
+                "rendered_plus_initial_buffer": "00029000",
+                "consumed_plus_final_buffer": "000027FF",
                 "rendered_sample_covers_position": True,
             },
             "stream_contract": {
@@ -967,6 +980,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             "--confirm-post-download-verification",
             "tar -C \"$output_parent\" -czf \"$TARBALL\" \"$output_base\"",
             "python3 tools/check_cloud_playability_artifacts.py --human-session ./vibe-os-human-proof --expected-commit",
+            "python3 tools/check_human_playability_proof.py --require-human-session",
             "--expected-scripted-proof-run-id",
             "$SCRIPTED_PROOF_RUN_ID",
         ):
@@ -1683,6 +1697,55 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("--confirm-scripted-proof-green is required", result.stderr)
 
+    def test_collector_print_template_is_dry_run_and_status_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_build = Path(tmp) / "missing-build"
+            output = Path(tmp) / "human-proof"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(COLLECTOR),
+                    "--build-dir",
+                    str(missing_build),
+                    "--output-dir",
+                    str(output),
+                    "--playtester",
+                    "jt",
+                    "--scripted-proof-run-id",
+                    "26156172979",
+                    "--commit",
+                    "abcdef0",
+                    "--print-template",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("human proof bundle dry-run template", result.stdout)
+        self.assertIn("prefer 4+ cloud CPUs", result.stdout)
+        self.assertIn("--capture-phase \"$phase\"", result.stdout)
+        self.assertIn("--confirm-no-forbidden-artifacts", result.stdout)
+        self.assertIn("post-download verification", result.stdout)
+        self.assertIn("dry-run: no files were copied", result.stdout)
+        self.assertNotIn("DOOM1.WAD", result.stdout)
+        self.assertFalse(output.exists())
+
+    def test_human_notes_reject_unknown_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+            write_human_notes(artifact, screenshot_path="not-allowed")
+            write_human_session(artifact)
+            write_human_manifest(artifact)
+
+            with self.assertRaisesRegex(AssertionError, "unsupported field"):
+                check_cloud_playability_artifacts.validate_artifact_dir(
+                    artifact,
+                    require_human_notes=True,
+                )
+
     def test_collector_rejects_repo_output_directory(self):
         result = subprocess.run(
             [
@@ -1743,7 +1806,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                         text = command.decode("ascii").strip()
                         commands.append(text)
                         output = Path(text.split()[-1])
-                        output.write_bytes(b"Aurora\0OS gtic=00000180 leveltime=00000180")
+                        output.write_bytes(valid_status().encode().replace(b" ", b"\0"))
                         conn.sendall(b"OK\r\n")
 
             thread = threading.Thread(target=serve_once)
@@ -1769,11 +1832,12 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("human status capture OK", result.stdout)
+            self.assertIn("status audit summary:", result.stdout)
             self.assertEqual(len(commands), 1)
             self.assertTrue(commands[0].startswith("pmemsave 0x9d000 8192 "))
             self.assertEqual(
                 (build / "status.after-fire.txt").read_text(),
-                "Aurora OS gtic=00000180 leveltime=00000180",
+                valid_status(),
             )
             self.assertEqual(list(build.glob("status.after-fire.*.bin")), [])
 

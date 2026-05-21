@@ -13,7 +13,15 @@ Reusable audio syscall surface:
   reusable contract: `VIBE_AUDIO_DEVICE_START`, `VIBE_AUDIO_MIXER_START`,
   `VIBE_AUDIO_MIXER_STOP`, `VIBE_AUDIO_MIXER_UPDATE`,
   `VIBE_AUDIO_MIXER_IS_PLAYING`, `VIBE_AUDIO_PCM_PULL_STATE`,
-  `VIBE_AUDIO_DEVICE_INFO`, and `VIBE_AUDIO_PCM_RING_INFO`.
+  `VIBE_AUDIO_DEVICE_INFO`, `VIBE_AUDIO_PCM_RING_INFO`, and
+  `VIBE_AUDIO_STREAM_INFO`.
+- The reusable surface is deliberately split into device/ring/stream/mixer
+  lanes. `VIBE_AUDIO_DEVICE_INFO` answers what output device is ready,
+  `VIBE_AUDIO_PCM_RING_INFO` answers the PCM ring geometry and safety counters,
+  `VIBE_AUDIO_STREAM_INFO` answers pull-stream service state, and the
+  `VIBE_AUDIO_MIXER_*` commands submit and manage caller-owned voices. Doom
+  happens to exercise all four lanes; none of the ABI records require Doom WAD
+  data or Doom-specific status parsing.
 - `vibe_audio_voice_desc_t` is the generic mixer voice descriptor. The older
   `vibe_audio_sfx_desc_t` spelling remains a source-compatible typedef because
   Doom SFX were the first submitted voices. Public headers pin the guest ABI as
@@ -22,12 +30,20 @@ Reusable audio syscall surface:
   voice descriptor without Doom fields or WAD assumptions. Games can then set
   `sound_id`, `VIBE_AUDIO_FLAG_LOOP`, `VIBE_AUDIO_FLAG_MUSIC`, or stream
   metadata as needed before submitting the descriptor.
-- `vibe_audio_device_info_t` and `vibe_audio_pcm_ring_info_t` are fixed
+- `vibe_audio_device_info_t`, `vibe_audio_pcm_ring_info_t`, and
+  `vibe_audio_stream_info_t` are fixed
   48-byte records. `vibe_audio_device_is_ready()`,
   `vibe_audio_device_has_capability()`, and
   `vibe_audio_pcm_ring_is_u8_stereo()` are small header helpers for generic
   capability negotiation before a port assumes a PCM ring, mixer voices, pull
   streams, or SB16 DMA backing.
+- `VIBE_AUDIO_STREAM_INFO` gives user programs a reusable status snapshot for a
+  pull-driven PCM stream: mode, flags, handle, pull request/refill counters,
+  pending refill count, queued bytes, low-water threshold, active music voices,
+  underrun/drop counters, and consumed stream position. The
+  `vibe_audio_stream_uses_pull()` and `vibe_audio_stream_needs_refill()` helpers
+  let a caller service hardware-paced refill requests without parsing Doom
+  status text or assuming SB16-specific counters.
 - The current implementation mixes interleaved unsigned 8-bit stereo into the
   SB16 DMA ring. The public contract describes the PCM/mixer surface; it does
   not make Doom WAD audio, MUS/MIDI parsing, raw audio assets, or a physical
@@ -41,7 +57,9 @@ Current kernel behavior:
   `VIBE_AUDIO_DEVICE_INFO` / `vibe_audio_device_info_t` for device identity and
   capabilities plus `VIBE_AUDIO_PCM_RING_INFO` / `vibe_audio_pcm_ring_info_t` for
   PCM ring geometry, current write offset, active half, queued bytes, mixed
-  bytes, and safety counters
+  bytes, and safety counters. `VIBE_AUDIO_STREAM_INFO` /
+  `vibe_audio_stream_info_t` exposes the same pull/refill stream accounting as a
+  syscall ABI instead of only as Doom-oriented smoke-status fields.
 - reports the generic contract in status as `adev=<kind>:<status>:<caps>`,
   `pcm=<format>:<channels>:<rate>`, and
   `pcmbuf=<ring-bytes>:<period-bytes>:<write-offset>:<active-half>` before the
@@ -106,6 +124,12 @@ Current kernel behavior:
   source-level contract; the older `VIBE_AUDIO_PCM_BUFFERED_BYTES` query remains
   defined for diagnostic buffer inspection, but the music proof follows pull
   request/refill state
+- exposes `VIBE_AUDIO_STREAM_INFO` as the structured form of that stream
+  contract. It reports `VIBE_AUDIO_STREAM_FLAG_PULL`,
+  `VIBE_AUDIO_STREAM_FLAG_REFILL_PENDING`, queued bytes, the
+  `AUDIO_MUSIC_PULL_LOW_WATER_BYTES` threshold, active music voices, underruns,
+  drops, and cumulative stream position, so a non-Doom program can implement the
+  same refill loop without scraping `musicpull=` / `musicbuf=`.
 - records the current request-driven music stream as `musicstream=PULL`, with
   `musicpull=<requests>:<refills>` advanced by SB16 refill-side low-water
   requests and by Doom-port chunk service. The reported `musicbuf=` window is
@@ -241,6 +265,16 @@ kernel-owned music synthesis.
 The checker now treats `musicbuf=` as stream-health evidence: across the
 scripted snapshots it must move, and the stream-update counter must advance more
 than once, so a single static music carrier cannot satisfy the audio proof.
+When gameplay cadence fields are present, the checker also derives OS audio
+cadence from status only: Doom tic/frame progress (`gtic=`, `leveltime=`, and
+`doompresent=`) must coexist with advancing SB16 IRQ/refill and pull-refill
+service and no new audio safety counters. The emitted `playability_cadence`
+summary is slowdown/playability instrumentation, not a Doom-only audio claim:
+healthy cadence means the OS audio service kept moving while the game made
+observable progress; stalls point at guest progress, audio cadence, or audio
+pressure separately.
+In checker output and manifests, this OS audio cadence summary is an aggregate
+status-only diagnostic.
 It also requires `musicrend=` renderer provenance to show MUS/MIDI format,
 rendered chunks, note events, total render events, active renderer voice peak,
 and emitted samples; a music flag plus carrier PCM cannot satisfy that lane.
@@ -326,8 +360,10 @@ continuity summary now records separate `mix_lanes` deltas for non-music SFX,
 music, stream updates, music position, and shared SB16 IRQ/refill progress plus
 a `stream_health` object with buffer floor/peak/final values, under/drop deltas,
 and position-per-update metadata. It also records
-`stream_contract` metadata that records `musicstream=PULL`, `mixer_safety`
-thresholds for clip-free, underrun-free, and
+`stream_contract` metadata that records `musicstream=PULL`, the reusable
+device/ring/stream/mixer OS audio surfaces, `playability_cadence` metadata when
+the status snapshots include tic/frame counters, `mixer_safety` thresholds for
+clip-free, underrun-free, and
 drop-free playback, plus a scripted fire-phase proof so a manifest cannot pass
 on carrier or music activity alone.
 The listener-quality metadata is still aggregate only: active span,

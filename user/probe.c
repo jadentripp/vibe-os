@@ -13,6 +13,7 @@ enum {
     SYS_PRESENT = 10,
     SYS_CLOSE = 12,
     SYS_EXEC = 16,
+    SYS_STAT = 18,
     SYS_MMAP = 20,
     SYS_MUNMAP = 21,
     SYS_IOCTL = 22,
@@ -58,6 +59,7 @@ enum {
     VIBE_IOCTL_PRESENT_INDEXED = 0x00005602u,
     VIBE_FB_CAP_PRESENT_INDEXED = 0x00000001u,
     VIBE_FB_CAP_PRESENT_RGB_PALETTE = 0x00000002u,
+    VIBE_FB_CAP_FIXED_PRESENT_SIZE = 0x00000020u,
     VIBE_FB_FORMAT_INDEX8_RGB24 = 1u,
     WAIT_OPTION_WNOHANG = 0x1u,
     WAIT_PROOF_EXIT_STATUS = 0x2a,
@@ -68,6 +70,9 @@ enum {
     SEEK_SET = 0,
     SEEK_END = 2,
     S_IFREG = 0100000u,
+    S_IFDIR = 0040000u,
+    ERRNO_EACCES = 13,
+    ERRNO_ENOTDIR = 20,
     ERRNO_EINVAL = 22,
     ERRNO_ECHILD = 10,
     ERRNO_ENOSYS = 38,
@@ -112,6 +117,20 @@ struct vibe_dirent {
     uint32_t attributes;
 };
 
+struct stat {
+    uint32_t st_dev;
+    uint32_t st_ino;
+    uint32_t st_mode;
+    uint32_t st_nlink;
+    uint32_t st_uid;
+    uint32_t st_gid;
+    uint32_t st_rdev;
+    uint32_t st_size;
+    uint32_t st_atime;
+    uint32_t st_mtime;
+    uint32_t st_ctime;
+};
+
 static inline int syscall3(uint32_t number, uint32_t arg0, uint32_t arg1, uint32_t arg2) {
     uint32_t result;
     __asm__ volatile(
@@ -145,6 +164,14 @@ static int sys_read(int fd, void *buffer, size_t length) {
 
 static int sys_lseek(int fd, uint32_t offset, int whence) {
     return syscall3(SYS_LSEEK, (uint32_t)fd, offset, (uint32_t)whence);
+}
+
+static int sys_close(int fd) {
+    return syscall3(SYS_CLOSE, (uint32_t)fd, 0, 0);
+}
+
+static int sys_stat(const char *path, struct stat *out) {
+    return syscall3(SYS_STAT, (uint32_t)path, (uint32_t)out, 0);
 }
 
 static int sys_ftruncate(int fd, uint32_t length) {
@@ -214,20 +241,28 @@ static int probe_streq(const char *left, const char *right) {
 
 int user_main(int argc, char **argv, char **envp) {
     static char header[12];
-    static char readback[12];
+    static char readback[40];
     const char hello[] = "user C probe\n";
     const char wad_path[] = "DOOM1.WAD";
     const char doom_path[] = "DOOM.ELF";
     const char abi_probe_path[] = "ABIPROBE.ELF";
+    const char asset_dir_path[] = "/ASSETS";
+    const char asset_readme_path[] = "/ASSETS/README.TXT";
+    const char asset_deep_path[] = "/ASSETS/SUB/README.TXT";
+    const char asset_payload[] = "vibe-os FAT16 one-level asset file\n";
     const char default_path[] = "DEFAULT.CFG";
     const char writable_payload[] = "persist-ok\n";
     char *doom_argv[] = {(char *)doom_path, (char *)0};
+    char *abi_probe_argv[] = {(char *)abi_probe_path, (char *)0};
     static struct vibe_fb_info fbinfo;
     static struct vibe_present_indexed present;
     static struct vibe_dirent root_entries[16];
+    static struct vibe_dirent asset_entries[4];
+    static struct stat statbuf;
     uint32_t flags = 0;
     int mmap_hole_ok = 0;
     int pid = syscall3(SYS_GETPID, 0, 0, 0);
+    (void)abi_probe_argv;
 
     if (argc == 1
         && argv
@@ -280,6 +315,7 @@ int user_main(int argc, char **argv, char **envp) {
         int saw_wad = 0;
         int saw_probe = 0;
         int saw_abi_probe = 0;
+        int saw_assets = 0;
         for (int i = 0; i < root_count; ++i) {
             if (probe_streq(root_entries[i].name, "DOOM1.WAD")
                 && root_entries[i].size > 4
@@ -299,8 +335,39 @@ int user_main(int argc, char **argv, char **envp) {
                 && root_entries[i].first_cluster >= 2) {
                 saw_abi_probe = 1;
             }
+            if (probe_streq(root_entries[i].name, "ASSETS")
+                && (root_entries[i].mode & S_IFDIR)
+                && root_entries[i].first_cluster >= 2) {
+                saw_assets = 1;
+            }
         }
-        if (saw_wad && saw_probe && saw_abi_probe && sys_listdir("doom", root_entries, 1) == -ERRNO_EINVAL) {
+        int asset_count = sys_listdir(asset_dir_path, asset_entries, 4);
+        int asset_fd = sys_open(asset_readme_path);
+        int asset_ok = asset_count > 0
+            && probe_streq(asset_entries[0].name, "README.TXT")
+            && (asset_entries[0].mode & S_IFREG)
+            && asset_fd >= 0
+            && sys_read(asset_fd, readback, sizeof(asset_payload) - 1) == (int)(sizeof(asset_payload) - 1)
+            && probe_streq(readback, asset_payload)
+            && sys_lseek(asset_fd, (uint32_t)-5, SEEK_END) == sizeof(asset_payload) - 6
+            && sys_read(asset_fd, readback, 5) == 5
+            && readback[0] == 'f'
+            && readback[1] == 'i'
+            && readback[2] == 'l'
+            && readback[3] == 'e'
+            && readback[4] == '\n'
+            && sys_stat(asset_readme_path, &statbuf) == 0
+            && statbuf.st_size == sizeof(asset_payload) - 1
+            && (statbuf.st_mode & S_IFREG)
+            && sys_stat(asset_dir_path, &statbuf) == 0
+            && (statbuf.st_mode & S_IFDIR)
+            && sys_open_flags(asset_readme_path, O_RDWR) == -ERRNO_EACCES
+            && sys_listdir(asset_readme_path, asset_entries, 1) == -ERRNO_ENOTDIR
+            && sys_open(asset_deep_path) == -ERRNO_EINVAL;
+        if (asset_fd >= 0) {
+            sys_close(asset_fd);
+        }
+        if (saw_wad && saw_probe && saw_abi_probe && saw_assets && asset_ok && sys_listdir("doom", root_entries, 1) == -ERRNO_EINVAL) {
             flags |= PROBE_FLAG_LISTDIR;
         }
     }
@@ -370,7 +437,8 @@ int user_main(int argc, char **argv, char **envp) {
             && fbinfo.max_present_height == 200
             && fbinfo.present_format == VIBE_FB_FORMAT_INDEX8_RGB24
             && (fbinfo.capabilities & VIBE_FB_CAP_PRESENT_INDEXED)
-            && (fbinfo.capabilities & VIBE_FB_CAP_PRESENT_RGB_PALETTE)) {
+            && (fbinfo.capabilities & VIBE_FB_CAP_PRESENT_RGB_PALETTE)
+            && (fbinfo.capabilities & VIBE_FB_CAP_FIXED_PRESENT_SIZE)) {
             flags |= PROBE_FLAG_IOCTL_FBINFO;
         }
         present.frame = frame;
@@ -407,5 +475,5 @@ int user_main(int argc, char **argv, char **envp) {
     sys_user_probe(flags);
     trigger_expected_fault();
 
-    return sys_execv(doom_path, doom_argv) == 0 ? 0 : 1;
+    return sys_execv(abi_probe_path, abi_probe_argv) == 0 ? 0 : 1;
 }
