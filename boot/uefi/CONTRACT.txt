@@ -6,14 +6,19 @@ loader/proof application in `loader.asm` plus an opt-in host artifact builder,
 `manifest.json` files for host checks. The loader can read
 `VIBEOS/KERNEL.ELF` from the ESP, collect GOP framebuffer facts, capture the
 UEFI memory map, and call `ExitBootServices` during the disposable-cloud OVMF
-proof path. It does not yet contain a kernel-entry handoff: the current kernel
-still expects a BIOS-style 32-bit protected-mode entry, and the loader stops
-after `ExitBootServices` with a debug marker instead of switching from 64-bit
-UEFI into that handoff. SUPPORT[UEFI] remains unclaimed in
+proof path. It now carries a host-buildable UEFI64-to-32-bit handoff plan in
+assembly: BIOS-compatible GDT selectors, a fixed 32-bit stack target, the legacy
+boot-info address layout, an internal handoff block, a low-memory trampoline
+shape, and debugcon markers for the planned handoff. It still does not yet
+contain a kernel-entry handoff: the current kernel still expects a BIOS-style
+32-bit protected-mode entry, and the loader stops after `ExitBootServices` with
+a debug marker instead of enabling the final switch from 64-bit UEFI into that
+handoff. SUPPORT[UEFI] remains unclaimed in
 `docs/architecture.txt`.
 
 The remaining kernel-entry blocker is the 64-bit UEFI to 32-bit protected-mode
-transition.
+transition plus the proof that the ELF32 kernel was placed at its expected
+low-memory PT_LOAD destinations and emitted a kernel-owned entry/status marker.
 
 The current boot path is still the BIOS MBR plus raw-LBA Stage 2 loader described
 in `docs/architecture.txt`. Future UEFI work must keep that path working unless
@@ -36,6 +41,42 @@ ExitBootServices, and kernel entry remains blocked.
 - `UEFI_BOOT[EXIT_BOOT_SERVICES] status=cloud-proof-target requires=exit-before-kernel-handoff proof=ovmf-debugcon-marker evidence=uefi-ovmf-proof.yml`
 - `UEFI_BOOT[KERNEL_HANDOFF] status=blocked requires=elf32-entry-compatible proof=future-mode-switch-handoff evidence=ovmf-proof-manifest`
 - `UEFI_BOOT[BUILD_INTEGRATION] status=host-built requires=separate-opt-in-target proof=host-artifact-build evidence=build-host-artifacts`
+
+## 32-bit Handoff Plan
+
+This is source-level progress, not a boot claim. `loader.asm` now records a
+handoff plan before `ExitBootServices` and prints a `VIBEUEFI step=handoff-plan`
+debugcon marker. The marker includes the ELF32 entry address read from
+`VIBEOS/KERNEL.ELF`, the protected-mode stack target, the boot-info address, the
+low-memory trampoline address, the GDT base, selectors, and flags. The final
+post-ExitBootServices marker remains `VIBEUEFI step=kernel-handoff
+status=blocked`.
+
+The 32-bit contract intentionally matches the current BIOS Stage 2/kernel ABI:
+
+- code selector `0x08`, data selector `0x10`, flat 4 GiB base/limit descriptors
+- stack top `0x00070000`
+- legacy boot-info base `0x00007000`
+- E820-compatible map target `0x00007100`
+- low-memory transition trampoline target `0x00008000`
+- handoff block target `0x00009000`
+
+The planned register contract at the 32-bit trampoline is:
+
+- `EAX`: current ELF32 kernel entry, then the jump target
+- `EBX`: legacy boot-info base, `0x00007000`
+- `ECX`: UEFI handoff block base, `0x00009000`
+- `EDX`: handoff magic `0x444e4855` (`UHND`)
+- `ESI`: E820-compatible map base, `0x00007100`
+- `ESP`: protected-mode stack top, `0x00070000`
+- `CS:DS/ES/FS/GS/SS`: `0x08:0x10` flat protected-mode selectors
+
+The transition stub is deliberately not called yet. Before it can become the
+real path, the loader still has to reserve or otherwise prove the fixed
+low-memory ranges, copy/load ELF32 PT_LOAD segments to the kernel's expected
+physical destinations instead of only reading the ELF file into an arbitrary UEFI
+buffer, synthesize the legacy boot-info/E820 memory image from GOP and the UEFI
+memory map, and prove a kernel-owned entry marker after the final jump.
 
 The `UEFI_BOOT_DEVICE[...]` rows pin the future boot-device proof boundary. A
 UEFI loader is not enough by itself; the proof must show how the loader is

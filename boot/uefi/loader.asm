@@ -6,8 +6,9 @@ default rel
 ; This is intentionally a loader/proof rung, not a kernel entry path. It reads
 ; VIBEOS/KERNEL.ELF from the ESP, records GOP and memory-map facts, calls
 ; ExitBootServices, emits debugcon markers for cloud parsing, then exits QEMU
-; through isa-debug-exit. The remaining blocker is the 64-bit UEFI to 32-bit
-; protected-mode handoff expected by the current kernel.
+; through isa-debug-exit. The source now carries the BIOS-compatible 32-bit
+; handoff plan and mode-switch stubs, but the final jump remains disabled until
+; low-memory ELF placement and a kernel-owned entry marker are proven.
 
 EFI_SUCCESS equ 0
 EFI_ABORTED equ 0x8000000000000015
@@ -43,6 +44,76 @@ KERNEL_BUFFER_PAGES equ KERNEL_MAX_BYTES / 0x1000
 MEMORY_MAP_BUFFER_BYTES equ 0x00010000
 DEBUGCON_PORT equ 0x0402
 DEBUG_EXIT_PORT equ 0x0501
+
+; BIOS-stage2-compatible 32-bit kernel handoff targets. The current kernel
+; reads boot video facts from BOOT_INFO_ADDR and expects flat 0x08/0x10
+; protected-mode selectors before it installs its own GDT.
+BOOT_INFO_ADDR equ 0x00007000
+BOOT_VIDEO_MAGIC equ 0x45444956
+BOOT_VIDEO_MODE equ BOOT_INFO_ADDR + 12
+BOOT_VIDEO_FLAGS equ BOOT_INFO_ADDR + 14
+BOOT_VIDEO_FB_ADDR equ BOOT_INFO_ADDR + 16
+BOOT_VIDEO_PITCH equ BOOT_INFO_ADDR + 20
+BOOT_VIDEO_WIDTH equ BOOT_INFO_ADDR + 24
+BOOT_VIDEO_HEIGHT equ BOOT_INFO_ADDR + 26
+BOOT_VIDEO_BPP equ BOOT_INFO_ADDR + 28
+BOOT_VIDEO_MEMORY_MODEL equ BOOT_INFO_ADDR + 29
+BOOT_VIDEO_RED_MASK equ BOOT_INFO_ADDR + 30
+BOOT_VIDEO_RED_POS equ BOOT_INFO_ADDR + 31
+BOOT_VIDEO_GREEN_MASK equ BOOT_INFO_ADDR + 32
+BOOT_VIDEO_GREEN_POS equ BOOT_INFO_ADDR + 33
+BOOT_VIDEO_BLUE_MASK equ BOOT_INFO_ADDR + 34
+BOOT_VIDEO_BLUE_POS equ BOOT_INFO_ADDR + 35
+BOOT_E820_MAGIC_ADDR equ BOOT_INFO_ADDR + 36
+BOOT_E820_COUNT equ BOOT_INFO_ADDR + 40
+BOOT_E820_ENTRY_SIZE_ADDR equ BOOT_INFO_ADDR + 42
+BOOT_E820_MAP_ADDR_PTR equ BOOT_INFO_ADDR + 44
+BOOT_VIDEO_FLAG_VBE equ 0x0001
+BOOT_VIDEO_FLAG_LFB equ 0x0002
+BOOT_VIDEO_FLAG_XRGB8888 equ 0x0004
+BOOT_E820_MAGIC equ 0x30323845
+UEFI32_E820_MAP_ADDR equ 0x00007100
+UEFI32_TRAMPOLINE_ADDR equ 0x00008000
+UEFI32_HANDOFF_BLOCK_ADDR equ 0x00009000
+UEFI32_STACK_LOW equ 0x00060000
+UEFI32_STACK_TOP equ 0x00070000
+UEFI32_CODE_SEG equ 0x08
+UEFI32_DATA_SEG equ 0x10
+
+UEFI_HANDOFF_MAGIC equ 0x444e4855
+UEFI_HANDOFF_VERSION equ 1
+UEFI_HANDOFF_FLAG_GOP_XRGB8888 equ 0x00000001
+UEFI_HANDOFF_FLAG_MMAP_READY equ 0x00000002
+UEFI_HANDOFF_FLAG_BOOTINFO_LAYOUT_READY equ 0x00000004
+UEFI_HANDOFF_FLAG_TRANSITION_STUB_PRESENT equ 0x00000008
+UEFI_HANDOFF_FLAG_FINAL_JUMP_DISABLED equ 0x00000010
+UEFI_HANDOFF_MAGIC_OFF equ 0
+UEFI_HANDOFF_VERSION_OFF equ 4
+UEFI_HANDOFF_FLAGS_OFF equ 8
+UEFI_HANDOFF_ENTRY32_OFF equ 16
+UEFI_HANDOFF_STACK32_OFF equ 24
+UEFI_HANDOFF_BOOT_INFO32_OFF equ 32
+UEFI_HANDOFF_E820_MAP32_OFF equ 40
+UEFI_HANDOFF_TRAMPOLINE32_OFF equ 48
+UEFI_HANDOFF_GDT_BASE_OFF equ 56
+UEFI_HANDOFF_CODE_SELECTOR_OFF equ 64
+UEFI_HANDOFF_DATA_SELECTOR_OFF equ 72
+UEFI_HANDOFF_KERNEL_BUFFER_OFF equ 80
+UEFI_HANDOFF_KERNEL_READ_SIZE_OFF equ 88
+UEFI_HANDOFF_FRAMEBUFFER_BASE_OFF equ 96
+UEFI_HANDOFF_PITCH_OFF equ 104
+UEFI_HANDOFF_WIDTH_OFF equ 112
+UEFI_HANDOFF_HEIGHT_OFF equ 120
+UEFI_HANDOFF_PIXEL_FORMAT_OFF equ 128
+UEFI_HANDOFF_MMAP_BUFFER_OFF equ 136
+UEFI_HANDOFF_MMAP_SIZE_OFF equ 144
+UEFI_HANDOFF_MMAP_DESC_SIZE_OFF equ 152
+UEFI_HANDOFF_MMAP_DESC_COUNT_OFF equ 160
+UEFI_HANDOFF_BLOCK_BYTES equ 168
+IA32_EFER_MSR equ 0xc0000080
+CR0_PG_CLEAR_MASK equ 0x7fffffff
+EFER_LME_CLEAR_MASK equ 0xfffffeff
+CR4_PAE_CLEAR_MASK equ 0xffffffdf
 
 global efi_main
 
@@ -318,6 +389,7 @@ capture_memory_map_and_exit_boot_services:
     test rax, rax
     jnz .done
     call print_memory_map_step
+    call prepare_kernel_handoff_plan
 
     mov rax, [boot_services]
     mov rcx, [image_handle]
@@ -347,7 +419,7 @@ capture_memory_map_and_exit_boot_services:
 .exit_boot_services_ok:
     lea rcx, [msg_step_exit_boot_services]
     call debug_write
-    lea rcx, [msg_kernel_handoff_blocked]
+    lea rcx, [msg_step_kernel_handoff_blocked]
     call debug_write
     mov dx, DEBUG_EXIT_PORT
     mov ax, 0x10
@@ -408,6 +480,170 @@ print_memory_map_step:
     call debug_hex_field
     call debug_newline
     ret
+
+prepare_kernel_handoff_plan:
+    mov dword [handoff_magic], UEFI_HANDOFF_MAGIC
+    mov dword [handoff_version], UEFI_HANDOFF_VERSION
+    mov qword [handoff_flags], UEFI_HANDOFF_FLAG_BOOTINFO_LAYOUT_READY | UEFI_HANDOFF_FLAG_TRANSITION_STUB_PRESENT | UEFI_HANDOFF_FLAG_FINAL_JUMP_DISABLED
+
+    mov rax, [kernel_entry32]
+    mov [handoff_entry32], rax
+    mov qword [handoff_stack32], UEFI32_STACK_TOP
+    mov qword [handoff_boot_info32], BOOT_INFO_ADDR
+    mov qword [handoff_e820_map32], UEFI32_E820_MAP_ADDR
+    mov qword [handoff_trampoline32], UEFI32_TRAMPOLINE_ADDR
+    lea rax, [uefi_gdt_start]
+    mov [handoff_gdt_base], rax
+    mov qword [handoff_code_selector], UEFI32_CODE_SEG
+    mov qword [handoff_data_selector], UEFI32_DATA_SEG
+    mov rax, [kernel_buffer]
+    mov [handoff_kernel_buffer], rax
+    mov rax, [kernel_read_size]
+    mov [handoff_kernel_read_size], rax
+    mov rax, [gop_framebuffer_base]
+    mov [handoff_framebuffer_base], rax
+    mov rax, [gop_pitch]
+    mov [handoff_pitch], rax
+    mov rax, [gop_width]
+    mov [handoff_width], rax
+    mov rax, [gop_height]
+    mov [handoff_height], rax
+    mov rax, [gop_pixel_format]
+    mov [handoff_pixel_format], rax
+    lea rax, [memory_map_buffer]
+    mov [handoff_mmap_buffer], rax
+    mov rax, [memory_map_size]
+    mov [handoff_mmap_size], rax
+    mov rax, [memory_map_descriptor_size]
+    mov [handoff_mmap_desc_size], rax
+    mov rax, [memory_map_descriptor_count]
+    mov [handoff_mmap_desc_count], rax
+
+    cmp qword [memory_map_descriptor_count], 0
+    je .mmap_flag_done
+    or qword [handoff_flags], UEFI_HANDOFF_FLAG_MMAP_READY
+
+.mmap_flag_done:
+    cmp qword [gop_pixel_format], 1
+    jne .gop_flag_done
+    cmp qword [gop_pitch], 0
+    je .gop_flag_done
+    cmp qword [gop_framebuffer_base], 0
+    je .gop_flag_done
+    or qword [handoff_flags], UEFI_HANDOFF_FLAG_GOP_XRGB8888
+
+.gop_flag_done:
+    lea rcx, [msg_step_handoff_plan]
+    call debug_write
+    lea rcx, [msg_handoff_entry]
+    mov rdx, [handoff_entry32]
+    call debug_hex_field
+    lea rcx, [msg_handoff_stack]
+    mov rdx, [handoff_stack32]
+    call debug_hex_field
+    lea rcx, [msg_handoff_bootinfo]
+    mov rdx, [handoff_boot_info32]
+    call debug_hex_field
+    lea rcx, [msg_handoff_trampoline]
+    mov rdx, [handoff_trampoline32]
+    call debug_hex_field
+    lea rcx, [msg_handoff_gdt]
+    mov rdx, [handoff_gdt_base]
+    call debug_hex_field
+    lea rcx, [msg_handoff_code]
+    mov rdx, [handoff_code_selector]
+    call debug_hex_field
+    lea rcx, [msg_handoff_data]
+    mov rdx, [handoff_data_selector]
+    call debug_hex_field
+    lea rcx, [msg_handoff_flags]
+    mov rdx, [handoff_flags]
+    call debug_hex_field
+    call debug_newline
+    xor eax, eax
+    ret
+
+copy_handoff_trampoline_to_low_memory:
+    push rsi
+    push rdi
+    push rcx
+    lea rsi, [uefi32_low_trampoline_start]
+    mov edi, UEFI32_TRAMPOLINE_ADDR
+    mov ecx, uefi32_low_trampoline_end - uefi32_low_trampoline_start
+    cld
+    rep movsb
+    pop rcx
+    pop rdi
+    pop rsi
+    ret
+
+copy_handoff_block_to_low_memory:
+    push rsi
+    push rdi
+    push rcx
+    lea rsi, [uefi_handoff_block]
+    mov edi, UEFI32_HANDOFF_BLOCK_ADDR
+    mov ecx, UEFI_HANDOFF_BLOCK_BYTES
+    cld
+    rep movsb
+    pop rcx
+    pop rdi
+    pop rsi
+    ret
+
+; Host-buildable transition stub. It is deliberately not called from the proof
+; path yet: the current loader still has to reserve/populate the fixed low
+; memory ranges and prove that the 32-bit kernel owns the first post-handoff
+; marker. When enabled, this is the irreversible post-ExitBootServices path.
+uefi64_to_protected32_transition_stub:
+    lea rcx, [msg_step_transition_stub]
+    call debug_write
+    call copy_handoff_trampoline_to_low_memory
+    call copy_handoff_block_to_low_memory
+    cli
+    lea rax, [uefi_gdt_start]
+    mov [uefi_gdt64_descriptor + 2], rax
+    lgdt [uefi_gdt64_descriptor]
+    mov rax, cr0
+    and eax, CR0_PG_CLEAR_MASK
+    mov cr0, rax
+    mov ecx, IA32_EFER_MSR
+    rdmsr
+    and eax, EFER_LME_CLEAR_MASK
+    wrmsr
+    mov rax, cr4
+    and eax, CR4_PAE_CLEAR_MASK
+    mov cr4, rax
+    db 0xea
+    dd UEFI32_TRAMPOLINE_ADDR
+    dw UEFI32_CODE_SEG
+
+bits 32
+uefi32_low_trampoline_start:
+    cli
+    mov ax, UEFI32_DATA_SEG
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    mov esp, UEFI32_STACK_TOP
+    mov edx, UEFI_HANDOFF_MAGIC
+    mov ebx, BOOT_INFO_ADDR
+    mov ecx, UEFI32_HANDOFF_BLOCK_ADDR
+    mov esi, UEFI32_E820_MAP_ADDR
+    mov eax, [UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_ENTRY32_OFF]
+    test eax, eax
+    jz .halt
+    jmp eax
+
+.halt:
+    hlt
+    jmp .halt
+
+uefi32_low_trampoline_end:
+bits 64
+default rel
 
 debug_status_line:
     push rdx
@@ -507,7 +743,9 @@ msg_step_kernel_read db "VIBEUEFI step=esp-kernel-read", 0
 msg_step_gop db "VIBEUEFI step=gop", 0
 msg_step_memory_map db "VIBEUEFI step=memory-map", 0
 msg_step_exit_boot_services db "VIBEUEFI step=exit-boot-services status=success", 10, 0
-msg_kernel_handoff_blocked db "VIBEUEFI step=kernel-handoff status=blocked reason=uefi64-to-elf32-protected-mode-transition-not-implemented", 10, 0
+msg_step_handoff_plan db "VIBEUEFI step=handoff-plan status=stub", 0
+msg_step_transition_stub db "VIBEUEFI step=uefi64-to-protected32-transition status=stub", 10, 0
+msg_step_kernel_handoff_blocked db "VIBEUEFI step=kernel-handoff status=blocked reason=final-jump-disabled-until-low-memory-elf32-placement-and-kernel-entry-marker-proof", 10, 0
 msg_kernel_bytes db " bytes=0x", 0
 msg_kernel_entry db " entry32=0x", 0
 msg_gop_fb db " fb=0x", 0
@@ -520,6 +758,14 @@ msg_mmap_bytes db " bytes=0x", 0
 msg_mmap_desc db " desc=0x", 0
 msg_mmap_count db " count=0x", 0
 msg_mmap_key db " key=0x", 0
+msg_handoff_entry db " entry32=0x", 0
+msg_handoff_stack db " stack32=0x", 0
+msg_handoff_bootinfo db " bootinfo=0x", 0
+msg_handoff_trampoline db " tramp32=0x", 0
+msg_handoff_gdt db " gdt=0x", 0
+msg_handoff_code db " code=0x", 0
+msg_handoff_data db " data=0x", 0
+msg_handoff_flags db " flags=0x", 0
 msg_error_loaded_image db "VIBEUEFI error=loaded-image status=0x", 0
 msg_error_filesystem db "VIBEUEFI error=simple-filesystem status=0x", 0
 msg_error_open_volume db "VIBEUEFI error=open-volume status=0x", 0
@@ -561,6 +807,67 @@ memory_map_descriptor_size dq 0
 memory_map_descriptor_count dq 0
 memory_map_descriptor_version dd 0
 exit_boot_services_status dq 0
+
+align 16
+uefi_handoff_block:
+handoff_magic dd 0
+handoff_version dd 0
+handoff_flags dq 0
+handoff_entry32 dq 0
+handoff_stack32 dq 0
+handoff_boot_info32 dq 0
+handoff_e820_map32 dq 0
+handoff_trampoline32 dq 0
+handoff_gdt_base dq 0
+handoff_code_selector dq 0
+handoff_data_selector dq 0
+handoff_kernel_buffer dq 0
+handoff_kernel_read_size dq 0
+handoff_framebuffer_base dq 0
+handoff_pitch dq 0
+handoff_width dq 0
+handoff_height dq 0
+handoff_pixel_format dq 0
+handoff_mmap_buffer dq 0
+handoff_mmap_size dq 0
+handoff_mmap_desc_size dq 0
+handoff_mmap_desc_count dq 0
+uefi_handoff_block_end:
+
+align 8
+uefi_gdt_start:
+uefi_gdt_null:
+    dq 0
+
+uefi_gdt_code32:
+    dw 0xffff
+    dw 0x0000
+    db 0x00
+    db 10011010b
+    db 11001111b
+    db 0x00
+
+uefi_gdt_data32:
+    dw 0xffff
+    dw 0x0000
+    db 0x00
+    db 10010010b
+    db 11001111b
+    db 0x00
+
+uefi_gdt_code64:
+    dw 0x0000
+    dw 0x0000
+    db 0x00
+    db 10011010b
+    db 00100000b
+    db 0x00
+
+uefi_gdt_end:
+
+uefi_gdt64_descriptor:
+    dw uefi_gdt_end - uefi_gdt_start - 1
+    dq 0
 
 align 16
 memory_map_buffer:
