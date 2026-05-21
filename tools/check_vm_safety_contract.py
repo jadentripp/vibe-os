@@ -10,8 +10,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CLOUD_RUNBOOKS = (
-    "docs/runbooks/play-now-cloud.md",
-    "docs/runbooks/remote-doom-playtest.md",
+    "docs/play.md",
+    "docs/play.md",
 )
 CLOUD_POLICY_MARKERS = (
     "CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC",
@@ -145,8 +145,8 @@ def validate_cloud_runbook_text(text: str, label: str) -> None:
 
 def validate_cloud_interactive_runbooks(root: Path = ROOT) -> None:
     runbooks = {relative: _read(root, relative) for relative in CLOUD_RUNBOOKS}
-    cloud = runbooks["docs/runbooks/play-now-cloud.md"]
-    remote = runbooks["docs/runbooks/remote-doom-playtest.md"]
+    cloud = runbooks["docs/play.md"]
+    remote = runbooks["docs/play.md"]
     play_now_script = _read(root, "tools/play_now_remote.sh")
     codespaces_script = _read(root, "tools/play_now_codespaces.sh")
     human_playtest_script = _read(root, "tools/run_remote_human_playtest.sh")
@@ -256,7 +256,7 @@ def validate_cloud_interactive_runbooks(root: Path = ROOT) -> None:
             )
 
     for needle in (
-        "docs/runbooks/play-now-cloud.md",
+        "docs/play.md",
         "CLOUD_PLAYTEST_NO_LOCAL_QEMU_ON_MAC",
         "CLOUD_PLAYTEST_REMOTE_QEMU_ONLY",
         "CLOUD_PLAYTEST_FORBIDDEN_UPLOADS",
@@ -275,11 +275,11 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     stage2 = _read(root, "boot/stage2.asm")
     kernel = _read(root, "kernel/kernel.asm")
     probe = _read(root, "user/probe.c")
-    process_doc = _read(root, "docs/process-exec.md")
-    process_vm_doc = _read(root, "docs/process-vm.md")
-    boot_vm_doc = _read(root, "docs/boot-loader-vm.md")
-    doom_runtime_doc = _read(root, "docs/doom-libc-runtime.md")
-    gap_doc = _read(root, "docs/post-checkpoint-gaps.md")
+    process_doc = _read(root, "docs/architecture.md")
+    process_vm_doc = _read(root, "docs/architecture.md")
+    boot_vm_doc = _read(root, "docs/architecture.md")
+    doom_runtime_doc = _read(root, "docs/architecture.md")
+    gap_doc = _read(root, "docs/proof.md")
     tests_readme = _read(root, "tests/README.md")
 
     validate_cloud_interactive_runbooks(root)

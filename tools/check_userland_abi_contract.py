@@ -45,7 +45,7 @@ ABI_REQUIREMENTS = {
             "int vibe_clock_gettime(unsigned long clock_id, vibe_clock_time_t* out)",
             "int clock_gettime(clockid_t clock_id, struct timespec* tp)",
         ),
-        "docs/doom-libc-runtime.md": (
+        "docs/architecture.md": (
             "The reusable user/kernel contract is `VIBE_SYS_CLOCK_GETTIME`",
             "new consumers should use the monotonic clock API",
         ),
@@ -65,7 +65,7 @@ ABI_REQUIREMENTS = {
             "int vibe_drain_input(vibe_input_event_t* events, unsigned long max_events)",
             "int vibe_input_status(vibe_input_status_t* status)",
         ),
-        "docs/doom-libc-runtime.md": (
+        "docs/architecture.md": (
             "Generic ABI:",
             "the queue contract is\n  not Doom-specific",
             "future games can construct or replay typed events",
@@ -84,7 +84,7 @@ ABI_REQUIREMENTS = {
             "int vibe_fb_get_info(vibe_fb_info_t* info)",
             "int vibe_present_indexed_checked(const vibe_present_indexed_t* present)",
         ),
-        "docs/doom-libc-runtime.md": (
+        "docs/architecture.md": (
             "The framebuffer contract is intentionally split into three reusable layers",
             "stable and generic enough for future indexed\ngames",
         ),
@@ -101,7 +101,7 @@ ABI_REQUIREMENTS = {
             "vibe_audio_stream_info_t",
             "vibe_audio_voice_desc_init",
         ),
-        "docs/audio.md": (
+        "docs/architecture.md": (
             "Reusable audio syscall surface:",
             "Doom is the first\n  high-pressure caller",
             "reusable contract:",
@@ -141,7 +141,7 @@ ABI_REQUIREMENTS = {
             "int vibe_listdir(const char* path, vibe_dirent_t* entries, unsigned long max_entries)",
             "int vibe_file_read_all(const char* path, void* buffer, unsigned long capacity, unsigned long* out_size)",
         ),
-        "docs/doom-libc-runtime.md": (
+        "docs/architecture.md": (
             "Generic file consumers",
             "`vibe_file_size` and `vibe_file_read_all`",
             "`vibe_listdir`",
@@ -183,7 +183,7 @@ ABI_REQUIREMENTS = {
             "pid_t fork(void)",
             "pid_t waitpid(pid_t pid, int* status, int options)",
         ),
-        "docs/process-exec.md": (
+        "docs/architecture.md": (
             "## Second Freestanding Program Contract",
             "`user/abi_probe.c` is the in-tree second program proof.",
             "`build/abi_probe.elf` and packages it as root `ABIPROBE.ELF`",
@@ -247,14 +247,14 @@ ABI_REQUIREMENTS = {
 
 
 GENERIC_DOC_REQUIREMENTS = {
-    "docs/doom-libc-runtime.md": (
+    "docs/architecture.md": (
         "## General-Purpose ABI Audit",
         "A second freestanding C program does not need to include Doom headers",
         "The reusable surface today is:",
         "The ABI is reusable, but not POSIX-complete.",
         "## General-OS Gap Contract",
     ),
-    "docs/process-exec.md": (
+    "docs/architecture.md": (
         "`--root-elf NAME.ELF=PATH` packages additional checked or generated",
         "root-level 8.3 `.ELF` images without changing the boot path",
         "The generic pool is reusable, but it is still small and static.",
@@ -265,12 +265,12 @@ GENERIC_DOC_REQUIREMENTS = {
 
 POSIX_GAP_REQUIREMENTS = {
     "fork": {
-        "docs/doom-libc-runtime.md": (
+        "docs/architecture.md": (
             "`fork` exists only as a classified syscall/libc surface.",
             "no child address-space clone",
             "no child address-space clone, copy-on-\n  write state",
         ),
-        "docs/process-exec.md": (
+        "docs/architecture.md": (
             "`SYS_FORK` is wired through the syscall table and returns `-ENOSYS`",
             "Address-space cloning, copy-on-write or eager page copies",
         ),
@@ -284,14 +284,14 @@ POSIX_GAP_REQUIREMENTS = {
         ),
     },
     "fd-duplication": {
-        "docs/doom-libc-runtime.md": (
+        "docs/architecture.md": (
             "Descriptor lifetime and fd duplication now have a bounded Unix-open-file-description milestone.",
             "shared root slot with a refcounted offset/status record",
             "`dup`, `dup2`, and\n  `dup3` are public syscall/libc surfaces",
             "`fcntl(F_GETFD/F_SETFD)` is the\n  descriptor-flag milestone",
             "There is still no fork-time fd\n  table cloning contract",
         ),
-        "docs/process-exec.md": (
+        "docs/architecture.md": (
             "fd duplication",
             "Public `dup`, `dup2`, and `dup3` syscalls/libc wrappers",
             "`fcntl(F_GETFD/F_SETFD)`",
@@ -318,11 +318,11 @@ POSIX_GAP_REQUIREMENTS = {
         ),
     },
     "file-backed-mmap": {
-        "docs/doom-libc-runtime.md": (
+        "docs/architecture.md": (
             "VM allocation is anonymous/private and brk-backed.",
             "`MAP_FIXED`, `MAP_SHARED`, and file-backed mappings are rejected",
         ),
-        "docs/process-exec.md": (
+        "docs/architecture.md": (
             "file-backed `mmap`",
             "File-backed mappings, `MAP_SHARED`, `MAP_FIXED`",
             "reusable VM object lifetime",
@@ -336,23 +336,23 @@ POSIX_GAP_REQUIREMENTS = {
         ),
     },
     "signals": {
-        "docs/doom-libc-runtime.md": (
+        "docs/architecture.md": (
             "POSIX signal delivery is absent.",
             "there is no public `signal.h`, signal\n  mask, `kill`, interval timer signal, or handler trampoline ABI",
         ),
-        "docs/process-exec.md": (
+        "docs/architecture.md": (
             "signals",
             "`signal`, `sigaction`, `kill`, signal masks",
             "delivery across scheduler context switches",
         ),
     },
     "terminal-tty": {
-        "docs/doom-libc-runtime.md": (
+        "docs/architecture.md": (
             "Terminal/tty behavior is absent.",
             "unknown display ioctls return\n  `ENOTTY`",
             "there is no stdin/stdout tty device, `termios`, `isatty`",
         ),
-        "docs/process-exec.md": (
+        "docs/architecture.md": (
             "terminal/tty",
             "classified as `ENOTTY`",
             "`termios`, `isatty`, controlling terminals",
@@ -363,12 +363,12 @@ POSIX_GAP_REQUIREMENTS = {
         ),
     },
     "dynamic-process-lifetimes": {
-        "docs/doom-libc-runtime.md": (
+        "docs/architecture.md": (
             "Dynamic process lifetimes are bounded.",
             "no dynamically\n  growing process table",
             "or\n  unbounded child lifecycle manager",
         ),
-        "docs/process-exec.md": (
+        "docs/architecture.md": (
             "dynamic process lifetimes",
             "two-entry static probe-class pool",
             "Dynamically allocated process records, unbounded child slots",
@@ -378,7 +378,7 @@ POSIX_GAP_REQUIREMENTS = {
 
 
 STALE_DOC_WORDING = {
-    "docs/doom-libc-runtime.md": (
+    "docs/architecture.md": (
         "the current exec handoff still resets the global fd table",
     ),
 }

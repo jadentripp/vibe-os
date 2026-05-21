@@ -534,10 +534,10 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     real_wad_soak_workflow = _read(root, ".github/workflows/real-wad-soak.yml")
     os_workflow = _read(root, ".github/workflows/os-smoke.yml")
     makefile = _read(root, "Makefile")
-    process_vm = _read(root, "docs/process-vm.md")
-    boot_vm = _read(root, "docs/boot-loader-vm.md")
-    gaps = _read(root, "docs/post-checkpoint-gaps.md")
-    playable = _read(root, "docs/playable-cloud-proof.md")
+    process_vm = _read(root, "docs/architecture.md")
+    boot_vm = _read(root, "docs/architecture.md")
+    gaps = _read(root, "docs/proof.md")
+    playable = _read(root, "docs/proof.md")
     tests_readme = _read(root, "tests/README.md")
     cloud_artifacts = _read(root, "tools/check_cloud_playability_artifacts.py")
 
@@ -595,8 +595,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     ):
         _require(text, "pframe", label)
 
-    process_exec = _read(root, "docs/process-exec.md")
-    doom_runtime = _read(root, "docs/doom-libc-runtime.md")
+    process_exec = _read(root, "docs/architecture.md")
+    doom_runtime = _read(root, "docs/architecture.md")
     for text, label in (
         (process_vm, "process VM doc"),
         (process_exec, "process exec doc"),

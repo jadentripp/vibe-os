@@ -17,12 +17,12 @@ from status_fields import parse_hex8, parse_status_fields, summarize_status_fiel
 
 WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
 MAKEFILE = ROOT / "Makefile"
-AUDIO_DOC = ROOT / "docs" / "audio.md"
-MUSIC_DOC = ROOT / "docs" / "audio.md"
+AUDIO_DOC = ROOT / "docs" / "architecture.md"
+MUSIC_DOC = ROOT / "docs" / "architecture.md"
 MUSIC_IMPL = ROOT / "doom_port" / "music.c"
 MUSIC_HEADER = ROOT / "doom_port" / "music.h"
-PLAYABLE_DOC = ROOT / "docs" / "playable-cloud-proof.md"
-RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
+PLAYABLE_DOC = ROOT / "docs" / "proof.md"
+RUNBOOK = ROOT / "docs" / "play.md"
 SMOKE_RUNNER = ROOT / "tests" / "run_smoke_qemu.sh"
 
 SNAPSHOT_ORDER = ("baseline", "fire", "movement", "use", "menu", "final")

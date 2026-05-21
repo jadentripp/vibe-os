@@ -3,10 +3,10 @@
 This directory is a contract-only placeholder for a future UEFI boot path. It
 does not contain a UEFI binary, a PE/COFF image, an EFI System Partition layout,
 or a loader that can boot vibe-os today. SUPPORT[UEFI] remains unclaimed in
-`docs/hardware-support.md`.
+`docs/architecture.md`.
 
 The current boot path is still the BIOS MBR plus raw-LBA Stage 2 loader described
-in `docs/boot-loader-vm.md`. Future UEFI work must keep that path working unless
+in `docs/architecture.md`. Future UEFI work must keep that path working unless
 the project deliberately retires it, and must not describe vibe-os as
 UEFI-bootable until each row below has real source, build, and proof evidence.
 

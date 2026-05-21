@@ -120,7 +120,7 @@ class FatContractTests(unittest.TestCase):
 
     def test_fat_docs_name_generic_scope_without_wad_or_disk_artifacts(self):
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
-        docs = (ROOT / "docs" / "persistent-fat16.md").read_text()
+        docs = (ROOT / "docs" / "architecture.md").read_text()
         normalized_docs = " ".join(docs.split())
 
         for source in (

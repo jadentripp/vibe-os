@@ -300,8 +300,8 @@ class VmStatusProofTests(unittest.TestCase):
 
     def test_status_proof_does_not_overclaim_running_kernel_relocation(self):
         fields = check_vm_status_proof.parse_status(status_line())
-        boot_doc = (ROOT / "docs" / "boot-loader-vm.md").read_text()
-        process_doc = (ROOT / "docs" / "process-vm.md").read_text()
+        boot_doc = (ROOT / "docs" / "architecture.md").read_text()
+        process_doc = (ROOT / "docs" / "architecture.md").read_text()
 
         self.assertEqual(fields["vmmhi"], "OK")
         self.assertNotIn("kreloc", fields)
@@ -325,8 +325,8 @@ class VmStatusProofTests(unittest.TestCase):
             self.assertIn("--require-preempt", workflow)
 
     def test_repo_contract_keeps_generic_exec_surface_documented(self):
-        process_exec = (ROOT / "docs" / "process-exec.md").read_text()
-        process_vm = (ROOT / "docs" / "process-vm.md").read_text()
+        process_exec = (ROOT / "docs" / "architecture.md").read_text()
+        process_vm = (ROOT / "docs" / "architecture.md").read_text()
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
 
         for source in (

@@ -173,13 +173,13 @@ class CloudStatusTriageTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, names)
 
-        doc = (ROOT / "docs" / "playable-cloud-proof.md").read_text()
+        doc = (ROOT / "docs" / "proof.md").read_text()
         for expected in names:
             with self.subTest(doc=expected):
                 self.assertIn(f"`{expected}`", doc)
 
     def test_doc_tracks_green_runtime_but_red_proof_gate_cleanup_lane(self):
-        doc = (ROOT / "docs" / "playable-cloud-proof.md").read_text()
+        doc = (ROOT / "docs" / "proof.md").read_text()
 
         for phrase in (
             "input/audio/preemption counters active",

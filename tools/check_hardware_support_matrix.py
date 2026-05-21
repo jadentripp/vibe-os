@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MATRIX = ROOT / "docs" / "hardware-support.md"
+MATRIX = ROOT / "docs" / "architecture.md"
 
 CLAIMED_CLASSES = {
     "BIOS_BOOT",
@@ -404,22 +404,22 @@ REQUIRED_MATRIX_PHRASES = (
 
 REQUIRED_CROSS_DOC_LINKS = {
     "README.md": (
-        "docs/hardware-support.md",
+        "docs/architecture.md",
         "boot/uefi/README.md",
         "QEMU BIOS/IDE/PS2/VBE/SB16",
         "That evidence is limited to the emulated device model",
         "SUPPORT[UEFI] remains unclaimed",
         "pci=",
     ),
-    "docs/boot-loader-vm.md": (
+    "docs/architecture.md": (
         "boot/uefi/README.md",
         "contract-only UEFI scaffold",
         "UEFI_BOOT[...]",
         "SUPPORT[UEFI] remains unclaimed",
         "PCI_STATUS[QEMU_BUS0_CONFIG]",
     ),
-    "docs/post-checkpoint-gaps.md": (
-        "docs/hardware-support.md",
+    "docs/proof.md": (
+        "docs/architecture.md",
         "boot/uefi/README.md",
         "UEFI_BOOT[...]",
         "SUPPORT[...]",
@@ -427,11 +427,11 @@ REQUIRED_CROSS_DOC_LINKS = {
         "check_hardware_support_matrix.py",
     ),
     "docs/doom-provenance.md": (
-        "docs/hardware-support.md",
+        "docs/architecture.md",
         "broad PC",
     ),
-    "docs/runbooks/remote-doom-playtest.md": (
-        "docs/hardware-support.md",
+    "docs/play.md": (
+        "docs/architecture.md",
         "does not prove vibe-os boots directly on physical hardware",
     ),
     "tests/README.md": (
@@ -1492,7 +1492,7 @@ def validate_claimed_hardware_status_text(status: str) -> dict[str, str]:
 
 
 def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
-    matrix_text = _read(root / "docs" / "hardware-support.md")
+    matrix_text = _read(root / "docs" / "architecture.md")
 
     for phrase in REQUIRED_MATRIX_PHRASES:
         if not _contains_phrase(matrix_text, phrase):

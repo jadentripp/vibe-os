@@ -147,13 +147,13 @@ boot:
   cloud boot, real gameplay, human playtest, audio, VM/POSIX,
   shutdown/panic, and hardware-limit claims must remain documented.
 - `tools/check_playability_gap_ledger.py` parses the `GAP[...]` rows in
-  `docs/post-checkpoint-gaps.md` so every open Doom-capability claim has a
+  `docs/proof.md` so every open Doom-capability claim has a
   concrete category, executable gate, and evidence artifact before README text
   can call it done.
   It also requires the latest analyzed failed real-WAD run to stay documented
   until a newer current run replaces that evidence.
 - `tools/check_hardware_support_matrix.py` parses
-  `docs/hardware-support.md` so README/docs/runbook/test language stays bounded
+  `docs/architecture.md` so README/docs/runbook/test language stays bounded
   to the QEMU BIOS/IDE/PS2/VBE/SB16 device-model proof. It rejects unsupported
   UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and physical-hardware
   support wording unless the matrix grows a claimed row and a proof boundary
@@ -172,7 +172,7 @@ boot:
   must stay out of the current Makefile image path until a separate opt-in UEFI
   build exists.
 - `tools/check_storage_install_boundary.py` parses
-  `docs/persistent-fat16.md` so generated-image persistence proof cannot
+  `docs/architecture.md` so generated-image persistence proof cannot
   drift into an installable-OS claim. With `--image build/disk.img --json`, it
   emits an `install-image-manifest` covering the repo MBR, raw boot/kernel
   regions, FAT16 BPB, root-entry inventory, FAT-copy agreement, and cluster

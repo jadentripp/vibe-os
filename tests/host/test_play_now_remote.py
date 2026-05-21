@@ -228,7 +228,7 @@ class PlayNowRemoteTests(unittest.TestCase):
         script = (ROOT / "tools" / "play_now_codespaces.sh").read_text()
         docs = [
             (ROOT / "README.md").read_text(),
-            (ROOT / "docs" / "runbooks" / "play-now-cloud.md").read_text(),
+            (ROOT / "docs" / "play.md").read_text(),
         ]
 
         for needle in (
@@ -1003,7 +1003,7 @@ class PlayNowRemoteTests(unittest.TestCase):
 
     def test_play_now_script_is_remote_first_and_repo_safe(self):
         script = (ROOT / "tools" / "play_now_remote.sh").read_text()
-        doc = (ROOT / "docs" / "runbooks" / "play-now-cloud.md").read_text()
+        doc = (ROOT / "docs" / "play.md").read_text()
 
         for needle in (
             'Usage: tools/play_now_remote.sh [--preflight|--dry-run] [--require-novnc]',
@@ -1091,14 +1091,9 @@ class PlayNowRemoteTests(unittest.TestCase):
                 self.assertIn(needle, cloud_shell)
 
     def test_runbooks_do_not_document_local_mac_vm_override(self):
-        for runbook in (
-            "play-now-cloud.md",
-            "remote-doom-playtest.md",
-        ):
-            text = (ROOT / "docs" / "runbooks" / runbook).read_text()
-            with self.subTest(runbook=runbook):
-                self.assertNotIn("ALLOW_LOCAL_VM=1", text)
-                self.assertNotIn("brew install qemu", text)
+        text = (ROOT / "docs" / "play.md").read_text()
+        self.assertNotIn("ALLOW_LOCAL_VM=1", text)
+        self.assertNotIn("brew install qemu", text)
 
 
 if __name__ == "__main__":

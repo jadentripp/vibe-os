@@ -1845,8 +1845,8 @@ class DoomPersistenceImageTests(unittest.TestCase):
         self.assertEqual(result.stderr, "")
 
     def test_persistence_doc_keeps_dynamic_fs_and_storage_boot_gaps_explicit(self):
-        persistent_doc = (ROOT / "docs" / "persistent-fat16.md").read_text()
-        gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
+        persistent_doc = (ROOT / "docs" / "architecture.md").read_text()
+        gap_doc = (ROOT / "docs" / "proof.md").read_text()
         makefile = (ROOT / "Makefile").read_text()
 
         for phrase in (

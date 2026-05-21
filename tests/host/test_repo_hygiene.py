@@ -405,7 +405,7 @@ jobs:
     def test_docs_keep_legit_but_playable_first_positioning(self):
         readme = " ".join((ROOT / "README.md").read_text().split())
         provenance = " ".join((ROOT / "docs" / "doom-provenance.md").read_text().split())
-        runtime = " ".join((ROOT / "docs" / "doom-libc-runtime.md").read_text().split())
+        runtime = " ".join((ROOT / "docs" / "architecture.md").read_text().split())
 
         for text, token in (
             (readme, '"legit but playable first"'),

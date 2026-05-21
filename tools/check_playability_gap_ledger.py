@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LEDGER = ROOT / "docs" / "post-checkpoint-gaps.md"
+LEDGER = ROOT / "docs" / "proof.md"
 HYGIENE_TOOL = ROOT / "tools" / "check_repo_hygiene.py"
 
 REQUIRED_GAPS = {
@@ -73,7 +73,7 @@ REQUIRED_GAPS = {
         "category": "hardware-limits",
         "phrases": (
             "QEMU BIOS/IDE/PS2/VBE/SB16",
-            "docs/hardware-support.md",
+            "docs/architecture.md",
             "SUPPORT[...]",
             "check_hardware_support_matrix.py",
             "physical hardware",
@@ -209,7 +209,7 @@ def readme_policy_violations(root: Path = ROOT) -> list[str]:
 
 
 def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
-    text = (root / "docs" / "post-checkpoint-gaps.md").read_text()
+    text = (root / "docs" / "proof.md").read_text()
     matches_and_blocks = list(_gap_blocks(text))
     gaps: dict[str, dict[str, str]] = {}
 
@@ -248,8 +248,8 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
 
     readme = (root / "README.md").read_text()
     tests_readme = (root / "tests" / "README.md").read_text()
-    playable_cloud_proof = (root / "docs" / "playable-cloud-proof.md").read_text()
-    hardware_support = (root / "docs" / "hardware-support.md").read_text()
+    playable_cloud_proof = (root / "docs" / "proof.md").read_text()
+    hardware_support = (root / "docs" / "architecture.md").read_text()
     makefile = (root / "Makefile").read_text()
     for phrase in LATEST_RUN_PHRASES:
         if not _contains_phrase(text, phrase):
@@ -272,7 +272,7 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         "loads the save back into gameplay",
         "Status",
         "Long-form evidence, historical failures, and workflow dispatch examples",
-        "workflow dispatch examples live in `docs/post-checkpoint-gaps.md` and",
+        "workflow dispatch examples live in `docs/proof.md`",
     ):
         if not _contains_phrase(readme, phrase):
             raise AssertionError(f"README missing claim-boundary phrase: {phrase}")
@@ -304,7 +304,7 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         raise AssertionError("playable cloud proof doc missing historical persistence commit phrase: f9a688e")
     if "not by itself a claim that the current branch is human-playable" not in playable_cloud_proof:
         raise AssertionError("playable cloud proof doc must keep the human-playability claim boundary")
-    if "docs/post-checkpoint-gaps.md" not in readme:
+    if "docs/proof.md" not in readme:
         raise AssertionError("README must point to the gap ledger")
     if "Claim Boundaries" not in readme:
         raise AssertionError("README must keep the Doom-capable claim boundary visible")

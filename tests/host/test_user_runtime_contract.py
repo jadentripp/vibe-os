@@ -14,7 +14,7 @@ class UserRuntimeContractTests(unittest.TestCase):
         source = (ROOT / "user" / "runtime.c").read_text()
         abi_probe = (ROOT / "user" / "abi_probe.c").read_text()
         makefile = (ROOT / "Makefile").read_text()
-        runtime_doc = (ROOT / "docs" / "doom-libc-runtime.md").read_text()
+        runtime_doc = (ROOT / "docs" / "architecture.md").read_text()
 
         for token in (
             "int vibe_user_syscall3(",
@@ -69,8 +69,8 @@ class UserRuntimeContractTests(unittest.TestCase):
     def test_user_runtime_stays_inside_current_general_os_contract(self):
         header = (ROOT / "user" / "runtime.h").read_text()
         source = (ROOT / "user" / "runtime.c").read_text()
-        process_doc = (ROOT / "docs" / "process-exec.md").read_text()
-        runtime_doc = (ROOT / "docs" / "doom-libc-runtime.md").read_text()
+        process_doc = (ROOT / "docs" / "architecture.md").read_text()
+        runtime_doc = (ROOT / "docs" / "architecture.md").read_text()
 
         for token in (
             "VIBE_SYS_EXEC",

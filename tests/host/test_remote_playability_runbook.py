@@ -1056,7 +1056,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
     def test_play_now_codespaces_safety_polish_is_documented_and_static_checked(self):
         codespaces_script = (ROOT / "tools" / "play_now_codespaces.sh").read_text()
         remote_script = (ROOT / "tools" / "play_now_remote.sh").read_text()
-        play_now_doc = (ROOT / "docs" / "runbooks" / "play-now-cloud.md").read_text()
+        play_now_doc = (ROOT / "docs" / "play.md").read_text()
 
         for needle in (
             "redact_remote_stream",
@@ -1112,8 +1112,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
 
     def test_guided_remote_human_playtest_helper_is_safe_and_wires_collector(self):
         script = GUIDED_HUMAN_PLAYTEST.read_text()
-        play_now = (ROOT / "docs" / "runbooks" / "play-now-cloud.md").read_text()
-        remote = (ROOT / "docs" / "runbooks" / "remote-doom-playtest.md").read_text()
+        play_now = (ROOT / "docs" / "play.md").read_text()
+        remote = (ROOT / "docs" / "play.md").read_text()
 
         for needle in (
             "Usage: tools/run_remote_human_playtest.sh --playtester NAME --scripted-proof-run-id RUN_ID",

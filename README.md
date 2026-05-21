@@ -27,8 +27,7 @@ the same disk image, and loads the save back into gameplay.
 The human-facing boundary is narrower. A reviewed remote noVNC session still
 has to show a person playing from the documented bundle before this README
 treats that lane as proven. Long-form evidence, historical failures, and
-workflow dispatch examples live in `docs/post-checkpoint-gaps.md` and
-`docs/playable-cloud-proof.md` rather than here.
+workflow dispatch examples live in `docs/proof.md` rather than here.
 
 ## Working Model
 
@@ -52,7 +51,7 @@ Mac unless you explicitly opt in.
 
 The Codespaces/noVNC path keeps QEMU, disk images, WAD data, framebuffer
 captures, and raw audio off the laptop. For reviewed human proof, use
-`docs/runbooks/remote-doom-playtest.md`; the generated bundle is checked by
+`docs/play.md`; the generated bundle is checked by
 `tools/check_cloud_playability_artifacts.py --human-session`.
 
 ## Build And Prove
@@ -66,7 +65,8 @@ make ALLOW_LOCAL_VM=0 cloud-playability-check
 ```
 
 Real-WAD proofs run in GitHub Actions, Codespaces, or disposable cloud hosts.
-Use the proof docs and runbooks for dispatch commands and artifact checks.
+Use `docs/proof.md` and `docs/play.md` for dispatch commands and artifact
+checks.
 
 ## Claim Boundaries
 
@@ -79,13 +79,13 @@ PS/2, VBE/Mode 13h, and SB16-style audio. That evidence is limited to the
 emulated device model. `boot/uefi/README.md` is a contract-only UEFI scaffold,
 and SUPPORT[UEFI] remains unclaimed. PCI fields such as `pci=`, `pciprobe=`,
 and `pcitabcap=` plus the `PCI_TABLE[...]` / `PCI_TABLE_CONTRACT[...]` rows are
-status-only QEMU bus-0 diagnostics; see `docs/hardware-support.md`.
+status-only QEMU bus-0 diagnostics; see `docs/architecture.md`.
 
 The storage claim is also bounded. The OS mutates and reboots the repo-generated
 FAT16 disk image in disposable cloud QEMU, but vibe-os is not an installable OS
 for arbitrary disks. It does not partition blank media, discover unknown
 existing partitions, or recover damaged user disks. See
-`docs/persistent-fat16.md` for the exact install and recovery boundary.
+`docs/architecture.md` for the exact install and recovery boundary.
 
 ## Project Shape
 
@@ -101,14 +101,9 @@ FAT16 partition containing `DOOM1.WAD`, `USERPROB.ELF`, `ABIPROBE.ELF`,
 
 ## Deeper Docs
 
-- `docs/playable-cloud-proof.md` explains the proof gates and evidence history.
-- `docs/post-checkpoint-gaps.md` is the detailed gap ledger.
-- `docs/runbooks/play-now-cloud.md` covers Codespaces/noVNC testing.
-- `docs/runbooks/remote-doom-playtest.md` covers reviewed human sessions.
+- `docs/architecture.md` is the technical contract: boot, VM/process, FAT,
+  libc/runtime, input, graphics, audio, hardware boundaries, and UEFI gaps.
+- `docs/proof.md` explains proof gates, evidence history, current gaps, and
+  the legitimacy roadmap.
+- `docs/play.md` covers Codespaces/noVNC testing and reviewed human sessions.
 - `docs/doom-provenance.md` documents source and WAD boundaries.
-- `docs/process-exec.md` covers the ABI-probe exec chain.
-- `docs/persistent-fat16.md` covers save/load, FAT behavior, and storage
-  install/recovery boundaries.
-- `docs/audio.md` covers SB16/SFX/music evidence.
-- `docs/hardware-support.md` keeps hardware and PCI table claims honest.
-- `docs/boot-loader-vm.md` covers the BIOS boot, loader, and VM contract.

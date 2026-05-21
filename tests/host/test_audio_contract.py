@@ -652,7 +652,7 @@ class AudioContractTests(unittest.TestCase):
         self.assertNotIn("run_smoke" + "_qemu", audio_test)
 
     def test_audio_doc_tracks_current_gaps(self):
-        audio_doc = (ROOT / "docs" / "audio.md").read_text()
+        audio_doc = (ROOT / "docs" / "architecture.md").read_text()
 
         self.assertIn("vibe_audio_sfx_desc_t", audio_doc)
         self.assertIn("vibe_audio_device_info_t", audio_doc)
@@ -721,7 +721,7 @@ class AudioContractTests(unittest.TestCase):
     def test_audio_checkers_pin_proof_lanes_without_vm_audio(self):
         audible_checker = (ROOT / "tools" / "check_audible_audio_proof.py").read_text()
         continuity_checker = (ROOT / "tools" / "check_audio_continuity_proof.py").read_text()
-        music_doc = (ROOT / "docs" / "audio.md").read_text()
+        music_doc = (ROOT / "docs" / "architecture.md").read_text()
 
         for source in (
             "aggregate-machine-audible-output",

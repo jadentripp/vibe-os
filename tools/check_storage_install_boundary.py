@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build"
-DOC = ROOT / "docs" / "persistent-fat16.md"
+DOC = ROOT / "docs" / "architecture.md"
 MAKE_WAD_IMAGE = ROOT / "tools" / "make_wad_image.py"
 SECTOR_SIZE = 512
 
@@ -115,13 +115,13 @@ REQUIRED_CROSS_DOC_LINKS = {
     "README.md": (
         "not an installable OS for arbitrary disks",
         "does not partition blank media",
-        "docs/persistent-fat16.md",
+        "docs/architecture.md",
     ),
-    "docs/persistent-fat16.md": (
+    "docs/architecture.md": (
         "not an arbitrary-disk install or recovery proof",
         "install-image-manifest",
     ),
-    "docs/post-checkpoint-gaps.md": (
+    "docs/proof.md": (
         "STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL] status=unclaimed",
         "blank-disk-to-bootable-vibe-os",
     ),
@@ -258,7 +258,7 @@ def validate_claim_wording(root: Path) -> None:
 
 
 def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
-    doc = root / "docs" / "persistent-fat16.md"
+    doc = root / "docs" / "architecture.md"
     text = doc.read_text()
     normalized = " ".join(text.split())
     for phrase in REQUIRED_PHRASES:

@@ -241,9 +241,9 @@ class BootLoaderVmContractTests(unittest.TestCase):
         self.assertIn("mov byte [vmm_high_mapping_status], 1", vmm_self_test)
 
     def test_boot_vm_docs_state_current_limits_without_overclaiming(self):
-        boot_doc = text(ROOT / "docs" / "boot-loader-vm.md")
+        boot_doc = text(ROOT / "docs" / "architecture.md")
         uefi_scaffold = text(ROOT / "boot" / "uefi" / "README.md")
-        process_doc = text(ROOT / "docs" / "process-vm.md")
+        process_doc = text(ROOT / "docs" / "architecture.md")
         readme = text(ROOT / "README.md")
         tests_readme = text(ROOT / "tests" / "README.md")
 
@@ -275,7 +275,7 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "`kernphys=`",
         ):
             self.assertIn(source, boot_doc)
-        self.assertIn("docs/boot-loader-vm.md", readme)
+        self.assertIn("docs/architecture.md", readme)
         self.assertIn("Boot/loader/VM contract", tests_readme)
         self.assertIn("fixed low-memory page-table pages", process_doc)
         self.assertIn("KERNEL_RELOCATION_GAP[current]=high-alias-only", process_doc)

@@ -9,8 +9,8 @@ class AtaPioContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.kernel = (ROOT / "kernel" / "kernel.asm").read_text()
-        cls.triage_doc = (ROOT / "docs" / "playable-cloud-proof.md").read_text()
-        cls.persistence_doc = (ROOT / "docs" / "persistent-fat16.md").read_text()
+        cls.triage_doc = (ROOT / "docs" / "proof.md").read_text()
+        cls.persistence_doc = (ROOT / "docs" / "architecture.md").read_text()
 
     def test_ata_waits_are_bounded_and_record_failures(self):
         kernel = self.kernel

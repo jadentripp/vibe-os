@@ -690,8 +690,8 @@ class ProcessExecContractTests(unittest.TestCase):
 
     def test_late_exec_handoff_failure_restores_caller_before_rollback(self):
         kernel = read_kernel()
-        process_doc = (ROOT / "docs" / "process-exec.md").read_text()
-        gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
+        process_doc = (ROOT / "docs" / "architecture.md").read_text()
+        gap_doc = (ROOT / "docs" / "proof.md").read_text()
         handoff = kernel.split("process_exec_handoff_current:", 1)[1].split("process_exec_seed_argv_stack:", 1)[0]
         late_rollback = handoff.split(".eio_after_activate:", 1)[1].split(".eio:", 1)[0]
 
@@ -802,8 +802,8 @@ class ProcessExecContractTests(unittest.TestCase):
         kernel = read_kernel()
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
         libc = (ROOT / "doom_port" / "libc.c").read_text()
-        process_doc = (ROOT / "docs" / "process-exec.md").read_text()
-        vm_doc = (ROOT / "docs" / "process-vm.md").read_text()
+        process_doc = (ROOT / "docs" / "architecture.md").read_text()
+        vm_doc = (ROOT / "docs" / "architecture.md").read_text()
 
         for kernel_source, header_source in (
             ("SYS_EXEC_PATH_MAX equ 16", "VIBE_EXEC_PATH_MAX = 16"),
@@ -1484,7 +1484,7 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertNotIn("cmp byte [doom_load_segment_count], 1", draw_status)
 
     def test_process_exec_doc_keeps_fixed_slot_process_gap_honest(self):
-        process_doc = (ROOT / "docs" / "process-exec.md").read_text()
+        process_doc = (ROOT / "docs" / "architecture.md").read_text()
 
         for phrase in (
             "arbitrary root-level FAT16 `.ELF` paths",
@@ -1509,8 +1509,8 @@ class ProcessExecContractTests(unittest.TestCase):
         fcntl = (ROOT / "doom_port" / "include" / "fcntl.h").read_text()
         libc = (ROOT / "doom_port" / "libc.c").read_text()
         mman = (ROOT / "doom_port" / "include" / "sys" / "mman.h").read_text()
-        process_doc = (ROOT / "docs" / "process-exec.md").read_text()
-        runtime_doc = (ROOT / "docs" / "doom-libc-runtime.md").read_text()
+        process_doc = (ROOT / "docs" / "architecture.md").read_text()
+        runtime_doc = (ROOT / "docs" / "architecture.md").read_text()
         probe = (ROOT / "user" / "probe.c").read_text()
         include_dir = ROOT / "doom_port" / "include"
 

@@ -82,7 +82,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
 
     def test_matrix_rows_define_claimed_and_unclaimed_device_classes(self):
         rows = check_hardware_support_matrix.validate_repo_contract(ROOT)
-        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        matrix = (ROOT / "docs" / "architecture.md").read_text()
         target = check_hardware_support_matrix._validate_current_target_row(matrix)
 
         claimed = {support_id for support_id, row in rows.items() if row["status"] == "claimed"}
@@ -154,15 +154,15 @@ class HardwareSupportMatrixTests(unittest.TestCase):
 
     def test_hardware_boundary_is_visible_from_main_claim_surfaces(self):
         readme = (ROOT / "README.md").read_text()
-        boot_doc = (ROOT / "docs" / "boot-loader-vm.md").read_text()
-        gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
-        hardware_doc = (ROOT / "docs" / "hardware-support.md").read_text()
+        boot_doc = (ROOT / "docs" / "architecture.md").read_text()
+        gap_doc = (ROOT / "docs" / "proof.md").read_text()
+        hardware_doc = (ROOT / "docs" / "architecture.md").read_text()
         tests_readme = (ROOT / "tests" / "README.md").read_text()
-        runbook = (ROOT / "docs" / "runbooks" / "remote-doom-playtest.md").read_text()
+        runbook = (ROOT / "docs" / "play.md").read_text()
 
         for text, phrase in (
             (readme, "That evidence is limited to the emulated device model"),
-            (readme, "docs/hardware-support.md"),
+            (readme, "docs/architecture.md"),
             (readme, "boot/uefi/README.md"),
             (readme, "pci="),
             (boot_doc, "contract-only UEFI scaffold"),
@@ -196,7 +196,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
 
     def test_pci_status_probe_is_bounded_and_not_a_support_claim(self):
         rows = check_hardware_support_matrix.validate_repo_contract(ROOT)
-        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        matrix = (ROOT / "docs" / "architecture.md").read_text()
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
         pci_rows = check_hardware_support_matrix._validate_pci_status_rows(matrix)
 
@@ -246,7 +246,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
 
     def test_unclaimed_hardware_has_future_proof_and_negative_claim_rows(self):
         check_hardware_support_matrix.validate_repo_contract(ROOT)
-        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        matrix = (ROOT / "docs" / "architecture.md").read_text()
         proof_rows = check_hardware_support_matrix._validate_proof_requirement_rows(matrix)
         negative_rows = check_hardware_support_matrix._validate_negative_claim_rows(matrix)
 
@@ -284,7 +284,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         self.assertEqual(negative_rows["PHYSICAL_HARDWARE"]["claim"], "no-physical-machine-proof")
 
     def test_next_hardware_unlock_is_pci_enumeration(self):
-        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        matrix = (ROOT / "docs" / "architecture.md").read_text()
         next_rows = check_hardware_support_matrix._validate_next_unlock_rows(matrix)
         contract_rows = check_hardware_support_matrix._validate_next_implementation_contract_rows(matrix)
 
@@ -300,7 +300,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         self.assertContainsPhrase(matrix, "PCI enumeration is the next implementable hardware-class unlock")
 
     def test_qemu_device_models_and_boot_device_boundaries_are_machine_readable(self):
-        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        matrix = (ROOT / "docs" / "architecture.md").read_text()
         qemu_rows = check_hardware_support_matrix._validate_qemu_device_model_rows(matrix)
         boot_rows = check_hardware_support_matrix._validate_boot_device_boundary_rows(matrix)
 
@@ -320,7 +320,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         self.assertContainsPhrase(matrix, "The boot-device boundary is intentionally separate")
 
     def test_claimed_hardware_rows_name_machine_checked_status_counters(self):
-        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        matrix = (ROOT / "docs" / "architecture.md").read_text()
         rows = check_hardware_support_matrix._validate_status_proof_rows(matrix)
 
         self.assertEqual(
@@ -462,7 +462,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         self.assertIn("claimed hardware status OK", result.stdout)
 
     def test_checker_rejects_claimed_scope_broadening(self):
-        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        matrix = (ROOT / "docs" / "architecture.md").read_text()
         broadened = matrix.replace(
             "SUPPORT[IDE_ATA_PIO] status=claimed scope=qemu-ide",
             "SUPPORT[IDE_ATA_PIO] status=claimed scope=pc-storage",
@@ -472,7 +472,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix._validate_support_rows(broadened)
 
     def test_checker_rejects_current_target_broadening(self):
-        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        matrix = (ROOT / "docs" / "architecture.md").read_text()
         broadened = matrix.replace(
             "excludes=uefi,physical-hardware,general-pci,ahci-sata,usb-input-storage,apic-ioapic,hpet,smp,arbitrary-disk-install",
             "excludes=uefi,physical-hardware,general-pci",
@@ -492,7 +492,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix._validate_uefi_boot_rows(broadened)
 
     def test_checker_rejects_retired_negative_claim_without_proof(self):
-        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        matrix = (ROOT / "docs" / "architecture.md").read_text()
         broadened = matrix.replace(
             "NEGATIVE_CLAIM[USB] status=active",
             "NEGATIVE_CLAIM[USB] status=retired",
@@ -502,7 +502,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix._validate_negative_claim_rows(broadened)
 
     def test_checker_rejects_future_proof_requirement_claiming_evidence(self):
-        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        matrix = (ROOT / "docs" / "architecture.md").read_text()
         broadened = matrix.replace(
             "PROOF_REQUIREMENT[APIC] status=future artifact=apic-cloud-irq requires=lapic-ioapic-pic-masked evidence=none",
             "PROOF_REQUIREMENT[APIC] status=future artifact=apic-cloud-irq requires=lapic-ioapic-pic-masked evidence=status.txt",
@@ -512,7 +512,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix._validate_proof_requirement_rows(broadened)
 
     def test_checker_rejects_pci_table_contract_broadening(self):
-        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        matrix = (ROOT / "docs" / "architecture.md").read_text()
         broadened_bus = matrix.replace(
             "PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN] status=status-only bus=0",
             "PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN] status=status-only bus=all",
@@ -531,7 +531,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix._validate_pci_table_contract_rows(broadened_driver)
 
     def test_checker_rejects_qemu_device_model_broadening(self):
-        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        matrix = (ROOT / "docs" / "architecture.md").read_text()
         broadened_machine = matrix.replace(
             "QEMU_DEVICE_MODEL[SB16] status=claimed machine=qemu-legacy-pc",
             "QEMU_DEVICE_MODEL[SB16] status=claimed machine=physical-pc",
@@ -547,7 +547,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             check_hardware_support_matrix._validate_qemu_device_model_rows(broadened_status)
 
     def test_checker_rejects_future_boot_device_becoming_claimed_without_evidence(self):
-        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        matrix = (ROOT / "docs" / "architecture.md").read_text()
         broadened = matrix.replace(
             "BOOT_DEVICE_BOUNDARY[USB_MASS_STORAGE] status=future",
             "BOOT_DEVICE_BOUNDARY[USB_MASS_STORAGE] status=claimed",

@@ -50,8 +50,8 @@ class PostCheckpointGapTests(unittest.TestCase):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
         makefile = (ROOT / "Makefile").read_text()
         checker = (ROOT / "tools" / "check_real_wad_proof.py").read_text()
-        runtime_doc = (ROOT / "docs" / "doom-libc-runtime.md").read_text()
-        gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
+        runtime_doc = (ROOT / "docs" / "architecture.md").read_text()
+        gap_doc = (ROOT / "docs" / "proof.md").read_text()
 
         for source in (
             'smoke_doomexit_text db " doomexit="',
@@ -96,8 +96,8 @@ class PostCheckpointGapTests(unittest.TestCase):
     def test_save_config_persistence_has_image_and_reboot_snapshot_gates(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
         fs = make_wad_image.Fat16Image(image)
-        gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
-        persistent_doc = (ROOT / "docs" / "persistent-fat16.md").read_text()
+        gap_doc = (ROOT / "docs" / "proof.md").read_text()
+        persistent_doc = (ROOT / "docs" / "architecture.md").read_text()
 
         default_payload = b"use_mouse\t\t1\nscreenblocks\t\t9\n"
         save_payload = b"VIBEOS-SAVE-PROOF" * 1024
@@ -142,13 +142,13 @@ class PostCheckpointGapTests(unittest.TestCase):
     def test_docs_keep_large_post_checkpoint_gaps_explicit(self):
         readme = (ROOT / "README.md").read_text()
         tests_readme = (ROOT / "tests" / "README.md").read_text()
-        gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
-        playable_doc = (ROOT / "docs" / "playable-cloud-proof.md").read_text()
-        process_doc = (ROOT / "docs" / "process-exec.md").read_text()
-        persistence_doc = (ROOT / "docs" / "persistent-fat16.md").read_text()
-        hardware_doc = (ROOT / "docs" / "hardware-support.md").read_text()
+        gap_doc = (ROOT / "docs" / "proof.md").read_text()
+        playable_doc = (ROOT / "docs" / "proof.md").read_text()
+        process_doc = (ROOT / "docs" / "architecture.md").read_text()
+        persistence_doc = (ROOT / "docs" / "architecture.md").read_text()
+        hardware_doc = (ROOT / "docs" / "architecture.md").read_text()
 
-        self.assertIn("docs/post-checkpoint-gaps.md", readme)
+        self.assertIn("docs/proof.md", readme)
         self.assertIn("test_post_checkpoint_gaps.py", tests_readme)
         self.assertIn("tools/check_playability_gap_ledger.py", tests_readme)
         self.assertIn("not by itself a claim that the current branch is human-playable", playable_doc)
@@ -211,7 +211,7 @@ class PostCheckpointGapTests(unittest.TestCase):
         self.assertContainsPhrase(hardware_doc, "QEMU evidence alone can only claim")
 
     def test_latest_cloud_evidence_tracks_run_but_not_playable_claim(self):
-        gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
+        gap_doc = (ROOT / "docs" / "proof.md").read_text()
 
         for phrase in (
             "Latest Cloud Evidence",

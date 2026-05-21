@@ -28,9 +28,9 @@ import check_scripted_gameplay_proof  # noqa: E402
 import check_vm_status_proof  # noqa: E402
 
 
-RUNBOOK = ROOT / "docs" / "runbooks" / "remote-doom-playtest.md"
-PLAY_NOW_RUNBOOK = ROOT / "docs" / "runbooks" / "play-now-cloud.md"
-PLAYABLE_DOC = ROOT / "docs" / "playable-cloud-proof.md"
+RUNBOOK = ROOT / "docs" / "play.md"
+PLAY_NOW_RUNBOOK = ROOT / "docs" / "play.md"
+PLAYABLE_DOC = ROOT / "docs" / "proof.md"
 OS_WORKFLOW = ROOT / ".github" / "workflows" / "os-smoke.yml"
 WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-smoke.yml"
 SOAK_WORKFLOW = ROOT / ".github" / "workflows" / "real-wad-soak.yml"

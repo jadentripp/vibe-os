@@ -45,8 +45,8 @@ class StorageInstallBoundaryTests(unittest.TestCase):
             for relative in (
                 "README.md",
                 "tests/README.md",
-                "docs/persistent-fat16.md",
-                "docs/post-checkpoint-gaps.md",
+                "docs/architecture.md",
+                "docs/proof.md",
                 "tools/check_storage_install_boundary.py",
             ):
                 src = ROOT / relative
@@ -67,13 +67,13 @@ class StorageInstallBoundaryTests(unittest.TestCase):
 
     def test_install_boundary_is_visible_from_main_claim_surfaces(self):
         readme = (ROOT / "README.md").read_text()
-        persistence_doc = (ROOT / "docs" / "persistent-fat16.md").read_text()
-        gap_doc = (ROOT / "docs" / "post-checkpoint-gaps.md").read_text()
+        persistence_doc = (ROOT / "docs" / "architecture.md").read_text()
+        gap_doc = (ROOT / "docs" / "proof.md").read_text()
         tests_readme = (ROOT / "tests" / "README.md").read_text()
 
         for text, phrase in (
             (readme, "not an installable OS for arbitrary disks"),
-            (readme, "docs/persistent-fat16.md"),
+            (readme, "docs/architecture.md"),
             (persistence_doc, "not an arbitrary-disk install or recovery proof"),
             (persistence_doc, "install-image-manifest"),
             (gap_doc, "STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL] status=unclaimed"),
