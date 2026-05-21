@@ -113,6 +113,8 @@ SUMMARY_FIELDS = (
     "savemode",
     "saveact",
     "savedesc",
+    "savestm",
+    "savethk",
     "fwr",
     "fal",
     "fam",

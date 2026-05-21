@@ -402,6 +402,9 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "doom_saveaction_desc_len",
             "doom_saveaction_desc_hash",
             "doom_saveaction_report_count",
+            "doom_savestream_stage",
+            "doom_savethinker_archive_offset",
+            "doom_savethinker_unarchive_offset",
             "doom_init_flags",
             "doom_init_report_count",
             "smoke_doomwad_text",
@@ -418,6 +421,8 @@ class DoomRuntimeContractTests(unittest.TestCase):
             "smoke_fatalloc_text",
             "smoke_saveact_text",
             "smoke_savedesc_text",
+            "smoke_savestream_text",
+            "smoke_savethinker_text",
             "smoke_doomerr_text",
         ):
             with self.subTest(token=token):
@@ -435,9 +440,11 @@ class DoomRuntimeContractTests(unittest.TestCase):
         self.assertIn('grep -q "savemode="', makefile)
         self.assertIn('grep -q "saveact="', makefile)
         self.assertIn('grep -q "savedesc="', makefile)
+        self.assertIn('grep -q "savestm="', makefile)
+        self.assertIn('grep -q "savethk="', makefile)
         self.assertIn("`doomopen`, `doomread`, `doomwad`, `doomwrite`, `doomseek`, `doomclose`", docs)
         self.assertIn("`doomsbrk`, `doomerr`, `doomerrno`, `doommode`, `doomsav`, `saverd`, `savewr`", docs)
-        self.assertIn("`saveclose`, `savemode`, `fwr`, `fal`", docs)
+        self.assertIn("`saveclose`, `savemode`, `savestm`, `savethk`, `fwr`, `fal`", docs)
         self.assertIn("`--load-status`", docs)
 
 

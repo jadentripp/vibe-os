@@ -311,6 +311,7 @@ PLAYABLE_STATUS_FLAG equ 0x80000000
 DOOM_INIT_STATUS_FLAG equ 0x40000000
 SAVELOAD_STATUS_FLAG equ 0x20000000
 SAVEACTION_STATUS_FLAG equ 0x10000000
+SAVEACTION_STREAM_EVENT equ 0x0080
 SAVEACTION_GAMEACTION_SHIFT equ 8
 SAVEACTION_SLOT_SHIFT equ 16
 SAVELOAD_EVENT_OPEN equ 0x0001
@@ -5123,6 +5124,15 @@ storage_init:
     mov dword [doom_saveaction_desc_len], 0
     mov dword [doom_saveaction_desc_hash], 0
     mov dword [doom_saveaction_report_count], 0
+    mov dword [doom_savestream_stage], 0
+    mov dword [doom_savestream_slot], 0xffffffff
+    mov dword [doom_savestream_offset], 0xffffffff
+    mov dword [doom_savestream_value], 0
+    mov dword [doom_savestream_report_count], 0
+    mov dword [doom_savethinker_archive_offset], 0xffffffff
+    mov dword [doom_savethinker_archive_value], 0
+    mov dword [doom_savethinker_unarchive_offset], 0xffffffff
+    mov dword [doom_savethinker_unarchive_value], 0
     mov dword [doom_present_count], 0
     mov dword [doom_init_flags], 0
     mov dword [doom_init_report_count], 0
@@ -10293,6 +10303,15 @@ doom_user_run:
     mov dword [doom_saveaction_desc_len], 0
     mov dword [doom_saveaction_desc_hash], 0
     mov dword [doom_saveaction_report_count], 0
+    mov dword [doom_savestream_stage], 0
+    mov dword [doom_savestream_slot], 0xffffffff
+    mov dword [doom_savestream_offset], 0xffffffff
+    mov dword [doom_savestream_value], 0
+    mov dword [doom_savestream_report_count], 0
+    mov dword [doom_savethinker_archive_offset], 0xffffffff
+    mov dword [doom_savethinker_archive_value], 0
+    mov dword [doom_savethinker_unarchive_offset], 0xffffffff
+    mov dword [doom_savethinker_unarchive_value], 0
     mov dword [doom_present_count], 0
     mov dword [doom_init_flags], 0
     mov dword [doom_init_report_count], 0
@@ -11427,6 +11446,10 @@ syscall_handler:
     jmp .gameplay_return
 
 .saveaction_status:
+    mov esi, ebx
+    and esi, 0x0000ffff
+    test esi, SAVEACTION_STREAM_EVENT
+    jnz .savestream_status
     inc dword [doom_saveaction_report_count]
     mov eax, ebx
     and eax, 0x000000ff
@@ -11441,6 +11464,34 @@ syscall_handler:
     mov [doom_saveaction_slot], eax
     mov [doom_saveaction_desc_hash], ecx
     mov [doom_saveaction_desc_len], edx
+    jmp .gameplay_return
+
+.savestream_status:
+    inc dword [doom_savestream_report_count]
+    mov eax, ebx
+    shr eax, SAVEACTION_GAMEACTION_SHIFT
+    and eax, 0x000000ff
+    mov [doom_savestream_stage], eax
+    mov eax, ebx
+    shr eax, SAVEACTION_SLOT_SHIFT
+    and eax, 0x000000ff
+    mov [doom_savestream_slot], eax
+    mov [doom_savestream_offset], ecx
+    mov [doom_savestream_value], edx
+    cmp dword [doom_savestream_stage], 0x05
+    je .savestream_archive_thinker
+    cmp dword [doom_savestream_stage], 0x15
+    je .savestream_unarchive_thinker
+    jmp .gameplay_return
+
+.savestream_archive_thinker:
+    mov [doom_savethinker_archive_offset], ecx
+    mov [doom_savethinker_archive_value], edx
+    jmp .gameplay_return
+
+.savestream_unarchive_thinker:
+    mov [doom_savethinker_unarchive_offset], ecx
+    mov [doom_savethinker_unarchive_value], edx
     jmp .gameplay_return
 
 .playable_status:
@@ -14252,6 +14303,44 @@ write_smoke_status:
     mov edx, [doom_saveaction_desc_hash]
     call smoke_write_hex32
 
+    mov esi, smoke_savestream_text
+    call smoke_copy_string
+    mov edx, [doom_savestream_stage]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_savestream_slot]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_savestream_offset]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_savestream_value]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_savestream_report_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_savethinker_text
+    call smoke_copy_string
+    mov edx, [doom_savethinker_archive_offset]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_savethinker_archive_value]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_savethinker_unarchive_offset]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [doom_savethinker_unarchive_value]
+    call smoke_write_hex32
+
     mov esi, smoke_fio_text
     call smoke_copy_string
     mov edx, [file_write_fail_stage]
@@ -15938,6 +16027,8 @@ smoke_fatmap_text db " fam=", 0
 smoke_fatcopy_text db " fac=", 0
 smoke_saveact_text db " saveact=", 0
 smoke_savedesc_text db " savedesc=", 0
+smoke_savestream_text db " savestm=", 0
+smoke_savethinker_text db " savethk=", 0
 smoke_fio_text db " fio=", 0
 smoke_flb_text db " flb=", 0
 smoke_fcl_text db " fcl=", 0
@@ -16679,6 +16770,15 @@ doom_saveaction_slot dd 0xffffffff
 doom_saveaction_desc_len dd 0
 doom_saveaction_desc_hash dd 0
 doom_saveaction_report_count dd 0
+doom_savestream_stage dd 0
+doom_savestream_slot dd 0xffffffff
+doom_savestream_offset dd 0xffffffff
+doom_savestream_value dd 0
+doom_savestream_report_count dd 0
+doom_savethinker_archive_offset dd 0xffffffff
+doom_savethinker_archive_value dd 0
+doom_savethinker_unarchive_offset dd 0xffffffff
+doom_savethinker_unarchive_value dd 0
 doom_present_count dd 0
 doom_init_flags dd 0
 doom_init_report_count dd 0

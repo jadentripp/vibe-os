@@ -106,7 +106,9 @@ load-menu path. That status must include `doomsav=` open/read/close bits for the
 requested slot, `saverd=` bytes at least as large as the saved payload, a
 `saveclose=` event, `gameplay=OK`, the saved episode/map in `gmap=`, and
 `leveltime=` at or beyond the save header leveltime. A 24-byte menu-string read
-does not count as loading the game.
+does not count as loading the game. When load fails inside Doom's savegame
+unarchiver, `savestm=` and `savethk=` expose the port-wrapper save-stream
+offsets and first marker byte without modifying the original Doom source.
 The reboot comparison requires `--baseline-image` too, so a preseeded image can
 never be reported as a reboot persistence proof without also proving the
 requested bytes changed from the fresh image. With a baseline image present, the

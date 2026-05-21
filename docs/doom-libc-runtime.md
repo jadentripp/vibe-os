@@ -111,15 +111,18 @@ global fd table before entering the new image.
 The kernel smoke status reports Doom file/runtime counters from the port ABI:
 `doomopen`, `doomread`, `doomwad`, `doomwrite`, `doomseek`, `doomclose`,
 `doomsbrk`, `doomerr`, `doomerrno`, `doommode`, `doomsav`, `saverd`, `savewr`,
-`saveclose`, `savemode`, `fwr`, `fal`, `doominit`, `doomexit`, `doomfault`, `doomfaultip`,
-`doomfaultv`, `doomfaulterr`, the compact `fault` frame tuple, `panic`, and
+`saveclose`, `savemode`, `savestm`, `savethk`, `fwr`, `fal`, `doominit`,
+`doomexit`, `doomfault`, `doomfaultip`, `doomfaultv`, `doomfaulterr`, the compact `fault` frame tuple, `panic`, and
 `shutdown`. These are counters, last-open mode/flag bits, the most recent
 negative kernel errno returned to Doom, first-init milestone bits, user-mode
 exit/fault diagnostics, and kernel stop-state markers, not filesystem internals.
 `doomwad` is a compact open/read/lseek/magic tuple for the real `DOOM1.WAD`
 path, `doominit` records the port-reported startup milestones before gameplay,
 and the `doomsav`/`saverd`/`savewr` tuple family records port-reported
-`DOOMSAV*.DSG` open/read/write/close evidence. `fwr` and `fal` are compact
+`DOOMSAV*.DSG` open/read/write/close evidence. `savestm` and `savethk`
+record original-Doom save-stream offsets from port-side wrappers, including the
+thinker stream boundary that must start with Doom's `tc_mobj` or `tc_end`
+markers during save/load debugging. `fwr` and `fal` are compact
 kernel-side write/allocation diagnostics for cloud save-write failures. They
 prove the original Doom code reached the port-layer file contract while keeping
 vendor Doom sources untouched.

@@ -60,11 +60,12 @@ DOOM_SYMBOLS := $(BUILD_DIR)/doom.symbols
 DOOM_BASE := 0x01000000
 DOOM_ORIGINAL_SRCS := $(filter-out $(DOOM_SRC_DIR)/i_%.c,$(wildcard $(DOOM_SRC_DIR)/*.c))
 DOOM_ORIGINAL_OBJS := $(DOOM_ORIGINAL_SRCS:$(DOOM_SRC_DIR)/%.c=$(DOOM_PORT_BUILD_DIR)/%.o)
-DOOM_PORT_SRCS := doom_port/input.c doom_port/libc.c doom_port/music.c doom_port/platform.c doom_port/start.c
+DOOM_PORT_SRCS := doom_port/input.c doom_port/libc.c doom_port/music.c doom_port/platform.c doom_port/save_debug.c doom_port/start.c
 DOOM_PORT_OBJS := $(DOOM_PORT_SRCS:doom_port/%.c=$(DOOM_PORT_BUILD_DIR)/port_%.o)
 FREESTANDING_I386_CFLAGS := -target i386-unknown-elf -ffreestanding -fno-builtin -fno-strict-aliasing -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m32 -march=i386 -mno-sse -mno-mmx -msoft-float -O2
 DOOM_ORIGINAL_CFLAGS := $(FREESTANDING_I386_CFLAGS) -std=gnu89 -DNORMALUNIX -DLINUX -I$(DOOM_PORT_INCLUDE_DIR) -I$(DOOM_SRC_DIR)
 DOOM_G_GAME_CFLAGS := -DG_BuildTiccmd=doom_original_G_BuildTiccmd -DG_Ticker=doom_original_G_Ticker
+DOOM_P_SAVEG_CFLAGS := -DP_ArchivePlayers=doom_original_P_ArchivePlayers -DP_UnArchivePlayers=doom_original_P_UnArchivePlayers -DP_ArchiveWorld=doom_original_P_ArchiveWorld -DP_UnArchiveWorld=doom_original_P_UnArchiveWorld -DP_ArchiveThinkers=doom_original_P_ArchiveThinkers -DP_UnArchiveThinkers=doom_original_P_UnArchiveThinkers -DP_ArchiveSpecials=doom_original_P_ArchiveSpecials -DP_UnArchiveSpecials=doom_original_P_UnArchiveSpecials
 
 STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 98304
@@ -147,6 +148,9 @@ $(DOOM_PORT_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c Makefile | $(DOOM_PORT_BUILD_DIR
 $(DOOM_PORT_BUILD_DIR)/g_game.o: $(DOOM_SRC_DIR)/g_game.c Makefile | $(DOOM_PORT_BUILD_DIR)
 	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) $(DOOM_G_GAME_CFLAGS) -c $< -o $@
 
+$(DOOM_PORT_BUILD_DIR)/p_saveg.o: $(DOOM_SRC_DIR)/p_saveg.c Makefile | $(DOOM_PORT_BUILD_DIR)
+	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) $(DOOM_P_SAVEG_CFLAGS) -c $< -o $@
+
 $(DOOM_PORT_BUILD_DIR)/port_%.o: doom_port/%.c Makefile | $(DOOM_PORT_BUILD_DIR)
 	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) -c $< -o $@
 
@@ -227,17 +231,17 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "wad=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "lmp=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "exec=OK" $(BUILD_DIR)/status.txt; \
-		grep -q "path=DOOM.ELF" $(BUILD_DIR)/status.txt; \
-		grep -q "doom=OK" $(BUILD_DIR)/status.txt; \
-		grep -Eq "doomrun=(RUN|EXIT)" $(BUILD_DIR)/status.txt; \
-		grep -q "doomexit=" $(BUILD_DIR)/status.txt; \
-		grep -q "doomfault=" $(BUILD_DIR)/status.txt; \
-		grep -q "doomfaultip=" $(BUILD_DIR)/status.txt; \
-		grep -q "doomfaultv=" $(BUILD_DIR)/status.txt; \
-		grep -q "doomfaulterr=" $(BUILD_DIR)/status.txt; \
-		grep -q " fault=" $(BUILD_DIR)/status.txt; \
-		grep -Eq "panic=(NONE|KEXC)" $(BUILD_DIR)/status.txt; \
-			grep -Eq "shutdown=(NONE|HALT|REBOOT|POWEROFF)" $(BUILD_DIR)/status.txt; \
+	grep -q "path=DOOM.ELF" $(BUILD_DIR)/status.txt; \
+	grep -q "doom=OK" $(BUILD_DIR)/status.txt; \
+	grep -Eq "doomrun=(RUN|EXIT)" $(BUILD_DIR)/status.txt; \
+	grep -q "doomexit=" $(BUILD_DIR)/status.txt; \
+	grep -q "doomfault=" $(BUILD_DIR)/status.txt; \
+	grep -q "doomfaultip=" $(BUILD_DIR)/status.txt; \
+	grep -q "doomfaultv=" $(BUILD_DIR)/status.txt; \
+	grep -q "doomfaulterr=" $(BUILD_DIR)/status.txt; \
+	grep -q " fault=" $(BUILD_DIR)/status.txt; \
+	grep -Eq "panic=(NONE|KEXC)" $(BUILD_DIR)/status.txt; \
+	grep -Eq "shutdown=(NONE|HALT|REBOOT|POWEROFF)" $(BUILD_DIR)/status.txt; \
 	grep -q "doomopen=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "doomread=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "doomwrite=" $(BUILD_DIR)/status.txt; \
@@ -245,17 +249,19 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "doomwad=" $(BUILD_DIR)/status.txt; \
 	grep -q "doomclose=" $(BUILD_DIR)/status.txt; \
 	grep -q "doomsbrk=" $(BUILD_DIR)/status.txt; \
-		grep -q "doomerr=" $(BUILD_DIR)/status.txt; \
-		grep -q "doomerrno=" $(BUILD_DIR)/status.txt; \
-		grep -q "doommode=" $(BUILD_DIR)/status.txt; \
-		grep -q "doomsav=" $(BUILD_DIR)/status.txt; \
-		grep -q "saverd=" $(BUILD_DIR)/status.txt; \
-		grep -q "savewr=" $(BUILD_DIR)/status.txt; \
-		grep -q "saveclose=" $(BUILD_DIR)/status.txt; \
-		grep -q "savemode=" $(BUILD_DIR)/status.txt; \
-		grep -q "saveact=" $(BUILD_DIR)/status.txt; \
-		grep -q "savedesc=" $(BUILD_DIR)/status.txt; \
-		grep -q "doomlog=" $(BUILD_DIR)/status.txt; \
+	grep -q "doomerr=" $(BUILD_DIR)/status.txt; \
+	grep -q "doomerrno=" $(BUILD_DIR)/status.txt; \
+	grep -q "doommode=" $(BUILD_DIR)/status.txt; \
+	grep -q "doomsav=" $(BUILD_DIR)/status.txt; \
+	grep -q "saverd=" $(BUILD_DIR)/status.txt; \
+	grep -q "savewr=" $(BUILD_DIR)/status.txt; \
+	grep -q "saveclose=" $(BUILD_DIR)/status.txt; \
+	grep -q "savemode=" $(BUILD_DIR)/status.txt; \
+	grep -q "saveact=" $(BUILD_DIR)/status.txt; \
+	grep -q "savedesc=" $(BUILD_DIR)/status.txt; \
+	grep -q "savestm=" $(BUILD_DIR)/status.txt; \
+	grep -q "savethk=" $(BUILD_DIR)/status.txt; \
+	grep -q "doomlog=" $(BUILD_DIR)/status.txt; \
 	grep -q "doompresent=" $(BUILD_DIR)/status.txt; \
 	grep -q "doompal=" $(BUILD_DIR)/status.txt; \
 	grep -q "doomframe=" $(BUILD_DIR)/status.txt; \

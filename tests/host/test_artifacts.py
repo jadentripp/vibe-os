@@ -779,6 +779,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("VIBE_DOOM_SAVEACTION_STATUS = 0x10000000u", header)
         self.assertIn("VIBE_DOOM_SAVEACTION_SAVE_REQUESTED = 0x0008u", header)
         self.assertIn("VIBE_DOOM_SAVEACTION_LOAD_REQUESTED = 0x0020u", header)
+        self.assertIn("VIBE_DOOM_SAVEACTION_STREAM = 0x0080u", header)
         self.assertIn("VIBE_DOOM_INIT_STATUS = 0x40000000u", header)
         self.assertIn("static void report_gameplay_status(void)", platform)
         self.assertIn("static void report_save_action_status(void)", platform)
@@ -806,6 +807,9 @@ class SourceContractTests(unittest.TestCase):
             "doom_saveaction_desc_len dd 0",
             "doom_saveaction_desc_hash dd 0",
             "doom_saveaction_report_count dd 0",
+            "doom_savestream_stage dd 0",
+            "doom_savethinker_archive_offset dd 0xffffffff",
+            "doom_savethinker_unarchive_offset dd 0xffffffff",
             "doom_gameplay_status dd 0",
             "doom_gameplay_report_count dd 0",
             "doom_game_state dd 0",
@@ -821,6 +825,8 @@ class SourceContractTests(unittest.TestCase):
             'smoke_doominit_text db " doominit="',
             'smoke_saveact_text db " saveact="',
             'smoke_savedesc_text db " savedesc="',
+            'smoke_savestream_text db " savestm="',
+            'smoke_savethinker_text db " savethk="',
         ):
             self.assertIn(source, kernel)
         self.assertIn('grep -q "gameplay="', makefile)
@@ -831,6 +837,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('grep -q "dtick="', makefile)
         self.assertIn('grep -q "saveact="', makefile)
         self.assertIn('grep -q "savedesc="', makefile)
+        self.assertIn('grep -q "savestm="', makefile)
+        self.assertIn('grep -q "savethk="', makefile)
         self.assertIn(
             "real_wad_args=\"--baseline $(BUILD_DIR)/status.after-start.txt --start $(BUILD_DIR)/status.after-start.txt\"",
             makefile,
