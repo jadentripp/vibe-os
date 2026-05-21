@@ -1,141 +1,116 @@
 # vibe-os
 
-vibe-os is a Doom-shaped hobby operating system. It does not install Linux and
-launch a source port. It boots a repo-owned x86 OS, brings up the runtime Doom
-needs, and runs the official id Software public release across that boundary.
+vibe-os is a Doom-focused hobby operating system. It boots a repo-owned x86
+kernel, brings up the hardware/runtime surface Doom needs, and runs the
+original id Software `linuxdoom-1.10` engine through our own platform layer.
 
-The project stance is **"legit but playable first"**: get a real person into
-E1M1 quickly, while keeping the claims tight. No patched vendor Doom tree, no
-checked-in WADs, no GRUB handoff, no hidden Linux runtime, and no proof that
-depends on this Mac.
+This is not Linux plus a Doom source port, and it is not a patched vendor Doom
+tree. The rule is simple: keep the original Doom source pristine, keep WADs out
+of git, and make the OS boundary real.
 
-## Where It Stands
+## Now
 
-vibe-os boots on disposable cloud hardware and reaches real-WAD Doom gameplay.
-The latest cloud truth-serum run, `26199297160` on commit `ed4d00f`, booted the
-raw x86 disk image, loaded the kernel through the repo BIOS bootloader, read
-shareware `DOOM1.WAD` through the kernel ATA/FAT16 path, started `DOOM.ELF` as a
-Ring 3 process, presented frames, accepted scripted keyboard/mouse input, and
-passed VM/process, gameplay, SB16 audio-continuity, and artifact-hygiene gates.
+`main` contains the hard-mode architecture we have been building toward:
 
-The live blocker is save/load: the run writes and rereads a full
-`DOOMSAV0.DSG` payload of `25718` bytes, then rebooted load exits inside
-original Doom with `Unknown tclass 112 in savegame`. `savestm=` and `savethk=`
-show the thinker boundary agrees at `0x2A64`, so the remaining failure is around
-the specials stream, not the old short-write FAT bug.
+- BIOS boot sector and Stage 2 loader, no GRUB handoff.
+- 32-bit protected-mode kernel with paging, IDT/PIC/PIT, TSS, and preemption
+  proof fields.
+- Ring 3 user execution through `int 0x80`, with `USERPROB.ELF` launching the
+  Doom process path instead of the kernel directly jumping into Doom.
+- ATA PIO disk access, MBR parsing, FAT16 file reads and writable FAT updates.
+- VBE/Mode 13h framebuffer paths, PS/2 keyboard/mouse input, and SB16-oriented
+  audio plumbing.
+- Freestanding C runtime and separate `doom_port/*` platform code for the
+  original Doom sources in `third_party/doom`.
 
-Persistence/save-load should only be claimed after a green cloud persistence
-run proves the save survives reboot and loads back into gameplay. A public "you
-can play Doom on vibe-os" claim also needs a reviewed remote human VNC playtest.
+The strongest older cloud proof reached real-WAD E1M1 on commit `ed4d00f`
+in run `26199297160`: the OS booted, read shareware `DOOM1.WAD` through the
+kernel ATA/FAT path, started Doom as a Ring 3 process, rendered frames, accepted
+scripted keyboard/mouse input, and produced SB16 audio-continuity counters.
+That run did not prove save/load; reboot load failed in original Doom with
+`Unknown tclass 112 in savegame`.
 
-Older scripted cloud evidence is useful context, not a claim about `main`: run
-`26165681561` on commit `c525952` reached `doomrun=RUN`, entered E1M1, and
-triaged as `playability-status-green`; generated-WAD run `26165678183` matched
-that boot path.
+The latest real-WAD truth-serum run for the newer subsystem checkpoint
+`40d81cd` is red: run `26200478218` boots far enough to capture kernel status,
+but reports `panic=KEXC`, `usr=FAIL`, `doom=FAIL`, and `gameplay=WAIT` before
+Doom reaches gameplay. So the project is very close to playable again, but
+`main` should not be advertised as playable until that regression is fixed and
+the cloud proof is green.
 
-## Try It In The Cloud
+## Can I Play It?
 
-The safe interactive path is a disposable remote run in GitHub Codespaces. QEMU
-and noVNC run on a cloud computer, not on the laptop.
+Not reliably on `main` as of the latest checked cloud proof. The safe path
+exists, but the latest cloud run is red and needs to be fixed first.
+
+When it is green, use a disposable cloud machine. Do not run local QEMU on this
+Mac unless you explicitly opt in.
 
 ```sh
 ./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref main
 ./tools/play_now_codespaces.sh --web-url --repo jadentripp/vibe-os --ref main
 ./tools/play_now_remote.sh
-curl -fsSL https://raw.githubusercontent.com/jadentripp/vibe-os/main/tools/play_now_cloud_shell.sh \
-  | VIBE_REF=main bash
 ```
 
-The browser VNC session carries video and input. Browser audio is not the
-interactive path yet; audio proof comes from SB16 status counters and cloud
-aggregate metadata.
+The Codespaces/noVNC path keeps QEMU, the disk image, WAD data, framebuffer
+captures, and raw audio off the laptop.
 
-## What The OS Owns
+## What Counts
 
-| Area | Implemented boundary |
-| --- | --- |
-| Boot | 512-byte BIOS MBR Stage 1, raw-sector Stage 2, A20/GDT/protected-mode switch, ELF32 kernel load |
-| CPU | 32-bit protected mode, flat GDT, IDT/PIC/PIT, TSS, timer IRQ preemption proof |
-| Memory | Paging, physical frame accounting, kernel heap, user VM regions |
-| User mode | Ring 3 processes, `int 0x80`, table-backed exec handoff for probe/Doom |
-| Storage | ATA PIO, MBR partition parsing, FAT16 root files, dynamic allocation/free/truncate |
-| Graphics | VBE 32-bpp framebuffer when available, Mode 13h fallback, Doom 320x200 present path |
-| Input | PS/2 keyboard and mouse translated into generic OS input events and Doom events |
-| Audio | SB16 playback path, Doom SFX/music counters, aggregate cloud audio proof path |
-| Doom | Unmodified `third_party/doom` engine objects plus separate `doom_port/*` platform code |
-| Safety | Local QEMU opt-in, cloud diagnostics only, WAD/disk/pixel/raw-audio artifacts excluded |
+The project can claim a milestone only when the cloud artifacts prove it:
 
-## Build And Proof
+- Real shareware `DOOM1.WAD` boots from the disk image.
+- Doom reaches E1M1 on `main`.
+- Keyboard and mouse input visibly change game state.
+- `DOOMSAV*.DSG` survives reboot and loads back into gameplay.
+- A remote human noVNC playtest confirms it is actually playable.
 
-Local build/test is fine. Local VM execution is opt-in:
+Generated IWAD-shaped fixtures are useful for public CI, but they do not count
+as a real Doom proof. Checked-in WAD files, disk images, framebuffer dumps, and
+raw audio captures are forbidden.
+
+## Build And Test
+
+Host-side checks are safe:
 
 ```sh
-brew install nasm qemu
-make
-make test
-make playability-host-check
-git diff --check
-make clean
-make DOOM_WAD=/absolute/path/to/DOOM1.WAD
-make ALLOW_LOCAL_VM=1 run
-make ALLOW_LOCAL_VM=1 smoke
+make ALLOW_LOCAL_VM=0 DOOM_WAD= build-only
+python3 -m unittest discover -s tests/host -p 'test_*.py'
+make ALLOW_LOCAL_VM=0 cloud-playability-check
 ```
 
-The default image uses a generated IWAD-shaped fixture so public tests can cover
-the boot/storage path without shipping game data. Real `DOOM1.WAD` files stay
-outside git.
-
-Cloud proofs use explicit ref guards:
+Real-WAD proofs run in GitHub Actions or Codespaces:
 
 ```sh
-branch=$(git branch --show-current)
-gh workflow run os-smoke.yml --ref "$branch" -f expected_ref="$branch" -f shutdown_panic_proof=false
-gh workflow run real-wad-smoke.yml --ref "$branch" -f expected_ref="$branch" -f audible_audio_proof=true -f persistence_proof=false
-gh workflow run real-wad-soak.yml --ref "$branch" -f expected_ref="$branch" -f attempts=3 -f min_passes=3 -f audible_audio_proof=true
-```
-
-The preferred dispatcher can wait, download allowed status artifacts, and check them:
-
-```sh
-python3 tools/run_cloud_playability.py --ref "$branch" --lane persistence \
+python3 tools/run_cloud_playability.py --repo jadentripp/vibe-os --ref main \
+  --lane persistence \
   --save-slot 0 \
   --wait \
   --download-artifacts build/cloud-run-persistence
 ```
 
-## Claim Boundaries
+## Project Shape
 
-The hardware claim is bounded to QEMU BIOS/IDE/PS2/VBE/SB16. This is not broad
-PC or physical hardware compatibility. See `docs/hardware-support.md`;
-`boot/uefi/README.md` is only a contract scaffold, and SUPPORT[UEFI] remains
-unclaimed. Status fields such as `pci=`, `pciprobe=`, `pcicount=`, `pcifirst=`,
-`pciid=`, and `pciclass=` are diagnostics, not a PCI support claim.
+The OS is intentionally Doom-first, but the subsystems are being built as
+general OS surfaces instead of one-off Doom hooks: file descriptors and VFS,
+generic input events, clock syscalls, framebuffer ioctls, audio device/ring
+contracts, process launch, VM, and FAT mutation.
 
-Do not call vibe-os a finished Doom-capable OS until `main` has a green
-real-WAD gameplay run, a green save/load persistence reboot run, and a recorded
-remote human VNC session where keyboard and mouse actions visibly affect
-gameplay.
+The hardware claim is bounded to the cloud/QEMU target for now:
+BIOS, IDE/ATA, PS/2, VBE/Mode 13h, and SB16-style audio. This is not yet a
+general PC compatibility claim.
 
-The human proof runbook is `docs/runbooks/remote-doom-playtest.md`. The guided
-helper is `tools/run_remote_human_playtest.sh --playtester NAME
---scripted-proof-run-id RUN_ID`; the lower-level collector is
-`tools/collect_human_playtest_bundle.py`. A reviewed bundle records
-`human-playtest-notes-v2`, `human-playtest-checklist.txt`,
-`human-playtest-session.json`, and `human-playtest-manifest.json`; compare the
-helper's `pre-download human verification OK` with the local
-`post-download human verification OK` before treating it as evidence.
+## Source And Assets
 
-## Disk Layout
-
-LBA 0 is Stage 1 MBR and partition table. LBA 1-16: Stage 2 bootloader.
-LBA 17-208: protected-mode kernel ELF image. LBA 2048+ is the FAT16 partition containing
-`DOOM1.WAD`, `USERPROB.ELF`, `DOOM.ELF`, writable `DEFAULT.CFG`, and
-`DOOMSAV0.DSG` through `DOOMSAV5.DSG`.
+The Doom engine code lives under `third_party/doom` and should stay unmodified.
+Port code lives under `doom_port/`. Real game assets come from a legitimate
+`DOOM1.WAD` supplied outside the repo.
 
 ## Deeper Docs
 
-Start with `docs/playable-cloud-proof.md` for proof rules,
-`docs/post-checkpoint-gaps.md` for the honest gap ledger,
-`docs/doom-provenance.md` for source/assets, `docs/persistent-fat16.md` for
-save/load, `docs/audio.md` for SB16/SFX/music, `docs/runbooks/play-now-cloud.md`
-for Codespaces/noVNC, and `docs/boot-loader-vm.md` for the BIOS boot path.
+- `docs/playable-cloud-proof.md` explains the proof gates.
+- `docs/post-checkpoint-gaps.md` is the detailed gap ledger.
+- `docs/doom-provenance.md` documents source and WAD boundaries.
+- `docs/persistent-fat16.md` covers save/load and FAT behavior.
+- `docs/audio.md` covers SB16/SFX/music evidence.
+- `docs/runbooks/play-now-cloud.md` covers Codespaces/noVNC testing.
+- `docs/hardware-support.md` keeps hardware claims honest.
