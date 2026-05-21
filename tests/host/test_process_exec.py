@@ -1553,7 +1553,8 @@ class ProcessExecContractTests(unittest.TestCase):
         for source in (
             "ABI_PROBE_FLAG_FORK = 0x00000010u",
             "child = vibe_user_fork();",
-            "return child_saw_inherited_wad() ? ABI_PROBE_FORK_WAIT_STATUS : 31;",
+            "int child_status = child_saw_inherited_wad() ? ABI_PROBE_FORK_WAIT_STATUS : 31;",
+            "vibe_user_exit(child_status);",
             "vibe_user_waitpid(child, &status, VIBE_USER_WNOHANG)",
             "shared_offset == 4",
             "flags |= ABI_PROBE_FLAG_FORK;",

@@ -55,8 +55,11 @@ static int prove_fork_clone(const char* wad_path)
     }
 
     child = vibe_user_fork();
-    if (child == 0)
-        return child_saw_inherited_wad() ? ABI_PROBE_FORK_WAIT_STATUS : 31;
+    if (child == 0) {
+        int child_status = child_saw_inherited_wad() ? ABI_PROBE_FORK_WAIT_STATUS : 31;
+        vibe_user_exit(child_status);
+        return child_status;
+    }
     if (child < 0) {
         (void)vibe_user_close(fork_wad);
         return 0;

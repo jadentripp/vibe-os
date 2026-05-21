@@ -111,6 +111,13 @@ int vibe_user_getpid(void)
     return vibe_user_syscall3(VIBE_SYS_GETPID, 0, 0, 0);
 }
 
+void vibe_user_exit(int status)
+{
+    (void)vibe_user_syscall3(VIBE_SYS_EXIT, (unsigned long)status, 0, 0);
+    for (;;) {
+    }
+}
+
 int vibe_user_fork(void)
 {
     return vibe_user_syscall3(VIBE_SYS_FORK, 0, 0, 0);

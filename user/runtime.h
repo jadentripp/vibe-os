@@ -33,6 +33,7 @@ int vibe_user_lseek(int fd, long offset, unsigned long whence);
 int vibe_user_pread(int fd, void* buffer, unsigned long count, long offset);
 int vibe_user_close(int fd);
 int vibe_user_getpid(void);
+void vibe_user_exit(int status);
 int vibe_user_fork(void);
 int vibe_user_waitpid(long pid, int* status, unsigned long options);
 int vibe_user_dup(int oldfd);
