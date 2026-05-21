@@ -214,8 +214,9 @@ class PostCheckpointGapTests(unittest.TestCase):
         for phrase in (
             "Latest Cloud Evidence",
             "latest full real-WAD cloud run",
+            "26213330282",
+            "26213233516",
             "26211510477",
-            "26211492819",
             "26206176284",
             "7390468",
             "musicrend= rendered sample delta must keep pace",

@@ -84,8 +84,8 @@ REQUIRED_GAPS = {
 LATEST_RUN_PHRASES = (
     "Latest Cloud Evidence",
     "latest full real-WAD cloud run",
-    "26211510477",
-    "26211492819",
+    "26213330282",
+    "26213233516",
     "25718",
     "persistence-proof-green",
     "VIBE SAVE",
@@ -259,7 +259,7 @@ def validate_ledger(root: Path = ROOT) -> dict[str, dict[str, str]]:
         raise AssertionError("README should not carry concrete proof run IDs")
     if re.search(r"\bcommit\s+`?[0-9a-f]{7,40}`?\b", readme_without_code_names, re.IGNORECASE):
         raise AssertionError("README should not carry concrete commit hashes")
-    for phrase in ("26211510477", "26211492819"):
+    for phrase in ("26213330282", "26213233516"):
         if not _contains_phrase(text, phrase):
             raise AssertionError(f"gap ledger missing current proof run phrase: {phrase}")
     if "not by itself a claim that the current branch is human-playable" not in playable_cloud_proof:

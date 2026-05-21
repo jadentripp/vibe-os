@@ -7,14 +7,14 @@ The `GAP[...]` rows are machine-readable and are checked by
 
 ## Latest Cloud Evidence
 
-As of 2026-05-21, the latest full real-WAD cloud run is `26211510477`.
+As of 2026-05-21, the latest full real-WAD cloud run is `26213330282`.
 It is full-lane green: `playability-status-green`, `doomrun=RUN`,
 `doomopen=OK`, `doomread=OK`, IWAD detection, scripted gameplay transition,
 artifact hygiene, `usr=OK`, scripted `usr=OK`, `use`, mouse effect,
 audio-continuity through `tools/check_audio_continuity_proof.py`,
 `audio-proof.json`, SB16/audio counters, preemption counters are active, and
-Frame/gameplay counters are active. The matching push-triggered OS smoke run is
-`26211492819`.
+Frame/gameplay counters are active. The matching push-triggered OS smoke run for
+the same OS code is `26213233516`.
 
 The same run proves save/load persistence with `persistence-proof-green`:
 `DOOMSAV0.DSG` is 25718 bytes, carries description `VIBE SAVE`, reports
@@ -28,8 +28,8 @@ real human signal, but it is not by itself a claim that the current branch is hu
 in the formal reviewed-bundle sense. The human-facing
 Doom-capable proof still requires the Remote Doom Playtest Runbook bundle below.
 
-Historical repair context anchors kept for regression context; this historical repair context is not the current proof basis: `26206176284`, `7390468`,
-`26205557019`, `bfd04e8`, `26205496796`, `26203744974`, `f9a688e`,
+Historical repair context anchors kept for regression context; this historical repair context is not the current proof basis: `26211510477`,
+`26206176284`, `7390468`, `26205557019`, `bfd04e8`, `26205496796`, `26203744974`, `f9a688e`,
 `26165681561`, `c525952`, `26165678183`, `26156172979`, `eabd307`,
 `26150621804`, `1db3a7a`, `26149350434`, `da9c136`, `26149570191`,
 `26146035600`, `269dbb8`, `26146488906`, `34eb98d`. Older failures included
@@ -41,7 +41,7 @@ historical repair / blocker after notes, not the current proof basis.
 
 ## Gap Rows
 
-- `GAP[CLOUD_BOOT] status=proven category=cloud-boot gate=real-wad-smoke.yml evidence=real-wad-smoke-26211510477`
+- `GAP[CLOUD_BOOT] status=proven category=cloud-boot gate=real-wad-smoke.yml evidence=real-wad-smoke-26213330282`
 
 Current state: the manual real-WAD cloud workflow boots the repo OS in
 disposable QEMU and is tied to the exact commit/ref chosen by the workflow.
@@ -52,7 +52,7 @@ hardware boot remains a hardware-limit gap.
 Executable gate: `gh workflow run real-wad-smoke.yml --ref "$branch"` followed
 by the downloaded artifact checks.
 
-- `GAP[REAL_GAMEPLAY] status=proven category=real-gameplay gate=check_real_wad_proof.py evidence=real-wad-smoke-26211510477`
+- `GAP[REAL_GAMEPLAY] status=proven category=real-gameplay gate=check_real_wad_proof.py evidence=real-wad-smoke-26213330282`
 
 Current state: `tools/check_real_wad_proof.py` proves Doom reaches `GS_LEVEL`
 on E1M1, not just startup text. Stronger gameplay proof now comes from the
@@ -81,7 +81,7 @@ or `tools/run_remote_human_playtest.sh`, then run
 `tools/check_cloud_playability_artifacts.py --human-session` and
 `check_human_playability_proof.py --require-human-session`.
 
-- `GAP[PERSISTENCE] status=proven category=persistence gate=reboot-persistence-proof evidence=real-wad-smoke-26211510477`
+- `GAP[PERSISTENCE] status=proven category=persistence gate=reboot-persistence-proof evidence=real-wad-smoke-26213330282`
 
 Current state: Persistence/save-load is now green. The cloud reboot proof writes
 `DOOMSAV0.DSG`, captures the fresh baseline immediately after rebuilding, the
@@ -103,7 +103,7 @@ Storage boundary rows remain explicit:
 `STORAGE_BOUNDARY[ARBITRARY_DISK_RECOVERY] status=unclaimed`, and
 `STORAGE_REQUIREMENT[INSTALLER] requires=blank-disk-to-bootable-vibe-os`.
 
-- `GAP[AUDIO] status=proven category=audio gate=remote-sb16-audible-proof evidence=real-wad-smoke-26211510477`
+- `GAP[AUDIO] status=proven category=audio gate=remote-sb16-audible-proof evidence=real-wad-smoke-26213330282`
 
 Current state: status-only SB16 continuity and aggregate audible output proof
 are green. The proof covers DMA/refill, SFX, streamed music chunks, music pull
