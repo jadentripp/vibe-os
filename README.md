@@ -39,12 +39,15 @@ persistence-lane run `26201081378` on commit `53eef0f` also reached E1M1 and
 triaged as `playability-status-green`, but the workflow still failed later, so
 save/load is not green.
 
-The latest gameplay-lane cloud run, `26201835975` on commit `1450b73`, proved
-the OS still reached E1M1 with input, but failed the audio proof because music
-never queued. That was a real port bug: the MUS parser accepted the synthetic
-fixture's old end marker but rejected the real Doom MUS end event. The parser is
-fixed locally, host tests pass, and a new cloud proof is still required before
-calling audio green again.
+The latest gameplay-lane cloud run, `26202349037` on commit `bc97cc3`, is green:
+it reached E1M1 with real `DOOM1.WAD`, input, `doomrun=RUN`, `gameplay=OK`,
+`panic=NONE`, `musicq=00000001:00000000`, and SB16 continuity gates. Audio-lane
+run `26202447113` on the same commit also passed the audible-audio aggregate.
+These followed failed run `26201835975` on commit `1450b73`, which exposed a real
+port bug: the MUS parser accepted the synthetic fixture's old end marker but
+rejected the real Doom MUS end event. The parser now handles the real event and
+cloud gameplay/audio proofs are back to green. The reboot save/load proof
+remains a separate gate.
 
 The strongest older cloud proof reached real-WAD E1M1 on commit `ed4d00f` in
 run `26199297160`: the OS booted, read shareware `DOOM1.WAD` through the kernel
