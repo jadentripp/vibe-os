@@ -72,6 +72,7 @@ def valid_status(**overrides):
         "upath": "USERPROB.ELF",
         "upid": "00000004",
         "uentry": "00E80000",
+        "uflags": "0003FFFF",
         "abiexec": "OK",
         "abipath": "ABIPROBE.ELF",
         "abipid": "00000005",
@@ -91,7 +92,8 @@ def valid_status(**overrides):
         "argvsrc": "00000002",
         "procpool": "00000006/00000002/00000003/00000001/00000000",
         "pidseq": "00000007/00000006/00000003",
-        "fdexec": "00000002/00000002/00000000/00000001",
+        "fdexec": "00000002/00000002/00000001/00000001",
+        "fdup": "00000001/00000002/00000002/00000003/00000001",
         "wait": "00000003/00000001/00000002/00000000/00000001/00000003/0000002A",
         "vmreap": "00000003/00000040/00000001/00000020/00000020",
         "execerr": "00000000",
@@ -626,6 +628,7 @@ def write_human_notes(artifact, **overrides):
         "keyboard_evidence": "fire-move-use-menu-visible",
         "mouse_evidence": "motion-click-visible",
         "menu_evidence": "escape-menu-visible",
+        "audio_evidence": "status-only-sb16-continuity",
         "slowdown": "not-observed",
         "slowdown_notes": "not-observed-during-capture",
         "status_capture": "monitor-pmemsave-0x9d000",
@@ -646,6 +649,7 @@ def write_human_notes(artifact, **overrides):
         "operator_keyboard_use": "confirmed",
         "operator_mouse_action": "confirmed",
         "operator_menu_escape": "confirmed",
+        "operator_audio_observation": "recorded",
         "operator_slowdown_notes": "recorded",
         "operator_phase_actions": "confirmed",
         "operator_phase_status_hashes": "confirmed",
@@ -863,12 +867,15 @@ def valid_audio_proof_manifest():
                 "stream_update_counter": "musicpull_refill",
                 "pull_request_delta": "00000005",
                 "pull_refill_delta": "00000005",
+                "pull_pending_peak": "00000001",
+                "pull_pending_final": "00000000",
                 "position_delta": "000013FF",
                 "position_delta_per_update_floor": "00000300",
                 "rendered_sample_delta": "00028000",
                 "rendered_plus_initial_buffer": "00029000",
                 "consumed_plus_final_buffer": "000027FF",
                 "rendered_sample_covers_position": True,
+                "sequenced_refill_service": True,
             },
             "stream_contract": {
                 "mode": "PULL",
@@ -876,6 +883,28 @@ def valid_audio_proof_manifest():
                 "pull_counters": "00000005:00000005",
                 "hardware_paced": True,
                 "current_push_proof": False,
+                "current_payload_owner": "doom_port/music.c",
+                "current_service_command": "VIBE_AUDIO_MIXER_UPDATE",
+                "future_legitimacy_step": "first-class kernel-owned music ring or mixer/refill stream ABI",
+                "os_surfaces": {
+                    "device": "VIBE_AUDIO_DEVICE_INFO",
+                    "ring": "VIBE_AUDIO_PCM_RING_INFO",
+                    "stream": "VIBE_AUDIO_STREAM_INFO",
+                    "mixer": "VIBE_AUDIO_MIXER_START/UPDATE/STOP/IS_PLAYING",
+                },
+                "service_sequence": {
+                    "refill_counter": "musicpull_refill",
+                    "request_delta": "00000005",
+                    "refill_delta": "00000005",
+                    "voiceq_update_delta": "00000005",
+                    "renderer_chunk_delta": "00000005",
+                    "max_pending_pull_requests": "00000001",
+                    "pull_pending_peak": "00000001",
+                    "pull_pending_final": "00000000",
+                    "refill_matches_request": True,
+                    "voice_update_matches_refill": True,
+                    "render_chunk_matches_refill": True,
+                },
                 "claim": (
                     "musicstream=PULL proves SB16 refill requested chunk service"
                 ),
@@ -1045,6 +1074,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             "--confirm-keyboard-use",
             "--confirm-mouse-action",
             "--confirm-menu-escape",
+            "--confirm-audio-observation",
             "--confirm-slowdown-notes",
             "--confirm-phase-actions",
             "--confirm-phase-status-hashes",
@@ -1627,6 +1657,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         self.assertIn("post-download human verification OK", result.stdout)
         self.assertIn("commit=abcdef0", result.stdout)
         self.assertIn("scripted_proof_run_id=26156172979", result.stdout)
+        self.assertIn("review evidence:", result.stdout)
+        self.assertIn("audio_evidence=status-only-sb16-continuity", result.stdout)
         self.assertIn("phase status hashes:", result.stdout)
 
     def test_cli_human_session_mode_rejects_wrong_expected_identity(self):
@@ -1677,6 +1709,11 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             build.mkdir()
             write_valid_artifact(build)
             (build / "serial.remote.log").write_text("serial diagnostics\n")
+            (build / "tokens.remote.log").write_text(
+                "GITHUB_TOKEN=ghp_should_not_keep\n"
+                "Authorization: Bearer should_not_keep\n"
+                "https://example.test/?access_token=should_not_keep\n"
+            )
             (build / "status.persistence-write.txt").write_text(valid_status())
             (build / "status.after-fire.bin").write_bytes(b"binary status page")
             (build / "disk.img").write_bytes(b"\x55\xaa" + b"disk" * 32)
@@ -1705,6 +1742,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                     "--confirm-keyboard-use",
                     "--confirm-mouse-action",
                     "--confirm-menu-escape",
+                    "--confirm-audio-observation",
                     "--confirm-slowdown-notes",
                     "--confirm-phase-actions",
                     "--confirm-phase-status-hashes",
@@ -1728,6 +1766,11 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertIn("--expected-scripted-proof-run-id 26156172979", checklist)
             self.assertIn("human-playtest-checklist.txt", result.stdout)
             self.assertTrue((output / "serial.remote.log").exists())
+            redacted_log = (output / "tokens.remote.log").read_text()
+            self.assertIn("GITHUB_TOKEN=[redacted]", redacted_log)
+            self.assertIn("Authorization: Bearer [redacted]", redacted_log)
+            self.assertIn("access_token=[redacted]", redacted_log)
+            self.assertNotIn("should_not_keep", redacted_log)
             self.assertFalse((output / "status.persistence-write.txt").exists())
             self.assertFalse((output / "status.after-fire.bin").exists())
             self.assertFalse((output / "disk.img").exists())
@@ -1768,6 +1811,52 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("--confirm-scripted-proof-green is required", result.stderr)
+
+    def test_collector_rejects_binary_or_forbidden_log_payloads_before_bundle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            build = tmpdir / "build"
+            output = tmpdir / "human-proof"
+            build.mkdir()
+            write_valid_artifact(build)
+            (build / "renamed-wad.log").write_bytes(b"IWAD" + b"\0" * 64)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(COLLECTOR),
+                    "--build-dir",
+                    str(build),
+                    "--output-dir",
+                    str(output),
+                    "--playtester",
+                    "jt",
+                    "--scripted-proof-run-id",
+                    "26156172979",
+                    "--commit",
+                    "abcdef0",
+                    "--confirm-scripted-proof-green",
+                    "--confirm-remote-vnc",
+                    "--confirm-e1m1-visible",
+                    "--confirm-keyboard-fire",
+                    "--confirm-keyboard-move",
+                    "--confirm-keyboard-use",
+                    "--confirm-mouse-action",
+                    "--confirm-menu-escape",
+                    "--confirm-audio-observation",
+                    "--confirm-slowdown-notes",
+                    "--confirm-phase-actions",
+                    "--confirm-phase-status-hashes",
+                    "--confirm-no-forbidden-artifacts",
+                    "--confirm-post-download-verification",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("forbidden artifact content in log", result.stderr)
 
     def test_collector_print_template_is_dry_run_and_status_only(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1866,6 +1955,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                 "--confirm-keyboard-use",
                 "--confirm-mouse-action",
                 "--confirm-menu-escape",
+                "--confirm-audio-observation",
                 "--confirm-slowdown-notes",
                 "--confirm-phase-actions",
                 "--confirm-phase-status-hashes",

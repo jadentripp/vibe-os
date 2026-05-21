@@ -162,6 +162,13 @@ def snapshot_statuses():
     }
 
 
+def status_with(status, **overrides):
+    for key, value in overrides.items():
+        current = status.split(f"{key}=", 1)[1].split()[0]
+        status = status.replace(f"{key}={current}", f"{key}={value}")
+    return status
+
+
 def pull_snapshot_statuses():
     return snapshot_statuses()
 
@@ -384,6 +391,60 @@ class AudioContinuityProofTests(unittest.TestCase):
                 require_pull_stream=True,
             )
 
+    def test_rejects_pull_request_backlog(self):
+        snapshots = snapshot_statuses()
+        snapshots["final"] = snapshots["final"].replace(
+            "musicpull=00000005:00000005",
+            "musicpull=00000006:00000004",
+        )
+
+        with self.assertRaisesRegex(AssertionError, "pending pull request backlog"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+                require_pull_stream=True,
+            )
+
+    def test_rejects_pull_refills_without_matching_voice_updates(self):
+        snapshots = snapshot_statuses()
+        snapshots["final"] = snapshots["final"].replace(
+            "voiceq=00000001:00000000:00000005",
+            "voiceq=00000001:00000000:00000004",
+        )
+
+        with self.assertRaisesRegex(AssertionError, "voiceq=.*match musicpull"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+                require_pull_stream=True,
+            )
+
+    def test_rejects_pull_refills_without_matching_renderer_chunks(self):
+        snapshots = snapshot_statuses()
+        snapshots["final"] = snapshots["final"].replace(
+            "musicrend=00000001:00000006:0000000C:00000012:00000001:00030000",
+            "musicrend=00000001:00000005:0000000C:00000012:00000001:00030000",
+        )
+
+        with self.assertRaisesRegex(AssertionError, "musicrend=.*match musicpull"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+                require_pull_stream=True,
+            )
+
     def test_rejects_missing_music_stream_mode_for_music_proof(self):
         snapshots = snapshot_statuses()
         snapshots["final"] = snapshots["final"].replace("musicstream=PULL", "musicstream=NONE")
@@ -406,7 +467,7 @@ class AudioContinuityProofTests(unittest.TestCase):
         snapshots["menu"] = snapshots["menu"].replace("musicpull=00000004:00000004", "musicpull=00000004:00000001")
         snapshots["final"] = snapshots["final"].replace("musicpull=00000005:00000005", "musicpull=00000005:00000001")
 
-        with self.assertRaisesRegex(AssertionError, "at least 2"):
+        with self.assertRaisesRegex(AssertionError, "pending pull request backlog|at least 2"):
             check_audio_continuity_proof.validate_status(
                 snapshots["final"],
                 baseline_status=snapshots["baseline"],
@@ -571,8 +632,9 @@ class AudioContinuityProofTests(unittest.TestCase):
             for before, after in replacements.items():
                 status = status.replace(before, after)
             snapshots[label] = status
+        snapshots["final"] = snapshots["final"].replace("musicpos=00001400", "musicpos=00003000")
 
-        with self.assertRaisesRegex(AssertionError, "rendered sample delta"):
+        with self.assertRaisesRegex(AssertionError, "rendered sample delta plus initial"):
             check_audio_continuity_proof.validate_status(
                 snapshots["final"],
                 baseline_status=snapshots["baseline"],
@@ -581,6 +643,65 @@ class AudioContinuityProofTests(unittest.TestCase):
                 use_status=snapshots["use"],
                 menu_status=snapshots["menu"],
             )
+
+    def test_accepts_rendered_delta_covered_by_initial_stream_buffer(self):
+        snapshots = snapshot_statuses()
+        overrides = {
+            "baseline": {
+                "musicpos": "0003FC00",
+                "musicbuf": "00008400",
+                "musicpull": "00000008:00000008",
+                "voiceq": "00000001:00000000:00000008",
+                "musicrend": "00000001:00000009:00001057:0000163C:0000000A:00048000",
+            },
+            "fire": {
+                "musicpos": "0005D800",
+                "musicbuf": "0000A800",
+                "musicpull": "0000000C:0000000C",
+                "voiceq": "00000001:00000000:0000000C",
+                "musicrend": "00000001:0000000D:0000275B:00003318:0000000A:00068000",
+            },
+            "movement": {
+                "musicpos": "0007B400",
+                "musicbuf": "0000CC00",
+                "musicpull": "00000010:00000010",
+                "voiceq": "00000001:00000000:00000010",
+                "musicrend": "00000001:00000011:00004831:00005CF0:0000000A:00088000",
+            },
+            "use": {
+                "musicpos": "0008E400",
+                "musicbuf": "00009C00",
+                "musicpull": "00000012:00000012",
+                "voiceq": "00000001:00000000:00000012",
+                "musicrend": "00000001:00000013:00005BF7:00007618:0000000A:00098000",
+            },
+            "menu": {
+                "musicpos": "000F0000",
+                "musicbuf": "00008000",
+                "musicpull": "0000001E:0000001E",
+                "voiceq": "00000001:00000000:0000001E",
+                "musicrend": "00000001:0000001F:000105BC:00014A99:0000000A:000F8000",
+            },
+            "final": {
+                "musicpos": "000F8000",
+                "musicbuf": "00008000",
+                "musicpull": "0000001F:0000001F",
+                "voiceq": "00000001:00000000:0000001F",
+                "musicrend": "00000001:00000020:000117F9:00016181:0000000A:00100000",
+            },
+        }
+        for label, fields in overrides.items():
+            snapshots[label] = status_with(snapshots[label], **fields)
+
+        check_audio_continuity_proof.validate_status(
+            snapshots["final"],
+            baseline_status=snapshots["baseline"],
+            fire_status=snapshots["fire"],
+            movement_status=snapshots["movement"],
+            use_status=snapshots["use"],
+            menu_status=snapshots["menu"],
+            require_pull_stream=True,
+        )
 
     def test_rejects_too_little_irq_refill_continuity_for_phase_proof(self):
         snapshots = snapshot_statuses()

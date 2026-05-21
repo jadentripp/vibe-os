@@ -45,7 +45,7 @@ ABI_REQUIREMENTS = {
             "int vibe_clock_gettime(unsigned long clock_id, vibe_clock_time_t* out)",
             "int clock_gettime(clockid_t clock_id, struct timespec* tp)",
         ),
-        "docs/clock-time.md": (
+        "docs/doom-libc-runtime.md": (
             "The reusable user/kernel contract is `VIBE_SYS_CLOCK_GETTIME`",
             "new consumers should use the monotonic clock API",
         ),
@@ -120,6 +120,9 @@ ABI_REQUIREMENTS = {
             "VIBE_SYS_FSTAT",
             "VIBE_SYS_FTRUNCATE",
             "VIBE_SYS_LISTDIR",
+            "VIBE_SYS_DUP",
+            "VIBE_SYS_DUP2",
+            "VIBE_SYS_DUP3",
             "vibe_dirent_t",
             "vibe_listdir",
             "vibe_file_size",
@@ -130,6 +133,9 @@ ABI_REQUIREMENTS = {
             "ssize_t read(int fd, void* buffer, size_t count)",
             "ssize_t write(int fd, const void* buffer, size_t count)",
             "int ftruncate(int fd, off_t length)",
+            "int dup(int oldfd)",
+            "int dup2(int oldfd, int newfd)",
+            "int dup3(int oldfd, int newfd, int flags)",
             "int vibe_listdir(const char* path, vibe_dirent_t* entries, unsigned long max_entries)",
             "int vibe_file_read_all(const char* path, void* buffer, unsigned long capacity, unsigned long* out_size)",
         ),
@@ -154,6 +160,9 @@ ABI_REQUIREMENTS = {
             "int execve(const char* path, char* const argv[], char* const envp[]);",
             "pid_t fork(void);",
             "pid_t getpid(void);",
+            "int dup(int oldfd);",
+            "int dup2(int oldfd, int newfd);",
+            "int dup3(int oldfd, int newfd, int flags);",
         ),
         "doom_port/include/sys/wait.h": (
             "pid_t waitpid(pid_t pid, int* status, int options);",
@@ -189,6 +198,9 @@ ABI_REQUIREMENTS = {
             "int vibe_user_syscall3(",
             "int vibe_user_syscall_errno(",
             "int vibe_user_getpid(void);",
+            "int vibe_user_dup(int oldfd);",
+            "int vibe_user_dup2(int oldfd, int newfd);",
+            "int vibe_user_dup3(int oldfd, int newfd, unsigned long flags);",
             "int vibe_user_clock_monotonic(",
             "int vibe_user_listdir(",
             "int vibe_user_execv(",
@@ -198,6 +210,9 @@ ABI_REQUIREMENTS = {
             "int $0x80",
             "VIBE_SYS_USER_PROBE",
             "VIBE_SYS_GETPID",
+            "VIBE_SYS_DUP",
+            "VIBE_SYS_DUP2",
+            "VIBE_SYS_DUP3",
             "VIBE_SYS_EXEC",
             "VIBE_SYS_CLOCK_GETTIME",
             "VIBE_SYS_LISTDIR",
@@ -256,14 +271,29 @@ POSIX_GAP_REQUIREMENTS = {
     },
     "fd-duplication": {
         "docs/doom-libc-runtime.md": (
-            "Descriptor lifetime is exec-aware, not Unix-open-file-description aware.",
-            "There is no public `dup`,\n  `dup2`, or `dup3` wrapper/syscall",
-            "no fork-time fd duplication contract",
+            "Descriptor lifetime and fd duplication now have a bounded Unix-open-file-description milestone.",
+            "shared root slot with a refcounted offset/status record",
+            "`dup`, `dup2`, and\n  `dup3` are public syscall/libc surfaces",
+            "There is still no fork-time fd table\n  cloning contract",
         ),
         "docs/process-exec.md": (
             "fd duplication",
-            "Public `dup`/`dup2`/`dup3`",
-            "fork-time descriptor duplication",
+            "Public `dup`, `dup2`, and `dup3` syscalls/libc wrappers",
+            "Fork-time descriptor table cloning",
+        ),
+        "doom_port/libc.c": (
+            "int dup(int oldfd)",
+            "int dup2(int oldfd, int newfd)",
+            "int dup3(int oldfd, int newfd, int flags)",
+            "vibe_syscall3(VIBE_SYS_DUP",
+            "vibe_syscall3(VIBE_SYS_DUP2",
+            "vibe_syscall3(VIBE_SYS_DUP3",
+        ),
+        "user/probe.c": (
+            "PROBE_FLAG_DUP = 0x20000u",
+            "sys_dup(defaults)",
+            "sys_dup2(dup_fd, DUP2_TARGET_FD) == DUP2_TARGET_FD",
+            "sys_dup3(defaults, DUP3_TARGET_FD, O_CLOEXEC) == DUP3_TARGET_FD",
         ),
     },
     "file-backed-mmap": {
@@ -335,24 +365,15 @@ STALE_DOC_WORDING = {
 
 ABSENT_PUBLIC_POSIX_SURFACE = {
     "doom_port/include/vibe_os.h": (
-        "VIBE_SYS_DUP",
-        "VIBE_SYS_DUP2",
-        "VIBE_SYS_DUP3",
         "VIBE_SYS_SIGNAL",
         "VIBE_SYS_SIGACTION",
         "VIBE_SYS_KILL",
         "VIBE_SYS_TTY",
     ),
     "doom_port/include/unistd.h": (
-        "int dup(",
-        "int dup2(",
-        "int dup3(",
         "int isatty(",
     ),
     "doom_port/libc.c": (
-        "int dup(",
-        "int dup2(",
-        "int dup3(",
         "int isatty(",
     ),
 }

@@ -31,6 +31,14 @@ class IndexedSourceFormat:
     def palette_bytes(self) -> int:
         return self.palette_entries * self.palette_entry_bytes
 
+    @property
+    def aspect_width(self) -> int:
+        return self.width
+
+    @property
+    def pixel_aspect(self) -> tuple[int, int]:
+        return (self.aspect_height, self.height)
+
 
 DOOM_SOURCE = IndexedSourceFormat(
     name="doom-index8-rgb24",
@@ -83,6 +91,22 @@ def validate_source(source: IndexedSourceFormat) -> None:
         raise ValueError("source minimum integer scale must be positive")
     if source.palette_entries <= 0 or source.palette_entry_bytes <= 0:
         raise ValueError("source palette dimensions must be positive")
+
+
+def source_metadata(source: IndexedSourceFormat = DEFAULT_SOURCE) -> dict[str, int | str | tuple[int, int]]:
+    validate_source(source)
+    return {
+        "source_name": source.name,
+        "source_width": source.width,
+        "source_height": source.height,
+        "source_aspect_width": source.aspect_width,
+        "source_aspect_height": source.aspect_height,
+        "pixel_aspect": source.pixel_aspect,
+        "frame_bytes": source.frame_bytes,
+        "palette_entries": source.palette_entries,
+        "palette_entry_bytes": source.palette_entry_bytes,
+        "palette_bytes": source.palette_bytes,
+    }
 
 
 def validate_indexed_inputs(
@@ -329,17 +353,20 @@ def fbinfo_contract(
     else:
         raise ValueError(f"unknown backend: {backend}")
 
+    metadata = source_metadata(source)
     return {
         "width": geometry["width"],
         "height": geometry["height"],
         "pitch": geometry["pitch"],
         "backend": backend_id,
-        "source_name": source.name,
-        "source_width": source.width,
-        "source_height": source.height,
-        "source_aspect_height": source.aspect_height,
-        "frame_bytes": source.frame_bytes,
-        "palette_bytes": source.palette_bytes,
+        "source_name": metadata["source_name"],
+        "source_width": metadata["source_width"],
+        "source_height": metadata["source_height"],
+        "source_aspect_width": metadata["source_aspect_width"],
+        "source_aspect_height": metadata["source_aspect_height"],
+        "pixel_aspect": metadata["pixel_aspect"],
+        "frame_bytes": metadata["frame_bytes"],
+        "palette_bytes": metadata["palette_bytes"],
         "scale": geometry["scale"],
         "view_x": geometry["x"],
         "view_y": geometry["y"],
@@ -365,6 +392,8 @@ def can_present_indexed_descriptor(
         return False
     if info.get("present_format") != FORMAT_INDEX8_RGB24:
         return False
+    if not capabilities & CAP_PRESENT_RGB_PALETTE:
+        return False
 
     max_width = int(info.get("max_present_width", 0))
     max_height = int(info.get("max_present_height", 0))
@@ -375,6 +404,22 @@ def can_present_indexed_descriptor(
     if max_height and height > max_height:
         return False
     return True
+
+
+def validate_present_indexed_descriptor(
+    info: dict[str, int | str],
+    frame: bytes,
+    palette: bytes,
+    width: int,
+    height: int,
+) -> None:
+    if not can_present_indexed_descriptor(info, width, height):
+        raise ValueError("indexed present descriptor is not accepted by framebuffer info")
+    if len(frame) != width * height:
+        raise ValueError(f"indexed frame must be {width * height} bytes for descriptor size")
+    palette_bytes = int(info.get("palette_bytes", PALETTE_BYTES))
+    if len(palette) != palette_bytes:
+        raise ValueError(f"palette must be {palette_bytes} bytes")
 
 
 def present_size_contract(info: dict[str, int | str]) -> dict[str, int | str]:

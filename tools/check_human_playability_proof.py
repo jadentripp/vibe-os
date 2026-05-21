@@ -147,6 +147,12 @@ HUMAN_REQUIRED_NOTE_VALUES = {
     "keyboard_evidence": ("fire-move-use-menu-visible",),
     "mouse_evidence": ("motion-click-visible",),
     "menu_evidence": ("escape-menu-visible",),
+    "audio_evidence": (
+        "status-only-sb16-continuity",
+        "remote-listener-heard-output",
+        "aggregate-audio-proof-json",
+        "audio-not-tested",
+    ),
     "status_capture": ("monitor-pmemsave-0x9d000",),
     "session_phases": (
         "early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final",
@@ -165,6 +171,7 @@ HUMAN_REQUIRED_NOTE_VALUES = {
     "operator_keyboard_use": ("confirmed",),
     "operator_mouse_action": ("confirmed",),
     "operator_menu_escape": ("confirmed",),
+    "operator_audio_observation": ("recorded",),
     "operator_slowdown_notes": ("recorded",),
     "operator_phase_actions": ("confirmed",),
     "operator_phase_status_hashes": ("confirmed",),
@@ -173,6 +180,12 @@ HUMAN_REQUIRED_NOTE_VALUES = {
 }
 HUMAN_OPTIONAL_NOTE_VALUES = {
     "audio": ("status-only", "listener-pass", "audio-proof-json-pass", "not-tested"),
+}
+HUMAN_AUDIO_EVIDENCE_BY_MODE = {
+    "status-only": "status-only-sb16-continuity",
+    "listener-pass": "remote-listener-heard-output",
+    "audio-proof-json-pass": "aggregate-audio-proof-json",
+    "not-tested": "audio-not-tested",
 }
 HUMAN_NOTE_PATTERNS = {
     "commit": r"(?:[0-9A-Fa-f]{7,40}|unknown)",
@@ -398,6 +411,22 @@ def _require_menu_inactive(snapshot: str, label: str) -> None:
         raise AssertionError(f"{label} snapshot gflags= must not have the menu-active bit")
 
 
+def _require_clean_human_baseline(snapshot: str) -> None:
+    _require_level_snapshot(snapshot, "early")
+    _require_menu_inactive(snapshot, "early")
+    seen = _hex_field(snapshot, "keyseen")
+    forbidden_keys = seen & REQUIRED_SCRIPTED_KEYS
+    if forbidden_keys:
+        raise AssertionError(
+            f"early snapshot keyseen= must not already contain manual action bits, got {forbidden_keys:08X}"
+        )
+    if _hex_field(snapshot, "mousebtn") != 0:
+        raise AssertionError("early snapshot mousebtn= must be zero before manual mouse input")
+    mouse_dx, mouse_dy = _position_field(snapshot, "mousedelta")
+    if mouse_dx != 0 or mouse_dy != 0:
+        raise AssertionError("early snapshot mousedelta= must be zero before manual mouse input")
+
+
 def validate_human_session_status(
     snapshots: dict[str, str | None],
     min_duration_ticks: int = HUMAN_MIN_SESSION_TICKS,
@@ -414,9 +443,17 @@ def validate_human_session_status(
             "manual human proof requires every phase status file: " + ", ".join(missing)
         )
 
+    early = snapshots["early"]
     start = snapshots["after-start"]
     final = snapshots["final"]
-    assert start is not None and final is not None
+    assert early is not None and start is not None and final is not None
+    _require_clean_human_baseline(early)
+    try:
+        _assert_increasing(early, start, RUN_COUNTERS)
+    except AssertionError as exc:
+        raise AssertionError(
+            f"manual phase after-start must advance Doom time after early: {exc}"
+        ) from exc
     for name in RUN_COUNTERS:
         delta = _counter_delta(start, final, name)
         if delta < min_duration_ticks:
@@ -448,6 +485,7 @@ def validate_human_session_status(
 def _human_session_evidence_summary(
     snapshots: dict[str, str | None],
     min_duration_ticks: int,
+    notes_path: Path | None = None,
 ) -> str:
     start = snapshots["after-start"]
     final = snapshots["final"]
@@ -457,11 +495,17 @@ def _human_session_evidence_summary(
     leveltime_delta = _counter_delta(start, final, "leveltime")
     mouse_delta = _field(mouse, "mousedelta") if mouse is not None else "not-supplied"
     phase_order = "->".join(phase for phase, _note_key, _status_file in HUMAN_SESSION_PHASES)
+    notes = _load_human_notes(notes_path) if notes_path is not None else {}
     return (
         "human-session evidence: "
+        f"commit={notes.get('commit', 'not-supplied')} "
+        f"scripted_proof_run_id={notes.get('scripted_proof_run_id', 'not-supplied')} "
+        f"playtester={notes.get('playtester', 'not-supplied')} "
         f"duration_gtic={gtic_delta} duration_leveltime={leveltime_delta} "
         f"required_ticks={min_duration_ticks} phases={phase_order} "
-        f"mouse_delta={mouse_delta}"
+        f"mouse_delta={mouse_delta} audio={notes.get('audio', 'not-supplied')} "
+        f"audio_evidence={notes.get('audio_evidence', 'not-supplied')} "
+        f"slowdown={notes.get('slowdown', 'not-supplied')}"
     )
 
 
@@ -525,6 +569,12 @@ def validate_human_notes(
             raise AssertionError(
                 f"{notes_path.name} {key}= must be one of {allowed_values}, got {actual!r}"
             )
+    expected_audio_evidence = HUMAN_AUDIO_EVIDENCE_BY_MODE[notes.get("audio", "status-only")]
+    if notes.get("audio_evidence") != expected_audio_evidence:
+        raise AssertionError(
+            f"{notes_path.name} audio_evidence= must be {expected_audio_evidence} "
+            f"when audio={notes.get('audio')}"
+        )
     for key, pattern in HUMAN_NOTE_PATTERNS.items():
         actual = notes.get(key)
         if actual is None:
@@ -880,6 +930,7 @@ def main(argv: list[str]) -> int:
             human_session_summary = _human_session_evidence_summary(
                 human_session_snapshots,
                 args.min_human_duration_ticks,
+                args.human_notes,
             )
             validate_human_notes(
                 args.human_notes,

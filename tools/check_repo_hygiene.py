@@ -87,8 +87,18 @@ FORBIDDEN_PATH_PATTERNS = (
     "*.img",
     "*.iso",
     "*.raw",
+    "*.dsk",
+    "*.ima",
+    "*.vdi",
+    "*.vmdk",
+    "*.vhd",
+    "*.vhdx",
+    "*.dmg",
+    "*.qcow",
+    "*.qcow2",
     "*.wav",
     "*.wave",
+    "*.pcm",
     "*.mp3",
     "*.ogg",
     "*.oga",
@@ -100,6 +110,8 @@ FORBIDDEN_PATH_PATTERNS = (
     "*.aiff",
     "*.aif",
     "*.au",
+    "*.snd",
+    "*.caf",
     "*.mid",
     "*.midi",
     "*.mus",
@@ -110,7 +122,6 @@ FORBIDDEN_PATH_PATTERNS = (
     "*.s3m",
     "*.xm",
     "*.it",
-    "*.qcow2",
     "*.bin",
     "*.ppm",
     "*.pgm",
@@ -120,6 +131,12 @@ FORBIDDEN_PATH_PATTERNS = (
     "*.jpeg",
     "*.webp",
     "*.gif",
+    "*.tif",
+    "*.tiff",
+    "*.tga",
+    "*.xpm",
+    "*.rgb",
+    "*.rgba",
     "*.log",
     "screenshot*.txt",
     "pixel*.txt",
@@ -188,9 +205,18 @@ FORBIDDEN_UPLOAD_PATTERNS = (
     "*.img",
     "*.iso",
     "*.qcow2",
+    "*.qcow",
+    "*.dsk",
+    "*.ima",
+    "*.vdi",
+    "*.vmdk",
+    "*.vhd",
+    "*.vhdx",
+    "*.dmg",
     "*.raw",
     "*.wav",
     "*.wave",
+    "*.pcm",
     "*.mp3",
     "*.ogg",
     "*.oga",
@@ -202,6 +228,8 @@ FORBIDDEN_UPLOAD_PATTERNS = (
     "*.aiff",
     "*.aif",
     "*.au",
+    "*.snd",
+    "*.caf",
     "*.mid",
     "*.midi",
     "*.mus",
@@ -227,6 +255,12 @@ FORBIDDEN_REAL_WAD_UPLOAD_PATTERNS = (
     "*.jpeg",
     "*.webp",
     "*.gif",
+    "*.tif",
+    "*.tiff",
+    "*.tga",
+    "*.xpm",
+    "*.rgb",
+    "*.rgba",
     "screenshots/*",
     "*/screenshots/*",
     "pixels/*",
@@ -269,9 +303,77 @@ README_FORBIDDEN_PATTERNS = (
     ("run ID", r"\brun[-_ ]?id\b|\bworkflow[-_ ]?run\b|\bscripted[_ -]proof[_ -]run[_ -]id\b"),
     ("long decimal run identifier", r"\b\d{9,}\b"),
     ("task-list checkbox", r"^\s*-\s*\[[ xX]\]"),
-    ("TODO marker", r"\b(?:TODO|FIXME)\b"),
+    (
+        "TODO/checklist language",
+        r"\b(?:TODO|FIXME|to[- ]?do|checklist|open tasks?|remaining tasks?|next steps?)\b",
+    ),
     ("gap ledger row", r"\bGAP\["),
     ("proof transcript field", r"\b(?:commit=|scripted_proof_run_id=|phase_hash_|verification_id=)\b"),
+    (
+        "overclaiming phrase",
+        r"\b(?:Doom[- ]capable(?:\s+OS)?|fully playable|finished OS|finished Doom|"
+        r"production[- ]ready|general[- ]purpose OS|works on (?:real|physical) hardware|"
+        r"real hardware support|physical hardware support|broad PC compatibility|"
+        r"supports (?:UEFI|PCI|AHCI|USB|SMP|APIC|HPET)|human[- ]playable)\b",
+    ),
+)
+
+SECRET_FALSE_POSITIVE_MARKER = "repo-hygiene: allow-secret-example"
+SECRET_SCAN_MAX_BYTES = 2 * 1024 * 1024
+
+GITHUB_TOKEN_PATTERNS = (
+    (
+        "GitHub token-shaped string",
+        re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{36,}\b"),
+    ),
+    (
+        "GitHub fine-grained token-shaped string",
+        re.compile(r"\bgithub_pat_[A-Za-z0-9_]{22}_[A-Za-z0-9_]{59}\b"),
+    ),
+)
+
+SENSITIVE_ENV_ASSIGNMENT_RE = re.compile(
+    r"\b(?P<key>"
+    r"(?:GH|GITHUB|CODESPACES?|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|"
+    r"GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)"
+    r"[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH|COOKIE|SESSION|"
+    r"API_?KEY|ACCESS_?KEY|SECRET_?KEY|PRIVATE_?KEY)"
+    r"[A-Z0-9_]*"
+    r")\s*[:=]\s*(?P<value>['\"]?[^\s'\"#`]+)",
+    re.IGNORECASE,
+)
+
+CODESPACES_ENV_LEAK_RE = re.compile(
+    r"\b(?P<key>CODESPACE_NAME|GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN)"
+    r"\s*=\s*(?P<value>['\"]?[^\s'\"#`]+)",
+    re.IGNORECASE,
+)
+
+AUTH_HEADER_SECRET_RE = re.compile(
+    r"\bAuthorization:\s*(?:Bearer|token)\s+(?P<value>[A-Za-z0-9._~+/=-]{16,})",
+    re.IGNORECASE,
+)
+
+URL_SECRET_PARAM_RE = re.compile(
+    r"\b(?:access_token|refresh_token|id_token|token|signature|sig|"
+    r"X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token)="
+    r"(?P<value>[^&\s'\"<>]{16,})",
+    re.IGNORECASE,
+)
+
+ONE_TIME_BROWSER_AUTH_CONTEXT_RE = re.compile(
+    r"\b(?:one[- ]time|browser|device|user|verification|activation|auth(?:orization)?)"
+    r"\s+(?:code|token)\b|"
+    r"\b(?:copy|enter)\b.{0,32}\b(?:one[- ]time\s+)?(?:auth\s+)?code\b",
+    re.IGNORECASE,
+)
+
+ONE_TIME_BROWSER_AUTH_CODE_RE = re.compile(r"\b[A-Z0-9]{4}-[A-Z0-9]{4}\b")
+
+PLACEHOLDER_SECRET_RE = re.compile(
+    r"(\$\{\{?\s*secrets?\.|\$\{|<[^>]+>|\[[^\]]*redacted[^\]]*\]|"
+    r"redacted|example|placeholder|dummy|fake|should_not_|xxxxx|\*{3,})",
+    re.IGNORECASE,
 )
 
 
@@ -374,6 +476,63 @@ def path_matches(path: str, patterns: tuple[str, ...]) -> bool:
 def read_file_prefix(path: str, size: int = 16) -> bytes:
     with (ROOT / path).open("rb") as handle:
         return handle.read(size)
+
+
+def is_probably_text(prefix: bytes) -> bool:
+    return b"\0" not in prefix
+
+
+def is_allowed_secret_false_positive(line: str, value: str = "") -> bool:
+    return (
+        SECRET_FALSE_POSITIVE_MARKER in line
+        or value.startswith("$")
+        or bool(PLACEHOLDER_SECRET_RE.search(line))
+        or bool(value and PLACEHOLDER_SECRET_RE.search(value))
+    )
+
+
+def secret_content_violations(path: str, text: str) -> list[str]:
+    violations: list[str] = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        for label, regex in GITHUB_TOKEN_PATTERNS:
+            for match in regex.finditer(line):
+                if is_allowed_secret_false_positive(line, match.group(0)):
+                    continue
+                violations.append(f"{path}:{line_number}: {label} is present")
+
+        for regex in (SENSITIVE_ENV_ASSIGNMENT_RE, CODESPACES_ENV_LEAK_RE):
+            for match in regex.finditer(line):
+                key = match.group("key")
+                if key != key.upper():
+                    continue
+                if key.endswith(("_PATTERN", "_PATTERNS", "_RE", "_REGEX")):
+                    continue
+                value = match.group("value").strip("'\"")
+                if is_allowed_secret_false_positive(line, value):
+                    continue
+                label = "Codespaces environment leak"
+                if regex is SENSITIVE_ENV_ASSIGNMENT_RE and not key.upper().startswith(
+                    ("CODESPACE", "GITHUB_CODESPACES", "VSCODE")
+                ):
+                    label = "secret environment value"
+                violations.append(f"{path}:{line_number}: {label} for {key}")
+
+        for regex, label in (
+            (AUTH_HEADER_SECRET_RE, "authorization header secret"),
+            (URL_SECRET_PARAM_RE, "URL credential parameter"),
+        ):
+            for match in regex.finditer(line):
+                value = match.group("value")
+                if is_allowed_secret_false_positive(line, value):
+                    continue
+                violations.append(f"{path}:{line_number}: {label} is present")
+
+        if ONE_TIME_BROWSER_AUTH_CONTEXT_RE.search(line):
+            for match in ONE_TIME_BROWSER_AUTH_CODE_RE.finditer(line):
+                if is_allowed_secret_false_positive(line, match.group(0)):
+                    continue
+                violations.append(f"{path}:{line_number}: one-time browser auth code is present")
+    return violations
 
 
 def forbidden_magic_label(prefix: bytes) -> str | None:
@@ -602,6 +761,9 @@ def readme_policy_violations(root: Path = ROOT) -> list[str]:
 def find_violations(paths: list[str]) -> list[str]:
     violations: list[str] = []
     for path in paths:
+        full_path = ROOT / path
+        if not full_path.exists():
+            continue
         if path in ALLOWED_EXACT_PATHS:
             continue
         lower = path.lower()
@@ -623,8 +785,14 @@ def find_violations(paths: list[str]) -> list[str]:
         if archive_violation:
             violations.append(archive_violation)
             continue
+        text = ""
+        if is_probably_text(prefix) and full_path.stat().st_size <= SECRET_SCAN_MAX_BYTES:
+            text = full_path.read_text(errors="ignore")
+            violations.extend(secret_content_violations(path, text))
         if is_runtime_or_build_source(path):
-            text = (ROOT / path).read_text(errors="ignore").lower()
+            if not text:
+                text = full_path.read_text(errors="ignore")
+            text = text.lower()
             for token in FORBIDDEN_RUNTIME_CONTENT:
                 if token in text:
                     violations.append(
@@ -653,7 +821,8 @@ def main() -> int:
     print(
         "repo hygiene OK: pristine Doom vendor tree, no tracked WADs, "
         "renamed WAD/archive payloads, disk images, standalone music/audio assets, "
-        "pixel dumps, logs, wrapper engine paths, "
+        "pixel dumps, logs, token-shaped secrets, Codespaces auth leaks, "
+        "one-time browser auth codes, wrapper engine paths, "
         "forbidden uploads, or runtime shortcut APIs"
     )
     return 0

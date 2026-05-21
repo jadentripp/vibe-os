@@ -25,26 +25,33 @@ them so README and runbook wording cannot quietly drift into overclaiming.
 
 ## Latest Cloud Evidence
 
-As of 2026-05-21, manual full-lane run `26205557019` on commit `bfd04e8` is the
-latest published scripted cloud truth-serum run for the pushed branch. Its first
-boot passes the real-WAD, human-playability, scripted gameplay transition,
-VM/process, SB16/audio-continuity, audible aggregate, artifact hygiene, and
-status-triage gates. The same run passes save/load persistence: the write proof
-reports
+As of 2026-05-21, manual current-head run `26206176284` on commit `7390468` is
+the latest published scripted cloud truth-serum run for the pushed branch. It
+passes the real-WAD gameplay, scripted human-playability, scripted gameplay
+transition, status-triage, and save/load persistence lanes from the
+cloud run. The persistence proof reports
 `DOOMSAV0.DSG bytes=25718 changed-from-baseline description='VIBE SAVE'
 version='version 110' leveltime=33`, then the reboot/load proof reads the same
 save payload, closes it, records `saveact` load-done, and returns to
 `gameplay=OK`. `tools/triage_persistence_artifacts.py` classifies the downloaded
 artifact as `persistence-proof-green`, with `first-boot`, `save-write`,
-`reboot-load`, and `manifest/status` all passing. Push-triggered OS smoke run
-`26205496796` on the same commit also passes the generated-WAD boot and
-VM/process exec gates.
+`reboot-load`, and `manifest/status` all passing.
+
+This is not a post-fix full-lane green run. The audio lane failed in the cloud
+under the old checker with `musicrend= rendered sample delta must keep pace...`.
+After the local checker was corrected to validate buffered music coverage, the
+downloaded `26206176284` artifact passes `tools/check_audio_continuity_proof.py`
+locally. Treat this as current evidence for gameplay and persistence, plus a
+known audio-checker false red. The VM/process checker has since become stricter
+about user-probe dup/fd evidence (`uflags=`/`fdup=`), so this older artifact is
+not a current VM/process proof under the latest checker. Do not claim
+current-head full-lane green until a fresh post-fix cloud run passes.
 
 This is real scripted cloud evidence for the current runtime, but it is not a
 human-facing Doom-capable proof by itself. The project still needs the formal
-remote human playtest bundle and the remaining hard-mode architecture gaps below
-before README or release notes should say "finished Doom-capable OS" without
-caveats.
+remote human playtest bundle, a post-fix full-lane cloud rerun for audio, and
+the remaining hard-mode architecture gaps below before README or release notes
+should say "finished Doom-capable OS" without caveats.
 
 Historical repair context: run `26196214650` on `2788c00` reached the real-WAD
 playability checks but failed earlier because `DOOMSAV0.DSG` was truncated to
@@ -57,6 +64,9 @@ uploading the save file or editing original Doom source.
 
 What the last published evidence proves:
 
+- Current-head run `26206176284` on `7390468` proves the gameplay, scripted
+  human-playability, gameplay transition, status triage, and save/load
+  persistence lanes for the latest pushed runtime commit.
 - The disposable real-WAD workflow can fetch and validate the shareware
   `DOOM1.WAD`, build the image, boot it in cloud QEMU, and start the Doom ELF
   through the generic `SYS_EXEC("DOOM.ELF")` path.
@@ -67,21 +77,29 @@ What the last published evidence proves:
   frames and reaching E1M1 gameplay status rather than dying during startup.
 - Scripted keyboard input, mouse input, SB16/audio counters, and live
   preemption counters are active in the cloud status stream.
-- The `26205557019` final status shows live real-WAD Doom with `doomrun=RUN`,
+- The `26206176284` final status shows live real-WAD Doom with `doomrun=RUN`,
   `doomopen=OK`, `doomread=OK`, `gameplay=OK`, `usr=OK`,
   input/mouse/audio counters, and live preemption counters. Its artifact set
-  passes the real-WAD, human-playability, scripted gameplay transition,
-  VM/process, audio-continuity, audible-audio, artifact-hygiene, and
-  status-triage checkers without uploading WAD bytes, disk images, rendered
-  pixels, or raw audio samples.
+  passes the real-WAD, human-playability, scripted gameplay transition, cloud
+  status triage, and persistence checkers without uploading WAD bytes, disk
+  images, rendered pixels, or raw audio samples.
 - `tools/check_vm_status_proof.py` is now the executable cloud gate for the
-  higher-half VMM, exec handoff, and preemptive context-switch status fields.
-- The `gameplay-proof.json` artifact from `26205557019` is schema
+  higher-half VMM, exec handoff, dup/fd inheritance evidence, and preemptive
+  context-switch status fields. A fresh cloud run must pass this latest gate
+  before the current head can claim current VM/process proof.
+- The `gameplay-proof.json` artifact from `26206176284` is schema
   `scripted-gameplay-proof-v1` and records SHA-256 hashes plus compact start,
   fire, movement, use, mouse, menu, and final state summaries without storing
   WAD bytes or pixels.
-- The matching normal cloud `os-smoke` run `26205496796` passes the generated-WAD
-  boot smoke for the same kernel/runtime commit.
+- The audio result for `26206176284` is a known checker false red: the cloud run
+  failed with `musicrend= rendered sample delta must keep pace...`, while the
+  downloaded artifact passes the corrected buffered-coverage
+  `tools/check_audio_continuity_proof.py` locally.
+- Previous full-lane green run `26205557019` on `bfd04e8` passed the real-WAD,
+  human-playability, scripted gameplay transition, VM/process,
+  audio-continuity, audible-audio, artifact hygiene, status-triage, and
+  save/load persistence gates. Push-triggered OS smoke run `26205496796` on the
+  same commit also passes the generated-WAD boot and VM/process exec gates.
 - Older green runs `26203744974` on `f9a688e`, `26165681561` on `c525952`, and
   `26165678183` remain useful historical repair context, but they are no longer
   the latest current-head evidence.
@@ -106,6 +124,9 @@ What still fails:
 - A green scripted cloud run is not the same thing as a human playtest. A person
   still needs to complete and record the remote VNC path with keyboard/menu and
   gameplay actions.
+- The latest current-head run is not a post-fix full-lane green run. A fresh
+  cloud run with the corrected buffered-coverage audio checker must pass before
+  the docs can claim current-head full-lane green.
 - The remaining architecture gaps are still real: relocating the running kernel
   onto the new higher-half/non-identity mapping contract, broader VM/POSIX
   semantics, broader graphics policy, more complete music streaming, and
@@ -118,11 +139,13 @@ Playable now:
 - It is fair to say the real `DOOM1.WAD` path is scripted-cloud playable in the
   disposable QEMU proof lane: Doom runs as a Ring 3 process, opens and reads the
   WAD, reaches E1M1 gameplay, accepts scripted keyboard and mouse actions, emits
-  SB16/audio continuity plus aggregate audible-output proof, and persists then
-  reloads a save slot.
+  SB16/audio status counters, and persists then reloads a save slot. The latest
+  current-head artifact also passes the corrected local SB16 continuity checker,
+  but the cloud audio lane is still an old-checker false red until a post-fix
+  cloud rerun passes.
 - Keep the caveat attached: this means "playable through the repo's cloud proof
   lane with status-only artifacts." It does not yet mean a finished,
-  general-purpose OS or a recorded human playtest.
+  general-purpose OS, a recorded human playtest, or current-head full-lane green.
 
 Next playability polish:
 
@@ -169,7 +192,7 @@ Earlier red runs kept for context:
 
 ## Machine-Readable Gap Ledger
 
-- `GAP[CLOUD_BOOT] status=proven category=cloud-boot gate=real-wad-smoke.yml evidence=real-wad-smoke-26205557019`
+- `GAP[CLOUD_BOOT] status=proven category=cloud-boot gate=real-wad-smoke.yml evidence=real-wad-smoke-26206176284`
 
 Current state:
 
@@ -180,10 +203,12 @@ Current state:
   rendered pixels out of uploaded artifacts.
 - Current archived real-WAD cloud evidence reaches Doom runtime, WAD I/O,
   frames, gameplay status, input counters, audio counters, and preemption
-  counters, and run `26205557019` passes the scripted proof checkers for commit
-  `bfd04e8`.
-- The matching normal cloud `os-smoke` run `26205496796` passes the generated-WAD
-  boot smoke for the same kernel/runtime commit.
+  counters, and run `26206176284` passes the scripted gameplay and persistence
+  proof checkers for commit `7390468`.
+- The previous normal cloud `os-smoke` run `26205496796` passes the generated-WAD
+  boot smoke for the older full-lane commit `bfd04e8`; rerun normal OS smoke
+  for the exact target commit when the claim depends on generated-WAD boot
+  evidence too.
 - The display path now has a host-proved aspect policy: LFB presents use the
   largest centered 320x240 integer scale when the framebuffer can fit it, expose
   a labeled `SQ` fallback for 320x200 square scaling, and report `fbpolicy`,
@@ -192,10 +217,11 @@ Current state:
 
 Still missing:
 
-- No known design gap is open for the scripted cloud-boot gate: `bfd04e8` has a
+- No known design gap is open for the scripted cloud-boot gate: `7390468` has a
   passing manual real-WAD cloud workflow with final `status.txt` and clean
   early/start/fire/move/use/mouse/menu baselines that make the proof gates
-  reproducible.
+  reproducible for gameplay and persistence. Audio remains a post-fix rerun
+  boundary because the cloud run used the old checker.
 - Future commits still need the same gate rerun for the exact commit after push
   before making a fresh current-head claim. `status.failure.txt` from a
   timed-out/faulted smoke remains diagnostic evidence only.
@@ -206,7 +232,7 @@ Executable gate:
   only the uploaded non-WAD diagnostics: `status*.txt`, `status*.bin`, QEMU log,
   serial log, monitor log, and ELF files.
 
-- `GAP[REAL_GAMEPLAY] status=proven category=real-gameplay gate=check_real_wad_proof.py evidence=real-wad-smoke-26205557019`
+- `GAP[REAL_GAMEPLAY] status=proven category=real-gameplay gate=check_real_wad_proof.py evidence=real-wad-smoke-26206176284`
 
 Current state:
 
@@ -216,19 +242,22 @@ Current state:
   process/storage/VM/audio/input/scheduler telemetry.
 - The checker delegates scripted input validation to
   `tools/check_human_playability_proof.py`.
-- The latest green real-WAD cloud evidence proves the important runtime path:
+- The latest real-WAD cloud evidence proves the important runtime path:
   Doom boots, runs, opens/reads the real WAD, presents frames, reaches gameplay
   status, emits input/audio/preemption counters, and passes the scripted
-  snapshot checkers for commit `bfd04e8`.
+  snapshot checkers for commit `7390468`.
 
 Still missing:
 
-- No known design gap is open for the scripted real-gameplay gate: `26205557019`
+- No known design gap is open for the scripted real-gameplay gate: `26206176284`
   has a real-WAD status artifact where every required field and every required
-  phase snapshot passes the checkers for commit `bfd04e8`. Future commits must
-  preserve the now-green scripted `usr=OK`, `use`, mouse effect, audio
-  continuity, and preemption evidence. Any regression in those fields reopens
-  this gap as an implementation bug, not just a documentation issue.
+  phase snapshot passes the gameplay checkers for commit `7390468`. Future
+  commits must preserve the now-green scripted `usr=OK`, `use`, mouse effect,
+  and preemption evidence. Audio continuity from this artifact passes only after
+  the local buffered-coverage checker fix; a cloud rerun is still required
+  before treating audio as current-head full-lane green. Any regression in those
+  fields reopens this gap as an implementation bug, not just a documentation
+  issue.
 - Stronger gameplay proof still matters after the gates pass: the current
   counter/status proof should be paired with a remote human playtest before the
   public claim becomes "playable Doom" rather than "scripted cloud proof".
@@ -288,7 +317,7 @@ Executable gate:
   post-download verification line must match the remote pre-download
   verification line before the human packet counts as evidence.
 
-- `GAP[PERSISTENCE] status=proven category=persistence gate=reboot-persistence-proof evidence=real-wad-smoke-26205557019`
+- `GAP[PERSISTENCE] status=proven category=persistence gate=reboot-persistence-proof evidence=real-wad-smoke-26206176284`
 
 Current state:
 
@@ -349,6 +378,12 @@ Current state:
   text, not WAD or disk bytes.
   Summary for the proof gate: captures the fresh baseline immediately after rebuilding;
   same disk image is booted again; cloud reboot proof; reboot comparison now requires the fresh baseline.
+- Run `26206176284` passes save/load persistence for `DOOMSAV0.DSG` on current
+  commit `7390468`: the write proof reports
+  `DOOMSAV0.DSG bytes=25718 changed-from-baseline description='VIBE SAVE' version='version 110' leveltime=33`,
+  the reboot proof reports the same save survived reboot with
+  `specials-after=OK`, and the load proof reports `save load status gameplay=OK
+  slot=0`.
 - Run `26151623245` passes that reboot proof for `DEFAULT.CFG`: the write proof
   reports `DEFAULT.CFG bytes=512 changed-from-baseline`, and the reboot proof
   reports `DEFAULT.CFG bytes=512 changed-from-baseline survived-reboot` plus
@@ -410,10 +445,15 @@ Current state:
   songs keep cumulative song-position accounting while rendering from the
   measured loop window, so long runs no longer depend on the old bounded
   loop-pass skip path.
-- Run `26205557019` passes `tools/check_audio_continuity_proof.py` and
-  `tools/check_audible_audio_proof.py` with status-only SB16 continuity and a
-  copyright-safe aggregate `audio-proof.json`, proving non-silent audible output
-  without uploading raw audio.
+- Current-head run `26206176284` is a known audio-checker false red: the cloud
+  lane failed under the old invariant with
+  `musicrend= rendered sample delta must keep pace...`, but the downloaded
+  artifact passes the corrected buffered-coverage
+  `tools/check_audio_continuity_proof.py` locally.
+- Previous full-lane run `26205557019` passes `tools/check_audio_continuity_proof.py`
+  and `tools/check_audible_audio_proof.py` with status-only SB16 continuity and
+  a copyright-safe aggregate `audio-proof.json`, proving non-silent audible
+  output without uploading raw audio on that older commit.
 - The audible manifest contract now includes aggregate stream-health and
   listener-quality metadata without storing raw audio.
 
@@ -423,6 +463,9 @@ Still missing:
   long-playback wrap and stricter stream-health proof, but the kernel still
   needs a hardware-paced MUS/MIDI pull/refill stream; balancing between music
   and SFX still needs real playback tuning.
+- A fresh post-fix cloud audio run is still missing, so the current head cannot
+  be described as full-lane green even though the downloaded old-run artifact
+  passes the corrected local continuity checker.
 - Human listener approval is still separate from the aggregate audible-output
   proof. For human quality notes, use remote audio forwarding without uploading
   captured Doom audio.
@@ -494,7 +537,7 @@ Current state:
   requires `vmmhfree` to match the reclaimed `vmmhpt` frame,
   `uexec=OK`/`upath=USERPROB.ELF` for boot-probe exec,
   `abiexec=OK`/`abipath=ABIPROBE.ELF`/`abiprobe=OK` for the generic ABI probe,
-  `argvsrc=2` for user-vector Doom exec, `procpool=`/`fdexec=`/`wait=`/`vmreap=` for bounded
+  `argvsrc=2` for user-vector Doom exec, `procpool=`/`fdexec=`/`fdup=`/`wait=`/`vmreap=` for bounded
   process-slot reuse, exec-time fd inheritance, the wait/reap proof, and child
   VM teardown during reap, and `pmask` plus
   `pkind`/`peip`/`pcr3`/`pkstk` for timer IRQ switches in both directions
@@ -508,7 +551,7 @@ Still missing:
   model, terminal device model, or POSIX delete-while-open behavior.
 - The process model is still a fixed-slot launch/switch contract with a generic
   probe-class exec fallback, not a robust Unix process model with dynamic PIDs,
-  wait blocking, fork-time fd duplication, general physical-frame reclamation
+  wait blocking, fork-time descriptor table cloning, general physical-frame reclamation
   for identity-shaped user pages, or general child lifecycle semantics.
 - The running kernel is still identity-mapped in low memory, process page-table
   allocation is not fully dynamic or reclaimed with process lifetime, non-tail

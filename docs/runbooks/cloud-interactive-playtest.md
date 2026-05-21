@@ -197,8 +197,9 @@ status phases through `build/play-now/monitor.sock`, runs the collector with the
 required operator confirmations, prints `pre-download human verification OK`,
 records a slowdown level and short status-only slowdown note, builds
 `/tmp/vibe-os-human-proof.tgz`, and prints the local `scp` plus post-download
-verification commands. It also requires the operator to confirm that the linked
-Real WAD smoke run was green before the human session.
+verification commands. It also records the audio observation mode and requires
+the operator to confirm that the linked Real WAD smoke run was green before the
+human session.
 
 Manual equivalent, if you need to capture phases one at a time:
 
@@ -247,6 +248,7 @@ python3 tools/collect_human_playtest_bundle.py \
   --confirm-keyboard-use \
   --confirm-mouse-action \
   --confirm-menu-escape \
+  --confirm-audio-observation \
   --confirm-slowdown-notes \
   --confirm-phase-actions \
   --confirm-phase-status-hashes \

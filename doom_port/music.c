@@ -31,6 +31,7 @@ typedef struct vibe_music_song {
     unsigned long stream_song_samples;
     unsigned long stream_loop_samples;
     unsigned long stream_loop_count;
+    unsigned long stream_sequence;
 } vibe_music_song_t;
 
 typedef struct vibe_music_voice {
@@ -152,6 +153,8 @@ static void reset_stats(vibe_music_render_stats_t* stats, int format)
     stats->stream_song_samples = 0;
     stats->stream_loop_samples = 0;
     stats->stream_loop_count = 0;
+    stats->stream_chunk_index = 0;
+    stats->stream_chunk_bytes = 0;
 }
 
 static unsigned long empty_render_result(
@@ -1027,6 +1030,7 @@ void vibe_music_init(void)
         vibe_music_songs[i].stream_song_samples = 0;
         vibe_music_songs[i].stream_loop_samples = 0;
         vibe_music_songs[i].stream_loop_count = 0;
+        vibe_music_songs[i].stream_sequence = 0;
     }
 }
 
@@ -1067,6 +1071,7 @@ int vibe_music_register_song(void* data)
             vibe_music_songs[i].stream_song_samples = 0;
             vibe_music_songs[i].stream_loop_samples = 0;
             vibe_music_songs[i].stream_loop_count = 0;
+            vibe_music_songs[i].stream_sequence = 0;
             return (int)i + 1;
         }
     }
@@ -1095,6 +1100,7 @@ void vibe_music_unregister_song(int handle)
     vibe_music_songs[index].stream_song_samples = 0;
     vibe_music_songs[index].stream_loop_samples = 0;
     vibe_music_songs[index].stream_loop_count = 0;
+    vibe_music_songs[index].stream_sequence = 0;
 }
 
 static unsigned long render_pcm_window(
@@ -1243,6 +1249,7 @@ void vibe_music_stream_begin(
     vibe_music_songs[index].stream_song_samples = song_samples;
     vibe_music_songs[index].stream_loop_samples = looping ? song_samples : 0;
     vibe_music_songs[index].stream_loop_count = 0;
+    vibe_music_songs[index].stream_sequence = 0;
 }
 
 void vibe_music_stream_stop(int handle)
@@ -1333,6 +1340,7 @@ unsigned long vibe_music_stream_render(
     unsigned long start_loop_count;
     unsigned long end_position;
     unsigned long end_loop_count;
+    unsigned long chunk_index;
     unsigned long rendered;
     int format;
 
@@ -1351,6 +1359,7 @@ unsigned long vibe_music_stream_render(
     song_samples = vibe_music_songs[index].stream_song_samples;
     loop_samples = vibe_music_songs[index].stream_loop_samples;
     start_loop_count = loop_samples ? start_position / loop_samples : 0;
+    chunk_index = vibe_music_songs[index].stream_sequence;
     if (vibe_music_songs[index].stream_looping && loop_samples)
         render_position = start_position % loop_samples;
     if (!vibe_music_songs[index].stream_looping && song_samples) {
@@ -1382,12 +1391,15 @@ unsigned long vibe_music_stream_render(
     vibe_music_songs[index].stream_position = end_position;
     if (!vibe_music_songs[index].stream_looping && song_samples && end_position >= song_samples)
         vibe_music_songs[index].stream_active = 0;
+    vibe_music_songs[index].stream_sequence = chunk_index + 1u;
     if (stats) {
         stats->stream_start_sample = start_position;
         stats->stream_end_sample = end_position;
         stats->stream_song_samples = song_samples;
         stats->stream_loop_samples = loop_samples;
         stats->stream_loop_count = vibe_music_songs[index].stream_loop_count;
+        stats->stream_chunk_index = chunk_index;
+        stats->stream_chunk_bytes = rendered;
     }
     return rendered;
 }

@@ -80,13 +80,18 @@ target instead of returning to the caller.
   exit code. `WNOHANG` is now a real nonblocking check: if a matching child is
   live but not reapable, it returns `0`; the blocking form still returns
   `ENOSYS` until there is a sleep queue.
-- Open fd slots are now process-owned. `fd_lookup` rejects descriptors whose
-  owner PID does not match the running process, `exec` retags slots marked
-  `FD_INHERIT_EXEC` from the caller PID to the target PID, and slots opened with
-  `O_CLOEXEC` leave that bit clear so the exec handoff closes them. Process
-  teardown, fault handling, target-slot reuse, and wait reaping all sweep
-  descriptors owned by the retiring process. This is real exec-time fd
-  inheritance/close-on-exec behavior, not yet fork-time descriptor duplication.
+- Open fd slots are now process-owned descriptors over shared open-file
+  descriptions. `fd_lookup` rejects descriptors whose owner PID does not match
+  the running process, then resolves the descriptor to the shared root slot that
+  owns the file offset, kind, flags, and size metadata. `dup`, `dup2`, and
+  `dup3` create refcounted descriptors pointing at that root, so reads and
+  seeks through either fd observe one offset. `dup3(..., O_CLOEXEC)` makes only
+  the new descriptor close-on-exec. `exec` retags inheritable descriptors from
+  the caller PID to the target PID and closes descriptors opened or duplicated
+  with close-on-exec. Process teardown, fault handling, target-slot reuse, and
+  wait reaping all sweep descriptors owned by the retiring process. This is real
+  exec-time fd inheritance/close-on-exec behavior with shared descriptions, not
+  yet fork-time descriptor duplication.
 - The same handoff contract applies to table-backed programs and generic
   root-level `.ELF` programs. Generic userland should treat the public ABI as:
   root-only FAT16 8.3 `.ELF` path, at most `VIBE_EXEC_ARG_MAX` argv strings,
@@ -195,7 +200,7 @@ root `.ELF` resolver selected a bounded generic slot, built the crt0 stack from
 a copied user argv vector, ran `user/abi_probe.c`, and observed the probe's
 success marker before Doom was launched. It also
 emits `procpool=slots/generic/reuses/galloc/gfail`, `pidseq=next/last_reused/generation`,
-`fdexec=handoffs/inherited/closed/owner_closes`, and
+`fdexec=handoffs/inherited/closed/owner_closes`, `fdup=dup/dup2/dup3/shared/cloexec`, and
 `wait=attempts/reaps/failures/nohang/seeded/last_pid/last_status`.
 It also emits `vmreap=teardowns/pages/wait_reaps/wait_pages/last_wait_pages`
 so the cloud status contract can prove a waited child had its user mappings
@@ -204,8 +209,9 @@ Doom launch should have zero `execerr`/`execres`, nonzero argc/argv/envp
 pointers, `envp0 == 0`, nonzero target entry/stack addresses, `argvsrc=2` for
 the user-vector path, at least one generic-slot allocation for `ABIPROBE.ELF`,
 at least one process-slot reuse, at least one fd inherited
-across exec, a userland `waitpid` reap of the seeded exited child, and a
-nonzero `vmreap=` wait-reap page count. The
+across exec, a successful userland `dup`/`dup2`/`dup3` shared-offset probe,
+one close-on-exec duplicated descriptor, a userland `waitpid` reap of the
+seeded exited child, and a nonzero `vmreap=` wait-reap page count. The
 initial probe bootstrap still uses `argvsrc=1` because the kernel supplies its
 own default `argv[0]`.
 
@@ -253,10 +259,10 @@ real-WAD proof counters.
   dynamic child-slot growth or general physical-frame reclamation for
   identity-shaped user pages.
 - This is enough to launch the probe and Doom, preserve inheritable fds across
-  exec, close process-owned fds during teardown, and exercise a userland
-  `waitpid` reap path against a seeded exited child record, but it is not a robust Unix process model.
+  exec, duplicate fds with shared offsets, close process-owned fds during
+  teardown, and exercise a userland `waitpid` reap path against a seeded exited child record, but it is not a robust Unix process model.
   There is no `fork`/`exec` split, wait blocking, process groups, signal
-  delivery, fork-time fd duplication, unbounded dynamic child slots, or
+  delivery, fork-time descriptor table cloning, unbounded dynamic child slots, or
   file-backed VM object lifetime.
 - A fuller game/userland runtime still needs a libc-grade layer above the small
   `user/runtime.*` syscall wrapper seed, hierarchical path lookup, working
@@ -273,7 +279,7 @@ that must be added before claiming POSIX compatibility.
 | Area | Current contract | Intentionally missing |
 | --- | --- | --- |
 | `fork` | `SYS_FORK` is wired through the syscall table and returns `-ENOSYS`; libc `fork()` preserves that errno and the user probe checks the classified result. | Address-space cloning, copy-on-write or eager page copies, parent/child return-value split, inherited signal state, and fork-time fd table cloning. |
-| fd duplication | Fds are owned by PID, carry generations, inherit across exec unless `O_CLOEXEC`, and are swept during exec rollback, exit, fault, slot reuse, and wait reap. | Public `dup`/`dup2`/`dup3`, shared open-file descriptions, shared offsets, descriptor refcounts, and fork-time descriptor duplication. |
+| fd duplication | Public `dup`, `dup2`, and `dup3` syscalls/libc wrappers create process-owned descriptors that share an open-file description root, including the current offset. `dup2(oldfd, oldfd)` returns the existing descriptor, `dup3(oldfd, oldfd, flags)` returns `EINVAL`, and `dup3(..., O_CLOEXEC)` is closed by the next exec. | Fork-time descriptor table cloning, `fcntl(F_DUPFD*)`, dynamically growing fd tables, and per-process fd namespaces beyond the current bounded global slot pool. |
 | file-backed `mmap` | `mmap` is anonymous/private/brk-backed; `munmap` validates mapped heap ranges, reclaims tail pages, and records non-tail holes. | File-backed mappings, `MAP_SHARED`, `MAP_FIXED`, reusable VM object lifetime, VMA splitting/merging, and page-cache backed mappings. |
 | signals | User faults become kernel process status and wait-reapable abnormal exits; expected-fault recovery is a probe-only trap rewrite. | `signal`, `sigaction`, `kill`, signal masks, user handler trampolines, timer signals, and delivery across scheduler context switches. |
 | terminal/tty | Keyboard and mouse input use the typed input queue; display control uses `ioctl(VIBE_DISPLAY_FD, ...)`, with non-display ioctls classified as `ENOTTY`. | `termios`, `isatty`, controlling terminals, line discipline, process groups, job control, and `/dev/tty*` path/device semantics. |

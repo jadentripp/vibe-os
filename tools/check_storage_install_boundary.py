@@ -10,6 +10,7 @@ QEMU.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import re
@@ -18,8 +19,14 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+BUILD = ROOT / "build"
 DOC = ROOT / "docs" / "storage-install-boundary.md"
 MAKE_WAD_IMAGE = ROOT / "tools" / "make_wad_image.py"
+SECTOR_SIZE = 512
+
+
+def sector_offset(lba: int) -> int:
+    return lba * SECTOR_SIZE
 
 EXPECTED_BOUNDARIES = {
     "GENERATED_FAT16_IMAGE": {
@@ -38,6 +45,18 @@ EXPECTED_BOUNDARIES = {
         "status": "claimed",
         "scope": "host-generated-image-inspection",
         "gate": "install-image-manifest",
+        "evidence": "check_storage_install_boundary.py",
+    },
+    "BLANK_IMAGE_HOST_INSTALL": {
+        "status": "proven",
+        "scope": "in-memory-blank-disk-image",
+        "gate": "blank-disk-installer-manifest",
+        "evidence": "check_storage_install_boundary.py",
+    },
+    "DAMAGED_IMAGE_REFUSAL": {
+        "status": "proven",
+        "scope": "repo-layout-damaged-fixtures",
+        "gate": "damaged-image-refusal-report",
         "evidence": "check_storage_install_boundary.py",
     },
     "ARBITRARY_DISK_INSTALL": {
@@ -84,16 +103,19 @@ REQUIRED_PHRASES = (
     "LBA 0 is the repo MBR",
     "LBA 2048 is the FAT16 partition",
     "install-image-manifest",
+    "blank-disk-installer-manifest",
+    "damaged-image-refusal-report",
+    "structural boot proof without running QEMU locally",
+    "all-zero image",
     "blank-disk-to-bootable-vibe-os",
     "detect-and-repair-or-refuse",
 )
 
 REQUIRED_CROSS_DOC_LINKS = {
     "README.md": (
-        "not an installable general OS on arbitrary disks",
+        "not an installable OS for arbitrary disks",
         "does not partition blank media",
         "docs/storage-install-boundary.md",
-        "tools/check_storage_install_boundary.py --image build/disk.img",
     ),
     "docs/persistent-fat16.md": (
         "not an arbitrary-disk install or recovery proof",
@@ -265,12 +287,73 @@ def _require_zero_region(raw: bytes | bytearray, start: int, end: int, label: st
         raise StorageBoundaryError(f"{label} must be zero-filled")
 
 
-def inspect_image(image_path: Path) -> dict[str, object]:
+def _sha256(raw: bytes | bytearray) -> str:
+    return hashlib.sha256(bytes(raw)).hexdigest()
+
+
+def _read_artifact(path: Path, label: str) -> bytes:
+    if not path.is_file():
+        raise StorageBoundaryError(f"missing {label} artifact: {path}")
+    return path.read_bytes()
+
+
+def _require_artifact_region(
+    image: bytes | bytearray,
+    *,
+    lba: int,
+    sectors: int,
+    path: Path,
+    label: str,
+) -> dict[str, object]:
+    data = _read_artifact(path, label)
+    capacity = sectors * SECTOR_SIZE
+    if len(data) > capacity:
+        raise StorageBoundaryError(f"{label} artifact is {len(data)} bytes, exceeds {capacity}")
+    start = sector_offset(lba)
+    region = image[start:start + capacity]
+    if region[:len(data)] != data:
+        raise StorageBoundaryError(f"{label} installed bytes do not match artifact {path}")
+    _require_zero_region(region, len(data), len(region), f"{label} padding")
+    return {
+        "label": label,
+        "path": str(path),
+        "sha256": _sha256(data),
+        "bytes": len(data),
+        "lba": lba,
+        "sectors": sectors,
+        "capacity": capacity,
+        "padded_zero_bytes": capacity - len(data),
+        "matches_installed_region": True,
+    }
+
+
+def _expected_installed_mbr(stage1_path: Path) -> bytes:
     make_wad_image = load_make_wad_image()
-    image = bytearray(image_path.read_bytes())
+    mbr = bytearray(_read_artifact(stage1_path, "stage1"))
+    if len(mbr) != make_wad_image.SECTOR_SIZE:
+        raise StorageBoundaryError(
+            f"stage1 artifact is {len(mbr)} bytes, expected {make_wad_image.SECTOR_SIZE}"
+        )
+    mbr[440:444] = b"AOSD"
+    entry = 446
+    mbr[entry + 0] = 0x00
+    mbr[entry + 1:entry + 4] = b"\x01\x01\x00"
+    mbr[entry + 4] = 0x06
+    mbr[entry + 5:entry + 8] = b"\xfe\xff\xff"
+    write_le32 = make_wad_image.write_le32
+    write_le16 = make_wad_image.write_le16
+    write_le32(mbr, entry + 8, make_wad_image.PARTITION_START)
+    write_le32(mbr, entry + 12, make_wad_image.PARTITION_SECTORS)
+    write_le16(mbr, 510, 0xAA55)
+    return bytes(mbr)
+
+
+def _inspect_image_bytes(image: bytes | bytearray, image_label: str) -> dict[str, object]:
+    make_wad_image = load_make_wad_image()
+    image = bytearray(image)
     expected_size = make_wad_image.IMAGE_SECTORS * make_wad_image.SECTOR_SIZE
     if len(image) != expected_size:
-        raise StorageBoundaryError(f"{image_path} size {len(image)} != expected {expected_size}")
+        raise StorageBoundaryError(f"{image_label} size {len(image)} != expected {expected_size}")
     if image[510:512] != b"\x55\xaa":
         raise StorageBoundaryError("missing MBR boot signature")
 
@@ -379,7 +462,7 @@ def inspect_image(image_path: Path) -> dict[str, object]:
 
     return {
         "schema": "vibe-os-install-image-manifest-v1",
-        "image": str(image_path),
+        "image": image_label,
         "image_size": len(image),
         "mbr": {
             "signature": "55aa",
@@ -424,34 +507,360 @@ def inspect_image(image_path: Path) -> dict[str, object]:
     }
 
 
+def inspect_image(image_path: Path) -> dict[str, object]:
+    return _inspect_image_bytes(image_path.read_bytes(), str(image_path))
+
+
+def _default_install_inputs(root: Path = ROOT) -> dict[str, object]:
+    make_wad_image = load_make_wad_image()
+    build = root / "build"
+    inputs = {
+        "stage1_path": build / "stage1.bin",
+        "stage2_path": build / "stage2.bin",
+        "kernel_path": build / "kernel.elf",
+        "user_elf_path": build / "user_probe.elf",
+        "doom_elf_path": build / "doom.elf",
+        "extra_root_elves": (
+            (
+                make_wad_image.root83_from_display_name(
+                    "ABIPROBE.ELF",
+                    required_ext="ELF",
+                ),
+                build / "abi_probe.elf",
+            ),
+        ),
+    }
+    for label, path in (
+        ("stage1", inputs["stage1_path"]),
+        ("stage2", inputs["stage2_path"]),
+        ("kernel", inputs["kernel_path"]),
+        ("user probe ELF", inputs["user_elf_path"]),
+        ("Doom ELF", inputs["doom_elf_path"]),
+        ("ABI probe ELF", inputs["extra_root_elves"][0][1]),
+    ):
+        _read_artifact(path, label)
+    return inputs
+
+
+def _declared_install_write_ranges(make_wad_image) -> tuple[dict[str, int | str], ...]:
+    return (
+        {"name": "mbr-stage1-partition-table", "lba": 0, "sectors": 1},
+        {
+            "name": "stage2",
+            "lba": make_wad_image.STAGE2_LBA,
+            "sectors": make_wad_image.STAGE2_SECTORS,
+        },
+        {
+            "name": "kernel",
+            "lba": make_wad_image.KERNEL_LBA,
+            "sectors": make_wad_image.KERNEL_SECTORS,
+        },
+        {
+            "name": "fat16-partition",
+            "lba": make_wad_image.PARTITION_START,
+            "sectors": make_wad_image.PARTITION_SECTORS,
+        },
+    )
+
+
+def _lba_in_ranges(lba: int, ranges: tuple[dict[str, int | str], ...]) -> bool:
+    for entry in ranges:
+        start = int(entry["lba"])
+        end = start + int(entry["sectors"])
+        if start <= lba < end:
+            return True
+    return False
+
+
+def _nonzero_sector_audit(
+    image: bytes | bytearray,
+    ranges: tuple[dict[str, int | str], ...],
+    *,
+    sector_size: int,
+) -> dict[str, object]:
+    nonzero_count = 0
+    outside = []
+    for lba in range(0, len(image) // sector_size):
+        start = lba * sector_size
+        if not any(image[start:start + sector_size]):
+            continue
+        nonzero_count += 1
+        if not _lba_in_ranges(lba, ranges):
+            outside.append(lba)
+    return {
+        "nonzero_sector_count": nonzero_count,
+        "outside_declared_ranges": outside,
+        "writes_only_declared_ranges": not outside,
+    }
+
+
+def prove_blank_disk_install(root: Path = ROOT) -> dict[str, object]:
+    make_wad_image = load_make_wad_image()
+    inputs = _default_install_inputs(root)
+    image_size = make_wad_image.IMAGE_SECTORS * make_wad_image.SECTOR_SIZE
+    blank = bytearray(image_size)
+    if any(blank):
+        raise StorageBoundaryError("blank install proof did not start from an all-zero image")
+
+    dirty = bytearray(image_size)
+    dirty[0] = 0xA5
+    try:
+        make_wad_image.install_bootable_layout(dirty, **inputs)
+    except ValueError as exc:
+        nonblank_refusal = str(exc)
+    else:
+        raise StorageBoundaryError("blank installer accepted a non-empty target")
+
+    installed = make_wad_image.install_bootable_layout(blank, **inputs)
+    manifest = _inspect_image_bytes(installed, "blank-install://in-memory")
+
+    expected_mbr = _expected_installed_mbr(inputs["stage1_path"])
+    if installed[:make_wad_image.SECTOR_SIZE] != expected_mbr:
+        raise StorageBoundaryError("installed MBR does not match patched stage1 artifact")
+
+    artifact_regions = [
+        _require_artifact_region(
+            installed,
+            lba=make_wad_image.STAGE2_LBA,
+            sectors=make_wad_image.STAGE2_SECTORS,
+            path=inputs["stage2_path"],
+            label="stage2",
+        ),
+        _require_artifact_region(
+            installed,
+            lba=make_wad_image.KERNEL_LBA,
+            sectors=make_wad_image.KERNEL_SECTORS,
+            path=inputs["kernel_path"],
+            label="kernel",
+        ),
+    ]
+    declared_ranges = _declared_install_write_ranges(make_wad_image)
+    sector_audit = _nonzero_sector_audit(
+        installed,
+        declared_ranges,
+        sector_size=make_wad_image.SECTOR_SIZE,
+    )
+    if not sector_audit["writes_only_declared_ranges"]:
+        raise StorageBoundaryError(
+            "blank install wrote outside declared ranges: "
+            + ", ".join(str(lba) for lba in sector_audit["outside_declared_ranges"])
+        )
+
+    root_names = {entry["name"] for entry in manifest["root_entries"]}
+    for required in ("DOOM1.WAD", "USERPROB.ELF", "DOOM.ELF", "ABIPROBE.ELF"):
+        if required not in root_names:
+            raise StorageBoundaryError(f"blank install image missing root entry {required}")
+
+    return {
+        "schema": "vibe-os-blank-disk-installer-manifest-v1",
+        "source": {
+            "kind": "in-memory-all-zero-image",
+            "image_size": image_size,
+            "all_zero_before_install": True,
+            "nonblank_target_refusal": nonblank_refusal,
+        },
+        "declared_write_ranges": list(declared_ranges),
+        "write_audit": sector_audit,
+        "structural_boot_proof": {
+            "qemu_executed": False,
+            "stage1_mbr_matches_patched_artifact": True,
+            "stage1_sha256": _sha256(_read_artifact(inputs["stage1_path"], "stage1")),
+            "stage2_matches_artifact": True,
+            "kernel_matches_artifact": True,
+            "artifact_regions": artifact_regions,
+            "mbr_signature": manifest["mbr"]["signature"],
+            "fat16_boot_signature": "55aa",
+            "stage2_lba": make_wad_image.STAGE2_LBA,
+            "stage2_sectors": make_wad_image.STAGE2_SECTORS,
+            "kernel_lba": make_wad_image.KERNEL_LBA,
+            "kernel_sectors": make_wad_image.KERNEL_SECTORS,
+            "fat16_lba": make_wad_image.PARTITION_START,
+        },
+        "installed_image_manifest": manifest,
+        "claim_boundary": "blank-image-host-install-only; not arbitrary-disk-install-proof",
+    }
+
+
+def inspect_recovery_candidate_bytes(
+    image: bytes | bytearray,
+    *,
+    label: str,
+) -> dict[str, object]:
+    try:
+        manifest = _inspect_image_bytes(image, label)
+    except StorageBoundaryError as exc:
+        return {
+            "schema": "vibe-os-damaged-image-refusal-report-v1",
+            "candidate": label,
+            "decision": "refuse",
+            "reason": str(exc),
+            "repair_attempted": False,
+            "repair_supported": False,
+            "claim_boundary": "detect-and-refuse-only; not arbitrary-disk-recovery-proof",
+        }
+    return {
+        "schema": "vibe-os-damaged-image-refusal-report-v1",
+        "candidate": label,
+        "decision": "inspect-only",
+        "manifest_schema": manifest["schema"],
+        "repair_attempted": False,
+        "repair_supported": False,
+        "claim_boundary": "known-layout-inspection-only; not arbitrary-disk-recovery-proof",
+    }
+
+
+def inspect_recovery_candidate(image_path: Path) -> dict[str, object]:
+    return inspect_recovery_candidate_bytes(image_path.read_bytes(), label=str(image_path))
+
+
+def _damage_missing_mbr_signature(image: bytearray, make_wad_image) -> None:
+    image[510:512] = b"\0\0"
+
+
+def _damage_extra_partition_entry(image: bytearray, make_wad_image) -> None:
+    image[446 + 16 + 4] = 0x06
+
+
+def _damage_fat_copy_divergence(image: bytearray, make_wad_image) -> None:
+    fs = make_wad_image.Fat16Image(image)
+    second_fat = (
+        fs.partition_lba
+        + fs.reserved
+        + fs.sectors_per_fat
+    ) * make_wad_image.SECTOR_SIZE
+    image[second_fat + 2 * make_wad_image.DOOM_WAD_CLUSTER] ^= 0x01
+
+
+def _damage_missing_protected_entry(image: bytearray, make_wad_image) -> None:
+    fs = make_wad_image.Fat16Image(image)
+    entry = fs.root_entry_offset(b"DOOM1   WAD")
+    if entry is None:
+        raise StorageBoundaryError("base image is missing DOOM1.WAD before fixture damage")
+    image[entry:entry + 11] = b"BADWAD  BIN"
+
+
+def _damage_crosslinked_root_entry(image: bytearray, make_wad_image) -> None:
+    fs = make_wad_image.Fat16Image(image)
+    chain = fs.write_root_file(b"ALPHA   TXT", b"A" * 700)
+    fs.write_root_file(b"BETA    TXT", b"B" * 700)
+    beta_entry = fs.root_entry_offset(b"BETA    TXT")
+    make_wad_image.write_le16(image, beta_entry + 26, chain[0])
+
+
+DAMAGED_FIXTURES = (
+    ("missing-mbr-signature", _damage_missing_mbr_signature),
+    ("extra-mbr-partition-entry", _damage_extra_partition_entry),
+    ("fat-copy-divergence", _damage_fat_copy_divergence),
+    ("missing-protected-wad-entry", _damage_missing_protected_entry),
+    ("crosslinked-root-entry", _damage_crosslinked_root_entry),
+)
+
+
+def damaged_recovery_fixture_reports(base_image_path: Path) -> dict[str, object]:
+    make_wad_image = load_make_wad_image()
+    base = bytearray(base_image_path.read_bytes())
+    _inspect_image_bytes(base, str(base_image_path))
+
+    reports = []
+    for name, mutate in DAMAGED_FIXTURES:
+        damaged = bytearray(base)
+        mutate(damaged, make_wad_image)
+        report = inspect_recovery_candidate_bytes(damaged, label=f"fixture:{name}")
+        if report["decision"] != "refuse":
+            raise StorageBoundaryError(f"damaged fixture {name} did not produce a refusal")
+        reports.append(report)
+
+    return {
+        "schema": "vibe-os-damaged-image-refusal-suite-v1",
+        "base_image": str(base_image_path),
+        "repair_attempted": False,
+        "all_refused": True,
+        "fixtures": reports,
+        "claim_boundary": "damaged-repo-image-detect-and-refuse-only; not arbitrary-disk-recovery-proof",
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-contract", action="store_true", help="validate docs and rows")
     parser.add_argument("--image", type=Path, help="inspect a generated disk image")
+    parser.add_argument(
+        "--blank-install-proof",
+        action="store_true",
+        help="build an in-memory image from an all-zero disk and verify the install manifest",
+    )
+    parser.add_argument(
+        "--recovery-candidate",
+        type=Path,
+        help="inspect one image as a recovery candidate and report accept/refuse",
+    )
+    parser.add_argument(
+        "--recovery-fixtures",
+        type=Path,
+        help="run damaged-image refusal fixtures derived from a known-good image",
+    )
     parser.add_argument("--json", action="store_true", help="print image manifest as JSON")
     args = parser.parse_args(argv)
 
-    if not args.repo_contract and args.image is None:
+    if (
+        not args.repo_contract
+        and args.image is None
+        and not args.blank_install_proof
+        and args.recovery_candidate is None
+        and args.recovery_fixtures is None
+    ):
         args.repo_contract = True
 
     try:
         if args.repo_contract:
             validate_repo_contract(ROOT)
+        results = {}
         manifest = inspect_image(args.image) if args.image is not None else None
+        if manifest is not None:
+            results["image_manifest"] = manifest
+        if args.blank_install_proof:
+            results["blank_install_proof"] = prove_blank_disk_install(ROOT)
+        if args.recovery_candidate is not None:
+            results["recovery_candidate"] = inspect_recovery_candidate(args.recovery_candidate)
+        if args.recovery_fixtures is not None:
+            results["recovery_fixtures"] = damaged_recovery_fixture_reports(args.recovery_fixtures)
     except StorageBoundaryError as exc:
         print(f"storage install boundary check failed: {exc}", file=sys.stderr)
         return 1
 
-    if args.json and manifest is not None:
-        print(json.dumps(manifest, indent=2, sort_keys=True))
-    elif manifest is not None:
-        print(
-            "install-image manifest OK: "
-            f"{manifest['image_size']} bytes, FAT16 LBA {manifest['fat16']['lba']}, "
-            f"{manifest['fat16']['root_entry_count']} root entries"
-        )
-    elif args.repo_contract:
-        print("storage install boundary repo contract OK")
+    if args.json:
+        if args.repo_contract and not results:
+            print(json.dumps({"repo_contract": "OK"}, indent=2, sort_keys=True))
+        elif set(results) == {"image_manifest"}:
+            print(json.dumps(results["image_manifest"], indent=2, sort_keys=True))
+        else:
+            print(json.dumps(results, indent=2, sort_keys=True))
+    else:
+        if manifest is not None:
+            print(
+                "install-image manifest OK: "
+                f"{manifest['image_size']} bytes, FAT16 LBA {manifest['fat16']['lba']}, "
+                f"{manifest['fat16']['root_entry_count']} root entries"
+            )
+        if "blank_install_proof" in results:
+            proof = results["blank_install_proof"]
+            print(
+                "blank install manifest OK: "
+                f"{proof['source']['image_size']} bytes, "
+                f"{proof['installed_image_manifest']['fat16']['root_entry_count']} root entries, "
+                "structural boot proof without local QEMU"
+            )
+        if "recovery_candidate" in results:
+            report = results["recovery_candidate"]
+            print(f"recovery candidate {report['decision']}: {report['candidate']}")
+        if "recovery_fixtures" in results:
+            suite = results["recovery_fixtures"]
+            print(
+                "damaged image refusal fixtures OK: "
+                f"{len(suite['fixtures'])} refused"
+            )
+        if args.repo_contract and not results:
+            print("storage install boundary repo contract OK")
     return 0
 
 

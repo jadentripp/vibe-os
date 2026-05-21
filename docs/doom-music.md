@@ -52,11 +52,14 @@ normal Doom SFX handles. The descriptor also marks the voice with
 `VIBE_AUDIO_FLAG_MUSIC`.
 Runtime music volume changes call `vibe_music_stream_set_volume`, so future
 chunks honor Doom's current music volume without resetting the song position.
-The platform hook now polls `VIBE_AUDIO_PCM_PULL_STATE` before rendering a new
-chunk after the initial music start. The kernel keeps the currently mixed window
-plus one pending music window, promotes the pending window from the SB16 IRQ
-refill path when the current one drains, and raises the next pull request from
-that same refill path when the active plus pending window falls below the stream
+The platform hook now queries structured `VIBE_AUDIO_STREAM_INFO` before
+rendering a new chunk after the initial music start, checking the handle, PULL
+mode, ordered request/refill counters, pending refill flag, and underrun/drop
+counters before it services exactly the next request. `VIBE_AUDIO_PCM_PULL_STATE`
+remains as the scalar fallback. The kernel keeps the currently mixed window plus
+one pending music window, promotes the pending window from the SB16 IRQ refill
+path when the current one drains, and raises the next pull request from that
+same refill path when the active plus pending window falls below the stream
 low-water mark. That turns normal early refreshes into hardware-paced request
 service instead of `musicdrops=` while still making true pending-slot overwrites
 visible.
@@ -118,9 +121,11 @@ least one music snapshot must show a buffered stream window. It now also
 requires more than one stream update and changing `musicbuf=` values so the
 proof includes stream-health movement instead of a static carrier. It also
 requires advancing `musicrend=` renderer-provenance counters, and the
-rendered-sample delta must cover the consumed `musicpos=` delta, so a
-carrier-only or empty-chunk music voice cannot pass as actual MUS/MIDI
-rendering. The gate also
+rendered-sample delta plus the initial `musicbuf=` window must cover the
+consumed `musicpos=` delta plus the final `musicbuf=` window. That buffered
+coverage is the real stream invariant: a baseline snapshot can already have a
+partly queued music window, but a carrier-only or empty-chunk music voice still
+cannot pass as actual MUS/MIDI rendering. The gate also
 requires the scripted fire phase to advance Doom sound calls and non-music SFX
 mixing plus `sfxdma=` IRQ-refill output, so music-only, carrier-only, or
 submit-only output cannot stand in for firing the shotgun in the play proof. It

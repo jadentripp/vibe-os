@@ -77,6 +77,7 @@ def status_line(**overrides):
         "prefire": "00000000",
         "inputqueue": "00000007",
         "inputpoll": "00000007",
+        "inputdepth": "00000000:00000000",
         "inputlast": "00000060:00000001:00000001",
         "keyirq": "00000002",
         "keyqueue": "00000002",
@@ -96,9 +97,19 @@ def status_line(**overrides):
         "free": "00780000",
         "ticks": "00000300",
         "dtick": "0000010C",
+        "audio": "SB16",
+        "audioirq": "00000040",
+        "refill": "00000040",
+        "musicpos": "00040000",
+        "musicbuf": "00002000",
+        "musicpull": "00000020:00000020",
+        "mixunder": "00000000",
+        "musicunder": "00000000",
+        "musicdrops": "00000000",
         "preempt": "00000008",
         "pirq": "00000008",
         "pattempt": "00000010",
+        "pskip": "00000002",
         "puser": "00000080",
         "pround": "00000018",
         "pctx": "00000020",
@@ -152,6 +163,7 @@ class CloudStatusTriageTests(unittest.TestCase):
             "input-no-effect",
             "doom-timer-not-proven",
             "preemption-not-proven",
+            "long-run-cadence-not-proven",
             "artifact-proof-failure",
             "kernel-panic",
             "os-shutdown-requested",
@@ -632,7 +644,7 @@ class CloudStatusTriageTests(unittest.TestCase):
         )
 
         self.assertEqual(primary, "playability-status-green")
-        self.assertIn("no obvious first-failure", notes[0])
+        self.assertIn("no obvious first-failure", "\n".join(notes))
 
     def test_classifies_frames_without_gameplay(self):
         primary, notes = self.classify(gameplay="WAIT", leveltime="00000000")
@@ -691,11 +703,27 @@ class CloudStatusTriageTests(unittest.TestCase):
         self.assertIn("pframe=00000000/00000000/00000000/00000000/00000000", rendered)
         self.assertIn("pspin=50524545", rendered)
 
+    def test_classifies_missing_long_run_cadence_after_core_proofs_are_green(self):
+        primary, notes = self.classify(audioirq="00000000", refill="00000000")
+
+        self.assertEqual(primary, "long-run-cadence-not-proven")
+        rendered = "\n".join(notes)
+        self.assertIn("zero SB16/music cadence fields", rendered)
+        self.assertIn("audioirq=00000000", rendered)
+        self.assertIn("refill=00000000", rendered)
+
+    def test_classifies_audio_pressure_as_long_run_cadence_lane(self):
+        primary, notes = self.classify(musicdrops="00000001")
+
+        self.assertEqual(primary, "long-run-cadence-not-proven")
+        self.assertIn("audio pressure counters are nonzero", "\n".join(notes))
+
     def test_classifies_green_status_as_needing_full_proof_gates(self):
         primary, notes = self.classify()
 
         self.assertEqual(primary, "playability-status-green")
-        self.assertIn("no obvious first-failure", notes[0])
+        self.assertIn("no obvious first-failure", "\n".join(notes))
+        self.assertIn("long-run-cadence", "\n".join(notes))
 
     def test_cli_prints_primary_and_summary(self):
         with tempfile.TemporaryDirectory() as tmp:

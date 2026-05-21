@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import socket
 import subprocess
@@ -40,6 +41,7 @@ OPTIONAL_EXACT_FILES = (
 )
 
 ALLOWLIST_PATTERNS = ("*.log",)
+MAX_COPIED_LOG_BYTES = 2 * 1024 * 1024
 CAPTURE_PHASES = tuple(
     phase for phase, _status_file, _human_action in check_cloud_playability_artifacts.HUMAN_SESSION_PHASES
 )
@@ -71,6 +73,7 @@ NOTE_FIELD_ORDER = (
     "keyboard_evidence",
     "mouse_evidence",
     "menu_evidence",
+    "audio_evidence",
     "slowdown",
     "slowdown_notes",
     "status_capture",
@@ -93,6 +96,7 @@ REQUIRED_CONFIRMATION_FLAGS = (
     ("confirm_keyboard_use", "--confirm-keyboard-use"),
     ("confirm_mouse_action", "--confirm-mouse-action"),
     ("confirm_menu_escape", "--confirm-menu-escape"),
+    ("confirm_audio_observation", "--confirm-audio-observation"),
     ("confirm_slowdown_notes", "--confirm-slowdown-notes"),
     ("confirm_phase_actions", "--confirm-phase-actions"),
     ("confirm_phase_status_hashes", "--confirm-phase-status-hashes"),
@@ -111,6 +115,36 @@ PHASE_STATUS_SIGNALS = {
     "after-menu": "menu key bit plus menu-active status",
     "final": "duration gate crossed and all manual action bits retained",
 }
+
+SECRET_REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"((?:GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*=)[^\s]+",
+            re.IGNORECASE,
+        ),
+        r"\1[redacted]",
+    ),
+    (
+        re.compile(
+            r"((?:GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*=)(gh[pousr]_[A-Za-z0-9_]+)",
+            re.IGNORECASE,
+        ),
+        r"\1[redacted]",
+    ),
+    (re.compile(r"gh[pousr]_[A-Za-z0-9_]+"), "[redacted]"),
+    (
+        re.compile(r"(Authorization:\s*(?:Bearer|token)\s+)[^\s]+", re.IGNORECASE),
+        r"\1[redacted]",
+    ),
+    (
+        re.compile(
+            r"((?:access_token|token|signature|sig|X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token)=)[^&\s]+",
+            re.IGNORECASE,
+        ),
+        r"\1[redacted]",
+    ),
+    (re.compile(r"Bearer\s+eyJ[A-Za-z0-9_.-]+"), "Bearer [redacted]"),
+)
 
 
 def _path_is_relative_to(path: Path, parent: Path) -> bool:
@@ -146,6 +180,17 @@ def _safe_note_text(value: str, label: str) -> str:
             f"{label} contains unsupported characters for key=value notes: {''.join(bad)!r}"
         )
     return text
+
+
+def _audio_evidence_for_mode(mode: str) -> str:
+    return check_cloud_playability_artifacts.HUMAN_AUDIO_EVIDENCE_BY_MODE[mode]
+
+
+def _redact_log_text(text: str) -> str:
+    redacted = text
+    for pattern, replacement in SECRET_REDACTIONS:
+        redacted = pattern.sub(replacement, redacted)
+    return redacted
 
 
 def _assert_output_location(output_dir: Path) -> None:
@@ -200,9 +245,26 @@ def _copy_patterns(build_dir: Path, output_dir: Path) -> list[str]:
             dst = output_dir / src.name
             if dst.exists():
                 raise AssertionError(f"duplicate output diagnostic basename: {src.name}")
-            shutil.copy2(src, dst)
+            _copy_redacted_log(src, dst)
             copied.append(src.name)
     return copied
+
+
+def _copy_redacted_log(src: Path, dst: Path) -> None:
+    size = src.stat().st_size
+    if size > MAX_COPIED_LOG_BYTES:
+        raise AssertionError(
+            f"log diagnostic is too large for the human proof bundle: {src.name} "
+            f"({size} bytes, max {MAX_COPIED_LOG_BYTES})"
+        )
+    raw = src.read_bytes()
+    reason = check_cloud_playability_artifacts._forbidden_content_reason(src, raw)
+    if reason is not None:
+        raise AssertionError(f"forbidden artifact content in log {src.name}: {reason}")
+    if b"\0" in raw:
+        raise AssertionError(f"log diagnostic must be text, not binary: {src.name}")
+    text = raw.decode("utf-8", errors="replace")
+    dst.write_text(_redact_log_text(text))
 
 
 def _status_filename_for_phase(phase: str) -> str:
@@ -375,6 +437,7 @@ def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
         "keyboard_evidence": "fire-move-use-menu-visible",
         "mouse_evidence": "motion-click-visible",
         "menu_evidence": "escape-menu-visible",
+        "audio_evidence": _audio_evidence_for_mode(args.audio),
         "slowdown": args.slowdown,
         "slowdown_notes": _safe_note_text(args.slowdown_notes, "--slowdown-notes"),
         "status_capture": "monitor-pmemsave-0x9d000",
@@ -395,6 +458,7 @@ def _write_human_notes(args: argparse.Namespace, output_dir: Path) -> None:
         "operator_keyboard_use": "confirmed",
         "operator_mouse_action": "confirmed",
         "operator_menu_escape": "confirmed",
+        "operator_audio_observation": "recorded",
         "operator_slowdown_notes": "recorded",
         "operator_phase_actions": "confirmed",
         "operator_phase_status_hashes": "confirmed",
@@ -453,6 +517,7 @@ collect command:
     --confirm-keyboard-use \\
     --confirm-mouse-action \\
     --confirm-menu-escape \\
+    --confirm-audio-observation \\
     --confirm-slowdown-notes \\
     --confirm-phase-actions \\
     --confirm-phase-status-hashes \\
@@ -670,6 +735,14 @@ def main(argv: list[str]) -> int:
         "--confirm-menu-escape",
         action="store_true",
         help="operator confirms Escape visibly opened the Doom menu",
+    )
+    parser.add_argument(
+        "--confirm-audio-observation",
+        action="store_true",
+        help=(
+            "operator confirms the audio observation mode was recorded: status-only, "
+            "listener-pass, audio-proof-json-pass, or not-tested"
+        ),
     )
     parser.add_argument(
         "--confirm-slowdown-notes",

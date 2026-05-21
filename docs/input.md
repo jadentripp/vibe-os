@@ -26,11 +26,15 @@ Generic ABI:
   `vibe_input_make_key_event()` plus `vibe_input_make_mouse_packet_event()` so
   future games can construct or replay typed events without depending on
   Doom's translation helpers.
+- `VIBE_INPUT_EVENT_VALUE_COUNT` documents the three signed value slots in each
+  event. Keyboard consumers should use `vibe_input_key_code()`,
+  `vibe_input_key_is_pressed()`, and `vibe_input_key_is_released()` instead of
+  reaching into `value0` directly.
 - Public headers also pin `VIBE_INPUT_STATUS_BYTES == 112`. The status record
   reports the ABI version, event size, queue capacity, queued event count,
   total enqueued events, total polled events, `dropped_events`, capability bits,
   keyboard IRQ/event counts, `keyboard_down_count`, the last keyboard code, a
-  256-bit `keyboard_state` bitmap keyed by event `code`, mouse
+  `VIBE_INPUT_KEY_STATE_BITS` sized `keyboard_state` bitmap keyed by event `code`, mouse
   IRQ/packet/sync-loss counts, current `mouse_buttons`, signed cumulative mouse
   deltas, and the last generic event device/type. This status API is a proof
   and health surface; polling it must not consume input events.
@@ -40,12 +44,17 @@ Generic ABI:
 - Raw PS/2 button order is preserved in generic events and status.
   Game-specific
   button remapping belongs in the consuming port, not in the kernel queue.
-- `vibe_input_mouse_buttons()`, `vibe_input_mouse_button_is_down()`,
-  `vibe_input_mouse_delta_x()`, `vibe_input_mouse_delta_y()`, and
+- `VIBE_INPUT_MOUSE_AXIS_X` and `VIBE_INPUT_MOUSE_AXIS_Y` name the relative
+  movement axes carried in mouse packet values 0 and 1.
+- `vibe_input_mouse_buttons()`, `vibe_input_mouse_button_is_supported()`,
+  `vibe_input_mouse_button_is_down()`, `vibe_input_mouse_delta_x()`,
+  `vibe_input_mouse_delta_y()`, `vibe_input_mouse_delta()`, and
   `vibe_input_mouse_has_motion()` normalize mouse packet reads for any future
   user program. The matching status helpers
+  `vibe_input_status_abi_is_current()`,
   `vibe_input_status_mouse_buttons()`,
   `vibe_input_status_mouse_button_is_down()`, and
+  `vibe_input_status_mouse_delta()` plus
   `vibe_input_status_mouse_has_motion()` expose the same raw-button and
   cumulative-motion semantics without consuming events.
 - Queue overflow semantics are overwrite-oldest: when the shared input ring is
@@ -77,6 +86,9 @@ Mouse:
   carries signed Y delta.
 - The port maps PS/2 left/right/middle order into Doom's left/middle/right button
   order, then applies a small 4x relative-motion scale before posting `ev_mouse`.
+- Doom now drains input through `vibe_poll_input()` and keeps that scale in
+  `VIBE_DOOM_MOUSE_RELATIVE_SCALE`; future games can consume the raw relative
+  movement ABI directly or apply their own feel/acceleration layer.
 - The generic status path keeps raw PS/2 button state in `mouse_buttons`; Doom's
   button-order remap remains only in `doom_port/input.c`.
 - Smoke status also exposes `mousebtn=` and `mousedelta=`. Those fields are
@@ -102,3 +114,44 @@ Host tests prove the translation without QEMU or WAD data:
   mouse phase with QEMU monitor input, captures each status snapshot, and
   requires Doom-poll counters plus `keyseen`, `mousebtn`, and `mousedelta`
   proof fields to advance.
+
+PS/2 mouse bring-up:
+
+- The kernel initializes the PS/2 auxiliary device during boot. If the
+  controller and mouse acknowledge setup, `mouse=OK` appears in the RAM smoke
+  status; otherwise the status remains observable as `mouse=NONE`.
+- IRQ12 reads bytes from the PS/2 data port.
+- The decoder resynchronizes on packet byte 0 bit 3, rejects overflow packets,
+  and emits valid 3-byte packets as buttons plus signed X/Y deltas.
+- The packet is queued both in the legacy packed mouse queue and in the generic
+  input event queue as a `VIBE_INPUT_EVENT_MOUSE_PACKET` with a timestamp,
+  device id, button mask, and signed deltas.
+- `SYS_POLL_INPUT` copies one generic event at a time to Doom's platform layer.
+- `doom_port/platform.c` drains that syscall in `I_StartTic`, uses
+  `doom_port/input.c` to translate the generic mouse packet, and posts Doom
+  `ev_mouse` events without modifying `third_party/doom`.
+
+Mouse proof counters:
+
+- `mouseirq=` counts IRQ12 entries during the current Doom run.
+- `mousepkt=` counts decoded non-overflow 3-byte packets.
+- `mousepoll=` counts generic mouse events consumed by the Doom user process.
+- `mousebtn=` ORs together the PS/2 button bits from mouse packets Doom
+  actually polled. The cloud script requires bit 0 from its left click.
+- `mousedelta=` reports the absolute X/Y movement totals from mouse packets
+  Doom actually polled, formatted as `XXXXXXXX:YYYYYYYY`.
+- `inputqueue=`, `inputpoll=`, and `inputlast=` expose the shared input queue
+  before the Doom-specific mouse proof fields.
+
+The cloud smoke runner accepts `mouse=DX:DY` and `mousebtn=MASK` actions in
+`SMOKE_INPUT_SCRIPT`. The real-WAD workflow uses those actions to capture
+`status.after-mouse.txt`, and the proof checker requires `mouseirq`, `mousepkt`,
+`mousepoll`, `mousebtn`, `mousedelta`, the `pflags` turn bit, and a raw
+`pangle`/`pangledelta` change from the early status snapshot. This proves the
+scripted mouse phase carried movement/button data all the way through
+`SYS_POLL_INPUT` and into Doom gameplay state. The runtime sets the turn bit
+from sampled `ticcmd.angleturn` or from the resulting player-angle delta, not
+just because IRQ12 fired.
+
+The OS does not yet provide cursor grabbing policy, wheel packets, or
+acceleration tuning beyond Doom's own `mouse_sensitivity`.

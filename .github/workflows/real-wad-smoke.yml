@@ -39,6 +39,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   smoke:
     name: Boot with validated shareware DOOM1.WAD
@@ -60,7 +63,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Confirm selected proof ref
         run: |
@@ -197,6 +200,7 @@ jobs:
           cp build/disk.img "$RUNNER_TEMP/disk.before-persistence.img"
 
       - name: Boot real-WAD image
+        id: boot_real_wad
         timeout-minutes: 4
         run: |
           audio_backend="-audiodev none,id=snd0 -device sb16,audiodev=snd0"
@@ -218,6 +222,7 @@ jobs:
             smoke
 
       - name: Analyze temporary audible audio capture
+        id: audible_audio_capture
         if: ${{ always() && inputs.audible_audio_proof }}
         run: |
           set -euo pipefail
@@ -234,6 +239,7 @@ jobs:
           python3 tools/check_audible_audio_proof.py build/audio-proof.json
 
       - name: Assert real-WAD proof gates
+        id: real_wad_proof
         if: always()
         run: |
           python3 tools/check_real_wad_proof.py \
@@ -247,6 +253,7 @@ jobs:
             build/status.txt
 
       - name: Assert scripted human-playability gates
+        id: human_playability
         if: always()
         run: |
           python3 tools/check_human_playability_proof.py \
@@ -260,6 +267,7 @@ jobs:
             build/status.txt
 
       - name: Assert scripted gameplay transition gates
+        id: gameplay_transition
         if: always()
         run: |
           python3 tools/check_scripted_gameplay_proof.py \
@@ -273,6 +281,7 @@ jobs:
             build/status.txt
 
       - name: Assert VM/process legitimacy gates
+        id: vm_status
         if: always()
         run: |
           python3 tools/check_vm_status_proof.py \
@@ -281,6 +290,7 @@ jobs:
             build/status.txt
 
       - name: Assert SB16 audio continuity gates
+        id: audio_continuity
         if: always()
         run: |
           python3 tools/check_audio_continuity_proof.py \
@@ -293,12 +303,14 @@ jobs:
             build/status.txt
 
       - name: Assert audible audio proof manifest
+        id: audible_audio_manifest
         if: ${{ always() && inputs.audible_audio_proof }}
         run: |
           test -f build/audio-proof.json
           python3 tools/check_audible_audio_proof.py build/audio-proof.json
 
       - name: Assert gameplay/audio proof bundle
+        id: playability_bundle
         if: always()
         run: |
           set -euo pipefail
@@ -338,6 +350,7 @@ jobs:
           done
 
       - name: Attempt reboot persistence proof
+        id: persistence_proof
         if: ${{ always() && (inputs.persistence_proof || inputs.persistence_save_slot != '') }}
         timeout-minutes: 15
         run: |
@@ -614,6 +627,7 @@ jobs:
           rm -f build/persistence-*/vga*.bin build/persistence-*/vga*.txt
 
       - name: Upload non-copyright diagnostic artifacts
+        id: upload_diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -631,3 +645,90 @@ jobs:
             build/*.log
             build/persistence-*/*.json
             build/persistence-*/*.log
+
+      - name: Summarize proof lane outcomes and reruns
+        if: always()
+        env:
+          AUDIBLE_REQUESTED: ${{ inputs.audible_audio_proof }}
+          PERSISTENCE_REQUESTED: ${{ inputs.persistence_proof || inputs.persistence_save_slot != '' }}
+          BOOT_OUTCOME: ${{ steps.boot_real_wad.outcome }}
+          REAL_WAD_OUTCOME: ${{ steps.real_wad_proof.outcome }}
+          HUMAN_OUTCOME: ${{ steps.human_playability.outcome }}
+          GAMEPLAY_OUTCOME: ${{ steps.gameplay_transition.outcome }}
+          VM_STATUS_OUTCOME: ${{ steps.vm_status.outcome }}
+          BUNDLE_OUTCOME: ${{ steps.playability_bundle.outcome }}
+          AUDIO_CAPTURE_OUTCOME: ${{ steps.audible_audio_capture.outcome }}
+          AUDIO_CONTINUITY_OUTCOME: ${{ steps.audio_continuity.outcome }}
+          AUDIO_MANIFEST_OUTCOME: ${{ steps.audible_audio_manifest.outcome }}
+          PERSISTENCE_OUTCOME: ${{ steps.persistence_proof.outcome }}
+          UPLOAD_OUTCOME: ${{ steps.upload_diagnostics.outcome }}
+        run: |
+          set -euo pipefail
+
+          lane_state() {
+            local requested="$1"
+            shift
+            if [ "$requested" != "true" ]; then
+              printf 'not-requested'
+              return
+            fi
+            local outcome
+            for outcome in "$@"; do
+              case "$outcome" in
+                success|skipped) ;;
+                *) printf 'red'; return ;;
+              esac
+            done
+            printf 'green'
+          }
+
+          gameplay_state="$(lane_state true \
+            "$BOOT_OUTCOME" \
+            "$REAL_WAD_OUTCOME" \
+            "$HUMAN_OUTCOME" \
+            "$GAMEPLAY_OUTCOME" \
+            "$VM_STATUS_OUTCOME" \
+            "$BUNDLE_OUTCOME")"
+
+          audio_outcomes=("$AUDIO_CONTINUITY_OUTCOME")
+          if [ "$AUDIBLE_REQUESTED" = "true" ]; then
+            audio_outcomes+=("$AUDIO_CAPTURE_OUTCOME" "$AUDIO_MANIFEST_OUTCOME")
+          fi
+          audio_state="$(lane_state true "${audio_outcomes[@]}")"
+          persistence_state="$(lane_state "$PERSISTENCE_REQUESTED" "$PERSISTENCE_OUTCOME")"
+
+          rerun_commands=()
+          if [ "$gameplay_state" = "red" ]; then
+            rerun_commands+=("python3 tools/run_cloud_playability.py --repo \"$GITHUB_REPOSITORY\" --ref \"$GITHUB_REF_NAME\" --lane gameplay --wait --download-artifacts build/cloud-run-gameplay")
+          fi
+          if [ "$audio_state" = "red" ]; then
+            rerun_commands+=("python3 tools/run_cloud_playability.py --repo \"$GITHUB_REPOSITORY\" --ref \"$GITHUB_REF_NAME\" --lane audio --wait --download-artifacts build/cloud-run-audio")
+          fi
+          if [ "$persistence_state" = "red" ]; then
+            rerun_commands+=("python3 tools/run_cloud_playability.py --repo \"$GITHUB_REPOSITORY\" --ref \"$GITHUB_REF_NAME\" --lane persistence --save-slot \"${PERSISTENCE_SAVE_SLOT:-0}\" --wait --download-artifacts build/cloud-run-persistence")
+          fi
+
+          {
+            echo "### Proof lane outcomes"
+            echo ""
+            echo "| Lane | State | Checks |"
+            echo "| --- | --- | --- |"
+            echo "| gameplay/input | $gameplay_state | boot=$BOOT_OUTCOME, real_wad=$REAL_WAD_OUTCOME, human=$HUMAN_OUTCOME, gameplay=$GAMEPLAY_OUTCOME, vm=$VM_STATUS_OUTCOME, bundle=$BUNDLE_OUTCOME |"
+            echo "| audio | $audio_state | sb16_continuity=$AUDIO_CONTINUITY_OUTCOME, audible_capture=$AUDIO_CAPTURE_OUTCOME, audible_manifest=$AUDIO_MANIFEST_OUTCOME |"
+            echo "| persistence/save-load | $persistence_state | persistence=$PERSISTENCE_OUTCOME |"
+            echo "| artifact upload | $UPLOAD_OUTCOME | real-wad-smoke-status diagnostics only |"
+            echo ""
+            echo "Artifact policy: no WADs, disk images, rendered pixels, or raw audio are uploaded."
+            echo ""
+            echo "#### Rerun only the red lane"
+            if [ "${#rerun_commands[@]}" -eq 0 ]; then
+              echo "No red proof lane was detected."
+            else
+              echo ""
+              echo '```sh'
+              printf '%s\n' "${rerun_commands[@]}"
+              echo '```'
+              echo ""
+              echo "If boot/build failed, rerun gameplay first; rerun audio or persistence only after gameplay is green."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

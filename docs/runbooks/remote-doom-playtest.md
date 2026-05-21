@@ -189,10 +189,13 @@ download, creates `/tmp/vibe-os-human-proof.tgz`, and prints the exact `scp` and
 local `--human-session` command with the expected commit and scripted proof run
 ID baked in. Before capture it asks the operator to confirm the linked Real WAD
 smoke run is green; after capture it records slowdown as `not-observed`, `mild`,
-`moderate`, or `severe` plus a short status-only note. At startup and before
-each capture it prints the phase's output filename and expected status-only
-signal, so the operator can catch a wrong capture order before packaging the
-bundle. It does not launch QEMU and refuses to run on macOS.
+`moderate`, or `severe` plus a short status-only note. It also records the audio
+observation mode as `status-only`, `listener-pass`, `audio-proof-json-pass`, or
+`not-tested`; use `status-only` for the noVNC-only path because VNC proves
+display/input, not audible output. At startup and before each capture it prints
+the phase's output filename and expected status-only signal, so the operator can
+catch a wrong capture order before packaging the bundle. It does not launch QEMU
+and refuses to run on macOS.
 Before the first capture prompt, it also validates that `--playtester` matches
 the notes schema, `--scripted-proof-run-id` is a numeric GitHub Actions run ID,
 and both the proof output directory and proof tarball live outside the git
@@ -224,15 +227,15 @@ capture_status() {
 # each capture. The strict checker requires at least 350 Doom ticks, about ten
 # seconds of in-game time, from after-start to final.
 capture_status early
-# Confirm E1M1 is visibly up in VNC.
+# Click the noVNC canvas and confirm E1M1 is visibly up in VNC.
 capture_status after-start
-# Press Ctrl/fire in VNC.
+# Press Ctrl/fire in VNC and wait for a visible weapon/action response.
 capture_status after-fire
 # Hold an arrow key long enough to move or turn.
 capture_status after-move
 # Press Space/use.
 capture_status after-use
-# Move the mouse and click once.
+# Move the mouse and click once; wait for visible turn/click response.
 capture_status after-mouse
 # Press Escape to open the menu.
 capture_status after-menu
@@ -280,6 +283,7 @@ python3 tools/collect_human_playtest_bundle.py \
   --confirm-keyboard-use \
   --confirm-mouse-action \
   --confirm-menu-escape \
+  --confirm-audio-observation \
   --confirm-slowdown-notes \
   --confirm-phase-actions \
   --confirm-phase-status-hashes \
@@ -295,9 +299,10 @@ human-played. The `--confirm-*` flags are deliberate operator confirmations:
 they say the linked scripted run was green first, the playtester used the remote
 VNC display, E1M1 was visible, Ctrl/fire worked, arrow movement or turning
 worked, Space/use worked, mouse movement/click worked, Escape opened the menu,
-slowdown was recorded honestly, the named status phase files were captured
-after the actions, WAD/disk/pixel/raw-audio artifacts were excluded, and the
-checker will be rerun after download. Keep subjective comments in
+audio was recorded in the right mode for the session, slowdown was recorded
+honestly, the named status phase files were captured after the actions,
+WAD/disk/pixel/raw-audio artifacts were excluded, and the checker will be rerun
+after download. Keep subjective comments in
 `--slowdown-notes` or separate status-only notes if useful, but do not store
 screenshots, audio captures, WADs, disk images, `status.*.bin` files, or ad hoc
 binaries in the proof directory.
@@ -312,11 +317,12 @@ keys: `schema=human-playtest-notes-v2`, `commit=...`,
 `qemu_display=127.0.0.1:1`, `monitor_socket=unix-monitor-socket`,
 `vnc_tunnel=loopback-only`, `vnc_endpoint=127.0.0.1:5901`,
 `wad=shareware-v1.9-validated-remote-only`, `display=pass`,
-`keyboard=pass`, `mouse=pass`,
+`keyboard=pass`, `mouse=pass`, `audio=status-only|listener-pass|audio-proof-json-pass|not-tested`,
 `visual_evidence=e1m1-visible-via-remote-vnc`,
 `keyboard_evidence=fire-move-use-menu-visible`,
 `mouse_evidence=motion-click-visible`,
 `menu_evidence=escape-menu-visible`,
+`audio_evidence=status-only-sb16-continuity|remote-listener-heard-output|aggregate-audio-proof-json|audio-not-tested`,
 `slowdown=not-observed|mild|moderate|severe`,
 `slowdown_notes=...`,
 `status_capture=monitor-pmemsave-0x9d000`,
@@ -335,6 +341,7 @@ keys: `schema=human-playtest-notes-v2`, `commit=...`,
 `operator_keyboard_use=confirmed`,
 `operator_mouse_action=confirmed`,
 `operator_menu_escape=confirmed`,
+`operator_audio_observation=recorded`,
 `operator_slowdown_notes=recorded`,
 `operator_phase_actions=confirmed`,
 `operator_phase_status_hashes=confirmed`,
@@ -349,7 +356,8 @@ required status file, byte count, SHA-256 hash, and a compact status summary for
 that phase. The artifact checker rebuilds that transcript from the bundle and
 fails if any status file, note value, phase order, hash, or summary was changed
 after collection. It also checks that every `phase_hash_*` note exactly matches
-the current status file content.
+the current status file content and that `audio_evidence=` matches the selected
+`audio=` mode.
 
 The companion `human-playtest-checklist.txt` uses
 `schema=human-playtest-checklist-v1` and gives the post-download human review
@@ -436,6 +444,11 @@ the status-only SB16 continuity gate. If `audible_audio_proof=true`, every
 successful attempt must also include a validated aggregate `audio-proof.json`
 reduced from a temporary remote WAV; the soak artifact keeps only the JSON
 summary and never uploads the WAV.
+When a proof turns red, use the workflow summary or
+`tools/run_cloud_playability.py` output to rerun only the red lane: gameplay for
+boot/input failures, audio for SB16 or aggregate audio failures, and persistence
+for save/load failures. Do not rerun the combined path until the isolated lane
+is green.
 
 After downloading the `real-wad-soak-metadata` artifact, validate it locally:
 
@@ -513,7 +526,8 @@ bundle and requires `human-playtest-notes.txt`; if you used
 `tools/collect_human_playtest_bundle.py`, that check already ran once on the
 remote host before download. The collector prints a `pre-download human
 verification OK` line containing `session_id=`, `bundle_sha256=`,
-`manifest_sha256=`, and short `phase status hashes:`. The local
+`manifest_sha256=`, a compact `review evidence:` line, and short
+`phase status hashes:`. The local
 `--human-session` command prints the same values under `post-download human
 verification OK`; compare them exactly before treating the downloaded bundle as
 the evidence packet.
@@ -524,7 +538,8 @@ snapshots, verifies the `human-playtest-notes.txt` commit and scripted run ID,
 recomputes every note-level `phase_hash_*` value from the downloaded status
 files, rejects WAD/disk/pixel/raw-audio payloads in the proof directory, and
 requires at least 350 Doom ticks of elapsed `gtic=` and `leveltime=` from
-`status.after-start.txt` to `status.txt`.
+`status.after-start.txt` to `status.txt`. It also rejects an early baseline that
+already contains the required manual key or mouse action bits.
 
 `triage_cloud_status.py` auto-loads `doom.symbols` from the artifact directory,
 so a `doom-user-fault` report should include the nearest Doom function for
@@ -550,7 +565,8 @@ Call a remote human playtest credible only after checking all of this:
 - The notes are `schema=human-playtest-notes-v2`, include every `phase_hash_*`
   field, include the per-control `operator_*` confirmation fields, include
   `scripted_proof_url=`, `scripted_proof_checked=green-before-human-session`,
-  and `slowdown=` / `slowdown_notes=`, and the local
+  `audio_evidence=`, `operator_audio_observation=recorded`, and `slowdown=` /
+  `slowdown_notes=`, and the local
   `post-download human verification OK` line matches the remote
   `pre-download human verification OK` line.
 - The generated checklist is `schema=human-playtest-checklist-v1`, names the

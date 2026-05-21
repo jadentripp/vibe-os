@@ -187,6 +187,7 @@ rsync -av "$VIBE_CLOUD_HOST:~/vibe-os-cloud-playtest/build/disk.img" .
                 self.assertIn("build/*.log", upload)
                 self.assertNotIn("build/disk.img", upload)
                 self.assertNotIn("build/gfx.bin", upload)
+                self.assertNotIn("build/vga.txt", upload)
                 self.assertNotIn("DOOM1.WAD", upload)
 
     def test_os_smoke_has_opt_in_shutdown_panic_proof_mode(self):

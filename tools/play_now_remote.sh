@@ -388,6 +388,8 @@ fi
 
 echo "Starting remote QEMU VNC display :$VNC_DISPLAY on 127.0.0.1:$VNC_PORT"
 echo "Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu."
+echo "noVNC focus: click inside the canvas before each human-proof action if keyboard input is ambiguous."
+echo "Audio: this quick VNC path exposes display/input; record audio as status-only unless you set up remote audio forwarding or an aggregate audio-proof.json."
 qemu-system-x86_64 \
   -machine pc,accel=tcg \
   -m 128M \

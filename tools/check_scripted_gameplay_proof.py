@@ -44,11 +44,16 @@ MOUSE_COUNTERS = ("mouseirq", "mousepkt", "mousepoll")
 FRAME_COUNTERS = ("doompresent",)
 TIMER_COUNTERS = ("dtick",)
 PREEMPT_COUNTERS = ("preempt", "pirq", "pattempt", "puser")
+SCHEDULER_DIAGNOSTIC_COUNTERS = ("pskip",)
+AUDIO_PROGRESS_COUNTERS = ("audioirq", "refill", "musicpos")
 AUDIO_SAFETY_COUNTERS = ("mixunder", "musicunder", "musicdrops")
 PERFORMANCE_REQUIRED_FIELDS = (
     "doompresent",
     "dtick",
     "inputdepth",
+    "audioirq",
+    "refill",
+    "musicpos",
     "musicbuf",
     "musicpull",
     "mixunder",
@@ -57,8 +62,13 @@ PERFORMANCE_REQUIRED_FIELDS = (
     "preempt",
     "pirq",
     "pattempt",
+    "pskip",
     "puser",
 )
+LONG_RUN_CADENCE_HEALTHY = "long-run-cadence-observed"
+LONG_RUN_WINDOW_START = "use"
+LONG_RUN_WINDOW_END = "mouse"
+LONG_RUN_MIN_DOOM_TICS = 0x80
 
 MENU_ACTIVE_FLAG = 0x1
 KEY_SEEN_UP = 0x00000001
@@ -182,6 +192,9 @@ SUMMARY_FIELDS = (
     "mousedelta",
     "doompresent",
     "dtick",
+    "audioirq",
+    "refill",
+    "musicpos",
     "inputdepth",
     "musicbuf",
     "musicpull",
@@ -191,6 +204,7 @@ SUMMARY_FIELDS = (
     "preempt",
     "pirq",
     "pattempt",
+    "pskip",
     "puser",
 )
 
@@ -459,7 +473,14 @@ def _require_performance_observability(snapshots: dict[str, str]) -> None:
         _assert_not_decreasing(
             previous_status,
             status,
-            FRAME_COUNTERS + TIMER_COUNTERS + PREEMPT_COUNTERS + AUDIO_SAFETY_COUNTERS,
+            (
+                FRAME_COUNTERS
+                + TIMER_COUNTERS
+                + PREEMPT_COUNTERS
+                + SCHEDULER_DIAGNOSTIC_COUNTERS
+                + AUDIO_PROGRESS_COUNTERS
+                + AUDIO_SAFETY_COUNTERS
+            ),
             previous_phase,
             phase,
         )
@@ -474,8 +495,17 @@ def _require_performance_observability(snapshots: dict[str, str]) -> None:
 
 
 def _counter_progress(snapshots: dict[str, str], name: str) -> dict[str, str]:
-    start = _hex_field(snapshots["start"], name)
-    final = _hex_field(snapshots["final"], name)
+    return _counter_progress_between(snapshots, "start", "final", name)
+
+
+def _counter_progress_between(
+    snapshots: dict[str, str],
+    start_phase: str,
+    final_phase: str,
+    name: str,
+) -> dict[str, str]:
+    start = _hex_field(snapshots[start_phase], name)
+    final = _hex_field(snapshots[final_phase], name)
     return {
         "start": _hex8(start),
         "final": _hex8(final),
@@ -484,8 +514,18 @@ def _counter_progress(snapshots: dict[str, str], name: str) -> dict[str, str]:
 
 
 def _tuple_progress(snapshots: dict[str, str], name: str, labels: tuple[str, ...]) -> dict[str, dict[str, str]]:
-    start_values = _tuple_field(snapshots["start"], name, len(labels))
-    final_values = _tuple_field(snapshots["final"], name, len(labels))
+    return _tuple_progress_between(snapshots, "start", "final", name, labels)
+
+
+def _tuple_progress_between(
+    snapshots: dict[str, str],
+    start_phase: str,
+    final_phase: str,
+    name: str,
+    labels: tuple[str, ...],
+) -> dict[str, dict[str, str]]:
+    start_values = _tuple_field(snapshots[start_phase], name, len(labels))
+    final_values = _tuple_field(snapshots[final_phase], name, len(labels))
     progress = {}
     for label, start, final in zip(labels, start_values, final_values):
         progress[label] = {
@@ -509,6 +549,170 @@ def _gauge_summary(snapshots: dict[str, str], name: str) -> dict[str, str | bool
         "max": _hex8(max(values)),
         "changed": len(set(values)) > 1,
     }
+
+
+def _delta(progress: dict[str, str]) -> int:
+    return int(progress["delta"], 16)
+
+
+def _window_counter_progress(
+    snapshots: dict[str, str],
+    start_phase: str,
+    final_phase: str,
+) -> dict[str, dict[str, str]]:
+    counters = (
+        "gtic",
+        "leveltime",
+        "doompresent",
+        "dtick",
+        "pirq",
+        "preempt",
+        "pattempt",
+        "pskip",
+        "puser",
+        "audioirq",
+        "refill",
+        "musicpos",
+        "mixunder",
+        "musicunder",
+        "musicdrops",
+    )
+    return {
+        name: _counter_progress_between(snapshots, start_phase, final_phase, name)
+        for name in counters
+    }
+
+
+def _build_cadence_window(
+    snapshots: dict[str, str],
+    start_phase: str,
+    final_phase: str,
+) -> dict[str, object]:
+    counters = _window_counter_progress(snapshots, start_phase, final_phase)
+    inputdepth = _tuple_progress_between(snapshots, start_phase, final_phase, "inputdepth", ("queued", "dropped"))
+    musicpull = _tuple_progress_between(snapshots, start_phase, final_phase, "musicpull", ("requests", "refills"))
+
+    gtic_delta = _delta(counters["gtic"])
+    leveltime_delta = _delta(counters["leveltime"])
+    frame_delta = _delta(counters["doompresent"])
+    pirq_delta = _delta(counters["pirq"])
+    audioirq_delta = _delta(counters["audioirq"])
+    refill_delta = _delta(counters["refill"])
+    musicpos_delta = _delta(counters["musicpos"])
+    pull_refill_delta = _delta(musicpull["refills"])
+    pskip_delta = _delta(counters["pskip"])
+    pattempt_delta = _delta(counters["pattempt"])
+
+    return {
+        "from": start_phase,
+        "to": final_phase,
+        "counters": counters,
+        "inputdepth": inputdepth,
+        "musicpull": musicpull,
+        "ratios": {
+            "frames_per_1024_gtic": _hex8((frame_delta * 1024) // gtic_delta if gtic_delta else 0),
+            "leveltime_per_1024_gtic": _hex8((leveltime_delta * 1024) // gtic_delta if gtic_delta else 0),
+            "pirq_per_1024_gtic": _hex8((pirq_delta * 1024) // gtic_delta if gtic_delta else 0),
+            "audioirq_per_1024_gtic": _hex8((audioirq_delta * 1024) // gtic_delta if gtic_delta else 0),
+            "refill_per_1024_gtic": _hex8((refill_delta * 1024) // gtic_delta if gtic_delta else 0),
+            "pull_refill_per_1024_gtic": _hex8((pull_refill_delta * 1024) // gtic_delta if gtic_delta else 0),
+            "musicpos_per_leveltime": _hex8(musicpos_delta // leveltime_delta if leveltime_delta else 0),
+            "pskip_per_1024_pattempt": _hex8((pskip_delta * 1024) // pattempt_delta if pattempt_delta else 0),
+        },
+    }
+
+
+def _build_long_run_cadence(snapshots: dict[str, str]) -> dict[str, object]:
+    play_window = _build_cadence_window(snapshots, LONG_RUN_WINDOW_START, LONG_RUN_WINDOW_END)
+    session_window = _build_cadence_window(snapshots, "start", "final")
+    menu_tail_window = _build_cadence_window(snapshots, "menu", "final")
+
+    play_counters = play_window["counters"]
+    play_musicpull = play_window["musicpull"]
+    play_inputdepth = play_window["inputdepth"]
+    gtic_delta = _delta(play_counters["gtic"])
+    leveltime_delta = _delta(play_counters["leveltime"])
+    frame_delta = _delta(play_counters["doompresent"])
+    dtick_delta = _delta(play_counters["dtick"])
+    pirq_delta = _delta(play_counters["pirq"])
+    preempt_delta = _delta(play_counters["preempt"])
+    puser_delta = _delta(play_counters["puser"])
+    audioirq_delta = _delta(play_counters["audioirq"])
+    refill_delta = _delta(play_counters["refill"])
+    musicpos_delta = _delta(play_counters["musicpos"])
+    pull_refill_delta = _delta(play_musicpull["refills"])
+    input_drop_delta = _delta(play_inputdepth["dropped"])
+    audio_pressure = any(
+        _delta(play_counters[name]) > 0
+        for name in ("mixunder", "musicunder", "musicdrops")
+    )
+
+    if gtic_delta < LONG_RUN_MIN_DOOM_TICS or leveltime_delta < LONG_RUN_MIN_DOOM_TICS:
+        verdict = "long-run-window-too-short"
+        interpretation = (
+            f"the {LONG_RUN_WINDOW_START}->{LONG_RUN_WINDOW_END} gameplay window captured "
+            f"{gtic_delta:#x}/{leveltime_delta:#x} Doom tics, below the {LONG_RUN_MIN_DOOM_TICS:#x} "
+            "status-only cadence floor"
+        )
+    elif frame_delta == 0 or dtick_delta == 0:
+        verdict = "guest-cadence-stalled"
+        interpretation = "Doom tic counters advanced, but frame or Doom-time status cadence stalled"
+    elif pirq_delta == 0 or preempt_delta == 0 or puser_delta == 0:
+        verdict = "scheduler-cadence-stalled"
+        interpretation = "Doom stayed in gameplay, but timer IRQ/preemption/user IRQ counters did not all advance"
+    elif input_drop_delta != 0:
+        verdict = "input-loss-observed"
+        interpretation = "Doom stayed in gameplay, but inputdepth= recorded dropped input events"
+    elif audioirq_delta == 0 or refill_delta == 0 or pull_refill_delta == 0 or musicpos_delta == 0:
+        verdict = "audio-cadence-stalled"
+        interpretation = "Doom stayed in gameplay, but SB16 IRQ/refill/pull/music position counters did not all advance"
+    elif audio_pressure:
+        verdict = "audio-pressure-observed"
+        interpretation = "Doom and SB16 cadence advanced, but audio underrun/drop counters increased"
+    else:
+        verdict = LONG_RUN_CADENCE_HEALTHY
+        interpretation = (
+            "pre-menu gameplay stayed live long enough to compare Doom tics, frames, "
+            "timer IRQ/preemption, SB16 IRQ/refill, and music position progress"
+        )
+
+    return {
+        "verdict": verdict,
+        "interpretation": interpretation,
+        "required_when": "--require-long-run-cadence",
+        "minimum_play_window_doom_tics": _hex8(LONG_RUN_MIN_DOOM_TICS),
+        "status_fields": [
+            "gtic",
+            "leveltime",
+            "doompresent",
+            "dtick",
+            "pirq",
+            "preempt",
+            "pattempt",
+            "pskip",
+            "puser",
+            "audioirq",
+            "refill",
+            "musicpos",
+            "musicpull",
+            "inputdepth",
+            "mixunder",
+            "musicunder",
+            "musicdrops",
+        ],
+        "play_window": play_window,
+        "session_window": session_window,
+        "menu_tail_window": menu_tail_window,
+    }
+
+
+def require_long_run_cadence(snapshots: dict[str, str]) -> None:
+    cadence = _build_long_run_cadence(snapshots)
+    if cadence.get("verdict") != LONG_RUN_CADENCE_HEALTHY:
+        raise AssertionError(
+            "long-run cadence must show pre-menu Doom/frame/scheduler/audio progress, "
+            f"got {cadence.get('verdict')}: {cadence.get('interpretation')}"
+        )
 
 
 def _build_performance_diagnostics(snapshots: dict[str, str]) -> dict:
@@ -535,8 +739,10 @@ def _build_performance_diagnostics(snapshots: dict[str, str]) -> dict:
         "preemptions": _counter_progress(snapshots, "preempt"),
         "timer_irqs": _counter_progress(snapshots, "pirq"),
         "attempts": _counter_progress(snapshots, "pattempt"),
+        "skips": _counter_progress(snapshots, "pskip"),
         "user_irqs": _counter_progress(snapshots, "puser"),
     }
+    long_run_cadence = _build_long_run_cadence(snapshots)
 
     queued_final = int(queue["queued"]["final"], 16)
     queued_max = int(input_events["max_queued"], 16)
@@ -581,6 +787,7 @@ def _build_performance_diagnostics(snapshots: dict[str, str]) -> dict:
         },
         "audio": audio,
         "scheduler": scheduler,
+        "long_run_cadence": long_run_cadence,
     }
 
 
@@ -664,8 +871,15 @@ def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def build_manifest(snapshots: dict[str, str], paths: dict[str, Path] | None = None) -> dict:
+def build_manifest(
+    snapshots: dict[str, str],
+    paths: dict[str, Path] | None = None,
+    *,
+    require_cadence: bool = False,
+) -> dict:
     validate_statuses(snapshots)
+    if require_cadence:
+        require_long_run_cadence(snapshots)
 
     status_files = {}
     for phase in PHASE_ORDER:
@@ -869,6 +1083,11 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="Validate repository wiring for the scripted gameplay proof lane",
     )
+    parser.add_argument(
+        "--require-long-run-cadence",
+        action="store_true",
+        help="Require the status-only pre-menu long-run cadence window used by soak proof attempts",
+    )
     args = parser.parse_args(argv)
 
     if args.repo_contract:
@@ -887,7 +1106,11 @@ def main(argv: list[str]) -> int:
     try:
         paths = _resolve_phase_paths(args)
         snapshots = _read_phase_statuses(paths)
-        manifest = build_manifest(snapshots, paths=paths)
+        manifest = build_manifest(
+            snapshots,
+            paths=paths,
+            require_cadence=args.require_long_run_cadence,
+        )
         if args.write_json is not None:
             args.write_json.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     except (OSError, AssertionError) as exc:
@@ -898,7 +1121,7 @@ def main(argv: list[str]) -> int:
 
     print(
         "scripted gameplay proof OK: clean E1M1 start, cumulative fire/move/use/menu "
-        "state, player-position delta, and Doom mouse turn state verified"
+        "state, player-position delta, Doom mouse turn state, and status cadence verified"
     )
     return 0
 

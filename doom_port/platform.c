@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
 #include <sys/stat.h>
 
 #include "d_event.h"
@@ -51,6 +50,9 @@ static int current_music_volume = 127;
 static unsigned int current_music_buffer;
 static int current_music_next_tic;
 static unsigned long current_music_pull_seen;
+static unsigned long current_music_refill_seen;
+static unsigned long current_music_under_seen;
+static unsigned long current_music_drop_seen;
 static unsigned long playable_proof_flags;
 static int playable_origin_set;
 static int playable_origin_x;
@@ -120,6 +122,47 @@ static int vibe_music_audio_handle(int handle)
 static int music_stream_tics(void)
 {
     return VIBE_MUSIC_STREAM_TICS > 1 ? VIBE_MUSIC_STREAM_TICS : 1;
+}
+
+static int query_music_stream_info(int handle, vibe_audio_stream_info_t* info)
+{
+    unsigned long audio_handle;
+
+    if (handle <= 0 || !info)
+        return 0;
+
+    memset(info, 0, sizeof(*info));
+    audio_handle = (unsigned long)vibe_music_audio_handle(handle);
+    if (vibe_syscall3(
+            VIBE_SYS_AUDIO,
+            VIBE_AUDIO_STREAM_INFO,
+            audio_handle,
+            (unsigned long)info) != 0) {
+        return 0;
+    }
+
+    return vibe_audio_stream_matches_handle(info, audio_handle)
+        && vibe_audio_stream_refills_are_ordered(info);
+}
+
+static void remember_music_stream_info(const vibe_audio_stream_info_t* info)
+{
+    if (!info)
+        return;
+
+    current_music_pull_seen = info->pull_request_count;
+    current_music_refill_seen = info->pull_refill_count;
+    current_music_under_seen = info->underrun_count;
+    current_music_drop_seen = info->drop_count;
+}
+
+static void remember_music_pull_count(int handle)
+{
+    current_music_pull_seen = vibe_syscall3(
+        VIBE_SYS_AUDIO,
+        VIBE_AUDIO_PCM_PULL_STATE,
+        (unsigned long)vibe_music_audio_handle(handle),
+        0);
 }
 
 static unsigned long read_le16(const unsigned char* data)
@@ -517,6 +560,7 @@ static void pump_music_stream(void)
 {
     int now;
     int start_voice;
+    vibe_audio_stream_info_t stream_info;
     unsigned long pull_request;
 
     if (current_music_handle <= 0 || current_music_paused)
@@ -533,11 +577,37 @@ static void pump_music_stream(void)
         0) <= 0;
     if (start_voice) {
         if (submit_music_stream_chunk(current_music_handle, start_voice)) {
-            current_music_pull_seen = vibe_syscall3(
-                VIBE_SYS_AUDIO,
-                VIBE_AUDIO_PCM_PULL_STATE,
-                (unsigned long)vibe_music_audio_handle(current_music_handle),
-                0);
+            if (query_music_stream_info(current_music_handle, &stream_info))
+                remember_music_stream_info(&stream_info);
+            else
+                remember_music_pull_count(current_music_handle);
+            current_music_next_tic = now + music_stream_tics();
+        } else {
+            current_music_next_tic = 0;
+        }
+        return;
+    }
+
+    if (query_music_stream_info(current_music_handle, &stream_info)) {
+        if (stream_info.underrun_count != current_music_under_seen
+            || stream_info.drop_count != current_music_drop_seen) {
+            current_music_under_seen = stream_info.underrun_count;
+            current_music_drop_seen = stream_info.drop_count;
+        }
+        if (!vibe_audio_stream_has_new_refill_request(
+                &stream_info,
+                current_music_pull_seen)) {
+            current_music_refill_seen = stream_info.pull_refill_count;
+            current_music_next_tic = now + 1;
+            return;
+        }
+
+        current_music_pull_seen = stream_info.pull_request_count;
+        if (submit_music_stream_chunk(current_music_handle, start_voice)) {
+            if (query_music_stream_info(current_music_handle, &stream_info))
+                remember_music_stream_info(&stream_info);
+            else
+                current_music_refill_seen = current_music_refill_seen + 1u;
             current_music_next_tic = now + music_stream_tics();
         } else {
             current_music_next_tic = 0;
@@ -601,7 +671,7 @@ void I_StartTic(void)
     pump_music_stream();
 
     for (i = 0; i < 64; ++i) {
-        if (vibe_syscall3(VIBE_SYS_POLL_INPUT, (unsigned long)&input, sizeof(input), 0) <= 0)
+        if (vibe_poll_input(&input) <= 0)
             break;
         if (!vibe_doom_translate_input_event(&input, &translated))
             continue;
@@ -954,11 +1024,8 @@ void I_FinishUpdate(void)
     report_player_detail_status();
     checkpoint_default_config_if_needed();
     if (screens[0]) {
-        present.frame = screens[0];
-        present.palette = active_palette;
-        present.width = SCREENWIDTH;
-        present.height = SCREENHEIGHT;
-        (void)ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_PRESENT_INDEXED, &present);
+        vibe_present_indexed_init(&present, screens[0], active_palette, SCREENWIDTH, SCREENHEIGHT);
+        (void)vibe_present_indexed_checked(&present);
     }
 }
 
@@ -1122,6 +1189,9 @@ void I_ShutdownMusic(void)
     current_music_paused = 0;
     current_music_next_tic = 0;
     current_music_pull_seen = 0;
+    current_music_refill_seen = 0;
+    current_music_under_seen = 0;
+    current_music_drop_seen = 0;
 }
 
 void I_SetMusicVolume(int volume)
@@ -1174,6 +1244,9 @@ void I_PlaySong(int handle, int looping)
     current_music_paused = 0;
     current_music_next_tic = 0;
     current_music_pull_seen = 0;
+    current_music_refill_seen = 0;
+    current_music_under_seen = 0;
+    current_music_drop_seen = 0;
     vibe_music_stream_begin(
         handle,
         VIBE_MUSIC_DEFAULT_SAMPLE_RATE,
@@ -1192,6 +1265,9 @@ void I_StopSong(int handle)
         current_music_paused = 0;
         current_music_next_tic = 0;
         current_music_pull_seen = 0;
+        current_music_refill_seen = 0;
+        current_music_under_seen = 0;
+        current_music_drop_seen = 0;
     }
 }
 

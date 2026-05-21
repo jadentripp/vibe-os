@@ -11,20 +11,34 @@ compact counters and state deltas from Doom.
 This file describes the required green path. A scripted green run is not by itself a claim that the current branch is human-playable, and it is not enough
 without the reviewed remote VNC bundle.
 
-Persistence/save-load is now green on the current cloud proof path. Manual
-**Real WAD smoke** full-lane run `26205557019` on `bfd04e8` booted the validated
-shareware WAD, passed real-WAD gameplay, scripted human-playability, scripted
-gameplay transition, VM/process, SB16 continuity, audible aggregate proof,
-artifact hygiene, and status triage, then wrote `DOOMSAV0.DSG` at `25718`
-bytes, rebooted the same disk image, read the save payload back, closed it, and
-returned to gameplay. The downloaded artifact triages as
-`persistence-proof-green`, with `first-boot`, `save-write`, `reboot-load`, and
-`manifest/status` all passing. The matching push-triggered **OS smoke** run
-`26205496796` on the same commit also passed the generated-WAD boot and
-VM/process exec gates.
+Latest current-head evidence is manual **Real WAD smoke** run `26206176284` on
+`7390468`. It booted the validated shareware WAD and passed real-WAD gameplay,
+scripted human-playability, scripted gameplay transition, VM/process, status
+triage, and save/load persistence in the cloud run. The persistence artifact
+triages as `persistence-proof-green`, with `first-boot`, `save-write`,
+`reboot-load`, and `manifest/status` all passing: it wrote `DOOMSAV0.DSG` at
+`25718` bytes, rebooted the same disk image, read the save payload back, closed
+it, and returned to gameplay.
+Persistence/save-load is now green for this current-head evidence lane.
 
-Older green runs such as `26203744974` on `f9a688e` remain useful repair
-history, but they are no longer the latest current-head evidence.
+That run is not a post-fix full-lane green run. Its audio lane failed under the
+old checker with `musicrend= rendered sample delta must keep pace...`. After
+the local checker was corrected to validate buffered music coverage, the
+downloaded `26206176284` artifact passes `tools/check_audio_continuity_proof.py`
+locally, so the run is current evidence for gameplay and persistence, plus a
+known audio-checker false red. The VM/process checker has since become stricter
+about user-probe dup/fd evidence (`uflags=`/`fdup=`), so that older artifact is
+not a current VM/process proof under the latest checker. A fresh post-fix cloud
+run is still required before claiming current-head full-lane green.
+
+Previous full-lane green run `26205557019` on `bfd04e8` remains useful history:
+it passed gameplay, scripted human-playability, gameplay transition,
+VM/process, SB16 continuity, audible aggregate proof, artifact hygiene, status
+triage, and save/load persistence. The matching push-triggered **OS smoke** run
+`26205496796` on the same commit also passed the generated-WAD boot and
+VM/process exec gates. Older green runs such as `26203744974` on `f9a688e`
+remain useful repair history, but they are no longer the latest current-head
+evidence.
 
 Cloud triage still separates persistence failures into short-write,
 malformed-stream, load-not-completed, checker/artifact mismatch, and green
@@ -298,7 +312,7 @@ The cloud proof requires these status families:
   a syscall-driven Doom handoff, seeded the user ABI stack from the copied user
   vector, recorded process parent metadata, and left Doom running rather than
   merely validating bytes on disk. `procpool=`,
-  `pidseq=`, `fdexec=`, `wait=`, and `vmreap=` additionally show bounded
+  `pidseq=`, `fdexec=`, `fdup=`, `wait=`, and `vmreap=` additionally show bounded
   process-slot reuse, PID generation movement, exec-time fd inheritance, a
   userland wait/reap proof, and child VM teardown during reap. The six
   `execsys`
@@ -396,7 +410,7 @@ The cloud proof requires these status families:
 status fields. It requires `vmmhfree` to match the reclaimed `vmmhpt` frame,
 `uexec=OK`/`upath=USERPROB.ELF` for the boot probe,
 `abiexec=OK`/`abipath=ABIPROBE.ELF`/`abiprobe=OK` for the generic ABI probe,
-`argvsrc=2` for the Doom exec path, `procpool=`/`fdexec=`/`wait=`/`vmreap=`
+`argvsrc=2` for the Doom exec path, `procpool=`/`fdexec=`/`fdup=`/`wait=`/`vmreap=`
 for bounded process-slot reuse, exec-time fd inheritance, the wait/reap proof,
 and child VM teardown during reap, and
 `pmask` plus `pkind`/`peip`/`pcr3`/`pkstk` to cross the Doom/preempt-probe tasks,

@@ -41,13 +41,53 @@ The reusable surface today is:
   and reports `vibe_audio_device_info_t` / `vibe_audio_pcm_ring_info_t` device
   state. Doom WAD SFX and music parsing remain only one caller of that mixer.
 - Generic file consumers can use `open`, `read`, `write`, `lseek`, `close`,
-  `stat`, `fstat`, `unlink`, `ftruncate`, `truncate`, `vibe_listdir`,
-  `vibe_file_size`, and `vibe_file_read_all` against the current FAT16 root
-  model.
+  `dup`, `dup2`, `dup3`, `stat`, `fstat`, `unlink`, `ftruncate`, `truncate`,
+  `vibe_listdir`, `vibe_file_size`, and `vibe_file_read_all` against the
+  current FAT16 root model.
 - Process code can use `execv`/`execve`, `getpid`, `wait`/`waitpid`, and the
   explicit `fork()` `ENOSYS` result. `argv` is bounded by `VIBE_EXEC_*`, `envp`
   is empty, and descriptors inherit across exec unless opened with
   `O_CLOEXEC`.
+
+## Clock And Time
+
+vibe-os owns a small monotonic clock service backed by the PIT timer interrupt.
+The PIT is programmed for 100 Hz, so one kernel tick is 10 milliseconds.
+
+The reusable user/kernel contract is `VIBE_SYS_CLOCK_GETTIME` with
+`VIBE_CLOCK_MONOTONIC`. It fills `vibe_clock_time_t` with:
+
+- `ticks`: raw monotonic PIT ticks since boot.
+- `frequency_hz`: currently `100`.
+- `milliseconds`: monotonic milliseconds since boot, derived from ticks.
+- `flags`: reserved, currently zero.
+
+This is not wall-clock time. The CMOS/RTC path is not exposed as libc time, and
+no API currently claims calendar seconds, timezone, or persistence across boots.
+
+The Doom port consumes this general clock through `vibe_monotonic_milliseconds`
+and converts milliseconds to Doom's 35 Hz `I_GetTime` value in the port layer.
+The legacy `VIBE_SYS_TIME` syscall still returns Doom tics for compatibility,
+but new consumers should use the monotonic clock API.
+
+Cloud slowdown proof uses this same monotonic contract without treating it as
+wall-clock time. The status-only long-run cadence checker compares Doom-facing
+`gtic`, `leveltime`, and `dtick` progress with frame (`doompresent`), scheduler
+(`pirq`, `preempt`, `pattempt`, `pskip`, `puser`), and SB16/music
+(`audioirq`, `refill`, `musicpull`, `musicpos`) counters across captured
+gameplay snapshots. If those counters advance together while a remote VNC
+session feels slower, the status artifact points first at host/display
+throughput; if one lane stalls or records drops/underruns, the JSON proof names
+that lane directly.
+
+Host-safe validation lives in source/contract tests:
+
+- `tests/host/doom_libc_allocator_test.c` mocks the clock syscall and validates
+  `vibe_clock_gettime`, `vibe_monotonic_ticks`, `vibe_monotonic_milliseconds`,
+  and `clock_gettime(CLOCK_MONOTONIC, ...)`.
+- `tests/host/test_artifacts.py` pins the kernel syscall number, PIT frequency,
+  smoke-status `clockhz=` / `clockms=` fields, and Doom's use of the generic
+  monotonic helper.
 
 The ABI is reusable, but not POSIX-complete. The image builder can package
 additional root-level 8.3 `.ELF` files with `--root-elf NAME.ELF=PATH`, but the
@@ -66,11 +106,13 @@ yet" so future POSIX work has executable edges instead of vague TODOs:
   `VIBE_SYS_FORK` and returns `ENOSYS`; no child address-space clone, copy-on-
   write state, parent/child return split, or fork-time descriptor table clone is
   implied by the current process ABI.
-- Descriptor lifetime is exec-aware, not Unix-open-file-description aware.
-  Fds have owner PID, generation, and `O_CLOEXEC` inheritance metadata, and exec
-  retags inheritable slots to the target PID. There is no public `dup`,
-  `dup2`, or `dup3` wrapper/syscall, no shared offset/reference-count object,
-  and no fork-time fd duplication contract.
+- Descriptor lifetime and fd duplication now have a bounded Unix-open-file-description milestone.
+  Fds have owner PID, generation, descriptor-level close-on-exec metadata, and
+  a shared root slot with a refcounted offset/status record. `dup`, `dup2`, and
+  `dup3` are public syscall/libc surfaces; the Ring 3 probe verifies that reads
+  through duplicated descriptors advance one shared offset, and `dup3(...,
+  O_CLOEXEC)` is closed by the next exec. There is still no fork-time fd table
+  cloning contract, `fcntl(F_DUPFD*)`, or dynamic per-process fd namespace.
 - VM allocation is anonymous/private and brk-backed. `mmap()` accepts only the
   `MAP_PRIVATE | MAP_ANONYMOUS`, `fd == -1`, `offset == 0`, non-fixed path;
   `MAP_FIXED`, `MAP_SHARED`, and file-backed mappings are rejected before a port
@@ -94,8 +136,9 @@ small non-Doom user programs and freestanding tools. They do not try to be libc
 and they do not depend on Doom port hooks. The layer owns the raw `int 0x80` call stub, centralizes the
 same `-errno` / legacy `-1` conversion rule as the Doom libc shim, and exposes
 minimal wrappers for the crt0-launched tool shape: write a complete string,
-read `getpid`, query the monotonic clock, list a root directory, `execv` another
-root `.ELF`, and report a probe status word.
+read `getpid`, duplicate descriptors with `dup`/`dup2`/`dup3`, query the
+monotonic clock, list a root directory, `execv` another root `.ELF`, and report
+a probe status word.
 
 `user/abi_probe.c` now consumes that runtime instead of carrying its own inline
 syscall assembly. That keeps the second-program proof honest: future small
@@ -152,6 +195,14 @@ Generic tools can rely on stdio write buffering being drained by either
 `fflush(stream)`, `fclose(stream)`, or process-wide `fflush(NULL)`. The host
 runtime-readiness test keeps that behavior covered separately from Doom's save
 and defaults paths.
+
+The tiny printf formatter is still integer/string only, but its ABI is now
+useful beyond Doom status text: `snprintf` returns the would-have-written byte
+count, terminates nonzero-sized buffers after truncation, honors width and
+precision for signed/unsigned/hex integers, handles sign-aware zero padding,
+supports precision-limited strings, and accepts the C89 `l` integer modifier.
+It intentionally does not claim floating-point, locale, left-alignment, or the
+full POSIX flag matrix.
 
 Small non-Doom tools can also use `vibe_file_size` and `vibe_file_read_all` for
 bounded whole-file reads. These helpers are still descriptor-backed and report
@@ -224,10 +275,13 @@ waits, and nonzero wait options still return explicit errors instead of
 pretending that scheduling/blocking semantics are implemented.
 
 The kernel fd table also records owner PID, open generation, and explicit
-inheritance flags for each allocated fd. `fork()` does not clone descriptors
-yet, but exec retags inheritable descriptors from the caller PID to the target
-PID and closes descriptors opened with `O_CLOEXEC`. Process teardown, fault
-handling, target-slot reuse, and wait reaping close process-owned descriptors.
+inheritance flags for each allocated descriptor. Each allocated open file has a
+root fd slot with the shared offset and metadata; duplicated descriptors point
+at that root and hold a refcount until close. `fork()` does not clone descriptor
+tables yet, but exec retags inheritable descriptors from the caller PID to the
+target PID and closes descriptors opened with `O_CLOEXEC` or created with
+`dup3(..., O_CLOEXEC)`. Process teardown, fault handling, target-slot reuse,
+and wait reaping close process-owned descriptors.
 
 ## Runtime proof
 

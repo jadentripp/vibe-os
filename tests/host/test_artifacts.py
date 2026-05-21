@@ -519,6 +519,10 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("*.wad", gitignore)
         self.assertIn("*.WAD", gitignore)
         self.assertIn("workflow_dispatch:", real_wad_workflow)
+        for workflow in (os_smoke_workflow, real_wad_workflow):
+            self.assertIn("FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true", workflow)
+            self.assertIn("actions/checkout@v6", workflow)
+            self.assertNotIn("actions/checkout@v4", workflow)
         self.assertIn("wad_url:", real_wad_workflow)
         self.assertIn("Use text=NAME", real_wad_workflow)
         self.assertIn("marker-requested DOOMSAV slot", real_wad_workflow)
@@ -641,6 +645,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertNotIn("build/persistence-*/status*.txt", real_wad_upload_block)
         os_upload_block = os_smoke_workflow.split("uses: actions/upload-artifact@v4", 1)[1]
         self.assertNotIn("build/gfx.bin", os_upload_block)
+        self.assertNotIn("build/vga.txt", os_upload_block)
 
     def test_real_wad_visual_proof_is_status_only(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
@@ -1498,6 +1503,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("PROBE_FLAG_FTRUNCATE = 0x4000u", probe)
         self.assertIn("PROBE_FLAG_SBRK_SHRINK = 0x8000u", probe)
         self.assertIn("PROBE_FLAG_LISTDIR = 0x10000u", probe)
+        self.assertIn("PROBE_FLAG_DUP = 0x20000u", probe)
         self.assertIn("sys_listdir(\"/\", root_entries, 16)", probe)
         self.assertIn("DEFAULT.CFG", probe)
         self.assertIn('return "DEFAULT.CFG";', libc)
@@ -1824,7 +1830,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("VIBE_IOCTL_PRESENT_INDEXED = 0x00005602u", header)
         self.assertIn("typedef struct vibe_present_indexed", header)
         self.assertIn("vibe_present_indexed_t present", platform)
-        self.assertIn("ioctl(VIBE_DISPLAY_FD, VIBE_IOCTL_PRESENT_INDEXED", platform)
+        self.assertIn("vibe_present_indexed_checked(&present)", platform)
         self.assertIn("PROBE_FLAG_PRESENT = 0x20u", probe)
         self.assertIn("SYS_PRESENT = 10", probe)
         self.assertIn('grep -q "gfx=OK"', makefile)
@@ -1903,7 +1909,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("/keyirq=([0-9A-F]{8})/", makefile)
         self.assertIn("/keyqueue=([0-9A-F]{8})/", makefile)
         self.assertIn("/keypoll=([0-9A-F]{8})/", makefile)
-        self.assertIn("vibe_syscall3(VIBE_SYS_POLL_INPUT", platform)
+        self.assertIn("vibe_poll_input(&input)", platform)
         self.assertIn("vibe_doom_translate_input_event", platform)
         self.assertIn("ev_keydown", platform)
         self.assertIn("ev_keyup", platform)
@@ -1914,7 +1920,7 @@ class SourceContractTests(unittest.TestCase):
         platform = (ROOT / "doom_port" / "platform.c").read_text()
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
         makefile = (ROOT / "Makefile").read_text()
-        mouse_doc = (ROOT / "docs" / "mouse-input.md").read_text()
+        mouse_doc = (ROOT / "docs" / "input.md").read_text()
         for source in (
             "SYS_POLL_MOUSE equ 14",
             "SYS_POLL_INPUT equ 28",
@@ -1956,7 +1962,7 @@ class SourceContractTests(unittest.TestCase):
             "VIBE_INPUT_EVENT_MOUSE_PACKET",
         ):
             self.assertIn(source, header)
-        self.assertIn("vibe_syscall3(VIBE_SYS_POLL_INPUT", platform)
+        self.assertIn("vibe_poll_input(&input)", platform)
         self.assertIn("event.type = ev_mouse", platform)
         self.assertIn("vibe_doom_translate_input_event", platform)
         self.assertIn("doom_port/input.c", makefile)

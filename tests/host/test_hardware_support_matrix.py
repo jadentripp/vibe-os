@@ -135,11 +135,21 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         self.assertEqual(target["machine"], "qemu-legacy-pc")
         self.assertEqual(
             set(target["includes"].split(",")),
-            {"bios", "ide-ata-pio", "ps2-keyboard", "ps2-mouse", "vbe-vga", "sb16"},
+            {"bios", "ide-ata-pio", "ps2-keyboard", "ps2-mouse", "pit", "vbe-vga", "sb16"},
         )
         self.assertEqual(
             set(target["excludes"].split(",")),
-            {"uefi", "physical-hardware", "general-pci", "arbitrary-disk-install"},
+            {
+                "uefi",
+                "physical-hardware",
+                "general-pci",
+                "ahci-sata",
+                "usb-input-storage",
+                "apic-ioapic",
+                "hpet",
+                "smp",
+                "arbitrary-disk-install",
+            },
         )
 
     def test_hardware_boundary_is_visible_from_main_claim_surfaces(self):
@@ -151,7 +161,7 @@ class HardwareSupportMatrixTests(unittest.TestCase):
         runbook = (ROOT / "docs" / "runbooks" / "remote-doom-playtest.md").read_text()
 
         for text, phrase in (
-            (readme, "not broad PC or physical hardware compatibility"),
+            (readme, "That evidence is limited to the emulated device model"),
             (readme, "docs/hardware-support.md"),
             (readme, "boot/uefi/README.md"),
             (readme, "pci="),
@@ -168,6 +178,9 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             (hardware_doc, "Input, audio, and FAT16 are reusable OS-facing syscall/header contracts"),
             (hardware_doc, "CURRENT_TARGET[QEMU_LEGACY_PC]"),
             (hardware_doc, "QEMU BIOS/IDE/PS2/VBE/SB16 is the supported target"),
+            (hardware_doc, "QEMU_DEVICE_MODEL[PCI_BUS0_STATUS]"),
+            (hardware_doc, "BOOT_DEVICE_BOUNDARY[UEFI_ESP_KERNEL_FILE]"),
+            (hardware_doc, "NEXT_IMPLEMENTATION_CONTRACT[PCI_DRIVER_TABLE_API]"),
             (hardware_doc, "installation to arbitrary disks are outside the claim"),
             (hardware_doc, "The reusable contracts do not widen the hardware claim"),
             (hardware_doc, "USB HID, AC97/HDA/USB audio, arbitrary FAT media, long filenames, physical sound cards, and real PC hardware remain unclaimed"),
@@ -257,23 +270,54 @@ class HardwareSupportMatrixTests(unittest.TestCase):
                 self.assertEqual(negative_rows[support_id]["status"], "active")
                 self.assertNotEqual(negative_rows[support_id]["evidence"], "none")
 
-        self.assertEqual(proof_rows["AHCI"]["requires"], "pci-ahci-bar-identify-read")
-        self.assertEqual(proof_rows["USB"]["requires"], "host-controller-hid-storage")
+        self.assertEqual(proof_rows["UEFI"]["requires"], "pe32-esp-gop-mmap-exitbs-boot")
+        self.assertEqual(proof_rows["PCI_ENUMERATION"]["requires"], "all-bdfs-class-subclass-progif-table")
+        self.assertEqual(proof_rows["AHCI"]["requires"], "pci-ahci-bar-identify-sata-read")
+        self.assertEqual(proof_rows["USB"]["requires"], "host-controller-hid-mass-storage")
         self.assertEqual(proof_rows["APIC"]["requires"], "lapic-ioapic-pic-masked")
         self.assertEqual(proof_rows["SMP"]["requires"], "ap-startup-percpu-progress")
         self.assertEqual(proof_rows["HPET"]["requires"], "acpi-hpet-mmio-comparator")
+        self.assertEqual(proof_rows["PHYSICAL_HARDWARE"]["requires"], "machine-inventory-status-reboot-capture")
+        self.assertEqual(negative_rows["AHCI"]["claim"], "no-ahci-sata-driver")
+        self.assertEqual(negative_rows["USB"]["claim"], "no-usb-input-or-storage-stack")
+        self.assertEqual(negative_rows["APIC"]["claim"], "no-apic-ioapic-routing")
         self.assertEqual(negative_rows["PHYSICAL_HARDWARE"]["claim"], "no-physical-machine-proof")
 
     def test_next_hardware_unlock_is_pci_enumeration(self):
         matrix = (ROOT / "docs" / "hardware-support.md").read_text()
         next_rows = check_hardware_support_matrix._validate_next_unlock_rows(matrix)
+        contract_rows = check_hardware_support_matrix._validate_next_implementation_contract_rows(matrix)
 
         self.assertEqual(set(next_rows), {"PCI_ENUMERATION"})
         self.assertEqual(next_rows["PCI_ENUMERATION"]["priority"], "first")
         self.assertEqual(next_rows["PCI_ENUMERATION"]["scope"], "qemu-pci")
         self.assertEqual(next_rows["PCI_ENUMERATION"]["proof"], "cloud-class-table")
         self.assertEqual(next_rows["PCI_ENUMERATION"]["evidence"], "none")
+        self.assertEqual(set(contract_rows), {"PCI_DRIVER_TABLE_API"})
+        self.assertEqual(contract_rows["PCI_DRIVER_TABLE_API"]["status"], "scaffold")
+        self.assertEqual(contract_rows["PCI_DRIVER_TABLE_API"]["requires"], "read-only-bdf-class-table")
+        self.assertEqual(contract_rows["PCI_DRIVER_TABLE_API"]["unlocks"], "ahci-sata,usb,apic")
         self.assertContainsPhrase(matrix, "PCI enumeration is the next implementable hardware-class unlock")
+
+    def test_qemu_device_models_and_boot_device_boundaries_are_machine_readable(self):
+        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        qemu_rows = check_hardware_support_matrix._validate_qemu_device_model_rows(matrix)
+        boot_rows = check_hardware_support_matrix._validate_boot_device_boundary_rows(matrix)
+
+        self.assertEqual(qemu_rows["IDE_ATA_PIO"]["device"], "piix-ide")
+        self.assertEqual(qemu_rows["PCI_BUS0_STATUS"]["status"], "status-only")
+        self.assertEqual(qemu_rows["PCI_BUS0_STATUS"]["device"], "pci-config-ports")
+        for row_id, row in qemu_rows.items():
+            with self.subTest(row_id=row_id):
+                self.assertEqual(row["machine"], "qemu-legacy-pc")
+
+        self.assertEqual(boot_rows["BIOS_IDE_RAW_LBA"]["status"], "claimed")
+        self.assertEqual(boot_rows["BIOS_IDE_RAW_LBA"]["device"], "qemu-ide")
+        for row_id in ("UEFI_ESP_KERNEL_FILE", "AHCI_SATA_DISK", "USB_MASS_STORAGE", "PHYSICAL_MACHINE"):
+            with self.subTest(row_id=row_id):
+                self.assertEqual(boot_rows[row_id]["status"], "future")
+                self.assertEqual(boot_rows[row_id]["evidence"], "none")
+        self.assertContainsPhrase(matrix, "The boot-device boundary is intentionally separate")
 
     def test_claimed_hardware_rows_name_machine_checked_status_counters(self):
         matrix = (ROOT / "docs" / "hardware-support.md").read_text()
@@ -293,6 +337,8 @@ class HardwareSupportMatrixTests(unittest.TestCase):
     def test_uefi_scaffold_is_contract_only_and_unclaimed(self):
         rows = check_hardware_support_matrix.validate_repo_contract(ROOT)
         uefi_rows = check_hardware_support_matrix._validate_uefi_scaffold(ROOT)
+        scaffold = (ROOT / "boot" / "uefi" / "README.md").read_text()
+        uefi_device_rows = check_hardware_support_matrix._validate_uefi_boot_device_rows(scaffold)
         makefile = (ROOT / "Makefile").read_text()
 
         self.assertEqual(rows["UEFI"]["status"], "unclaimed")
@@ -315,6 +361,16 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             with self.subTest(row_id=row_id):
                 self.assertEqual(row["status"], "unimplemented")
                 self.assertEqual(row["evidence"], "none")
+        self.assertEqual(
+            set(uefi_device_rows),
+            {"ESP_IMAGE", "OVMF_BOOT", "NO_RAW_LBA_FALLBACK", "PHYSICAL_MEDIA"},
+        )
+        self.assertEqual(uefi_device_rows["ESP_IMAGE"]["requires"], "fat-esp-kernel-file")
+        self.assertEqual(
+            uefi_device_rows["NO_RAW_LBA_FALLBACK"]["requires"],
+            "no-stage2-raw-lba-dependency",
+        )
+        self.assertContainsPhrase(scaffold, "future boot-device proof boundary")
         self.assertNotIn("boot/uefi", makefile)
 
     def test_cli_reports_contract_success(self):
@@ -418,8 +474,8 @@ class HardwareSupportMatrixTests(unittest.TestCase):
     def test_checker_rejects_current_target_broadening(self):
         matrix = (ROOT / "docs" / "hardware-support.md").read_text()
         broadened = matrix.replace(
-            "excludes=uefi,physical-hardware,general-pci,arbitrary-disk-install",
-            "excludes=uefi,physical-hardware",
+            "excludes=uefi,physical-hardware,general-pci,ahci-sata,usb-input-storage,apic-ioapic,hpet,smp,arbitrary-disk-install",
+            "excludes=uefi,physical-hardware,general-pci",
         )
 
         with self.assertRaisesRegex(AssertionError, r"CURRENT_TARGET\[QEMU_LEGACY_PC\] excludes"):
@@ -473,6 +529,64 @@ class HardwareSupportMatrixTests(unittest.TestCase):
             r"PCI_TABLE_CONTRACT\[NO_DRIVER_BINDING\] drivers must stay none",
         ):
             check_hardware_support_matrix._validate_pci_table_contract_rows(broadened_driver)
+
+    def test_checker_rejects_qemu_device_model_broadening(self):
+        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        broadened_machine = matrix.replace(
+            "QEMU_DEVICE_MODEL[SB16] status=claimed machine=qemu-legacy-pc",
+            "QEMU_DEVICE_MODEL[SB16] status=claimed machine=physical-pc",
+        )
+        with self.assertRaisesRegex(AssertionError, r"QEMU_DEVICE_MODEL\[SB16\] machine"):
+            check_hardware_support_matrix._validate_qemu_device_model_rows(broadened_machine)
+
+        broadened_status = matrix.replace(
+            "QEMU_DEVICE_MODEL[PCI_BUS0_STATUS] status=status-only",
+            "QEMU_DEVICE_MODEL[PCI_BUS0_STATUS] status=claimed",
+        )
+        with self.assertRaisesRegex(AssertionError, r"QEMU_DEVICE_MODEL\[PCI_BUS0_STATUS\] status"):
+            check_hardware_support_matrix._validate_qemu_device_model_rows(broadened_status)
+
+    def test_checker_rejects_future_boot_device_becoming_claimed_without_evidence(self):
+        matrix = (ROOT / "docs" / "hardware-support.md").read_text()
+        broadened = matrix.replace(
+            "BOOT_DEVICE_BOUNDARY[USB_MASS_STORAGE] status=future",
+            "BOOT_DEVICE_BOUNDARY[USB_MASS_STORAGE] status=claimed",
+        )
+
+        with self.assertRaisesRegex(AssertionError, r"BOOT_DEVICE_BOUNDARY\[USB_MASS_STORAGE\] status"):
+            check_hardware_support_matrix._validate_boot_device_boundary_rows(broadened)
+
+    def test_checker_rejects_uefi_boot_device_claims_without_evidence(self):
+        scaffold = (ROOT / "boot" / "uefi" / "README.md").read_text()
+        broadened = scaffold.replace(
+            "UEFI_BOOT_DEVICE[OVMF_BOOT] status=unimplemented",
+            "UEFI_BOOT_DEVICE[OVMF_BOOT] status=implemented",
+        )
+
+        with self.assertRaisesRegex(
+            AssertionError,
+            r"UEFI_BOOT_DEVICE\[OVMF_BOOT\] must stay status=unimplemented",
+        ):
+            check_hardware_support_matrix._validate_uefi_boot_device_rows(broadened)
+
+    def test_checker_rejects_unsupported_hardware_implementation_wording(self):
+        for claim in (
+            "The UEFI " + "boot is implemented now.",
+            "The AHCI " + "driver is available now.",
+            "The USB " + "stack is wired now.",
+            "The SM" + "P is implemented now.",
+            "The APIC " + "routing is available now.",
+            "The HPET " + "timer works now.",
+            "It boots directly on " + "physical hardware.",
+        ):
+            with self.subTest(claim=claim):
+                with self.assertRaisesRegex(AssertionError, "possible unbounded hardware claim"):
+                    check_hardware_support_matrix._validate_no_unbounded_claims("fixture.md", claim)
+
+        check_hardware_support_matrix._validate_no_unbounded_claims(
+            "fixture.md",
+            "UEFI boot is not implemented and remains future proof work.",
+        )
 
 
 if __name__ == "__main__":

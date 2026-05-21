@@ -74,6 +74,18 @@ python3 tools/run_cloud_playability.py --run-id RUN_ID --soak \
   --download-artifacts build/cloud-soak-RUN_ID
 ```
 
+Successful soak attempts embed `status_cadence` in each `attempt-NNN.json`.
+That object is copied from `gameplay-proof.json` and remains status-only: it
+contains no raw status text, WAD bytes, disk images, pixels, logs, or audio.
+For slowdown triage, read `status_cadence.verdict`, then compare the
+`play_window` deltas from `use` to `mouse`. A healthy long-run window is
+`long-run-cadence-observed` and includes advancing `gtic`, `leveltime`,
+`doompresent`, `dtick`, `pirq`, `preempt`, `puser`, `audioirq`, `refill`,
+`musicpos`, and `musicpull` refill counters, with zero input drops and zero
+audio underrun/drop counters. The soak workflow waits before the `after-mouse`
+snapshot so this window stays in gameplay rather than sampling after the menu
+pause.
+
 Persistence failures upload both the normal copied status files and mirrored
 phase status/triage text as top-level `status.persistence-*` files. For a failed
 save-slot write, inspect `status.persistence-write.status.save-slot-0.txt` and
@@ -158,6 +170,7 @@ python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
 | `input-no-effect` | `inputqueue/inputpoll` are zero, `keyirq/keyqueue/keypoll` are zero or fail to increase across keyboard phase snapshots; `keyseen` lacks Up/Ctrl/Space/Escape bits; `mouseirq/mousepkt/mousepoll` fail the mouse snapshot when requested; `pflags` lacks movement/fire/use/menu/ammo/refire/turn bits; `pdelta=00000000`; raw `pammo`/`prefire` does not prove fire; raw `pangle`/`pangledelta` does not prove mouse turn; `status.after-move.txt` does not change `ppos` from `status.after-start.txt`; final `gflags` lacks menu-active evidence | Input either did not enter the OS/queue/poll path or did not mutate Doom state. | PS/2 scan translation, generic event queue, `I_StartTic`, scripted monitor timing, Doom event mapping. |
 | `doom-timer-not-proven` | `ticks` is zero or missing, `dtick` is zero/missing, or `dtick` does not equal `floor(ticks * 35 / 100)` | Doom reached gameplay, but the status line does not prove the Doom 35 Hz timebase derived from the OS timer. | `SYS_TIME`, PIT tick accounting, and smoke `dtick` emission. |
 | `preemption-not-proven` | `preempt`, `pirq`, `pattempt`, `puser`, `pround`, or `pctx` are zero; `pirq` differs from `preempt`; `pmask` does not contain both Doom-to-probe and probe-to-Doom bits; `pfrom`/`pto` are missing, equal, zero, or `FFFFFFFF`; `pkind` does not name Doom and preempt probe; `peip` is malformed or zero; `pcr3` does not cross Doom/preempt page directories; `pkstk` does not cross Doom/preempt kernel stacks; `pspin=50524545`; `pself!=OK` | Doom reached gameplay, but the cloud line does not prove live PIT interrupts switched both ways between Ring 3 processes and let the alternate probe execute. | `scheduler_tick`, live preempt-probe seeding during Doom exec, IRQ frame save/restore, CR3/TSS switch, and timer IRQ delivery in user mode. |
+| `long-run-cadence-not-proven` | Missing, malformed, or zero `gtic`, `leveltime`, `dtick`, `doompresent`, `pirq`, `preempt`, `pattempt`, `puser`, `audioirq`, `refill`, `musicpos`, or `musicpull` refill counters; nonzero `inputdepth` drops; nonzero `mixunder`, `musicunder`, or `musicdrops`; inspect `pskip` alongside `pattempt` for scheduler skip pressure | Doom reached gameplay and the usual proof lanes can look green, but the status-only evidence is not enough to explain long-run slowdown. | Run the real-WAD soak, then inspect `attempt-NNN.json` `status_cadence.play_window` and `gameplay-proof.json` `long_run_cadence` before blaming noVNC/QEMU display throughput. |
 | `artifact-proof-failure` | Checker complains about missing `status.early.txt`, `status.after-*.txt`, duplicate basenames, forbidden WAD/disk/image/pixel payloads, missing diagnostic ELFs, or missing `doom.symbols` | The status line may be useful, but the uploaded evidence package is not acceptable proof. | `.github/workflows/real-wad-smoke.yml` upload block and `tools/check_cloud_playability_artifacts.py` contract. |
 | `playability-status-green` | `doomrun=RUN`, `gameplay=OK`, E1M1 fields correct, frame/palette counters nonzero, WAD I/O green, input/audio/preemption counters active | The final line has no obvious first-failure field, but proof gates can still fail on snapshot-baseline details. | Still require `check_real_wad_proof.py`, `check_human_playability_proof.py`, `check_audio_continuity_proof.py`, and artifact checker pass before claiming playable Doom. |
 
@@ -253,6 +266,16 @@ python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
   to call the OS Doom-playable.
 - `pspin=50524545` is only the seeded preempt-probe magic. A later value proves
   the alternate Ring 3 spin task got CPU time after a timer switch.
+- `pskip` is not automatically a failure. Read it as scheduler skip pressure
+  alongside `pattempt`, `pirq`, `preempt`, and `puser`; a long-run soak with
+  live `pirq/preempt/puser` plus low `pskip` pressure points away from the
+  scheduler as the slowdown source.
+- `audioirq`, `refill`, `musicpull`, and `musicpos` are the status-only audio
+  cadence counters. If `gtic`/`leveltime` advance but these do not, the first
+  lane is SB16 refill/music service rather than keyboard/mouse input.
+- `inputdepth=queued:dropped` separates visible noVNC lag from OS-side queue
+  pressure. Nonzero drops are a kernel input-loss lane; a persistent queue can
+  explain sluggish controls even when Doom frames continue.
 - A green final status without the phase snapshot files is still not proof.
   The required proof bundle is the final status plus early/start/fire/move/use/
   mouse/menu snapshots and the non-WAD diagnostics accepted by the artifact

@@ -505,6 +505,100 @@ def lane_failure_report(
     return report
 
 
+def helper_command(
+    *,
+    repo: str,
+    ref: str,
+    lane: str,
+    output_dir: str,
+    extra: Sequence[str] = (),
+) -> str:
+    command = [
+        "python3",
+        "tools/run_cloud_playability.py",
+        "--repo",
+        repo,
+        "--ref",
+        ref,
+        "--lane",
+        lane,
+        *extra,
+        "--wait",
+        "--download-artifacts",
+        output_dir,
+    ]
+    return command_text(command)
+
+
+def lane_rerun_report(
+    *,
+    repo: str,
+    ref: str,
+    save_slot: str,
+    config: LaneConfig,
+    soak: SoakConfig | None,
+) -> list[str]:
+    if soak is not None:
+        lane = "audio" if config.audible_audio_proof else "gameplay"
+        attempts = str(soak.attempts) if soak.attempts else "ATTEMPTS"
+        min_passes = str(soak.min_passes) if soak.min_passes else "MIN_PASSES"
+        return [
+            "rerun only the red lane:",
+            (
+                f"  {lane} soak red: "
+                + helper_command(
+                    repo=repo,
+                    ref=ref,
+                    lane=lane,
+                    extra=("--soak-attempts", attempts, "--soak-min-passes", min_passes),
+                    output_dir=f"build/cloud-soak-{lane}",
+                )
+            ),
+            (
+                f"  {lane} single-run triage: "
+                + helper_command(
+                    repo=repo,
+                    ref=ref,
+                    lane=lane,
+                    output_dir=f"build/cloud-run-{lane}",
+                )
+            ),
+            "  persistence: not requested by real-wad-soak.yml; rerun persistence separately if that lane is red",
+        ]
+
+    return [
+        "rerun only the red lane:",
+        (
+            "  gameplay/input red: "
+            + helper_command(
+                repo=repo,
+                ref=ref,
+                lane="gameplay",
+                output_dir="build/cloud-run-gameplay",
+            )
+        ),
+        (
+            "  audio red: "
+            + helper_command(
+                repo=repo,
+                ref=ref,
+                lane="audio",
+                output_dir="build/cloud-run-audio",
+            )
+        ),
+        (
+            "  persistence/save-load red: "
+            + helper_command(
+                repo=repo,
+                ref=ref,
+                lane="persistence",
+                extra=("--save-slot", save_slot),
+                output_dir="build/cloud-run-persistence",
+            )
+        ),
+    ]
+
+
 def render_lane_help(lane: str, config: LaneConfig) -> str:
     if lane == "gameplay":
         return "fast gameplay/input proof; audio WAV capture and persistence are off"
@@ -713,6 +807,7 @@ def main(
         },
         "commands": {},
         "failure_lanes": [],
+        "rerun_lanes": [],
         "run_metadata": None,
         "checker_ref": None,
         "checker_worktree": None,
@@ -876,6 +971,16 @@ def main(
         )
         audit["failure_lanes"] = failure_lanes
         for line in failure_lanes:
+            print(line, file=stdout)
+        rerun_lanes = lane_rerun_report(
+            repo=args.repo,
+            ref=args.ref,
+            save_slot=save_slot,
+            config=config,
+            soak=soak,
+        )
+        audit["rerun_lanes"] = rerun_lanes
+        for line in rerun_lanes:
             print(line, file=stdout)
         if not args.no_triage and soak is None:
             triage_tool = "tools/triage_cloud_status.py"

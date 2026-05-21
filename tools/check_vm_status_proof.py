@@ -33,6 +33,7 @@ PROCESS_SLOT_COUNT = 6
 PROCESS_GENERIC_SLOT_COUNT = 2
 WAIT_PROOF_EXIT_STATUS = 0x2A
 ABI_PROBE_EXPECTED_FLAGS = 0x7
+USER_PROBE_DUP_FLAG = 0x00020000
 USER_KIND_DOOM = 2
 USER_KIND_PREEMPT_PROBE = 3
 USER_CODE_SEG = 0x1B
@@ -268,7 +269,10 @@ def validate_exec(fields: dict[str, str]) -> None:
     parent = _hex_gt(fields, "ppid")
     boot_user_pid = _hex_gt(fields, "upid")
     boot_user_entry = _hex_gt(fields, "uentry")
+    boot_user_flags = _hex(fields, "uflags")
     _in_range(boot_user_entry, PROBE_USER_BASE, PROBE_USER_END, "uentry")
+    if (boot_user_flags & USER_PROBE_DUP_FLAG) != USER_PROBE_DUP_FLAG:
+        raise AssertionError("uflags= must prove the user probe dup shared-offset checks ran")
     abi_pid = _hex_gt(fields, "abipid")
     abi_parent = _hex_gt(fields, "abippid")
     abi_entry = _hex_gt(fields, "abientry")
@@ -338,13 +342,23 @@ def validate_exec(fields: dict[str, str]) -> None:
     if last_generation == 0:
         raise AssertionError("pidseq= must prove the target slot generation advanced")
 
-    fd_handoffs, fd_inherited, _fd_closed, _owner_closes = _hex_tuple(
+    fd_handoffs, fd_inherited, fd_closed, _owner_closes = _hex_tuple(
         fields, "fdexec", 4, "/"
     )
     if fd_handoffs == 0:
         raise AssertionError("fdexec= must prove exec performed an fd ownership handoff")
     if fd_inherited == 0:
         raise AssertionError("fdexec= must prove at least one fd inherited across exec")
+    if fd_closed == 0:
+        raise AssertionError("fdexec= must prove a close-on-exec duplicated fd was closed")
+
+    fd_dup, fd_dup2, fd_dup3, fd_shared, fd_cloexec = _hex_tuple(fields, "fdup", 5, "/")
+    if fd_dup == 0 or fd_dup2 == 0 or fd_dup3 == 0:
+        raise AssertionError("fdup= must prove dup, dup2, and dup3 were exercised")
+    if fd_shared < 3:
+        raise AssertionError("fdup= must prove duplicated descriptors shared open-file descriptions")
+    if fd_cloexec == 0:
+        raise AssertionError("fdup= must prove dup3 created an O_CLOEXEC descriptor")
 
     (
         wait_attempts,
@@ -562,6 +576,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         _require(text, "argvsrc=2", label)
         _require(text, "procpool=", label)
         _require(text, "fdexec=", label)
+        _require(text, "fdup=", label)
         _require(text, "wait=", label)
         _require(text, "vmreap=", label)
         _require(text, "peip", label)

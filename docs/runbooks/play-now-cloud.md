@@ -130,6 +130,10 @@ gameplay/input, SB16 continuity, optional audible audio aggregate, and optional
 persistence/save-load triage. Keep those boundaries intact: a green gameplay
 artifact is not a persistence proof, and an audio flake should not obscure a
 save/load failure.
+The same output includes a `rerun only the red lane` block. Use the gameplay
+command for boot/input regressions, the audio command for SB16 or aggregate
+audio failures, and the persistence command for save/load failures instead of
+rerunning the full proof by habit.
 
 To use a different noVNC port, set `NOVNC_PORT` on the Mac before the launch
 and before the optional dry run. The launcher validates that port locally,
@@ -276,9 +280,9 @@ status filenames, expected human action, expected status-only signal, and
 actions, prints the expected status signal before each capture, captures each
 status phase through the remote monitor socket, asks you to tie the session to
 a green Real WAD smoke run, records a slowdown level and short status-only
-slowdown note, writes the allowlisted proof bundle, validates it before
-download, creates `/tmp/vibe-os-human-proof.tgz`, and prints the local
-post-download checker commands. The longer version lives in
+slowdown note, records the audio observation mode, writes the allowlisted proof
+bundle, validates it before download, creates `/tmp/vibe-os-human-proof.tgz`,
+and prints the local post-download checker commands. The longer version lives in
 `docs/runbooks/remote-doom-playtest.md`; its collector writes
 `human-playtest-checklist.txt` with the post-download checker commands and phase
 hashes to compare.

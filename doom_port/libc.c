@@ -269,6 +269,15 @@ static void untrack_save_fd(int fd)
     tracked_save_slot[fd] = 0;
 }
 
+static void clone_save_fd_tracking(int oldfd, int newfd)
+{
+    int slot = tracked_save_slot_for_fd(oldfd);
+    if (slot >= 0)
+        track_save_fd(newfd, slot);
+    else
+        untrack_save_fd(newfd);
+}
+
 static const char* mapped_path(const char* path)
 {
     static char save_path[] = "doomsav0.dsg";
@@ -738,6 +747,37 @@ int close(int fd)
         report_doom_save_event(slot, VIBE_DOOM_SAVELOAD_CLOSE, 0, 0);
         untrack_save_fd(fd);
     }
+    return raw < 0 ? syscall_failed(raw, EBADF) : raw;
+}
+
+int dup(int oldfd)
+{
+    int raw = vibe_syscall3(VIBE_SYS_DUP, (unsigned long)oldfd, 0, 0);
+    if (raw >= 0)
+        clone_save_fd_tracking(oldfd, raw);
+    return raw < 0 ? syscall_failed(raw, EBADF) : raw;
+}
+
+int dup2(int oldfd, int newfd)
+{
+    int raw = vibe_syscall3(VIBE_SYS_DUP2, (unsigned long)oldfd, (unsigned long)newfd, 0);
+    if (raw >= 0)
+        clone_save_fd_tracking(oldfd, raw);
+    return raw < 0 ? syscall_failed(raw, EBADF) : raw;
+}
+
+int dup3(int oldfd, int newfd, int flags)
+{
+    int raw;
+
+    if (flags & ~O_CLOEXEC) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    raw = vibe_syscall3(VIBE_SYS_DUP3, (unsigned long)oldfd, (unsigned long)newfd, (unsigned long)flags);
+    if (raw >= 0)
+        clone_save_fd_tracking(oldfd, raw);
     return raw < 0 ? syscall_failed(raw, EBADF) : raw;
 }
 
@@ -1582,6 +1622,8 @@ static int out_char(char** out, size_t* left, int fd, char ch)
             ++*out;
             --*left;
         }
+    } else if (fd < 0) {
+        return 0;
     } else {
         if (write(fd, &ch, 1) != 1)
             return -1;
@@ -1632,37 +1674,161 @@ static int stream_write(FILE* stream, const char* data, size_t length)
     return 0;
 }
 
-static int out_string(char** out, size_t* left, int fd, const char* text)
+static int out_repeat(char** out, size_t* left, int fd, char ch, int repeat)
 {
     int count = 0;
-    if (!text)
-        text = "(null)";
-    while (*text) {
-        if (out_char(out, left, fd, *text++) < 0)
+    while (count < repeat) {
+        if (out_char(out, left, fd, ch) < 0)
             return -1;
         ++count;
     }
     return count;
 }
 
-static int out_unsigned(char** out, size_t* left, int fd, unsigned int value, int base, int width, int pad_zero)
+static int out_bytes(char** out, size_t* left, int fd, const char* text, int length)
 {
-    char tmp[16];
-    int pos = 0;
     int count = 0;
-    do {
-        unsigned int digit = value % (unsigned int)base;
-        tmp[pos++] = digit < 10 ? (char)('0' + digit) : (char)('a' + digit - 10);
-        value /= (unsigned int)base;
-    } while (value);
-    while (pos < width)
-        tmp[pos++] = pad_zero ? '0' : ' ';
-    while (pos--) {
-        if (out_char(out, left, fd, tmp[pos]) < 0)
+    while (count < length) {
+        if (out_char(out, left, fd, text[count]) < 0)
             return -1;
         ++count;
     }
     return count;
+}
+
+static int out_string(char** out, size_t* left, int fd, const char* text, int width, int precision)
+{
+    int length = 0;
+    int padding;
+    int wrote;
+    int count = 0;
+
+    if (!text)
+        text = "(null)";
+
+    while (text[length] && (precision < 0 || length < precision))
+        ++length;
+
+    padding = width > length ? width - length : 0;
+    wrote = out_repeat(out, left, fd, ' ', padding);
+    if (wrote < 0)
+        return -1;
+    count += wrote;
+
+    wrote = out_bytes(out, left, fd, text, length);
+    if (wrote < 0)
+        return -1;
+    count += wrote;
+    return count;
+}
+
+static int unsupported_format(char** out, size_t* left, int fd, char specifier)
+{
+    if (out_char(out, left, fd, '%') < 0)
+        return -1;
+    if (specifier) {
+        if (out_char(out, left, fd, specifier) < 0)
+            return -1;
+        return 2;
+    }
+    return 1;
+}
+
+static int unsigned_digits(
+    char* tmp,
+    unsigned long value,
+    int base,
+    int precision,
+    int uppercase)
+{
+    int pos = 0;
+
+    if (!value && precision == 0)
+        return 0;
+
+    do {
+        unsigned long digit = value % (unsigned long)base;
+        if (digit < 10)
+            tmp[pos++] = (char)('0' + digit);
+        else
+            tmp[pos++] = (char)((uppercase ? 'A' : 'a') + digit - 10);
+        value /= (unsigned long)base;
+    } while (value);
+    return pos;
+}
+
+static int out_unsigned(
+    char** out,
+    size_t* left,
+    int fd,
+    unsigned long value,
+    int base,
+    int width,
+    int precision,
+    int pad_zero,
+    int negative,
+    int uppercase)
+{
+    char tmp[sizeof(unsigned long) * 8 + 1];
+    int digits = unsigned_digits(tmp, value, base, precision, uppercase);
+    int zeroes = 0;
+    int spaces;
+    int total;
+    int wrote;
+    int count = 0;
+
+    if (precision > digits)
+        zeroes = precision - digits;
+    else if (precision < 0 && pad_zero && width > digits + negative)
+        zeroes = width - digits - negative;
+
+    total = digits + zeroes + negative;
+    spaces = width > total ? width - total : 0;
+
+    wrote = out_repeat(out, left, fd, ' ', spaces);
+    if (wrote < 0)
+        return -1;
+    count += wrote;
+
+    if (negative) {
+        if (out_char(out, left, fd, '-') < 0)
+            return -1;
+        ++count;
+    }
+
+    wrote = out_repeat(out, left, fd, '0', zeroes);
+    if (wrote < 0)
+        return -1;
+    count += wrote;
+
+    while (digits--) {
+        if (out_char(out, left, fd, tmp[digits]) < 0)
+            return -1;
+        ++count;
+    }
+    return count;
+}
+
+static unsigned long format_unsigned_arg(va_list args, int length_modifier)
+{
+    if (length_modifier == 3)
+        return (unsigned long)va_arg(args, size_t);
+    if (length_modifier == 2)
+        return (unsigned long)va_arg(args, unsigned long long);
+    if (length_modifier == 1)
+        return va_arg(args, unsigned long);
+    return (unsigned long)va_arg(args, unsigned int);
+}
+
+static long format_signed_arg(va_list args, int length_modifier)
+{
+    if (length_modifier == 3)
+        return (long)va_arg(args, ssize_t);
+    if (length_modifier == 2)
+        return (long)va_arg(args, long long);
+    if (length_modifier == 1)
+        return va_arg(args, long);
+    return (long)va_arg(args, int);
 }
 
 static int format_to(char* buffer, size_t size, int fd, const char* format, va_list args)
@@ -1670,21 +1836,37 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
     char* out = buffer;
     size_t left = size;
     int count = 0;
+    char** out_arg = buffer ? &out : 0;
 
     while (*format) {
         int width = 0;
         int pad_zero = 0;
         int precision = -1;
         int wrote = 0;
+        int length_modifier = 0;
+        int left_align = 0;
         if (*format != '%') {
-            if (out_char(buffer ? &out : 0, &left, fd, *format++) < 0)
+            if (out_char(out_arg, &left, fd, *format++) < 0)
                 return -1;
             ++count;
             continue;
         }
         ++format;
+        while (*format == '-' || *format == '+' || *format == ' ' || *format == '#') {
+            if (*format == '-')
+                left_align = 1;
+            ++format;
+        }
         if (*format == '0') {
             pad_zero = 1;
+            ++format;
+        }
+        if (*format == '*') {
+            width = va_arg(args, int);
+            if (width < 0) {
+                left_align = 1;
+                width = -width;
+            }
             ++format;
         }
         while (isdigit((unsigned char)*format)) {
@@ -1693,74 +1875,138 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
         if (*format == '.') {
             ++format;
             precision = 0;
+            if (*format == '*') {
+                precision = va_arg(args, int);
+                if (precision < 0)
+                    precision = -1;
+                ++format;
+            }
             while (isdigit((unsigned char)*format)) {
                 precision = precision * 10 + (*format - '0');
                 ++format;
             }
         }
+        if (*format == 'h') {
+            length_modifier = 0;
+            ++format;
+            if (*format == 'h')
+                ++format;
+        } else if (*format == 'l') {
+            length_modifier = 1;
+            ++format;
+            if (*format == 'l') {
+                length_modifier = 2;
+                ++format;
+            }
+        } else if (*format == 'z') {
+            length_modifier = 3;
+            ++format;
+        }
+        if (left_align)
+            pad_zero = 0;
         switch (*format++) {
         case 's':
-            wrote = out_string(buffer ? &out : 0, &left, fd, va_arg(args, const char*));
+            wrote = out_string(out_arg, &left, fd, va_arg(args, const char*), width, precision);
             if (wrote < 0)
                 return -1;
             count += wrote;
             break;
         case 'c':
-            if (out_char(buffer ? &out : 0, &left, fd, (char)va_arg(args, int)) < 0)
+            wrote = out_repeat(out_arg, &left, fd, ' ', width > 1 ? width - 1 : 0);
+            if (wrote < 0)
+                return -1;
+            count += wrote;
+            if (out_char(out_arg, &left, fd, (char)va_arg(args, int)) < 0)
                 return -1;
             ++count;
             break;
         case 'd':
         case 'i': {
-            int value = va_arg(args, int);
-            int digits_width = width;
-            int digits_pad_zero = pad_zero;
+            long value = format_signed_arg(args, length_modifier);
+            unsigned long magnitude;
+            int negative = value < 0;
             if (value < 0) {
-                if (out_char(buffer ? &out : 0, &left, fd, '-') < 0)
-                    return -1;
-                ++count;
-                value = -value;
+                magnitude = 0ul - (unsigned long)value;
+            } else {
+                magnitude = (unsigned long)value;
             }
-            if (precision >= 0) {
-                digits_pad_zero = 1;
-                if (precision > digits_width)
-                    digits_width = precision;
-            }
-            wrote = out_unsigned(buffer ? &out : 0, &left, fd, (unsigned int)value, 10, digits_width, digits_pad_zero);
+            wrote = out_unsigned(out_arg, &left, fd, magnitude, 10, width, precision, pad_zero, negative, 0);
             if (wrote < 0)
                 return -1;
             count += wrote;
             break;
         }
-        case 'u':
-            if (precision >= 0) {
-                pad_zero = 1;
-                if (precision > width)
-                    width = precision;
-            }
-            wrote = out_unsigned(buffer ? &out : 0, &left, fd, va_arg(args, unsigned int), 10, width, pad_zero);
+        case 'u': {
+            unsigned long value = format_unsigned_arg(args, length_modifier);
+            wrote = out_unsigned(out_arg, &left, fd, value, 10, width, precision, pad_zero, 0, 0);
             if (wrote < 0)
                 return -1;
             count += wrote;
             break;
-        case 'x':
-        case 'p':
-            if (precision >= 0) {
-                pad_zero = 1;
-                if (precision > width)
-                    width = precision;
-            }
-            wrote = out_unsigned(buffer ? &out : 0, &left, fd, va_arg(args, unsigned int), 16, width, pad_zero);
+        }
+        case 'o': {
+            unsigned long value = format_unsigned_arg(args, length_modifier);
+            wrote = out_unsigned(out_arg, &left, fd, value, 8, width, precision, pad_zero, 0, 0);
+            if (wrote < 0)
+                return -1;
+            count += wrote;
+            break;
+        }
+        case 'x': {
+            unsigned long value = format_unsigned_arg(args, length_modifier);
+            wrote = out_unsigned(out_arg, &left, fd, value, 16, width, precision, pad_zero, 0, 0);
+            if (wrote < 0)
+                return -1;
+            count += wrote;
+            break;
+        }
+        case 'X': {
+            unsigned long value = format_unsigned_arg(args, length_modifier);
+            wrote = out_unsigned(out_arg, &left, fd, value, 16, width, precision, pad_zero, 0, 1);
+            if (wrote < 0)
+                return -1;
+            count += wrote;
+            break;
+        }
+        case 'p': {
+            unsigned long value = (unsigned long)va_arg(args, void*);
+            wrote = out_unsigned(out_arg, &left, fd, value, 16, width, precision, pad_zero, 0, 0);
+            if (wrote < 0)
+                return -1;
+            count += wrote;
+            break;
+        }
+        case 'a':
+        case 'A':
+        case 'e':
+        case 'E':
+        case 'f':
+        case 'F':
+        case 'g':
+        case 'G':
+            (void)va_arg(args, double);
+            wrote = unsupported_format(out_arg, &left, fd, *(format - 1));
+            if (wrote < 0)
+                return -1;
+            count += wrote;
+            break;
+        case 'n':
+            (void)va_arg(args, void*);
+            wrote = unsupported_format(out_arg, &left, fd, *(format - 1));
             if (wrote < 0)
                 return -1;
             count += wrote;
             break;
         case '%':
-            if (out_char(buffer ? &out : 0, &left, fd, '%') < 0)
+            if (out_char(out_arg, &left, fd, '%') < 0)
                 return -1;
             ++count;
             break;
         default:
+            wrote = unsupported_format(out_arg, &left, fd, *(format - 1));
+            if (wrote < 0)
+                return -1;
+            count += wrote;
             break;
         }
     }
@@ -1771,7 +2017,7 @@ static int format_to(char* buffer, size_t size, int fd, const char* format, va_l
 
 int vsnprintf(char* buffer, size_t size, const char* format, va_list args)
 {
-    return format_to(buffer, size, 1, format, args);
+    return format_to(buffer, size, buffer ? 1 : -1, format, args);
 }
 
 int vsprintf(char* buffer, const char* format, va_list args)

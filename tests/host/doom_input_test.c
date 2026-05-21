@@ -69,6 +69,10 @@ int main(void)
     input = input_key(125, 0, 1);
     CHECK(!vibe_doom_translate_input_event(&input, &event));
     CHECK(event.type == VIBE_DOOM_INPUT_NONE);
+    input = input_key(125, VIBE_DOOM_KEY_ENTER, 1);
+    input.value0 = 2;
+    CHECK(!vibe_doom_translate_input_event(&input, &event));
+    CHECK(event.type == VIBE_DOOM_INPUT_NONE);
     input.type = VIBE_INPUT_EVENT_NONE;
     input.code = VIBE_DOOM_KEY_ENTER;
     CHECK(!vibe_doom_translate_input_event(&input, &event));

@@ -123,14 +123,28 @@ class AudioContractTests(unittest.TestCase):
                 stream.stream_mode = VIBE_AUDIO_MUSIC_STREAM_PULL;
                 stream.flags = VIBE_AUDIO_STREAM_FLAG_PULL
                     | VIBE_AUDIO_STREAM_FLAG_REFILL_PENDING;
+                stream.handle = 0x4d550001;
+                stream.pull_request_count = 3;
+                stream.pull_refill_count = 2;
                 stream.pending_pull_requests = 1;
                 if (!vibe_audio_stream_uses_pull(&stream))
                     return 7;
                 if (!vibe_audio_stream_needs_refill(&stream))
                     return 8;
+                if (!vibe_audio_stream_matches_handle(&stream, 0x4d550001))
+                    return 9;
+                if (!vibe_audio_stream_refills_are_ordered(&stream))
+                    return 10;
+                if (!vibe_audio_stream_has_new_refill_request(&stream, 2))
+                    return 11;
                 stream.pending_pull_requests = 0;
                 if (vibe_audio_stream_needs_refill(&stream))
-                    return 9;
+                    return 12;
+                if (vibe_audio_stream_has_new_refill_request(&stream, 2))
+                    return 13;
+                stream.pull_refill_count = 4;
+                if (vibe_audio_stream_refills_are_ordered(&stream))
+                    return 14;
 
                 vibe_audio_voice_desc_init(0, 0, 0, 0, 0, 0, 0);
                 return 0;
@@ -196,6 +210,9 @@ class AudioContractTests(unittest.TestCase):
             "vibe_audio_device_info_t",
             "vibe_audio_pcm_ring_info_t",
             "vibe_audio_stream_info_t",
+            "vibe_audio_stream_matches_handle",
+            "vibe_audio_stream_refills_are_ordered",
+            "vibe_audio_stream_has_new_refill_request",
             "typedef vibe_audio_sfx_desc_t vibe_audio_voice_desc_t;",
             "VIBE_AUDIO_MIXER_START",
             "VIBE_AUDIO_MIXER_STOP",
@@ -614,7 +631,11 @@ class AudioContractTests(unittest.TestCase):
             "VIBE_AUDIO_MIXER_START",
             "VIBE_AUDIO_MIXER_UPDATE",
             "VIBE_AUDIO_PCM_PULL_STATE",
+            "VIBE_AUDIO_STREAM_INFO",
             "current_music_pull_seen",
+            "current_music_refill_seen",
+            "query_music_stream_info",
+            "vibe_audio_stream_has_new_refill_request",
             "pump_music_stream",
             "report_doom_init_status(VIBE_DOOM_INIT_TIC);\n    pump_music_stream();",
             "report_doom_init_status(VIBE_DOOM_INIT_FRAME);\n    pump_music_stream();",

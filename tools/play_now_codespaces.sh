@@ -829,6 +829,8 @@ fi
 novnc_url="$(novnc_url_from_browse_url "$novnc_browse_url")"
 echo "Open Doom noVNC: $novnc_url"
 echo "Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu."
+echo "Human proof tip: click the noVNC canvas before each recorded action; in a second remote shell run ./tools/run_remote_human_playtest.sh --playtester NAME --scripted-proof-run-id RUN_ID."
+echo "Audio proof tip: VNC is display/input only; record audio as status-only, listener-pass, audio-proof-json-pass, or not-tested in the guided helper."
 echo "Performance note: 2-core Codespaces can play Doom, but noVNC may stutter during builds or CPU contention; 4+ CPUs are preferred for interactive play."
 echo "Slowdown check: run the Diagnostics command above; it prints only safe process/load and OS status-log lines."
 if [ "$OPEN_BROWSER" = "1" ] && [ "$(uname -s)" = "Darwin" ] && command -v open >/dev/null 2>&1; then

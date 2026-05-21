@@ -48,6 +48,21 @@ int vibe_user_getpid(void)
     return vibe_user_syscall3(VIBE_SYS_GETPID, 0, 0, 0);
 }
 
+int vibe_user_dup(int oldfd)
+{
+    return vibe_user_syscall3(VIBE_SYS_DUP, (unsigned long)oldfd, 0, 0);
+}
+
+int vibe_user_dup2(int oldfd, int newfd)
+{
+    return vibe_user_syscall3(VIBE_SYS_DUP2, (unsigned long)oldfd, (unsigned long)newfd, 0);
+}
+
+int vibe_user_dup3(int oldfd, int newfd, unsigned long flags)
+{
+    return vibe_user_syscall3(VIBE_SYS_DUP3, (unsigned long)oldfd, (unsigned long)newfd, flags);
+}
+
 int vibe_user_clock_monotonic(vibe_clock_time_t* out)
 {
     return vibe_user_syscall3(

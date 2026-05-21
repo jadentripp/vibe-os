@@ -54,6 +54,9 @@ def make_status(**overrides):
         "mousedelta": "00000000:00000000",
         "doompresent": "00000010",
         "dtick": "00000020",
+        "audioirq": "00000010",
+        "refill": "00000010",
+        "musicpos": "00001000",
         "inputdepth": "00000000:00000000",
         "musicbuf": "00002000",
         "musicpull": "00000000:00000000",
@@ -63,6 +66,7 @@ def make_status(**overrides):
         "preempt": "00000001",
         "pirq": "00000001",
         "pattempt": "00000001",
+        "pskip": "00000000",
         "puser": "00000001",
     }
     fields.update(overrides)
@@ -88,11 +92,15 @@ def scripted_statuses():
             inputlast="00000040:00000001:00000001",
             doompresent="00000020",
             dtick="00000040",
+            audioirq="00000020",
+            refill="00000020",
+            musicpos="00002000",
             musicbuf="00001C00",
             musicpull="00000001:00000001",
             preempt="00000002",
             pirq="00000002",
             pattempt="00000002",
+            pskip="00000001",
             puser="00000002",
             keyseen="00000010",
             keylast="0001019D",
@@ -112,11 +120,15 @@ def scripted_statuses():
             inputlast="00000060:00000001:00000001",
             doompresent="00000030",
             dtick="00000060",
+            audioirq="00000030",
+            refill="00000030",
+            musicpos="00003000",
             musicbuf="00001800",
             musicpull="00000002:00000002",
             preempt="00000003",
             pirq="00000003",
             pattempt="00000003",
+            pskip="00000001",
             puser="00000003",
             keyseen="00000011",
             keylast="000101AD",
@@ -137,11 +149,15 @@ def scripted_statuses():
             inputlast="00000080:00000001:00000001",
             doompresent="00000040",
             dtick="00000080",
+            audioirq="00000040",
+            refill="00000040",
+            musicpos="00004000",
             musicbuf="00001400",
             musicpull="00000003:00000003",
             preempt="00000004",
             pirq="00000004",
             pattempt="00000004",
+            pskip="00000002",
             puser="00000004",
             keyseen="00000031",
             keylast="00010020",
@@ -152,22 +168,26 @@ def scripted_statuses():
             pammo="00000031",
         ),
         "mouse": make_status(
-            gtic="000000A0",
-            leveltime="000000A0",
+            gtic="00000140",
+            leveltime="00000140",
             keyirq="00000003",
             keyqueue="00000003",
             keypoll="00000003",
             inputqueue="00000005",
             inputpoll="00000005",
-            inputlast="000000A0:00000002:00000002",
-            doompresent="00000050",
-            dtick="000000A0",
+            inputlast="00000140:00000002:00000002",
+            doompresent="000000C0",
+            dtick="00000140",
+            audioirq="00000100",
+            refill="00000100",
+            musicpos="00020000",
             musicbuf="00001000",
-            musicpull="00000004:00000004",
-            preempt="00000005",
-            pirq="00000005",
-            pattempt="00000005",
-            puser="00000005",
+            musicpull="00000020:00000020",
+            preempt="00000020",
+            pirq="00000020",
+            pattempt="00000024",
+            pskip="00000004",
+            puser="00000020",
             keyseen="00000031",
             keylast="00010020",
             pflags="000001EF",
@@ -183,23 +203,27 @@ def scripted_statuses():
             mousedelta="00000018:0000000C",
         ),
         "menu": make_status(
-            gtic="000000C0",
-            leveltime="000000C0",
+            gtic="00000160",
+            leveltime="00000160",
             gflags="00000001",
             keyirq="00000004",
             keyqueue="00000004",
             keypoll="00000004",
             inputqueue="00000006",
             inputpoll="00000006",
-            inputlast="000000C0:00000001:00000001",
-            doompresent="00000060",
-            dtick="000000C0",
+            inputlast="00000160:00000001:00000001",
+            doompresent="000000D0",
+            dtick="00000160",
+            audioirq="00000110",
+            refill="00000110",
+            musicpos="00022000",
             musicbuf="00000C00",
-            musicpull="00000005:00000005",
-            preempt="00000006",
-            pirq="00000006",
-            pattempt="00000006",
-            puser="00000006",
+            musicpull="00000021:00000021",
+            preempt="00000021",
+            pirq="00000021",
+            pattempt="00000026",
+            pskip="00000005",
+            puser="00000021",
             keyseen="00000071",
             keylast="0001001B",
             pflags="000001FF",
@@ -215,23 +239,27 @@ def scripted_statuses():
             mousedelta="00000018:0000000C",
         ),
         "final": make_status(
-            gtic="000000C0",
-            leveltime="000000C0",
+            gtic="00000170",
+            leveltime="00000170",
             gflags="00000001",
             keyirq="00000004",
             keyqueue="00000004",
             keypoll="00000004",
             inputqueue="00000006",
             inputpoll="00000006",
-            inputlast="000000C0:00000001:00000001",
-            doompresent="00000060",
-            dtick="000000C0",
+            inputlast="00000170:00000001:00000001",
+            doompresent="000000D8",
+            dtick="00000170",
+            audioirq="00000118",
+            refill="00000118",
+            musicpos="00023000",
             musicbuf="00000C00",
-            musicpull="00000005:00000005",
-            preempt="00000006",
-            pirq="00000006",
-            pattempt="00000006",
-            puser="00000006",
+            musicpull="00000022:00000022",
+            preempt="00000022",
+            pirq="00000022",
+            pattempt="00000028",
+            pskip="00000006",
+            puser="00000022",
             keyseen="00000071",
             keylast="0001001B",
             pflags="000001FF",
@@ -273,14 +301,26 @@ class ScriptedGameplayProofTests(unittest.TestCase):
         self.assertEqual(manifest["transitions"]["mouse"]["pangledelta"], "01000000")
         self.assertEqual(manifest["transitions"]["mouse"]["pflags"], "000001EF")
         self.assertEqual(manifest["performance_diagnostics"]["verdict"], "os-pipeline-healthy")
-        self.assertEqual(manifest["performance_diagnostics"]["frames"]["delta"], "00000050")
+        self.assertEqual(manifest["performance_diagnostics"]["frames"]["delta"], "000000C8")
         self.assertEqual(
             manifest["performance_diagnostics"]["input"]["queue"]["dropped"]["delta"],
             "00000000",
         )
         self.assertEqual(
             manifest["performance_diagnostics"]["audio"]["music_pull"]["refills"]["delta"],
-            "00000005",
+            "00000022",
+        )
+        self.assertEqual(
+            manifest["performance_diagnostics"]["long_run_cadence"]["verdict"],
+            "long-run-cadence-observed",
+        )
+        self.assertEqual(
+            manifest["performance_diagnostics"]["long_run_cadence"]["play_window"]["from"],
+            "use",
+        )
+        self.assertEqual(
+            manifest["performance_diagnostics"]["long_run_cadence"]["play_window"]["counters"]["gtic"]["delta"],
+            "000000C0",
         )
         check_scripted_gameplay_proof.validate_manifest(manifest, snapshots=statuses)
 
@@ -344,6 +384,21 @@ class ScriptedGameplayProofTests(unittest.TestCase):
 
         with self.assertRaisesRegex(AssertionError, "start missing performance field doompresent="):
             check_scripted_gameplay_proof.validate_statuses(statuses)
+
+    def test_optional_long_run_cadence_gate_rejects_short_or_stalled_windows(self):
+        statuses = scripted_statuses()
+        check_scripted_gameplay_proof.require_long_run_cadence(statuses)
+
+        short_window = scripted_statuses()
+        short_window["mouse"] = short_window["mouse"].replace("gtic=00000140", "gtic=000000A0")
+        short_window["mouse"] = short_window["mouse"].replace("leveltime=00000140", "leveltime=000000A0")
+        with self.assertRaisesRegex(AssertionError, "long-run-window-too-short"):
+            check_scripted_gameplay_proof.require_long_run_cadence(short_window)
+
+        audio_stall = scripted_statuses()
+        audio_stall["mouse"] = audio_stall["mouse"].replace("audioirq=00000100", "audioirq=00000040")
+        with self.assertRaisesRegex(AssertionError, "audio-cadence-stalled"):
+            check_scripted_gameplay_proof.require_long_run_cadence(audio_stall)
 
     def test_rejects_missing_state_change_in_each_runtime_lane(self):
         cases = {
@@ -470,6 +525,7 @@ class ScriptedGameplayProofTests(unittest.TestCase):
                     str(TOOL),
                     "--write-json",
                     str(manifest_path),
+                    "--require-long-run-cadence",
                     str(paths["final"]),
                 ],
                 cwd=ROOT,
@@ -498,6 +554,20 @@ class ScriptedGameplayProofTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("repo contract OK", result.stdout)
+
+    def test_soak_workflow_publishes_status_only_cadence_metadata(self):
+        workflow = (ROOT / ".github" / "workflows" / "real-wad-soak.yml").read_text()
+
+        for needle in (
+            "--require-long-run-cadence",
+            "wait=30,snapshot after-menu",
+            "status_cadence",
+            "long_run_cadence",
+            "gameplay-proof.json",
+            "real-wad-soak/*.json",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, workflow)
 
 
 if __name__ == "__main__":

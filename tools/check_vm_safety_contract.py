@@ -270,6 +270,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     smoke_runner = _read(root, "tests/run_smoke_qemu.sh")
     os_workflow = _read(root, ".github/workflows/os-smoke.yml")
     real_wad_workflow = _read(root, ".github/workflows/real-wad-smoke.yml")
+    real_wad_soak_workflow = _read(root, ".github/workflows/real-wad-soak.yml")
     cloud_play_workflow = _read(root, ".github/workflows/cloud-play-now-preflight.yml")
     stage2 = _read(root, "boot/stage2.asm")
     kernel = _read(root, "kernel/kernel.asm")
@@ -341,6 +342,17 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     for workflow, label in (
         (os_workflow, "OS smoke workflow"),
         (real_wad_workflow, "real-WAD workflow"),
+        (real_wad_soak_workflow, "real-WAD soak workflow"),
+        (cloud_play_workflow, "cloud play-now preflight workflow"),
+    ):
+        _require(workflow, "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true", label)
+        _require(workflow, "uses: actions/checkout@v6", label)
+        if "uses: actions/checkout@v4" in workflow:
+            raise AssertionError(f"{label} must not use deprecated checkout@v4")
+
+    for workflow, label in (
+        (os_workflow, "OS smoke workflow"),
+        (real_wad_workflow, "real-WAD workflow"),
     ):
         _require(workflow, "runs-on: ubuntu-latest", label)
         _require(workflow, "ALLOW_LOCAL_VM=1", label)
@@ -348,7 +360,18 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         upload = _upload_block(workflow)
         for needle in ("build/status*.txt", "build/status*.bin", "build/*.log", "build/doom.symbols"):
             _require(upload, needle, label)
-        for forbidden in ("build/disk.img", "build/gfx.bin", "DOOM1.WAD", "*.WAD", "*.wad"):
+        for forbidden in (
+            "build/disk.img",
+            "build/gfx.bin",
+            "build/vga.txt",
+            "build/vga*.txt",
+            "build/doom-audio.wav",
+            "*.wav",
+            "*.png",
+            "DOOM1.WAD",
+            "*.WAD",
+            "*.wad",
+        ):
             if forbidden in upload:
                 raise AssertionError(f"{label} upload block includes forbidden artifact {forbidden}")
 
@@ -440,7 +463,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         'smoke_vmmhpa_text db " vmmhpa=", 0',
         'smoke_vmmhpt_text db " vmmhpt=", 0',
         'smoke_vmmhfree_text db " vmmhfree=", 0',
-        "USER_PROBE_EXPECTED_FLAGS equ 0x0001ffff",
+        "USER_PROBE_EXPECTED_FLAGS equ 0x0003ffff",
         "SYS_EXEC_ARGV_SOURCE_DEFAULT equ 1",
         "SYS_EXEC_ARGV_SOURCE_USER equ 2",
         "PROCESS_RECORD_BYTES equ 168",
@@ -608,6 +631,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     for needle in (
         "PROBE_FLAG_NEGATIVE_SYSCALLS = 0x1000u",
         "PROBE_FLAG_SBRK_SHRINK = 0x8000u",
+        "PROBE_FLAG_DUP = 0x20000u",
         "ERRNO_EINVAL = 22",
         "syscall3(0x7fffffffu, 0, 0, 0) == -ERRNO_ENOSYS",
         "syscall3(SYS_MMAP, 0, 0, mmap_flags) == -ERRNO_EINVAL",
@@ -618,6 +642,9 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "sys_write(1, trim + 4096, 1) == -ERRNO_EINVAL",
         "sys_munmap(hole, 4096) == 0",
         "sys_write(1, hole, 1) == -ERRNO_EINVAL",
+        "sys_dup(defaults)",
+        "sys_dup2(dup_fd, DUP2_TARGET_FD) == DUP2_TARGET_FD",
+        "sys_dup3(defaults, DUP3_TARGET_FD, O_CLOEXEC) == DUP3_TARGET_FD",
         "mmap_hole_ok && sys_munmap(video, DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES) == 0",
         "char *abi_probe_argv[] = {(char *)abi_probe_path, (char *)0};",
         "return sys_execv(abi_probe_path, abi_probe_argv) == 0 ? 0 : 1;",

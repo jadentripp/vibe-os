@@ -114,6 +114,7 @@ PROGRESS_TUPLE_COMPONENTS = (
     ("voiceq", 3, 2, "stream update"),
 )
 MIN_MUSIC_STREAM_UPDATE_DELTA = 2
+MAX_PENDING_PULL_REQUESTS = 1
 PLAYABILITY_CADENCE_FIELDS = ("gtic", "leveltime", "doompresent")
 PLAYABILITY_CADENCE_HEALTHY = "os-audio-cadence-observed"
 CURRENT_MUSIC_PAYLOAD_OWNER = "doom_port/music.c"
@@ -462,6 +463,79 @@ def _assert_pull_request_refill_consistency(snapshots: list[tuple[str, dict[str,
                 f"{label} musicpull= refill counter cannot exceed request counter, "
                 f"got {request:08X}:{refill:08X}"
             )
+        if request - refill > MAX_PENDING_PULL_REQUESTS:
+            raise AssertionError(
+                f"{label} musicpull= pending pull request backlog must stay <= "
+                f"{MAX_PENDING_PULL_REQUESTS}, got {request - refill:08X}"
+            )
+
+
+def _assert_pull_stream_sequence(snapshots: list[tuple[str, dict[str, str]]]) -> None:
+    first_label, first_fields = snapshots[0]
+    last_label, last_fields = snapshots[-1]
+    first_pull = _hex_tuple(first_fields, "musicpull", first_label, 2)
+    last_pull = _hex_tuple(last_fields, "musicpull", last_label, 2)
+    first_voiceq = _hex_tuple(first_fields, "voiceq", first_label, 3)
+    last_voiceq = _hex_tuple(last_fields, "voiceq", last_label, 3)
+    first_render = _hex_tuple(first_fields, "musicrend", first_label, 6)
+    last_render = _hex_tuple(last_fields, "musicrend", last_label, 6)
+
+    request_delta = last_pull[0] - first_pull[0]
+    refill_delta = last_pull[1] - first_pull[1]
+    update_delta = last_voiceq[2] - first_voiceq[2]
+    render_chunk_delta = last_render[1] - first_render[1]
+
+    if refill_delta != request_delta:
+        raise AssertionError(
+            "musicpull= pull refill delta must match pull request delta for "
+            "sequenced pull-stream service, "
+            f"got {request_delta:08X} requests and {refill_delta:08X} refills"
+        )
+    if update_delta != refill_delta:
+        raise AssertionError(
+            "voiceq= stream update delta must match musicpull= pull refill delta, "
+            f"got {update_delta:08X} updates and {refill_delta:08X} refills"
+        )
+    if render_chunk_delta != refill_delta:
+        raise AssertionError(
+            "musicrend= render chunk delta must match musicpull= pull refill delta, "
+            f"got {render_chunk_delta:08X} chunks and {refill_delta:08X} refills"
+        )
+
+    previous_label, previous_fields = snapshots[0]
+    previous_pull = _hex_tuple(previous_fields, "musicpull", previous_label, 2)
+    previous_voiceq = _hex_tuple(previous_fields, "voiceq", previous_label, 3)
+    previous_render = _hex_tuple(previous_fields, "musicrend", previous_label, 6)
+    previous_pos = _hex(previous_fields, "musicpos", previous_label)
+    for label, fields in snapshots[1:]:
+        current_pull = _hex_tuple(fields, "musicpull", label, 2)
+        current_voiceq = _hex_tuple(fields, "voiceq", label, 3)
+        current_render = _hex_tuple(fields, "musicrend", label, 6)
+        current_pos = _hex(fields, "musicpos", label)
+        refill_step = current_pull[1] - previous_pull[1]
+        update_step = current_voiceq[2] - previous_voiceq[2]
+        render_step = current_render[1] - previous_render[1]
+        if refill_step:
+            if update_step != refill_step:
+                raise AssertionError(
+                    f"{label} voiceq= stream update step must match pull refill step, "
+                    f"got {update_step:08X} updates and {refill_step:08X} refills"
+                )
+            if render_step != refill_step:
+                raise AssertionError(
+                    f"{label} musicrend= render chunk step must match pull refill step, "
+                    f"got {render_step:08X} chunks and {refill_step:08X} refills"
+                )
+            if current_pos <= previous_pos:
+                raise AssertionError(
+                    f"{label} musicpos= must advance when a pull refill is serviced, "
+                    f"got {previous_pos:08X}->{current_pos:08X}"
+                )
+        previous_label = label
+        previous_pull = current_pull
+        previous_voiceq = current_voiceq
+        previous_render = current_render
+        previous_pos = current_pos
 
 
 def _assert_music_stream_mode(
@@ -501,6 +575,7 @@ def _assert_music_stream_mode(
         _assert_tuple_component_nonzero(snapshots, "musicpull", 2, 0, "pull request")
         _assert_tuple_component_nonzero(snapshots, "musicpull", 2, 1, "pull refill")
         _assert_tuple_component_progress(snapshots, "voiceq", 3, 2, "stream update service")
+        _assert_pull_stream_sequence(snapshots)
         return
 
     if "PULL" in modes:
@@ -508,6 +583,7 @@ def _assert_music_stream_mode(
         _assert_tuple_component_progress(snapshots, "musicpull", 2, 0, "pull request")
         _assert_tuple_component_progress(snapshots, "musicpull", 2, 1, "pull refill")
         _assert_tuple_component_progress(snapshots, "voiceq", 3, 2, "stream update service")
+        _assert_pull_stream_sequence(snapshots)
 
 
 def _assert_music_render_evidence(snapshots: list[tuple[str, dict[str, str]]]) -> None:
@@ -568,15 +644,13 @@ def _assert_music_render_covers_stream_service(
     rendered_sample_delta = last_render[5] - first_render[5]
     consumed_sample_delta = last_pos - first_pos
 
+    # The baseline snapshot can already have a partially consumed music window.
+    # The conserved quantity is rendered bytes plus the initial buffer, not
+    # rendered bytes alone.
     if render_chunk_delta < service_delta:
         raise AssertionError(
             "musicrend= render chunk delta must cover stream service updates, "
             f"got {render_chunk_delta:08X} chunks for {service_delta:08X} {service_label} updates"
-        )
-    if rendered_sample_delta < consumed_sample_delta:
-        raise AssertionError(
-            "musicrend= rendered sample delta must keep pace with musicpos= consumed samples, "
-            f"got {rendered_sample_delta:08X} rendered for {consumed_sample_delta:08X} consumed"
         )
     if rendered_sample_delta + first_buffer < consumed_sample_delta + last_buffer:
         raise AssertionError(
@@ -866,6 +940,7 @@ def validate_status(
     )
     for name, maximum in MAX_SAFETY_DELTAS.items():
         _assert_max_delta(snapshots, name, maximum, "audio safety")
+    _assert_music_render_evidence(snapshots)
     _assert_music_stream_mode(snapshots, require_pull_stream=require_pull_stream)
     if uses_pull_stream or require_pull_stream:
         _assert_tuple_component_progress(snapshots, "musicpull", 2, 0, "pull request")
@@ -877,7 +952,6 @@ def validate_status(
         snapshots,
         use_pull_stream=uses_pull_stream or require_pull_stream,
     )
-    _assert_music_render_evidence(snapshots)
     _assert_music_render_covers_stream_service(
         snapshots,
         use_pull_stream=uses_pull_stream or require_pull_stream,
@@ -951,6 +1025,7 @@ def validate_repo_contract() -> None:
                 "musicpull=",
                 "musicrend=",
                 "rendered-sample delta",
+                "buffered coverage",
                 "event type 6",
                 "event type 5",
                 "stream-health evidence",
@@ -983,6 +1058,7 @@ def validate_repo_contract() -> None:
                 "event type 5",
                 "zero-duration songs do not become silent looping streams",
                 "rendered-sample delta",
+                "coverage is the real stream invariant",
                 "long-playback wrap",
                 "static stream window",
                 "Music legitimacy roadmap as OS contracts",

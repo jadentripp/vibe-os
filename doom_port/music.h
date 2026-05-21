@@ -36,6 +36,8 @@ typedef struct vibe_music_render_stats {
     unsigned long stream_song_samples;
     unsigned long stream_loop_samples;
     unsigned long stream_loop_count;
+    unsigned long stream_chunk_index;
+    unsigned long stream_chunk_bytes;
 } vibe_music_render_stats_t;
 
 void vibe_music_init(void);

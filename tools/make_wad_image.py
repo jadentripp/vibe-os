@@ -1137,58 +1137,46 @@ def load_external_wad(path):
     return wad
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Build a bootable vibe-os IDE/FAT16 disk image."
+def install_bootable_layout(
+    image,
+    *,
+    wad_path=None,
+    stage1_path=None,
+    stage2_path=None,
+    kernel_path=None,
+    user_elf_path=None,
+    doom_elf_path=None,
+    extra_root_elves=(),
+):
+    """Lay the vibe-os boot/FAT image onto an already-blank disk buffer."""
+
+    if len(image) != IMAGE_SECTORS * SECTOR_SIZE:
+        raise ValueError(
+            f"install target is {len(image)} bytes, expected {IMAGE_SECTORS * SECTOR_SIZE}"
+        )
+    if any(image):
+        raise ValueError("install target must be a zero-filled blank disk image")
+    if any(path is not None for path in (stage1_path, stage2_path, kernel_path)) and not all(
+        path is not None for path in (stage1_path, stage2_path, kernel_path)
+    ):
+        raise ValueError("stage1, stage2, and kernel paths must be provided together")
+    if doom_elf_path is not None and user_elf_path is None:
+        raise ValueError("doom ELF packaging requires a user probe ELF path")
+
+    boot_paths = (
+        (stage1_path, stage2_path, kernel_path)
+        if stage1_path is not None
+        else None
     )
-    parser.add_argument(
-        "--wad",
-        metavar="PATH",
-        help="use this external DOOM1.WAD/PWAD instead of the generated test fixture",
-    )
-    parser.add_argument(
-        "--root-elf",
-        action="append",
-        default=[],
-        metavar="NAME.ELF=PATH",
-        help="package an additional root-level FAT16 8.3 user ELF",
-    )
-    parser.add_argument("paths", nargs="+")
-    args = parser.parse_args()
-
-    if len(args.paths) not in (1, 4, 5, 6):
-        parser.error("usage: make_wad_image.py [--wad PATH] [--root-elf NAME.ELF=PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [DOOM_ELF]]]")
-    return args
-
-
-def main():
-    args = parse_args()
-    extra_root_elves = [parse_root_elf_arg(value) for value in args.root_elf]
-    seen_root_elves = set()
-    for name, path in extra_root_elves:
-        if name in PROTECTED_ROOT_NAMES:
-            raise ValueError(f"protected root ELF entry {Fat16Image._entry_label(name)}")
-        if name in seen_root_elves:
-            raise ValueError(f"duplicate root ELF entry {Fat16Image._entry_label(name)}")
-        seen_root_elves.add(name)
-        if not path.is_file():
-            raise ValueError(f"{path} is not a file")
-
-    image = bytearray(IMAGE_SECTORS * SECTOR_SIZE)
-    output_path = args.paths[0]
-    boot_paths = args.paths[1:4] if len(args.paths) >= 4 else None
-    user_elf_path = args.paths[4] if len(args.paths) >= 5 else None
-    doom_elf_path = args.paths[5] if len(args.paths) == 6 else None
 
     mbr = memoryview(image)[0:SECTOR_SIZE]
     if boot_paths:
-        with open(boot_paths[0], "rb") as f:
-            stage1 = f.read()
+        stage1 = Path(stage1_path).read_bytes()
         if len(stage1) != SECTOR_SIZE:
             raise ValueError(f"stage1 must be exactly {SECTOR_SIZE} bytes")
         mbr[:] = stage1
-        write_padded_file(image, STAGE2_LBA, STAGE2_SECTORS, boot_paths[1], "stage2")
-        write_padded_file(image, KERNEL_LBA, KERNEL_SECTORS, boot_paths[2], "kernel")
+        write_padded_file(image, STAGE2_LBA, STAGE2_SECTORS, stage2_path, "stage2")
+        write_padded_file(image, KERNEL_LBA, KERNEL_SECTORS, kernel_path, "kernel")
     else:
         mbr[0:3] = b"\xeb\x3c\x90"
 
@@ -1234,7 +1222,7 @@ def main():
 
     root = memoryview(image)[sector_offset(root_start):sector_offset(root_start + ROOT_DIR_SECTORS)]
 
-    wad = load_external_wad(args.wad) if args.wad else build_wad()
+    wad = load_external_wad(wad_path) if wad_path else build_wad()
     wad_cluster, _wad_clusters = write_cluster_chain(image, fat_entries, data_start, wad)
     if wad_cluster != DOOM_WAD_CLUSTER:
         raise ValueError("DOOM1.WAD must start at cluster 2")
@@ -1242,28 +1230,39 @@ def main():
     next_root_index = 1
 
     if user_elf_path:
-        with open(user_elf_path, "rb") as f:
-            user_elf = f.read()
+        user_elf = Path(user_elf_path).read_bytes()
         user_cluster, _user_clusters = write_cluster_chain(image, fat_entries, data_start, user_elf)
         write_root_entry(root, next_root_index, USER_PROBE_NAME, user_cluster, len(user_elf))
         next_root_index += 1
 
         if doom_elf_path:
-            with open(doom_elf_path, "rb") as f:
-                doom_elf = f.read()
+            doom_elf = Path(doom_elf_path).read_bytes()
             doom_cluster, _doom_clusters = write_cluster_chain(image, fat_entries, data_start, doom_elf)
             write_root_entry(root, next_root_index, DOOM_ELF_NAME, doom_cluster, len(doom_elf))
             next_root_index += 1
 
     for name, path in extra_root_elves:
-        elf = path.read_bytes()
+        elf = Path(path).read_bytes()
         elf_cluster, _elf_clusters = write_cluster_chain(image, fat_entries, data_start, elf)
         write_root_entry(root, next_root_index, name, elf_cluster, len(elf))
         next_root_index += 1
 
-    asset_dir_cluster, _asset_dir_clusters = write_cluster_chain(image, fat_entries, data_start, bytes(cluster_size()))
-    asset_file_cluster, _asset_file_clusters = write_cluster_chain(image, fat_entries, data_start, ASSET_README_BYTES)
-    asset_dir = memoryview(image)[sector_offset(data_start + (asset_dir_cluster - 2) * SECTORS_PER_CLUSTER):sector_offset(data_start + (asset_dir_cluster - 1) * SECTORS_PER_CLUSTER)]
+    asset_dir_cluster, _asset_dir_clusters = write_cluster_chain(
+        image,
+        fat_entries,
+        data_start,
+        bytes(cluster_size()),
+    )
+    asset_file_cluster, _asset_file_clusters = write_cluster_chain(
+        image,
+        fat_entries,
+        data_start,
+        ASSET_README_BYTES,
+    )
+    asset_dir = memoryview(image)[
+        sector_offset(data_start + (asset_dir_cluster - 2) * SECTORS_PER_CLUSTER):
+        sector_offset(data_start + (asset_dir_cluster - 1) * SECTORS_PER_CLUSTER)
+    ]
     write_fat_directory_entry(asset_dir, 0, b".          ", FAT_ATTR_DIRECTORY, asset_dir_cluster, 0)
     write_fat_directory_entry(asset_dir, 1, b"..         ", FAT_ATTR_DIRECTORY, 0, 0)
     write_fat_directory_entry(asset_dir, 2, ASSET_README_NAME, FAT_ATTR_ARCHIVE, asset_file_cluster, len(ASSET_README_BYTES))
@@ -1283,6 +1282,61 @@ def main():
     for fat_index in range(FAT_COUNT):
         start = sector_offset(fat_start + fat_index * SECTORS_PER_FAT)
         image[start:start + len(fat_bytes)] = fat_bytes
+
+    return image
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Build a bootable vibe-os IDE/FAT16 disk image."
+    )
+    parser.add_argument(
+        "--wad",
+        metavar="PATH",
+        help="use this external DOOM1.WAD/PWAD instead of the generated test fixture",
+    )
+    parser.add_argument(
+        "--root-elf",
+        action="append",
+        default=[],
+        metavar="NAME.ELF=PATH",
+        help="package an additional root-level FAT16 8.3 user ELF",
+    )
+    parser.add_argument("paths", nargs="+")
+    args = parser.parse_args()
+
+    if len(args.paths) not in (1, 4, 5, 6):
+        parser.error("usage: make_wad_image.py [--wad PATH] [--root-elf NAME.ELF=PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [DOOM_ELF]]]")
+    return args
+
+
+def main():
+    args = parse_args()
+    extra_root_elves = [parse_root_elf_arg(value) for value in args.root_elf]
+    seen_root_elves = set()
+    for name, path in extra_root_elves:
+        if name in PROTECTED_ROOT_NAMES:
+            raise ValueError(f"protected root ELF entry {Fat16Image._entry_label(name)}")
+        if name in seen_root_elves:
+            raise ValueError(f"duplicate root ELF entry {Fat16Image._entry_label(name)}")
+        seen_root_elves.add(name)
+        if not path.is_file():
+            raise ValueError(f"{path} is not a file")
+
+    output_path = args.paths[0]
+    boot_paths = args.paths[1:4] if len(args.paths) >= 4 else None
+    user_elf_path = args.paths[4] if len(args.paths) >= 5 else None
+    doom_elf_path = args.paths[5] if len(args.paths) == 6 else None
+    image = install_bootable_layout(
+        bytearray(IMAGE_SECTORS * SECTOR_SIZE),
+        wad_path=args.wad,
+        stage1_path=boot_paths[0] if boot_paths else None,
+        stage2_path=boot_paths[1] if boot_paths else None,
+        kernel_path=boot_paths[2] if boot_paths else None,
+        user_elf_path=user_elf_path,
+        doom_elf_path=doom_elf_path,
+        extra_root_elves=extra_root_elves,
+    )
 
     with open(output_path, "wb") as f:
         f.write(image)

@@ -514,9 +514,12 @@ int main(void)
     unsigned char* reused;
     size_t used;
     char text[16];
+    char small[5];
+    char hex_text[16];
     char wad_path[32];
     char parsed_word[16];
     int parsed_value;
+    int written;
 
     vibe_libc_host_heap_reset();
     a = malloc(64);
@@ -614,6 +617,53 @@ int main(void)
     sprintf(text, "WILV%d%d", 1, 2);
     if (strcmp(text, "WILV12"))
         return 20;
+    sprintf(text, "%05d", -7);
+    if (strcmp(text, "-0007"))
+        return 227;
+    sprintf(text, "%5.3d", -7);
+    if (strcmp(text, " -007"))
+        return 228;
+    sprintf(text, "%8.3s", "abcdef");
+    if (strcmp(text, "     abc"))
+        return 229;
+    written = snprintf(small, sizeof(small), "%05d", -7);
+    if (written != 5 || strcmp(small, "-000"))
+        return 230;
+    small[0] = 'x';
+    written = snprintf(small, sizeof(small), "%.0u", 0u);
+    if (written != 0 || small[0] != 0)
+        return 231;
+    sprintf(hex_text, "%lx", 0x1234abcdul);
+    if (strcmp(hex_text, "1234abcd"))
+        return 232;
+    sprintf(text, "%5.0u", 0u);
+    if (strcmp(text, "     "))
+        return 233;
+    written = snprintf(0, 0, "%05d:%s", -7, "abc");
+    if (written != 9)
+        return 234;
+    sprintf(text, "%o %d", 8u, 9);
+    if (strcmp(text, "10 9"))
+        return 235;
+    sprintf(text, "%X", 0x2au);
+    if (strcmp(text, "2A"))
+        return 236;
+    sprintf(wad_path, "%llx %d", 0x12345678abcdef01ull, 7);
+    if (sizeof(unsigned long) == 4) {
+        if (strcmp(wad_path, "abcdef01 7"))
+            return 237;
+    } else if (strcmp(wad_path, "12345678abcdef01 7")) {
+        return 237;
+    }
+    sprintf(text, "%zu %d", (size_t)12, 34);
+    if (strcmp(text, "12 34"))
+        return 238;
+    sprintf(text, "%*s %d", 4, "xy", 5);
+    if (strcmp(text, "  xy 5"))
+        return 239;
+    sprintf(text, "%f %d", 1.0, 7);
+    if (strcmp(text, "%f 7"))
+        return 240;
     parsed_value = -1;
     if (sscanf("version 110", "version %i", &parsed_value) != 1 || parsed_value != 110)
         return 181;

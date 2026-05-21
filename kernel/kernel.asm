@@ -304,7 +304,7 @@ USER_HEAP_START equ USER_STACK_TOP
 USER_HEAP_END equ 0x00f00000
 USER_HEAP_PAGE_COUNT equ (USER_HEAP_END - USER_HEAP_START) / PAGE_SIZE
 USER_HEAP_BITMAP_BYTES equ (USER_HEAP_PAGE_COUNT + 7) / 8
-USER_PROBE_EXPECTED_FLAGS equ 0x0001ffff
+USER_PROBE_EXPECTED_FLAGS equ 0x0003ffff
 USER_PROBE_MAGIC equ 0x13579BDF
 ABI_PROBE_MAGIC equ 0xA81B10BE
 ABI_PROBE_EXPECTED_FLAGS equ 0x00000007
@@ -312,6 +312,8 @@ PREEMPT_PROBE_MAGIC equ 0x50524545
 USER_FAULT_ADDR equ 0x00010000
 USER_FD_BASE equ 3
 USER_FD_COUNT equ 16
+FD_STATUS_FREE equ 0
+FD_STATUS_OPEN equ 1
 FD_KIND_FREE equ 0
 FD_KIND_WAD equ 1
 FD_KIND_WRITABLE equ 2
@@ -366,6 +368,9 @@ SYS_POLL_INPUT equ 28
 SYS_CLOCK_GETTIME equ 29
 SYS_LISTDIR equ 30
 SYS_INPUT_STATUS equ 31
+SYS_DUP equ 32
+SYS_DUP2 equ 33
+SYS_DUP3 equ 34
 PLAYABLE_STATUS_FLAG equ 0x80000000
 DOOM_INIT_STATUS_FLAG equ 0x40000000
 SAVELOAD_STATUS_FLAG equ 0x20000000
@@ -5298,7 +5303,7 @@ storage_init:
     xor ebx, ebx
 
 .clear_user_fds:
-    mov byte [fd_status + ebx], FD_KIND_FREE
+    mov byte [fd_status + ebx], FD_STATUS_FREE
     mov byte [fd_kinds + ebx], FD_KIND_FREE
     mov dword [fd_indices + ebx * 4], 0
     mov dword [fd_offsets + ebx * 4], 0
@@ -5307,6 +5312,8 @@ storage_init:
     mov dword [fd_owner_pids + ebx * 4], 0xffffffff
     mov dword [fd_open_generations + ebx * 4], 0
     mov dword [fd_inherit_flags + ebx * 4], 0
+    mov dword [fd_description_roots + ebx * 4], 0
+    mov dword [fd_refcounts + ebx * 4], 0
     inc ebx
     loop .clear_user_fds
     mov ecx, WRITABLE_FILE_COUNT
@@ -5518,6 +5525,13 @@ storage_init:
     mov dword [fd_last_exec_from_pid], 0xffffffff
     mov dword [fd_last_exec_to_pid], 0xffffffff
     mov dword [fd_last_closed_owner_pid], 0xffffffff
+    mov dword [fd_dup_calls], 0
+    mov dword [fd_dup2_calls], 0
+    mov dword [fd_dup3_calls], 0
+    mov dword [fd_dup_shared], 0
+    mov dword [fd_dup_cloexec], 0
+    mov dword [fd_last_dup_source], 0xffffffff
+    mov dword [fd_last_dup_target], 0xffffffff
 
     xor eax, eax
     mov edi, SECTOR_BUFFER_ADDR
@@ -7669,20 +7683,13 @@ fat_close_writable_fds_for_slot:
     xor ebx, ebx
 
 .loop:
-    cmp byte [fd_status + ebx], 1
+    cmp byte [fd_status + ebx], FD_STATUS_OPEN
     jne .next
     cmp byte [fd_kinds + ebx], FD_KIND_WRITABLE
     jne .next
     cmp [fd_indices + ebx * 4], edx
     jne .next
-    mov byte [fd_status + ebx], FD_KIND_FREE
-    mov byte [fd_kinds + ebx], FD_KIND_FREE
-    mov dword [fd_indices + ebx * 4], 0
-    mov dword [fd_offsets + ebx * 4], 0
-    mov dword [fd_flags + ebx * 4], 0
-    mov dword [fd_file_sizes + ebx * 4], 0
-    mov dword [fd_owner_pids + ebx * 4], 0xffffffff
-    mov dword [fd_inherit_flags + ebx * 4], 0
+    call fd_close_slot
 
 .next:
     inc ebx
@@ -7721,7 +7728,7 @@ fd_reset_all:
     xor ebx, ebx
 
 .loop:
-    mov byte [fd_status + ebx], FD_KIND_FREE
+    mov byte [fd_status + ebx], FD_STATUS_FREE
     mov byte [fd_kinds + ebx], FD_KIND_FREE
     mov dword [fd_indices + ebx * 4], 0
     mov dword [fd_offsets + ebx * 4], 0
@@ -7729,6 +7736,8 @@ fd_reset_all:
     mov dword [fd_file_sizes + ebx * 4], 0
     mov dword [fd_owner_pids + ebx * 4], 0xffffffff
     mov dword [fd_inherit_flags + ebx * 4], 0
+    mov dword [fd_description_roots + ebx * 4], 0
+    mov dword [fd_refcounts + ebx * 4], 0
     inc ebx
     loop .loop
 
@@ -7744,16 +7753,13 @@ fd_alloc:
 .loop:
     cmp ebx, USER_FD_COUNT
     jae .fail
-    cmp byte [fd_status + ebx], FD_KIND_FREE
+    cmp byte [fd_status + ebx], FD_STATUS_FREE
     je .found
     inc ebx
     jmp .loop
 
 .found:
-    mov byte [fd_status + ebx], 1
-    mov eax, [current_pid]
-    mov [fd_owner_pids + ebx * 4], eax
-    inc dword [fd_open_generations + ebx * 4]
+    call fd_prepare_current_descriptor
     test dword [syscall_open_flags], O_CLOEXEC
     jnz .no_exec_inherit
     mov dword [fd_inherit_flags + ebx * 4], FD_INHERIT_EXEC
@@ -7774,19 +7780,35 @@ fd_alloc:
     pop ebx
     ret
 
-fd_lookup:
+fd_prepare_current_descriptor:
+    push eax
+    mov byte [fd_status + ebx], FD_STATUS_OPEN
+    mov byte [fd_kinds + ebx], FD_KIND_FREE
+    mov dword [fd_indices + ebx * 4], 0
+    mov dword [fd_offsets + ebx * 4], 0
+    mov dword [fd_flags + ebx * 4], 0
+    mov dword [fd_file_sizes + ebx * 4], 0
+    mov eax, [current_pid]
+    mov [fd_owner_pids + ebx * 4], eax
+    inc dword [fd_open_generations + ebx * 4]
+    mov dword [fd_inherit_flags + ebx * 4], FD_INHERIT_EXEC
+    mov [fd_description_roots + ebx * 4], ebx
+    mov dword [fd_refcounts + ebx * 4], 1
+    pop eax
+    ret
+
+fd_lookup_descriptor:
     mov eax, ebx
     sub eax, USER_FD_BASE
     cmp eax, USER_FD_COUNT
     jae .fail
-    cmp byte [fd_status + eax], 1
+    cmp byte [fd_status + eax], FD_STATUS_OPEN
     jne .fail
     push edx
     mov edx, [current_pid]
     cmp [fd_owner_pids + eax * 4], edx
     pop edx
     jne .fail
-    mov [file_io_fd_slot], eax
     clc
     ret
 
@@ -7794,8 +7816,33 @@ fd_lookup:
     stc
     ret
 
+fd_lookup:
+    call fd_lookup_descriptor
+    jc .fail
+    push edx
+    mov [file_io_user_fd_slot], eax
+    mov edx, [fd_description_roots + eax * 4]
+    cmp edx, USER_FD_COUNT
+    jae .root_fail
+    cmp byte [fd_status + edx], FD_STATUS_OPEN
+    jne .root_fail
+    cmp dword [fd_refcounts + edx * 4], 0
+    je .root_fail
+    mov eax, edx
+    mov [file_io_fd_slot], eax
+    pop edx
+    clc
+    ret
+
+.root_fail:
+    pop edx
+
+.fail:
+    stc
+    ret
+
 fd_clear_slot:
-    mov byte [fd_status + ebx], FD_KIND_FREE
+    mov byte [fd_status + ebx], FD_STATUS_FREE
     mov byte [fd_kinds + ebx], FD_KIND_FREE
     mov dword [fd_indices + ebx * 4], 0
     mov dword [fd_offsets + ebx * 4], 0
@@ -7803,6 +7850,121 @@ fd_clear_slot:
     mov dword [fd_file_sizes + ebx * 4], 0
     mov dword [fd_owner_pids + ebx * 4], 0xffffffff
     mov dword [fd_inherit_flags + ebx * 4], 0
+    mov dword [fd_description_roots + ebx * 4], 0
+    mov dword [fd_refcounts + ebx * 4], 0
+    ret
+
+fd_clone_descriptor:
+    push eax
+    mov [fd_description_roots + edi * 4], ebx
+    mov dword [fd_refcounts + edi * 4], 0
+    inc dword [fd_refcounts + ebx * 4]
+    mov al, [fd_kinds + ebx]
+    mov [fd_kinds + edi], al
+    mov eax, [fd_indices + ebx * 4]
+    mov [fd_indices + edi * 4], eax
+    mov eax, [fd_offsets + ebx * 4]
+    mov [fd_offsets + edi * 4], eax
+    mov eax, [fd_flags + ebx * 4]
+    mov [fd_flags + edi * 4], eax
+    mov eax, [fd_file_sizes + ebx * 4]
+    mov [fd_file_sizes + edi * 4], eax
+    mov [fd_inherit_flags + edi * 4], edx
+    inc dword [fd_dup_shared]
+    pop eax
+    ret
+
+fd_close_slot:
+    pushad
+    mov esi, ebx
+    cmp esi, USER_FD_COUNT
+    jae .done
+    cmp byte [fd_status + esi], FD_STATUS_OPEN
+    jne .done
+    mov edx, [fd_description_roots + esi * 4]
+    cmp edx, USER_FD_COUNT
+    jb .root_ready
+    mov edx, esi
+
+.root_ready:
+    cmp dword [fd_refcounts + edx * 4], 0
+    je .clear_descriptor
+    cmp esi, edx
+    je .close_root
+    dec dword [fd_refcounts + edx * 4]
+    mov ebx, esi
+    call fd_clear_slot
+    cmp dword [fd_refcounts + edx * 4], 0
+    jne .done
+    mov ebx, edx
+    call fd_clear_slot
+    jmp .done
+
+.close_root:
+    cmp dword [fd_refcounts + edx * 4], 1
+    ja .promote_root
+    mov ebx, edx
+    call fd_clear_slot
+    jmp .done
+
+.promote_root:
+    xor edi, edi
+
+.find_alias:
+    cmp edi, USER_FD_COUNT
+    jae .clear_descriptor
+    cmp edi, edx
+    je .next_alias
+    cmp byte [fd_status + edi], FD_STATUS_OPEN
+    jne .next_alias
+    cmp [fd_description_roots + edi * 4], edx
+    je .alias_found
+
+.next_alias:
+    inc edi
+    jmp .find_alias
+
+.alias_found:
+    mov al, [fd_kinds + edx]
+    mov [fd_kinds + edi], al
+    mov eax, [fd_indices + edx * 4]
+    mov [fd_indices + edi * 4], eax
+    mov eax, [fd_offsets + edx * 4]
+    mov [fd_offsets + edi * 4], eax
+    mov eax, [fd_flags + edx * 4]
+    mov [fd_flags + edi * 4], eax
+    mov eax, [fd_file_sizes + edx * 4]
+    mov [fd_file_sizes + edi * 4], eax
+    mov eax, [fd_refcounts + edx * 4]
+    dec eax
+    mov [fd_refcounts + edi * 4], eax
+    mov [fd_description_roots + edi * 4], edi
+    xor ebx, ebx
+
+.retarget_next:
+    cmp ebx, USER_FD_COUNT
+    jae .clear_old_root
+    cmp byte [fd_status + ebx], FD_STATUS_OPEN
+    jne .retarget_advance
+    cmp [fd_description_roots + ebx * 4], edx
+    jne .retarget_advance
+    mov [fd_description_roots + ebx * 4], edi
+
+.retarget_advance:
+    inc ebx
+    jmp .retarget_next
+
+.clear_old_root:
+    mov ebx, edx
+    call fd_clear_slot
+    jmp .done
+
+.clear_descriptor:
+    mov ebx, esi
+    call fd_clear_slot
+
+.done:
+    popad
     ret
 
 fd_close_owned_by_pid:
@@ -7816,11 +7978,11 @@ fd_close_owned_by_pid:
     xor ebx, ebx
 
 .loop:
-    cmp byte [fd_status + ebx], 1
+    cmp byte [fd_status + ebx], FD_STATUS_OPEN
     jne .next
     cmp [fd_owner_pids + ebx * 4], edx
     jne .next
-    call fd_clear_slot
+    call fd_close_slot
     inc dword [fd_owner_closes]
 
 .next:
@@ -7860,7 +8022,7 @@ fd_exec_handoff:
     xor ebx, ebx
 
 .loop:
-    cmp byte [fd_status + ebx], 1
+    cmp byte [fd_status + ebx], FD_STATUS_OPEN
     jne .next
     cmp [fd_owner_pids + ebx * 4], esi
     jne .next
@@ -7871,7 +8033,7 @@ fd_exec_handoff:
     jmp .next
 
 .close_on_exec:
-    call fd_clear_slot
+    call fd_close_slot
     inc dword [fd_exec_closed]
 
 .next:
@@ -9782,6 +9944,13 @@ scheduler_init:
     mov dword [fd_last_exec_from_pid], 0xffffffff
     mov dword [fd_last_exec_to_pid], 0xffffffff
     mov dword [fd_last_closed_owner_pid], 0xffffffff
+    mov dword [fd_dup_calls], 0
+    mov dword [fd_dup2_calls], 0
+    mov dword [fd_dup3_calls], 0
+    mov dword [fd_dup_shared], 0
+    mov dword [fd_dup_cloexec], 0
+    mov dword [fd_last_dup_source], 0xffffffff
+    mov dword [fd_last_dup_target], 0xffffffff
     mov byte [boot_user_exec_status], 0
     mov dword [boot_user_exec_pid], 0xffffffff
     mov dword [boot_user_exec_entry], 0
@@ -12127,6 +12296,12 @@ syscall_handler:
     je .listdir
     cmp eax, SYS_INPUT_STATUS
     je .input_status
+    cmp eax, SYS_DUP
+    je .dup
+    cmp eax, SYS_DUP2
+    je .dup2
+    cmp eax, SYS_DUP3
+    je .dup3
     jmp .bad_syscall_enosys
 
 .user_probe:
@@ -12446,15 +12621,8 @@ syscall_handler:
     jmp .return
 
 .open_writable_reserved_eio:
-    mov eax, [file_io_fd_slot]
-    mov byte [fd_status + eax], FD_KIND_FREE
-    mov byte [fd_kinds + eax], FD_KIND_FREE
-    mov dword [fd_indices + eax * 4], 0
-    mov dword [fd_offsets + eax * 4], 0
-    mov dword [fd_flags + eax * 4], 0
-    mov dword [fd_file_sizes + eax * 4], 0
-    mov dword [fd_owner_pids + eax * 4], 0xffffffff
-    mov dword [fd_inherit_flags + eax * 4], 0
+    mov ebx, [file_io_fd_slot]
+    call fd_clear_slot
     jmp .bad_syscall_eio
 
 .open_generic_root83:
@@ -12829,16 +12997,10 @@ syscall_handler:
     jmp .return
 
 .close:
-    call fd_lookup
+    call fd_lookup_descriptor
     jc .bad_syscall_ebadf
-    mov byte [fd_status + eax], FD_KIND_FREE
-    mov byte [fd_kinds + eax], FD_KIND_FREE
-    mov dword [fd_indices + eax * 4], 0
-    mov dword [fd_offsets + eax * 4], 0
-    mov dword [fd_flags + eax * 4], 0
-    mov dword [fd_file_sizes + eax * 4], 0
-    mov dword [fd_owner_pids + eax * 4], 0xffffffff
-    mov dword [fd_inherit_flags + eax * 4], 0
+    mov ebx, eax
+    call fd_close_slot
 
 .close_ok:
     cmp byte [current_user_kind], USER_KIND_DOOM
@@ -12847,6 +13009,107 @@ syscall_handler:
 
 .close_return:
     xor eax, eax
+    jmp .return
+
+.dup:
+    inc dword [fd_dup_calls]
+    call fd_lookup_descriptor
+    jc .bad_syscall_ebadf
+    mov esi, eax
+    mov ebx, [fd_description_roots + esi * 4]
+    cmp ebx, USER_FD_COUNT
+    jae .bad_syscall_ebadf
+    cmp byte [fd_status + ebx], FD_STATUS_OPEN
+    jne .bad_syscall_ebadf
+    cmp dword [fd_refcounts + ebx * 4], 0
+    je .bad_syscall_ebadf
+    mov [fd_dup_root_slot], ebx
+    call fd_alloc
+    jc .bad_syscall_emfile
+    mov edi, eax
+    mov ebx, [fd_dup_root_slot]
+    mov edx, FD_INHERIT_EXEC
+    call fd_clone_descriptor
+    mov eax, esi
+    add eax, USER_FD_BASE
+    mov [fd_last_dup_source], eax
+    mov eax, edi
+    add eax, USER_FD_BASE
+    mov [fd_last_dup_target], eax
+    jmp .return
+
+.dup2:
+    inc dword [fd_dup2_calls]
+    mov dword [fd_dup_flags_arg], FD_INHERIT_EXEC
+    jmp .dup_to_fd
+
+.dup3:
+    inc dword [fd_dup3_calls]
+    mov eax, edx
+    and eax, 0xfffff7ff
+    jnz .bad_syscall_einval
+    cmp ebx, ecx
+    je .bad_syscall_einval
+    mov dword [fd_dup_flags_arg], FD_INHERIT_EXEC
+    test edx, O_CLOEXEC
+    jz .dup_to_fd
+    mov dword [fd_dup_flags_arg], 0
+
+.dup_to_fd:
+    call fd_lookup_descriptor
+    jc .bad_syscall_ebadf
+    mov esi, eax
+    mov eax, ecx
+    sub eax, USER_FD_BASE
+    cmp eax, USER_FD_COUNT
+    jae .bad_syscall_ebadf
+    mov edi, eax
+    cmp edi, esi
+    je .dup_same_fd
+    cmp byte [fd_status + edi], FD_STATUS_FREE
+    je .dup_target_ready
+    cmp byte [fd_status + edi], FD_STATUS_OPEN
+    jne .bad_syscall_ebadf
+    mov eax, [current_pid]
+    cmp [fd_owner_pids + edi * 4], eax
+    jne .bad_syscall_ebadf
+    mov ebx, edi
+    call fd_close_slot
+
+.dup_target_ready:
+    cmp byte [fd_status + esi], FD_STATUS_OPEN
+    jne .bad_syscall_ebadf
+    mov eax, [current_pid]
+    cmp [fd_owner_pids + esi * 4], eax
+    jne .bad_syscall_ebadf
+    mov ebx, [fd_description_roots + esi * 4]
+    cmp ebx, USER_FD_COUNT
+    jae .bad_syscall_ebadf
+    cmp byte [fd_status + ebx], FD_STATUS_OPEN
+    jne .bad_syscall_ebadf
+    cmp dword [fd_refcounts + ebx * 4], 0
+    je .bad_syscall_ebadf
+    mov [fd_dup_root_slot], ebx
+    mov ebx, edi
+    call fd_prepare_current_descriptor
+    mov ebx, [fd_dup_root_slot]
+    mov edx, [fd_dup_flags_arg]
+    call fd_clone_descriptor
+    cmp dword [fd_dup_flags_arg], 0
+    jne .dup_record_result
+    inc dword [fd_dup_cloexec]
+
+.dup_record_result:
+    mov eax, esi
+    add eax, USER_FD_BASE
+    mov [fd_last_dup_source], eax
+    mov eax, edi
+    add eax, USER_FD_BASE
+    mov [fd_last_dup_target], eax
+    jmp .return
+
+.dup_same_fd:
+    mov eax, ecx
     jmp .return
 
 .audio:
@@ -15729,6 +15992,10 @@ write_smoke_status:
     call smoke_copy_string
     mov edx, [boot_user_exec_entry]
     call smoke_write_hex32
+    mov esi, smoke_userexec_flags_text
+    call smoke_copy_string
+    mov edx, [user_probe_flags_seen]
+    call smoke_write_hex32
 
     mov esi, smoke_abiexec_text
     call smoke_copy_string
@@ -15848,6 +16115,27 @@ write_smoke_status:
     mov al, '/'
     stosb
     mov edx, [fd_owner_closes]
+    call smoke_write_hex32
+
+    mov esi, smoke_fddup_text
+    call smoke_copy_string
+    mov edx, [fd_dup_calls]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fd_dup2_calls]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fd_dup3_calls]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fd_dup_shared]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [fd_dup_cloexec]
     call smoke_write_hex32
 
     mov esi, smoke_pwait_text
@@ -18293,6 +18581,7 @@ smoke_userexec_text db " uexec=", 0
 smoke_userexec_path_text db " upath=", 0
 smoke_userexec_pid_text db " upid=", 0
 smoke_userexec_entry_text db " uentry=", 0
+smoke_userexec_flags_text db " uflags=", 0
 smoke_abiexec_text db " abiexec=", 0
 smoke_abiexec_path_text db " abipath=", 0
 smoke_abiexec_pid_text db " abipid=", 0
@@ -18305,6 +18594,7 @@ smoke_abiflags_text db " abiflags=", 0
 smoke_procpool_text db " procpool=", 0
 smoke_pidseq_text db " pidseq=", 0
 smoke_fdexec_text db " fdexec=", 0
+smoke_fddup_text db " fdup=", 0
 smoke_pwait_text db " wait=", 0
 smoke_vmreap_text db " vmreap=", 0
 smoke_doom_text db "doom=", 0
@@ -18947,6 +19237,8 @@ fd_file_sizes times USER_FD_COUNT dd 0
 fd_owner_pids times USER_FD_COUNT dd 0xffffffff
 fd_open_generations times USER_FD_COUNT dd 0
 fd_inherit_flags times USER_FD_COUNT dd 0
+fd_description_roots times USER_FD_COUNT dd 0
+fd_refcounts times USER_FD_COUNT dd 0
 fd_exec_handoffs dd 0
 fd_exec_inherited dd 0
 fd_exec_closed dd 0
@@ -18954,6 +19246,16 @@ fd_owner_closes dd 0
 fd_last_exec_from_pid dd 0xffffffff
 fd_last_exec_to_pid dd 0xffffffff
 fd_last_closed_owner_pid dd 0xffffffff
+fd_dup_calls dd 0
+fd_dup2_calls dd 0
+fd_dup3_calls dd 0
+fd_dup_shared dd 0
+fd_dup_cloexec dd 0
+fd_last_dup_source dd 0xffffffff
+fd_last_dup_target dd 0xffffffff
+fd_dup_root_slot dd 0
+fd_dup_flags_arg dd 0
+file_io_user_fd_slot dd 0
 file_io_index dd 0
 file_io_user_ptr dd 0
 file_io_remaining dd 0

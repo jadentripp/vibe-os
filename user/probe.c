@@ -22,6 +22,9 @@ enum {
     SYS_GETPID = 25,
     SYS_FTRUNCATE = 27,
     SYS_LISTDIR = 30,
+    SYS_DUP = 32,
+    SYS_DUP2 = 33,
+    SYS_DUP3 = 34,
 };
 
 enum {
@@ -44,6 +47,7 @@ enum {
     PROBE_FLAG_FTRUNCATE = 0x4000u,
     PROBE_FLAG_SBRK_SHRINK = 0x8000u,
     PROBE_FLAG_LISTDIR = 0x10000u,
+    PROBE_FLAG_DUP = 0x20000u,
 };
 
 enum {
@@ -67,10 +71,14 @@ enum {
     O_RDWR = 0x0002u,
     O_CREAT = 0x0100u,
     O_TRUNC = 0x0200u,
+    O_CLOEXEC = 0x0800u,
+    DUP2_TARGET_FD = 8,
+    DUP3_TARGET_FD = 9,
     SEEK_SET = 0,
     SEEK_END = 2,
     S_IFREG = 0100000u,
     S_IFDIR = 0040000u,
+    ERRNO_EBADF = 9,
     ERRNO_EACCES = 13,
     ERRNO_ENOTDIR = 20,
     ERRNO_EINVAL = 22,
@@ -168,6 +176,18 @@ static int sys_lseek(int fd, uint32_t offset, int whence) {
 
 static int sys_close(int fd) {
     return syscall3(SYS_CLOSE, (uint32_t)fd, 0, 0);
+}
+
+static int sys_dup(int fd) {
+    return syscall3(SYS_DUP, (uint32_t)fd, 0, 0);
+}
+
+static int sys_dup2(int oldfd, int newfd) {
+    return syscall3(SYS_DUP2, (uint32_t)oldfd, (uint32_t)newfd, 0);
+}
+
+static int sys_dup3(int oldfd, int newfd, uint32_t flags) {
+    return syscall3(SYS_DUP3, (uint32_t)oldfd, (uint32_t)newfd, flags);
 }
 
 static int sys_stat(const char *path, struct stat *out) {
@@ -402,6 +422,61 @@ int user_main(int argc, char **argv, char **envp) {
         && readback[2] == 0
         && readback[3] == 0) {
         flags |= PROBE_FLAG_FTRUNCATE;
+    }
+
+    int dup_fd = -1;
+    if (defaults >= 0) {
+        int dup_ok = 0;
+        if (sys_lseek(defaults, 0, SEEK_SET) == 0) {
+            dup_fd = sys_dup(defaults);
+            if (dup_fd >= 0
+                && sys_read(dup_fd, readback, 4) == 4
+                && readback[0] == 'p'
+                && readback[1] == 'e'
+                && readback[2] == 'r'
+                && readback[3] == 's'
+                && sys_read(defaults, readback, 4) == 4
+                && readback[0] == 0
+                && readback[1] == 0
+                && readback[2] == 0
+                && readback[3] == 0
+                && sys_lseek(defaults, 0, SEEK_SET) == 0
+                && sys_dup2(dup_fd, DUP2_TARGET_FD) == DUP2_TARGET_FD
+                && sys_read(DUP2_TARGET_FD, readback, 4) == 4
+                && readback[0] == 'p'
+                && readback[1] == 'e'
+                && readback[2] == 'r'
+                && readback[3] == 's'
+                && sys_read(defaults, readback, 4) == 4
+                && readback[0] == 0
+                && readback[1] == 0
+                && readback[2] == 0
+                && readback[3] == 0
+                && sys_lseek(defaults, 0, SEEK_SET) == 0
+                && sys_dup3(defaults, DUP3_TARGET_FD, O_CLOEXEC) == DUP3_TARGET_FD
+                && sys_read(DUP3_TARGET_FD, readback, 4) == 4
+                && readback[0] == 'p'
+                && readback[1] == 'e'
+                && readback[2] == 'r'
+                && readback[3] == 's'
+                && sys_read(defaults, readback, 4) == 4
+                && readback[0] == 0
+                && readback[1] == 0
+                && readback[2] == 0
+                && readback[3] == 0
+                && sys_dup2(dup_fd, dup_fd) == dup_fd
+                && sys_dup3(dup_fd, dup_fd, 0) == -ERRNO_EINVAL
+                && syscall3(SYS_DUP, 99, 0, 0) == -ERRNO_EBADF) {
+                dup_ok = 1;
+            }
+        }
+        if (dup_fd >= 0) {
+            sys_close(dup_fd);
+        }
+        sys_close(DUP2_TARGET_FD);
+        if (dup_ok) {
+            flags |= PROBE_FLAG_DUP;
+        }
     }
 
     unsigned char *hole = sys_mmap(8192, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS);

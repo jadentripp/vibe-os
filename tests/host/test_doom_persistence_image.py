@@ -1071,6 +1071,18 @@ class DoomPersistenceImageTests(unittest.TestCase):
         with self.assertRaisesRegex(check_persistence.PersistenceProofError, "FAT copy 1 differs"):
             check_persistence.validate_image(path)
 
+    def test_checker_rejects_structurally_damaged_image_before_persistence_claims(self):
+        image = bytearray((BUILD / "disk.img").read_bytes())
+        image[510:512] = b"\0\0"
+        path = self.write_temp_image(image)
+
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "MBR boot signature"):
+            check_persistence.validate_image(path)
+
+        truncated_path = self.write_temp_image(image[:-make_wad_image.SECTOR_SIZE])
+        with self.assertRaisesRegex(check_persistence.PersistenceProofError, "size"):
+            check_persistence.validate_image(truncated_path)
+
     def test_checker_rejects_orphaned_shared_or_duplicate_root_storage(self):
         image = bytearray((BUILD / "disk.img").read_bytes())
         fs = make_wad_image.Fat16Image(image)

@@ -217,6 +217,9 @@ The helper prints a separate failure-lane block after every download command:
 gameplay/input, SB16 continuity, audible audio aggregate when requested, and
 persistence/save-load when requested. Treat those as independent repair lanes
 instead of upgrading a partial proof into a broader claim.
+The adjacent `rerun only the red lane` block gives the exact gameplay, audio,
+or persistence command to retry, so a single red lane does not force a full
+proof rerun.
 
 For a formal human proof from the running Codespace, open a second Codespace
 terminal and print the dry-run bundle template before capture:
@@ -277,7 +280,10 @@ bridge to the noVNC server. The QEMU VNC server stays bound to `127.0.0.1`
 inside the Codespace.
 
 Controls: arrows move and turn, Ctrl fires, Space uses, and Escape opens the
-menu. noVNC does not carry game audio in this fast path.
+menu. Click the noVNC canvas before recorded human-proof actions if focus is
+ambiguous. noVNC does not carry game audio in this fast path; the guided human
+helper records audio as `status-only`, `listener-pass`, `audio-proof-json-pass`,
+or `not-tested`.
 
 The Codespaces launcher never downloads the remote WAD, disk image, rendered
 pixels, raw audio, screenshots, or remote logs to the Mac. Remote fetch/startup

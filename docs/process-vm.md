@@ -38,9 +38,10 @@ launch used `argvsrc=2` from a user argv-vector exec path, `uexec=OK` and
 `upath=USERPROB.ELF` prove the initial probe also came through the exec
 resolver, `abiexec=OK`, `abipath=ABIPROBE.ELF`, and `abiprobe=OK` prove a
 second root-level freestanding program ran in a generic exec slot before Doom,
-`procpool=`, `fdexec=`, `wait=`, and `vmreap=` prove bounded slot reuse,
-exec-time fd inheritance, a userland wait/reap path, child VM teardown during
-reap, and fault statuses that can be reaped instead of staying stale, and
+`procpool=`, `fdexec=`, `fdup=`, `wait=`, and `vmreap=` prove bounded slot
+reuse, exec-time fd inheritance, shared-offset fd duplication, a userland
+wait/reap path, child VM teardown during reap, and fault statuses that can be
+reaped instead of staying stale, and
 `pmask`, `pfrom`/`pto`, `pkind`, `peip`, `pcr3`, `pkstk`, and `pframe`
 show timer-driven switches in both directions between Doom and the preempt
 probe with distinct process identities, address spaces, kernel stacks, and a
@@ -93,8 +94,8 @@ reuse accounting, and fresh PIDs. They are selected at exec time from
 the boot probe process record. Once selected, they use the same process
 handoff machinery as table-backed Doom: target-specific stack bounds, the
 shared argv stack builder, a kernel-seeded empty `envp`, process-owned fd
-retagging for inheritable descriptors, and `O_CLOEXEC` close-on-exec cleanup.
-That keeps the VM contract useful for future root-level game or tool ELFs
+retagging for inheritable descriptors, shared open-file-description roots for
+duplicated descriptors, and `O_CLOEXEC` close-on-exec cleanup. That keeps the VM contract useful for future root-level game or tool ELFs
 instead of only proving the Doom slot.
 
 `process_doom` owns:

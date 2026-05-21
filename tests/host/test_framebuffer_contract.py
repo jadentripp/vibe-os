@@ -1,3 +1,5 @@
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -88,7 +90,9 @@ class FramebufferContractTests(unittest.TestCase):
         self.assertEqual(lfb["backend"], fb.BACKEND_LFB_XRGB8888)
         self.assertEqual(lfb["source_name"], fb.DOOM_SOURCE.name)
         self.assertEqual((lfb["source_width"], lfb["source_height"]), (320, 200))
+        self.assertEqual(lfb["source_aspect_width"], 320)
         self.assertEqual(lfb["source_aspect_height"], 240)
+        self.assertEqual(lfb["pixel_aspect"], (240, 200))
         self.assertEqual(lfb["present_format"], fb.FORMAT_INDEX8_RGB24)
         self.assertEqual((lfb["max_present_width"], lfb["max_present_height"]), (320, 200))
         self.assertEqual(lfb["frame_bytes"], fb.DOOM_FRAME_BYTES)
@@ -140,6 +144,44 @@ class FramebufferContractTests(unittest.TestCase):
 
         unsupported = dict(info, present_format=0)
         self.assertFalse(fb.can_present_indexed_descriptor(unsupported, 320, 200))
+        unsupported_palette = dict(info)
+        unsupported_palette["capabilities"] &= ~fb.CAP_PRESENT_RGB_PALETTE
+        self.assertFalse(fb.can_present_indexed_descriptor(unsupported_palette, 320, 200))
+
+    def test_present_descriptor_validation_rejects_mismatched_buffers(self):
+        info = fb.fbinfo_contract("lfb", width=800, height=600)
+        frame = fixture_frame()
+        palette = fixture_palette()
+
+        fb.validate_present_indexed_descriptor(info, frame, palette, 320, 200)
+        with self.assertRaisesRegex(ValueError, "not accepted"):
+            fb.validate_present_indexed_descriptor(info, frame, palette, 319, 200)
+        with self.assertRaisesRegex(ValueError, "indexed frame"):
+            variable = dict(info)
+            variable["capabilities"] &= ~fb.CAP_FIXED_PRESENT_SIZE
+            fb.validate_present_indexed_descriptor(variable, frame[:-1], palette, 320, 200)
+        with self.assertRaisesRegex(ValueError, "palette"):
+            fb.validate_present_indexed_descriptor(info, frame, palette[:-1], 320, 200)
+
+    def test_source_metadata_supports_a_second_indexed_game_shape(self):
+        second_game = fb.IndexedSourceFormat(
+            name="second-game-index8",
+            width=160,
+            height=100,
+            aspect_height=120,
+            min_integer_scale=2,
+        )
+        metadata = fb.source_metadata(second_game)
+        info = fb.fbinfo_contract("lfb", width=640, height=480, source=second_game)
+        frame = bytes(second_game.frame_bytes)
+        palette = fixture_palette()
+
+        self.assertEqual(metadata["source_name"], "second-game-index8")
+        self.assertEqual(metadata["pixel_aspect"], (120, 100))
+        self.assertEqual((info["source_width"], info["source_height"]), (160, 100))
+        self.assertEqual(info["source_aspect_height"], 120)
+        self.assertEqual((info["view_width"], info["view_height"]), (640, 480))
+        fb.validate_present_indexed_descriptor(info, frame, palette, 160, 100)
 
     def test_graphics_doc_records_os_level_framebuffer_boundaries(self):
         docs = (ROOT / "docs" / "graphics.md").read_text()
@@ -148,6 +190,9 @@ class FramebufferContractTests(unittest.TestCase):
             "The only accepted source today is Doom's 320x200 index8 frame",
             "`VIBE_FB_CAP_FIXED_PRESENT_SIZE`",
             "`max_present_width` by `max_present_height`",
+            "source aspect width/height",
+            "pixel aspect metadata",
+            "`vibe_present_indexed_checked`",
             "Dirty source bounds",
             "source-frame coordinates, not target pixels",
             "Future indexed backends can clear that bit",
@@ -163,6 +208,87 @@ class FramebufferContractTests(unittest.TestCase):
         self.assertIn("VIBE_FB_POLICY_ASPECT = 2", header)
         self.assertIn("VIBE_FB_FORMAT_INDEX8_RGB24 = 1", header)
         self.assertIn("VIBE_FB_CAP_FIXED_PRESENT_SIZE = 0x00000020u", header)
+        self.assertIn("vibe_fb_info_supports_indexed_rgb24", header)
+        self.assertIn("vibe_fb_info_present_size_is_accepted", header)
+        self.assertIn("vibe_fb_info_source_aspect_height", header)
+
+    def test_public_header_helpers_support_a_second_indexed_game(self):
+        source = r"""
+            #include "vibe_os.h"
+
+            int main(void)
+            {
+                unsigned char frame[160 * 100];
+                unsigned char palette[VIBE_FB_RGB24_PALETTE_BYTES];
+                vibe_present_indexed_t present;
+                vibe_fb_info_t info = {0};
+
+                info.backend = VIBE_FB_BACKEND_LFB_XRGB8888;
+                info.present_format = VIBE_FB_FORMAT_INDEX8_RGB24;
+                info.capabilities = VIBE_FB_CAP_PRESENT_INDEXED
+                    | VIBE_FB_CAP_PRESENT_RGB_PALETTE
+                    | VIBE_FB_CAP_XRGB8888_LFB;
+                info.max_present_width = 160;
+                info.max_present_height = 100;
+                info.palette_bytes = VIBE_FB_RGB24_PALETTE_BYTES;
+                info.scale = 2;
+                info.view_width = 320;
+                info.view_height = 240;
+                info.policy = VIBE_FB_POLICY_ASPECT;
+
+                vibe_present_indexed_init(&present, frame, palette, 160, 100);
+                if (present.frame != frame || present.palette != palette)
+                    return 1;
+                if (!vibe_fb_info_supports_indexed_rgb24(&info))
+                    return 2;
+                if (vibe_fb_info_requires_fixed_present_size(&info))
+                    return 3;
+                if (!vibe_fb_info_present_size_is_accepted(&info, 160, 100)
+                    || !vibe_fb_info_present_size_is_accepted(&info, 80, 100)
+                    || vibe_fb_info_present_size_is_accepted(&info, 161, 100))
+                    return 4;
+                if (vibe_fb_info_present_frame_bytes(&info) != 16000)
+                    return 5;
+                if (vibe_fb_info_present_palette_bytes(&info) != VIBE_FB_RGB24_PALETTE_BYTES)
+                    return 6;
+                if (vibe_fb_info_source_aspect_width(&info) != 160
+                    || vibe_fb_info_source_aspect_height(&info) != 120)
+                    return 7;
+
+                info.capabilities |= VIBE_FB_CAP_FIXED_PRESENT_SIZE;
+                if (!vibe_fb_info_requires_fixed_present_size(&info)
+                    || !vibe_fb_info_present_size_is_accepted(&info, 160, 100)
+                    || vibe_fb_info_present_size_is_accepted(&info, 80, 100))
+                    return 8;
+
+                return 0;
+            }
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "second_game_fb_contract"
+            build = subprocess.run(
+                [
+                    "clang",
+                    "-std=gnu89",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-I",
+                    str(ROOT / "doom_port" / "include"),
+                    "-x",
+                    "c",
+                    "-",
+                    "-o",
+                    str(binary),
+                ],
+                cwd=ROOT,
+                input=source,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(build.returncode, 0, build.stderr)
+            run = subprocess.run([str(binary)], cwd=ROOT, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
 
     def test_lfb_present_clears_only_when_view_geometry_changes(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()

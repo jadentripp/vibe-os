@@ -28,6 +28,7 @@ class RepoHygieneTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("pristine Doom vendor tree", result.stdout)
         self.assertIn("forbidden uploads", result.stdout)
+        self.assertIn("token-shaped secrets", result.stdout)
 
     def test_pristine_doom_policy_is_machine_checked(self):
         self.assertEqual(check_repo_hygiene.UPSTREAM_COMMIT, "a77dfb96cb91780ca334d0d4cfd86957558007e0")
@@ -51,10 +52,18 @@ class RepoHygieneTests(unittest.TestCase):
             "assets/doom1.wad.zip",
             "assets/doom1.pwad.tar.gz",
             "build/disk.img",
+            "build/disk.vdi",
+            "build/disk.vmdk",
+            "build/disk.vhdx",
+            "build/disk.dsk",
             "proofs/frame.ppm",
             "proofs/screenshot.jpg",
+            "proofs/frame.tiff",
+            "proofs/frame.rgba",
             "proofs/pixels/frame.txt",
             "capture/doom-audio.wav",
+            "capture/doom-audio.pcm",
+            "capture/doom-audio.caf",
             "capture/sfx.raw",
             "capture/music.opus",
             "capture/music.m4a",
@@ -73,12 +82,26 @@ class RepoHygieneTests(unittest.TestCase):
                 )
 
     def test_disguised_wad_magic_is_rejected(self):
-        with mock.patch.object(check_repo_hygiene, "read_file_prefix", return_value=b"IWAD\x00\x00"):
-            violations = check_repo_hygiene.find_violations(["notes/proof.dat"])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "notes").mkdir()
+            (root / "notes" / "proof.dat").write_bytes(b"placeholder")
+            with (
+                mock.patch.object(check_repo_hygiene, "ROOT", root),
+                mock.patch.object(check_repo_hygiene, "read_file_prefix", return_value=b"IWAD\x00\x00"),
+            ):
+                violations = check_repo_hygiene.find_violations(["notes/proof.dat"])
         self.assertEqual(
             violations,
             ["notes/proof.dat: WAD/IWAD payload is tracked under a non-WAD extension"],
         )
+
+    def test_deleted_tracked_paths_are_ignored_during_worktree_checks(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            with mock.patch.object(check_repo_hygiene, "ROOT", root):
+                violations = check_repo_hygiene.find_violations(["docs/deleted.md"])
+        self.assertEqual(violations, [])
 
     def test_disguised_compressed_wad_payloads_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -104,6 +127,66 @@ class RepoHygieneTests(unittest.TestCase):
                 "proof-tar.bundle: tar archive member 'nested/DOOM1.WAD' is a WAD path",
             ],
         )
+
+    def test_secret_scan_rejects_tokens_codespaces_env_and_browser_codes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            classic_token = "ghp_" + ("A" * 36)
+            fine_grained_token = "github_pat_" + ("B" * 22) + "_" + ("C" * 59)
+            codespaces_token = "GITHUB_CODESPACES_TOKEN=" + ("D" * 32)
+            browser_code = "Copy your one-time browser code: " + "ABCD" + "-1234"
+            (root / "notes.txt").write_text(
+                "\n".join(
+                    [
+                        f"token={classic_token}",
+                        f"fine_grained={fine_grained_token}",
+                        codespaces_token,
+                    ]
+                )
+            )
+            (root / "browser-auth.txt").write_text(browser_code)
+
+            with mock.patch.object(check_repo_hygiene, "ROOT", root):
+                violations = check_repo_hygiene.find_violations(["notes.txt", "browser-auth.txt"])
+
+        self.assertTrue(any("GitHub token-shaped string" in violation for violation in violations))
+        self.assertTrue(
+            any("GitHub fine-grained token-shaped string" in violation for violation in violations)
+        )
+        self.assertTrue(any("Codespaces environment leak" in violation for violation in violations))
+        self.assertTrue(any("one-time browser auth code" in violation for violation in violations))
+
+    def test_secret_scan_allows_placeholders_and_explicit_false_positives(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            example_token = "ghp_" + ("E" * 36)
+            (root / "examples.md").write_text(
+                "\n".join(
+                    [
+                        "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}",
+                        "Authorization: Bearer [redacted]",
+                        "Copy your one-time browser code: <browser-code>",
+                        f"example literal {example_token}  # repo-hygiene: allow-secret-example",
+                        r"regex fixture: gh[pousr]_[A-Za-z0-9_]{36,}",
+                    ]
+                )
+            )
+
+            with mock.patch.object(check_repo_hygiene, "ROOT", root):
+                violations = check_repo_hygiene.find_violations(["examples.md"])
+
+        self.assertEqual(violations, [])
+
+    def test_secret_patterns_do_not_flag_checker_or_redaction_regexes(self):
+        paths = (
+            "tools/check_repo_hygiene.py",
+            "tools/collect_human_playtest_bundle.py",
+            "tools/play_now_remote.sh",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                text = (ROOT / path).read_text(errors="ignore")
+                self.assertEqual(check_repo_hygiene.secret_content_violations(path, text), [])
 
     def test_imported_vendor_manifest_rejects_extra_tracked_vendor_files(self):
         tracked = check_repo_hygiene.tracked_files() + [
@@ -136,19 +219,50 @@ class RepoHygieneTests(unittest.TestCase):
             "*.[Ww][Aa][Dd].tar.gz",
             "*.[Ii][Ww][Aa][Dd].tar.gz",
             "*.[Pp][Ww][Aa][Dd].tar.gz",
+            "*.dsk",
+            "*.ima",
+            "*.vdi",
+            "*.vmdk",
+            "*.vhd",
+            "*.vhdx",
+            "*.dmg",
+            "*.qcow",
             "*.wav",
             "*.wave",
+            "*.pcm",
             "*.mp3",
             "*.ogg",
             "*.oga",
+            "*.opus",
+            "*.m4a",
+            "*.aac",
+            "*.wma",
             "*.flac",
             "*.aiff",
             "*.aif",
             "*.au",
+            "*.snd",
+            "*.caf",
+            "*.mid",
+            "*.midi",
+            "*.mus",
+            "*.sf2",
+            "*.sf3",
+            "*.voc",
+            "*.mod",
+            "*.s3m",
+            "*.xm",
+            "*.it",
             "*.jpg",
             "*.jpeg",
             "*.webp",
             "*.gif",
+            "*.tif",
+            "*.tiff",
+            "*.tga",
+            "*.xpm",
+            "*.rgb",
+            "*.rgba",
             "screenshots/",
             "pixels/",
             "screenshot*.txt",
@@ -318,10 +432,13 @@ jobs:
                 "",
                 "Concise claim surface.",
                 "",
+                "TODO: paste the latest cloud result here.",
+                "Checklist for the release proof:",
                 "- [ ] rerun cloud smoke before release",
                 "- Latest proof commit abcdef0123456789abcdef0123456789abcdef01",
                 "- scripted_proof_run_id=26156172979",
                 "- GAP[PLAYABLE]: collect phase_hash_after_fire evidence",
+                "- This is a Doom-capable OS and fully playable on real hardware.",
             ]
         )
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -330,10 +447,12 @@ jobs:
             violations = check_repo_hygiene.readme_policy_violations(root)
 
         self.assertTrue(any("task-list checkbox" in violation for violation in violations))
+        self.assertTrue(any("TODO/checklist language" in violation for violation in violations))
         self.assertTrue(any("commit hash" in violation for violation in violations))
         self.assertTrue(any("run ID" in violation for violation in violations))
         self.assertTrue(any("gap ledger row" in violation for violation in violations))
         self.assertTrue(any("proof transcript field" in violation for violation in violations))
+        self.assertTrue(any("overclaiming phrase" in violation for violation in violations))
 
     def test_detailed_docs_may_retain_exact_source_evidence(self):
         provenance = (ROOT / "docs" / "doom-provenance.md").read_text()

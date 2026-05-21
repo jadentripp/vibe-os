@@ -227,9 +227,11 @@ For music handles it can also replace the active sample pointer and length when
 the current window has already drained, or queue one pending streamed music chunk
 when the current window is still playing. The refill path promotes that pending
 window exactly at the source boundary and continues mixing without retiring the
-music voice. Doom's port layer now queries `VIBE_AUDIO_PCM_PULL_STATE` instead
-of using its own buffered-byte low-water policy. The kernel raises a
-hardware-paced pull request from the SB16 IRQ refill
+music voice. Doom's port layer now queries structured `VIBE_AUDIO_STREAM_INFO`
+for handle match, PULL mode, ordered request/refill counters, pending refill
+state, queued bytes, and underrun/drop counters before servicing the next music
+chunk; `VIBE_AUDIO_PCM_PULL_STATE` remains as the scalar fallback. The kernel
+raises a hardware-paced pull request from the SB16 IRQ refill
 path when the active plus pending music buffer falls below the three-quarter
 stream-window low-water mark, and the port renders exactly the next bounded
 chunk to service that request. The port still owns MUS/MIDI parsing and PCM
@@ -281,9 +283,12 @@ and emitted samples; a music flag plus carrier PCM cannot satisfy that lane.
 The parser-side stats separately prove that a real MUS score end was seen when
 the test fixture uses event type 6, and that the old type-5 shortcut is an
 invalid event that produces no stream payload.
-The rendered-sample delta must also cover the kernel-visible `musicpos=` delta,
-so a stream service proof cannot advance by submitting empty or silent chunks
-that the mixer never had enough parser-backed payload to consume.
+The rendered-sample delta is checked with stream buffering, not as a naked
+counter comparison: rendered samples plus the initial `musicbuf=` window must
+cover consumed `musicpos=` samples plus the final `musicbuf=` window. That
+buffered coverage lets a baseline snapshot start with already queued music
+while still rejecting empty or silent service chunks that the mixer never had
+enough parser-backed payload to consume.
 The same gate now also rejects audio proofs with new `mixclip=`, `musicunder=`,
 or `musicdrops=` deltas across the scripted window, and requires IRQ/refill
 movement across the phase snapshots plus Doom sound-call/SFX-mix progress by the

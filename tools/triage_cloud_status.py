@@ -77,6 +77,7 @@ SUMMARY_FIELDS = (
     "prefire",
     "inputqueue",
     "inputpoll",
+    "inputdepth",
     "inputlast",
     "keyirq",
     "keyqueue",
@@ -95,6 +96,15 @@ SUMMARY_FIELDS = (
     "heap",
     "free",
     "ticks",
+    "audio",
+    "audioirq",
+    "refill",
+    "musicpos",
+    "musicpull",
+    "musicbuf",
+    "mixunder",
+    "musicunder",
+    "musicdrops",
     "sb16",
     "dma",
     "play",
@@ -177,6 +187,24 @@ USER_DATA_SEG = 0x23
 PLAYABILITY_REQUIRED_FLAGS = 0x0000013F
 PLAYABILITY_FIRE_STATE_FLAGS = 0x000000C0
 KEY_SEEN_SCRIPTED_FLAGS = 0x00000071
+LONG_RUN_REQUIRED_FIELDS = (
+    "gtic",
+    "leveltime",
+    "dtick",
+    "doompresent",
+    "pirq",
+    "preempt",
+    "pattempt",
+    "pskip",
+    "puser",
+    "audioirq",
+    "refill",
+    "musicpos",
+)
+LONG_RUN_REQUIRED_TUPLES = (
+    ("musicpull", 2, ":"),
+    ("inputdepth", 2, ":"),
+)
 REQUIRED_DOOM_INIT_FLAGS = 0x000001FF
 SAVELOAD_EVENT_READ = 0x0002
 SAVELOAD_EVENT_CLOSE = 0x0008
@@ -326,6 +354,12 @@ TRIAGE_RULES = (
         "Inspect scheduler_tick, the live preempt probe seeding path, and whether timer IRQs are interrupting user code.",
     ),
     TriageRule(
+        "long-run-cadence-not-proven",
+        ("gtic", "leveltime", "dtick", "doompresent", "pirq", "preempt", "pattempt", "pskip", "puser", "audioirq", "refill", "musicpos", "musicpull", "inputdepth", "mixunder", "musicunder", "musicdrops"),
+        "Doom reached gameplay, but the final status does not expose a complete status-only cadence picture for slowdown triage.",
+        "Run the real-WAD soak with long-run cadence enabled, then inspect gameplay-proof.json long_run_cadence and the JSON soak metadata.",
+    ),
+    TriageRule(
         "kernel-panic",
         ("panic", "fault"),
         "The kernel recorded an unhandled non-Doom exception before halting.",
@@ -445,8 +479,13 @@ def _hex_pair(fields: dict[str, str], name: str) -> tuple[int, int] | None:
     return left, right
 
 
-def _hex_tuple(fields: dict[str, str], name: str, count: int) -> tuple[int, ...] | None:
-    return hex_tuple_field(fields, name, count)
+def _hex_tuple(
+    fields: dict[str, str],
+    name: str,
+    count: int,
+    sep: str = "/",
+) -> tuple[int, ...] | None:
+    return hex_tuple_field(fields, name, count, sep=sep)
 
 
 def _exec_detail(fields: dict[str, str]) -> str:
@@ -949,6 +988,81 @@ def render_doom_init_context(fields: dict[str, str]) -> list[str]:
     ]
 
 
+def _long_run_missing_fields(fields: dict[str, str]) -> list[str]:
+    missing = [
+        name
+        for name in LONG_RUN_REQUIRED_FIELDS
+        if _hex(fields, name) is None
+    ]
+    for name, count, sep in LONG_RUN_REQUIRED_TUPLES:
+        if _hex_tuple(fields, name, count, sep=sep) is None:
+            missing.append(name)
+    return missing
+
+
+def _long_run_cadence_issue(fields: dict[str, str]) -> str | None:
+    missing = _long_run_missing_fields(fields)
+    if missing:
+        return "missing or malformed cadence fields: " + ", ".join(missing)
+
+    core = ("gtic", "leveltime", "dtick", "doompresent")
+    zero_core = [name for name in core if (_hex(fields, name) or 0) == 0]
+    if zero_core:
+        return "zero Doom/frame cadence fields: " + ", ".join(zero_core)
+
+    scheduler = ("pirq", "preempt", "pattempt", "puser")
+    zero_scheduler = [name for name in scheduler if (_hex(fields, name) or 0) == 0]
+    if zero_scheduler:
+        return "zero scheduler cadence fields: " + ", ".join(zero_scheduler)
+
+    audio = ("audioirq", "refill", "musicpos")
+    zero_audio = [name for name in audio if (_hex(fields, name) or 0) == 0]
+    musicpull = _hex_tuple(fields, "musicpull", 2, sep=":")
+    if musicpull is not None and musicpull[1] == 0:
+        zero_audio.append("musicpull.refills")
+    if zero_audio:
+        return "zero SB16/music cadence fields: " + ", ".join(zero_audio)
+
+    inputdepth = _hex_tuple(fields, "inputdepth", 2, sep=":")
+    if inputdepth is not None and inputdepth[1] != 0:
+        return f"input queue drops recorded: inputdepth={_field(fields, 'inputdepth')}"
+
+    pressure = [
+        name
+        for name in ("mixunder", "musicunder", "musicdrops")
+        if (_hex(fields, name) or 0) != 0
+    ]
+    if pressure:
+        return "audio pressure counters are nonzero: " + ", ".join(pressure)
+
+    return None
+
+
+def render_long_run_cadence_context(fields: dict[str, str]) -> list[str]:
+    issue = _long_run_cadence_issue(fields)
+    prefix = "long-run-cadence-not-proven" if issue is not None else "long-run-cadence"
+    lines = [
+        f"{prefix}: "
+        f"gtic={_field(fields, 'gtic')} leveltime={_field(fields, 'leveltime')} "
+        f"dtick={_field(fields, 'dtick')} doompresent={_field(fields, 'doompresent')} "
+        f"pirq={_field(fields, 'pirq')} preempt={_field(fields, 'preempt')} "
+        f"pattempt={_field(fields, 'pattempt')} pskip={_field(fields, 'pskip')} "
+        f"puser={_field(fields, 'puser')} audioirq={_field(fields, 'audioirq')} "
+        f"refill={_field(fields, 'refill')} musicpos={_field(fields, 'musicpos')} "
+        f"musicpull={_field(fields, 'musicpull')} inputdepth={_field(fields, 'inputdepth')} "
+        f"mixunder={_field(fields, 'mixunder')} musicunder={_field(fields, 'musicunder')} "
+        f"musicdrops={_field(fields, 'musicdrops')}"
+    ]
+    if issue is None:
+        lines.append(
+            "long-run-hint: final status has the required cadence counters; use "
+            "gameplay-proof.json long_run_cadence for phase-to-phase deltas"
+        )
+    else:
+        lines.append(f"long-run-hint: {issue}")
+    return lines
+
+
 def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
     notes: list[str] = []
     execsys = _execsys(fields)
@@ -1250,6 +1364,23 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         )
         return "preemption-not-proven", notes
 
+    cadence_issue = _long_run_cadence_issue(fields)
+    if cadence_issue is not None:
+        notes.append(
+            "long-run-cadence-not-proven: "
+            f"{cadence_issue}; "
+            f"gtic={_field(fields, 'gtic')} leveltime={_field(fields, 'leveltime')} "
+            f"doompresent={_field(fields, 'doompresent')} pirq={_field(fields, 'pirq')} "
+            f"pskip={_field(fields, 'pskip')} audioirq={_field(fields, 'audioirq')} "
+            f"refill={_field(fields, 'refill')} musicpos={_field(fields, 'musicpos')} "
+            f"musicpull={_field(fields, 'musicpull')} inputdepth={_field(fields, 'inputdepth')}"
+        )
+        return "long-run-cadence-not-proven", notes
+
+    notes.append(
+        "long-run-cadence: final status includes Doom/frame, scheduler, SB16 refill, "
+        "music, and input-depth counters for slowdown triage"
+    )
     notes.append("playability-status-green: final status has no obvious first-failure field")
     return "playability-status-green", notes
 
@@ -1281,6 +1412,8 @@ def render_diagnosis(
         lines.extend(f"- {note}" for note in render_persistence_load_context(fields, status))
     if primary == "doom-init-stalled":
         lines.extend(f"- {note}" for note in render_doom_init_context(fields))
+    if primary in ("long-run-cadence-not-proven", "playability-status-green"):
+        lines.extend(f"- {note}" for note in render_long_run_cadence_context(fields))
     if rule is not None:
         lines.append(f"next: {rule.next_step}")
     return "\n".join(lines)

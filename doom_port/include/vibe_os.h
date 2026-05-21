@@ -31,6 +31,9 @@ enum {
     VIBE_SYS_CLOCK_GETTIME = 29,
     VIBE_SYS_LISTDIR = 30,
     VIBE_SYS_INPUT_STATUS = 31,
+    VIBE_SYS_DUP = 32,
+    VIBE_SYS_DUP2 = 33,
+    VIBE_SYS_DUP3 = 34,
 };
 
 enum {
@@ -301,11 +304,39 @@ static inline int vibe_audio_stream_uses_pull(const vibe_audio_stream_info_t* in
         && (info->flags & VIBE_AUDIO_STREAM_FLAG_PULL) != 0;
 }
 
+static inline int vibe_audio_stream_matches_handle(
+    const vibe_audio_stream_info_t* info,
+    unsigned long handle)
+{
+    return info && info->handle == handle;
+}
+
+static inline int vibe_audio_stream_refills_are_ordered(const vibe_audio_stream_info_t* info)
+{
+    unsigned long pending;
+
+    if (!info || info->pull_refill_count > info->pull_request_count)
+        return 0;
+
+    pending = info->pull_request_count - info->pull_refill_count;
+    return info->pending_pull_requests == pending;
+}
+
 static inline int vibe_audio_stream_needs_refill(const vibe_audio_stream_info_t* info)
 {
     return info
+        && vibe_audio_stream_refills_are_ordered(info)
         && info->pending_pull_requests != 0
         && (info->flags & VIBE_AUDIO_STREAM_FLAG_REFILL_PENDING) != 0;
+}
+
+static inline int vibe_audio_stream_has_new_refill_request(
+    const vibe_audio_stream_info_t* info,
+    unsigned long last_request_count)
+{
+    return vibe_audio_stream_uses_pull(info)
+        && vibe_audio_stream_needs_refill(info)
+        && info->pull_request_count > last_request_count;
 }
 
 enum {
@@ -338,6 +369,8 @@ enum {
 enum {
     VIBE_INPUT_ABI_VERSION = 1,
     VIBE_INPUT_EVENT_QUEUE_CAPACITY = 64,
+    VIBE_INPUT_EVENT_VALUE_COUNT = 3,
+    VIBE_INPUT_KEY_STATE_BITS = 256,
 };
 
 enum {
@@ -350,6 +383,8 @@ enum {
     VIBE_INPUT_MOUSE_BUTTON_RIGHT = 0x02u,
     VIBE_INPUT_MOUSE_BUTTON_MIDDLE = 0x04u,
     VIBE_INPUT_MOUSE_BUTTON_MASK = 0x07u,
+    VIBE_INPUT_MOUSE_AXIS_X = 0,
+    VIBE_INPUT_MOUSE_AXIS_Y = 1,
 };
 
 enum {
@@ -452,6 +487,29 @@ static inline int vibe_input_event_is_mouse_packet(const vibe_input_event_t* eve
         && event->type == VIBE_INPUT_EVENT_MOUSE_PACKET;
 }
 
+static inline unsigned long vibe_input_key_code(const vibe_input_event_t* event)
+{
+    return vibe_input_event_is_key(event) ? event->code : 0;
+}
+
+static inline int vibe_input_key_is_pressed(const vibe_input_event_t* event)
+{
+    return vibe_input_event_is_key(event)
+        && event->value0 == VIBE_INPUT_KEY_PRESSED;
+}
+
+static inline int vibe_input_key_is_released(const vibe_input_event_t* event)
+{
+    return vibe_input_event_is_key(event)
+        && event->value0 == VIBE_INPUT_KEY_RELEASED;
+}
+
+static inline int vibe_input_mouse_button_is_supported(unsigned long button)
+{
+    return button
+        && (button & ~VIBE_INPUT_MOUSE_BUTTON_MASK) == 0;
+}
+
 static inline unsigned long vibe_input_mouse_buttons(const vibe_input_event_t* event)
 {
     if (!vibe_input_event_is_mouse_packet(event))
@@ -464,9 +522,13 @@ static inline int vibe_input_mouse_button_is_down(
     const vibe_input_event_t* event,
     unsigned long button)
 {
-    return button
-        && (button & ~VIBE_INPUT_MOUSE_BUTTON_MASK) == 0
+    return vibe_input_mouse_button_is_supported(button)
         && (vibe_input_mouse_buttons(event) & button) == button;
+}
+
+static inline int vibe_input_mouse_has_buttons(const vibe_input_event_t* event)
+{
+    return vibe_input_mouse_buttons(event) != 0;
 }
 
 static inline long vibe_input_mouse_delta_x(const vibe_input_event_t* event)
@@ -479,10 +541,27 @@ static inline long vibe_input_mouse_delta_y(const vibe_input_event_t* event)
     return vibe_input_event_is_mouse_packet(event) ? event->value1 : 0;
 }
 
+static inline long vibe_input_mouse_delta(const vibe_input_event_t* event, unsigned long axis)
+{
+    if (axis == VIBE_INPUT_MOUSE_AXIS_X)
+        return vibe_input_mouse_delta_x(event);
+    if (axis == VIBE_INPUT_MOUSE_AXIS_Y)
+        return vibe_input_mouse_delta_y(event);
+    return 0;
+}
+
 static inline int vibe_input_mouse_has_motion(const vibe_input_event_t* event)
 {
     return vibe_input_event_is_mouse_packet(event)
         && (event->value0 != 0 || event->value1 != 0);
+}
+
+static inline int vibe_input_status_abi_is_current(const vibe_input_status_t* status)
+{
+    return status
+        && status->abi_version == VIBE_INPUT_ABI_VERSION
+        && status->event_bytes == VIBE_INPUT_EVENT_BYTES
+        && status->queue_capacity == VIBE_INPUT_EVENT_QUEUE_CAPACITY;
 }
 
 static inline int vibe_input_status_has_overflow(const vibe_input_status_t* status)
@@ -507,7 +586,7 @@ static inline int vibe_input_status_key_is_down(
     unsigned long code)
 {
     return status
-        && code < 256
+        && code < VIBE_INPUT_KEY_STATE_BITS
         && (status->keyboard_state[code >> 5] & (1ul << (code & 31))) != 0;
 }
 
@@ -520,9 +599,34 @@ static inline int vibe_input_status_mouse_button_is_down(
     const vibe_input_status_t* status,
     unsigned long button)
 {
-    return button
-        && (button & ~VIBE_INPUT_MOUSE_BUTTON_MASK) == 0
+    return vibe_input_mouse_button_is_supported(button)
         && (vibe_input_status_mouse_buttons(status) & button) == button;
+}
+
+static inline int vibe_input_status_mouse_has_buttons(const vibe_input_status_t* status)
+{
+    return vibe_input_status_mouse_buttons(status) != 0;
+}
+
+static inline long vibe_input_status_mouse_delta_x(const vibe_input_status_t* status)
+{
+    return status ? status->mouse_delta_x_total : 0;
+}
+
+static inline long vibe_input_status_mouse_delta_y(const vibe_input_status_t* status)
+{
+    return status ? status->mouse_delta_y_total : 0;
+}
+
+static inline long vibe_input_status_mouse_delta(
+    const vibe_input_status_t* status,
+    unsigned long axis)
+{
+    if (axis == VIBE_INPUT_MOUSE_AXIS_X)
+        return vibe_input_status_mouse_delta_x(status);
+    if (axis == VIBE_INPUT_MOUSE_AXIS_Y)
+        return vibe_input_status_mouse_delta_y(status);
+    return 0;
 }
 
 static inline int vibe_input_status_mouse_has_motion(const vibe_input_status_t* status)
@@ -653,6 +757,87 @@ typedef struct vibe_present_indexed {
     unsigned long height;
 } vibe_present_indexed_t;
 
+static inline void vibe_present_indexed_init(
+    vibe_present_indexed_t* present,
+    const void* frame,
+    const void* palette,
+    unsigned long width,
+    unsigned long height)
+{
+    if (!present)
+        return;
+
+    present->frame = frame;
+    present->palette = palette;
+    present->width = width;
+    present->height = height;
+}
+
+static inline int vibe_fb_info_has_capability(
+    const vibe_fb_info_t* info,
+    unsigned long capability)
+{
+    return info && (info->capabilities & capability) == capability;
+}
+
+static inline int vibe_fb_info_requires_fixed_present_size(const vibe_fb_info_t* info)
+{
+    return vibe_fb_info_has_capability(info, VIBE_FB_CAP_FIXED_PRESENT_SIZE);
+}
+
+static inline int vibe_fb_info_supports_indexed_rgb24(const vibe_fb_info_t* info)
+{
+    return info
+        && vibe_fb_info_has_capability(info, VIBE_FB_CAP_PRESENT_INDEXED)
+        && vibe_fb_info_has_capability(info, VIBE_FB_CAP_PRESENT_RGB_PALETTE)
+        && info->present_format == VIBE_FB_FORMAT_INDEX8_RGB24;
+}
+
+static inline unsigned long vibe_fb_info_present_frame_bytes(const vibe_fb_info_t* info)
+{
+    return info ? info->max_present_width * info->max_present_height : 0;
+}
+
+static inline unsigned long vibe_fb_info_present_palette_bytes(const vibe_fb_info_t* info)
+{
+    return vibe_fb_info_supports_indexed_rgb24(info)
+        ? VIBE_FB_RGB24_PALETTE_BYTES
+        : (info ? info->palette_bytes : 0);
+}
+
+static inline unsigned long vibe_fb_info_source_aspect_width(const vibe_fb_info_t* info)
+{
+    return info ? info->max_present_width : 0;
+}
+
+static inline unsigned long vibe_fb_info_source_aspect_height(const vibe_fb_info_t* info)
+{
+    if (!info || !info->scale)
+        return 0;
+    if (info->policy == VIBE_FB_POLICY_ASPECT)
+        return info->view_height / info->scale;
+    if (info->policy == VIBE_FB_POLICY_SQUARE || info->policy == VIBE_FB_POLICY_MODE13)
+        return info->max_present_height;
+    return 0;
+}
+
+static inline int vibe_fb_info_present_size_is_accepted(
+    const vibe_fb_info_t* info,
+    unsigned long width,
+    unsigned long height)
+{
+    if (!info || !width || !height || !vibe_fb_info_supports_indexed_rgb24(info))
+        return 0;
+    if (vibe_fb_info_requires_fixed_present_size(info)
+        && (width != info->max_present_width || height != info->max_present_height))
+        return 0;
+    if (info->max_present_width && width > info->max_present_width)
+        return 0;
+    if (info->max_present_height && height > info->max_present_height)
+        return 0;
+    return 1;
+}
+
 int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, unsigned long arg2);
 int vibe_syscall_errno(int raw_result, int fallback_errno);
 int vibe_clock_gettime(unsigned long clock_id, vibe_clock_time_t* out);
@@ -683,7 +868,9 @@ unsigned long vibe_monotonic_milliseconds(void);
  * - `vibe_syscall_errno` centralizes that conversion for small ports that call
  *   `vibe_syscall3` directly and still want POSIX-shaped errno values.
  * - File flags use the O_* constants from fcntl.h, including O_ACCMODE and
- *   O_CLOEXEC.
+ *   O_CLOEXEC. dup/dup2/dup3 create new descriptors that share the same open
+ *   file description offset/status; dup3 accepts O_CLOEXEC for the new
+ *   descriptor.
  * - ftruncate resizes writable root-level FAT16 files by descriptor. Growth
  *   zero-fills new bytes, and shrink frees tail clusters through the FAT layer.
  * - `vibe_file_size` and `vibe_file_read_all` are convenience wrappers for
@@ -707,7 +894,9 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   wrappers `vibe_poll_input` and `vibe_input_status` pass the ABI byte sizes
  *   explicitly so game/tool code does not need to duplicate syscall details.
  *   `vibe_drain_input` is a bounded nonblocking drain helper for per-frame
- *   event pumps.
+ *   event pumps. Inline helpers expose key press/release checks, raw PS/2
+ *   mouse buttons, relative X/Y deltas, and status ABI validation so consumers
+ *   can stay out of Doom's event translation layer.
  * - `vibe_fb_get_info` queries the reusable framebuffer contract, and
  *   `vibe_present_indexed_checked` verifies the advertised caps/format/size
  *   before presenting a `vibe_present_indexed_t` through the display fd/ioctl
@@ -715,7 +904,9 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   palette format before a program submits a frame. When
  *   `VIBE_FB_CAP_FIXED_PRESENT_SIZE` is set, callers must submit exactly
  *   `max_present_width` by `max_present_height`; future variable-size present
- *   formats can clear that bit and treat those fields as true maxima.
+ *   formats can clear that bit and treat those fields as true maxima. Inline
+ *   framebuffer helpers expose indexed RGB24 support, present-size acceptance,
+ *   and source aspect metadata derived from the advertised viewport.
  * - sbrk grows or shrinks the process heap. Shrink trims whole released pages
  *   from the process page tables and heap-validation bitmap.
  *   `vibe_heap_capabilities` exposes this as grow+shrink brk-style heap only.
@@ -727,10 +918,10 @@ unsigned long vibe_monotonic_milliseconds(void);
  * - execv passes a bounded argv vector to the process handoff. Table entries
  *   cover Doom/probe images; other root-level FAT16 .ELF names use reusable
  *   probe-class slots. File descriptors inherit across exec unless opened with
- *   O_CLOEXEC. VIBE_EXEC_* exposes the current path and argv bounds to generic
- *   userland programs. execve accepts NULL or empty envp only; the kernel seeds
- *   an empty envp terminator for every launched image until environment copying
- *   exists.
+ *   O_CLOEXEC or created by dup3 with O_CLOEXEC. Duplicated descriptors share
+ *   offsets across exec until a close-on-exec descriptor is retired. VIBE_EXEC_* exposes the current path and argv bounds to generic userland programs.
+ *   execve accepts NULL or empty envp only; the kernel seeds an empty envp
+ *   terminator for every launched image until environment copying exists.
  * - getpid returns the active static process id.
  * - fork returns ENOSYS until address-space cloning exists. wait/waitpid scan
  *   parent-PID metadata, reap EXITED/FAULTED children, support WNOHANG, and

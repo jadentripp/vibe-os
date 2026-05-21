@@ -265,6 +265,7 @@ class AudibleAudioProofTests(unittest.TestCase):
         self.assertGreater(manifest["continuity"]["mix_lanes"]["music"]["buffered_window_snapshots"], 0)
         self.assertGreaterEqual(manifest["continuity"]["stream_health"]["distinct_buffer_windows"], 2)
         self.assertTrue(manifest["continuity"]["stream_health"]["rendered_sample_covers_position"])
+        self.assertTrue(manifest["continuity"]["stream_health"]["sequenced_refill_service"])
         self.assertGreaterEqual(manifest["analysis"]["active_windows"], 3)
         self.assertGreater(manifest["quality"]["active_span_ms"], 0)
         self.assertGreater(manifest["quality"]["zero_crossing_rate_per_sec"], 0)
@@ -282,6 +283,9 @@ class AudibleAudioProofTests(unittest.TestCase):
         self.assertTrue(manifest["continuity"]["mixer_safety"]["drop_free"])
         self.assertEqual(manifest["continuity"]["stream_contract"]["mode"], "PULL")
         self.assertTrue(manifest["continuity"]["stream_contract"]["hardware_paced"])
+        self.assertTrue(
+            manifest["continuity"]["stream_contract"]["service_sequence"]["voice_update_matches_refill"]
+        )
         self.assertEqual(manifest["continuity"]["renderer_contract"]["status_counter"], "musicrend")
         self.assertEqual(manifest["continuity"]["renderer_contract"]["parser_owner"], "doom_port/music.c")
         self.assertEqual(manifest["continuity"]["renderer_contract"]["mus_score_end_event_type"], 6)
@@ -624,7 +628,7 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "sb16": "00000004:00000005",
                 "dma": "00000001",
                 "play": "00000001:00000000",
-                "voiceq": "00000001:00000000:00000002",
+                "voiceq": "00000001:00000000:00000005",
                 "musicq": "00000001:00000000",
                 "audioirq": "00000006",
                 "refill": "00000006",
@@ -670,7 +674,7 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "sfxdma_bytes": {"start": "00000400", "final": "00001000", "delta": "00000C00"},
                     "musicmix": {"start": "00000001", "final": "00000002", "delta": "00000001"},
                     "musicpos": {"start": "00000001", "final": "00000400", "delta": "000003FF"},
-                    "voiceq_update": {"start": "00000000", "final": "00000002", "delta": "00000002"},
+                    "voiceq_update": {"start": "00000000", "final": "00000005", "delta": "00000005"},
                     "musicpull_request": {"start": "00000000", "final": "00000005", "delta": "00000005"},
                     "musicpull_refill": {"start": "00000000", "final": "00000005", "delta": "00000005"},
                     "musicrend_chunk": {"start": "00000001", "final": "00000006", "delta": "00000005"},
@@ -722,13 +726,16 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "drop_delta": "00000000",
                     "stream_update_counter": "musicpull_refill",
                     "stream_update_delta": "00000005",
-                    "voiceq_update_delta": "00000002",
+                    "voiceq_update_delta": "00000005",
                     "pull_request_delta": "00000005",
                     "pull_refill_delta": "00000005",
+                    "pull_pending_peak": "00000000",
+                    "pull_pending_final": "00000000",
                     "position_delta": "000003FF",
                     "position_delta_per_update_floor": "000003FF",
                     "rendered_sample_delta": "00028000",
                     "rendered_sample_covers_position": True,
+                    "sequenced_refill_service": True,
                 },
                 "stream_contract": {
                     "mode": "PULL",
@@ -736,6 +743,19 @@ class AudibleAudioProofTests(unittest.TestCase):
                     "pull_counters": "00000005:00000005",
                     "hardware_paced": True,
                     "current_push_proof": False,
+                    "service_sequence": {
+                        "refill_counter": "musicpull_refill",
+                        "request_delta": "00000005",
+                        "refill_delta": "00000005",
+                        "voiceq_update_delta": "00000005",
+                        "renderer_chunk_delta": "00000005",
+                        "max_pending_pull_requests": "00000001",
+                        "pull_pending_peak": "00000000",
+                        "pull_pending_final": "00000000",
+                        "refill_matches_request": True,
+                        "voice_update_matches_refill": True,
+                        "render_chunk_matches_refill": True,
+                    },
                     "claim": "musicstream=PULL proves SB16 refill requested chunk service",
                 },
                 "mixer_safety": {

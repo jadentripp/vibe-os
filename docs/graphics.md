@@ -35,7 +35,8 @@ backend, indexed-source byte counts, max present dimensions, present format,
 capability bits, viewport geometry, and the latest dirty source rectangle.
 `VIBE_IOCTL_PRESENT_INDEXED` validates a `vibe_present_indexed_t` descriptor and
 presents the described source frame through the active backend. Doom uses this
-ioctl path; `SYS_PRESENT` remains a low-level compatibility/probe entrypoint.
+ioctl path through `vibe_present_indexed_checked`; `SYS_PRESENT` remains a
+low-level compatibility/probe entrypoint.
 
 The `vibe_fb_info_t` layout is stable and generic enough for future indexed
 games: clients should key off `present_format`, `max_present_width`,
@@ -46,6 +47,14 @@ range. Future indexed backends can clear that bit and treat the same fields as
 true maxima for any nonzero descriptor size that is no larger than the advertised
 boundary. New source formats should add or negotiate a new `present_format`
 instead of silently changing the meaning of `INDEX8_RGB24`.
+
+Header helpers now make the reusable checks explicit: `vibe_present_indexed_init`
+builds the descriptor, `vibe_fb_info_supports_indexed_rgb24` validates the
+format/capability pair, and `vibe_fb_info_present_size_is_accepted` mirrors the
+fixed-size versus bounded-size rule before a game calls present. Aspect/scaling
+metadata is discoverable from the same info record: source aspect width/height
+come from `max_present_width` and the scaled viewport, and the host reference
+records the equivalent pixel aspect metadata for tests.
 
 ## Scaling Policy
 
@@ -94,9 +103,10 @@ They prove graphics through aggregate status fields only:
   throughput than a stalled guest renderer.
 
 `tools/framebuffer_contract.py` is the host reference for this contract. It
-models the indexed source format explicitly, mirrors the LFB scaler, maps generic
-proof values to the current Doom status aliases, and validates status geometry
-without WAD data, local QEMU, or rendered Doom pixel artifacts.
+models the indexed source format explicitly, exposes source/aspect metadata,
+validates present descriptors against `FBINFO`, mirrors the LFB scaler, maps
+generic proof values to the current Doom status aliases, and validates status
+geometry without WAD data, local QEMU, or rendered Doom pixel artifacts.
 
 Remaining graphics gaps:
 

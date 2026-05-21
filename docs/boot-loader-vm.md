@@ -85,9 +85,9 @@ page table, that the Doom handoff report `argvsrc=2`, that `uexec=OK` and
 `upath=USERPROB.ELF` prove the boot probe used the same exec resolver, that
 `abiexec=OK`, `abipath=ABIPROBE.ELF`, and `abiprobe=OK` prove the packaged ABI
 probe executed through a generic root `.ELF` slot before Doom, and that
-`procpool=`, `fdexec=`, `wait=`, and `vmreap=` expose bounded slot reuse,
-exec-time fd inheritance, the wait/reap proof, and child VM teardown during
-reap. Real-WAD gameplay lanes also pass
+`procpool=`, `fdexec=`, `fdup=`, `wait=`, and `vmreap=` expose bounded slot
+reuse, exec-time fd inheritance, shared-offset fd duplication, the wait/reap
+proof, and child VM teardown during reap. Real-WAD gameplay lanes also pass
 `--require-preempt`; that mode requires `pmask` plus
 `pkind`/`peip`/`pcr3`/`pkstk` to show IRQ switches in both directions between
 Doom and the preempt probe with distinct address spaces and kernel stacks. The

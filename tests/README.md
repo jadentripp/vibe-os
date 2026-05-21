@@ -5,6 +5,12 @@ boot:
 
 - `make test` runs host-side artifact checks for the boot sectors, ELF files,
   FAT16 disk image, WAD fixture, and build/source contracts.
+- `tests/host/test_external_suite_leverage.py` is the agentic host-suite
+  leverage layer: it runs a libc conformance subset harness, compares syscall
+  numbers and ABI layouts across the public headers/kernel table, fuzzes FAT
+  fixture corruption classes, links/rejects ELF loader-style fixtures, checks
+  WAD parser boundaries, and exercises artifact-hygiene sniffers. It uses only
+  stdlib Python plus the existing C toolchain and does not launch QEMU.
 - `make playability-host-check` is the fast host-only playability readiness
   gate for the Mac/shared branch. It starts from a clean synthetic build, forces
   `ALLOW_LOCAL_VM=0` and an empty `DOOM_WAD`, runs `make test`, reruns
@@ -29,7 +35,11 @@ boot:
   references to shortcut source ports or host display/audio APIs. `.gitignore`
   is checked for the common WAD archive, screenshot/pixel, disk-image, log, and
   raw-audio spillover patterns so accidental local proof output is harder to
-  stage. The same hygiene gate keeps the top-level `README.md` as a concise
+  stage. The same hygiene gate scans tracked text for GitHub token-shaped
+  strings, Codespaces environment leaks, one-time browser auth codes,
+  authorization headers, and signed URL credentials, with an explicit
+  line-level marker for intentional false-positive examples. It keeps the
+  top-level `README.md` as a concise
   claim surface: exact commit hashes, run IDs, proof-transcript fields, gap rows,
   and Markdown task lists belong in detailed docs or artifacts, not in the
   README. `tests/host/test_doom_source_boundary.py` covers the narrower
@@ -76,7 +86,7 @@ boot:
 - `tools/check_vm_status_proof.py` requires the matching cloud status to expose
   `vmmhfree`, `uexec=OK`, `upath=USERPROB.ELF`, `abiexec=OK`,
   `abipath=ABIPROBE.ELF`, `abiprobe=OK`, `argvsrc=2`, `procpool=`,
-  `fdexec=`, `wait=`, and `pmask` plus `pkind`/`peip`/`pcr3`/`pkstk` evidence
+  `fdexec=`, `fdup=`, `wait=`, and `pmask` plus `pkind`/`peip`/`pcr3`/`pkstk` evidence
   before a VM/process artifact can be accepted.
 - `tools/status_fields.py` is the shared host-side status/proof parser. New
   checkers should use it for duplicate detection, eight-digit hex fields, and
@@ -175,7 +185,7 @@ boot:
   legitimacy fields: `vmmhfree` must match the reclaimed dynamic page table,
   boot-probe exec must report `uexec=OK` and `upath=USERPROB.ELF`, ABI-probe
   exec must report `abiexec=OK`, `abipath=ABIPROBE.ELF`, and `abiprobe=OK`,
-  Doom exec must report `argvsrc=2`, `procpool=`, `fdexec=`, `wait=`, and
+  Doom exec must report `argvsrc=2`, `procpool=`, `fdexec=`, `fdup=`, `wait=`, and
   `vmreap=`, and `pmask` plus `pkind`/`peip`/`pcr3`/`pkstk` must show
   bidirectional timer IRQ switching between Doom and the preempt probe.
 - `tools/check_shutdown_panic_proof.py` validates the opt-in disposable-cloud

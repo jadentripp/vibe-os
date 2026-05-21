@@ -427,6 +427,8 @@ static int test_streaming_chunks_advance_song_position(void)
         return 43;
     if (stats.stream_start_sample != 0 || stats.stream_end_sample != 512)
         return 44;
+    if (stats.stream_chunk_index != 0 || stats.stream_chunk_bytes != 512)
+        return 144;
     if (vibe_music_stream_position(handle) != 512)
         return 45;
 
@@ -435,6 +437,8 @@ static int test_streaming_chunks_advance_song_position(void)
         return 46;
     if (stats.stream_start_sample != 512 || stats.stream_end_sample != 1024)
         return 47;
+    if (stats.stream_chunk_index != 1 || stats.stream_chunk_bytes != 512)
+        return 145;
     if (vibe_music_stream_position(handle) != 1024)
         return 48;
     if (!buffers_equal(full, chunks, sizeof(full)))
@@ -522,6 +526,8 @@ static int test_default_stream_chunk_is_large_enough_for_buffered_refill(void)
         return 122;
     if (stats.stream_start_sample != 0 || stats.stream_end_sample != sizeof(chunk))
         return 123;
+    if (stats.stream_chunk_index != 0 || stats.stream_chunk_bytes != sizeof(chunk))
+        return 126;
     if (vibe_music_stream_position(handle) != sizeof(chunk))
         return 124;
     if (count_non_silence(chunk, sizeof(chunk)) < sizeof(chunk) / 8u)
@@ -582,6 +588,8 @@ static int test_looping_stream_wraps_long_playback_position(void)
             return 94;
         if (stats.stream_end_sample != (i + 1u) * loop_samples)
             return 95;
+        if (stats.stream_chunk_index != i || stats.stream_chunk_bytes != loop_samples)
+            return 101;
     }
 
     if (vibe_music_stream_loop_count(handle) < 270u)
@@ -593,6 +601,8 @@ static int test_looping_stream_wraps_long_playback_position(void)
         return 98;
     if (stats.stream_start_sample != 270u * loop_samples)
         return 99;
+    if (stats.stream_chunk_index != 270u || stats.stream_chunk_bytes != sizeof(wrapped))
+        return 102;
     if (stats.stream_loop_count != vibe_music_stream_loop_count(handle))
         return 100;
 
@@ -643,6 +653,8 @@ static int test_non_looping_stream_stops_at_song_end(void)
             return 113;
         if (stats.stream_song_samples != song_samples)
             return 114;
+        if (stats.stream_chunk_index != calls || stats.stream_chunk_bytes != rendered)
+            return 119;
         total += rendered;
         ++calls;
         if (calls > 32u)

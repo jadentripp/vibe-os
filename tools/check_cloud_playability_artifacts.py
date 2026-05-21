@@ -96,11 +96,18 @@ HUMAN_OPERATOR_CONFIRMATION_FIELDS = {
     "keyboard_use": "operator_keyboard_use",
     "mouse_action": "operator_mouse_action",
     "menu_escape": "operator_menu_escape",
+    "audio_observation": "operator_audio_observation",
     "slowdown_notes": "operator_slowdown_notes",
     "phase_actions": "operator_phase_actions",
     "phase_status_hashes": "operator_phase_status_hashes",
     "no_forbidden_artifacts": "operator_no_forbidden_artifacts",
     "post_download_verification": "operator_post_download_verification",
+}
+HUMAN_AUDIO_EVIDENCE_BY_MODE = {
+    "status-only": "status-only-sb16-continuity",
+    "listener-pass": "remote-listener-heard-output",
+    "audio-proof-json-pass": "aggregate-audio-proof-json",
+    "not-tested": "audio-not-tested",
 }
 REQUIRED_HUMAN_NOTE_FIELDS = {
     "schema": (HUMAN_NOTES_SCHEMA,),
@@ -121,6 +128,7 @@ REQUIRED_HUMAN_NOTE_FIELDS = {
     "keyboard_evidence": ("fire-move-use-menu-visible",),
     "mouse_evidence": ("motion-click-visible",),
     "menu_evidence": ("escape-menu-visible",),
+    "audio_evidence": tuple(HUMAN_AUDIO_EVIDENCE_BY_MODE.values()),
     "status_capture": ("monitor-pmemsave-0x9d000",),
     "session_phases": (
         "early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final",
@@ -139,6 +147,7 @@ REQUIRED_HUMAN_NOTE_FIELDS = {
     "operator_keyboard_use": ("confirmed",),
     "operator_mouse_action": ("confirmed",),
     "operator_menu_escape": ("confirmed",),
+    "operator_audio_observation": ("recorded",),
     "operator_slowdown_notes": ("recorded",),
     "operator_phase_actions": ("confirmed",),
     "operator_phase_status_hashes": ("confirmed",),
@@ -454,7 +463,7 @@ def _require(text: str, needle: str, label: str) -> None:
 def _assert_no_forbidden_uploads(workflow: str) -> None:
     if "uses: actions/upload-artifact@v4" not in workflow:
         raise AssertionError("real-WAD workflow must upload diagnostic artifacts")
-    upload_block = workflow.split("uses: actions/upload-artifact@v4", 1)[1]
+    upload_block = _workflow_step_block(workflow, "uses: actions/upload-artifact@v4")
     for forbidden in (
         "build/disk.img",
         "build/gfx.bin",
@@ -476,7 +485,7 @@ def _assert_no_forbidden_uploads(workflow: str) -> None:
 def _assert_soak_uploads_only_json(workflow: str) -> None:
     if "uses: actions/upload-artifact@v4" not in workflow:
         raise AssertionError("real-WAD soak workflow must upload metadata artifacts")
-    upload_block = workflow.split("uses: actions/upload-artifact@v4", 1)[1]
+    upload_block = _workflow_step_block(workflow, "uses: actions/upload-artifact@v4")
     _require(upload_block, "real-wad-soak-metadata", "real-WAD soak upload block")
     _require(upload_block, "real-wad-soak/*.json", "real-WAD soak upload block")
     for forbidden in (
@@ -499,6 +508,21 @@ def _assert_soak_uploads_only_json(workflow: str) -> None:
             raise AssertionError(
                 f"real-WAD soak upload block includes non-JSON/raw artifact {forbidden}"
             )
+
+
+def _workflow_step_block(workflow: str, needle: str) -> str:
+    try:
+        start = workflow.index(needle)
+    except ValueError as exc:
+        raise AssertionError(f"workflow missing {needle!r}") from exc
+
+    line_start = workflow.rfind("\n", 0, start)
+    if line_start < 0:
+        line_start = 0
+    next_step = workflow.find("\n      - name:", start)
+    if next_step < 0:
+        return workflow[line_start:]
+    return workflow[line_start:next_step]
 
 
 def validate_repo_contract() -> None:
@@ -557,6 +581,7 @@ def validate_repo_contract() -> None:
         "--confirm-keyboard-use",
         "--confirm-mouse-action",
         "--confirm-menu-escape",
+        "--confirm-audio-observation",
         "--confirm-slowdown-notes",
         "--confirm-phase-actions",
         "--confirm-phase-status-hashes",
@@ -569,6 +594,7 @@ def validate_repo_contract() -> None:
         "keyboard_evidence=fire-move-use-menu-visible",
         "mouse_evidence=motion-click-visible",
         "menu_evidence=escape-menu-visible",
+        "audio_evidence=",
         "status_capture=monitor-pmemsave-0x9d000",
         "session_phases=early,after-start,after-fire,after-move,after-use,after-mouse,after-menu,final",
         "phase_hash_early=",
@@ -587,6 +613,7 @@ def validate_repo_contract() -> None:
         "operator_keyboard_use=confirmed",
         "operator_mouse_action=confirmed",
         "operator_menu_escape=confirmed",
+        "operator_audio_observation=recorded",
         "operator_slowdown_notes=recorded",
         "operator_phase_actions=confirmed",
         "operator_phase_status_hashes=confirmed",
@@ -635,8 +662,6 @@ def validate_repo_contract() -> None:
         _require(text, "tools/run_remote_human_playtest.sh", label)
         _require(text, "--scripted-proof-run-id", label)
         _require(text, "--playtester", label)
-    _require(readme, "tools/run_remote_human_playtest.sh", "README")
-
     for text, label in (
         (play_now_runbook, "play-now cloud runbook"),
         (codespaces_runbook, "Codespaces play-now runbook"),
@@ -660,6 +685,7 @@ def validate_repo_contract() -> None:
         "--confirm-keyboard-use",
         "--confirm-mouse-action",
         "--confirm-menu-escape",
+        "--confirm-audio-observation",
         "--confirm-slowdown-notes",
         "--confirm-phase-actions",
         "--confirm-phase-status-hashes",
@@ -760,16 +786,6 @@ def validate_repo_contract() -> None:
     _require(playable, "pcr3", "playable cloud proof doc")
     _require(playable, "pkstk", "playable cloud proof doc")
     _require(playable, "pspin", "playable cloud proof doc")
-    _require(readme, "docs/runbooks/remote-doom-playtest.md", "README")
-    _require(readme, "Where It Stands", "README")
-    _require(readme, "Real-WAD proofs run in GitHub Actions, Codespaces, or disposable cloud hosts", "README")
-    _require(readme, "Use the proof docs and runbooks for the current dispatch commands", "README")
-    _require(readme, "tools/collect_human_playtest_bundle.py", "README")
-    _require(readme, "human-playtest-notes-v2", "README")
-    _require(readme, "human-playtest-checklist.txt", "README")
-    _require(readme, "human-playtest-session.json", "README")
-    _require(readme, "human-playtest-manifest.json", "README")
-    _require(readme, "post-download human verification OK", "README")
     _require(tests_readme, "check_cloud_playability_artifacts.py", "tests README")
     _require(tests_readme, "expected_ref", "tests README")
     _require(tests_readme, "fresh save-persistence proof note", "tests README")
@@ -789,6 +805,8 @@ def validate_repo_contract() -> None:
 
     for needle in (
         "workflow_dispatch:",
+        "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true",
+        "uses: actions/checkout@v6",
         "expected_ref:",
         "INPUT_EXPECTED_REF",
         "Confirm selected proof ref",
@@ -802,6 +820,8 @@ def validate_repo_contract() -> None:
 
     for needle in (
         "workflow_dispatch:",
+        "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true",
+        "uses: actions/checkout@v6",
         "expected_ref:",
         "INPUT_EXPECTED_REF",
         "Confirm selected proof ref",
@@ -898,12 +918,19 @@ def validate_repo_contract() -> None:
         "build/doom.symbols",
         "build/audio-proof.json",
         "build/gameplay-proof.json",
+        "Summarize proof lane outcomes and reruns",
+        "Rerun only the red lane",
+        "--lane gameplay --wait --download-artifacts build/cloud-run-gameplay",
+        "--lane audio --wait --download-artifacts build/cloud-run-audio",
+        "--lane persistence --save-slot",
     ):
         _require(workflow, needle, "real-WAD workflow")
     _assert_no_forbidden_uploads(workflow)
 
     for needle in (
         "workflow_dispatch:",
+        "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true",
+        "uses: actions/checkout@v6",
         "attempts:",
         "min_passes:",
         "audible_audio_proof:",
@@ -936,6 +963,11 @@ def validate_repo_contract() -> None:
         "real-wad-soak-summary.json",
         "real-wad-soak-metadata",
         "rm -f \"$WAD_PATH\"",
+        "Summarize soak lane outcomes and reruns",
+        "Rerun only the red lane",
+        "soak_attempts=\"${SOAK_ATTEMPTS:-${INPUT_SOAK_ATTEMPTS:-3}}\"",
+        "--soak-attempts",
+        "$soak_attempts",
     ):
         _require(soak_workflow, needle, "real-WAD soak workflow")
     _assert_soak_uploads_only_json(soak_workflow)
@@ -1095,6 +1127,7 @@ def build_human_session(
             "keyboard_evidence": notes.get("keyboard_evidence", ""),
             "mouse_evidence": notes.get("mouse_evidence", ""),
             "menu_evidence": notes.get("menu_evidence", ""),
+            "audio_evidence": notes.get("audio_evidence", ""),
             "slowdown": notes.get("slowdown", ""),
             "slowdown_notes": notes.get("slowdown_notes", ""),
             "no_local_qemu": notes.get("no_local_qemu", ""),
@@ -1147,11 +1180,14 @@ def build_human_checklist(artifact_dir: Path) -> str:
         f"playtester={notes.get('playtester', '')}",
         f"slowdown={notes.get('slowdown', '')}",
         f"slowdown_notes={notes.get('slowdown_notes', '')}",
+        f"audio={notes.get('audio', '')}",
+        f"audio_evidence={notes.get('audio_evidence', '')}",
         "",
         "Post-download checklist",
         "- Compare the local post-download human verification OK line with the saved remote pre-download human verification OK line.",
         "- Confirm the linked Real WAD smoke run was green before this human session.",
         "- Confirm E1M1 was visible, Ctrl/fire responded, arrow movement or turning responded, Space/use responded, mouse movement/click responded, and Escape opened the menu.",
+        "- Confirm the audio evidence mode matches the actual session: status-only SB16 continuity, listener-pass, aggregate audio-proof JSON, or not-tested.",
         "- Keep slowdown notes with the bundle even when no slowdown was observed.",
         (
             "- Run: python3 tools/check_cloud_playability_artifacts.py "
@@ -1255,6 +1291,8 @@ def build_human_manifest(artifact_dir: Path) -> dict:
         "scripted_proof_run_id": notes.get("scripted_proof_run_id", ""),
         "scripted_proof_url": notes.get("scripted_proof_url", ""),
         "slowdown": notes.get("slowdown", ""),
+        "audio": notes.get("audio", ""),
+        "audio_evidence": notes.get("audio_evidence", ""),
         "artifact_policy": {
             "allowlisted_status_only": True,
             "contains_wad_data": False,
@@ -1385,6 +1423,27 @@ def validate_human_manifest(artifact_dir: Path, manifest_path: Path) -> None:
         )
     if manifest.get("slowdown") != notes.get("slowdown"):
         raise AssertionError(f"{HUMAN_MANIFEST_FILE} slowdown must match {HUMAN_NOTES_FILE}")
+    if manifest.get("audio") != notes.get("audio"):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} audio must match {HUMAN_NOTES_FILE}")
+    if manifest.get("audio_evidence") != notes.get("audio_evidence"):
+        raise AssertionError(f"{HUMAN_MANIFEST_FILE} audio_evidence must match {HUMAN_NOTES_FILE}")
+
+
+def _phase_summary_int(session: dict, phase_name: str, field: str) -> int | None:
+    for phase in session.get("phases", []):
+        if not isinstance(phase, dict) or phase.get("phase") != phase_name:
+            continue
+        summary = phase.get("summary")
+        if not isinstance(summary, dict):
+            return None
+        value = summary.get(field)
+        if not isinstance(value, str):
+            return None
+        try:
+            return int(value, 16)
+        except ValueError:
+            return None
+    return None
 
 
 def build_human_post_download_verification(artifact_dir: Path) -> dict:
@@ -1414,6 +1473,13 @@ def build_human_post_download_verification(artifact_dir: Path) -> dict:
         for phase in session.get("phases", [])
         if isinstance(phase, dict) and "phase" in phase and "sha256" in phase
     }
+    attestation = session.get("human_attestation", {})
+    if not isinstance(attestation, dict):
+        attestation = {}
+    start_gtic = _phase_summary_int(session, "after-start", "gtic")
+    final_gtic = _phase_summary_int(session, "final", "gtic")
+    start_leveltime = _phase_summary_int(session, "after-start", "leveltime")
+    final_leveltime = _phase_summary_int(session, "final", "leveltime")
     verification = {
         "schema": HUMAN_POST_DOWNLOAD_VERIFICATION_SCHEMA,
         "source": "remote-vnc-human-session-post-download",
@@ -1421,6 +1487,20 @@ def build_human_post_download_verification(artifact_dir: Path) -> dict:
         "commit": session.get("commit", ""),
         "playtester": session.get("playtester", ""),
         "scripted_proof_run_id": session.get("scripted_proof_run_id", ""),
+        "phase_count": len(session.get("phases", [])),
+        "duration_gtic": (
+            final_gtic - start_gtic
+            if final_gtic is not None and start_gtic is not None
+            else None
+        ),
+        "duration_leveltime": (
+            final_leveltime - start_leveltime
+            if final_leveltime is not None and start_leveltime is not None
+            else None
+        ),
+        "audio": attestation.get("audio", ""),
+        "audio_evidence": attestation.get("audio_evidence", ""),
+        "slowdown": attestation.get("slowdown", ""),
         "manifest_sha256": manifest_entry["sha256"],
         "session_sha256": _sha256_file(session_path),
         "files": files,
@@ -1449,6 +1529,13 @@ def format_human_post_download_verification(
         f"bundle_sha256={verification.get('bundle_sha256', '')} "
         f"manifest_sha256={verification.get('manifest_sha256', '')} "
         f"files={len(verification.get('files', []))}\n"
+        f"review evidence: playtester={verification.get('playtester', '')} "
+        f"phases={verification.get('phase_count', '')} "
+        f"duration_gtic={verification.get('duration_gtic', '')} "
+        f"duration_leveltime={verification.get('duration_leveltime', '')} "
+        f"audio={verification.get('audio', '')} "
+        f"audio_evidence={verification.get('audio_evidence', '')} "
+        f"slowdown={verification.get('slowdown', '')}\n"
         f"phase status hashes: {phase_text}"
     )
 
@@ -1569,6 +1656,12 @@ def validate_human_notes(
         if value is not None and value not in allowed_values:
             allowed = ", ".join(allowed_values)
             raise AssertionError(f"{HUMAN_NOTES_FILE} {key}= must be one of {allowed}, got {value!r}")
+    expected_audio_evidence = HUMAN_AUDIO_EVIDENCE_BY_MODE[notes.get("audio", "status-only")]
+    if notes.get("audio_evidence") != expected_audio_evidence:
+        raise AssertionError(
+            f"{HUMAN_NOTES_FILE} audio_evidence= must be {expected_audio_evidence} "
+            f"when audio={notes.get('audio')}"
+        )
     if expected_commit and not _commit_matches(notes["commit"], expected_commit):
         raise AssertionError(
             f"{HUMAN_NOTES_FILE} commit= must match expected commit "

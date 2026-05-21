@@ -196,8 +196,13 @@ def _align4(offset):
 
 def _read_image(path):
     data = Path(path).read_bytes()
-    if len(data) < make_wad_image.SECTOR_SIZE * (make_wad_image.PARTITION_START + 1):
-        raise PersistenceProofError(f"{path} is too small to contain the FAT16 partition")
+    expected_size = make_wad_image.SECTOR_SIZE * make_wad_image.IMAGE_SECTORS
+    if len(data) != expected_size:
+        raise PersistenceProofError(f"{path} size {len(data)} != expected {expected_size}")
+    if data[510:512] != b"\x55\xaa":
+        raise PersistenceProofError(f"{path} is missing the MBR boot signature")
+    if _u32le(data, 446 + 8) != make_wad_image.PARTITION_START:
+        raise PersistenceProofError(f"{path} partition start does not match the generated image contract")
     return bytearray(data)
 
 

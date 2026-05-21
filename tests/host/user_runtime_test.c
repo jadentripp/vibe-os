@@ -33,6 +33,15 @@ int vibe_user_syscall3(unsigned int number, unsigned long arg0, unsigned long ar
     if (number == VIBE_SYS_GETPID)
         return 7;
 
+    if (number == VIBE_SYS_DUP)
+        return arg0 == 4 ? 5 : -9;
+
+    if (number == VIBE_SYS_DUP2)
+        return arg0 == 4 && arg1 == 8 ? 8 : -9;
+
+    if (number == VIBE_SYS_DUP3)
+        return arg0 == 4 && arg1 == 9 && arg2 == 0x0800u ? 9 : -22;
+
     if (number == VIBE_SYS_CLOCK_GETTIME) {
         vibe_clock_time_t* out = (vibe_clock_time_t*)arg1;
         if (arg0 != VIBE_CLOCK_MONOTONIC || !out || arg2 != sizeof(*out))
@@ -101,15 +110,17 @@ int main(void)
     mock_force_legacy_error = 0;
     if (vibe_user_getpid() != 7)
         return fail(7);
-    if (vibe_user_clock_monotonic(&now) != 0 || now.frequency_hz != VIBE_CLOCK_MONOTONIC_HZ)
+    if (vibe_user_dup(4) != 5 || vibe_user_dup2(4, 8) != 8 || vibe_user_dup3(4, 9, 0x0800u) != 9)
         return fail(8);
-    if (vibe_user_listdir("/", entries, MOCK_MAX_DIRENTS) != 1 || !vibe_user_streq(entries[0].name, "TOOL"))
+    if (vibe_user_clock_monotonic(&now) != 0 || now.frequency_hz != VIBE_CLOCK_MONOTONIC_HZ)
         return fail(9);
-    if (vibe_user_execv("TOOL.ELF", argv) != 0 || mock_exec_count != 1 || !vibe_user_streq(mock_exec_path, "TOOL.ELF"))
+    if (vibe_user_listdir("/", entries, MOCK_MAX_DIRENTS) != 1 || !vibe_user_streq(entries[0].name, "TOOL"))
         return fail(10);
+    if (vibe_user_execv("TOOL.ELF", argv) != 0 || mock_exec_count != 1 || !vibe_user_streq(mock_exec_path, "TOOL.ELF"))
+        return fail(11);
     vibe_user_report_probe(0x1234u, 0x55u);
     if (mock_probe_count != 1 || mock_probe_magic != 0x1234u || mock_probe_flags != 0x55u)
-        return fail(11);
+        return fail(12);
 
     return 0;
 }

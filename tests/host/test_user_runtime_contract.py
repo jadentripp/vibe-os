@@ -21,6 +21,9 @@ class UserRuntimeContractTests(unittest.TestCase):
             "int vibe_user_syscall_errno(",
             "int vibe_user_write_all(",
             "int vibe_user_getpid(void);",
+            "int vibe_user_dup(int oldfd);",
+            "int vibe_user_dup2(int oldfd, int newfd);",
+            "int vibe_user_dup3(int oldfd, int newfd, unsigned long flags);",
             "int vibe_user_clock_monotonic(",
             "int vibe_user_listdir(",
             "int vibe_user_execv(",
@@ -35,6 +38,9 @@ class UserRuntimeContractTests(unittest.TestCase):
             "VIBE_SYS_CLOCK_GETTIME",
             "VIBE_SYS_LISTDIR",
             "VIBE_SYS_EXEC",
+            "VIBE_SYS_DUP",
+            "VIBE_SYS_DUP2",
+            "VIBE_SYS_DUP3",
             "VIBE_SYS_USER_PROBE",
         ):
             with self.subTest(token=token):
@@ -72,7 +78,6 @@ class UserRuntimeContractTests(unittest.TestCase):
             "VIBE_SYS_MMAP",
             "VIBE_SYS_MUNMAP",
             "VIBE_SYS_IOCTL",
-            "VIBE_SYS_DUP",
             "VIBE_SYS_SIGNAL",
             "VIBE_SYS_TTY",
         ):
@@ -83,7 +88,6 @@ class UserRuntimeContractTests(unittest.TestCase):
         for token in (
             "vibe_user_fork",
             "vibe_user_wait",
-            "vibe_user_dup",
             "vibe_user_mmap",
             "vibe_user_signal",
             "vibe_user_tty",

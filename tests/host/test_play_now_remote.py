@@ -668,6 +668,8 @@ class PlayNowRemoteTests(unittest.TestCase):
                 "Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu.",
                 result.stdout,
             )
+            self.assertIn("Human proof tip: click the noVNC canvas", result.stdout)
+            self.assertIn("Audio proof tip: VNC is display/input only", result.stdout)
             self.assertIn("Performance note: 2-core Codespaces can play Doom", result.stdout)
             self.assertIn("4+ CPUs are preferred for interactive play", result.stdout)
             self.assertIn("Slowdown check: run the Diagnostics command above", result.stdout)

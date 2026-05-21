@@ -23,12 +23,25 @@ a future implementation; every row is intentionally `status=unimplemented`.
 - `UEFI_BOOT[KERNEL_HANDOFF] status=unimplemented requires=elf32-entry-compatible proof=future-boot-run evidence=none`
 - `UEFI_BOOT[BUILD_INTEGRATION] status=unimplemented requires=separate-opt-in-target proof=future-host-build evidence=none`
 
+The `UEFI_BOOT_DEVICE[...]` rows pin the future boot-device proof boundary. A
+UEFI loader is not enough by itself; the proof must show how the loader is
+packaged, where the kernel is read from, and which boot-device assumptions were
+removed.
+
+- `UEFI_BOOT_DEVICE[ESP_IMAGE] status=unimplemented requires=fat-esp-kernel-file proof=future-host-build evidence=none`
+- `UEFI_BOOT_DEVICE[OVMF_BOOT] status=unimplemented requires=ovmf-loads-efi-from-esp proof=future-boot-run evidence=none`
+- `UEFI_BOOT_DEVICE[NO_RAW_LBA_FALLBACK] status=unimplemented requires=no-stage2-raw-lba-dependency proof=future-contract-check evidence=none`
+- `UEFI_BOOT_DEVICE[PHYSICAL_MEDIA] status=unimplemented requires=machine-inventory-disposable-media proof=future-lab-run evidence=none`
+
 ## First Implementation Rules
 
 - Produce an explicit UEFI application artifact rather than reusing the BIOS
   Stage 1 or Stage 2 raw-sector images.
 - Read the kernel from an ESP/FAT path or another documented UEFI storage path;
   do not silently depend on the current raw LBA windows.
+- Prove the ESP image and OVMF boot path before any physical-media experiment;
+  physical hardware notes must include exact machine inventory and disposable
+  media details.
 - Fill a boot-info handoff that preserves the existing kernel expectations for
   memory, framebuffer, and entry point data, or change those expectations with a
   matching host-checked contract.

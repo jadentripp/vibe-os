@@ -25,6 +25,10 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         self.assertEqual(rows["GENERATED_FAT16_IMAGE"]["status"], "claimed")
         self.assertEqual(rows["CLOUD_MUTATE_REBOOT"]["status"], "proven")
         self.assertEqual(rows["HOST_RECOVERY_INSPECTION"]["gate"], "install-image-manifest")
+        self.assertEqual(rows["BLANK_IMAGE_HOST_INSTALL"]["status"], "proven")
+        self.assertEqual(rows["BLANK_IMAGE_HOST_INSTALL"]["gate"], "blank-disk-installer-manifest")
+        self.assertEqual(rows["DAMAGED_IMAGE_REFUSAL"]["status"], "proven")
+        self.assertEqual(rows["DAMAGED_IMAGE_REFUSAL"]["gate"], "damaged-image-refusal-report")
         self.assertEqual(rows["ARBITRARY_DISK_INSTALL"]["status"], "unclaimed")
         self.assertEqual(rows["ARBITRARY_DISK_INSTALL"]["evidence"], "none")
         self.assertEqual(rows["ARBITRARY_DISK_RECOVERY"]["status"], "unclaimed")
@@ -70,9 +74,8 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         tests_readme = (ROOT / "tests" / "README.md").read_text()
 
         for text, phrase in (
-            (readme, "not an installable general OS on arbitrary disks"),
+            (readme, "not an installable OS for arbitrary disks"),
             (readme, "docs/storage-install-boundary.md"),
-            (readme, "tools/check_storage_install_boundary.py --image build/disk.img"),
             (persistence_doc, "not an arbitrary-disk install or recovery proof"),
             (persistence_doc, "install-image-manifest"),
             (gap_doc, "STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL] status=unclaimed"),
@@ -144,6 +147,112 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         manifest = json.loads(result.stdout)
         self.assertEqual(manifest["schema"], "vibe-os-install-image-manifest-v1")
         self.assertEqual(manifest["fat16"]["lba"], 2048)
+
+    def test_blank_install_proof_starts_from_zeroed_media_and_installs_boot_layout(self):
+        proof = check_storage_install_boundary.prove_blank_disk_install(ROOT)
+
+        self.assertEqual(proof["schema"], "vibe-os-blank-disk-installer-manifest-v1")
+        self.assertTrue(proof["source"]["all_zero_before_install"])
+        self.assertIn("zero-filled blank disk", proof["source"]["nonblank_target_refusal"])
+        self.assertTrue(proof["write_audit"]["writes_only_declared_ranges"])
+        self.assertEqual(proof["write_audit"]["outside_declared_ranges"], [])
+        self.assertEqual(
+            proof["claim_boundary"],
+            "blank-image-host-install-only; not arbitrary-disk-install-proof",
+        )
+
+        structural = proof["structural_boot_proof"]
+        self.assertFalse(structural["qemu_executed"])
+        self.assertTrue(structural["stage1_mbr_matches_patched_artifact"])
+        self.assertTrue(structural["stage2_matches_artifact"])
+        self.assertTrue(structural["kernel_matches_artifact"])
+        self.assertEqual(structural["stage2_lba"], 1)
+        self.assertEqual(structural["kernel_lba"], 17)
+        self.assertEqual(structural["fat16_lba"], 2048)
+
+        manifest = proof["installed_image_manifest"]
+        self.assertEqual(manifest["schema"], "vibe-os-install-image-manifest-v1")
+        root_names = {entry["name"] for entry in manifest["root_entries"]}
+        self.assertIn("DOOM1.WAD", root_names)
+        self.assertIn("USERPROB.ELF", root_names)
+        self.assertIn("DOOM.ELF", root_names)
+        self.assertIn("ABIPROBE.ELF", root_names)
+
+    def test_blank_install_proof_cli_outputs_json(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(TOOL),
+                "--blank-install-proof",
+                "--json",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        payload = json.loads(result.stdout)
+        proof = payload["blank_install_proof"]
+        self.assertEqual(proof["schema"], "vibe-os-blank-disk-installer-manifest-v1")
+        self.assertFalse(proof["structural_boot_proof"]["qemu_executed"])
+
+    def test_recovery_candidate_reports_known_good_image_as_inspect_only(self):
+        report = check_storage_install_boundary.inspect_recovery_candidate(BUILD / "disk.img")
+
+        self.assertEqual(report["schema"], "vibe-os-damaged-image-refusal-report-v1")
+        self.assertEqual(report["decision"], "inspect-only")
+        self.assertFalse(report["repair_attempted"])
+        self.assertEqual(
+            report["claim_boundary"],
+            "known-layout-inspection-only; not arbitrary-disk-recovery-proof",
+        )
+
+    def test_damaged_recovery_fixtures_refuse_without_repairing(self):
+        suite = check_storage_install_boundary.damaged_recovery_fixture_reports(BUILD / "disk.img")
+
+        self.assertEqual(suite["schema"], "vibe-os-damaged-image-refusal-suite-v1")
+        self.assertTrue(suite["all_refused"])
+        self.assertFalse(suite["repair_attempted"])
+        self.assertEqual(
+            {report["decision"] for report in suite["fixtures"]},
+            {"refuse"},
+        )
+        self.assertEqual(
+            {report["candidate"] for report in suite["fixtures"]},
+            {
+                "fixture:missing-mbr-signature",
+                "fixture:extra-mbr-partition-entry",
+                "fixture:fat-copy-divergence",
+                "fixture:missing-protected-wad-entry",
+                "fixture:crosslinked-root-entry",
+            },
+        )
+        for report in suite["fixtures"]:
+            with self.subTest(report=report["candidate"]):
+                self.assertFalse(report["repair_attempted"])
+                self.assertFalse(report["repair_supported"])
+                self.assertIn("not arbitrary-disk-recovery-proof", report["claim_boundary"])
+
+    def test_recovery_fixtures_cli_outputs_json(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(TOOL),
+                "--recovery-fixtures",
+                str(BUILD / "disk.img"),
+                "--json",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        payload = json.loads(result.stdout)
+        suite = payload["recovery_fixtures"]
+        self.assertTrue(suite["all_refused"])
+        self.assertEqual(len(suite["fixtures"]), 5)
 
     def test_manifest_rejects_wrong_partition_type(self):
         with tempfile.TemporaryDirectory() as tmp:

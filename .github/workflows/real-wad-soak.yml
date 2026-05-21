@@ -29,6 +29,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   soak:
     name: Repeat real-WAD cloud proof
@@ -47,7 +50,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Confirm selected proof ref
         run: |
@@ -153,6 +156,7 @@ jobs:
           python3 tools/prepare_shareware_wad.py --url "$url" --output "$WAD_PATH"
 
       - name: Run repeated proof attempts
+        id: repeated_attempts
         run: |
           set -euo pipefail
           mkdir -p "$SOAK_DIR"
@@ -203,6 +207,12 @@ jobs:
                   "sb16_continuity": "fail",
                   "audible_aggregate_proof": "fail" if audible else "not-requested",
               },
+              "status_cadence": {
+                  "available": False,
+                  "verdict": "attempt-failed-before-cadence",
+                  "failure_stage": stage,
+                  "source": "gameplay-proof.json",
+              },
           }
           output.write_text(json.dumps(failed, indent=2, sort_keys=True) + "\n")
           PY
@@ -239,7 +249,7 @@ jobs:
                 SMOKE_EARLY_SECONDS=2 \
                 SMOKE_SETTLE_SECONDS=20 \
                 SMOKE_SKIP_ASSERTIONS=1 \
-                SMOKE_INPUT_SCRIPT="after-start:wait=2,snapshot after-fire:hold=ctrl:800,wait-status-min=pflags:000000C5:80:2,wait=1,snapshot after-move:hold=up:1200,wait-status-min=pdelta:00000001:80:2,wait=1,snapshot after-use:hold=spc:3000,snapshot,wait=2 after-mouse:mousebtn=1,wait=1,mouse=4:0,wait=1,mousebtn=0,wait=1,mouse=64:0,wait-status-min=pangledelta:00000001:80:2,wait=1,snapshot after-menu:esc,wait=2,snapshot" \
+                SMOKE_INPUT_SCRIPT="after-start:wait=2,snapshot after-fire:hold=ctrl:800,wait-status-min=pflags:000000C5:80:2,wait=1,snapshot after-move:hold=up:1200,wait-status-min=pdelta:00000001:80:2,wait=1,snapshot after-use:hold=spc:3000,snapshot,wait=2 after-mouse:mousebtn=1,wait=1,mouse=4:0,wait=1,mousebtn=0,wait=1,mouse=64:0,wait-status-min=pangledelta:00000001:80:2,wait=30,snapshot after-menu:esc,wait=2,snapshot" \
                 smoke
               rc=$?
               if [ "$rc" -ne 0 ]; then failure_stage="cloud-smoke"; fi
@@ -299,6 +309,7 @@ jobs:
                 --mouse build/status.after-mouse.txt \
                 --menu build/status.after-menu.txt \
                 --write-json build/gameplay-proof.json \
+                --require-long-run-cadence \
                 build/status.txt
               rc=$?
               if [ "$rc" -ne 0 ]; then failure_stage="scripted-gameplay-transition"; fi
@@ -353,6 +364,34 @@ jobs:
                 --soak-attempt-index "$attempt" \
                 "${extra_args[@]}"
               rc=$?
+              if [ "$rc" -eq 0 ]; then
+                python3 - "$attempt_json" build/gameplay-proof.json <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          attempt_path = Path(sys.argv[1])
+          gameplay_path = Path(sys.argv[2])
+          attempt = json.loads(attempt_path.read_text())
+          gameplay = json.loads(gameplay_path.read_text())
+          diagnostics = gameplay.get("performance_diagnostics", {})
+          cadence = diagnostics.get("long_run_cadence", {})
+          attempt["status_cadence"] = {
+              "available": True,
+              "source": "gameplay-proof.json",
+              "schema": gameplay.get("schema", ""),
+              "verdict": cadence.get("verdict", ""),
+              "interpretation": cadence.get("interpretation", ""),
+              "minimum_play_window_doom_tics": cadence.get("minimum_play_window_doom_tics", ""),
+              "status_fields": cadence.get("status_fields", []),
+              "play_window": cadence.get("play_window", {}),
+              "session_window": cadence.get("session_window", {}),
+              "menu_tail_window": cadence.get("menu_tail_window", {}),
+          }
+          attempt_path.write_text(json.dumps(attempt, indent=2, sort_keys=True) + "\n")
+          PY
+                rc=$?
+              fi
               if [ "$rc" -ne 0 ]; then failure_stage="soak-attempt-metadata"; fi
             fi
 
@@ -366,6 +405,7 @@ jobs:
           done
 
       - name: Aggregate soak metadata and enforce pass threshold
+        id: aggregate_soak
         if: always()
         run: |
           set -euo pipefail
@@ -387,6 +427,7 @@ jobs:
           rm -f "$WAD_PATH"
 
       - name: Upload aggregate soak metadata
+        id: upload_soak_metadata
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -394,3 +435,53 @@ jobs:
           if-no-files-found: error
           path: |
             ${{ runner.temp }}/real-wad-soak/*.json
+
+      - name: Summarize soak lane outcomes and reruns
+        if: always()
+        env:
+          ATTEMPTS_OUTCOME: ${{ steps.repeated_attempts.outcome }}
+          AGGREGATE_OUTCOME: ${{ steps.aggregate_soak.outcome }}
+          UPLOAD_OUTCOME: ${{ steps.upload_soak_metadata.outcome }}
+        run: |
+          set -euo pipefail
+
+          if [ "$AUDIBLE_AUDIO_PROOF" = "true" ]; then
+            lane="audio"
+          else
+            lane="gameplay"
+          fi
+          soak_attempts="${SOAK_ATTEMPTS:-${INPUT_SOAK_ATTEMPTS:-3}}"
+          soak_min_passes="${SOAK_MIN_PASSES:-${INPUT_SOAK_MIN_PASSES:-$soak_attempts}}"
+
+          lane_state="green"
+          for outcome in "$ATTEMPTS_OUTCOME" "$AGGREGATE_OUTCOME"; do
+            case "$outcome" in
+              success|skipped) ;;
+              *) lane_state="red" ;;
+            esac
+          done
+
+          {
+            echo "### Real WAD soak lane outcomes"
+            echo ""
+            echo "| Lane | State | Checks |"
+            echo "| --- | --- | --- |"
+            echo "| $lane soak | $lane_state | attempts=$ATTEMPTS_OUTCOME, aggregate=$AGGREGATE_OUTCOME |"
+            echo "| persistence/save-load | not-requested | real-wad-soak.yml intentionally excludes persistence |"
+            echo "| artifact upload | $UPLOAD_OUTCOME | JSON metadata only |"
+            echo ""
+            echo "Artifact policy: JSON soak metadata only; no WADs, disk images, rendered pixels, raw audio, logs, or raw status text are uploaded."
+            echo ""
+            echo "#### Rerun only the red lane"
+            if [ "$lane_state" = "red" ]; then
+              echo ""
+              echo '```sh'
+              echo "python3 tools/run_cloud_playability.py --repo \"$GITHUB_REPOSITORY\" --ref \"$GITHUB_REF_NAME\" --lane $lane --soak-attempts \"$soak_attempts\" --soak-min-passes \"$soak_min_passes\" --wait --download-artifacts cloud-soak-$lane"
+              echo "python3 tools/run_cloud_playability.py --repo \"$GITHUB_REPOSITORY\" --ref \"$GITHUB_REF_NAME\" --lane $lane --wait --download-artifacts cloud-run-$lane"
+              echo '```'
+              echo ""
+              echo "Use the single-run command when a failed soak attempt needs status-level triage."
+            else
+              echo "No red soak lane was detected."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

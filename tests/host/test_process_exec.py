@@ -64,13 +64,15 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertNotIn("mov edi, USER_HEAP_START", user_probe_run)
         self.assertNotIn("(USER_HEAP_END - USER_HEAP_START) / 4", user_probe_run)
         for source in (
-            "USER_PROBE_EXPECTED_FLAGS equ 0x0001ffff",
+            "USER_PROBE_EXPECTED_FLAGS equ 0x0003ffff",
             "PROBE_FLAG_PROCESS_ABI = 0x800u",
             "PROBE_FLAG_NEGATIVE_SYSCALLS = 0x1000u",
             "PROBE_FLAG_WAIT_REAP = 0x2000u",
             "PROBE_FLAG_FTRUNCATE = 0x4000u",
             "PROBE_FLAG_SBRK_SHRINK = 0x8000u",
             "PROBE_FLAG_LISTDIR = 0x10000u",
+            "PROBE_FLAG_DUP = 0x20000u",
+            "PROBE_FLAG_DUP = 0x20000u",
             "SYS_GETPID = 25",
             "SYS_LISTDIR = 30",
             "int user_main(int argc, char **argv, char **envp)",
@@ -189,6 +191,7 @@ class ProcessExecContractTests(unittest.TestCase):
         self.assertIn('smoke_procpool_text db " procpool=", 0', kernel)
         self.assertIn('smoke_pidseq_text db " pidseq=", 0', kernel)
         self.assertIn('smoke_fdexec_text db " fdexec=", 0', kernel)
+        self.assertIn('smoke_fddup_text db " fdup=", 0', kernel)
         self.assertIn('smoke_pwait_text db " wait=", 0', kernel)
         self.assertIn('smoke_vmreap_text db " vmreap=", 0', kernel)
         self.assertIn("mov edx, [sys_exec_handoffs]", write_smoke)
@@ -231,6 +234,11 @@ class ProcessExecContractTests(unittest.TestCase):
             "mov edx, [fd_exec_inherited]",
             "mov edx, [fd_exec_closed]",
             "mov edx, [fd_owner_closes]",
+            "mov edx, [fd_dup_calls]",
+            "mov edx, [fd_dup2_calls]",
+            "mov edx, [fd_dup3_calls]",
+            "mov edx, [fd_dup_shared]",
+            "mov edx, [fd_dup_cloexec]",
             "mov edx, [process_wait_attempts]",
             "mov edx, [process_wait_reaps]",
             "mov edx, [process_wait_failures]",
@@ -307,6 +315,7 @@ class ProcessExecContractTests(unittest.TestCase):
             "syscall3(SYS_WAITPID, (uint32_t)-1, USER_FAULT_ADDR, 0) == -ERRNO_EINVAL",
             "flags |= PROBE_FLAG_NEGATIVE_SYSCALLS;",
             "flags |= PROBE_FLAG_LISTDIR;",
+            "flags |= PROBE_FLAG_DUP;",
         ):
             self.assertIn(source, probe)
         handler = kernel.split("syscall_handler:", 1)[1].split(".user_probe:", 1)[0]
@@ -1205,6 +1214,7 @@ class ProcessExecContractTests(unittest.TestCase):
         kernel = read_kernel()
         fd_reset = kernel.split("fd_reset_all:", 1)[1].split("fd_alloc:", 1)[0]
         fd_alloc = kernel.split("fd_alloc:", 1)[1].split("fd_lookup:", 1)[0]
+        fd_lookup_descriptor = kernel.split("fd_lookup_descriptor:", 1)[1].split("fd_lookup:", 1)[0]
         fd_lookup = kernel.split("fd_lookup:", 1)[1].split("fd_clear_slot:", 1)[0]
         close_handler = kernel.split(".close:", 1)[1].split(".audio:", 1)[0]
         for source in (
@@ -1213,6 +1223,8 @@ class ProcessExecContractTests(unittest.TestCase):
             "fd_owner_pids times USER_FD_COUNT dd 0xffffffff",
             "fd_open_generations times USER_FD_COUNT dd 0",
             "fd_inherit_flags times USER_FD_COUNT dd 0",
+            "fd_description_roots times USER_FD_COUNT dd 0",
+            "fd_refcounts times USER_FD_COUNT dd 0",
             "fd_exec_handoffs dd 0",
             "fd_exec_inherited dd 0",
             "fd_exec_closed dd 0",
@@ -1222,12 +1234,16 @@ class ProcessExecContractTests(unittest.TestCase):
         for source in (
             "mov dword [fd_owner_pids + ebx * 4], 0xffffffff",
             "mov dword [fd_inherit_flags + ebx * 4], 0",
+            "mov dword [fd_description_roots + ebx * 4], 0",
+            "mov dword [fd_refcounts + ebx * 4], 0",
         ):
             self.assertIn(source, fd_reset)
         for source in (
             "mov eax, [current_pid]",
             "mov [fd_owner_pids + ebx * 4], eax",
             "inc dword [fd_open_generations + ebx * 4]",
+            "mov [fd_description_roots + ebx * 4], ebx",
+            "mov dword [fd_refcounts + ebx * 4], 1",
             "test dword [syscall_open_flags], O_CLOEXEC",
             "jnz .no_exec_inherit",
             "mov dword [fd_inherit_flags + ebx * 4], FD_INHERIT_EXEC",
@@ -1241,10 +1257,17 @@ class ProcessExecContractTests(unittest.TestCase):
             "cmp [fd_owner_pids + eax * 4], edx",
             "jne .fail",
         ):
+            self.assertIn(source, fd_lookup_descriptor)
+        for source in (
+            "mov edx, [fd_description_roots + eax * 4]",
+            "cmp byte [fd_status + edx], FD_STATUS_OPEN",
+            "cmp dword [fd_refcounts + edx * 4], 0",
+            "mov [file_io_fd_slot], eax",
+        ):
             self.assertIn(source, fd_lookup)
         for source in (
-            "mov dword [fd_owner_pids + eax * 4], 0xffffffff",
-            "mov dword [fd_inherit_flags + eax * 4], 0",
+            "call fd_lookup_descriptor",
+            "call fd_close_slot",
         ):
             self.assertIn(source, close_handler)
 
@@ -1276,14 +1299,14 @@ class ProcessExecContractTests(unittest.TestCase):
             "mov [fd_owner_pids + ebx * 4], edx",
             "inc dword [fd_exec_inherited]",
             ".close_on_exec:",
-            "call fd_clear_slot",
+            "call fd_close_slot",
             "inc dword [fd_exec_closed]",
         ):
             self.assertIn(source, fd_handoff)
         for source in (
             "mov [fd_last_closed_owner_pid], edx",
             "cmp [fd_owner_pids + ebx * 4], edx",
-            "call fd_clear_slot",
+            "call fd_close_slot",
             "inc dword [fd_owner_closes]",
         ):
             self.assertIn(source, close_owned)
@@ -1296,6 +1319,91 @@ class ProcessExecContractTests(unittest.TestCase):
         for lifecycle in (reuse, retire_exec, retire_exit, faulted):
             with self.subTest(lifecycle=lifecycle[:32]):
                 self.assertIn("call fd_close_owned_by_process", lifecycle)
+
+    def test_dup_syscalls_share_open_file_descriptions(self):
+        kernel = read_kernel()
+        probe = (ROOT / "user" / "probe.c").read_text()
+        header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
+        unistd = (ROOT / "doom_port" / "include" / "unistd.h").read_text()
+        libc = (ROOT / "doom_port" / "libc.c").read_text()
+        handler = kernel.split("syscall_handler:", 1)[1].split("user_range_validate:", 1)[0]
+        fd_clone = kernel.split("fd_clone_descriptor:", 1)[1].split("fd_close_slot:", 1)[0]
+        fd_close = kernel.split("fd_close_slot:", 1)[1].split("fd_close_owned_by_pid:", 1)[0]
+        for source in (
+            "SYS_DUP equ 32",
+            "SYS_DUP2 equ 33",
+            "SYS_DUP3 equ 34",
+            "cmp eax, SYS_DUP",
+            "je .dup",
+            "cmp eax, SYS_DUP2",
+            "je .dup2",
+            "cmp eax, SYS_DUP3",
+            "je .dup3",
+            "VIBE_SYS_DUP = 32",
+            "VIBE_SYS_DUP2 = 33",
+            "VIBE_SYS_DUP3 = 34",
+        ):
+            self.assertIn(source, kernel if source.startswith("SYS_") or source.startswith("cmp ") or source.startswith("je ") else header)
+        for source in (
+            "int dup(int oldfd);",
+            "int dup2(int oldfd, int newfd);",
+            "int dup3(int oldfd, int newfd, int flags);",
+        ):
+            self.assertIn(source, unistd)
+        for source in (
+            "int dup(int oldfd)",
+            "int dup2(int oldfd, int newfd)",
+            "int dup3(int oldfd, int newfd, int flags)",
+            "vibe_syscall3(VIBE_SYS_DUP",
+            "vibe_syscall3(VIBE_SYS_DUP2",
+            "vibe_syscall3(VIBE_SYS_DUP3",
+            "clone_save_fd_tracking(oldfd, raw)",
+        ):
+            self.assertIn(source, libc)
+        for source in (
+            "mov [fd_description_roots + edi * 4], ebx",
+            "inc dword [fd_refcounts + ebx * 4]",
+            "mov eax, [fd_offsets + ebx * 4]",
+            "mov [fd_offsets + edi * 4], eax",
+            "mov [fd_inherit_flags + edi * 4], edx",
+            "inc dword [fd_dup_shared]",
+        ):
+            self.assertIn(source, fd_clone)
+        for source in (
+            ".promote_root:",
+            ".alias_found:",
+            "mov [fd_description_roots + edi * 4], edi",
+            "mov [fd_description_roots + ebx * 4], edi",
+            "call fd_clear_slot",
+        ):
+            self.assertIn(source, fd_close)
+        for source in (
+            ".dup:",
+            ".dup2:",
+            ".dup3:",
+            "inc dword [fd_dup_calls]",
+            "inc dword [fd_dup2_calls]",
+            "inc dword [fd_dup3_calls]",
+            "and eax, 0xfffff7ff",
+            "cmp ebx, ecx",
+            "je .bad_syscall_einval",
+            "call fd_clone_descriptor",
+            "inc dword [fd_dup_cloexec]",
+        ):
+            self.assertIn(source, handler)
+        for source in (
+            "PROBE_FLAG_DUP = 0x20000u",
+            "static int sys_dup(int fd)",
+            "static int sys_dup2(int oldfd, int newfd)",
+            "static int sys_dup3(int oldfd, int newfd, uint32_t flags)",
+            "sys_dup(defaults)",
+            "sys_dup2(dup_fd, DUP2_TARGET_FD) == DUP2_TARGET_FD",
+            "sys_dup3(defaults, DUP3_TARGET_FD, O_CLOEXEC) == DUP3_TARGET_FD",
+            "sys_dup2(dup_fd, dup_fd) == dup_fd",
+            "sys_dup3(dup_fd, dup_fd, 0) == -ERRNO_EINVAL",
+            "flags |= PROBE_FLAG_DUP;",
+        ):
+            self.assertIn(source, probe)
 
     def test_user_crt0_passes_argc_argv_and_empty_envp_to_user_main(self):
         crt0 = (ROOT / "user" / "crt0.asm").read_text()
@@ -1366,7 +1474,7 @@ class ProcessExecContractTests(unittest.TestCase):
             "not a robust Unix",
             "`fork`/`exec` split",
             "wait blocking",
-            "fork-time fd duplication",
+            "fork-time descriptor table cloning",
             "unbounded dynamic child slots",
             "address-space",
         ):
@@ -1404,12 +1512,20 @@ class ProcessExecContractTests(unittest.TestCase):
             "fd_owner_pids times USER_FD_COUNT dd 0xffffffff",
             "fd_open_generations times USER_FD_COUNT dd 0",
             "fd_inherit_flags times USER_FD_COUNT dd 0",
+            "fd_description_roots times USER_FD_COUNT dd 0",
+            "fd_refcounts times USER_FD_COUNT dd 0",
+            "SYS_DUP equ 32",
+            "SYS_DUP2 equ 33",
+            "SYS_DUP3 equ 34",
         ):
             self.assertIn(source, kernel)
         for source in (
             "VIBE_SYS_DUP",
             "VIBE_SYS_DUP2",
             "VIBE_SYS_DUP3",
+        ):
+            self.assertIn(source, header)
+        for source in (
             "VIBE_SYS_SIGNAL",
             "VIBE_SYS_SIGACTION",
             "VIBE_SYS_KILL",
@@ -1420,6 +1536,10 @@ class ProcessExecContractTests(unittest.TestCase):
             "int dup(",
             "int dup2(",
             "int dup3(",
+        ):
+            self.assertIn(source, unistd)
+            self.assertIn(source, libc)
+        for source in (
             "int isatty(",
         ):
             self.assertNotIn(source, unistd)
@@ -1441,7 +1561,8 @@ class ProcessExecContractTests(unittest.TestCase):
         for phrase in (
             "## POSIX Gap Decomposition",
             "Address-space cloning, copy-on-write or eager page copies",
-            "Public `dup`/`dup2`/`dup3`",
+            "Public `dup`, `dup2`, and `dup3` syscalls/libc wrappers",
+            "Fork-time descriptor table cloning",
             "File-backed mappings, `MAP_SHARED`, `MAP_FIXED`",
             "`signal`, `sigaction`, `kill`, signal masks",
             "`termios`, `isatty`, controlling terminals",
@@ -1452,7 +1573,7 @@ class ProcessExecContractTests(unittest.TestCase):
         for phrase in (
             "## General-OS Gap Contract",
             "`fork` exists only as a classified syscall/libc surface.",
-            "Descriptor lifetime is exec-aware, not Unix-open-file-description aware.",
+            "Descriptor lifetime and fd duplication now have a bounded Unix-open-file-description milestone.",
             "VM allocation is anonymous/private and brk-backed.",
             "POSIX signal delivery is absent.",
             "Terminal/tty behavior is absent.",

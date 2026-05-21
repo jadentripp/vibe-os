@@ -34,6 +34,17 @@ CLAIMED_BOUNDARIES = {
     "SB16": {"scope": "qemu-sb16", "proof": "status-continuity"},
 }
 
+UNCLAIMED_BOUNDARIES = {
+    "UEFI": {"proof": "future-boot-path-proof"},
+    "PCI_ENUMERATION": {"proof": "future-pci-enumeration-table-proof"},
+    "AHCI": {"proof": "future-ahci-sata-storage-proof"},
+    "USB": {"proof": "future-usb-input-storage-proof"},
+    "SMP": {"proof": "future-multiprocessor-runtime-proof"},
+    "APIC": {"proof": "future-apic-interrupt-proof"},
+    "HPET": {"proof": "future-hpet-timer-proof"},
+    "PHYSICAL_HARDWARE": {"proof": "dedicated-hardware-proof"},
+}
+
 UNCLAIMED_CLASSES = {
     "UEFI",
     "PCI_ENUMERATION",
@@ -48,19 +59,19 @@ UNCLAIMED_CLASSES = {
 PROOF_REQUIREMENTS = {
     "UEFI": {
         "artifact": "ovmf-cloud-boot",
-        "requires": "pe32-esp-gop-mmap-exitbs",
+        "requires": "pe32-esp-gop-mmap-exitbs-boot",
     },
     "PCI_ENUMERATION": {
         "artifact": "pci-cloud-class-table",
-        "requires": "all-bdfs-class-table",
+        "requires": "all-bdfs-class-subclass-progif-table",
     },
     "AHCI": {
         "artifact": "ahci-cloud-wad-read",
-        "requires": "pci-ahci-bar-identify-read",
+        "requires": "pci-ahci-bar-identify-sata-read",
     },
     "USB": {
         "artifact": "usb-cloud-input-storage",
-        "requires": "host-controller-hid-storage",
+        "requires": "host-controller-hid-mass-storage",
     },
     "SMP": {
         "artifact": "smp-cloud-run",
@@ -76,7 +87,7 @@ PROOF_REQUIREMENTS = {
     },
     "PHYSICAL_HARDWARE": {
         "artifact": "disposable-hardware-run",
-        "requires": "machine-inventory-status-capture",
+        "requires": "machine-inventory-status-reboot-capture",
     },
 }
 
@@ -93,12 +104,12 @@ NEGATIVE_CLAIMS = {
     },
     "AHCI": {
         "scope": "storage",
-        "claim": "no-ahci-driver",
+        "claim": "no-ahci-sata-driver",
         "evidence": "ide-only-storage",
     },
     "USB": {
         "scope": "input-storage",
-        "claim": "no-usb-stack",
+        "claim": "no-usb-input-or-storage-stack",
         "evidence": "ps2-ide-only",
     },
     "SMP": {
@@ -108,7 +119,7 @@ NEGATIVE_CLAIMS = {
     },
     "APIC": {
         "scope": "interrupts",
-        "claim": "no-apic-routing",
+        "claim": "no-apic-ioapic-routing",
         "evidence": "pic-pit-only",
     },
     "HPET": {
@@ -128,6 +139,119 @@ NEXT_UNLOCK = {
         "priority": "first",
         "scope": "qemu-pci",
         "proof": "cloud-class-table",
+        "evidence": "none",
+    },
+}
+
+NEXT_IMPLEMENTATION_CONTRACTS = {
+    "PCI_DRIVER_TABLE_API": {
+        "status": "scaffold",
+        "scope": "qemu-pci",
+        "requires": "read-only-bdf-class-table",
+        "proof": "host-check-plus-cloud-status",
+        "unlocks": "ahci-sata,usb,apic",
+        "evidence": "none",
+    },
+}
+
+QEMU_DEVICE_MODELS = {
+    "BIOS_BOOT": {
+        "status": "claimed",
+        "machine": "qemu-legacy-pc",
+        "device": "legacy-bios",
+        "proof": "cloud-smoke",
+        "evidence": "status.txt",
+    },
+    "IDE_ATA_PIO": {
+        "status": "claimed",
+        "machine": "qemu-legacy-pc",
+        "device": "piix-ide",
+        "proof": "cloud-smoke",
+        "evidence": "status.txt",
+    },
+    "PS2_KEYBOARD": {
+        "status": "claimed",
+        "machine": "qemu-legacy-pc",
+        "device": "i8042-keyboard",
+        "proof": "scripted-cloud-input",
+        "evidence": "status-after-key-phases",
+    },
+    "PS2_MOUSE": {
+        "status": "claimed",
+        "machine": "qemu-legacy-pc",
+        "device": "i8042-mouse",
+        "proof": "scripted-cloud-input",
+        "evidence": "status-after-mouse",
+    },
+    "PIT": {
+        "status": "claimed",
+        "machine": "qemu-legacy-pc",
+        "device": "i8254-pit",
+        "proof": "cloud-smoke",
+        "evidence": "ticks-dtick",
+    },
+    "VBE_VGA": {
+        "status": "claimed",
+        "machine": "qemu-legacy-pc",
+        "device": "bochs-vbe-vga",
+        "proof": "host-and-cloud",
+        "evidence": "framebuffer-status",
+    },
+    "SB16": {
+        "status": "claimed",
+        "machine": "qemu-legacy-pc",
+        "device": "isa-sb16",
+        "proof": "status-continuity",
+        "evidence": "audio-status",
+    },
+    "PCI_BUS0_STATUS": {
+        "status": "status-only",
+        "machine": "qemu-legacy-pc",
+        "device": "pci-config-ports",
+        "proof": "cloud-smoke-status",
+        "evidence": "pci-status-fields",
+    },
+}
+
+BOOT_DEVICE_BOUNDARIES = {
+    "BIOS_IDE_RAW_LBA": {
+        "status": "claimed",
+        "firmware": "bios",
+        "device": "qemu-ide",
+        "layout": "mbr-stage2-raw-lba",
+        "proof": "cloud-smoke",
+        "evidence": "status.txt",
+    },
+    "UEFI_ESP_KERNEL_FILE": {
+        "status": "future",
+        "firmware": "uefi",
+        "device": "esp-fat",
+        "layout": "pe32-loader-kernel-file",
+        "proof": "ovmf-cloud-boot",
+        "evidence": "none",
+    },
+    "AHCI_SATA_DISK": {
+        "status": "future",
+        "firmware": "bios-or-uefi",
+        "device": "ahci-sata",
+        "layout": "driver-sector-read",
+        "proof": "ahci-cloud-wad-read",
+        "evidence": "none",
+    },
+    "USB_MASS_STORAGE": {
+        "status": "future",
+        "firmware": "bios-or-uefi",
+        "device": "usb-storage",
+        "layout": "controller-enumeration-file-read",
+        "proof": "usb-cloud-input-storage",
+        "evidence": "none",
+    },
+    "PHYSICAL_MACHINE": {
+        "status": "future",
+        "firmware": "machine-specific",
+        "device": "disposable-pc",
+        "layout": "documented-media",
+        "proof": "hardware-inventory-boot",
         "evidence": "none",
     },
 }
@@ -233,7 +357,17 @@ REQUIRED_MATRIX_PHRASES = (
     "Status-only rows are diagnostics, not driver support",
     "CURRENT_TARGET[QEMU_LEGACY_PC]",
     "QEMU BIOS/IDE/PS2/VBE/SB16 is the supported target",
+    "AHCI/SATA, USB input/storage, APIC/IOAPIC, HPET, SMP",
     "installation to arbitrary disks are outside the claim",
+    "QEMU_DEVICE_MODEL[BIOS_BOOT]",
+    "QEMU_DEVICE_MODEL[PCI_BUS0_STATUS]",
+    "These rows are the machine-readable reason the current claim is QEMU-only",
+    "BOOT_DEVICE_BOUNDARY[BIOS_IDE_RAW_LBA]",
+    "BOOT_DEVICE_BOUNDARY[UEFI_ESP_KERNEL_FILE]",
+    "BOOT_DEVICE_BOUNDARY[AHCI_SATA_DISK]",
+    "BOOT_DEVICE_BOUNDARY[USB_MASS_STORAGE]",
+    "BOOT_DEVICE_BOUNDARY[PHYSICAL_MACHINE]",
+    "The boot-device boundary is intentionally separate",
     "PCI_TABLE[QEMU_BUS0_CLASS_TABLE]",
     "PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN]",
     "PCI_TABLE_CONTRACT[ENTRY_LAYOUT]",
@@ -264,6 +398,7 @@ REQUIRED_MATRIX_PHRASES = (
     "NEGATIVE_CLAIM[HPET]",
     "NEGATIVE_CLAIM[PHYSICAL_HARDWARE]",
     "NEXT_UNLOCK[PCI_ENUMERATION]",
+    "NEXT_IMPLEMENTATION_CONTRACT[PCI_DRIVER_TABLE_API]",
     "PCI enumeration is the next implementable hardware-class unlock",
 )
 
@@ -272,7 +407,7 @@ REQUIRED_CROSS_DOC_LINKS = {
         "docs/hardware-support.md",
         "boot/uefi/README.md",
         "QEMU BIOS/IDE/PS2/VBE/SB16",
-        "not broad PC or physical hardware compatibility",
+        "That evidence is limited to the emulated device model",
         "SUPPORT[UEFI] remains unclaimed",
         "pci=",
     ),
@@ -316,6 +451,19 @@ UEFI_BOOT_REQUIREMENTS = {
     "EXIT_BOOT_SERVICES": {"requires": "exit-before-kernel-handoff", "proof": "future-boot-run"},
     "KERNEL_HANDOFF": {"requires": "elf32-entry-compatible", "proof": "future-boot-run"},
     "BUILD_INTEGRATION": {"requires": "separate-opt-in-target", "proof": "future-host-build"},
+}
+
+UEFI_BOOT_DEVICE_REQUIREMENTS = {
+    "ESP_IMAGE": {"requires": "fat-esp-kernel-file", "proof": "future-host-build"},
+    "OVMF_BOOT": {"requires": "ovmf-loads-efi-from-esp", "proof": "future-boot-run"},
+    "NO_RAW_LBA_FALLBACK": {
+        "requires": "no-stage2-raw-lba-dependency",
+        "proof": "future-contract-check",
+    },
+    "PHYSICAL_MEDIA": {
+        "requires": "machine-inventory-disposable-media",
+        "proof": "future-lab-run",
+    },
 }
 
 PCI_STATUS_REQUIREMENTS = {
@@ -460,6 +608,38 @@ NEXT_UNLOCK_RE = re.compile(
     re.MULTILINE,
 )
 
+NEXT_IMPLEMENTATION_CONTRACT_RE = re.compile(
+    r"^- `NEXT_IMPLEMENTATION_CONTRACT\[(?P<id>[A-Z0-9_]+)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"scope=(?P<scope>[a-z0-9-]+) "
+    r"requires=(?P<requires>[a-z0-9-]+) "
+    r"proof=(?P<proof>[a-z0-9-]+) "
+    r"unlocks=(?P<unlocks>[a-z0-9_,-]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
+QEMU_DEVICE_MODEL_RE = re.compile(
+    r"^- `QEMU_DEVICE_MODEL\[(?P<id>[A-Z0-9_]+)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"machine=(?P<machine>[a-z0-9-]+) "
+    r"device=(?P<device>[a-z0-9-]+) "
+    r"proof=(?P<proof>[a-z0-9-]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
+BOOT_DEVICE_BOUNDARY_RE = re.compile(
+    r"^- `BOOT_DEVICE_BOUNDARY\[(?P<id>[A-Z0-9_]+)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"firmware=(?P<firmware>[a-z0-9-]+) "
+    r"device=(?P<device>[a-z0-9-]+) "
+    r"layout=(?P<layout>[a-z0-9-]+) "
+    r"proof=(?P<proof>[a-z0-9-]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
 STATUS_PROOF_RE = re.compile(
     r"^- `STATUS_PROOF\[(?P<id>[A-Z0-9_]+)\] "
     r"status=(?P<status>[a-z-]+) "
@@ -491,23 +671,40 @@ UEFI_BOOT_RE = re.compile(
     re.MULTILINE,
 )
 
+UEFI_BOOT_DEVICE_RE = re.compile(
+    r"^- `UEFI_BOOT_DEVICE\[(?P<id>[A-Z0-9_]+)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"requires=(?P<requires>[a-z0-9-]+) "
+    r"proof=(?P<proof>[a-z0-9-]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
 OVERCLAIM_PATTERNS = (
     re.compile(r"\bsupports?\s+UEFI\b", re.IGNORECASE),
     re.compile(r"\bUEFI\s+support\b", re.IGNORECASE),
+    re.compile(r"\bUEFI[- ]bootable\b", re.IGNORECASE),
+    re.compile(r"\bUEFI\s+boot\s+(?:works|is\s+implemented|is\s+available|is\s+wired)\b", re.IGNORECASE),
     re.compile(r"\bsupports?\s+PCI\b", re.IGNORECASE),
     re.compile(r"\bPCI\s+support\b", re.IGNORECASE),
     re.compile(r"\bPCI\s+device\s+enumeration\b", re.IGNORECASE),
     re.compile(r"\bPCI\s+enumeration\s+support\b", re.IGNORECASE),
+    re.compile(r"\bPCI\s+enumeration\s+(?:works|is\s+implemented|is\s+available|is\s+wired)\b", re.IGNORECASE),
     re.compile(r"\bsupports?\s+AHCI\b", re.IGNORECASE),
     re.compile(r"\bAHCI\s+support\b", re.IGNORECASE),
+    re.compile(r"\bAHCI(?:/SATA)?\s+(?:driver|storage|disk)\s+(?:works|is\s+implemented|is\s+available|is\s+wired)\b", re.IGNORECASE),
     re.compile(r"\bsupports?\s+USB\b", re.IGNORECASE),
     re.compile(r"\bUSB\s+support\b", re.IGNORECASE),
+    re.compile(r"\bUSB\s+(?:stack|HID|input|storage|mass-storage)\s+(?:works|is\s+implemented|is\s+available|is\s+wired)\b", re.IGNORECASE),
     re.compile(r"\bsupports?\s+SMP\b", re.IGNORECASE),
     re.compile(r"\bSMP\s+support\b", re.IGNORECASE),
+    re.compile(r"\b(?:SMP|multiprocessor\s+runtime)\s+(?:works|is\s+implemented|is\s+available|is\s+wired)\b", re.IGNORECASE),
     re.compile(r"\bsupports?\s+APIC\b", re.IGNORECASE),
     re.compile(r"\bAPIC\s+support\b", re.IGNORECASE),
+    re.compile(r"\bAPIC(?:/IOAPIC)?\s+(?:routing|interrupts?|timer)\s+(?:works|is\s+implemented|is\s+available|is\s+wired)\b", re.IGNORECASE),
     re.compile(r"\bsupports?\s+HPET\b", re.IGNORECASE),
     re.compile(r"\bHPET\s+support\b", re.IGNORECASE),
+    re.compile(r"\bHPET\s+timer\s+(?:works|is\s+implemented|is\s+available|is\s+wired)\b", re.IGNORECASE),
     re.compile(r"\bruns?\s+on\s+physical\s+hardware\b", re.IGNORECASE),
     re.compile(r"\bboots?\s+directly\s+on\s+physical\s+hardware\b", re.IGNORECASE),
     re.compile(r"\bphysical[- ]hardware\s+support\b", re.IGNORECASE),
@@ -532,6 +729,7 @@ NEGATIVE_CONTEXT = (
     "before ",
     "until ",
     "rather than ",
+    "narrower",
 )
 
 
@@ -554,6 +752,18 @@ def _repo_text_files(root: Path) -> list[Path]:
 def _has_negative_context(line: str) -> bool:
     lower = line.lower()
     return any(token in lower for token in NEGATIVE_CONTEXT)
+
+
+def _validate_no_unbounded_claims(label: str, text: str) -> None:
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        line_number = index + 1
+        context = " ".join(lines[max(0, index - 1) : min(len(lines), index + 2)])
+        for pattern in OVERCLAIM_PATTERNS:
+            if pattern.search(line) and not _has_negative_context(context):
+                raise AssertionError(
+                    f"{label}:{line_number}: possible unbounded hardware claim: {line.strip()}"
+                )
 
 
 def _validate_support_rows(text: str) -> dict[str, dict[str, str]]:
@@ -594,13 +804,11 @@ def _validate_support_rows(text: str) -> dict[str, dict[str, str]]:
             raise AssertionError(f"{support_id} must be status=unclaimed")
         if row["scope"] != "none":
             raise AssertionError(f"{support_id} must keep scope=none until implemented")
-        if not (row["proof"].startswith("future") or row["proof"].endswith("hardware-proof")):
-            raise AssertionError(f"{support_id} must keep a future/dedicated proof boundary")
+        expected_proof = UNCLAIMED_BOUNDARIES[support_id]["proof"]
+        if row["proof"] != expected_proof:
+            raise AssertionError(f"{support_id} proof must stay {expected_proof} until implemented")
         if row["evidence"] != "none":
             raise AssertionError(f"{support_id} must keep evidence=none until implemented")
-
-    if rows["UEFI"]["proof"] != "future-boot-path-proof":
-        raise AssertionError("UEFI must keep proof=future-boot-path-proof until a loader exists")
 
     return rows
 
@@ -624,6 +832,7 @@ def _validate_current_target_row(text: str) -> dict[str, str]:
         "ide-ata-pio",
         "ps2-keyboard",
         "ps2-mouse",
+        "pit",
         "vbe-vga",
         "sb16",
     }
@@ -631,6 +840,11 @@ def _validate_current_target_row(text: str) -> dict[str, str]:
         "uefi",
         "physical-hardware",
         "general-pci",
+        "ahci-sata",
+        "usb-input-storage",
+        "apic-ioapic",
+        "hpet",
+        "smp",
         "arbitrary-disk-install",
     }
     if includes != expected_includes:
@@ -673,6 +887,39 @@ def _validate_uefi_boot_rows(text: str) -> dict[str, dict[str, str]]:
             raise AssertionError(f"UEFI_BOOT[{row_id}] proof must stay {expected['proof']}")
         if row["evidence"] != "none":
             raise AssertionError(f"UEFI_BOOT[{row_id}] must keep evidence=none until implemented")
+
+    return rows
+
+
+def _validate_uefi_boot_device_rows(text: str) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for match in UEFI_BOOT_DEVICE_RE.finditer(text):
+        row_id = match.group("id")
+        if row_id in rows:
+            raise AssertionError(f"duplicate UEFI_BOOT_DEVICE row: {row_id}")
+        rows[row_id] = match.groupdict()
+
+    missing = sorted(set(UEFI_BOOT_DEVICE_REQUIREMENTS) - set(rows))
+    if missing:
+        raise AssertionError(f"missing UEFI_BOOT_DEVICE rows: {', '.join(missing)}")
+    extras = sorted(set(rows) - set(UEFI_BOOT_DEVICE_REQUIREMENTS))
+    if extras:
+        raise AssertionError(f"unexpected UEFI_BOOT_DEVICE rows: {', '.join(extras)}")
+
+    for row_id, expected in UEFI_BOOT_DEVICE_REQUIREMENTS.items():
+        row = rows[row_id]
+        if row["status"] != "unimplemented":
+            raise AssertionError(f"UEFI_BOOT_DEVICE[{row_id}] must stay status=unimplemented")
+        if row["requires"] != expected["requires"]:
+            raise AssertionError(
+                f"UEFI_BOOT_DEVICE[{row_id}] requires must stay {expected['requires']}"
+            )
+        if row["proof"] != expected["proof"]:
+            raise AssertionError(f"UEFI_BOOT_DEVICE[{row_id}] proof must stay {expected['proof']}")
+        if row["evidence"] != "none":
+            raise AssertionError(
+                f"UEFI_BOOT_DEVICE[{row_id}] must keep evidence=none until implemented"
+            )
 
     return rows
 
@@ -840,6 +1087,91 @@ def _validate_next_unlock_rows(text: str) -> dict[str, dict[str, str]]:
     return rows
 
 
+def _validate_next_implementation_contract_rows(text: str) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for match in NEXT_IMPLEMENTATION_CONTRACT_RE.finditer(text):
+        row_id = match.group("id")
+        if row_id in rows:
+            raise AssertionError(f"duplicate NEXT_IMPLEMENTATION_CONTRACT row: {row_id}")
+        rows[row_id] = match.groupdict()
+
+    missing = sorted(set(NEXT_IMPLEMENTATION_CONTRACTS) - set(rows))
+    if missing:
+        raise AssertionError(f"missing NEXT_IMPLEMENTATION_CONTRACT rows: {', '.join(missing)}")
+    extras = sorted(set(rows) - set(NEXT_IMPLEMENTATION_CONTRACTS))
+    if extras:
+        raise AssertionError(f"unexpected NEXT_IMPLEMENTATION_CONTRACT rows: {', '.join(extras)}")
+
+    for row_id, expected in NEXT_IMPLEMENTATION_CONTRACTS.items():
+        row = rows[row_id]
+        for key, value in expected.items():
+            if row[key] != value:
+                raise AssertionError(f"NEXT_IMPLEMENTATION_CONTRACT[{row_id}] {key} must stay {value}")
+        unlocks = set(row["unlocks"].split(","))
+        if not {"ahci-sata", "usb", "apic"}.issubset(unlocks):
+            raise AssertionError(
+                f"NEXT_IMPLEMENTATION_CONTRACT[{row_id}] must keep future driver unlocks explicit"
+            )
+
+    return rows
+
+
+def _validate_qemu_device_model_rows(text: str) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for match in QEMU_DEVICE_MODEL_RE.finditer(text):
+        row_id = match.group("id")
+        if row_id in rows:
+            raise AssertionError(f"duplicate QEMU_DEVICE_MODEL row: {row_id}")
+        rows[row_id] = match.groupdict()
+
+    missing = sorted(set(QEMU_DEVICE_MODELS) - set(rows))
+    if missing:
+        raise AssertionError(f"missing QEMU_DEVICE_MODEL rows: {', '.join(missing)}")
+    extras = sorted(set(rows) - set(QEMU_DEVICE_MODELS))
+    if extras:
+        raise AssertionError(f"unexpected QEMU_DEVICE_MODEL rows: {', '.join(extras)}")
+
+    for row_id, expected in QEMU_DEVICE_MODELS.items():
+        row = rows[row_id]
+        for key, value in expected.items():
+            if row[key] != value:
+                raise AssertionError(f"QEMU_DEVICE_MODEL[{row_id}] {key} must stay {value}")
+        if row["machine"] != "qemu-legacy-pc":
+            raise AssertionError(f"QEMU_DEVICE_MODEL[{row_id}] must stay QEMU-only")
+        if row["status"] == "claimed" and row_id not in CLAIMED_CLASSES:
+            raise AssertionError(f"QEMU_DEVICE_MODEL[{row_id}] cannot claim an unsupported class")
+
+    return rows
+
+
+def _validate_boot_device_boundary_rows(text: str) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for match in BOOT_DEVICE_BOUNDARY_RE.finditer(text):
+        row_id = match.group("id")
+        if row_id in rows:
+            raise AssertionError(f"duplicate BOOT_DEVICE_BOUNDARY row: {row_id}")
+        rows[row_id] = match.groupdict()
+
+    missing = sorted(set(BOOT_DEVICE_BOUNDARIES) - set(rows))
+    if missing:
+        raise AssertionError(f"missing BOOT_DEVICE_BOUNDARY rows: {', '.join(missing)}")
+    extras = sorted(set(rows) - set(BOOT_DEVICE_BOUNDARIES))
+    if extras:
+        raise AssertionError(f"unexpected BOOT_DEVICE_BOUNDARY rows: {', '.join(extras)}")
+
+    for row_id, expected in BOOT_DEVICE_BOUNDARIES.items():
+        row = rows[row_id]
+        for key, value in expected.items():
+            if row[key] != value:
+                raise AssertionError(f"BOOT_DEVICE_BOUNDARY[{row_id}] {key} must stay {value}")
+        if row["status"] == "future" and row["evidence"] != "none":
+            raise AssertionError(f"BOOT_DEVICE_BOUNDARY[{row_id}] must keep evidence=none until proved")
+        if row["status"] == "claimed" and row["device"] != "qemu-ide":
+            raise AssertionError("only the QEMU IDE raw-LBA boot device is claimed today")
+
+    return rows
+
+
 def _validate_status_proof_rows(text: str) -> dict[str, dict[str, object]]:
     rows: dict[str, dict[str, object]] = {}
     for match in STATUS_PROOF_RE.finditer(text):
@@ -875,15 +1207,20 @@ def _validate_status_proof_rows(text: str) -> dict[str, dict[str, object]]:
 def _validate_uefi_scaffold(root: Path) -> dict[str, dict[str, str]]:
     text = _read(root / "boot" / "uefi" / "README.md")
     rows = _validate_uefi_boot_rows(text)
+    _validate_uefi_boot_device_rows(text)
 
     for phrase in (
         "contract-only placeholder",
         "does not contain a UEFI binary",
         "does not contain a UEFI binary, a PE/COFF image",
         "SUPPORT[UEFI] remains unclaimed",
+        "UEFI_BOOT_DEVICE[ESP_IMAGE]",
+        "future boot-device proof boundary",
+        "NO_RAW_LBA_FALLBACK",
         "must not describe vibe-os as UEFI-bootable",
         "ExitBootServices",
         "keep local VM execution behind the existing opt-in safety rail",
+        "exact machine inventory and disposable media details",
     ):
         if not _contains_phrase(text, phrase):
             raise AssertionError(f"boot/uefi/README.md missing UEFI scaffold phrase: {phrase}")
@@ -963,15 +1300,7 @@ def _validate_claim_wording(root: Path) -> None:
         if path == MATRIX:
             continue
         rel = path.relative_to(root)
-        lines = _read(path).splitlines()
-        for index, line in enumerate(lines):
-            line_number = index + 1
-            context = " ".join(lines[max(0, index - 1) : min(len(lines), index + 2)])
-            for pattern in OVERCLAIM_PATTERNS:
-                if pattern.search(line) and not _has_negative_context(context):
-                    raise AssertionError(
-                        f"{rel}:{line_number}: possible unbounded hardware claim: {line.strip()}"
-                    )
+        _validate_no_unbounded_claims(str(rel), _read(path))
 
 
 def _parse_status_fields(status: str) -> dict[str, str]:
@@ -1171,12 +1500,15 @@ def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
 
     rows = _validate_support_rows(matrix_text)
     _validate_current_target_row(matrix_text)
+    _validate_qemu_device_model_rows(matrix_text)
+    _validate_boot_device_boundary_rows(matrix_text)
     _validate_pci_status_rows(matrix_text)
     _validate_pci_table_rows(matrix_text)
     _validate_pci_table_contract_rows(matrix_text)
     _validate_proof_requirement_rows(matrix_text)
     _validate_negative_claim_rows(matrix_text)
     _validate_next_unlock_rows(matrix_text)
+    _validate_next_implementation_contract_rows(matrix_text)
     _validate_status_proof_rows(matrix_text)
     _validate_uefi_scaffold(root)
     _validate_pci_source_contract(root)

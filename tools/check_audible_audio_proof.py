@@ -410,6 +410,8 @@ def _continuity_summary(
         for label in ("baseline", "fire", "movement", "use", "menu", "final")
     ]
     music_buffers = [_hex_value(fields, "musicbuf") for fields in ordered_fields]
+    pull_pairs = [_hex_tuple(fields, "musicpull", 2) for fields in ordered_fields]
+    pull_pending = [max(0, request - refill) for request, refill in pull_pairs]
     uses_pull_stream = any(fields["musicstream"] == "PULL" for fields in ordered_fields)
     stream_update_progress = (
         progress["musicpull_refill"] if uses_pull_stream else progress["voiceq_update"]
@@ -417,6 +419,10 @@ def _continuity_summary(
     update_delta = int(stream_update_progress["delta"], 16)
     position_delta = int(progress["musicpos"]["delta"], 16)
     rendered_sample_delta = int(progress["musicrend_sample"]["delta"], 16)
+    voice_update_delta = int(progress["voiceq_update"]["delta"], 16)
+    pull_request_delta = int(progress["musicpull_request"]["delta"], 16)
+    pull_refill_delta = int(progress["musicpull_refill"]["delta"], 16)
+    render_chunk_delta = int(progress["musicrend_chunk"]["delta"], 16)
     initial_buffer = music_buffers[0]
     final_buffer = music_buffers[-1]
     rendered_plus_initial_buffer = rendered_sample_delta + initial_buffer
@@ -435,6 +441,8 @@ def _continuity_summary(
         "voiceq_update_delta": progress["voiceq_update"]["delta"],
         "pull_request_delta": progress["musicpull_request"]["delta"],
         "pull_refill_delta": progress["musicpull_refill"]["delta"],
+        "pull_pending_peak": f"{max(pull_pending):08X}",
+        "pull_pending_final": f"{pull_pending[-1]:08X}",
         "position_delta": progress["musicpos"]["delta"],
         "position_delta_per_update_floor": f"{(position_delta // update_delta) if update_delta else 0:08X}",
         "rendered_sample_delta": progress["musicrend_sample"]["delta"],
@@ -442,6 +450,34 @@ def _continuity_summary(
         "consumed_plus_final_buffer": f"{consumed_plus_final_buffer:08X}",
         "rendered_sample_covers_position": (
             rendered_plus_initial_buffer >= consumed_plus_final_buffer
+        ),
+        "sequenced_refill_service": (
+            not uses_pull_stream
+            or (
+                pull_request_delta == pull_refill_delta
+                and pull_refill_delta == voice_update_delta
+                and pull_refill_delta == render_chunk_delta
+                and max(pull_pending) <= check_audio_continuity_proof.MAX_PENDING_PULL_REQUESTS
+            )
+        ),
+    }
+    service_sequence = {
+        "refill_counter": "musicpull_refill" if uses_pull_stream else "voiceq_update",
+        "request_delta": progress["musicpull_request"]["delta"],
+        "refill_delta": progress["musicpull_refill"]["delta"],
+        "voiceq_update_delta": progress["voiceq_update"]["delta"],
+        "renderer_chunk_delta": progress["musicrend_chunk"]["delta"],
+        "max_pending_pull_requests": f"{check_audio_continuity_proof.MAX_PENDING_PULL_REQUESTS:08X}",
+        "pull_pending_peak": stream_health["pull_pending_peak"],
+        "pull_pending_final": stream_health["pull_pending_final"],
+        "refill_matches_request": (
+            not uses_pull_stream or pull_refill_delta == pull_request_delta
+        ),
+        "voice_update_matches_refill": (
+            not uses_pull_stream or voice_update_delta == pull_refill_delta
+        ),
+        "render_chunk_matches_refill": (
+            not uses_pull_stream or render_chunk_delta == pull_refill_delta
         ),
     }
     mixer_safety = {
@@ -470,6 +506,7 @@ def _continuity_summary(
             "stream": "VIBE_AUDIO_STREAM_INFO",
             "mixer": "VIBE_AUDIO_MIXER_START/UPDATE/STOP/IS_PLAYING",
         },
+        "service_sequence": service_sequence,
         "claim": (
             "the reusable OS audio device/ring/stream/mixer contract proves "
             "kernel SB16 refill requests paced music chunk service; "
@@ -1152,6 +1189,33 @@ def validate_manifest(
     if stream_contract.get("current_service_command") is not None:
         if stream_contract.get("current_service_command") != "VIBE_AUDIO_MIXER_UPDATE":
             raise AssertionError("manifest stream contract must name VIBE_AUDIO_MIXER_UPDATE")
+    service_sequence = stream_contract.get("service_sequence")
+    if not isinstance(service_sequence, dict):
+        raise AssertionError("manifest stream contract must include service_sequence")
+    for key in (
+        "request_delta",
+        "refill_delta",
+        "voiceq_update_delta",
+        "renderer_chunk_delta",
+        "max_pending_pull_requests",
+        "pull_pending_peak",
+        "pull_pending_final",
+    ):
+        value = service_sequence.get(key)
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9A-Fa-f]{8}", value):
+            raise AssertionError(
+                f"manifest stream contract service_sequence.{key} must be eight hex digits"
+            )
+    for key in (
+        "refill_matches_request",
+        "voice_update_matches_refill",
+        "render_chunk_matches_refill",
+    ):
+        if stream_contract["mode"] == "PULL" and service_sequence.get(key) is not True:
+            raise AssertionError(f"manifest stream contract service_sequence.{key} must be true")
+    if stream_contract["mode"] == "PULL":
+        if int(service_sequence["pull_pending_peak"], 16) > check_audio_continuity_proof.MAX_PENDING_PULL_REQUESTS:
+            raise AssertionError("manifest stream contract pending pull requests exceed proof threshold")
     future_step = stream_contract.get("future_legitimacy_step")
     if future_step is not None and "kernel-owned music ring" not in future_step:
         raise AssertionError("manifest stream contract future step must mention kernel-owned music ring")
@@ -1174,6 +1238,8 @@ def validate_manifest(
         "voiceq_update_delta",
         "pull_request_delta",
         "pull_refill_delta",
+        "pull_pending_peak",
+        "pull_pending_final",
         "position_delta",
         "position_delta_per_update_floor",
         "rendered_sample_delta",
@@ -1202,8 +1268,12 @@ def validate_manifest(
             "manifest stream health must show rendered samples plus initial "
             "musicbuf cover music position plus final musicbuf"
         )
+    if stream_health.get("sequenced_refill_service") is not True:
+        raise AssertionError("manifest stream health must prove sequenced pull refill service")
     if int(stream_health["stream_update_delta"], 16) < check_audio_continuity_proof.MIN_MUSIC_STREAM_UPDATE_DELTA:
         raise AssertionError("manifest stream health stream_update_delta is below proof threshold")
+    if int(stream_health["pull_pending_peak"], 16) > check_audio_continuity_proof.MAX_PENDING_PULL_REQUESTS:
+        raise AssertionError("manifest stream health pull_pending_peak exceeds proof threshold")
     if int(stream_health["under_delta"], 16) > MAX_MUSIC_UNDERRUN_DELTA:
         raise AssertionError("manifest stream health under_delta exceeds proof threshold")
     if int(stream_health["drop_delta"], 16) > MAX_MUSIC_DROP_DELTA:

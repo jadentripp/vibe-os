@@ -5,7 +5,7 @@ BUILD_DIR="${BUILD_DIR:-build}"
 MONITOR_SOCKET="${MONITOR_SOCKET:-build/play-now/monitor.sock}"
 OUTPUT_DIR="${OUTPUT_DIR:-/tmp/vibe-os-human-proof}"
 TARBALL="${TARBALL:-/tmp/vibe-os-human-proof.tgz}"
-AUDIO_MODE="${AUDIO_MODE:-status-only}"
+AUDIO_MODE="${AUDIO_MODE:-}"
 SLOWDOWN_MODE="${SLOWDOWN_MODE:-}"
 SLOWDOWN_NOTES="${SLOWDOWN_NOTES:-}"
 PLAYTESTER=""
@@ -41,7 +41,7 @@ Options:
                                  Default: /tmp/vibe-os-human-proof.tgz
   --audio MODE                   status-only, listener-pass,
                                  audio-proof-json-pass, or not-tested.
-                                 Default: status-only
+                                 Default: prompt; Enter selects status-only.
   --slowdown LEVEL               not-observed, mild, moderate, or severe.
                                  If omitted, the helper prompts after capture.
   --slowdown-notes TEXT          Short status-only slowdown note. If omitted,
@@ -248,10 +248,12 @@ if [ -z "$COMMIT_VALUE" ]; then
   [ -n "$COMMIT_VALUE" ] || die "could not resolve git HEAD; pass --commit HASH explicitly"
 fi
 
-case "$AUDIO_MODE" in
-  status-only|listener-pass|audio-proof-json-pass|not-tested) ;;
-  *) die "--audio must be status-only, listener-pass, audio-proof-json-pass, or not-tested" ;;
-esac
+if [ -n "$AUDIO_MODE" ]; then
+  case "$AUDIO_MODE" in
+    status-only|listener-pass|audio-proof-json-pass|not-tested) ;;
+    *) die "--audio must be status-only, listener-pass, audio-proof-json-pass, or not-tested" ;;
+  esac
+fi
 
 output_parent="$(dirname "$OUTPUT_DIR")"
 output_base="$(basename "$OUTPUT_DIR")"
@@ -272,11 +274,11 @@ PHASES=(
 
 PHASE_PROMPTS=(
   "Before pressing any Doom controls, press Enter to capture the baseline."
-  "Confirm E1M1 or the playable Doom view is visible in VNC, then press Enter."
-  "Press Ctrl/fire in VNC, wait for a visible response, then press Enter."
-  "Hold an arrow key long enough to move or turn, then press Enter."
-  "Press Space/use in VNC, wait for Doom to accept it, then press Enter."
-  "Move the mouse and click once through VNC, then press Enter."
+  "Click the noVNC canvas, confirm E1M1 or the playable Doom view is visible, then press Enter."
+  "Click the noVNC canvas if focus is unclear, press Ctrl/fire, wait for a visible weapon/action response, then press Enter."
+  "Hold an arrow key long enough to see movement or turning, then press Enter."
+  "Press Space/use and wait for Doom to accept it, then press Enter."
+  "Move the mouse and click once through VNC; wait for visible turn/click response, then press Enter."
   "Press Escape and confirm the Doom menu opens, then press Enter."
   "Let the session run long enough to cross the duration gate, then press Enter."
 )
@@ -310,6 +312,11 @@ echo "  commit:           $COMMIT_VALUE"
 echo "  scripted run ID:  $SCRIPTED_PROOF_RUN_ID"
 echo "  proof output dir: $OUTPUT_DIR"
 echo "  proof tarball:    $TARBALL"
+if [ -n "$AUDIO_MODE" ]; then
+  echo "  audio mode:       $AUDIO_MODE"
+else
+  echo "  audio mode:       prompt after capture"
+fi
 echo
 echo "Keep QEMU running in the other remote SSH shell. Do not download WADs,"
 echo "disk images, framebuffer data, screenshots, status binaries, or raw audio."
@@ -359,6 +366,32 @@ if [ -z "$SLOWDOWN_NOTES" ]; then
 fi
 validate_slowdown_fields
 
+if [ -z "$AUDIO_MODE" ]; then
+  while true; do
+    printf "Audio observation? [status-only/listener-pass/audio-proof-json-pass/not-tested] "
+    read -r AUDIO_MODE
+    AUDIO_MODE="${AUDIO_MODE:-status-only}"
+    case "$AUDIO_MODE" in
+      status-only|listener-pass|audio-proof-json-pass|not-tested) break ;;
+      *) echo "Please enter status-only, listener-pass, audio-proof-json-pass, or not-tested." ;;
+    esac
+  done
+fi
+case "$AUDIO_MODE" in
+  status-only)
+    echo "Audio evidence recorded as status-only SB16 continuity; no VNC audio claim is made."
+    ;;
+  listener-pass)
+    echo "Audio evidence recorded as human listener-pass via remote audio forwarding."
+    ;;
+  audio-proof-json-pass)
+    echo "Audio evidence recorded as aggregate audio-proof.json; collector will require that JSON."
+    ;;
+  not-tested)
+    echo "Audio evidence recorded as not-tested for this manual VNC session."
+    ;;
+esac
+
 python3 tools/collect_human_playtest_bundle.py \
   --build-dir "$BUILD_DIR" \
   --output-dir "$OUTPUT_DIR" \
@@ -376,6 +409,7 @@ python3 tools/collect_human_playtest_bundle.py \
   --confirm-keyboard-use \
   --confirm-mouse-action \
   --confirm-menu-escape \
+  --confirm-audio-observation \
   --confirm-slowdown-notes \
   --confirm-phase-actions \
   --confirm-phase-status-hashes \

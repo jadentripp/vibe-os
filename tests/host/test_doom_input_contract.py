@@ -67,6 +67,10 @@ class DoomInputContractTests(unittest.TestCase):
             CHECK(input_status_bytes, VIBE_INPUT_STATUS_BYTES == 112);
             CHECK(input_abi_version, VIBE_INPUT_ABI_VERSION == 1);
             CHECK(input_queue_capacity, VIBE_INPUT_EVENT_QUEUE_CAPACITY == 64);
+            CHECK(input_event_value_count, VIBE_INPUT_EVENT_VALUE_COUNT == 3);
+            CHECK(input_key_state_bits, VIBE_INPUT_KEY_STATE_BITS == 256);
+            CHECK(input_mouse_axis_x, VIBE_INPUT_MOUSE_AXIS_X == 0);
+            CHECK(input_mouse_axis_y, VIBE_INPUT_MOUSE_AXIS_Y == 1);
             CHECK(input_status_syscall, VIBE_SYS_INPUT_STATUS == 31);
         """
         abi = subprocess.run(
@@ -109,10 +113,17 @@ class DoomInputContractTests(unittest.TestCase):
                     || event.value1 != 0
                     || event.value2 != 0)
                     return 1;
+                if (vibe_input_key_code(&event) != 'w'
+                    || !vibe_input_key_is_pressed(&event)
+                    || vibe_input_key_is_released(&event))
+                    return 19;
 
                 vibe_input_make_key_event(&event, 45, 'w', 0);
                 if (event.value0 != VIBE_INPUT_KEY_RELEASED)
                     return 2;
+                if (!vibe_input_key_is_released(&event)
+                    || vibe_input_key_is_pressed(&event))
+                    return 20;
 
                 vibe_input_make_mouse_packet_event(
                     &event,
@@ -134,13 +145,22 @@ class DoomInputContractTests(unittest.TestCase):
                 if (vibe_input_mouse_buttons(&event)
                     != (VIBE_INPUT_MOUSE_BUTTON_LEFT | VIBE_INPUT_MOUSE_BUTTON_MIDDLE))
                     return 11;
+                if (!vibe_input_mouse_button_is_supported(VIBE_INPUT_MOUSE_BUTTON_LEFT)
+                    || vibe_input_mouse_button_is_supported(0)
+                    || vibe_input_mouse_button_is_supported(0x08u))
+                    return 21;
                 if (!vibe_input_mouse_button_is_down(&event, VIBE_INPUT_MOUSE_BUTTON_LEFT)
                     || !vibe_input_mouse_button_is_down(&event, VIBE_INPUT_MOUSE_BUTTON_MIDDLE)
                     || vibe_input_mouse_button_is_down(&event, VIBE_INPUT_MOUSE_BUTTON_RIGHT)
                     || vibe_input_mouse_button_is_down(&event, 0x08u))
                     return 12;
+                if (!vibe_input_mouse_has_buttons(&event))
+                    return 22;
                 if (vibe_input_mouse_delta_x(&event) != -3
                     || vibe_input_mouse_delta_y(&event) != 5
+                    || vibe_input_mouse_delta(&event, VIBE_INPUT_MOUSE_AXIS_X) != -3
+                    || vibe_input_mouse_delta(&event, VIBE_INPUT_MOUSE_AXIS_Y) != 5
+                    || vibe_input_mouse_delta(&event, 9) != 0
                     || !vibe_input_mouse_has_motion(&event))
                     return 13;
 
@@ -156,11 +176,20 @@ class DoomInputContractTests(unittest.TestCase):
                 {
                     vibe_input_status_t status;
                     status.dropped_events = 0;
+                    status.abi_version = VIBE_INPUT_ABI_VERSION;
+                    status.event_bytes = VIBE_INPUT_EVENT_BYTES;
+                    status.queue_capacity = VIBE_INPUT_EVENT_QUEUE_CAPACITY;
+                    status.capabilities = VIBE_INPUT_CAP_KEYBOARD | VIBE_INPUT_CAP_MOUSE;
                     status.keyboard_state[0] = 0;
                     status.keyboard_state[3] = 0;
                     status.mouse_buttons = 0xf2u;
                     status.mouse_delta_x_total = 0;
                     status.mouse_delta_y_total = 9;
+                    if (!vibe_input_status_abi_is_current(&status))
+                        return 23;
+                    if (!vibe_input_status_has_capability(&status, VIBE_INPUT_CAP_KEYBOARD)
+                        || vibe_input_status_has_capability(&status, VIBE_INPUT_CAP_STATUS))
+                        return 24;
                     if (vibe_input_status_has_overflow(&status))
                         return 6;
                     status.dropped_events = 1;
@@ -179,11 +208,20 @@ class DoomInputContractTests(unittest.TestCase):
                         || vibe_input_status_mouse_button_is_down(&status, VIBE_INPUT_MOUSE_BUTTON_LEFT)
                         || vibe_input_status_mouse_button_is_down(&status, 0x08u))
                         return 16;
-                    if (!vibe_input_status_mouse_has_motion(&status))
+                    if (!vibe_input_status_mouse_has_buttons(&status)
+                        || vibe_input_status_mouse_delta_x(&status) != 0
+                        || vibe_input_status_mouse_delta_y(&status) != 9
+                        || vibe_input_status_mouse_delta(&status, VIBE_INPUT_MOUSE_AXIS_X) != 0
+                        || vibe_input_status_mouse_delta(&status, VIBE_INPUT_MOUSE_AXIS_Y) != 9
+                        || vibe_input_status_mouse_delta(&status, 9) != 0
+                        || !vibe_input_status_mouse_has_motion(&status))
                         return 17;
                     status.mouse_delta_y_total = 0;
                     if (vibe_input_status_mouse_has_motion(&status))
                         return 18;
+                    status.event_bytes = 0;
+                    if (vibe_input_status_abi_is_current(&status))
+                        return 25;
                 }
 
                 vibe_input_make_key_event(0, 0, 0, 0);
@@ -224,18 +262,28 @@ class DoomInputContractTests(unittest.TestCase):
             "the queue contract is\n  not Doom-specific",
             "VIBE_INPUT_EVENT_BYTES == 28",
             "VIBE_INPUT_STATUS_BYTES == 112",
+            "VIBE_INPUT_EVENT_VALUE_COUNT",
+            "VIBE_INPUT_KEY_STATE_BITS",
             "VIBE_SYS_INPUT_STATUS",
             "vibe_input_make_key_event()",
             "vibe_input_make_mouse_packet_event()",
+            "vibe_input_key_is_pressed()",
+            "vibe_input_key_is_released()",
+            "VIBE_INPUT_MOUSE_AXIS_X",
+            "VIBE_INPUT_MOUSE_AXIS_Y",
             "vibe_input_status_t",
             "dropped_events",
             "keyboard_down_count",
             "keyboard_state",
             "mouse_buttons",
             "VIBE_INPUT_MOUSE_BUTTON_MASK",
+            "vibe_input_mouse_button_is_supported()",
             "vibe_input_mouse_button_is_down()",
+            "vibe_input_mouse_delta()",
             "vibe_input_mouse_has_motion()",
+            "vibe_input_status_abi_is_current()",
             "vibe_input_status_mouse_button_is_down()",
+            "vibe_input_status_mouse_delta()",
             "future games",
             "Game-specific\n  button remapping belongs in the consuming port",
             "Raw PS/2 button order is preserved",
@@ -344,9 +392,9 @@ class DoomInputContractTests(unittest.TestCase):
             '#include "input.h"',
             "vibe_input_event_t input",
             "vibe_doom_input_event_t translated",
-            "vibe_syscall3(VIBE_SYS_POLL_INPUT",
-            "sizeof(input)",
+            "vibe_poll_input(&input)",
             "vibe_doom_translate_input_event",
+            "vibe_present_indexed_checked(&present)",
             "checkpoint_default_config_if_needed();",
             "checkpoint_save_slot_if_needed();",
             "checkpoint_load_slot_if_needed();",

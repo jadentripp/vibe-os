@@ -2,55 +2,42 @@
 
 vibe-os is a Doom-focused hobby operating system. It boots a repo-owned x86
 kernel, brings up the hardware/runtime surface Doom needs, and runs the
-official id Software public release, `linuxdoom-1.10`, through our own platform
-layer.
+official id Software public release, `linuxdoom-1.10`, through a port layer
+outside the vendor tree.
 
-This is not Linux plus a Doom source port, and it is not a patched vendor Doom
-tree. The rule is simple: keep the original Doom source pristine, keep WADs out
-of git, and make the OS boundary real. The stance is "legit but playable
-first": get to a real E1M1 play session fast, while tying every public claim to
-proof.
+The project stance is "legit but playable first": original Doom source stays
+pristine, WADs and proof artifacts stay out of git, and public status only says
+what the automated and cloud proof gates have shown.
 
-## Where It Stands
+## Status
 
-`main` is a real OS bring-up path, not a launcher:
+`main` is an OS bring-up path, not a launcher. The BIOS boot sector and Stage 2
+loader enter a 32-bit protected-mode kernel with paging, interrupts, timer
+preemption, Ring 3 syscall entry, process records, exec/wait, file-descriptor
+ownership, ATA PIO, FAT16 root mutation, framebuffer output, PS/2 keyboard and
+mouse input, SB16-oriented audio plumbing, and a freestanding C runtime.
 
-- BIOS boot sector and Stage 2 loader, no GRUB handoff.
-- 32-bit protected-mode kernel with paging, IDT/PIC/PIT, TSS, Ring 3
-  `int 0x80`, process records, exec handoff, wait/reap, fd ownership, and
-  preemption proof fields.
-- The normal launch chain is `USERPROB.ELF` -> `ABIPROBE.ELF` -> `DOOM.ELF`.
-  `ABIPROBE.ELF` is packaged as a FAT root `.ELF`, runs as a freestanding second
-  program through the generic exec path, proves the public ABI, then execs Doom
-  through the same bounded argv-vector handoff.
-- ATA PIO disk access, MBR parsing, FAT16 file reads, writable FAT updates,
-  root-level 8.3 create/read/write/stat/listdir, and read-only one-level asset
-  directory support such as `/ASSETS/README.TXT`.
-- VBE/Mode 13h framebuffer paths, PS/2 keyboard/mouse input, SB16-oriented
-  audio plumbing, reusable audio device/ring/stream info records including
-  `VIBE_AUDIO_STREAM_INFO`, and a freestanding C runtime.
-- Original Doom source in `third_party/doom`; all OS-facing port code lives in
-  `doom_port/`.
+Doom runs as `DOOM.ELF` from the FAT image after `USERPROB.ELF` and
+`ABIPROBE.ELF` prove the public ABI and generic exec handoff. The cloud proof
+is green for first-boot gameplay, SB16/audio continuity, and save/load
+persistence: with real `DOOM1.WAD`, the OS reaches E1M1, accepts input from the
+scripted phases, keeps Doom as a Ring 3 process, writes `DOOMSAV*.DSG`, reboots
+the same disk image, and loads the save back into gameplay.
 
-The cloud proof is green for first-boot gameplay, SB16/audio continuity, and
-save/load persistence: the OS reaches E1M1 with real `DOOM1.WAD`, accepts input,
-keeps Doom running as a Ring 3 process, writes `DOOMSAV*.DSG`, reboots the same
-disk image, and loads the save back into gameplay. That is the current "you can
-boot, play, save, reboot, and load Doom in the cloud" claim.
+The human-facing boundary is narrower. A reviewed remote noVNC session still
+has to show a person playing from the documented bundle before this README
+treats that lane as proven. Long-form evidence, historical failures, and
+workflow dispatch examples live in `docs/post-checkpoint-gaps.md` and
+`docs/playable-cloud-proof.md` rather than here.
 
-Long-form evidence, historical failures, and workflow dispatch examples live in
-`docs/post-checkpoint-gaps.md` and `docs/playable-cloud-proof.md` rather than
-here.
+## Working Model
 
-## How It Is Being Built
-
-The repo stays on one integration lane, `main`, while agents take broad
-subsystem ownership: boot/process, FAT/storage, graphics/input, audio,
-libc/ABI, cloud play UX, docs, and proof checkers. The prompting strategy is to
-turn every serious claim into a failing contract, keep `third_party/doom`
-pristine, keep risky VM execution in disposable cloud environments, and prefer
-general OS interfaces over Doom-only shortcuts even while Doom is the first
-workload.
+The repo stays on one integration lane, `main`, while implementation work is
+split across boot/process, FAT/storage, graphics/input, audio, libc/ABI, cloud
+play UX, docs, and proof checkers. Serious claims become executable contracts,
+`third_party/doom` stays pristine, VM execution happens in disposable cloud
+environments by default, and Doom-specific pressure is used to harden reusable
+OS interfaces instead of adding shortcuts.
 
 ## Try It Safely
 
@@ -64,13 +51,9 @@ Mac unless you explicitly opt in.
 ```
 
 The Codespaces/noVNC path keeps QEMU, disk images, WAD data, framebuffer
-captures, and raw audio off the laptop. For reviewed human proof, use the
-template in `docs/runbooks/remote-doom-playtest.md`: the bundle is generated by
-`tools/run_remote_human_playtest.sh`, wraps
-`tools/collect_human_playtest_bundle.py`, and should include
-`human-playtest-notes-v2`, `human-playtest-checklist.txt`,
-`human-playtest-session.json`, `human-playtest-manifest.json`, and
-`post-download human verification OK`.
+captures, and raw audio off the laptop. For reviewed human proof, use
+`docs/runbooks/remote-doom-playtest.md`; the generated bundle is checked by
+`tools/check_cloud_playability_artifacts.py --human-session`.
 
 ## Build And Prove
 
@@ -83,37 +66,26 @@ make ALLOW_LOCAL_VM=0 cloud-playability-check
 ```
 
 Real-WAD proofs run in GitHub Actions, Codespaces, or disposable cloud hosts.
-Use the proof docs and runbooks for the current dispatch commands and artifact
-checks.
+Use the proof docs and runbooks for dispatch commands and artifact checks.
 
 ## Claim Boundaries
 
-Do not call vibe-os a finished Doom-capable OS until `main` has green scripted
-real-WAD gameplay, green save/load persistence reboot proof, and a reviewed
-remote human noVNC session where keyboard and mouse actions visibly affect
-gameplay. The scripted cloud gates are green; the formal human playtest bundle
-is still the remaining user-facing proof.
-
 Generated IWAD-shaped fixtures are useful for public CI, but they do not count
-as a real Doom proof. Checked-in WAD files, disk images, framebuffer dumps, and
+as real Doom proof. Checked-in WAD files, disk images, framebuffer dumps, and
 raw audio captures are forbidden.
 
-The hardware claim is bounded to QEMU BIOS/IDE/PS2/VBE/SB16 for now: BIOS,
-IDE/ATA, PS/2, VBE/Mode 13h, and SB16-style audio. This is not yet a general PC
-compatibility claim, and this is not broad PC or physical hardware
-compatibility. `boot/uefi/README.md` is a contract-only UEFI scaffold, and
-SUPPORT[UEFI] remains unclaimed. PCI fields such as `pci=`, `pciprobe=`, and
-`pcitabcap=` plus the `PCI_TABLE[...]` / `PCI_TABLE_CONTRACT[...]` rows are
-status-only QEMU bus-0 diagnostics, not driver binding or broad PCI enumeration
-support; see `docs/hardware-support.md`.
+The hardware claim is bounded to QEMU BIOS/IDE/PS2/VBE/SB16: BIOS, IDE/ATA,
+PS/2, VBE/Mode 13h, and SB16-style audio. That evidence is limited to the
+emulated device model. `boot/uefi/README.md` is a contract-only UEFI scaffold,
+and SUPPORT[UEFI] remains unclaimed. PCI fields such as `pci=`, `pciprobe=`,
+and `pcitabcap=` plus the `PCI_TABLE[...]` / `PCI_TABLE_CONTRACT[...]` rows are
+status-only QEMU bus-0 diagnostics; see `docs/hardware-support.md`.
 
 The storage claim is also bounded. The OS mutates and reboots the repo-generated
-FAT16 disk image in disposable cloud QEMU, but vibe-os is not an installable
-general OS on arbitrary disks yet. It does not partition blank media, discover
-unknown existing partitions, or recover damaged user disks. Use
-`tools/check_storage_install_boundary.py --image build/disk.img --json` for the
-host-verifiable generated-image manifest, and see
-`docs/storage-install-boundary.md` for the exact install/recovery boundary rows.
+FAT16 disk image in disposable cloud QEMU, but vibe-os is not an installable OS
+for arbitrary disks. It does not partition blank media, discover unknown
+existing partitions, or recover damaged user disks. See
+`docs/storage-install-boundary.md` for the exact install and recovery boundary.
 
 ## Project Shape
 
@@ -123,25 +95,20 @@ generic input events, clock syscalls, framebuffer ioctls, audio device/ring/
 stream contracts, process launch, VM, FAT mutation, and a freestanding libc.
 
 Disk layout: LBA 0 is Stage 1 MBR and partition table. LBA 1-16: Stage 2
-bootloader. LBA 17-208: protected-mode kernel ELF image. LBA 2048+ is the FAT16
-partition containing `DOOM1.WAD`, `USERPROB.ELF`, `ABIPROBE.ELF`, `DOOM.ELF`,
-writable `DEFAULT.CFG`, `DOOMSAV0.DSG` through `DOOMSAV5.DSG`, and generated
-asset files.
+bootloader. LBA 17-208: protected-mode kernel ELF image. LBA 2048+ is the
+FAT16 partition containing `DOOM1.WAD`, `USERPROB.ELF`, `ABIPROBE.ELF`,
+`DOOM.ELF`, writable Doom config/save files, and generated asset files.
 
 ## Deeper Docs
 
-- `docs/playable-cloud-proof.md` explains the proof gates and current proof
-  history.
+- `docs/playable-cloud-proof.md` explains the proof gates and evidence history.
 - `docs/post-checkpoint-gaps.md` is the detailed gap ledger.
 - `docs/runbooks/play-now-cloud.md` covers Codespaces/noVNC testing.
-- `docs/runbooks/remote-doom-playtest.md` covers reviewed human playtests.
+- `docs/runbooks/remote-doom-playtest.md` covers reviewed human sessions.
 - `docs/doom-provenance.md` documents source and WAD boundaries.
-- `docs/process-exec.md` covers the ABI-probe exec chain and reusable exec
-  contract.
-- `docs/persistent-fat16.md` covers save/load, root FAT behavior, and one-level
-  asset files.
-- `docs/storage-install-boundary.md` keeps install/recovery claims separate from
-  generated-image persistence proof.
-- `docs/audio.md` covers SB16/SFX/music evidence and reusable audio stream info.
+- `docs/process-exec.md` covers the ABI-probe exec chain.
+- `docs/persistent-fat16.md` covers save/load and FAT behavior.
+- `docs/storage-install-boundary.md` keeps install/recovery claims bounded.
+- `docs/audio.md` covers SB16/SFX/music evidence.
 - `docs/hardware-support.md` keeps hardware and PCI table claims honest.
 - `docs/boot-loader-vm.md` covers the BIOS boot, loader, and VM contract.

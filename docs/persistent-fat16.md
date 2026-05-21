@@ -250,6 +250,15 @@ Storage install/recovery boundary:
   non-overlap, FAT BPB total-sector and hidden-sector fields, FAT/root/data
   geometry, root-entry inventory, FAT-copy agreement, and cluster ownership.
   That manifest is intentionally scoped to `build/disk.img`.
+- `tools/check_storage_install_boundary.py --blank-install-proof --json`
+  performs a host-only blank install proof from an in-memory all-zero image. It
+  refuses a non-empty target buffer, writes the repo MBR/stage1 partition table,
+  Stage 2, kernel staging area, and FAT16 partition from existing build
+  artifacts, emits a `blank-disk-installer-manifest`, and records a structural
+  boot proof without running QEMU locally. The same checker can derive damaged
+  repo-image fixtures with `--recovery-fixtures build/disk.img --json` and emit
+  a `damaged-image-refusal-report`; those fixtures are detection/refusal only
+  and do not repair user media.
 - The machine-readable install/recovery rows live in
   `docs/storage-install-boundary.md`. `STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL]`
   and `STORAGE_BOUNDARY[ARBITRARY_DISK_RECOVERY]` stay unclaimed until a future

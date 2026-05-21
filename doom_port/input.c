@@ -1,6 +1,7 @@
 #include "input.h"
 
-#define VIBE_MOUSE_SCALE 4
+#define VIBE_DOOM_MOUSE_DELTA_MAX (0x7fffffffL / VIBE_DOOM_MOUSE_RELATIVE_SCALE)
+#define VIBE_DOOM_MOUSE_DELTA_MIN ((-0x7fffffffL - 1L) / VIBE_DOOM_MOUSE_RELATIVE_SCALE)
 
 static int sign_extend_mouse_delta(unsigned int packed, int shift)
 {
@@ -23,6 +24,15 @@ static int doom_mouse_buttons_from_ps2(unsigned int packed)
         doom_buttons |= 0x04;
 
     return doom_buttons;
+}
+
+static int scale_doom_mouse_delta(long delta)
+{
+    if (delta > VIBE_DOOM_MOUSE_DELTA_MAX)
+        return 0x7fffffff;
+    if (delta < VIBE_DOOM_MOUSE_DELTA_MIN)
+        return -0x7fffffff - 1;
+    return (int)(delta * VIBE_DOOM_MOUSE_RELATIVE_SCALE);
 }
 
 static void clear_doom_input_event(vibe_doom_input_event_t* event)
@@ -48,16 +58,10 @@ static int translate_key_fields(unsigned int key, long down, vibe_doom_input_eve
 
 static int translate_mouse_fields(unsigned int buttons, long dx, long dy, vibe_doom_input_event_t* event)
 {
-    int x;
-    int y;
-
-    x = (int)dx * VIBE_MOUSE_SCALE;
-    y = (int)dy * VIBE_MOUSE_SCALE;
-
     event->type = VIBE_DOOM_INPUT_MOUSE;
-    event->data1 = doom_mouse_buttons_from_ps2(buttons & 0x07u);
-    event->data2 = x;
-    event->data3 = y;
+    event->data1 = doom_mouse_buttons_from_ps2(buttons & VIBE_INPUT_MOUSE_BUTTON_MASK);
+    event->data2 = scale_doom_mouse_delta(dx);
+    event->data3 = scale_doom_mouse_delta(dy);
 
     return 1;
 }
@@ -72,17 +76,20 @@ int vibe_doom_translate_input_event(const vibe_input_event_t* input, vibe_doom_i
     if (!input)
         return 0;
 
-    if (input->device_id == VIBE_INPUT_DEVICE_KEYBOARD
-        && input->type == VIBE_INPUT_EVENT_KEY) {
-        return translate_key_fields((unsigned int)input->code & 0xffu, input->value0, event);
+    if (vibe_input_event_is_key(input)) {
+        if (!vibe_input_key_is_pressed(input) && !vibe_input_key_is_released(input))
+            return 0;
+        return translate_key_fields(
+            (unsigned int)vibe_input_key_code(input) & 0xffu,
+            vibe_input_key_is_pressed(input),
+            event);
     }
 
-    if (input->device_id == VIBE_INPUT_DEVICE_MOUSE
-        && input->type == VIBE_INPUT_EVENT_MOUSE_PACKET) {
+    if (vibe_input_event_is_mouse_packet(input)) {
         return translate_mouse_fields(
             (unsigned int)vibe_input_mouse_buttons(input),
-            vibe_input_mouse_delta_x(input),
-            vibe_input_mouse_delta_y(input),
+            vibe_input_mouse_delta(input, VIBE_INPUT_MOUSE_AXIS_X),
+            vibe_input_mouse_delta(input, VIBE_INPUT_MOUSE_AXIS_Y),
             event);
     }
 

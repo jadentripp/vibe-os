@@ -194,6 +194,7 @@ def write_human_session_bundle(tmpdir, *, final_tick="000001B0", commit="abcdef1
         "keyboard_evidence": "fire-move-use-menu-visible",
         "mouse_evidence": "motion-click-visible",
         "menu_evidence": "escape-menu-visible",
+        "audio_evidence": "status-only-sb16-continuity",
         "slowdown": "not-observed",
         "slowdown_notes": "not-observed-during-capture",
         "status_capture": "monitor-pmemsave-0x9d000",
@@ -223,6 +224,7 @@ def write_human_session_bundle(tmpdir, *, final_tick="000001B0", commit="abcdef1
         "operator_keyboard_use": "confirmed",
         "operator_mouse_action": "confirmed",
         "operator_menu_escape": "confirmed",
+        "operator_audio_observation": "recorded",
         "operator_slowdown_notes": "recorded",
         "operator_phase_actions": "confirmed",
         "operator_phase_status_hashes": "confirmed",
@@ -486,6 +488,7 @@ class HumanPlayabilityProofTests(unittest.TestCase):
         self.assertIn("required_ticks=350", result.stdout)
         self.assertIn("phases=early->after-start->after-fire", result.stdout)
         self.assertIn("mouse_delta=00000018:0000000C", result.stdout)
+        self.assertIn("audio_evidence=status-only-sb16-continuity", result.stdout)
 
     def test_manual_human_session_rejects_short_duration(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -507,6 +510,33 @@ class HumanPlayabilityProofTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("at least 350", result.stderr)
+
+    def test_manual_human_session_rejects_dirty_baseline_actions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            notes = write_human_session_bundle(tmpdir)
+            (tmpdir / "status.early.txt").write_text(
+                (tmpdir / "status.early.txt").read_text().replace(
+                    "keyseen=00000000",
+                    "keyseen=00000010",
+                )
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(TOOL),
+                    "--require-human-session",
+                    "--human-notes",
+                    str(notes),
+                    str(tmpdir / "status.txt"),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("early snapshot keyseen=", result.stderr)
 
     def test_manual_human_session_rejects_identity_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp:
