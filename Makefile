@@ -40,6 +40,7 @@ PERSISTENCE_SAVE_WRITE_STATUS ?=
 PERSISTENCE_LOAD_STATUS ?=
 PERSISTENCE_REQUIRE_DEFAULT ?= 0
 PERSISTENCE_REQUIRE_SAVE_SLOT ?=
+PERSISTENCE_REQUIRE_SAVE_DESCRIPTION ?=
 PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF ?= 0
 AHCI_STATUS ?=
 
@@ -582,20 +583,20 @@ audible-audio-proof-check: audio-continuity-check
 cloud-playability-check: playability-gap-check hardware-support-check vm-safety-check vm-status-proof-check shutdown-panic-proof-check scripted-gameplay-proof-check audio-continuity-check audible-audio-proof-check
 	@printf "cloud-playability-check is intentionally not green until every aggregate gate above has a real shell/C replacement.\n" >&2
 
-persistence-image-check: $(IMAGE)
+persistence-image-check: $(IMAGE_BUILDER)
 	@set -e; \
-	args=""; \
-	if [ -n "$(PERSISTENCE_BASELINE_IMAGE)" ]; then args="$$args --baseline-image $(PERSISTENCE_BASELINE_IMAGE)"; fi; \
-	if [ -n "$(PERSISTENCE_REBOOT_BASELINE_IMAGE)" ]; then args="$$args --reboot-baseline-image $(PERSISTENCE_REBOOT_BASELINE_IMAGE)"; fi; \
-	if [ -n "$(PERSISTENCE_REBOOT_STATUS)" ]; then args="$$args --reboot-status $(PERSISTENCE_REBOOT_STATUS)"; fi; \
-	if [ -n "$(PERSISTENCE_WRITE_STATUS)" ]; then args="$$args --write-status $(PERSISTENCE_WRITE_STATUS)"; fi; \
-	if [ -n "$(PERSISTENCE_SAVE_WRITE_STATUS)" ]; then args="$$args --save-write-status $(PERSISTENCE_SAVE_WRITE_STATUS)"; fi; \
-	if [ -n "$(PERSISTENCE_LOAD_STATUS)" ]; then args="$$args --load-status $(PERSISTENCE_LOAD_STATUS)"; fi; \
-	if [ "$(PERSISTENCE_REQUIRE_DEFAULT)" = "1" ]; then args="$$args --require-default"; fi; \
-	if [ "$(PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF)" = "1" ]; then args="$$args --require-dynamic-fat-proof"; fi; \
-	for slot in $(PERSISTENCE_REQUIRE_SAVE_SLOT); do args="$$args --require-save-slot $$slot"; done; \
-	printf "persistence-image-check has no accepted shell/C replacement yet; args=%s image=%s\n" "$$args" "$(IMAGE)" >&2; \
-	exit 1
+	set -- --check-persistence "$(IMAGE)"; \
+	if [ -n "$(PERSISTENCE_BASELINE_IMAGE)" ]; then set -- "$$@" --baseline-image "$(PERSISTENCE_BASELINE_IMAGE)"; fi; \
+	if [ -n "$(PERSISTENCE_REBOOT_BASELINE_IMAGE)" ]; then set -- "$$@" --reboot-baseline-image "$(PERSISTENCE_REBOOT_BASELINE_IMAGE)"; fi; \
+	if [ -n "$(PERSISTENCE_REBOOT_STATUS)" ]; then set -- "$$@" --reboot-status "$(PERSISTENCE_REBOOT_STATUS)"; fi; \
+	if [ -n "$(PERSISTENCE_WRITE_STATUS)" ]; then set -- "$$@" --write-status "$(PERSISTENCE_WRITE_STATUS)"; fi; \
+	if [ -n "$(PERSISTENCE_SAVE_WRITE_STATUS)" ]; then set -- "$$@" --save-write-status "$(PERSISTENCE_SAVE_WRITE_STATUS)"; fi; \
+	if [ -n "$(PERSISTENCE_LOAD_STATUS)" ]; then set -- "$$@" --load-status "$(PERSISTENCE_LOAD_STATUS)"; fi; \
+	if [ "$(PERSISTENCE_REQUIRE_DEFAULT)" = "1" ]; then set -- "$$@" --require-default; fi; \
+	if [ "$(PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF)" = "1" ]; then set -- "$$@" --require-dynamic-fat-proof; fi; \
+	for slot in $(PERSISTENCE_REQUIRE_SAVE_SLOT); do set -- "$$@" --require-save-slot "$$slot"; done; \
+	if [ -n "$(PERSISTENCE_REQUIRE_SAVE_DESCRIPTION)" ]; then set -- "$$@" --require-save-description "$(PERSISTENCE_REQUIRE_SAVE_DESCRIPTION)"; fi; \
+	$(IMAGE_BUILDER) "$$@"
 
 clean:
 	rm -rf $(BUILD_DIR)

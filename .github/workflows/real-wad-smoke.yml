@@ -120,7 +120,7 @@ jobs:
             echo "- gameplay/input: guest status fields from the OS"
             echo "- SB16 continuity: guest status fields from the OS"
             echo "- audible audio aggregate: disabled until a minimal shell/C checker exists"
-            echo "- persistence/save-load: disabled until a minimal shell/C image checker exists"
+            echo "- persistence/save-load: optional reboot proof checked by the C FAT image checker when requested"
             echo ""
             echo "Persistence isolation: use \`audible_audio_proof=false\` with \`persistence_save_slot=0\` so save/load failures are not mixed with the audible-audio lane."
             echo ""
@@ -346,11 +346,8 @@ jobs:
         timeout-minutes: 15
         run: |
           set -euo pipefail
-          echo "persistence proof still needs a minimal shell/C image checker; refusing this optional lane for now." >&2
-          exit 1
           baseline="$RUNNER_TEMP/disk.before-persistence.img"
           after_write="$RUNNER_TEMP/disk.after-persistence-write.img"
-          check_args=(--baseline-image "$baseline")
           persistence_write_script="$PERSISTENCE_INPUT_SCRIPT"
           persistence_load_script="$PERSISTENCE_LOAD_INPUT_SCRIPT"
           persistence_default_script=""
@@ -374,9 +371,6 @@ jobs:
               persistence_load_script="load-slot-${PERSISTENCE_SAVE_SLOT}:wait-status=gameplay:OK:150:5,wait-status-part-min=saverd:1:00000001:120:2,wait=2,wait-status=gameplay:OK:60:2,snapshot"
             fi
             persistence_default_script="persist-default:wait-status=gameplay:OK:150:5,wait-status-min=doomwrite:00000001:120:2,wait-status-min=doomclose:00000003:120:2,snapshot"
-            check_args+=(--require-save-slot "$PERSISTENCE_SAVE_SLOT")
-            check_args+=(--require-save-description "${PERSISTENCE_SAVE_SLOT}=${save_description}")
-            check_args+=(--save-write-status build/status.persistence-write.txt)
           else
             if [ "$persistence_write_script" = "auto" ]; then
               persistence_write_script="persist-default:wait-status=gameplay:OK:150:5,wait-status-min=doomwrite:00000001:120:2,wait-status-min=doomclose:00000003:120:2,snapshot"
@@ -384,8 +378,6 @@ jobs:
             if [ "$persistence_load_script" = "auto" ]; then
               persistence_load_script=""
             fi
-            check_args+=(--require-default)
-            check_args+=(--write-status build/status.persistence-write.txt)
           fi
           echo "Persistence write script: ${persistence_write_script:-<none>}"
           echo "Persistence load script: ${persistence_load_script:-<none>}"
@@ -431,8 +423,22 @@ jobs:
           test -f "$write_status"
           cp "$write_status" build/status.persistence-write.txt
 
-          make persistence-image-check \
-            | tee build/status.persistence-write-proof.txt
+          if [ -n "${PERSISTENCE_SAVE_SLOT:-}" ]; then
+            make persistence-image-check \
+              PERSISTENCE_BASELINE_IMAGE="$baseline" \
+              PERSISTENCE_SAVE_WRITE_STATUS=build/status.persistence-write.txt \
+              PERSISTENCE_REQUIRE_SAVE_SLOT="$PERSISTENCE_SAVE_SLOT" \
+              PERSISTENCE_REQUIRE_SAVE_DESCRIPTION="${PERSISTENCE_SAVE_SLOT}=${save_description}" \
+              PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF=1 \
+              | tee build/status.persistence-write-proof.txt
+          else
+            make persistence-image-check \
+              PERSISTENCE_BASELINE_IMAGE="$baseline" \
+              PERSISTENCE_WRITE_STATUS=build/status.persistence-write.txt \
+              PERSISTENCE_REQUIRE_DEFAULT=1 \
+              PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF=1 \
+              | tee build/status.persistence-write-proof.txt
+          fi
 
           if [ -n "${PERSISTENCE_SAVE_SLOT:-}" ]; then
             delete_marker SAVE_REQUEST_NAME
@@ -451,9 +457,14 @@ jobs:
               SMOKE_INPUT_SCRIPT="$persistence_default_script" \
               tests/run_smoke_qemu.sh
             cp build/persistence-default/status.txt build/status.persistence-default.txt
-            check_args+=(--require-default)
-            check_args+=(--write-status build/status.persistence-default.txt)
             make persistence-image-check \
+              PERSISTENCE_BASELINE_IMAGE="$baseline" \
+              PERSISTENCE_SAVE_WRITE_STATUS=build/status.persistence-write.txt \
+              PERSISTENCE_WRITE_STATUS=build/status.persistence-default.txt \
+              PERSISTENCE_REQUIRE_SAVE_SLOT="$PERSISTENCE_SAVE_SLOT" \
+              PERSISTENCE_REQUIRE_SAVE_DESCRIPTION="${PERSISTENCE_SAVE_SLOT}=${save_description}" \
+              PERSISTENCE_REQUIRE_DEFAULT=1 \
+              PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF=1 \
               | tee build/status.persistence-default-proof.txt
             cp build/disk.img "$after_write"
             write_marker LOAD_REQUEST_NAME "$slot_marker_payload"
@@ -475,6 +486,12 @@ jobs:
             cp build/status.persistence-load.txt build/status.persistence-reboot.txt
 
             make persistence-image-check \
+              PERSISTENCE_BASELINE_IMAGE="$baseline" \
+              PERSISTENCE_REBOOT_BASELINE_IMAGE="$after_write" \
+              PERSISTENCE_LOAD_STATUS=build/status.persistence-load.txt \
+              PERSISTENCE_REQUIRE_SAVE_SLOT="$PERSISTENCE_SAVE_SLOT" \
+              PERSISTENCE_REQUIRE_SAVE_DESCRIPTION="${PERSISTENCE_SAVE_SLOT}=${save_description}" \
+              PERSISTENCE_REQUIRE_DEFAULT=1 \
               | tee build/status.persistence-load-proof.txt
             cp build/status.persistence-load-proof.txt build/status.persistence-reboot-proof.txt
           else
@@ -494,6 +511,9 @@ jobs:
             cp build/persistence-reboot/status.txt build/status.persistence-reboot.txt
 
             make persistence-image-check \
+              PERSISTENCE_BASELINE_IMAGE="$baseline" \
+              PERSISTENCE_REBOOT_STATUS=build/status.persistence-reboot.txt \
+              PERSISTENCE_REQUIRE_DEFAULT=1 \
               | tee build/status.persistence-reboot-proof.txt
           fi
 
@@ -660,7 +680,7 @@ jobs:
             rerun_commands+=("Audio lane needs a minimal shell/C checker before rerun automation is enabled")
           fi
           if [ "$persistence_state" = "red" ]; then
-            rerun_commands+=("Persistence lane needs a minimal shell/C image checker before rerun automation is enabled")
+            rerun_commands+=("gh workflow run real-wad-smoke.yml --repo \"$GITHUB_REPOSITORY\" --ref \"$GITHUB_REF_NAME\" -f persistence_save_slot=0 -f audible_audio_proof=false -f expected_ref=\"$GITHUB_REF_NAME\"")
           fi
 
           {

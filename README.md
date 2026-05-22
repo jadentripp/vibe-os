@@ -27,9 +27,10 @@ feeds the SB16 PCM path.
 Ring 3 is the CPU's normal user-program privilege level. Here it means Doom
 crosses a syscall boundary like another small C program would.
 
-Save/config file plumbing exists, but full reboot save/load is not green yet.
-That stays a real gap until a cloud run proves `DOOMSAV*.DSG` survives reboot
-and loads back into gameplay.
+Save/config file plumbing exists, and the persistence lane now has a small C
+FAT-image checker for `DEFAULT.CFG`, `DOOMSAV*.DSG`, reboot status, and dynamic
+FAT evidence. Full reboot save/load is still not green until a fresh cloud run
+proves a save survives reboot and loads back into gameplay.
 
 Long-form evidence, historical failures, and workflow dispatch examples live in
 `docs/proof.txt`. The short version: Doom is playable through the safe cloud
@@ -103,7 +104,8 @@ The prompting strategy is deliberately strict:
 - describe the hardware boundary, not just the desired screenshot
 - define "done" with kernel status fields, tests, and cloud proof
 - keep the original Doom tree pristine
-- add no new host scripting stack; use only small compiled host tools where needed
+- add no new host scripting stack; the checked-in proof/build path is C, shell,
+  Make, and guest status, with Python treated as debt rather than infrastructure
 - keep the OS itself assembly-first; C is for original Doom, small runtime glue,
   and the smallest practical host tools, not a substitute for kernel work
 - prefer general devices, syscalls, and file APIs over Doom-only shortcuts
@@ -154,10 +156,11 @@ Cloud proofs run in GitHub Actions, Codespaces, or another disposable machine:
 ```sh
 gh workflow run os-smoke.yml --ref main -f expected_ref=main
 gh workflow run real-wad-smoke.yml --ref main -f expected_ref=main
+gh workflow run real-wad-smoke.yml --ref main -f persistence_save_slot=0 -f audible_audio_proof=false -f expected_ref=main
 ```
 
-Those workflows exercise the boot smoke and the full Real WAD lane in the
-cloud. Local QEMU stays opt-in only.
+Those workflows exercise the boot smoke, the Real WAD gameplay lane, and the
+isolated save/load persistence lane in the cloud. Local QEMU stays opt-in only.
 
 ## Disk Layout
 

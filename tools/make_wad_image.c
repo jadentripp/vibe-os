@@ -60,6 +60,27 @@ typedef struct {
     const char* path;
 } AssetArg;
 
+typedef struct {
+    int present;
+    uint8_t attr;
+    uint32_t first_cluster;
+    uint32_t size;
+} FatFileInfo;
+
+typedef struct {
+    const char* baseline_image;
+    const char* reboot_baseline_image;
+    const char* write_status;
+    const char* save_write_status;
+    const char* load_status;
+    const char* reboot_status;
+    int require_default;
+    int require_dynamic_fat_proof;
+    int save_slots[6];
+    size_t save_slot_count;
+    const char* save_descriptions[6];
+} PersistenceCheck;
+
 static const char USER_PROBE_NAME[] = "USERPROBELF";
 static const char DOOM_ELF_NAME[] = "DOOM    ELF";
 static const char DOOM_WAD_NAME[] = "DOOM1   WAD";
@@ -68,6 +89,7 @@ static const char PERSISTENCE_CHECKPOINT_NAME[] = "PERSIST CHK";
 static const char SAVE_REQUEST_NAME[] = "SAVEREQ CHK";
 static const char LOAD_REQUEST_NAME[] = "LOADREQ CHK";
 static const char STATE_DIR_NAME[] = "STATE      ";
+static const char DOOMSAV_TEMPLATE_NAME[] = "DOOMSAV DSG";
 
 static const char* const switch_textures[] = {
     "SW1BRCOM", "SW2BRCOM", "SW1BRN1", "SW2BRN1", "SW1BRN2", "SW2BRN2",
@@ -202,7 +224,7 @@ static Blob read_file(const char* path)
 
     Blob blob;
     blob.size = (size_t)end;
-    blob.data = (uint8_t*)xcalloc(blob.size ? blob.size : 1, 1);
+    blob.data = (uint8_t*)xcalloc(blob.size + 1, 1);
     if (blob.size && fread(blob.data, 1, blob.size, f) != blob.size)
         die_path(path, "read failed");
     fclose(f);
@@ -278,6 +300,388 @@ static void inspect_image(const char* path)
             get_u32(root, ROOT_ENTRIES * 32, i * 32 + 28));
     }
     free(image.data);
+}
+
+static void validate_image_layout(const Blob* image, const char* path)
+{
+    if (image->size != (size_t)IMAGE_SECTORS * SECTOR_SIZE)
+        die_path(path, "unexpected image size");
+    if (get_u16(image->data, image->size, 510) != 0xaa55)
+        die_path(path, "missing MBR signature");
+    uint32_t part_lba = get_u32(image->data, image->size, 446 + 8);
+    uint32_t part_sectors = get_u32(image->data, image->size, 446 + 12);
+    if (part_lba != PARTITION_START || part_sectors != PARTITION_SECTORS)
+        die_path(path, "unexpected partition layout");
+
+    size_t boot = sector_offset(PARTITION_START);
+    if (get_u16(image->data, image->size, boot + 510) != 0xaa55)
+        die_path(path, "missing FAT boot signature");
+    if (get_u16(image->data, image->size, boot + 11) != SECTOR_SIZE)
+        die_path(path, "unexpected FAT bytes per sector");
+    if (image->data[boot + 13] != SECTORS_PER_CLUSTER)
+        die_path(path, "unexpected FAT sectors per cluster");
+}
+
+static uint16_t image_fat_entry(const Blob* image, uint32_t cluster)
+{
+    if (cluster >= FAT_ENTRY_COUNT)
+        die("FAT cluster outside table");
+    const uint8_t* fat = image->data + sector_offset(PARTITION_START + RESERVED_SECTORS);
+    return get_u16(fat, SECTORS_PER_FAT * SECTOR_SIZE, (size_t)cluster * 2);
+}
+
+static FatFileInfo find_root_file(const Blob* image, const char name[11])
+{
+    FatFileInfo info;
+    memset(&info, 0, sizeof(info));
+    const uint8_t* root = image->data + sector_offset(root_lba());
+    for (uint32_t i = 0; i < ROOT_ENTRIES; i++) {
+        const uint8_t* entry = root + (size_t)i * 32;
+        if (entry[0] == 0)
+            break;
+        if (entry[0] == 0xe5)
+            continue;
+        if (memcmp(entry, name, 11) != 0)
+            continue;
+        info.present = 1;
+        info.attr = entry[11];
+        info.first_cluster = get_u16(root, ROOT_ENTRIES * 32, (size_t)i * 32 + 26);
+        info.size = get_u32(root, ROOT_ENTRIES * 32, (size_t)i * 32 + 28);
+        return info;
+    }
+    return info;
+}
+
+static Blob read_root_file_blob(const Blob* image, const FatFileInfo* info, const char* label)
+{
+    Blob out;
+    out.size = info->size;
+    out.data = (uint8_t*)xcalloc(out.size ? out.size : 1, 1);
+    if (!out.size)
+        return out;
+    if (info->first_cluster < 2 || info->first_cluster > last_data_cluster())
+        die_path(label, "file has invalid first cluster");
+
+    uint32_t cluster = info->first_cluster;
+    size_t copied = 0;
+    uint32_t guard = 0;
+    while (copied < out.size) {
+        if (cluster < 2 || cluster > last_data_cluster() || guard++ > data_cluster_count())
+            die_path(label, "file cluster chain is invalid");
+        size_t chunk = out.size - copied;
+        if (chunk > cluster_size())
+            chunk = cluster_size();
+        memcpy(out.data + copied, image->data + cluster_offset(cluster), chunk);
+        copied += chunk;
+        if (copied >= out.size)
+            break;
+        cluster = image_fat_entry(image, cluster);
+        if (cluster >= FAT16_EOC)
+            die_path(label, "file cluster chain ended early");
+    }
+    return out;
+}
+
+static int root_file_equal(const Blob* left, const Blob* right, const char name[11])
+{
+    FatFileInfo left_info = find_root_file(left, name);
+    FatFileInfo right_info = find_root_file(right, name);
+    if (!left_info.present || !right_info.present)
+        return 0;
+    if (left_info.attr != right_info.attr || left_info.size != right_info.size)
+        return 0;
+    Blob left_data = read_root_file_blob(left, &left_info, "left image");
+    Blob right_data = read_root_file_blob(right, &right_info, "right image");
+    int equal = left_data.size == right_data.size
+        && memcmp(left_data.data, right_data.data, left_data.size) == 0;
+    free(left_data.data);
+    free(right_data.data);
+    return equal;
+}
+
+static int root_file_changed_from_baseline(const Blob* image, const Blob* baseline, const char name[11])
+{
+    if (!baseline)
+        return 1;
+    return !root_file_equal(image, baseline, name);
+}
+
+static Blob read_optional_text_file(const char* path)
+{
+    if (!path)
+        return (Blob){ 0, 0 };
+    return read_file(path);
+}
+
+static const char* status_find_field(const Blob* text, const char* key)
+{
+    if (!text->data)
+        return NULL;
+    size_t key_len = strlen(key);
+    const char* data = (const char*)text->data;
+    for (size_t i = 0; i + key_len < text->size; i++) {
+        if (i != 0 && data[i - 1] != ' ' && data[i - 1] != '\n' && data[i - 1] != '\r')
+            continue;
+        if (memcmp(data + i, key, key_len) == 0 && data[i + key_len] == '=')
+            return data + i + key_len + 1;
+    }
+    return NULL;
+}
+
+static int hex_value(char ch)
+{
+    if (ch >= '0' && ch <= '9')
+        return ch - '0';
+    if (ch >= 'a' && ch <= 'f')
+        return ch - 'a' + 10;
+    if (ch >= 'A' && ch <= 'F')
+        return ch - 'A' + 10;
+    return -1;
+}
+
+static uint32_t parse_status_hex(const char* p)
+{
+    uint32_t value = 0;
+    int digits = 0;
+    while (*p) {
+        int nibble = hex_value(*p);
+        if (nibble < 0)
+            break;
+        value = (value << 4) | (uint32_t)nibble;
+        digits++;
+        p++;
+    }
+    if (!digits)
+        die("status field did not contain a hex value");
+    return value;
+}
+
+static uint32_t status_hex_field(const Blob* text, const char* key)
+{
+    const char* p = status_find_field(text, key);
+    if (!p)
+        die("required status field is missing");
+    return parse_status_hex(p);
+}
+
+static uint32_t status_hex_tuple_part(const Blob* text, const char* key, size_t part)
+{
+    const char* p = status_find_field(text, key);
+    if (!p)
+        die("required status tuple is missing");
+    while (part--) {
+        while (*p && *p != '/' && *p != ':')
+            p++;
+        if (!*p)
+            die("status tuple has too few parts");
+        p++;
+    }
+    return parse_status_hex(p);
+}
+
+static int status_has_literal(const Blob* text, const char* literal)
+{
+    if (!text->data)
+        return 0;
+    size_t len = strlen(literal);
+    const char* data = (const char*)text->data;
+    for (size_t i = 0; i + len <= text->size; i++) {
+        if (memcmp(data + i, literal, len) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+static void check_default_cfg(const Blob* image, const Blob* baseline)
+{
+    FatFileInfo info = find_root_file(image, DEFAULT_CFG_NAME);
+    if (!info.present)
+        die("DEFAULT.CFG is missing from the FAT root");
+    if (info.attr & FAT_ATTR_DIRECTORY)
+        die("DEFAULT.CFG is a directory");
+    if (info.size == 0)
+        die("DEFAULT.CFG was not written");
+    if (!root_file_changed_from_baseline(image, baseline, DEFAULT_CFG_NAME))
+        die("DEFAULT.CFG did not change from the persistence baseline");
+}
+
+static void doomsav_name_for_slot(int slot, char out[11])
+{
+    if (slot < 0 || slot > 5)
+        die("save slot must be 0..5");
+    memcpy(out, DOOMSAV_TEMPLATE_NAME, 11);
+    out[7] = (char)('0' + slot);
+}
+
+static void check_save_slot(const Blob* image, const Blob* baseline, const Blob* reboot_baseline, int slot, const char* description)
+{
+    char name[11];
+    doomsav_name_for_slot(slot, name);
+    FatFileInfo info = find_root_file(image, name);
+    if (!info.present)
+        die("required DOOMSAV slot is missing from the FAT root");
+    if (info.attr & FAT_ATTR_DIRECTORY)
+        die("required DOOMSAV slot is a directory");
+    if (info.size < 64)
+        die("required DOOMSAV slot is too small to be a real Doom save");
+    if (!root_file_changed_from_baseline(image, baseline, name))
+        die("required DOOMSAV slot did not change from the persistence baseline");
+    if (reboot_baseline && !root_file_equal(image, reboot_baseline, name))
+        die("required DOOMSAV slot changed across reboot/load proof");
+
+    Blob data = read_root_file_blob(image, &info, "DOOMSAV slot");
+    if (description) {
+        size_t len = strlen(description);
+        if (len > 24)
+            die("required save description is longer than Doom's save title field");
+        if (data.size < 24 || memcmp(data.data, description, len) != 0)
+            die("required DOOMSAV slot does not contain the requested description");
+    }
+    if (data.size < 40 || memcmp(data.data + 24, "version ", 8) != 0)
+        die("required DOOMSAV slot does not contain a Doom version header");
+    free(data.data);
+}
+
+static void check_write_status(const char* path, int require_save)
+{
+    Blob status = read_optional_text_file(path);
+    if (!status.data)
+        return;
+    if (require_save) {
+        if (status_hex_tuple_part(&status, "savewr", 0) == 0 ||
+            status_hex_tuple_part(&status, "savewr", 1) == 0)
+            die_path(path, "save write status did not prove DOOMSAV bytes and calls");
+        if (status_hex_field(&status, "saveclose") == 0)
+            die_path(path, "save write status did not prove close");
+    } else {
+        if (status_hex_field(&status, "doomwrite") == 0)
+            die_path(path, "write status did not prove file writes");
+        if (status_hex_field(&status, "doomclose") == 0)
+            die_path(path, "write status did not prove closes");
+    }
+    free(status.data);
+}
+
+static void check_reboot_status(const char* path)
+{
+    Blob status = read_optional_text_file(path);
+    if (!status.data)
+        return;
+    if (!status_has_literal(&status, "gameplay=OK"))
+        die_path(path, "reboot status did not return to gameplay");
+    if (status_has_literal(&status, "panic=") && !status_has_literal(&status, "panic=NONE"))
+        die_path(path, "reboot status reported a panic");
+    if (status_has_literal(&status, "doomerr=") && status_hex_field(&status, "doomerr") != 0)
+        die_path(path, "reboot status reported a Doom error");
+    free(status.data);
+}
+
+static void check_load_status(const char* path)
+{
+    Blob status = read_optional_text_file(path);
+    if (!status.data)
+        return;
+    if (!status_has_literal(&status, "gameplay=OK"))
+        die_path(path, "load status did not return to gameplay");
+    if (status_hex_tuple_part(&status, "saverd", 0) == 0 ||
+        status_hex_tuple_part(&status, "saverd", 1) == 0)
+        die_path(path, "load status did not prove DOOMSAV reads");
+    if (status_has_literal(&status, "panic=") && !status_has_literal(&status, "panic=NONE"))
+        die_path(path, "load status reported a panic");
+    if (status_has_literal(&status, "doomerr=") && status_hex_field(&status, "doomerr") != 0)
+        die_path(path, "load status reported a Doom error");
+    free(status.data);
+}
+
+static int check_dynamic_fat_status(const char* path)
+{
+    Blob status = read_optional_text_file(path);
+    if (!status.data)
+        return 0;
+    uint32_t alloc_success = status_hex_tuple_part(&status, "fatdyn", 0);
+    uint32_t free_ops = status_hex_tuple_part(&status, "fatdyn", 2);
+    uint32_t grow_ops = status_hex_tuple_part(&status, "fatdyn", 4);
+    uint32_t truncate_ops = status_hex_tuple_part(&status, "fatdyn", 6);
+    uint32_t dir_updates = status_hex_tuple_part(&status, "fatdyn", 7);
+    if (alloc_success == 0 && free_ops == 0 && grow_ops == 0 && truncate_ops == 0 && dir_updates == 0)
+        die_path(path, "fatdyn status did not prove dynamic FAT activity");
+    free(status.data);
+    return 1;
+}
+
+static void parse_save_description(PersistenceCheck* check, const char* spec)
+{
+    char* end = NULL;
+    long slot = strtol(spec, &end, 10);
+    if (end == spec || *end != '=' || slot < 0 || slot > 5)
+        die("--require-save-description expects SLOT=TEXT with slot 0..5");
+    check->save_descriptions[slot] = end + 1;
+}
+
+static void persistence_check_add_slot(PersistenceCheck* check, const char* slot_text)
+{
+    char* end = NULL;
+    long slot = strtol(slot_text, &end, 10);
+    if (end == slot_text || *end || slot < 0 || slot > 5)
+        die("--require-save-slot expects slot 0..5");
+    for (size_t i = 0; i < check->save_slot_count; i++) {
+        if (check->save_slots[i] == (int)slot)
+            return;
+    }
+    if (check->save_slot_count >= 6)
+        die("too many save slots requested");
+    check->save_slots[check->save_slot_count++] = (int)slot;
+}
+
+static void check_persistence_image(const char* image_path, const PersistenceCheck* check)
+{
+    Blob image = read_file(image_path);
+    validate_image_layout(&image, image_path);
+
+    Blob baseline = { 0, 0 };
+    Blob reboot_baseline = { 0, 0 };
+    if (check->baseline_image) {
+        baseline = read_file(check->baseline_image);
+        validate_image_layout(&baseline, check->baseline_image);
+    }
+    if (check->reboot_baseline_image) {
+        reboot_baseline = read_file(check->reboot_baseline_image);
+        validate_image_layout(&reboot_baseline, check->reboot_baseline_image);
+    }
+
+    if (check->require_default)
+        check_default_cfg(&image, baseline.data ? &baseline : NULL);
+    for (size_t i = 0; i < check->save_slot_count; i++) {
+        int slot = check->save_slots[i];
+        check_save_slot(
+            &image,
+            baseline.data ? &baseline : NULL,
+            reboot_baseline.data ? &reboot_baseline : NULL,
+            slot,
+            check->save_descriptions[slot]);
+    }
+
+    check_write_status(check->write_status, 0);
+    check_write_status(check->save_write_status, 1);
+    check_load_status(check->load_status);
+    check_reboot_status(check->reboot_status);
+    if (check->require_dynamic_fat_proof) {
+        int proved = check_dynamic_fat_status(check->write_status);
+        proved |= check_dynamic_fat_status(check->save_write_status);
+        if (!proved)
+            die("dynamic FAT proof was requested without a write status file");
+    }
+
+    printf("schema=vibe-os-c-persistence-proof-v1\n");
+    printf("image=%s\n", image_path);
+    printf("default_cfg=%s\n", check->require_default ? "checked" : "not-requested");
+    for (size_t i = 0; i < check->save_slot_count; i++)
+        printf("save_slot_%d=checked\n", check->save_slots[i]);
+    printf("result=ok\n");
+
+    free(image.data);
+    free(baseline.data);
+    free(reboot_baseline.data);
 }
 
 static void write_padded_file(Image* image, uint32_t lba, uint32_t sectors, const char* path, const char* label)
@@ -1032,7 +1436,8 @@ static void usage(void)
 {
     die("usage: make_wad_image [--inspect IMAGE] [--wad PATH] [--root-elf NAME.ELF=PATH] [--asset IMAGE_8.3_PATH=HOST_PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [DOOM_ELF]]]\n"
         "       make_wad_image --write-root-marker SYMBOL PAYLOAD IMAGE\n"
-        "       make_wad_image --delete-root-marker SYMBOL IMAGE");
+        "       make_wad_image --delete-root-marker SYMBOL IMAGE\n"
+        "       make_wad_image --check-persistence IMAGE [--baseline-image IMAGE] [--reboot-baseline-image IMAGE] [--write-status FILE] [--save-write-status FILE] [--load-status FILE] [--reboot-status FILE] [--require-default] [--require-dynamic-fat-proof] [--require-save-slot N] [--require-save-description N=TEXT]");
 }
 
 int main(int argc, char** argv)
@@ -1053,6 +1458,55 @@ int main(int argc, char** argv)
     }
     if (argc == 4 && strcmp(argv[1], "--delete-root-marker") == 0) {
         mutate_root_marker(argv[3], argv[2], "", 0);
+        free(positional);
+        return 0;
+    }
+    if (argc >= 3 && strcmp(argv[1], "--check-persistence") == 0) {
+        PersistenceCheck check;
+        memset(&check, 0, sizeof(check));
+        const char* image_path = argv[2];
+        for (int i = 3; i < argc; i++) {
+            if (strcmp(argv[i], "--baseline-image") == 0) {
+                if (++i >= argc)
+                    usage();
+                check.baseline_image = argv[i];
+            } else if (strcmp(argv[i], "--reboot-baseline-image") == 0) {
+                if (++i >= argc)
+                    usage();
+                check.reboot_baseline_image = argv[i];
+            } else if (strcmp(argv[i], "--write-status") == 0) {
+                if (++i >= argc)
+                    usage();
+                check.write_status = argv[i];
+            } else if (strcmp(argv[i], "--save-write-status") == 0) {
+                if (++i >= argc)
+                    usage();
+                check.save_write_status = argv[i];
+            } else if (strcmp(argv[i], "--load-status") == 0) {
+                if (++i >= argc)
+                    usage();
+                check.load_status = argv[i];
+            } else if (strcmp(argv[i], "--reboot-status") == 0) {
+                if (++i >= argc)
+                    usage();
+                check.reboot_status = argv[i];
+            } else if (strcmp(argv[i], "--require-default") == 0) {
+                check.require_default = 1;
+            } else if (strcmp(argv[i], "--require-dynamic-fat-proof") == 0) {
+                check.require_dynamic_fat_proof = 1;
+            } else if (strcmp(argv[i], "--require-save-slot") == 0) {
+                if (++i >= argc)
+                    usage();
+                persistence_check_add_slot(&check, argv[i]);
+            } else if (strcmp(argv[i], "--require-save-description") == 0) {
+                if (++i >= argc)
+                    usage();
+                parse_save_description(&check, argv[i]);
+            } else {
+                usage();
+            }
+        }
+        check_persistence_image(image_path, &check);
         free(positional);
         return 0;
     }
