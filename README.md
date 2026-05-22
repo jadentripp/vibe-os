@@ -76,14 +76,18 @@ framebuffer, audio, and a freestanding C runtime.
 The project owns the machine path instead of outsourcing it to a host OS:
 
 - boot: raw BIOS boot sector, Stage 2 loader, FAT16 kernel-file loading with
-  chain validation, and 32-bit protected-mode entry
+  chain validation, ELF segment/entry validation, and 32-bit protected-mode
+  entry
 - CPU: interrupt tables, exceptions, syscalls, user/kernel transitions, and
-  timer-driven preemption
+  timer-driven preemption with validation before a user interrupt frame is
+  accepted as schedulable state
 - memory: paging, BIOS memory-map-driven physical page accounting, heaps,
   guard pages, and higher-half kernel execution proof work, including a
   guest-emitted assembly mask for live high-stack, IDT, TSS, translation, and
   page-table checks, higher-half data bookkeeping, plus a relocation-directory
-  mask for the bounded PMM-backed CR3 switch that runs with low identity absent
+  mask for the bounded PMM-backed CR3 switch that runs with low identity
+  absent; the guest also reports when non-usable firmware ranges override pages
+  first seen as usable
 - programs: Ring 3 ELF launch for Doom and small probe programs
 - files: ATA/IDE PIO, a block-device boundary, FAT16 reads/writes, config files,
   WAD loading, save-file write/read plumbing, readonly `/ASSETS`, and writable
@@ -91,7 +95,8 @@ The project owns the machine path instead of outsourcing it to a host OS:
   accounting; the guest now reports a generic VFS ABI mask proving open, read,
   write, seek, stat, directory listing, truncate, unlink, and close paths ran
   outside Doom, plus a FAT operation mask for allocation, freeing, resize,
-  delete, directory update, and cluster accounting
+  delete, directory update, and cluster accounting; failed FAT directory
+  metadata writes roll back their in-memory entry changes
 - input and video: keyboard, mouse, a reusable input event queue, a reusable
   indexed framebuffer device, palette conversion, and frame presentation; the
   OVMF cloud proof now exercises non-Doom Ring 3 input and framebuffer

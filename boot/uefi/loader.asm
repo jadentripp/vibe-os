@@ -164,7 +164,8 @@ UEFI_HANDOFF_MMAP_DESC_SIZE_OFF equ 152
 UEFI_HANDOFF_MMAP_DESC_COUNT_OFF equ 160
 UEFI_HANDOFF_LOADED_SEGMENTS_OFF equ 168
 UEFI_HANDOFF_TRANSITION64_OFF equ 176
-UEFI_HANDOFF_BLOCK_BYTES equ 184
+UEFI_HANDOFF_FRAMEBUFFER_SIZE_OFF equ 184
+UEFI_HANDOFF_BLOCK_BYTES equ 192
 IA32_EFER_MSR equ 0xc0000080
 CR0_PG_CLEAR_MASK equ 0x7fffffff
 EFER_LME_CLEAR_MASK equ 0xfffffeff
@@ -674,6 +675,10 @@ collect_gop_info:
     mov rbx, [rax + GOP_MODE_FB_SIZE]
     mov [gop_framebuffer_size], rbx
 
+    call validate_gop_handoff_info
+    test rax, rax
+    jnz .done
+
     lea rcx, [msg_step_gop]
     call debug_write
     lea rcx, [msg_gop_fb]
@@ -706,6 +711,80 @@ collect_gop_info:
 
 .done:
     leave
+    ret
+
+validate_gop_handoff_info:
+    cmp qword [gop_pixel_format], 1
+    jne .bad_format
+    cmp qword [gop_framebuffer_base], 0
+    je .bad_framebuffer
+    mov rax, [gop_framebuffer_base]
+    mov edx, 0xffffffff
+    cmp rax, rdx
+    ja .bad_framebuffer
+    cmp qword [gop_framebuffer_size], 0
+    je .bad_framebuffer
+    mov rax, [gop_framebuffer_size]
+    mov edx, 0xffffffff
+    cmp rax, rdx
+    ja .bad_framebuffer
+    cmp qword [gop_width], 0
+    je .bad_geometry
+    cmp qword [gop_width], 0xffff
+    ja .bad_geometry
+    cmp qword [gop_height], 0
+    je .bad_geometry
+    cmp qword [gop_height], 0xffff
+    ja .bad_geometry
+    cmp qword [gop_pitch], 0
+    je .bad_geometry
+    mov rax, [gop_pitch]
+    mov edx, 0xffffffff
+    cmp rax, rdx
+    ja .bad_geometry
+    mov rcx, [gop_width]
+    shl rcx, 2
+    cmp rax, rcx
+    jb .bad_geometry
+
+    mov rax, [gop_pitch]
+    mov rcx, [gop_height]
+    mul rcx
+    test rdx, rdx
+    jnz .bad_span
+    test rax, rax
+    jz .bad_span
+    cmp rax, [gop_framebuffer_size]
+    ja .bad_span
+    mov rcx, [gop_framebuffer_base]
+    add rcx, rax
+    jc .bad_span
+    mov rdx, 0x0000000100000000
+    cmp rcx, rdx
+    ja .bad_span
+
+    xor eax, eax
+    ret
+
+.bad_format:
+    mov edx, 1
+    jmp .fail
+
+.bad_framebuffer:
+    mov edx, 2
+    jmp .fail
+
+.bad_geometry:
+    mov edx, 3
+    jmp .fail
+
+.bad_span:
+    mov edx, 4
+
+.fail:
+    lea rcx, [msg_error_gop_handoff]
+    call debug_status_line
+    mov rax, EFI_ABORTED
     ret
 
 capture_memory_map_and_exit_boot_services:
@@ -768,6 +847,7 @@ get_memory_map:
     mov qword [memory_map_size], MEMORY_MAP_BUFFER_BYTES
     mov qword [memory_map_key], 0
     mov qword [memory_map_descriptor_size], 0
+    mov qword [memory_map_descriptor_count], 0
     mov dword [memory_map_descriptor_version], 0
     mov rax, [boot_services]
     lea rcx, [memory_map_size]
@@ -792,6 +872,13 @@ get_memory_map:
     ja .bad_shape
     cmp rax, [memory_map_descriptor_size]
     jb .bad_shape
+    xor edx, edx
+    div qword [memory_map_descriptor_size]
+    test rdx, rdx
+    jnz .bad_shape
+    test rax, rax
+    jz .bad_shape
+    mov [memory_map_descriptor_count], rax
     xor eax, eax
     jmp .done
 .bad_shape:
@@ -1090,6 +1177,8 @@ prepare_kernel_handoff:
     mov [handoff_kernel_read_size], rax
     mov rax, [gop_framebuffer_base]
     mov [handoff_framebuffer_base], rax
+    mov rax, [gop_framebuffer_size]
+    mov [handoff_framebuffer_size], rax
     mov rax, [gop_pitch]
     mov [handoff_pitch], rax
     mov rax, [gop_width]
@@ -1323,6 +1412,9 @@ validate_low_handoff_copy:
     cmp dword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_LOADED_SEGMENTS_OFF], 0
     je .fail
     cmp dword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_TRANSITION64_OFF], UEFI64_TRANSITION_ADDR
+    jne .fail
+    mov eax, [handoff_framebuffer_size]
+    cmp dword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_FRAMEBUFFER_SIZE_OFF], eax
     jne .fail
     cmp byte [abs UEFI32_TRAMPOLINE_ADDR], 0xfa
     jne .fail
@@ -1609,6 +1701,7 @@ msg_error_handoff_precondition db "VIBEUEFI error=handoff-precondition status=0x
 msg_error_low_layout db "VIBEUEFI error=low-handoff-layout code=0x", 0
 msg_error_low_handoff_copy db "VIBEUEFI error=low-handoff-copy status=0x", 0
 msg_error_gop db "VIBEUEFI error=gop status=0x", 0
+msg_error_gop_handoff db "VIBEUEFI error=gop-handoff status=0x", 0
 msg_error_memory_map db "VIBEUEFI error=memory-map status=0x", 0
 msg_error_memory_map_shape db "VIBEUEFI error=memory-map-shape status=0x", 0
 msg_error_exit_boot_services db "VIBEUEFI error=exit-boot-services status=0x", 0
@@ -1664,6 +1757,7 @@ handoff_data_selector dq 0
 handoff_kernel_buffer dq 0
 handoff_kernel_read_size dq 0
 handoff_framebuffer_base dq 0
+handoff_framebuffer_size dq 0
 handoff_pitch dq 0
 handoff_width dq 0
 handoff_height dq 0

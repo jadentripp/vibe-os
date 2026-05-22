@@ -38,6 +38,7 @@ ELF_MAX_PHDRS equ 16
 ET_EXEC equ 2
 EM_386 equ 3
 PT_LOAD equ 1
+ELF_PF_X equ 0x1
 
 BOOT_INFO_ADDR equ 0x7000
 BOOT_VIDEO_MAGIC equ 0x45444956
@@ -1447,6 +1448,8 @@ elf_load_kernel:
     jc elf_fail
     cmp esi, KERNEL_LOAD_LIMIT
     ja elf_fail
+    mov [elf_current_load_start], edi
+    mov [elf_current_load_end], esi
     test edx, edx
     jz .file_span_ok
     mov eax, [ebx + 4]
@@ -1459,15 +1462,19 @@ elf_load_kernel:
     ja elf_fail
 
 .file_span_ok:
+    call elf_check_prior_load_overlap
+    jc elf_fail
 
     mov eax, [KERNEL_ELF_PHYS + 24]
     cmp eax, edi
     jb .copy_segment
     mov esi, edi
-    add esi, [ebx + 20]
+    add esi, [ebx + 16]
     jc elf_fail
     cmp eax, esi
     jae .copy_segment
+    test dword [ebx + 24], ELF_PF_X
+    jz elf_fail
     mov byte [elf_entry_covered], 1
 
 .copy_segment:
@@ -1503,6 +1510,55 @@ elf_load_kernel:
     mov [BOOT_LOADER_ELF_LOADS_ADDR], ebp
     mov [BOOT_LOADER_KERNEL_ENTRY_ADDR], eax
     or dword [BOOT_LOADER_FLAGS_ADDR], BOOT_LOADER_FLAG_ELF_VALID | BOOT_LOADER_FLAG_ENTRY_COVERED | BOOT_LOADER_FLAG_ELF_PHDR_VALID
+    ret
+
+elf_check_prior_load_overlap:
+    push eax
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov esi, KERNEL_ELF_PHYS
+    add esi, [KERNEL_ELF_PHYS + 28]
+
+.scan:
+    cmp esi, ebx
+    jae .ok
+    cmp dword [esi], PT_LOAD
+    jne .next
+    mov edi, [esi + 12]
+    cmp edi, [esi + 8]
+    jne .fail
+    mov eax, edi
+    add eax, [esi + 20]
+    jc .fail
+    cmp edi, [elf_current_load_end]
+    jae .next
+    mov edx, [elf_current_load_start]
+    cmp edx, eax
+    jb .fail
+
+.next:
+    add esi, ELF_PHDR_SIZE
+    jmp .scan
+
+.ok:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop eax
+    clc
+    ret
+
+.fail:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop eax
+    stc
     ret
 
 elf_fail:
@@ -1589,6 +1645,8 @@ a20_test_result db 0
 a20_output_port db 0
 elf_entry_covered db 0
 vbe_candidate_mode dw 0
+elf_current_load_start dd 0
+elf_current_load_end dd 0
 fat16_kernel_name db "KERNEL  ELF"
 fat_count db 0
 chs_sectors_per_track dw 0

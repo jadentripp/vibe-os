@@ -7022,6 +7022,7 @@ pmm_init:
     mov dword [pmm_e820_usable_entries], 0
     mov dword [pmm_e820_usable_pages], 0
     mov dword [pmm_e820_reserved_pages], 0
+    mov dword [pmm_e820_reserved_override_pages], 0
     mov dword [pmm_e820_acpi_pages], 0
     mov dword [pmm_e820_bad_pages], 0
     mov dword [pmm_e820_highest_usable_end], PMM_MANAGED_START
@@ -7655,6 +7656,7 @@ pmm_reserve_e820_entry:
     mov byte [edi], PMM_FRAME_RESERVED
     dec dword [pmm_free_pages]
     inc dword [pmm_used_pages]
+    inc dword [pmm_e820_reserved_override_pages]
 
 .advance:
     inc edi
@@ -15501,6 +15503,10 @@ fat_update_writable_size:
 
 .update_entry:
     mov edx, [writable_root_offsets + ebx * 4]
+    mov ax, [esi + edx + 26]
+    mov [fat_dir_update_old_first_cluster], ax
+    mov ecx, [esi + edx + 28]
+    mov [fat_dir_update_old_size], ecx
     mov ax, [writable_first_clusters + ebx * 2]
     mov [esi + edx + 26], ax
     mov ecx, [writable_sizes + ebx * 4]
@@ -15508,12 +15514,19 @@ fat_update_writable_size:
     mov eax, [writable_root_lbas + ebx * 4]
     ; Size updates use the selected block interface before low-level ATA.
     call block_selected_write_sector
-    jc .fail
+    jc .fail_restore_entry
     inc dword [fat_dir_update_count]
     or dword [fat_generic_abi_mask], FAT_ABI_DIR_UPDATE
     mov dword [fat_generic_last_op], FAT_ABI_DIR_UPDATE
     clc
     jmp .done
+
+.fail_restore_entry:
+    mov edx, [writable_root_offsets + ebx * 4]
+    mov ax, [fat_dir_update_old_first_cluster]
+    mov [esi + edx + 26], ax
+    mov ecx, [fat_dir_update_old_size]
+    mov [esi + edx + 28], ecx
 
 .fail:
     inc dword [fat_dir_update_failures]
@@ -17509,6 +17522,7 @@ scheduler_init:
     mov dword [scheduler_preempt_attempts], 0
     mov dword [scheduler_preempt_switches], 0
     mov dword [scheduler_irq_context_switches], 0
+    mov dword [scheduler_irq_frame_invalid], 0
     mov dword [scheduler_preempt_skips], 0
     mov dword [scheduler_preempt_no_peer], 0
     mov dword [scheduler_user_irq_ticks], 0
@@ -19406,6 +19420,8 @@ scheduler_tick:
     inc dword [scheduler_user_irq_ticks]
     or dword [scheduler_preempt_abi_mask], PREEMPT_ABI_USER_IRQ_FRAME
     mov dword [scheduler_preempt_abi_last_op], PREEMPT_ABI_USER_IRQ_FRAME
+    call scheduler_validate_irq_user_frame
+    jc .invalid_user_irq_frame
 
 .account_current:
     inc dword [esi + PROC_TICKS]
@@ -19519,6 +19535,13 @@ scheduler_tick:
     inc dword [scheduler_preempt_no_peer]
     jmp .done
 
+.invalid_user_irq_frame:
+    inc dword [scheduler_irq_frame_invalid]
+    inc dword [esi + PROC_TICKS]
+    inc dword [esi + PROC_QUANTUM_TICKS]
+    and dword [esi + PROC_VM_FLAGS], 0xfffffffe
+    jmp .done
+
 .kernel_irq_frame:
     inc dword [esi + PROC_TICKS]
     inc dword [esi + PROC_QUANTUM_TICKS]
@@ -19619,6 +19642,42 @@ process_restore_irq_context:
     mov [ebx + IRQ_FRAME_FS], eax
     mov eax, [esi + PROC_SAVED_GS]
     mov [ebx + IRQ_FRAME_GS], eax
+    ret
+
+scheduler_validate_irq_user_frame:
+    push eax
+    cmp dword [ebx + IRQ_FRAME_CS], USER_CODE_SEG
+    jne .fail
+    cmp dword [ebx + IRQ_FRAME_SS], USER_DATA_SEG
+    jne .fail
+    cmp dword [ebx + IRQ_FRAME_DS], USER_DATA_SEG
+    jne .fail
+    cmp dword [ebx + IRQ_FRAME_ES], USER_DATA_SEG
+    jne .fail
+    cmp dword [ebx + IRQ_FRAME_FS], USER_DATA_SEG
+    jne .fail
+    cmp dword [ebx + IRQ_FRAME_GS], USER_DATA_SEG
+    jne .fail
+    mov eax, [ebx + IRQ_FRAME_EIP]
+    cmp eax, [esi + PROC_BASE]
+    jb .fail
+    cmp eax, [esi + PROC_END]
+    jae .fail
+    mov eax, [ebx + IRQ_FRAME_ESP]
+    test eax, eax
+    jz .fail
+    cmp eax, [esi + PROC_STACK_BOTTOM]
+    jbe .fail
+    cmp eax, [esi + PROC_STACK_TOP]
+    ja .fail
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop eax
     ret
 
 process_save_syscall_return_context:
@@ -19998,6 +20057,7 @@ scheduler_preempt_self_test:
     mov dword [scheduler_irq_context_switches], 0
     mov dword [scheduler_preempt_skips], 0
     mov dword [scheduler_preempt_no_peer], 0
+    mov dword [scheduler_irq_frame_invalid], 0
     mov dword [scheduler_user_irq_ticks], 0
     mov dword [scheduler_last_preempt_from_pid], 0xffffffff
     mov dword [scheduler_last_preempt_to_pid], 0xffffffff
@@ -20631,20 +20691,32 @@ process_exec_seed_argv_stack:
     cmp ecx, 0
     je .arg_strings_done
     dec ecx
+    mov esi, sys_exec_arg_strings
+    mov ebx, ecx
+    shl ebx, 6
+    add esi, ebx
+    xor ebx, ebx
+
+.measure_arg_string:
+    cmp ebx, SYS_EXEC_ARG_STR_MAX
+    jae .fail
+    cmp byte [esi + ebx], 0
+    je .arg_string_measured
+    inc ebx
+    jmp .measure_arg_string
+
+.arg_string_measured:
+    inc ebx
     mov eax, [sys_exec_stack_cursor]
-    sub eax, SYS_EXEC_ARG_STR_MAX
+    sub eax, ebx
     jc .fail
     and eax, 0xfffffffc
     cmp eax, [sys_exec_stack_low]
     jb .fail
     mov [sys_exec_stack_cursor], eax
     mov edi, eax
-    mov esi, sys_exec_arg_strings
-    mov ebx, ecx
-    shl ebx, 6
-    add esi, ebx
     push ecx
-    mov ecx, SYS_EXEC_ARG_STR_MAX
+    mov ecx, ebx
     cld
     rep movsb
     pop ecx
@@ -20658,20 +20730,32 @@ process_exec_seed_argv_stack:
     cmp ecx, 0
     je .strings_done
     dec ecx
+    mov esi, sys_exec_env_strings
+    mov ebx, ecx
+    shl ebx, 6
+    add esi, ebx
+    xor ebx, ebx
+
+.measure_env_string:
+    cmp ebx, SYS_EXEC_ENV_STR_MAX
+    jae .fail
+    cmp byte [esi + ebx], 0
+    je .env_string_measured
+    inc ebx
+    jmp .measure_env_string
+
+.env_string_measured:
+    inc ebx
     mov eax, [sys_exec_stack_cursor]
-    sub eax, SYS_EXEC_ENV_STR_MAX
+    sub eax, ebx
     jc .fail
     and eax, 0xfffffffc
     cmp eax, [sys_exec_stack_low]
     jb .fail
     mov [sys_exec_stack_cursor], eax
     mov edi, eax
-    mov esi, sys_exec_env_strings
-    mov ebx, ecx
-    shl ebx, 6
-    add esi, ebx
     push ecx
-    mov ecx, SYS_EXEC_ENV_STR_MAX
+    mov ecx, ebx
     cld
     rep movsb
     pop ecx
@@ -30715,6 +30799,10 @@ write_smoke_status:
     call smoke_write_slash_hex32
     mov edx, [pmm_e820_bad_pages]
     call smoke_write_slash_hex32
+    mov esi, smoke_e820ovr_text
+    call smoke_copy_string
+    mov edx, [pmm_e820_reserved_override_pages]
+    call smoke_write_hex32
     mov esi, smoke_pmmwin_text
     call smoke_copy_string
     mov edx, [pmm_managed_start]
@@ -33385,6 +33473,7 @@ smoke_e820sz_text db " e820sz=", 0
 smoke_e820map_text db " e820map=", 0
 smoke_e820use_text db " e820use=", 0
 smoke_e820res_text db " e820res=", 0
+smoke_e820ovr_text db " e820ovr=", 0
 smoke_pmmwin_text db " pmmwin=", 0
 smoke_pmmmap_text db " pmmmap=", 0
 smoke_pmmguard_text db " pmmguard=", 0
@@ -33813,6 +33902,7 @@ pmm_e820_map_end dd 0
 pmm_e820_usable_entries dd 0
 pmm_e820_usable_pages dd 0
 pmm_e820_reserved_pages dd 0
+pmm_e820_reserved_override_pages dd 0
 pmm_e820_acpi_pages dd 0
 pmm_e820_bad_pages dd 0
 pmm_e820_highest_usable_end dd 0
@@ -34234,6 +34324,9 @@ fat_resize_shrink_count dd 0
 fat_truncate_count dd 0
 fat_dir_update_count dd 0
 fat_dir_update_failures dd 0
+fat_dir_update_old_size dd 0
+fat_dir_update_old_first_cluster dw 0
+align 4
 fat_generic_abi_mask dd 0
 fat_generic_last_op dd 0
 vfs_open_count dd 0
@@ -34598,6 +34691,7 @@ scheduler_last_preempt_from_cr3 dd 0
 scheduler_last_preempt_to_cr3 dd 0
 scheduler_last_preempt_from_kstack dd 0
 scheduler_last_preempt_to_kstack dd 0
+scheduler_irq_frame_invalid dd 0
 scheduler_irq_frame_rewrites dd 0
 scheduler_last_irq_frame_eip dd 0
 scheduler_last_irq_frame_cs dd 0
