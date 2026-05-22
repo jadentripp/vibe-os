@@ -598,6 +598,10 @@ static int check_dynamic_fat_status(const char* path)
     Blob status = read_optional_text_file(path);
     if (!status.data)
         return 0;
+    if (!status_find_field(&status, "fatdyn")) {
+        free(status.data);
+        return 0;
+    }
     uint32_t alloc_success = status_hex_tuple_part(&status, "fatdyn", 0);
     uint32_t free_ops = status_hex_tuple_part(&status, "fatdyn", 2);
     uint32_t grow_ops = status_hex_tuple_part(&status, "fatdyn", 4);
