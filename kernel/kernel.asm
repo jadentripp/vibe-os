@@ -1013,6 +1013,16 @@ AUDIO_CMD_STREAM_WRITE equ AUDIO_CMD_PCM_WRITE
 AUDIO_CMD_STREAM_OPEN equ AUDIO_CMD_PCM_OPEN
 AUDIO_CMD_STREAM_DRAIN equ AUDIO_CMD_PCM_DRAIN
 AUDIO_CMD_STREAM_CLOSE equ AUDIO_CMD_PCM_CLOSE
+AUDIO_ABI_DEVICE_START equ 0x00000001
+AUDIO_ABI_DEVICE_INFO equ 0x00000002
+AUDIO_ABI_PCM_RING_INFO equ 0x00000004
+AUDIO_ABI_STREAM_INFO equ 0x00000008
+AUDIO_ABI_PCM_OPEN equ 0x00000010
+AUDIO_ABI_PCM_WRITE equ 0x00000020
+AUDIO_ABI_PCM_BUFFERED_BYTES equ 0x00000040
+AUDIO_ABI_PCM_DRAIN equ 0x00000080
+AUDIO_ABI_PCM_CLOSE equ 0x00000100
+AUDIO_ABI_FULL_MASK equ AUDIO_ABI_DEVICE_START | AUDIO_ABI_DEVICE_INFO | AUDIO_ABI_PCM_RING_INFO | AUDIO_ABI_STREAM_INFO | AUDIO_ABI_PCM_OPEN | AUDIO_ABI_PCM_WRITE | AUDIO_ABI_PCM_BUFFERED_BYTES | AUDIO_ABI_PCM_DRAIN | AUDIO_ABI_PCM_CLOSE
 AUDIO_PCM_HANDLE_BASE equ 0x50430000
 AUDIO_DEVICE_NONE equ 0
 AUDIO_DEVICE_SB16 equ 1
@@ -8617,6 +8627,9 @@ audio_init:
     mov dword [audio_pcm_lifecycle_write_seq], 0
     mov dword [audio_pcm_lifecycle_drain_seq], 0
     mov dword [audio_pcm_lifecycle_close_seq], 0
+    mov dword [audio_generic_abi_mask], 0
+    mov dword [audio_generic_last_op], 0
+    mov dword [audio_generic_last_cmd], 0
     mov dword [audio_pcm_ring_mixed_bytes], 0
     mov dword [audio_pcm_queue_buffer], 0
     mov dword [audio_pcm_queue_capacity], 0
@@ -22544,6 +22557,7 @@ syscall_handler:
     mov [doom_sound_last_packed], edx
 
 .audio_dispatch:
+    call .audio_note_generic_abi
     cmp ebx, AUDIO_CMD_INIT
     je .audio_init_cmd
     cmp ebx, AUDIO_CMD_START_SFX
@@ -22771,6 +22785,78 @@ syscall_handler:
 .audio_status:
     movzx eax, byte [audio_status]
     jmp .return
+
+.audio_note_generic_abi:
+    push eax
+    push edx
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    je .audio_note_done
+    xor eax, eax
+    cmp ebx, AUDIO_CMD_DEVICE_START
+    jne .audio_note_device_info
+    mov eax, AUDIO_ABI_DEVICE_START
+    jmp .audio_note_record
+
+.audio_note_device_info:
+    cmp ebx, AUDIO_CMD_DEVICE_INFO
+    jne .audio_note_ring_info
+    mov eax, AUDIO_ABI_DEVICE_INFO
+    jmp .audio_note_record
+
+.audio_note_ring_info:
+    cmp ebx, AUDIO_CMD_PCM_RING_INFO
+    jne .audio_note_stream_info
+    mov eax, AUDIO_ABI_PCM_RING_INFO
+    jmp .audio_note_record
+
+.audio_note_stream_info:
+    cmp ebx, AUDIO_CMD_STREAM_INFO
+    jne .audio_note_open
+    mov eax, AUDIO_ABI_STREAM_INFO
+    jmp .audio_note_record
+
+.audio_note_open:
+    cmp ebx, AUDIO_CMD_PCM_OPEN
+    jne .audio_note_write
+    mov eax, AUDIO_ABI_PCM_OPEN
+    jmp .audio_note_record
+
+.audio_note_write:
+    cmp ebx, AUDIO_CMD_PCM_WRITE
+    je .audio_note_write_match
+    cmp ebx, AUDIO_CMD_PCM_WRITE_DESC
+    jne .audio_note_buffered
+
+.audio_note_write_match:
+    mov eax, AUDIO_ABI_PCM_WRITE
+    jmp .audio_note_record
+
+.audio_note_buffered:
+    cmp ebx, AUDIO_CMD_PCM_BUFFERED_BYTES
+    jne .audio_note_drain
+    mov eax, AUDIO_ABI_PCM_BUFFERED_BYTES
+    jmp .audio_note_record
+
+.audio_note_drain:
+    cmp ebx, AUDIO_CMD_PCM_DRAIN
+    jne .audio_note_close
+    mov eax, AUDIO_ABI_PCM_DRAIN
+    jmp .audio_note_record
+
+.audio_note_close:
+    cmp ebx, AUDIO_CMD_PCM_CLOSE
+    jne .audio_note_done
+    mov eax, AUDIO_ABI_PCM_CLOSE
+
+.audio_note_record:
+    or [audio_generic_abi_mask], eax
+    mov [audio_generic_last_op], eax
+    mov [audio_generic_last_cmd], ebx
+
+.audio_note_done:
+    pop edx
+    pop eax
+    ret
 
 .gameplay_status:
     cmp byte [current_user_kind], USER_KIND_DOOM
@@ -29466,6 +29552,17 @@ write_smoke_status:
     mov edx, [audio_pcm_device_last_error]
     call smoke_write_hex32
 
+    mov esi, smoke_audabi_text
+    call smoke_copy_string
+    mov edx, [audio_generic_abi_mask]
+    call smoke_write_hex32
+    mov edx, AUDIO_ABI_FULL_MASK
+    call smoke_write_slash_hex32
+    mov edx, [audio_generic_last_op]
+    call smoke_write_slash_hex32
+    mov edx, [audio_generic_last_cmd]
+    call smoke_write_slash_hex32
+
     mov esi, smoke_pcmlife_text
     call smoke_copy_string
     mov edx, [audio_pcm_lifecycle_state]
@@ -32837,6 +32934,7 @@ smoke_pcmbuf_text db " pcmbuf=", 0
 smoke_pcmstream_text db " pcmstream=", 0
 smoke_pcmwrite_text db " pcmwrite=", 0
 smoke_pcmdev_text db " pcmdev=", 0
+smoke_audabi_text db " audabi=", 0
 smoke_pcmlife_text db " pcmlife=", 0
 smoke_pcmqueue_text db " pcmqueue=", 0
 smoke_pcmpull_text db " pcmpull=", 0
@@ -34599,6 +34697,9 @@ audio_pcm_lifecycle_open_seq dd 0
 audio_pcm_lifecycle_write_seq dd 0
 audio_pcm_lifecycle_drain_seq dd 0
 audio_pcm_lifecycle_close_seq dd 0
+audio_generic_abi_mask dd 0
+audio_generic_last_op dd 0
+audio_generic_last_cmd dd 0
 audio_pcm_ring_mixed_bytes dd 0
 audio_pcm_queue_buffer dd 0
 audio_pcm_queue_capacity dd 0

@@ -260,6 +260,7 @@ jobs:
             "exec_copy": "$(status_value execcopy)",
             "vfs_ops": "$(status_value vfsops)",
             "vfs_abi": "$(status_value vfsabi)",
+            "audio_abi": "$(status_value audabi)",
             "exec_error": "$(status_value execerr)",
             "exec_result": "$(status_value execres)",
             "exec_target": "$(status_value target)",

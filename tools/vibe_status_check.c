@@ -91,6 +91,20 @@
 #define AUDIO_STREAM_PULL 2u
 #define SB16_DMA_STATUS_FAIL 2u
 #define SB16_DMA_ERROR_DSP 2u
+#define AUDIO_ABI_DEVICE_START 0x00000001u
+#define AUDIO_ABI_DEVICE_INFO 0x00000002u
+#define AUDIO_ABI_PCM_RING_INFO 0x00000004u
+#define AUDIO_ABI_STREAM_INFO 0x00000008u
+#define AUDIO_ABI_PCM_OPEN 0x00000010u
+#define AUDIO_ABI_PCM_WRITE 0x00000020u
+#define AUDIO_ABI_PCM_BUFFERED_BYTES 0x00000040u
+#define AUDIO_ABI_PCM_DRAIN 0x00000080u
+#define AUDIO_ABI_PCM_CLOSE 0x00000100u
+#define AUDIO_ABI_FULL_MASK \
+    (AUDIO_ABI_DEVICE_START | AUDIO_ABI_DEVICE_INFO | AUDIO_ABI_PCM_RING_INFO | \
+     AUDIO_ABI_STREAM_INFO | AUDIO_ABI_PCM_OPEN | AUDIO_ABI_PCM_WRITE | \
+     AUDIO_ABI_PCM_BUFFERED_BYTES | AUDIO_ABI_PCM_DRAIN | AUDIO_ABI_PCM_CLOSE)
+#define AUDIO_CMD_PCM_CLOSE 16u
 #define VIDEO_BACKEND_MODE13 1u
 #define VIDEO_BACKEND_LFB_XRGB8888 2u
 #define FRAMEBUFFER_HANDOFF_SOURCE_VGA_MODE13 1u
@@ -1005,6 +1019,7 @@ static void validate_audio_device(const Status *status) {
     uint32_t pcmqueue[6];
     uint32_t pcmpull[3];
     uint32_t pcmdma[6];
+    uint32_t audabi[4];
 
     if (!has_field(status, "adev")) {
         return;
@@ -1059,6 +1074,26 @@ static void validate_audio_device(const Status *status) {
     if (pcmdma[0] > SB16_DMA_STATUS_FAIL || pcmdma[1] > SB16_DMA_ERROR_DSP ||
         pcmdma[5] >= SB16_DMA_BUFFER_BYTES) {
         fail("pcmdma= must expose bounded DMA status, error, and transfer count");
+    }
+    if (has_field(status, "audabi") && has_field(status, "audio") &&
+        strcmp(field(status, "audio"), "SB16") == 0) {
+        hex_tuple(status, "audabi", 4, '/', audabi);
+        if (audabi[1] != AUDIO_ABI_FULL_MASK) {
+            fail("audabi= declared full mask must be 0x%08X", AUDIO_ABI_FULL_MASK);
+        }
+        if ((audabi[0] & AUDIO_ABI_FULL_MASK) != AUDIO_ABI_FULL_MASK) {
+            fail("audabi= must prove generic user audio opened, wrote, queried, drained, and closed PCM");
+        }
+        if ((audabi[0] & ~AUDIO_ABI_FULL_MASK) != 0u) {
+            fail("audabi= must not set unknown operation bits");
+        }
+        if (audabi[2] == 0u || (audabi[2] & ~AUDIO_ABI_FULL_MASK) != 0u ||
+            (audabi[2] & (audabi[2] - 1u)) != 0u) {
+            fail("audabi= last operation must be exactly one known operation bit");
+        }
+        if (audabi[3] != AUDIO_CMD_PCM_CLOSE) {
+            fail("audabi= last command must prove the generic PCM lifecycle reached close");
+        }
     }
 }
 
