@@ -322,6 +322,9 @@ int vibe_user_waitpid_nohang_reap(long pid, int* status, unsigned long max_polls
         result = vibe_user_waitpid(pid, status, VIBE_USER_WNOHANG);
         if (result != 0)
             return result;
+        result = vibe_user_yield();
+        if (result < 0)
+            return result;
     }
 
     return 0;

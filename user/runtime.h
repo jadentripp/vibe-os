@@ -271,6 +271,9 @@ static inline int vibe_user_waitpid_nohang_reap_exact(long pid, int* status, uns
             return result;
         if (result != 0)
             return -10;
+        result = vibe_user_yield();
+        if (result < 0)
+            return result;
     }
 
     return 0;
