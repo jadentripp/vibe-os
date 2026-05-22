@@ -66,7 +66,7 @@ jobs:
         if: ${{ inputs.proof_mode != 'contract' }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 ovmf
+          sudo apt-get install -y qemu-system-x86 ovmf netcat-openbsd
 
       - name: Build kernel ELF for ESP packaging
         run: make DOOM_WAD= build/kernel.elf
@@ -146,9 +146,24 @@ jobs:
           fi
 
           cp "$ovmf_vars_src" build/uefi-ovmf-proof/OVMF_VARS.fd
-          set +e
-          timeout 45s qemu-system-x86_64 \
-            -machine q35,accel=tcg \
+          monitor_sock=build/uefi-ovmf-proof/monitor.sock
+          qemu_pid=""
+          rm -f "$monitor_sock" build/uefi-ovmf-proof/status.bin build/uefi-ovmf-proof/status.txt build/uefi-ovmf-proof/monitor.log build/uefi-ovmf-proof/serial.log
+
+          cleanup_qemu() {
+            if [ -n "$qemu_pid" ] && kill -0 "$qemu_pid" 2>/dev/null; then
+              if [ -S "$monitor_sock" ]; then
+                printf 'quit\n' | nc -w 2 -U "$monitor_sock" >/dev/null 2>&1 || true
+                sleep 1
+              fi
+              kill "$qemu_pid" 2>/dev/null || true
+              wait "$qemu_pid" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_qemu EXIT
+
+          timeout 120s qemu-system-x86_64 \
+            -machine pc,accel=tcg \
             -m 256M \
             -drive if=pflash,format=raw,readonly=on,file="$ovmf_code" \
             -drive if=pflash,format=raw,file=build/uefi-ovmf-proof/OVMF_VARS.fd \
@@ -156,20 +171,69 @@ jobs:
             -boot order=c \
             -net none \
             -display none \
-            -serial none \
-            -monitor none \
+            -serial file:build/uefi-ovmf-proof/serial.log \
+            -monitor unix:build/uefi-ovmf-proof/monitor.sock,server,nowait \
             -no-reboot \
             -no-shutdown \
             -chardev file,id=uefi_dbg,path=build/uefi-ovmf-proof/debugcon-402.log \
-            -device isa-debugcon,iobase=0x402,chardev=uefi_dbg
-          qemu_status=$?
-          set -e
+            -device isa-debugcon,iobase=0x402,chardev=uefi_dbg \
+            > build/uefi-ovmf-proof/qemu.log 2>&1 &
+          qemu_pid=$!
 
-          if [ "$qemu_status" -ne 0 ] && [ "$qemu_status" -ne 124 ]; then
-            echo "QEMU exited with unexpected status $qemu_status" >&2
-            exit "$qemu_status"
+          for _ in $(seq 1 45); do
+            if [ -S "$monitor_sock" ]; then
+              break
+            fi
+            if ! kill -0 "$qemu_pid" 2>/dev/null; then
+              wait "$qemu_pid" || true
+              echo "QEMU exited before creating the monitor socket." >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          test -S "$monitor_sock"
+
+          capture_status() {
+            printf 'pmemsave 0x40000 131072 build/uefi-ovmf-proof/status.bin\n' \
+              | nc -w 3 -U "$monitor_sock" >> build/uefi-ovmf-proof/monitor.log 2>&1
+            test -s build/uefi-ovmf-proof/status.bin
+            tr '\000' ' ' < build/uefi-ovmf-proof/status.bin > build/uefi-ovmf-proof/status.txt
+          }
+
+          wait_for_status_field() {
+            pattern="$1"
+            timeout_seconds="$2"
+            end=$((SECONDS + timeout_seconds))
+            while [ "$SECONDS" -le "$end" ]; do
+              capture_status || true
+              if [ -s build/uefi-ovmf-proof/status.txt ] && grep -Eq "$pattern" build/uefi-ovmf-proof/status.txt; then
+                return 0
+              fi
+              if ! kill -0 "$qemu_pid" 2>/dev/null; then
+                wait "$qemu_pid" || true
+                return 1
+              fi
+              sleep 2
+            done
+            return 1
+          }
+
+          wait_for_status_field 'uefi=OK' 45
+          if [ "${{ inputs.proof_mode }}" = "prove" ]; then
+            wait_for_status_field 'ata=OK' 90
+            wait_for_status_field 'blkpart=MBR' 20
+            wait_for_status_field 'wad=OK' 20
+            wait_for_status_field 'path=DOOM[.]ELF' 90
+            wait_for_status_field 'doom=OK' 90
+            wait_for_status_field 'doomrun=(RUN|EXIT)' 90
           fi
+
+          printf 'quit\n' | nc -w 2 -U "$monitor_sock" >/dev/null 2>&1 || true
+          wait "$qemu_pid" >/dev/null 2>&1 || true
+          trap - EXIT
+          qemu_pid=""
           test -s build/uefi-ovmf-proof/debugcon-402.log
+          test -s build/uefi-ovmf-proof/status.txt
 
       - name: Validate UEFI OVMF markers
         if: ${{ inputs.proof_mode != 'contract' }}
@@ -201,6 +265,19 @@ jobs:
             exit 1
           fi
 
+          status=build/uefi-ovmf-proof/status.txt
+          grep -q 'uefi=OK' "$status"
+          if [ "${{ inputs.proof_mode }}" = "prove" ]; then
+            grep -q 'ata=OK' "$status"
+            grep -q 'blkpart=MBR' "$status"
+            grep -q 'wad=OK' "$status"
+            grep -q 'path=DOOM[.]ELF' "$status"
+            grep -q 'doom=OK' "$status"
+            grep -Eq 'doomrun=(RUN|EXIT)' "$status"
+          fi
+
+          guest_storage_proof=$([ "${{ inputs.proof_mode }}" = "prove" ] && echo true || echo false)
+
           cat > build/uefi-ovmf-proof/ovmf-proof.json <<JSON
           {
             "schema": "uefi-ovmf-proof-v1",
@@ -214,12 +291,15 @@ jobs:
             "exit_boot_services_marker": true,
             "kernel_handoff_attempt_marker": true,
             "kernel_entry_marker_count": $kernel_marker_count,
+            "guest_status_page_captured": true,
+            "guest_uefi_status_ok": true,
+            "guest_generated_wad_storage_and_doom_exec_proof": $guest_storage_proof,
             "prove_mode_kernel_entry_required": $([ "${{ inputs.proof_mode }}" = "prove" ] && echo true || echo false),
             "artifact_uploaded": false
           }
           JSON
 
-          rm -f "$log" "$marker_file" build/uefi/uefi-fat16.img build/uefi-ovmf-proof/OVMF_VARS.fd build/uefi-ovmf-proof/bootx64.file.txt build/uefi-ovmf-proof/dual-image-inspect.txt
+          rm -f "$log" "$marker_file" build/uefi/uefi-fat16.img build/uefi-ovmf-proof/OVMF_VARS.fd build/uefi-ovmf-proof/bootx64.file.txt build/uefi-ovmf-proof/dual-image-inspect.txt build/uefi-ovmf-proof/status.bin build/uefi-ovmf-proof/status.txt build/uefi-ovmf-proof/monitor.sock build/uefi-ovmf-proof/monitor.log build/uefi-ovmf-proof/serial.log build/uefi-ovmf-proof/qemu.log
 
       - name: Write cloud proof run identity
         if: always()
