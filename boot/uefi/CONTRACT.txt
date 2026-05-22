@@ -1,9 +1,7 @@
 # UEFI Boot Path Scaffold
 
 This directory is no longer an `EFI_UNSUPPORTED` placeholder. It contains a real
-loader/proof application in `loader.asm` plus an opt-in host artifact builder,
-`build_host_artifacts.py`, that emits untracked `BOOTX64.EFI`, `esp.img`, and
-`manifest.json` files for host checks. The loader can read
+loader/proof application in `loader.asm`. The loader can read
 `VIBEOS/KERNEL.ELF` from the ESP, collect GOP framebuffer facts, capture the
 UEFI memory map, call `ExitBootServices`, and attempt the handoff to the current
 32-bit protected-mode kernel during the disposable-cloud OVMF proof path. It now
@@ -17,29 +15,28 @@ the copied low-memory handoff image, and debugcon markers for the attempted
 handoff.
 The kernel now has a source-level `VIBEKERN step=uefi-entry` marker and smoke
 status fields for the UEFI handoff registers/block. This still does not claim
-UEFI boot support: no disposable OVMF run has captured the kernel-owned marker,
-and this Mac has no local QEMU proof.
-SUPPORT[UEFI] remains unclaimed in `docs/architecture.txt`.
+UEFI boot support for this checkpoint until a disposable OVMF run captures the
+kernel-owned marker after `ExitBootServices`.
 
-The remaining kernel-entry blocker is cloud proof: the loader implements the
-low-memory 64-bit UEFI to 32-bit protected-mode transition path, and the kernel
-records the handoff when reached, but an OVMF run still has to show that the
-ELF32 kernel actually receives control and emits the kernel-owned marker.
+The remaining blocker is cloud proof of this exact checkpoint. After that, the
+next blocker is turning the UEFI path into a playable Doom target with UEFI
+storage/WAD handoff. The playable game path still uses the BIOS/IDE disk layout.
 
 The current boot path is still the BIOS MBR plus raw-LBA Stage 2 loader described
 in `docs/architecture.txt`. Future UEFI work must keep that path working unless
 the project deliberately retires it, and must not describe vibe-os as
 UEFI-bootable until the kernel-entry row below has real source, build, and
-cloud proof evidence. `ovmf_cloud_proof.py` can emit a QEMU-free contract
-manifest locally, while `.github/workflows/uefi-ovmf-proof.yml` has manual
-GitHub Actions modes for an OVMF attempt or a kernel-entry proof run.
+cloud proof evidence. `.github/workflows/uefi-ovmf-proof.yml` currently checks
+the loader assembly contract; OVMF attempt/prove modes intentionally stay red
+until the PE/COFF packaging and runner are rebuilt without the retired scripting
+stack.
 
 ## Machine-Readable Contract
 
 The `UEFI_BOOT[...]` rows are machine-readable. They describe the current
 intermediate rung: host-built loader pieces exist, the OVMF proof target is the
-kernel-owned entry marker, and kernel entry source is implemented but not
-cloud-proven.
+kernel-owned entry marker, and the loader has a bounded low-memory handoff
+layout check.
 
 - `UEFI_BOOT[ENTRY] status=host-built requires=pe32-efi-loader proof=host-pe-coff-loader-check evidence=build-host-artifacts`
 - `UEFI_BOOT[ESP_STORAGE] status=loader-implemented requires=fat-esp-kernel-read proof=source-and-host-build evidence=loader.asm`
@@ -102,9 +99,9 @@ kernel fields: `status=OK`, `handoff=0x00009000`, `bootinfo=0x00007000`,
 appear after those loader markers and its `flags` value must include the
 boot-info, GOP, memory-map, transition-stub, ELF32-segment, low-memory, and
 final-jump bits (`0x0000007f`). Until that marker is captured in the cloud proof
-lane, the implementation is a source-built handoff path, not supported UEFI
-boot. The post-`ExitBootServices` `kernel-handoff` marker is not accepted as
-proof unless it carries the bounded target addresses and masks that the
+lane for the current checkpoint, the implementation is a source-built handoff
+path, not supported UEFI boot. The post-`ExitBootServices` `kernel-handoff`
+marker is not accepted as proof unless it carries the bounded target addresses and masks that the
 trampoline will use: `entry32`, `handoff=0x00009000`,
 `bootinfo=0x00007000`, `e820=0x00007100`, `tramp32=0x00008000`,
 `transition64=0x0000a000`, `flags`, and `segments`. A bare loader message that
@@ -147,6 +144,7 @@ serial captures, and VM logs stay runner-local scratch.
 
 - `UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH] status=scaffolded runner=github-actions-ubuntu mode=contract-attempt-prove-kernel-entry evidence=uefi-ovmf-proof.yml`
 - `UEFI_CLOUD_PROOF[OVMF_ATTEMPT] status=scaffolded runner=github-actions-ubuntu mode=manual-qemu-ovmf-debugcon evidence=ovmf-cloud-proof-script`
+- `UEFI_CLOUD_PROOF[KERNEL_ENTRY_PROOF] status=target runner=github-actions-ubuntu mode=ovmf-kernel-entry-marker evidence=uefi-ovmf-proof.yml`
 - `UEFI_CLOUD_PROOF[SUPPORT_GUARD] status=guardrail runner=host-check mode=support-uefi-unclaimed evidence=check-hardware-support-matrix`
 - `UEFI_CLOUD_PROOF[ARTIFACT_POLICY] status=guardrail runner=github-actions-ubuntu mode=json-manifests-only evidence=workflow-artifact-policy`
 

@@ -97,21 +97,25 @@ The prompting strategy is deliberately strict:
 - describe the hardware boundary, not just the desired screenshot
 - define "done" with kernel status fields, tests, and cloud proof
 - keep the original Doom tree pristine
-- use Python for build/proof tooling, not as the place where OS behavior lives
+- add no new host scripting stack; use only small compiled host tools where needed
+- keep the OS itself assembly-first; C is for original Doom, small runtime glue,
+  and the smallest practical host tools, not a substitute for kernel work
 - prefer general devices, syscalls, and file APIs over Doom-only shortcuts
 
 ## Claim Boundaries
 
-The hardware claim is limited to QEMU BIOS/IDE/PS2/VBE/SB16. That evidence is
-limited to the emulated device model. `docs/architecture.txt` has the full
-support matrix.
+QEMU BIOS/IDE/PS2/VBE/SB16 is the supported target for playable Doom. That
+evidence is limited to the emulated device model. `docs/architecture.txt` has
+the full support matrix.
 
-UEFI exists as an opt-in proof path, not a claimed boot target yet. The boundary
-lives in `boot/uefi/CONTRACT.txt`; `boot/uefi/build_host_artifacts.py` builds
-host-only artifacts. `SUPPORT[UEFI] remains unclaimed` until cloud OVMF captures
-the kernel-owned entry marker. PCI status fields such as `pci=`, `pciprobe=`,
-`pciapi=`, `pcilookahci=`, `pcilookhda=`, `ahcibar=`, and `ahcireq=` are
-diagnostics, not a broad hardware support claim.
+UEFI is an opt-in source-level boot path, documented in
+`boot/uefi/CONTRACT.txt`. The loader reads the kernel from an ESP image and has
+a bounded 64-bit-to-32-bit handoff path, but this checkpoint still needs a fresh
+disposable OVMF proof before UEFI is a supported target. It is not the playable
+Doom target yet and does not claim physical PC support.
+PCI fields such as `pci=`, `pciprobe=`, `pciapi=`, `pcilookahci=`,
+`pcilookhda=`, `ahcibar=`, and `ahcireq=` are diagnostics, not a broad hardware
+support claim.
 
 ACPI table discovery, APIC/IOAPIC routing, and HPET timers are also unclaimed;
 the live status still says `irqctl=PIC`, `apic=NONE`, and `hpet=NONE`.
@@ -131,21 +135,23 @@ These commands are host-only and safe:
 
 ```sh
 make ALLOW_LOCAL_VM=0 DOOM_WAD= build-only
-python3 -m unittest discover -s tests/host -p 'test_*.py'
-make ALLOW_LOCAL_VM=0 cloud-playability-check
+make ALLOW_LOCAL_VM=0 DOOM_WAD= image-builder-tool
+make ALLOW_LOCAL_VM=0 DOOM_WAD= test
+make ALLOW_LOCAL_VM=0 DOOM_WAD= playability-host-check
 ```
 
+The critical build path uses small C tools for ELF linking, disk-image creation,
+and status validation; OS substance should keep moving into assembly and
+guest-visible kernel behavior.
 Cloud proofs run in GitHub Actions, Codespaces, or another disposable machine:
 
 ```sh
-git fetch origin main
-pushed_sha="$(git rev-parse origin/main^{commit})"
-python3 tools/run_post_merge_cloud_proof.py --ref main --commit "$pushed_sha" --wait --download-dir build/post-merge-cloud-main
+gh workflow run os-smoke.yml --ref main -f expected_ref=main
+gh workflow run real-wad-smoke.yml --ref main -f expected_ref=main
 ```
 
-That post-merge command defaults to the full Real WAD lane: gameplay/input,
-SB16/audible audio, save/load persistence, UEFI kernel-entry proof, and
-status-only artifact checks.
+Those workflows exercise the boot smoke and the full Real WAD lane in the
+cloud. Local QEMU stays opt-in only.
 
 ## Disk Layout
 

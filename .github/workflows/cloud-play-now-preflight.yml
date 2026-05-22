@@ -40,8 +40,9 @@ jobs:
             nasm \
             netcat-openbsd \
             novnc \
-            python3 \
             qemu-system-x86 \
+            gzip \
+            unzip \
             websockify
 
       - name: Run remote play dry-run preflight
@@ -54,9 +55,6 @@ jobs:
           ./tools/play_now_remote.sh "${args[@]}" | tee "$RUNNER_TEMP/play-now-preflight.txt"
           grep -q "play-now remote preflight OK" "$RUNNER_TEMP/play-now-preflight.txt"
           grep -q "dry-run: QEMU was not launched" "$RUNNER_TEMP/play-now-preflight.txt"
-
-      - name: Check cloud play safety contract
-        run: python3 tools/check_vm_safety_contract.py
 
       - name: Summarize next play command
         run: |

@@ -834,6 +834,9 @@ prepare_handoff_material:
     call prepare_kernel_handoff
     test rax, rax
     jnz .done
+    call validate_low_handoff_layout
+    test rax, rax
+    jnz .done
     call copy_handoff_trampoline_to_low_memory
     call copy_handoff_block_to_low_memory
     call copy_transition64_to_low_memory
@@ -1158,6 +1161,94 @@ prepare_kernel_handoff:
 .precondition_failed:
     lea rcx, [msg_error_handoff_precondition]
     mov rdx, EFI_ABORTED
+    call debug_status_line
+    mov rax, EFI_ABORTED
+    ret
+
+validate_low_handoff_layout:
+    mov eax, uefi32_low_trampoline_end - uefi32_low_trampoline_start
+    test eax, eax
+    jz .trampoline_failed
+    cmp eax, PAGE_SIZE
+    ja .trampoline_failed
+
+    mov eax, uefi64_low_transition_end - uefi64_low_transition_start
+    test eax, eax
+    jz .transition_failed
+    cmp eax, PAGE_SIZE
+    ja .transition_failed
+
+    mov eax, uefi_handoff_block_end - uefi_handoff_block
+    cmp eax, UEFI_HANDOFF_BLOCK_BYTES
+    jne .block_failed
+    cmp eax, PAGE_SIZE
+    ja .block_failed
+
+    mov eax, UEFI32_E820_MAP_ADDR
+    cmp eax, BOOT_INFO_ADDR
+    jb .e820_failed
+    mov eax, UEFI32_E820_MAP_ADDR + E820_ENTRY_SIZE * E820_MAX_ENTRIES
+    cmp eax, BOOT_INFO_ADDR + PAGE_SIZE
+    ja .e820_failed
+
+    mov eax, UEFI32_TRAMPOLINE_ADDR
+    cmp eax, BOOT_INFO_ADDR + PAGE_SIZE
+    jb .low_page_failed
+    mov eax, UEFI32_HANDOFF_BLOCK_ADDR
+    cmp eax, UEFI32_TRAMPOLINE_ADDR + PAGE_SIZE
+    jb .low_page_failed
+    mov eax, UEFI64_TRANSITION_ADDR
+    cmp eax, UEFI32_HANDOFF_BLOCK_ADDR + PAGE_SIZE
+    jb .low_page_failed
+    mov eax, UEFI32_STACK_LOW
+    cmp eax, UEFI64_TRANSITION_ADDR + PAGE_SIZE
+    jb .low_page_failed
+    cmp eax, UEFI32_STACK_TOP
+    jae .low_page_failed
+
+    mov eax, BOOT_INFO_ADDR
+    test eax, PAGE_SIZE - 1
+    jnz .low_page_failed
+    mov eax, UEFI32_TRAMPOLINE_ADDR
+    test eax, PAGE_SIZE - 1
+    jnz .low_page_failed
+    mov eax, UEFI32_HANDOFF_BLOCK_ADDR
+    test eax, PAGE_SIZE - 1
+    jnz .low_page_failed
+    mov eax, UEFI64_TRANSITION_ADDR
+    test eax, PAGE_SIZE - 1
+    jnz .low_page_failed
+    mov eax, UEFI32_STACK_LOW
+    test eax, PAGE_SIZE - 1
+    jnz .low_page_failed
+    mov eax, UEFI32_STACK_TOP
+    test eax, PAGE_SIZE - 1
+    jnz .low_page_failed
+
+    xor eax, eax
+    ret
+
+.trampoline_failed:
+    mov edx, 1
+    jmp .fail
+
+.transition_failed:
+    mov edx, 2
+    jmp .fail
+
+.block_failed:
+    mov edx, 3
+    jmp .fail
+
+.e820_failed:
+    mov edx, 4
+    jmp .fail
+
+.low_page_failed:
+    mov edx, 5
+
+.fail:
+    lea rcx, [msg_error_low_layout]
     call debug_status_line
     mov rax, EFI_ABORTED
     ret
@@ -1513,6 +1604,7 @@ msg_error_elf_segments db "VIBEUEFI error=elf32-load status=0x", 0
 msg_error_kernel_segment_reserve db "VIBEUEFI error=kernel-segment-reserve status=0x", 0
 msg_error_boot_info db "VIBEUEFI error=boot-info status=0x", 0
 msg_error_handoff_precondition db "VIBEUEFI error=handoff-precondition status=0x", 0
+msg_error_low_layout db "VIBEUEFI error=low-handoff-layout code=0x", 0
 msg_error_low_handoff_copy db "VIBEUEFI error=low-handoff-copy status=0x", 0
 msg_error_gop db "VIBEUEFI error=gop status=0x", 0
 msg_error_memory_map db "VIBEUEFI error=memory-map status=0x", 0

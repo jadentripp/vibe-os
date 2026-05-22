@@ -18,7 +18,7 @@
       "protocol": "http"
     }
   },
-  "postCreateCommand": "command -v python3 && command -v nasm && command -v qemu-system-x86_64 && command -v clang && command -v make && command -v nc && command -v curl && command -v websockify && test -d /usr/share/novnc && test -x .devcontainer/play-now-welcome.sh && test -x tools/play_now_remote.sh",
+  "postCreateCommand": "command -v nasm && command -v qemu-system-x86_64 && command -v clang && command -v make && command -v nc && command -v curl && command -v gzip && command -v unzip && command -v websockify && test -d /usr/share/novnc && test -x .devcontainer/play-now-welcome.sh && test -x tools/play_now_remote.sh",
   "postAttachCommand": ".devcontainer/play-now-welcome.sh",
   "customizations": {
     "vscode": {

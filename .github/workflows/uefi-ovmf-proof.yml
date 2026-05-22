@@ -71,50 +71,53 @@ jobs:
       - name: Build kernel ELF for ESP packaging
         run: make DOOM_WAD= build/kernel.elf
 
-      - name: Run UEFI OVMF proof scaffold
+      - name: Check UEFI loader assembly contract
         run: |
-          python3 boot/uefi/ovmf_cloud_proof.py \
-            --kernel build/kernel.elf \
-            --out-dir build/uefi-ovmf-proof \
-            --mode "${{ inputs.proof_mode }}"
-
-      - name: Re-check support matrix guardrails
-        run: python3 tools/check_hardware_support_matrix.py
+          set -euo pipefail
+          mkdir -p build/uefi-ovmf-proof
+          nasm -f elf64 boot/uefi/loader.asm -o build/uefi-ovmf-proof/loader.o
+          cat > build/uefi-ovmf-proof/uefi-contract.json <<JSON
+          {
+            "schema": "uefi-proof-contract-v1",
+            "mode": "${{ inputs.proof_mode }}",
+            "loader_assembly_checked": true,
+            "kernel_elf_built": true,
+            "python_removed": true,
+            "ovmf_attempt_green": false,
+            "note": "OVMF attempt/prove needs a shell/C PE/COFF packaging and run harness before it can be claimed."
+          }
+          JSON
+          if [ "${{ inputs.proof_mode }}" != "contract" ]; then
+            echo "UEFI attempt/prove is intentionally red until the PE/COFF packaging and OVMF runner are rebuilt with shell/C tooling." >&2
+            exit 1
+          fi
 
       - name: Write cloud proof run identity
         if: always()
         run: |
           mkdir -p build/uefi-ovmf-proof
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          manifest = {
-              "schema": "cloud-proof-run-v1",
-              "workflow": "uefi-ovmf-proof.yml",
-              "artifact": "uefi-ovmf-proof-manifests",
-              "ref": os.environ.get("GITHUB_REF_NAME", ""),
-              "sha": os.environ.get("GITHUB_SHA", ""),
-              "run_id": os.environ.get("GITHUB_RUN_ID", ""),
-              "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
-              "runner": "github-actions-ubuntu",
-              "local_qemu_required": False,
-              "artifact_policy": {
-                  "status_only": True,
-                  "uploads_json_manifests_only": True,
-                  "contains_wad_data": False,
-                  "contains_disk_image": False,
-                  "contains_screenshots": False,
-                  "contains_pixels": False,
-                  "contains_raw_audio": False,
-              },
+          cat > build/uefi-ovmf-proof/cloud-proof-run.json <<JSON
+          {
+            "schema": "cloud-proof-run-v1",
+            "workflow": "uefi-ovmf-proof.yml",
+            "artifact": "uefi-ovmf-proof-manifests",
+            "ref": "${GITHUB_REF_NAME:-}",
+            "sha": "${GITHUB_SHA:-}",
+            "run_id": "${GITHUB_RUN_ID:-}",
+            "run_attempt": "${GITHUB_RUN_ATTEMPT:-}",
+            "runner": "github-actions-ubuntu",
+            "local_qemu_required": false,
+            "artifact_policy": {
+              "status_only": true,
+              "uploads_json_manifests_only": true,
+              "contains_wad_data": false,
+              "contains_disk_image": false,
+              "contains_screenshots": false,
+              "contains_pixels": false,
+              "contains_raw_audio": false
+            }
           }
-          Path("build/uefi-ovmf-proof/cloud-proof-run.json").write_text(
-              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-              encoding="utf-8",
-          )
-          PY
+          JSON
 
       - name: Upload UEFI proof manifests
         if: always()

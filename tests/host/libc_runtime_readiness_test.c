@@ -810,6 +810,13 @@ static int test_stat_directory_listdir_and_clock_contracts(void)
         || read_size != 4
         || strcmp(read_buffer, "gXYe"))
         return fail(79);
+    if (vibe_file_write_at("tool.txt", 1, "XY", 2, &read_size) != 0 || read_size != 2)
+        return fail(124);
+    memset(read_buffer, 0, sizeof(read_buffer));
+    if (vibe_file_read_at("tool.txt", 0, read_buffer, 4, &read_size) != 0
+        || read_size != 4
+        || strcmp(read_buffer, "gXYe"))
+        return fail(125);
     if (vibe_file_read_at("tool.txt", 0x80000000ul, read_buffer, 1, &read_size) != -1
         || errno != EOVERFLOW)
         return fail(80);

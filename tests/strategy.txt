@@ -1,341 +1,57 @@
 # Test Strategy
 
-The test suite is layered so low-level changes get fast feedback before a VM
-boot:
+The project is moving away from a large host scripting suite. Tests should prove
+OS behavior through assembly/C paths, guest status fields, small C utilities,
+and cloud boots.
 
-- `make test` snapshots the built boot sectors, ELF files, Doom objects,
-  symbol map, and FAT16 disk image into a temporary host-test directory before
-  discovery, then points artifact/storage tests at that immutable copy through
-  `VIBE_HOST_TEST_BUILD_DIR`. This keeps host checks meaningful while the live
-  shared `build/` tree is being rebuilt by another worker. The storage boundary
-  checker honors the same environment variable when validating raw artifact
-  identity.
-- `tests/host/test_external_suite_leverage.py` is the agentic host-suite
-  leverage layer: it runs a libc conformance subset harness for string parsing,
-  formatting, math, errno, and syscall-shaped C glue, compares syscall
-  numbers for every exported `VIBE_SYS_*` entry against the kernel table, pins
-  ABI layouts across the public headers, fuzzes FAT fixture corruption classes,
-  links/rejects ELF loader-style fixtures, checks
-  WAD parser boundaries, and exercises artifact-hygiene sniffers. It uses only
-  stdlib Python plus the existing C toolchain and does not launch QEMU.
-- `make playability-host-check` is the fast host-only playability readiness
-  gate for the Mac/shared branch. It starts from a clean synthetic build, forces
-  `ALLOW_LOCAL_VM=0` and an empty `DOOM_WAD`, runs `make test`, reruns
-  `tools/check_repo_hygiene.py`, checks the cloud artifact/runbook/play-now
-  contracts, and runs
-  `PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF=1 make persistence-image-check`. It
-  must not launch local QEMU.
-- Boot/loader/VM contract tests compare the Stage 1 and Stage 2 raw-LBA
-  constants, Makefile byte guards, image-builder layout, generated `disk.img`
-  boot regions, protected-mode Stage 2 ELF handoff, and user/supervisor paging
-  boundaries without launching QEMU. They also pin the higher-half seed contract:
-  `vmm_map_page` can allocate a missing page table from PMM and the VMM self-test
-  maps a high non-identity alias before unmapping it, after which an empty
-  PMM-backed page-table frame is reclaimed. The smoke contract exposes that as
-  `vmmhi=OK`, `vmmhva=`, `vmmhpa=`, `vmmhpt=`, and `vmmhfree=`. The same host
-  gate now pins the running-kernel relocation scaffold as `kreloc=HIGH` with
-  `krelocstep=KPMAIN_HIGH`, `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and
-  `kernphys=`, plus `e820map=`, `biosdisk=`, `biospart=`, `biosraw=`,
-  `pmmuse=`, `pmmtype=`, `pmmchk=OK`, `pmmalloc=`, `pmmdeny=`, `uguard=`, and `vmmguard=` for bounded E820 handoff,
-  allocator accounting, frame-bitmap rescans, reserved-page exclusion, and
-  explicit user guard-page rejection. It also requires `khmain=OK`, `khmspan=`,
-  `khmxlat=`, and `khmpte=` to prove the current kernel crossed into the
-  persistent high text/stack aliases and that those high instruction/stack
-  addresses translate through live PDE/PTE entries while still using the
-  bootstrap page directory. It also requires `kmap=OK`,
-  `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, and `kmaphi=` so the
-  current kernel entry page is temporarily aliased high, compared through low
-  and high addresses, and unmapped again. The next executable rung is
-  `khiexec=OK` with `khieip=`, `khiesp=`, `khicr3=`, `khiva=`, `khipa=`,
-  `khistk=`, `khistkpa=`, `khipt=`, `khifree=`, `khixlat=`, `khisxlat=`,
-  `khislot=`, `khislotpa=`, `khisword=`, and `khiret=`, proving a bounded
-  higher-half trampoline call on a higher-half stack alias, active `CR3`,
-  translated non-identity backing, a high-stack write, and page-table
-  reclaim. `kpexec=OK` then proves the same call shape through the persistent
-  higher-half text/stack aliases with `kpeip=`, `kpesp=`, `kpecr3=`, `kpeva=`,
-  `kpepa=`, `kpestk=`, `kpestkpa=`, `kpexlat=`, `kpesxlat=`, `kpeslot=`,
-  `kpeslotpa=`, `kpesword=`, and `kperet=`. The live relocation-trampoline
-  rung is `krelive=OK` with `krelivex=` and `krelivep=`, proving a bounded jump
-  through the candidate directory while still reserving `kreloc=OK` for the
-  future persistent non-identity higher-half milestone.
-- The same VM status gate requires `syssegs=` and `sysframe=` so syscall-entry
-  proof cannot collapse into "the process ran somehow"; the status line must
-  show Ring 3 selectors, the captured user EIP/ESP/EFLAGS, and the TSS-selected
-  kernel stack used by the interrupt frame.
-- `tests/host/test_doom_source.py` is the original-Doom provenance gate. It
-  hashes the vendored `linuxdoom-1.10` source boundary, audits the Makefile so
-  original engine objects and `doom_port/*` shims stay separate, and invokes
-  `tools/check_repo_hygiene.py` to reject tracked WADs, disk images, rendered
-  pixel artifacts, logs, wrapper/source-port paths, dirty `third_party/doom`
-  worktree state, renamed raw/gzip/zip/tar WAD payloads, and runtime/build
-  references to shortcut source ports or host display/audio APIs. `.gitignore`
-  is checked for the common WAD archive, screenshot/pixel, disk-image, log, and
-  raw-audio spillover patterns so accidental local proof output is harder to
-  stage. The same hygiene gate scans tracked text for GitHub token-shaped
-  strings, Codespaces environment leaks, one-time browser auth codes,
-  authorization headers, and signed URL credentials, with an explicit
-  line-level marker for intentional false-positive examples. It keeps the
-  top-level `README.md` as a concise
-  claim surface: exact commit hashes, run IDs, proof-transcript fields, gap rows,
-  and Markdown task lists belong in detailed docs or artifacts, not in the
-  README. `tests/host/test_doom_source_boundary.py` covers the narrower
-  `tools/check_doom_source_boundary.py` guard, which compares tracked vendor
-  files to `HEAD`, scans `third_party/doom` for OS-facing port tokens, and
-  checks staged/committed paths for WAD, disk-image, framebuffer, and audio
-  artifacts without launching QEMU.
-- Host storage tests cover root-level 8.3 lifecycle behavior: create, readback,
-  sparse growth, descriptor `ftruncate` shrink/grow, signed seek offsets,
-  truncate/resize-to-zero, delete, cluster-chain freeing/reuse,
-  corrupt-chain validation before mutation, FAT-copy agreement,
-  duplicate-root/cross-link/orphaned-cluster rejection, protected WAD/ELF
-  write/truncate refusal with ordinary readonly VFS reads, and syscall-backed
-  `unlink`/`stat`/`fstat` libc wrappers. They also
-  pin root/current-directory path normalization, the boundary between host
-  recursive asset packaging and the kernel's bounded one-level subdirectory
-  surface, writable `/STATE` file lifecycle proof, kernel rejection of unknown
-  `open` flags, `EMFILE` fd exhaustion, and the Doom-only `c:\doomdata`
-  `mkdir` shim.
-- `tests/host/test_doom_persistence_image.py` and
-  `tools/check_doom_persistence_image.py` prove the non-QEMU image-inspection
-  path for Doom defaults and saves: `DEFAULT.CFG` must contain complete
-  Doom-shaped defaults markers, and `DOOMSAVN.DSG` must carry Doom's save
-  description, `version 110` header, plausible game-state bytes, and enough
-  payload to rule out tiny fake headers. With `--baseline-image`, requested
-  entries must also differ from the fresh pre-boot image; reboot comparison
-  requires that fresh baseline plus a clean `--reboot-status` runtime/fault gate
-  before it can claim persistence. Rebooted `DOOMSAVN.DSG` proof additionally
-  requires `--save-write-status` from the write boot, proving Doom reported file
-  output and a close before the mutated save bytes count, plus `--load-status`
-  from the reboot/load boot proving Doom read the full save payload back into
-  matching gameplay. The checker also
-  rejects storage leaks where allocated FAT clusters are not owned by exactly
-  one live root entry.
-- Host process tests prove that `SYS_EXEC` is more than a fixed string loader:
-  the path resolves Doom/probe table entries, parses arbitrary root-level FAT16
-  `.ELF` names into the reusable probe-class slot, rejects unsafe active-slot
-  reloads, tracks table-backed and generic root `.ELF` resolution through
-  `execmap=`, seeds a scheduler-visible target context, writes an argc/argv stack
-  shape, records `argvsrc=2` for a copied user vector, patches the live syscall
-  frame, marks the caller exited, records handoff/schedule/rollback counters,
-  and requires syscall/exception entry to reload kernel segments before touching
-  kernel globals while emitting `syssegs=` and `sysframe=`. The same tests pin the bounded
-  `waitpid` child scan/reap path, `WNOHANG` live-child result, fd owner
-  enforcement, exec-time inheritance/close-on-exec handoff, and process-owned
-  fd teardown. They also cover anonymous brk-backed `mmap` accounting and
-  page-aligned tail `munmap` reclaim plus non-tail validation holes, without
-  claiming a full Unix process model. The bounded fork proof is intentionally
-  narrow: probe-class children get eager page copies, fork-time descriptor table
-  cloning over shared open-file descriptions, parent/child return splitting,
-  and waitpid reap evidence. It is not a full `fork`/`exec` split, while
-  Doom/arbitrary address spaces,
-  copy-on-write, POSIX-complete waits, and unbounded process/fd tables remain gaps.
-- `tools/check_vm_status_proof.py` requires the matching cloud status to expose
-  `vmmhfree`, `uexec=OK`, `upath=USERPROB.ELF`, `abiexec=OK`,
-  `abipath=ABIPROBE.ELF`, `abiprobe=OK`, `argvsrc=2`, `execmap=`, `procpool=`,
-  `fdexec=`, `fdup=`, `kblock=`, `ksleep=`, `wait=`, `waitseed=`, `fork=`, and `pmask` plus
-  `pkind`/`peip`/`pcr3`/`pkstk`/`pframe`/`psegs`/`peflags` evidence
-  before a VM/process artifact can be accepted.
-- `tools/status_fields.py` is the shared host-side status/proof parser. New
-  checkers should use it for duplicate detection, eight-digit hex fields, and
-  slash/colon tuple fields instead of open-coding status regexes.
-- `tests/host/test_framebuffer_contract.py` proves the 320x200 indexed shadow,
-  RGB palette to XRGB8888 conversion, 2x scaling, and centering contract without
-  using rendered Doom pixels.
-- GitHub Actions then runs `make ALLOW_LOCAL_VM=1 smoke` and verifies the
-  booted VGA status line.
-- The manual **Real WAD smoke** workflow can run without a private secret: it
-  accepts a WAD URL input, otherwise tries `REAL_DOOM_WAD_URL`, otherwise uses a
-  public Archive.org gzipped shareware WAD. The runner validates the extracted
-  `DOOM1.WAD` SHA-1 and size before building with `DOOM_WAD`, then requires
-  `gameplay=OK`, `gmap=00000101` (E1M1), `leveltime>0`, `doompresent>0`,
-  nontrivial visual status hashes/counters, scripted start/fire/use/move/mouse/menu
-  input status, a key event, and no known Doom startup error strings in the decoded
-  status artifact.
-  QEMU is bounded by a smoke-level timeout and writes status, monitor, smoke,
-  QEMU, and serial logs while keeping WADs, disk images, framebuffer dumps, and
-  rendered Doom pixels out of uploaded artifacts.
-- `tools/check_real_wad_proof.py` is the source-level truth-serum gate for that
-  real-WAD status proof. It now validates the wider debug contract too:
-  VM/kernel health, syscall exec counters, FAT/WAD file access, Doom runtime
-	  counters, generic input/audio/mouse telemetry fields, live scheduler-preemption proof, and
-  non-pixel visual summaries. It requires the early/start/fire/move/use/mouse/menu status
-  snapshots as well as the final status, so a single good-looking final line
-  cannot stand in for scripted input proof. Host tests assert that the GitHub workflow and
-  smoke target invoke it, so a future green CI claim must include those status
-  counters rather than framebuffer bytes.
-- `tools/check_vm_status_proof.py` separately gates the VM/process status
-  fields used by cloud artifacts, including E820-backed PMM accounting,
-  guard-page rejection, higher-half VMM self-test, syscall-driven exec handoff,
-  kernel sleep/wake evidence, fault source/mode/containment evidence, and timer
-  preemption evidence.
-- `tools/check_human_playability_proof.py` compares decoded status snapshots
-  from the deterministic input phases. It requires keyboard counters to
-  increase across each keyboard phase, mouse IRQ/packet/generic-poll counters to
-  advance during the mouse phase, Doom to remain in E1M1 gameplay, `keyseen` to
-  record Up/Ctrl/Space/Escape, player movement/action/menu flags to be set,
-  `pdelta>0`, `ppos` to change after the movement phase, fire to change
-  ammo/refire state, the mouse phase to set Doom's gameplay turn proof bit from
-  `ticcmd.angleturn` or the resulting player-angle delta, and Escape to flip the
-  menu bit without reading WAD or framebuffer artifacts.
-- `tools/check_audio_continuity_proof.py` is the remote-safe SB16 audio gate. It
-  compares the same decoded status snapshots, requires `audio=SB16`, proves the
-  generic `adev=` / `pcm=` / `pcmbuf=` audio-device and PCM-ring contract, and
-  proves IRQ/refill, non-music SFX, `sfxdma=` IRQ-refill SFX output, music
-  mixing, `voiceq=` stream-update counters, and kernel-visible `musicpos=`
-  progress without storing audio samples. This is still not a kernel-owned
-  MUS/MIDI renderer proof.
-- `tools/check_audible_audio_proof.py` is the optional remote audible-output
-  gate. In cloud it analyzes a temporary QEMU WAV capture into aggregate
-  `audio-proof.json`, validates non-silent duration/window/RMS/peak metrics tied
-  to the final `audio=SB16` status plus the same status-only SB16 continuity
-  snapshots, and keeps raw audio out of artifacts.
-- `tests/host/test_post_checkpoint_gaps.py` guards the post-checkpoint honesty
-  ledger: Doom exit/fault diagnostics, including CR2, EIP, vector, x86 error
-  code, `pf=`, `regs=`, `segs=`, `syssegs=`, `sysframe=`, `proc=`, `faultsrc=`, `faultmode=`, and
-  `faultcontain=`, must stay visible in status, save/config persistence must be
-  proved at image level, and the missing
-  cloud boot, real gameplay, human playtest, audio, VM/POSIX,
-  shutdown/panic, and hardware-limit claims must remain documented.
-- `tools/check_playability_gap_ledger.py` parses the `GAP[...]` rows in
-  `docs/proof.txt` so every open Doom-capability claim has a
-  concrete category, executable gate, and evidence artifact before README text
-  can call it done.
-  It also requires the latest analyzed failed real-WAD run to stay documented
-  until a newer current run replaces that evidence.
-- `tools/check_hardware_support_matrix.py` parses
-  `docs/architecture.txt` so README/docs/runbook/test language stays bounded
-  to the QEMU BIOS/IDE/PS2/VBE/SB16 device-model proof. It rejects unsupported
-  UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and physical-hardware
-  support wording unless the matrix grows a claimed row and a proof boundary
-  first.
-  It also requires the kernel's bounded QEMU PCI config table and read-only
-  lookup API plus the `pci=`, `pciprobe=`, `pcicount=`, `pcifirst=`, `pciid=`,
-  `pciclass=`, `pcitabcap=`, `pcitabuse=`, `pciover=`, `pciapi=`, and
-  `pcilookid=`/`pcilookmiss=` smoke fields to remain status-only diagnostics
-  rather than a broad PCI claim. `pcicons=`, `pcilookide=`, and `pcilookahci=` prove a
-  kernel consumer can query the table for storage-class intent without binding
-  or activating an AHCI driver. `ahcibar=` and `ahcireq=` pin the AHCI BAR5/HBA
-  proof requirements and no-silent-fallback guard while AHCI remains
-  unsupported. `pcilookaud=` and `pcilookhda=` prove the same status-only
-  boundary for multimedia audio/HDA class intent without binding an audio
-  driver.
-  Future hardware classes now have machine-readable `PROOF_REQUIREMENT[...]`
-  rows plus active `NEGATIVE_CLAIM[...]` rows, so unsupported UEFI, PCI, AHCI,
-  USB, SMP, APIC, HPET, and physical-machine wording stays tied to a concrete
-  future proof instead of becoming advertising copy.
-  The same checker pins `NEXT_UNLOCK[PCI_ENUMERATION]` as the next hardware
-  class to implement before AHCI or USB can honestly move forward.
-  It also checks the `boot/uefi/CONTRACT.txt` loader/proof boundary: the
-  `UEFI_BOOT[...]` rows must stay at the documented intermediate states, the
-  kernel handoff row must stay blocked until OVMF reaches the current kernel,
-  and `boot/uefi` must stay out of the current Makefile image path.
-- `tools/check_storage_install_boundary.py` parses
-  `docs/architecture.txt` so generated-image persistence proof cannot
-  drift into an installable-OS claim. With `--image build/disk.img --json`, it
-  emits an `install-image-manifest` covering the repo MBR, raw boot/kernel
-  regions, raw artifact identity, the bootable-image-construction manifest,
-  FAT16 BPB, root-entry inventory, FAT-copy agreement, cluster ownership, and
-  the fat-vfs-boundary manifest for root/current-directory normalization,
-  read-only one-level asset access, and the dynamic-subdirectory-lifecycle
-  proof for writable `/STATE` files. The same manifest marks deeper packaged
-  asset trees as host inventory only, while keeping arbitrary-disk install and
-  recovery rows unclaimed. With `--write-blank-image`, the checker
-  can also materialize that construction as a new regular raw image file,
-  refusing existing paths and recording a blank-image-file materialization
-  manifest without claiming block-device install support.
-- `tools/check_vm_safety_contract.py` machine-checks the local-QEMU opt-in,
-  cloud diagnostic upload hygiene, panic status fields, shutdown status fields,
-  guard-page helper, dynamic high VMM mapping/reclaim, kernel-entry high alias
-  status fields, high-trampoline execution fields, and brk-backed tail `munmap`
-  contract without launching QEMU.
-- `tools/check_vm_status_proof.py` validates cloud status artifacts for the VM
-  legitimacy fields: `vmmhfree` must match the reclaimed dynamic page table,
-  `kmap=OK`, `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, and
-  `kmaphi=` must prove a temporary higher-half alias of the current kernel entry
-  page and page-table reclaim, `khmain=OK`, `khmspan=`, `khmxlat=`, and
-  `khmpte=` must prove live higher-half mainline execution with matching
-  page-table translations, `khiexec=OK`, `khieip=`, `khiesp=`, `khicr3=`,
-  `khiva=`, `khipa=`, `khistk=`, `khistkpa=`, `khipt=`, `khifree=`,
-  `khixlat=`, `khisxlat=`, `khislot=`, `khislotpa=`, `khisword=`, and
-  `khiret=` must prove bounded higher-half trampoline execution on a high stack
-  alias, translated backing, a high-stack write, and page-table reclaim,
-  boot-probe exec must report `uexec=OK` and `upath=USERPROB.ELF`, ABI-probe
-  exec must report `abiexec=OK`, `abipath=ABIPROBE.ELF`, and `abiprobe=OK`,
-  Doom exec must report `argvsrc=2`, `execmap=`, `procpool=`, `fdexec=`, `fdup=`, `kblock=`, `ksleep=`, `wait=`,
-  `waitseed=`, `fork=`, and `vmreap=`, and `pmask` plus
-  `pkind`/`peip`/`pcr3`/`pkstk`/`pframe`/`psegs`/`peflags` must show
-  bidirectional timer IRQ switching between Doom and the preempt probe with a
-  sanitized Ring 3 return frame.
-- `tools/check_shutdown_panic_proof.py` validates the opt-in disposable-cloud
-  shutdown/panic proof contract and any downloaded proof artifact. It requires
-  `shutdown-panic-proof.json` plus dedicated panic, halt, reboot-request, and
-  poweroff-request status files, rejects missing status or monitor-quit-only
-  evidence, and requires observed guest exit for reboot/poweroff phases.
-- `tools/check_cloud_playability_artifacts.py` validates the remote human-run
-  runbook, workflow upload hygiene, expected non-WAD diagnostic files, and
-  downloaded real-WAD status artifacts without requiring a WAD or local QEMU.
-  The docs it checks must keep a fresh save-persistence proof note plus the
-  explicit `gh workflow run os-smoke.yml`, `real-wad-smoke.yml`, and soak
-  dispatch commands in the proof docs/runbooks, while README stays a concise
-  claim surface instead of a proof transcript.
-  The repo contract also locks the repeated **Real WAD soak** workflow's
-  `expected_ref` branch guard and default-branch dispatch limitation docs.
-  It rejects forbidden filenames, duplicate required basenames, unexpected ELF
-  binaries, raw audio files, compressed WAD archives, and renamed WAD/disk/image/audio payload
-  signatures. In `--human-session` mode it also requires
-  `human-playtest-checklist.txt`, `human-playtest-session.json`, and
-  `human-playtest-review.json` plus `human-playtest-manifest.json`, requires a
-  flat allowlisted bundle, rebuilds the human phase transcript from the status
-  files and notes, verifies every note-level `phase_hash_*` value, verifies the
-  generated review/checklist and bundle inventory SHA-256 hashes, and prints a
-  stable post-download verification ID for comparison with the remote collector
-  output. If `audio-proof.json` is present, it validates that aggregate manifest
-  too.
-- `tools/collect_human_playtest_bundle.py` is the remote-host helper for manual
-  VNC sessions. It does not launch QEMU; it copies only allowlisted status/log
-  diagnostics and required ELF/symbol files from the disposable host build
-  directory, requires explicit `--confirm-*` operator flags, writes structured
-  `human-playtest-notes.txt` with phase status hashes, a
-  `human-playtest-checklist.txt` review file, a `human-playtest-session.json`
-  transcript tied to the passing scripted real-WAD run ID,
-  `human-playtest-review.json` with status-only phase notes and remote machine
-  shape, and `human-playtest-manifest.json`, refuses proof output inside the repo, and
-  immediately invokes
-  `tools/check_cloud_playability_artifacts.py --human-session`.
-- `tools/run_remote_human_playtest.sh` is the faster guided wrapper for that
-  same remote-only human path. It refuses macOS, does not launch QEMU, prompts
-  the playtester through the eight required Doom phases, calls the collector's
-  `--capture-phase` helper for each status snapshot, builds
-  `/tmp/vibe-os-human-proof.tgz`, and prints the local post-download checker
-  commands. The normal remote invocation is
-  `tools/run_remote_human_playtest.sh --playtester NAME --scripted-proof-run-id RUN_ID`.
-- `tools/play_now_codespaces.sh` is the one-command disposable play launcher.
-  It is safe to run from the Mac because it only drives GitHub Codespaces with
-  `gh`: create or reuse a disposable Codespace, start
-  `tools/play_now_remote.sh` inside it, mark noVNC port `6080` private, and
-  print/open the noVNC URL. It must not run QEMU locally or copy WAD, disk,
-  pixel, screenshot, log, or raw-audio artifacts back from Codespaces.
-- `.github/workflows/cloud-play-now-preflight.yml` is the manual cloud dry-run
-  for the play host shape. It installs the remote dependencies on
-  `ubuntu-latest`, runs `tools/play_now_remote.sh --preflight --require-novnc`,
-  checks the safety contract, and exits before QEMU, WAD fetch, image build, or
-  artifact upload.
-- `tools/triage_cloud_status.py` classifies a downloaded real-WAD status line
-  into the first repair lane. The custom linker also writes `build/doom.symbols`
-  so cloud artifacts can symbolize `doomfaultip` and decode page-fault/WAD I/O
-  context without uploading Doom data or framebuffer pixels.
-- `tools/check_vm_safety_contract.py` validates the safety rail: local QEMU
-  targets must remain behind `ALLOW_LOCAL_VM=1`, host tests stay QEMU-free,
-  cloud workflows upload only status/log diagnostics for proof lanes, and kernel
-  `panic=` / `shutdown=` fields remain smoke-visible.
-- `tools/prepare_shareware_wad.py` is covered with synthetic raw/gzip/zip WAD
-  sources so the remote runbook's WAD extraction and validation path is tested
-  without network access or real game data.
-- Still manual: actually launching the manual workflow, reviewing its uploaded
-  diagnostics, and deciding whether the current visual/input/audio state is good
-  enough to call the OS Doom-capable.
-- Future Doom bring-up should add focused libc-test cases beyond the current
-  string/search/tokenizer/format coverage, Doom WAD/parser golden tests, and
-  stricter deterministic visual expectations once framebuffer output stabilizes.
+## Host-Only Checks
 
-Local `make test` does not launch QEMU.
+Safe on the Mac:
+
+```sh
+make ALLOW_LOCAL_VM=0 DOOM_WAD= build-only
+make ALLOW_LOCAL_VM=0 DOOM_WAD= test
+make ALLOW_LOCAL_VM=0 DOOM_WAD= playability-host-check
+```
+
+These build the boot path, kernel, user probes, Doom ELF, image builder, and
+minimal status validator. They do not run QEMU.
+
+`tools/vibe_status_check.c` is the current status validator used by
+`vm-status-proof-check`.
+
+## Cloud Checks
+
+QEMU checks run only on disposable cloud machines:
+
+```sh
+gh workflow run os-smoke.yml --ref main -f expected_ref=main
+gh workflow run real-wad-smoke.yml --ref main -f expected_ref=main
+```
+
+Manual play runs through Codespaces/noVNC:
+
+```sh
+./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref main
+```
+
+## Replacement Direction
+
+- Prefer guest status fields over host-side inference.
+- Prefer assembly at CPU, interrupt, syscall, paging, boot, and driver
+  boundaries.
+- Keep host C tools tiny: linker, image builder, status validator.
+- Keep shell workflows honest: if a proof lane no longer has a shell/C
+  replacement, it should fail with a clear message instead of passing.
+- Do not add a new host scripting stack.
+
+## Current C Host Tests
+
+- `tests/host/doom_input_test.c`
+- `tests/host/doom_libc_allocator_test.c`
+- `tests/host/doom_music_test.c`
+- `tests/host/libc_conformance_subset_test.c`
+- `tests/host/libc_runtime_readiness_test.c`
+- `tests/host/user_runtime_test.c`
+
+These are support checks, not substitutes for guest OS proof.

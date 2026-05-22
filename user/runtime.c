@@ -1,6 +1,8 @@
 #include "runtime.h"
 #include "sys/stat.h"
 
+#define VIBE_USER_LONG_MAX_32 0x7ffffffful
+
 #ifndef VIBE_USER_RUNTIME_HOST_TEST
 extern int __vibe_syscall0(unsigned int number);
 extern int __vibe_syscall1(unsigned int number, unsigned long arg0);
@@ -439,7 +441,8 @@ int vibe_user_mmap_file(
 
     mapped = *out;
     while (copied < length) {
-        if (copied > (unsigned long)((long)((~0ul) >> 1)) - (unsigned long)offset) {
+        if ((unsigned long)offset > VIBE_USER_LONG_MAX_32
+            || copied > VIBE_USER_LONG_MAX_32 - (unsigned long)offset) {
             (void)vibe_user_munmap(mapped, length);
             *out = 0;
             return -22;
@@ -667,7 +670,7 @@ int vibe_user_file_read_at(
         return -22;
     if (out_read)
         *out_read = 0;
-    if (offset > (unsigned long)((long)((~0ul) >> 1)))
+    if (offset > VIBE_USER_LONG_MAX_32)
         return -75;
 
     fd = vibe_user_open(path, VIBE_USER_O_RDONLY, 0);
@@ -701,7 +704,7 @@ int vibe_user_file_write_at(
         return -22;
     if (out_written)
         *out_written = 0;
-    if (offset > (unsigned long)((long)((~0ul) >> 1)))
+    if (offset > VIBE_USER_LONG_MAX_32)
         return -75;
 
     fd = vibe_user_open(path, VIBE_USER_O_CREAT | VIBE_USER_O_RDWR, 0);

@@ -32,9 +32,9 @@ REMOTE_PLAY_PATHS=(
   "Makefile"
   "tools/play_now_remote.sh"
   "tools/play_now_cloud_shell.sh"
-  "tools/check_play_now_remote.py"
-  "tools/prepare_shareware_wad.py"
-  "tools/make_wad_image.py"
+  "tools/link_elf32.c"
+  "tools/make_wad_image.c"
+  "tools/vibe_status_check.c"
 )
 
 if [ -n "${VIBE_REPO:-}" ]; then

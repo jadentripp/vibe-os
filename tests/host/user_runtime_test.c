@@ -86,8 +86,13 @@ int vibe_user_syscall3(unsigned int number, unsigned long arg0, unsigned long ar
         return old;
     }
 
-    if (number == VIBE_SYS_OPEN)
-        return arg0 && arg1 == 0 && arg2 == 0 ? 4 : -22;
+    if (number == VIBE_SYS_OPEN) {
+        if (!arg0 || arg2 != 0)
+            return -22;
+        if (arg1 == 0 || arg1 == (VIBE_USER_O_CREAT | VIBE_USER_O_RDWR))
+            return 4;
+        return -22;
+    }
 
     if (number == VIBE_SYS_READ) {
         char* out = mock_user_buffer(arg1, arg2);
@@ -233,7 +238,7 @@ int vibe_user_syscall3(unsigned int number, unsigned long arg0, unsigned long ar
         out->switches = 3;
         out->quantum_ticks = 1;
         out->entry = 0x00e40000u;
-        out->stack_top = 0x00ea0000u;
+        out->stack_top = 0x00ed0000u;
         out->brk = 0x00ea1000u;
         out->scheduler_ticks = mock_clock_ticks;
         out->scheduler_rounds = (unsigned long)mock_yield_count;
@@ -739,6 +744,15 @@ int main(void)
         return fail(16);
     if (vibe_user_lseek(4, 0, 1) != 6)
         return fail(17);
+    clear_chars(mock_write_buffer, sizeof(mock_write_buffer));
+    mock_write_length = 0;
+    if (vibe_user_pwrite(4, "UV", 2, 2) != 2
+        || mock_file_pos != 6
+        || mock_write_length != 2
+        || mock_write_buffer[0] != 'U')
+        return fail(111);
+    if (vibe_user_pwrite(4, 0, 1, 2) != -22 || vibe_user_pwrite(4, "Z", 1, -1) != -22)
+        return fail(112);
     if (vibe_user_pread(4, read_buffer, 1, -1) != -22)
         return fail(18);
     if (vibe_user_close(4) != 0 || mock_close_count != 1)
@@ -761,6 +775,18 @@ int main(void)
         || read_buffer[2] != 'e'
         || mock_file_pos != 0)
         return fail(100);
+    clear_chars(mock_write_buffer, sizeof(mock_write_buffer));
+    mock_write_length = 0;
+    out_read = 99;
+    if (vibe_user_file_write_at("TOOL.TXT", 2, "UV", 2, &out_read) != 0
+        || out_read != 2
+        || mock_file_pos != 0
+        || mock_write_length != 2
+        || mock_write_buffer[0] != 'U')
+        return fail(113);
+    if (vibe_user_file_write_at(0, 0, "X", 1, &out_read) != -22
+        || vibe_user_file_write_at("TOOL.TXT", 0x80000000ul, "X", 1, &out_read) != -75)
+        return fail(114);
     mock_file_pos = 0;
     clear_chars(full_buffer, sizeof(full_buffer));
     if (vibe_user_file_read_all("TOOL.TXT", full_buffer, sizeof(full_buffer), &out_read) != 0

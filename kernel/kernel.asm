@@ -527,8 +527,8 @@ ELF_PF_R equ 0x4
 USER_ELF_LOAD_ADDR equ 0x00e40000
 USER_ELF_MAX_BYTES equ 0x00020000
 USER_CODE_ADDR equ 0x00e80000
-USER_STACK_BOTTOM equ 0x00e90000
-USER_STACK_TOP equ 0x00ea0000
+USER_STACK_BOTTOM equ 0x00ec0000
+USER_STACK_TOP equ 0x00ed0000
 USER_HEAP_START equ USER_STACK_TOP
 USER_HEAP_END equ 0x00f00000
 USER_HEAP_PAGE_COUNT equ (USER_HEAP_END - USER_HEAP_START) / PAGE_SIZE
@@ -3845,6 +3845,9 @@ kernel_relocation_live_clear:
     mov dword [kernel_relocation_live_stack_xlat], 0
     mov dword [kernel_relocation_live_data_xlat], 0
     mov dword [kernel_relocation_live_low_xlat], 0
+    mov dword [kernel_relocation_live_return_vaddr], 0
+    mov dword [kernel_relocation_live_return_xlat], 0
+    mov dword [kernel_relocation_live_expected_return], 0
     mov dword [kernel_relocation_live_magic], 0
     mov dword [kernel_relocation_live_saved_low_esp], 0
 
@@ -3906,12 +3909,20 @@ kernel_relocation_live_switch_self_test:
     mov ebx, [kernel_relocation_live_saved_low_esp]
     and ebx, 0x00000fff
     add ebx, [kernel_relocation_live_stack_vaddr]
+    mov eax, .after_live_call
+    mov [kernel_relocation_live_expected_return], eax
     mov eax, kernel_relocation_live_switch_trampoline
     and eax, 0x00000fff
     add eax, [kernel_relocation_live_code_vaddr]
     mov esp, ebx
     call eax
+
+.after_live_call:
     mov esp, [kernel_relocation_live_saved_low_esp]
+    mov ebx, [kernel_relocation_live_return_vaddr]
+    mov eax, [kernel_relocation_dir_addr]
+    call kernel_translate_dir_vaddr
+    mov [kernel_relocation_live_return_xlat], eax
 
     cmp byte [kernel_relocation_live_status], KERNEL_RELOCATION_LIVE_STATUS_OK
     jne .done
@@ -3924,6 +3935,11 @@ kernel_relocation_live_switch_self_test:
     jne .mark_fail
     mov eax, [kernel_relocation_live_cr3]
     cmp eax, [kernel_relocation_dir_addr]
+    jne .mark_fail
+    mov eax, [kernel_relocation_live_return_vaddr]
+    cmp eax, [kernel_relocation_live_expected_return]
+    jne .mark_fail
+    cmp dword [kernel_relocation_live_return_xlat], 0xffffffff
     jne .mark_fail
     mov eax, [kernel_relocation_live_eip]
     cmp eax, [kernel_relocation_live_code_vaddr]
@@ -3959,6 +3975,9 @@ kernel_relocation_live_switch_trampoline:
     mov [edi], eax
     mov edi, KERNEL_HIGHER_HALF_BASE + kernel_relocation_live_esp
     mov [edi], esp
+    mov eax, [esp]
+    mov edi, KERNEL_HIGHER_HALF_BASE + kernel_relocation_live_return_vaddr
+    mov [edi], eax
     mov eax, cr3
     mov edi, KERNEL_HIGHER_HALF_BASE + kernel_relocation_live_cr3
     mov [edi], eax
@@ -9528,6 +9547,16 @@ storage_init:
     mov dword [fat_truncate_count], 0
     mov dword [fat_dir_update_count], 0
     mov dword [fat_dir_update_failures], 0
+    mov dword [vfs_open_count], 0
+    mov dword [vfs_read_count], 0
+    mov dword [vfs_write_count], 0
+    mov dword [vfs_lseek_count], 0
+    mov dword [vfs_stat_count], 0
+    mov dword [vfs_fstat_count], 0
+    mov dword [vfs_listdir_count], 0
+    mov dword [vfs_unlink_count], 0
+    mov dword [vfs_ftruncate_count], 0
+    mov dword [vfs_close_count], 0
     mov dword [fat_lba_logical_sectors], 0
     mov dword [fat_lba_tail_free_cluster], 0
     mov dword [fat_lba_tail_free_count], 0
@@ -10299,6 +10328,7 @@ ata_flush_cache:
 
 block_device_init:
     call block_driver_install_ata_pio_ops
+    jc .fail_install
     mov dword [block_device_status], BLOCK_STATUS_IDLE
     mov dword [block_last_error], BLOCK_ERROR_NONE
     call ata_wait_ready
@@ -10306,6 +10336,12 @@ block_device_init:
     mov dword [block_device_status], BLOCK_STATUS_OK
     mov dword [block_last_error], BLOCK_ERROR_NONE
     clc
+    ret
+
+.fail_install:
+    mov dword [block_device_status], BLOCK_STATUS_FAIL
+    inc dword [block_error_count]
+    stc
     ret
 
 .fail:
@@ -10316,10 +10352,43 @@ block_device_init:
     ret
 
 block_driver_install_ata_pio_ops:
-    mov dword [block_device_kind], BLOCK_DEVICE_ATA_PIO
-    mov dword [block_driver_read_op], ata_read_sector
-    mov dword [block_driver_write_op], ata_write_sector
-    mov dword [block_driver_flush_op], ata_flush_cache
+    push esi
+    mov eax, BLOCK_DEVICE_ATA_PIO
+    mov esi, block_ata_pio_ops
+    call block_driver_install_ops
+    pop esi
+    ret
+
+block_driver_install_ops:
+    push ebx
+    mov ebx, eax
+    mov eax, [esi + BLOCK_OPS_READ_OFFSET]
+    test eax, eax
+    jz .bad_ops
+    mov [block_driver_read_op], eax
+    mov eax, [esi + BLOCK_OPS_WRITE_OFFSET]
+    test eax, eax
+    jz .bad_ops
+    mov [block_driver_write_op], eax
+    mov eax, [esi + BLOCK_OPS_FLUSH_OFFSET]
+    test eax, eax
+    jz .bad_ops
+    mov [block_driver_flush_op], eax
+    mov [block_device_kind], ebx
+    mov dword [block_last_error], BLOCK_ERROR_NONE
+    clc
+    jmp .done
+
+.bad_ops:
+    mov dword [block_device_kind], BLOCK_DEVICE_NONE
+    mov dword [block_driver_read_op], 0
+    mov dword [block_driver_write_op], 0
+    mov dword [block_driver_flush_op], 0
+    mov dword [block_last_error], BLOCK_ERROR_UNSUPPORTED_CONTROLLER
+    stc
+
+.done:
+    pop ebx
     ret
 
 block_driver_probe_storage_classes:
@@ -10340,12 +10409,21 @@ block_driver_probe_storage_classes:
     call block_driver_record_ahci_probe
     cmp eax, PCI_LOOKUP_NOT_FOUND
     je .done
-    inc dword [block_driver_reject_count]
-    mov dword [block_driver_last_rejected_kind], BLOCK_DEVICE_AHCI
-    or dword [ahci_guard_mask], AHCI_GUARD_UNSUPPORTED_REJECTED
+    mov eax, BLOCK_DEVICE_AHCI
+    call block_driver_reject_unsupported_controller
 
 .done:
     pop eax
+    ret
+
+block_driver_reject_unsupported_controller:
+    inc dword [block_driver_reject_count]
+    mov [block_driver_last_rejected_kind], eax
+    cmp eax, BLOCK_DEVICE_AHCI
+    jne .done
+    or dword [ahci_guard_mask], AHCI_GUARD_UNSUPPORTED_REJECTED
+
+.done:
     ret
 
 block_driver_record_ahci_probe:
@@ -19385,6 +19463,8 @@ syscall_handler:
     je .write_fd_ok
     cmp ebx, 2
     je .write_fd_ok
+    mov eax, vfs_write_count
+    call .vfs_count_generic
     call user_file_write
     jc .bad_syscall_from_eax
     jmp .return
@@ -19521,6 +19601,16 @@ syscall_handler:
     mov eax, [sbrk_old_brk]
     jmp .return
 
+.vfs_count_generic:
+    push eax
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    je .vfs_count_done
+    inc dword [eax]
+
+.vfs_count_done:
+    pop eax
+    ret
+
 .open:
     mov [syscall_ptr_arg], ebx
     mov [syscall_open_flags], ecx
@@ -19530,6 +19620,8 @@ syscall_handler:
     mov [doom_last_open_mode], edx
 
 .open_skip_status:
+    mov eax, vfs_open_count
+    call .vfs_count_generic
     mov eax, [syscall_open_flags]
     and eax, O_KNOWN_MASK
     cmp eax, [syscall_open_flags]
@@ -19758,6 +19850,8 @@ syscall_handler:
     jmp .open_writable_ready
 
 .read:
+    mov eax, vfs_read_count
+    call .vfs_count_generic
     call fd_lookup
     jc .bad_syscall_ebadf
     cmp byte [fd_kinds + eax], FD_KIND_WAD
@@ -19821,6 +19915,8 @@ syscall_handler:
     jmp .return
 
 .lseek:
+    mov eax, vfs_lseek_count
+    call .vfs_count_generic
     call fd_lookup
     jc .bad_syscall_ebadf
     cmp byte [fd_kinds + eax], FD_KIND_WAD
@@ -19936,40 +20032,52 @@ syscall_handler:
     jmp .return
 
 .poll_key:
+    pushfd
+    cli
     mov ebx, [key_event_tail]
     cmp ebx, [key_event_head]
-    je .poll_key_empty
+    je .poll_key_empty_locked
     mov edi, key_event_queue
     mov eax, [edi + ebx * 4]
     inc ebx
     and ebx, KEY_QUEUE_MASK
     mov [key_event_tail], ebx
     cmp byte [current_user_kind], USER_KIND_DOOM
-    jne .return
+    jne .poll_key_return
     call doom_record_key_event
     inc dword [doom_key_event_count]
+
+.poll_key_return:
+    popfd
     jmp .return
 
-.poll_key_empty:
+.poll_key_empty_locked:
+    popfd
     xor eax, eax
     jmp .return
 
 .poll_mouse:
+    pushfd
+    cli
     mov ebx, [mouse_event_tail]
     cmp ebx, [mouse_event_head]
-    je .poll_mouse_empty
+    je .poll_mouse_empty_locked
     mov edi, mouse_event_queue
     mov eax, [edi + ebx * 4]
     inc ebx
     and ebx, MOUSE_QUEUE_MASK
     mov [mouse_event_tail], ebx
     cmp byte [current_user_kind], USER_KIND_DOOM
-    jne .return
+    jne .poll_mouse_return
     call doom_record_mouse_event
     inc dword [doom_mouse_event_count]
+
+.poll_mouse_return:
+    popfd
     jmp .return
 
-.poll_mouse_empty:
+.poll_mouse_empty_locked:
+    popfd
     xor eax, eax
     jmp .return
 
@@ -19981,9 +20089,11 @@ syscall_handler:
     mov ebx, VIBE_INPUT_EVENT_BYTES
     call user_range_validate
     jc .bad_syscall_einval
+    pushfd
+    cli
     mov ebx, [input_event_tail]
     cmp ebx, [input_event_head]
-    je .poll_input_empty
+    je .poll_input_empty_locked
     mov esi, input_event_queue
     mov edx, ebx
     imul edx, VIBE_INPUT_EVENT_BYTES
@@ -20019,9 +20129,11 @@ syscall_handler:
 
 .poll_input_return_one:
     mov eax, 1
+    popfd
     jmp .return
 
-.poll_input_empty:
+.poll_input_empty_locked:
+    popfd
     xor eax, eax
     jmp .return
 
@@ -20033,6 +20145,8 @@ syscall_handler:
     mov ebx, VIBE_INPUT_STATUS_BYTES
     call user_range_validate
     jc .bad_syscall_einval
+    pushfd
+    cli
     mov edi, [syscall_ptr_arg]
     mov dword [edi + VIBE_INPUT_STATUS_ABI_VERSION], VIBE_INPUT_ABI_VERSION
     mov dword [edi + VIBE_INPUT_STATUS_EVENT_BYTES], VIBE_INPUT_EVENT_BYTES
@@ -20107,6 +20221,7 @@ syscall_handler:
     movzx eax, byte [mouse_status]
     mov [edi + VIBE_INPUT_STATUS_MOUSE_STATUS], eax
     xor eax, eax
+    popfd
     jmp .return
 
     .input_device_status:
@@ -20119,14 +20234,21 @@ syscall_handler:
     call user_range_validate
     jc .bad_syscall_einval
     mov edi, [syscall_ptr_arg]
-    mov dword [edi + VIBE_INPUT_DEVICE_STATUS_ABI_VERSION], VIBE_INPUT_ABI_VERSION
-    mov dword [edi + VIBE_INPUT_DEVICE_STATUS_STATUS_BYTES], VIBE_INPUT_DEVICE_STATUS_BYTES
     mov eax, [input_device_status_arg]
     cmp eax, VIBE_INPUT_DEVICE_KEYBOARD
-    je .input_device_status_keyboard
+    je .input_device_status_lock
     cmp eax, VIBE_INPUT_DEVICE_MOUSE
-    je .input_device_status_mouse
+    je .input_device_status_lock
     jmp .bad_syscall_einval
+
+    .input_device_status_lock:
+    pushfd
+    cli
+    mov dword [edi + VIBE_INPUT_DEVICE_STATUS_ABI_VERSION], VIBE_INPUT_ABI_VERSION
+    mov dword [edi + VIBE_INPUT_DEVICE_STATUS_STATUS_BYTES], VIBE_INPUT_DEVICE_STATUS_BYTES
+    cmp eax, VIBE_INPUT_DEVICE_KEYBOARD
+    je .input_device_status_keyboard
+    jmp .input_device_status_mouse
 
     .input_device_status_keyboard:
     mov dword [edi + VIBE_INPUT_DEVICE_STATUS_DEVICE_ID], VIBE_INPUT_DEVICE_KEYBOARD
@@ -20152,6 +20274,7 @@ syscall_handler:
     mov dword [edi + VIBE_INPUT_DEVICE_STATUS_AXIS_Y_TOTAL], 0
     mov dword [edi + VIBE_INPUT_DEVICE_STATUS_RESERVED0], 0
     xor eax, eax
+    popfd
     jmp .return
 
     .input_device_status_mouse:
@@ -20179,9 +20302,12 @@ syscall_handler:
     mov [edi + VIBE_INPUT_DEVICE_STATUS_AXIS_Y_TOTAL], eax
     mov dword [edi + VIBE_INPUT_DEVICE_STATUS_RESERVED0], 0
     xor eax, eax
+    popfd
     jmp .return
 
     .close:
+    mov eax, vfs_close_count
+    call .vfs_count_generic
     call fd_lookup_descriptor
     jc .bad_syscall_ebadf
     mov ebx, eax
@@ -20894,6 +21020,8 @@ syscall_handler:
     jmp .return
 
 .unlink:
+    mov eax, vfs_unlink_count
+    call .vfs_count_generic
     mov [syscall_ptr_arg], ebx
     call fat_parse_user_subdir_file83
     jnc .unlink_subdir
@@ -20963,6 +21091,8 @@ syscall_handler:
     jmp .return
 
 .stat:
+    mov eax, vfs_stat_count
+    call .vfs_count_generic
     mov [syscall_ptr_arg], ebx
     mov [syscall_stat_ptr], ecx
     call fat_user_path_is_root
@@ -21074,6 +21204,8 @@ syscall_handler:
     jmp .return
 
 .fstat:
+    mov eax, vfs_fstat_count
+    call .vfs_count_generic
     mov [syscall_stat_ptr], ecx
     call fd_lookup
     jc .bad_syscall_ebadf
@@ -21112,6 +21244,8 @@ syscall_handler:
     jmp .return
 
 .listdir:
+    mov eax, vfs_listdir_count
+    call .vfs_count_generic
     mov [syscall_ptr_arg], ebx
     mov [syscall_dirent_ptr], ecx
     mov [syscall_dirent_max], edx
@@ -21120,6 +21254,8 @@ syscall_handler:
     jmp .return
 
 .ftruncate:
+    mov eax, vfs_ftruncate_count
+    call .vfs_count_generic
     test ecx, 0x80000000
     jnz .bad_syscall_einval
     call fd_lookup
@@ -25847,6 +25983,47 @@ write_smoke_status:
     mov edx, [fat_account_status]
     call smoke_write_hex32
 
+    mov esi, smoke_vfsops_text
+    call smoke_copy_string
+    mov edx, [vfs_open_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [vfs_read_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [vfs_write_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [vfs_lseek_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [vfs_stat_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [vfs_fstat_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [vfs_listdir_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [vfs_unlink_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [vfs_ftruncate_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [vfs_close_count]
+    call smoke_write_hex32
+
     mov esi, smoke_saveact_text
     call smoke_copy_string
     mov edx, [doom_saveaction_flags]
@@ -28082,6 +28259,19 @@ write_smoke_status:
     mov edx, [kernel_relocation_live_magic]
     call smoke_write_hex32
 
+    mov esi, smoke_krelhaz_text
+    call smoke_copy_string
+    mov edx, [kernel_relocation_live_return_vaddr]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [kernel_relocation_live_return_xlat]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [kernel_relocation_live_expected_return]
+    call smoke_write_hex32
+
     mov esi, smoke_khmain_text
     call smoke_copy_string
     cmp byte [kernel_high_mainline_status], KERNEL_HIGH_MAINLINE_STATUS_OK
@@ -29854,6 +30044,7 @@ smoke_kreldirp_text db " kreldirp=", 0
 smoke_krelive_text db " krelive=", 0
 smoke_krelivex_text db " krelivex=", 0
 smoke_krelivep_text db " krelivep=", 0
+smoke_krelhaz_text db " krelhaz=", 0
 smoke_khmain_text db " khmain=", 0
 smoke_khmspan_text db " khmspan=", 0
 smoke_khmxlat_text db " khmxlat=", 0
@@ -29942,6 +30133,7 @@ smoke_fatmap_text db " fam=", 0
 smoke_fatcopy_text db " fac=", 0
 smoke_fatdyn_text db " fatdyn=", 0
 smoke_fatacct_text db " fatacct=", 0
+smoke_vfsops_text db " vfsops=", 0
 smoke_saveact_text db " saveact=", 0
 smoke_savedesc_text db " savedesc=", 0
 smoke_savestream_text db " savestm=", 0
@@ -30648,6 +30840,9 @@ kernel_relocation_live_code_xlat dd 0
 kernel_relocation_live_stack_xlat dd 0
 kernel_relocation_live_data_xlat dd 0
 kernel_relocation_live_low_xlat dd 0
+kernel_relocation_live_return_vaddr dd 0
+kernel_relocation_live_return_xlat dd 0
+kernel_relocation_live_expected_return dd 0
 kernel_relocation_live_magic dd 0
 kernel_relocation_live_saved_low_esp dd 0
 kernel_high_mainline_entry_eip dd 0
@@ -30800,6 +30995,16 @@ fat_resize_shrink_count dd 0
 fat_truncate_count dd 0
 fat_dir_update_count dd 0
 fat_dir_update_failures dd 0
+vfs_open_count dd 0
+vfs_read_count dd 0
+vfs_write_count dd 0
+vfs_lseek_count dd 0
+vfs_stat_count dd 0
+vfs_fstat_count dd 0
+vfs_listdir_count dd 0
+vfs_unlink_count dd 0
+vfs_ftruncate_count dd 0
+vfs_close_count dd 0
 fat_reserved_sectors dd 0
 fat_count dd 0
 fat_root_entries dd 0

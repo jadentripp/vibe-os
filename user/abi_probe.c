@@ -107,9 +107,11 @@ static int prove_generic_file_services(void)
     const char state_file[] = "./state/session.dat";
     const char asset_expected[] = "vibe-os FAT16 one-level asset file\n";
     const char state_payload[] = "abi-fs-state\n";
+    const char state_pwrite_expected[] = "abi-GENstate\n";
     struct stat st;
     unsigned long size = 0;
     unsigned long bytes_read = 0;
+    unsigned long bytes_written = 0;
     int count;
     int fd;
 
@@ -164,6 +166,18 @@ static int prove_generic_file_services(void)
         goto fail_fd;
     if (!bytes_equal(buffer, state_payload, sizeof(state_payload) - 1))
         goto fail_fd;
+    if (vibe_user_lseek(fd, 3, VIBE_USER_SEEK_SET) != 3)
+        goto fail_fd;
+    if (vibe_user_pwrite(fd, "GEN", 3, 4) != 3)
+        goto fail_fd;
+    if (vibe_user_lseek(fd, 0, VIBE_USER_SEEK_CUR) != 3)
+        goto fail_fd;
+    if (vibe_user_lseek(fd, 0, VIBE_USER_SEEK_SET) != 0)
+        goto fail_fd;
+    if (vibe_user_read(fd, buffer, sizeof(state_pwrite_expected) - 1) != (int)(sizeof(state_pwrite_expected) - 1))
+        goto fail_fd;
+    if (!bytes_equal(buffer, state_pwrite_expected, sizeof(state_pwrite_expected) - 1))
+        goto fail_fd;
     if (vibe_user_fstat(fd, &st) != 0 || st.st_size != (off_t)(sizeof(state_payload) - 1))
         goto fail_fd;
     if (vibe_user_ftruncate(fd, 4) != 0)
@@ -173,6 +187,16 @@ static int prove_generic_file_services(void)
     if (vibe_user_ftruncate(fd, 0) != 0)
         goto fail_fd;
     if (vibe_user_close(fd) != 0)
+        return 0;
+    if (vibe_user_unlink(state_file) != 0)
+        return 0;
+    if (vibe_user_stat(state_file, &st) != -ABI_PROBE_ERRNO_ENOENT)
+        return 0;
+    if (vibe_user_file_write_at(state_file, 2, "xy", 2, &bytes_written) != 0 || bytes_written != 2)
+        return 0;
+    if (vibe_user_file_read_all(state_file, buffer, sizeof(buffer), &bytes_read) != 0)
+        return 0;
+    if (bytes_read != 4 || buffer[0] != 0 || buffer[1] != 0 || buffer[2] != 'x' || buffer[3] != 'y')
         return 0;
     if (vibe_user_unlink(state_file) != 0)
         return 0;
