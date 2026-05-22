@@ -279,7 +279,7 @@ HPET_REG_GENERAL_CONFIG equ 0x010
 HPET_REG_MAIN_COUNTER equ 0x0f0
 HPET_CONFIG_ENABLE equ 0x00000001
 HPET_COUNTER_SPIN_READS equ 100000
-HPET_LIVE_SPIN_READS equ 10000
+HPET_LIVE_SPIN_READS equ 1024
 ACPI_STATUS_NONE equ 0
 ACPI_STATUS_OK equ 1
 ACPI_STATUS_BAD equ 2
@@ -2291,6 +2291,7 @@ acpi_probe_tables:
     mov dword [hpet_live_current_low], 0
     mov dword [hpet_live_delta_low], 0
     mov dword [hpet_live_period_fs], 0
+    mov dword [hpet_live_last_tick], 0xffffffff
 
     movzx esi, word [ACPI_RSDP_EBDA_SEG_PTR]
     shl esi, 4
@@ -3004,6 +3005,14 @@ acpi_probe_hpet_counter:
 
 hpet_refresh_live_counter:
     pushad
+    cmp byte [hpet_live_status], MMIO_PROBE_NONE
+    je .sample
+    mov eax, [timer_ticks]
+    sub eax, [hpet_live_last_tick]
+    cmp eax, CLOCK_MONOTONIC_HZ
+    jb .done
+
+.sample:
     mov byte [hpet_live_status], MMIO_PROBE_BAD
     cmp byte [hpet_mmio_status], MMIO_PROBE_OK
     jne .done
@@ -3027,6 +3036,8 @@ hpet_refresh_live_counter:
     mov [hpet_live_delta_low], edx
     mov eax, [hpet_mmio_cap_high]
     mov [hpet_live_period_fs], eax
+    mov eax, [timer_ticks]
+    mov [hpet_live_last_tick], eax
     mov byte [hpet_live_status], MMIO_PROBE_OK
     test ebx, HPET_CONFIG_ENABLE
     jnz .done
@@ -32077,6 +32088,7 @@ hpet_live_config dd 0
 hpet_live_current_low dd 0
 hpet_live_delta_low dd 0
 hpet_live_period_fs dd 0
+hpet_live_last_tick dd 0xffffffff
 bios_boot_magic dd 0
 bios_boot_version dd 0
 bios_boot_loader_status dd 0
