@@ -25698,11 +25698,15 @@ write_smoke_status:
     call pmm_refresh_frame_counters
 
     cld
+    cmp byte [smoke_status_initialized], 1
+    je .buffer_ready
     mov edi, SMOKE_STATUS_ADDR
     xor eax, eax
     mov ecx, SMOKE_STATUS_BYTES / 4
     rep stosd
+    mov byte [smoke_status_initialized], 1
 
+.buffer_ready:
     mov edi, SMOKE_STATUS_ADDR
     mov esi, smoke_banner_text
     call smoke_copy_string
@@ -30163,6 +30167,7 @@ write_smoke_status:
     stosb
     mov al, 10
     stosb
+    mov byte [edi], 0
 
     pop edi
     pop esi
@@ -32072,6 +32077,7 @@ ioapic_redir_status db 0
 hpet_mmio_status db 0
 hpet_counter_status db 0
 hpet_live_status db 0
+smoke_status_initialized db 0
 align 4
 acpi_rsdp_addr dd 0
 acpi_rsdp_length dd 0
