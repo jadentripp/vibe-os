@@ -14,7 +14,9 @@ NOVNC_PORT="${NOVNC_PORT:-6080}"
 OPEN_BROWSER="${OPEN_BROWSER:-1}"
 CODESPACES_PORT_WAIT_SECONDS="${CODESPACES_PORT_WAIT_SECONDS:-300}"
 CODESPACES_PORT_WAIT_INTERVAL="${CODESPACES_PORT_WAIT_INTERVAL:-5}"
-CODESPACES_SSH_ATTEMPTS="${CODESPACES_SSH_ATTEMPTS:-3}"
+CODESPACES_READY_WAIT_SECONDS="${CODESPACES_READY_WAIT_SECONDS:-420}"
+CODESPACES_READY_WAIT_INTERVAL="${CODESPACES_READY_WAIT_INTERVAL:-5}"
+CODESPACES_SSH_ATTEMPTS="${CODESPACES_SSH_ATTEMPTS:-18}"
 CODESPACES_SSH_RETRY_SECONDS="${CODESPACES_SSH_RETRY_SECONDS:-10}"
 CODESPACES_MIN_INTERACTIVE_CPUS="${CODESPACES_MIN_INTERACTIVE_CPUS:-4}"
 MAX_DISPLAY_NAME_LENGTH=48
@@ -113,6 +115,7 @@ sanitize_remote_error() {
     -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*_(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*=)[^[:space:]]+/\1[redacted]/g' \
     -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*=)(gh[pousr]_[A-Za-z0-9_]+)/\1[redacted]/g' \
     -e 's/(gh[pousr]_[A-Za-z0-9_]+)/[redacted]/g' \
+    -e 's/([[:<:]][A-Z0-9]{4}-[A-Z0-9]{4}[[:>:]])/[redacted-code]/g' \
     -e 's/(Authorization: *(Bearer|token) +)[^[:space:]]+/\1[redacted]/Ig' \
     -e 's/((access_token|token|signature|X-Amz-Signature|X-Amz-Credential)=)[^&[:space:]]+/\1[redacted]/Ig'
 }
@@ -120,11 +123,12 @@ sanitize_remote_error() {
 ssh_permission_error() {
   grep -Eiq \
     'Permission denied|publickey|Could not resolve hostname|connection reset|connection refused|failed to connect|The codespace is not running|codespace.*starting|codespace.*not ready' \
+    "$1" || grep -Eiq \
+    'failed to poll state changes|failed to start SSH server|ssh server details|get post create output|run command: exit status 255' \
     "$1"
 }
 
 print_codespace_cleanup_commands() {
-  echo "Remote log: gh codespace ssh -c \"$CODESPACE_NAME\" -- tail -f /tmp/vibe-os-play-now.log"
   echo "Diagnostics: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh"
   echo "Diagnostics JSON: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh --json"
   echo "Diagnostics watch: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh --watch"
@@ -346,6 +350,48 @@ validate_positive_integer() {
   fi
 }
 
+codespace_state() {
+  gh codespace view \
+    -c "$CODESPACE_NAME" \
+    --json state \
+    --jq .state \
+    2> >(sanitize_remote_error >&2) || true
+}
+
+wait_for_codespace_state() {
+  local state
+  local wait_started
+  local last_state=""
+
+  echo "Waiting up to ${CODESPACES_READY_WAIT_SECONDS}s for Codespace control-plane state"
+  wait_started=$SECONDS
+  while [ $((SECONDS - wait_started)) -lt "$CODESPACES_READY_WAIT_SECONDS" ]; do
+    state="$(codespace_state)"
+    if [ -n "$state" ] && [ "$state" != "$last_state" ]; then
+      echo "Codespace state: $state"
+      last_state="$state"
+    fi
+
+    case "$state" in
+      Available|Ready|Running)
+        return 0
+        ;;
+      Shutdown|Stopped)
+        echo "Codespace is stopped; Codespaces SSH will request startup and retry until the SSH server is ready."
+        return 0
+        ;;
+      Failed|Deleted|Unavailable)
+        die "Codespace '$CODESPACE_NAME' entered state '$state'; delete it and recreate"
+        ;;
+      *)
+        sleep "$CODESPACES_READY_WAIT_INTERVAL"
+        ;;
+    esac
+  done
+
+  echo "Codespace state did not report Available before timeout; trying SSH retries anyway because GitHub state names can lag." >&2
+}
+
 select_preferred_codespace_machine() {
   local api_path
   local selected
@@ -511,6 +557,7 @@ print_preflight_summary() {
   echo "machine selection: $MACHINE_SELECTION_SUMMARY"
   echo "machine choices: gh api \"/repos/$REPO/codespaces/machines?ref=$(urlencode "$REF")\" --jq '.machines[] | [.cpus, .name, .display_name] | @tsv'"
   echo "resize existing Codespace: gh codespace edit -c <codespace-name> --machine <4-plus-cpu-machine-name>"
+  echo "Codespace ready-state wait timeout: ${CODESPACES_READY_WAIT_SECONDS}s"
   echo "noVNC wait timeout: ${CODESPACES_PORT_WAIT_SECONDS}s"
   echo "SSH start attempts: $CODESPACES_SSH_ATTEMPTS"
   echo "browser open: $OPEN_BROWSER"
@@ -550,14 +597,13 @@ print_web_url_summary() {
 
 remote_start_payload() {
   cat <<'REMOTE'
-set -euo pipefail
-
 repo_dir="${VIBE_CODESPACE_REPO_DIR:-}"
 redact_remote_stream() {
   sed -E \
     -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*_(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*=)[^[:space:]]+/\1[redacted]/g' \
     -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*=)(gh[pousr]_[A-Za-z0-9_]+)/\1[redacted]/g' \
     -e 's/(gh[pousr]_[A-Za-z0-9_]+)/[redacted]/g' \
+    -e 's/([[:<:]][A-Z0-9]{4}-[A-Z0-9]{4}[[:>:]])/[redacted-code]/g' \
     -e 's/(Authorization: *(Bearer|token) +)[^[:space:]]+/\1[redacted]/Ig' \
     -e 's/((access_token|token|signature|X-Amz-Signature|X-Amz-Credential)=)[^&[:space:]]+/\1[redacted]/Ig'
 }
@@ -627,7 +673,7 @@ run_remote_start() {
   for ((attempt = 1; attempt <= CODESPACES_SSH_ATTEMPTS; attempt++)); do
     : >"$err_file"
     set +e
-    remote_start_payload | gh codespace ssh -c "$CODESPACE_NAME" -- env VIBE_PLAY_REF="$REF" NOVNC_PORT="$NOVNC_PORT" bash -s 2> >(sanitize_remote_error | tee "$err_file" >&2)
+    remote_start_payload | gh codespace ssh -c "$CODESPACE_NAME" -- env VIBE_PLAY_REF="$REF" NOVNC_PORT="$NOVNC_PORT" bash -euo pipefail -s > >(sanitize_remote_error) 2> >(sanitize_remote_error | tee "$err_file" >&2)
     rc=$?
     set -e
 
@@ -645,7 +691,7 @@ run_remote_start() {
 
     {
       echo "Could not start play-now over Codespaces SSH after attempt $attempt/$CODESPACES_SSH_ATTEMPTS."
-      echo "The remote command is passed over stdin to bash -s; the launcher does not run a shell payload via bash -lc and does not print remote env."
+      echo "The remote command is passed over stdin to bash -euo pipefail -s; the launcher does not run a shell payload via bash -lc, does not print remote env, and filters token-shaped output."
       print_codespace_cleanup_commands
     } >&2
     rm -f "$err_file"
@@ -719,6 +765,8 @@ require_tool git
 validate_novnc_port
 validate_positive_integer CODESPACES_PORT_WAIT_SECONDS "$CODESPACES_PORT_WAIT_SECONDS"
 validate_positive_integer CODESPACES_PORT_WAIT_INTERVAL "$CODESPACES_PORT_WAIT_INTERVAL"
+validate_positive_integer CODESPACES_READY_WAIT_SECONDS "$CODESPACES_READY_WAIT_SECONDS"
+validate_positive_integer CODESPACES_READY_WAIT_INTERVAL "$CODESPACES_READY_WAIT_INTERVAL"
 validate_positive_integer CODESPACES_SSH_ATTEMPTS "$CODESPACES_SSH_ATTEMPTS"
 validate_positive_integer CODESPACES_SSH_RETRY_SECONDS "$CODESPACES_SSH_RETRY_SECONDS"
 validate_positive_integer CODESPACES_MIN_INTERACTIVE_CPUS "$CODESPACES_MIN_INTERACTIVE_CPUS"
@@ -781,7 +829,6 @@ if [ -z "$CODESPACE_NAME" ]; then
     --idle-timeout "$IDLE_TIMEOUT"
     --retention-period "$RETENTION_PERIOD"
     --default-permissions
-    --status
   )
   if [ -n "$CODESPACE_MACHINE" ]; then
     create_args+=(--machine "$CODESPACE_MACHINE")
@@ -800,6 +847,7 @@ else
   echo "Reusing Codespace '$CODESPACE_NAME'"
 fi
 
+wait_for_codespace_state
 echo "Starting vibe-os Doom inside Codespace '$CODESPACE_NAME'"
 run_remote_start || exit $?
 

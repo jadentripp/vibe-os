@@ -5,8 +5,10 @@ This script deliberately stops at artifact construction. It does not run OVMF,
 does not call QEMU, and does not prove UEFI boot support. The generated EFI
 application is a PE32+ x86_64 loader/proof application assembled from
 loader.asm. It can read VIBEOS/KERNEL.ELF, collect GOP and UEFI memory-map
-facts, and call ExitBootServices under OVMF, but the current kernel handoff is
-still blocked on a 64-bit UEFI to 32-bit protected-mode transition.
+facts, load ELF32 PT_LOAD segments into low physical memory, synthesize the
+legacy boot-info/E820 block, validate that the BIOS-compatible handoff is
+complete, and attempt the 64-bit UEFI to 32-bit protected-mode handoff after
+ExitBootServices. Kernel entry still needs cloud OVMF proof.
 """
 
 from __future__ import annotations
@@ -32,6 +34,22 @@ PE_SECTION_ALIGNMENT = 0x1000
 PE_HEADERS_SIZE = 0x200
 PE_TEXT_RVA = 0x1000
 PE_TEXT_RAW_POINTER = 0x200
+PE_MACHINE_AMD64 = 0x8664
+PE_OPTIONAL_MAGIC_PE32_PLUS = 0x20B
+PE_SUBSYSTEM_EFI_APPLICATION = 10
+
+REQUIRED_LOADER_MARKERS = (
+    b"VIBEUEFI step=entry",
+    b"VIBEUEFI step=esp-kernel-read",
+    b"VIBEUEFI step=low-memory-reserve status=success",
+    b"VIBEUEFI step=elf32-load status=success",
+    b"VIBEUEFI step=gop",
+    b"VIBEUEFI step=memory-map",
+    b"VIBEUEFI step=boot-info status=success",
+    b"VIBEUEFI step=low-handoff-copy status=success",
+    b"VIBEUEFI step=exit-boot-services status=success",
+    b"VIBEUEFI step=kernel-handoff status=attempting",
+)
 
 
 def align_up(value: int, alignment: int) -> int:
@@ -133,6 +151,91 @@ def build_pe32plus_efi_application(text: bytes) -> bytes:
     headers = dos + b"PE\0\0" + file_header + optional_header + section_header
     headers = headers.ljust(PE_HEADERS_SIZE, b"\0")
     return headers + text.ljust(text_raw_size, b"\0")
+
+
+def validate_pe32plus_efi_application(data: bytes, *, text_size: int) -> dict[str, object]:
+    """Validate the PE/COFF boundary that host checks rely on."""
+    if len(data) < PE_HEADERS_SIZE:
+        raise ValueError("BOOTX64.EFI is too small for PE/COFF headers")
+    if data[0:2] != b"MZ":
+        raise ValueError("BOOTX64.EFI missing MZ DOS header")
+    pe_offset = struct.unpack_from("<I", data, 0x3C)[0]
+    if pe_offset + 24 > len(data):
+        raise ValueError("BOOTX64.EFI PE header offset is out of range")
+    if data[pe_offset : pe_offset + 4] != b"PE\0\0":
+        raise ValueError("BOOTX64.EFI missing PE/COFF signature")
+
+    file_header = pe_offset + 4
+    machine, section_count, _timestamp, _symbols, _symbol_count, optional_size, _chars = (
+        struct.unpack_from("<HHIIIHH", data, file_header)
+    )
+    if machine != PE_MACHINE_AMD64:
+        raise ValueError("BOOTX64.EFI is not an x86_64 PE/COFF image")
+    if section_count != 1:
+        raise ValueError("BOOTX64.EFI must keep one .text section")
+    if optional_size != 0xF0:
+        raise ValueError("BOOTX64.EFI must use a PE32+ optional header")
+
+    optional = file_header + 20
+    if optional + optional_size > len(data):
+        raise ValueError("BOOTX64.EFI optional header is out of range")
+    if struct.unpack_from("<H", data, optional)[0] != PE_OPTIONAL_MAGIC_PE32_PLUS:
+        raise ValueError("BOOTX64.EFI optional header is not PE32+")
+    entry_rva = struct.unpack_from("<I", data, optional + 16)[0]
+    image_base = struct.unpack_from("<Q", data, optional + 24)[0]
+    section_alignment = struct.unpack_from("<I", data, optional + 32)[0]
+    file_alignment = struct.unpack_from("<I", data, optional + 36)[0]
+    size_of_image = struct.unpack_from("<I", data, optional + 56)[0]
+    size_of_headers = struct.unpack_from("<I", data, optional + 60)[0]
+    subsystem = struct.unpack_from("<H", data, optional + 68)[0]
+    data_directory_count = struct.unpack_from("<I", data, optional + 108)[0]
+    if entry_rva != PE_TEXT_RVA:
+        raise ValueError("BOOTX64.EFI entry point must start at .text")
+    if section_alignment != PE_SECTION_ALIGNMENT or file_alignment != PE_FILE_ALIGNMENT:
+        raise ValueError("BOOTX64.EFI section/file alignment changed")
+    if size_of_headers != PE_HEADERS_SIZE:
+        raise ValueError("BOOTX64.EFI header size changed")
+    if subsystem != PE_SUBSYSTEM_EFI_APPLICATION:
+        raise ValueError("BOOTX64.EFI must declare IMAGE_SUBSYSTEM_EFI_APPLICATION")
+    if data_directory_count != 16:
+        raise ValueError("BOOTX64.EFI must keep 16 PE data directory slots")
+
+    section = optional + optional_size
+    if section + 40 > len(data):
+        raise ValueError("BOOTX64.EFI section header is out of range")
+    name, virtual_size, virtual_address, raw_size, raw_pointer, _reloc, _lines, _reloc_count, _line_count, characteristics = (
+        struct.unpack_from("<8sIIIIIIHHI", data, section)
+    )
+    expected_raw_size = align_up(text_size, PE_FILE_ALIGNMENT)
+    expected_image_size = align_up(PE_TEXT_RVA + text_size, PE_SECTION_ALIGNMENT)
+    if name.rstrip(b"\0") != b".text":
+        raise ValueError("BOOTX64.EFI must contain a .text section")
+    if virtual_address != PE_TEXT_RVA or virtual_size != text_size:
+        raise ValueError("BOOTX64.EFI .text virtual layout changed")
+    if raw_pointer != PE_TEXT_RAW_POINTER or raw_size != expected_raw_size:
+        raise ValueError("BOOTX64.EFI .text raw layout changed")
+    if size_of_image != expected_image_size:
+        raise ValueError("BOOTX64.EFI SizeOfImage does not match .text")
+    if characteristics & 0xE0000020 != 0xE0000020:
+        raise ValueError("BOOTX64.EFI .text must be code, execute, read, and write")
+    if raw_pointer + raw_size > len(data):
+        raise ValueError("BOOTX64.EFI .text points past end of file")
+
+    text = data[raw_pointer : raw_pointer + raw_size]
+    missing_markers = [marker.decode("ascii") for marker in REQUIRED_LOADER_MARKERS if marker not in text]
+    if missing_markers:
+        raise ValueError("BOOTX64.EFI loader is missing proof markers: " + ", ".join(missing_markers))
+
+    return {
+        "format": "PE32+",
+        "machine": "x86_64",
+        "subsystem": "efi-application",
+        "entry_rva": entry_rva,
+        "image_base": image_base,
+        "section_count": section_count,
+        "text_size": text_size,
+        "required_marker_count": len(REQUIRED_LOADER_MARKERS),
+    }
 
 
 def _fat_name(name: str, extension: str = "") -> bytes:
@@ -297,6 +400,10 @@ def build_artifacts(
     loader_source = loader_source or Path(__file__).with_name("loader.asm")
     loader_payload = assemble_loader(loader_source, nasm)
     efi_application = build_pe32plus_efi_application(loader_payload)
+    pe_coff_validation = validate_pe32plus_efi_application(
+        efi_application,
+        text_size=len(loader_payload),
+    )
     esp_image = build_fat16_esp_image(efi_application, kernel)
 
     efi_path = out_dir / "BOOTX64.EFI"
@@ -312,17 +419,23 @@ def build_artifacts(
         "efi_machine": "x86_64",
         "efi_loader_source": str(loader_source),
         "efi_loader_kind": "loader-proof-application",
+        "pe_coff_validation": pe_coff_validation,
         "efi_loader_features": [
             "esp-kernel-read",
             "gop-framebuffer-info",
             "uefi-memory-map",
+            "elf32-pt-load-placement",
+            "bios-compatible-elf32-contract",
+            "legacy-boot-info-e820-handoff",
+            "pre-exit-boot-info-validation",
+            "uefi64-to-protected32-transition",
             "exit-boot-services",
             "debugcon-proof-markers",
         ],
         "esp_image": esp_path.name,
         "esp_format": "fat16-superfloppy",
         "esp_paths": ["EFI/BOOT/BOOTX64.EFI", "VIBEOS/KERNEL.ELF"],
-        "kernel_handoff": "blocked-uefi64-to-elf32-protected-mode-transition",
+        "kernel_handoff": "source-implemented-pending-ovmf-kernel-entry-marker",
         "kernel_source": str(kernel_path),
         "vm_execution": "not-run",
     }

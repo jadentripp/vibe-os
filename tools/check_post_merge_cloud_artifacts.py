@@ -13,6 +13,7 @@ import fnmatch
 import gzip
 import io
 import json
+import re
 import sys
 import zipfile
 from pathlib import Path
@@ -23,18 +24,28 @@ sys.path.insert(0, str(SCRIPT_DIR))
 import check_audio_continuity_proof  # noqa: E402
 import check_audible_audio_proof  # noqa: E402
 import check_real_wad_proof  # noqa: E402
+import check_repo_hygiene  # noqa: E402
 import check_scripted_gameplay_proof  # noqa: E402
 import check_vm_status_proof  # noqa: E402
 import triage_persistence_artifacts  # noqa: E402
 
 RUN_IDENTITY = "cloud-proof-run.json"
 RUN_IDENTITY_SCHEMA = "cloud-proof-run-v1"
+FULL_SHA_RE = re.compile(r"^[0-9A-Fa-f]{40}$")
 OS_WORKFLOW = "os-smoke.yml"
 OS_ARTIFACT = "aurora-os-smoke-proof-status"
 REAL_WAD_WORKFLOW = "real-wad-smoke.yml"
 REAL_WAD_ARTIFACT = "real-wad-smoke-proof-status"
 UEFI_WORKFLOW = "uefi-ovmf-proof.yml"
 UEFI_ARTIFACT = "uefi-ovmf-proof-manifests"
+UEFI_REQUIRED_HANDOFF_FLAG_MASK = 0x0000007F
+UEFI_LOADER_REQUIRED_HANDOFF_FIELDS = {
+    "handoff": 0x9000,
+    "bootinfo": 0x7000,
+    "e820": 0x7100,
+    "tramp32": 0x8000,
+    "transition64": 0xA000,
+}
 
 STATUS_ONLY_SUFFIXES = (".txt", ".json")
 FORBIDDEN_PATTERNS = (
@@ -74,6 +85,13 @@ FORBIDDEN_PATTERNS = (
     "*.aiff",
     "*.aif",
     "*.au",
+    ".env",
+    "*.env",
+    "*token*",
+    "*secret*",
+    "*credential*",
+    "*credentials*",
+    "*cookie*",
 )
 FORBIDDEN_ARCHIVE_SUFFIXES = (
     ".wad",
@@ -138,8 +156,10 @@ def _load_json(path: Path) -> dict[str, object]:
     return loaded
 
 
-def _commit_matches(actual: str, expected: str) -> bool:
-    return actual == expected or actual.startswith(expected) or expected.startswith(actual)
+def _validate_full_sha(value: str, label: str) -> str:
+    if not FULL_SHA_RE.fullmatch(value):
+        raise AssertionError(f"{label} must be a full 40-character Git SHA, got {value!r}")
+    return value.lower()
 
 
 def _relative_names(root: Path) -> list[str]:
@@ -222,11 +242,22 @@ def validate_status_only_artifact_dir(artifact_dir: Path) -> None:
         if not basename.endswith(STATUS_ONLY_SUFFIXES):
             raise AssertionError(f"forbidden non-text/json file in status-only artifact: {name}")
         for pattern in FORBIDDEN_PATTERNS:
-            if fnmatch.fnmatchcase(basename, pattern):
+            if fnmatch.fnmatchcase(basename, pattern) or fnmatch.fnmatchcase(
+                basename.lower(), pattern.lower()
+            ):
                 raise AssertionError(f"forbidden payload in status-only artifact: {name}")
-        reason = _forbidden_content_reason(path, path.read_bytes())
+        data = path.read_bytes()
+        reason = _forbidden_content_reason(path, data)
         if reason is not None:
             raise AssertionError(f"forbidden artifact content in {name}: {reason}")
+        if len(data) <= check_repo_hygiene.SECRET_SCAN_MAX_BYTES:
+            text = data.decode("utf-8", errors="ignore")
+            secret_violations = check_repo_hygiene.secret_content_violations(name, text)
+            if secret_violations:
+                raise AssertionError(
+                    "forbidden secret-like artifact content in "
+                    f"{name}: {secret_violations[0]}"
+                )
 
 
 def validate_run_identity(
@@ -246,8 +277,11 @@ def validate_run_identity(
     sha = identity.get("sha")
     if not isinstance(sha, str) or not sha:
         raise AssertionError(f"{RUN_IDENTITY} must record sha")
-    if expected_commit and not _commit_matches(sha, expected_commit):
-        raise AssertionError(f"{RUN_IDENTITY} sha {sha} does not match {expected_commit}")
+    actual_sha = _validate_full_sha(sha, f"{RUN_IDENTITY} sha")
+    if expected_commit:
+        expected_sha = _validate_full_sha(expected_commit, "--expected-commit")
+        if actual_sha != expected_sha:
+            raise AssertionError(f"{RUN_IDENTITY} sha {sha} does not match {expected_commit}")
     if identity.get("local_qemu_required") is not False:
         raise AssertionError(f"{RUN_IDENTITY} must record local_qemu_required=false")
     policy = identity.get("artifact_policy")
@@ -386,7 +420,7 @@ def validate_uefi_loader_artifact(
     artifact_dir: Path,
     *,
     expected_commit: str | None = None,
-    require_exit_boot_services: bool = False,
+    require_kernel_entry: bool = False,
 ) -> None:
     validate_status_only_artifact_dir(artifact_dir)
     validate_run_identity(
@@ -398,8 +432,6 @@ def validate_uefi_loader_artifact(
     manifest = _load_json(_find_one(artifact_dir, "ovmf-proof-manifest.json"))
     if manifest.get("schema") != "uefi-ovmf-cloud-proof-v1":
         raise AssertionError("UEFI manifest schema must be uefi-ovmf-cloud-proof-v1")
-    if manifest.get("support_claim") != "unclaimed":
-        raise AssertionError("UEFI manifest must keep support_claim=unclaimed")
     if manifest.get("support_row") != "SUPPORT[UEFI]":
         raise AssertionError("UEFI manifest must keep support_row=SUPPORT[UEFI]")
     if manifest.get("local_qemu_required") is not False:
@@ -422,24 +454,118 @@ def validate_uefi_loader_artifact(
     ovmf = manifest.get("ovmf")
     if not isinstance(ovmf, dict):
         raise AssertionError("UEFI manifest missing ovmf object")
-    if ovmf.get("kernel_booted") is not False:
-        raise AssertionError("UEFI loader proof must not claim kernel_booted=true")
-    if require_exit_boot_services:
+    loader_handoff_ok = _has_loader_handoff_evidence(ovmf)
+    kernel_entry_ok = _has_kernel_entry_evidence(ovmf)
+    if ovmf.get("kernel_handoff_after_exit_boot_services") is True and not loader_handoff_ok:
+        raise AssertionError("UEFI loader handoff proof requires bounded loader handoff evidence")
+    if ovmf.get("kernel_booted") is True and ovmf.get("kernel_entry_after_exit_boot_services") is not True:
+        raise AssertionError("UEFI kernel_booted=true requires a kernel marker after ExitBootServices")
+    if ovmf.get("kernel_booted") is True and ovmf.get("kernel_handoff_after_exit_boot_services") is not True:
+        raise AssertionError("UEFI kernel_booted=true requires the loader handoff attempt after ExitBootServices")
+    if ovmf.get("kernel_booted") is True and not loader_handoff_ok:
+        raise AssertionError("UEFI kernel_booted=true requires loader handoff address/flag evidence")
+    if ovmf.get("kernel_booted") is True and not kernel_entry_ok:
+        raise AssertionError("UEFI kernel_booted=true requires the kernel-owned VIBEKERN entry/status marker")
+    support_claim = manifest.get("support_claim")
+    if support_claim != "unclaimed" and not kernel_entry_ok:
+        raise AssertionError("UEFI support claims require kernel-owned entry/status evidence")
+    if support_claim != "unclaimed":
+        raise AssertionError("UEFI manifest must keep support_claim=unclaimed until the support rows are updated")
+    if require_kernel_entry:
         if manifest.get("mode") != "prove":
-            raise AssertionError("UEFI loader proof artifact must come from mode=prove")
+            raise AssertionError("UEFI kernel-entry proof artifact must come from mode=prove")
+        if ovmf.get("kernel_status_evidence_required") is not True:
+            raise AssertionError("UEFI proof manifest must require kernel-owned status evidence")
         if ovmf.get("exit_boot_services") is not True:
-            raise AssertionError("UEFI loader proof did not reach ExitBootServices")
-        if ovmf.get("proof") != "exit-boot-services":
-            raise AssertionError("UEFI loader proof must record proof=exit-boot-services")
+            raise AssertionError("UEFI kernel-entry proof did not first reach ExitBootServices")
+        if ovmf.get("kernel_entry_after_exit_boot_services") is not True:
+            raise AssertionError("UEFI kernel-entry proof marker must appear after ExitBootServices")
+        if ovmf.get("kernel_handoff_after_exit_boot_services") is not True:
+            raise AssertionError("UEFI proof requires the loader handoff attempt after ExitBootServices")
+        if not loader_handoff_ok:
+            raise AssertionError("UEFI proof requires bounded loader handoff evidence after ExitBootServices")
+        if not kernel_entry_ok:
+            raise AssertionError("UEFI proof requires the kernel-owned VIBEKERN entry/status marker")
+        if ovmf.get("proof") != "kernel-entry-marker":
+            raise AssertionError("UEFI proof must record proof=kernel-entry-marker")
         if ovmf.get("debugcon_uploaded") is not False:
-            raise AssertionError("UEFI loader proof must not upload raw debugcon logs")
+            raise AssertionError("UEFI proof must not upload raw debugcon logs")
+
+
+def _has_loader_handoff_evidence(ovmf: dict) -> bool:
+    if ovmf.get("loader_handoff_valid") is not True:
+        return False
+    evidence = ovmf.get("loader_handoff_evidence")
+    if not isinstance(evidence, dict):
+        return False
+    if evidence.get("step") != "kernel-handoff" or evidence.get("status") != "attempting":
+        return False
+    for key, expected in UEFI_LOADER_REQUIRED_HANDOFF_FIELDS.items():
+        value = evidence.get(key)
+        if not isinstance(value, str) or _parse_hex_field(value) != expected:
+            return False
+    for key in ("entry32", "segments"):
+        value = evidence.get(key)
+        if not isinstance(value, str):
+            return False
+        parsed = _parse_hex_field(value)
+        if parsed is None or parsed == 0:
+            return False
+    flags = evidence.get("flags")
+    if not isinstance(flags, str):
+        return False
+    parsed_flags = _parse_hex_field(flags)
+    if parsed_flags is None:
+        return False
+    if parsed_flags & UEFI_REQUIRED_HANDOFF_FLAG_MASK != UEFI_REQUIRED_HANDOFF_FLAG_MASK:
+        return False
+    return True
+
+
+def _has_kernel_entry_evidence(ovmf: dict) -> bool:
+    if ovmf.get("kernel_booted") is not True:
+        return False
+    if ovmf.get("kernel_entry_status") != "OK":
+        return False
+    evidence = ovmf.get("kernel_entry_evidence")
+    if not isinstance(evidence, dict):
+        return False
+    if evidence.get("step") != "uefi-entry" or evidence.get("status") != "OK":
+        return False
+    for key, expected in {"handoff": 0x9000, "bootinfo": 0x7000, "e820": 0x7100}.items():
+        value = evidence.get(key)
+        if not isinstance(value, str) or _parse_hex_field(value) != expected:
+            return False
+    for key in ("entry", "segments"):
+        value = evidence.get(key)
+        if not isinstance(value, str):
+            return False
+        parsed = _parse_hex_field(value)
+        if parsed is None or parsed == 0:
+            return False
+    flags = evidence.get("flags")
+    if not isinstance(flags, str):
+        return False
+    parsed_flags = _parse_hex_field(flags)
+    if parsed_flags is None:
+        return False
+    if parsed_flags & UEFI_REQUIRED_HANDOFF_FLAG_MASK != UEFI_REQUIRED_HANDOFF_FLAG_MASK:
+        return False
+    return True
+
+
+def _parse_hex_field(value: str) -> int | None:
+    try:
+        return int(value, 16)
+    except ValueError:
+        return None
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Validate post-merge status-only cloud proof artifacts."
     )
-    parser.add_argument("--expected-commit", help="expected workflow commit SHA or prefix")
+    parser.add_argument("--expected-commit", help="expected full 40-character workflow commit SHA")
     parser.add_argument("--os", type=Path, help="downloaded aurora-os-smoke-proof-status dir")
     parser.add_argument("--real-wad", type=Path, help="downloaded real-wad-smoke-proof-status dir")
     parser.add_argument("--uefi", type=Path, help="downloaded uefi-ovmf-proof-manifests dir")
@@ -459,9 +585,14 @@ def main(argv: list[str] | None = None) -> int:
         help="require persistence status files to triage as persistence-proof-green",
     )
     parser.add_argument(
+        "--require-uefi-kernel-entry",
+        action="store_true",
+        help="require mode=prove plus a kernel-owned VIBEKERN entry/status marker",
+    )
+    parser.add_argument(
         "--require-uefi-exit-boot-services",
         action="store_true",
-        help="require the UEFI proof manifest to be mode=prove and reach ExitBootServices",
+        help="deprecated alias for --require-uefi-kernel-entry; loader-only ExitBootServices is not a UEFI claim",
     )
     args = parser.parse_args(argv)
 
@@ -483,7 +614,7 @@ def main(argv: list[str] | None = None) -> int:
             validate_uefi_loader_artifact(
                 args.uefi,
                 expected_commit=args.expected_commit,
-                require_exit_boot_services=args.require_uefi_exit_boot_services,
+                require_kernel_entry=args.require_uefi_kernel_entry or args.require_uefi_exit_boot_services,
             )
             checked.append("uefi-ovmf-proof")
         if not checked:

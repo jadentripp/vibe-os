@@ -5,20 +5,26 @@ loader/proof application in `loader.asm` plus an opt-in host artifact builder,
 `build_host_artifacts.py`, that emits untracked `BOOTX64.EFI`, `esp.img`, and
 `manifest.json` files for host checks. The loader can read
 `VIBEOS/KERNEL.ELF` from the ESP, collect GOP framebuffer facts, capture the
-UEFI memory map, and call `ExitBootServices` during the disposable-cloud OVMF
-proof path. It now carries a host-buildable UEFI64-to-32-bit handoff plan in
-assembly: BIOS-compatible GDT selectors, a fixed 32-bit stack target, the legacy
-boot-info address layout, an internal handoff block, a low-memory trampoline
-shape, and debugcon markers for the planned handoff. It still does not yet
-contain a kernel-entry handoff: the current kernel still expects a BIOS-style
-32-bit protected-mode entry, and the loader stops after `ExitBootServices` with
-a debug marker instead of enabling the final switch from 64-bit UEFI into that
-handoff. SUPPORT[UEFI] remains unclaimed in
-`docs/architecture.txt`.
+UEFI memory map, call `ExitBootServices`, and attempt the handoff to the current
+32-bit protected-mode kernel during the disposable-cloud OVMF proof path. It now
+carries host-buildable UEFI64-to-32-bit handoff assembly: fixed low-memory
+reservations, ELF32 `PT_LOAD` placement at physical destinations under the same
+low-memory bounds as BIOS Stage 2, a synthesized and validated legacy
+boot-info/E820 block, BIOS-compatible GDT selectors, a fixed 32-bit stack
+target, an internal handoff block, a low-memory 64-bit mode-exit stub, a
+low-memory 32-bit trampoline, a pre-`ExitBootServices` verification pass over
+the copied low-memory handoff image, and debugcon markers for the attempted
+handoff.
+The kernel now has a source-level `VIBEKERN step=uefi-entry` marker and smoke
+status fields for the UEFI handoff registers/block. This still does not claim
+UEFI boot support: no disposable OVMF run has captured the kernel-owned marker,
+and this Mac has no local QEMU proof.
+SUPPORT[UEFI] remains unclaimed in `docs/architecture.txt`.
 
-The remaining kernel-entry blocker is the 64-bit UEFI to 32-bit protected-mode
-transition plus the proof that the ELF32 kernel was placed at its expected
-low-memory PT_LOAD destinations and emitted a kernel-owned entry/status marker.
+The remaining kernel-entry blocker is cloud proof: the loader implements the
+low-memory 64-bit UEFI to 32-bit protected-mode transition path, and the kernel
+records the handoff when reached, but an OVMF run still has to show that the
+ELF32 kernel actually receives control and emits the kernel-owned marker.
 
 The current boot path is still the BIOS MBR plus raw-LBA Stage 2 loader described
 in `docs/architecture.txt`. Future UEFI work must keep that path working unless
@@ -26,31 +32,44 @@ the project deliberately retires it, and must not describe vibe-os as
 UEFI-bootable until the kernel-entry row below has real source, build, and
 cloud proof evidence. `ovmf_cloud_proof.py` can emit a QEMU-free contract
 manifest locally, while `.github/workflows/uefi-ovmf-proof.yml` has manual
-GitHub Actions modes for an OVMF attempt or an ExitBootServices proof run.
+GitHub Actions modes for an OVMF attempt or a kernel-entry proof run.
 
 ## Machine-Readable Contract
 
 The `UEFI_BOOT[...]` rows are machine-readable. They describe the current
-intermediate rung: host-built loader pieces exist, the OVMF proof target is
-ExitBootServices, and kernel entry remains blocked.
+intermediate rung: host-built loader pieces exist, the OVMF proof target is the
+kernel-owned entry marker, and kernel entry source is implemented but not
+cloud-proven.
 
 - `UEFI_BOOT[ENTRY] status=host-built requires=pe32-efi-loader proof=host-pe-coff-loader-check evidence=build-host-artifacts`
 - `UEFI_BOOT[ESP_STORAGE] status=loader-implemented requires=fat-esp-kernel-read proof=source-and-host-build evidence=loader.asm`
 - `UEFI_BOOT[FRAMEBUFFER] status=loader-implemented requires=gop-info-collection proof=source-and-host-build evidence=loader.asm`
 - `UEFI_BOOT[MEMORY_MAP] status=loader-implemented requires=uefi-memory-map proof=source-and-host-build evidence=loader.asm`
 - `UEFI_BOOT[EXIT_BOOT_SERVICES] status=cloud-proof-target requires=exit-before-kernel-handoff proof=ovmf-debugcon-marker evidence=uefi-ovmf-proof.yml`
-- `UEFI_BOOT[KERNEL_HANDOFF] status=blocked requires=elf32-entry-compatible proof=future-mode-switch-handoff evidence=ovmf-proof-manifest`
+- `UEFI_BOOT[KERNEL_HANDOFF] status=source-implemented requires=ovmf-kernel-entry-marker proof=future-cloud-kernel-entry evidence=loader.asm`
 - `UEFI_BOOT[BUILD_INTEGRATION] status=host-built requires=separate-opt-in-target proof=host-artifact-build evidence=build-host-artifacts`
 
-## 32-bit Handoff Plan
+## 32-bit Handoff Implementation
 
-This is source-level progress, not a boot claim. `loader.asm` now records a
-handoff plan before `ExitBootServices` and prints a `VIBEUEFI step=handoff-plan`
-debugcon marker. The marker includes the ELF32 entry address read from
+This is source-level progress, not a boot claim. `loader.asm` now reserves the
+fixed low-memory pages, validates the ELF32 header/program headers with
+BIOS-compatible bounds, loads ELF32 `PT_LOAD` segments to their physical
+destinations, synthesizes and validates the legacy boot-info/E820 block from GOP
+plus a UEFI memory map whose descriptor size and byte span are checked before it
+can feed E820 synthesis, copies a low-memory 64-bit transition stub and 32-bit
+trampoline, verifies that the low handoff block, trampoline, and transition stub
+are readable at their physical targets, then prints
+`VIBEUEFI step=kernel-handoff status=attempting` after `ExitBootServices` before
+jumping to the low transition stub. If the kernel is entered through that path,
+`kernel/kernel.asm` validates `EDX=UHND`,
+`EBX=0x7000`, `ECX=0x9000`, and `ESI=0x7100`, copies the handoff block into
+kernel-owned status fields, emits `VIBEKERN step=uefi-entry status=OK` on the
+same OVMF debugcon port, and appends `uefi=`, `uefiregs=`, `uefientry=`,
+`uefifb=`, `uefimmap=`, and `uefiboot=` smoke fields. The
+`VIBEUEFI step=handoff-plan` marker includes the ELF32 entry address read from
 `VIBEOS/KERNEL.ELF`, the protected-mode stack target, the boot-info address, the
-low-memory trampoline address, the GDT base, selectors, and flags. The final
-post-ExitBootServices marker remains `VIBEUEFI step=kernel-handoff
-status=blocked`.
+low-memory trampoline address, the low GDT base, selectors, loaded segment
+count, transition stub address, and flags.
 
 The 32-bit contract intentionally matches the current BIOS Stage 2/kernel ABI:
 
@@ -60,6 +79,7 @@ The 32-bit contract intentionally matches the current BIOS Stage 2/kernel ABI:
 - E820-compatible map target `0x00007100`
 - low-memory transition trampoline target `0x00008000`
 - handoff block target `0x00009000`
+- low-memory 64-bit transition stub target `0x0000a000`
 
 The planned register contract at the 32-bit trampoline is:
 
@@ -71,12 +91,24 @@ The planned register contract at the 32-bit trampoline is:
 - `ESP`: protected-mode stack top, `0x00070000`
 - `CS:DS/ES/FS/GS/SS`: `0x08:0x10` flat protected-mode selectors
 
-The transition stub is deliberately not called yet. Before it can become the
-real path, the loader still has to reserve or otherwise prove the fixed
-low-memory ranges, copy/load ELF32 PT_LOAD segments to the kernel's expected
-physical destinations instead of only reading the ELF file into an arbitrary UEFI
-buffer, synthesize the legacy boot-info/E820 memory image from GOP and the UEFI
-memory map, and prove a kernel-owned entry marker after the final jump.
+The transition stub is now called after `ExitBootServices`. The blocker that
+remains in this QEMU-free local workspace is proof: a disposable OVMF run must
+capture the existing loader markers and then the kernel-owned `VIBEKERN`
+entry/status marker after the final jump. The `prove` checker must treat
+`ExitBootServices` as loader-only evidence and require the loader's
+post-`ExitBootServices` `kernel-handoff status=attempting` marker plus parsed
+kernel fields: `status=OK`, `handoff=0x00009000`, `bootinfo=0x00007000`,
+`e820=0x00007100`, and nonzero `entry` and `segments`. The kernel marker must
+appear after those loader markers and its `flags` value must include the
+boot-info, GOP, memory-map, transition-stub, ELF32-segment, low-memory, and
+final-jump bits (`0x0000007f`). Until that marker is captured in the cloud proof
+lane, the implementation is a source-built handoff path, not supported UEFI
+boot. The post-`ExitBootServices` `kernel-handoff` marker is not accepted as
+proof unless it carries the bounded target addresses and masks that the
+trampoline will use: `entry32`, `handoff=0x00009000`,
+`bootinfo=0x00007000`, `e820=0x00007100`, `tramp32=0x00008000`,
+`transition64=0x0000a000`, `flags`, and `segments`. A bare loader message that
+only says it attempted the handoff is treated as an overclaim.
 
 The `UEFI_BOOT_DEVICE[...]` rows pin the future boot-device proof boundary. A
 UEFI loader is not enough by itself; the proof must show how the loader is
@@ -94,7 +126,12 @@ containing `EFI/BOOT/BOOTX64.EFI` plus `VIBEOS/KERNEL.ELF`, and a source-level
 guard that no OVMF/QEMU VM boot is part of the host check; the host check does
 not run OVMF. These rows must not be cited as UEFI boot support. The manifest
 claim is
-`host-built-uefi-loader-no-kernel-entry-proof`.
+`host-built-uefi-loader-no-kernel-entry-proof`; its `kernel_handoff` field is
+`source-implemented-pending-ovmf-kernel-entry-marker`. The host artifact builder
+validates the generated `BOOTX64.EFI` PE/COFF boundary before writing the
+manifest: `MZ` plus `PE\0\0` signatures, x86_64 PE32+ optional header, EFI
+application subsystem, one executable/readable/writable `.text` section at the
+expected entry RVA, and the required loader debug markers.
 
 - `UEFI_HOST_ARTIFACT[PE_COFF_LOADER] status=host-buildable kind=pe32plus-efi-loader-proof-application proof=host-pe-coff-loader-check evidence=build-host-artifacts`
 - `UEFI_HOST_ARTIFACT[ESP_FAT_IMAGE] status=host-buildable kind=fat16-esp-file-layout proof=host-fat-directory-check evidence=build-host-artifacts`
@@ -108,7 +145,7 @@ upload policy is JSON manifests only; parsed debugcon markers may appear inside
 the manifest, while ESP images, EFI binaries, pflash vars, disk images, raw
 serial captures, and VM logs stay runner-local scratch.
 
-- `UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH] status=scaffolded runner=github-actions-ubuntu mode=contract-attempt-prove-exitbs evidence=uefi-ovmf-proof.yml`
+- `UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH] status=scaffolded runner=github-actions-ubuntu mode=contract-attempt-prove-kernel-entry evidence=uefi-ovmf-proof.yml`
 - `UEFI_CLOUD_PROOF[OVMF_ATTEMPT] status=scaffolded runner=github-actions-ubuntu mode=manual-qemu-ovmf-debugcon evidence=ovmf-cloud-proof-script`
 - `UEFI_CLOUD_PROOF[SUPPORT_GUARD] status=guardrail runner=host-check mode=support-uefi-unclaimed evidence=check-hardware-support-matrix`
 - `UEFI_CLOUD_PROOF[ARTIFACT_POLICY] status=guardrail runner=github-actions-ubuntu mode=json-manifests-only evidence=workflow-artifact-policy`

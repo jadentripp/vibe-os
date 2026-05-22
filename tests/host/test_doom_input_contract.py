@@ -64,16 +64,74 @@ class DoomInputContractTests(unittest.TestCase):
                 __builtin_offsetof(vibe_input_status_t, last_event_device_id) == 104);
             CHECK(input_status_last_event_type,
                 __builtin_offsetof(vibe_input_status_t, last_event_type) == 108);
-            CHECK(input_status_bytes, VIBE_INPUT_STATUS_BYTES == 112);
-            CHECK(input_abi_version, VIBE_INPUT_ABI_VERSION == 1);
+            CHECK(input_status_status_bytes,
+                __builtin_offsetof(vibe_input_status_t, status_bytes) == 112);
+            CHECK(input_status_queue_usable_capacity,
+                __builtin_offsetof(vibe_input_status_t, queue_usable_capacity) == 116);
+            CHECK(input_status_overflow_policy,
+                __builtin_offsetof(vibe_input_status_t, overflow_policy) == 120);
+            CHECK(input_status_keyboard_status,
+                __builtin_offsetof(vibe_input_status_t, keyboard_status) == 124);
+            CHECK(input_status_mouse_status,
+                __builtin_offsetof(vibe_input_status_t, mouse_status) == 128);
+            CHECK(input_status_bytes, VIBE_INPUT_STATUS_BYTES == 132);
+            CHECK(input_device_status_size,
+                sizeof(vibe_input_device_status_t) == VIBE_INPUT_DEVICE_STATUS_BYTES);
+            CHECK(input_device_status_abi_version,
+                __builtin_offsetof(vibe_input_device_status_t, abi_version) == 0);
+            CHECK(input_device_status_status_bytes,
+                __builtin_offsetof(vibe_input_device_status_t, status_bytes) == 4);
+            CHECK(input_device_status_device_id,
+                __builtin_offsetof(vibe_input_device_status_t, device_id) == 8);
+            CHECK(input_device_status_status,
+                __builtin_offsetof(vibe_input_device_status_t, status) == 12);
+            CHECK(input_device_status_capabilities,
+                __builtin_offsetof(vibe_input_device_status_t, capabilities) == 16);
+            CHECK(input_device_status_irq_count,
+                __builtin_offsetof(vibe_input_device_status_t, irq_count) == 20);
+            CHECK(input_device_status_event_count,
+                __builtin_offsetof(vibe_input_device_status_t, event_count) == 24);
+            CHECK(input_device_status_polled_events,
+                __builtin_offsetof(vibe_input_device_status_t, polled_events) == 28);
+            CHECK(input_device_status_dropped_events,
+                __builtin_offsetof(vibe_input_device_status_t, dropped_events) == 32);
+            CHECK(input_device_status_last_timestamp,
+                __builtin_offsetof(vibe_input_device_status_t, last_timestamp) == 36);
+            CHECK(input_device_status_last_event_type,
+                __builtin_offsetof(vibe_input_device_status_t, last_event_type) == 40);
+            CHECK(input_device_status_last_code,
+                __builtin_offsetof(vibe_input_device_status_t, last_code) == 44);
+            CHECK(input_device_status_active_state,
+                __builtin_offsetof(vibe_input_device_status_t, active_state) == 48);
+            CHECK(input_device_status_axis_x_total,
+                __builtin_offsetof(vibe_input_device_status_t, axis_x_total) == 52);
+            CHECK(input_device_status_axis_y_total,
+                __builtin_offsetof(vibe_input_device_status_t, axis_y_total) == 56);
+            CHECK(input_device_status_reserved0,
+                __builtin_offsetof(vibe_input_device_status_t, reserved0) == 60);
+            CHECK(input_device_status_bytes, VIBE_INPUT_DEVICE_STATUS_BYTES == 64);
+            CHECK(input_abi_version, VIBE_INPUT_ABI_VERSION == 2);
             CHECK(input_queue_capacity, VIBE_INPUT_EVENT_QUEUE_CAPACITY == 64);
             CHECK(input_queue_usable_capacity, VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY == 63);
             CHECK(input_queue_drop_policy, VIBE_INPUT_QUEUE_OVERFLOW_DROP_OLDEST == 1);
+            CHECK(input_device_status_ready, VIBE_INPUT_DEVICE_STATUS_READY == 1);
+            CHECK(input_device_status_error, VIBE_INPUT_DEVICE_STATUS_ERROR == 2);
             CHECK(input_event_value_count, VIBE_INPUT_EVENT_VALUE_COUNT == 3);
             CHECK(input_key_state_bits, VIBE_INPUT_KEY_STATE_BITS == 256);
+            CHECK(input_cap_device_status, VIBE_INPUT_CAP_DEVICE_STATUS == 0x10);
+            CHECK(input_device_cap_keys, VIBE_INPUT_DEVICE_CAP_KEYS == 0x01);
+            CHECK(input_device_cap_relative_pointer, VIBE_INPUT_DEVICE_CAP_RELATIVE_POINTER == 0x02);
+            CHECK(input_device_cap_buttons, VIBE_INPUT_DEVICE_CAP_BUTTONS == 0x04);
+            CHECK(input_device_cap_state_snapshot, VIBE_INPUT_DEVICE_CAP_STATE_SNAPSHOT == 0x08);
+            CHECK(input_mod_shift, VIBE_INPUT_MOD_SHIFT == 0x01);
+            CHECK(input_mod_ctrl, VIBE_INPUT_MOD_CTRL == 0x02);
+            CHECK(input_mod_alt, VIBE_INPUT_MOD_ALT == 0x04);
+            CHECK(input_key_ps2_scancode_mask, VIBE_INPUT_KEY_PS2_SET1_SCANCODE_MASK == 0x7f);
+            CHECK(input_key_ps2_extended, VIBE_INPUT_KEY_PS2_SET1_EXTENDED == 0x80);
             CHECK(input_mouse_axis_x, VIBE_INPUT_MOUSE_AXIS_X == 0);
             CHECK(input_mouse_axis_y, VIBE_INPUT_MOUSE_AXIS_Y == 1);
             CHECK(input_status_syscall, VIBE_SYS_INPUT_STATUS == 31);
+            CHECK(input_device_status_syscall, VIBE_SYS_INPUT_DEVICE_STATUS == 39);
         """
         abi = subprocess.run(
             [
@@ -106,34 +164,54 @@ class DoomInputContractTests(unittest.TestCase):
             {
                 vibe_input_event_t event;
 
-                vibe_input_make_key_event(&event, 44, 'w', 1);
+                vibe_input_make_key_event(
+                    &event,
+                    44,
+                    vibe_input_ps2_set1_key_code(0x11, 0),
+                    1);
                 if (event.timestamp != 44
                     || event.device_id != VIBE_INPUT_DEVICE_KEYBOARD
                     || event.type != VIBE_INPUT_EVENT_KEY
-                    || event.code != 'w'
+                    || event.code != 0x11
                     || event.value0 != VIBE_INPUT_KEY_PRESSED
                     || event.value1 != 0
                     || event.value2 != 0)
                     return 1;
-                if (vibe_input_key_code(&event) != 'w'
+                if (vibe_input_key_code(&event) != 0x11
+                    || vibe_input_key_ps2_set1_scancode(&event) != 0x11
+                    || vibe_input_key_ps2_set1_is_extended(&event)
                     || !vibe_input_key_is_pressed(&event)
                     || vibe_input_key_is_released(&event))
                     return 19;
 
-                vibe_input_make_key_event(&event, 45, 'w', 0);
+                vibe_input_make_key_event(
+                    &event,
+                    45,
+                    vibe_input_ps2_set1_key_code(0x11, 0),
+                    0);
                 if (event.value0 != VIBE_INPUT_KEY_RELEASED)
                     return 2;
                 if (!vibe_input_key_is_released(&event)
                     || vibe_input_key_is_pressed(&event))
                     return 20;
 
-                vibe_input_make_mouse_packet_event(
+                vibe_input_make_key_event(
                     &event,
                     46,
+                    vibe_input_ps2_set1_key_code(0x48, 1),
+                    1);
+                if (event.code != (VIBE_INPUT_KEY_PS2_SET1_EXTENDED | 0x48)
+                    || vibe_input_key_ps2_set1_scancode(&event) != 0x48
+                    || !vibe_input_key_ps2_set1_is_extended(&event))
+                    return 29;
+
+                vibe_input_make_mouse_packet_event(
+                    &event,
+                    47,
                     VIBE_INPUT_MOUSE_BUTTON_LEFT | VIBE_INPUT_MOUSE_BUTTON_MIDDLE | 0xf0u,
                     -3,
                     5);
-                if (event.timestamp != 46
+                if (event.timestamp != 47
                     || event.device_id != VIBE_INPUT_DEVICE_MOUSE
                     || event.type != VIBE_INPUT_EVENT_MOUSE_PACKET
                     || event.code != (VIBE_INPUT_MOUSE_BUTTON_LEFT | VIBE_INPUT_MOUSE_BUTTON_MIDDLE)
@@ -166,7 +244,11 @@ class DoomInputContractTests(unittest.TestCase):
                     || !vibe_input_mouse_has_motion(&event))
                     return 13;
 
-                vibe_input_make_key_event(&event, 47, 'a', 1);
+                vibe_input_make_key_event(
+                    &event,
+                    48,
+                    vibe_input_ps2_set1_key_code(0x1e, 0),
+                    1);
                 if (!vibe_input_event_is_key(&event) || vibe_input_event_is_mouse_packet(&event))
                     return 5;
                 if (vibe_input_mouse_buttons(&event) != 0
@@ -177,25 +259,43 @@ class DoomInputContractTests(unittest.TestCase):
 
                 {
                     vibe_input_status_t status;
+                    vibe_input_device_status_t device;
                     status.dropped_events = 0;
                     status.abi_version = VIBE_INPUT_ABI_VERSION;
                     status.event_bytes = VIBE_INPUT_EVENT_BYTES;
                     status.queue_capacity = VIBE_INPUT_EVENT_QUEUE_CAPACITY;
+                    status.status_bytes = VIBE_INPUT_STATUS_BYTES;
+                    status.queue_usable_capacity = VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY;
+                    status.overflow_policy = VIBE_INPUT_QUEUE_OVERFLOW_DROP_OLDEST;
+                    status.keyboard_status = VIBE_INPUT_DEVICE_STATUS_READY;
+                    status.mouse_status = VIBE_INPUT_DEVICE_STATUS_READY;
                     status.queued_events = 2;
                     status.total_events = 5;
                     status.polled_events = 2;
                     status.dropped_events = 1;
-                    status.capabilities = VIBE_INPUT_CAP_KEYBOARD | VIBE_INPUT_CAP_MOUSE;
+                    status.capabilities = VIBE_INPUT_CAP_KEYBOARD
+                        | VIBE_INPUT_CAP_MOUSE
+                        | VIBE_INPUT_CAP_DEVICE_STATUS;
                     status.keyboard_state[0] = 0;
+                    status.keyboard_state[1] = 0;
+                    status.keyboard_state[2] = 0;
                     status.keyboard_state[3] = 0;
+                    status.keyboard_state[4] = 0;
+                    status.keyboard_state[5] = 0;
+                    status.keyboard_state[6] = 0;
+                    status.keyboard_state[7] = 0;
                     status.mouse_buttons = 0xf2u;
                     status.mouse_delta_x_total = 0;
                     status.mouse_delta_y_total = 9;
                     if (!vibe_input_status_abi_is_current(&status))
                         return 23;
                     if (vibe_input_status_queued_events(&status) != 2
+                        || vibe_input_status_usable_capacity(&status) != 63
                         || vibe_input_status_available_events(&status) != 61
                         || vibe_input_status_queue_is_full(&status)
+                        || !vibe_input_status_uses_drop_oldest(&status)
+                        || !vibe_input_status_keyboard_is_ready(&status)
+                        || !vibe_input_status_mouse_is_ready(&status)
                         || !vibe_input_status_counters_are_consistent(&status))
                         return 26;
                     status.queued_events = VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY;
@@ -223,13 +323,25 @@ class DoomInputContractTests(unittest.TestCase):
                     status.dropped_events = 1;
                     if (!vibe_input_status_has_overflow(&status))
                         return 7;
-                    status.keyboard_state['a' >> 5] = 1ul << ('a' & 31);
-                    if (!vibe_input_status_key_is_down(&status, 'a'))
+                    status.keyboard_state[0x1e >> 5] = 1ul << (0x1e & 31);
+                    status.keyboard_state[0x2a >> 5] |= 1ul << (0x2a & 31);
+                    status.keyboard_state[vibe_input_ps2_set1_key_code(0x1d, 1) >> 5]
+                        |= 1ul << (vibe_input_ps2_set1_key_code(0x1d, 1) & 31);
+                    if (!vibe_input_status_key_is_down(&status, 0x1e)
+                        || !vibe_input_status_ps2_set1_key_is_down(&status, 0x1e, 0))
                         return 8;
-                    if (vibe_input_status_key_is_down(&status, 'b'))
+                    if (vibe_input_status_key_is_down(&status, 0x30)
+                        || vibe_input_status_ps2_set1_key_is_down(&status, 0x48, 1))
                         return 9;
                     if (vibe_input_status_key_is_down(&status, 256))
                         return 10;
+                    if (!vibe_input_status_shift_is_down(&status)
+                        || !vibe_input_status_ctrl_is_down(&status)
+                        || vibe_input_status_alt_is_down(&status))
+                        return 33;
+                    if (vibe_input_status_keyboard_modifiers(&status)
+                        != (VIBE_INPUT_MOD_SHIFT | VIBE_INPUT_MOD_CTRL))
+                        return 34;
                     if (vibe_input_status_mouse_buttons(&status) != VIBE_INPUT_MOUSE_BUTTON_RIGHT)
                         return 15;
                     if (!vibe_input_status_mouse_button_is_down(&status, VIBE_INPUT_MOUSE_BUTTON_RIGHT)
@@ -250,6 +362,49 @@ class DoomInputContractTests(unittest.TestCase):
                     status.event_bytes = 0;
                     if (vibe_input_status_abi_is_current(&status))
                         return 25;
+                    status.event_bytes = VIBE_INPUT_EVENT_BYTES;
+                    status.overflow_policy = 0;
+                    if (vibe_input_status_abi_is_current(&status)
+                        || vibe_input_status_uses_drop_oldest(&status))
+                        return 30;
+
+                    device.abi_version = VIBE_INPUT_ABI_VERSION;
+                    device.status_bytes = VIBE_INPUT_DEVICE_STATUS_BYTES;
+                    device.device_id = VIBE_INPUT_DEVICE_KEYBOARD;
+                    device.status = VIBE_INPUT_DEVICE_STATUS_READY;
+                    device.capabilities = VIBE_INPUT_DEVICE_CAP_KEYS
+                        | VIBE_INPUT_DEVICE_CAP_STATE_SNAPSHOT;
+                    device.irq_count = 7;
+                    device.event_count = 5;
+                    device.polled_events = 4;
+                    device.dropped_events = 1;
+                    device.last_timestamp = 123;
+                    device.last_event_type = VIBE_INPUT_EVENT_KEY;
+                    device.last_code = vibe_input_ps2_set1_key_code(0x1d, 1);
+                    device.active_state = VIBE_INPUT_MOD_SHIFT | VIBE_INPUT_MOD_CTRL;
+                    device.axis_x_total = 0;
+                    device.axis_y_total = 0;
+                    device.reserved0 = 0;
+                    if (!vibe_input_device_status_abi_is_current(&device)
+                        || !vibe_input_device_record_is_ready(&device)
+                        || !vibe_input_device_status_has_capability(&device, VIBE_INPUT_DEVICE_CAP_KEYS)
+                        || !vibe_input_device_status_has_capability(&device, VIBE_INPUT_DEVICE_CAP_STATE_SNAPSHOT)
+                        || !vibe_input_device_status_counters_are_consistent(&device)
+                        || vibe_input_device_status_keyboard_modifiers(&device)
+                            != (VIBE_INPUT_MOD_SHIFT | VIBE_INPUT_MOD_CTRL))
+                        return 35;
+                    device.device_id = VIBE_INPUT_DEVICE_MOUSE;
+                    device.capabilities = VIBE_INPUT_DEVICE_CAP_RELATIVE_POINTER
+                        | VIBE_INPUT_DEVICE_CAP_BUTTONS
+                        | VIBE_INPUT_DEVICE_CAP_STATE_SNAPSHOT;
+                    device.active_state = VIBE_INPUT_MOUSE_BUTTON_LEFT | VIBE_INPUT_MOUSE_BUTTON_RIGHT;
+                    device.axis_x_total = -2;
+                    device.axis_y_total = 3;
+                    if (!vibe_input_device_status_abi_is_current(&device)
+                        || !vibe_input_device_status_has_capability(&device, VIBE_INPUT_DEVICE_CAP_BUTTONS)
+                        || vibe_input_device_status_mouse_buttons(&device)
+                            != (VIBE_INPUT_MOUSE_BUTTON_LEFT | VIBE_INPUT_MOUSE_BUTTON_RIGHT))
+                        return 36;
                 }
 
                 vibe_input_make_key_event(0, 0, 0, 0);
@@ -289,18 +444,34 @@ class DoomInputContractTests(unittest.TestCase):
         for source in (
             "the queue contract is\n  not Doom-specific",
             "VIBE_INPUT_EVENT_BYTES == 28",
-            "VIBE_INPUT_STATUS_BYTES == 112",
+            "VIBE_INPUT_STATUS_BYTES == 132",
             "VIBE_INPUT_EVENT_VALUE_COUNT",
             "VIBE_INPUT_KEY_STATE_BITS",
+            "VIBE_INPUT_QUEUE_OVERFLOW_DROP_OLDEST",
+            "VIBE_INPUT_DEVICE_STATUS_READY",
+            "VIBE_INPUT_CAP_DEVICE_STATUS",
+            "VIBE_INPUT_DEVICE_CAP_KEYS",
+            "VIBE_INPUT_DEVICE_CAP_RELATIVE_POINTER",
+            "VIBE_INPUT_KEY_PS2_SET1_SCANCODE_MASK",
+            "VIBE_INPUT_KEY_PS2_SET1_EXTENDED",
+            "PS/2 set-1\n  make scancodes",
             "VIBE_SYS_INPUT_STATUS",
+            "VIBE_SYS_INPUT_DEVICE_STATUS",
             "vibe_input_make_key_event()",
             "vibe_input_make_mouse_packet_event()",
             "vibe_input_key_is_pressed()",
             "vibe_input_key_is_released()",
+            "vibe_input_key_ps2_set1_scancode()",
+            "vibe_input_key_ps2_set1_is_extended()",
             "VIBE_INPUT_MOUSE_AXIS_X",
             "VIBE_INPUT_MOUSE_AXIS_Y",
             "vibe_input_status_t",
+            "vibe_input_device_status_t",
             "dropped_events",
+            "queue_usable_capacity",
+            "overflow_policy",
+            "keyboard_status",
+            "mouse_status",
             "keyboard_down_count",
             "keyboard_state",
             "mouse_buttons",
@@ -310,8 +481,16 @@ class DoomInputContractTests(unittest.TestCase):
             "vibe_input_mouse_delta()",
             "vibe_input_mouse_has_motion()",
             "vibe_input_status_abi_is_current()",
+            "vibe_input_status_uses_drop_oldest()",
+            "vibe_input_status_keyboard_is_ready()",
+            "vibe_input_status_mouse_is_ready()",
+            "vibe_input_status_ps2_set1_key_is_down()",
+            "vibe_input_status_keyboard_modifiers()",
+            "vibe_input_device_record_is_ready()",
+            "vibe_input_device_status_counters_are_consistent()",
             "vibe_input_status_mouse_button_is_down()",
             "vibe_input_status_mouse_delta()",
+            "keyboard modifiers",
             "future games",
             "Game-specific\n  button remapping belongs in the consuming port",
             "Raw PS/2 button order is preserved",
@@ -329,21 +508,39 @@ class DoomInputContractTests(unittest.TestCase):
             fields = dict(part.split("=", 1) for part in status.split())
             depth, depth_dropped = hex_tuple(fields["inputdepth"], 2)
             total, polled, dropped, usable = hex_tuple(fields["inputstat"], 4)
+            policy, policy_usable = hex_tuple(fields["inputpolicy"], 2)
+            keyboard_status, mouse_status = hex_tuple(fields["inputdev"], 2)
+            device_count, ready_mask, cap_mask, keyboard_polls, mouse_polls = hex_tuple(
+                fields["inputdevices"], 5
+            )
             self.assertEqual(usable, expected_usable)
+            self.assertEqual(policy, 1)
+            self.assertEqual(policy_usable, expected_usable)
+            self.assertIn(keyboard_status, (1, 2))
+            self.assertIn(mouse_status, (0, 1, 2))
+            self.assertEqual(device_count, 2)
+            self.assertTrue(cap_mask & 0x10)
+            self.assertLessEqual(keyboard_polls + mouse_polls, polled)
+            self.assertEqual(ready_mask & ~0x3, 0)
+            self.assertIn(int(fields["inputmods"], 16), range(8))
             self.assertEqual(dropped, depth_dropped)
             self.assertLessEqual(depth, usable)
             self.assertEqual(total, depth + polled + dropped)
 
         assert_queue_status(
             "inputqueue=00000005 inputdepth=00000002:00000001 "
-            "inputstat=00000005:00000002:00000001:0000003F",
+            "inputstat=00000005:00000002:00000001:0000003F "
+            "inputpolicy=00000001:0000003F inputdev=00000001:00000001 "
+            "inputdevices=00000002:00000003:0000001F:00000001:00000001 inputmods=00000003",
             63,
         )
 
         with self.assertRaises(AssertionError):
             assert_queue_status(
                 "inputqueue=00000005 inputdepth=00000040:00000001 "
-                "inputstat=00000005:00000002:00000001:0000003F",
+                "inputstat=00000005:00000002:00000001:0000003F "
+                "inputpolicy=00000001:0000003F inputdev=00000001:00000001 "
+                "inputdevices=00000002:00000003:0000001F:00000001:00000001 inputmods=00000003",
                 63,
             )
 
@@ -394,16 +591,27 @@ class DoomInputContractTests(unittest.TestCase):
             "KEY_EVENT_VALID equ 0x00010000",
             "SYS_POLL_INPUT equ 28",
             "VIBE_INPUT_EVENT_BYTES equ 28",
-            "VIBE_INPUT_STATUS_BYTES equ 112",
+            "VIBE_INPUT_ABI_VERSION equ 2",
+            "VIBE_INPUT_STATUS_BYTES equ 132",
+            "VIBE_INPUT_STATUS_QUEUE_USABLE_CAPACITY equ 116",
+            "VIBE_INPUT_STATUS_OVERFLOW_POLICY equ 120",
+            "VIBE_INPUT_STATUS_KEYBOARD_STATUS equ 124",
+            "VIBE_INPUT_STATUS_MOUSE_STATUS equ 128",
+            "VIBE_INPUT_QUEUE_OVERFLOW_DROP_OLDEST equ 1",
             "SYS_INPUT_STATUS equ 31",
             "VIBE_INPUT_DEVICE_KEYBOARD equ 1",
             "VIBE_INPUT_DEVICE_MOUSE equ 2",
+            "VIBE_INPUT_KEY_PS2_SET1_SCANCODE_MASK equ 0x7f",
+            "VIBE_INPUT_KEY_PS2_SET1_EXTENDED equ 0x80",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, kernel)
 
         for source in (
             "cmp al, 0xe0",
+            "call input_queue_key_event",
+            "call keyboard_translate_doom_key",
+            "keyboard_translate_doom_key:",
             "cmp bl, 0x48",
             "je .ext_up",
             "cmp bl, 0x50",
@@ -511,6 +719,15 @@ class DoomInputContractTests(unittest.TestCase):
             with self.subTest(source=source):
                 self.assertIn(source, platform)
 
+        for source in (
+            "VIBE_SYS_POLL_KEY",
+            "VIBE_SYS_POLL_MOUSE",
+            "vibe_doom_translate_key_event",
+            "vibe_doom_translate_mouse_event",
+        ):
+            with self.subTest(legacy_input_source=source):
+                self.assertNotIn(source, platform)
+
         slot_request = platform.split("static int read_persistence_slot_request", 1)[1].split(
             "static int save_checkpoint_requested_once", 1
         )[0]
@@ -520,7 +737,9 @@ class DoomInputContractTests(unittest.TestCase):
         self.assertIn("doom_port/input.c", makefile)
         for source in (
             "VIBE_SYS_POLL_INPUT = 28",
+            "VIBE_SYS_INPUT_DEVICE_STATUS = 39",
             "typedef struct vibe_input_event",
+            "typedef struct vibe_input_device_status",
             "VIBE_INPUT_EVENT_KEY",
             "VIBE_INPUT_EVENT_MOUSE_PACKET",
         ):
@@ -534,6 +753,12 @@ class DoomInputContractTests(unittest.TestCase):
         for source in (
             "input_event_queue times INPUT_EVENT_QUEUE_SIZE * VIBE_INPUT_EVENT_DWORDS dd 0",
             "input_event_drop_count dd 0",
+            "input_keyboard_poll_count dd 0",
+            "input_mouse_event_count dd 0",
+            "input_mouse_poll_count dd 0",
+            "input_keyboard_drop_count dd 0",
+            "input_mouse_drop_count dd 0",
+            "input_keyboard_modifiers dd 0",
             "VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY",
             "input_keyboard_down_count dd 0",
             "input_keyboard_state times 8 dd 0",
@@ -544,13 +769,29 @@ class DoomInputContractTests(unittest.TestCase):
             "input_queue_mouse_packet_event:",
             "call input_queue_key_event",
             "call input_queue_mouse_packet_event",
+            "VIBE_INPUT_KEY_PS2_SET1_EXTENDED",
+            "VIBE_INPUT_KEY_PS2_SET1_SCANCODE_MASK",
+            "or eax, VIBE_INPUT_KEY_PS2_SET1_EXTENDED",
             ".poll_input:",
             "cmp eax, SYS_INPUT_STATUS",
+            "cmp eax, SYS_INPUT_DEVICE_STATUS",
             ".input_status:",
+            ".input_device_status:",
             "VIBE_INPUT_STATUS_DROPPED_EVENTS",
+            "VIBE_INPUT_CAP_DEVICE_STATUS",
+            "VIBE_INPUT_STATUS_STATUS_BYTES",
+            "VIBE_INPUT_STATUS_QUEUE_USABLE_CAPACITY",
+            "VIBE_INPUT_STATUS_OVERFLOW_POLICY",
+            "VIBE_INPUT_STATUS_KEYBOARD_STATUS",
+            "VIBE_INPUT_STATUS_MOUSE_STATUS",
             "VIBE_INPUT_STATUS_KEYBOARD_DOWN_COUNT",
             "VIBE_INPUT_STATUS_KEYBOARD_STATE",
             "VIBE_INPUT_STATUS_MOUSE_BUTTONS",
+            "VIBE_INPUT_DEVICE_STATUS_BYTES",
+            "VIBE_INPUT_DEVICE_CAP_KEYS",
+            "VIBE_INPUT_DEVICE_CAP_RELATIVE_POINTER",
+            "input_drop_oldest_event:",
+            "input_refresh_keyboard_modifiers:",
             "call doom_record_input_event",
             "doom_input_event_count dd 0",
             "doom_input_last_timestamp dd 0",
@@ -559,12 +800,21 @@ class DoomInputContractTests(unittest.TestCase):
             'smoke_inputqueue_text db " inputqueue="',
             'smoke_inputdepth_text db " inputdepth="',
             'smoke_inputstat_text db " inputstat="',
+            'smoke_inputpolicy_text db " inputpolicy="',
+            'smoke_inputdev_text db " inputdev="',
+            'smoke_inputdevices_text db " inputdevices="',
+            'smoke_inputmods_text db " inputmods="',
             "mov edx, [input_event_head]",
             "sub edx, [input_event_tail]",
             "and edx, INPUT_EVENT_QUEUE_MASK",
             "mov edx, [input_event_drop_count]",
             "mov edx, [input_event_poll_count]",
             "mov edx, VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY",
+            "mov edx, VIBE_INPUT_QUEUE_OVERFLOW_DROP_OLDEST",
+            "movzx edx, byte [keyboard_status]",
+            "movzx edx, byte [mouse_status]",
+            "mov edx, [input_keyboard_poll_count]",
+            "mov edx, [input_mouse_poll_count]",
             'smoke_inputpoll_text db " inputpoll="',
             'smoke_inputlast_text db " inputlast="',
         ):
@@ -575,11 +825,53 @@ class DoomInputContractTests(unittest.TestCase):
             'grep -q "inputqueue="',
             'grep -Eq "inputdepth=([0-9A-F]{8}:){1}[0-9A-F]{8}"',
             'grep -Eq "inputstat=([0-9A-F]{8}:){3}[0-9A-F]{8}"',
+            'grep -Eq "inputpolicy=([0-9A-F]{8}:){1}[0-9A-F]{8}"',
+            'grep -Eq "inputdev=([0-9A-F]{8}:){1}[0-9A-F]{8}"',
+            'grep -Eq "inputdevices=([0-9A-F]{8}:){4}[0-9A-F]{8}"',
+            'grep -q "inputmods="',
             'grep -q "inputpoll="',
             'grep -Eq "inputlast=([0-9A-F]{8}:){2}[0-9A-F]{8}"',
         ):
             with self.subTest(source=source):
                 self.assertIn(source, makefile)
+
+    def test_kernel_validates_user_pointers_for_input_abi(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        poll_input = kernel.split(".poll_input:", 1)[1].split(".poll_input_empty:", 1)[0]
+        input_status = kernel.split(".input_status:", 1)[1].split(".close:", 1)[0]
+        input_device_status = kernel.split(".input_device_status:", 1)[1].split(".close:", 1)[0]
+
+        for source in (
+            "cmp ecx, VIBE_INPUT_EVENT_BYTES",
+            "mov ebx, VIBE_INPUT_EVENT_BYTES",
+            "call user_range_validate",
+            "rep movsd",
+        ):
+            with self.subTest(poll_input=source):
+                self.assertIn(source, poll_input)
+
+        for source in (
+            "cmp ecx, VIBE_INPUT_STATUS_BYTES",
+            "mov ebx, VIBE_INPUT_STATUS_BYTES",
+            "call user_range_validate",
+            "mov dword [edi + VIBE_INPUT_STATUS_STATUS_BYTES], VIBE_INPUT_STATUS_BYTES",
+            "mov dword [edi + VIBE_INPUT_STATUS_OVERFLOW_POLICY], VIBE_INPUT_QUEUE_OVERFLOW_DROP_OLDEST",
+        ):
+            with self.subTest(input_status=source):
+                self.assertIn(source, input_status)
+
+        for source in (
+            "cmp edx, VIBE_INPUT_DEVICE_STATUS_BYTES",
+            "mov ebx, VIBE_INPUT_DEVICE_STATUS_BYTES",
+            "call user_range_validate",
+            "VIBE_INPUT_DEVICE_STATUS_DEVICE_ID",
+            "VIBE_INPUT_DEVICE_STATUS_CAPABILITIES",
+            "VIBE_INPUT_DEVICE_STATUS_POLLED_EVENTS",
+            "VIBE_INPUT_DEVICE_STATUS_DROPPED_EVENTS",
+            "VIBE_INPUT_DEVICE_STATUS_ACTIVE_STATE",
+        ):
+            with self.subTest(input_device_status=source):
+                self.assertIn(source, input_device_status)
 
     def test_raw_player_detail_status_exports_gameplay_state(self):
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()

@@ -175,6 +175,9 @@ class ExternalSuiteLeverageTests(unittest.TestCase):
             CHECK(input_status_bytes, sizeof(vibe_input_status_t) == VIBE_INPUT_STATUS_BYTES);
             CHECK(input_status_keys_offset, __builtin_offsetof(vibe_input_status_t, keyboard_state) == 48);
             CHECK(input_status_mouse_offset, __builtin_offsetof(vibe_input_status_t, mouse_delta_x_total) == 96);
+            CHECK(input_status_policy_offset, __builtin_offsetof(vibe_input_status_t, overflow_policy) == 120);
+            CHECK(input_status_current_bytes, VIBE_INPUT_STATUS_BYTES == 132);
+            CHECK(input_status_abi_version, VIBE_INPUT_ABI_VERSION == 2);
             CHECK(audio_voice_bytes, sizeof(vibe_audio_voice_desc_t) == VIBE_AUDIO_VOICE_DESC_BYTES);
             CHECK(audio_device_bytes, sizeof(vibe_audio_device_info_t) == VIBE_AUDIO_DEVICE_INFO_BYTES);
             CHECK(audio_ring_bytes, sizeof(vibe_audio_pcm_ring_info_t) == VIBE_AUDIO_PCM_RING_INFO_BYTES);

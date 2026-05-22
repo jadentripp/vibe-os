@@ -84,7 +84,8 @@ def _proof_contracts() -> dict[str, Any]:
             "lane": STATUS_ONLY_OS_AUDIO_SUBSYSTEM_LANE,
             "proves": (
                 "status-only generic device/ring/stream/mixer coherence via "
-                "adev=, pcm=, pcmbuf=, half=, musicpull=, and lane counters"
+                "adev=, pcm=, pcmbuf=, pcmqueue=, pcmdev=, pcmlife=, half=, "
+                "musicpull=, and lane counters"
             ),
             "does_not_prove": (
                 "Doom asset ownership, subjective listener quality, or "
@@ -112,13 +113,13 @@ def _proof_contracts() -> dict[str, Any]:
         "music_legitimacy": {
             "lane": MUSIC_LEGITIMACY_LANE,
             "current_payload_owner": "doom_port/music.c",
-            "current_service_command": "VIBE_AUDIO_MIXER_UPDATE",
+            "current_service_command": "VIBE_AUDIO_STREAM_WRITE",
             "current_os_contract": (
                 "VIBE_AUDIO_STREAM_INFO plus musicstream=PULL, musicpull=, "
                 "musicrend=, and musicpos="
             ),
             "future_legitimacy_step": (
-                "first-class kernel-owned music ring or mixer/refill stream ABI"
+                "kernel-owned PCM stream write/refill ABI"
             ),
         },
         "hardware_paced_playback": {
@@ -128,8 +129,7 @@ def _proof_contracts() -> dict[str, Any]:
                 "chunk service"
             ),
             "not_yet_proven": (
-                "hardware-paced mixer/refill playback owns music payload transfer "
-                "without VIBE_AUDIO_MIXER_UPDATE"
+                "human-listened quality for the kernel-owned PCM stream path"
             ),
         },
     }
@@ -235,6 +235,43 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         raise AssertionError("status pcmbuf= must expose a valid write offset and active half")
     if active_half != _hex_value(fields, "half"):
         raise AssertionError("status pcmbuf= active half must match half= IRQ phase")
+    queue_capacity, queue_bytes, _queue_drop_bytes, _queue_overflows, _queue_trims, queue_high_water = _hex_tuple(
+        fields,
+        "pcmqueue",
+        6,
+    )
+    if queue_capacity < ring_bytes or queue_capacity == 0:
+        raise AssertionError("status pcmqueue= capacity must cover the PCM ring")
+    if queue_bytes > queue_capacity:
+        raise AssertionError("status pcmqueue= queued bytes must stay bounded by capacity")
+    if queue_high_water < queue_bytes or queue_high_water > queue_capacity:
+        raise AssertionError("status pcmqueue= high-water mark must be inside capacity")
+    pcm_open, pcm_user_write, pcm_drain, pcm_close, pcm_last_handle, pcm_last_error = _hex_tuple(
+        fields,
+        "pcmdev",
+        6,
+    )
+    if pcm_open == 0 or pcm_user_write == 0 or pcm_drain == 0 or pcm_close == 0:
+        raise AssertionError("status pcmdev= must prove a non-Doom generic PCM client open/write/drain/close")
+    if pcm_last_handle == 0 or pcm_last_error != 0:
+        raise AssertionError("status pcmdev= must expose a valid generic PCM handle and zero last error")
+    (
+        lifecycle_state,
+        lifecycle_errors,
+        open_seq,
+        write_seq,
+        drain_seq,
+        close_seq,
+        user_write_bytes,
+    ) = _hex_tuple(fields, "pcmlife", 7)
+    if lifecycle_state != check_audio_continuity_proof.AUDIO_PCM_LIFECYCLE_CLOSED:
+        raise AssertionError("status pcmlife= must show the generic PCM client reached CLOSED state")
+    if lifecycle_errors != 0:
+        raise AssertionError("status pcmlife= must report zero generic PCM lifecycle errors")
+    if not (0 < open_seq < write_seq < drain_seq < close_seq):
+        raise AssertionError("status pcmlife= must prove ordered open/write/drain/close sequencing")
+    if user_write_bytes == 0:
+        raise AssertionError("status pcmlife= must prove non-Doom PCM bytes were written")
     return {
         "audio": fields["audio"],
         "doomrun": fields["doomrun"],
@@ -269,6 +306,9 @@ def _status_summary(status_path: Path) -> dict[str, str]:
         "adev": fields["adev"],
         "pcm": fields["pcm"],
         "pcmbuf": fields["pcmbuf"],
+        "pcmdev": fields["pcmdev"],
+        "pcmlife": fields["pcmlife"],
+        "pcmqueue": fields["pcmqueue"],
     }
 
 
@@ -517,20 +557,21 @@ def _continuity_summary(
         "hardware_paced": final_fields["musicstream"] == "PULL",
         "current_push_proof": final_fields["musicstream"] == "PUSH",
         "current_payload_owner": "doom_port/music.c",
-        "current_service_command": "VIBE_AUDIO_MIXER_UPDATE",
-        "future_legitimacy_step": "first-class kernel-owned music ring or mixer/refill stream ABI",
+        "current_service_command": "VIBE_AUDIO_STREAM_WRITE",
+        "future_legitimacy_step": "kernel-owned PCM stream write/refill ABI",
         "os_surfaces": {
             "device": "VIBE_AUDIO_DEVICE_INFO",
             "ring": "VIBE_AUDIO_PCM_RING_INFO",
             "stream": "VIBE_AUDIO_STREAM_INFO",
+            "pcm_stream": "VIBE_AUDIO_PCM_OPEN/WRITE_DESC/DRAIN/CLOSE",
             "mixer": "VIBE_AUDIO_MIXER_START/UPDATE/STOP/IS_PLAYING",
         },
         "service_sequence": service_sequence,
         "claim": (
             "the reusable OS audio device/ring/stream/mixer contract proves "
             "kernel SB16 refill requests paced music chunk service; "
-            "voiceq= still records the port-rendered buffer submissions and does not claim "
-            "kernel-owned MUS synthesis or future hardware-paced mixer/refill playback"
+            "pcmwrite= records kernel-owned stream submissions and does not claim "
+            "kernel-owned MUS synthesis or human-listened quality"
         ),
     }
     renderer_contract = {
@@ -614,8 +655,7 @@ def _continuity_summary(
             "music chunks are advanced by a kernel-visible stream-position contract, "
             "musicstream= names whether that proof is PUSH or PULL, "
             "aggregate listener-quality metadata is machine checked, but subjective "
-            "human-listened quality and future hardware-paced mixer/refill playback "
-            "are still unproven"
+            "human-listened quality is still unproven"
         ),
     }
 
@@ -817,8 +857,7 @@ def analyze_wav(
             "notes": (
                 "This proof validates aggregate machine-audible output and SB16 "
                 "continuity only; VNC does not carry audio by default, and this "
-                "is not a human listening pass or a future hardware-paced mixer/refill "
-                "playback proof."
+                "is not a human listening pass."
             ),
         },
         "proof_contracts": _proof_contracts(),
@@ -993,6 +1032,9 @@ def validate_manifest(
         ("adev", 3),
         ("pcm", 3),
         ("pcmbuf", 4),
+        ("pcmdev", 6),
+        ("pcmlife", 7),
+        ("pcmqueue", 6),
     ):
         value = status.get(name)
         if not isinstance(value, str):
@@ -1017,6 +1059,39 @@ def validate_manifest(
         raise AssertionError("manifest status.pcmbuf must expose a valid write offset and active half")
     if active_half != int(status["half"], 16):
         raise AssertionError("manifest status.pcmbuf active half must match status.half")
+    queue_capacity, queue_bytes, _queue_drop_bytes, _queue_overflows, _queue_trims, queue_high_water = (
+        int(part, 16) for part in status["pcmqueue"].split(":")
+    )
+    if queue_capacity < ring_bytes or queue_capacity == 0:
+        raise AssertionError("manifest status.pcmqueue capacity must cover the PCM ring")
+    if queue_bytes > queue_capacity:
+        raise AssertionError("manifest status.pcmqueue queued bytes must stay bounded by capacity")
+    if queue_high_water < queue_bytes or queue_high_water > queue_capacity:
+        raise AssertionError("manifest status.pcmqueue high-water mark must be inside capacity")
+    pcm_open, pcm_user_write, pcm_drain, pcm_close, pcm_last_handle, pcm_last_error = (
+        int(part, 16) for part in status["pcmdev"].split(":")
+    )
+    if pcm_open == 0 or pcm_user_write == 0 or pcm_drain == 0 or pcm_close == 0:
+        raise AssertionError("manifest status.pcmdev must prove generic PCM open/write/drain/close")
+    if pcm_last_handle == 0 or pcm_last_error != 0:
+        raise AssertionError("manifest status.pcmdev must expose a valid generic PCM handle and zero last error")
+    (
+        lifecycle_state,
+        lifecycle_errors,
+        open_seq,
+        write_seq,
+        drain_seq,
+        close_seq,
+        user_write_bytes,
+    ) = (int(part, 16) for part in status["pcmlife"].split(":"))
+    if lifecycle_state != check_audio_continuity_proof.AUDIO_PCM_LIFECYCLE_CLOSED:
+        raise AssertionError("manifest status.pcmlife must show generic PCM CLOSED state")
+    if lifecycle_errors != 0:
+        raise AssertionError("manifest status.pcmlife must report zero lifecycle errors")
+    if not (0 < open_seq < write_seq < drain_seq < close_seq):
+        raise AssertionError("manifest status.pcmlife must prove ordered open/write/drain/close")
+    if user_write_bytes == 0:
+        raise AssertionError("manifest status.pcmlife must prove non-Doom PCM bytes")
 
     if continuity.get("gate") != "tools/check_audio_continuity_proof.py":
         raise AssertionError("manifest continuity.gate must name the audio continuity checker")
@@ -1192,6 +1267,7 @@ def validate_manifest(
             "device": "VIBE_AUDIO_DEVICE_INFO",
             "ring": "VIBE_AUDIO_PCM_RING_INFO",
             "stream": "VIBE_AUDIO_STREAM_INFO",
+            "pcm_stream": "VIBE_AUDIO_PCM_OPEN/WRITE_DESC/DRAIN/CLOSE",
             "mixer": "VIBE_AUDIO_MIXER_START/UPDATE/STOP/IS_PLAYING",
         }
         for key, expected in expected_surfaces.items():
@@ -1211,8 +1287,8 @@ def validate_manifest(
         if stream_contract.get("current_payload_owner") != "doom_port/music.c":
             raise AssertionError("manifest stream contract must name doom_port/music.c as payload owner")
     if stream_contract.get("current_service_command") is not None:
-        if stream_contract.get("current_service_command") != "VIBE_AUDIO_MIXER_UPDATE":
-            raise AssertionError("manifest stream contract must name VIBE_AUDIO_MIXER_UPDATE")
+        if stream_contract.get("current_service_command") != "VIBE_AUDIO_STREAM_WRITE":
+            raise AssertionError("manifest stream contract must name VIBE_AUDIO_STREAM_WRITE")
     service_sequence = stream_contract.get("service_sequence")
     if not isinstance(service_sequence, dict):
         raise AssertionError("manifest stream contract must include service_sequence")
@@ -1237,12 +1313,12 @@ def validate_manifest(
     ):
         if stream_contract["mode"] == "PULL" and service_sequence.get(key) is not True:
             raise AssertionError(f"manifest stream contract service_sequence.{key} must be true")
+    future_step = stream_contract.get("future_legitimacy_step")
     if stream_contract["mode"] == "PULL":
         if int(service_sequence["pull_pending_peak"], 16) > check_audio_continuity_proof.MAX_PENDING_PULL_REQUESTS:
             raise AssertionError("manifest stream contract pending pull requests exceed proof threshold")
-    future_step = stream_contract.get("future_legitimacy_step")
-    if future_step is not None and "kernel-owned music ring" not in future_step:
-        raise AssertionError("manifest stream contract future step must mention kernel-owned music ring")
+    if future_step is not None and "kernel-owned PCM stream" not in future_step:
+        raise AssertionError("manifest stream contract future step must mention kernel-owned PCM stream")
     _validate_os_audio_contract(os_audio_contract)
     if renderer_contract is not None:
         if renderer_contract.get("status_counter") != "musicrend":
@@ -1465,6 +1541,9 @@ def _validate_os_audio_contract(contract: dict[str, Any]) -> None:
         "device": "adev",
         "sample_format": "pcm",
         "ring": "pcmbuf",
+        "queue": "pcmqueue",
+        "generic_pcm_probe": "pcmdev",
+        "generic_pcm_lifecycle": "pcmlife",
         "irq_phase": "half",
         "stream": "musicstream/musicpull/musicbuf/musicpos",
         "mixer_lanes": "voices/sfxvoices/musicvoices/sfxmix/musicmix",
@@ -1475,10 +1554,15 @@ def _validate_os_audio_contract(contract: dict[str, Any]) -> None:
 
     device = contract.get("device")
     ring = contract.get("pcm_ring")
+    queue = contract.get("pcm_queue")
+    generic = contract.get("generic_pcm_probe")
     stream = contract.get("stream")
     lanes = contract.get("mixer_lanes")
-    if not all(isinstance(value, dict) for value in (device, ring, stream, lanes)):
-        raise AssertionError("manifest os_audio_contract must contain device, pcm_ring, stream, and mixer_lanes")
+    if not all(isinstance(value, dict) for value in (device, ring, queue, generic, stream, lanes)):
+        raise AssertionError(
+            "manifest os_audio_contract must contain device, pcm_ring, pcm_queue, "
+            "generic_pcm_probe, stream, and mixer_lanes"
+        )
 
     if device.get("kind") != "SB16" or device.get("ready") is not True:
         raise AssertionError("manifest os_audio_contract.device must prove a ready SB16 device")
@@ -1511,6 +1595,55 @@ def _validate_os_audio_contract(contract: dict[str, Any]) -> None:
     _contract_hex(ring.get("irq_delta"), "os_audio_contract.pcm_ring.irq_delta", positive=True)
     _contract_hex(ring.get("refill_delta"), "os_audio_contract.pcm_ring.refill_delta", positive=True)
 
+    queue_capacity = _contract_hex(
+        queue.get("capacity_bytes"),
+        "os_audio_contract.pcm_queue.capacity_bytes",
+        positive=True,
+    )
+    queue_bytes = _contract_hex(queue.get("queued_bytes"), "os_audio_contract.pcm_queue.queued_bytes")
+    _contract_hex(queue.get("drop_bytes"), "os_audio_contract.pcm_queue.drop_bytes")
+    _contract_hex(queue.get("overflow_count"), "os_audio_contract.pcm_queue.overflow_count")
+    _contract_hex(queue.get("trim_count"), "os_audio_contract.pcm_queue.trim_count")
+    queue_high_water = _contract_hex(queue.get("high_water_bytes"), "os_audio_contract.pcm_queue.high_water_bytes")
+    if queue.get("bounded") is not True or queue_bytes > queue_capacity:
+        raise AssertionError("manifest os_audio_contract.pcm_queue must prove bounded queue depth")
+    if queue.get("covers_ring") is not True or queue_capacity < ring_bytes:
+        raise AssertionError("manifest os_audio_contract.pcm_queue must cover the PCM ring")
+    if queue.get("high_water_in_bounds") is not True or not (queue_bytes <= queue_high_water <= queue_capacity):
+        raise AssertionError("manifest os_audio_contract.pcm_queue high-water mark must stay inside capacity")
+
+    if generic.get("status_field") != "pcmdev":
+        raise AssertionError("manifest os_audio_contract.generic_pcm_probe status field must be pcmdev")
+    if generic.get("lifecycle_status_field") != "pcmlife":
+        raise AssertionError("manifest os_audio_contract.generic_pcm_probe lifecycle status field must be pcmlife")
+    if generic.get("program") != "ABIPROBE.ELF":
+        raise AssertionError("manifest os_audio_contract.generic_pcm_probe program must be ABIPROBE.ELF")
+    for key, expected in (
+        ("open_command", "VIBE_AUDIO_PCM_OPEN"),
+        ("write_command", "VIBE_AUDIO_PCM_WRITE_DESC"),
+        ("drain_command", "VIBE_AUDIO_PCM_DRAIN"),
+        ("close_command", "VIBE_AUDIO_PCM_CLOSE"),
+    ):
+        if generic.get(key) != expected:
+            raise AssertionError(f"manifest os_audio_contract.generic_pcm_probe.{key} must be {expected}")
+    for key in ("open_count", "write_count", "drain_count", "close_count", "last_handle"):
+        _contract_hex(generic.get(key), f"os_audio_contract.generic_pcm_probe.{key}", positive=True)
+    if _contract_hex(generic.get("last_error"), "os_audio_contract.generic_pcm_probe.last_error") != 0:
+        raise AssertionError("manifest os_audio_contract.generic_pcm_probe.last_error must be zero")
+    if generic.get("lifecycle_state") != "closed":
+        raise AssertionError("manifest os_audio_contract.generic_pcm_probe lifecycle_state must be closed")
+    if _contract_hex(generic.get("lifecycle_error_count"), "os_audio_contract.generic_pcm_probe.lifecycle_error_count") != 0:
+        raise AssertionError("manifest os_audio_contract.generic_pcm_probe lifecycle errors must be zero")
+    open_seq = _contract_hex(generic.get("open_seq"), "os_audio_contract.generic_pcm_probe.open_seq", positive=True)
+    write_seq = _contract_hex(generic.get("write_seq"), "os_audio_contract.generic_pcm_probe.write_seq", positive=True)
+    drain_seq = _contract_hex(generic.get("drain_seq"), "os_audio_contract.generic_pcm_probe.drain_seq", positive=True)
+    close_seq = _contract_hex(generic.get("close_seq"), "os_audio_contract.generic_pcm_probe.close_seq", positive=True)
+    _contract_hex(generic.get("user_write_bytes"), "os_audio_contract.generic_pcm_probe.user_write_bytes", positive=True)
+    if generic.get("lifecycle_ordered") is not True or not (open_seq < write_seq < drain_seq < close_seq):
+        raise AssertionError("manifest os_audio_contract.generic_pcm_probe lifecycle must be ordered")
+    if generic.get("second_program_proven") is not True:
+        raise AssertionError("manifest os_audio_contract.generic_pcm_probe must prove a second user program")
+
     if stream.get("mode") != "PULL":
         raise AssertionError("manifest os_audio_contract.stream.mode must be PULL")
     _contract_hex(stream.get("request_delta"), "os_audio_contract.stream.request_delta", positive=True)
@@ -1525,8 +1658,8 @@ def _validate_os_audio_contract(contract: dict[str, Any]) -> None:
         raise AssertionError("manifest os_audio_contract.stream must prove bounded pending pull requests")
     if stream.get("payload_owner") != "doom_port/music.c":
         raise AssertionError("manifest os_audio_contract.stream payload owner must be doom_port/music.c")
-    if stream.get("service_command") != "VIBE_AUDIO_MIXER_UPDATE":
-        raise AssertionError("manifest os_audio_contract.stream service command must be VIBE_AUDIO_MIXER_UPDATE")
+    if stream.get("service_command") != "VIBE_AUDIO_STREAM_WRITE":
+        raise AssertionError("manifest os_audio_contract.stream service command must be VIBE_AUDIO_STREAM_WRITE")
 
     if lanes.get("voice_total_matches_lanes") is not True:
         raise AssertionError("manifest os_audio_contract.mixer_lanes must prove voice lane totals")
@@ -1609,8 +1742,17 @@ def validate_repo_contract() -> None:
                 "adev=",
                 "pcm=",
                 "pcmbuf=",
+                "pcmqueue=",
+                "pcmdev=",
+                "pcmlife=",
                 "os_audio_contract",
                 "status-only OS audio subsystem lane",
+                "bounded PCM queue",
+                "generic non-Doom PCM client",
+                "ordered open/write/drain/close",
+                "VIBE_AUDIO_PCM_OPEN",
+                "VIBE_AUDIO_PCM_DRAIN",
+                "VIBE_AUDIO_PCM_CLOSE",
                 "sfxmix= counts non-music Doom SFX only",
                 "sfxbytes=",
                 "sfxdma=",
@@ -1640,7 +1782,7 @@ def validate_repo_contract() -> None:
                 "raw audio must not be uploaded",
                 "Aggregate audible-output proof (not human listener approval)",
                 "human-listened quality is a separate lane",
-                "future hardware-paced mixer/refill playback ABI",
+                "kernel-owned PCM stream write/refill ABI",
             ),
         ),
         (
@@ -1657,7 +1799,7 @@ def validate_repo_contract() -> None:
                 "stateful stream cursor",
                 "long-playback wrap",
                 "Music legitimacy roadmap as OS contracts",
-                "future hardware-paced mixer/refill playback ABI",
+                "kernel-owned PCM stream write/refill ABI",
             ),
         ),
         (

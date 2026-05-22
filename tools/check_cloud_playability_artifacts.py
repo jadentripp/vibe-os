@@ -51,15 +51,9 @@ REQUIRED_STATUS_FILES = (
     "status.txt",
 )
 
-REQUIRED_DIAGNOSTIC_FILES = (
-    "kernel.elf",
-    "user_probe.elf",
-    "doom.elf",
-)
+REQUIRED_DIAGNOSTIC_FILES = ()
 
-REQUIRED_SYMBOL_FILES = (
-    "doom.symbols",
-)
+REQUIRED_SYMBOL_FILES = ()
 
 OPTIONAL_AUDIO_PROOF_FILE = "audio-proof.json"
 OPTIONAL_GAMEPLAY_PROOF_FILE = "gameplay-proof.json"
@@ -250,6 +244,166 @@ HUMAN_REVIEW_MINIMUMS = {
     "mousepoll_delta": 1,
 }
 HUMAN_REVIEW_TEXT_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9 .,:;_/()+-]{0,159}")
+
+PREEMPTION_STATUS_FIELDS = (
+    "preempt",
+    "pirq",
+    "pattempt",
+    "pskip",
+    "puser",
+    "pround",
+    "pctx",
+    "pmask",
+    "pfrom",
+    "pto",
+    "pkind",
+    "peip",
+    "pcr3",
+    "pkstk",
+    "pframe",
+    "psegs",
+    "peflags",
+    "pspin",
+    "pself",
+)
+BOOT_STATUS_FIELDS = (
+    "biosboot",
+    "biosflags",
+    "biosentry",
+    "biosspan",
+    "clocksrc",
+    "clockirq",
+    "clocktick",
+    "clockhz",
+    "clockms",
+    "clockdoom",
+    "clocksch",
+)
+VM_MEMORY_STATUS_FIELDS = (
+    "e820",
+    "e820cnt",
+    "e820free",
+    "e820sz",
+    "e820map",
+    "e820use",
+    "e820res",
+    "pmmwin",
+    "pmmmap",
+    "pmmguard",
+    "pmmuse",
+    "pmmtype",
+    "pmmchk",
+    "pmmalloc",
+    "pmmdeny",
+    "uguard",
+    "vmmguard",
+    "pmmdma",
+    "pmmio",
+)
+PROCESS_STATUS_FIELDS = (
+    "kblock",
+    "ksleep",
+    "wait",
+    "waitseed",
+    "fork",
+    "vmreap",
+)
+FAULT_STATUS_FIELDS = (
+    "fault",
+    "pf",
+    "faultsrc",
+    "faultmode",
+    "faultcontain",
+    "regs",
+    "segs",
+    "proc",
+)
+FRAMEBUFFER_STATUS_FIELDS = (
+    "gfx",
+    "fb",
+    "fbdev",
+    "fbmmio",
+    "fbpolicy",
+    "fbgeom",
+    "fbdirty",
+    "fbpresent",
+    "fbinfo",
+    "fbcap",
+    "fbsrc",
+    "fbacct",
+    "doompresent",
+    "doompal",
+    "doomframe",
+    "doomnonzero",
+    "doomcolors",
+    "doomsamp",
+)
+INPUT_STATUS_FIELDS = (
+    "inputqueue",
+    "inputpoll",
+    "inputdepth",
+    "inputstat",
+    "inputpolicy",
+    "inputdev",
+    "inputdevices",
+    "inputmods",
+    "inputlast",
+)
+AUDIO_STREAM_STATUS_FIELDS = (
+    "audio",
+    "adev",
+    "pcm",
+    "pcmbuf",
+    "pcmstream",
+    "pcmwrite",
+    "pcmdev",
+    "pcmlife",
+    "pcmqueue",
+    "pcmpull",
+    "pcmirq",
+    "pcmdma",
+    "doomsound",
+    "sfxmix",
+    "sfxdma",
+    "musicmix",
+    "musicpos",
+    "musicbuf",
+    "musicstream",
+    "musicpull",
+    "audioirq",
+    "ack8",
+    "ack16",
+    "refill",
+    "half",
+    "sb16",
+    "dma",
+    "play",
+    "voiceq",
+    "musicq",
+)
+PERSISTENCE_STATUS_FIELDS = (
+    "doomwrite",
+    "doomseek",
+    "doomclose",
+    "doommode",
+    "doomsav",
+    "saverd",
+    "savewr",
+    "saveclose",
+    "savemode",
+    "saveact",
+    "savedesc",
+    "savestm",
+    "savethk",
+    "fwr",
+    "fal",
+    "fam",
+    "fac",
+    "fatdyn",
+    "fio",
+    "flb",
+    "fcl",
+)
 HUMAN_SESSION_STATUS_FIELDS = (
     "gameplay",
     "gstate",
@@ -277,10 +431,12 @@ HUMAN_SESSION_STATUS_FIELDS = (
     "mousepoll",
     "mousebtn",
     "mousedelta",
-    "audio",
-    "adev",
-    "pcm",
-    "pcmbuf",
+    *INPUT_STATUS_FIELDS,
+    *BOOT_STATUS_FIELDS,
+    *VM_MEMORY_STATUS_FIELDS,
+    *FRAMEBUFFER_STATUS_FIELDS,
+    *AUDIO_STREAM_STATUS_FIELDS,
+    *PROCESS_STATUS_FIELDS,
     "kreloc",
     "kerneip",
     "kernesp",
@@ -292,17 +448,14 @@ HUMAN_SESSION_STATUS_FIELDS = (
     "vmmhpa",
     "vmmhpt",
     "vmmhfree",
-    "doomsound",
-    "sfxmix",
-    "sfxdma",
-    "musicstream",
-    "musicpull",
-    "musicpos",
+    *PREEMPTION_STATUS_FIELDS,
+    *PERSISTENCE_STATUS_FIELDS,
     "doomrun",
     "doomopen",
     "doomread",
     "doomerr",
     "doomfault",
+    *FAULT_STATUS_FIELDS,
     "panic",
     "shutdown",
 )
@@ -320,7 +473,7 @@ HUMAN_SESSION_ALLOWED_EXACT_FILES = set(
         HUMAN_REVIEW_FILE,
     )
 )
-HUMAN_SESSION_ALLOWED_PATTERNS = ("*.log",)
+HUMAN_SESSION_ALLOWED_PATTERNS = ()
 
 FORBIDDEN_ARTIFACT_PATTERNS = (
     "*.wad",
@@ -341,6 +494,10 @@ FORBIDDEN_ARTIFACT_PATTERNS = (
     "*.ppm",
     "*.pgm",
     "*.bmp",
+    "*.bin",
+    "*.elf",
+    "*.symbols",
+    "*.log",
     "*.wav",
     "*.wave",
     "*.mp3",
@@ -366,6 +523,61 @@ CONTENT_SIGNATURES = (
     (b"fLaC", "FLAC audio"),
     (b"FORM", "AIFF audio"),
 )
+
+SECRET_SCAN_MAX_BYTES = 2 * 1024 * 1024
+SECRET_PLACEHOLDER_RE = re.compile(
+    r"(\$\{\{?\s*secrets?\.|\$\{|<[^>]+>|\[[^\]]*redacted[^\]]*\]|"
+    r"redacted|example|placeholder|dummy|fake|should_not_|xxxxx|\*{3,})",
+    re.IGNORECASE,
+)
+SECRET_PATTERNS = (
+    (
+        "GitHub token-shaped string",
+        re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{36,}\b"),
+    ),
+    (
+        "GitHub fine-grained token-shaped string",
+        re.compile(r"\bgithub_pat_[A-Za-z0-9_]{22}_[A-Za-z0-9_]{59}\b"),
+    ),
+    (
+        "authorization header secret",
+        re.compile(
+            r"\bAuthorization:\s*(?:Bearer|token)\s+(?P<value>[A-Za-z0-9._~+/=-]{16,})",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "URL credential parameter",
+        re.compile(
+            r"\b(?:access_token|refresh_token|id_token|token|signature|sig|"
+            r"X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token)="
+            r"(?P<value>[^&\s'\"<>]{16,})",
+            re.IGNORECASE,
+        ),
+    ),
+)
+SECRET_ENV_ASSIGNMENT_RE = re.compile(
+    r"\b(?P<key>"
+    r"(?:GH|GITHUB|CODESPACES?|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|"
+    r"GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)"
+    r"[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH|COOKIE|SESSION|"
+    r"API_?KEY|ACCESS_?KEY|SECRET_?KEY|PRIVATE_?KEY)"
+    r"[A-Z0-9_]*"
+    r")\s*[:=]\s*(?P<value>['\"]?[^\s'\"#`]+)",
+    re.IGNORECASE,
+)
+CODESPACES_ENV_LEAK_RE = re.compile(
+    r"\b(?P<key>CODESPACE_NAME|GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN)"
+    r"\s*=\s*(?P<value>['\"]?[^\s'\"#`]+)",
+    re.IGNORECASE,
+)
+ONE_TIME_AUTH_CONTEXT_RE = re.compile(
+    r"\b(?:one[- ]time|browser|device|user|verification|activation|auth(?:orization)?)"
+    r"\s+(?:code|token)\b|"
+    r"\b(?:copy|enter)\b.{0,32}\b(?:one[- ]time\s+)?(?:auth\s+)?code\b",
+    re.IGNORECASE,
+)
+ONE_TIME_AUTH_CODE_RE = re.compile(r"\b[A-Z0-9]{4}-[A-Z0-9]{4}\b")
 
 SOAK_ARTIFACT_POLICY = {
     "aggregate_status_json_only": True,
@@ -450,10 +662,12 @@ SOAK_STATUS_SUMMARY_FIELDS = (
     "mousepoll",
     "mousebtn",
     "mousedelta",
-    "audio",
-    "adev",
-    "pcm",
-    "pcmbuf",
+    *INPUT_STATUS_FIELDS,
+    *BOOT_STATUS_FIELDS,
+    *VM_MEMORY_STATUS_FIELDS,
+    *FRAMEBUFFER_STATUS_FIELDS,
+    *AUDIO_STREAM_STATUS_FIELDS,
+    *PROCESS_STATUS_FIELDS,
     "kreloc",
     "kerneip",
     "kernesp",
@@ -465,27 +679,13 @@ SOAK_STATUS_SUMMARY_FIELDS = (
     "vmmhpa",
     "vmmhpt",
     "vmmhfree",
-    "doomsound",
-    "sfxmix",
-    "sfxdma",
-    "musicmix",
-    "musicpos",
-    "musicbuf",
-    "musicstream",
-    "musicpull",
-    "audioirq",
-    "ack8",
-    "ack16",
-    "refill",
-    "sb16",
-    "dma",
-    "play",
-    "voiceq",
-    "musicq",
+    *PREEMPTION_STATUS_FIELDS,
+    *PERSISTENCE_STATUS_FIELDS,
     "doomopen",
     "doomread",
     "doomerr",
     "doomfault",
+    *FAULT_STATUS_FIELDS,
     "panic",
     "shutdown",
 )
@@ -739,7 +939,6 @@ def validate_repo_contract() -> None:
         "--human-session",
         "capture_status",
         "no_local_qemu=yes",
-        "doom.symbols",
         "audio-proof.json",
         "Real WAD soak",
         "soak summary",
@@ -851,7 +1050,7 @@ def validate_repo_contract() -> None:
         "local artifact transfer: none",
         "dry-run: Codespace was not created or modified",
         "novnc_url_from_browse_url",
-        "remote_start_payload | gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" NOVNC_PORT=\"$NOVNC_PORT\" bash -s",
+        "remote_start_payload | gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" NOVNC_PORT=\"$NOVNC_PORT\" bash -euo pipefail -s",
         "./tools/play_now_remote.sh --preflight",
         "NOVNC_PORT=$NOVNC_PORT nohup ./tools/play_now_remote.sh",
         "gh codespace ports visibility \"$NOVNC_PORT:private\"",
@@ -911,6 +1110,31 @@ def validate_repo_contract() -> None:
     _require(playable, "pcr3", "playable cloud proof doc")
     _require(playable, "pkstk", "playable cloud proof doc")
     _require(playable, "pspin", "playable cloud proof doc")
+    for needle in (
+        "biosboot=OK",
+        "biosflags=",
+        "biosentry=",
+        "biosspan=",
+        "pf=",
+        "faultsrc=",
+        "faultmode=",
+        "faultcontain=",
+        "regs=",
+        "segs=",
+        "proc=",
+        "kblock=",
+        "ksleep=",
+        "inputstat=",
+        "inputpolicy=",
+        "inputdev=",
+        "inputdevices=",
+        "inputmods=",
+        "bios-handoff-not-proven",
+        "fault-containment-not-proven",
+        "kernel-blocking-not-proven",
+        "uefi-marker-not-proven",
+    ):
+        _require(playable, needle, "playable cloud proof doc")
     _require(tests_readme, "check_cloud_playability_artifacts.py", "test strategy doc")
     _require(tests_readme, "expected_ref", "test strategy doc")
     _require(tests_readme, "fresh save-persistence proof note", "test strategy doc")
@@ -1035,15 +1259,8 @@ def validate_repo_contract() -> None:
         'python3 tools/triage_cloud_status.py "$status_file"',
         "No status.txt or status.failure.txt available for triage.",
         'rm -f "$WAD_PATH"',
-        "build/status*.bin",
         "build/status*.txt",
-        "build/*.log",
         "build/persistence-*/*.json",
-        "build/persistence-*/*.log",
-        "build/kernel.elf",
-        "build/user_probe.elf",
-        "build/doom.elf",
-        "build/doom.symbols",
         "build/audio-proof.json",
         "build/gameplay-proof.json",
         "Summarize proof lane outcomes and reruns",
@@ -2281,14 +2498,8 @@ def format_human_post_download_verification(
 
 
 def _forbidden_content_reason(path: Path, data: bytes) -> str | None:
-    basename = path.name
-    if basename in REQUIRED_DIAGNOSTIC_FILES:
-        if not data.startswith(b"\x7fELF"):
-            return f"expected ELF diagnostic {basename} does not start with ELF magic"
-        return None
-
     if data.startswith(b"\x7fELF"):
-        return f"unexpected ELF binary artifact outside required diagnostics: {path}"
+        return f"ELF binary artifact: {path}"
 
     for signature, label in CONTENT_SIGNATURES:
         if data.startswith(signature):
@@ -2326,6 +2537,50 @@ def _forbidden_content_reason(path: Path, data: bytes) -> str | None:
         return "ISO image"
     if len(data) >= 512 and data[510:512] == b"\x55\xaa" and b"FAT" in data[:512]:
         return "raw FAT disk image"
+    secret_reason = _secret_content_reason(data)
+    if secret_reason is not None:
+        return secret_reason
+    return None
+
+
+def _secret_value_allowed(line: str, value: str = "") -> bool:
+    return (
+        value.startswith("$")
+        or bool(SECRET_PLACEHOLDER_RE.search(line))
+        or bool(value and SECRET_PLACEHOLDER_RE.search(value))
+    )
+
+
+def _secret_content_reason(data: bytes) -> str | None:
+    if len(data) > SECRET_SCAN_MAX_BYTES or b"\0" in data:
+        return None
+    text = data.decode("utf-8", errors="replace")
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        for label, regex in SECRET_PATTERNS:
+            for match in regex.finditer(line):
+                value = match.groupdict().get("value") or match.group(0)
+                if _secret_value_allowed(line, value):
+                    continue
+                return f"{label} in text artifact at line {line_number}"
+        for regex, label in (
+            (SECRET_ENV_ASSIGNMENT_RE, "secret environment value"),
+            (CODESPACES_ENV_LEAK_RE, "Codespaces environment leak"),
+        ):
+            for match in regex.finditer(line):
+                key = match.group("key")
+                if key != key.upper():
+                    continue
+                if key.endswith(("_PATTERN", "_PATTERNS", "_RE", "_REGEX")):
+                    continue
+                value = match.group("value").strip("'\"")
+                if _secret_value_allowed(line, value):
+                    continue
+                return f"{label} for {key} in text artifact at line {line_number}"
+        if ONE_TIME_AUTH_CONTEXT_RE.search(line):
+            for match in ONE_TIME_AUTH_CODE_RE.finditer(line):
+                if _secret_value_allowed(line, match.group(0)):
+                    continue
+                return f"one-time browser auth code in text artifact at line {line_number}"
     return None
 
 
@@ -2845,12 +3100,12 @@ def validate_artifact_dir(
     if not artifact_dir.exists():
         raise AssertionError(f"artifact directory does not exist: {artifact_dir}")
     names = _relative_names(artifact_dir)
+    _assert_no_forbidden_contents(artifact_dir, names)
     for name in names:
         basename = Path(name).name
         for pattern in FORBIDDEN_ARTIFACT_PATTERNS:
             if fnmatch.fnmatchcase(basename, pattern):
                 raise AssertionError(f"forbidden WAD/image/pixel/audio artifact present: {name}")
-    _assert_no_forbidden_contents(artifact_dir, names)
     if require_human_notes:
         _assert_human_session_allowlist(names)
 
@@ -3024,7 +3279,7 @@ def main(argv: list[str]) -> int:
         "artifact_dir",
         nargs="?",
         type=Path,
-        help="downloaded real-wad-smoke-status artifact directory",
+        help="downloaded real-wad-smoke-proof-status artifact directory",
     )
     parser.add_argument(
         "--repo-contract",

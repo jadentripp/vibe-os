@@ -73,9 +73,9 @@ DOOM_G_GAME_CFLAGS := -DG_BuildTiccmd=doom_original_G_BuildTiccmd -DG_Ticker=doo
 DOOM_P_SAVEG_CFLAGS := -DP_ArchivePlayers=doom_original_P_ArchivePlayers -DP_UnArchivePlayers=doom_original_P_UnArchivePlayers -DP_ArchiveWorld=doom_original_P_ArchiveWorld -DP_UnArchiveWorld=doom_original_P_UnArchiveWorld -DP_ArchiveThinkers=doom_original_P_ArchiveThinkers -DP_UnArchiveThinkers=doom_original_P_UnArchiveThinkers -DP_ArchiveSpecials=doom_original_P_ArchiveSpecials -DP_UnArchiveSpecials=doom_original_P_UnArchiveSpecials
 
 STAGE2_MAX_BYTES := 8192
-KERNEL_ELF_MAX_BYTES := 131072
+KERNEL_ELF_MAX_BYTES := 163840
 USER_PROBE_ELF_MAX_BYTES := 12288
-USER_ABI_PROBE_ELF_MAX_BYTES := 12288
+USER_ABI_PROBE_ELF_MAX_BYTES := 24576
 IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF)
 
 .PHONY: all build-only test doom-compile doom-link run run-headless smoke playability-host-check playability-gap-check hardware-support-check storage-install-boundary-check vm-safety-check shutdown-panic-proof-check scripted-gameplay-proof-check audio-continuity-check audible-audio-proof-check cloud-playability-check persistence-image-check clean check-tools vm-consent
@@ -86,7 +86,14 @@ build-only: $(IMAGE) doom-link
 	@printf "Build-only check OK: %s, %s, and %s are present.\n" "$(IMAGE)" "$(DOOM_ELF)" "$(USER_ABI_PROBE_ELF)"
 
 test: $(IMAGE) doom-link
-	$(PYTHON) -m unittest discover -s tests/host -p 'test_*.py'
+	@tmp="$$(mktemp -d "$${TMPDIR:-/tmp}/vibe-os-host-test.XXXXXX")"; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	for artifact in stage1.bin stage2.bin kernel.elf user_probe.elf user_probe_c.o abi_probe.elf doom.elf doom.symbols disk.img; do \
+		cp "$(BUILD_DIR)/$$artifact" "$$tmp/$$artifact"; \
+	done; \
+	mkdir -p "$$tmp/doom"; \
+	cp "$(DOOM_PORT_BUILD_DIR)"/*.o "$$tmp/doom/"; \
+	VIBE_HOST_TEST_BUILD_DIR="$$tmp" $(PYTHON) -m unittest discover -s tests/host -p 'test_*.py'
 
 doom-compile: $(DOOM_ORIGINAL_OBJS)
 	@printf "Compiled %s original Doom source files for freestanding i386.\n" "$$(printf '%s\n' $(DOOM_ORIGINAL_OBJS) | wc -l | tr -d ' ')"
@@ -236,14 +243,22 @@ smoke: vm-consent check-tools $(IMAGE)
 		exit 0; \
 	fi; \
 	grep -q "pg=ON" $(BUILD_DIR)/status.txt; \
-	grep -q "pmm=OK" $(BUILD_DIR)/status.txt; \
-	grep -q "vmm=OK" $(BUILD_DIR)/status.txt; \
-	grep -q "kreloc=LOW" $(BUILD_DIR)/status.txt; \
-	grep -q "krelocstep=HIEXEC_TMP" $(BUILD_DIR)/status.txt; \
+		grep -q "pmm=OK" $(BUILD_DIR)/status.txt; \
+		grep -q "vmm=OK" $(BUILD_DIR)/status.txt; \
+		grep -q "e820map=" $(BUILD_DIR)/status.txt; \
+		grep -q "pmmuse=" $(BUILD_DIR)/status.txt; \
+		grep -q "pmmtype=" $(BUILD_DIR)/status.txt; \
+		grep -q "pmmchk=OK" $(BUILD_DIR)/status.txt; \
+		grep -q "pmmalloc=" $(BUILD_DIR)/status.txt; \
+		grep -q "pmmdeny=" $(BUILD_DIR)/status.txt; \
+		grep -q "uguard=0000000F" $(BUILD_DIR)/status.txt; \
+		grep -q "vmmguard=0000000F/00000000" $(BUILD_DIR)/status.txt; \
+		grep -q "kreloc=HIGH" $(BUILD_DIR)/status.txt; \
+	grep -q "krelocstep=KPMAIN_HIGH" $(BUILD_DIR)/status.txt; \
 	grep -q "kerneip=" $(BUILD_DIR)/status.txt; \
 	grep -q "kernesp=" $(BUILD_DIR)/status.txt; \
 	grep -q "kerncr3=00090000" $(BUILD_DIR)/status.txt; \
-	grep -q "kernvirt=00010000" $(BUILD_DIR)/status.txt; \
+	grep -q "kernvirt=C0010000" $(BUILD_DIR)/status.txt; \
 	grep -q "kernphys=00010000" $(BUILD_DIR)/status.txt; \
 	grep -q "khiexec=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "khieip=" $(BUILD_DIR)/status.txt; \
@@ -261,6 +276,20 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "khislotpa=" $(BUILD_DIR)/status.txt; \
 	grep -q "khisword=48485354" $(BUILD_DIR)/status.txt; \
 	grep -q "khiret=" $(BUILD_DIR)/status.txt; \
+	grep -q "kpexec=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "kpeip=" $(BUILD_DIR)/status.txt; \
+	grep -q "kpesp=" $(BUILD_DIR)/status.txt; \
+	grep -q "kpecr3=00090000" $(BUILD_DIR)/status.txt; \
+	grep -q "kpeva=" $(BUILD_DIR)/status.txt; \
+	grep -q "kpepa=" $(BUILD_DIR)/status.txt; \
+	grep -q "kpestk=" $(BUILD_DIR)/status.txt; \
+	grep -q "kpestkpa=" $(BUILD_DIR)/status.txt; \
+	grep -q "kpexlat=" $(BUILD_DIR)/status.txt; \
+	grep -q "kpesxlat=" $(BUILD_DIR)/status.txt; \
+	grep -q "kpeslot=" $(BUILD_DIR)/status.txt; \
+	grep -q "kpeslotpa=" $(BUILD_DIR)/status.txt; \
+	grep -q "kpesword=4B504558" $(BUILD_DIR)/status.txt; \
+	grep -q "kperet=" $(BUILD_DIR)/status.txt; \
 	grep -q "vmmhi=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "vmmhva=C0000000" $(BUILD_DIR)/status.txt; \
 	grep -q "vmmhpa=" $(BUILD_DIR)/status.txt; \
@@ -268,6 +297,12 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "vmmhfree=" $(BUILD_DIR)/status.txt; \
 	grep -q "libc=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "c=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "fpu=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "fpucr0=" $(BUILD_DIR)/status.txt; \
+	grep -q "fpucw=0000037F" $(BUILD_DIR)/status.txt; \
+	grep -q "fpusw=00000000/00000005/00000000" $(BUILD_DIR)/status.txt; \
+	grep -q "fpufault=" $(BUILD_DIR)/status.txt; \
+	grep -q "fpuctx=" $(BUILD_DIR)/status.txt; \
 	grep -q "usr=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "wad=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "lmp=OK" $(BUILD_DIR)/status.txt; \
@@ -285,6 +320,13 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "doomfaultv=" $(BUILD_DIR)/status.txt; \
 	grep -q "doomfaulterr=" $(BUILD_DIR)/status.txt; \
 	grep -q " fault=" $(BUILD_DIR)/status.txt; \
+	grep -Eq " pf=([0-9A-F]{8}/){4}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
+	grep -Eq "faultsrc=(NONE|EXPECT|USER|DOOM|KERNEL)" $(BUILD_DIR)/status.txt; \
+	grep -Eq "faultmode=(NONE|USER|KERNEL)" $(BUILD_DIR)/status.txt; \
+	grep -Eq "faultcontain=([0-9A-F]{8}/){4}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
+	grep -Eq " regs=([0-9A-F]{8}/){7}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
+	grep -Eq " segs=([0-9A-F]{8}/){5}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
+	grep -Eq " proc=([0-9A-F]{8}/){8}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
 	grep -Eq "panic=(NONE|KEXC)" $(BUILD_DIR)/status.txt; \
 	grep -Eq "shutdown=(NONE|HALT|REBOOT|POWEROFF)" $(BUILD_DIR)/status.txt; \
 	grep -q "doomopen=OK" $(BUILD_DIR)/status.txt; \
@@ -371,11 +413,22 @@ smoke: vm-consent check-tools $(IMAGE)
 		grep -q "adev=" $(BUILD_DIR)/status.txt; \
 		grep -q "pcm=" $(BUILD_DIR)/status.txt; \
 		grep -q "pcmbuf=" $(BUILD_DIR)/status.txt; \
+			grep -q "pcmstream=" $(BUILD_DIR)/status.txt; \
+			grep -q "pcmwrite=" $(BUILD_DIR)/status.txt; \
+			grep -q "pcmdev=" $(BUILD_DIR)/status.txt; \
+			grep -q "pcmqueue=" $(BUILD_DIR)/status.txt; \
+			grep -q "pcmpull=" $(BUILD_DIR)/status.txt; \
+		grep -q "pcmirq=" $(BUILD_DIR)/status.txt; \
+		grep -q "pcmdma=" $(BUILD_DIR)/status.txt; \
 		grep -Eq "audio=(SB16|NONE)" $(BUILD_DIR)/status.txt; \
 			grep -q "inputqueue=" $(BUILD_DIR)/status.txt; \
 			grep -Eq "inputdepth=([0-9A-F]{8}:){1}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
-			grep -Eq "inputstat=([0-9A-F]{8}:){3}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
-			grep -q "inputpoll=" $(BUILD_DIR)/status.txt; \
+				grep -Eq "inputstat=([0-9A-F]{8}:){3}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
+				grep -Eq "inputpolicy=([0-9A-F]{8}:){1}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
+				grep -Eq "inputdev=([0-9A-F]{8}:){1}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
+				grep -Eq "inputdevices=([0-9A-F]{8}:){4}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
+				grep -q "inputmods=" $(BUILD_DIR)/status.txt; \
+				grep -q "inputpoll=" $(BUILD_DIR)/status.txt; \
 			grep -Eq "inputlast=([0-9A-F]{8}:){2}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
 			grep -q "keyirq=" $(BUILD_DIR)/status.txt; \
 		grep -q "keyqueue=" $(BUILD_DIR)/status.txt; \

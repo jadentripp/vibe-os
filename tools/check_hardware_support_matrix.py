@@ -49,6 +49,7 @@ CLAIMED_BOUNDARIES = {
 
 UNCLAIMED_BOUNDARIES = {
     "UEFI": {"proof": "future-boot-path-proof"},
+    "ACPI_TABLES": {"proof": "future-acpi-table-discovery-proof"},
     "PCI_ENUMERATION": {"proof": "future-pci-enumeration-table-proof"},
     "AHCI": {"proof": "future-ahci-sata-storage-proof"},
     "USB": {"proof": "future-usb-input-storage-proof"},
@@ -60,6 +61,7 @@ UNCLAIMED_BOUNDARIES = {
 
 UNCLAIMED_CLASSES = {
     "UEFI",
+    "ACPI_TABLES",
     "PCI_ENUMERATION",
     "AHCI",
     "USB",
@@ -74,13 +76,17 @@ PROOF_REQUIREMENTS = {
         "artifact": "ovmf-cloud-boot",
         "requires": "pe32-esp-gop-mmap-exitbs-boot",
     },
+    "ACPI_TABLES": {
+        "artifact": "acpi-cloud-table-walk",
+        "requires": "rsdp-rsdt-xsdt-madt-hpet-checksum",
+    },
     "PCI_ENUMERATION": {
         "artifact": "pci-cloud-class-table",
         "requires": "all-bdfs-class-subclass-progif-table",
     },
     "AHCI": {
         "artifact": "ahci-cloud-wad-read",
-        "requires": "pci-ahci-bar-identify-sata-read",
+        "requires": "pci-ahci-bar5-hba-identify-sector-read-no-ide-fallback",
     },
     "USB": {
         "artifact": "usb-cloud-input-storage",
@@ -92,11 +98,11 @@ PROOF_REQUIREMENTS = {
     },
     "APIC": {
         "artifact": "apic-cloud-irq",
-        "requires": "lapic-ioapic-pic-masked",
+        "requires": "madt-lapic-ioapic-pic-masked",
     },
     "HPET": {
         "artifact": "hpet-cloud-timer",
-        "requires": "acpi-hpet-mmio-comparator",
+        "requires": "acpi-hpet-mmio-counter-comparator",
     },
     "PHYSICAL_HARDWARE": {
         "artifact": "disposable-hardware-run",
@@ -110,10 +116,15 @@ NEGATIVE_CLAIMS = {
         "claim": "no-uefi-boot",
         "evidence": "boot-uefi-contract",
     },
+    "ACPI_TABLES": {
+        "scope": "firmware",
+        "claim": "no-acpi-table-parser",
+        "evidence": "hardcoded-poweroff-only",
+    },
     "PCI_ENUMERATION": {
         "scope": "kernel",
         "claim": "no-general-pci-enumeration",
-        "evidence": "status-only-qemu-bus0",
+        "evidence": "status-only-qemu-pci-config",
     },
     "AHCI": {
         "scope": "storage",
@@ -160,10 +171,10 @@ NEXT_IMPLEMENTATION_CONTRACTS = {
     "PCI_DRIVER_TABLE_API": {
         "status": "host-checked",
         "scope": "qemu-pci",
-        "requires": "read-only-index-class-progif-lookup",
+        "requires": "read-only-index-id-class-progif-lookup",
         "proof": "host-check-plus-cloud-status",
-        "unlocks": "ahci-sata,usb,apic",
-        "evidence": "pciapi-status-fields",
+        "unlocks": "ahci-sata,usb,hda-audio",
+        "evidence": "pciapi-pcilookid-status-fields",
     },
 }
 
@@ -217,7 +228,7 @@ QEMU_DEVICE_MODELS = {
         "proof": "status-continuity",
         "evidence": "audio-status",
     },
-    "PCI_BUS0_STATUS": {
+    "PCI_CONFIG_STATUS": {
         "status": "status-only",
         "machine": "qemu-legacy-pc",
         "device": "pci-config-ports",
@@ -270,6 +281,23 @@ BOOT_DEVICE_BOUNDARIES = {
 }
 
 STATUS_PROOFS = {
+    "PIT": {
+        "scope": "qemu-pit",
+        "fields": (
+            "clocksrc",
+            "clockirq",
+            "clocktick",
+            "clockhz",
+            "clockms",
+            "clockdoom",
+            "clocksch",
+            "clockpirq",
+            "irqctl",
+            "apic",
+            "hpet",
+        ),
+        "evidence": "clock-status",
+    },
     "IDE_ATA_PIO": {
         "scope": "qemu-ide",
         "fields": (
@@ -288,6 +316,12 @@ STATUS_PROOFS = {
         "scope": "qemu-ps2",
         "fields": (
             "inputqueue",
+            "inputdepth",
+            "inputstat",
+            "inputpolicy",
+            "inputdev",
+            "inputdevices",
+            "inputmods",
             "inputpoll",
             "inputlast",
             "keyirq",
@@ -301,6 +335,15 @@ STATUS_PROOFS = {
     "PS2_MOUSE": {
         "scope": "qemu-ps2",
         "fields": (
+            "inputqueue",
+            "inputdepth",
+            "inputstat",
+            "inputpolicy",
+            "inputdev",
+            "inputdevices",
+            "inputmods",
+            "inputpoll",
+            "inputlast",
             "mouse",
             "mouseirq",
             "mousepkt",
@@ -315,6 +358,13 @@ STATUS_PROOFS = {
         "fields": (
             "gfx",
             "fb",
+            "fbdev",
+            "fbmmio",
+            "fbinfo",
+            "fbcap",
+            "fbsrc",
+            "fbacct",
+            "fbpresent",
             "fbpolicy",
             "fbgeom",
             "fbdirty",
@@ -344,6 +394,49 @@ STATUS_PROOFS = {
     },
 }
 
+INTERRUPT_TIMER_BOUNDARIES = {
+    "LEGACY_PIC_PIT": {
+        "status": "active",
+        "route": "pic",
+        "clock": "pit",
+        "requires": "pic-unmasked-irq0-eoi",
+        "proof": "clock-status",
+        "evidence": "irqctl-clocksrc-clockirq",
+    },
+    "ACPI_TABLES": {
+        "status": "future",
+        "route": "firmware",
+        "clock": "madt-hpet",
+        "requires": "rsdp-rsdt-xsdt-madt-hpet-checksum",
+        "proof": "acpi-table-walk",
+        "evidence": "none",
+    },
+    "LOCAL_APIC": {
+        "status": "future",
+        "route": "lapic",
+        "clock": "apic-timer",
+        "requires": "lapic-mmio-or-msr-spurious-eoi-timer",
+        "proof": "lapic-status-counters",
+        "evidence": "none",
+    },
+    "IOAPIC": {
+        "status": "future",
+        "route": "ioapic",
+        "clock": "external-irqs",
+        "requires": "madt-ioapic-redirection-pic-masked",
+        "proof": "ioapic-routed-irqs",
+        "evidence": "none",
+    },
+    "HPET": {
+        "status": "future",
+        "route": "hpet",
+        "clock": "hpet-comparator",
+        "requires": "hpet-table-mmio-counter-comparator",
+        "proof": "hpet-status-counters",
+        "evidence": "none",
+    },
+}
+
 REQUIRED_MATRIX_PHRASES = (
     "QEMU's legacy PC machine model",
     "BIOS boot",
@@ -357,8 +450,9 @@ REQUIRED_MATRIX_PHRASES = (
     "UEFI boot is not implemented",
     "contract-only scaffold",
     "bounded PCI config-space table builder",
-    "PCI_STATUS[QEMU_BUS0_CONFIG]",
-    "General PCI bus/device/function enumeration is not implemented",
+    "PCI_STATUS[QEMU_PCI_CONFIG]",
+    "General PCI discovery is status-only",
+    "ACPI table discovery is not implemented",
     "AHCI/SATA native storage is not implemented",
     "USB input and storage are not implemented",
     "Multiprocessor startup and scheduling are not implemented",
@@ -379,7 +473,7 @@ REQUIRED_MATRIX_PHRASES = (
     "manual GitHub Actions OVMF loader proof",
     "contract mode is QEMU-free",
     "QEMU_DEVICE_MODEL[BIOS_BOOT]",
-    "QEMU_DEVICE_MODEL[PCI_BUS0_STATUS]",
+    "QEMU_DEVICE_MODEL[PCI_CONFIG_STATUS]",
     "These rows are the machine-readable reason the current claim is QEMU-only",
     "BOOT_DEVICE_BOUNDARY[BIOS_IDE_RAW_LBA]",
     "BOOT_DEVICE_BOUNDARY[UEFI_ESP_KERNEL_FILE]",
@@ -387,29 +481,57 @@ REQUIRED_MATRIX_PHRASES = (
     "BOOT_DEVICE_BOUNDARY[USB_MASS_STORAGE]",
     "BOOT_DEVICE_BOUNDARY[PHYSICAL_MACHINE]",
     "The boot-device boundary is intentionally separate",
-    "PCI_TABLE[QEMU_BUS0_CLASS_TABLE]",
+    "PCI_TABLE[QEMU_PCI_CLASS_TABLE]",
     "PCI_TABLE_API[READ_ONLY_LOOKUP]",
     "PCI_TABLE_CONSUMER[STORAGE_CLASS_PROBE]",
-    "PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN]",
+    "PCI_TABLE_CONSUMER[AUDIO_CLASS_PROBE]",
+    "PCI_TABLE_CONTRACT[QEMU_PCI_SCAN]",
     "PCI_TABLE_CONTRACT[ENTRY_LAYOUT]",
     "PCI_TABLE_CONTRACT[NO_DRIVER_BINDING]",
+    "BLOCK_DRIVER_BOUNDARY[OPS_TABLE]",
+    "BLOCK_DRIVER_BOUNDARY[PCI_STORAGE_PROBE]",
+    "BLOCK_DRIVER_BOUNDARY[UNSUPPORTED_CONTROLLER_REJECTION]",
+    "BLOCK_DRIVER_BOUNDARY[AHCI_BAR_HBA_PROOF]",
     "STATUS_PROOF[IDE_ATA_PIO]",
     "STATUS_PROOF[PS2_KEYBOARD]",
     "STATUS_PROOF[PS2_MOUSE]",
+    "STATUS_PROOF[PIT]",
     "STATUS_PROOF[VBE_VGA]",
     "STATUS_PROOF[SB16]",
     "minimum aggregate status fields",
+    "IRQ/timer controller transition boundary",
+    "INTERRUPT_TIMER_BOUNDARY[LEGACY_PIC_PIT]",
+    "INTERRUPT_TIMER_BOUNDARY[ACPI_TABLES]",
+    "INTERRUPT_TIMER_BOUNDARY[LOCAL_APIC]",
+    "INTERRUPT_TIMER_BOUNDARY[IOAPIC]",
+    "INTERRUPT_TIMER_BOUNDARY[HPET]",
+    "irqctl=PIC",
+    "apic=NONE",
+    "hpet=NONE",
     "packed-bdf-vendor-device-class-progif-header",
     "pcitabcap=",
     "pcitabuse=",
     "pciover=",
+    "pcimiss=",
+    "pcihbus=",
+    "pciclspb=",
+    "pcibrbus=",
+    "pcidiag=",
     "pciapi=",
+    "pcilookid=",
     "pcilookmiss=",
     "pcicons=",
     "pcilookide=",
     "pcilookahci=",
+    "pcilookaud=",
+    "pcilookhda=",
+    "blkctrl=",
+    "blkrej=",
+    "ahcibar=",
+    "ahcireq=",
     "pciclassh=",
     "PROOF_REQUIREMENT[UEFI]",
+    "PROOF_REQUIREMENT[ACPI_TABLES]",
     "PROOF_REQUIREMENT[AHCI]",
     "PROOF_REQUIREMENT[USB]",
     "PROOF_REQUIREMENT[APIC]",
@@ -417,6 +539,7 @@ REQUIRED_MATRIX_PHRASES = (
     "PROOF_REQUIREMENT[HPET]",
     "PROOF_REQUIREMENT[PHYSICAL_HARDWARE]",
     "NEGATIVE_CLAIM[UEFI]",
+    "NEGATIVE_CLAIM[ACPI_TABLES]",
     "NEGATIVE_CLAIM[PCI_ENUMERATION]",
     "NEGATIVE_CLAIM[AHCI]",
     "NEGATIVE_CLAIM[USB]",
@@ -443,7 +566,7 @@ REQUIRED_CROSS_DOC_LINKS = {
         "UEFI loader/proof boundary",
         "UEFI_BOOT[...]",
         "SUPPORT[UEFI] remains unclaimed",
-        "PCI_STATUS[QEMU_BUS0_CONFIG]",
+        "PCI_STATUS[QEMU_PCI_CONFIG]",
     ),
     "docs/proof.txt": (
         "docs/architecture.txt",
@@ -502,10 +625,10 @@ UEFI_BOOT_REQUIREMENTS = {
         "evidence": "uefi-ovmf-proof.yml",
     },
     "KERNEL_HANDOFF": {
-        "status": "blocked",
-        "requires": "elf32-entry-compatible",
-        "proof": "future-mode-switch-handoff",
-        "evidence": "ovmf-proof-manifest",
+        "status": "source-implemented",
+        "requires": "ovmf-kernel-entry-marker",
+        "proof": "future-cloud-kernel-entry",
+        "evidence": "loader.asm",
     },
     "BUILD_INTEGRATION": {
         "status": "host-built",
@@ -567,7 +690,7 @@ UEFI_CLOUD_PROOF_REQUIREMENTS = {
     "WORKFLOW_DISPATCH": {
         "status": "scaffolded",
         "runner": "github-actions-ubuntu",
-        "mode": "contract-attempt-prove-exitbs",
+        "mode": "contract-attempt-prove-kernel-entry",
         "evidence": "uefi-ovmf-proof.yml",
     },
     "OVMF_ATTEMPT": {
@@ -591,18 +714,18 @@ UEFI_CLOUD_PROOF_REQUIREMENTS = {
 }
 
 PCI_STATUS_REQUIREMENTS = {
-    "QEMU_BUS0_CONFIG": {
+    "QEMU_PCI_CONFIG": {
         "status": "status-only",
-        "scope": "qemu-pci-bus0",
+        "scope": "qemu-pci-config",
         "proof": "cloud-smoke-status",
         "evidence": "pci-status-fields",
     },
 }
 
 PCI_TABLE_REQUIREMENTS = {
-    "QEMU_BUS0_CLASS_TABLE": {
+    "QEMU_PCI_CLASS_TABLE": {
         "status": "status-only",
-        "scope": "qemu-pci-bus0",
+        "scope": "qemu-pci-config",
         "layout": "packed-bdf-vendor-device-class-progif-header",
         "capacity": "256",
         "evidence": "pci-table-status-fields",
@@ -612,31 +735,40 @@ PCI_TABLE_REQUIREMENTS = {
 PCI_TABLE_API_REQUIREMENTS = {
     "READ_ONLY_LOOKUP": {
         "status": "status-only",
-        "scope": "qemu-pci-bus0",
+        "scope": "qemu-pci-config",
         "contract": "kernel-maintained-read-only-table",
-        "lookup": "index-class-subclass-progif",
+        "lookup": "index-vendor-device-class-subclass-progif",
         "consumers": "future-drivers",
-        "evidence": "pciapi-status-fields",
+        "evidence": "pciapi-pcilookid-status-fields",
     },
 }
 
 PCI_TABLE_CONSUMER_REQUIREMENTS = {
     "STORAGE_CLASS_PROBE": {
         "status": "status-only",
-        "scope": "qemu-pci-bus0",
+        "scope": "qemu-pci-config",
         "consumes": "read-only-lookup",
         "lookup": "ide-ahci-class",
         "drivers": "none",
         "evidence": "pcicons-pcilookide-pcilookahci-status-fields",
     },
+    "AUDIO_CLASS_PROBE": {
+        "status": "status-only",
+        "scope": "qemu-pci-config",
+        "consumes": "read-only-lookup",
+        "lookup": "multimedia-audio-hda-class",
+        "drivers": "none",
+        "evidence": "pcicons-pcilookaud-pcilookhda-status-fields",
+    },
 }
 
 PCI_TABLE_CONTRACT_REQUIREMENTS = {
-    "QEMU_BUS0_SCAN": {
+    "QEMU_PCI_SCAN": {
         "status": "status-only",
-        "bus": "0",
+        "buses": "256",
         "devices": "32",
         "functions": "8",
+        "table_capacity": "256",
         "evidence": "pci-status-fields",
     },
     "ENTRY_LAYOUT": {
@@ -653,10 +785,47 @@ PCI_TABLE_CONTRACT_REQUIREMENTS = {
     },
 }
 
+BLOCK_DRIVER_BOUNDARIES = {
+    "OPS_TABLE": {
+        "status": "host-checked",
+        "scope": "block-device",
+        "contract": "sector-read-write-flush-ops",
+        "active": "ata-pio",
+        "future": "ahci-nvme-usb",
+        "evidence": "kernel-source",
+    },
+    "PCI_STORAGE_PROBE": {
+        "status": "status-only",
+        "scope": "qemu-pci-config",
+        "contract": "ide-ahci-class-consumer",
+        "active": "ata-pio",
+        "future": "ahci-driver",
+        "evidence": "blkctrl-blkrej-status-fields",
+    },
+    "UNSUPPORTED_CONTROLLER_REJECTION": {
+        "status": "guardrail",
+        "scope": "storage-controller",
+        "contract": "no-silent-ahci-bind",
+        "active": "none",
+        "future": "ahci-driver",
+        "evidence": "blkrej-status-fields",
+    },
+    "AHCI_BAR_HBA_PROOF": {
+        "status": "guardrail",
+        "scope": "qemu-pci-config",
+        "contract": "bar5-mmio-hba-identify-sector-read-required",
+        "active": "none",
+        "future": "ahci-driver",
+        "evidence": "ahcibar-ahcireq-status-fields",
+    },
+}
+
 PCI_STATUS_FIELDS = {
     "pci",
     "pciprobe",
+    "pcimiss",
     "pcicount",
+    "pcihbus",
     "pcifirst",
     "pciid",
     "pciclass",
@@ -669,15 +838,59 @@ PCI_STATUS_FIELDS = {
     "pcimulti",
     "pciclsms",
     "pciclsbr",
+    "pciclspb",
+    "pcibrbus",
+    "pciclsmm",
+    "pcidiag",
     "pciapi",
     "pcilookms",
     "pcilookbr",
+    "pcilookid",
     "pcilookmiss",
     "pcicons",
     "pcilookide",
     "pcilookahci",
+    "pcilookaud",
+    "pcilookhda",
+    "blkctrl",
+    "blkrej",
+    "ahcibar",
+    "ahcireq",
 }
-PCI_QEMU_BUS0_PROBES = 32 * 8
+PCI_SCAN_BUS_COUNT = 256
+PCI_SCAN_DEVICE_COUNT = 32
+PCI_SCAN_FUNCTION_COUNT = 8
+PCI_QEMU_CONFIG_PROBES = PCI_SCAN_BUS_COUNT * PCI_SCAN_DEVICE_COUNT * PCI_SCAN_FUNCTION_COUNT
+PCI_TABLE_CAPACITY = PCI_SCAN_DEVICE_COUNT * PCI_SCAN_FUNCTION_COUNT
+BLOCK_DEVICE_ATA_PIO = 1
+BLOCK_DEVICE_AHCI = 2
+AHCI_BAR_STATE_NONE = 0
+AHCI_BAR_STATE_MMIO = 1
+AHCI_BAR_STATE_INVALID = 2
+AHCI_PROOF_REQ_PCI_CLASS = 0x00000001
+AHCI_PROOF_REQ_BAR5_MMIO = 0x00000002
+AHCI_PROOF_DISCOVERY_MASK = AHCI_PROOF_REQ_PCI_CLASS | AHCI_PROOF_REQ_BAR5_MMIO
+AHCI_PROOF_REQUIRED_MASK = 0x0000007F
+AHCI_GUARD_NO_SILENT_BIND = 0x00000001
+AHCI_GUARD_UNSUPPORTED_REJECTED = 0x00000002
+AHCI_GUARD_ATA_ONLY_OPS = 0x00000004
+PCI_DIAG_SCAN_COMPLETE = 0x00000001
+PCI_DIAG_TABLE_BOUNDED = 0x00000002
+PCI_DIAG_ABSENT_COUNTED = 0x00000004
+PCI_DIAG_CONFIG_DISABLED = 0x00000008
+PCI_DIAG_INDEX_GUARD = 0x00000010
+PCI_DIAG_ID_LOOKUP = 0x00000020
+PCI_DIAG_CLASS_LOOKUP = 0x00000040
+PCI_DIAG_STATUS_ONLY_CONSUMER = 0x00000080
+PCI_DIAG_REQUIRED_MASK = (
+    PCI_DIAG_SCAN_COMPLETE
+    | PCI_DIAG_TABLE_BOUNDED
+    | PCI_DIAG_ABSENT_COUNTED
+    | PCI_DIAG_CONFIG_DISABLED
+    | PCI_DIAG_INDEX_GUARD
+    | PCI_DIAG_CLASS_LOOKUP
+    | PCI_DIAG_STATUS_ONLY_CONSUMER
+)
 
 SUPPORT_RE = re.compile(
     r"^- `SUPPORT\[(?P<id>[A-Z0-9_]+)\] "
@@ -730,11 +943,12 @@ PCI_TABLE_CONSUMER_RE = re.compile(
 )
 
 PCI_TABLE_SCAN_CONTRACT_RE = re.compile(
-    r"^- `PCI_TABLE_CONTRACT\[(?P<id>QEMU_BUS0_SCAN)\] "
+    r"^- `PCI_TABLE_CONTRACT\[(?P<id>QEMU_PCI_SCAN)\] "
     r"status=(?P<status>[a-z-]+) "
-    r"bus=(?P<bus>[0-9]+) "
+    r"buses=(?P<buses>[0-9]+) "
     r"devices=(?P<devices>[0-9]+) "
     r"functions=(?P<functions>[0-9]+) "
+    r"table-capacity=(?P<table_capacity>[0-9]+) "
     r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
     re.MULTILINE,
 )
@@ -753,6 +967,17 @@ PCI_TABLE_GUARDRAIL_CONTRACT_RE = re.compile(
     r"status=(?P<status>[a-z-]+) "
     r"consumers=(?P<consumers>[a-z0-9-]+) "
     r"drivers=(?P<drivers>[a-z0-9-]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
+BLOCK_DRIVER_BOUNDARY_RE = re.compile(
+    r"^- `BLOCK_DRIVER_BOUNDARY\[(?P<id>[A-Z0-9_]+)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"scope=(?P<scope>[a-z0-9-]+) "
+    r"contract=(?P<contract>[a-z0-9-]+) "
+    r"active=(?P<active>[a-z0-9-]+) "
+    r"future=(?P<future>[a-z0-9-]+) "
     r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
     re.MULTILINE,
 )
@@ -825,6 +1050,17 @@ STATUS_PROOF_RE = re.compile(
     re.MULTILINE,
 )
 
+INTERRUPT_TIMER_BOUNDARY_RE = re.compile(
+    r"^- `INTERRUPT_TIMER_BOUNDARY\[(?P<id>[A-Z0-9_]+)\] "
+    r"status=(?P<status>[a-z-]+) "
+    r"route=(?P<route>[a-z0-9-]+) "
+    r"clock=(?P<clock>[a-z0-9-]+) "
+    r"requires=(?P<requires>[a-z0-9-]+) "
+    r"proof=(?P<proof>[a-z0-9-]+) "
+    r"evidence=(?P<evidence>[a-z0-9_.-]+)`$",
+    re.MULTILINE,
+)
+
 CURRENT_TARGET_RE = re.compile(
     r"^- `CURRENT_TARGET\[(?P<id>[A-Z0-9_]+)\] "
     r"status=(?P<status>[a-z-]+) "
@@ -879,6 +1115,8 @@ OVERCLAIM_PATTERNS = (
     re.compile(r"\bUEFI\s+support\b", re.IGNORECASE),
     re.compile(r"\bUEFI[- ]bootable\b", re.IGNORECASE),
     re.compile(r"\bUEFI\s+boot\s+(?:works|is\s+implemented|is\s+available|is\s+wired)\b", re.IGNORECASE),
+    re.compile(r"\bACPI\s+table\s+(?:support|parser|discovery)\b", re.IGNORECASE),
+    re.compile(r"\bACPI\s+tables?\s+(?:work|works|are\s+implemented|is\s+implemented|are\s+available|is\s+available|are\s+wired|is\s+wired)\b", re.IGNORECASE),
     re.compile(r"\bsupports?\s+PCI\b", re.IGNORECASE),
     re.compile(r"\bPCI\s+support\b", re.IGNORECASE),
     re.compile(r"\bPCI\s+device\s+enumeration\b", re.IGNORECASE),
@@ -1034,6 +1272,7 @@ def _validate_current_target_row(text: str) -> dict[str, str]:
     expected_excludes = {
         "uefi",
         "physical-hardware",
+        "acpi-tables",
         "general-pci",
         "ahci-sata",
         "usb-input-storage",
@@ -1227,10 +1466,13 @@ def _validate_pe32plus_efi_application(data: bytes) -> dict[str, int | str]:
     for marker in (
         b"VIBEUEFI step=entry",
         b"VIBEUEFI step=esp-kernel-read",
+        b"VIBEUEFI step=low-memory-reserve status=success",
+        b"VIBEUEFI step=elf32-load status=success",
         b"VIBEUEFI step=gop",
         b"VIBEUEFI step=memory-map",
+        b"VIBEUEFI step=boot-info status=success",
         b"VIBEUEFI step=exit-boot-services status=success",
-        b"VIBEUEFI step=kernel-handoff status=blocked",
+        b"VIBEUEFI step=kernel-handoff status=attempting",
     ):
         if marker not in text:
             raise AssertionError(f"BOOTX64.EFI loader missing proof marker {marker!r}")
@@ -1370,17 +1612,29 @@ def validate_uefi_host_artifact_build(root: Path = ROOT) -> dict[str, object]:
         raise AssertionError("UEFI host manifest must keep the checked ESP paths")
     if manifest["efi_loader_kind"] != "loader-proof-application":
         raise AssertionError("UEFI host manifest must identify the real loader application")
+    pe_manifest = manifest.get("pe_coff_validation")
+    if not isinstance(pe_manifest, dict):
+        raise AssertionError("UEFI host manifest must include PE/COFF validation facts")
+    if pe_manifest.get("format") != "PE32+" or pe_manifest.get("subsystem") != "efi-application":
+        raise AssertionError("UEFI host manifest must record PE32+ EFI application validation")
+    if pe_manifest.get("required_marker_count", 0) < 9:
+        raise AssertionError("UEFI host manifest must validate the loader proof markers")
     for feature in (
         "esp-kernel-read",
         "gop-framebuffer-info",
         "uefi-memory-map",
+        "elf32-pt-load-placement",
+        "bios-compatible-elf32-contract",
+        "legacy-boot-info-e820-handoff",
+        "pre-exit-boot-info-validation",
+        "uefi64-to-protected32-transition",
         "exit-boot-services",
         "debugcon-proof-markers",
     ):
         if feature not in manifest["efi_loader_features"]:
             raise AssertionError(f"UEFI host manifest missing loader feature {feature}")
-    if manifest["kernel_handoff"] != "blocked-uefi64-to-elf32-protected-mode-transition":
-        raise AssertionError("UEFI host manifest must keep the kernel handoff blocker explicit")
+    if manifest["kernel_handoff"] != "source-implemented-pending-ovmf-kernel-entry-marker":
+        raise AssertionError("UEFI host manifest must keep the kernel-entry proof blocker explicit")
 
     pe_info = _validate_pe32plus_efi_application(efi_application)
     esp_info = _validate_fat16_esp_image(esp_image, efi_application, kernel)
@@ -1412,6 +1666,9 @@ def validate_uefi_ovmf_cloud_scaffold(root: Path = ROOT) -> dict[str, object]:
         "uploads_vm_logs",
         "mode == \"prove\"",
         "kernel_booted",
+        "kernel_status_evidence_required",
+        "kernel_entry_after_exit_boot_services",
+        "KERNEL_ENTRY_REQUIRED_FLAG_MASK",
     ):
         if phrase not in script_text:
             raise AssertionError(f"boot/uefi/ovmf_cloud_proof.py missing scaffold phrase: {phrase}")
@@ -1458,10 +1715,16 @@ def validate_uefi_ovmf_cloud_scaffold(root: Path = ROOT) -> dict[str, object]:
         raise AssertionError("UEFI OVMF contract mode must not require local Mac QEMU")
     if manifest["ovmf"]["execution"] != "not-run":
         raise AssertionError("UEFI OVMF contract mode must not run firmware")
-    if manifest["ovmf"]["proof_target"] != "exit-boot-services-debugcon-marker":
-        raise AssertionError("UEFI OVMF contract manifest must name the ExitBootServices proof target")
-    if "the loader stops after ExitBootServices instead of switching to 32-bit protected mode" not in manifest["remaining_blockers"]:
-        raise AssertionError("UEFI OVMF manifest must keep the kernel handoff blocker")
+    if manifest["ovmf"]["proof_target"] != "kernel-entry-debugcon-marker":
+        raise AssertionError("UEFI OVMF contract manifest must name the kernel-entry proof target")
+    if manifest["ovmf"].get("kernel_status_evidence_required") is not True:
+        raise AssertionError("UEFI OVMF contract manifest must require kernel-owned status evidence")
+    if manifest["ovmf"].get("kernel_entry_after_exit_boot_services") is not False:
+        raise AssertionError("UEFI OVMF contract must require post-ExitBootServices kernel entry")
+    if manifest["ovmf"].get("kernel_entry_required_flag_mask") != "0x0000007F":
+        raise AssertionError("UEFI OVMF contract must publish the required kernel handoff flags")
+    if "the source-level kernel-owned UEFI entry marker and status fields still need disposable OVMF proof" not in manifest["remaining_blockers"]:
+        raise AssertionError("UEFI OVMF manifest must keep the kernel-entry proof blocker")
     artifact_policy = manifest["artifact_policy"]
     for key in ("uploads_esp_image", "uploads_efi_binary", "uploads_pflash_vars", "uploads_vm_logs"):
         if artifact_policy[key] is not False:
@@ -1634,17 +1897,45 @@ def _validate_pci_table_contract_rows(text: str) -> dict[str, dict[str, str]]:
             if row[key] != value:
                 raise AssertionError(f"PCI_TABLE_CONTRACT[{row_id}] {key} must stay {value}")
 
-    scan = rows["QEMU_BUS0_SCAN"]
+    scan = rows["QEMU_PCI_SCAN"]
     layout = rows["ENTRY_LAYOUT"]
-    capacity = int(PCI_TABLE_REQUIREMENTS["QEMU_BUS0_CLASS_TABLE"]["capacity"])
-    if int(scan["devices"]) * int(scan["functions"]) != capacity:
-        raise AssertionError("PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN] bounds must match table capacity")
+    capacity = int(PCI_TABLE_REQUIREMENTS["QEMU_PCI_CLASS_TABLE"]["capacity"])
+    if int(scan["table_capacity"]) != capacity:
+        raise AssertionError("PCI_TABLE_CONTRACT[QEMU_PCI_SCAN] table-capacity must match PCI_TABLE capacity")
+    if int(scan["buses"]) * int(scan["devices"]) * int(scan["functions"]) != PCI_QEMU_CONFIG_PROBES:
+        raise AssertionError("PCI_TABLE_CONTRACT[QEMU_PCI_SCAN] bounds must match the all-bus probe count")
     if int(layout["dwords"]) != 4:
         raise AssertionError("PCI_TABLE_CONTRACT[ENTRY_LAYOUT] dwords must stay 4")
     fields = set(layout["fields"].split(","))
     required_fields = set(PCI_TABLE_CONTRACT_REQUIREMENTS["ENTRY_LAYOUT"]["fields"].split(","))
     if fields != required_fields:
         raise AssertionError("PCI_TABLE_CONTRACT[ENTRY_LAYOUT] fields must name the packed API fields")
+
+    return rows
+
+
+def _validate_block_driver_boundary_rows(text: str) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for match in BLOCK_DRIVER_BOUNDARY_RE.finditer(text):
+        row_id = match.group("id")
+        if row_id in rows:
+            raise AssertionError(f"duplicate BLOCK_DRIVER_BOUNDARY row: {row_id}")
+        rows[row_id] = match.groupdict()
+
+    missing = sorted(set(BLOCK_DRIVER_BOUNDARIES) - set(rows))
+    if missing:
+        raise AssertionError(f"missing BLOCK_DRIVER_BOUNDARY rows: {', '.join(missing)}")
+    extras = sorted(set(rows) - set(BLOCK_DRIVER_BOUNDARIES))
+    if extras:
+        raise AssertionError(f"unexpected BLOCK_DRIVER_BOUNDARY rows: {', '.join(extras)}")
+
+    for row_id, expected in BLOCK_DRIVER_BOUNDARIES.items():
+        row = rows[row_id]
+        for key, value in expected.items():
+            if row[key] != value:
+                raise AssertionError(f"BLOCK_DRIVER_BOUNDARY[{row_id}] {key} must stay {value}")
+        if row_id != "OPS_TABLE" and row["active"] != "none" and "ahci" in row["active"]:
+            raise AssertionError(f"BLOCK_DRIVER_BOUNDARY[{row_id}] must not claim AHCI as active")
 
     return rows
 
@@ -1748,7 +2039,7 @@ def _validate_next_implementation_contract_rows(text: str) -> dict[str, dict[str
             if row[key] != value:
                 raise AssertionError(f"NEXT_IMPLEMENTATION_CONTRACT[{row_id}] {key} must stay {value}")
         unlocks = set(row["unlocks"].split(","))
-        if not {"ahci-sata", "usb", "apic"}.issubset(unlocks):
+        if not {"ahci-sata", "usb", "hda-audio"}.issubset(unlocks):
             raise AssertionError(
                 f"NEXT_IMPLEMENTATION_CONTRACT[{row_id}] must keep future driver unlocks explicit"
             )
@@ -1844,6 +2135,32 @@ def _validate_status_proof_rows(text: str) -> dict[str, dict[str, object]]:
     return rows
 
 
+def _validate_interrupt_timer_boundary_rows(text: str) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for match in INTERRUPT_TIMER_BOUNDARY_RE.finditer(text):
+        row_id = match.group("id")
+        if row_id in rows:
+            raise AssertionError(f"duplicate INTERRUPT_TIMER_BOUNDARY row: {row_id}")
+        rows[row_id] = match.groupdict()
+
+    missing = sorted(set(INTERRUPT_TIMER_BOUNDARIES) - set(rows))
+    if missing:
+        raise AssertionError(f"missing INTERRUPT_TIMER_BOUNDARY rows: {', '.join(missing)}")
+    extras = sorted(set(rows) - set(INTERRUPT_TIMER_BOUNDARIES))
+    if extras:
+        raise AssertionError(f"unexpected INTERRUPT_TIMER_BOUNDARY rows: {', '.join(extras)}")
+
+    for row_id, expected in INTERRUPT_TIMER_BOUNDARIES.items():
+        row = rows[row_id]
+        for key, value in expected.items():
+            if row[key] != value:
+                raise AssertionError(f"INTERRUPT_TIMER_BOUNDARY[{row_id}] {key} must stay {value}")
+        if row_id != "LEGACY_PIC_PIT" and row["evidence"] != "none":
+            raise AssertionError(f"INTERRUPT_TIMER_BOUNDARY[{row_id}] must keep evidence=none")
+
+    return rows
+
+
 def _validate_uefi_scaffold(root: Path) -> dict[str, dict[str, str]]:
     text = _read(root / "boot" / "uefi" / "CONTRACT.txt")
     rows = _validate_uefi_boot_rows(text)
@@ -1853,7 +2170,9 @@ def _validate_uefi_scaffold(root: Path) -> dict[str, dict[str, str]]:
 
     for phrase in (
         "real loader/proof application",
-        "does not yet contain a kernel-entry handoff",
+        "kernel-owned `VIBEKERN` entry/status marker",
+        "ELF32 `PT_LOAD` placement",
+        "source-built handoff path",
         "opt-in host artifact builder",
         "BOOTX64.EFI",
         "VIBEOS/KERNEL.ELF",
@@ -1893,17 +2212,34 @@ def _validate_pci_source_contract(root: Path) -> None:
         "PCI_CONFIG_DATA equ 0x0cfc",
         "PCI_CONFIG_ENABLE equ 0x80000000",
         "PCI_CONFIG_HEADER_REG equ 0x0c",
+        "PCI_CONFIG_BRIDGE_BUS_REG equ 0x18",
+        "PCI_CONFIG_BAR5_REG equ 0x24",
         "PCI_HEADER_MULTIFUNCTION_FLAG equ 0x00800000",
         "PCI_CLASS_MASS_STORAGE equ 0x01",
+        "PCI_CLASS_MULTIMEDIA equ 0x04",
         "PCI_CLASS_BRIDGE equ 0x06",
         "PCI_SUBCLASS_IDE equ 0x01",
         "PCI_SUBCLASS_AHCI equ 0x06",
+        "PCI_SUBCLASS_AUDIO equ 0x01",
+        "PCI_SUBCLASS_HDA equ 0x03",
+        "PCI_SUBCLASS_PCI_BRIDGE equ 0x04",
         "PCI_PROGIF_AHCI equ 0x01",
         "PCI_LOOKUP_ANY equ 0xff",
+        "PCI_LOOKUP_ID_ANY equ 0xffff",
         "PCI_LOOKUP_NOT_FOUND equ 0xffffffff",
+        "PCI_DIAG_SCAN_COMPLETE equ 0x00000001",
+        "PCI_DIAG_TABLE_BOUNDED equ 0x00000002",
+        "PCI_DIAG_ABSENT_COUNTED equ 0x00000004",
+        "PCI_DIAG_CONFIG_DISABLED equ 0x00000008",
+        "PCI_DIAG_INDEX_GUARD equ 0x00000010",
+        "PCI_DIAG_ID_LOOKUP equ 0x00000020",
+        "PCI_DIAG_CLASS_LOOKUP equ 0x00000040",
+        "PCI_DIAG_STATUS_ONLY_CONSUMER equ 0x00000080",
+        "PCI_SCAN_BUS_COUNT equ 256",
         "PCI_SCAN_DEVICE_COUNT equ 32",
         "PCI_SCAN_FUNCTION_COUNT equ 8",
-        "PCI_SCAN_FUNCTION_PROBES equ PCI_SCAN_DEVICE_COUNT * PCI_SCAN_FUNCTION_COUNT",
+        "PCI_SCAN_BUS_PROBES equ PCI_SCAN_DEVICE_COUNT * PCI_SCAN_FUNCTION_COUNT",
+        "PCI_SCAN_FUNCTION_PROBES equ PCI_SCAN_BUS_COUNT * PCI_SCAN_BUS_PROBES",
         "PCI_TABLE_ENTRY_DWORDS equ 4",
         "PCI_TABLE_ENTRY_SHIFT equ 4",
         "PCI_TABLE_ENTRY_SIZE equ PCI_TABLE_ENTRY_DWORDS * 4",
@@ -1914,12 +2250,38 @@ def _validate_pci_source_contract(root: Path) -> None:
         "PCI_TABLE_VENDOR_DEVICE_OFFSET equ 4",
         "PCI_TABLE_CLASS_OFFSET equ 8",
         "PCI_TABLE_HEADER_OFFSET equ 12",
-        "PCI_TABLE_MAX_ENTRIES equ PCI_SCAN_FUNCTION_PROBES",
+        "PCI_TABLE_MAX_ENTRIES equ PCI_SCAN_BUS_PROBES",
+        "BLOCK_DEVICE_AHCI equ 2",
+        "AHCI_BAR_STATE_NONE equ 0",
+        "AHCI_BAR_STATE_MMIO equ 1",
+        "AHCI_BAR_STATE_INVALID equ 2",
+        "AHCI_PROOF_REQ_PCI_CLASS equ 0x00000001",
+        "AHCI_PROOF_REQ_BAR5_MMIO equ 0x00000002",
+        "AHCI_PROOF_REQ_HBA_RESET equ 0x00000004",
+        "AHCI_PROOF_REQ_PORT_DETECT equ 0x00000008",
+        "AHCI_PROOF_REQ_IDENTIFY equ 0x00000010",
+        "AHCI_PROOF_REQ_SECTOR_IO equ 0x00000020",
+        "AHCI_PROOF_REQ_NO_IDE_FALLBACK equ 0x00000040",
+        "AHCI_PROOF_REQUIRED_MASK equ 0x0000007f",
+        "AHCI_GUARD_NO_SILENT_BIND equ 0x00000001",
+        "AHCI_GUARD_UNSUPPORTED_REJECTED equ 0x00000002",
+        "AHCI_GUARD_ATA_ONLY_OPS equ 0x00000004",
+        "BLOCK_OPS_READ_OFFSET equ 0",
+        "BLOCK_OPS_WRITE_OFFSET equ 4",
+        "BLOCK_OPS_FLUSH_OFFSET equ 8",
+        "BLOCK_OPS_DWORDS equ 3",
+        "BLOCK_ERROR_UNSUPPORTED_CONTROLLER equ 7",
         "call pci_scan_qemu",
+        "call block_driver_probe_storage_classes",
         "pci_scan_qemu:",
         "mov byte [pci_table_api_status], 0",
+        "cmp dword [pci_scan_bus_index], PCI_SCAN_BUS_COUNT",
         "cmp esi, PCI_SCAN_DEVICE_COUNT",
         "cmp edi, PCI_SCAN_FUNCTION_COUNT",
+        "inc dword [pci_absent_count]",
+        "mov [pci_highest_bus], eax",
+        "PCI_CONFIG_BRIDGE_BUS_REG",
+        "mov [pci_bridge_bus_info], eax",
         "mov edi, pci_device_table",
         "rep stosd",
         "PCI_TABLE_LOCATION_OFFSET",
@@ -1928,15 +2290,34 @@ def _validate_pci_source_contract(root: Path) -> None:
         "PCI_TABLE_HEADER_OFFSET",
         "pci_table_entry_by_index:",
         "pci_table_find_first_by_class:",
+        "pci_table_find_first_by_id:",
+        "pci_config_read_dword_by_bdf:",
         "pci_table_probe_lookup_contract:",
+        "block_driver_install_ata_pio_ops:",
+        "block_driver_probe_storage_classes:",
+        "block_driver_record_ahci_probe:",
+        "block_ata_pio_ops:",
+        "call dword [block_driver_read_op]",
+        "call dword [block_driver_write_op]",
+        "call dword [block_driver_flush_op]",
         "call pci_table_probe_lookup_contract",
+        "or dword [pci_diag_flags], PCI_DIAG_SCAN_COMPLETE",
+        "or dword [pci_diag_flags], PCI_DIAG_TABLE_BOUNDED",
+        "or dword [pci_diag_flags], PCI_DIAG_ABSENT_COUNTED",
+        "or dword [pci_diag_flags], PCI_DIAG_CONFIG_DISABLED",
+        "or dword [pci_diag_flags], PCI_DIAG_INDEX_GUARD",
+        "or dword [pci_diag_flags], PCI_DIAG_ID_LOOKUP",
+        "or dword [pci_diag_flags], PCI_DIAG_CLASS_LOOKUP",
+        "or dword [pci_diag_flags], PCI_DIAG_STATUS_ONLY_CONSUMER",
         "mov byte [pci_table_consumer_status], 1",
         "pci_device_table times PCI_TABLE_MAX_ENTRIES * PCI_TABLE_ENTRY_DWORDS dd 0",
         "out dx, eax",
         "in eax, dx",
         'smoke_pci_text db " pci="',
         'smoke_pciprobe_text db " pciprobe="',
+        'smoke_pcimiss_text db " pcimiss="',
         'smoke_pcicount_text db " pcicount="',
+        'smoke_pcihbus_text db " pcihbus="',
         'smoke_pcifirst_text db " pcifirst="',
         'smoke_pciid_text db " pciid="',
         'smoke_pciclass_text db " pciclass="',
@@ -1949,17 +2330,31 @@ def _validate_pci_source_contract(root: Path) -> None:
         'smoke_pcimulti_text db " pcimulti="',
         'smoke_pciclsms_text db " pciclsms="',
         'smoke_pciclsbr_text db " pciclsbr="',
+        'smoke_pciclspb_text db " pciclspb="',
+        'smoke_pcibrbus_text db " pcibrbus="',
+        'smoke_pciclsmm_text db " pciclsmm="',
+        'smoke_pcidiag_text db " pcidiag="',
         'smoke_pciapi_text db " pciapi="',
         'smoke_pcilookms_text db " pcilookms="',
         'smoke_pcilookbr_text db " pcilookbr="',
+        'smoke_pcilookid_text db " pcilookid="',
         'smoke_pcilookmiss_text db " pcilookmiss="',
         'smoke_pcicons_text db " pcicons="',
         'smoke_pcilookide_text db " pcilookide="',
         'smoke_pcilookahci_text db " pcilookahci="',
+        'smoke_pcilookaud_text db " pcilookaud="',
+        'smoke_pcilookhda_text db " pcilookhda="',
+        'smoke_blkctrl_text db " blkctrl="',
+        'smoke_blkrej_text db " blkrej="',
+        'smoke_ahcibar_text db " ahcibar="',
+        'smoke_ahcireq_text db " ahcireq="',
+        "pci_scan_bus_index dd 0",
         "pci_probe_count dd 0",
+        "pci_absent_count dd 0",
         "pci_function_count dd 0",
         "pci_table_count dd 0",
         "pci_table_overflow_count dd 0",
+        "pci_highest_bus dd 0",
         "pci_first_bdf dd 0",
         "pci_first_id dd 0",
         "pci_first_class dd 0",
@@ -1968,16 +2363,49 @@ def _validate_pci_source_contract(root: Path) -> None:
         "pci_multifunction_device_count dd 0",
         "pci_mass_storage_class_count dd 0",
         "pci_bridge_class_count dd 0",
+        "pci_pci_bridge_class_count dd 0",
+        "pci_multimedia_class_count dd 0",
+        "pci_bridge_bus_info dd PCI_LOOKUP_NOT_FOUND",
+        "pci_diag_flags dd 0",
         "pci_lookup_mass_storage_bdf dd PCI_LOOKUP_NOT_FOUND",
         "pci_lookup_bridge_bdf dd PCI_LOOKUP_NOT_FOUND",
         "pci_lookup_ide_bdf dd PCI_LOOKUP_NOT_FOUND",
         "pci_lookup_ahci_bdf dd PCI_LOOKUP_NOT_FOUND",
+        "pci_lookup_audio_bdf dd PCI_LOOKUP_NOT_FOUND",
+        "pci_lookup_hda_bdf dd PCI_LOOKUP_NOT_FOUND",
+        "pci_lookup_first_id_bdf dd PCI_LOOKUP_NOT_FOUND",
         "pci_lookup_miss_bdf dd PCI_LOOKUP_NOT_FOUND",
+        "block_driver_read_op dd 0",
+        "block_driver_write_op dd 0",
+        "block_driver_flush_op dd 0",
+        "block_driver_supported_bdf dd PCI_LOOKUP_NOT_FOUND",
+        "block_driver_ahci_bdf dd PCI_LOOKUP_NOT_FOUND",
+        "ahci_probe_bdf dd PCI_LOOKUP_NOT_FOUND",
+        "ahci_required_mask dd AHCI_PROOF_REQUIRED_MASK",
         "pci_table_api_status db 0",
         "pci_table_consumer_status db 0",
     ):
         if phrase not in kernel:
             raise AssertionError(f"kernel missing bounded PCI status contract phrase: {phrase}")
+
+
+def _validate_interrupt_timer_source_contract(root: Path) -> None:
+    kernel = _read(root / "kernel" / "kernel.asm")
+    for phrase in (
+        "PIT_IRQ_HZ equ 100",
+        "CLOCK_MONOTONIC_HZ equ PIT_IRQ_HZ",
+        "pic_unmask_timer_keyboard:",
+        "pit_init_100hz:",
+        'smoke_clocksrc_text db " clocksrc=PIT"',
+        'smoke_irqctl_text db " irqctl=PIC"',
+        'smoke_apic_text db " apic=NONE"',
+        'smoke_hpet_text db " hpet=NONE"',
+        "mov esi, smoke_irqctl_text",
+        "mov esi, smoke_apic_text",
+        "mov esi, smoke_hpet_text",
+    ):
+        if phrase not in kernel:
+            raise AssertionError(f"kernel missing interrupt/timer status contract phrase: {phrase}")
 
 
 def _validate_claim_wording(root: Path) -> None:
@@ -2024,6 +2452,63 @@ def _require_fields(fields: dict[str, str], names: tuple[str, ...], label: str) 
         raise AssertionError(f"status missing {label} fields: {', '.join(missing)}")
 
 
+def _validate_block_driver_status_fields(
+    fields: dict[str, str],
+    *,
+    lookup_ide: int,
+    lookup_ahci: int,
+) -> None:
+    device_kind, ide_bdf, ahci_bdf = _hex_tuple_field(fields, "blkctrl", 3)
+    rejected_count, last_rejected_kind = _hex_tuple_field(fields, "blkrej", 2)
+    ahci_bar_bdf, ahci_bar_raw, ahci_bar_base, ahci_bar_state = _hex_tuple_field(fields, "ahcibar", 4)
+    ahci_required, ahci_observed, ahci_guard = _hex_tuple_field(fields, "ahcireq", 3)
+
+    if device_kind not in {0, BLOCK_DEVICE_ATA_PIO}:
+        raise AssertionError("blkctrl= must not claim a non-ATA active block controller yet")
+    if ide_bdf != lookup_ide:
+        raise AssertionError("blkctrl= IDE BDF must mirror the PCI storage-class lookup result")
+    if ahci_bdf != lookup_ahci:
+        raise AssertionError("blkctrl= AHCI BDF must mirror the PCI AHCI class lookup result")
+    if ahci_bdf == 0xFFFFFFFF:
+        if rejected_count != 0 or last_rejected_kind != 0:
+            raise AssertionError("blkrej= must stay zero when no AHCI storage class is present")
+        if (ahci_bar_bdf, ahci_bar_raw, ahci_bar_base, ahci_bar_state) != (
+            0xFFFFFFFF,
+            0xFFFFFFFF,
+            0,
+            AHCI_BAR_STATE_NONE,
+        ):
+            raise AssertionError("ahcibar= must stay absent when no AHCI storage class is present")
+        if ahci_observed != 0:
+            raise AssertionError("ahcireq= observed mask must stay zero when AHCI is absent")
+    elif rejected_count == 0 or last_rejected_kind != BLOCK_DEVICE_AHCI:
+        raise AssertionError("blkrej= must record AHCI as explicitly unsupported when an AHCI class is seen")
+    else:
+        if ahci_bar_bdf != ahci_bdf:
+            raise AssertionError("ahcibar= BDF must mirror the PCI AHCI class lookup result")
+        if ahci_bar_state not in {AHCI_BAR_STATE_MMIO, AHCI_BAR_STATE_INVALID}:
+            raise AssertionError("ahcibar= must classify a present AHCI BAR5 as MMIO or invalid")
+        if (ahci_observed & AHCI_PROOF_REQ_PCI_CLASS) == 0:
+            raise AssertionError("ahcireq= observed mask must record the AHCI PCI class when present")
+        if ahci_bar_state == AHCI_BAR_STATE_MMIO:
+            if ahci_bar_raw == 0xFFFFFFFF or (ahci_bar_raw & 1) or ahci_bar_base == 0:
+                raise AssertionError("ahcibar= MMIO BAR5 must have an MMIO raw value and nonzero base")
+            if (ahci_observed & AHCI_PROOF_REQ_BAR5_MMIO) == 0:
+                raise AssertionError("ahcireq= observed mask must record BAR5 MMIO when ahcibar= is MMIO")
+        elif ahci_observed & AHCI_PROOF_REQ_BAR5_MMIO:
+            raise AssertionError("ahcireq= BAR5 MMIO bit requires ahcibar= MMIO state")
+        if (ahci_guard & AHCI_GUARD_UNSUPPORTED_REJECTED) == 0:
+            raise AssertionError("ahcireq= guard mask must record unsupported AHCI rejection when AHCI is present")
+    if ahci_required != AHCI_PROOF_REQUIRED_MASK:
+        raise AssertionError("ahcireq= required mask must name the full future AHCI proof contract")
+    if ahci_observed & ~AHCI_PROOF_DISCOVERY_MASK:
+        raise AssertionError("ahcireq= observed mask must not claim HBA reset, identify, sector I/O, or no-IDE fallback")
+    if (ahci_guard & AHCI_GUARD_NO_SILENT_BIND) == 0:
+        raise AssertionError("ahcireq= guard mask must record no-silent-AHCI-bind policy")
+    if device_kind == BLOCK_DEVICE_ATA_PIO and (ahci_guard & AHCI_GUARD_ATA_ONLY_OPS) == 0:
+        raise AssertionError("ahcireq= guard mask must record that only ATA ops are installed today")
+
+
 def validate_pci_status_text(status: str) -> dict[str, str]:
     fields = _parse_status_fields(status)
     missing = sorted(PCI_STATUS_FIELDS - set(fields))
@@ -2035,10 +2520,12 @@ def validate_pci_status_text(status: str) -> dict[str, str]:
         raise AssertionError("pci= must be OK or NONE")
 
     probes = _hex8_field(fields, "pciprobe")
-    if probes != PCI_QEMU_BUS0_PROBES:
-        raise AssertionError(f"pciprobe= must be {PCI_QEMU_BUS0_PROBES:08X} for the bounded QEMU bus-0 scan")
+    if probes != PCI_QEMU_CONFIG_PROBES:
+        raise AssertionError(f"pciprobe= must be {PCI_QEMU_CONFIG_PROBES:08X} for the bounded PCI config scan")
 
+    absent = _hex8_field(fields, "pcimiss")
     count = _hex8_field(fields, "pcicount")
+    highest_bus = _hex8_field(fields, "pcihbus")
     first_bdf = _hex8_field(fields, "pcifirst")
     first_id = _hex8_field(fields, "pciid")
     first_class = _hex8_field(fields, "pciclass")
@@ -2050,11 +2537,23 @@ def validate_pci_status_text(status: str) -> dict[str, str]:
     multifunction_count = _hex8_field(fields, "pcimulti")
     mass_storage_count = _hex8_field(fields, "pciclsms")
     bridge_count = _hex8_field(fields, "pciclsbr")
+    pci_bridge_count = _hex8_field(fields, "pciclspb")
+    bridge_bus_info = _hex8_field(fields, "pcibrbus")
+    multimedia_count = _hex8_field(fields, "pciclsmm")
+    diag_flags = _hex8_field(fields, "pcidiag")
     lookup_mass_storage = _hex8_field(fields, "pcilookms")
     lookup_bridge = _hex8_field(fields, "pcilookbr")
+    lookup_id = _hex8_field(fields, "pcilookid")
     lookup_miss = _hex8_field(fields, "pcilookmiss")
     lookup_ide = _hex8_field(fields, "pcilookide")
     lookup_ahci = _hex8_field(fields, "pcilookahci")
+    lookup_audio = _hex8_field(fields, "pcilookaud")
+    lookup_hda = _hex8_field(fields, "pcilookhda")
+    _validate_block_driver_status_fields(
+        fields,
+        lookup_ide=lookup_ide,
+        lookup_ahci=lookup_ahci,
+    )
 
     if fields["pcitable"] != "OK":
         raise AssertionError("pcitable= must be OK for the bounded table builder")
@@ -2062,8 +2561,8 @@ def validate_pci_status_text(status: str) -> dict[str, str]:
         raise AssertionError("pciapi= must be OK for the read-only PCI table lookup API")
     if fields["pcicons"] != "OK":
         raise AssertionError("pcicons= must be OK for the read-only PCI table consumer proof")
-    if table_capacity != PCI_QEMU_BUS0_PROBES:
-        raise AssertionError(f"pcitabcap= must be {PCI_QEMU_BUS0_PROBES:08X}")
+    if table_capacity != PCI_TABLE_CAPACITY:
+        raise AssertionError(f"pcitabcap= must be {PCI_TABLE_CAPACITY:08X}")
     if table_overflow == 0 and table_used != count:
         raise AssertionError("pcitabuse= must match pcicount= when pciover= is zero")
     if table_overflow != 0 and table_used != table_capacity:
@@ -2074,11 +2573,18 @@ def validate_pci_status_text(status: str) -> dict[str, str]:
         raise AssertionError("pcitabuse= must not exceed pcitabcap=")
     if lookup_miss != 0xFFFFFFFF:
         raise AssertionError("pcilookmiss= must expose the PCI lookup miss sentinel")
+    if absent + count != probes:
+        raise AssertionError("pcimiss= plus pcicount= must equal the bounded PCI probe count")
+    if highest_bus >= PCI_SCAN_BUS_COUNT:
+        raise AssertionError("pcihbus= must stay inside the bounded PCI bus scan")
+    if diag_flags & PCI_DIAG_REQUIRED_MASK != PCI_DIAG_REQUIRED_MASK:
+        raise AssertionError("pcidiag= must prove scan, table, lookup, and status-only consumer diagnostics")
 
     if pci_state == "NONE":
         if any(
             (
                 count,
+                highest_bus,
                 first_bdf,
                 first_id,
                 first_class,
@@ -2089,53 +2595,81 @@ def validate_pci_status_text(status: str) -> dict[str, str]:
                 multifunction_count,
                 mass_storage_count,
                 bridge_count,
+                pci_bridge_count,
+                multimedia_count,
             )
         ):
             raise AssertionError("pci=NONE must keep PCI table counters and summaries at zero")
-        if any(value != 0xFFFFFFFF for value in (lookup_mass_storage, lookup_bridge, lookup_ide, lookup_ahci)):
-            raise AssertionError("pci=NONE must keep PCI class lookups at the miss sentinel")
+        if bridge_bus_info != 0xFFFFFFFF:
+            raise AssertionError("pci=NONE must keep pcibrbus= at the miss sentinel")
+        if any(
+            value != 0xFFFFFFFF
+            for value in (lookup_mass_storage, lookup_bridge, lookup_id, lookup_ide, lookup_ahci, lookup_audio, lookup_hda)
+        ):
+            raise AssertionError("pci=NONE must keep PCI lookup fields at the miss sentinel")
         return fields
 
     if count == 0:
         raise AssertionError("pci=OK requires pcicount= to be nonzero")
-    if first_bdf >> 16:
-        raise AssertionError("pcifirst= must encode a bus-0 device/function, not a broader bus scan")
+    first_bus = (first_bdf >> 16) & 0xff
     device = (first_bdf >> 8) & 0xff
     function = first_bdf & 0xff
-    if device >= 32 or function >= 8:
-        raise AssertionError("pcifirst= device/function is outside the bounded QEMU bus-0 scan")
+    if first_bus >= PCI_SCAN_BUS_COUNT or device >= PCI_SCAN_DEVICE_COUNT or function >= PCI_SCAN_FUNCTION_COUNT:
+        raise AssertionError("pcifirst= bus/device/function is outside the bounded PCI config scan")
     if first_id in (0, 0xffffffff) or (first_id & 0xffff) == 0xffff:
         raise AssertionError("pciid= must record a present config-space vendor/device dword")
     if first_class == 0xffffffff:
         raise AssertionError("pciclass= must record a present config-space class dword")
-    if last_bdf >> 16:
-        raise AssertionError("pcilast= must encode a bus-0 device/function, not a broader bus scan")
+    last_bus = (last_bdf >> 16) & 0xff
     last_device = (last_bdf >> 8) & 0xff
     last_function = last_bdf & 0xff
-    if last_device >= 32 or last_function >= 8:
-        raise AssertionError("pcilast= device/function is outside the bounded QEMU bus-0 scan")
+    if last_bus >= PCI_SCAN_BUS_COUNT or last_device >= PCI_SCAN_DEVICE_COUNT or last_function >= PCI_SCAN_FUNCTION_COUNT:
+        raise AssertionError("pcilast= bus/device/function is outside the bounded PCI config scan")
+    if first_bus > highest_bus or last_bus > highest_bus:
+        raise AssertionError("pcihbus= must cover first and last present PCI functions")
     if class_hash == 0:
         raise AssertionError("pciclassh= must summarize the populated PCI class table")
-    if any(value > count for value in (multifunction_count, mass_storage_count, bridge_count)):
+    if any(value > count for value in (multifunction_count, mass_storage_count, bridge_count, pci_bridge_count, multimedia_count)):
         raise AssertionError("PCI class-table counters must not exceed pcicount=")
+    if pci_bridge_count > bridge_count:
+        raise AssertionError("pciclspb= must not exceed the broader bridge-class count")
+    if pci_bridge_count == 0:
+        if bridge_bus_info != 0xFFFFFFFF:
+            raise AssertionError("pcibrbus= must stay at the miss sentinel when no PCI-to-PCI bridge is seen")
+    else:
+        if bridge_bus_info == 0xFFFFFFFF:
+            raise AssertionError("pcibrbus= must expose the first PCI-to-PCI bridge bus register")
+        primary = bridge_bus_info & 0xff
+        secondary = (bridge_bus_info >> 8) & 0xff
+        subordinate = (bridge_bus_info >> 16) & 0xff
+        if primary >= PCI_SCAN_BUS_COUNT or secondary >= PCI_SCAN_BUS_COUNT or subordinate >= PCI_SCAN_BUS_COUNT:
+            raise AssertionError("pcibrbus= bridge bus numbers must stay inside the bounded PCI bus scan")
     for field_name, bdf in (
         ("pcilookms", lookup_mass_storage),
         ("pcilookbr", lookup_bridge),
+        ("pcilookid", lookup_id),
         ("pcilookide", lookup_ide),
         ("pcilookahci", lookup_ahci),
+        ("pcilookaud", lookup_audio),
+        ("pcilookhda", lookup_hda),
     ):
         if bdf == 0xFFFFFFFF:
             continue
-        if bdf >> 16:
-            raise AssertionError(f"{field_name}= must encode a bus-0 device/function")
+        lookup_bus = (bdf >> 16) & 0xff
         lookup_device = (bdf >> 8) & 0xff
         lookup_function = bdf & 0xff
-        if lookup_device >= 32 or lookup_function >= 8:
-            raise AssertionError(f"{field_name}= device/function is outside the bounded QEMU bus-0 scan")
+        if lookup_bus >= PCI_SCAN_BUS_COUNT or lookup_device >= PCI_SCAN_DEVICE_COUNT or lookup_function >= PCI_SCAN_FUNCTION_COUNT:
+            raise AssertionError(f"{field_name}= bus/device/function is outside the bounded PCI config scan")
     if mass_storage_count and lookup_mass_storage == 0xFFFFFFFF:
         raise AssertionError("pcilookms= must find the first mass-storage class entry when pciclsms= is nonzero")
     if bridge_count and lookup_bridge == 0xFFFFFFFF:
         raise AssertionError("pcilookbr= must find the first bridge class entry when pciclsbr= is nonzero")
+    if lookup_id != first_bdf:
+        raise AssertionError("pcilookid= must find the first table entry by exact vendor/device id")
+    if diag_flags & PCI_DIAG_ID_LOOKUP == 0:
+        raise AssertionError("pcidiag= must prove the exact vendor/device lookup path on nonempty PCI tables")
+    if multimedia_count and lookup_audio == 0xFFFFFFFF and lookup_hda == 0xFFFFFFFF:
+        raise AssertionError("multimedia PCI classes must expose an audio or HDA lookup boundary")
 
     return fields
 
@@ -2144,6 +2678,30 @@ def validate_claimed_hardware_status_text(status: str) -> dict[str, str]:
     fields = _parse_status_fields(status)
     for proof_id, proof in STATUS_PROOFS.items():
         _require_fields(fields, proof["fields"], proof_id)
+
+    if fields["clocksrc"] != "PIT":
+        raise AssertionError("clocksrc= must remain PIT until APIC/HPET has its own proof row")
+    if fields["irqctl"] != "PIC":
+        raise AssertionError("irqctl= must remain PIC until APIC/IOAPIC routing is proved")
+    if fields["apic"] != "NONE":
+        raise AssertionError("apic= must remain NONE until Local APIC/IOAPIC support is proved")
+    if fields["hpet"] != "NONE":
+        raise AssertionError("hpet= must remain NONE until HPET support is proved")
+    clock_irq = _hex8_field(fields, "clockirq")
+    clock_tick = _hex8_field(fields, "clocktick")
+    clock_hz = _hex8_field(fields, "clockhz")
+    clock_ms = _hex8_field(fields, "clockms")
+    _hex8_field(fields, "clockdoom")
+    _hex8_field(fields, "clocksch")
+    _hex8_field(fields, "clockpirq")
+    if clock_irq == 0 or clock_tick == 0:
+        raise AssertionError("clockirq= and clocktick= must be nonzero for claimed PIT proof")
+    if clock_irq != clock_tick:
+        raise AssertionError("clockirq= must match clocktick= for the current PIC/PIT path")
+    if clock_hz != 100:
+        raise AssertionError("clockhz= must prove the generic PIT clock is 100 Hz")
+    if clock_ms != clock_tick * 10:
+        raise AssertionError("clockms= must match the PIT 100 Hz tick accounting")
 
     if fields["ata"] != "OK":
         raise AssertionError("ata= must be OK for claimed IDE/ATA PIO proof")
@@ -2159,6 +2717,38 @@ def validate_claimed_hardware_status_text(status: str) -> dict[str, str]:
         raise AssertionError("atafail= must be zero for claimed IDE/ATA PIO proof")
     if _hex8_field(fields, "atatmo") != 0:
         raise AssertionError("atatmo= must be zero for claimed IDE/ATA PIO proof")
+
+    input_depth = _hex_tuple_field(fields, "inputdepth", 2)
+    input_stat = _hex_tuple_field(fields, "inputstat", 4)
+    input_policy = _hex_tuple_field(fields, "inputpolicy", 2)
+    input_dev = _hex_tuple_field(fields, "inputdev", 2)
+    input_devices = _hex_tuple_field(fields, "inputdevices", 5)
+    input_mods = _hex8_field(fields, "inputmods")
+    if input_policy[0] != 1:
+        raise AssertionError("inputpolicy= must prove overwrite-oldest overflow handling")
+    if input_policy[1] == 0 or input_policy[1] != input_stat[3]:
+        raise AssertionError("inputpolicy= usable capacity must match inputstat=")
+    if input_depth[0] > input_stat[3]:
+        raise AssertionError("inputdepth= queued depth must fit the usable capacity")
+    if input_depth[1] != input_stat[2]:
+        raise AssertionError("inputdepth= dropped counter must match inputstat=")
+    if input_stat[0] != input_depth[0] + input_stat[1] + input_stat[2]:
+        raise AssertionError("inputstat= total must equal queued + polled + dropped")
+    if input_dev[0] != 1:
+        raise AssertionError("inputdev= must report a ready keyboard for PS/2 input proof")
+    if input_dev[1] not in {0, 1, 2}:
+        raise AssertionError("inputdev= mouse status must be a bounded device-status value")
+    device_count, ready_mask, cap_mask, keyboard_polls, mouse_polls = input_devices
+    if device_count != 2:
+        raise AssertionError("inputdevices= must report keyboard and mouse device slots")
+    if ready_mask & ~0x3:
+        raise AssertionError("inputdevices= ready mask must stay bounded to keyboard/mouse")
+    if (cap_mask & 0x1F) != 0x1F:
+        raise AssertionError("inputdevices= must expose keyboard, mouse, poll, status, and device-status capabilities")
+    if keyboard_polls + mouse_polls > input_stat[1]:
+        raise AssertionError("inputdevices= per-device poll counters must not exceed inputstat= polled events")
+    if input_mods & ~0x7:
+        raise AssertionError("inputmods= must stay within shift/ctrl/alt modifier bits")
 
     for name in ("inputqueue", "inputpoll", "keyirq", "keyqueue", "keypoll", "keyseen"):
         if _hex8_field(fields, name) == 0:
@@ -2183,8 +2773,22 @@ def validate_claimed_hardware_status_text(status: str) -> dict[str, str]:
         raise AssertionError("fb= must be LFB or M13 for claimed VBE/VGA proof")
     if fields["fbpolicy"] not in {"ASP", "SQ", "M13"}:
         raise AssertionError("fbpolicy= must be ASP, SQ, or M13 for claimed VBE/VGA proof")
+    _hex_tuple_field(fields, "fbdev", 4)
+    _hex_tuple_field(fields, "fbmmio", 4)
+    _hex_tuple_field(fields, "fbinfo", 3)
+    _hex_tuple_field(fields, "fbpresent", 9)
+    fbsrc = _hex_tuple_field(fields, "fbsrc", 7)
+    fbacct = _hex_tuple_field(fields, "fbacct", 9)
     _hex_tuple_field(fields, "fbgeom", 5)
     _hex_tuple_field(fields, "fbdirty", 5)
+    if fbsrc != (1, 320, 200, 320, 240, 256, 3):
+        raise AssertionError("fbsrc= must report the claimed indexed source format")
+    if fbacct[0] != 1 or fbacct[1] != 1:
+        raise AssertionError("fbacct= must report ABI version 1 and indexed-source present semantics")
+    if any(value != 0 for value in fbacct[2:5]):
+        raise AssertionError("fbacct= must not report rejected present descriptors in a green proof")
+    if fbacct[7] != 320 * 200 or fbacct[8] != 256 * 3:
+        raise AssertionError("fbacct= must account the source frame and palette byte sizes")
     for name in ("doompresent", "doompal", "doomframe", "doomnonzero", "doomcolors"):
         if _hex8_field(fields, name) == 0:
             raise AssertionError(f"{name}= must be nonzero for claimed VBE/VGA proof")
@@ -2230,13 +2834,16 @@ def validate_repo_contract(root: Path = ROOT) -> dict[str, dict[str, str]]:
     _validate_pci_table_api_rows(matrix_text)
     _validate_pci_table_consumer_rows(matrix_text)
     _validate_pci_table_contract_rows(matrix_text)
+    _validate_block_driver_boundary_rows(matrix_text)
     _validate_proof_requirement_rows(matrix_text)
     _validate_negative_claim_rows(matrix_text)
     _validate_next_unlock_rows(matrix_text)
     _validate_next_implementation_contract_rows(matrix_text)
     _validate_status_proof_rows(matrix_text)
+    _validate_interrupt_timer_boundary_rows(matrix_text)
     _validate_uefi_scaffold(root)
     _validate_pci_source_contract(root)
+    _validate_interrupt_timer_source_contract(root)
 
     for relative_path, phrases in REQUIRED_CROSS_DOC_LINKS.items():
         text = _read(root / relative_path)

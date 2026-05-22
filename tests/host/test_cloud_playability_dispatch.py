@@ -39,7 +39,7 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
         self.assertIn("vibe-os cloud playability", result.stdout)
         self.assertIn("lane: gameplay", result.stdout)
         self.assertIn("local VM: refused", result.stdout)
-        self.assertIn("artifact policy: no WADs", result.stdout)
+        self.assertIn("artifact policy: status/JSON only; no WADs", result.stdout)
         self.assertIn(
             "gh workflow run real-wad-smoke.yml --repo jadentripp/vibe-os --ref main",
             result.stdout,
@@ -196,7 +196,7 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
 
         self.assertEqual(audio.returncode, 0, audio.stdout + audio.stderr)
         self.assertIn(
-            "gh run download 12345 --repo jadentripp/vibe-os --name real-wad-smoke-status --dir build/cloud-run-12345",
+            "gh run download 12345 --repo jadentripp/vibe-os --name real-wad-smoke-proof-status --dir build/cloud-run-12345",
             audio.stdout,
         )
         self.assertIn(
@@ -285,7 +285,7 @@ class CloudPlayabilityDispatchTests(unittest.TestCase):
         self.assertEqual(audit["lane_requested"], "audio")
         self.assertEqual(audit["lane_effective"], "audio")
         self.assertEqual(audit["workflow"], "real-wad-smoke.yml")
-        self.assertEqual(audit["artifact"], "real-wad-smoke-status")
+        self.assertEqual(audit["artifact"], "real-wad-smoke-proof-status")
         self.assertEqual(audit["local_vm"], "refused")
         self.assertFalse(audit["ref_resolution"]["latest_run_for_ref"])
         self.assertEqual(audit["lanes"]["effective_lane"], "audio")

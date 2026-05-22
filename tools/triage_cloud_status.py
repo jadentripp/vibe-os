@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from dataclasses import dataclass
@@ -32,6 +33,9 @@ SUMMARY_FIELDS = (
     "envp",
     "argv0",
     "envp0",
+    "biosboot",
+    "biosflags",
+    "biosentry",
     "doom",
     "doomrun",
     "doomopen",
@@ -49,6 +53,13 @@ SUMMARY_FIELDS = (
     "doomfaultv",
     "doomfaulterr",
     "fault",
+    "pf",
+    "faultsrc",
+    "faultmode",
+    "faultcontain",
+    "regs",
+    "segs",
+    "proc",
     "panic",
     "shutdown",
     "ata",
@@ -66,6 +77,17 @@ SUMMARY_FIELDS = (
     "leveltime",
     "dtick",
     "doompresent",
+    "fb",
+    "fbdev",
+    "fbmmio",
+    "fbpolicy",
+    "fbgeom",
+    "fbdirty",
+    "fbpresent",
+    "fbinfo",
+    "fbcap",
+    "fbsrc",
+    "fbacct",
     "doompal",
     "doomframe",
     "pflags",
@@ -78,6 +100,11 @@ SUMMARY_FIELDS = (
     "inputqueue",
     "inputpoll",
     "inputdepth",
+    "inputstat",
+    "inputpolicy",
+    "inputdev",
+    "inputdevices",
+    "inputmods",
     "inputlast",
     "keyirq",
     "keyqueue",
@@ -97,6 +124,15 @@ SUMMARY_FIELDS = (
     "free",
     "ticks",
     "audio",
+    "adev",
+    "pcm",
+    "pcmbuf",
+    "pcmstream",
+    "pcmwrite",
+    "pcmqueue",
+    "pcmpull",
+    "pcmirq",
+    "pcmdma",
     "audioirq",
     "refill",
     "musicpos",
@@ -125,7 +161,11 @@ SUMMARY_FIELDS = (
     "pkstk",
     "peip",
     "pframe",
+    "psegs",
+    "peflags",
     "pspin",
+    "kblock",
+    "ksleep",
     "doomsav",
     "saverd",
     "savewr",
@@ -139,6 +179,7 @@ SUMMARY_FIELDS = (
     "fal",
     "fam",
     "fac",
+    "fatdyn",
     "fio",
     "flb",
     "fcl",
@@ -181,9 +222,40 @@ PAGE_FAULT_ERROR_BITS = (
     (3, "reserved-bit"),
     (4, "instruction-fetch"),
 )
+PF_ACCESS_NAMES = {
+    0: "none",
+    1: "read",
+    2: "write",
+    3: "instruction-fetch",
+}
+PF_MODE_NAMES = {
+    0: "none",
+    1: "user",
+    2: "kernel",
+}
+PF_REASON_FLAGS = (
+    (0x00000001, "not-present"),
+    (0x00000002, "protection"),
+    (0x00000004, "reserved-bit"),
+    (0x00000008, "instruction-fetch"),
+)
 PREEMPT_PROBE_MAGIC = 0x50524545
 USER_CODE_SEG = 0x1B
 USER_DATA_SEG = 0x23
+SANITIZED_USER_EFLAGS = 0x00000202
+KERNEL_ENTRY = 0x00010000
+BIOS_BOOT_REQUIRED_FLAGS = 0x00000D91
+BIOS_BOOT_DISK_FLAGS = 0x0000000C
+BIOS_BOOT_VIDEO_FLAGS = 0x00000060
+PROC_BLOCK_WAITPID = 2
+UEFI_REQUIRED_HANDOFF_FLAG_MASK = 0x0000007F
+UEFI_LOADER_REQUIRED_HANDOFF_FIELDS = {
+    "handoff": 0x9000,
+    "bootinfo": 0x7000,
+    "e820": 0x7100,
+    "tramp32": 0x8000,
+    "transition64": 0xA000,
+}
 PLAYABILITY_REQUIRED_FLAGS = 0x0000013F
 PLAYABILITY_FIRE_STATE_FLAGS = 0x000000C0
 KEY_SEEN_SCRIPTED_FLAGS = 0x00000071
@@ -192,6 +264,7 @@ LONG_RUN_REQUIRED_FIELDS = (
     "leveltime",
     "dtick",
     "doompresent",
+    "fbcap",
     "pirq",
     "preempt",
     "pattempt",
@@ -202,6 +275,18 @@ LONG_RUN_REQUIRED_FIELDS = (
     "musicpos",
 )
 LONG_RUN_REQUIRED_TUPLES = (
+    ("fbpresent", 9, ":"),
+    ("fbinfo", 3, ":"),
+    ("fbsrc", 7, ":"),
+    ("fbacct", 9, ":"),
+    ("fbgeom", 5, ":"),
+    ("fbdirty", 5, ":"),
+    ("pcmstream", 5, ":"),
+    ("pcmwrite", 4, ":"),
+    ("pcmqueue", 6, ":"),
+    ("pcmpull", 3, ":"),
+    ("pcmirq", 3, ":"),
+    ("pcmdma", 6, ":"),
     ("musicpull", 2, ":"),
     ("inputdepth", 2, ":"),
 )
@@ -262,6 +347,36 @@ class SymbolHit:
 
 
 TRIAGE_RULES = (
+    TriageRule(
+        "bios-handoff-not-proven",
+        ("biosboot", "biosflags", "biosentry", "e820", "e820cnt"),
+        "The status does not prove the BIOS Stage 2 handoff into the kernel.",
+        "Hand off to the BIOS boot owner: inspect Stage 2 E820, disk read, video handoff, A20, GDT/protected mode, ELF validation, and entry coverage.",
+    ),
+    TriageRule(
+        "fault-containment-not-proven",
+        ("faultsrc", "faultmode", "faultcontain", "fault", "panic", "doomrun"),
+        "The crash/debug fields are missing or inconsistent, so the status cannot prove fault containment.",
+        "Hand off to the crash/debug owner: verify fault classification, Ring 3 containment counters, and panic-only kernel exception handling.",
+    ),
+    TriageRule(
+        "kernel-blocking-not-proven",
+        ("kblock", "ksleep", "wait", "waitseed", "pstat", "yield"),
+        "The status does not prove kernel-owned blocking and sleep primitives.",
+        "Hand off to the scheduler/process owner: inspect generic block transitions, waitpid wakeups, SYS_SLEEP_TICKS, and PIT wake accounting.",
+    ),
+    TriageRule(
+        "uefi-marker-not-proven",
+        (
+            "ovmf.proof",
+            "ovmf.exit_boot_services",
+            "ovmf.kernel_handoff_after_exit_boot_services",
+            "ovmf.loader_handoff_evidence",
+            "ovmf.kernel_entry_evidence",
+        ),
+        "The UEFI OVMF proof did not capture the kernel-owned VIBEKERN entry marker after ExitBootServices.",
+        "Hand off to the UEFI boot owner: inspect the OVMF manifest markers, loader handoff attempt, and required kernel-entry flags.",
+    ),
     TriageRule(
         "exec-not-attempted",
         ("execsys", "execerr", "execres", "target", "ppid", "entry", "stack", "argc", "argv", "envp", "argv0", "envp0", "doomrun"),
@@ -352,7 +467,7 @@ TRIAGE_RULES = (
     ),
     TriageRule(
         "preemption-not-proven",
-        ("preempt", "pirq", "pattempt", "puser", "pround", "pctx", "pmask", "pfrom", "pto", "pkind", "peip", "pcr3", "pkstk", "pframe", "pspin", "pself"),
+        ("preempt", "pirq", "pattempt", "puser", "pround", "pctx", "pmask", "pfrom", "pto", "pkind", "peip", "pcr3", "pkstk", "pframe", "psegs", "peflags", "pspin", "pself"),
         "Doom reached gameplay, but the status does not prove live timer-driven switching between Ring 3 tasks.",
         "Inspect scheduler_tick, the live preempt probe seeding path, and whether timer IRQs are interrupting user code.",
     ),
@@ -382,9 +497,9 @@ TRIAGE_RULES = (
     ),
     TriageRule(
         "artifact-proof-failure",
-        ("status.early.txt", "status.after-*.txt", "kernel.elf", "user_probe.elf", "doom.elf", "doom.symbols"),
+        ("status.early.txt", "status.after-*.txt", "gameplay-proof.json", "audio-proof.json", "save-load-proof.json"),
         "The cloud artifact package failed even if the final status line looked plausible.",
-        "Run check_cloud_playability_artifacts.py; look for missing snapshots, duplicate basenames, or forbidden payloads.",
+        "Run check_cloud_playability_artifacts.py; look for missing status/JSON proof files, duplicate basenames, or forbidden payloads.",
     ),
     TriageRule(
         "playability-status-green",
@@ -529,6 +644,214 @@ def _fault_tuple(fields: dict[str, str]) -> dict[str, int] | None:
     return parsed
 
 
+def _pf_tuple(fields: dict[str, str]) -> tuple[int, int, int, int, int] | None:
+    return _hex_tuple(fields, "pf", 5)
+
+
+def _expected_pf_tuple(fault: dict[str, int], mode: str) -> tuple[int, int, int, int, int]:
+    mode_id = {"NONE": 0, "USER": 1, "KERNEL": 2}.get(mode, 0)
+    error = fault["error"]
+    if error & 0x10:
+        access = 3
+    elif error & 0x02:
+        access = 2
+    else:
+        access = 1
+    reason = 0x00000002 if error & 0x01 else 0x00000001
+    if error & 0x08:
+        reason |= 0x00000004
+    if error & 0x10:
+        reason |= 0x00000008
+    return fault["cr2"], error, mode_id, access, reason
+
+
+def _format_pf_tuple(pf: tuple[int, int, int, int, int] | None) -> str:
+    if pf is None:
+        return "pf=<missing>"
+    cr2, error, mode, access, reason = pf
+    reason_names = [name for bit, name in PF_REASON_FLAGS if reason & bit]
+    if not reason_names:
+        reason_names = ["none"]
+    return (
+        f"pf={cr2:08X}/{error:08X}/"
+        f"{PF_MODE_NAMES.get(mode, f'mode-{mode}')}/"
+        f"{PF_ACCESS_NAMES.get(access, f'access-{access}')}/"
+        f"{'+'.join(reason_names)}"
+    )
+
+
+def _looks_like_full_runtime_status(fields: dict[str, str]) -> bool:
+    return any(
+        name in fields
+        for name in (
+            "exec",
+            "doomrun",
+            "e820",
+            "pmm",
+            "biosboot",
+            "clocksrc",
+            "faultsrc",
+            "kblock",
+            "ksleep",
+        )
+    )
+
+
+def _bios_handoff_issue(fields: dict[str, str]) -> str | None:
+    if fields.get("uefi") == "OK":
+        return None
+    if not _looks_like_full_runtime_status(fields):
+        return None
+    if fields.get("biosboot") != "OK":
+        return f"biosboot={_field(fields, 'biosboot')} is not OK"
+    flags = _hex(fields, "biosflags")
+    entry = _hex_tuple(fields, "biosentry", 2)
+    if flags is None:
+        return f"biosflags={_field(fields, 'biosflags')} is missing or malformed"
+    if flags & BIOS_BOOT_REQUIRED_FLAGS != BIOS_BOOT_REQUIRED_FLAGS:
+        return "biosflags missing Stage 2/E820/A20/GDT/protected-mode/ELF/entry coverage bits"
+    if flags & BIOS_BOOT_DISK_FLAGS == 0:
+        return "biosflags missing BIOS disk-read evidence"
+    if flags & BIOS_BOOT_VIDEO_FLAGS == 0:
+        return "biosflags missing BIOS video handoff evidence"
+    if entry is None:
+        return f"biosentry={_field(fields, 'biosentry')} is missing or malformed"
+    if entry[0] != KERNEL_ENTRY:
+        return f"biosentry entry {entry[0]:08X} does not match linked kernel entry {KERNEL_ENTRY:08X}"
+    if entry[1] == 0:
+        return "biosentry does not report a loaded ELF segment"
+    return None
+
+
+def _fault_containment_issue(fields: dict[str, str]) -> str | None:
+    if not _looks_like_full_runtime_status(fields):
+        return None
+    source = fields.get("faultsrc")
+    mode = fields.get("faultmode")
+    contain = _hex_tuple(fields, "faultcontain", 5)
+    fault = _fault_tuple(fields)
+    pf = _pf_tuple(fields)
+    regs = _hex_tuple(fields, "regs", 8)
+    segs = _hex_tuple(fields, "segs", 6)
+    proc = _hex_tuple(fields, "proc", 9)
+    if source is None or mode is None or contain is None or fault is None or pf is None:
+        return (
+            f"faultsrc={_field(fields, 'faultsrc')} faultmode={_field(fields, 'faultmode')} "
+            f"faultcontain={_field(fields, 'faultcontain')} fault={_field(fields, 'fault')} "
+            f"pf={_field(fields, 'pf')}"
+        )
+    if regs is None or segs is None or proc is None:
+        return (
+            f"regs={_field(fields, 'regs')} segs={_field(fields, 'segs')} "
+            f"proc={_field(fields, 'proc')} is missing or malformed"
+        )
+    if source not in {"NONE", "EXPECT", "USER", "DOOM", "KERNEL"}:
+        return f"unknown faultsrc={source}"
+    if mode not in {"NONE", "USER", "KERNEL"}:
+        return f"unknown faultmode={mode}"
+    expected_recovered, user_contained, doom_contained, kernel_panics, last_contained = contain
+    if source == "NONE":
+        if mode != "NONE":
+            return "faultsrc=NONE must pair with faultmode=NONE"
+        if last_contained != 0:
+            return "faultsrc=NONE must not report a last-contained fault"
+        if any(fault.values()):
+            return "faultsrc=NONE must keep compact fault fields zero"
+        if any(pf):
+            return "faultsrc=NONE must keep page-fault classification zero"
+        return None
+    if source == "KERNEL":
+        if mode != "KERNEL":
+            return "kernel exceptions must report faultmode=KERNEL"
+        if last_contained != 0:
+            return "kernel exceptions must not be reported as contained"
+        if kernel_panics == 0 or fields.get("panic") != "KEXC":
+            return "kernel exception status must increment kernel panic count and set panic=KEXC"
+    elif mode != "USER" or last_contained != 1:
+        return "contained user faults must report faultmode=USER and last-contained=1"
+    if fault["vector"] == 0x0E:
+        expected_pf = _expected_pf_tuple(fault, mode)
+        if pf != expected_pf:
+            return (
+                "pf does not mirror page-fault CR2/error/mode/access/reason: "
+                f"{_format_pf_tuple(pf)} expected={_format_pf_tuple(expected_pf)}"
+            )
+    elif any(pf):
+        return "pf must be zero when fault vector is not a page fault"
+    if regs[7] == 0:
+        return "regs missing EFLAGS snapshot"
+    if segs[4] != fault["cs"] or segs[5] != fault["ss"]:
+        return "segs CS/SS do not mirror the compact fault frame"
+    if source in {"EXPECT", "USER", "DOOM"} and (proc[0] == 0 or proc[8] == 0):
+        return "proc missing process pointer/CR3 for contained Ring 3 fault"
+    if source == "KERNEL":
+        return None
+    if source == "EXPECT" and expected_recovered == 0:
+        return "expected recovered fault count is zero"
+    if source == "USER" and user_contained == 0:
+        return "generic user containment count is zero"
+    if source == "DOOM":
+        if doom_contained == 0:
+            return "Doom containment count is zero"
+        if fields.get("doomrun") != "FAULT":
+            return "faultsrc=DOOM must pair with doomrun=FAULT"
+    return None
+
+
+def _kernel_blocking_issue(fields: dict[str, str]) -> str | None:
+    if not _looks_like_full_runtime_status(fields):
+        return None
+    abi_pid = _hex(fields, "abipid") or _hex(fields, "target")
+    block = _hex_tuple(fields, "kblock", 9)
+    sleep = _hex_tuple(fields, "ksleep", 9)
+    if block is None:
+        return f"kblock={_field(fields, 'kblock')} is missing or malformed"
+    if sleep is None:
+        return f"ksleep={_field(fields, 'ksleep')} is missing or malformed"
+    (
+        block_attempts,
+        block_transitions,
+        block_wakeups,
+        block_failures,
+        block_last_pid,
+        block_last_reason,
+        block_last_object,
+        block_last_woken_pid,
+        block_last_wake_reason,
+    ) = block
+    if block_attempts < 2 or block_transitions < 2 or block_wakeups < 2:
+        return "kblock does not prove multiple block transitions and wakeups"
+    if block_failures != 0:
+        return "kblock reports failed block attempts"
+    if abi_pid is not None and (block_last_pid != abi_pid or block_last_woken_pid != abi_pid):
+        return "kblock last blocker/woken PID does not match the ABI probe"
+    if block_last_reason != PROC_BLOCK_WAITPID or block_last_wake_reason != PROC_BLOCK_WAITPID:
+        return "kblock does not prove waitpid used the generic block/wake path"
+    if block_last_object in (0, 0xFFFFFFFF):
+        return "kblock does not record a waited child object"
+
+    (
+        sleep_attempts,
+        sleep_blocks,
+        sleep_wakeups,
+        _sleep_noops,
+        sleep_failures,
+        sleep_last_pid,
+        sleep_last_until,
+        sleep_last_ticks,
+        sleep_last_woken_pid,
+    ) = sleep
+    if sleep_attempts == 0 or sleep_blocks == 0 or sleep_wakeups == 0:
+        return "ksleep does not prove SYS_SLEEP_TICKS blocked and woke through PIT"
+    if sleep_failures != 0:
+        return "ksleep reports failed sleep attempts"
+    if abi_pid is not None and (sleep_last_pid != abi_pid or sleep_last_woken_pid != abi_pid):
+        return "ksleep last sleeper/woken PID does not match the ABI probe"
+    if sleep_last_until == 0 or sleep_last_ticks == 0:
+        return "ksleep does not record a wake deadline"
+    return None
+
+
 def _decode_page_fault_error(error: int) -> str:
     flags = [name for bit, name in PAGE_FAULT_ERROR_BITS if error & (1 << bit)]
     if error & 0x01:
@@ -605,11 +928,43 @@ def render_doom_fault_context(fields: dict[str, str], symbol_map_path: Path | No
             "kernel-fault-tuple: "
             + " ".join(f"{name}={value:08X}" for name, value in tuple_fields.items())
         )
+    pf = _pf_tuple(fields)
+    if pf is not None and any(pf):
+        lines.append("page-fault: " + _format_pf_tuple(pf))
+    regs = _hex_tuple(fields, "regs", 8)
+    if regs is not None and any(regs):
+        lines.append(
+            "registers: "
+            + " ".join(
+                f"{name}={value:08X}"
+                for name, value in zip(("eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "eflags"), regs)
+            )
+        )
+    segs = _hex_tuple(fields, "segs", 6)
+    proc = _hex_tuple(fields, "proc", 9)
+    if segs is not None and any(segs):
+        lines.append(
+            "segments: "
+            + " ".join(
+                f"{name}={value:08X}" for name, value in zip(("ds", "es", "fs", "gs", "cs", "ss"), segs)
+            )
+        )
+    if proc is not None and any(proc):
+        lines.append(
+            "process: "
+            + " ".join(
+                f"{name}={value:08X}"
+                for name, value in zip(
+                    ("ptr", "base", "end", "brk", "heap_start", "heap_end", "stack_top", "entry", "cr3"),
+                    proc,
+                )
+            )
+        )
     if cr2 is not None and eip is not None and cr2 == eip and vector == 0x0E:
         lines.append("fault-hint: page fault tried to fetch or touch the faulting EIP page")
     if symbol_map_path is None:
         lines.append(
-            "symbol: no doom.symbols map found; pass --doom-symbols or use the next cloud artifact"
+            "symbol: no doom.symbols map found; pass --doom-symbols or keep a local build directory"
         )
         return lines
     try:
@@ -1052,11 +1407,17 @@ def render_long_run_cadence_context(fields: dict[str, str]) -> list[str]:
         f"{prefix}: "
         f"gtic={_field(fields, 'gtic')} leveltime={_field(fields, 'leveltime')} "
         f"dtick={_field(fields, 'dtick')} doompresent={_field(fields, 'doompresent')} "
+        f"fbcap={_field(fields, 'fbcap')} fbsrc={_field(fields, 'fbsrc')} "
+        f"fbacct={_field(fields, 'fbacct')} fbpresent={_field(fields, 'fbpresent')} "
         f"pirq={_field(fields, 'pirq')} preempt={_field(fields, 'preempt')} "
         f"pattempt={_field(fields, 'pattempt')} pskip={_field(fields, 'pskip')} "
         f"puser={_field(fields, 'puser')} audioirq={_field(fields, 'audioirq')} "
         f"refill={_field(fields, 'refill')} musicpos={_field(fields, 'musicpos')} "
-        f"musicpull={_field(fields, 'musicpull')} inputdepth={_field(fields, 'inputdepth')} "
+        f"musicpull={_field(fields, 'musicpull')} pcmstream={_field(fields, 'pcmstream')} "
+        f"pcmwrite={_field(fields, 'pcmwrite')} pcmqueue={_field(fields, 'pcmqueue')} "
+        f"pcmpull={_field(fields, 'pcmpull')} "
+        f"pcmirq={_field(fields, 'pcmirq')} pcmdma={_field(fields, 'pcmdma')} "
+        f"inputdepth={_field(fields, 'inputdepth')} "
         f"mixunder={_field(fields, 'mixunder')} musicunder={_field(fields, 'musicunder')} "
         f"musicdrops={_field(fields, 'musicdrops')}"
     ]
@@ -1068,6 +1429,105 @@ def render_long_run_cadence_context(fields: dict[str, str]) -> list[str]:
     else:
         lines.append(f"long-run-hint: {issue}")
     return lines
+
+
+def _parse_uefi_manifest(text: str) -> dict[str, object] | None:
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    if parsed.get("schema") != "uefi-ovmf-cloud-proof-v1":
+        return None
+    return parsed
+
+
+def _uefi_hex(value: object) -> int | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return int(value, 16)
+    except ValueError:
+        return None
+
+
+def _uefi_kernel_entry_issue(ovmf: dict[str, object]) -> str | None:
+    if ovmf.get("exit_boot_services") is not True:
+        return "ExitBootServices did not complete"
+    if ovmf.get("kernel_handoff_after_exit_boot_services") is not True:
+        return "loader did not record a kernel handoff attempt after ExitBootServices"
+    loader_evidence = ovmf.get("loader_handoff_evidence")
+    if not isinstance(loader_evidence, dict):
+        return "loader_handoff_evidence is missing"
+    if loader_evidence.get("step") != "kernel-handoff" or loader_evidence.get("status") != "attempting":
+        return "loader_handoff_evidence is not the bounded kernel-handoff marker"
+    for key, expected in UEFI_LOADER_REQUIRED_HANDOFF_FIELDS.items():
+        value = _uefi_hex(loader_evidence.get(key))
+        if value != expected:
+            return f"loader_handoff_evidence.{key}={loader_evidence.get(key)!r} does not match 0x{expected:08X}"
+    for key in ("entry32", "segments"):
+        value = _uefi_hex(loader_evidence.get(key))
+        if value is None or value == 0:
+            return f"loader_handoff_evidence.{key} is missing or zero"
+    loader_flags = _uefi_hex(loader_evidence.get("flags"))
+    if loader_flags is None or loader_flags & UEFI_REQUIRED_HANDOFF_FLAG_MASK != UEFI_REQUIRED_HANDOFF_FLAG_MASK:
+        return f"loader_handoff_evidence.flags={loader_evidence.get('flags')!r} misses required handoff bits"
+    if ovmf.get("kernel_entry_after_exit_boot_services") is not True:
+        return "kernel-owned marker was not captured after ExitBootServices"
+    if ovmf.get("kernel_booted") is not True or ovmf.get("kernel_entry_status") != "OK":
+        return "kernel_booted/kernel_entry_status are not green"
+    evidence = ovmf.get("kernel_entry_evidence")
+    if not isinstance(evidence, dict):
+        return "kernel_entry_evidence is missing"
+    for key, expected in {"handoff": 0x9000, "bootinfo": 0x7000, "e820": 0x7100}.items():
+        value = _uefi_hex(evidence.get(key))
+        if value != expected:
+            return f"kernel_entry_evidence.{key}={evidence.get(key)!r} does not match 0x{expected:08X}"
+    for key in ("entry", "segments"):
+        value = _uefi_hex(evidence.get(key))
+        if value is None or value == 0:
+            return f"kernel_entry_evidence.{key} is missing or zero"
+    flags = _uefi_hex(evidence.get("flags"))
+    if flags is None or flags & UEFI_REQUIRED_HANDOFF_FLAG_MASK != UEFI_REQUIRED_HANDOFF_FLAG_MASK:
+        return f"kernel_entry_evidence.flags={evidence.get('flags')!r} misses required handoff bits"
+    return None
+
+
+def render_uefi_manifest_diagnosis(manifest: dict[str, object]) -> str:
+    ovmf = manifest.get("ovmf")
+    if not isinstance(ovmf, dict):
+        ovmf = {}
+    issue = _uefi_kernel_entry_issue(ovmf)
+    primary = "uefi-marker-not-proven" if issue is not None else "uefi-marker-green"
+    lines = [
+        f"primary: {primary}",
+        "summary: "
+        f"mode={manifest.get('mode', '<missing>')} "
+        f"support_claim={manifest.get('support_claim', '<missing>')} "
+        f"proof={ovmf.get('proof', '<missing>')} "
+        f"exit_boot_services={ovmf.get('exit_boot_services', '<missing>')} "
+        f"kernel_handoff_after_exit_boot_services={ovmf.get('kernel_handoff_after_exit_boot_services', '<missing>')} "
+        f"kernel_entry_after_exit_boot_services={ovmf.get('kernel_entry_after_exit_boot_services', '<missing>')} "
+        f"kernel_booted={ovmf.get('kernel_booted', '<missing>')} "
+        f"kernel_entry_status={ovmf.get('kernel_entry_status', '<missing>')}",
+    ]
+    if issue is None:
+        lines.append("- uefi-marker-green: OVMF captured the kernel-owned VIBEKERN entry marker after ExitBootServices")
+    else:
+        lines.append(f"- uefi-marker-not-proven: {issue}")
+        lines.append(
+            "- uefi-marker-context: "
+            f"last_step={ovmf.get('handoff_step_reached', '<missing>')} "
+            f"proof_step={ovmf.get('proof_step_reached', '<missing>')} "
+            f"kernel_handoff={ovmf.get('kernel_handoff', '<missing>')} "
+            f"loader_handoff_evidence={ovmf.get('loader_handoff_evidence', {})} "
+            f"kernel_entry_evidence={ovmf.get('kernel_entry_evidence', {})}"
+        )
+    rule = next((candidate for candidate in TRIAGE_RULES if candidate.name == "uefi-marker-not-proven"), None)
+    if rule is not None and issue is not None:
+        lines.append(f"next: {rule.next_step}")
+    return "\n".join(lines)
 
 
 def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
@@ -1084,6 +1544,25 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
     if shutdown not in (None, "NONE"):
         notes.append(f"os-shutdown-requested: shutdown={shutdown} panic={_field(fields, 'panic')}")
         return "os-shutdown-requested", notes
+
+    bios_issue = _bios_handoff_issue(fields)
+    if bios_issue is not None:
+        notes.append(
+            "bios-handoff-not-proven: "
+            f"{bios_issue}; biosboot={_field(fields, 'biosboot')} "
+            f"biosflags={_field(fields, 'biosflags')} biosentry={_field(fields, 'biosentry')}"
+        )
+        return "bios-handoff-not-proven", notes
+
+    fault_issue = _fault_containment_issue(fields)
+    if fault_issue is not None:
+        notes.append(
+            "fault-containment-not-proven: "
+            f"{fault_issue}; faultsrc={_field(fields, 'faultsrc')} "
+            f"faultmode={_field(fields, 'faultmode')} "
+            f"faultcontain={_field(fields, 'faultcontain')} fault={_field(fields, 'fault')}"
+        )
+        return "fault-containment-not-proven", notes
 
     ata_wait = fields.get("atawait")
     ata_failures = _hex(fields, "atafail") or 0
@@ -1147,6 +1626,16 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
             f"{_exec_detail(fields)}"
         )
         return "exec-failed", notes
+
+    block_issue = _kernel_blocking_issue(fields)
+    if block_issue is not None:
+        notes.append(
+            "kernel-blocking-not-proven: "
+            f"{block_issue}; kblock={_field(fields, 'kblock')} "
+            f"ksleep={_field(fields, 'ksleep')} wait={_field(fields, 'wait')} "
+            f"waitseed={_field(fields, 'waitseed')}"
+        )
+        return "kernel-blocking-not-proven", notes
 
     if doomrun == "FAULT" or _hex_nonzero(
         fields, "doomfault", "doomfaultip", "doomfaultv", "doomfaulterr"
@@ -1257,11 +1746,26 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         return "frames-no-gameplay", notes
 
     mouse_delta = _hex_pair(fields, "mousedelta")
+    input_depth = _hex_tuple(fields, "inputdepth", 2, ":")
+    input_stat = _hex_tuple(fields, "inputstat", 4, ":")
+    input_policy = _hex_tuple(fields, "inputpolicy", 2, ":")
+    input_dev = _hex_tuple(fields, "inputdev", 2, ":")
     pflags = _hex(fields, "pflags") or 0
     keyseen = _hex(fields, "keyseen") or 0
     if (
         (_hex(fields, "inputqueue") or 0) == 0
         or (_hex(fields, "inputpoll") or 0) == 0
+        or input_depth is None
+        or input_stat is None
+        or input_policy is None
+        or input_dev is None
+        or input_policy[0] != 1
+        or input_policy[1] != input_stat[3]
+        or input_depth[0] > input_stat[3]
+        or input_depth[1] != input_stat[2]
+        or input_stat[0] != input_depth[0] + input_stat[1] + input_stat[2]
+        or input_dev[0] != 1
+        or input_dev[1] not in {0, 1, 2}
         or fields.get("inputlast") is None
         or fields.get("inputlast") == "00000000:00000000:00000000"
         or (_hex(fields, "keyirq") or 0) == 0
@@ -1282,6 +1786,9 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         notes.append(
             "input-no-effect: "
             f"inputqueue={_field(fields, 'inputqueue')} inputpoll={_field(fields, 'inputpoll')} "
+            f"inputdepth={_field(fields, 'inputdepth')} inputstat={_field(fields, 'inputstat')} "
+            f"inputpolicy={_field(fields, 'inputpolicy')} inputdev={_field(fields, 'inputdev')} "
+            f"inputdevices={_field(fields, 'inputdevices')} inputmods={_field(fields, 'inputmods')} "
             f"inputlast={_field(fields, 'inputlast')} "
             f"keyirq={_field(fields, 'keyirq')} keyqueue={_field(fields, 'keyqueue')} "
             f"keypoll={_field(fields, 'keypoll')} keyseen={_field(fields, 'keyseen')} "
@@ -1316,6 +1823,8 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
     pcr3 = _hex_pair(fields, "pcr3")
     pkstk = _hex_pair(fields, "pkstk")
     pframe = _hex_tuple(fields, "pframe", 5)
+    psegs = _hex_tuple(fields, "psegs", 4, ":")
+    peflags = _hex_tuple(fields, "peflags", 5, ":")
     pfrom = _hex(fields, "pfrom")
     pto = _hex(fields, "pto")
     spin = _hex(fields, "pspin")
@@ -1354,6 +1863,14 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
         or pframe[3] == 0
         or pframe[4] != USER_DATA_SEG
         or (pframe[4] & 0x3) != 0x3
+        or psegs is None
+        or any(selector != USER_DATA_SEG or (selector & 0x3) != 0x3 for selector in psegs)
+        or peflags is None
+        or peflags[0] != SANITIZED_USER_EFLAGS
+        or peflags[1] != SANITIZED_USER_EFLAGS
+        or peflags[2] != SANITIZED_USER_EFLAGS
+        or peflags[4] == 0
+        or peflags[3] > (preempt_switches or 0) + (_hex(fields, "puser") or 0)
         or spin in (None, 0, PREEMPT_PROBE_MAGIC)
     ):
         notes.append(
@@ -1366,7 +1883,8 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
             f"pto={_field(fields, 'pto')} pkind={_field(fields, 'pkind')} "
             f"peip={_field(fields, 'peip')} pcr3={_field(fields, 'pcr3')} "
             f"pkstk={_field(fields, 'pkstk')} "
-            f"pframe={_field(fields, 'pframe')} "
+            f"pframe={_field(fields, 'pframe')} psegs={_field(fields, 'psegs')} "
+            f"peflags={_field(fields, 'peflags')} "
             f"pspin={_field(fields, 'pspin')} pself={_field(fields, 'pself')}"
         )
         return "preemption-not-proven", notes
@@ -1380,7 +1898,8 @@ def classify(fields: dict[str, str]) -> tuple[str, list[str]]:
             f"doompresent={_field(fields, 'doompresent')} pirq={_field(fields, 'pirq')} "
             f"pskip={_field(fields, 'pskip')} audioirq={_field(fields, 'audioirq')} "
             f"refill={_field(fields, 'refill')} musicpos={_field(fields, 'musicpos')} "
-            f"musicpull={_field(fields, 'musicpull')} inputdepth={_field(fields, 'inputdepth')}"
+            f"musicpull={_field(fields, 'musicpull')} pcmstream={_field(fields, 'pcmstream')} "
+            f"pcmpull={_field(fields, 'pcmpull')} inputdepth={_field(fields, 'inputdepth')}"
         )
         return "long-run-cadence-not-proven", notes
 
@@ -1446,7 +1965,11 @@ def main(argv: list[str]) -> int:
         else:
             status_path = Path(args.status)
             status = status_path.read_text()
-        print(render_diagnosis(status, status_path=status_path, doom_symbols=args.doom_symbols))
+        uefi_manifest = _parse_uefi_manifest(status)
+        if uefi_manifest is not None:
+            print(render_uefi_manifest_diagnosis(uefi_manifest))
+        else:
+            print(render_diagnosis(status, status_path=status_path, doom_symbols=args.doom_symbols))
     except (OSError, ValueError) as exc:
         print(f"cloud status triage failed: {exc}", file=sys.stderr)
         return 1

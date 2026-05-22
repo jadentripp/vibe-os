@@ -25,7 +25,7 @@ from typing import Mapping, Sequence, TextIO
 
 ROOT = Path(__file__).resolve().parents[1]
 SMOKE_WORKFLOW = "real-wad-smoke.yml"
-SMOKE_ARTIFACT = "real-wad-smoke-status"
+SMOKE_ARTIFACT = "real-wad-smoke-proof-status"
 SOAK_WORKFLOW = "real-wad-soak.yml"
 SOAK_ARTIFACT = "real-wad-soak-metadata"
 DEFAULT_REPO = "jadentripp/vibe-os"
@@ -818,7 +818,7 @@ def main(
     parser.add_argument(
         "--download-artifacts",
         type=Path,
-        help="download the real-wad-smoke-status artifact into this directory",
+        help="download the real-wad-smoke-proof-status artifact into this directory",
     )
     parser.add_argument(
         "--no-triage",
@@ -907,7 +907,10 @@ def main(
     else:
         print(f"mode: single smoke ({SMOKE_WORKFLOW})", file=stdout)
     print("local VM: refused; this helper dispatches GitHub Actions only", file=stdout)
-    print("artifact policy: no WADs, disk images, rendered pixels, or raw audio", file=stdout)
+    print(
+        "artifact policy: status/JSON only; no WADs, disk images, screenshots, raw audio, logs, secrets, or one-time codes",
+        file=stdout,
+    )
 
     workflow = SOAK_WORKFLOW if soak else SMOKE_WORKFLOW
     artifact = SOAK_ARTIFACT if soak else SMOKE_ARTIFACT
@@ -923,10 +926,15 @@ def main(
         "dry_run": args.dry_run,
         "local_vm": "refused",
         "artifact_policy": {
+            "status_only": True,
             "contains_wad_data": False,
             "contains_disk_image": False,
+            "contains_screenshots": False,
             "contains_pixels": False,
             "contains_raw_audio": False,
+            "contains_logs": False,
+            "contains_secrets": False,
+            "contains_one_time_codes": False,
         },
         "ref_resolution": {
             "requested_ref": args.ref,

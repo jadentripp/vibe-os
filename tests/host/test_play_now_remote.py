@@ -93,6 +93,10 @@ class PlayNowRemoteTests(unittest.TestCase):
                   echo "${FAKE_CODESPACE_NAME:-vibe-play-created}"
                   exit 0
                 fi
+                if [ "$1" = "codespace" ] && [ "${2:-}" = "view" ]; then
+                  echo "Available"
+                  exit 0
+                fi
                 if [ "$1" = "codespace" ] && [ "${2:-}" = "ssh" ]; then
                   if [ "${FAKE_SSH_PERMISSION_FAIL_ONCE:-0}" = "1" ]; then
                     count="$(cat "$FAKE_SSH_COUNT_FILE" 2>/dev/null || printf '0')"
@@ -279,7 +283,7 @@ class PlayNowRemoteTests(unittest.TestCase):
             "sanitize_remote_error",
             "ssh_permission_error",
             "run_remote_start",
-            "remote_start_payload | gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" NOVNC_PORT=\"$NOVNC_PORT\" bash -s",
+            "remote_start_payload | gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" NOVNC_PORT=\"$NOVNC_PORT\" bash -euo pipefail -s",
             "./tools/play_now_remote.sh --preflight",
             "NOVNC_PORT=$NOVNC_PORT nohup ./tools/play_now_remote.sh",
             "gh codespace ports visibility \"$NOVNC_PORT:private\"",
@@ -706,7 +710,7 @@ class PlayNowRemoteTests(unittest.TestCase):
 
             log = gh_log.read_text()
             self.assertIn(
-                "codespace ssh -c vibe-play-existing -- env VIBE_PLAY_REF=jt/doom-gameplay-proof NOVNC_PORT=6173 bash -s",
+                "codespace ssh -c vibe-play-existing -- env VIBE_PLAY_REF=jt/doom-gameplay-proof NOVNC_PORT=6173 bash -euo pipefail -s",
                 log,
             )
             self.assertNotIn("bash -lc", log)

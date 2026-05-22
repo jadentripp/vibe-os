@@ -272,6 +272,7 @@ static int submit_music_stream_chunk(int handle, int start_voice)
     unsigned long rendered;
     unsigned int buffer_index;
 
+    (void)start_voice;
     buffer_index = current_music_buffer ^ 1u;
     rendered = vibe_music_stream_render(
         handle,
@@ -322,13 +323,9 @@ static int submit_music_stream_chunk(int handle, int start_voice)
     desc.music_stream_end = stats.stream_end_sample;
     desc.music_stream_loop_count = stats.stream_loop_count;
 
-    (void)(start_voice
-        ? vibe_audio_mixer_start(
-            (unsigned long)vibe_music_audio_handle(handle),
-            &desc)
-        : vibe_audio_mixer_update(
-            (unsigned long)vibe_music_audio_handle(handle),
-            &desc));
+    (void)vibe_audio_stream_write(
+        (unsigned long)vibe_music_audio_handle(handle),
+        &desc);
     return 1;
 }
 

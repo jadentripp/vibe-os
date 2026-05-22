@@ -17,6 +17,7 @@ extern int errno;
 #define ENOTTY 25
 #define ENOSPC 28
 #define ENOSYS 38
+#define ERANGE 34
 #define EOVERFLOW 75
 
 #endif

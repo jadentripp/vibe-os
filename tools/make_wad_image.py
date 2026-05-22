@@ -11,7 +11,7 @@ TOTAL_SECTORS = IMAGE_SECTORS
 STAGE2_LBA = 1
 STAGE2_SECTORS = 16
 KERNEL_LBA = 17
-KERNEL_SECTORS = 256
+KERNEL_SECTORS = 320
 PARTITION_START = 2048
 PARTITION_SECTORS = IMAGE_SECTORS - PARTITION_START
 RESERVED_SECTORS = 1
@@ -485,8 +485,8 @@ class Fat16Image:
         clusters_needed = clusters_for_size(len(data)) if data else 0
 
         if clusters_needed == 0:
-            self._release_clusters(old_chain)
             self._write_directory_entry(entry, name, attr, 0, 0)
+            self._release_clusters(old_chain)
             return ()
 
         if len(old_chain) >= clusters_needed:
@@ -494,14 +494,14 @@ class Fat16Image:
             freed = old_chain[clusters_needed:]
             self._link_cluster_chain(chain)
             self._write_file_bytes_to_chain(chain, data)
+            self._write_directory_entry(entry, name, attr, chain[0], len(data))
             self._release_clusters(freed)
         else:
             extra = self.allocate_clusters(clusters_needed - len(old_chain))
             chain = old_chain + extra
             self._link_cluster_chain(chain)
             self._write_file_bytes_to_chain(chain, data)
-
-        self._write_directory_entry(entry, name, attr, chain[0], len(data))
+            self._write_directory_entry(entry, name, attr, chain[0], len(data))
         return chain
 
     def live_root_entries(self):
@@ -873,6 +873,26 @@ class Fat16Image:
         updated[offset:end] = data
         return self.write_root_file(name, bytes(updated))
 
+    def write_file_at_path_at(self, path, offset, data):
+        path = self._validated_path(path)
+        if offset < 0:
+            raise ValueError("FAT16 write offset must be non-negative")
+        try:
+            current = self.read_file_at_path(path)
+        except FileNotFoundError:
+            current = b""
+        end = offset + len(data)
+        if end < offset:
+            raise ValueError("FAT16 write offset overflow")
+
+        updated = bytearray(current)
+        if len(updated) < offset:
+            updated.extend(b"\0" * (offset - len(updated)))
+        if len(updated) < end:
+            updated.extend(b"\0" * (end - len(updated)))
+        updated[offset:end] = data
+        return self.write_file_at_path(path, bytes(updated))
+
     def resize_root_file(self, name, size):
         name = self.validate_root_83_name(name)
         if size < 0:
@@ -901,9 +921,29 @@ class Fat16Image:
             last_start = self.cluster_offset(kept[-1])
             clear_start = last_start + last_cluster_used
             self.image[clear_start:last_start + cluster_size()] = bytes(cluster_size() - last_cluster_used)
-        self._release_clusters(freed)
         write_le32(self.image, entry + 28, size)
+        self._release_clusters(freed)
         return kept
+
+    def resize_file_at_path(self, path, size):
+        path = self._validated_path(path)
+        if size < 0:
+            raise ValueError("FAT16 file size must be non-negative")
+        if len(path) == 1:
+            return self.resize_root_file(path[0], size)
+        if size == 0:
+            return self.truncate_file_at_path(path)
+
+        try:
+            current = self.read_file_at_path(path)
+        except FileNotFoundError:
+            current = b""
+        if len(current) < size:
+            return self.write_file_at_path(path, current + b"\0" * (size - len(current)))
+        if len(current) == size:
+            meta = self.entry_metadata_at_path(path)
+            return self.cluster_chain(meta["cluster"]) if meta and meta["cluster"] else ()
+        return self.write_file_at_path(path, current[:size])
 
     def truncate_root_file(self, name):
         entry = self.create_or_reuse_root_entry(name)
@@ -1510,19 +1550,26 @@ def prove_subdirectory_file_mutation(fs, path=STATE_PROOF_PATH):
         )
     )
 
-    grown = payload + b"B" * cluster_bytes + b"tail"
+    sparse_offset = cluster_bytes * 3 + 17
     free_before_operation = fs.free_data_clusters()
-    grown_chain = fs.write_file_at_path(path, grown)
+    grown_chain = fs.write_file_at_path_at(path, sparse_offset, b"END")
+    grown = fs.read_file_at_path(path)
     if len(grown_chain) <= len(first_chain):
-        raise ValueError("subdirectory mutation proof grow did not allocate another cluster")
-    if fs.read_file_at_path(path) != grown:
-        raise ValueError("subdirectory mutation proof grow did not round-trip")
+        raise ValueError("subdirectory mutation proof sparse grow did not allocate another cluster")
+    if len(grown) != sparse_offset + 3:
+        raise ValueError("subdirectory mutation proof sparse grow produced the wrong size")
+    if grown[:len(payload)] != payload:
+        raise ValueError("subdirectory mutation proof sparse grow did not preserve existing bytes")
+    if grown[len(payload):sparse_offset] != b"\0" * (sparse_offset - len(payload)):
+        raise ValueError("subdirectory mutation proof sparse grow gap was not zero-filled")
+    if grown[sparse_offset:] != b"END":
+        raise ValueError("subdirectory mutation proof sparse grow tail did not round-trip")
     remounted = remount_and_validate()
     if remounted.read_file_at_path(path) != grown:
-        raise ValueError("subdirectory mutation proof grow did not survive remount")
+        raise ValueError("subdirectory mutation proof sparse grow did not survive remount")
     operations.append(
         operation_manifest(
-            "rewrite-grow",
+            "sparse-grow-write",
             size=len(grown),
             chain=grown_chain,
             free_before=free_before_operation,
@@ -1530,8 +1577,43 @@ def prove_subdirectory_file_mutation(fs, path=STATE_PROOF_PATH):
         )
     )
 
+    shrunk_size = cluster_bytes + 1
+    free_before_operation = fs.free_data_clusters()
+    shrunk_chain = fs.resize_file_at_path(path, shrunk_size)
+    shrunk = fs.read_file_at_path(path)
+    if len(shrunk) != shrunk_size or shrunk != payload[:shrunk_size]:
+        raise ValueError("subdirectory mutation proof shrink did not preserve the expected prefix")
+    if len(shrunk_chain) >= len(grown_chain):
+        raise ValueError("subdirectory mutation proof shrink did not free tail clusters")
+    if fs.fat_entry(shrunk_chain[-1]) != FAT16_EOC_VALUE:
+        raise ValueError("subdirectory mutation proof shrink did not terminate the kept chain")
+    for cluster in grown_chain[len(shrunk_chain):]:
+        start = fs.cluster_offset(cluster)
+        if fs.fat_entry(cluster) != 0:
+            raise ValueError("subdirectory mutation proof shrink left a freed cluster allocated")
+        if fs.image[start:start + cluster_bytes] != b"\0" * cluster_bytes:
+            raise ValueError("subdirectory mutation proof shrink did not scrub a freed cluster")
+    clear_start = fs.cluster_offset(shrunk_chain[-1]) + 1
+    clear_end = fs.cluster_offset(shrunk_chain[-1]) + cluster_bytes
+    if fs.image[clear_start:clear_end] != b"\0" * (cluster_bytes - 1):
+        raise ValueError("subdirectory mutation proof shrink did not zero the truncated tail bytes")
+    remounted = remount_and_validate()
+    if remounted.read_file_at_path(path) != shrunk:
+        raise ValueError("subdirectory mutation proof shrink did not survive remount")
+    operations.append(
+        operation_manifest(
+            "shrink-truncate",
+            size=len(shrunk),
+            chain=shrunk_chain,
+            free_before=free_before_operation,
+            free_after=fs.free_data_clusters(),
+        )
+    )
+
     free_before_operation = fs.free_data_clusters()
     truncated = fs.truncate_file_at_path(path)
+    if truncated != shrunk_chain:
+        raise ValueError("subdirectory mutation proof truncate did not free the current chain")
     for cluster in truncated:
         start = fs.cluster_offset(cluster)
         if fs.image[start:start + cluster_bytes] != b"\0" * cluster_bytes:
@@ -1598,6 +1680,7 @@ def prove_subdirectory_file_mutation(fs, path=STATE_PROOF_PATH):
         "directory": Fat16Image._path_label(path[:-1]),
         "initial_clusters": len(first_chain),
         "grown_clusters": len(grown_chain),
+        "shrunk_clusters": len(shrunk_chain),
         "final_free_clusters": fs.free_data_clusters(),
         "free_clusters_restored": fs.free_data_clusters() == before_free,
         "remount_readback": True,

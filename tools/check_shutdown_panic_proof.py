@@ -317,12 +317,12 @@ def validate_repo_contract(root: Path = ROOT) -> None:
 
     upload = workflow.split("uses: actions/upload-artifact@v4", 1)[1]
     for needle in (
-        "build/shutdown-panic-proof/**",
+        "build/shutdown-panic-proof/**/*.json",
+        "build/shutdown-panic-proof/**/*.txt",
         "build/status*.txt",
-        "build/proof-*/*.log",
     ):
         _require(upload, needle, "OS smoke workflow upload")
-    for forbidden in ("build/disk.img", "DOOM1.WAD", "*.WAD", "*.wad", "build/gfx.bin"):
+    for forbidden in ("build/disk.img", "DOOM1.WAD", "*.WAD", "*.wad", "build/gfx.bin", "build/proof-*/*.log", "build/*.log"):
         if forbidden in upload:
             raise AssertionError(f"OS smoke workflow upload includes forbidden artifact {forbidden}")
 

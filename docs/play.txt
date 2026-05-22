@@ -25,15 +25,14 @@ Safety contract:
   raw disk images, screenshots, framebuffer dumps, rendered pixels,
   `status.*.bin`, QEMU WAV files, or other raw audio captures off the
   disposable host.
-- `CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST`: only status text, logs, ELF diagnostics,
-  `doom.symbols`, human-playtest notes/observations/checklist/session/review/
-  manifest files, and optional aggregate `audio-proof.json` may leave the
-  disposable host.
+- `CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST`: only status text, JSON proof files,
+  human-playtest notes/observations/checklist/session/review/manifest files,
+  and optional aggregate `audio-proof.json` may leave the disposable host.
 
 Never transfer these from the remote host: `DOOM1.WAD`, `build/disk.img`,
-framebuffer or screenshot files, `status.*.bin`, `build/doom-audio.wav`, or
-other raw audio. If a remote audio proof was attempted, clean it up before
-destroying the disposable host:
+framebuffer or screenshot files, `status.*.bin`, ELF/symbol files, logs,
+`build/doom-audio.wav`, or other raw audio. If a remote audio proof was
+attempted, clean it up before destroying the disposable host:
 
 ```sh
 rm -f /tmp/vibe-os-DOOM1.WAD
@@ -68,9 +67,14 @@ port `6080`, then creates or reuses a disposable GitHub Codespace. It starts
 Codespaces and opens a browser; it does not run QEMU, fetch the WAD, build
 `disk.img`, or copy play artifacts back.
 On initial attach, GitHub can briefly reject SSH with a permission/public-key
-error while the Codespace is still authorizing or starting. The launcher retries
-that stdin-fed `bash -s` start path, prints an authorization hint, and sanitizes
-known token-shaped stderr before showing it.
+error while the Codespace is still authorizing or starting. The launcher no
+longer asks `gh codespace create --status` to poll post-create SSH state; it
+creates the Codespace, waits for the control-plane state to become available,
+then retries the stdin-fed `bash -euo pipefail -s` start path itself. Both
+stdout and stderr from that remote start path are filtered before they are
+shown locally, so accidental environment dumps redact GitHub token-shaped
+values, authorization headers, signed URL parameters, and browser/device login
+codes.
 
 Before creation, the launcher also checks the selected pushed branch for the
 required play payload: `.devcontainer/devcontainer.json`,
@@ -318,9 +322,15 @@ timer/preemption, input depth/drop, SB16 refill/music progress, and audio safety
 counters. The diagnosis is intentionally conservative: healthy status deltas
 point at remote presentation throughput, while input drops, audio pressure, or
 preemption stalls point back at the relevant OS lane.
-Remote fetch/startup errors use the same redaction rules for GitHub tokens,
-authorization headers, common secret environment values, and signed URL parameters
-before they are printed locally.
+The downloaded status-only proofs now keep the newer legitimacy fields visible
+too: `biosboot=`, `biosflags=`, `biosentry=`, `biosspan=`, `e820map=`,
+`pmmtype=`, `pmmchk=OK`, `faultsrc=`, `faultmode=`,
+`pf=`, `faultcontain=`, `regs=`, `segs=`, `proc=`, `kblock=`, `ksleep=`,
+`inputstat=`, `inputpolicy=`,
+`inputdev=`, `inputdevices=`, and `inputmods=`.
+Remote fetch/startup output uses the same redaction rules for GitHub tokens,
+authorization headers, common secret environment values, signed URL parameters,
+and one-time browser login codes before it is printed locally.
 Useful cleanup and inspection commands are printed by the launcher and are safe
 to keep in your notes:
 
@@ -421,10 +431,9 @@ For the copy-paste cloud path, including Codespaces and noVNC setup, use
 - `CLOUD_PLAYTEST_FORBIDDEN_UPLOADS`: never upload or copy WADs, `disk.img`,
   raw disk images, raw audio, screenshots, framebuffer dumps, rendered pixels,
   or `status.*.bin` files off the disposable host.
-- `CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST`: only status text, logs, ELF diagnostics,
-  `doom.symbols`, human-playtest notes/observations/checklist/session/review/
-  manifest files, and optional aggregate `audio-proof.json` may leave the
-  disposable host.
+- `CLOUD_PLAYTEST_ARTIFACT_ALLOWLIST`: only status text, JSON proof files,
+  human-playtest notes/observations/checklist/session/review/manifest files,
+  and optional aggregate `audio-proof.json` may leave the disposable host.
 
 Use a disposable remote Ubuntu VM, Codespace, or throwaway remote host that runs
 QEMU. The host only needs CPU emulation; hardware virtualization is helpful but
@@ -673,7 +682,7 @@ bundle step.
 
 Collect the manual proof bundle on the disposable remote host. Use an empty
 scratch directory outside the repository. The collector does not launch QEMU; it
-copies only status text, logs, ELF diagnostics, `doom.symbols`, optional
+copies only status text and optional JSON proof files such as
 `audio-proof.json`, writes `human-playtest-notes.txt`, writes
 `human-playtest-observations.json` with `schema=human-playtest-observations-v1`,
 writes `human-playtest-checklist.txt` with
@@ -872,11 +881,10 @@ workflow instead of this manual VNC path. It captures:
 - `status.after-mouse.txt`
 - `status.after-menu.txt`
 - `status.txt`
-- `smoke.log`, `qemu.log`, `monitor.log`, and `serial.log`
-- `kernel.elf`, `user_probe.elf`, `doom.elf`, and `doom.symbols`
+- optional `audio-proof.json`
 
-It deliberately does not upload `disk.img`, `gfx.bin`, `vga*.txt`, WAD files, or
-rendered Doom pixels.
+It deliberately does not upload `disk.img`, `gfx.bin`, `vga*.txt`, WAD files,
+logs, ELF/symbol files, raw audio, or rendered Doom pixels.
 
 For repeated flake detection, use the GitHub Actions **Real WAD soak** workflow.
 It runs the same real-WAD cloud proof multiple times and uploads only JSON
@@ -921,6 +929,10 @@ When a proof turns red, use the workflow summary or
 boot/input failures, audio for SB16 or aggregate audio failures, and persistence
 for save/load failures. Do not rerun the combined path until the isolated lane
 is green.
+`tools/triage_cloud_status.py` also routes newer OS-readiness failures to the
+right owner: `bios-handoff-not-proven`, `fault-containment-not-proven`,
+`kernel-blocking-not-proven`, and, for an OVMF manifest,
+`uefi-marker-not-proven`.
 
 After downloading the `real-wad-soak-metadata` artifact, validate it locally:
 
@@ -935,49 +947,49 @@ renamed WAD/disk/image payload signatures, so do not add extra binaries to the
 diagnostic directory:
 
 ```sh
-python3 tools/triage_cloud_status.py path/to/real-wad-smoke-status/status.txt
+python3 tools/triage_cloud_status.py path/to/real-wad-smoke-proof-status/status.txt
 # If the run stopped before final status, triage status.failure.txt instead.
 
 python3 tools/check_real_wad_proof.py \
-  --baseline path/to/real-wad-smoke-status/status.after-start.txt \
-  --start path/to/real-wad-smoke-status/status.after-start.txt \
-  --fire path/to/real-wad-smoke-status/status.after-fire.txt \
-  --movement path/to/real-wad-smoke-status/status.after-move.txt \
-  --use path/to/real-wad-smoke-status/status.after-use.txt \
-  --mouse path/to/real-wad-smoke-status/status.after-mouse.txt \
-  --menu path/to/real-wad-smoke-status/status.after-menu.txt \
-  path/to/real-wad-smoke-status/status.txt
+  --baseline path/to/real-wad-smoke-proof-status/status.after-start.txt \
+  --start path/to/real-wad-smoke-proof-status/status.after-start.txt \
+  --fire path/to/real-wad-smoke-proof-status/status.after-fire.txt \
+  --movement path/to/real-wad-smoke-proof-status/status.after-move.txt \
+  --use path/to/real-wad-smoke-proof-status/status.after-use.txt \
+  --mouse path/to/real-wad-smoke-proof-status/status.after-mouse.txt \
+  --menu path/to/real-wad-smoke-proof-status/status.after-menu.txt \
+  path/to/real-wad-smoke-proof-status/status.txt
 
-python3 tools/check_human_playability_proof.py path/to/real-wad-smoke-status/status.txt
+python3 tools/check_human_playability_proof.py path/to/real-wad-smoke-proof-status/status.txt
 
 python3 tools/check_human_playability_proof.py \
-  --baseline path/to/real-wad-smoke-status/status.after-start.txt \
-  --start path/to/real-wad-smoke-status/status.after-start.txt \
-  --fire path/to/real-wad-smoke-status/status.after-fire.txt \
-  --movement path/to/real-wad-smoke-status/status.after-move.txt \
-  --use path/to/real-wad-smoke-status/status.after-use.txt \
-  --mouse path/to/real-wad-smoke-status/status.after-mouse.txt \
-  --menu path/to/real-wad-smoke-status/status.after-menu.txt \
-  path/to/real-wad-smoke-status/status.txt
+  --baseline path/to/real-wad-smoke-proof-status/status.after-start.txt \
+  --start path/to/real-wad-smoke-proof-status/status.after-start.txt \
+  --fire path/to/real-wad-smoke-proof-status/status.after-fire.txt \
+  --movement path/to/real-wad-smoke-proof-status/status.after-move.txt \
+  --use path/to/real-wad-smoke-proof-status/status.after-use.txt \
+  --mouse path/to/real-wad-smoke-proof-status/status.after-mouse.txt \
+  --menu path/to/real-wad-smoke-proof-status/status.after-menu.txt \
+  path/to/real-wad-smoke-proof-status/status.txt
 
 python3 tools/check_vm_status_proof.py \
   --require-exec \
   --require-preempt \
-  path/to/real-wad-smoke-status/status.txt
+  path/to/real-wad-smoke-proof-status/status.txt
 
 python3 tools/check_audio_continuity_proof.py \
   --require-pull-stream \
-  --baseline path/to/real-wad-smoke-status/status.after-start.txt \
-  --fire path/to/real-wad-smoke-status/status.after-fire.txt \
-  --movement path/to/real-wad-smoke-status/status.after-move.txt \
-  --use path/to/real-wad-smoke-status/status.after-use.txt \
-  --menu path/to/real-wad-smoke-status/status.after-menu.txt \
-  path/to/real-wad-smoke-status/status.txt
+  --baseline path/to/real-wad-smoke-proof-status/status.after-start.txt \
+  --fire path/to/real-wad-smoke-proof-status/status.after-fire.txt \
+  --movement path/to/real-wad-smoke-proof-status/status.after-move.txt \
+  --use path/to/real-wad-smoke-proof-status/status.after-use.txt \
+  --menu path/to/real-wad-smoke-proof-status/status.after-menu.txt \
+  path/to/real-wad-smoke-proof-status/status.txt
 
 python3 tools/check_audible_audio_proof.py \
-  path/to/real-wad-smoke-status/audio-proof.json
+  path/to/real-wad-smoke-proof-status/audio-proof.json
 
-python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-status
+python3 tools/check_cloud_playability_artifacts.py path/to/real-wad-smoke-proof-status
 
 python3 tools/check_cloud_playability_artifacts.py \
   --human-session path/to/vibe-os-human-proof \
@@ -1016,9 +1028,10 @@ already contains the required manual key or mouse action bits. When the
 collector's action notes are present, the summary reports how many of the seven
 required start/fire/move/use/mouse/menu/final notes were recorded.
 
-`triage_cloud_status.py` auto-loads `doom.symbols` from the artifact directory,
-so a `doom-user-fault` report should include the nearest Doom function for
-`doomfaultip` plus page-fault/WAD I/O context.
+`triage_cloud_status.py` can still use a local `doom.symbols` map when you pass
+one explicitly or keep a local build directory, but the downloaded proof
+artifact no longer carries symbols. A `doom-user-fault` report should still
+include page-fault/WAD I/O context from the status fields.
 
 ## Manual Review Checklist
 
@@ -1035,8 +1048,8 @@ Call a remote human playtest credible only after checking all of this:
   `human-playtest-manifest.json`,
   `status.early.txt`, `status.after-start.txt`, `status.after-fire.txt`,
   `status.after-move.txt`, `status.after-use.txt`, `status.after-mouse.txt`,
-  `status.after-menu.txt`, `status.txt`, `doom.symbols`, and the diagnostic ELF
-  files, was produced with `tools/collect_human_playtest_bundle.py`, and
+  `status.after-menu.txt`, and `status.txt`, was produced with
+  `tools/collect_human_playtest_bundle.py`, and
   `tools/check_cloud_playability_artifacts.py --human-session` passes.
 - The notes are `schema=human-playtest-notes-v2`, include every `phase_hash_*`
   field, include every `action_note_*` field for the human noVNC actions,

@@ -64,6 +64,42 @@ def status_line(**overrides):
         "musicq": "00000001:00000000",
     }
     fields.update(overrides)
+    ring_bytes, period_bytes, _write_offset, _active_half = (
+        int(part, 16) for part in fields["pcmbuf"].split(":")
+    )
+    music_pull_request, music_pull_refill = (
+        int(part, 16) for part in fields["musicpull"].split(":")
+    )
+    music_stream_mode = {"NONE": 0, "PUSH": 1, "PULL": 2}.get(fields["musicstream"], 0)
+    if "pcmstream" not in overrides:
+        stream_handle = 0 if music_stream_mode == 0 else 0x4D550001
+        fields["pcmstream"] = (
+            f"{music_stream_mode:08X}:{stream_handle:08X}:"
+            f"{int(fields['musicvoices'], 16):08X}:{int(fields['musicbuf'], 16):08X}:"
+            f"{int(fields['musicpos'], 16):08X}"
+        )
+    if "pcmwrite" not in overrides:
+        write_count = max(1, int(fields["musicmix"], 16))
+        write_bytes = max(int(fields["musicbuf"], 16), period_bytes)
+        last_write = max(1, min(write_bytes, ring_bytes))
+        fields["pcmwrite"] = f"{write_count:08X}:{write_bytes:08X}:{last_write:08X}:00000000"
+    if "pcmdev" not in overrides:
+        fields["pcmdev"] = "00000001:00000001:00000001:00000001:50430001:00000000"
+    if "pcmlife" not in overrides:
+        fields["pcmlife"] = "00000004:00000000:00000001:00000002:00000003:00000004:00000040"
+    if "pcmqueue" not in overrides:
+        queued = int(fields["musicbuf"], 16)
+        fields["pcmqueue"] = (
+            f"00010000:{queued:08X}:00000000:00000000:00000000:"
+            f"{max(queued, 0x2000):08X}"
+        )
+    if "pcmpull" not in overrides:
+        pending = max(0, music_pull_request - music_pull_refill)
+        fields["pcmpull"] = f"{music_pull_request:08X}:{music_pull_refill:08X}:{pending:08X}"
+    if "pcmirq" not in overrides:
+        fields["pcmirq"] = f"{int(fields['audioirq'], 16):08X}:{int(fields['refill'], 16):08X}:00000000"
+    if "pcmdma" not in overrides:
+        fields["pcmdma"] = f"00000001:00000000:00000000:00001000:00000000:{ring_bytes - 1:08X}"
     return "Aurora OS v0.2 " + " ".join(f"{key}={value}" for key, value in fields.items())
 
 
@@ -257,6 +293,9 @@ def os_audio_contract(
             "device": "adev",
             "sample_format": "pcm",
             "ring": "pcmbuf",
+            "queue": "pcmqueue",
+            "generic_pcm_probe": "pcmdev",
+            "generic_pcm_lifecycle": "pcmlife",
             "irq_phase": "half",
             "stream": "musicstream/musicpull/musicbuf/musicpos",
             "mixer_lanes": "voices/sfxvoices/musicvoices/sfxmix/musicmix",
@@ -281,6 +320,41 @@ def os_audio_contract(
             "irq_delta": "00000005",
             "refill_delta": "00000005",
         },
+        "pcm_queue": {
+            "capacity_bytes": "00010000",
+            "queued_bytes": "00002000",
+            "drop_bytes": "00000000",
+            "overflow_count": "00000000",
+            "trim_count": "00000000",
+            "high_water_bytes": "00002000",
+            "bounded": True,
+            "covers_ring": True,
+            "high_water_in_bounds": True,
+        },
+        "generic_pcm_probe": {
+            "status_field": "pcmdev",
+            "program": "ABIPROBE.ELF",
+            "open_command": "VIBE_AUDIO_PCM_OPEN",
+            "write_command": "VIBE_AUDIO_PCM_WRITE_DESC",
+            "drain_command": "VIBE_AUDIO_PCM_DRAIN",
+            "close_command": "VIBE_AUDIO_PCM_CLOSE",
+            "open_count": "00000001",
+            "write_count": "00000001",
+            "drain_count": "00000001",
+            "close_count": "00000001",
+            "last_handle": "50430001",
+            "last_error": "00000000",
+            "lifecycle_status_field": "pcmlife",
+            "lifecycle_state": "closed",
+            "lifecycle_error_count": "00000000",
+            "lifecycle_ordered": True,
+            "open_seq": "00000001",
+            "write_seq": "00000002",
+            "drain_seq": "00000003",
+            "close_seq": "00000004",
+            "user_write_bytes": "00000040",
+            "second_program_proven": True,
+        },
         "stream": {
             "mode": "PULL",
             "request_delta": request_delta,
@@ -292,7 +366,7 @@ def os_audio_contract(
             "buffer_final": "00002000",
             "position_delta": position_delta,
             "payload_owner": "doom_port/music.c",
-            "service_command": "VIBE_AUDIO_MIXER_UPDATE",
+            "service_command": "VIBE_AUDIO_STREAM_WRITE",
         },
         "mixer_lanes": {
             "voice_total_matches_lanes": True,
@@ -334,6 +408,14 @@ class AudibleAudioProofTests(unittest.TestCase):
         self.assertEqual(manifest["status"]["adev"], "00000001:00000001:0000000F")
         self.assertEqual(manifest["status"]["pcm"], "00000001:00000002:00002B11")
         self.assertEqual(manifest["status"]["pcmbuf"], "00001000:00000800:00000000:00000001")
+        self.assertEqual(
+            manifest["status"]["pcmdev"],
+            "00000001:00000001:00000001:00000001:50430001:00000000",
+        )
+        self.assertEqual(
+            manifest["status"]["pcmlife"],
+            "00000004:00000000:00000001:00000002:00000003:00000004:00000040",
+        )
         self.assertEqual(manifest["status"]["half"], "00000001")
         self.assertEqual(
             manifest["proof_contracts"]["os_audio_subsystem"]["lane"],
@@ -346,6 +428,12 @@ class AudibleAudioProofTests(unittest.TestCase):
         )
         self.assertTrue(
             manifest["continuity"]["os_audio_contract"]["pcm_ring"]["active_half_matches_half"]
+        )
+        self.assertTrue(
+            manifest["continuity"]["os_audio_contract"]["generic_pcm_probe"]["second_program_proven"]
+        )
+        self.assertTrue(
+            manifest["continuity"]["os_audio_contract"]["generic_pcm_probe"]["lifecycle_ordered"]
         )
         self.assertEqual(manifest["continuity"]["os_audio_contract"]["stream"]["mode"], "PULL")
         self.assertEqual(
@@ -818,6 +906,9 @@ class AudibleAudioProofTests(unittest.TestCase):
                 "adev": "00000001:00000001:0000000F",
                 "pcm": "00000001:00000002:00002B11",
                 "pcmbuf": "00001000:00000800:00000000:00000001",
+                "pcmdev": "00000001:00000001:00000001:00000001:50430001:00000000",
+                "pcmlife": "00000004:00000000:00000001:00000002:00000003:00000004:00000040",
+                "pcmqueue": "00010000:00002000:00000000:00000000:00000000:00002000",
             },
             "continuity": {
                 "gate": "tools/check_audio_continuity_proof.py",

@@ -3,10 +3,16 @@
 The test suite is layered so low-level changes get fast feedback before a VM
 boot:
 
-- `make test` runs host-side artifact checks for the boot sectors, ELF files,
-  FAT16 disk image, WAD fixture, and build/source contracts.
+- `make test` snapshots the built boot sectors, ELF files, Doom objects,
+  symbol map, and FAT16 disk image into a temporary host-test directory before
+  discovery, then points artifact/storage tests at that immutable copy through
+  `VIBE_HOST_TEST_BUILD_DIR`. This keeps host checks meaningful while the live
+  shared `build/` tree is being rebuilt by another worker. The storage boundary
+  checker honors the same environment variable when validating raw artifact
+  identity.
 - `tests/host/test_external_suite_leverage.py` is the agentic host-suite
-  leverage layer: it runs a libc conformance subset harness, compares syscall
+  leverage layer: it runs a libc conformance subset harness for string parsing,
+  formatting, math, errno, and syscall-shaped C glue, compares syscall
   numbers for every exported `VIBE_SYS_*` entry against the kernel table, pins
   ABI layouts across the public headers, fuzzes FAT fixture corruption classes,
   links/rejects ELF loader-style fixtures, checks
@@ -27,9 +33,16 @@ boot:
   maps a high non-identity alias before unmapping it, after which an empty
   PMM-backed page-table frame is reclaimed. The smoke contract exposes that as
   `vmmhi=OK`, `vmmhva=`, `vmmhpa=`, `vmmhpt=`, and `vmmhfree=`. The same host
-  gate now pins the running-kernel relocation scaffold as `kreloc=LOW` with
-  `krelocstep=HIEXEC_TMP`, `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and
-  `kernphys=`, proving the current kernel is still low identity-mapped. It also requires `kmap=OK`,
+  gate now pins the running-kernel relocation scaffold as `kreloc=HIGH` with
+  `krelocstep=KPMAIN_HIGH`, `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and
+  `kernphys=`, plus `e820map=`, `pmmuse=`, `pmmtype=`, `pmmchk=OK`,
+  `pmmalloc=`, `pmmdeny=`, `uguard=`, and `vmmguard=` for bounded E820 handoff,
+  allocator accounting, frame-bitmap rescans, reserved-page exclusion, and
+  explicit user guard-page rejection. It also requires `khmain=OK`, `khmspan=`,
+  `khmxlat=`, and `khmpte=` to prove the current kernel crossed into the
+  persistent high text/stack aliases and that those high instruction/stack
+  addresses translate through live PDE/PTE entries while still using the
+  bootstrap page directory. It also requires `kmap=OK`,
   `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, and `kmaphi=` so the
   current kernel entry page is temporarily aliased high, compared through low
   and high addresses, and unmapped again. The next executable rung is
@@ -38,8 +51,13 @@ boot:
   `khislot=`, `khislotpa=`, `khisword=`, and `khiret=`, proving a bounded
   higher-half trampoline call on a higher-half stack alias, active `CR3`,
   translated non-identity backing, a high-stack write, and page-table
-  reclaim while still reserving `kreloc=OK` for the future persistent
-  non-identity higher-half milestone.
+  reclaim. `kpexec=OK` then proves the same call shape through the persistent
+  higher-half text/stack aliases with `kpeip=`, `kpesp=`, `kpecr3=`, `kpeva=`,
+  `kpepa=`, `kpestk=`, `kpestkpa=`, `kpexlat=`, `kpesxlat=`, `kpeslot=`,
+  `kpeslotpa=`, `kpesword=`, and `kperet=`. The live relocation-trampoline
+  rung is `krelive=OK` with `krelivex=` and `krelivep=`, proving a bounded jump
+  through the candidate directory while still reserving `kreloc=OK` for the
+  future persistent non-identity higher-half milestone.
 - `tests/host/test_doom_source.py` is the original-Doom provenance gate. It
   hashes the vendored `linuxdoom-1.10` source boundary, audits the Makefile so
   original engine objects and `doom_port/*` shims stay separate, and invokes
@@ -66,7 +84,8 @@ boot:
   truncate/resize-to-zero, delete, cluster-chain freeing/reuse,
   corrupt-chain validation before mutation, FAT-copy agreement,
   duplicate-root/cross-link/orphaned-cluster rejection, protected WAD/ELF
-  refusal, and syscall-backed `unlink`/`stat`/`fstat` libc wrappers. They also
+  write/truncate refusal with ordinary readonly VFS reads, and syscall-backed
+  `unlink`/`stat`/`fstat` libc wrappers. They also
   pin root/current-directory path normalization, the boundary between host
   recursive asset packaging and the kernel's bounded one-level subdirectory
   surface, writable `/STATE` file lifecycle proof, kernel rejection of unknown
@@ -90,7 +109,8 @@ boot:
 - Host process tests prove that `SYS_EXEC` is more than a fixed string loader:
   the path resolves Doom/probe table entries, parses arbitrary root-level FAT16
   `.ELF` names into the reusable probe-class slot, rejects unsafe active-slot
-  reloads, seeds a scheduler-visible target context, writes an argc/argv stack
+  reloads, tracks table-backed and generic root `.ELF` resolution through
+  `execmap=`, seeds a scheduler-visible target context, writes an argc/argv stack
   shape, records `argvsrc=2` for a copied user vector, patches the live syscall
   frame, marks the caller exited, and records handoff/schedule/rollback
   counters. The same tests pin the bounded
@@ -103,12 +123,12 @@ boot:
   cloning over shared open-file descriptions, parent/child return splitting,
   and waitpid reap evidence. It is not a full `fork`/`exec` split, while
   Doom/arbitrary address spaces,
-  copy-on-write, blocking waits, and unbounded process/fd tables remain gaps.
+  copy-on-write, POSIX-complete waits, and unbounded process/fd tables remain gaps.
 - `tools/check_vm_status_proof.py` requires the matching cloud status to expose
   `vmmhfree`, `uexec=OK`, `upath=USERPROB.ELF`, `abiexec=OK`,
-  `abipath=ABIPROBE.ELF`, `abiprobe=OK`, `argvsrc=2`, `procpool=`,
-  `fdexec=`, `fdup=`, `wait=`, `waitseed=`, `fork=`, and `pmask` plus
-  `pkind`/`peip`/`pcr3`/`pkstk` evidence
+  `abipath=ABIPROBE.ELF`, `abiprobe=OK`, `argvsrc=2`, `execmap=`, `procpool=`,
+  `fdexec=`, `fdup=`, `kblock=`, `ksleep=`, `wait=`, `waitseed=`, `fork=`, and `pmask` plus
+  `pkind`/`peip`/`pcr3`/`pkstk`/`pframe`/`psegs`/`peflags` evidence
   before a VM/process artifact can be accepted.
 - `tools/status_fields.py` is the shared host-side status/proof parser. New
   checkers should use it for duplicate detection, eight-digit hex fields, and
@@ -139,8 +159,10 @@ boot:
   smoke target invoke it, so a future green CI claim must include those status
   counters rather than framebuffer bytes.
 - `tools/check_vm_status_proof.py` separately gates the VM/process status
-  fields used by cloud artifacts, including higher-half VMM self-test,
-  syscall-driven exec handoff, and timer preemption evidence.
+  fields used by cloud artifacts, including E820-backed PMM accounting,
+  guard-page rejection, higher-half VMM self-test, syscall-driven exec handoff,
+  kernel sleep/wake evidence, fault source/mode/containment evidence, and timer
+  preemption evidence.
 - `tools/check_human_playability_proof.py` compares decoded status snapshots
   from the deterministic input phases. It requires keyboard counters to
   increase across each keyboard phase, mouse IRQ/packet/generic-poll counters to
@@ -163,8 +185,9 @@ boot:
   to the final `audio=SB16` status plus the same status-only SB16 continuity
   snapshots, and keeps raw audio out of artifacts.
 - `tests/host/test_post_checkpoint_gaps.py` guards the post-checkpoint honesty
-  ledger: Doom exit/fault diagnostics, including CR2, EIP, vector, and x86
-  error code, must stay visible in status, save/config persistence must be
+  ledger: Doom exit/fault diagnostics, including CR2, EIP, vector, x86 error
+  code, `pf=`, `regs=`, `segs=`, `proc=`, `faultsrc=`, `faultmode=`, and
+  `faultcontain=`, must stay visible in status, save/config persistence must be
   proved at image level, and the missing
   cloud boot, real gameplay, human playtest, audio, VM/POSIX,
   shutdown/panic, and hardware-limit claims must remain documented.
@@ -180,13 +203,17 @@ boot:
   UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and physical-hardware
   support wording unless the matrix grows a claimed row and a proof boundary
   first.
-  It also requires the kernel's bounded QEMU bus-0 PCI table and read-only
+  It also requires the kernel's bounded QEMU PCI config table and read-only
   lookup API plus the `pci=`, `pciprobe=`, `pcicount=`, `pcifirst=`, `pciid=`,
   `pciclass=`, `pcitabcap=`, `pcitabuse=`, `pciover=`, `pciapi=`, and
-  `pcilookmiss=` smoke fields to remain status-only diagnostics rather than a
-  broad PCI claim. `pcicons=`, `pcilookide=`, and `pcilookahci=` prove a
+  `pcilookid=`/`pcilookmiss=` smoke fields to remain status-only diagnostics
+  rather than a broad PCI claim. `pcicons=`, `pcilookide=`, and `pcilookahci=` prove a
   kernel consumer can query the table for storage-class intent without binding
-  or activating an AHCI driver.
+  or activating an AHCI driver. `ahcibar=` and `ahcireq=` pin the AHCI BAR5/HBA
+  proof requirements and no-silent-fallback guard while AHCI remains
+  unsupported. `pcilookaud=` and `pcilookhda=` prove the same status-only
+  boundary for multimedia audio/HDA class intent without binding an audio
+  driver.
   Future hardware classes now have machine-readable `PROOF_REQUIREMENT[...]`
   rows plus active `NEGATIVE_CLAIM[...]` rows, so unsupported UEFI, PCI, AHCI,
   USB, SMP, APIC, HPET, and physical-machine wording stays tied to a concrete
@@ -220,17 +247,20 @@ boot:
   legitimacy fields: `vmmhfree` must match the reclaimed dynamic page table,
   `kmap=OK`, `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, and
   `kmaphi=` must prove a temporary higher-half alias of the current kernel entry
-  page and page-table reclaim, `khiexec=OK`, `khieip=`, `khiesp=`, `khicr3=`,
+  page and page-table reclaim, `khmain=OK`, `khmspan=`, `khmxlat=`, and
+  `khmpte=` must prove live higher-half mainline execution with matching
+  page-table translations, `khiexec=OK`, `khieip=`, `khiesp=`, `khicr3=`,
   `khiva=`, `khipa=`, `khistk=`, `khistkpa=`, `khipt=`, `khifree=`,
   `khixlat=`, `khisxlat=`, `khislot=`, `khislotpa=`, `khisword=`, and
   `khiret=` must prove bounded higher-half trampoline execution on a high stack
   alias, translated backing, a high-stack write, and page-table reclaim,
   boot-probe exec must report `uexec=OK` and `upath=USERPROB.ELF`, ABI-probe
   exec must report `abiexec=OK`, `abipath=ABIPROBE.ELF`, and `abiprobe=OK`,
-  Doom exec must report `argvsrc=2`, `procpool=`, `fdexec=`, `fdup=`, `wait=`,
+  Doom exec must report `argvsrc=2`, `execmap=`, `procpool=`, `fdexec=`, `fdup=`, `kblock=`, `ksleep=`, `wait=`,
   `waitseed=`, `fork=`, and `vmreap=`, and `pmask` plus
-  `pkind`/`peip`/`pcr3`/`pkstk` must show
-  bidirectional timer IRQ switching between Doom and the preempt probe.
+  `pkind`/`peip`/`pcr3`/`pkstk`/`pframe`/`psegs`/`peflags` must show
+  bidirectional timer IRQ switching between Doom and the preempt probe with a
+  sanitized Ring 3 return frame.
 - `tools/check_shutdown_panic_proof.py` validates the opt-in disposable-cloud
   shutdown/panic proof contract and any downloaded proof artifact. It requires
   `shutdown-panic-proof.json` plus dedicated panic, halt, reboot-request, and
@@ -299,8 +329,8 @@ boot:
 - Still manual: actually launching the manual workflow, reviewing its uploaded
   diagnostics, and deciding whether the current visual/input/audio state is good
   enough to call the OS Doom-capable.
-- Future Doom bring-up should add focused libc-test cases, Doom WAD/parser
-  golden tests, and stricter deterministic visual expectations once framebuffer
-  output stabilizes.
+- Future Doom bring-up should add focused libc-test cases beyond the current
+  string/search/tokenizer/format coverage, Doom WAD/parser golden tests, and
+  stricter deterministic visual expectations once framebuffer output stabilizes.
 
 Local `make test` does not launch QEMU.

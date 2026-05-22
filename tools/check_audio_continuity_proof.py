@@ -62,6 +62,14 @@ REQUIRED_AUDIO_FIELDS = (
     "adev",
     "pcm",
     "pcmbuf",
+    "pcmstream",
+    "pcmwrite",
+    "pcmdev",
+    "pcmlife",
+    "pcmqueue",
+    "pcmpull",
+    "pcmirq",
+    "pcmdma",
     "sb16",
     "dma",
     "play",
@@ -111,20 +119,21 @@ MAX_SAFETY_DELTAS = {
     "musicdrops": 0,
 }
 PROGRESS_TUPLE_COMPONENTS = (
-    ("voiceq", 3, 2, "stream update"),
+    ("pcmwrite", 4, 0, "stream write"),
 )
 MIN_MUSIC_STREAM_UPDATE_DELTA = 2
 MAX_PENDING_PULL_REQUESTS = 1
 PLAYABILITY_CADENCE_FIELDS = ("gtic", "leveltime", "doompresent")
 PLAYABILITY_CADENCE_HEALTHY = "os-audio-cadence-observed"
 CURRENT_MUSIC_PAYLOAD_OWNER = "doom_port/music.c"
-CURRENT_MUSIC_SERVICE_COMMAND = "VIBE_AUDIO_MIXER_UPDATE"
-FUTURE_HARDWARE_MIXER_REFILL_PLAYBACK = "future hardware-paced mixer/refill playback ABI"
+CURRENT_MUSIC_SERVICE_COMMAND = "VIBE_AUDIO_STREAM_WRITE"
+FUTURE_HARDWARE_MIXER_REFILL_PLAYBACK = "kernel-owned PCM stream write/refill ABI"
 AUDIO_DEVICE_SB16 = 1
 AUDIO_DEVICE_STATUS_READY = 1
 AUDIO_PCM_FORMAT_U8_STEREO = 1
 AUDIO_OUTPUT_CHANNELS = 2
 AUDIO_OUTPUT_SAMPLE_RATE = 11025
+AUDIO_PCM_LIFECYCLE_CLOSED = 4
 AUDIO_CAP_PCM_RING = 0x00000001
 AUDIO_CAP_MIXER_VOICES = 0x00000002
 AUDIO_CAP_PULL_STREAM = 0x00000004
@@ -158,6 +167,14 @@ TUPLE_FIELDS = {
     "adev": 3,
     "pcm": 3,
     "pcmbuf": 4,
+    "pcmstream": 5,
+    "pcmwrite": 4,
+    "pcmdev": 6,
+    "pcmlife": 7,
+    "pcmqueue": 6,
+    "pcmpull": 3,
+    "pcmirq": 3,
+    "pcmdma": 6,
 }
 MUSIC_STREAM_MODES = ("NONE", "PUSH", "PULL")
 SUMMARY_FIELDS = (
@@ -196,6 +213,14 @@ SUMMARY_FIELDS = (
     "adev",
     "pcm",
     "pcmbuf",
+    "pcmstream",
+    "pcmwrite",
+    "pcmdev",
+    "pcmlife",
+    "pcmqueue",
+    "pcmpull",
+    "pcmirq",
+    "pcmdma",
     "sb16",
     "dma",
     "play",
@@ -531,14 +556,11 @@ def _assert_pull_stream_sequence(snapshots: list[tuple[str, dict[str, str]]]) ->
     last_label, last_fields = snapshots[-1]
     first_pull = _hex_tuple(first_fields, "musicpull", first_label, 2)
     last_pull = _hex_tuple(last_fields, "musicpull", last_label, 2)
-    first_voiceq = _hex_tuple(first_fields, "voiceq", first_label, 3)
-    last_voiceq = _hex_tuple(last_fields, "voiceq", last_label, 3)
     first_render = _hex_tuple(first_fields, "musicrend", first_label, 6)
     last_render = _hex_tuple(last_fields, "musicrend", last_label, 6)
 
     request_delta = last_pull[0] - first_pull[0]
     refill_delta = last_pull[1] - first_pull[1]
-    update_delta = last_voiceq[2] - first_voiceq[2]
     render_chunk_delta = last_render[1] - first_render[1]
 
     if refill_delta != request_delta:
@@ -546,11 +568,6 @@ def _assert_pull_stream_sequence(snapshots: list[tuple[str, dict[str, str]]]) ->
             "musicpull= pull refill delta must match pull request delta for "
             "sequenced pull-stream service, "
             f"got {request_delta:08X} requests and {refill_delta:08X} refills"
-        )
-    if update_delta != refill_delta:
-        raise AssertionError(
-            "voiceq= stream update delta must match musicpull= pull refill delta, "
-            f"got {update_delta:08X} updates and {refill_delta:08X} refills"
         )
     if render_chunk_delta != refill_delta:
         raise AssertionError(
@@ -560,23 +577,15 @@ def _assert_pull_stream_sequence(snapshots: list[tuple[str, dict[str, str]]]) ->
 
     previous_label, previous_fields = snapshots[0]
     previous_pull = _hex_tuple(previous_fields, "musicpull", previous_label, 2)
-    previous_voiceq = _hex_tuple(previous_fields, "voiceq", previous_label, 3)
     previous_render = _hex_tuple(previous_fields, "musicrend", previous_label, 6)
     previous_pos = _hex(previous_fields, "musicpos", previous_label)
     for label, fields in snapshots[1:]:
         current_pull = _hex_tuple(fields, "musicpull", label, 2)
-        current_voiceq = _hex_tuple(fields, "voiceq", label, 3)
         current_render = _hex_tuple(fields, "musicrend", label, 6)
         current_pos = _hex(fields, "musicpos", label)
         refill_step = current_pull[1] - previous_pull[1]
-        update_step = current_voiceq[2] - previous_voiceq[2]
         render_step = current_render[1] - previous_render[1]
         if refill_step:
-            if update_step != refill_step:
-                raise AssertionError(
-                    f"{label} voiceq= stream update step must match pull refill step, "
-                    f"got {update_step:08X} updates and {refill_step:08X} refills"
-                )
             if render_step != refill_step:
                 raise AssertionError(
                     f"{label} musicrend= render chunk step must match pull refill step, "
@@ -589,7 +598,6 @@ def _assert_pull_stream_sequence(snapshots: list[tuple[str, dict[str, str]]]) ->
                 )
         previous_label = label
         previous_pull = current_pull
-        previous_voiceq = current_voiceq
         previous_render = current_render
         previous_pos = current_pos
 
@@ -630,7 +638,7 @@ def _assert_music_stream_mode(
         )
         _assert_tuple_component_nonzero(snapshots, "musicpull", 2, 0, "pull request")
         _assert_tuple_component_nonzero(snapshots, "musicpull", 2, 1, "pull refill")
-        _assert_tuple_component_progress(snapshots, "voiceq", 3, 2, "stream update service")
+        _assert_tuple_component_progress(snapshots, "pcmwrite", 4, 0, "stream write service")
         _assert_pull_stream_sequence(snapshots)
         return
 
@@ -638,7 +646,7 @@ def _assert_music_stream_mode(
         _assert_pull_request_refill_consistency(snapshots)
         _assert_tuple_component_progress(snapshots, "musicpull", 2, 0, "pull request")
         _assert_tuple_component_progress(snapshots, "musicpull", 2, 1, "pull refill")
-        _assert_tuple_component_progress(snapshots, "voiceq", 3, 2, "stream update service")
+        _assert_tuple_component_progress(snapshots, "pcmwrite", 4, 0, "stream write service")
         _assert_pull_stream_sequence(snapshots)
 
 
@@ -754,6 +762,106 @@ def _assert_audio_device_contract(snapshots: list[tuple[str, dict[str, str]]]) -
             raise AssertionError(f"{label} pcmbuf= active half must be 0 or 1")
         if active_half != status_half:
             raise AssertionError(f"{label} pcmbuf= active half must match half= IRQ phase")
+
+        stream_mode, stream_handle, active_streams, queued_bytes, _position_bytes = _hex_tuple(
+            fields,
+            "pcmstream",
+            label,
+            5,
+        )
+        if fields["musicstream"] == "PULL" and stream_mode != 2:
+            raise AssertionError(f"{label} pcmstream= must report pull mode for a pull stream")
+        if active_streams != _hex(fields, "musicvoices", label):
+            raise AssertionError(f"{label} pcmstream= active stream count must match musicvoices=")
+        if queued_bytes != _hex(fields, "musicbuf", label):
+            raise AssertionError(f"{label} pcmstream= queued bytes must match musicbuf=")
+        if stream_mode != 0 and stream_handle == 0:
+            raise AssertionError(f"{label} pcmstream= active streams must expose a nonzero handle")
+
+        pcm_write_count, _pcm_write_bytes, pcm_last_write, pcm_last_error = _hex_tuple(
+            fields,
+            "pcmwrite",
+            label,
+            4,
+        )
+        if pcm_write_count == 0 or pcm_last_write == 0:
+            raise AssertionError(f"{label} pcmwrite= must prove generic stream writes")
+        if pcm_last_error != 0:
+            raise AssertionError(f"{label} pcmwrite= last write error must be zero")
+
+        pcm_open, pcm_user_write, pcm_drain, pcm_close, pcm_last_handle, pcm_device_error = _hex_tuple(
+            fields,
+            "pcmdev",
+            label,
+            6,
+        )
+        if pcm_open == 0 or pcm_user_write == 0 or pcm_drain == 0 or pcm_close == 0:
+            raise AssertionError(
+                f"{label} pcmdev= must prove a non-Doom generic PCM client open/write/drain/close"
+            )
+        if pcm_last_handle == 0:
+            raise AssertionError(f"{label} pcmdev= must expose the last generic PCM stream handle")
+        if pcm_device_error != 0:
+            raise AssertionError(f"{label} pcmdev= last generic PCM device error must be zero")
+
+        (
+            lifecycle_state,
+            lifecycle_errors,
+            open_seq,
+            write_seq,
+            drain_seq,
+            close_seq,
+            user_write_bytes,
+        ) = _hex_tuple(fields, "pcmlife", label, 7)
+        if lifecycle_state != AUDIO_PCM_LIFECYCLE_CLOSED:
+            raise AssertionError(f"{label} pcmlife= must show the generic PCM client reached CLOSED state")
+        if lifecycle_errors != 0:
+            raise AssertionError(f"{label} pcmlife= must report zero generic PCM lifecycle errors")
+        if not (0 < open_seq < write_seq < drain_seq < close_seq):
+            raise AssertionError(f"{label} pcmlife= must prove ordered open/write/drain/close sequencing")
+        if user_write_bytes == 0:
+            raise AssertionError(f"{label} pcmlife= must prove non-Doom PCM bytes were written")
+
+        queue_capacity, queue_bytes, _queue_drop_bytes, _queue_overflows, _queue_trims, high_water = _hex_tuple(
+            fields,
+            "pcmqueue",
+            label,
+            6,
+        )
+        if queue_capacity < ring_bytes or queue_capacity == 0:
+            raise AssertionError(f"{label} pcmqueue= capacity must cover the PCM ring")
+        if queue_bytes != queued_bytes:
+            raise AssertionError(f"{label} pcmqueue= queued bytes must match pcmstream=")
+        if queue_bytes > queue_capacity:
+            raise AssertionError(f"{label} pcmqueue= queued bytes must stay bounded by capacity")
+        if high_water < queue_bytes or high_water > queue_capacity:
+            raise AssertionError(f"{label} pcmqueue= high-water mark must be inside capacity")
+
+        pcm_pull = _hex_tuple(fields, "pcmpull", label, 3)
+        music_pull = _hex_tuple(fields, "musicpull", label, 2)
+        if pcm_pull[:2] != music_pull:
+            raise AssertionError(f"{label} pcmpull= request/refill counts must match musicpull=")
+        if pcm_pull[2] != max(0, pcm_pull[0] - pcm_pull[1]):
+            raise AssertionError(f"{label} pcmpull= pending count must match request-refill")
+
+        pcm_irq, pcm_refill, _pcm_spurious = _hex_tuple(fields, "pcmirq", label, 3)
+        if pcm_irq != _hex(fields, "audioirq", label):
+            raise AssertionError(f"{label} pcmirq= IRQ count must match audioirq=")
+        if pcm_refill != _hex(fields, "refill", label):
+            raise AssertionError(f"{label} pcmirq= refill count must match refill=")
+
+        dma_status, dma_error, dma_boundary_errors, _dma_addr, _dma_page, dma_count = _hex_tuple(
+            fields,
+            "pcmdma",
+            label,
+            6,
+        )
+        if dma_status != 1:
+            raise AssertionError(f"{label} pcmdma= must report programmed DMA status OK")
+        if dma_error != 0 or dma_boundary_errors != 0:
+            raise AssertionError(f"{label} pcmdma= must not report DMA boundary or DSP errors")
+        if dma_count != ring_bytes - 1:
+            raise AssertionError(f"{label} pcmdma= byte count must match ring bytes minus one")
 
 
 def _hex8(value: int) -> str:
@@ -897,6 +1005,27 @@ def build_os_audio_contract(
         last_label,
         4,
     )
+    queue_capacity, queue_bytes, queue_drop_bytes, queue_overflows, queue_trims, queue_high_water = _hex_tuple(
+        last_fields,
+        "pcmqueue",
+        last_label,
+        6,
+    )
+    pcm_open, pcm_user_write, pcm_drain, pcm_close, pcm_last_handle, pcm_device_error = _hex_tuple(
+        last_fields,
+        "pcmdev",
+        last_label,
+        6,
+    )
+    (
+        lifecycle_state,
+        lifecycle_errors,
+        open_seq,
+        write_seq,
+        drain_seq,
+        close_seq,
+        user_write_bytes,
+    ) = _hex_tuple(last_fields, "pcmlife", last_label, 7)
     half_matches = all(
         _hex_tuple(fields, "pcmbuf", label, 4)[3] == _hex(fields, "half", label)
         for label, fields in snapshots
@@ -916,6 +1045,9 @@ def build_os_audio_contract(
             "device": "adev",
             "sample_format": "pcm",
             "ring": "pcmbuf",
+            "queue": "pcmqueue",
+            "generic_pcm_probe": "pcmdev",
+            "generic_pcm_lifecycle": "pcmlife",
             "irq_phase": "half",
             "stream": "musicstream/musicpull/musicbuf/musicpos",
             "mixer_lanes": "voices/sfxvoices/musicvoices/sfxmix/musicmix",
@@ -941,6 +1073,54 @@ def build_os_audio_contract(
             "active_half_matches_half": half_matches,
             "irq_delta": _counter_delta_summary(snapshots, "audioirq")["delta"],
             "refill_delta": _counter_delta_summary(snapshots, "refill")["delta"],
+        },
+        "pcm_queue": {
+            "capacity_bytes": f"{queue_capacity:08X}",
+            "queued_bytes": f"{queue_bytes:08X}",
+            "drop_bytes": f"{queue_drop_bytes:08X}",
+            "overflow_count": f"{queue_overflows:08X}",
+            "trim_count": f"{queue_trims:08X}",
+            "high_water_bytes": f"{queue_high_water:08X}",
+            "bounded": queue_capacity > 0 and queue_bytes <= queue_capacity,
+            "covers_ring": queue_capacity >= ring_bytes,
+            "high_water_in_bounds": queue_bytes <= queue_high_water <= queue_capacity,
+        },
+        "generic_pcm_probe": {
+            "status_field": "pcmdev",
+            "program": "ABIPROBE.ELF",
+            "open_command": "VIBE_AUDIO_PCM_OPEN",
+            "write_command": "VIBE_AUDIO_PCM_WRITE_DESC",
+            "drain_command": "VIBE_AUDIO_PCM_DRAIN",
+            "close_command": "VIBE_AUDIO_PCM_CLOSE",
+            "open_count": f"{pcm_open:08X}",
+            "write_count": f"{pcm_user_write:08X}",
+            "drain_count": f"{pcm_drain:08X}",
+            "close_count": f"{pcm_close:08X}",
+            "last_handle": f"{pcm_last_handle:08X}",
+            "last_error": f"{pcm_device_error:08X}",
+            "lifecycle_status_field": "pcmlife",
+            "lifecycle_state": "closed"
+            if lifecycle_state == AUDIO_PCM_LIFECYCLE_CLOSED
+            else f"unknown-{lifecycle_state:08X}",
+            "lifecycle_error_count": f"{lifecycle_errors:08X}",
+            "lifecycle_ordered": 0 < open_seq < write_seq < drain_seq < close_seq,
+            "open_seq": f"{open_seq:08X}",
+            "write_seq": f"{write_seq:08X}",
+            "drain_seq": f"{drain_seq:08X}",
+            "close_seq": f"{close_seq:08X}",
+            "user_write_bytes": f"{user_write_bytes:08X}",
+            "second_program_proven": (
+                pcm_open > 0
+                and pcm_user_write > 0
+                and pcm_drain > 0
+                and pcm_close > 0
+                and pcm_last_handle != 0
+                and pcm_device_error == 0
+                and lifecycle_state == AUDIO_PCM_LIFECYCLE_CLOSED
+                and lifecycle_errors == 0
+                and 0 < open_seq < write_seq < drain_seq < close_seq
+                and user_write_bytes > 0
+            ),
         },
         "stream": {
             "mode": last_fields["musicstream"],
@@ -1166,7 +1346,16 @@ def validate_repo_contract() -> None:
                 "adev=",
                 "pcm=",
                 "pcmbuf=",
+                "pcmqueue=",
+                "pcmdev=",
+                "pcmlife=",
                 "os_audio_contract",
+                "bounded PCM queue",
+                "generic non-Doom PCM client",
+                "ordered open/write/drain/close",
+                "VIBE_AUDIO_PCM_OPEN",
+                "VIBE_AUDIO_PCM_DRAIN",
+                "VIBE_AUDIO_PCM_CLOSE",
                 "pcmbuf=` active-half status to match the IRQ `half=` field",
                 "sfxmix= counts non-music Doom SFX only",
                 "sfxq=",
@@ -1199,7 +1388,7 @@ def validate_repo_contract() -> None:
                 "no new mixclip=, musicunder=, or musicdrops=",
                 "Aggregate audible-output proof (not human listener approval)",
                 "human-listened quality is a separate lane",
-                "future hardware-paced mixer/refill playback ABI",
+                "kernel-owned PCM stream write/refill ABI",
             ),
         ),
         (
@@ -1208,7 +1397,7 @@ def validate_repo_contract() -> None:
             (
                 "stateful stream cursor",
                 "VIBE_AUDIO_PCM_PULL_STATE",
-                "VIBE_AUDIO_MIXER_UPDATE",
+                "VIBE_AUDIO_STREAM_WRITE",
                 "hardware-paced pull request",
                 "separate from normal Doom SFX",
                 "musicpos=",
@@ -1229,7 +1418,7 @@ def validate_repo_contract() -> None:
                 "static stream window",
                 "Music legitimacy roadmap as OS contracts",
                 "os_audio_contract",
-                "future hardware-paced mixer/refill playback ABI",
+                "kernel-owned PCM stream write/refill ABI",
             ),
         ),
         (
@@ -1368,7 +1557,7 @@ def main(argv: list[str]) -> int:
         "audio continuity proof OK: generic device/ring/stream status, SB16 "
         "IRQ/refill, SFX DMA refill, and kernel-visible music stream counters "
         "progressed across status snapshots; "
-        "human-listened quality and future hardware-paced mixer/refill playback remain separate lanes"
+        "human-listened quality remains a separate lane from the kernel-owned PCM stream"
     )
     return 0
 

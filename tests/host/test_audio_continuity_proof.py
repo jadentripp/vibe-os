@@ -51,6 +51,14 @@ def status_line(**overrides):
         "adev": "00000001:00000001:0000000F",
         "pcm": "00000001:00000002:00002B11",
         "pcmbuf": "00001000:00000800:00000000:00000001",
+        "pcmstream": "00000002:4D550001:00000001:00002000:00000001",
+        "pcmwrite": "00000001:00008000:00008000:00000000",
+        "pcmdev": "00000001:00000001:00000001:00000001:50430001:00000000",
+        "pcmlife": "00000004:00000000:00000001:00000002:00000003:00000004:00000040",
+        "pcmqueue": "00010000:00002000:00000000:00000000:00000000:00002000",
+        "pcmpull": "00000000:00000000:00000000",
+        "pcmirq": "00000001:00000001:00000000",
+        "pcmdma": "00000001:00000000:00000000:00000000:00000000:00000FFF",
         "sb16": "00000004:00000005",
         "dma": "00000001",
         "play": "00000001:00000000",
@@ -62,6 +70,12 @@ def status_line(**overrides):
         "gameplay": "OK",
     }
     fields.update(overrides)
+    if "pcmqueue" not in overrides:
+        queued = int(fields["musicbuf"], 16)
+        fields["pcmqueue"] = (
+            f"00010000:{queued:08X}:00000000:00000000:00000000:"
+            f"{max(queued, 0x2000):08X}"
+        )
     return "Aurora OS v0.2 " + " ".join(f"{key}={value}" for key, value in fields.items())
 
 
@@ -83,6 +97,10 @@ def snapshot_statuses():
             musicpos="00000400",
             musicbuf="00001C00",
             musicpull="00000001:00000001",
+            pcmstream="00000002:4D550001:00000001:00001C00:00000400",
+            pcmwrite="00000002:00010000:00008000:00000000",
+            pcmpull="00000001:00000001:00000000",
+            pcmirq="00000002:00000002:00000000",
             musicrend="00000001:00000002:00000004:00000006:00000001:00010000",
             voiceq="00000001:00000000:00000001",
         ),
@@ -100,6 +118,10 @@ def snapshot_statuses():
             musicpos="00000800",
             musicbuf="00001800",
             musicpull="00000002:00000002",
+            pcmstream="00000002:4D550001:00000001:00001800:00000800",
+            pcmwrite="00000003:00018000:00008000:00000000",
+            pcmpull="00000002:00000002:00000000",
+            pcmirq="00000003:00000003:00000000",
             musicrend="00000001:00000003:00000006:00000009:00000001:00018000",
             voiceq="00000001:00000000:00000002",
         ),
@@ -118,6 +140,10 @@ def snapshot_statuses():
             musicpos="00000C00",
             musicbuf="00001400",
             musicpull="00000003:00000003",
+            pcmstream="00000002:4D550001:00000001:00001400:00000C00",
+            pcmwrite="00000004:00020000:00008000:00000000",
+            pcmpull="00000003:00000003:00000000",
+            pcmirq="00000004:00000004:00000000",
             musicrend="00000001:00000004:00000008:0000000C:00000001:00020000",
             voiceq="00000001:00000000:00000003",
         ),
@@ -137,6 +163,10 @@ def snapshot_statuses():
             musicpos="00001000",
             musicbuf="00001000",
             musicpull="00000004:00000004",
+            pcmstream="00000002:4D550001:00000001:00001000:00001000",
+            pcmwrite="00000005:00028000:00008000:00000000",
+            pcmpull="00000004:00000004:00000000",
+            pcmirq="00000005:00000005:00000000",
             musicrend="00000001:00000005:0000000A:0000000F:00000001:00028000",
             voiceq="00000001:00000000:00000004",
         ),
@@ -156,6 +186,10 @@ def snapshot_statuses():
             musicpos="00001400",
             musicbuf="00000C00",
             musicpull="00000005:00000005",
+            pcmstream="00000002:4D550001:00000001:00000C00:00001400",
+            pcmwrite="00000006:00030000:00008000:00000000",
+            pcmpull="00000005:00000005:00000000",
+            pcmirq="00000006:00000006:00000000",
             musicrend="00000001:00000006:0000000C:00000012:00000001:00030000",
             voiceq="00000001:00000000:00000005",
         ),
@@ -169,6 +203,44 @@ def status_with(status, **overrides):
     return status
 
 
+def sync_pcm_mirror_fields(status):
+    music_mode = status.split("musicstream=", 1)[1].split()[0]
+    music_voices = status.split("musicvoices=", 1)[1].split()[0]
+    music_buf = status.split("musicbuf=", 1)[1].split()[0]
+    music_pull = status.split("musicpull=", 1)[1].split()[0]
+    audio_irq = status.split("audioirq=", 1)[1].split()[0]
+    refill = status.split("refill=", 1)[1].split()[0]
+    pcm_queue = status.split("pcmqueue=", 1)[1].split()[0]
+
+    current_stream = status.split("pcmstream=", 1)[1].split()[0]
+    stream_parts = current_stream.split(":")
+    mode_hex = {
+        "NONE": "00000000",
+        "PUSH": "00000001",
+        "PULL": "00000002",
+    }[music_mode]
+    stream_value = ":".join((mode_hex, stream_parts[1], music_voices, music_buf, stream_parts[4]))
+    status = status.replace(f"pcmstream={current_stream}", f"pcmstream={stream_value}")
+
+    request, refill_count = (int(part, 16) for part in music_pull.split(":"))
+    pending = request - refill_count if request >= refill_count else 0
+    current_pull = status.split("pcmpull=", 1)[1].split()[0]
+    status = status.replace(
+        f"pcmpull={current_pull}",
+        f"pcmpull={request:08X}:{refill_count:08X}:{pending:08X}",
+    )
+
+    current_irq = status.split("pcmirq=", 1)[1].split()[0]
+    spurious = current_irq.split(":")[2]
+    status = status.replace(f"pcmirq={current_irq}", f"pcmirq={audio_irq}:{refill}:{spurious}")
+    queue_parts = pcm_queue.split(":")
+    queue_parts[1] = music_buf
+    if int(queue_parts[5], 16) < int(music_buf, 16):
+        queue_parts[5] = music_buf
+    status = status.replace(f"pcmqueue={pcm_queue}", f"pcmqueue={':'.join(queue_parts)}")
+    return status
+
+
 def pull_snapshot_statuses():
     return snapshot_statuses()
 
@@ -177,10 +249,20 @@ def push_snapshot_statuses():
     snapshots = snapshot_statuses()
     for label, status in list(snapshots.items()):
         current_pull = status.split("musicpull=")[1].split()[0]
+        current_pcm_pull = status.split("pcmpull=")[1].split()[0]
+        current_pcm_stream = status.split("pcmstream=")[1].split()[0]
         snapshots[label] = status.replace("musicstream=PULL", "musicstream=PUSH")
         snapshots[label] = snapshots[label].replace(
             f"musicpull={current_pull}",
             "musicpull=00000000:00000000",
+        )
+        snapshots[label] = snapshots[label].replace(
+            f"pcmpull={current_pcm_pull}",
+            "pcmpull=00000000:00000000:00000000",
+        )
+        snapshots[label] = snapshots[label].replace(
+            f"pcmstream={current_pcm_stream}",
+            "pcmstream=00000001:" + ":".join(current_pcm_stream.split(":")[1:]),
         )
     return snapshots
 
@@ -202,6 +284,7 @@ class AudioContinuityProofTests(unittest.TestCase):
         snapshots["final"] = snapshots["final"].replace("musicvoices=00000001", "musicvoices=00000000")
         snapshots["final"] = snapshots["final"].replace("voices=00000002", "voices=00000001")
         snapshots["final"] = snapshots["final"].replace("musicbuf=00000C00", "musicbuf=00000000")
+        snapshots["final"] = sync_pcm_mirror_fields(snapshots["final"])
 
         check_audio_continuity_proof.validate_status(
             snapshots["final"],
@@ -329,16 +412,50 @@ class AudioContinuityProofTests(unittest.TestCase):
                 menu_status=snapshots["menu"],
             )
 
-    def test_rejects_music_without_stream_chunk_updates(self):
+    def test_rejects_music_without_stream_chunk_writes(self):
         snapshots = snapshot_statuses()
         for label, status in list(snapshots.items()):
-            snapshots[label] = status.replace("voiceq=00000001:00000000:00000001", "voiceq=00000001:00000000:00000000")
-            snapshots[label] = snapshots[label].replace("voiceq=00000001:00000000:00000002", "voiceq=00000001:00000000:00000000")
-            snapshots[label] = snapshots[label].replace("voiceq=00000001:00000000:00000003", "voiceq=00000001:00000000:00000000")
-            snapshots[label] = snapshots[label].replace("voiceq=00000001:00000000:00000004", "voiceq=00000001:00000000:00000000")
-            snapshots[label] = snapshots[label].replace("voiceq=00000001:00000000:00000005", "voiceq=00000001:00000000:00000000")
+            snapshots[label] = status.replace("pcmwrite=00000002:00010000:00008000:00000000", "pcmwrite=00000001:00008000:00008000:00000000")
+            snapshots[label] = snapshots[label].replace("pcmwrite=00000003:00018000:00008000:00000000", "pcmwrite=00000001:00008000:00008000:00000000")
+            snapshots[label] = snapshots[label].replace("pcmwrite=00000004:00020000:00008000:00000000", "pcmwrite=00000001:00008000:00008000:00000000")
+            snapshots[label] = snapshots[label].replace("pcmwrite=00000005:00028000:00008000:00000000", "pcmwrite=00000001:00008000:00008000:00000000")
+            snapshots[label] = snapshots[label].replace("pcmwrite=00000006:00030000:00008000:00000000", "pcmwrite=00000001:00008000:00008000:00000000")
 
-        with self.assertRaisesRegex(AssertionError, "voiceq=.*stream update service"):
+        with self.assertRaisesRegex(AssertionError, "pcmwrite=.*stream write service"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+            )
+
+    def test_rejects_missing_generic_pcm_client_probe(self):
+        snapshots = snapshot_statuses()
+        snapshots["final"] = snapshots["final"].replace(
+            "pcmdev=00000001:00000001:00000001:00000001:50430001:00000000",
+            "pcmdev=00000001:00000000:00000001:00000001:50430001:00000000",
+        )
+
+        with self.assertRaisesRegex(AssertionError, "pcmdev=.*non-Doom generic PCM client"):
+            check_audio_continuity_proof.validate_status(
+                snapshots["final"],
+                baseline_status=snapshots["baseline"],
+                fire_status=snapshots["fire"],
+                movement_status=snapshots["movement"],
+                use_status=snapshots["use"],
+                menu_status=snapshots["menu"],
+            )
+
+    def test_rejects_unordered_generic_pcm_lifecycle(self):
+        snapshots = snapshot_statuses()
+        snapshots["final"] = snapshots["final"].replace(
+            "pcmlife=00000004:00000000:00000001:00000002:00000003:00000004:00000040",
+            "pcmlife=00000004:00000000:00000001:00000003:00000002:00000004:00000040",
+        )
+
+        with self.assertRaisesRegex(AssertionError, "pcmlife=.*ordered open/write/drain/close"):
             check_audio_continuity_proof.validate_status(
                 snapshots["final"],
                 baseline_status=snapshots["baseline"],
@@ -375,9 +492,14 @@ class AudioContinuityProofTests(unittest.TestCase):
     def test_rejects_pull_mode_without_hardware_paced_counters(self):
         snapshots = pull_snapshot_statuses()
         for label, status in list(snapshots.items()):
+            current_pcm_pull = status.split("pcmpull=")[1].split()[0]
             snapshots[label] = status.replace(
                 f"musicpull={status.split('musicpull=')[1].split()[0]}",
                 "musicpull=00000000:00000000",
+            )
+            snapshots[label] = snapshots[label].replace(
+                f"pcmpull={current_pcm_pull}",
+                "pcmpull=00000000:00000000:00000000",
             )
 
         with self.assertRaisesRegex(AssertionError, "musicpull=.*pull request"):
@@ -397,6 +519,10 @@ class AudioContinuityProofTests(unittest.TestCase):
             "musicpull=00000005:00000005",
             "musicpull=00000006:00000004",
         )
+        snapshots["final"] = snapshots["final"].replace(
+            "pcmpull=00000005:00000005:00000000",
+            "pcmpull=00000006:00000004:00000002",
+        )
 
         with self.assertRaisesRegex(AssertionError, "pending pull request backlog"):
             check_audio_continuity_proof.validate_status(
@@ -409,14 +535,14 @@ class AudioContinuityProofTests(unittest.TestCase):
                 require_pull_stream=True,
             )
 
-    def test_rejects_pull_refills_without_matching_voice_updates(self):
+    def test_rejects_pull_refills_without_stream_write_progress(self):
         snapshots = snapshot_statuses()
         snapshots["final"] = snapshots["final"].replace(
-            "voiceq=00000001:00000000:00000005",
-            "voiceq=00000001:00000000:00000004",
+            "pcmwrite=00000006:00030000:00008000:00000000",
+            "pcmwrite=00000001:00008000:00008000:00000000",
         )
 
-        with self.assertRaisesRegex(AssertionError, "voiceq=.*match musicpull"):
+        with self.assertRaisesRegex(AssertionError, "pcmwrite=.*stream write service"):
             check_audio_continuity_proof.validate_status(
                 snapshots["final"],
                 baseline_status=snapshots["baseline"],
@@ -462,10 +588,15 @@ class AudioContinuityProofTests(unittest.TestCase):
     def test_rejects_single_stream_update_as_too_little_long_playback_health(self):
         snapshots = snapshot_statuses()
         snapshots["fire"] = snapshots["fire"].replace("musicpull=00000001:00000001", "musicpull=00000001:00000000")
+        snapshots["fire"] = snapshots["fire"].replace("pcmpull=00000001:00000001:00000000", "pcmpull=00000001:00000000:00000001")
         snapshots["movement"] = snapshots["movement"].replace("musicpull=00000002:00000002", "musicpull=00000002:00000000")
+        snapshots["movement"] = snapshots["movement"].replace("pcmpull=00000002:00000002:00000000", "pcmpull=00000002:00000000:00000002")
         snapshots["use"] = snapshots["use"].replace("musicpull=00000003:00000003", "musicpull=00000003:00000000")
+        snapshots["use"] = snapshots["use"].replace("pcmpull=00000003:00000003:00000000", "pcmpull=00000003:00000000:00000003")
         snapshots["menu"] = snapshots["menu"].replace("musicpull=00000004:00000004", "musicpull=00000004:00000001")
+        snapshots["menu"] = snapshots["menu"].replace("pcmpull=00000004:00000004:00000000", "pcmpull=00000004:00000001:00000003")
         snapshots["final"] = snapshots["final"].replace("musicpull=00000005:00000005", "musicpull=00000005:00000001")
+        snapshots["final"] = snapshots["final"].replace("pcmpull=00000005:00000005:00000000", "pcmpull=00000005:00000001:00000004")
 
         with self.assertRaisesRegex(AssertionError, "pending pull request backlog|at least 2"):
             check_audio_continuity_proof.validate_status(
@@ -692,6 +823,7 @@ class AudioContinuityProofTests(unittest.TestCase):
         }
         for label, fields in overrides.items():
             snapshots[label] = status_with(snapshots[label], **fields)
+            snapshots[label] = sync_pcm_mirror_fields(snapshots[label])
 
         check_audio_continuity_proof.validate_status(
             snapshots["final"],

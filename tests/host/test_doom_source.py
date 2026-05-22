@@ -1,4 +1,5 @@
 import hashlib
+import os
 import re
 import subprocess
 import unittest
@@ -8,9 +9,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DOOM_ROOT = ROOT / "third_party" / "doom"
 DOOM_SRC = DOOM_ROOT / "linuxdoom-1.10"
-BUILD = ROOT / "build" / "doom"
-DOOM_ELF = ROOT / "build" / "doom.elf"
-DOOM_SYMBOLS = ROOT / "build" / "doom.symbols"
+BUILD_ROOT = Path(os.environ.get("VIBE_HOST_TEST_BUILD_DIR") or ROOT / "build")
+BUILD = BUILD_ROOT / "doom"
+DOOM_ELF = BUILD_ROOT / "doom.elf"
+DOOM_SYMBOLS = BUILD_ROOT / "doom.symbols"
 DOOM_BASE = 0x01000000
 
 UPSTREAM_COMMIT = "a77dfb96cb91780ca334d0d4cfd86957558007e0"

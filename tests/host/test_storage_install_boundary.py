@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -9,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-BUILD = ROOT / "build"
+BUILD = Path(os.environ.get("VIBE_HOST_TEST_BUILD_DIR") or ROOT / "build")
 TOOL = ROOT / "tools" / "check_storage_install_boundary.py"
 
 spec = importlib.util.spec_from_file_location("check_storage_install_boundary", TOOL)
@@ -268,6 +269,60 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         self.assertFalse(fat_vfs["kernel_syscall_surface"]["nested_traversal_supported"])
         self.assertTrue(fat_vfs["kernel_syscall_surface"]["writable_subdirectories_supported"])
         self.assertFalse(fat_vfs["kernel_syscall_surface"]["long_filenames_supported"])
+        self.assertTrue(fat_vfs["kernel_syscall_surface"]["readonly_wad_uses_generic_descriptor"])
+        self.assertEqual(
+            fat_vfs["error_classification"],
+            {
+                "directory_open_or_unlink_as_file": "EISDIR",
+                "list_regular_file_as_directory": "ENOTDIR",
+                "capacity_exhaustion": "ENOSPC",
+                "ftruncate_reports_enospc": True,
+            },
+        )
+        self.assertEqual(
+            fat_vfs["directory_entry_lifecycle"]["schema"],
+            "vibe-os-fat16-directory-entry-lifecycle-v1",
+        )
+        self.assertTrue(fat_vfs["directory_entry_lifecycle"]["truncate_metadata_before_free"])
+        self.assertTrue(fat_vfs["directory_entry_lifecycle"]["shrink_metadata_before_tail_free"])
+        self.assertTrue(fat_vfs["directory_entry_lifecycle"]["shrink_tail_zero_after_metadata_commit"])
+        self.assertTrue(fat_vfs["directory_entry_lifecycle"]["delete_entry_before_free"])
+        self.assertTrue(fat_vfs["directory_entry_lifecycle"]["write_no_progress_rollback"])
+        self.assertEqual(
+            fat_vfs["directory_entry_lifecycle"]["late_free_failure_residual_risk"],
+            "cluster-leak-not-live-entry-to-freed-chain",
+        )
+        live_accounting = fat_vfs["live_fat_accounting_status"]
+        self.assertEqual(
+            live_accounting["schema"],
+            "vibe-os-fat16-live-accounting-status-v1",
+        )
+        self.assertEqual(live_accounting["field"], "fatacct")
+        self.assertEqual(live_accounting["source"], "kernel-fat-cache-rescan")
+        self.assertEqual(
+            live_accounting["counts"],
+            [
+                "free_clusters",
+                "used_clusters",
+                "accounted_clusters",
+                "last_data_cluster",
+                "status",
+            ],
+        )
+        self.assertTrue(live_accounting["refreshed_at_init"])
+        self.assertTrue(live_accounting["refreshed_at_status"])
+        self.assertTrue(live_accounting["not_fixed_slot_accounting"])
+        abi_probe = fat_vfs["user_abi_probe"]
+        self.assertEqual(abi_probe["schema"], "vibe-os-user-abi-generic-file-proof-v1")
+        self.assertEqual(abi_probe["program"], "ABIPROBE.ELF")
+        self.assertEqual(abi_probe["asset_read_path"], "/ASSETS/README.TXT")
+        self.assertEqual(abi_probe["state_mutation_path"], "/STATE/SESSION.DAT")
+        self.assertTrue(abi_probe["host_checked_source_tokens"])
+        self.assertTrue(abi_probe["not_doom_specific"])
+        self.assertEqual(
+            set(abi_probe["uses_common_syscalls"]),
+            {"listdir", "open", "read", "write", "fstat", "ftruncate", "unlink"},
+        )
         lifecycle = fat_vfs["dynamic_root_lifecycle"]
         self.assertEqual(lifecycle["schema"], "vibe-os-dynamic-root-lifecycle-v1")
         self.assertEqual(lifecycle["proof_name"], "FATPROOF.TMP")
@@ -318,13 +373,15 @@ class StorageInstallBoundaryTests(unittest.TestCase):
         self.assertEqual(subdir_lifecycle["proof_name"], "/STATE/SESSION.DAT")
         self.assertEqual(subdir_lifecycle["directory"], "/STATE")
         self.assertGreater(subdir_lifecycle["grown_clusters"], subdir_lifecycle["initial_clusters"])
+        self.assertLess(subdir_lifecycle["shrunk_clusters"], subdir_lifecycle["grown_clusters"])
         self.assertTrue(subdir_lifecycle["free_clusters_restored"])
         self.assertTrue(subdir_lifecycle["remount_readback"])
         self.assertEqual(
             [entry["operation"] for entry in subdir_lifecycle["operations"]],
             [
                 "create-write",
-                "rewrite-grow",
+                "sparse-grow-write",
+                "shrink-truncate",
                 "truncate-empty",
                 "rewrite-after-truncate",
                 "delete",

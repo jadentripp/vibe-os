@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       proof_mode:
-        description: contract is QEMU-free; attempt records OVMF loader markers; prove requires ExitBootServices.
+        description: contract is QEMU-free; attempt records OVMF loader markers; prove requires the kernel-owned VIBEKERN marker.
         required: true
         type: choice
         default: contract

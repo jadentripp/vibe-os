@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import subprocess
 import sys
 import tempfile
@@ -7,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-BUILD = ROOT / "build"
+BUILD = Path(os.environ.get("VIBE_HOST_TEST_BUILD_DIR") or ROOT / "build")
 TOOL = ROOT / "tools" / "make_wad_image.py"
 spec = importlib.util.spec_from_file_location("make_wad_image", TOOL)
 make_wad_image = importlib.util.module_from_spec(spec)
@@ -24,6 +25,9 @@ class UserProgramPackagingTests(unittest.TestCase):
             "VIBE_CLOCK_MONOTONIC",
             'vibe_user_streq(argv[0], "ABIPROBE.ELF")',
             'root_contains(root_entries, root_count, "ABIPROBE.ELF")',
+            "prove_generic_file_services()",
+            'vibe_user_file_read_all(asset_file, buffer, sizeof(buffer), &bytes_read)',
+            'const char state_file[] = "./state/session.dat";',
             'vibe_user_write_all(1, "abi probe ok\\n")',
             "vibe_user_getpid()",
             "vibe_user_clock_monotonic(&now)",
@@ -53,7 +57,8 @@ class UserProgramPackagingTests(unittest.TestCase):
 
         self.assertIn('const char abi_probe_path[] = "ABIPROBE.ELF";', user_probe)
         self.assertIn("saw_abi_probe", user_probe)
-        self.assertIn("sys_execv(abi_probe_path", user_probe)
+        self.assertIn("sys_execve(abi_probe_path", user_probe)
+        self.assertIn("abi_probe_envp", user_probe)
 
     def test_generated_fat_image_contains_second_root_elf(self):
         image = bytearray((BUILD / "disk.img").read_bytes())

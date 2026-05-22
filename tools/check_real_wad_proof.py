@@ -28,6 +28,7 @@ DEFAULT_REJECT_PATTERNS = (
     r"r_inittextures",
 )
 PREEMPT_PROBE_MAGIC = 0x50524545
+SANITIZED_USER_EFLAGS = 0x00000202
 USER_KIND_DOOM = 2
 USER_KIND_PREEMPT_PROBE = 3
 USER_CODE_SEG = 0x1B
@@ -178,6 +179,10 @@ SUMMARY_FIELDS = (
     "doomfaultv",
     "doomfaulterr",
     "fault",
+    "pf",
+    "regs",
+    "segs",
+    "proc",
     "panic",
     "shutdown",
     "doominit",
@@ -190,9 +195,26 @@ SUMMARY_FIELDS = (
     "doompresent",
     "doompal",
     "doomframe",
+    "fb",
+    "fbdev",
+    "fbmmio",
+    "fbpolicy",
+    "fbgeom",
+    "fbdirty",
+    "fbpresent",
+    "fbinfo",
+    "fbcap",
+    "fbsrc",
+    "fbacct",
     "adev",
     "pcm",
     "pcmbuf",
+    "pcmstream",
+    "pcmwrite",
+    "pcmqueue",
+    "pcmpull",
+    "pcmirq",
+    "pcmdma",
     "sfxmix",
     "sfxdma",
     "sfxvoices",
@@ -226,10 +248,6 @@ SUMMARY_FIELDS = (
     "mousebtn",
     "mousedelta",
     "gfx",
-    "fb",
-    "fbpolicy",
-    "fbgeom",
-    "fbdirty",
     "usr",
     "wad",
     "lmp",
@@ -251,7 +269,26 @@ SUMMARY_FIELDS = (
     "pcr3",
     "pkstk",
     "pframe",
+    "psegs",
+    "peflags",
     "pspin",
+    "doomsav",
+    "saverd",
+    "savewr",
+    "saveclose",
+    "savemode",
+    "saveact",
+    "savedesc",
+    "savestm",
+    "savethk",
+    "fwr",
+    "fal",
+    "fam",
+    "fac",
+    "fatdyn",
+    "fio",
+    "flb",
+    "fcl",
 )
 
 
@@ -421,6 +458,10 @@ def _validate_core_status(status: str) -> None:
         _exact_field(status, name, expected)
     for name in HEX_FIELDS:
         _hex_field(status, name)
+    _hex_tuple_field(status, "pf", 5)
+    _hex_tuple_field(status, "regs", 8)
+    _hex_tuple_field(status, "segs", 6)
+    _hex_tuple_field(status, "proc", 9)
     _choice_field(status, "fb", ("LFB", "M13"))
     _display_geometry_fields(status)
     _choice_field(status, "audio", ("SB16", "NONE"))
@@ -434,6 +475,12 @@ def _validate_core_status(status: str) -> None:
     adev = _colon_tuple_field(status, "adev", 3)
     pcm = _colon_tuple_field(status, "pcm", 3)
     pcmbuf = _colon_tuple_field(status, "pcmbuf", 4)
+    pcmstream = _colon_tuple_field(status, "pcmstream", 5)
+    pcmwrite = _colon_tuple_field(status, "pcmwrite", 4)
+    pcmqueue = _colon_tuple_field(status, "pcmqueue", 6)
+    pcmpull = _colon_tuple_field(status, "pcmpull", 3)
+    pcmirq = _colon_tuple_field(status, "pcmirq", 3)
+    pcmdma = _colon_tuple_field(status, "pcmdma", 6)
     _colon_tuple_field(status, "sfxdma", 2)
     musicq = _colon_tuple_field(status, "musicq", 2)
     musicrend = _colon_tuple_field(status, "musicrend", 6)
@@ -475,6 +522,14 @@ def _validate_core_status(status: str) -> None:
             raise AssertionError(f"{fault_field}= must be zero for the real-WAD gameplay proof")
     if any(_hex_tuple_field(status, "fault", 11)):
         raise AssertionError("fault= must be all zero for the real-WAD gameplay proof")
+    if any(_hex_tuple_field(status, "pf", 5)):
+        raise AssertionError("pf= must be all zero for the real-WAD gameplay proof")
+    if any(_hex_tuple_field(status, "regs", 8)):
+        raise AssertionError("regs= must be all zero for the real-WAD gameplay proof")
+    if any(_hex_tuple_field(status, "segs", 6)):
+        raise AssertionError("segs= must be all zero for the real-WAD gameplay proof")
+    if any(_hex_tuple_field(status, "proc", 9)):
+        raise AssertionError("proc= must be all zero for the real-WAD gameplay proof")
     _hex_field_gt(status, "free", 0)
     timer_ticks = _hex_field_gt(status, "ticks", 0)
     doom_ticks = _hex_field_gt(status, "dtick", 0)
@@ -493,6 +548,44 @@ def _validate_core_status(status: str) -> None:
             raise AssertionError("pcmbuf= must expose a two-period PCM ring")
         if pcmbuf[2] >= pcmbuf[0] or pcmbuf[3] not in (0, 1):
             raise AssertionError("pcmbuf= must expose a valid write offset and active half")
+        stream_mode, stream_handle, active_streams, queued_bytes, stream_position = pcmstream
+        if _field(status, "musicstream") == "PULL" and stream_mode != 2:
+            raise AssertionError("pcmstream= must report pull mode for a pull stream")
+        if active_streams != _hex_field(status, "musicvoices"):
+            raise AssertionError("pcmstream= active stream count must match musicvoices=")
+        if queued_bytes != _hex_field(status, "musicbuf"):
+            raise AssertionError("pcmstream= queued bytes must match musicbuf=")
+        if stream_position != _hex_field(status, "musicpos"):
+            raise AssertionError("pcmstream= stream position must match musicpos=")
+        if stream_mode != 0 and stream_handle == 0:
+            raise AssertionError("pcmstream= active streams must expose a nonzero handle")
+        if pcmwrite[0] == 0 or pcmwrite[1] == 0 or pcmwrite[2] == 0:
+            raise AssertionError("pcmwrite= must prove generic PCM stream writes")
+        if pcmwrite[3] != 0:
+            raise AssertionError("pcmwrite= last write error must be zero")
+        if pcmqueue[0] < pcmbuf[0] or pcmqueue[0] == 0:
+            raise AssertionError("pcmqueue= capacity must cover the PCM ring")
+        if pcmqueue[1] != queued_bytes:
+            raise AssertionError("pcmqueue= queued bytes must match pcmstream=")
+        if pcmqueue[1] > pcmqueue[0]:
+            raise AssertionError("pcmqueue= queued bytes must stay bounded by capacity")
+        if pcmqueue[5] < pcmqueue[1] or pcmqueue[5] > pcmqueue[0]:
+            raise AssertionError("pcmqueue= high-water mark must be inside capacity")
+        musicpull = _colon_tuple_field(status, "musicpull", 2)
+        if pcmpull[:2] != musicpull:
+            raise AssertionError("pcmpull= request/refill counts must match musicpull=")
+        if pcmpull[2] != max(0, pcmpull[0] - pcmpull[1]):
+            raise AssertionError("pcmpull= pending count must match request-refill")
+        if pcmirq[0] != _hex_field(status, "audioirq"):
+            raise AssertionError("pcmirq= IRQ count must match audioirq=")
+        if pcmirq[1] != _hex_field(status, "refill"):
+            raise AssertionError("pcmirq= refill count must match refill=")
+        if pcmdma[0] != 1:
+            raise AssertionError("pcmdma= must report programmed DMA status OK")
+        if pcmdma[1] != 0 or pcmdma[2] != 0:
+            raise AssertionError("pcmdma= must not report DMA boundary or DSP errors")
+        if pcmdma[5] != pcmbuf[0] - 1:
+            raise AssertionError("pcmdma= byte count must match ring bytes minus one")
         if sb16_version[0] == 0:
             raise AssertionError("sb16= must expose a nonzero SB16 DSP major version when audio=SB16")
         _hex_field_gt(status, "dma", 0)
@@ -561,6 +654,22 @@ def _validate_core_status(status: str) -> None:
         raise AssertionError("pframe= must record a nonzero Ring 3 stack")
     if frame_ss != USER_DATA_SEG or (frame_ss & 0x3) != 0x3:
         raise AssertionError("pframe= must record a Ring 3 data selector")
+    psegs = _hex_tuple_field(status, "psegs", 4, separator=":")
+    if any(selector != USER_DATA_SEG or (selector & 0x3) != 0x3 for selector in psegs):
+        raise AssertionError("psegs= must record restored Ring 3 data selectors")
+    from_eflags, to_eflags, frame_eflags, live_sanitized, selftest_sanitized = _hex_tuple_field(
+        status, "peflags", 5, separator=":"
+    )
+    if (from_eflags, to_eflags, frame_eflags) != (
+        SANITIZED_USER_EFLAGS,
+        SANITIZED_USER_EFLAGS,
+        SANITIZED_USER_EFLAGS,
+    ):
+        raise AssertionError("peflags= must record sanitized Ring 3 EFLAGS for source, target, and iretd frame")
+    if selftest_sanitized == 0:
+        raise AssertionError("peflags= must prove the scheduler self-test sanitized a dirty EFLAGS frame")
+    if live_sanitized > preempt_switches + user_irq_ticks:
+        raise AssertionError("peflags= live sanitizer count is larger than the live IRQ frame population")
 
 
 def validate_status(

@@ -229,8 +229,8 @@ static int sys_ioctl(uint32_t fd, uint32_t request, void *arg) {
     return syscall3(SYS_IOCTL, fd, request, (uint32_t)arg);
 }
 
-static int sys_execv(const char *path, char *const argv[]) {
-    return syscall3(SYS_EXEC, (uint32_t)path, (uint32_t)argv, 0);
+static int sys_execve(const char *path, char *const argv[], char *const envp[]) {
+    return syscall3(SYS_EXEC, (uint32_t)path, (uint32_t)argv, (uint32_t)envp);
 }
 
 static int sys_waitpid(uint32_t pid, int *status, uint32_t options) {
@@ -273,7 +273,6 @@ int user_main(int argc, char **argv, char **envp) {
     static char readback[40];
     const char hello[] = "user C probe\n";
     const char wad_path[] = "DOOM1.WAD";
-    const char doom_path[] = "DOOM.ELF";
     const char abi_probe_path[] = "ABIPROBE.ELF";
     const char asset_dir_path[] = "/ASSETS";
     const char asset_readme_path[] = "/ASSETS/README.TXT";
@@ -281,8 +280,8 @@ int user_main(int argc, char **argv, char **envp) {
     const char asset_payload[] = "vibe-os FAT16 one-level asset file\n";
     const char default_path[] = "DEFAULT.CFG";
     const char writable_payload[] = "persist-ok\n";
-    char *doom_argv[] = {(char *)doom_path, (char *)0};
     char *abi_probe_argv[] = {(char *)abi_probe_path, (char *)0};
+    char *abi_probe_envp[] = {(char *)"PROBE_LAUNCHER=USERPROB", (char *)"ABI_ENV=present", (char *)0};
     static struct vibe_fb_info fbinfo;
     static struct vibe_present_indexed present;
     static struct vibe_dirent root_entries[16];
@@ -291,8 +290,6 @@ int user_main(int argc, char **argv, char **envp) {
     uint32_t flags = 0;
     int mmap_hole_ok = 0;
     int pid = syscall3(SYS_GETPID, 0, 0, 0);
-    (void)abi_probe_argv;
-
     if (argc == 1
         && argv
         && argv[0]
@@ -569,5 +566,5 @@ int user_main(int argc, char **argv, char **envp) {
     sys_user_probe(flags);
     trigger_expected_fault();
 
-    return sys_execv(abi_probe_path, abi_probe_argv) == 0 ? 0 : 1;
+    return sys_execve(abi_probe_path, abi_probe_argv, abi_probe_envp) == 0 ? 0 : 1;
 }

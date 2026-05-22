@@ -6,6 +6,10 @@
 #define abs vibe_test_abs
 #define atoi vibe_test_atoi
 #define atol vibe_test_atol
+#define atof vibe_test_atof
+#define strtol vibe_test_strtol
+#define strtoul vibe_test_strtoul
+#define strtod vibe_test_strtod
 #define malloc vibe_test_malloc
 #define calloc vibe_test_calloc
 #define realloc vibe_test_realloc
@@ -15,11 +19,22 @@
 #define getenv vibe_test_getenv
 #define rand vibe_test_rand
 #define srand vibe_test_srand
+#define sin vibe_test_sin
+#define cos vibe_test_cos
+#define atan vibe_test_atan
+#define atan2 vibe_test_atan2
+#define pow vibe_test_pow
+#define sqrt vibe_test_sqrt
+#define floor vibe_test_floor
+#define ceil vibe_test_ceil
+#define fabs vibe_test_fabs
 #define memcpy vibe_test_memcpy
 #define memmove vibe_test_memmove
 #define memset vibe_test_memset
 #define memcmp vibe_test_memcmp
+#define memchr vibe_test_memchr
 #define strlen vibe_test_strlen
+#define strnlen vibe_test_strnlen
 #define strcpy vibe_test_strcpy
 #define strncpy vibe_test_strncpy
 #define strcat vibe_test_strcat
@@ -30,7 +45,18 @@
 #define strncasecmp vibe_test_strncasecmp
 #define strchr vibe_test_strchr
 #define strrchr vibe_test_strrchr
+#define strpbrk vibe_test_strpbrk
+#define strstr vibe_test_strstr
+#define strspn vibe_test_strspn
+#define strcspn vibe_test_strcspn
+#define strtok vibe_test_strtok
+#define strtok_r vibe_test_strtok_r
 #define strdup vibe_test_strdup
+#define strndup vibe_test_strndup
+#define strerror vibe_test_strerror
+#define labs vibe_test_labs
+#define qsort vibe_test_qsort
+#define bsearch vibe_test_bsearch
 #define open vibe_test_open
 #define read vibe_test_read
 #define write vibe_test_write
@@ -42,6 +68,7 @@
 #define access vibe_test_access
 #define unlink vibe_test_unlink
 #define remove vibe_test_remove
+#define perror vibe_test_perror
 #define mmap vibe_test_mmap
 #define munmap vibe_test_munmap
 #define ioctl vibe_test_ioctl
@@ -58,8 +85,18 @@
 #define fopen vibe_test_fopen
 #define fread vibe_test_fread
 #define fwrite vibe_test_fwrite
+#define fgetc vibe_test_fgetc
+#define getc vibe_test_getc
+#define ungetc vibe_test_ungetc
+#define fgets vibe_test_fgets
+#define fputc vibe_test_fputc
+#define putc vibe_test_putc
+#define putchar vibe_test_putchar
+#define fputs vibe_test_fputs
+#define puts vibe_test_puts
 #define fseek vibe_test_fseek
 #define ftell vibe_test_ftell
+#define rewind vibe_test_rewind
 #define fclose vibe_test_fclose
 #define fflush vibe_test_fflush
 #define feof vibe_test_feof
@@ -75,6 +112,8 @@
 #define vsnprintf vibe_test_vsnprintf
 #define sscanf vibe_test_sscanf
 #define fscanf vibe_test_fscanf
+#define clock vibe_test_clock
+#define time vibe_test_time
 
 #include "../../doom_port/libc.c"
 
@@ -117,6 +156,7 @@ static int mock_getpid_syscalls;
 static int mock_clock_syscalls;
 static int mock_present_count;
 static int mock_exec_last_argc;
+static int mock_exec_last_envc;
 static char mock_exec_last_path[64];
 static char mock_exec_last_argv0[64];
 
@@ -149,6 +189,7 @@ static void mock_reset(void)
     mock_clock_syscalls = 0;
     mock_present_count = 0;
     mock_exec_last_argc = 0;
+    mock_exec_last_envc = 0;
     mock_exec_last_path[0] = 0;
     mock_exec_last_argv0[0] = 0;
     errno = 0;
@@ -446,7 +487,9 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
     if (number == VIBE_SYS_EXEC) {
         const char* path = (const char*)arg0;
         char* const* argv = (char* const*)arg1;
+        char* const* envp = (char* const*)arg2;
         int argc = 0;
+        int envc = 0;
         ++mock_exec_syscalls;
         mock_copy_text(mock_exec_last_path, path ? path : "", (int)sizeof(mock_exec_last_path));
         mock_exec_last_argv0[0] = 0;
@@ -462,6 +505,11 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
             }
         }
         mock_exec_last_argc = argc;
+        if (envp) {
+            while (envp[envc])
+                ++envc;
+        }
+        mock_exec_last_envc = envc;
         return 0;
     }
 
@@ -670,6 +718,9 @@ int main(void)
     sprintf(text, "%*s %d", 4, "xy", 5);
     if (strcmp(text, "  xy 5"))
         return 239;
+    sprintf(text, "%-3c:%-5s:%-4u", 'Z', "xy", 7u);
+    if (strcmp(text, "Z  :xy   :7   "))
+        return 244;
     sprintf(text, "%f %d", 1.0, 7);
     if (strcmp(text, "%f 7"))
         return 240;
@@ -1266,8 +1317,10 @@ int main(void)
             return 142;
         if (strcmp(mock_exec_last_argv0, "doom.elf"))
             return 143;
-        if (execve("doom.elf", argv, envp) != -1 || errno != ENOSYS)
+        if (execve("doom.elf", argv, envp) != 0)
             return 144;
+        if (mock_exec_syscalls != 2 || mock_exec_last_envc != 1)
+            return 149;
         if (execv("missing.elf", argv) != -1 || errno != ENOENT)
             return 145;
         if (execl("USERPROB.ELF", "USERPROB.ELF", (char*)0) != 0)

@@ -2,10 +2,10 @@
 """Collect a status-only manual remote VNC Doom playtest proof bundle.
 
 This helper is intended to run on a disposable remote host after a human VNC
-session. It does not launch QEMU. It copies only allowlisted diagnostics out of
-the remote build directory, writes the structured human notes/checklist/session
-files, and then runs the same status-only artifact validator used for
-downloaded cloud proofs.
+session. It does not launch QEMU. It copies only allowlisted status and JSON
+proof files out of the remote build directory, writes the structured human
+notes/checklist/session files, and then runs the same status-only artifact
+validator used for downloaded cloud proofs.
 """
 
 from __future__ import annotations
@@ -31,18 +31,13 @@ import check_cloud_playability_artifacts  # noqa: E402
 from status_fields import parse_status_fields, summarize_status_fields  # noqa: E402
 
 
-REQUIRED_EXACT_FILES = (
-    "kernel.elf",
-    "user_probe.elf",
-    "doom.elf",
-    "doom.symbols",
-)
+REQUIRED_EXACT_FILES = ()
 
 OPTIONAL_EXACT_FILES = (
     "audio-proof.json",
 )
 
-ALLOWLIST_PATTERNS = ("*.log",)
+ALLOWLIST_PATTERNS = ()
 MAX_COPIED_LOG_BYTES = 2 * 1024 * 1024
 CAPTURE_PHASES = tuple(
     phase for phase, _status_file, _human_action in check_cloud_playability_artifacts.HUMAN_SESSION_PHASES
@@ -809,7 +804,7 @@ def main(argv: list[str]) -> int:
         "--build-dir",
         type=Path,
         default=ROOT / "build",
-        help="remote build directory containing status text, logs, and ELF diagnostics",
+        help="remote build directory containing status text and JSON proof files",
     )
     parser.add_argument(
         "--output-dir",

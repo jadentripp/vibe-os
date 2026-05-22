@@ -202,9 +202,9 @@ POST_PLAYABLE_GAPS = {
         "phrases": (
             "musicstream=PULL",
             "musicpull=",
-            "payload service still arrives through `VIBE_AUDIO_MIXER_UPDATE`",
-            "first-class kernel-owned music ring",
-            "mixer/refill stream command",
+            "Payload service now arrives through command 12 / `VIBE_AUDIO_STREAM_WRITE`",
+            "kernel-owned PCM stream queue",
+            "not just through source and status contracts",
             "no new `mixclip=`, `musicunder=`, or `musicdrops=` regressions",
         ),
     },
@@ -234,8 +234,8 @@ POST_PLAYABLE_ARCHITECTURE_PHRASES = (
     "POST_PLAYABLE_GAP[HARDWARE_PACED_AUDIO_STREAM]",
     "STORAGE_BOUNDARY[ARBITRARY_DISK_INSTALL] status=unclaimed",
     "STORAGE_BOUNDARY[ARBITRARY_DISK_RECOVERY] status=unclaimed",
-    "future hardware-paced mixer/refill playback ABI",
-    "move payload service away from `VIBE_AUDIO_MIXER_UPDATE`",
+    "kernel-owned PCM stream write/refill ABI",
+    "VIBE_AUDIO_STREAM_WRITE",
     "not a robust Unix process model",
 )
 

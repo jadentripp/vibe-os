@@ -147,6 +147,8 @@ class FatContractTests(unittest.TestCase):
             "open`/`read`/`lseek`/`stat`/`fstat`",
             "/ASSETS/README.TXT",
             "/STATE",
+            "ABIPROBE.ELF exercises that path",
+            "USER_RUNTIME_CONTRACT[GENERIC_STATE_FILE]",
             "vibe_dirent_is_regular_file",
             "future games and tools",
             "EISDIR",
@@ -315,6 +317,21 @@ class FatContractTests(unittest.TestCase):
             "readonly_file_lseek:",
             "fat_list_user_dir:",
             "fat_list_subdir_cluster:",
+            "fat_zero_writable_tail_after_size:",
+            "fat_rollback_file_write_no_progress:",
+            "fat_refresh_cluster_accounting:",
+            "fat_found_mode:",
+            "fat_mode_from_attr_al:",
+            "STAT_MODE_WRITABLE_DIR equ",
+            "smoke_fatdyn_text",
+            "smoke_fatacct_text",
+            "fat_alloc_success_count",
+            "fat_free_cluster_count",
+            "fat_account_free_clusters",
+            "fat_account_used_clusters",
+            "fat_accounted_clusters",
+            "fat_account_status",
+            "fat_dir_update_count",
             "call fat_find_root_entry_any",
             "test byte [fat_found_attributes], FAT_ATTR_DIRECTORY",
             "test byte [fat_found_attributes], FAT_ATTR_READ_ONLY",
@@ -330,6 +347,8 @@ class FatContractTests(unittest.TestCase):
         self.assertIn("call fat_find_subdir_entry", stat_section)
         self.assertIn("call fat_find_root_entry_any", stat_section)
         self.assertIn("STAT_MODE_READONLY_DIR", stat_section)
+        self.assertIn("mov eax, [fat_root_entries]\n    shl eax, 5", stat_section)
+        self.assertIn("call fat_found_mode", stat_section)
 
         open_section = kernel.split(".open_generic_root83:", 1)[1].split(".read:", 1)[0]
         self.assertIn("call fat_parse_user_subdir_file83", open_section)
@@ -343,13 +362,22 @@ class FatContractTests(unittest.TestCase):
         self.assertIn(".open_generic_subdir_writable:", open_section)
         self.assertIn("call fat_create_subdir_file", open_section)
         self.assertIn("call fat_bind_found_writable_slot", open_section)
+        self.assertIn(".open_generic_bind_readonly:", open_section)
+        self.assertIn(
+            "test byte [fat_found_attributes], FAT_ATTR_READ_ONLY\n"
+            "    jz .open_generic_found_writable",
+            open_section,
+        )
         self.assertIn("mov byte [fd_kinds + eax], FD_KIND_READONLY_FILE", open_section)
         self.assertIn("mov [fd_file_sizes + eax * 4], edx", open_section)
 
         listdir_section = kernel.split("fat_list_user_dir:", 1)[1].split("fat_list_root_dir:", 1)[0]
+        self.assertIn("call fat_parse_user_subdir_file83", listdir_section)
+        self.assertIn("call fat_find_subdir_entry", listdir_section)
         self.assertIn("call fat_parse_user_root83", listdir_section)
         self.assertIn("call fat_list_subdir_cluster", listdir_section)
         self.assertIn("cmp byte [esi], '.'", listdir_section)
+        self.assertIn("cmp dword [syscall_dirent_max], 0\n    jne .fail_inval", listdir_section)
 
     def test_kernel_classifies_directory_file_mismatches(self):
         errno_h = (ROOT / "doom_port" / "include" / "errno.h").read_text()
@@ -358,6 +386,7 @@ class FatContractTests(unittest.TestCase):
         for source in (
             "#define ENOTDIR 20",
             "#define EISDIR 21",
+            "#define ENOSPC 28",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, errno_h)
@@ -365,8 +394,10 @@ class FatContractTests(unittest.TestCase):
         for source in (
             "ERRNO_ENOTDIR equ 20",
             "ERRNO_EISDIR equ 21",
+            "ERRNO_ENOSPC equ 28",
             ".bad_syscall_enotdir:",
             ".bad_syscall_eisdir:",
+            ".bad_syscall_enospc:",
         ):
             with self.subTest(source=source):
                 self.assertIn(source, kernel)
@@ -387,12 +418,28 @@ class FatContractTests(unittest.TestCase):
         self.assertIn("call fat_delete_found_file", unlink_section)
 
         listdir_section = kernel.split("fat_list_user_dir:", 1)[1].split("fat_list_subdir_cluster:", 1)[0]
+        self.assertIn("call fat_parse_user_subdir_file83", listdir_section)
+        self.assertIn("call fat_find_subdir_entry", listdir_section)
         self.assertIn("jz .fail_enotdir", listdir_section)
         self.assertIn("mov eax, -ERRNO_ENOTDIR", listdir_section)
 
         ftruncate_section = kernel.split(".ftruncate:", 1)[1].split(".mmap:", 1)[0]
         self.assertIn("cmp byte [fd_kinds + eax], FD_KIND_WRITABLE", ftruncate_section)
         self.assertIn("jne .bad_syscall_ebadf", ftruncate_section)
+        self.assertIn("ja .bad_syscall_enospc", ftruncate_section)
+
+    def test_kernel_keeps_wad_on_generic_readonly_vfs_path(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        open_wad_section = kernel.split(".open_flags_ok:", 1)[1].split(".open_writable:", 1)[0]
+        readonly_read = kernel.split("readonly_file_read:", 1)[1].split("readonly_file_lseek:", 1)[0]
+
+        self.assertIn("jmp .open_generic_parse_root83", open_wad_section)
+        self.assertNotIn("mov byte [fd_kinds + eax], FD_KIND_WAD", open_wad_section)
+        self.assertIn("mov byte [fd_kinds + eax], FD_KIND_READONLY_FILE", kernel)
+        self.assertIn("readonly_fd_is_wad_file:", kernel)
+        self.assertIn("call readonly_fd_is_wad_file", readonly_read)
+        self.assertIn("inc dword [doom_read_count]", readonly_read)
+        self.assertIn("mov [doom_wad_magic_seen], edx", readonly_read)
 
     def test_kernel_root_listdir_validates_user_buffer_by_entry_count(self):
         kernel = (ROOT / "kernel" / "kernel.asm").read_text()
@@ -406,6 +453,11 @@ class FatContractTests(unittest.TestCase):
             "    call user_range_validate",
             root_listdir,
         )
+        self.assertIn(
+            "cmp dword [syscall_dirent_max], 0\n"
+            "    jne .fail_inval",
+            root_listdir,
+        )
         self.assertNotIn(
             "mov eax, [fat_list_user_ptr]\n"
             "    shl eax, 5\n"
@@ -413,6 +465,88 @@ class FatContractTests(unittest.TestCase):
             "    mov eax, [fat_list_user_ptr]\n"
             "    call user_range_validate",
             root_listdir,
+        )
+
+    def test_kernel_rescans_fat_accounting_for_live_status(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        account_section = kernel.split("fat_refresh_cluster_accounting:", 1)[1].split("fat_build_alloc_map:", 1)[0]
+        status_section = kernel.split("mov esi, smoke_fatacct_text", 1)[1].split("mov esi, smoke_saveact_text", 1)[0]
+
+        for source in (
+            "mov dword [fat_account_free_clusters], 0",
+            "mov dword [fat_account_used_clusters], 0",
+            "mov dword [fat_accounted_clusters], 0",
+            "mov dword [fat_account_status], 0xffffffff",
+            "cmp byte [fat_status], 1",
+            "call fat_next_cluster",
+            "cmp ax, 0",
+            "inc dword [fat_account_free_clusters]",
+            "inc dword [fat_account_used_clusters]",
+            "inc dword [fat_accounted_clusters]",
+            "mov dword [fat_account_status], 0",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, account_section)
+
+        self.assertLess(
+            account_section.index("call fat_next_cluster"),
+            account_section.index("cmp ax, 0"),
+        )
+        self.assertLess(
+            account_section.index("cmp ax, 0"),
+            account_section.index("inc dword [fat_account_free_clusters]"),
+        )
+        self.assertIn("call fat_refresh_cluster_accounting", kernel)
+        self.assertIn("smoke_fatacct_text db \" fatacct=\", 0", kernel)
+        for source in (
+            "mov edx, [fat_account_free_clusters]",
+            "mov edx, [fat_account_used_clusters]",
+            "mov edx, [fat_accounted_clusters]",
+            "mov edx, [fat_last_data_cluster]",
+            "mov edx, [fat_account_status]",
+        ):
+            with self.subTest(status_source=source):
+                self.assertIn(source, status_section)
+
+    def test_kernel_counts_directory_entry_mutations_in_fat_status(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+
+        for label, section in (
+            (
+                "root create",
+                kernel.split("fat_create_root_file:", 1)[1].split("fat_load_file:", 1)[0],
+            ),
+            (
+                "subdirectory file create",
+                kernel.split("fat_create_subdir_file:", 1)[1].split("fat_extend_directory_chain:", 1)[0],
+            ),
+            (
+                "file delete",
+                kernel.split("fat_delete_found_file:", 1)[1].split("stat_fill_user:", 1)[0],
+            ),
+        ):
+            with self.subTest(label=label):
+                self.assertIn("call block_selected_write_sector", section)
+                self.assertIn("inc dword [fat_dir_update_count]", section)
+
+        truncate_section = kernel.split("fat_truncate_writable_file:", 1)[1].split("fat_zero_writable_range:", 1)[0]
+        resize_section = kernel.split("fat_resize_writable_file:", 1)[1].split("fat_clip_writable_chain_to_size:", 1)[0]
+        delete_section = kernel.split("fat_delete_found_file:", 1)[1].split("stat_fill_user:", 1)[0]
+        self.assertLess(
+            truncate_section.index("call fat_update_writable_size"),
+            truncate_section.index("call fat_free_chain"),
+        )
+        self.assertLess(
+            resize_section.index("call fat_update_writable_size"),
+            resize_section.index("call fat_clip_writable_chain_to_size"),
+        )
+        self.assertLess(
+            resize_section.index("call fat_clip_writable_chain_to_size"),
+            resize_section.index("call fat_zero_writable_tail_after_size"),
+        )
+        self.assertLess(
+            delete_section.index("call block_selected_write_sector"),
+            delete_section.index("call fat_free_chain"),
         )
 
     def test_host_fat_image_subdirectory_round_trip_matches_kernel_contract(self):
@@ -589,8 +723,27 @@ class FatContractTests(unittest.TestCase):
         state_path = (make_wad_image.STATE_DIR_NAME, b"SESSION DAT")
         fs.write_file_at_path(state_path, b"state one")
         self.assertEqual(fs.read_file_at_path(state_path), b"state one")
-        fs.write_file_at_path(state_path, b"state one plus more")
-        self.assertEqual(fs.read_file_at_path(state_path), b"state one plus more")
+        sparse_chain = fs.write_file_at_path_at(
+            state_path,
+            make_wad_image.cluster_size() * 2 + 9,
+            b"tail",
+        )
+        sparse_data = fs.read_file_at_path(state_path)
+        self.assertEqual(sparse_data[:9], b"state one")
+        self.assertEqual(
+            sparse_data[9:-4],
+            b"\0" * (make_wad_image.cluster_size() * 2),
+        )
+        self.assertEqual(sparse_data[-4:], b"tail")
+        shrunk_chain = fs.resize_file_at_path(
+            state_path,
+            make_wad_image.cluster_size() + 1,
+        )
+        self.assertLess(len(shrunk_chain), len(sparse_chain))
+        self.assertEqual(
+            fs.read_file_at_path(state_path),
+            sparse_data[:make_wad_image.cluster_size() + 1],
+        )
         self.assertGreater(len(fs.truncate_file_at_path(state_path)), 0)
         self.assertEqual(fs.read_file_at_path(state_path), b"")
         fs.write_file_at_path(state_path, b"state two")

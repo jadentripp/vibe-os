@@ -207,7 +207,9 @@ def validate_cloud_interactive_runbooks(root: Path = ROOT) -> None:
         "local artifact transfer: none",
         "dry-run: Codespace was not created or modified",
         "novnc_url_from_browse_url",
-        "remote_start_payload | gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" NOVNC_PORT=\"$NOVNC_PORT\" bash -s",
+        "remote_start_payload | gh codespace ssh -c \"$CODESPACE_NAME\" -- env VIBE_PLAY_REF=\"$REF\" NOVNC_PORT=\"$NOVNC_PORT\" bash -euo pipefail -s > >(sanitize_remote_error)",
+        "wait_for_codespace_state",
+        "CODESPACES_READY_WAIT_SECONDS",
         "./tools/play_now_remote.sh --preflight",
         "NOVNC_PORT=$NOVNC_PORT nohup ./tools/play_now_remote.sh",
         "gh codespace ports visibility \"$NOVNC_PORT:private\"",
@@ -299,12 +301,20 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     _require(makefile, "shutdown-panic-proof-check:", "Makefile")
     _require(makefile, "tools/check_shutdown_panic_proof.py --repo-contract", "Makefile")
     _require(makefile, "KERNEL_EXTRA_NASMFLAGS ?=", "Makefile")
-    _require(makefile, 'grep -q "kreloc=LOW"', "Makefile")
-    _require(makefile, 'grep -q "krelocstep=HIEXEC_TMP"', "Makefile")
+    _require(makefile, 'grep -q "uguard=0000000F"', "Makefile")
+    _require(makefile, 'grep -q "e820map="', "Makefile")
+    _require(makefile, 'grep -q "pmmuse="', "Makefile")
+    _require(makefile, 'grep -q "pmmtype="', "Makefile")
+    _require(makefile, 'grep -q "pmmchk=OK"', "Makefile")
+    _require(makefile, 'grep -q "pmmalloc="', "Makefile")
+    _require(makefile, 'grep -q "pmmdeny="', "Makefile")
+    _require(makefile, 'grep -q "vmmguard=0000000F/00000000"', "Makefile")
+    _require(makefile, 'grep -q "kreloc=HIGH"', "Makefile")
+    _require(makefile, 'grep -q "krelocstep=KPMAIN_HIGH"', "Makefile")
     _require(makefile, 'grep -q "kerneip="', "Makefile")
     _require(makefile, 'grep -q "kernesp="', "Makefile")
     _require(makefile, 'grep -q "kerncr3=00090000"', "Makefile")
-    _require(makefile, 'grep -q "kernvirt=00010000"', "Makefile")
+    _require(makefile, 'grep -q "kernvirt=C0010000"', "Makefile")
     _require(makefile, 'grep -q "kernphys=00010000"', "Makefile")
     _require(makefile, 'grep -q "khiexec=OK"', "Makefile")
     _require(makefile, 'grep -q "khieip="', "Makefile")
@@ -358,7 +368,6 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "if [ \"$mode\" = \"status-before-reset\" ]; then\n              expect_guest_exit=1\n              no_shutdown=0",
         "--manifest build/shutdown-panic-proof/shutdown-panic-proof.json",
         "build/shutdown-panic-proof/**",
-        "build/proof-*/*.log",
     ):
         _require(os_workflow, needle, "OS smoke workflow")
 
@@ -381,10 +390,17 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         _require(workflow, "ALLOW_LOCAL_VM=1", label)
         _require(workflow, "if: always()", label)
         upload = _upload_block(workflow)
-        for needle in ("build/status*.txt", "build/status*.bin", "build/*.log", "build/doom.symbols"):
+        for needle in ("build/status*.txt",):
             _require(upload, needle, label)
         for forbidden in (
             "build/disk.img",
+            "build/status*.bin",
+            "build/*.log",
+            "build/proof-*/*.log",
+            "build/doom.symbols",
+            "build/kernel.elf",
+            "build/user_probe.elf",
+            "build/doom.elf",
             "build/gfx.bin",
             "build/vga.txt",
             "build/vga*.txt",
@@ -480,6 +496,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "KERNEL_HIGH_EXEC_STATUS_OK equ 1",
         "KERNEL_HIGH_EXEC_STACK_MAGIC equ 0x48485354",
         "KERNEL_PERSISTENT_ALIAS_STATUS_OK equ 1",
+        "KERNEL_PERSISTENT_EXEC_STATUS_OK equ 1",
+        "KERNEL_PERSISTENT_EXEC_STACK_MAGIC equ 0x4b504558",
         "KERNEL_PERSISTENT_ALIAS_BYTES equ 0x00020000",
         "KERNEL_PERSISTENT_ALIAS_PAGES equ KERNEL_PERSISTENT_ALIAS_BYTES / PAGE_SIZE",
         "KERNEL_STACK_ALIAS_PAGES equ (KERNEL_STACK_TOP - KERNEL_STACK_LOW) / PAGE_SIZE",
@@ -490,6 +508,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "kernel_high_exec_self_test:",
         "kernel_high_exec_trampoline:",
         "kernel_persistent_alias_self_test:",
+        "kernel_persistent_high_exec_self_test:",
+        "kernel_persistent_high_exec_trampoline:",
         "kernel_persistent_map_range:",
         "kernel_persistent_alias_install_process_dirs:",
         "mov [kernel_relocation_eip], eax",
@@ -530,6 +550,19 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "mov [kernel_persistent_stack_vaddr], eax",
         "mov [kernel_persistent_stack_phys], eax",
         "mov [kernel_persistent_stack_xlat], eax",
+        "mov [kernel_persistent_exec_eip], eax",
+        "mov [kernel_persistent_exec_esp], esp",
+        "mov [kernel_persistent_exec_cr3], eax",
+        "mov [kernel_persistent_exec_vaddr], eax",
+        "mov [kernel_persistent_exec_phys], eax",
+        "mov [kernel_persistent_exec_stack_vaddr], eax",
+        "mov [kernel_persistent_exec_stack_phys], eax",
+        "mov [kernel_persistent_exec_xlat], eax",
+        "mov [kernel_persistent_exec_stack_xlat], eax",
+        "mov [kernel_persistent_exec_stack_probe_vaddr], esp",
+        "mov [kernel_persistent_exec_stack_probe_phys], ebx",
+        "mov [kernel_persistent_exec_stack_probe_word], eax",
+        "mov [kernel_persistent_exec_return_eip], eax",
         "cmp eax, 0xffffffff",
         "cmp eax, KERNEL_HIGHER_HALF_BASE",
         "cmp eax, PAGING_DIR_ADDR",
@@ -540,6 +573,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "mov byte [kernel_high_alias_status], KERNEL_HIGH_ALIAS_STATUS_OK",
         "mov byte [kernel_high_exec_status], KERNEL_HIGH_EXEC_STATUS_OK",
         "mov byte [kernel_persistent_alias_status], KERNEL_PERSISTENT_ALIAS_STATUS_OK",
+        "mov byte [kernel_persistent_exec_status], KERNEL_PERSISTENT_EXEC_STATUS_OK",
         "call kernel_high_alias_self_test",
         "call kernel_high_exec_self_test",
         "call kernel_persistent_alias_self_test",
@@ -553,6 +587,11 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "vmm_reclaimed_page_tables dd 0",
         "vmm_last_reclaimed_page_table dd 0",
         "vmm_user_guard_pages dd 0",
+        "vmm_guard_probe_count dd 0",
+        "vmm_guard_present_failures dd 0",
+        'smoke_uguard_text db " uguard=", 0',
+        'smoke_vmmguard_text db " vmmguard=", 0',
+        'smoke_e820map_text db " e820map=", 0',
         "vmm_high_test_phys dd 0",
         "vmm_high_test_table dd 0",
         "vmm_high_test_reclaimed dd 0",
@@ -601,6 +640,20 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "kernel_persistent_stack_phys dd 0",
         "kernel_persistent_stack_pages dd 0",
         "kernel_persistent_stack_xlat dd 0",
+        "kernel_persistent_exec_status db 0",
+        "kernel_persistent_exec_eip dd 0",
+        "kernel_persistent_exec_esp dd 0",
+        "kernel_persistent_exec_cr3 dd 0",
+        "kernel_persistent_exec_vaddr dd 0",
+        "kernel_persistent_exec_phys dd 0",
+        "kernel_persistent_exec_stack_vaddr dd 0",
+        "kernel_persistent_exec_stack_phys dd 0",
+        "kernel_persistent_exec_xlat dd 0",
+        "kernel_persistent_exec_stack_xlat dd 0",
+        "kernel_persistent_exec_stack_probe_vaddr dd 0",
+        "kernel_persistent_exec_stack_probe_phys dd 0",
+        "kernel_persistent_exec_stack_probe_word dd 0",
+        "kernel_persistent_exec_return_eip dd 0",
         'smoke_kreloc_text db " kreloc=", 0',
         'smoke_krelocstep_text db " krelocstep=", 0',
         'smoke_kerneip_text db " kerneip=", 0',
@@ -646,6 +699,20 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         'smoke_kpspa_text db " kpspa=", 0',
         'smoke_kpspages_text db " kpspages=", 0',
         'smoke_kpsxlat_text db " kpsxlat=", 0',
+        'smoke_kpexec_text db " kpexec=", 0',
+        'smoke_kpeip_text db " kpeip=", 0',
+        'smoke_kpesp_text db " kpesp=", 0',
+        'smoke_kpecr3_text db " kpecr3=", 0',
+        'smoke_kpeva_text db " kpeva=", 0',
+        'smoke_kpepa_text db " kpepa=", 0',
+        'smoke_kpestk_text db " kpestk=", 0',
+        'smoke_kpestkpa_text db " kpestkpa=", 0',
+        'smoke_kpexlat_text db " kpexlat=", 0',
+        'smoke_kpesxlat_text db " kpesxlat=", 0',
+        'smoke_kpeslot_text db " kpeslot=", 0',
+        'smoke_kpeslotpa_text db " kpeslotpa=", 0',
+        'smoke_kpesword_text db " kpesword=", 0',
+        'smoke_kperet_text db " kperet=", 0',
         'smoke_vmmhi_text db " vmmhi=", 0',
         'smoke_vmmhva_text db " vmmhva=", 0',
         'smoke_vmmhpa_text db " vmmhpa=", 0',
@@ -654,16 +721,43 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "USER_PROBE_EXPECTED_FLAGS equ 0x0007ffff",
         "SYS_EXEC_ARGV_SOURCE_DEFAULT equ 1",
         "SYS_EXEC_ARGV_SOURCE_USER equ 2",
-        "PROCESS_RECORD_BYTES equ 168",
-        "PROC_HEAP_BITMAP equ 160",
-        "PROC_HEAP_PAGE_COUNT equ 164",
+        "PROCESS_RECORD_BYTES equ 184",
+        "PROC_SAVED_DS equ 92",
+        "PROC_SAVED_ES equ 96",
+        "PROC_SAVED_FS equ 100",
+        "PROC_SAVED_GS equ 104",
+        "IRQ_FRAME_DS equ 12",
+        "IRQ_FRAME_EIP equ 48",
+        "IRQ_FRAME_DWORDS equ 17",
+        "PROC_HEAP_BITMAP equ 176",
+        "PROC_HEAP_PAGE_COUNT equ 180",
         "process_heap_mark_range:",
         "process_heap_clear_range:",
         "process_heap_range_is_mapped:",
+        "user_range_pages_present:",
+        "call user_range_pages_present",
+        "vmm_probe_user_guard_pages:",
+        "call vmm_probe_absent_guard_page",
+        "test edx, PTE_PRESENT",
+        "inc dword [vmm_guard_present_failures]",
+        "pmm_probe_exclusions:",
+        "pmm_page_is_free:",
+        "pmm_self_test_alloc_phys dd 0",
+        "pmm_exclusion_kernel_reserved dd 0",
+        "pmm_exclusion_user_reserved dd 0",
+        "pmm_refresh_frame_counters:",
+        'smoke_pmmuse_text db " pmmuse=", 0',
+        'smoke_pmmtype_text db " pmmtype=", 0',
+        'smoke_pmmchk_text db " pmmchk=", 0',
+        'smoke_pmmalloc_text db " pmmalloc=", 0',
+        'smoke_pmmdeny_text db " pmmdeny=", 0',
+        "mov eax, [pmm_managed_end]",
+        "cmp eax, HEAP_START + HEAP_SIZE",
         "process_wait_vm_reaps dd 0",
         "process_wait_vm_pages_reclaimed dd 0",
         "process_wait_last_vm_pages_reclaimed dd 0",
         'smoke_vmreap_text db " vmreap=", 0',
+        'smoke_psegs_text db " psegs=", 0',
         "process_sbrk_shrink_calls dd 0",
         "process_sbrk_pages_released dd 0",
         "PROCESS_SLOT_COUNT equ 6",
@@ -682,6 +776,10 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "mov edx, [sys_exec_last_argv_source]",
         "vmm_clear_process_guard_page:",
         "call vmm_clear_process_guard_page",
+        "mov eax, USER_STACK_BOTTOM",
+        "mov eax, DOOM_USER_BASE - PAGE_SIZE",
+        "mov eax, DOOM_USER_STACK_BOTTOM",
+        "mov eax, DOOM_USER_STACK_TOP",
         "vmm_unmap_page:",
         "mov dword [VMM_HIGH_TEST_VADDR], VMM_HIGH_TEST_MAGIC",
         "mov [vmm_high_test_phys], ebx",
@@ -710,10 +808,11 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         for needle in (
             "KERNEL_RELOCATION_GAP[current]=high-alias-only",
             "KERNEL_RELOCATION_GAP[current]=persistent-high-alias-window",
-            "KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity",
+            "KERNEL_RELOCATION_GAP[current]=persistent-high-mainline",
+            "KERNEL_RELOCATION_GAP[missing]=dedicated-relocation-page-directory",
             "`vmmhi=OK` is not a kernel relocation claim",
-            "`kreloc=LOW`",
-            "`krelocstep=HIEXEC_TMP`",
+            "`kreloc=HIGH`",
+            "`krelocstep=KPMAIN_HIGH`",
             "`kreloc=OK`",
             "`kerneip=`",
             "`kernesp=`",
@@ -758,6 +857,20 @@ def validate_repo_contract(root: Path = ROOT) -> None:
             "`kpspa=`",
             "`kpspages=`",
             "`kpsxlat=`",
+            "`kpexec=OK`",
+            "`kpeip=`",
+            "`kpesp=`",
+            "`kpecr3=`",
+            "`kpeva=`",
+            "`kpepa=`",
+            "`kpestk=`",
+            "`kpestkpa=`",
+            "`kpexlat=`",
+            "`kpesxlat=`",
+            "`kpeslot=`",
+            "`kpeslotpa=`",
+            "`kpesword=`",
+            "`kperet=`",
         ):
             _require(text, needle, label)
 
@@ -872,7 +985,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "sys_fcntl(defaults, F_SETFD, FD_CLOEXEC) == 0",
         "mmap_hole_ok && sys_munmap(video, DOOM_FRAME_BYTES + DOOM_PALETTE_BYTES) == 0",
         "char *abi_probe_argv[] = {(char *)abi_probe_path, (char *)0};",
-        "return sys_execv(abi_probe_path, abi_probe_argv) == 0 ? 0 : 1;",
+        'char *abi_probe_envp[] = {(char *)"PROBE_LAUNCHER=USERPROB", (char *)"ABI_ENV=present", (char *)0};',
+        "return sys_execve(abi_probe_path, abi_probe_argv, abi_probe_envp) == 0 ? 0 : 1;",
     ):
         _require(probe, needle, "user probe VM/POSIX contract")
 
@@ -893,6 +1007,10 @@ def validate_repo_contract(root: Path = ROOT) -> None:
 
     validator = kernel.split("user_range_validate:", 1)[1].split("doom_log_char:", 1)[0]
     _require(validator, "call process_heap_range_is_mapped", "heap mapping validator")
+    _require(validator, "call user_range_pages_present", "user PTE validator")
+    _require(validator, "call vmm_find_process_pte", "user PTE validator")
+    _require(validator, "test edx, PTE_PRESENT", "user PTE validator")
+    _require(validator, "test edx, PTE_USER", "user PTE validator")
     wait_reap = kernel.split("process_waitpid_current:", 1)[1].split("scheduler_prepare_live_preempt_probe:", 1)[0]
     for needle in (
         "call process_teardown_user_vm",
@@ -902,6 +1020,14 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         _require(wait_reap, needle, "waitpid VM reap")
     scheduler_prepare = kernel.split("scheduler_prepare_live_preempt_probe:", 1)[1].split("scheduler_capture_preempt_spin:", 1)[0]
     _require(scheduler_prepare, "call process_restore_user_image_vm", "preempt probe restore")
+    irq_timer = kernel.split("irq_timer:", 1)[1].split("irq_keyboard:", 1)[0]
+    for needle in (
+        "IRQ_ENTER",
+        "mov ebx, esp",
+        "call scheduler_tick",
+        "IRQ_RETURN",
+    ):
+        _require(irq_timer, needle, "timer IRQ assembly frame contract")
     scheduler_tick = kernel.split("scheduler_tick:", 1)[1].split("process_save_irq_context:", 1)[0]
     scheduler_select = kernel.split("scheduler_select_next_ready:", 1)[1].split("scheduler_preempt_self_test:", 1)[0]
     for needle in (
@@ -916,6 +1042,10 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "call process_activate",
         "call process_restore_irq_context",
         "inc dword [scheduler_irq_frame_rewrites]",
+        "mov [scheduler_last_irq_frame_ds], eax",
+        "mov [scheduler_last_irq_frame_es], eax",
+        "mov [scheduler_last_irq_frame_fs], eax",
+        "mov [scheduler_last_irq_frame_gs], eax",
     ):
         _require(scheduler_tick, needle, "timer preemption save/restore contract")
     if not (
@@ -969,10 +1099,25 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         _require(doom_runtime_doc, needle, "Doom libc runtime docs")
 
     panic_path = kernel.split(".not_expected_user_fault:", 1)[1].split("doom_user_fault:", 1)[0]
+    _require(panic_path, "jmp user_process_fault", "user fault isolation path")
+    user_fault_path = kernel.split("user_process_fault:", 1)[1].split("doom_user_fault:", 1)[0]
+    _require(user_fault_path, "call process_mark_current_faulted", "user fault isolation path")
+    _require(user_fault_path, "jmp user_probe_finished", "user fault isolation path")
     _require(panic_path, "mov dword [panic_status], PANIC_UNHANDLED_EXCEPTION", "kernel panic path")
     _require(panic_path, "call write_smoke_status", "kernel panic path")
     if panic_path.index("mov dword [panic_status], PANIC_UNHANDLED_EXCEPTION") > panic_path.index("call write_smoke_status"):
         raise AssertionError("panic status must be set before the smoke status write")
+    _require(kernel, 'smoke_faultsegs_text db " segs="', "fault segment status")
+    status_writer = kernel.split("write_smoke_status:", 1)[1].split("smoke_copy_string:", 1)[0]
+    for needle in (
+        "mov edx, [fault_ds]",
+        "mov edx, [fault_es]",
+        "mov edx, [fault_fs]",
+        "mov edx, [fault_gs]",
+        "mov edx, [fault_cs]",
+        "mov edx, [fault_ss]",
+    ):
+        _require(status_writer, needle, "fault segment status")
 
     for needle in (
         "panic=KEXC",
@@ -1000,7 +1145,7 @@ def main() -> int:
         print(f"VM safety contract failed: {exc}", file=sys.stderr)
         return 1
 
-    print("VM safety contract OK: local QEMU opt-in, cloud diagnostics, safe cloud interactive playtest docs, panic/shutdown status, dynamic high VMM mapping, kernel-entry high alias, high-trampoline execution, and the higher-half relocation gap are machine-checkable")
+    print("VM safety contract OK: local QEMU opt-in, cloud diagnostics, safe cloud interactive playtest docs, panic/shutdown status, PMM/guard evidence, dynamic high VMM mapping, kernel-entry high alias, high-trampoline execution, and the higher-half relocation gap are machine-checkable")
     return 0
 
 

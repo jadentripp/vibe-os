@@ -1,6 +1,7 @@
 #ifndef VIBE_DOOM_PORT_MATH_H
 #define VIBE_DOOM_PORT_MATH_H
 
+/* x87-backed freestanding subset; not a complete hosted libm. */
 double sin(double x);
 double cos(double x);
 double atan(double x);

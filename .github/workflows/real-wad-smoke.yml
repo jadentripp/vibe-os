@@ -101,10 +101,10 @@ jobs:
           fi
 
           echo "Proof lane: $lane"
-          echo "Artifact policy: upload status/ELF/log diagnostics only; no WADs, disk images, rendered pixels, or raw audio."
+          echo "Artifact policy: upload status/JSON proof only; no WADs, disk images, screenshots, rendered pixels, raw audio, logs, tokens, or one-time codes."
           echo "Failure lanes: gameplay/input, SB16 continuity, audible audio aggregate, and persistence/save-load are checked or triaged separately."
-          echo "Download command after completion:"
-          echo "gh run download $GITHUB_RUN_ID --repo $GITHUB_REPOSITORY --name real-wad-smoke-status --dir build/cloud-run-$GITHUB_RUN_ID"
+          echo "Status-only proof download command after completion:"
+          echo "gh run download $GITHUB_RUN_ID --repo $GITHUB_REPOSITORY --name real-wad-smoke-proof-status --dir build/cloud-run-$GITHUB_RUN_ID"
 
           {
             echo "### Real WAD smoke"
@@ -112,9 +112,9 @@ jobs:
             echo "- lane: \`$lane\`"
             echo "- ref: \`$GITHUB_REF_NAME\`"
             echo "- commit: \`$GITHUB_SHA\`"
-            echo "- artifact: \`real-wad-smoke-status\`"
+            echo "- status-only proof artifact: \`real-wad-smoke-proof-status\`"
             echo "- local VM: refused by runbook; this job runs on a disposable GitHub-hosted runner"
-            echo "- artifact policy: no WADs, disk images, rendered pixels, or raw audio"
+            echo "- artifact policy: status/JSON proof only; no WADs, disk images, screenshots, rendered pixels, raw audio, logs, tokens, or one-time codes"
             echo ""
             echo "Failure lanes stay separate:"
             echo "- gameplay/input: \`tools/check_cloud_playability_artifacts.py --require-gameplay-proof\`"
@@ -125,7 +125,7 @@ jobs:
             echo "Persistence isolation: use \`audible_audio_proof=false\` with \`persistence_save_slot=0\` so save/load failures are not mixed with the audible-audio lane."
             echo ""
             echo "\`\`\`sh"
-            echo "gh run download $GITHUB_RUN_ID --repo $GITHUB_REPOSITORY --name real-wad-smoke-status --dir build/cloud-run-$GITHUB_RUN_ID"
+            echo "gh run download $GITHUB_RUN_ID --repo $GITHUB_REPOSITORY --name real-wad-smoke-proof-status --dir build/cloud-run-$GITHUB_RUN_ID"
             echo "python3 tools/triage_cloud_status.py build/cloud-run-$GITHUB_RUN_ID/status.txt"
             echo "# If the boot stopped before final status, use status.failure.txt instead."
             echo "\`\`\`"
@@ -328,9 +328,7 @@ jobs:
           proof_dir="$RUNNER_TEMP/gameplay-audio-proof"
           rm -rf "$proof_dir"
           mkdir -p "$proof_dir"
-          cp build/kernel.elf build/user_probe.elf build/doom.elf build/doom.symbols "$proof_dir"/
-          cp build/status*.txt build/status*.bin "$proof_dir"/
-          cp build/*.log "$proof_dir"/ 2>/dev/null || true
+          cp build/status*.txt "$proof_dir"/
           cp build/gameplay-proof.json "$proof_dir"/
           if [ -f build/audio-proof.json ]; then
             cp build/audio-proof.json "$proof_dir"/
@@ -361,7 +359,7 @@ jobs:
       - name: Show smoke diagnostics
         if: always()
         run: |
-          for file in $(find build -maxdepth 1 -type f \( -name 'status*.txt' -o -name '*.log' \) | sort); do
+          for file in $(find build -maxdepth 1 -type f -name 'status*.txt' | sort); do
             if [ -f "$file" ]; then
               echo "---- $file ----"
               sed -n '1,220p' "$file"
@@ -586,11 +584,10 @@ jobs:
             exit 0
           fi
 
-          echo "Persistence diagnostics preserve status/log context only; no WAD, disk image, pixels, or raw audio are uploaded."
+          echo "Persistence diagnostics preserve status text and JSON only; no WAD, disk image, pixels, screenshots, raw audio, logs, tokens, or one-time codes are uploaded."
           diagnostic_files="$(find build -maxdepth 2 -type f \( \
             -name 'status.persistence*.txt' -o \
             -path 'build/persistence-*/*.txt' -o \
-            -path 'build/persistence-*/*.log' -o \
             -path 'build/persistence-*/*.json' \
           \) | sort)"
 
@@ -680,6 +677,7 @@ jobs:
           PY
 
       - name: Upload status-only proof artifact
+        id: upload_proof
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -692,26 +690,6 @@ jobs:
             build/status*.txt
             build/persistence-*/*.json
             build/persistence-*/*.txt
-
-      - name: Upload non-copyright diagnostic artifacts
-        id: upload_diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: real-wad-smoke-status
-          if-no-files-found: ignore
-          path: |
-            build/kernel.elf
-            build/user_probe.elf
-            build/doom.elf
-            build/doom.symbols
-            build/audio-proof.json
-            build/gameplay-proof.json
-            build/status*.bin
-            build/status*.txt
-            build/*.log
-            build/persistence-*/*.json
-            build/persistence-*/*.log
 
       - name: Summarize proof lane outcomes and reruns
         if: always()
@@ -728,7 +706,7 @@ jobs:
           AUDIO_CONTINUITY_OUTCOME: ${{ steps.audio_continuity.outcome }}
           AUDIO_MANIFEST_OUTCOME: ${{ steps.audible_audio_manifest.outcome }}
           PERSISTENCE_OUTCOME: ${{ steps.persistence_proof.outcome }}
-          UPLOAD_OUTCOME: ${{ steps.upload_diagnostics.outcome }}
+          UPLOAD_OUTCOME: ${{ steps.upload_proof.outcome }}
         run: |
           set -euo pipefail
 
@@ -783,9 +761,9 @@ jobs:
             echo "| gameplay/input | $gameplay_state | boot=$BOOT_OUTCOME, real_wad=$REAL_WAD_OUTCOME, human=$HUMAN_OUTCOME, gameplay=$GAMEPLAY_OUTCOME, vm=$VM_STATUS_OUTCOME, bundle=$BUNDLE_OUTCOME |"
             echo "| audio | $audio_state | sb16_continuity=$AUDIO_CONTINUITY_OUTCOME, audible_capture=$AUDIO_CAPTURE_OUTCOME, audible_manifest=$AUDIO_MANIFEST_OUTCOME |"
             echo "| persistence/save-load | $persistence_state | persistence=$PERSISTENCE_OUTCOME |"
-            echo "| artifact upload | $UPLOAD_OUTCOME | real-wad-smoke-status diagnostics only |"
+            echo "| artifact upload | $UPLOAD_OUTCOME | real-wad-smoke-proof-status status/JSON only |"
             echo ""
-            echo "Artifact policy: no WADs, disk images, rendered pixels, or raw audio are uploaded."
+            echo "Artifact policy: no WADs, disk images, screenshots, rendered pixels, raw audio, logs, tokens, or one-time codes are uploaded."
             echo ""
             echo "#### Rerun only the red lane"
             if [ "${#rerun_commands[@]}" -eq 0 ]; then

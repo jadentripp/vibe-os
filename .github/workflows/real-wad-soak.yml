@@ -134,7 +134,7 @@ jobs:
             echo "python3 tools/check_cloud_playability_artifacts.py --soak-summary build/cloud-soak-$GITHUB_RUN_ID"
             echo "\`\`\`"
             echo ""
-            echo "For failed attempts that need raw status triage, dispatch a single-run gameplay or audio lane and download \`real-wad-smoke-status\`."
+            echo "For failed attempts that need status triage, dispatch a single-run gameplay or audio lane and download \`real-wad-smoke-proof-status\`."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fetch and validate shareware WAD
@@ -347,9 +347,7 @@ jobs:
               proof_dir="$RUNNER_TEMP/real-wad-soak-proof-$attempt"
               rm -rf "$proof_dir"
               mkdir -p "$proof_dir"
-              cp build/kernel.elf build/user_probe.elf build/doom.elf build/doom.symbols "$proof_dir"/
-              cp build/status*.txt build/status*.bin "$proof_dir"/
-              cp build/*.log "$proof_dir"/ 2>/dev/null || true
+              cp build/status*.txt "$proof_dir"/
               cp build/gameplay-proof.json "$proof_dir"/
               if [ -f build/audio-proof.json ]; then
                 cp build/audio-proof.json "$proof_dir"/

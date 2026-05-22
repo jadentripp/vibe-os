@@ -93,6 +93,8 @@ class FramebufferContractTests(unittest.TestCase):
         self.assertEqual(lfb["source_aspect_width"], 320)
         self.assertEqual(lfb["source_aspect_height"], 240)
         self.assertEqual(lfb["pixel_aspect"], (240, 200))
+        self.assertEqual(lfb["abi_version"], fb.ABI_VERSION)
+        self.assertEqual(lfb["present_semantics"], fb.PRESENT_SEMANTICS_INDEXED_SOURCE)
         self.assertEqual(lfb["present_format"], fb.FORMAT_INDEX8_RGB24)
         self.assertEqual((lfb["max_present_width"], lfb["max_present_height"]), (320, 200))
         self.assertEqual(lfb["frame_bytes"], fb.DOOM_FRAME_BYTES)
@@ -195,6 +197,8 @@ class FramebufferContractTests(unittest.TestCase):
             "`vibe_present_indexed_checked`",
             "Dirty source bounds",
             "source-frame coordinates, not target pixels",
+            "`fbsrc=`",
+            "`fbacct=`",
             "Future indexed backends can clear that bit",
             "true maxima",
         ):
@@ -203,6 +207,8 @@ class FramebufferContractTests(unittest.TestCase):
 
     def test_public_header_declares_backend_ids_for_fbinfo(self):
         header = (ROOT / "doom_port" / "include" / "vibe_os.h").read_text()
+        self.assertIn("VIBE_FB_ABI_VERSION = 1", header)
+        self.assertIn("VIBE_FB_PRESENT_SEMANTICS_INDEXED_SOURCE = 1", header)
         self.assertIn("VIBE_FB_BACKEND_MODE13 = 1", header)
         self.assertIn("VIBE_FB_BACKEND_LFB_XRGB8888 = 2", header)
         self.assertIn("VIBE_FB_POLICY_ASPECT = 2", header)
@@ -210,6 +216,13 @@ class FramebufferContractTests(unittest.TestCase):
         self.assertIn("VIBE_FB_CAP_FIXED_PRESENT_SIZE = 0x00000020u", header)
         self.assertIn("vibe_fb_info_supports_indexed_rgb24", header)
         self.assertIn("vibe_fb_info_present_size_is_accepted", header)
+        self.assertIn("vibe_fb_info_accepts_present_indexed", header)
+        self.assertIn("vibe_present_indexed_frame_bytes", header)
+        self.assertIn("vibe_fb_info_dirty_rect_is_bounded", header)
+        self.assertIn("vibe_fb_info_source_format", header)
+        self.assertIn("vibe_fb_info_source_width", header)
+        self.assertIn("vibe_fb_info_source_height", header)
+        self.assertIn("vibe_fb_info_source_palette_entry_bytes", header)
         self.assertIn("vibe_fb_info_source_aspect_height", header)
 
     def test_public_header_helpers_support_a_second_indexed_game(self):
@@ -251,15 +264,50 @@ class FramebufferContractTests(unittest.TestCase):
                     return 5;
                 if (vibe_fb_info_present_palette_bytes(&info) != VIBE_FB_RGB24_PALETTE_BYTES)
                     return 6;
-                if (vibe_fb_info_source_aspect_width(&info) != 160
+                if (vibe_fb_info_source_format(&info) != VIBE_FB_FORMAT_INDEX8_RGB24
+                    || vibe_fb_info_source_width(&info) != 160
+                    || vibe_fb_info_source_height(&info) != 100
+                    || vibe_fb_info_source_palette_entries(&info) != VIBE_FB_INDEXED_PALETTE_COLORS
+                    || vibe_fb_info_source_palette_entry_bytes(&info) != VIBE_FB_RGB24_PALETTE_ENTRY_BYTES
+                    || vibe_fb_info_source_aspect_width(&info) != 160
                     || vibe_fb_info_source_aspect_height(&info) != 120)
                     return 7;
+                if (vibe_present_indexed_frame_bytes(&present) != 16000
+                    || !vibe_fb_info_accepts_present_indexed(&info, &present))
+                    return 8;
+
+                info.capabilities |= VIBE_FB_CAP_DIRTY_SOURCE_RECT;
+                info.dirty_count = 0;
+                info.dirty_x = 0;
+                info.dirty_y = 0;
+                info.dirty_width = 0;
+                info.dirty_height = 0;
+                if (!vibe_fb_info_dirty_rect_is_empty(&info)
+                    || !vibe_fb_info_dirty_rect_is_bounded(&info))
+                    return 9;
+                info.dirty_count = 2;
+                info.dirty_x = 10;
+                info.dirty_y = 20;
+                info.dirty_width = 30;
+                info.dirty_height = 40;
+                if (!vibe_fb_info_dirty_rect_is_bounded(&info))
+                    return 10;
+                info.dirty_width = 151;
+                if (vibe_fb_info_dirty_rect_is_bounded(&info))
+                    return 11;
+                info.dirty_width = 30;
+
+                present.width = 0;
+                if (vibe_fb_info_accepts_present_indexed(&info, &present)
+                    || vibe_present_indexed_frame_bytes(&present) != 0)
+                    return 12;
+                present.width = 160;
 
                 info.capabilities |= VIBE_FB_CAP_FIXED_PRESENT_SIZE;
                 if (!vibe_fb_info_requires_fixed_present_size(&info)
                     || !vibe_fb_info_present_size_is_accepted(&info, 160, 100)
                     || vibe_fb_info_present_size_is_accepted(&info, 80, 100))
-                    return 8;
+                    return 13;
 
                 return 0;
             }
@@ -304,6 +352,75 @@ class FramebufferContractTests(unittest.TestCase):
         self.assertIn("call present_clear_lfb", clear_guard)
         self.assertIn("present_lfb_last_view_x dd 0xffffffff", kernel)
 
+    def test_kernel_records_generic_framebuffer_device_ownership(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+
+        for token in (
+            "FRAMEBUFFER_HANDOFF_SOURCE_VBE equ 2",
+            "FRAMEBUFFER_HANDOFF_SOURCE_GOP equ 3",
+            "FRAMEBUFFER_GOP_BOOT_MODE equ 0xffff",
+            "FB_PRESENT_WIDTH equ DOOM_SCREEN_WIDTH",
+            "FB_PRESENT_FRAME_BYTES equ FB_PRESENT_WIDTH * FB_PRESENT_HEIGHT",
+            "framebuffer_capabilities dd 0",
+            "framebuffer_mmio_phys_base dd 0",
+            "framebuffer_mmio_page_count dd 0",
+            "framebuffer_source_format dd VIBE_FB_FORMAT_INDEX8_RGB24",
+            "framebuffer_source_width dd FB_PRESENT_WIDTH",
+            "framebuffer_source_aspect_height dd FB_PRESENT_ASPECT_HEIGHT",
+            'smoke_fbdev_text db " fbdev="',
+            'smoke_fbmmio_text db " fbmmio="',
+            'smoke_fbinfo_text db " fbinfo="',
+            'smoke_fbcap_text db " fbcap="',
+            'smoke_fbsrc_text db " fbsrc="',
+            'smoke_fbacct_text db " fbacct="',
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, kernel)
+
+        self.assertIn("cmp word [BOOT_VIDEO_MODE], FRAMEBUFFER_GOP_BOOT_MODE", kernel)
+        self.assertIn("mov dword [framebuffer_handoff_source], FRAMEBUFFER_HANDOFF_SOURCE_GOP", kernel)
+        self.assertIn("mov ebx, FB_PRESENT_FRAME_BYTES", kernel)
+        self.assertIn("mov ebx, FB_PRESENT_PALETTE_BYTES", kernel)
+        self.assertIn("mov ebx, [present_width_arg]", kernel)
+        self.assertIn("mov [framebuffer_last_present_width], ebx", kernel)
+        self.assertIn("mov edx, [framebuffer_info_query_count]", kernel)
+        self.assertIn("mov edx, [framebuffer_source_format]", kernel)
+        self.assertIn("mov edx, FRAMEBUFFER_PRESENT_SEMANTICS_INDEXED_SOURCE", kernel)
+        self.assertIn("mov edx, [framebuffer_present_bad_desc_count]", kernel)
+        self.assertIn("mov edx, [framebuffer_dirty_total_pixels]", kernel)
+        self.assertIn("or dword [framebuffer_capabilities], VIBE_FB_CAP_XRGB8888_LFB", kernel)
+        self.assertIn("mov eax, [framebuffer_capabilities]", kernel)
+
+    def test_kernel_validates_user_pointers_for_framebuffer_abi(self):
+        kernel = (ROOT / "kernel" / "kernel.asm").read_text()
+        present_syscall = kernel.split(".present:", 1)[1].split(".present_success:", 1)[0]
+        fbinfo_ioctl = kernel.split(".ioctl_fbinfo:", 1)[1].split(".ioctl_present_indexed:", 1)[0]
+        present_ioctl = kernel.split(".ioctl_present_indexed:", 1)[1].split(".ioctl_present_success:", 1)[0]
+
+        for source in (
+            "mov ebx, FB_PRESENT_FRAME_BYTES",
+            "call user_range_validate",
+            "mov ebx, FB_PRESENT_PALETTE_BYTES",
+        ):
+            with self.subTest(sys_present=source):
+                self.assertIn(source, present_syscall)
+
+        self.assertIn("mov ebx, VIBE_FB_INFO_BYTES", fbinfo_ioctl)
+        self.assertIn("call user_range_validate", fbinfo_ioctl)
+
+        for source in (
+            "mov ebx, VIBE_PRESENT_DESC_BYTES",
+            "call user_range_validate",
+            "cmp eax, [framebuffer_source_width]",
+            "cmp eax, [framebuffer_source_height]",
+            "mov ebx, [framebuffer_source_frame_bytes]",
+            "mov ebx, [framebuffer_source_palette_bytes]",
+            "inc dword [framebuffer_present_bad_size_count]",
+            "inc dword [framebuffer_present_bad_range_count]",
+        ):
+            with self.subTest(present_ioctl=source):
+                self.assertIn(source, present_ioctl)
+
     def test_dirty_rect_reports_changed_source_bounds_and_count(self):
         previous = bytearray(fb.DOOM_FRAME_BYTES)
         frame = bytearray(previous)
@@ -313,7 +430,11 @@ class FramebufferContractTests(unittest.TestCase):
         dirty = fb.dirty_rect(bytes(previous), bytes(frame))
 
         self.assertEqual(dirty, {"x": 10, "y": 20, "width": 21, "height": 6, "count": 2})
+        self.assertTrue(fb.dirty_rect_is_bounded(dirty))
         self.assertEqual(fb.dirty_rect(bytes(frame), bytes(frame))["count"], 0)
+        self.assertTrue(fb.dirty_rect_is_bounded(fb.dirty_rect(bytes(frame), bytes(frame))))
+        self.assertFalse(fb.dirty_rect_is_bounded({"x": 319, "y": 199, "width": 2, "height": 1, "count": 1}))
+        self.assertFalse(fb.dirty_rect_is_bounded({"x": 0, "y": 0, "width": 0, "height": 0, "count": 1}))
 
     def test_initial_present_dirty_rect_compares_against_zero_source_frame(self):
         palette = fixture_palette()
@@ -351,7 +472,10 @@ class FramebufferContractTests(unittest.TestCase):
     def test_status_display_validator_is_source_format_driven(self):
         fields = {
             "fb": "LFB",
+            "fbcap": "0000003F",
             "fbpolicy": "ASP",
+            "fbsrc": "00000001:00000140:000000C8:00000140:000000F0:00000100:00000003",
+            "fbacct": "00000001:00000001:00000000:00000000:00000000:00000001:00000002:0000FA00:00000300",
             "fbgeom": "00000050:0000003C:00000280:000001E0:00000002",
             "fbdirty": "0000000A:00000014:00000015:00000006:00000002",
         }
@@ -362,6 +486,7 @@ class FramebufferContractTests(unittest.TestCase):
         self.assertEqual(display["policy"], "ASP")
         self.assertEqual((display["view_x"], display["view_y"]), (80, 60))
         self.assertEqual((display["view_width"], display["view_height"]), (640, 480))
+        self.assertEqual(display["capabilities"] & fb.CAP_DIRTY_SOURCE_RECT, fb.CAP_DIRTY_SOURCE_RECT)
         self.assertEqual(display["dirty"], (10, 20, 21, 6, 2))
 
         future_source = fb.IndexedSourceFormat(
@@ -372,7 +497,10 @@ class FramebufferContractTests(unittest.TestCase):
         )
         future_fields = {
             "fb": "LFB",
+            "fbcap": "0000003F",
             "fbpolicy": "ASP",
+            "fbsrc": "00000001:000000A0:00000064:000000A0:00000078:00000100:00000003",
+            "fbacct": "00000001:00000001:00000000:00000000:00000000:00000000:00000000:00000000:00000000",
             "fbgeom": "00000000:00000000:00000140:000000F0:00000002",
             "fbdirty": "00000000:00000000:00000000:00000000:00000000",
         }
@@ -384,7 +512,10 @@ class FramebufferContractTests(unittest.TestCase):
     def test_status_display_validator_rejects_out_of_bounds_dirty_source_rect(self):
         fields = {
             "fb": "M13",
+            "fbcap": "0000003B",
             "fbpolicy": "M13",
+            "fbsrc": "00000001:00000140:000000C8:00000140:000000F0:00000100:00000003",
+            "fbacct": "00000001:00000001:00000000:00000000:00000000:00000001:00000001:0000FA00:00000300",
             "fbgeom": "00000000:00000000:00000140:000000C8:00000001",
             "fbdirty": "0000013F:000000C7:00000002:00000001:00000001",
         }

@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import shlex
 import subprocess
 import sys
@@ -27,6 +28,7 @@ DEFAULT_REPO = "jadentripp/vibe-os"
 REAL_WAD_LANES = ("gameplay", "audio", "persistence", "full")
 UEFI_MODES = ("contract", "attempt", "prove")
 DEFAULT_SAVE_SLOT = "0"
+FULL_SHA_RE = re.compile(r"^[0-9A-Fa-f]{40}$")
 
 
 class PostMergeCloudProofError(RuntimeError):
@@ -69,6 +71,15 @@ def validate_save_slot(raw: str) -> str:
     if raw not in {"0", "1", "2", "3", "4", "5"}:
         raise PostMergeCloudProofError(f"--save-slot must be 0..5, got {raw!r}")
     return raw
+
+
+def validate_exact_commit(raw: str) -> str:
+    if not FULL_SHA_RE.fullmatch(raw):
+        raise PostMergeCloudProofError(
+            "--commit must be the full 40-character pushed Git SHA; "
+            f"got {raw!r}"
+        )
+    return raw.lower()
 
 
 def bool_field(value: bool) -> str:
@@ -296,7 +307,7 @@ def checker_command(
     if real_wad_lane in {"persistence", "full"}:
         command.append("--require-persistence-proof")
     if uefi_mode == "prove":
-        command.append("--require-uefi-exit-boot-services")
+        command.append("--require-uefi-kernel-entry")
     return command
 
 
@@ -317,7 +328,11 @@ def print_header(
     print(f"UEFI proof mode: {uefi_mode}", file=stdout)
     print("local VM: refused; this helper dispatches GitHub Actions only", file=stdout)
     print(
-        "artifact policy: status-only downloads; no WADs, disk images, screenshots, or raw audio",
+        "artifact policy: status-only downloads; no WADs, disk images, screenshots, raw audio, logs, secrets, one-time codes, or non-JSON UEFI proof payloads",
+        file=stdout,
+    )
+    print(
+        "runtime fields: biosboot/biosflags/biosentry/biosspan, execmap, pcmdev, faultsrc/faultmode/faultcontain plus pf/regs/segs/proc, kblock/ksleep, inputstat/inputpolicy/inputdev/inputdevices/inputmods",
         file=stdout,
     )
 
@@ -332,7 +347,7 @@ def main(
 ) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Dispatch OS smoke, Real WAD smoke, and UEFI loader proof for one "
+            "Dispatch OS smoke, Real WAD smoke, and UEFI kernel-entry proof for one "
             "exact main commit, then validate status-only artifacts."
         )
     )
@@ -341,13 +356,21 @@ def main(
     parser.add_argument(
         "--commit",
         default="",
-        help="exact commit to require. Defaults to git rev-parse <ref>^{commit}.",
+        help=(
+            "full 40-character pushed commit SHA to require. Defaults to "
+            "git rev-parse <ref>^{commit}; post-push runs should pass the "
+            "pushed main SHA explicitly."
+        ),
     )
     parser.add_argument(
         "--real-wad-lane",
         choices=REAL_WAD_LANES,
-        default="gameplay",
-        help="Real WAD smoke lane to request",
+        default="full",
+        help=(
+            "Real WAD smoke lane to request. Defaults to full so the post-merge "
+            "gate requires gameplay, audible audio, and save/load persistence "
+            "evidence for the exact commit."
+        ),
     )
     parser.add_argument("--save-slot", default=DEFAULT_SAVE_SLOT, help="DOOMSAV slot, 0..5")
     parser.add_argument(
@@ -380,7 +403,7 @@ def main(
     try:
         refuse_local_vm(effective_env, local=args.local)
         save_slot = validate_save_slot(args.save_slot)
-        commit = args.commit or resolve_commit(args.ref)
+        commit = validate_exact_commit(args.commit or resolve_commit(args.ref))
         plans = build_plans(
             ref=args.ref,
             commit=commit,

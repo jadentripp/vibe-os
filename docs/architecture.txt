@@ -13,34 +13,56 @@ judged on what it actually does.
 
 The boot path uses no GRUB, Multiboot, UEFI loader, or host OS runtime.
 `boot/stage1.asm` is a 512-byte MBR sector. BIOS loads it at `0x7c00` in real
-mode, and Stage 1 uses EDD `INT 0x13 AH=0x42` to read Stage 2 from raw disk
-sectors `LBA 1-16` into `0x00008000`.
+mode, and Stage 1 uses EDD `INT 0x13 AH=0x42`, with a CHS fallback, to read
+Stage 2 from raw disk sectors `LBA 1-16` into `0x00008000`. A successful EDD
+call must report the full requested sector count; a short transfer is retried
+and then falls back to CHS instead of booting a partial Stage 2.
 
 `boot/stage2.asm` is still real-mode code when it reads the kernel. It uses the
-same EDD packet path to load the prelinked kernel ELF image from `LBA 17-272`
+same EDD packet path to load the prelinked kernel ELF image from `LBA 17-336`
 into `0x00040000`, issuing 64-sector chunks so BIOSes do not have to accept one
-oversized transfer. The FAT16 partition starts at `LBA 2048`, so the raw boot
-area and filesystem do not overlap.
+oversized transfer. Each chunk checks that BIOS returned the requested sector
+count before it advances the kernel staging pointer. The FAT16 partition starts
+at `LBA 2048`, so the raw boot area and filesystem do not overlap.
 
 Before entering the kernel, Stage 2 records the BIOS memory/video data it needs
 in the low-memory boot-info block, including an E820 memory map when firmware
 provides one. It attempts VBE linear-framebuffer setup with a Mode 13h fallback,
-enables A20 through port `0x92`, loads its own flat GDT, sets `CR0.PE`, and uses
-a far jump to enter 32-bit protected mode. The protected-mode entry sets flat
-data selectors and a temporary stack, then calls the Stage 2 ELF loader.
+enables A20 through port `0x92` or the keyboard-controller path, loads its own
+flat GDT, sets `CR0.PE`, and uses a far jump to enter 32-bit protected mode.
+The protected-mode entry sets flat data selectors and a temporary stack, then
+calls the Stage 2 ELF loader.
+
+The BIOS path also writes a compact loader-owned handoff record in the same
+boot-info block without moving the legacy memory, video, or E820 fields. The
+record carries `BIOS` magic/version/status, Stage 2 and kernel staging sector
+counts, disk-read path flags, CHS-geometry proof for CHS fallback, bounded
+E820/video/A20/GDT/protected-mode/ELF program-header validation flags, the final
+ELF entry, and the number of loaded `PT_LOAD` segments. Stage 2 validates that
+record once in real mode before A20/GDT/CR0 and again after the protected-mode
+ELF loader, before it marks the loader status as OK and jumps to the kernel. The
+kernel consumes that record before normal subsystem init and reports it in smoke
+status as `biosboot=`, `biosflags=`, `biosentry=`, and `biosspan=`;
+`biosboot=OK` requires the expected loader status, the expected raw sector
+spans, an EDD or CHS kernel read, EDD-present proof for EDD reads, CHS geometry
+proof for CHS reads, exactly one VBE LFB or Mode 13h video handoff, bounded E820,
+A20, GDT/protected-mode entry, ELF program-header validation, entry coverage,
+and an entry equal to the linked kernel `start`. The status checker rejects
+claims where any of those flags are incoherent.
 
 ## UEFI Loader/Proof Boundary
 
 `boot/uefi/CONTRACT.txt` is a UEFI loader/proof boundary for boot-support
 claims. It defines the current `UEFI_BOOT[...]` rows for a PE/COFF loader,
 ESP/FAT kernel read, GOP framebuffer fact collection, UEFI memory map capture,
-`ExitBootServices`, the still-blocked ELF32-compatible kernel handoff, and
+`ExitBootServices`, the source-level ELF32-compatible kernel handoff, and
 separate opt-in build integration. SUPPORT[UEFI] remains unclaimed in
 `docs/architecture.txt`.
 
-The UEFI path is not part of the current Makefile image path. Today the booted
-artifact is still the BIOS raw-sector chain above; the UEFI loader/proof app is
-an opt-in artifact and does not boot the current kernel.
+The UEFI path is not part of the current Makefile image path. Today the default
+booted artifact is still the BIOS raw-sector chain above; the UEFI loader/proof
+app is opt-in and has source-level handoff code into the same ELF32 kernel, but
+it is not supported until disposable OVMF captures the kernel-owned marker.
 
 The directory has one opt-in host-only build/check slice:
 `boot/uefi/build_host_artifacts.py` assembles `loader.asm` and emits untracked
@@ -56,48 +78,78 @@ The next rung is a manual GitHub Actions OVMF loader proof, not a support claim.
 `ovmf-proof-manifest.json` plus the host artifacts; its attempt/prove modes are
 reserved for `.github/workflows/uefi-ovmf-proof.yml` on disposable Ubuntu
 runners. The manifest keeps `support_claim=unclaimed`, records
-`uefi_boot_rows_moved=true` for the intermediate loader rows, parses only
-loader-owned debugcon markers into JSON, and lists the remaining blocker: the
-64-bit UEFI to 32-bit protected-mode kernel handoff.
+`uefi_boot_rows_moved=true` for the intermediate rows, parses loader-owned and
+kernel-owned debugcon markers into JSON, and lists the remaining blocker: cloud
+proof of the kernel-owned UEFI entry marker. The loader-owned post-ExitBootServices
+marker is now bounded too: it has to report the target entry, handoff block,
+boot-info, E820 map, 32-bit trampoline, 64-bit transition stub, handoff flags,
+and loaded segment count before the checker will treat it as a real handoff
+attempt.
 
 The actual UEFI kernel handoff remains a post-playable gap until an OVMF
 artifact proves `ExitBootServices` followed by a jump into the current kernel
-and a kernel-owned entry/status marker. Host-built PE/COFF and ESP artifacts are
-not enough to claim `SUPPORT[UEFI]`.
+and captures the kernel-owned `VIBEKERN` entry/status marker. Host-built PE/COFF
+and ESP artifacts are not enough to claim `SUPPORT[UEFI]`.
 
 ## Hardware Discovery Status
 
 After the BIOS boot chain reaches the kernel, the kernel performs one bounded
-QEMU PCI config-space table build. `PCI_STATUS[QEMU_BUS0_CONFIG]` in
-`docs/architecture.txt` defines the contract: bus 0, devices 0-31, functions
-0-7 are read through `0xcf8`/`0xcfc`, and the smoke block records `pci=`,
-`pciprobe=`, `pcicount=`, `pcifirst=`, `pciid=`, `pciclass=`, `pcitabcap=`,
-`pcitabuse=`, `pciover=`, `pciapi=`, `pcilookms=`, `pcilookbr=`, and
-`pcilookmiss=`.
+QEMU PCI config-space table build. `PCI_STATUS[QEMU_PCI_CONFIG]` in
+`docs/architecture.txt` defines the contract: buses 0-255, devices 0-31,
+functions 0-7 are read through `0xcf8`/`0xcfc`, and the smoke block records `pci=`,
+`pciprobe=`, `pcimiss=`, `pcicount=`, `pcihbus=`, `pcifirst=`, `pciid=`,
+`pciclass=`, `pcitabcap=`, `pcitabuse=`, `pciover=`, `pciclspb=`, `pcibrbus=`,
+`pcidiag=`, `pciapi=`, `pcilookms=`, `pcilookbr=`, `pcilookid=`,
+`pcilookmiss=`, `pcilookide=`, `pcilookahci=`, `pcilookaud=`, and `pcilookhda=`.
 
-That table is not a boot dependency and not general PCI bus/device/function
-enumeration. It exposes a status-only read-only lookup boundary for future
-drivers, but it does not walk bridges, attach AHCI or USB drivers, or change the
+That table is not a boot dependency. General PCI discovery is status-only.
+It exposes a read-only lookup boundary for future drivers, but it does not walk
+PCI-to-PCI bridge windows, attach AHCI, HDA, or USB drivers, or change the
 current BIOS/IDE/PS2/VBE/SB16 support boundary.
 
 ## ELF Handoff
 
 The kernel is not treated as a raw sector blob. Stage 2 checks the ELF magic,
 class, endianness, executable type, i386 machine, and 32-byte program-header
-size. It walks `PT_LOAD` program headers, rejects `p_memsz < p_filesz`, copies
-file bytes to the segment physical address, zeros the BSS tail, and jumps to the
-ELF entry point. The linked kernel entry is currently `0x00010000`.
+size. It bounds the program-header table within the staged 160 KiB ELF window,
+walks `PT_LOAD` program headers, requires page alignment and matching physical
+and virtual destinations, rejects `p_memsz < p_filesz`, copies file bytes to the
+segment physical address, zeros the BSS tail, requires the ELF entry to land in
+a loaded segment, records that entry in boot-info, and jumps to it. The linked
+kernel entry is currently `0x00010000`. The protected-mode handoff check refuses
+to jump if the boot-info sector spans, disk path flags, video flag, E820/A20/GDT
+flags, ELF validation flags, entry, or loaded-segment count do not agree.
 
 The loader is intentionally small. It does not resolve relocations at boot; the
 repo linker resolves them ahead of time. Build and host tests enforce the raw
-windows: Stage 2 must fit in 8 KiB and the kernel ELF must fit in 128 KiB.
+windows: Stage 2 must fit in 8 KiB and the kernel ELF must fit in 160 KiB.
 
 ## Paging Reality
 
 The kernel enables 32-bit paging after its own GDT, IDT, PIC, PIT, and boot data
 are initialized. The base kernel page directory keeps the first 32 MiB
 identity-mapped with supervisor writable PTEs. This is deliberate early-OS
-plumbing; the kernel is not higher-half or position-independent yet.
+plumbing; the kernel has a checked higher-half alias mainline now, but it is
+not higher-half relocated or position-independent yet.
+
+The PMM now treats the BIOS E820 map as the source of truth for the live managed
+window inside that fixed bitmap ceiling. The kernel revalidates the Stage 2 E820
+buffer before trusting it, so `e820map=<ptr>/<end>/<ok>` has to fit inside the
+bounded boot handoff area. Usable E820 entries establish `pmmwin=<start>/<end>`
+and mark free frames; reserved, ACPI, bad, and unknown entries are scanned
+separately and then applied after the usable pass so non-usable ranges win over
+overlaps. The legacy INT 15h size remains only a fallback when E820 is absent or
+malformed. Status fields `e820sz=`, `e820map=`, `e820use=`, `e820res=`,
+`pmmmap=`, `pmmguard=`, `pmmuse=`, `pmmtype=`, `pmmchk=`, `pmmalloc=`,
+`pmmdeny=`, `uguard=`, `vmmguard=`, `pmmdma=`, and `pmmio=` expose the entry
+stride, bounded handoff, usable/reserved accounting, bitmap ceiling, live
+free/used totals, rescanned frame-state counts, allocator round-trip proof,
+low/kernel/user/DMA/MMIO exclusion checks, guard-page PTE probes, ISA DMA buffer
+range, and framebuffer MMIO mapping facts without claiming arbitrary physical
+hardware support. The frame bitmap keeps reserved
+frames distinct from PMM-allocated frames, so `pmm_free_page` cannot turn
+firmware-reserved, DMA, MMIO, or fixed kernel/user windows back into allocatable
+memory.
 
 The VMM does now have a source-level higher-half contract for the next step:
 `KERNEL_HIGHER_HALF_BASE` is `0xc0000000`, and a host-checked self-test maps
@@ -108,18 +160,35 @@ test frame. The smoke status now reports `vmmhi=OK`, `vmmhva=`, `vmmhpa=`,
 `vmmhpt=`, and `vmmhfree=` so status-only artifacts show the high virtual alias,
 the non-identity PMM frame, the dynamic page-table frame, and the page-table
 frame reclaimed after unmap. The kernel also records the relocation scaffold as
-`kreloc=LOW` with `krelocstep=HIEXEC_TMP`, `kerneip=`, `kernesp=`, `kerncr3=`,
-`kernvirt=`, and `kernphys=`. Today those fields prove the opposite of full
-relocation: the current long-lived kernel instruction pointer and stack are
-still low, `kerncr3=00090000` names the low kernel page directory, and
-`kernvirt=00010000` matches `kernphys=00010000`.
+`kreloc=HIGH` with `krelocstep=KPMAIN_HIGH`, `kerneip=`, `kernesp=`, `kerncr3=`,
+`kernvirt=`, and `kernphys=`. `khmain=OK` with `khmspan=`, `khmxlat=`, and
+`khmpte=` adds the live-mainline proof: two separate higher-half `EIP`/`ESP`
+captures, the active `CR3`, high `TSS.esp0`, the higher-half IDT gate bias, and
+the actual high PDE/PTE translations for those instruction and stack addresses
+must all agree. Together those fields prove the boot body crosses into the
+persistent higher-half text/stack aliases and remains there through later kernel
+initialization. The remaining bootstrap dependency is still visible:
+`kerncr3=00090000` names the low kernel page directory and `kernphys=00010000`
+remains the low physical backing for `kernvirt=C0010000`. The smoke field
+`klowid=` records the low linked kernel entry identity policy/probe from the
+live low PTE; current artifacts report it as retained and present, which is why
+this is still `kreloc=HIGH`, not `kreloc=OK`. The newest narrowing field is
+`kreldir=OK` with `kreldirx=` and `kreldirp=`. It proves the kernel has built a
+PMM-backed candidate relocation page directory that keeps the persistent
+higher-half text and stack mappings while leaving the low linked-entry identity
+PDE/PTE absent. `krelive=OK` with `krelivex=` and `krelivep=` is the next rung:
+a bounded high-half trampoline actually loads that candidate into `CR3`, runs
+with the low identity translation absent, writes proof through a higher-half data
+alias, and switches back. That is live switch evidence, but only for a tiny
+trampoline; the long-lived `kerncr3=` value is still the bootstrap page
+directory.
 The next-step kernel-text alias is separate: `kmap=OK`, `kmapva=`, `kmappa=`,
 `kmappt=`, `kmapfree=`, `kmaplo=`, and `kmaphi=` prove the VMM can temporarily
 map the current low kernel entry page at its higher-half alias, read matching
 nonzero bytes through the low and high addresses, and reclaim the dynamic page
 table after unmap. That proves the mapper can build high, non-identity kernel
 mappings after PMM is online and gives future relocation checks stable fields to
-tighten, but it does not relocate the running kernel yet.
+tighten, but it is separate from the later persistent high-mainline transition.
 
 The next executable step is a transient high-trampoline proof:
 `KERNEL_RELOCATION_GAP[current]=temporary-high-exec-trampoline`. After the VMM
@@ -139,7 +208,8 @@ high-stack write, low `khiret=` to prove this is still a temporary trampoline
 that returns to the low caller, `khicr3=00090000` while the mainline kernel is
 still on the bootstrap page directory, and `khifree=` to match the dynamic
 `khipt=` page table reclaimed after unmap. `khiexec=OK` is not a kernel
-relocation claim; `krelocstep=HIEXEC_TMP` is the honest intermediate state.
+relocation claim; it is the throwaway execution rung before the persistent
+high-exec proof.
 
 The durable preparation step is now a persistent high-alias map:
 `KERNEL_RELOCATION_GAP[current]=persistent-high-alias-window`. After the
@@ -150,13 +220,28 @@ fixed probe, preempt-probe, Doom, and generic process page directories, so the
 alias is present when the kernel runs under those address spaces. Status reports
 this as `kpmap=OK`, `kpva=`, `kppa=`, `kppages=`, `kppt=`, `kpcr3=`, `kpdirs=`,
 `kpxlat=`, `kplast=`, `kplo=`, `kphi=`, `kpsva=`, `kpspa=`, `kpspages=`, and
-`kpsxlat=`. The checker requires non-identity virtual/physical pairs, a
+`kpsxlat=`. The next bounded call through that persistent window reports
+`kpexec=OK`, `kpeip=`, `kpesp=`, `kpecr3=`, `kpeva=`, `kpepa=`, `kpestk=`,
+`kpestkpa=`, `kpexlat=`, `kpesxlat=`, `kpeslot=`, `kpeslotpa=`, `kpesword=`,
+and `kperet=`. The checker requires non-identity virtual/physical pairs, a
 PMM-managed persistent page table, page-table translations for the first and
 last text pages, a full kernel-stack alias translation, matching low/high text
 bytes, and `kpdirs=0000003f` to prove the high PDE reached every fixed process
-page directory. `kpmap=OK` still is not a relocation claim; it proves that the
+page directory. `kpexec=OK` must capture a higher-half instruction pointer and
+stack, the low bootstrap `CR3`, translated persistent text/stack backing, a
+high-stack write of `4B504558`, and a low `kperet=` back to the caller.
+`kpmap=OK` and `kpexec=OK` still are not relocation claims; they prove that the
 non-identity higher-half text and stack aliases persist beyond a throwaway
 self-test.
+
+The next bounded executable rung uses that persistent map: `kpexec=OK`,
+`kpeip=`, `kpesp=`, `kpecr3=`, `kpeva=`, `kpepa=`, `kpestk=`, `kpestkpa=`,
+`kpexlat=`, `kpesxlat=`, `kpeslot=`, `kpeslotpa=`, `kpesword=`, and `kperet=`
+prove the kernel can call a small routine through the persistent higher-half
+text alias on a persistent higher-half stack alias, observe the expected
+high-stack write, and return to the low identity caller. `kpexec=OK` is not a
+kernel relocation claim; it proves the persistent alias is executable before the
+long-lived kernel entry, interrupt path, and stack move there.
 
 The status proof is now executable. `tools/check_vm_status_proof.py
 --require-exec status.txt` requires that `vmmhfree` match the reclaimed dynamic
@@ -164,29 +249,34 @@ page table, that the Doom handoff report `argvsrc=2`, that `uexec=OK` and
 `upath=USERPROB.ELF` prove the boot probe used the same exec resolver, that
 `abiexec=OK`, `abipath=ABIPROBE.ELF`, and `abiprobe=OK` prove the packaged ABI
 probe executed through a generic root `.ELF` slot before Doom, and that
-`procpool=`, `fdexec=`, `fdup=`, `wait=`, and `vmreap=` expose bounded slot
-reuse, exec-time fd inheritance, shared-offset fd duplication, the wait/reap
-proof, and child VM teardown during reap. Real-WAD gameplay lanes also pass
+`procpool=`, `fdexec=`, `fdup=`, `kblock=`, `ksleep=`, `wait=`, and `vmreap=` expose bounded slot
+reuse, exec-time fd inheritance, shared-offset fd duplication, kernel sleep,
+the wait/reap proof, and child VM teardown during reap. Real-WAD gameplay lanes also pass
 `--require-preempt`; that mode requires `pmask` plus
 `pkind`/`peip`/`pcr3`/`pkstk` to show IRQ switches in both directions between
 Doom and the preempt probe with distinct address spaces and kernel stacks. The
 `pframe` field must also match the last rewritten Ring 3 `iretd` target frame,
-so the preemption proof is not satisfied by scheduler accounting alone. It is a
-cloud artifact checker, not a claim that the running kernel has already moved to
-higher-half virtual addresses.
+`psegs` must show restored Ring 3 DS/ES/FS/GS selectors, and `peflags` must show
+sanitized user EFLAGS, so the preemption proof is not satisfied by scheduler accounting alone. It is a cloud artifact
+checker, not a claim that the running kernel has already moved to higher-half
+virtual addresses.
 
 ## Higher-Half Relocation Gap
 
 `KERNEL_RELOCATION_GAP[current]=high-alias-only` is the older baseline; the
 stronger current slices are
-`KERNEL_RELOCATION_GAP[current]=temporary-high-exec-trampoline` and
-`KERNEL_RELOCATION_GAP[current]=persistent-high-alias-window`. The current proof
-combines the dynamic high-alias self-test above with a low-identity relocation
+`KERNEL_RELOCATION_GAP[current]=temporary-high-exec-trampoline`,
+`KERNEL_RELOCATION_GAP[current]=persistent-high-alias-window`, and
+`KERNEL_RELOCATION_GAP[current]=persistent-high-mainline`.
+`KERNEL_RELOCATION_GAP[current]=candidate-relocation-page-directory`.
+`KERNEL_RELOCATION_GAP[current]=bounded-relocation-cr3-switch`. The current proof
+combines the dynamic high-alias self-test above with a high-alias mainline
 scaffold and process page-directory proof: `vmmhi=OK` shows `VMM_HIGH_TEST_VADDR`
 at `0xc0000000` can be mapped to a distinct PMM-managed frame and then unmapped,
-`kreloc=LOW` plus `krelocstep=HIEXEC_TMP`, `kerneip=`, `kernesp=`, `kerncr3=`,
-`kernvirt=`, and `kernphys=` make the current running-kernel identity state
-machine-readable, `kmap=OK` plus `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`,
+`kreloc=HIGH` plus `krelocstep=KPMAIN_HIGH`, `kerneip=`, `kernesp=`, `kerncr3=`,
+`kernvirt=`, `kernphys=`, `khmain=OK`, `khmspan=`, `khmxlat=`, and `khmpte=`
+make the current high-alias execution state machine-readable, `kmap=OK` plus `kmapva=`,
+`kmappa=`, `kmappt=`, `kmapfree=`,
 `kmaplo=`, and `kmaphi=` prove the current kernel entry page can be aliased high
 without being executed there, `khiexec=OK` plus `khieip=`, `khiesp=`,
 `khicr3=`, `khiva=`, `khipa=`, `khistk=`, `khistkpa=`, `khipt=`, `khifree=`,
@@ -197,23 +287,41 @@ caller, and then reclaim its dynamic page table, `kpmap=OK` plus `kpva=`,
 `kppa=`, `kppages=`, `kppt=`, `kpcr3=`, `kpdirs=`, `kpxlat=`, `kplast=`,
 `kplo=`, `kphi=`, `kpsva=`, `kpspa=`, `kpspages=`, and `kpsxlat=` prove a
 persistent high mapping for the kernel text window and low kernel stack window
-across the fixed process page directories, and `pcr3=`/`pkstk=` show process
+across the fixed process page directories, `kpexec=OK` plus `kpeip=`, `kpesp=`,
+`kpecr3=`, `kpeva=`, `kpepa=`, `kpestk=`, `kpestkpa=`, `kpexlat=`, `kpesxlat=`,
+`kpeslot=`, `kpeslotpa=`, `kpesword=`, and `kperet=` prove a bounded call
+through that persistent executable alias, `kreldir=OK` plus `kreldirx=` and
+`kreldirp=` prove a candidate relocation page directory keeps the persistent
+higher-half text and stack mappings while the low linked-entry identity mapping
+is absent, `krelive=OK` plus `krelivex=` and `krelivep=` prove a bounded
+high-half trampoline can switch into that candidate directory, execute with low
+identity absent, write through high data, and switch back, and `pcr3=`/`pkstk=` show process
 switches across distinct page directories and low-memory kernel stacks. That is
 useful preparation, but `vmmhi=OK` is not a kernel relocation claim,
 `khiexec=OK` is not a kernel relocation claim, `kpmap=OK` is not a kernel
-relocation claim, and `kreloc=LOW` is explicitly the non-relocated state.
+relocation claim, `kpexec=OK` is not a full relocation claim, and `kreloc=HIGH`
+with `khmain=OK` is explicitly the persistent high-alias mainline state, not a
+live dedicated relocation-page-directory state.
 
-`KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity`. The running kernel
-is still linked at `0x00010000`, loaded by Stage 2 as an ELF32 image from low
-physical memory, and entered through the low ELF entry. Paging then loads
+`KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity`.
+`KERNEL_RELOCATION_GAP[missing]=dedicated-relocation-page-directory` is the older
+broad tracker name; its remaining live part is no longer "can we build and enter
+one at all" but "can the long-lived kernel mainline stay there."
+`KERNEL_RELOCATION_GAP[missing]=long-lived-relocation-page-directory-mainline`.
+`KERNEL_RELOCATION_GAP[missing]=low-identity-teardown`. The running
+kernel is still linked at `0x00010000`, loaded by Stage 2 as an ELF32 image from
+low physical memory, and entered through the low ELF entry. Paging then loads
 `PAGING_DIR_ADDR` into `CR3` and keeps the first 32 MiB identity mapped. The host
 contract therefore treats `kreloc=OK` as a future milestone that must prove the
-kernel is executing from higher-half virtual addresses with non-identity backing.
+kernel is executing from higher-half virtual addresses under a non-bootstrap
+relocation page directory with the low identity dependency removed or trapped.
 That future proof needs `kreloc=OK` status evidence in `kerneip=`, `kernesp=`,
-`kerncr3=`, `kernvirt=`, and `kernphys=` plus the `kmap=OK` and `kpmap=OK`
-alias fields above so host checks can distinguish a real relocated instruction
-pointer, stack, active page directory, and physical backing from the current
-low-identity scaffold and high-alias preparation.
+`kerncr3=`, `kernvirt=`, `kernphys=`, and `klowid=` plus the `kreldir=OK`,
+`kreldirx=`, `kreldirp=`, `krelive=OK`, `krelivex=`, `krelivep=`, `kmap=OK`, and
+`kpmap=OK` alias fields above so host checks can distinguish a real relocated
+instruction pointer, stack, dedicated active page directory, physical backing,
+and trapped low entry from the current low-identity scaffold and high-alias
+preparation.
 
 The checker treats preemption as a live-user-workload proof. The generated-WAD
 OS smoke intentionally runs `tools/check_vm_status_proof.py --require-exec`
@@ -283,12 +391,12 @@ IDE disk attachment, PS/2 input, PIT timer interrupts, VBE/VGA display paths, an
 an optional SB16-compatible audio device. A passing host test or build-only check
 does not prove additional hardware support.
 
-- `CURRENT_TARGET[QEMU_LEGACY_PC] status=claimed machine=qemu-legacy-pc includes=bios,ide-ata-pio,ps2-keyboard,ps2-mouse,pit,vbe-vga,sb16 excludes=uefi,physical-hardware,general-pci,ahci-sata,usb-input-storage,apic-ioapic,hpet,smp,arbitrary-disk-install evidence=support-rows`
+- `CURRENT_TARGET[QEMU_LEGACY_PC] status=claimed machine=qemu-legacy-pc includes=bios,ide-ata-pio,ps2-keyboard,ps2-mouse,pit,vbe-vga,sb16 excludes=uefi,physical-hardware,acpi-tables,general-pci,ahci-sata,usb-input-storage,apic-ioapic,hpet,smp,arbitrary-disk-install evidence=support-rows`
 
 That row is the short version of the contract: QEMU BIOS/IDE/PS2/VBE/SB16 is
-the supported target; UEFI, physical hardware, general PCI, AHCI/SATA, USB
-input/storage, APIC/IOAPIC, HPET, SMP, and installation to arbitrary disks are
-outside the claim until their own proof rows change.
+the supported target; UEFI, physical hardware, ACPI tables, general PCI,
+AHCI/SATA, USB input/storage, APIC/IOAPIC, HPET, SMP, and installation to
+arbitrary disks are outside the claim until their own proof rows change.
 
 QEMU-only device-model boundary:
 
@@ -299,11 +407,11 @@ QEMU-only device-model boundary:
 - `QEMU_DEVICE_MODEL[PIT] status=claimed machine=qemu-legacy-pc device=i8254-pit proof=cloud-smoke evidence=ticks-dtick`
 - `QEMU_DEVICE_MODEL[VBE_VGA] status=claimed machine=qemu-legacy-pc device=bochs-vbe-vga proof=host-and-cloud evidence=framebuffer-status`
 - `QEMU_DEVICE_MODEL[SB16] status=claimed machine=qemu-legacy-pc device=isa-sb16 proof=status-continuity evidence=audio-status`
-- `QEMU_DEVICE_MODEL[PCI_BUS0_STATUS] status=status-only machine=qemu-legacy-pc device=pci-config-ports proof=cloud-smoke-status evidence=pci-status-fields`
+- `QEMU_DEVICE_MODEL[PCI_CONFIG_STATUS] status=status-only machine=qemu-legacy-pc device=pci-config-ports proof=cloud-smoke-status evidence=pci-status-fields`
 
 These rows are the machine-readable reason the current claim is QEMU-only. They
 name emulated device models and status fields, not interchangeable PC hardware.
-The `PCI_BUS0_STATUS` row is still diagnostics-only and does not make PCI
+The `PCI_CONFIG_STATUS` row is still diagnostics-only and does not make PCI
 enumeration, AHCI/SATA, USB, APIC, or HPET supported.
 
 Subsystem contract boundary:
@@ -320,21 +428,29 @@ Subsystem contract boundary:
   rows and proof artifacts exist.
 
 There is also a bounded PCI config-space table builder for QEMU's legacy PC
-machine model. It reads bus 0, devices 0-31, functions 0-7 through ports
-`0xcf8`/`0xcfc`, stores each present function in a fixed in-kernel
+machine model. It probes buses 0-255, devices 0-31, functions 0-7 through ports
+`0xcf8`/`0xcfc`, stores each present function that fits in a fixed in-kernel
 `packed-bdf-vendor-device-class-progif-header` table. Each entry keeps logical
 bus, device, function, vendor-id, device-id, base-class, subclass, prog-if, and
 header fields in four packed dwords. The kernel also exposes read-only lookup
-helpers for index lookup and class/subclass/prog-if lookup, and records capacity,
-usage, overflow, and lookup miss status through `pci=`, `pciprobe=`,
-`pcicount=`, `pcifirst=`, `pciid=`, `pciclass=`, `pcitable=`, `pcitabcap=`,
-`pcitabuse=`, `pciover=`, `pcilast=`, `pciclassh=`, `pcimulti=`, `pciclsms=`,
-`pciclsbr=`, `pciapi=`, `pcilookms=`, `pcilookbr=`, and `pcilookmiss=` in the
+helpers for index lookup, exact vendor/device lookup, and
+class/subclass/prog-if lookup, and records capacity, usage, overflow, and lookup
+miss status through `pci=`, `pciprobe=`, `pcimiss=`,
+`pcicount=`, `pcihbus=`, `pcifirst=`, `pciid=`, `pciclass=`, `pcitable=`,
+`pcitabcap=`, `pcitabuse=`, `pciover=`, `pcilast=`, `pciclassh=`, `pcimulti=`,
+`pciclsms=`, `pciclsbr=`, `pciclspb=`, `pcibrbus=`, `pciclsmm=`, `pcidiag=`,
+`pciapi=`, `pcilookms=`, `pcilookbr=`, `pcilookid=`, and `pcilookmiss=` in the
 smoke status block. A small status-only storage-class consumer now uses that
 same read-only lookup API to query IDE and AHCI class entries and emits
-`pcicons=`, `pcilookide=`, and `pcilookahci=`. This is still a
+`pcicons=`, `pcilookide=`, and `pcilookahci=`. The same consumer boundary now
+also queries multimedia audio and HDA class entries through `pcilookaud=` and
+`pcilookhda=`. The block-driver boundary records the active storage-controller
+class and unsupported storage-class probes through `blkctrl=` and `blkrej=`.
+This is still a
 discovery/status contract only; it does not bind or activate drivers, walk
-secondary buses, or make AHCI, USB, or broad PCI enumeration supported.
+PCI-to-PCI bridge windows beyond recording the first bridge bus register, or
+make AHCI, HDA, USB, or physical hardware
+supported.
 
 ## Matrix
 
@@ -354,7 +470,8 @@ diagnostics, not driver support, and must not be used as compatibility claims.
 | VBE/VGA | Claimed | QEMU VBE XRGB8888 LFB when available, VGA Mode 13h fallback | Cloud non-pixel status plus host framebuffer contract | Broad VBE mode matrix, GOP/UEFI framebuffer, physical GPU coverage |
 | SB16 | Claimed | QEMU ISA SB16-compatible guest device at `0x220` with status-visible IRQ/DMA/mixer counters | Status-only SB16 continuity checker; audible aggregate proof only when `audio-proof.json` passes | AC97/HDA/USB audio, physical sound cards, human-audible proof by default |
 | UEFI | Unclaimed | None | Future boot-path proof required before mention as supported | UEFI boot is not implemented; `boot/uefi/CONTRACT.txt` is a contract-only scaffold |
-| PCI enumeration | Unclaimed | None | Future disposable PCI proof plus driver consumption required before mention as supported | General PCI bus/device/function enumeration is not implemented; the bounded QEMU bus-0 table API is status-only, and AHCI or USB controllers are not used through PCI |
+| ACPI tables | Unclaimed | None | Future ACPI table-walk proof required before mention as supported | ACPI table discovery is not implemented |
+| PCI enumeration | Unclaimed | None | Future disposable PCI proof plus driver consumption required before mention as supported | General PCI discovery is status-only; the bounded QEMU PCI config table API does not bind drivers, walk bridge windows, or make AHCI, HDA, USB, or physical controllers usable |
 | AHCI/SATA | Unclaimed | None | Future AHCI/SATA storage proof required before mention as supported | AHCI/SATA native storage is not implemented |
 | USB input/storage | Unclaimed | None | Future USB HID and mass-storage proof required before mention as supported | USB input and storage are not implemented |
 | SMP | Unclaimed | None | Future multiprocessor runtime proof required before mention as supported | Multiprocessor startup and scheduling are not implemented |
@@ -371,6 +488,7 @@ diagnostics, not driver support, and must not be used as compatibility claims.
 - `SUPPORT[VBE_VGA] status=claimed scope=qemu-vbe-vga proof=host-and-cloud evidence=framebuffer-status`
 - `SUPPORT[SB16] status=claimed scope=qemu-sb16 proof=status-continuity evidence=audio-status`
 - `SUPPORT[UEFI] status=unclaimed scope=none proof=future-boot-path-proof evidence=none`
+- `SUPPORT[ACPI_TABLES] status=unclaimed scope=none proof=future-acpi-table-discovery-proof evidence=none`
 - `SUPPORT[PCI_ENUMERATION] status=unclaimed scope=none proof=future-pci-enumeration-table-proof evidence=none`
 - `SUPPORT[AHCI] status=unclaimed scope=none proof=future-ahci-sata-storage-proof evidence=none`
 - `SUPPORT[USB] status=unclaimed scope=none proof=future-usb-input-storage-proof evidence=none`
@@ -407,7 +525,7 @@ OVMF boot, or any physical machine behavior.
 
 UEFI cloud proof scaffold:
 
-- `UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH] status=scaffolded runner=github-actions-ubuntu mode=contract-attempt-prove-exitbs evidence=uefi-ovmf-proof.yml`
+- `UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH] status=scaffolded runner=github-actions-ubuntu mode=contract-attempt-prove-kernel-entry evidence=uefi-ovmf-proof.yml`
 - `UEFI_CLOUD_PROOF[OVMF_ATTEMPT] status=scaffolded runner=github-actions-ubuntu mode=manual-qemu-ovmf-debugcon evidence=ovmf-cloud-proof-script`
 - `UEFI_CLOUD_PROOF[SUPPORT_GUARD] status=guardrail runner=host-check mode=support-uefi-unclaimed evidence=check-hardware-support-matrix`
 - `UEFI_CLOUD_PROOF[ARTIFACT_POLICY] status=guardrail runner=github-actions-ubuntu mode=json-manifests-only evidence=workflow-artifact-policy`
@@ -420,35 +538,67 @@ kernel through OVMF and records a kernel-entry proof marker.
 
 Status-only hardware discovery scaffolds:
 
-- `PCI_STATUS[QEMU_BUS0_CONFIG] status=status-only scope=qemu-pci-bus0 proof=cloud-smoke-status evidence=pci-status-fields`
-- `PCI_TABLE[QEMU_BUS0_CLASS_TABLE] status=status-only scope=qemu-pci-bus0 layout=packed-bdf-vendor-device-class-progif-header capacity=256 evidence=pci-table-status-fields`
-- `PCI_TABLE_API[READ_ONLY_LOOKUP] status=status-only scope=qemu-pci-bus0 contract=kernel-maintained-read-only-table lookup=index-class-subclass-progif consumers=future-drivers evidence=pciapi-status-fields`
-- `PCI_TABLE_CONSUMER[STORAGE_CLASS_PROBE] status=status-only scope=qemu-pci-bus0 consumes=read-only-lookup lookup=ide-ahci-class drivers=none evidence=pcicons-pcilookide-pcilookahci-status-fields`
-- `PCI_TABLE_CONTRACT[QEMU_BUS0_SCAN] status=status-only bus=0 devices=32 functions=8 evidence=pci-status-fields`
+- `PCI_STATUS[QEMU_PCI_CONFIG] status=status-only scope=qemu-pci-config proof=cloud-smoke-status evidence=pci-status-fields`
+- `PCI_TABLE[QEMU_PCI_CLASS_TABLE] status=status-only scope=qemu-pci-config layout=packed-bdf-vendor-device-class-progif-header capacity=256 evidence=pci-table-status-fields`
+- `PCI_TABLE_API[READ_ONLY_LOOKUP] status=status-only scope=qemu-pci-config contract=kernel-maintained-read-only-table lookup=index-vendor-device-class-subclass-progif consumers=future-drivers evidence=pciapi-pcilookid-status-fields`
+- `PCI_TABLE_CONSUMER[STORAGE_CLASS_PROBE] status=status-only scope=qemu-pci-config consumes=read-only-lookup lookup=ide-ahci-class drivers=none evidence=pcicons-pcilookide-pcilookahci-status-fields`
+- `PCI_TABLE_CONSUMER[AUDIO_CLASS_PROBE] status=status-only scope=qemu-pci-config consumes=read-only-lookup lookup=multimedia-audio-hda-class drivers=none evidence=pcicons-pcilookaud-pcilookhda-status-fields`
+- `PCI_TABLE_CONTRACT[QEMU_PCI_SCAN] status=status-only buses=256 devices=32 functions=8 table-capacity=256 evidence=pci-status-fields`
 - `PCI_TABLE_CONTRACT[ENTRY_LAYOUT] status=status-only dwords=4 fields=bus,device,function,vendor-id,device-id,base-class,subclass,prog-if,header evidence=pci-table-status-fields`
 - `PCI_TABLE_CONTRACT[NO_DRIVER_BINDING] status=guardrail consumers=status-only drivers=none evidence=negative-claims`
+- `BLOCK_DRIVER_BOUNDARY[OPS_TABLE] status=host-checked scope=block-device contract=sector-read-write-flush-ops active=ata-pio future=ahci-nvme-usb evidence=kernel-source`
+- `BLOCK_DRIVER_BOUNDARY[PCI_STORAGE_PROBE] status=status-only scope=qemu-pci-config contract=ide-ahci-class-consumer active=ata-pio future=ahci-driver evidence=blkctrl-blkrej-status-fields`
+- `BLOCK_DRIVER_BOUNDARY[UNSUPPORTED_CONTROLLER_REJECTION] status=guardrail scope=storage-controller contract=no-silent-ahci-bind active=none future=ahci-driver evidence=blkrej-status-fields`
+- `BLOCK_DRIVER_BOUNDARY[AHCI_BAR_HBA_PROOF] status=guardrail scope=qemu-pci-config contract=bar5-mmio-hba-identify-sector-read-required active=none future=ahci-driver evidence=ahcibar-ahcireq-status-fields`
 
 The PCI table contract is intentionally narrower than a future PCI enumeration claim.
-`QEMU_BUS0_SCAN` pins the host-checkable bounds to bus 0, device slots 0-31,
-and functions 0-7. `ENTRY_LAYOUT` pins the packed table ABI, including the
+`QEMU_PCI_SCAN` pins the host-checkable bounds to buses 0-255, device slots
+0-31, functions 0-7, and a 256-entry diagnostic table cap. `ENTRY_LAYOUT` pins the packed table ABI, including the
 bus/device/function, vendor/device, class/subclass, and prog-if fields that
 later drivers would need to consume before a support claim can change.
 `PCI_TABLE_API[READ_ONLY_LOOKUP]` pins the current read-only lookup semantics:
-index lookup returns a table entry or a miss, and class/subclass/prog-if lookup
-uses explicit wildcard bytes. `PCI_TABLE_CONSUMER[STORAGE_CLASS_PROBE]` proves a
+index lookup returns a table entry or a miss, exact vendor/device lookup uses a
+separate 16-bit wildcard sentinel, and class/subclass/prog-if lookup uses
+explicit wildcard bytes. `pcilookid=` must resolve the first recorded
+vendor/device pair back to `pcifirst=`, proving the table can be reused for ID
+facts as well as class facts. `PCI_TABLE_CONSUMER[STORAGE_CLASS_PROBE]` proves a
 kernel caller outside the scanner can consume the API for storage-class intent:
 IDE class lookup uses class `0x01`, subclass `0x01`, and wildcard prog-if, while
-AHCI lookup uses class `0x01`, subclass `0x06`, prog-if `0x01`. `NO_DRIVER_BINDING`
-keeps the current table as diagnostics only: AHCI, USB, APIC, and other future
-drivers must not be described as discovered or usable through this table until
+AHCI lookup uses class `0x01`, subclass `0x06`, prog-if `0x01`.
+`PCI_TABLE_CONSUMER[AUDIO_CLASS_PROBE]` does the same for multimedia audio
+class `0x04`, subclasses `0x01` and `0x03`, without binding AC97, HDA, or USB
+audio drivers. `NO_DRIVER_BINDING`
+keeps the current table as diagnostics only: AHCI, HDA, USB, and other future
+PCI-backed drivers must not be described as discovered or usable through this table until
 they have their own proof rows and driver code.
+
+The block layer now has a small controller-driver boundary instead of direct
+FAT-to-ATA coupling. Its active device installs read, write, and flush operation
+pointers alongside an ATA PIO ops table, while the status line reports `blkctrl=` and
+`blkrej=`. `blkctrl=` mirrors the PCI IDE and AHCI lookup results, and
+`blkrej=` is the guardrail: if a future QEMU target exposes an AHCI class device
+before an AHCI driver exists, the kernel must record it as an unsupported
+controller rather than silently claiming it as storage. This is still not AHCI
+support; it is the shape a second controller must plug into before the hardware
+matrix can change.
+
+The next AHCI-specific rung is also explicit without being a driver claim.
+`ahcibar=` records the AHCI lookup BDF, raw PCI BAR5 value, masked MMIO base,
+and BAR state. `ahcireq=` records the full future proof mask, the tiny
+discovery-only subset observed today, and guard bits for no silent AHCI binding,
+unsupported-controller rejection, and ATA-only installed ops. A real AHCI row
+cannot turn green until the driver consumes BAR5, resets the HBA, discovers a
+SATA port, identifies the disk, reads sectors with the IDE path disabled for
+that proof, and keeps normal block read/write/flush callers behind the same
+ops table.
 
 Claimed hardware status proof counters:
 
+- `STATUS_PROOF[PIT] status=required scope=qemu-pit fields=clocksrc,clockirq,clocktick,clockhz,clockms,clockdoom,clocksch,clockpirq,irqctl,apic,hpet evidence=clock-status`
 - `STATUS_PROOF[IDE_ATA_PIO] status=required scope=qemu-ide fields=ata,ataop,atawait,atalba,atastat,ataerr,atafail,atatmo evidence=status.txt`
-- `STATUS_PROOF[PS2_KEYBOARD] status=required scope=qemu-ps2 fields=inputqueue,inputpoll,inputlast,keyirq,keyqueue,keypoll,keyseen,keylast evidence=status-after-key-phases`
-- `STATUS_PROOF[PS2_MOUSE] status=required scope=qemu-ps2 fields=mouse,mouseirq,mousepkt,mousepoll,mousebtn,mousedelta evidence=status-after-mouse`
-- `STATUS_PROOF[VBE_VGA] status=required scope=qemu-vbe-vga fields=gfx,fb,fbpolicy,fbgeom,fbdirty,doompresent,doompal,doomframe,doomnonzero,doomcolors evidence=framebuffer-status`
+- `STATUS_PROOF[PS2_KEYBOARD] status=required scope=qemu-ps2 fields=inputqueue,inputdepth,inputstat,inputpolicy,inputdev,inputdevices,inputmods,inputpoll,inputlast,keyirq,keyqueue,keypoll,keyseen,keylast evidence=status-after-key-phases`
+- `STATUS_PROOF[PS2_MOUSE] status=required scope=qemu-ps2 fields=inputqueue,inputdepth,inputstat,inputpolicy,inputdev,inputdevices,inputmods,inputpoll,inputlast,mouse,mouseirq,mousepkt,mousepoll,mousebtn,mousedelta evidence=status-after-mouse`
+- `STATUS_PROOF[VBE_VGA] status=required scope=qemu-vbe-vga fields=gfx,fb,fbdev,fbmmio,fbinfo,fbcap,fbsrc,fbacct,fbpresent,fbpolicy,fbgeom,fbdirty,doompresent,doompal,doomframe,doomnonzero,doomcolors evidence=framebuffer-status`
 - `STATUS_PROOF[SB16] status=required scope=qemu-sb16 fields=audio,sb16,dma,play,audioirq,ack8,refill,sfxdma,musicpull,pcmbuf evidence=audio-status`
 
 These rows name the minimum aggregate status fields a disposable QEMU proof must
@@ -466,6 +616,29 @@ smoke may exit Doom with `doomrun=EXIT` and `gameplay=WAIT` before one scheduler
 quantum; that is not a hardware regression or a valid preemption proof by
 itself.
 
+IRQ/timer controller transition boundary:
+
+The current interrupt/timer controller path is still legacy PIC plus PIT, with
+status evidence such as `irqctl=PIC`, `apic=NONE`, and `hpet=NONE`. APIC,
+IOAPIC, ACPI table discovery, and HPET are future transitions, not current
+support claims.
+
+- `INTERRUPT_TIMER_BOUNDARY[LEGACY_PIC_PIT] status=active route=pic clock=pit requires=pic-unmasked-irq0-eoi proof=clock-status evidence=irqctl-clocksrc-clockirq`
+- `INTERRUPT_TIMER_BOUNDARY[ACPI_TABLES] status=future route=firmware clock=madt-hpet requires=rsdp-rsdt-xsdt-madt-hpet-checksum proof=acpi-table-walk evidence=none`
+- `INTERRUPT_TIMER_BOUNDARY[LOCAL_APIC] status=future route=lapic clock=apic-timer requires=lapic-mmio-or-msr-spurious-eoi-timer proof=lapic-status-counters evidence=none`
+- `INTERRUPT_TIMER_BOUNDARY[IOAPIC] status=future route=ioapic clock=external-irqs requires=madt-ioapic-redirection-pic-masked proof=ioapic-routed-irqs evidence=none`
+- `INTERRUPT_TIMER_BOUNDARY[HPET] status=future route=hpet clock=hpet-comparator requires=hpet-table-mmio-counter-comparator proof=hpet-status-counters evidence=none`
+
+Done for APIC means the kernel discovers CPU interrupt topology from ACPI MADT
+data, enables the Local APIC, programs IOAPIC redirection entries for at least
+timer plus keyboard or storage IRQs, masks the legacy PIC for that proof, handles
+EOI through the APIC path, and exposes counters proving the routed IRQs arrived
+through APIC rather than the old PIC. Done for HPET means the kernel discovers
+the HPET table through ACPI, validates checksums, maps HPET MMIO, reads the main
+counter, programs a comparator, and advances a generic clock source
+independently of PIT ticks. Both paths must serve the generic kernel
+clock/interrupt subsystem, not Doom-specific hooks.
+
 ## Future Proof Boundaries
 
 The `PROOF_REQUIREMENT[...]` rows define what would count before an unclaimed
@@ -475,21 +648,23 @@ than "the source contains a stub" or "QEMU still boots".
 | Future class | Minimum proof before support claim |
 | --- | --- |
 | UEFI | Build a PE32 EFI application into an ESP image, load the kernel from ESP/FAT, hand off GOP framebuffer and UEFI memory map data, call `ExitBootServices`, and boot the current kernel through OVMF in disposable cloud CI. |
+| ACPI tables | Discover RSDP, walk RSDT/XSDT, validate ACPI checksums, parse MADT and HPET table facts, and expose status counters before APIC or HPET can use firmware table data. |
 | PCI enumeration | Prove the reusable PCI device table and read-only lookup API as the primary enumeration artifact in at least one disposable QEMU PCI run, including bus/device/function, vendor/device, class/subclass/prog-if, capacity, overflow, and multifunction evidence, without promoting status-only probes into AHCI or USB drivers. |
 | AHCI/SATA | Discover an AHCI controller through PCI, map the BAR, reset the HBA, identify a SATA disk, read sectors through AHCI with the IDE path disabled for that proof, and load the WAD through that path. |
 | USB input/storage | Enumerate a USB host controller, enumerate at least one HID keyboard path and one mass-storage path, prove Doom input through USB HID, and prove WAD/file reads through USB storage with PS/2 or IDE disabled for the relevant proof. |
-| APIC | Enable Local APIC and IOAPIC, route at least timer and keyboard/storage interrupts through APIC while the legacy PIC is masked for that proof, and expose cloud status counters showing the APIC path handled the interrupts. |
+| APIC | Parse MADT Local APIC and IOAPIC records, enable Local APIC MMIO or x2APIC as appropriate, route at least timer and keyboard/storage interrupts through IOAPIC while the legacy PIC is masked for that proof, issue APIC EOIs, and expose cloud status counters showing the APIC path handled the interrupts. |
 | SMP | Parse CPU topology, start at least one application processor, install per-CPU stacks/TSS/interrupt state, run a bounded scheduler or worker proof on more than one CPU, and report per-CPU progress from a disposable `-smp` cloud run. |
-| HPET | Discover HPET through firmware tables, map the HPET MMIO block, drive a timer/comparator proof independent of PIT ticks, and show Doom time or scheduler time advancing from HPET status counters. |
+| HPET | Discover HPET through checked ACPI tables, map the HPET MMIO block, read the main counter, drive a timer/comparator proof independent of PIT ticks, and show the generic kernel clock advancing from HPET status counters. |
 | Physical hardware | Boot a disposable machine or lab PC, capture serial/status evidence plus exact hardware inventory, prove Doom reaches the same runtime gates on that exact machine, and document the exact model as supported without generalizing to broad PC compatibility. |
 
 - `PROOF_REQUIREMENT[UEFI] status=future artifact=ovmf-cloud-boot requires=pe32-esp-gop-mmap-exitbs-boot evidence=none`
+- `PROOF_REQUIREMENT[ACPI_TABLES] status=future artifact=acpi-cloud-table-walk requires=rsdp-rsdt-xsdt-madt-hpet-checksum evidence=none`
 - `PROOF_REQUIREMENT[PCI_ENUMERATION] status=future artifact=pci-cloud-class-table requires=all-bdfs-class-subclass-progif-table evidence=none`
-- `PROOF_REQUIREMENT[AHCI] status=future artifact=ahci-cloud-wad-read requires=pci-ahci-bar-identify-sata-read evidence=none`
+- `PROOF_REQUIREMENT[AHCI] status=future artifact=ahci-cloud-wad-read requires=pci-ahci-bar5-hba-identify-sector-read-no-ide-fallback evidence=none`
 - `PROOF_REQUIREMENT[USB] status=future artifact=usb-cloud-input-storage requires=host-controller-hid-mass-storage evidence=none`
 - `PROOF_REQUIREMENT[SMP] status=future artifact=smp-cloud-run requires=ap-startup-percpu-progress evidence=none`
-- `PROOF_REQUIREMENT[APIC] status=future artifact=apic-cloud-irq requires=lapic-ioapic-pic-masked evidence=none`
-- `PROOF_REQUIREMENT[HPET] status=future artifact=hpet-cloud-timer requires=acpi-hpet-mmio-comparator evidence=none`
+- `PROOF_REQUIREMENT[APIC] status=future artifact=apic-cloud-irq requires=madt-lapic-ioapic-pic-masked evidence=none`
+- `PROOF_REQUIREMENT[HPET] status=future artifact=hpet-cloud-timer requires=acpi-hpet-mmio-counter-comparator evidence=none`
 - `PROOF_REQUIREMENT[PHYSICAL_HARDWARE] status=future artifact=disposable-hardware-run requires=machine-inventory-status-reboot-capture evidence=none`
 
 ## Machine-Checked Negative Claims
@@ -498,7 +673,8 @@ These rows make unsupported hardware claims explicit. While they are active,
 docs and tests may discuss the class only as unclaimed/future/unsupported.
 
 - `NEGATIVE_CLAIM[UEFI] status=active scope=boot claim=no-uefi-boot evidence=boot-uefi-contract`
-- `NEGATIVE_CLAIM[PCI_ENUMERATION] status=active scope=kernel claim=no-general-pci-enumeration evidence=status-only-qemu-bus0`
+- `NEGATIVE_CLAIM[ACPI_TABLES] status=active scope=firmware claim=no-acpi-table-parser evidence=hardcoded-poweroff-only`
+- `NEGATIVE_CLAIM[PCI_ENUMERATION] status=active scope=kernel claim=no-general-pci-enumeration evidence=status-only-qemu-pci-config`
 - `NEGATIVE_CLAIM[AHCI] status=active scope=storage claim=no-ahci-sata-driver evidence=ide-only-storage`
 - `NEGATIVE_CLAIM[USB] status=active scope=input-storage claim=no-usb-input-or-storage-stack evidence=ps2-ide-only`
 - `NEGATIVE_CLAIM[SMP] status=active scope=cpu claim=no-multiprocessor-runtime evidence=single-cpu-kernel`
@@ -509,14 +685,15 @@ docs and tests may discuss the class only as unclaimed/future/unsupported.
 ## Next Hardware-Class Unlock
 
 - `NEXT_UNLOCK[PCI_ENUMERATION] priority=first scope=qemu-pci proof=cloud-class-table evidence=none`
-- `NEXT_IMPLEMENTATION_CONTRACT[PCI_DRIVER_TABLE_API] status=host-checked scope=qemu-pci requires=read-only-index-class-progif-lookup proof=host-check-plus-cloud-status unlocks=ahci-sata,usb,apic evidence=pciapi-status-fields`
+- `NEXT_IMPLEMENTATION_CONTRACT[PCI_DRIVER_TABLE_API] status=host-checked scope=qemu-pci requires=read-only-index-id-class-progif-lookup proof=host-check-plus-cloud-status unlocks=ahci-sata,usb,hda-audio evidence=pciapi-pcilookid-status-fields`
 
 PCI enumeration is the next implementable hardware-class unlock. It is the
 lowest-risk bridge from today's status-only config-space table toward future
-AHCI, USB, APIC, and real-device work. The current implementation already
-produces a reusable in-kernel bus-0 PCI table, records class/subclass/prog-if
-data for every present function, tracks capacity/overflow state, and exposes
-read-only index plus class/subclass/prog-if lookup helpers. The next rung now
+AHCI, USB, HDA-audio, and real-device work. The current implementation already
+produces a reusable in-kernel PCI table, records vendor/device and
+class/subclass/prog-if data for every present function, tracks capacity/overflow
+state, and exposes read-only index, exact vendor/device, and
+class/subclass/prog-if lookup helpers. The next rung now
 has a status-only kernel consumer that queries IDE and AHCI storage-class
 entries through those helpers and reports `pcicons=`, `pcilookide=`, and
 `pcilookahci=`. Even so,
@@ -526,10 +703,11 @@ consumes it under its own proof boundary. AHCI and USB must stay unclaimed until
 their own drivers consume that table and pass their required proof rows.
 
 The driver-table contract is deliberately small and now host-checked: future
-AHCI, USB, or APIC drivers should share the same read-only table and lookup
-helpers instead of each inventing its own config-space scan. That API boundary is
-status-only today; it is not a storage, input, interrupt, or broad PCI support
-claim.
+AHCI, USB, or HDA drivers should share the same read-only table and lookup
+helpers instead of each inventing its own config-space scan. APIC and HPET are
+different: their next legitimacy step starts with ACPI MADT/HPET table parsing,
+not PCI config-space lookup. Both API boundaries are status-only today; neither
+is a storage, input, interrupt, timer, or broad PC support claim.
 
 ## Rules For New Claims
 
@@ -544,11 +722,11 @@ claim.
 - Physical hardware support requires explicit hardware proof notes. QEMU evidence
   alone can only claim the matching QEMU device model.
 - PCI status and table fields are not a PCI support claim. They prove only that
-  the kernel ran the bounded QEMU bus-0 config-space scan, populated the fixed
+  the kernel ran the bounded QEMU PCI config-space scan, populated the fixed
   `packed-bdf-vendor-device-class-progif-header` table, exposed the read-only
-  lookup helpers, and recorded table summaries in status-only diagnostics. A
-  future PCI claim needs a new `SUPPORT[...]` row boundary or an update to
-  `SUPPORT[PCI_ENUMERATION]`.
+  lookup helpers, and recorded exact ID plus storage/audio class lookup summaries in
+  status-only diagnostics. A future PCI claim needs a new `SUPPORT[...]` row
+  boundary or an update to `SUPPORT[PCI_ENUMERATION]`.
 - Compatibility language should name the device class and proof boundary. Use
   "QEMU BIOS/IDE/PS2/VBE/SB16 target" for the current scope, not "PC hardware
   support" or "real hardware support".
@@ -601,7 +779,13 @@ Process page directories are still preallocated and cloned from the boot kernel
 map.
 
 `tools/check_vm_status_proof.py` is the cloud status ratchet for this layer. It
-rejects status artifacts unless `vmmhfree` equals the dynamic `vmmhpt` frame,
+rejects status artifacts unless `pmmuse=` balances the E820-clipped managed
+window, `e820map=` proves the kernel accepted a bounded firmware map handoff,
+`pmmtype=` plus `pmmchk=OK` prove the live frame bitmap still matches the PMM
+counters, `pmmalloc=` proves the PMM self-test returned its page, `pmmdeny=`
+proves reserved low/kernel/user/DMA/MMIO pages are not allocatable, `vmmguard=`
+proves every explicit guard PTE stayed not-present, `vmmhfree` equals the dynamic
+`vmmhpt` frame,
 the high alias is backed by a distinct PMM-managed physical frame,
 `khiexec=OK` proves a bounded higher-half trampoline with high `khieip=` and
 `khiesp=` values, non-identity `khiva=`/`khipa=` and `khistk=`/`khistkpa=`
@@ -616,27 +800,37 @@ the Doom launch used `argvsrc=2` from a user argv-vector exec path,
 `upath=USERPROB.ELF` prove the initial probe also came through the exec
 resolver, `abiexec=OK`, `abipath=ABIPROBE.ELF`, and `abiprobe=OK` prove a
 second root-level freestanding program ran in a generic exec slot before Doom,
-`procpool=`, `fdexec=`, `fdup=`, `wait=`, and `vmreap=` prove bounded slot
+`procpool=`, `fdexec=`, `fdup=`, `kblock=`, `ksleep=`, `wait=`, and `vmreap=` prove bounded slot
 reuse, exec-time fd inheritance, shared-offset fd duplication, a userland
-wait/reap path, child VM teardown during reap, and fault statuses that can be
+sleep path, a userland wait/reap path, child VM teardown during reap, and fault statuses that can be
 reaped instead of staying stale, and
-`pmask`, `pfrom`/`pto`, `pkind`, `peip`, `pcr3`, `pkstk`, and `pframe`
-show timer-driven switches in both directions between Doom and the preempt
-probe with distinct process identities, address spaces, kernel stacks, and a
-rewritten Ring 3 IRQ return frame. The checker ties those process IDs back to
-the Doom exec target PID and the seeded wait/reap child PID, so a stale static
-slot number is not enough to prove preemption after exec.
+`pmask`, `pfrom`/`pto`, `pkind`, `peip`, `pcr3`, `pkstk`, `pframe`, and
+`psegs`/`peflags` show timer-driven switches in both directions between Doom and the
+preempt probe with distinct process identities, address spaces, kernel stacks, a
+rewritten Ring 3 IRQ return frame, restored user data segments, and sanitized
+user EFLAGS. The checker
+ties those process IDs back to the Doom exec target PID and the seeded wait/reap
+child PID, so a stale static slot number is not enough to prove preemption after
+exec.
 
 ## Higher-Half Relocation Gap
 
 `KERNEL_RELOCATION_GAP[current]=high-alias-only` remains the historical
 baseline name; the active stronger contracts are
-`KERNEL_RELOCATION_GAP[current]=temporary-high-exec-trampoline` and
-`KERNEL_RELOCATION_GAP[current]=persistent-high-alias-window`. The VM/process proof currently
-has six separate pieces: `vmmhi=OK` proves a temporary high virtual alias
-backed by a distinct PMM-managed frame, `kreloc=LOW` with
-`krelocstep=HIEXEC_TMP`, `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and
-`kernphys=` proves the running kernel is still on the low identity contract,
+`KERNEL_RELOCATION_GAP[current]=temporary-high-exec-trampoline`,
+`KERNEL_RELOCATION_GAP[current]=persistent-high-alias-window`, and
+`KERNEL_RELOCATION_GAP[current]=persistent-high-mainline`.
+`KERNEL_RELOCATION_GAP[current]=candidate-relocation-page-directory`.
+`KERNEL_RELOCATION_GAP[current]=bounded-relocation-cr3-switch`. The VM/process proof currently
+has ten separate pieces: `vmmhi=OK` proves a temporary high virtual alias
+backed by a distinct PMM-managed frame, `kreloc=HIGH` with
+`krelocstep=KPMAIN_HIGH`, `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and
+`kernphys=` proves the long-lived kernel has crossed into the persistent
+higher-half text/stack aliases while still using the bootstrap page directory,
+`klowid=` exposes the retained low-entry identity mapping, `khmain=OK` with
+`khmspan=`, `khmxlat=`, and `khmpte=` proves two live higher-half mainline
+checkpoints plus high `TSS.esp0`, higher-half IDT gate ownership, and live
+PDE/PTE translations for the high code and stack addresses,
 `kmap=OK` with `kmapva=`, `kmappa=`,
 `kmappt=`, `kmapfree=`, `kmaplo=`, and `kmaphi=` proves the current kernel entry
 page can be temporarily read through a higher-half alias with its page table
@@ -649,29 +843,47 @@ table, `kpmap=OK` with `kpva=`, `kppa=`, `kppages=`, `kppt=`,
 `kpcr3=`, `kpdirs=`, `kpxlat=`, `kplast=`, `kplo=`, `kphi=`, `kpsva=`,
 `kpspa=`, `kpspages=`, and `kpsxlat=` proves a persistent higher-half alias for
 the kernel text and low kernel stack windows across the fixed process page
-directories, and process status fields such as `pcr3=`, `pkstk=`, `pfrom=`, and
+directories, `kpexec=OK` with `kpeip=`, `kpesp=`, `kpecr3=`, `kpeva=`, `kpepa=`,
+`kpestk=`, `kpestkpa=`, `kpexlat=`, `kpesxlat=`, `kpeslot=`, `kpeslotpa=`,
+`kpesword=`, and `kperet=` proves a bounded call through that persistent
+higher-half execution path, `kreldir=OK` with `kreldirx=` and `kreldirp=`
+proves a PMM-backed candidate relocation page directory preserves the high text
+and stack mappings while omitting the low entry identity mapping, `krelive=OK`
+with `krelivex=` and `krelivep=` proves a bounded high-half trampoline enters
+that candidate directory, executes with low identity absent, writes proof
+through high data, and returns to the bootstrap directory, and process status fields such as `pcr3=`, `pkstk=`, `pfrom=`, and
 `pto=` prove user process switches across distinct page directories and kernel
-stacks. Those fields do not prove that kernel data, the long-lived active
-instruction pointer/stack pointer, or the interrupt/return path are executing
-from non-identity higher-half addresses.
+stacks. Those fields now prove the long-lived active instruction pointer and
+stack pointer can persist in the higher-half alias, but they do not prove a
+long-lived switch to that relocation page directory, global low-identity
+teardown, higher-half kernel data references, or fully high interrupt/return
+ownership.
 
 `vmmhi=OK` is not a kernel relocation claim.
 `kmap=OK` is not a kernel relocation claim.
 `khiexec=OK` is not a kernel relocation claim.
 `kpmap=OK` is not a kernel relocation claim.
-`krelocstep=HIEXEC_TMP` is not a full relocation claim.
-`kreloc=LOW` is not a relocation success claim.
+`kpexec=OK` is not a full relocation claim.
+`krelocstep=KPMAIN_HIGH` is not a full relocation claim.
+`kreloc=HIGH` is not a full relocation success claim.
 
-`KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity`. Until a future
+`KERNEL_RELOCATION_GAP[missing]=running-kernel-non-identity`.
+`KERNEL_RELOCATION_GAP[missing]=dedicated-relocation-page-directory` is the older
+broad tracker name; its remaining live part is keeping the mainline there.
+`KERNEL_RELOCATION_GAP[missing]=long-lived-relocation-page-directory-mainline`.
+`KERNEL_RELOCATION_GAP[missing]=low-identity-teardown`. Until a future
 artifact reports `kreloc=OK` with `krelocstep=FULL` and host-checked
-`kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, `kernphys=`, `kmap=OK`,
+`kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, `kernphys=`, `klowid=`,
+`kreldir=OK`, `kreldirx=`, `kreldirp=`, `krelive=OK`, `krelivex=`,
+`krelivep=`, `khmxlat=`, `khmpte=`, `kmap=OK`,
 `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, `kmaphi=`,
 `khiexec=OK`, `khieip=`, `khiesp=`, `khicr3=`, `khiret=`, `kpmap=OK`, `kpva=`, `kppa=`,
 `kppages=`, `kppt=`, `kpcr3=`, `kpdirs=`, `kpxlat=`, `kplast=`, `kplo=`,
 `kphi=`, `kpsva=`, `kpspa=`, `kpspages=`, and `kpsxlat=` evidence, the honest
 claim remains: the kernel can create and keep high aliases after PMM is online,
-including aliases of its current text and low stack windows, but the running
-kernel itself still lives on the low identity mapping.
+including aliases of its current text and low stack windows, and the live
+mainline executes through that high alias. It still depends on the bootstrap
+page directory and low physical backing, so it is not full relocation.
 
 This is the architecture anchor for
 `POST_PLAYABLE_GAP[FULL_KRELOC_OK]`: that row closes only when `kreloc=OK` and
@@ -704,10 +916,11 @@ reuse accounting, and fresh PIDs. They are selected at exec time from
 `process_generic_exec_slots`, so a generic utility no longer has to overwrite
 the boot probe process record. Once selected, they use the same process
 handoff machinery as table-backed Doom: target-specific stack bounds, the
-shared argv stack builder, a kernel-seeded empty `envp`, process-owned fd
+shared argv/envp stack builder, process-owned fd
 retagging for inheritable descriptors, shared open-file-description roots for
 duplicated descriptors, and `O_CLOEXEC` close-on-exec cleanup. That keeps the VM contract useful for future root-level game or tool ELFs
 instead of only proving the Doom slot.
+The status-only contract phrase is: shared argv stack builder.
 
 `process_doom` owns:
 
@@ -800,26 +1013,35 @@ be used as playability evidence.
 
 ## Guards
 
-The probe and preempt-probe processes clear not-present guard pages immediately
-before `USER_CODE_ADDR` and immediately after `USER_HEAP_END` through the
-guard-page helper, which increments the VM guard counter. Doom's post-window
-guard is the unmapped PDE after `DOOM_USER_END`. More precise stack red zones are
-still blocked by the current compact user layouts, where each process stack and
-heap are adjacent and the Doom heap grows up to the stack bottom.
+The probe, preempt-probe, and generic processes clear not-present guard pages
+immediately before `USER_CODE_ADDR`, at `USER_STACK_BOTTOM`, and immediately
+after `USER_HEAP_END` through the guard-page helper, which increments the VM
+guard counter reported as `uguard=`. Doom also clears a pre-image guard, a
+stack-bottom guard at `DOOM_USER_STACK_BOTTOM`, and the post-window guard at
+`DOOM_USER_STACK_TOP`. The kernel then probes those guard PTEs and reports
+`vmmguard=<checked>/<present-failures>`, so the status artifact distinguishes
+"we intended guards" from "the page tables still reject them." Syscall pointer
+validation now walks the actual current process PTEs after region and
+heap-bitmap checks, so guard pages and punched heap holes are rejected before
+kernel copy paths touch them.
 
 ## Remaining Gaps
 
 - The design still uses identity-mapped physical frames rather than relocating
   per-process user pages onto arbitrary PMM frames.
-- Running-kernel relocation is not implemented yet. The checked high-half proof
-  is a temporary alias, a bounded high-trampoline call, and a persistent
-  higher-half text/stack alias window, not `kreloc=OK`; `kpmap=OK`, `kpva=`,
+- Full running-kernel relocation is not implemented yet. The checked high-half
+  proof is a temporary alias, bounded high-trampoline calls, a persistent
+  higher-half text/stack alias window, and a persistent high mainline,
+  not `kreloc=OK`; `kpmap=OK`, `kpva=`,
   `kppa=`, `kppages=`, `kppt=`, `kpcr3=`, `kpdirs=`, `kpxlat=`, `kplast=`,
   `kplo=`, `kphi=`, `kpsva=`, `kpspa=`, `kpspages=`, and `kpsxlat=` prove that
-  the high aliases exist across fixed process page directories, but `kerneip=`
-  and `kernesp=` still report the low identity runtime. The missing milestone is
-  persistent non-identity higher-half kernel instruction pointer, stack pointer,
-  active relocation page directory, and physical backing.
+  the high aliases exist across fixed process page directories. `kerneip=` and
+  `kernesp=` now report the high-alias runtime, while `kerncr3=00090000` and
+  `khmxlat=`/`khmpte=` prove live high-mainline page-table translations, while
+  `kerncr3=00090000` and retained-present `klowid=` still fence the bootstrap
+  page-directory and low-identity dependencies. The missing milestone is a
+  dedicated relocation page directory with the low identity dependency removed
+  or trapped.
 - Timer IRQ preemption now has an end-to-end restore path for saved Ring 3
   interrupt frames: the scheduler can save the interrupted task, pick another
   READY task with a valid saved frame, switch CR3 through `process_activate`,
@@ -827,8 +1049,9 @@ heap are adjacent and the Doom heap grows up to the stack bottom.
   and resume it with `iretd`. The cloud status fields distinguish the source
   and target PIDs (`pfrom`/`pto`), their process kinds (`pkind`), restored EIPs
   (`peip`), selected page directories (`pcr3`), selected kernel stacks
-  (`pkstk`), the last rewritten `iretd` frame (`pframe`), timer IRQs that
-  arrived from Ring 3 (`puser`), timer-IRQ context
+  (`pkstk`), the last rewritten `iretd` frame (`pframe`), restored user segment
+  selectors (`psegs`), sanitized source/target/return-frame user EFLAGS
+  (`peflags`), timer IRQs that arrived from Ring 3 (`puser`), timer-IRQ context
   switches (`pirq`), quantum rounds (`pround`), total context activations
   (`pctx`), the bidirectional Doom/preempt-probe pair mask (`pmask`), and live
   spin progress (`pspin`). The proof checker validates those fields as a
@@ -894,13 +1117,12 @@ target instead of returning to the caller.
 
 - The syscall validates and copies a bounded user path into
   `sys_exec_path_buffer`.
-- The current ABI accepts `path`, an optional user `argv`, and zero flags.
-  Nonzero flags return `-EINVAL`. `argv == NULL` falls back to a single
-  `argv[0]` copied from the exec path; a non-null vector is copied into kernel
-  staging buffers before the old address space is replaced. The boot probe now
-  launches Doom with an explicit one-entry user `argv` vector, so the Doom exec
-  proof exercises the pointer-vector copy path instead of only the fallback
-  path.
+- The current ABI accepts `path`, an optional user `argv`, and an optional user
+  `envp`. `argv == NULL` falls back to a single `argv[0]` copied from the exec
+  path; non-null argv/envp vectors are copied into bounded kernel staging
+  buffers before the old address space is replaced. The boot probe now launches
+  `ABIPROBE.ELF` with explicit user argv/envp vectors, so the second-program
+  proof exercises both pointer-vector copy paths before the final Doom exec.
 - It asks `process_exec_path` for a table-backed target while
   `process_exec_reject_active_target` is set. This prevents reloading the image
   backing the currently running process, because a partial reload could not be
@@ -911,17 +1133,18 @@ target instead of returning to the caller.
   clobbering the boot probe record. The pool is still bounded, and a generic
   process exit path is not a full shell/scheduler handoff yet.
 - Before loading the target image, the kernel tears down stale user PTEs for the
-  target slot, restores only its writable stack window, assigns the slot a fresh
-  PID from `process_next_pid`, clears stale parent/exit/argv metadata before any
-  destructive load can fail, and increments the slot generation. Table targets
-  keep their dedicated slots, while generic root `.ELF` targets are chosen from
-  `process_generic_exec_slots` by scanning for `UNUSED` records or orphaned
-  `EXITED`/`FAULTED` records.
+  target slot, restores its normal user image window and writable stack window,
+  assigns the slot a fresh PID from `process_next_pid`, clears stale
+  parent/exit/argv metadata before any destructive load can fail, and increments
+  the slot generation. Table targets keep their dedicated slots, while generic
+  root `.ELF` targets are chosen from `process_generic_exec_slots` by scanning
+  for `UNUSED` records or orphaned `EXITED`/`FAULTED` records.
 - On success, `process_exec_handoff_current` resets the target process record
   without changing the freshly allocated PID, stores the prepared ELF entry,
   seeds `PROC_SAVED_EIP`, `PROC_SAVED_ESP`, selectors, `EFLAGS`, and
   `PROC_FLAG_IRQ_FRAME_VALID`, and writes a real `argc`, `argv[]`, `NULL`,
-  `envp NULL` stack layout from the bounded staged arguments.
+  `envp[]`, `NULL`, and auxv stack layout from the bounded staged arguments and
+  environment.
 - The target process record also stores exec metadata for later proof and
   accounting: parent PID, exec count, `argc`, `argv`, `envp`, and `argv[0]`.
   These fields are populated from the same stack builder that crt0 consumes.
@@ -932,8 +1155,10 @@ target instead of returning to the caller.
   `UNUSED`, and reports the stored exit status. Faulted children carry an
   abnormal status derived from the fault vector instead of leaking a stale zero
   exit code. `WNOHANG` is now a real nonblocking check: if a matching child is
-  live but not reapable, it returns `0`; the blocking form still returns
-  `ENOSYS` until there is a sleep queue.
+  live but not reapable, it returns `0`; the blocking form now parks the caller
+  on the kernel's generic block primitive with reason `WAITPID` and wakes it
+  when the child exits. This is still bounded to direct child waits in the fixed
+  process table, not a full POSIX wait subsystem.
 - `SYS_FORK` now implements a bounded probe-class fork for the small runtime
   path. It allocates one of the generic probe-class slots, assigns a fresh PID,
   eagerly copies present user pages into PMM-backed child frames, copies the
@@ -943,7 +1168,8 @@ target instead of returning to the caller.
   child exit path records a wait-reapable zombie so `waitpid()` can reclaim the
   cloned user mappings instead of treating fork as a counter-only event. The
   current scope is deliberately narrow: Doom and arbitrary address-space classes
-  are not fork targets, and blocking wait queues are still missing.
+  are not fork targets, and the wait queue is a small direct-child primitive
+  rather than orphan reparenting, process groups, or signal-aware waits.
   In other words, this is a real bounded fork, but it is not a full
   `fork`/`exec` split.
 - Open fd slots are now process-owned descriptors over shared open-file
@@ -966,11 +1192,13 @@ target instead of returning to the caller.
   The exact current proof phrase is fork-time descriptor table cloning.
 - The same handoff contract applies to table-backed programs and generic
   root-level `.ELF` programs. Generic userland should treat the public ABI as:
-  root-only FAT16 8.3 `.ELF` path, at most `VIBE_EXEC_ARG_MAX` argv strings,
-  each bounded by `VIBE_EXEC_ARG_STR_MAX`, an argv pointer vector copied before
-  the old address space is retired, an empty `envp` vector seeded by the
-  kernel, and inherited descriptors limited to fd slots not opened with
-  `O_CLOEXEC` or marked `FD_CLOEXEC` with `fcntl(F_SETFD)`.
+  root-only FAT16 8.3 `.ELF` path, at most `VIBE_EXEC_ARG_MAX` argv strings
+  each bounded by `VIBE_EXEC_ARG_STR_MAX`, at most `VIBE_EXEC_ENV_MAX`
+  environment strings each bounded by `VIBE_EXEC_ENV_STR_MAX`, copied argv/envp
+  pointer vectors before the old address space is retired, and inherited
+  descriptors limited to fd slots not opened with `O_CLOEXEC` or marked
+  `FD_CLOEXEC` with `fcntl(F_SETFD)`.
+  The status-only contract phrase is: `VIBE_EXEC_ENV_MAX` environment strings.
   That is the reusable contract for post-Doom games and tools.
 - The initial Ring 3 probe is loaded through `process_exec_path` and
   bootstrapped through the same stack builder before entering crt0. It receives
@@ -1003,8 +1231,9 @@ frame, selects a READY process with a valid Ring 3 frame, switches CR3 and
 return slot, and then `iretd`s to that user context. The preemption proof now
 records a bidirectional pair mask (`pmask`), source/target process IDs
 (`pfrom`/`pto`), switched process kinds (`pkind`), EIPs (`peip`), page
-directories (`pcr3`), kernel stacks (`pkstk`), and the rewritten IRQ return
-frame (`pframe`) so the cloud gate has to prove Doom/preempt-probe CR3/TSS
+directories (`pcr3`), kernel stacks (`pkstk`), the rewritten IRQ return frame
+(`pframe`), restored user segment selectors (`psegs`), and sanitized user
+EFLAGS (`peflags`) so the cloud gate has to prove Doom/preempt-probe CR3/TSS
 switches and a Ring 3 `iretd` target in both directions, not only scheduler
 counter increments. The status checker now ties those IDs to the current Doom
 exec target PID and the preempt-probe child PID recorded by the wait/reap
@@ -1034,19 +1263,22 @@ To launch that program today:
   core names, and writes each extra ELF through the same FAT16 cluster allocator
   used by the core images. `ABIPROBE.ELF` uses that hook instead of a
   special-purpose image slot.
-- From an existing user process, call `execv("ABIPROBE.ELF", argv)` or the raw
-  `SYS_EXEC` ABI with flags zero. The kernel copies the bounded argv vector
-  before retiring the caller address space, seeds an empty `envp`, assigns a
-  fresh PID, and inherits only descriptors not opened with `O_CLOEXEC`. In the
-  checked boot chain, `USERPROB.ELF` execs `ABIPROBE.ELF`; the ABI probe records
-  `abiprobe=OK` and then execs Doom, so the later Doom handoff cannot hide
+- From an existing user process, call `execve("ABIPROBE.ELF", argv, envp)` or
+  the raw `SYS_EXEC` ABI with EDX pointing at the envp vector. The kernel copies
+  the bounded argv and envp vectors before retiring the caller address space,
+  assigns a fresh PID, and inherits only descriptors not opened with
+  `O_CLOEXEC`. In the checked boot chain, `USERPROB.ELF` execs `ABIPROBE.ELF`
+  with a non-empty envp; the ABI probe validates that environment, lists and
+  reads `/ASSETS/README.TXT`, creates/truncates/deletes `/STATE/SESSION.DAT`
+  through the generic FAT syscalls, records `abiprobe=OK`, and then execs Doom
+  with the empty `execv` environment, so the later Doom handoff cannot hide
   whether the second freestanding program actually ran.
 - In the new image, consume `argc`, `argv`, and `envp` from crt0. Other images
   packaged with `--root-elf`, for example `TOOL.ELF` or `GAME.ELF`, can use
   `getpid`, `waitpid`, `clock_gettime(CLOCK_MONOTONIC)`, `open`/`read`/
   `write`/`pread`/`pwrite`/`stat`/`ftruncate`, `vibe_file_read_at`,
   `vibe_listdir`, `vibe_poll_input`, `vibe_input_status`, `vibe_fb_get_info`,
-  `vibe_present_indexed_checked`, and the `SYS_AUDIO` command records without
+  `vibe_present_indexed_checked`, `vibe_user_sleep_ticks`, and the `SYS_AUDIO` command records without
   depending on Doom source.
 
 The generic pool is reusable, but it is still small and static. Generic exec is
@@ -1061,7 +1293,12 @@ Smoke status still includes `exec=OK path=...`, and `execsys=` now reports:
 
 `attempts/successes/failures/handoffs/scheduled/rollbacks`
 
-The same status line also records `execerr=<errno>`, `execres=<syscall result>`,
+The same status line also records
+`execmap=table_resolves/generic_resolves/generic_successes/last_resolve_mode/last_success_mode/last_caller_kind/last_target_kind/last_generic_pid`.
+That field is the anti-cheat proof for this layer: `ABIPROBE.ELF` must have
+come through the generic FAT root `.ELF` resolver, and the final Doom launch
+must show a generic user process handing off to the table-backed Doom image.
+The status line also records `execerr=<errno>`, `execres=<syscall result>`,
 `target=<pid>`, `ppid=<pid>`, `entry=<eip>`, `stack=<esp>`, `argc=<n>`,
 `argv=<ptr>`, `envp=<ptr>`, `argv0=<ptr>`, `envp0=<word>`, and
 `argvsrc=<source>`. The boot-probe loader proof is separate:
@@ -1069,13 +1306,18 @@ The same status line also records `execerr=<errno>`, `execres=<syscall result>`,
 probe image used the same exec resolver before it called `SYS_EXEC`. The second
 program proof is separate again:
 `abiexec=OK abipath=ABIPROBE.ELF abipid=<pid> abippid=<pid> abientry=<eip>
-abiargc=1 abiargvsrc=2 abiprobe=OK abiflags=0000003F` records that the generic
+abiargc=1 abiargvsrc=2 abiprobe=OK abiflags=000003FF` records that the generic
 root `.ELF` resolver selected a bounded generic slot, built the crt0 stack from
 a copied user argv vector, ran `user/abi_probe.c`, and observed the probe's
-success marker before Doom was launched. It also
+success marker after non-Doom filesystem, process, input, framebuffer, and
+exec-env checks before Doom was launched. It also
 emits `procpool=slots/generic/reuses/galloc/gfail`, `pidseq=next/last_reused/generation`,
 `fdexec=handoffs/inherited/closed/owner_closes`, `fdup=dup/dup2/dup3/shared/cloexec`, and
-`wait=attempts/reaps/failures/nohang/seeded/last_pid/last_status`,
+`pstat=attempts/successes/failures/last_pid/last_parent/last_state/last_ticks`,
+  `yield=attempts/switches/noops/last_from/last_to`,
+  `kblock=attempts/transitions/wakeups/failures/last_pid/last_reason/last_object/last_woken/last_wake_reason`,
+  `ksleep=attempts/blocks/wakeups/noops/failures/last_pid/last_until/last_ticks/last_woken`, and
+  `wait=attempts/reaps/failures/nohang/seeded/last_pid/last_status/blocks/block_wakeups`,
 `waitseed=<preempt-probe-pid>`, and
 `fork=successes/failures/parent_pid/child_pid/parent_ret/child_ret/pages/fds/owned_freed/zombies`.
 It also emits `vmreap=teardowns/pages/wait_reaps/wait_pages/last_wait_pages`
@@ -1083,7 +1325,8 @@ so the cloud status contract can prove a waited child had its user mappings
 cleared before the record became reusable. A successful
 Doom launch should have zero `execerr`/`execres`, nonzero argc/argv/envp
 pointers, `envp0 == 0`, nonzero target entry/stack addresses, `argvsrc=2` for
-the user-vector path, at least one generic-slot allocation for `ABIPROBE.ELF`,
+the user-vector path, `execmap` evidence for both table-backed and generic
+root `.ELF` resolution, at least one generic-slot allocation for `ABIPROBE.ELF`,
 at least one process-slot reuse, at least one fd inherited
 across exec, a successful userland `dup`/`dup2`/`dup3` shared-offset probe,
 one close-on-exec duplicated descriptor, a userland `waitpid` reap of the
@@ -1120,15 +1363,16 @@ real-WAD proof counters.
   probe-class pool and normalizes root/current-directory prefixes, but it is not
   a full path resolver: userland can list the FAT root and stat the root
   directory, but exec cannot traverse subdirectories, long filenames,
-  interpreter/shebang handling, environment copying, or dynamically chosen
-  address-space classes.
+  interpreter/shebang handling, inherited process environments, or dynamically
+  chosen address-space classes.
 - Generic executables no longer overwrite the boot probe slot, but the pool is
   still statically sized to two process records and two prebuilt probe-style
   page directories. This is dynamic target selection, not dynamic process-table
   growth.
-- `argv` copying is intentionally bounded to a small static vector; environment
-  copying is not implemented yet, so libc exposes an empty `envp` contract and
-  `execve()` rejects non-empty environments with `ENOSYS`.
+- `argv` and `envp` copying are intentionally bounded to small static vectors.
+  This is a bounded `envp` copying contract; there is no inherited process
+  environment table, environment expansion, sanitization, or dynamic resizing
+  yet.
 - Page-table structures and process records are still static, but exec targets
   now reuse slots with fresh PIDs and teardown of stale user PTEs. Brk-backed
   `munmap` can clear process heap PTEs, track non-tail holes in per-process heap
@@ -1141,13 +1385,14 @@ real-WAD proof counters.
   teardown, exercise a userland `waitpid` reap path against a seeded exited
   child record, and prove a bounded probe-class `fork()` with eager page copies,
   parent/child return split, fork-time fd descriptor cloning, and wait reaping.
-  It is still not a robust Unix process model: there is no wait blocking,
+  It is still not a robust Unix process model: kernel tick sleep and direct
+  child `waitpid` can block on a shared kernel primitive, but there are no
   process groups, signal delivery, copy-on-write, unbounded dynamic child slots,
   per-process fd-number namespace, or file-backed VM object lifetime.
 - A fuller game/userland runtime still needs a libc-grade layer above the small
   `user/runtime.*` syscall wrapper seed, hierarchical path lookup, working
-  directory state, dynamically sized process and fd tables, blocking scheduler
-  waits, signals, threads, richer framebuffer present formats, and audio
+  directory state, dynamically sized process and fd tables, generalized device
+  and file waits, signals, threads, richer framebuffer present formats, and audio
   formats beyond the current unsigned 8-bit stereo mixer contract.
 
 This is the architecture anchor for
@@ -1168,10 +1413,10 @@ copy-on-write and arbitrary address-space cloning remain future work.
 | --- | --- | --- |
 | `fork` | `SYS_FORK` now implements a bounded probe-class fork: it uses one generic child slot, eagerly copies present user pages into PMM-backed child frames, splits parent/child returns, clones fd descriptors onto shared open-file descriptions, and leaves a wait-reapable child. | Copy-on-write, fork for Doom/arbitrary address-space classes, inherited signal state, wait blocking, orphan reparenting, unbounded child slots, and a per-process fd-number namespace. |
 | fd duplication | Public `dup`, `dup2`, and `dup3` syscalls/libc wrappers create process-owned descriptors that share an open-file description root, including the current offset. `dup2(oldfd, oldfd)` returns the existing descriptor, `dup3(oldfd, oldfd, flags)` returns `EINVAL`, `dup3(..., O_CLOEXEC)` is closed by the next exec, `fcntl(F_GETFD/F_SETFD)` exposes descriptor-level `FD_CLOEXEC`, and bounded fork clones child descriptors onto the same roots. | `fcntl(F_DUPFD*)`, dynamically growing fd tables, and per-process fd namespaces beyond the current bounded global slot pool. |
-| file-backed `mmap` | Kernel `mmap` is anonymous/private/brk-backed; `munmap` validates mapped heap ranges, reclaims tail pages, and records non-tail holes. `user/runtime.*` now provides copy-backed private fd+offset mappings by allocating anonymous pages and filling them with `pread`. | File-backed mappings, `MAP_SHARED`, `MAP_FIXED`, reusable VM object lifetime, VMA splitting/merging, page-cache backed mappings, writeback, and shared coherency. |
+| file-backed `mmap` | Kernel `mmap` is anonymous/private/brk-backed; `munmap` validates mapped heap ranges, reclaims tail pages, and records non-tail holes. `doom_port/libc.c` and `user/runtime.*` now provide copy-backed private fd+offset mappings by allocating anonymous pages and filling them with `pread`. | Kernel file-backed VM objects, `MAP_SHARED`, `MAP_FIXED`, reusable VM object lifetime, VMA splitting/merging, page-cache backed mappings, writeback, and shared coherency. |
 | signals | User faults become kernel process status and wait-reapable abnormal exits; expected-fault recovery is a probe-only trap rewrite. | `signal`, `sigaction`, `kill`, signal masks, user handler trampolines, timer signals, and delivery across scheduler context switches. |
 | terminal/tty | Keyboard and mouse input use the typed input queue; display control uses `ioctl(VIBE_DISPLAY_FD, ...)`, with non-display ioctls classified as `ENOTTY`. | `termios`, `isatty`, controlling terminals, line discipline, process groups, job control, and `/dev/tty*` path/device semantics. |
-| dynamic process lifetimes | Generic exec uses a two-entry static probe-class pool, fresh PIDs, slot generations, teardown of stale mappings, and wait reaping for exited/faulted children. | Dynamically allocated process records, unbounded child slots, orphan reparenting, blocking wait queues, long-lived parent shells, and arbitrary address-space classes. |
+| dynamic process lifetimes | Generic exec uses a two-entry static probe-class pool, fresh PIDs, slot generations, teardown of stale mappings, and direct-child wait blocking/reaping for exited/faulted children. | Dynamically allocated process records, unbounded child slots, orphan reparenting, process groups, signal-aware waits, long-lived parent shells, and arbitrary address-space classes. |
 
 
 ## Doom libc runtime contract
@@ -1193,10 +1438,11 @@ real-WAD workflow input. The WAD is runtime input, not port source.
 Compressed WAD archives such as `*.wad.gz`, `*.wad.zip`, `*.iwad.zip`, and
 `*.pwad.zip` are treated as game assets too.
 
-Real-WAD diagnostics must stay copyright-safe: upload status text/binaries,
-logs, ELF files, symbols, and aggregate JSON proof only. Do not track or upload
-WAD files, disk images, raw audio captures, screenshots, framebuffer dumps, or
-rendered pixel artifacts.
+Real-WAD diagnostics must stay status-only: upload status text and aggregate
+JSON proof only. Do not track or upload WAD files, disk images, binary status
+pages, logs, ELF/symbol files, raw audio captures, screenshots, framebuffer
+dumps, or rendered pixel artifacts.
+Short policy phrase for checkers and review: WAD files, disk images, raw audio captures, screenshots, framebuffer dumps must stay out of tracked source and uploaded artifacts.
 
 ## General-Purpose ABI Audit
 
@@ -1207,11 +1453,19 @@ small `vibe_os.h` syscall ABI plus libc/POSIX-shaped wrappers in
 
 The reusable surface today is:
 
+- ABI spine: `VIBE_OS_ABI_VERSION`, `VIBE_SYSCALL_VECTOR`,
+  `VIBE_SYSCALL_MAX_ARGS`, and `VIBE_SYSCALL_ERROR_NEGATIVE_ERRNO` define the
+  user/kernel trap contract. `int 0x80` carries the syscall number in `eax`,
+  up to three arguments in `ebx`/`ecx`/`edx`, and returns either a non-negative
+  value or a negative errno. The kernel records the trap vector, saved-register
+  mask, frame byte count, and EFLAGS sanitization counters so the ABI is an
+  auditable Ring 3 mechanism, not a Doom-only call path.
 - Clock: `VIBE_SYS_CLOCK_GETTIME`, `vibe_clock_monotonic`, and
   `clock_gettime(CLOCK_MONOTONIC)` expose monotonic PIT time for game loops and
   tools. This is not wall-clock time.
-- Input: `vibe_poll_input`, `vibe_drain_input`, and `vibe_input_status` expose
-  typed keyboard/mouse events and queue health without Doom translation.
+- Input: `vibe_poll_input`, `vibe_drain_input`, `vibe_input_status`, and
+  `vibe_input_device_status` expose typed keyboard/mouse events, queue health,
+  and per-device state without Doom translation.
 - Framebuffer: `vibe_fb_get_info`, `vibe_present_indexed`, and
   `vibe_present_indexed_checked` expose the discoverable indexed-present
   contract through `VIBE_DISPLAY_FD` and display ioctls.
@@ -1226,10 +1480,22 @@ The reusable surface today is:
   `ftruncate`, `truncate`, `vibe_listdir`, `vibe_file_size`,
   `vibe_file_read_at`, and `vibe_file_read_all` against the current FAT16 root
   model.
-- Process code can use `execv`/`execve`, `getpid`, `wait`/`waitpid`, and the
-  bounded probe-class `fork()` path. `argv` is bounded by `VIBE_EXEC_*`, `envp`
-  is empty, and descriptors inherit across exec unless opened with
-  `O_CLOEXEC`.
+- libc helpers cover common C game/tool glue beyond Doom: `strtol`/`strtoul` with 32-bit range checks,
+  decimal-only `strtod`/`atof` for simple config numbers,
+  `strerror` for classified errno text,
+  `memchr`/`strnlen`/`strndup`, `strspn`/`strcspn`/`strpbrk`/`strstr`,
+  `strtok`/`strtok_r` for config and asset-list parsing, deterministic
+  `srand`/`rand`, `qsort`/`bsearch` for small asset tables, left-aligned
+  integer/string/char formatting, and character/line stdio helpers such as
+  `fgetc`, `ungetc`, `fgets`, `fputc`, `fputs`, and `puts`.
+- Process code can use `execv`/`execve`, `getpid`, `wait`/`waitpid`,
+  `vibe_user_sleep_ticks`, and the bounded probe-class `fork()` path. `argv` and `envp` are bounded by
+  `VIBE_EXEC_*`, and descriptors inherit across exec unless opened with
+  `O_CLOEXEC`. The initial user stack is a versioned contract:
+  `argc`, `argv[]`, a null terminator, `envp[]`, a null terminator, and a small
+  auxv containing page size and entry-point records. Faulted user processes
+  receive wait-reapable exit statuses starting at
+  `VIBE_PROCESS_FAULT_EXIT_STATUS_BASE`.
 
 ## Clock And Time
 
@@ -1241,16 +1507,31 @@ The reusable user/kernel contract is `VIBE_SYS_CLOCK_GETTIME` with
 
 - `ticks`: raw monotonic PIT ticks since boot.
 - `frequency_hz`: currently `100`.
-- `milliseconds`: monotonic milliseconds since boot, derived from ticks.
-- `flags`: reserved, currently zero.
+- `milliseconds`: monotonic milliseconds since boot, maintained by the kernel
+  timer IRQ path.
+- `flags`: `VIBE_CLOCK_FLAG_KERNEL_OWNED` when the value came from the kernel
+  clock source rather than a port-layer shim.
 
 This is not wall-clock time. The CMOS/RTC path is not exposed as libc time, and
 no API currently claims calendar seconds, timezone, or persistence across boots.
+The C `clock()` wrapper is deliberately monotonic and uses
+`CLOCKS_PER_SEC == 1000` so game loops can measure elapsed milliseconds through
+the same PIT-backed source. The C `time()` wrapper remains unsupported and
+returns `(time_t)-1` with `errno == ENOSYS` rather than inventing wall-clock
+seconds.
 
 The Doom port consumes this general clock through `vibe_monotonic_milliseconds`
 and converts milliseconds to Doom's 35 Hz `I_GetTime` value in the port layer.
 The legacy `VIBE_SYS_TIME` syscall still returns Doom tics for compatibility,
-but new consumers should use the monotonic clock API.
+but that value is now derived from the same kernel-owned generic clock counter.
+For ABI stability, new consumers should use the monotonic clock API.
+
+Status fields prove the clock is a generic kernel subsystem rather than a
+Doom-only timer: `clocksrc=PIT`, `clockirq=`, `clocktick=`, `clockhz=`,
+`clockms=`, `clockdoom=`, `clocksch=`, and `clockpirq=` expose the PIT source,
+IRQ count, raw ticks, frequency, millisecond counter, 35 Hz compatibility tick,
+scheduler-tick count reached through IRQ0, and timer-driven context switches.
+`dtick=` must match `clockdoom=` and remain `floor(ticks * 35 / 100)`.
 
 Cloud slowdown proof uses this same monotonic contract without treating it as
 wall-clock time. The status-only long-run cadence checker compares Doom-facing
@@ -1268,13 +1549,14 @@ Host-safe validation lives in source/contract tests:
   `vibe_clock_gettime`, `vibe_monotonic_ticks`, `vibe_monotonic_milliseconds`,
   and `clock_gettime(CLOCK_MONOTONIC, ...)`.
 - `tests/host/test_artifacts.py` pins the kernel syscall number, PIT frequency,
-  smoke-status `clockhz=` / `clockms=` fields, and Doom's use of the generic
-  monotonic helper.
+  smoke-status `clocksrc=PIT` / `clockirq=` / `clocktick=` / `clockhz=` /
+  `clockms=` / `clockdoom=` / `clocksch=` / `clockpirq=` fields, and Doom's use
+  of the generic monotonic helper.
 
 The ABI is reusable, but not POSIX-complete. The image builder can package
 additional root-level 8.3 `.ELF` files with `--root-elf NAME.ELF=PATH`, but the
 runtime model still lacks directories for open/exec traversal, long filenames,
-environment copying, true `fork`, blocking waits, signals, threads, dynamic
+inherited process environments, POSIX-complete waits, signals, threads, dynamic
 process growth, reusable file-backed VM objects, direct RGB presents, larger
 present sources, and audio formats beyond the current unsigned 8-bit stereo
 mixer path.
@@ -1290,9 +1572,15 @@ Input Generic ABI:
   and returns `1` when an event was copied or `0` when the queue is empty.
 - `VIBE_SYS_INPUT_STATUS` writes one `vibe_input_status_t` without consuming
   queued events.
-- Keyboard events carry device id `1`, type `VIBE_INPUT_EVENT_KEY`, a key code,
-  and pressed/released state. The current key-code set is Doom-compatible
-  because Doom is the first caller, but the queue contract is
+- `VIBE_SYS_INPUT_DEVICE_STATUS` writes one `vibe_input_device_status_t` for a
+  requested device id. This is the per-device layer: keyboard and mouse expose
+  readiness, capabilities, IRQ/event/poll/drop counters, last-event timestamps,
+  active key modifiers or mouse buttons, and cumulative relative axes without
+  requiring a Doom input mapper.
+- Keyboard events carry device id `1`, type `VIBE_INPUT_EVENT_KEY`, PS/2 set-1
+  make scancodes, and pressed/released state. The code is the make scancode in
+  bits 0-6 with bit 7 set for E0-extended keys, so arrow keys, right control,
+  and right alt remain distinct without using Doom symbols; the queue contract is
   not Doom-specific.
 - Mouse packet events carry device id `2`, type
   `VIBE_INPUT_EVENT_MOUSE_PACKET`, PS/2 button bits, and signed relative X/Y
@@ -1304,21 +1592,43 @@ Input Generic ABI:
   ABI without linking Doom input code.
 - Queue overflow is overwrite-oldest with a visible `dropped_events` counter,
   so programs that need lossless input can check `vibe_input_status_t`.
+  The status record also carries `queue_usable_capacity`, `overflow_policy`,
+  `keyboard_status`, and `mouse_status`, making the drop policy and current
+  PS/2 device readiness explicit without consuming events.
+- `SYS_POLL_INPUT`, `VIBE_SYS_INPUT_STATUS`, and
+  `VIBE_SYS_INPUT_DEVICE_STATUS` validate the caller's user buffer against
+  `VIBE_INPUT_EVENT_BYTES`, `VIBE_INPUT_STATUS_BYTES`, or
+  `VIBE_INPUT_DEVICE_STATUS_BYTES` before copying, so a bad event/status pointer
+  is rejected at the OS boundary rather than hidden in Doom input translation.
 - Public headers pin the input ABI as `VIBE_INPUT_EVENT_BYTES == 28`,
-  `VIBE_INPUT_STATUS_BYTES == 112`, `VIBE_INPUT_EVENT_VALUE_COUNT`, and
-  `VIBE_INPUT_KEY_STATE_BITS`. `vibe_input_key_is_pressed()`,
-  `vibe_input_key_is_released()`, `vibe_input_mouse_button_is_supported()`,
+  `VIBE_INPUT_STATUS_BYTES == 132`, `VIBE_INPUT_EVENT_VALUE_COUNT`,
+  `VIBE_INPUT_KEY_STATE_BITS`, `VIBE_INPUT_QUEUE_OVERFLOW_DROP_OLDEST`,
+  `VIBE_INPUT_DEVICE_STATUS_READY`, `VIBE_INPUT_CAP_DEVICE_STATUS`,
+  `VIBE_INPUT_DEVICE_CAP_KEYS`, `VIBE_INPUT_DEVICE_CAP_RELATIVE_POINTER`,
+  `VIBE_INPUT_KEY_PS2_SET1_SCANCODE_MASK`, and
+  `VIBE_INPUT_KEY_PS2_SET1_EXTENDED`. `vibe_input_key_is_pressed()`,
+  `vibe_input_key_is_released()`, `vibe_input_key_ps2_set1_scancode()`,
+  `vibe_input_key_ps2_set1_is_extended()`,
+  `vibe_input_mouse_button_is_supported()`,
   `vibe_input_mouse_button_is_down()`, `vibe_input_mouse_delta()`,
   `vibe_input_mouse_has_motion()`, `vibe_input_status_abi_is_current()`,
+  `vibe_input_status_uses_drop_oldest()`,
+  `vibe_input_status_keyboard_is_ready()`,
+  `vibe_input_status_mouse_is_ready()`,
+  `vibe_input_status_ps2_set1_key_is_down()`,
+  `vibe_input_status_keyboard_modifiers()`,
+  `vibe_input_device_record_is_ready()`,
+  `vibe_input_device_status_counters_are_consistent()`,
   `vibe_input_status_mouse_button_is_down()`, and
   `vibe_input_status_mouse_delta()` are generic helpers over the same
-  `vibe_input_status_t`.
+  `vibe_input_status_t` and `vibe_input_device_status_t`.
 - Mouse constants include `VIBE_INPUT_MOUSE_AXIS_X`, `VIBE_INPUT_MOUSE_AXIS_Y`,
   and `VIBE_INPUT_MOUSE_BUTTON_MASK`. Raw PS/2 button order is preserved.
   Game-specific
   button remapping belongs in the consuming port.
-- The input status record exposes `keyboard_down_count`, `keyboard_state`, and
-  `mouse_buttons` as generic state snapshots.
+- The input status records expose `keyboard_down_count`, `keyboard_state`,
+  keyboard modifiers, per-device drop counters, `mouse_buttons`, and cumulative
+  mouse axes as generic state snapshots.
 - The PS/2 auxiliary device path feeds this same `SYS_POLL_INPUT` queue.
 
 The framebuffer contract is intentionally split into three reusable layers:
@@ -1335,16 +1645,39 @@ The `vibe_fb_info_t` layout is stable and generic enough for future indexed
 games: clients should key off `present_format`, `max_present_width`,
 `max_present_height`, and `capabilities` instead of assuming Doom. Current
 graphics proof stays status-only through fields such as `fb`, `fbpolicy`,
-`fbgeom`, `fbdirty`, `doompresent`, `doompal`, and `doomframe`; real-WAD cloud
-runs do not upload rendered pixels.
+`fbgeom`, `fbdirty`, `fbcap`, `fbsrc=`, `fbacct=`, `doompresent`, `doompal`,
+and `doomframe`; real-WAD cloud runs do not upload rendered pixels.
+
+The kernel owns the framebuffer boundary after boot handoff. `fbdev=` records
+the kernel framebuffer device state, selected backend, handoff source
+(`VGA_MODE13`, VBE LFB, or GOP-compatible LFB), and LFB map status; `fbmmio=`
+records the physical framebuffer base, MMIO page span, PDE, and PTE start; and
+`fbinfo=` records reusable display info queries separately from Doom frame
+presentation. `fbpresent=` remains the generic present counter tuple and now
+includes the last accepted present dimensions after source/syscall/ioctl
+accounting. `fbcap=` mirrors the capability bits returned in `vibe_fb_info_t`.
+`fbsrc=` records the kernel-owned indexed source format, dimensions, aspect
+metadata, palette entry count, and palette entry size. `fbacct=` records ABI
+version, indexed-source present semantics, rejected descriptor/range/size
+counts, dirty sequence, total dirty pixels, and the last accepted source/palette
+byte counts.
+ABI probe is now a second non-Doom framebuffer consumer: it queries
+`VIBE_IOCTL_FBINFO`, presents a generated indexed frame through
+`VIBE_IOCTL_PRESENT_INDEXED`, validates dirty source bounds, and only then execs
+Doom. The legacy `SYS_PRESENT` path is compatibility over the same fixed
+indexed source contract; new clients should prefer `VIBE_DISPLAY_FD` plus
+`VIBE_IOCTL_FBINFO` and `VIBE_IOCTL_PRESENT_INDEXED`.
 
 If VBE discovery or mode set fails, Stage 2 falls back to VGA Mode 13h. The only accepted source today is Doom's 320x200 index8 frame, and
 `VIBE_FB_CAP_FIXED_PRESENT_SIZE` means callers must present exactly
 `max_present_width` by `max_present_height`. The info record keeps source aspect width/height,
 pixel aspect metadata, and Dirty source bounds in
 source-frame coordinates, not target pixels. `vibe_present_indexed_checked`
-validates the descriptor before the ioctl. Future indexed backends can clear that bit and treat
-the advertised dimensions as true maxima.
+validates the descriptor before the ioctl, while
+`vibe_fb_info_accepts_present_indexed`, `vibe_present_indexed_frame_bytes`, and
+`vibe_fb_info_dirty_rect_is_bounded` keep the same caps/size/dirty-bound rules
+available to non-Doom consumers. Future indexed backends can clear that bit and
+treat the advertised dimensions as true maxima.
 
 ## General-OS Gap Contract
 
@@ -1376,10 +1709,15 @@ yet" so future POSIX work has executable edges instead of vague TODOs:
   mapping down if the read path fails. That is real generic userland support,
   but it is not a shared page-cache or kernel VMA object.
 - `USER_RUNTIME_CONTRACT[FILE_PRIVATE_MMAP] status=host-and-abi-probed api=vibe_user_mmap_file_private semantics=anonymous-copy-pread-preserve-offset-zero-tail-unmap-on-read-failure evidence=user-runtime-host-test,ABIPROBE.ELF`
-- `USER_RUNTIME_CONTRACT[WAIT_REAP_HELPER] status=host-and-abi-probed api=vibe_user_waitpid_nohang_reap_exact semantics=bounded-WNOHANG-exact-child-reap-post-reap-ECHILD evidence=user-runtime-host-test,ABIPROBE.ELF`
-- `USER_RUNTIME_CONTRACT[EXEC_ENV_HELPER] status=host-and-abi-probed api=vibe_user_execve,vibe_user_validate_exec_argv semantics=bounded-path-argv-empty-envp-only-nonempty-envp-ENOSYS evidence=user-runtime-host-test,ABIPROBE.ELF`
+- `USER_RUNTIME_CONTRACT[WAIT_REAP_HELPER] status=host-probed api=vibe_user_waitpid_nohang_reap_exact semantics=bounded-WNOHANG-exact-child-reap-post-reap-ECHILD evidence=user-runtime-host-test`
+- `USER_RUNTIME_CONTRACT[BLOCKING_WAITPID] status=host-and-abi-probed api=vibe_user_waitpid semantics=blocking-exact-child-reap-post-reap-ECHILD evidence=user-runtime-host-test,ABIPROBE.ELF,kblock-status`
+- `USER_RUNTIME_CONTRACT[EXEC_ENV_HELPER] status=host-and-abi-probed api=vibe_user_execve,vibe_user_validate_exec_argv,vibe_user_validate_exec_envp semantics=bounded-path-argv-envp-validation-and-sys-exec-handoff evidence=user-runtime-host-test,ABIPROBE.ELF`
 - `USER_RUNTIME_CONTRACT[LISTDIR_FIND_HELPER] status=host-and-abi-probed api=vibe_user_listdir_find semantics=root-or-one-level-listdir-search-with-dirent-copy evidence=user-runtime-host-test,ABIPROBE.ELF`
+- `USER_RUNTIME_CONTRACT[FILE_READ_HELPERS] status=host-and-abi-probed api=vibe_user_file_size,vibe_user_file_read_at,vibe_user_file_read_all semantics=stat-backed-size-and-open/pread/read/close-asset-loaders-with-capacity-checks evidence=user-runtime-host-test,ABIPROBE.ELF`
+- `USER_RUNTIME_CONTRACT[BUFFER_IO_HELPERS] status=host-probed api=vibe_user_write_full,vibe_user_read_full,vibe_user_read_exact semantics=partial-read/write-looping-with-byte-counts-and-short-read-detection evidence=user-runtime-host-test`
+- `USER_RUNTIME_CONTRACT[GENERIC_STATE_FILE] status=abi-probed api=open,write,read,fstat,ftruncate,unlink semantics=create-truncate-readback-shrink-delete-one-level-state-file evidence=ABIPROBE.ELF,/STATE/SESSION.DAT`
 - `USER_RUNTIME_CONTRACT[FD_CLOEXEC_HELPER] status=host-probed api=vibe_user_get_cloexec,vibe_user_set_cloexec semantics=descriptor-FD_CLOEXEC-read-toggle evidence=user-runtime-host-test`
+- `USER_RUNTIME_CONTRACT[INPUT_HELPERS] status=host-and-abi-probed api=vibe_user_poll_input,vibe_user_drain_input,vibe_user_input_status semantics=typed-input-event-drain-plus-nonconsuming-status evidence=user-runtime-host-test,ABIPROBE.ELF`
 - POSIX signal delivery is absent. User faults are kernel trap/process-state
   events, not `SIGSEGV` or `sigaction`; there is no public `signal.h`, signal
   mask, `kill`, interval timer signal, or handler trampoline ABI.
@@ -1399,10 +1737,13 @@ small non-Doom user programs and freestanding tools. They do not try to be libc
 and they do not depend on Doom port hooks. The layer owns the raw `int 0x80` call stub, centralizes the
 same `-errno` / legacy `-1` conversion rule as the Doom libc shim, and exposes
 minimal wrappers for the crt0-launched tool shape: write a complete string,
+perform exact/counting descriptor reads and writes across short syscalls,
 perform brk-style heap grows/shrinks, read descriptors, seek descriptors,
-perform lseek-backed positioned reads, query `getpid`, create a bounded
-probe-class child with `fork`, reap with `waitpid`, poll an exact child through
-bounded `WNOHANG` reaps, duplicate descriptors with `dup`/`dup2`/`dup3`,
+perform lseek-backed positioned reads, load bounded asset files with
+`vibe_user_file_size`, `vibe_user_file_read_at`, and
+`vibe_user_file_read_all`, query `getpid`, create a bounded probe-class child
+  with `fork`, reap with `waitpid`, poll an exact child through bounded
+  `WNOHANG` reaps, duplicate descriptors with `dup`/`dup2`/`dup3`,
 request anonymous/private mmap/munmap, build a copy-backed private file mapping
 from a descriptor and offset, query explicit heap/VM capability bits, query the
 monotonic clock, list a root directory, `execv` another root `.ELF`, and report
@@ -1413,6 +1754,42 @@ syscall assembly. That keeps the second-program proof honest: future small
 non-Doom user programs can include the same header, link the same source with
 `user/crt0.asm`, and stay on the public `vibe_os.h` syscall ABI while the Doom
 libc remains available for POSIX-shaped ports.
+
+## x87/FPU and math runtime
+
+The kernel now initializes the 32-bit x87 path as part of CPU/runtime bring-up.
+CR0.MP and CR0.NE are set, while CR0.EM and CR0.TS are clear, so protected-mode
+user processes can execute x87 instructions and x87 faults report through the
+native exception path instead of the old IRQ13 compatibility path. The boot
+self-test records the post-init CR0 snapshot, x87 control word, x87 status word,
+and a real `fsqrt` result in smoke fields `fpu=`, `fpucr0=`, `fpucw=`,
+`fpusw=`, `fpufault=`, and `fpuctx=`.
+
+The scheduler uses eager x87 save/restore rather than lazy TS/#NM ownership:
+each fixed process slot has a 108-byte x87 state area, `process_activate` saves
+the previous user process with `fnsave`, restores the next initialized process
+with `frstor`, and gives new exec contexts a clean `fninit` state. #NM, #MF,
+and SIMD-FPU exceptions are recorded in the same fault/status path before the
+normal user-fault or kernel-panic routing runs, and #MF clears the sticky x87
+exception state so the kernel does not keep reporting stale math faults.
+
+Doom and future C games get these math functions from the freestanding runtime,
+not from host libraries or edits to the original Doom tree. `doom_port/math.h`
+declares the current math-ish subset, and `doom_port/libc.c` implements
+`fabs`, `sqrt`, `floor`, `ceil`, `sin`, `cos`, `atan`, `atan2`, and `pow` with
+x87 instructions. The contract is intentionally small: it is enough for common
+game/runtime math and for Doom's build surface to stay freestanding, but it is
+not a complete libm with IEEE edge-case promises.
+
+- `USER_RUNTIME_CONTRACT[X87_FPU_CONTEXT] status=host-checked-and-smoke-reported api=x87-process-state semantics=eager-fnsave-frstor-clean-exec-context-native-mf evidence=kernel-source-check,status-fields`
+- `LIBC_RUNTIME_CONTRACT[MATH_SUBSET] status=host-checked api=math.h,doom_port/libc.c semantics=x87-backed-fabs-sqrt-rounding-trig-atan-pow-subset evidence=libc-conformance-subset`
+- `LIBC_RUNTIME_CONTRACT[STRING_CONVERSION_ERRNO] status=host-checked api=strtol,strtoul,strtod,atof,strerror semantics=base-aware-32bit-integers-decimal-only-floating-conversion-and-classified-errno-text evidence=libc-conformance-subset`
+- `LIBC_RUNTIME_CONTRACT[STRING_SEARCH_TOKENIZE] status=host-checked api=strspn,strcspn,strpbrk,strstr,strtok semantics=standard-delimiter-search-and-stateful-tokenization-for-config/asset-parsing evidence=libc-conformance-subset`
+- `LIBC_RUNTIME_CONTRACT[TOOLING_SUBSET] status=host-checked api=memchr,strnlen,strndup,strtok_r,qsort,bsearch,stdint.h,stdbool.h,limits.h semantics=pure-C-bounded-search-tokenize-copy-sort-and-fixed-width-compile-contract evidence=libc-conformance-subset`
+- `LIBC_RUNTIME_CONTRACT[PRINTF_LEFT_ALIGN] status=host-checked api=sprintf,snprintf semantics=left-aligned-char/string/integer-width-formatting evidence=doom-libc-allocator-test`
+- `LIBC_RUNTIME_CONTRACT[STDIO_SCAN_SUBSET] status=host-checked api=sscanf,fscanf semantics=bounded-non-float-scan-subset-for-strings-integers-chars-and-simple-scansets evidence=libc-conformance-subset,libc-runtime-readiness`
+- `LIBC_RUNTIME_CONTRACT[STDIO_LINE_IO] status=host-checked api=fgetc,ungetc,fread,ftell,fseek,fgets,fputc,fputs,puts,rewind,perror semantics=descriptor-backed-character-line-io-one-byte-pushback-and-pushback-aware-position evidence=libc-runtime-readiness`
+- `LIBC_RUNTIME_CONTRACT[TIME_BOUNDARY] status=host-checked api=clock,time semantics=monotonic-clock-milliseconds-wall-clock-ENOSYS evidence=libc-runtime-readiness`
 
 ## File ABI
 
@@ -1455,14 +1832,27 @@ and writable root files, refuses deletion or writable opens of protected
 `DOOM1.WAD`, `USERPROB.ELF`, and `DOOM.ELF`, and invalidates writable
 descriptors whose root entry is deleted.
 
-The tiny stdio scanner intentionally covers the original Doom patterns used for
-defaults and saves: `%s`, `%[^\n]`, `%i`, `%d`, `%x`, literal text, and
-whitespace. That includes save/version reads such as `sscanf("version 110",
-"version %i", ...)`, so the port does not need a patched Doom parser.
+The tiny stdio scanner supports bounded `%s`, `%[^\n]`, `%i`, `%d`, `%u`, `%o`, `%x`, `%X`, and `%c`
+plus literal text and whitespace. It intentionally does not claim full scanf:
+there are no float conversions, assignment suppression, general scanset ranges,
+or length-modifier guarantees. The integer paths use the same bounded
+`strtol`/`strtoul` parsing rules as the string conversion helpers, so `%i`
+honors base-0 hex and octal prefixes and file scanning preserves the first
+non-matching byte for a following conversion. That includes save/version reads
+such as `sscanf("version 110", "version %i", ...)`, so the port does not need a
+patched Doom parser.
 Generic tools can rely on stdio write buffering being drained by either
 `fflush(stream)`, `fclose(stream)`, or process-wide `fflush(NULL)`. The host
 runtime-readiness test keeps that behavior covered separately from Doom's save
 and defaults paths.
+Character and line-oriented stdio is intentionally small but reusable:
+`fgetc`/`getc`, one-byte `ungetc`, `fgets`, `fputc`/`putc`/`putchar`,
+`fputs`, `puts`, `rewind`, and `perror` use the same descriptor-backed buffering
+and errno paths as `fread`/`fwrite`. `fread`, `ftell`, and `fseek(SEEK_CUR)` now
+honor the one-byte `ungetc` pushback as the logical stream position rather than
+only the raw descriptor offset. They are present for future C games and tools that read
+response files, INI-like configs, or simple logs without adding game-specific
+parsers.
 
 The tiny printf formatter is still integer/string only, but its ABI is now
 useful beyond Doom status text: `snprintf` returns the would-have-written byte
@@ -1493,27 +1883,25 @@ increments as a brk-style trim path: it moves the process break down, unmaps
 only fully released heap pages, clears their heap-bitmap validation bits, and
 returns the old break.
 
-`mmap()` is syscall-backed for the practical porting case Doom-adjacent code
-usually wants: anonymous, private memory with `fd == -1` and `offset == 0`.
-The kernel implements it as a page-rounded allocation from the current
-process heap, maps the new pages with user permissions derived from `prot`, and
-returns a zero-filled range. Successful mappings also update a single
-`VM_OBJECT_KIND_ANON_BRK` last-object descriptor with base/end/prot/flags so
-host contracts can distinguish the current brk-backed object model from a real
-VMA table. `munmap()` validates the supplied user range, punches validation
-holes for non-tail ranges, and moves `brk` back for tail releases.
-File-backed mappings, `MAP_FIXED`, and shared mappings are rejected before libc
-enters the kernel.
+`mmap()` is syscall-backed for anonymous, private memory with `fd == -1` and
+`offset == 0`. The kernel implements it as a page-rounded allocation from the
+current process heap, maps the new pages with user permissions derived from
+`prot`, and returns a zero-filled range. Successful mappings also update a
+single `VM_OBJECT_KIND_ANON_BRK` last-object descriptor with base/end/prot/
+flags so host contracts can distinguish the current brk-backed object model
+from a real VMA table. `munmap()` validates the supplied user range, punches
+validation holes for non-tail ranges, and moves `brk` back for tail releases.
+`MAP_FIXED` and shared mappings are rejected before libc enters the kernel.
 
-The reusable small-user runtime has a narrower file-backed mmap milestone above
-that kernel ABI: `vibe_user_mmap_file(..., VIBE_USER_MAP_PRIVATE, fd, offset)`
-and `vibe_user_mmap_file_private` allocate anonymous pages, fill them with
-`vibe_user_pread`, preserve the caller's descriptor offset, leave any short
-read tail as zero-filled anonymous memory, and unmap on read failure. The
-capability bit `VIBE_USER_VM_CAP_FILE_PRIVATE_COPY` deliberately names this as
+The reusable runtime now exposes a narrower file-backed mmap milestone above
+that kernel ABI. POSIX-shaped `mmap(..., MAP_PRIVATE, fd, offset)` and
+`vibe_user_mmap_file(..., VIBE_USER_MAP_PRIVATE, fd, offset)` allocate anonymous
+pages, fill them with `pread`, preserve the caller's descriptor offset, leave
+any short read tail as zero-filled anonymous memory, and unmap on read failure.
+The capability bit `VIBE_VM_CAP_FILE_PRIVATE_COPY` deliberately names this as
 copy-backed private file mapping. It lets freestanding tools and future game
 ports use fd+offset mapped asset ranges without baking in Doom WAD behavior,
-while still making clear that `MAP_FIXED`, `MAP_SHARED`, and kernel
+while still making clear that `MAP_SHARED`, `MAP_FIXED`, and kernel
 file-backed VM objects are still unsupported. `vibe_heap_capabilities`,
 `vibe_vm_capabilities`, and `vibe_mmap_anon` make that limited model explicit
 for ports that need to choose between arena allocation, anonymous scratch
@@ -1532,21 +1920,23 @@ Generic ports should call `vibe_fb_get_info` and then
 `vibe_present_indexed_checked` when they want libc to reject unsupported formats
 or wrong-size sources before entering the present ioctl.
 
-`execv()` passes a bounded `argv` vector through the syscall ABI. Doom and the
-boot probe keep table-backed launch entries, and other root-level FAT16 `.ELF`
+`execv()` passes a bounded `argv` vector and empty envp through the syscall ABI;
+`execve()` passes bounded caller-supplied `argv` and `envp` vectors. Doom and
+the boot probe keep table-backed launch entries, and other root-level FAT16 `.ELF`
 names are parsed as 8.3 paths and loaded into the reusable probe-class user
 window. That is useful for small user utilities, but it is still not a Unix
 loader: there are no directories, long filenames, dynamic process slots, or
-environment copying, and probe-class self-reexec is rejected while the current
-slot is active.
+inherited process environments, and probe-class self-reexec is rejected while
+the current slot is active.
 The libc `environ` pointer is present and points at an empty, null-terminated
-environment vector. `execve()` accepts `NULL` or empty `envp` only and returns
-`ENOSYS` for non-empty environments until environment copying exists.
+environment vector. `execve()` now passes a caller-supplied bounded envp vector
+through `SYS_EXEC`; `NULL` and empty vectors remain valid, and non-empty vectors
+are copied into the target stack before crt0 discovers auxv.
 The small non-Doom runtime mirrors that boundary with `vibe_user_execve()` and
-`vibe_user_validate_exec_argv()`: callers get a host-testable `EINVAL` before
-entering the kernel for empty paths, overlong paths, empty argv vectors, or argv
-strings that exceed `VIBE_EXEC_ARG_STR_MAX`, and a host-testable `ENOSYS` for
-non-empty environments.
+`vibe_user_validate_exec_argv()`/`vibe_user_validate_exec_envp()`: callers get a
+host-testable `EINVAL` before entering the kernel for empty paths, overlong
+paths, empty argv vectors, argv strings that exceed `VIBE_EXEC_ARG_STR_MAX`, or
+env strings that exceed `VIBE_EXEC_ENV_STR_MAX`.
 
 Directory and metadata support is intentionally narrow but explicit. `stat("/")`
 reports a readonly directory, regular files report `S_IFREG` plus user read/write
@@ -1561,9 +1951,11 @@ past the generic child slots.
 `wait()/waitpid()` now enter a real process-table scanner. They return
 `ECHILD` when the current process has no matching child, validate a non-null
 status pointer, reap already-exited or faulted child records into `UNUSED`, and
-write the child's stored exit status. Blocking on a live child, process-group
-waits, and nonzero wait options still return explicit errors instead of
-pretending that scheduling/blocking semantics are implemented.
+write the child's stored exit status. Blocking on a live direct child uses the
+same scheduler block primitive as tick sleep and wakes from the child exit path.
+Process-group waits, signal interruption, orphan reparenting, and nonzero wait
+options beyond `WNOHANG` still return explicit errors instead of pretending that
+full POSIX wait semantics are implemented.
 
 The kernel fd table also records owner PID, open generation, and explicit
 inheritance flags for each allocated descriptor. Each allocated open file has a
@@ -1581,10 +1973,13 @@ The kernel smoke status reports Doom file/runtime counters from the port ABI:
 `doomopen`, `doomread`, `doomwad`, `doomwrite`, `doomseek`, `doomclose`,
 `doomsbrk`, `doomerr`, `doomerrno`, `doommode`, `doomsav`, `saverd`, `savewr`,
 `saveclose`, `savemode`, `savestm`, `savethk`, `fwr`, `fal`, `doominit`,
-`doomexit`, `doomfault`, `doomfaultip`, `doomfaultv`, `doomfaulterr`, the compact `fault` frame tuple, `panic`, and
-`shutdown`. These are counters, last-open mode/flag bits, the most recent
-negative kernel errno returned to Doom, first-init milestone bits, user-mode
-exit/fault diagnostics, and kernel stop-state markers, not filesystem internals.
+`doomexit`, `doomfault`, `doomfaultip`, `doomfaultv`, `doomfaulterr`, the
+compact `fault` frame tuple, `pf=`, `faultsrc`, `faultmode`, `faultcontain`,
+`regs=`, `segs=`, `proc=`, `panic`, and `shutdown`. These are counters, last-open
+mode/flag bits, the most recent negative kernel errno returned to Doom,
+first-init milestone bits, page-fault classification, saved register/process
+diagnostics, Ring 3 containment evidence, and kernel stop-state markers, not
+filesystem internals.
 `doomwad` is a compact open/read/lseek/magic tuple for the real `DOOM1.WAD`
 path, `doominit` records the port-reported startup milestones before gameplay,
 and the `doomsav`/`saverd`/`savewr` tuple family records port-reported
@@ -1641,6 +2036,15 @@ Reusable FAT16 syscall surface:
   `unlink`, `stat`, `fstat`, `ftruncate`, `truncate`, and `vibe_listdir` all
   operate through the shared fd/FAT path used by Doom and by future games and
   tools.
+- `DOOM1.WAD`, packaged config, and save/state files are VFS consumers, not
+  private storage paths. The kernel may still pre-load the WAD during boot for
+  parser/proof status, but userland `open("DOOM1.WAD")` binds the same readonly
+  FAT descriptor shape as `/ASSETS/README.TXT`; writes/truncates to protected
+  WAD/ELF roots are rejected with `EACCES`.
+- ABIPROBE.ELF exercises that path before Doom starts: it lists `/ASSETS`,
+  reads `/ASSETS/README.TXT`, creates and round-trips `/STATE/SESSION.DAT`,
+  shrinks it with `ftruncate`, deletes it, and confirms the state path no
+  longer stats.
 - `vibe_listdir("/")` returns fixed-size `vibe_dirent_t` records for live root
   entries, `vibe_listdir("/ASSETS")` can list a read-only root-level FAT16
   asset directory when the generated image contains one, and
@@ -1666,7 +2070,16 @@ Reusable FAT16 syscall surface:
 - Directory/file mismatches now use reusable errno classifications instead of
   Doom-shaped fallbacks: opening or unlinking a directory as a file returns
   `EISDIR`, while asking `vibe_listdir` to list an existing regular file
-  returns `ENOTDIR`.
+  returns `ENOTDIR`. Capacity exhaustion is surfaced as `ENOSPC` for writes or
+  `ftruncate` requests that exceed the bounded generated-image file budget.
+- Truncate/delete directory entry lifecycle is intentionally ordered so the
+  on-disk entry is cleared or resized before old clusters are freed. Shrink
+  commits the smaller size before tail clusters are clipped and zeros residual
+  bytes in the last kept cluster after the metadata commit. A late FAT free
+  failure can leak clusters, but it should not leave a live directory entry
+  pointing at a chain already returned to the allocator. Write failures before
+  any user bytes are committed restore the previous size, offset, first
+  cluster, and reachable chain.
 - Host tests and image checkers exercise this surface without committing WADs,
   mutated disks, pixel dumps, or raw audio captures. Scratch files such as
   `FATPROOF.TMP` are created only inside in-memory checker copies.
@@ -1721,9 +2134,10 @@ Current kernel contract:
   Doom-save-sized ceiling.
 - Supported truncation: `O_TRUNC` still frees the old cluster chain, resets
   first cluster to 0, and persists size 0. `ftruncate` can also shrink a file in
-  place, freeing tail clusters after validating the chain, or grow it with
-  zero-filled bytes. Writable `open(..., O_TRUNC)` reserves an fd slot before
-  truncating, so `EMFILE` cannot erase Doom defaults or saves.
+  place by committing the smaller size before freeing tail clusters and then
+  zeroing stale bytes in the last kept cluster, or grow it with zero-filled
+  bytes. Writable `open(..., O_TRUNC)` reserves an fd slot before truncating, so
+  `EMFILE` cannot erase Doom defaults or saves.
 - Supported allocation hygiene: newly allocated clusters are zero-filled before
   they become file data, FAT updates are written to both FAT copies, and root
   entry size/first-cluster metadata is updated after successful writes.
@@ -1879,8 +2293,9 @@ disk artifact. The install-image `fat-vfs-boundary` section carries the same
 host-only `dynamic-root-lifecycle manifest`, including cluster growth,
 shrinkage, remount readback, and freed-cluster scrubbing. It also carries a
 `dynamic-subdirectory-lifecycle manifest` for `/STATE/SESSION.DAT`, proving
-create/write/grow/truncate/rewrite/delete behavior under a writable one-level
-directory without mutating the checked artifact. The same proof also requires
+create/write, sparse grow, shrink, truncate, rewrite, and delete behavior under
+a writable one-level directory without mutating the checked artifact. The same
+proof also requires
 the generated `/ASSETS/README.TXT`
 plus nested `/ASSETS/MAPS/E1M1.MAP` and `/ASSETS/TEXTURES/PAL0.BIN` packages to
 exist, round-trip with the expected bytes, and reject host-modeled write,
@@ -1902,7 +2317,7 @@ Storage install/recovery boundary:
   The exact bounded claim is that vibe-os mutates and reboots the
   repo-generated FAT16 image in disposable cloud QEMU.
 - The current generated-image layout is intentionally fixed: LBA 0 is the repo
-  MBR, LBA 1-16 is Stage 2, LBA 17-272 is the kernel ELF staging area, and
+  MBR, LBA 1-16 is Stage 2, LBA 17-336 is the kernel ELF staging area, and
   LBA 2048 is the FAT16 partition.
 - `tools/check_storage_install_boundary.py --image build/disk.img --json`
   produces an `install-image-manifest` for the current generated raw image:
@@ -1922,7 +2337,8 @@ Storage install/recovery boundary:
   normalization samples, the read-only `/ASSETS/README.TXT` one-level
   subdirectory proof, a host-only `dynamic-root-lifecycle manifest`, a
   host-only `dynamic-subdirectory-lifecycle manifest` for `/STATE/SESSION.DAT`,
-  per-step create/write/grow/shrink/truncate/delete/free-space accounting,
+  per-step create/write/sparse-grow/shrink/truncate/delete/free-space accounting,
+  live FAT accounting status from a kernel FAT-cache rescan,
   no-space failure atomicity, mutation refusals below read-only asset
   directories, and the boundary between host-recursive packaged-asset inventory
   and the narrower kernel syscall surface.
@@ -2027,11 +2443,24 @@ Kernel contract tests now also pin descriptor-level `ftruncate`, signed
 covers behavior needed by games and tools beyond Doom save replacement.
 
 ATA PIO waits are bounded and status-reported. The ATA path makes sure commands only start once stale `DRQ` is clear, labels the explicit 256-word PIO loops as
-`atawait=DATA`, and waits for the data-request phase to drain after the loop.
-The smoke line includes `ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo` so a cloud persistence write boot that parks in
+`atawait=DATA`, waits for the data-request phase to drain after the loop, and
+flushes the ATA write cache after block-device writes. FAT now calls a small
+block-device interface backed by the current QEMU IDE PIO implementation instead
+of binding its file code directly to Doom-specific storage assumptions. The
+smoke line includes `ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo` so a cloud persistence write boot that parks in
 `ata_wait_drq`, `ata_wait_ready`, or the data transfer reports the last
 operation and command-status byte instead of silently looking like a Doom
-startup/gameplay wait.
+startup/gameplay wait. Additional diagnostic fields `atairq` and `ataflush`
+account for optional primary-IDE IRQ delivery and cache-flush success/failure;
+they do not broaden the supported storage target beyond QEMU IDE PIO.
+The generic block-device status fields are `blkdev`, `blkop`, `blkstat`,
+`blklba`, `blkplba`, `blkcnt`, `blkxfer`, and `blkerr`, with `blkecode`, `blkpart`,
+`blkpbase`, `blkpcnt`, and `blkperr` reporting the last block error and the
+MBR/FAT16 partition handoff. FAT, config, save, and program-load code share
+that block interface through selected-partition range checks. FAT keeps
+partition-relative sector numbers while the block layer translates them to
+device LBAs and reports both `blkplba` and `blklba`; the current backend is
+still the single legacy IDE ATA PIO device.
 
 Remaining storage gaps before a broad Doom-capable claim:
 
@@ -2073,8 +2502,27 @@ Reusable audio syscall surface:
   reusable contract: `VIBE_AUDIO_DEVICE_START`, `VIBE_AUDIO_MIXER_START`,
   `VIBE_AUDIO_MIXER_STOP`, `VIBE_AUDIO_MIXER_UPDATE`,
   `VIBE_AUDIO_MIXER_IS_PLAYING`, `VIBE_AUDIO_PCM_PULL_STATE`,
-  `VIBE_AUDIO_DEVICE_INFO`, `VIBE_AUDIO_PCM_RING_INFO`, and
-  `VIBE_AUDIO_STREAM_INFO`.
+  `VIBE_AUDIO_DEVICE_INFO`, `VIBE_AUDIO_PCM_RING_INFO`,
+  `VIBE_AUDIO_STREAM_INFO`, `VIBE_AUDIO_STREAM_WRITE`, and
+  `VIBE_AUDIO_PCM_WRITE_DESC`. The raw-PCM stream lifecycle for non-Doom
+  programs is `VIBE_AUDIO_PCM_OPEN`, `VIBE_AUDIO_PCM_WRITE_DESC`,
+  `VIBE_AUDIO_PCM_DRAIN`, and `VIBE_AUDIO_PCM_CLOSE`.
+- The kernel also accepts raw `SYS_AUDIO` command 12 as `AUDIO_CMD_PCM_WRITE`.
+  It uses the same 64-byte `vibe_audio_voice_desc_t` layout, copies accepted PCM
+  bytes into a heap-backed bounded PCM queue, starts SB16 playback as needed,
+  returns the accepted byte count, and reports `-EIO` for an absent/failed
+  device or `-EINVAL` for an invalid descriptor/sample range. Command 13 /
+  `VIBE_AUDIO_PCM_WRITE_DESC` is the cleaner generic PCM submission path: it
+  uses `vibe_audio_pcm_desc_t`, accepts only the implemented SB16-backed
+  unsigned 8-bit stereo format at the current sample rate, and intentionally
+  avoids Doom SFX fields. Public C callers can use `vibe_audio_pcm_open()`,
+  `vibe_audio_pcm_write()`, `vibe_audio_pcm_write_desc()`,
+  `vibe_audio_pcm_drain()`, `vibe_audio_pcm_close()`,
+  `vibe_audio_stream_write()`, or the `vibe_user_audio_*` runtime header
+  helpers from non-Doom programs. `ABIPROBE.ELF` exercises open, descriptor
+  write, drain, and close with a synthetic PCM buffer before it launches Doom,
+  so a second user program proves the device path independently of Doom music
+  or SFX.
 - The reusable surface is deliberately split into device/ring/stream/mixer
   lanes. `VIBE_AUDIO_DEVICE_INFO` answers what output device is ready,
   `VIBE_AUDIO_PCM_RING_INFO` answers the PCM ring geometry and safety counters,
@@ -2082,10 +2530,25 @@ Reusable audio syscall surface:
   `VIBE_AUDIO_MIXER_*` commands submit and manage caller-owned voices. Doom
   happens to exercise all four lanes; none of the ABI records require Doom WAD
   data or Doom-specific status parsing.
+- Audio status also has an ioctl path on `VIBE_AUDIO_FD` for programs that
+  already use fd-style device queries: `VIBE_IOCTL_AUDIO_DEVICE_INFO`,
+  `VIBE_IOCTL_AUDIO_PCM_RING_INFO`, and `VIBE_IOCTL_AUDIO_STREAM_INFO` fill the
+  same fixed ABI records as the `SYS_AUDIO` status commands. The helpers
+  `vibe_audio_device_info_ioctl()`, `vibe_audio_pcm_ring_info_ioctl()`, and
+  `vibe_audio_stream_info_ioctl()` are convenience wrappers, not a second audio
+  implementation.
 - `vibe_audio_voice_desc_t` is the generic mixer voice descriptor. The older
   `vibe_audio_sfx_desc_t` spelling remains a source-compatible typedef because
   Doom SFX were the first submitted voices. Public headers pin the guest ABI as
   `VIBE_AUDIO_VOICE_DESC_BYTES == 64`.
+- `vibe_audio_pcm_desc_t` is the generic raw PCM descriptor for second programs
+  that want a stream queue without the Doom/SFX voice fields. Public headers pin
+  this guest ABI as `VIBE_AUDIO_PCM_DESC_BYTES == 64`; the current kernel accepts
+  the implemented `VIBE_AUDIO_FORMAT_U8_STEREO`, two-channel, SB16-rate form and
+  rejects other formats until a real resampler or additional backend exists.
+  Stream open negotiates that same format and returns an opaque `0x5043....`
+  PCM handle; drain marks the stream final, and close tears down the queue state
+  without relying on Doom handles.
 - `vibe_audio_voice_desc_init()` initializes a caller-owned unsigned 8-bit PCM
   voice descriptor without Doom fields or WAD assumptions. Games can then set
   `sound_id`, `VIBE_AUDIO_FLAG_LOOP`, `VIBE_AUDIO_FLAG_MUSIC`, or stream
@@ -2099,7 +2562,7 @@ Reusable audio syscall surface:
   streams, or SB16 DMA backing.
 - `VIBE_AUDIO_STREAM_INFO` gives user programs a reusable status snapshot for a
   pull-driven PCM stream: mode, flags, handle, pull request/refill counters,
-  pending refill count, queued bytes, low-water threshold, active music voices,
+  pending refill count, queued bytes, low-water threshold, active streams,
   underrun/drop counters, and consumed stream position. The
   `vibe_audio_stream_uses_pull()` and `vibe_audio_stream_needs_refill()` helpers
   let a caller service hardware-paced refill requests without parsing Doom
@@ -2130,6 +2593,9 @@ Current kernel behavior:
   memory for ISA DMA reachability
 - programs 8-bit DMA channel 1 with mask, flip-flop, address, page, count, and
   auto-init memory-to-device mode writes
+- refuses to unmask DMA playback if the kernel-owned SB16 buffer is outside the
+  ISA DMA addressable range or crosses a 64 KiB DMA window; `pcmdma=` reports
+  the last DMA program status, error, and boundary-failure count
 - starts 8-bit DMA playback with DSP speaker-on, time-constant, block-size, and
   stereo auto-init output commands when Doom exercises the audio syscall
 - stops playback with DSP exit-auto-init/speaker-off and masks DMA channel 1
@@ -2141,6 +2607,23 @@ Current kernel behavior:
   `VIBE_AUDIO_MIXER_STOP`, `VIBE_AUDIO_MIXER_UPDATE`,
   `VIBE_AUDIO_MIXER_IS_PLAYING`, and `VIBE_AUDIO_PCM_PULL_STATE`); the older
   `VIBE_AUDIO_*_SFX` spellings remain source aliases for compatibility.
+- exposes a generic raw PCM stream write path as `AUDIO_CMD_PCM_WRITE` for
+  callers that want to stream arbitrary unsigned 8-bit stereo PCM without
+  adopting Doom handle prefixes. `AUDIO_CMD_PCM_WRITE_DESC` is the same device
+  path through a smaller `vibe_audio_pcm_desc_t` ABI for non-Doom callers. Both
+  commands share a 65536-byte kernel-owned bounded PCM queue with
+  head/tail/queued/drop/overflow/trim/high-water accounting; the SB16 IRQ refill
+  path drains that queue into the active DMA half before mixing normal SFX
+  voices. The generic status names are `pcmstream=`, `pcmwrite=`, `pcmdev=`,
+  `pcmlife=`, `pcmqueue=`, `pcmpull=`, `pcmirq=`, and `pcmdma=`. A non-music PCM stream updates the
+  generic fields without keeping the older Doom music mirror active.
+  `AUDIO_CMD_PCM_OPEN`, `AUDIO_CMD_PCM_DRAIN`, and `AUDIO_CMD_PCM_CLOSE` add an
+  explicit reusable lifecycle around that queue, so another game can create a
+  PCM stream, queue raw samples, drain, and close without knowing any Doom
+  audio conventions. The kernel exports the lifecycle as
+  `pcmlife=<state>:<errors>:<open-seq>:<write-seq>:<drain-seq>:<close-seq>:<user-bytes>`,
+  and the checker requires ordered open/write/drain/close sequencing with zero
+  lifecycle errors.
 - records Doom sound calls as `doomsound=<hex count>` plus last command, handle,
   and packed parameters in kernel memory
 - accepts Doom SFX descriptors from the platform layer and reports real,
@@ -2191,7 +2674,21 @@ Current kernel behavior:
   `VIBE_AUDIO_STREAM_FLAG_REFILL_PENDING`, queued bytes, the
   `AUDIO_MUSIC_PULL_LOW_WATER_BYTES` threshold, active music voices, underruns,
   drops, and cumulative stream position, so a non-Doom program can implement the
-  same refill loop without scraping `musicpull=` / `musicbuf=`.
+  same refill loop without scraping `musicpull=` / `musicbuf=`. The syscall is
+  now handle-aware: a matching handle, or handle zero for the current stream,
+  returns the live stream snapshot; an unknown handle returns an empty record
+  with that requested handle echoed back.
+- `pcmstream=<mode>:<handle>:<active>:<queued>:<position>` is the generic stream
+  status tuple. `pcmwrite=<writes>:<bytes>:<last>:<last-error>` tracks accepted
+  stream writes, `pcmdev=<opens>:<non-doom-writes>:<drains>:<closes>:<last-handle>:<last-error>`
+  records the generic non-Doom PCM client counters, `pcmlife=` records the
+  ordered open/write/drain/close lifecycle proof from `ABIPROBE.ELF`,
+  `pcmqueue=<capacity>:<queued>:<drop-bytes>:<overflow-count>:<trim-count>:<high-water>`
+  reports the bounded PCM queue, `pcmpull=<requests>:<refills>:<pending>`
+  mirrors the pull service contract, and `pcmirq=<irqs>:<refills>:<spurious>`
+  mirrors the IRQ accounting without requiring a Doom-specific field name. The
+  older `music*` fields remain compatibility proof lanes for the current Doom
+  tests.
 - records the current request-driven music stream as `musicstream=PULL`, with
   `musicpull=<requests>:<refills>` advanced by SB16 refill-side low-water
   requests and by Doom-port chunk service. The reported `musicbuf=` window is
@@ -2347,10 +2844,13 @@ The same status-only OS audio contract is now named directly in the audible
 manifest as `os_audio_contract`. It is deliberately generic: `adev=` proves a
 ready device and capabilities, `pcm=` proves sample format, `pcmbuf=` proves the
 ring geometry and active half, `half=` is the IRQ phase that must agree with the
-ring snapshot, `musicpull=` / `musicbuf=` / `musicpos=` prove stream service,
-and `voices=` / `sfxvoices=` / `musicvoices=` keep mixer lane accounting
-separate. This is the reusable device/ring/stream/mixer status contract; Doom is
-the first caller, not the shape of the ABI.
+ring snapshot, `pcmdev=` proves a generic non-Doom PCM client opened, wrote,
+drained, and closed a stream, `pcmlife=` proves that the same generic client
+completed ordered open/write/drain/close sequencing with zero lifecycle errors,
+`musicpull=` / `musicbuf=` / `musicpos=` prove
+stream service, and `voices=` / `sfxvoices=` / `musicvoices=` keep mixer lane
+accounting separate. This is the reusable device/ring/stream/mixer status
+contract; Doom is the first caller, not the shape of the ABI.
 The contract now records mixer-lane conservation too:
 `sfx_output_delta`, `sfx_dma_output_delta`,
 `sfx_dma_output_matches_sfx_output`, `music_render_chunk_delta`, and
@@ -2397,9 +2897,11 @@ programming and `play=` start counters, nonzero `voiceq=` and `musicq=` queue
 counters, nonzero `sfxq=`, `sfxbytes=`, `sfxdma=`, `sfxsrc=`, and `sfxlast=`
 SFX-source proof, monotonic audio counters, increasing IRQ/refill, non-music SFX
 `sfxmix=`, SB16-refill-side SFX `sfxdma=`, runtime WAD SFX source `sfxsrc=`,
-music `musicmix=` counters,
+  music `musicmix=` counters,
 increasing `musicpos=`, a progressing `voiceq=` stream-update component,
 visible `musicbuf=` / `musicunder=` / `musicdrops=` health fields,
+`pcmdev=` proof that `ABIPROBE.ELF` used the generic PCM open/write/drain/close
+path as a non-Doom client, `pcmlife=` proof that those operations were ordered,
 `musicstream=PULL` for the current
 SB16-refill-requested music proof, monotonic and advancing `musicpull=` counters
 and `musicrend=` renderer-provenance counters whose rendered-sample delta covers
@@ -2448,8 +2950,9 @@ music, stream updates, music position, and shared SB16 IRQ/refill progress plus
 a `stream_health` object with buffer floor/peak/final values, under/drop deltas,
 and position-per-update metadata. It also records an `os_audio_contract` object
 for the status-only OS audio subsystem lane: device capability readiness,
-two-period PCM ring coherence, `pcmbuf=` / `half=` phase agreement, ordered
-pull-refill stream service, and SFX/music mixer lane separation. It also records
+two-period PCM ring coherence, `pcmbuf=` / `half=` phase agreement, the
+`pcmdev=` generic non-Doom PCM client lifecycle proof, ordered pull-refill
+stream service, and SFX/music mixer lane separation. It also records
 `stream_contract` metadata that records `musicstream=PULL`, the reusable
 device/ring/stream/mixer OS audio surfaces, `playability_cadence` metadata when
 the status snapshots include tic/frame counters, `mixer_safety` thresholds for
@@ -2458,14 +2961,14 @@ drop-free playback, plus a scripted fire-phase proof so a manifest cannot pass
 on carrier or music activity alone.
 New manifests also include a `proof_contracts` block that names the lanes as
 OS-level contracts: status-only OS audio subsystem, aggregate machine-audible
-output, human-listened quality, music legitimacy, and future hardware-paced
-mixer/refill playback. The aggregate lane proves non-silent remote QEMU output
+output, human-listened quality, music legitimacy, and the kernel-owned PCM
+stream write/refill ABI. The aggregate lane proves non-silent remote QEMU output
 plus SB16 continuity only.
 human-listened quality is a separate lane that needs remote audio forwarding and
-listener notes, without uploading captured Doom audio. The future hardware-paced
-mixer/refill playback ABI is also a separate lane: the current path proves SB16
-IRQ/refill request timing and DMA/ring counters, while music payload service
-still arrives through `VIBE_AUDIO_MIXER_UPDATE`.
+listener notes, without uploading captured Doom audio. The kernel-owned PCM
+stream ABI is the current playback-service lane: `VIBE_AUDIO_STREAM_WRITE`
+copies PCM into the kernel queue, and the SB16 IRQ/refill path consumes it while
+the Doom port remains responsible for MUS/MIDI rendering.
 The listener-quality metadata is still aggregate only: active span,
 leading/trailing inactive windows, clipping ratio, crest factor, zero-crossing
 rate, machine-audible thresholds, and an explicit note that subjective human
@@ -2498,12 +3001,12 @@ The exact host contract phrase is: zero-duration songs do not become silent loop
 a port-owned stateful stream cursor instead of rendering one permanent carrier.
 The first chunk render is deferred to the normal tic/frame/sound update pump.
 The platform layer renders 32768-byte streamed music chunks from the current
-song position and submits the first chunk through `VIBE_AUDIO_MIXER_START`; later
-Doom sound, tic, and frame hooks poll `VIBE_AUDIO_PCM_PULL_STATE` and call
-`VIBE_AUDIO_MIXER_UPDATE` only when the kernel has raised a hardware-paced pull
-request from the SB16 refill path. The music architecture keeps targeting the same SB16
-DMA/refill output path, so the parser/renderer work shares SFX voice stealing,
-clipping, silence, and status accounting. The extra `musicvoices=`, `musicmix=`,
+song position and submits each chunk through `VIBE_AUDIO_STREAM_WRITE`; later
+Doom sound, tic, and frame hooks poll `VIBE_AUDIO_PCM_PULL_STATE` and submit a
+new stream chunk only when the kernel has raised a hardware-paced pull request
+from the SB16 refill path. The music architecture keeps targeting the same SB16
+DMA/refill output path, while normal Doom SFX continue through the voice-table
+mixer and can be mixed over the streamed PCM bed. The extra `musicvoices=`, `musicmix=`,
 `musicpos=`, `musicbuf=`, `musicunder=`, `musicdrops=`, `musicstream=`,
 `musicpull=`, `musicrend=`, and `voiceq=` update counter make that contract visible in cloud
 smoke status.
@@ -2517,10 +3020,10 @@ use Doom's latest music volume without restarting the song cursor.
 Looping songs measure one parsed song pass and wrap only the renderer's
 internal start point, keeping the public stream cursor cumulative for long
 playback while avoiding the old bounded loop-pass failure.
-The kernel can later grow a first-class pull/refill command without changing the
-MUS/MIDI parser or Doom's original sources. The music pipeline, fallback design,
-and proof boundaries live in this audio contract rather than a separate music
-note.
+The kernel can later grow additional device backends, resampling, or richer
+stream formats without changing the MUS/MIDI parser or Doom's original sources.
+The music pipeline, fallback design, and proof boundaries live in this audio
+contract rather than a separate music note.
 
 Music legitimacy roadmap as OS contracts:
 
@@ -2533,20 +3036,30 @@ Music legitimacy roadmap as OS contracts:
   path paced user-space chunk service and that the kernel mixer consumed those
   chunks over time.
 - Current OS audio subsystem legitimacy: `os_audio_contract` proves generic
-  device/ring/stream/mixer status coherence from `adev=`, `pcm=`, `pcmbuf=`,
-  `half=`, `musicpull=`, `voices=`, `sfxvoices=`, and `musicvoices=` without
-  depending on Doom WAD bytes or captured audio samples.
+  device/ring/stream/mixer/queue status coherence from `adev=`, `pcm=`,
+  `pcmbuf=`, `pcmqueue=`, `pcmdev=`, `pcmlife=`, `half=`, `musicpull=`, `voices=`,
+  `sfxvoices=`, and `musicvoices=` without depending on Doom WAD bytes or
+  captured audio samples. The `pcmdev=` tuple is the second-program proof, and
+  `pcmlife=` proves that client reached closed state through ordered
+  open/write/drain/close sequencing.
+- Current kernel-owned PCM stream legitimacy: `VIBE_AUDIO_STREAM_WRITE`,
+  `VIBE_AUDIO_PCM_OPEN`, `VIBE_AUDIO_PCM_WRITE_DESC`,
+  `VIBE_AUDIO_PCM_DRAIN`, `VIBE_AUDIO_PCM_CLOSE`, `pcmstream=`, `pcmwrite=`,
+  `pcmdev=`, `pcmlife=`, `pcmqueue=`, `pcmpull=`, and the SB16 IRQ refill counters prove
+  that payload bytes live in a reusable bounded PCM queue and are pulled into
+  DMA halves by the device service path rather than by a Doom-only mixer update.
 - Current audible legitimacy: aggregate `audio-proof.json` can prove
   machine-audible remote output plus status-only SB16 continuity.
   Human-listened quality is a separate lane; it still needs remote audio
   forwarding plus listener notes.
-- Future playback legitimacy: a future hardware-paced mixer/refill playback ABI
-  should move payload service away from `VIBE_AUDIO_MIXER_UPDATE` and into a
-  first-class kernel-owned music ring or mixer/refill stream command while
-  preserving status-only request/refill, renderer provenance, buffer health,
-  and safety counters.
-  This is the architecture anchor for
+- Implemented playback legitimacy: the kernel-owned PCM stream write/refill ABI
+  moved payload service away from `VIBE_AUDIO_MIXER_UPDATE` and into command 12
+  / `VIBE_AUDIO_STREAM_WRITE` while preserving status-only request/refill,
+  renderer provenance, buffer health, and safety counters. This is the
+  architecture anchor for
   `POST_PLAYABLE_GAP[HARDWARE_PACED_AUDIO_STREAM]`.
+  The future hardware-paced mixer/refill playback ABI gate still has to prove
+  the same path in its named cloud proof before the post-playable row can close.
 
 The long-running music streaming contract uses song-position proof and
 long-playback wrap behavior to keep looping music honest over time. Buffered
@@ -2562,16 +3075,18 @@ Audio quality and music legitimacy roadmap as OS contracts:
   human-listened quality pass.
 - Current OS audio subsystem contract: `os_audio_contract` proves generic
   device/ring/stream/mixer status coherence from `adev=`, `pcm=`, `pcmbuf=`,
-  `half=`, `musicpull=`, `voices=`, `sfxvoices=`, and `musicvoices=` without
-  depending on Doom WAD bytes or captured audio samples.
+  `pcmdev=`, `half=`, `musicpull=`, `voices=`, `sfxvoices=`, and
+  `musicvoices=` without depending on Doom WAD bytes or captured audio samples.
 - Current music legitimacy contract: `VIBE_AUDIO_STREAM_INFO`,
   `musicstream=PULL`, `musicpull=`, `musicrend=`, `musicpos=`, and
   `musicbuf=` prove the OS-visible pull/refill stream shape while the Doom port
   still owns MUS/MIDI parsing and chunk rendering.
-- future hardware-paced mixer/refill playback ABI: move payload service away
-  from `VIBE_AUDIO_MIXER_UPDATE` into a first-class kernel-owned music ring or
-  mixer/refill stream command, while preserving status-only request/refill,
-  renderer provenance, buffer health, and safety counters.
+- Current kernel-owned PCM stream write/refill ABI: `VIBE_AUDIO_PCM_OPEN`,
+  `VIBE_AUDIO_STREAM_WRITE`, `VIBE_AUDIO_PCM_WRITE_DESC`,
+  `VIBE_AUDIO_PCM_DRAIN`, and `VIBE_AUDIO_PCM_CLOSE` feed a reusable kernel
+  queue that the SB16 IRQ refill path drains into DMA, while preserving
+  status-only request/refill, renderer provenance, buffer health, and safety
+  counters.
 - Future human-listened quality pass: use remote audio forwarding for listening
   notes about balance, clipping, loops, stutter, and musical plausibility. The
   notes can be uploaded; captured Doom audio must not be.
@@ -2579,11 +3094,12 @@ Audio quality and music legitimacy roadmap as OS contracts:
 Remaining gaps:
 
 - Music now advances a stateful song-position cursor in the Doom port and
-  services kernel pull requests with `VIBE_AUDIO_MIXER_UPDATE`. The SB16 IRQ
-  refill path owns request timing and `musicpull=` accounting, but the Doom port
-  still renders the MUS/MIDI chunk in response. The `musicrend=` counters now
-  prove those service chunks came from parsed MUS/MIDI renderer activity rather
-  than a carrier tone; kernel-owned synthesis remains a future legitimacy step.
+  services kernel pull requests with `VIBE_AUDIO_STREAM_WRITE`. The SB16 IRQ
+  refill path owns request timing, `musicpull=` accounting, and PCM queue
+  consumption, but the Doom port still renders the MUS/MIDI chunk in response.
+  The `musicrend=` counters prove those service chunks came from parsed
+  MUS/MIDI renderer activity rather than a carrier tone; kernel-owned synthesis
+  remains a future legitimacy step.
 - The audible proof is a remote aggregate-output proof, not a listener recording
   or subjective quality proof. It now records aggregate listener-quality
   metadata, but a human playtest should still use remote audio forwarding for

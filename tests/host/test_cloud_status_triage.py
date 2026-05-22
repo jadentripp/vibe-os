@@ -2,6 +2,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 
@@ -48,8 +49,18 @@ def status_line(**overrides):
         "doomfaultv": "00000000",
         "doomfaulterr": "00000000",
         "fault": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
+        "pf": "00000000/00000000/00000000/00000000/00000000",
+        "faultsrc": "NONE",
+        "faultmode": "NONE",
+        "faultcontain": "00000001/00000000/00000000/00000000/00000000",
+        "regs": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
+        "segs": "00000000/00000000/00000000/00000000/00000000/00000000",
+        "proc": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
         "panic": "NONE",
         "shutdown": "NONE",
+        "biosboot": "OK",
+        "biosflags": "00000FB7",
+        "biosentry": "00010000/00000001",
         "ata": "OK",
         "ataop": "READ",
         "atawait": "IDLE",
@@ -61,6 +72,17 @@ def status_line(**overrides):
         "doommode": "00000000:00000000",
         "doomlog": "ready",
         "doompresent": "00000008",
+        "fb": "LFB",
+        "fbdev": "00000001:00000002:00000002:00000001",
+        "fbmmio": "E0000000:00000100:00000380:00000000",
+        "fbpolicy": "ASP",
+        "fbgeom": "00000000:00000000:00000280:000001E0:00000002",
+        "fbdirty": "00000000:00000000:00000140:000000C8:0000FA00",
+        "fbpresent": "00000008:00000008:00000000:00000000:00000005:00000001:00000001:00000140:000000C8",
+        "fbinfo": "00000001:00000005:00000002",
+        "fbcap": "0000003F",
+        "fbsrc": "00000001:00000140:000000C8:00000140:000000F0:00000100:00000003",
+        "fbacct": "00000001:00000001:00000000:00000000:00000000:00000001:0000FA00:0000FA00:00000300",
         "doompal": "00000001",
         "doomframe": "00000002",
         "gameplay": "OK",
@@ -78,6 +100,9 @@ def status_line(**overrides):
         "inputqueue": "00000007",
         "inputpoll": "00000007",
         "inputdepth": "00000000:00000000",
+        "inputstat": "00000007:00000007:00000000:0000003F",
+        "inputpolicy": "00000001:0000003F",
+        "inputdev": "00000001:00000001",
         "inputlast": "00000060:00000001:00000001",
         "keyirq": "00000002",
         "keyqueue": "00000002",
@@ -103,6 +128,12 @@ def status_line(**overrides):
         "musicpos": "00040000",
         "musicbuf": "00002000",
         "musicpull": "00000020:00000020",
+        "pcmstream": "00000002:4D550001:00000001:00002000:00040000",
+        "pcmwrite": "00000020:00040000:00008000:00000000",
+        "pcmqueue": "00080000:00002000:00000000:00000000:00000000:00040000",
+        "pcmpull": "00000020:00000020:00000000",
+        "pcmirq": "00000040:00000040:00000000",
+        "pcmdma": "00000001:00000000:00000000:00001000:00000000:00000FFF",
         "mixunder": "00000000",
         "musicunder": "00000000",
         "musicdrops": "00000000",
@@ -121,8 +152,30 @@ def status_line(**overrides):
         "pcr3": "00082000:00083000",
         "pkstk": "00073000:00072000",
         "pframe": "00000008/00E80000/0000001B/00E9FFE0/00000023",
+        "psegs": "00000023:00000023:00000023:00000023",
+        "peflags": "00000202:00000202:00000202:00000000:00000001",
         "pspin": "50524590",
         "pself": "OK",
+        "abipid": "00000005",
+        "kblock": "00000002/00000002/00000002/00000000/00000005/00000002/00000006/00000005/00000002",
+        "ksleep": "00000001/00000001/00000001/00000000/00000000/00000005/00000021/00000001/00000005",
+        "doomsav": "00000000/FFFFFFFF",
+        "saverd": "00000000/00000000",
+        "savewr": "00000000/00000000",
+        "saveclose": "00000000",
+        "savemode": "00000000:00000000",
+        "saveact": "00000000/00000000/FFFFFFFF/00000000",
+        "savedesc": "00000000/00000000",
+        "savestm": "00000000/FFFFFFFF/FFFFFFFF/00000000/00000000",
+        "savethk": "FFFFFFFF/00000000/FFFFFFFF/00000000",
+        "fwr": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
+        "fal": "00000000/00000000/00000000/00000000",
+        "fam": "00000000/00000000/00000000",
+        "fac": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
+        "fatdyn": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
+        "fio": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
+        "flb": "00000000/00000000/00000000",
+        "fcl": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
     }
     fields.update(overrides)
     return "Aurora OS v0.2 " + " ".join(
@@ -150,6 +203,10 @@ class CloudStatusTriageTests(unittest.TestCase):
     def test_triage_rules_cover_next_cloud_failure_classes(self):
         names = {rule.name for rule in triage_cloud_status.TRIAGE_RULES}
         for expected in (
+            "bios-handoff-not-proven",
+            "fault-containment-not-proven",
+            "kernel-blocking-not-proven",
+            "uefi-marker-not-proven",
             "exec-not-attempted",
             "exec-failed",
             "doom-user-fault",
@@ -250,6 +307,120 @@ class CloudStatusTriageTests(unittest.TestCase):
         self.assertIn("failures=0x1", notes[0])
         self.assertIn("execerr=FFFFFFFE", notes[0])
 
+    def test_classifies_bios_handoff_failures_before_exec(self):
+        primary, notes = self.classify(
+            biosflags="00000F37",
+            execsys="00000000/00000000/00000000/00000000/00000000/00000000",
+        )
+
+        self.assertEqual(primary, "bios-handoff-not-proven")
+        self.assertIn("A20", notes[0])
+        self.assertIn("biosflags=00000F37", notes[0])
+
+    def test_classifies_fault_containment_contract_failure(self):
+        primary, notes = self.classify(
+            faultsrc="USER",
+            faultmode="NONE",
+            faultcontain="00000001/00000001/00000000/00000000/00000000",
+        )
+
+        self.assertEqual(primary, "fault-containment-not-proven")
+        self.assertIn("contained user faults", notes[0])
+        self.assertIn("faultsrc=USER", notes[0])
+
+    def test_classifies_page_fault_decode_contract_failure(self):
+        primary, notes = self.classify(
+            doomrun="FAULT",
+            doomfault="018F0000",
+            doomfaultip="0102F190",
+            doomfaultv="0000000E",
+            doomfaulterr="00000004",
+            fault="0000000E/00000004/0102F190/0000001B/0100FFE0/00000023/018F0000/00000002/00000002/00000001/00000003",
+            pf="018F0000/00000004/00000002/00000001/00000001",
+            faultsrc="DOOM",
+            faultmode="USER",
+            faultcontain="00000001/00000000/00000001/00000000/00000001",
+            regs="00000001/00000002/00000003/00000004/00000005/00000006/00000007/00000202",
+            segs="00000023/00000023/00000023/00000023/0000001B/00000023",
+            proc="00001000/01000000/02000000/01900000/01900000/01F00000/02000000/01000000/00082000",
+        )
+
+        self.assertEqual(primary, "fault-containment-not-proven")
+        self.assertIn("pf does not mirror page-fault", notes[0])
+
+    def test_classifies_missing_kernel_blocking_proof(self):
+        primary, notes = self.classify(
+            ksleep="00000001/00000001/00000000/00000000/00000000/00000005/00000021/00000001/00000005",
+        )
+
+        self.assertEqual(primary, "kernel-blocking-not-proven")
+        self.assertIn("SYS_SLEEP_TICKS", notes[0])
+        self.assertIn("ksleep=", notes[0])
+
+    def test_renders_uefi_manifest_marker_lane(self):
+        manifest = {
+            "schema": "uefi-ovmf-cloud-proof-v1",
+            "mode": "prove",
+            "support_claim": "unclaimed",
+            "ovmf": {
+                "proof": "exit-boot-services",
+                "exit_boot_services": True,
+                "kernel_handoff_after_exit_boot_services": True,
+                "kernel_handoff": "attempting",
+                "loader_handoff_evidence": {
+                    "step": "kernel-handoff",
+                    "status": "attempting",
+                    "entry32": "0x00010000",
+                    "handoff": "0x00009000",
+                    "bootinfo": "0x00007000",
+                    "e820": "0x00007100",
+                    "tramp32": "0x00008000",
+                    "transition64": "0x0000A000",
+                    "flags": "0x0000007F",
+                    "segments": "0x00000003",
+                },
+                "kernel_entry_after_exit_boot_services": False,
+                "kernel_booted": False,
+                "kernel_entry_status": "missing",
+                "kernel_entry_evidence": {},
+            },
+        }
+
+        rendered = triage_cloud_status.render_uefi_manifest_diagnosis(manifest)
+
+        self.assertIn("primary: uefi-marker-not-proven", rendered)
+        self.assertIn("kernel-owned marker was not captured", rendered)
+        self.assertIn("next: Hand off to the UEFI boot owner", rendered)
+
+    def test_cli_routes_uefi_manifest_to_marker_triage(self):
+        manifest = {
+            "schema": "uefi-ovmf-cloud-proof-v1",
+            "mode": "prove",
+            "support_claim": "unclaimed",
+            "ovmf": {
+                "proof": "not-proven",
+                "exit_boot_services": False,
+                "kernel_handoff_after_exit_boot_services": False,
+                "kernel_entry_after_exit_boot_services": False,
+                "kernel_booted": False,
+                "kernel_entry_status": "missing",
+                "kernel_entry_evidence": {},
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "ovmf-proof-manifest.json"
+            manifest_path.write_text(json.dumps(manifest))
+            result = subprocess.run(
+                [sys.executable, str(TOOLS / "triage_cloud_status.py"), str(manifest_path)],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("primary: uefi-marker-not-proven", result.stdout)
+        self.assertIn("ExitBootServices did not complete", result.stdout)
+
     def test_classifies_doom_fault_before_wad_io(self):
         primary, notes = self.classify(
             doomrun="FAULT",
@@ -258,6 +429,13 @@ class CloudStatusTriageTests(unittest.TestCase):
             doomfaultv="0000000E",
             doomfaulterr="00000004",
             fault="0000000E/00000004/0102F190/0000001B/0100FFE0/00000023/018F0000/00000002/00000002/00000001/00000003",
+            pf="018F0000/00000004/00000001/00000001/00000001",
+            faultsrc="DOOM",
+            faultmode="USER",
+            faultcontain="00000001/00000000/00000001/00000000/00000001",
+            regs="00000001/00000002/00000003/00000004/00000005/00000006/00000007/00000202",
+            segs="00000023/00000023/00000023/00000023/0000001B/00000023",
+            proc="00001000/01000000/02000000/01900000/01900000/01F00000/02000000/01000000/00082000",
             doomopen="FAIL",
             doomread="FAIL",
             doomwad="00000000/00000000/00000000/00000000",
@@ -288,6 +466,14 @@ class CloudStatusTriageTests(unittest.TestCase):
                     doomfaultip="0102F190",
                     doomfaultv="0000000E",
                     doomfaulterr="00000004",
+                    fault="0000000E/00000004/0102F190/0000001B/0100FFE0/00000023/018F0000/00000002/00000002/00000001/00000003",
+                    pf="018F0000/00000004/00000001/00000001/00000001",
+                    faultsrc="DOOM",
+                    faultmode="USER",
+                    faultcontain="00000001/00000000/00000001/00000000/00000001",
+                    regs="00000001/00000002/00000003/00000004/00000005/00000006/00000007/00000202",
+                    segs="00000023/00000023/00000023/00000023/0000001B/00000023",
+                    proc="00001000/01000000/02000000/01900000/01900000/01F00000/02000000/01000000/00082000",
                 )
             )
             (tmpdir / "doom.symbols").write_text(symbol_map_text())
@@ -299,6 +485,9 @@ class CloudStatusTriageTests(unittest.TestCase):
 
         self.assertIn("primary: doom-user-fault", rendered)
         self.assertIn("fault-decode: vector=0E (page-fault)", rendered)
+        self.assertIn("page-fault: pf=018F0000/00000004/user/read/not-present", rendered)
+        self.assertIn("registers: eax=00000001", rendered)
+        self.assertIn("process: ptr=00001000", rendered)
         self.assertIn("not-present page", rendered)
         self.assertIn("symbol: 0102F190 -> D_DoomMain+0x90", rendered)
 
@@ -700,6 +889,8 @@ class CloudStatusTriageTests(unittest.TestCase):
             pirq="00000000",
             pmask="00000000",
             pframe="00000000/00000000/00000000/00000000/00000000",
+            psegs="00000000:00000000:00000000:00000000",
+            peflags="00003202:00000000:00000000:00000000:00000000",
             pspin="50524545",
         )
 
@@ -709,7 +900,22 @@ class CloudStatusTriageTests(unittest.TestCase):
         self.assertIn("pirq=00000000", rendered)
         self.assertIn("pmask=00000000", rendered)
         self.assertIn("pframe=00000000/00000000/00000000/00000000/00000000", rendered)
+        self.assertIn("psegs=00000000:00000000:00000000:00000000", rendered)
+        self.assertIn("peflags=00003202:00000000:00000000:00000000:00000000", rendered)
         self.assertIn("pspin=50524545", rendered)
+
+    def test_classifies_dirty_or_unproved_preemption_eflags(self):
+        for peflags in (
+            "00003202:00000202:00000202:00000000:00000001",
+            "00000202:00003202:00000202:00000000:00000001",
+            "00000202:00000202:00003202:00000000:00000001",
+            "00000202:00000202:00000202:00000000:00000000",
+        ):
+            with self.subTest(peflags=peflags):
+                primary, notes = self.classify(peflags=peflags)
+
+                self.assertEqual(primary, "preemption-not-proven")
+                self.assertIn(f"peflags={peflags}", "\n".join(notes))
 
     def test_classifies_missing_long_run_cadence_after_core_proofs_are_green(self):
         primary, notes = self.classify(audioirq="00000000", refill="00000000")
@@ -743,6 +949,14 @@ class CloudStatusTriageTests(unittest.TestCase):
                     doomfaultip="0102F190",
                     doomfaultv="0000000E",
                     doomfaulterr="00000004",
+                    fault="0000000E/00000004/0102F190/0000001B/0100FFE0/00000023/018F0000/00000002/00000002/00000001/00000003",
+                    pf="018F0000/00000004/00000001/00000001/00000001",
+                    faultsrc="DOOM",
+                    faultmode="USER",
+                    faultcontain="00000001/00000000/00000001/00000000/00000001",
+                    regs="00000001/00000002/00000003/00000004/00000005/00000006/00000007/00000202",
+                    segs="00000023/00000023/00000023/00000023/0000001B/00000023",
+                    proc="00001000/01000000/02000000/01900000/01900000/01F00000/02000000/01000000/00082000",
                 )
             )
             (Path(tmp) / "doom.symbols").write_text(symbol_map_text())

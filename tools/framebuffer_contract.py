@@ -10,6 +10,7 @@ contract.
 """
 
 from dataclasses import dataclass
+import argparse
 import re
 
 
@@ -73,6 +74,8 @@ CAP_MODE13_SHADOW = 0x00000008
 CAP_DIRTY_SOURCE_RECT = 0x00000010
 CAP_FIXED_PRESENT_SIZE = 0x00000020
 FORMAT_INDEX8_RGB24 = 1
+ABI_VERSION = 1
+PRESENT_SEMANTICS_INDEXED_SOURCE = 1
 PROOF_STATUS_FIELD_MAP = {
     "palette_hash": "doompal",
     "frame_hash": "doomframe",
@@ -102,6 +105,7 @@ def source_metadata(source: IndexedSourceFormat = DEFAULT_SOURCE) -> dict[str, i
         "source_aspect_width": source.aspect_width,
         "source_aspect_height": source.aspect_height,
         "pixel_aspect": source.pixel_aspect,
+        "present_format": FORMAT_INDEX8_RGB24,
         "frame_bytes": source.frame_bytes,
         "palette_entries": source.palette_entries,
         "palette_entry_bytes": source.palette_entry_bytes,
@@ -260,6 +264,28 @@ def dirty_rect(
     }
 
 
+def dirty_rect_is_bounded(
+    dirty: dict[str, int],
+    source: IndexedSourceFormat = DEFAULT_SOURCE,
+) -> bool:
+    validate_source(source)
+    x = int(dirty.get("x", 0))
+    y = int(dirty.get("y", 0))
+    width = int(dirty.get("width", 0))
+    height = int(dirty.get("height", 0))
+    count = int(dirty.get("count", 0))
+
+    if count == 0:
+        return (x, y, width, height) == (0, 0, 0, 0)
+    if count > source.frame_bytes:
+        return False
+    if width <= 0 or height <= 0:
+        return False
+    if x < 0 or y < 0 or x >= source.width or y >= source.height:
+        return False
+    return x + width <= source.width and y + height <= source.height
+
+
 def scale_xrgb8888_centered(
     frame: bytes,
     palette: bytes,
@@ -365,6 +391,8 @@ def fbinfo_contract(
         "source_aspect_width": metadata["source_aspect_width"],
         "source_aspect_height": metadata["source_aspect_height"],
         "pixel_aspect": metadata["pixel_aspect"],
+        "abi_version": ABI_VERSION,
+        "present_semantics": PRESENT_SEMANTICS_INDEXED_SOURCE,
         "frame_bytes": metadata["frame_bytes"],
         "palette_bytes": metadata["palette_bytes"],
         "scale": geometry["scale"],
@@ -493,6 +521,8 @@ def validate_status_display_fields(
         policy = fields["fbpolicy"]
         geometry = _parse_status_hex_tuple(fields["fbgeom"], 5)
         dirty = _parse_status_hex_tuple(fields["fbdirty"], 5)
+        source_status = _parse_status_hex_tuple(fields["fbsrc"], 7)
+        accounting_status = _parse_status_hex_tuple(fields["fbacct"], 9)
     except KeyError as exc:
         raise AssertionError(f"status missing {exc.args[0]}= field") from exc
     except AssertionError as exc:
@@ -500,15 +530,76 @@ def validate_status_display_fields(
 
     x, y, view_width, view_height, scale = geometry
     dirty_x, dirty_y, dirty_width, dirty_height, dirty_count = dirty
+    (
+        source_format,
+        source_width,
+        source_height,
+        source_aspect_width,
+        source_aspect_height,
+        palette_entries,
+        palette_entry_bytes,
+    ) = source_status
+    (
+        abi_version,
+        present_semantics,
+        bad_desc,
+        bad_range,
+        bad_size,
+        dirty_sequence,
+        dirty_total_pixels,
+        last_source_bytes,
+        last_palette_bytes,
+    ) = accounting_status
+    capability_text = fields.get("fbcap")
+    required_caps = (
+        CAP_PRESENT_INDEXED
+        | CAP_PRESENT_RGB_PALETTE
+        | CAP_MODE13_SHADOW
+        | CAP_DIRTY_SOURCE_RECT
+        | CAP_FIXED_PRESENT_SIZE
+    )
+    if capability_text is None:
+        capabilities = required_caps
+        if backend == STATUS_BACKEND_LFB:
+            capabilities |= CAP_XRGB8888_LFB
+    else:
+        if not HEX8_PATTERN.fullmatch(capability_text):
+            raise AssertionError(f"fbcap= must be eight hex digits, got {capability_text!r}")
+        capabilities = int(capability_text, 16)
 
     if backend == STATUS_BACKEND_MODE13:
         if policy != STATUS_POLICY_MODE13:
             raise AssertionError(f"fbpolicy= must be M13 for fb=M13, got {policy!r}")
+        if capabilities & CAP_XRGB8888_LFB:
+            raise AssertionError("fbcap= for M13 must not advertise XRGB8888 LFB")
     elif backend == STATUS_BACKEND_LFB:
         if policy not in (STATUS_POLICY_ASPECT, STATUS_POLICY_SQUARE):
             raise AssertionError(f"fbpolicy= must be ASP or SQ for fb=LFB, got {policy!r}")
+        if not capabilities & CAP_XRGB8888_LFB:
+            raise AssertionError("fbcap= for LFB must advertise XRGB8888 LFB")
     else:
         raise AssertionError(f"fb= must be LFB or M13, got {backend!r}")
+
+    if (capabilities & required_caps) != required_caps:
+        raise AssertionError(f"fbcap= missing required indexed display capabilities, got {capability_text!r}")
+
+    expected_source = (
+        FORMAT_INDEX8_RGB24,
+        source.width,
+        source.height,
+        source.aspect_width,
+        source.aspect_height,
+        source.palette_entries,
+        source.palette_entry_bytes,
+    )
+    if source_status != expected_source:
+        raise AssertionError(f"fbsrc= must match the indexed source metadata, got {fields['fbsrc']!r}")
+    if abi_version != ABI_VERSION:
+        raise AssertionError(f"fbacct= ABI version must be {ABI_VERSION}, got {abi_version}")
+    if present_semantics != PRESENT_SEMANTICS_INDEXED_SOURCE:
+        raise AssertionError("fbacct= must report indexed-source present semantics")
+    if bad_desc or bad_range or bad_size:
+        raise AssertionError("fbacct= present validation reject counters must be zero in a green proof")
 
     if policy == STATUS_POLICY_MODE13:
         expected = (0, 0, source.width, source.height, 1)
@@ -537,18 +628,40 @@ def validate_status_display_fields(
                 f"got {fields['fbgeom']!r}"
             )
 
-    if dirty_count == 0:
-        if (dirty_x, dirty_y, dirty_width, dirty_height) != (0, 0, 0, 0):
-            raise AssertionError(f"fbdirty= with zero changed pixels must have zero bounds, got {fields['fbdirty']!r}")
-    else:
+    dirty_record = {
+        "x": dirty_x,
+        "y": dirty_y,
+        "width": dirty_width,
+        "height": dirty_height,
+        "count": dirty_count,
+    }
+    if not dirty_rect_is_bounded(dirty_record, source):
+        if dirty_count == 0:
+            raise AssertionError(
+                f"fbdirty= with zero changed pixels must have zero bounds, got {fields['fbdirty']!r}"
+            )
         if dirty_x >= source.width or dirty_y >= source.height:
             raise AssertionError(
                 f"fbdirty= origin must be inside the source frame, got {fields['fbdirty']!r}"
             )
         if dirty_width == 0 or dirty_height == 0:
             raise AssertionError(f"fbdirty= changed pixels need nonzero bounds, got {fields['fbdirty']!r}")
-        if dirty_x + dirty_width > source.width or dirty_y + dirty_height > source.height:
-            raise AssertionError(f"fbdirty= bounds exceed the source frame, got {fields['fbdirty']!r}")
+        if dirty_count > source.frame_bytes:
+            raise AssertionError(f"fbdirty= count exceeds the source frame, got {fields['fbdirty']!r}")
+        raise AssertionError(f"fbdirty= bounds exceed the source frame, got {fields['fbdirty']!r}")
+
+    if dirty_count:
+        if dirty_sequence == 0:
+            raise AssertionError("fbacct= dirty sequence must advance when fbdirty= reports changes")
+        if dirty_total_pixels < dirty_count:
+            raise AssertionError("fbacct= total dirty pixels must cover the current dirty count")
+    if "fbpresent" in fields:
+        present_total = _parse_status_hex_tuple(fields["fbpresent"], 9)[0]
+        if present_total:
+            if last_source_bytes != source.frame_bytes:
+                raise AssertionError("fbacct= must record the presented source byte count")
+            if last_palette_bytes != source.palette_bytes:
+                raise AssertionError("fbacct= must record the presented palette byte count")
 
     return {
         "backend": backend,
@@ -558,5 +671,21 @@ def validate_status_display_fields(
         "view_width": view_width,
         "view_height": view_height,
         "scale": scale,
+        "capabilities": capabilities,
+        "source": source_status,
+        "accounting": accounting_status,
         "dirty": dirty,
     }
+
+
+def _main() -> int:
+    parser = argparse.ArgumentParser(description="Validate vibe-os indexed framebuffer contract helpers.")
+    parser.add_argument("--status", help="status line containing fb=, fbsrc=, fbacct=, fbdirty=, and related fields")
+    args = parser.parse_args()
+    if args.status:
+        validate_status_display_fields(dict(part.split("=", 1) for part in args.status.split() if "=" in part))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

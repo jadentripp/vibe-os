@@ -13,16 +13,23 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BUILD = ROOT / "build"
+BUILD = Path(os.environ.get("VIBE_HOST_TEST_BUILD_DIR") or ROOT / "build")
 DOC = ROOT / "docs" / "architecture.txt"
 MAKE_WAD_IMAGE = ROOT / "tools" / "make_wad_image.py"
 SECTOR_SIZE = 512
+
+
+def _configured_build_dir(root: Path = ROOT) -> Path:
+    if root == ROOT and os.environ.get("VIBE_HOST_TEST_BUILD_DIR"):
+        return BUILD
+    return root / "build"
 
 
 def sector_offset(lba: int) -> int:
@@ -156,6 +163,9 @@ REQUIRED_PHRASES = (
     "STORAGE_SUBSYSTEM[FAILURE_ATOMICITY] status=host-proven",
     "root 8.3 plus read-only assets and writable one-level state directory",
     "dynamic-subdirectory-lifecycle manifest",
+    "live FAT accounting status",
+    "ABIPROBE.ELF exercises that path",
+    "USER_RUNTIME_CONTRACT[GENERIC_STATE_FILE]",
     "host image inventory may walk deeper packaged trees than the kernel syscall surface",
     "blank-disk-installer-manifest",
     "blank-image-file materialization manifest",
@@ -439,6 +449,97 @@ def _rejected_path_samples(make_wad_image, samples: tuple[str, ...]) -> list[dic
 
 
 def _fat_vfs_boundary_manifest(fs, make_wad_image, packaged_assets: list[dict[str, object]]) -> dict[str, object]:
+    kernel_source = (ROOT / "kernel" / "kernel.asm").read_text(encoding="utf-8")
+    abi_probe_source = (ROOT / "user" / "abi_probe.c").read_text(encoding="utf-8")
+    try:
+        open_wad_section = kernel_source.split(".open_flags_ok:", 1)[1].split(".open_writable:", 1)[0]
+        resize_section = kernel_source.split("fat_resize_writable_file:", 1)[1].split("fat_clip_writable_chain_to_size:", 1)[0]
+        truncate_section = kernel_source.split("fat_truncate_writable_file:", 1)[1].split("fat_zero_writable_range:", 1)[0]
+        delete_section = kernel_source.split("fat_delete_found_file:", 1)[1].split("stat_fill_user:", 1)[0]
+        ftruncate_section = kernel_source.split(".ftruncate:", 1)[1].split(".mmap:", 1)[0]
+        fat_accounting_section = kernel_source.split("fat_refresh_cluster_accounting:", 1)[1].split("fat_build_alloc_map:", 1)[0]
+    except IndexError as exc:
+        raise StorageBoundaryError("kernel FAT/VFS lifecycle sections were not found") from exc
+
+    readonly_wad_uses_generic_descriptor = (
+        "jmp .open_generic_parse_root83" in open_wad_section
+        and "mov byte [fd_kinds + eax], FD_KIND_WAD" not in open_wad_section
+        and "readonly_fd_is_wad_file:" in kernel_source
+    )
+    truncate_metadata_before_free = (
+        "call fat_update_writable_size" in truncate_section
+        and "call fat_free_chain" in truncate_section
+        and truncate_section.index("call fat_update_writable_size") < truncate_section.index("call fat_free_chain")
+    )
+    delete_entry_before_free = (
+        "call block_selected_write_sector" in delete_section
+        and "call fat_free_chain" in delete_section
+        and delete_section.index("call block_selected_write_sector") < delete_section.index("call fat_free_chain")
+    )
+    shrink_metadata_before_free = (
+        "call fat_update_writable_size" in resize_section
+        and "call fat_clip_writable_chain_to_size" in resize_section
+        and "call fat_zero_writable_tail_after_size" in resize_section
+        and resize_section.index("call fat_update_writable_size") < resize_section.index("call fat_clip_writable_chain_to_size")
+        and resize_section.index("call fat_clip_writable_chain_to_size") < resize_section.index("call fat_zero_writable_tail_after_size")
+    )
+    write_no_progress_rollback = (
+        "fat_rollback_file_write_no_progress:" in kernel_source
+        and ".fail_io_no_progress:\n    call fat_rollback_file_write_no_progress" in kernel_source
+    )
+    ftruncate_reports_enospc = (
+        "ERRNO_ENOSPC equ 28" in kernel_source
+        and ".bad_syscall_enospc:" in kernel_source
+        and "ja .bad_syscall_enospc" in ftruncate_section
+    )
+    live_fat_accounting_tokens = (
+        "mov dword [fat_account_free_clusters], 0",
+        "mov dword [fat_account_used_clusters], 0",
+        "mov dword [fat_accounted_clusters], 0",
+        "mov dword [fat_account_status], 0xffffffff",
+        "cmp byte [fat_status], 1",
+        "call fat_next_cluster",
+        "cmp ax, 0",
+        "inc dword [fat_account_free_clusters]",
+        "inc dword [fat_account_used_clusters]",
+        "inc dword [fat_accounted_clusters]",
+        "mov dword [fat_account_status], 0",
+    )
+    missing_accounting_tokens = [
+        token for token in live_fat_accounting_tokens
+        if token not in fat_accounting_section
+    ]
+    if missing_accounting_tokens:
+        raise StorageBoundaryError(
+            "kernel FAT live accounting status no longer rescans the FAT cache: "
+            + ", ".join(missing_accounting_tokens)
+        )
+    if kernel_source.count("call fat_refresh_cluster_accounting") < 2:
+        raise StorageBoundaryError("kernel FAT live accounting is not refreshed at init and status time")
+    if "smoke_fatacct_text db \" fatacct=\", 0" not in kernel_source:
+        raise StorageBoundaryError("kernel status is missing fatacct= live FAT accounting field")
+    abi_generic_file_probe_tokens = (
+        "prove_generic_file_services",
+        'const char asset_file[] = "./assets/readme.txt";',
+        'const char state_file[] = "./state/session.dat";',
+        "vibe_user_listdir(asset_dir, entries, 16)",
+        "vibe_user_file_read_all(asset_file, buffer, sizeof(buffer), &bytes_read)",
+        "vibe_user_file_read_at(asset_file, 8, buffer, 5, &bytes_read)",
+        "VIBE_USER_O_CREAT | VIBE_USER_O_RDWR | VIBE_USER_O_TRUNC",
+        "vibe_user_ftruncate(fd, 4)",
+        "vibe_user_unlink(state_file)",
+        "flags |= ABI_PROBE_FLAG_FILES;",
+    )
+    missing_abi_tokens = [
+        token for token in abi_generic_file_probe_tokens
+        if token not in abi_probe_source
+    ]
+    if missing_abi_tokens:
+        raise StorageBoundaryError(
+            "ABI probe no longer proves generic FAT/VFS file behavior: "
+            + ", ".join(missing_abi_tokens)
+        )
+
     readme_path = make_wad_image.ASSET_README_PATH
     readme_label = make_wad_image.Fat16Image._path_label(readme_path)
     readme_meta = fs.entry_metadata_at_path(readme_path)
@@ -543,6 +644,48 @@ def _fat_vfs_boundary_manifest(fs, make_wad_image, packaged_assets: list[dict[st
             "writable_subdirectories_supported": True,
             "writable_subdirectory_scope": "pre-existing non-read-only one-level directories",
             "long_filenames_supported": False,
+            "readonly_wad_uses_generic_descriptor": readonly_wad_uses_generic_descriptor,
+        },
+        "error_classification": {
+            "directory_open_or_unlink_as_file": "EISDIR",
+            "list_regular_file_as_directory": "ENOTDIR",
+            "capacity_exhaustion": "ENOSPC",
+            "ftruncate_reports_enospc": ftruncate_reports_enospc,
+        },
+        "directory_entry_lifecycle": {
+            "schema": "vibe-os-fat16-directory-entry-lifecycle-v1",
+            "truncate_metadata_before_free": truncate_metadata_before_free,
+            "shrink_metadata_before_tail_free": shrink_metadata_before_free,
+            "shrink_tail_zero_after_metadata_commit": shrink_metadata_before_free,
+            "delete_entry_before_free": delete_entry_before_free,
+            "write_no_progress_rollback": write_no_progress_rollback,
+            "late_free_failure_residual_risk": "cluster-leak-not-live-entry-to-freed-chain",
+        },
+        "live_fat_accounting_status": {
+            "schema": "vibe-os-fat16-live-accounting-status-v1",
+            "field": "fatacct",
+            "source": "kernel-fat-cache-rescan",
+            "counts": ["free_clusters", "used_clusters", "accounted_clusters", "last_data_cluster", "status"],
+            "refreshed_at_init": True,
+            "refreshed_at_status": True,
+            "not_fixed_slot_accounting": True,
+        },
+        "user_abi_probe": {
+            "schema": "vibe-os-user-abi-generic-file-proof-v1",
+            "program": "ABIPROBE.ELF",
+            "asset_read_path": "/ASSETS/README.TXT",
+            "state_mutation_path": "/STATE/SESSION.DAT",
+            "uses_common_syscalls": [
+                "listdir",
+                "open",
+                "read",
+                "write",
+                "fstat",
+                "ftruncate",
+                "unlink",
+            ],
+            "host_checked_source_tokens": True,
+            "not_doom_specific": True,
         },
         "dynamic_root_lifecycle": dynamic_root_lifecycle,
         "dynamic_subdirectory_lifecycle": dynamic_subdirectory_lifecycle,
@@ -623,7 +766,7 @@ def _expected_installed_mbr(stage1_path: Path) -> bytes:
 
 
 def _default_boot_artifact_inputs(root: Path = ROOT) -> dict[str, Path]:
-    build = root / "build"
+    build = _configured_build_dir(root)
     inputs = {
         "stage1_path": build / "stage1.bin",
         "stage2_path": build / "stage2.bin",
@@ -994,7 +1137,7 @@ def inspect_image(image_path: Path) -> dict[str, object]:
 
 def _default_install_inputs(root: Path = ROOT) -> dict[str, object]:
     make_wad_image = load_make_wad_image()
-    build = root / "build"
+    build = _configured_build_dir(root)
     inputs = {
         "stage1_path": build / "stage1.bin",
         "stage2_path": build / "stage2.bin",

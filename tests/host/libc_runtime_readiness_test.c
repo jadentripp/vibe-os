@@ -7,6 +7,10 @@
 #define abs vibe_test_abs
 #define atoi vibe_test_atoi
 #define atol vibe_test_atol
+#define atof vibe_test_atof
+#define strtol vibe_test_strtol
+#define strtoul vibe_test_strtoul
+#define strtod vibe_test_strtod
 #define malloc vibe_test_malloc
 #define calloc vibe_test_calloc
 #define realloc vibe_test_realloc
@@ -16,11 +20,22 @@
 #define getenv vibe_test_getenv
 #define rand vibe_test_rand
 #define srand vibe_test_srand
+#define sin vibe_test_sin
+#define cos vibe_test_cos
+#define atan vibe_test_atan
+#define atan2 vibe_test_atan2
+#define pow vibe_test_pow
+#define sqrt vibe_test_sqrt
+#define floor vibe_test_floor
+#define ceil vibe_test_ceil
+#define fabs vibe_test_fabs
 #define memcpy vibe_test_memcpy
 #define memmove vibe_test_memmove
 #define memset vibe_test_memset
 #define memcmp vibe_test_memcmp
+#define memchr vibe_test_memchr
 #define strlen vibe_test_strlen
+#define strnlen vibe_test_strnlen
 #define strcpy vibe_test_strcpy
 #define strncpy vibe_test_strncpy
 #define strcat vibe_test_strcat
@@ -31,7 +46,18 @@
 #define strncasecmp vibe_test_strncasecmp
 #define strchr vibe_test_strchr
 #define strrchr vibe_test_strrchr
+#define strpbrk vibe_test_strpbrk
+#define strstr vibe_test_strstr
+#define strspn vibe_test_strspn
+#define strcspn vibe_test_strcspn
+#define strtok vibe_test_strtok
+#define strtok_r vibe_test_strtok_r
 #define strdup vibe_test_strdup
+#define strndup vibe_test_strndup
+#define strerror vibe_test_strerror
+#define labs vibe_test_labs
+#define qsort vibe_test_qsort
+#define bsearch vibe_test_bsearch
 #define open vibe_test_open
 #define read vibe_test_read
 #define write vibe_test_write
@@ -45,6 +71,7 @@
 #define access vibe_test_access
 #define unlink vibe_test_unlink
 #define remove vibe_test_remove
+#define perror vibe_test_perror
 #define mmap vibe_test_mmap
 #define munmap vibe_test_munmap
 #define ioctl vibe_test_ioctl
@@ -61,8 +88,18 @@
 #define fopen vibe_test_fopen
 #define fread vibe_test_fread
 #define fwrite vibe_test_fwrite
+#define fgetc vibe_test_fgetc
+#define getc vibe_test_getc
+#define ungetc vibe_test_ungetc
+#define fgets vibe_test_fgets
+#define fputc vibe_test_fputc
+#define putc vibe_test_putc
+#define putchar vibe_test_putchar
+#define fputs vibe_test_fputs
+#define puts vibe_test_puts
 #define fseek vibe_test_fseek
 #define ftell vibe_test_ftell
+#define rewind vibe_test_rewind
 #define fclose vibe_test_fclose
 #define fflush vibe_test_fflush
 #define feof vibe_test_feof
@@ -80,6 +117,8 @@
 #define vsnprintf vibe_test_vsnprintf
 #define sscanf vibe_test_sscanf
 #define fscanf vibe_test_fscanf
+#define clock vibe_test_clock
+#define time vibe_test_time
 
 #include "../../doom_port/libc.c"
 
@@ -100,6 +139,7 @@ static struct mock_fd mock_fds[MOCK_MAX_FDS];
 static int mock_close_count;
 static int mock_exec_count;
 static int mock_exec_argc;
+static int mock_exec_envc;
 static char mock_exec_path[32];
 static char mock_exec_argv0[32];
 static unsigned long mock_clock_milliseconds;
@@ -142,6 +182,7 @@ static void reset_mock(void)
     mock_close_count = 0;
     mock_exec_count = 0;
     mock_exec_argc = 0;
+    mock_exec_envc = 0;
     mock_exec_path[0] = 0;
     mock_exec_argv0[0] = 0;
     mock_clock_milliseconds = 12345;
@@ -379,11 +420,46 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
         out->abi_version = VIBE_INPUT_ABI_VERSION;
         out->event_bytes = VIBE_INPUT_EVENT_BYTES;
         out->queue_capacity = VIBE_INPUT_EVENT_QUEUE_CAPACITY;
+        out->status_bytes = VIBE_INPUT_STATUS_BYTES;
+        out->queue_usable_capacity = VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY;
+        out->overflow_policy = VIBE_INPUT_QUEUE_OVERFLOW_DROP_OLDEST;
         out->queued_events = mock_input_queued ? 1 : 0;
         out->total_events = mock_input_queued ? 1 : 0;
         out->polled_events = 0;
         out->dropped_events = 0;
         out->capabilities = VIBE_INPUT_CAP_KEYBOARD | VIBE_INPUT_CAP_POLL_EVENT | VIBE_INPUT_CAP_STATUS;
+        out->keyboard_status = VIBE_INPUT_DEVICE_STATUS_READY;
+        out->mouse_status = VIBE_INPUT_DEVICE_STATUS_UNKNOWN;
+        return 0;
+    }
+
+    if (number == VIBE_SYS_INPUT_DEVICE_STATUS) {
+        vibe_input_device_status_t* out = (vibe_input_device_status_t*)arg1;
+        if (!out || arg2 < sizeof(*out))
+            return -EINVAL;
+        if (arg0 != VIBE_INPUT_DEVICE_KEYBOARD && arg0 != VIBE_INPUT_DEVICE_MOUSE)
+            return -EINVAL;
+        memset(out, 0, sizeof(*out));
+        out->abi_version = VIBE_INPUT_ABI_VERSION;
+        out->status_bytes = VIBE_INPUT_DEVICE_STATUS_BYTES;
+        out->device_id = arg0;
+        out->status = arg0 == VIBE_INPUT_DEVICE_KEYBOARD
+            ? VIBE_INPUT_DEVICE_STATUS_READY
+            : VIBE_INPUT_DEVICE_STATUS_UNKNOWN;
+        out->event_count = arg0 == VIBE_INPUT_DEVICE_KEYBOARD ? 1 : 0;
+        out->polled_events = 0;
+        out->dropped_events = 0;
+        if (arg0 == VIBE_INPUT_DEVICE_KEYBOARD) {
+            out->capabilities = VIBE_INPUT_DEVICE_CAP_KEYS | VIBE_INPUT_DEVICE_CAP_STATE_SNAPSHOT;
+            out->last_event_type = VIBE_INPUT_EVENT_KEY;
+            out->last_code = 'z';
+            out->active_state = VIBE_INPUT_MOD_SHIFT;
+        } else {
+            out->capabilities = VIBE_INPUT_DEVICE_CAP_RELATIVE_POINTER
+                | VIBE_INPUT_DEVICE_CAP_BUTTONS
+                | VIBE_INPUT_DEVICE_CAP_STATE_SNAPSHOT;
+            out->last_event_type = VIBE_INPUT_EVENT_MOUSE_PACKET;
+        }
         return 0;
     }
 
@@ -518,7 +594,9 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
     if (number == VIBE_SYS_EXEC) {
         const char* path = (const char*)arg0;
         char* const* argv = (char* const*)arg1;
+        char* const* envp = (char* const*)arg2;
         int argc = 0;
+        int envc = 0;
         if (!path)
             return -EINVAL;
         ++mock_exec_count;
@@ -532,6 +610,11 @@ int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, u
             }
         }
         mock_exec_argc = argc;
+        if (envp) {
+            while (envp[envc])
+                ++envc;
+        }
+        mock_exec_envc = envc;
         return 0;
     }
 
@@ -580,6 +663,95 @@ static int test_stdio_flush_all_and_descriptor_lifecycle(void)
     return 0;
 }
 
+static int test_stdio_character_and_line_helpers(void)
+{
+    FILE* file;
+    char line[16];
+    char block[4];
+    char next;
+    unsigned int scanned;
+    int ivalue;
+
+    reset_mock();
+    file = fopen("tool.txt", "w+");
+    if (!file)
+        return fail(97);
+    if (fputs("alpha\nbeta", file) != 0)
+        return fail(98);
+    if (putc('\n', file) != '\n')
+        return fail(99);
+    if (fseek(file, 0, SEEK_SET) != 0)
+        return fail(100);
+    if (fgetc(file) != 'a')
+        return fail(101);
+    if (ftell(file) != 1)
+        return fail(109);
+    if (ungetc('a', file) != 'a')
+        return fail(102);
+    if (ftell(file) != 0)
+        return fail(110);
+    memset(block, 0, sizeof(block));
+    if (fread(block, 1, 2, file) != 2 || block[0] != 'a' || block[1] != 'l')
+        return fail(111);
+    if (ftell(file) != 2)
+        return fail(112);
+    rewind(file);
+    if (ftell(file) != 0 || feof(file) || ferror(file))
+        return fail(113);
+    if (fgetc(file) != 'a')
+        return fail(114);
+    if (ungetc('a', file) != 'a')
+        return fail(115);
+    if (getc(file) != 'a')
+        return fail(103);
+    if (!fgets(line, sizeof(line), file) || strcmp(line, "lpha\n") != 0)
+        return fail(104);
+    if (!fgets(line, sizeof(line), file) || strcmp(line, "beta\n") != 0)
+        return fail(105);
+    if (fgets(line, sizeof(line), file) != 0 || !feof(file))
+        return fail(106);
+    if (ungetc(EOF, file) != EOF)
+        return fail(107);
+    if (fclose(file) != 0)
+        return fail(108);
+
+    reset_mock();
+    file = fopen("scan.txt", "w+");
+    if (!file)
+        return fail(116);
+    if (fputs("123 128 077z abc", file) != 0 || fseek(file, 0, SEEK_SET) != 0)
+        return fail(117);
+    scanned = 0;
+    next = 0;
+    if (fscanf(file, "%2u%c", &scanned, &next) != 2 || scanned != 12u || next != '3')
+        return fail(118);
+    scanned = 0;
+    next = 0;
+    if (fscanf(file, " %3o%c", &scanned, &next) != 2 || scanned != 10u || next != '8')
+        return fail(119);
+    ivalue = 0;
+    next = 0;
+    if (fscanf(file, " %i%c", &ivalue, &next) != 2 || ivalue != 63 || next != 'z')
+        return fail(120);
+    memset(block, 0, sizeof(block));
+    if (fscanf(file, "%3c", block) != 1
+        || block[0] != ' '
+        || block[1] != 'a'
+        || block[2] != 'b')
+        return fail(121);
+    if (fclose(file) != 0)
+        return fail(122);
+
+    reset_mock();
+    mock_fds[2].used = 1;
+    mock_fds[2].flags = O_WRONLY;
+    errno = ENOENT;
+    perror("load");
+    if (errno != ENOENT || strcmp((const char*)mock_file_data, "load: No such file or directory\n") != 0)
+        return fail(123);
+    return 0;
+}
+
 static int test_stat_directory_listdir_and_clock_contracts(void)
 {
     FILE* file;
@@ -587,9 +759,11 @@ static int test_stat_directory_listdir_and_clock_contracts(void)
     vibe_dirent_t entries[2];
     struct timespec ts;
     vibe_clock_time_t now;
+    time_t wall_time;
     unsigned long file_size;
     unsigned long read_size;
     char read_buffer[8];
+    unsigned char* mapped;
     int fd;
 
     reset_mock();
@@ -641,6 +815,22 @@ static int test_stat_directory_listdir_and_clock_contracts(void)
         return fail(80);
     if (pread(fd, read_buffer, 1, -1) != -1 || errno != EINVAL)
         return fail(81);
+    mapped = mmap(0, 8, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 1);
+    if (mapped == MAP_FAILED)
+        return fail(111);
+    if (mapped[0] != 'X' || mapped[1] != 'Y' || mapped[2] != 'e'
+        || mapped[3] != 0 || mapped[7] != 0)
+        return fail(112);
+    mapped[0] = 'q';
+    memset(read_buffer, 0, sizeof(read_buffer));
+    if (pread(fd, read_buffer, 1, 1) != 1 || read_buffer[0] != 'X')
+        return fail(113);
+    if (lseek(fd, 0, SEEK_CUR) != 4)
+        return fail(114);
+    if (munmap(mapped, 8) != 0)
+        return fail(115);
+    if (mmap(0, 4, PROT_READ, MAP_SHARED, fd, 0) != MAP_FAILED || errno != ENOSYS)
+        return fail(116);
     if (close(fd) != 0)
         return fail(82);
     if (fcntl(file->fd, F_GETFD) != 0)
@@ -661,6 +851,12 @@ static int test_stat_directory_listdir_and_clock_contracts(void)
         return fail(37);
     if (ts.tv_sec != 12 || ts.tv_nsec != 345000000)
         return fail(38);
+    if (clock() != 12345)
+        return fail(109);
+    errno = 0;
+    wall_time = 0;
+    if (time(&wall_time) != (time_t)-1 || wall_time != (time_t)-1 || errno != ENOSYS)
+        return fail(110);
     if (vibe_clock_monotonic(&now) != 0
         || now.milliseconds != 12345
         || vibe_clock_ticks_to_milliseconds(12345, VIBE_CLOCK_MONOTONIC_HZ) != 123450)
@@ -693,12 +889,14 @@ static int test_empty_environment_and_execve_contract(void)
 
     if (execve("tool.elf", argv, empty_env) != 0)
         return fail(41);
-    if (mock_exec_count != 1 || mock_exec_argc != 2)
+    if (mock_exec_count != 1 || mock_exec_argc != 2 || mock_exec_envc != 0)
         return fail(42);
     if (strcmp(mock_exec_path, "tool.elf") || strcmp(mock_exec_argv0, "tool.elf"))
         return fail(43);
-    if (execve("tool.elf", argv, nonempty_env) != -1 || errno != ENOSYS)
+    if (execve("tool.elf", argv, nonempty_env) != 0)
         return fail(44);
+    if (mock_exec_count != 2 || mock_exec_argc != 2 || mock_exec_envc != 1)
+        return fail(45);
     return 0;
 }
 
@@ -706,6 +904,7 @@ static int test_generic_input_and_indexed_present_wrappers(void)
 {
     vibe_input_event_t events[2];
     vibe_input_status_t status;
+    vibe_input_device_status_t device_status;
     vibe_fb_info_t info;
     vibe_present_indexed_t present;
     unsigned char frame[320 * 200];
@@ -724,8 +923,16 @@ static int test_generic_input_and_indexed_present_wrappers(void)
         || !vibe_input_status_has_capability(&status, VIBE_INPUT_CAP_POLL_EVENT)
         || vibe_input_status_queue_is_empty(&status)
         || vibe_input_status_available_events(&status) != 62
+        || !vibe_input_status_uses_drop_oldest(&status)
+        || !vibe_input_status_keyboard_is_ready(&status)
+        || vibe_input_status_mouse_is_ready(&status)
         || !vibe_input_status_counters_are_consistent(&status))
         return fail(51);
+    if (vibe_input_device_status(VIBE_INPUT_DEVICE_KEYBOARD, &device_status) != 0
+        || !vibe_input_device_record_is_ready(&device_status)
+        || !vibe_input_device_status_has_capability(&device_status, VIBE_INPUT_DEVICE_CAP_KEYS)
+        || vibe_input_device_status_keyboard_modifiers(&device_status) != VIBE_INPUT_MOD_SHIFT)
+        return fail(97);
 
     if (vibe_drain_input(events, 2) != 1)
         return fail(52);
@@ -740,6 +947,8 @@ static int test_generic_input_and_indexed_present_wrappers(void)
         return fail(55);
     if (vibe_input_status(0) != -1 || errno != EINVAL)
         return fail(56);
+    if (vibe_input_device_status(VIBE_INPUT_DEVICE_KEYBOARD, 0) != -1 || errno != EINVAL)
+        return fail(98);
     if (vibe_drain_input(0, 1) != -1 || errno != EINVAL)
         return fail(60);
 
@@ -792,7 +1001,8 @@ static int test_generic_input_and_indexed_present_wrappers(void)
     if (vibe_heap_capabilities() != (VIBE_HEAP_CAP_SBRK_GROW | VIBE_HEAP_CAP_SBRK_SHRINK))
         return fail(65);
     if (!(vibe_vm_capabilities() & VIBE_VM_CAP_ANON_PRIVATE)
-        || !(vibe_vm_capabilities() & VIBE_VM_CAP_BRK_BACKED))
+        || !(vibe_vm_capabilities() & VIBE_VM_CAP_BRK_BACKED)
+        || !(vibe_vm_capabilities() & VIBE_VM_CAP_FILE_PRIVATE_COPY))
         return fail(66);
     if (vibe_mmap_anon(4096, PROT_READ | PROT_WRITE) == MAP_FAILED)
         return fail(67);
@@ -857,6 +1067,10 @@ int main(void)
 
     vibe_libc_host_heap_reset();
     result = test_stdio_flush_all_and_descriptor_lifecycle();
+    if (result)
+        return result;
+
+    result = test_stdio_character_and_line_helpers();
     if (result)
         return result;
 

@@ -2,6 +2,14 @@
 #define VIBE_DOOM_PORT_VIBE_OS_H
 
 enum {
+    VIBE_OS_ABI_VERSION = 1,
+    VIBE_SYSCALL_VECTOR = 0x80,
+    VIBE_SYSCALL_MAX_ARGS = 3,
+    VIBE_SYSCALL_ERROR_NEGATIVE_ERRNO = 1,
+    VIBE_PROCESS_FAULT_EXIT_STATUS_BASE = 0x80,
+};
+
+enum {
     VIBE_SYS_EXIT = 2,
     VIBE_SYS_WRITE = 4,
     VIBE_SYS_SBRK = 5,
@@ -35,19 +43,80 @@ enum {
     VIBE_SYS_DUP2 = 33,
     VIBE_SYS_DUP3 = 34,
     VIBE_SYS_FCNTL = 35,
+    VIBE_SYS_PROCESS_STATUS = 36,
+    VIBE_SYS_YIELD = 37,
+    VIBE_SYS_SLEEP_TICKS = 38,
+    VIBE_SYS_INPUT_DEVICE_STATUS = 39,
 };
 
 enum {
     VIBE_EXEC_PATH_MAX = 16,
     VIBE_EXEC_ARG_MAX = 8,
     VIBE_EXEC_ARG_STR_MAX = 64,
+    VIBE_EXEC_ENV_MAX = 8,
+    VIBE_EXEC_ENV_STR_MAX = 64,
+    VIBE_EXEC_STACK_ABI_VERSION = 1,
+    VIBE_EXEC_STACK_ALIGN = 16,
+    VIBE_EXEC_AUX_AT_NULL = 0,
+    VIBE_EXEC_AUX_AT_PAGESZ = 6,
+    VIBE_EXEC_AUX_AT_ENTRY = 9,
+    VIBE_EXEC_AUXV_PAIR_COUNT = 3,
     VIBE_EXEC_ARGV_SOURCE_DEFAULT = 1,
     VIBE_EXEC_ARGV_SOURCE_USER = 2,
+    VIBE_EXEC_ENVP_SOURCE_EMPTY = 1,
+    VIBE_EXEC_ENVP_SOURCE_USER = 2,
+    VIBE_EXEC_RESOLVE_NONE = 0,
+    VIBE_EXEC_RESOLVE_TABLE = 1,
+    VIBE_EXEC_RESOLVE_GENERIC_ROOT83 = 2,
 };
+
+enum {
+    VIBE_PROCESS_STATUS_SELF = 0,
+    VIBE_PROCESS_STATUS_ABI_VERSION = 1,
+    VIBE_PROCESS_STATUS_BYTES = 64,
+};
+
+enum {
+    VIBE_PROCESS_STATE_UNUSED = 0,
+    VIBE_PROCESS_STATE_READY = 1,
+    VIBE_PROCESS_STATE_RUNNING = 2,
+    VIBE_PROCESS_STATE_EXITED = 3,
+    VIBE_PROCESS_STATE_FAULTED = 4,
+    VIBE_PROCESS_STATE_SLEEPING = 5,
+    VIBE_PROCESS_STATE_BLOCKED = 6,
+};
+
+enum {
+    VIBE_PROCESS_KIND_NONE = 0,
+    VIBE_PROCESS_KIND_PROBE = 1,
+    VIBE_PROCESS_KIND_DOOM = 2,
+    VIBE_PROCESS_KIND_PREEMPT_PROBE = 3,
+    VIBE_PROCESS_KIND_GENERIC = 4,
+};
+
+typedef struct vibe_process_status {
+    unsigned long abi_version;
+    unsigned long status_bytes;
+    unsigned long pid;
+    unsigned long parent_pid;
+    unsigned long state;
+    unsigned long kind;
+    unsigned long exit_status;
+    unsigned long ticks;
+    unsigned long runs;
+    unsigned long switches;
+    unsigned long quantum_ticks;
+    unsigned long entry;
+    unsigned long stack_top;
+    unsigned long brk;
+    unsigned long scheduler_ticks;
+    unsigned long scheduler_rounds;
+} vibe_process_status_t;
 
 enum {
     VIBE_CLOCK_MONOTONIC = 1,
     VIBE_CLOCK_MONOTONIC_HZ = 100,
+    VIBE_CLOCK_FLAG_KERNEL_OWNED = 0x00000001u,
 };
 
 typedef struct vibe_clock_time {
@@ -67,6 +136,7 @@ enum {
     VIBE_VM_CAP_BRK_BACKED = 0x00000002u,
     VIBE_VM_CAP_TAIL_MUNMAP_RECLAIM = 0x00000004u,
     VIBE_VM_CAP_NONTAIL_MUNMAP_HOLES = 0x00000008u,
+    VIBE_VM_CAP_FILE_PRIVATE_COPY = 0x00010000u,
 };
 
 typedef struct vibe_dirent {
@@ -107,6 +177,13 @@ enum {
 };
 
 enum {
+    VIBE_AUDIO_FD = 0x00004155u,
+    VIBE_IOCTL_AUDIO_DEVICE_INFO = 0x00004101u,
+    VIBE_IOCTL_AUDIO_PCM_RING_INFO = 0x00004102u,
+    VIBE_IOCTL_AUDIO_STREAM_INFO = 0x00004103u,
+};
+
+enum {
     VIBE_AUDIO_DEVICE_STATUS_NONE = 0,
     VIBE_AUDIO_DEVICE_STATUS_READY = 1,
     VIBE_AUDIO_DEVICE_STATUS_ABSENT = 2,
@@ -137,6 +214,11 @@ enum {
     VIBE_AUDIO_DEVICE_INFO = 9,
     VIBE_AUDIO_PCM_RING_INFO = 10,
     VIBE_AUDIO_STREAM_INFO = 11,
+    VIBE_AUDIO_PCM_WRITE = 12,
+    VIBE_AUDIO_PCM_WRITE_DESC = 13,
+    VIBE_AUDIO_PCM_OPEN = 14,
+    VIBE_AUDIO_PCM_DRAIN = 15,
+    VIBE_AUDIO_PCM_CLOSE = 16,
 };
 
 enum {
@@ -148,12 +230,27 @@ enum {
     VIBE_AUDIO_IS_PLAYING = VIBE_AUDIO_MIXER_IS_PLAYING,
     VIBE_AUDIO_BUFFERED_BYTES = VIBE_AUDIO_PCM_BUFFERED_BYTES,
     VIBE_AUDIO_MUSIC_PULL_STATE = VIBE_AUDIO_PCM_PULL_STATE,
+    VIBE_AUDIO_STREAM_WRITE = VIBE_AUDIO_PCM_WRITE,
+    VIBE_AUDIO_STREAM_OPEN = VIBE_AUDIO_PCM_OPEN,
+    VIBE_AUDIO_STREAM_DRAIN = VIBE_AUDIO_PCM_DRAIN,
+    VIBE_AUDIO_STREAM_CLOSE = VIBE_AUDIO_PCM_CLOSE,
 };
 
 enum {
     VIBE_AUDIO_MUSIC_STREAM_NONE = 0,
     VIBE_AUDIO_MUSIC_STREAM_PUSH = 1,
     VIBE_AUDIO_MUSIC_STREAM_PULL = 2,
+    VIBE_AUDIO_STREAM_NONE = VIBE_AUDIO_MUSIC_STREAM_NONE,
+    VIBE_AUDIO_STREAM_PUSH = VIBE_AUDIO_MUSIC_STREAM_PUSH,
+    VIBE_AUDIO_STREAM_PULL = VIBE_AUDIO_MUSIC_STREAM_PULL,
+};
+
+enum {
+    VIBE_AUDIO_PCM_LIFECYCLE_IDLE = 0,
+    VIBE_AUDIO_PCM_LIFECYCLE_OPEN = 1,
+    VIBE_AUDIO_PCM_LIFECYCLE_WRITTEN = 2,
+    VIBE_AUDIO_PCM_LIFECYCLE_DRAINING = 3,
+    VIBE_AUDIO_PCM_LIFECYCLE_CLOSED = 4,
 };
 
 typedef struct vibe_audio_sfx_desc {
@@ -179,6 +276,29 @@ typedef vibe_audio_sfx_desc_t vibe_audio_voice_desc_t;
 
 enum {
     VIBE_AUDIO_VOICE_DESC_BYTES = 64,
+};
+
+typedef struct vibe_audio_pcm_desc {
+    const unsigned char* samples;
+    unsigned long length;
+    unsigned long sample_rate;
+    unsigned long channels;
+    unsigned long format;
+    unsigned long flags;
+    unsigned long reserved0;
+    unsigned long reserved1;
+    unsigned long reserved2;
+    unsigned long reserved3;
+    unsigned long reserved4;
+    unsigned long reserved5;
+    unsigned long reserved6;
+    unsigned long reserved7;
+    unsigned long reserved8;
+    unsigned long reserved9;
+} vibe_audio_pcm_desc_t;
+
+enum {
+    VIBE_AUDIO_PCM_DESC_BYTES = 64,
 };
 
 static inline void vibe_audio_voice_desc_init(
@@ -209,6 +329,35 @@ static inline void vibe_audio_voice_desc_init(
     desc->music_stream_start = 0;
     desc->music_stream_end = 0;
     desc->music_stream_loop_count = 0;
+}
+
+static inline void vibe_audio_pcm_desc_init(
+    vibe_audio_pcm_desc_t* desc,
+    const unsigned char* samples,
+    unsigned long length,
+    unsigned long sample_rate,
+    unsigned long channels,
+    unsigned long format)
+{
+    if (!desc)
+        return;
+
+    desc->samples = samples;
+    desc->length = length;
+    desc->sample_rate = sample_rate;
+    desc->channels = channels;
+    desc->format = format;
+    desc->flags = 0;
+    desc->reserved0 = 0;
+    desc->reserved1 = 0;
+    desc->reserved2 = 0;
+    desc->reserved3 = 0;
+    desc->reserved4 = 0;
+    desc->reserved5 = 0;
+    desc->reserved6 = 0;
+    desc->reserved7 = 0;
+    desc->reserved8 = 0;
+    desc->reserved9 = 0;
 }
 
 typedef struct vibe_audio_device_info {
@@ -264,7 +413,7 @@ typedef struct vibe_audio_stream_info {
     unsigned long pending_pull_requests;
     unsigned long queued_bytes;
     unsigned long low_water_bytes;
-    unsigned long active_music_voices;
+    unsigned long active_streams;
     unsigned long underrun_count;
     unsigned long drop_count;
     unsigned long position_bytes;
@@ -301,7 +450,7 @@ static inline int vibe_audio_pcm_ring_is_u8_stereo(const vibe_audio_pcm_ring_inf
 static inline int vibe_audio_stream_uses_pull(const vibe_audio_stream_info_t* info)
 {
     return info
-        && info->stream_mode == VIBE_AUDIO_MUSIC_STREAM_PULL
+        && info->stream_mode == VIBE_AUDIO_STREAM_PULL
         && (info->flags & VIBE_AUDIO_STREAM_FLAG_PULL) != 0;
 }
 
@@ -345,6 +494,7 @@ enum {
     VIBE_AUDIO_FLAG_MUSIC = 0x00000002u,
     VIBE_AUDIO_FLAG_WAD_SFX = 0x00000004u,
     VIBE_AUDIO_FLAG_STREAM_FINAL = 0x00000008u,
+    VIBE_AUDIO_FLAG_STREAM = 0x00000010u,
 };
 
 enum {
@@ -368,7 +518,7 @@ enum {
 };
 
 enum {
-    VIBE_INPUT_ABI_VERSION = 1,
+    VIBE_INPUT_ABI_VERSION = 2,
     VIBE_INPUT_EVENT_QUEUE_CAPACITY = 64,
     VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY = VIBE_INPUT_EVENT_QUEUE_CAPACITY - 1,
     VIBE_INPUT_EVENT_VALUE_COUNT = 3,
@@ -380,8 +530,19 @@ enum {
 };
 
 enum {
+    VIBE_INPUT_DEVICE_STATUS_UNKNOWN = 0,
+    VIBE_INPUT_DEVICE_STATUS_READY = 1,
+    VIBE_INPUT_DEVICE_STATUS_ERROR = 2,
+};
+
+enum {
     VIBE_INPUT_KEY_RELEASED = 0,
     VIBE_INPUT_KEY_PRESSED = 1,
+};
+
+enum {
+    VIBE_INPUT_KEY_PS2_SET1_SCANCODE_MASK = 0x7fu,
+    VIBE_INPUT_KEY_PS2_SET1_EXTENDED = 0x80u,
 };
 
 enum {
@@ -398,6 +559,20 @@ enum {
     VIBE_INPUT_CAP_MOUSE = 0x00000002u,
     VIBE_INPUT_CAP_POLL_EVENT = 0x00000004u,
     VIBE_INPUT_CAP_STATUS = 0x00000008u,
+    VIBE_INPUT_CAP_DEVICE_STATUS = 0x00000010u,
+};
+
+enum {
+    VIBE_INPUT_DEVICE_CAP_KEYS = 0x00000001u,
+    VIBE_INPUT_DEVICE_CAP_RELATIVE_POINTER = 0x00000002u,
+    VIBE_INPUT_DEVICE_CAP_BUTTONS = 0x00000004u,
+    VIBE_INPUT_DEVICE_CAP_STATE_SNAPSHOT = 0x00000008u,
+};
+
+enum {
+    VIBE_INPUT_MOD_SHIFT = 0x00000001u,
+    VIBE_INPUT_MOD_CTRL = 0x00000002u,
+    VIBE_INPUT_MOD_ALT = 0x00000004u,
 };
 
 typedef struct vibe_input_event {
@@ -436,10 +611,38 @@ typedef struct vibe_input_status {
     long mouse_delta_y_total;
     unsigned long last_event_device_id;
     unsigned long last_event_type;
+    unsigned long status_bytes;
+    unsigned long queue_usable_capacity;
+    unsigned long overflow_policy;
+    unsigned long keyboard_status;
+    unsigned long mouse_status;
 } vibe_input_status_t;
 
 enum {
-    VIBE_INPUT_STATUS_BYTES = 112,
+    VIBE_INPUT_STATUS_BYTES = 132,
+};
+
+typedef struct vibe_input_device_status {
+    unsigned long abi_version;
+    unsigned long status_bytes;
+    unsigned long device_id;
+    unsigned long status;
+    unsigned long capabilities;
+    unsigned long irq_count;
+    unsigned long event_count;
+    unsigned long polled_events;
+    unsigned long dropped_events;
+    unsigned long last_timestamp;
+    unsigned long last_event_type;
+    unsigned long last_code;
+    unsigned long active_state;
+    long axis_x_total;
+    long axis_y_total;
+    unsigned long reserved0;
+} vibe_input_device_status_t;
+
+enum {
+    VIBE_INPUT_DEVICE_STATUS_BYTES = 64,
 };
 
 static inline void vibe_input_make_key_event(
@@ -496,6 +699,24 @@ static inline int vibe_input_event_is_mouse_packet(const vibe_input_event_t* eve
 static inline unsigned long vibe_input_key_code(const vibe_input_event_t* event)
 {
     return vibe_input_event_is_key(event) ? event->code : 0;
+}
+
+static inline unsigned long vibe_input_ps2_set1_key_code(
+    unsigned long scancode,
+    int extended)
+{
+    return (scancode & VIBE_INPUT_KEY_PS2_SET1_SCANCODE_MASK)
+        | (extended ? VIBE_INPUT_KEY_PS2_SET1_EXTENDED : 0);
+}
+
+static inline unsigned long vibe_input_key_ps2_set1_scancode(const vibe_input_event_t* event)
+{
+    return vibe_input_key_code(event) & VIBE_INPUT_KEY_PS2_SET1_SCANCODE_MASK;
+}
+
+static inline int vibe_input_key_ps2_set1_is_extended(const vibe_input_event_t* event)
+{
+    return (vibe_input_key_code(event) & VIBE_INPUT_KEY_PS2_SET1_EXTENDED) != 0;
 }
 
 static inline int vibe_input_key_is_pressed(const vibe_input_event_t* event)
@@ -567,7 +788,10 @@ static inline int vibe_input_status_abi_is_current(const vibe_input_status_t* st
     return status
         && status->abi_version == VIBE_INPUT_ABI_VERSION
         && status->event_bytes == VIBE_INPUT_EVENT_BYTES
-        && status->queue_capacity == VIBE_INPUT_EVENT_QUEUE_CAPACITY;
+        && status->queue_capacity == VIBE_INPUT_EVENT_QUEUE_CAPACITY
+        && status->status_bytes == VIBE_INPUT_STATUS_BYTES
+        && status->queue_usable_capacity == VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY
+        && status->overflow_policy == VIBE_INPUT_QUEUE_OVERFLOW_DROP_OLDEST;
 }
 
 static inline int vibe_input_status_has_overflow(const vibe_input_status_t* status)
@@ -582,6 +806,60 @@ static inline int vibe_input_status_has_capability(
     return status && (status->capabilities & capability) == capability;
 }
 
+static inline int vibe_input_device_status_is_ready(unsigned long device_status)
+{
+    return device_status == VIBE_INPUT_DEVICE_STATUS_READY;
+}
+
+static inline int vibe_input_device_status_abi_is_current(const vibe_input_device_status_t* status)
+{
+    return status
+        && status->abi_version == VIBE_INPUT_ABI_VERSION
+        && status->status_bytes == VIBE_INPUT_DEVICE_STATUS_BYTES
+        && (status->device_id == VIBE_INPUT_DEVICE_KEYBOARD
+            || status->device_id == VIBE_INPUT_DEVICE_MOUSE);
+}
+
+static inline int vibe_input_device_record_is_ready(const vibe_input_device_status_t* status)
+{
+    return vibe_input_device_status_abi_is_current(status)
+        && status->status == VIBE_INPUT_DEVICE_STATUS_READY;
+}
+
+static inline int vibe_input_device_status_has_capability(
+    const vibe_input_device_status_t* status,
+    unsigned long capability)
+{
+    return vibe_input_device_status_abi_is_current(status)
+        && (status->capabilities & capability) == capability;
+}
+
+static inline int vibe_input_device_status_counters_are_consistent(
+    const vibe_input_device_status_t* status)
+{
+    return vibe_input_device_status_abi_is_current(status)
+        && status->polled_events <= status->event_count
+        && status->dropped_events <= status->event_count;
+}
+
+static inline int vibe_input_device_status_keyboard_modifiers(
+    const vibe_input_device_status_t* status)
+{
+    if (!vibe_input_device_status_abi_is_current(status)
+        || status->device_id != VIBE_INPUT_DEVICE_KEYBOARD)
+        return 0;
+    return (int)(status->active_state & (VIBE_INPUT_MOD_SHIFT | VIBE_INPUT_MOD_CTRL | VIBE_INPUT_MOD_ALT));
+}
+
+static inline unsigned long vibe_input_device_status_mouse_buttons(
+    const vibe_input_device_status_t* status)
+{
+    if (!vibe_input_device_status_abi_is_current(status)
+        || status->device_id != VIBE_INPUT_DEVICE_MOUSE)
+        return 0;
+    return status->active_state & VIBE_INPUT_MOUSE_BUTTON_MASK;
+}
+
 static inline int vibe_input_status_queue_is_empty(const vibe_input_status_t* status)
 {
     return status && status->queued_events == 0;
@@ -592,23 +870,59 @@ static inline unsigned long vibe_input_status_queued_events(const vibe_input_sta
     return status ? status->queued_events : 0;
 }
 
+static inline unsigned long vibe_input_status_usable_capacity(const vibe_input_status_t* status)
+{
+    if (!status || !status->queue_usable_capacity)
+        return VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY;
+    return status->queue_usable_capacity;
+}
+
 static inline unsigned long vibe_input_status_available_events(const vibe_input_status_t* status)
 {
-    if (!status || status->queued_events >= VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY)
+    unsigned long usable;
+
+    if (!status)
         return 0;
-    return VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY - status->queued_events;
+
+    usable = vibe_input_status_usable_capacity(status);
+    if (status->queued_events >= usable)
+        return 0;
+    return usable - status->queued_events;
 }
 
 static inline int vibe_input_status_queue_is_full(const vibe_input_status_t* status)
 {
-    return status && status->queued_events >= VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY;
+    return status
+        && status->queued_events >= vibe_input_status_usable_capacity(status);
+}
+
+static inline int vibe_input_status_uses_drop_oldest(const vibe_input_status_t* status)
+{
+    return status
+        && status->overflow_policy == VIBE_INPUT_QUEUE_OVERFLOW_DROP_OLDEST;
+}
+
+static inline int vibe_input_status_keyboard_is_ready(const vibe_input_status_t* status)
+{
+    return status && vibe_input_device_status_is_ready(status->keyboard_status);
+}
+
+static inline int vibe_input_status_mouse_is_ready(const vibe_input_status_t* status)
+{
+    return status && vibe_input_device_status_is_ready(status->mouse_status);
 }
 
 static inline int vibe_input_status_counters_are_consistent(const vibe_input_status_t* status)
 {
+    unsigned long usable;
+
     if (!vibe_input_status_abi_is_current(status))
         return 0;
-    if (status->queued_events > VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY)
+
+    usable = vibe_input_status_usable_capacity(status);
+    if (usable > status->queue_capacity)
+        return 0;
+    if (status->queued_events > usable)
         return 0;
     return status->total_events
         == status->queued_events + status->polled_events + status->dropped_events;
@@ -621,6 +935,47 @@ static inline int vibe_input_status_key_is_down(
     return status
         && code < VIBE_INPUT_KEY_STATE_BITS
         && (status->keyboard_state[code >> 5] & (1ul << (code & 31))) != 0;
+}
+
+static inline int vibe_input_status_ps2_set1_key_is_down(
+    const vibe_input_status_t* status,
+    unsigned long scancode,
+    int extended)
+{
+    return vibe_input_status_key_is_down(
+        status,
+        vibe_input_ps2_set1_key_code(scancode, extended));
+}
+
+static inline int vibe_input_status_shift_is_down(const vibe_input_status_t* status)
+{
+    return vibe_input_status_ps2_set1_key_is_down(status, 0x2a, 0)
+        || vibe_input_status_ps2_set1_key_is_down(status, 0x36, 0);
+}
+
+static inline int vibe_input_status_ctrl_is_down(const vibe_input_status_t* status)
+{
+    return vibe_input_status_ps2_set1_key_is_down(status, 0x1d, 0)
+        || vibe_input_status_ps2_set1_key_is_down(status, 0x1d, 1);
+}
+
+static inline int vibe_input_status_alt_is_down(const vibe_input_status_t* status)
+{
+    return vibe_input_status_ps2_set1_key_is_down(status, 0x38, 0)
+        || vibe_input_status_ps2_set1_key_is_down(status, 0x38, 1);
+}
+
+static inline unsigned long vibe_input_status_keyboard_modifiers(const vibe_input_status_t* status)
+{
+    unsigned long modifiers = 0;
+
+    if (vibe_input_status_shift_is_down(status))
+        modifiers |= VIBE_INPUT_MOD_SHIFT;
+    if (vibe_input_status_ctrl_is_down(status))
+        modifiers |= VIBE_INPUT_MOD_CTRL;
+    if (vibe_input_status_alt_is_down(status))
+        modifiers |= VIBE_INPUT_MOD_ALT;
+    return modifiers;
 }
 
 static inline unsigned long vibe_input_status_mouse_buttons(const vibe_input_status_t* status)
@@ -755,6 +1110,11 @@ typedef struct vibe_fb_info {
 } vibe_fb_info_t;
 
 enum {
+    VIBE_FB_ABI_VERSION = 1,
+    VIBE_FB_PRESENT_SEMANTICS_INDEXED_SOURCE = 1,
+};
+
+enum {
     VIBE_FB_BACKEND_MODE13 = 1,
     VIBE_FB_BACKEND_LFB_XRGB8888 = 2,
 };
@@ -780,6 +1140,7 @@ enum {
 
 enum {
     VIBE_FB_INDEXED_PALETTE_COLORS = 256,
+    VIBE_FB_RGB24_PALETTE_ENTRY_BYTES = 3,
     VIBE_FB_RGB24_PALETTE_BYTES = 256 * 3,
 };
 
@@ -828,7 +1189,11 @@ static inline int vibe_fb_info_supports_indexed_rgb24(const vibe_fb_info_t* info
 
 static inline unsigned long vibe_fb_info_present_frame_bytes(const vibe_fb_info_t* info)
 {
-    return info ? info->max_present_width * info->max_present_height : 0;
+    if (!info || !info->max_present_width || !info->max_present_height)
+        return 0;
+    if (info->max_present_width > ~0ul / info->max_present_height)
+        return 0;
+    return info->max_present_width * info->max_present_height;
 }
 
 static inline unsigned long vibe_fb_info_present_palette_bytes(const vibe_fb_info_t* info)
@@ -836,6 +1201,31 @@ static inline unsigned long vibe_fb_info_present_palette_bytes(const vibe_fb_inf
     return vibe_fb_info_supports_indexed_rgb24(info)
         ? VIBE_FB_RGB24_PALETTE_BYTES
         : (info ? info->palette_bytes : 0);
+}
+
+static inline unsigned long vibe_fb_info_source_format(const vibe_fb_info_t* info)
+{
+    return info ? info->present_format : 0;
+}
+
+static inline unsigned long vibe_fb_info_source_width(const vibe_fb_info_t* info)
+{
+    return info ? info->max_present_width : 0;
+}
+
+static inline unsigned long vibe_fb_info_source_height(const vibe_fb_info_t* info)
+{
+    return info ? info->max_present_height : 0;
+}
+
+static inline unsigned long vibe_fb_info_source_palette_entries(const vibe_fb_info_t* info)
+{
+    return vibe_fb_info_supports_indexed_rgb24(info) ? VIBE_FB_INDEXED_PALETTE_COLORS : 0;
+}
+
+static inline unsigned long vibe_fb_info_source_palette_entry_bytes(const vibe_fb_info_t* info)
+{
+    return vibe_fb_info_supports_indexed_rgb24(info) ? VIBE_FB_RGB24_PALETTE_ENTRY_BYTES : 0;
 }
 
 static inline unsigned long vibe_fb_info_source_aspect_width(const vibe_fb_info_t* info)
@@ -871,6 +1261,57 @@ static inline int vibe_fb_info_present_size_is_accepted(
     return 1;
 }
 
+static inline unsigned long vibe_present_indexed_frame_bytes(const vibe_present_indexed_t* present)
+{
+    if (!present || !present->width || !present->height)
+        return 0;
+    if (present->width > ~0ul / present->height)
+        return 0;
+    return present->width * present->height;
+}
+
+static inline int vibe_fb_info_accepts_present_indexed(
+    const vibe_fb_info_t* info,
+    const vibe_present_indexed_t* present)
+{
+    return present
+        && present->frame
+        && present->palette
+        && vibe_present_indexed_frame_bytes(present) != 0
+        && vibe_fb_info_present_size_is_accepted(info, present->width, present->height);
+}
+
+static inline int vibe_fb_info_dirty_rect_is_empty(const vibe_fb_info_t* info)
+{
+    return info
+        && info->dirty_count == 0
+        && info->dirty_x == 0
+        && info->dirty_y == 0
+        && info->dirty_width == 0
+        && info->dirty_height == 0;
+}
+
+static inline int vibe_fb_info_dirty_rect_is_bounded(const vibe_fb_info_t* info)
+{
+    if (!info || !vibe_fb_info_has_capability(info, VIBE_FB_CAP_DIRTY_SOURCE_RECT))
+        return 0;
+    if (!info->max_present_width || !info->max_present_height)
+        return 0;
+    if (info->dirty_count == 0)
+        return vibe_fb_info_dirty_rect_is_empty(info);
+    if (info->dirty_count > vibe_fb_info_present_frame_bytes(info))
+        return 0;
+    if (info->dirty_width == 0 || info->dirty_height == 0)
+        return 0;
+    if (info->dirty_x >= info->max_present_width || info->dirty_y >= info->max_present_height)
+        return 0;
+    if (info->dirty_width > info->max_present_width - info->dirty_x)
+        return 0;
+    if (info->dirty_height > info->max_present_height - info->dirty_y)
+        return 0;
+    return 1;
+}
+
 int vibe_syscall3(unsigned int number, unsigned long arg0, unsigned long arg1, unsigned long arg2);
 int vibe_syscall_errno(int raw_result, int fallback_errno);
 int vibe_clock_gettime(unsigned long clock_id, vibe_clock_time_t* out);
@@ -896,9 +1337,22 @@ int vibe_audio_pcm_pull_state(unsigned long handle);
 int vibe_audio_device_info(vibe_audio_device_info_t* info);
 int vibe_audio_pcm_ring_info(vibe_audio_pcm_ring_info_t* info);
 int vibe_audio_stream_info(unsigned long handle, vibe_audio_stream_info_t* info);
+int vibe_audio_device_info_ioctl(vibe_audio_device_info_t* info);
+int vibe_audio_pcm_ring_info_ioctl(vibe_audio_pcm_ring_info_t* info);
+int vibe_audio_stream_info_ioctl(unsigned long handle, vibe_audio_stream_info_t* info);
+int vibe_audio_pcm_open(const vibe_audio_pcm_desc_t* format);
+int vibe_audio_pcm_drain(unsigned long handle);
+int vibe_audio_pcm_close(unsigned long handle);
+int vibe_audio_pcm_write(unsigned long handle, const vibe_audio_voice_desc_t* desc);
+int vibe_audio_pcm_write_desc(unsigned long handle, const vibe_audio_pcm_desc_t* desc);
+int vibe_audio_stream_open(const vibe_audio_pcm_desc_t* format);
+int vibe_audio_stream_write(unsigned long handle, const vibe_audio_voice_desc_t* desc);
+int vibe_audio_stream_drain(unsigned long handle);
+int vibe_audio_stream_close(unsigned long handle);
 int vibe_poll_input(vibe_input_event_t* event);
 int vibe_drain_input(vibe_input_event_t* events, unsigned long max_events);
 int vibe_input_status(vibe_input_status_t* status);
+int vibe_input_device_status(unsigned long device_id, vibe_input_device_status_t* status);
 int vibe_fb_get_info(vibe_fb_info_t* info);
 int vibe_fb_can_present_indexed(const vibe_fb_info_t* info, const vibe_present_indexed_t* present);
 int vibe_present_indexed(const vibe_present_indexed_t* present);
@@ -910,7 +1364,7 @@ unsigned long vibe_monotonic_ticks(void);
 unsigned long vibe_monotonic_milliseconds(void);
 
 /*
- * Doom port syscall ABI:
+ * Vibe OS user syscall ABI:
  * - Success returns a non-negative int-sized value.
  * - Failure returns -errno when the kernel can classify the error.
  * - Legacy kernel paths may still return -1; libc maps those through the
@@ -922,12 +1376,13 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   file description offset/status; dup3 accepts O_CLOEXEC for the new
  *   descriptor. fcntl(F_GETFD/F_SETFD) exposes descriptor-level FD_CLOEXEC so
  *   ports can audit or change exec inheritance after open/dup.
- * - ftruncate resizes writable root-level FAT16 files by descriptor. Growth
- *   zero-fills new bytes, and shrink frees tail clusters through the FAT layer.
+ * - ftruncate resizes writable FAT16 files opened through the VFS descriptor
+ *   path. Growth zero-fills new bytes, and shrink frees tail clusters through
+ *   the FAT layer.
  * - `vibe_file_size` and `vibe_file_read_all` are convenience wrappers for
  *   small tools and games that need whole-file asset/config reads without
  *   learning the descriptor syscall details. They still inherit the current
- *   root FAT16 path model.
+ *   FAT16 VFS path model.
  *   `pread`, `pwrite`, and `vibe_file_read_at` provide lseek-backed
  *   positioned I/O for single-threaded asset loaders that need WAD/PAK-style
  *   table-of-contents reads without mutating their descriptor's logical
@@ -936,29 +1391,37 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   reports 100 Hz ticks and milliseconds only; it is not an RTC or wall clock.
  *   `vibe_clock_monotonic` and `vibe_clock_ticks_to_milliseconds` are generic
  *   helpers for game loops that do not want Doom's 35 Hz tic conversion.
- * - VIBE_SYS_LISTDIR lists cached FAT16 root entries and read-only one-level
- *   root subdirectories into fixed `vibe_dirent_t` records. Names are
- *   normalized 8.3 display names, and `stat("/")` plus `stat("/ASSETS")`
- *   style directory metadata report readonly directories. File opens remain
- *   root-level only. Directory/file mismatches are classified for small tools:
+ * - VIBE_SYS_LISTDIR lists cached FAT16 root entries and one-level root
+ *   subdirectories into fixed `vibe_dirent_t` records. Names are normalized
+ *   8.3 display names, and stat/open/listdir honor FAT readonly attributes for
+ *   root entries plus one-level subdirectory files. Nested traversal is not
+ *   supported. Directory/file mismatches are classified for small tools:
  *   opening or unlinking a directory as a file returns `EISDIR`, while listing
  *   an existing regular file returns `ENOTDIR`.
  * - VIBE_SYS_POLL_INPUT drains one reusable keyboard/mouse event at a time.
  *   VIBE_SYS_INPUT_STATUS reports queue capacity/depth, overflow counters,
- *   keyboard state, and mouse state without consuming queued input. The libc
- *   wrappers `vibe_poll_input` and `vibe_input_status` pass the ABI byte sizes
+ *   keyboard state, and mouse state without consuming queued input.
+ *   VIBE_SYS_INPUT_DEVICE_STATUS reports one device at a time, so future games
+ *   can inspect keyboard and mouse readiness/counters/state without linking
+ *   Doom translation helpers. The libc wrappers `vibe_poll_input`,
+ *   `vibe_input_status`, and `vibe_input_device_status` pass the ABI byte sizes
  *   explicitly so game/tool code does not need to duplicate syscall details.
  *   `vibe_drain_input` is a bounded nonblocking drain helper for per-frame
- *   event pumps. Inline helpers expose key press/release checks, raw PS/2
- *   mouse buttons, relative X/Y deltas, queue depth/counter invariants, and
- *   status ABI validation so consumers can stay out of Doom's event
- *   translation layer. The queue stores 64 slots with one empty sentinel, so
+ *   event pumps. Keyboard event codes are PS/2 set-1 make scancodes with bit 7
+ *   used for E0-extended keys; inline helpers expose key press/release checks,
+ *   PS/2 scancode/extended decoding, raw PS/2 mouse buttons, relative X/Y
+ *   deltas, queue depth/counter invariants, explicit overflow policy/device
+ *   readiness fields, modifier helpers, per-device drop/poll counters, and
+ *   status ABI validation so consumers can stay out of Doom's event translation
+ *   layer. The queue stores 64 slots with one empty sentinel, so
  *   `VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY` is the observable full depth; on
  *   overflow the kernel drops the oldest queued event and increments
  *   `dropped_events`.
  * - `vibe_audio_*` wrappers hide the VIBE_SYS_AUDIO command numbers and
- *   argument ordering for device/ring/stream/mixer calls. Future ports should
- *   use the generic mixer/device helpers rather than Doom's I_* platform glue.
+ *   argument ordering for device/ring/stream/mixer calls. `PCM_OPEN`,
+ *   `PCM_WRITE_DESC`, `PCM_DRAIN`, and `PCM_CLOSE` are the reusable stream
+ *   path for non-Doom games/tools that want to queue unsigned 8-bit stereo
+ *   PCM without linking Doom's I_* platform glue.
  * - `vibe_fb_get_info` queries the reusable framebuffer contract, and
  *   `vibe_present_indexed_checked` verifies the advertised caps/format/size
  *   before presenting a `vibe_present_indexed_t` through the display fd/ioctl
@@ -977,20 +1440,23 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   punches validation holes without creating reusable VM objects.
  *   `vibe_vm_capabilities` and `vibe_mmap_anon` make the supported VM subset
  *   explicit for ports that would otherwise probe file-backed/shared mappings.
- * - execv passes a bounded argv vector to the process handoff. Table entries
- *   cover Doom/probe images; other root-level FAT16 .ELF names use reusable
- *   probe-class slots. File descriptors inherit across exec unless opened with
- *   O_CLOEXEC, created by dup3 with O_CLOEXEC, or marked FD_CLOEXEC through
- *   fcntl(F_SETFD). Duplicated descriptors share offsets across exec until a
- *   close-on-exec descriptor is retired.
- *   VIBE_EXEC_* exposes the current path and argv bounds to generic userland programs.
- *   execve accepts NULL or empty envp only; the kernel seeds an empty envp
- *   terminator for every launched image until environment copying exists.
- * - getpid returns the active static process id.
- * - fork returns ENOSYS until address-space cloning exists. wait/waitpid scan
- *   parent-PID metadata, reap EXITED/FAULTED children, support WNOHANG, and
- *   return ENOSYS for blocking waits on live children until a sleep queue
- *   exists.
+ * - execv/execve pass bounded argv/envp vectors to the process handoff; execve copies bounded envp strings. Table
+ *   entries cover Doom/probe images; root-level FAT16 .ELF names use reusable
+ *   probe-class slots. File descriptors inherit across exec unless
+ *   opened with O_CLOEXEC, created by dup3 with O_CLOEXEC, or marked
+ *   FD_CLOEXEC through fcntl(F_SETFD). Duplicated descriptors share offsets
+ *   across exec until a close-on-exec descriptor is retired.
+ *   VIBE_EXEC_* exposes the current path, argv, envp, and resolver-mode bounds
+ *   to generic userland programs. Resolver mode `VIBE_EXEC_RESOLVE_GENERIC_ROOT83`
+ *   means a root FAT 8.3 `.ELF` name used the reusable process pool instead of a
+ *   table-only Doom/probe path.
+ * - getpid returns the active static process id. process_status returns a
+ *   fixed 64-byte snapshot for the current process or a positive PID.
+ * - yield is a cooperative scheduler handoff. `sleep_ticks` and direct-child
+ *   blocking `waitpid` both park the caller on the kernel block primitive.
+ * - fork eagerly clones probe-class address spaces and fd tables. wait/waitpid
+ *   scan parent-PID metadata, reap EXITED/FAULTED children, support WNOHANG,
+ *   and block on live direct children through that same bounded primitive.
  */
 
 #endif

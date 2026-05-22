@@ -38,6 +38,31 @@ static inline int isspace(int ch)
     return ch == ' ' || (ch >= '\t' && ch <= '\r');
 }
 
+static inline int isblank(int ch)
+{
+    return ch == ' ' || ch == '\t';
+}
+
+static inline int iscntrl(int ch)
+{
+    return (ch >= 0 && ch < 0x20) || ch == 0x7f;
+}
+
+static inline int isgraph(int ch)
+{
+    return ch >= 0x21 && ch <= 0x7e;
+}
+
+static inline int isprint(int ch)
+{
+    return ch >= 0x20 && ch <= 0x7e;
+}
+
+static inline int ispunct(int ch)
+{
+    return isgraph(ch) && !isalnum(ch);
+}
+
 static inline int toupper(int ch)
 {
     return islower(ch) ? ch - ('a' - 'A') : ch;

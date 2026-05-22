@@ -1,4 +1,5 @@
 import hashlib
+import os
 import struct
 import subprocess
 import sys
@@ -9,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-BUILD = ROOT / "build"
+BUILD = Path(os.environ.get("VIBE_HOST_TEST_BUILD_DIR") or ROOT / "build")
 TOOL = ROOT / "tools" / "make_wad_image.py"
 spec = importlib.util.spec_from_file_location("make_wad_image", TOOL)
 make_wad_image = importlib.util.module_from_spec(spec)
@@ -639,9 +640,9 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('rm -f "$WAD_PATH"', real_wad_workflow)
         self.assertIn("timeout-minutes: 4", real_wad_workflow)
         self.assertIn("Show smoke diagnostics", real_wad_workflow)
-        self.assertIn("build/status*.bin", real_wad_workflow)
         self.assertIn("build/status*.txt", real_wad_workflow)
-        self.assertIn("build/*.log", real_wad_workflow)
+        self.assertNotIn("build/status*.bin", real_wad_workflow)
+        self.assertNotIn("build/*.log", real_wad_workflow)
         self.assertNotIn("build/gfx.bin", real_wad_workflow)
         self.assertIn("rm -f build/vga*.bin build/vga*.txt", real_wad_workflow)
         self.assertIn("rm -f build/persistence-*/vga*.bin build/persistence-*/vga*.txt", real_wad_workflow)
@@ -651,13 +652,11 @@ class SourceContractTests(unittest.TestCase):
         self.assertNotIn("build/gfx.bin", real_wad_upload_block)
         self.assertNotIn("build/vga*.txt", real_wad_upload_block)
         self.assertNotIn("build/persistence-*/*.bin", real_wad_upload_block)
-        status_only_upload_block = real_wad_workflow.split("name: real-wad-smoke-proof-status", 1)[1].split("name: real-wad-smoke-status", 1)[0]
+        status_only_upload_block = real_wad_workflow.split("name: real-wad-smoke-proof-status", 1)[1].split("Summarize proof lane outcomes", 1)[0]
         self.assertIn("build/cloud-proof-run.json", status_only_upload_block)
         self.assertIn("build/persistence-*/*.txt", status_only_upload_block)
-        diagnostics_upload_block = real_wad_workflow.split("name: real-wad-smoke-status", 1)[1].split("Summarize proof lane outcomes", 1)[0]
-        self.assertNotIn("build/persistence-*/*.txt", diagnostics_upload_block)
+        self.assertNotIn("name: real-wad-smoke-status", real_wad_workflow)
         self.assertNotIn("build/persistence-*/status*.bin", real_wad_upload_block)
-        self.assertNotIn("build/persistence-*/status*.txt", real_wad_upload_block)
         os_upload_block = os_smoke_workflow.split("uses: actions/upload-artifact@v4", 1)[1]
         self.assertNotIn("build/gfx.bin", os_upload_block)
         self.assertNotIn("build/vga.txt", os_upload_block)
@@ -736,7 +735,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("USER_KIND_DOOM equ 2", kernel)
         self.assertIn("const char abi_probe_path[] = \"ABIPROBE.ELF\";", probe)
         self.assertIn("char *abi_probe_argv[] = {(char *)abi_probe_path, (char *)0};", probe)
-        self.assertIn("return sys_execv(abi_probe_path, abi_probe_argv) == 0 ? 0 : 1;", probe)
+        self.assertIn('char *abi_probe_envp[] = {(char *)"PROBE_LAUNCHER=USERPROB", (char *)"ABI_ENV=present", (char *)0};', probe)
+        self.assertIn("return sys_execve(abi_probe_path, abi_probe_argv, abi_probe_envp) == 0 ? 0 : 1;", probe)
         abi_probe = (ROOT / "user" / "abi_probe.c").read_text()
         self.assertIn("const char doom_path[] = \"DOOM.ELF\";", abi_probe)
         self.assertIn("char* doom_argv[] = { (char*)doom_path, 0 };", abi_probe)
@@ -761,6 +761,13 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("doomfaultv=", kernel)
         self.assertIn("doomfaulterr=", kernel)
         self.assertIn("fault=", kernel)
+        self.assertIn("pf=", kernel)
+        self.assertIn("faultsrc=", kernel)
+        self.assertIn("faultmode=", kernel)
+        self.assertIn("faultcontain=", kernel)
+        self.assertIn("regs=", kernel)
+        self.assertIn("segs=", kernel)
+        self.assertIn("proc=", kernel)
         self.assertIn("panic=", kernel)
         self.assertIn("shutdown=", kernel)
         self.assertIn("doomopen=", kernel)
@@ -776,6 +783,13 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('grep -q "doomfaultv="', makefile)
         self.assertIn('grep -q "doomfaulterr="', makefile)
         self.assertIn('grep -q " fault="', makefile)
+        self.assertIn('grep -Eq " pf=([0-9A-F]{8}/){4}[0-9A-F]{8}"', makefile)
+        self.assertIn('grep -Eq "faultsrc=(NONE|EXPECT|USER|DOOM|KERNEL)"', makefile)
+        self.assertIn('grep -Eq "faultmode=(NONE|USER|KERNEL)"', makefile)
+        self.assertIn('grep -Eq "faultcontain=([0-9A-F]{8}/){4}[0-9A-F]{8}"', makefile)
+        self.assertIn('grep -Eq " regs=([0-9A-F]{8}/){7}[0-9A-F]{8}"', makefile)
+        self.assertIn('grep -Eq " segs=([0-9A-F]{8}/){5}[0-9A-F]{8}"', makefile)
+        self.assertIn('grep -Eq " proc=([0-9A-F]{8}/){8}[0-9A-F]{8}"', makefile)
         self.assertIn('grep -Eq "panic=(NONE|KEXC)"', makefile)
         self.assertIn('grep -Eq "shutdown=(NONE|HALT|REBOOT|POWEROFF)"', makefile)
         self.assertIn('grep -q "doomopen=OK"', makefile)
@@ -862,6 +876,12 @@ class SourceContractTests(unittest.TestCase):
             'smoke_gtic_text db " gtic="',
             'smoke_leveltime_text db " leveltime="',
             'smoke_doomtick_text db " dtick="',
+            'smoke_clocksrc_text db " clocksrc=PIT"',
+            'smoke_clockirq_text db " clockirq="',
+            'smoke_clocktick_text db " clocktick="',
+            'smoke_clockdoom_text db " clockdoom="',
+            'smoke_clocksch_text db " clocksch="',
+            'smoke_clockpirq_text db " clockpirq="',
             'smoke_doominit_text db " doominit="',
             'smoke_saveact_text db " saveact="',
             'smoke_savedesc_text db " savedesc="',
@@ -897,7 +917,9 @@ class SourceContractTests(unittest.TestCase):
             "exec=OK path=DOOM.ELF doom=OK doomrun=RUN doomopen=OK doomread=OK "
             "gfx=OK pself=OK pg=ON pmm=OK vmm=OK libc=OK c=OK usr=OK wad=OK lmp=OK heap=OK "
             "fb=LFB fbpolicy=ASP fbgeom=00000000:00000000:00000280:000001E0:00000002 "
-            "fbdirty=00000000:00000000:00000140:000000C8:00010000 "
+            "fbdirty=00000000:00000000:00000140:000000C8:0000FA00 "
+            "fbsrc=00000001:00000140:000000C8:00000140:000000F0:00000100:00000003 "
+            "fbacct=00000001:00000001:00000000:00000000:00000000:00000001:0000FA00:0000FA00:00000300 "
             "audio=NONE mouse=OK doommode=00000000:00000000 "
             "target=00000001 ppid=00000001 entry=00000001 stack=00000002 argc=00000001 argv=00000003 envp=00000005 argv0=00000004 envp0=00000000 "
             "execerr=00000000 execres=00000000 execsys=00000001/00000001/00000000/00000001/00000001/00000000 "
@@ -905,6 +927,10 @@ class SourceContractTests(unittest.TestCase):
             "doomclose=00000000 doomsbrk=00000001 doomerr=00000000 doomerrno=00000000 doominit=000001FF/00000009 "
             "doomexit=00000000 doomfault=00000000 doomfaultip=00000000 doomfaultv=00000000 doomfaulterr=00000000 "
             "fault=00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000 "
+            "pf=00000000/00000000/00000000/00000000/00000000 "
+            "regs=00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000 "
+            "segs=00000000/00000000/00000000/00000000/00000000/00000000 "
+            "proc=00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000 "
             "panic=NONE shutdown=NONE "
             "doomsound=00000000 sfxmix=00000000 sfxq=00000000:00000000:00000000:00000000 "
             "sfxbytes=00000000:00000000 sfxdma=00000000:00000000 "
@@ -915,14 +941,22 @@ class SourceContractTests(unittest.TestCase):
             "musicpos=00000000 musicbuf=00000000 musicunder=00000000 musicdrops=00000000 "
             "musicstream=NONE musicpull=00000000:00000000 musicrend=00000000:00000000:00000000:00000000:00000000:00000000 "
             "adev=00000000:00000002:00000000 pcm=00000001:00000002:00002B11 pcmbuf=00001000:00000800:00000000:00000000 "
+            "pcmstream=00000000:00000000:00000000:00000000:00000000 pcmwrite=00000000:00000000:00000000:00000000 "
+            "pcmqueue=00001000:00000000:00000000:00000000:00000000:00000000 pcmpull=00000000:00000000:00000000 "
+            "pcmirq=00000000:00000000:00000000 pcmdma=00000000:00000000:00000000:00000000:00000000:00000FFF "
             "sb16=00000000:00000000 dma=00000000 play=00000000:00000000 voiceq=00000000:00000000:00000000 musicq=00000000:00000000 "
-            "inputqueue=00000007 inputpoll=00000007 inputlast=00000060:00000001:00000001 "
+            "inputqueue=00000007 inputdepth=00000000:00000000 "
+            "inputstat=00000007:00000007:00000000:0000003F inputpolicy=00000001:0000003F "
+            "inputdev=00000001:00000001 inputdevices=00000002:00000003:0000001F:00000006:00000001 "
+            "inputmods=00000000 inputpoll=00000007 inputlast=00000060:00000001:00000001 "
             "mouseirq=00000001 mousepkt=00000001 mousepoll=00000001 "
             "mousebtn=00000001 mousedelta=00000018:0000000C "
             "dtick=00000059 preempt=00000001 pirq=00000001 pattempt=00000001 pskip=00000000 puser=00000004 pround=00000001 "
             "pctx=00000004 pmask=00000003 pfrom=00000002 pto=00000003 pkind=00000002:00000003 "
             "peip=01000000:00E80000 pcr3=00082000:00083000 pkstk=00073000:00072000 "
-            "pframe=00000001/00E80000/0000001B/00E9FFE0/00000023 pspin=50524546 free=00700000 ticks=00000100"
+            "pframe=00000001/00E80000/0000001B/00E9FFE0/00000023 psegs=00000023:00000023:00000023:00000023 "
+            "peflags=00000202:00000202:00000202:00000000:00000001 "
+            "pspin=50524546 free=00700000 ticks=00000100"
         )
         playable = "gstate=00000000 gtic=00000001 gflags=00000001 gaction=00000000 pflags=000001FF pbuttons=00000000 ppos=00010000:00020000 pdelta=00000100 keyirq=00000001 keyqueue=00000001 keypoll=00000001 keyseen=00000071 keylast=0001001B"
         valid = f"Aurora OS v0.2 {core} gameplay=OK gmap=00000101 leveltime=00000001 doompresent=00000008 {visual.replace('doomframe=13572468', 'doomframe=88888888')} {playable} doomlog=ready"
@@ -1112,6 +1146,11 @@ class SourceContractTests(unittest.TestCase):
             valid.replace("pframe=00000001/00E80000/0000001B/00E9FFE0/00000023", "pframe=00000000/00E80000/0000001B/00E9FFE0/00000023"),
             valid.replace("pframe=00000001/00E80000/0000001B/00E9FFE0/00000023", "pframe=00000001/01000000/0000001B/00E9FFE0/00000023"),
             valid.replace("pframe=00000001/00E80000/0000001B/00E9FFE0/00000023", "pframe=00000001/00E80000/00000008/00E9FFE0/00000023"),
+            valid.replace("psegs=00000023:00000023:00000023:00000023", "psegs=00000010:00000023:00000023:00000023"),
+            valid.replace("peflags=00000202:00000202:00000202:00000000:00000001", "peflags=00003202:00000202:00000202:00000000:00000001"),
+            valid.replace("peflags=00000202:00000202:00000202:00000000:00000001", "peflags=00000202:00003202:00000202:00000000:00000001"),
+            valid.replace("peflags=00000202:00000202:00000202:00000000:00000001", "peflags=00000202:00000202:00003202:00000000:00000001"),
+            valid.replace("peflags=00000202:00000202:00000202:00000000:00000001", "peflags=00000202:00000202:00000202:00000000:00000000"),
             valid.replace("pspin=50524546", "pspin=50524545"),
             valid.replace("audio=NONE", "audio=EMU"),
         )
@@ -1284,7 +1323,17 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("and eax, O_ACCMODE", open_path)
         self.assertIn("cmp eax, O_ACCMODE", open_path)
         self.assertIn("test dword [syscall_open_flags], O_TRUNC | O_APPEND", open_path)
-        self.assertIn("test dword [syscall_open_flags], O_WRONLY | O_RDWR | O_TRUNC | O_APPEND", open_path)
+        self.assertIn("cmp eax, O_WRONLY", open_path)
+        self.assertIn("cmp eax, O_RDWR", open_path)
+        self.assertLess(
+            open_path.index("test dword [syscall_open_flags], O_TRUNC | O_APPEND"),
+            open_path.index("cmp eax, O_WRONLY"),
+        )
+        self.assertLess(
+            open_path.index("cmp eax, O_WRONLY"),
+            open_path.index("cmp eax, O_RDWR"),
+        )
+        self.assertIn("test dword [syscall_open_flags], O_WRONLY | O_RDWR | O_CREAT | O_TRUNC | O_APPEND", open_path)
         self.assertIn("cmp edx, WRITABLE_KNOWN_FILE_COUNT", open_path)
         self.assertIn("call fat_parse_user_root83", open_path)
         self.assertIn("call fat_open_name_is_protected", open_path)
@@ -1307,7 +1356,9 @@ class SourceContractTests(unittest.TestCase):
             open_path.index("call fat_refresh_known_writable_slot", open_path.index(".open_writable_ready:")),
             open_path.index("call fat_truncate_writable_file", open_path.index(".open_writable_ready:")),
         )
-        self.assertIn("mov byte [fd_kinds + eax], FD_KIND_WAD", open_path)
+        self.assertIn("jmp .open_generic_parse_root83", open_path)
+        self.assertIn("mov byte [fd_kinds + eax], FD_KIND_READONLY_FILE", open_path)
+        self.assertNotIn("mov byte [fd_kinds + eax], FD_KIND_WAD", open_path)
         self.assertIn("mov byte [fd_kinds + eax], FD_KIND_WRITABLE", open_path)
         self.assertNotIn("USER_FD_WRITABLE_BASE", kernel)
         writer = kernel.split("user_file_write:", 1)[1].split("user_file_lseek:", 1)[0]
@@ -1429,29 +1480,35 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("mov byte [fat_alloc_map + ebx], 0", alloc_map_builder)
         fat_writer = kernel.split("fat_write_cluster_entry:", 1)[1].split("fat_zero_cluster:", 1)[0]
         self.assertIn("fat_table_cache", fat_writer)
-        self.assertIn("call ata_write_sector", fat_writer)
+        self.assertIn("call block_selected_write_sector", fat_writer)
+        self.assertNotIn("call ata_write_sector", fat_writer)
         self.assertNotIn("call ata_read_sector", fat_writer)
         root_finder = kernel.split("fat_find_file:", 1)[1].split("fat_find_wad:", 1)[0]
         self.assertIn("add esi, fat_root_cache", root_finder)
         self.assertNotIn("call ata_read_sector", root_finder)
         root_creator = kernel.split("fat_create_root_file:", 1)[1].split("fat_load_file:", 1)[0]
         self.assertIn("add esi, fat_root_cache", root_creator)
-        self.assertIn("call ata_write_sector", root_creator)
+        self.assertIn("call block_selected_write_sector", root_creator)
+        self.assertNotIn("call ata_write_sector", root_creator)
         self.assertNotIn("call ata_read_sector", root_creator)
         root_size_updater = kernel.split("fat_update_writable_size:", 1)[1].split("fat_truncate_writable_file:", 1)[0]
         self.assertIn("add esi, fat_root_cache", root_size_updater)
-        self.assertIn("call ata_write_sector", root_size_updater)
+        self.assertIn("call block_selected_write_sector", root_size_updater)
+        self.assertNotIn("call ata_write_sector", root_size_updater)
         root_cached_update = root_size_updater.split(".load_directory_sector:", 1)[0]
         self.assertNotIn("call ata_read_sector", root_cached_update)
         self.assertIn(".load_directory_sector:", root_size_updater)
-        self.assertIn("call ata_read_sector", root_size_updater)
+        self.assertIn("call block_selected_read_sector", root_size_updater)
+        self.assertNotIn("call ata_read_sector", root_size_updater)
         root_deleter = kernel.split("fat_delete_found_file:", 1)[1].split("stat_fill_user:", 1)[0]
         self.assertIn("add esi, fat_root_cache", root_deleter)
-        self.assertIn("call ata_write_sector", root_deleter)
+        self.assertIn("call block_selected_write_sector", root_deleter)
+        self.assertNotIn("call ata_write_sector", root_deleter)
         root_cached_delete = root_deleter.split(".load_directory_sector:", 1)[0]
         self.assertNotIn("call ata_read_sector", root_cached_delete)
         self.assertIn(".load_directory_sector:", root_deleter)
-        self.assertIn("call ata_read_sector", root_deleter)
+        self.assertIn("call block_selected_read_sector", root_deleter)
+        self.assertNotIn("call ata_read_sector", root_deleter)
         reader = kernel.split(".read:", 1)[1].split(".lseek:", 1)[0]
         self.assertIn("call fd_lookup", reader)
         self.assertIn("cmp byte [fd_kinds + eax], FD_KIND_WAD", reader)
@@ -1476,7 +1533,9 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("call stat_fill_user", stat_path)
         self.assertIn("STAT_MODE_READONLY_DIR", stat_path)
         self.assertIn("STAT_MODE_READONLY_REG", stat_path)
-        self.assertIn("STAT_MODE_WRITABLE_REG", stat_path)
+        self.assertIn("call fat_found_mode", stat_path)
+        mode_helper = kernel.split("fat_mode_from_attr_al:", 1)[1].split("fat_user_path_is_root:", 1)[0]
+        self.assertIn("STAT_MODE_WRITABLE_REG", mode_helper)
         self.assertIn("call fat_open_name_marker_index", stat_path)
         self.assertIn(".stat_persistence_marker:", stat_path)
         self.assertIn("cmp byte [persistence_marker_status + eax], 1", stat_path)
@@ -1493,6 +1552,7 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("call fd_lookup", ftruncate_path)
         self.assertIn("cmp byte [fd_kinds + eax], FD_KIND_WRITABLE", ftruncate_path)
         self.assertIn("and edx, O_ACCMODE", ftruncate_path)
+        self.assertIn("ja .bad_syscall_enospc", ftruncate_path)
         self.assertIn("call fat_resize_writable_file", ftruncate_path)
         self.assertIn("ERRNO_EMFILE equ 24", kernel)
         self.assertIn(".bad_syscall_emfile:", kernel)
@@ -1540,17 +1600,21 @@ class SourceContractTests(unittest.TestCase):
             "PROC_GENERIC1_KERNEL_STACK_TOP equ 0x00075000",
             "PROCESS_SLOT_COUNT equ 6",
             "PROCESS_GENERIC_SLOT_COUNT equ 2",
-            "PROCESS_RECORD_BYTES equ 168",
+            "PROCESS_RECORD_BYTES equ 184",
             "PROC_SAVED_EIP equ 76",
-            "PROC_QUANTUM_TICKS equ 100",
-            "PROC_PAGE_DIR equ 108",
-            "PROC_VM_REGIONS equ 112",
-            "PROC_VM_REGION_COUNT equ 116",
-            "PROC_KERNEL_STACK_TOP equ 124",
-            "PROC_PARENT_PID equ 128",
-            "PROC_ARGV0 equ 152",
-            "PROC_HEAP_BITMAP equ 160",
-            "PROC_HEAP_PAGE_COUNT equ 164",
+            "PROC_SAVED_DS equ 92",
+            "PROC_SAVED_ES equ 96",
+            "PROC_SAVED_FS equ 100",
+            "PROC_SAVED_GS equ 104",
+            "PROC_QUANTUM_TICKS equ 116",
+            "PROC_PAGE_DIR equ 124",
+            "PROC_VM_REGIONS equ 128",
+            "PROC_VM_REGION_COUNT equ 132",
+            "PROC_KERNEL_STACK_TOP equ 140",
+            "PROC_PARENT_PID equ 144",
+            "PROC_ARGV0 equ 168",
+            "PROC_HEAP_BITMAP equ 176",
+            "PROC_HEAP_PAGE_COUNT equ 180",
             "PROC_FLAG_IRQ_FRAME_VALID equ 0x1",
             "SCHEDULER_QUANTUM_TICKS equ 5",
             "process_table:",
@@ -1728,6 +1792,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("mov [scheduler_last_preempt_to_kind], eax", scheduler)
         self.assertIn("mov [scheduler_last_preempt_from_eip], eax", scheduler)
         self.assertIn("mov [scheduler_last_preempt_to_eip], eax", scheduler)
+        self.assertIn("mov [scheduler_last_preempt_from_eflags], eax", scheduler)
+        self.assertIn("mov [scheduler_last_preempt_to_eflags], eax", scheduler)
         self.assertIn("mov [scheduler_last_preempt_from_cr3], eax", scheduler)
         self.assertIn("mov [scheduler_last_preempt_to_cr3], eax", scheduler)
         self.assertIn("mov [scheduler_last_preempt_from_kstack], eax", scheduler)
@@ -1737,6 +1803,11 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("mov [scheduler_last_irq_frame_cs], eax", scheduler)
         self.assertIn("mov [scheduler_last_irq_frame_esp], eax", scheduler)
         self.assertIn("mov [scheduler_last_irq_frame_ss], eax", scheduler)
+        self.assertIn("mov [scheduler_last_irq_frame_ds], eax", scheduler)
+        self.assertIn("mov [scheduler_last_irq_frame_es], eax", scheduler)
+        self.assertIn("mov [scheduler_last_irq_frame_fs], eax", scheduler)
+        self.assertIn("mov [scheduler_last_irq_frame_gs], eax", scheduler)
+        self.assertIn("mov [scheduler_last_irq_frame_eflags], eax", scheduler)
         self.assertIn("or dword [scheduler_preempt_pair_mask], 0x1", scheduler)
         self.assertIn("or dword [scheduler_preempt_pair_mask], 0x2", scheduler)
         self.assertIn("cmp dword [current_process_ptr], process_preempt_probe", spin_capture)
@@ -1744,7 +1815,18 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("mov [scheduler_preempt_spin_value], eax", spin_capture)
         done_path = scheduler.split(".done:", 1)[1].split(".restore_regs:", 1)[0]
         self.assertNotIn("mov eax, [USER_STACK_TOP - 4]", done_path)
-        for field in ("PROC_SAVED_EAX", "PROC_SAVED_EIP", "PROC_SAVED_EFLAGS", "PROC_SAVED_CS", "PROC_SAVED_ESP", "PROC_SAVED_SS"):
+        for field in (
+            "PROC_SAVED_EAX",
+            "PROC_SAVED_EIP",
+            "PROC_SAVED_EFLAGS",
+            "PROC_SAVED_CS",
+            "PROC_SAVED_ESP",
+            "PROC_SAVED_SS",
+            "PROC_SAVED_DS",
+            "PROC_SAVED_ES",
+            "PROC_SAVED_FS",
+            "PROC_SAVED_GS",
+        ):
             self.assertIn(field, save_irq)
             self.assertIn(field, restore_irq)
             self.assertIn(field, save_syscall)
@@ -1752,12 +1834,21 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("and dword [esi + PROC_VM_FLAGS], 0xfffffffe", save_irq)
         self.assertIn("test dword [edi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID", selector)
         self.assertIn("test dword [edi + PROC_SAVED_CS], 3", selector)
+        self.assertIn("cmp dword [edi + PROC_SAVED_CS], USER_CODE_SEG", selector)
+        self.assertIn("cmp dword [edi + PROC_SAVED_SS], USER_DATA_SEG", selector)
+        self.assertIn("cmp dword [edi + PROC_SAVED_DS], USER_DATA_SEG", selector)
+        self.assertIn("cmp dword [edi + PROC_SAVED_ES], USER_DATA_SEG", selector)
+        self.assertIn("cmp dword [edi + PROC_SAVED_FS], USER_DATA_SEG", selector)
+        self.assertIn("cmp dword [edi + PROC_SAVED_GS], USER_DATA_SEG", selector)
         self.assertIn("cmp dword [edi + PROC_SAVED_EIP], 0", selector)
+        self.assertIn("call process_saved_frame_user_bounds_ok", selector)
         self.assertIn("mov [scheduler_next_process_ptr], edi", selector)
-        self.assertIn("scheduler_preempt_selftest_frame times 13 dd 0", kernel)
+        self.assertIn("scheduler_preempt_selftest_frame times IRQ_FRAME_DWORDS dd 0", kernel)
         self.assertIn("scheduler_preempt_selftest_status db 0", kernel)
         self.assertIn("scheduler_preempt_pair_mask dd 0", kernel)
         self.assertIn("scheduler_irq_frame_rewrites dd 0", kernel)
+        self.assertIn("scheduler_irq_eflags_sanitize_count dd 0", kernel)
+        self.assertIn("scheduler_preempt_selftest_eflags_sanitize_count dd 0", kernel)
         self.assertIn("call scheduler_preempt_self_test", kernel)
         self.assertIn("PREEMPT_PROBE_MAGIC equ 0x50524545", user_crt0)
         self.assertIn("cmp eax, PREEMPT_PROBE_MAGIC", user_crt0)
@@ -1781,6 +1872,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('smoke_pcr3_text db " pcr3="', kernel)
         self.assertIn('smoke_pkstk_text db " pkstk="', kernel)
         self.assertIn('smoke_pframe_text db " pframe="', kernel)
+        self.assertIn('smoke_psegs_text db " psegs="', kernel)
+        self.assertIn('smoke_peflags_text db " peflags="', kernel)
         self.assertIn('smoke_pspin_text db " pspin="', kernel)
         self.assertIn('smoke_pself_text db " pself="', kernel)
 
@@ -1801,10 +1894,20 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn("int clock_gettime(clockid_t clock_id, struct timespec* tp)", libc)
         self.assertIn("return (int)((vibe_monotonic_milliseconds() * 35u) / 1000u);", platform)
         self.assertIn("SYS_CLOCK_GETTIME equ 29", kernel)
-        self.assertIn("CLOCK_MONOTONIC_HZ equ 100", kernel)
+        self.assertIn("PIT_IRQ_HZ equ 100", kernel)
+        self.assertIn("CLOCK_MONOTONIC_HZ equ PIT_IRQ_HZ", kernel)
+        self.assertIn("CLOCK_TIME_FLAG_KERNEL_OWNED equ 0x00000001", kernel)
         self.assertIn(".clock_gettime:", kernel)
+        self.assertIn("call clock_write_monotonic_time", kernel)
+        self.assertIn("clock_tick_from_timer_irq:", kernel)
+        self.assertIn('smoke_clocksrc_text db " clocksrc=PIT"', kernel)
+        self.assertIn('smoke_clockirq_text db " clockirq="', kernel)
+        self.assertIn('smoke_clocktick_text db " clocktick="', kernel)
         self.assertIn('smoke_clockhz_text db " clockhz="', kernel)
         self.assertIn('smoke_clockms_text db " clockms="', kernel)
+        self.assertIn('smoke_clockdoom_text db " clockdoom="', kernel)
+        self.assertIn('smoke_clocksch_text db " clocksch="', kernel)
+        self.assertIn('smoke_clockpirq_text db " clockpirq="', kernel)
         self.assertIn('!strcmp(name, "HOME")', libc)
         self.assertIn('!strcmp(name, "DOOMWADDIR")', libc)
 
@@ -1839,6 +1942,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('smoke_fbpolicy_text db " fbpolicy="', kernel)
         self.assertIn('smoke_fbgeom_text db " fbgeom="', kernel)
         self.assertIn('smoke_fbdirty_text db " fbdirty="', kernel)
+        self.assertIn('smoke_fbsrc_text db " fbsrc="', kernel)
+        self.assertIn('smoke_fbacct_text db " fbacct="', kernel)
         self.assertIn("mov dword [doom_present_count], 0", kernel)
         self.assertIn("mov byte [present_status], 0", kernel)
         self.assertIn('smoke_doompresent_text db " doompresent="', kernel)
@@ -1895,6 +2000,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('smoke_inputqueue_text db " inputqueue="', kernel)
         self.assertIn('smoke_inputdepth_text db " inputdepth="', kernel)
         self.assertIn('smoke_inputstat_text db " inputstat="', kernel)
+        self.assertIn('smoke_inputdevices_text db " inputdevices="', kernel)
+        self.assertIn('smoke_inputmods_text db " inputmods="', kernel)
         self.assertIn('smoke_inputpoll_text db " inputpoll="', kernel)
         self.assertIn('smoke_inputlast_text db " inputlast="', kernel)
         self.assertIn('smoke_keyirq_text db " keyirq="', kernel)
@@ -1926,6 +2033,8 @@ class SourceContractTests(unittest.TestCase):
         self.assertIn('grep -q "keylast="', makefile)
         self.assertIn('grep -q "inputqueue="', makefile)
         self.assertIn('grep -Eq "inputstat=([0-9A-F]{8}:){3}[0-9A-F]{8}"', makefile)
+        self.assertIn('grep -Eq "inputdevices=([0-9A-F]{8}:){4}[0-9A-F]{8}"', makefile)
+        self.assertIn('grep -q "inputmods="', makefile)
         self.assertIn('grep -q "inputpoll="', makefile)
         self.assertIn("/inputqueue=([0-9A-F]{8})/", makefile)
         self.assertIn("/inputpoll=([0-9A-F]{8})/", makefile)

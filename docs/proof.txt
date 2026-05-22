@@ -53,6 +53,9 @@ historical repair / blocker after notes, not the current proof basis.
 
 Current state: the manual real-WAD cloud workflow boots the repo OS in
 disposable QEMU and is tied to the exact commit/ref chosen by the workflow.
+The BIOS/E820 handoff is visible in the status stream through `e820map=`,
+`e820use=`, `pmmtype=`, and `pmmchk=`, so the PMM proof is not just fixed
+low-memory accounting.
 
 Still missing: nothing for the scripted cloud-boot gate; broader physical
 hardware boot remains a hardware-limit gap.
@@ -105,7 +108,17 @@ passes save/load persistence and `persistence-proof-green`. It uses the
 general root-level 8.3 VFS/FAT layer, generic dynamic root entries, and
 dynamic FAT allocation, free, truncate behavior rather than a Doom-only save shim.
 It now also has a bounded writable one-level `/STATE` directory contract for
-future game/tool state files.
+future game/tool state files. `ABIPROBE.ELF` exercises that path before Doom
+starts by listing `/ASSETS`, reading `/ASSETS/README.TXT`, creating and
+round-tripping `/STATE/SESSION.DAT`, shrinking it with `ftruncate`, deleting it,
+and verifying that the deleted state path no longer stats.
+The WAD path is kept on that ordinary readonly VFS descriptor route for
+userland reads, while protected WAD/ELF roots reject write/truncate attempts.
+Resize/delete metadata is written before old cluster chains are returned to the
+allocator, shrink tail bytes are scrubbed after the smaller size is committed,
+and write failures before any user bytes land roll back the descriptor-visible
+size/offset/chain. Proof status does not imply a stale live entry points at
+freed FAT16 clusters.
 
 Still missing: persistence is proven for the generated FAT16 image, not for
 arbitrary disks or recovery from unknown damaged media; broader storage boot
@@ -118,8 +131,9 @@ The host storage/install checker now emits explicit `artifact-integrity`,
 sections prove fixed raw image construction from repo build artifacts, root 8.3
 path normalization, a host-only `dynamic-root-lifecycle manifest`, a
 `dynamic-subdirectory-lifecycle manifest` for `/STATE/SESSION.DAT`, allocation
-growth/shrink/free/truncate/delete behavior with freed-cluster scrubbing,
-free-space accounting, no-space failure atomicity, read-only packaged asset
+growth/sparse-growth/shrink/free/truncate/delete behavior with freed-cluster scrubbing,
+free-space accounting, live FAT accounting status from the kernel FAT-cache
+rescan, no-space failure atomicity, read-only packaged asset
 refusal, and the bounded one-level subdirectory boundary, while keeping
 arbitrary disk install/recovery and nested kernel traversal unclaimed.
 
@@ -163,12 +177,34 @@ probe-class exec fallback, arbitrary root-level FAT16 `.ELF` paths, fd
 inheritance, shared-offset fd duplication, wait/reap evidence, and preemptive
 switching. Late exec rollback switches the caller back before retiring the
 failed target; the rollback counter no longer leaves a half-prepared target running.
+The Ring 3 ABI itself is now an explicit contract: the public header names ABI
+version 1, `int 0x80`, three register arguments, negative-errno results, the
+versioned argv/envp/auxv stack layout, and the fault-exit status base. The
+kernel records the syscall trap vector, saved-register mask, frame size, stack
+ABI version, stack alignment, auxv pair count, and last generic exit/fault
+status fields so the proof surface can reject a Doom-only launch shim.
 The small non-Doom user runtime now exposes the same reusable slice for
 future tools and games: brk-style `sbrk`, bounded probe-class `fork`,
 `waitpid`, anonymous/private `mmap`/`munmap`, fd duplication, `fcntl`,
-monotonic clock, root `listdir`, bounded `execv`, checked empty-env `execve`,
-fd close-on-exec helpers, exact-child nohang reap, listdir search, and
-copy-backed private file mappings. This is not a full POSIX environment.
+monotonic clock, kernel-owned tick sleep, root/one-level `listdir`, generic
+asset reads, one-level state-file write/truncate/delete, bounded
+`execv`/`execve` argv/envp handoff, fd close-on-exec helpers, exact-child
+nohang reap, listdir search, and copy-backed private file mappings. This is
+not a full POSIX environment.
+Input is part of that reusable surface now too: `VIBE_SYS_POLL_INPUT` is the
+event drain, `VIBE_SYS_INPUT_STATUS` is the queue snapshot, and
+`VIBE_SYS_INPUT_DEVICE_STATUS` is the per-device snapshot for keyboard/mouse
+readiness, capabilities, poll/drop counters, modifier state, button state, and
+relative mouse axes. Doom consumes that same ABI instead of a private keyboard
+or mouse shortcut.
+The CPU/runtime math slice is now explicit too: the kernel sets up x87 with
+native #MF reporting, eager per-process `fnsave`/`frstor` state, math-fault
+status fields, and the Doom port libc supplies an x87-backed `math.h` subset
+without host libm or original Doom source edits.
+The generic libc slice also now carries host-checked string conversion/error
+text helpers, descriptor-backed character/line stdio helpers, deterministic
+`srand`/`rand`, monotonic `clock()`, and explicit `time()`/`ENOSYS` behavior so
+future C games do not have to lean on Doom-specific shims for those basics.
 
 Still missing: the kernel is still identity-mapped at runtime and not a robust
 Unix. The current `fork()` milestone is bounded to probe-class address spaces:
@@ -176,12 +212,20 @@ it uses one generic child slot, eager PMM-backed page copies, parent/child retur
 split, fork-time descriptor table cloning onto shared open-file descriptions,
 and waitpid reap evidence. This is a real bounded fork, but not a full
 `fork`/`exec` split. It still lacks fork for Doom/arbitrary address-space classes,
-copy-on-write, wait blocking, orphan reparenting, dynamically growing process/fd
+copy-on-write, POSIX-complete wait semantics, orphan reparenting, dynamically growing process/fd
 tables, file-backed `mmap`, and a complete process model beyond the fixed-slot
 launch/switch contract. `vmmhi=OK` and `vmmhfree=` prove high-alias preparation,
-while `kreloc=LOW`, `krelocstep=HIEXEC_TMP`, `kerneip=`, `kernesp=`,
-`kerncr3=`, `kernvirt=`, and `kernphys=` make the current low identity kernel
-state explicit. `kmap=OK`, `kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`,
+while `kreloc=HIGH`, `krelocstep=KPMAIN_HIGH`, `kerneip=`, `kernesp=`,
+`kerncr3=`, `kernvirt=`, `kernphys=`, `klowid=`, `khmain=OK`, `khmspan=`,
+`khmxlat=`, and `khmpte=`
+make the current persistent high-alias kernel execution state explicit.
+`klowid=` currently records that the low linked kernel entry identity mapping is
+still present from the live low PTE, and `khmspan=` must show two higher-half
+mainline checkpoints, high `TSS.esp0`, and higher-half IDT gate ownership.
+`khmxlat=` and `khmpte=` must show the high instruction/stack addresses
+translate through the persistent high PDE/PTEs to low physical backing.
+`kmap=OK`, `kmapva=`,
+`kmappa=`, `kmappt=`, `kmapfree=`,
 `kmaplo=`, and `kmaphi=` prove only that the current kernel entry page can be
 temporarily read through a higher-half alias and then unmapped. `khiexec=OK`,
 `khieip=`, `khiesp=`, `khicr3=`, `khiva=`, `khipa=`, `khistk=`, `khistkpa=`,
@@ -192,17 +236,63 @@ backing, and an observed high-stack write before returning to the low caller.
 `kpmap=OK`, `kpva=`, `kppa=`, `kppages=`, `kppt=`, `kpcr3=`, `kpdirs=`,
 `kpxlat=`, `kplast=`, `kplo=`, `kphi=`, `kpsva=`, `kpspa=`, `kpspages=`, and
 `kpsxlat=` now prove a persistent higher-half alias for the kernel text and low
-kernel stack windows across fixed process page directories. None of those fields
-are relocated-kernel execution until a future proof reports `kreloc=OK` with
-`krelocstep=FULL`, a higher-half instruction pointer, stack pointer, active
-relocation page directory, and non-identity physical backing.
+kernel stack windows across fixed process page directories. `kpexec=OK`,
+`kpeip=`, `kpesp=`, `kpecr3=`, `kpeva=`, `kpepa=`, `kpestk=`, `kpestkpa=`,
+`kpexlat=`, `kpesxlat=`, `kpeslot=`, `kpeslotpa=`, `kpesword=`, and `kperet=`
+prove the kernel can execute a bounded routine through that persistent
+higher-half alias with a high stack alias, then return to the low identity
+caller. `kreloc=HIGH` moves the long-lived kernel EIP/ESP into that persistent
+alias. `kreldir=OK`, `kreldirx=`, and `kreldirp=` now prove a PMM-backed
+candidate relocation page directory can retain the persistent higher-half text
+and stack mappings while making the low linked-entry identity mapping absent.
+`krelive=OK`, `krelivex=`, and `krelivep=` go one step further: a bounded
+high-half trampoline loads that candidate directory into `CR3`, executes with
+the low identity mapping absent, writes proof through high data, and switches
+back to the bootstrap directory.
+That is still not full relocation until a future proof reports `kreloc=OK` with
+`krelocstep=FULL`, the long-lived mainline running on the relocation page
+directory, and `klowid=` proving the low identity dependency was removed or
+trapped in the running CR3.
+
+The physical-memory proof fields are intentionally status-only but now come from
+the loader's E820 map rather than a blanket low-memory assumption:
+`e820=OK|LEGACY`, `e820cnt=`, `e820free=`, `e820sz=`, `e820map=`,
+`e820use=`, `e820res=`, `pmmwin=`, `pmmmap=`, `pmmguard=`, `pmmuse=`,
+`pmmtype=`, `pmmchk=`, `pmmalloc=`, `pmmdeny=`, `uguard=`, `vmmguard=`,
+`pmmdma=`, and `pmmio=` keep the managed window, bounded firmware-map handoff,
+bitmap ceiling, reserved/non-usable accounting, live allocator totals, rescanned
+frame-state counts, allocator round-trip, reserved-page exclusion, explicit
+user guard-page count, guard PTE rejection, ISA DMA buffer, and framebuffer MMIO
+facts visible in cloud artifacts.
+
+The framebuffer proof is status-only too. A green graphics claim now needs
+`gfx=OK`, `fb=`, `fbdev=`, `fbmmio=`, `fbinfo=`, `fbcap=`, `fbsrc=`,
+`fbacct=`, `fbpresent=`, `fbpolicy=`, `fbgeom=`, `fbdirty=`, `doompresent=`,
+`doompal=`, `doomframe=`, `doomnonzero=`, and `doomcolors=`. `fbsrc=` ties the
+accepted user-space source format to indexed 320x200 RGB24-palette metadata,
+while `fbacct=` proves the ABI version, indexed-source semantics, zero rejected
+green-path descriptors, dirty accounting, and source/palette byte counts.
+Rendered pixels still stay out of artifacts.
+
+The same gate also checks the BIOS loader handoff: `biosboot=OK`, `biosflags=`,
+`biosentry=`, and `biosspan=` must show Stage 2 reached the kernel, the raw
+Stage 2/kernel sector spans match the image builder, the E820 map was bounded,
+the disk path is coherent, exactly one BIOS video handoff was selected, A20 was
+actually enabled, the GDT/protected-mode transition happened, the kernel ELF
+program headers were validated, the entry point was covered by a loaded segment,
+and the entry matches the linked kernel address. That keeps the raw BIOS path
+from claiming an A20/protected-mode handoff because an unrelated branch set a
+flag.
 
 Executable gate: `tools/check_vm_status_proof.py --require-exec --require-preempt`.
 That gate keeps the current VM/process evidence visible through `uexec=OK`,
 `upath=USERPROB.ELF`, `abiexec=OK`, `abipath=ABIPROBE.ELF`, `abiprobe=OK`,
-`argvsrc=2`, `procpool=`, `fdexec=`, `fdup=`, `wait=`, `waitseed=`, `fork=`,
-`vmreap=`, `pmask`, `pkind`, `peip`, `pcr3`, `pkstk`, and `pframe` status
-fields.
+`abiflags=000003FF`, `argvsrc=2`, `execmap=`, `procpool=`, `fdexec=`, `fdup=`, `kblock=`, `ksleep=`, `wait=`, `waitseed=`, `fork=`,
+`vmreap=`, `pmask`, `pkind`, `peip`, `pcr3`, `pkstk`, `pframe`, `psegs`, and
+`peflags` status fields. `peflags` proves the timer-preemption path scrubbed
+user EFLAGS for the interrupted task, the selected task, and the actual `iretd`
+return frame; a self-test count also proves a deliberately dirty frame was
+sanitized.
 
 - `GAP[SHUTDOWN_PANIC] status=proven category=shutdown-panic gate=panic-poweroff-proof evidence=os-smoke-26157926297`
 
@@ -227,22 +317,25 @@ matrix is `docs/architecture.txt`, whose machine-readable `SUPPORT[...]`,
 loader/proof boundary and `UEFI_BOOT[...]` rows visible. It also runs the
 opt-in `boot/uefi/build_host_artifacts.py` path in a tempdir and parses the
 generated PE/COFF EFI loader plus FAT16 ESP-style image as
-host-built-uefi-loader-no-kernel-entry-proof evidence. The OVMF cloud path is
+host-built-uefi-loader-no-kernel-entry-proof evidence. The artifact builder also
+validates the generated `BOOTX64.EFI` PE32+ EFI application headers and required
+loader markers, including the low-memory handoff-copy self-check marker, before
+writing its manifest. The OVMF cloud path is
 not a support claim: `boot/uefi/ovmf_cloud_proof.py` runs in QEMU-free contract
 mode for host checks, and `.github/workflows/uefi-ovmf-proof.yml` exposes
 manual GitHub Actions `contract`, `attempt`, and `prove` modes for disposable
 Ubuntu runners. The generated manifest keeps `support_claim=unclaimed` and
 `uefi_boot_rows_moved=true`.
 
-Still missing: UEFI boot, PCI enumeration, AHCI, USB, SMP, APIC, HPET, physical
-hardware, install/recovery and hardware support outside the current generated
+Still missing: UEFI boot, ACPI table discovery, PCI enumeration, AHCI, USB, SMP,
+APIC, HPET, physical hardware, install/recovery and hardware support outside the current generated
 FAT16 image, and any broader storage boot path story. The host-built UEFI
 artifacts do not prove OVMF execution or kernel entry. The OVMF proof target is
-now the loader-owned debugcon marker after `ExitBootServices`; even that is
-still only an intermediate proof because the current kernel is not entered from
-OVMF. QEMU evidence alone does not prove physical hardware. Actual UEFI kernel
-handoff, broader install/recovery, and physical hardware support remain separate
-post-playable backlog rows.
+now the kernel-owned `VIBEKERN` debugcon marker/status fields after
+`ExitBootServices` and the 64-bit UEFI to 32-bit protected-mode handoff. QEMU
+evidence alone does not prove
+physical hardware. Actual UEFI support, broader install/recovery, and physical
+hardware support remain separate post-playable backlog rows.
 
 Executable gate: add or update a `SUPPORT[...]` row, add a proof boundary, and
 make the corresponding cloud/host checker pass.
@@ -277,19 +370,24 @@ hardware/runtime boundaries after scripted playable Doom and must stay
 - `POST_PLAYABLE_GAP[FULL_KRELOC_OK] status=open category=runtime-relocation gate=vm-status-kreloc-full evidence=kreloc-ok-artifact`
 
 Boundary: current artifacts may show `vmmhi=OK`, `kmap=OK`, `khiexec=OK`,
-`kpmap=OK`, `kreloc=LOW`, and `krelocstep=HIEXEC_TMP`; they must not be
-described as full relocation. Required proof: `kreloc=OK` with
+`kpmap=OK`, `kpexec=OK`, `kreloc=HIGH`, `krelocstep=KPMAIN_HIGH`, `khmain=OK`,
+`khmspan=`, `khmxlat=`, `khmpte=`, `kreldir=OK`, `kreldirx=`, `kreldirp=`,
+`krelive=OK`, `krelivex=`, and `krelivep=`;
+they must not be described as full relocation. Required proof: `kreloc=OK` with
 `krelocstep=FULL`, higher-half `kerneip=`, higher-half `kernesp=`, active
-relocation `kerncr3=`, non-identity `kernvirt=` / `kernphys=`, and
-post-relocation syscall, interrupt, and return-path evidence.
+relocation `kerncr3=`, non-identity `kernvirt=` / `kernphys=`, `klowid=` showing
+the low linked kernel entry is absent/trapped, and post-relocation syscall,
+interrupt, and return-path evidence.
 
 - `POST_PLAYABLE_GAP[UEFI_KERNEL_HANDOFF] status=open category=uefi-handoff gate=ovmf-kernel-entry-proof evidence=uefi-kernel-entry-marker`
 
-Boundary: host-built PE/COFF loader artifacts, ESP packaging, and loader-owned
-debugcon markers are not actual UEFI kernel handoff. Required proof: an OVMF run
-that reaches `ExitBootServices`, transfers from the x86_64 UEFI loader into the
-current ELF32 kernel, records a kernel-owned entry/status marker, and updates the
-`UEFI_BOOT[...]` / `SUPPORT[UEFI]` proof rows through a checker.
+Boundary: host-built PE/COFF loader artifacts, ESP packaging, loader-owned
+debugcon markers, and source-level kernel marker code are not actual UEFI
+kernel handoff proof or UEFI boot proof. Required proof: an OVMF run that
+reaches `ExitBootServices`, transfers from the x86_64 UEFI loader into the
+current ELF32 kernel after the loader's low-memory handoff-copy self-check,
+captures the kernel-owned entry/status marker, and updates the `UEFI_BOOT[...]`
+/ `SUPPORT[UEFI]` proof rows through a checker.
 
 - `POST_PLAYABLE_GAP[STORAGE_INSTALL_RECOVERY] status=open category=storage-install-recovery gate=installer-recovery-proof evidence=storage-boundary-rows`
 
@@ -310,13 +408,22 @@ WAD/disk/pixel/screenshot/raw-audio artifacts.
 
 - `POST_PLAYABLE_GAP[HARDWARE_PACED_AUDIO_STREAM] status=open category=audio-runtime gate=kernel-owned-audio-stream-proof evidence=audio-stream-contract`
 
-Boundary: `musicstream=PULL`, `musicpull=`, and SB16 refill counters prove
-request-paced service, but payload service still arrives through
-`VIBE_AUDIO_MIXER_UPDATE` from the Doom port. Required proof: a first-class
-kernel-owned music ring or mixer/refill stream command with request/refill
-status, renderer provenance, buffer health, SFX/music lane accounting, and no
-new `mixclip=`, `musicunder=`, or `musicdrops=` regressions. Human listener
-quality remains a separate notes-only lane without captured audio upload.
+Boundary: `musicstream=PULL`, `musicpull=`, `pcmstream=`, `pcmwrite=`,
+`pcmdev=`, `pcmlife=`, `pcmqueue=`, and SB16 refill counters prove request-paced service
+through the kernel-owned PCM stream queue. Payload service now arrives through
+command 12 / `VIBE_AUDIO_STREAM_WRITE` for Doom music chunks, and the generic
+second-program path is explicit: `VIBE_AUDIO_PCM_OPEN`,
+`VIBE_AUDIO_PCM_WRITE_DESC`, `VIBE_AUDIO_PCM_DRAIN`, and
+`VIBE_AUDIO_PCM_CLOSE`. `pcmdev=` records `ABIPROBE.ELF` opening, writing,
+draining, and closing a synthetic PCM stream before Doom launches, while
+`pcmlife=` records ordered open/write/drain/close sequencing and zero lifecycle
+errors. The Doom port
+still renders MUS/MIDI chunks and the kernel owns queueing, DMA-half pull,
+refill counters, and generic stream status. The row stays open until a named
+cloud proof promotes the kernel-owned PCM stream evidence through the checker,
+not just through source and status contracts, with no new `mixclip=`,
+`musicunder=`, or `musicdrops=` regressions. Human listener quality remains a
+separate notes-only lane without captured audio upload.
 
 - `POST_PLAYABLE_GAP[PROCESS_MODEL_LIMITS] status=open category=process-model gate=process-model-expansion-proof evidence=vm-posix-contract`
 
@@ -340,8 +447,9 @@ make playability-host-check
 Cloud proof dispatches:
 
 ```sh
-python3 tools/run_post_merge_cloud_proof.py --ref main --wait --download-dir build/post-merge-cloud-main
-python3 tools/check_post_merge_cloud_artifacts.py --expected-commit "$(git rev-parse main^{commit})" --os build/post-merge-cloud-main/os-smoke --real-wad build/post-merge-cloud-main/real-wad-smoke --uefi build/post-merge-cloud-main/uefi-ovmf-proof --require-real-wad-gameplay-proof --require-uefi-exit-boot-services
+pushed_sha="$(git rev-parse origin/main^{commit})"
+python3 tools/run_post_merge_cloud_proof.py --ref main --commit "$pushed_sha" --wait --download-dir build/post-merge-cloud-main
+python3 tools/check_post_merge_cloud_artifacts.py --expected-commit "$pushed_sha" --os build/post-merge-cloud-main/os-smoke --real-wad build/post-merge-cloud-main/real-wad-smoke --uefi build/post-merge-cloud-main/uefi-ovmf-proof --require-real-wad-gameplay-proof --require-audible-proof --require-persistence-proof --require-uefi-kernel-entry
 gh workflow run os-smoke.yml --ref "$branch" -f expected_ref="$branch"
 gh workflow run real-wad-smoke.yml --ref "$branch" -f expected_ref="$branch"
 gh workflow run real-wad-soak.yml --ref "$branch" -f expected_ref="$branch"
@@ -369,15 +477,30 @@ artifact policy, run metadata, checker ref, download/check commands, failure
 lanes, and rerun lanes; it is proof bookkeeping, not a stronger claim than the
 status artifacts themselves.
 
-The post-merge helper is the integration lane for the exact current `main`
-commit. It dispatches `os-smoke.yml`, `real-wad-smoke.yml`, and
-`uefi-ovmf-proof.yml` with `expected_sha`, downloads the status-only artifacts
-`aurora-os-smoke-proof-status`, `real-wad-smoke-proof-status`, and
-`uefi-ovmf-proof-manifests`, then runs
+The post-merge helper is the integration lane for the exact pushed `main`
+commit. Pass the full 40-character pushed SHA with `--commit`; abbreviated SHAs
+are refused so the proof cannot drift to a different revision. By default it
+requests the full Real WAD lane, so the obvious command
+requires current status evidence for gameplay/input, SB16/audible audio, and
+save/load persistence before it can go green. It dispatches `os-smoke.yml`,
+`real-wad-smoke.yml`, and `uefi-ovmf-proof.yml` with `expected_sha`, downloads
+the status-only artifacts `aurora-os-smoke-proof-status`,
+`real-wad-smoke-proof-status`, and `uefi-ovmf-proof-manifests`, then runs
 `tools/check_post_merge_cloud_artifacts.py`. That checker rejects WADs, disk
 images, framebuffer/screenshot payloads, raw audio, ELF/log/bin diagnostics, and
-raw UEFI debugcon logs in this lane; use the older diagnostic artifacts only
-when investigating a failed workflow.
+raw UEFI debugcon logs in this lane. It also rejects token/secret-shaped
+artifact names and text content so cloud status downloads do not become an auth
+leak. Its UEFI prove gate requires the
+kernel-owned `VIBEKERN step=uefi-entry status=OK` marker with the parsed handoff,
+boot-info, E820, entry, segment, and required handoff flag fields, and the marker
+must appear after the successful `ExitBootServices` loader marker and the
+loader's bounded `kernel-handoff status=attempting` marker. That loader marker
+must include the exact entry, handoff block, boot-info, E820, trampoline,
+transition, flag, and segment fields the 32-bit jump will use; an
+ExitBootServices-only
+manifest is still loader evidence and must not become a
+UEFI support claim. Use the older diagnostic artifacts only when investigating a
+failed workflow.
 
 Human proof bundle files are status-only:
 `human-playtest-notes-v2`, `human-playtest-notes.txt`,
@@ -387,22 +510,41 @@ Human proof bundle files are status-only:
 `post-download human verification OK`, action notes, no screenshot/raw-audio
 attestations, `schema=human-playtest-manifest-v2`, run identity, machine shape,
 350-tick duration minimums, keyboard/mouse counter minimums, and phase hashes. The VM/process fields
-that must stay visible include `kreloc=LOW`, `krelocstep=HIEXEC_TMP`,
-`kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, `kernphys=`, `kmap=OK`,
-`kmapva=`, `kmappa=`, `kmappt=`, `kmapfree=`, `kmaplo=`, `kmaphi=`,
+that must stay visible include `kreloc=HIGH`, `krelocstep=KPMAIN_HIGH`,
+`biosboot=OK`, `biosflags=`, `biosentry=`, `biosspan=`, `faultsrc=`, `faultmode=`,
+`pf=`, `faultcontain=`, `regs=`, `segs=`, `proc=`, `kblock=`, `ksleep=`,
+`inputstat=`, `inputpolicy=`,
+`inputdev=`, `inputdevices=`, `inputmods=`,
+`kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, `kernphys=`, `khmain=OK`,
+`khmspan=`, `khmxlat=`, `khmpte=`, `kreldir=OK`, `kreldirx=`, `kreldirp=`,
+`krelive=OK`, `krelivex=`, `krelivep=`,
+`kmap=OK`,
+`e820map=`, `pmmuse=`, `pmmtype=`, `pmmchk=OK`, `pmmalloc=`, `pmmdeny=`,
+`vmmguard=`, `kmapva=`, `kmappa=`,
+`kmappt=`, `kmapfree=`, `kmaplo=`, `kmaphi=`,
 `khiexec=OK`, `khieip=`, `khiesp=`, `khicr3=`, `khiva=`, `khipa=`, `khistk=`,
 `khistkpa=`, `khipt=`, `khifree=`, `khixlat=`, `khisxlat=`, `khislot=`,
 `khislotpa=`, `khisword=`, `khiret=`, `kpmap=OK`, `kpva=`, `kppa=`,
 `kppages=`, `kppt=`, `kpcr3=`, `kpdirs=`, `kpxlat=`, `kplast=`, `kplo=`,
-`kphi=`, `kpsva=`, `kpspa=`, `kpspages=`, `kpsxlat=`, `puser`, `pkind`,
-`pmask`, `pcr3`, `pkstk`, and `pspin`.
+`kphi=`, `kpsva=`, `kpspa=`, `kpspages=`, `kpsxlat=`, `kpexec=OK`, `kpeip=`,
+`kpesp=`, `kpecr3=`, `kpeva=`, `kpepa=`, `kpestk=`, `kpestkpa=`, `kpexlat=`,
+`kpesxlat=`, `kpeslot=`, `kpeslotpa=`, `kpesword=`, `kperet=`, `puser`, `pkind`,
+`pmask`, `pcr3`, `pkstk`, `pframe`, `psegs`, `peflags`, and `pspin`.
 
 ## Fault And Save Diagnostics
 
 Doom user faults record `doomrun=FAULT` plus `doomfault=<cr2>`,
 `doomfaultip=<eip>`, `doomfaultv=<vector>`, `doomfaulterr=<error-code>`, and
-the compact `fault=` frame. Normal runs require `doomexit`, `doomfault`,
-`doomfaultip`, `doomfaultv`, and `doomfaulterr` to stay zero.
+the compact `fault=` frame. `pf=<cr2>/<error>/<mode>/<access>/<reason>`
+decodes page faults into the faulting address, raw CPU error code, user/kernel
+mode, read/write/instruction-fetch class, and not-present/protection reason.
+The same kernel status line classifies the fault with `faultsrc=`,
+`faultmode=`, `faultcontain=`, `regs=`, `segs=`, and `proc=` so a cloud
+artifact can distinguish no active fault, an expected recovered Ring 3 probe
+fault, a contained user/Doom fault, and a Ring 0 panic without host-side
+guesswork.
+Normal runs require `doomexit`, `doomfault`, `doomfaultip`, `doomfaultv`, and
+`doomfaulterr` to stay zero.
 
 The FAT16 image has root entries for `DEFAULT.CFG` and `DOOMSAV0.DSG` through
 `DOOMSAV5.DSG`. Reboot comparison now requires the fresh baseline, the
@@ -415,6 +557,8 @@ This compact section keeps proof tools grep-friendly without restoring the old
 long transcript.
 
 Cloud triage labels:
+`bios-handoff-not-proven`, `fault-containment-not-proven`,
+`kernel-blocking-not-proven`, `uefi-marker-not-proven`,
 `exec-not-attempted`, `exec-failed`, `doom-user-fault`,
 `missing-wad-open-read`, `persistence-save-write-failed`,
 `persistence-save-growth-allocation-partial`,
@@ -427,6 +571,13 @@ Cloud triage labels:
 
 ATA/storage triage: `ata-storage-stalled` covers `atawait=BUSY`, `atawait=DRQ`, `atawait=READY`, or `atawait=DATA`.
 Inspect `ataop`, `atawait`, `atalba`, `atastat`, `ataerr`, `atafail`, and `atatmo`.
+For shared block-device triage, inspect `blkdev`, `blkop`, `blkstat`,
+`blklba`, `blkplba`, `blkcnt`, `blkxfer`, and `blkerr`, then `blkecode`, `blkpart`,
+`blkpbase`, `blkpcnt`, and `blkperr`. Then inspect `blkctrl=`, `blkrej=`,
+`ahcibar=`, and `ahcireq=` to
+distinguish the active ATA PIO block-driver boundary from a status-only PCI
+storage-class probe or an explicitly rejected unsupported controller before
+treating a storage failure as Doom-specific.
 
 Green runtime but red proof cleanup: input/audio/preemption counters active.
 The proof gates can still fail on snapshot-baseline details: `usr=OK` consistency,
@@ -444,11 +595,26 @@ and does not upload audio samples. `audible_audio_proof` produces
 `audio-proof.json`, does not upload the WAV, and remains a status-only SB16
 continuity proof rather than human listener approval.
 
-Hardware boundary: UEFI, PCI enumeration, AHCI, USB, SMP, APIC, HPET, and
-physical hardware remain unclaimed. `UEFI_BOOT[...]`,
+Hardware boundary: UEFI, ACPI table discovery, PCI enumeration, AHCI, USB, SMP,
+APIC, HPET, and physical hardware remain unclaimed. `UEFI_BOOT[...]`,
 `UEFI_HOST_ARTIFACT[...]`, `PCI_STATUS[...]`, `PCI_TABLE[...]`, `pciprobe=`,
-and `pcitabcap=` are status/proof-boundary fields only until a hardware support
+`pcimiss=`, `pcihbus=`, `pcitabcap=`, `pciclspb=`, `pcibrbus=`, and `pcidiag=`
+are status/proof-boundary fields only until a hardware support
 row claims more. `pcicons=OK`,
-`pcilookide=`, and `pcilookahci=` add a status-only kernel consumer proof that
-the read-only PCI table can be queried for storage-class intent; they do not
-claim AHCI, driver binding, or broad PCI support.
+`pcilookid=`, `pcilookide=`, `pcilookahci=`, `pcilookaud=`, and `pcilookhda=`
+add a status-only kernel consumer proof that the read-only PCI table can be
+queried for exact vendor/device IDs plus storage and audio-class intent.
+`pcidiag=` proves the bounded scan, absent-function accounting, table guard,
+lookup guard, and status-only consumer path ran; it does not claim AHCI, HDA,
+driver binding, bridge-window walking, or broad PCI support. `blkctrl=`,
+`blkrej=`, `ahcibar=`, and `ahcireq=` add the block-driver boundary: ATA PIO owns the active read/write/flush
+ops, AHCI BAR5/HBA requirements are recorded as future-driver prerequisites,
+and AHCI remains an unsupported controller until a real AHCI driver and
+cloud WAD-read proof exist.
+The timer/interrupt boundary is equally explicit: `clocksrc=PIT`,
+`irqctl=PIC`, `apic=NONE`, and `hpet=NONE` mean the current proof still uses
+the legacy PIC/PIT path. APIC requires ACPI MADT discovery, Local APIC enable,
+IOAPIC redirection, masked legacy PIC evidence, APIC EOI counters, and routed
+keyboard/storage or timer IRQ counters before it can be claimed. HPET requires
+ACPI HPET table discovery, checksum validation, MMIO mapping, main-counter
+reads, comparator programming, and generic clock counters independent of PIT.

@@ -71,14 +71,48 @@ def valid_status(**overrides):
         "pself": "OK",
         "pg": "ON",
         "pmm": "OK",
+        "e820": "OK",
+        "e820cnt": "00000003",
+        "e820free": "00001F00",
+        "e820sz": "00000018",
+        "e820map": "00007100/00007148/00000001",
+        "e820use": "00000001/00001F00",
+        "e820res": "00000020/00000000/00000000",
+        "pmmwin": "00100000/02000000",
+        "pmmmap": "00099000/00001F00",
+        "pmmguard": "00000100/00000600",
+        "pmmuse": "000018F0/00000610/00001F00",
+        "pmmtype": "000018F0/00000001/0000060F/00000001",
+        "pmmchk": "OK",
+        "pmmalloc": "00123000/00001900/00001900",
+        "pmmdeny": "00000001/00000001/00000001/00000001/00000000",
+        "uguard": "0000000F",
+        "vmmguard": "0000000F/00000000",
+        "pmmdma": "00120000/00121000/00000001",
+        "pmmio": "00000000/00000000",
+        "biosboot": "OK",
+        "biosflags": "00007FB7",
+        "biosentry": "00010000/00000001",
+        "biosspan": "00000010/00000140/00000002",
         "vmm": "OK",
-        "kreloc": "LOW",
-        "krelocstep": "HIEXEC_TMP",
-        "kerneip": "00010200",
-        "kernesp": "0006FFFC",
+        "kreloc": "HIGH",
+        "krelocstep": "KPMAIN_HIGH",
+        "kerneip": "C0010200",
+        "kernesp": "C006FFFC",
         "kerncr3": "00090000",
-        "kernvirt": "00010000",
+        "kernvirt": "C0010000",
         "kernphys": "00010000",
+        "klowid": "00000001/00010000/00010000/00010003",
+        "kreldir": "OK",
+        "kreldirx": "00128000/00127003/00000000/00010000/00060000/FFFFFFFF",
+        "kreldirp": "00010003/00060003/00000000",
+        "krelive": "OK",
+        "krelivex": "C0010200/C006FFFC/00128000/00090000/C0010000/00010000/C006F000/0006F000/C0012000/00012000",
+        "krelivep": "00010000/0006F000/00012000/FFFFFFFF/4B524C56",
+        "khmain": "OK",
+        "khmspan": "C0011300/C0011800/C006FFD0/C006FFCC/00090000/C0070000/C0000000/00000002",
+        "khmxlat": "00011300/00011800/0006FFD0/0006FFCC",
+        "khmpte": "00127003/00011003/00011003/0006F003/0006F003",
         "kmap": "OK",
         "kmapva": "C0010000",
         "kmappa": "00010000",
@@ -117,6 +151,20 @@ def valid_status(**overrides):
         "kpspa": "00060000",
         "kpspages": "00000010",
         "kpsxlat": "00060000",
+        "kpexec": "OK",
+        "kpeip": "C0010200",
+        "kpesp": "C006FFFC",
+        "kpecr3": "00090000",
+        "kpeva": "C0010000",
+        "kpepa": "00010000",
+        "kpestk": "C006F000",
+        "kpestkpa": "0006F000",
+        "kpexlat": "00010000",
+        "kpesxlat": "0006F000",
+        "kpeslot": "C006FFF8",
+        "kpeslotpa": "0006FFF8",
+        "kpesword": "4B504558",
+        "kperet": "00010220",
         "vmmhi": "OK",
         "vmmhva": "C0000000",
         "vmmhpa": "00123000",
@@ -143,7 +191,7 @@ def valid_status(**overrides):
         "abiargc": "00000001",
         "abiargvsrc": "00000002",
         "abiprobe": "OK",
-        "abiflags": "0000003F",
+        "abiflags": "000003FF",
         "entry": "01000000",
         "stack": "01FFFFE0",
         "argc": "00000001",
@@ -156,7 +204,11 @@ def valid_status(**overrides):
         "pidseq": "00000008/00000007/00000003",
         "fdexec": "00000002/00000002/00000001/00000001",
         "fdup": "00000001/00000002/00000002/00000003/00000001",
-        "wait": "00000005/00000002/00000002/00000001/00000001/00000006/0000002A",
+        "pstat": "00000004/00000003/00000001/00000005/00000004/00000002/00000020",
+        "yield": "00000002/00000000/00000002/00000005/FFFFFFFF",
+        "kblock": "00000002/00000002/00000002/00000000/00000005/00000002/00000006/00000005/00000002",
+        "ksleep": "00000001/00000001/00000001/00000000/00000000/00000005/00000021/00000001/00000005",
+        "wait": "00000005/00000002/00000002/00000001/00000001/00000006/0000002A/00000001/00000001",
         "waitseed": "00000003",
         "fork": "00000001/00000000/00000005/00000006/00000006/00000000/00000020/00000003/00000020/00000001",
         "vmreap": "00000004/00000060/00000002/00000040/00000020",
@@ -174,6 +226,13 @@ def valid_status(**overrides):
         "doomfaultv": "00000000",
         "doomfaulterr": "00000000",
         "fault": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
+        "pf": "00000000/00000000/00000000/00000000/00000000",
+        "faultsrc": "NONE",
+        "faultmode": "NONE",
+        "faultcontain": "00000001/00000000/00000000/00000000/00000000",
+        "regs": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
+        "segs": "00000000/00000000/00000000/00000000/00000000/00000000",
+        "proc": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
         "panic": "NONE",
         "shutdown": "NONE",
         "doompresent": "00000080",
@@ -263,22 +322,140 @@ def valid_status(**overrides):
         "pcr3": "00082000:00083000",
         "pkstk": "00073000:00072000",
         "pframe": "00000001/00E80000/0000001B/00E9FFE0/00000023",
+        "psegs": "00000023:00000023:00000023:00000023",
+        "peflags": "00000202:00000202:00000202:00000000:00000001",
         "pspin": "50524590",
         "free": "00800000",
         "ticks": "00000020",
         "fb": "LFB",
+        "fbdev": "00000001:00000002:00000002:00000001",
+        "fbmmio": "E0000000:00000100:00000380:00000000",
         "fbpolicy": "ASP",
         "fbgeom": "00000000:00000000:00000280:000001E0:00000002",
-        "fbdirty": "00000000:00000000:00000140:000000C8:00010000",
+        "fbdirty": "00000000:00000000:00000140:000000C8:0000FA00",
+        "fbsrc": "00000001:00000140:000000C8:00000140:000000F0:00000100:00000003",
+        "fbacct": "00000001:00000001:00000000:00000000:00000000:00000001:0000FA00:0000FA00:00000300",
+        "fbpresent": "00000080:00000080:00000000:00000000:00000007:00000001:00000001:00000140:000000C8",
+        "fbinfo": "00000001:00000007:00000002",
+        "fbcap": "0000003F",
+        "fbsrc": "00000001:00000140:000000C8:00000140:000000F0:00000100:00000003",
+        "fbacct": "00000001:00000001:00000000:00000000:00000000:00000001:0000FA00:0000FA00:00000300",
         "audio": "SB16",
         "mouse": "OK",
         "doommode": "00000000:00000000",
+        "doomsav": "0000000D/00000000",
+        "saverd": "00000000/00000000",
+        "savewr": "00000800/00000001",
+        "saveclose": "00000001",
+        "savemode": "00000042:000001B6",
+        "saveact": "00000098/00000000/00000000/00000003",
+        "savedesc": "00000009/56494245",
+        "savestm": "00000018/00000000/00006475/1D017D08/00000008",
+        "savethk": "00002A64/00000000/00002A64/01006C08",
+        "fwr": "00000000/00000800/00000001/00000001/00000000/00000800/00000200/00000800/00000000/00000800/00000001",
+        "fal": "00000000/00000003/00000004/00000001",
+        "fam": "00000005/00000001/00000000",
+        "fac": "00000000/00000000/00000000/00000003/00000020/00000000/00000000/00000004/00000004/00000004",
+        "fatdyn": "00000001/00000000/00000001/00000001/00000001/00000000/00000001/00000001/00000000",
+        "fatacct": "00001000/00000020/00001020/00001021/00000000",
+        "fio": "00000000/00000001/00000001/00000800/00001000/00000000/00000800/00000800/00000800/00000000/00000003/00000004/00000005/00000800/00000001/00000000/00000000/00000004/00000004/00000800",
+        "flb": "00000000/00000003/00000004",
+        "fcl": "00000000/00000001/00000800/00000003/00000001/00000004/00000005/00000000",
         "ppos": "00010000:00020000",
         "execsys": "00000002/00000002/00000000/00000002/00000002/00000000",
+        "execmap": "00000002/00000002/00000001/00000001/00000001/00000004/00000002/00000005",
         "doomsamp": "00000001:00000002:00000003",
         "doomlog": "ready",
     }
     fields.update(overrides)
+    ticks_value = int(fields["ticks"], 16)
+    expected_dtick = (ticks_value * 35) // 100
+    if "dtick" not in overrides:
+        fields["dtick"] = f"{expected_dtick:08X}"
+    if "clocksrc" not in overrides:
+        fields["clocksrc"] = "PIT"
+    if "clockirq" not in overrides:
+        fields["clockirq"] = fields["ticks"]
+    if "clocktick" not in overrides:
+        fields["clocktick"] = fields["ticks"]
+    if "clockhz" not in overrides:
+        fields["clockhz"] = "00000064"
+    if "clockms" not in overrides:
+        fields["clockms"] = f"{ticks_value * 10:08X}"
+    if "clockdoom" not in overrides:
+        fields["clockdoom"] = fields["dtick"]
+    if "clocksch" not in overrides:
+        fields["clocksch"] = fields["ticks"]
+    if "clockpirq" not in overrides:
+        fields["clockpirq"] = fields.get("pirq", "00000000")
+    if "inputstat" not in overrides:
+        queued, dropped = (int(part, 16) for part in fields["inputdepth"].split(":"))
+        polled = int(fields["inputpoll"], 16)
+        total = queued + polled + dropped
+        fields["inputstat"] = f"{total:08X}:{polled:08X}:{dropped:08X}:0000003F"
+    if "inputpolicy" not in overrides:
+        fields["inputpolicy"] = "00000001:0000003F"
+    if "inputdev" not in overrides:
+        mouse_status = "00000001" if fields.get("mouse") == "OK" else "00000000"
+        fields["inputdev"] = f"00000001:{mouse_status}"
+    if "inputdevices" not in overrides:
+        keyboard_polls = int(fields.get("keypoll", "00000000"), 16)
+        mouse_polls = int(fields.get("mousepoll", "00000000"), 16)
+        ready_mask = 0x1 | (0x2 if fields.get("mouse") == "OK" else 0)
+        cap_mask = 0x1D | (0x2 if fields.get("mouse") == "OK" else 0)
+        fields["inputdevices"] = (
+            f"00000002:{ready_mask:08X}:{cap_mask:08X}:"
+            f"{keyboard_polls:08X}:{mouse_polls:08X}"
+        )
+    if "inputmods" not in overrides:
+        fields["inputmods"] = "00000000"
+    ring_bytes, _period_bytes, _write_offset, _active_half = (
+        int(part, 16) for part in fields["pcmbuf"].split(":")
+    )
+    music_pull_request, music_pull_refill = (
+        int(part, 16) for part in fields["musicpull"].split(":")
+    )
+    music_stream_mode = {
+        "NONE": 0,
+        "PUSH": 1,
+        "PULL": 2,
+    }.get(fields["musicstream"], 0)
+    if "pcmstream" not in overrides:
+        stream_handle = 0 if music_stream_mode == 0 else 0x4D550001
+        fields["pcmstream"] = (
+            f"{music_stream_mode:08X}:{stream_handle:08X}:"
+            f"{int(fields['musicvoices'], 16):08X}:{int(fields['musicbuf'], 16):08X}:"
+            f"{int(fields['musicpos'], 16):08X}"
+        )
+    if "pcmwrite" not in overrides:
+        write_count = max(1, int(fields["musicmix"], 16))
+        write_bytes = max(int(fields["musicbuf"], 16), int(fields["pcmbuf"].split(":")[1], 16))
+        last_write = max(1, min(write_bytes, ring_bytes))
+        fields["pcmwrite"] = f"{write_count:08X}:{write_bytes:08X}:{last_write:08X}:00000000"
+    if "pcmdev" not in overrides:
+        pcm_parts = [int(part, 16) for part in fields["pcmwrite"].split(":")]
+        stream_parts = [int(part, 16) for part in fields["pcmstream"].split(":")]
+        user_writes = max(1, pcm_parts[0])
+        last_handle = max(1, stream_parts[1])
+        fields["pcmdev"] = f"00000001:{user_writes:08X}:00000001:00000001:{last_handle:08X}:00000000"
+    if "pcmlife" not in overrides:
+        pcm_parts = [int(part, 16) for part in fields["pcmwrite"].split(":")]
+        user_write_bytes = max(1, pcm_parts[1])
+        fields["pcmlife"] = f"00000004:00000000:00000001:00000002:00000003:00000004:{user_write_bytes:08X}"
+    if "pcmqueue" not in overrides:
+        queued_bytes = int(fields["musicbuf"], 16)
+        queue_capacity = max(ring_bytes * 2, queued_bytes)
+        fields["pcmqueue"] = (
+            f"{queue_capacity:08X}:{queued_bytes:08X}:00000000:00000000:"
+            f"00000000:{queued_bytes:08X}"
+        )
+    if "pcmpull" not in overrides:
+        pending = max(0, music_pull_request - music_pull_refill)
+        fields["pcmpull"] = f"{music_pull_request:08X}:{music_pull_refill:08X}:{pending:08X}"
+    if "pcmirq" not in overrides:
+        fields["pcmirq"] = f"{int(fields['audioirq'], 16):08X}:{int(fields['refill'], 16):08X}:00000000"
+    if "pcmdma" not in overrides:
+        fields["pcmdma"] = f"00000001:00000000:00000000:00001000:00000000:{ring_bytes - 1:08X}"
     return "Aurora OS v0.2 " + " ".join(
         f"{key}={value}" for key, value in fields.items()
     )
@@ -925,6 +1102,9 @@ def valid_audio_proof_manifest():
             "adev": "00000001:00000001:0000000F",
             "pcm": "00000001:00000002:00002B11",
             "pcmbuf": "00001000:00000800:00000000:00000001",
+            "pcmdev": "00000001:00000006:00000001:00000001:4D550001:00000000",
+            "pcmlife": "00000004:00000000:00000001:00000002:00000003:00000004:00001400",
+            "pcmqueue": "00002000:00001400:00000000:00000000:00000000:00001400",
         },
         "continuity": {
             "gate": "tools/check_audio_continuity_proof.py",
@@ -1022,12 +1202,13 @@ def valid_audio_proof_manifest():
                 "hardware_paced": True,
                 "current_push_proof": False,
                 "current_payload_owner": "doom_port/music.c",
-                "current_service_command": "VIBE_AUDIO_MIXER_UPDATE",
-                "future_legitimacy_step": "first-class kernel-owned music ring or mixer/refill stream ABI",
+                "current_service_command": "VIBE_AUDIO_STREAM_WRITE",
+                "future_legitimacy_step": "kernel-owned PCM stream write/refill ABI",
                 "os_surfaces": {
                     "device": "VIBE_AUDIO_DEVICE_INFO",
                     "ring": "VIBE_AUDIO_PCM_RING_INFO",
                     "stream": "VIBE_AUDIO_STREAM_INFO",
+                    "pcm_stream": "VIBE_AUDIO_PCM_OPEN/WRITE_DESC/DRAIN/CLOSE",
                     "mixer": "VIBE_AUDIO_MIXER_START/UPDATE/STOP/IS_PLAYING",
                 },
                 "service_sequence": {
@@ -1053,6 +1234,9 @@ def valid_audio_proof_manifest():
                     "device": "adev",
                     "sample_format": "pcm",
                     "ring": "pcmbuf",
+                    "queue": "pcmqueue",
+                    "generic_pcm_probe": "pcmdev",
+                    "generic_pcm_lifecycle": "pcmlife",
                     "irq_phase": "half",
                     "stream": "musicstream/musicpull/musicbuf/musicpos",
                     "mixer_lanes": "voices/sfxvoices/musicvoices/sfxmix/musicmix",
@@ -1077,6 +1261,41 @@ def valid_audio_proof_manifest():
                     "irq_delta": "00000005",
                     "refill_delta": "00000005",
                 },
+                "pcm_queue": {
+                    "capacity_bytes": "00002000",
+                    "queued_bytes": "00001400",
+                    "drop_bytes": "00000000",
+                    "overflow_count": "00000000",
+                    "trim_count": "00000000",
+                    "high_water_bytes": "00001400",
+                    "bounded": True,
+                    "covers_ring": True,
+                    "high_water_in_bounds": True,
+                },
+                "generic_pcm_probe": {
+                    "status_field": "pcmdev",
+                    "program": "ABIPROBE.ELF",
+                    "open_command": "VIBE_AUDIO_PCM_OPEN",
+                    "write_command": "VIBE_AUDIO_PCM_WRITE_DESC",
+                    "drain_command": "VIBE_AUDIO_PCM_DRAIN",
+                    "close_command": "VIBE_AUDIO_PCM_CLOSE",
+                    "open_count": "00000001",
+                    "write_count": "00000006",
+                    "drain_count": "00000001",
+                    "close_count": "00000001",
+                    "last_handle": "4D550001",
+                    "last_error": "00000000",
+                    "lifecycle_status_field": "pcmlife",
+                    "lifecycle_state": "closed",
+                    "lifecycle_error_count": "00000000",
+                    "open_seq": "00000001",
+                    "write_seq": "00000002",
+                    "drain_seq": "00000003",
+                    "close_seq": "00000004",
+                    "lifecycle_ordered": True,
+                    "user_write_bytes": "00001400",
+                    "second_program_proven": True,
+                },
                 "stream": {
                     "mode": "PULL",
                     "request_delta": "00000005",
@@ -1088,7 +1307,7 @@ def valid_audio_proof_manifest():
                     "buffer_final": "00001400",
                     "position_delta": "000013FF",
                     "payload_owner": "doom_port/music.c",
-                    "service_command": "VIBE_AUDIO_MIXER_UPDATE",
+                    "service_command": "VIBE_AUDIO_STREAM_WRITE",
                 },
                 "mixer_lanes": {
                     "voice_total_matches_lanes": True,
@@ -1188,15 +1407,22 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             "tail -n 80 \"$log_file\" | redact_remote_stream",
             "(access_token|token|signature|X-Amz-Signature|X-Amz-Credential)=",
             "gh[pousr]_",
+            "[redacted-code]",
+            "bash -euo pipefail -s > >(sanitize_remote_error)",
+            "CODESPACES_READY_WAIT_SECONDS",
+            "wait_for_codespace_state",
+            "failed to start SSH server",
             "gh codespace ports visibility \"$NOVNC_PORT:private\"",
             "noVNC port $NOVNC_PORT is private",
         ):
             with self.subTest(needle=needle):
                 self.assertIn(needle, codespaces_script)
+        self.assertNotIn("    --status\n", codespaces_script)
 
         for needle in (
             'PLAY_NOW_PID_FILE="${PLAY_NOW_PID_FILE:-/tmp/vibe-os-play-now.pid}"',
             'PLAY_NOW_PORT_FILE="${PLAY_NOW_PORT_FILE:-/tmp/vibe-os-play-now.novnc-port}"',
+            "[redacted-code]",
             "write_play_now_metadata",
             "cleanup_play_now_metadata",
             'if [ "$recorded_pid" = "$$" ]; then',
@@ -1228,6 +1454,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         self.assertIn("2-core", play_now_doc)
         self.assertIn("4+ CPU", play_now_doc)
         self.assertIn("private", play_now_doc)
+        self.assertIn("accidental environment dumps", play_now_doc)
+        self.assertIn("one-time browser login codes", play_now_doc)
 
     def test_remote_preflight_uses_cgroup_quota_for_codespaces_slowdown_warning(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1416,16 +1644,34 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             artifact = Path(tmp)
             write_valid_artifact(artifact)
 
-            (artifact / "harmless.log").write_bytes(b"IWAD" + b"\0" * 64)
+            (artifact / "harmless.txt").write_bytes(b"IWAD" + b"\0" * 64)
             with self.assertRaisesRegex(AssertionError, "forbidden artifact content"):
                 check_cloud_playability_artifacts.validate_artifact_dir(artifact)
 
-            (artifact / "harmless.log").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 64)
+            (artifact / "harmless.txt").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 64)
             with self.assertRaisesRegex(AssertionError, "forbidden artifact content"):
                 check_cloud_playability_artifacts.validate_artifact_dir(artifact)
 
-            (artifact / "harmless.log").write_bytes(b"RIFF" + b"\0" * 64)
+            (artifact / "harmless.txt").write_bytes(b"RIFF" + b"\0" * 64)
             with self.assertRaisesRegex(AssertionError, "forbidden artifact content"):
+                check_cloud_playability_artifacts.validate_artifact_dir(artifact)
+
+    def test_downloaded_artifact_directory_rejects_token_and_auth_code_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp)
+            write_valid_artifact(artifact)
+
+            (artifact / "remote.txt").write_text(
+                "Authorization: Bearer " + ("A" * 32) + "\n"
+            )
+            with self.assertRaisesRegex(AssertionError, "authorization header secret"):
+                check_cloud_playability_artifacts.validate_artifact_dir(artifact)
+
+            auth_code = "ABCD" + "-1234"
+            (artifact / "remote.txt").write_text(
+                "Copy your one-time browser auth code: " + auth_code + "\n"
+            )
+            with self.assertRaisesRegex(AssertionError, "one-time browser auth code"):
                 check_cloud_playability_artifacts.validate_artifact_dir(artifact)
 
     def test_downloaded_artifact_directory_rejects_compressed_or_archived_wad_payloads(self):
@@ -1433,14 +1679,14 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             artifact = Path(tmp)
             write_valid_artifact(artifact)
 
-            (artifact / "harmless.log").write_bytes(gzip.compress(b"IWAD" + b"\0" * 64))
+            (artifact / "harmless.txt").write_bytes(gzip.compress(b"IWAD" + b"\0" * 64))
             with self.assertRaisesRegex(AssertionError, "gzip-compressed WAD"):
                 check_cloud_playability_artifacts.validate_artifact_dir(artifact)
 
             fat_header = bytearray(512)
             fat_header[54:57] = b"FAT"
             fat_header[510:512] = b"\x55\xaa"
-            (artifact / "harmless.log").write_bytes(gzip.compress(bytes(fat_header)))
+            (artifact / "harmless.txt").write_bytes(gzip.compress(bytes(fat_header)))
             with self.assertRaisesRegex(AssertionError, "gzip-compressed raw FAT disk image"):
                 check_cloud_playability_artifacts.validate_artifact_dir(artifact)
 
@@ -1448,7 +1694,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             artifact = Path(tmp)
             write_valid_artifact(artifact)
 
-            archive_path = artifact / "diagnostics.log"
+            archive_path = artifact / "diagnostics.txt"
             with zipfile.ZipFile(archive_path, "w") as archive:
                 archive.writestr("nested/DOOM1.WAD", b"IWAD" + b"\0" * 64)
             with self.assertRaisesRegex(AssertionError, "zip archive containing forbidden payload"):
@@ -1465,7 +1711,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             write_valid_artifact(artifact)
 
             (artifact / "doom-audio.wav").write_bytes(b"RIFF" + b"\0" * 64)
-            with self.assertRaisesRegex(AssertionError, "forbidden WAD/image/pixel/audio artifact"):
+            with self.assertRaisesRegex(AssertionError, "forbidden artifact content.*RIFF/WAV audio"):
                 check_cloud_playability_artifacts.validate_artifact_dir(artifact)
 
     def test_downloaded_artifact_directory_accepts_aggregate_audio_proof_json(self):
@@ -1532,6 +1778,53 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertTrue(summary["pass_criteria"]["sb16_continuity"]["sfxdma_progress"])
             self.assertFalse(summary["pass_criteria"]["audible_aggregate_proof"]["required"])
             self.assertFalse(summary["artifact_policy"]["contains_raw_status_text"])
+            final_summary = summary["attempts"][0]["phase_summaries"]["final"]
+            for field in (
+                "biosboot",
+                "biosflags",
+                "biosentry",
+                "biosspan",
+                "e820map",
+                "pmmuse",
+                "pmmtype",
+                "pmmchk",
+                "faultsrc",
+                "faultmode",
+                "faultcontain",
+                "pf",
+                "regs",
+                "segs",
+                "proc",
+                "kblock",
+                "ksleep",
+                "inputstat",
+                "inputpolicy",
+                "inputdev",
+                "inputdevices",
+                "inputmods",
+                "pframe",
+                "psegs",
+                "peflags",
+                "fbcap",
+                "fbsrc",
+                "fbacct",
+                "fbpresent",
+                "fbinfo",
+                "pcmstream",
+                "pcmwrite",
+                "pcmdev",
+                "pcmlife",
+                "pcmqueue",
+                "pcmpull",
+                "pcmirq",
+                "pcmdma",
+                "saveact",
+                "savestm",
+                "savethk",
+            ):
+                with self.subTest(field=field):
+                    self.assertIn(field, check_cloud_playability_artifacts.SOAK_STATUS_SUMMARY_FIELDS)
+                    self.assertNotEqual(final_summary[field], "<missing>")
 
     def test_soak_summary_requires_audible_aggregate_metadata_when_enabled(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1796,11 +2089,12 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             write_human_manifest(artifact)
 
             (artifact / "serial.remote.log").write_text("late extra diagnostic\n")
-            with self.assertRaisesRegex(AssertionError, "file inventory does not match"):
+            with self.assertRaisesRegex(AssertionError, "forbidden WAD/image/pixel/audio artifact"):
                 check_cloud_playability_artifacts.validate_artifact_dir(
                     artifact,
                     require_human_notes=True,
                 )
+            (artifact / "serial.remote.log").unlink()
 
             write_human_manifest(artifact)
             (artifact / "human-playtest-notes.txt").write_text(
@@ -1936,7 +2230,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             write_human_manifest(artifact)
 
             (nested / "serial.remote.log").write_text("nested logs are not accepted\n")
-            with self.assertRaisesRegex(AssertionError, "must be flat"):
+            with self.assertRaisesRegex(AssertionError, "forbidden WAD/image/pixel/audio artifact"):
                 check_cloud_playability_artifacts.validate_artifact_dir(
                     artifact,
                     require_human_notes=True,
@@ -2135,12 +2429,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                 "Escape opened the Doom menu",
             )
             self.assertIn("human-playtest-checklist.txt", result.stdout)
-            self.assertTrue((output / "serial.remote.log").exists())
-            redacted_log = (output / "tokens.remote.log").read_text()
-            self.assertIn("GITHUB_TOKEN=[redacted]", redacted_log)
-            self.assertIn("Authorization: Bearer [redacted]", redacted_log)
-            self.assertIn("access_token=[redacted]", redacted_log)
-            self.assertNotIn("should_not_keep", redacted_log)
+            self.assertFalse((output / "serial.remote.log").exists())
+            self.assertFalse((output / "tokens.remote.log").exists())
             self.assertFalse((output / "status.persistence-write.txt").exists())
             self.assertFalse((output / "status.after-fire.bin").exists())
             self.assertFalse((output / "disk.img").exists())
@@ -2182,7 +2472,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("--confirm-scripted-proof-green is required", result.stderr)
 
-    def test_collector_rejects_binary_or_forbidden_log_payloads_before_bundle(self):
+    def test_collector_drops_binary_or_forbidden_log_payloads_before_bundle(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmpdir = Path(tmp)
             build = tmpdir / "build"
@@ -2227,8 +2517,8 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
                 text=True,
             )
 
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("forbidden artifact content in log", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((output / "renamed-wad.log").exists())
 
     def test_collector_print_template_is_dry_run_and_status_only(self):
         with tempfile.TemporaryDirectory() as tmp:

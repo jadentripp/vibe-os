@@ -153,6 +153,12 @@ rsync -av "$VIBE_CLOUD_HOST:~/vibe-os-cloud-playtest/build/disk.img" .
         self.assertIn('smoke_shutdown_text db " shutdown="', kernel)
         self.assertIn("mov edx, [fault_eip]", status_writer)
         self.assertIn("mov edx, [fault_cr2]", status_writer)
+        self.assertIn('smoke_faultsegs_text db " segs="', kernel)
+        self.assertIn("jmp user_process_fault", panic_path)
+        self.assertIn("user_process_fault:", kernel)
+        self.assertIn("call process_mark_current_faulted", kernel.split("user_process_fault:", 1)[1].split("doom_user_fault:", 1)[0])
+        self.assertIn("mov edx, [fault_ds]", status_writer)
+        self.assertIn("mov edx, [fault_ss]", status_writer)
 
     def test_make_test_stays_host_only_and_vm_targets_require_opt_in(self):
         makefile = (ROOT / "Makefile").read_text()
@@ -161,12 +167,19 @@ rsync -av "$VIBE_CLOUD_HOST:~/vibe-os-cloud-playtest/build/disk.img" .
         self.assertIn("shutdown-panic-proof-check:", makefile)
         self.assertIn("tools/check_shutdown_panic_proof.py --repo-contract", makefile)
         for needle in (
-            'grep -q "kreloc=LOW"',
-            'grep -q "krelocstep=HIEXEC_TMP"',
+            'grep -q "kreloc=HIGH"',
+            'grep -q "krelocstep=KPMAIN_HIGH"',
+            'grep -q "e820map="',
+            'grep -q "pmmuse="',
+            'grep -q "pmmtype="',
+            'grep -q "pmmchk=OK"',
+            'grep -q "pmmalloc="',
+            'grep -q "pmmdeny="',
+            'grep -q "vmmguard=0000000F/00000000"',
             'grep -q "kerneip="',
             'grep -q "kernesp="',
             'grep -q "kerncr3=00090000"',
-            'grep -q "kernvirt=00010000"',
+            'grep -q "kernvirt=C0010000"',
             'grep -q "kernphys=00010000"',
             'grep -q "khiexec=OK"',
             'grep -q "khieip="',
@@ -184,6 +197,9 @@ rsync -av "$VIBE_CLOUD_HOST:~/vibe-os-cloud-playtest/build/disk.img" .
             'grep -q "khislotpa="',
             'grep -q "khisword=48485354"',
             'grep -q "khiret="',
+            'grep -q "kpexec=OK"',
+            'grep -q "kpecr3=00090000"',
+            'grep -q "kpesword=4B504558"',
             'grep -q "vmmhi=OK"',
             'grep -q "vmmhva=C0000000"',
             'grep -q "vmmhpa="',
@@ -206,9 +222,9 @@ rsync -av "$VIBE_CLOUD_HOST:~/vibe-os-cloud-playtest/build/disk.img" .
             upload = workflow.split("uses: actions/upload-artifact@v4", 1)[1]
             with self.subTest(workflow=workflow_name):
                 self.assertIn("build/status*.txt", upload)
-                self.assertIn("build/status*.bin", upload)
-                self.assertIn("build/*.log", upload)
                 self.assertNotIn("build/disk.img", upload)
+                self.assertNotIn("build/status*.bin", upload)
+                self.assertNotIn("build/*.log", upload)
                 self.assertNotIn("build/gfx.bin", upload)
                 self.assertNotIn("build/vga.txt", upload)
                 self.assertNotIn("DOOM1.WAD", upload)

@@ -138,7 +138,7 @@ checkout_repo
 
 echo "Remote checkout: $WORKDIR"
 echo "Remote ref: $(git rev-parse --short HEAD)"
-echo "Remote artifact policy: keep WADs, disk images, pixels, raw audio, screenshots, and logs on this disposable host."
+echo "Remote artifact policy: keep WADs, disk images, pixels, raw audio, screenshots, logs, tokens, and one-time codes on this disposable host."
 
 ./tools/play_now_remote.sh --preflight --require-novnc
 

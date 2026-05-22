@@ -270,6 +270,7 @@ redact_stream() {
   sed -E \\
     -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*_(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*=)[^[:space:]]+/\\1[redacted]/g' \\
     -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*=)(gh[pousr]_[A-Za-z0-9_]+)/\\1[redacted]/g' \\
+    -e 's/([[:<:]][A-Z0-9]{4}-[A-Z0-9]{4}[[:>:]])/[redacted-code]/g' \\
     -e 's/(Authorization: *(Bearer|token) +)[^[:space:]]+/\\1[redacted]/Ig' \\
     -e 's/((access_token|token|signature|X-Amz-Signature|X-Amz-Credential)=)[^&[:space:]]+/\\1[redacted]/Ig'
 }
@@ -1168,21 +1169,6 @@ else
   echo "serial log not ready: \$serial_log"
 fi
 
-echo
-echo "recent play launcher log:"
-if [ -s "\$log_file" ]; then
-  tail -n 80 "\$log_file" | redact_stream || true
-else
-  echo "play launcher log not ready: \$log_file"
-fi
-
-echo
-echo "recent noVNC log:"
-if [ -s "\$novnc_log" ]; then
-  tail -n 40 "\$novnc_log" | redact_stream || true
-else
-  echo "noVNC log not ready: \$novnc_log"
-fi
 EOF_DIAGNOSTICS
   chmod +x "$DIAGNOSTICS_SCRIPT"
 
@@ -1343,7 +1329,7 @@ trap terminate INT TERM
 write_play_now_metadata
 
 echo "Fetching/validating shareware DOOM1.WAD into $WAD_PATH"
-echo "Remote artifact policy: WADs, disk images, pixels, raw audio, and logs stay on this disposable host unless a separate allowlisted proof collector is used."
+echo "Remote artifact policy: WADs, disk images, pixels, raw audio, logs, tokens, and one-time codes stay on this disposable host."
 python3 tools/prepare_shareware_wad.py \
   --url "$DOOM_WAD_URL" \
   --output "$WAD_PATH"

@@ -60,6 +60,54 @@ class CloudPlayabilityArtifactHumanBundleTests(unittest.TestCase):
             self.assertIn("note=Ctrl fire changed weapon state", checklist)
             self.assertIn("no_raw_audio_upload=yes", checklist)
 
+            session = json.loads((artifact / "human-playtest-session.json").read_text())
+            final_summary = session["phases"][-1]["summary"]
+            for field in (
+                "biosboot",
+                "biosflags",
+                "biosentry",
+                "biosspan",
+                "e820map",
+                "pmmuse",
+                "pmmtype",
+                "pmmchk",
+                "faultsrc",
+                "faultmode",
+                "faultcontain",
+                "pf",
+                "regs",
+                "segs",
+                "proc",
+                "kblock",
+                "ksleep",
+                "inputstat",
+                "inputpolicy",
+                "inputdev",
+                "inputdevices",
+                "inputmods",
+                "pframe",
+                "psegs",
+                "peflags",
+                "fbcap",
+                "fbsrc",
+                "fbacct",
+                "fbpresent",
+                "fbinfo",
+                "pcmstream",
+                "pcmwrite",
+                "pcmdev",
+                "pcmqueue",
+                "pcmpull",
+                "pcmirq",
+                "pcmdma",
+                "saveact",
+                "savestm",
+                "savethk",
+            ):
+                with self.subTest(field=field):
+                    self.assertIn(field, check_cloud_playability_artifacts.HUMAN_SESSION_STATUS_FIELDS)
+                    self.assertNotEqual(final_summary[field], "<missing>")
+
     def test_human_review_action_notes_must_match_canonical_notes(self):
         with tempfile.TemporaryDirectory() as tmp:
             artifact = Path(tmp)

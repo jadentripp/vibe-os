@@ -1,11 +1,12 @@
 import importlib.util
+import os
 import subprocess
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-BUILD = ROOT / "build"
+BUILD = Path(os.environ.get("VIBE_HOST_TEST_BUILD_DIR") or ROOT / "build")
 TOOL = ROOT / "tools" / "make_wad_image.py"
 spec = importlib.util.spec_from_file_location("make_wad_image", TOOL)
 make_wad_image = importlib.util.module_from_spec(spec)
@@ -59,6 +60,10 @@ class PostCheckpointGapTests(unittest.TestCase):
             'smoke_doomfaultip_text db " doomfaultip="',
             'smoke_doomfaultv_text db " doomfaultv="',
             'smoke_doomfaulterr_text db " doomfaulterr="',
+            'smoke_pfframe_text db " pf="',
+            'smoke_faultsrc_text db " faultsrc="',
+            'smoke_faultmode_text db " faultmode="',
+            'smoke_faultcontain_text db " faultcontain="',
             "mov edx, [doom_exit_code]",
             "mov edx, [doom_fault_addr]",
             "mov edx, [doom_fault_eip]",
@@ -78,6 +83,13 @@ class PostCheckpointGapTests(unittest.TestCase):
         self.assertIn('grep -q "doomfaultip="', makefile)
         self.assertIn('grep -q "doomfaultv="', makefile)
         self.assertIn('grep -q "doomfaulterr="', makefile)
+        self.assertIn('grep -Eq " pf=([0-9A-F]{8}/){4}[0-9A-F]{8}"', makefile)
+        self.assertIn('grep -Eq "faultsrc=(NONE|EXPECT|USER|DOOM|KERNEL)"', makefile)
+        self.assertIn('grep -Eq "faultmode=(NONE|USER|KERNEL)"', makefile)
+        self.assertIn('grep -Eq "faultcontain=([0-9A-F]{8}/){4}[0-9A-F]{8}"', makefile)
+        self.assertIn('grep -Eq " regs=([0-9A-F]{8}/){7}[0-9A-F]{8}"', makefile)
+        self.assertIn('grep -Eq " segs=([0-9A-F]{8}/){5}[0-9A-F]{8}"', makefile)
+        self.assertIn('grep -Eq " proc=([0-9A-F]{8}/){8}[0-9A-F]{8}"', makefile)
         self.assertIn('"doomexit"', checker)
         self.assertIn('"doomfault"', checker)
         self.assertIn('"doomfaultip"', checker)
@@ -211,8 +223,8 @@ class PostCheckpointGapTests(unittest.TestCase):
             "blank disk to bootable vibe-os",
             "damaged media repair-or-refuse behavior",
             "no WAD/disk/pixel/screenshot/raw-audio artifacts",
-            "payload service still arrives through `VIBE_AUDIO_MIXER_UPDATE`",
-            "first-class kernel-owned music ring",
+            "Payload service now arrives through command 12 / `VIBE_AUDIO_STREAM_WRITE`",
+            "kernel-owned PCM stream evidence through the checker",
             "full `fork`/`exec` split",
             "teardown/reclamation evidence",
         ):
