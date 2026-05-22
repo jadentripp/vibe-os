@@ -50,6 +50,14 @@ char** vibe_user_environ;
 unsigned long* vibe_user_auxv;
 unsigned long vibe_user_start_status;
 
+static char* startup_argv[] = { "TOOL.ELF", 0 };
+static char* startup_envp[] = { "A=B", 0 };
+static unsigned long startup_auxv[] = {
+    VIBE_EXEC_AUX_AT_PAGESZ, VIBE_USER_DEFAULT_PAGE_SIZE,
+    VIBE_EXEC_AUX_AT_ENTRY, 0x00401234u,
+    VIBE_EXEC_AUX_AT_NULL, 0
+};
+
 static char* mock_user_buffer(unsigned long address, unsigned long count)
 {
     if (address >= MOCK_MMAP_BASE
@@ -573,13 +581,6 @@ int main(void)
     void* mapped = 0;
     void* file_mapped = 0;
     char full_buffer[8];
-    char* startup_argv[] = { "TOOL.ELF", 0 };
-    char* startup_envp[] = { "A=B", 0 };
-    unsigned long startup_auxv[] = {
-        VIBE_EXEC_AUX_AT_PAGESZ, VIBE_USER_DEFAULT_PAGE_SIZE,
-        VIBE_EXEC_AUX_AT_ENTRY, 0x00401234u,
-        VIBE_EXEC_AUX_AT_NULL, 0
-    };
     unsigned long aux_value = 0;
     int wait_status = 0;
     int index;
