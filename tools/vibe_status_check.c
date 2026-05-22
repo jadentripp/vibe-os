@@ -371,10 +371,26 @@ static int fixed_bootstrap_page_dir(uint32_t cr3) {
 }
 
 static void validate_clock(const Status *status) {
+    const char *source;
+
     if (!has_field(status, "clocksrc")) {
         return;
     }
-    exact(status, "clocksrc", "PIT");
+    source = field(status, "clocksrc");
+    if (strcmp(source, "PIT") != 0 && strcmp(source, "HPET") != 0) {
+        fail("clocksrc= must be PIT or HPET, got %s", source);
+    }
+    if (strcmp(source, "HPET") == 0) {
+        uint32_t hpet_clock[6];
+        exact(status, "hpet", "LIVE");
+        hex_tuple(status, "clockhpet", 6, '/', hpet_clock);
+        if (hpet_clock[0] != 1u) {
+            fail("clockhpet= must report a ready HPET-backed monotonic clock");
+        }
+        if (hpet_clock[1] == 0u || hpet_clock[3] == 0u || hpet_clock[5] == 0u) {
+            fail("clockhpet= must show ticks-per-ms, last-ms, and sample progress");
+        }
+    }
     if (has_field(status, "ticks") && has_field(status, "dtick")) {
         uint32_t ticks = hex_field(status, "ticks");
         uint32_t dtick = hex_field(status, "dtick");

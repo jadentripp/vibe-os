@@ -321,6 +321,11 @@ HPET_REG_MAIN_COUNTER equ 0x0f0
 HPET_CONFIG_ENABLE equ 0x00000001
 HPET_COUNTER_SPIN_READS equ 100000
 HPET_LIVE_SPIN_READS equ 1024
+HPET_FS_PER_MS_LOW equ 0xd4a51000
+HPET_FS_PER_MS_HIGH equ 0x000000e8
+HPET_CLOCK_STATUS_NONE equ 0
+HPET_CLOCK_STATUS_READY equ 1
+HPET_CLOCK_STATUS_BAD equ 2
 ACPI_STATUS_NONE equ 0
 ACPI_STATUS_OK equ 1
 ACPI_STATUS_BAD equ 2
@@ -429,7 +434,9 @@ CLOCK_TICK_MILLISECONDS equ 1000 / CLOCK_MONOTONIC_HZ
 CLOCK_DOOM_HZ equ 35
 CLOCK_STATUS_UNKNOWN equ 0
 CLOCK_STATUS_PIT_100HZ equ 1
+CLOCK_STATUS_HPET_MONOTONIC equ 2
 CLOCK_TIME_FLAG_KERNEL_OWNED equ 0x00000001
+CLOCK_TIME_FLAG_HPET_BACKED equ 0x00000002
 CLOCK_TIME_TICKS equ 0
 CLOCK_TIME_FREQUENCY_HZ equ 4
 CLOCK_TIME_MILLISECONDS equ 8
@@ -2399,6 +2406,13 @@ acpi_probe_tables:
     mov dword [hpet_live_delta_low], 0
     mov dword [hpet_live_period_fs], 0
     mov dword [hpet_live_last_tick], 0xffffffff
+    mov byte [hpet_clock_status], HPET_CLOCK_STATUS_NONE
+    mov dword [hpet_clock_ticks_per_ms], 0
+    mov dword [hpet_clock_last_counter_low], 0
+    mov dword [hpet_clock_last_delta], 0
+    mov dword [hpet_clock_last_ms], 0
+    mov dword [hpet_clock_remainder_ticks], 0
+    mov dword [hpet_clock_sample_count], 0
 
     movzx esi, word [ACPI_RSDP_EBDA_SEG_PTR]
     shl esi, 4
@@ -2913,6 +2927,7 @@ acpi_probe_mmio_devices:
     cmp byte [acpi_hpet_parse_status], ACPI_STATUS_OK
     jne .done
     call acpi_probe_hpet_mmio
+    call hpet_clock_init
 
 .done:
     call irq_build_route_plan
@@ -3668,6 +3683,93 @@ hpet_refresh_live_counter:
 
 .done:
     popad
+    ret
+
+hpet_clock_init:
+    pushad
+    mov byte [hpet_clock_status], HPET_CLOCK_STATUS_BAD
+    mov dword [hpet_clock_ticks_per_ms], 0
+    mov dword [hpet_clock_last_counter_low], 0
+    mov dword [hpet_clock_last_delta], 0
+    mov dword [hpet_clock_last_ms], 0
+    mov dword [hpet_clock_remainder_ticks], 0
+    mov dword [hpet_clock_sample_count], 0
+    cmp byte [hpet_counter_status], MMIO_PROBE_OK
+    jne .done
+    cmp byte [hpet_mmio_status], MMIO_PROBE_OK
+    jne .done
+    mov esi, [hpet_mmio_addr]
+    test esi, esi
+    jz .done
+    mov ecx, [hpet_mmio_cap_high]
+    test ecx, ecx
+    jz .done
+    cmp ecx, HPET_FS_PER_MS_HIGH
+    jbe .done
+    mov eax, HPET_FS_PER_MS_LOW
+    mov edx, HPET_FS_PER_MS_HIGH
+    div ecx
+    test eax, eax
+    jz .done
+    mov [hpet_clock_ticks_per_ms], eax
+    mov eax, [esi + HPET_REG_GENERAL_CONFIG]
+    or eax, HPET_CONFIG_ENABLE
+    mov [esi + HPET_REG_GENERAL_CONFIG], eax
+    mov [hpet_live_config], eax
+    mov eax, [esi + HPET_REG_MAIN_COUNTER]
+    mov [hpet_clock_last_counter_low], eax
+    mov [hpet_live_current_low], eax
+    mov eax, [hpet_mmio_cap_high]
+    mov [hpet_live_period_fs], eax
+    mov byte [hpet_clock_status], HPET_CLOCK_STATUS_READY
+    mov byte [clock_source_status], CLOCK_STATUS_HPET_MONOTONIC
+
+.done:
+    popad
+    ret
+
+hpet_clock_update_from_counter:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    cmp byte [hpet_clock_status], HPET_CLOCK_STATUS_READY
+    jne .fail
+    mov esi, [hpet_mmio_addr]
+    test esi, esi
+    jz .fail
+    mov eax, [esi + HPET_REG_MAIN_COUNTER]
+    mov [hpet_live_current_low], eax
+    mov ebx, eax
+    sub ebx, [hpet_clock_last_counter_low]
+    mov [hpet_clock_last_counter_low], eax
+    mov [hpet_clock_last_delta], ebx
+    add ebx, [hpet_clock_remainder_ticks]
+    jc .fail
+    mov eax, ebx
+    xor edx, edx
+    mov ecx, [hpet_clock_ticks_per_ms]
+    test ecx, ecx
+    jz .fail
+    div ecx
+    mov [hpet_clock_remainder_ticks], edx
+    mov [hpet_clock_last_ms], eax
+    add [clock_milliseconds], eax
+    inc dword [hpet_clock_sample_count]
+    mov byte [hpet_live_status], MMIO_PROBE_OK
+    mov eax, [hpet_mmio_cap_high]
+    mov [hpet_live_period_fs], eax
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
     ret
 
 acpi_checksum8:
@@ -4721,7 +4823,15 @@ clock_init_pit_100hz:
 
 clock_tick_from_timer_irq:
     inc dword [clock_irq_count]
+    cmp byte [clock_source_status], CLOCK_STATUS_HPET_MONOTONIC
+    jne .pit_milliseconds
+    call hpet_clock_update_from_counter
+    jnc .doom_ticks
+
+.pit_milliseconds:
     add dword [clock_milliseconds], CLOCK_TICK_MILLISECONDS
+
+.doom_ticks:
     add dword [clock_doom_remainder], CLOCK_DOOM_HZ
     cmp dword [clock_doom_remainder], CLOCK_MONOTONIC_HZ
     jb .done
@@ -4746,7 +4856,13 @@ clock_write_monotonic_time:
     mov dword [edi + CLOCK_TIME_FREQUENCY_HZ], CLOCK_MONOTONIC_HZ
     mov eax, [clock_milliseconds]
     mov [edi + CLOCK_TIME_MILLISECONDS], eax
-    mov dword [edi + CLOCK_TIME_FLAGS], CLOCK_TIME_FLAG_KERNEL_OWNED
+    mov eax, CLOCK_TIME_FLAG_KERNEL_OWNED
+    cmp byte [clock_source_status], CLOCK_STATUS_HPET_MONOTONIC
+    jne .flags_ready
+    or eax, CLOCK_TIME_FLAG_HPET_BACKED
+
+.flags_ready:
+    mov [edi + CLOCK_TIME_FLAGS], eax
     ret
 
 cpu_tables_init:
@@ -28202,7 +28318,12 @@ write_smoke_status:
     mov edx, [clock_doom_ticks]
     call smoke_write_hex32
 
-    mov esi, smoke_clocksrc_text
+    mov esi, smoke_clocksrc_pit_text
+    cmp byte [clock_source_status], CLOCK_STATUS_HPET_MONOTONIC
+    jne .clocksrc_selected
+    mov esi, smoke_clocksrc_hpet_text
+
+.clocksrc_selected:
     call smoke_copy_string
 
     mov esi, smoke_clockirq_text
@@ -28239,6 +28360,21 @@ write_smoke_status:
     call smoke_copy_string
     mov edx, [clock_scheduler_irq_switches]
     call smoke_write_hex32
+
+    mov esi, smoke_clockhpet_text
+    call smoke_copy_string
+    movzx edx, byte [hpet_clock_status]
+    call smoke_write_hex32
+    mov edx, [hpet_clock_ticks_per_ms]
+    call smoke_write_slash_hex32
+    mov edx, [hpet_clock_last_delta]
+    call smoke_write_slash_hex32
+    mov edx, [hpet_clock_last_ms]
+    call smoke_write_slash_hex32
+    mov edx, [hpet_clock_remainder_ticks]
+    call smoke_write_slash_hex32
+    mov edx, [hpet_clock_sample_count]
+    call smoke_write_slash_hex32
 
     mov esi, smoke_cpuid_text
     call smoke_copy_string
@@ -32403,7 +32539,8 @@ smoke_gmap_text db " gmap=", 0
 smoke_gtic_text db " gtic=", 0
 smoke_leveltime_text db " leveltime=", 0
 smoke_doomtick_text db " dtick=", 0
-smoke_clocksrc_text db " clocksrc=PIT", 0
+smoke_clocksrc_pit_text db " clocksrc=PIT", 0
+smoke_clocksrc_hpet_text db " clocksrc=HPET", 0
 smoke_clockirq_text db " clockirq=", 0
 smoke_clocktick_text db " clocktick=", 0
 smoke_clockhz_text db " clockhz=", 0
@@ -32411,6 +32548,7 @@ smoke_clockms_text db " clockms=", 0
 smoke_clockdoom_text db " clockdoom=", 0
 smoke_clocksch_text db " clocksch=", 0
 smoke_clockpirq_text db " clockpirq=", 0
+smoke_clockhpet_text db " clockhpet=", 0
 smoke_cpuid_text db " cpuid=", 0
 smoke_apicbase_text db " apicbase=", 0
 smoke_irqctl_pic_text db " irqctl=PIC", 0
@@ -32845,6 +32983,14 @@ clock_doom_remainder dd 0
 clock_scheduler_tick_count dd 0
 clock_scheduler_irq_switches dd 0
 clock_source_status db 0
+hpet_clock_status db 0
+align 4
+hpet_clock_ticks_per_ms dd 0
+hpet_clock_last_counter_low dd 0
+hpet_clock_last_delta dd 0
+hpet_clock_last_ms dd 0
+hpet_clock_remainder_ticks dd 0
+hpet_clock_sample_count dd 0
 paging_status db 0
 vmm_status db 0
 pmm_test_status db 0

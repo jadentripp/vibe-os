@@ -94,12 +94,15 @@ jobs:
           set -euo pipefail
           grep -q "irqctl=APIC" build/status.txt
           grep -q "apic=LIVE" build/status.txt
+          grep -q "clocksrc=HPET" build/status.txt
+          grep -q "hpet=LIVE" build/status.txt
           grep -q "apicirq=00000001/00000005/00000005" build/status.txt
+          grep -q "clockhpet=00000001" build/status.txt
           grep -q "lapiclive=00000001" build/status.txt
           perl -ne '$ok = 1 if /irqeoi=([0-9A-F]{8})\/([0-9A-F]{8})\/([0-9A-F]{8})/ && hex($3) == 3; END { exit($ok ? 0 : 1) }' build/status.txt
           perl -ne '$ok = 1 if /clockirq=([0-9A-F]{8})/ && hex($1) >= 5; END { exit($ok ? 0 : 1) }' build/status.txt
 
-          printf '{ "result": "ok", "gate": "guest-status", "claim": "timer, keyboard, audio, mouse, and IDE IRQ routes are armed through the default APIC/IOAPIC path; timer IRQs reached the kernel through LAPIC EOI" }\n' > build/apic-irq-proof.json
+          printf '{ "result": "ok", "gate": "guest-status", "claim": "timer, keyboard, audio, mouse, and IDE IRQ routes are armed through the default APIC/IOAPIC path; monotonic milliseconds are HPET-backed; timer IRQs reached the kernel through LAPIC EOI" }\n' > build/apic-irq-proof.json
 
       - name: Run opt-in shutdown/panic proof modes
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.shutdown_panic_proof }}

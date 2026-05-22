@@ -314,7 +314,10 @@ jobs:
           set -euo pipefail
           grep -q "irqctl=APIC" build/status.txt
           grep -q "apic=LIVE" build/status.txt
+          grep -q "clocksrc=HPET" build/status.txt
+          grep -q "hpet=LIVE" build/status.txt
           grep -q "apicirq=00000001/00000005/00000005" build/status.txt
+          grep -q "clockhpet=00000001" build/status.txt
           grep -q "lapiclive=00000001" build/status.txt
           perl -ne '$ok = 1 if /irqeoi=([0-9A-F]{8})\/([0-9A-F]{8})\/([0-9A-F]{8})/ && hex($3) == 3; END { exit($ok ? 0 : 1) }' build/status.txt
 

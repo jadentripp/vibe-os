@@ -33,6 +33,8 @@ The main kernel body is `kernel/kernel.asm`. It owns:
   work.
 - PIT clock ticks, APIC/IOAPIC IRQ routing on the supported QEMU target, and
   PIC fallback.
+- HPET-backed monotonic milliseconds after ACPI/HPET probing succeeds, while
+  preserving the 100 Hz compatibility tick ABI expected by user programs.
 - Ring 3 process entry and user/kernel transitions.
 - ATA/IDE PIO, MBR/FAT image layout, file descriptors, reads, writes, seeks,
   config files, save files, and WAD loading.

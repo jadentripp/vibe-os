@@ -118,6 +118,7 @@ enum {
     VIBE_CLOCK_MONOTONIC = 1,
     VIBE_CLOCK_MONOTONIC_HZ = 100,
     VIBE_CLOCK_FLAG_KERNEL_OWNED = 0x00000001u,
+    VIBE_CLOCK_FLAG_HPET_BACKED = 0x00000002u,
 };
 
 typedef struct vibe_clock_time {
@@ -1394,10 +1395,12 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   lseek-backed positioned I/O for single-threaded asset/state loaders that
  *   need WAD/PAK-style table reads or small state-file updates without
  *   mutating their descriptor's logical offset.
- * - VIBE_SYS_CLOCK_GETTIME exposes a reusable monotonic PIT-derived clock. It
- *   reports 100 Hz ticks and milliseconds only; it is not an RTC or wall clock.
- *   `vibe_clock_monotonic` and `vibe_clock_ticks_to_milliseconds` are generic
- *   helpers for game loops that do not want Doom's 35 Hz tic conversion.
+ * - VIBE_SYS_CLOCK_GETTIME exposes the reusable monotonic kernel clock. It
+ *   reports 100 Hz compatibility ticks plus milliseconds; on the supported QEMU
+ *   target those milliseconds are HPET-backed once ACPI/HPET probing succeeds.
+ *   It is not an RTC or wall clock. `vibe_clock_monotonic` and
+ *   `vibe_clock_ticks_to_milliseconds` are generic helpers for game loops that
+ *   do not want Doom's 35 Hz tic conversion.
  * - VIBE_SYS_LISTDIR lists cached FAT16 root entries and one-level root
  *   subdirectories into fixed `vibe_dirent_t` records. Names are normalized
  *   8.3 display names, and stat/open/listdir honor FAT readonly attributes for

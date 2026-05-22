@@ -149,9 +149,12 @@ The supported QEMU path now attempts LAPIC/IOAPIC routing by default. The
 kernel software-enables the LAPIC through `lapiclive=`, arms the IOAPIC routes,
 masks the legacy PIC when the handoff succeeds, sends device EOIs through the
 LAPIC, and reports `irqctl=APIC`, `apic=LIVE`, and `apicirq=` from inside the
-guest. If the firmware/device checks fail, it stays on the older PIC path
-instead of pretending APIC is available. `VIBE_DISABLE_APIC_IRQ` is the build
-escape hatch for an explicit PIC-fallback proof.
+guest. The monotonic millisecond clock also switches from PIT accounting to the
+HPET main counter after the HPET probe succeeds, reported as `clocksrc=HPET`,
+`hpet=LIVE`, and `clockhpet=`. If the firmware/device checks fail, it stays on
+the older PIC/PIT path instead of pretending APIC or HPET are available.
+`VIBE_DISABLE_APIC_IRQ` is the build escape hatch for an explicit PIC-fallback
+proof.
 
 The storage claim is also bounded. vibe-os mutates and reboots its generated
 FAT16 image in disposable cloud QEMU, but it is not an installable OS for
