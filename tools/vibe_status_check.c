@@ -49,6 +49,22 @@
 #define PMM_MANAGED_START 0x00100000u
 #define PMM_MANAGED_END 0x02000000u
 #define KERNEL_RELOCATION_LIVE_MAGIC 0x4B524C56u
+#define KERNEL_RELOC_ABI_DIR_ALLOC 0x00000001u
+#define KERNEL_RELOC_ABI_HIGH_PDE 0x00000002u
+#define KERNEL_RELOC_ABI_LOW_PDE_ABSENT 0x00000004u
+#define KERNEL_RELOC_ABI_TEXT_XLAT 0x00000008u
+#define KERNEL_RELOC_ABI_STACK_XLAT 0x00000010u
+#define KERNEL_RELOC_ABI_LOW_XLAT_ABSENT 0x00000020u
+#define KERNEL_RELOC_ABI_LIVE_CR3_SWITCH 0x00000040u
+#define KERNEL_RELOC_ABI_HIGH_DATA_WRITE 0x00000080u
+#define KERNEL_RELOC_ABI_LOW_RETURN_BLOCKED 0x00000100u
+#define KERNEL_RELOC_ABI_RETURN_CR3_RESTORED 0x00000200u
+#define KERNEL_RELOC_ABI_FULL_MASK \
+    (KERNEL_RELOC_ABI_DIR_ALLOC | KERNEL_RELOC_ABI_HIGH_PDE | \
+     KERNEL_RELOC_ABI_LOW_PDE_ABSENT | KERNEL_RELOC_ABI_TEXT_XLAT | \
+     KERNEL_RELOC_ABI_STACK_XLAT | KERNEL_RELOC_ABI_LOW_XLAT_ABSENT | \
+     KERNEL_RELOC_ABI_LIVE_CR3_SWITCH | KERNEL_RELOC_ABI_HIGH_DATA_WRITE | \
+     KERNEL_RELOC_ABI_LOW_RETURN_BLOCKED | KERNEL_RELOC_ABI_RETURN_CR3_RESTORED)
 #define USER_KIND_DOOM 2u
 #define USER_KIND_PREEMPT_PROBE 3u
 #define USER_CODE_SEG 0x1Bu
@@ -659,6 +675,7 @@ static void validate_live_relocation_switch(const Status *status) {
     uint32_t proof[5];
     uint32_t hazard[3];
     uint32_t dir[6];
+    uint32_t abi[5];
     uint32_t kerncr3 = hex_field(status, "kerncr3");
 
     exact(status, "krelive", "OK");
@@ -715,6 +732,17 @@ static void validate_live_relocation_switch(const Status *status) {
     }
     if (hazard[1] != MISSING_TRANSLATION) {
         fail("krelhaz= low return continuation must be unmapped by the relocation directory");
+    }
+
+    hex_tuple(status, "krelabi", 5, '/', abi);
+    if (abi[0] != KERNEL_RELOC_ABI_FULL_MASK || abi[1] != KERNEL_RELOC_ABI_FULL_MASK) {
+        fail("krelabi= must prove the PMM relocation directory and bounded CR3 switch in guest assembly");
+    }
+    if (abi[2] != KERNEL_RELOC_ABI_RETURN_CR3_RESTORED) {
+        fail("krelabi= final operation must prove CR3 returned after the bounded switch");
+    }
+    if (abi[3] != 1u || abi[4] != 1u) {
+        fail("krelabi= must report both relocation directory and live switch status OK");
     }
 }
 

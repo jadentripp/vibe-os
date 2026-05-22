@@ -118,6 +118,13 @@ if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-c
   cat /tmp/vibe-status-check-khabi-bad.out >&2
   exit 1
 fi
+sed 's|krelabi=000003FF/000003FF/00000200/00000001/00000001|krelabi=000001FF/000003FF/00000100/00000001/00000001|' \
+  "$DEVICE_OK" > "$DEVICE_BAD"
+if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-krelabi-bad.out 2>&1; then
+  echo "vibe_status_check accepted incomplete relocation-directory ABI proof" >&2
+  cat /tmp/vibe-status-check-krelabi-bad.out >&2
+  exit 1
+fi
 
 for bad in \
   vm_status_krelhaz_bad_identity_return.txt \
@@ -141,4 +148,5 @@ rm -f /tmp/vibe-status-check-audabi-bad.out
 rm -f /tmp/vibe-status-check-fbabi-bad.out
 rm -f /tmp/vibe-status-check-preemptabi-bad.out
 rm -f /tmp/vibe-status-check-khabi-bad.out
+rm -f /tmp/vibe-status-check-krelabi-bad.out
 echo "vibe_status_check self-test OK"

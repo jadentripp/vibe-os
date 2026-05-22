@@ -509,6 +509,17 @@ KERNEL_RELOCATION_LIVE_STATUS_UNKNOWN equ 0
 KERNEL_RELOCATION_LIVE_STATUS_OK equ 1
 KERNEL_RELOCATION_LIVE_STATUS_FAIL equ 2
 KERNEL_RELOCATION_LIVE_MAGIC equ 0x4b524c56
+KERNEL_RELOC_ABI_DIR_ALLOC equ 0x00000001
+KERNEL_RELOC_ABI_HIGH_PDE equ 0x00000002
+KERNEL_RELOC_ABI_LOW_PDE_ABSENT equ 0x00000004
+KERNEL_RELOC_ABI_TEXT_XLAT equ 0x00000008
+KERNEL_RELOC_ABI_STACK_XLAT equ 0x00000010
+KERNEL_RELOC_ABI_LOW_XLAT_ABSENT equ 0x00000020
+KERNEL_RELOC_ABI_LIVE_CR3_SWITCH equ 0x00000040
+KERNEL_RELOC_ABI_HIGH_DATA_WRITE equ 0x00000080
+KERNEL_RELOC_ABI_LOW_RETURN_BLOCKED equ 0x00000100
+KERNEL_RELOC_ABI_RETURN_CR3_RESTORED equ 0x00000200
+KERNEL_RELOC_ABI_FULL_MASK equ KERNEL_RELOC_ABI_DIR_ALLOC | KERNEL_RELOC_ABI_HIGH_PDE | KERNEL_RELOC_ABI_LOW_PDE_ABSENT | KERNEL_RELOC_ABI_TEXT_XLAT | KERNEL_RELOC_ABI_STACK_XLAT | KERNEL_RELOC_ABI_LOW_XLAT_ABSENT | KERNEL_RELOC_ABI_LIVE_CR3_SWITCH | KERNEL_RELOC_ABI_HIGH_DATA_WRITE | KERNEL_RELOC_ABI_LOW_RETURN_BLOCKED | KERNEL_RELOC_ABI_RETURN_CR3_RESTORED
 KERNEL_LOW_IDENTITY_PRESENT equ 1
 KERNEL_LOW_IDENTITY_TRAPPED equ 2
 KERNEL_HIGH_ALIAS_STATUS_UNKNOWN equ 0
@@ -5557,6 +5568,8 @@ kernel_relocation_dir_self_test:
     mov dword [kernel_relocation_dir_entry_pte], 0
     mov dword [kernel_relocation_dir_stack_pte], 0
     mov dword [kernel_relocation_dir_low_pte], 0
+    mov dword [kernel_relocation_abi_mask], 0
+    mov dword [kernel_relocation_abi_last_op], 0
     call kernel_relocation_live_clear
 
     cmp byte [kernel_persistent_alias_status], KERNEL_PERSISTENT_ALIAS_STATUS_OK
@@ -5617,6 +5630,11 @@ kernel_relocation_dir_self_test:
     popad
     ret
 
+kernel_relocation_record_abi:
+    or [kernel_relocation_abi_mask], eax
+    mov [kernel_relocation_abi_last_op], eax
+    ret
+
 kernel_relocation_dir_validate:
     push eax
     push ebx
@@ -5640,6 +5658,8 @@ kernel_relocation_dir_validate:
     je .fail
     cmp eax, PROC_GENERIC1_PAGE_DIR_ADDR
     je .fail
+    mov eax, KERNEL_RELOC_ABI_DIR_ALLOC
+    call kernel_relocation_record_abi
 
     mov eax, [kernel_relocation_dir_high_pde]
     mov ebx, eax
@@ -5649,17 +5669,25 @@ kernel_relocation_dir_validate:
     and eax, 0xfffff000
     cmp eax, [kernel_persistent_alias_table]
     jne .fail
+    mov eax, KERNEL_RELOC_ABI_HIGH_PDE
+    call kernel_relocation_record_abi
 
     mov eax, [kernel_relocation_dir_low_pde]
     test eax, PTE_PRESENT
     jnz .fail
+    mov eax, KERNEL_RELOC_ABI_LOW_PDE_ABSENT
+    call kernel_relocation_record_abi
 
     mov eax, [kernel_relocation_dir_entry_xlat]
     cmp eax, [kernel_persistent_alias_phys]
     jne .fail
+    mov eax, KERNEL_RELOC_ABI_TEXT_XLAT
+    call kernel_relocation_record_abi
     mov eax, [kernel_relocation_dir_stack_xlat]
     cmp eax, [kernel_persistent_stack_phys]
     jne .fail
+    mov eax, KERNEL_RELOC_ABI_STACK_XLAT
+    call kernel_relocation_record_abi
     mov eax, [kernel_relocation_dir_low_xlat]
     cmp eax, 0xffffffff
     jne .fail
@@ -5675,6 +5703,8 @@ kernel_relocation_dir_validate:
     mov eax, [kernel_relocation_dir_low_pte]
     test eax, PTE_PRESENT
     jnz .fail
+    mov eax, KERNEL_RELOC_ABI_LOW_XLAT_ABSENT
+    call kernel_relocation_record_abi
 
     clc
     jmp .done
@@ -5801,6 +5831,10 @@ kernel_relocation_live_switch_self_test:
     jne .mark_fail
     cmp dword [kernel_relocation_live_return_xlat], 0xffffffff
     jne .mark_fail
+    mov eax, KERNEL_RELOC_ABI_LOW_RETURN_BLOCKED
+    call kernel_relocation_record_abi
+    mov eax, KERNEL_RELOC_ABI_RETURN_CR3_RESTORED
+    call kernel_relocation_record_abi
     mov eax, [kernel_relocation_live_eip]
     cmp eax, [kernel_relocation_live_code_vaddr]
     jb .mark_fail
@@ -5827,6 +5861,10 @@ kernel_relocation_live_switch_self_test:
 kernel_relocation_live_switch_trampoline:
     mov eax, [kernel_relocation_dir_addr]
     mov cr3, eax
+    mov edi, KERNEL_HIGHER_HALF_BASE + kernel_relocation_abi_mask
+    or dword [edi], KERNEL_RELOC_ABI_LIVE_CR3_SWITCH
+    mov edi, KERNEL_HIGHER_HALF_BASE + kernel_relocation_abi_last_op
+    mov dword [edi], KERNEL_RELOC_ABI_LIVE_CR3_SWITCH
     call .capture_eip
 
 .capture_eip:
@@ -5843,6 +5881,10 @@ kernel_relocation_live_switch_trampoline:
     mov [edi], eax
     mov edi, KERNEL_HIGHER_HALF_BASE + kernel_relocation_live_magic
     mov dword [edi], KERNEL_RELOCATION_LIVE_MAGIC
+    mov edi, KERNEL_HIGHER_HALF_BASE + kernel_relocation_abi_mask
+    or dword [edi], KERNEL_RELOC_ABI_HIGH_DATA_WRITE
+    mov edi, KERNEL_HIGHER_HALF_BASE + kernel_relocation_abi_last_op
+    mov dword [edi], KERNEL_RELOC_ABI_HIGH_DATA_WRITE
     mov edi, KERNEL_HIGHER_HALF_BASE + kernel_relocation_live_status
     mov byte [edi], KERNEL_RELOCATION_LIVE_STATUS_OK
     mov eax, PAGING_DIR_ADDR
@@ -31158,6 +31200,29 @@ write_smoke_status:
     mov edx, [kernel_relocation_live_expected_return]
     call smoke_write_hex32
 
+    mov esi, smoke_krelabi_text
+    call smoke_copy_string
+    mov edx, [kernel_relocation_abi_mask]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, KERNEL_RELOC_ABI_FULL_MASK
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [kernel_relocation_abi_last_op]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    xor edx, edx
+    mov dl, [kernel_relocation_dir_status]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    xor edx, edx
+    mov dl, [kernel_relocation_live_status]
+    call smoke_write_hex32
+
     mov esi, smoke_khmain_text
     call smoke_copy_string
     cmp byte [kernel_high_mainline_status], KERNEL_HIGH_MAINLINE_STATUS_OK
@@ -32966,6 +33031,7 @@ smoke_krelive_text db " krelive=", 0
 smoke_krelivex_text db " krelivex=", 0
 smoke_krelivep_text db " krelivep=", 0
 smoke_krelhaz_text db " krelhaz=", 0
+smoke_krelabi_text db " krelabi=", 0
 smoke_khmain_text db " khmain=", 0
 smoke_khmspan_text db " khmspan=", 0
 smoke_khmxlat_text db " khmxlat=", 0
@@ -33983,6 +34049,8 @@ kernel_relocation_live_return_xlat dd 0
 kernel_relocation_live_expected_return dd 0
 kernel_relocation_live_magic dd 0
 kernel_relocation_live_saved_low_esp dd 0
+kernel_relocation_abi_mask dd 0
+kernel_relocation_abi_last_op dd 0
 kernel_high_mainline_entry_eip dd 0
 kernel_high_mainline_late_eip dd 0
 kernel_high_mainline_entry_esp dd 0

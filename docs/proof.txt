@@ -68,9 +68,14 @@ Manual play:
   stack, rebuilds IDT gates for higher-half handlers, updates TSS `esp0`, and
   emits `khabi=` from guest assembly to prove the checkpoints, translations,
   page-table entries, and retained low-identity dependency were checked by the
-  OS itself. Remaining work before calling this done is the stronger relocation
-  target: a persistent PMM-managed kernel page directory with the low identity
-  mapping removed while the kernel keeps running.
+  OS itself. The relocation-directory side now also emits `krelabi=` from guest
+  assembly, proving the PMM-managed directory, high PDE, absent low PDE, text and
+  stack translations, absent low translation, bounded high-only CR3 switch, high
+  data write, blocked low return, and restored CR3. Remaining work before
+  calling this done is the stronger relocation target: converting enough live
+  kernel data references to high-safe addressing that the PMM-managed directory
+  can stay active with the low identity mapping removed while the kernel keeps
+  running.
 - `GAP[PREEMPTION] status=partial`: timer IRQ preemption now switches Ring 3
   contexts through saved frames and `iret`, and the guest emits `preemptabi=`
   from the assembly scheduler path to prove the user IRQ frame, context save,
