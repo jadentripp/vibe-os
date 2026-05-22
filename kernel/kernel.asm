@@ -9875,6 +9875,7 @@ storage_init:
     mov dword [sys_exec_arg_copy_index], 0
     mov dword [sys_exec_envc], 0
     mov dword [sys_exec_env_copy_index], 0
+    mov dword [sys_exec_stack_low], 0
     mov dword [sys_exec_stack_cursor], 0
     mov dword [process_exec_last_error], 0
     mov byte [process_exec_reject_active_target], 0
@@ -18611,7 +18612,13 @@ process_exec_seed_argv_stack:
     cmp dword [sys_exec_envc], SYS_EXEC_ENV_MAX
     ja .fail
 
-    mov edi, [edx + PROC_STACK_BOTTOM]
+    mov eax, [edx + PROC_STACK_BOTTOM]
+    add eax, PAGE_SIZE
+    jc .fail
+    cmp eax, [edx + PROC_STACK_TOP]
+    ja .fail
+    mov [sys_exec_stack_low], eax
+    mov edi, eax
     mov ecx, [edx + PROC_STACK_TOP]
     sub ecx, edi
     jc .fail
@@ -18632,7 +18639,7 @@ process_exec_seed_argv_stack:
     sub eax, SYS_EXEC_ARG_STR_MAX
     jc .fail
     and eax, 0xfffffffc
-    cmp eax, [edx + PROC_STACK_BOTTOM]
+    cmp eax, [sys_exec_stack_low]
     jb .fail
     mov [sys_exec_stack_cursor], eax
     mov edi, eax
@@ -18659,7 +18666,7 @@ process_exec_seed_argv_stack:
     sub eax, SYS_EXEC_ENV_STR_MAX
     jc .fail
     and eax, 0xfffffffc
-    cmp eax, [edx + PROC_STACK_BOTTOM]
+    cmp eax, [sys_exec_stack_low]
     jb .fail
     mov [sys_exec_stack_cursor], eax
     mov edi, eax
@@ -18688,7 +18695,7 @@ process_exec_seed_argv_stack:
     sub eax, ebx
     jc .fail
     and eax, 0xfffffff0
-    cmp eax, [edx + PROC_STACK_BOTTOM]
+    cmp eax, [sys_exec_stack_low]
     jb .fail
     mov [sys_exec_user_stack_ptr], eax
     mov edi, eax
@@ -31132,6 +31139,7 @@ sys_exec_argc dd 0
 sys_exec_arg_copy_index dd 0
 sys_exec_envc dd 0
 sys_exec_env_copy_index dd 0
+sys_exec_stack_low dd 0
 sys_exec_stack_cursor dd 0
 sys_exec_arg_target_ptrs times SYS_EXEC_ARG_MAX dd 0
 sys_exec_arg_strings times SYS_EXEC_ARG_MAX * SYS_EXEC_ARG_STR_MAX db 0
