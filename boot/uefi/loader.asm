@@ -170,6 +170,8 @@ CR0_PG_CLEAR_MASK equ 0x7fffffff
 EFER_LME_CLEAR_MASK equ 0xfffffeff
 CR4_PAE_CLEAR_MASK equ 0xffffffdf
 
+section .text align=16
+
 global efi_main
 
 efi_main:
