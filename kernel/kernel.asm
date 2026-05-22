@@ -15555,6 +15555,7 @@ scheduler_init:
     mov dword [scheduler_preempt_switches], 0
     mov dword [scheduler_irq_context_switches], 0
     mov dword [scheduler_preempt_skips], 0
+    mov dword [scheduler_preempt_no_peer], 0
     mov dword [scheduler_user_irq_ticks], 0
     mov dword [scheduler_last_preempt_from_pid], 0xffffffff
     mov dword [scheduler_last_preempt_to_pid], 0xffffffff
@@ -17479,7 +17480,7 @@ scheduler_tick:
     call scheduler_select_next_ready
     mov esi, [scheduler_next_process_ptr]
     cmp esi, 0
-    je .skip_preempt
+    je .no_preempt_target
     mov eax, [esi + PROC_PID]
     mov [scheduler_last_preempt_to_pid], eax
     mov eax, [esi + PROC_KIND]
@@ -17537,6 +17538,10 @@ scheduler_tick:
 
 .skip_preempt:
     inc dword [scheduler_preempt_skips]
+    jmp .done
+
+.no_preempt_target:
+    inc dword [scheduler_preempt_no_peer]
     jmp .done
 
 .kernel_irq_frame:
@@ -18017,6 +18022,7 @@ scheduler_preempt_self_test:
     mov dword [scheduler_preempt_switches], 0
     mov dword [scheduler_irq_context_switches], 0
     mov dword [scheduler_preempt_skips], 0
+    mov dword [scheduler_preempt_no_peer], 0
     mov dword [scheduler_user_irq_ticks], 0
     mov dword [scheduler_last_preempt_from_pid], 0xffffffff
     mov dword [scheduler_last_preempt_to_pid], 0xffffffff
@@ -27598,6 +27604,11 @@ write_smoke_status:
     mov edx, [scheduler_preempt_skips]
     call smoke_write_hex32
 
+    mov esi, smoke_pnone_text
+    call smoke_copy_string
+    mov edx, [scheduler_preempt_no_peer]
+    call smoke_write_hex32
+
     mov esi, smoke_puser_text
     call smoke_copy_string
     mov edx, [scheduler_user_irq_ticks]
@@ -30346,6 +30357,7 @@ smoke_preempt_text db " preempt=", 0
 smoke_pirq_text db " pirq=", 0
 smoke_pattempt_text db " pattempt=", 0
 smoke_pskip_text db " pskip=", 0
+smoke_pnone_text db " pnone=", 0
 smoke_puser_text db " puser=", 0
 smoke_pround_text db " pround=", 0
 smoke_pctx_text db " pctx=", 0
@@ -31384,6 +31396,7 @@ scheduler_preempt_attempts dd 0
 scheduler_preempt_switches dd 0
 scheduler_irq_context_switches dd 0
 scheduler_preempt_skips dd 0
+scheduler_preempt_no_peer dd 0
 scheduler_user_irq_ticks dd 0
 scheduler_last_preempt_from_pid dd 0xffffffff
 scheduler_last_preempt_to_pid dd 0xffffffff
