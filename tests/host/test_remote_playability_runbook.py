@@ -2707,7 +2707,7 @@ class RemotePlayabilityRunbookTests(unittest.TestCase):
             self.assertIn("phase expectation: after-fire -> status.after-fire.txt", result.stdout)
             self.assertIn("keyseen fire bit", result.stdout)
             self.assertEqual(len(commands), 1)
-            self.assertTrue(commands[0].startswith("pmemsave 0x9d000 8192 "))
+            self.assertTrue(commands[0].startswith("pmemsave 0x9d000 12288 "))
             self.assertEqual(
                 (build / "status.after-fire.txt").read_text(),
                 valid_status(),

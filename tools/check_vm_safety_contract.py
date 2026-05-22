@@ -346,7 +346,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
     for needle in (
         "trap cleanup EXIT INT TERM",
         "capture_snapshot failure",
-        "pmemsave 0x9d000 8192",
+        "pmemsave 0x9d000 12288",
         "-serial \"file:$serial_log\"",
         "-monitor \"unix:$monitor_sock,server,nowait\"",
         "-no-reboot",
@@ -498,7 +498,7 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         "KERNEL_PERSISTENT_ALIAS_STATUS_OK equ 1",
         "KERNEL_PERSISTENT_EXEC_STATUS_OK equ 1",
         "KERNEL_PERSISTENT_EXEC_STACK_MAGIC equ 0x4b504558",
-        "KERNEL_PERSISTENT_ALIAS_BYTES equ 0x00020000",
+        "KERNEL_PERSISTENT_ALIAS_BYTES equ 0x00028000",
         "KERNEL_PERSISTENT_ALIAS_PAGES equ KERNEL_PERSISTENT_ALIAS_BYTES / PAGE_SIZE",
         "KERNEL_STACK_ALIAS_PAGES equ (KERNEL_STACK_TOP - KERNEL_STACK_LOW) / PAGE_SIZE",
         "KERNEL_PERSISTENT_DIR_MASK equ 0x0000003f",

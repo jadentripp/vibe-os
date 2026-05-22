@@ -867,7 +867,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--status-bytes",
         type=int,
-        default=8192,
+        default=12288,
         help="number of bytes to copy from the guest status page",
     )
     parser.add_argument(
