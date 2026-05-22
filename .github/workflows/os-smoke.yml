@@ -70,16 +70,18 @@ jobs:
         run: |
           make \
             ALLOW_LOCAL_VM=1 \
-            SMOKE_QEMU_TIMEOUT=90 \
-            SMOKE_INPUT_SCRIPT="generated-wad:wait-status=uexec:OK:60:1" \
+            SMOKE_QEMU_TIMEOUT=130 \
+            SMOKE_INPUT_SCRIPT="generated-wad:wait-status=abiprobe:OK:90:1" \
             SMOKE_SKIP_ASSERTIONS=1 \
             smoke
 
-      - name: Assert generated-WAD kernel status gates
+      - name: Assert generated-WAD VM/process exec gates
         run: |
           cc -std=c99 -Wall -Wextra -Werror -O2 \
             tools/vibe_status_check.c -o build/vibe_status_check
-          build/vibe_status_check build/status.txt
+          build/vibe_status_check \
+            --require-exec \
+            build/status.txt
 
       - name: Assert generated-WAD storage/VFS cloud proof
         run: |
