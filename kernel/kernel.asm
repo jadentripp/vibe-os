@@ -12243,7 +12243,10 @@ ata_flush_cache:
 
     mov dword [ata_last_op], ATA_OP_FLUSH
     mov dword [ata_last_error], 0
-    call ata_wait_ready
+    ; CACHE FLUSH is a non-data command: completion is BSY clear with no error.
+    ; Some emulated IDE targets can leave DRQ visible in the status byte after
+    ; the command, so do not use the data-command ready predicate here.
+    call ata_wait_not_busy
     jc .fail
 
     mov dx, ATA_COMMAND_STATUS
@@ -12251,7 +12254,7 @@ ata_flush_cache:
     out dx, al
     call ata_io_delay
 
-    call ata_wait_ready
+    call ata_wait_not_busy
     jc .fail
     inc dword [ata_flush_count]
     clc
