@@ -272,6 +272,7 @@ IOAPIC_REGSEL equ 0x00
 IOAPIC_WINDOW equ 0x10
 IOAPIC_REG_ID equ 0x00
 IOAPIC_REG_VERSION equ 0x01
+IOAPIC_REG_REDIR_BASE equ 0x10
 HPET_GAS_SYSTEM_MEMORY equ 0
 HPET_REG_GENERAL_CAP_ID equ 0x000
 HPET_REG_GENERAL_CONFIG equ 0x010
@@ -2268,6 +2269,14 @@ acpi_probe_tables:
     mov dword [ioapic_mmio_addr], 0
     mov dword [ioapic_mmio_id], 0
     mov dword [ioapic_mmio_version], 0
+    mov byte [ioapic_redir_status], MMIO_PROBE_NONE
+    mov dword [ioapic_redir_entry_count], 0
+    mov dword [ioapic_redir_gsi0_low], 0
+    mov dword [ioapic_redir_gsi0_high], 0
+    mov dword [ioapic_redir_iso_gsi], 0
+    mov dword [ioapic_redir_iso_index], 0
+    mov dword [ioapic_redir_iso_low], 0
+    mov dword [ioapic_redir_iso_high], 0
     mov dword [hpet_mmio_addr], 0
     mov dword [hpet_mmio_cap_low], 0
     mov dword [hpet_mmio_cap_high], 0
@@ -2850,10 +2859,73 @@ acpi_probe_ioapic_mmio:
     mov dword [esi + IOAPIC_REGSEL], IOAPIC_REG_VERSION
     mov eax, [esi + IOAPIC_WINDOW]
     mov [ioapic_mmio_version], eax
+    call acpi_probe_ioapic_redirection
     mov byte [ioapic_mmio_status], MMIO_PROBE_OK
 
 .done:
     popad
+    ret
+
+acpi_probe_ioapic_redirection:
+    pushad
+    mov byte [ioapic_redir_status], MMIO_PROBE_BAD
+    mov eax, [ioapic_mmio_version]
+    shr eax, 16
+    and eax, 0x000000ff
+    inc eax
+    mov [ioapic_redir_entry_count], eax
+    xor eax, eax
+    call ioapic_read_redir_entry
+    jc .done
+    mov [ioapic_redir_gsi0_low], eax
+    mov [ioapic_redir_gsi0_high], edx
+    cmp dword [acpi_iso_count], 0
+    je .ok
+    mov eax, [acpi_iso_first_gsi]
+    mov [ioapic_redir_iso_gsi], eax
+    sub eax, [acpi_ioapic_first_gsi_base]
+    jc .ok
+    mov [ioapic_redir_iso_index], eax
+    call ioapic_read_redir_entry
+    jc .ok
+    mov [ioapic_redir_iso_low], eax
+    mov [ioapic_redir_iso_high], edx
+
+.ok:
+    mov byte [ioapic_redir_status], MMIO_PROBE_OK
+
+.done:
+    popad
+    ret
+
+ioapic_read_redir_entry:
+    push ebx
+    push ecx
+    push esi
+    cmp eax, [ioapic_redir_entry_count]
+    jae .fail
+    mov esi, [ioapic_mmio_addr]
+    test esi, esi
+    jz .fail
+    mov ebx, eax
+    shl ebx, 1
+    add ebx, IOAPIC_REG_REDIR_BASE
+    mov [esi + IOAPIC_REGSEL], ebx
+    mov ecx, [esi + IOAPIC_WINDOW]
+    inc ebx
+    mov [esi + IOAPIC_REGSEL], ebx
+    mov edx, [esi + IOAPIC_WINDOW]
+    mov eax, ecx
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop esi
+    pop ecx
+    pop ebx
     ret
 
 acpi_probe_hpet_mmio:
@@ -27512,6 +27584,28 @@ write_smoke_status:
     mov edx, [acpi_ioapic_first_gsi_base]
     call smoke_write_slash_hex32
 
+    mov esi, smoke_ioapicred_text
+    call smoke_copy_string
+    movzx edx, byte [ioapic_redir_status]
+    call smoke_write_hex32
+    mov edx, [ioapic_redir_entry_count]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_redir_gsi0_low]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_redir_gsi0_high]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_ioapiciso_text
+    call smoke_copy_string
+    mov edx, [ioapic_redir_iso_gsi]
+    call smoke_write_hex32
+    mov edx, [ioapic_redir_iso_index]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_redir_iso_low]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_redir_iso_high]
+    call smoke_write_slash_hex32
+
     mov esi, smoke_hpetprobe_text
     call smoke_copy_string
     movzx edx, byte [hpet_mmio_status]
@@ -31265,6 +31359,8 @@ smoke_hpetinfo_text db " hpetinfo=", 0
 smoke_hpetaddr_text db " hpetaddr=", 0
 smoke_apicprobe_text db " apicprobe=", 0
 smoke_ioapicprobe_text db " ioapicprobe=", 0
+smoke_ioapicred_text db " ioapicred=", 0
+smoke_ioapiciso_text db " ioapiciso=", 0
 smoke_hpetprobe_text db " hpetprobe=", 0
 smoke_hpetcount_text db " hpetcount=", 0
 smoke_apic_text db " apic=NONE", 0
@@ -31851,6 +31947,7 @@ acpi_madt_parse_status db 0
 acpi_hpet_parse_status db 0
 lapic_mmio_status db 0
 ioapic_mmio_status db 0
+ioapic_redir_status db 0
 hpet_mmio_status db 0
 hpet_counter_status db 0
 align 4
@@ -31905,6 +32002,13 @@ lapic_mmio_spurious dd 0
 ioapic_mmio_addr dd 0
 ioapic_mmio_id dd 0
 ioapic_mmio_version dd 0
+ioapic_redir_entry_count dd 0
+ioapic_redir_gsi0_low dd 0
+ioapic_redir_gsi0_high dd 0
+ioapic_redir_iso_gsi dd 0
+ioapic_redir_iso_index dd 0
+ioapic_redir_iso_low dd 0
+ioapic_redir_iso_high dd 0
 hpet_mmio_addr dd 0
 hpet_mmio_cap_low dd 0
 hpet_mmio_cap_high dd 0

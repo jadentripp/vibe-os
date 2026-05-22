@@ -131,8 +131,10 @@ memory for the RSDP, identity-maps ACPI table pages on demand, validates
 checksums, records RSDT/XSDT pointers, and parses MADT/HPET hardware inventory:
 LAPICs, IOAPICs, interrupt source overrides, and HPET block metadata. It also
 maps the advertised LAPIC, IOAPIC, and HPET MMIO pages and reads identity and
-capability registers as a hardware probe. The HPET probe also verifies that the
-main counter advances. APIC/IOAPIC routing and HPET clock ownership are still
+capability registers as a hardware probe. The IOAPIC probe reads redirection
+entries, including the first interrupt-source override, so future routing work
+can use the actual table shape. The HPET probe also verifies that the main
+counter advances. APIC/IOAPIC routing and HPET clock ownership are still
 unclaimed; the live status still says `irqctl=PIC`, `apic=NONE`, and
 `hpet=NONE`.
 
