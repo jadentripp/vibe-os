@@ -145,7 +145,9 @@ a real handoff point. The guest also builds an `irqplan=`/`irqgsi=` route plan
 from MADT interrupt-source overrides for the timer, keyboard, audio, mouse, and
 primary IDE IRQs. It then computes non-applied IOAPIC redirection entries in
 `ioapicplan=`, `ioapicidx=`, `ioapiclo=`, and `ioapichi=` so the next step has
-exact register values to program. That is still a plan, not live APIC routing.
+exact register values to program. The `ioapicarm=` path writes those entries
+with the IOAPIC mask bit set and verifies readback, so the hardware programming
+path is exercised without routing live interrupts through APIC yet.
 APIC/IOAPIC routing and HPET clock ownership are still unclaimed; the live
 status still says `irqctl=PIC`, `apic=NONE`, and `hpet=NONE`.
 
