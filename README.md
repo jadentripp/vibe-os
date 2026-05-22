@@ -135,8 +135,11 @@ capability registers as a hardware probe. The IOAPIC probe reads redirection
 entries, including the first interrupt-source override, so future routing work
 can use the actual table shape. The HPET probe also verifies that the main
 counter advances, and the status path refreshes a live HPET counter sample
-after boot. APIC/IOAPIC routing and HPET clock ownership are still unclaimed;
-the live status still says `irqctl=PIC`, `apic=NONE`, and `hpet=NONE`.
+after boot. Kernel MMIO pages are copied into every process page directory as
+supervisor-only mappings, so Ring 0 interrupt code can reach device registers
+even when it interrupted a Ring 3 process. APIC/IOAPIC routing and HPET clock
+ownership are still unclaimed; the live status still says `irqctl=PIC`,
+`apic=NONE`, and `hpet=NONE`.
 
 The storage claim is also bounded. vibe-os mutates and reboots its generated
 FAT16 image in disposable cloud QEMU, but it is not an installable OS for

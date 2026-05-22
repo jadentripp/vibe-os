@@ -2230,6 +2230,9 @@ acpi_probe_tables:
     mov dword [acpi_map_failures], 0
     mov dword [acpi_last_mapped_page], 0
     mov dword [acpi_last_map_length], 0
+    mov dword [mmio_process_pde_installs], 0
+    mov dword [mmio_last_pde_index], 0
+    mov dword [mmio_last_pde_entry], 0
     mov byte [acpi_madt_parse_status], 0
     mov byte [acpi_hpet_parse_status], 0
     mov dword [acpi_madt_lapic_addr], 0
@@ -2817,8 +2820,49 @@ mmio_identity_map_page:
     mov ebx, eax
     mov ecx, PTE_KERNEL_MMIO_FLAGS
     call vmm_map_page
+    jc .done
+    call mmio_install_process_dirs
+    clc
+
+.done:
     pop ecx
     pop ebx
+    ret
+
+mmio_install_process_dirs:
+    push eax
+    push ebx
+    push edx
+    push edi
+
+    and eax, 0xfffff000
+    mov edx, eax
+    shr edx, 22
+    mov edi, PAGING_DIR_ADDR
+    mov ebx, [edi + edx * 4]
+    test ebx, PTE_PRESENT
+    jz .done
+
+    mov [mmio_last_pde_index], edx
+    mov [mmio_last_pde_entry], ebx
+    inc dword [mmio_process_pde_installs]
+
+    mov edi, PROC_PROBE_PAGE_DIR_ADDR
+    mov [edi + edx * 4], ebx
+    mov edi, PROC_PREEMPT_PAGE_DIR_ADDR
+    mov [edi + edx * 4], ebx
+    mov edi, PROC_DOOM_PAGE_DIR_ADDR
+    mov [edi + edx * 4], ebx
+    mov edi, PROC_GENERIC0_PAGE_DIR_ADDR
+    mov [edi + edx * 4], ebx
+    mov edi, PROC_GENERIC1_PAGE_DIR_ADDR
+    mov [edi + edx * 4], ebx
+
+.done:
+    pop edi
+    pop edx
+    pop ebx
+    pop eax
     ret
 
 acpi_probe_lapic_mmio:
@@ -27520,6 +27564,15 @@ write_smoke_status:
     mov edx, [acpi_last_map_length]
     call smoke_write_slash_hex32
 
+    mov esi, smoke_mmiopde_text
+    call smoke_copy_string
+    mov edx, [mmio_process_pde_installs]
+    call smoke_write_hex32
+    mov edx, [mmio_last_pde_index]
+    call smoke_write_slash_hex32
+    mov edx, [mmio_last_pde_entry]
+    call smoke_write_slash_hex32
+
     mov esi, smoke_madt_text
     call smoke_copy_string
     mov edx, [acpi_madt_addr]
@@ -31414,6 +31467,7 @@ smoke_rsdt_text db " rsdt=", 0
 smoke_xsdt_text db " xsdt=", 0
 smoke_acpitab_text db " acpitab=", 0
 smoke_acpimap_text db " acpimap=", 0
+smoke_mmiopde_text db " mmiopde=", 0
 smoke_madt_text db " madt=", 0
 smoke_madtinfo_text db " madtinfo=", 0
 smoke_lapic_text db " lapic=", 0
@@ -32035,6 +32089,9 @@ acpi_mapped_pages dd 0
 acpi_map_failures dd 0
 acpi_last_mapped_page dd 0
 acpi_last_map_length dd 0
+mmio_process_pde_installs dd 0
+mmio_last_pde_index dd 0
+mmio_last_pde_entry dd 0
 acpi_madt_lapic_addr dd 0
 acpi_madt_flags dd 0
 acpi_madt_entry_count dd 0
