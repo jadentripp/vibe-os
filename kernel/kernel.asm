@@ -351,6 +351,14 @@ IDT_TRAP_GATE_RING0 equ 10001111b
 IDT_TRAP_GATE_RING3 equ 11101111b
 CPU_TABLE_STATUS_UNKNOWN equ 0
 CPU_TABLE_STATUS_READY equ 1
+CPU_FEATURE_STATUS_UNKNOWN equ 0
+CPU_FEATURE_STATUS_READY equ 1
+CPU_FEATURE_STATUS_NO_CPUID equ 2
+EFLAGS_ID_BIT equ 0x00200000
+CPUID_FEATURE_MSR equ 0x00000020
+CPUID_FEATURE_APIC equ 0x00000200
+IA32_APIC_BASE_MSR equ 0x0000001b
+IA32_APIC_BASE_ADDR_MASK equ 0xfffff000
 CR0_MP equ 0x00000002
 CR0_EM equ 0x00000004
 CR0_TS equ 0x00000008
@@ -1316,6 +1324,7 @@ start:
     call uefi_entry_probe
     call serial_debug_init
     call cpu_tables_init
+    call cpu_probe_features
     call fpu_init
     call pic_remap_and_mask
     call pit_init_100hz
@@ -4185,6 +4194,72 @@ gdt_init:
     mov word [cpu_tss_selector], TSS_SEG
     mov byte [cpu_gdt_status], CPU_TABLE_STATUS_READY
     mov byte [cpu_tss_status], CPU_TABLE_STATUS_READY
+    ret
+
+cpu_probe_features:
+    pushad
+
+    mov byte [cpu_feature_status], CPU_FEATURE_STATUS_UNKNOWN
+    mov dword [cpu_cpuid_max_basic], 0
+    mov dword [cpu_cpuid_vendor_ebx], 0
+    mov dword [cpu_cpuid_vendor_edx], 0
+    mov dword [cpu_cpuid_vendor_ecx], 0
+    mov dword [cpu_cpuid_features_ecx], 0
+    mov dword [cpu_cpuid_features_edx], 0
+    mov dword [cpu_apic_base_msr_low], 0
+    mov dword [cpu_apic_base_msr_high], 0
+    mov dword [cpu_apic_base_addr], 0
+    mov dword [cpu_apic_base_flags], 0
+
+    pushfd
+    pop eax
+    mov esi, eax
+    xor eax, EFLAGS_ID_BIT
+    push eax
+    popfd
+    pushfd
+    pop eax
+    push esi
+    popfd
+    xor eax, esi
+    test eax, EFLAGS_ID_BIT
+    jz .no_cpuid
+
+    xor eax, eax
+    cpuid
+    mov [cpu_cpuid_max_basic], eax
+    mov [cpu_cpuid_vendor_ebx], ebx
+    mov [cpu_cpuid_vendor_edx], edx
+    mov [cpu_cpuid_vendor_ecx], ecx
+    mov byte [cpu_feature_status], CPU_FEATURE_STATUS_READY
+
+    cmp eax, 1
+    jb .done
+    mov eax, 1
+    cpuid
+    mov [cpu_cpuid_features_ecx], ecx
+    mov [cpu_cpuid_features_edx], edx
+    test edx, CPUID_FEATURE_MSR
+    jz .done
+    test edx, CPUID_FEATURE_APIC
+    jz .done
+
+    mov ecx, IA32_APIC_BASE_MSR
+    rdmsr
+    mov [cpu_apic_base_msr_low], eax
+    mov [cpu_apic_base_msr_high], edx
+    mov ebx, eax
+    and ebx, IA32_APIC_BASE_ADDR_MASK
+    mov [cpu_apic_base_addr], ebx
+    and eax, 0x00000fff
+    mov [cpu_apic_base_flags], eax
+    jmp .done
+
+.no_cpuid:
+    mov byte [cpu_feature_status], CPU_FEATURE_STATUS_NO_CPUID
+
+.done:
+    popad
     ret
 
 paging_init:
@@ -27495,6 +27570,34 @@ write_smoke_status:
     mov edx, [clock_scheduler_irq_switches]
     call smoke_write_hex32
 
+    mov esi, smoke_cpuid_text
+    call smoke_copy_string
+    movzx edx, byte [cpu_feature_status]
+    call smoke_write_hex32
+    mov edx, [cpu_cpuid_max_basic]
+    call smoke_write_slash_hex32
+    mov edx, [cpu_cpuid_vendor_ebx]
+    call smoke_write_slash_hex32
+    mov edx, [cpu_cpuid_vendor_edx]
+    call smoke_write_slash_hex32
+    mov edx, [cpu_cpuid_vendor_ecx]
+    call smoke_write_slash_hex32
+    mov edx, [cpu_cpuid_features_edx]
+    call smoke_write_slash_hex32
+    mov edx, [cpu_cpuid_features_ecx]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_apicbase_text
+    call smoke_copy_string
+    mov edx, [cpu_apic_base_msr_low]
+    call smoke_write_hex32
+    mov edx, [cpu_apic_base_msr_high]
+    call smoke_write_slash_hex32
+    mov edx, [cpu_apic_base_addr]
+    call smoke_write_slash_hex32
+    mov edx, [cpu_apic_base_flags]
+    call smoke_write_slash_hex32
+
     mov esi, smoke_irqctl_text
     call smoke_copy_string
 
@@ -31463,6 +31566,8 @@ smoke_clockms_text db " clockms=", 0
 smoke_clockdoom_text db " clockdoom=", 0
 smoke_clocksch_text db " clocksch=", 0
 smoke_clockpirq_text db " clockpirq=", 0
+smoke_cpuid_text db " cpuid=", 0
+smoke_apicbase_text db " apicbase=", 0
 smoke_irqctl_text db " irqctl=PIC", 0
 smoke_acpi_text db " acpi=", 0
 smoke_acpisrc_text db " acpisrc=", 0
@@ -31937,6 +32042,18 @@ cpu_idt_exception_attr db 0
 cpu_idt_breakpoint_attr db 0
 cpu_idt_irq_attr db 0
 cpu_idt_syscall_attr db 0
+cpu_feature_status db 0
+align 4
+cpu_cpuid_max_basic dd 0
+cpu_cpuid_vendor_ebx dd 0
+cpu_cpuid_vendor_edx dd 0
+cpu_cpuid_vendor_ecx dd 0
+cpu_cpuid_features_ecx dd 0
+cpu_cpuid_features_edx dd 0
+cpu_apic_base_msr_low dd 0
+cpu_apic_base_msr_high dd 0
+cpu_apic_base_addr dd 0
+cpu_apic_base_flags dd 0
 user_elf_status db 0
 user_elf_parse_status db 0
 boot_user_exec_status db 0
