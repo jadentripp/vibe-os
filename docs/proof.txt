@@ -51,13 +51,11 @@ Manual play:
 
 ## Gap Ledger
 
-- `GAP[UEFI_BOOT] status=partial`: prove-mode cloud run `26288958164` on
-  `main` built `BOOTX64.EFI`, booted disposable OVMF, passed
+- `GAP[UEFI_BOOT] status=partial`: prove-mode cloud run `26289526249` on
+  `main` built `BOOTX64.EFI`, packaged it into the same FAT16 disk-image layout
+  that also carries `DOOM.ELF` and `DOOM1.WAD`, booted disposable OVMF, passed
   `ExitBootServices`, attempted the 64-bit-to-32-bit handoff, and captured the
-  kernel-owned `VIBEKERN step=uefi-entry status=OK` marker. The workflow now
-  packages the UEFI loader into the same FAT16 disk-image layout that also
-  carries `DOOM.ELF` and `DOOM1.WAD`; the next proof needs to show that exact
-  dual image still reaches the kernel marker. The remaining gap after that is
+  kernel-owned `VIBEKERN step=uefi-entry status=OK` marker. The remaining gap is
   proving that the UEFI boot path continues through the kernel's ATA/FAT file
   path into Doom gameplay.
 - `GAP[HIGHER_HALF_EXEC] status=open`: the kernel has high mapping proof work,

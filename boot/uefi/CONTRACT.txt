@@ -19,13 +19,12 @@ UEFI boot support for this checkpoint until a disposable OVMF run captures the
 kernel-owned marker after `ExitBootServices`.
 
 The kernel-entry proof is green for this checkpoint: prove-mode cloud run
-`26288958164` built the PE/COFF loader and ESP image, booted disposable OVMF,
-and captured the kernel-owned `VIBEKERN step=uefi-entry status=OK` marker. The
-workflow now builds a dual BIOS/UEFI FAT16 disk image that also carries the BIOS
-boot files, Doom ELF, and WAD; the next prove run must show that exact image
-still reaches the kernel marker. The remaining blocker after that is proving
-that the UEFI path continues through the kernel's ATA/FAT file path into Doom
-gameplay. The playable game path still uses the BIOS/IDE disk layout.
+`26289526249` built the PE/COFF loader and a dual BIOS/UEFI FAT16 disk image
+that also carries the BIOS boot files, Doom ELF, and WAD, booted disposable
+OVMF, and captured the kernel-owned `VIBEKERN step=uefi-entry status=OK` marker.
+The remaining blocker is proving that the UEFI path continues through the
+kernel's ATA/FAT file path into Doom gameplay. The playable game path still uses
+the BIOS/IDE disk layout.
 
 The current boot path is still the BIOS MBR plus raw-LBA Stage 2 loader described
 in `docs/architecture.txt`. Future UEFI work must keep that path working unless
@@ -110,7 +109,7 @@ UEFI loader is not enough by itself; the proof must show how the loader is
 packaged, where the kernel is read from, and which boot-device assumptions were
 removed.
 
-- `UEFI_BOOT_DEVICE[DUAL_FAT16_IMAGE] status=proof-target requires=efi-boot-file-plus-bios-and-doom-files proof=github-actions-ovmf evidence=uefi-ovmf-proof.yml`
+- `UEFI_BOOT_DEVICE[DUAL_FAT16_IMAGE] status=cloud-proven requires=efi-boot-file-plus-bios-and-doom-files proof=github-actions-ovmf evidence=uefi-ovmf-proof.yml`
 - `UEFI_BOOT_DEVICE[OVMF_BOOT] status=cloud-proven requires=ovmf-loads-efi-from-esp proof=github-actions-ovmf evidence=uefi-ovmf-proof.yml`
 - `UEFI_BOOT_DEVICE[NO_RAW_LBA_FALLBACK] status=host-checked requires=no-stage2-raw-lba-dependency proof=source-contract-check evidence=loader.asm`
 - `UEFI_BOOT_DEVICE[PHYSICAL_MEDIA] status=unimplemented requires=machine-inventory-disposable-media proof=future-lab-run evidence=none`
