@@ -63,9 +63,14 @@ Manual play:
   restores, ending in the Doom process page directory.
   The remaining gap is interactive UEFI playability; the noVNC play target is
   still BIOS/IDE.
-- `GAP[HIGHER_HALF_EXEC] status=open`: the kernel has high mapping proof work,
-  but "done" means the live kernel actually executes from its higher-half
-  virtual address.
+- `GAP[HIGHER_HALF_EXEC] status=partial`: the kernel now jumps into its
+  persistent higher-half alias for the live mainline, runs on a higher-half
+  stack, rebuilds IDT gates for higher-half handlers, updates TSS `esp0`, and
+  emits `khabi=` from guest assembly to prove the checkpoints, translations,
+  page-table entries, and retained low-identity dependency were checked by the
+  OS itself. Remaining work before calling this done is the stronger relocation
+  target: a persistent PMM-managed kernel page directory with the low identity
+  mapping removed while the kernel keeps running.
 - `GAP[PREEMPTION] status=partial`: timer IRQ preemption now switches Ring 3
   contexts through saved frames and `iret`, and the guest emits `preemptabi=`
   from the assembly scheduler path to prove the user IRQ frame, context save,

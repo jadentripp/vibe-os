@@ -19,6 +19,21 @@
 #define KERNEL_HIGH_STACK_LOW (KERNEL_HIGHER_HALF_BASE + KERNEL_STACK_LOW)
 #define KERNEL_HIGH_STACK_TOP (KERNEL_HIGHER_HALF_BASE + KERNEL_STACK_TOP)
 #define KERNEL_HIGH_MAINLINE_MIN_CHECKPOINTS 2u
+#define KERNEL_HIGH_ABI_ENTRY_CHECKPOINT 0x00000001u
+#define KERNEL_HIGH_ABI_LATE_CHECKPOINT 0x00000002u
+#define KERNEL_HIGH_ABI_IDT_BIAS 0x00000004u
+#define KERNEL_HIGH_ABI_TSS_ESP0 0x00000008u
+#define KERNEL_HIGH_ABI_HIGH_EIP 0x00000010u
+#define KERNEL_HIGH_ABI_HIGH_ESP 0x00000020u
+#define KERNEL_HIGH_ABI_TEXT_XLAT 0x00000040u
+#define KERNEL_HIGH_ABI_STACK_XLAT 0x00000080u
+#define KERNEL_HIGH_ABI_PTE_CHECK 0x00000100u
+#define KERNEL_HIGH_ABI_LOW_ID_RETAINED 0x00000200u
+#define KERNEL_HIGH_ABI_FULL_MASK \
+    (KERNEL_HIGH_ABI_ENTRY_CHECKPOINT | KERNEL_HIGH_ABI_LATE_CHECKPOINT | \
+     KERNEL_HIGH_ABI_IDT_BIAS | KERNEL_HIGH_ABI_TSS_ESP0 | KERNEL_HIGH_ABI_HIGH_EIP | \
+     KERNEL_HIGH_ABI_HIGH_ESP | KERNEL_HIGH_ABI_TEXT_XLAT | KERNEL_HIGH_ABI_STACK_XLAT | \
+     KERNEL_HIGH_ABI_PTE_CHECK | KERNEL_HIGH_ABI_LOW_ID_RETAINED)
 #define PAGING_DIR_ADDR 0x00090000u
 #define PROC_PROBE_PAGE_DIR_ADDR 0x00080000u
 #define PROC_DOOM_PAGE_DIR_ADDR 0x00082000u
@@ -520,6 +535,7 @@ static void validate_high_mainline(const Status *status, uint32_t expected_cr3) 
     uint32_t span[8];
     uint32_t xlat[4];
     uint32_t pte[5];
+    uint32_t abi[5];
     uint32_t kppt;
 
     exact(status, "khmain", "OK");
@@ -571,6 +587,20 @@ static void validate_high_mainline(const Status *status, uint32_t expected_cr3) 
         (pte[3] & ~(PAGE_SIZE - 1u)) != (xlat[2] & ~(PAGE_SIZE - 1u)) ||
         (pte[4] & ~(PAGE_SIZE - 1u)) != (xlat[3] & ~(PAGE_SIZE - 1u))) {
         fail("khmpte= PTE frames must match khmxlat=");
+    }
+
+    hex_tuple(status, "khabi", 5, '/', abi);
+    if (abi[0] != KERNEL_HIGH_ABI_FULL_MASK || abi[1] != KERNEL_HIGH_ABI_FULL_MASK) {
+        fail("khabi= must prove every live higher-half kernel checkpoint ran in guest assembly");
+    }
+    if (abi[2] != KERNEL_HIGH_ABI_LOW_ID_RETAINED) {
+        fail("khabi= final operation must prove the retained low identity dependency was checked");
+    }
+    if (abi[3] != span[7]) {
+        fail("khabi= checkpoint count must match khmspan=");
+    }
+    if (abi[4] != 1u) {
+        fail("khabi= must prove the persistent higher-half mainline is active");
     }
 }
 
