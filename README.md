@@ -147,9 +147,13 @@ primary IDE IRQs. It then computes non-applied IOAPIC redirection entries in
 `ioapicplan=`, `ioapicidx=`, `ioapiclo=`, and `ioapichi=` so the next step has
 exact register values to program. The `ioapicarm=` path writes those entries
 with the IOAPIC mask bit set and verifies readback, so the hardware programming
-path is exercised without routing live interrupts through APIC yet.
-APIC/IOAPIC routing and HPET clock ownership are still unclaimed; the live
-status still says `irqctl=PIC`, `apic=NONE`, and `hpet=NONE`.
+path is exercised without routing live interrupts through APIC yet. The
+`lapiclive=` path also software-enables the local APIC when the CPU/APIC-base
+state says the LAPIC is globally enabled, installs a real spurious-vector
+handler, and verifies the LAPIC spurious-vector register readback. External
+interrupt delivery is still deliberately PIC-backed until the IOAPIC unmask path
+is proven; the live status still says `irqctl=PIC`, `apic=NONE`, and
+`hpet=NONE`.
 
 The storage claim is also bounded. vibe-os mutates and reboots its generated
 FAT16 image in disposable cloud QEMU, but it is not an installable OS for

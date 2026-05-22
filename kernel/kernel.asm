@@ -268,6 +268,7 @@ MMIO_PROBE_BAD equ 2
 IRQ_EOI_NONE equ 0
 IRQ_EOI_MASTER equ 1
 IRQ_EOI_SLAVE equ 2
+IRQ_EOI_LAPIC equ 3
 IRQ_ROUTE_STATUS_NONE equ 0
 IRQ_ROUTE_STATUS_READY equ 1
 IRQ_ROUTE_STATUS_BAD equ 2
@@ -280,6 +281,9 @@ IRQ_IOAPIC_PROGRAM_STATUS_BAD equ 2
 IRQ_IOAPIC_ARM_STATUS_NONE equ 0
 IRQ_IOAPIC_ARM_STATUS_READY equ 1
 IRQ_IOAPIC_ARM_STATUS_BAD equ 2
+LAPIC_LIVE_STATUS_NONE equ 0
+LAPIC_LIVE_STATUS_READY equ 1
+LAPIC_LIVE_STATUS_BAD equ 2
 IRQ_VECTOR_BASE equ 0x20
 IRQ_LEGACY_TIMER equ 0
 IRQ_LEGACY_KEYBOARD equ 1
@@ -293,7 +297,10 @@ IRQ_VECTOR_MOUSE equ IRQ_VECTOR_BASE + IRQ_LEGACY_MOUSE
 IRQ_VECTOR_IDE_PRIMARY equ IRQ_VECTOR_BASE + IRQ_LEGACY_IDE_PRIMARY
 LAPIC_REG_ID equ 0x020
 LAPIC_REG_VERSION equ 0x030
+LAPIC_REG_EOI equ 0x0b0
 LAPIC_REG_SPURIOUS equ 0x0f0
+LAPIC_SPURIOUS_VECTOR equ 0xff
+LAPIC_SPURIOUS_ENABLE equ 0x00000100
 IOAPIC_REGSEL equ 0x00
 IOAPIC_WINDOW equ 0x10
 IOAPIC_REG_ID equ 0x00
@@ -388,6 +395,7 @@ CPUID_FEATURE_MSR equ 0x00000020
 CPUID_FEATURE_APIC equ 0x00000200
 IA32_APIC_BASE_MSR equ 0x0000001b
 IA32_APIC_BASE_ADDR_MASK equ 0xfffff000
+IA32_APIC_BASE_ENABLE equ 0x00000800
 CR0_MP equ 0x00000002
 CR0_EM equ 0x00000004
 CR0_TS equ 0x00000008
@@ -2302,12 +2310,17 @@ acpi_probe_tables:
     mov dword [acpi_hpet_min_tick], 0
     mov dword [acpi_hpet_page_prot], 0
     mov byte [lapic_mmio_status], MMIO_PROBE_NONE
+    mov byte [lapic_live_status], LAPIC_LIVE_STATUS_NONE
     mov byte [ioapic_mmio_status], MMIO_PROBE_NONE
     mov byte [hpet_mmio_status], MMIO_PROBE_NONE
     mov dword [lapic_mmio_addr], 0
     mov dword [lapic_mmio_id], 0
     mov dword [lapic_mmio_version], 0
     mov dword [lapic_mmio_spurious], 0
+    mov dword [lapic_live_svr_before], 0
+    mov dword [lapic_live_svr_written], 0
+    mov dword [lapic_live_svr_after], 0
+    mov dword [lapic_spurious_irq_count], 0
     mov dword [ioapic_mmio_addr], 0
     mov dword [ioapic_mmio_id], 0
     mov dword [ioapic_mmio_version], 0
@@ -2892,6 +2905,7 @@ acpi_probe_mmio_devices:
     call irq_build_route_plan
     call irq_build_ioapic_program_plan
     call ioapic_arm_masked_program_plan
+    call lapic_enable_software
     popad
     ret
 
@@ -3303,6 +3317,50 @@ acpi_probe_lapic_mmio:
     mov eax, [esi + LAPIC_REG_SPURIOUS]
     mov [lapic_mmio_spurious], eax
     mov byte [lapic_mmio_status], MMIO_PROBE_OK
+
+.done:
+    popad
+    ret
+
+lapic_enable_software:
+    pushad
+    mov byte [lapic_live_status], LAPIC_LIVE_STATUS_BAD
+    mov dword [lapic_live_svr_before], 0
+    mov dword [lapic_live_svr_written], 0
+    mov dword [lapic_live_svr_after], 0
+
+    cmp byte [cpu_feature_status], CPU_FEATURE_STATUS_READY
+    jne .done
+    mov eax, [cpu_cpuid_features_edx]
+    test eax, CPUID_FEATURE_APIC
+    jz .done
+    test eax, CPUID_FEATURE_MSR
+    jz .done
+    mov eax, [cpu_apic_base_flags]
+    test eax, IA32_APIC_BASE_ENABLE
+    jz .done
+    cmp byte [lapic_mmio_status], MMIO_PROBE_OK
+    jne .done
+    mov esi, [lapic_mmio_addr]
+    test esi, esi
+    jz .done
+
+    mov eax, [esi + LAPIC_REG_SPURIOUS]
+    mov [lapic_live_svr_before], eax
+    mov ebx, eax
+    and ebx, 0xffffff00
+    or ebx, LAPIC_SPURIOUS_ENABLE | LAPIC_SPURIOUS_VECTOR
+    mov [lapic_live_svr_written], ebx
+    mov [esi + LAPIC_REG_SPURIOUS], ebx
+    mov eax, [esi + LAPIC_REG_SPURIOUS]
+    mov [lapic_live_svr_after], eax
+    mov edx, eax
+    and edx, 0x000001ff
+    mov ecx, ebx
+    and ecx, 0x000001ff
+    cmp edx, ecx
+    jne .done
+    mov byte [lapic_live_status], LAPIC_LIVE_STATUS_READY
 
 .done:
     popad
@@ -16962,6 +17020,10 @@ idt_init:
     call idt_set_gate
     loop .remaining
 
+    mov edi, idt_start + (LAPIC_SPURIOUS_VECTOR * 8)
+    mov eax, irq_lapic_spurious
+    call idt_set_gate
+
     mov edi, idt_start + (0x80 * 8)
     mov eax, syscall_handler
     mov bl, IDT_TRAP_GATE_RING3
@@ -26102,6 +26164,11 @@ irq_audio:
     call irq_send_master_eoi
     IRQ_RETURN
 
+irq_lapic_spurious:
+    IRQ_ENTER
+    inc dword [lapic_spurious_irq_count]
+    IRQ_RETURN
+
 irq_ignore_master:
     IRQ_ENTER
     call irq_send_master_eoi
@@ -26129,6 +26196,23 @@ irq_send_slave_eoi:
     inc dword [irq_eoi_slave_count]
     inc dword [irq_eoi_master_count]
     mov dword [irq_eoi_last_kind], IRQ_EOI_SLAVE
+    pop eax
+    ret
+
+irq_send_lapic_eoi:
+    push eax
+    push esi
+    cmp byte [lapic_live_status], LAPIC_LIVE_STATUS_READY
+    jne .done
+    mov esi, [lapic_mmio_addr]
+    test esi, esi
+    jz .done
+    mov dword [esi + LAPIC_REG_EOI], 0
+    inc dword [irq_eoi_lapic_count]
+    mov dword [irq_eoi_last_kind], IRQ_EOI_LAPIC
+
+.done:
+    pop esi
     pop eax
     ret
 
@@ -28315,6 +28399,21 @@ write_smoke_status:
     mov edx, [lapic_mmio_version]
     call smoke_write_slash_hex32
     mov edx, [lapic_mmio_spurious]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_lapiclive_text
+    call smoke_copy_string
+    movzx edx, byte [lapic_live_status]
+    call smoke_write_hex32
+    mov edx, [lapic_live_svr_before]
+    call smoke_write_slash_hex32
+    mov edx, [lapic_live_svr_written]
+    call smoke_write_slash_hex32
+    mov edx, [lapic_live_svr_after]
+    call smoke_write_slash_hex32
+    mov edx, [lapic_spurious_irq_count]
+    call smoke_write_slash_hex32
+    mov edx, [irq_eoi_lapic_count]
     call smoke_write_slash_hex32
 
     mov esi, smoke_ioapicprobe_text
@@ -32134,6 +32233,7 @@ smoke_hpetp_text db " hpetp=", 0
 smoke_hpetinfo_text db " hpetinfo=", 0
 smoke_hpetaddr_text db " hpetaddr=", 0
 smoke_apicprobe_text db " apicprobe=", 0
+smoke_lapiclive_text db " lapiclive=", 0
 smoke_ioapicprobe_text db " ioapicprobe=", 0
 smoke_ioapicred_text db " ioapicred=", 0
 smoke_ioapiciso_text db " ioapiciso=", 0
@@ -32602,6 +32702,7 @@ cpu_apic_base_addr dd 0
 cpu_apic_base_flags dd 0
 irq_eoi_master_count dd 0
 irq_eoi_slave_count dd 0
+irq_eoi_lapic_count dd 0
 irq_eoi_last_kind dd 0
 user_elf_status db 0
 user_elf_parse_status db 0
@@ -32738,6 +32839,7 @@ acpi_root_kind db 0
 acpi_madt_parse_status db 0
 acpi_hpet_parse_status db 0
 lapic_mmio_status db 0
+lapic_live_status db 0
 ioapic_mmio_status db 0
 ioapic_redir_status db 0
 irq_route_status db 0
@@ -32799,6 +32901,10 @@ lapic_mmio_addr dd 0
 lapic_mmio_id dd 0
 lapic_mmio_version dd 0
 lapic_mmio_spurious dd 0
+lapic_live_svr_before dd 0
+lapic_live_svr_written dd 0
+lapic_live_svr_after dd 0
+lapic_spurious_irq_count dd 0
 ioapic_mmio_addr dd 0
 ioapic_mmio_id dd 0
 ioapic_mmio_version dd 0
