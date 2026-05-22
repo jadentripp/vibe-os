@@ -89,7 +89,9 @@ The project owns the machine path instead of outsourcing it to a host OS:
   write, seek, stat, directory listing, truncate, unlink, and close paths ran
   outside Doom
 - input and video: keyboard, mouse, a reusable indexed framebuffer device,
-  palette conversion, and frame presentation
+  palette conversion, and frame presentation; the OVMF cloud proof now
+  exercises a non-Doom Ring 3 framebuffer lifecycle through the generic video
+  ABI
 - audio and runtime: SB16-style PCM contracts, x87/FPU handling, and the
   freestanding C/math/string support Doom expects; the OVMF cloud proof now
   exercises a non-Doom Ring 3 PCM lifecycle through the generic audio ABI
@@ -131,9 +133,11 @@ disposable OVMF. The latest green prove run captured the kernel-owned
 partition selection, WAD loading, Ring 3 ABI exec, and launched `DOOM.ELF` with
 `doom=OK`, `doomrun=EXIT`, and `panic=NONE`. It also exposes an SB16 device and
 requires the generic audio ABI to open, write, query, drain, and close a PCM
-stream outside Doom. That proves the UEFI loader reaches the same kernel
-storage, process, and audio-device paths far enough to exec Doom and exercise a
-second audio client. Interactive play remains proven on the BIOS/IDE noVNC
+stream outside Doom. It also requires the generic framebuffer ABI to query the
+device, present pixels, mark the surface dirty, and do that through the ioctl
+path outside Doom. That proves the UEFI loader reaches the same kernel storage,
+process, video, and audio-device paths far enough to exec Doom and exercise
+separate non-Doom clients. Interactive play remains proven on the BIOS/IDE noVNC
 target, not UEFI, and UEFI does not claim physical PC support yet.
 PCI fields such as `pci=`, `pciprobe=`, `pciapi=`, `pcilookahci=`,
 `pcilookhda=`, `ahcibar=`, and `ahcireq=` are diagnostics, not a broad hardware

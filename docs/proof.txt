@@ -76,8 +76,12 @@ Manual play:
   long-lived allocation/free/truncate behavior beyond the current proof.
 - `GAP[INPUT_GENERALITY] status=open`: keyboard and mouse should feed one
   generic event queue consumed by any process.
-- `GAP[GRAPHICS_GENERALITY] status=open`: framebuffer presentation should be a
-  normal OS device ABI, not a Doom-only path.
+- `GAP[GRAPHICS_GENERALITY] status=partial`: framebuffer presentation is now
+  exercised through the generic user framebuffer ABI by `ABIPROBE.ELF`, not
+  only by Doom. Cloud run `26294806487` proved
+  `framebuffer_abi=0000000F/0000000F/00000001/00000000/00000004` and
+  `guest_framebuffer_abi_proof=true`. Remaining work is richer device ownership
+  and proof that another interactive graphical program can use the same path.
 - `GAP[AUDIO_GENERALITY] status=partial`: SB16/DMA/PCM is now exercised through
   the generic user audio ABI by `ABIPROBE.ELF`, not only by Doom. Cloud run
   `26294418446` proved `audio=SB16`,
