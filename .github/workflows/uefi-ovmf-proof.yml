@@ -66,7 +66,7 @@ jobs:
         if: ${{ inputs.proof_mode != 'contract' }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 ovmf parted dosfstools
+          sudo apt-get install -y qemu-system-x86 ovmf
 
       - name: Build kernel ELF for ESP packaging
         run: make DOOM_WAD= build/kernel.elf
@@ -92,55 +92,27 @@ jobs:
           }
           JSON
 
-      - name: Build GPT/FAT ESP image
+      - name: Build dual BIOS/UEFI FAT16 image
         if: ${{ inputs.proof_mode != 'contract' }}
         run: |
           set -euo pipefail
-
-          esp_image=build/uefi-ovmf-proof/esp.img
-          truncate -s 64M "$esp_image"
-          parted -s "$esp_image" mklabel gpt
-          parted -s "$esp_image" mkpart ESP fat32 1MiB 63MiB
-          parted -s "$esp_image" set 1 esp on
-
-          loop_device=$(sudo losetup --find --partscan --show "$esp_image")
-          cleanup() {
-            if mountpoint -q build/uefi-ovmf-proof/esp-mnt 2>/dev/null; then
-              sudo umount build/uefi-ovmf-proof/esp-mnt
-            fi
-            sudo losetup -d "$loop_device" 2>/dev/null || true
-          }
-          trap cleanup EXIT
-
-          for _ in 1 2 3 4 5; do
-            if [ -b "${loop_device}p1" ]; then
-              break
-            fi
-            sleep 1
-          done
-          test -b "${loop_device}p1"
-          sudo mkfs.fat -F 32 -n VIBEUEFI "${loop_device}p1"
-          mkdir -p build/uefi-ovmf-proof/esp-mnt
-          sudo mount "${loop_device}p1" build/uefi-ovmf-proof/esp-mnt
-          sudo mkdir -p build/uefi-ovmf-proof/esp-mnt/EFI/BOOT
-          sudo mkdir -p build/uefi-ovmf-proof/esp-mnt/VIBEOS
-          sudo cp build/uefi/BOOTX64.EFI build/uefi-ovmf-proof/esp-mnt/EFI/BOOT/BOOTX64.EFI
-          sudo cp build/kernel.elf build/uefi-ovmf-proof/esp-mnt/VIBEOS/KERNEL.ELF
-          sync
-          find build/uefi-ovmf-proof/esp-mnt -maxdepth 3 -type f | sort > build/uefi-ovmf-proof/esp-layout.txt
-          grep -q '/EFI/BOOT/BOOTX64.EFI$' build/uefi-ovmf-proof/esp-layout.txt
-          grep -q '/VIBEOS/KERNEL.ELF$' build/uefi-ovmf-proof/esp-layout.txt
-          sudo umount build/uefi-ovmf-proof/esp-mnt
-          sudo losetup -d "$loop_device"
-          trap - EXIT
+          make DOOM_WAD= uefi-dual-image
+          build/make_wad_image --inspect build/uefi/uefi-fat16.img > build/uefi-ovmf-proof/dual-image-inspect.txt
+          grep -q 'root.*=DOOM1.WAD' build/uefi-ovmf-proof/dual-image-inspect.txt
+          grep -q 'root.*=KERNEL.ELF' build/uefi-ovmf-proof/dual-image-inspect.txt
+          grep -q 'root.*=USERPROB.ELF' build/uefi-ovmf-proof/dual-image-inspect.txt
+          grep -q 'root.*=DOOM.ELF' build/uefi-ovmf-proof/dual-image-inspect.txt
 
           cat > build/uefi-ovmf-proof/uefi-esp.json <<JSON
           {
             "schema": "uefi-esp-artifact-v1",
-            "gpt_image_built": true,
-            "fat_esp_formatted": true,
+            "dual_bios_uefi_image_built": true,
+            "fat16_partition_built": true,
             "boot_file": "EFI/BOOT/BOOTX64.EFI",
             "kernel_file": "VIBEOS/KERNEL.ELF",
+            "bios_kernel_file": "KERNEL.ELF",
+            "doom_file": "DOOM.ELF",
+            "wad_file": "DOOM1.WAD",
             "artifact_uploaded": false
           }
           JSON
@@ -180,7 +152,7 @@ jobs:
             -m 256M \
             -drive if=pflash,format=raw,readonly=on,file="$ovmf_code" \
             -drive if=pflash,format=raw,file=build/uefi-ovmf-proof/OVMF_VARS.fd \
-            -drive if=ide,format=raw,file=build/uefi-ovmf-proof/esp.img \
+            -drive if=ide,format=raw,file=build/uefi/uefi-fat16.img \
             -boot order=c \
             -net none \
             -display none \
@@ -188,8 +160,8 @@ jobs:
             -monitor none \
             -no-reboot \
             -no-shutdown \
-            -debugcon file:build/uefi-ovmf-proof/debugcon.log \
-            -global isa-debugcon.iobase=0x402
+            -chardev file,id=uefi_dbg,path=build/uefi-ovmf-proof/debugcon-402.log \
+            -device isa-debugcon,iobase=0x402,chardev=uefi_dbg
           qemu_status=$?
           set -e
 
@@ -197,14 +169,14 @@ jobs:
             echo "QEMU exited with unexpected status $qemu_status" >&2
             exit "$qemu_status"
           fi
-          test -s build/uefi-ovmf-proof/debugcon.log
+          test -s build/uefi-ovmf-proof/debugcon-402.log
 
       - name: Validate UEFI OVMF markers
         if: ${{ inputs.proof_mode != 'contract' }}
         run: |
           set -euo pipefail
 
-          log=build/uefi-ovmf-proof/debugcon.log
+          log=build/uefi-ovmf-proof/debugcon-402.log
           marker_file=build/uefi-ovmf-proof/markers.txt
           tr -d '\r' < "$log" | grep -aE 'VIBE(UEFI|KERN)' > "$marker_file"
 
@@ -233,7 +205,8 @@ jobs:
           {
             "schema": "uefi-ovmf-proof-v1",
             "mode": "${{ inputs.proof_mode }}",
-            "esp_image_built": true,
+            "dual_bios_uefi_image_built": true,
+            "fat16_partition_built": true,
             "ovmf_ran_in_disposable_cloud": true,
             "loader_entry_marker": true,
             "esp_kernel_read_marker": true,
@@ -246,7 +219,7 @@ jobs:
           }
           JSON
 
-          rm -f "$log" "$marker_file" build/uefi-ovmf-proof/esp.img build/uefi-ovmf-proof/OVMF_VARS.fd build/uefi-ovmf-proof/bootx64.file.txt build/uefi-ovmf-proof/esp-layout.txt
+          rm -f "$log" "$marker_file" build/uefi/uefi-fat16.img build/uefi-ovmf-proof/OVMF_VARS.fd build/uefi-ovmf-proof/bootx64.file.txt build/uefi-ovmf-proof/dual-image-inspect.txt
 
       - name: Write cloud proof run identity
         if: always()

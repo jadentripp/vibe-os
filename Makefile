@@ -64,6 +64,7 @@ IMAGE_BUILDER := $(BUILD_DIR)/make_wad_image
 UEFI_BUILD_DIR := $(BUILD_DIR)/uefi
 UEFI_LOADER_OBJ := $(UEFI_BUILD_DIR)/loader.obj
 UEFI_LOADER_EFI := $(UEFI_BUILD_DIR)/BOOTX64.EFI
+UEFI_DUAL_IMAGE := $(UEFI_BUILD_DIR)/uefi-fat16.img
 C_RUNTIME_SRC := kernel/c_runtime_probe.c
 USER_PROBE_C_SRC := user/probe.c
 USER_ABI_PROBE_C_SRC := user/abi_probe.c
@@ -91,7 +92,7 @@ USER_PROBE_ELF_MAX_BYTES := 16384
 USER_ABI_PROBE_ELF_MAX_BYTES := 24576
 IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF)
 
-.PHONY: all build-only test host-c-tests doom-compile doom-link run run-headless smoke playability-host-check playability-gap-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe ahci-block-status-check hardware-support-check storage-install-boundary-check storage-vfs-status-check real-wad-status-check vm-entry-status-check audio-continuity-check cloud-playability-check persistence-image-check clean check-tools vm-consent
+.PHONY: all build-only test host-c-tests doom-compile doom-link run run-headless smoke playability-host-check playability-gap-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image ahci-block-status-check hardware-support-check storage-install-boundary-check storage-vfs-status-check real-wad-status-check vm-entry-status-check audio-continuity-check cloud-playability-check persistence-image-check clean check-tools vm-consent
 
 all: $(IMAGE)
 
@@ -192,6 +193,16 @@ $(UEFI_LOADER_EFI): $(UEFI_LOADER_OBJ) | $(UEFI_BUILD_DIR)
 uefi-loader-object: $(UEFI_LOADER_OBJ)
 
 uefi-loader-pe: $(UEFI_LOADER_EFI)
+
+$(UEFI_DUAL_IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(IMAGE_BUILDER) $(UEFI_LOADER_EFI) | $(UEFI_BUILD_DIR)
+	@if [ -n "$(DOOM_WAD)" ]; then \
+		$(IMAGE_BUILDER) --wad "$(DOOM_WAD)" --asset EFI/BOOT/BOOTX64.EFI=$(UEFI_LOADER_EFI) --asset VIBEOS/KERNEL.ELF=$(KERNEL_ELF) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF); \
+	else \
+		$(IMAGE_BUILDER) --asset EFI/BOOT/BOOTX64.EFI=$(UEFI_LOADER_EFI) --asset VIBEOS/KERNEL.ELF=$(KERNEL_ELF) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF); \
+	fi
+	@printf "Built dual BIOS/UEFI FAT16 image %s\n" "$@"
+
+uefi-dual-image: $(UEFI_DUAL_IMAGE)
 
 $(KERNEL_ELF): $(KERNEL_OBJ) $(C_RUNTIME_OBJ) $(LINK_ELF32) | $(BUILD_DIR)
 	$(LINK_ELF32) -o $@ --base 0x10000 $(KERNEL_OBJ) $(C_RUNTIME_OBJ)

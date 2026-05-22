@@ -122,11 +122,11 @@ the full support matrix.
 UEFI is an opt-in source-level boot path, documented in
 `boot/uefi/CONTRACT.txt`. The loader reads the kernel from an ESP image and has
 a bounded 64-bit-to-32-bit handoff path. The cloud workflow now builds a real
-`BOOTX64.EFI`, packages it with `VIBEOS/KERNEL.ELF` in a GPT/FAT ESP image, and
-boots that image under disposable OVMF in prove mode. The latest prove run
-captured the kernel-owned `VIBEKERN step=uefi-entry status=OK` marker on
-`main`, so UEFI kernel entry is real cloud evidence now. UEFI is still not the
-playable Doom target and does not claim physical PC support.
+`BOOTX64.EFI` and is being moved onto the same kind of FAT16 disk image the
+kernel can read. The current green prove run captured the kernel-owned
+`VIBEKERN step=uefi-entry status=OK` marker on `main`; the next UEFI proof must
+show that the dual BIOS/UEFI FAT16 image still reaches that marker. UEFI is
+still not the playable Doom target and does not claim physical PC support.
 PCI fields such as `pci=`, `pciprobe=`, `pciapi=`, `pcilookahci=`,
 `pcilookhda=`, `ahcibar=`, and `ahcireq=` are diagnostics, not a broad hardware
 support claim.
