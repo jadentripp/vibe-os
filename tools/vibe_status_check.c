@@ -29,11 +29,13 @@
 #define KERNEL_HIGH_ABI_STACK_XLAT 0x00000080u
 #define KERNEL_HIGH_ABI_PTE_CHECK 0x00000100u
 #define KERNEL_HIGH_ABI_LOW_ID_RETAINED 0x00000200u
+#define KERNEL_HIGH_ABI_HIGH_DATA_WRITE 0x00000400u
 #define KERNEL_HIGH_ABI_FULL_MASK \
     (KERNEL_HIGH_ABI_ENTRY_CHECKPOINT | KERNEL_HIGH_ABI_LATE_CHECKPOINT | \
      KERNEL_HIGH_ABI_IDT_BIAS | KERNEL_HIGH_ABI_TSS_ESP0 | KERNEL_HIGH_ABI_HIGH_EIP | \
      KERNEL_HIGH_ABI_HIGH_ESP | KERNEL_HIGH_ABI_TEXT_XLAT | KERNEL_HIGH_ABI_STACK_XLAT | \
-     KERNEL_HIGH_ABI_PTE_CHECK | KERNEL_HIGH_ABI_LOW_ID_RETAINED)
+     KERNEL_HIGH_ABI_PTE_CHECK | KERNEL_HIGH_ABI_LOW_ID_RETAINED | \
+     KERNEL_HIGH_ABI_HIGH_DATA_WRITE)
 #define PAGING_DIR_ADDR 0x00090000u
 #define PROC_PROBE_PAGE_DIR_ADDR 0x00080000u
 #define PROC_DOOM_PAGE_DIR_ADDR 0x00082000u
@@ -552,6 +554,7 @@ static void validate_high_mainline(const Status *status, uint32_t expected_cr3) 
     uint32_t xlat[4];
     uint32_t pte[5];
     uint32_t abi[5];
+    uint32_t data[3];
     uint32_t kppt;
 
     exact(status, "khmain", "OK");
@@ -617,6 +620,17 @@ static void validate_high_mainline(const Status *status, uint32_t expected_cr3) 
     }
     if (abi[4] != 1u) {
         fail("khabi= must prove the persistent higher-half mainline is active");
+    }
+
+    hex_tuple(status, "khdata", 3, '/', data);
+    if (data[0] < KERNEL_HIGH_MAINLINE_MIN_CHECKPOINTS) {
+        fail("khdata= must prove repeated higher-half data writes");
+    }
+    if (data[1] != KERNEL_HIGH_ABI_LOW_ID_RETAINED) {
+        fail("khdata= final high-data write must match khabi= final operation");
+    }
+    if (data[2] != KERNEL_HIGH_ABI_HIGH_DATA_WRITE) {
+        fail("khdata= must declare the high-data write ABI bit");
     }
 }
 

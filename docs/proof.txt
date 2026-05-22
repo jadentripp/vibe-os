@@ -66,12 +66,13 @@ Manual play:
 - `GAP[HIGHER_HALF_EXEC] status=partial`: the kernel now jumps into its
   persistent higher-half alias for the live mainline, runs on a higher-half
   stack, rebuilds IDT gates for higher-half handlers, updates TSS `esp0`, and
-  emits `khabi=` from guest assembly to prove the checkpoints, translations,
-  page-table entries, and retained low-identity dependency were checked by the
-  OS itself. The relocation-directory side now also emits `krelabi=` from guest
-  assembly, proving the PMM-managed directory, high PDE, absent low PDE, text and
-  stack translations, absent low translation, bounded high-only CR3 switch, high
-  data write, blocked low return, and restored CR3. Remaining work before
+  emits `khabi=` and `khdata=` from guest assembly to prove the checkpoints,
+  translations, page-table entries, retained low-identity dependency, and
+  higher-half data bookkeeping path were checked by the OS itself. The
+  relocation-directory side now also emits `krelabi=` from guest assembly,
+  proving the PMM-managed directory, high PDE, absent low PDE, text and stack
+  translations, absent low translation, bounded high-only CR3 switch, high data
+  write, blocked low return, and restored CR3. Remaining work before
   calling this done is the stronger relocation target: converting enough live
   kernel data references to high-safe addressing that the PMM-managed directory
   can stay active with the low identity mapping removed while the kernel keeps

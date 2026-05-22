@@ -82,8 +82,8 @@ The project owns the machine path instead of outsourcing it to a host OS:
 - memory: paging, BIOS memory-map-driven physical page accounting, heaps,
   guard pages, and higher-half kernel execution proof work, including a
   guest-emitted assembly mask for live high-stack, IDT, TSS, translation, and
-  page-table checks, plus a relocation-directory mask for the bounded
-  PMM-backed CR3 switch that runs with low identity absent
+  page-table checks, higher-half data bookkeeping, plus a relocation-directory
+  mask for the bounded PMM-backed CR3 switch that runs with low identity absent
 - programs: Ring 3 ELF launch for Doom and small probe programs
 - files: ATA/IDE PIO, a block-device boundary, FAT16 reads/writes, config files,
   WAD loading, save-file write/read plumbing, readonly `/ASSETS`, and writable

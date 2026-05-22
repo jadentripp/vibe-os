@@ -111,11 +111,18 @@ if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-c
   cat /tmp/vibe-status-check-preemptabi-bad.out >&2
   exit 1
 fi
-sed 's|khabi=000003FF/000003FF/00000200/00000002/00000001|khabi=000001FF/000003FF/00000100/00000002/00000001|' \
+sed 's|khabi=000007FF/000007FF/00000200/00000002/00000001|khabi=000003FF/000007FF/00000100/00000002/00000001|' \
   "$DEVICE_OK" > "$DEVICE_BAD"
 if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-khabi-bad.out 2>&1; then
   echo "vibe_status_check accepted incomplete higher-half kernel ABI proof" >&2
   cat /tmp/vibe-status-check-khabi-bad.out >&2
+  exit 1
+fi
+sed 's|khdata=0000000A/00000200/00000400|khdata=0000000A/00000100/00000400|' \
+  "$DEVICE_OK" > "$DEVICE_BAD"
+if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-khdata-bad.out 2>&1; then
+  echo "vibe_status_check accepted low-identity higher-half data bookkeeping" >&2
+  cat /tmp/vibe-status-check-khdata-bad.out >&2
   exit 1
 fi
 sed 's|krelabi=000003FF/000003FF/00000200/00000001/00000001|krelabi=000001FF/000003FF/00000100/00000001/00000001|' \
@@ -148,5 +155,6 @@ rm -f /tmp/vibe-status-check-audabi-bad.out
 rm -f /tmp/vibe-status-check-fbabi-bad.out
 rm -f /tmp/vibe-status-check-preemptabi-bad.out
 rm -f /tmp/vibe-status-check-khabi-bad.out
+rm -f /tmp/vibe-status-check-khdata-bad.out
 rm -f /tmp/vibe-status-check-krelabi-bad.out
 echo "vibe_status_check self-test OK"

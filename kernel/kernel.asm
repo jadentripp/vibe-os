@@ -551,7 +551,8 @@ KERNEL_HIGH_ABI_TEXT_XLAT equ 0x00000040
 KERNEL_HIGH_ABI_STACK_XLAT equ 0x00000080
 KERNEL_HIGH_ABI_PTE_CHECK equ 0x00000100
 KERNEL_HIGH_ABI_LOW_ID_RETAINED equ 0x00000200
-KERNEL_HIGH_ABI_FULL_MASK equ KERNEL_HIGH_ABI_ENTRY_CHECKPOINT | KERNEL_HIGH_ABI_LATE_CHECKPOINT | KERNEL_HIGH_ABI_IDT_BIAS | KERNEL_HIGH_ABI_TSS_ESP0 | KERNEL_HIGH_ABI_HIGH_EIP | KERNEL_HIGH_ABI_HIGH_ESP | KERNEL_HIGH_ABI_TEXT_XLAT | KERNEL_HIGH_ABI_STACK_XLAT | KERNEL_HIGH_ABI_PTE_CHECK | KERNEL_HIGH_ABI_LOW_ID_RETAINED
+KERNEL_HIGH_ABI_HIGH_DATA_WRITE equ 0x00000400
+KERNEL_HIGH_ABI_FULL_MASK equ KERNEL_HIGH_ABI_ENTRY_CHECKPOINT | KERNEL_HIGH_ABI_LATE_CHECKPOINT | KERNEL_HIGH_ABI_IDT_BIAS | KERNEL_HIGH_ABI_TSS_ESP0 | KERNEL_HIGH_ABI_HIGH_EIP | KERNEL_HIGH_ABI_HIGH_ESP | KERNEL_HIGH_ABI_TEXT_XLAT | KERNEL_HIGH_ABI_STACK_XLAT | KERNEL_HIGH_ABI_PTE_CHECK | KERNEL_HIGH_ABI_LOW_ID_RETAINED | KERNEL_HIGH_ABI_HIGH_DATA_WRITE
 KERNEL_PERSISTENT_ALIAS_BYTES equ 0x00028000
 KERNEL_PERSISTENT_ALIAS_PAGES equ KERNEL_PERSISTENT_ALIAS_BYTES / PAGE_SIZE
 KERNEL_STACK_ALIAS_PAGES equ (KERNEL_STACK_TOP - KERNEL_STACK_LOW) / PAGE_SIZE
@@ -5182,6 +5183,8 @@ kernel_enter_persistent_high_mainline:
     mov byte [kernel_high_mainline_active], KERNEL_HIGH_MAINLINE_ACTIVE
     mov dword [kernel_high_mainline_abi_mask], 0
     mov dword [kernel_high_mainline_abi_last_op], 0
+    mov dword [kernel_high_mainline_high_data_writes], 0
+    mov dword [kernel_high_mainline_high_data_last_op], 0
     mov eax, KERNEL_HIGHER_HALF_BASE + kernel_mainline
     mov esp, KERNEL_HIGHER_HALF_BASE + KERNEL_STACK_TOP
     jmp eax
@@ -5231,8 +5234,17 @@ kernel_high_mainline_late_checkpoint:
     ret
 
 kernel_high_mainline_record_abi:
-    or [kernel_high_mainline_abi_mask], eax
-    mov [kernel_high_mainline_abi_last_op], eax
+    push edi
+    mov edi, KERNEL_HIGHER_HALF_BASE + kernel_high_mainline_abi_mask
+    or dword [edi], eax
+    or dword [edi], KERNEL_HIGH_ABI_HIGH_DATA_WRITE
+    mov edi, KERNEL_HIGHER_HALF_BASE + kernel_high_mainline_abi_last_op
+    mov [edi], eax
+    mov edi, KERNEL_HIGHER_HALF_BASE + kernel_high_mainline_high_data_writes
+    inc dword [edi]
+    mov edi, KERNEL_HIGHER_HALF_BASE + kernel_high_mainline_high_data_last_op
+    mov [edi], eax
+    pop edi
     ret
 
 kernel_high_mainline_capture_entry_map:
@@ -31329,6 +31341,19 @@ write_smoke_status:
     mov dl, [kernel_high_mainline_active]
     call smoke_write_hex32
 
+    mov esi, smoke_khdata_text
+    call smoke_copy_string
+    mov edx, [kernel_high_mainline_high_data_writes]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [kernel_high_mainline_high_data_last_op]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, KERNEL_HIGH_ABI_HIGH_DATA_WRITE
+    call smoke_write_hex32
+
     mov esi, smoke_kmap_text
     call smoke_copy_string
     cmp byte [kernel_high_alias_status], KERNEL_HIGH_ALIAS_STATUS_OK
@@ -33037,6 +33062,7 @@ smoke_khmspan_text db " khmspan=", 0
 smoke_khmxlat_text db " khmxlat=", 0
 smoke_khmpte_text db " khmpte=", 0
 smoke_khabi_text db " khabi=", 0
+smoke_khdata_text db " khdata=", 0
 smoke_kmap_text db " kmap=", 0
 smoke_kmapva_text db " kmapva=", 0
 smoke_kmappa_text db " kmappa=", 0
@@ -34070,6 +34096,8 @@ kernel_high_mainline_entry_stack_pte dd 0
 kernel_high_mainline_late_stack_pte dd 0
 kernel_high_mainline_abi_mask dd 0
 kernel_high_mainline_abi_last_op dd 0
+kernel_high_mainline_high_data_writes dd 0
+kernel_high_mainline_high_data_last_op dd 0
 kernel_high_alias_vaddr dd 0
 kernel_high_alias_phys dd 0
 kernel_high_alias_table dd 0
