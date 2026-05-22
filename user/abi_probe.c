@@ -27,6 +27,7 @@ enum {
     ABI_PROBE_FORK_WAIT_STATUS = 0x2a,
     ABI_PROBE_FORK_WAIT_SPINS = 200000,
     ABI_PROBE_MAP_BYTES = 4096,
+    ABI_PROBE_FAT_TAIL_CHUNKS = 24,
 };
 
 static unsigned char framebuffer_probe_frame[320 * 200];
@@ -116,8 +117,11 @@ static int prove_generic_file_services(void)
     unsigned long size = 0;
     unsigned long bytes_read = 0;
     unsigned long bytes_written = 0;
+    unsigned long large_size = 0;
     int count;
     int fd;
+    int chunk;
+    int index;
 
     count = vibe_user_listdir("/", entries, 16);
     if (count <= 0)
@@ -183,6 +187,25 @@ static int prove_generic_file_services(void)
     if (!bytes_equal(buffer, state_pwrite_expected, sizeof(state_pwrite_expected) - 1))
         goto fail_fd;
     if (vibe_user_fstat(fd, &st) != 0 || st.st_size != (off_t)(sizeof(state_payload) - 1))
+        goto fail_fd;
+    for (index = 0; index < (int)sizeof(buffer); ++index)
+        buffer[index] = (unsigned char)('A' + (index % 23));
+    if (vibe_user_lseek(fd, 0, VIBE_USER_SEEK_SET) != 0)
+        goto fail_fd;
+    for (chunk = 0; chunk < ABI_PROBE_FAT_TAIL_CHUNKS; ++chunk) {
+        if (vibe_user_write(fd, buffer, sizeof(buffer)) != (int)sizeof(buffer))
+            goto fail_fd;
+        large_size += sizeof(buffer);
+    }
+    if (vibe_user_fstat(fd, &st) != 0 || st.st_size != (off_t)large_size)
+        goto fail_fd;
+    if (vibe_user_ftruncate(fd, 1) != 0)
+        goto fail_fd;
+    if (vibe_user_lseek(fd, 0, VIBE_USER_SEEK_END) != 1)
+        goto fail_fd;
+    if (vibe_user_lseek(fd, 0, VIBE_USER_SEEK_SET) != 0)
+        goto fail_fd;
+    if (vibe_user_read(fd, buffer, 1) != 1 || buffer[0] != 'A')
         goto fail_fd;
     if (vibe_user_ftruncate(fd, 4) != 0)
         goto fail_fd;
