@@ -74,12 +74,16 @@ Manual play:
   smoke gate now requires this proof too. Remaining work is scheduler maturity:
   more than one policy, stronger starvation/fairness checks, and longer soak
   evidence under real gameplay load.
-- `GAP[STORAGE_GENERALITY] status=open`: FAT/WAD/save paths must keep becoming
+- `GAP[STORAGE_GENERALITY] status=partial`: FAT/WAD/save paths must keep becoming
   a general block-device and VFS subsystem for other programs. Cloud run
   `26293167954` on `main` proved the generic Ring 3 ABI path exercised every
   tracked VFS syscall with `vfsabi=000003FF/000003FF/00000200` and nonzero
-  `vfsops` counters. Remaining work is deeper filesystem generality, especially
-  long-lived allocation/free/truncate behavior beyond the current proof.
+  `vfsops` counters. The kernel now also emits `fatabi=` from the assembly FAT
+  paths to prove allocation, free-chain, free-tail, zero-truncate, grow, shrink,
+  delete, directory-update, and cluster-accounting operations ran in the guest.
+  Remaining work is deeper filesystem generality: longer-lived allocation/free
+  churn, more directory shapes, and persistence/save-load proof under real
+  gameplay reboots.
 - `GAP[INPUT_GENERALITY] status=partial`: keyboard and mouse feed one generic
   event queue, and the non-Doom `ABIPROBE.ELF` path now exercises the generic
   input ABI. Cloud run `26295614066` proved

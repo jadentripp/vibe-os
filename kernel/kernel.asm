@@ -726,6 +726,16 @@ VFS_ABI_UNLINK equ 0x00000080
 VFS_ABI_FTRUNCATE equ 0x00000100
 VFS_ABI_CLOSE equ 0x00000200
 VFS_ABI_FULL_MASK equ VFS_ABI_OPEN | VFS_ABI_READ | VFS_ABI_WRITE | VFS_ABI_LSEEK | VFS_ABI_STAT | VFS_ABI_FSTAT | VFS_ABI_LISTDIR | VFS_ABI_UNLINK | VFS_ABI_FTRUNCATE | VFS_ABI_CLOSE
+FAT_ABI_ALLOC_CLUSTER equ 0x00000001
+FAT_ABI_FREE_CHAIN equ 0x00000002
+FAT_ABI_FREE_TAIL equ 0x00000004
+FAT_ABI_TRUNCATE_ZERO equ 0x00000008
+FAT_ABI_RESIZE_GROW equ 0x00000010
+FAT_ABI_RESIZE_SHRINK equ 0x00000020
+FAT_ABI_DELETE_FILE equ 0x00000040
+FAT_ABI_DIR_UPDATE equ 0x00000080
+FAT_ABI_ACCOUNTING equ 0x00000100
+FAT_ABI_FULL_MASK equ FAT_ABI_ALLOC_CLUSTER | FAT_ABI_FREE_CHAIN | FAT_ABI_FREE_TAIL | FAT_ABI_TRUNCATE_ZERO | FAT_ABI_RESIZE_GROW | FAT_ABI_RESIZE_SHRINK | FAT_ABI_DELETE_FILE | FAT_ABI_DIR_UPDATE | FAT_ABI_ACCOUNTING
 SYS_USER_PROBE equ 1
 SYS_EXIT equ 2
 SYS_EXPECT_FAULT equ 3
@@ -11378,6 +11388,8 @@ storage_init:
     mov dword [fat_truncate_count], 0
     mov dword [fat_dir_update_count], 0
     mov dword [fat_dir_update_failures], 0
+    mov dword [fat_generic_abi_mask], 0
+    mov dword [fat_generic_last_op], 0
     mov dword [vfs_open_count], 0
     mov dword [vfs_read_count], 0
     mov dword [vfs_write_count], 0
@@ -12862,6 +12874,8 @@ fat_refresh_cluster_accounting:
 
 .ok:
     mov dword [fat_account_status], 0
+    or dword [fat_generic_abi_mask], FAT_ABI_ACCOUNTING
+    mov dword [fat_generic_last_op], FAT_ABI_ACCOUNTING
     clc
     jmp .done
 
@@ -13262,6 +13276,8 @@ fat_free_tail_after_current:
     mov dword [fat_next_free_hint], 2
     call fat_flush_table
     jc .fail
+    or dword [fat_generic_abi_mask], FAT_ABI_FREE_TAIL
+    mov dword [fat_generic_last_op], FAT_ABI_FREE_TAIL
     clc
     jmp .done
 
@@ -13465,6 +13481,8 @@ fat_alloc_cluster:
 .store_hint:
     mov [fat_next_free_hint], edx
     inc dword [fat_alloc_success_count]
+    or dword [fat_generic_abi_mask], FAT_ABI_ALLOC_CLUSTER
+    mov dword [fat_generic_last_op], FAT_ABI_ALLOC_CLUSTER
     mov eax, ebx
     clc
     jmp .done
@@ -13581,6 +13599,8 @@ fat_free_chain:
     jmp .free_loop
 
 .ok:
+    or dword [fat_generic_abi_mask], FAT_ABI_FREE_CHAIN
+    mov dword [fat_generic_last_op], FAT_ABI_FREE_CHAIN
     clc
     jmp .done
 
@@ -13657,6 +13677,8 @@ fat_create_root_file:
     call block_selected_write_sector
     jc .fail
     inc dword [fat_dir_update_count]
+    or dword [fat_generic_abi_mask], FAT_ABI_DIR_UPDATE
+    mov dword [fat_generic_last_op], FAT_ABI_DIR_UPDATE
     clc
     jmp .done
 
@@ -14391,6 +14413,8 @@ fat_create_subdir_file:
     call block_selected_write_sector
     jc .fail
     inc dword [fat_dir_update_count]
+    or dword [fat_generic_abi_mask], FAT_ABI_DIR_UPDATE
+    mov dword [fat_generic_last_op], FAT_ABI_DIR_UPDATE
     clc
     jmp .done
 
@@ -15391,6 +15415,8 @@ fat_update_writable_size:
     call block_selected_write_sector
     jc .fail
     inc dword [fat_dir_update_count]
+    or dword [fat_generic_abi_mask], FAT_ABI_DIR_UPDATE
+    mov dword [fat_generic_last_op], FAT_ABI_DIR_UPDATE
     clc
     jmp .done
 
@@ -15430,6 +15456,8 @@ fat_truncate_writable_file:
 
 .truncated:
     inc dword [fat_truncate_count]
+    or dword [fat_generic_abi_mask], FAT_ABI_TRUNCATE_ZERO
+    mov dword [fat_generic_last_op], FAT_ABI_TRUNCATE_ZERO
     clc
     jmp .done
 
@@ -15707,6 +15735,8 @@ fat_resize_writable_file:
     call fat_update_writable_size
     jc .rollback_fail
     inc dword [fat_resize_grow_count]
+    or dword [fat_generic_abi_mask], FAT_ABI_RESIZE_GROW
+    mov dword [fat_generic_last_op], FAT_ABI_RESIZE_GROW
     clc
     jmp .done
 
@@ -15726,6 +15756,8 @@ fat_resize_writable_file:
     call fat_zero_writable_tail_after_size
     jc .rollback_fail
     inc dword [fat_resize_shrink_count]
+    or dword [fat_generic_abi_mask], FAT_ABI_RESIZE_SHRINK
+    mov dword [fat_generic_last_op], FAT_ABI_RESIZE_SHRINK
     clc
     jmp .done
 
@@ -15893,6 +15925,8 @@ fat_delete_found_file:
     call block_selected_write_sector
     jc .fail
     inc dword [fat_dir_update_count]
+    or dword [fat_generic_abi_mask], FAT_ABI_DIR_UPDATE
+    mov dword [fat_generic_last_op], FAT_ABI_DIR_UPDATE
     mov ax, [fat_delete_old_first_cluster]
     cmp ax, 2
     jb .deleted
@@ -15900,6 +15934,8 @@ fat_delete_found_file:
     jc .fail
 
 .deleted:
+    or dword [fat_generic_abi_mask], FAT_ABI_DELETE_FILE
+    mov dword [fat_generic_last_op], FAT_ABI_DELETE_FILE
     clc
     jmp .done
 
@@ -28233,6 +28269,19 @@ write_smoke_status:
     mov edx, [fat_account_status]
     call smoke_write_hex32
 
+    mov esi, smoke_fatabi_text
+    call smoke_copy_string
+    mov edx, [fat_generic_abi_mask]
+    call smoke_write_hex32
+    mov edx, FAT_ABI_FULL_MASK
+    call smoke_write_slash_hex32
+    mov edx, [fat_generic_last_op]
+    call smoke_write_slash_hex32
+    mov edx, [fat_free_cluster_count]
+    call smoke_write_slash_hex32
+    mov edx, [fat_dir_update_failures]
+    call smoke_write_slash_hex32
+
     mov esi, smoke_vfsops_text
     call smoke_copy_string
     mov edx, [vfs_open_count]
@@ -32945,6 +32994,7 @@ smoke_fatmap_text db " fam=", 0
 smoke_fatcopy_text db " fac=", 0
 smoke_fatdyn_text db " fatdyn=", 0
 smoke_fatacct_text db " fatacct=", 0
+smoke_fatabi_text db " fatabi=", 0
 smoke_vfsops_text db " vfsops=", 0
 smoke_vfsabi_text db " vfsabi=", 0
 smoke_saveact_text db " saveact=", 0
@@ -34022,6 +34072,8 @@ fat_resize_shrink_count dd 0
 fat_truncate_count dd 0
 fat_dir_update_count dd 0
 fat_dir_update_failures dd 0
+fat_generic_abi_mask dd 0
+fat_generic_last_op dd 0
 vfs_open_count dd 0
 vfs_read_count dd 0
 vfs_write_count dd 0

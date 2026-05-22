@@ -74,6 +74,19 @@
 #define VFS_ABI_FULL_MASK \
     (VFS_ABI_OPEN | VFS_ABI_READ | VFS_ABI_WRITE | VFS_ABI_LSEEK | VFS_ABI_STAT | \
      VFS_ABI_FSTAT | VFS_ABI_LISTDIR | VFS_ABI_UNLINK | VFS_ABI_FTRUNCATE | VFS_ABI_CLOSE)
+#define FAT_ABI_ALLOC_CLUSTER 0x00000001u
+#define FAT_ABI_FREE_CHAIN 0x00000002u
+#define FAT_ABI_FREE_TAIL 0x00000004u
+#define FAT_ABI_TRUNCATE_ZERO 0x00000008u
+#define FAT_ABI_RESIZE_GROW 0x00000010u
+#define FAT_ABI_RESIZE_SHRINK 0x00000020u
+#define FAT_ABI_DELETE_FILE 0x00000040u
+#define FAT_ABI_DIR_UPDATE 0x00000080u
+#define FAT_ABI_ACCOUNTING 0x00000100u
+#define FAT_ABI_FULL_MASK \
+    (FAT_ABI_ALLOC_CLUSTER | FAT_ABI_FREE_CHAIN | FAT_ABI_FREE_TAIL | \
+     FAT_ABI_TRUNCATE_ZERO | FAT_ABI_RESIZE_GROW | FAT_ABI_RESIZE_SHRINK | \
+     FAT_ABI_DELETE_FILE | FAT_ABI_DIR_UPDATE | FAT_ABI_ACCOUNTING)
 #define USER_ELF_LOAD_ADDR 0x00E40000u
 #define USER_ELF_MAX_BYTES 0x00040000u
 #define VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY 63u
@@ -784,6 +797,9 @@ static void validate_exec_copy(const Status *status) {
 static void validate_vfs_abi(const Status *status) {
     uint32_t abi[3];
     uint32_t ops[10];
+    uint32_t fatdyn[9];
+    uint32_t fatacct[5];
+    uint32_t fatabi[5];
     size_t i;
 
     if (!has_field(status, "vfsabi")) {
@@ -809,6 +825,35 @@ static void validate_vfs_abi(const Status *status) {
         if (ops[i] == 0u) {
             fail("vfsops= must show every generic VFS counter incremented");
         }
+    }
+    hex_tuple(status, "fatdyn", 9, '/', fatdyn);
+    if (fatdyn[0] == 0u || fatdyn[1] != 0u || fatdyn[2] == 0u || fatdyn[3] == 0u ||
+        fatdyn[4] == 0u || fatdyn[5] == 0u || fatdyn[6] == 0u || fatdyn[7] == 0u ||
+        fatdyn[8] != 0u) {
+        fail("fatdyn= must prove successful dynamic FAT allocation, free, resize, truncate, and directory updates");
+    }
+    hex_tuple(status, "fatacct", 5, '/', fatacct);
+    if (fatacct[4] != 0u || fatacct[2] == 0u || fatacct[3] < 2u ||
+        fatacct[2] != fatacct[3] - 1u || fatacct[0] + fatacct[1] != fatacct[2]) {
+        fail("fatacct= must prove consistent FAT free/used cluster accounting");
+    }
+    hex_tuple(status, "fatabi", 5, '/', fatabi);
+    if (fatabi[1] != FAT_ABI_FULL_MASK) {
+        fail("fatabi= declared full mask must be 0x%08X", FAT_ABI_FULL_MASK);
+    }
+    if ((fatabi[0] & FAT_ABI_FULL_MASK) != FAT_ABI_FULL_MASK) {
+        fail("fatabi= must prove every tracked generic FAT operation ran in the guest");
+    }
+    if ((fatabi[0] & ~FAT_ABI_FULL_MASK) != 0u) {
+        fail("fatabi= contains unknown operation bits");
+    }
+    if (fatabi[2] == 0u || (fatabi[2] & ~FAT_ABI_FULL_MASK) != 0u ||
+        (fatabi[2] & (fatabi[2] - 1u)) != 0u ||
+        (fatabi[0] & fatabi[2]) == 0u) {
+        fail("fatabi= last operation must be one completed FAT operation bit");
+    }
+    if (fatabi[3] != fatdyn[3] || fatabi[4] != fatdyn[8]) {
+        fail("fatabi= free-cluster and directory-failure counts must mirror fatdyn=");
     }
 }
 

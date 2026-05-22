@@ -87,7 +87,8 @@ The project owns the machine path instead of outsourcing it to a host OS:
   `/STATE` files through the same user file ABI, with live FAT allocation
   accounting; the guest now reports a generic VFS ABI mask proving open, read,
   write, seek, stat, directory listing, truncate, unlink, and close paths ran
-  outside Doom
+  outside Doom, plus a FAT operation mask for allocation, freeing, resize,
+  delete, directory update, and cluster accounting
 - input and video: keyboard, mouse, a reusable input event queue, a reusable
   indexed framebuffer device, palette conversion, and frame presentation; the
   OVMF cloud proof now exercises non-Doom Ring 3 input and framebuffer

@@ -38,6 +38,9 @@ cp "$ROOT/tests/fixtures/vm_status_krelhaz_ok.txt" "$DEVICE_OK"
   printf ' %s' 'execcopy=00000003/00000003/00000003/00089000/00082000/01000000/01001000/00000200/00000300'
   printf ' %s' 'vfsops=00000001/00000001/00000001/00000001/00000001/00000001/00000001/00000001/00000001/00000001'
   printf ' %s' 'vfsabi=000003FF/000003FF/00000200'
+  printf ' %s' 'fatdyn=00000003/00000000/00000002/00000002/00000001/00000002/00000003/0000000E/00000000'
+  printf ' %s' 'fatacct=0000D317/000027D8/0000FAEF/0000FAF0/00000000'
+  printf ' %s' 'fatabi=000001FF/000001FF/00000100/00000002/00000000'
   printf ' %s' 'fb=LFB'
   printf ' %s' 'fbdev=00000001:00000002:00000003:00000001'
   printf ' %s' 'fbcap=00000017'
@@ -80,6 +83,13 @@ if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-c
   cat /tmp/vibe-status-check-vfsabi-bad.out >&2
   exit 1
 fi
+sed 's|fatabi=000001FF/000001FF/00000100/00000002/00000000|fatabi=000001BF/000001FF/00000100/00000002/00000000|' \
+  "$DEVICE_OK" > "$DEVICE_BAD"
+if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-fatabi-bad.out 2>&1; then
+  echo "vibe_status_check accepted incomplete generic FAT operation proof" >&2
+  cat /tmp/vibe-status-check-fatabi-bad.out >&2
+  exit 1
+fi
 sed 's|audabi=000001FF/000001FF/00000100/00000010|audabi=000001DF/000001FF/00000100/00000010|' \
   "$DEVICE_OK" > "$DEVICE_BAD"
 if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-audabi-bad.out 2>&1; then
@@ -119,6 +129,7 @@ rm -f /tmp/vibe-status-check-devices-bad.out
 rm -f /tmp/vibe-status-check-inabi-bad.out
 rm -f /tmp/vibe-status-check-execcopy-bad.out
 rm -f /tmp/vibe-status-check-vfsabi-bad.out
+rm -f /tmp/vibe-status-check-fatabi-bad.out
 rm -f /tmp/vibe-status-check-audabi-bad.out
 rm -f /tmp/vibe-status-check-fbabi-bad.out
 rm -f /tmp/vibe-status-check-preemptabi-bad.out
