@@ -16,8 +16,10 @@ small games can use them later.
 ## Boot
 
 `boot/stage1.asm` is the MBR. It loads `boot/stage2.asm` from disk using BIOS
-disk services. Stage 2 collects boot facts, enables A20, builds the GDT, enters
-protected mode, loads the kernel ELF, and jumps to it.
+disk services. Stage 2 collects boot facts, parses the generated FAT16 root,
+prefers `KERNEL.ELF` from that filesystem, keeps the raw LBA kernel window as a
+fallback, enables A20, builds the GDT, enters protected mode, loads the kernel
+ELF, and jumps to it.
 
 `boot/uefi/loader.asm` is an assembly UEFI path. It is real source work, but not
 the supported play path yet. The remaining UEFI work is PE/COFF packaging,

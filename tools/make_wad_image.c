@@ -83,6 +83,7 @@ typedef struct {
 
 static const char USER_PROBE_NAME[] = "USERPROBELF";
 static const char DOOM_ELF_NAME[] = "DOOM    ELF";
+static const char KERNEL_ELF_NAME[] = "KERNEL  ELF";
 static const char DOOM_WAD_NAME[] = "DOOM1   WAD";
 static const char DEFAULT_CFG_NAME[] = "DEFAULT CFG";
 static const char PERSISTENCE_CHECKPOINT_NAME[] = "PERSIST CHK";
@@ -789,7 +790,8 @@ static int name_eq(const char lhs[11], const char rhs[11])
 
 static void reject_protected_root_name(const char name[11])
 {
-    if (name_eq(name, DOOM_WAD_NAME) || name_eq(name, USER_PROBE_NAME) || name_eq(name, DOOM_ELF_NAME))
+    if (name_eq(name, DOOM_WAD_NAME) || name_eq(name, KERNEL_ELF_NAME) ||
+        name_eq(name, USER_PROBE_NAME) || name_eq(name, DOOM_ELF_NAME))
         die("--root-elf tries to replace a protected boot/game entry");
 }
 
@@ -1324,6 +1326,12 @@ static void install_bootable_layout(
     (void)wad_clusters;
     write_dir_entry(root_dir(image), ROOT_ENTRIES * 32, root_next_free(image), DOOM_WAD_NAME, FAT_ATTR_ARCHIVE, wad_cluster, (uint32_t)wad.size);
     free(wad.data);
+
+    if (kernel_path) {
+        Blob kernel = read_file(kernel_path);
+        write_root_file_entry(image, KERNEL_ELF_NAME, kernel.data, kernel.size);
+        free(kernel.data);
+    }
 
     if (user_elf_path) {
         Blob user = read_file(user_elf_path);

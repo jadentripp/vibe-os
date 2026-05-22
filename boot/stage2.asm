@@ -19,6 +19,14 @@ KERNEL_ELF_MAX_BYTES equ KERNEL_SECTORS * 512
 KERNEL_LOAD_LIMIT equ KERNEL_ELF_PHYS
 DISK_RETRIES equ 3
 CHS_SECTOR_BYTES_IN_PARAGRAPHS equ 0x20
+FAT_SCRATCH_SEG equ 0x6800
+FAT_SECTOR_SIZE equ 512
+FAT16_ROOT_ENTRIES equ 512
+FAT16_ROOT_DIR_SECTORS equ 32
+FAT16_SECTORS_PER_CLUSTER equ 2
+FAT16_CLUSTER_BYTES equ FAT16_SECTORS_PER_CLUSTER * FAT_SECTOR_SIZE
+FAT16_CLUSTER_PARAGRAPHS equ FAT16_CLUSTER_BYTES / 16
+FAT16_EOC_MIN equ 0xfff8
 
 ELF_MAGIC equ 0x464c457f
 ELFCLASS32 equ 1
@@ -82,6 +90,7 @@ BOOT_DISK_FLAG_KERNEL_EDD_READ equ 0x00000002
 BOOT_DISK_FLAG_KERNEL_CHS_READ equ 0x00000004
 BOOT_DISK_FLAG_PARTITION_PRESENT equ 0x00000008
 BOOT_DISK_FLAG_ACTIVE_PARTITION equ 0x00000010
+BOOT_DISK_FLAG_KERNEL_FAT_READ equ 0x00000020
 BOOT_LOADER_FLAG_STAGE2_REACHED equ 0x00000001
 BOOT_LOADER_FLAG_EDD_PRESENT equ 0x00000002
 BOOT_LOADER_FLAG_KERNEL_EDD_READ equ 0x00000004
@@ -98,6 +107,7 @@ BOOT_LOADER_FLAG_E820_BOUNDED equ 0x00001000
 BOOT_LOADER_FLAG_VIDEO_VALID equ 0x00002000
 BOOT_LOADER_FLAG_ELF_PHDR_VALID equ 0x00004000
 BOOT_LOADER_FLAG_CHS_GEOMETRY equ 0x00008000
+BOOT_LOADER_FLAG_KERNEL_FAT_READ equ 0x00010000
 BOOT_LOADER_REQUIRED_PROTECTED_FLAGS equ BOOT_LOADER_FLAG_STAGE2_REACHED | BOOT_LOADER_FLAG_E820 | BOOT_LOADER_FLAG_E820_BOUNDED | BOOT_LOADER_FLAG_VIDEO_VALID | BOOT_LOADER_FLAG_A20 | BOOT_LOADER_FLAG_GDT_LOADED | BOOT_LOADER_FLAG_PROTECTED_MODE | BOOT_LOADER_FLAG_ELF_VALID | BOOT_LOADER_FLAG_ENTRY_COVERED | BOOT_LOADER_FLAG_ELF_PHDR_VALID
 MBR_LOAD_ADDR equ 0x7c00
 MBR_PARTITION_TABLE_ADDR equ MBR_LOAD_ADDR + 446
@@ -152,7 +162,11 @@ start:
 
     call require_edd
 
+    call load_kernel_elf_from_fat
+    jnc .kernel_loaded
     call load_kernel_elf_sectors
+
+.kernel_loaded:
 
     call set_vbe_lfb_or_mode13
     call validate_boot_info_handoff
@@ -266,6 +280,262 @@ store_bios_partition_candidate:
     or eax, edx
     mov [BOOT_DISK_PARTITION_META_ADDR], eax
     or dword [BOOT_DISK_FLAGS_ADDR], BOOT_DISK_FLAG_PARTITION_PRESENT
+    ret
+
+load_kernel_elf_from_fat:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+    push es
+
+    call read_fat_boot_sector
+    jc .fail
+    call validate_fat_boot_sector
+    jc .fail
+    call read_fat_root_directory
+    jc .fail
+    call find_kernel_fat_entry
+    jc .fail
+    call read_kernel_fat_chain
+    jc .fail
+
+    or dword [BOOT_LOADER_FLAGS_ADDR], BOOT_LOADER_FLAG_KERNEL_FAT_READ
+    or dword [BOOT_DISK_FLAGS_ADDR], BOOT_DISK_FLAG_KERNEL_FAT_READ
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop es
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+read_fat_boot_sector:
+    mov word [kernel_packet_sectors], 1
+    mov word [kernel_packet_offset], KERNEL_ELF_OFF
+    mov word [kernel_packet_segment], KERNEL_ELF_SEG
+    mov eax, [BOOT_DISK_PARTITION_LBA_ADDR]
+    mov [kernel_packet_lba], eax
+    mov dword [kernel_packet_lba + 4], 0
+    call read_kernel_packet
+    ret
+
+validate_fat_boot_sector:
+    mov ax, KERNEL_ELF_SEG
+    mov es, ax
+    cmp word [es:11], FAT_SECTOR_SIZE
+    jne .fail
+    cmp byte [es:13], FAT16_SECTORS_PER_CLUSTER
+    jne .fail
+    cmp word [es:14], 1
+    jne .fail
+    cmp byte [es:16], 2
+    jne .fail
+    cmp word [es:17], FAT16_ROOT_ENTRIES
+    jne .fail
+    cmp byte [es:21], 0xf8
+    jne .fail
+    cmp word [es:22], 256
+    jne .fail
+    cmp dword [es:28], FAT_PARTITION_LBA
+    jne .fail
+    cmp word [es:510], 0xaa55
+    jne .fail
+
+    mov ax, [es:14]
+    mov [fat_reserved_sectors], ax
+    mov al, [es:16]
+    mov [fat_count], al
+    mov ax, [es:17]
+    mov [fat_root_entries], ax
+    mov ax, [es:22]
+    mov [fat_sectors_per_fat], ax
+
+    movzx eax, word [fat_sectors_per_fat]
+    movzx ebx, byte [fat_count]
+    mul ebx
+    test edx, edx
+    jnz .fail
+    mov ecx, eax
+    mov eax, [BOOT_DISK_PARTITION_LBA_ADDR]
+    movzx ebx, word [fat_reserved_sectors]
+    add eax, ebx
+    jc .fail
+    add eax, ecx
+    jc .fail
+    mov [fat_root_lba], eax
+    add eax, FAT16_ROOT_DIR_SECTORS
+    jc .fail
+    mov [fat_data_lba], eax
+    clc
+    ret
+
+.fail:
+    stc
+    ret
+
+read_fat_root_directory:
+    mov word [kernel_packet_sectors], FAT16_ROOT_DIR_SECTORS
+    mov word [kernel_packet_offset], KERNEL_ELF_OFF
+    mov word [kernel_packet_segment], KERNEL_ELF_SEG
+    mov eax, [fat_root_lba]
+    mov [kernel_packet_lba], eax
+    mov dword [kernel_packet_lba + 4], 0
+    call read_kernel_packet
+    ret
+
+find_kernel_fat_entry:
+    mov ax, KERNEL_ELF_SEG
+    mov es, ax
+    xor di, di
+    mov cx, FAT16_ROOT_ENTRIES
+    cld
+
+.next_entry:
+    cmp byte [es:di], 0
+    je .fail
+    cmp byte [es:di], 0xe5
+    je .advance
+    mov al, [es:di + 11]
+    test al, 0x18
+    jnz .advance
+
+    push cx
+    push di
+    mov si, fat16_kernel_name
+    mov cx, 11
+    repe cmpsb
+    pop di
+    pop cx
+    je .found
+
+.advance:
+    add di, 32
+    loop .next_entry
+
+.fail:
+    stc
+    ret
+
+.found:
+    mov ax, [es:di + 26]
+    cmp ax, 2
+    jb .fail
+    mov [fat_kernel_cluster], ax
+    mov eax, [es:di + 28]
+    test eax, eax
+    jz .fail
+    cmp eax, KERNEL_ELF_MAX_BYTES
+    ja .fail
+    mov [fat_kernel_size], eax
+    clc
+    ret
+
+read_kernel_fat_chain:
+    mov ax, [fat_kernel_cluster]
+    mov [fat_current_cluster], ax
+    mov eax, [fat_kernel_size]
+    mov [fat_kernel_remaining], eax
+    mov word [fat_kernel_dest_segment], KERNEL_ELF_SEG
+
+.next_cluster:
+    cmp dword [fat_kernel_remaining], 0
+    je .done
+    mov ax, [fat_current_cluster]
+    cmp ax, 2
+    jb .fail
+    cmp ax, FAT16_EOC_MIN
+    jae .fail
+    call read_kernel_fat_cluster
+    jc .fail
+
+    mov eax, [fat_kernel_remaining]
+    cmp eax, FAT16_CLUSTER_BYTES
+    jbe .last_cluster
+    sub eax, FAT16_CLUSTER_BYTES
+    mov [fat_kernel_remaining], eax
+    call read_next_fat_cluster
+    jc .fail
+    mov ax, [fat_current_cluster]
+    cmp ax, 2
+    jb .fail
+    cmp ax, FAT16_EOC_MIN
+    jae .fail
+    jmp .next_cluster
+
+.last_cluster:
+    mov dword [fat_kernel_remaining], 0
+
+.done:
+    clc
+    ret
+
+.fail:
+    stc
+    ret
+
+read_kernel_fat_cluster:
+    movzx eax, word [fat_current_cluster]
+    sub eax, 2
+    mov ebx, FAT16_SECTORS_PER_CLUSTER
+    mul ebx
+    test edx, edx
+    jnz .fail
+    add eax, [fat_data_lba]
+    jc .fail
+    mov word [kernel_packet_sectors], FAT16_SECTORS_PER_CLUSTER
+    mov word [kernel_packet_offset], KERNEL_ELF_OFF
+    mov bx, [fat_kernel_dest_segment]
+    mov [kernel_packet_segment], bx
+    mov [kernel_packet_lba], eax
+    mov dword [kernel_packet_lba + 4], 0
+    call read_kernel_packet
+    add word [fat_kernel_dest_segment], FAT16_CLUSTER_PARAGRAPHS
+    clc
+    ret
+
+.fail:
+    stc
+    ret
+
+read_next_fat_cluster:
+    movzx eax, word [fat_current_cluster]
+    shl eax, 1
+    mov ebx, eax
+    shr eax, 9
+    movzx ecx, word [fat_reserved_sectors]
+    add eax, ecx
+    jc .fail
+    add eax, [BOOT_DISK_PARTITION_LBA_ADDR]
+    jc .fail
+    and bx, 0x01ff
+
+    mov word [kernel_packet_sectors], 1
+    mov word [kernel_packet_offset], KERNEL_ELF_OFF
+    mov word [kernel_packet_segment], FAT_SCRATCH_SEG
+    mov [kernel_packet_lba], eax
+    mov dword [kernel_packet_lba + 4], 0
+    call read_kernel_packet
+
+    mov ax, FAT_SCRATCH_SEG
+    mov es, ax
+    mov ax, [es:bx]
+    mov [fat_current_cluster], ax
+    clc
+    ret
+
+.fail:
+    stc
     ret
 
 collect_e820_map:
@@ -1049,7 +1319,12 @@ validate_protected_kernel_handoff:
     jz protected_boot_info_error
 
 .disk_chs_ok:
+    test eax, BOOT_LOADER_FLAG_KERNEL_FAT_READ
+    jz .disk_fat_ok
+    test edx, BOOT_DISK_FLAG_KERNEL_FAT_READ
+    jz protected_boot_info_error
 
+.disk_fat_ok:
     pop edx
     pop ebx
     pop eax
@@ -1262,12 +1537,25 @@ a20_test_result db 0
 a20_output_port db 0
 elf_entry_covered db 0
 vbe_candidate_mode dw 0
+fat16_kernel_name db "KERNEL  ELF"
+fat_count db 0
 chs_sectors_per_track dw 0
 chs_heads dw 0
 chs_current_lba dw 0
 chs_buffer_segment dw 0
 chs_read_remaining dw 0
 partition_scan_index db 0
+fat_reserved_sectors dw 0
+fat_root_entries dw 0
+fat_sectors_per_fat dw 0
+fat_kernel_cluster dw 0
+fat_current_cluster dw 0
+fat_kernel_dest_segment dw 0
+align 4
+fat_root_lba dd 0
+fat_data_lba dd 0
+fat_kernel_size dd 0
+fat_kernel_remaining dd 0
 stage2_message db "Aurora stage 2: loading protected kernel...", 13, 10, 0
 a20_error_message db "Aurora stage 2: A20 enable failed.", 13, 10, 0
 video_error_message db "Aurora stage 2: video mode setup failed.", 13, 10, 0
