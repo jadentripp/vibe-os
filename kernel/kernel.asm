@@ -25166,10 +25166,6 @@ input_reset_queue:
     mov dword [input_mouse_delta_y_total], 0
     mov dword [input_last_event_device], 0
     mov dword [input_last_event_type], 0
-    mov dword [input_generic_abi_mask], 0
-    mov dword [input_generic_last_op], 0
-    mov dword [input_generic_last_kind], 0
-    mov dword [input_generic_last_result], 0
     mov dword [doom_input_event_count], 0
     mov dword [doom_input_last_timestamp], 0
     mov dword [doom_input_last_device], 0
