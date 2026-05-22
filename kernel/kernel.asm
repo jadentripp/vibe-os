@@ -268,6 +268,22 @@ MMIO_PROBE_BAD equ 2
 IRQ_EOI_NONE equ 0
 IRQ_EOI_MASTER equ 1
 IRQ_EOI_SLAVE equ 2
+IRQ_ROUTE_STATUS_NONE equ 0
+IRQ_ROUTE_STATUS_READY equ 1
+IRQ_ROUTE_STATUS_BAD equ 2
+IRQ_ROUTE_LEGACY_COUNT equ 5
+IRQ_ROUTE_FLAG_ISO equ 0x00000001
+IRQ_VECTOR_BASE equ 0x20
+IRQ_LEGACY_TIMER equ 0
+IRQ_LEGACY_KEYBOARD equ 1
+IRQ_LEGACY_AUDIO equ 5
+IRQ_LEGACY_MOUSE equ 12
+IRQ_LEGACY_IDE_PRIMARY equ 14
+IRQ_VECTOR_TIMER equ IRQ_VECTOR_BASE + IRQ_LEGACY_TIMER
+IRQ_VECTOR_KEYBOARD equ IRQ_VECTOR_BASE + IRQ_LEGACY_KEYBOARD
+IRQ_VECTOR_AUDIO equ IRQ_VECTOR_BASE + IRQ_LEGACY_AUDIO
+IRQ_VECTOR_MOUSE equ IRQ_VECTOR_BASE + IRQ_LEGACY_MOUSE
+IRQ_VECTOR_IDE_PRIMARY equ IRQ_VECTOR_BASE + IRQ_LEGACY_IDE_PRIMARY
 LAPIC_REG_ID equ 0x020
 LAPIC_REG_VERSION equ 0x030
 LAPIC_REG_SPURIOUS equ 0x0f0
@@ -2293,6 +2309,19 @@ acpi_probe_tables:
     mov dword [ioapic_redir_iso_index], 0
     mov dword [ioapic_redir_iso_low], 0
     mov dword [ioapic_redir_iso_high], 0
+    mov byte [irq_route_status], IRQ_ROUTE_STATUS_NONE
+    mov dword [irq_route_count], 0
+    mov dword [irq_route_iso_hits], 0
+    mov dword [irq_route_timer_gsi], IRQ_LEGACY_TIMER
+    mov dword [irq_route_keyboard_gsi], IRQ_LEGACY_KEYBOARD
+    mov dword [irq_route_audio_gsi], IRQ_LEGACY_AUDIO
+    mov dword [irq_route_mouse_gsi], IRQ_LEGACY_MOUSE
+    mov dword [irq_route_ide_primary_gsi], IRQ_LEGACY_IDE_PRIMARY
+    mov dword [irq_route_timer_flags], 0
+    mov dword [irq_route_keyboard_flags], 0
+    mov dword [irq_route_audio_flags], 0
+    mov dword [irq_route_mouse_flags], 0
+    mov dword [irq_route_ide_primary_flags], 0
     mov dword [hpet_mmio_addr], 0
     mov dword [hpet_mmio_cap_low], 0
     mov dword [hpet_mmio_cap_high], 0
@@ -2823,7 +2852,91 @@ acpi_probe_mmio_devices:
     call acpi_probe_hpet_mmio
 
 .done:
+    call irq_build_route_plan
     popad
+    ret
+
+irq_build_route_plan:
+    pushad
+    mov byte [irq_route_status], IRQ_ROUTE_STATUS_BAD
+    mov dword [irq_route_count], IRQ_ROUTE_LEGACY_COUNT
+    mov dword [irq_route_iso_hits], 0
+    mov dword [irq_route_timer_gsi], IRQ_LEGACY_TIMER
+    mov dword [irq_route_keyboard_gsi], IRQ_LEGACY_KEYBOARD
+    mov dword [irq_route_audio_gsi], IRQ_LEGACY_AUDIO
+    mov dword [irq_route_mouse_gsi], IRQ_LEGACY_MOUSE
+    mov dword [irq_route_ide_primary_gsi], IRQ_LEGACY_IDE_PRIMARY
+    mov dword [irq_route_timer_flags], 0
+    mov dword [irq_route_keyboard_flags], 0
+    mov dword [irq_route_audio_flags], 0
+    mov dword [irq_route_mouse_flags], 0
+    mov dword [irq_route_ide_primary_flags], 0
+
+    cmp byte [acpi_madt_parse_status], ACPI_STATUS_OK
+    jne .done
+    cmp dword [acpi_ioapic_count], 0
+    je .done
+    cmp dword [acpi_lapic_enabled_count], 0
+    je .done
+    cmp byte [ioapic_redir_status], MMIO_PROBE_OK
+    jne .done
+
+    cmp dword [acpi_iso_count], 0
+    je .ready
+    mov eax, [acpi_iso_first_source]
+    mov ebx, [acpi_iso_first_gsi]
+    mov ecx, [acpi_iso_first_flags]
+    or ecx, IRQ_ROUTE_FLAG_ISO
+    call irq_apply_iso_route
+
+.ready:
+    mov byte [irq_route_status], IRQ_ROUTE_STATUS_READY
+
+.done:
+    popad
+    ret
+
+irq_apply_iso_route:
+    cmp eax, IRQ_LEGACY_TIMER
+    je .timer
+    cmp eax, IRQ_LEGACY_KEYBOARD
+    je .keyboard
+    cmp eax, IRQ_LEGACY_AUDIO
+    je .audio
+    cmp eax, IRQ_LEGACY_MOUSE
+    je .mouse
+    cmp eax, IRQ_LEGACY_IDE_PRIMARY
+    je .ide
+    ret
+
+.timer:
+    mov [irq_route_timer_gsi], ebx
+    mov [irq_route_timer_flags], ecx
+    inc dword [irq_route_iso_hits]
+    ret
+
+.keyboard:
+    mov [irq_route_keyboard_gsi], ebx
+    mov [irq_route_keyboard_flags], ecx
+    inc dword [irq_route_iso_hits]
+    ret
+
+.audio:
+    mov [irq_route_audio_gsi], ebx
+    mov [irq_route_audio_flags], ecx
+    inc dword [irq_route_iso_hits]
+    ret
+
+.mouse:
+    mov [irq_route_mouse_gsi], ebx
+    mov [irq_route_mouse_flags], ecx
+    inc dword [irq_route_iso_hits]
+    ret
+
+.ide:
+    mov [irq_route_ide_primary_gsi], ebx
+    mov [irq_route_ide_primary_flags], ecx
+    inc dword [irq_route_iso_hits]
     ret
 
 mmio_identity_map_page:
@@ -27621,6 +27734,52 @@ write_smoke_status:
     call smoke_write_slash_hex32
     mov edx, [irq_eoi_last_kind]
     call smoke_write_slash_hex32
+    mov esi, smoke_irqplan_text
+    call smoke_copy_string
+    movzx edx, byte [irq_route_status]
+    call smoke_write_hex32
+    mov edx, [irq_route_count]
+    call smoke_write_slash_hex32
+    mov edx, [irq_route_iso_hits]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_redir_entry_count]
+    call smoke_write_slash_hex32
+    mov esi, smoke_irqgsi_text
+    call smoke_copy_string
+    mov edx, [irq_route_timer_gsi]
+    call smoke_write_hex32
+    mov edx, [irq_route_keyboard_gsi]
+    call smoke_write_slash_hex32
+    mov edx, [irq_route_audio_gsi]
+    call smoke_write_slash_hex32
+    mov edx, [irq_route_mouse_gsi]
+    call smoke_write_slash_hex32
+    mov edx, [irq_route_ide_primary_gsi]
+    call smoke_write_slash_hex32
+    mov esi, smoke_irqvec_text
+    call smoke_copy_string
+    mov edx, IRQ_VECTOR_TIMER
+    call smoke_write_hex32
+    mov edx, IRQ_VECTOR_KEYBOARD
+    call smoke_write_slash_hex32
+    mov edx, IRQ_VECTOR_AUDIO
+    call smoke_write_slash_hex32
+    mov edx, IRQ_VECTOR_MOUSE
+    call smoke_write_slash_hex32
+    mov edx, IRQ_VECTOR_IDE_PRIMARY
+    call smoke_write_slash_hex32
+    mov esi, smoke_irqflags_text
+    call smoke_copy_string
+    mov edx, [irq_route_timer_flags]
+    call smoke_write_hex32
+    mov edx, [irq_route_keyboard_flags]
+    call smoke_write_slash_hex32
+    mov edx, [irq_route_audio_flags]
+    call smoke_write_slash_hex32
+    mov edx, [irq_route_mouse_flags]
+    call smoke_write_slash_hex32
+    mov edx, [irq_route_ide_primary_flags]
+    call smoke_write_slash_hex32
 
     mov esi, smoke_acpi_text
     call smoke_copy_string
@@ -31591,6 +31750,10 @@ smoke_cpuid_text db " cpuid=", 0
 smoke_apicbase_text db " apicbase=", 0
 smoke_irqctl_text db " irqctl=PIC", 0
 smoke_irqeoi_text db " irqeoi=", 0
+smoke_irqplan_text db " irqplan=", 0
+smoke_irqgsi_text db " irqgsi=", 0
+smoke_irqvec_text db " irqvec=", 0
+smoke_irqflags_text db " irqflags=", 0
 smoke_acpi_text db " acpi=", 0
 smoke_acpisrc_text db " acpisrc=", 0
 smoke_acpiver_text db " acpiver=", 0
@@ -32216,6 +32379,7 @@ acpi_hpet_parse_status db 0
 lapic_mmio_status db 0
 ioapic_mmio_status db 0
 ioapic_redir_status db 0
+irq_route_status db 0
 hpet_mmio_status db 0
 hpet_counter_status db 0
 hpet_live_status db 0
@@ -32282,6 +32446,18 @@ ioapic_redir_iso_gsi dd 0
 ioapic_redir_iso_index dd 0
 ioapic_redir_iso_low dd 0
 ioapic_redir_iso_high dd 0
+irq_route_count dd 0
+irq_route_iso_hits dd 0
+irq_route_timer_gsi dd 0
+irq_route_keyboard_gsi dd 0
+irq_route_audio_gsi dd 0
+irq_route_mouse_gsi dd 0
+irq_route_ide_primary_gsi dd 0
+irq_route_timer_flags dd 0
+irq_route_keyboard_flags dd 0
+irq_route_audio_flags dd 0
+irq_route_mouse_flags dd 0
+irq_route_ide_primary_flags dd 0
 hpet_mmio_addr dd 0
 hpet_mmio_cap_low dd 0
 hpet_mmio_cap_high dd 0
