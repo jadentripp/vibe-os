@@ -56,6 +56,9 @@ Manual play:
   path, but faulted while execing `ABIPROBE.ELF`. The follow-up prove run
   `26291808070` fixed that address-space bug and reached `path=DOOM.ELF`,
   `abiexec=OK`, `abiprobe=OK`, `doom=OK`, `doomrun=EXIT`, and `panic=NONE`.
+  Run `26292559171` kept that path green and added `execcopy=` guest evidence:
+  nine ELF segment materializations, nine target-CR3 switches, and nine
+  restores, ending in the Doom process page directory.
   The remaining gap is interactive UEFI playability; the noVNC play target is
   still BIOS/IDE.
 - `GAP[HIGHER_HALF_EXEC] status=open`: the kernel has high mapping proof work,
