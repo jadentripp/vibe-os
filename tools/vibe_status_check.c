@@ -46,6 +46,19 @@
 #define SYSCALL_RETURN_EFLAGS_SET 0x00000202u
 #define SYSCALL_RETURN_EFLAGS_KEEP_MASK 0xFFF88AFFu
 #define SYS_EXEC_ARGV_SOURCE_USER 2u
+#define VFS_ABI_OPEN 0x00000001u
+#define VFS_ABI_READ 0x00000002u
+#define VFS_ABI_WRITE 0x00000004u
+#define VFS_ABI_LSEEK 0x00000008u
+#define VFS_ABI_STAT 0x00000010u
+#define VFS_ABI_FSTAT 0x00000020u
+#define VFS_ABI_LISTDIR 0x00000040u
+#define VFS_ABI_UNLINK 0x00000080u
+#define VFS_ABI_FTRUNCATE 0x00000100u
+#define VFS_ABI_CLOSE 0x00000200u
+#define VFS_ABI_FULL_MASK \
+    (VFS_ABI_OPEN | VFS_ABI_READ | VFS_ABI_WRITE | VFS_ABI_LSEEK | VFS_ABI_STAT | \
+     VFS_ABI_FSTAT | VFS_ABI_LISTDIR | VFS_ABI_UNLINK | VFS_ABI_FTRUNCATE | VFS_ABI_CLOSE)
 #define USER_ELF_LOAD_ADDR 0x00E40000u
 #define USER_ELF_MAX_BYTES 0x00040000u
 #define VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY 63u
@@ -726,6 +739,37 @@ static void validate_exec_copy(const Status *status) {
     }
 }
 
+static void validate_vfs_abi(const Status *status) {
+    uint32_t abi[3];
+    uint32_t ops[10];
+    size_t i;
+
+    if (!has_field(status, "vfsabi")) {
+        return;
+    }
+
+    hex_tuple(status, "vfsabi", 3, '/', abi);
+    if (abi[1] != VFS_ABI_FULL_MASK) {
+        fail("vfsabi= declared full mask must be 0x%08X", VFS_ABI_FULL_MASK);
+    }
+    if ((abi[0] & VFS_ABI_FULL_MASK) != VFS_ABI_FULL_MASK) {
+        fail("vfsabi= must show every generic VFS syscall was exercised");
+    }
+    if ((abi[0] & ~VFS_ABI_FULL_MASK) != 0u) {
+        fail("vfsabi= must not set unknown operation bits");
+    }
+    if (abi[2] == 0u || (abi[2] & ~VFS_ABI_FULL_MASK) != 0u || (abi[2] & (abi[2] - 1u)) != 0u) {
+        fail("vfsabi= last operation must be exactly one known operation bit");
+    }
+
+    hex_tuple(status, "vfsops", 10, '/', ops);
+    for (i = 0; i < 10u; i++) {
+        if (ops[i] == 0u) {
+            fail("vfsops= must show every generic VFS counter incremented");
+        }
+    }
+}
+
 static void validate_exec(const Status *status) {
     exact(status, "exec", "OK");
     exact(status, "uexec", "OK");
@@ -738,6 +782,7 @@ static void validate_exec(const Status *status) {
         fail("argvsrc= must prove exec argv came from user memory");
     }
     validate_exec_copy(status);
+    validate_vfs_abi(status);
     (void)field(status, "execmap");
     (void)field(status, "procpool");
     (void)field(status, "fdexec");

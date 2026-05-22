@@ -34,6 +34,8 @@ cp "$ROOT/tests/fixtures/vm_status_krelhaz_ok.txt" "$DEVICE_OK"
   printf ' %s' 'pcmpull=00000002:00000001:00000001'
   printf ' %s' 'pcmdma=00000001:00000000:00000000:00008000:00000000:00000FFF'
   printf ' %s' 'execcopy=00000003/00000003/00000003/00089000/00082000/01000000/01001000/00000200/00000300'
+  printf ' %s' 'vfsops=00000001/00000001/00000001/00000001/00000001/00000001/00000001/00000001/00000001/00000001'
+  printf ' %s' 'vfsabi=000003FF/000003FF/00000200'
   printf ' %s' 'fb=LFB'
   printf ' %s' 'fbdev=00000001:00000002:00000003:00000001'
   printf ' %s' 'fbcap=00000017'
@@ -61,6 +63,13 @@ if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-c
   cat /tmp/vibe-status-check-execcopy-bad.out >&2
   exit 1
 fi
+sed 's|vfsabi=000003FF/000003FF/00000200|vfsabi=000003FE/000003FF/00000200|' \
+  "$DEVICE_OK" > "$DEVICE_BAD"
+if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-vfsabi-bad.out 2>&1; then
+  echo "vibe_status_check accepted incomplete generic VFS ABI proof" >&2
+  cat /tmp/vibe-status-check-vfsabi-bad.out >&2
+  exit 1
+fi
 
 for bad in \
   vm_status_krelhaz_bad_identity_return.txt \
@@ -77,4 +86,5 @@ done
 rm -f /tmp/vibe-status-check-bad.out
 rm -f /tmp/vibe-status-check-devices-bad.out
 rm -f /tmp/vibe-status-check-execcopy-bad.out
+rm -f /tmp/vibe-status-check-vfsabi-bad.out
 echo "vibe_status_check self-test OK"

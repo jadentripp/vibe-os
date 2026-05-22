@@ -710,6 +710,17 @@ O_TRUNC equ 0x0200
 O_APPEND equ 0x0400
 O_CLOEXEC equ 0x0800
 O_KNOWN_MASK equ O_ACCMODE | O_CREAT | O_TRUNC | O_APPEND | O_CLOEXEC
+VFS_ABI_OPEN equ 0x00000001
+VFS_ABI_READ equ 0x00000002
+VFS_ABI_WRITE equ 0x00000004
+VFS_ABI_LSEEK equ 0x00000008
+VFS_ABI_STAT equ 0x00000010
+VFS_ABI_FSTAT equ 0x00000020
+VFS_ABI_LISTDIR equ 0x00000040
+VFS_ABI_UNLINK equ 0x00000080
+VFS_ABI_FTRUNCATE equ 0x00000100
+VFS_ABI_CLOSE equ 0x00000200
+VFS_ABI_FULL_MASK equ VFS_ABI_OPEN | VFS_ABI_READ | VFS_ABI_WRITE | VFS_ABI_LSEEK | VFS_ABI_STAT | VFS_ABI_FSTAT | VFS_ABI_LISTDIR | VFS_ABI_UNLINK | VFS_ABI_FTRUNCATE | VFS_ABI_CLOSE
 SYS_USER_PROBE equ 1
 SYS_EXIT equ 2
 SYS_EXPECT_FAULT equ 3
@@ -11344,6 +11355,8 @@ storage_init:
     mov dword [vfs_unlink_count], 0
     mov dword [vfs_ftruncate_count], 0
     mov dword [vfs_close_count], 0
+    mov dword [vfs_generic_abi_mask], 0
+    mov dword [vfs_generic_last_op], 0
     mov dword [fat_lba_logical_sectors], 0
     mov dword [fat_lba_tail_free_cluster], 0
     mov dword [fat_lba_tail_free_count], 0
@@ -21486,11 +21499,75 @@ syscall_handler:
 
 .vfs_count_generic:
     push eax
+    push edx
     cmp byte [current_user_kind], USER_KIND_DOOM
     je .vfs_count_done
     inc dword [eax]
+    xor edx, edx
+    cmp eax, vfs_open_count
+    jne .vfs_count_read
+    mov edx, VFS_ABI_OPEN
+    jmp .vfs_count_record
+
+.vfs_count_read:
+    cmp eax, vfs_read_count
+    jne .vfs_count_write
+    mov edx, VFS_ABI_READ
+    jmp .vfs_count_record
+
+.vfs_count_write:
+    cmp eax, vfs_write_count
+    jne .vfs_count_lseek
+    mov edx, VFS_ABI_WRITE
+    jmp .vfs_count_record
+
+.vfs_count_lseek:
+    cmp eax, vfs_lseek_count
+    jne .vfs_count_stat
+    mov edx, VFS_ABI_LSEEK
+    jmp .vfs_count_record
+
+.vfs_count_stat:
+    cmp eax, vfs_stat_count
+    jne .vfs_count_fstat
+    mov edx, VFS_ABI_STAT
+    jmp .vfs_count_record
+
+.vfs_count_fstat:
+    cmp eax, vfs_fstat_count
+    jne .vfs_count_listdir
+    mov edx, VFS_ABI_FSTAT
+    jmp .vfs_count_record
+
+.vfs_count_listdir:
+    cmp eax, vfs_listdir_count
+    jne .vfs_count_unlink
+    mov edx, VFS_ABI_LISTDIR
+    jmp .vfs_count_record
+
+.vfs_count_unlink:
+    cmp eax, vfs_unlink_count
+    jne .vfs_count_ftruncate
+    mov edx, VFS_ABI_UNLINK
+    jmp .vfs_count_record
+
+.vfs_count_ftruncate:
+    cmp eax, vfs_ftruncate_count
+    jne .vfs_count_close
+    mov edx, VFS_ABI_FTRUNCATE
+    jmp .vfs_count_record
+
+.vfs_count_close:
+    cmp eax, vfs_close_count
+    jne .vfs_count_done
+    mov edx, VFS_ABI_CLOSE
+
+.vfs_count_record:
+    or [vfs_generic_abi_mask], edx
+    mov [vfs_generic_last_op], edx
 
 .vfs_count_done:
+    pop edx
     pop eax
     ret
 
@@ -28007,6 +28084,15 @@ write_smoke_status:
     mov edx, [vfs_close_count]
     call smoke_write_hex32
 
+    mov esi, smoke_vfsabi_text
+    call smoke_copy_string
+    mov edx, [vfs_generic_abi_mask]
+    call smoke_write_hex32
+    mov edx, VFS_ABI_FULL_MASK
+    call smoke_write_slash_hex32
+    mov edx, [vfs_generic_last_op]
+    call smoke_write_slash_hex32
+
     mov esi, smoke_saveact_text
     call smoke_copy_string
     mov edx, [doom_saveaction_flags]
@@ -32613,6 +32699,7 @@ smoke_fatcopy_text db " fac=", 0
 smoke_fatdyn_text db " fatdyn=", 0
 smoke_fatacct_text db " fatacct=", 0
 smoke_vfsops_text db " vfsops=", 0
+smoke_vfsabi_text db " vfsabi=", 0
 smoke_saveact_text db " saveact=", 0
 smoke_savedesc_text db " savedesc=", 0
 smoke_savestream_text db " savestm=", 0
@@ -33694,6 +33781,8 @@ vfs_listdir_count dd 0
 vfs_unlink_count dd 0
 vfs_ftruncate_count dd 0
 vfs_close_count dd 0
+vfs_generic_abi_mask dd 0
+vfs_generic_last_op dd 0
 fat_reserved_sectors dd 0
 fat_count dd 0
 fat_root_entries dd 0

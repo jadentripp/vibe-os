@@ -258,6 +258,8 @@ jobs:
             "exec_counters": "$(status_value execsys)",
             "exec_map": "$(status_value execmap)",
             "exec_copy": "$(status_value execcopy)",
+            "vfs_ops": "$(status_value vfsops)",
+            "vfs_abi": "$(status_value vfsabi)",
             "exec_error": "$(status_value execerr)",
             "exec_result": "$(status_value execres)",
             "exec_target": "$(status_value target)",
