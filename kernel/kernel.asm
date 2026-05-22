@@ -262,6 +262,18 @@ ACPI_HPET_GAS_ADDR_HIGH_OFF equ 48
 ACPI_HPET_NUMBER_OFF equ 52
 ACPI_HPET_MIN_TICK_OFF equ 53
 ACPI_HPET_PAGE_PROT_OFF equ 55
+MMIO_PROBE_NONE equ 0
+MMIO_PROBE_OK equ 1
+MMIO_PROBE_BAD equ 2
+LAPIC_REG_ID equ 0x020
+LAPIC_REG_VERSION equ 0x030
+LAPIC_REG_SPURIOUS equ 0x0f0
+IOAPIC_REGSEL equ 0x00
+IOAPIC_WINDOW equ 0x10
+IOAPIC_REG_ID equ 0x00
+IOAPIC_REG_VERSION equ 0x01
+HPET_GAS_SYSTEM_MEMORY equ 0
+HPET_REG_GENERAL_CAP_ID equ 0x000
 ACPI_STATUS_NONE equ 0
 ACPI_STATUS_OK equ 1
 ACPI_STATUS_BAD equ 2
@@ -371,7 +383,10 @@ PAGE_SIZE equ 0x1000
 PTE_PRESENT equ 0x001
 PTE_WRITE equ 0x002
 PTE_USER equ 0x004
+PTE_PWT equ 0x008
+PTE_PCD equ 0x010
 PTE_KERNEL_FLAGS equ PTE_PRESENT | PTE_WRITE
+PTE_KERNEL_MMIO_FLAGS equ PTE_KERNEL_FLAGS | PTE_PWT | PTE_PCD
 PTE_USER_READ_FLAGS equ PTE_PRESENT | PTE_USER
 PTE_USER_WRITE_FLAGS equ PTE_PRESENT | PTE_WRITE | PTE_USER
 PTE_USER_FLAGS equ PTE_USER_WRITE_FLAGS
@@ -2239,6 +2254,19 @@ acpi_probe_tables:
     mov dword [acpi_hpet_number], 0
     mov dword [acpi_hpet_min_tick], 0
     mov dword [acpi_hpet_page_prot], 0
+    mov byte [lapic_mmio_status], MMIO_PROBE_NONE
+    mov byte [ioapic_mmio_status], MMIO_PROBE_NONE
+    mov byte [hpet_mmio_status], MMIO_PROBE_NONE
+    mov dword [lapic_mmio_addr], 0
+    mov dword [lapic_mmio_id], 0
+    mov dword [lapic_mmio_version], 0
+    mov dword [lapic_mmio_spurious], 0
+    mov dword [ioapic_mmio_addr], 0
+    mov dword [ioapic_mmio_id], 0
+    mov dword [ioapic_mmio_version], 0
+    mov dword [hpet_mmio_addr], 0
+    mov dword [hpet_mmio_cap_low], 0
+    mov dword [hpet_mmio_cap_high], 0
 
     movzx esi, word [ACPI_RSDP_EBDA_SEG_PTR]
     shl esi, 4
@@ -2264,6 +2292,7 @@ acpi_probe_tables:
     mov esi, eax
     or dword [acpi_checksum_flags], ACPI_CHECKSUM_RSDP20
     call acpi_parse_rsdp
+    call acpi_probe_mmio_devices
 
 .done:
     popad
@@ -2730,6 +2759,115 @@ acpi_parse_hpet_table:
     movzx eax, byte [esi + ACPI_HPET_PAGE_PROT_OFF]
     mov [acpi_hpet_page_prot], eax
     mov byte [acpi_hpet_parse_status], ACPI_STATUS_OK
+
+.done:
+    popad
+    ret
+
+acpi_probe_mmio_devices:
+    pushad
+    cmp byte [acpi_madt_parse_status], ACPI_STATUS_OK
+    jne .hpet
+    cmp dword [acpi_lapic_count], 0
+    je .ioapic
+    call acpi_probe_lapic_mmio
+
+.ioapic:
+    cmp dword [acpi_ioapic_count], 0
+    je .hpet
+    call acpi_probe_ioapic_mmio
+
+.hpet:
+    cmp byte [acpi_hpet_parse_status], ACPI_STATUS_OK
+    jne .done
+    call acpi_probe_hpet_mmio
+
+.done:
+    popad
+    ret
+
+mmio_identity_map_page:
+    push ebx
+    push ecx
+    mov ebx, eax
+    mov ecx, PTE_KERNEL_MMIO_FLAGS
+    call vmm_map_page
+    pop ecx
+    pop ebx
+    ret
+
+acpi_probe_lapic_mmio:
+    pushad
+    mov byte [lapic_mmio_status], MMIO_PROBE_BAD
+    mov eax, [acpi_madt_lapic_addr]
+    cmp dword [acpi_lapic_override_count], 0
+    je .have_addr
+    cmp dword [acpi_lapic_override_high], 0
+    jne .done
+    mov eax, [acpi_lapic_override_low]
+
+.have_addr:
+    test eax, eax
+    jz .done
+    mov [lapic_mmio_addr], eax
+    call mmio_identity_map_page
+    jc .done
+    mov esi, [lapic_mmio_addr]
+    mov eax, [esi + LAPIC_REG_ID]
+    mov [lapic_mmio_id], eax
+    mov eax, [esi + LAPIC_REG_VERSION]
+    mov [lapic_mmio_version], eax
+    mov eax, [esi + LAPIC_REG_SPURIOUS]
+    mov [lapic_mmio_spurious], eax
+    mov byte [lapic_mmio_status], MMIO_PROBE_OK
+
+.done:
+    popad
+    ret
+
+acpi_probe_ioapic_mmio:
+    pushad
+    mov byte [ioapic_mmio_status], MMIO_PROBE_BAD
+    mov eax, [acpi_ioapic_first_addr]
+    test eax, eax
+    jz .done
+    mov [ioapic_mmio_addr], eax
+    call mmio_identity_map_page
+    jc .done
+    mov esi, [ioapic_mmio_addr]
+    mov dword [esi + IOAPIC_REGSEL], IOAPIC_REG_ID
+    mov eax, [esi + IOAPIC_WINDOW]
+    mov [ioapic_mmio_id], eax
+    mov dword [esi + IOAPIC_REGSEL], IOAPIC_REG_VERSION
+    mov eax, [esi + IOAPIC_WINDOW]
+    mov [ioapic_mmio_version], eax
+    mov byte [ioapic_mmio_status], MMIO_PROBE_OK
+
+.done:
+    popad
+    ret
+
+acpi_probe_hpet_mmio:
+    pushad
+    mov byte [hpet_mmio_status], MMIO_PROBE_BAD
+    cmp dword [acpi_hpet_addr_high], 0
+    jne .done
+    mov eax, [acpi_hpet_gas_info]
+    and eax, 0x000000ff
+    cmp eax, HPET_GAS_SYSTEM_MEMORY
+    jne .done
+    mov eax, [acpi_hpet_addr_low]
+    test eax, eax
+    jz .done
+    mov [hpet_mmio_addr], eax
+    call mmio_identity_map_page
+    jc .done
+    mov esi, [hpet_mmio_addr]
+    mov eax, [esi + HPET_REG_GENERAL_CAP_ID]
+    mov [hpet_mmio_cap_low], eax
+    mov eax, [esi + HPET_REG_GENERAL_CAP_ID + 4]
+    mov [hpet_mmio_cap_high], eax
+    mov byte [hpet_mmio_status], MMIO_PROBE_OK
 
 .done:
     popad
@@ -27297,6 +27435,43 @@ write_smoke_status:
     mov edx, [acpi_hpet_addr_high]
     call smoke_write_slash_hex32
 
+    mov esi, smoke_apicprobe_text
+    call smoke_copy_string
+    movzx edx, byte [lapic_mmio_status]
+    call smoke_write_hex32
+    mov edx, [lapic_mmio_addr]
+    call smoke_write_slash_hex32
+    mov edx, [lapic_mmio_id]
+    call smoke_write_slash_hex32
+    mov edx, [lapic_mmio_version]
+    call smoke_write_slash_hex32
+    mov edx, [lapic_mmio_spurious]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_ioapicprobe_text
+    call smoke_copy_string
+    movzx edx, byte [ioapic_mmio_status]
+    call smoke_write_hex32
+    mov edx, [ioapic_mmio_addr]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_mmio_id]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_mmio_version]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_ioapic_first_gsi_base]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_hpetprobe_text
+    call smoke_copy_string
+    movzx edx, byte [hpet_mmio_status]
+    call smoke_write_hex32
+    mov edx, [hpet_mmio_addr]
+    call smoke_write_slash_hex32
+    mov edx, [hpet_mmio_cap_low]
+    call smoke_write_slash_hex32
+    mov edx, [hpet_mmio_cap_high]
+    call smoke_write_slash_hex32
+
     mov esi, smoke_apic_text
     call smoke_copy_string
 
@@ -31024,6 +31199,9 @@ smoke_iso_text db " iso=", 0
 smoke_hpetp_text db " hpetp=", 0
 smoke_hpetinfo_text db " hpetinfo=", 0
 smoke_hpetaddr_text db " hpetaddr=", 0
+smoke_apicprobe_text db " apicprobe=", 0
+smoke_ioapicprobe_text db " ioapicprobe=", 0
+smoke_hpetprobe_text db " hpetprobe=", 0
 smoke_apic_text db " apic=NONE", 0
 smoke_hpet_text db " hpet=NONE", 0
 smoke_gflags_text db " gflags=", 0
@@ -31606,6 +31784,9 @@ acpi_scan_source db 0
 acpi_root_kind db 0
 acpi_madt_parse_status db 0
 acpi_hpet_parse_status db 0
+lapic_mmio_status db 0
+ioapic_mmio_status db 0
+hpet_mmio_status db 0
 align 4
 acpi_rsdp_addr dd 0
 acpi_rsdp_length dd 0
@@ -31651,6 +31832,16 @@ acpi_hpet_addr_high dd 0
 acpi_hpet_number dd 0
 acpi_hpet_min_tick dd 0
 acpi_hpet_page_prot dd 0
+lapic_mmio_addr dd 0
+lapic_mmio_id dd 0
+lapic_mmio_version dd 0
+lapic_mmio_spurious dd 0
+ioapic_mmio_addr dd 0
+ioapic_mmio_id dd 0
+ioapic_mmio_version dd 0
+hpet_mmio_addr dd 0
+hpet_mmio_cap_low dd 0
+hpet_mmio_cap_high dd 0
 bios_boot_magic dd 0
 bios_boot_version dd 0
 bios_boot_loader_status dd 0
