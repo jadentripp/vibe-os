@@ -91,8 +91,8 @@ The project owns the machine path instead of outsourcing it to a host OS:
 - input and video: keyboard, mouse, a reusable indexed framebuffer device,
   palette conversion, and frame presentation
 - audio and runtime: SB16-style PCM contracts, x87/FPU handling, and the
-  freestanding C/math/string support Doom expects; the kernel now exposes
-  generic audio ABI status, but the full non-Doom PCM lifecycle is still a gap
+  freestanding C/math/string support Doom expects; the OVMF cloud proof now
+  exercises a non-Doom Ring 3 PCM lifecycle through the generic audio ABI
 
 Doom is the first serious game target. The point is to make these OS services
 general enough for other small C games and tools, not to hide one-off Doom
@@ -129,10 +129,12 @@ kind of FAT16 disk image the kernel can read, and boots that image under
 disposable OVMF. The latest green prove run captured the kernel-owned
 `VIBEKERN step=uefi-entry status=OK` marker on `main`, proved ATA, MBR
 partition selection, WAD loading, Ring 3 ABI exec, and launched `DOOM.ELF` with
-`doom=OK`, `doomrun=EXIT`, and `panic=NONE`. That proves the UEFI loader reaches
-the same kernel storage and process path far enough to exec Doom. Interactive
-play remains proven on the BIOS/IDE noVNC target, not UEFI, and UEFI does not
-claim physical PC support yet.
+`doom=OK`, `doomrun=EXIT`, and `panic=NONE`. It also exposes an SB16 device and
+requires the generic audio ABI to open, write, query, drain, and close a PCM
+stream outside Doom. That proves the UEFI loader reaches the same kernel
+storage, process, and audio-device paths far enough to exec Doom and exercise a
+second audio client. Interactive play remains proven on the BIOS/IDE noVNC
+target, not UEFI, and UEFI does not claim physical PC support yet.
 PCI fields such as `pci=`, `pciprobe=`, `pciapi=`, `pcilookahci=`,
 `pcilookhda=`, `ahcibar=`, and `ahcireq=` are diagnostics, not a broad hardware
 support claim.
