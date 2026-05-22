@@ -631,6 +631,9 @@ static void validate_exec(const Status *status) {
 
 static void validate_preemption(const Status *status) {
     uint32_t preempt;
+    uint32_t attempts;
+    uint32_t skips;
+    uint32_t no_peer;
     uint32_t irq_switches;
     uint32_t user_irq_ticks;
     uint32_t context_switches;
@@ -656,11 +659,21 @@ static void validate_preemption(const Status *status) {
     if (irq_switches != preempt) {
         fail("pirq= must match preempt= to prove timer IRQ context switches");
     }
-    if (hex_field(status, "pattempt") == 0u) {
+    attempts = hex_field(status, "pattempt");
+    if (attempts == 0u) {
         fail("pattempt= must prove timer IRQ preemption attempts");
     }
-    if (hex_field(status, "pskip") != 0u) {
-        fail("pskip= must stay zero for the green preemption proof");
+    skips = hex_field(status, "pskip");
+    no_peer = has_field(status, "pnone") ? hex_field(status, "pnone") : 0u;
+    if (has_field(status, "pnone")) {
+        if (skips != 0u) {
+            fail("pskip= must stay zero once pnone= accounts for no-peer scheduler attempts");
+        }
+        if (attempts < preempt || no_peer != attempts - preempt) {
+            fail("pnone= must exactly account for timer attempts with no alternate ready process");
+        }
+    } else if (attempts < preempt || skips != attempts - preempt) {
+        fail("pskip= must exactly account for timer attempts with no alternate ready process");
     }
     user_irq_ticks = hex_field(status, "puser");
     if (user_irq_ticks == 0u || user_irq_ticks < preempt) {
