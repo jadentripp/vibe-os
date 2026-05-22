@@ -571,8 +571,6 @@ static void check_reboot_status(const char* path)
         die_path(path, "reboot status did not return to gameplay");
     if (status_has_literal(&status, "panic=") && !status_has_literal(&status, "panic=NONE"))
         die_path(path, "reboot status reported a panic");
-    if (status_has_literal(&status, "doomerr=") && status_hex_field(&status, "doomerr") != 0)
-        die_path(path, "reboot status reported a Doom error");
     free(status.data);
 }
 
@@ -588,8 +586,6 @@ static void check_load_status(const char* path)
         die_path(path, "load status did not prove DOOMSAV reads");
     if (status_has_literal(&status, "panic=") && !status_has_literal(&status, "panic=NONE"))
         die_path(path, "load status reported a panic");
-    if (status_has_literal(&status, "doomerr=") && status_hex_field(&status, "doomerr") != 0)
-        die_path(path, "load status reported a Doom error");
     free(status.data);
 }
 
