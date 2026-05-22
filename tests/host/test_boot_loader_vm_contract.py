@@ -972,7 +972,13 @@ class BootLoaderVmContractTests(unittest.TestCase):
     def test_uefi_handoff_has_kernel_owned_entry_marker_contract(self):
         loader = text(ROOT / "boot" / "uefi" / "loader.asm")
         kernel = text(ROOT / "kernel" / "kernel.asm")
+        makefile = text(ROOT / "Makefile")
         proof_script = text(ROOT / "boot" / "uefi" / "ovmf_cloud_proof.py")
+
+        self.assertEqual(
+            equ_value(loader, "KERNEL_MAX_BYTES"),
+            make_var_value(makefile, "KERNEL_ELF_MAX_BYTES"),
+        )
 
         for source in (
             "mov edx, UEFI_HANDOFF_MAGIC",
