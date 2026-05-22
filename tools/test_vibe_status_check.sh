@@ -42,6 +42,7 @@ cp "$ROOT/tests/fixtures/vm_status_krelhaz_ok.txt" "$DEVICE_OK"
   printf ' %s' 'fbcap=00000017'
   printf ' %s' 'fbsrc=00000001:00000140:000000C8:00000140:000000F0:00000100:00000003'
   printf ' %s' 'fbacct=00000001:00000001:00000000:00000000:00000000:00000001:0000FA00:0000FA00:00000300'
+  printf ' %s' 'fbabi=0000000F/0000000F/00000001/00000000/00000004'
   printf ' %s' 'fbpresent=00000002:00000001:00000001:00000000:00000003:00000004:00000002:00000140:000000C8'
   printf ' %s' 'fbinfo=00000001:00000003:00000004'
   printf ' %s' 'fbmmio=E0000000:00000080:00000380:00000000'
@@ -78,6 +79,13 @@ if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-c
   cat /tmp/vibe-status-check-audabi-bad.out >&2
   exit 1
 fi
+sed 's|fbabi=0000000F/0000000F/00000001/00000000/00000004|fbabi=0000000B/0000000F/00000001/00000000/00000004|' \
+  "$DEVICE_OK" > "$DEVICE_BAD"
+if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-fbabi-bad.out 2>&1; then
+  echo "vibe_status_check accepted incomplete generic framebuffer ABI proof" >&2
+  cat /tmp/vibe-status-check-fbabi-bad.out >&2
+  exit 1
+fi
 
 for bad in \
   vm_status_krelhaz_bad_identity_return.txt \
@@ -96,4 +104,5 @@ rm -f /tmp/vibe-status-check-devices-bad.out
 rm -f /tmp/vibe-status-check-execcopy-bad.out
 rm -f /tmp/vibe-status-check-vfsabi-bad.out
 rm -f /tmp/vibe-status-check-audabi-bad.out
+rm -f /tmp/vibe-status-check-fbabi-bad.out
 echo "vibe_status_check self-test OK"

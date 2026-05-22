@@ -811,6 +811,11 @@ VIBE_IOCTL_AUDIO_PCM_RING_INFO equ 0x00004102
 VIBE_IOCTL_AUDIO_STREAM_INFO equ 0x00004103
 FRAMEBUFFER_PRESENT_SOURCE_SYS equ 1
 FRAMEBUFFER_PRESENT_SOURCE_IOCTL equ 2
+FB_ABI_INFO equ 0x00000001
+FB_ABI_PRESENT equ 0x00000002
+FB_ABI_DIRTY equ 0x00000004
+FB_ABI_IOCTL_PRESENT equ 0x00000008
+FB_ABI_FULL_MASK equ FB_ABI_INFO | FB_ABI_PRESENT | FB_ABI_DIRTY | FB_ABI_IOCTL_PRESENT
 FRAMEBUFFER_HANDOFF_SOURCE_NONE equ 0
 FRAMEBUFFER_HANDOFF_SOURCE_VGA_MODE13 equ 1
 FRAMEBUFFER_HANDOFF_SOURCE_VBE equ 2
@@ -11569,6 +11574,10 @@ storage_init:
     mov dword [framebuffer_info_query_count], 0
     mov dword [framebuffer_last_info_pid], 0
     mov dword [framebuffer_last_info_kind], 0
+    mov dword [framebuffer_generic_abi_mask], 0
+    mov dword [framebuffer_generic_last_op], 0
+    mov dword [framebuffer_generic_last_source], 0
+    mov dword [framebuffer_generic_last_kind], 0
     mov dword [doom_init_flags], 0
     mov dword [doom_init_report_count], 0
     mov byte [doom_gameplay_status], 0
@@ -24472,6 +24481,15 @@ framebuffer_record_info_query:
     mov [framebuffer_last_info_kind], eax
     mov eax, [current_pid]
     mov [framebuffer_last_info_pid], eax
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    je .done
+    or dword [framebuffer_generic_abi_mask], FB_ABI_INFO
+    mov dword [framebuffer_generic_last_op], FB_ABI_INFO
+    mov dword [framebuffer_generic_last_source], 0
+    movzx eax, byte [current_user_kind]
+    mov [framebuffer_generic_last_kind], eax
+
+.done:
     pop eax
     ret
 
@@ -24500,6 +24518,26 @@ framebuffer_record_present_success:
     mov [framebuffer_last_present_width], ebx
     mov ebx, [present_height_arg]
     mov [framebuffer_last_present_height], ebx
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    je .generic_done
+    mov ebx, FB_ABI_PRESENT
+    cmp eax, FRAMEBUFFER_PRESENT_SOURCE_IOCTL
+    jne .generic_source_ready
+    or ebx, FB_ABI_IOCTL_PRESENT
+
+.generic_source_ready:
+    cmp dword [present_dirty_count], 0
+    je .generic_dirty_ready
+    or ebx, FB_ABI_DIRTY
+
+.generic_dirty_ready:
+    or [framebuffer_generic_abi_mask], ebx
+    mov [framebuffer_generic_last_op], ebx
+    mov [framebuffer_generic_last_source], eax
+    movzx ebx, byte [current_user_kind]
+    mov [framebuffer_generic_last_kind], ebx
+
+.generic_done:
 
     pop ebx
     pop eax
@@ -28503,6 +28541,18 @@ write_smoke_status:
     stosb
     mov edx, [framebuffer_last_palette_bytes]
     call smoke_write_hex32
+    mov esi, smoke_fbabi_text
+    call smoke_copy_string
+    mov edx, [framebuffer_generic_abi_mask]
+    call smoke_write_hex32
+    mov edx, FB_ABI_FULL_MASK
+    call smoke_write_slash_hex32
+    mov edx, [framebuffer_generic_last_op]
+    call smoke_write_slash_hex32
+    mov edx, [framebuffer_generic_last_source]
+    call smoke_write_slash_hex32
+    mov edx, [framebuffer_generic_last_kind]
+    call smoke_write_slash_hex32
     mov esi, smoke_doompal_text
     call smoke_copy_string
     mov edx, [present_palette_hash]
@@ -32811,6 +32861,7 @@ smoke_fbinfo_text db " fbinfo=", 0
 smoke_fbcap_text db " fbcap=", 0
 smoke_fbsrc_text db " fbsrc=", 0
 smoke_fbacct_text db " fbacct=", 0
+smoke_fbabi_text db " fbabi=", 0
 smoke_doompal_text db " doompal=", 0
 smoke_doomframe_text db " doomframe=", 0
 smoke_doomnonzero_text db " doomnonzero=", 0
@@ -34431,6 +34482,10 @@ framebuffer_last_palette_bytes dd 0
 framebuffer_info_query_count dd 0
 framebuffer_last_info_pid dd 0
 framebuffer_last_info_kind dd 0
+framebuffer_generic_abi_mask dd 0
+framebuffer_generic_last_op dd 0
+framebuffer_generic_last_source dd 0
+framebuffer_generic_last_kind dd 0
 framebuffer_handoff_source dd 0
 framebuffer_capabilities dd 0
 framebuffer_mmio_phys_base dd 0

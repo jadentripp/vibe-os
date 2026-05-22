@@ -120,6 +120,8 @@
 #define VIBE_FB_FORMAT_INDEX8_RGB24 1u
 #define FRAMEBUFFER_ABI_VERSION 1u
 #define FRAMEBUFFER_PRESENT_SEMANTICS_INDEXED_SOURCE 1u
+#define FRAMEBUFFER_PRESENT_SOURCE_SYS 1u
+#define FRAMEBUFFER_PRESENT_SOURCE_IOCTL 2u
 #define FB_PRESENT_WIDTH 320u
 #define FB_PRESENT_HEIGHT 200u
 #define FB_PRESENT_ASPECT_HEIGHT 240u
@@ -127,6 +129,11 @@
 #define FB_PRESENT_PALETTE_ENTRIES 256u
 #define FB_PRESENT_PALETTE_ENTRY_BYTES 3u
 #define FB_PRESENT_PALETTE_BYTES (FB_PRESENT_PALETTE_ENTRIES * FB_PRESENT_PALETTE_ENTRY_BYTES)
+#define FB_ABI_INFO 0x00000001u
+#define FB_ABI_PRESENT 0x00000002u
+#define FB_ABI_DIRTY 0x00000004u
+#define FB_ABI_IOCTL_PRESENT 0x00000008u
+#define FB_ABI_FULL_MASK (FB_ABI_INFO | FB_ABI_PRESENT | FB_ABI_DIRTY | FB_ABI_IOCTL_PRESENT)
 
 typedef struct {
     const char *name;
@@ -1106,6 +1113,7 @@ static void validate_framebuffer_device(const Status *status) {
     uint32_t fbmmio[4];
     uint32_t fbgeom[5];
     uint32_t fbdirty[5];
+    uint32_t fbabi[5];
     uint32_t fbcap;
     uint32_t backend;
 
@@ -1196,6 +1204,26 @@ static void validate_framebuffer_device(const Status *status) {
         fbdirty[0] + fbdirty[2] > FB_PRESENT_WIDTH ||
         fbdirty[1] + fbdirty[3] > FB_PRESENT_HEIGHT) {
         fail("fbdirty= must stay inside the indexed source rectangle");
+    }
+
+    if (has_field(status, "fbabi")) {
+        hex_tuple(status, "fbabi", 5, '/', fbabi);
+        if (fbabi[1] != FB_ABI_FULL_MASK) {
+            fail("fbabi= declared full mask must be 0x%08X", FB_ABI_FULL_MASK);
+        }
+        if ((fbabi[0] & FB_ABI_FULL_MASK) != FB_ABI_FULL_MASK) {
+            fail("fbabi= must prove non-Doom framebuffer info, ioctl present, and dirty tracking");
+        }
+        if ((fbabi[0] & ~FB_ABI_FULL_MASK) != 0u || (fbabi[2] & ~FB_ABI_FULL_MASK) != 0u ||
+            fbabi[2] == 0u) {
+            fail("fbabi= must not set unknown operation bits");
+        }
+        if (fbabi[3] > FRAMEBUFFER_PRESENT_SOURCE_IOCTL) {
+            fail("fbabi= last source must be none, syscall present, or ioctl present");
+        }
+        if (fbabi[4] == USER_KIND_DOOM || fbabi[4] == 0u) {
+            fail("fbabi= must be driven by a non-Doom user process");
+        }
     }
 }
 
