@@ -128,7 +128,8 @@ support claim.
 
 ACPI table discovery now runs in guest assembly: the kernel scans firmware
 memory for the RSDP, identity-maps ACPI table pages on demand, validates
-checksums, and records RSDT/XSDT, MADT, and HPET table pointers.
+checksums, records RSDT/XSDT pointers, and parses MADT/HPET hardware inventory:
+LAPICs, IOAPICs, interrupt source overrides, and HPET block metadata.
 APIC/IOAPIC routing and HPET timers are still unclaimed; the live status still
 says `irqctl=PIC`, `apic=NONE`, and `hpet=NONE`.
 

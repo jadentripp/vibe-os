@@ -237,6 +237,31 @@ ACPI_SDT_SIG_APIC equ 0x43495041
 ACPI_SDT_SIG_HPET equ 0x54455048
 ACPI_MAX_TABLE_BYTES equ 0x00010000
 ACPI_MAX_MAPPED_PHYS equ 0x20000000
+ACPI_MADT_LAPIC_ADDR_OFF equ 36
+ACPI_MADT_FLAGS_OFF equ 40
+ACPI_MADT_ENTRIES_OFF equ 44
+ACPI_MADT_ENTRY_HEADER_BYTES equ 2
+ACPI_MADT_TYPE_LOCAL_APIC equ 0
+ACPI_MADT_TYPE_IO_APIC equ 1
+ACPI_MADT_TYPE_INTERRUPT_OVERRIDE equ 2
+ACPI_MADT_TYPE_LOCAL_APIC_NMI equ 4
+ACPI_MADT_TYPE_LAPIC_ADDR_OVERRIDE equ 5
+ACPI_MADT_LOCAL_APIC_MIN_BYTES equ 8
+ACPI_MADT_IO_APIC_MIN_BYTES equ 12
+ACPI_MADT_ISO_MIN_BYTES equ 10
+ACPI_MADT_LAPIC_NMI_MIN_BYTES equ 6
+ACPI_MADT_LAPIC_OVERRIDE_MIN_BYTES equ 12
+ACPI_MADT_LOCAL_APIC_ENABLED equ 0x00000001
+ACPI_HPET_MIN_BYTES equ 56
+ACPI_HPET_BLOCK_ID_OFF equ 36
+ACPI_HPET_GAS_SPACE_OFF equ 40
+ACPI_HPET_GAS_WIDTH_OFF equ 41
+ACPI_HPET_GAS_ACCESS_OFF equ 43
+ACPI_HPET_GAS_ADDR_LOW_OFF equ 44
+ACPI_HPET_GAS_ADDR_HIGH_OFF equ 48
+ACPI_HPET_NUMBER_OFF equ 52
+ACPI_HPET_MIN_TICK_OFF equ 53
+ACPI_HPET_PAGE_PROT_OFF equ 55
 ACPI_STATUS_NONE equ 0
 ACPI_STATUS_OK equ 1
 ACPI_STATUS_BAD equ 2
@@ -2184,6 +2209,36 @@ acpi_probe_tables:
     mov dword [acpi_map_failures], 0
     mov dword [acpi_last_mapped_page], 0
     mov dword [acpi_last_map_length], 0
+    mov byte [acpi_madt_parse_status], 0
+    mov byte [acpi_hpet_parse_status], 0
+    mov dword [acpi_madt_lapic_addr], 0
+    mov dword [acpi_madt_flags], 0
+    mov dword [acpi_madt_entry_count], 0
+    mov dword [acpi_madt_end_ptr], 0
+    mov dword [acpi_lapic_count], 0
+    mov dword [acpi_lapic_enabled_count], 0
+    mov dword [acpi_lapic_first_uid], 0
+    mov dword [acpi_lapic_first_id], 0
+    mov dword [acpi_ioapic_count], 0
+    mov dword [acpi_ioapic_first_id], 0
+    mov dword [acpi_ioapic_first_addr], 0
+    mov dword [acpi_ioapic_first_gsi_base], 0
+    mov dword [acpi_iso_count], 0
+    mov dword [acpi_iso_first_bus], 0
+    mov dword [acpi_iso_first_source], 0
+    mov dword [acpi_iso_first_gsi], 0
+    mov dword [acpi_iso_first_flags], 0
+    mov dword [acpi_lapic_nmi_count], 0
+    mov dword [acpi_lapic_override_count], 0
+    mov dword [acpi_lapic_override_low], 0
+    mov dword [acpi_lapic_override_high], 0
+    mov dword [acpi_hpet_block_id], 0
+    mov dword [acpi_hpet_gas_info], 0
+    mov dword [acpi_hpet_addr_low], 0
+    mov dword [acpi_hpet_addr_high], 0
+    mov dword [acpi_hpet_number], 0
+    mov dword [acpi_hpet_min_tick], 0
+    mov dword [acpi_hpet_page_prot], 0
 
     movzx esi, word [ACPI_RSDP_EBDA_SEG_PTR]
     shl esi, 4
@@ -2315,6 +2370,7 @@ acpi_parse_rsdp:
     mov [acpi_selected_sdt_addr], esi
     mov byte [acpi_root_kind], ACPI_ROOT_XSDT
     call acpi_parse_xsdt_entries
+    call acpi_parse_device_tables
     mov byte [acpi_status], ACPI_STATUS_OK
     jmp .done
 
@@ -2329,6 +2385,7 @@ acpi_parse_rsdp:
     mov [acpi_selected_sdt_addr], esi
     mov byte [acpi_root_kind], ACPI_ROOT_RSDT
     call acpi_parse_rsdt_entries
+    call acpi_parse_device_tables
     mov byte [acpi_status], ACPI_STATUS_OK
 
 .done:
@@ -2489,6 +2546,190 @@ acpi_record_sdt_entry:
     cmp eax, ACPI_SDT_SIG_HPET
     jne .done
     mov [acpi_hpet_addr], esi
+
+.done:
+    popad
+    ret
+
+acpi_parse_device_tables:
+    pushad
+    cmp dword [acpi_madt_addr], 0
+    je .hpet
+    call acpi_parse_madt_table
+
+.hpet:
+    cmp dword [acpi_hpet_addr], 0
+    je .done
+    call acpi_parse_hpet_table
+
+.done:
+    popad
+    ret
+
+acpi_parse_madt_table:
+    pushad
+    mov byte [acpi_madt_parse_status], ACPI_STATUS_BAD
+    mov esi, [acpi_madt_addr]
+    test esi, esi
+    jz .done
+    mov eax, esi
+    mov ecx, ACPI_MADT_ENTRIES_OFF
+    call acpi_identity_map_range
+    jc .done
+    mov ecx, [esi + ACPI_SDT_LENGTH_OFF]
+    cmp ecx, ACPI_MADT_ENTRIES_OFF
+    jb .done
+    mov eax, esi
+    call acpi_identity_map_range
+    jc .done
+    mov eax, [esi + ACPI_MADT_LAPIC_ADDR_OFF]
+    mov [acpi_madt_lapic_addr], eax
+    mov eax, [esi + ACPI_MADT_FLAGS_OFF]
+    mov [acpi_madt_flags], eax
+    lea edi, [esi + ACPI_MADT_ENTRIES_OFF]
+    lea edx, [esi + ecx]
+    mov [acpi_madt_end_ptr], edx
+
+.next_entry:
+    cmp edi, [acpi_madt_end_ptr]
+    jae .ok
+    movzx ecx, byte [edi + 1]
+    cmp ecx, ACPI_MADT_ENTRY_HEADER_BYTES
+    jb .done
+    mov eax, edi
+    add eax, ecx
+    jc .done
+    cmp eax, [acpi_madt_end_ptr]
+    ja .done
+    inc dword [acpi_madt_entry_count]
+    movzx eax, byte [edi]
+    cmp eax, ACPI_MADT_TYPE_LOCAL_APIC
+    je .local_apic
+    cmp eax, ACPI_MADT_TYPE_IO_APIC
+    je .io_apic
+    cmp eax, ACPI_MADT_TYPE_INTERRUPT_OVERRIDE
+    je .interrupt_override
+    cmp eax, ACPI_MADT_TYPE_LOCAL_APIC_NMI
+    je .local_apic_nmi
+    cmp eax, ACPI_MADT_TYPE_LAPIC_ADDR_OVERRIDE
+    je .lapic_override
+    jmp .advance
+
+.local_apic:
+    cmp ecx, ACPI_MADT_LOCAL_APIC_MIN_BYTES
+    jb .advance
+    cmp dword [acpi_lapic_count], 0
+    jne .local_apic_count
+    movzx eax, byte [edi + 2]
+    mov [acpi_lapic_first_uid], eax
+    movzx eax, byte [edi + 3]
+    mov [acpi_lapic_first_id], eax
+
+.local_apic_count:
+    inc dword [acpi_lapic_count]
+    test dword [edi + 4], ACPI_MADT_LOCAL_APIC_ENABLED
+    jz .advance
+    inc dword [acpi_lapic_enabled_count]
+    jmp .advance
+
+.io_apic:
+    cmp ecx, ACPI_MADT_IO_APIC_MIN_BYTES
+    jb .advance
+    cmp dword [acpi_ioapic_count], 0
+    jne .io_apic_count
+    movzx eax, byte [edi + 2]
+    mov [acpi_ioapic_first_id], eax
+    mov eax, [edi + 4]
+    mov [acpi_ioapic_first_addr], eax
+    mov eax, [edi + 8]
+    mov [acpi_ioapic_first_gsi_base], eax
+
+.io_apic_count:
+    inc dword [acpi_ioapic_count]
+    jmp .advance
+
+.interrupt_override:
+    cmp ecx, ACPI_MADT_ISO_MIN_BYTES
+    jb .advance
+    cmp dword [acpi_iso_count], 0
+    jne .interrupt_override_count
+    movzx eax, byte [edi + 2]
+    mov [acpi_iso_first_bus], eax
+    movzx eax, byte [edi + 3]
+    mov [acpi_iso_first_source], eax
+    mov eax, [edi + 4]
+    mov [acpi_iso_first_gsi], eax
+    movzx eax, word [edi + 8]
+    mov [acpi_iso_first_flags], eax
+
+.interrupt_override_count:
+    inc dword [acpi_iso_count]
+    jmp .advance
+
+.local_apic_nmi:
+    cmp ecx, ACPI_MADT_LAPIC_NMI_MIN_BYTES
+    jb .advance
+    inc dword [acpi_lapic_nmi_count]
+    jmp .advance
+
+.lapic_override:
+    cmp ecx, ACPI_MADT_LAPIC_OVERRIDE_MIN_BYTES
+    jb .advance
+    cmp dword [acpi_lapic_override_count], 0
+    jne .lapic_override_count
+    mov eax, [edi + 4]
+    mov [acpi_lapic_override_low], eax
+    mov eax, [edi + 8]
+    mov [acpi_lapic_override_high], eax
+
+.lapic_override_count:
+    inc dword [acpi_lapic_override_count]
+
+.advance:
+    add edi, ecx
+    jmp .next_entry
+
+.ok:
+    mov byte [acpi_madt_parse_status], ACPI_STATUS_OK
+
+.done:
+    popad
+    ret
+
+acpi_parse_hpet_table:
+    pushad
+    mov byte [acpi_hpet_parse_status], ACPI_STATUS_BAD
+    mov esi, [acpi_hpet_addr]
+    test esi, esi
+    jz .done
+    mov eax, esi
+    mov ecx, ACPI_HPET_MIN_BYTES
+    call acpi_identity_map_range
+    jc .done
+    cmp dword [esi + ACPI_SDT_LENGTH_OFF], ACPI_HPET_MIN_BYTES
+    jb .done
+    mov eax, [esi + ACPI_HPET_BLOCK_ID_OFF]
+    mov [acpi_hpet_block_id], eax
+    movzx eax, byte [esi + ACPI_HPET_GAS_SPACE_OFF]
+    mov ebx, eax
+    movzx eax, byte [esi + ACPI_HPET_GAS_WIDTH_OFF]
+    shl eax, 8
+    or ebx, eax
+    movzx eax, byte [esi + ACPI_HPET_GAS_ACCESS_OFF]
+    shl eax, 16
+    or ebx, eax
+    mov [acpi_hpet_gas_info], ebx
+    mov eax, [esi + ACPI_HPET_GAS_ADDR_LOW_OFF]
+    mov [acpi_hpet_addr_low], eax
+    mov eax, [esi + ACPI_HPET_GAS_ADDR_HIGH_OFF]
+    mov [acpi_hpet_addr_high], eax
+    movzx eax, byte [esi + ACPI_HPET_NUMBER_OFF]
+    mov [acpi_hpet_number], eax
+    movzx eax, word [esi + ACPI_HPET_MIN_TICK_OFF]
+    mov [acpi_hpet_min_tick], eax
+    movzx eax, byte [esi + ACPI_HPET_PAGE_PROT_OFF]
+    mov [acpi_hpet_page_prot], eax
+    mov byte [acpi_hpet_parse_status], ACPI_STATUS_OK
 
 .done:
     popad
@@ -26972,10 +27213,89 @@ write_smoke_status:
     mov edx, [acpi_madt_addr]
     call smoke_write_hex32
 
+    mov esi, smoke_madtinfo_text
+    call smoke_copy_string
+    movzx edx, byte [acpi_madt_parse_status]
+    call smoke_write_hex32
+    mov edx, [acpi_madt_lapic_addr]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_madt_flags]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_madt_entry_count]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_lapic_text
+    call smoke_copy_string
+    mov edx, [acpi_lapic_count]
+    call smoke_write_hex32
+    mov edx, [acpi_lapic_enabled_count]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_lapic_first_uid]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_lapic_first_id]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_lapic_override_count]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_lapicover_text
+    call smoke_copy_string
+    mov edx, [acpi_lapic_override_low]
+    call smoke_write_hex32
+    mov edx, [acpi_lapic_override_high]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_ioapic_text
+    call smoke_copy_string
+    mov edx, [acpi_ioapic_count]
+    call smoke_write_hex32
+    mov edx, [acpi_ioapic_first_id]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_ioapic_first_addr]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_ioapic_first_gsi_base]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_iso_text
+    call smoke_copy_string
+    mov edx, [acpi_iso_count]
+    call smoke_write_hex32
+    mov edx, [acpi_iso_first_bus]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_iso_first_source]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_iso_first_gsi]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_iso_first_flags]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_lapic_nmi_count]
+    call smoke_write_slash_hex32
+
     mov esi, smoke_hpetp_text
     call smoke_copy_string
     mov edx, [acpi_hpet_addr]
     call smoke_write_hex32
+
+    mov esi, smoke_hpetinfo_text
+    call smoke_copy_string
+    movzx edx, byte [acpi_hpet_parse_status]
+    call smoke_write_hex32
+    mov edx, [acpi_hpet_block_id]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_hpet_number]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_hpet_min_tick]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_hpet_page_prot]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_hpetaddr_text
+    call smoke_copy_string
+    mov edx, [acpi_hpet_gas_info]
+    call smoke_write_hex32
+    mov edx, [acpi_hpet_addr_low]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_hpet_addr_high]
+    call smoke_write_slash_hex32
 
     mov esi, smoke_apic_text
     call smoke_copy_string
@@ -30696,7 +31016,14 @@ smoke_xsdt_text db " xsdt=", 0
 smoke_acpitab_text db " acpitab=", 0
 smoke_acpimap_text db " acpimap=", 0
 smoke_madt_text db " madt=", 0
+smoke_madtinfo_text db " madtinfo=", 0
+smoke_lapic_text db " lapic=", 0
+smoke_lapicover_text db " lapicover=", 0
+smoke_ioapic_text db " ioapic=", 0
+smoke_iso_text db " iso=", 0
 smoke_hpetp_text db " hpetp=", 0
+smoke_hpetinfo_text db " hpetinfo=", 0
+smoke_hpetaddr_text db " hpetaddr=", 0
 smoke_apic_text db " apic=NONE", 0
 smoke_hpet_text db " hpet=NONE", 0
 smoke_gflags_text db " gflags=", 0
@@ -31277,6 +31604,8 @@ bios_boot_status db 0
 acpi_status db 0
 acpi_scan_source db 0
 acpi_root_kind db 0
+acpi_madt_parse_status db 0
+acpi_hpet_parse_status db 0
 align 4
 acpi_rsdp_addr dd 0
 acpi_rsdp_length dd 0
@@ -31294,6 +31623,34 @@ acpi_mapped_pages dd 0
 acpi_map_failures dd 0
 acpi_last_mapped_page dd 0
 acpi_last_map_length dd 0
+acpi_madt_lapic_addr dd 0
+acpi_madt_flags dd 0
+acpi_madt_entry_count dd 0
+acpi_madt_end_ptr dd 0
+acpi_lapic_count dd 0
+acpi_lapic_enabled_count dd 0
+acpi_lapic_first_uid dd 0
+acpi_lapic_first_id dd 0
+acpi_ioapic_count dd 0
+acpi_ioapic_first_id dd 0
+acpi_ioapic_first_addr dd 0
+acpi_ioapic_first_gsi_base dd 0
+acpi_iso_count dd 0
+acpi_iso_first_bus dd 0
+acpi_iso_first_source dd 0
+acpi_iso_first_gsi dd 0
+acpi_iso_first_flags dd 0
+acpi_lapic_nmi_count dd 0
+acpi_lapic_override_count dd 0
+acpi_lapic_override_low dd 0
+acpi_lapic_override_high dd 0
+acpi_hpet_block_id dd 0
+acpi_hpet_gas_info dd 0
+acpi_hpet_addr_low dd 0
+acpi_hpet_addr_high dd 0
+acpi_hpet_number dd 0
+acpi_hpet_min_tick dd 0
+acpi_hpet_page_prot dd 0
 bios_boot_magic dd 0
 bios_boot_version dd 0
 bios_boot_loader_status dd 0
