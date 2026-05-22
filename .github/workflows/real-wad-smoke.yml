@@ -521,7 +521,11 @@ jobs:
               SMOKE_SETTLE_SECONDS=12 \
               SMOKE_INPUT_SCRIPT="$persistence_load_script" \
               tests/run_smoke_qemu.sh
-            cp build/persistence-load/status.txt build/status.persistence-load.txt
+            load_status="build/persistence-load/status.load-slot-${PERSISTENCE_SAVE_SLOT}.txt"
+            if [ ! -f "$load_status" ]; then
+              load_status="build/persistence-load/status.txt"
+            fi
+            cp "$load_status" build/status.persistence-load.txt
             cp build/status.persistence-load.txt build/status.persistence-reboot.txt
 
             make persistence-image-check \
