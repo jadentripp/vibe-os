@@ -77,6 +77,12 @@
 #define VIBE_INPUT_MOD_MASK 0x00000007u
 #define VIBE_INPUT_DEVICE_STATUS_READY 1u
 #define VIBE_INPUT_DEVICE_STATUS_ERROR 2u
+#define INPUT_ABI_POLL_EVENT 0x00000001u
+#define INPUT_ABI_STATUS 0x00000002u
+#define INPUT_ABI_KEYBOARD_STATUS 0x00000004u
+#define INPUT_ABI_MOUSE_STATUS 0x00000008u
+#define INPUT_ABI_FULL_MASK \
+    (INPUT_ABI_POLL_EVENT | INPUT_ABI_STATUS | INPUT_ABI_KEYBOARD_STATUS | INPUT_ABI_MOUSE_STATUS)
 #define AUDIO_DEVICE_NONE 0u
 #define AUDIO_DEVICE_SB16 1u
 #define AUDIO_CAP_PCM_RING 0x00000001u
@@ -942,6 +948,7 @@ static void validate_input_devices(const Status *status) {
     uint32_t policy[2];
     uint32_t dev[2];
     uint32_t devices[5];
+    uint32_t inabi[5];
     uint32_t last[3];
     uint64_t accounted;
 
@@ -1016,6 +1023,28 @@ static void validate_input_devices(const Status *status) {
         }
     } else {
         fail("inputlast= contains an unknown device id");
+    }
+
+    if (has_field(status, "inabi")) {
+        hex_tuple(status, "inabi", 5, '/', inabi);
+        if (inabi[1] != INPUT_ABI_FULL_MASK) {
+            fail("inabi= declared full mask must be 0x%08X", INPUT_ABI_FULL_MASK);
+        }
+        if ((inabi[0] & INPUT_ABI_FULL_MASK) != INPUT_ABI_FULL_MASK) {
+            fail("inabi= must prove non-Doom poll, aggregate status, keyboard status, and mouse status");
+        }
+        if ((inabi[0] & ~INPUT_ABI_FULL_MASK) != 0u ||
+            (inabi[2] & ~INPUT_ABI_FULL_MASK) != 0u ||
+            inabi[2] == 0u ||
+            (inabi[2] & (inabi[2] - 1u)) != 0u) {
+            fail("inabi= must not set unknown operation bits");
+        }
+        if (inabi[3] == 0u || inabi[3] == USER_KIND_DOOM) {
+            fail("inabi= must be driven by a non-Doom user process");
+        }
+        if (inabi[4] > 1u) {
+            fail("inabi= last result must be an input poll/status success result");
+        }
     }
 }
 

@@ -24,6 +24,7 @@ cp "$ROOT/tests/fixtures/vm_status_krelhaz_ok.txt" "$DEVICE_OK"
   printf ' %s' 'inputpolicy=00000001:0000003F'
   printf ' %s' 'inputdev=00000001:00000001'
   printf ' %s' 'inputdevices=00000002:00000003:0000001F:00000001:00000001'
+  printf ' %s' 'inabi=0000000F/0000000F/00000008/00000004/00000000'
   printf ' %s' 'inputmods=00000003'
   printf ' %s' 'inputlast=00000020:00000002:00000002'
   printf ' %s' 'audio=SB16'
@@ -56,6 +57,13 @@ sed 's/inputstat=00000004:00000002:00000001:0000003F/inputstat=00000004:00000002
 if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-devices-bad.out 2>&1; then
   echo "vibe_status_check accepted inconsistent device status accounting" >&2
   cat /tmp/vibe-status-check-devices-bad.out >&2
+  exit 1
+fi
+sed 's|inabi=0000000F/0000000F/00000008/00000004/00000000|inabi=0000000B/0000000F/00000008/00000004/00000000|' \
+  "$DEVICE_OK" > "$DEVICE_BAD"
+if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-inabi-bad.out 2>&1; then
+  echo "vibe_status_check accepted incomplete generic input ABI proof" >&2
+  cat /tmp/vibe-status-check-inabi-bad.out >&2
   exit 1
 fi
 sed 's|execcopy=00000003/00000003/00000003/00089000/00082000|execcopy=00000003/00000003/00000002/00089000/00082000|' \
@@ -101,6 +109,7 @@ done
 
 rm -f /tmp/vibe-status-check-bad.out
 rm -f /tmp/vibe-status-check-devices-bad.out
+rm -f /tmp/vibe-status-check-inabi-bad.out
 rm -f /tmp/vibe-status-check-execcopy-bad.out
 rm -f /tmp/vibe-status-check-vfsabi-bad.out
 rm -f /tmp/vibe-status-check-audabi-bad.out

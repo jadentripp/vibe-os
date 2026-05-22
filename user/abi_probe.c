@@ -491,6 +491,7 @@ int user_main(int argc, char** argv, char** envp)
 {
     static vibe_dirent_t root_entries[16];
     static vibe_clock_time_t now;
+    static vibe_input_event_t input_event;
     static vibe_input_status_t input_status;
     static vibe_input_device_status_t keyboard_status;
     static vibe_input_device_status_t mouse_status;
@@ -566,6 +567,8 @@ int user_main(int argc, char** argv, char** envp)
         return 32;
     if (!vibe_input_status_uses_drop_oldest(&input_status)
         || !vibe_input_status_keyboard_is_ready(&input_status))
+        return 32;
+    if (vibe_user_poll_input(&input_event) < 0)
         return 32;
     if (vibe_user_input_device_status(VIBE_INPUT_DEVICE_KEYBOARD, &keyboard_status) != 0
         || !vibe_input_device_record_is_ready(&keyboard_status)

@@ -121,6 +121,11 @@ VIBE_INPUT_DEVICE_CAP_KEYS equ 0x00000001
 VIBE_INPUT_DEVICE_CAP_RELATIVE_POINTER equ 0x00000002
 VIBE_INPUT_DEVICE_CAP_BUTTONS equ 0x00000004
 VIBE_INPUT_DEVICE_CAP_STATE_SNAPSHOT equ 0x00000008
+INPUT_ABI_POLL_EVENT equ 0x00000001
+INPUT_ABI_STATUS equ 0x00000002
+INPUT_ABI_KEYBOARD_STATUS equ 0x00000004
+INPUT_ABI_MOUSE_STATUS equ 0x00000008
+INPUT_ABI_FULL_MASK equ INPUT_ABI_POLL_EVENT | INPUT_ABI_STATUS | INPUT_ABI_KEYBOARD_STATUS | INPUT_ABI_MOUSE_STATUS
 VIBE_INPUT_MOD_SHIFT equ 0x00000001
 VIBE_INPUT_MOD_CTRL equ 0x00000002
 VIBE_INPUT_MOD_ALT equ 0x00000004
@@ -22104,18 +22109,24 @@ syscall_handler:
     .poll_input_count_mouse:
     inc dword [input_mouse_poll_count]
 
-    .poll_input_count_done:
+.poll_input_count_done:
     cmp byte [current_user_kind], USER_KIND_DOOM
     jne .poll_input_return_one
     call doom_record_input_event
 
 .poll_input_return_one:
+    mov eax, INPUT_ABI_POLL_EVENT
+    mov ecx, 1
+    call input_record_generic_abi
     mov eax, 1
     popfd
     jmp .return
 
 .poll_input_empty_locked:
     popfd
+    mov eax, INPUT_ABI_POLL_EVENT
+    xor ecx, ecx
+    call input_record_generic_abi
     xor eax, eax
     jmp .return
 
@@ -22202,6 +22213,9 @@ syscall_handler:
     mov [edi + VIBE_INPUT_STATUS_KEYBOARD_STATUS], eax
     movzx eax, byte [mouse_status]
     mov [edi + VIBE_INPUT_STATUS_MOUSE_STATUS], eax
+    mov eax, INPUT_ABI_STATUS
+    xor ecx, ecx
+    call input_record_generic_abi
     xor eax, eax
     popfd
     jmp .return
@@ -22255,6 +22269,9 @@ syscall_handler:
     mov dword [edi + VIBE_INPUT_DEVICE_STATUS_AXIS_X_TOTAL], 0
     mov dword [edi + VIBE_INPUT_DEVICE_STATUS_AXIS_Y_TOTAL], 0
     mov dword [edi + VIBE_INPUT_DEVICE_STATUS_RESERVED0], 0
+    mov eax, INPUT_ABI_KEYBOARD_STATUS
+    xor ecx, ecx
+    call input_record_generic_abi
     xor eax, eax
     popfd
     jmp .return
@@ -22283,6 +22300,9 @@ syscall_handler:
     mov eax, [input_mouse_delta_y_total]
     mov [edi + VIBE_INPUT_DEVICE_STATUS_AXIS_Y_TOTAL], eax
     mov dword [edi + VIBE_INPUT_DEVICE_STATUS_RESERVED0], 0
+    mov eax, INPUT_ABI_MOUSE_STATUS
+    xor ecx, ecx
+    call input_record_generic_abi
     xor eax, eax
     popfd
     jmp .return
@@ -25146,6 +25166,10 @@ input_reset_queue:
     mov dword [input_mouse_delta_y_total], 0
     mov dword [input_last_event_device], 0
     mov dword [input_last_event_type], 0
+    mov dword [input_generic_abi_mask], 0
+    mov dword [input_generic_last_op], 0
+    mov dword [input_generic_last_kind], 0
+    mov dword [input_generic_last_result], 0
     mov dword [doom_input_event_count], 0
     mov dword [doom_input_last_timestamp], 0
     mov dword [doom_input_last_device], 0
@@ -25371,6 +25395,20 @@ input_drop_oldest_event:
     pop edx
     pop ebx
     pop eax
+    ret
+
+input_record_generic_abi:
+    push edx
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    je .done
+    or [input_generic_abi_mask], eax
+    mov [input_generic_last_op], eax
+    movzx edx, byte [current_user_kind]
+    mov [input_generic_last_kind], edx
+    mov [input_generic_last_result], ecx
+
+.done:
+    pop edx
     ret
 
 input_refresh_keyboard_modifiers:
@@ -29830,6 +29868,19 @@ write_smoke_status:
     mov edx, [input_mouse_poll_count]
     call smoke_write_hex32
 
+    mov esi, smoke_inabi_text
+    call smoke_copy_string
+    mov edx, [input_generic_abi_mask]
+    call smoke_write_hex32
+    mov edx, INPUT_ABI_FULL_MASK
+    call smoke_write_slash_hex32
+    mov edx, [input_generic_last_op]
+    call smoke_write_slash_hex32
+    mov edx, [input_generic_last_kind]
+    call smoke_write_slash_hex32
+    mov edx, [input_generic_last_result]
+    call smoke_write_slash_hex32
+
     mov esi, smoke_inputmods_text
     call smoke_copy_string
     mov edx, [input_keyboard_modifiers]
@@ -32998,6 +33049,7 @@ smoke_inputstat_text db " inputstat=", 0
 smoke_inputpolicy_text db " inputpolicy=", 0
 smoke_inputdev_text db " inputdev=", 0
 smoke_inputdevices_text db " inputdevices=", 0
+smoke_inabi_text db " inabi=", 0
 smoke_inputmods_text db " inputmods=", 0
 smoke_inputpoll_text db " inputpoll=", 0
 smoke_inputlast_text db " inputlast=", 0
@@ -34581,6 +34633,10 @@ input_mouse_delta_x_total dd 0
 input_mouse_delta_y_total dd 0
 input_last_event_device dd 0
 input_last_event_type dd 0
+input_generic_abi_mask dd 0
+input_generic_last_op dd 0
+input_generic_last_kind dd 0
+input_generic_last_result dd 0
 key_event_head dd 0
 key_event_tail dd 0
 keyboard_irq_count dd 0
