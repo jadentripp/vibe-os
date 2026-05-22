@@ -85,7 +85,9 @@ The project owns the machine path instead of outsourcing it to a host OS:
 - files: ATA/IDE PIO, a block-device boundary, FAT16 reads/writes, config files,
   WAD loading, save-file write/read plumbing, readonly `/ASSETS`, and writable
   `/STATE` files through the same user file ABI, with live FAT allocation
-  accounting
+  accounting; the guest now reports a generic VFS ABI mask proving open, read,
+  write, seek, stat, directory listing, truncate, unlink, and close paths ran
+  outside Doom
 - input and video: keyboard, mouse, a reusable indexed framebuffer device,
   palette conversion, and frame presentation
 - audio and runtime: SB16-style PCM contracts, x87/FPU handling, and the

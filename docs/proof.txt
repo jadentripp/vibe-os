@@ -20,6 +20,8 @@ The meaningful current claims are:
 - Doom runs as a Ring 3 ELF process, not as a host app.
 - Doom reads WAD data through the OS file path and presents frames through the
   OS graphics path.
+- The generic ABI probe now exercises the VFS syscalls used by other programs:
+  open, read, write, lseek, stat, fstat, listdir, unlink, ftruncate, and close.
 - The safe manual play path runs QEMU only on a disposable cloud host.
 
 ## Proof Commands
@@ -67,7 +69,11 @@ Manual play:
 - `GAP[PREEMPTION] status=open`: scheduler accounting is not enough; done means
   timer IRQ preemption switches Ring 3 contexts through saved frames and `iret`.
 - `GAP[STORAGE_GENERALITY] status=open`: FAT/WAD/save paths must keep becoming
-  a general block-device and VFS subsystem for other programs.
+  a general block-device and VFS subsystem for other programs. Cloud run
+  `26293167954` on `main` proved the generic Ring 3 ABI path exercised every
+  tracked VFS syscall with `vfsabi=000003FF/000003FF/00000200` and nonzero
+  `vfsops` counters. Remaining work is deeper filesystem generality, especially
+  long-lived allocation/free/truncate behavior beyond the current proof.
 - `GAP[INPUT_GENERALITY] status=open`: keyboard and mouse should feed one
   generic event queue consumed by any process.
 - `GAP[GRAPHICS_GENERALITY] status=open`: framebuffer presentation should be a
