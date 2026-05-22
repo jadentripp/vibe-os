@@ -7038,6 +7038,8 @@ pmm_init:
     mov dword [pmm_self_test_alloc_phys], 0
     mov dword [pmm_self_test_free_before], 0
     mov dword [pmm_self_test_free_after], 0
+    mov dword [pmm_self_test_used_before], 0
+    mov dword [pmm_self_test_used_after], 0
     mov dword [pmm_exclusion_low_guard], 0
     mov dword [pmm_exclusion_kernel_reserved], 0
     mov dword [pmm_exclusion_user_reserved], 0
@@ -7046,6 +7048,7 @@ pmm_init:
     mov dword [pmm_scan_free_pages], 0
     mov dword [pmm_scan_used_pages], 0
     mov dword [pmm_scan_reserved_pages], 0
+    mov dword [pmm_scan_invalid_pages], 0
     mov byte [pmm_source], PMM_SOURCE_NONE
     mov byte [pmm_e820_handoff_status], 0
     mov byte [pmm_frame_accounting_status], 0
@@ -7290,6 +7293,7 @@ pmm_refresh_frame_counters:
     mov dword [pmm_scan_free_pages], 0
     mov dword [pmm_scan_used_pages], 0
     mov dword [pmm_scan_reserved_pages], 0
+    mov dword [pmm_scan_invalid_pages], 0
     mov byte [pmm_frame_accounting_status], 0
 
     mov ecx, [pmm_total_pages]
@@ -7304,6 +7308,7 @@ pmm_refresh_frame_counters:
     je .used
     cmp byte [esi], PMM_FRAME_RESERVED
     je .reserved
+    inc dword [pmm_scan_invalid_pages]
     jmp .advance
 
 .free:
@@ -7323,6 +7328,9 @@ pmm_refresh_frame_counters:
     jmp .scan_next
 
 .validate:
+    cmp dword [pmm_scan_invalid_pages], 0
+    jne .done
+
     mov eax, [pmm_scan_free_pages]
     cmp eax, [pmm_free_pages]
     jne .done
@@ -7778,27 +7786,85 @@ pmm_free_page:
     ret
 
 pmm_self_test:
+    push ebx
+    push ecx
+    push edx
+    push edi
+
+    call pmm_refresh_frame_counters
+    cmp byte [pmm_frame_accounting_status], 1
+    jne .fail
+
     mov eax, [pmm_free_pages]
     mov [pmm_self_test_free_before], eax
+    mov eax, [pmm_used_pages]
+    mov [pmm_self_test_used_before], eax
     call pmm_alloc_page
     test eax, eax
     jz .fail
     mov ebx, eax
     mov [pmm_self_test_alloc_phys], eax
+    mov eax, [pmm_free_pages]
+    mov ecx, [pmm_self_test_free_before]
+    dec ecx
+    cmp eax, ecx
+    jne .fail_after_alloc
+    mov eax, [pmm_used_pages]
+    mov ecx, [pmm_self_test_used_before]
+    inc ecx
+    cmp eax, ecx
+    jne .fail_after_alloc
+    mov edx, ebx
+    sub edx, PMM_MANAGED_START
+    shr edx, 12
+    mov edi, PMM_FRAME_MAP_ADDR
+    cmp byte [edi + edx], PMM_FRAME_USED
+    jne .fail_after_alloc
+    call pmm_refresh_frame_counters
+    cmp byte [pmm_frame_accounting_status], 1
+    jne .fail_after_alloc
     mov dword [ebx], 0x50414745
     cmp dword [ebx], 0x50414745
-    jne .fail
+    jne .fail_after_alloc
     mov eax, ebx
     call pmm_free_page
     mov eax, [pmm_free_pages]
+    cmp eax, [pmm_self_test_free_before]
+    jne .fail
     mov [pmm_self_test_free_after], eax
+    mov eax, [pmm_used_pages]
+    cmp eax, [pmm_self_test_used_before]
+    jne .fail
+    mov [pmm_self_test_used_after], eax
+    mov edx, ebx
+    sub edx, PMM_MANAGED_START
+    shr edx, 12
+    mov edi, PMM_FRAME_MAP_ADDR
+    cmp byte [edi + edx], PMM_FRAME_FREE
+    jne .fail
+    call pmm_refresh_frame_counters
+    cmp byte [pmm_frame_accounting_status], 1
+    jne .fail
     mov byte [pmm_test_status], 1
-    ret
+    jmp .done
+
+.fail_after_alloc:
+    mov eax, ebx
+    call pmm_free_page
 
 .fail:
+    call pmm_refresh_frame_counters
     mov eax, [pmm_free_pages]
     mov [pmm_self_test_free_after], eax
+    mov eax, [pmm_used_pages]
+    mov [pmm_self_test_used_after], eax
     mov byte [pmm_test_status], 2
+
+.done:
+    pop edi
+    pop edx
+    pop ecx
+    pop ebx
     ret
 
 vmm_map_page:
@@ -15835,13 +15901,13 @@ fat_resize_writable_file:
     mov ecx, [file_resize_old_size]
     mov edx, [file_resize_new_size]
     call fat_zero_writable_range
-    jc .rollback_fail
+    jc .rollback_grow_fail
     mov ebx, [file_resize_index]
     mov eax, [file_resize_new_size]
     mov [writable_sizes + ebx * 4], eax
     mov eax, ebx
     call fat_update_writable_size
-    jc .rollback_fail
+    jc .rollback_grow_fail
     inc dword [fat_resize_grow_count]
     or dword [fat_generic_abi_mask], FAT_ABI_RESIZE_GROW
     mov dword [fat_generic_last_op], FAT_ABI_RESIZE_GROW
@@ -15854,15 +15920,15 @@ fat_resize_writable_file:
     mov ebx, [file_resize_index]
     mov eax, [file_resize_new_size]
     mov [writable_sizes + ebx * 4], eax
-    mov eax, ebx
-    call fat_update_writable_size
-    jc .rollback_fail
-    mov eax, [file_resize_index]
-    call fat_clip_writable_chain_to_size
-    jc .rollback_fail
     mov eax, [file_resize_index]
     call fat_zero_writable_tail_after_size
-    jc .rollback_fail
+    jc .rollback_size_only_fail
+    mov eax, ebx
+    call fat_update_writable_size
+    jc .rollback_size_only_fail
+    mov eax, [file_resize_index]
+    call fat_clip_writable_chain_to_size
+    jc .shrink_clip_fail
     inc dword [fat_resize_shrink_count]
     or dword [fat_generic_abi_mask], FAT_ABI_RESIZE_SHRINK
     mov dword [fat_generic_last_op], FAT_ABI_RESIZE_SHRINK
@@ -15872,11 +15938,18 @@ fat_resize_writable_file:
 .truncate_zero:
     mov eax, [file_resize_index]
     call fat_truncate_writable_file
-    jc .rollback_fail
+    jc .done
     clc
     jmp .done
 
-.rollback_fail:
+.rollback_size_only_fail:
+    mov ebx, [file_resize_index]
+    mov eax, [file_resize_old_size]
+    mov [writable_sizes + ebx * 4], eax
+    stc
+    jmp .done
+
+.rollback_grow_fail:
     mov ebx, [file_resize_index]
     mov eax, [file_resize_old_size]
     mov [writable_sizes + ebx * 4], eax
@@ -15884,6 +15957,10 @@ fat_resize_writable_file:
     call fat_clip_writable_chain_to_size
     mov eax, [file_resize_index]
     call fat_update_writable_size
+    stc
+    jmp .done
+
+.shrink_clip_fail:
     stc
     jmp .done
 
@@ -17523,6 +17600,7 @@ scheduler_init:
     mov dword [scheduler_preempt_switches], 0
     mov dword [scheduler_irq_context_switches], 0
     mov dword [scheduler_irq_frame_invalid], 0
+    mov dword [scheduler_irq_eflags_invalid], 0
     mov dword [scheduler_preempt_skips], 0
     mov dword [scheduler_preempt_no_peer], 0
     mov dword [scheduler_user_irq_ticks], 0
@@ -17550,6 +17628,8 @@ scheduler_init:
     mov dword [scheduler_last_irq_frame_eflags], 0
     mov dword [scheduler_irq_eflags_sanitize_count], 0
     mov dword [scheduler_preempt_selftest_eflags_sanitize_count], 0
+    mov dword [scheduler_preempt_selftest_invalid_count], 0
+    mov dword [scheduler_preempt_selftest_eflags_invalid_count], 0
     mov dword [scheduler_preempt_pair_mask], 0
     mov dword [scheduler_preempt_probe_ready], 0
     mov dword [scheduler_preempt_spin_value], 0
@@ -19658,6 +19738,11 @@ scheduler_validate_irq_user_frame:
     jne .fail
     cmp dword [ebx + IRQ_FRAME_GS], USER_DATA_SEG
     jne .fail
+    mov eax, [ebx + IRQ_FRAME_EFLAGS]
+    and eax, SYSCALL_RETURN_EFLAGS_KEEP_MASK
+    or eax, SYSCALL_RETURN_EFLAGS_SET
+    cmp eax, [ebx + IRQ_FRAME_EFLAGS]
+    jne .fail_eflags
     mov eax, [ebx + IRQ_FRAME_EIP]
     cmp eax, [esi + PROC_BASE]
     jb .fail
@@ -19674,6 +19759,11 @@ scheduler_validate_irq_user_frame:
     jmp .done
 
 .fail:
+    stc
+    jmp .done
+
+.fail_eflags:
+    inc dword [scheduler_irq_eflags_invalid]
     stc
 
 .done:
@@ -20027,6 +20117,47 @@ scheduler_preempt_self_test:
     cmp dword [scheduler_last_irq_frame_gs], USER_DATA_SEG
     jne .done
 
+    mov esi, process_user_probe
+    mov dword [current_process_ptr], esi
+    mov dword [current_pid], 1
+    mov dword [esi + PROC_STATE], PROC_STATE_RUNNING
+    mov dword [esi + PROC_QUANTUM_TICKS], 0
+    or dword [esi + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID
+    mov edi, scheduler_preempt_selftest_frame
+    xor eax, eax
+    mov ecx, IRQ_FRAME_DWORDS
+    cld
+    rep stosd
+    mov dword [scheduler_preempt_selftest_frame + IRQ_FRAME_EAX], 0x10101010
+    mov dword [scheduler_preempt_selftest_frame + IRQ_FRAME_EIP], USER_CODE_ADDR + 0x24
+    mov dword [scheduler_preempt_selftest_frame + IRQ_FRAME_CS], USER_CODE_SEG
+    mov dword [scheduler_preempt_selftest_frame + IRQ_FRAME_EFLAGS], 0x00003202
+    mov dword [scheduler_preempt_selftest_frame + IRQ_FRAME_ESP], USER_STACK_TOP - 64
+    mov dword [scheduler_preempt_selftest_frame + IRQ_FRAME_SS], USER_DATA_SEG
+    mov dword [scheduler_preempt_selftest_frame + IRQ_FRAME_DS], USER_DATA_SEG
+    mov dword [scheduler_preempt_selftest_frame + IRQ_FRAME_ES], USER_DATA_SEG
+    mov dword [scheduler_preempt_selftest_frame + IRQ_FRAME_FS], USER_DATA_SEG
+    mov dword [scheduler_preempt_selftest_frame + IRQ_FRAME_GS], USER_DATA_SEG
+    mov ebx, scheduler_preempt_selftest_frame
+    call scheduler_tick
+
+    cmp dword [scheduler_irq_frame_invalid], 1
+    jne .done
+    cmp dword [scheduler_irq_eflags_invalid], 1
+    jne .done
+    test dword [process_user_probe + PROC_VM_FLAGS], PROC_FLAG_IRQ_FRAME_VALID
+    jnz .done
+    cmp dword [current_process_ptr], process_user_probe
+    jne .done
+    cmp dword [scheduler_preempt_switches], 1
+    jne .done
+    cmp dword [scheduler_irq_context_switches], 1
+    jne .done
+    mov eax, [scheduler_irq_frame_invalid]
+    mov [scheduler_preempt_selftest_invalid_count], eax
+    mov eax, [scheduler_irq_eflags_invalid]
+    mov [scheduler_preempt_selftest_eflags_invalid_count], eax
+
     mov byte [scheduler_preempt_selftest_status], 1
 
 .done:
@@ -20058,6 +20189,7 @@ scheduler_preempt_self_test:
     mov dword [scheduler_preempt_skips], 0
     mov dword [scheduler_preempt_no_peer], 0
     mov dword [scheduler_irq_frame_invalid], 0
+    mov dword [scheduler_irq_eflags_invalid], 0
     mov dword [scheduler_user_irq_ticks], 0
     mov dword [scheduler_last_preempt_from_pid], 0xffffffff
     mov dword [scheduler_last_preempt_to_pid], 0xffffffff
@@ -30677,6 +30809,23 @@ write_smoke_status:
     mov edx, [scheduler_preempt_selftest_eflags_sanitize_count]
     call smoke_write_hex32
 
+    mov esi, smoke_pbadframe_text
+    call smoke_copy_string
+    mov edx, [scheduler_irq_frame_invalid]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [scheduler_irq_eflags_invalid]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [scheduler_preempt_selftest_invalid_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [scheduler_preempt_selftest_eflags_invalid_count]
+    call smoke_write_hex32
+
     mov esi, smoke_pspin_text
     call smoke_copy_string
     mov edx, [scheduler_preempt_spin_value]
@@ -30839,6 +30988,10 @@ write_smoke_status:
     call smoke_write_slash_hex32
     movzx edx, byte [pmm_frame_accounting_status]
     call smoke_write_slash_hex32
+    mov esi, smoke_pmminv_text
+    call smoke_copy_string
+    mov edx, [pmm_scan_invalid_pages]
+    call smoke_write_hex32
     mov esi, smoke_pmmchk_text
     call smoke_copy_string
     cmp byte [pmm_frame_accounting_status], 1
@@ -33463,6 +33616,7 @@ smoke_pkstk_text db " pkstk=", 0
 smoke_pframe_text db " pframe=", 0
 smoke_psegs_text db " psegs=", 0
 smoke_peflags_text db " peflags=", 0
+smoke_pbadframe_text db " pbadframe=", 0
 smoke_pspin_text db " pspin=", 0
 smoke_pself_text db " pself=", 0
 smoke_preemptabi_text db " preemptabi=", 0
@@ -33479,6 +33633,7 @@ smoke_pmmmap_text db " pmmmap=", 0
 smoke_pmmguard_text db " pmmguard=", 0
 smoke_pmmuse_text db " pmmuse=", 0
 smoke_pmmtype_text db " pmmtype=", 0
+smoke_pmminv_text db " pmminv=", 0
 smoke_pmmchk_text db " pmmchk=", 0
 smoke_pmmalloc_text db " pmmalloc=", 0
 smoke_pmmdeny_text db " pmmdeny=", 0
@@ -33918,6 +34073,8 @@ pmm_mmio_pages dd 0
 pmm_self_test_alloc_phys dd 0
 pmm_self_test_free_before dd 0
 pmm_self_test_free_after dd 0
+pmm_self_test_used_before dd 0
+pmm_self_test_used_after dd 0
 pmm_exclusion_low_guard dd 0
 pmm_exclusion_kernel_reserved dd 0
 pmm_exclusion_user_reserved dd 0
@@ -33926,6 +34083,7 @@ pmm_exclusion_mmio_reserved dd 0
 pmm_scan_free_pages dd 0
 pmm_scan_used_pages dd 0
 pmm_scan_reserved_pages dd 0
+pmm_scan_invalid_pages dd 0
 pmm_source db 0
 pmm_e820_handoff_status db 0
 pmm_frame_accounting_status db 0
@@ -34692,6 +34850,7 @@ scheduler_last_preempt_to_cr3 dd 0
 scheduler_last_preempt_from_kstack dd 0
 scheduler_last_preempt_to_kstack dd 0
 scheduler_irq_frame_invalid dd 0
+scheduler_irq_eflags_invalid dd 0
 scheduler_irq_frame_rewrites dd 0
 scheduler_last_irq_frame_eip dd 0
 scheduler_last_irq_frame_cs dd 0
@@ -34704,6 +34863,8 @@ scheduler_last_irq_frame_gs dd 0
 scheduler_last_irq_frame_eflags dd 0
 scheduler_irq_eflags_sanitize_count dd 0
 scheduler_preempt_selftest_eflags_sanitize_count dd 0
+scheduler_preempt_selftest_invalid_count dd 0
+scheduler_preempt_selftest_eflags_invalid_count dd 0
 scheduler_preempt_pair_mask dd 0
 scheduler_preempt_probe_ready dd 0
 scheduler_preempt_spin_value dd 0

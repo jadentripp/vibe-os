@@ -165,7 +165,8 @@ UEFI_HANDOFF_MMAP_DESC_COUNT_OFF equ 160
 UEFI_HANDOFF_LOADED_SEGMENTS_OFF equ 168
 UEFI_HANDOFF_TRANSITION64_OFF equ 176
 UEFI_HANDOFF_FRAMEBUFFER_SIZE_OFF equ 184
-UEFI_HANDOFF_BLOCK_BYTES equ 192
+UEFI_HANDOFF_BLOCK_SIZE_OFF equ 192
+UEFI_HANDOFF_BLOCK_BYTES equ 200
 IA32_EFER_MSR equ 0xc0000080
 CR0_PG_CLEAR_MASK equ 0x7fffffff
 EFER_LME_CLEAR_MASK equ 0xfffffeff
@@ -1198,6 +1199,7 @@ prepare_kernel_handoff:
     mov rax, [kernel_loaded_segments]
     mov [handoff_loaded_segments], rax
     mov qword [handoff_transition64], UEFI64_TRANSITION_ADDR
+    mov qword [handoff_block_size], UEFI_HANDOFF_BLOCK_BYTES
 
     cmp qword [memory_map_descriptor_count], 0
     je .mmap_flag_done
@@ -1274,6 +1276,21 @@ validate_low_handoff_layout:
     jne .block_failed
     cmp eax, PAGE_SIZE
     ja .block_failed
+    mov eax, handoff_pitch - uefi_handoff_block
+    cmp eax, UEFI_HANDOFF_PITCH_OFF
+    jne .block_failed
+    mov eax, handoff_mmap_desc_count - uefi_handoff_block
+    cmp eax, UEFI_HANDOFF_MMAP_DESC_COUNT_OFF
+    jne .block_failed
+    mov eax, handoff_transition64 - uefi_handoff_block
+    cmp eax, UEFI_HANDOFF_TRANSITION64_OFF
+    jne .block_failed
+    mov eax, handoff_framebuffer_size - uefi_handoff_block
+    cmp eax, UEFI_HANDOFF_FRAMEBUFFER_SIZE_OFF
+    jne .block_failed
+    mov eax, handoff_block_size - uefi_handoff_block
+    cmp eax, UEFI_HANDOFF_BLOCK_SIZE_OFF
+    jne .block_failed
 
     mov eax, UEFI32_E820_MAP_ADDR
     cmp eax, BOOT_INFO_ADDR
@@ -1391,30 +1408,71 @@ validate_low_handoff_copy:
     jne .fail
     cmp dword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_VERSION_OFF], UEFI_HANDOFF_VERSION
     jne .fail
-    mov eax, [handoff_flags]
-    cmp dword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_FLAGS_OFF], eax
+    mov rax, [handoff_flags]
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_FLAGS_OFF], rax
     jne .fail
-    mov eax, [handoff_entry32]
-    cmp dword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_ENTRY32_OFF], eax
+    mov rax, [handoff_entry32]
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_ENTRY32_OFF], rax
     jne .fail
-    cmp dword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_STACK32_OFF], UEFI32_STACK_TOP
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_STACK32_OFF], UEFI32_STACK_TOP
     jne .fail
-    cmp dword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_BOOT_INFO32_OFF], BOOT_INFO_ADDR
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_BOOT_INFO32_OFF], BOOT_INFO_ADDR
     jne .fail
-    cmp dword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_E820_MAP32_OFF], UEFI32_E820_MAP_ADDR
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_E820_MAP32_OFF], UEFI32_E820_MAP_ADDR
     jne .fail
-    cmp dword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_TRAMPOLINE32_OFF], UEFI32_TRAMPOLINE_ADDR
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_TRAMPOLINE32_OFF], UEFI32_TRAMPOLINE_ADDR
     jne .fail
-    cmp dword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_CODE_SELECTOR_OFF], UEFI32_CODE_SEG
+    mov rax, [handoff_gdt_base]
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_GDT_BASE_OFF], rax
     jne .fail
-    cmp dword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_DATA_SELECTOR_OFF], UEFI32_DATA_SEG
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_CODE_SELECTOR_OFF], UEFI32_CODE_SEG
     jne .fail
-    cmp dword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_LOADED_SEGMENTS_OFF], 0
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_DATA_SELECTOR_OFF], UEFI32_DATA_SEG
+    jne .fail
+    mov rax, [handoff_kernel_buffer]
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_KERNEL_BUFFER_OFF], rax
+    jne .fail
+    mov rax, [handoff_kernel_read_size]
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_KERNEL_READ_SIZE_OFF], rax
+    jne .fail
+    mov rax, [handoff_framebuffer_base]
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_FRAMEBUFFER_BASE_OFF], rax
+    jne .fail
+    mov rax, [handoff_pitch]
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_PITCH_OFF], rax
+    jne .fail
+    mov rax, [handoff_width]
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_WIDTH_OFF], rax
+    jne .fail
+    mov rax, [handoff_height]
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_HEIGHT_OFF], rax
+    jne .fail
+    mov rax, [handoff_pixel_format]
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_PIXEL_FORMAT_OFF], rax
+    jne .fail
+    mov rax, [handoff_mmap_buffer]
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_MMAP_BUFFER_OFF], rax
+    jne .fail
+    mov rax, [handoff_mmap_size]
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_MMAP_SIZE_OFF], rax
+    jne .fail
+    mov rax, [handoff_mmap_desc_size]
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_MMAP_DESC_SIZE_OFF], rax
+    jne .fail
+    mov rax, [handoff_mmap_desc_count]
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_MMAP_DESC_COUNT_OFF], rax
+    jne .fail
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_LOADED_SEGMENTS_OFF], 0
     je .fail
-    cmp dword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_TRANSITION64_OFF], UEFI64_TRANSITION_ADDR
+    mov rax, [handoff_loaded_segments]
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_LOADED_SEGMENTS_OFF], rax
     jne .fail
-    mov eax, [handoff_framebuffer_size]
-    cmp dword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_FRAMEBUFFER_SIZE_OFF], eax
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_TRANSITION64_OFF], UEFI64_TRANSITION_ADDR
+    jne .fail
+    mov rax, [handoff_framebuffer_size]
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_FRAMEBUFFER_SIZE_OFF], rax
+    jne .fail
+    cmp qword [abs UEFI32_HANDOFF_BLOCK_ADDR + UEFI_HANDOFF_BLOCK_SIZE_OFF], UEFI_HANDOFF_BLOCK_BYTES
     jne .fail
     cmp byte [abs UEFI32_TRAMPOLINE_ADDR], 0xfa
     jne .fail
@@ -1757,7 +1815,6 @@ handoff_data_selector dq 0
 handoff_kernel_buffer dq 0
 handoff_kernel_read_size dq 0
 handoff_framebuffer_base dq 0
-handoff_framebuffer_size dq 0
 handoff_pitch dq 0
 handoff_width dq 0
 handoff_height dq 0
@@ -1768,6 +1825,8 @@ handoff_mmap_desc_size dq 0
 handoff_mmap_desc_count dq 0
 handoff_loaded_segments dq 0
 handoff_transition64 dq 0
+handoff_framebuffer_size dq 0
+handoff_block_size dq 0
 uefi_handoff_block_end:
 
 align 8

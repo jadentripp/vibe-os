@@ -12,7 +12,10 @@ boot-info/E820 block, BIOS-compatible GDT selectors, a fixed 32-bit stack
 target, an internal handoff block, a low-memory 64-bit mode-exit stub, a
 low-memory 32-bit trampoline, a pre-`ExitBootServices` verification pass over
 the copied low-memory handoff image, and debugcon markers for the attempted
-handoff.
+handoff. The handoff block is versioned and now carries its own byte size; the
+loader checks the in-assembly layout before copying it and then verifies the
+low-memory copy field-by-field, including the framebuffer span and the fields
+the 32-bit entry consumes.
 The kernel now has a source-level `VIBEKERN step=uefi-entry` marker and smoke
 status fields for the UEFI handoff registers/block. This still does not claim
 UEFI boot support for this checkpoint until a disposable OVMF run captures the
@@ -60,8 +63,10 @@ BIOS-compatible bounds, loads ELF32 `PT_LOAD` segments to their physical
 destinations, synthesizes and validates the legacy boot-info/E820 block from GOP
 plus a UEFI memory map whose descriptor size and byte span are checked before it
 can feed E820 synthesis, copies a low-memory 64-bit transition stub and 32-bit
-trampoline, verifies that the low handoff block, trampoline, and transition stub
-are readable at their physical targets, then prints
+trampoline, verifies that the low handoff block has the expected version, byte
+size, field offsets, framebuffer span field, and entry-critical target values,
+and verifies that the trampoline and transition stub are readable at their
+physical targets, then prints
 `VIBEUEFI step=kernel-handoff status=attempting` after `ExitBootServices` before
 jumping to the low transition stub. If the kernel is entered through that path,
 `kernel/kernel.asm` validates `EDX=UHND`,

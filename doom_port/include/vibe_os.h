@@ -72,6 +72,19 @@ enum {
 };
 
 enum {
+    VIBE_USER_START_FLAG_ARGV_BOUNDED = 0x00000001u,
+    VIBE_USER_START_FLAG_ENVP_BOUNDED = 0x00000002u,
+    VIBE_USER_START_FLAG_AUXV_PRESENT = 0x00000004u,
+    VIBE_USER_START_FLAG_STACK_ALIGNED = 0x00000008u,
+    VIBE_USER_START_REQUIRED_FLAGS = VIBE_USER_START_FLAG_ARGV_BOUNDED
+        | VIBE_USER_START_FLAG_ENVP_BOUNDED
+        | VIBE_USER_START_FLAG_AUXV_PRESENT
+        | VIBE_USER_START_FLAG_STACK_ALIGNED,
+    VIBE_USER_START_FAIL_STATUS = VIBE_PROCESS_FAULT_EXIT_STATUS_BASE | 22u,
+    VIBE_USER_DEFAULT_PAGE_SIZE = 4096u,
+};
+
+enum {
     VIBE_PROCESS_STATUS_SELF = 0,
     VIBE_PROCESS_STATUS_ABI_VERSION = 1,
     VIBE_PROCESS_STATUS_BYTES = 64,
@@ -1450,6 +1463,10 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   punches validation holes without creating reusable VM objects.
  *   `vibe_vm_capabilities` and `vibe_mmap_anon` make the supported VM subset
  *   explicit for ports that would otherwise probe file-backed/shared mappings.
+ * - crt0 validates bounded argc/envp startup shape before calling user_main,
+ *   records startup status flags, and exposes auxv through runtime helpers so
+ *   non-Doom programs can query page size and entry metadata without parsing
+ *   the raw initial stack themselves.
  * - execv/execve pass bounded argv/envp vectors to the process handoff; execve copies bounded envp strings. Table
  *   entries cover Doom/probe images; root-level FAT16 .ELF names use reusable
  *   probe-class slots. File descriptors inherit across exec unless

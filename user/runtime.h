@@ -34,6 +34,12 @@ enum {
     VIBE_USER_SYS_DISPLAY_IOCTL = 22u,
 };
 
+extern int vibe_user_argc;
+extern char** vibe_user_argv;
+extern char** vibe_user_environ;
+extern unsigned long* vibe_user_auxv;
+extern unsigned long vibe_user_start_status;
+
 enum {
     VIBE_USER_VM_CAP_FILE_PRIVATE_COPY = VIBE_VM_CAP_FILE_PRIVATE_COPY,
 };
@@ -115,6 +121,11 @@ int vibe_user_file_write_at(
     unsigned long* out_written);
 int vibe_user_file_read_all(const char* path, void* buffer, unsigned long capacity, unsigned long* out_size);
 int vibe_user_execv(const char* path, char* const argv[]);
+int vibe_user_startup_contract_ok(void);
+int vibe_user_auxv_get(unsigned long type, unsigned long* out_value);
+unsigned long vibe_user_auxv_value(unsigned long type, unsigned long fallback_value);
+unsigned long vibe_user_page_size(void);
+unsigned long vibe_user_entry_address(void);
 void vibe_user_report_probe(unsigned long magic, unsigned long flags);
 
 static inline int vibe_user_result_is_error(int raw_result)

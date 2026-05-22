@@ -77,6 +77,16 @@ BOOT_DISK_PARTITION_META_ADDR equ BOOT_INFO_ADDR + 92
 BOOT_DISK_STAGE2_LBA_ADDR equ BOOT_INFO_ADDR + 96
 BOOT_DISK_KERNEL_LBA_ADDR equ BOOT_INFO_ADDR + 100
 BOOT_DISK_FLAGS_ADDR equ BOOT_INFO_ADDR + 104
+BOOT_DISK_EDD_EXT_FLAGS_ADDR equ BOOT_INFO_ADDR + 108
+BOOT_DISK_EDD_PARAM_SIZE_ADDR equ BOOT_INFO_ADDR + 112
+BOOT_DISK_EDD_IFACE_FLAGS_ADDR equ BOOT_INFO_ADDR + 116
+BOOT_DISK_EDD_CYLINDERS_ADDR equ BOOT_INFO_ADDR + 120
+BOOT_DISK_EDD_HEADS_ADDR equ BOOT_INFO_ADDR + 124
+BOOT_DISK_EDD_SECTORS_PER_TRACK_ADDR equ BOOT_INFO_ADDR + 128
+BOOT_DISK_EDD_TOTAL_SECTORS_LOW_ADDR equ BOOT_INFO_ADDR + 132
+BOOT_DISK_EDD_TOTAL_SECTORS_HIGH_ADDR equ BOOT_INFO_ADDR + 136
+BOOT_DISK_EDD_BYTES_PER_SECTOR_ADDR equ BOOT_INFO_ADDR + 140
+BOOT_DISK_EDD_DPTE_PTR_ADDR equ BOOT_INFO_ADDR + 144
 BOOT_VIDEO_FLAG_VBE equ 0x0001
 BOOT_VIDEO_FLAG_LFB equ 0x0002
 BOOT_VIDEO_FLAG_XRGB8888 equ 0x0004
@@ -93,6 +103,8 @@ BOOT_DISK_FLAG_PARTITION_PRESENT equ 0x00000008
 BOOT_DISK_FLAG_ACTIVE_PARTITION equ 0x00000010
 BOOT_DISK_FLAG_KERNEL_FAT_READ equ 0x00000020
 BOOT_DISK_FLAG_KERNEL_FAT_CHAIN_OK equ 0x00000040
+BOOT_DISK_FLAG_EDD_PRESENT equ 0x00000080
+BOOT_DISK_FLAG_EDD_PARAMS_VALID equ 0x00000100
 BOOT_LOADER_FLAG_STAGE2_REACHED equ 0x00000001
 BOOT_LOADER_FLAG_EDD_PRESENT equ 0x00000002
 BOOT_LOADER_FLAG_KERNEL_EDD_READ equ 0x00000004
@@ -111,6 +123,7 @@ BOOT_LOADER_FLAG_ELF_PHDR_VALID equ 0x00004000
 BOOT_LOADER_FLAG_CHS_GEOMETRY equ 0x00008000
 BOOT_LOADER_FLAG_KERNEL_FAT_READ equ 0x00010000
 BOOT_LOADER_FLAG_KERNEL_FAT_CHAIN_OK equ 0x00020000
+BOOT_LOADER_FLAG_EDD_PARAMS_VALID equ 0x00040000
 BOOT_LOADER_REQUIRED_PROTECTED_FLAGS equ BOOT_LOADER_FLAG_STAGE2_REACHED | BOOT_LOADER_FLAG_E820 | BOOT_LOADER_FLAG_E820_BOUNDED | BOOT_LOADER_FLAG_VIDEO_VALID | BOOT_LOADER_FLAG_A20 | BOOT_LOADER_FLAG_GDT_LOADED | BOOT_LOADER_FLAG_PROTECTED_MODE | BOOT_LOADER_FLAG_ELF_VALID | BOOT_LOADER_FLAG_ENTRY_COVERED | BOOT_LOADER_FLAG_ELF_PHDR_VALID
 MBR_LOAD_ADDR equ 0x7c00
 MBR_PARTITION_TABLE_ADDR equ MBR_LOAD_ADDR + 446
@@ -124,6 +137,9 @@ E820_MAP_ADDR equ 0x7100
 E820_ENTRY_SIZE equ 24
 E820_MAX_ENTRIES equ 32
 E820_MAP_END equ E820_MAP_ADDR + E820_ENTRY_SIZE * E820_MAX_ENTRIES
+EDD_PARAMS_BYTES equ 30
+EDD_PARAMS_MIN_BYTES equ 26
+EDD_PARAMS_DPTE_BYTES equ 30
 VBE_INFO_ADDR equ 0x6000
 VBE_MODE_INFO_ADDR equ 0x6200
 VBE_MAX_MODES equ 128
@@ -194,12 +210,95 @@ require_edd:
     jne .chs
     test cx, 0x0001
     jz .chs
-    mov byte [disk_use_edd], 1
+    movzx eax, cx
+    mov [BOOT_DISK_EDD_EXT_FLAGS_ADDR], eax
     or dword [BOOT_LOADER_FLAGS_ADDR], BOOT_LOADER_FLAG_EDD_PRESENT
+    or dword [BOOT_DISK_FLAGS_ADDR], BOOT_DISK_FLAG_EDD_PRESENT
+    call probe_edd_drive_parameters
+    jc .chs
+    mov byte [disk_use_edd], 1
     ret
 
 .chs:
     call ensure_chs_geometry
+    ret
+
+probe_edd_drive_parameters:
+    push ax
+    push bx
+    push cx
+    push dx
+    push ds
+    push si
+    push di
+    push es
+
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    mov di, edd_drive_params
+    mov cx, EDD_PARAMS_BYTES / 2
+    cld
+    rep stosw
+
+    mov word [edd_drive_params], EDD_PARAMS_BYTES
+    mov si, edd_drive_params
+    mov ah, 0x48
+    mov dl, [boot_drive]
+    int 0x13
+    pushf
+    xor ax, ax
+    mov ds, ax
+    popf
+    jc .fail
+    cmp word [edd_drive_params], EDD_PARAMS_MIN_BYTES
+    jb .fail
+    cmp word [edd_drive_params + 24], 0
+    je .fail
+    mov eax, [edd_drive_params + 16]
+    mov edx, [edd_drive_params + 20]
+    or eax, edx
+    jz .fail
+
+    movzx eax, word [edd_drive_params]
+    mov [BOOT_DISK_EDD_PARAM_SIZE_ADDR], eax
+    movzx eax, word [edd_drive_params + 2]
+    mov [BOOT_DISK_EDD_IFACE_FLAGS_ADDR], eax
+    mov eax, [edd_drive_params + 4]
+    mov [BOOT_DISK_EDD_CYLINDERS_ADDR], eax
+    mov eax, [edd_drive_params + 8]
+    mov [BOOT_DISK_EDD_HEADS_ADDR], eax
+    mov eax, [edd_drive_params + 12]
+    mov [BOOT_DISK_EDD_SECTORS_PER_TRACK_ADDR], eax
+    mov eax, [edd_drive_params + 16]
+    mov [BOOT_DISK_EDD_TOTAL_SECTORS_LOW_ADDR], eax
+    mov eax, [edd_drive_params + 20]
+    mov [BOOT_DISK_EDD_TOTAL_SECTORS_HIGH_ADDR], eax
+    movzx eax, word [edd_drive_params + 24]
+    mov [BOOT_DISK_EDD_BYTES_PER_SECTOR_ADDR], eax
+    cmp word [edd_drive_params], EDD_PARAMS_DPTE_BYTES
+    jb .no_dpte
+    mov eax, [edd_drive_params + 26]
+    mov [BOOT_DISK_EDD_DPTE_PTR_ADDR], eax
+
+.no_dpte:
+    or dword [BOOT_LOADER_FLAGS_ADDR], BOOT_LOADER_FLAG_EDD_PARAMS_VALID
+    or dword [BOOT_DISK_FLAGS_ADDR], BOOT_DISK_FLAG_EDD_PARAMS_VALID
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop es
+    pop di
+    pop si
+    pop ds
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 clear_boot_info:
@@ -244,6 +343,16 @@ initialize_bios_disk_handoff:
     mov dword [BOOT_DISK_STAGE2_LBA_ADDR], STAGE2_LBA
     mov dword [BOOT_DISK_KERNEL_LBA_ADDR], KERNEL_LBA
     mov dword [BOOT_DISK_FLAGS_ADDR], BOOT_DISK_FLAG_RAW_BOOT_LAYOUT
+    mov dword [BOOT_DISK_EDD_EXT_FLAGS_ADDR], 0
+    mov dword [BOOT_DISK_EDD_PARAM_SIZE_ADDR], 0
+    mov dword [BOOT_DISK_EDD_IFACE_FLAGS_ADDR], 0
+    mov dword [BOOT_DISK_EDD_CYLINDERS_ADDR], 0
+    mov dword [BOOT_DISK_EDD_HEADS_ADDR], 0
+    mov dword [BOOT_DISK_EDD_SECTORS_PER_TRACK_ADDR], 0
+    mov dword [BOOT_DISK_EDD_TOTAL_SECTORS_LOW_ADDR], 0
+    mov dword [BOOT_DISK_EDD_TOTAL_SECTORS_HIGH_ADDR], 0
+    mov dword [BOOT_DISK_EDD_BYTES_PER_SECTOR_ADDR], 0
+    mov dword [BOOT_DISK_EDD_DPTE_PTR_ADDR], 0
     mov si, MBR_PARTITION_TABLE_ADDR
     mov cx, MBR_PARTITION_ENTRIES
     mov byte [partition_scan_index], 0
@@ -1231,6 +1340,29 @@ validate_boot_info_handoff:
     cmp edx, BOOT_DISK_FLAG_RAW_BOOT_LAYOUT | BOOT_DISK_FLAG_PARTITION_PRESENT | BOOT_DISK_FLAG_ACTIVE_PARTITION
     jne boot_info_error
     mov eax, [BOOT_LOADER_FLAGS_ADDR]
+    test eax, BOOT_LOADER_FLAG_KERNEL_EDD_READ
+    jz .edd_claim_ok
+    mov edx, eax
+    and edx, BOOT_LOADER_FLAG_EDD_PRESENT | BOOT_LOADER_FLAG_EDD_PARAMS_VALID
+    cmp edx, BOOT_LOADER_FLAG_EDD_PRESENT | BOOT_LOADER_FLAG_EDD_PARAMS_VALID
+    jne boot_info_error
+    mov eax, [BOOT_DISK_FLAGS_ADDR]
+    mov edx, eax
+    and edx, BOOT_DISK_FLAG_EDD_PRESENT | BOOT_DISK_FLAG_EDD_PARAMS_VALID | BOOT_DISK_FLAG_KERNEL_EDD_READ
+    cmp edx, BOOT_DISK_FLAG_EDD_PRESENT | BOOT_DISK_FLAG_EDD_PARAMS_VALID | BOOT_DISK_FLAG_KERNEL_EDD_READ
+    jne boot_info_error
+    cmp dword [BOOT_DISK_EDD_EXT_FLAGS_ADDR], 0
+    je boot_info_error
+    cmp dword [BOOT_DISK_EDD_PARAM_SIZE_ADDR], EDD_PARAMS_MIN_BYTES
+    jb boot_info_error
+    cmp dword [BOOT_DISK_EDD_BYTES_PER_SECTOR_ADDR], 0
+    je boot_info_error
+    mov eax, [BOOT_DISK_EDD_TOTAL_SECTORS_LOW_ADDR]
+    or eax, [BOOT_DISK_EDD_TOTAL_SECTORS_HIGH_ADDR]
+    jz boot_info_error
+
+.edd_claim_ok:
+    mov eax, [BOOT_LOADER_FLAGS_ADDR]
     test eax, BOOT_LOADER_FLAG_KERNEL_FAT_READ
     jz .done
     test eax, BOOT_LOADER_FLAG_KERNEL_FAT_CHAIN_OK
@@ -1323,8 +1455,10 @@ validate_protected_kernel_handoff:
     jz protected_boot_info_error
     test eax, BOOT_LOADER_FLAG_KERNEL_EDD_READ
     jz .edd_ok
-    test eax, BOOT_LOADER_FLAG_EDD_PRESENT
-    jz protected_boot_info_error
+    mov edx, eax
+    and edx, BOOT_LOADER_FLAG_EDD_PRESENT | BOOT_LOADER_FLAG_EDD_PARAMS_VALID
+    cmp edx, BOOT_LOADER_FLAG_EDD_PRESENT | BOOT_LOADER_FLAG_EDD_PARAMS_VALID
+    jne protected_boot_info_error
 
 .edd_ok:
     test eax, BOOT_LOADER_FLAG_KERNEL_CHS_READ
@@ -1358,7 +1492,18 @@ validate_protected_kernel_handoff:
     jz protected_boot_info_error
     test eax, BOOT_LOADER_FLAG_KERNEL_EDD_READ
     jz .disk_edd_ok
-    test edx, BOOT_DISK_FLAG_KERNEL_EDD_READ
+    mov ebx, edx
+    and ebx, BOOT_DISK_FLAG_EDD_PRESENT | BOOT_DISK_FLAG_EDD_PARAMS_VALID | BOOT_DISK_FLAG_KERNEL_EDD_READ
+    cmp ebx, BOOT_DISK_FLAG_EDD_PRESENT | BOOT_DISK_FLAG_EDD_PARAMS_VALID | BOOT_DISK_FLAG_KERNEL_EDD_READ
+    jne protected_boot_info_error
+    cmp dword [BOOT_DISK_EDD_EXT_FLAGS_ADDR], 0
+    je protected_boot_info_error
+    cmp dword [BOOT_DISK_EDD_PARAM_SIZE_ADDR], EDD_PARAMS_MIN_BYTES
+    jb protected_boot_info_error
+    cmp dword [BOOT_DISK_EDD_BYTES_PER_SECTOR_ADDR], 0
+    je protected_boot_info_error
+    mov ebx, [BOOT_DISK_EDD_TOTAL_SECTORS_LOW_ADDR]
+    or ebx, [BOOT_DISK_EDD_TOTAL_SECTORS_HIGH_ADDR]
     jz protected_boot_info_error
 
 .disk_edd_ok:
@@ -1610,6 +1755,7 @@ kernel_load_remaining dw 0
 kernel_load_segment dw 0
 align 4
 kernel_load_lba dq 0
+edd_drive_params times EDD_PARAMS_BYTES db 0
 
 gdt_start:
 gdt_null:

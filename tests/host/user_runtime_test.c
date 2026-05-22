@@ -44,6 +44,12 @@ static int mock_unlink_count;
 static int mock_ftruncate_count;
 static long mock_ftruncate_length;
 
+int vibe_user_argc;
+char** vibe_user_argv;
+char** vibe_user_environ;
+unsigned long* vibe_user_auxv;
+unsigned long vibe_user_start_status;
+
 static char* mock_user_buffer(unsigned long address, unsigned long count)
 {
     if (address >= MOCK_MMAP_BASE
@@ -567,6 +573,14 @@ int main(void)
     void* mapped = 0;
     void* file_mapped = 0;
     char full_buffer[8];
+    char* startup_argv[] = { "TOOL.ELF", 0 };
+    char* startup_envp[] = { "A=B", 0 };
+    unsigned long startup_auxv[] = {
+        VIBE_EXEC_AUX_AT_PAGESZ, VIBE_USER_DEFAULT_PAGE_SIZE,
+        VIBE_EXEC_AUX_AT_ENTRY, 0x00401234u,
+        VIBE_EXEC_AUX_AT_NULL, 0
+    };
+    unsigned long aux_value = 0;
     int wait_status = 0;
     int index;
 
@@ -912,6 +926,31 @@ int main(void)
         return fail(49);
     if (!vibe_user_dirent_name_eq(entries, "TOOL") || vibe_user_dirent_name_eq(0, "TOOL"))
         return fail(50);
+    vibe_user_argc = 1;
+    vibe_user_argv = startup_argv;
+    vibe_user_environ = startup_envp;
+    vibe_user_auxv = startup_auxv;
+    vibe_user_start_status = VIBE_USER_START_REQUIRED_FLAGS;
+    if (!vibe_user_startup_contract_ok())
+        return fail(81);
+    if (vibe_user_auxv_get(VIBE_EXEC_AUX_AT_PAGESZ, &aux_value) != 0
+        || aux_value != VIBE_USER_DEFAULT_PAGE_SIZE)
+        return fail(82);
+    if (vibe_user_auxv_get(VIBE_EXEC_AUX_AT_ENTRY, &aux_value) != 0
+        || aux_value != 0x00401234u)
+        return fail(83);
+    aux_value = 0x55u;
+    if (vibe_user_auxv_get(0x7777u, &aux_value) != -2 || aux_value != 0)
+        return fail(84);
+    if (vibe_user_auxv_get(VIBE_EXEC_AUX_AT_ENTRY, 0) != -22)
+        return fail(85);
+    if (vibe_user_page_size() != VIBE_USER_DEFAULT_PAGE_SIZE
+        || vibe_user_entry_address() != 0x00401234u)
+        return fail(86);
+    vibe_user_start_status = VIBE_USER_START_REQUIRED_FLAGS & ~VIBE_USER_START_FLAG_AUXV_PRESENT;
+    if (vibe_user_startup_contract_ok())
+        return fail(87);
+    vibe_user_start_status = VIBE_USER_START_REQUIRED_FLAGS;
     if (vibe_user_validate_exec_argv("TOOL.ELF", argv, &argc) != 0 || argc != 1)
         return fail(51);
     if (vibe_user_validate_exec_argv("TOOL.ELF", 0, &argc) != 0 || argc != 1)

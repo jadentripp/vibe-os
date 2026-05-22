@@ -5,6 +5,7 @@ global vibe_user_argc
 global vibe_user_argv
 global vibe_user_environ
 global vibe_user_auxv
+global vibe_user_start_status
 global __vibe_syscall0
 global __vibe_syscall1
 global __vibe_syscall2
@@ -15,7 +16,13 @@ SYS_EXIT equ 2
 PREEMPT_PROBE_MAGIC equ 0x50524545
 VIBE_USER_ABI_VERSION equ 1
 VIBE_USER_STACK_ABI_VERSION equ 1
+VIBE_USER_ARG_MAX equ 8
 VIBE_USER_ENV_MAX equ 8
+VIBE_USER_START_FLAG_ARGV_BOUNDED equ 0x00000001
+VIBE_USER_START_FLAG_ENVP_BOUNDED equ 0x00000002
+VIBE_USER_START_FLAG_AUXV_PRESENT equ 0x00000004
+VIBE_USER_START_FLAG_STACK_ALIGNED equ 0x00000008
+VIBE_USER_START_FAIL_STATUS equ 0x96
 SYSCALL_TRAP_VECTOR equ 0x80
 SYSCALL_MAX_ARGS equ 3
 
@@ -26,7 +33,13 @@ start:
     fnclex
     cmp eax, PREEMPT_PROBE_MAGIC
     je preempt_spin
+    mov dword [vibe_user_start_status], 0
     mov eax, [esp]
+    cmp eax, 1
+    jb .invalid_start_stack
+    cmp eax, VIBE_USER_ARG_MAX
+    ja .invalid_start_stack
+    or dword [vibe_user_start_status], VIBE_USER_START_FLAG_ARGV_BOUNDED
     lea ebx, [esp + 4]
     lea ecx, [ebx + eax * 4 + 4]
     mov [vibe_user_argc], eax
@@ -37,7 +50,7 @@ start:
 
 .find_auxv:
     cmp esi, 0
-    je .auxv_missing
+    je .invalid_start_stack
     cmp dword [edx], 0
     je .auxv_found
     add edx, 4
@@ -45,17 +58,17 @@ start:
     jmp .find_auxv
 
 .auxv_found:
+    or dword [vibe_user_start_status], VIBE_USER_START_FLAG_ENVP_BOUNDED
     add edx, 4
     mov [vibe_user_auxv], edx
-    jmp .call_main
-
-.auxv_missing:
-    xor edx, edx
-    mov [vibe_user_auxv], edx
+    cmp dword [edx], 0
+    je .call_main
+    or dword [vibe_user_start_status], VIBE_USER_START_FLAG_AUXV_PRESENT
 
 .call_main:
     mov [vibe_user_entry_stack], esp
     and esp, 0xfffffff0
+    or dword [vibe_user_start_status], VIBE_USER_START_FLAG_STACK_ALIGNED
     sub esp, 12
     mov [esp], eax
     mov [esp + 4], ebx
@@ -68,6 +81,12 @@ start:
     int 0x80
 
 .halt:
+    jmp .halt
+
+.invalid_start_stack:
+    mov ebx, VIBE_USER_START_FAIL_STATUS
+    mov eax, SYS_EXIT
+    int 0x80
     jmp .halt
 
 ; int 0x80 ABI: eax=syscall number, ebx/ecx/edx=args, eax=result.
@@ -123,4 +142,5 @@ vibe_user_argc resd 1
 vibe_user_argv resd 1
 vibe_user_environ resd 1
 vibe_user_auxv resd 1
+vibe_user_start_status resd 1
 vibe_user_entry_stack resd 1

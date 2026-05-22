@@ -772,6 +772,67 @@ int vibe_user_file_read_all(const char* path, void* buffer, unsigned long capaci
     return close_result < 0 ? close_result : 0;
 }
 
+int vibe_user_startup_contract_ok(void)
+{
+    if ((vibe_user_start_status & VIBE_USER_START_REQUIRED_FLAGS) != VIBE_USER_START_REQUIRED_FLAGS)
+        return 0;
+    if (vibe_user_argc < 1 || vibe_user_argc > VIBE_EXEC_ARG_MAX)
+        return 0;
+    if (!vibe_user_argv || !vibe_user_argv[0])
+        return 0;
+    if (!vibe_user_environ || !vibe_user_auxv)
+        return 0;
+    return 1;
+}
+
+int vibe_user_auxv_get(unsigned long type, unsigned long* out_value)
+{
+    unsigned long index;
+
+    if (!out_value)
+        return -22;
+    *out_value = 0;
+    if (!vibe_user_auxv)
+        return -2;
+
+    for (index = 0; index < VIBE_EXEC_AUXV_PAIR_COUNT; ++index) {
+        unsigned long key = vibe_user_auxv[index * 2];
+        unsigned long value = vibe_user_auxv[index * 2 + 1];
+
+        if (key == VIBE_EXEC_AUX_AT_NULL)
+            break;
+        if (key == type) {
+            *out_value = value;
+            return 0;
+        }
+    }
+
+    return -2;
+}
+
+unsigned long vibe_user_auxv_value(unsigned long type, unsigned long fallback_value)
+{
+    unsigned long value = fallback_value;
+
+    if (vibe_user_auxv_get(type, &value) < 0)
+        return fallback_value;
+    return value;
+}
+
+unsigned long vibe_user_page_size(void)
+{
+    unsigned long page_size = vibe_user_auxv_value(
+        VIBE_EXEC_AUX_AT_PAGESZ,
+        VIBE_USER_DEFAULT_PAGE_SIZE);
+
+    return page_size ? page_size : VIBE_USER_DEFAULT_PAGE_SIZE;
+}
+
+unsigned long vibe_user_entry_address(void)
+{
+    return vibe_user_auxv_value(VIBE_EXEC_AUX_AT_ENTRY, 0);
+}
+
 int vibe_user_execv(const char* path, char* const argv[])
 {
     return vibe_user_syscall3(VIBE_SYS_EXEC, (unsigned long)path, (unsigned long)argv, 0);
