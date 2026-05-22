@@ -43,6 +43,21 @@
 #define PROBE_USER_BASE 0x00E80000u
 #define PROBE_USER_END 0x00F00000u
 #define SCHEDULER_QUANTUM_TICKS 5u
+#define PREEMPT_ABI_USER_IRQ_FRAME 0x00000001u
+#define PREEMPT_ABI_SAVE_CONTEXT 0x00000002u
+#define PREEMPT_ABI_TIMER_ATTEMPT 0x00000004u
+#define PREEMPT_ABI_SELECT_TARGET 0x00000008u
+#define PREEMPT_ABI_ACTIVATE_TARGET 0x00000010u
+#define PREEMPT_ABI_RESTORE_FRAME 0x00000020u
+#define PREEMPT_ABI_REWRITE_IRQ_FRAME 0x00000040u
+#define PREEMPT_ABI_ACCOUNT_SWITCH 0x00000080u
+#define PREEMPT_ABI_CAPTURE_SPIN 0x00000100u
+#define PREEMPT_ABI_FULL_MASK \
+    (PREEMPT_ABI_USER_IRQ_FRAME | PREEMPT_ABI_SAVE_CONTEXT | \
+     PREEMPT_ABI_TIMER_ATTEMPT | PREEMPT_ABI_SELECT_TARGET | \
+     PREEMPT_ABI_ACTIVATE_TARGET | PREEMPT_ABI_RESTORE_FRAME | \
+     PREEMPT_ABI_REWRITE_IRQ_FRAME | PREEMPT_ABI_ACCOUNT_SWITCH | \
+     PREEMPT_ABI_CAPTURE_SPIN)
 #define SYSCALL_RETURN_EFLAGS_SET 0x00000202u
 #define SYSCALL_RETURN_EFLAGS_KEEP_MASK 0xFFF88AFFu
 #define SYS_EXEC_ARGV_SOURCE_USER 2u
@@ -838,6 +853,7 @@ static void validate_preemption(const Status *status) {
     uint32_t frame[5];
     uint32_t segs[4];
     uint32_t eflags[5];
+    uint32_t preemptabi[5];
 
     preempt = hex_field(status, "preempt");
     if (preempt == 0u) {
@@ -938,6 +954,27 @@ static void validate_preemption(const Status *status) {
         eflags[4] == 0u ||
         eflags[3] > preempt + user_irq_ticks) {
         fail("peflags= must prove sanitized EFLAGS and the dirty-frame self-test");
+    }
+    if (!has_field(status, "pself") || strcmp(field(status, "pself"), "OK") != 0) {
+        fail("pself= must prove the assembly scheduler self-test passed");
+    }
+    hex_tuple(status, "preemptabi", 5, '/', preemptabi);
+    if (preemptabi[1] != PREEMPT_ABI_FULL_MASK) {
+        fail("preemptabi= declared full mask must be 0x%08X", PREEMPT_ABI_FULL_MASK);
+    }
+    if ((preemptabi[0] & PREEMPT_ABI_FULL_MASK) != PREEMPT_ABI_FULL_MASK) {
+        fail("preemptabi= must prove every timer-preemption ABI operation ran in the guest");
+    }
+    if ((preemptabi[0] & ~PREEMPT_ABI_FULL_MASK) != 0u) {
+        fail("preemptabi= contains unknown operation bits");
+    }
+    if (preemptabi[2] == 0u || (preemptabi[2] & ~PREEMPT_ABI_FULL_MASK) != 0u ||
+        (preemptabi[2] & (preemptabi[2] - 1u)) != 0u ||
+        (preemptabi[0] & preemptabi[2]) == 0u) {
+        fail("preemptabi= last operation must be one completed preemption ABI bit");
+    }
+    if (preemptabi[3] != irq_switches || preemptabi[4] != frame[0]) {
+        fail("preemptabi= switch/frame counts must mirror pirq=/pframe=");
     }
 }
 
@@ -1311,6 +1348,7 @@ static void validate_repo_contract(void) {
 
     require_contains(".github/workflows/os-smoke.yml", "tools/vibe_status_check.c");
     require_contains(".github/workflows/os-smoke.yml", "--require-exec");
+    require_contains(".github/workflows/os-smoke.yml", "--require-preempt");
     forbid_contains(".github/workflows/os-smoke.yml", "check_vm_status_proof");
 
     require_contains(".github/workflows/real-wad-smoke.yml", "tools/vibe_status_check.c");

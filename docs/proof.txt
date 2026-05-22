@@ -66,8 +66,14 @@ Manual play:
 - `GAP[HIGHER_HALF_EXEC] status=open`: the kernel has high mapping proof work,
   but "done" means the live kernel actually executes from its higher-half
   virtual address.
-- `GAP[PREEMPTION] status=open`: scheduler accounting is not enough; done means
-  timer IRQ preemption switches Ring 3 contexts through saved frames and `iret`.
+- `GAP[PREEMPTION] status=partial`: timer IRQ preemption now switches Ring 3
+  contexts through saved frames and `iret`, and the guest emits `preemptabi=`
+  from the assembly scheduler path to prove the user IRQ frame, context save,
+  target selection, process activation, IRQ-frame restore/rewrite, switch
+  accounting, and preempt-probe spin capture all ran. The generated-WAD cloud
+  smoke gate now requires this proof too. Remaining work is scheduler maturity:
+  more than one policy, stronger starvation/fairness checks, and longer soak
+  evidence under real gameplay load.
 - `GAP[STORAGE_GENERALITY] status=open`: FAT/WAD/save paths must keep becoming
   a general block-device and VFS subsystem for other programs. Cloud run
   `26293167954` on `main` proved the generic Ring 3 ABI path exercised every

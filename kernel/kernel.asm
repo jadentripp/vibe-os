@@ -1033,6 +1033,16 @@ AUDIO_ABI_PCM_BUFFERED_BYTES equ 0x00000040
 AUDIO_ABI_PCM_DRAIN equ 0x00000080
 AUDIO_ABI_PCM_CLOSE equ 0x00000100
 AUDIO_ABI_FULL_MASK equ AUDIO_ABI_DEVICE_START | AUDIO_ABI_DEVICE_INFO | AUDIO_ABI_PCM_RING_INFO | AUDIO_ABI_STREAM_INFO | AUDIO_ABI_PCM_OPEN | AUDIO_ABI_PCM_WRITE | AUDIO_ABI_PCM_BUFFERED_BYTES | AUDIO_ABI_PCM_DRAIN | AUDIO_ABI_PCM_CLOSE
+PREEMPT_ABI_USER_IRQ_FRAME equ 0x00000001
+PREEMPT_ABI_SAVE_CONTEXT equ 0x00000002
+PREEMPT_ABI_TIMER_ATTEMPT equ 0x00000004
+PREEMPT_ABI_SELECT_TARGET equ 0x00000008
+PREEMPT_ABI_ACTIVATE_TARGET equ 0x00000010
+PREEMPT_ABI_RESTORE_FRAME equ 0x00000020
+PREEMPT_ABI_REWRITE_IRQ_FRAME equ 0x00000040
+PREEMPT_ABI_ACCOUNT_SWITCH equ 0x00000080
+PREEMPT_ABI_CAPTURE_SPIN equ 0x00000100
+PREEMPT_ABI_FULL_MASK equ PREEMPT_ABI_USER_IRQ_FRAME | PREEMPT_ABI_SAVE_CONTEXT | PREEMPT_ABI_TIMER_ATTEMPT | PREEMPT_ABI_SELECT_TARGET | PREEMPT_ABI_ACTIVATE_TARGET | PREEMPT_ABI_RESTORE_FRAME | PREEMPT_ABI_REWRITE_IRQ_FRAME | PREEMPT_ABI_ACCOUNT_SWITCH | PREEMPT_ABI_CAPTURE_SPIN
 AUDIO_PCM_HANDLE_BASE equ 0x50430000
 AUDIO_DEVICE_NONE equ 0
 AUDIO_DEVICE_SB16 equ 1
@@ -17398,6 +17408,8 @@ scheduler_init:
     mov dword [scheduler_preempt_pair_mask], 0
     mov dword [scheduler_preempt_probe_ready], 0
     mov dword [scheduler_preempt_spin_value], 0
+    mov dword [scheduler_preempt_abi_mask], 0
+    mov dword [scheduler_preempt_abi_last_op], 0
     mov dword [scheduler_yield_attempts], 0
     mov dword [scheduler_yield_switches], 0
     mov dword [scheduler_yield_noops], 0
@@ -19132,6 +19144,8 @@ scheduler_capture_preempt_spin:
     jne .done
     mov eax, [USER_STACK_TOP - 4]
     mov [scheduler_preempt_spin_value], eax
+    or dword [scheduler_preempt_abi_mask], PREEMPT_ABI_CAPTURE_SPIN
+    mov dword [scheduler_preempt_abi_last_op], PREEMPT_ABI_CAPTURE_SPIN
 
 .done:
     pop eax
@@ -19259,11 +19273,15 @@ scheduler_tick:
     test eax, 3
     jz .kernel_irq_frame
     inc dword [scheduler_user_irq_ticks]
+    or dword [scheduler_preempt_abi_mask], PREEMPT_ABI_USER_IRQ_FRAME
+    mov dword [scheduler_preempt_abi_last_op], PREEMPT_ABI_USER_IRQ_FRAME
 
 .account_current:
     inc dword [esi + PROC_TICKS]
     inc dword [esi + PROC_QUANTUM_TICKS]
     call process_save_irq_context
+    or dword [scheduler_preempt_abi_mask], PREEMPT_ABI_SAVE_CONTEXT
+    mov dword [scheduler_preempt_abi_last_op], PREEMPT_ABI_SAVE_CONTEXT
     mov eax, [esi + PROC_QUANTUM_TICKS]
     cmp eax, SCHEDULER_QUANTUM_TICKS
     jb .done
@@ -19273,6 +19291,8 @@ scheduler_tick:
     test eax, 3
     jz .skip_preempt
     inc dword [scheduler_preempt_attempts]
+    or dword [scheduler_preempt_abi_mask], PREEMPT_ABI_TIMER_ATTEMPT
+    mov dword [scheduler_preempt_abi_last_op], PREEMPT_ABI_TIMER_ATTEMPT
     mov eax, [esi + PROC_PID]
     mov [scheduler_last_preempt_from_pid], eax
     mov eax, [esi + PROC_KIND]
@@ -19295,6 +19315,8 @@ scheduler_tick:
     mov esi, [scheduler_next_process_ptr]
     cmp esi, 0
     je .no_preempt_target
+    or dword [scheduler_preempt_abi_mask], PREEMPT_ABI_SELECT_TARGET
+    mov dword [scheduler_preempt_abi_last_op], PREEMPT_ABI_SELECT_TARGET
     mov eax, [esi + PROC_PID]
     mov [scheduler_last_preempt_to_pid], eax
     mov eax, [esi + PROC_KIND]
@@ -19326,8 +19348,14 @@ scheduler_tick:
 
 .pair_mask_done:
     call process_activate
+    or dword [scheduler_preempt_abi_mask], PREEMPT_ABI_ACTIVATE_TARGET
+    mov dword [scheduler_preempt_abi_last_op], PREEMPT_ABI_ACTIVATE_TARGET
     call process_restore_irq_context
+    or dword [scheduler_preempt_abi_mask], PREEMPT_ABI_RESTORE_FRAME
+    mov dword [scheduler_preempt_abi_last_op], PREEMPT_ABI_RESTORE_FRAME
     inc dword [scheduler_irq_frame_rewrites]
+    or dword [scheduler_preempt_abi_mask], PREEMPT_ABI_REWRITE_IRQ_FRAME
+    mov dword [scheduler_preempt_abi_last_op], PREEMPT_ABI_REWRITE_IRQ_FRAME
     mov eax, [ebx + IRQ_FRAME_EIP]
     mov [scheduler_last_irq_frame_eip], eax
     mov eax, [ebx + IRQ_FRAME_CS]
@@ -19348,6 +19376,8 @@ scheduler_tick:
     mov [scheduler_last_irq_frame_eflags], eax
     inc dword [scheduler_preempt_switches]
     inc dword [scheduler_irq_context_switches]
+    or dword [scheduler_preempt_abi_mask], PREEMPT_ABI_ACCOUNT_SWITCH
+    mov dword [scheduler_preempt_abi_last_op], PREEMPT_ABI_ACCOUNT_SWITCH
     jmp .done
 
 .skip_preempt:
@@ -19864,6 +19894,8 @@ scheduler_preempt_self_test:
     mov dword [scheduler_preempt_pair_mask], 0
     mov dword [scheduler_preempt_probe_ready], 0
     mov dword [scheduler_preempt_spin_value], 0
+    mov dword [scheduler_preempt_abi_mask], 0
+    mov dword [scheduler_preempt_abi_last_op], 0
     mov esi, process_user_probe
     call process_reset_user_probe
     mov esi, process_preempt_probe
@@ -30435,6 +30467,27 @@ write_smoke_status:
 .pself_write:
     call smoke_copy_string
 
+    mov esi, smoke_preemptabi_text
+    call smoke_copy_string
+    mov edx, [scheduler_preempt_abi_mask]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, PREEMPT_ABI_FULL_MASK
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [scheduler_preempt_abi_last_op]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [scheduler_irq_context_switches]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [scheduler_irq_frame_rewrites]
+    call smoke_write_hex32
+
     mov esi, smoke_status_text
     call smoke_copy_string
 
@@ -33118,6 +33171,7 @@ smoke_psegs_text db " psegs=", 0
 smoke_peflags_text db " peflags=", 0
 smoke_pspin_text db " pspin=", 0
 smoke_pself_text db " pself=", 0
+smoke_preemptabi_text db " preemptabi=", 0
 smoke_e820_text db " e820=", 0
 smoke_e820cnt_text db " e820cnt=", 0
 smoke_e820free_text db " e820free=", 0
@@ -34345,6 +34399,8 @@ scheduler_preempt_selftest_eflags_sanitize_count dd 0
 scheduler_preempt_pair_mask dd 0
 scheduler_preempt_probe_ready dd 0
 scheduler_preempt_spin_value dd 0
+scheduler_preempt_abi_mask dd 0
+scheduler_preempt_abi_last_op dd 0
 scheduler_yield_attempts dd 0
 scheduler_yield_switches dd 0
 scheduler_yield_noops dd 0

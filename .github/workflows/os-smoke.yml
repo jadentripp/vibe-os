@@ -81,6 +81,7 @@ jobs:
             tools/vibe_status_check.c -o build/vibe_status_check
           build/vibe_status_check \
             --require-exec \
+            --require-preempt \
             build/status.txt
 
       - name: Assert generated-WAD storage/VFS cloud proof
