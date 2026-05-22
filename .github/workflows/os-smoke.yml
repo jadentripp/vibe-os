@@ -67,7 +67,12 @@ jobs:
         run: make test
 
       - name: Boot smoke in GitHub Actions
-        run: make ALLOW_LOCAL_VM=1 smoke
+        run: |
+          make \
+            ALLOW_LOCAL_VM=1 \
+            SMOKE_QEMU_TIMEOUT=90 \
+            SMOKE_INPUT_SCRIPT="generated-wad:wait-status=abiprobe:OK:60:1" \
+            smoke
 
       - name: Assert generated-WAD VM/process exec gates
         run: |

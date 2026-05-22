@@ -240,7 +240,7 @@ jobs:
           test -s build/status.after-use.txt
           test -s build/status.after-mouse.txt
           test -s build/status.after-menu.txt
-          perl -ne '$ok = 1 if /pbuttons=([0-9A-F]{8})/ && hex($1) != 0; END { exit($ok ? 0 : 1) }' build/status.after-fire.txt
+          perl -ne '$ok = 1 if /pflags=([0-9A-F]{8})/ && (hex($1) & 0x00000004) != 0; END { exit($ok ? 0 : 1) }' build/status.after-fire.txt
           perl -ne '$ok = 1 if /pdelta=([0-9A-F]{8})/ && hex($1) != 0; END { exit($ok ? 0 : 1) }' build/status.after-move.txt
           perl -ne '$ok = 1 if /pangledelta=([0-9A-F]{8})/ && hex($1) != 0; END { exit($ok ? 0 : 1) }' build/status.after-mouse.txt
 

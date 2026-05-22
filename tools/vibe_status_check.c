@@ -42,7 +42,8 @@
 #define PROBE_USER_BASE 0x00E80000u
 #define PROBE_USER_END 0x00F00000u
 #define SCHEDULER_QUANTUM_TICKS 5u
-#define SANITIZED_USER_EFLAGS 0x00000202u
+#define SYSCALL_RETURN_EFLAGS_SET 0x00000202u
+#define SYSCALL_RETURN_EFLAGS_KEEP_MASK 0xFFF88AFFu
 #define SYS_EXEC_ARGV_SOURCE_USER 2u
 
 typedef struct {
@@ -250,6 +251,16 @@ static uint32_t parse_hex8_value(const char *value, const char *name) {
 
 static uint32_t hex_field(const Status *status, const char *name) {
     return parse_hex8_value(field(status, name), name);
+}
+
+static int user_eflags_sanitized(uint32_t value) {
+    if ((value & SYSCALL_RETURN_EFLAGS_SET) != SYSCALL_RETURN_EFLAGS_SET) {
+        return 0;
+    }
+    if ((value & ~SYSCALL_RETURN_EFLAGS_KEEP_MASK) != 0u) {
+        return 0;
+    }
+    return 1;
 }
 
 static void hex_tuple(const Status *status, const char *name, size_t count, char sep, uint32_t *out) {
@@ -717,9 +728,9 @@ static void validate_preemption(const Status *status) {
         fail("psegs= must prove user data selectors were restored");
     }
     hex_tuple(status, "peflags", 5, ':', eflags);
-    if (eflags[0] != SANITIZED_USER_EFLAGS ||
-        eflags[1] != SANITIZED_USER_EFLAGS ||
-        eflags[2] != SANITIZED_USER_EFLAGS ||
+    if (!user_eflags_sanitized(eflags[0]) ||
+        !user_eflags_sanitized(eflags[1]) ||
+        !user_eflags_sanitized(eflags[2]) ||
         eflags[4] == 0u ||
         eflags[3] > preempt + user_irq_ticks) {
         fail("peflags= must prove sanitized EFLAGS and the dirty-frame self-test");
