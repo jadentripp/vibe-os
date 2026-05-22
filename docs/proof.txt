@@ -13,7 +13,8 @@ real shareware `DOOM1.WAD` through Codespaces/noVNC.
 The meaningful current claims are:
 
 - BIOS boot path reaches the 32-bit kernel and Stage 2 prefers the FAT16
-  `KERNEL.ELF` file before the raw-LBA fallback.
+  `KERNEL.ELF` file before the raw-LBA fallback after validating the file's
+  FAT16 cluster bounds and end-of-chain marker.
 - The kernel owns interrupts, paging, timer ticks, input, framebuffer, storage,
   a heap, syscalls, and user process launch.
 - Doom runs as a Ring 3 ELF process, not as a host app.

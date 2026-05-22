@@ -91,6 +91,7 @@ BOOT_DISK_FLAG_KERNEL_CHS_READ equ 0x00000004
 BOOT_DISK_FLAG_PARTITION_PRESENT equ 0x00000008
 BOOT_DISK_FLAG_ACTIVE_PARTITION equ 0x00000010
 BOOT_DISK_FLAG_KERNEL_FAT_READ equ 0x00000020
+BOOT_DISK_FLAG_KERNEL_FAT_CHAIN_OK equ 0x00000040
 BOOT_LOADER_FLAG_STAGE2_REACHED equ 0x00000001
 BOOT_LOADER_FLAG_EDD_PRESENT equ 0x00000002
 BOOT_LOADER_FLAG_KERNEL_EDD_READ equ 0x00000004
@@ -108,6 +109,7 @@ BOOT_LOADER_FLAG_VIDEO_VALID equ 0x00002000
 BOOT_LOADER_FLAG_ELF_PHDR_VALID equ 0x00004000
 BOOT_LOADER_FLAG_CHS_GEOMETRY equ 0x00008000
 BOOT_LOADER_FLAG_KERNEL_FAT_READ equ 0x00010000
+BOOT_LOADER_FLAG_KERNEL_FAT_CHAIN_OK equ 0x00020000
 BOOT_LOADER_REQUIRED_PROTECTED_FLAGS equ BOOT_LOADER_FLAG_STAGE2_REACHED | BOOT_LOADER_FLAG_E820 | BOOT_LOADER_FLAG_E820_BOUNDED | BOOT_LOADER_FLAG_VIDEO_VALID | BOOT_LOADER_FLAG_A20 | BOOT_LOADER_FLAG_GDT_LOADED | BOOT_LOADER_FLAG_PROTECTED_MODE | BOOT_LOADER_FLAG_ELF_VALID | BOOT_LOADER_FLAG_ENTRY_COVERED | BOOT_LOADER_FLAG_ELF_PHDR_VALID
 MBR_LOAD_ADDR equ 0x7c00
 MBR_PARTITION_TABLE_ADDR equ MBR_LOAD_ADDR + 446
@@ -302,8 +304,8 @@ load_kernel_elf_from_fat:
     call read_kernel_fat_chain
     jc .fail
 
-    or dword [BOOT_LOADER_FLAGS_ADDR], BOOT_LOADER_FLAG_KERNEL_FAT_READ
-    or dword [BOOT_DISK_FLAGS_ADDR], BOOT_DISK_FLAG_KERNEL_FAT_READ
+    or dword [BOOT_LOADER_FLAGS_ADDR], BOOT_LOADER_FLAG_KERNEL_FAT_READ | BOOT_LOADER_FLAG_KERNEL_FAT_CHAIN_OK
+    or dword [BOOT_DISK_FLAGS_ADDR], BOOT_DISK_FLAG_KERNEL_FAT_READ | BOOT_DISK_FLAG_KERNEL_FAT_CHAIN_OK
     clc
     jmp .done
 
@@ -367,16 +369,38 @@ validate_fat_boot_sector:
     test edx, edx
     jnz .fail
     mov ecx, eax
-    mov eax, [BOOT_DISK_PARTITION_LBA_ADDR]
-    movzx ebx, word [fat_reserved_sectors]
-    add eax, ebx
-    jc .fail
+
+    movzx eax, word [fat_reserved_sectors]
     add eax, ecx
     jc .fail
-    mov [fat_root_lba], eax
-    add eax, FAT16_ROOT_DIR_SECTORS
+    mov edx, eax
+    mov ebx, [BOOT_DISK_PARTITION_LBA_ADDR]
+    add ebx, edx
     jc .fail
-    mov [fat_data_lba], eax
+    mov [fat_root_lba], ebx
+
+    add edx, FAT16_ROOT_DIR_SECTORS
+    jc .fail
+    cmp edx, [BOOT_DISK_PARTITION_SECTORS_ADDR]
+    jae .fail
+    mov ebx, [BOOT_DISK_PARTITION_LBA_ADDR]
+    add ebx, edx
+    jc .fail
+    mov [fat_data_lba], ebx
+
+    mov eax, [BOOT_DISK_PARTITION_SECTORS_ADDR]
+    sub eax, edx
+    jbe .fail
+    xor edx, edx
+    mov ebx, FAT16_SECTORS_PER_CLUSTER
+    div ebx
+    test eax, eax
+    jz .fail
+    cmp eax, FAT16_EOC_MIN - 2
+    ja .fail
+    mov [fat_data_clusters], eax
+    inc eax
+    mov [fat_last_valid_cluster], eax
     clc
     ret
 
@@ -431,6 +455,9 @@ find_kernel_fat_entry:
     mov ax, [es:di + 26]
     cmp ax, 2
     jb .fail
+    movzx eax, ax
+    cmp eax, [fat_last_valid_cluster]
+    ja .fail
     mov [fat_kernel_cluster], ax
     mov eax, [es:di + 28]
     test eax, eax
@@ -456,6 +483,9 @@ read_kernel_fat_chain:
     jb .fail
     cmp ax, FAT16_EOC_MIN
     jae .fail
+    movzx eax, ax
+    cmp eax, [fat_last_valid_cluster]
+    ja .fail
     call read_kernel_fat_cluster
     jc .fail
 
@@ -471,9 +501,17 @@ read_kernel_fat_chain:
     jb .fail
     cmp ax, FAT16_EOC_MIN
     jae .fail
+    movzx eax, ax
+    cmp eax, [fat_last_valid_cluster]
+    ja .fail
     jmp .next_cluster
 
 .last_cluster:
+    call read_next_fat_cluster
+    jc .fail
+    mov ax, [fat_current_cluster]
+    cmp ax, FAT16_EOC_MIN
+    jb .fail
     mov dword [fat_kernel_remaining], 0
 
 .done:
@@ -1191,6 +1229,16 @@ validate_boot_info_handoff:
     and edx, BOOT_DISK_FLAG_RAW_BOOT_LAYOUT | BOOT_DISK_FLAG_PARTITION_PRESENT | BOOT_DISK_FLAG_ACTIVE_PARTITION
     cmp edx, BOOT_DISK_FLAG_RAW_BOOT_LAYOUT | BOOT_DISK_FLAG_PARTITION_PRESENT | BOOT_DISK_FLAG_ACTIVE_PARTITION
     jne boot_info_error
+    mov eax, [BOOT_LOADER_FLAGS_ADDR]
+    test eax, BOOT_LOADER_FLAG_KERNEL_FAT_READ
+    jz .done
+    test eax, BOOT_LOADER_FLAG_KERNEL_FAT_CHAIN_OK
+    jz boot_info_error
+    mov eax, [BOOT_DISK_FLAGS_ADDR]
+    mov edx, BOOT_DISK_FLAG_KERNEL_FAT_READ | BOOT_DISK_FLAG_KERNEL_FAT_CHAIN_OK
+    and eax, edx
+    cmp eax, edx
+    jne boot_info_error
 
 .done:
     ret
@@ -1321,7 +1369,11 @@ validate_protected_kernel_handoff:
 .disk_chs_ok:
     test eax, BOOT_LOADER_FLAG_KERNEL_FAT_READ
     jz .disk_fat_ok
+    test eax, BOOT_LOADER_FLAG_KERNEL_FAT_CHAIN_OK
+    jz protected_boot_info_error
     test edx, BOOT_DISK_FLAG_KERNEL_FAT_READ
+    jz protected_boot_info_error
+    test edx, BOOT_DISK_FLAG_KERNEL_FAT_CHAIN_OK
     jz protected_boot_info_error
 
 .disk_fat_ok:
@@ -1556,6 +1608,8 @@ fat_root_lba dd 0
 fat_data_lba dd 0
 fat_kernel_size dd 0
 fat_kernel_remaining dd 0
+fat_data_clusters dd 0
+fat_last_valid_cluster dd 0
 stage2_message db "Aurora stage 2: loading protected kernel...", 13, 10, 0
 a20_error_message db "Aurora stage 2: A20 enable failed.", 13, 10, 0
 video_error_message db "Aurora stage 2: video mode setup failed.", 13, 10, 0

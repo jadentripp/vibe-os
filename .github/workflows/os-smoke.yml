@@ -96,8 +96,8 @@ jobs:
           grep -q "apic=LIVE" build/status.txt
           grep -q "clocksrc=HPET" build/status.txt
           grep -q "hpet=LIVE" build/status.txt
-          perl -ne '$ok = 1 if /biosflags=([0-9A-F]{8})/ && (hex($1) & 0x00010000); END { exit($ok ? 0 : 1) }' build/status.txt
-          perl -ne '$ok = 1 if /biosdisk=[0-9A-F]{8}\/[0-9A-F]{8}\/([0-9A-F]{8})\// && (hex($1) & 0x00000020); END { exit($ok ? 0 : 1) }' build/status.txt
+          perl -ne '$ok = 1 if /biosflags=([0-9A-F]{8})/ && ((hex($1) & 0x00030000) == 0x00030000); END { exit($ok ? 0 : 1) }' build/status.txt
+          perl -ne '$ok = 1 if /biosdisk=[0-9A-F]{8}\/[0-9A-F]{8}\/([0-9A-F]{8})\// && ((hex($1) & 0x00000060) == 0x00000060); END { exit($ok ? 0 : 1) }' build/status.txt
           grep -q "apicirq=00000001/00000005/00000005" build/status.txt
           grep -q "clockhpet=00000001" build/status.txt
           grep -q "lapiclive=00000001" build/status.txt

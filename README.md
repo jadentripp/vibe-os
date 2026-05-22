@@ -57,9 +57,10 @@ Here is the boot path without assuming you build operating systems:
 
 1. QEMU acts like a simple x86 PC in the cloud.
 2. The first disk sector loads a bigger bootloader.
-3. The bootloader reads `KERNEL.ELF` from the FAT16 partition, then switches the
-   CPU from early BIOS mode into 32-bit protected mode, where programs can use
-   more memory and the CPU can enforce privilege levels.
+3. The bootloader reads `KERNEL.ELF` from the FAT16 partition, validates its
+   cluster chain, then switches the CPU from early BIOS mode into 32-bit
+   protected mode, where programs can use more memory and the CPU can enforce
+   privilege levels.
 4. The kernel sets up memory, interrupts, timers, input, graphics, audio, files,
    and syscalls.
 5. Small user programs run first to prove the generic process path works.
@@ -74,8 +75,8 @@ framebuffer, audio, and a freestanding C runtime.
 
 The project owns the machine path instead of outsourcing it to a host OS:
 
-- boot: raw BIOS boot sector, Stage 2 loader, FAT16 kernel-file loading, and
-  32-bit protected-mode entry
+- boot: raw BIOS boot sector, Stage 2 loader, FAT16 kernel-file loading with
+  chain validation, and 32-bit protected-mode entry
 - CPU: interrupt tables, exceptions, syscalls, user/kernel transitions, and
   timer-driven preemption
 - memory: paging, BIOS memory-map-driven physical page accounting, heaps,
@@ -196,7 +197,9 @@ isolated save/load persistence lane in the cloud. Local QEMU stays opt-in only.
 The generated image is intentionally simple: LBA 0 is Stage 1 MBR plus an active
 FAT16 partition table, LBA 1-16 is Stage 2, `LBA 17-336` keeps a raw kernel ELF
 fallback, and LBA 2048+ holds the FAT16 filesystem. Stage 2 now prefers the
-`KERNEL.ELF` file from that FAT16 root before falling back to the raw window.
-Doom, probes, config, saves, and assets also live in the FAT16 partition.
+`KERNEL.ELF` file from that FAT16 root, bounds-checks its data clusters, requires
+an end-of-chain marker, and only then falls back to the raw window if the FAT
+path fails. Doom, probes, config, saves, and assets also live in the FAT16
+partition.
 
 Core code lives in `boot/stage1.asm`, `boot/stage2.asm`, `boot/uefi/loader.asm`, `kernel/kernel.asm`, `user/crt0.asm`, and `doom_port/`; detailed contracts live in `docs/architecture.txt`, `docs/proof.txt`, `docs/play.txt`, `docs/doom-provenance.txt`, and `third_party/doom/ORIGIN.md`.
