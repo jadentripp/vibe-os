@@ -143,7 +143,9 @@ handlers now send end-of-interrupt through a shared assembly EOI helper and
 publish `irqeoi=`, which keeps the live path PIC-backed while giving APIC work
 a real handoff point. The guest also builds an `irqplan=`/`irqgsi=` route plan
 from MADT interrupt-source overrides for the timer, keyboard, audio, mouse, and
-primary IDE IRQs. That is still a plan, not live APIC routing.
+primary IDE IRQs. It then computes non-applied IOAPIC redirection entries in
+`ioapicplan=`, `ioapicidx=`, `ioapiclo=`, and `ioapichi=` so the next step has
+exact register values to program. That is still a plan, not live APIC routing.
 APIC/IOAPIC routing and HPET clock ownership are still unclaimed; the live
 status still says `irqctl=PIC`, `apic=NONE`, and `hpet=NONE`.
 

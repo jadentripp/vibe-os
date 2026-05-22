@@ -272,7 +272,11 @@ IRQ_ROUTE_STATUS_NONE equ 0
 IRQ_ROUTE_STATUS_READY equ 1
 IRQ_ROUTE_STATUS_BAD equ 2
 IRQ_ROUTE_LEGACY_COUNT equ 5
-IRQ_ROUTE_FLAG_ISO equ 0x00000001
+IRQ_ROUTE_ACPI_FLAGS_MASK equ 0x0000ffff
+IRQ_ROUTE_FLAG_ISO equ 0x00010000
+IRQ_IOAPIC_PROGRAM_STATUS_NONE equ 0
+IRQ_IOAPIC_PROGRAM_STATUS_READY equ 1
+IRQ_IOAPIC_PROGRAM_STATUS_BAD equ 2
 IRQ_VECTOR_BASE equ 0x20
 IRQ_LEGACY_TIMER equ 0
 IRQ_LEGACY_KEYBOARD equ 1
@@ -292,6 +296,8 @@ IOAPIC_WINDOW equ 0x10
 IOAPIC_REG_ID equ 0x00
 IOAPIC_REG_VERSION equ 0x01
 IOAPIC_REG_REDIR_BASE equ 0x10
+IOAPIC_REDIR_POLARITY_LOW equ 0x00002000
+IOAPIC_REDIR_TRIGGER_LEVEL equ 0x00008000
 HPET_GAS_SYSTEM_MEMORY equ 0
 HPET_REG_GENERAL_CAP_ID equ 0x000
 HPET_REG_GENERAL_CONFIG equ 0x010
@@ -2322,6 +2328,25 @@ acpi_probe_tables:
     mov dword [irq_route_audio_flags], 0
     mov dword [irq_route_mouse_flags], 0
     mov dword [irq_route_ide_primary_flags], 0
+    mov byte [ioapic_program_status], IRQ_IOAPIC_PROGRAM_STATUS_NONE
+    mov dword [ioapic_program_route_count], 0
+    mov dword [ioapic_program_dest_id], 0
+    mov dword [ioapic_program_last_index], 0xffffffff
+    mov dword [ioapic_plan_timer_index], 0xffffffff
+    mov dword [ioapic_plan_keyboard_index], 0xffffffff
+    mov dword [ioapic_plan_audio_index], 0xffffffff
+    mov dword [ioapic_plan_mouse_index], 0xffffffff
+    mov dword [ioapic_plan_ide_primary_index], 0xffffffff
+    mov dword [ioapic_plan_timer_low], 0
+    mov dword [ioapic_plan_keyboard_low], 0
+    mov dword [ioapic_plan_audio_low], 0
+    mov dword [ioapic_plan_mouse_low], 0
+    mov dword [ioapic_plan_ide_primary_low], 0
+    mov dword [ioapic_plan_timer_high], 0
+    mov dword [ioapic_plan_keyboard_high], 0
+    mov dword [ioapic_plan_audio_high], 0
+    mov dword [ioapic_plan_mouse_high], 0
+    mov dword [ioapic_plan_ide_primary_high], 0
     mov dword [hpet_mmio_addr], 0
     mov dword [hpet_mmio_cap_low], 0
     mov dword [hpet_mmio_cap_high], 0
@@ -2853,6 +2878,7 @@ acpi_probe_mmio_devices:
 
 .done:
     call irq_build_route_plan
+    call irq_build_ioapic_program_plan
     popad
     ret
 
@@ -2937,6 +2963,139 @@ irq_apply_iso_route:
     mov [irq_route_ide_primary_gsi], ebx
     mov [irq_route_ide_primary_flags], ecx
     inc dword [irq_route_iso_hits]
+    ret
+
+irq_build_ioapic_program_plan:
+    pushad
+    mov byte [ioapic_program_status], IRQ_IOAPIC_PROGRAM_STATUS_BAD
+    mov dword [ioapic_program_route_count], 0
+    mov dword [ioapic_program_dest_id], 0
+    mov dword [ioapic_program_last_index], 0xffffffff
+    mov dword [ioapic_plan_timer_index], 0xffffffff
+    mov dword [ioapic_plan_keyboard_index], 0xffffffff
+    mov dword [ioapic_plan_audio_index], 0xffffffff
+    mov dword [ioapic_plan_mouse_index], 0xffffffff
+    mov dword [ioapic_plan_ide_primary_index], 0xffffffff
+    mov dword [ioapic_plan_timer_low], 0
+    mov dword [ioapic_plan_keyboard_low], 0
+    mov dword [ioapic_plan_audio_low], 0
+    mov dword [ioapic_plan_mouse_low], 0
+    mov dword [ioapic_plan_ide_primary_low], 0
+    mov dword [ioapic_plan_timer_high], 0
+    mov dword [ioapic_plan_keyboard_high], 0
+    mov dword [ioapic_plan_audio_high], 0
+    mov dword [ioapic_plan_mouse_high], 0
+    mov dword [ioapic_plan_ide_primary_high], 0
+
+    cmp byte [irq_route_status], IRQ_ROUTE_STATUS_READY
+    jne .done
+    cmp byte [lapic_mmio_status], MMIO_PROBE_OK
+    jne .done
+    cmp byte [ioapic_mmio_status], MMIO_PROBE_OK
+    jne .done
+
+    mov eax, [lapic_mmio_id]
+    shr eax, 24
+    and eax, 0xff
+    mov [ioapic_program_dest_id], eax
+
+    mov eax, [irq_route_timer_gsi]
+    mov ebx, IRQ_VECTOR_TIMER
+    mov ecx, [irq_route_timer_flags]
+    call irq_make_ioapic_redir_entry
+    jc .done
+    mov [ioapic_plan_timer_low], eax
+    mov [ioapic_plan_timer_high], edx
+    mov eax, [ioapic_program_last_index]
+    mov [ioapic_plan_timer_index], eax
+    inc dword [ioapic_program_route_count]
+
+    mov eax, [irq_route_keyboard_gsi]
+    mov ebx, IRQ_VECTOR_KEYBOARD
+    mov ecx, [irq_route_keyboard_flags]
+    call irq_make_ioapic_redir_entry
+    jc .done
+    mov [ioapic_plan_keyboard_low], eax
+    mov [ioapic_plan_keyboard_high], edx
+    mov eax, [ioapic_program_last_index]
+    mov [ioapic_plan_keyboard_index], eax
+    inc dword [ioapic_program_route_count]
+
+    mov eax, [irq_route_audio_gsi]
+    mov ebx, IRQ_VECTOR_AUDIO
+    mov ecx, [irq_route_audio_flags]
+    call irq_make_ioapic_redir_entry
+    jc .done
+    mov [ioapic_plan_audio_low], eax
+    mov [ioapic_plan_audio_high], edx
+    mov eax, [ioapic_program_last_index]
+    mov [ioapic_plan_audio_index], eax
+    inc dword [ioapic_program_route_count]
+
+    mov eax, [irq_route_mouse_gsi]
+    mov ebx, IRQ_VECTOR_MOUSE
+    mov ecx, [irq_route_mouse_flags]
+    call irq_make_ioapic_redir_entry
+    jc .done
+    mov [ioapic_plan_mouse_low], eax
+    mov [ioapic_plan_mouse_high], edx
+    mov eax, [ioapic_program_last_index]
+    mov [ioapic_plan_mouse_index], eax
+    inc dword [ioapic_program_route_count]
+
+    mov eax, [irq_route_ide_primary_gsi]
+    mov ebx, IRQ_VECTOR_IDE_PRIMARY
+    mov ecx, [irq_route_ide_primary_flags]
+    call irq_make_ioapic_redir_entry
+    jc .done
+    mov [ioapic_plan_ide_primary_low], eax
+    mov [ioapic_plan_ide_primary_high], edx
+    mov eax, [ioapic_program_last_index]
+    mov [ioapic_plan_ide_primary_index], eax
+    inc dword [ioapic_program_route_count]
+
+    mov byte [ioapic_program_status], IRQ_IOAPIC_PROGRAM_STATUS_READY
+
+.done:
+    popad
+    ret
+
+irq_make_ioapic_redir_entry:
+    cmp eax, [acpi_ioapic_first_gsi_base]
+    jb .fail
+    sub eax, [acpi_ioapic_first_gsi_base]
+    cmp eax, [ioapic_redir_entry_count]
+    jae .fail
+    mov [ioapic_program_last_index], eax
+
+    mov eax, ebx
+    and eax, 0x000000ff
+    push ecx
+    and ecx, IRQ_ROUTE_ACPI_FLAGS_MASK
+    mov ebx, ecx
+    and ebx, 0x00000003
+    cmp ebx, 0x00000003
+    jne .trigger
+    or eax, IOAPIC_REDIR_POLARITY_LOW
+
+.trigger:
+    mov ebx, ecx
+    shr ebx, 2
+    and ebx, 0x00000003
+    cmp ebx, 0x00000003
+    jne .dest
+    or eax, IOAPIC_REDIR_TRIGGER_LEVEL
+
+.dest:
+    pop ecx
+    mov edx, [ioapic_program_dest_id]
+    and edx, 0x000000ff
+    shl edx, 24
+    clc
+    ret
+
+.fail:
+    stc
     ret
 
 mmio_identity_map_page:
@@ -27780,6 +27939,52 @@ write_smoke_status:
     call smoke_write_slash_hex32
     mov edx, [irq_route_ide_primary_flags]
     call smoke_write_slash_hex32
+    mov esi, smoke_ioapicplan_text
+    call smoke_copy_string
+    movzx edx, byte [ioapic_program_status]
+    call smoke_write_hex32
+    mov edx, [ioapic_program_route_count]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_program_dest_id]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_program_last_index]
+    call smoke_write_slash_hex32
+    mov esi, smoke_ioapicidx_text
+    call smoke_copy_string
+    mov edx, [ioapic_plan_timer_index]
+    call smoke_write_hex32
+    mov edx, [ioapic_plan_keyboard_index]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_plan_audio_index]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_plan_mouse_index]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_plan_ide_primary_index]
+    call smoke_write_slash_hex32
+    mov esi, smoke_ioapiclo_text
+    call smoke_copy_string
+    mov edx, [ioapic_plan_timer_low]
+    call smoke_write_hex32
+    mov edx, [ioapic_plan_keyboard_low]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_plan_audio_low]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_plan_mouse_low]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_plan_ide_primary_low]
+    call smoke_write_slash_hex32
+    mov esi, smoke_ioapichi_text
+    call smoke_copy_string
+    mov edx, [ioapic_plan_timer_high]
+    call smoke_write_hex32
+    mov edx, [ioapic_plan_keyboard_high]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_plan_audio_high]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_plan_mouse_high]
+    call smoke_write_slash_hex32
+    mov edx, [ioapic_plan_ide_primary_high]
+    call smoke_write_slash_hex32
 
     mov esi, smoke_acpi_text
     call smoke_copy_string
@@ -31754,6 +31959,10 @@ smoke_irqplan_text db " irqplan=", 0
 smoke_irqgsi_text db " irqgsi=", 0
 smoke_irqvec_text db " irqvec=", 0
 smoke_irqflags_text db " irqflags=", 0
+smoke_ioapicplan_text db " ioapicplan=", 0
+smoke_ioapicidx_text db " ioapicidx=", 0
+smoke_ioapiclo_text db " ioapiclo=", 0
+smoke_ioapichi_text db " ioapichi=", 0
 smoke_acpi_text db " acpi=", 0
 smoke_acpisrc_text db " acpisrc=", 0
 smoke_acpiver_text db " acpiver=", 0
@@ -32380,6 +32589,7 @@ lapic_mmio_status db 0
 ioapic_mmio_status db 0
 ioapic_redir_status db 0
 irq_route_status db 0
+ioapic_program_status db 0
 hpet_mmio_status db 0
 hpet_counter_status db 0
 hpet_live_status db 0
@@ -32458,6 +32668,24 @@ irq_route_keyboard_flags dd 0
 irq_route_audio_flags dd 0
 irq_route_mouse_flags dd 0
 irq_route_ide_primary_flags dd 0
+ioapic_program_route_count dd 0
+ioapic_program_dest_id dd 0
+ioapic_program_last_index dd 0
+ioapic_plan_timer_index dd 0
+ioapic_plan_keyboard_index dd 0
+ioapic_plan_audio_index dd 0
+ioapic_plan_mouse_index dd 0
+ioapic_plan_ide_primary_index dd 0
+ioapic_plan_timer_low dd 0
+ioapic_plan_keyboard_low dd 0
+ioapic_plan_audio_low dd 0
+ioapic_plan_mouse_low dd 0
+ioapic_plan_ide_primary_low dd 0
+ioapic_plan_timer_high dd 0
+ioapic_plan_keyboard_high dd 0
+ioapic_plan_audio_high dd 0
+ioapic_plan_mouse_high dd 0
+ioapic_plan_ide_primary_high dd 0
 hpet_mmio_addr dd 0
 hpet_mmio_cap_low dd 0
 hpet_mmio_cap_high dd 0
