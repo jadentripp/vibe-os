@@ -79,7 +79,11 @@ Manual play:
 - `GAP[GRAPHICS_GENERALITY] status=open`: framebuffer presentation should be a
   normal OS device ABI, not a Doom-only path.
 - `GAP[AUDIO_GENERALITY] status=open`: SB16/DMA/PCM should become a generic
-  audio device that a second program can write to.
+  audio device that a second program can write to. Run `26293976746` added
+  guest-owned `audabi=` reporting to the OVMF proof manifest, but it only
+  reached `audabi=00000002/000001FF/00000002/00000009`, which proves generic
+  device-info reached the kernel and does not yet prove the full open, write,
+  buffered-byte query, drain, and close lifecycle.
 - `GAP[HOST_SCRIPT_RETIREMENT] status=in-progress`: legacy host scripts have
   been removed from the repo; remaining proof must stay shell/C/guest-owned.
 - `GAP[PHYSICAL_HARDWARE] status=open`: QEMU PC hardware is the supported target.

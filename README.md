@@ -91,7 +91,8 @@ The project owns the machine path instead of outsourcing it to a host OS:
 - input and video: keyboard, mouse, a reusable indexed framebuffer device,
   palette conversion, and frame presentation
 - audio and runtime: SB16-style PCM contracts, x87/FPU handling, and the
-  freestanding C/math/string support Doom expects
+  freestanding C/math/string support Doom expects; the kernel now exposes
+  generic audio ABI status, but the full non-Doom PCM lifecycle is still a gap
 
 Doom is the first serious game target. The point is to make these OS services
 general enough for other small C games and tools, not to hide one-off Doom
