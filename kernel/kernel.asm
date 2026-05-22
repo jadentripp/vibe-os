@@ -10247,8 +10247,6 @@ ata_read_sector:
     loop .read_word
     mov dword [ata_wait_phase], ATA_WAIT_IDLE
     call ata_io_delay
-    call ata_wait_ready
-    jc .fail
     mov byte [ata_status], 1
     clc
     jmp .done
