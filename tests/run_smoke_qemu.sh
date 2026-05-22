@@ -217,7 +217,7 @@ capture_snapshot() {
   vga_bin="$BUILD_DIR/vga$suffix.bin"
   vga_txt="$BUILD_DIR/vga$suffix.txt"
 
-  commands="info status\ninfo registers\npmemsave 0xb8000 4000 $vga_bin\npmemsave 0x9d000 12288 $status_bin\n"
+  commands="info status\ninfo registers\npmemsave 0xb8000 4000 $vga_bin\npmemsave 0x76000 40960 $status_bin\n"
   if [ "$label" = "final" ] && [ "$SMOKE_CAPTURE_GFX" = "1" ]; then
     commands="${commands}pmemsave 0xa0000 64000 $BUILD_DIR/gfx.bin\n"
   fi
@@ -444,7 +444,7 @@ wait_status_action() {
 
   while :; do
     rm -f "$status_bin" "$status_txt"
-    send_monitor "$mode $field=$expected" "pmemsave 0x9d000 12288 $status_bin\n" || fail_smoke "failed to capture status for $mode action in phase $label"
+    send_monitor "$mode $field=$expected" "pmemsave 0x76000 40960 $status_bin\n" || fail_smoke "failed to capture status for $mode action in phase $label"
     decode_status "$status_bin" "$status_txt"
     if [ "$mode" = "wait-status-min" ]; then
       if status_field_hex_at_least "$status_txt" "$field" "$expected"; then
@@ -510,7 +510,7 @@ wait_status_part_min_action() {
 
   while :; do
     rm -f "$status_bin" "$status_txt"
-    send_monitor "wait-status-part-min $field[$part]=$expected" "pmemsave 0x9d000 12288 $status_bin\n" || fail_smoke "failed to capture status for wait-status-part-min action in phase $label"
+    send_monitor "wait-status-part-min $field[$part]=$expected" "pmemsave 0x76000 40960 $status_bin\n" || fail_smoke "failed to capture status for wait-status-part-min action in phase $label"
     decode_status "$status_bin" "$status_txt"
     if status_field_hex_part_at_least "$status_txt" "$field" "$part" "$expected"; then
       log "Observed status field $field part $part >= 0x$expected for phase $label."
