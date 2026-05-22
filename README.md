@@ -139,27 +139,19 @@ also verifies that the main counter advances, and the status path refreshes a
 live HPET counter sample after boot. Kernel MMIO pages are copied into every
 process page directory as supervisor-only mappings, so Ring 0 interrupt code
 can reach device registers even when it interrupted a Ring 3 process. IRQ
-handlers now send end-of-interrupt through a shared assembly EOI helper and
-publish `irqeoi=`, which keeps the live path PIC-backed while giving APIC work
-a real handoff point. The guest also builds an `irqplan=`/`irqgsi=` route plan
-from MADT interrupt-source overrides for the timer, keyboard, audio, mouse, and
-primary IDE IRQs. It then computes non-applied IOAPIC redirection entries in
-`ioapicplan=`, `ioapicidx=`, `ioapiclo=`, and `ioapichi=` so the next step has
-exact register values to program. The `ioapicarm=` path writes those entries
-with the IOAPIC mask bit set and verifies readback, so the hardware programming
-path is exercised without routing live interrupts through APIC yet. The
-`lapiclive=` path also software-enables the local APIC when the CPU/APIC-base
-state says the LAPIC is globally enabled, installs a real spurious-vector
-handler, and verifies the LAPIC spurious-vector register readback. There is now
-an opt-in cloud-only APIC IRQ proof build that compiles with
-`VIBE_APIC_IRQ_PROOF`, unmasks the IOAPIC timer, keyboard, SB16, mouse, and
-primary IDE routes, masks the legacy PIC, sends LAPIC EOIs from the device IRQ
-handlers, and proves the route table through `irqctl=APIC` and `apicirq=`.
-The normal playable Doom build remains deliberately PIC-backed until that APIC
-path has more soak time; the default live status still says `irqctl=PIC`,
-`apic=NONE`, and `hpet=NONE`. The real-WAD cloud workflow also has an opt-in
-APIC lane so the same playable Doom proof can be run against the APIC/IOAPIC
-route path without changing the default player build.
+handlers send end-of-interrupt through a shared assembly EOI helper and publish
+`irqeoi=`. The guest builds an `irqplan=`/`irqgsi=` route plan from MADT
+interrupt-source overrides for the timer, keyboard, audio, mouse, and primary
+IDE IRQs. It then computes IOAPIC redirection entries in `ioapicplan=`,
+`ioapicidx=`, `ioapiclo=`, and `ioapichi=`.
+
+The supported QEMU path now attempts LAPIC/IOAPIC routing by default. The
+kernel software-enables the LAPIC through `lapiclive=`, arms the IOAPIC routes,
+masks the legacy PIC when the handoff succeeds, sends device EOIs through the
+LAPIC, and reports `irqctl=APIC`, `apic=LIVE`, and `apicirq=` from inside the
+guest. If the firmware/device checks fail, it stays on the older PIC path
+instead of pretending APIC is available. `VIBE_DISABLE_APIC_IRQ` is the build
+escape hatch for an explicit PIC-fallback proof.
 
 The storage claim is also bounded. vibe-os mutates and reboots its generated
 FAT16 image in disposable cloud QEMU, but it is not an installable OS for

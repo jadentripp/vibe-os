@@ -2919,8 +2919,8 @@ acpi_probe_mmio_devices:
     call irq_build_ioapic_program_plan
     call ioapic_arm_masked_program_plan
     call lapic_enable_software
-%ifdef VIBE_APIC_IRQ_PROOF
-    call apic_enable_irq_controller_proof
+%ifndef VIBE_DISABLE_APIC_IRQ
+    call apic_enable_irq_controller_live
 %endif
     popad
     ret
@@ -3192,9 +3192,9 @@ ioapic_arm_one_masked_entry:
     stc
     ret
 
-apic_enable_irq_controller_proof:
+apic_enable_irq_controller_live:
     pushad
-    mov byte [apic_irq_status], APIC_IRQ_STATUS_BAD
+    mov byte [apic_irq_status], APIC_IRQ_STATUS_NONE
     mov dword [apic_irq_route_count], 0
     mov dword [apic_irq_match_count], 0
     mov dword [apic_irq_last_index], 0xffffffff
@@ -3207,6 +3207,7 @@ apic_enable_irq_controller_proof:
     jne .done
     cmp byte [ioapic_masked_arm_status], IRQ_IOAPIC_ARM_STATUS_READY
     jne .done
+    mov byte [apic_irq_status], APIC_IRQ_STATUS_BAD
 
     mov eax, [ioapic_plan_timer_index]
     mov ebx, [ioapic_plan_timer_low]
@@ -28688,10 +28689,22 @@ write_smoke_status:
     mov edx, [hpet_live_period_fs]
     call smoke_write_slash_hex32
 
-    mov esi, smoke_apic_text
+    mov esi, smoke_apic_none_text
+    cmp dword [irq_controller_mode], IRQ_CONTROLLER_APIC
+    jne .apic_mode_selected
+    cmp byte [apic_irq_status], APIC_IRQ_STATUS_READY
+    jne .apic_mode_selected
+    mov esi, smoke_apic_live_text
+
+.apic_mode_selected:
     call smoke_copy_string
 
-    mov esi, smoke_hpet_text
+    mov esi, smoke_hpet_none_text
+    cmp byte [hpet_live_status], MMIO_PROBE_OK
+    jne .hpet_mode_selected
+    mov esi, smoke_hpet_live_text
+
+.hpet_mode_selected:
     call smoke_copy_string
 
     mov esi, smoke_gflags_text
@@ -32441,8 +32454,10 @@ smoke_ioapiciso_text db " ioapiciso=", 0
 smoke_hpetprobe_text db " hpetprobe=", 0
 smoke_hpetcount_text db " hpetcount=", 0
 smoke_hpetlive_text db " hpetlive=", 0
-smoke_apic_text db " apic=NONE", 0
-smoke_hpet_text db " hpet=NONE", 0
+smoke_apic_none_text db " apic=NONE", 0
+smoke_apic_live_text db " apic=LIVE", 0
+smoke_hpet_none_text db " hpet=NONE", 0
+smoke_hpet_live_text db " hpet=LIVE", 0
 smoke_gflags_text db " gflags=", 0
 smoke_gaction_text db " gaction=", 0
 smoke_pflags_text db " pflags=", 0

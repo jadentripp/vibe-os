@@ -67,8 +67,9 @@ Manual play:
 - `GAP[HOST_SCRIPT_RETIREMENT] status=in-progress`: legacy host scripts have
   been removed from the repo; remaining proof must stay shell/C/guest-owned.
 - `GAP[PHYSICAL_HARDWARE] status=open`: QEMU PC hardware is the supported target.
-  Arbitrary laptops, disks, USB, APIC/HPET, ACPI, AHCI, HDA, and real install
-  recovery are not claimed.
+  ACPI, HPET probing, and LAPIC/IOAPIC routing are only claimed inside that
+  supported cloud QEMU machine model. Arbitrary laptops, disks, USB, AHCI, HDA,
+  and real install recovery are not claimed.
 
 ## Evidence Standard
 

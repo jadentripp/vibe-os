@@ -31,11 +31,6 @@ on:
         required: false
         type: boolean
         default: false
-      apic_irq_proof:
-        description: Build the real-WAD smoke image with the opt-in APIC/IOAPIC IRQ route path instead of the default PIC path.
-        required: false
-        type: boolean
-        default: false
       expected_ref:
         description: Optional branch/ref guard. Set this to the branch you meant to prove; the job fails before toolchain install or WAD fetch if the selected workflow ref differs.
         required: false
@@ -60,7 +55,6 @@ jobs:
     env:
       INPUT_DOOM_WAD_URL: ${{ inputs.wad_url }}
       AUDIBLE_AUDIO_PROOF: ${{ inputs.audible_audio_proof }}
-      APIC_IRQ_PROOF: ${{ inputs.apic_irq_proof }}
       PERSISTENCE_INPUT_SCRIPT: ${{ inputs.persistence_input_script }}
       PERSISTENCE_LOAD_INPUT_SCRIPT: ${{ inputs.persistence_load_input_script }}
       PERSISTENCE_SAVE_SLOT: ${{ inputs.persistence_save_slot }}
@@ -105,9 +99,7 @@ jobs:
           elif [ -n "${PERSISTENCE_SAVE_SLOT:-}" ] || [ "${{ inputs.persistence_proof }}" = "true" ]; then
             lane="persistence"
           fi
-          if [ "${APIC_IRQ_PROOF}" = "true" ]; then
-            lane="${lane}+apic"
-          fi
+          lane="${lane}+default-apic"
 
           echo "Proof lane: $lane"
           echo "Artifact policy: upload status/JSON proof only; no WADs, disk images, screenshots, rendered pixels, raw audio, logs, tokens, or one-time codes."
@@ -187,12 +179,8 @@ jobs:
 
       - name: Rebuild real-WAD image
         run: |
-          kernel_extra_flags=""
-          if [ "${APIC_IRQ_PROOF}" = "true" ]; then
-            kernel_extra_flags="-D VIBE_APIC_IRQ_PROOF"
-          fi
           make clean
-          make DOOM_WAD="$WAD_PATH" KERNEL_EXTRA_NASMFLAGS="$kernel_extra_flags"
+          make DOOM_WAD="$WAD_PATH"
 
       - name: Capture fresh persistence baseline
         if: ${{ inputs.persistence_proof || inputs.persistence_save_slot != '' }}
@@ -204,10 +192,6 @@ jobs:
         id: boot_real_wad
         timeout-minutes: 4
         run: |
-          kernel_extra_flags=""
-          if [ "${APIC_IRQ_PROOF}" = "true" ]; then
-            kernel_extra_flags="-D VIBE_APIC_IRQ_PROOF"
-          fi
           audio_backend="-audiodev none,id=snd0 -device sb16,audiodev=snd0"
           if [ "${AUDIBLE_AUDIO_PROOF}" = "true" ]; then
             audio_backend="-audiodev wav,id=snd0,path=build/doom-audio.wav -device sb16,audiodev=snd0"
@@ -215,7 +199,6 @@ jobs:
 
           make \
             DOOM_WAD="$WAD_PATH" \
-            KERNEL_EXTRA_NASMFLAGS="$kernel_extra_flags" \
             ALLOW_LOCAL_VM=1 \
             QEMU_EXTRA_ARGS="$audio_backend" \
             SMOKE_EXPECT_PROBE_GFX=0 \
@@ -324,12 +307,13 @@ jobs:
             --require-preempt \
             build/status.txt
 
-      - name: Assert opt-in APIC real-WAD route gates
+      - name: Assert default APIC real-WAD route gates
         id: apic_real_wad
-        if: ${{ always() && inputs.apic_irq_proof }}
+        if: always()
         run: |
           set -euo pipefail
           grep -q "irqctl=APIC" build/status.txt
+          grep -q "apic=LIVE" build/status.txt
           grep -q "apicirq=00000001/00000005/00000005" build/status.txt
           grep -q "lapiclive=00000001" build/status.txt
           perl -ne '$ok = 1 if /irqeoi=([0-9A-F]{8})\/([0-9A-F]{8})\/([0-9A-F]{8})/ && hex($3) == 3; END { exit($ok ? 0 : 1) }' build/status.txt

@@ -8,7 +8,8 @@ small games can use them later.
 
 - Architecture: 32-bit x86 protected mode.
 - First supported machine: QEMU PC with BIOS, IDE/ATA, PS/2, VBE-style
-  framebuffer, PIT/PIC, and SB16-compatible audio.
+  framebuffer, PIT plus LAPIC/IOAPIC IRQ routing with PIC fallback, and
+  SB16-compatible audio.
 - Play path: cloud QEMU through Codespaces/noVNC.
 - Local Mac: build-only unless the user explicitly opts into local VM risk.
 
@@ -30,7 +31,8 @@ The main kernel body is `kernel/kernel.asm`. It owns:
 - GDT, IDT, exception stubs, IRQ stubs, and syscall entry.
 - Paging, early physical memory accounting, guard pages, and higher-half proof
   work.
-- PIT/PIC timer handling.
+- PIT clock ticks, APIC/IOAPIC IRQ routing on the supported QEMU target, and
+  PIC fallback.
 - Ring 3 process entry and user/kernel transitions.
 - ATA/IDE PIO, MBR/FAT image layout, file descriptors, reads, writes, seeks,
   config files, save files, and WAD loading.
