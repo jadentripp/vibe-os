@@ -20850,7 +20850,23 @@ user_elf_prepare:
 
     mov eax, [esi + 4]
     add eax, USER_ELF_LOAD_ADDR
-    mov esi, eax
+    jc .fail
+    mov [user_segment_source], eax
+
+    pushfd
+    cli
+    mov eax, cr3
+    push eax
+    mov ebx, [process_exec_target]
+    cmp ebx, 0
+    je .user_copy_address_space_ready
+    mov eax, [ebx + PROC_PAGE_DIR]
+    test eax, eax
+    jz .user_copy_address_space_ready
+    mov cr3, eax
+
+.user_copy_address_space_ready:
+    mov esi, [user_segment_source]
     mov edi, [user_segment_dest]
     mov ecx, [user_segment_filesz]
     cld
@@ -20860,6 +20876,9 @@ user_elf_prepare:
     sub ecx, [user_segment_filesz]
     xor eax, eax
     rep stosb
+    pop eax
+    mov cr3, eax
+    popfd
 
     mov eax, [user_segment_dest]
     and eax, 0xfffff000
@@ -21028,6 +21047,19 @@ doom_elf_prepare:
     mov eax, [esi + ELF_PH_FLAGS]
     mov [doom_segment_flags], eax
 
+    pushfd
+    cli
+    mov eax, cr3
+    push eax
+    mov ebx, [process_exec_target]
+    cmp ebx, 0
+    je .doom_copy_address_space_ready
+    mov eax, [ebx + PROC_PAGE_DIR]
+    test eax, eax
+    jz .doom_copy_address_space_ready
+    mov cr3, eax
+
+.doom_copy_address_space_ready:
     mov esi, [doom_segment_source]
     mov edi, [doom_segment_dest]
     mov ecx, [doom_segment_filesz]
@@ -21038,6 +21070,9 @@ doom_elf_prepare:
     sub ecx, [doom_segment_filesz]
     xor eax, eax
     rep stosb
+    pop eax
+    mov cr3, eax
+    popfd
 
     mov eax, [doom_segment_dest]
     and eax, 0xfffff000
@@ -33654,6 +33689,7 @@ doom_phdr_remaining dd 0
 user_phdr_ptr dd 0
 user_phdr_remaining dd 0
 elf_phdr_scratch times ELF_MAX_PHDRS * ELF_PHDR_SIZE db 0
+user_segment_source dd 0
 user_segment_dest dd 0
 user_segment_filesz dd 0
 user_segment_memsz dd 0
