@@ -18,13 +18,15 @@ status fields for the UEFI handoff registers/block. This still does not claim
 UEFI boot support for this checkpoint until a disposable OVMF run captures the
 kernel-owned marker after `ExitBootServices`.
 
-The kernel-entry proof is green for this checkpoint: prove-mode cloud run
-`26289526249` built the PE/COFF loader and a dual BIOS/UEFI FAT16 disk image
-that also carries the BIOS boot files, Doom ELF, and WAD, booted disposable
-OVMF, and captured the kernel-owned `VIBEKERN step=uefi-entry status=OK` marker.
-The remaining blocker is proving that the UEFI path continues through the
-kernel's ATA/FAT file path into Doom gameplay. The playable game path still uses
-the BIOS/IDE disk layout.
+The kernel-entry and guest-storage proof is green for this checkpoint:
+prove-mode cloud run `26290689684` built the PE/COFF loader and a dual
+BIOS/UEFI FAT16 disk image that also carries the BIOS boot files, Doom ELF, and
+WAD, booted disposable OVMF, captured the kernel-owned
+`VIBEKERN step=uefi-entry status=OK` marker, and reported `ata=OK`,
+`blkpart=MBR`, and `wad=OK` from the kernel status page. The remaining blocker
+is UEFI-path user execution into Doom: that run still reported `doom=FAIL`,
+`doomrun=WAIT`, `panic=KEXC`, and `path=ABIPROBE.ELF`. The playable game path
+still uses the BIOS/IDE disk layout.
 
 The current boot path is still the BIOS MBR plus raw-LBA Stage 2 loader described
 in `docs/architecture.txt`. Future UEFI work must keep that path working unless
