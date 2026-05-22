@@ -16555,6 +16555,8 @@ process_clone_user_vm:
     pushad
 
     mov dword [process_fork_pages_copied_last], 0
+    mov dword [process_fork_parent_phys], 0
+    mov dword [process_fork_copy_phys], 0
     mov esi, [process_fork_parent_proc]
     mov edi, [process_fork_child_proc]
     cmp esi, 0
@@ -16597,17 +16599,29 @@ process_clone_user_vm:
     test edx, PTE_USER
     jz .page_advance
     mov eax, edx
+    and eax, 0xfffff000
+    mov [process_fork_parent_phys], eax
+    mov eax, edx
     and eax, 0x00000fff
     mov [process_fork_copy_flags], eax
     call pmm_alloc_page
     test eax, eax
     jz .fail
     mov [process_fork_copy_phys], eax
-    mov esi, [process_fork_copy_vaddr]
-    mov edi, eax
+    pushfd
+    cli
+    mov edx, cr3
+    push edx
+    mov edx, PAGING_DIR_ADDR
+    mov cr3, edx
+    mov esi, [process_fork_parent_phys]
+    mov edi, [process_fork_copy_phys]
     mov ecx, PAGE_SIZE / 4
     cld
     rep movsd
+    pop edx
+    mov cr3, edx
+    popfd
     mov eax, [process_fork_copy_vaddr]
     mov ebx, [process_fork_child_page_dir]
     call vmm_find_process_pte
@@ -31501,6 +31515,7 @@ process_fork_regions_left dd 0
 process_fork_copy_vaddr dd 0
 process_fork_copy_end dd 0
 process_fork_copy_flags dd 0
+process_fork_parent_phys dd 0
 process_fork_copy_phys dd 0
 process_exit_frame_ptr dd 0
 process_exit_parent_pid dd 0xffffffff
