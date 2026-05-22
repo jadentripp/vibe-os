@@ -169,6 +169,8 @@ jobs:
             -drive if=pflash,format=raw,file=build/uefi-ovmf-proof/OVMF_VARS.fd \
             -drive if=ide,format=raw,file=build/uefi/uefi-fat16.img \
             -boot order=c \
+            -audiodev none,id=snd0 \
+            -device sb16,audiodev=snd0 \
             -net none \
             -display none \
             -serial file:build/uefi-ovmf-proof/serial.log \
@@ -260,6 +262,12 @@ jobs:
             "exec_copy": "$(status_value execcopy)",
             "vfs_ops": "$(status_value vfsops)",
             "vfs_abi": "$(status_value vfsabi)",
+            "audio": "$(status_value audio)",
+            "audio_device": "$(status_value adev)",
+            "pcm_device": "$(status_value pcmdev)",
+            "pcm_lifecycle": "$(status_value pcmlife)",
+            "pcm_write": "$(status_value pcmwrite)",
+            "pcm_queue": "$(status_value pcmqueue)",
             "audio_abi": "$(status_value audabi)",
             "exec_error": "$(status_value execerr)",
             "exec_result": "$(status_value execres)",
@@ -404,6 +412,14 @@ jobs:
             guest_storage_proof=false
           fi
 
+          if [ "${{ inputs.proof_mode }}" = "prove" ] \
+            && grep -q 'audio=SB16' "$status" \
+            && grep -q 'audabi=000001FF/000001FF/00000100/00000010' "$status"; then
+            guest_audio_abi_proof=true
+          else
+            guest_audio_abi_proof=false
+          fi
+
           cat > build/uefi-ovmf-proof/ovmf-proof.json <<JSON
           {
             "schema": "uefi-ovmf-proof-v1",
@@ -420,10 +436,16 @@ jobs:
             "guest_status_page_captured": true,
             "guest_uefi_status_ok": true,
             "guest_generated_wad_storage_and_doom_exec_proof": $guest_storage_proof,
+            "guest_sb16_audio_abi_proof": $guest_audio_abi_proof,
             "prove_mode_kernel_entry_required": $([ "${{ inputs.proof_mode }}" = "prove" ] && echo true || echo false),
             "artifact_uploaded": false
           }
           JSON
+
+          if [ "${{ inputs.proof_mode }}" = "prove" ] && [ "$guest_audio_abi_proof" != true ]; then
+            echo "prove mode requires the generic SB16 PCM ABI lifecycle through audabi=." >&2
+            exit 1
+          fi
 
           rm -f "$log" "$marker_file" build/uefi/uefi-fat16.img build/uefi-ovmf-proof/OVMF_VARS.fd build/uefi-ovmf-proof/bootx64.file.txt build/uefi-ovmf-proof/dual-image-inspect.txt build/uefi-ovmf-proof/status.bin build/uefi-ovmf-proof/status.txt build/uefi-ovmf-proof/monitor.sock build/uefi-ovmf-proof/monitor.log build/uefi-ovmf-proof/serial.log build/uefi-ovmf-proof/qemu.log
 
