@@ -217,6 +217,45 @@ jobs:
           rm -f build/doom-audio.wav
           exit 1
 
+      - name: Select richest guest status snapshot
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ ! -d build ]; then
+            echo "No build directory exists; leaving status selection to later diagnostics."
+            exit 0
+          fi
+          if [ -f build/status.txt ]; then
+            cp build/status.txt build/status.boot.txt
+          fi
+
+          for candidate in \
+            build/status.after-mouse.wait-pangledelta.txt \
+            build/status.after-move.wait-pdelta.txt \
+            build/status.after-fire.wait-pflags.txt \
+            build/status.after-menu.txt \
+            build/status.after-use.txt \
+            build/status.after-mouse.txt \
+            build/status.after-move.txt \
+            build/status.after-fire.txt \
+            build/status.after-start.txt \
+            build/status.txt; do
+            if [ ! -s "$candidate" ]; then
+              continue
+            fi
+            if grep -q "path=DOOM.ELF" "$candidate" \
+              && grep -q "gameplay=OK" "$candidate" \
+              && grep -q "pg=ON" "$candidate" \
+              && grep -q "vfsops=" "$candidate" \
+              && grep -q "audio=SB16" "$candidate"; then
+              cp "$candidate" build/status.txt
+              echo "Selected $candidate as build/status.txt for proof gates."
+              exit 0
+            fi
+          done
+
+          echo "No richer gameplay status snapshot found; keeping build/status.txt for failure diagnostics."
+
       - name: Assert real-WAD proof gates
         id: real_wad_proof
         if: always()
