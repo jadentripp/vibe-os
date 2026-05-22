@@ -136,13 +136,17 @@ Contract mode is host-only and QEMU-free; attempt/prove modes are restricted to
 GitHub Actions Ubuntu runners unless a developer explicitly opens the Linux lab
 escape hatch. Attempt mode must see loader markers through the post-ExitBootServices
 handoff attempt. Prove mode must also see the kernel-owned
-`VIBEKERN step=uefi-entry status=OK` marker. The default artifact upload policy
-is JSON manifests only; ESP images, EFI binaries, pflash vars, disk images, raw
-serial captures, and VM logs stay runner-local scratch.
+`VIBEKERN step=uefi-entry status=OK` marker. The workflow also captures
+kernel-owned guest status booleans for ATA, partition, WAD, and Doom progress;
+those fields are diagnostic until they all report green in the JSON manifest.
+The default artifact upload policy is JSON manifests only; ESP images, EFI
+binaries, pflash vars, disk images, raw serial captures, and VM logs stay
+runner-local scratch.
 
 - `UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH] status=scaffolded runner=github-actions-ubuntu mode=contract-attempt-prove-kernel-entry evidence=uefi-ovmf-proof.yml`
 - `UEFI_CLOUD_PROOF[OVMF_ATTEMPT] status=cloud-proven runner=github-actions-ubuntu mode=qemu-ovmf-debugcon evidence=uefi-ovmf-proof.yml`
 - `UEFI_CLOUD_PROOF[KERNEL_ENTRY_PROOF] status=cloud-proven runner=github-actions-ubuntu mode=ovmf-kernel-entry-marker evidence=uefi-ovmf-proof.yml`
+- `UEFI_CLOUD_PROOF[GUEST_STORAGE_DIAGNOSTIC] status=diagnostic runner=github-actions-ubuntu mode=status-page-json evidence=uefi-guest-status.json`
 - `UEFI_CLOUD_PROOF[SUPPORT_GUARD] status=guardrail runner=host-check mode=support-uefi-unclaimed evidence=check-hardware-support-matrix`
 - `UEFI_CLOUD_PROOF[ARTIFACT_POLICY] status=guardrail runner=github-actions-ubuntu mode=json-manifests-only evidence=workflow-artifact-policy`
 

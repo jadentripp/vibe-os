@@ -200,6 +200,73 @@ jobs:
             tr '\000' ' ' < build/uefi-ovmf-proof/status.bin > build/uefi-ovmf-proof/status.txt
           }
 
+          status_has() {
+            pattern="$1"
+            [ -s build/uefi-ovmf-proof/status.txt ] && grep -aEq "$pattern" build/uefi-ovmf-proof/status.txt
+          }
+
+          status_bool() {
+            pattern="$1"
+            if status_has "$pattern"; then
+              printf true
+            else
+              printf false
+            fi
+          }
+
+          status_value() {
+            key="$1"
+            if [ ! -s build/uefi-ovmf-proof/status.txt ]; then
+              printf '%s' '-'
+              return 0
+            fi
+            value=$(tr ' ' '\n' < build/uefi-ovmf-proof/status.txt \
+              | grep -aE "^${key}=" \
+              | tail -1 || true)
+            if [ -z "$value" ]; then
+              printf '%s' '-'
+              return 0
+            fi
+            printf '%s' "$value" | sed -E 's/^[^=]+=//; s/[^A-Za-z0-9_.:\/+-]/_/g'
+          }
+
+          write_guest_status_manifest() {
+            missing_pattern="${1:-}"
+            capture_status || true
+            cat > build/uefi-ovmf-proof/uefi-guest-status.json <<JSON
+          {
+            "schema": "uefi-guest-status-v1",
+            "mode": "${{ inputs.proof_mode }}",
+            "guest_status_page_captured": $([ -s build/uefi-ovmf-proof/status.txt ] && echo true || echo false),
+            "required_missing_pattern": "$missing_pattern",
+            "uefi_ok": $(status_bool 'uefi=OK'),
+            "ata_ok": $(status_bool 'ata=OK'),
+            "block_partition_mbr": $(status_bool 'blkpart=MBR'),
+            "wad_ok": $(status_bool 'wad=OK'),
+            "doom_exec_path_seen": $(status_bool 'path=DOOM[.]ELF'),
+            "doom_loaded": $(status_bool 'doom=OK'),
+            "doom_run_or_exit": $(status_bool 'doomrun=(RUN|EXIT)'),
+            "ata": "$(status_value ata)",
+            "block_partition": "$(status_value blkpart)",
+            "block_status": "$(status_value blkstat)",
+            "block_error": "$(status_value blkerr)",
+            "wad": "$(status_value wad)",
+            "doom": "$(status_value doom)",
+            "doomrun": "$(status_value doomrun)",
+            "panic": "$(status_value panic)",
+            "path": "$(status_value path)",
+            "artifact_policy": {
+              "status_only": true,
+              "contains_wad_data": false,
+              "contains_disk_image": false,
+              "contains_screenshots": false,
+              "contains_pixels": false,
+              "contains_raw_audio": false
+            }
+          }
+          JSON
+          }
+
           wait_for_status_field() {
             pattern="$1"
             timeout_seconds="$2"
@@ -218,14 +285,32 @@ jobs:
             return 1
           }
 
-          wait_for_status_field 'uefi=OK' 45
+          require_status_field() {
+            pattern="$1"
+            timeout_seconds="$2"
+            if wait_for_status_field "$pattern" "$timeout_seconds"; then
+              write_guest_status_manifest ""
+              return 0
+            fi
+            write_guest_status_manifest "$pattern"
+            echo "UEFI guest status check did not observe required pattern: $pattern" >&2
+            exit 1
+          }
+
+          require_status_field 'uefi=OK' 45
           if [ "${{ inputs.proof_mode }}" = "prove" ]; then
-            wait_for_status_field 'ata=OK' 90
-            wait_for_status_field 'blkpart=MBR' 20
-            wait_for_status_field 'wad=OK' 20
-            wait_for_status_field 'path=DOOM[.]ELF' 90
-            wait_for_status_field 'doom=OK' 90
-            wait_for_status_field 'doomrun=(RUN|EXIT)' 90
+            for _ in $(seq 1 45); do
+              capture_status || true
+              if status_has 'doomrun=(RUN|EXIT)'; then
+                break
+              fi
+              if ! kill -0 "$qemu_pid" 2>/dev/null; then
+                wait "$qemu_pid" || true
+                break
+              fi
+              sleep 2
+            done
+            write_guest_status_manifest ""
           fi
 
           printf 'quit\n' | nc -w 2 -U "$monitor_sock" >/dev/null 2>&1 || true
@@ -267,16 +352,18 @@ jobs:
 
           status=build/uefi-ovmf-proof/status.txt
           grep -q 'uefi=OK' "$status"
-          if [ "${{ inputs.proof_mode }}" = "prove" ]; then
-            grep -q 'ata=OK' "$status"
-            grep -q 'blkpart=MBR' "$status"
-            grep -q 'wad=OK' "$status"
-            grep -q 'path=DOOM[.]ELF' "$status"
-            grep -q 'doom=OK' "$status"
-            grep -Eq 'doomrun=(RUN|EXIT)' "$status"
-          fi
 
-          guest_storage_proof=$([ "${{ inputs.proof_mode }}" = "prove" ] && echo true || echo false)
+          if [ "${{ inputs.proof_mode }}" = "prove" ] \
+            && grep -q 'ata=OK' "$status" \
+            && grep -q 'blkpart=MBR' "$status" \
+            && grep -q 'wad=OK' "$status" \
+            && grep -q 'path=DOOM[.]ELF' "$status" \
+            && grep -q 'doom=OK' "$status" \
+            && grep -Eq 'doomrun=(RUN|EXIT)' "$status"; then
+            guest_storage_proof=true
+          else
+            guest_storage_proof=false
+          fi
 
           cat > build/uefi-ovmf-proof/ovmf-proof.json <<JSON
           {

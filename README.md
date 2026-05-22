@@ -124,8 +124,10 @@ UEFI is an opt-in source-level boot path, documented in
 path. The cloud workflow builds a real `BOOTX64.EFI`, packages it into the same
 kind of FAT16 disk image the kernel can read, and boots that image under
 disposable OVMF. The latest green prove run captured the kernel-owned
-`VIBEKERN step=uefi-entry status=OK` marker on `main`. UEFI is still not the
-playable Doom target and does not claim physical PC support.
+`VIBEKERN step=uefi-entry status=OK` marker on `main`. The same workflow now
+also captures safe guest status booleans for ATA, FAT, WAD, and Doom startup,
+but those are diagnostics until the manifest says they are green. UEFI is still
+not the playable Doom target and does not claim physical PC support.
 PCI fields such as `pci=`, `pciprobe=`, `pciapi=`, `pcilookahci=`,
 `pcilookhda=`, `ahcibar=`, and `ahcireq=` are diagnostics, not a broad hardware
 support claim.

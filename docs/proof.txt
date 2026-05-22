@@ -57,7 +57,9 @@ Manual play:
   `ExitBootServices`, attempted the 64-bit-to-32-bit handoff, and captured the
   kernel-owned `VIBEKERN step=uefi-entry status=OK` marker. The remaining gap is
   proving that the UEFI boot path continues through the kernel's ATA/FAT file
-  path into Doom gameplay.
+  path into Doom gameplay. The UEFI workflow captures the relevant guest status
+  fields as JSON so the next storage fix has OS-owned evidence instead of a raw
+  VM log.
 - `GAP[HIGHER_HALF_EXEC] status=open`: the kernel has high mapping proof work,
   but "done" means the live kernel actually executes from its higher-half
   virtual address.
