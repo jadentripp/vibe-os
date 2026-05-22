@@ -51,8 +51,11 @@ Manual play:
 
 ## Gap Ledger
 
-- `GAP[UEFI_BOOT] status=open`: UEFI loader assembly exists, but the OVMF proof
-  harness needs a shell/C PE/COFF packaging path before it can be claimed.
+- `GAP[UEFI_BOOT] status=open`: UEFI loader assembly exists and the cloud
+  workflow now builds `BOOTX64.EFI`, a GPT/FAT ESP image, and an OVMF
+  attempt/prove path. It can only move toward supported after prove mode
+  captures the kernel-owned `VIBEKERN step=uefi-entry status=OK` marker on
+  `main`.
 - `GAP[HIGHER_HALF_EXEC] status=open`: the kernel has high mapping proof work,
   but "done" means the live kernel actually executes from its higher-half
   virtual address.

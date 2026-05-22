@@ -60,37 +60,193 @@ jobs:
       - name: Install host build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y nasm clang make
+          sudo apt-get install -y nasm clang lld make file
 
       - name: Install disposable OVMF runner tools
         if: ${{ inputs.proof_mode != 'contract' }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 ovmf
+          sudo apt-get install -y qemu-system-x86 ovmf parted dosfstools
 
       - name: Build kernel ELF for ESP packaging
         run: make DOOM_WAD= build/kernel.elf
 
-      - name: Check UEFI loader assembly contract
+      - name: Build UEFI loader PE/COFF
         run: |
           set -euo pipefail
           mkdir -p build/uefi-ovmf-proof
-          nasm -f elf64 boot/uefi/loader.asm -o build/uefi-ovmf-proof/loader.o
+          make DOOM_WAD= uefi-loader-pe
+          file build/uefi/BOOTX64.EFI | tee build/uefi-ovmf-proof/bootx64.file.txt
+          grep -Eq 'PE32\+ executable.*EFI application.*x86-64' build/uefi-ovmf-proof/bootx64.file.txt
           cat > build/uefi-ovmf-proof/uefi-contract.json <<JSON
           {
             "schema": "uefi-proof-contract-v1",
             "mode": "${{ inputs.proof_mode }}",
             "loader_assembly_checked": true,
             "kernel_elf_built": true,
+            "pe_coff_loader_built": true,
+            "pe_coff_file_kind": "efi-application-x86-64",
             "legacy_host_scripts_removed": true,
-            "ovmf_attempt_green": false,
-            "note": "OVMF attempt/prove needs a shell/C PE/COFF packaging and run harness before it can be claimed."
+            "local_qemu_required": false,
+            "note": "Contract mode builds BOOTX64.EFI but does not boot OVMF. Attempt/prove mode runs only on this disposable GitHub runner."
           }
           JSON
-          if [ "${{ inputs.proof_mode }}" != "contract" ]; then
-            echo "UEFI attempt/prove is intentionally red until the PE/COFF packaging and OVMF runner are rebuilt with shell/C tooling." >&2
+
+      - name: Build GPT/FAT ESP image
+        if: ${{ inputs.proof_mode != 'contract' }}
+        run: |
+          set -euo pipefail
+
+          esp_image=build/uefi-ovmf-proof/esp.img
+          truncate -s 64M "$esp_image"
+          parted -s "$esp_image" mklabel gpt
+          parted -s "$esp_image" mkpart ESP fat32 1MiB 63MiB
+          parted -s "$esp_image" set 1 esp on
+
+          loop_device=$(sudo losetup --find --partscan --show "$esp_image")
+          cleanup() {
+            if mountpoint -q build/uefi-ovmf-proof/esp-mnt 2>/dev/null; then
+              sudo umount build/uefi-ovmf-proof/esp-mnt
+            fi
+            sudo losetup -d "$loop_device" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          for _ in 1 2 3 4 5; do
+            if [ -b "${loop_device}p1" ]; then
+              break
+            fi
+            sleep 1
+          done
+          test -b "${loop_device}p1"
+          sudo mkfs.fat -F 32 -n VIBEUEFI "${loop_device}p1"
+          mkdir -p build/uefi-ovmf-proof/esp-mnt
+          sudo mount "${loop_device}p1" build/uefi-ovmf-proof/esp-mnt
+          sudo mkdir -p build/uefi-ovmf-proof/esp-mnt/EFI/BOOT
+          sudo mkdir -p build/uefi-ovmf-proof/esp-mnt/VIBEOS
+          sudo cp build/uefi/BOOTX64.EFI build/uefi-ovmf-proof/esp-mnt/EFI/BOOT/BOOTX64.EFI
+          sudo cp build/kernel.elf build/uefi-ovmf-proof/esp-mnt/VIBEOS/KERNEL.ELF
+          sync
+          find build/uefi-ovmf-proof/esp-mnt -maxdepth 3 -type f | sort > build/uefi-ovmf-proof/esp-layout.txt
+          grep -q '/EFI/BOOT/BOOTX64.EFI$' build/uefi-ovmf-proof/esp-layout.txt
+          grep -q '/VIBEOS/KERNEL.ELF$' build/uefi-ovmf-proof/esp-layout.txt
+          sudo umount build/uefi-ovmf-proof/esp-mnt
+          sudo losetup -d "$loop_device"
+          trap - EXIT
+
+          cat > build/uefi-ovmf-proof/uefi-esp.json <<JSON
+          {
+            "schema": "uefi-esp-artifact-v1",
+            "gpt_image_built": true,
+            "fat_esp_formatted": true,
+            "boot_file": "EFI/BOOT/BOOTX64.EFI",
+            "kernel_file": "VIBEOS/KERNEL.ELF",
+            "artifact_uploaded": false
+          }
+          JSON
+
+      - name: Boot UEFI path in disposable OVMF
+        if: ${{ inputs.proof_mode != 'contract' }}
+        run: |
+          set -euo pipefail
+
+          ovmf_code=""
+          for candidate in /usr/share/OVMF/OVMF_CODE.fd /usr/share/OVMF/OVMF_CODE_4M.fd; do
+            if [ -f "$candidate" ]; then
+              ovmf_code="$candidate"
+              break
+            fi
+          done
+          if [ -z "$ovmf_code" ]; then
+            echo "No non-secure OVMF_CODE.fd found." >&2
             exit 1
           fi
+          ovmf_vars_src=""
+          for candidate in /usr/share/OVMF/OVMF_VARS.fd /usr/share/OVMF/OVMF_VARS_4M.fd; do
+            if [ -f "$candidate" ]; then
+              ovmf_vars_src="$candidate"
+              break
+            fi
+          done
+          if [ -z "$ovmf_vars_src" ]; then
+            echo "No OVMF_VARS.fd found." >&2
+            exit 1
+          fi
+
+          cp "$ovmf_vars_src" build/uefi-ovmf-proof/OVMF_VARS.fd
+          set +e
+          timeout 45s qemu-system-x86_64 \
+            -machine q35,accel=tcg \
+            -m 256M \
+            -drive if=pflash,format=raw,readonly=on,file="$ovmf_code" \
+            -drive if=pflash,format=raw,file=build/uefi-ovmf-proof/OVMF_VARS.fd \
+            -drive if=ide,format=raw,file=build/uefi-ovmf-proof/esp.img \
+            -boot order=c \
+            -net none \
+            -display none \
+            -serial none \
+            -monitor none \
+            -no-reboot \
+            -no-shutdown \
+            -debugcon file:build/uefi-ovmf-proof/debugcon.log \
+            -global isa-debugcon.iobase=0x402
+          qemu_status=$?
+          set -e
+
+          if [ "$qemu_status" -ne 0 ] && [ "$qemu_status" -ne 124 ]; then
+            echo "QEMU exited with unexpected status $qemu_status" >&2
+            exit "$qemu_status"
+          fi
+          test -s build/uefi-ovmf-proof/debugcon.log
+
+      - name: Validate UEFI OVMF markers
+        if: ${{ inputs.proof_mode != 'contract' }}
+        run: |
+          set -euo pipefail
+
+          log=build/uefi-ovmf-proof/debugcon.log
+          marker_file=build/uefi-ovmf-proof/markers.txt
+          tr -d '\r' < "$log" | grep -aE 'VIBE(UEFI|KERN)' > "$marker_file"
+
+          grep -q 'VIBEUEFI step=entry' "$marker_file"
+          grep -q 'VIBEUEFI step=esp-kernel-read' "$marker_file"
+          grep -q 'VIBEUEFI step=low-memory-reserve status=success' "$marker_file"
+          grep -q 'VIBEUEFI step=elf32-load status=success' "$marker_file"
+          grep -q 'VIBEUEFI step=boot-info status=success' "$marker_file"
+          grep -q 'VIBEUEFI step=low-handoff-copy status=success' "$marker_file"
+          grep -q 'VIBEUEFI step=exit-boot-services status=success' "$marker_file"
+          grep -q 'VIBEUEFI step=kernel-handoff status=attempting' "$marker_file"
+          grep -Eq 'handoff=0x0000000000009000' "$marker_file"
+          grep -Eq 'bootinfo=0x0000000000007000' "$marker_file"
+          grep -Eq 'e820=0x0000000000007100' "$marker_file"
+          grep -Eq 'tramp32=0x0000000000008000' "$marker_file"
+          grep -Eq 'transition64=0x000000000000A000' "$marker_file"
+          grep -Eq 'segments=0x000000000000000[1-9A-F]' "$marker_file"
+
+          kernel_marker_count=$(grep -c 'VIBEKERN step=uefi-entry status=OK' "$marker_file" || true)
+          if [ "${{ inputs.proof_mode }}" = "prove" ] && [ "$kernel_marker_count" -eq 0 ]; then
+            echo "prove mode requires the kernel-owned VIBEKERN UEFI entry marker." >&2
+            exit 1
+          fi
+
+          cat > build/uefi-ovmf-proof/ovmf-proof.json <<JSON
+          {
+            "schema": "uefi-ovmf-proof-v1",
+            "mode": "${{ inputs.proof_mode }}",
+            "esp_image_built": true,
+            "ovmf_ran_in_disposable_cloud": true,
+            "loader_entry_marker": true,
+            "esp_kernel_read_marker": true,
+            "low_handoff_copy_marker": true,
+            "exit_boot_services_marker": true,
+            "kernel_handoff_attempt_marker": true,
+            "kernel_entry_marker_count": $kernel_marker_count,
+            "prove_mode_kernel_entry_required": $([ "${{ inputs.proof_mode }}" = "prove" ] && echo true || echo false),
+            "artifact_uploaded": false
+          }
+          JSON
+
+          rm -f "$log" "$marker_file" build/uefi-ovmf-proof/esp.img build/uefi-ovmf-proof/OVMF_VARS.fd build/uefi-ovmf-proof/bootx64.file.txt build/uefi-ovmf-proof/esp-layout.txt
 
       - name: Write cloud proof run identity
         if: always()

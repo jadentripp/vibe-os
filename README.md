@@ -121,9 +121,11 @@ the full support matrix.
 
 UEFI is an opt-in source-level boot path, documented in
 `boot/uefi/CONTRACT.txt`. The loader reads the kernel from an ESP image and has
-a bounded 64-bit-to-32-bit handoff path, but this checkpoint still needs a fresh
-disposable OVMF proof before UEFI is a supported target. It is not the playable
-Doom target yet and does not claim physical PC support.
+a bounded 64-bit-to-32-bit handoff path. The cloud workflow now builds a real
+`BOOTX64.EFI`, packages it with `VIBEOS/KERNEL.ELF` in a GPT/FAT ESP image, and
+can boot that image under disposable OVMF in attempt/prove modes. UEFI is still
+not the playable Doom target and does not claim physical PC support until a
+fresh prove-mode run captures the kernel-owned entry marker on `main`.
 PCI fields such as `pci=`, `pciprobe=`, `pciapi=`, `pcilookahci=`,
 `pcilookhda=`, `ahcibar=`, and `ahcireq=` are diagnostics, not a broad hardware
 support claim.

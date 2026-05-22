@@ -27,9 +27,9 @@ in `docs/architecture.txt`. Future UEFI work must keep that path working unless
 the project deliberately retires it, and must not describe vibe-os as
 UEFI-bootable until the kernel-entry row below has real source, build, and
 cloud proof evidence. `.github/workflows/uefi-ovmf-proof.yml` currently checks
-the loader assembly contract; OVMF attempt/prove modes intentionally stay red
-until the PE/COFF packaging and runner are rebuilt without the retired scripting
-stack.
+the loader assembly contract, builds a real `BOOTX64.EFI`, packages a GPT/FAT
+ESP image, and can run disposable OVMF in attempt/prove modes without the
+retired scripting stack.
 
 ## Machine-Readable Contract
 
@@ -135,15 +135,16 @@ expected entry RVA, and the required loader debug markers.
 - `UEFI_HOST_ARTIFACT[NO_VM_BOOT] status=host-checked kind=no-ovmf-or-qemu-execution proof=source-contract-check evidence=check-hardware-support-matrix`
 
 The `UEFI_CLOUD_PROOF[...]` rows describe the opt-in cloud OVMF proof scaffold.
-They are not UEFI boot evidence. Contract mode is host-only and QEMU-free, and
-attempt/prove modes are restricted to GitHub Actions Ubuntu runners unless a
-developer explicitly opens the Linux lab escape hatch. The default artifact
-upload policy is JSON manifests only; parsed debugcon markers may appear inside
-the manifest, while ESP images, EFI binaries, pflash vars, disk images, raw
+Contract mode is host-only and QEMU-free; attempt/prove modes are restricted to
+GitHub Actions Ubuntu runners unless a developer explicitly opens the Linux lab
+escape hatch. Attempt mode must see loader markers through the post-ExitBootServices
+handoff attempt. Prove mode must also see the kernel-owned
+`VIBEKERN step=uefi-entry status=OK` marker. The default artifact upload policy
+is JSON manifests only; ESP images, EFI binaries, pflash vars, disk images, raw
 serial captures, and VM logs stay runner-local scratch.
 
 - `UEFI_CLOUD_PROOF[WORKFLOW_DISPATCH] status=scaffolded runner=github-actions-ubuntu mode=contract-attempt-prove-kernel-entry evidence=uefi-ovmf-proof.yml`
-- `UEFI_CLOUD_PROOF[OVMF_ATTEMPT] status=scaffolded runner=github-actions-ubuntu mode=manual-qemu-ovmf-debugcon evidence=ovmf-cloud-proof-script`
+- `UEFI_CLOUD_PROOF[OVMF_ATTEMPT] status=implemented runner=github-actions-ubuntu mode=qemu-ovmf-debugcon evidence=uefi-ovmf-proof.yml`
 - `UEFI_CLOUD_PROOF[KERNEL_ENTRY_PROOF] status=target runner=github-actions-ubuntu mode=ovmf-kernel-entry-marker evidence=uefi-ovmf-proof.yml`
 - `UEFI_CLOUD_PROOF[SUPPORT_GUARD] status=guardrail runner=host-check mode=support-uefi-unclaimed evidence=check-hardware-support-matrix`
 - `UEFI_CLOUD_PROOF[ARTIFACT_POLICY] status=guardrail runner=github-actions-ubuntu mode=json-manifests-only evidence=workflow-artifact-policy`

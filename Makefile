@@ -2,6 +2,7 @@ NASM ?= nasm
 QEMU ?= qemu-system-x86_64
 CLANG ?= clang
 HOST_CC ?= cc
+LLD_LINK ?= lld-link
 HOST_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2
 HOST_TEST_CFLAGS ?= $(HOST_CFLAGS) -Idoom_port -Idoom_port/include -I$(DOOM_SRC_DIR)
 NC ?= nc
@@ -60,6 +61,9 @@ USER_RUNTIME_C_OBJ := $(BUILD_DIR)/user_runtime_c.o
 USER_ABI_PROBE_ELF := $(BUILD_DIR)/abi_probe.elf
 IMAGE := $(BUILD_DIR)/disk.img
 IMAGE_BUILDER := $(BUILD_DIR)/make_wad_image
+UEFI_BUILD_DIR := $(BUILD_DIR)/uefi
+UEFI_LOADER_OBJ := $(UEFI_BUILD_DIR)/loader.obj
+UEFI_LOADER_EFI := $(UEFI_BUILD_DIR)/BOOTX64.EFI
 C_RUNTIME_SRC := kernel/c_runtime_probe.c
 USER_PROBE_C_SRC := user/probe.c
 USER_ABI_PROBE_C_SRC := user/abi_probe.c
@@ -87,7 +91,7 @@ USER_PROBE_ELF_MAX_BYTES := 16384
 USER_ABI_PROBE_ELF_MAX_BYTES := 24576
 IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF)
 
-.PHONY: all build-only test host-c-tests doom-compile doom-link run run-headless smoke playability-host-check playability-gap-check image-builder-tool image-builder-inspect ahci-block-status-check hardware-support-check storage-install-boundary-check storage-vfs-status-check real-wad-status-check vm-entry-status-check audio-continuity-check cloud-playability-check persistence-image-check clean check-tools vm-consent
+.PHONY: all build-only test host-c-tests doom-compile doom-link run run-headless smoke playability-host-check playability-gap-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe ahci-block-status-check hardware-support-check storage-install-boundary-check storage-vfs-status-check real-wad-status-check vm-entry-status-check audio-continuity-check cloud-playability-check persistence-image-check clean check-tools vm-consent
 
 all: $(IMAGE)
 
@@ -149,6 +153,9 @@ $(BUILD_DIR):
 $(DOOM_PORT_BUILD_DIR):
 	@mkdir -p $(DOOM_PORT_BUILD_DIR)
 
+$(UEFI_BUILD_DIR):
+	@mkdir -p $(UEFI_BUILD_DIR)
+
 $(STAGE1_BIN): boot/stage1.asm | $(BUILD_DIR)
 	$(NASM) -f bin $< -o $@
 
@@ -172,6 +179,19 @@ image-builder-tool: $(IMAGE_BUILDER)
 
 image-builder-inspect: $(IMAGE_BUILDER) $(IMAGE)
 	$(IMAGE_BUILDER) --inspect "$(IMAGE)"
+
+$(UEFI_LOADER_OBJ): boot/uefi/loader.asm | $(UEFI_BUILD_DIR)
+	$(NASM) -f win64 $< -o $@
+
+$(UEFI_LOADER_EFI): $(UEFI_LOADER_OBJ) | $(UEFI_BUILD_DIR)
+	@command -v $(LLD_LINK) >/dev/null || { echo "missing $(LLD_LINK); install lld or set LLD_LINK=/path/to/lld-link"; exit 1; }
+	$(LLD_LINK) /nologo /subsystem:efi_application /entry:efi_main /nodefaultlib /section:.text,ERW /out:$@ $(UEFI_LOADER_OBJ)
+	@grep -a -q "VIBEUEFI step=entry" $@
+	@grep -a -q "VIBEUEFI step=kernel-handoff" $@
+
+uefi-loader-object: $(UEFI_LOADER_OBJ)
+
+uefi-loader-pe: $(UEFI_LOADER_EFI)
 
 $(KERNEL_ELF): $(KERNEL_OBJ) $(C_RUNTIME_OBJ) $(LINK_ELF32) | $(BUILD_DIR)
 	$(LINK_ELF32) -o $@ --base 0x10000 $(KERNEL_OBJ) $(C_RUNTIME_OBJ)
