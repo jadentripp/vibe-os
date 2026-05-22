@@ -10,6 +10,11 @@ on:
         required: false
         type: boolean
         default: false
+      apic_irq_proof:
+        description: Also run an opt-in APIC/IOAPIC timer+keyboard IRQ proof on the disposable runner.
+        required: false
+        type: boolean
+        default: false
       expected_ref:
         description: Optional branch/ref guard. Set this to the branch you meant to smoke; the job fails before toolchain install if the selected workflow ref differs.
         required: false
@@ -88,6 +93,34 @@ jobs:
           grep -q "vfsops=" build/status.txt
           perl -ne '$ok = 1 if /vfsops=([0-9A-F]{8})/ && hex($1) > 0; END { exit($ok ? 0 : 1) }' build/status.txt
           printf '{ "result": "ok", "gate": "guest-status", "claim": "generic VFS syscalls were exercised" }\n' > build/storage-vfs-proof.json
+
+      - name: Run opt-in APIC IRQ proof
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.apic_irq_proof }}
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+
+          dir="build/apic-irq-proof"
+          make \
+            BUILD_DIR="$dir" \
+            KERNEL_EXTRA_NASMFLAGS="-D VIBE_APIC_IRQ_PROOF" \
+            ALLOW_LOCAL_VM=1 \
+            SMOKE_SKIP_ASSERTIONS=1 \
+            SMOKE_CAPTURE_GFX=0 \
+            SMOKE_QEMU_TIMEOUT=80 \
+            SMOKE_EARLY_SECONDS=1 \
+            SMOKE_SETTLE_SECONDS=5 \
+            SMOKE_INPUT_SCRIPT="apic-irq:wait-status-min=clockirq:00000005:50:1" \
+            smoke
+
+          cp "$dir/status.txt" build/status.apic-irq-proof.txt
+          grep -q "irqctl=APIC" build/status.apic-irq-proof.txt
+          grep -q "apicirq=00000001/00000002/00000002" build/status.apic-irq-proof.txt
+          grep -q "lapiclive=00000001" build/status.apic-irq-proof.txt
+          perl -ne '$ok = 1 if /irqeoi=([0-9A-F]{8})\/([0-9A-F]{8})\/([0-9A-F]{8})/ && hex($3) == 3; END { exit($ok ? 0 : 1) }' build/status.apic-irq-proof.txt
+          perl -ne '$ok = 1 if /clockirq=([0-9A-F]{8})/ && hex($1) >= 5; END { exit($ok ? 0 : 1) }' build/status.apic-irq-proof.txt
+
+          printf '{ "result": "ok", "gate": "guest-status", "claim": "timer IRQs reached the kernel through the opt-in APIC/IOAPIC path" }\n' > build/apic-irq-proof.json
 
       - name: Run opt-in shutdown/panic proof modes
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.shutdown_panic_proof }}
@@ -190,6 +223,7 @@ jobs:
           if-no-files-found: ignore
           path: |
             build/cloud-proof-run.json
+            build/apic-irq-proof.json
             build/storage-vfs-proof.json
             build/status*.txt
             build/shutdown-panic-proof/**/*.json

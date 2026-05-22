@@ -269,6 +269,8 @@ IRQ_EOI_NONE equ 0
 IRQ_EOI_MASTER equ 1
 IRQ_EOI_SLAVE equ 2
 IRQ_EOI_LAPIC equ 3
+IRQ_CONTROLLER_PIC equ 1
+IRQ_CONTROLLER_APIC equ 2
 IRQ_ROUTE_STATUS_NONE equ 0
 IRQ_ROUTE_STATUS_READY equ 1
 IRQ_ROUTE_STATUS_BAD equ 2
@@ -284,6 +286,9 @@ IRQ_IOAPIC_ARM_STATUS_BAD equ 2
 LAPIC_LIVE_STATUS_NONE equ 0
 LAPIC_LIVE_STATUS_READY equ 1
 LAPIC_LIVE_STATUS_BAD equ 2
+APIC_IRQ_STATUS_NONE equ 0
+APIC_IRQ_STATUS_READY equ 1
+APIC_IRQ_STATUS_BAD equ 2
 IRQ_VECTOR_BASE equ 0x20
 IRQ_LEGACY_TIMER equ 0
 IRQ_LEGACY_KEYBOARD equ 1
@@ -1456,7 +1461,7 @@ doom_user_finished:
     call draw_heap_status
     call draw_timer_status
     call write_smoke_status
-    call pic_unmask_timer
+    call irq_unmask_timer
     sti
 
 main_loop:
@@ -2311,6 +2316,7 @@ acpi_probe_tables:
     mov dword [acpi_hpet_page_prot], 0
     mov byte [lapic_mmio_status], MMIO_PROBE_NONE
     mov byte [lapic_live_status], LAPIC_LIVE_STATUS_NONE
+    mov byte [apic_irq_status], APIC_IRQ_STATUS_NONE
     mov byte [ioapic_mmio_status], MMIO_PROBE_NONE
     mov byte [hpet_mmio_status], MMIO_PROBE_NONE
     mov dword [lapic_mmio_addr], 0
@@ -2321,6 +2327,13 @@ acpi_probe_tables:
     mov dword [lapic_live_svr_written], 0
     mov dword [lapic_live_svr_after], 0
     mov dword [lapic_spurious_irq_count], 0
+    mov dword [apic_irq_route_count], 0
+    mov dword [apic_irq_match_count], 0
+    mov dword [apic_irq_last_index], 0xffffffff
+    mov dword [apic_irq_expected_low], 0
+    mov dword [apic_irq_expected_high], 0
+    mov dword [apic_irq_read_low], 0
+    mov dword [apic_irq_read_high], 0
     mov dword [ioapic_mmio_addr], 0
     mov dword [ioapic_mmio_id], 0
     mov dword [ioapic_mmio_version], 0
@@ -2906,6 +2919,9 @@ acpi_probe_mmio_devices:
     call irq_build_ioapic_program_plan
     call ioapic_arm_masked_program_plan
     call lapic_enable_software
+%ifdef VIBE_APIC_IRQ_PROOF
+    call apic_enable_irq_controller_proof
+%endif
     popad
     ret
 
@@ -3168,6 +3184,72 @@ ioapic_arm_one_masked_entry:
     cmp eax, [ioapic_masked_arm_expected_low]
     jne .fail
     cmp edx, [ioapic_masked_arm_expected_high]
+    jne .fail
+    clc
+    ret
+
+.fail:
+    stc
+    ret
+
+apic_enable_irq_controller_proof:
+    pushad
+    mov byte [apic_irq_status], APIC_IRQ_STATUS_BAD
+    mov dword [apic_irq_route_count], 0
+    mov dword [apic_irq_match_count], 0
+    mov dword [apic_irq_last_index], 0xffffffff
+    mov dword [apic_irq_expected_low], 0
+    mov dword [apic_irq_expected_high], 0
+    mov dword [apic_irq_read_low], 0
+    mov dword [apic_irq_read_high], 0
+
+    cmp byte [lapic_live_status], LAPIC_LIVE_STATUS_READY
+    jne .done
+    cmp byte [ioapic_masked_arm_status], IRQ_IOAPIC_ARM_STATUS_READY
+    jne .done
+
+    mov eax, [ioapic_plan_timer_index]
+    mov ebx, [ioapic_plan_timer_low]
+    mov ecx, [ioapic_plan_timer_high]
+    call apic_arm_one_live_entry
+    jc .done
+    inc dword [apic_irq_route_count]
+    inc dword [apic_irq_match_count]
+
+    mov eax, [ioapic_plan_keyboard_index]
+    mov ebx, [ioapic_plan_keyboard_low]
+    mov ecx, [ioapic_plan_keyboard_high]
+    call apic_arm_one_live_entry
+    jc .done
+    inc dword [apic_irq_route_count]
+    inc dword [apic_irq_match_count]
+
+    call pic_mask_all
+    mov dword [irq_controller_mode], IRQ_CONTROLLER_APIC
+    mov byte [apic_irq_status], APIC_IRQ_STATUS_READY
+
+.done:
+    popad
+    ret
+
+apic_arm_one_live_entry:
+    cmp eax, 0xffffffff
+    je .fail
+    cmp eax, [ioapic_redir_entry_count]
+    jae .fail
+    mov [apic_irq_last_index], eax
+    mov [apic_irq_expected_low], ebx
+    mov [apic_irq_expected_high], ecx
+    call ioapic_write_redir_entry
+    jc .fail
+    mov eax, [apic_irq_last_index]
+    call ioapic_read_redir_entry
+    jc .fail
+    mov [apic_irq_read_low], eax
+    mov [apic_irq_read_high], edx
+    cmp eax, [apic_irq_expected_low]
+    jne .fail
+    cmp edx, [apic_irq_expected_high]
     jne .fail
     clc
     ret
@@ -3982,6 +4064,15 @@ pic_remap_and_mask:
     call io_wait
     out 0xa1, al
     call io_wait
+    mov dword [irq_controller_mode], IRQ_CONTROLLER_PIC
+    ret
+
+pic_mask_all:
+    mov al, 0xff
+    out 0x21, al
+    call io_wait
+    out 0xa1, al
+    call io_wait
     ret
 
 pic_unmask_timer:
@@ -3991,6 +4082,16 @@ pic_unmask_timer:
     mov al, 0xff
     out 0xa1, al
     call io_wait
+    ret
+
+irq_unmask_timer:
+    cmp dword [irq_controller_mode], IRQ_CONTROLLER_APIC
+    je .apic
+    call pic_unmask_timer
+    ret
+
+.apic:
+    call pic_mask_all
     ret
 
 pic_unmask_timer_keyboard:
@@ -4033,6 +4134,16 @@ pic_unmask_timer_keyboard:
     mov al, 0xef
     out 0xa1, al
     call io_wait
+    ret
+
+irq_unmask_timer_keyboard:
+    cmp dword [irq_controller_mode], IRQ_CONTROLLER_APIC
+    je .apic
+    call pic_unmask_timer_keyboard
+    ret
+
+.apic:
+    call pic_mask_all
     ret
 
 io_wait:
@@ -26062,7 +26173,7 @@ irq_timer:
     call clock_note_scheduler_irq_path
     call draw_timer_status
     call write_smoke_status
-    call irq_send_master_eoi
+    call irq_send_timer_eoi
     IRQ_RETURN
 
 irq_keyboard:
@@ -26078,7 +26189,7 @@ irq_keyboard:
     call keyboard_queue_scancode
 
 .eoi:
-    call irq_send_master_eoi
+    call irq_send_keyboard_eoi
     IRQ_RETURN
 
 .aux_byte:
@@ -26178,6 +26289,16 @@ irq_ignore_slave:
     IRQ_ENTER
     call irq_send_slave_eoi
     IRQ_RETURN
+
+irq_send_timer_eoi:
+    cmp dword [irq_controller_mode], IRQ_CONTROLLER_APIC
+    je irq_send_lapic_eoi
+    jmp irq_send_master_eoi
+
+irq_send_keyboard_eoi:
+    cmp dword [irq_controller_mode], IRQ_CONTROLLER_APIC
+    je irq_send_lapic_eoi
+    jmp irq_send_master_eoi
 
 irq_send_master_eoi:
     push eax
@@ -28097,7 +28218,12 @@ write_smoke_status:
     mov edx, [cpu_apic_base_flags]
     call smoke_write_slash_hex32
 
-    mov esi, smoke_irqctl_text
+    mov esi, smoke_irqctl_pic_text
+    cmp dword [irq_controller_mode], IRQ_CONTROLLER_APIC
+    jne .irqctl_selected
+    mov esi, smoke_irqctl_apic_text
+
+.irqctl_selected:
     call smoke_copy_string
     mov esi, smoke_irqeoi_text
     call smoke_copy_string
@@ -28414,6 +28540,29 @@ write_smoke_status:
     mov edx, [lapic_spurious_irq_count]
     call smoke_write_slash_hex32
     mov edx, [irq_eoi_lapic_count]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_apicirq_text
+    call smoke_copy_string
+    movzx edx, byte [apic_irq_status]
+    call smoke_write_hex32
+    mov edx, [apic_irq_route_count]
+    call smoke_write_slash_hex32
+    mov edx, [apic_irq_match_count]
+    call smoke_write_slash_hex32
+    mov edx, [apic_irq_last_index]
+    call smoke_write_slash_hex32
+    mov edx, [irq_controller_mode]
+    call smoke_write_slash_hex32
+    mov esi, smoke_apicirqrd_text
+    call smoke_copy_string
+    mov edx, [apic_irq_expected_low]
+    call smoke_write_hex32
+    mov edx, [apic_irq_read_low]
+    call smoke_write_slash_hex32
+    mov edx, [apic_irq_expected_high]
+    call smoke_write_slash_hex32
+    mov edx, [apic_irq_read_high]
     call smoke_write_slash_hex32
 
     mov esi, smoke_ioapicprobe_text
@@ -32202,7 +32351,8 @@ smoke_clocksch_text db " clocksch=", 0
 smoke_clockpirq_text db " clockpirq=", 0
 smoke_cpuid_text db " cpuid=", 0
 smoke_apicbase_text db " apicbase=", 0
-smoke_irqctl_text db " irqctl=PIC", 0
+smoke_irqctl_pic_text db " irqctl=PIC", 0
+smoke_irqctl_apic_text db " irqctl=APIC", 0
 smoke_irqeoi_text db " irqeoi=", 0
 smoke_irqplan_text db " irqplan=", 0
 smoke_irqgsi_text db " irqgsi=", 0
@@ -32234,6 +32384,8 @@ smoke_hpetinfo_text db " hpetinfo=", 0
 smoke_hpetaddr_text db " hpetaddr=", 0
 smoke_apicprobe_text db " apicprobe=", 0
 smoke_lapiclive_text db " lapiclive=", 0
+smoke_apicirq_text db " apicirq=", 0
+smoke_apicirqrd_text db " apicirqrd=", 0
 smoke_ioapicprobe_text db " ioapicprobe=", 0
 smoke_ioapicred_text db " ioapicred=", 0
 smoke_ioapiciso_text db " ioapiciso=", 0
@@ -32700,6 +32852,7 @@ cpu_apic_base_msr_low dd 0
 cpu_apic_base_msr_high dd 0
 cpu_apic_base_addr dd 0
 cpu_apic_base_flags dd 0
+irq_controller_mode dd IRQ_CONTROLLER_PIC
 irq_eoi_master_count dd 0
 irq_eoi_slave_count dd 0
 irq_eoi_lapic_count dd 0
@@ -32840,6 +32993,7 @@ acpi_madt_parse_status db 0
 acpi_hpet_parse_status db 0
 lapic_mmio_status db 0
 lapic_live_status db 0
+apic_irq_status db 0
 ioapic_mmio_status db 0
 ioapic_redir_status db 0
 irq_route_status db 0
@@ -32905,6 +33059,13 @@ lapic_live_svr_before dd 0
 lapic_live_svr_written dd 0
 lapic_live_svr_after dd 0
 lapic_spurious_irq_count dd 0
+apic_irq_route_count dd 0
+apic_irq_match_count dd 0
+apic_irq_last_index dd 0
+apic_irq_expected_low dd 0
+apic_irq_expected_high dd 0
+apic_irq_read_low dd 0
+apic_irq_read_high dd 0
 ioapic_mmio_addr dd 0
 ioapic_mmio_id dd 0
 ioapic_mmio_version dd 0
