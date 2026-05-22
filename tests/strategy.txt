@@ -35,8 +35,8 @@ boot:
   `vmmhi=OK`, `vmmhva=`, `vmmhpa=`, `vmmhpt=`, and `vmmhfree=`. The same host
   gate now pins the running-kernel relocation scaffold as `kreloc=HIGH` with
   `krelocstep=KPMAIN_HIGH`, `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, and
-  `kernphys=`, plus `e820map=`, `pmmuse=`, `pmmtype=`, `pmmchk=OK`,
-  `pmmalloc=`, `pmmdeny=`, `uguard=`, and `vmmguard=` for bounded E820 handoff,
+  `kernphys=`, plus `e820map=`, `biosdisk=`, `biospart=`, `biosraw=`,
+  `pmmuse=`, `pmmtype=`, `pmmchk=OK`, `pmmalloc=`, `pmmdeny=`, `uguard=`, and `vmmguard=` for bounded E820 handoff,
   allocator accounting, frame-bitmap rescans, reserved-page exclusion, and
   explicit user guard-page rejection. It also requires `khmain=OK`, `khmspan=`,
   `khmxlat=`, and `khmpte=` to prove the current kernel crossed into the
@@ -58,6 +58,10 @@ boot:
   rung is `krelive=OK` with `krelivex=` and `krelivep=`, proving a bounded jump
   through the candidate directory while still reserving `kreloc=OK` for the
   future persistent non-identity higher-half milestone.
+- The same VM status gate requires `syssegs=` and `sysframe=` so syscall-entry
+  proof cannot collapse into "the process ran somehow"; the status line must
+  show Ring 3 selectors, the captured user EIP/ESP/EFLAGS, and the TSS-selected
+  kernel stack used by the interrupt frame.
 - `tests/host/test_doom_source.py` is the original-Doom provenance gate. It
   hashes the vendored `linuxdoom-1.10` source boundary, audits the Makefile so
   original engine objects and `doom_port/*` shims stay separate, and invokes
@@ -112,8 +116,9 @@ boot:
   reloads, tracks table-backed and generic root `.ELF` resolution through
   `execmap=`, seeds a scheduler-visible target context, writes an argc/argv stack
   shape, records `argvsrc=2` for a copied user vector, patches the live syscall
-  frame, marks the caller exited, and records handoff/schedule/rollback
-  counters. The same tests pin the bounded
+  frame, marks the caller exited, records handoff/schedule/rollback counters,
+  and requires syscall/exception entry to reload kernel segments before touching
+  kernel globals while emitting `syssegs=` and `sysframe=`. The same tests pin the bounded
   `waitpid` child scan/reap path, `WNOHANG` live-child result, fd owner
   enforcement, exec-time inheritance/close-on-exec handoff, and process-owned
   fd teardown. They also cover anonymous brk-backed `mmap` accounting and
@@ -186,7 +191,7 @@ boot:
   snapshots, and keeps raw audio out of artifacts.
 - `tests/host/test_post_checkpoint_gaps.py` guards the post-checkpoint honesty
   ledger: Doom exit/fault diagnostics, including CR2, EIP, vector, x86 error
-  code, `pf=`, `regs=`, `segs=`, `proc=`, `faultsrc=`, `faultmode=`, and
+  code, `pf=`, `regs=`, `segs=`, `syssegs=`, `sysframe=`, `proc=`, `faultsrc=`, `faultmode=`, and
   `faultcontain=`, must stay visible in status, save/config persistence must be
   proved at image level, and the missing
   cloud boot, real gameplay, human playtest, audio, VM/POSIX,

@@ -1,6 +1,10 @@
 bits 16
 org 0x8000
 
+%ifndef STAGE2_LBA
+%define STAGE2_LBA 1
+%endif
+
 KERNEL_SEG equ 0x1000
 KERNEL_OFF equ 0x0000
 KERNEL_PHYS equ 0x00010000
@@ -55,14 +59,29 @@ BOOT_LOADER_STAGE2_SECTORS_ADDR equ BOOT_INFO_ADDR + 60
 BOOT_LOADER_KERNEL_SECTORS_ADDR equ BOOT_INFO_ADDR + 62
 BOOT_LOADER_KERNEL_ENTRY_ADDR equ BOOT_INFO_ADDR + 64
 BOOT_LOADER_ELF_LOADS_ADDR equ BOOT_INFO_ADDR + 68
+BOOT_LOADER_ERROR_CODE_ADDR equ BOOT_INFO_ADDR + 72
+BOOT_DISK_MAGIC_ADDR equ BOOT_INFO_ADDR + 76
+BOOT_DISK_DRIVE_ADDR equ BOOT_INFO_ADDR + 80
+BOOT_DISK_PARTITION_LBA_ADDR equ BOOT_INFO_ADDR + 84
+BOOT_DISK_PARTITION_SECTORS_ADDR equ BOOT_INFO_ADDR + 88
+BOOT_DISK_PARTITION_META_ADDR equ BOOT_INFO_ADDR + 92
+BOOT_DISK_STAGE2_LBA_ADDR equ BOOT_INFO_ADDR + 96
+BOOT_DISK_KERNEL_LBA_ADDR equ BOOT_INFO_ADDR + 100
+BOOT_DISK_FLAGS_ADDR equ BOOT_INFO_ADDR + 104
 BOOT_VIDEO_FLAG_VBE equ 0x0001
 BOOT_VIDEO_FLAG_LFB equ 0x0002
 BOOT_VIDEO_FLAG_XRGB8888 equ 0x0004
 BOOT_E820_MAGIC equ 0x30323845
 BOOT_LOADER_MAGIC equ 0x534f4942
+BOOT_DISK_MAGIC equ 0x4b534442
 BOOT_LOADER_VERSION equ 1
 BOOT_LOADER_STATUS_STARTED equ 1
 BOOT_LOADER_STATUS_OK equ 2
+BOOT_DISK_FLAG_RAW_BOOT_LAYOUT equ 0x00000001
+BOOT_DISK_FLAG_KERNEL_EDD_READ equ 0x00000002
+BOOT_DISK_FLAG_KERNEL_CHS_READ equ 0x00000004
+BOOT_DISK_FLAG_PARTITION_PRESENT equ 0x00000008
+BOOT_DISK_FLAG_ACTIVE_PARTITION equ 0x00000010
 BOOT_LOADER_FLAG_STAGE2_REACHED equ 0x00000001
 BOOT_LOADER_FLAG_EDD_PRESENT equ 0x00000002
 BOOT_LOADER_FLAG_KERNEL_EDD_READ equ 0x00000004
@@ -80,6 +99,13 @@ BOOT_LOADER_FLAG_VIDEO_VALID equ 0x00002000
 BOOT_LOADER_FLAG_ELF_PHDR_VALID equ 0x00004000
 BOOT_LOADER_FLAG_CHS_GEOMETRY equ 0x00008000
 BOOT_LOADER_REQUIRED_PROTECTED_FLAGS equ BOOT_LOADER_FLAG_STAGE2_REACHED | BOOT_LOADER_FLAG_E820 | BOOT_LOADER_FLAG_E820_BOUNDED | BOOT_LOADER_FLAG_VIDEO_VALID | BOOT_LOADER_FLAG_A20 | BOOT_LOADER_FLAG_GDT_LOADED | BOOT_LOADER_FLAG_PROTECTED_MODE | BOOT_LOADER_FLAG_ELF_VALID | BOOT_LOADER_FLAG_ENTRY_COVERED | BOOT_LOADER_FLAG_ELF_PHDR_VALID
+MBR_LOAD_ADDR equ 0x7c00
+MBR_PARTITION_TABLE_ADDR equ MBR_LOAD_ADDR + 446
+MBR_PARTITION_ENTRY_SIZE equ 16
+MBR_PARTITION_ENTRIES equ 4
+MBR_PARTITION_STATUS_BOOTABLE equ 0x80
+MBR_PARTITION_TYPE_FAT16_LBA equ 0x06
+FAT_PARTITION_LBA equ 2048
 E820_SMAP equ 0x534d4150
 E820_MAP_ADDR equ 0x7100
 E820_ENTRY_SIZE equ 24
@@ -186,6 +212,60 @@ initialize_bios_boot_handoff:
     mov word [BOOT_LOADER_KERNEL_SECTORS_ADDR], KERNEL_SECTORS
     mov dword [BOOT_LOADER_KERNEL_ENTRY_ADDR], 0
     mov dword [BOOT_LOADER_ELF_LOADS_ADDR], 0
+    mov dword [BOOT_LOADER_ERROR_CODE_ADDR], 0
+    call initialize_bios_disk_handoff
+    ret
+
+initialize_bios_disk_handoff:
+    mov dword [BOOT_DISK_MAGIC_ADDR], BOOT_DISK_MAGIC
+    xor eax, eax
+    mov al, [boot_drive]
+    mov [BOOT_DISK_DRIVE_ADDR], eax
+    mov dword [BOOT_DISK_PARTITION_LBA_ADDR], 0
+    mov dword [BOOT_DISK_PARTITION_SECTORS_ADDR], 0
+    mov dword [BOOT_DISK_PARTITION_META_ADDR], 0
+    mov dword [BOOT_DISK_STAGE2_LBA_ADDR], STAGE2_LBA
+    mov dword [BOOT_DISK_KERNEL_LBA_ADDR], KERNEL_LBA
+    mov dword [BOOT_DISK_FLAGS_ADDR], BOOT_DISK_FLAG_RAW_BOOT_LAYOUT
+    mov si, MBR_PARTITION_TABLE_ADDR
+    mov cx, MBR_PARTITION_ENTRIES
+    mov byte [partition_scan_index], 0
+
+.next_partition:
+    cmp byte [si + 4], 0
+    je .advance
+    cmp byte [si], MBR_PARTITION_STATUS_BOOTABLE
+    je .store_active
+    cmp dword [BOOT_DISK_PARTITION_LBA_ADDR], 0
+    jne .advance
+    call store_bios_partition_candidate
+    jmp .advance
+
+.store_active:
+    call store_bios_partition_candidate
+    or dword [BOOT_DISK_FLAGS_ADDR], BOOT_DISK_FLAG_ACTIVE_PARTITION
+    ret
+
+.advance:
+    add si, MBR_PARTITION_ENTRY_SIZE
+    inc byte [partition_scan_index]
+    loop .next_partition
+    ret
+
+store_bios_partition_candidate:
+    mov eax, [si + 8]
+    mov [BOOT_DISK_PARTITION_LBA_ADDR], eax
+    mov eax, [si + 12]
+    mov [BOOT_DISK_PARTITION_SECTORS_ADDR], eax
+    xor eax, eax
+    mov al, [si + 4]
+    mov ah, [si]
+    xor edx, edx
+    mov dl, [partition_scan_index]
+    shl edx, 16
+    or eax, edx
+    mov [BOOT_DISK_PARTITION_META_ADDR], eax
+    or dword [BOOT_DISK_FLAGS_ADDR], BOOT_DISK_FLAG_PARTITION_PRESENT
     ret
 
 collect_e820_map:
@@ -334,6 +414,7 @@ read_kernel_packet:
     mov ax, [kernel_packet_requested_sectors]
     mov [kernel_packet_sectors], ax
     or dword [BOOT_LOADER_FLAGS_ADDR], BOOT_LOADER_FLAG_KERNEL_EDD_READ
+    or dword [BOOT_DISK_FLAGS_ADDR], BOOT_DISK_FLAG_KERNEL_EDD_READ
     ret
 
 read_kernel_packet_chs:
@@ -348,6 +429,7 @@ read_kernel_packet_chs:
     mov ax, [kernel_packet_lba]
     mov [chs_current_lba], ax
     or dword [BOOT_LOADER_FLAGS_ADDR], BOOT_LOADER_FLAG_KERNEL_CHS_READ
+    or dword [BOOT_DISK_FLAGS_ADDR], BOOT_DISK_FLAG_KERNEL_CHS_READ
 
 .next_sector:
     cmp word [chs_read_remaining], 0
@@ -818,6 +900,27 @@ validate_boot_info_handoff:
     jne boot_info_error
     cmp dword [BOOT_E820_MAP_ADDR_PTR], E820_MAP_ADDR
     jne boot_info_error
+    cmp dword [BOOT_DISK_MAGIC_ADDR], BOOT_DISK_MAGIC
+    jne boot_info_error
+    cmp dword [BOOT_DISK_STAGE2_LBA_ADDR], STAGE2_LBA
+    jne boot_info_error
+    cmp dword [BOOT_DISK_KERNEL_LBA_ADDR], KERNEL_LBA
+    jne boot_info_error
+    cmp dword [BOOT_DISK_PARTITION_LBA_ADDR], FAT_PARTITION_LBA
+    jne boot_info_error
+    cmp dword [BOOT_DISK_PARTITION_SECTORS_ADDR], 0
+    je boot_info_error
+    mov eax, [BOOT_DISK_PARTITION_META_ADDR]
+    and eax, 0x000000ff
+    cmp eax, MBR_PARTITION_TYPE_FAT16_LBA
+    jne boot_info_error
+    mov eax, [BOOT_DISK_FLAGS_ADDR]
+    test eax, BOOT_DISK_FLAG_RAW_BOOT_LAYOUT | BOOT_DISK_FLAG_PARTITION_PRESENT | BOOT_DISK_FLAG_ACTIVE_PARTITION
+    jz boot_info_error
+    mov edx, eax
+    and edx, BOOT_DISK_FLAG_RAW_BOOT_LAYOUT | BOOT_DISK_FLAG_PARTITION_PRESENT | BOOT_DISK_FLAG_ACTIVE_PARTITION
+    cmp edx, BOOT_DISK_FLAG_RAW_BOOT_LAYOUT | BOOT_DISK_FLAG_PARTITION_PRESENT | BOOT_DISK_FLAG_ACTIVE_PARTITION
+    jne boot_info_error
 
 .done:
     ret
@@ -923,6 +1026,29 @@ validate_protected_kernel_handoff:
     jne protected_boot_info_error
     cmp dword [BOOT_LOADER_ELF_LOADS_ADDR], 0
     je protected_boot_info_error
+    cmp dword [BOOT_DISK_MAGIC_ADDR], BOOT_DISK_MAGIC
+    jne protected_boot_info_error
+    cmp dword [BOOT_DISK_STAGE2_LBA_ADDR], STAGE2_LBA
+    jne protected_boot_info_error
+    cmp dword [BOOT_DISK_KERNEL_LBA_ADDR], KERNEL_LBA
+    jne protected_boot_info_error
+    cmp dword [BOOT_DISK_PARTITION_LBA_ADDR], FAT_PARTITION_LBA
+    jne protected_boot_info_error
+    mov edx, [BOOT_DISK_FLAGS_ADDR]
+    test edx, BOOT_DISK_FLAG_KERNEL_EDD_READ | BOOT_DISK_FLAG_KERNEL_CHS_READ
+    jz protected_boot_info_error
+    test eax, BOOT_LOADER_FLAG_KERNEL_EDD_READ
+    jz .disk_edd_ok
+    test edx, BOOT_DISK_FLAG_KERNEL_EDD_READ
+    jz protected_boot_info_error
+
+.disk_edd_ok:
+    test eax, BOOT_LOADER_FLAG_KERNEL_CHS_READ
+    jz .disk_chs_ok
+    test edx, BOOT_DISK_FLAG_KERNEL_CHS_READ
+    jz protected_boot_info_error
+
+.disk_chs_ok:
 
     pop edx
     pop ebx
@@ -994,6 +1120,8 @@ elf_load_kernel:
     jc elf_fail
     cmp esi, KERNEL_LOAD_LIMIT
     ja elf_fail
+    test edx, edx
+    jz .file_span_ok
     mov eax, [ebx + 4]
     cmp eax, KERNEL_ELF_MAX_BYTES
     jae elf_fail
@@ -1002,6 +1130,8 @@ elf_load_kernel:
     jc elf_fail
     cmp esi, KERNEL_ELF_MAX_BYTES
     ja elf_fail
+
+.file_span_ok:
 
     mov eax, [KERNEL_ELF_PHYS + 24]
     cmp eax, edi
@@ -1137,6 +1267,7 @@ chs_heads dw 0
 chs_current_lba dw 0
 chs_buffer_segment dw 0
 chs_read_remaining dw 0
+partition_scan_index db 0
 stage2_message db "Aurora stage 2: loading protected kernel...", 13, 10, 0
 a20_error_message db "Aurora stage 2: A20 enable failed.", 13, 10, 0
 video_error_message db "Aurora stage 2: video mode setup failed.", 13, 10, 0

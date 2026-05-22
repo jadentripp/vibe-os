@@ -1882,7 +1882,7 @@ def install_bootable_layout(
 
     mbr[440:444] = b"AOSD"
     entry = 446
-    mbr[entry + 0] = 0x00
+    mbr[entry + 0] = 0x80
     mbr[entry + 1:entry + 4] = b"\x01\x01\x00"
     mbr[entry + 4] = 0x06
     mbr[entry + 5:entry + 8] = b"\xfe\xff\xff"

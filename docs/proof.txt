@@ -180,9 +180,10 @@ failed target; the rollback counter no longer leaves a half-prepared target runn
 The Ring 3 ABI itself is now an explicit contract: the public header names ABI
 version 1, `int 0x80`, three register arguments, negative-errno results, the
 versioned argv/envp/auxv stack layout, and the fault-exit status base. The
-kernel records the syscall trap vector, saved-register mask, frame size, stack
-ABI version, stack alignment, auxv pair count, and last generic exit/fault
-status fields so the proof surface can reject a Doom-only launch shim.
+kernel records the syscall trap vector, saved-register mask, frame size,
+captured user selectors, TSS-selected kernel stack, stack ABI version, stack
+alignment, auxv pair count, and last generic exit/fault status fields so the
+proof surface can reject a Doom-only launch shim.
 The small non-Doom user runtime now exposes the same reusable slice for
 future tools and games: brk-style `sbrk`, bounded probe-class `fork`,
 `waitpid`, anonymous/private `mmap`/`munmap`, fd duplication, `fcntl`,
@@ -275,14 +276,15 @@ green-path descriptors, dirty accounting, and source/palette byte counts.
 Rendered pixels still stay out of artifacts.
 
 The same gate also checks the BIOS loader handoff: `biosboot=OK`, `biosflags=`,
-`biosentry=`, and `biosspan=` must show Stage 2 reached the kernel, the raw
-Stage 2/kernel sector spans match the image builder, the E820 map was bounded,
-the disk path is coherent, exactly one BIOS video handoff was selected, A20 was
-actually enabled, the GDT/protected-mode transition happened, the kernel ELF
-program headers were validated, the entry point was covered by a loaded segment,
-and the entry matches the linked kernel address. That keeps the raw BIOS path
-from claiming an A20/protected-mode handoff because an unrelated branch set a
-flag.
+`biosentry=`, `biosspan=`, `biosdisk=`, `biospart=`, and `biosraw=` must show
+Stage 2 reached the kernel, the raw Stage 2/kernel sector spans and LBAs match
+the image builder, the active FAT16 MBR partition was found at `LBA 2048`, the
+E820 map was bounded, the disk path is coherent, exactly one BIOS video handoff
+was selected, A20 was actually enabled, the GDT/protected-mode transition
+happened, the kernel ELF program headers were validated, the entry point was
+covered by a loaded segment, and the entry matches the linked kernel address.
+That keeps the raw BIOS path from claiming an A20/protected-mode handoff because
+an unrelated branch set a flag.
 
 Executable gate: `tools/check_vm_status_proof.py --require-exec --require-preempt`.
 That gate keeps the current VM/process evidence visible through `uexec=OK`,
@@ -511,8 +513,9 @@ Human proof bundle files are status-only:
 attestations, `schema=human-playtest-manifest-v2`, run identity, machine shape,
 350-tick duration minimums, keyboard/mouse counter minimums, and phase hashes. The VM/process fields
 that must stay visible include `kreloc=HIGH`, `krelocstep=KPMAIN_HIGH`,
-`biosboot=OK`, `biosflags=`, `biosentry=`, `biosspan=`, `faultsrc=`, `faultmode=`,
-`pf=`, `faultcontain=`, `regs=`, `segs=`, `proc=`, `kblock=`, `ksleep=`,
+`biosboot=OK`, `biosflags=`, `biosentry=`, `biosspan=`, `biosdisk=`,
+`biospart=`, `biosraw=`, `faultsrc=`, `faultmode=`,
+`pf=`, `faultcontain=`, `regs=`, `segs=`, `syssegs=`, `sysframe=`, `proc=`, `kblock=`, `ksleep=`,
 `inputstat=`, `inputpolicy=`,
 `inputdev=`, `inputdevices=`, `inputmods=`,
 `kerneip=`, `kernesp=`, `kerncr3=`, `kernvirt=`, `kernphys=`, `khmain=OK`,
@@ -539,7 +542,7 @@ the compact `fault=` frame. `pf=<cr2>/<error>/<mode>/<access>/<reason>`
 decodes page faults into the faulting address, raw CPU error code, user/kernel
 mode, read/write/instruction-fetch class, and not-present/protection reason.
 The same kernel status line classifies the fault with `faultsrc=`,
-`faultmode=`, `faultcontain=`, `regs=`, `segs=`, and `proc=` so a cloud
+`faultmode=`, `faultcontain=`, `regs=`, `segs=`, `syssegs=`, `sysframe=`, and `proc=` so a cloud
 artifact can distinguish no active fault, an expected recovered Ring 3 probe
 fault, a contained user/Doom fault, and a Ring 0 panic without host-side
 guesswork.

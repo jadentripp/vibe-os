@@ -332,7 +332,7 @@ def print_header(
         file=stdout,
     )
     print(
-        "runtime fields: biosboot/biosflags/biosentry/biosspan, execmap, pcmdev, faultsrc/faultmode/faultcontain plus pf/regs/segs/proc, kblock/ksleep, inputstat/inputpolicy/inputdev/inputdevices/inputmods",
+        "runtime fields: biosboot/biosflags/biosentry/biosspan/biosdisk/biospart/biosraw, execmap, pcmdev, faultsrc/faultmode/faultcontain plus pf/regs/segs/proc, kblock/ksleep, inputstat/inputpolicy/inputdev/inputdevices/inputmods",
         file=stdout,
     )
 

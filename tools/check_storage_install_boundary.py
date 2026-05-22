@@ -753,7 +753,7 @@ def _expected_installed_mbr(stage1_path: Path) -> bytes:
         )
     mbr[440:444] = b"AOSD"
     entry = 446
-    mbr[entry + 0] = 0x00
+    mbr[entry + 0] = 0x80
     mbr[entry + 1:entry + 4] = b"\x01\x01\x00"
     mbr[entry + 4] = 0x06
     mbr[entry + 5:entry + 8] = b"\xfe\xff\xff"
@@ -920,6 +920,8 @@ def _inspect_image_bytes(
     entry = 446
     for other_entry in range(entry + 16, entry + 64, 16):
         _require_zero_region(image, other_entry, other_entry + 16, "unused MBR partition entry")
+    if image[entry + 0] != 0x80:
+        raise StorageBoundaryError("MBR FAT16 partition is not marked active")
     if image[entry + 4] != 0x06:
         raise StorageBoundaryError("MBR partition type is not FAT16 type 0x06")
     partition_lba = _u32(image, entry + 8)

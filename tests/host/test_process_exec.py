@@ -889,6 +889,48 @@ class ProcessExecContractTests(unittest.TestCase):
         ):
             self.assertIn(source, sanitizer)
 
+    def test_syscall_and_exception_entries_reload_kernel_segments_first(self):
+        kernel = read_kernel()
+        syscall_entry = kernel.split("syscall_handler:", 1)[1].split(".dispatch:", 1)[0]
+        exception_entry = kernel.split("exception_common:", 1)[1].split(".frame_done:", 1)[0]
+        expected_fault_return = kernel.split(".expected_fault_return:", 1)[1].split("add esp, 8", 1)[0]
+        smoke = kernel.split("write_smoke_status:", 1)[1].split("smoke_copy_string:", 1)[0]
+
+        for source in (
+            "push eax\n    xor eax, eax\n    mov ax, ds\n    push eax",
+            "mov ax, DATA_SEG\n    mov ds, ax\n    mov es, ax\n    mov fs, ax\n    mov gs, ax",
+            "mov [syscall_entry_ds_last], eax",
+            "mov [syscall_entry_gs_last], eax",
+            "mov [syscall_entry_cs_last], eax",
+            "mov [syscall_entry_tss_esp0_last], eax",
+        ):
+            self.assertIn(source, syscall_entry)
+        self.assertLess(syscall_entry.index("mov ds, ax"), syscall_entry.index("inc dword [syscall_trap_entry_count]"))
+        self.assertLess(syscall_entry.index("mov ds, ax"), syscall_entry.index("mov [syscall_entry_ds_last], eax"))
+
+        for source in (
+            "push eax\n    xor eax, eax\n    mov ax, ds\n    push eax",
+            "mov ax, DATA_SEG\n    mov ds, ax\n    mov es, ax\n    mov fs, ax\n    mov gs, ax",
+            "mov [fault_ds], eax",
+            "mov [fault_gs], eax",
+            "mov [fault_eax], eax",
+        ):
+            self.assertIn(source, exception_entry)
+        self.assertLess(exception_entry.index("mov ds, ax"), exception_entry.index("mov [fault_eax], eax"))
+
+        for source in (
+            "mov ax, USER_DATA_SEG",
+            "mov ds, ax",
+            "mov es, ax",
+            "mov fs, ax",
+            "mov gs, ax",
+        ):
+            self.assertIn(source, expected_fault_return)
+        self.assertIn('smoke_syssegs_text db " syssegs=", 0', kernel)
+        self.assertIn('smoke_sysframe_text db " sysframe=", 0', kernel)
+        self.assertIn("mov edx, [syscall_entry_tss_esp0_last]", smoke)
+        self.assertIn("mov edx, [syscall_entry_kernel_esp_last]", smoke)
+
     def test_exec_seeds_argc_argv_stack_from_copied_path(self):
         kernel = read_kernel()
         argv = kernel.split("process_exec_seed_argv_stack:", 1)[1].split("process_exec_patch_syscall_frame:", 1)[0]

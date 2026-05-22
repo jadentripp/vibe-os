@@ -350,9 +350,10 @@ def build_executable(objects, base):
     phnum = len(segments)
     file_cursor = SEGMENT_OFFSET
     for segment in segments:
-        file_cursor = align_up(file_cursor, PAGE_SIZE)
-        segment["offset"] = file_cursor
-        file_cursor += align_up(segment["filesz"], 16)
+        segment_offset = align_up(file_cursor, PAGE_SIZE)
+        segment["offset"] = segment_offset
+        if segment["filesz"]:
+            file_cursor = segment_offset + align_up(segment["filesz"], 16)
 
     elf = bytearray(file_cursor)
 

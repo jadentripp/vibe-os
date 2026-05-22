@@ -1325,6 +1325,12 @@ int vibe_file_read_at(
     void* buffer,
     unsigned long count,
     unsigned long* out_read);
+int vibe_file_write_at(
+    const char* path,
+    unsigned long offset,
+    const void* buffer,
+    unsigned long count,
+    unsigned long* out_written);
 int vibe_file_read_all(const char* path, void* buffer, unsigned long capacity, unsigned long* out_size);
 int vibe_audio_device_start(void);
 int vibe_audio_device_shutdown(void);
@@ -1383,10 +1389,10 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   small tools and games that need whole-file asset/config reads without
  *   learning the descriptor syscall details. They still inherit the current
  *   FAT16 VFS path model.
- *   `pread`, `pwrite`, and `vibe_file_read_at` provide lseek-backed
- *   positioned I/O for single-threaded asset loaders that need WAD/PAK-style
- *   table-of-contents reads without mutating their descriptor's logical
- *   offset.
+ *   `pread`, `pwrite`, `vibe_file_read_at`, and `vibe_file_write_at` provide
+ *   lseek-backed positioned I/O for single-threaded asset/state loaders that
+ *   need WAD/PAK-style table reads or small state-file updates without
+ *   mutating their descriptor's logical offset.
  * - VIBE_SYS_CLOCK_GETTIME exposes a reusable monotonic PIT-derived clock. It
  *   reports 100 Hz ticks and milliseconds only; it is not an RTC or wall clock.
  *   `vibe_clock_monotonic` and `vibe_clock_ticks_to_milliseconds` are generic

@@ -589,7 +589,7 @@ class PostMergeCloudProofTests(unittest.TestCase):
         self.assertIn("GitHub token-shaped string", content_result.stderr)
 
     def test_status_only_checker_rejects_missing_new_runtime_legitimacy_fields(self):
-        for field in ("biosboot", "faultsrc", "faultmode", "faultcontain", "kblock", "ksleep"):
+        for field in ("biosboot", "faultsrc", "faultmode", "faultcontain", "syssegs", "sysframe", "kblock", "ksleep"):
             with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
                 artifact = Path(tmp) / "os-smoke"
                 write_os_artifact(artifact)

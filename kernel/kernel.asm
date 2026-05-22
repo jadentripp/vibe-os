@@ -156,14 +156,29 @@ BOOT_LOADER_STAGE2_SECTORS_ADDR equ BOOT_INFO_ADDR + 60
 BOOT_LOADER_KERNEL_SECTORS_ADDR equ BOOT_INFO_ADDR + 62
 BOOT_LOADER_KERNEL_ENTRY_ADDR equ BOOT_INFO_ADDR + 64
 BOOT_LOADER_ELF_LOADS_ADDR equ BOOT_INFO_ADDR + 68
+BOOT_LOADER_ERROR_CODE_ADDR equ BOOT_INFO_ADDR + 72
+BOOT_DISK_MAGIC_ADDR equ BOOT_INFO_ADDR + 76
+BOOT_DISK_DRIVE_ADDR equ BOOT_INFO_ADDR + 80
+BOOT_DISK_PARTITION_LBA_ADDR equ BOOT_INFO_ADDR + 84
+BOOT_DISK_PARTITION_SECTORS_ADDR equ BOOT_INFO_ADDR + 88
+BOOT_DISK_PARTITION_META_ADDR equ BOOT_INFO_ADDR + 92
+BOOT_DISK_STAGE2_LBA_ADDR equ BOOT_INFO_ADDR + 96
+BOOT_DISK_KERNEL_LBA_ADDR equ BOOT_INFO_ADDR + 100
+BOOT_DISK_FLAGS_ADDR equ BOOT_INFO_ADDR + 104
 BOOT_VIDEO_FLAG_VBE equ 0x0001
 BOOT_VIDEO_FLAG_LFB equ 0x0002
 BOOT_VIDEO_FLAG_XRGB8888 equ 0x0004
 BOOT_E820_MAGIC equ 0x30323845
 BOOT_LOADER_MAGIC equ 0x534f4942
+BOOT_DISK_MAGIC equ 0x4b534442
 BOOT_LOADER_VERSION equ 1
 BOOT_LOADER_STATUS_STARTED equ 1
 BOOT_LOADER_STATUS_OK equ 2
+BOOT_DISK_FLAG_RAW_BOOT_LAYOUT equ 0x00000001
+BOOT_DISK_FLAG_KERNEL_EDD_READ equ 0x00000002
+BOOT_DISK_FLAG_KERNEL_CHS_READ equ 0x00000004
+BOOT_DISK_FLAG_PARTITION_PRESENT equ 0x00000008
+BOOT_DISK_FLAG_ACTIVE_PARTITION equ 0x00000010
 BOOT_LOADER_FLAG_STAGE2_REACHED equ 0x00000001
 BOOT_LOADER_FLAG_EDD_PRESENT equ 0x00000002
 BOOT_LOADER_FLAG_KERNEL_EDD_READ equ 0x00000004
@@ -183,6 +198,11 @@ BOOT_LOADER_FLAG_CHS_GEOMETRY equ 0x00008000
 BOOT_LOADER_REQUIRED_FLAGS equ BOOT_LOADER_FLAG_STAGE2_REACHED | BOOT_LOADER_FLAG_E820 | BOOT_LOADER_FLAG_E820_BOUNDED | BOOT_LOADER_FLAG_VIDEO_VALID | BOOT_LOADER_FLAG_A20 | BOOT_LOADER_FLAG_GDT_LOADED | BOOT_LOADER_FLAG_PROTECTED_MODE | BOOT_LOADER_FLAG_ELF_VALID | BOOT_LOADER_FLAG_ENTRY_COVERED | BOOT_LOADER_FLAG_ELF_PHDR_VALID
 BIOS_BOOT_EXPECTED_STAGE2_SECTORS equ 16
 BIOS_BOOT_EXPECTED_KERNEL_SECTORS equ 320
+BIOS_BOOT_EXPECTED_STAGE2_LBA equ 1
+BIOS_BOOT_EXPECTED_KERNEL_LBA equ 17
+BIOS_BOOT_EXPECTED_PARTITION_LBA equ 2048
+BIOS_BOOT_EXPECTED_PARTITION_TYPE equ 0x06
+BIOS_BOOT_EXPECTED_PARTITION_STATUS equ 0x80
 BIOS_BOOT_STATUS_NONE equ 0
 BIOS_BOOT_STATUS_OK equ 1
 BIOS_BOOT_STATUS_BAD equ 2
@@ -9603,6 +9623,17 @@ storage_init:
     mov dword [syscall_result_convention_seen], SYSCALL_RESULT_NEGATIVE_ERRNO
     mov dword [syscall_saved_reg_mask_seen], SYSCALL_SAVED_REG_MASK
     mov dword [syscall_frame_bytes_seen], SYSCALL_FRAME_BYTES
+    mov dword [syscall_entry_ds_last], USER_DATA_SEG
+    mov dword [syscall_entry_es_last], USER_DATA_SEG
+    mov dword [syscall_entry_fs_last], USER_DATA_SEG
+    mov dword [syscall_entry_gs_last], USER_DATA_SEG
+    mov dword [syscall_entry_cs_last], USER_CODE_SEG
+    mov dword [syscall_entry_ss_last], USER_DATA_SEG
+    mov dword [syscall_entry_eip_last], 0
+    mov dword [syscall_entry_esp_last], 0
+    mov dword [syscall_entry_eflags_last], 0
+    mov dword [syscall_entry_kernel_esp_last], 0
+    mov dword [syscall_entry_tss_esp0_last], KERNEL_STACK_TOP
     mov dword [file_write_debug_stage], 0
     mov dword [file_write_debug_result], 0
     mov dword [file_write_debug_capacity], 0
@@ -18890,11 +18921,16 @@ user_elf_prepare:
     cmp eax, [esi + 20]
     ja .fail
 
+    mov edx, [esi + 16]
+    test edx, edx
+    jz .user_file_span_ok
     mov eax, [esi + 4]
-    add eax, [esi + 16]
+    add eax, edx
     jc .fail
     cmp eax, [user_elf_size]
     ja .fail
+
+.user_file_span_ok:
 
     mov eax, [esi + 12]
     test eax, eax
@@ -19050,11 +19086,16 @@ doom_elf_prepare:
     cmp eax, [esi + 20]
     ja .fail
 
+    mov edx, [esi + 16]
+    test edx, edx
+    jz .doom_file_span_ok
     mov eax, [esi + 4]
-    add eax, [esi + 16]
+    add eax, edx
     jc .fail
     cmp eax, [doom_elf_size]
     ja .fail
+
+.doom_file_span_ok:
 
     mov eax, [esi + 12]
     test eax, eax
@@ -19149,6 +19190,30 @@ doom_elf_prepare:
     ret
 
 syscall_handler:
+    push eax
+    xor eax, eax
+    mov ax, ds
+    push eax
+    mov ax, es
+    push eax
+    mov ax, fs
+    push eax
+    mov ax, gs
+    push eax
+    mov ax, DATA_SEG
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    pop eax
+    mov [syscall_entry_gs_last], eax
+    pop eax
+    mov [syscall_entry_fs_last], eax
+    pop eax
+    mov [syscall_entry_es_last], eax
+    pop eax
+    mov [syscall_entry_ds_last], eax
+    pop eax
     push ebx
     push ecx
     push edx
@@ -19164,11 +19229,21 @@ syscall_handler:
     mov dword [syscall_result_convention_seen], SYSCALL_RESULT_NEGATIVE_ERRNO
     mov dword [syscall_saved_reg_mask_seen], SYSCALL_SAVED_REG_MASK
     mov dword [syscall_frame_bytes_seen], SYSCALL_FRAME_BYTES
-    mov si, DATA_SEG
-    mov ds, si
-    mov es, si
-    mov fs, si
-    mov gs, si
+    mov [syscall_entry_kernel_esp_last], esp
+    push eax
+    mov eax, [esp + 4 + SYSCALL_FRAME_EIP]
+    mov [syscall_entry_eip_last], eax
+    mov eax, [esp + 4 + SYSCALL_FRAME_CS]
+    mov [syscall_entry_cs_last], eax
+    mov eax, [esp + 4 + SYSCALL_FRAME_EFLAGS]
+    mov [syscall_entry_eflags_last], eax
+    mov eax, [esp + 4 + SYSCALL_FRAME_ESP]
+    mov [syscall_entry_esp_last], eax
+    mov eax, [esp + 4 + SYSCALL_FRAME_SS]
+    mov [syscall_entry_ss_last], eax
+    mov eax, [tss_esp0]
+    mov [syscall_entry_tss_esp0_last], eax
+    pop eax
 
     mov [current_syscall_number], eax
     cmp byte [current_user_kind], USER_KIND_DOOM
@@ -23685,6 +23760,30 @@ exception_halt:
     jmp exception_common
 
 exception_common:
+    push eax
+    xor eax, eax
+    mov ax, ds
+    push eax
+    mov ax, es
+    push eax
+    mov ax, fs
+    push eax
+    mov ax, gs
+    push eax
+    mov ax, DATA_SEG
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    pop eax
+    mov [fault_gs], eax
+    pop eax
+    mov [fault_fs], eax
+    pop eax
+    mov [fault_es], eax
+    pop eax
+    mov [fault_ds], eax
+    pop eax
     mov [fault_eax], eax
     mov [fault_ebx], ebx
     mov [fault_ecx], ecx
@@ -23692,18 +23791,6 @@ exception_common:
     mov [fault_esi], esi
     mov [fault_edi], edi
     mov [fault_ebp], ebp
-    xor eax, eax
-    mov ax, ds
-    mov [fault_ds], eax
-    xor eax, eax
-    mov ax, es
-    mov [fault_es], eax
-    xor eax, eax
-    mov ax, fs
-    mov [fault_fs], eax
-    xor eax, eax
-    mov ax, gs
-    mov [fault_gs], eax
     mov eax, [esp + EXCEPTION_FRAME_VECTOR]
     mov [fault_vector], eax
     mov eax, [esp + EXCEPTION_FRAME_ERROR]
@@ -23812,6 +23899,11 @@ exception_common:
     add dword [esp + EXCEPTION_FRAME_EIP], EXPECTED_FAULT_INSTRUCTION_BYTES
 
 .expected_fault_return:
+    mov ax, USER_DATA_SEG
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
     mov ebx, [fault_ebx]
     mov ecx, [fault_ecx]
     mov edx, [fault_edx]
@@ -25082,6 +25174,34 @@ write_smoke_status:
     mov edx, [fault_cs]
     call smoke_write_slash_hex32
     mov edx, [fault_ss]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_syssegs_text
+    call smoke_copy_string
+    mov edx, [syscall_entry_ds_last]
+    call smoke_write_hex32
+    mov edx, [syscall_entry_es_last]
+    call smoke_write_slash_hex32
+    mov edx, [syscall_entry_fs_last]
+    call smoke_write_slash_hex32
+    mov edx, [syscall_entry_gs_last]
+    call smoke_write_slash_hex32
+    mov edx, [syscall_entry_cs_last]
+    call smoke_write_slash_hex32
+    mov edx, [syscall_entry_ss_last]
+    call smoke_write_slash_hex32
+    mov edx, [syscall_entry_tss_esp0_last]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_sysframe_text
+    call smoke_copy_string
+    mov edx, [syscall_entry_eip_last]
+    call smoke_write_hex32
+    mov edx, [syscall_entry_esp_last]
+    call smoke_write_slash_hex32
+    mov edx, [syscall_entry_eflags_last]
+    call smoke_write_slash_hex32
+    mov edx, [syscall_entry_kernel_esp_last]
     call smoke_write_slash_hex32
 
     mov esi, smoke_faultproc_text
@@ -27608,6 +27728,31 @@ write_smoke_status:
     mov edx, [bios_boot_loader_status]
     call smoke_write_slash_hex32
 
+    mov esi, smoke_biosdisk_text
+    call smoke_copy_string
+    mov edx, [bios_boot_disk_drive]
+    call smoke_write_hex32
+    mov edx, [bios_boot_partition_meta]
+    call smoke_write_slash_hex32
+    mov edx, [bios_boot_disk_flags]
+    call smoke_write_slash_hex32
+    mov edx, [bios_boot_error_code]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_biospart_text
+    call smoke_copy_string
+    mov edx, [bios_boot_partition_lba]
+    call smoke_write_hex32
+    mov edx, [bios_boot_partition_sectors]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_biosraw_text
+    call smoke_copy_string
+    mov edx, [bios_boot_disk_stage2_lba]
+    call smoke_write_hex32
+    mov edx, [bios_boot_disk_kernel_lba]
+    call smoke_write_slash_hex32
+
     mov esi, smoke_uefi_text
     call smoke_copy_string
     cmp byte [uefi_entry_status], UEFI_ENTRY_STATUS_OK
@@ -29117,6 +29262,22 @@ bios_boot_probe:
     mov [bios_boot_kernel_entry], eax
     mov eax, [BOOT_LOADER_ELF_LOADS_ADDR]
     mov [bios_boot_elf_loads], eax
+    mov eax, [BOOT_LOADER_ERROR_CODE_ADDR]
+    mov [bios_boot_error_code], eax
+    mov eax, [BOOT_DISK_DRIVE_ADDR]
+    mov [bios_boot_disk_drive], eax
+    mov eax, [BOOT_DISK_PARTITION_LBA_ADDR]
+    mov [bios_boot_partition_lba], eax
+    mov eax, [BOOT_DISK_PARTITION_SECTORS_ADDR]
+    mov [bios_boot_partition_sectors], eax
+    mov eax, [BOOT_DISK_PARTITION_META_ADDR]
+    mov [bios_boot_partition_meta], eax
+    mov eax, [BOOT_DISK_STAGE2_LBA_ADDR]
+    mov [bios_boot_disk_stage2_lba], eax
+    mov eax, [BOOT_DISK_KERNEL_LBA_ADDR]
+    mov [bios_boot_disk_kernel_lba], eax
+    mov eax, [BOOT_DISK_FLAGS_ADDR]
+    mov [bios_boot_disk_flags], eax
 
     mov byte [bios_boot_status], BIOS_BOOT_STATUS_BAD
     cmp dword [bios_boot_version], BOOT_LOADER_VERSION
@@ -29163,6 +29324,52 @@ bios_boot_probe:
     jne .done
     cmp dword [bios_boot_elf_loads], 0
     je .done
+    cmp dword [BOOT_DISK_MAGIC_ADDR], BOOT_DISK_MAGIC
+    jne .done
+    cmp dword [bios_boot_error_code], 0
+    jne .done
+    cmp dword [bios_boot_disk_stage2_lba], BIOS_BOOT_EXPECTED_STAGE2_LBA
+    jne .done
+    cmp dword [bios_boot_disk_kernel_lba], BIOS_BOOT_EXPECTED_KERNEL_LBA
+    jne .done
+    cmp dword [bios_boot_partition_lba], BIOS_BOOT_EXPECTED_PARTITION_LBA
+    jne .done
+    cmp dword [bios_boot_partition_sectors], 0
+    je .done
+    mov eax, [bios_boot_partition_meta]
+    and eax, 0x000000ff
+    cmp eax, BIOS_BOOT_EXPECTED_PARTITION_TYPE
+    jne .done
+    mov eax, [bios_boot_partition_meta]
+    shr eax, 8
+    and eax, 0x000000ff
+    cmp eax, BIOS_BOOT_EXPECTED_PARTITION_STATUS
+    jne .done
+    mov eax, [bios_boot_partition_meta]
+    shr eax, 16
+    cmp eax, 4
+    jae .done
+    mov eax, [bios_boot_disk_flags]
+    mov ebx, BOOT_DISK_FLAG_RAW_BOOT_LAYOUT | BOOT_DISK_FLAG_PARTITION_PRESENT | BOOT_DISK_FLAG_ACTIVE_PARTITION
+    mov edx, eax
+    and edx, ebx
+    cmp edx, ebx
+    jne .done
+    test eax, BOOT_DISK_FLAG_KERNEL_EDD_READ | BOOT_DISK_FLAG_KERNEL_CHS_READ
+    jz .done
+    mov edx, [bios_boot_flags]
+    test edx, BOOT_LOADER_FLAG_KERNEL_EDD_READ
+    jz .disk_edd_ok
+    test eax, BOOT_DISK_FLAG_KERNEL_EDD_READ
+    jz .done
+
+.disk_edd_ok:
+    test edx, BOOT_LOADER_FLAG_KERNEL_CHS_READ
+    jz .disk_chs_ok
+    test eax, BOOT_DISK_FLAG_KERNEL_CHS_READ
+    jz .done
+
+.disk_chs_ok:
     mov byte [bios_boot_status], BIOS_BOOT_STATUS_OK
 
 .done:
@@ -29601,6 +29808,8 @@ smoke_faultmode_text db " faultmode=", 0
 smoke_faultcontain_text db " faultcontain=", 0
 smoke_faultregs_text db " regs=", 0
 smoke_faultsegs_text db " segs=", 0
+smoke_syssegs_text db " syssegs=", 0
+smoke_sysframe_text db " sysframe=", 0
 smoke_faultproc_text db " proc=", 0
 smoke_panic_text db " panic=", 0
 smoke_shutdown_text db " shutdown=", 0
@@ -29930,6 +30139,9 @@ smoke_biosboot_text db " biosboot=", 0
 smoke_biosflags_text db " biosflags=", 0
 smoke_biosentry_text db " biosentry=", 0
 smoke_biosspan_text db " biosspan=", 0
+smoke_biosdisk_text db " biosdisk=", 0
+smoke_biospart_text db " biospart=", 0
+smoke_biosraw_text db " biosraw=", 0
 smoke_uefi_text db " uefi=", 0
 smoke_uefiip_text db " uefiip=", 0
 smoke_uefiesp_text db " uefiesp=", 0
@@ -30350,6 +30562,14 @@ bios_boot_stage2_sectors dd 0
 bios_boot_kernel_sectors dd 0
 bios_boot_kernel_entry dd 0
 bios_boot_elf_loads dd 0
+bios_boot_error_code dd 0
+bios_boot_disk_drive dd 0
+bios_boot_partition_lba dd 0
+bios_boot_partition_sectors dd 0
+bios_boot_partition_meta dd 0
+bios_boot_disk_stage2_lba dd 0
+bios_boot_disk_kernel_lba dd 0
+bios_boot_disk_flags dd 0
 boot_entry_eax dd 0
 boot_entry_ebx dd 0
 boot_entry_ecx dd 0
@@ -30884,6 +31104,17 @@ syscall_frame_bytes_seen dd SYSCALL_FRAME_BYTES
 syscall_return_eflags_last_before dd 0
 syscall_return_eflags_last_after dd 0
 syscall_return_eflags_sanitize_count dd 0
+syscall_entry_ds_last dd USER_DATA_SEG
+syscall_entry_es_last dd USER_DATA_SEG
+syscall_entry_fs_last dd USER_DATA_SEG
+syscall_entry_gs_last dd USER_DATA_SEG
+syscall_entry_cs_last dd USER_CODE_SEG
+syscall_entry_ss_last dd USER_DATA_SEG
+syscall_entry_eip_last dd 0
+syscall_entry_esp_last dd 0
+syscall_entry_eflags_last dd 0
+syscall_entry_kernel_esp_last dd 0
+syscall_entry_tss_esp0_last dd KERNEL_STACK_TOP
 scheduler_tick_count dd 0
 scheduler_round_count dd 0
 scheduler_context_switches dd 0

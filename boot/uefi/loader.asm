@@ -542,11 +542,15 @@ load_elf32_kernel_segments:
     cmp eax, KERNEL_LOAD_LIMIT
     ja .bad_elf
 
+    cmp edx, 0
+    je .file_span_ok
     mov eax, [rbx + ELF32_PHDR_P_OFFSET]
     add eax, [rbx + ELF32_PHDR_P_FILESZ]
     jc .bad_elf
     cmp rax, [kernel_read_size]
     ja .bad_elf
+
+.file_span_ok:
 
     mov r14d, r13d
     and r14d, 0xfffff000

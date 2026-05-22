@@ -1761,6 +1761,46 @@ int vibe_file_read_at(
     return 0;
 }
 
+int vibe_file_write_at(
+    const char* path,
+    unsigned long offset,
+    const void* buffer,
+    unsigned long count,
+    unsigned long* out_written)
+{
+    int fd;
+    ssize_t wrote;
+    int saved_errno;
+
+    if (!path || (count && !buffer)) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (out_written)
+        *out_written = 0;
+    if (offset > 0x7ffffffful) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+
+    fd = open(path, O_CREAT | O_RDWR, 0666);
+    if (fd < 0)
+        return -1;
+
+    wrote = pwrite(fd, buffer, count, (off_t)offset);
+    saved_errno = errno;
+    if (close(fd) < 0 && wrote >= 0)
+        return -1;
+    if (wrote < 0) {
+        errno = saved_errno;
+        return -1;
+    }
+
+    if (out_written)
+        *out_written = (unsigned long)wrote;
+    return 0;
+}
+
 int vibe_file_read_all(const char* path, void* buffer, unsigned long capacity, unsigned long* out_size)
 {
     unsigned long size;

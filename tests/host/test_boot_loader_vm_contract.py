@@ -106,6 +106,8 @@ class BootLoaderVmContractTests(unittest.TestCase):
 
         self.assertEqual(image[0:440], stage1[0:440])
         self.assertEqual(image[510:512], b"\x55\xaa")
+        self.assertEqual(image[446], 0x80)
+        self.assertEqual(image[446 + 4], 0x06)
         self.assertEqual(int.from_bytes(image[446 + 8:446 + 12], "little"), partition_start)
         self.assertEqual(image[stage2_lba * SECTOR_SIZE:stage2_lba * SECTOR_SIZE + len(stage2)], stage2)
         stage2_padding = image[
@@ -135,6 +137,14 @@ class BootLoaderVmContractTests(unittest.TestCase):
         self.assertIn("jmp 0x0000:stage1_entry", stage1)
         self.assertIn("stage1_entry:", stage1)
         self.assertIn("read_stage2_chs:", stage1)
+        for source in (
+            "STAGE1_ERR_CHS_GEOMETRY equ 0xc1",
+            "STAGE1_ERR_CHS_RANGE equ 0xc2",
+            "STAGE1_ERR_CHS_READ equ 0xc3",
+            "call print_hex8",
+            'disk_error_message db "MBR disk error ", 0',
+        ):
+            self.assertIn(source, stage1)
         self.assertIn("read_kernel_packet_chs:", stage2)
         self.assertIn("cmp word [stage2_packet_sectors], STAGE2_SECTORS", stage1)
         self.assertIn("cmp ax, [kernel_packet_requested_sectors]", stage2)
@@ -185,7 +195,22 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "BOOT_LOADER_FLAGS_ADDR equ BOOT_INFO_ADDR + 56",
             "BOOT_LOADER_KERNEL_ENTRY_ADDR equ BOOT_INFO_ADDR + 64",
             "BOOT_LOADER_ELF_LOADS_ADDR equ BOOT_INFO_ADDR + 68",
+            "BOOT_LOADER_ERROR_CODE_ADDR equ BOOT_INFO_ADDR + 72",
+            "BOOT_DISK_MAGIC_ADDR equ BOOT_INFO_ADDR + 76",
+            "BOOT_DISK_DRIVE_ADDR equ BOOT_INFO_ADDR + 80",
+            "BOOT_DISK_PARTITION_LBA_ADDR equ BOOT_INFO_ADDR + 84",
+            "BOOT_DISK_PARTITION_SECTORS_ADDR equ BOOT_INFO_ADDR + 88",
+            "BOOT_DISK_PARTITION_META_ADDR equ BOOT_INFO_ADDR + 92",
+            "BOOT_DISK_STAGE2_LBA_ADDR equ BOOT_INFO_ADDR + 96",
+            "BOOT_DISK_KERNEL_LBA_ADDR equ BOOT_INFO_ADDR + 100",
+            "BOOT_DISK_FLAGS_ADDR equ BOOT_INFO_ADDR + 104",
             "BOOT_LOADER_MAGIC equ 0x534f4942",
+            "BOOT_DISK_MAGIC equ 0x4b534442",
+            "BOOT_DISK_FLAG_RAW_BOOT_LAYOUT equ 0x00000001",
+            "BOOT_DISK_FLAG_KERNEL_EDD_READ equ 0x00000002",
+            "BOOT_DISK_FLAG_KERNEL_CHS_READ equ 0x00000004",
+            "BOOT_DISK_FLAG_PARTITION_PRESENT equ 0x00000008",
+            "BOOT_DISK_FLAG_ACTIVE_PARTITION equ 0x00000010",
             "BOOT_LOADER_FLAG_STAGE2_REACHED equ 0x00000001",
             "BOOT_LOADER_FLAG_KERNEL_EDD_READ equ 0x00000004",
             "BOOT_LOADER_FLAG_KERNEL_CHS_READ equ 0x00000008",
@@ -199,12 +224,21 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "BOOT_LOADER_FLAG_ELF_PHDR_VALID equ 0x00004000",
             "BOOT_LOADER_FLAG_CHS_GEOMETRY equ 0x00008000",
             "BOOT_LOADER_REQUIRED_PROTECTED_FLAGS equ",
+            "MBR_PARTITION_TABLE_ADDR equ MBR_LOAD_ADDR + 446",
+            "MBR_PARTITION_STATUS_BOOTABLE equ 0x80",
+            "MBR_PARTITION_TYPE_FAT16_LBA equ 0x06",
+            "FAT_PARTITION_LBA equ 2048",
             "initialize_bios_boot_handoff:",
             "mov dword [BOOT_LOADER_MAGIC_ADDR], BOOT_LOADER_MAGIC",
+            "call initialize_bios_disk_handoff",
+            "initialize_bios_disk_handoff:",
+            "store_bios_partition_candidate:",
             "mov word [BOOT_LOADER_STAGE2_SECTORS_ADDR], STAGE2_SECTORS",
             "or dword [BOOT_LOADER_FLAGS_ADDR], BOOT_LOADER_FLAG_EDD_PRESENT",
             "or dword [BOOT_LOADER_FLAGS_ADDR], BOOT_LOADER_FLAG_KERNEL_EDD_READ",
             "or dword [BOOT_LOADER_FLAGS_ADDR], BOOT_LOADER_FLAG_KERNEL_CHS_READ",
+            "or dword [BOOT_DISK_FLAGS_ADDR], BOOT_DISK_FLAG_KERNEL_EDD_READ",
+            "or dword [BOOT_DISK_FLAGS_ADDR], BOOT_DISK_FLAG_KERNEL_CHS_READ",
             "or dword [BOOT_LOADER_FLAGS_ADDR], BOOT_LOADER_FLAG_E820 | BOOT_LOADER_FLAG_E820_BOUNDED",
             "or dword [BOOT_LOADER_FLAGS_ADDR], BOOT_LOADER_FLAG_VBE_LFB | BOOT_LOADER_FLAG_VIDEO_VALID",
             "or dword [BOOT_LOADER_FLAGS_ADDR], BOOT_LOADER_FLAG_MODE13 | BOOT_LOADER_FLAG_VIDEO_VALID",
@@ -220,6 +254,10 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "test eax, BOOT_LOADER_FLAG_CHS_GEOMETRY",
             "and edx, BOOT_LOADER_FLAG_VBE_LFB | BOOT_LOADER_FLAG_MODE13",
             "cmp dword [BOOT_LOADER_KERNEL_ENTRY_ADDR], KERNEL_PHYS",
+            "cmp dword [BOOT_DISK_MAGIC_ADDR], BOOT_DISK_MAGIC",
+            "cmp dword [BOOT_DISK_STAGE2_LBA_ADDR], STAGE2_LBA",
+            "cmp dword [BOOT_DISK_KERNEL_LBA_ADDR], KERNEL_LBA",
+            "cmp dword [BOOT_DISK_PARTITION_LBA_ADDR], FAT_PARTITION_LBA",
         ):
             self.assertIn(source, stage2)
 
@@ -349,6 +387,10 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "BOOT_LOADER_FLAGS_ADDR equ BOOT_INFO_ADDR + 56",
             "BOOT_LOADER_KERNEL_ENTRY_ADDR equ BOOT_INFO_ADDR + 64",
             "BOOT_LOADER_ELF_LOADS_ADDR equ BOOT_INFO_ADDR + 68",
+            "BOOT_DISK_MAGIC_ADDR equ BOOT_INFO_ADDR + 76",
+            "BOOT_DISK_PARTITION_LBA_ADDR equ BOOT_INFO_ADDR + 84",
+            "BOOT_DISK_PARTITION_META_ADDR equ BOOT_INFO_ADDR + 92",
+            "BOOT_DISK_FLAGS_ADDR equ BOOT_INFO_ADDR + 104",
             "BOOT_LOADER_REQUIRED_FLAGS equ BOOT_LOADER_FLAG_STAGE2_REACHED",
             "BOOT_LOADER_FLAG_E820_BOUNDED equ 0x00001000",
             "BOOT_LOADER_FLAG_VIDEO_VALID equ 0x00002000",
@@ -356,6 +398,11 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "BOOT_LOADER_FLAG_CHS_GEOMETRY equ 0x00008000",
             "BIOS_BOOT_EXPECTED_STAGE2_SECTORS equ 16",
             "BIOS_BOOT_EXPECTED_KERNEL_SECTORS equ 320",
+            "BIOS_BOOT_EXPECTED_STAGE2_LBA equ 1",
+            "BIOS_BOOT_EXPECTED_KERNEL_LBA equ 17",
+            "BIOS_BOOT_EXPECTED_PARTITION_LBA equ 2048",
+            "BIOS_BOOT_EXPECTED_PARTITION_TYPE equ 0x06",
+            "BIOS_BOOT_EXPECTED_PARTITION_STATUS equ 0x80",
             "BIOS_BOOT_STATUS_OK equ 1",
             "call bios_boot_probe",
             "bios_boot_probe:",
@@ -372,14 +419,24 @@ class BootLoaderVmContractTests(unittest.TestCase):
             "cmp dword [bios_boot_kernel_entry], start",
             "cmp dword [bios_boot_stage2_sectors], BIOS_BOOT_EXPECTED_STAGE2_SECTORS",
             "cmp dword [bios_boot_kernel_sectors], BIOS_BOOT_EXPECTED_KERNEL_SECTORS",
+            "cmp dword [bios_boot_disk_stage2_lba], BIOS_BOOT_EXPECTED_STAGE2_LBA",
+            "cmp dword [bios_boot_disk_kernel_lba], BIOS_BOOT_EXPECTED_KERNEL_LBA",
+            "cmp dword [bios_boot_partition_lba], BIOS_BOOT_EXPECTED_PARTITION_LBA",
             "mov byte [bios_boot_status], BIOS_BOOT_STATUS_OK",
             "bios_boot_flags dd 0",
             "bios_boot_kernel_entry dd 0",
             "bios_boot_elf_loads dd 0",
+            "bios_boot_error_code dd 0",
+            "bios_boot_disk_drive dd 0",
+            "bios_boot_partition_meta dd 0",
+            "bios_boot_disk_flags dd 0",
             'smoke_biosboot_text db " biosboot=", 0',
             'smoke_biosflags_text db " biosflags=", 0',
             'smoke_biosentry_text db " biosentry=", 0',
             'smoke_biosspan_text db " biosspan=", 0',
+            'smoke_biosdisk_text db " biosdisk=", 0',
+            'smoke_biospart_text db " biospart=", 0',
+            'smoke_biosraw_text db " biosraw=", 0',
             "mov esi, smoke_biosboot_text",
         ):
             self.assertIn(source, kernel)
@@ -394,6 +451,11 @@ class BootLoaderVmContractTests(unittest.TestCase):
             '_hex(fields, "biosflags")',
             '_hex_tuple(fields, "biosentry", 2, "/")',
             '_hex_tuple(fields, "biosspan", 3, "/")',
+            '_hex_tuple(fields, "biosdisk", 4, "/")',
+            '_hex_tuple(fields, "biospart", 2, "/")',
+            '_hex_tuple(fields, "biosraw", 2, "/")',
+            "BOOT_DISK_REQUIRED_FLAGS",
+            "BIOS_BOOT_EXPECTED_PARTITION_LBA = 2048",
             "validate_firmware_boot_handoff(fields)",
         ):
             self.assertIn(source, checker)

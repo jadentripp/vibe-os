@@ -149,8 +149,8 @@ status-only artifact checks.
 
 ## Disk Layout
 
-The generated image is intentionally simple: LBA 0 is Stage 1 MBR and the
-partition table, LBA 1-16 is Stage 2, `LBA 17-336: protected-mode kernel ELF image`,
-and LBA 2048+ is the FAT16 partition with Doom, probes, config, saves, and assets.
+The generated image is intentionally simple: LBA 0 is Stage 1 MBR plus an active
+FAT16 partition table, LBA 1-16 is Stage 2, `LBA 17-336: protected-mode kernel ELF image`,
+and LBA 2048+ holds Doom, probes, config, saves, and assets.
 
 Core code lives in `boot/stage1.asm`, `boot/stage2.asm`, `boot/uefi/loader.asm`, `kernel/kernel.asm`, `user/crt0.asm`, and `doom_port/`; detailed contracts live in `docs/architecture.txt`, `docs/proof.txt`, `docs/play.txt`, `docs/doom-provenance.txt`, and `third_party/doom/ORIGIN.md`.

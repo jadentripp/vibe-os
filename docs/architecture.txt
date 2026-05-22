@@ -36,19 +36,22 @@ calls the Stage 2 ELF loader.
 The BIOS path also writes a compact loader-owned handoff record in the same
 boot-info block without moving the legacy memory, video, or E820 fields. The
 record carries `BIOS` magic/version/status, Stage 2 and kernel staging sector
-counts, disk-read path flags, CHS-geometry proof for CHS fallback, bounded
-E820/video/A20/GDT/protected-mode/ELF program-header validation flags, the final
-ELF entry, and the number of loaded `PT_LOAD` segments. Stage 2 validates that
-record once in real mode before A20/GDT/CR0 and again after the protected-mode
-ELF loader, before it marks the loader status as OK and jumps to the kernel. The
-kernel consumes that record before normal subsystem init and reports it in smoke
-status as `biosboot=`, `biosflags=`, `biosentry=`, and `biosspan=`;
+counts, a zero success error code, boot drive, active FAT16 MBR partition
+metadata, raw Stage 2/kernel LBAs, disk-read path flags, CHS-geometry proof for
+CHS fallback, bounded E820/video/A20/GDT/protected-mode/ELF program-header
+validation flags, the final ELF entry, and the number of loaded `PT_LOAD`
+segments. Stage 2 validates that record once in real mode before A20/GDT/CR0
+and again after the protected-mode ELF loader, before it marks the loader status
+as OK and jumps to the kernel. The kernel consumes that record before normal
+subsystem init and reports it in smoke status as `biosboot=`, `biosflags=`,
+`biosentry=`, `biosspan=`, `biosdisk=`, `biospart=`, and `biosraw=`;
 `biosboot=OK` requires the expected loader status, the expected raw sector
-spans, an EDD or CHS kernel read, EDD-present proof for EDD reads, CHS geometry
-proof for CHS reads, exactly one VBE LFB or Mode 13h video handoff, bounded E820,
-A20, GDT/protected-mode entry, ELF program-header validation, entry coverage,
-and an entry equal to the linked kernel `start`. The status checker rejects
-claims where any of those flags are incoherent.
+spans and LBAs, an active FAT16 MBR partition at `LBA 2048`, an EDD or CHS
+kernel read, EDD-present proof for EDD reads, CHS geometry proof for CHS reads,
+exactly one VBE LFB or Mode 13h video handoff, bounded E820, A20,
+GDT/protected-mode entry, ELF program-header validation, entry coverage, and an
+entry equal to the linked kernel `start`. The status checker rejects claims
+where any of those flags or metadata fields are incoherent.
 
 ## UEFI Loader/Proof Boundary
 
@@ -804,7 +807,9 @@ second root-level freestanding program ran in a generic exec slot before Doom,
 reuse, exec-time fd inheritance, shared-offset fd duplication, a userland
 sleep path, a userland wait/reap path, child VM teardown during reap, and fault statuses that can be
 reaped instead of staying stale, and
-`pmask`, `pfrom`/`pto`, `pkind`, `peip`, `pcr3`, `pkstk`, `pframe`, and
+  `syssegs=`/`sysframe=` prove syscall entry captured the Ring 3 selectors and
+  switched onto the TSS-selected kernel stack before returning through `iretd`,
+  `pmask`, `pfrom`/`pto`, `pkind`, `peip`, `pcr3`, `pkstk`, `pframe`, and
 `psegs`/`peflags` show timer-driven switches in both directions between Doom and the
 preempt probe with distinct process identities, address spaces, kernel stacks, a
 rewritten Ring 3 IRQ return frame, restored user data segments, and sanitized
@@ -1458,8 +1463,9 @@ The reusable surface today is:
   user/kernel trap contract. `int 0x80` carries the syscall number in `eax`,
   up to three arguments in `ebx`/`ecx`/`edx`, and returns either a non-negative
   value or a negative errno. The kernel records the trap vector, saved-register
-  mask, frame byte count, and EFLAGS sanitization counters so the ABI is an
-  auditable Ring 3 mechanism, not a Doom-only call path.
+  mask, frame byte count, captured user segment selectors, TSS-selected kernel
+  stack, and EFLAGS sanitization counters so the ABI is an auditable Ring 3
+  mechanism, not a Doom-only call path.
 - Clock: `VIBE_SYS_CLOCK_GETTIME`, `vibe_clock_monotonic`, and
   `clock_gettime(CLOCK_MONOTONIC)` expose monotonic PIT time for game loops and
   tools. This is not wall-clock time.

@@ -166,6 +166,11 @@ class BuildArtifactTests(unittest.TestCase):
             self.assertEqual(p_align, 0x1000)
             self.assertGreaterEqual(p_vaddr, USER_BASE)
             self.assertLessEqual(p_vaddr + p_memsz, USER_STACK_BOTTOM)
+        bss_only = [ph for ph in writable_segments if ph[4] == 0 and ph[5] > 0]
+        self.assertTrue(bss_only)
+        for _p_type, p_offset, _p_vaddr, _p_paddr, _p_filesz, _p_memsz, _p_flags, _p_align in bss_only:
+            self.assertEqual(p_offset % 0x1000, 0)
+            self.assertGreaterEqual(p_offset, len(elf.data))
         self.assertLess(load_segments[-1][2] + load_segments[-1][5], USER_HEAP_END)
 
     def test_user_c_object_contains_bss_for_linker_nobits_coverage(self):

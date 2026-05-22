@@ -324,7 +324,7 @@ point at remote presentation throughput, while input drops, audio pressure, or
 preemption stalls point back at the relevant OS lane.
 The downloaded status-only proofs now keep the newer legitimacy fields visible
 too: `biosboot=`, `biosflags=`, `biosentry=`, `biosspan=`, `e820map=`,
-`pmmtype=`, `pmmchk=OK`, `faultsrc=`, `faultmode=`,
+`biosdisk=`, `biospart=`, `biosraw=`, `pmmtype=`, `pmmchk=OK`, `faultsrc=`, `faultmode=`,
 `pf=`, `faultcontain=`, `regs=`, `segs=`, `proc=`, `kblock=`, `ksleep=`,
 `inputstat=`, `inputpolicy=`,
 `inputdev=`, `inputdevices=`, and `inputmods=`.

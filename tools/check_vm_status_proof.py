@@ -111,6 +111,21 @@ BIOS_BOOT_DISK_FLAGS = BOOT_LOADER_FLAG_KERNEL_EDD_READ | BOOT_LOADER_FLAG_KERNE
 BIOS_BOOT_VIDEO_FLAGS = BOOT_LOADER_FLAG_VBE_LFB | BOOT_LOADER_FLAG_MODE13
 BIOS_BOOT_EXPECTED_STAGE2_SECTORS = 16
 BIOS_BOOT_EXPECTED_KERNEL_SECTORS = 320
+BIOS_BOOT_EXPECTED_STAGE2_LBA = 1
+BIOS_BOOT_EXPECTED_KERNEL_LBA = 17
+BIOS_BOOT_EXPECTED_PARTITION_LBA = 2048
+BIOS_BOOT_EXPECTED_PARTITION_TYPE = 0x06
+BIOS_BOOT_EXPECTED_PARTITION_STATUS = 0x80
+BOOT_DISK_FLAG_RAW_BOOT_LAYOUT = 0x00000001
+BOOT_DISK_FLAG_KERNEL_EDD_READ = 0x00000002
+BOOT_DISK_FLAG_KERNEL_CHS_READ = 0x00000004
+BOOT_DISK_FLAG_PARTITION_PRESENT = 0x00000008
+BOOT_DISK_FLAG_ACTIVE_PARTITION = 0x00000010
+BOOT_DISK_REQUIRED_FLAGS = (
+    BOOT_DISK_FLAG_RAW_BOOT_LAYOUT
+    | BOOT_DISK_FLAG_PARTITION_PRESENT
+    | BOOT_DISK_FLAG_ACTIVE_PARTITION
+)
 BOOT_LOADER_STATUS_OK = 2
 USER_KIND_DOOM = 2
 USER_KIND_PREEMPT_PROBE = 3
@@ -135,7 +150,19 @@ PF_REASON_PROTECTION = 0x00000002
 PF_REASON_RESERVED_BIT = 0x00000004
 PF_REASON_INSTRUCTION_FETCH = 0x00000008
 PROC_DOOM_KERNEL_STACK_TOP = 0x00073000
+PROC_USER_PROBE_KERNEL_STACK_TOP = 0x00071000
 PROC_PREEMPT_PROBE_KERNEL_STACK_TOP = 0x00072000
+PROC_GENERIC0_KERNEL_STACK_TOP = 0x00074000
+PROC_GENERIC1_KERNEL_STACK_TOP = 0x00075000
+PROCESS_KERNEL_STACK_TOPS = {
+    KERNEL_STACK_TOP,
+    KERNEL_HIGH_STACK_TOP,
+    PROC_USER_PROBE_KERNEL_STACK_TOP,
+    PROC_PREEMPT_PROBE_KERNEL_STACK_TOP,
+    PROC_DOOM_KERNEL_STACK_TOP,
+    PROC_GENERIC0_KERNEL_STACK_TOP,
+    PROC_GENERIC1_KERNEL_STACK_TOP,
+}
 PROCESS_KIND_EIP_RANGES = {
     USER_KIND_DOOM: ((DOOM_USER_BASE, DOOM_USER_STACK_TOP),),
     USER_KIND_PREEMPT_PROBE: ((PROBE_USER_BASE, PROBE_USER_END),),
@@ -421,6 +448,9 @@ def validate_firmware_boot_handoff(fields: dict[str, str]) -> None:
     flags = _hex(fields, "biosflags")
     entry, load_count = _hex_tuple(fields, "biosentry", 2, "/")
     stage2_sectors, kernel_sectors, loader_status = _hex_tuple(fields, "biosspan", 3, "/")
+    drive, partition_meta, disk_flags, error_code = _hex_tuple(fields, "biosdisk", 4, "/")
+    partition_lba, partition_sectors = _hex_tuple(fields, "biospart", 2, "/")
+    stage2_lba, kernel_lba = _hex_tuple(fields, "biosraw", 2, "/")
 
     if flags & BIOS_BOOT_REQUIRED_FLAGS != BIOS_BOOT_REQUIRED_FLAGS:
         raise AssertionError("biosflags= must prove Stage 2, bounded E820, validated video, A20, GDT, protected mode, ELF PHDR validation, and entry coverage")
@@ -447,6 +477,31 @@ def validate_firmware_boot_handoff(fields: dict[str, str]) -> None:
         )
     if loader_status != BOOT_LOADER_STATUS_OK:
         raise AssertionError("biosspan= must report final Stage 2 loader status OK")
+    if error_code != 0:
+        raise AssertionError("biosdisk= must report a zero loader error code on a green BIOS handoff")
+    if drive != 0x80:
+        raise AssertionError("biosdisk= must report the BIOS hard-disk boot drive 0x80 for the claimed QEMU BIOS target")
+    partition_type = partition_meta & 0xFF
+    partition_status = (partition_meta >> 8) & 0xFF
+    partition_index = (partition_meta >> 16) & 0xFFFF
+    if partition_type != BIOS_BOOT_EXPECTED_PARTITION_TYPE:
+        raise AssertionError("biosdisk= must report the FAT16 LBA partition type 0x06")
+    if partition_status != BIOS_BOOT_EXPECTED_PARTITION_STATUS:
+        raise AssertionError("biosdisk= must report an active MBR partition status byte 0x80")
+    if partition_index >= 4:
+        raise AssertionError("biosdisk= partition index must be one of the four MBR entries")
+    if disk_flags & BOOT_DISK_REQUIRED_FLAGS != BOOT_DISK_REQUIRED_FLAGS:
+        raise AssertionError("biosdisk= must prove raw boot layout, partition discovery, and active-partition selection")
+    if flags & BOOT_LOADER_FLAG_KERNEL_EDD_READ and not (disk_flags & BOOT_DISK_FLAG_KERNEL_EDD_READ):
+        raise AssertionError("biosdisk= must mirror the EDD kernel-read path")
+    if flags & BOOT_LOADER_FLAG_KERNEL_CHS_READ and not (disk_flags & BOOT_DISK_FLAG_KERNEL_CHS_READ):
+        raise AssertionError("biosdisk= must mirror the CHS kernel-read path")
+    if partition_lba != BIOS_BOOT_EXPECTED_PARTITION_LBA:
+        raise AssertionError(f"biospart= must report FAT16 partition LBA {BIOS_BOOT_EXPECTED_PARTITION_LBA}")
+    if partition_sectors == 0:
+        raise AssertionError("biospart= must report a nonzero partition span")
+    if stage2_lba != BIOS_BOOT_EXPECTED_STAGE2_LBA or kernel_lba != BIOS_BOOT_EXPECTED_KERNEL_LBA:
+        raise AssertionError("biosraw= must report the fixed raw Stage 2 and kernel LBAs")
 
 
 def validate_kernel_clock_proof(fields: dict[str, str]) -> None:
@@ -1750,6 +1805,38 @@ def validate_fault_observability(fields: dict[str, str]) -> None:
                 raise AssertionError(f"{name}= must mirror the compact fault= frame")
 
 
+def validate_syscall_entry_proof(fields: dict[str, str]) -> None:
+    ds, es, fs, gs, cs, ss, tss_esp0 = _hex_tuple(fields, "syssegs", 7, "/")
+    eip, esp, eflags, kernel_esp = _hex_tuple(fields, "sysframe", 4, "/")
+
+    if (ds, es, fs, gs) != (USER_DATA_SEG, USER_DATA_SEG, USER_DATA_SEG, USER_DATA_SEG):
+        raise AssertionError("syssegs= must show user data selectors captured before kernel segment reload")
+    if cs != USER_CODE_SEG or ss != USER_DATA_SEG:
+        raise AssertionError("syssegs= CS/SS must prove a Ring 3 syscall frame")
+    if tss_esp0 not in PROCESS_KERNEL_STACK_TOPS:
+        raise AssertionError("syssegs= TSS esp0 must be a known kernel or process stack top")
+    if eip:
+        in_user_text = (
+            PROBE_USER_BASE <= eip < PROBE_USER_END
+            or DOOM_USER_BASE <= eip < DOOM_USER_STACK_TOP
+        )
+        if not in_user_text:
+            raise AssertionError("sysframe= EIP must be a user virtual address when nonzero")
+    if esp:
+        in_user_stack = (
+            PROBE_USER_BASE <= esp < PROBE_USER_END
+            or DOOM_USER_BASE <= esp <= DOOM_USER_STACK_TOP
+        )
+        if not in_user_stack:
+            raise AssertionError("sysframe= ESP must be a user virtual stack address when nonzero")
+    if (eflags & SANITIZED_USER_EFLAGS) != SANITIZED_USER_EFLAGS:
+        raise AssertionError("sysframe= EFLAGS must preserve required user IF/reserved bits")
+    if kernel_esp:
+        stack_low = tss_esp0 - PAGE_SIZE
+        if not (stack_low <= kernel_esp < tss_esp0):
+            raise AssertionError("sysframe= kernel ESP must land inside the TSS-selected kernel stack")
+
+
 def validate_status(
     text: str,
     *,
@@ -1762,6 +1849,7 @@ def validate_status(
     validate_kernel_clock_proof(fields)
     validate_vm_mapping(fields)
     validate_fault_observability(fields)
+    validate_syscall_entry_proof(fields)
     if require_exec:
         validate_exec(fields)
     if require_preempt:
@@ -1823,6 +1911,9 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         _require(text, "uguard=", label)
         _require(text, "vmmguard=", label)
         _require(text, "e820map=", label)
+        _require(text, "biosdisk=", label)
+        _require(text, "biospart=", label)
+        _require(text, "biosraw=", label)
         _require(text, "pmmuse=", label)
         _require(text, "pmmtype=", label)
         _require(text, "pmmchk=", label)
@@ -1851,6 +1942,8 @@ def validate_repo_contract(root: Path = ROOT) -> None:
         _require(text, "pf=", label)
         _require(text, "regs=", label)
         _require(text, "segs=", label)
+        _require(text, "syssegs=", label)
+        _require(text, "sysframe=", label)
         _require(text, "proc=", label)
         _require(text, "wait=", label)
         _require(text, "waitseed=", label)

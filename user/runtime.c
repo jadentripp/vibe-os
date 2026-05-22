@@ -222,6 +222,32 @@ int vibe_user_pread(int fd, void* buffer, unsigned long count, long offset)
     return result;
 }
 
+int vibe_user_pwrite(int fd, const void* buffer, unsigned long count, long offset)
+{
+    int original;
+    int result;
+    int restore;
+
+    if (offset < 0 || (!buffer && count))
+        return -22;
+
+    original = vibe_user_lseek(fd, 0, 1);
+    if (original < 0)
+        return original;
+
+    result = vibe_user_lseek(fd, offset, 0);
+    if (result < 0) {
+        (void)vibe_user_lseek(fd, original, 0);
+        return result;
+    }
+
+    result = vibe_user_write(fd, buffer, count);
+    restore = vibe_user_lseek(fd, original, 0);
+    if (restore < 0 && result >= 0)
+        return restore;
+    return result;
+}
+
 int vibe_user_close(int fd)
 {
     return vibe_user_syscall1(VIBE_SYS_CLOSE, (unsigned long)fd);
@@ -657,6 +683,40 @@ int vibe_user_file_read_at(
 
     if (out_read)
         *out_read = (unsigned long)result;
+    return 0;
+}
+
+int vibe_user_file_write_at(
+    const char* path,
+    unsigned long offset,
+    const void* buffer,
+    unsigned long count,
+    unsigned long* out_written)
+{
+    int fd;
+    int result;
+    int close_result;
+
+    if (!path || (count && !buffer))
+        return -22;
+    if (out_written)
+        *out_written = 0;
+    if (offset > (unsigned long)((long)((~0ul) >> 1)))
+        return -75;
+
+    fd = vibe_user_open(path, VIBE_USER_O_CREAT | VIBE_USER_O_RDWR, 0);
+    if (fd < 0)
+        return fd;
+
+    result = vibe_user_pwrite(fd, buffer, count, (long)offset);
+    close_result = vibe_user_close(fd);
+    if (result < 0)
+        return result;
+    if (close_result < 0)
+        return close_result;
+
+    if (out_written)
+        *out_written = (unsigned long)result;
     return 0;
 }
 

@@ -41,6 +41,7 @@ PERSISTENCE_REQUIRE_SAVE_SLOT ?=
 PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF ?= 0
 
 BUILD_DIR := build
+STAGE2_LBA ?= 1
 STAGE1_BIN := $(BUILD_DIR)/stage1.bin
 STAGE2_BIN := $(BUILD_DIR)/stage2.bin
 KERNEL_OBJ := $(BUILD_DIR)/kernel.o
@@ -138,7 +139,7 @@ $(STAGE1_BIN): boot/stage1.asm | $(BUILD_DIR)
 	$(NASM) -f bin $< -o $@
 
 $(STAGE2_BIN): boot/stage2.asm | $(BUILD_DIR)
-	$(NASM) -f bin $< -o $@
+	$(NASM) -f bin -D STAGE2_LBA=$(STAGE2_LBA) $< -o $@
 	@test $$(wc -c < $@) -le $(STAGE2_MAX_BYTES) || { echo "stage2 exceeds $(STAGE2_MAX_BYTES) bytes"; exit 1; }
 
 $(KERNEL_OBJ): kernel/kernel.asm | $(BUILD_DIR)

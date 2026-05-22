@@ -54,6 +54,7 @@ int vibe_user_write(int fd, const void* buffer, unsigned long count);
 int vibe_user_read(int fd, void* buffer, unsigned long count);
 int vibe_user_lseek(int fd, long offset, unsigned long whence);
 int vibe_user_pread(int fd, void* buffer, unsigned long count, long offset);
+int vibe_user_pwrite(int fd, const void* buffer, unsigned long count, long offset);
 int vibe_user_close(int fd);
 int vibe_user_unlink(const char* path);
 int vibe_user_stat(const char* path, struct stat* out);
@@ -105,6 +106,12 @@ int vibe_user_file_read_at(
     void* buffer,
     unsigned long count,
     unsigned long* out_read);
+int vibe_user_file_write_at(
+    const char* path,
+    unsigned long offset,
+    const void* buffer,
+    unsigned long count,
+    unsigned long* out_written);
 int vibe_user_file_read_all(const char* path, void* buffer, unsigned long capacity, unsigned long* out_size);
 int vibe_user_execv(const char* path, char* const argv[]);
 void vibe_user_report_probe(unsigned long magic, unsigned long flags);

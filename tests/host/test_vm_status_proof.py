@@ -41,6 +41,9 @@ def status_line(**overrides):
         "biosflags": "00007FB7",
         "biosentry": "00010000/00000001",
         "biosspan": "00000010/00000140/00000002",
+        "biosdisk": "00000080/00008006/0000001B/00000000",
+        "biospart": "00000800/0001F800",
+        "biosraw": "00000001/00000011",
         "vmm": "OK",
         "kreloc": "HIGH",
         "krelocstep": "KPMAIN_HIGH",
@@ -173,6 +176,8 @@ def status_line(**overrides):
         "faultcontain": "00000001/00000000/00000000/00000000/00000000",
         "regs": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
         "segs": "00000000/00000000/00000000/00000000/00000000/00000000",
+        "syssegs": "00000023/00000023/00000023/00000023/0000001B/00000023/00073000",
+        "sysframe": "01002000/01FFFFE0/00000202/00072FD4",
         "proc": "00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000/00000000",
         "panic": "NONE",
         "pself": "OK",
@@ -255,6 +260,21 @@ class VmStatusProofTests(unittest.TestCase):
             require_exec=True,
             require_preempt=True,
         )
+
+    def test_syscall_entry_proof_rejects_fake_or_kernel_frames(self):
+        bad_cases = (
+            ({"syssegs": "00000010/00000023/00000023/00000023/0000001B/00000023/00073000"}, "user data selectors"),
+            ({"syssegs": "00000023/00000023/00000023/00000023/00000008/00000023/00073000"}, "Ring 3 syscall frame"),
+            ({"syssegs": "00000023/00000023/00000023/00000023/0000001B/00000023/0006F000"}, "TSS esp0"),
+            ({"sysframe": "C0010200/01FFFFE0/00000202/00072FD4"}, "user virtual address"),
+            ({"sysframe": "01002000/C006FFD0/00000202/00072FD4"}, "user virtual stack"),
+            ({"sysframe": "01002000/01FFFFE0/00000000/00072FD4"}, "EFLAGS"),
+            ({"sysframe": "01002000/01FFFFE0/00000202/00076000"}, "TSS-selected kernel stack"),
+        )
+        for overrides, message in bad_cases:
+            with self.subTest(overrides=overrides):
+                with self.assertRaisesRegex(AssertionError, message):
+                    check_vm_status_proof.validate_status(status_line(**overrides))
 
     def test_fault_observability_classifies_contained_and_kernel_faults(self):
         check_vm_status_proof.validate_status(
@@ -444,6 +464,14 @@ class VmStatusProofTests(unittest.TestCase):
             ({"biosspan": "0000000F/00000140/00000002"}, "Stage 2 span"),
             ({"biosspan": "00000010/00000141/00000002"}, "kernel staging span"),
             ({"biosspan": "00000010/00000140/00000001"}, "loader status OK"),
+            ({"biosdisk": "00000081/00008006/0000001B/00000000"}, "boot drive 0x80"),
+            ({"biosdisk": "00000080/00008083/0000001B/00000000"}, "partition type 0x06"),
+            ({"biosdisk": "00000080/00000006/0000001B/00000000"}, "active MBR partition"),
+            ({"biosdisk": "00000080/00008006/0000000B/00000000"}, "active-partition selection"),
+            ({"biosdisk": "00000080/00008006/0000001B/000000D1"}, "zero loader error"),
+            ({"biospart": "00000801/0001F800"}, "partition LBA"),
+            ({"biospart": "00000800/00000000"}, "nonzero partition"),
+            ({"biosraw": "00000002/00000011"}, "raw Stage 2 and kernel LBAs"),
         ):
             with self.subTest(overrides=overrides):
                 with self.assertRaisesRegex(AssertionError, message):
