@@ -215,6 +215,38 @@ E820_TYPE_ACPI_RECLAIMABLE equ 3
 E820_TYPE_ACPI_NVS equ 4
 E820_TYPE_BAD_MEMORY equ 5
 PMM_E820_MIN_ENTRY_SIZE equ 20
+ACPI_RSDP_EBDA_SEG_PTR equ 0x0000040e
+ACPI_EBDA_SCAN_BYTES equ 1024
+ACPI_BIOS_SCAN_START equ 0x000e0000
+ACPI_BIOS_SCAN_BYTES equ 0x00020000
+ACPI_RSDP_SIG_LO equ 0x20445352
+ACPI_RSDP_SIG_HI equ 0x20525450
+ACPI_RSDP_REVISION_OFF equ 15
+ACPI_RSDP_RSDT_OFF equ 16
+ACPI_RSDP_LENGTH_OFF equ 20
+ACPI_RSDP_XSDT_OFF equ 24
+ACPI_RSDP_XSDT_HIGH_OFF equ 28
+ACPI_RSDP_BASE_BYTES equ 20
+ACPI_RSDP_EXT_MIN_BYTES equ 36
+ACPI_RSDP_MAX_BYTES equ 256
+ACPI_SDT_HEADER_BYTES equ 36
+ACPI_SDT_LENGTH_OFF equ 4
+ACPI_SDT_SIG_RSDT equ 0x54445352
+ACPI_SDT_SIG_XSDT equ 0x54445358
+ACPI_SDT_SIG_APIC equ 0x43495041
+ACPI_SDT_SIG_HPET equ 0x54455048
+ACPI_MAX_TABLE_BYTES equ 0x00010000
+ACPI_STATUS_NONE equ 0
+ACPI_STATUS_OK equ 1
+ACPI_STATUS_BAD equ 2
+ACPI_SCAN_SOURCE_EBDA equ 1
+ACPI_SCAN_SOURCE_BIOS equ 2
+ACPI_ROOT_RSDT equ 1
+ACPI_ROOT_XSDT equ 2
+ACPI_CHECKSUM_RSDP20 equ 0x00000001
+ACPI_CHECKSUM_RSDP_EXT equ 0x00000002
+ACPI_CHECKSUM_RSDT equ 0x00000004
+ACPI_CHECKSUM_XSDT equ 0x00000008
 UEFI_HANDOFF_MAGIC equ 0x444e4855
 UEFI_HANDOFF_VERSION equ 1
 UEFI32_E820_MAP_ADDR equ 0x00007100
@@ -1259,6 +1291,7 @@ kernel_mainline:
     call storage_init
     call pci_scan_qemu
     call block_driver_probe_storage_classes
+    call acpi_probe_tables
     call audio_init
     call ps2_mouse_init
     call scheduler_init
@@ -2128,6 +2161,299 @@ acpi_poweroff:
     cli
     hlt
     jmp .wait
+
+acpi_probe_tables:
+    pushad
+    mov byte [acpi_status], ACPI_STATUS_NONE
+    mov byte [acpi_scan_source], 0
+    mov byte [acpi_root_kind], 0
+    mov dword [acpi_rsdp_addr], 0
+    mov dword [acpi_rsdp_length], 0
+    mov dword [acpi_revision], 0
+    mov dword [acpi_checksum_flags], 0
+    mov dword [acpi_rsdt_addr], 0
+    mov dword [acpi_xsdt_addr_low], 0
+    mov dword [acpi_xsdt_addr_high], 0
+    mov dword [acpi_selected_sdt_addr], 0
+    mov dword [acpi_root_entry_count], 0
+    mov dword [acpi_valid_sdt_count], 0
+    mov dword [acpi_madt_addr], 0
+    mov dword [acpi_hpet_addr], 0
+
+    movzx esi, word [ACPI_RSDP_EBDA_SEG_PTR]
+    shl esi, 4
+    cmp esi, 0x00080000
+    jb .scan_bios_area
+    cmp esi, 0x000a0000
+    jae .scan_bios_area
+    mov ecx, ACPI_EBDA_SCAN_BYTES
+    call acpi_find_rsdp_in_range
+    jc .scan_bios_area
+    mov byte [acpi_scan_source], ACPI_SCAN_SOURCE_EBDA
+    jmp .found
+
+.scan_bios_area:
+    mov esi, ACPI_BIOS_SCAN_START
+    mov ecx, ACPI_BIOS_SCAN_BYTES
+    call acpi_find_rsdp_in_range
+    jc .done
+    mov byte [acpi_scan_source], ACPI_SCAN_SOURCE_BIOS
+
+.found:
+    mov [acpi_rsdp_addr], eax
+    mov esi, eax
+    or dword [acpi_checksum_flags], ACPI_CHECKSUM_RSDP20
+    call acpi_parse_rsdp
+
+.done:
+    popad
+    ret
+
+acpi_find_rsdp_in_range:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    shr ecx, 4
+
+.next:
+    test ecx, ecx
+    jz .miss
+    cmp dword [esi], ACPI_RSDP_SIG_LO
+    jne .advance
+    cmp dword [esi + 4], ACPI_RSDP_SIG_HI
+    jne .advance
+    call acpi_rsdp20_valid
+    jnc .hit
+
+.advance:
+    add esi, 16
+    dec ecx
+    jmp .next
+
+.hit:
+    mov eax, esi
+    clc
+    jmp .done
+
+.miss:
+    stc
+
+.done:
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+acpi_rsdp20_valid:
+    push eax
+    push ecx
+    push esi
+    cmp dword [esi], ACPI_RSDP_SIG_LO
+    jne .bad
+    cmp dword [esi + 4], ACPI_RSDP_SIG_HI
+    jne .bad
+    mov ecx, ACPI_RSDP_BASE_BYTES
+    call acpi_checksum8
+    test al, al
+    jnz .bad
+    clc
+    jmp .done
+
+.bad:
+    stc
+
+.done:
+    pop esi
+    pop ecx
+    pop eax
+    ret
+
+acpi_parse_rsdp:
+    pushad
+    mov byte [acpi_status], ACPI_STATUS_BAD
+    mov dword [acpi_rsdp_length], ACPI_RSDP_BASE_BYTES
+    movzx eax, byte [esi + ACPI_RSDP_REVISION_OFF]
+    mov [acpi_revision], eax
+    mov eax, [esi + ACPI_RSDP_RSDT_OFF]
+    mov [acpi_rsdt_addr], eax
+
+    cmp byte [esi + ACPI_RSDP_REVISION_OFF], 2
+    jb .try_rsdt
+    mov eax, [esi + ACPI_RSDP_LENGTH_OFF]
+    mov [acpi_rsdp_length], eax
+    cmp eax, ACPI_RSDP_EXT_MIN_BYTES
+    jb .try_rsdt
+    cmp eax, ACPI_RSDP_MAX_BYTES
+    ja .try_rsdt
+    push esi
+    mov ecx, eax
+    call acpi_checksum8
+    pop esi
+    test al, al
+    jnz .try_rsdt
+    or dword [acpi_checksum_flags], ACPI_CHECKSUM_RSDP_EXT
+    mov eax, [esi + ACPI_RSDP_XSDT_OFF]
+    mov [acpi_xsdt_addr_low], eax
+    mov eax, [esi + ACPI_RSDP_XSDT_HIGH_OFF]
+    mov [acpi_xsdt_addr_high], eax
+    cmp dword [acpi_xsdt_addr_high], 0
+    jne .try_rsdt
+    mov esi, [acpi_xsdt_addr_low]
+    test esi, esi
+    jz .try_rsdt
+    mov edx, ACPI_SDT_SIG_XSDT
+    call acpi_validate_sdt
+    jc .try_rsdt
+    or dword [acpi_checksum_flags], ACPI_CHECKSUM_XSDT
+    mov [acpi_selected_sdt_addr], esi
+    mov byte [acpi_root_kind], ACPI_ROOT_XSDT
+    call acpi_parse_xsdt_entries
+    mov byte [acpi_status], ACPI_STATUS_OK
+    jmp .done
+
+.try_rsdt:
+    mov esi, [acpi_rsdt_addr]
+    test esi, esi
+    jz .done
+    mov edx, ACPI_SDT_SIG_RSDT
+    call acpi_validate_sdt
+    jc .done
+    or dword [acpi_checksum_flags], ACPI_CHECKSUM_RSDT
+    mov [acpi_selected_sdt_addr], esi
+    mov byte [acpi_root_kind], ACPI_ROOT_RSDT
+    call acpi_parse_rsdt_entries
+    mov byte [acpi_status], ACPI_STATUS_OK
+
+.done:
+    popad
+    ret
+
+acpi_validate_sdt:
+    push eax
+    push ebx
+    push esi
+    cmp esi, PAGING_MAPPED_BYTES - ACPI_SDT_HEADER_BYTES
+    ja .bad
+    test edx, edx
+    jz .signature_ok
+    cmp [esi], edx
+    jne .bad
+
+.signature_ok:
+    mov ecx, [esi + ACPI_SDT_LENGTH_OFF]
+    cmp ecx, ACPI_SDT_HEADER_BYTES
+    jb .bad
+    cmp ecx, ACPI_MAX_TABLE_BYTES
+    ja .bad
+    mov eax, esi
+    add eax, ecx
+    jc .bad
+    cmp eax, PAGING_MAPPED_BYTES
+    ja .bad
+    push ecx
+    call acpi_checksum8
+    pop ecx
+    test al, al
+    jnz .bad
+    clc
+    jmp .done
+
+.bad:
+    stc
+
+.done:
+    pop esi
+    pop ebx
+    pop eax
+    ret
+
+acpi_parse_rsdt_entries:
+    pushad
+    mov eax, [esi + ACPI_SDT_LENGTH_OFF]
+    sub eax, ACPI_SDT_HEADER_BYTES
+    shr eax, 2
+    mov [acpi_root_entry_count], eax
+    lea edi, [esi + ACPI_SDT_HEADER_BYTES]
+    mov ecx, eax
+
+.next:
+    test ecx, ecx
+    jz .done
+    mov ebx, [edi]
+    add edi, 4
+    call acpi_record_sdt_entry
+    dec ecx
+    jmp .next
+
+.done:
+    popad
+    ret
+
+acpi_parse_xsdt_entries:
+    pushad
+    mov eax, [esi + ACPI_SDT_LENGTH_OFF]
+    sub eax, ACPI_SDT_HEADER_BYTES
+    shr eax, 3
+    mov [acpi_root_entry_count], eax
+    lea edi, [esi + ACPI_SDT_HEADER_BYTES]
+    mov ecx, eax
+
+.next:
+    test ecx, ecx
+    jz .done
+    mov ebx, [edi]
+    cmp dword [edi + 4], 0
+    jne .skip
+    call acpi_record_sdt_entry
+
+.skip:
+    add edi, 8
+    dec ecx
+    jmp .next
+
+.done:
+    popad
+    ret
+
+acpi_record_sdt_entry:
+    pushad
+    test ebx, ebx
+    jz .done
+    mov esi, ebx
+    mov edx, 0
+    call acpi_validate_sdt
+    jc .done
+    inc dword [acpi_valid_sdt_count]
+    mov eax, [esi]
+    cmp eax, ACPI_SDT_SIG_APIC
+    jne .check_hpet
+    mov [acpi_madt_addr], esi
+    jmp .done
+
+.check_hpet:
+    cmp eax, ACPI_SDT_SIG_HPET
+    jne .done
+    mov [acpi_hpet_addr], esi
+
+.done:
+    popad
+    ret
+
+acpi_checksum8:
+    xor eax, eax
+
+.next:
+    test ecx, ecx
+    jz .done
+    add al, [esi]
+    inc esi
+    dec ecx
+    jmp .next
+
+.done:
+    ret
 
 shutdown_report_status:
     push esi
@@ -26518,6 +26844,75 @@ write_smoke_status:
     mov esi, smoke_irqctl_text
     call smoke_copy_string
 
+    mov esi, smoke_acpi_text
+    call smoke_copy_string
+    cmp byte [acpi_status], ACPI_STATUS_OK
+    je .acpi_ok
+    cmp byte [acpi_status], ACPI_STATUS_BAD
+    je .acpi_fail
+    mov esi, smoke_none_text
+    jmp .acpi_write
+
+.acpi_ok:
+    mov esi, smoke_ok_text
+    jmp .acpi_write
+
+.acpi_fail:
+    mov esi, smoke_fail_text
+
+.acpi_write:
+    call smoke_copy_string
+
+    mov esi, smoke_acpisrc_text
+    call smoke_copy_string
+    movzx edx, byte [acpi_scan_source]
+    call smoke_write_hex32
+
+    mov esi, smoke_acpiver_text
+    call smoke_copy_string
+    mov edx, [acpi_revision]
+    call smoke_write_hex32
+
+    mov esi, smoke_rsdp_text
+    call smoke_copy_string
+    mov edx, [acpi_rsdp_addr]
+    call smoke_write_hex32
+    mov edx, [acpi_rsdp_length]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_checksum_flags]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_rsdt_text
+    call smoke_copy_string
+    mov edx, [acpi_rsdt_addr]
+    call smoke_write_hex32
+
+    mov esi, smoke_xsdt_text
+    call smoke_copy_string
+    mov edx, [acpi_xsdt_addr_low]
+    call smoke_write_hex32
+    mov edx, [acpi_xsdt_addr_high]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_acpitab_text
+    call smoke_copy_string
+    movzx edx, byte [acpi_root_kind]
+    call smoke_write_hex32
+    mov edx, [acpi_root_entry_count]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_valid_sdt_count]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_madt_text
+    call smoke_copy_string
+    mov edx, [acpi_madt_addr]
+    call smoke_write_hex32
+
+    mov esi, smoke_hpetp_text
+    call smoke_copy_string
+    mov edx, [acpi_hpet_addr]
+    call smoke_write_hex32
+
     mov esi, smoke_apic_text
     call smoke_copy_string
 
@@ -30228,6 +30623,15 @@ smoke_clockdoom_text db " clockdoom=", 0
 smoke_clocksch_text db " clocksch=", 0
 smoke_clockpirq_text db " clockpirq=", 0
 smoke_irqctl_text db " irqctl=PIC", 0
+smoke_acpi_text db " acpi=", 0
+smoke_acpisrc_text db " acpisrc=", 0
+smoke_acpiver_text db " acpiver=", 0
+smoke_rsdp_text db " rsdp=", 0
+smoke_rsdt_text db " rsdt=", 0
+smoke_xsdt_text db " xsdt=", 0
+smoke_acpitab_text db " acpitab=", 0
+smoke_madt_text db " madt=", 0
+smoke_hpetp_text db " hpetp=", 0
 smoke_apic_text db " apic=NONE", 0
 smoke_hpet_text db " hpet=NONE", 0
 smoke_gflags_text db " gflags=", 0
@@ -30805,7 +31209,22 @@ pmm_source db 0
 pmm_e820_handoff_status db 0
 pmm_frame_accounting_status db 0
 bios_boot_status db 0
+acpi_status db 0
+acpi_scan_source db 0
+acpi_root_kind db 0
 align 4
+acpi_rsdp_addr dd 0
+acpi_rsdp_length dd 0
+acpi_revision dd 0
+acpi_checksum_flags dd 0
+acpi_rsdt_addr dd 0
+acpi_xsdt_addr_low dd 0
+acpi_xsdt_addr_high dd 0
+acpi_selected_sdt_addr dd 0
+acpi_root_entry_count dd 0
+acpi_valid_sdt_count dd 0
+acpi_madt_addr dd 0
+acpi_hpet_addr dd 0
 bios_boot_magic dd 0
 bios_boot_version dd 0
 bios_boot_loader_status dd 0
