@@ -115,7 +115,7 @@ sanitize_remote_error() {
     -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*_(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*=)[^[:space:]]+/\1[redacted]/g' \
     -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*=)(gh[pousr]_[A-Za-z0-9_]+)/\1[redacted]/g' \
     -e 's/(gh[pousr]_[A-Za-z0-9_]+)/[redacted]/g' \
-    -e 's/([[:<:]][A-Z0-9]{4}-[A-Z0-9]{4}[[:>:]])/[redacted-code]/g' \
+    -e 's/(^|[^A-Z0-9])([A-Z0-9]{4}-[A-Z0-9]{4})([^A-Z0-9]|$)/\1[redacted-code]\3/g' \
     -e 's/(Authorization: *(Bearer|token) +)[^[:space:]]+/\1[redacted]/Ig' \
     -e 's/((access_token|token|signature|X-Amz-Signature|X-Amz-Credential)=)[^&[:space:]]+/\1[redacted]/Ig'
 }
@@ -603,7 +603,7 @@ redact_remote_stream() {
     -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*_(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*=)[^[:space:]]+/\1[redacted]/g' \
     -e 's/((GH|GITHUB|CODESPACES|VSCODE|ACTIONS|NPM|NODE_AUTH|DOCKER|AWS|AZURE|GOOGLE|OPENAI|ANTHROPIC|GEMINI|HF|HUGGINGFACE|VIBE)[A-Z0-9_]*=)(gh[pousr]_[A-Za-z0-9_]+)/\1[redacted]/g' \
     -e 's/(gh[pousr]_[A-Za-z0-9_]+)/[redacted]/g' \
-    -e 's/([[:<:]][A-Z0-9]{4}-[A-Z0-9]{4}[[:>:]])/[redacted-code]/g' \
+    -e 's/(^|[^A-Z0-9])([A-Z0-9]{4}-[A-Z0-9]{4})([^A-Z0-9]|$)/\1[redacted-code]\3/g' \
     -e 's/(Authorization: *(Bearer|token) +)[^[:space:]]+/\1[redacted]/Ig' \
     -e 's/((access_token|token|signature|X-Amz-Signature|X-Amz-Credential)=)[^&[:space:]]+/\1[redacted]/Ig'
 }
