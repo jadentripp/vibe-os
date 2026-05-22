@@ -15,6 +15,7 @@ SYS_EXIT equ 2
 PREEMPT_PROBE_MAGIC equ 0x50524545
 VIBE_USER_ABI_VERSION equ 1
 VIBE_USER_STACK_ABI_VERSION equ 1
+VIBE_USER_ENV_MAX equ 8
 SYSCALL_TRAP_VECTOR equ 0x80
 SYSCALL_MAX_ARGS equ 3
 
@@ -32,21 +33,36 @@ start:
     mov [vibe_user_argv], ebx
     mov [vibe_user_environ], ecx
     mov edx, ecx
+    mov esi, VIBE_USER_ENV_MAX + 1
 
 .find_auxv:
+    cmp esi, 0
+    je .auxv_missing
     cmp dword [edx], 0
     je .auxv_found
     add edx, 4
+    dec esi
     jmp .find_auxv
 
 .auxv_found:
     add edx, 4
     mov [vibe_user_auxv], edx
-    push ecx
-    push ebx
-    push eax
+    jmp .call_main
+
+.auxv_missing:
+    xor edx, edx
+    mov [vibe_user_auxv], edx
+
+.call_main:
+    mov [vibe_user_entry_stack], esp
+    and esp, 0xfffffff0
+    sub esp, 12
+    mov [esp], eax
+    mov [esp + 4], ebx
+    mov [esp + 8], ecx
+    xor ebp, ebp
     call user_main
-    add esp, 12
+    mov esp, [vibe_user_entry_stack]
     mov ebx, eax
     mov eax, SYS_EXIT
     int 0x80
@@ -107,3 +123,4 @@ vibe_user_argc resd 1
 vibe_user_argv resd 1
 vibe_user_environ resd 1
 vibe_user_auxv resd 1
+vibe_user_entry_stack resd 1

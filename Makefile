@@ -3,6 +3,7 @@ QEMU ?= qemu-system-x86_64
 CLANG ?= clang
 HOST_CC ?= cc
 HOST_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2
+HOST_TEST_CFLAGS ?= $(HOST_CFLAGS) -Idoom_port -Idoom_port/include -I$(DOOM_SRC_DIR)
 NC ?= nc
 KERNEL_EXTRA_NASMFLAGS ?=
 QEMU_ACCEL ?= tcg
@@ -66,6 +67,7 @@ VIBE_STATUS_CHECK_SRC := tools/vibe_status_check.c
 DOOM_SRC_DIR := third_party/doom/linuxdoom-1.10
 DOOM_PORT_INCLUDE_DIR := doom_port/include
 DOOM_PORT_BUILD_DIR := $(BUILD_DIR)/doom
+HOST_TEST_DIR := $(BUILD_DIR)/host-tests
 DOOM_ELF := $(BUILD_DIR)/doom.elf
 DOOM_SYMBOLS := $(BUILD_DIR)/doom.symbols
 DOOM_BASE := 0x01000000
@@ -84,15 +86,33 @@ USER_PROBE_ELF_MAX_BYTES := 16384
 USER_ABI_PROBE_ELF_MAX_BYTES := 24576
 IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF)
 
-.PHONY: all build-only test doom-compile doom-link run run-headless smoke playability-host-check playability-gap-check image-builder-tool image-builder-inspect ahci-block-status-check hardware-support-check storage-install-boundary-check storage-vfs-status-check real-wad-status-check vm-entry-status-check audio-continuity-check cloud-playability-check persistence-image-check clean check-tools vm-consent
+.PHONY: all build-only test host-c-tests doom-compile doom-link run run-headless smoke playability-host-check playability-gap-check image-builder-tool image-builder-inspect ahci-block-status-check hardware-support-check storage-install-boundary-check storage-vfs-status-check real-wad-status-check vm-entry-status-check audio-continuity-check cloud-playability-check persistence-image-check clean check-tools vm-consent
 
 all: $(IMAGE)
 
 build-only: $(IMAGE) doom-link
 	@printf "Build-only check OK: %s, %s, and %s are present.\n" "$(IMAGE)" "$(DOOM_ELF)" "$(USER_ABI_PROBE_ELF)"
 
-test: $(IMAGE) doom-link vm-status-proof-check
-	@printf "Assembly-first host checks OK: image build, Doom link, and minimal guest status validator passed.\n"
+test: $(IMAGE) doom-link vm-status-proof-check host-c-tests
+	@printf "Assembly-first host checks OK: image build, Doom link, guest status validator, and C support checks passed.\n"
+
+$(HOST_TEST_DIR):
+	@mkdir -p $@
+
+host-c-tests: | $(HOST_TEST_DIR)
+	$(HOST_CC) $(HOST_TEST_CFLAGS) tests/host/doom_input_test.c doom_port/input.c -o $(HOST_TEST_DIR)/doom_input_test
+	$(HOST_TEST_DIR)/doom_input_test
+	$(HOST_CC) $(HOST_TEST_CFLAGS) tests/host/doom_music_test.c -o $(HOST_TEST_DIR)/doom_music_test
+	$(HOST_TEST_DIR)/doom_music_test
+	$(HOST_CC) $(HOST_TEST_CFLAGS) tests/host/libc_conformance_subset_test.c -o $(HOST_TEST_DIR)/libc_conformance_subset_test
+	$(HOST_TEST_DIR)/libc_conformance_subset_test
+	$(HOST_CC) $(HOST_TEST_CFLAGS) tests/host/doom_libc_allocator_test.c -o $(HOST_TEST_DIR)/doom_libc_allocator_test
+	$(HOST_TEST_DIR)/doom_libc_allocator_test
+	$(HOST_CC) $(HOST_TEST_CFLAGS) tests/host/libc_runtime_readiness_test.c -o $(HOST_TEST_DIR)/libc_runtime_readiness_test
+	$(HOST_TEST_DIR)/libc_runtime_readiness_test
+	$(HOST_CC) $(HOST_TEST_CFLAGS) tests/host/user_runtime_test.c -o $(HOST_TEST_DIR)/user_runtime_test
+	$(HOST_TEST_DIR)/user_runtime_test
+	@printf "Host C support tests OK.\n"
 
 doom-compile: $(DOOM_ORIGINAL_OBJS)
 	@printf "Compiled %s original Doom source files for freestanding i386.\n" "$$(printf '%s\n' $(DOOM_ORIGINAL_OBJS) | wc -l | tr -d ' ')"

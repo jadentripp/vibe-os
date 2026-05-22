@@ -14,6 +14,46 @@ mkdir -p "$BUILD_DIR"
 "$CHECKER" --require-exec --require-preempt \
   "$ROOT/tests/fixtures/vm_status_krelhaz_ok.txt"
 
+DEVICE_OK="$BUILD_DIR/vm_status_devices_ok.txt"
+DEVICE_BAD="$BUILD_DIR/vm_status_devices_bad.txt"
+cp "$ROOT/tests/fixtures/vm_status_krelhaz_ok.txt" "$DEVICE_OK"
+{
+  printf ' %s' 'inputqueue=00000004'
+  printf ' %s' 'inputdepth=00000001:00000001'
+  printf ' %s' 'inputstat=00000004:00000002:00000001:0000003F'
+  printf ' %s' 'inputpolicy=00000001:0000003F'
+  printf ' %s' 'inputdev=00000001:00000001'
+  printf ' %s' 'inputdevices=00000002:00000003:0000001F:00000001:00000001'
+  printf ' %s' 'inputmods=00000003'
+  printf ' %s' 'inputlast=00000020:00000002:00000002'
+  printf ' %s' 'audio=SB16'
+  printf ' %s' 'adev=00000001:00000001:0000000F'
+  printf ' %s' 'pcmbuf=00001000:00000800:00000000:00000000'
+  printf ' %s' 'pcmstream=00000002:50430001:00000001:00000040:00000040'
+  printf ' %s' 'pcmqueue=00010000:00000040:00000000:00000000:00000000:00000040'
+  printf ' %s' 'pcmpull=00000002:00000001:00000001'
+  printf ' %s' 'pcmdma=00000001:00000000:00000000:00008000:00000000:00000FFF'
+  printf ' %s' 'fb=LFB'
+  printf ' %s' 'fbdev=00000001:00000002:00000003:00000001'
+  printf ' %s' 'fbcap=00000017'
+  printf ' %s' 'fbsrc=00000001:00000140:000000C8:00000140:000000F0:00000100:00000003'
+  printf ' %s' 'fbacct=00000001:00000001:00000000:00000000:00000000:00000001:0000FA00:0000FA00:00000300'
+  printf ' %s' 'fbpresent=00000002:00000001:00000001:00000000:00000003:00000004:00000002:00000140:000000C8'
+  printf ' %s' 'fbinfo=00000001:00000003:00000004'
+  printf ' %s' 'fbmmio=E0000000:00000080:00000380:00000000'
+  printf ' %s' 'fbpolicy=ASP'
+  printf ' %s' 'fbgeom=00000000:00000014:00000140:000000F0:00000001'
+  printf ' %s\n' 'fbdirty=00000000:00000000:00000140:000000C8:00000001'
+} >> "$DEVICE_OK"
+"$CHECKER" --require-exec --require-preempt "$DEVICE_OK"
+sed 's/inputstat=00000004:00000002:00000001:0000003F/inputstat=00000004:00000002:00000002:0000003F/' \
+  "$DEVICE_OK" > "$DEVICE_BAD"
+if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-devices-bad.out 2>&1; then
+  echo "vibe_status_check accepted inconsistent device status accounting" >&2
+  cat /tmp/vibe-status-check-devices-bad.out >&2
+  exit 1
+fi
+
 for bad in \
   vm_status_krelhaz_bad_identity_return.txt \
   vm_status_krelhaz_bad_high_return.txt \
@@ -27,4 +67,5 @@ do
 done
 
 rm -f /tmp/vibe-status-check-bad.out
+rm -f /tmp/vibe-status-check-devices-bad.out
 echo "vibe_status_check self-test OK"

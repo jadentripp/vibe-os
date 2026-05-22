@@ -82,7 +82,7 @@ jobs:
             "mode": "${{ inputs.proof_mode }}",
             "loader_assembly_checked": true,
             "kernel_elf_built": true,
-            "python_removed": true,
+            "legacy_host_scripts_removed": true,
             "ovmf_attempt_green": false,
             "note": "OVMF attempt/prove needs a shell/C PE/COFF packaging and run harness before it can be claimed."
           }

@@ -45,6 +45,58 @@
 #define SYSCALL_RETURN_EFLAGS_SET 0x00000202u
 #define SYSCALL_RETURN_EFLAGS_KEEP_MASK 0xFFF88AFFu
 #define SYS_EXEC_ARGV_SOURCE_USER 2u
+#define VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY 63u
+#define VIBE_INPUT_DEVICE_KEYBOARD 1u
+#define VIBE_INPUT_DEVICE_MOUSE 2u
+#define VIBE_INPUT_EVENT_KEY 1u
+#define VIBE_INPUT_EVENT_MOUSE_PACKET 2u
+#define VIBE_INPUT_QUEUE_OVERFLOW_DROP_OLDEST 1u
+#define VIBE_INPUT_CAP_KEYBOARD 0x00000001u
+#define VIBE_INPUT_CAP_MOUSE 0x00000002u
+#define VIBE_INPUT_CAP_POLL_EVENT 0x00000004u
+#define VIBE_INPUT_CAP_STATUS 0x00000008u
+#define VIBE_INPUT_CAP_DEVICE_STATUS 0x00000010u
+#define VIBE_INPUT_REQUIRED_CAPS \
+    (VIBE_INPUT_CAP_POLL_EVENT | VIBE_INPUT_CAP_STATUS | VIBE_INPUT_CAP_DEVICE_STATUS)
+#define VIBE_INPUT_MOD_MASK 0x00000007u
+#define VIBE_INPUT_DEVICE_STATUS_READY 1u
+#define VIBE_INPUT_DEVICE_STATUS_ERROR 2u
+#define AUDIO_DEVICE_NONE 0u
+#define AUDIO_DEVICE_SB16 1u
+#define AUDIO_CAP_PCM_RING 0x00000001u
+#define AUDIO_CAP_MIXER_VOICES 0x00000002u
+#define AUDIO_CAP_PULL_STREAM 0x00000004u
+#define AUDIO_CAP_SB16_DMA 0x00000008u
+#define AUDIO_REQUIRED_CAPS \
+    (AUDIO_CAP_PCM_RING | AUDIO_CAP_MIXER_VOICES | AUDIO_CAP_PULL_STREAM | AUDIO_CAP_SB16_DMA)
+#define AUDIO_PCM_QUEUE_BYTES 65536u
+#define SB16_DMA_BUFFER_BYTES 4096u
+#define SB16_DMA_BLOCK_BYTES 2048u
+#define AUDIO_STREAM_PULL 2u
+#define SB16_DMA_STATUS_FAIL 2u
+#define SB16_DMA_ERROR_DSP 2u
+#define VIDEO_BACKEND_MODE13 1u
+#define VIDEO_BACKEND_LFB_XRGB8888 2u
+#define FRAMEBUFFER_HANDOFF_SOURCE_VGA_MODE13 1u
+#define FRAMEBUFFER_HANDOFF_SOURCE_GOP 3u
+#define VIBE_FB_CAP_PRESENT_INDEXED 0x00000001u
+#define VIBE_FB_CAP_PRESENT_RGB_PALETTE 0x00000002u
+#define VIBE_FB_CAP_XRGB8888_LFB 0x00000004u
+#define VIBE_FB_CAP_MODE13_SHADOW 0x00000008u
+#define VIBE_FB_CAP_DIRTY_SOURCE_RECT 0x00000010u
+#define VIBE_FB_CAP_FIXED_PRESENT_SIZE 0x00000020u
+#define VIBE_FB_REQUIRED_CAPS \
+    (VIBE_FB_CAP_PRESENT_INDEXED | VIBE_FB_CAP_PRESENT_RGB_PALETTE | VIBE_FB_CAP_DIRTY_SOURCE_RECT)
+#define VIBE_FB_FORMAT_INDEX8_RGB24 1u
+#define FRAMEBUFFER_ABI_VERSION 1u
+#define FRAMEBUFFER_PRESENT_SEMANTICS_INDEXED_SOURCE 1u
+#define FB_PRESENT_WIDTH 320u
+#define FB_PRESENT_HEIGHT 200u
+#define FB_PRESENT_ASPECT_HEIGHT 240u
+#define FB_PRESENT_FRAME_BYTES (FB_PRESENT_WIDTH * FB_PRESENT_HEIGHT)
+#define FB_PRESENT_PALETTE_ENTRIES 256u
+#define FB_PRESENT_PALETTE_ENTRY_BYTES 3u
+#define FB_PRESENT_PALETTE_BYTES (FB_PRESENT_PALETTE_ENTRIES * FB_PRESENT_PALETTE_ENTRY_BYTES)
 
 typedef struct {
     const char *name;
@@ -750,6 +802,262 @@ static void validate_preemption(const Status *status) {
     }
 }
 
+static void validate_input_devices(const Status *status) {
+    uint32_t queue_total;
+    uint32_t depth[2];
+    uint32_t stat[4];
+    uint32_t policy[2];
+    uint32_t dev[2];
+    uint32_t devices[5];
+    uint32_t last[3];
+    uint64_t accounted;
+
+    if (!has_field(status, "inputstat")) {
+        return;
+    }
+
+    queue_total = hex_field(status, "inputqueue");
+    hex_tuple(status, "inputdepth", 2, ':', depth);
+    hex_tuple(status, "inputstat", 4, ':', stat);
+    hex_tuple(status, "inputpolicy", 2, ':', policy);
+    hex_tuple(status, "inputdev", 2, ':', dev);
+    hex_tuple(status, "inputdevices", 5, ':', devices);
+    hex_tuple(status, "inputlast", 3, ':', last);
+
+    if (queue_total != stat[0]) {
+        fail("inputqueue= must mirror inputstat total events");
+    }
+    if (stat[3] != VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY ||
+        policy[1] != VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY) {
+        fail("inputstat=/inputpolicy= must expose the generic queue usable capacity");
+    }
+    if (policy[0] != VIBE_INPUT_QUEUE_OVERFLOW_DROP_OLDEST) {
+        fail("inputpolicy= must prove drop-oldest overflow handling");
+    }
+    if (depth[0] > stat[3]) {
+        fail("inputdepth= queued events must not exceed usable capacity");
+    }
+    if (depth[1] != stat[2]) {
+        fail("inputdepth= drop count must mirror inputstat dropped events");
+    }
+    accounted = (uint64_t)stat[1] + (uint64_t)stat[2] + (uint64_t)depth[0];
+    if (accounted != (uint64_t)stat[0]) {
+        fail("inputstat= total must equal polled + dropped + queued events");
+    }
+    if (dev[0] > VIBE_INPUT_DEVICE_STATUS_ERROR || dev[1] > VIBE_INPUT_DEVICE_STATUS_ERROR) {
+        fail("inputdev= contains an unknown device status");
+    }
+    if (devices[0] != 2u || (devices[1] & ~0x3u) != 0u) {
+        fail("inputdevices= must describe exactly keyboard and mouse");
+    }
+    if ((devices[2] & VIBE_INPUT_REQUIRED_CAPS) != VIBE_INPUT_REQUIRED_CAPS) {
+        fail("inputdevices= must expose generic poll, status, and device-status caps");
+    }
+    if (dev[0] == VIBE_INPUT_DEVICE_STATUS_READY) {
+        if ((devices[1] & 0x1u) == 0u || (devices[2] & VIBE_INPUT_CAP_KEYBOARD) == 0u) {
+            fail("inputdevices= must mark the ready keyboard in the ready mask and caps");
+        }
+    }
+    if (dev[1] == VIBE_INPUT_DEVICE_STATUS_READY) {
+        if ((devices[1] & 0x2u) == 0u || (devices[2] & VIBE_INPUT_CAP_MOUSE) == 0u) {
+            fail("inputdevices= must mark the ready mouse in the ready mask and caps");
+        }
+    }
+    if (devices[3] + devices[4] != stat[1]) {
+        fail("inputdevices= per-device poll counts must add up to inputstat polled events");
+    }
+    if (hex_field(status, "inputmods") & ~VIBE_INPUT_MOD_MASK) {
+        fail("inputmods= must stay inside the public modifier bitmask");
+    }
+    if (last[1] == 0u) {
+        if (last[2] != 0u) {
+            fail("inputlast= cannot report an event type without a device");
+        }
+    } else if (last[1] == VIBE_INPUT_DEVICE_KEYBOARD) {
+        if (last[2] != VIBE_INPUT_EVENT_KEY) {
+            fail("inputlast= keyboard events must use the key event type");
+        }
+    } else if (last[1] == VIBE_INPUT_DEVICE_MOUSE) {
+        if (last[2] != VIBE_INPUT_EVENT_MOUSE_PACKET) {
+            fail("inputlast= mouse events must use the mouse packet event type");
+        }
+    } else {
+        fail("inputlast= contains an unknown device id");
+    }
+}
+
+static void validate_audio_device(const Status *status) {
+    uint32_t adev[3];
+    uint32_t pcmbuf[4];
+    uint32_t pcmstream[5];
+    uint32_t pcmqueue[6];
+    uint32_t pcmpull[3];
+    uint32_t pcmdma[6];
+
+    if (!has_field(status, "adev")) {
+        return;
+    }
+
+    hex_tuple(status, "adev", 3, ':', adev);
+    if (has_field(status, "audio")) {
+        const char *audio = field(status, "audio");
+        if (strcmp(audio, "SB16") == 0) {
+            if (adev[0] != AUDIO_DEVICE_SB16 || adev[1] != VIBE_INPUT_DEVICE_STATUS_READY ||
+                (adev[2] & AUDIO_REQUIRED_CAPS) != AUDIO_REQUIRED_CAPS) {
+                fail("adev= must match audio=SB16 with PCM ring, mixer, pull, and DMA caps");
+            }
+        } else if (strcmp(audio, "NONE") == 0) {
+            if (adev[0] != AUDIO_DEVICE_NONE || adev[2] != 0u) {
+                fail("adev= must clear kind and caps when audio=NONE");
+            }
+        } else {
+            fail("audio= must be SB16 or NONE");
+        }
+    }
+
+    hex_tuple(status, "pcmbuf", 4, ':', pcmbuf);
+    if (pcmbuf[0] != SB16_DMA_BUFFER_BYTES || pcmbuf[1] != SB16_DMA_BLOCK_BYTES ||
+        pcmbuf[2] >= pcmbuf[0] || pcmbuf[3] > 1u) {
+        fail("pcmbuf= must describe the bounded SB16 DMA ring");
+    }
+
+    hex_tuple(status, "pcmstream", 5, ':', pcmstream);
+    if (pcmstream[0] > AUDIO_STREAM_PULL || pcmstream[2] > 1u ||
+        pcmstream[3] > AUDIO_PCM_QUEUE_BYTES) {
+        fail("pcmstream= must describe a bounded pull stream");
+    }
+    if (pcmstream[2] != 0u && pcmstream[0] == 0u) {
+        fail("pcmstream= active streams must have a nonzero stream mode");
+    }
+
+    hex_tuple(status, "pcmqueue", 6, ':', pcmqueue);
+    if (pcmqueue[0] != 0u && pcmqueue[0] != AUDIO_PCM_QUEUE_BYTES) {
+        fail("pcmqueue= capacity must be either absent or the generic PCM queue size");
+    }
+    if (pcmqueue[1] > pcmqueue[0] || pcmqueue[5] > pcmqueue[0]) {
+        fail("pcmqueue= byte counters must stay within queue capacity");
+    }
+
+    hex_tuple(status, "pcmpull", 3, ':', pcmpull);
+    if (pcmpull[2] != (pcmpull[0] > pcmpull[1] ? pcmpull[0] - pcmpull[1] : 0u)) {
+        fail("pcmpull= pending count must derive from requests minus refills");
+    }
+
+    hex_tuple(status, "pcmdma", 6, ':', pcmdma);
+    if (pcmdma[0] > SB16_DMA_STATUS_FAIL || pcmdma[1] > SB16_DMA_ERROR_DSP ||
+        pcmdma[5] >= SB16_DMA_BUFFER_BYTES) {
+        fail("pcmdma= must expose bounded DMA status, error, and transfer count");
+    }
+}
+
+static void validate_framebuffer_device(const Status *status) {
+    uint32_t fbpresent[9];
+    uint32_t fbinfo[3];
+    uint32_t fbsrc[7];
+    uint32_t fbacct[9];
+    uint32_t fbdev[4];
+    uint32_t fbmmio[4];
+    uint32_t fbgeom[5];
+    uint32_t fbdirty[5];
+    uint32_t fbcap;
+    uint32_t backend;
+
+    if (!has_field(status, "fbdev")) {
+        return;
+    }
+
+    hex_tuple(status, "fbdev", 4, ':', fbdev);
+    backend = fbdev[1];
+    if (fbdev[0] != VIBE_INPUT_DEVICE_STATUS_READY ||
+        (backend != VIDEO_BACKEND_MODE13 && backend != VIDEO_BACKEND_LFB_XRGB8888) ||
+        fbdev[2] < FRAMEBUFFER_HANDOFF_SOURCE_VGA_MODE13 ||
+        fbdev[2] > FRAMEBUFFER_HANDOFF_SOURCE_GOP || fbdev[3] > VIBE_INPUT_DEVICE_STATUS_ERROR) {
+        fail("fbdev= must describe a ready mode13 or XRGB8888 framebuffer device");
+    }
+    if (has_field(status, "fb")) {
+        const char *fb = field(status, "fb");
+        if ((backend == VIDEO_BACKEND_LFB_XRGB8888 && strcmp(fb, "LFB") != 0) ||
+            (backend == VIDEO_BACKEND_MODE13 && strcmp(fb, "M13") != 0)) {
+            fail("fb= must match fbdev backend");
+        }
+    }
+    if (has_field(status, "fbpolicy")) {
+        const char *policy = field(status, "fbpolicy");
+        if (strcmp(policy, "M13") != 0 && strcmp(policy, "ASP") != 0 &&
+            strcmp(policy, "SQ") != 0) {
+            fail("fbpolicy= must be M13, ASP, or SQ");
+        }
+    }
+
+    fbcap = hex_field(status, "fbcap");
+    if ((fbcap & VIBE_FB_REQUIRED_CAPS) != VIBE_FB_REQUIRED_CAPS) {
+        fail("fbcap= must expose indexed present, RGB palette, and dirty rect caps");
+    }
+    if (backend == VIDEO_BACKEND_LFB_XRGB8888) {
+        if ((fbcap & VIBE_FB_CAP_XRGB8888_LFB) == 0u || fbdev[3] != VIBE_INPUT_DEVICE_STATUS_READY) {
+            fail("fbdev=/fbcap= must prove mapped XRGB8888 LFB support for the LFB backend");
+        }
+    } else if ((fbcap & (VIBE_FB_CAP_MODE13_SHADOW | VIBE_FB_CAP_FIXED_PRESENT_SIZE)) !=
+               (VIBE_FB_CAP_MODE13_SHADOW | VIBE_FB_CAP_FIXED_PRESENT_SIZE)) {
+        fail("fbcap= must expose mode13 shadow and fixed-size semantics for the mode13 backend");
+    }
+
+    hex_tuple(status, "fbsrc", 7, ':', fbsrc);
+    if (fbsrc[0] != VIBE_FB_FORMAT_INDEX8_RGB24 || fbsrc[1] != FB_PRESENT_WIDTH ||
+        fbsrc[2] != FB_PRESENT_HEIGHT || fbsrc[3] != FB_PRESENT_WIDTH ||
+        fbsrc[4] != FB_PRESENT_ASPECT_HEIGHT || fbsrc[5] != FB_PRESENT_PALETTE_ENTRIES ||
+        fbsrc[6] != FB_PRESENT_PALETTE_ENTRY_BYTES) {
+        fail("fbsrc= must describe the public indexed 320x200 RGB24 source ABI");
+    }
+
+    hex_tuple(status, "fbacct", 9, ':', fbacct);
+    if (fbacct[0] != FRAMEBUFFER_ABI_VERSION ||
+        fbacct[1] != FRAMEBUFFER_PRESENT_SEMANTICS_INDEXED_SOURCE ||
+        (fbacct[5] != 0u && (fbacct[7] != FB_PRESENT_FRAME_BYTES ||
+                             fbacct[8] != FB_PRESENT_PALETTE_BYTES))) {
+        fail("fbacct= must expose the indexed-present ABI and source byte accounting");
+    }
+
+    hex_tuple(status, "fbpresent", 9, ':', fbpresent);
+    if (fbpresent[0] != fbpresent[1] + fbpresent[2]) {
+        fail("fbpresent= total must equal syscall plus ioctl present counts");
+    }
+    if (fbpresent[0] != 0u &&
+        (fbpresent[6] == 0u || fbpresent[7] > FB_PRESENT_WIDTH ||
+         fbpresent[8] > FB_PRESENT_HEIGHT)) {
+        fail("fbpresent= must report a bounded last present source and size");
+    }
+
+    hex_tuple(status, "fbinfo", 3, ':', fbinfo);
+    if (fbinfo[0] != 0u && (fbinfo[1] == 0u || fbinfo[2] == 0u)) {
+        fail("fbinfo= must account the querying process for nonzero info queries");
+    }
+
+    hex_tuple(status, "fbmmio", 4, ':', fbmmio);
+    if (backend == VIDEO_BACKEND_LFB_XRGB8888 && (fbmmio[0] == 0u || fbmmio[1] == 0u)) {
+        fail("fbmmio= must expose mapped MMIO pages for the LFB backend");
+    }
+
+    hex_tuple(status, "fbgeom", 5, ':', fbgeom);
+    if (fbgeom[2] == 0u || fbgeom[3] == 0u || fbgeom[4] == 0u ||
+        fbgeom[2] > FB_PRESENT_WIDTH * 4u || fbgeom[3] > FB_PRESENT_HEIGHT * 4u) {
+        fail("fbgeom= must describe a bounded nonzero present view");
+    }
+
+    hex_tuple(status, "fbdirty", 5, ':', fbdirty);
+    if (fbdirty[2] > FB_PRESENT_WIDTH || fbdirty[3] > FB_PRESENT_HEIGHT ||
+        fbdirty[0] + fbdirty[2] > FB_PRESENT_WIDTH ||
+        fbdirty[1] + fbdirty[3] > FB_PRESENT_HEIGHT) {
+        fail("fbdirty= must stay inside the indexed source rectangle");
+    }
+}
+
+static void validate_device_status(const Status *status) {
+    validate_input_devices(status);
+    validate_audio_device(status);
+    validate_framebuffer_device(status);
+}
+
 static void validate_status_file(const char *path, const CheckOptions *opts) {
     Status status;
 
@@ -767,6 +1075,7 @@ static void validate_status_file(const char *path, const CheckOptions *opts) {
     if (opts->require_preempt) {
         validate_preemption(&status);
     }
+    validate_device_status(&status);
     free(status.text);
 }
 
