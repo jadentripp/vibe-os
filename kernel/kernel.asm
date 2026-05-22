@@ -28,8 +28,8 @@ VGA_GRAPHICS_BUFFER equ 0x000a0000
 VGA_COLS equ 80
 VGA_ROWS equ 25
 VGA_ATTR equ 0x0f
-SMOKE_STATUS_ADDR equ 0x00076000
-SMOKE_STATUS_BYTES equ 40960
+SMOKE_STATUS_ADDR equ 0x00040000
+SMOKE_STATUS_BYTES equ 131072
 DOOM_LOG_BYTES equ 32
 KEY_QUEUE_SIZE equ 32
 KEY_QUEUE_MASK equ KEY_QUEUE_SIZE - 1
@@ -24682,6 +24682,8 @@ draw_timer_status:
     ret
 
 write_smoke_status:
+    pushfd
+    cli
     push eax
     push ebx
     push ecx
@@ -28904,6 +28906,7 @@ write_smoke_status:
     pop ecx
     pop ebx
     pop eax
+    popfd
     ret
 
 smoke_copy_string:
