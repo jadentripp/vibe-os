@@ -27,10 +27,11 @@ feeds the SB16 PCM path.
 Ring 3 is the CPU's normal user-program privilege level. Here it means Doom
 crosses a syscall boundary like another small C program would.
 
-Save/config file plumbing exists, and the persistence lane now has a small C
-FAT-image checker for `DEFAULT.CFG`, `DOOMSAV*.DSG`, reboot status, and dynamic
-FAT evidence. Full reboot save/load is still not green until a fresh cloud run
-proves a save survives reboot and loads back into gameplay.
+Save/config persistence is green in the cloud too. The proof lane writes
+`DEFAULT.CFG`, creates a real Doom save in `DOOMSAV*.DSG`, reboots the same
+mutated FAT image, reads the save back, and returns to gameplay. A small C
+FAT-image checker verifies the files and guest status instead of relying on a
+host script to guess what happened.
 
 Long-form evidence, historical failures, and workflow dispatch examples live in
 `docs/proof.txt`. The short version: Doom is playable through the safe cloud
