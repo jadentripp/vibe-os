@@ -274,6 +274,10 @@ IOAPIC_REG_ID equ 0x00
 IOAPIC_REG_VERSION equ 0x01
 HPET_GAS_SYSTEM_MEMORY equ 0
 HPET_REG_GENERAL_CAP_ID equ 0x000
+HPET_REG_GENERAL_CONFIG equ 0x010
+HPET_REG_MAIN_COUNTER equ 0x0f0
+HPET_CONFIG_ENABLE equ 0x00000001
+HPET_COUNTER_SPIN_READS equ 100000
 ACPI_STATUS_NONE equ 0
 ACPI_STATUS_OK equ 1
 ACPI_STATUS_BAD equ 2
@@ -2267,6 +2271,11 @@ acpi_probe_tables:
     mov dword [hpet_mmio_addr], 0
     mov dword [hpet_mmio_cap_low], 0
     mov dword [hpet_mmio_cap_high], 0
+    mov byte [hpet_counter_status], MMIO_PROBE_NONE
+    mov dword [hpet_counter_config], 0
+    mov dword [hpet_counter_start_low], 0
+    mov dword [hpet_counter_end_low], 0
+    mov dword [hpet_counter_delta_low], 0
 
     movzx esi, word [ACPI_RSDP_EBDA_SEG_PTR]
     shl esi, 4
@@ -2867,10 +2876,52 @@ acpi_probe_hpet_mmio:
     mov [hpet_mmio_cap_low], eax
     mov eax, [esi + HPET_REG_GENERAL_CAP_ID + 4]
     mov [hpet_mmio_cap_high], eax
+    call acpi_probe_hpet_counter
     mov byte [hpet_mmio_status], MMIO_PROBE_OK
 
 .done:
     popad
+    ret
+
+acpi_probe_hpet_counter:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    mov byte [hpet_counter_status], MMIO_PROBE_BAD
+    mov eax, [esi + HPET_REG_GENERAL_CONFIG]
+    mov [hpet_counter_config], eax
+    mov ebx, eax
+    or eax, HPET_CONFIG_ENABLE
+    mov [esi + HPET_REG_GENERAL_CONFIG], eax
+    mov eax, [esi + HPET_REG_MAIN_COUNTER]
+    mov [hpet_counter_start_low], eax
+    mov ecx, HPET_COUNTER_SPIN_READS
+
+.spin:
+    mov edx, [esi + HPET_REG_MAIN_COUNTER]
+    loop .spin
+
+    mov [hpet_counter_end_low], edx
+    mov eax, edx
+    sub eax, [hpet_counter_start_low]
+    mov [hpet_counter_delta_low], eax
+    test eax, eax
+    jz .restore
+    mov byte [hpet_counter_status], MMIO_PROBE_OK
+
+.restore:
+    test ebx, HPET_CONFIG_ENABLE
+    jnz .done
+    mov [esi + HPET_REG_GENERAL_CONFIG], ebx
+
+.done:
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
     ret
 
 acpi_checksum8:
@@ -27472,6 +27523,19 @@ write_smoke_status:
     mov edx, [hpet_mmio_cap_high]
     call smoke_write_slash_hex32
 
+    mov esi, smoke_hpetcount_text
+    call smoke_copy_string
+    movzx edx, byte [hpet_counter_status]
+    call smoke_write_hex32
+    mov edx, [hpet_counter_config]
+    call smoke_write_slash_hex32
+    mov edx, [hpet_counter_start_low]
+    call smoke_write_slash_hex32
+    mov edx, [hpet_counter_end_low]
+    call smoke_write_slash_hex32
+    mov edx, [hpet_counter_delta_low]
+    call smoke_write_slash_hex32
+
     mov esi, smoke_apic_text
     call smoke_copy_string
 
@@ -31202,6 +31266,7 @@ smoke_hpetaddr_text db " hpetaddr=", 0
 smoke_apicprobe_text db " apicprobe=", 0
 smoke_ioapicprobe_text db " ioapicprobe=", 0
 smoke_hpetprobe_text db " hpetprobe=", 0
+smoke_hpetcount_text db " hpetcount=", 0
 smoke_apic_text db " apic=NONE", 0
 smoke_hpet_text db " hpet=NONE", 0
 smoke_gflags_text db " gflags=", 0
@@ -31787,6 +31852,7 @@ acpi_hpet_parse_status db 0
 lapic_mmio_status db 0
 ioapic_mmio_status db 0
 hpet_mmio_status db 0
+hpet_counter_status db 0
 align 4
 acpi_rsdp_addr dd 0
 acpi_rsdp_length dd 0
@@ -31842,6 +31908,10 @@ ioapic_mmio_version dd 0
 hpet_mmio_addr dd 0
 hpet_mmio_cap_low dd 0
 hpet_mmio_cap_high dd 0
+hpet_counter_config dd 0
+hpet_counter_start_low dd 0
+hpet_counter_end_low dd 0
+hpet_counter_delta_low dd 0
 bios_boot_magic dd 0
 bios_boot_version dd 0
 bios_boot_loader_status dd 0
