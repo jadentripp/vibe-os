@@ -74,8 +74,13 @@ Manual play:
   tracked VFS syscall with `vfsabi=000003FF/000003FF/00000200` and nonzero
   `vfsops` counters. Remaining work is deeper filesystem generality, especially
   long-lived allocation/free/truncate behavior beyond the current proof.
-- `GAP[INPUT_GENERALITY] status=open`: keyboard and mouse should feed one
-  generic event queue consumed by any process.
+- `GAP[INPUT_GENERALITY] status=partial`: keyboard and mouse feed one generic
+  event queue, and the non-Doom `ABIPROBE.ELF` path now exercises the generic
+  input ABI. Cloud run `26295614066` proved
+  `input_abi=0000000F/0000000F/00000008/00000004/00000000` and
+  `guest_input_abi_proof=true`: poll, aggregate status, keyboard status, and
+  mouse status all ran outside Doom. Remaining work is a second interactive
+  non-Doom input client and deeper stress of overflow/device lifecycle behavior.
 - `GAP[GRAPHICS_GENERALITY] status=partial`: framebuffer presentation is now
   exercised through the generic user framebuffer ABI by `ABIPROBE.ELF`, not
   only by Doom. Cloud run `26294806487` proved
