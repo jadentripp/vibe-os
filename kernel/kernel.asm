@@ -265,6 +265,9 @@ ACPI_HPET_PAGE_PROT_OFF equ 55
 MMIO_PROBE_NONE equ 0
 MMIO_PROBE_OK equ 1
 MMIO_PROBE_BAD equ 2
+IRQ_EOI_NONE equ 0
+IRQ_EOI_MASTER equ 1
+IRQ_EOI_SLAVE equ 2
 LAPIC_REG_ID equ 0x020
 LAPIC_REG_VERSION equ 0x030
 LAPIC_REG_SPURIOUS equ 0x0f0
@@ -25595,8 +25598,7 @@ irq_timer:
     call clock_note_scheduler_irq_path
     call draw_timer_status
     call write_smoke_status
-    mov al, 0x20
-    out 0x20, al
+    call irq_send_master_eoi
     IRQ_RETURN
 
 irq_keyboard:
@@ -25612,8 +25614,7 @@ irq_keyboard:
     call keyboard_queue_scancode
 
 .eoi:
-    mov al, 0x20
-    out 0x20, al
+    call irq_send_master_eoi
     IRQ_RETURN
 
 .aux_byte:
@@ -25635,9 +25636,7 @@ irq_mouse:
     call mouse_queue_byte
 
 .eoi:
-    mov al, 0x20
-    out 0xa0, al
-    out 0x20, al
+    call irq_send_slave_eoi
     IRQ_RETURN
 
 .keyboard_byte:
@@ -25654,9 +25653,7 @@ irq_ide_primary:
     movzx eax, al
     mov [ata_irq_status], eax
     mov [ata_last_status], eax
-    mov al, 0x20
-    out 0xa0, al
-    out 0x20, al
+    call irq_send_slave_eoi
     IRQ_RETURN
 
 irq_audio:
@@ -25700,22 +25697,38 @@ irq_audio:
     call sb16_refill_active_half
 
 .send_eoi:
-    mov al, 0x20
-    out 0x20, al
+    call irq_send_master_eoi
     IRQ_RETURN
 
 irq_ignore_master:
     IRQ_ENTER
-    mov al, 0x20
-    out 0x20, al
+    call irq_send_master_eoi
     IRQ_RETURN
 
 irq_ignore_slave:
     IRQ_ENTER
+    call irq_send_slave_eoi
+    IRQ_RETURN
+
+irq_send_master_eoi:
+    push eax
+    mov al, 0x20
+    out 0x20, al
+    inc dword [irq_eoi_master_count]
+    mov dword [irq_eoi_last_kind], IRQ_EOI_MASTER
+    pop eax
+    ret
+
+irq_send_slave_eoi:
+    push eax
     mov al, 0x20
     out 0xa0, al
     out 0x20, al
-    IRQ_RETURN
+    inc dword [irq_eoi_slave_count]
+    inc dword [irq_eoi_master_count]
+    mov dword [irq_eoi_last_kind], IRQ_EOI_SLAVE
+    pop eax
+    ret
 
 draw_timer_status:
     push eax
@@ -27600,6 +27613,14 @@ write_smoke_status:
 
     mov esi, smoke_irqctl_text
     call smoke_copy_string
+    mov esi, smoke_irqeoi_text
+    call smoke_copy_string
+    mov edx, [irq_eoi_master_count]
+    call smoke_write_hex32
+    mov edx, [irq_eoi_slave_count]
+    call smoke_write_slash_hex32
+    mov edx, [irq_eoi_last_kind]
+    call smoke_write_slash_hex32
 
     mov esi, smoke_acpi_text
     call smoke_copy_string
@@ -31569,6 +31590,7 @@ smoke_clockpirq_text db " clockpirq=", 0
 smoke_cpuid_text db " cpuid=", 0
 smoke_apicbase_text db " apicbase=", 0
 smoke_irqctl_text db " irqctl=PIC", 0
+smoke_irqeoi_text db " irqeoi=", 0
 smoke_acpi_text db " acpi=", 0
 smoke_acpisrc_text db " acpisrc=", 0
 smoke_acpiver_text db " acpiver=", 0
@@ -32054,6 +32076,9 @@ cpu_apic_base_msr_low dd 0
 cpu_apic_base_msr_high dd 0
 cpu_apic_base_addr dd 0
 cpu_apic_base_flags dd 0
+irq_eoi_master_count dd 0
+irq_eoi_slave_count dd 0
+irq_eoi_last_kind dd 0
 user_elf_status db 0
 user_elf_parse_status db 0
 boot_user_exec_status db 0

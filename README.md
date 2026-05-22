@@ -138,7 +138,10 @@ override, so future routing work can use the actual table shape. The HPET probe
 also verifies that the main counter advances, and the status path refreshes a
 live HPET counter sample after boot. Kernel MMIO pages are copied into every
 process page directory as supervisor-only mappings, so Ring 0 interrupt code
-can reach device registers even when it interrupted a Ring 3 process.
+can reach device registers even when it interrupted a Ring 3 process. IRQ
+handlers now send end-of-interrupt through a shared assembly EOI helper and
+publish `irqeoi=`, which keeps the live path PIC-backed while giving APIC work
+a real handoff point.
 APIC/IOAPIC routing and HPET clock ownership are still unclaimed; the live
 status still says `irqctl=PIC`, `apic=NONE`, and `hpet=NONE`.
 
