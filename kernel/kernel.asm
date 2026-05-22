@@ -5253,12 +5253,28 @@ pmm_init:
     mov ecx, WAD_MAX_BYTES / PAGE_SIZE
     call pmm_reserve_pages
 
+    mov eax, USER_CODE_ADDR - PAGE_SIZE
+    mov ecx, 1
+    call pmm_reserve_pages
+
     mov eax, USER_CODE_ADDR
     mov ecx, (USER_HEAP_END - USER_CODE_ADDR) / PAGE_SIZE
     call pmm_reserve_pages
 
+    mov eax, USER_HEAP_END
+    mov ecx, 1
+    call pmm_reserve_pages
+
+    mov eax, DOOM_USER_BASE - PAGE_SIZE
+    mov ecx, 1
+    call pmm_reserve_pages
+
     mov eax, DOOM_USER_BASE
     mov ecx, (DOOM_USER_END - DOOM_USER_BASE) / PAGE_SIZE
+    call pmm_reserve_pages
+
+    mov eax, DOOM_USER_STACK_TOP
+    mov ecx, 1
     call pmm_reserve_pages
 
     mov eax, FAT_TABLE_CACHE_ADDR
