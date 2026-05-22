@@ -92,15 +92,24 @@ USER_PROBE_ELF_MAX_BYTES := 16384
 USER_ABI_PROBE_ELF_MAX_BYTES := 24576
 IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF)
 
-.PHONY: all build-only test host-c-tests doom-compile doom-link run run-headless smoke playability-host-check playability-gap-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image ahci-block-status-check hardware-support-check storage-install-boundary-check storage-vfs-status-check real-wad-status-check vm-entry-status-check audio-continuity-check cloud-playability-check persistence-image-check clean check-tools vm-consent
+.PHONY: all build-only test host-c-tests no-python-check doom-compile doom-link run run-headless smoke playability-host-check playability-gap-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image ahci-block-status-check hardware-support-check storage-install-boundary-check storage-vfs-status-check real-wad-status-check vm-entry-status-check audio-continuity-check cloud-playability-check persistence-image-check clean check-tools vm-consent
 
 all: $(IMAGE)
 
 build-only: $(IMAGE) doom-link
 	@printf "Build-only check OK: %s, %s, and %s are present.\n" "$(IMAGE)" "$(DOOM_ELF)" "$(USER_ABI_PROBE_ELF)"
 
-test: $(IMAGE) doom-link vm-status-proof-check host-c-tests
+test: no-python-check $(IMAGE) doom-link vm-status-proof-check host-c-tests
 	@printf "Assembly-first host checks OK: image build, Doom link, guest status validator, and C support checks passed.\n"
+
+no-python-check:
+	@set -e; \
+	files="$$(git ls-files '*.py' ':(exclude)third_party/**' ':(exclude)build/**' ':(exclude)out/**')"; \
+	if [ -n "$$files" ]; then \
+		printf "Tracked Python is not allowed in the vibe-os build/proof path:\n%s\n" "$$files" >&2; \
+		exit 1; \
+	fi; \
+	printf "No tracked Python in the vibe-os build/proof path.\n"
 
 $(HOST_TEST_DIR):
 	@mkdir -p $@

@@ -20853,16 +20853,30 @@ user_elf_prepare:
     jc .fail
     mov [user_segment_source], eax
 
+    inc dword [process_exec_copy_segment_count]
+    mov eax, [user_segment_source]
+    mov [process_exec_copy_last_source], eax
+    mov eax, [user_segment_dest]
+    mov [process_exec_copy_last_dest], eax
+    mov eax, [user_segment_filesz]
+    mov [process_exec_copy_last_filesz], eax
+    mov eax, [user_segment_memsz]
+    mov [process_exec_copy_last_memsz], eax
+
     pushfd
     cli
     mov eax, cr3
     push eax
+    mov [process_exec_copy_last_old_cr3], eax
+    mov [process_exec_copy_last_target_cr3], eax
     mov ebx, [process_exec_target]
     cmp ebx, 0
     je .user_copy_address_space_ready
     mov eax, [ebx + PROC_PAGE_DIR]
     test eax, eax
     jz .user_copy_address_space_ready
+    mov [process_exec_copy_last_target_cr3], eax
+    inc dword [process_exec_copy_cr3_switches]
     mov cr3, eax
 
 .user_copy_address_space_ready:
@@ -20878,6 +20892,7 @@ user_elf_prepare:
     rep stosb
     pop eax
     mov cr3, eax
+    inc dword [process_exec_copy_cr3_restores]
     popfd
 
     mov eax, [user_segment_dest]
@@ -21047,16 +21062,30 @@ doom_elf_prepare:
     mov eax, [esi + ELF_PH_FLAGS]
     mov [doom_segment_flags], eax
 
+    inc dword [process_exec_copy_segment_count]
+    mov eax, [doom_segment_source]
+    mov [process_exec_copy_last_source], eax
+    mov eax, [doom_segment_dest]
+    mov [process_exec_copy_last_dest], eax
+    mov eax, [doom_segment_filesz]
+    mov [process_exec_copy_last_filesz], eax
+    mov eax, [doom_segment_memsz]
+    mov [process_exec_copy_last_memsz], eax
+
     pushfd
     cli
     mov eax, cr3
     push eax
+    mov [process_exec_copy_last_old_cr3], eax
+    mov [process_exec_copy_last_target_cr3], eax
     mov ebx, [process_exec_target]
     cmp ebx, 0
     je .doom_copy_address_space_ready
     mov eax, [ebx + PROC_PAGE_DIR]
     test eax, eax
     jz .doom_copy_address_space_ready
+    mov [process_exec_copy_last_target_cr3], eax
+    inc dword [process_exec_copy_cr3_switches]
     mov cr3, eax
 
 .doom_copy_address_space_ready:
@@ -21072,6 +21101,7 @@ doom_elf_prepare:
     rep stosb
     pop eax
     mov cr3, eax
+    inc dword [process_exec_copy_cr3_restores]
     popfd
 
     mov eax, [doom_segment_dest]
@@ -26676,6 +26706,26 @@ write_smoke_status:
     mov edx, [process_exec_last_target_kind]
     call smoke_write_slash_hex32
     mov edx, [process_exec_last_generic_pid]
+    call smoke_write_slash_hex32
+    mov esi, smoke_execcopy_text
+    call smoke_copy_string
+    mov edx, [process_exec_copy_segment_count]
+    call smoke_write_hex32
+    mov edx, [process_exec_copy_cr3_switches]
+    call smoke_write_slash_hex32
+    mov edx, [process_exec_copy_cr3_restores]
+    call smoke_write_slash_hex32
+    mov edx, [process_exec_copy_last_old_cr3]
+    call smoke_write_slash_hex32
+    mov edx, [process_exec_copy_last_target_cr3]
+    call smoke_write_slash_hex32
+    mov edx, [process_exec_copy_last_source]
+    call smoke_write_slash_hex32
+    mov edx, [process_exec_copy_last_dest]
+    call smoke_write_slash_hex32
+    mov edx, [process_exec_copy_last_filesz]
+    call smoke_write_slash_hex32
+    mov edx, [process_exec_copy_last_memsz]
     call smoke_write_slash_hex32
     mov esi, smoke_execerr_text
     call smoke_copy_string
@@ -32374,6 +32424,7 @@ smoke_exec_text db "exec=", 0
 smoke_exec_path_text db " path=", 0
 smoke_execsys_text db " execsys=", 0
 smoke_execmap_text db " execmap=", 0
+smoke_execcopy_text db " execcopy=", 0
 smoke_execerr_text db " execerr=", 0
 smoke_execres_text db " execres=", 0
 smoke_exec_target_text db " target=", 0
@@ -33714,6 +33765,15 @@ process_exec_last_caller_kind dd USER_KIND_NONE
 process_exec_last_target_kind dd USER_KIND_NONE
 process_exec_last_generic_pid dd 0xffffffff
 process_exec_last_generic_entry dd 0
+process_exec_copy_segment_count dd 0
+process_exec_copy_cr3_switches dd 0
+process_exec_copy_cr3_restores dd 0
+process_exec_copy_last_old_cr3 dd 0
+process_exec_copy_last_target_cr3 dd 0
+process_exec_copy_last_source dd 0
+process_exec_copy_last_dest dd 0
+process_exec_copy_last_filesz dd 0
+process_exec_copy_last_memsz dd 0
 process_exec_reject_active_target db 0
 process_exec_target_reusable db 0
 process_exec_dot_seen db 0

@@ -20,6 +20,7 @@
 #define KERNEL_HIGH_STACK_TOP (KERNEL_HIGHER_HALF_BASE + KERNEL_STACK_TOP)
 #define KERNEL_HIGH_MAINLINE_MIN_CHECKPOINTS 2u
 #define PAGING_DIR_ADDR 0x00090000u
+#define PROC_PROBE_PAGE_DIR_ADDR 0x00080000u
 #define PROC_DOOM_PAGE_DIR_ADDR 0x00082000u
 #define PROC_PREEMPT_PAGE_DIR_ADDR 0x00083000u
 #define PROC_GENERIC0_PAGE_DIR_ADDR 0x00089000u
@@ -45,6 +46,8 @@
 #define SYSCALL_RETURN_EFLAGS_SET 0x00000202u
 #define SYSCALL_RETURN_EFLAGS_KEEP_MASK 0xFFF88AFFu
 #define SYS_EXEC_ARGV_SOURCE_USER 2u
+#define USER_ELF_LOAD_ADDR 0x00E40000u
+#define USER_ELF_MAX_BYTES 0x00040000u
 #define VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY 63u
 #define VIBE_INPUT_DEVICE_KEYBOARD 1u
 #define VIBE_INPUT_DEVICE_MOUSE 2u
@@ -364,6 +367,15 @@ static void in_range(uint32_t value, uint32_t start, uint32_t end, const char *n
 
 static int fixed_bootstrap_page_dir(uint32_t cr3) {
     return cr3 == PAGING_DIR_ADDR ||
+           cr3 == PROC_PROBE_PAGE_DIR_ADDR ||
+           cr3 == PROC_DOOM_PAGE_DIR_ADDR ||
+           cr3 == PROC_PREEMPT_PAGE_DIR_ADDR ||
+           cr3 == PROC_GENERIC0_PAGE_DIR_ADDR ||
+           cr3 == PROC_GENERIC1_PAGE_DIR_ADDR;
+}
+
+static int process_page_dir(uint32_t cr3) {
+    return cr3 == PROC_PROBE_PAGE_DIR_ADDR ||
            cr3 == PROC_DOOM_PAGE_DIR_ADDR ||
            cr3 == PROC_PREEMPT_PAGE_DIR_ADDR ||
            cr3 == PROC_GENERIC0_PAGE_DIR_ADDR ||
@@ -676,6 +688,44 @@ static int addr_matches_kind(uint32_t kind, uint32_t addr) {
     return 0;
 }
 
+static int exec_copy_source_ok(uint32_t addr) {
+    return (addr >= USER_ELF_LOAD_ADDR && addr < USER_ELF_LOAD_ADDR + USER_ELF_MAX_BYTES) ||
+           (addr >= DOOM_USER_BASE && addr < DOOM_USER_STACK_TOP);
+}
+
+static int exec_copy_destination_ok(uint32_t addr) {
+    return (addr >= PROBE_USER_BASE && addr < PROBE_USER_END) ||
+           (addr >= DOOM_USER_BASE && addr < DOOM_USER_STACK_TOP);
+}
+
+static void validate_exec_copy(const Status *status) {
+    uint32_t v[9];
+
+    if (!has_field(status, "execcopy")) {
+        return;
+    }
+
+    hex_tuple(status, "execcopy", 9, '/', v);
+    if (v[0] == 0u) {
+        fail("execcopy= must show at least one loaded ELF segment");
+    }
+    if (v[1] == 0u || v[1] != v[2]) {
+        fail("execcopy= must show balanced CR3 switches and restores");
+    }
+    if (!fixed_bootstrap_page_dir(v[3]) || !process_page_dir(v[4])) {
+        fail("execcopy= must record old CR3 and target process CR3");
+    }
+    if (v[3] == v[4]) {
+        fail("execcopy= must prove segment materialization used a target address space");
+    }
+    if (!exec_copy_source_ok(v[5]) || !exec_copy_destination_ok(v[6])) {
+        fail("execcopy= source/destination must stay inside known ELF/user windows");
+    }
+    if (v[7] == 0u || v[8] == 0u || v[7] > v[8]) {
+        fail("execcopy= must report a nonempty file image within segment memory");
+    }
+}
+
 static void validate_exec(const Status *status) {
     exact(status, "exec", "OK");
     exact(status, "uexec", "OK");
@@ -687,6 +737,7 @@ static void validate_exec(const Status *status) {
     if (hex_field(status, "argvsrc") != SYS_EXEC_ARGV_SOURCE_USER) {
         fail("argvsrc= must prove exec argv came from user memory");
     }
+    validate_exec_copy(status);
     (void)field(status, "execmap");
     (void)field(status, "procpool");
     (void)field(status, "fdexec");

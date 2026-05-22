@@ -52,13 +52,12 @@ Manual play:
 ## Gap Ledger
 
 - `GAP[UEFI_BOOT] status=partial`: prove-mode cloud run `26290689684` on
-  `main` built `BOOTX64.EFI`, packaged it into the same FAT16 disk-image layout
-  that also carries `DOOM.ELF` and `DOOM1.WAD`, booted disposable OVMF, passed
-  `ExitBootServices`, attempted the 64-bit-to-32-bit handoff, captured the
-  kernel-owned `VIBEKERN step=uefi-entry status=OK` marker, and proved
-  `ata=OK`, `blkpart=MBR`, and `wad=OK` from the guest status page. The
-  remaining gap is UEFI-path user execution into Doom; that run reported
-  `doom=FAIL`, `doomrun=WAIT`, `panic=KEXC`, and `path=ABIPROBE.ELF`.
+  `main` first proved the UEFI loader reached the kernel, storage, and WAD
+  path, but faulted while execing `ABIPROBE.ELF`. The follow-up prove run
+  `26291808070` fixed that address-space bug and reached `path=DOOM.ELF`,
+  `abiexec=OK`, `abiprobe=OK`, `doom=OK`, `doomrun=EXIT`, and `panic=NONE`.
+  The remaining gap is interactive UEFI playability; the noVNC play target is
+  still BIOS/IDE.
 - `GAP[HIGHER_HALF_EXEC] status=open`: the kernel has high mapping proof work,
   but "done" means the live kernel actually executes from its higher-half
   virtual address.

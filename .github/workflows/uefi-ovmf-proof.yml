@@ -257,6 +257,7 @@ jobs:
             "path": "$(status_value path)",
             "exec_counters": "$(status_value execsys)",
             "exec_map": "$(status_value execmap)",
+            "exec_copy": "$(status_value execcopy)",
             "exec_error": "$(status_value execerr)",
             "exec_result": "$(status_value execres)",
             "exec_target": "$(status_value target)",
