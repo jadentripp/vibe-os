@@ -14,7 +14,7 @@ In plain English: the cloud computer wakes up into vibe-os, vibe-os finds Doom
 on disk, and Doom plays by asking vibe-os for memory, files, time, input,
 graphics, and audio.
 
-## Status
+## Where It Stands
 
 You can play Doom through Codespaces/noVNC on a disposable cloud machine. That
 keeps QEMU and the bootable disk image away from the laptop.
@@ -124,10 +124,12 @@ UEFI is an opt-in source-level boot path, documented in
 path. The cloud workflow builds a real `BOOTX64.EFI`, packages it into the same
 kind of FAT16 disk image the kernel can read, and boots that image under
 disposable OVMF. The latest green prove run captured the kernel-owned
-`VIBEKERN step=uefi-entry status=OK` marker on `main`, then proved ATA, MBR
-partition selection, and WAD loading from that image. Doom launch is still red
-on the UEFI path; the playable target remains BIOS/IDE. UEFI does not claim
-physical PC support yet.
+`VIBEKERN step=uefi-entry status=OK` marker on `main`, proved ATA, MBR
+partition selection, WAD loading, Ring 3 ABI exec, and launched `DOOM.ELF` with
+`doom=OK`, `doomrun=EXIT`, and `panic=NONE`. That proves the UEFI loader reaches
+the same kernel storage and process path far enough to exec Doom. Interactive
+play remains proven on the BIOS/IDE noVNC target, not UEFI, and UEFI does not
+claim physical PC support yet.
 PCI fields such as `pci=`, `pciprobe=`, `pciapi=`, `pcilookahci=`,
 `pcilookhda=`, `ahcibar=`, and `ahcireq=` are diagnostics, not a broad hardware
 support claim.
@@ -191,6 +193,7 @@ Cloud proofs run in GitHub Actions, Codespaces, or another disposable machine:
 gh workflow run os-smoke.yml --ref main -f expected_ref=main
 gh workflow run real-wad-smoke.yml --ref main -f expected_ref=main
 gh workflow run real-wad-smoke.yml --ref main -f persistence_save_slot=0 -f audible_audio_proof=false -f expected_ref=main
+gh workflow run uefi-ovmf-proof.yml --ref main -f proof_mode=prove -f expected_ref=main
 ```
 
 Those workflows exercise the boot smoke, the Real WAD gameplay lane, and the
