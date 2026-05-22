@@ -1024,8 +1024,6 @@ PS2_COMMAND_WRITE_AUX equ 0xd4
 PS2_CONFIG_AUX_IRQ equ 0x02
 PS2_CONFIG_AUX_CLOCK_DISABLE equ 0x20
 PS2_MOUSE_ACK equ 0xfa
-PS2_MOUSE_RESEND equ 0xfe
-PS2_MOUSE_COMMAND_ATTEMPTS equ 3
 PS2_MOUSE_SET_DEFAULTS equ 0xf6
 PS2_MOUSE_ENABLE_DATA equ 0xf4
 PS2_MOUSE_PACKET_BUTTON_MASK equ 0x07
@@ -7012,66 +7010,23 @@ ps2_read_data:
     pop edx
     ret
 
-ps2_read_aux_data:
-    push ecx
-    push edx
-    mov ecx, 0x00010000
-
-.wait:
-    in al, PS2_STATUS_PORT
-    test al, PS2_STATUS_OUTPUT_FULL
-    jz .next
-    test al, PS2_STATUS_AUX_OUTPUT_FULL
-    jnz .read_aux
-    mov dx, PS2_DATA_PORT
-    in al, dx
-    jmp .next
-
-.read_aux:
-    mov dx, PS2_DATA_PORT
-    in al, dx
-    clc
-    pop edx
-    pop ecx
-    ret
-
-.next:
-    loop .wait
-    stc
-    pop edx
-    pop ecx
-    ret
-
 ps2_mouse_send_command:
-    push ecx
     mov [ps2_mouse_command_byte], al
-    mov ecx, PS2_MOUSE_COMMAND_ATTEMPTS
-
-.try:
     mov al, PS2_COMMAND_WRITE_AUX
     call ps2_write_command
     jc .fail
     mov al, [ps2_mouse_command_byte]
     call ps2_write_data
     jc .fail
-    call ps2_read_aux_data
+    call ps2_read_data
     jc .fail
     cmp al, PS2_MOUSE_ACK
-    je .done
-    cmp al, PS2_MOUSE_RESEND
     jne .fail
-    inc dword [mouse_command_resend_count]
-    loop .try
-
-.fail:
-    inc dword [mouse_command_error_count]
-    stc
-    pop ecx
+    clc
     ret
 
-.done:
-    clc
-    pop ecx
+.fail:
+    stc
     ret
 
 sb16_probe:
@@ -23535,8 +23490,6 @@ mouse_reset_queue:
     mov dword [mouse_irq_count], 0
     mov dword [mouse_packet_count], 0
     mov dword [mouse_sync_loss_count], 0
-    mov dword [mouse_command_resend_count], 0
-    mov dword [mouse_command_error_count], 0
     mov dword [doom_mouse_event_count], 0
     mov dword [doom_mouse_buttons_seen], 0
     mov dword [doom_mouse_delta_x], 0
@@ -27293,15 +27246,6 @@ write_smoke_status:
     mov edx, [mouse_packet_count]
     call smoke_write_hex32
 
-    mov esi, smoke_mousecmd_text
-    call smoke_copy_string
-    mov edx, [mouse_command_resend_count]
-    call smoke_write_hex32
-    mov al, ':'
-    stosb
-    mov edx, [mouse_command_error_count]
-    call smoke_write_hex32
-
     mov esi, smoke_mousepoll_text
     call smoke_copy_string
     mov edx, [doom_mouse_event_count]
@@ -30344,7 +30288,6 @@ smoke_keylast_text db " keylast=", 0
 smoke_mouse_text db " mouse=", 0
 smoke_mouseirq_text db " mouseirq=", 0
 smoke_mousepkt_text db " mousepkt=", 0
-smoke_mousecmd_text db " mousecmd=", 0
 smoke_mousepoll_text db " mousepoll=", 0
 smoke_mousebtn_text db " mousebtn=", 0
 smoke_mousedelta_text db " mousedelta=", 0
@@ -31745,8 +31688,6 @@ mouse_event_head dd 0
 mouse_event_tail dd 0
 mouse_packet_count dd 0
 mouse_sync_loss_count dd 0
-mouse_command_resend_count dd 0
-mouse_command_error_count dd 0
 present_frame_arg dd 0
 present_palette_arg dd 0
 present_sample_first dd 0

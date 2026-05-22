@@ -443,7 +443,6 @@ smoke: vm-consent check-tools $(IMAGE)
 		grep -Eq "mouse=(OK|NONE)" $(BUILD_DIR)/status.txt; \
 		grep -q "mouseirq=" $(BUILD_DIR)/status.txt; \
 		grep -q "mousepkt=" $(BUILD_DIR)/status.txt; \
-		grep -Eq "mousecmd=([0-9A-F]{8}:){1}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
 		grep -q "mousepoll=" $(BUILD_DIR)/status.txt; \
 		grep -q "mousebtn=" $(BUILD_DIR)/status.txt; \
 		grep -q "mousedelta=" $(BUILD_DIR)/status.txt; \
