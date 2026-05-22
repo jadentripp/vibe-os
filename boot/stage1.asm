@@ -6,6 +6,9 @@ STAGE2_OFF equ 0x8000
 STAGE2_LBA equ 1
 STAGE2_SECTORS equ 16
 DISK_RETRIES equ 3
+STAGE1_ERR_CHS_GEOMETRY equ 0xc1
+STAGE1_ERR_CHS_RANGE equ 0xc2
+STAGE1_ERR_CHS_READ equ 0xc3
 
 start:
     jmp 0x0000:stage1_entry
@@ -97,9 +100,9 @@ ensure_chs_geometry:
     mov ah, 0x08
     mov dl, [boot_drive]
     int 0x13
-    jc disk_error
+    jc .error
     and cl, 0x3f
-    jz disk_error
+    jz .error
     xor ax, ax
     mov al, cl
     mov [chs_sectors_per_track], ax
@@ -111,6 +114,10 @@ ensure_chs_geometry:
 
 .done:
     ret
+
+.error:
+    mov al, STAGE1_ERR_CHS_GEOMETRY
+    jmp disk_error
 
 read_one_sector_chs:
     mov byte [disk_retries_left], DISK_RETRIES
@@ -124,7 +131,7 @@ read_one_sector_chs:
     xor dx, dx
     div word [chs_heads]
     cmp ax, 1023
-    ja disk_error
+    ja .range_error
     mov ch, al
     mov cl, bl
     mov bl, ah
@@ -145,18 +152,45 @@ read_one_sector_chs:
     int 0x13
     dec byte [disk_retries_left]
     jnz .try
+    mov al, STAGE1_ERR_CHS_READ
     jmp disk_error
 
 .done:
     ret
 
+.range_error:
+    mov al, STAGE1_ERR_CHS_RANGE
+    jmp disk_error
+
 disk_error:
+    push ax
     mov si, disk_error_message
     call print_string
+    pop ax
+    call print_hex8
 
 .hang:
     hlt
     jmp .hang
+
+print_hex8:
+    push ax
+    shr al, 4
+    call print_hex_nibble
+    pop ax
+    and al, 0x0f
+
+print_hex_nibble:
+    add al, "0"
+    cmp al, "9"
+    jbe .emit
+    add al, 7
+
+.emit:
+    mov ah, 0x0e
+    mov bx, 0x0007
+    int 0x10
+    ret
 
 print_string:
     lodsb
@@ -191,8 +225,8 @@ chs_current_lba dw 0
 chs_buffer_segment dw 0
 chs_buffer_offset dw 0
 chs_read_remaining dw 0
-stage1_message db "Aurora MBR: loading stage 2...", 13, 10, 0
-disk_error_message db "Aurora MBR: disk read failed.", 13, 10, 0
+stage1_message db "vibe MBR", 13, 10, 0
+disk_error_message db "MBR disk error ", 0
 
 times 446 - ($ - $$) db 0
 times 64 db 0
