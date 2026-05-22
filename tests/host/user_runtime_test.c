@@ -181,6 +181,9 @@ int vibe_user_syscall3(unsigned int number, unsigned long arg0, unsigned long ar
     if (number == VIBE_SYS_GETPID)
         return 7;
 
+    if (number == VIBE_SYS_GETPPID)
+        return 1;
+
     if (number == VIBE_SYS_FORK)
         return -38;
 
@@ -619,7 +622,7 @@ int main(void)
         return fail(110);
     mock_read_chunk_limit = 0;
     mock_file_pos = 0;
-    if (vibe_user_getpid() != 7)
+    if (vibe_user_getpid() != 7 || vibe_user_getppid() != 1)
         return fail(7);
     if (vibe_user_process_status_current(&process_status) != 0
         || process_status.abi_version != VIBE_PROCESS_STATUS_ABI_VERSION

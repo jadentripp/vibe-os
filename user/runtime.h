@@ -61,6 +61,7 @@ int vibe_user_stat(const char* path, struct stat* out);
 int vibe_user_fstat(int fd, struct stat* out);
 int vibe_user_ftruncate(int fd, long length);
 int vibe_user_getpid(void);
+int vibe_user_getppid(void);
 void vibe_user_exit(int status);
 int vibe_user_fork(void);
 int vibe_user_waitpid(long pid, int* status, unsigned long options);

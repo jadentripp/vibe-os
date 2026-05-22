@@ -47,6 +47,7 @@ enum {
     VIBE_SYS_YIELD = 37,
     VIBE_SYS_SLEEP_TICKS = 38,
     VIBE_SYS_INPUT_DEVICE_STATUS = 39,
+    VIBE_SYS_GETPPID = 40,
 };
 
 enum {

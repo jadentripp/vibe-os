@@ -38,6 +38,7 @@ static int prove_process_services(int pid)
     vibe_process_status_t status;
     vibe_clock_time_t before;
     vibe_clock_time_t after;
+    int parent_pid;
 
     if (vibe_user_process_status_current(&status) != 0)
         return 0;
@@ -46,6 +47,9 @@ static int prove_process_services(int pid)
     if (status.pid != (unsigned long)pid || status.state != VIBE_PROCESS_STATE_RUNNING)
         return 0;
     if (status.kind != VIBE_PROCESS_KIND_PROBE && status.kind != VIBE_PROCESS_KIND_GENERIC)
+        return 0;
+    parent_pid = vibe_user_getppid();
+    if (parent_pid <= 0 || (unsigned long)parent_pid != status.parent_pid)
         return 0;
     if (vibe_user_process_status(pid, &status) != 0 || status.pid != (unsigned long)pid)
         return 0;

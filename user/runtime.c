@@ -288,6 +288,11 @@ int vibe_user_getpid(void)
     return vibe_user_syscall0(VIBE_SYS_GETPID);
 }
 
+int vibe_user_getppid(void)
+{
+    return vibe_user_syscall0(VIBE_SYS_GETPPID);
+}
+
 void vibe_user_exit(int status)
 {
     (void)vibe_user_syscall1(VIBE_SYS_EXIT, (unsigned long)status);

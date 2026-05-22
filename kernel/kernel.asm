@@ -609,6 +609,7 @@ SYS_PROCESS_STATUS equ 36
 SYS_YIELD equ 37
 SYS_SLEEP_TICKS equ 38
 SYS_INPUT_DEVICE_STATUS equ 39
+SYS_GETPPID equ 40
 VIBE_PROCESS_STATUS_ABI_VERSION equ 1
 VIBE_PROCESS_STATUS_BYTES equ 64
 PROCESS_STATUS_ABI_VERSION equ 0
@@ -19444,6 +19445,8 @@ syscall_handler:
     je .yield
     cmp eax, SYS_SLEEP_TICKS
     je .sleep_ticks
+    cmp eax, SYS_GETPPID
+    je .getppid
     jmp .bad_syscall_enosys
 
 .user_probe:
@@ -21728,6 +21731,13 @@ syscall_handler:
 
 .getpid:
     mov eax, [current_pid]
+    jmp .return
+
+.getppid:
+    mov esi, [current_process_ptr]
+    cmp esi, 0
+    je .bad_syscall_enosys
+    mov eax, [esi + PROC_PARENT_PID]
     jmp .return
 
 .exec:
