@@ -149,6 +149,17 @@ static int prove_generic_file_services(void)
         return 0;
     if (bytes_read != 5 || !bytes_equal(buffer, "FAT16", 5))
         return 0;
+    fd = vibe_user_open(asset_file, 0, 0);
+    if (fd < 0)
+        return 0;
+    if (vibe_user_lseek(fd, (long)(size + 7), VIBE_USER_SEEK_SET) != (int)(size + 7))
+        goto fail_asset_fd;
+    if (vibe_user_read(fd, buffer, 1) != 0)
+        goto fail_asset_fd;
+    if (vibe_user_lseek(fd, 3, VIBE_USER_SEEK_END) != (int)(size + 3))
+        goto fail_asset_fd;
+    if (vibe_user_close(fd) != 0)
+        return 0;
     if (vibe_user_open(asset_file, VIBE_USER_O_WRONLY, 0) != -ABI_PROBE_ERRNO_EACCES)
         return 0;
     if (vibe_user_file_size(nested_asset, &size) != -ABI_PROBE_ERRNO_EINVAL)
@@ -208,6 +219,10 @@ static int prove_generic_file_services(void)
         return 0;
 
     return 1;
+
+fail_asset_fd:
+    (void)vibe_user_close(fd);
+    return 0;
 
 fail_fd:
     (void)vibe_user_close(fd);

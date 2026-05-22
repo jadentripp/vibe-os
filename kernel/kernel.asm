@@ -15161,8 +15161,6 @@ readonly_file_lseek:
     jnz .fail_inval
 
 .seek_validate:
-    cmp eax, [fd_file_sizes + esi * 4]
-    ja .fail_inval
     mov [fd_offsets + esi * 4], eax
     call readonly_fd_is_wad_file
     jc .seek_ok
@@ -19914,8 +19912,15 @@ syscall_handler:
     mov ebx, edx
     call user_range_validate
     jc .bad_syscall_einval
-    mov eax, [wad_size]
     mov esi, [file_io_fd_slot]
+    mov eax, [fd_offsets + esi * 4]
+    cmp eax, [wad_size]
+    jb .read_wad_have_bytes
+    xor eax, eax
+    jmp .read_return
+
+.read_wad_have_bytes:
+    mov eax, [wad_size]
     sub eax, [fd_offsets + esi * 4]
     cmp edx, eax
     jbe .read_len_ok
@@ -20004,8 +20009,6 @@ syscall_handler:
     jnz .bad_syscall_einval
 
 .seek_validate:
-    cmp eax, [wad_size]
-    ja .bad_syscall_einval
     mov esi, [file_io_fd_slot]
     mov [fd_offsets + esi * 4], eax
     cmp byte [current_user_kind], USER_KIND_DOOM
