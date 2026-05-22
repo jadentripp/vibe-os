@@ -3224,6 +3224,30 @@ apic_enable_irq_controller_proof:
     inc dword [apic_irq_route_count]
     inc dword [apic_irq_match_count]
 
+    mov eax, [ioapic_plan_audio_index]
+    mov ebx, [ioapic_plan_audio_low]
+    mov ecx, [ioapic_plan_audio_high]
+    call apic_arm_one_live_entry
+    jc .done
+    inc dword [apic_irq_route_count]
+    inc dword [apic_irq_match_count]
+
+    mov eax, [ioapic_plan_mouse_index]
+    mov ebx, [ioapic_plan_mouse_low]
+    mov ecx, [ioapic_plan_mouse_high]
+    call apic_arm_one_live_entry
+    jc .done
+    inc dword [apic_irq_route_count]
+    inc dword [apic_irq_match_count]
+
+    mov eax, [ioapic_plan_ide_primary_index]
+    mov ebx, [ioapic_plan_ide_primary_low]
+    mov ecx, [ioapic_plan_ide_primary_high]
+    call apic_arm_one_live_entry
+    jc .done
+    inc dword [apic_irq_route_count]
+    inc dword [apic_irq_match_count]
+
     call pic_mask_all
     mov dword [irq_controller_mode], IRQ_CONTROLLER_APIC
     mov byte [apic_irq_status], APIC_IRQ_STATUS_READY
@@ -20184,7 +20208,7 @@ process_exec_handoff_current:
     call process_activate
     call process_exec_seed_argv_stack
     jc .eio_after_activate
-    call pic_unmask_timer_keyboard
+    call irq_unmask_timer_keyboard
 
     mov eax, [edi + PROC_PID]
     mov [sys_exec_last_caller_pid], eax
@@ -26211,7 +26235,7 @@ irq_mouse:
     call mouse_queue_byte
 
 .eoi:
-    call irq_send_slave_eoi
+    call irq_send_mouse_eoi
     IRQ_RETURN
 
 .keyboard_byte:
@@ -26228,7 +26252,7 @@ irq_ide_primary:
     movzx eax, al
     mov [ata_irq_status], eax
     mov [ata_last_status], eax
-    call irq_send_slave_eoi
+    call irq_send_ide_primary_eoi
     IRQ_RETURN
 
 irq_audio:
@@ -26272,7 +26296,7 @@ irq_audio:
     call sb16_refill_active_half
 
 .send_eoi:
-    call irq_send_master_eoi
+    call irq_send_audio_eoi
     IRQ_RETURN
 
 irq_lapic_spurious:
@@ -26282,12 +26306,12 @@ irq_lapic_spurious:
 
 irq_ignore_master:
     IRQ_ENTER
-    call irq_send_master_eoi
+    call irq_send_legacy_master_eoi
     IRQ_RETURN
 
 irq_ignore_slave:
     IRQ_ENTER
-    call irq_send_slave_eoi
+    call irq_send_legacy_slave_eoi
     IRQ_RETURN
 
 irq_send_timer_eoi:
@@ -26299,6 +26323,31 @@ irq_send_keyboard_eoi:
     cmp dword [irq_controller_mode], IRQ_CONTROLLER_APIC
     je irq_send_lapic_eoi
     jmp irq_send_master_eoi
+
+irq_send_audio_eoi:
+    cmp dword [irq_controller_mode], IRQ_CONTROLLER_APIC
+    je irq_send_lapic_eoi
+    jmp irq_send_master_eoi
+
+irq_send_mouse_eoi:
+    cmp dword [irq_controller_mode], IRQ_CONTROLLER_APIC
+    je irq_send_lapic_eoi
+    jmp irq_send_slave_eoi
+
+irq_send_ide_primary_eoi:
+    cmp dword [irq_controller_mode], IRQ_CONTROLLER_APIC
+    je irq_send_lapic_eoi
+    jmp irq_send_slave_eoi
+
+irq_send_legacy_master_eoi:
+    cmp dword [irq_controller_mode], IRQ_CONTROLLER_APIC
+    je irq_send_lapic_eoi
+    jmp irq_send_master_eoi
+
+irq_send_legacy_slave_eoi:
+    cmp dword [irq_controller_mode], IRQ_CONTROLLER_APIC
+    je irq_send_lapic_eoi
+    jmp irq_send_slave_eoi
 
 irq_send_master_eoi:
     push eax

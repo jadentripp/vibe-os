@@ -11,7 +11,7 @@ on:
         type: boolean
         default: false
       apic_irq_proof:
-        description: Also run an opt-in APIC/IOAPIC timer+keyboard IRQ proof on the disposable runner.
+        description: Also run an opt-in APIC/IOAPIC device IRQ proof on the disposable runner.
         required: false
         type: boolean
         default: false
@@ -115,12 +115,12 @@ jobs:
 
           cp "$dir/status.txt" build/status.apic-irq-proof.txt
           grep -q "irqctl=APIC" build/status.apic-irq-proof.txt
-          grep -q "apicirq=00000001/00000002/00000002" build/status.apic-irq-proof.txt
+          grep -q "apicirq=00000001/00000005/00000005" build/status.apic-irq-proof.txt
           grep -q "lapiclive=00000001" build/status.apic-irq-proof.txt
           perl -ne '$ok = 1 if /irqeoi=([0-9A-F]{8})\/([0-9A-F]{8})\/([0-9A-F]{8})/ && hex($3) == 3; END { exit($ok ? 0 : 1) }' build/status.apic-irq-proof.txt
           perl -ne '$ok = 1 if /clockirq=([0-9A-F]{8})/ && hex($1) >= 5; END { exit($ok ? 0 : 1) }' build/status.apic-irq-proof.txt
 
-          printf '{ "result": "ok", "gate": "guest-status", "claim": "timer IRQs reached the kernel through the opt-in APIC/IOAPIC path" }\n' > build/apic-irq-proof.json
+          printf '{ "result": "ok", "gate": "guest-status", "claim": "timer, keyboard, audio, mouse, and IDE IRQ routes were armed through the opt-in APIC/IOAPIC path; timer IRQs reached the kernel through LAPIC EOI" }\n' > build/apic-irq-proof.json
 
       - name: Run opt-in shutdown/panic proof modes
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.shutdown_panic_proof }}

@@ -152,11 +152,14 @@ path is exercised without routing live interrupts through APIC yet. The
 state says the LAPIC is globally enabled, installs a real spurious-vector
 handler, and verifies the LAPIC spurious-vector register readback. There is now
 an opt-in cloud-only APIC IRQ proof build that compiles with
-`VIBE_APIC_IRQ_PROOF`, unmasks the IOAPIC timer and keyboard routes, masks the
-legacy PIC, sends LAPIC EOIs, and proves timer interrupts through `irqctl=APIC`
-and `apicirq=`. The normal playable Doom build remains deliberately
-PIC-backed until that APIC path has more soak time; the default live status
-still says `irqctl=PIC`, `apic=NONE`, and `hpet=NONE`.
+`VIBE_APIC_IRQ_PROOF`, unmasks the IOAPIC timer, keyboard, SB16, mouse, and
+primary IDE routes, masks the legacy PIC, sends LAPIC EOIs from the device IRQ
+handlers, and proves the route table through `irqctl=APIC` and `apicirq=`.
+The normal playable Doom build remains deliberately PIC-backed until that APIC
+path has more soak time; the default live status still says `irqctl=PIC`,
+`apic=NONE`, and `hpet=NONE`. The real-WAD cloud workflow also has an opt-in
+APIC lane so the same playable Doom proof can be run against the APIC/IOAPIC
+route path without changing the default player build.
 
 The storage claim is also bounded. vibe-os mutates and reboots its generated
 FAT16 image in disposable cloud QEMU, but it is not an installable OS for
