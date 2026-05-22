@@ -19,12 +19,17 @@ graphics, and audio.
 You can play Doom through Codespaces/noVNC on a disposable cloud machine. That
 keeps QEMU and the bootable disk image away from the laptop.
 
-The cloud proof is green for first-boot gameplay, SB16/audio continuity, and
-save/load persistence with real `DOOM1.WAD`: it accepts input, runs Doom as a
-Ring 3 process, writes `DOOMSAV*.DSG`, and loads the save back into gameplay.
+The cloud proof is green for first-boot gameplay with real `DOOM1.WAD`: Doom
+boots as `DOOM.ELF`, runs as a Ring 3 process, reads the WAD through the
+ATA/FAT path, accepts scripted keyboard and mouse input, renders frames, and
+feeds the SB16 PCM path.
 
 Ring 3 is the CPU's normal user-program privilege level. Here it means Doom
 crosses a syscall boundary like another small C program would.
+
+Save/config file plumbing exists, but full reboot save/load is not green yet.
+That stays a real gap until a cloud run proves `DOOMSAV*.DSG` survives reboot
+and loads back into gameplay.
 
 Long-form evidence, historical failures, and workflow dispatch examples live in
 `docs/proof.txt`. The short version: Doom is playable through the safe cloud
@@ -74,8 +79,9 @@ The project owns the machine path instead of outsourcing it to a host OS:
   guard pages, and higher-half kernel page-table proof work
 - programs: Ring 3 ELF launch for Doom and small probe programs
 - files: ATA/IDE PIO, a block-device boundary, FAT16 reads/writes, config files,
-  WAD loading, save-file persistence, readonly `/ASSETS`, and writable `/STATE`
-  files through the same user file ABI, with live FAT allocation accounting
+  WAD loading, save-file write/read plumbing, readonly `/ASSETS`, and writable
+  `/STATE` files through the same user file ABI, with live FAT allocation
+  accounting
 - input and video: keyboard, mouse, a reusable indexed framebuffer device,
   palette conversion, and frame presentation
 - audio and runtime: SB16-style PCM contracts, x87/FPU handling, and the
