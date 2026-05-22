@@ -127,10 +127,10 @@ PCI fields such as `pci=`, `pciprobe=`, `pciapi=`, `pcilookahci=`,
 support claim.
 
 ACPI table discovery now runs in guest assembly: the kernel scans firmware
-memory for the RSDP, validates checksums, and records RSDT/XSDT, MADT, and HPET
-table pointers when they are mapped. APIC/IOAPIC routing and HPET timers are
-still unclaimed; the live status still says `irqctl=PIC`, `apic=NONE`, and
-`hpet=NONE`.
+memory for the RSDP, identity-maps ACPI table pages on demand, validates
+checksums, and records RSDT/XSDT, MADT, and HPET table pointers.
+APIC/IOAPIC routing and HPET timers are still unclaimed; the live status still
+says `irqctl=PIC`, `apic=NONE`, and `hpet=NONE`.
 
 The storage claim is also bounded. vibe-os mutates and reboots its generated
 FAT16 image in disposable cloud QEMU, but it is not an installable OS for

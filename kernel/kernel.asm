@@ -236,6 +236,7 @@ ACPI_SDT_SIG_XSDT equ 0x54445358
 ACPI_SDT_SIG_APIC equ 0x43495041
 ACPI_SDT_SIG_HPET equ 0x54455048
 ACPI_MAX_TABLE_BYTES equ 0x00010000
+ACPI_MAX_MAPPED_PHYS equ 0x20000000
 ACPI_STATUS_NONE equ 0
 ACPI_STATUS_OK equ 1
 ACPI_STATUS_BAD equ 2
@@ -2179,6 +2180,10 @@ acpi_probe_tables:
     mov dword [acpi_valid_sdt_count], 0
     mov dword [acpi_madt_addr], 0
     mov dword [acpi_hpet_addr], 0
+    mov dword [acpi_mapped_pages], 0
+    mov dword [acpi_map_failures], 0
+    mov dword [acpi_last_mapped_page], 0
+    mov dword [acpi_last_map_length], 0
 
     movzx esi, word [ACPI_RSDP_EBDA_SEG_PTR]
     shl esi, 4
@@ -2334,8 +2339,10 @@ acpi_validate_sdt:
     push eax
     push ebx
     push esi
-    cmp esi, PAGING_MAPPED_BYTES - ACPI_SDT_HEADER_BYTES
-    ja .bad
+    mov eax, esi
+    mov ecx, ACPI_SDT_HEADER_BYTES
+    call acpi_identity_map_range
+    jc .bad
     test edx, edx
     jz .signature_ok
     cmp [esi], edx
@@ -2350,8 +2357,9 @@ acpi_validate_sdt:
     mov eax, esi
     add eax, ecx
     jc .bad
-    cmp eax, PAGING_MAPPED_BYTES
-    ja .bad
+    mov eax, esi
+    call acpi_identity_map_range
+    jc .bad
     push ecx
     call acpi_checksum8
     pop ecx
@@ -2365,6 +2373,51 @@ acpi_validate_sdt:
 
 .done:
     pop esi
+    pop ebx
+    pop eax
+    ret
+
+acpi_identity_map_range:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    test ecx, ecx
+    jz .ok
+    mov [acpi_last_map_length], ecx
+    mov ebx, eax
+    and ebx, 0xfffff000
+    mov edx, eax
+    add edx, ecx
+    jc .fail
+    dec edx
+    and edx, 0xfffff000
+    cmp edx, ACPI_MAX_MAPPED_PHYS
+    jae .fail
+
+.map_next:
+    mov eax, ebx
+    call vmm_identity_page
+    jc .fail
+    mov [acpi_last_mapped_page], ebx
+    inc dword [acpi_mapped_pages]
+    cmp ebx, edx
+    je .ok
+    add ebx, PAGE_SIZE
+    jc .fail
+    jmp .map_next
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    inc dword [acpi_map_failures]
+    stc
+
+.done:
+    pop edx
+    pop ecx
     pop ebx
     pop eax
     ret
@@ -26903,6 +26956,17 @@ write_smoke_status:
     mov edx, [acpi_valid_sdt_count]
     call smoke_write_slash_hex32
 
+    mov esi, smoke_acpimap_text
+    call smoke_copy_string
+    mov edx, [acpi_mapped_pages]
+    call smoke_write_hex32
+    mov edx, [acpi_map_failures]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_last_mapped_page]
+    call smoke_write_slash_hex32
+    mov edx, [acpi_last_map_length]
+    call smoke_write_slash_hex32
+
     mov esi, smoke_madt_text
     call smoke_copy_string
     mov edx, [acpi_madt_addr]
@@ -30630,6 +30694,7 @@ smoke_rsdp_text db " rsdp=", 0
 smoke_rsdt_text db " rsdt=", 0
 smoke_xsdt_text db " xsdt=", 0
 smoke_acpitab_text db " acpitab=", 0
+smoke_acpimap_text db " acpimap=", 0
 smoke_madt_text db " madt=", 0
 smoke_hpetp_text db " hpetp=", 0
 smoke_apic_text db " apic=NONE", 0
@@ -31225,6 +31290,10 @@ acpi_root_entry_count dd 0
 acpi_valid_sdt_count dd 0
 acpi_madt_addr dd 0
 acpi_hpet_addr dd 0
+acpi_mapped_pages dd 0
+acpi_map_failures dd 0
+acpi_last_mapped_page dd 0
+acpi_last_map_length dd 0
 bios_boot_magic dd 0
 bios_boot_version dd 0
 bios_boot_loader_status dd 0
