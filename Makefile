@@ -6,11 +6,13 @@ LLD_LINK ?= lld-link
 HOST_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2
 NC ?= nc
 KERNEL_EXTRA_NASMFLAGS ?=
+USER_ABI_PROBE_NASMFLAGS ?=
 QEMU_ACCEL ?= tcg
 QEMU_MACHINE := pc,accel=$(QEMU_ACCEL)
 QEMU_EXTRA_ARGS ?=
 ALLOW_LOCAL_VM ?= 0
 DOOM_WAD ?=
+QUAKE_PAK ?=
 SMOKE_EXPECT_PROBE_GFX ?= 1
 SMOKE_REJECT_DOOMLOG ?=
 SMOKE_SENDKEYS ?=
@@ -83,21 +85,52 @@ FREESTANDING_I386_CFLAGS := -target i386-unknown-elf -ffreestanding -fno-builtin
 DOOM_ORIGINAL_CFLAGS := $(FREESTANDING_I386_CFLAGS) -std=gnu89 -DNORMALUNIX -DLINUX -I$(DOOM_PORT_INCLUDE_DIR) -I$(DOOM_SRC_DIR)
 DOOM_G_GAME_CFLAGS := -DG_BuildTiccmd=doom_original_G_BuildTiccmd -DG_Ticker=doom_original_G_Ticker
 DOOM_P_SAVEG_CFLAGS := -DP_ArchivePlayers=doom_original_P_ArchivePlayers -DP_UnArchivePlayers=doom_original_P_UnArchivePlayers -DP_ArchiveWorld=doom_original_P_ArchiveWorld -DP_UnArchiveWorld=doom_original_P_UnArchiveWorld -DP_ArchiveThinkers=doom_original_P_ArchiveThinkers -DP_UnArchiveThinkers=doom_original_P_UnArchiveThinkers -DP_ArchiveSpecials=doom_original_P_ArchiveSpecials -DP_UnArchiveSpecials=doom_original_P_UnArchiveSpecials
+QUAKE_SRC_DIR := third_party/quake/WinQuake
+QUAKE_PORT_INCLUDE_DIR := quake_port/include
+QUAKE_PORT_BUILD_DIR := $(BUILD_DIR)/quake
+QUAKE_ELF := $(BUILD_DIR)/quake.elf
+QUAKE_SYMBOLS := $(BUILD_DIR)/quake.symbols
+QUAKE_BASE := 0x01000000
+QUAKE_ORIGINAL_SRC_NAMES := \
+	cl_demo cl_input cl_main cl_parse cl_tent chase cmd common console crc cvar \
+	draw d_edge d_fill d_init d_modech d_part d_polyse d_scan d_sky d_sprite \
+	d_surf d_vars d_zpoint host host_cmd keys mathlib menu model net_loop \
+	net_main net_none net_vcr nonintel pr_cmds pr_edict pr_exec r_aclip \
+	r_alias r_bsp r_draw r_edge r_efrag r_light r_main r_misc r_part r_sky \
+	r_sprite r_surf r_vars sbar screen snd_dma snd_mem snd_mix sv_main sv_move \
+	sv_phys sv_user view wad world zone
+QUAKE_ORIGINAL_OBJS := $(addprefix $(QUAKE_PORT_BUILD_DIR)/,$(addsuffix .o,$(QUAKE_ORIGINAL_SRC_NAMES)))
+QUAKE_PORT_ASM_SRCS := quake_port/cd.asm quake_port/input.asm quake_port/math.asm quake_port/setjmp.asm quake_port/snd.asm quake_port/start.asm quake_port/sys.asm quake_port/vid.asm
+QUAKE_DOOM_LIBC_OBJ := $(QUAKE_PORT_BUILD_DIR)/doom_libc.o
+QUAKE_PORT_OBJS := $(QUAKE_PORT_ASM_SRCS:quake_port/%.asm=$(QUAKE_PORT_BUILD_DIR)/port_%.o) $(QUAKE_DOOM_LIBC_OBJ)
+QUAKE_FREESTANDING_I386_CFLAGS := -target i386-unknown-elf -ffreestanding -fno-builtin -fno-strict-aliasing -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m32 -march=i386 -mno-sse -mno-mmx -O2
+QUAKE_ORIGINAL_CFLAGS := $(QUAKE_FREESTANDING_I386_CFLAGS) -std=gnu89 -fcommon -U__i386__ -Dstricmp=strcasecmp -I$(QUAKE_PORT_INCLUDE_DIR) -I$(DOOM_PORT_INCLUDE_DIR) -I$(QUAKE_SRC_DIR)
+IMAGE_QUAKE_PAK_ARGS :=
+ifneq ($(strip $(QUAKE_PAK)),)
+IMAGE_QUAKE_PAK_ARGS := --asset /ID1/PAK0.PAK=$(QUAKE_PAK)
+endif
+IMAGE_ASSET_DEPS :=
+ifneq ($(strip $(DOOM_WAD)),)
+IMAGE_ASSET_DEPS += $(DOOM_WAD)
+endif
+ifneq ($(strip $(QUAKE_PAK)),)
+IMAGE_ASSET_DEPS += $(QUAKE_PAK)
+endif
 
 STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 163840
 USER_PROBE_ELF_MAX_BYTES := 16384
 USER_ABI_PROBE_ELF_MAX_BYTES := 24576
-IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF)
+IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) --root-elf QUAKE.ELF=$(QUAKE_ELF)
 
-.PHONY: all build-only test assembly-native-check no-python-check doom-compile doom-link run run-headless smoke playability-host-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image persistence-image-check clean check-tools vm-consent vm-status-proof-check
+.PHONY: all build-only test assembly-native-check no-python-check doom-compile doom-link quake-compile quake-link run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
 
 all: $(IMAGE)
 
-build-only: $(IMAGE) doom-link
-	@printf "Build-only check OK: %s, %s, and %s are present.\n" "$(IMAGE)" "$(DOOM_ELF)" "$(USER_ABI_PROBE_ELF)"
+build-only: $(IMAGE) doom-link quake-link
+	@printf "Build-only check OK: %s, %s, %s, and %s are present.\n" "$(IMAGE)" "$(DOOM_ELF)" "$(QUAKE_ELF)" "$(USER_ABI_PROBE_ELF)"
 
-test: no-python-check $(IMAGE) doom-link vm-status-proof-check assembly-native-check
+test: no-python-check $(IMAGE) doom-link quake-link vm-status-proof-check assembly-native-check
 	@printf "Assembly-first host checks OK: image build, Doom link, guest status validator, and assembly-native guest build audit passed.\n"
 
 no-python-check:
@@ -122,13 +155,21 @@ assembly-native-check:
 		doom_port/music.asm \
 		doom_port/platform.asm \
 		doom_port/save_debug.asm \
-		doom_port/start.asm; do \
-		printf "%s\n" "$$recipes" | grep -q "nasm -f elf32 $$path" || { \
+		doom_port/start.asm \
+		quake_port/cd.asm \
+		quake_port/input.asm \
+		quake_port/math.asm \
+		quake_port/setjmp.asm \
+		quake_port/snd.asm \
+		quake_port/start.asm \
+		quake_port/sys.asm \
+		quake_port/vid.asm; do \
+		printf "%s\n" "$$recipes" | grep -Eq "nasm -f elf32([[:space:]][^[:space:]]+)*[[:space:]]+$$path[[:space:]]+-o[[:space:]]" || { \
 			printf "Guest assembly build audit missing NASM recipe for %s\n" "$$path" >&2; \
 			exit 1; \
 		}; \
 	done; \
-	bad_guest_c="$$(printf "%s\n" "$$recipes" | grep -E ' -c (kernel|user|doom_port)/.*\.c|clang .* (kernel|user|doom_port)/.*\.c' || true)"; \
+	bad_guest_c="$$(printf "%s\n" "$$recipes" | grep -E ' -c (kernel|user|doom_port|quake_port)/.*\.c|clang .* (kernel|user|doom_port|quake_port)/.*\.c' || true)"; \
 	if [ -n "$$bad_guest_c" ]; then \
 		printf "Project-owned C is still compiled into guest artifacts:\n%s\n" "$$bad_guest_c" >&2; \
 		exit 1; \
@@ -143,7 +184,15 @@ assembly-native-check:
 		doom_port/music.c \
 		doom_port/platform.c \
 		doom_port/save_debug.c \
-		doom_port/start.c; do \
+		doom_port/start.c \
+		quake_port/cd.c \
+		quake_port/input.c \
+		quake_port/math.c \
+		quake_port/setjmp.c \
+		quake_port/snd.c \
+		quake_port/start.c \
+		quake_port/sys.c \
+		quake_port/vid.c; do \
 		if [ -e "$$path" ]; then \
 			printf "Legacy project-owned guest C source still exists: %s\n" "$$path" >&2; \
 			exit 1; \
@@ -156,6 +205,12 @@ doom-compile: $(DOOM_ORIGINAL_OBJS)
 
 doom-link: $(DOOM_ELF)
 	@printf "Linked freestanding Doom ELF at %s\n" "$(DOOM_ELF)"
+
+quake-compile: $(QUAKE_ORIGINAL_OBJS)
+	@printf "Compiled %s original Quake source files for freestanding i386.\n" "$$(printf '%s\n' $(QUAKE_ORIGINAL_OBJS) | wc -l | tr -d ' ')"
+
+quake-link: $(QUAKE_ELF)
+	@printf "Linked freestanding Quake ELF at %s\n" "$(QUAKE_ELF)"
 
 playability-host-check:
 	@printf "Running host-only playability readiness checks; local QEMU remains disabled.\n"
@@ -184,6 +239,9 @@ $(BUILD_DIR):
 
 $(DOOM_PORT_BUILD_DIR):
 	@mkdir -p $(DOOM_PORT_BUILD_DIR)
+
+$(QUAKE_PORT_BUILD_DIR):
+	@mkdir -p $(QUAKE_PORT_BUILD_DIR)
 
 $(UEFI_BUILD_DIR):
 	@mkdir -p $(UEFI_BUILD_DIR)
@@ -225,11 +283,11 @@ uefi-loader-object: $(UEFI_LOADER_OBJ)
 
 uefi-loader-pe: $(UEFI_LOADER_EFI)
 
-$(UEFI_DUAL_IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(IMAGE_BUILDER) $(UEFI_LOADER_EFI) | $(UEFI_BUILD_DIR)
+$(UEFI_DUAL_IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(QUAKE_ELF) $(IMAGE_BUILDER) $(UEFI_LOADER_EFI) $(IMAGE_ASSET_DEPS) | $(UEFI_BUILD_DIR)
 	@if [ -n "$(DOOM_WAD)" ]; then \
-		$(IMAGE_BUILDER) --wad "$(DOOM_WAD)" --asset EFI/BOOT/BOOTX64.EFI=$(UEFI_LOADER_EFI) --asset VIBEOS/KERNEL.ELF=$(KERNEL_ELF) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF); \
+		$(IMAGE_BUILDER) --wad "$(DOOM_WAD)" $(IMAGE_QUAKE_PAK_ARGS) --asset EFI/BOOT/BOOTX64.EFI=$(UEFI_LOADER_EFI) --asset VIBEOS/KERNEL.ELF=$(KERNEL_ELF) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF); \
 	else \
-		$(IMAGE_BUILDER) --asset EFI/BOOT/BOOTX64.EFI=$(UEFI_LOADER_EFI) --asset VIBEOS/KERNEL.ELF=$(KERNEL_ELF) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF); \
+		$(IMAGE_BUILDER) $(IMAGE_QUAKE_PAK_ARGS) --asset EFI/BOOT/BOOTX64.EFI=$(UEFI_LOADER_EFI) --asset VIBEOS/KERNEL.ELF=$(KERNEL_ELF) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF); \
 	fi
 	@printf "Built dual BIOS/UEFI FAT16 image %s\n" "$@"
 
@@ -245,8 +303,8 @@ $(USER_CRT0_OBJ): user/crt0.asm | $(BUILD_DIR)
 $(USER_PROBE_OBJ): $(USER_PROBE_ASM_SRC) | $(BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
 
-$(USER_ABI_PROBE_OBJ): $(USER_ABI_PROBE_ASM_SRC) user/runtime.h doom_port/include/vibe_os.h | $(BUILD_DIR)
-	$(NASM) -f elf32 $< -o $@
+$(USER_ABI_PROBE_OBJ): $(USER_ABI_PROBE_ASM_SRC) user/runtime.h doom_port/include/vibe_os.h FORCE | $(BUILD_DIR)
+	$(NASM) -f elf32 $(USER_ABI_PROBE_NASMFLAGS) $< -o $@
 
 $(USER_RUNTIME_OBJ): $(USER_RUNTIME_ASM_SRC) user/runtime.h doom_port/include/vibe_os.h | $(BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
@@ -284,6 +342,18 @@ $(DOOM_PORT_BUILD_DIR)/port_%.o: doom_port/%.asm Makefile | $(DOOM_PORT_BUILD_DI
 $(DOOM_ELF): $(DOOM_ORIGINAL_OBJS) $(DOOM_PORT_OBJS) $(LINK_ELF32) | $(BUILD_DIR)
 	$(LINK_ELF32) -o $@ --base $(DOOM_BASE) --map $(DOOM_SYMBOLS) $(DOOM_ORIGINAL_OBJS) $(DOOM_PORT_OBJS)
 
+$(QUAKE_PORT_BUILD_DIR)/%.o: $(QUAKE_SRC_DIR)/%.c Makefile | $(QUAKE_PORT_BUILD_DIR)
+	$(CLANG) $(QUAKE_ORIGINAL_CFLAGS) -c $< -o $@
+
+$(QUAKE_PORT_BUILD_DIR)/port_%.o: quake_port/%.asm Makefile | $(QUAKE_PORT_BUILD_DIR)
+	$(NASM) -f elf32 $< -o $@
+
+$(QUAKE_DOOM_LIBC_OBJ): doom_port/libc.asm Makefile | $(QUAKE_PORT_BUILD_DIR)
+	$(NASM) -f elf32 $< -o $@
+
+$(QUAKE_ELF): $(QUAKE_ORIGINAL_OBJS) $(QUAKE_PORT_OBJS) $(LINK_ELF32) | $(BUILD_DIR)
+	$(LINK_ELF32) -o $@ --base $(QUAKE_BASE) --map $(QUAKE_SYMBOLS) $(QUAKE_ORIGINAL_OBJS) $(QUAKE_PORT_OBJS)
+
 $(USER_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_PROBE_OBJ) $(LINK_ELF32) | $(BUILD_DIR)
 	$(LINK_ELF32) -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_PROBE_OBJ)
 	@test $$(wc -c < $@) -le $(USER_PROBE_ELF_MAX_BYTES) || { echo "user probe ELF exceeds $(USER_PROBE_ELF_MAX_BYTES) bytes"; exit 1; }
@@ -292,11 +362,11 @@ $(USER_ABI_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_ABI_PROBE_OBJ
 	$(LINK_ELF32) -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_ABI_PROBE_OBJ)
 	@test $$(wc -c < $@) -le $(USER_ABI_PROBE_ELF_MAX_BYTES) || { echo "ABI probe ELF exceeds $(USER_ABI_PROBE_ELF_MAX_BYTES) bytes"; exit 1; }
 
-$(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(IMAGE_BUILDER)
+$(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(QUAKE_ELF) $(IMAGE_BUILDER) $(IMAGE_ASSET_DEPS)
 	@if [ -n "$(DOOM_WAD)" ]; then \
-		$(IMAGE_BUILDER) --wad "$(DOOM_WAD)" $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF); \
+		$(IMAGE_BUILDER) --wad "$(DOOM_WAD)" $(IMAGE_QUAKE_PAK_ARGS) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF); \
 	else \
-		$(IMAGE_BUILDER) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF); \
+		$(IMAGE_BUILDER) $(IMAGE_QUAKE_PAK_ARGS) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(DOOM_ELF); \
 	fi
 	@printf "Built %s\n" "$@"
 
@@ -427,7 +497,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "doomfaulterr=" $(BUILD_DIR)/status.txt; \
 	grep -q " fault=" $(BUILD_DIR)/status.txt; \
 	grep -Eq " pf=([0-9A-F]{8}/){4}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
-	grep -Eq "faultsrc=(NONE|EXPECT|USER|DOOM|KERNEL)" $(BUILD_DIR)/status.txt; \
+	grep -Eq "faultsrc=(NONE|EXPECT|USER|DOOM|QUAKE|KERNEL)" $(BUILD_DIR)/status.txt; \
 	grep -Eq "faultmode=(NONE|USER|KERNEL)" $(BUILD_DIR)/status.txt; \
 	grep -Eq "faultcontain=([0-9A-F]{8}/){4}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
 	grep -Eq " regs=([0-9A-F]{8}/){7}[0-9A-F]{8}" $(BUILD_DIR)/status.txt; \
@@ -608,6 +678,27 @@ smoke: vm-consent check-tools $(IMAGE)
 	perl -ne '$$ok = 1 if /ticks=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	trap - EXIT; \
 	printf "Smoke boot OK: protected-mode kernel status, Ring 3 probe, Doom ELF load, indexed-frame present, and PIT ticks verified in cloud VM memory.\n"
+
+quake-status-proof-check:
+	@set -e; \
+	test -s $(BUILD_DIR)/status.txt; \
+	grep -q "path=QUAKE.ELF" $(BUILD_DIR)/status.txt; \
+	grep -q "quake=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "quakerun=RUN" $(BUILD_DIR)/status.txt; \
+	grep -q "quakeopen=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "quakeread=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "qgame=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "panic=NONE" $(BUILD_DIR)/status.txt; \
+	grep -q "shutdown=NONE" $(BUILD_DIR)/status.txt; \
+	grep -q "gfx=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "audio=SB16" $(BUILD_DIR)/status.txt; \
+	grep -q "preempt=OK" $(BUILD_DIR)/status.txt; \
+	grep -q "heap=OK" $(BUILD_DIR)/status.txt; \
+	perl -ne '$$ok = 1 if /quakepresent=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+	perl -ne '$$ok = 1 if /qframe=([0-9A-F]{8})\/([0-9A-F]{8})/ && hex($$1) > 0 && hex($$2) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+	perl -ne '$$ok = 1 if /qinput=([0-9A-F]{8})\// && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+	perl -ne '$$ok = 1 if /qaudio=([0-9A-F]{8})\// && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+	printf "Quake proof status OK: QUAKE.ELF, PAK reads, rendered frames, input, audio, process, memory, preemption, panic, and shutdown gates passed.\n"
 
 vm-status-proof-check:
 	BUILD_DIR="$(abspath $(BUILD_DIR))" HOST_CC="$(HOST_CC)" tools/test_vibe_status_check.sh

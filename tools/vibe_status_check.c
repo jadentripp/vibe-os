@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_FIELDS 768
+#define MAX_FIELDS 1024
 #define MAX_FILE_BYTES (1024 * 1024)
 
 #define KERNEL_HIGHER_HALF_BASE 0xC0000000u
@@ -69,6 +69,7 @@
      KERNEL_RELOC_ABI_LOW_RETURN_BLOCKED | KERNEL_RELOC_ABI_RETURN_CR3_RESTORED)
 #define USER_KIND_DOOM 2u
 #define USER_KIND_PREEMPT_PROBE 3u
+#define USER_KIND_QUAKE 5u
 #define USER_CODE_SEG 0x1Bu
 #define USER_DATA_SEG 0x23u
 #define DOOM_USER_BASE 0x01000000u
@@ -819,13 +820,17 @@ static void validate_kernel_relocation(const Status *status) {
 }
 
 static int addr_matches_kind(uint32_t kind, uint32_t addr) {
-    if (kind == USER_KIND_DOOM) {
+    if (kind == USER_KIND_DOOM || kind == USER_KIND_QUAKE) {
         return addr >= DOOM_USER_BASE && addr < DOOM_USER_STACK_TOP;
     }
     if (kind == USER_KIND_PREEMPT_PROBE) {
         return addr >= PROBE_USER_BASE && addr < PROBE_USER_END;
     }
     return 0;
+}
+
+static int is_large_payload_kind(uint32_t kind) {
+    return kind == USER_KIND_DOOM || kind == USER_KIND_QUAKE;
 }
 
 static int exec_copy_source_ok(uint32_t addr) {
@@ -936,7 +941,11 @@ static void validate_exec(const Status *status) {
     exact(status, "abiexec", "OK");
     exact(status, "abipath", "ABIPROBE.ELF");
     exact(status, "abiprobe", "OK");
-    exact(status, "doom", "OK");
+    if (strcmp(field(status, "path"), "QUAKE.ELF") == 0) {
+        exact(status, "quake", "OK");
+    } else {
+        exact(status, "doom", "OK");
+    }
     if (hex_field(status, "argvsrc") != SYS_EXEC_ARGV_SOURCE_USER) {
         fail("argvsrc= must prove exec argv came from user memory");
     }
@@ -1011,7 +1020,7 @@ static void validate_preemption(const Status *status) {
         fail("pctx= must be at least the preempt switch count");
     }
     if ((hex_field(status, "pmask") & 0x3u) != 0x3u) {
-        fail("pmask= must prove Doom and the preempt probe both ran");
+        fail("pmask= must prove the large payload and the preempt probe both ran");
     }
     source_pid = hex_field(status, "pfrom");
     target_pid = hex_field(status, "pto");
@@ -1029,20 +1038,20 @@ static void validate_preemption(const Status *status) {
     }
 
     hex_tuple(status, "pkind", 2, ':', kinds);
-    if (!((kinds[0] == USER_KIND_DOOM && kinds[1] == USER_KIND_PREEMPT_PROBE) ||
-          (kinds[0] == USER_KIND_PREEMPT_PROBE && kinds[1] == USER_KIND_DOOM))) {
-        fail("pkind= must switch between Doom and the preempt probe");
+    if (!((is_large_payload_kind(kinds[0]) && kinds[1] == USER_KIND_PREEMPT_PROBE) ||
+          (kinds[0] == USER_KIND_PREEMPT_PROBE && is_large_payload_kind(kinds[1])))) {
+        fail("pkind= must switch between a large payload and the preempt probe");
     }
     hex_tuple(status, "peip", 2, ':', eips);
     if (!addr_matches_kind(kinds[0], eips[0]) || !addr_matches_kind(kinds[1], eips[1])) {
         fail("peip= must contain user EIPs matching pkind=");
     }
     hex_tuple(status, "pcr3", 2, ':', cr3s);
-    if (kinds[0] == USER_KIND_DOOM && cr3s[0] != PROC_DOOM_PAGE_DIR_ADDR) {
-        fail("pcr3= Doom slot must use the Doom page directory");
+    if (is_large_payload_kind(kinds[0]) && cr3s[0] != PROC_DOOM_PAGE_DIR_ADDR) {
+        fail("pcr3= large payload slot must use the Doom/Quake page directory");
     }
-    if (kinds[1] == USER_KIND_DOOM && cr3s[1] != PROC_DOOM_PAGE_DIR_ADDR) {
-        fail("pcr3= Doom slot must use the Doom page directory");
+    if (is_large_payload_kind(kinds[1]) && cr3s[1] != PROC_DOOM_PAGE_DIR_ADDR) {
+        fail("pcr3= large payload slot must use the Doom/Quake page directory");
     }
     if (kinds[0] == USER_KIND_PREEMPT_PROBE && cr3s[0] != PROC_PREEMPT_PAGE_DIR_ADDR) {
         fail("pcr3= preempt-probe slot must use the preempt page directory");

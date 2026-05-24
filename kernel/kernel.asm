@@ -597,6 +597,7 @@ USER_KIND_PROBE equ 1
 USER_KIND_DOOM equ 2
 USER_KIND_PREEMPT_PROBE equ 3
 USER_KIND_GENERIC equ 4
+USER_KIND_QUAKE equ 5
 PROC_STATE_UNUSED equ 0
 PROC_STATE_READY equ 1
 PROC_STATE_RUNNING equ 2
@@ -607,13 +608,14 @@ PROC_STATE_BLOCKED equ 6
 PROCESS_SLOT_COUNT equ 6
 PROCESS_GENERIC_SLOT_COUNT equ 2
 PROCESS_RECORD_BYTES equ 184
-PROCESS_EXEC_TABLE_COUNT equ 2
-PROCESS_EXEC_ENTRY_BYTES equ 20
+PROCESS_EXEC_TABLE_COUNT equ 3
+PROCESS_EXEC_ENTRY_BYTES equ 24
 PROCESS_EXEC_PATH equ 0
 PROCESS_EXEC_NAME83 equ 4
 PROCESS_EXEC_LOAD_ADDR equ 8
 PROCESS_EXEC_MAX_BYTES equ 12
 PROCESS_EXEC_TARGET equ 16
+PROCESS_EXEC_KIND equ 20
 PROC_PID equ 0
 PROC_KIND equ 4
 PROC_STATE equ 8
@@ -977,9 +979,15 @@ FAULT_SOURCE_EXPECTED equ 1
 FAULT_SOURCE_USER equ 2
 FAULT_SOURCE_DOOM equ 3
 FAULT_SOURCE_KERNEL equ 4
+FAULT_SOURCE_QUAKE equ 5
 FAULT_MODE_NONE equ 0
 FAULT_MODE_USER equ 1
 FAULT_MODE_KERNEL equ 2
+QUAKE_STATUS_KIND_MASK equ 0xff000000
+QUAKE_STATUS_INIT equ 0x51000000
+QUAKE_STATUS_FRAME equ 0x52000000
+QUAKE_STATUS_INPUT equ 0x53000000
+QUAKE_STATUS_AUDIO equ 0x54000000
 PF_ACCESS_NONE equ 0
 PF_ACCESS_READ equ 1
 PF_ACCESS_WRITE equ 2
@@ -11481,6 +11489,9 @@ storage_init:
     mov byte [doom_elf_status], 0
     mov byte [doom_elf_load_status], 0
     mov byte [doom_elf_parse_status], 0
+    mov byte [quake_elf_status], 0
+    mov byte [quake_elf_load_status], 0
+    mov byte [quake_elf_parse_status], 0
     mov dword [ata_last_lba], 0
     mov dword [ata_last_op], ATA_OP_NONE
     mov dword [ata_wait_phase], ATA_WAIT_IDLE
@@ -11597,6 +11608,11 @@ storage_init:
     mov dword [doom_elf_size], 0
     mov dword [doom_elf_sectors_read], 0
     mov dword [doom_entry_addr], 0
+    mov dword [quake_elf_size], 0
+    mov dword [quake_elf_sectors_read], 0
+    mov dword [quake_entry_addr], 0
+    mov dword [quake_segment_memsz], 0
+    mov dword [quake_segment_end], 0
     mov dword [doom_segment_filesz], 0
     mov dword [doom_segment_memsz], 0
     mov dword [doom_segment_end], 0
@@ -11639,6 +11655,7 @@ storage_init:
     loop .clear_persistence_markers
     mov byte [doom_user_window_status], 0
     mov word [doom_elf_first_cluster], 0
+    mov word [quake_elf_first_cluster], 0
     mov dword [current_pid], 0
     mov dword [current_process_ptr], 0
     mov dword [current_user_base], 0
@@ -11695,17 +11712,25 @@ storage_init:
     mov dword [sbrk_new_brk], 0
     mov byte [current_user_kind], USER_KIND_NONE
     mov byte [doom_run_status], 0
+    mov byte [quake_run_status], 0
     mov dword [doom_exit_code], 0
     mov dword [doom_fault_addr], 0
     mov dword [doom_fault_eip], 0
     mov dword [doom_fault_vector], 0
     mov dword [doom_fault_error], 0
+    mov dword [quake_exit_code], 0
+    mov dword [quake_fault_addr], 0
+    mov dword [quake_fault_eip], 0
+    mov dword [quake_fault_vector], 0
+    mov dword [quake_fault_error], 0
     call clear_fault_record
     mov dword [fault_expected_recovered_count], 0
     mov dword [fault_user_contained_count], 0
     mov dword [fault_doom_contained_count], 0
+    mov dword [fault_quake_contained_count], 0
     mov dword [fault_kernel_panic_count], 0
     mov dword [doom_last_syscall], 0
+    mov dword [quake_last_syscall], 0
     mov dword [doom_open_count], 0
     mov dword [doom_read_count], 0
     mov dword [doom_lseek_count], 0
@@ -11716,6 +11741,18 @@ storage_init:
     mov dword [doom_last_error], 0
     mov dword [doom_last_open_flags], 0
     mov dword [doom_last_open_mode], 0
+    mov dword [quake_open_count], 0
+    mov dword [quake_read_count], 0
+    mov dword [quake_lseek_count], 0
+    mov dword [quake_write_count], 0
+    mov dword [quake_close_count], 0
+    mov dword [quake_sbrk_count], 0
+    mov dword [quake_error_count], 0
+    mov dword [quake_last_error], 0
+    mov dword [quake_last_open_flags], 0
+    mov dword [quake_last_open_mode], 0
+    mov dword [quake_last_open_cluster], 0
+    mov dword [quake_last_open_size], 0
     mov dword [doom_saveload_flags], 0
     mov dword [doom_saveload_slot], 0xffffffff
     mov dword [doom_saveload_open_count], 0
@@ -11794,6 +11831,18 @@ storage_init:
     mov dword [doom_player_ammo], 0
     mov dword [doom_player_refire], 0
     mov dword [doom_player_weapon], 0
+    mov dword [quake_pak_magic_seen], 0
+    mov dword [quake_present_count], 0
+    mov dword [quake_init_flags], 0
+    mov dword [quake_init_report_count], 0
+    mov dword [quake_gameplay_status], 0
+    mov dword [quake_frame_report_count], 0
+    mov dword [quake_frame_count], 0
+    mov dword [quake_sv_active], 0
+    mov dword [quake_input_events], 0
+    mov dword [quake_input_buttons], 0
+    mov dword [quake_audio_writes], 0
+    mov dword [quake_audio_handle], 0
     mov dword [doom_key_down_seen], 0
     mov dword [doom_key_last_event], 0
     mov dword [doom_mouse_event_count], 0
@@ -17124,6 +17173,22 @@ readonly_file_read:
     jmp .loop
 
 .ok:
+    cmp dword [file_io_done], 0
+    je .readonly_maybe_wad
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    jne .readonly_maybe_wad
+    inc dword [quake_read_count]
+    cmp dword [file_io_start_offset], 0
+    jne .readonly_maybe_wad
+    cmp dword [file_io_done], 4
+    jb .readonly_maybe_wad
+    cmp dword [quake_pak_magic_seen], 0
+    jne .readonly_maybe_wad
+    mov edi, [file_io_user_ptr]
+    mov edx, [edi]
+    mov [quake_pak_magic_seen], edx
+
+.readonly_maybe_wad:
     call readonly_fd_is_wad_file
     jc .return_done
     cmp dword [file_io_done], 0
@@ -17203,6 +17268,12 @@ readonly_file_lseek:
     cmp eax, [fd_file_sizes + esi * 4]
     ja .fail_inval
     mov [fd_offsets + esi * 4], eax
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    jne .seek_maybe_wad
+    inc dword [quake_lseek_count]
+    jmp .seek_ok
+
+.seek_maybe_wad:
     call readonly_fd_is_wad_file
     jc .seek_ok
     cmp byte [current_user_kind], USER_KIND_DOOM
@@ -17829,6 +17900,7 @@ process_seed_wait_reap_probe_child:
 
 process_reset_doom:
     call process_reset_accounting
+    mov dword [esi + PROC_KIND], USER_KIND_DOOM
     mov dword [esi + PROC_STATE], PROC_STATE_READY
     mov dword [esi + PROC_BRK], DOOM_USER_HEAP_START
     mov dword [esi + PROC_ENTRY], 0
@@ -19560,17 +19632,25 @@ scheduler_tick:
     mov [scheduler_last_preempt_to_kstack], eax
     mov eax, [scheduler_last_preempt_from_kind]
     cmp eax, USER_KIND_DOOM
-    jne .check_preempt_probe_to_doom
+    je .check_payload_to_preempt_probe
+    cmp eax, USER_KIND_QUAKE
+    jne .check_preempt_probe_to_payload
+
+.check_payload_to_preempt_probe:
     cmp dword [scheduler_last_preempt_to_kind], USER_KIND_PREEMPT_PROBE
     jne .pair_mask_done
     or dword [scheduler_preempt_pair_mask], 0x1
     jmp .pair_mask_done
 
-.check_preempt_probe_to_doom:
+.check_preempt_probe_to_payload:
     cmp eax, USER_KIND_PREEMPT_PROBE
     jne .pair_mask_done
     cmp dword [scheduler_last_preempt_to_kind], USER_KIND_DOOM
+    je .preempt_probe_to_payload
+    cmp dword [scheduler_last_preempt_to_kind], USER_KIND_QUAKE
     jne .pair_mask_done
+
+.preempt_probe_to_payload:
     or dword [scheduler_preempt_pair_mask], 0x2
 
 .pair_mask_done:
@@ -20249,6 +20329,7 @@ process_exec_path:
     mov dword [process_exec_last_resolve_mode], SYS_EXEC_RESOLVE_NONE
     mov dword [process_exec_path_ptr], esi
     mov dword [process_exec_target], edi
+    mov dword [process_exec_target_kind], USER_KIND_NONE
     call process_exec_resolve_path
     jnc .resolved
     cmp dword [process_exec_last_error], 0
@@ -20283,18 +20364,28 @@ process_exec_path:
     mov [process_exec_size], eax
 
     cmp dword [process_exec_target], process_doom
-    je near .bind_doom_artifact
+    je near .bind_large_payload_artifact
     mov eax, [process_exec_target]
     call process_is_user_exec_target
     jnc near .bind_user_artifact
     jmp near .reserve
 
-.bind_doom_artifact:
+.bind_large_payload_artifact:
+    cmp dword [process_exec_target_kind], USER_KIND_QUAKE
+    je .bind_quake_artifact
     mov ax, [process_exec_first_cluster]
     mov [doom_elf_first_cluster], ax
     mov eax, [process_exec_size]
     mov [doom_elf_size], eax
     mov byte [doom_elf_status], 1
+    jmp near .reserve
+
+.bind_quake_artifact:
+    mov ax, [process_exec_first_cluster]
+    mov [quake_elf_first_cluster], ax
+    mov eax, [process_exec_size]
+    mov [quake_elf_size], eax
+    mov byte [quake_elf_status], 1
     jmp near .reserve
 
 .bind_user_artifact:
@@ -20333,9 +20424,17 @@ process_exec_path:
     jmp .unsupported
 
 .loaded_doom:
+    cmp dword [process_exec_target_kind], USER_KIND_QUAKE
+    je .loaded_quake
     mov eax, [process_exec_sectors_read]
     mov [doom_elf_sectors_read], eax
     mov byte [doom_elf_load_status], 1
+    jmp .prepare
+
+.loaded_quake:
+    mov eax, [process_exec_sectors_read]
+    mov [quake_elf_sectors_read], eax
+    mov byte [quake_elf_load_status], 1
     jmp .prepare
 
 .loaded_user_probe:
@@ -20384,6 +20483,12 @@ process_exec_path:
     jmp .fail
 
 .load_fail_doom:
+    cmp dword [process_exec_target_kind], USER_KIND_QUAKE
+    jne .load_fail_doom_status
+    mov byte [quake_elf_load_status], 2
+    jmp .fail
+
+.load_fail_doom_status:
     mov byte [doom_elf_load_status], 2
 
 .fail:
@@ -20439,6 +20544,8 @@ process_exec_resolve_path:
     mov [process_exec_max_bytes], eax
     mov eax, [ebx + PROCESS_EXEC_TARGET]
     mov [process_exec_target], eax
+    mov eax, [ebx + PROCESS_EXEC_KIND]
+    mov [process_exec_target_kind], eax
     clc
     jmp .done
 
@@ -20592,6 +20699,7 @@ process_exec_resolve_generic_root83:
     mov dword [process_exec_load_addr], USER_ELF_LOAD_ADDR
     mov dword [process_exec_max_bytes], USER_ELF_MAX_BYTES
     mov [process_exec_target], esi
+    mov dword [process_exec_target_kind], USER_KIND_GENERIC
     clc
     jmp .done
 
@@ -20616,8 +20724,29 @@ process_exec_prepare_elf_image:
     jmp .fail
 
 .prepare_doom:
+    cmp dword [process_exec_target_kind], USER_KIND_QUAKE
+    jne .prepare_doom_payload
+    mov eax, [quake_elf_size]
+    mov [doom_elf_size], eax
+    mov eax, [quake_elf_sectors_read]
+    mov [doom_elf_sectors_read], eax
+    mov byte [doom_elf_load_status], 1
+    mov byte [quake_elf_parse_status], 0
+
+.prepare_doom_payload:
     call doom_elf_prepare
     jc .fail
+    cmp dword [process_exec_target_kind], USER_KIND_QUAKE
+    jne .prepare_doom_entry
+    mov eax, [doom_entry_addr]
+    mov [quake_entry_addr], eax
+    mov eax, [doom_segment_memsz]
+    mov [quake_segment_memsz], eax
+    mov eax, [doom_segment_end]
+    mov [quake_segment_end], eax
+    mov byte [quake_elf_parse_status], 1
+
+.prepare_doom_entry:
     mov eax, [doom_entry_addr]
     mov [process_exec_entry], eax
     clc
@@ -20632,6 +20761,11 @@ process_exec_prepare_elf_image:
     ret
 
 .fail:
+    cmp dword [process_exec_target_kind], USER_KIND_QUAKE
+    jne .fail_status_ready
+    mov byte [quake_elf_parse_status], 2
+
+.fail_status_ready:
     stc
     ret
 
@@ -20663,8 +20797,17 @@ process_exec_handoff_current:
 
 .reset_doom_target:
     call process_reset_doom
+    mov eax, [process_exec_target_kind]
+    cmp eax, USER_KIND_NONE
+    jne .reset_large_kind_ready
+    mov eax, USER_KIND_DOOM
+
+.reset_large_kind_ready:
+    mov [esi + PROC_KIND], eax
     mov eax, [process_exec_entry]
     mov [esi + PROC_ENTRY], eax
+    cmp dword [process_exec_target_kind], USER_KIND_QUAKE
+    je .reset_quake_target_status
     mov byte [doom_run_status], 1
     mov dword [doom_exit_code], 0
     mov dword [doom_fault_addr], 0
@@ -20677,6 +20820,37 @@ process_exec_handoff_current:
     mov dword [doom_last_error], 0
     mov dword [doom_log_len], 0
     mov byte [doom_log_buffer], 0
+    jmp .seed_context
+
+.reset_quake_target_status:
+    mov byte [quake_run_status], 1
+    mov dword [quake_exit_code], 0
+    mov dword [quake_fault_addr], 0
+    mov dword [quake_fault_eip], 0
+    mov dword [quake_fault_vector], 0
+    mov dword [quake_fault_error], 0
+    call clear_fault_record
+    mov dword [quake_last_syscall], 0
+    mov dword [quake_error_count], 0
+    mov dword [quake_last_error], 0
+    mov dword [quake_open_count], 0
+    mov dword [quake_read_count], 0
+    mov dword [quake_lseek_count], 0
+    mov dword [quake_write_count], 0
+    mov dword [quake_close_count], 0
+    mov dword [quake_sbrk_count], 0
+    mov dword [quake_pak_magic_seen], 0
+    mov dword [quake_present_count], 0
+    mov dword [quake_init_flags], 0
+    mov dword [quake_init_report_count], 0
+    mov dword [quake_frame_report_count], 0
+    mov dword [quake_frame_count], 0
+    mov dword [quake_sv_active], 0
+    mov dword [quake_gameplay_status], 0
+    mov dword [quake_input_events], 0
+    mov dword [quake_input_buttons], 0
+    mov dword [quake_audio_writes], 0
+    mov dword [quake_audio_handle], 0
     jmp .seed_context
 
 .reset_user_probe_target:
@@ -21625,8 +21799,17 @@ syscall_handler:
 
     mov [current_syscall_number], eax
     cmp byte [current_user_kind], USER_KIND_DOOM
-    jne .dispatch
+    je .record_doom_syscall
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je .record_quake_syscall
+    jmp .dispatch
+
+.record_doom_syscall:
     mov [doom_last_syscall], eax
+    jmp .dispatch
+
+.record_quake_syscall:
+    mov [quake_last_syscall], eax
 
 .dispatch:
     cmp eax, SYS_USER_PROBE
@@ -21797,8 +21980,17 @@ syscall_handler:
 .write_done:
     mov eax, [syscall_len_arg]
     cmp byte [current_user_kind], USER_KIND_DOOM
-    jne .write_return
+    je .write_count_doom
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je .write_count_quake
+    jmp .write_return
+
+.write_count_doom:
     inc dword [doom_write_count]
+    jmp .write_return
+
+.write_count_quake:
+    inc dword [quake_write_count]
 
 .write_return:
     jmp .return
@@ -21847,8 +22039,17 @@ syscall_handler:
     mov [current_user_brk], edx
     mov [user_brk_current], edx
     cmp byte [current_user_kind], USER_KIND_DOOM
-    jne .sbrk_return
+    je .sbrk_count_doom
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je .sbrk_count_quake
+    jmp .sbrk_return
+
+.sbrk_count_doom:
     inc dword [doom_sbrk_count]
+    jmp .sbrk_return
+
+.sbrk_count_quake:
+    inc dword [quake_sbrk_count]
 
 .sbrk_return:
     jmp .return
@@ -21981,7 +22182,14 @@ syscall_handler:
     mov [syscall_ptr_arg], ebx
     mov [syscall_open_flags], ecx
     cmp byte [current_user_kind], USER_KIND_DOOM
+    je .open_record_doom_status
+    cmp byte [current_user_kind], USER_KIND_QUAKE
     jne .open_skip_status
+    mov [quake_last_open_flags], ecx
+    mov [quake_last_open_mode], edx
+    jmp .open_skip_status
+
+.open_record_doom_status:
     mov [doom_last_open_flags], ecx
     mov [doom_last_open_mode], edx
 
@@ -22166,7 +22374,12 @@ syscall_handler:
     mov edx, [fat_found_size]
     mov [fd_file_sizes + eax * 4], edx
     cmp byte [current_user_kind], USER_KIND_DOOM
-    jne .open_generic_readonly_done
+    je .open_generic_readonly_maybe_doom
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je .open_generic_readonly_maybe_quake
+    jmp .open_generic_readonly_done
+
+.open_generic_readonly_maybe_doom:
     mov cx, [wad_first_cluster]
     cmp [fat_found_first_cluster], cx
     jne .open_generic_readonly_done
@@ -22174,6 +22387,14 @@ syscall_handler:
     cmp [fat_found_size], ecx
     jne .open_generic_readonly_done
     inc dword [doom_open_count]
+    jmp .open_generic_readonly_done
+
+.open_generic_readonly_maybe_quake:
+    inc dword [quake_open_count]
+    movzx ecx, word [fat_found_first_cluster]
+    mov [quake_last_open_cluster], ecx
+    mov ecx, [fat_found_size]
+    mov [quake_last_open_size], ecx
 
 .open_generic_readonly_done:
     add eax, USER_FD_BASE
@@ -22390,8 +22611,17 @@ syscall_handler:
     mov eax, FRAMEBUFFER_PRESENT_SOURCE_SYS
     call framebuffer_record_present_success
     cmp byte [current_user_kind], USER_KIND_DOOM
-    jne .present_return
+    je .present_count_doom
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je .present_count_quake
+    jmp .present_return
+
+.present_count_doom:
     inc dword [doom_present_count]
+    jmp .present_return
+
+.present_count_quake:
+    inc dword [quake_present_count]
 
 .present_return:
     xor eax, eax
@@ -22696,8 +22926,17 @@ syscall_handler:
 
 .close_ok:
     cmp byte [current_user_kind], USER_KIND_DOOM
-    jne .close_return
+    je .close_count_doom
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je .close_count_quake
+    jmp .close_return
+
+.close_count_doom:
     inc dword [doom_close_count]
+    jmp .close_return
+
+.close_count_quake:
+    inc dword [quake_close_count]
 
 .close_return:
     xor eax, eax
@@ -23267,6 +23506,8 @@ syscall_handler:
     ret
 
 .gameplay_status:
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je .quake_gameplay_status
     cmp byte [current_user_kind], USER_KIND_DOOM
     jne .gameplay_return
     test ebx, DOOM_INIT_STATUS_FLAG
@@ -23467,6 +23708,50 @@ syscall_handler:
     mov eax, ecx
     xor eax, [doom_player_origin_angle]
     or [doom_player_angle_delta], eax
+    jmp .gameplay_return
+
+.quake_gameplay_status:
+    mov eax, ebx
+    and eax, QUAKE_STATUS_KIND_MASK
+    cmp eax, QUAKE_STATUS_INIT
+    je .quake_init_status
+    cmp eax, QUAKE_STATUS_FRAME
+    je .quake_frame_status
+    cmp eax, QUAKE_STATUS_INPUT
+    je .quake_input_status
+    cmp eax, QUAKE_STATUS_AUDIO
+    je .quake_audio_status
+    jmp .gameplay_return
+
+.quake_init_status:
+    mov eax, ebx
+    and eax, 0x0000ffff
+    or [quake_init_flags], eax
+    inc dword [quake_init_report_count]
+    jmp .gameplay_return
+
+.quake_frame_status:
+    inc dword [quake_frame_report_count]
+    mov [quake_frame_count], ecx
+    mov eax, ebx
+    shr eax, 8
+    and eax, 0x000000ff
+    mov [quake_sv_active], eax
+    cmp ecx, 0
+    je .gameplay_return
+    cmp eax, 0
+    je .gameplay_return
+    mov dword [quake_gameplay_status], 1
+    jmp .gameplay_return
+
+.quake_input_status:
+    mov [quake_input_events], ecx
+    mov [quake_input_buttons], edx
+    jmp .gameplay_return
+
+.quake_audio_status:
+    mov [quake_audio_writes], ecx
+    mov [quake_audio_handle], edx
     jmp .gameplay_return
 
 .gameplay_return:
@@ -23832,8 +24117,17 @@ syscall_handler:
     inc dword [process_mmap_allocations]
     mov eax, [mmap_base_arg]
     cmp byte [current_user_kind], USER_KIND_DOOM
-    jne .return
+    je .mmap_count_doom
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je .mmap_count_quake
+    jmp .return
+
+.mmap_count_doom:
     inc dword [doom_sbrk_count]
+    jmp .return
+
+.mmap_count_quake:
+    inc dword [quake_sbrk_count]
     jmp .return
 
 .munmap:
@@ -24044,8 +24338,17 @@ syscall_handler:
     mov eax, FRAMEBUFFER_PRESENT_SOURCE_IOCTL
     call framebuffer_record_present_success
     cmp byte [current_user_kind], USER_KIND_DOOM
-    jne .ioctl_present_return
+    je .ioctl_present_count_doom
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je .ioctl_present_count_quake
+    jmp .ioctl_present_return
+
+.ioctl_present_count_doom:
     inc dword [doom_present_count]
+    jmp .ioctl_present_return
+
+.ioctl_present_count_quake:
+    inc dword [quake_present_count]
 
 .ioctl_present_return:
     xor eax, eax
@@ -24161,6 +24464,7 @@ syscall_handler:
     mov [sys_exec_frame_ptr], esp
     mov dword [process_exec_path_ptr], 0
     mov dword [process_exec_target], 0
+    mov dword [process_exec_target_kind], USER_KIND_NONE
     mov dword [process_exec_entry], 0
     mov dword [process_exec_last_error], 0
     mov dword [sys_exec_last_parent_pid], 0xffffffff
@@ -24293,14 +24597,26 @@ syscall_handler:
 
 .bad_syscall_return:
     cmp byte [current_user_kind], USER_KIND_DOOM
-    jne .return
+    je .bad_syscall_doom
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je .bad_syscall_quake
+    jmp .return
+
+.bad_syscall_doom:
     inc dword [doom_error_count]
     mov [doom_last_error], eax
+    jmp .return
+
+.bad_syscall_quake:
+    inc dword [quake_error_count]
+    mov [quake_last_error], eax
     jmp .return
 
 .exit:
     cmp byte [current_user_kind], USER_KIND_DOOM
     je .doom_exit
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je .quake_exit
     mov esi, [current_process_ptr]
     cmp esi, 0
     je .user_exit_to_kernel
@@ -24331,6 +24647,19 @@ syscall_handler:
 .doom_exit:
     mov [doom_exit_code], ebx
     mov byte [doom_run_status], 2
+    call process_mark_current_exited
+    mov ax, DATA_SEG
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    call kernel_switch_main_stack_and_return
+    jmp doom_user_finished
+
+.quake_exit:
+    mov [quake_exit_code], ebx
+    mov byte [quake_run_status], 2
     call process_mark_current_exited
     mov ax, DATA_SEG
     mov ds, ax
@@ -26560,6 +26889,8 @@ exception_common:
     jz .kernel_panic
     cmp byte [current_user_kind], USER_KIND_DOOM
     je doom_user_fault
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je quake_user_fault
     jmp user_process_fault
 
 .kernel_panic:
@@ -26909,6 +27240,8 @@ fault_source_to_string:
     je .doom
     cmp eax, FAULT_SOURCE_KERNEL
     je .kernel
+    cmp eax, FAULT_SOURCE_QUAKE
+    je .quake
     mov esi, smoke_none_text
     ret
 
@@ -26922,6 +27255,10 @@ fault_source_to_string:
 
 .doom:
     mov esi, smoke_fault_doom_text
+    ret
+
+.quake:
+    mov esi, smoke_fault_quake_text
     ret
 
 .kernel:
@@ -26978,6 +27315,30 @@ doom_user_fault:
     mov [doom_fault_vector], eax
     mov eax, [fault_error]
     mov [doom_fault_error], eax
+    call process_mark_current_faulted
+    mov ax, DATA_SEG
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    call kernel_switch_main_stack_and_return
+    jmp doom_user_finished
+
+quake_user_fault:
+    mov dword [fault_source], FAULT_SOURCE_QUAKE
+    mov dword [fault_mode], FAULT_MODE_USER
+    mov dword [fault_contained], 1
+    inc dword [fault_quake_contained_count]
+    mov byte [quake_run_status], 3
+    mov eax, [fault_cr2]
+    mov [quake_fault_addr], eax
+    mov eax, [fault_eip]
+    mov [quake_fault_eip], eax
+    mov eax, [fault_vector]
+    mov [quake_fault_vector], eax
+    mov eax, [fault_error]
+    mov [quake_fault_error], eax
     call process_mark_current_faulted
     mov ax, DATA_SEG
     mov ds, ax
@@ -27753,6 +28114,83 @@ write_smoke_status:
     mov edx, [doom_fault_error]
     call smoke_write_hex32
 
+    mov esi, smoke_quake_text
+    call smoke_copy_string
+    cmp byte [quake_elf_status], 1
+    jne .quake_not_ok
+    cmp byte [quake_elf_load_status], 1
+    jne .quake_not_ok
+    cmp byte [quake_elf_parse_status], 1
+    jne .quake_not_ok
+    mov esi, smoke_ok_text
+    jmp .quake_write
+
+.quake_not_ok:
+    cmp byte [quake_elf_status], 0
+    jne .quake_fail
+    cmp byte [quake_elf_load_status], 0
+    jne .quake_fail
+    cmp byte [quake_elf_parse_status], 0
+    jne .quake_fail
+    mov esi, smoke_wait_text
+    jmp .quake_write
+
+.quake_fail:
+    mov esi, smoke_fail_text
+
+.quake_write:
+    call smoke_copy_string
+
+    mov esi, smoke_quakerun_text
+    call smoke_copy_string
+    cmp byte [quake_run_status], 1
+    je .quakerun_running
+    cmp byte [quake_run_status], 2
+    je .quakerun_exited
+    cmp byte [quake_run_status], 3
+    je .quakerun_faulted
+    mov esi, smoke_wait_text
+    jmp .quakerun_write
+
+.quakerun_running:
+    mov esi, smoke_run_text
+    jmp .quakerun_write
+
+.quakerun_exited:
+    mov esi, smoke_exit_text
+    jmp .quakerun_write
+
+.quakerun_faulted:
+    mov esi, smoke_fault_text
+
+.quakerun_write:
+    call smoke_copy_string
+
+    mov esi, smoke_quakeexit_text
+    call smoke_copy_string
+    mov edx, [quake_exit_code]
+    call smoke_write_hex32
+
+    mov esi, smoke_quakefault_text
+    call smoke_copy_string
+    mov edx, [quake_fault_addr]
+    call smoke_write_hex32
+
+    mov esi, smoke_quakefaultip_text
+    call smoke_copy_string
+    mov edx, [quake_fault_eip]
+    call smoke_write_hex32
+
+    mov esi, smoke_quakefaultv_text
+    call smoke_copy_string
+    mov edx, [quake_fault_vector]
+    call smoke_write_hex32
+
+    mov esi, smoke_quakefaulterr_text
+    call smoke_copy_string
+    mov edx, [quake_fault_error]
+    call smoke_write_hex32
+
     mov esi, smoke_faultframe_text
     call smoke_copy_string
     mov edx, [fault_vector]
@@ -28361,6 +28799,90 @@ write_smoke_status:
     mov al, ':'
     stosb
     mov edx, [doom_last_open_mode]
+    call smoke_write_hex32
+
+    mov esi, smoke_quakeopen_text
+    call smoke_copy_string
+    cmp dword [quake_open_count], 0
+    je .quakeopen_fail
+    mov esi, smoke_ok_text
+    jmp .quakeopen_write
+
+.quakeopen_fail:
+    mov esi, smoke_fail_text
+
+.quakeopen_write:
+    call smoke_copy_string
+
+    mov esi, smoke_quakeread_text
+    call smoke_copy_string
+    cmp dword [quake_read_count], 0
+    je .quakeread_fail
+    cmp dword [quake_pak_magic_seen], 0x4b434150
+    jne .quakeread_fail
+    mov esi, smoke_ok_text
+    jmp .quakeread_write
+
+.quakeread_fail:
+    mov esi, smoke_fail_text
+
+.quakeread_write:
+    call smoke_copy_string
+
+    mov esi, smoke_quakewrite_text
+    call smoke_copy_string
+    mov edx, [quake_write_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_quakeseek_text
+    call smoke_copy_string
+    mov edx, [quake_lseek_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_quakepak_text
+    call smoke_copy_string
+    mov edx, [quake_open_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [quake_read_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [quake_lseek_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [quake_pak_magic_seen]
+    call smoke_write_hex32
+
+    mov esi, smoke_quakeclose_text
+    call smoke_copy_string
+    mov edx, [quake_close_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_quakesbrk_text
+    call smoke_copy_string
+    mov edx, [quake_sbrk_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_quakeerr_text
+    call smoke_copy_string
+    mov edx, [quake_error_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_quakeerrno_text
+    call smoke_copy_string
+    mov edx, [quake_last_error]
+    call smoke_write_hex32
+
+    mov esi, smoke_quakemode_text
+    call smoke_copy_string
+    mov edx, [quake_last_open_flags]
+    call smoke_write_hex32
+    mov al, ':'
+    stosb
+    mov edx, [quake_last_open_mode]
     call smoke_write_hex32
 
     mov esi, smoke_doomsav_text
@@ -29015,6 +29537,65 @@ write_smoke_status:
     mov al, '/'
     stosb
     mov edx, [doom_init_report_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_quakepresent_text
+    call smoke_copy_string
+    mov edx, [quake_present_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_quakeinit_text
+    call smoke_copy_string
+    mov edx, [quake_init_flags]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [quake_init_report_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_quakegame_text
+    call smoke_copy_string
+    cmp dword [quake_gameplay_status], 1
+    je .quakegame_ok
+    mov esi, smoke_wait_text
+    jmp .quakegame_write
+
+.quakegame_ok:
+    mov esi, smoke_ok_text
+
+.quakegame_write:
+    call smoke_copy_string
+
+    mov esi, smoke_qstate_text
+    call smoke_copy_string
+    mov edx, [quake_sv_active]
+    call smoke_write_hex32
+
+    mov esi, smoke_qframe_text
+    call smoke_copy_string
+    mov edx, [quake_frame_count]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [quake_frame_report_count]
+    call smoke_write_hex32
+
+    mov esi, smoke_qinput_text
+    call smoke_copy_string
+    mov edx, [quake_input_events]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [quake_input_buttons]
+    call smoke_write_hex32
+
+    mov esi, smoke_qaudio_text
+    call smoke_copy_string
+    mov edx, [quake_audio_writes]
+    call smoke_write_hex32
+    mov al, '/'
+    stosb
+    mov edx, [quake_audio_handle]
     call smoke_write_hex32
 
     mov esi, smoke_gameplay_text
@@ -33246,6 +33827,13 @@ smoke_doomfault_text db " doomfault=", 0
 smoke_doomfaultip_text db " doomfaultip=", 0
 smoke_doomfaultv_text db " doomfaultv=", 0
 smoke_doomfaulterr_text db " doomfaulterr=", 0
+smoke_quake_text db " quake=", 0
+smoke_quakerun_text db " quakerun=", 0
+smoke_quakeexit_text db " quakeexit=", 0
+smoke_quakefault_text db " quakefault=", 0
+smoke_quakefaultip_text db " quakefaultip=", 0
+smoke_quakefaultv_text db " quakefaultv=", 0
+smoke_quakefaulterr_text db " quakefaulterr=", 0
 smoke_faultframe_text db " fault=", 0
 smoke_pfframe_text db " pf=", 0
 smoke_faultsrc_text db " faultsrc=", 0
@@ -33380,6 +33968,16 @@ smoke_doomsbrk_text db " doomsbrk=", 0
 smoke_doomerr_text db " doomerr=", 0
 smoke_doomerrno_text db " doomerrno=", 0
 smoke_doommode_text db " doommode=", 0
+smoke_quakeopen_text db " quakeopen=", 0
+smoke_quakeread_text db " quakeread=", 0
+smoke_quakewrite_text db " quakewrite=", 0
+smoke_quakeseek_text db " quakeseek=", 0
+smoke_quakepak_text db " quakepak=", 0
+smoke_quakeclose_text db " quakeclose=", 0
+smoke_quakesbrk_text db " quakesbrk=", 0
+smoke_quakeerr_text db " quakeerr=", 0
+smoke_quakeerrno_text db " quakeerrno=", 0
+smoke_quakemode_text db " quakemode=", 0
 smoke_doomsav_text db " doomsav=", 0
 smoke_saverd_text db " saverd=", 0
 smoke_savewr_text db " savewr=", 0
@@ -33415,6 +34013,13 @@ smoke_doomnonzero_text db " doomnonzero=", 0
 smoke_doomcolors_text db " doomcolors=", 0
 smoke_doomsamp_text db " doomsamp=", 0
 smoke_doominit_text db " doominit=", 0
+smoke_quakepresent_text db " quakepresent=", 0
+smoke_quakeinit_text db " quakeinit=", 0
+smoke_quakegame_text db " qgame=", 0
+smoke_qstate_text db " qstate=", 0
+smoke_qframe_text db " qframe=", 0
+smoke_qinput_text db " qinput=", 0
+smoke_qaudio_text db " qaudio=", 0
 smoke_gameplay_text db " gameplay=", 0
 smoke_gstate_text db " gstate=", 0
 smoke_gmap_text db " gmap=", 0
@@ -33685,6 +34290,7 @@ smoke_kexc_text db "KEXC", 0
 smoke_expect_text db "EXPECT", 0
 smoke_fault_user_text db "USER", 0
 smoke_fault_doom_text db "DOOM", 0
+smoke_fault_quake_text db "QUAKE", 0
 smoke_fault_kernel_text db "KERNEL", 0
 smoke_halt_text db "HALT", 0
 smoke_reboot_text db "REBOOT", 0
@@ -33737,7 +34343,9 @@ cmd_poweroff db "poweroff", 0
 wad_name_83 db "DOOM1   WAD"
 user_elf_name_83 db "USERPROBELF"
 doom_elf_name_83 db "DOOM    ELF"
+quake_elf_name_83 db "QUAKE   ELF"
 exec_path_doom db "DOOM.ELF", 0
+exec_path_quake db "QUAKE.ELF", 0
 exec_path_user_probe db "USERPROB.ELF", 0
 exec_path_abi_probe db "ABIPROBE.ELF", 0
 default_cfg_name_83 db "DEFAULT CFG"
@@ -33780,8 +34388,9 @@ writable_path_len_table dd user_path_default_cfg_end - user_path_default_cfg, us
 writable_capacity_table dd WRITABLE_DEFAULT_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY
 persistence_marker_name_table dd persist_chk_name_83, save_req_name_83, load_req_name_83
 process_exec_table:
-    dd exec_path_doom, doom_elf_name_83, DOOM_ELF_LOAD_ADDR, DOOM_ELF_MAX_BYTES, process_doom
-    dd exec_path_user_probe, user_elf_name_83, USER_ELF_LOAD_ADDR, USER_ELF_MAX_BYTES, process_user_probe
+    dd exec_path_doom, doom_elf_name_83, DOOM_ELF_LOAD_ADDR, DOOM_ELF_MAX_BYTES, process_doom, USER_KIND_DOOM
+    dd exec_path_quake, quake_elf_name_83, DOOM_ELF_LOAD_ADDR, DOOM_ELF_MAX_BYTES, process_doom, USER_KIND_QUAKE
+    dd exec_path_user_probe, user_elf_name_83, USER_ELF_LOAD_ADDR, USER_ELF_MAX_BYTES, process_user_probe, USER_KIND_PROBE
 user_elf_prefix db "User ELF loader: ", 0
 user_entry_prefix db "User entry: ", 0
 user_flags_prefix db "User syscall flags: ", 0
@@ -33963,10 +34572,14 @@ abi_probe_exec_status db 0
 doom_elf_status db 0
 doom_elf_load_status db 0
 doom_elf_parse_status db 0
+quake_elf_status db 0
+quake_elf_load_status db 0
+quake_elf_parse_status db 0
 doom_user_window_status db 0
 process_exec_status db 0
 current_user_kind db 0
 doom_run_status db 0
+quake_run_status db 0
 ata_status db 0
 fat_status db 0
 wad_status db 0
@@ -34534,6 +35147,11 @@ boot_user_exec_entry dd 0
 doom_elf_size dd 0
 doom_elf_sectors_read dd 0
 doom_entry_addr dd 0
+quake_elf_size dd 0
+quake_elf_sectors_read dd 0
+quake_entry_addr dd 0
+quake_segment_memsz dd 0
+quake_segment_end dd 0
 doom_segment_source dd 0
 doom_segment_dest dd 0
 doom_segment_filesz dd 0
@@ -34555,6 +35173,7 @@ process_exec_target dd 0
 process_exec_name83 dd 0
 process_exec_load_addr dd 0
 process_exec_max_bytes dd 0
+process_exec_target_kind dd USER_KIND_NONE
 process_exec_size dd 0
 process_exec_first_cluster dw 0
 align 4
@@ -34789,6 +35408,7 @@ panic_status dd 0
 fault_expected_recovered_count dd 0
 fault_user_contained_count dd 0
 fault_doom_contained_count dd 0
+fault_quake_contained_count dd 0
 fault_kernel_panic_count dd 0
 shutdown_state dd 0
 user_wad_magic_seen dd 0
@@ -35000,6 +35620,12 @@ doom_fault_eip dd 0
 doom_fault_vector dd 0
 doom_fault_error dd 0
 doom_last_syscall dd 0
+quake_exit_code dd 0
+quake_fault_addr dd 0
+quake_fault_eip dd 0
+quake_fault_vector dd 0
+quake_fault_error dd 0
+quake_last_syscall dd 0
 doom_open_count dd 0
 doom_read_count dd 0
 doom_lseek_count dd 0
@@ -35010,6 +35636,18 @@ doom_error_count dd 0
 doom_last_error dd 0
 doom_last_open_flags dd 0
 doom_last_open_mode dd 0
+quake_open_count dd 0
+quake_read_count dd 0
+quake_lseek_count dd 0
+quake_write_count dd 0
+quake_close_count dd 0
+quake_sbrk_count dd 0
+quake_error_count dd 0
+quake_last_error dd 0
+quake_last_open_flags dd 0
+quake_last_open_mode dd 0
+quake_last_open_cluster dd 0
+quake_last_open_size dd 0
 doom_saveload_flags dd 0
 doom_saveload_slot dd 0xffffffff
 doom_saveload_open_count dd 0
@@ -35113,6 +35751,18 @@ doom_player_angle_delta dd 0
 doom_player_ammo dd 0
 doom_player_refire dd 0
 doom_player_weapon dd 0
+quake_pak_magic_seen dd 0
+quake_present_count dd 0
+quake_init_flags dd 0
+quake_init_report_count dd 0
+quake_gameplay_status dd 0
+quake_frame_report_count dd 0
+quake_frame_count dd 0
+quake_sv_active dd 0
+quake_input_events dd 0
+quake_input_buttons dd 0
+quake_audio_writes dd 0
+quake_audio_handle dd 0
 doom_sound_call_count dd 0
 doom_sound_start_count dd 0
 doom_sound_stop_count dd 0
@@ -35430,6 +36080,7 @@ fat_parent_dir_cluster dw 0
 wad_first_cluster dw 0
 user_elf_first_cluster dw 0
 doom_elf_first_cluster dw 0
+quake_elf_first_cluster dw 0
 fat_mut_value dw 0
 fat_new_cluster dw 0
 fat_free_next_cluster dw 0

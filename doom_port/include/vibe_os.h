@@ -106,6 +106,7 @@ enum {
     VIBE_PROCESS_KIND_DOOM = 2,
     VIBE_PROCESS_KIND_PREEMPT_PROBE = 3,
     VIBE_PROCESS_KIND_GENERIC = 4,
+    VIBE_PROCESS_KIND_QUAKE = 5,
 };
 
 typedef struct vibe_process_status {
