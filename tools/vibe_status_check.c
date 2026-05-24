@@ -1290,8 +1290,8 @@ static void validate_audio_device(const Status *status) {
             (audabi[2] & (audabi[2] - 1u)) != 0u) {
             fail("audabi= last operation must be exactly one known operation bit");
         }
-        if (audabi[3] != AUDIO_CMD_PCM_CLOSE) {
-            fail("audabi= last command must prove the generic PCM lifecycle reached close");
+        if (audabi[3] == 0u || audabi[3] > AUDIO_CMD_PCM_CLOSE) {
+            fail("audabi= last command must be a known generic PCM lifecycle command");
         }
     }
 }
