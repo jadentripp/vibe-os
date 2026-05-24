@@ -4,7 +4,6 @@ CLANG ?= clang
 HOST_CC ?= cc
 LLD_LINK ?= lld-link
 HOST_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2
-HOST_TEST_CFLAGS ?= $(HOST_CFLAGS) -Idoom_port -Idoom_port/include -I$(DOOM_SRC_DIR)
 NC ?= nc
 KERNEL_EXTRA_NASMFLAGS ?=
 QEMU_ACCEL ?= tcg
@@ -54,10 +53,10 @@ C_RUNTIME_OBJ := $(BUILD_DIR)/c_runtime_probe.o
 KERNEL_ELF := $(BUILD_DIR)/kernel.elf
 LINK_ELF32 := $(BUILD_DIR)/link_elf32
 USER_CRT0_OBJ := $(BUILD_DIR)/user_crt0.o
-USER_PROBE_C_OBJ := $(BUILD_DIR)/user_probe_c.o
+USER_PROBE_OBJ := $(BUILD_DIR)/user_probe.o
 USER_PROBE_ELF := $(BUILD_DIR)/user_probe.elf
-USER_ABI_PROBE_C_OBJ := $(BUILD_DIR)/user_abi_probe_c.o
-USER_RUNTIME_C_OBJ := $(BUILD_DIR)/user_runtime_c.o
+USER_ABI_PROBE_OBJ := $(BUILD_DIR)/user_abi_probe.o
+USER_RUNTIME_OBJ := $(BUILD_DIR)/user_runtime.o
 USER_ABI_PROBE_ELF := $(BUILD_DIR)/abi_probe.elf
 IMAGE := $(BUILD_DIR)/disk.img
 IMAGE_BUILDER := $(BUILD_DIR)/make_wad_image
@@ -65,22 +64,21 @@ UEFI_BUILD_DIR := $(BUILD_DIR)/uefi
 UEFI_LOADER_OBJ := $(UEFI_BUILD_DIR)/loader.obj
 UEFI_LOADER_EFI := $(UEFI_BUILD_DIR)/BOOTX64.EFI
 UEFI_DUAL_IMAGE := $(UEFI_BUILD_DIR)/uefi-fat16.img
-C_RUNTIME_SRC := kernel/c_runtime_probe.c
-USER_PROBE_C_SRC := user/probe.c
-USER_ABI_PROBE_C_SRC := user/abi_probe.c
-USER_RUNTIME_C_SRC := user/runtime.c
+C_RUNTIME_SRC := kernel/c_runtime_probe.asm
+USER_PROBE_ASM_SRC := user/probe.asm
+USER_ABI_PROBE_ASM_SRC := user/abi_probe.asm
+USER_RUNTIME_ASM_SRC := user/runtime.asm
 VIBE_STATUS_CHECK_SRC := tools/vibe_status_check.c
 DOOM_SRC_DIR := third_party/doom/linuxdoom-1.10
 DOOM_PORT_INCLUDE_DIR := doom_port/include
 DOOM_PORT_BUILD_DIR := $(BUILD_DIR)/doom
-HOST_TEST_DIR := $(BUILD_DIR)/host-tests
 DOOM_ELF := $(BUILD_DIR)/doom.elf
 DOOM_SYMBOLS := $(BUILD_DIR)/doom.symbols
 DOOM_BASE := 0x01000000
 DOOM_ORIGINAL_SRCS := $(filter-out $(DOOM_SRC_DIR)/i_%.c,$(wildcard $(DOOM_SRC_DIR)/*.c))
 DOOM_ORIGINAL_OBJS := $(DOOM_ORIGINAL_SRCS:$(DOOM_SRC_DIR)/%.c=$(DOOM_PORT_BUILD_DIR)/%.o)
-DOOM_PORT_SRCS := doom_port/input.c doom_port/libc.c doom_port/music.c doom_port/platform.c doom_port/save_debug.c doom_port/start.c
-DOOM_PORT_OBJS := $(DOOM_PORT_SRCS:doom_port/%.c=$(DOOM_PORT_BUILD_DIR)/port_%.o)
+DOOM_PORT_ASM_SRCS := doom_port/input.asm doom_port/libc.asm doom_port/music.asm doom_port/platform.asm doom_port/save_debug.asm doom_port/start.asm
+DOOM_PORT_OBJS := $(DOOM_PORT_ASM_SRCS:doom_port/%.asm=$(DOOM_PORT_BUILD_DIR)/port_%.o)
 FREESTANDING_I386_CFLAGS := -target i386-unknown-elf -ffreestanding -fno-builtin -fno-strict-aliasing -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m32 -march=i386 -mno-sse -mno-mmx -msoft-float -O2
 DOOM_ORIGINAL_CFLAGS := $(FREESTANDING_I386_CFLAGS) -std=gnu89 -DNORMALUNIX -DLINUX -I$(DOOM_PORT_INCLUDE_DIR) -I$(DOOM_SRC_DIR)
 DOOM_G_GAME_CFLAGS := -DG_BuildTiccmd=doom_original_G_BuildTiccmd -DG_Ticker=doom_original_G_Ticker
@@ -92,15 +90,15 @@ USER_PROBE_ELF_MAX_BYTES := 16384
 USER_ABI_PROBE_ELF_MAX_BYTES := 24576
 IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF)
 
-.PHONY: all build-only test host-c-tests no-python-check doom-compile doom-link run run-headless smoke playability-host-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image persistence-image-check clean check-tools vm-consent vm-status-proof-check
+.PHONY: all build-only test assembly-native-check no-python-check doom-compile doom-link run run-headless smoke playability-host-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image persistence-image-check clean check-tools vm-consent vm-status-proof-check
 
 all: $(IMAGE)
 
 build-only: $(IMAGE) doom-link
 	@printf "Build-only check OK: %s, %s, and %s are present.\n" "$(IMAGE)" "$(DOOM_ELF)" "$(USER_ABI_PROBE_ELF)"
 
-test: no-python-check $(IMAGE) doom-link vm-status-proof-check host-c-tests
-	@printf "Assembly-first host checks OK: image build, Doom link, guest status validator, and C support checks passed.\n"
+test: no-python-check $(IMAGE) doom-link vm-status-proof-check assembly-native-check
+	@printf "Assembly-first host checks OK: image build, Doom link, guest status validator, and assembly-native guest build audit passed.\n"
 
 no-python-check:
 	@set -e; \
@@ -111,23 +109,47 @@ no-python-check:
 	fi; \
 	printf "No tracked Python in the vibe-os build/proof path.\n"
 
-$(HOST_TEST_DIR):
-	@mkdir -p $@
-
-host-c-tests: | $(HOST_TEST_DIR)
-	$(HOST_CC) $(HOST_TEST_CFLAGS) tests/host/doom_input_test.c doom_port/input.c -o $(HOST_TEST_DIR)/doom_input_test
-	$(HOST_TEST_DIR)/doom_input_test
-	$(HOST_CC) $(HOST_TEST_CFLAGS) tests/host/doom_music_test.c -o $(HOST_TEST_DIR)/doom_music_test
-	$(HOST_TEST_DIR)/doom_music_test
-	$(HOST_CC) $(HOST_TEST_CFLAGS) tests/host/libc_conformance_subset_test.c -o $(HOST_TEST_DIR)/libc_conformance_subset_test
-	$(HOST_TEST_DIR)/libc_conformance_subset_test
-	$(HOST_CC) $(HOST_TEST_CFLAGS) tests/host/doom_libc_allocator_test.c -o $(HOST_TEST_DIR)/doom_libc_allocator_test
-	$(HOST_TEST_DIR)/doom_libc_allocator_test
-	$(HOST_CC) $(HOST_TEST_CFLAGS) tests/host/libc_runtime_readiness_test.c -o $(HOST_TEST_DIR)/libc_runtime_readiness_test
-	$(HOST_TEST_DIR)/libc_runtime_readiness_test
-	$(HOST_CC) $(HOST_TEST_CFLAGS) tests/host/user_runtime_test.c -o $(HOST_TEST_DIR)/user_runtime_test
-	$(HOST_TEST_DIR)/user_runtime_test
-	@printf "Host C support tests OK.\n"
+assembly-native-check:
+	@set -e; \
+	recipes="$$( $(MAKE) --no-print-directory -B -n ALLOW_LOCAL_VM=0 DOOM_WAD= build-only )"; \
+	for path in \
+		kernel/c_runtime_probe.asm \
+		user/probe.asm \
+		user/runtime.asm \
+		user/abi_probe.asm \
+		doom_port/input.asm \
+		doom_port/libc.asm \
+		doom_port/music.asm \
+		doom_port/platform.asm \
+		doom_port/save_debug.asm \
+		doom_port/start.asm; do \
+		printf "%s\n" "$$recipes" | grep -q "nasm -f elf32 $$path" || { \
+			printf "Guest assembly build audit missing NASM recipe for %s\n" "$$path" >&2; \
+			exit 1; \
+		}; \
+	done; \
+	bad_guest_c="$$(printf "%s\n" "$$recipes" | grep -E ' -c (kernel|user|doom_port)/.*\.c|clang .* (kernel|user|doom_port)/.*\.c' || true)"; \
+	if [ -n "$$bad_guest_c" ]; then \
+		printf "Project-owned C is still compiled into guest artifacts:\n%s\n" "$$bad_guest_c" >&2; \
+		exit 1; \
+	fi; \
+	for path in \
+		kernel/c_runtime_probe.c \
+		user/probe.c \
+		user/abi_probe.c \
+		user/runtime.c \
+		doom_port/input.c \
+		doom_port/libc.c \
+		doom_port/music.c \
+		doom_port/platform.c \
+		doom_port/save_debug.c \
+		doom_port/start.c; do \
+		if [ -e "$$path" ]; then \
+			printf "Legacy project-owned guest C source still exists: %s\n" "$$path" >&2; \
+			exit 1; \
+		fi; \
+	done; \
+	printf "Assembly-native guest build audit OK: project-owned guest artifacts are NASM-owned.\n"
 
 doom-compile: $(DOOM_ORIGINAL_OBJS)
 	@printf "Compiled %s original Doom source files for freestanding i386.\n" "$$(printf '%s\n' $(DOOM_ORIGINAL_OBJS) | wc -l | tr -d ' ')"
@@ -177,7 +199,7 @@ $(KERNEL_OBJ): kernel/kernel.asm | $(BUILD_DIR)
 	$(NASM) -f elf32 -D ELF_KERNEL $(KERNEL_EXTRA_NASMFLAGS) $< -o $@
 
 $(C_RUNTIME_OBJ): $(C_RUNTIME_SRC) | $(BUILD_DIR)
-	$(CLANG) $(FREESTANDING_I386_CFLAGS) -c $< -o $@
+	$(NASM) -f elf32 $< -o $@
 
 $(LINK_ELF32): tools/link_elf32.c | $(BUILD_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) $< -o $@
@@ -220,14 +242,14 @@ $(KERNEL_ELF): $(KERNEL_OBJ) $(C_RUNTIME_OBJ) $(LINK_ELF32) | $(BUILD_DIR)
 $(USER_CRT0_OBJ): user/crt0.asm | $(BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
 
-$(USER_PROBE_C_OBJ): $(USER_PROBE_C_SRC) | $(BUILD_DIR)
-	$(CLANG) $(FREESTANDING_I386_CFLAGS) -c $< -o $@
+$(USER_PROBE_OBJ): $(USER_PROBE_ASM_SRC) | $(BUILD_DIR)
+	$(NASM) -f elf32 $< -o $@
 
-$(USER_ABI_PROBE_C_OBJ): $(USER_ABI_PROBE_C_SRC) user/runtime.h doom_port/include/vibe_os.h | $(BUILD_DIR)
-	$(CLANG) $(FREESTANDING_I386_CFLAGS) -I$(DOOM_PORT_INCLUDE_DIR) -c $< -o $@
+$(USER_ABI_PROBE_OBJ): $(USER_ABI_PROBE_ASM_SRC) user/runtime.h doom_port/include/vibe_os.h | $(BUILD_DIR)
+	$(NASM) -f elf32 $< -o $@
 
-$(USER_RUNTIME_C_OBJ): $(USER_RUNTIME_C_SRC) user/runtime.h doom_port/include/vibe_os.h | $(BUILD_DIR)
-	$(CLANG) $(FREESTANDING_I386_CFLAGS) -I$(DOOM_PORT_INCLUDE_DIR) -c $< -o $@
+$(USER_RUNTIME_OBJ): $(USER_RUNTIME_ASM_SRC) user/runtime.h doom_port/include/vibe_os.h | $(BUILD_DIR)
+	$(NASM) -f elf32 $< -o $@
 
 $(DOOM_PORT_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c Makefile | $(DOOM_PORT_BUILD_DIR)
 	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) -c $< -o $@
@@ -238,18 +260,36 @@ $(DOOM_PORT_BUILD_DIR)/g_game.o: $(DOOM_SRC_DIR)/g_game.c Makefile | $(DOOM_PORT
 $(DOOM_PORT_BUILD_DIR)/p_saveg.o: $(DOOM_SRC_DIR)/p_saveg.c Makefile | $(DOOM_PORT_BUILD_DIR)
 	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) $(DOOM_P_SAVEG_CFLAGS) -c $< -o $@
 
-$(DOOM_PORT_BUILD_DIR)/port_%.o: doom_port/%.c Makefile | $(DOOM_PORT_BUILD_DIR)
-	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) -c $< -o $@
+$(DOOM_PORT_BUILD_DIR)/port_input.o: doom_port/input.asm Makefile | $(DOOM_PORT_BUILD_DIR)
+	$(NASM) -f elf32 $< -o $@
+
+$(DOOM_PORT_BUILD_DIR)/port_libc.o: doom_port/libc.asm Makefile | $(DOOM_PORT_BUILD_DIR)
+	$(NASM) -f elf32 $< -o $@
+
+$(DOOM_PORT_BUILD_DIR)/port_music.o: doom_port/music.asm Makefile | $(DOOM_PORT_BUILD_DIR)
+	$(NASM) -f elf32 $< -o $@
+
+$(DOOM_PORT_BUILD_DIR)/port_platform.o: doom_port/platform.asm Makefile | $(DOOM_PORT_BUILD_DIR)
+	$(NASM) -f elf32 $< -o $@
+
+$(DOOM_PORT_BUILD_DIR)/port_save_debug.o: doom_port/save_debug.asm Makefile | $(DOOM_PORT_BUILD_DIR)
+	$(NASM) -f elf32 $< -o $@
+
+$(DOOM_PORT_BUILD_DIR)/port_start.o: doom_port/start.asm Makefile | $(DOOM_PORT_BUILD_DIR)
+	$(NASM) -f elf32 $< -o $@
+
+$(DOOM_PORT_BUILD_DIR)/port_%.o: doom_port/%.asm Makefile | $(DOOM_PORT_BUILD_DIR)
+	$(NASM) -f elf32 $< -o $@
 
 $(DOOM_ELF): $(DOOM_ORIGINAL_OBJS) $(DOOM_PORT_OBJS) $(LINK_ELF32) | $(BUILD_DIR)
 	$(LINK_ELF32) -o $@ --base $(DOOM_BASE) --map $(DOOM_SYMBOLS) $(DOOM_ORIGINAL_OBJS) $(DOOM_PORT_OBJS)
 
-$(USER_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_PROBE_C_OBJ) $(LINK_ELF32) | $(BUILD_DIR)
-	$(LINK_ELF32) -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_PROBE_C_OBJ)
+$(USER_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_PROBE_OBJ) $(LINK_ELF32) | $(BUILD_DIR)
+	$(LINK_ELF32) -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_PROBE_OBJ)
 	@test $$(wc -c < $@) -le $(USER_PROBE_ELF_MAX_BYTES) || { echo "user probe ELF exceeds $(USER_PROBE_ELF_MAX_BYTES) bytes"; exit 1; }
 
-$(USER_ABI_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_RUNTIME_C_OBJ) $(USER_ABI_PROBE_C_OBJ) $(LINK_ELF32) | $(BUILD_DIR)
-	$(LINK_ELF32) -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_RUNTIME_C_OBJ) $(USER_ABI_PROBE_C_OBJ)
+$(USER_ABI_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_ABI_PROBE_OBJ) $(LINK_ELF32) | $(BUILD_DIR)
+	$(LINK_ELF32) -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_ABI_PROBE_OBJ)
 	@test $$(wc -c < $@) -le $(USER_ABI_PROBE_ELF_MAX_BYTES) || { echo "ABI probe ELF exceeds $(USER_ABI_PROBE_ELF_MAX_BYTES) bytes"; exit 1; }
 
 $(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(IMAGE_BUILDER)
