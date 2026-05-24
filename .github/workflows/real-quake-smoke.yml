@@ -1,6 +1,9 @@
 name: Real Quake smoke
 
 on:
+  push:
+    branches:
+      - jt/quake-ring3-payload
   workflow_dispatch:
     inputs:
       quake_pak_url:
@@ -39,6 +42,8 @@ jobs:
       INPUT_EXPECTED_SHA: ${{ inputs.expected_sha }}
       REAL_QUAKE_PAK_URL: ${{ secrets.REAL_QUAKE_PAK_URL }}
       REAL_QUAKE_PAK_SHA1: ${{ secrets.REAL_QUAKE_PAK_SHA1 }}
+      PUBLIC_QUAKE_SHAREWARE_URL: https://www.libsdl.org/projects/quake/data/quakesw-1.0.6.tar.gz
+      PUBLIC_QUAKE_SHAREWARE_PAK_SHA1: 36b42dc7b6313fd9cabc0be8b9e9864840929735
       QUAKE_PAK_PATH: /tmp/PAK0.PAK
 
     steps:
@@ -84,23 +89,39 @@ jobs:
           set -euo pipefail
 
           url="${INPUT_QUAKE_PAK_URL:-}"
+          source_label="workflow input"
           if [ -z "$url" ]; then
             url="${REAL_QUAKE_PAK_URL:-}"
+            source_label="REAL_QUAKE_PAK_URL secret"
+          fi
+          if [ -z "$url" ]; then
+            url="$PUBLIC_QUAKE_SHAREWARE_URL"
+            source_label="public SDL shareware archive"
           fi
           expected_sha1="${INPUT_QUAKE_PAK_SHA1:-}"
           if [ -z "$expected_sha1" ]; then
             expected_sha1="${REAL_QUAKE_PAK_SHA1:-}"
+          fi
+          if [ -z "$expected_sha1" ]; then
+            expected_sha1="$PUBLIC_QUAKE_SHAREWARE_PAK_SHA1"
           fi
           if [ -z "$url" ] || [ -z "$expected_sha1" ]; then
             echo "REAL_QUAKE_PAK_URL and REAL_QUAKE_PAK_SHA1, or matching workflow inputs, are required for an honest real-data Quake proof." >&2
             exit 1
           fi
 
+          echo "Fetching Quake PAK source from ${source_label}."
           curl --fail --silent --show-error --location "$url" --output "$RUNNER_TEMP/quake-pak-source"
           magic4="$(od -An -N4 -tx1 "$RUNNER_TEMP/quake-pak-source" | tr -d ' \n')"
           magic2="$(od -An -N2 -tx1 "$RUNNER_TEMP/quake-pak-source" | tr -d ' \n')"
           if [ "$magic2" = "1f8b" ]; then
-            gzip -cd "$RUNNER_TEMP/quake-pak-source" > "$QUAKE_PAK_PATH"
+            if tar -tzf "$RUNNER_TEMP/quake-pak-source" >/dev/null 2>&1; then
+              pak_member="$(tar -tzf "$RUNNER_TEMP/quake-pak-source" | awk 'toupper($0) ~ /(^|\/)PAK0[.]PAK$/ { print; exit }')"
+              test -n "$pak_member"
+              tar -xOzf "$RUNNER_TEMP/quake-pak-source" "$pak_member" > "$QUAKE_PAK_PATH"
+            else
+              gzip -cd "$RUNNER_TEMP/quake-pak-source" > "$QUAKE_PAK_PATH"
+            fi
           elif [ "$magic4" = "504b0304" ]; then
             pak_member="$(zipinfo -1 "$RUNNER_TEMP/quake-pak-source" | awk 'toupper($0) ~ /(^|\/)PAK0[.]PAK$/ { print; exit }')"
             test -n "$pak_member"
