@@ -12,6 +12,7 @@ enum {
     SHF_ALLOC = 0x2,
     SHF_EXECINSTR = 0x4,
     SHN_UNDEF = 0,
+    SHN_COMMON = 0xfff2,
     R_386_32 = 1,
     R_386_PC32 = 2,
     ELF_HEADER_SIZE = 52,
@@ -260,6 +261,13 @@ static int symbol_defined(const Symbol* sym)
     return sym->shndx != SHN_UNDEF;
 }
 
+static int symbol_is_common(const Symbol* sym)
+{
+    if (sym->shndx >= sym->obj->section_count)
+        return sym->shndx == SHN_COMMON;
+    return strcmp(sym->obj->sections[sym->shndx].name, ".common") == 0;
+}
+
 static const char* bind_name(const Symbol* sym)
 {
     switch (symbol_bind(sym)) {
@@ -337,6 +345,49 @@ static void parse_symbols(ObjectFile* obj, Section* symtab)
     }
 }
 
+static void assign_common_symbols(ObjectFile* obj)
+{
+    uint32_t cursor = 0;
+    uint32_t max_align = 1;
+    int has_common = 0;
+
+    for (size_t index = 0; index < obj->symbol_count; index++) {
+        Symbol* sym = &obj->symbols[index];
+        if (sym->shndx != SHN_COMMON || !sym->size)
+            continue;
+        uint32_t align = sym->value ? sym->value : 1;
+        cursor = align_up(cursor, align);
+        sym->value = cursor;
+        cursor += sym->size;
+        if (align > max_align)
+            max_align = align;
+        has_common = 1;
+    }
+
+    if (!has_common)
+        return;
+
+    uint32_t index = (uint32_t)obj->section_count;
+    obj->sections = (Section*)xrealloc(obj->sections, (obj->section_count + 1) * sizeof(obj->sections[0]));
+    Section* sec = &obj->sections[index];
+    memset(sec, 0, sizeof(*sec));
+    sec->obj = obj;
+    sec->index = index;
+    sec->name = xstrdup0(".common");
+    sec->type = SHT_NOBITS;
+    sec->flags = SHF_ALLOC | SHF_WRITE;
+    sec->size = cursor;
+    sec->align = max_align;
+    sec->segment = -1;
+    obj->section_count++;
+
+    for (size_t sym_index = 0; sym_index < obj->symbol_count; sym_index++) {
+        Symbol* sym = &obj->symbols[sym_index];
+        if (sym->shndx == SHN_COMMON)
+            sym->shndx = (uint16_t)index;
+    }
+}
+
 static void parse_object(ObjectFile* obj, const char* path)
 {
     memset(obj, 0, sizeof(*obj));
@@ -398,7 +449,13 @@ static void parse_object(ObjectFile* obj, const char* path)
         Section* sec = &obj->sections[index];
         if (sec->type == SHT_SYMTAB)
             parse_symbols(obj, sec);
-        else if (sec->type == SHT_REL) {
+    }
+
+    assign_common_symbols(obj);
+
+    for (size_t index = 1; index < obj->section_count; index++) {
+        Section* sec = &obj->sections[index];
+        if (sec->type == SHT_REL) {
             obj->rel_sections = (Section**)xrealloc(obj->rel_sections, (obj->rel_count + 1) * sizeof(obj->rel_sections[0]));
             obj->rel_sections[obj->rel_count++] = sec;
         }
@@ -416,6 +473,15 @@ static Symbol* find_global(GlobalVec* globals, const char* name)
     return NULL;
 }
 
+static GlobalSymbol* find_global_slot(GlobalVec* globals, const char* name)
+{
+    for (size_t i = 0; i < globals->count; i++) {
+        if (strcmp(globals->items[i].name, name) == 0)
+            return &globals->items[i];
+    }
+    return NULL;
+}
+
 static void collect_global_symbols(ObjectFile* objects, size_t object_count, GlobalVec* globals)
 {
     for (size_t obj_index = 0; obj_index < object_count; obj_index++) {
@@ -424,7 +490,18 @@ static void collect_global_symbols(ObjectFile* objects, size_t object_count, Glo
             Symbol* sym = &obj->symbols[sym_index];
             if (!sym->name[0] || !symbol_defined(sym) || symbol_bind(sym) == 0)
                 continue;
-            if (find_global(globals, sym->name)) {
+            GlobalSymbol* existing_slot = find_global_slot(globals, sym->name);
+            if (existing_slot) {
+                int existing_common = symbol_is_common(existing_slot->symbol);
+                int sym_common = symbol_is_common(sym);
+                if (existing_common && sym_common)
+                    continue;
+                if (sym_common)
+                    continue;
+                if (existing_common) {
+                    existing_slot->symbol = sym;
+                    continue;
+                }
                 fprintf(stderr, "link_elf32: duplicate symbol: %s\n", sym->name);
                 exit(1);
             }
@@ -458,6 +535,11 @@ static uint32_t relocation_symbol_value(Symbol* sym, GlobalVec* globals)
             exit(1);
         }
         return symbol_address(global);
+    }
+    if (symbol_is_common(sym)) {
+        Symbol* global = find_global(globals, sym->name);
+        if (global)
+            return symbol_address(global);
     }
     return symbol_address(sym);
 }

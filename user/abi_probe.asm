@@ -74,8 +74,12 @@ user_main:
     mov	word [ebp - 20], 68
     mov	dword [ebp - 24], 1096232497
     mov	dword [ebp - 28], 1297043268
+%ifdef BOOT_PAYLOAD_QUAKE
+    mov	dword [ebp - 52], L.str.5
+%else
     lea	eax, [ebp - 40]
     mov	dword [ebp - 52], eax
+%endif
     mov	dword [ebp - 48], 0
     call	vibe_user_getpid
     mov	dword [ebp - 16], eax
@@ -423,8 +427,12 @@ LBB0_54:
     call	vibe_user_report_probe
     add	esp, 8
     push	esi
+%ifdef BOOT_PAYLOAD_QUAKE
+    push	L.str.5
+%else
     lea	eax, [ebp - 40]
     push	eax
+%endif
     call	vibe_user_execv
     add	esp, 8
     mov	ecx, eax
@@ -2475,7 +2483,11 @@ L.str.4:
 db `USERPROB.ELF`, 0
 
 L.str.5:
+%ifdef BOOT_PAYLOAD_QUAKE
+db `QUAKE.ELF`, 0
+%else
 db `DOOM.ELF`, 0
+%endif
 
 L.str.6:
 times 1 db 0

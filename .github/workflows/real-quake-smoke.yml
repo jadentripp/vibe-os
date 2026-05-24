@@ -1,0 +1,231 @@
+name: Real Quake smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      quake_pak_url:
+        description: Optional URL to a real PAK0.PAK, PAK0.PAK.gz, or zip containing PAK0.PAK. Empty uses REAL_QUAKE_PAK_URL.
+        required: false
+        type: string
+      quake_pak_sha1:
+        description: Expected SHA-1 of the extracted PAK0.PAK. Empty uses REAL_QUAKE_PAK_SHA1 and is required before proof.
+        required: false
+        type: string
+      expected_ref:
+        description: Optional branch/ref guard.
+        required: false
+        type: string
+      expected_sha:
+        description: Optional exact commit guard.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  smoke:
+    name: Boot QUAKE.ELF with validated PAK0.PAK
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      INPUT_QUAKE_PAK_URL: ${{ inputs.quake_pak_url }}
+      INPUT_QUAKE_PAK_SHA1: ${{ inputs.quake_pak_sha1 }}
+      INPUT_EXPECTED_REF: ${{ inputs.expected_ref }}
+      INPUT_EXPECTED_SHA: ${{ inputs.expected_sha }}
+      REAL_QUAKE_PAK_URL: ${{ secrets.REAL_QUAKE_PAK_URL }}
+      REAL_QUAKE_PAK_SHA1: ${{ secrets.REAL_QUAKE_PAK_SHA1 }}
+      QUAKE_PAK_PATH: /tmp/PAK0.PAK
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Confirm selected proof ref
+        run: |
+          set -euo pipefail
+
+          if [ -n "${INPUT_EXPECTED_REF:-}" ] && [ "$GITHUB_REF_NAME" != "$INPUT_EXPECTED_REF" ]; then
+            echo "expected_ref '$INPUT_EXPECTED_REF' does not match selected workflow ref '$GITHUB_REF_NAME'." >&2
+            exit 1
+          fi
+          if [ -n "${INPUT_EXPECTED_SHA:-}" ] && [ "$GITHUB_SHA" != "$INPUT_EXPECTED_SHA" ]; then
+            echo "expected_sha '$INPUT_EXPECTED_SHA' does not match selected workflow commit '$GITHUB_SHA'." >&2
+            exit 1
+          fi
+
+          echo "Running real-Quake smoke proof on ref '$GITHUB_REF_NAME' at commit '$GITHUB_SHA'."
+
+      - name: Summarize cloud proof lane
+        run: |
+          set -euo pipefail
+
+          echo "Artifact policy: upload status/JSON proof only; no PAKs, WADs, disk images, screenshots, rendered pixels, raw audio, VM logs, tokens, or one-time codes."
+          {
+            echo "### Real Quake smoke"
+            echo ""
+            echo "- payload: \`QUAKE.ELF\`"
+            echo "- data: externally supplied \`PAK0.PAK\`, SHA-1 checked before use"
+            echo "- local VM: refused by runbook; this job runs on a disposable GitHub-hosted runner"
+            echo "- artifact policy: status/JSON proof only"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install OS toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm qemu-system-x86 clang make netcat-openbsd curl unzip
+
+      - name: Fetch and validate Quake PAK
+        run: |
+          set -euo pipefail
+
+          url="${INPUT_QUAKE_PAK_URL:-}"
+          if [ -z "$url" ]; then
+            url="${REAL_QUAKE_PAK_URL:-}"
+          fi
+          expected_sha1="${INPUT_QUAKE_PAK_SHA1:-}"
+          if [ -z "$expected_sha1" ]; then
+            expected_sha1="${REAL_QUAKE_PAK_SHA1:-}"
+          fi
+          if [ -z "$url" ] || [ -z "$expected_sha1" ]; then
+            echo "REAL_QUAKE_PAK_URL and REAL_QUAKE_PAK_SHA1, or matching workflow inputs, are required for an honest real-data Quake proof." >&2
+            exit 1
+          fi
+
+          curl --fail --silent --show-error --location "$url" --output "$RUNNER_TEMP/quake-pak-source"
+          magic4="$(od -An -N4 -tx1 "$RUNNER_TEMP/quake-pak-source" | tr -d ' \n')"
+          magic2="$(od -An -N2 -tx1 "$RUNNER_TEMP/quake-pak-source" | tr -d ' \n')"
+          if [ "$magic2" = "1f8b" ]; then
+            gzip -cd "$RUNNER_TEMP/quake-pak-source" > "$QUAKE_PAK_PATH"
+          elif [ "$magic4" = "504b0304" ]; then
+            pak_member="$(zipinfo -1 "$RUNNER_TEMP/quake-pak-source" | awk 'toupper($0) ~ /(^|\/)PAK0[.]PAK$/ { print; exit }')"
+            test -n "$pak_member"
+            unzip -p "$RUNNER_TEMP/quake-pak-source" "$pak_member" > "$QUAKE_PAK_PATH"
+          elif [ "$magic4" = "5041434b" ]; then
+            cp "$RUNNER_TEMP/quake-pak-source" "$QUAKE_PAK_PATH"
+          else
+            echo "downloaded file is not a PACK PAK, gzip-compressed PAK, or zip containing PAK0.PAK" >&2
+            exit 1
+          fi
+          rm -f "$RUNNER_TEMP/quake-pak-source"
+
+          test "$(dd if="$QUAKE_PAK_PATH" bs=4 count=1 2>/dev/null)" = "PACK"
+          actual_size="$(wc -c < "$QUAKE_PAK_PATH" | tr -d ' ')"
+          test "$actual_size" -gt 1000000
+          actual_sha1="$(sha1sum "$QUAKE_PAK_PATH" | awk '{ print $1 }')"
+          test "$actual_sha1" = "$expected_sha1"
+          echo "Validated PAK0.PAK: ${actual_size} bytes, SHA-1 ${actual_sha1}"
+
+      - name: Rebuild Quake image
+        run: |
+          make clean
+          make DOOM_WAD= QUAKE_PAK="$QUAKE_PAK_PATH" USER_ABI_PROBE_NASMFLAGS="-D BOOT_PAYLOAD_QUAKE"
+
+      - name: Boot Quake image
+        timeout-minutes: 4
+        run: |
+          make \
+            DOOM_WAD= \
+            QUAKE_PAK="$QUAKE_PAK_PATH" \
+            USER_ABI_PROBE_NASMFLAGS="-D BOOT_PAYLOAD_QUAKE" \
+            ALLOW_LOCAL_VM=1 \
+            QEMU_EXTRA_ARGS="-audiodev none,id=snd0 -device sb16,audiodev=snd0" \
+            SMOKE_EXPECT_PROBE_GFX=0 \
+            SMOKE_CAPTURE_GFX=0 \
+            SMOKE_QEMU_TIMEOUT=150 \
+            SMOKE_EARLY_SECONDS=2 \
+            SMOKE_SETTLE_SECONDS=35 \
+            SMOKE_SKIP_ASSERTIONS=1 \
+            SMOKE_INPUT_SCRIPT="after-start:wait=5,snapshot after-input:hold=w:1200,wait-status-min=qinput:00000001:100:2,wait=1,snapshot after-game:wait-status=qgame:OK:180:2,snapshot" \
+            smoke
+
+      - name: Select richest Quake status snapshot
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ ! -d build ]; then
+            exit 0
+          fi
+          if [ -f build/status.txt ]; then
+            cp build/status.txt build/status.boot.txt
+          fi
+          for candidate in \
+            build/status.after-game.wait-qgame.txt \
+            build/status.after-input.wait-qinput.txt \
+            build/status.after-game.txt \
+            build/status.after-input.txt \
+            build/status.after-start.txt \
+            build/status.txt; do
+            if [ -s "$candidate" ] \
+              && grep -q "path=QUAKE.ELF" "$candidate" \
+              && grep -q "quake=OK" "$candidate"; then
+              cp "$candidate" build/status.txt
+              echo "Selected $candidate as build/status.txt for proof gates."
+              exit 0
+            fi
+          done
+
+          echo "No richer Quake status snapshot found; keeping build/status.txt for failure diagnostics."
+
+      - name: Assert Quake proof gates
+        id: quake_proof
+        if: always()
+        run: |
+          set -euo pipefail
+          make quake-status-proof-check
+          printf '{ "result": "ok", "gate": "guest-status", "claim": "QUAKE.ELF launched with real PAK reads, rendered frames, input, audio, and gameplay progress" }\n' > build/quake-proof.json
+
+      - name: Assert VM/process legitimacy gates
+        id: vm_status
+        if: always()
+        run: |
+          cc -std=c99 -Wall -Wextra -Werror -O2 \
+            tools/vibe_status_check.c -o build/vibe_status_check
+          build/vibe_status_check \
+            --require-exec \
+            --require-preempt \
+            build/status.txt
+
+      - name: Write cloud proof run identity
+        if: always()
+        run: |
+          mkdir -p build
+          cat > build/cloud-proof-run.json <<JSON
+          {
+            "schema": "cloud-proof-run-v1",
+            "workflow": "real-quake-smoke.yml",
+            "artifact": "real-quake-smoke-proof-status",
+            "ref": "${GITHUB_REF_NAME:-}",
+            "sha": "${GITHUB_SHA:-}",
+            "run_id": "${GITHUB_RUN_ID:-}",
+            "run_attempt": "${GITHUB_RUN_ATTEMPT:-}",
+            "runner": "github-actions-ubuntu",
+            "local_qemu_required": false,
+            "artifact_policy": {
+              "status_only": true,
+              "contains_pak_data": false,
+              "contains_wad_data": false,
+              "contains_disk_image": false,
+              "contains_screenshots": false,
+              "contains_pixels": false,
+              "contains_raw_audio": false,
+              "contains_vm_logs": false
+            }
+          }
+          JSON
+
+      - name: Upload status-only proof artifact
+        id: upload_proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-quake-smoke-proof-status
+          if-no-files-found: ignore
+          path: |
+            build/cloud-proof-run.json
+            build/quake-proof.json
+            build/status*.txt
