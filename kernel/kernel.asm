@@ -22226,8 +22226,6 @@ syscall_handler:
 .vfs_count_generic:
     push eax
     push edx
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .vfs_count_done
     inc dword [eax]
     xor edx, edx
     cmp eax, vfs_open_count
@@ -23516,8 +23514,6 @@ syscall_handler:
 .audio_note_generic_abi:
     push eax
     push edx
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .audio_note_done
     xor eax, eax
     cmp ebx, AUDIO_CMD_DEVICE_START
     jne .audio_note_device_info
@@ -25247,8 +25243,6 @@ framebuffer_record_info_query:
     mov [framebuffer_last_info_kind], eax
     mov eax, [current_pid]
     mov [framebuffer_last_info_pid], eax
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .done
     or dword [framebuffer_generic_abi_mask], FB_ABI_INFO
     mov dword [framebuffer_generic_last_op], FB_ABI_INFO
     mov dword [framebuffer_generic_last_source], 0
@@ -25284,8 +25278,6 @@ framebuffer_record_present_success:
     mov [framebuffer_last_present_width], ebx
     mov ebx, [present_height_arg]
     mov [framebuffer_last_present_height], ebx
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .generic_done
     mov ebx, FB_ABI_PRESENT
     cmp eax, FRAMEBUFFER_PRESENT_SOURCE_IOCTL
     jne .generic_source_ready
@@ -26141,8 +26133,6 @@ input_drop_oldest_event:
 
 input_record_generic_abi:
     push edx
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .done
     or [input_generic_abi_mask], eax
     mov [input_generic_last_op], eax
     movzx edx, byte [current_user_kind]
