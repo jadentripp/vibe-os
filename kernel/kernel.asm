@@ -17126,11 +17126,11 @@ readonly_file_read:
 
 .ok:
     cmp dword [file_io_done], 0
-    je .readonly_maybe_wad
-    cmp byte [current_user_kind], USER_KIND_QUAKE
-    jne .readonly_maybe_wad
+    je .return_done
     mov eax, user_io_read_count
     call user_io_increment_current
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    jne .readonly_maybe_wad
     cmp dword [file_io_start_offset], 0
     jne .readonly_maybe_wad
     cmp dword [file_io_done], 4
@@ -17144,14 +17144,6 @@ readonly_file_read:
 .readonly_maybe_wad:
     call readonly_fd_is_wad_file
     jc .return_done
-    cmp dword [file_io_done], 0
-    je .return_done
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    jne .wad_magic_check
-    mov eax, user_io_read_count
-    call user_io_increment_current
-
-.wad_magic_check:
     cmp dword [file_io_start_offset], 0
     jne .return_done
     cmp dword [file_io_done], 4
@@ -17222,19 +17214,6 @@ readonly_file_lseek:
     cmp eax, [fd_file_sizes + esi * 4]
     ja .fail_inval
     mov [fd_offsets + esi * 4], eax
-    cmp byte [current_user_kind], USER_KIND_QUAKE
-    jne .seek_maybe_wad
-    push eax
-    mov eax, user_io_lseek_count
-    call user_io_increment_current
-    pop eax
-    jmp .seek_ok
-
-.seek_maybe_wad:
-    call readonly_fd_is_wad_file
-    jc .seek_ok
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    jne .seek_ok
     push eax
     mov eax, user_io_lseek_count
     call user_io_increment_current
@@ -21877,11 +21856,8 @@ user_io_increment_current:
     push eax
     push ebx
     movzx ebx, byte [current_user_kind]
-    cmp ebx, USER_KIND_DOOM
-    je .tracked_kind
-    cmp ebx, USER_KIND_QUAKE
-    jne .done
-.tracked_kind:
+    cmp ebx, USER_KIND_COUNT
+    jae .done
     shl ebx, 2
     inc dword [eax + ebx]
 
@@ -21895,11 +21871,8 @@ user_io_store_current:
     push ebx
     push edx
     movzx ebx, byte [current_user_kind]
-    cmp ebx, USER_KIND_DOOM
-    je .tracked_kind
-    cmp ebx, USER_KIND_QUAKE
-    jne .done
-.tracked_kind:
+    cmp ebx, USER_KIND_COUNT
+    jae .done
     shl ebx, 2
     mov [eax + ebx], edx
 
@@ -21966,18 +21939,10 @@ syscall_handler:
     pop eax
 
     mov [current_syscall_number], eax
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .record_doom_syscall
-    cmp byte [current_user_kind], USER_KIND_QUAKE
-    je .record_quake_syscall
-    jmp .dispatch
-
-.record_doom_syscall:
-    mov [user_io_last_syscall + USER_KIND_DOOM * 4], eax
-    jmp .dispatch
-
-.record_quake_syscall:
-    mov [user_io_last_syscall + USER_KIND_QUAKE * 4], eax
+    mov edx, eax
+    mov eax, user_io_last_syscall
+    call user_io_store_current
+    mov eax, [current_syscall_number]
 
 .dispatch:
     cmp eax, SYS_USER_PROBE
@@ -22146,19 +22111,9 @@ syscall_handler:
     jmp .write_next
 
 .write_done:
+    mov eax, user_io_write_count
+    call user_io_increment_current
     mov eax, [syscall_len_arg]
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .write_count_doom
-    cmp byte [current_user_kind], USER_KIND_QUAKE
-    je .write_count_quake
-    jmp .return
-
-.write_count_doom:
-    inc dword [user_io_write_count + USER_KIND_DOOM * 4]
-    jmp .return
-
-.write_count_quake:
-    inc dword [user_io_write_count + USER_KIND_QUAKE * 4]
     jmp .return
 
 .sbrk:
@@ -22204,19 +22159,9 @@ syscall_handler:
     mov [esi + PROC_BRK], edx
     mov [current_user_brk], edx
     mov [user_brk_current], edx
+    mov eax, user_io_sbrk_count
+    call user_io_increment_current
     mov eax, [sbrk_old_brk]
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .sbrk_count_doom
-    cmp byte [current_user_kind], USER_KIND_QUAKE
-    je .sbrk_count_quake
-    jmp .return
-
-.sbrk_count_doom:
-    inc dword [user_io_sbrk_count + USER_KIND_DOOM * 4]
-    jmp .return
-
-.sbrk_count_quake:
-    inc dword [user_io_sbrk_count + USER_KIND_QUAKE * 4]
     jmp .return
 
 .sbrk_shrink:
@@ -22346,19 +22291,13 @@ syscall_handler:
 .open:
     mov [syscall_ptr_arg], ebx
     mov [syscall_open_flags], ecx
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .open_record_doom_status
-    cmp byte [current_user_kind], USER_KIND_QUAKE
-    jne .open_skip_status
-    mov [user_io_last_open_flags + USER_KIND_QUAKE * 4], ecx
-    mov [user_io_last_open_mode + USER_KIND_QUAKE * 4], edx
-    jmp .open_skip_status
-
-.open_record_doom_status:
-    mov [user_io_last_open_flags + USER_KIND_DOOM * 4], ecx
-    mov [user_io_last_open_mode + USER_KIND_DOOM * 4], edx
-
-.open_skip_status:
+    push edx
+    mov edx, ecx
+    mov eax, user_io_last_open_flags
+    call user_io_store_current
+    pop edx
+    mov eax, user_io_last_open_mode
+    call user_io_store_current
     mov eax, vfs_open_count
     call .vfs_count_generic
     mov eax, [syscall_open_flags]
@@ -22538,26 +22477,6 @@ syscall_handler:
     mov [fd_flags + eax * 4], edx
     mov edx, [fat_found_size]
     mov [fd_file_sizes + eax * 4], edx
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .open_generic_readonly_maybe_doom
-    cmp byte [current_user_kind], USER_KIND_QUAKE
-    je .open_generic_readonly_maybe_quake
-    jmp .open_generic_readonly_done
-
-.open_generic_readonly_maybe_doom:
-    mov cx, [wad_first_cluster]
-    cmp [fat_found_first_cluster], cx
-    jne .open_generic_readonly_done
-    mov ecx, [wad_size]
-    cmp [fat_found_size], ecx
-    jne .open_generic_readonly_done
-    push eax
-    mov eax, user_io_open_count
-    call user_io_increment_current
-    pop eax
-    jmp .open_generic_readonly_done
-
-.open_generic_readonly_maybe_quake:
     push eax
     mov eax, user_io_open_count
     call user_io_increment_current
@@ -22565,13 +22484,10 @@ syscall_handler:
     mov edx, ecx
     mov eax, user_io_last_open_cluster
     call user_io_store_current
-    mov ecx, [fat_found_size]
-    mov edx, ecx
+    mov edx, [fat_found_size]
     mov eax, user_io_last_open_size
     call user_io_store_current
     pop eax
-
-.open_generic_readonly_done:
     add eax, USER_FD_BASE
     jmp .return
 
@@ -22667,8 +22583,6 @@ syscall_handler:
     mov [doom_wad_magic_seen], edx
 
 .read_done:
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    jne .read_return
     cmp eax, 0
     je .read_return
     push eax
@@ -22733,8 +22647,6 @@ syscall_handler:
     ja .bad_syscall_einval
     mov esi, [file_io_fd_slot]
     mov [fd_offsets + esi * 4], eax
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    jne .seek_return
     push eax
     mov eax, user_io_lseek_count
     call user_io_increment_current
@@ -23094,20 +23006,8 @@ syscall_handler:
     call fd_close_slot
 
 .close_ok:
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .close_count_doom
-    cmp byte [current_user_kind], USER_KIND_QUAKE
-    je .close_count_quake
-    jmp .close_return
-
-.close_count_doom:
-    inc dword [user_io_close_count + USER_KIND_DOOM * 4]
-    jmp .close_return
-
-.close_count_quake:
-    inc dword [user_io_close_count + USER_KIND_QUAKE * 4]
-
-.close_return:
+    mov eax, user_io_close_count
+    call user_io_increment_current
     xor eax, eax
     jmp .return
 
@@ -24284,19 +24184,9 @@ syscall_handler:
     shr eax, 12
     add [process_mmap_pages_mapped], eax
     inc dword [process_mmap_allocations]
+    mov eax, user_io_sbrk_count
+    call user_io_increment_current
     mov eax, [mmap_base_arg]
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .mmap_count_doom
-    cmp byte [current_user_kind], USER_KIND_QUAKE
-    je .mmap_count_quake
-    jmp .return
-
-.mmap_count_doom:
-    inc dword [user_io_sbrk_count + USER_KIND_DOOM * 4]
-    jmp .return
-
-.mmap_count_quake:
-    inc dword [user_io_sbrk_count + USER_KIND_QUAKE * 4]
     jmp .return
 
 .munmap:
@@ -24753,20 +24643,14 @@ syscall_handler:
     jmp .bad_syscall_return
 
 .bad_syscall_return:
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .bad_syscall_doom
-    cmp byte [current_user_kind], USER_KIND_QUAKE
-    je .bad_syscall_quake
-    jmp .return
-
-.bad_syscall_doom:
-    inc dword [user_io_error_count + USER_KIND_DOOM * 4]
-    mov [user_io_last_error + USER_KIND_DOOM * 4], eax
-    jmp .return
-
-.bad_syscall_quake:
-    inc dword [user_io_error_count + USER_KIND_QUAKE * 4]
-    mov [user_io_last_error + USER_KIND_QUAKE * 4], eax
+    push eax
+    mov eax, user_io_error_count
+    call user_io_increment_current
+    pop eax
+    mov edx, eax
+    mov eax, user_io_last_error
+    call user_io_store_current
+    mov eax, edx
     jmp .return
 
 .exit:
