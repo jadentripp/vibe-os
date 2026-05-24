@@ -21881,11 +21881,18 @@ syscall_handler:
     pop eax
 
     mov [current_syscall_number], eax
-    push eax
-    mov edx, eax
-    mov eax, user_io_last_syscall
-    call user_io_store_current
-    pop eax
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    je .record_doom_syscall
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je .record_quake_syscall
+    jmp .dispatch
+
+.record_doom_syscall:
+    mov [user_io_last_syscall + USER_KIND_DOOM * 4], eax
+    jmp .dispatch
+
+.record_quake_syscall:
+    mov [user_io_last_syscall + USER_KIND_QUAKE * 4], eax
 
 .dispatch:
     cmp eax, SYS_USER_PROBE
@@ -22055,10 +22062,18 @@ syscall_handler:
 
 .write_done:
     mov eax, [syscall_len_arg]
-    push eax
-    mov eax, user_io_write_count
-    call user_io_increment_current
-    pop eax
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    je .write_count_doom
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je .write_count_quake
+    jmp .return
+
+.write_count_doom:
+    inc dword [user_io_write_count + USER_KIND_DOOM * 4]
+    jmp .return
+
+.write_count_quake:
+    inc dword [user_io_write_count + USER_KIND_QUAKE * 4]
     jmp .return
 
 .sbrk:
@@ -22104,9 +22119,19 @@ syscall_handler:
     mov [esi + PROC_BRK], edx
     mov [current_user_brk], edx
     mov [user_brk_current], edx
-    mov eax, user_io_sbrk_count
-    call user_io_increment_current
     mov eax, [sbrk_old_brk]
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    je .sbrk_count_doom
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je .sbrk_count_quake
+    jmp .return
+
+.sbrk_count_doom:
+    inc dword [user_io_sbrk_count + USER_KIND_DOOM * 4]
+    jmp .return
+
+.sbrk_count_quake:
+    inc dword [user_io_sbrk_count + USER_KIND_QUAKE * 4]
     jmp .return
 
 .sbrk_shrink:
@@ -22236,13 +22261,19 @@ syscall_handler:
 .open:
     mov [syscall_ptr_arg], ebx
     mov [syscall_open_flags], ecx
-    push edx
-    mov edx, ecx
-    mov eax, user_io_last_open_flags
-    call user_io_store_current
-    pop edx
-    mov eax, user_io_last_open_mode
-    call user_io_store_current
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    je .open_record_doom_status
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    jne .open_skip_status
+    mov [user_io_last_open_flags + USER_KIND_QUAKE * 4], ecx
+    mov [user_io_last_open_mode + USER_KIND_QUAKE * 4], edx
+    jmp .open_skip_status
+
+.open_record_doom_status:
+    mov [user_io_last_open_flags + USER_KIND_DOOM * 4], ecx
+    mov [user_io_last_open_mode + USER_KIND_DOOM * 4], edx
+
+.open_skip_status:
     mov eax, vfs_open_count
     call .vfs_count_generic
     mov eax, [syscall_open_flags]
@@ -22990,8 +23021,20 @@ syscall_handler:
     call fd_close_slot
 
 .close_ok:
-    mov eax, user_io_close_count
-    call user_io_increment_current
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    je .close_count_doom
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je .close_count_quake
+    jmp .close_return
+
+.close_count_doom:
+    inc dword [user_io_close_count + USER_KIND_DOOM * 4]
+    jmp .close_return
+
+.close_count_quake:
+    inc dword [user_io_close_count + USER_KIND_QUAKE * 4]
+
+.close_return:
     xor eax, eax
     jmp .return
 
@@ -24169,10 +24212,18 @@ syscall_handler:
     add [process_mmap_pages_mapped], eax
     inc dword [process_mmap_allocations]
     mov eax, [mmap_base_arg]
-    push eax
-    mov eax, user_io_sbrk_count
-    call user_io_increment_current
-    pop eax
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    je .mmap_count_doom
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je .mmap_count_quake
+    jmp .return
+
+.mmap_count_doom:
+    inc dword [user_io_sbrk_count + USER_KIND_DOOM * 4]
+    jmp .return
+
+.mmap_count_quake:
+    inc dword [user_io_sbrk_count + USER_KIND_QUAKE * 4]
     jmp .return
 
 .munmap:
@@ -24641,15 +24692,20 @@ syscall_handler:
     jmp .bad_syscall_return
 
 .bad_syscall_return:
-    push eax
-    mov eax, user_io_error_count
-    call user_io_increment_current
-    pop eax
-    push eax
-    mov edx, eax
-    mov eax, user_io_last_error
-    call user_io_store_current
-    pop eax
+    cmp byte [current_user_kind], USER_KIND_DOOM
+    je .bad_syscall_doom
+    cmp byte [current_user_kind], USER_KIND_QUAKE
+    je .bad_syscall_quake
+    jmp .return
+
+.bad_syscall_doom:
+    inc dword [user_io_error_count + USER_KIND_DOOM * 4]
+    mov [user_io_last_error + USER_KIND_DOOM * 4], eax
+    jmp .return
+
+.bad_syscall_quake:
+    inc dword [user_io_error_count + USER_KIND_QUAKE * 4]
+    mov [user_io_last_error + USER_KIND_QUAKE * 4], eax
     jmp .return
 
 .exit:
