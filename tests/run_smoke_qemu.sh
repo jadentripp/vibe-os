@@ -28,6 +28,7 @@ serial_log="$BUILD_DIR/serial.log"
 qemu_pid=""
 qemu_extra_args=()
 qemu_control_args=()
+qemu_cmd=()
 deadline=0
 failing=0
 
@@ -682,16 +683,22 @@ if [ "$SMOKE_NO_SHUTDOWN" = "1" ]; then
   qemu_control_args+=( -no-shutdown )
 fi
 log "Starting QEMU smoke: timeout=${SMOKE_QEMU_TIMEOUT}s early=${SMOKE_EARLY_SECONDS}s settle=${SMOKE_SETTLE_SECONDS}s capture_gfx=${SMOKE_CAPTURE_GFX} expect_guest_exit=${SMOKE_EXPECT_GUEST_EXIT} extra_args=${QEMU_EXTRA_ARGS:-<none>}."
-"$QEMU" \
-  -machine "$QEMU_MACHINE" \
-  -drive "file=$IMAGE,format=raw,if=ide,index=0,media=disk" \
-  -boot c \
-  -display none \
-  -serial "file:$serial_log" \
-  -monitor "unix:$monitor_sock,server,nowait" \
-  "${qemu_control_args[@]}" \
-  "${qemu_extra_args[@]}" \
-  > "$qemu_log" 2>&1 &
+qemu_cmd=(
+  "$QEMU"
+  -machine "$QEMU_MACHINE"
+  -drive "file=$IMAGE,format=raw,if=ide,index=0,media=disk"
+  -boot c
+  -display none
+  -serial "file:$serial_log"
+  -monitor "unix:$monitor_sock,server,nowait"
+)
+if [ "${#qemu_control_args[@]}" -gt 0 ]; then
+  qemu_cmd+=( "${qemu_control_args[@]}" )
+fi
+if [ "${#qemu_extra_args[@]}" -gt 0 ]; then
+  qemu_cmd+=( "${qemu_extra_args[@]}" )
+fi
+"${qemu_cmd[@]}" > "$qemu_log" 2>&1 &
 qemu_pid=$!
 printf '%s\n' "$qemu_pid" > "$BUILD_DIR/qemu.pid"
 log "QEMU pid is $qemu_pid."
