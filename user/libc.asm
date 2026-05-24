@@ -3071,7 +3071,7 @@ LBB57_8:
 	js	LBB57_16
 	mov	dword [ebp - 16], eax
 	mov	ecx, ebx
-	call	is_doom_save_basename
+	call	is_save_slot_basename
 	test	eax, eax
 	je	LBB57_10
 	movsx	ebx, byte [ebx + 7]
@@ -3405,13 +3405,13 @@ LBB58_85:
 	cmp	edi, edx
 	je	LBB58_88
 	mov	ecx, esi
-	call	is_doom_save_basename
+	call	is_save_slot_basename
 	test	eax, eax
 	mov	eax, dword [ebp - 24]
 	je	LBB58_88
 	movzx	eax, byte [esi + 7]
-	mov	byte [mapped_path.save_path+7], al
-	mov	eax, mapped_path.save_path
+	mov	byte [mapped_path.save_slot_path+7], al
+	mov	eax, mapped_path.save_slot_path
 LBB58_88:
 	add	esp, 12
 	pop	esi
@@ -4347,7 +4347,7 @@ LBB79_1:
 	js	LBB79_10
 	mov	dword [ebp - 16], eax
 	mov	ecx, ebx
-	call	is_doom_save_basename
+	call	is_save_slot_basename
 	mov	ecx, dword [ebp - 16]
 	test	eax, eax
 	je	LBB79_8
@@ -4979,7 +4979,7 @@ vibe_file_read_at:
 	test	eax, eax
 	js	LBB88_22
 	mov	ecx, ebx
-	call	is_doom_save_basename
+	call	is_save_slot_basename
 	test	eax, eax
 	je	LBB88_10
 	movsx	ebx, byte [ebx + 7]
@@ -5293,7 +5293,7 @@ LBB90_12:
 	test	eax, eax
 	js	LBB90_22
 	mov	ecx, ebx
-	call	is_doom_save_basename
+	call	is_save_slot_basename
 	test	eax, eax
 	je	LBB90_19
 	movsx	ebx, byte [ebx + 7]
@@ -12117,7 +12117,7 @@ LBB173_36:
 	jmp	LBB173_39
 Lfunc_end173:
 align 16
-is_doom_save_basename:
+is_save_slot_basename:
 	mov	eax, -13
 align 16
 LBB174_1:
@@ -12890,7 +12890,7 @@ dd 0
 db 0
 times 4096 db 0
 times 3 db 0
-mapped_path.save_path:
+mapped_path.save_slot_path:
 db `doomsav0.dsg`, 0
 section .rodata
 L.str.25:

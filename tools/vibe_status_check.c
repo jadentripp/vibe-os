@@ -67,9 +67,9 @@
      KERNEL_RELOC_ABI_STACK_XLAT | KERNEL_RELOC_ABI_LOW_XLAT_ABSENT | \
      KERNEL_RELOC_ABI_LIVE_CR3_SWITCH | KERNEL_RELOC_ABI_HIGH_DATA_WRITE | \
      KERNEL_RELOC_ABI_LOW_RETURN_BLOCKED | KERNEL_RELOC_ABI_RETURN_CR3_RESTORED)
-#define USER_KIND_DOOM 2u
+#define USER_KIND_PAYLOAD_PRIMARY 2u
 #define USER_KIND_PREEMPT_PROBE 3u
-#define USER_KIND_QUAKE 5u
+#define USER_KIND_PAYLOAD_SECONDARY 5u
 #define USER_CODE_SEG 0x1Bu
 #define USER_DATA_SEG 0x23u
 #define PAYLOAD_USER_BASE 0x01000000u
@@ -822,7 +822,7 @@ static void validate_kernel_relocation(const Status *status) {
 }
 
 static int addr_matches_kind(uint32_t kind, uint32_t addr) {
-    if (kind == USER_KIND_DOOM || kind == USER_KIND_QUAKE) {
+    if (kind == USER_KIND_PAYLOAD_PRIMARY || kind == USER_KIND_PAYLOAD_SECONDARY) {
         return addr >= PAYLOAD_USER_BASE && addr < PAYLOAD_USER_STACK_TOP;
     }
     if (kind == USER_KIND_PREEMPT_PROBE) {
@@ -832,7 +832,7 @@ static int addr_matches_kind(uint32_t kind, uint32_t addr) {
 }
 
 static int is_large_payload_kind(uint32_t kind) {
-    return kind == USER_KIND_DOOM || kind == USER_KIND_QUAKE;
+    return kind == USER_KIND_PAYLOAD_PRIMARY || kind == USER_KIND_PAYLOAD_SECONDARY;
 }
 
 static int exec_copy_source_ok(uint32_t addr) {
