@@ -61,10 +61,10 @@ start:
     push dword QUAKE_FRAME_MILLISECONDS
     call quake_frame_seconds
     add esp, 4
-    sub esp, 8
-    fstp qword [esp]
+    sub esp, 4
+    fstp dword [esp]
     call Host_Frame
-    add esp, 8
+    add esp, 4
     call quake_report_frame
     jmp .frame_loop
 
