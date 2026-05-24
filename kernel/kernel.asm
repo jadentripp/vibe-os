@@ -9334,11 +9334,22 @@ audio_pcm_note_lifecycle_open:
 audio_pcm_note_lifecycle_write:
     push eax
 
+    cmp dword [audio_pcm_lifecycle_state], AUDIO_PCM_LIFECYCLE_IDLE
+    je .implicit_open
+    cmp dword [audio_pcm_lifecycle_state], AUDIO_PCM_LIFECYCLE_CLOSED
+    je .implicit_open
     cmp dword [audio_pcm_lifecycle_state], AUDIO_PCM_LIFECYCLE_OPEN
     je .state_ok
     cmp dword [audio_pcm_lifecycle_state], AUDIO_PCM_LIFECYCLE_WRITTEN
     je .state_ok
     inc dword [audio_pcm_lifecycle_error_count]
+    jmp .state_ok
+
+.implicit_open:
+    inc dword [audio_pcm_lifecycle_seq]
+    mov eax, [audio_pcm_lifecycle_seq]
+    mov [audio_pcm_lifecycle_open_seq], eax
+    mov dword [audio_pcm_lifecycle_state], AUDIO_PCM_LIFECYCLE_OPEN
 
 .state_ok:
     inc dword [audio_pcm_lifecycle_seq]
@@ -9428,11 +9439,8 @@ audio_pcm_open_stream:
     mov dword [audio_pcm_stream_mode], AUDIO_STREAM_PULL
     mov dword [audio_pcm_stream_active_count], 1
     inc dword [audio_pcm_stream_open_count]
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .lifecycle_open_ready
     call audio_pcm_note_lifecycle_open
 
-.lifecycle_open_ready:
     mov dword [audio_pcm_stream_last_error], 0
     mov dword [audio_pcm_device_last_error], 0
     call audio_sync_pcm_stream_state
@@ -9474,11 +9482,8 @@ audio_pcm_drain_stream:
 
     inc dword [audio_pcm_stream_drain_count]
     mov [audio_pcm_stream_last_drain_handle], ecx
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .lifecycle_drain_ready
     call audio_pcm_note_lifecycle_drain
 
-.lifecycle_drain_ready:
     mov dword [audio_pcm_stream_final_pending], 1
     mov dword [audio_pcm_stream_last_error], 0
     mov dword [audio_pcm_device_last_error], 0
@@ -9509,11 +9514,8 @@ audio_pcm_close_stream:
 
     inc dword [audio_pcm_stream_close_count]
     mov [audio_pcm_stream_last_close_handle], ecx
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .lifecycle_close_ready
     call audio_pcm_note_lifecycle_close
 
-.lifecycle_close_ready:
     mov dword [audio_pcm_stream_last_error], 0
     mov dword [audio_pcm_device_last_error], 0
     call audio_pcm_stream_stop_current
@@ -9664,14 +9666,11 @@ audio_pcm_stream_write:
     mov eax, [audio_sfx_length_arg]
     add [audio_pcm_stream_write_bytes], eax
     mov [audio_pcm_stream_last_write_bytes], eax
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .voice_write_accounted
     inc dword [audio_pcm_user_stream_write_count]
     add [audio_pcm_user_stream_write_bytes], eax
     call audio_pcm_note_lifecycle_write
     mov dword [audio_pcm_device_last_error], 0
 
-.voice_write_accounted:
     mov eax, [audio_sfx_flags_arg]
     mov [audio_pcm_stream_last_flags], eax
     mov [audio_pcm_stream_source_flags], eax
@@ -9710,11 +9709,8 @@ audio_pcm_stream_write:
 
 .io_error:
     mov dword [audio_pcm_stream_last_error], -ERRNO_EIO
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .voice_io_accounted
     mov dword [audio_pcm_device_last_error], -ERRNO_EIO
 
-.voice_io_accounted:
     stc
     jmp .done
 
@@ -9722,11 +9718,8 @@ audio_pcm_stream_write:
     inc dword [audio_pcm_stream_under_count]
     inc dword [audio_pcm_stream_drop_count]
     mov dword [audio_pcm_stream_last_error], -ERRNO_EINVAL
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .voice_invalid_accounted
     mov dword [audio_pcm_device_last_error], -ERRNO_EINVAL
 
-.voice_invalid_accounted:
     stc
 
 .done:
@@ -9863,14 +9856,11 @@ audio_pcm_desc_stream_write:
     mov eax, [audio_sfx_length_arg]
     add [audio_pcm_stream_write_bytes], eax
     mov [audio_pcm_stream_last_write_bytes], eax
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .desc_write_accounted
     inc dword [audio_pcm_user_stream_write_count]
     add [audio_pcm_user_stream_write_bytes], eax
     call audio_pcm_note_lifecycle_write
     mov dword [audio_pcm_device_last_error], 0
 
-.desc_write_accounted:
     mov eax, [audio_sfx_flags_arg]
     mov [audio_pcm_stream_last_flags], eax
     mov [audio_pcm_stream_source_flags], eax
@@ -9896,11 +9886,8 @@ audio_pcm_desc_stream_write:
 
 .io_error:
     mov dword [audio_pcm_stream_last_error], -ERRNO_EIO
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .desc_io_accounted
     mov dword [audio_pcm_device_last_error], -ERRNO_EIO
 
-.desc_io_accounted:
     stc
     jmp .done
 
@@ -9908,11 +9895,8 @@ audio_pcm_desc_stream_write:
     inc dword [audio_pcm_stream_under_count]
     inc dword [audio_pcm_stream_drop_count]
     mov dword [audio_pcm_stream_last_error], -ERRNO_EINVAL
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .desc_invalid_accounted
     mov dword [audio_pcm_device_last_error], -ERRNO_EINVAL
 
-.desc_invalid_accounted:
     stc
 
 .done:
