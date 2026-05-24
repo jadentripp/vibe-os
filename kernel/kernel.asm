@@ -11710,6 +11710,7 @@ storage_init:
     mov dword [fault_kernel_panic_count], 0
     call user_io_reset_all
     call payload_lifecycle_reset_all
+    call payload_telemetry_reset_all
     mov dword [doom_saveload_flags], 0
     mov dword [doom_saveload_slot], 0xffffffff
     mov dword [doom_saveload_open_count], 0
@@ -11735,7 +11736,6 @@ storage_init:
     mov dword [doom_savethinker_archive_value], 0
     mov dword [doom_savethinker_unarchive_offset], 0xffffffff
     mov dword [doom_savethinker_unarchive_value], 0
-    mov dword [doom_present_count], 0
     mov dword [framebuffer_present_count], 0
     mov dword [framebuffer_present_syscall_count], 0
     mov dword [framebuffer_present_ioctl_count], 0
@@ -11759,8 +11759,6 @@ storage_init:
     mov dword [framebuffer_generic_last_op], 0
     mov dword [framebuffer_generic_last_source], 0
     mov dword [framebuffer_generic_last_kind], 0
-    mov dword [doom_init_flags], 0
-    mov dword [doom_init_report_count], 0
     mov byte [doom_gameplay_status], 0
     mov dword [doom_gameplay_report_count], 0
     mov dword [doom_game_state_packed], 0
@@ -11789,9 +11787,6 @@ storage_init:
     mov dword [doom_player_refire], 0
     mov dword [doom_player_weapon], 0
     mov dword [quake_pak_magic_seen], 0
-    mov dword [quake_present_count], 0
-    mov dword [quake_init_flags], 0
-    mov dword [quake_init_report_count], 0
     mov dword [quake_gameplay_status], 0
     mov dword [quake_frame_report_count], 0
     mov dword [quake_frame_count], 0
@@ -20779,6 +20774,8 @@ process_exec_handoff_current:
     je .reset_quake_target_status
     mov eax, USER_KIND_DOOM
     call payload_lifecycle_start_kind
+    mov eax, USER_KIND_DOOM
+    call payload_telemetry_reset_kind
     call clear_fault_record
     mov eax, USER_KIND_DOOM
     call user_io_reset_kind
@@ -20789,13 +20786,12 @@ process_exec_handoff_current:
 .reset_quake_target_status:
     mov eax, USER_KIND_QUAKE
     call payload_lifecycle_start_kind
+    mov eax, USER_KIND_QUAKE
+    call payload_telemetry_reset_kind
     call clear_fault_record
     mov eax, USER_KIND_QUAKE
     call user_io_reset_kind
     mov dword [quake_pak_magic_seen], 0
-    mov dword [quake_present_count], 0
-    mov dword [quake_init_flags], 0
-    mov dword [quake_init_report_count], 0
     mov dword [quake_frame_report_count], 0
     mov dword [quake_frame_count], 0
     mov dword [quake_sv_active], 0
@@ -21795,6 +21791,50 @@ payload_lifecycle_fault_kind:
     pop eax
     ret
 
+payload_telemetry_reset_all:
+    push eax
+    push ecx
+    push edi
+    mov edi, payload_telemetry_table
+    mov ecx, (payload_telemetry_table_end - payload_telemetry_table) / 4
+    xor eax, eax
+    cld
+    rep stosd
+    pop edi
+    pop ecx
+    pop eax
+    ret
+
+payload_telemetry_reset_kind:
+    push eax
+    push ebx
+    cmp eax, USER_KIND_COUNT
+    jae .done
+    mov ebx, eax
+    shl ebx, 2
+    mov dword [payload_telemetry_present_count + ebx], 0
+    mov dword [payload_telemetry_init_flags + ebx], 0
+    mov dword [payload_telemetry_init_report_count + ebx], 0
+
+.done:
+    pop ebx
+    pop eax
+    ret
+
+payload_telemetry_increment_current:
+    push eax
+    push ebx
+    movzx ebx, byte [current_user_kind]
+    cmp ebx, USER_KIND_COUNT
+    jae .done
+    shl ebx, 2
+    inc dword [eax + ebx]
+
+.done:
+    pop ebx
+    pop eax
+    ret
+
 user_io_reset_all:
     push eax
     push ecx
@@ -22753,20 +22793,8 @@ syscall_handler:
 .present_success:
     mov eax, FRAMEBUFFER_PRESENT_SOURCE_SYS
     call framebuffer_record_present_success
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .present_count_doom
-    cmp byte [current_user_kind], USER_KIND_QUAKE
-    je .present_count_quake
-    jmp .present_return
-
-.present_count_doom:
-    inc dword [doom_present_count]
-    jmp .present_return
-
-.present_count_quake:
-    inc dword [quake_present_count]
-
-.present_return:
+    mov eax, payload_telemetry_present_count
+    call payload_telemetry_increment_current
     xor eax, eax
     jmp .return
 
@@ -23699,8 +23727,8 @@ syscall_handler:
 .doom_init_status:
     mov eax, ebx
     and eax, 0x0000ffff
-    or [doom_init_flags], eax
-    inc dword [doom_init_report_count]
+    or [payload_telemetry_init_flags + USER_KIND_DOOM * 4], eax
+    inc dword [payload_telemetry_init_report_count + USER_KIND_DOOM * 4]
     jmp .gameplay_return
 
 .saveload_status:
@@ -23869,8 +23897,8 @@ syscall_handler:
 .quake_init_status:
     mov eax, ebx
     and eax, 0x0000ffff
-    or [quake_init_flags], eax
-    inc dword [quake_init_report_count]
+    or [payload_telemetry_init_flags + USER_KIND_QUAKE * 4], eax
+    inc dword [payload_telemetry_init_report_count + USER_KIND_QUAKE * 4]
     jmp .gameplay_return
 
 .quake_frame_status:
@@ -24480,20 +24508,8 @@ syscall_handler:
 .ioctl_present_success:
     mov eax, FRAMEBUFFER_PRESENT_SOURCE_IOCTL
     call framebuffer_record_present_success
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .ioctl_present_count_doom
-    cmp byte [current_user_kind], USER_KIND_QUAKE
-    je .ioctl_present_count_quake
-    jmp .ioctl_present_return
-
-.ioctl_present_count_doom:
-    inc dword [doom_present_count]
-    jmp .ioctl_present_return
-
-.ioctl_present_count_quake:
-    inc dword [quake_present_count]
-
-.ioctl_present_return:
+    mov eax, payload_telemetry_present_count
+    call payload_telemetry_increment_current
     xor eax, eax
     jmp .return
 
@@ -29500,7 +29516,7 @@ write_smoke_status:
 
     mov esi, smoke_doompresent_text
     call smoke_copy_string
-    mov edx, [doom_present_count]
+    mov edx, [payload_telemetry_present_count + USER_KIND_DOOM * 4]
     call smoke_write_hex32
     mov esi, smoke_fbpresent_text
     call smoke_copy_string
@@ -29661,25 +29677,25 @@ write_smoke_status:
 
     mov esi, smoke_doominit_text
     call smoke_copy_string
-    mov edx, [doom_init_flags]
+    mov edx, [payload_telemetry_init_flags + USER_KIND_DOOM * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [doom_init_report_count]
+    mov edx, [payload_telemetry_init_report_count + USER_KIND_DOOM * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakepresent_text
     call smoke_copy_string
-    mov edx, [quake_present_count]
+    mov edx, [payload_telemetry_present_count + USER_KIND_QUAKE * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakeinit_text
     call smoke_copy_string
-    mov edx, [quake_init_flags]
+    mov edx, [payload_telemetry_init_flags + USER_KIND_QUAKE * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [quake_init_report_count]
+    mov edx, [payload_telemetry_init_report_count + USER_KIND_QUAKE * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakegame_text
@@ -35751,6 +35767,11 @@ payload_lifecycle_fault_vector times USER_KIND_COUNT dd 0
 payload_lifecycle_fault_error times USER_KIND_COUNT dd 0
 payload_lifecycle_fault_count times USER_KIND_COUNT dd 0
 payload_lifecycle_table_end:
+payload_telemetry_table:
+payload_telemetry_present_count times USER_KIND_COUNT dd 0
+payload_telemetry_init_flags times USER_KIND_COUNT dd 0
+payload_telemetry_init_report_count times USER_KIND_COUNT dd 0
+payload_telemetry_table_end:
 user_io_table:
 user_io_last_syscall times USER_KIND_COUNT dd 0
 user_io_open_count times USER_KIND_COUNT dd 0
@@ -35791,7 +35812,6 @@ doom_savethinker_archive_offset dd 0xffffffff
 doom_savethinker_archive_value dd 0
 doom_savethinker_unarchive_offset dd 0xffffffff
 doom_savethinker_unarchive_value dd 0
-doom_present_count dd 0
 framebuffer_present_count dd 0
 framebuffer_present_syscall_count dd 0
 framebuffer_present_ioctl_count dd 0
@@ -35828,8 +35848,6 @@ framebuffer_source_palette_entries dd FB_PRESENT_PALETTE_ENTRIES
 framebuffer_source_palette_entry_bytes dd FB_PRESENT_PALETTE_ENTRY_BYTES
 framebuffer_source_frame_bytes dd FB_PRESENT_FRAME_BYTES
 framebuffer_source_palette_bytes dd FB_PRESENT_PALETTE_BYTES
-doom_init_flags dd 0
-doom_init_report_count dd 0
 doom_input_event_count dd 0
 doom_input_last_timestamp dd 0
 doom_input_last_device dd 0
@@ -35870,9 +35888,6 @@ doom_player_ammo dd 0
 doom_player_refire dd 0
 doom_player_weapon dd 0
 quake_pak_magic_seen dd 0
-quake_present_count dd 0
-quake_init_flags dd 0
-quake_init_report_count dd 0
 quake_gameplay_status dd 0
 quake_frame_report_count dd 0
 quake_frame_count dd 0
