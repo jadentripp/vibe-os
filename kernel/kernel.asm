@@ -594,10 +594,10 @@ PAYLOAD_HEAP_PAGE_COUNT equ (PAYLOAD_USER_HEAP_END - PAYLOAD_USER_HEAP_START) / 
 PAYLOAD_HEAP_BITMAP_BYTES equ (PAYLOAD_HEAP_PAGE_COUNT + 7) / 8
 USER_KIND_NONE equ 0
 USER_KIND_PROBE equ 1
-USER_KIND_DOOM equ 2
+USER_KIND_PAYLOAD_PRIMARY equ 2
 USER_KIND_PREEMPT_PROBE equ 3
 USER_KIND_GENERIC equ 4
-USER_KIND_QUAKE equ 5
+USER_KIND_PAYLOAD_SECONDARY equ 5
 USER_KIND_COUNT equ 6
 PROC_STATE_UNUSED equ 0
 PROC_STATE_READY equ 1
@@ -825,7 +825,7 @@ PROCESS_STATUS_BRK equ 52
 PROCESS_STATUS_SCHEDULER_TICKS equ 56
 PROCESS_STATUS_SCHEDULER_ROUNDS equ 60
 PLAYABLE_STATUS_FLAG equ 0x80000000
-DOOM_INIT_STATUS_FLAG equ 0x40000000
+PAYLOAD_INIT_STATUS_FLAG equ 0x40000000
 SAVELOAD_STATUS_FLAG equ 0x20000000
 SAVEACTION_STATUS_FLAG equ 0x10000000
 SAVEACTION_STREAM_EVENT equ 0x0080
@@ -1416,32 +1416,32 @@ SHUTDOWN_PROOF_DELAY_SECONDS equ 20
 
 SC_LSHIFT equ 0x2a
 SC_RSHIFT equ 0x36
-DOOM_KEY_RIGHTARROW equ 0xae
-DOOM_KEY_LEFTARROW equ 0xac
-DOOM_KEY_UPARROW equ 0xad
-DOOM_KEY_DOWNARROW equ 0xaf
-DOOM_KEY_ESCAPE equ 27
-DOOM_KEY_ENTER equ 13
-DOOM_KEY_TAB equ 9
-DOOM_KEY_F1 equ 0xbb
-DOOM_KEY_F2 equ 0xbc
-DOOM_KEY_F3 equ 0xbd
-DOOM_KEY_F4 equ 0xbe
-DOOM_KEY_F5 equ 0xbf
-DOOM_KEY_F6 equ 0xc0
-DOOM_KEY_F7 equ 0xc1
-DOOM_KEY_F8 equ 0xc2
-DOOM_KEY_F9 equ 0xc3
-DOOM_KEY_F10 equ 0xc4
-DOOM_KEY_F11 equ 0xd7
-DOOM_KEY_F12 equ 0xd8
-DOOM_KEY_BACKSPACE equ 127
-DOOM_KEY_PAUSE equ 0xff
-DOOM_KEY_EQUALS equ 0x3d
-DOOM_KEY_MINUS equ 0x2d
-DOOM_KEY_RSHIFT equ 0xb6
-DOOM_KEY_RCTRL equ 0x9d
-DOOM_KEY_RALT equ 0xb8
+PAYLOAD_KEY_RIGHTARROW equ 0xae
+PAYLOAD_KEY_LEFTARROW equ 0xac
+PAYLOAD_KEY_UPARROW equ 0xad
+PAYLOAD_KEY_DOWNARROW equ 0xaf
+PAYLOAD_KEY_ESCAPE equ 27
+PAYLOAD_KEY_ENTER equ 13
+PAYLOAD_KEY_TAB equ 9
+PAYLOAD_KEY_F1 equ 0xbb
+PAYLOAD_KEY_F2 equ 0xbc
+PAYLOAD_KEY_F3 equ 0xbd
+PAYLOAD_KEY_F4 equ 0xbe
+PAYLOAD_KEY_F5 equ 0xbf
+PAYLOAD_KEY_F6 equ 0xc0
+PAYLOAD_KEY_F7 equ 0xc1
+PAYLOAD_KEY_F8 equ 0xc2
+PAYLOAD_KEY_F9 equ 0xc3
+PAYLOAD_KEY_F10 equ 0xc4
+PAYLOAD_KEY_F11 equ 0xd7
+PAYLOAD_KEY_F12 equ 0xd8
+PAYLOAD_KEY_BACKSPACE equ 127
+PAYLOAD_KEY_PAUSE equ 0xff
+PAYLOAD_KEY_EQUALS equ 0x3d
+PAYLOAD_KEY_MINUS equ 0x2d
+PAYLOAD_KEY_RSHIFT equ 0xb6
+PAYLOAD_KEY_RCTRL equ 0x9d
+PAYLOAD_KEY_RALT equ 0xb8
 
 start:
     cli
@@ -2048,7 +2048,7 @@ handle_command:
 
     mov esi, doom_elf_prefix
     call print_string
-    cmp dword [payload_exec_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_exec_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     je .doom_elf_ok
     mov esi, fail_text
     call print_string
@@ -2060,20 +2060,20 @@ handle_command:
 
     mov esi, doom_elf_size_prefix
     call print_string
-    mov eax, [payload_exec_size + USER_KIND_DOOM * 4]
+    mov eax, [payload_exec_size + USER_KIND_PAYLOAD_PRIMARY * 4]
     call print_dec
     mov esi, bytes_suffix
     call print_string
 
     mov esi, doom_elf_cluster_prefix
     call print_string
-    mov eax, [payload_exec_first_cluster + USER_KIND_DOOM * 4]
+    mov eax, [payload_exec_first_cluster + USER_KIND_PAYLOAD_PRIMARY * 4]
     call print_dec
     call newline
 
     mov esi, doom_elf_load_prefix
     call print_string
-    cmp dword [payload_exec_load_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_exec_load_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     je .doom_elf_load_ok
     mov esi, fail_text
     call print_string
@@ -2085,7 +2085,7 @@ handle_command:
 
     mov esi, doom_elf_parse_prefix
     call print_string
-    cmp dword [payload_exec_parse_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_exec_parse_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     je .doom_elf_parse_ok
     mov esi, fail_text
     call print_string
@@ -2097,20 +2097,20 @@ handle_command:
 
     mov esi, doom_elf_entry_prefix
     call print_string
-    mov eax, [payload_exec_entry + USER_KIND_DOOM * 4]
+    mov eax, [payload_exec_entry + USER_KIND_PAYLOAD_PRIMARY * 4]
     call print_hex32
     call newline
 
     mov esi, doom_elf_mem_prefix
     call print_string
-    mov eax, [payload_exec_segment_memsz + USER_KIND_DOOM * 4]
+    mov eax, [payload_exec_segment_memsz + USER_KIND_PAYLOAD_PRIMARY * 4]
     call print_dec
     mov esi, bytes_suffix
     call print_string
 
     mov esi, doom_elf_end_prefix
     call print_string
-    mov eax, [payload_exec_segment_end + USER_KIND_DOOM * 4]
+    mov eax, [payload_exec_segment_end + USER_KIND_PAYLOAD_PRIMARY * 4]
     call print_hex32
     call newline
 
@@ -18279,9 +18279,9 @@ process_is_user_exec_target:
     ret
 
 user_kind_is_large_payload:
-    cmp eax, USER_KIND_DOOM
+    cmp eax, USER_KIND_PAYLOAD_PRIMARY
     je .yes
-    cmp eax, USER_KIND_QUAKE
+    cmp eax, USER_KIND_PAYLOAD_SECONDARY
     je .yes
     stc
     ret
@@ -18291,9 +18291,9 @@ user_kind_is_large_payload:
     ret
 
 payload_kind_to_fault_source:
-    cmp eax, USER_KIND_DOOM
+    cmp eax, USER_KIND_PAYLOAD_PRIMARY
     je .doom
-    cmp eax, USER_KIND_QUAKE
+    cmp eax, USER_KIND_PAYLOAD_SECONDARY
     je .quake
     mov eax, FAULT_SOURCE_USER
     ret
@@ -20261,7 +20261,7 @@ scheduler_preempt_self_test:
 process_boot_launch_payload:
     cmp dword [sys_exec_successes], 0
     jne .done
-    mov dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 4
+    mov dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 4
 
 .done:
     ret
@@ -20810,9 +20810,9 @@ process_exec_handoff_current:
     mov [esi + PROC_KIND], eax
     mov eax, [process_exec_entry]
     mov [esi + PROC_ENTRY], eax
-    cmp dword [process_exec_target_kind], USER_KIND_DOOM
+    cmp dword [process_exec_target_kind], USER_KIND_PAYLOAD_PRIMARY
     je .reset_doom_target_status
-    cmp dword [process_exec_target_kind], USER_KIND_QUAKE
+    cmp dword [process_exec_target_kind], USER_KIND_PAYLOAD_SECONDARY
     je .reset_quake_target_status
     mov eax, USER_KIND_GENERIC
     call payload_lifecycle_start_kind
@@ -20822,22 +20822,22 @@ process_exec_handoff_current:
     jmp .seed_context
 
 .reset_doom_target_status:
-    mov eax, USER_KIND_DOOM
+    mov eax, USER_KIND_PAYLOAD_PRIMARY
     call payload_lifecycle_start_kind
     call clear_fault_record
-    mov eax, USER_KIND_DOOM
+    mov eax, USER_KIND_PAYLOAD_PRIMARY
     call user_io_reset_kind
     mov dword [doom_log_len], 0
     mov byte [doom_log_buffer], 0
     jmp .seed_context
 
 .reset_quake_target_status:
-    mov eax, USER_KIND_QUAKE
+    mov eax, USER_KIND_PAYLOAD_SECONDARY
     call payload_lifecycle_start_kind
-    mov eax, USER_KIND_QUAKE
+    mov eax, USER_KIND_PAYLOAD_SECONDARY
     call payload_telemetry_reset_kind
     call clear_fault_record
-    mov eax, USER_KIND_QUAKE
+    mov eax, USER_KIND_PAYLOAD_SECONDARY
     call user_io_reset_kind
     mov dword [quake_pak_magic_seen], 0
     mov dword [quake_frame_report_count], 0
@@ -22175,7 +22175,7 @@ syscall_handler:
     je .write_done
     lodsb
     call put_char
-    cmp byte [current_user_kind], USER_KIND_DOOM
+    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
     jne .write_skip_capture
     call doom_log_char
 
@@ -22792,7 +22792,7 @@ syscall_handler:
     inc ebx
     and ebx, KEY_QUEUE_MASK
     mov [key_event_tail], ebx
-    cmp byte [current_user_kind], USER_KIND_DOOM
+    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
     jne .poll_key_return
     call doom_record_key_event
     inc dword [doom_key_event_count]
@@ -22817,7 +22817,7 @@ syscall_handler:
     inc ebx
     and ebx, MOUSE_QUEUE_MASK
     mov [mouse_event_tail], ebx
-    cmp byte [current_user_kind], USER_KIND_DOOM
+    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
     jne .poll_mouse_return
     call doom_record_mouse_event
     inc dword [doom_mouse_event_count]
@@ -22873,7 +22873,7 @@ syscall_handler:
     inc dword [input_mouse_poll_count]
 
 .poll_input_count_done:
-    cmp byte [current_user_kind], USER_KIND_DOOM
+    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
     jne .poll_input_return_one
     call doom_record_input_event
 
@@ -23338,7 +23338,7 @@ syscall_handler:
     jmp .return
 
 .audio:
-    cmp byte [current_user_kind], USER_KIND_DOOM
+    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
     jne .audio_dispatch
     inc dword [doom_sound_call_count]
     mov [doom_sound_last_command], ebx
@@ -23386,7 +23386,7 @@ syscall_handler:
     jmp .audio_status
 
 .audio_start_sfx:
-    cmp byte [current_user_kind], USER_KIND_DOOM
+    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
     jne .audio_start_counted
     inc dword [doom_sound_start_count]
 
@@ -23398,7 +23398,7 @@ syscall_handler:
     jmp .audio_status
 
 .audio_stop_sfx:
-    cmp byte [current_user_kind], USER_KIND_DOOM
+    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
     jne .audio_stop_counted
     inc dword [doom_sound_stop_count]
 
@@ -23408,7 +23408,7 @@ syscall_handler:
     jmp .audio_status
 
 .audio_update_sfx:
-    cmp byte [current_user_kind], USER_KIND_DOOM
+    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
     jne .audio_update_counted
     inc dword [doom_sound_update_count]
 
@@ -23646,11 +23646,11 @@ syscall_handler:
     ret
 
 .gameplay_status:
-    cmp byte [current_user_kind], USER_KIND_QUAKE
+    cmp byte [current_user_kind], USER_KIND_PAYLOAD_SECONDARY
     je .quake_gameplay_status
-    cmp byte [current_user_kind], USER_KIND_DOOM
+    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
     jne .gameplay_return
-    test ebx, DOOM_INIT_STATUS_FLAG
+    test ebx, PAYLOAD_INIT_STATUS_FLAG
     jnz .doom_init_status
     test ebx, SAVELOAD_STATUS_FLAG
     jnz .saveload_status
@@ -23696,8 +23696,8 @@ syscall_handler:
 .doom_init_status:
     mov eax, ebx
     and eax, 0x0000ffff
-    or [payload_telemetry_init_flags + USER_KIND_DOOM * 4], eax
-    inc dword [payload_telemetry_init_report_count + USER_KIND_DOOM * 4]
+    or [payload_telemetry_init_flags + USER_KIND_PAYLOAD_PRIMARY * 4], eax
+    inc dword [payload_telemetry_init_report_count + USER_KIND_PAYLOAD_PRIMARY * 4]
     jmp .gameplay_return
 
 .saveload_status:
@@ -23824,7 +23824,7 @@ syscall_handler:
     jmp .gameplay_return
 
 .player_detail_status:
-    cmp byte [current_user_kind], USER_KIND_DOOM
+    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
     jne .gameplay_return
     mov [doom_player_cmd], ebx
     mov [doom_player_angle], ecx
@@ -23866,8 +23866,8 @@ syscall_handler:
 .quake_init_status:
     mov eax, ebx
     and eax, 0x0000ffff
-    or [payload_telemetry_init_flags + USER_KIND_QUAKE * 4], eax
-    inc dword [payload_telemetry_init_report_count + USER_KIND_QUAKE * 4]
+    or [payload_telemetry_init_flags + USER_KIND_PAYLOAD_SECONDARY * 4], eax
+    inc dword [payload_telemetry_init_report_count + USER_KIND_PAYLOAD_SECONDARY * 4]
     jmp .gameplay_return
 
 .quake_frame_status:
@@ -26025,7 +26025,7 @@ keyboard_queue_scancode:
 
 .queue_generic:
     call input_queue_key_event
-    call keyboard_translate_doom_key
+    call keyboard_translate_payload_key
 
 .queue:
     call keyboard_queue_event
@@ -26054,7 +26054,7 @@ keyboard_queue_scancode:
     pop eax
     ret
 
-keyboard_translate_doom_key:
+keyboard_translate_payload_key:
     push ebx
 
     mov bl, al
@@ -26062,7 +26062,7 @@ keyboard_translate_doom_key:
     jnz .extended
     movzx ebx, bl
     and ebx, VIBE_INPUT_KEY_PS2_SET1_SCANCODE_MASK
-    mov al, [doom_scancode_map + ebx]
+    mov al, [payload_keycode_map + ebx]
     jmp .done
 
 .extended:
@@ -26087,35 +26087,35 @@ keyboard_translate_doom_key:
     jmp .done
 
 .ext_up:
-    mov al, DOOM_KEY_UPARROW
+    mov al, PAYLOAD_KEY_UPARROW
     jmp .done
 
 .ext_down:
-    mov al, DOOM_KEY_DOWNARROW
+    mov al, PAYLOAD_KEY_DOWNARROW
     jmp .done
 
 .ext_left:
-    mov al, DOOM_KEY_LEFTARROW
+    mov al, PAYLOAD_KEY_LEFTARROW
     jmp .done
 
 .ext_right:
-    mov al, DOOM_KEY_RIGHTARROW
+    mov al, PAYLOAD_KEY_RIGHTARROW
     jmp .done
 
 .ext_enter:
-    mov al, DOOM_KEY_ENTER
+    mov al, PAYLOAD_KEY_ENTER
     jmp .done
 
 .ext_ctrl:
-    mov al, DOOM_KEY_RCTRL
+    mov al, PAYLOAD_KEY_RCTRL
     jmp .done
 
 .ext_alt:
-    mov al, DOOM_KEY_RALT
+    mov al, PAYLOAD_KEY_RALT
     jmp .done
 
 .ext_backspace:
-    mov al, DOOM_KEY_BACKSPACE
+    mov al, PAYLOAD_KEY_BACKSPACE
 
 .done:
     pop ebx
@@ -26528,21 +26528,21 @@ doom_record_key_event:
     jz .done
     mov ebx, eax
     and ebx, 0xff
-    cmp bl, DOOM_KEY_UPARROW
+    cmp bl, PAYLOAD_KEY_UPARROW
     je .seen_up
-    cmp bl, DOOM_KEY_DOWNARROW
+    cmp bl, PAYLOAD_KEY_DOWNARROW
     je .seen_down
-    cmp bl, DOOM_KEY_LEFTARROW
+    cmp bl, PAYLOAD_KEY_LEFTARROW
     je .seen_left
-    cmp bl, DOOM_KEY_RIGHTARROW
+    cmp bl, PAYLOAD_KEY_RIGHTARROW
     je .seen_right
-    cmp bl, DOOM_KEY_RCTRL
+    cmp bl, PAYLOAD_KEY_RCTRL
     je .seen_fire
     cmp bl, 32
     je .seen_use
-    cmp bl, DOOM_KEY_ESCAPE
+    cmp bl, PAYLOAD_KEY_ESCAPE
     je .seen_menu
-    cmp bl, DOOM_KEY_ENTER
+    cmp bl, PAYLOAD_KEY_ENTER
     je .seen_enter
     jmp .done
 
@@ -26641,7 +26641,7 @@ doom_record_input_event:
     and eax, 0xff
     test eax, eax
     jz .done
-    call keyboard_translate_doom_key
+    call keyboard_translate_payload_key
     test al, al
     jz .done
     movzx eax, al
@@ -27189,7 +27189,7 @@ panic_dump_fault:
     call print_hex32
     mov al, '/'
     call put_char
-    mov eax, [payload_lifecycle_fault_count + USER_KIND_DOOM * 4]
+    mov eax, [payload_lifecycle_fault_count + USER_KIND_PAYLOAD_PRIMARY * 4]
     call print_hex32
     mov al, '/'
     call put_char
@@ -28100,11 +28100,11 @@ write_smoke_status:
 
     mov esi, smoke_doom_text
     call smoke_copy_string
-    cmp dword [payload_exec_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_exec_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     jne .doom_fail
-    cmp dword [payload_exec_load_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_exec_load_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     jne .doom_fail
-    cmp dword [payload_exec_parse_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_exec_parse_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     jne .doom_fail
     cmp byte [payload_load_segment_count], 0
     je .doom_fail
@@ -28121,13 +28121,13 @@ write_smoke_status:
 
     mov esi, smoke_doomrun_text
     call smoke_copy_string
-    cmp dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     je .doomrun_running
-    cmp dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 2
+    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 2
     je .doomrun_exited
-    cmp dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 3
+    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 3
     je .doomrun_faulted
-    cmp dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 4
+    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 4
     je .doomrun_failed
     mov esi, smoke_wait_text
     jmp .doomrun_write
@@ -28152,46 +28152,46 @@ write_smoke_status:
 
     mov esi, smoke_doomexit_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_exit_code + USER_KIND_DOOM * 4]
+    mov edx, [payload_lifecycle_exit_code + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomfault_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_fault_addr + USER_KIND_DOOM * 4]
+    mov edx, [payload_lifecycle_fault_addr + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomfaultip_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_fault_eip + USER_KIND_DOOM * 4]
+    mov edx, [payload_lifecycle_fault_eip + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomfaultv_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_fault_vector + USER_KIND_DOOM * 4]
+    mov edx, [payload_lifecycle_fault_vector + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomfaulterr_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_fault_error + USER_KIND_DOOM * 4]
+    mov edx, [payload_lifecycle_fault_error + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quake_text
     call smoke_copy_string
-    cmp dword [payload_exec_status + USER_KIND_QUAKE * 4], 1
+    cmp dword [payload_exec_status + USER_KIND_PAYLOAD_SECONDARY * 4], 1
     jne .quake_not_ok
-    cmp dword [payload_exec_load_status + USER_KIND_QUAKE * 4], 1
+    cmp dword [payload_exec_load_status + USER_KIND_PAYLOAD_SECONDARY * 4], 1
     jne .quake_not_ok
-    cmp dword [payload_exec_parse_status + USER_KIND_QUAKE * 4], 1
+    cmp dword [payload_exec_parse_status + USER_KIND_PAYLOAD_SECONDARY * 4], 1
     jne .quake_not_ok
     mov esi, smoke_ok_text
     jmp .quake_write
 
 .quake_not_ok:
-    cmp dword [payload_exec_status + USER_KIND_QUAKE * 4], 0
+    cmp dword [payload_exec_status + USER_KIND_PAYLOAD_SECONDARY * 4], 0
     jne .quake_fail
-    cmp dword [payload_exec_load_status + USER_KIND_QUAKE * 4], 0
+    cmp dword [payload_exec_load_status + USER_KIND_PAYLOAD_SECONDARY * 4], 0
     jne .quake_fail
-    cmp dword [payload_exec_parse_status + USER_KIND_QUAKE * 4], 0
+    cmp dword [payload_exec_parse_status + USER_KIND_PAYLOAD_SECONDARY * 4], 0
     jne .quake_fail
     mov esi, smoke_wait_text
     jmp .quake_write
@@ -28204,11 +28204,11 @@ write_smoke_status:
 
     mov esi, smoke_quakerun_text
     call smoke_copy_string
-    cmp dword [payload_lifecycle_run_status + USER_KIND_QUAKE * 4], 1
+    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_SECONDARY * 4], 1
     je .quakerun_running
-    cmp dword [payload_lifecycle_run_status + USER_KIND_QUAKE * 4], 2
+    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_SECONDARY * 4], 2
     je .quakerun_exited
-    cmp dword [payload_lifecycle_run_status + USER_KIND_QUAKE * 4], 3
+    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_SECONDARY * 4], 3
     je .quakerun_faulted
     mov esi, smoke_wait_text
     jmp .quakerun_write
@@ -28229,27 +28229,27 @@ write_smoke_status:
 
     mov esi, smoke_quakeexit_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_exit_code + USER_KIND_QUAKE * 4]
+    mov edx, [payload_lifecycle_exit_code + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakefault_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_fault_addr + USER_KIND_QUAKE * 4]
+    mov edx, [payload_lifecycle_fault_addr + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakefaultip_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_fault_eip + USER_KIND_QUAKE * 4]
+    mov edx, [payload_lifecycle_fault_eip + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakefaultv_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_fault_vector + USER_KIND_QUAKE * 4]
+    mov edx, [payload_lifecycle_fault_vector + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakefaulterr_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_fault_error + USER_KIND_QUAKE * 4]
+    mov edx, [payload_lifecycle_fault_error + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_faultframe_text
@@ -28367,7 +28367,7 @@ write_smoke_status:
     call smoke_write_hex32
     mov edx, [fault_user_contained_count]
     call smoke_write_slash_hex32
-    mov edx, [payload_lifecycle_fault_count + USER_KIND_DOOM * 4]
+    mov edx, [payload_lifecycle_fault_count + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_slash_hex32
     mov edx, [fault_kernel_panic_count]
     call smoke_write_slash_hex32
@@ -28780,7 +28780,7 @@ write_smoke_status:
 
     mov esi, smoke_doomopen_text
     call smoke_copy_string
-    cmp dword [user_io_open_count + USER_KIND_DOOM * 4], 0
+    cmp dword [user_io_open_count + USER_KIND_PAYLOAD_PRIMARY * 4], 0
     je .doomopen_fail
     mov esi, smoke_ok_text
     jmp .doomopen_write
@@ -28793,7 +28793,7 @@ write_smoke_status:
 
     mov esi, smoke_doomread_text
     call smoke_copy_string
-    cmp dword [user_io_read_count + USER_KIND_DOOM * 4], 0
+    cmp dword [user_io_read_count + USER_KIND_PAYLOAD_PRIMARY * 4], 0
     je .doomread_fail
     cmp dword [doom_wad_magic_seen], 0x44415749
     jne .doomread_fail
@@ -28808,25 +28808,25 @@ write_smoke_status:
 
     mov esi, smoke_doomwrite_text
     call smoke_copy_string
-    mov edx, [user_io_write_count + USER_KIND_DOOM * 4]
+    mov edx, [user_io_write_count + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomseek_text
     call smoke_copy_string
-    mov edx, [user_io_lseek_count + USER_KIND_DOOM * 4]
+    mov edx, [user_io_lseek_count + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomwad_text
     call smoke_copy_string
-    mov edx, [user_io_open_count + USER_KIND_DOOM * 4]
+    mov edx, [user_io_open_count + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [user_io_read_count + USER_KIND_DOOM * 4]
+    mov edx, [user_io_read_count + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [user_io_lseek_count + USER_KIND_DOOM * 4]
+    mov edx, [user_io_lseek_count + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
@@ -28835,36 +28835,36 @@ write_smoke_status:
 
     mov esi, smoke_doomclose_text
     call smoke_copy_string
-    mov edx, [user_io_close_count + USER_KIND_DOOM * 4]
+    mov edx, [user_io_close_count + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomsbrk_text
     call smoke_copy_string
-    mov edx, [user_io_sbrk_count + USER_KIND_DOOM * 4]
+    mov edx, [user_io_sbrk_count + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomerr_text
     call smoke_copy_string
-    mov edx, [user_io_error_count + USER_KIND_DOOM * 4]
+    mov edx, [user_io_error_count + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomerrno_text
     call smoke_copy_string
-    mov edx, [user_io_last_error + USER_KIND_DOOM * 4]
+    mov edx, [user_io_last_error + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doommode_text
     call smoke_copy_string
-    mov edx, [user_io_last_open_flags + USER_KIND_DOOM * 4]
+    mov edx, [user_io_last_open_flags + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
     mov al, ':'
     stosb
-    mov edx, [user_io_last_open_mode + USER_KIND_DOOM * 4]
+    mov edx, [user_io_last_open_mode + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakeopen_text
     call smoke_copy_string
-    cmp dword [user_io_open_count + USER_KIND_QUAKE * 4], 0
+    cmp dword [user_io_open_count + USER_KIND_PAYLOAD_SECONDARY * 4], 0
     je .quakeopen_fail
     mov esi, smoke_ok_text
     jmp .quakeopen_write
@@ -28877,7 +28877,7 @@ write_smoke_status:
 
     mov esi, smoke_quakeread_text
     call smoke_copy_string
-    cmp dword [user_io_read_count + USER_KIND_QUAKE * 4], 0
+    cmp dword [user_io_read_count + USER_KIND_PAYLOAD_SECONDARY * 4], 0
     je .quakeread_fail
     cmp dword [quake_pak_magic_seen], 0x4b434150
     jne .quakeread_fail
@@ -28892,25 +28892,25 @@ write_smoke_status:
 
     mov esi, smoke_quakewrite_text
     call smoke_copy_string
-    mov edx, [user_io_write_count + USER_KIND_QUAKE * 4]
+    mov edx, [user_io_write_count + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakeseek_text
     call smoke_copy_string
-    mov edx, [user_io_lseek_count + USER_KIND_QUAKE * 4]
+    mov edx, [user_io_lseek_count + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakepak_text
     call smoke_copy_string
-    mov edx, [user_io_open_count + USER_KIND_QUAKE * 4]
+    mov edx, [user_io_open_count + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [user_io_read_count + USER_KIND_QUAKE * 4]
+    mov edx, [user_io_read_count + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [user_io_lseek_count + USER_KIND_QUAKE * 4]
+    mov edx, [user_io_lseek_count + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
@@ -28919,31 +28919,31 @@ write_smoke_status:
 
     mov esi, smoke_quakeclose_text
     call smoke_copy_string
-    mov edx, [user_io_close_count + USER_KIND_QUAKE * 4]
+    mov edx, [user_io_close_count + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakesbrk_text
     call smoke_copy_string
-    mov edx, [user_io_sbrk_count + USER_KIND_QUAKE * 4]
+    mov edx, [user_io_sbrk_count + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakeerr_text
     call smoke_copy_string
-    mov edx, [user_io_error_count + USER_KIND_QUAKE * 4]
+    mov edx, [user_io_error_count + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakeerrno_text
     call smoke_copy_string
-    mov edx, [user_io_last_error + USER_KIND_QUAKE * 4]
+    mov edx, [user_io_last_error + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakemode_text
     call smoke_copy_string
-    mov edx, [user_io_last_open_flags + USER_KIND_QUAKE * 4]
+    mov edx, [user_io_last_open_flags + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
     mov al, ':'
     stosb
-    mov edx, [user_io_last_open_mode + USER_KIND_QUAKE * 4]
+    mov edx, [user_io_last_open_mode + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomsav_text
@@ -29432,7 +29432,7 @@ write_smoke_status:
 
     mov esi, smoke_doompresent_text
     call smoke_copy_string
-    mov edx, [payload_telemetry_present_count + USER_KIND_DOOM * 4]
+    mov edx, [payload_telemetry_present_count + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
     mov esi, smoke_fbpresent_text
     call smoke_copy_string
@@ -29593,25 +29593,25 @@ write_smoke_status:
 
     mov esi, smoke_doominit_text
     call smoke_copy_string
-    mov edx, [payload_telemetry_init_flags + USER_KIND_DOOM * 4]
+    mov edx, [payload_telemetry_init_flags + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [payload_telemetry_init_report_count + USER_KIND_DOOM * 4]
+    mov edx, [payload_telemetry_init_report_count + USER_KIND_PAYLOAD_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakepresent_text
     call smoke_copy_string
-    mov edx, [payload_telemetry_present_count + USER_KIND_QUAKE * 4]
+    mov edx, [payload_telemetry_present_count + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakeinit_text
     call smoke_copy_string
-    mov edx, [payload_telemetry_init_flags + USER_KIND_QUAKE * 4]
+    mov edx, [payload_telemetry_init_flags + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [payload_telemetry_init_report_count + USER_KIND_QUAKE * 4]
+    mov edx, [payload_telemetry_init_report_count + USER_KIND_PAYLOAD_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakegame_text
@@ -32667,17 +32667,17 @@ write_smoke_status:
     jmp .user_write
 
 .user_fail:
-    cmp dword [payload_exec_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_exec_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     jne .user_fail_text
-    cmp dword [payload_exec_load_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_exec_load_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     jne .user_fail_text
-    cmp dword [payload_exec_parse_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_exec_parse_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     jne .user_fail_text
     cmp byte [process_exec_status], 1
     jne .user_fail_text
-    cmp dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     je .user_check_live_doom
-    cmp dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 2
+    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 2
     je .user_ok_from_doom
     jmp .user_fail_text
 
@@ -32828,11 +32828,11 @@ draw_doom_status:
     mov edi, VGA_BUFFER + ((VGA_ROWS - 3) * VGA_COLS * 2)
     mov esi, doom_status_label
     call draw_status_string
-    cmp dword [payload_exec_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_exec_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     jne .fail
-    cmp dword [payload_exec_load_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_exec_load_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     jne .fail
-    cmp dword [payload_exec_parse_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_exec_parse_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     jne .fail
     cmp byte [payload_load_segment_count], 0
     je .fail
@@ -32843,11 +32843,11 @@ draw_doom_status:
     call draw_status_string
     mov esi, doom_status_entry_label
     call draw_status_string
-    mov edx, [payload_exec_entry + USER_KIND_DOOM * 4]
+    mov edx, [payload_exec_entry + USER_KIND_PAYLOAD_PRIMARY * 4]
     call draw_status_hex32
     mov esi, doom_status_mem_label
     call draw_status_string
-    mov edx, [payload_exec_segment_memsz + USER_KIND_DOOM * 4]
+    mov edx, [payload_exec_segment_memsz + USER_KIND_PAYLOAD_PRIMARY * 4]
     call draw_status_hex32
     mov esi, gfx_status_label
     call draw_status_string
@@ -32970,17 +32970,17 @@ draw_heap_status:
     je .user_ok
 
 .user_fail:
-    cmp dword [payload_exec_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_exec_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     jne .user_fail_text
-    cmp dword [payload_exec_load_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_exec_load_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     jne .user_fail_text
-    cmp dword [payload_exec_parse_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_exec_parse_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     jne .user_fail_text
     cmp byte [process_exec_status], 1
     jne .user_fail_text
-    cmp dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 1
+    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
     je .user_check_live_doom
-    cmp dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 2
+    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 2
     je .user_ok_from_doom
     jmp .user_fail_text
 
@@ -34449,8 +34449,8 @@ writable_path_len_table dd user_path_default_cfg_end - user_path_default_cfg, us
 writable_capacity_table dd WRITABLE_DEFAULT_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY
 persistence_marker_name_table dd persist_chk_name_83, save_req_name_83, load_req_name_83
 large_payload_proof_label_table:
-    dd doom_elf_name_83, USER_KIND_DOOM
-    dd quake_elf_name_83, USER_KIND_QUAKE
+    dd doom_elf_name_83, USER_KIND_PAYLOAD_PRIMARY
+    dd quake_elf_name_83, USER_KIND_PAYLOAD_SECONDARY
 process_exec_table:
     dd exec_path_user_probe, user_elf_name_83, USER_ELF_LOAD_ADDR, USER_ELF_MAX_BYTES, process_user_probe, USER_KIND_PROBE
 user_elf_prefix db "User ELF loader: ", 0
@@ -34505,32 +34505,32 @@ keymap_shift:
     db ' '
     times 128 - ($ - keymap_shift) db 0
 
-doom_scancode_map:
-    times 0x01 - ($ - doom_scancode_map) db 0
-    db DOOM_KEY_ESCAPE
+payload_keycode_map:
+    times 0x01 - ($ - payload_keycode_map) db 0
+    db PAYLOAD_KEY_ESCAPE
     db '1','2','3','4','5','6','7','8','9','0'
-    db DOOM_KEY_MINUS, DOOM_KEY_EQUALS, DOOM_KEY_BACKSPACE, DOOM_KEY_TAB
+    db PAYLOAD_KEY_MINUS, PAYLOAD_KEY_EQUALS, PAYLOAD_KEY_BACKSPACE, PAYLOAD_KEY_TAB
     db 'q','w','e','r','t','y','u','i','o','p'
-    db '[',']',DOOM_KEY_ENTER,DOOM_KEY_RCTRL
+    db '[',']',PAYLOAD_KEY_ENTER,PAYLOAD_KEY_RCTRL
     db 'a','s','d','f','g','h','j','k','l'
-    db ';',39,'`',DOOM_KEY_RSHIFT,92
+    db ';',39,'`',PAYLOAD_KEY_RSHIFT,92
     db 'z','x','c','v','b','n','m'
-    db ',','.','/',DOOM_KEY_RSHIFT
-    times 0x38 - ($ - doom_scancode_map) db 0
-    db DOOM_KEY_RALT
+    db ',','.','/',PAYLOAD_KEY_RSHIFT
+    times 0x38 - ($ - payload_keycode_map) db 0
+    db PAYLOAD_KEY_RALT
     db ' '
-    times 0x3b - ($ - doom_scancode_map) db 0
-    db DOOM_KEY_F1,DOOM_KEY_F2,DOOM_KEY_F3,DOOM_KEY_F4,DOOM_KEY_F5
-    db DOOM_KEY_F6,DOOM_KEY_F7,DOOM_KEY_F8,DOOM_KEY_F9,DOOM_KEY_F10
-    times 0x48 - ($ - doom_scancode_map) db 0
-    db DOOM_KEY_UPARROW
-    times 0x4a - ($ - doom_scancode_map) db 0
-    db DOOM_KEY_MINUS,DOOM_KEY_LEFTARROW,0,DOOM_KEY_RIGHTARROW,DOOM_KEY_EQUALS,0,DOOM_KEY_DOWNARROW
-    times 0x53 - ($ - doom_scancode_map) db 0
-    db DOOM_KEY_BACKSPACE
-    times 0x57 - ($ - doom_scancode_map) db 0
-    db DOOM_KEY_F11,DOOM_KEY_F12
-    times 128 - ($ - doom_scancode_map) db 0
+    times 0x3b - ($ - payload_keycode_map) db 0
+    db PAYLOAD_KEY_F1,PAYLOAD_KEY_F2,PAYLOAD_KEY_F3,PAYLOAD_KEY_F4,PAYLOAD_KEY_F5
+    db PAYLOAD_KEY_F6,PAYLOAD_KEY_F7,PAYLOAD_KEY_F8,PAYLOAD_KEY_F9,PAYLOAD_KEY_F10
+    times 0x48 - ($ - payload_keycode_map) db 0
+    db PAYLOAD_KEY_UPARROW
+    times 0x4a - ($ - payload_keycode_map) db 0
+    db PAYLOAD_KEY_MINUS,PAYLOAD_KEY_LEFTARROW,0,PAYLOAD_KEY_RIGHTARROW,PAYLOAD_KEY_EQUALS,0,PAYLOAD_KEY_DOWNARROW
+    times 0x53 - ($ - payload_keycode_map) db 0
+    db PAYLOAD_KEY_BACKSPACE
+    times 0x57 - ($ - payload_keycode_map) db 0
+    db PAYLOAD_KEY_F11,PAYLOAD_KEY_F12
+    times 128 - ($ - payload_keycode_map) db 0
 
 cursor_row dd 0
 cursor_col dd 0
