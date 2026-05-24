@@ -70,6 +70,8 @@ C_RUNTIME_SRC := kernel/c_runtime_probe.asm
 USER_PROBE_ASM_SRC := user/probe.asm
 USER_ABI_PROBE_ASM_SRC := user/abi_probe.asm
 USER_RUNTIME_ASM_SRC := user/runtime.asm
+USER_LIBC_ASM_SRC := user/libc.asm
+USER_INCLUDE_DIR := user/include
 VIBE_STATUS_CHECK_SRC := tools/vibe_status_check.c
 DOOM_SRC_DIR := third_party/doom/linuxdoom-1.10
 DOOM_PORT_INCLUDE_DIR := doom_port/include
@@ -79,10 +81,11 @@ DOOM_SYMBOLS := $(BUILD_DIR)/doom.symbols
 DOOM_BASE := 0x01000000
 DOOM_ORIGINAL_SRCS := $(filter-out $(DOOM_SRC_DIR)/i_%.c,$(wildcard $(DOOM_SRC_DIR)/*.c))
 DOOM_ORIGINAL_OBJS := $(DOOM_ORIGINAL_SRCS:$(DOOM_SRC_DIR)/%.c=$(DOOM_PORT_BUILD_DIR)/%.o)
-DOOM_PORT_ASM_SRCS := doom_port/input.asm doom_port/libc.asm doom_port/music.asm doom_port/platform.asm doom_port/save_debug.asm doom_port/start.asm
-DOOM_PORT_OBJS := $(DOOM_PORT_ASM_SRCS:doom_port/%.asm=$(DOOM_PORT_BUILD_DIR)/port_%.o)
+DOOM_PORT_ASM_SRCS := doom_port/input.asm doom_port/music.asm doom_port/platform.asm doom_port/save_debug.asm doom_port/start.asm
+DOOM_USER_LIBC_OBJ := $(DOOM_PORT_BUILD_DIR)/user_libc.o
+DOOM_PORT_OBJS := $(DOOM_PORT_ASM_SRCS:doom_port/%.asm=$(DOOM_PORT_BUILD_DIR)/port_%.o) $(DOOM_USER_LIBC_OBJ)
 FREESTANDING_I386_CFLAGS := -target i386-unknown-elf -ffreestanding -fno-builtin -fno-strict-aliasing -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m32 -march=i386 -mno-sse -mno-mmx -msoft-float -O2
-DOOM_ORIGINAL_CFLAGS := $(FREESTANDING_I386_CFLAGS) -std=gnu89 -DNORMALUNIX -DLINUX -I$(DOOM_PORT_INCLUDE_DIR) -I$(DOOM_SRC_DIR)
+DOOM_ORIGINAL_CFLAGS := $(FREESTANDING_I386_CFLAGS) -std=gnu89 -DNORMALUNIX -DLINUX -I$(USER_INCLUDE_DIR) -I$(DOOM_PORT_INCLUDE_DIR) -I$(DOOM_SRC_DIR)
 DOOM_G_GAME_CFLAGS := -DG_BuildTiccmd=doom_original_G_BuildTiccmd -DG_Ticker=doom_original_G_Ticker
 DOOM_P_SAVEG_CFLAGS := -DP_ArchivePlayers=doom_original_P_ArchivePlayers -DP_UnArchivePlayers=doom_original_P_UnArchivePlayers -DP_ArchiveWorld=doom_original_P_ArchiveWorld -DP_UnArchiveWorld=doom_original_P_UnArchiveWorld -DP_ArchiveThinkers=doom_original_P_ArchiveThinkers -DP_UnArchiveThinkers=doom_original_P_UnArchiveThinkers -DP_ArchiveSpecials=doom_original_P_ArchiveSpecials -DP_UnArchiveSpecials=doom_original_P_UnArchiveSpecials
 QUAKE_SRC_DIR := third_party/quake/WinQuake
@@ -101,10 +104,10 @@ QUAKE_ORIGINAL_SRC_NAMES := \
 	sv_phys sv_user view wad world zone
 QUAKE_ORIGINAL_OBJS := $(addprefix $(QUAKE_PORT_BUILD_DIR)/,$(addsuffix .o,$(QUAKE_ORIGINAL_SRC_NAMES)))
 QUAKE_PORT_ASM_SRCS := quake_port/cd.asm quake_port/input.asm quake_port/math.asm quake_port/setjmp.asm quake_port/snd.asm quake_port/start.asm quake_port/sys.asm quake_port/vid.asm
-QUAKE_DOOM_LIBC_OBJ := $(QUAKE_PORT_BUILD_DIR)/doom_libc.o
-QUAKE_PORT_OBJS := $(QUAKE_PORT_ASM_SRCS:quake_port/%.asm=$(QUAKE_PORT_BUILD_DIR)/port_%.o) $(QUAKE_DOOM_LIBC_OBJ)
+QUAKE_USER_LIBC_OBJ := $(QUAKE_PORT_BUILD_DIR)/user_libc.o
+QUAKE_PORT_OBJS := $(QUAKE_PORT_ASM_SRCS:quake_port/%.asm=$(QUAKE_PORT_BUILD_DIR)/port_%.o) $(QUAKE_USER_LIBC_OBJ)
 QUAKE_FREESTANDING_I386_CFLAGS := -target i386-unknown-elf -ffreestanding -fno-builtin -fno-strict-aliasing -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m32 -march=i386 -mno-sse -mno-mmx -O2
-QUAKE_ORIGINAL_CFLAGS := $(QUAKE_FREESTANDING_I386_CFLAGS) -std=gnu89 -fcommon -U__i386__ -Dstricmp=strcasecmp -I$(QUAKE_PORT_INCLUDE_DIR) -I$(DOOM_PORT_INCLUDE_DIR) -I$(QUAKE_SRC_DIR)
+QUAKE_ORIGINAL_CFLAGS := $(QUAKE_FREESTANDING_I386_CFLAGS) -std=gnu89 -fcommon -U__i386__ -Dstricmp=strcasecmp -I$(USER_INCLUDE_DIR) -I$(QUAKE_PORT_INCLUDE_DIR) -I$(DOOM_PORT_INCLUDE_DIR) -I$(QUAKE_SRC_DIR)
 IMAGE_QUAKE_PAK_ARGS :=
 ifneq ($(strip $(QUAKE_PAK)),)
 IMAGE_QUAKE_PAK_ARGS := --asset /ID1/PAK0.PAK=$(QUAKE_PAK)
@@ -150,8 +153,8 @@ assembly-native-check:
 		user/probe.asm \
 		user/runtime.asm \
 		user/abi_probe.asm \
+		user/libc.asm \
 		doom_port/input.asm \
-		doom_port/libc.asm \
 		doom_port/music.asm \
 		doom_port/platform.asm \
 		doom_port/save_debug.asm \
@@ -179,8 +182,8 @@ assembly-native-check:
 		user/probe.c \
 		user/abi_probe.c \
 		user/runtime.c \
+		user/libc.c \
 		doom_port/input.c \
-		doom_port/libc.c \
 		doom_port/music.c \
 		doom_port/platform.c \
 		doom_port/save_debug.c \
@@ -303,10 +306,10 @@ $(USER_CRT0_OBJ): user/crt0.asm | $(BUILD_DIR)
 $(USER_PROBE_OBJ): $(USER_PROBE_ASM_SRC) | $(BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
 
-$(USER_ABI_PROBE_OBJ): $(USER_ABI_PROBE_ASM_SRC) user/runtime.h doom_port/include/vibe_os.h FORCE | $(BUILD_DIR)
+$(USER_ABI_PROBE_OBJ): $(USER_ABI_PROBE_ASM_SRC) user/runtime.h user/include/vibe_os.h FORCE | $(BUILD_DIR)
 	$(NASM) -f elf32 $(USER_ABI_PROBE_NASMFLAGS) $< -o $@
 
-$(USER_RUNTIME_OBJ): $(USER_RUNTIME_ASM_SRC) user/runtime.h doom_port/include/vibe_os.h | $(BUILD_DIR)
+$(USER_RUNTIME_OBJ): $(USER_RUNTIME_ASM_SRC) user/runtime.h user/include/vibe_os.h | $(BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
 
 $(DOOM_PORT_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c Makefile | $(DOOM_PORT_BUILD_DIR)
@@ -321,7 +324,7 @@ $(DOOM_PORT_BUILD_DIR)/p_saveg.o: $(DOOM_SRC_DIR)/p_saveg.c Makefile | $(DOOM_PO
 $(DOOM_PORT_BUILD_DIR)/port_input.o: doom_port/input.asm Makefile | $(DOOM_PORT_BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
 
-$(DOOM_PORT_BUILD_DIR)/port_libc.o: doom_port/libc.asm Makefile | $(DOOM_PORT_BUILD_DIR)
+$(DOOM_USER_LIBC_OBJ): $(USER_LIBC_ASM_SRC) Makefile | $(DOOM_PORT_BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
 
 $(DOOM_PORT_BUILD_DIR)/port_music.o: doom_port/music.asm Makefile | $(DOOM_PORT_BUILD_DIR)
@@ -348,7 +351,7 @@ $(QUAKE_PORT_BUILD_DIR)/%.o: $(QUAKE_SRC_DIR)/%.c Makefile | $(QUAKE_PORT_BUILD_
 $(QUAKE_PORT_BUILD_DIR)/port_%.o: quake_port/%.asm Makefile | $(QUAKE_PORT_BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
 
-$(QUAKE_DOOM_LIBC_OBJ): doom_port/libc.asm Makefile | $(QUAKE_PORT_BUILD_DIR)
+$(QUAKE_USER_LIBC_OBJ): $(USER_LIBC_ASM_SRC) Makefile | $(QUAKE_PORT_BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
 
 $(QUAKE_ELF): $(QUAKE_ORIGINAL_OBJS) $(QUAKE_PORT_OBJS) $(LINK_ELF32) | $(BUILD_DIR)

@@ -1,5 +1,5 @@
-#ifndef VIBE_DOOM_PORT_VIBE_OS_H
-#define VIBE_DOOM_PORT_VIBE_OS_H
+#ifndef VIBE_OS_USER_ABI_H
+#define VIBE_OS_USER_ABI_H
 
 enum {
     VIBE_OS_ABI_VERSION = 1,

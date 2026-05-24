@@ -431,7 +431,7 @@ KERNEL_STACK_TOP equ 0x00070000
 PROC_KERNEL_PROCESS_STACK_TOP equ 0x00070000
 PROC_USER_PROBE_KERNEL_STACK_TOP equ 0x00071000
 PROC_PREEMPT_PROBE_KERNEL_STACK_TOP equ 0x00072000
-PROC_DOOM_KERNEL_STACK_TOP equ 0x00073000
+PROC_PAYLOAD_KERNEL_STACK_TOP equ 0x00073000
 PROC_GENERIC0_KERNEL_STACK_TOP equ 0x00074000
 PROC_GENERIC1_KERNEL_STACK_TOP equ 0x00075000
 PIT_INPUT_HZ equ 1193182
@@ -472,12 +472,12 @@ KERNEL_HIGHER_HALF_PDE_INDEX equ KERNEL_HIGHER_HALF_BASE >> 22
 FB_PAGE_TABLE_ADDR equ 0x0009c000
 PROC_PROBE_PAGE_DIR_ADDR equ 0x00080000
 PROC_PROBE_PDE3_TABLE_ADDR equ 0x00081000
-PROC_DOOM_PAGE_DIR_ADDR equ 0x00082000
+PROC_PAYLOAD_PAGE_DIR_ADDR equ 0x00082000
 PROC_PREEMPT_PAGE_DIR_ADDR equ 0x00083000
-PROC_DOOM_PDE4_TABLE_ADDR equ 0x00084000
-PROC_DOOM_PDE5_TABLE_ADDR equ 0x00085000
-PROC_DOOM_PDE6_TABLE_ADDR equ 0x00086000
-PROC_DOOM_PDE7_TABLE_ADDR equ 0x00087000
+PROC_PAYLOAD_PDE4_TABLE_ADDR equ 0x00084000
+PROC_PAYLOAD_PDE5_TABLE_ADDR equ 0x00085000
+PROC_PAYLOAD_PDE6_TABLE_ADDR equ 0x00086000
+PROC_PAYLOAD_PDE7_TABLE_ADDR equ 0x00087000
 PROC_PREEMPT_PDE3_TABLE_ADDR equ 0x00088000
 PROC_GENERIC0_PAGE_DIR_ADDR equ 0x00089000
 PROC_GENERIC0_PDE3_TABLE_ADDR equ 0x0008a000
@@ -581,17 +581,17 @@ FAT_ALLOC_MAP_ADDR equ FAT_ROOT_CACHE_ADDR + FAT_ROOT_CACHE_SECTORS * 512
 fat_table_cache equ FAT_TABLE_CACHE_ADDR
 fat_root_cache equ FAT_ROOT_CACHE_ADDR
 fat_alloc_map equ FAT_ALLOC_MAP_ADDR
-DOOM_ELF_LOAD_ADDR equ 0x01000000
-DOOM_ELF_LIMIT equ 0x02000000
-DOOM_ELF_MAX_BYTES equ DOOM_ELF_LIMIT - DOOM_ELF_LOAD_ADDR
-DOOM_USER_BASE equ DOOM_ELF_LOAD_ADDR
-DOOM_USER_HEAP_START equ 0x01900000
-DOOM_USER_HEAP_END equ 0x01f00000
-DOOM_USER_STACK_BOTTOM equ DOOM_USER_HEAP_END
-DOOM_USER_STACK_TOP equ DOOM_ELF_LIMIT
-DOOM_USER_END equ DOOM_ELF_LIMIT
-DOOM_HEAP_PAGE_COUNT equ (DOOM_USER_HEAP_END - DOOM_USER_HEAP_START) / PAGE_SIZE
-DOOM_HEAP_BITMAP_BYTES equ (DOOM_HEAP_PAGE_COUNT + 7) / 8
+PAYLOAD_ELF_LOAD_ADDR equ 0x01000000
+PAYLOAD_ELF_LIMIT equ 0x02000000
+PAYLOAD_ELF_MAX_BYTES equ PAYLOAD_ELF_LIMIT - PAYLOAD_ELF_LOAD_ADDR
+PAYLOAD_USER_BASE equ PAYLOAD_ELF_LOAD_ADDR
+PAYLOAD_USER_HEAP_START equ 0x01900000
+PAYLOAD_USER_HEAP_END equ 0x01f00000
+PAYLOAD_USER_STACK_BOTTOM equ PAYLOAD_USER_HEAP_END
+PAYLOAD_USER_STACK_TOP equ PAYLOAD_ELF_LIMIT
+PAYLOAD_USER_END equ PAYLOAD_ELF_LIMIT
+PAYLOAD_HEAP_PAGE_COUNT equ (PAYLOAD_USER_HEAP_END - PAYLOAD_USER_HEAP_START) / PAGE_SIZE
+PAYLOAD_HEAP_BITMAP_BYTES equ (PAYLOAD_HEAP_PAGE_COUNT + 7) / 8
 USER_KIND_NONE equ 0
 USER_KIND_PROBE equ 1
 USER_KIND_DOOM equ 2
@@ -1536,7 +1536,7 @@ user_probe_finished:
     mov ss, ax
     call kernel_switch_main_stack_and_return
     call process_return_to_kernel
-    call process_boot_launch_doom
+    call process_boot_launch_payload
 
 doom_user_finished:
     mov ax, DATA_SEG
@@ -2098,26 +2098,26 @@ handle_command:
 
     mov esi, doom_elf_mem_prefix
     call print_string
-    mov eax, [doom_segment_memsz]
+    mov eax, [payload_segment_memsz]
     call print_dec
     mov esi, bytes_suffix
     call print_string
 
     mov esi, doom_elf_end_prefix
     call print_string
-    mov eax, [doom_segment_end]
+    mov eax, [payload_segment_end]
     call print_hex32
     call newline
 
-    mov esi, doom_user_window_prefix
+    mov esi, payload_user_window_prefix
     call print_string
-    cmp byte [doom_user_window_status], 1
-    je .doom_user_window_ok
+    cmp byte [payload_user_window_status], 1
+    je .payload_user_window_ok
     mov esi, fail_text
     call print_string
     jmp .wad_load_address
 
-.doom_user_window_ok:
+.payload_user_window_ok:
     mov esi, ok_text
     call print_string
 
@@ -3487,7 +3487,7 @@ mmio_install_process_dirs:
     mov [edi + edx * 4], ebx
     mov edi, PROC_PREEMPT_PAGE_DIR_ADDR
     mov [edi + edx * 4], ebx
-    mov edi, PROC_DOOM_PAGE_DIR_ADDR
+    mov edi, PROC_PAYLOAD_PAGE_DIR_ADDR
     mov [edi + edx * 4], ebx
     mov edi, PROC_GENERIC0_PAGE_DIR_ADDR
     mov [edi + edx * 4], ebx
@@ -5670,7 +5670,7 @@ kernel_relocation_dir_validate:
     je .fail
     cmp eax, PROC_PROBE_PAGE_DIR_ADDR
     je .fail
-    cmp eax, PROC_DOOM_PAGE_DIR_ADDR
+    cmp eax, PROC_PAYLOAD_PAGE_DIR_ADDR
     je .fail
     cmp eax, PROC_PREEMPT_PAGE_DIR_ADDR
     je .fail
@@ -6459,7 +6459,7 @@ kernel_persistent_alias_install_process_dirs:
     or dword [kernel_persistent_alias_dir_mask], 0x00000002
     mov [PROC_PREEMPT_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)], eax
     or dword [kernel_persistent_alias_dir_mask], 0x00000004
-    mov [PROC_DOOM_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)], eax
+    mov [PROC_PAYLOAD_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)], eax
     or dword [kernel_persistent_alias_dir_mask], 0x00000008
     mov [PROC_GENERIC0_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)], eax
     or dword [kernel_persistent_alias_dir_mask], 0x00000010
@@ -6593,7 +6593,7 @@ framebuffer_install_process_dirs:
     mov [edi + eax * 4], ebx
     mov edi, PROC_PREEMPT_PAGE_DIR_ADDR
     mov [edi + eax * 4], ebx
-    mov edi, PROC_DOOM_PAGE_DIR_ADDR
+    mov edi, PROC_PAYLOAD_PAGE_DIR_ADDR
     mov [edi + eax * 4], ebx
     mov edi, PROC_GENERIC0_PAGE_DIR_ADDR
     mov [edi + eax * 4], ebx
@@ -6680,7 +6680,7 @@ process_vm_init_page_spaces:
     rep movsd
 
     mov esi, PAGING_DIR_ADDR
-    mov edi, PROC_DOOM_PAGE_DIR_ADDR
+    mov edi, PROC_PAYLOAD_PAGE_DIR_ADDR
     mov ecx, 1024
     cld
     rep movsd
@@ -6776,45 +6776,45 @@ process_vm_init_page_spaces:
     call vmm_clear_process_guard_page
 
     mov esi, PAGING_TABLES_ADDR + (4 * PAGE_SIZE)
-    mov edi, PROC_DOOM_PDE4_TABLE_ADDR
+    mov edi, PROC_PAYLOAD_PDE4_TABLE_ADDR
     mov ecx, 1024
     cld
     rep movsd
-    mov dword [PROC_DOOM_PAGE_DIR_ADDR + (4 * 4)], PROC_DOOM_PDE4_TABLE_ADDR | PTE_USER_FLAGS
+    mov dword [PROC_PAYLOAD_PAGE_DIR_ADDR + (4 * 4)], PROC_PAYLOAD_PDE4_TABLE_ADDR | PTE_USER_FLAGS
 
     mov esi, PAGING_TABLES_ADDR + (5 * PAGE_SIZE)
-    mov edi, PROC_DOOM_PDE5_TABLE_ADDR
+    mov edi, PROC_PAYLOAD_PDE5_TABLE_ADDR
     mov ecx, 1024
     cld
     rep movsd
-    mov dword [PROC_DOOM_PAGE_DIR_ADDR + (5 * 4)], PROC_DOOM_PDE5_TABLE_ADDR | PTE_USER_FLAGS
+    mov dword [PROC_PAYLOAD_PAGE_DIR_ADDR + (5 * 4)], PROC_PAYLOAD_PDE5_TABLE_ADDR | PTE_USER_FLAGS
 
     mov esi, PAGING_TABLES_ADDR + (6 * PAGE_SIZE)
-    mov edi, PROC_DOOM_PDE6_TABLE_ADDR
+    mov edi, PROC_PAYLOAD_PDE6_TABLE_ADDR
     mov ecx, 1024
     cld
     rep movsd
-    mov dword [PROC_DOOM_PAGE_DIR_ADDR + (6 * 4)], PROC_DOOM_PDE6_TABLE_ADDR | PTE_USER_FLAGS
+    mov dword [PROC_PAYLOAD_PAGE_DIR_ADDR + (6 * 4)], PROC_PAYLOAD_PDE6_TABLE_ADDR | PTE_USER_FLAGS
 
     mov esi, PAGING_TABLES_ADDR + (7 * PAGE_SIZE)
-    mov edi, PROC_DOOM_PDE7_TABLE_ADDR
+    mov edi, PROC_PAYLOAD_PDE7_TABLE_ADDR
     mov ecx, 1024
     cld
     rep movsd
-    mov dword [PROC_DOOM_PAGE_DIR_ADDR + (7 * 4)], PROC_DOOM_PDE7_TABLE_ADDR | PTE_USER_FLAGS
+    mov dword [PROC_PAYLOAD_PAGE_DIR_ADDR + (7 * 4)], PROC_PAYLOAD_PDE7_TABLE_ADDR | PTE_USER_FLAGS
 
-    mov ebx, PROC_DOOM_PAGE_DIR_ADDR
-    mov eax, DOOM_USER_BASE
-    mov edx, DOOM_USER_HEAP_START
+    mov ebx, PROC_PAYLOAD_PAGE_DIR_ADDR
+    mov eax, PAYLOAD_USER_BASE
+    mov edx, PAYLOAD_USER_HEAP_START
     call vmm_mark_process_user_range
-    mov eax, DOOM_USER_STACK_BOTTOM
-    mov edx, DOOM_USER_STACK_TOP
+    mov eax, PAYLOAD_USER_STACK_BOTTOM
+    mov edx, PAYLOAD_USER_STACK_TOP
     call vmm_mark_process_user_range
-    mov eax, DOOM_USER_BASE - PAGE_SIZE
+    mov eax, PAYLOAD_USER_BASE - PAGE_SIZE
     call vmm_clear_process_guard_page
-    mov eax, DOOM_USER_STACK_BOTTOM
+    mov eax, PAYLOAD_USER_STACK_BOTTOM
     call vmm_clear_process_guard_page
-    mov eax, DOOM_USER_STACK_TOP
+    mov eax, PAYLOAD_USER_STACK_TOP
     call vmm_clear_process_guard_page
 
     call vmm_probe_user_guard_pages
@@ -6987,12 +6987,12 @@ vmm_probe_user_guard_pages:
     mov eax, USER_HEAP_END
     call vmm_probe_absent_guard_page
 
-    mov ebx, PROC_DOOM_PAGE_DIR_ADDR
-    mov eax, DOOM_USER_BASE - PAGE_SIZE
+    mov ebx, PROC_PAYLOAD_PAGE_DIR_ADDR
+    mov eax, PAYLOAD_USER_BASE - PAGE_SIZE
     call vmm_probe_absent_guard_page
-    mov eax, DOOM_USER_STACK_BOTTOM
+    mov eax, PAYLOAD_USER_STACK_BOTTOM
     call vmm_probe_absent_guard_page
-    mov eax, DOOM_USER_STACK_TOP
+    mov eax, PAYLOAD_USER_STACK_TOP
     call vmm_probe_absent_guard_page
 
     popad
@@ -7191,15 +7191,15 @@ pmm_init:
     mov ecx, 1
     call pmm_reserve_pages
 
-    mov eax, DOOM_USER_BASE - PAGE_SIZE
+    mov eax, PAYLOAD_USER_BASE - PAGE_SIZE
     mov ecx, 1
     call pmm_reserve_pages
 
-    mov eax, DOOM_USER_BASE
-    mov ecx, (DOOM_USER_END - DOOM_USER_BASE) / PAGE_SIZE
+    mov eax, PAYLOAD_USER_BASE
+    mov ecx, (PAYLOAD_USER_END - PAYLOAD_USER_BASE) / PAGE_SIZE
     call pmm_reserve_pages
 
-    mov eax, DOOM_USER_STACK_TOP
+    mov eax, PAYLOAD_USER_STACK_TOP
     mov ecx, 1
     call pmm_reserve_pages
 
@@ -11492,6 +11492,9 @@ storage_init:
     mov byte [quake_elf_status], 0
     mov byte [quake_elf_load_status], 0
     mov byte [quake_elf_parse_status], 0
+    mov byte [payload_elf_status], 0
+    mov byte [payload_elf_load_status], 0
+    mov byte [payload_elf_parse_status], 0
     mov dword [ata_last_lba], 0
     mov dword [ata_last_op], ATA_OP_NONE
     mov dword [ata_wait_phase], ATA_WAIT_IDLE
@@ -11611,11 +11614,14 @@ storage_init:
     mov dword [quake_elf_size], 0
     mov dword [quake_elf_sectors_read], 0
     mov dword [quake_entry_addr], 0
+    mov dword [payload_elf_size], 0
+    mov dword [payload_elf_sectors_read], 0
+    mov dword [payload_entry_addr], 0
     mov dword [quake_segment_memsz], 0
     mov dword [quake_segment_end], 0
-    mov dword [doom_segment_filesz], 0
-    mov dword [doom_segment_memsz], 0
-    mov dword [doom_segment_end], 0
+    mov dword [payload_segment_filesz], 0
+    mov dword [payload_segment_memsz], 0
+    mov dword [payload_segment_end], 0
     mov ecx, USER_FD_COUNT
     xor ebx, ebx
 
@@ -11653,9 +11659,10 @@ storage_init:
     mov dword [persistence_marker_sizes + ebx * 4], 0
     inc ebx
     loop .clear_persistence_markers
-    mov byte [doom_user_window_status], 0
+    mov byte [payload_user_window_status], 0
     mov word [doom_elf_first_cluster], 0
     mov word [quake_elf_first_cluster], 0
+    mov word [payload_elf_first_cluster], 0
     mov dword [current_pid], 0
     mov dword [current_process_ptr], 0
     mov dword [current_user_base], 0
@@ -17857,8 +17864,8 @@ scheduler_init:
     call process_reset_user_probe
     mov esi, process_preempt_probe
     call process_reset_preempt_probe
-    mov esi, process_doom
-    call process_reset_doom
+    mov esi, process_payload
+    call process_reset_payload
     mov esi, process_generic0
     call process_reset_generic_unused
     mov esi, process_generic1
@@ -17898,11 +17905,11 @@ process_seed_wait_reap_probe_child:
     pop eax
     ret
 
-process_reset_doom:
+process_reset_payload:
     call process_reset_accounting
     mov dword [esi + PROC_KIND], USER_KIND_DOOM
     mov dword [esi + PROC_STATE], PROC_STATE_READY
-    mov dword [esi + PROC_BRK], DOOM_USER_HEAP_START
+    mov dword [esi + PROC_BRK], PAYLOAD_USER_HEAP_START
     mov dword [esi + PROC_ENTRY], 0
     ret
 
@@ -18967,7 +18974,7 @@ process_fpu_context_for_ptr:
     je .slot1
     cmp edx, process_preempt_probe
     je .slot2
-    cmp edx, process_doom
+    cmp edx, process_payload
     je .slot3
     cmp edx, process_generic0
     je .slot4
@@ -20303,12 +20310,12 @@ scheduler_preempt_self_test:
     call process_reset_user_probe
     mov esi, process_preempt_probe
     call process_reset_preempt_probe
-    mov esi, process_doom
-    call process_reset_doom
+    mov esi, process_payload
+    call process_reset_payload
     popad
     ret
 
-process_boot_launch_doom:
+process_boot_launch_payload:
     cmp dword [sys_exec_successes], 0
     jne .done
     mov byte [doom_run_status], 4
@@ -20363,7 +20370,7 @@ process_exec_path:
     mov eax, [fat_found_size]
     mov [process_exec_size], eax
 
-    cmp dword [process_exec_target], process_doom
+    cmp dword [process_exec_target], process_payload
     je near .bind_large_payload_artifact
     mov eax, [process_exec_target]
     call process_is_user_exec_target
@@ -20371,6 +20378,13 @@ process_exec_path:
     jmp near .reserve
 
 .bind_large_payload_artifact:
+    mov ax, [process_exec_first_cluster]
+    mov [payload_elf_first_cluster], ax
+    mov eax, [process_exec_size]
+    mov [payload_elf_size], eax
+    mov byte [payload_elf_status], 1
+    mov byte [payload_elf_load_status], 0
+    mov byte [payload_elf_parse_status], 0
     cmp dword [process_exec_target_kind], USER_KIND_QUAKE
     je .bind_quake_artifact
     mov ax, [process_exec_first_cluster]
@@ -20416,14 +20430,17 @@ process_exec_path:
     cmp dword [esi], ELF_MAGIC
     jne .load_fail
 
-    cmp dword [process_exec_target], process_doom
-    je .loaded_doom
+    cmp dword [process_exec_target], process_payload
+    je .loaded_payload
     mov eax, [process_exec_target]
     call process_is_user_exec_target
     jnc .loaded_user_probe
     jmp .unsupported
 
-.loaded_doom:
+.loaded_payload:
+    mov eax, [process_exec_sectors_read]
+    mov [payload_elf_sectors_read], eax
+    mov byte [payload_elf_load_status], 1
     cmp dword [process_exec_target_kind], USER_KIND_QUAKE
     je .loaded_quake
     mov eax, [process_exec_sectors_read]
@@ -20474,21 +20491,22 @@ process_exec_path:
 
 .load_fail:
     mov dword [process_exec_last_error], -ERRNO_EIO
-    cmp dword [process_exec_target], process_doom
-    je .load_fail_doom
+    cmp dword [process_exec_target], process_payload
+    je .load_fail_payload
     mov eax, [process_exec_target]
     call process_is_user_exec_target
     jc .fail
     mov byte [user_elf_status], 2
     jmp .fail
 
-.load_fail_doom:
+.load_fail_payload:
+    mov byte [payload_elf_load_status], 2
     cmp dword [process_exec_target_kind], USER_KIND_QUAKE
-    jne .load_fail_doom_status
+    jne .load_fail_payload_status
     mov byte [quake_elf_load_status], 2
     jmp .fail
 
-.load_fail_doom_status:
+.load_fail_payload_status:
     mov byte [doom_elf_load_status], 2
 
 .fail:
@@ -20716,38 +20734,43 @@ process_exec_resolve_generic_root83:
     ret
 
 process_exec_prepare_elf_image:
-    cmp dword [process_exec_target], process_doom
-    je .prepare_doom
+    cmp dword [process_exec_target], process_payload
+    je .prepare_payload
     mov eax, [process_exec_target]
     call process_is_user_exec_target
     jnc .prepare_user_probe
     jmp .fail
 
-.prepare_doom:
+.prepare_payload:
     cmp dword [process_exec_target_kind], USER_KIND_QUAKE
-    jne .prepare_doom_payload
-    mov eax, [quake_elf_size]
-    mov [doom_elf_size], eax
-    mov eax, [quake_elf_sectors_read]
-    mov [doom_elf_sectors_read], eax
-    mov byte [doom_elf_load_status], 1
+    jne .prepare_payload_doom
     mov byte [quake_elf_parse_status], 0
+    jmp .prepare_payload_status
 
-.prepare_doom_payload:
-    call doom_elf_prepare
+.prepare_payload_doom:
+    mov byte [doom_elf_parse_status], 0
+
+.prepare_payload_status:
+    call payload_elf_prepare
     jc .fail
     cmp dword [process_exec_target_kind], USER_KIND_QUAKE
-    jne .prepare_doom_entry
-    mov eax, [doom_entry_addr]
+    jne .prepare_payload_doom_status
+    mov eax, [payload_entry_addr]
     mov [quake_entry_addr], eax
-    mov eax, [doom_segment_memsz]
+    mov eax, [payload_segment_memsz]
     mov [quake_segment_memsz], eax
-    mov eax, [doom_segment_end]
+    mov eax, [payload_segment_end]
     mov [quake_segment_end], eax
     mov byte [quake_elf_parse_status], 1
+    jmp .prepare_payload_entry
 
-.prepare_doom_entry:
-    mov eax, [doom_entry_addr]
+.prepare_payload_doom_status:
+    mov eax, [payload_entry_addr]
+    mov [doom_entry_addr], eax
+    mov byte [doom_elf_parse_status], 1
+
+.prepare_payload_entry:
+    mov eax, [payload_entry_addr]
     mov [process_exec_entry], eax
     clc
     ret
@@ -20762,8 +20785,14 @@ process_exec_prepare_elf_image:
 
 .fail:
     cmp dword [process_exec_target_kind], USER_KIND_QUAKE
-    jne .fail_status_ready
+    jne .fail_doom_status
     mov byte [quake_elf_parse_status], 2
+    jmp .fail_status_ready
+
+.fail_doom_status:
+    cmp dword [process_exec_target], process_payload
+    jne .fail_status_ready
+    mov byte [doom_elf_parse_status], 2
 
 .fail_status_ready:
     stc
@@ -20788,15 +20817,15 @@ process_exec_handoff_current:
     cmp dword [process_exec_entry], 0
     je .eio
 
-    cmp esi, process_doom
-    je .reset_doom_target
+    cmp esi, process_payload
+    je .reset_payload_target
     mov eax, esi
     call process_is_user_exec_target
     jnc .reset_user_probe_target
     jmp .einval
 
-.reset_doom_target:
-    call process_reset_doom
+.reset_payload_target:
+    call process_reset_payload
     mov eax, [process_exec_target_kind]
     cmp eax, USER_KIND_NONE
     jne .reset_large_kind_ready
@@ -20888,7 +20917,7 @@ process_exec_handoff_current:
     call keyboard_reset_queue
     call mouse_reset_queue
     call process_seed_initial_user_context
-    cmp esi, process_doom
+    cmp esi, process_payload
     jne .activate_target
     call scheduler_prepare_live_preempt_probe
 
@@ -21534,23 +21563,23 @@ user_elf_prepare:
     stc
     ret
 
-doom_elf_prepare:
-    mov byte [doom_elf_parse_status], 0
-    mov byte [doom_load_segment_count], 0
-    mov dword [doom_entry_addr], 0
-    mov dword [doom_segment_source], 0
-    mov dword [doom_segment_dest], 0
-    mov dword [doom_segment_filesz], 0
-    mov dword [doom_segment_memsz], 0
-    mov dword [doom_segment_end], 0
-    mov byte [doom_user_window_status], 0
+payload_elf_prepare:
+    mov byte [payload_elf_parse_status], 0
+    mov byte [payload_load_segment_count], 0
+    mov dword [payload_entry_addr], 0
+    mov dword [payload_segment_source], 0
+    mov dword [payload_segment_dest], 0
+    mov dword [payload_segment_filesz], 0
+    mov dword [payload_segment_memsz], 0
+    mov dword [payload_segment_end], 0
+    mov byte [payload_user_window_status], 0
 
-    cmp byte [doom_elf_load_status], 1
+    cmp byte [payload_elf_load_status], 1
     jne .fail
-    cmp dword [doom_elf_size], 52
+    cmp dword [payload_elf_size], 52
     jb .fail
 
-    mov esi, DOOM_ELF_LOAD_ADDR
+    mov esi, PAYLOAD_ELF_LOAD_ADDR
     cmp dword [esi], ELF_MAGIC
     jne .fail
     cmp byte [esi + 4], ELFCLASS32
@@ -21577,15 +21606,15 @@ doom_elf_prepare:
     shl edx, 5
     add ebx, edx
     jc .fail
-    cmp ebx, [doom_elf_size]
+    cmp ebx, [payload_elf_size]
     ja .fail
 
     mov eax, [esi + 24]
-    mov [doom_entry_addr], eax
+    mov [payload_entry_addr], eax
 
     mov eax, [esi + 28]
     push ecx
-    add eax, DOOM_ELF_LOAD_ADDR
+    add eax, PAYLOAD_ELF_LOAD_ADDR
     mov esi, eax
     mov edi, elf_phdr_scratch
     mov ecx, [esp]
@@ -21593,13 +21622,13 @@ doom_elf_prepare:
     cld
     rep movsb
     pop ecx
-    mov dword [doom_phdr_ptr], elf_phdr_scratch
-    mov [doom_phdr_remaining], ecx
+    mov dword [payload_phdr_ptr], elf_phdr_scratch
+    mov [payload_phdr_remaining], ecx
 
 .phdr_loop:
-    cmp dword [doom_phdr_remaining], 0
+    cmp dword [payload_phdr_remaining], 0
     je .segments_done
-    mov esi, [doom_phdr_ptr]
+    mov esi, [payload_phdr_ptr]
     cmp dword [esi], PT_LOAD
     jne .next_phdr
 
@@ -21609,14 +21638,14 @@ doom_elf_prepare:
 
     mov edx, [esi + 16]
     test edx, edx
-    jz .doom_file_span_ok
+    jz .payload_file_span_ok
     mov eax, [esi + 4]
     add eax, edx
     jc .fail
-    cmp eax, [doom_elf_size]
+    cmp eax, [payload_elf_size]
     ja .fail
 
-.doom_file_span_ok:
+.payload_file_span_ok:
 
     mov eax, [esi + 12]
     test eax, eax
@@ -21624,45 +21653,45 @@ doom_elf_prepare:
     mov eax, [esi + 8]
 
 .have_destination:
-    mov [doom_segment_dest], eax
-    cmp eax, DOOM_ELF_LOAD_ADDR
+    mov [payload_segment_dest], eax
+    cmp eax, PAYLOAD_ELF_LOAD_ADDR
     jb .fail
     mov ebx, eax
     add ebx, [esi + 20]
     jc .fail
-    cmp ebx, DOOM_ELF_LIMIT
+    cmp ebx, PAYLOAD_ELF_LIMIT
     ja .fail
-    cmp ebx, DOOM_USER_HEAP_START
+    cmp ebx, PAYLOAD_USER_HEAP_START
     ja .fail
-    cmp ebx, [doom_segment_end]
-    jbe .doom_segment_end_ok
-    mov [doom_segment_end], ebx
+    cmp ebx, [payload_segment_end]
+    jbe .payload_segment_end_ok
+    mov [payload_segment_end], ebx
 
-.doom_segment_end_ok:
+.payload_segment_end_ok:
 
     mov eax, [esi + 4]
-    add eax, DOOM_ELF_LOAD_ADDR
+    add eax, PAYLOAD_ELF_LOAD_ADDR
     jc .fail
-    mov ebx, [doom_segment_dest]
+    mov ebx, [payload_segment_dest]
     cmp ebx, eax
     ja .fail
-    mov [doom_segment_source], eax
+    mov [payload_segment_source], eax
 
     mov eax, [esi + 16]
-    mov [doom_segment_filesz], eax
+    mov [payload_segment_filesz], eax
     mov eax, [esi + 20]
-    mov [doom_segment_memsz], eax
+    mov [payload_segment_memsz], eax
     mov eax, [esi + ELF_PH_FLAGS]
-    mov [doom_segment_flags], eax
+    mov [payload_segment_flags], eax
 
     inc dword [process_exec_copy_segment_count]
-    mov eax, [doom_segment_source]
+    mov eax, [payload_segment_source]
     mov [process_exec_copy_last_source], eax
-    mov eax, [doom_segment_dest]
+    mov eax, [payload_segment_dest]
     mov [process_exec_copy_last_dest], eax
-    mov eax, [doom_segment_filesz]
+    mov eax, [payload_segment_filesz]
     mov [process_exec_copy_last_filesz], eax
-    mov eax, [doom_segment_memsz]
+    mov eax, [payload_segment_memsz]
     mov [process_exec_copy_last_memsz], eax
 
     pushfd
@@ -21673,23 +21702,23 @@ doom_elf_prepare:
     mov [process_exec_copy_last_target_cr3], eax
     mov ebx, [process_exec_target]
     cmp ebx, 0
-    je .doom_copy_address_space_ready
+    je .payload_copy_address_space_ready
     mov eax, [ebx + PROC_PAGE_DIR]
     test eax, eax
-    jz .doom_copy_address_space_ready
+    jz .payload_copy_address_space_ready
     mov [process_exec_copy_last_target_cr3], eax
     inc dword [process_exec_copy_cr3_switches]
     mov cr3, eax
 
-.doom_copy_address_space_ready:
-    mov esi, [doom_segment_source]
-    mov edi, [doom_segment_dest]
-    mov ecx, [doom_segment_filesz]
+.payload_copy_address_space_ready:
+    mov esi, [payload_segment_source]
+    mov edi, [payload_segment_dest]
+    mov ecx, [payload_segment_filesz]
     cld
     rep movsb
 
-    mov ecx, [doom_segment_memsz]
-    sub ecx, [doom_segment_filesz]
+    mov ecx, [payload_segment_memsz]
+    sub ecx, [payload_segment_filesz]
     xor eax, eax
     rep stosb
     pop eax
@@ -21697,47 +21726,47 @@ doom_elf_prepare:
     inc dword [process_exec_copy_cr3_restores]
     popfd
 
-    mov eax, [doom_segment_dest]
+    mov eax, [payload_segment_dest]
     and eax, 0xfffff000
-    mov edx, [doom_segment_dest]
-    add edx, [doom_segment_memsz]
+    mov edx, [payload_segment_dest]
+    add edx, [payload_segment_memsz]
     add edx, PAGE_SIZE - 1
     and edx, 0xfffff000
-    mov ebx, PROC_DOOM_PAGE_DIR_ADDR
-    test dword [doom_segment_flags], ELF_PF_W
-    jz .mark_doom_segment_read
+    mov ebx, PROC_PAYLOAD_PAGE_DIR_ADDR
+    test dword [payload_segment_flags], ELF_PF_W
+    jz .mark_payload_segment_read
     call vmm_mark_process_user_write_range
-    jmp .doom_segment_permissions_done
+    jmp .payload_segment_permissions_done
 
-.mark_doom_segment_read:
+.mark_payload_segment_read:
     call vmm_mark_process_user_read_range
 
-.doom_segment_permissions_done:
-    inc byte [doom_load_segment_count]
+.payload_segment_permissions_done:
+    inc byte [payload_load_segment_count]
 
 .next_phdr:
-    add dword [doom_phdr_ptr], 32
-    dec dword [doom_phdr_remaining]
+    add dword [payload_phdr_ptr], 32
+    dec dword [payload_phdr_remaining]
     jmp .phdr_loop
 
 .segments_done:
-    cmp byte [doom_load_segment_count], 0
+    cmp byte [payload_load_segment_count], 0
     je .fail
-    mov eax, [doom_entry_addr]
-    cmp eax, DOOM_ELF_LOAD_ADDR
+    mov eax, [payload_entry_addr]
+    cmp eax, PAYLOAD_ELF_LOAD_ADDR
     jb .fail
-    cmp eax, [doom_segment_end]
+    cmp eax, [payload_segment_end]
     jae .fail
-    mov eax, [doom_segment_end]
-    sub eax, DOOM_ELF_LOAD_ADDR
-    mov [doom_segment_memsz], eax
-    mov byte [doom_user_window_status], 1
-    mov byte [doom_elf_parse_status], 1
+    mov eax, [payload_segment_end]
+    sub eax, PAYLOAD_ELF_LOAD_ADDR
+    mov [payload_segment_memsz], eax
+    mov byte [payload_user_window_status], 1
+    mov byte [payload_elf_parse_status], 1
     clc
     ret
 
 .fail:
-    mov byte [doom_elf_parse_status], 2
+    mov byte [payload_elf_parse_status], 2
     stc
     ret
 
@@ -28045,9 +28074,9 @@ write_smoke_status:
     jne .doom_fail
     cmp byte [doom_elf_parse_status], 1
     jne .doom_fail
-    cmp byte [doom_load_segment_count], 0
+    cmp byte [payload_load_segment_count], 0
     je .doom_fail
-    cmp byte [doom_user_window_status], 1
+    cmp byte [payload_user_window_status], 1
     jne .doom_fail
     mov esi, smoke_ok_text
     jmp .doom_write
@@ -32621,7 +32650,7 @@ write_smoke_status:
     jmp .user_fail_text
 
 .user_check_live_doom:
-    mov eax, [process_doom + PROC_STATE]
+    mov eax, [process_payload + PROC_STATE]
     cmp eax, PROC_STATE_READY
     je .user_ok_from_doom
     cmp eax, PROC_STATE_RUNNING
@@ -32773,9 +32802,9 @@ draw_doom_status:
     jne .fail
     cmp byte [doom_elf_parse_status], 1
     jne .fail
-    cmp byte [doom_load_segment_count], 0
+    cmp byte [payload_load_segment_count], 0
     je .fail
-    cmp byte [doom_user_window_status], 1
+    cmp byte [payload_user_window_status], 1
     jne .fail
 
     mov esi, ok_status_text
@@ -32786,7 +32815,7 @@ draw_doom_status:
     call draw_status_hex32
     mov esi, doom_status_mem_label
     call draw_status_string
-    mov edx, [doom_segment_memsz]
+    mov edx, [payload_segment_memsz]
     call draw_status_hex32
     mov esi, gfx_status_label
     call draw_status_string
@@ -32924,7 +32953,7 @@ draw_heap_status:
     jmp .user_fail_text
 
 .user_check_live_doom:
-    mov eax, [process_doom + PROC_STATE]
+    mov eax, [process_payload + PROC_STATE]
     cmp eax, PROC_STATE_READY
     je .user_ok_from_doom
     cmp eax, PROC_STATE_RUNNING
@@ -33745,7 +33774,7 @@ doom_elf_parse_prefix db "DOOM.ELF parser: ", 0
 doom_elf_entry_prefix db "DOOM.ELF entry: ", 0
 doom_elf_mem_prefix db "DOOM.ELF segment bytes: ", 0
 doom_elf_end_prefix db "DOOM.ELF segment end: ", 0
-doom_user_window_prefix db "DOOM user window: ", 0
+payload_user_window_prefix db "Payload user window: ", 0
 process_exec_prefix db "Process exec: ", 0
 process_exec_path_prefix db "Exec path: ", 0
 process_exec_syscall_prefix db "Exec syscall attempts/success/failure/handoff/scheduled/rollback: ", 0
@@ -34388,8 +34417,8 @@ writable_path_len_table dd user_path_default_cfg_end - user_path_default_cfg, us
 writable_capacity_table dd WRITABLE_DEFAULT_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY
 persistence_marker_name_table dd persist_chk_name_83, save_req_name_83, load_req_name_83
 process_exec_table:
-    dd exec_path_doom, doom_elf_name_83, DOOM_ELF_LOAD_ADDR, DOOM_ELF_MAX_BYTES, process_doom, USER_KIND_DOOM
-    dd exec_path_quake, quake_elf_name_83, DOOM_ELF_LOAD_ADDR, DOOM_ELF_MAX_BYTES, process_doom, USER_KIND_QUAKE
+    dd exec_path_doom, doom_elf_name_83, PAYLOAD_ELF_LOAD_ADDR, PAYLOAD_ELF_MAX_BYTES, process_payload, USER_KIND_DOOM
+    dd exec_path_quake, quake_elf_name_83, PAYLOAD_ELF_LOAD_ADDR, PAYLOAD_ELF_MAX_BYTES, process_payload, USER_KIND_QUAKE
     dd exec_path_user_probe, user_elf_name_83, USER_ELF_LOAD_ADDR, USER_ELF_MAX_BYTES, process_user_probe, USER_KIND_PROBE
 user_elf_prefix db "User ELF loader: ", 0
 user_entry_prefix db "User entry: ", 0
@@ -34575,7 +34604,10 @@ doom_elf_parse_status db 0
 quake_elf_status db 0
 quake_elf_load_status db 0
 quake_elf_parse_status db 0
-doom_user_window_status db 0
+payload_elf_status db 0
+payload_elf_load_status db 0
+payload_elf_parse_status db 0
+payload_user_window_status db 0
 process_exec_status db 0
 current_user_kind db 0
 doom_run_status db 0
@@ -34589,10 +34621,10 @@ process_user_probe_vm_regions:
     dd USER_CODE_ADDR, USER_STACK_BOTTOM, VM_REGION_USER | VM_REGION_READ | VM_REGION_WRITE | VM_REGION_EXEC
     dd USER_HEAP_START, USER_HEAP_END, VM_REGION_USER | VM_REGION_HEAP | VM_REGION_READ | VM_REGION_WRITE
     dd USER_STACK_BOTTOM, USER_STACK_TOP, VM_REGION_USER | VM_REGION_READ | VM_REGION_WRITE
-process_doom_vm_regions:
-    dd DOOM_USER_BASE, DOOM_USER_HEAP_START, VM_REGION_USER | VM_REGION_READ | VM_REGION_WRITE | VM_REGION_EXEC
-    dd DOOM_USER_HEAP_START, DOOM_USER_HEAP_END, VM_REGION_USER | VM_REGION_HEAP | VM_REGION_READ | VM_REGION_WRITE
-    dd DOOM_USER_STACK_BOTTOM, DOOM_USER_STACK_TOP, VM_REGION_USER | VM_REGION_READ | VM_REGION_WRITE
+process_payload_vm_regions:
+    dd PAYLOAD_USER_BASE, PAYLOAD_USER_HEAP_START, VM_REGION_USER | VM_REGION_READ | VM_REGION_WRITE | VM_REGION_EXEC
+    dd PAYLOAD_USER_HEAP_START, PAYLOAD_USER_HEAP_END, VM_REGION_USER | VM_REGION_HEAP | VM_REGION_READ | VM_REGION_WRITE
+    dd PAYLOAD_USER_STACK_BOTTOM, PAYLOAD_USER_STACK_TOP, VM_REGION_USER | VM_REGION_READ | VM_REGION_WRITE
 process_table:
 process_kernel:
     dd 0, USER_KIND_NONE, PROC_STATE_READY
@@ -34621,15 +34653,15 @@ process_preempt_probe:
     dd PROC_PREEMPT_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_PREEMPT_PROBE_KERNEL_STACK_TOP
     dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
     dd process_preempt_probe_heap_bitmap, USER_HEAP_PAGE_COUNT
-process_doom:
+process_payload:
     dd 2, USER_KIND_DOOM, PROC_STATE_READY
-    dd DOOM_USER_BASE, DOOM_USER_END, DOOM_USER_HEAP_START, DOOM_USER_HEAP_START, DOOM_USER_HEAP_END
-    dd DOOM_USER_STACK_BOTTOM, DOOM_USER_STACK_TOP, 0
+    dd PAYLOAD_USER_BASE, PAYLOAD_USER_END, PAYLOAD_USER_HEAP_START, PAYLOAD_USER_HEAP_START, PAYLOAD_USER_HEAP_END
+    dd PAYLOAD_USER_STACK_BOTTOM, PAYLOAD_USER_STACK_TOP, 0
     times 16 dd 0
     dd 0, 0, 0, 0
-    dd PROC_DOOM_PAGE_DIR_ADDR, process_doom_vm_regions, 3, 0, PROC_DOOM_KERNEL_STACK_TOP
+    dd PROC_PAYLOAD_PAGE_DIR_ADDR, process_payload_vm_regions, 3, 0, PROC_PAYLOAD_KERNEL_STACK_TOP
     dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
-    dd process_doom_heap_bitmap, DOOM_HEAP_PAGE_COUNT
+    dd process_payload_heap_bitmap, PAYLOAD_HEAP_PAGE_COUNT
 process_generic0:
     dd 0xffffffff, USER_KIND_GENERIC, PROC_STATE_UNUSED
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -34653,7 +34685,7 @@ process_generic_exec_slots:
 align 4
 process_user_probe_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
 process_preempt_probe_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
-process_doom_heap_bitmap times DOOM_HEAP_BITMAP_BYTES db 0
+process_payload_heap_bitmap times PAYLOAD_HEAP_BITMAP_BYTES db 0
 process_generic0_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
 process_generic1_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
 align 4
@@ -35150,16 +35182,19 @@ doom_entry_addr dd 0
 quake_elf_size dd 0
 quake_elf_sectors_read dd 0
 quake_entry_addr dd 0
+payload_elf_size dd 0
+payload_elf_sectors_read dd 0
+payload_entry_addr dd 0
 quake_segment_memsz dd 0
 quake_segment_end dd 0
-doom_segment_source dd 0
-doom_segment_dest dd 0
-doom_segment_filesz dd 0
-doom_segment_memsz dd 0
-doom_segment_end dd 0
-doom_segment_flags dd 0
-doom_phdr_ptr dd 0
-doom_phdr_remaining dd 0
+payload_segment_source dd 0
+payload_segment_dest dd 0
+payload_segment_filesz dd 0
+payload_segment_memsz dd 0
+payload_segment_end dd 0
+payload_segment_flags dd 0
+payload_phdr_ptr dd 0
+payload_phdr_remaining dd 0
 user_phdr_ptr dd 0
 user_phdr_remaining dd 0
 elf_phdr_scratch times ELF_MAX_PHDRS * ELF_PHDR_SIZE db 0
@@ -36081,6 +36116,7 @@ wad_first_cluster dw 0
 user_elf_first_cluster dw 0
 doom_elf_first_cluster dw 0
 quake_elf_first_cluster dw 0
+payload_elf_first_cluster dw 0
 fat_mut_value dw 0
 fat_new_cluster dw 0
 fat_free_next_cluster dw 0
@@ -36104,7 +36140,7 @@ fat_open_name_buffer times 11 db 0
 fat_subdir_name_buffer times 11 db 0
 fat_path_component_index db 0
 user_load_segment_count db 0
-doom_load_segment_count db 0
+payload_load_segment_count db 0
 present_status db 0
 video_backend db 0
 framebuffer_status db 0

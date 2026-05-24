@@ -38,7 +38,7 @@
      KERNEL_HIGH_ABI_HIGH_DATA_WRITE)
 #define PAGING_DIR_ADDR 0x00090000u
 #define PROC_PROBE_PAGE_DIR_ADDR 0x00080000u
-#define PROC_DOOM_PAGE_DIR_ADDR 0x00082000u
+#define PROC_PAYLOAD_PAGE_DIR_ADDR 0x00082000u
 #define PROC_PREEMPT_PAGE_DIR_ADDR 0x00083000u
 #define PROC_GENERIC0_PAGE_DIR_ADDR 0x00089000u
 #define PROC_GENERIC1_PAGE_DIR_ADDR 0x0008B000u
@@ -72,8 +72,8 @@
 #define USER_KIND_QUAKE 5u
 #define USER_CODE_SEG 0x1Bu
 #define USER_DATA_SEG 0x23u
-#define DOOM_USER_BASE 0x01000000u
-#define DOOM_USER_STACK_TOP 0x02000000u
+#define PAYLOAD_USER_BASE 0x01000000u
+#define PAYLOAD_USER_STACK_TOP 0x02000000u
 #define PROBE_USER_BASE 0x00E80000u
 #define PROBE_USER_END 0x00F00000u
 #define SCHEDULER_QUANTUM_TICKS 5u
@@ -470,7 +470,7 @@ static void in_range(uint32_t value, uint32_t start, uint32_t end, const char *n
 static int fixed_bootstrap_page_dir(uint32_t cr3) {
     return cr3 == PAGING_DIR_ADDR ||
            cr3 == PROC_PROBE_PAGE_DIR_ADDR ||
-           cr3 == PROC_DOOM_PAGE_DIR_ADDR ||
+           cr3 == PROC_PAYLOAD_PAGE_DIR_ADDR ||
            cr3 == PROC_PREEMPT_PAGE_DIR_ADDR ||
            cr3 == PROC_GENERIC0_PAGE_DIR_ADDR ||
            cr3 == PROC_GENERIC1_PAGE_DIR_ADDR;
@@ -478,7 +478,7 @@ static int fixed_bootstrap_page_dir(uint32_t cr3) {
 
 static int process_page_dir(uint32_t cr3) {
     return cr3 == PROC_PROBE_PAGE_DIR_ADDR ||
-           cr3 == PROC_DOOM_PAGE_DIR_ADDR ||
+           cr3 == PROC_PAYLOAD_PAGE_DIR_ADDR ||
            cr3 == PROC_PREEMPT_PAGE_DIR_ADDR ||
            cr3 == PROC_GENERIC0_PAGE_DIR_ADDR ||
            cr3 == PROC_GENERIC1_PAGE_DIR_ADDR;
@@ -821,7 +821,7 @@ static void validate_kernel_relocation(const Status *status) {
 
 static int addr_matches_kind(uint32_t kind, uint32_t addr) {
     if (kind == USER_KIND_DOOM || kind == USER_KIND_QUAKE) {
-        return addr >= DOOM_USER_BASE && addr < DOOM_USER_STACK_TOP;
+        return addr >= PAYLOAD_USER_BASE && addr < PAYLOAD_USER_STACK_TOP;
     }
     if (kind == USER_KIND_PREEMPT_PROBE) {
         return addr >= PROBE_USER_BASE && addr < PROBE_USER_END;
@@ -835,12 +835,12 @@ static int is_large_payload_kind(uint32_t kind) {
 
 static int exec_copy_source_ok(uint32_t addr) {
     return (addr >= USER_ELF_LOAD_ADDR && addr < USER_ELF_LOAD_ADDR + USER_ELF_MAX_BYTES) ||
-           (addr >= DOOM_USER_BASE && addr < DOOM_USER_STACK_TOP);
+           (addr >= PAYLOAD_USER_BASE && addr < PAYLOAD_USER_STACK_TOP);
 }
 
 static int exec_copy_destination_ok(uint32_t addr) {
     return (addr >= PROBE_USER_BASE && addr < PROBE_USER_END) ||
-           (addr >= DOOM_USER_BASE && addr < DOOM_USER_STACK_TOP);
+           (addr >= PAYLOAD_USER_BASE && addr < PAYLOAD_USER_STACK_TOP);
 }
 
 static void validate_exec_copy(const Status *status) {
@@ -1047,11 +1047,11 @@ static void validate_preemption(const Status *status) {
         fail("peip= must contain user EIPs matching pkind=");
     }
     hex_tuple(status, "pcr3", 2, ':', cr3s);
-    if (is_large_payload_kind(kinds[0]) && cr3s[0] != PROC_DOOM_PAGE_DIR_ADDR) {
-        fail("pcr3= large payload slot must use the Doom/Quake page directory");
+    if (is_large_payload_kind(kinds[0]) && cr3s[0] != PROC_PAYLOAD_PAGE_DIR_ADDR) {
+        fail("pcr3= large payload slot must use the payload page directory");
     }
-    if (is_large_payload_kind(kinds[1]) && cr3s[1] != PROC_DOOM_PAGE_DIR_ADDR) {
-        fail("pcr3= large payload slot must use the Doom/Quake page directory");
+    if (is_large_payload_kind(kinds[1]) && cr3s[1] != PROC_PAYLOAD_PAGE_DIR_ADDR) {
+        fail("pcr3= large payload slot must use the payload page directory");
     }
     if (kinds[0] == USER_KIND_PREEMPT_PROBE && cr3s[0] != PROC_PREEMPT_PAGE_DIR_ADDR) {
         fail("pcr3= preempt-probe slot must use the preempt page directory");
@@ -1194,7 +1194,7 @@ static void validate_input_devices(const Status *status) {
             fail("inabi= declared full mask must be 0x%08X", INPUT_ABI_FULL_MASK);
         }
         if ((inabi[0] & INPUT_ABI_FULL_MASK) != INPUT_ABI_FULL_MASK) {
-            fail("inabi= must prove non-Doom poll, aggregate status, keyboard status, and mouse status");
+            fail("inabi= must prove generic poll, aggregate status, keyboard status, and mouse status");
         }
         if ((inabi[0] & ~INPUT_ABI_FULL_MASK) != 0u ||
             (inabi[2] & ~INPUT_ABI_FULL_MASK) != 0u ||
@@ -1202,8 +1202,8 @@ static void validate_input_devices(const Status *status) {
             (inabi[2] & (inabi[2] - 1u)) != 0u) {
             fail("inabi= must not set unknown operation bits");
         }
-        if (inabi[3] == 0u || inabi[3] == USER_KIND_DOOM) {
-            fail("inabi= must be driven by a non-Doom user process");
+        if (inabi[3] == 0u) {
+            fail("inabi= must record the driving user process kind");
         }
         if (inabi[4] > 1u) {
             fail("inabi= last result must be an input poll/status success result");
@@ -1404,7 +1404,7 @@ static void validate_framebuffer_device(const Status *status) {
             fail("fbabi= declared full mask must be 0x%08X", FB_ABI_FULL_MASK);
         }
         if ((fbabi[0] & FB_ABI_FULL_MASK) != FB_ABI_FULL_MASK) {
-            fail("fbabi= must prove non-Doom framebuffer info, ioctl present, and dirty tracking");
+            fail("fbabi= must prove generic framebuffer info, ioctl present, and dirty tracking");
         }
         if ((fbabi[0] & ~FB_ABI_FULL_MASK) != 0u || (fbabi[2] & ~FB_ABI_FULL_MASK) != 0u ||
             fbabi[2] == 0u) {
@@ -1413,8 +1413,8 @@ static void validate_framebuffer_device(const Status *status) {
         if (fbabi[3] > FRAMEBUFFER_PRESENT_SOURCE_IOCTL) {
             fail("fbabi= last source must be none, syscall present, or ioctl present");
         }
-        if (fbabi[4] == USER_KIND_DOOM || fbabi[4] == 0u) {
-            fail("fbabi= must be driven by a non-Doom user process");
+        if (fbabi[4] == 0u) {
+            fail("fbabi= must record the driving user process kind");
         }
     }
 }
