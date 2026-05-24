@@ -2044,7 +2044,7 @@ handle_command:
 
     mov esi, doom_elf_prefix
     call print_string
-    cmp byte [doom_elf_status], 1
+    cmp dword [payload_exec_status + USER_KIND_DOOM * 4], 1
     je .doom_elf_ok
     mov esi, fail_text
     call print_string
@@ -2056,20 +2056,20 @@ handle_command:
 
     mov esi, doom_elf_size_prefix
     call print_string
-    mov eax, [doom_elf_size]
+    mov eax, [payload_exec_size + USER_KIND_DOOM * 4]
     call print_dec
     mov esi, bytes_suffix
     call print_string
 
     mov esi, doom_elf_cluster_prefix
     call print_string
-    movzx eax, word [doom_elf_first_cluster]
+    mov eax, [payload_exec_first_cluster + USER_KIND_DOOM * 4]
     call print_dec
     call newline
 
     mov esi, doom_elf_load_prefix
     call print_string
-    cmp byte [doom_elf_load_status], 1
+    cmp dword [payload_exec_load_status + USER_KIND_DOOM * 4], 1
     je .doom_elf_load_ok
     mov esi, fail_text
     call print_string
@@ -2081,7 +2081,7 @@ handle_command:
 
     mov esi, doom_elf_parse_prefix
     call print_string
-    cmp byte [doom_elf_parse_status], 1
+    cmp dword [payload_exec_parse_status + USER_KIND_DOOM * 4], 1
     je .doom_elf_parse_ok
     mov esi, fail_text
     call print_string
@@ -2093,20 +2093,20 @@ handle_command:
 
     mov esi, doom_elf_entry_prefix
     call print_string
-    mov eax, [doom_entry_addr]
+    mov eax, [payload_exec_entry + USER_KIND_DOOM * 4]
     call print_hex32
     call newline
 
     mov esi, doom_elf_mem_prefix
     call print_string
-    mov eax, [payload_segment_memsz]
+    mov eax, [payload_exec_segment_memsz + USER_KIND_DOOM * 4]
     call print_dec
     mov esi, bytes_suffix
     call print_string
 
     mov esi, doom_elf_end_prefix
     call print_string
-    mov eax, [payload_segment_end]
+    mov eax, [payload_exec_segment_end + USER_KIND_DOOM * 4]
     call print_hex32
     call newline
 
@@ -11487,15 +11487,10 @@ storage_init:
     mov byte [wad_parse_status], 0
     mov byte [user_elf_status], 0
     mov byte [user_elf_parse_status], 0
-    mov byte [doom_elf_status], 0
-    mov byte [doom_elf_load_status], 0
-    mov byte [doom_elf_parse_status], 0
-    mov byte [quake_elf_status], 0
-    mov byte [quake_elf_load_status], 0
-    mov byte [quake_elf_parse_status], 0
     mov byte [payload_elf_status], 0
     mov byte [payload_elf_load_status], 0
     mov byte [payload_elf_parse_status], 0
+    call payload_exec_reset_all
     mov dword [ata_last_lba], 0
     mov dword [ata_last_op], ATA_OP_NONE
     mov dword [ata_wait_phase], ATA_WAIT_IDLE
@@ -11609,17 +11604,9 @@ storage_init:
     mov dword [user_elf_size], 0
     mov dword [user_elf_sectors_read], 0
     mov dword [user_entry_addr], 0
-    mov dword [doom_elf_size], 0
-    mov dword [doom_elf_sectors_read], 0
-    mov dword [doom_entry_addr], 0
-    mov dword [quake_elf_size], 0
-    mov dword [quake_elf_sectors_read], 0
-    mov dword [quake_entry_addr], 0
     mov dword [payload_elf_size], 0
     mov dword [payload_elf_sectors_read], 0
     mov dword [payload_entry_addr], 0
-    mov dword [quake_segment_memsz], 0
-    mov dword [quake_segment_end], 0
     mov dword [payload_segment_filesz], 0
     mov dword [payload_segment_memsz], 0
     mov dword [payload_segment_end], 0
@@ -11661,8 +11648,6 @@ storage_init:
     inc ebx
     loop .clear_persistence_markers
     mov byte [payload_user_window_status], 0
-    mov word [doom_elf_first_cluster], 0
-    mov word [quake_elf_first_cluster], 0
     mov word [payload_elf_first_cluster], 0
     mov dword [current_pid], 0
     mov dword [current_process_ptr], 0
@@ -20371,21 +20356,22 @@ process_exec_path:
     mov byte [payload_elf_status], 1
     mov byte [payload_elf_load_status], 0
     mov byte [payload_elf_parse_status], 0
-    cmp dword [process_exec_target_kind], USER_KIND_QUAKE
-    je .bind_quake_artifact
     mov ax, [process_exec_first_cluster]
-    mov [doom_elf_first_cluster], ax
+    movzx edx, ax
+    mov eax, payload_exec_first_cluster
+    call payload_exec_store_target
     mov eax, [process_exec_size]
-    mov [doom_elf_size], eax
-    mov byte [doom_elf_status], 1
-    jmp near .reserve
-
-.bind_quake_artifact:
-    mov ax, [process_exec_first_cluster]
-    mov [quake_elf_first_cluster], ax
-    mov eax, [process_exec_size]
-    mov [quake_elf_size], eax
-    mov byte [quake_elf_status], 1
+    mov edx, eax
+    mov eax, payload_exec_size
+    call payload_exec_store_target
+    mov edx, 1
+    mov eax, payload_exec_status
+    call payload_exec_store_target
+    xor edx, edx
+    mov eax, payload_exec_load_status
+    call payload_exec_store_target
+    mov eax, payload_exec_parse_status
+    call payload_exec_store_target
     jmp near .reserve
 
 .bind_user_artifact:
@@ -20427,17 +20413,12 @@ process_exec_path:
     mov eax, [process_exec_sectors_read]
     mov [payload_elf_sectors_read], eax
     mov byte [payload_elf_load_status], 1
-    cmp dword [process_exec_target_kind], USER_KIND_QUAKE
-    je .loaded_quake
-    mov eax, [process_exec_sectors_read]
-    mov [doom_elf_sectors_read], eax
-    mov byte [doom_elf_load_status], 1
-    jmp .prepare
-
-.loaded_quake:
-    mov eax, [process_exec_sectors_read]
-    mov [quake_elf_sectors_read], eax
-    mov byte [quake_elf_load_status], 1
+    mov edx, eax
+    mov eax, payload_exec_sectors_read
+    call payload_exec_store_target
+    mov edx, 1
+    mov eax, payload_exec_load_status
+    call payload_exec_store_target
     jmp .prepare
 
 .loaded_user_probe:
@@ -20487,13 +20468,9 @@ process_exec_path:
 
 .load_fail_payload:
     mov byte [payload_elf_load_status], 2
-    cmp dword [process_exec_target_kind], USER_KIND_QUAKE
-    jne .load_fail_payload_status
-    mov byte [quake_elf_load_status], 2
-    jmp .fail
-
-.load_fail_payload_status:
-    mov byte [doom_elf_load_status], 2
+    mov edx, 2
+    mov eax, payload_exec_load_status
+    call payload_exec_store_target
 
 .fail:
     mov esi, [process_exec_target]
@@ -20728,32 +20705,26 @@ process_exec_prepare_elf_image:
     jmp .fail
 
 .prepare_payload:
-    cmp dword [process_exec_target_kind], USER_KIND_QUAKE
-    jne .prepare_payload_doom
-    mov byte [quake_elf_parse_status], 0
-    jmp .prepare_payload_status
-
-.prepare_payload_doom:
-    mov byte [doom_elf_parse_status], 0
-
-.prepare_payload_status:
+    xor edx, edx
+    mov eax, payload_exec_parse_status
+    call payload_exec_store_target
     call payload_elf_prepare
     jc .fail
-    cmp dword [process_exec_target_kind], USER_KIND_QUAKE
-    jne .prepare_payload_doom_status
     mov eax, [payload_entry_addr]
-    mov [quake_entry_addr], eax
+    mov edx, eax
+    mov eax, payload_exec_entry
+    call payload_exec_store_target
     mov eax, [payload_segment_memsz]
-    mov [quake_segment_memsz], eax
+    mov edx, eax
+    mov eax, payload_exec_segment_memsz
+    call payload_exec_store_target
     mov eax, [payload_segment_end]
-    mov [quake_segment_end], eax
-    mov byte [quake_elf_parse_status], 1
-    jmp .prepare_payload_entry
-
-.prepare_payload_doom_status:
-    mov eax, [payload_entry_addr]
-    mov [doom_entry_addr], eax
-    mov byte [doom_elf_parse_status], 1
+    mov edx, eax
+    mov eax, payload_exec_segment_end
+    call payload_exec_store_target
+    mov edx, 1
+    mov eax, payload_exec_parse_status
+    call payload_exec_store_target
 
 .prepare_payload_entry:
     mov eax, [payload_entry_addr]
@@ -20770,15 +20741,11 @@ process_exec_prepare_elf_image:
     ret
 
 .fail:
-    cmp dword [process_exec_target_kind], USER_KIND_QUAKE
-    jne .fail_doom_status
-    mov byte [quake_elf_parse_status], 2
-    jmp .fail_status_ready
-
-.fail_doom_status:
     cmp dword [process_exec_target], process_payload
     jne .fail_status_ready
-    mov byte [doom_elf_parse_status], 2
+    mov edx, 2
+    mov eax, payload_exec_parse_status
+    call payload_exec_store_target
 
 .fail_status_ready:
     stc
@@ -21746,6 +21713,34 @@ payload_elf_prepare:
 .fail:
     mov byte [payload_elf_parse_status], 2
     stc
+    ret
+
+payload_exec_reset_all:
+    push eax
+    push ecx
+    push edi
+    mov edi, payload_exec_table
+    mov ecx, (payload_exec_table_end - payload_exec_table) / 4
+    xor eax, eax
+    cld
+    rep stosd
+    pop edi
+    pop ecx
+    pop eax
+    ret
+
+payload_exec_store_target:
+    push eax
+    push ebx
+    mov ebx, [process_exec_target_kind]
+    cmp ebx, USER_KIND_COUNT
+    jae .done
+    shl ebx, 2
+    mov [eax + ebx], edx
+
+.done:
+    pop ebx
+    pop eax
     ret
 
 user_io_reset_all:
@@ -28135,11 +28130,11 @@ write_smoke_status:
 
     mov esi, smoke_doom_text
     call smoke_copy_string
-    cmp byte [doom_elf_status], 1
+    cmp dword [payload_exec_status + USER_KIND_DOOM * 4], 1
     jne .doom_fail
-    cmp byte [doom_elf_load_status], 1
+    cmp dword [payload_exec_load_status + USER_KIND_DOOM * 4], 1
     jne .doom_fail
-    cmp byte [doom_elf_parse_status], 1
+    cmp dword [payload_exec_parse_status + USER_KIND_DOOM * 4], 1
     jne .doom_fail
     cmp byte [payload_load_segment_count], 0
     je .doom_fail
@@ -28212,21 +28207,21 @@ write_smoke_status:
 
     mov esi, smoke_quake_text
     call smoke_copy_string
-    cmp byte [quake_elf_status], 1
+    cmp dword [payload_exec_status + USER_KIND_QUAKE * 4], 1
     jne .quake_not_ok
-    cmp byte [quake_elf_load_status], 1
+    cmp dword [payload_exec_load_status + USER_KIND_QUAKE * 4], 1
     jne .quake_not_ok
-    cmp byte [quake_elf_parse_status], 1
+    cmp dword [payload_exec_parse_status + USER_KIND_QUAKE * 4], 1
     jne .quake_not_ok
     mov esi, smoke_ok_text
     jmp .quake_write
 
 .quake_not_ok:
-    cmp byte [quake_elf_status], 0
+    cmp dword [payload_exec_status + USER_KIND_QUAKE * 4], 0
     jne .quake_fail
-    cmp byte [quake_elf_load_status], 0
+    cmp dword [payload_exec_load_status + USER_KIND_QUAKE * 4], 0
     jne .quake_fail
-    cmp byte [quake_elf_parse_status], 0
+    cmp dword [payload_exec_parse_status + USER_KIND_QUAKE * 4], 0
     jne .quake_fail
     mov esi, smoke_wait_text
     jmp .quake_write
@@ -32702,11 +32697,11 @@ write_smoke_status:
     jmp .user_write
 
 .user_fail:
-    cmp byte [doom_elf_status], 1
+    cmp dword [payload_exec_status + USER_KIND_DOOM * 4], 1
     jne .user_fail_text
-    cmp byte [doom_elf_load_status], 1
+    cmp dword [payload_exec_load_status + USER_KIND_DOOM * 4], 1
     jne .user_fail_text
-    cmp byte [doom_elf_parse_status], 1
+    cmp dword [payload_exec_parse_status + USER_KIND_DOOM * 4], 1
     jne .user_fail_text
     cmp byte [process_exec_status], 1
     jne .user_fail_text
@@ -32863,11 +32858,11 @@ draw_doom_status:
     mov edi, VGA_BUFFER + ((VGA_ROWS - 3) * VGA_COLS * 2)
     mov esi, doom_status_label
     call draw_status_string
-    cmp byte [doom_elf_status], 1
+    cmp dword [payload_exec_status + USER_KIND_DOOM * 4], 1
     jne .fail
-    cmp byte [doom_elf_load_status], 1
+    cmp dword [payload_exec_load_status + USER_KIND_DOOM * 4], 1
     jne .fail
-    cmp byte [doom_elf_parse_status], 1
+    cmp dword [payload_exec_parse_status + USER_KIND_DOOM * 4], 1
     jne .fail
     cmp byte [payload_load_segment_count], 0
     je .fail
@@ -32878,11 +32873,11 @@ draw_doom_status:
     call draw_status_string
     mov esi, doom_status_entry_label
     call draw_status_string
-    mov edx, [doom_entry_addr]
+    mov edx, [payload_exec_entry + USER_KIND_DOOM * 4]
     call draw_status_hex32
     mov esi, doom_status_mem_label
     call draw_status_string
-    mov edx, [payload_segment_memsz]
+    mov edx, [payload_exec_segment_memsz + USER_KIND_DOOM * 4]
     call draw_status_hex32
     mov esi, gfx_status_label
     call draw_status_string
@@ -33005,11 +33000,11 @@ draw_heap_status:
     je .user_ok
 
 .user_fail:
-    cmp byte [doom_elf_status], 1
+    cmp dword [payload_exec_status + USER_KIND_DOOM * 4], 1
     jne .user_fail_text
-    cmp byte [doom_elf_load_status], 1
+    cmp dword [payload_exec_load_status + USER_KIND_DOOM * 4], 1
     jne .user_fail_text
-    cmp byte [doom_elf_parse_status], 1
+    cmp dword [payload_exec_parse_status + USER_KIND_DOOM * 4], 1
     jne .user_fail_text
     cmp byte [process_exec_status], 1
     jne .user_fail_text
@@ -34665,12 +34660,6 @@ user_elf_parse_status db 0
 boot_user_exec_status db 0
 abi_probe_status db 0
 abi_probe_exec_status db 0
-doom_elf_status db 0
-doom_elf_load_status db 0
-doom_elf_parse_status db 0
-quake_elf_status db 0
-quake_elf_load_status db 0
-quake_elf_parse_status db 0
 payload_elf_status db 0
 payload_elf_load_status db 0
 payload_elf_parse_status db 0
@@ -35243,17 +35232,9 @@ user_elf_sectors_read dd 0
 user_entry_addr dd 0
 boot_user_exec_pid dd 0xffffffff
 boot_user_exec_entry dd 0
-doom_elf_size dd 0
-doom_elf_sectors_read dd 0
-doom_entry_addr dd 0
-quake_elf_size dd 0
-quake_elf_sectors_read dd 0
-quake_entry_addr dd 0
 payload_elf_size dd 0
 payload_elf_sectors_read dd 0
 payload_entry_addr dd 0
-quake_segment_memsz dd 0
-quake_segment_end dd 0
 payload_segment_source dd 0
 payload_segment_dest dd 0
 payload_segment_filesz dd 0
@@ -35726,6 +35707,17 @@ quake_fault_addr dd 0
 quake_fault_eip dd 0
 quake_fault_vector dd 0
 quake_fault_error dd 0
+payload_exec_table:
+payload_exec_status times USER_KIND_COUNT dd 0
+payload_exec_load_status times USER_KIND_COUNT dd 0
+payload_exec_parse_status times USER_KIND_COUNT dd 0
+payload_exec_size times USER_KIND_COUNT dd 0
+payload_exec_sectors_read times USER_KIND_COUNT dd 0
+payload_exec_entry times USER_KIND_COUNT dd 0
+payload_exec_segment_memsz times USER_KIND_COUNT dd 0
+payload_exec_segment_end times USER_KIND_COUNT dd 0
+payload_exec_first_cluster times USER_KIND_COUNT dd 0
+payload_exec_table_end:
 user_io_table:
 user_io_last_syscall times USER_KIND_COUNT dd 0
 user_io_open_count times USER_KIND_COUNT dd 0
@@ -36172,8 +36164,6 @@ fat_list_dir_cluster dw 0
 fat_parent_dir_cluster dw 0
 wad_first_cluster dw 0
 user_elf_first_cluster dw 0
-doom_elf_first_cluster dw 0
-quake_elf_first_cluster dw 0
 payload_elf_first_cluster dw 0
 fat_mut_value dw 0
 fat_new_cluster dw 0
