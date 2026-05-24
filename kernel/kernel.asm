@@ -17113,16 +17113,16 @@ readonly_file_read:
     je .return_done
     mov eax, user_io_read_count
     call user_io_increment_current
-    cmp byte [current_user_kind], USER_KIND_QUAKE
-    jne .readonly_maybe_wad
     cmp dword [file_io_start_offset], 0
     jne .readonly_maybe_wad
     cmp dword [file_io_done], 4
     jb .readonly_maybe_wad
-    cmp dword [quake_pak_magic_seen], 0
-    jne .readonly_maybe_wad
     mov edi, [file_io_user_ptr]
     mov edx, [edi]
+    cmp edx, 0x4b434150
+    jne .readonly_maybe_wad
+    cmp dword [quake_pak_magic_seen], 0
+    jne .readonly_maybe_wad
     mov [quake_pak_magic_seen], edx
 
 .readonly_maybe_wad:
@@ -17135,8 +17135,6 @@ readonly_file_read:
     mov edi, [file_io_user_ptr]
     mov edx, [edi]
     mov [user_wad_magic_seen], edx
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    jne .return_done
     cmp dword [doom_wad_magic_seen], 0
     jne .return_done
     mov [doom_wad_magic_seen], edx
@@ -22565,6 +22563,8 @@ syscall_handler:
     jc .bad_syscall_einval
     mov eax, [wad_size]
     mov esi, [file_io_fd_slot]
+    mov ecx, [fd_offsets + esi * 4]
+    mov [file_io_start_offset], ecx
     sub eax, [fd_offsets + esi * 4]
     cmp edx, eax
     jbe .read_len_ok
@@ -22582,13 +22582,13 @@ syscall_handler:
     mov eax, [syscall_len_arg]
     mov esi, [file_io_fd_slot]
     add [fd_offsets + esi * 4], eax
+    cmp dword [file_io_start_offset], 0
+    jne .read_done
     cmp eax, 4
     jb .read_done
     mov edi, [syscall_ptr_arg]
     mov edx, [edi]
     mov [user_wad_magic_seen], edx
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    jne .read_done
     cmp dword [doom_wad_magic_seen], 0
     jne .read_done
     mov [doom_wad_magic_seen], edx
