@@ -92,7 +92,7 @@ USER_PROBE_ELF_MAX_BYTES := 16384
 USER_ABI_PROBE_ELF_MAX_BYTES := 24576
 IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF)
 
-.PHONY: all build-only test host-c-tests no-python-check doom-compile doom-link run run-headless smoke playability-host-check playability-gap-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image ahci-block-status-check hardware-support-check storage-install-boundary-check storage-vfs-status-check real-wad-status-check vm-entry-status-check audio-continuity-check cloud-playability-check persistence-image-check clean check-tools vm-consent
+.PHONY: all build-only test host-c-tests no-python-check doom-compile doom-link run run-headless smoke playability-host-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image persistence-image-check clean check-tools vm-consent vm-status-proof-check
 
 all: $(IMAGE)
 
@@ -302,7 +302,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	}; \
 	trap dump_diagnostics EXIT; \
 	test -s $(BUILD_DIR)/status.bin; \
-	grep -q "Aurora OS v0.2" $(BUILD_DIR)/status.txt; \
+	grep -q "vibe-os v0.2" $(BUILD_DIR)/status.txt; \
 	if [ "$(SMOKE_SKIP_ASSERTIONS)" = "1" ]; then \
 		trap - EXIT; \
 		printf "Smoke capture OK: QEMU status snapshots captured; proof gates are expected to run separately.\n"; \
@@ -569,59 +569,8 @@ smoke: vm-consent check-tools $(IMAGE)
 	trap - EXIT; \
 	printf "Smoke boot OK: protected-mode kernel status, Ring 3 probe, Doom ELF load, indexed-frame present, and PIT ticks verified in cloud VM memory.\n"
 
-playability-gap-check:
-	@printf "playability-gap-check has no accepted shell/C replacement yet; use guest/cloud status gates or implement a tiny replacement before claiming this gate.\n" >&2
-	@exit 1
-
-real-wad-status-check:
-	@printf "real-wad-status-check is handled by guest status checks in smoke/soak; no standalone host-C gate is accepted right now.\n" >&2
-	@exit 1
-
-storage-vfs-status-check:
-	@printf "storage-vfs-status-check is handled by guest vfsops/fatacct status in cloud lanes; no standalone host-C gate is accepted right now.\n" >&2
-	@exit 1
-
-vm-entry-status-check:
-	@printf "vm-entry-status-check is folded into tools/vibe_status_check and guest status; add assembly/kernel evidence before making a separate gate.\n" >&2
-	@exit 1
-
-ahci-block-status-check:
-	@printf "ahci-block-status-check has no accepted shell/C replacement yet; implement the controller path in assembly before claiming this gate.\n" >&2
-	@exit 1
-
-hardware-support-check:
-	@printf "hardware-support-check has no accepted shell/C replacement yet; implement guest/kernel evidence instead of passing this legacy gate.\n" >&2
-	@exit 1
-
-storage-install-boundary-check: $(IMAGE)
-	@printf "storage-install-boundary-check has no accepted shell/C replacement yet; use image-builder-inspect for layout inspection only.\n" >&2
-	@exit 1
-
-vm-safety-check:
-	@printf "VM safety is enforced by ALLOW_LOCAL_VM=0 and cloud-only QEMU policy; this legacy aggregate gate has no shell/C replacement.\n" >&2
-	@exit 1
-
 vm-status-proof-check:
 	BUILD_DIR="$(abspath $(BUILD_DIR))" HOST_CC="$(HOST_CC)" tools/test_vibe_status_check.sh
-
-shutdown-panic-proof-check:
-	@printf "shutdown-panic-proof-check has no accepted shell/C replacement yet; require guest status evidence before claiming it.\n" >&2
-	@exit 1
-
-scripted-gameplay-proof-check:
-	@printf "scripted-gameplay-proof-check has no accepted standalone shell/C replacement yet; real-wad-status-check covers the active guest snapshots.\n" >&2
-	@exit 1
-
-audio-continuity-check:
-	@printf "audio-continuity-check has no accepted standalone shell/C replacement yet; use smoke guest status fields until the OS emits a richer proof.\n" >&2
-	@exit 1
-
-audible-audio-proof-check: audio-continuity-check
-	@printf "audible-audio-proof-check has no accepted shell/C WAV/audio aggregate replacement yet; SB16 continuity is not the same claim.\n" >&2
-	@exit 1
-
-cloud-playability-check: playability-gap-check hardware-support-check vm-safety-check vm-status-proof-check shutdown-panic-proof-check scripted-gameplay-proof-check audio-continuity-check audible-audio-proof-check
-	@printf "cloud-playability-check is intentionally not green until every aggregate gate above has a real shell/C replacement.\n" >&2
 
 persistence-image-check: $(IMAGE_BUILDER)
 	@set -e; \

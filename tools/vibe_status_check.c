@@ -1479,7 +1479,7 @@ static void validate_repo_contract(void) {
     require_contains("README.md", "small C tools");
     require_contains("docs/architecture.txt", "tools/vibe_status_check");
     require_contains("docs/proof.txt", "tools/vibe_status_check");
-    require_contains("tests/strategy.txt", "tools/vibe_status_check");
+    require_contains("docs/play.txt", "tools/play_now_codespaces.sh");
 }
 
 static void usage(FILE *stream) {

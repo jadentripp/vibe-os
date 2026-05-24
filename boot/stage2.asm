@@ -1814,10 +1814,10 @@ fat_kernel_size dd 0
 fat_kernel_remaining dd 0
 fat_data_clusters dd 0
 fat_last_valid_cluster dd 0
-stage2_message db "Aurora stage 2: loading protected kernel...", 13, 10, 0
-a20_error_message db "Aurora stage 2: A20 enable failed.", 13, 10, 0
-video_error_message db "Aurora stage 2: video mode setup failed.", 13, 10, 0
-boot_info_error_message db "Aurora stage 2: boot info validation failed.", 13, 10, 0
-disk_error_message db "Aurora stage 2: disk read failed.", 13, 10, 0
-elf_error_message db "Aurora stage 2: ELF load failed.", 0
-pm_boot_info_error_message db "Aurora stage 2: protected handoff validation failed.", 0
+stage2_message db "vibe-os stage 2: loading protected kernel...", 13, 10, 0
+a20_error_message db "vibe-os stage 2: A20 enable failed.", 13, 10, 0
+video_error_message db "vibe-os stage 2: video mode setup failed.", 13, 10, 0
+boot_info_error_message db "vibe-os stage 2: boot info validation failed.", 13, 10, 0
+disk_error_message db "vibe-os stage 2: disk read failed.", 13, 10, 0
+elf_error_message db "vibe-os stage 2: ELF load failed.", 0
+pm_boot_info_error_message db "vibe-os stage 2: protected handoff validation failed.", 0

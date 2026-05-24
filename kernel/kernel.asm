@@ -33045,11 +33045,11 @@ uefi_debug_write_char:
     ret
 
 banner db 13, 10
-       db "Aurora OS v0.2", 13, 10
+       db "vibe-os v0.2", 13, 10
        db "32-bit protected mode kernel online.", 13, 10
        db "Type 'help' for commands.", 13, 10, 13, 10, 0
 
-prompt db "aurora> ", 0
+prompt db "vibe> ", 0
 
 help_text db "Commands:", 13, 10
           db "  help    show this list", 13, 10
@@ -33069,7 +33069,7 @@ help_text db "Commands:", 13, 10
           db "  halt    stop the CPU", 13, 10
           db "  poweroff request ACPI/QEMU poweroff", 13, 10, 0
 
-about_text db "Aurora now runs outside BIOS services with its own VGA text and keyboard IO.", 13, 10
+about_text db "vibe-os now runs outside BIOS services with its own VGA text and keyboard IO.", 13, 10
            db "The kernel owns IDT, PIC, PIT ticks, paging, frame accounting, heap, libc, and IDE/FAT WAD loading.", 13, 10, 0
 
 mode_text db "CPU mode: 32-bit protected mode, flat 4 GiB code/data segments.", 13, 10, 0
@@ -33195,7 +33195,7 @@ uefi_marker_e820_text db " e820=0x", 0
 uefi_marker_entry_text db " entry=0x", 0
 uefi_marker_flags_text db " flags=0x", 0
 uefi_marker_segments_text db " segments=0x", 0
-smoke_banner_text db "Aurora OS v0.2 ", 0
+smoke_banner_text db "vibe-os v0.2 ", 0
 smoke_exec_text db "exec=", 0
 smoke_exec_path_text db " path=", 0
 smoke_execsys_text db " execsys=", 0

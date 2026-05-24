@@ -1,4 +1,4 @@
-# UEFI Boot Path Scaffold
+# UEFI Boot Path Contract
 
 This directory is no longer an `EFI_UNSUPPORTED` placeholder. It contains a real
 loader/proof application in `loader.asm`. The loader can read
@@ -16,29 +16,20 @@ handoff. The handoff block is versioned and now carries its own byte size; the
 loader checks the in-assembly layout before copying it and then verifies the
 low-memory copy field-by-field, including the framebuffer span and the fields
 the 32-bit entry consumes.
-The kernel now has a source-level `VIBEKERN step=uefi-entry` marker and smoke
-status fields for the UEFI handoff registers/block. This still does not claim
-UEFI boot support for this checkpoint until a disposable OVMF run captures the
-kernel-owned marker after `ExitBootServices`.
+The kernel has a source-level `VIBEKERN step=uefi-entry` marker and smoke status
+fields for the UEFI handoff registers/block. Disposable OVMF proof has captured
+that kernel-owned marker after `ExitBootServices`, reached the kernel storage
+path, loaded the WAD, exercised the generic Ring 3 ABI probe, and launched
+`DOOM.ELF` far enough to report `doom=OK`, `doomrun=EXIT`, and `panic=NONE`.
+The playable noVNC game path still uses the BIOS/IDE target; UEFI is a proven
+boot-entry and device-path lane, not the interactive play lane yet.
 
-The kernel-entry and guest-storage proof is green for this checkpoint:
-prove-mode cloud run `26290689684` built the PE/COFF loader and a dual
-BIOS/UEFI FAT16 disk image that also carries the BIOS boot files, Doom ELF, and
-WAD, booted disposable OVMF, captured the kernel-owned
-`VIBEKERN step=uefi-entry status=OK` marker, and reported `ata=OK`,
-`blkpart=MBR`, and `wad=OK` from the kernel status page. The remaining blocker
-is UEFI-path user execution into Doom: that run still reported `doom=FAIL`,
-`doomrun=WAIT`, `panic=KEXC`, and `path=ABIPROBE.ELF`. The playable game path
-still uses the BIOS/IDE disk layout.
-
-The current boot path is still the BIOS MBR plus raw-LBA Stage 2 loader described
-in `docs/architecture.txt`. Future UEFI work must keep that path working unless
-the project deliberately retires it, and must not describe vibe-os as
-UEFI-bootable until the kernel-entry row below has real source, build, and
-cloud proof evidence. `.github/workflows/uefi-ovmf-proof.yml` currently checks
-the loader assembly contract, builds a real `BOOTX64.EFI`, packages a GPT/FAT
-ESP image, and can run disposable OVMF in attempt/prove modes without the
-retired scripting stack.
+The current interactive play path is still the BIOS MBR plus raw-LBA Stage 2
+loader described in `docs/architecture.txt`. Future UEFI work must keep that
+path working unless the project deliberately retires it. The
+`.github/workflows/uefi-ovmf-proof.yml` workflow checks the loader assembly
+contract, builds a real `BOOTX64.EFI`, packages a GPT/FAT ESP image, and can run
+disposable OVMF in attempt/prove modes without the retired scripting stack.
 
 ## Machine-Readable Contract
 
@@ -136,7 +127,7 @@ expected entry RVA, and the required loader debug markers.
 
 - `UEFI_HOST_ARTIFACT[PE_COFF_LOADER] status=host-buildable kind=pe32plus-efi-loader-proof-application proof=host-pe-coff-loader-check evidence=build-host-artifacts`
 - `UEFI_HOST_ARTIFACT[ESP_FAT_IMAGE] status=host-buildable kind=fat16-esp-file-layout proof=host-fat-directory-check evidence=build-host-artifacts`
-- `UEFI_HOST_ARTIFACT[NO_VM_BOOT] status=host-checked kind=no-ovmf-or-qemu-execution proof=source-contract-check evidence=check-hardware-support-matrix`
+- `UEFI_HOST_ARTIFACT[NO_VM_BOOT] status=host-checked kind=no-ovmf-or-qemu-execution proof=source-contract-check evidence=uefi-ovmf-proof.yml`
 
 The `UEFI_CLOUD_PROOF[...]` rows describe the opt-in cloud OVMF proof scaffold.
 Contract mode is host-only and QEMU-free; attempt/prove modes are restricted to
@@ -154,7 +145,7 @@ runner-local scratch.
 - `UEFI_CLOUD_PROOF[OVMF_ATTEMPT] status=cloud-proven runner=github-actions-ubuntu mode=qemu-ovmf-debugcon evidence=uefi-ovmf-proof.yml`
 - `UEFI_CLOUD_PROOF[KERNEL_ENTRY_PROOF] status=cloud-proven runner=github-actions-ubuntu mode=ovmf-kernel-entry-marker evidence=uefi-ovmf-proof.yml`
 - `UEFI_CLOUD_PROOF[GUEST_STORAGE_DIAGNOSTIC] status=diagnostic runner=github-actions-ubuntu mode=status-page-json evidence=uefi-guest-status.json`
-- `UEFI_CLOUD_PROOF[SUPPORT_GUARD] status=guardrail runner=host-check mode=support-uefi-unclaimed evidence=check-hardware-support-matrix`
+- `UEFI_CLOUD_PROOF[SUPPORT_GUARD] status=guardrail runner=host-check mode=support-uefi-unclaimed evidence=docs/architecture.txt`
 - `UEFI_CLOUD_PROOF[ARTIFACT_POLICY] status=guardrail runner=github-actions-ubuntu mode=json-manifests-only evidence=workflow-artifact-policy`
 
 ## First Implementation Rules

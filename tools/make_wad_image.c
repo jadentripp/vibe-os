@@ -1173,7 +1173,7 @@ static Blob build_generated_wad(void)
     put_u32(wad.data, wad.size, 4, (uint32_t)lump_count);
     put_u32(wad.data, wad.size, 8, directory_offset);
 
-    const char pattern[] = "Aurora hard-path IDE FAT16 WAD fixture\n";
+    const char pattern[] = "vibe-os hard-path IDE FAT16 WAD fixture\n";
     size_t fill_start = directory_offset + lump_count * 16;
     for (size_t off = fill_start; off < wad.size; off += sizeof(pattern) - 1) {
         size_t n = sizeof(pattern) - 1;
