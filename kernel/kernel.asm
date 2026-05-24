@@ -20774,8 +20774,6 @@ process_exec_handoff_current:
     je .reset_quake_target_status
     mov eax, USER_KIND_DOOM
     call payload_lifecycle_start_kind
-    mov eax, USER_KIND_DOOM
-    call payload_telemetry_reset_kind
     call clear_fault_record
     mov eax, USER_KIND_DOOM
     call user_io_reset_kind
