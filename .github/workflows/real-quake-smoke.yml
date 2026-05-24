@@ -161,7 +161,7 @@ jobs:
             SMOKE_EARLY_SECONDS=2 \
             SMOKE_SETTLE_SECONDS=35 \
             SMOKE_SKIP_ASSERTIONS=1 \
-            SMOKE_INPUT_SCRIPT="after-start:wait=5,snapshot after-input:hold=w:1200,wait-status-min=qinput:00000001:100:2,wait=1,snapshot after-game:wait-status=qgame:OK:180:2,snapshot" \
+            SMOKE_INPUT_SCRIPT="after-start:wait=5,snapshot after-input:hold=w:1200,wait-status-part-min=qinput:1:00000001:100:2,wait=1,snapshot after-game:wait-status=qgame:OK:180:2,snapshot" \
             smoke
 
       - name: Select richest Quake status snapshot
