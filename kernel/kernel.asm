@@ -21939,9 +21939,11 @@ syscall_handler:
     pop eax
 
     mov [current_syscall_number], eax
+    push edx
     mov edx, eax
     mov eax, user_io_last_syscall
     call user_io_store_current
+    pop edx
     mov eax, [current_syscall_number]
 
 .dispatch:
