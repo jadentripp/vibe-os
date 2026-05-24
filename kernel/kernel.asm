@@ -11704,25 +11704,12 @@ storage_init:
     mov dword [sbrk_old_brk], 0
     mov dword [sbrk_new_brk], 0
     mov byte [current_user_kind], USER_KIND_NONE
-    mov byte [doom_run_status], 0
-    mov byte [quake_run_status], 0
-    mov dword [doom_exit_code], 0
-    mov dword [doom_fault_addr], 0
-    mov dword [doom_fault_eip], 0
-    mov dword [doom_fault_vector], 0
-    mov dword [doom_fault_error], 0
-    mov dword [quake_exit_code], 0
-    mov dword [quake_fault_addr], 0
-    mov dword [quake_fault_eip], 0
-    mov dword [quake_fault_vector], 0
-    mov dword [quake_fault_error], 0
     call clear_fault_record
     mov dword [fault_expected_recovered_count], 0
     mov dword [fault_user_contained_count], 0
-    mov dword [fault_doom_contained_count], 0
-    mov dword [fault_quake_contained_count], 0
     mov dword [fault_kernel_panic_count], 0
     call user_io_reset_all
+    call payload_lifecycle_reset_all
     mov dword [doom_saveload_flags], 0
     mov dword [doom_saveload_slot], 0xffffffff
     mov dword [doom_saveload_open_count], 0
@@ -20289,7 +20276,7 @@ scheduler_preempt_self_test:
 process_boot_launch_payload:
     cmp dword [sys_exec_successes], 0
     jne .done
-    mov byte [doom_run_status], 4
+    mov dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 4
 
 .done:
     ret
@@ -20790,12 +20777,8 @@ process_exec_handoff_current:
     mov [esi + PROC_ENTRY], eax
     cmp dword [process_exec_target_kind], USER_KIND_QUAKE
     je .reset_quake_target_status
-    mov byte [doom_run_status], 1
-    mov dword [doom_exit_code], 0
-    mov dword [doom_fault_addr], 0
-    mov dword [doom_fault_eip], 0
-    mov dword [doom_fault_vector], 0
-    mov dword [doom_fault_error], 0
+    mov eax, USER_KIND_DOOM
+    call payload_lifecycle_start_kind
     call clear_fault_record
     mov eax, USER_KIND_DOOM
     call user_io_reset_kind
@@ -20804,12 +20787,8 @@ process_exec_handoff_current:
     jmp .seed_context
 
 .reset_quake_target_status:
-    mov byte [quake_run_status], 1
-    mov dword [quake_exit_code], 0
-    mov dword [quake_fault_addr], 0
-    mov dword [quake_fault_eip], 0
-    mov dword [quake_fault_vector], 0
-    mov dword [quake_fault_error], 0
+    mov eax, USER_KIND_QUAKE
+    call payload_lifecycle_start_kind
     call clear_fault_record
     mov eax, USER_KIND_QUAKE
     call user_io_reset_kind
@@ -21739,6 +21718,79 @@ payload_exec_store_target:
     mov [eax + ebx], edx
 
 .done:
+    pop ebx
+    pop eax
+    ret
+
+payload_lifecycle_reset_all:
+    push eax
+    push ecx
+    push edi
+    mov edi, payload_lifecycle_table
+    mov ecx, (payload_lifecycle_table_end - payload_lifecycle_table) / 4
+    xor eax, eax
+    cld
+    rep stosd
+    pop edi
+    pop ecx
+    pop eax
+    ret
+
+payload_lifecycle_start_kind:
+    push eax
+    push ebx
+    cmp eax, USER_KIND_COUNT
+    jae .done
+    mov ebx, eax
+    shl ebx, 2
+    mov dword [payload_lifecycle_run_status + ebx], 1
+    mov dword [payload_lifecycle_exit_code + ebx], 0
+    mov dword [payload_lifecycle_fault_addr + ebx], 0
+    mov dword [payload_lifecycle_fault_eip + ebx], 0
+    mov dword [payload_lifecycle_fault_vector + ebx], 0
+    mov dword [payload_lifecycle_fault_error + ebx], 0
+
+.done:
+    pop ebx
+    pop eax
+    ret
+
+payload_lifecycle_exit_kind:
+    push eax
+    push ebx
+    cmp eax, USER_KIND_COUNT
+    jae .done
+    mov ebx, eax
+    shl ebx, 2
+    mov [payload_lifecycle_exit_code + ebx], edx
+    mov dword [payload_lifecycle_run_status + ebx], 2
+
+.done:
+    pop ebx
+    pop eax
+    ret
+
+payload_lifecycle_fault_kind:
+    push eax
+    push ebx
+    push edx
+    cmp eax, USER_KIND_COUNT
+    jae .done
+    mov ebx, eax
+    shl ebx, 2
+    inc dword [payload_lifecycle_fault_count + ebx]
+    mov dword [payload_lifecycle_run_status + ebx], 3
+    mov edx, [fault_cr2]
+    mov [payload_lifecycle_fault_addr + ebx], edx
+    mov edx, [fault_eip]
+    mov [payload_lifecycle_fault_eip + ebx], edx
+    mov edx, [fault_vector]
+    mov [payload_lifecycle_fault_vector + ebx], edx
+    mov edx, [fault_error]
+    mov [payload_lifecycle_fault_error + ebx], edx
+
+.done:
+    pop edx
     pop ebx
     pop eax
     ret
@@ -24736,8 +24788,9 @@ syscall_handler:
     jmp user_probe_finished
 
 .doom_exit:
-    mov [doom_exit_code], ebx
-    mov byte [doom_run_status], 2
+    mov edx, ebx
+    mov eax, USER_KIND_DOOM
+    call payload_lifecycle_exit_kind
     call process_mark_current_exited
     mov ax, DATA_SEG
     mov ds, ax
@@ -24749,8 +24802,9 @@ syscall_handler:
     jmp doom_user_finished
 
 .quake_exit:
-    mov [quake_exit_code], ebx
-    mov byte [quake_run_status], 2
+    mov edx, ebx
+    mov eax, USER_KIND_QUAKE
+    call payload_lifecycle_exit_kind
     call process_mark_current_exited
     mov ax, DATA_SEG
     mov ds, ax
@@ -27189,7 +27243,7 @@ panic_dump_fault:
     call print_hex32
     mov al, '/'
     call put_char
-    mov eax, [fault_doom_contained_count]
+    mov eax, [payload_lifecycle_fault_count + USER_KIND_DOOM * 4]
     call print_hex32
     mov al, '/'
     call put_char
@@ -27396,16 +27450,8 @@ doom_user_fault:
     mov dword [fault_source], FAULT_SOURCE_DOOM
     mov dword [fault_mode], FAULT_MODE_USER
     mov dword [fault_contained], 1
-    inc dword [fault_doom_contained_count]
-    mov byte [doom_run_status], 3
-    mov eax, [fault_cr2]
-    mov [doom_fault_addr], eax
-    mov eax, [fault_eip]
-    mov [doom_fault_eip], eax
-    mov eax, [fault_vector]
-    mov [doom_fault_vector], eax
-    mov eax, [fault_error]
-    mov [doom_fault_error], eax
+    mov eax, USER_KIND_DOOM
+    call payload_lifecycle_fault_kind
     call process_mark_current_faulted
     mov ax, DATA_SEG
     mov ds, ax
@@ -27420,16 +27466,8 @@ quake_user_fault:
     mov dword [fault_source], FAULT_SOURCE_QUAKE
     mov dword [fault_mode], FAULT_MODE_USER
     mov dword [fault_contained], 1
-    inc dword [fault_quake_contained_count]
-    mov byte [quake_run_status], 3
-    mov eax, [fault_cr2]
-    mov [quake_fault_addr], eax
-    mov eax, [fault_eip]
-    mov [quake_fault_eip], eax
-    mov eax, [fault_vector]
-    mov [quake_fault_vector], eax
-    mov eax, [fault_error]
-    mov [quake_fault_error], eax
+    mov eax, USER_KIND_QUAKE
+    call payload_lifecycle_fault_kind
     call process_mark_current_faulted
     mov ax, DATA_SEG
     mov ds, ax
@@ -28151,13 +28189,13 @@ write_smoke_status:
 
     mov esi, smoke_doomrun_text
     call smoke_copy_string
-    cmp byte [doom_run_status], 1
+    cmp dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 1
     je .doomrun_running
-    cmp byte [doom_run_status], 2
+    cmp dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 2
     je .doomrun_exited
-    cmp byte [doom_run_status], 3
+    cmp dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 3
     je .doomrun_faulted
-    cmp byte [doom_run_status], 4
+    cmp dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 4
     je .doomrun_failed
     mov esi, smoke_wait_text
     jmp .doomrun_write
@@ -28182,27 +28220,27 @@ write_smoke_status:
 
     mov esi, smoke_doomexit_text
     call smoke_copy_string
-    mov edx, [doom_exit_code]
+    mov edx, [payload_lifecycle_exit_code + USER_KIND_DOOM * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomfault_text
     call smoke_copy_string
-    mov edx, [doom_fault_addr]
+    mov edx, [payload_lifecycle_fault_addr + USER_KIND_DOOM * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomfaultip_text
     call smoke_copy_string
-    mov edx, [doom_fault_eip]
+    mov edx, [payload_lifecycle_fault_eip + USER_KIND_DOOM * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomfaultv_text
     call smoke_copy_string
-    mov edx, [doom_fault_vector]
+    mov edx, [payload_lifecycle_fault_vector + USER_KIND_DOOM * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomfaulterr_text
     call smoke_copy_string
-    mov edx, [doom_fault_error]
+    mov edx, [payload_lifecycle_fault_error + USER_KIND_DOOM * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quake_text
@@ -28234,11 +28272,11 @@ write_smoke_status:
 
     mov esi, smoke_quakerun_text
     call smoke_copy_string
-    cmp byte [quake_run_status], 1
+    cmp dword [payload_lifecycle_run_status + USER_KIND_QUAKE * 4], 1
     je .quakerun_running
-    cmp byte [quake_run_status], 2
+    cmp dword [payload_lifecycle_run_status + USER_KIND_QUAKE * 4], 2
     je .quakerun_exited
-    cmp byte [quake_run_status], 3
+    cmp dword [payload_lifecycle_run_status + USER_KIND_QUAKE * 4], 3
     je .quakerun_faulted
     mov esi, smoke_wait_text
     jmp .quakerun_write
@@ -28259,27 +28297,27 @@ write_smoke_status:
 
     mov esi, smoke_quakeexit_text
     call smoke_copy_string
-    mov edx, [quake_exit_code]
+    mov edx, [payload_lifecycle_exit_code + USER_KIND_QUAKE * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakefault_text
     call smoke_copy_string
-    mov edx, [quake_fault_addr]
+    mov edx, [payload_lifecycle_fault_addr + USER_KIND_QUAKE * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakefaultip_text
     call smoke_copy_string
-    mov edx, [quake_fault_eip]
+    mov edx, [payload_lifecycle_fault_eip + USER_KIND_QUAKE * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakefaultv_text
     call smoke_copy_string
-    mov edx, [quake_fault_vector]
+    mov edx, [payload_lifecycle_fault_vector + USER_KIND_QUAKE * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakefaulterr_text
     call smoke_copy_string
-    mov edx, [quake_fault_error]
+    mov edx, [payload_lifecycle_fault_error + USER_KIND_QUAKE * 4]
     call smoke_write_hex32
 
     mov esi, smoke_faultframe_text
@@ -28397,7 +28435,7 @@ write_smoke_status:
     call smoke_write_hex32
     mov edx, [fault_user_contained_count]
     call smoke_write_slash_hex32
-    mov edx, [fault_doom_contained_count]
+    mov edx, [payload_lifecycle_fault_count + USER_KIND_DOOM * 4]
     call smoke_write_slash_hex32
     mov edx, [fault_kernel_panic_count]
     call smoke_write_slash_hex32
@@ -32705,9 +32743,9 @@ write_smoke_status:
     jne .user_fail_text
     cmp byte [process_exec_status], 1
     jne .user_fail_text
-    cmp byte [doom_run_status], 1
+    cmp dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 1
     je .user_check_live_doom
-    cmp byte [doom_run_status], 2
+    cmp dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 2
     je .user_ok_from_doom
     jmp .user_fail_text
 
@@ -33008,9 +33046,9 @@ draw_heap_status:
     jne .user_fail_text
     cmp byte [process_exec_status], 1
     jne .user_fail_text
-    cmp byte [doom_run_status], 1
+    cmp dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 1
     je .user_check_live_doom
-    cmp byte [doom_run_status], 2
+    cmp dword [payload_lifecycle_run_status + USER_KIND_DOOM * 4], 2
     je .user_ok_from_doom
     jmp .user_fail_text
 
@@ -34666,8 +34704,6 @@ payload_elf_parse_status db 0
 payload_user_window_status db 0
 process_exec_status db 0
 current_user_kind db 0
-doom_run_status db 0
-quake_run_status db 0
 ata_status db 0
 fat_status db 0
 wad_status db 0
@@ -35490,8 +35526,6 @@ fault_contained dd 0
 panic_status dd 0
 fault_expected_recovered_count dd 0
 fault_user_contained_count dd 0
-fault_doom_contained_count dd 0
-fault_quake_contained_count dd 0
 fault_kernel_panic_count dd 0
 shutdown_state dd 0
 user_wad_magic_seen dd 0
@@ -35697,16 +35731,6 @@ process_exit_resumed_pid dd 0xffffffff
 process_exit_child_ptr dd 0
 fd_fork_parent_pid dd 0xffffffff
 fd_fork_child_pid dd 0xffffffff
-doom_exit_code dd 0
-doom_fault_addr dd 0
-doom_fault_eip dd 0
-doom_fault_vector dd 0
-doom_fault_error dd 0
-quake_exit_code dd 0
-quake_fault_addr dd 0
-quake_fault_eip dd 0
-quake_fault_vector dd 0
-quake_fault_error dd 0
 payload_exec_table:
 payload_exec_status times USER_KIND_COUNT dd 0
 payload_exec_load_status times USER_KIND_COUNT dd 0
@@ -35718,6 +35742,15 @@ payload_exec_segment_memsz times USER_KIND_COUNT dd 0
 payload_exec_segment_end times USER_KIND_COUNT dd 0
 payload_exec_first_cluster times USER_KIND_COUNT dd 0
 payload_exec_table_end:
+payload_lifecycle_table:
+payload_lifecycle_run_status times USER_KIND_COUNT dd 0
+payload_lifecycle_exit_code times USER_KIND_COUNT dd 0
+payload_lifecycle_fault_addr times USER_KIND_COUNT dd 0
+payload_lifecycle_fault_eip times USER_KIND_COUNT dd 0
+payload_lifecycle_fault_vector times USER_KIND_COUNT dd 0
+payload_lifecycle_fault_error times USER_KIND_COUNT dd 0
+payload_lifecycle_fault_count times USER_KIND_COUNT dd 0
+payload_lifecycle_table_end:
 user_io_table:
 user_io_last_syscall times USER_KIND_COUNT dd 0
 user_io_open_count times USER_KIND_COUNT dd 0
