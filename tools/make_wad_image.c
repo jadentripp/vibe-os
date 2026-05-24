@@ -82,7 +82,7 @@ typedef struct {
 } PersistenceCheck;
 
 static const char USER_PROBE_NAME[] = "USERPROBELF";
-static const char DOOM_ELF_NAME[] = "DOOM    ELF";
+static const char LEGACY_PAYLOAD_ELF_NAME[] = "DOOM    ELF";
 static const char KERNEL_ELF_NAME[] = "KERNEL  ELF";
 static const char DOOM_WAD_NAME[] = "DOOM1   WAD";
 static const char DEFAULT_CFG_NAME[] = "DEFAULT CFG";
@@ -90,7 +90,7 @@ static const char PERSISTENCE_CHECKPOINT_NAME[] = "PERSIST CHK";
 static const char SAVE_REQUEST_NAME[] = "SAVEREQ CHK";
 static const char LOAD_REQUEST_NAME[] = "LOADREQ CHK";
 static const char STATE_DIR_NAME[] = "STATE      ";
-static const char DOOMSAV_TEMPLATE_NAME[] = "DOOMSAV DSG";
+static const char SAVE_SLOT_TEMPLATE_NAME[] = "DOOMSAV DSG";
 
 static const char* const switch_textures[] = {
     "SW1BRCOM", "SW2BRCOM", "SW1BRN1", "SW2BRN1", "SW1BRN2", "SW2BRN2",
@@ -506,40 +506,40 @@ static void check_default_cfg(const Blob* image, const Blob* baseline)
         die("DEFAULT.CFG did not change from the persistence baseline");
 }
 
-static void doomsav_name_for_slot(int slot, char out[11])
+static void save_slot_name_for_slot(int slot, char out[11])
 {
     if (slot < 0 || slot > 5)
         die("save slot must be 0..5");
-    memcpy(out, DOOMSAV_TEMPLATE_NAME, 11);
+    memcpy(out, SAVE_SLOT_TEMPLATE_NAME, 11);
     out[7] = (char)('0' + slot);
 }
 
 static void check_save_slot(const Blob* image, const Blob* baseline, const Blob* reboot_baseline, int slot, const char* description)
 {
     char name[11];
-    doomsav_name_for_slot(slot, name);
+    save_slot_name_for_slot(slot, name);
     FatFileInfo info = find_root_file(image, name);
     if (!info.present)
-        die("required DOOMSAV slot is missing from the FAT root");
+        die("required save slot is missing from the FAT root");
     if (info.attr & FAT_ATTR_DIRECTORY)
-        die("required DOOMSAV slot is a directory");
+        die("required save slot is a directory");
     if (info.size < 64)
-        die("required DOOMSAV slot is too small to be a real Doom save");
+        die("required save slot is too small to prove persistence");
     if (!root_file_changed_from_baseline(image, baseline, name))
-        die("required DOOMSAV slot did not change from the persistence baseline");
+        die("required save slot did not change from the persistence baseline");
     if (reboot_baseline && !root_file_equal(image, reboot_baseline, name))
-        die("required DOOMSAV slot changed across reboot/load proof");
+        die("required save slot changed across reboot/load proof");
 
-    Blob data = read_root_file_blob(image, &info, "DOOMSAV slot");
+    Blob data = read_root_file_blob(image, &info, "save slot");
     if (description) {
         size_t len = strlen(description);
         if (len > 24)
             die("required save description is longer than Doom's save title field");
         if (data.size < 24 || memcmp(data.data, description, len) != 0)
-            die("required DOOMSAV slot does not contain the requested description");
+            die("required save slot does not contain the requested description");
     }
     if (data.size < 40 || memcmp(data.data + 24, "version ", 8) != 0)
-        die("required DOOMSAV slot does not contain a Doom version header");
+        die("required save slot does not contain the expected version header");
     free(data.data);
 }
 
@@ -551,7 +551,7 @@ static void check_write_status(const char* path, int require_save)
     if (require_save) {
         if (status_hex_tuple_part(&status, "savewr", 0) == 0 ||
             status_hex_tuple_part(&status, "savewr", 1) == 0)
-            die_path(path, "save write status did not prove DOOMSAV bytes and calls");
+            die_path(path, "save write status did not prove save slot bytes and calls");
         if (status_hex_field(&status, "saveclose") == 0)
             die_path(path, "save write status did not prove close");
     } else {
@@ -584,7 +584,7 @@ static void check_load_status(const char* path)
         die_path(path, "load status did not return to gameplay");
     if (status_hex_tuple_part(&status, "saverd", 0) == 0 ||
         status_hex_tuple_part(&status, "saverd", 1) == 0)
-        die_path(path, "load status did not prove DOOMSAV reads");
+        die_path(path, "load status did not prove save slot reads");
     if (status_has_literal(&status, "panic=") && !status_has_literal(&status, "panic=NONE"))
         die_path(path, "load status reported a panic");
     free(status.data);
@@ -1305,7 +1305,7 @@ static void install_bootable_layout(
     const char* stage2_path,
     const char* kernel_path,
     const char* user_elf_path,
-    const char* doom_elf_path,
+    const char* legacy_payload_elf_path,
     RootElfArg* root_elves,
     size_t root_elf_count,
     AssetArg* assets,
@@ -1313,8 +1313,8 @@ static void install_bootable_layout(
 {
     if ((stage1_path || stage2_path || kernel_path) && !(stage1_path && stage2_path && kernel_path))
         die("stage1, stage2, and kernel paths must be provided together");
-    if (doom_elf_path && !user_elf_path)
-        die("doom ELF packaging requires a user probe ELF path");
+    if (legacy_payload_elf_path && !user_elf_path)
+        die("legacy root payload ELF packaging requires a user probe ELF path");
 
     write_mbr_and_bpb(image, stage1_path, stage2_path, kernel_path);
 
@@ -1337,10 +1337,10 @@ static void install_bootable_layout(
         Blob user = read_file(user_elf_path);
         write_root_file_entry(image, USER_PROBE_NAME, user.data, user.size);
         free(user.data);
-        if (doom_elf_path) {
-            Blob doom = read_file(doom_elf_path);
-            write_root_file_entry(image, DOOM_ELF_NAME, doom.data, doom.size);
-            free(doom.data);
+        if (legacy_payload_elf_path) {
+            Blob payload = read_file(legacy_payload_elf_path);
+            write_root_file_entry(image, LEGACY_PAYLOAD_ELF_NAME, payload.data, payload.size);
+            free(payload.data);
         }
     }
 
@@ -1442,7 +1442,7 @@ static void mutate_root_marker(const char* image_path, const char* symbol, const
 
 static void usage(void)
 {
-    die("usage: make_wad_image [--inspect IMAGE] [--wad PATH] [--root-elf NAME.ELF=PATH] [--asset IMAGE_8.3_PATH=HOST_PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [DOOM_ELF]]]\n"
+    die("usage: make_wad_image [--inspect IMAGE] [--wad PATH] [--root-elf NAME.ELF=PATH] [--asset IMAGE_8.3_PATH=HOST_PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [LEGACY_PAYLOAD_ELF]]]\n"
         "       make_wad_image --write-root-marker SYMBOL PAYLOAD IMAGE\n"
         "       make_wad_image --delete-root-marker SYMBOL IMAGE\n"
         "       make_wad_image --check-persistence IMAGE [--baseline-image IMAGE] [--reboot-baseline-image IMAGE] [--write-status FILE] [--save-write-status FILE] [--load-status FILE] [--reboot-status FILE] [--require-default] [--require-dynamic-fat-proof] [--require-save-slot N] [--require-save-description N=TEXT]");
@@ -1578,7 +1578,7 @@ int main(int argc, char** argv)
     const char* stage2 = positional_count >= 4 ? positional[2] : NULL;
     const char* kernel = positional_count >= 4 ? positional[3] : NULL;
     const char* user_elf = positional_count >= 5 ? positional[4] : NULL;
-    const char* doom_elf = positional_count == 6 ? positional[5] : NULL;
+    const char* legacy_payload_elf = positional_count == 6 ? positional[5] : NULL;
 
     install_bootable_layout(
         &image,
@@ -1587,7 +1587,7 @@ int main(int argc, char** argv)
         stage2,
         kernel,
         user_elf,
-        doom_elf,
+        legacy_payload_elf,
         root_elves,
         root_elf_count,
         assets,

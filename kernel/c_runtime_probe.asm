@@ -13,12 +13,12 @@ extern libc_abs
 extern libc_idivmod
 extern kprintf
 
-extern wad_parse_status
-extern wad_lump_count
-extern playpal_offset
-extern playpal_size
-extern colormap_offset
-extern colormap_size
+extern primary_package_parse_status
+extern primary_package_member_count
+extern primary_palette_offset
+extern primary_palette_size
+extern primary_colormap_offset
+extern primary_colormap_size
 
 c_runtime_self_test:
     push ebp
@@ -57,20 +57,20 @@ c_runtime_self_test:
     cmp dword [ebp - 4], 2
     jne .fail_div
 
-    cmp byte [wad_parse_status], 1
-    jne .fail_wad_parse
+    cmp byte [primary_package_parse_status], 1
+    jne .fail_primary_package_parse
 
-    cmp dword [wad_lump_count], 2
+    cmp dword [primary_package_member_count], 2
     jb .fail_lumps
 
-    cmp dword [playpal_size], 10752
+    cmp dword [primary_palette_size], 10752
     jne .fail_palette_sizes
-    cmp dword [colormap_size], 8704
+    cmp dword [primary_colormap_size], 8704
     jne .fail_palette_sizes
 
-    cmp dword [playpal_offset], 0
+    cmp dword [primary_palette_offset], 0
     je .fail_palette_offsets
-    cmp dword [colormap_offset], 0
+    cmp dword [primary_colormap_offset], 0
     je .fail_palette_offsets
 
     mov eax, C_RUNTIME_MAGIC
@@ -88,7 +88,7 @@ c_runtime_self_test:
 .fail_div:
     mov eax, 4
     jmp .done
-.fail_wad_parse:
+.fail_primary_package_parse:
     mov eax, 5
     jmp .done
 .fail_lumps:
@@ -122,9 +122,9 @@ c_runtime_report:
     call kprintf
     add esp, 8
 
-    push dword [colormap_size]
-    push dword [playpal_size]
-    push dword [wad_lump_count]
+    push dword [primary_colormap_size]
+    push dword [primary_palette_size]
+    push dword [primary_package_member_count]
     push fmt_lumps
     call kprintf
     add esp, 16
