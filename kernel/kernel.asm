@@ -21792,8 +21792,11 @@ user_io_increment_current:
     push eax
     push ebx
     movzx ebx, byte [current_user_kind]
-    cmp ebx, USER_KIND_COUNT
-    jae .done
+    cmp ebx, USER_KIND_DOOM
+    je .tracked_kind
+    cmp ebx, USER_KIND_QUAKE
+    jne .done
+.tracked_kind:
     shl ebx, 2
     inc dword [eax + ebx]
 
@@ -21807,8 +21810,11 @@ user_io_store_current:
     push ebx
     push edx
     movzx ebx, byte [current_user_kind]
-    cmp ebx, USER_KIND_COUNT
-    jae .done
+    cmp ebx, USER_KIND_DOOM
+    je .tracked_kind
+    cmp ebx, USER_KIND_QUAKE
+    jne .done
+.tracked_kind:
     shl ebx, 2
     mov [eax + ebx], edx
 
