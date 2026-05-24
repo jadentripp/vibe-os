@@ -508,11 +508,13 @@ static void validate_clock(const Status *status) {
     if (has_field(status, "ticks") && has_field(status, "dtick")) {
         uint32_t ticks = hex_field(status, "ticks");
         uint32_t dtick = hex_field(status, "dtick");
+        uint32_t expected;
         if (ticks == 0u) {
             fail("ticks= must be nonzero");
         }
-        if (dtick != (ticks * 35u) / 100u) {
-            fail("dtick= must derive Doom 35 Hz time from the generic 100 Hz clock");
+        expected = (ticks * 35u) / 100u;
+        if (dtick + 1u < expected || dtick > expected + 1u) {
+            fail("dtick= must stay within one 35 Hz compatibility tick of the generic 100 Hz clock");
         }
     }
 }

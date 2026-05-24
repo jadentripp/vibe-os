@@ -440,7 +440,7 @@ PIT_DIVISOR_100HZ equ 11932
 CLOCK_MONOTONIC_ID equ 1
 CLOCK_MONOTONIC_HZ equ PIT_IRQ_HZ
 CLOCK_TICK_MILLISECONDS equ 1000 / CLOCK_MONOTONIC_HZ
-CLOCK_DOOM_HZ equ 35
+CLOCK_COMPAT_35HZ equ 35
 CLOCK_STATUS_UNKNOWN equ 0
 CLOCK_STATUS_PIT_100HZ equ 1
 CLOCK_STATUS_HPET_MONOTONIC equ 2
@@ -4901,8 +4901,8 @@ clock_init_pit_100hz:
     mov dword [timer_ticks], 0
     mov dword [clock_irq_count], 0
     mov dword [clock_milliseconds], 0
-    mov dword [clock_doom_ticks], 0
-    mov dword [clock_doom_remainder], 0
+    mov dword [clock_compat35_ticks], 0
+    mov dword [clock_compat35_remainder], 0
     mov dword [clock_scheduler_tick_count], 0
     mov dword [clock_scheduler_irq_switches], 0
     ret
@@ -4918,11 +4918,11 @@ clock_tick_from_timer_irq:
     add dword [clock_milliseconds], CLOCK_TICK_MILLISECONDS
 
 .doom_ticks:
-    add dword [clock_doom_remainder], CLOCK_DOOM_HZ
-    cmp dword [clock_doom_remainder], CLOCK_MONOTONIC_HZ
+    add dword [clock_compat35_remainder], CLOCK_COMPAT_35HZ
+    cmp dword [clock_compat35_remainder], CLOCK_MONOTONIC_HZ
     jb .done
-    sub dword [clock_doom_remainder], CLOCK_MONOTONIC_HZ
-    inc dword [clock_doom_ticks]
+    sub dword [clock_compat35_remainder], CLOCK_MONOTONIC_HZ
+    inc dword [clock_compat35_ticks]
 
 .done:
     ret
@@ -22592,7 +22592,7 @@ syscall_handler:
     jmp .return
 
 .time:
-    mov eax, [clock_doom_ticks]
+    mov eax, [clock_compat35_ticks]
     jmp .return
 
 .clock_gettime:
@@ -29662,7 +29662,7 @@ write_smoke_status:
 
     mov esi, smoke_doomtick_text
     call smoke_copy_string
-    mov edx, [clock_doom_ticks]
+    mov edx, [clock_compat35_ticks]
     call smoke_write_hex32
 
     mov esi, smoke_clocksrc_pit_text
@@ -29695,7 +29695,7 @@ write_smoke_status:
 
     mov esi, smoke_clockdoom_text
     call smoke_copy_string
-    mov edx, [clock_doom_ticks]
+    mov edx, [clock_compat35_ticks]
     call smoke_write_hex32
 
     mov esi, smoke_clocksch_text
@@ -34504,8 +34504,8 @@ cursor_col dd 0
 timer_ticks dd 0
 clock_irq_count dd 0
 clock_milliseconds dd 0
-clock_doom_ticks dd 0
-clock_doom_remainder dd 0
+clock_compat35_ticks dd 0
+clock_compat35_remainder dd 0
 clock_scheduler_tick_count dd 0
 clock_scheduler_irq_switches dd 0
 clock_source_status db 0
