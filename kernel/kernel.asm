@@ -1539,7 +1539,7 @@ user_probe_finished:
     call process_return_to_kernel
     call process_boot_launch_payload
 
-doom_user_finished:
+payload_user_finished:
     mov ax, DATA_SEG
     mov ds, ax
     mov es, ax
@@ -18292,6 +18292,34 @@ process_is_user_exec_target:
     clc
     ret
 
+user_kind_is_large_payload:
+    cmp eax, USER_KIND_DOOM
+    je .yes
+    cmp eax, USER_KIND_QUAKE
+    je .yes
+    stc
+    ret
+
+.yes:
+    clc
+    ret
+
+payload_kind_to_fault_source:
+    cmp eax, USER_KIND_DOOM
+    je .doom
+    cmp eax, USER_KIND_QUAKE
+    je .quake
+    mov eax, FAULT_SOURCE_USER
+    ret
+
+.doom:
+    mov eax, FAULT_SOURCE_DOOM
+    ret
+
+.quake:
+    mov eax, FAULT_SOURCE_QUAKE
+    ret
+
 process_alloc_generic_exec_slot:
     push eax
     push ecx
@@ -19570,10 +19598,8 @@ scheduler_tick:
     mov eax, [esi + PROC_KERNEL_STACK_TOP]
     mov [scheduler_last_preempt_to_kstack], eax
     mov eax, [scheduler_last_preempt_from_kind]
-    cmp eax, USER_KIND_DOOM
-    je .check_payload_to_preempt_probe
-    cmp eax, USER_KIND_QUAKE
-    jne .check_preempt_probe_to_payload
+    call user_kind_is_large_payload
+    jc .check_preempt_probe_to_payload
 
 .check_payload_to_preempt_probe:
     cmp dword [scheduler_last_preempt_to_kind], USER_KIND_PREEMPT_PROBE
@@ -19584,10 +19610,9 @@ scheduler_tick:
 .check_preempt_probe_to_payload:
     cmp eax, USER_KIND_PREEMPT_PROBE
     jne .pair_mask_done
-    cmp dword [scheduler_last_preempt_to_kind], USER_KIND_DOOM
-    je .preempt_probe_to_payload
-    cmp dword [scheduler_last_preempt_to_kind], USER_KIND_QUAKE
-    jne .pair_mask_done
+    mov eax, [scheduler_last_preempt_to_kind]
+    call user_kind_is_large_payload
+    jc .pair_mask_done
 
 .preempt_probe_to_payload:
     or dword [scheduler_preempt_pair_mask], 0x2
@@ -24656,10 +24681,9 @@ syscall_handler:
     jmp .return
 
 .exit:
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je .doom_exit
-    cmp byte [current_user_kind], USER_KIND_QUAKE
-    je .quake_exit
+    movzx eax, byte [current_user_kind]
+    call user_kind_is_large_payload
+    jnc .payload_exit
     mov esi, [current_process_ptr]
     cmp esi, 0
     je .user_exit_to_kernel
@@ -24687,9 +24711,8 @@ syscall_handler:
     call kernel_switch_main_stack_and_return
     jmp user_probe_finished
 
-.doom_exit:
+.payload_exit:
     mov edx, ebx
-    mov eax, USER_KIND_DOOM
     call payload_lifecycle_exit_kind
     call process_mark_current_exited
     mov ax, DATA_SEG
@@ -24699,21 +24722,7 @@ syscall_handler:
     mov gs, ax
     mov ss, ax
     call kernel_switch_main_stack_and_return
-    jmp doom_user_finished
-
-.quake_exit:
-    mov edx, ebx
-    mov eax, USER_KIND_QUAKE
-    call payload_lifecycle_exit_kind
-    call process_mark_current_exited
-    mov ax, DATA_SEG
-    mov ds, ax
-    mov es, ax
-    mov fs, ax
-    mov gs, ax
-    mov ss, ax
-    call kernel_switch_main_stack_and_return
-    jmp doom_user_finished
+    jmp payload_user_finished
 
 .return:
     call syscall_sanitize_return_frame
@@ -26932,10 +26941,9 @@ exception_common:
     mov eax, [fault_cs]
     test eax, 3
     jz .kernel_panic
-    cmp byte [current_user_kind], USER_KIND_DOOM
-    je doom_user_fault
-    cmp byte [current_user_kind], USER_KIND_QUAKE
-    je quake_user_fault
+    movzx eax, byte [current_user_kind]
+    call user_kind_is_large_payload
+    jnc payload_user_fault
     jmp user_process_fault
 
 .kernel_panic:
@@ -27346,11 +27354,13 @@ user_process_fault:
     call kernel_switch_main_stack_and_return
     jmp user_probe_finished
 
-doom_user_fault:
-    mov dword [fault_source], FAULT_SOURCE_DOOM
+payload_user_fault:
+    push eax
+    call payload_kind_to_fault_source
+    mov [fault_source], eax
+    pop eax
     mov dword [fault_mode], FAULT_MODE_USER
     mov dword [fault_contained], 1
-    mov eax, USER_KIND_DOOM
     call payload_lifecycle_fault_kind
     call process_mark_current_faulted
     mov ax, DATA_SEG
@@ -27360,23 +27370,7 @@ doom_user_fault:
     mov gs, ax
     mov ss, ax
     call kernel_switch_main_stack_and_return
-    jmp doom_user_finished
-
-quake_user_fault:
-    mov dword [fault_source], FAULT_SOURCE_QUAKE
-    mov dword [fault_mode], FAULT_MODE_USER
-    mov dword [fault_contained], 1
-    mov eax, USER_KIND_QUAKE
-    call payload_lifecycle_fault_kind
-    call process_mark_current_faulted
-    mov ax, DATA_SEG
-    mov ds, ax
-    mov es, ax
-    mov fs, ax
-    mov gs, ax
-    mov ss, ax
-    call kernel_switch_main_stack_and_return
-    jmp doom_user_finished
+    jmp payload_user_finished
 
 irq_timer:
     IRQ_ENTER
