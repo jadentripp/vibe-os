@@ -890,7 +890,14 @@ LBB0_182:
 	mov	ecx, dword [esp]
 	xor	edx, edx
 	int	128
-	call	trigger_expected_fault
+	mov	eax, 3
+	mov	ebx, Ltmp0
+	xor	ecx, ecx
+	xor	edx, edx
+	int	128
+	mov	eax, 65536
+	mov	eax, dword [eax]
+Ltmp0:
 	lea	ebx, [esp + 36]
 	lea	ecx, [esp + 100]
 	lea	edx, [esp + 124]
@@ -1101,23 +1108,7 @@ LBB0_227:
 	sete	cl
 	jmp	LBB0_94
 Lfunc_end0:
-align 16
-trigger_expected_fault:
-	push	ebp
-	mov	ebp, esp
-	push	ebx
-	mov	eax, 3
-	mov	ebx, Ltmp0
-	xor	ecx, ecx
-	xor	edx, edx
-	int	128
-	mov	eax, dword [65536]
-Ltmp0:
-	pop	ebx
-	pop	ebp
-	ret
-Lfunc_end1:
-section .rodata
+section .rodata.str1.1 progbits alloc noexec nowrite align=1
 L__const.user_main.hello:
 db `user C probe\n`, 0
 L__const.user_main.abi_probe_path:
@@ -1136,13 +1127,13 @@ L.str:
 db `PROBE_LAUNCHER=USERPROB`, 0
 L.str.1:
 db `ABI_ENV=present`, 0
-section .rodata
+section .rodata progbits alloc noexec nowrite align=4
 align 4
 L__const.user_main.abi_probe_envp:
 dd L.str
 dd L.str.1
 dd 0
-section .rodata
+section .rodata.str1.1
 L.str.2:
 db `USERPROB.ELF`, 0
 L.str.3:
