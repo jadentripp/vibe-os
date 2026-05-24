@@ -1477,6 +1477,7 @@ static void validate_repo_contract(void) {
     require_contains(".github/workflows/os-smoke.yml", "tools/vibe_status_check.c");
     require_contains(".github/workflows/os-smoke.yml", "--require-exec");
     require_contains(".github/workflows/os-smoke.yml", "--require-preempt");
+    require_contains(".github/workflows/os-smoke.yml", "wait-status=pmask:00000003");
     forbid_contains(".github/workflows/os-smoke.yml", "check_vm_status_proof");
 
     require_contains(".github/workflows/real-wad-smoke.yml", "tools/vibe_status_check.c");
