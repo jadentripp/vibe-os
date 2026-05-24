@@ -692,8 +692,9 @@ quake-status-proof-check:
 	grep -q "shutdown=NONE" $(BUILD_DIR)/status.txt; \
 	grep -q "gfx=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "audio=SB16" $(BUILD_DIR)/status.txt; \
-	grep -q "preempt=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "heap=OK" $(BUILD_DIR)/status.txt; \
+	perl -ne '$$ok = 1 if /preempt=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
+	perl -ne '$$ok = 1 if /quakepak=([0-9A-F]{8})\/([0-9A-F]{8})\/([0-9A-F]{8})\/([0-9A-F]{8})/ && hex($$1) > 0 && hex($$4) == 0x4B434150; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	perl -ne '$$ok = 1 if /quakepresent=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	perl -ne '$$ok = 1 if /qframe=([0-9A-F]{8})\/([0-9A-F]{8})/ && hex($$1) > 0 && hex($$2) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	perl -ne '$$ok = 1 if /qinput=([0-9A-F]{8})\// && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
