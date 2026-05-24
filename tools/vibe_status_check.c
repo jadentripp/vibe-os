@@ -1476,10 +1476,9 @@ static void validate_repo_contract(void) {
     require_contains(".github/workflows/real-wad-soak.yml", "--require-preempt");
     forbid_contains(".github/workflows/real-wad-soak.yml", "check_vm_status_proof");
 
-    require_contains("README.md", "small C tools");
-    require_contains("docs/architecture.txt", "tools/vibe_status_check");
-    require_contains("docs/proof.txt", "tools/vibe_status_check");
-    require_contains("docs/play.txt", "tools/play_now_codespaces.sh");
+    require_contains("README.md", "tools/vibe_status_check.c");
+    require_contains("README.md", "tools/play_now_codespaces.sh");
+    require_contains("README.md", "This README is the human overview");
 }
 
 static void usage(FILE *stream) {
