@@ -791,8 +791,8 @@ static int name_eq(const char lhs[11], const char rhs[11])
 static void reject_protected_root_name(const char name[11])
 {
     if (name_eq(name, DOOM_WAD_NAME) || name_eq(name, KERNEL_ELF_NAME) ||
-        name_eq(name, USER_PROBE_NAME) || name_eq(name, DOOM_ELF_NAME))
-        die("--root-elf tries to replace a protected boot/game entry");
+        name_eq(name, USER_PROBE_NAME))
+        die("--root-elf tries to replace a protected boot entry");
 }
 
 static uint32_t allocate_cluster_chain(Image* image, uint32_t count, uint32_t* out_chain)

@@ -129,10 +129,10 @@ INPUT_ABI_FULL_MASK equ INPUT_ABI_POLL_EVENT | INPUT_ABI_STATUS | INPUT_ABI_KEYB
 VIBE_INPUT_MOD_SHIFT equ 0x00000001
 VIBE_INPUT_MOD_CTRL equ 0x00000002
 VIBE_INPUT_MOD_ALT equ 0x00000004
-DOOM_SCREEN_WIDTH equ 320
-DOOM_SCREEN_HEIGHT equ 200
-DOOM_FRAME_BYTES equ DOOM_SCREEN_WIDTH * DOOM_SCREEN_HEIGHT
-DOOM_PALETTE_BYTES equ 256 * 3
+FB_INDEXED_SOURCE_WIDTH equ 320
+FB_INDEXED_SOURCE_HEIGHT equ 200
+FB_INDEXED_SOURCE_FRAME_BYTES equ FB_INDEXED_SOURCE_WIDTH * FB_INDEXED_SOURCE_HEIGHT
+FB_INDEXED_SOURCE_PALETTE_BYTES equ 256 * 3
 BOOT_INFO_ADDR equ 0x7000
 VIDEO_BOOT_MAGIC equ 0x45444956
 BOOT_VIDEO_MODE equ BOOT_INFO_ADDR + 12
@@ -381,7 +381,7 @@ VIDEO_BACKEND_LFB_XRGB8888 equ 2
 PRESENT_POLICY_MODE13 equ 1
 PRESENT_POLICY_ASPECT equ 2
 PRESENT_POLICY_SQUARE equ 3
-DOOM_ASPECT_HEIGHT equ 240
+FB_INDEXED_SOURCE_ASPECT_HEIGHT equ 240
 GDT_NULL_INDEX equ 0
 GDT_KERNEL_CODE_INDEX equ 1
 GDT_KERNEL_DATA_INDEX equ 2
@@ -609,7 +609,7 @@ PROC_STATE_BLOCKED equ 6
 PROCESS_SLOT_COUNT equ 6
 PROCESS_GENERIC_SLOT_COUNT equ 2
 PROCESS_RECORD_BYTES equ 184
-PROCESS_EXEC_TABLE_COUNT equ 3
+PROCESS_EXEC_TABLE_COUNT equ 1
 PROCESS_EXEC_ENTRY_BYTES equ 24
 PROCESS_EXEC_PATH equ 0
 PROCESS_EXEC_NAME83 equ 4
@@ -617,6 +617,10 @@ PROCESS_EXEC_LOAD_ADDR equ 8
 PROCESS_EXEC_MAX_BYTES equ 12
 PROCESS_EXEC_TARGET equ 16
 PROCESS_EXEC_KIND equ 20
+LARGE_PAYLOAD_PROOF_LABEL_COUNT equ 2
+LARGE_PAYLOAD_PROOF_LABEL_ENTRY_BYTES equ 8
+LARGE_PAYLOAD_PROOF_LABEL_NAME83 equ 0
+LARGE_PAYLOAD_PROOF_LABEL_KIND equ 4
 PROC_PID equ 0
 PROC_KIND equ 4
 PROC_STATE equ 8
@@ -862,11 +866,11 @@ FRAMEBUFFER_HANDOFF_SOURCE_VGA_MODE13 equ 1
 FRAMEBUFFER_HANDOFF_SOURCE_VBE equ 2
 FRAMEBUFFER_HANDOFF_SOURCE_GOP equ 3
 FRAMEBUFFER_GOP_BOOT_MODE equ 0xffff
-FB_PRESENT_WIDTH equ DOOM_SCREEN_WIDTH
-FB_PRESENT_HEIGHT equ DOOM_SCREEN_HEIGHT
-FB_PRESENT_ASPECT_HEIGHT equ DOOM_ASPECT_HEIGHT
+FB_PRESENT_WIDTH equ FB_INDEXED_SOURCE_WIDTH
+FB_PRESENT_HEIGHT equ FB_INDEXED_SOURCE_HEIGHT
+FB_PRESENT_ASPECT_HEIGHT equ FB_INDEXED_SOURCE_ASPECT_HEIGHT
 FB_PRESENT_FRAME_BYTES equ FB_PRESENT_WIDTH * FB_PRESENT_HEIGHT
-FB_PRESENT_PALETTE_BYTES equ DOOM_PALETTE_BYTES
+FB_PRESENT_PALETTE_BYTES equ FB_INDEXED_SOURCE_PALETTE_BYTES
 FB_PRESENT_PALETTE_ENTRIES equ 256
 FB_PRESENT_PALETTE_ENTRY_BYTES equ 3
 VIBE_FB_CAP_PRESENT_INDEXED equ 0x00000001
@@ -17821,7 +17825,7 @@ process_seed_wait_reap_probe_child:
 
 process_reset_payload:
     call process_reset_accounting
-    mov dword [esi + PROC_KIND], USER_KIND_DOOM
+    mov dword [esi + PROC_KIND], USER_KIND_GENERIC
     mov dword [esi + PROC_STATE], PROC_STATE_READY
     mov dword [esi + PROC_BRK], PAYLOAD_USER_HEAP_START
     mov dword [esi + PROC_ENTRY], 0
@@ -20640,6 +20644,8 @@ process_exec_resolve_generic_root83:
     jne .fail
     cmp byte [process_exec_name83_buffer + 10], 'F'
     jne .fail
+    call process_exec_resolve_large_payload_label
+    jnc .done
     call process_alloc_generic_exec_slot
     jc .fail
     inc dword [process_exec_generic_resolves]
@@ -20659,6 +20665,54 @@ process_exec_resolve_generic_root83:
     pop edi
     pop esi
     pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
+process_exec_resolve_large_payload_label:
+    push eax
+    push ebx
+    push ecx
+    push esi
+    push edi
+
+    mov ebx, large_payload_proof_label_table
+    mov ecx, LARGE_PAYLOAD_PROOF_LABEL_COUNT
+
+.scan_next:
+    cmp ecx, 0
+    je .not_found
+    push ecx
+    mov esi, process_exec_name83_buffer
+    mov edi, [ebx + LARGE_PAYLOAD_PROOF_LABEL_NAME83]
+    cld
+    call fat_name_match
+    pop ecx
+    cmp al, 1
+    je .found
+    add ebx, LARGE_PAYLOAD_PROOF_LABEL_ENTRY_BYTES
+    dec ecx
+    jmp .scan_next
+
+.found:
+    inc dword [process_exec_generic_resolves]
+    mov dword [process_exec_last_resolve_mode], SYS_EXEC_RESOLVE_GENERIC_ROOT83
+    mov dword [process_exec_name83], process_exec_name83_buffer
+    mov dword [process_exec_load_addr], PAYLOAD_ELF_LOAD_ADDR
+    mov dword [process_exec_max_bytes], PAYLOAD_ELF_MAX_BYTES
+    mov dword [process_exec_target], process_payload
+    mov eax, [ebx + LARGE_PAYLOAD_PROOF_LABEL_KIND]
+    mov [process_exec_target_kind], eax
+    clc
+    jmp .done
+
+.not_found:
+    stc
+
+.done:
+    pop edi
+    pop esi
     pop ecx
     pop ebx
     pop eax
@@ -20750,14 +20804,24 @@ process_exec_handoff_current:
     mov eax, [process_exec_target_kind]
     cmp eax, USER_KIND_NONE
     jne .reset_large_kind_ready
-    mov eax, USER_KIND_DOOM
+    mov eax, USER_KIND_GENERIC
 
 .reset_large_kind_ready:
     mov [esi + PROC_KIND], eax
     mov eax, [process_exec_entry]
     mov [esi + PROC_ENTRY], eax
+    cmp dword [process_exec_target_kind], USER_KIND_DOOM
+    je .reset_doom_target_status
     cmp dword [process_exec_target_kind], USER_KIND_QUAKE
     je .reset_quake_target_status
+    mov eax, USER_KIND_GENERIC
+    call payload_lifecycle_start_kind
+    call clear_fault_record
+    mov eax, USER_KIND_GENERIC
+    call user_io_reset_kind
+    jmp .seed_context
+
+.reset_doom_target_status:
     mov eax, USER_KIND_DOOM
     call payload_lifecycle_start_kind
     call clear_fault_record
@@ -34384,9 +34448,10 @@ writable_path_table dd user_path_default_cfg, user_path_doomsav0, user_path_doom
 writable_path_len_table dd user_path_default_cfg_end - user_path_default_cfg, user_path_doomsav0_end - user_path_doomsav0, user_path_doomsav1_end - user_path_doomsav1, user_path_doomsav2_end - user_path_doomsav2, user_path_doomsav3_end - user_path_doomsav3, user_path_doomsav4_end - user_path_doomsav4, user_path_doomsav5_end - user_path_doomsav5, user_path_savereq_end - user_path_savereq, user_path_loadreq_end - user_path_loadreq
 writable_capacity_table dd WRITABLE_DEFAULT_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY
 persistence_marker_name_table dd persist_chk_name_83, save_req_name_83, load_req_name_83
+large_payload_proof_label_table:
+    dd doom_elf_name_83, USER_KIND_DOOM
+    dd quake_elf_name_83, USER_KIND_QUAKE
 process_exec_table:
-    dd exec_path_doom, doom_elf_name_83, PAYLOAD_ELF_LOAD_ADDR, PAYLOAD_ELF_MAX_BYTES, process_payload, USER_KIND_DOOM
-    dd exec_path_quake, quake_elf_name_83, PAYLOAD_ELF_LOAD_ADDR, PAYLOAD_ELF_MAX_BYTES, process_payload, USER_KIND_QUAKE
     dd exec_path_user_probe, user_elf_name_83, USER_ELF_LOAD_ADDR, USER_ELF_MAX_BYTES, process_user_probe, USER_KIND_PROBE
 user_elf_prefix db "User ELF loader: ", 0
 user_entry_prefix db "User entry: ", 0
@@ -34614,7 +34679,7 @@ process_preempt_probe:
     dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
     dd process_preempt_probe_heap_bitmap, USER_HEAP_PAGE_COUNT
 process_payload:
-    dd 2, USER_KIND_DOOM, PROC_STATE_READY
+    dd 2, USER_KIND_GENERIC, PROC_STATE_READY
     dd PAYLOAD_USER_BASE, PAYLOAD_USER_END, PAYLOAD_USER_HEAP_START, PAYLOAD_USER_HEAP_START, PAYLOAD_USER_HEAP_END
     dd PAYLOAD_USER_STACK_BOTTOM, PAYLOAD_USER_STACK_TOP, 0
     times 16 dd 0
