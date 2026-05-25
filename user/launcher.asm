@@ -321,7 +321,7 @@ launcher_handle_mouse:
     mov [launcher_cursor_x], eax
 
     mov eax, [launcher_cursor_y]
-    add eax, [launcher_input_event + INPUT_EVENT_VALUE1]
+    sub eax, [launcher_input_event + INPUT_EVENT_VALUE1]
     call launcher_clip_y
     mov [launcher_cursor_y], eax
 
