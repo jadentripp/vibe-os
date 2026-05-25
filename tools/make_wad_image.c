@@ -103,7 +103,7 @@ static const char* const switch_textures[] = {
     "SW1GRAY", "SW2GRAY", "SW1GRAY1", "SW2GRAY1", "SW1METAL", "SW2METAL",
     "SW1PIPE", "SW2PIPE", "SW1SLAD", "SW2SLAD", "SW1STARG", "SW2STARG",
     "SW1STON1", "SW2STON1", "SW1STON2", "SW2STON2", "SW1STONE", "SW2STONE",
-    "SW1STRTN", "SW2STRTN",
+    "SW1STRTN", "SW2STRTN", "SKY1", "SKY2", "SKY3", "SKY4",
 };
 
 static void die(const char* message)
@@ -1143,6 +1143,7 @@ static Blob build_generated_wad(void)
     Blob texture1 = build_texture1();
     uint8_t* playpal = (uint8_t*)xcalloc(14 * 256 * 3, 1);
     uint8_t* colormap = (uint8_t*)xcalloc(34 * 256, 1);
+    uint8_t flat[64 * 64] = {0};
     uint8_t things[10] = {0};
 
     for (size_t i = 0; i < 14 * 256 * 3; i++)
@@ -1155,6 +1156,7 @@ static Blob build_generated_wad(void)
     add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "PNAMES", pnames.data, pnames.size);
     add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "TEXTURE1", texture1.data, texture1.size);
     add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "F_START", NULL, 0);
+    add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "F_SKY1", flat, sizeof(flat));
     add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "F_END", NULL, 0);
     add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "S_START", NULL, 0);
     add_lump(&lumps, &lump_count, &lump_cap, wad.data, &cursor, "S_END", NULL, 0);
