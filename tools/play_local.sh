@@ -415,7 +415,8 @@ echo "If the QEMU window stays black, quit it and check $PLAY_BUILD_DIR/serial.l
 set -- \
   -machine pc,accel=tcg \
   -m 128M \
-  -vga std \
+  -vga none \
+  -device "VGA,vgamem_mb=32,xres=2560,yres=1440" \
   -drive "file=$PLAY_BUILD_DIR/disk.img,format=raw,if=ide,index=0,media=disk" \
   -boot c
 if [ ${#qemu_display_args[@]} -gt 0 ]; then

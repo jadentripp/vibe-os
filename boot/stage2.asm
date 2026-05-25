@@ -90,6 +90,7 @@ BOOT_DISK_EDD_DPTE_PTR_ADDR equ BOOT_INFO_ADDR + 144
 BOOT_VIDEO_FLAG_VBE equ 0x0001
 BOOT_VIDEO_FLAG_LFB equ 0x0002
 BOOT_VIDEO_FLAG_XRGB8888 equ 0x0004
+BOOT_VIDEO_FLAG_XBGR8888 equ 0x0008
 BOOT_E820_MAGIC equ 0x30323845
 BOOT_LOADER_MAGIC equ 0x534f4942
 BOOT_DISK_MAGIC equ 0x4b534442
@@ -142,7 +143,7 @@ EDD_PARAMS_MIN_BYTES equ 26
 EDD_PARAMS_DPTE_BYTES equ 30
 VBE_INFO_ADDR equ 0x6000
 VBE_MODE_INFO_ADDR equ 0x6200
-VBE_MAX_MODES equ 128
+VBE_MAX_MODES equ 256
 A20_TEST_LOW_OFF equ 0x0500
 A20_TEST_HIGH_SEG equ 0xffff
 A20_TEST_HIGH_OFF equ 0x0510
@@ -1091,21 +1092,32 @@ try_set_vbe_lfb:
     cmp word [VBE_INFO_ADDR + 4], 0x0200
     jb .fail
 
-    mov si, [VBE_INFO_ADDR + 0x0e]
-    mov ax, [VBE_INFO_ADDR + 0x10]
+    mov word [vbe_target_index], 0
+
+.target_loop:
+    mov bx, [vbe_target_index]
+    shl bx, 2
+    mov ax, [vbe_mode_targets + bx]
     test ax, ax
     jz .fail
+    mov [vbe_target_width], ax
+    mov ax, [vbe_mode_targets + bx + 2]
+    mov [vbe_target_height], ax
+    inc word [vbe_target_index]
+
+    mov si, [VBE_INFO_ADDR + 0x0e]
+    mov ax, [VBE_INFO_ADDR + 0x10]
     mov fs, ax
     mov bp, VBE_MAX_MODES
 
 .mode_loop:
     cmp bp, 0
-    je .fail
+    je .target_loop
     dec bp
     mov cx, [fs:si]
     add si, 2
     cmp cx, 0xffff
-    je .fail
+    je .target_loop
     mov [vbe_candidate_mode], cx
 
     push esi
@@ -1173,10 +1185,12 @@ validate_vbe_mode_info:
     and ax, 0x0091
     cmp ax, 0x0091
     jne .fail
-    cmp word [VBE_MODE_INFO_ADDR + 18], 640
+    mov ax, [vbe_target_width]
+    cmp [VBE_MODE_INFO_ADDR + 18], ax
     jne .fail
-    cmp word [VBE_MODE_INFO_ADDR + 20], 400
-    jb .fail
+    mov ax, [vbe_target_height]
+    cmp [VBE_MODE_INFO_ADDR + 20], ax
+    jne .fail
     cmp byte [VBE_MODE_INFO_ADDR + 25], 32
     jne .fail
     cmp byte [VBE_MODE_INFO_ADDR + 27], 6
@@ -1185,16 +1199,23 @@ validate_vbe_mode_info:
     je .fail
     cmp byte [VBE_MODE_INFO_ADDR + 31], 8
     jb .fail
-    cmp byte [VBE_MODE_INFO_ADDR + 32], 16
-    jne .fail
     cmp byte [VBE_MODE_INFO_ADDR + 33], 8
     jb .fail
     cmp byte [VBE_MODE_INFO_ADDR + 34], 8
     jne .fail
     cmp byte [VBE_MODE_INFO_ADDR + 35], 8
     jb .fail
+    cmp byte [VBE_MODE_INFO_ADDR + 32], 16
+    jne .maybe_xbgr
     cmp byte [VBE_MODE_INFO_ADDR + 36], 0
+    je .color_ok
+    jmp .fail
+.maybe_xbgr:
+    cmp byte [VBE_MODE_INFO_ADDR + 32], 0
     jne .fail
+    cmp byte [VBE_MODE_INFO_ADDR + 36], 16
+    jne .fail
+.color_ok:
     mov eax, [VBE_MODE_INFO_ADDR + 40]
     xor ebx, ebx
     mov bx, [VBE_MODE_INFO_ADDR + 16]
@@ -1212,7 +1233,14 @@ store_vbe_video_info:
     or dword [BOOT_LOADER_FLAGS_ADDR], BOOT_LOADER_FLAG_VBE_LFB | BOOT_LOADER_FLAG_VIDEO_VALID
     mov ax, [vbe_candidate_mode]
     mov [BOOT_VIDEO_MODE], ax
-    mov word [BOOT_VIDEO_FLAGS], BOOT_VIDEO_FLAG_VBE | BOOT_VIDEO_FLAG_LFB | BOOT_VIDEO_FLAG_XRGB8888
+    mov word [BOOT_VIDEO_FLAGS], BOOT_VIDEO_FLAG_VBE | BOOT_VIDEO_FLAG_LFB
+    cmp byte [VBE_MODE_INFO_ADDR + 32], 16
+    jne .store_xbgr_flag
+    or word [BOOT_VIDEO_FLAGS], BOOT_VIDEO_FLAG_XRGB8888
+    jmp .flags_ready
+.store_xbgr_flag:
+    or word [BOOT_VIDEO_FLAGS], BOOT_VIDEO_FLAG_XBGR8888
+.flags_ready:
     mov eax, [VBE_MODE_INFO_ADDR + 40]
     mov [BOOT_VIDEO_FB_ADDR], eax
     xor eax, eax
@@ -1791,6 +1819,17 @@ a20_test_result db 0
 a20_output_port db 0
 elf_entry_covered db 0
 vbe_candidate_mode dw 0
+vbe_target_index dw 0
+vbe_target_width dw 0
+vbe_target_height dw 0
+vbe_mode_targets:
+dw 2560, 1440
+dw 1920, 1200
+dw 1920, 1080
+dw 1600, 1200
+dw 1280, 1024
+dw 1024, 768
+dw 0, 0
 elf_current_load_start dd 0
 elf_current_load_end dd 0
 fat16_kernel_name db "KERNEL  ELF"
