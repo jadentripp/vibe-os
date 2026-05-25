@@ -364,18 +364,26 @@ configure_qemu_extra_args
 rm -f "$PLAY_BUILD_DIR/monitor.sock" "$PLAY_BUILD_DIR/qemu.log" "$PLAY_BUILD_DIR/serial.log"
 echo "Starting vibe-os. Pick Doom or Quake from the guest launcher."
 echo "If the QEMU window stays black, quit it and check $PLAY_BUILD_DIR/serial.log."
-exec "$QEMU_BIN" \
+set -- \
   -machine pc,accel=tcg \
   -m 128M \
   -vga std \
   -drive "file=$PLAY_BUILD_DIR/disk.img,format=raw,if=ide,index=0,media=disk" \
-  -boot c \
-  "${qemu_display_args[@]}" \
+  -boot c
+if [ ${#qemu_display_args[@]} -gt 0 ]; then
+  set -- "$@" "${qemu_display_args[@]}"
+fi
+set -- "$@" \
   -serial "file:$PLAY_BUILD_DIR/serial.log" \
   -monitor "unix:$PLAY_BUILD_DIR/monitor.sock,server,nowait" \
   -D "$PLAY_BUILD_DIR/qemu.log" \
   -d guest_errors \
   -no-reboot \
-  -no-shutdown \
-  "${qemu_audio_args[@]}" \
-  "${qemu_extra_args[@]}"
+  -no-shutdown
+if [ ${#qemu_audio_args[@]} -gt 0 ]; then
+  set -- "$@" "${qemu_audio_args[@]}"
+fi
+if [ ${#qemu_extra_args[@]} -gt 0 ]; then
+  set -- "$@" "${qemu_extra_args[@]}"
+fi
+exec "$QEMU_BIN" "$@"
