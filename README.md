@@ -196,7 +196,7 @@ Lower-level local QEMU smoke/debug targets are also opt-in:
 
 ```sh
 make ALLOW_LOCAL_VM=1 DOOM_WAD=/path/to/DOOM1.WAD \
-  SMOKE_INPUT_SCRIPT='launcher-select:1,wait-status=path:PAYLOAD0.ELF:90:1' \
+  SMOKE_INPUT_SCRIPT='launcher-click:mousebtn=1,wait=1,mousebtn=0,wait-status=path:PAYLOAD0.ELF:90:1' \
   SMOKE_SKIP_ASSERTIONS=1 smoke
 
 make ALLOW_LOCAL_VM=1 QUAKE_PAK=/path/to/PAK0.PAK \
