@@ -82,7 +82,7 @@ typedef struct {
 } PersistenceCheck;
 
 static const char USER_PROBE_NAME[] = "USERPROBELF";
-static const char LEGACY_PAYLOAD_ELF_NAME[] = "DOOM    ELF";
+static const char LEGACY_PAYLOAD_ELF_NAME[] = "PAYLOAD0ELF";
 static const char KERNEL_ELF_NAME[] = "KERNEL  ELF";
 static const char PRIMARY_ASSET_WAD_NAME[] = "DOOM1   WAD";
 static const char DEFAULT_CFG_NAME[] = "DEFAULT CFG";

@@ -12898,9 +12898,9 @@ db `doom1.wad`, 0
 L.str.26:
 db `DOOM1.WAD`, 0
 L.str.27:
-db `doom.elf`, 0
+db `payload0.elf`, 0
 L.str.28:
-db `DOOM.ELF`, 0
+db `PAYLOAD0.ELF`, 0
 L.str.29:
 db `userprob.elf`, 0
 L.str.30:

@@ -78,7 +78,7 @@ VIBE_STATUS_CHECK_SRC := tools/vibe_status_check.c
 DOOM_SRC_DIR := third_party/doom/linuxdoom-1.10
 DOOM_PORT_INCLUDE_DIR := doom_port/include
 DOOM_PORT_BUILD_DIR := $(BUILD_DIR)/doom
-DOOM_ELF := $(BUILD_DIR)/doom.elf
+DOOM_ELF := $(BUILD_DIR)/payload0.elf
 DOOM_SYMBOLS := $(BUILD_DIR)/doom.symbols
 DOOM_BASE := 0x01000000
 DOOM_ORIGINAL_SRCS := $(filter-out $(DOOM_SRC_DIR)/i_%.c,$(wildcard $(DOOM_SRC_DIR)/*.c))
@@ -93,7 +93,7 @@ DOOM_P_SAVEG_CFLAGS := -DP_ArchivePlayers=doom_original_P_ArchivePlayers -DP_UnA
 QUAKE_SRC_DIR := third_party/quake/WinQuake
 QUAKE_PORT_INCLUDE_DIR := quake_port/include
 QUAKE_PORT_BUILD_DIR := $(BUILD_DIR)/quake
-QUAKE_ELF := $(BUILD_DIR)/quake.elf
+QUAKE_ELF := $(BUILD_DIR)/payload1.elf
 QUAKE_SYMBOLS := $(BUILD_DIR)/quake.symbols
 QUAKE_BASE := 0x01000000
 QUAKE_ORIGINAL_SRC_NAMES := \
@@ -126,7 +126,7 @@ STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 163840
 USER_PROBE_ELF_MAX_BYTES := 16384
 USER_ABI_PROBE_ELF_MAX_BYTES := 24576
-LARGE_PAYLOAD_ROOT_ELF_ARGS := --root-elf DOOM.ELF=$(DOOM_ELF) --root-elf QUAKE.ELF=$(QUAKE_ELF)
+LARGE_PAYLOAD_ROOT_ELF_ARGS := --root-elf PAYLOAD0.ELF=$(DOOM_ELF) --root-elf PAYLOAD1.ELF=$(QUAKE_ELF)
 IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) $(LARGE_PAYLOAD_ROOT_ELF_ARGS)
 
 .PHONY: all build-only test assembly-native-check no-python-check doom-compile doom-link quake-compile quake-link run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
@@ -210,13 +210,13 @@ doom-compile: $(DOOM_ORIGINAL_OBJS)
 	@printf "Compiled %s original Doom source files for freestanding i386.\n" "$$(printf '%s\n' $(DOOM_ORIGINAL_OBJS) | wc -l | tr -d ' ')"
 
 doom-link: $(DOOM_ELF)
-	@printf "Linked freestanding Doom ELF at %s\n" "$(DOOM_ELF)"
+	@printf "Linked freestanding Doom proof payload at %s\n" "$(DOOM_ELF)"
 
 quake-compile: $(QUAKE_ORIGINAL_OBJS)
 	@printf "Compiled %s original Quake source files for freestanding i386.\n" "$$(printf '%s\n' $(QUAKE_ORIGINAL_OBJS) | wc -l | tr -d ' ')"
 
 quake-link: $(QUAKE_ELF)
-	@printf "Linked freestanding Quake ELF at %s\n" "$(QUAKE_ELF)"
+	@printf "Linked freestanding Quake proof payload at %s\n" "$(QUAKE_ELF)"
 
 playability-host-check:
 	@printf "Running host-only playability readiness checks; local QEMU remains disabled.\n"
@@ -489,7 +489,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "wad=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "lmp=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "exec=OK" $(BUILD_DIR)/status.txt; \
-	grep -q "path=DOOM.ELF" $(BUILD_DIR)/status.txt; \
+	grep -q "path=PAYLOAD0.ELF" $(BUILD_DIR)/status.txt; \
 	grep -q "uexec=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "upath=USERPROB.ELF" $(BUILD_DIR)/status.txt; \
 	grep -q "upid=" $(BUILD_DIR)/status.txt; \
@@ -655,7 +655,7 @@ smoke: vm-consent check-tools $(IMAGE)
 		perl -ne '$$ok = 1 if /leveltime=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	fi; \
 	if [ "$(SMOKE_REQUIRE_REAL_WAD_PROOF)" = "1" ]; then \
-		grep -q "path=DOOM.ELF" $(BUILD_DIR)/status.txt; \
+		grep -q "path=PAYLOAD0.ELF" $(BUILD_DIR)/status.txt; \
 		grep -q "doomopen=OK" $(BUILD_DIR)/status.txt; \
 		grep -q "doomread=OK" $(BUILD_DIR)/status.txt; \
 		grep -q "gameplay=OK" $(BUILD_DIR)/status.txt; \
@@ -683,12 +683,12 @@ smoke: vm-consent check-tools $(IMAGE)
 	perl -ne '$$ok = 1 if /heap=OK free=([0-9A-F]{8})/ && hex($$1) >= 0x00700000; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	perl -ne '$$ok = 1 if /ticks=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	trap - EXIT; \
-	printf "Smoke boot OK: protected-mode kernel status, Ring 3 probe, Doom ELF load, indexed-frame present, and PIT ticks verified in cloud VM memory.\n"
+	printf "Smoke boot OK: protected-mode kernel status, Ring 3 probe, primary payload ELF load, indexed-frame present, and PIT ticks verified in cloud VM memory.\n"
 
 quake-status-proof-check:
 	@set -e; \
 	test -s $(BUILD_DIR)/status.txt; \
-	grep -q "path=QUAKE.ELF" $(BUILD_DIR)/status.txt; \
+	grep -q "path=PAYLOAD1.ELF" $(BUILD_DIR)/status.txt; \
 	grep -q "quake=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "quakerun=RUN" $(BUILD_DIR)/status.txt; \
 	grep -q "quakeopen=OK" $(BUILD_DIR)/status.txt; \
@@ -705,7 +705,7 @@ quake-status-proof-check:
 	perl -ne '$$ok = 1 if /qframe=([0-9A-F]{8})\/([0-9A-F]{8})/ && hex($$1) > 0 && hex($$2) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	perl -ne '$$ok = 1 if /qinput=([0-9A-F]{8})\// && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	perl -ne '$$ok = 1 if /qaudio=([0-9A-F]{8})\// && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
-	printf "Quake proof status OK: QUAKE.ELF, PAK reads, rendered frames, input, audio, process, memory, preemption, panic, and shutdown gates passed.\n"
+	printf "Quake proof status OK: PAYLOAD1.ELF, PAK reads, rendered frames, input, audio, process, memory, preemption, panic, and shutdown gates passed.\n"
 
 vm-status-proof-check:
 	BUILD_DIR="$(abspath $(BUILD_DIR))" HOST_CC="$(HOST_CC)" tools/test_vibe_status_check.sh

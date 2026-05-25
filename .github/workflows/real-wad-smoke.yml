@@ -244,7 +244,7 @@ jobs:
             if [ ! -s "$candidate" ]; then
               continue
             fi
-            if grep -q "path=DOOM.ELF" "$candidate" \
+            if grep -q "path=PAYLOAD0.ELF" "$candidate" \
               && grep -q "gameplay=OK" "$candidate" \
               && grep -q "pg=ON" "$candidate" \
               && grep -q "vfsops=" "$candidate" \
@@ -262,7 +262,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          grep -q "path=DOOM.ELF" build/status.txt
+          grep -q "path=PAYLOAD0.ELF" build/status.txt
           grep -q "doomopen=OK" build/status.txt
           grep -q "doomread=OK" build/status.txt
           grep -q "gameplay=OK" build/status.txt

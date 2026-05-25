@@ -2484,9 +2484,9 @@ db `USERPROB.ELF`, 0
 
 L.str.5:
 %ifdef BOOT_PAYLOAD_QUAKE
-db `QUAKE.ELF`, 0
+db `PAYLOAD1.ELF`, 0
 %else
-db `DOOM.ELF`, 0
+db `PAYLOAD0.ELF`, 0
 %endif
 
 L.str.6:

@@ -34410,10 +34410,10 @@ cmd_poweroff db "poweroff", 0
 
 primary_asset_name_83 db "DOOM1   WAD"
 user_elf_name_83 db "USERPROBELF"
-primary_payload_elf_name_83 db "DOOM    ELF"
-secondary_payload_elf_name_83 db "QUAKE   ELF"
-exec_path_primary_payload db "DOOM.ELF", 0
-exec_path_secondary_payload db "QUAKE.ELF", 0
+primary_payload_elf_name_83 db "PAYLOAD0ELF"
+secondary_payload_elf_name_83 db "PAYLOAD1ELF"
+exec_path_primary_payload db "PAYLOAD0.ELF", 0
+exec_path_secondary_payload db "PAYLOAD1.ELF", 0
 exec_path_user_probe db "USERPROB.ELF", 0
 exec_path_abi_probe db "ABIPROBE.ELF", 0
 default_cfg_name_83 db "DEFAULT CFG"
