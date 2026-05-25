@@ -11,6 +11,8 @@ MAKE_BIN="${MAKE:-make}"
 QEMU_BIN="${QEMU:-qemu-system-x86_64}"
 QEMU_EXTRA_ARGS="${QEMU_EXTRA_ARGS:-}"
 VIBE_QEMU_DISPLAY="${VIBE_QEMU_DISPLAY:-auto}"
+VIBE_QEMU_FULLSCREEN="${VIBE_QEMU_FULLSCREEN:-auto}"
+VIBE_QEMU_ZOOM_TO_FIT="${VIBE_QEMU_ZOOM_TO_FIT:-auto}"
 VIBE_QEMU_AUDIO="${VIBE_QEMU_AUDIO:-auto}"
 PREPARE_ONLY=0
 
@@ -31,6 +33,10 @@ Environment overrides:
                                     Display backend. On macOS, auto uses cocoa
                                     when available so the native QEMU window is
                                     explicit instead of backend-dependent.
+  VIBE_QEMU_FULLSCREEN=auto|on|off  Fullscreen mode for the Cocoa display.
+                                    On macOS, auto starts fullscreen.
+  VIBE_QEMU_ZOOM_TO_FIT=auto|on|off Scale the guest framebuffer to the Cocoa
+                                    window. On macOS, auto enables scaling.
   VIBE_QEMU_AUDIO=auto|off|BACKEND  Audio backend. On macOS, auto uses
                                     coreaudio when available.
 
@@ -58,6 +64,45 @@ qemu_help_has_backend() {
     $1 == backend || $0 == backend { found = 1 }
     END { exit found ? 0 : 1 }
   '
+}
+
+normalize_auto_bool() {
+  local value="$1"
+  local name="$2"
+
+  case "$value" in
+    auto|"")
+      printf "auto\n"
+      ;;
+    on|yes|true|1)
+      printf "on\n"
+      ;;
+    off|no|false|0)
+      printf "off\n"
+      ;;
+    *)
+      fail_play "$name must be auto, on, or off"
+      ;;
+  esac
+}
+
+cocoa_display_arg() {
+  local zoom_to_fit
+  local full_screen
+  local display="cocoa"
+
+  zoom_to_fit="$(normalize_auto_bool "$VIBE_QEMU_ZOOM_TO_FIT" "VIBE_QEMU_ZOOM_TO_FIT")"
+  full_screen="$(normalize_auto_bool "$VIBE_QEMU_FULLSCREEN" "VIBE_QEMU_FULLSCREEN")"
+
+  if [ "$zoom_to_fit" = "auto" ]; then
+    zoom_to_fit="on"
+  fi
+  if [ "$full_screen" = "auto" ]; then
+    full_screen="on"
+  fi
+
+  display="$display,zoom-to-fit=$zoom_to_fit,full-screen=$full_screen"
+  printf "%s\n" "$display"
 }
 
 sha1_file() {
@@ -258,13 +303,16 @@ configure_qemu_display_args() {
   case "$VIBE_QEMU_DISPLAY" in
     auto)
       if [ "$(uname -s)" = "Darwin" ] && qemu_help_has_backend "-display" "cocoa"; then
-        qemu_display_args=(-display cocoa)
+        qemu_display_args=(-display "$(cocoa_display_arg)")
       fi
       ;;
     default|"")
       ;;
     none)
       qemu_display_args=(-display none)
+      ;;
+    cocoa)
+      qemu_display_args=(-display "$(cocoa_display_arg)")
       ;;
     *)
       qemu_display_args=(-display "$VIBE_QEMU_DISPLAY")
