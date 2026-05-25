@@ -23,7 +23,7 @@ enum {
     FAT_ATTR_DIRECTORY = 0x10,
     FAT_ATTR_ARCHIVE = 0x20,
     FIXTURE_WAD_SIZE = 1024 * 1024,
-    MAX_KERNEL_WAD_BYTES = 0x00500000,
+    MAX_PRIMARY_WAD_BYTES = 0x00500000,
     MIN_OS_CREATED_FILE_CLUSTERS = 4096,
 };
 
@@ -84,13 +84,16 @@ typedef struct {
 static const char USER_PROBE_NAME[] = "USERPROBELF";
 static const char LEGACY_PAYLOAD_ELF_NAME[] = "DOOM    ELF";
 static const char KERNEL_ELF_NAME[] = "KERNEL  ELF";
-static const char DOOM_WAD_NAME[] = "DOOM1   WAD";
+static const char PRIMARY_ASSET_WAD_NAME[] = "DOOM1   WAD";
 static const char DEFAULT_CFG_NAME[] = "DEFAULT CFG";
 static const char PERSISTENCE_CHECKPOINT_NAME[] = "PERSIST CHK";
 static const char SAVE_REQUEST_NAME[] = "SAVEREQ CHK";
 static const char LOAD_REQUEST_NAME[] = "LOADREQ CHK";
 static const char STATE_DIR_NAME[] = "STATE      ";
-static const char SAVE_SLOT_TEMPLATE_NAME[] = "DOOMSAV DSG";
+static const char PRIMARY_SAVE_SLOT_TEMPLATE_NAME[] = "DOOMSAV DSG";
+static const char MBR_DISK_ID[] = "VOSD";
+static const char FAT_OEM_NAME[] = "VIBEOS  ";
+static const char FAT_VOLUME_LABEL[] = "VIBEOS WAD ";
 
 static const char* const switch_textures[] = {
     "SW1BRCOM", "SW2BRCOM", "SW1BRN1", "SW2BRN1", "SW1BRN2", "SW2BRN2",
@@ -506,18 +509,18 @@ static void check_default_cfg(const Blob* image, const Blob* baseline)
         die("DEFAULT.CFG did not change from the persistence baseline");
 }
 
-static void save_slot_name_for_slot(int slot, char out[11])
+static void primary_save_slot_name_for_slot(int slot, char out[11])
 {
     if (slot < 0 || slot > 5)
         die("save slot must be 0..5");
-    memcpy(out, SAVE_SLOT_TEMPLATE_NAME, 11);
+    memcpy(out, PRIMARY_SAVE_SLOT_TEMPLATE_NAME, 11);
     out[7] = (char)('0' + slot);
 }
 
-static void check_save_slot(const Blob* image, const Blob* baseline, const Blob* reboot_baseline, int slot, const char* description)
+static void check_primary_save_slot(const Blob* image, const Blob* baseline, const Blob* reboot_baseline, int slot, const char* description)
 {
     char name[11];
-    save_slot_name_for_slot(slot, name);
+    primary_save_slot_name_for_slot(slot, name);
     FatFileInfo info = find_root_file(image, name);
     if (!info.present)
         die("required save slot is missing from the FAT root");
@@ -654,7 +657,7 @@ static void check_persistence_image(const char* image_path, const PersistenceChe
         check_default_cfg(&image, baseline.data ? &baseline : NULL);
     for (size_t i = 0; i < check->save_slot_count; i++) {
         int slot = check->save_slots[i];
-        check_save_slot(
+        check_primary_save_slot(
             &image,
             baseline.data ? &baseline : NULL,
             reboot_baseline.data ? &reboot_baseline : NULL,
@@ -790,7 +793,7 @@ static int name_eq(const char lhs[11], const char rhs[11])
 
 static void reject_protected_root_name(const char name[11])
 {
-    if (name_eq(name, DOOM_WAD_NAME) || name_eq(name, KERNEL_ELF_NAME) ||
+    if (name_eq(name, PRIMARY_ASSET_WAD_NAME) || name_eq(name, KERNEL_ELF_NAME) ||
         name_eq(name, USER_PROBE_NAME))
         die("--root-elf tries to replace a protected boot entry");
 }
@@ -1194,8 +1197,8 @@ static Blob build_generated_wad(void)
 static Blob load_external_wad(const char* path)
 {
     Blob wad = read_file(path);
-    if (wad.size > MAX_KERNEL_WAD_BYTES)
-        die_path(path, "WAD exceeds kernel load limit");
+    if (wad.size > MAX_PRIMARY_WAD_BYTES)
+        die_path(path, "WAD exceeds primary asset load limit");
     if (wad.size < 12)
         die_path(path, "too small to be a WAD");
     if (memcmp(wad.data, "IWAD", 4) != 0 && memcmp(wad.data, "PWAD", 4) != 0)
@@ -1225,7 +1228,7 @@ static void write_mbr_and_bpb(Image* image, const char* stage1_path, const char*
         mbr[2] = 0x90;
     }
 
-    memcpy(mbr + 440, "AOSD", 4);
+    memcpy(mbr + 440, MBR_DISK_ID, sizeof(MBR_DISK_ID) - 1);
     size_t entry = 446;
     mbr[entry] = 0x80;
     mbr[entry + 1] = 0x01;
@@ -1243,7 +1246,7 @@ static void write_mbr_and_bpb(Image* image, const char* stage1_path, const char*
     boot[0] = 0xeb;
     boot[1] = 0x3c;
     boot[2] = 0x90;
-    memcpy(boot + 3, "AURORA  ", 8);
+    memcpy(boot + 3, FAT_OEM_NAME, sizeof(FAT_OEM_NAME) - 1);
     put_u16(boot, SECTOR_SIZE, 11, SECTOR_SIZE);
     boot[13] = SECTORS_PER_CLUSTER;
     put_u16(boot, SECTOR_SIZE, 14, RESERVED_SECTORS);
@@ -1259,7 +1262,7 @@ static void write_mbr_and_bpb(Image* image, const char* stage1_path, const char*
     boot[36] = 0x80;
     boot[38] = 0x29;
     put_u32(boot, SECTOR_SIZE, 39, 0xd00d0001);
-    memcpy(boot + 43, "AURORA WAD ", 11);
+    memcpy(boot + 43, FAT_VOLUME_LABEL, sizeof(FAT_VOLUME_LABEL) - 1);
     memcpy(boot + 54, "FAT16   ", 8);
     put_u16(boot, SECTOR_SIZE, 510, 0xaa55);
 }
@@ -1300,7 +1303,7 @@ static void package_extra_asset(Image* image, const char* display, const char* h
 
 static void install_bootable_layout(
     Image* image,
-    const char* wad_path,
+    const char* primary_asset_wad_path,
     const char* stage1_path,
     const char* stage2_path,
     const char* kernel_path,
@@ -1318,14 +1321,14 @@ static void install_bootable_layout(
 
     write_mbr_and_bpb(image, stage1_path, stage2_path, kernel_path);
 
-    Blob wad = wad_path ? load_external_wad(wad_path) : build_generated_wad();
-    uint32_t wad_clusters = 0;
-    uint32_t wad_cluster = write_cluster_chain(image, wad.data, wad.size, &wad_clusters);
-    if (wad_cluster != 2)
-        die("DOOM1.WAD must start at cluster 2");
-    (void)wad_clusters;
-    write_dir_entry(root_dir(image), ROOT_ENTRIES * 32, root_next_free(image), DOOM_WAD_NAME, FAT_ATTR_ARCHIVE, wad_cluster, (uint32_t)wad.size);
-    free(wad.data);
+    Blob primary_asset = primary_asset_wad_path ? load_external_wad(primary_asset_wad_path) : build_generated_wad();
+    uint32_t primary_asset_clusters = 0;
+    uint32_t primary_asset_cluster = write_cluster_chain(image, primary_asset.data, primary_asset.size, &primary_asset_clusters);
+    if (primary_asset_cluster != 2)
+        die("primary WAD asset (DOOM1.WAD) must start at cluster 2");
+    (void)primary_asset_clusters;
+    write_dir_entry(root_dir(image), ROOT_ENTRIES * 32, root_next_free(image), PRIMARY_ASSET_WAD_NAME, FAT_ATTR_ARCHIVE, primary_asset_cluster, (uint32_t)primary_asset.size);
+    free(primary_asset.data);
 
     if (kernel_path) {
         Blob kernel = read_file(kernel_path);
@@ -1356,8 +1359,8 @@ static void install_bootable_layout(
 
     write_empty_root_entry(image, DEFAULT_CFG_NAME);
     for (int slot = 0; slot < 6; slot++) {
-        char save_name[12] = "DOOMSAV DSG";
-        save_name[7] = (char)('0' + slot);
+        char save_name[11];
+        primary_save_slot_name_for_slot(slot, save_name);
         write_empty_root_entry(image, save_name);
     }
     write_empty_root_entry(image, PERSISTENCE_CHECKPOINT_NAME);
@@ -1442,7 +1445,7 @@ static void mutate_root_marker(const char* image_path, const char* symbol, const
 
 static void usage(void)
 {
-    die("usage: make_wad_image [--inspect IMAGE] [--wad PATH] [--root-elf NAME.ELF=PATH] [--asset IMAGE_8.3_PATH=HOST_PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [LEGACY_PAYLOAD_ELF]]]\n"
+    die("usage: make_wad_image [--inspect IMAGE] [--primary-asset-wad PATH|--wad PATH] [--root-elf NAME.ELF=PATH] [--asset IMAGE_8.3_PATH=HOST_PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [LEGACY_PAYLOAD_ELF]]]\n"
         "       make_wad_image --write-root-marker SYMBOL PAYLOAD IMAGE\n"
         "       make_wad_image --delete-root-marker SYMBOL IMAGE\n"
         "       make_wad_image --check-persistence IMAGE [--baseline-image IMAGE] [--reboot-baseline-image IMAGE] [--write-status FILE] [--save-write-status FILE] [--load-status FILE] [--reboot-status FILE] [--require-default] [--require-dynamic-fat-proof] [--require-save-slot N] [--require-save-description N=TEXT]");
@@ -1450,7 +1453,7 @@ static void usage(void)
 
 int main(int argc, char** argv)
 {
-    const char* wad_path = NULL;
+    const char* primary_asset_wad_path = NULL;
     const char* inspect_path = NULL;
     RootElfArg* root_elves = NULL;
     size_t root_elf_count = 0;
@@ -1520,10 +1523,10 @@ int main(int argc, char** argv)
     }
 
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--wad") == 0) {
+        if (strcmp(argv[i], "--primary-asset-wad") == 0 || strcmp(argv[i], "--wad") == 0) {
             if (++i >= argc)
                 usage();
-            wad_path = argv[i];
+            primary_asset_wad_path = argv[i];
         } else if (strcmp(argv[i], "--inspect") == 0) {
             if (++i >= argc)
                 usage();
@@ -1551,7 +1554,7 @@ int main(int argc, char** argv)
     }
 
     if (inspect_path) {
-        if (positional_count || wad_path || root_elf_count || asset_count)
+        if (positional_count || primary_asset_wad_path || root_elf_count || asset_count)
             usage();
         inspect_image(inspect_path);
         free(root_elves);
@@ -1579,10 +1582,16 @@ int main(int argc, char** argv)
     const char* kernel = positional_count >= 4 ? positional[3] : NULL;
     const char* user_elf = positional_count >= 5 ? positional[4] : NULL;
     const char* legacy_payload_elf = positional_count == 6 ? positional[5] : NULL;
+    if (legacy_payload_elf) {
+        for (size_t i = 0; i < root_elf_count; i++) {
+            if (name_eq(root_elves[i].name, LEGACY_PAYLOAD_ELF_NAME))
+                die("legacy payload ELF conflicts with --root-elf");
+        }
+    }
 
     install_bootable_layout(
         &image,
-        wad_path,
+        primary_asset_wad_path,
         stage1,
         stage2,
         kernel,

@@ -399,7 +399,7 @@ enum {
 
 typedef struct vibe_audio_pcm_ring_info {
     /* PCM-ring geometry and safety counters. This is the reusable device
-       stream buffer contract, not a Doom WAD or SFX descriptor. */
+       stream buffer contract, not an application asset or SFX descriptor. */
     unsigned long format;
     unsigned long channels;
     unsigned long sample_rate;
@@ -420,7 +420,7 @@ enum {
 
 typedef struct vibe_audio_stream_info {
     /* Pull-stream service snapshot for hardware-paced refill loops. The stream
-       may carry music or any caller-owned PCM; Doom is only the first user. */
+       may carry music or any caller-owned PCM; the ABI is app-neutral. */
     unsigned long stream_mode;
     unsigned long flags;
     unsigned long handle;
@@ -508,7 +508,7 @@ static inline int vibe_audio_stream_has_new_refill_request(
 enum {
     VIBE_AUDIO_FLAG_LOOP = 0x00000001u,
     VIBE_AUDIO_FLAG_MUSIC = 0x00000002u,
-    VIBE_AUDIO_FLAG_WAD_SFX = 0x00000004u,
+    VIBE_AUDIO_FLAG_ASSET_SFX = 0x00000004u,
     VIBE_AUDIO_FLAG_STREAM_FINAL = 0x00000008u,
     VIBE_AUDIO_FLAG_STREAM = 0x00000010u,
 };
@@ -1060,26 +1060,47 @@ enum {
 };
 
 enum {
-    VIBE_PAYLOAD_SAVEACTION_STATUS = 0x10000000u,
-    VIBE_PAYLOAD_SAVEACTION_SENDSAVE = 0x0001u,
-    VIBE_PAYLOAD_SAVEACTION_MENUACTIVE = 0x0002u,
-    VIBE_PAYLOAD_SAVEACTION_DESCRIPTION = 0x0004u,
-    VIBE_PAYLOAD_SAVEACTION_SAVE_REQUESTED = 0x0008u,
-    VIBE_PAYLOAD_SAVEACTION_SAVE_DONE = 0x0010u,
-    VIBE_PAYLOAD_SAVEACTION_LOAD_REQUESTED = 0x0020u,
-    VIBE_PAYLOAD_SAVEACTION_LOAD_DONE = 0x0040u,
-    VIBE_PAYLOAD_SAVEACTION_STREAM = 0x0080u,
-    VIBE_PAYLOAD_SAVEACTION_GAMEACTION_SHIFT = 8,
-    VIBE_PAYLOAD_SAVEACTION_SLOT_SHIFT = 16,
+    VIBE_PAYLOAD_PERSIST_ACTION_STATUS = 0x10000000u,
+    VIBE_PAYLOAD_PERSIST_ACTION_SEND = 0x0001u,
+    VIBE_PAYLOAD_PERSIST_ACTION_UI_ACTIVE = 0x0002u,
+    VIBE_PAYLOAD_PERSIST_ACTION_DESCRIPTION = 0x0004u,
+    VIBE_PAYLOAD_PERSIST_ACTION_WRITE_REQUESTED = 0x0008u,
+    VIBE_PAYLOAD_PERSIST_ACTION_WRITE_DONE = 0x0010u,
+    VIBE_PAYLOAD_PERSIST_ACTION_READ_REQUESTED = 0x0020u,
+    VIBE_PAYLOAD_PERSIST_ACTION_READ_DONE = 0x0040u,
+    VIBE_PAYLOAD_PERSIST_ACTION_STREAM = 0x0080u,
+    VIBE_PAYLOAD_PERSIST_ACTION_OP_SHIFT = 8,
+    VIBE_PAYLOAD_PERSIST_ACTION_SLOT_SHIFT = 16,
 };
 
 enum {
-    VIBE_PAYLOAD_SAVELOAD_STATUS = 0x20000000u,
-    VIBE_PAYLOAD_SAVELOAD_OPEN = 0x0001u,
-    VIBE_PAYLOAD_SAVELOAD_READ = 0x0002u,
-    VIBE_PAYLOAD_SAVELOAD_WRITE = 0x0004u,
-    VIBE_PAYLOAD_SAVELOAD_CLOSE = 0x0008u,
-    VIBE_PAYLOAD_SAVELOAD_SLOT_SHIFT = 16,
+    VIBE_PAYLOAD_PERSIST_IO_STATUS = 0x20000000u,
+    VIBE_PAYLOAD_PERSIST_IO_OPEN = 0x0001u,
+    VIBE_PAYLOAD_PERSIST_IO_READ = 0x0002u,
+    VIBE_PAYLOAD_PERSIST_IO_WRITE = 0x0004u,
+    VIBE_PAYLOAD_PERSIST_IO_CLOSE = 0x0008u,
+    VIBE_PAYLOAD_PERSIST_IO_SLOT_SHIFT = 16,
+};
+
+enum {
+    /* Compatibility aliases for existing save/load payload instrumentation. */
+    VIBE_PAYLOAD_SAVEACTION_STATUS = VIBE_PAYLOAD_PERSIST_ACTION_STATUS,
+    VIBE_PAYLOAD_SAVEACTION_SENDSAVE = VIBE_PAYLOAD_PERSIST_ACTION_SEND,
+    VIBE_PAYLOAD_SAVEACTION_MENUACTIVE = VIBE_PAYLOAD_PERSIST_ACTION_UI_ACTIVE,
+    VIBE_PAYLOAD_SAVEACTION_DESCRIPTION = VIBE_PAYLOAD_PERSIST_ACTION_DESCRIPTION,
+    VIBE_PAYLOAD_SAVEACTION_SAVE_REQUESTED = VIBE_PAYLOAD_PERSIST_ACTION_WRITE_REQUESTED,
+    VIBE_PAYLOAD_SAVEACTION_SAVE_DONE = VIBE_PAYLOAD_PERSIST_ACTION_WRITE_DONE,
+    VIBE_PAYLOAD_SAVEACTION_LOAD_REQUESTED = VIBE_PAYLOAD_PERSIST_ACTION_READ_REQUESTED,
+    VIBE_PAYLOAD_SAVEACTION_LOAD_DONE = VIBE_PAYLOAD_PERSIST_ACTION_READ_DONE,
+    VIBE_PAYLOAD_SAVEACTION_STREAM = VIBE_PAYLOAD_PERSIST_ACTION_STREAM,
+    VIBE_PAYLOAD_SAVEACTION_GAMEACTION_SHIFT = VIBE_PAYLOAD_PERSIST_ACTION_OP_SHIFT,
+    VIBE_PAYLOAD_SAVEACTION_SLOT_SHIFT = VIBE_PAYLOAD_PERSIST_ACTION_SLOT_SHIFT,
+    VIBE_PAYLOAD_SAVELOAD_STATUS = VIBE_PAYLOAD_PERSIST_IO_STATUS,
+    VIBE_PAYLOAD_SAVELOAD_OPEN = VIBE_PAYLOAD_PERSIST_IO_OPEN,
+    VIBE_PAYLOAD_SAVELOAD_READ = VIBE_PAYLOAD_PERSIST_IO_READ,
+    VIBE_PAYLOAD_SAVELOAD_WRITE = VIBE_PAYLOAD_PERSIST_IO_WRITE,
+    VIBE_PAYLOAD_SAVELOAD_CLOSE = VIBE_PAYLOAD_PERSIST_IO_CLOSE,
+    VIBE_PAYLOAD_SAVELOAD_SLOT_SHIFT = VIBE_PAYLOAD_PERSIST_IO_SLOT_SHIFT,
 };
 
 enum {
@@ -1407,14 +1428,14 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   FAT16 VFS path model.
  *   `pread`, `pwrite`, `vibe_file_read_at`, and `vibe_file_write_at` provide
  *   lseek-backed positioned I/O for single-threaded asset/state loaders that
- *   need WAD/PAK-style table reads or small state-file updates without
+ *   need package-table reads or small state-file updates without
  *   mutating their descriptor's logical offset.
  * - VIBE_SYS_CLOCK_GETTIME exposes the reusable monotonic kernel clock. It
  *   reports 100 Hz compatibility ticks plus milliseconds; on the supported QEMU
  *   target those milliseconds are HPET-backed once ACPI/HPET probing succeeds.
  *   It is not an RTC or wall clock. `vibe_clock_monotonic` and
  *   `vibe_clock_ticks_to_milliseconds` are generic helpers for game loops that
- *   do not want Doom's 35 Hz tic conversion.
+ *   do not want fixed 35 Hz tic conversion.
  * - VIBE_SYS_LISTDIR lists cached FAT16 root entries and one-level root
  *   subdirectories into fixed `vibe_dirent_t` records. Names are normalized
  *   8.3 display names, and stat/open/listdir honor FAT readonly attributes for
@@ -1427,7 +1448,7 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   keyboard state, and mouse state without consuming queued input.
  *   VIBE_SYS_INPUT_DEVICE_STATUS reports one device at a time, so future games
  *   can inspect keyboard and mouse readiness/counters/state without linking
- *   Doom translation helpers. The libc wrappers `vibe_poll_input`,
+ *   app-local translation helpers. The libc wrappers `vibe_poll_input`,
  *   `vibe_input_status`, and `vibe_input_device_status` pass the ABI byte sizes
  *   explicitly so game/tool code does not need to duplicate syscall details.
  *   `vibe_drain_input` is a bounded nonblocking drain helper for per-frame
@@ -1436,7 +1457,7 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   PS/2 scancode/extended decoding, raw PS/2 mouse buttons, relative X/Y
  *   deltas, queue depth/counter invariants, explicit overflow policy/device
  *   readiness fields, modifier helpers, per-device drop/poll counters, and
- *   status ABI validation so consumers can stay out of Doom's event translation
+ *   status ABI validation so consumers can stay out of app-local event translation
  *   layer. The queue stores 64 slots with one empty sentinel, so
  *   `VIBE_INPUT_EVENT_QUEUE_USABLE_CAPACITY` is the observable full depth; on
  *   overflow the kernel drops the oldest queued event and increments
@@ -1444,8 +1465,8 @@ unsigned long vibe_monotonic_milliseconds(void);
  * - `vibe_audio_*` wrappers hide the VIBE_SYS_AUDIO command numbers and
  *   argument ordering for device/ring/stream/mixer calls. `PCM_OPEN`,
  *   `PCM_WRITE_DESC`, `PCM_DRAIN`, and `PCM_CLOSE` are the reusable stream
- *   path for non-Doom games/tools that want to queue unsigned 8-bit stereo
- *   PCM without linking Doom's I_* platform glue.
+ *   path for games/tools that want to queue unsigned 8-bit stereo
+ *   PCM without linking app-specific platform glue.
  * - `vibe_fb_get_info` queries the reusable framebuffer contract, and
  *   `vibe_present_indexed_checked` verifies the advertised caps/format/size
  *   before presenting a `vibe_present_indexed_t` through the display fd/ioctl
@@ -1466,10 +1487,10 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   explicit for ports that would otherwise probe file-backed/shared mappings.
  * - crt0 validates bounded argc/envp startup shape before calling user_main,
  *   records startup status flags, and exposes auxv through runtime helpers so
- *   non-Doom programs can query page size and entry metadata without parsing
+ *   generic programs can query page size and entry metadata without parsing
  *   the raw initial stack themselves.
  * - execv/execve pass bounded argv/envp vectors to the process handoff; execve copies bounded envp strings. Table
- *   entries cover Doom/probe images; root-level FAT16 .ELF names use reusable
+ *   entries cover compatibility/probe images; root-level FAT16 .ELF names use reusable
  *   probe-class slots. File descriptors inherit across exec unless
  *   opened with O_CLOEXEC, created by dup3 with O_CLOEXEC, or marked
  *   FD_CLOEXEC through fcntl(F_SETFD). Duplicated descriptors share offsets
@@ -1477,7 +1498,7 @@ unsigned long vibe_monotonic_milliseconds(void);
  *   VIBE_EXEC_* exposes the current path, argv, envp, and resolver-mode bounds
  *   to generic userland programs. Resolver mode `VIBE_EXEC_RESOLVE_GENERIC_ROOT83`
  *   means a root FAT 8.3 `.ELF` name used the reusable process pool instead of a
- *   table-only Doom/probe path.
+ *   table-only compatibility/probe path.
  * - getpid returns the active static process id. process_status returns a
  *   fixed 64-byte snapshot for the current process or a positive PID.
  * - yield is a cooperative scheduler handoff. `sleep_ticks` and direct-child
