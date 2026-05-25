@@ -3,11 +3,11 @@
 vibe-os is an assembly-native x86 OS/runtime. It boots a raw disk image, loads
 its own kernel, and runs Ring 3 ELF programs through one process/syscall ABI.
 
-The current proof programs are original Doom and original Quake. In the build
-output and FAT image, Doom occupies `PAYLOAD0.ELF` and Quake occupies
-`PAYLOAD1.ELF`. Those are generic payload slot names, not special ELF types.
-The public process ABI uses generic payload kinds, not Doom or Quake process
-kinds.
+The current proof programs are original Doom and original Quake. They appear on
+the guest launcher screen as Doom and Quake. Internally, the build image stores
+them in generic payload slot files, so the OS process path is not a Doom-only or
+Quake-only executable path. The public process ABI uses generic payload kinds,
+not Doom or Quake process kinds.
 
 The concrete test is simple:
 
@@ -173,23 +173,33 @@ Local VM launch is opt-in. A normal local run boots vibe-os itself, shows the
 guest launcher screen, and lets you pick the payload from inside the OS:
 
 ```sh
-make ALLOW_LOCAL_VM=1 \
-  DOOM_WAD=/absolute/path/to/DOOM1.WAD \
-  QUAKE_PAK=/absolute/path/to/PAK0.PAK \
-  run
+make play
 ```
 
-Keep `DOOM1.WAD` and `PAK0.PAK` outside the repo and pass whichever external
-data you want packaged into the disk image. `PAYLOAD0.ELF` is Doom and
-`PAYLOAD1.ELF` is Quake, but the selection happens in the guest launcher. Press
-`1`/`2`, use `W`/`S` and Enter, or click a payload choice with the mouse.
+`make play` downloads and validates the public shareware `DOOM1.WAD` and
+`PAK0.PAK` into `~/.cache/vibe-os`, builds `build/play/disk.img`, and launches
+QEMU. The data stays outside git. Press `1`/`2`, use `W`/`S` and Enter, or
+click a payload choice with the mouse.
+
+To build the same local play image without launching QEMU:
+
+```sh
+make play-image
+```
+
+To use your own legally obtained data instead of the cached public shareware
+files:
+
+```sh
+DOOM_WAD=/absolute/path/to/DOOM1.WAD \
+  QUAKE_PAK=/absolute/path/to/PAK0.PAK \
+  make play
+```
 
 Extra QEMU options can be passed through when needed:
 
 ```sh
-make ALLOW_LOCAL_VM=1 QUAKE_PAK=/absolute/path/to/PAK0.PAK \
-  QEMU_EXTRA_ARGS='-audiodev coreaudio,id=snd0 -device sb16,audiodev=snd0' \
-  run
+QEMU_EXTRA_ARGS='-audiodev coreaudio,id=snd0 -device sb16,audiodev=snd0' make play
 ```
 
 Lower-level local QEMU smoke/debug targets are also opt-in:
