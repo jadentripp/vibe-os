@@ -1,10 +1,12 @@
 BITS 32
 
-%define SCREEN_W 320
-%define SCREEN_H 200
-%define FRAME_BYTES 64000
+%define SCREEN_W 2560
+%define SCREEN_H 1440
+%define FRAME_BYTES 3686400
 %define PALETTE_BYTES 768
-%define LAUNCHER_ASSET_BYTES 65536
+%define LAUNCHER_ASSET_BYTES 131072
+%define FONT_PIXEL_SIZE 11
+%define FONT_ADVANCE 72
 
 %define INPUT_DEVICE_KEYBOARD 1
 %define INPUT_DEVICE_MOUSE 2
@@ -46,28 +48,31 @@ BITS 32
 %define COLOR_TRAFFIC_RED 14
 %define COLOR_TEXT 15
 
-%define WINDOW_X 18
-%define WINDOW_Y 22
-%define WINDOW_W 284
-%define WINDOW_H 104
-%define DOCK_X 38
-%define DOCK_Y 145
-%define DOCK_W 244
-%define DOCK_H 50
-%define PAYLOAD0_HIT_X 66
-%define PAYLOAD0_HIT_Y 148
-%define PAYLOAD1_HIT_X 182
-%define PAYLOAD1_HIT_Y 148
-%define PAYLOAD_HIT_W 72
-%define PAYLOAD_HIT_H 47
-%define PAYLOAD0_ICON_X 88
-%define PAYLOAD0_ICON_Y 150
-%define PAYLOAD1_ICON_X 204
-%define PAYLOAD1_ICON_Y 150
-%define PAYLOAD_ICON_SIZE 28
+%define WINDOW_X 220
+%define WINDOW_Y 160
+%define WINDOW_W 2120
+%define WINDOW_H 670
+%define DOCK_X 390
+%define DOCK_Y 1000
+%define DOCK_W 1780
+%define DOCK_H 400
+%define PAYLOAD0_HIT_X 635
+%define PAYLOAD0_HIT_Y 1020
+%define PAYLOAD1_HIT_X 1475
+%define PAYLOAD1_HIT_Y 1020
+%define PAYLOAD_HIT_W 470
+%define PAYLOAD_HIT_H 365
+%define PAYLOAD0_ICON_X 740
+%define PAYLOAD0_ICON_Y 1038
+%define PAYLOAD1_ICON_X 1580
+%define PAYLOAD1_ICON_Y 1038
+%define PAYLOAD_ICON_SIZE 240
 %define PAYLOAD_ICON_PIXELS PAYLOAD_ICON_SIZE * PAYLOAD_ICON_SIZE
 %define LAUNCHER_ART_PAYLOAD0 0x00000001
 %define LAUNCHER_ART_PAYLOAD1 0x00000002
+%define LAUNCHER_ART_PALETTE_BASE 32
+%define LAUNCHER_ART_PALETTE_LEVELS 6
+%define LAUNCHER_ART_PALETTE_STEP 51
 %define WAD_DIR_ENTRY_BYTES 16
 %define PAK_DIR_ENTRY_BYTES 64
 
@@ -100,8 +105,8 @@ vibe_launcher_choose_payload:
     call launcher_load_art
     mov dword [launcher_selected], 0
     mov dword [launcher_focus], 1
-    mov dword [launcher_cursor_x], 102
-    mov dword [launcher_cursor_y], 170
+    mov dword [launcher_cursor_x], 860
+    mov dword [launcher_cursor_y], 1215
 
     push launcher_ready_text
     push 1
@@ -143,10 +148,15 @@ vibe_launcher_choose_payload:
 
 align 16
 launcher_init_palette:
+    push ebx
+    push ecx
+    push edx
+    push esi
     push edi
     xor eax, eax
     mov ecx, PALETTE_BYTES
     mov edi, [launcher_palette_ptr]
+    cld
     rep stosb
 
     mov edi, [launcher_palette_ptr]
@@ -210,7 +220,51 @@ launcher_init_palette:
     mov byte [edi + COLOR_TEXT * 3 + 1], 242
     mov byte [edi + COLOR_TEXT * 3 + 2], 255
 
+    xor ebx, ebx
+.art_r:
+    cmp ebx, LAUNCHER_ART_PALETTE_LEVELS
+    jae .art_done
+    xor ecx, ecx
+.art_g:
+    cmp ecx, LAUNCHER_ART_PALETTE_LEVELS
+    jae .next_art_r
+    xor edx, edx
+.art_b:
+    cmp edx, LAUNCHER_ART_PALETTE_LEVELS
+    jae .next_art_g
+    mov eax, ebx
+    imul eax, 36
+    mov esi, ecx
+    imul esi, 6
+    add eax, esi
+    add eax, edx
+    add eax, LAUNCHER_ART_PALETTE_BASE
+    imul eax, 3
+    mov edi, [launcher_palette_ptr]
+    add edi, eax
+    mov eax, ebx
+    imul eax, LAUNCHER_ART_PALETTE_STEP
+    mov [edi + 0], al
+    mov eax, ecx
+    imul eax, LAUNCHER_ART_PALETTE_STEP
+    mov [edi + 1], al
+    mov eax, edx
+    imul eax, LAUNCHER_ART_PALETTE_STEP
+    mov [edi + 2], al
+    inc edx
+    jmp .art_b
+.next_art_g:
+    inc ecx
+    jmp .art_g
+.next_art_r:
+    inc ebx
+    jmp .art_r
+.art_done:
     pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
     ret
 
 align 16
@@ -248,45 +302,45 @@ launcher_draw:
     mov eax, 0
     mov ebx, 0
     mov ecx, SCREEN_W
-    mov edx, 64
+    mov edx, 384
     mov edi, COLOR_DESKTOP_TOP
     call launcher_fill_rect
 
     mov eax, 0
-    mov ebx, 64
+    mov ebx, 384
     mov ecx, SCREEN_W
-    mov edx, 80
+    mov edx, 480
     mov edi, COLOR_DESKTOP_MID
     call launcher_fill_rect
 
     mov eax, 0
-    mov ebx, 144
+    mov ebx, 864
     mov ecx, SCREEN_W
-    mov edx, 56
+    mov edx, 336
     mov edi, COLOR_DESKTOP_BOTTOM
     call launcher_fill_rect
 
     mov eax, 0
     mov ebx, 0
     mov ecx, SCREEN_W
-    mov edx, 14
+    mov edx, 84
     mov edi, COLOR_MENU
     call launcher_fill_rect
 
     mov eax, 0
-    mov ebx, 14
+    mov ebx, 84
     mov ecx, SCREEN_W
-    mov edx, 1
+    mov edx, 6
     mov edi, COLOR_MENU_SHADOW
     call launcher_fill_rect
 
-    mov eax, 8
-    mov ebx, 1
+    mov eax, 41
+    mov ebx, 9
     mov esi, launcher_title_text
     call launcher_draw_text
 
-    mov eax, 236
-    mov ebx, 1
+    mov eax, 2075
+    mov ebx, 9
     mov esi, launcher_menu_right_text
     call launcher_draw_text
 
@@ -314,52 +368,52 @@ launcher_draw_window:
     mov eax, WINDOW_X + 2
     mov ebx, WINDOW_Y + 2
     mov ecx, WINDOW_W - 4
-    mov edx, 17
+    mov edx, 117
     mov edi, COLOR_WINDOW_TITLE
     call launcher_fill_rect
 
-    mov eax, WINDOW_X + 8
-    mov ebx, WINDOW_Y + 8
-    mov ecx, 5
-    mov edx, 5
+    mov eax, WINDOW_X + 49
+    mov ebx, WINDOW_Y + 53
+    mov ecx, 34
+    mov edx, 34
     mov edi, COLOR_TRAFFIC_RED
     call launcher_fill_rect
 
-    mov eax, WINDOW_X + 18
-    mov ebx, WINDOW_Y + 8
-    mov ecx, 5
-    mov edx, 5
+    mov eax, WINDOW_X + 109
+    mov ebx, WINDOW_Y + 53
+    mov ecx, 34
+    mov edx, 34
     mov edi, COLOR_PAYLOAD0_ICON
     call launcher_fill_rect
 
-    mov eax, WINDOW_X + 28
-    mov ebx, WINDOW_Y + 8
-    mov ecx, 5
-    mov edx, 5
+    mov eax, WINDOW_X + 169
+    mov ebx, WINDOW_Y + 53
+    mov ecx, 34
+    mov edx, 34
     mov edi, COLOR_PAYLOAD1_ICON
     call launcher_fill_rect
 
-    mov eax, 111
-    mov ebx, WINDOW_Y + 4
+    mov eax, 1028
+    mov ebx, WINDOW_Y + 24
     mov esi, launcher_window_title_text
     call launcher_draw_text
 
-    mov eax, WINDOW_X + 18
-    mov ebx, WINDOW_Y + 31
-    mov ecx, WINDOW_W - 36
-    mov edx, 66
+    mov eax, WINDOW_X + 34
+    mov ebx, WINDOW_Y + 191
+    mov ecx, WINDOW_W - 68
+    mov edx, 427
     mov edi, COLOR_DESKTOP_TOP
     call launcher_fill_rect
 
-    mov eax, WINDOW_X + 22
-    mov ebx, WINDOW_Y + 35
-    mov ecx, WINDOW_W - 44
-    mov edx, 58
+    mov eax, WINDOW_X + 41
+    mov ebx, WINDOW_Y + 217
+    mov ecx, WINDOW_W - 83
+    mov edx, 376
     mov edi, COLOR_DESKTOP_MID
     call launcher_fill_rect
 
-    mov eax, 88
-    mov ebx, 65
+    mov eax, 848
+    mov ebx, 461
     mov esi, launcher_desktop_text
     call launcher_draw_text
 
@@ -430,28 +484,28 @@ launcher_draw_payload0_icon:
     jmp .label
 
 .fallback_art:
-    mov eax, PAYLOAD0_ICON_X + 6
-    mov ebx, PAYLOAD0_ICON_Y + 6
-    mov ecx, 20
-    mov edx, 5
+    mov eax, PAYLOAD0_ICON_X + 14
+    mov ebx, PAYLOAD0_ICON_Y + 14
+    mov ecx, 181
+    mov edx, 45
     mov edi, COLOR_TRAFFIC_RED
     call launcher_fill_rect
 
-    mov eax, PAYLOAD0_ICON_X + 9
-    mov ebx, PAYLOAD0_ICON_Y + 11
-    mov ecx, 14
-    mov edx, 14
+    mov eax, PAYLOAD0_ICON_X + 22
+    mov ebx, PAYLOAD0_ICON_Y + 80
+    mov ecx, 195
+    mov edx, 130
     mov edi, COLOR_WINDOW_EDGE
     call launcher_fill_rect
 
-    mov eax, PAYLOAD0_ICON_X + 11
-    mov ebx, PAYLOAD0_ICON_Y + 11
+    mov eax, PAYLOAD0_ICON_X + 85
+    mov ebx, PAYLOAD0_ICON_Y + 101
     mov esi, launcher_payload0_glyph_text
     call launcher_draw_text
 
 .label:
-    mov eax, 78
-    mov ebx, 180
+    mov eax, 716
+    mov ebx, 1305
     mov esi, launcher_payload0_text
     call launcher_draw_text
     ret
@@ -481,28 +535,28 @@ launcher_draw_payload1_icon:
     jmp .label
 
 .fallback_art:
-    mov eax, PAYLOAD1_ICON_X + 7
-    mov ebx, PAYLOAD1_ICON_Y + 6
-    mov ecx, 18
-    mov edx, 20
+    mov eax, PAYLOAD1_ICON_X + 18
+    mov ebx, PAYLOAD1_ICON_Y + 14
+    mov ecx, 174
+    mov edx, 195
     mov edi, COLOR_DESKTOP_TOP
     call launcher_fill_rect
 
-    mov eax, PAYLOAD1_ICON_X + 12
-    mov ebx, PAYLOAD1_ICON_Y + 11
-    mov ecx, 8
-    mov edx, 10
+    mov eax, PAYLOAD1_ICON_X + 90
+    mov ebx, PAYLOAD1_ICON_Y + 85
+    mov ecx, 70
+    mov edx, 94
     mov edi, COLOR_WINDOW_EDGE
     call launcher_fill_rect
 
-    mov eax, PAYLOAD1_ICON_X + 11
-    mov ebx, PAYLOAD1_ICON_Y + 11
+    mov eax, PAYLOAD1_ICON_X + 85
+    mov ebx, PAYLOAD1_ICON_Y + 101
     mov esi, launcher_payload1_glyph_text
     call launcher_draw_text
 
 .label:
-    mov eax, 188
-    mov ebx, 180
+    mov eax, 1520
+    mov ebx, 1305
     mov esi, launcher_payload1_text
     call launcher_draw_text
     ret
@@ -513,6 +567,7 @@ launcher_load_art:
     xor eax, eax
     mov ecx, PAYLOAD_ICON_PIXELS * 2
     mov edi, launcher_icon0_pixels
+    cld
     rep stosb
     mov dword [launcher_art_flags], 0
     call launcher_load_doom_icon
@@ -582,32 +637,103 @@ launcher_load_doom_icon:
     cmp eax, [launcher_art_dir_bytes]
     jne .close
 
+    mov dword [launcher_doom_titlepic_offset], 0
+    mov dword [launcher_doom_titlepic_size], 0
+    mov dword [launcher_doom_playpal_offset], 0
+    mov dword [launcher_doom_playpal_size], 0
     mov ecx, [launcher_art_count]
     mov edi, [launcher_asset_ptr]
 .search:
     test ecx, ecx
-    jz .close
-    cmp byte [edi + 8], 'M'
-    jne .next
-    cmp byte [edi + 9], '_'
-    jne .next
-    cmp byte [edi + 10], 'D'
-    jne .next
-    cmp byte [edi + 11], 'O'
-    jne .next
-    cmp byte [edi + 12], 'O'
-    jne .next
-    cmp byte [edi + 13], 'M'
-    jne .next
+    jz .load_found
+    cmp byte [edi + 8], 'T'
+    jne .maybe_playpal
+    cmp byte [edi + 9], 'I'
+    jne .maybe_playpal
+    cmp byte [edi + 10], 'T'
+    jne .maybe_playpal
+    cmp byte [edi + 11], 'L'
+    jne .maybe_playpal
+    cmp byte [edi + 12], 'E'
+    jne .maybe_playpal
+    cmp byte [edi + 13], 'P'
+    jne .maybe_playpal
+    cmp byte [edi + 14], 'I'
+    jne .maybe_playpal
+    cmp byte [edi + 15], 'C'
+    jne .maybe_playpal
     mov eax, [edi + 4]
     cmp eax, 8
-    jb .close
+    jb .next
     cmp eax, LAUNCHER_ASSET_BYTES
-    ja .close
+    ja .next
+    mov [launcher_doom_titlepic_size], eax
+    mov eax, [edi]
+    mov [launcher_doom_titlepic_offset], eax
+    jmp .maybe_done
+
+.maybe_playpal:
+    cmp byte [edi + 8], 'P'
+    jne .next
+    cmp byte [edi + 9], 'L'
+    jne .next
+    cmp byte [edi + 10], 'A'
+    jne .next
+    cmp byte [edi + 11], 'Y'
+    jne .next
+    cmp byte [edi + 12], 'P'
+    jne .next
+    cmp byte [edi + 13], 'A'
+    jne .next
+    cmp byte [edi + 14], 'L'
+    jne .next
+    cmp byte [edi + 15], 0
+    jne .next
+    mov eax, [edi + 4]
+    cmp eax, PALETTE_BYTES
+    jb .next
+    mov [launcher_doom_playpal_size], eax
+    mov eax, [edi]
+    mov [launcher_doom_playpal_offset], eax
+
+.maybe_done:
+    cmp dword [launcher_doom_titlepic_offset], 0
+    je .next
+    cmp dword [launcher_doom_playpal_offset], 0
+    jne .load_found
+
+.next:
+    add edi, WAD_DIR_ENTRY_BYTES
+    dec ecx
+    jmp .search
+
+.load_found:
+    cmp dword [launcher_doom_titlepic_offset], 0
+    je .close
+    cmp dword [launcher_doom_playpal_offset], 0
+    je .close
+
+    push 0
+    push dword [launcher_doom_playpal_offset]
+    push dword [launcher_art_fd]
+    call vibe_user_lseek
+    add esp, 12
+    test eax, eax
+    js .close
+
+    push PALETTE_BYTES
+    push launcher_doom_palette
+    push dword [launcher_art_fd]
+    call vibe_user_read
+    add esp, 12
+    cmp eax, PALETTE_BYTES
+    jne .close
+
+    mov eax, [launcher_doom_titlepic_size]
     mov [launcher_art_size], eax
 
     push 0
-    push dword [edi]
+    push dword [launcher_doom_titlepic_offset]
     push dword [launcher_art_fd]
     call vibe_user_lseek
     add esp, 12
@@ -628,11 +754,6 @@ launcher_load_doom_icon:
     or dword [launcher_art_flags], LAUNCHER_ART_PAYLOAD0
     jmp .close
 
-.next:
-    add edi, WAD_DIR_ENTRY_BYTES
-    dec ecx
-    jmp .search
-
 .close:
     call launcher_close_art_fd
 .done:
@@ -652,97 +773,88 @@ launcher_decode_doom_patch_icon:
     movzx eax, word [esi + 0]
     test eax, eax
     jz .fail
+    cmp eax, 1024
+    ja .fail
     mov [launcher_art_width], eax
     movzx eax, word [esi + 2]
     test eax, eax
     jz .fail
+    cmp eax, 1024
+    ja .fail
     mov [launcher_art_height], eax
     mov eax, [launcher_art_width]
-    shl eax, 2
+    imul eax, 4
     add eax, 8
+    jc .fail
     cmp eax, [launcher_art_size]
     ja .fail
+    mov dword [launcher_art_source_x_base], 0
+    mov dword [launcher_art_source_y_base], 0
+    mov eax, [launcher_art_width]
+    mov ebx, [launcher_art_height]
+    cmp eax, ebx
+    ja .wide_source
+    jb .tall_source
+    mov [launcher_art_source_span], eax
+    jmp .source_ready
+.wide_source:
+    sub eax, ebx
+    shr eax, 1
+    mov [launcher_art_source_x_base], eax
+    mov [launcher_art_source_span], ebx
+    jmp .source_ready
+.tall_source:
+    sub ebx, eax
+    shr ebx, 1
+    mov [launcher_art_source_y_base], ebx
+    mov [launcher_art_source_span], eax
+.source_ready:
+    mov dword [launcher_art_dest_y], 0
 
-    xor ebx, ebx
-.column:
-    cmp ebx, [launcher_art_width]
+.dest_y:
+    cmp dword [launcher_art_dest_y], PAYLOAD_ICON_SIZE
     jae .ok
-    mov eax, ebx
-    imul eax, PAYLOAD_ICON_SIZE
+    mov eax, [launcher_art_dest_y]
+    imul eax, [launcher_art_source_span]
     xor edx, edx
-    div dword [launcher_art_width]
-    mov [launcher_art_dest_x], eax
-    mov eax, [esi + 8 + ebx * 4]
-    mov [launcher_art_post_offset], eax
+    mov ebx, PAYLOAD_ICON_SIZE
+    div ebx
+    add eax, [launcher_art_source_y_base]
+    mov [launcher_art_source_y], eax
+    mov dword [launcher_art_dest_x], 0
 
-.post:
-    mov eax, [launcher_art_post_offset]
-    cmp eax, [launcher_art_size]
-    jae .next_column
-    lea edi, [esi + eax]
-    cmp byte [edi], 0xff
-    je .next_column
-    movzx eax, byte [edi + 1]
-    mov [launcher_art_row_count], eax
-    mov edx, [launcher_art_post_offset]
-    add edx, eax
-    add edx, 4
-    cmp edx, [launcher_art_size]
-    ja .next_column
-    movzx eax, byte [edi]
-    mov [launcher_art_top], eax
-    mov dword [launcher_art_row], 0
-
-.row:
-    mov eax, [launcher_art_row]
-    cmp eax, [launcher_art_row_count]
-    jae .next_post
-    mov edx, [launcher_art_top]
-    add edx, eax
-    cmp edx, [launcher_art_height]
-    jae .advance_row
-    mov eax, edx
-    imul eax, PAYLOAD_ICON_SIZE
+.dest_x:
+    cmp dword [launcher_art_dest_x], PAYLOAD_ICON_SIZE
+    jae .next_dest_y
+    mov eax, [launcher_art_dest_x]
+    imul eax, [launcher_art_source_span]
     xor edx, edx
-    div dword [launcher_art_height]
-    mov [launcher_art_dest_y], eax
-
-    mov eax, [launcher_art_post_offset]
-    add eax, 3
-    add eax, [launcher_art_row]
-    movzx ecx, byte [esi + eax]
-    cmp ecx, 96
-    jb .doom_red
-    cmp ecx, 176
-    jb .doom_warm
-    mov cl, COLOR_TEXT
-    jmp .doom_color
-.doom_red:
-    mov cl, COLOR_TRAFFIC_RED
-    jmp .doom_color
-.doom_warm:
-    mov cl, COLOR_PAYLOAD0_ICON
-.doom_color:
+    mov ebx, PAYLOAD_ICON_SIZE
+    div ebx
+    add eax, [launcher_art_source_x_base]
+    mov [launcher_art_source_x], eax
+    call launcher_doom_patch_sample
+    jc .advance_dest_x
+    movzx edx, al
+    imul edx, 3
+    mov al, [launcher_doom_palette + edx + 0]
+    mov bl, [launcher_doom_palette + edx + 1]
+    mov cl, [launcher_doom_palette + edx + 2]
+    call launcher_rgb_to_art_color
     mov edx, [launcher_art_dest_y]
     imul edx, PAYLOAD_ICON_SIZE
     add edx, [launcher_art_dest_x]
     cmp edx, PAYLOAD_ICON_PIXELS
-    jae .advance_row
+    jae .advance_dest_x
     mov [launcher_icon0_pixels + edx], cl
 
-.advance_row:
-    inc dword [launcher_art_row]
-    jmp .row
+.advance_dest_x:
+    inc dword [launcher_art_dest_x]
+    jmp .dest_x
 
-.next_post:
-    mov eax, [launcher_art_row_count]
-    add eax, 4
-    add [launcher_art_post_offset], eax
-    jmp .post
-
-.next_column:
-    inc ebx
-    jmp .column
+.next_dest_y:
+    inc dword [launcher_art_dest_y]
+    jmp .dest_y
 
 .ok:
     xor eax, eax
@@ -752,6 +864,68 @@ launcher_decode_doom_patch_icon:
 .done:
     pop edi
     pop esi
+    pop ebx
+    ret
+
+align 16
+launcher_doom_patch_sample:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+    mov esi, [launcher_asset_ptr]
+    mov eax, [launcher_art_source_x]
+    cmp eax, [launcher_art_width]
+    jae .fail
+    mov ebx, eax
+    shl ebx, 2
+    add ebx, 8
+    mov edi, [esi + ebx]
+    cmp edi, [launcher_art_size]
+    jae .fail
+    add edi, esi
+
+.post_loop:
+    mov eax, edi
+    sub eax, esi
+    add eax, 2
+    jc .fail
+    cmp eax, [launcher_art_size]
+    jae .fail
+    movzx ebx, byte [edi + 0]
+    cmp bl, 0xff
+    je .fail
+    movzx ecx, byte [edi + 1]
+    mov edx, [launcher_art_source_y]
+    cmp edx, ebx
+    jb .next_post
+    mov eax, ebx
+    add eax, ecx
+    cmp edx, eax
+    jae .next_post
+    sub edx, ebx
+    lea eax, [edi + edx + 3]
+    mov ebx, eax
+    sub ebx, esi
+    cmp ebx, [launcher_art_size]
+    jae .fail
+    mov al, [eax]
+    clc
+    jmp .done
+
+.next_post:
+    lea edi, [edi + ecx + 4]
+    jmp .post_loop
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
     pop ebx
     ret
 
@@ -816,11 +990,15 @@ launcher_load_quake_icon:
     cmp eax, [launcher_art_dir_bytes]
     jne .close
 
+    mov dword [launcher_quake_conback_offset], 0
+    mov dword [launcher_quake_conback_size], 0
+    mov dword [launcher_quake_palette_offset], 0
+    mov dword [launcher_quake_palette_size], 0
     mov ecx, [launcher_art_count]
     mov edi, [launcher_asset_ptr]
 .search:
     test ecx, ecx
-    jz .close
+    jz .load_found
     cmp byte [edi + 0], 'g'
     jne .next
     cmp byte [edi + 1], 'f'
@@ -829,39 +1007,106 @@ launcher_load_quake_icon:
     jne .next
     cmp byte [edi + 3], '/'
     jne .next
-    cmp byte [edi + 4], 'm'
-    jne .next
-    cmp byte [edi + 5], 'e'
-    jne .next
+    cmp byte [edi + 4], 'c'
+    jne .maybe_palette
+    cmp byte [edi + 5], 'o'
+    jne .maybe_palette
     cmp byte [edi + 6], 'n'
-    jne .next
-    cmp byte [edi + 7], 'u'
-    jne .next
-    cmp byte [edi + 8], 'p'
-    jne .next
-    cmp byte [edi + 9], 'l'
-    jne .next
-    cmp byte [edi + 10], 'y'
-    jne .next
-    cmp byte [edi + 11], 'r'
-    jne .next
-    cmp byte [edi + 12], '.'
-    jne .next
-    cmp byte [edi + 13], 'l'
-    jne .next
-    cmp byte [edi + 14], 'm'
-    jne .next
-    cmp byte [edi + 15], 'p'
-    jne .next
+    jne .maybe_palette
+    cmp byte [edi + 7], 'b'
+    jne .maybe_palette
+    cmp byte [edi + 8], 'a'
+    jne .maybe_palette
+    cmp byte [edi + 9], 'c'
+    jne .maybe_palette
+    cmp byte [edi + 10], 'k'
+    jne .maybe_palette
+    cmp byte [edi + 11], '.'
+    jne .maybe_palette
+    cmp byte [edi + 12], 'l'
+    jne .maybe_palette
+    cmp byte [edi + 13], 'm'
+    jne .maybe_palette
+    cmp byte [edi + 14], 'p'
+    jne .maybe_palette
     mov eax, [edi + 60]
     cmp eax, 12
-    jb .close
+    jb .next
     cmp eax, LAUNCHER_ASSET_BYTES
-    ja .close
+    ja .next
+    mov [launcher_quake_conback_size], eax
+    mov eax, [edi + 56]
+    mov [launcher_quake_conback_offset], eax
+    jmp .maybe_done
+
+.maybe_palette:
+    cmp byte [edi + 4], 'p'
+    jne .next
+    cmp byte [edi + 5], 'a'
+    jne .next
+    cmp byte [edi + 6], 'l'
+    jne .next
+    cmp byte [edi + 7], 'e'
+    jne .next
+    cmp byte [edi + 8], 't'
+    jne .next
+    cmp byte [edi + 9], 't'
+    jne .next
+    cmp byte [edi + 10], 'e'
+    jne .next
+    cmp byte [edi + 11], '.'
+    jne .next
+    cmp byte [edi + 12], 'l'
+    jne .next
+    cmp byte [edi + 13], 'm'
+    jne .next
+    cmp byte [edi + 14], 'p'
+    jne .next
+    mov eax, [edi + 60]
+    cmp eax, PALETTE_BYTES
+    jb .next
+    mov [launcher_quake_palette_size], eax
+    mov eax, [edi + 56]
+    mov [launcher_quake_palette_offset], eax
+
+.maybe_done:
+    cmp dword [launcher_quake_conback_offset], 0
+    je .next
+    cmp dword [launcher_quake_palette_offset], 0
+    jne .load_found
+
+.next:
+    add edi, PAK_DIR_ENTRY_BYTES
+    dec ecx
+    jmp .search
+
+.load_found:
+    cmp dword [launcher_quake_conback_offset], 0
+    je .close
+    cmp dword [launcher_quake_palette_offset], 0
+    je .close
+
+    push 0
+    push dword [launcher_quake_palette_offset]
+    push dword [launcher_art_fd]
+    call vibe_user_lseek
+    add esp, 12
+    test eax, eax
+    js .close
+
+    push PALETTE_BYTES
+    push launcher_quake_palette
+    push dword [launcher_art_fd]
+    call vibe_user_read
+    add esp, 12
+    cmp eax, PALETTE_BYTES
+    jne .close
+
+    mov eax, [launcher_quake_conback_size]
     mov [launcher_art_size], eax
 
     push 0
-    push dword [edi + 56]
+    push dword [launcher_quake_conback_offset]
     push dword [launcher_art_fd]
     call vibe_user_lseek
     add esp, 12
@@ -881,11 +1126,6 @@ launcher_load_quake_icon:
     jne .close
     or dword [launcher_art_flags], LAUNCHER_ART_PAYLOAD1
     jmp .close
-
-.next:
-    add edi, PAK_DIR_ENTRY_BYTES
-    dec ecx
-    jmp .search
 
 .close:
     call launcher_close_art_fd
@@ -921,26 +1161,49 @@ launcher_decode_quake_qpic_icon:
     jc .fail
     cmp eax, [launcher_art_size]
     ja .fail
+    mov dword [launcher_art_source_x_base], 0
+    mov dword [launcher_art_source_y_base], 0
+    mov eax, [launcher_art_width]
+    mov ebx, [launcher_art_height]
+    cmp eax, ebx
+    ja .wide_source
+    jb .tall_source
+    mov [launcher_art_source_span], eax
+    jmp .source_ready
+.wide_source:
+    sub eax, ebx
+    shr eax, 1
+    mov [launcher_art_source_x_base], eax
+    mov [launcher_art_source_span], ebx
+    jmp .source_ready
+.tall_source:
+    sub ebx, eax
+    shr ebx, 1
+    mov [launcher_art_source_y_base], ebx
+    mov [launcher_art_source_span], eax
+.source_ready:
 
     mov dword [launcher_art_dest_y], 0
 .dest_y:
     cmp dword [launcher_art_dest_y], PAYLOAD_ICON_SIZE
     jae .ok
     mov eax, [launcher_art_dest_y]
-    imul eax, [launcher_art_height]
+    imul eax, [launcher_art_source_span]
     xor edx, edx
     mov ebx, PAYLOAD_ICON_SIZE
     div ebx
+    add eax, [launcher_art_source_y_base]
     mov [launcher_art_source_y], eax
     mov dword [launcher_art_dest_x], 0
 .dest_x:
     cmp dword [launcher_art_dest_x], PAYLOAD_ICON_SIZE
     jae .next_dest_y
     mov eax, [launcher_art_dest_x]
-    imul eax, [launcher_art_width]
+    imul eax, [launcher_art_source_span]
     xor edx, edx
     mov ebx, PAYLOAD_ICON_SIZE
     div ebx
+    add eax, [launcher_art_source_x_base]
     mov [launcher_art_source_x], eax
     mov eax, [launcher_art_source_y]
     mul dword [launcher_art_width]
@@ -948,26 +1211,12 @@ launcher_decode_quake_qpic_icon:
     add eax, 8
     cmp eax, [launcher_art_size]
     jae .advance_dest_x
-    movzx ecx, byte [esi + eax]
-    test ecx, ecx
-    jz .advance_dest_x
-    cmp ecx, 64
-    jb .quake_dark
-    cmp ecx, 128
-    jb .quake_blue
-    cmp ecx, 192
-    jb .quake_select
-    mov cl, COLOR_TEXT
-    jmp .quake_color
-.quake_dark:
-    mov cl, COLOR_WINDOW_EDGE
-    jmp .quake_color
-.quake_blue:
-    mov cl, COLOR_PAYLOAD1_ICON
-    jmp .quake_color
-.quake_select:
-    mov cl, COLOR_SELECTED
-.quake_color:
+    movzx edx, byte [esi + eax]
+    imul edx, 3
+    mov al, [launcher_quake_palette + edx + 0]
+    mov bl, [launcher_quake_palette + edx + 1]
+    mov cl, [launcher_quake_palette + edx + 2]
+    call launcher_rgb_to_art_color
     mov edx, [launcher_art_dest_y]
     imul edx, PAYLOAD_ICON_SIZE
     add edx, [launcher_art_dest_x]
@@ -992,6 +1241,27 @@ launcher_decode_quake_qpic_icon:
     pop edi
     pop esi
     pop ebx
+    ret
+
+align 16
+launcher_rgb_to_art_color:
+    push edx
+    movzx edx, al
+    imul edx, LAUNCHER_ART_PALETTE_LEVELS
+    shr edx, 8
+    imul edx, 36
+    movzx eax, bl
+    imul eax, LAUNCHER_ART_PALETTE_LEVELS
+    shr eax, 8
+    imul eax, 6
+    add edx, eax
+    movzx eax, cl
+    imul eax, LAUNCHER_ART_PALETTE_LEVELS
+    shr eax, 8
+    add edx, eax
+    add edx, LAUNCHER_ART_PALETTE_BASE
+    mov cl, dl
+    pop edx
     ret
 
 align 16
@@ -1255,6 +1525,7 @@ launcher_fill_rect:
     add edi, eax
     mov ecx, [ebp - 12]
     mov eax, [ebp - 20]
+    cld
     rep stosb
     inc dword [ebp - 8]
     dec dword [ebp - 16]
@@ -1281,7 +1552,7 @@ launcher_draw_text:
     je .done
     cmp al, ' '
     jne .glyph
-    add dword [launcher_text_x], 12
+    add dword [launcher_text_x], FONT_ADVANCE
     jmp .next
 
 .glyph:
@@ -1292,7 +1563,7 @@ launcher_draw_text:
     call launcher_draw_glyph
 .skip_glyph:
     pop esi
-    add dword [launcher_text_x], 12
+    add dword [launcher_text_x], FONT_ADVANCE
     jmp .next
 
 .done:
@@ -1333,6 +1604,7 @@ launcher_draw_glyph:
     push ebx
     push ecx
     push edx
+    push esi
     push edi
     xor edi, edi
 
@@ -1349,14 +1621,18 @@ launcher_draw_glyph:
     shr eax, cl
     test edx, eax
     je .skip_pixel
-    mov eax, [launcher_text_x]
-    lea eax, [eax + ecx * 2]
-    mov ebx, [launcher_text_y]
-    lea ebx, [ebx + edi * 2]
+    mov eax, ecx
+    imul eax, FONT_PIXEL_SIZE
+    add eax, [launcher_text_x]
+    mov ebx, edi
+    imul ebx, FONT_PIXEL_SIZE
+    add ebx, [launcher_text_y]
+    push esi
     push ecx
     mov cl, COLOR_TEXT
     call launcher_plot_2x2
     pop ecx
+    pop esi
 .skip_pixel:
     inc ecx
     jmp .col_loop
@@ -1367,6 +1643,7 @@ launcher_draw_glyph:
 
 .done:
     pop edi
+    pop esi
     pop edx
     pop ecx
     pop ebx
@@ -1376,23 +1653,18 @@ align 16
 launcher_plot_2x2:
     push eax
     push ebx
-    call launcher_plot_pixel_clipped
+    push ecx
+    push edx
+    push edi
+    movzx edi, cl
+    mov ecx, FONT_PIXEL_SIZE
+    mov edx, FONT_PIXEL_SIZE
+    call launcher_fill_rect
+    pop edi
+    pop edx
+    pop ecx
     pop ebx
     pop eax
-    inc eax
-    push eax
-    push ebx
-    call launcher_plot_pixel_clipped
-    pop ebx
-    pop eax
-    inc ebx
-    push eax
-    push ebx
-    call launcher_plot_pixel_clipped
-    pop ebx
-    pop eax
-    inc eax
-    call launcher_plot_pixel_clipped
     ret
 
 align 16
@@ -1400,32 +1672,32 @@ launcher_draw_cursor:
     push ebx
     push ecx
     push edx
-    mov dword [launcher_cursor_scratch], -4
+    mov dword [launcher_cursor_scratch], -26
 
 .horizontal:
     mov edx, [launcher_cursor_scratch]
-    cmp edx, 5
+    cmp edx, 27
     jge .vertical_start
     mov eax, [launcher_cursor_x]
     add eax, edx
     mov ebx, [launcher_cursor_y]
     mov cl, COLOR_TEXT
-    call launcher_plot_pixel_clipped
+    call launcher_plot_cursor_pixel
     inc dword [launcher_cursor_scratch]
     jmp .horizontal
 
 .vertical_start:
-    mov dword [launcher_cursor_scratch], -4
+    mov dword [launcher_cursor_scratch], -26
 
 .vertical:
     mov ecx, [launcher_cursor_scratch]
-    cmp ecx, 5
+    cmp ecx, 27
     jge .done
     mov eax, [launcher_cursor_x]
     mov ebx, [launcher_cursor_y]
     add ebx, ecx
     mov cl, COLOR_TEXT
-    call launcher_plot_pixel_clipped
+    call launcher_plot_cursor_pixel
     inc dword [launcher_cursor_scratch]
     jmp .vertical
 
@@ -1433,6 +1705,24 @@ launcher_draw_cursor:
     pop edx
     pop ecx
     pop ebx
+    ret
+
+align 16
+launcher_plot_cursor_pixel:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push edi
+    movzx edi, cl
+    mov ecx, 6
+    mov edx, 6
+    call launcher_fill_rect
+    pop edi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
     ret
 
 align 16
@@ -1536,14 +1826,27 @@ launcher_art_dest_x dd 0
 launcher_art_dest_y dd 0
 launcher_art_source_x dd 0
 launcher_art_source_y dd 0
+launcher_art_source_x_base dd 0
+launcher_art_source_y_base dd 0
+launcher_art_source_span dd 0
 launcher_art_post_offset dd 0
 launcher_art_top dd 0
 launcher_art_row dd 0
 launcher_art_row_count dd 0
+launcher_doom_titlepic_offset dd 0
+launcher_doom_titlepic_size dd 0
+launcher_doom_playpal_offset dd 0
+launcher_doom_playpal_size dd 0
+launcher_quake_conback_offset dd 0
+launcher_quake_conback_size dd 0
+launcher_quake_palette_offset dd 0
+launcher_quake_palette_size dd 0
 
 section .bss
 align 16
 launcher_file_header resb 16
+launcher_doom_palette resb PALETTE_BYTES
+launcher_quake_palette resb PALETTE_BYTES
 launcher_icon0_pixels resb PAYLOAD_ICON_PIXELS
 launcher_icon1_pixels resb PAYLOAD_ICON_PIXELS
 launcher_input_event resb INPUT_EVENT_BYTES

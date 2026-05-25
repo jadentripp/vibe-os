@@ -184,6 +184,8 @@
 #define VIBE_FB_CAP_MODE13_SHADOW 0x00000008u
 #define VIBE_FB_CAP_DIRTY_SOURCE_RECT 0x00000010u
 #define VIBE_FB_CAP_FIXED_PRESENT_SIZE 0x00000020u
+#define VIBE_FB_CAP_XBGR8888_LFB 0x00000040u
+#define VIBE_FB_CAP_DIRECT8888_LFB (VIBE_FB_CAP_XRGB8888_LFB | VIBE_FB_CAP_XBGR8888_LFB)
 #define VIBE_FB_REQUIRED_CAPS \
     (VIBE_FB_CAP_PRESENT_INDEXED | VIBE_FB_CAP_PRESENT_RGB_PALETTE | VIBE_FB_CAP_DIRTY_SOURCE_RECT)
 #define VIBE_FB_FORMAT_INDEX8_RGB24 1u
@@ -1332,7 +1334,7 @@ static void validate_framebuffer_device(const Status *status) {
         (backend != VIDEO_BACKEND_MODE13 && backend != VIDEO_BACKEND_LFB_XRGB8888) ||
         fbdev[2] < FRAMEBUFFER_HANDOFF_SOURCE_VGA_MODE13 ||
         fbdev[2] > FRAMEBUFFER_HANDOFF_SOURCE_GOP || fbdev[3] > VIBE_INPUT_DEVICE_STATUS_ERROR) {
-        fail("fbdev= must describe a ready mode13 or XRGB8888 framebuffer device");
+        fail("fbdev= must describe a ready mode13 or direct-8888 framebuffer device");
     }
     if (has_field(status, "fb")) {
         const char *fb = field(status, "fb");
@@ -1354,8 +1356,10 @@ static void validate_framebuffer_device(const Status *status) {
         fail("fbcap= must expose indexed present, RGB palette, and dirty rect caps");
     }
     if (backend == VIDEO_BACKEND_LFB_XRGB8888) {
-        if ((fbcap & VIBE_FB_CAP_XRGB8888_LFB) == 0u || fbdev[3] != VIBE_INPUT_DEVICE_STATUS_READY) {
-            fail("fbdev=/fbcap= must prove mapped XRGB8888 LFB support for the LFB backend");
+        uint32_t direct_caps = fbcap & VIBE_FB_CAP_DIRECT8888_LFB;
+        if ((direct_caps != VIBE_FB_CAP_XRGB8888_LFB && direct_caps != VIBE_FB_CAP_XBGR8888_LFB) ||
+            fbdev[3] != VIBE_INPUT_DEVICE_STATUS_READY) {
+            fail("fbdev=/fbcap= must prove mapped XRGB8888 or XBGR8888 LFB support for the LFB backend");
         }
     } else if ((fbcap & (VIBE_FB_CAP_MODE13_SHADOW | VIBE_FB_CAP_FIXED_PRESENT_SIZE)) !=
                (VIBE_FB_CAP_MODE13_SHADOW | VIBE_FB_CAP_FIXED_PRESENT_SIZE)) {

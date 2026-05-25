@@ -173,6 +173,7 @@ BOOT_DISK_FLAGS_ADDR equ BOOT_INFO_ADDR + 104
 BOOT_VIDEO_FLAG_VBE equ 0x0001
 BOOT_VIDEO_FLAG_LFB equ 0x0002
 BOOT_VIDEO_FLAG_XRGB8888 equ 0x0004
+BOOT_VIDEO_FLAG_XBGR8888 equ 0x0008
 BOOT_E820_MAGIC equ 0x30323845
 BOOT_LOADER_MAGIC equ 0x534f4942
 BOOT_DISK_MAGIC equ 0x4b534442
@@ -378,6 +379,8 @@ UEFI_ENTRY_STATUS_OK equ 1
 UEFI_ENTRY_STATUS_BAD equ 2
 VIDEO_BACKEND_MODE13 equ 1
 VIDEO_BACKEND_LFB_XRGB8888 equ 2
+FRAMEBUFFER_COLOR_ORDER_XRGB equ 1
+FRAMEBUFFER_COLOR_ORDER_XBGR equ 2
 PRESENT_POLICY_MODE13 equ 1
 PRESENT_POLICY_ASPECT equ 2
 PRESENT_POLICY_SQUARE equ 3
@@ -467,6 +470,7 @@ PAGING_TABLES_ADDR equ 0x00091000
 PAGING_TABLE_COUNT equ 8
 PAGING_TOTAL_PAGES equ PAGING_TABLE_COUNT * 1024
 PAGING_MAPPED_BYTES equ PAGING_TABLE_COUNT * 0x00400000
+FRAMEBUFFER_LFB_MAX_PAGES equ 4096
 KERNEL_HIGHER_HALF_BASE equ 0xc0000000
 KERNEL_HIGHER_HALF_PDE_INDEX equ KERNEL_HIGHER_HALF_BASE >> 22
 FB_PAGE_TABLE_ADDR equ 0x0009c000
@@ -483,6 +487,7 @@ PROC_GENERIC0_PAGE_DIR_ADDR equ 0x00089000
 PROC_GENERIC0_PDE3_TABLE_ADDR equ 0x0008a000
 PROC_GENERIC1_PAGE_DIR_ADDR equ 0x0008b000
 PROC_GENERIC1_PDE3_TABLE_ADDR equ 0x0008c000
+PROC_USER_PDE4_TABLE_ADDR equ 0x0008d000
 PMM_FRAME_MAP_ADDR equ 0x00099000
 PMM_MANAGED_START equ 0x00100000
 PMM_MANAGED_END equ 0x02000000
@@ -700,12 +705,12 @@ ELF_PF_X equ 0x1
 ELF_PF_W equ 0x2
 ELF_PF_R equ 0x4
 USER_ELF_LOAD_ADDR equ 0x00e40000
-USER_ELF_MAX_BYTES equ 0x00020000
+USER_ELF_MAX_BYTES equ 0x00040000
 USER_CODE_ADDR equ 0x00e80000
 USER_STACK_BOTTOM equ 0x00ec0000
 USER_STACK_TOP equ 0x00ed0000
 USER_HEAP_START equ USER_STACK_TOP
-USER_HEAP_END equ 0x00f00000
+USER_HEAP_END equ 0x01400000
 USER_HEAP_PAGE_COUNT equ (USER_HEAP_END - USER_HEAP_START) / PAGE_SIZE
 USER_HEAP_BITMAP_BYTES equ (USER_HEAP_PAGE_COUNT + 7) / 8
 USER_PROBE_EXPECTED_FLAGS equ 0x0007ffff
@@ -879,6 +884,7 @@ VIBE_FB_CAP_XRGB8888_LFB equ 0x00000004
 VIBE_FB_CAP_MODE13_SHADOW equ 0x00000008
 VIBE_FB_CAP_DIRTY_SOURCE_RECT equ 0x00000010
 VIBE_FB_CAP_FIXED_PRESENT_SIZE equ 0x00000020
+VIBE_FB_CAP_XBGR8888_LFB equ 0x00000040
 VIBE_FB_FORMAT_INDEX8_RGB24 equ 1
 FRAMEBUFFER_ABI_VERSION equ 1
 FRAMEBUFFER_PRESENT_SEMANTICS_INDEXED_SOURCE equ 1
@@ -6488,6 +6494,7 @@ framebuffer_map_lfb:
     mov byte [framebuffer_map_status], 0
     mov dword [framebuffer_pde_index], 0
     mov dword [framebuffer_pte_index], 0
+    mov dword [framebuffer_pde_count], 0
     cmp dword [BOOT_INFO_ADDR + 8], VIDEO_BOOT_MAGIC
     jne .done
     call framebuffer_capture_mmio_metadata
@@ -6501,10 +6508,11 @@ framebuffer_map_lfb:
     shr edx, 12
     and edx, 0x000003ff
     mov [framebuffer_pte_index], edx
-    mov ecx, [framebuffer_page_count]
-    add ecx, edx
-    cmp ecx, 1024
-    ja .fail
+    mov eax, [framebuffer_page_count]
+    add eax, edx
+    add eax, 1023
+    shr eax, 10
+    mov [framebuffer_pde_count], eax
 
     mov eax, [framebuffer_pde_index]
     cmp eax, PAGING_TABLE_COUNT
@@ -6549,9 +6557,14 @@ framebuffer_capture_mmio_metadata:
     cmp dword [BOOT_INFO_ADDR + 8], VIDEO_BOOT_MAGIC
     jne .fail
     mov ax, [BOOT_VIDEO_FLAGS]
-    and ax, BOOT_VIDEO_FLAG_LFB | BOOT_VIDEO_FLAG_XRGB8888
-    cmp ax, BOOT_VIDEO_FLAG_LFB | BOOT_VIDEO_FLAG_XRGB8888
-    jne .fail
+    test ax, BOOT_VIDEO_FLAG_LFB
+    jz .fail
+    test ax, BOOT_VIDEO_FLAG_XRGB8888 | BOOT_VIDEO_FLAG_XBGR8888
+    jz .fail
+    mov dx, ax
+    and dx, BOOT_VIDEO_FLAG_XRGB8888 | BOOT_VIDEO_FLAG_XBGR8888
+    cmp dx, BOOT_VIDEO_FLAG_XRGB8888 | BOOT_VIDEO_FLAG_XBGR8888
+    je .fail
     cmp byte [BOOT_VIDEO_BPP], 32
     jne .fail
     cmp dword [BOOT_VIDEO_FB_ADDR], 0
@@ -6574,7 +6587,7 @@ framebuffer_capture_mmio_metadata:
     add eax, PAGE_SIZE - 1
     jc .fail
     shr eax, 12
-    cmp eax, 1024
+    cmp eax, FRAMEBUFFER_LFB_MAX_PAGES
     ja .fail
     mov [framebuffer_page_count], eax
     mov [framebuffer_mmio_page_count], eax
@@ -6594,13 +6607,19 @@ framebuffer_capture_mmio_metadata:
 framebuffer_install_process_dirs:
     push eax
     push ebx
+    push ecx
     push edi
 
     mov eax, [framebuffer_pde_index]
+    mov ecx, [framebuffer_pde_count]
+    test ecx, ecx
+    jz .done
+
+.copy_next:
     mov edi, PAGING_DIR_ADDR
     mov ebx, [edi + eax * 4]
     test ebx, PTE_PRESENT
-    jz .done
+    jz .next
     mov edi, PROC_PROBE_PAGE_DIR_ADDR
     mov [edi + eax * 4], ebx
     mov edi, PROC_PREEMPT_PAGE_DIR_ADDR
@@ -6612,8 +6631,14 @@ framebuffer_install_process_dirs:
     mov edi, PROC_GENERIC1_PAGE_DIR_ADDR
     mov [edi + eax * 4], ebx
 
+.next:
+    inc eax
+    dec ecx
+    jnz .copy_next
+
 .done:
     pop edi
+    pop ecx
     pop ebx
     pop eax
     ret
@@ -6627,31 +6652,47 @@ framebuffer_init:
     mov dword [framebuffer_pitch], FB_PRESENT_WIDTH
     mov dword [framebuffer_width], FB_PRESENT_WIDTH
     mov dword [framebuffer_height], FB_PRESENT_HEIGHT
+    mov dword [framebuffer_color_order], 0
 
     cmp dword [BOOT_INFO_ADDR + 8], VIDEO_BOOT_MAGIC
     jne .done
     cmp byte [framebuffer_map_status], 1
     jne .done
     mov ax, [BOOT_VIDEO_FLAGS]
-    and ax, BOOT_VIDEO_FLAG_LFB | BOOT_VIDEO_FLAG_XRGB8888
-    cmp ax, BOOT_VIDEO_FLAG_LFB | BOOT_VIDEO_FLAG_XRGB8888
-    jne .done
+    test ax, BOOT_VIDEO_FLAG_LFB
+    jz .done
+    test ax, BOOT_VIDEO_FLAG_XRGB8888 | BOOT_VIDEO_FLAG_XBGR8888
+    jz .done
+    mov dx, ax
+    and dx, BOOT_VIDEO_FLAG_XRGB8888 | BOOT_VIDEO_FLAG_XBGR8888
+    cmp dx, BOOT_VIDEO_FLAG_XRGB8888 | BOOT_VIDEO_FLAG_XBGR8888
+    je .done
     cmp byte [BOOT_VIDEO_BPP], 32
     jne .done
     cmp byte [BOOT_VIDEO_MEMORY_MODEL], 6
     jne .done
     cmp byte [BOOT_VIDEO_RED_MASK], 8
     jb .done
-    cmp byte [BOOT_VIDEO_RED_POS], 16
-    jne .done
     cmp byte [BOOT_VIDEO_GREEN_MASK], 8
     jb .done
     cmp byte [BOOT_VIDEO_GREEN_POS], 8
     jne .done
     cmp byte [BOOT_VIDEO_BLUE_MASK], 8
     jb .done
+    mov dword [framebuffer_color_order], 0
+    cmp byte [BOOT_VIDEO_RED_POS], 16
+    jne .maybe_xbgr
     cmp byte [BOOT_VIDEO_BLUE_POS], 0
     jne .done
+    mov dword [framebuffer_color_order], FRAMEBUFFER_COLOR_ORDER_XRGB
+    jmp .color_order_ready
+.maybe_xbgr:
+    cmp byte [BOOT_VIDEO_RED_POS], 0
+    jne .done
+    cmp byte [BOOT_VIDEO_BLUE_POS], 16
+    jne .done
+    mov dword [framebuffer_color_order], FRAMEBUFFER_COLOR_ORDER_XBGR
+.color_order_ready:
     movzx eax, word [BOOT_VIDEO_WIDTH]
     cmp eax, 640
     jb .done
@@ -6663,7 +6704,13 @@ framebuffer_init:
     jb .done
 
     mov byte [video_backend], VIDEO_BACKEND_LFB_XRGB8888
+    cmp dword [framebuffer_color_order], FRAMEBUFFER_COLOR_ORDER_XBGR
+    je .set_xbgr_cap
     or dword [framebuffer_capabilities], VIBE_FB_CAP_XRGB8888_LFB
+    jmp .cap_ready
+.set_xbgr_cap:
+    or dword [framebuffer_capabilities], VIBE_FB_CAP_XBGR8888_LFB
+.cap_ready:
     mov dword [framebuffer_handoff_source], FRAMEBUFFER_HANDOFF_SOURCE_VBE
     cmp word [BOOT_VIDEO_MODE], FRAMEBUFFER_GOP_BOOT_MODE
     jne .handoff_source_ready
@@ -6678,6 +6725,16 @@ framebuffer_init:
     mov [framebuffer_width], eax
     movzx eax, word [BOOT_VIDEO_HEIGHT]
     mov [framebuffer_height], eax
+    and dword [framebuffer_capabilities], 0xffffffdf
+    mov eax, [framebuffer_width]
+    mov [framebuffer_source_width], eax
+    mov [framebuffer_source_aspect_width], eax
+    mov eax, [framebuffer_height]
+    mov [framebuffer_source_height], eax
+    mov [framebuffer_source_aspect_height], eax
+    mov eax, [framebuffer_width]
+    mul dword [framebuffer_height]
+    mov [framebuffer_source_frame_bytes], eax
 
 .done:
     ret
@@ -6715,12 +6772,19 @@ process_vm_init_page_spaces:
     cld
     rep movsd
 
+    mov esi, PAGING_TABLES_ADDR + (4 * PAGE_SIZE)
+    mov edi, PROC_USER_PDE4_TABLE_ADDR
+    mov ecx, 1024
+    cld
+    rep movsd
+
     mov esi, PAGING_TABLES_ADDR + (3 * PAGE_SIZE)
     mov edi, PROC_PROBE_PDE3_TABLE_ADDR
     mov ecx, 1024
     cld
     rep movsd
     mov dword [PROC_PROBE_PAGE_DIR_ADDR + (3 * 4)], PROC_PROBE_PDE3_TABLE_ADDR | PTE_USER_FLAGS
+    mov dword [PROC_PROBE_PAGE_DIR_ADDR + (4 * 4)], PROC_USER_PDE4_TABLE_ADDR | PTE_USER_FLAGS
 
     mov ebx, PROC_PROBE_PAGE_DIR_ADDR
     mov eax, USER_CODE_ADDR
@@ -6739,6 +6803,7 @@ process_vm_init_page_spaces:
     cld
     rep movsd
     mov dword [PROC_PREEMPT_PAGE_DIR_ADDR + (3 * 4)], PROC_PREEMPT_PDE3_TABLE_ADDR | PTE_USER_FLAGS
+    mov dword [PROC_PREEMPT_PAGE_DIR_ADDR + (4 * 4)], PROC_USER_PDE4_TABLE_ADDR | PTE_USER_FLAGS
 
     mov ebx, PROC_PREEMPT_PAGE_DIR_ADDR
     mov eax, USER_CODE_ADDR
@@ -6757,6 +6822,7 @@ process_vm_init_page_spaces:
     cld
     rep movsd
     mov dword [PROC_GENERIC0_PAGE_DIR_ADDR + (3 * 4)], PROC_GENERIC0_PDE3_TABLE_ADDR | PTE_USER_FLAGS
+    mov dword [PROC_GENERIC0_PAGE_DIR_ADDR + (4 * 4)], PROC_USER_PDE4_TABLE_ADDR | PTE_USER_FLAGS
 
     mov ebx, PROC_GENERIC0_PAGE_DIR_ADDR
     mov eax, USER_CODE_ADDR
@@ -6775,6 +6841,7 @@ process_vm_init_page_spaces:
     cld
     rep movsd
     mov dword [PROC_GENERIC1_PAGE_DIR_ADDR + (3 * 4)], PROC_GENERIC1_PDE3_TABLE_ADDR | PTE_USER_FLAGS
+    mov dword [PROC_GENERIC1_PAGE_DIR_ADDR + (4 * 4)], PROC_USER_PDE4_TABLE_ADDR | PTE_USER_FLAGS
 
     mov ebx, PROC_GENERIC1_PAGE_DIR_ADDR
     mov eax, USER_CODE_ADDR
@@ -20397,25 +20464,38 @@ process_exec_path:
     mov eax, [process_exec_load_addr]
     call pmm_reserve_pages
 
+    pushfd
+    cli
+    mov eax, cr3
+    push eax
+    mov ebx, [process_exec_target]
+    cmp ebx, 0
+    je .load_address_space_ready
+    mov eax, [ebx + PROC_PAGE_DIR]
+    test eax, eax
+    jz .load_address_space_ready
+    mov cr3, eax
+
+.load_address_space_ready:
     movzx eax, word [process_exec_first_cluster]
     mov ebx, [process_exec_size]
     mov ecx, [process_exec_max_bytes]
     mov edi, [process_exec_load_addr]
     call fat_load_file
-    jc .load_fail
+    jc .load_fail_restore_cr3
 
     mov eax, [fat_load_sectors_read]
     mov [process_exec_sectors_read], eax
     mov esi, [process_exec_load_addr]
     cmp dword [esi], ELF_MAGIC
-    jne .load_fail
+    jne .load_fail_restore_cr3
 
     cmp dword [process_exec_target], process_payload
     je .loaded_payload
     mov eax, [process_exec_target]
     call process_is_user_exec_target
     jnc .loaded_user_probe
-    jmp .unsupported
+    jmp .unsupported_restore_cr3
 
 .loaded_payload:
     mov eax, [process_exec_sectors_read]
@@ -20436,9 +20516,31 @@ process_exec_path:
 
 .prepare:
     call process_exec_prepare_elf_image
-    jnc .prepared
+    jnc .prepared_restore_cr3
+
+.prepare_fail_restore_cr3:
+    pop eax
+    mov cr3, eax
+    popfd
     mov dword [process_exec_last_error], -ERRNO_EIO
     jmp .fail
+
+.load_fail_restore_cr3:
+    pop eax
+    mov cr3, eax
+    popfd
+    jmp .load_fail
+
+.unsupported_restore_cr3:
+    pop eax
+    mov cr3, eax
+    popfd
+    jmp .unsupported
+
+.prepared_restore_cr3:
+    pop eax
+    mov cr3, eax
+    popfd
 
 .prepared:
     mov esi, [process_exec_target]
@@ -22804,6 +22906,7 @@ syscall_handler:
     mov [present_palette_arg], ecx
     mov dword [present_width_arg], FB_PRESENT_WIDTH
     mov dword [present_height_arg], FB_PRESENT_HEIGHT
+    mov dword [present_frame_bytes_arg], FB_PRESENT_FRAME_BYTES
     mov eax, ebx
     mov ebx, FB_PRESENT_FRAME_BYTES
     call user_range_validate
@@ -24427,7 +24530,7 @@ syscall_handler:
     mov [edi + VIBE_FB_INFO_PITCH], eax
     movzx eax, byte [video_backend]
     mov [edi + VIBE_FB_INFO_BACKEND], eax
-    mov eax, [framebuffer_source_frame_bytes]
+    mov eax, [present_frame_bytes_arg]
     mov [edi + VIBE_FB_INFO_FRAME_BYTES], eax
     mov eax, [framebuffer_source_palette_bytes]
     mov [edi + VIBE_FB_INFO_PALETTE_BYTES], eax
@@ -24477,26 +24580,49 @@ syscall_handler:
     mov esi, [syscall_ptr_arg]
     mov eax, [esi + VIBE_PRESENT_DESC_WIDTH]
     mov [present_width_arg], eax
-    cmp eax, [framebuffer_source_width]
+    test eax, eax
+    jz .ioctl_present_bad_size
+    cmp byte [video_backend], VIDEO_BACKEND_LFB_XRGB8888
+    je .ioctl_present_lfb_width
+    cmp eax, FB_PRESENT_WIDTH
     je .ioctl_present_width_valid
+.ioctl_present_bad_size:
     inc dword [framebuffer_present_bad_size_count]
     jmp .bad_syscall_einval
+
+.ioctl_present_lfb_width:
+    cmp eax, [framebuffer_source_width]
+    jbe .ioctl_present_width_valid
+    jmp .ioctl_present_bad_size
 
 .ioctl_present_width_valid:
     mov eax, [esi + VIBE_PRESENT_DESC_HEIGHT]
     mov [present_height_arg], eax
+    test eax, eax
+    jz .ioctl_present_bad_size
+    cmp byte [video_backend], VIDEO_BACKEND_LFB_XRGB8888
+    je .ioctl_present_lfb_height
+    cmp eax, FB_PRESENT_HEIGHT
+    jne .ioctl_present_bad_size
+    jmp .ioctl_present_height_valid
+
+.ioctl_present_lfb_height:
     cmp eax, [framebuffer_source_height]
-    je .ioctl_present_height_valid
-    inc dword [framebuffer_present_bad_size_count]
-    jmp .bad_syscall_einval
+    ja .ioctl_present_bad_size
 
 .ioctl_present_height_valid:
+    mov eax, [present_width_arg]
+    mul dword [present_height_arg]
+    jc .ioctl_present_bad_size
+    test eax, eax
+    jz .ioctl_present_bad_size
+    mov [present_frame_bytes_arg], eax
     mov eax, [esi + VIBE_PRESENT_DESC_FRAME]
     mov [present_frame_arg], eax
     mov eax, [esi + VIBE_PRESENT_DESC_PALETTE]
     mov [present_palette_arg], eax
     mov eax, [present_frame_arg]
-    mov ebx, [framebuffer_source_frame_bytes]
+    mov ebx, [present_frame_bytes_arg]
     call user_range_validate
     jnc .ioctl_present_frame_valid
     inc dword [framebuffer_present_bad_range_count]
@@ -25451,7 +25577,6 @@ present_indexed_frame:
     call present_select_lfb_geometry
     jc .fail
     call present_update_dirty_rect
-    call present_copy_indexed_shadow
     call present_update_visual_proof
     call present_clear_lfb_if_geometry_changed
     call present_lfb_xrgb8888
@@ -25477,6 +25602,8 @@ present_reset_status_fields:
     mov byte [present_status], 0
     mov dword [present_width_arg], FB_PRESENT_WIDTH
     mov dword [present_height_arg], FB_PRESENT_HEIGHT
+    mov dword [present_visual_height_arg], FB_PRESENT_ASPECT_HEIGHT
+    mov dword [present_frame_bytes_arg], FB_PRESENT_FRAME_BYTES
     mov dword [present_sample_first], 0
     mov dword [present_sample_mid], 0
     mov dword [present_sample_last], 0
@@ -25523,6 +25650,27 @@ present_update_dirty_rect:
     mov dword [present_dirty_min_y], FB_PRESENT_HEIGHT
     mov dword [present_dirty_max_x], 0
     mov dword [present_dirty_max_y], 0
+
+    cmp byte [video_backend], VIDEO_BACKEND_MODE13
+    je .scan_mode13
+
+    mov eax, [framebuffer_source_frame_bytes]
+    mov [framebuffer_last_source_bytes], eax
+    mov eax, [framebuffer_source_palette_bytes]
+    mov [framebuffer_last_palette_bytes], eax
+    mov dword [present_dirty_x], 0
+    mov dword [present_dirty_y], 0
+    mov eax, [present_width_arg]
+    mov [present_dirty_width], eax
+    mov eax, [present_height_arg]
+    mov [present_dirty_height], eax
+    mov eax, [present_frame_bytes_arg]
+    mov [present_dirty_count], eax
+    inc dword [framebuffer_dirty_sequence]
+    add [framebuffer_dirty_total_pixels], eax
+    jmp .dirty_done
+
+.scan_mode13:
 
     mov esi, [present_frame_arg]
     mov edi, VGA_GRAPHICS_BUFFER
@@ -25638,7 +25786,7 @@ present_update_visual_proof:
     mov [present_palette_hash], eax
 
     mov esi, [present_frame_arg]
-    mov ecx, FB_PRESENT_FRAME_BYTES
+    mov ecx, [present_frame_bytes_arg]
     mov eax, 0x811c9dc5
     xor edx, edx
     xor edi, edi
@@ -25654,7 +25802,7 @@ present_update_visual_proof:
     inc edx
 
 .nonzero_done:
-    cmp ecx, FB_PRESENT_FRAME_BYTES
+    cmp ecx, [present_frame_bytes_arg]
     je .transition_done
     cmp bl, byte [present_previous_index]
     je .transition_done
@@ -25720,10 +25868,21 @@ present_select_lfb_geometry:
     push ecx
     push edx
 
-    cmp dword [framebuffer_width], FB_PRESENT_WIDTH * 2
+    mov eax, [present_width_arg]
+    cmp [framebuffer_width], eax
     jb .fail
-    cmp dword [framebuffer_height], FB_PRESENT_HEIGHT * 2
+    mov eax, [present_height_arg]
+    cmp [framebuffer_height], eax
     jb .fail
+
+    mov [present_visual_height_arg], eax
+    cmp dword [present_width_arg], FB_PRESENT_WIDTH
+    jne .visual_height_ready
+    cmp dword [present_height_arg], FB_PRESENT_HEIGHT
+    jne .visual_height_ready
+    mov dword [present_visual_height_arg], FB_PRESENT_ASPECT_HEIGHT
+
+.visual_height_ready:
     mov eax, [framebuffer_width]
     shl eax, 2
     cmp [framebuffer_pitch], eax
@@ -25731,53 +25890,36 @@ present_select_lfb_geometry:
 
     mov eax, [framebuffer_width]
     xor edx, edx
-    mov ebx, FB_PRESENT_WIDTH
+    mov ebx, [present_width_arg]
     div ebx
     mov ecx, eax
     mov eax, [framebuffer_height]
     xor edx, edx
-    mov ebx, FB_PRESENT_ASPECT_HEIGHT
+    mov ebx, [present_visual_height_arg]
     div ebx
     cmp ecx, eax
-    jbe .aspect_scale_ready
+    jbe .scale_ready
     mov ecx, eax
 
-.aspect_scale_ready:
-    cmp ecx, 2
-    jb .try_square
-    mov dword [present_lfb_policy], PRESENT_POLICY_ASPECT
-    mov [present_lfb_scale], ecx
-    mov eax, FB_PRESENT_WIDTH
-    mul ecx
-    mov [present_lfb_view_width], eax
-    mov eax, FB_PRESENT_ASPECT_HEIGHT
-    mul ecx
-    mov [present_lfb_view_height], eax
-    jmp .compute_center
-
-.try_square:
-    mov eax, [framebuffer_width]
-    xor edx, edx
-    mov ebx, FB_PRESENT_WIDTH
-    div ebx
-    mov ecx, eax
-    mov eax, [framebuffer_height]
-    xor edx, edx
-    mov ebx, FB_PRESENT_HEIGHT
-    div ebx
-    cmp ecx, eax
-    jbe .square_scale_ready
-    mov ecx, eax
-
-.square_scale_ready:
-    cmp ecx, 2
+.scale_ready:
+    cmp ecx, 1
     jb .fail
-    mov dword [present_lfb_policy], PRESENT_POLICY_SQUARE
     mov [present_lfb_scale], ecx
-    mov eax, FB_PRESENT_WIDTH
+
+    mov eax, [present_visual_height_arg]
+    cmp eax, [present_height_arg]
+    jne .aspect_policy
+    mov dword [present_lfb_policy], PRESENT_POLICY_SQUARE
+    jmp .policy_ready
+
+.aspect_policy:
+    mov dword [present_lfb_policy], PRESENT_POLICY_ASPECT
+
+.policy_ready:
+    mov eax, [present_width_arg]
     mul ecx
     mov [present_lfb_view_width], eax
-    mov eax, FB_PRESENT_HEIGHT
+    mov eax, [present_visual_height_arg]
     mul ecx
     mov [present_lfb_view_height], eax
 
@@ -25873,10 +26015,10 @@ present_lfb_square_xrgb8888:
     xor ebx, ebx
 
 .source_row_next:
-    cmp ebx, FB_PRESENT_HEIGHT
+    cmp ebx, [present_height_arg]
     jae .ok
     mov eax, ebx
-    mov ecx, FB_PRESENT_WIDTH
+    mov ecx, [present_width_arg]
     mul ecx
     add eax, [present_frame_arg]
     mov esi, eax
@@ -25916,15 +26058,15 @@ present_lfb_aspect_xrgb8888:
     xor ebx, ebx
 
 .visual_row_next:
-    cmp ebx, FB_PRESENT_ASPECT_HEIGHT
+    cmp ebx, [present_visual_height_arg]
     jae .ok
     mov eax, ebx
-    mov ecx, FB_PRESENT_HEIGHT
+    mov ecx, [present_height_arg]
     mul ecx
-    mov ecx, FB_PRESENT_ASPECT_HEIGHT
+    mov ecx, [present_visual_height_arg]
     div ecx
     mov [present_lfb_source_y], eax
-    mov ecx, FB_PRESENT_WIDTH
+    mov ecx, [present_width_arg]
     mul ecx
     add eax, [present_frame_arg]
     mov esi, eax
@@ -25959,7 +26101,7 @@ present_lfb_render_scaled_row:
     push edx
     push ebp
 
-    mov ecx, FB_PRESENT_WIDTH
+    mov ecx, [present_width_arg]
 
 .pixel_next:
     movzx ebx, byte [esi]
@@ -25967,6 +26109,8 @@ present_lfb_render_scaled_row:
     lea edx, [ebx + ebx * 2]
     add edx, [present_palette_arg]
     xor eax, eax
+    cmp dword [framebuffer_color_order], FRAMEBUFFER_COLOR_ORDER_XBGR
+    je .pack_xbgr
     movzx ebx, byte [edx]
     shl ebx, 16
     or eax, ebx
@@ -25975,6 +26119,17 @@ present_lfb_render_scaled_row:
     or eax, ebx
     movzx ebx, byte [edx + 2]
     or eax, ebx
+    jmp .packed
+.pack_xbgr:
+    movzx ebx, byte [edx + 2]
+    shl ebx, 16
+    or eax, ebx
+    movzx ebx, byte [edx + 1]
+    shl ebx, 8
+    or eax, ebx
+    movzx ebx, byte [edx]
+    or eax, ebx
+.packed:
     mov ebp, [present_lfb_scale]
 
 .repeat_pixel:
@@ -35991,13 +36146,17 @@ present_lfb_last_view_width dd 0xffffffff
 present_lfb_last_view_height dd 0xffffffff
 present_width_arg dd FB_PRESENT_WIDTH
 present_height_arg dd FB_PRESENT_HEIGHT
+present_visual_height_arg dd FB_PRESENT_ASPECT_HEIGHT
+present_frame_bytes_arg dd FB_PRESENT_FRAME_BYTES
 framebuffer_addr dd 0
 framebuffer_pitch dd 0
 framebuffer_width dd 0
 framebuffer_height dd 0
+framebuffer_color_order dd 0
 framebuffer_page_count dd 0
 framebuffer_pde_index dd 0
 framebuffer_pte_index dd 0
+framebuffer_pde_count dd 0
 present_lfb_row dd 0
 present_lfb_x_offset dd 0
 present_lfb_rows_left dd 0
