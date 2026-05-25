@@ -283,7 +283,7 @@ jobs:
             fi
 
             if [ -z "$failure_stage" ]; then
-              grep -q "path=DOOM.ELF" build/status.txt
+              grep -q "path=PAYLOAD0.ELF" build/status.txt
               grep -q "doomopen=OK" build/status.txt
               grep -q "doomread=OK" build/status.txt
               grep -q "gameplay=OK" build/status.txt

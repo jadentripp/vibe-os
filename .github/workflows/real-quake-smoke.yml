@@ -31,7 +31,7 @@ env:
 
 jobs:
   smoke:
-    name: Boot QUAKE.ELF with validated PAK0.PAK
+    name: Boot PAYLOAD1.ELF with validated PAK0.PAK
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -73,7 +73,7 @@ jobs:
           {
             echo "### Real Quake smoke"
             echo ""
-            echo "- payload: \`QUAKE.ELF\`"
+            echo "- payload: \`PAYLOAD1.ELF\`"
             echo "- data: externally supplied \`PAK0.PAK\`, SHA-1 checked before use"
             echo "- local VM: refused by runbook; this job runs on a disposable GitHub-hosted runner"
             echo "- artifact policy: status/JSON proof only"
@@ -182,7 +182,7 @@ jobs:
             build/status.after-start.txt \
             build/status.txt; do
             if [ -s "$candidate" ] \
-              && grep -q "path=QUAKE.ELF" "$candidate" \
+              && grep -q "path=PAYLOAD1.ELF" "$candidate" \
               && grep -q "quake=OK" "$candidate"; then
               cp "$candidate" build/status.txt
               echo "Selected $candidate as build/status.txt for proof gates."
@@ -198,7 +198,7 @@ jobs:
         run: |
           set -euo pipefail
           make quake-status-proof-check
-          printf '{ "result": "ok", "gate": "guest-status", "claim": "QUAKE.ELF launched with real PAK reads, rendered frames, input, audio, and gameplay progress" }\n' > build/quake-proof.json
+          printf '{ "result": "ok", "gate": "guest-status", "claim": "PAYLOAD1.ELF launched with real PAK reads, rendered frames, input, audio, and gameplay progress" }\n' > build/quake-proof.json
 
       - name: Assert VM/process legitimacy gates
         id: vm_status

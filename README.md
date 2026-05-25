@@ -3,10 +3,11 @@
 vibe-os is an assembly-native x86 OS/runtime. It boots a raw disk image, loads
 its own kernel, and runs Ring 3 ELF programs through one process/syscall ABI.
 
-The current proof programs are original Doom and original Quake. They are built
-as `DOOM.ELF` and `QUAKE.ELF` because those are the executable filenames in the
-FAT image and proof artifacts. They are not special ELF types. The public
-process ABI uses generic payload kinds, not Doom or Quake process kinds.
+The current proof programs are original Doom and original Quake. In the build
+output and FAT image, Doom occupies `PAYLOAD0.ELF` and Quake occupies
+`PAYLOAD1.ELF`. Those are generic payload slot names, not special ELF types.
+The public process ABI uses generic payload kinds, not Doom or Quake process
+kinds.
 
 The concrete test is simple:
 
@@ -26,7 +27,8 @@ files, memory, time, input, video, audio, config, and saves.
 - The large C payloads are the original id Software Doom and Quake sources under
   `third_party/doom` and `third_party/quake`.
 - Host-only C utilities build FAT images, link ELF32 payloads, and validate
-  status artifacts. They are not part of the guest OS path.
+  status artifacts with `tools/vibe_status_check.c`. They are not part of the
+  guest OS path.
 - Python is not part of the tracked build or proof path.
 - Release-quality Doom and Quake proofs run in GitHub Actions on disposable
   QEMU VMs. They launch the payload ELFs through the same generic process path,
@@ -34,9 +36,9 @@ files, memory, time, input, video, audio, config, and saves.
 
 There is still naming debt. Some status fields, build variables, compatibility
 paths, and host image-builder internals still say `doom`, `quake`, `wad`, `pak`,
-`DOOM1.WAD`, `PAK0.PAK`, or Doom save filenames. Those are current proof labels,
+`DOOM1.WAD`, `PAK0.PAK`, or Doom save filenames. Those are proof labels,
 file-format names, or compatibility filenames. They do not mean vibe-os has a
-Doom-only or Quake-only process ABI.
+Doom-only or Quake-only executable path.
 
 ## What It Owns
 
@@ -102,8 +104,8 @@ make ALLOW_LOCAL_VM=0 DOOM_WAD= uefi-loader-object
 git diff --check
 ```
 
-Those checks build the boot image, `KERNEL.ELF`, probe ELFs, `DOOM.ELF`,
-`QUAKE.ELF`, the host image/status utilities, and the assembly-native guest
+Those checks build the boot image, `KERNEL.ELF`, probe ELFs, `PAYLOAD0.ELF`,
+`PAYLOAD1.ELF`, the host image/status utilities, and the assembly-native guest
 build audit. They do not run local QEMU.
 
 With `DOOM_WAD=` empty and `QUAKE_PAK` unset, the local image uses generated
@@ -117,7 +119,8 @@ make DOOM_WAD=/path/to/DOOM1.WAD QUAKE_PAK=/path/to/PAK0.PAK
 ```
 
 The generated image is `build/disk.img`. A normal build places `KERNEL.ELF`,
-`USERPROB.ELF`, `ABIPROBE.ELF`, `DOOM.ELF`, and `QUAKE.ELF` in the FAT root.
+`USERPROB.ELF`, `ABIPROBE.ELF`, `PAYLOAD0.ELF`, and `PAYLOAD1.ELF` in the FAT
+root.
 
 The build also has generic data aliases:
 
@@ -128,7 +131,7 @@ make PRIMARY_ASSET=/path/to/DOOM1.WAD SECONDARY_PACKAGE=/path/to/PAK0.PAK
 ## Cloud Proofs
 
 The Doom proof lane fetches or accepts `DOOM1.WAD`, validates it, builds a
-temporary disk image, boots vibe-os in QEMU, launches `DOOM.ELF`, drives
+temporary disk image, boots vibe-os in QEMU, launches `PAYLOAD0.ELF`, drives
 scripted input, and uploads status-only proof artifacts.
 
 ```sh
@@ -139,7 +142,7 @@ gh workflow run real-wad-smoke.yml \
 ```
 
 The Quake proof lane fetches or accepts `PAK0.PAK`, validates it, builds a
-temporary disk image, boots vibe-os in QEMU, launches `QUAKE.ELF`, drives
+temporary disk image, boots vibe-os in QEMU, launches `PAYLOAD1.ELF`, drives
 scripted input, and uploads status-only proof artifacts.
 
 ```sh

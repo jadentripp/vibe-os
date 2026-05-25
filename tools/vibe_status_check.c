@@ -937,16 +937,21 @@ static void validate_vfs_abi(const Status *status) {
 }
 
 static void validate_exec(const Status *status) {
+    const char *exec_path;
+
     exact(status, "exec", "OK");
     exact(status, "uexec", "OK");
     exact(status, "upath", "USERPROB.ELF");
     exact(status, "abiexec", "OK");
     exact(status, "abipath", "ABIPROBE.ELF");
     exact(status, "abiprobe", "OK");
-    if (strcmp(field(status, "path"), "QUAKE.ELF") == 0) {
+    exec_path = field(status, "path");
+    if (strcmp(exec_path, "PAYLOAD1.ELF") == 0) {
         exact(status, "quake", "OK");
-    } else {
+    } else if (strcmp(exec_path, "PAYLOAD0.ELF") == 0) {
         exact(status, "doom", "OK");
+    } else {
+        fail("path= must be PAYLOAD0.ELF or PAYLOAD1.ELF");
     }
     if (hex_field(status, "argvsrc") != SYS_EXEC_ARGV_SOURCE_USER) {
         fail("argvsrc= must prove exec argv came from user memory");
