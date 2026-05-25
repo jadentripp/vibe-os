@@ -4,6 +4,7 @@ BITS 32
 %define SCREEN_H 200
 %define FRAME_BYTES 64000
 %define PALETTE_BYTES 768
+%define LAUNCHER_ASSET_BYTES 65536
 
 %define INPUT_DEVICE_KEYBOARD 1
 %define INPUT_DEVICE_MOUSE 2
@@ -29,24 +30,56 @@ BITS 32
 %define SCANCODE_UP 0x48
 %define SCANCODE_DOWN 0x50
 
-%define COLOR_BG 1
-%define COLOR_PANEL 2
-%define COLOR_SELECTED 3
-%define COLOR_BUTTON 4
+%define COLOR_DESKTOP_TOP 1
+%define COLOR_DESKTOP_MID 2
+%define COLOR_DESKTOP_BOTTOM 3
+%define COLOR_MENU 4
+%define COLOR_MENU_SHADOW 5
+%define COLOR_WINDOW 6
+%define COLOR_WINDOW_TITLE 7
+%define COLOR_WINDOW_EDGE 8
+%define COLOR_DOCK 9
+%define COLOR_DOCK_EDGE 10
+%define COLOR_PAYLOAD0_ICON 11
+%define COLOR_PAYLOAD1_ICON 12
+%define COLOR_SELECTED 13
+%define COLOR_TRAFFIC_RED 14
 %define COLOR_TEXT 15
 
-%define DOOM_X 48
-%define DOOM_Y 72
-%define QUAKE_X 48
-%define QUAKE_Y 125
-%define BUTTON_W 224
-%define BUTTON_H 42
+%define WINDOW_X 18
+%define WINDOW_Y 22
+%define WINDOW_W 284
+%define WINDOW_H 104
+%define DOCK_X 38
+%define DOCK_Y 145
+%define DOCK_W 244
+%define DOCK_H 50
+%define PAYLOAD0_HIT_X 66
+%define PAYLOAD0_HIT_Y 148
+%define PAYLOAD1_HIT_X 182
+%define PAYLOAD1_HIT_Y 148
+%define PAYLOAD_HIT_W 72
+%define PAYLOAD_HIT_H 47
+%define PAYLOAD0_ICON_X 88
+%define PAYLOAD0_ICON_Y 150
+%define PAYLOAD1_ICON_X 204
+%define PAYLOAD1_ICON_Y 150
+%define PAYLOAD_ICON_SIZE 28
+%define PAYLOAD_ICON_PIXELS PAYLOAD_ICON_SIZE * PAYLOAD_ICON_SIZE
+%define LAUNCHER_ART_PAYLOAD0 0x00000001
+%define LAUNCHER_ART_PAYLOAD1 0x00000002
+%define WAD_DIR_ENTRY_BYTES 16
+%define PAK_DIR_ENTRY_BYTES 64
 
 extern vibe_user_present_indexed_checked
 extern vibe_user_poll_input
 extern vibe_user_sleep_ticks
 extern vibe_user_write_all
 extern vibe_user_sbrk
+extern vibe_user_open
+extern vibe_user_read
+extern vibe_user_lseek
+extern vibe_user_close
 
 section .text
 global vibe_launcher_choose_payload
@@ -64,10 +97,11 @@ vibe_launcher_choose_payload:
     jne .fallback
 
     call launcher_init_palette
+    call launcher_load_art
     mov dword [launcher_selected], 0
     mov dword [launcher_focus], 1
-    mov dword [launcher_cursor_x], 160
-    mov dword [launcher_cursor_y], 104
+    mov dword [launcher_cursor_x], 102
+    mov dword [launcher_cursor_y], 170
 
     push launcher_ready_text
     push 1
@@ -116,21 +150,61 @@ launcher_init_palette:
     rep stosb
 
     mov edi, [launcher_palette_ptr]
-    mov byte [edi + COLOR_BG * 3 + 0], 8
-    mov byte [edi + COLOR_BG * 3 + 1], 12
-    mov byte [edi + COLOR_BG * 3 + 2], 18
+    mov byte [edi + COLOR_DESKTOP_TOP * 3 + 0], 31
+    mov byte [edi + COLOR_DESKTOP_TOP * 3 + 1], 73
+    mov byte [edi + COLOR_DESKTOP_TOP * 3 + 2], 103
 
-    mov byte [edi + COLOR_PANEL * 3 + 0], 20
-    mov byte [edi + COLOR_PANEL * 3 + 1], 28
-    mov byte [edi + COLOR_PANEL * 3 + 2], 38
+    mov byte [edi + COLOR_DESKTOP_MID * 3 + 0], 51
+    mov byte [edi + COLOR_DESKTOP_MID * 3 + 1], 106
+    mov byte [edi + COLOR_DESKTOP_MID * 3 + 2], 128
+
+    mov byte [edi + COLOR_DESKTOP_BOTTOM * 3 + 0], 79
+    mov byte [edi + COLOR_DESKTOP_BOTTOM * 3 + 1], 132
+    mov byte [edi + COLOR_DESKTOP_BOTTOM * 3 + 2], 122
+
+    mov byte [edi + COLOR_MENU * 3 + 0], 44
+    mov byte [edi + COLOR_MENU * 3 + 1], 55
+    mov byte [edi + COLOR_MENU * 3 + 2], 68
+
+    mov byte [edi + COLOR_MENU_SHADOW * 3 + 0], 92
+    mov byte [edi + COLOR_MENU_SHADOW * 3 + 1], 106
+    mov byte [edi + COLOR_MENU_SHADOW * 3 + 2], 117
+
+    mov byte [edi + COLOR_WINDOW * 3 + 0], 234
+    mov byte [edi + COLOR_WINDOW * 3 + 1], 238
+    mov byte [edi + COLOR_WINDOW * 3 + 2], 242
+
+    mov byte [edi + COLOR_WINDOW_TITLE * 3 + 0], 103
+    mov byte [edi + COLOR_WINDOW_TITLE * 3 + 1], 131
+    mov byte [edi + COLOR_WINDOW_TITLE * 3 + 2], 157
+
+    mov byte [edi + COLOR_WINDOW_EDGE * 3 + 0], 48
+    mov byte [edi + COLOR_WINDOW_EDGE * 3 + 1], 61
+    mov byte [edi + COLOR_WINDOW_EDGE * 3 + 2], 74
+
+    mov byte [edi + COLOR_DOCK * 3 + 0], 42
+    mov byte [edi + COLOR_DOCK * 3 + 1], 53
+    mov byte [edi + COLOR_DOCK * 3 + 2], 66
+
+    mov byte [edi + COLOR_DOCK_EDGE * 3 + 0], 118
+    mov byte [edi + COLOR_DOCK_EDGE * 3 + 1], 139
+    mov byte [edi + COLOR_DOCK_EDGE * 3 + 2], 154
+
+    mov byte [edi + COLOR_PAYLOAD0_ICON * 3 + 0], 190
+    mov byte [edi + COLOR_PAYLOAD0_ICON * 3 + 1], 91
+    mov byte [edi + COLOR_PAYLOAD0_ICON * 3 + 2], 54
+
+    mov byte [edi + COLOR_PAYLOAD1_ICON * 3 + 0], 59
+    mov byte [edi + COLOR_PAYLOAD1_ICON * 3 + 1], 116
+    mov byte [edi + COLOR_PAYLOAD1_ICON * 3 + 2], 147
 
     mov byte [edi + COLOR_SELECTED * 3 + 0], 45
     mov byte [edi + COLOR_SELECTED * 3 + 1], 102
     mov byte [edi + COLOR_SELECTED * 3 + 2], 163
 
-    mov byte [edi + COLOR_BUTTON * 3 + 0], 32
-    mov byte [edi + COLOR_BUTTON * 3 + 1], 42
-    mov byte [edi + COLOR_BUTTON * 3 + 2], 54
+    mov byte [edi + COLOR_TRAFFIC_RED * 3 + 0], 214
+    mov byte [edi + COLOR_TRAFFIC_RED * 3 + 1], 68
+    mov byte [edi + COLOR_TRAFFIC_RED * 3 + 2], 77
 
     mov byte [edi + COLOR_TEXT * 3 + 0], 238
     mov byte [edi + COLOR_TEXT * 3 + 1], 242
@@ -145,7 +219,7 @@ launcher_ensure_buffers:
     jne .ready
 
     push launcher_alloc_base
-    push FRAME_BYTES + PALETTE_BYTES
+    push FRAME_BYTES + PALETTE_BYTES + LAUNCHER_ASSET_BYTES
     call vibe_user_sbrk
     add esp, 8
     test eax, eax
@@ -157,6 +231,8 @@ launcher_ensure_buffers:
     mov [launcher_frame_ptr], eax
     add eax, FRAME_BYTES
     mov [launcher_palette_ptr], eax
+    add eax, PALETTE_BYTES
+    mov [launcher_asset_ptr], eax
 
 .ready:
     xor eax, eax
@@ -172,60 +248,817 @@ launcher_draw:
     mov eax, 0
     mov ebx, 0
     mov ecx, SCREEN_W
-    mov edx, SCREEN_H
-    mov edi, COLOR_BG
+    mov edx, 64
+    mov edi, COLOR_DESKTOP_TOP
     call launcher_fill_rect
 
-    mov eax, 18
-    mov ebx, 12
-    mov ecx, 284
-    mov edx, 176
-    mov edi, COLOR_PANEL
+    mov eax, 0
+    mov ebx, 64
+    mov ecx, SCREEN_W
+    mov edx, 80
+    mov edi, COLOR_DESKTOP_MID
     call launcher_fill_rect
 
-    mov eax, 88
-    mov ebx, 24
+    mov eax, 0
+    mov ebx, 144
+    mov ecx, SCREEN_W
+    mov edx, 56
+    mov edi, COLOR_DESKTOP_BOTTOM
+    call launcher_fill_rect
+
+    mov eax, 0
+    mov ebx, 0
+    mov ecx, SCREEN_W
+    mov edx, 14
+    mov edi, COLOR_MENU
+    call launcher_fill_rect
+
+    mov eax, 0
+    mov ebx, 14
+    mov ecx, SCREEN_W
+    mov edx, 1
+    mov edi, COLOR_MENU_SHADOW
+    call launcher_fill_rect
+
+    mov eax, 8
+    mov ebx, 1
     mov esi, launcher_title_text
     call launcher_draw_text
 
-    mov eax, 62
-    mov ebx, 48
-    mov esi, launcher_subtitle_text
+    mov eax, 236
+    mov ebx, 1
+    mov esi, launcher_menu_right_text
     call launcher_draw_text
 
-    mov eax, DOOM_X
-    mov ebx, DOOM_Y
-    mov ecx, BUTTON_W
-    mov edx, BUTTON_H
-    mov edi, COLOR_BUTTON
-    cmp dword [launcher_focus], 1
-    jne .doom_not_focused
-    mov edi, COLOR_SELECTED
-.doom_not_focused:
-    call launcher_fill_rect
-
-    mov eax, QUAKE_X
-    mov ebx, QUAKE_Y
-    mov ecx, BUTTON_W
-    mov edx, BUTTON_H
-    mov edi, COLOR_BUTTON
-    cmp dword [launcher_focus], 2
-    jne .quake_not_focused
-    mov edi, COLOR_SELECTED
-.quake_not_focused:
-    call launcher_fill_rect
-
-    mov eax, 113
-    mov ebx, 87
-    mov esi, launcher_doom_text
-    call launcher_draw_text
-
-    mov eax, 104
-    mov ebx, 140
-    mov esi, launcher_quake_text
-    call launcher_draw_text
-
+    call launcher_draw_window
+    call launcher_draw_dock
     call launcher_draw_cursor
+    ret
+
+align 16
+launcher_draw_window:
+    mov eax, WINDOW_X
+    mov ebx, WINDOW_Y
+    mov ecx, WINDOW_W
+    mov edx, WINDOW_H
+    mov edi, COLOR_WINDOW_EDGE
+    call launcher_fill_rect
+
+    mov eax, WINDOW_X + 2
+    mov ebx, WINDOW_Y + 2
+    mov ecx, WINDOW_W - 4
+    mov edx, WINDOW_H - 4
+    mov edi, COLOR_WINDOW
+    call launcher_fill_rect
+
+    mov eax, WINDOW_X + 2
+    mov ebx, WINDOW_Y + 2
+    mov ecx, WINDOW_W - 4
+    mov edx, 17
+    mov edi, COLOR_WINDOW_TITLE
+    call launcher_fill_rect
+
+    mov eax, WINDOW_X + 8
+    mov ebx, WINDOW_Y + 8
+    mov ecx, 5
+    mov edx, 5
+    mov edi, COLOR_TRAFFIC_RED
+    call launcher_fill_rect
+
+    mov eax, WINDOW_X + 18
+    mov ebx, WINDOW_Y + 8
+    mov ecx, 5
+    mov edx, 5
+    mov edi, COLOR_PAYLOAD0_ICON
+    call launcher_fill_rect
+
+    mov eax, WINDOW_X + 28
+    mov ebx, WINDOW_Y + 8
+    mov ecx, 5
+    mov edx, 5
+    mov edi, COLOR_PAYLOAD1_ICON
+    call launcher_fill_rect
+
+    mov eax, 111
+    mov ebx, WINDOW_Y + 4
+    mov esi, launcher_window_title_text
+    call launcher_draw_text
+
+    mov eax, WINDOW_X + 18
+    mov ebx, WINDOW_Y + 31
+    mov ecx, WINDOW_W - 36
+    mov edx, 66
+    mov edi, COLOR_DESKTOP_TOP
+    call launcher_fill_rect
+
+    mov eax, WINDOW_X + 22
+    mov ebx, WINDOW_Y + 35
+    mov ecx, WINDOW_W - 44
+    mov edx, 58
+    mov edi, COLOR_DESKTOP_MID
+    call launcher_fill_rect
+
+    mov eax, 88
+    mov ebx, 65
+    mov esi, launcher_desktop_text
+    call launcher_draw_text
+
+    ret
+
+align 16
+launcher_draw_dock:
+    mov eax, DOCK_X
+    mov ebx, DOCK_Y
+    mov ecx, DOCK_W
+    mov edx, DOCK_H
+    mov edi, COLOR_DOCK_EDGE
+    call launcher_fill_rect
+
+    mov eax, DOCK_X + 2
+    mov ebx, DOCK_Y + 2
+    mov ecx, DOCK_W - 4
+    mov edx, DOCK_H - 4
+    mov edi, COLOR_DOCK
+    call launcher_fill_rect
+
+    cmp dword [launcher_focus], 1
+    jne .payload0_not_focused
+    mov eax, PAYLOAD0_HIT_X
+    mov ebx, PAYLOAD0_HIT_Y
+    mov ecx, PAYLOAD_HIT_W
+    mov edx, PAYLOAD_HIT_H
+    mov edi, COLOR_SELECTED
+    call launcher_fill_rect
+.payload0_not_focused:
+
+    cmp dword [launcher_focus], 2
+    jne .payload1_not_focused
+    mov eax, PAYLOAD1_HIT_X
+    mov ebx, PAYLOAD1_HIT_Y
+    mov ecx, PAYLOAD_HIT_W
+    mov edx, PAYLOAD_HIT_H
+    mov edi, COLOR_SELECTED
+    call launcher_fill_rect
+.payload1_not_focused:
+
+    call launcher_draw_payload0_icon
+    call launcher_draw_payload1_icon
+    ret
+
+align 16
+launcher_draw_payload0_icon:
+    mov eax, PAYLOAD0_ICON_X
+    mov ebx, PAYLOAD0_ICON_Y
+    mov ecx, PAYLOAD_ICON_SIZE
+    mov edx, PAYLOAD_ICON_SIZE
+    mov edi, COLOR_WINDOW_EDGE
+    call launcher_fill_rect
+
+    mov eax, PAYLOAD0_ICON_X + 2
+    mov ebx, PAYLOAD0_ICON_Y + 2
+    mov ecx, PAYLOAD_ICON_SIZE - 4
+    mov edx, PAYLOAD_ICON_SIZE - 4
+    mov edi, COLOR_PAYLOAD0_ICON
+    call launcher_fill_rect
+
+    test dword [launcher_art_flags], LAUNCHER_ART_PAYLOAD0
+    jz .fallback_art
+    mov eax, PAYLOAD0_ICON_X
+    mov ebx, PAYLOAD0_ICON_Y
+    mov esi, launcher_icon0_pixels
+    call launcher_draw_icon_pixels
+    jmp .label
+
+.fallback_art:
+    mov eax, PAYLOAD0_ICON_X + 6
+    mov ebx, PAYLOAD0_ICON_Y + 6
+    mov ecx, 20
+    mov edx, 5
+    mov edi, COLOR_TRAFFIC_RED
+    call launcher_fill_rect
+
+    mov eax, PAYLOAD0_ICON_X + 9
+    mov ebx, PAYLOAD0_ICON_Y + 11
+    mov ecx, 14
+    mov edx, 14
+    mov edi, COLOR_WINDOW_EDGE
+    call launcher_fill_rect
+
+    mov eax, PAYLOAD0_ICON_X + 11
+    mov ebx, PAYLOAD0_ICON_Y + 11
+    mov esi, launcher_payload0_glyph_text
+    call launcher_draw_text
+
+.label:
+    mov eax, 78
+    mov ebx, 180
+    mov esi, launcher_payload0_text
+    call launcher_draw_text
+    ret
+
+align 16
+launcher_draw_payload1_icon:
+    mov eax, PAYLOAD1_ICON_X
+    mov ebx, PAYLOAD1_ICON_Y
+    mov ecx, PAYLOAD_ICON_SIZE
+    mov edx, PAYLOAD_ICON_SIZE
+    mov edi, COLOR_WINDOW_EDGE
+    call launcher_fill_rect
+
+    mov eax, PAYLOAD1_ICON_X + 2
+    mov ebx, PAYLOAD1_ICON_Y + 2
+    mov ecx, PAYLOAD_ICON_SIZE - 4
+    mov edx, PAYLOAD_ICON_SIZE - 4
+    mov edi, COLOR_PAYLOAD1_ICON
+    call launcher_fill_rect
+
+    test dword [launcher_art_flags], LAUNCHER_ART_PAYLOAD1
+    jz .fallback_art
+    mov eax, PAYLOAD1_ICON_X
+    mov ebx, PAYLOAD1_ICON_Y
+    mov esi, launcher_icon1_pixels
+    call launcher_draw_icon_pixels
+    jmp .label
+
+.fallback_art:
+    mov eax, PAYLOAD1_ICON_X + 7
+    mov ebx, PAYLOAD1_ICON_Y + 6
+    mov ecx, 18
+    mov edx, 20
+    mov edi, COLOR_DESKTOP_TOP
+    call launcher_fill_rect
+
+    mov eax, PAYLOAD1_ICON_X + 12
+    mov ebx, PAYLOAD1_ICON_Y + 11
+    mov ecx, 8
+    mov edx, 10
+    mov edi, COLOR_WINDOW_EDGE
+    call launcher_fill_rect
+
+    mov eax, PAYLOAD1_ICON_X + 11
+    mov ebx, PAYLOAD1_ICON_Y + 11
+    mov esi, launcher_payload1_glyph_text
+    call launcher_draw_text
+
+.label:
+    mov eax, 188
+    mov ebx, 180
+    mov esi, launcher_payload1_text
+    call launcher_draw_text
+    ret
+
+align 16
+launcher_load_art:
+    push edi
+    xor eax, eax
+    mov ecx, PAYLOAD_ICON_PIXELS * 2
+    mov edi, launcher_icon0_pixels
+    rep stosb
+    mov dword [launcher_art_flags], 0
+    call launcher_load_doom_icon
+    call launcher_load_quake_icon
+    pop edi
+    ret
+
+align 16
+launcher_load_doom_icon:
+    push ebx
+    push esi
+    push edi
+    mov dword [launcher_art_fd], -1
+
+    push 0
+    push 0
+    push launcher_doom_wad_path
+    call vibe_user_open
+    add esp, 12
+    test eax, eax
+    js .done
+    mov [launcher_art_fd], eax
+
+    push 12
+    push launcher_file_header
+    push eax
+    call vibe_user_read
+    add esp, 12
+    cmp eax, 12
+    jne .close
+
+    mov al, [launcher_file_header]
+    cmp al, 'I'
+    je .magic_tail
+    cmp al, 'P'
+    jne .close
+.magic_tail:
+    cmp byte [launcher_file_header + 1], 'W'
+    jne .close
+    cmp byte [launcher_file_header + 2], 'A'
+    jne .close
+    cmp byte [launcher_file_header + 3], 'D'
+    jne .close
+
+    mov eax, [launcher_file_header + 4]
+    test eax, eax
+    jz .close
+    mov [launcher_art_count], eax
+    shl eax, 4
+    cmp eax, LAUNCHER_ASSET_BYTES
+    ja .close
+    mov [launcher_art_dir_bytes], eax
+
+    push 0
+    push dword [launcher_file_header + 8]
+    push dword [launcher_art_fd]
+    call vibe_user_lseek
+    add esp, 12
+    test eax, eax
+    js .close
+
+    push dword [launcher_art_dir_bytes]
+    push dword [launcher_asset_ptr]
+    push dword [launcher_art_fd]
+    call vibe_user_read
+    add esp, 12
+    cmp eax, [launcher_art_dir_bytes]
+    jne .close
+
+    mov ecx, [launcher_art_count]
+    mov edi, [launcher_asset_ptr]
+.search:
+    test ecx, ecx
+    jz .close
+    cmp byte [edi + 8], 'M'
+    jne .next
+    cmp byte [edi + 9], '_'
+    jne .next
+    cmp byte [edi + 10], 'D'
+    jne .next
+    cmp byte [edi + 11], 'O'
+    jne .next
+    cmp byte [edi + 12], 'O'
+    jne .next
+    cmp byte [edi + 13], 'M'
+    jne .next
+    mov eax, [edi + 4]
+    cmp eax, 8
+    jb .close
+    cmp eax, LAUNCHER_ASSET_BYTES
+    ja .close
+    mov [launcher_art_size], eax
+
+    push 0
+    push dword [edi]
+    push dword [launcher_art_fd]
+    call vibe_user_lseek
+    add esp, 12
+    test eax, eax
+    js .close
+
+    push dword [launcher_art_size]
+    push dword [launcher_asset_ptr]
+    push dword [launcher_art_fd]
+    call vibe_user_read
+    add esp, 12
+    cmp eax, [launcher_art_size]
+    jne .close
+
+    call launcher_decode_doom_patch_icon
+    test eax, eax
+    jne .close
+    or dword [launcher_art_flags], LAUNCHER_ART_PAYLOAD0
+    jmp .close
+
+.next:
+    add edi, WAD_DIR_ENTRY_BYTES
+    dec ecx
+    jmp .search
+
+.close:
+    call launcher_close_art_fd
+.done:
+    pop edi
+    pop esi
+    pop ebx
+    ret
+
+align 16
+launcher_decode_doom_patch_icon:
+    push ebx
+    push esi
+    push edi
+    mov esi, [launcher_asset_ptr]
+    cmp dword [launcher_art_size], 8
+    jb .fail
+    movzx eax, word [esi + 0]
+    test eax, eax
+    jz .fail
+    mov [launcher_art_width], eax
+    movzx eax, word [esi + 2]
+    test eax, eax
+    jz .fail
+    mov [launcher_art_height], eax
+    mov eax, [launcher_art_width]
+    shl eax, 2
+    add eax, 8
+    cmp eax, [launcher_art_size]
+    ja .fail
+
+    xor ebx, ebx
+.column:
+    cmp ebx, [launcher_art_width]
+    jae .ok
+    mov eax, ebx
+    imul eax, PAYLOAD_ICON_SIZE
+    xor edx, edx
+    div dword [launcher_art_width]
+    mov [launcher_art_dest_x], eax
+    mov eax, [esi + 8 + ebx * 4]
+    mov [launcher_art_post_offset], eax
+
+.post:
+    mov eax, [launcher_art_post_offset]
+    cmp eax, [launcher_art_size]
+    jae .next_column
+    lea edi, [esi + eax]
+    cmp byte [edi], 0xff
+    je .next_column
+    movzx eax, byte [edi + 1]
+    mov [launcher_art_row_count], eax
+    mov edx, [launcher_art_post_offset]
+    add edx, eax
+    add edx, 4
+    cmp edx, [launcher_art_size]
+    ja .next_column
+    movzx eax, byte [edi]
+    mov [launcher_art_top], eax
+    mov dword [launcher_art_row], 0
+
+.row:
+    mov eax, [launcher_art_row]
+    cmp eax, [launcher_art_row_count]
+    jae .next_post
+    mov edx, [launcher_art_top]
+    add edx, eax
+    cmp edx, [launcher_art_height]
+    jae .advance_row
+    mov eax, edx
+    imul eax, PAYLOAD_ICON_SIZE
+    xor edx, edx
+    div dword [launcher_art_height]
+    mov [launcher_art_dest_y], eax
+
+    mov eax, [launcher_art_post_offset]
+    add eax, 3
+    add eax, [launcher_art_row]
+    movzx ecx, byte [esi + eax]
+    cmp ecx, 96
+    jb .doom_red
+    cmp ecx, 176
+    jb .doom_warm
+    mov cl, COLOR_TEXT
+    jmp .doom_color
+.doom_red:
+    mov cl, COLOR_TRAFFIC_RED
+    jmp .doom_color
+.doom_warm:
+    mov cl, COLOR_PAYLOAD0_ICON
+.doom_color:
+    mov edx, [launcher_art_dest_y]
+    imul edx, PAYLOAD_ICON_SIZE
+    add edx, [launcher_art_dest_x]
+    cmp edx, PAYLOAD_ICON_PIXELS
+    jae .advance_row
+    mov [launcher_icon0_pixels + edx], cl
+
+.advance_row:
+    inc dword [launcher_art_row]
+    jmp .row
+
+.next_post:
+    mov eax, [launcher_art_row_count]
+    add eax, 4
+    add [launcher_art_post_offset], eax
+    jmp .post
+
+.next_column:
+    inc ebx
+    jmp .column
+
+.ok:
+    xor eax, eax
+    jmp .done
+.fail:
+    mov eax, -1
+.done:
+    pop edi
+    pop esi
+    pop ebx
+    ret
+
+align 16
+launcher_load_quake_icon:
+    push ebx
+    push esi
+    push edi
+    mov dword [launcher_art_fd], -1
+
+    push 0
+    push 0
+    push launcher_quake_pak_path
+    call vibe_user_open
+    add esp, 12
+    test eax, eax
+    js .done
+    mov [launcher_art_fd], eax
+
+    push 12
+    push launcher_file_header
+    push eax
+    call vibe_user_read
+    add esp, 12
+    cmp eax, 12
+    jne .close
+    cmp byte [launcher_file_header + 0], 'P'
+    jne .close
+    cmp byte [launcher_file_header + 1], 'A'
+    jne .close
+    cmp byte [launcher_file_header + 2], 'C'
+    jne .close
+    cmp byte [launcher_file_header + 3], 'K'
+    jne .close
+
+    mov eax, [launcher_file_header + 8]
+    test eax, eax
+    jz .close
+    cmp eax, LAUNCHER_ASSET_BYTES
+    ja .close
+    mov [launcher_art_dir_bytes], eax
+    xor edx, edx
+    mov ebx, PAK_DIR_ENTRY_BYTES
+    div ebx
+    test eax, eax
+    jz .close
+    mov [launcher_art_count], eax
+
+    push 0
+    push dword [launcher_file_header + 4]
+    push dword [launcher_art_fd]
+    call vibe_user_lseek
+    add esp, 12
+    test eax, eax
+    js .close
+
+    push dword [launcher_art_dir_bytes]
+    push dword [launcher_asset_ptr]
+    push dword [launcher_art_fd]
+    call vibe_user_read
+    add esp, 12
+    cmp eax, [launcher_art_dir_bytes]
+    jne .close
+
+    mov ecx, [launcher_art_count]
+    mov edi, [launcher_asset_ptr]
+.search:
+    test ecx, ecx
+    jz .close
+    cmp byte [edi + 0], 'g'
+    jne .next
+    cmp byte [edi + 1], 'f'
+    jne .next
+    cmp byte [edi + 2], 'x'
+    jne .next
+    cmp byte [edi + 3], '/'
+    jne .next
+    cmp byte [edi + 4], 'm'
+    jne .next
+    cmp byte [edi + 5], 'e'
+    jne .next
+    cmp byte [edi + 6], 'n'
+    jne .next
+    cmp byte [edi + 7], 'u'
+    jne .next
+    cmp byte [edi + 8], 'p'
+    jne .next
+    cmp byte [edi + 9], 'l'
+    jne .next
+    cmp byte [edi + 10], 'y'
+    jne .next
+    cmp byte [edi + 11], 'r'
+    jne .next
+    cmp byte [edi + 12], '.'
+    jne .next
+    cmp byte [edi + 13], 'l'
+    jne .next
+    cmp byte [edi + 14], 'm'
+    jne .next
+    cmp byte [edi + 15], 'p'
+    jne .next
+    mov eax, [edi + 60]
+    cmp eax, 12
+    jb .close
+    cmp eax, LAUNCHER_ASSET_BYTES
+    ja .close
+    mov [launcher_art_size], eax
+
+    push 0
+    push dword [edi + 56]
+    push dword [launcher_art_fd]
+    call vibe_user_lseek
+    add esp, 12
+    test eax, eax
+    js .close
+
+    push dword [launcher_art_size]
+    push dword [launcher_asset_ptr]
+    push dword [launcher_art_fd]
+    call vibe_user_read
+    add esp, 12
+    cmp eax, [launcher_art_size]
+    jne .close
+
+    call launcher_decode_quake_qpic_icon
+    test eax, eax
+    jne .close
+    or dword [launcher_art_flags], LAUNCHER_ART_PAYLOAD1
+    jmp .close
+
+.next:
+    add edi, PAK_DIR_ENTRY_BYTES
+    dec ecx
+    jmp .search
+
+.close:
+    call launcher_close_art_fd
+.done:
+    pop edi
+    pop esi
+    pop ebx
+    ret
+
+align 16
+launcher_decode_quake_qpic_icon:
+    push ebx
+    push esi
+    push edi
+    mov esi, [launcher_asset_ptr]
+    cmp dword [launcher_art_size], 12
+    jb .fail
+    mov eax, [esi + 0]
+    test eax, eax
+    jz .fail
+    cmp eax, 1024
+    ja .fail
+    mov [launcher_art_width], eax
+    mov eax, [esi + 4]
+    test eax, eax
+    jz .fail
+    cmp eax, 1024
+    ja .fail
+    mov [launcher_art_height], eax
+    mov eax, [launcher_art_width]
+    mul dword [launcher_art_height]
+    add eax, 8
+    jc .fail
+    cmp eax, [launcher_art_size]
+    ja .fail
+
+    mov dword [launcher_art_dest_y], 0
+.dest_y:
+    cmp dword [launcher_art_dest_y], PAYLOAD_ICON_SIZE
+    jae .ok
+    mov eax, [launcher_art_dest_y]
+    imul eax, [launcher_art_height]
+    xor edx, edx
+    mov ebx, PAYLOAD_ICON_SIZE
+    div ebx
+    mov [launcher_art_source_y], eax
+    mov dword [launcher_art_dest_x], 0
+.dest_x:
+    cmp dword [launcher_art_dest_x], PAYLOAD_ICON_SIZE
+    jae .next_dest_y
+    mov eax, [launcher_art_dest_x]
+    imul eax, [launcher_art_width]
+    xor edx, edx
+    mov ebx, PAYLOAD_ICON_SIZE
+    div ebx
+    mov [launcher_art_source_x], eax
+    mov eax, [launcher_art_source_y]
+    mul dword [launcher_art_width]
+    add eax, [launcher_art_source_x]
+    add eax, 8
+    cmp eax, [launcher_art_size]
+    jae .advance_dest_x
+    movzx ecx, byte [esi + eax]
+    test ecx, ecx
+    jz .advance_dest_x
+    cmp ecx, 64
+    jb .quake_dark
+    cmp ecx, 128
+    jb .quake_blue
+    cmp ecx, 192
+    jb .quake_select
+    mov cl, COLOR_TEXT
+    jmp .quake_color
+.quake_dark:
+    mov cl, COLOR_WINDOW_EDGE
+    jmp .quake_color
+.quake_blue:
+    mov cl, COLOR_PAYLOAD1_ICON
+    jmp .quake_color
+.quake_select:
+    mov cl, COLOR_SELECTED
+.quake_color:
+    mov edx, [launcher_art_dest_y]
+    imul edx, PAYLOAD_ICON_SIZE
+    add edx, [launcher_art_dest_x]
+    cmp edx, PAYLOAD_ICON_PIXELS
+    jae .advance_dest_x
+    mov [launcher_icon1_pixels + edx], cl
+
+.advance_dest_x:
+    inc dword [launcher_art_dest_x]
+    jmp .dest_x
+
+.next_dest_y:
+    inc dword [launcher_art_dest_y]
+    jmp .dest_y
+
+.ok:
+    xor eax, eax
+    jmp .done
+.fail:
+    mov eax, -1
+.done:
+    pop edi
+    pop esi
+    pop ebx
+    ret
+
+align 16
+launcher_close_art_fd:
+    cmp dword [launcher_art_fd], 0
+    jl .done
+    push dword [launcher_art_fd]
+    call vibe_user_close
+    add esp, 4
+    mov dword [launcher_art_fd], -1
+.done:
+    ret
+
+align 16
+launcher_draw_icon_pixels:
+    push ebp
+    mov ebp, esp
+    sub esp, 12
+    mov [ebp - 4], eax
+    mov [ebp - 8], ebx
+    mov [ebp - 12], esi
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+    xor edi, edi
+
+.y:
+    cmp edi, PAYLOAD_ICON_SIZE
+    jge .done
+    xor edx, edx
+.x:
+    cmp edx, PAYLOAD_ICON_SIZE
+    jge .next_y
+    mov esi, [ebp - 12]
+    mov eax, edi
+    imul eax, PAYLOAD_ICON_SIZE
+    add eax, edx
+    mov cl, [esi + eax]
+    test cl, cl
+    jz .skip
+    mov eax, [ebp - 4]
+    add eax, edx
+    mov ebx, [ebp - 8]
+    add ebx, edi
+    push edx
+    push edi
+    call launcher_plot_pixel_clipped
+    pop edi
+    pop edx
+.skip:
+    inc edx
+    jmp .x
+
+.next_y:
+    inc edi
+    jmp .y
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    mov esp, ebp
+    pop ebp
     ret
 
 align 16
@@ -348,25 +1181,25 @@ launcher_handle_mouse:
 
 align 16
 launcher_pointer_focus:
-    cmp eax, DOOM_X
-    jl .check_quake
-    cmp eax, DOOM_X + BUTTON_W - 1
-    jg .check_quake
-    cmp ebx, DOOM_Y
-    jl .check_quake
-    cmp ebx, DOOM_Y + BUTTON_H - 1
-    jg .check_quake
+    cmp eax, PAYLOAD0_HIT_X
+    jl .check_payload1
+    cmp eax, PAYLOAD0_HIT_X + PAYLOAD_HIT_W - 1
+    jg .check_payload1
+    cmp ebx, PAYLOAD0_HIT_Y
+    jl .check_payload1
+    cmp ebx, PAYLOAD0_HIT_Y + PAYLOAD_HIT_H - 1
+    jg .check_payload1
     mov eax, 1
     ret
 
-.check_quake:
-    cmp eax, QUAKE_X
+.check_payload1:
+    cmp eax, PAYLOAD1_HIT_X
     jl .none
-    cmp eax, QUAKE_X + BUTTON_W - 1
+    cmp eax, PAYLOAD1_HIT_X + PAYLOAD_HIT_W - 1
     jg .none
-    cmp ebx, QUAKE_Y
+    cmp ebx, PAYLOAD1_HIT_Y
     jl .none
-    cmp ebx, QUAKE_Y + BUTTON_H - 1
+    cmp ebx, PAYLOAD1_HIT_Y + PAYLOAD_HIT_H - 1
     jg .none
     mov eax, 2
     ret
@@ -628,10 +1461,16 @@ section .rodata
 payload0_path db `PAYLOAD0.ELF`, 0
 payload1_path db `PAYLOAD1.ELF`, 0
 launcher_ready_text db `launcher ready\n`, 0
+launcher_doom_wad_path db `DOOM1.WAD`, 0
+launcher_quake_pak_path db `/ID1/PAK0.PAK`, 0
 launcher_title_text db `VIBE OS`, 0
-launcher_subtitle_text db `SELECT PAYLOAD`, 0
-launcher_doom_text db `1 DOOM`, 0
-launcher_quake_text db `2 QUAKE`, 0
+launcher_menu_right_text db `RING 3`, 0
+launcher_window_title_text db `PAYLOADS`, 0
+launcher_desktop_text db `VIBE DESKTOP`, 0
+launcher_payload0_text db `DOOM`, 0
+launcher_payload1_text db `QUAKE`, 0
+launcher_payload0_glyph_text db `D`, 0
+launcher_payload1_glyph_text db `Q`, 0
 
 font_upper:
 db 0x0e,0x11,0x11,0x1f,0x11,0x11,0x11
@@ -677,6 +1516,7 @@ section .data
 launcher_present_desc dd 0, 0, SCREEN_W, SCREEN_H
 launcher_frame_ptr dd 0
 launcher_palette_ptr dd 0
+launcher_asset_ptr dd 0
 launcher_alloc_base dd 0
 launcher_selected dd 0
 launcher_focus dd 1
@@ -685,7 +1525,25 @@ launcher_cursor_y dd 104
 launcher_text_x dd 0
 launcher_text_y dd 0
 launcher_cursor_scratch dd 0
+launcher_art_flags dd 0
+launcher_art_fd dd -1
+launcher_art_count dd 0
+launcher_art_dir_bytes dd 0
+launcher_art_size dd 0
+launcher_art_width dd 0
+launcher_art_height dd 0
+launcher_art_dest_x dd 0
+launcher_art_dest_y dd 0
+launcher_art_source_x dd 0
+launcher_art_source_y dd 0
+launcher_art_post_offset dd 0
+launcher_art_top dd 0
+launcher_art_row dd 0
+launcher_art_row_count dd 0
 
 section .bss
 align 16
+launcher_file_header resb 16
+launcher_icon0_pixels resb PAYLOAD_ICON_PIXELS
+launcher_icon1_pixels resb PAYLOAD_ICON_PIXELS
 launcher_input_event resb INPUT_EVENT_BYTES
