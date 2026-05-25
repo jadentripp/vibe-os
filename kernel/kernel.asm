@@ -11922,6 +11922,8 @@ storage_init:
     mov dword [process_exec_last_target_kind], USER_KIND_NONE
     mov dword [process_exec_last_generic_pid], 0xffffffff
     mov dword [process_exec_last_generic_entry], 0
+    mov dword [process_exec_load_old_cr3], 0
+    mov dword [process_exec_load_target_cr3], 0
     mov dword [sys_exec_user_argv_arg], 0
     mov dword [sys_exec_user_envp_arg], 0
     mov dword [sys_exec_frame_ptr], 0
@@ -20380,6 +20382,8 @@ process_exec_path:
     mov dword [process_exec_last_error], 0
     mov dword [process_exec_entry], 0
     mov dword [process_exec_last_resolve_mode], SYS_EXEC_RESOLVE_NONE
+    mov dword [process_exec_load_old_cr3], 0
+    mov dword [process_exec_load_target_cr3], 0
     mov dword [process_exec_path_ptr], esi
     mov dword [process_exec_target], edi
     mov dword [process_exec_target_kind], USER_KIND_NONE
@@ -20468,12 +20472,15 @@ process_exec_path:
     cli
     mov eax, cr3
     push eax
+    mov [process_exec_load_old_cr3], eax
+    mov [process_exec_load_target_cr3], eax
     mov ebx, [process_exec_target]
     cmp ebx, 0
     je .load_address_space_ready
     mov eax, [ebx + PROC_PAGE_DIR]
     test eax, eax
     jz .load_address_space_ready
+    mov [process_exec_load_target_cr3], eax
     mov cr3, eax
 
 .load_address_space_ready:
@@ -21620,6 +21627,16 @@ user_elf_prepare:
     test eax, eax
     jz .user_copy_address_space_ready
     mov [process_exec_copy_last_target_cr3], eax
+    mov edx, [process_exec_load_old_cr3]
+    test edx, edx
+    jz .user_copy_cr3_status_ready
+    cmp edx, eax
+    je .user_copy_cr3_status_ready
+    cmp dword [process_exec_load_target_cr3], eax
+    jne .user_copy_cr3_status_ready
+    mov [process_exec_copy_last_old_cr3], edx
+
+.user_copy_cr3_status_ready:
     inc dword [process_exec_copy_cr3_switches]
     mov cr3, eax
 
@@ -21829,6 +21846,16 @@ payload_elf_prepare:
     test eax, eax
     jz .payload_copy_address_space_ready
     mov [process_exec_copy_last_target_cr3], eax
+    mov edx, [process_exec_load_old_cr3]
+    test edx, edx
+    jz .payload_copy_cr3_status_ready
+    cmp edx, eax
+    je .payload_copy_cr3_status_ready
+    cmp dword [process_exec_load_target_cr3], eax
+    jne .payload_copy_cr3_status_ready
+    mov [process_exec_copy_last_old_cr3], edx
+
+.payload_copy_cr3_status_ready:
     inc dword [process_exec_copy_cr3_switches]
     mov cr3, eax
 
@@ -35493,6 +35520,8 @@ process_exec_copy_cr3_switches dd 0
 process_exec_copy_cr3_restores dd 0
 process_exec_copy_last_old_cr3 dd 0
 process_exec_copy_last_target_cr3 dd 0
+process_exec_load_old_cr3 dd 0
+process_exec_load_target_cr3 dd 0
 process_exec_copy_last_source dd 0
 process_exec_copy_last_dest dd 0
 process_exec_copy_last_filesz dd 0
