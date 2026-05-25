@@ -27,7 +27,7 @@ c_runtime_self_test:
 
     mov dword [ebp - 4], -1
 
-    push str_doom
+    push str_sample
     call libc_strlen
     add esp, 4
     cmp eax, 4
@@ -61,7 +61,7 @@ c_runtime_self_test:
     jne .fail_primary_package_parse
 
     cmp dword [primary_package_member_count], 2
-    jb .fail_lumps
+    jb .fail_package_members
 
     cmp dword [primary_palette_size], 10752
     jne .fail_palette_sizes
@@ -91,7 +91,7 @@ c_runtime_self_test:
 .fail_primary_package_parse:
     mov eax, 5
     jmp .done
-.fail_lumps:
+.fail_package_members:
     mov eax, 6
     jmp .done
 .fail_palette_sizes:
@@ -125,7 +125,7 @@ c_runtime_report:
     push dword [primary_colormap_size]
     push dword [primary_palette_size]
     push dword [primary_package_member_count]
-    push fmt_lumps
+    push fmt_package_members
     call kprintf
     add esp, 16
 
@@ -139,10 +139,10 @@ c_runtime_report:
 
 section .rodata
 
-str_doom db "doom", 0
+str_sample db "vibe", 0
 str_playpal db "PLAYPAL", 0
 str_ok db "OK", 0
 str_fail db "FAIL", 0
 fmt_probe_status db "compiled assembly probe: %s", 13, 10, 0
-fmt_lumps db "assembly sees lumps=%u PLAYPAL=%u COLORMAP=%u", 13, 10, 0
+fmt_package_members db "assembly sees lumps=%u PLAYPAL=%u COLORMAP=%u", 13, 10, 0
 fmt_magic db "assembly probe magic: %x", 13, 10, 0

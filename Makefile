@@ -13,6 +13,8 @@ QEMU_EXTRA_ARGS ?=
 ALLOW_LOCAL_VM ?= 0
 DOOM_WAD ?=
 QUAKE_PAK ?=
+PRIMARY_ASSET ?= $(DOOM_WAD)
+SECONDARY_PACKAGE ?= $(QUAKE_PAK)
 SMOKE_EXPECT_PROBE_GFX ?= 1
 SMOKE_REJECT_DOOMLOG ?=
 SMOKE_SENDKEYS ?=
@@ -108,23 +110,24 @@ QUAKE_USER_LIBC_OBJ := $(QUAKE_PORT_BUILD_DIR)/user_libc.o
 QUAKE_PORT_OBJS := $(QUAKE_PORT_ASM_SRCS:quake_port/%.asm=$(QUAKE_PORT_BUILD_DIR)/port_%.o) $(QUAKE_USER_LIBC_OBJ)
 QUAKE_FREESTANDING_I386_CFLAGS := -target i386-unknown-elf -ffreestanding -fno-builtin -fno-strict-aliasing -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m32 -march=i386 -mno-sse -mno-mmx -O2
 QUAKE_ORIGINAL_CFLAGS := $(QUAKE_FREESTANDING_I386_CFLAGS) -std=gnu89 -fcommon -U__i386__ -Dstricmp=strcasecmp -I$(USER_INCLUDE_DIR) -I$(QUAKE_PORT_INCLUDE_DIR) -I$(DOOM_PORT_INCLUDE_DIR) -I$(QUAKE_SRC_DIR)
-IMAGE_QUAKE_PAK_ARGS :=
-ifneq ($(strip $(QUAKE_PAK)),)
-IMAGE_QUAKE_PAK_ARGS := --asset /ID1/PAK0.PAK=$(QUAKE_PAK)
+IMAGE_SECONDARY_PACKAGE_ARGS :=
+ifneq ($(strip $(SECONDARY_PACKAGE)),)
+IMAGE_SECONDARY_PACKAGE_ARGS := --asset /ID1/PAK0.PAK=$(SECONDARY_PACKAGE)
 endif
 IMAGE_ASSET_DEPS :=
-ifneq ($(strip $(DOOM_WAD)),)
-IMAGE_ASSET_DEPS += $(DOOM_WAD)
+ifneq ($(strip $(PRIMARY_ASSET)),)
+IMAGE_ASSET_DEPS += $(PRIMARY_ASSET)
 endif
-ifneq ($(strip $(QUAKE_PAK)),)
-IMAGE_ASSET_DEPS += $(QUAKE_PAK)
+ifneq ($(strip $(SECONDARY_PACKAGE)),)
+IMAGE_ASSET_DEPS += $(SECONDARY_PACKAGE)
 endif
 
 STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 163840
 USER_PROBE_ELF_MAX_BYTES := 16384
 USER_ABI_PROBE_ELF_MAX_BYTES := 24576
-IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) --root-elf DOOM.ELF=$(DOOM_ELF) --root-elf QUAKE.ELF=$(QUAKE_ELF)
+LARGE_PAYLOAD_ROOT_ELF_ARGS := --root-elf DOOM.ELF=$(DOOM_ELF) --root-elf QUAKE.ELF=$(QUAKE_ELF)
+IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) $(LARGE_PAYLOAD_ROOT_ELF_ARGS)
 
 .PHONY: all build-only test assembly-native-check no-python-check doom-compile doom-link quake-compile quake-link run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
 
@@ -287,10 +290,10 @@ uefi-loader-object: $(UEFI_LOADER_OBJ)
 uefi-loader-pe: $(UEFI_LOADER_EFI)
 
 $(UEFI_DUAL_IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(QUAKE_ELF) $(IMAGE_BUILDER) $(UEFI_LOADER_EFI) $(IMAGE_ASSET_DEPS) | $(UEFI_BUILD_DIR)
-	@if [ -n "$(DOOM_WAD)" ]; then \
-		$(IMAGE_BUILDER) --wad "$(DOOM_WAD)" $(IMAGE_QUAKE_PAK_ARGS) --asset EFI/BOOT/BOOTX64.EFI=$(UEFI_LOADER_EFI) --asset VIBEOS/KERNEL.ELF=$(KERNEL_ELF) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
+	@if [ -n "$(PRIMARY_ASSET)" ]; then \
+		$(IMAGE_BUILDER) --primary-asset-wad "$(PRIMARY_ASSET)" $(IMAGE_SECONDARY_PACKAGE_ARGS) --asset EFI/BOOT/BOOTX64.EFI=$(UEFI_LOADER_EFI) --asset VIBEOS/KERNEL.ELF=$(KERNEL_ELF) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
 	else \
-		$(IMAGE_BUILDER) $(IMAGE_QUAKE_PAK_ARGS) --asset EFI/BOOT/BOOTX64.EFI=$(UEFI_LOADER_EFI) --asset VIBEOS/KERNEL.ELF=$(KERNEL_ELF) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
+		$(IMAGE_BUILDER) $(IMAGE_SECONDARY_PACKAGE_ARGS) --asset EFI/BOOT/BOOTX64.EFI=$(UEFI_LOADER_EFI) --asset VIBEOS/KERNEL.ELF=$(KERNEL_ELF) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
 	fi
 	@printf "Built dual BIOS/UEFI FAT16 image %s\n" "$@"
 
@@ -366,10 +369,10 @@ $(USER_ABI_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_ABI_PROBE_OBJ
 	@test $$(wc -c < $@) -le $(USER_ABI_PROBE_ELF_MAX_BYTES) || { echo "ABI probe ELF exceeds $(USER_ABI_PROBE_ELF_MAX_BYTES) bytes"; exit 1; }
 
 $(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(QUAKE_ELF) $(IMAGE_BUILDER) $(IMAGE_ASSET_DEPS)
-	@if [ -n "$(DOOM_WAD)" ]; then \
-		$(IMAGE_BUILDER) --wad "$(DOOM_WAD)" $(IMAGE_QUAKE_PAK_ARGS) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
+	@if [ -n "$(PRIMARY_ASSET)" ]; then \
+		$(IMAGE_BUILDER) --primary-asset-wad "$(PRIMARY_ASSET)" $(IMAGE_SECONDARY_PACKAGE_ARGS) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
 	else \
-		$(IMAGE_BUILDER) $(IMAGE_QUAKE_PAK_ARGS) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
+		$(IMAGE_BUILDER) $(IMAGE_SECONDARY_PACKAGE_ARGS) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
 	fi
 	@printf "Built %s\n" "$@"
 

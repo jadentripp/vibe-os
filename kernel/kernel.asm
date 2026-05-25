@@ -30,7 +30,7 @@ VGA_ROWS equ 25
 VGA_ATTR equ 0x0f
 SMOKE_STATUS_ADDR equ 0x00040000
 SMOKE_STATUS_BYTES equ 131072
-DOOM_LOG_BYTES equ 32
+PAYLOAD_PRIMARY_STDOUT_LOG_BYTES equ 32
 KEY_QUEUE_SIZE equ 32
 KEY_QUEUE_MASK equ KEY_QUEUE_SIZE - 1
 KEY_EVENT_DOWN equ 0x00000100
@@ -573,9 +573,9 @@ FAT_TABLE_CACHE_SECTORS equ 256
 FAT_ALLOC_MAP_BYTES equ FAT_TABLE_CACHE_SECTORS * 512 / 2
 FAT_CACHE_BYTES equ FAT_TABLE_CACHE_SECTORS * 512 + FAT_ROOT_CACHE_SECTORS * 512 + FAT_ALLOC_MAP_BYTES
 SECTOR_BUFFER_ADDR equ 0x0009b000
-WAD_LOAD_ADDR equ 0x00900000
-WAD_MAX_BYTES equ 0x00500000
-FAT_TABLE_CACHE_ADDR equ WAD_LOAD_ADDR + WAD_MAX_BYTES
+PRIMARY_ASSET_LOAD_ADDR equ 0x00900000
+PRIMARY_ASSET_MAX_BYTES equ 0x00500000
+FAT_TABLE_CACHE_ADDR equ PRIMARY_ASSET_LOAD_ADDR + PRIMARY_ASSET_MAX_BYTES
 FAT_ROOT_CACHE_ADDR equ FAT_TABLE_CACHE_ADDR + FAT_TABLE_CACHE_SECTORS * 512
 FAT_ALLOC_MAP_ADDR equ FAT_ROOT_CACHE_ADDR + FAT_ROOT_CACHE_SECTORS * 512
 fat_table_cache equ FAT_TABLE_CACHE_ADDR
@@ -719,7 +719,7 @@ USER_FD_COUNT equ 16
 FD_STATUS_FREE equ 0
 FD_STATUS_OPEN equ 1
 FD_KIND_FREE equ 0
-FD_KIND_WAD equ 1
+FD_KIND_PRIMARY_ASSET equ 1
 FD_KIND_WRITABLE equ 2
 FD_KIND_READONLY_FILE equ 3
 FD_INHERIT_EXEC equ 0x1
@@ -982,17 +982,17 @@ PANIC_UNHANDLED_EXCEPTION equ 1
 FAULT_SOURCE_NONE equ 0
 FAULT_SOURCE_EXPECTED equ 1
 FAULT_SOURCE_USER equ 2
-FAULT_SOURCE_DOOM equ 3
+FAULT_SOURCE_PAYLOAD_PRIMARY equ 3
 FAULT_SOURCE_KERNEL equ 4
-FAULT_SOURCE_QUAKE equ 5
+FAULT_SOURCE_PAYLOAD_SECONDARY equ 5
 FAULT_MODE_NONE equ 0
 FAULT_MODE_USER equ 1
 FAULT_MODE_KERNEL equ 2
-QUAKE_STATUS_KIND_MASK equ 0xff000000
-QUAKE_STATUS_INIT equ 0x51000000
-QUAKE_STATUS_FRAME equ 0x52000000
-QUAKE_STATUS_INPUT equ 0x53000000
-QUAKE_STATUS_AUDIO equ 0x54000000
+PAYLOAD_SECONDARY_STATUS_KIND_MASK equ 0xff000000
+PAYLOAD_SECONDARY_STATUS_INIT equ 0x51000000
+PAYLOAD_SECONDARY_STATUS_FRAME equ 0x52000000
+PAYLOAD_SECONDARY_STATUS_INPUT equ 0x53000000
+PAYLOAD_SECONDARY_STATUS_AUDIO equ 0x54000000
 PF_ACCESS_NONE equ 0
 PF_ACCESS_READ equ 1
 PF_ACCESS_WRITE equ 2
@@ -1170,7 +1170,7 @@ AUDIO_PCM_LIFECYCLE_DRAINING equ 3
 AUDIO_PCM_LIFECYCLE_CLOSED equ 4
 AUDIO_FLAG_LOOP equ 0x00000001
 AUDIO_FLAG_MUSIC equ 0x00000002
-AUDIO_FLAG_WAD_SFX equ 0x00000004
+AUDIO_FLAG_PACKAGE_MEMBER_SFX equ 0x00000004
 AUDIO_FLAG_STREAM_FINAL equ 0x00000008
 AUDIO_FLAG_STREAM equ 0x00000010
 AUDIO_MUSIC_HANDLE_MASK equ 0xffff0000
@@ -1643,10 +1643,16 @@ handle_command:
     je .user
 
     mov esi, [command_start]
-    mov edi, cmd_wad
+    mov edi, cmd_primary_asset
     call match_exact
     cmp al, 1
-    je .wad
+    je .primary_asset
+
+    mov esi, [command_start]
+    mov edi, cmd_primary_asset_legacy
+    call match_exact
+    cmp al, 1
+    je .primary_asset
 
     mov esi, [command_start]
     mov edi, cmd_reboot
@@ -1950,7 +1956,7 @@ handle_command:
     call newline
     ret
 
-.wad:
+.primary_asset:
     mov esi, ata_status_prefix
     call print_string
     cmp byte [ata_status], 1
@@ -2024,7 +2030,7 @@ handle_command:
     call print_string
     mov eax, [primary_palette_offset]
     call print_hex32
-    mov esi, lump_size_mid
+    mov esi, package_member_size_mid
     call print_string
     mov eax, [primary_palette_size]
     call print_dec
@@ -2034,7 +2040,7 @@ handle_command:
     call print_string
     mov eax, [primary_colormap_offset]
     call print_hex32
-    mov esi, lump_size_mid
+    mov esi, package_member_size_mid
     call print_string
     mov eax, [primary_colormap_size]
     call print_dec
@@ -2182,7 +2188,7 @@ handle_command:
 .primary_asset_load_address:
     mov esi, primary_asset_load_prefix
     call print_string
-    mov eax, WAD_LOAD_ADDR
+    mov eax, PRIMARY_ASSET_LOAD_ADDR
     call print_hex32
     call newline
     ret
@@ -7180,8 +7186,8 @@ pmm_init:
     mov ecx, HEAP_SIZE / PAGE_SIZE
     call pmm_reserve_pages
 
-    mov eax, WAD_LOAD_ADDR
-    mov ecx, WAD_MAX_BYTES / PAGE_SIZE
+    mov eax, PRIMARY_ASSET_LOAD_ADDR
+    mov ecx, PRIMARY_ASSET_MAX_BYTES / PAGE_SIZE
     call pmm_reserve_pages
 
     mov eax, USER_CODE_ADDR - PAGE_SIZE
@@ -10698,7 +10704,7 @@ audio_register_sfx_voice:
     mov [sb16_sfx_last_rate], eax
     mov eax, [audio_sfx_length_arg]
     mov [sb16_sfx_last_length], eax
-    test dword [audio_sfx_flags_arg], AUDIO_FLAG_WAD_SFX
+    test dword [audio_sfx_flags_arg], AUDIO_FLAG_PACKAGE_MEMBER_SFX
     jz .recount
     inc dword [sb16_sfx_asset_start_count]
 
@@ -11973,7 +11979,7 @@ storage_init:
     add eax, PAGE_SIZE - 1
     shr eax, 12
     mov ecx, eax
-    mov eax, WAD_LOAD_ADDR
+    mov eax, PRIMARY_ASSET_LOAD_ADDR
     call pmm_reserve_pages
     call fat_load_primary_asset
     jc .primary_asset_fail
@@ -13911,15 +13917,15 @@ fat_load_file:
 fat_load_primary_asset:
     movzx eax, word [primary_asset_first_cluster]
     mov ebx, [primary_asset_size]
-    mov ecx, WAD_MAX_BYTES
-    mov edi, WAD_LOAD_ADDR
+    mov ecx, PRIMARY_ASSET_MAX_BYTES
+    mov edi, PRIMARY_ASSET_LOAD_ADDR
     call fat_load_file
     jc .fail
     mov eax, [fat_load_sectors_read]
     mov [primary_asset_sectors_read], eax
-    cmp dword [WAD_LOAD_ADDR], 0x44415749
+    cmp dword [PRIMARY_ASSET_LOAD_ADDR], 0x44415749
     je .ok
-    cmp dword [WAD_LOAD_ADDR], 0x44415750
+    cmp dword [PRIMARY_ASSET_LOAD_ADDR], 0x44415750
     jne .fail
 
 .ok:
@@ -17118,18 +17124,18 @@ readonly_file_read:
     mov eax, user_io_read_count
     call user_io_increment_current
     cmp dword [file_io_start_offset], 0
-    jne .readonly_maybe_wad
+    jne .readonly_maybe_primary_asset
     cmp dword [file_io_done], 4
-    jb .readonly_maybe_wad
+    jb .readonly_maybe_primary_asset
     mov edi, [file_io_user_ptr]
     mov edx, [edi]
     cmp edx, 0x4b434150
-    jne .readonly_maybe_wad
+    jne .readonly_maybe_primary_asset
     cmp dword [payload_secondary_package_magic_seen], 0
-    jne .readonly_maybe_wad
+    jne .readonly_maybe_primary_asset
     mov [payload_secondary_package_magic_seen], edx
 
-.readonly_maybe_wad:
+.readonly_maybe_primary_asset:
     call readonly_fd_is_primary_asset_file
     jc .return_done
     cmp dword [file_io_start_offset], 0
@@ -17243,7 +17249,7 @@ primary_package_find_member:
     push esi
     push edi
 
-    mov esi, WAD_LOAD_ADDR
+    mov esi, PRIMARY_ASSET_LOAD_ADDR
     add esi, [primary_package_directory_offset]
     mov ecx, [primary_package_member_count]
 
@@ -17282,20 +17288,20 @@ primary_package_find_member:
     ret
 
 primary_package_parse:
-    cmp dword [WAD_LOAD_ADDR], 0x44415749
+    cmp dword [PRIMARY_ASSET_LOAD_ADDR], 0x44415749
     je .header_ok
-    cmp dword [WAD_LOAD_ADDR], 0x44415750
+    cmp dword [PRIMARY_ASSET_LOAD_ADDR], 0x44415750
     jne .fail
 
 .header_ok:
-    mov eax, [WAD_LOAD_ADDR + 4]
+    mov eax, [PRIMARY_ASSET_LOAD_ADDR + 4]
     cmp eax, 0
     je .fail
     cmp eax, 4096
     ja .fail
     mov [primary_package_member_count], eax
 
-    mov ebx, [WAD_LOAD_ADDR + 8]
+    mov ebx, [PRIMARY_ASSET_LOAD_ADDR + 8]
     mov [primary_package_directory_offset], ebx
     mov edx, eax
     shl edx, 4
@@ -17304,7 +17310,7 @@ primary_package_parse:
     cmp edx, [primary_asset_size]
     ja .fail
 
-    mov edx, primary_palette_lump_name
+    mov edx, primary_palette_member_name
     call primary_package_find_member
     jc .fail
     call primary_package_validate_range
@@ -17312,7 +17318,7 @@ primary_package_parse:
     mov [primary_palette_offset], eax
     mov [primary_palette_size], ebx
 
-    mov edx, primary_colormap_lump_name
+    mov edx, primary_colormap_member_name
     call primary_package_find_member
     jc .fail
     call primary_package_validate_range
@@ -18292,18 +18298,18 @@ user_kind_is_large_payload:
 
 payload_kind_to_fault_source:
     cmp eax, USER_KIND_PAYLOAD_PRIMARY
-    je .doom
+    je .primary_payload
     cmp eax, USER_KIND_PAYLOAD_SECONDARY
-    je .quake
+    je .secondary_payload
     mov eax, FAULT_SOURCE_USER
     ret
 
-.doom:
-    mov eax, FAULT_SOURCE_DOOM
+.primary_payload:
+    mov eax, FAULT_SOURCE_PAYLOAD_PRIMARY
     ret
 
-.quake:
-    mov eax, FAULT_SOURCE_QUAKE
+.secondary_payload:
+    mov eax, FAULT_SOURCE_PAYLOAD_SECONDARY
     ret
 
 process_alloc_generic_exec_slot:
@@ -22603,8 +22609,8 @@ syscall_handler:
     call .vfs_count_generic
     call fd_lookup
     jc .bad_syscall_ebadf
-    cmp byte [fd_kinds + eax], FD_KIND_WAD
-    je .read_wad
+    cmp byte [fd_kinds + eax], FD_KIND_PRIMARY_ASSET
+    je .read_primary_asset
     cmp byte [fd_kinds + eax], FD_KIND_READONLY_FILE
     je .read_readonly_file
     call user_file_read
@@ -22616,7 +22622,7 @@ syscall_handler:
     jc .bad_syscall_from_eax
     jmp .return
 
-.read_wad:
+.read_primary_asset:
     mov [syscall_ptr_arg], ecx
     mov [syscall_len_arg], edx
     mov eax, ecx
@@ -22634,7 +22640,7 @@ syscall_handler:
     mov [syscall_len_arg], edx
 
 .read_len_ok:
-    mov esi, WAD_LOAD_ADDR
+    mov esi, PRIMARY_ASSET_LOAD_ADDR
     mov eax, [file_io_fd_slot]
     add esi, [fd_offsets + eax * 4]
     mov edi, [syscall_ptr_arg]
@@ -22671,8 +22677,8 @@ syscall_handler:
     call .vfs_count_generic
     call fd_lookup
     jc .bad_syscall_ebadf
-    cmp byte [fd_kinds + eax], FD_KIND_WAD
-    je .lseek_wad
+    cmp byte [fd_kinds + eax], FD_KIND_PRIMARY_ASSET
+    je .lseek_primary_asset
     cmp byte [fd_kinds + eax], FD_KIND_READONLY_FILE
     je .lseek_readonly_file
     call user_file_lseek
@@ -22684,7 +22690,7 @@ syscall_handler:
     jc .bad_syscall_from_eax
     jmp .return
 
-.lseek_wad:
+.lseek_primary_asset:
     cmp edx, 0
     je .seek_set
     cmp edx, 1
@@ -23852,14 +23858,14 @@ syscall_handler:
 
 .payload_secondary_gameplay_status:
     mov eax, ebx
-    and eax, QUAKE_STATUS_KIND_MASK
-    cmp eax, QUAKE_STATUS_INIT
+    and eax, PAYLOAD_SECONDARY_STATUS_KIND_MASK
+    cmp eax, PAYLOAD_SECONDARY_STATUS_INIT
     je .secondary_payload_init_status
-    cmp eax, QUAKE_STATUS_FRAME
+    cmp eax, PAYLOAD_SECONDARY_STATUS_FRAME
     je .secondary_payload_frame_status
-    cmp eax, QUAKE_STATUS_INPUT
+    cmp eax, PAYLOAD_SECONDARY_STATUS_INPUT
     je .secondary_payload_input_status
-    cmp eax, QUAKE_STATUS_AUDIO
+    cmp eax, PAYLOAD_SECONDARY_STATUS_AUDIO
     je .secondary_payload_audio_status
     jmp .gameplay_return
 
@@ -23980,7 +23986,7 @@ syscall_handler:
     mov ebx, user_path_primary_asset_end - user_path_primary_asset
     mov edi, user_path_primary_asset
     call user_path_equals
-    jnc .stat_wad
+    jnc .stat_primary_asset
     call fat_parse_user_subdir_file83
     jc .stat_parse_root83
     mov edi, fat_subdir_name_buffer
@@ -24005,7 +24011,7 @@ syscall_handler:
     mov edi, primary_asset_name_83
     call fat_name_match
     cmp al, 1
-    je .stat_wad
+    je .stat_primary_asset
     mov esi, fat_open_name_buffer
     mov edi, user_elf_name_83
     call fat_name_match
@@ -24039,7 +24045,7 @@ syscall_handler:
     xor eax, eax
     jmp .return
 
-.stat_wad:
+.stat_primary_asset:
     mov edi, primary_asset_name_83
     call fat_find_file
     jc .bad_syscall_enoent
@@ -24088,8 +24094,8 @@ syscall_handler:
     mov [syscall_stat_ptr], ecx
     call fd_lookup
     jc .bad_syscall_ebadf
-    cmp byte [fd_kinds + eax], FD_KIND_WAD
-    je .fstat_wad
+    cmp byte [fd_kinds + eax], FD_KIND_PRIMARY_ASSET
+    je .fstat_primary_asset
     cmp byte [fd_kinds + eax], FD_KIND_READONLY_FILE
     je .fstat_readonly_file
     cmp byte [fd_kinds + eax], FD_KIND_WRITABLE
@@ -24114,7 +24120,7 @@ syscall_handler:
     xor eax, eax
     jmp .return
 
-.fstat_wad:
+.fstat_primary_asset:
     mov eax, [primary_asset_size]
     mov edx, STAT_MODE_READONLY_REG
     call stat_fill_user
@@ -25272,16 +25278,16 @@ payload_primary_stdout_log_char:
 .have_char:
     mov bl, al
     mov eax, [payload_primary_stdout_log_len]
-    cmp eax, DOOM_LOG_BYTES - 1
+    cmp eax, PAYLOAD_PRIMARY_STDOUT_LOG_BYTES - 1
     jb .append
 
     mov esi, payload_primary_stdout_log_buffer + 1
     mov edi, payload_primary_stdout_log_buffer
-    mov ecx, DOOM_LOG_BYTES - 2
+    mov ecx, PAYLOAD_PRIMARY_STDOUT_LOG_BYTES - 2
     cld
     rep movsb
-    mov byte [payload_primary_stdout_log_buffer + DOOM_LOG_BYTES - 2], bl
-    mov byte [payload_primary_stdout_log_buffer + DOOM_LOG_BYTES - 1], 0
+    mov byte [payload_primary_stdout_log_buffer + PAYLOAD_PRIMARY_STDOUT_LOG_BYTES - 2], bl
+    mov byte [payload_primary_stdout_log_buffer + PAYLOAD_PRIMARY_STDOUT_LOG_BYTES - 1], 0
     jmp .done
 
 .append:
@@ -27327,12 +27333,12 @@ fault_source_to_string:
     je .expected
     cmp eax, FAULT_SOURCE_USER
     je .user
-    cmp eax, FAULT_SOURCE_DOOM
-    je .doom
+    cmp eax, FAULT_SOURCE_PAYLOAD_PRIMARY
+    je .primary_payload
     cmp eax, FAULT_SOURCE_KERNEL
     je .kernel
-    cmp eax, FAULT_SOURCE_QUAKE
-    je .quake
+    cmp eax, FAULT_SOURCE_PAYLOAD_SECONDARY
+    je .secondary_payload
     mov esi, smoke_none_text
     ret
 
@@ -27344,11 +27350,11 @@ fault_source_to_string:
     mov esi, smoke_fault_user_text
     ret
 
-.doom:
+.primary_payload:
     mov esi, smoke_fault_primary_payload_text
     ret
 
-.quake:
+.secondary_payload:
     mov esi, smoke_fault_secondary_payload_text
     ret
 
@@ -32714,17 +32720,17 @@ write_smoke_status:
     mov al, ' '
     stosb
 
-    mov esi, lump_status_label + 1
+    mov esi, package_member_status_label + 1
     call smoke_copy_string
     cmp byte [primary_package_parse_status], 1
-    je .lump_ok
+    je .package_member_ok
     mov esi, fail_status_text
-    jmp .lump_write
+    jmp .package_member_write
 
-.lump_ok:
+.package_member_ok:
     mov esi, ok_status_text
 
-.lump_write:
+.package_member_write:
     call smoke_copy_string
     mov al, ' '
     stosb
@@ -33017,16 +33023,16 @@ draw_heap_status:
     mov esi, ok_status_text
     call draw_status_string
 
-.lump_status:
-    mov esi, lump_status_label
+.package_member_status:
+    mov esi, package_member_status_label
     call draw_status_string
     cmp byte [primary_package_parse_status], 1
-    je .lump_ok
+    je .package_member_ok
     mov esi, fail_status_text
     call draw_status_string
     jmp .heap_status
 
-.lump_ok:
+.package_member_ok:
     mov esi, ok_status_text
     call draw_status_string
 
@@ -33706,13 +33712,13 @@ help_text db "Commands:", 13, 10
           db "  libc    show C runtime subset status", 13, 10
           db "  c       run compiled-C kernel probe", 13, 10
           db "  user    show Ring 3 syscall probe status", 13, 10
-          db "  wad     show IDE/FAT16 WAD loader status", 13, 10
+          db "  asset   show IDE/FAT16 primary asset status", 13, 10
           db "  reboot  restart via keyboard controller", 13, 10
           db "  halt    stop the CPU", 13, 10
           db "  poweroff request ACPI/QEMU poweroff", 13, 10, 0
 
 about_text db "vibe-os now runs outside BIOS services with its own VGA text and keyboard IO.", 13, 10
-           db "The kernel owns IDT, PIC, PIT ticks, paging, frame accounting, heap, libc, and IDE/FAT WAD loading.", 13, 10, 0
+           db "The kernel owns IDT, PIC, PIT ticks, paging, frame accounting, heap, libc, and IDE/FAT asset loading.", 13, 10, 0
 
 mode_text db "CPU mode: 32-bit protected mode, flat 4 GiB code/data segments.", 13, 10, 0
 panic_banner_text db 13, 10, "*** KERNEL PANIC: unhandled exception ***", 13, 10, 0
@@ -33785,32 +33791,32 @@ pmm_test_prefix db "PMM self-test: ", 0
 vmm_test_prefix db "VMM map self-test: ", 0
 libc_status_fmt db "libc self-test: %s", 13, 10, 0
 fpu_status_fmt db "x87 floating-point self-test: %s", 13, 10, 0
-libc_strlen_fmt db "strlen(doom)=%d", 13, 10, 0
+libc_strlen_fmt db "strlen(vibe)=%d", 13, 10, 0
 libc_math_fmt db "42 / 5 => quotient=%d remainder=%d", 13, 10, 0
 ata_status_prefix db "ATA PIO disk: ", 0
 fat_status_prefix db "FAT16 filesystem: ", 0
-primary_asset_status_prefix db "DOOM1.WAD loader: ", 0
-primary_package_parse_prefix db "WAD directory parser: ", 0
-primary_asset_size_prefix db "WAD size: ", 0
-primary_package_member_count_prefix db "WAD lumps: ", 0
-primary_package_dir_prefix db "WAD directory offset: ", 0
+primary_asset_status_prefix db "Primary asset loader: ", 0
+primary_package_parse_prefix db "Primary package parser: ", 0
+primary_asset_size_prefix db "Primary asset size: ", 0
+primary_package_member_count_prefix db "Package members: ", 0
+primary_package_dir_prefix db "Package directory offset: ", 0
 primary_palette_prefix db "PLAYPAL offset: ", 0
 primary_colormap_prefix db "COLORMAP offset: ", 0
-lump_size_mid db " size=", 0
-primary_asset_cluster_prefix db "WAD first cluster: ", 0
-primary_payload_elf_prefix db "DOOM.ELF FAT entry: ", 0
-primary_payload_elf_size_prefix db "DOOM.ELF size: ", 0
-primary_payload_elf_cluster_prefix db "DOOM.ELF first cluster: ", 0
-primary_payload_elf_load_prefix db "DOOM.ELF load: ", 0
-primary_payload_elf_parse_prefix db "DOOM.ELF parser: ", 0
-primary_payload_elf_entry_prefix db "DOOM.ELF entry: ", 0
-primary_payload_elf_mem_prefix db "DOOM.ELF segment bytes: ", 0
-primary_payload_elf_end_prefix db "DOOM.ELF segment end: ", 0
+package_member_size_mid db " size=", 0
+primary_asset_cluster_prefix db "Primary asset first cluster: ", 0
+primary_payload_elf_prefix db "Primary payload ELF FAT entry: ", 0
+primary_payload_elf_size_prefix db "Primary payload ELF size: ", 0
+primary_payload_elf_cluster_prefix db "Primary payload ELF first cluster: ", 0
+primary_payload_elf_load_prefix db "Primary payload ELF load: ", 0
+primary_payload_elf_parse_prefix db "Primary payload ELF parser: ", 0
+primary_payload_elf_entry_prefix db "Primary payload ELF entry: ", 0
+primary_payload_elf_mem_prefix db "Primary payload ELF segment bytes: ", 0
+primary_payload_elf_end_prefix db "Primary payload ELF segment end: ", 0
 payload_user_window_prefix db "Payload user window: ", 0
 process_exec_prefix db "Process exec: ", 0
 process_exec_path_prefix db "Exec path: ", 0
 process_exec_syscall_prefix db "Exec syscall attempts/success/failure/handoff/scheduled/rollback: ", 0
-primary_asset_load_prefix db "WAD load address: ", 0
+primary_asset_load_prefix db "Primary asset load address: ", 0
 bytes_suffix db " bytes", 13, 10, 0
 pages_suffix db " pages", 13, 10, 0
 mib_suffix db " MiB", 13, 10, 0
@@ -33823,7 +33829,7 @@ libc_status_label db " libc=", 0
 c_status_label db " c=", 0
 user_status_label db " usr=", 0
 primary_asset_status_label db " wad=", 0
-lump_status_label db " lmp=", 0
+package_member_status_label db " lmp=", 0
 primary_payload_status_label db "doom=", 0
 primary_payload_status_entry_label db " entry=", 0
 primary_payload_status_mem_label db " mem=", 0
@@ -34396,7 +34402,8 @@ cmd_paging db "paging", 0
 cmd_libc db "libc", 0
 cmd_c db "c", 0
 cmd_user db "user", 0
-cmd_wad db "wad", 0
+cmd_primary_asset db "asset", 0
+cmd_primary_asset_legacy db "wad", 0
 cmd_reboot db "reboot", 0
 cmd_halt db "halt", 0
 cmd_poweroff db "poweroff", 0
@@ -34419,14 +34426,14 @@ save_slot5_name_83 db "DOOMSAV5DSG"
 persist_chk_name_83 db "PERSIST CHK"
 save_req_name_83 db "SAVEREQ CHK"
 load_req_name_83 db "LOADREQ CHK"
-primary_palette_lump_name db "PLAYPAL", 0
-primary_colormap_lump_name db "COLORMAP"
+primary_palette_member_name db "PLAYPAL", 0
+primary_colormap_member_name db "COLORMAP"
 user_path_primary_asset db "DOOM1.WAD", 0
 user_path_primary_asset_end:
 user_path_default_cfg db "DEFAULT.CFG", 0
 user_path_default_cfg_end:
-user_path_doomrc db ".doomrc", 0
-user_path_doomrc_end:
+user_path_primary_config_compat db ".doomrc", 0
+user_path_primary_config_compat_end:
 user_path_save_slot0 db "doomsav0.dsg", 0
 user_path_save_slot0_end:
 user_path_save_slot1 db "doomsav1.dsg", 0
@@ -36162,7 +36169,7 @@ shift_down db 0
 keyboard_extended db 0
 writable_status times WRITABLE_FILE_COUNT db 0
 persistence_marker_status times PERSISTENCE_MARKER_COUNT db 0
-payload_primary_stdout_log_buffer times DOOM_LOG_BYTES db 0
+payload_primary_stdout_log_buffer times PAYLOAD_PRIMARY_STDOUT_LOG_BYTES db 0
 input_event_queue times INPUT_EVENT_QUEUE_SIZE * VIBE_INPUT_EVENT_DWORDS dd 0
 key_event_queue times KEY_QUEUE_SIZE dd 0
 mouse_event_queue times MOUSE_QUEUE_SIZE dd 0

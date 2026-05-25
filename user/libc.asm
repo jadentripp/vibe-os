@@ -3071,7 +3071,7 @@ LBB57_8:
 	js	LBB57_16
 	mov	dword [ebp - 16], eax
 	mov	ecx, ebx
-	call	is_save_slot_basename
+	call	is_persist_slot_compat_basename
 	test	eax, eax
 	je	LBB57_10
 	movsx	ebx, byte [ebx + 7]
@@ -3081,8 +3081,8 @@ LBB57_8:
 	add	ebx, -48
 	cmp	eax, 31
 	ja	LBB57_14
-	mov	byte [eax + tracked_save_fd], 1
-	mov	byte [eax + tracked_save_slot], bl
+	mov	byte [eax + tracked_persist_fd], 1
+	mov	byte [eax + tracked_persist_slot], bl
 LBB57_14:
 	cmp	ebx, 5
 	ja	LBB57_20
@@ -3405,13 +3405,13 @@ LBB58_85:
 	cmp	edi, edx
 	je	LBB58_88
 	mov	ecx, esi
-	call	is_save_slot_basename
+	call	is_persist_slot_compat_basename
 	test	eax, eax
 	mov	eax, dword [ebp - 24]
 	je	LBB58_88
 	movzx	eax, byte [esi + 7]
-	mov	byte [mapped_path.save_slot_path+7], al
-	mov	eax, mapped_path.save_slot_path
+	mov	byte [mapped_path.compat_persist_slot_path+7], al
+	mov	eax, mapped_path.compat_persist_slot_path
 LBB58_88:
 	add	esp, 12
 	pop	esi
@@ -3447,9 +3447,9 @@ LBB59_3:
 	jle	LBB59_6
 	cmp	ebx, 31
 	ja	LBB59_15
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB59_15
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB59_15
 	shl	ebx, 16
@@ -3505,9 +3505,9 @@ LBB60_3:
 	jle	LBB60_6
 	cmp	ebx, 31
 	ja	LBB60_15
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB60_15
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB60_15
 	shl	ebx, 16
@@ -3549,9 +3549,9 @@ close:
 	mov	edi, -1
 	cmp	esi, 31
 	ja	LBB61_3
-	cmp	byte [esi + tracked_save_fd], 0
+	cmp	byte [esi + tracked_persist_fd], 0
 	je	LBB61_3
-	movzx	edi, byte [esi + tracked_save_slot]
+	movzx	edi, byte [esi + tracked_persist_slot]
 LBB61_3:
 	mov	eax, 12
 	mov	ebx, esi
@@ -3575,8 +3575,8 @@ LBB61_3:
 LBB61_6:
 	cmp	esi, 31
 	ja	LBB61_12
-	mov	byte [esi + tracked_save_fd], 0
-	mov	byte [esi + tracked_save_slot], 0
+	mov	byte [esi + tracked_persist_fd], 0
+	mov	byte [esi + tracked_persist_slot], 0
 	jmp	LBB61_12
 LBB61_8:
 	test	eax, eax
@@ -3612,11 +3612,11 @@ dup:
 	js	LBB62_8
 	cmp	ebx, 31
 	ja	LBB62_5
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB62_5
 	cmp	eax, 31
 	ja	LBB62_11
-	movzx	edx, byte [ebx + tracked_save_slot]
+	movzx	edx, byte [ebx + tracked_persist_slot]
 	mov	cl, 1
 	jmp	LBB62_7
 LBB62_5:
@@ -3625,8 +3625,8 @@ LBB62_5:
 	xor	ecx, ecx
 	xor	edx, edx
 LBB62_7:
-	mov	byte [eax + tracked_save_fd], cl
-	mov	byte [eax + tracked_save_slot], dl
+	mov	byte [eax + tracked_persist_fd], cl
+	mov	byte [eax + tracked_persist_slot], dl
 	jmp	LBB62_11
 LBB62_8:
 	cmp	eax, -1
@@ -3657,11 +3657,11 @@ dup2:
 	js	LBB63_8
 	cmp	ebx, 31
 	ja	LBB63_5
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB63_5
 	cmp	eax, 31
 	ja	LBB63_11
-	movzx	edx, byte [ebx + tracked_save_slot]
+	movzx	edx, byte [ebx + tracked_persist_slot]
 	mov	cl, 1
 	jmp	LBB63_7
 LBB63_5:
@@ -3670,8 +3670,8 @@ LBB63_5:
 	xor	ecx, ecx
 	xor	edx, edx
 LBB63_7:
-	mov	byte [eax + tracked_save_fd], cl
-	mov	byte [eax + tracked_save_slot], dl
+	mov	byte [eax + tracked_persist_fd], cl
+	mov	byte [eax + tracked_persist_slot], dl
 	jmp	LBB63_11
 LBB63_8:
 	cmp	eax, -1
@@ -3712,11 +3712,11 @@ LBB64_2:
 	js	LBB64_10
 	cmp	ebx, 31
 	ja	LBB64_7
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB64_7
 	cmp	eax, 31
 	ja	LBB64_14
-	movzx	edx, byte [ebx + tracked_save_slot]
+	movzx	edx, byte [ebx + tracked_persist_slot]
 	mov	cl, 1
 	jmp	LBB64_9
 LBB64_7:
@@ -3725,8 +3725,8 @@ LBB64_7:
 	xor	ecx, ecx
 	xor	edx, edx
 LBB64_9:
-	mov	byte [eax + tracked_save_fd], cl
-	mov	byte [eax + tracked_save_slot], dl
+	mov	byte [eax + tracked_persist_fd], cl
+	mov	byte [eax + tracked_persist_slot], dl
 	jmp	LBB64_14
 LBB64_10:
 	cmp	eax, -1
@@ -3881,9 +3881,9 @@ LBB68_4:
 	mov	esi, eax
 	cmp	ebx, 31
 	ja	LBB68_29
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB68_29
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB68_22
 	shl	ebx, 16
@@ -3925,9 +3925,9 @@ LBB68_17:
 	mov	esi, eax
 	cmp	ebx, 31
 	ja	LBB68_29
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB68_29
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB68_22
 	shl	ebx, 16
@@ -4347,7 +4347,7 @@ LBB79_1:
 	js	LBB79_10
 	mov	dword [ebp - 16], eax
 	mov	ecx, ebx
-	call	is_save_slot_basename
+	call	is_persist_slot_compat_basename
 	mov	ecx, dword [ebp - 16]
 	test	eax, eax
 	je	LBB79_8
@@ -4357,8 +4357,8 @@ LBB79_1:
 	add	ebx, -48
 	cmp	ecx, 31
 	ja	LBB79_6
-	mov	byte [ecx + tracked_save_fd], 1
-	mov	byte [ecx + tracked_save_slot], bl
+	mov	byte [ecx + tracked_persist_fd], 1
+	mov	byte [ecx + tracked_persist_slot], bl
 LBB79_6:
 	cmp	ebx, 5
 	ja	LBB79_8
@@ -4401,9 +4401,9 @@ LBB79_15:
 	cmp	ebx, 31
 	mov	dword [ebp - 20], eax
 	ja	LBB79_18
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB79_18
-	movzx	edi, byte [ebx + tracked_save_slot]
+	movzx	edi, byte [ebx + tracked_persist_slot]
 LBB79_18:
 	mov	eax, 12
 	xor	ecx, ecx
@@ -4426,8 +4426,8 @@ LBB79_21:
 	cmp	ecx, 31
 	mov	eax, dword [ebp - 20]
 	ja	LBB79_27
-	mov	byte [ecx + tracked_save_fd], 0
-	mov	byte [ecx + tracked_save_slot], 0
+	mov	byte [ecx + tracked_persist_fd], 0
+	mov	byte [ecx + tracked_persist_slot], 0
 	jmp	LBB79_27
 LBB79_23:
 	test	ecx, ecx
@@ -4470,9 +4470,9 @@ access:
 	mov	edi, -1
 	cmp	eax, 31
 	ja	LBB80_5
-	cmp	byte [esi + tracked_save_fd], 0
+	cmp	byte [esi + tracked_persist_fd], 0
 	je	LBB80_5
-	movzx	edi, byte [esi + tracked_save_slot]
+	movzx	edi, byte [esi + tracked_persist_slot]
 LBB80_5:
 	mov	eax, 12
 	mov	ebx, esi
@@ -4494,8 +4494,8 @@ LBB80_5:
 LBB80_8:
 	cmp	esi, 31
 	ja	LBB80_9
-	mov	byte [esi + tracked_save_fd], 0
-	mov	byte [esi + tracked_save_slot], 0
+	mov	byte [esi + tracked_persist_fd], 0
+	mov	byte [esi + tracked_persist_slot], 0
 	xor	eax, eax
 	jmp	LBB80_18
 LBB80_10:
@@ -4979,7 +4979,7 @@ vibe_file_read_at:
 	test	eax, eax
 	js	LBB88_22
 	mov	ecx, ebx
-	call	is_save_slot_basename
+	call	is_persist_slot_compat_basename
 	test	eax, eax
 	je	LBB88_10
 	movsx	ebx, byte [ebx + 7]
@@ -4988,8 +4988,8 @@ vibe_file_read_at:
 	add	ebx, -48
 	cmp	esi, 31
 	ja	LBB88_8
-	mov	byte [esi + tracked_save_fd], 1
-	mov	byte [esi + tracked_save_slot], bl
+	mov	byte [esi + tracked_persist_fd], 1
+	mov	byte [esi + tracked_persist_slot], bl
 LBB88_8:
 	cmp	ebx, 5
 	ja	LBB88_10
@@ -5011,9 +5011,9 @@ LBB88_10:
 	cmp	esi, 31
 	mov	dword [ebp - 16], eax
 	ja	LBB88_13
-	cmp	byte [esi + tracked_save_fd], 0
+	cmp	byte [esi + tracked_persist_fd], 0
 	je	LBB88_13
-	movzx	edi, byte [esi + tracked_save_slot]
+	movzx	edi, byte [esi + tracked_persist_slot]
 LBB88_13:
 	mov	eax, dword [errno]
 	mov	dword [ebp - 20], eax
@@ -5038,8 +5038,8 @@ LBB88_16:
 	cmp	esi, 31
 	mov	edx, dword [ebp - 16]
 	ja	LBB88_25
-	mov	byte [esi + tracked_save_fd], 0
-	mov	byte [esi + tracked_save_slot], 0
+	mov	byte [esi + tracked_persist_fd], 0
+	mov	byte [esi + tracked_persist_slot], 0
 	jmp	LBB88_25
 LBB88_18:
 	mov	dword [errno], 22
@@ -5138,9 +5138,9 @@ LBB89_5:
 	cmp	edi, 31
 	mov	dword [ebp - 16], eax
 	ja	LBB89_11
-	cmp	byte [edi + tracked_save_fd], 0
+	cmp	byte [edi + tracked_persist_fd], 0
 	je	LBB89_11
-	movzx	esi, byte [edi + tracked_save_slot]
+	movzx	esi, byte [edi + tracked_persist_slot]
 LBB89_11:
 	mov	eax, dword [errno]
 	mov	dword [ebp - 20], eax
@@ -5165,8 +5165,8 @@ LBB89_14:
 	cmp	edi, 31
 	mov	edx, dword [ebp - 16]
 	ja	LBB89_16
-	mov	byte [edi + tracked_save_fd], 0
-	mov	byte [edi + tracked_save_slot], 0
+	mov	byte [edi + tracked_persist_fd], 0
+	mov	byte [edi + tracked_persist_slot], 0
 	jmp	LBB89_16
 LBB89_2:
 	mov	dword [errno], 22
@@ -5293,7 +5293,7 @@ LBB90_12:
 	test	eax, eax
 	js	LBB90_22
 	mov	ecx, ebx
-	call	is_save_slot_basename
+	call	is_persist_slot_compat_basename
 	test	eax, eax
 	je	LBB90_19
 	movsx	ebx, byte [ebx + 7]
@@ -5302,8 +5302,8 @@ LBB90_12:
 	add	ebx, -48
 	cmp	edi, 31
 	ja	LBB90_17
-	mov	byte [edi + tracked_save_fd], 1
-	mov	byte [edi + tracked_save_slot], bl
+	mov	byte [edi + tracked_persist_fd], 1
+	mov	byte [edi + tracked_persist_slot], bl
 LBB90_17:
 	cmp	ebx, 5
 	ja	LBB90_19
@@ -5339,9 +5339,9 @@ LBB90_26:
 	jle	LBB90_40
 	cmp	edi, 31
 	ja	LBB90_31
-	cmp	byte [edi + tracked_save_fd], 0
+	cmp	byte [edi + tracked_persist_fd], 0
 	je	LBB90_31
-	movzx	ebx, byte [edi + tracked_save_slot]
+	movzx	ebx, byte [edi + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB90_31
 	shl	ebx, 16
@@ -5364,9 +5364,9 @@ LBB90_32:
 	mov	edi, -1
 	cmp	ebx, 31
 	ja	LBB90_35
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB90_35
-	movzx	edi, byte [ebx + tracked_save_slot]
+	movzx	edi, byte [ebx + tracked_persist_slot]
 LBB90_35:
 	mov	eax, 12
 	xor	ecx, ecx
@@ -5389,8 +5389,8 @@ LBB90_38:
 	cmp	esi, 31
 	mov	eax, 0
 	ja	LBB90_58
-	mov	byte [esi + tracked_save_fd], 0
-	mov	byte [esi + tracked_save_slot], 0
+	mov	byte [esi + tracked_persist_fd], 0
+	mov	byte [esi + tracked_persist_slot], 0
 	jmp	LBB90_58
 LBB90_53:
 	mov	ecx, eax
@@ -5411,9 +5411,9 @@ LBB90_43:
 	mov	edi, -1
 	mov	dword [ebp - 16], eax
 	ja	LBB90_46
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB90_46
-	movzx	edi, byte [ebx + tracked_save_slot]
+	movzx	edi, byte [ebx + tracked_persist_slot]
 LBB90_46:
 	mov	eax, 12
 	xor	ecx, ecx
@@ -5434,8 +5434,8 @@ LBB90_46:
 LBB90_49:
 	cmp	esi, 31
 	ja	LBB90_51
-	mov	byte [esi + tracked_save_fd], 0
-	mov	byte [esi + tracked_save_slot], 0
+	mov	byte [esi + tracked_persist_fd], 0
+	mov	byte [esi + tracked_persist_slot], 0
 LBB90_51:
 	mov	eax, dword [ebp - 16]
 	mov	dword [errno], eax
@@ -7173,9 +7173,9 @@ LBB136_27:
 	mov	edi, -1
 	cmp	esi, 31
 	ja	LBB136_35
-	cmp	byte [esi + tracked_save_fd], 0
+	cmp	byte [esi + tracked_persist_fd], 0
 	je	LBB136_35
-	movzx	edi, byte [esi + tracked_save_slot]
+	movzx	edi, byte [esi + tracked_persist_slot]
 LBB136_35:
 	mov	eax, 12
 	mov	ebx, esi
@@ -7197,8 +7197,8 @@ LBB136_35:
 LBB136_38:
 	cmp	esi, 31
 	ja	LBB136_23
-	mov	byte [esi + tracked_save_fd], 0
-	mov	byte [esi + tracked_save_slot], 0
+	mov	byte [esi + tracked_persist_fd], 0
+	mov	byte [esi + tracked_persist_slot], 0
 	jmp	LBB136_23
 LBB136_41:
 	mov	eax, file_pool
@@ -7364,9 +7364,9 @@ LBB137_18:
 	cmp	ebx, 31
 	mov	eax, ebx
 	ja	LBB137_17
-	cmp	byte [eax + tracked_save_fd], 0
+	cmp	byte [eax + tracked_persist_fd], 0
 	je	LBB137_17
-	movzx	ebx, byte [eax + tracked_save_slot]
+	movzx	ebx, byte [eax + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB137_17
 	shl	ebx, 16
@@ -7550,9 +7550,9 @@ LBB139_5:
 	mov	ecx, eax
 	test	eax, eax
 	jle	LBB139_42
-	cmp	byte [edi + tracked_save_fd], 0
+	cmp	byte [edi + tracked_persist_fd], 0
 	je	LBB139_4
-	movzx	ebx, byte [edi + tracked_save_slot]
+	movzx	ebx, byte [edi + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB139_4
 	shl	ebx, 16
@@ -7592,9 +7592,9 @@ LBB139_13:
 	jle	LBB139_28
 	cmp	edi, 31
 	ja	LBB139_12
-	cmp	byte [edi + tracked_save_fd], 0
+	cmp	byte [edi + tracked_persist_fd], 0
 	je	LBB139_12
-	movzx	ebx, byte [edi + tracked_save_slot]
+	movzx	ebx, byte [edi + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB139_12
 	shl	ebx, 16
@@ -7634,9 +7634,9 @@ LBB139_23:
 	jle	LBB139_28
 	cmp	edi, 31
 	ja	LBB139_22
-	cmp	byte [edi + tracked_save_fd], 0
+	cmp	byte [edi + tracked_persist_fd], 0
 	je	LBB139_22
-	movzx	ebx, byte [edi + tracked_save_slot]
+	movzx	ebx, byte [edi + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB139_22
 	shl	ebx, 16
@@ -7687,9 +7687,9 @@ LBB139_37:
 	jle	LBB139_42
 	cmp	edi, 31
 	ja	LBB139_36
-	cmp	byte [edi + tracked_save_fd], 0
+	cmp	byte [edi + tracked_persist_fd], 0
 	je	LBB139_36
-	movzx	ebx, byte [edi + tracked_save_slot]
+	movzx	ebx, byte [edi + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB139_36
 	shl	ebx, 16
@@ -7784,9 +7784,9 @@ LBB140_5:
 	cmp	ebx, 31
 	mov	eax, ebx
 	ja	LBB140_4
-	cmp	byte [eax + tracked_save_fd], 0
+	cmp	byte [eax + tracked_persist_fd], 0
 	je	LBB140_4
-	movzx	ebx, byte [eax + tracked_save_slot]
+	movzx	ebx, byte [eax + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB140_4
 	shl	ebx, 16
@@ -7974,9 +7974,9 @@ LBB144_5:
 	jle	LBB144_13
 	cmp	ebx, 31
 	ja	LBB144_10
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB144_10
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB144_10
 	shl	ebx, 16
@@ -8013,9 +8013,9 @@ LBB144_18:
 	mov	esi, -1
 	cmp	edi, 31
 	ja	LBB144_21
-	cmp	byte [edi + tracked_save_fd], 0
+	cmp	byte [edi + tracked_persist_fd], 0
 	je	LBB144_21
-	movzx	esi, byte [edi + tracked_save_slot]
+	movzx	esi, byte [edi + tracked_persist_slot]
 LBB144_21:
 	mov	eax, 12
 	mov	ebx, edi
@@ -8039,8 +8039,8 @@ LBB144_24:
 	mov	edx, dword [ebp + 8]
 	mov	ecx, dword [ebp - 16]
 	ja	LBB144_30
-	mov	byte [edi + tracked_save_fd], 0
-	mov	byte [edi + tracked_save_slot], 0
+	mov	byte [edi + tracked_persist_fd], 0
+	mov	byte [edi + tracked_persist_slot], 0
 	jmp	LBB144_30
 LBB144_26:
 	test	eax, eax
@@ -8118,9 +8118,9 @@ LBB145_54:
 	jle	LBB145_62
 	cmp	ebx, 31
 	ja	LBB145_59
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB145_59
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB145_59
 	shl	ebx, 16
@@ -8163,9 +8163,9 @@ LBB145_4:
 	jle	LBB145_11
 	cmp	ebx, 31
 	ja	LBB145_9
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB145_9
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB145_9
 	shl	ebx, 16
@@ -8256,9 +8256,9 @@ LBB145_19:
 	jle	LBB145_26
 	cmp	ebx, 31
 	ja	LBB145_24
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB145_24
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB145_24
 	shl	ebx, 16
@@ -8333,9 +8333,9 @@ LBB145_36:
 	jle	LBB145_43
 	cmp	ebx, 31
 	ja	LBB145_41
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB145_41
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB145_41
 	shl	ebx, 16
@@ -8442,9 +8442,9 @@ LBB149_7:
 	jle	LBB149_14
 	cmp	ebx, 31
 	ja	LBB149_12
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB149_12
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB149_12
 	shl	ebx, 16
@@ -8516,9 +8516,9 @@ LBB150_7:
 	jle	LBB150_14
 	cmp	ebx, 31
 	ja	LBB150_12
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB150_12
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB150_12
 	shl	ebx, 16
@@ -8720,9 +8720,9 @@ LBB152_30:
 	jle	LBB152_219
 	cmp	ebx, 31
 	ja	LBB152_3
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB152_3
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB152_3
 	shl	ebx, 16
@@ -8968,9 +8968,9 @@ LBB152_87:
 	cmp	ebx, 31
 	mov	edx, ebx
 	ja	LBB152_82
-	cmp	byte [edx + tracked_save_fd], 0
+	cmp	byte [edx + tracked_persist_fd], 0
 	je	LBB152_82
-	movzx	ebx, byte [edx + tracked_save_slot]
+	movzx	ebx, byte [edx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB152_82
 	shl	ebx, 16
@@ -9170,9 +9170,9 @@ LBB152_128:
 	cmp	ebx, 31
 	mov	eax, ebx
 	ja	LBB152_134
-	cmp	byte [eax + tracked_save_fd], 0
+	cmp	byte [eax + tracked_persist_fd], 0
 	je	LBB152_134
-	movzx	ebx, byte [eax + tracked_save_slot]
+	movzx	ebx, byte [eax + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB152_134
 	shl	ebx, 16
@@ -9203,9 +9203,9 @@ LBB152_135:
 	jle	LBB152_219
 	cmp	ebx, 31
 	ja	LBB152_141
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB152_141
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB152_141
 	shl	ebx, 16
@@ -9285,9 +9285,9 @@ LBB152_151:
 	jle	LBB152_219
 	cmp	ebx, 31
 	ja	LBB152_146
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB152_146
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB152_146
 	shl	ebx, 16
@@ -9356,9 +9356,9 @@ LBB152_169:
 	mov	eax, ebx
 	mov	edx, dword [ebp - 24]
 	ja	LBB152_164
-	cmp	byte [eax + tracked_save_fd], 0
+	cmp	byte [eax + tracked_persist_fd], 0
 	je	LBB152_164
-	movzx	ebx, byte [eax + tracked_save_slot]
+	movzx	ebx, byte [eax + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB152_164
 	shl	ebx, 16
@@ -9423,9 +9423,9 @@ LBB152_183:
 	jle	LBB152_219
 	cmp	ebx, 31
 	ja	LBB152_189
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB152_189
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB152_189
 	shl	ebx, 16
@@ -9490,9 +9490,9 @@ LBB152_200:
 	cmp	ebx, 31
 	mov	eax, ebx
 	ja	LBB152_195
-	cmp	byte [eax + tracked_save_fd], 0
+	cmp	byte [eax + tracked_persist_fd], 0
 	je	LBB152_195
-	movzx	ebx, byte [eax + tracked_save_slot]
+	movzx	ebx, byte [eax + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB152_195
 	shl	ebx, 16
@@ -9810,9 +9810,9 @@ LBB156_16:
 	jle	LBB156_25
 	cmp	ebx, 31
 	ja	LBB156_21
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB156_21
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB156_21
 	shl	ebx, 16
@@ -10455,9 +10455,9 @@ LBB161_7:
 	jle	LBB161_14
 	cmp	ebx, 31
 	ja	LBB161_12
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB161_12
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB161_12
 	shl	ebx, 16
@@ -10594,9 +10594,9 @@ LBB163_8:
 	jle	LBB163_26
 	cmp	ebx, 31
 	ja	LBB163_18
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB163_18
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB163_18
 	shl	ebx, 16
@@ -11305,9 +11305,9 @@ LBB170_19:
 	jle	LBB170_97
 	cmp	ebx, 31
 	ja	LBB170_24
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB170_24
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB170_24
 	shl	ebx, 16
@@ -11339,9 +11339,9 @@ LBB170_27:
 	jle	LBB170_97
 	cmp	ebx, 31
 	ja	LBB170_32
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB170_32
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB170_32
 	shl	ebx, 16
@@ -11450,9 +11450,9 @@ LBB170_49:
 	jle	LBB170_109
 	cmp	ebx, 31
 	ja	LBB170_57
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB170_57
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB170_57
 	shl	ebx, 16
@@ -11565,9 +11565,9 @@ LBB170_75:
 	cmp	ebx, 31
 	mov	edx, dword [ebp - 16]
 	ja	LBB170_80
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB170_80
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB170_80
 	shl	ebx, 16
@@ -11778,9 +11778,9 @@ LBB171_2:
 	jle	LBB171_15
 	cmp	ebx, 31
 	ja	LBB171_14
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB171_14
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB171_14
 	shl	ebx, 16
@@ -11871,9 +11871,9 @@ LBB172_10:
 	jle	LBB172_16
 	cmp	ebx, 31
 	ja	LBB172_15
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB172_15
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB172_15
 	shl	ebx, 16
@@ -12006,9 +12006,9 @@ LBB173_8:
 	jle	LBB173_23
 	cmp	ebx, 31
 	ja	LBB173_16
-	cmp	byte [ebx + tracked_save_fd], 0
+	cmp	byte [ebx + tracked_persist_fd], 0
 	je	LBB173_16
-	movzx	ebx, byte [ebx + tracked_save_slot]
+	movzx	ebx, byte [ebx + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB173_16
 	shl	ebx, 16
@@ -12117,7 +12117,7 @@ LBB173_36:
 	jmp	LBB173_39
 Lfunc_end173:
 align 16
-is_save_slot_basename:
+is_persist_slot_compat_basename:
 	mov	eax, -13
 align 16
 LBB174_1:
@@ -12410,9 +12410,9 @@ LBB175_24:
 	cmp	dword [ebp + 8], 31
 	ja	LBB175_19
 	mov	eax, dword [ebp + 8]
-	cmp	byte [eax + tracked_save_fd], 0
+	cmp	byte [eax + tracked_persist_fd], 0
 	je	LBB175_19
-	movzx	ebx, byte [eax + tracked_save_slot]
+	movzx	ebx, byte [eax + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB175_19
 	shl	ebx, 16
@@ -12452,9 +12452,9 @@ LBB175_35:
 	cmp	ebx, 31
 	ja	LBB175_41
 	mov	eax, dword [ebp + 8]
-	cmp	byte [eax + tracked_save_fd], 0
+	cmp	byte [eax + tracked_persist_fd], 0
 	je	LBB175_41
-	movzx	ebx, byte [eax + tracked_save_slot]
+	movzx	ebx, byte [eax + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB175_41
 	shl	ebx, 16
@@ -12518,9 +12518,9 @@ LBB175_52:
 	cmp	dword [ebp + 8], 31
 	ja	LBB175_47
 	mov	eax, dword [ebp + 8]
-	cmp	byte [eax + tracked_save_fd], 0
+	cmp	byte [eax + tracked_persist_fd], 0
 	je	LBB175_47
-	movzx	ebx, byte [eax + tracked_save_slot]
+	movzx	ebx, byte [eax + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB175_47
 	shl	ebx, 16
@@ -12568,9 +12568,9 @@ LBB175_63:
 	cmp	ebx, 31
 	ja	LBB175_58
 	mov	eax, dword [ebp + 8]
-	cmp	byte [eax + tracked_save_fd], 0
+	cmp	byte [eax + tracked_persist_fd], 0
 	je	LBB175_58
-	movzx	ebx, byte [eax + tracked_save_slot]
+	movzx	ebx, byte [eax + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB175_58
 	shl	ebx, 16
@@ -12626,9 +12626,9 @@ LBB175_78:
 	cmp	ebx, 31
 	ja	LBB175_73
 	mov	eax, dword [ebp + 8]
-	cmp	byte [eax + tracked_save_fd], 0
+	cmp	byte [eax + tracked_persist_fd], 0
 	je	LBB175_73
-	movzx	ebx, byte [eax + tracked_save_slot]
+	movzx	ebx, byte [eax + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB175_73
 	shl	ebx, 16
@@ -12706,9 +12706,9 @@ LBB176_5:
 	jle	LBB176_23
 	cmp	esi, 31
 	ja	LBB176_11
-	cmp	byte [esi + tracked_save_fd], 0
+	cmp	byte [esi + tracked_persist_fd], 0
 	je	LBB176_11
-	movzx	ebx, byte [esi + tracked_save_slot]
+	movzx	ebx, byte [esi + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB176_11
 	shl	ebx, 16
@@ -12733,9 +12733,9 @@ LBB176_11:
 	jle	LBB176_23
 	cmp	esi, 31
 	ja	LBB176_18
-	cmp	byte [esi + tracked_save_fd], 0
+	cmp	byte [esi + tracked_persist_fd], 0
 	je	LBB176_18
-	movzx	ebx, byte [esi + tracked_save_slot]
+	movzx	ebx, byte [esi + tracked_persist_slot]
 	cmp	ebx, 5
 	ja	LBB176_18
 	shl	ebx, 16
@@ -12890,7 +12890,7 @@ dd 0
 db 0
 times 4096 db 0
 times 3 db 0
-mapped_path.save_slot_path:
+mapped_path.compat_persist_slot_path:
 db `doomsav0.dsg`, 0
 section .rodata
 L.str.25:
@@ -12933,5 +12933,5 @@ alignb 4
 alloc_head resb 4
 alignb 4
 alloc_tail resb 4
-tracked_save_fd resb 32
-tracked_save_slot resb 32
+tracked_persist_fd resb 32
+tracked_persist_slot resb 32
