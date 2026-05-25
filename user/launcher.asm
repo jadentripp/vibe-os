@@ -113,14 +113,22 @@ vibe_launcher_choose_payload:
     call vibe_user_write_all
     add esp, 8
 
-.loop:
     call launcher_draw
     call launcher_present
+
+.loop:
     call launcher_drain_input
+    mov ebx, eax
     mov eax, [launcher_selected]
     test eax, eax
     jne .selected
 
+    test ebx, ebx
+    je .idle
+    call launcher_draw
+    call launcher_present
+
+.idle:
     push 1
     call vibe_user_sleep_ticks
     add esp, 4
@@ -1346,14 +1354,21 @@ launcher_present:
 
 align 16
 launcher_drain_input:
+    mov dword [launcher_input_dirty], 0
+
+.poll:
     push launcher_input_event
     call vibe_user_poll_input
     add esp, 4
     cmp eax, 1
     jne .done
     call launcher_handle_event
-    jmp launcher_drain_input
+    test eax, eax
+    je .poll
+    mov dword [launcher_input_dirty], 1
+    jmp .poll
 .done:
+    mov eax, [launcher_input_dirty]
     ret
 
 align 16
@@ -1362,6 +1377,7 @@ launcher_handle_event:
     je launcher_handle_key
     cmp dword [launcher_input_event + INPUT_EVENT_DEVICE_ID], INPUT_DEVICE_MOUSE
     je launcher_handle_mouse
+    xor eax, eax
     ret
 
 align 16
@@ -1387,30 +1403,34 @@ launcher_handle_key:
     je .focus_quake
     cmp eax, SCANCODE_DOWN
     je .focus_quake
-    ret
+    jmp .done
 
 .focus_doom:
     mov dword [launcher_focus], 1
-    ret
+    jmp .changed
 
 .focus_quake:
     mov dword [launcher_focus], 2
-    ret
+    jmp .changed
 
 .select_focus:
     mov eax, [launcher_focus]
     mov [launcher_selected], eax
-    ret
+    jmp .changed
 
 .select_doom:
     mov dword [launcher_focus], 1
     mov dword [launcher_selected], 1
-    ret
+    jmp .changed
 
 .select_quake:
     mov dword [launcher_focus], 2
     mov dword [launcher_selected], 2
+.changed:
+    mov eax, 1
+    ret
 .done:
+    xor eax, eax
     ret
 
 align 16
@@ -1438,15 +1458,19 @@ launcher_handle_mouse:
 .button:
     mov eax, [launcher_input_event + INPUT_EVENT_CODE]
     test eax, INPUT_MOUSE_BUTTON_LEFT
-    je .done
+    je .changed
     mov eax, [launcher_cursor_x]
     mov ebx, [launcher_cursor_y]
     call launcher_pointer_focus
     test eax, eax
-    je .done
+    je .changed
     mov [launcher_focus], eax
     mov [launcher_selected], eax
+.changed:
+    mov eax, 1
+    ret
 .done:
+    xor eax, eax
     ret
 
 align 16
@@ -1812,6 +1836,7 @@ launcher_selected dd 0
 launcher_focus dd 1
 launcher_cursor_x dd 160
 launcher_cursor_y dd 104
+launcher_input_dirty dd 0
 launcher_text_x dd 0
 launcher_text_y dd 0
 launcher_cursor_scratch dd 0
