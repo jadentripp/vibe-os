@@ -131,7 +131,7 @@ USER_ABI_PROBE_ELF_MAX_BYTES := 32768
 LARGE_PAYLOAD_ROOT_ELF_ARGS := --root-elf PAYLOAD0.ELF=$(DOOM_ELF) --root-elf PAYLOAD1.ELF=$(QUAKE_ELF)
 IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) $(LARGE_PAYLOAD_ROOT_ELF_ARGS)
 
-.PHONY: all build-only test assembly-native-check no-python-check doom-compile doom-link quake-compile quake-link run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
+.PHONY: all build-only test assembly-native-check no-python-check doom-compile doom-link quake-compile quake-link play play-image run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
 
 all: $(IMAGE)
 
@@ -220,6 +220,12 @@ quake-compile: $(QUAKE_ORIGINAL_OBJS)
 
 quake-link: $(QUAKE_ELF)
 	@printf "Linked freestanding Quake proof payload at %s\n" "$(QUAKE_ELF)"
+
+play:
+	@tools/play_local.sh
+
+play-image:
+	@tools/play_local.sh --prepare-only
 
 playability-host-check:
 	@printf "Running host-only playability readiness checks; local QEMU remains disabled.\n"
