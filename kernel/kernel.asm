@@ -10661,6 +10661,20 @@ audio_write_pcm_ring_info:
     pop eax
     ret
 
+audio_current_process_page_dir:
+    mov eax, [current_process_ptr]
+    test eax, eax
+    jz .use_cr3
+    mov eax, [eax + PROC_PAGE_DIR]
+    test eax, eax
+    jnz .done
+
+.use_cr3:
+    mov eax, cr3
+
+.done:
+    ret
+
 audio_register_sfx_voice:
     push eax
     push ebx
@@ -10727,6 +10741,8 @@ audio_register_sfx_voice:
     mov [sb16_voice_handles + ebx * 4], eax
     mov eax, [audio_sfx_sample_arg]
     mov [sb16_voice_samples + ebx * 4], eax
+    call audio_current_process_page_dir
+    mov [sb16_voice_page_dirs + ebx * 4], eax
     mov eax, [audio_sfx_length_arg]
     mov [sb16_voice_lengths + ebx * 4], eax
     mov dword [sb16_voice_positions + ebx * 4], 0
@@ -10735,6 +10751,7 @@ audio_register_sfx_voice:
     mov dword [sb16_voice_loop_counts + ebx * 4], 0
     mov dword [sb16_voice_pending_samples + ebx * 4], 0
     mov dword [sb16_voice_pending_lengths + ebx * 4], 0
+    mov dword [sb16_voice_pending_page_dirs + ebx * 4], 0
     mov eax, [audio_sfx_volume_arg]
     mov [sb16_voice_volumes + ebx * 4], eax
     mov eax, [audio_sfx_separation_arg]
@@ -10940,6 +10957,8 @@ audio_update_sfx_voice:
     jne .replace_pending_window
     mov eax, [audio_sfx_sample_arg]
     mov [sb16_voice_pending_samples + ebx * 4], eax
+    call audio_current_process_page_dir
+    mov [sb16_voice_pending_page_dirs + ebx * 4], eax
     mov eax, [audio_sfx_length_arg]
     mov [sb16_voice_pending_lengths + ebx * 4], eax
     call sb16_mark_music_pull_refill
@@ -10950,6 +10969,8 @@ audio_update_sfx_voice:
     inc dword [sb16_music_stream_drop_count]
     mov eax, [audio_sfx_sample_arg]
     mov [sb16_voice_pending_samples + ebx * 4], eax
+    call audio_current_process_page_dir
+    mov [sb16_voice_pending_page_dirs + ebx * 4], eax
     mov eax, [audio_sfx_length_arg]
     mov [sb16_voice_pending_lengths + ebx * 4], eax
     call sb16_mark_music_pull_refill
@@ -10959,12 +10980,15 @@ audio_update_sfx_voice:
 .store_stream_window:
     mov eax, [audio_sfx_sample_arg]
     mov [sb16_voice_samples + ebx * 4], eax
+    call audio_current_process_page_dir
+    mov [sb16_voice_page_dirs + ebx * 4], eax
     mov eax, [audio_sfx_length_arg]
     mov [sb16_voice_lengths + ebx * 4], eax
     mov [sb16_music_stream_buffer_bytes], eax
     mov dword [sb16_voice_positions + ebx * 4], 0
     mov dword [sb16_voice_pending_samples + ebx * 4], 0
     mov dword [sb16_voice_pending_lengths + ebx * 4], 0
+    mov dword [sb16_voice_pending_page_dirs + ebx * 4], 0
     call sb16_mark_music_pull_refill
     call sb16_recount_active_voices
     jmp .count_update
@@ -11092,10 +11116,13 @@ sb16_music_promote_pending_window:
 
     mov eax, [sb16_voice_pending_samples + ebx * 4]
     mov [sb16_voice_samples + ebx * 4], eax
+    mov eax, [sb16_voice_pending_page_dirs + ebx * 4]
+    mov [sb16_voice_page_dirs + ebx * 4], eax
     mov eax, [sb16_voice_pending_lengths + ebx * 4]
     mov [sb16_voice_lengths + ebx * 4], eax
     mov dword [sb16_voice_pending_samples + ebx * 4], 0
     mov dword [sb16_voice_pending_lengths + ebx * 4], 0
+    mov dword [sb16_voice_pending_page_dirs + ebx * 4], 0
     mov dword [sb16_voice_positions + ebx * 4], 0
     mov dword [sb16_mix_source_pos], 0
     clc
@@ -11155,6 +11182,18 @@ sb16_refill_active_half:
     mov edi, [sb16_refill_dest_base]
     mov ecx, SB16_DMA_BLOCK_BYTES / 2
     mov dword [sb16_mix_frames_mixed], 0
+    pushfd
+    cli
+    mov eax, cr3
+    push eax
+    mov eax, [sb16_voice_page_dirs + ebx * 4]
+    test eax, eax
+    jz .mix_address_space_ready
+    cmp eax, [esp]
+    je .mix_address_space_ready
+    mov cr3, eax
+
+.mix_address_space_ready:
 
 .mix_next:
     cmp ecx, 0
@@ -11238,6 +11277,9 @@ sb16_refill_active_half:
     jmp .mix_next
 
 .voice_mixed:
+    pop eax
+    mov cr3, eax
+    popfd
     mov ebx, [sb16_mix_voice_slot]
     mov eax, [sb16_mix_source_pos]
     mov [sb16_voice_positions + ebx * 4], eax
@@ -11318,6 +11360,8 @@ sb16_refill_active_half:
     mov dword [sb16_voice_loop_counts + ebx * 4], 0
     mov dword [sb16_voice_pending_samples + ebx * 4], 0
     mov dword [sb16_voice_pending_lengths + ebx * 4], 0
+    mov dword [sb16_voice_page_dirs + ebx * 4], 0
+    mov dword [sb16_voice_pending_page_dirs + ebx * 4], 0
     inc dword [sb16_voice_finished_count]
 
 .advance_voice:
@@ -36362,6 +36406,7 @@ sb16_voice_active times AUDIO_MAX_SFX_VOICES db 0
 align 4
 sb16_voice_handles times AUDIO_MAX_SFX_VOICES dd 0
 sb16_voice_samples times AUDIO_MAX_SFX_VOICES dd 0
+sb16_voice_page_dirs times AUDIO_MAX_SFX_VOICES dd 0
 sb16_voice_lengths times AUDIO_MAX_SFX_VOICES dd 0
 sb16_voice_positions times AUDIO_MAX_SFX_VOICES dd 0
 sb16_voice_volumes times AUDIO_MAX_SFX_VOICES dd 0
@@ -36374,6 +36419,7 @@ sb16_voice_started_at times AUDIO_MAX_SFX_VOICES dd 0
 sb16_voice_flags times AUDIO_MAX_SFX_VOICES dd 0
 sb16_voice_loop_counts times AUDIO_MAX_SFX_VOICES dd 0
 sb16_voice_pending_samples times AUDIO_MAX_SFX_VOICES dd 0
+sb16_voice_pending_page_dirs times AUDIO_MAX_SFX_VOICES dd 0
 sb16_voice_pending_lengths times AUDIO_MAX_SFX_VOICES dd 0
 sb16_dma_buffer_phys dd 0
 sb16_dma_buffer_size dd 0
