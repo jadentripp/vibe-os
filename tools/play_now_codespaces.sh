@@ -48,8 +48,9 @@ usage() {
   cat <<'EOF'
 Usage: tools/play_now_codespaces.sh [options]
 
-Create or reuse a disposable GitHub Codespace, start vibe-os Doom there through
-tools/play_now_remote.sh, make noVNC private, and print the browser URL.
+Create or reuse a disposable GitHub Codespace, start vibe-os there with
+shareware Doom data through tools/play_now_remote.sh, make noVNC private, and
+print the browser URL.
 
 This script is safe to run on the Mac: it uses gh to control Codespaces only.
 QEMU, the shareware WAD, disk image, pixels, and raw audio stay inside the

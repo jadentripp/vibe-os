@@ -31,8 +31,9 @@ files, memory, time, input, video, audio, config, and saves.
   guest OS path.
 - Python is not part of the tracked build or proof path.
 - Release-quality Doom and Quake proofs run in GitHub Actions on disposable
-  QEMU VMs. They launch the payload ELFs through the same generic process path,
-  drive input, and check guest-emitted status fields.
+  QEMU VMs. They select payloads through the guest launcher, launch the payload
+  ELFs through the same generic process path, drive input, and check
+  guest-emitted status fields.
 
 There is still naming debt. Some status fields, build variables, compatibility
 paths, and host image-builder internals still say `doom`, `quake`, `wad`, `pak`,
@@ -51,7 +52,7 @@ Doom-only or Quake-only executable path.
   packaged assets, config files, save files, and file-descriptor-style user ABI
   paths.
 - **User ABI:** Ring 3 ELF launch, user entry code, syscall wrappers, runtime
-  helpers, process status, and ABI probes.
+  helpers, process status, ABI probes, and the NASM guest launcher.
 - **Payload adapters:** assembly glue that lets the original engines use the
   vibe-os ABI for startup, libc/string/stdio/math calls, input, framebuffer
   presentation, palette/video conversion, audio, persistence, and shutdown.
@@ -86,8 +87,11 @@ The vendor trees should stay pristine.
 4. The kernel sets up memory, interrupts, syscalls, files, input, video, audio,
    and user processes.
 5. Probe ELFs exercise the generic user ABI.
-6. Payload ELFs start as Ring 3 processes through the generic payload loader.
-7. Payloads read external package data, render frames, accept input, emit audio,
+6. The guest launcher presents Doom and Quake choices through the framebuffer
+   and accepts keyboard or mouse selection.
+7. The selected payload ELF starts as a Ring 3 process through the generic
+   payload loader.
+8. Payloads read external package data, render frames, accept input, emit audio,
    and can write config/save data through vibe-os paths.
 
 UEFI has a NASM loader object/PE path, a dual BIOS/UEFI image target, and a
@@ -131,8 +135,9 @@ make PRIMARY_ASSET=/path/to/DOOM1.WAD SECONDARY_PACKAGE=/path/to/PAK0.PAK
 ## Cloud Proofs
 
 The Doom proof lane fetches or accepts `DOOM1.WAD`, validates it, builds a
-temporary disk image, boots vibe-os in QEMU, launches `PAYLOAD0.ELF`, drives
-scripted input, and uploads status-only proof artifacts.
+temporary disk image, boots vibe-os in QEMU, selects Doom in the guest launcher,
+launches `PAYLOAD0.ELF`, drives scripted input, and uploads status-only proof
+artifacts.
 
 ```sh
 gh workflow run real-wad-smoke.yml \
@@ -142,8 +147,9 @@ gh workflow run real-wad-smoke.yml \
 ```
 
 The Quake proof lane fetches or accepts `PAK0.PAK`, validates it, builds a
-temporary disk image, boots vibe-os in QEMU, launches `PAYLOAD1.ELF`, drives
-scripted input, and uploads status-only proof artifacts.
+temporary disk image, boots vibe-os in QEMU, selects Quake in the guest launcher,
+launches `PAYLOAD1.ELF`, drives scripted input, and uploads status-only proof
+artifacts.
 
 ```sh
 gh workflow run real-quake-smoke.yml \
@@ -163,16 +169,44 @@ codes.
 
 ## Local QEMU
 
-Local QEMU is opt-in:
+Local VM launch is opt-in. A normal local run boots vibe-os itself, shows the
+guest launcher screen, and lets you pick the payload from inside the OS:
 
 ```sh
-make ALLOW_LOCAL_VM=1 DOOM_WAD=/path/to/DOOM1.WAD smoke
-make ALLOW_LOCAL_VM=1 QUAKE_PAK=/path/to/PAK0.PAK smoke
+make ALLOW_LOCAL_VM=1 \
+  DOOM_WAD=/absolute/path/to/DOOM1.WAD \
+  QUAKE_PAK=/absolute/path/to/PAK0.PAK \
+  run
 ```
 
-Use local QEMU for debugging and interactive iteration only. The cloud proof
-lanes are the release proofs because they run from clean checkouts on disposable
-runners and enforce the status contracts.
+Keep `DOOM1.WAD` and `PAK0.PAK` outside the repo and pass whichever external
+data you want packaged into the disk image. `PAYLOAD0.ELF` is Doom and
+`PAYLOAD1.ELF` is Quake, but the selection happens in the guest launcher. Press
+`1`/`2`, use `W`/`S` and Enter, or click a payload choice with the mouse.
+
+Extra QEMU options can be passed through when needed:
+
+```sh
+make ALLOW_LOCAL_VM=1 QUAKE_PAK=/absolute/path/to/PAK0.PAK \
+  QEMU_EXTRA_ARGS='-audiodev coreaudio,id=snd0 -device sb16,audiodev=snd0' \
+  run
+```
+
+Lower-level local QEMU smoke/debug targets are also opt-in:
+
+```sh
+make ALLOW_LOCAL_VM=1 DOOM_WAD=/path/to/DOOM1.WAD \
+  SMOKE_INPUT_SCRIPT='launcher-select:1,wait-status=path:PAYLOAD0.ELF:90:1' \
+  SMOKE_SKIP_ASSERTIONS=1 smoke
+
+make ALLOW_LOCAL_VM=1 QUAKE_PAK=/path/to/PAK0.PAK \
+  SMOKE_INPUT_SCRIPT='launcher-select:2,wait-status=path:PAYLOAD1.ELF:90:1' \
+  SMOKE_SKIP_ASSERTIONS=1 smoke
+```
+
+Use local QEMU for play, debugging, and interactive iteration only. The cloud
+proof lanes are the release proofs because they run from clean checkouts on
+disposable runners and enforce the status contracts.
 
 Manual cloud play is available through the noVNC helper:
 

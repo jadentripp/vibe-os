@@ -71,7 +71,7 @@ jobs:
           make \
             ALLOW_LOCAL_VM=1 \
             SMOKE_QEMU_TIMEOUT=130 \
-            SMOKE_INPUT_SCRIPT="generated-wad:wait-status=abiprobe:OK:90:1,wait-status=pmask:00000003:90:1" \
+            SMOKE_INPUT_SCRIPT="launcher-select:1,wait-status=path:PAYLOAD0.ELF:90:1,snapshot generated-wad:wait-status=abiprobe:OK:90:1,wait-status=pmask:00000003:90:1" \
             SMOKE_SKIP_ASSERTIONS=1 \
             smoke
 
