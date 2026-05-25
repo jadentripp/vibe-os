@@ -170,18 +170,23 @@ codes.
 
 ## Local QEMU
 
-Local VM launch is opt-in. A normal local run boots vibe-os itself, shows the
-guest launcher screen, and lets you pick the payload from inside the OS:
+Local VM launch is opt-in. The supported local play path is one command:
 
 ```sh
 make play
 ```
 
-`make play` downloads and validates the public shareware `DOOM1.WAD` and
-`PAK0.PAK` into `~/.cache/vibe-os`, builds the same launcher-first disk image
-shape used by tests at `build/play/disk.img`, and launches QEMU. The data stays
-outside git. Press `1`/`2`, use `W`/`S` and Enter, or click a payload choice
-with the mouse.
+That command downloads and validates the public shareware `DOOM1.WAD` and
+`PAK0.PAK` into `~/.cache/vibe-os`, builds `build/play/disk.img`, launches
+QEMU, boots vibe-os, shows the guest launcher screen, and lets you choose Doom
+or Quake from inside the OS. The WAD/PAK data stays outside git. Press `1`/`2`,
+use `W`/`S` and Enter, or click a payload choice with the mouse.
+
+`make play` hides the host-specific QEMU adapter details. On Intel macOS it
+auto-selects HVF acceleration when available, uses an Intel guest CPU model to
+avoid AMD SVM warnings, chooses the Cocoa display backend when available, and
+uses CoreAudio with the guest SB16 device when available. Other hosts fall back
+to the QEMU backends the local QEMU binary reports.
 
 To build the same local play image without launching QEMU:
 
@@ -198,11 +203,18 @@ DOOM_WAD=/absolute/path/to/DOOM1.WAD \
   make play
 ```
 
-Extra QEMU options can be passed through when needed:
+Most users should not need QEMU overrides. If the local emulator behaves oddly,
+the play wrapper exposes narrow escape hatches:
 
 ```sh
-QEMU_EXTRA_ARGS='-audiodev coreaudio,id=snd0 -device sb16,audiodev=snd0' make play
+VIBE_QEMU_ACCEL=tcg make play
+VIBE_QEMU_CPU=default make play
+VIBE_QEMU_DISPLAY=default make play
+VIBE_QEMU_AUDIO=off make play
 ```
+
+`QEMU_EXTRA_ARGS` is still available for ad hoc debugging, but it is appended to
+the wrapper's normal QEMU arguments and should not be needed for ordinary play.
 
 Lower-level local QEMU smoke/debug targets are also opt-in:
 

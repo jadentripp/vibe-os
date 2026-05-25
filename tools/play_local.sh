@@ -10,6 +10,8 @@ PLAY_BUILD_DIR="${PLAY_BUILD_DIR:-build/play}"
 MAKE_BIN="${MAKE:-make}"
 QEMU_BIN="${QEMU:-qemu-system-x86_64}"
 QEMU_EXTRA_ARGS="${QEMU_EXTRA_ARGS:-}"
+VIBE_QEMU_ACCEL="${VIBE_QEMU_ACCEL:-auto}"
+VIBE_QEMU_CPU="${VIBE_QEMU_CPU:-auto}"
 VIBE_QEMU_DISPLAY="${VIBE_QEMU_DISPLAY:-auto}"
 VIBE_QEMU_FULLSCREEN="${VIBE_QEMU_FULLSCREEN:-auto}"
 VIBE_QEMU_ZOOM_TO_FIT="${VIBE_QEMU_ZOOM_TO_FIT:-auto}"
@@ -29,6 +31,10 @@ Environment overrides:
   VIBE_PLAY_DATA_DIR=/path/cache    Cache directory for downloaded game data.
   PLAY_BUILD_DIR=build/play         Build directory for the local play image.
   QEMU_EXTRA_ARGS='...'             Extra arguments passed to QEMU.
+  VIBE_QEMU_ACCEL=auto|tcg|hvf      CPU accelerator. On Intel macOS, auto
+                                    tries HVF first and falls back to TCG.
+  VIBE_QEMU_CPU=auto|default|MODEL  Guest CPU model. On Intel macOS with HVF,
+                                    auto uses Penryn to avoid AMD SVM warnings.
   VIBE_QEMU_DISPLAY=auto|default|none|BACKEND
                                     Display backend. On macOS, auto uses cocoa
                                     when available so the native QEMU window is
@@ -297,6 +303,48 @@ prepare_pak() {
   absolute_existing_path "$target"
 }
 
+configure_qemu_machine_arg() {
+  qemu_machine_arg="pc,accel=tcg"
+
+  case "$VIBE_QEMU_ACCEL" in
+    auto|"")
+      if [ "$(uname -s)" = "Darwin" ] \
+        && [ "$(uname -m)" = "x86_64" ] \
+        && qemu_help_has_backend "-accel" "hvf"; then
+        qemu_machine_arg="pc,accel=hvf:tcg"
+      fi
+      ;;
+    tcg|hvf|kvm|whpx)
+      qemu_machine_arg="pc,accel=$VIBE_QEMU_ACCEL"
+      ;;
+    *)
+      fail_play "VIBE_QEMU_ACCEL must be auto, tcg, hvf, kvm, or whpx"
+      ;;
+  esac
+}
+
+configure_qemu_cpu_args() {
+  qemu_cpu_args=()
+
+  case "$VIBE_QEMU_CPU" in
+    auto|"")
+      if [ "$(uname -s)" = "Darwin" ] \
+        && [ "$(uname -m)" = "x86_64" ]; then
+        case "$qemu_machine_arg" in
+          *accel=hvf*)
+            qemu_cpu_args=(-cpu Penryn)
+            ;;
+        esac
+      fi
+      ;;
+    default|none)
+      ;;
+    *)
+      qemu_cpu_args=(-cpu "$VIBE_QEMU_CPU")
+      ;;
+  esac
+}
+
 configure_qemu_display_args() {
   qemu_display_args=()
 
@@ -408,12 +456,14 @@ fi
 configure_qemu_display_args
 configure_qemu_audio_args
 configure_qemu_extra_args
+configure_qemu_machine_arg
+configure_qemu_cpu_args
 
 rm -f "$PLAY_BUILD_DIR/monitor.sock" "$PLAY_BUILD_DIR/qemu.log" "$PLAY_BUILD_DIR/serial.log"
 echo "Starting vibe-os. Pick Doom or Quake from the guest launcher."
 echo "If the QEMU window stays black, quit it and check $PLAY_BUILD_DIR/serial.log."
 set -- \
-  -machine pc,accel=tcg \
+  -machine "$qemu_machine_arg" \
   -m 128M \
   -vga none \
   -device "VGA,vgamem_mb=32,xres=2560,yres=1440" \
@@ -421,6 +471,9 @@ set -- \
   -boot c
 if [ ${#qemu_display_args[@]} -gt 0 ]; then
   set -- "$@" "${qemu_display_args[@]}"
+fi
+if [ ${#qemu_cpu_args[@]} -gt 0 ]; then
+  set -- "$@" "${qemu_cpu_args[@]}"
 fi
 set -- "$@" \
   -serial "file:$PLAY_BUILD_DIR/serial.log" \
