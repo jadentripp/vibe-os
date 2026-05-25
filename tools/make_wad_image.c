@@ -86,6 +86,7 @@ static const char LEGACY_PAYLOAD_ELF_NAME[] = "PAYLOAD0ELF";
 static const char KERNEL_ELF_NAME[] = "KERNEL  ELF";
 static const char PRIMARY_ASSET_WAD_NAME[] = "DOOM1   WAD";
 static const char DEFAULT_CFG_NAME[] = "DEFAULT CFG";
+static const uint8_t DEFAULT_CFG_CONTENT[] = "screenblocks\t\t11\n";
 static const char PERSISTENCE_CHECKPOINT_NAME[] = "PERSIST CHK";
 static const char SAVE_REQUEST_NAME[] = "SAVEREQ CHK";
 static const char LOAD_REQUEST_NAME[] = "LOADREQ CHK";
@@ -1357,7 +1358,7 @@ static void install_bootable_layout(
     for (size_t i = 0; i < asset_count; i++)
         package_extra_asset(image, assets[i].display, assets[i].path);
 
-    write_empty_root_entry(image, DEFAULT_CFG_NAME);
+    write_root_file_entry(image, DEFAULT_CFG_NAME, DEFAULT_CFG_CONTENT, sizeof(DEFAULT_CFG_CONTENT) - 1);
     for (int slot = 0; slot < 6; slot++) {
         char save_name[11];
         primary_save_slot_name_for_slot(slot, save_name);
