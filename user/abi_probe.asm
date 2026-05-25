@@ -51,6 +51,7 @@ extern vibe_user_input_device_status
 extern vibe_user_write_all
 extern vibe_user_report_probe
 extern vibe_user_execv
+extern vibe_launcher_choose_payload
 section .text
 global user_main
 
@@ -74,12 +75,8 @@ user_main:
     mov	word [ebp - 20], 68
     mov	dword [ebp - 24], 1096232497
     mov	dword [ebp - 28], 1297043268
-%ifdef BOOT_PAYLOAD_QUAKE
-    mov	dword [ebp - 52], L.str.5
-%else
     lea	eax, [ebp - 40]
     mov	dword [ebp - 52], eax
-%endif
     mov	dword [ebp - 48], 0
     call	vibe_user_getpid
     mov	dword [ebp - 16], eax
@@ -181,6 +178,12 @@ user_main:
 
     mov	ecx, esi
     mov	edx, L.str.5
+    call	root_contains
+    test	eax, eax
+    je	LBB0_46
+
+    mov	ecx, esi
+    mov	edx, L.payload1_path
     call	root_contains
     test	eax, eax
     je	LBB0_46
@@ -426,13 +429,9 @@ LBB0_54:
     push	-1474621250
     call	vibe_user_report_probe
     add	esp, 8
+    call	vibe_launcher_choose_payload
     push	esi
-%ifdef BOOT_PAYLOAD_QUAKE
-    push	L.str.5
-%else
-    lea	eax, [ebp - 40]
     push	eax
-%endif
     call	vibe_user_execv
     add	esp, 8
     mov	ecx, eax
@@ -2483,17 +2482,16 @@ L.str.4:
 db `USERPROB.ELF`, 0
 
 L.str.5:
-%ifdef BOOT_PAYLOAD_QUAKE
-db `PAYLOAD1.ELF`, 0
-%else
 db `PAYLOAD0.ELF`, 0
-%endif
 
 L.str.6:
 times 1 db 0
 
 L.str.7:
 db `abi probe ok\n`, 0
+
+L.payload1_path:
+db `PAYLOAD1.ELF`, 0
 
 L__const.prove_generic_file_services.asset_file:
 db `./assets/readme.txt`, 0

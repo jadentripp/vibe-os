@@ -387,7 +387,7 @@ echo "Fetching/validating shareware DOOM1.WAD into $WAD_PATH"
 echo "Remote artifact policy: WADs, disk images, pixels, raw audio, logs, tokens, and one-time codes stay on this disposable host."
 fetch_shareware_wad
 
-echo "Building vibe-os Doom disk image"
+echo "Building vibe-os disk image with shareware Doom data"
 rm -f build/disk.img
 make DOOM_WAD="$WAD_PATH"
 mkdir -p "$PLAY_BUILD_DIR"
@@ -414,7 +414,7 @@ else
 fi
 
 echo "Starting remote QEMU VNC display :$VNC_DISPLAY on 127.0.0.1:$VNC_PORT"
-echo "Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu."
+echo "Launcher: press 1 or click Doom. In Doom, arrows move/turn, Ctrl fires, Space uses, Escape opens menu."
 echo "Audio: this quick VNC path exposes display/input; audio proof remains status-only here."
 qemu-system-x86_64 \
   -machine pc,accel=tcg \

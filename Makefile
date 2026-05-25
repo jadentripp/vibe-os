@@ -61,6 +61,7 @@ USER_PROBE_OBJ := $(BUILD_DIR)/user_probe.o
 USER_PROBE_ELF := $(BUILD_DIR)/user_probe.elf
 USER_ABI_PROBE_OBJ := $(BUILD_DIR)/user_abi_probe.o
 USER_RUNTIME_OBJ := $(BUILD_DIR)/user_runtime.o
+USER_LAUNCHER_OBJ := $(BUILD_DIR)/user_launcher.o
 USER_ABI_PROBE_ELF := $(BUILD_DIR)/abi_probe.elf
 IMAGE := $(BUILD_DIR)/disk.img
 IMAGE_BUILDER := $(BUILD_DIR)/make_wad_image
@@ -72,6 +73,7 @@ C_RUNTIME_SRC := kernel/c_runtime_probe.asm
 USER_PROBE_ASM_SRC := user/probe.asm
 USER_ABI_PROBE_ASM_SRC := user/abi_probe.asm
 USER_RUNTIME_ASM_SRC := user/runtime.asm
+USER_LAUNCHER_ASM_SRC := user/launcher.asm
 USER_LIBC_ASM_SRC := user/libc.asm
 USER_INCLUDE_DIR := user/include
 VIBE_STATUS_CHECK_SRC := tools/vibe_status_check.c
@@ -125,7 +127,7 @@ endif
 STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 163840
 USER_PROBE_ELF_MAX_BYTES := 16384
-USER_ABI_PROBE_ELF_MAX_BYTES := 24576
+USER_ABI_PROBE_ELF_MAX_BYTES := 32768
 LARGE_PAYLOAD_ROOT_ELF_ARGS := --root-elf PAYLOAD0.ELF=$(DOOM_ELF) --root-elf PAYLOAD1.ELF=$(QUAKE_ELF)
 IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) $(LARGE_PAYLOAD_ROOT_ELF_ARGS)
 
@@ -156,6 +158,7 @@ assembly-native-check:
 		user/probe.asm \
 		user/runtime.asm \
 		user/abi_probe.asm \
+		user/launcher.asm \
 		user/libc.asm \
 		doom_port/input.asm \
 		doom_port/music.asm \
@@ -315,6 +318,9 @@ $(USER_ABI_PROBE_OBJ): $(USER_ABI_PROBE_ASM_SRC) user/runtime.h user/include/vib
 $(USER_RUNTIME_OBJ): $(USER_RUNTIME_ASM_SRC) user/runtime.h user/include/vibe_os.h | $(BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
 
+$(USER_LAUNCHER_OBJ): $(USER_LAUNCHER_ASM_SRC) | $(BUILD_DIR)
+	$(NASM) -f elf32 $< -o $@
+
 $(DOOM_PORT_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c Makefile | $(DOOM_PORT_BUILD_DIR)
 	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) -c $< -o $@
 
@@ -364,8 +370,8 @@ $(USER_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_PROBE_OBJ) $(LINK_ELF32) | $(BUILD_DI
 	$(LINK_ELF32) -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_PROBE_OBJ)
 	@test $$(wc -c < $@) -le $(USER_PROBE_ELF_MAX_BYTES) || { echo "user probe ELF exceeds $(USER_PROBE_ELF_MAX_BYTES) bytes"; exit 1; }
 
-$(USER_ABI_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_ABI_PROBE_OBJ) $(LINK_ELF32) | $(BUILD_DIR)
-	$(LINK_ELF32) -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_ABI_PROBE_OBJ)
+$(USER_ABI_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_ABI_PROBE_OBJ) $(USER_LAUNCHER_OBJ) $(LINK_ELF32) | $(BUILD_DIR)
+	$(LINK_ELF32) -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_LAUNCHER_OBJ) $(USER_ABI_PROBE_OBJ)
 	@test $$(wc -c < $@) -le $(USER_ABI_PROBE_ELF_MAX_BYTES) || { echo "ABI probe ELF exceeds $(USER_ABI_PROBE_ELF_MAX_BYTES) bytes"; exit 1; }
 
 $(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(QUAKE_ELF) $(IMAGE_BUILDER) $(IMAGE_ASSET_DEPS)
@@ -377,10 +383,10 @@ $(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_ABI
 	@printf "Built %s\n" "$@"
 
 run: vm-consent check-tools $(IMAGE)
-	$(QEMU) -machine $(QEMU_MACHINE) -drive file=$(IMAGE),format=raw,if=ide,index=0,media=disk -boot c
+	$(QEMU) -machine $(QEMU_MACHINE) -drive file=$(IMAGE),format=raw,if=ide,index=0,media=disk -boot c $(QEMU_EXTRA_ARGS)
 
 run-headless: vm-consent check-tools $(IMAGE)
-	$(QEMU) -machine $(QEMU_MACHINE) -drive file=$(IMAGE),format=raw,if=ide,index=0,media=disk -boot c -display none -monitor none
+	$(QEMU) -machine $(QEMU_MACHINE) -drive file=$(IMAGE),format=raw,if=ide,index=0,media=disk -boot c -display none -monitor none $(QEMU_EXTRA_ARGS)
 
 smoke: vm-consent check-tools $(IMAGE)
 	@QEMU="$(QEMU)" \
