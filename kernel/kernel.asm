@@ -609,7 +609,7 @@ PROC_STATE_BLOCKED equ 6
 PROCESS_SLOT_COUNT equ 6
 PROCESS_GENERIC_SLOT_COUNT equ 2
 PROCESS_RECORD_BYTES equ 184
-PROCESS_EXEC_TABLE_COUNT equ 1
+PROCESS_EXEC_TABLE_COUNT equ 2
 PROCESS_EXEC_ENTRY_BYTES equ 24
 PROCESS_EXEC_PATH equ 0
 PROCESS_EXEC_NAME83 equ 4
@@ -951,6 +951,7 @@ SYSCALL_FRAME_SS equ 40
 SYSCALL_RETURN_EFLAGS_SET equ 0x00000202
 SYSCALL_RETURN_EFLAGS_KEEP_MASK equ 0xfff88aff
 SYSCALL_SANITIZE_EFLAGS_OFFSET equ 8 + SYSCALL_FRAME_EFLAGS
+USER_EFLAGS_RF equ 0x00010000
 IRQ_FRAME_GS equ 0
 IRQ_FRAME_FS equ 4
 IRQ_FRAME_ES equ 8
@@ -17769,6 +17770,7 @@ scheduler_init:
     mov dword [fd_fork_parent_pid], 0xffffffff
     mov dword [fd_fork_child_pid], 0xffffffff
     mov byte [boot_user_exec_status], 0
+    mov dword [boot_user_exec_path_ptr], 0
     mov dword [boot_user_exec_pid], 0xffffffff
     mov dword [boot_user_exec_entry], 0
     mov byte [abi_probe_status], 0
@@ -19531,6 +19533,24 @@ scheduler_tick:
     inc dword [scheduler_user_irq_ticks]
     or dword [scheduler_preempt_abi_mask], PREEMPT_ABI_USER_IRQ_FRAME
     mov dword [scheduler_preempt_abi_last_op], PREEMPT_ABI_USER_IRQ_FRAME
+    mov eax, [ebx + IRQ_FRAME_EIP]
+    mov [scheduler_last_irq_frame_eip], eax
+    mov eax, [ebx + IRQ_FRAME_CS]
+    mov [scheduler_last_irq_frame_cs], eax
+    mov eax, [ebx + IRQ_FRAME_ESP]
+    mov [scheduler_last_irq_frame_esp], eax
+    mov eax, [ebx + IRQ_FRAME_SS]
+    mov [scheduler_last_irq_frame_ss], eax
+    mov eax, [ebx + IRQ_FRAME_DS]
+    mov [scheduler_last_irq_frame_ds], eax
+    mov eax, [ebx + IRQ_FRAME_ES]
+    mov [scheduler_last_irq_frame_es], eax
+    mov eax, [ebx + IRQ_FRAME_FS]
+    mov [scheduler_last_irq_frame_fs], eax
+    mov eax, [ebx + IRQ_FRAME_GS]
+    mov [scheduler_last_irq_frame_gs], eax
+    mov eax, [ebx + IRQ_FRAME_EFLAGS]
+    mov [scheduler_last_irq_frame_eflags], eax
     call scheduler_validate_irq_user_frame
     jc .invalid_user_irq_frame
 
@@ -19762,6 +19782,7 @@ process_restore_irq_context:
 
 scheduler_validate_irq_user_frame:
     push eax
+    push edx
     cmp dword [ebx + IRQ_FRAME_CS], USER_CODE_SEG
     jne .fail
     cmp dword [ebx + IRQ_FRAME_SS], USER_DATA_SEG
@@ -19775,10 +19796,18 @@ scheduler_validate_irq_user_frame:
     cmp dword [ebx + IRQ_FRAME_GS], USER_DATA_SEG
     jne .fail
     mov eax, [ebx + IRQ_FRAME_EFLAGS]
+    mov edx, eax
     and eax, SYSCALL_RETURN_EFLAGS_KEEP_MASK
     or eax, SYSCALL_RETURN_EFLAGS_SET
-    cmp eax, [ebx + IRQ_FRAME_EFLAGS]
+    cmp eax, edx
+    je .eflags_ok
+    xor edx, eax
+    cmp edx, USER_EFLAGS_RF
     jne .fail_eflags
+    mov [ebx + IRQ_FRAME_EFLAGS], eax
+    inc dword [scheduler_irq_eflags_sanitize_count]
+
+.eflags_ok:
     mov eax, [ebx + IRQ_FRAME_EIP]
     cmp eax, [esi + PROC_BASE]
     jb .fail
@@ -19803,6 +19832,7 @@ scheduler_validate_irq_user_frame:
     stc
 
 .done:
+    pop edx
     pop eax
     ret
 
@@ -21284,7 +21314,17 @@ user_probe_run:
     mov word [user_probe_cs], 0
     mov word [user_probe_ss], 0
 
+    mov edi, boot_user_elf_name_83
+    call fat_find_file
+    jc .use_probe_boot_path
+    mov esi, exec_path_boot_user
+    jmp .boot_path_ready
+
+.use_probe_boot_path:
     mov esi, exec_path_user_probe
+
+.boot_path_ready:
+    mov [boot_user_exec_path_ptr], esi
     xor edi, edi
     call process_exec_path
     jc .fail
@@ -21304,7 +21344,12 @@ user_probe_run:
     xor eax, eax
     mov ecx, PAGE_SIZE / 4
     rep stosd
+    mov esi, [boot_user_exec_path_ptr]
+    cmp esi, 0
+    jne .stage_boot_arg
     mov esi, exec_path_user_probe
+
+.stage_boot_arg:
     call sys_exec_stage_kernel_arg
     jc .fail
     mov esi, process_user_probe
@@ -21314,6 +21359,7 @@ user_probe_run:
     jc .fail
     inc dword [process_user_probe + PROC_EXEC_COUNT]
 
+    cli
     mov ax, USER_DATA_SEG
     mov ds, ax
     mov es, ax
@@ -27424,7 +27470,11 @@ irq_timer:
     call scheduler_tick
     call clock_note_scheduler_irq_path
     call draw_timer_status
+    test dword [timer_ticks], 0x0f
+    jnz .status_done
     call write_smoke_status
+
+.status_done:
     call irq_send_timer_eoi
     IRQ_RETURN
 
@@ -27838,7 +27888,12 @@ write_smoke_status:
     call smoke_copy_string
     mov esi, smoke_userexec_path_text
     call smoke_copy_string
+    mov esi, [boot_user_exec_path_ptr]
+    cmp esi, 0
+    jne .userexec_path_ready
     mov esi, exec_path_user_probe
+
+.userexec_path_ready:
     call smoke_copy_string
     mov esi, smoke_userexec_pid_text
     call smoke_copy_string
@@ -27937,6 +27992,31 @@ write_smoke_status:
     mov edx, [process_status_last_state]
     call smoke_write_slash_hex32
     mov edx, [process_status_last_ticks]
+    call smoke_write_slash_hex32
+
+    mov esi, smoke_uproc_text
+    call smoke_copy_string
+    mov edx, [process_user_probe + PROC_PID]
+    call smoke_write_hex32
+    mov edx, [process_user_probe + PROC_KIND]
+    call smoke_write_slash_hex32
+    mov edx, [process_user_probe + PROC_STATE]
+    call smoke_write_slash_hex32
+    mov edx, [process_user_probe + PROC_TICKS]
+    call smoke_write_slash_hex32
+    mov edx, [process_user_probe + PROC_SAVED_EIP]
+    call smoke_write_slash_hex32
+    mov edx, [process_user_probe + PROC_SAVED_ESP]
+    call smoke_write_slash_hex32
+    mov edx, [process_user_probe + PROC_SAVED_EFLAGS]
+    call smoke_write_slash_hex32
+    mov edx, [process_user_probe + PROC_SAVED_CS]
+    call smoke_write_slash_hex32
+    mov edx, [process_user_probe + PROC_SAVED_SS]
+    call smoke_write_slash_hex32
+    mov edx, [process_user_probe + PROC_VM_FLAGS]
+    call smoke_write_slash_hex32
+    mov edx, [process_user_probe + PROC_ENTRY]
     call smoke_write_slash_hex32
 
     mov esi, smoke_yield_text
@@ -33876,6 +33956,7 @@ smoke_abiexec_argvsrc_text db " abiargvsrc=", 0
 smoke_abiprobe_text db " abiprobe=", 0
 smoke_abiflags_text db " abiflags=", 0
 smoke_pstatus_text db " pstat=", 0
+smoke_uproc_text db " uproc=", 0
 smoke_yield_text db " yield=", 0
 smoke_kblock_text db " kblock=", 0
 smoke_ksleep_text db " ksleep=", 0
@@ -34409,11 +34490,13 @@ cmd_halt db "halt", 0
 cmd_poweroff db "poweroff", 0
 
 primary_asset_name_83 db "DOOM1   WAD"
+boot_user_elf_name_83 db "INIT    ELF"
 user_elf_name_83 db "USERPROBELF"
 primary_payload_elf_name_83 db "PAYLOAD0ELF"
 secondary_payload_elf_name_83 db "PAYLOAD1ELF"
 exec_path_primary_payload db "PAYLOAD0.ELF", 0
 exec_path_secondary_payload db "PAYLOAD1.ELF", 0
+exec_path_boot_user db "INIT.ELF", 0
 exec_path_user_probe db "USERPROB.ELF", 0
 exec_path_abi_probe db "ABIPROBE.ELF", 0
 default_cfg_name_83 db "DEFAULT CFG"
@@ -34459,6 +34542,7 @@ large_payload_proof_label_table:
     dd primary_payload_elf_name_83, USER_KIND_PAYLOAD_PRIMARY
     dd secondary_payload_elf_name_83, USER_KIND_PAYLOAD_SECONDARY
 process_exec_table:
+    dd exec_path_boot_user, boot_user_elf_name_83, USER_ELF_LOAD_ADDR, USER_ELF_MAX_BYTES, process_user_probe, USER_KIND_PROBE
     dd exec_path_user_probe, user_elf_name_83, USER_ELF_LOAD_ADDR, USER_ELF_MAX_BYTES, process_user_probe, USER_KIND_PROBE
 user_elf_prefix db "User ELF loader: ", 0
 user_entry_prefix db "User entry: ", 0
@@ -35206,6 +35290,7 @@ primary_colormap_size dd 0
 user_elf_size dd 0
 user_elf_sectors_read dd 0
 user_entry_addr dd 0
+boot_user_exec_path_ptr dd 0
 boot_user_exec_pid dd 0xffffffff
 boot_user_exec_entry dd 0
 payload_elf_size dd 0

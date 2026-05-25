@@ -57,12 +57,15 @@ C_RUNTIME_OBJ := $(BUILD_DIR)/c_runtime_probe.o
 KERNEL_ELF := $(BUILD_DIR)/kernel.elf
 LINK_ELF32 := $(BUILD_DIR)/link_elf32
 USER_CRT0_OBJ := $(BUILD_DIR)/user_crt0.o
+USER_LAUNCHER_CRT0_OBJ := $(BUILD_DIR)/user_launcher_crt0.o
 USER_PROBE_OBJ := $(BUILD_DIR)/user_probe.o
 USER_PROBE_ELF := $(BUILD_DIR)/user_probe.elf
 USER_ABI_PROBE_OBJ := $(BUILD_DIR)/user_abi_probe.o
 USER_RUNTIME_OBJ := $(BUILD_DIR)/user_runtime.o
 USER_LAUNCHER_OBJ := $(BUILD_DIR)/user_launcher.o
+USER_LAUNCHER_MAIN_OBJ := $(BUILD_DIR)/user_launcher_main.o
 USER_ABI_PROBE_ELF := $(BUILD_DIR)/abi_probe.elf
+USER_LAUNCHER_ELF := $(BUILD_DIR)/launcher.elf
 IMAGE := $(BUILD_DIR)/disk.img
 IMAGE_BUILDER := $(BUILD_DIR)/make_wad_image
 UEFI_BUILD_DIR := $(BUILD_DIR)/uefi
@@ -71,9 +74,11 @@ UEFI_LOADER_EFI := $(UEFI_BUILD_DIR)/BOOTX64.EFI
 UEFI_DUAL_IMAGE := $(UEFI_BUILD_DIR)/uefi-fat16.img
 C_RUNTIME_SRC := kernel/c_runtime_probe.asm
 USER_PROBE_ASM_SRC := user/probe.asm
+USER_LAUNCHER_CRT0_ASM_SRC := user/launcher_crt0.asm
 USER_ABI_PROBE_ASM_SRC := user/abi_probe.asm
 USER_RUNTIME_ASM_SRC := user/runtime.asm
 USER_LAUNCHER_ASM_SRC := user/launcher.asm
+USER_LAUNCHER_MAIN_ASM_SRC := user/launcher_main.asm
 USER_LIBC_ASM_SRC := user/libc.asm
 USER_INCLUDE_DIR := user/include
 VIBE_STATUS_CHECK_SRC := tools/vibe_status_check.c
@@ -129,14 +134,16 @@ KERNEL_ELF_MAX_BYTES := 163840
 USER_PROBE_ELF_MAX_BYTES := 16384
 USER_ABI_PROBE_ELF_MAX_BYTES := 32768
 LARGE_PAYLOAD_ROOT_ELF_ARGS := --root-elf PAYLOAD0.ELF=$(DOOM_ELF) --root-elf PAYLOAD1.ELF=$(QUAKE_ELF)
-IMAGE_ROOT_ELF_ARGS := --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) $(LARGE_PAYLOAD_ROOT_ELF_ARGS)
+IMAGE_EXTRA_ROOT_ELF_ARGS ?=
+IMAGE_EXTRA_ROOT_ELF_DEPS ?=
+IMAGE_ROOT_ELF_ARGS := --root-elf INIT.ELF=$(USER_LAUNCHER_ELF) --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) $(LARGE_PAYLOAD_ROOT_ELF_ARGS) $(IMAGE_EXTRA_ROOT_ELF_ARGS)
 
 .PHONY: all build-only test assembly-native-check no-python-check doom-compile doom-link quake-compile quake-link play play-image run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
 
 all: $(IMAGE)
 
 build-only: $(IMAGE) doom-link quake-link
-	@printf "Build-only check OK: %s, %s, %s, and %s are present.\n" "$(IMAGE)" "$(DOOM_ELF)" "$(QUAKE_ELF)" "$(USER_ABI_PROBE_ELF)"
+	@printf "Build-only check OK: %s, %s, %s, %s, and %s are present.\n" "$(IMAGE)" "$(USER_LAUNCHER_ELF)" "$(DOOM_ELF)" "$(QUAKE_ELF)" "$(USER_ABI_PROBE_ELF)"
 
 test: no-python-check $(IMAGE) doom-link quake-link vm-status-proof-check assembly-native-check
 	@printf "Assembly-first host checks OK: image build, Doom link, guest status validator, and assembly-native guest build audit passed.\n"
@@ -156,6 +163,8 @@ assembly-native-check:
 	for path in \
 		kernel/c_runtime_probe.asm \
 		user/probe.asm \
+		user/launcher_crt0.asm \
+		user/launcher_main.asm \
 		user/runtime.asm \
 		user/abi_probe.asm \
 		user/launcher.asm \
@@ -213,13 +222,13 @@ doom-compile: $(DOOM_ORIGINAL_OBJS)
 	@printf "Compiled %s original Doom source files for freestanding i386.\n" "$$(printf '%s\n' $(DOOM_ORIGINAL_OBJS) | wc -l | tr -d ' ')"
 
 doom-link: $(DOOM_ELF)
-	@printf "Linked freestanding Doom proof payload at %s\n" "$(DOOM_ELF)"
+	@printf "Linked freestanding Doom payload slot at %s\n" "$(DOOM_ELF)"
 
 quake-compile: $(QUAKE_ORIGINAL_OBJS)
 	@printf "Compiled %s original Quake source files for freestanding i386.\n" "$$(printf '%s\n' $(QUAKE_ORIGINAL_OBJS) | wc -l | tr -d ' ')"
 
 quake-link: $(QUAKE_ELF)
-	@printf "Linked freestanding Quake proof payload at %s\n" "$(QUAKE_ELF)"
+	@printf "Linked freestanding Quake payload slot at %s\n" "$(QUAKE_ELF)"
 
 play:
 	@tools/play_local.sh
@@ -298,7 +307,7 @@ uefi-loader-object: $(UEFI_LOADER_OBJ)
 
 uefi-loader-pe: $(UEFI_LOADER_EFI)
 
-$(UEFI_DUAL_IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(QUAKE_ELF) $(IMAGE_BUILDER) $(UEFI_LOADER_EFI) $(IMAGE_ASSET_DEPS) | $(UEFI_BUILD_DIR)
+$(UEFI_DUAL_IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_LAUNCHER_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(QUAKE_ELF) $(IMAGE_BUILDER) $(UEFI_LOADER_EFI) $(IMAGE_ASSET_DEPS) $(IMAGE_EXTRA_ROOT_ELF_DEPS) | $(UEFI_BUILD_DIR)
 	@if [ -n "$(PRIMARY_ASSET)" ]; then \
 		$(IMAGE_BUILDER) --primary-asset-wad "$(PRIMARY_ASSET)" $(IMAGE_SECONDARY_PACKAGE_ARGS) --asset EFI/BOOT/BOOTX64.EFI=$(UEFI_LOADER_EFI) --asset VIBEOS/KERNEL.ELF=$(KERNEL_ELF) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
 	else \
@@ -315,6 +324,9 @@ $(KERNEL_ELF): $(KERNEL_OBJ) $(C_RUNTIME_OBJ) $(LINK_ELF32) | $(BUILD_DIR)
 $(USER_CRT0_OBJ): user/crt0.asm | $(BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
 
+$(USER_LAUNCHER_CRT0_OBJ): $(USER_LAUNCHER_CRT0_ASM_SRC) | $(BUILD_DIR)
+	$(NASM) -f elf32 $< -o $@
+
 $(USER_PROBE_OBJ): $(USER_PROBE_ASM_SRC) | $(BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
 
@@ -326,6 +338,13 @@ $(USER_RUNTIME_OBJ): $(USER_RUNTIME_ASM_SRC) user/runtime.h user/include/vibe_os
 
 $(USER_LAUNCHER_OBJ): $(USER_LAUNCHER_ASM_SRC) | $(BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
+
+$(USER_LAUNCHER_MAIN_OBJ): $(USER_LAUNCHER_MAIN_ASM_SRC) | $(BUILD_DIR)
+	$(NASM) -f elf32 $< -o $@
+
+$(USER_LAUNCHER_ELF): $(USER_LAUNCHER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_LAUNCHER_OBJ) $(USER_LAUNCHER_MAIN_OBJ) $(LINK_ELF32) | $(BUILD_DIR)
+	$(LINK_ELF32) -o $@ --base 0x00e80000 $(USER_LAUNCHER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_LAUNCHER_OBJ) $(USER_LAUNCHER_MAIN_OBJ)
+	@test $$(wc -c < $@) -le $(USER_ABI_PROBE_ELF_MAX_BYTES) || { echo "launcher ELF exceeds $(USER_ABI_PROBE_ELF_MAX_BYTES) bytes"; exit 1; }
 
 $(DOOM_PORT_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c Makefile | $(DOOM_PORT_BUILD_DIR)
 	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) -c $< -o $@
@@ -380,7 +399,7 @@ $(USER_ABI_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_ABI_PROBE_OBJ
 	$(LINK_ELF32) -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_LAUNCHER_OBJ) $(USER_ABI_PROBE_OBJ)
 	@test $$(wc -c < $@) -le $(USER_ABI_PROBE_ELF_MAX_BYTES) || { echo "ABI probe ELF exceeds $(USER_ABI_PROBE_ELF_MAX_BYTES) bytes"; exit 1; }
 
-$(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(QUAKE_ELF) $(IMAGE_BUILDER) $(IMAGE_ASSET_DEPS)
+$(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_LAUNCHER_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(QUAKE_ELF) $(IMAGE_BUILDER) $(IMAGE_ASSET_DEPS) $(IMAGE_EXTRA_ROOT_ELF_DEPS)
 	@if [ -n "$(PRIMARY_ASSET)" ]; then \
 		$(IMAGE_BUILDER) --primary-asset-wad "$(PRIMARY_ASSET)" $(IMAGE_SECONDARY_PACKAGE_ARGS) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
 	else \
@@ -503,7 +522,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "exec=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "path=PAYLOAD0.ELF" $(BUILD_DIR)/status.txt; \
 	grep -q "uexec=OK" $(BUILD_DIR)/status.txt; \
-	grep -q "upath=USERPROB.ELF" $(BUILD_DIR)/status.txt; \
+	grep -q "upath=INIT.ELF" $(BUILD_DIR)/status.txt; \
 	grep -q "upid=" $(BUILD_DIR)/status.txt; \
 	grep -q "uentry=" $(BUILD_DIR)/status.txt; \
 	grep -q "doom=OK" $(BUILD_DIR)/status.txt; \

@@ -11,7 +11,7 @@ mkdir -p "$BUILD_DIR"
   "$ROOT/tools/vibe_status_check.c" -o "$CHECKER"
 
 "$CHECKER" --repo-contract
-"$CHECKER" --require-exec --require-preempt \
+"$CHECKER" --require-exec --require-preempt --require-vfs-abi --require-device-abi \
   "$ROOT/tests/fixtures/vm_status_krelhaz_ok.txt"
 
 DEVICE_OK="$BUILD_DIR/vm_status_devices_ok.txt"
@@ -54,80 +54,80 @@ cp "$ROOT/tests/fixtures/vm_status_krelhaz_ok.txt" "$DEVICE_OK"
   printf ' %s' 'fbgeom=00000000:00000014:00000140:000000F0:00000001'
   printf ' %s\n' 'fbdirty=00000000:00000000:00000140:000000C8:00000001'
 } >> "$DEVICE_OK"
-"$CHECKER" --require-exec --require-preempt "$DEVICE_OK"
+"$CHECKER" --require-exec --require-preempt --require-vfs-abi --require-device-abi "$DEVICE_OK"
 sed 's/inputstat=00000004:00000002:00000001:0000003F/inputstat=00000004:00000002:00000002:0000003F/' \
   "$DEVICE_OK" > "$DEVICE_BAD"
-if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-devices-bad.out 2>&1; then
+if "$CHECKER" --require-exec --require-preempt --require-vfs-abi --require-device-abi "$DEVICE_BAD" >/tmp/vibe-status-check-devices-bad.out 2>&1; then
   echo "vibe_status_check accepted inconsistent device status accounting" >&2
   cat /tmp/vibe-status-check-devices-bad.out >&2
   exit 1
 fi
 sed 's|inabi=0000000F/0000000F/00000008/00000004/00000000|inabi=0000000B/0000000F/00000008/00000004/00000000|' \
   "$DEVICE_OK" > "$DEVICE_BAD"
-if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-inabi-bad.out 2>&1; then
+if "$CHECKER" --require-exec --require-preempt --require-vfs-abi --require-device-abi "$DEVICE_BAD" >/tmp/vibe-status-check-inabi-bad.out 2>&1; then
   echo "vibe_status_check accepted incomplete generic input ABI proof" >&2
   cat /tmp/vibe-status-check-inabi-bad.out >&2
   exit 1
 fi
 sed 's|execcopy=00000003/00000003/00000003/00089000/00082000|execcopy=00000003/00000003/00000002/00089000/00082000|' \
   "$DEVICE_OK" > "$DEVICE_BAD"
-if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-execcopy-bad.out 2>&1; then
+if "$CHECKER" --require-exec --require-preempt --require-vfs-abi --require-device-abi "$DEVICE_BAD" >/tmp/vibe-status-check-execcopy-bad.out 2>&1; then
   echo "vibe_status_check accepted unbalanced exec CR3 copy accounting" >&2
   cat /tmp/vibe-status-check-execcopy-bad.out >&2
   exit 1
 fi
 sed 's|vfsabi=000003FF/000003FF/00000200|vfsabi=000003FE/000003FF/00000200|' \
   "$DEVICE_OK" > "$DEVICE_BAD"
-if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-vfsabi-bad.out 2>&1; then
+if "$CHECKER" --require-exec --require-preempt --require-vfs-abi --require-device-abi "$DEVICE_BAD" >/tmp/vibe-status-check-vfsabi-bad.out 2>&1; then
   echo "vibe_status_check accepted incomplete generic VFS ABI proof" >&2
   cat /tmp/vibe-status-check-vfsabi-bad.out >&2
   exit 1
 fi
 sed 's|fatabi=000001FF/000001FF/00000100/00000002/00000000|fatabi=000001BF/000001FF/00000100/00000002/00000000|' \
   "$DEVICE_OK" > "$DEVICE_BAD"
-if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-fatabi-bad.out 2>&1; then
+if "$CHECKER" --require-exec --require-preempt --require-vfs-abi --require-device-abi "$DEVICE_BAD" >/tmp/vibe-status-check-fatabi-bad.out 2>&1; then
   echo "vibe_status_check accepted incomplete generic FAT operation proof" >&2
   cat /tmp/vibe-status-check-fatabi-bad.out >&2
   exit 1
 fi
 sed 's|audabi=000001FF/000001FF/00000100/00000010|audabi=000001DF/000001FF/00000100/00000010|' \
   "$DEVICE_OK" > "$DEVICE_BAD"
-if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-audabi-bad.out 2>&1; then
+if "$CHECKER" --require-exec --require-preempt --require-vfs-abi --require-device-abi "$DEVICE_BAD" >/tmp/vibe-status-check-audabi-bad.out 2>&1; then
   echo "vibe_status_check accepted incomplete generic audio ABI proof" >&2
   cat /tmp/vibe-status-check-audabi-bad.out >&2
   exit 1
 fi
 sed 's|fbabi=0000000F/0000000F/00000001/00000000/00000004|fbabi=0000000B/0000000F/00000001/00000000/00000004|' \
   "$DEVICE_OK" > "$DEVICE_BAD"
-if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-fbabi-bad.out 2>&1; then
+if "$CHECKER" --require-exec --require-preempt --require-vfs-abi --require-device-abi "$DEVICE_BAD" >/tmp/vibe-status-check-fbabi-bad.out 2>&1; then
   echo "vibe_status_check accepted incomplete generic framebuffer ABI proof" >&2
   cat /tmp/vibe-status-check-fbabi-bad.out >&2
   exit 1
 fi
 sed 's|preemptabi=000001FF/000001FF/00000100/00000001/00000001|preemptabi=000001DF/000001FF/00000100/00000001/00000001|' \
   "$DEVICE_OK" > "$DEVICE_BAD"
-if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-preemptabi-bad.out 2>&1; then
+if "$CHECKER" --require-exec --require-preempt --require-vfs-abi --require-device-abi "$DEVICE_BAD" >/tmp/vibe-status-check-preemptabi-bad.out 2>&1; then
   echo "vibe_status_check accepted incomplete timer-preemption ABI proof" >&2
   cat /tmp/vibe-status-check-preemptabi-bad.out >&2
   exit 1
 fi
 sed 's|khabi=000007FF/000007FF/00000200/00000002/00000001|khabi=000003FF/000007FF/00000100/00000002/00000001|' \
   "$DEVICE_OK" > "$DEVICE_BAD"
-if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-khabi-bad.out 2>&1; then
+if "$CHECKER" --require-exec --require-preempt --require-vfs-abi --require-device-abi "$DEVICE_BAD" >/tmp/vibe-status-check-khabi-bad.out 2>&1; then
   echo "vibe_status_check accepted incomplete higher-half kernel ABI proof" >&2
   cat /tmp/vibe-status-check-khabi-bad.out >&2
   exit 1
 fi
 sed 's|khdata=0000000A/00000200/00000400|khdata=0000000A/00000100/00000400|' \
   "$DEVICE_OK" > "$DEVICE_BAD"
-if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-khdata-bad.out 2>&1; then
+if "$CHECKER" --require-exec --require-preempt --require-vfs-abi --require-device-abi "$DEVICE_BAD" >/tmp/vibe-status-check-khdata-bad.out 2>&1; then
   echo "vibe_status_check accepted low-identity higher-half data bookkeeping" >&2
   cat /tmp/vibe-status-check-khdata-bad.out >&2
   exit 1
 fi
 sed 's|krelabi=000003FF/000003FF/00000200/00000001/00000001|krelabi=000001FF/000003FF/00000100/00000001/00000001|' \
   "$DEVICE_OK" > "$DEVICE_BAD"
-if "$CHECKER" --require-exec --require-preempt "$DEVICE_BAD" >/tmp/vibe-status-check-krelabi-bad.out 2>&1; then
+if "$CHECKER" --require-exec --require-preempt --require-vfs-abi --require-device-abi "$DEVICE_BAD" >/tmp/vibe-status-check-krelabi-bad.out 2>&1; then
   echo "vibe_status_check accepted incomplete relocation-directory ABI proof" >&2
   cat /tmp/vibe-status-check-krelabi-bad.out >&2
   exit 1
