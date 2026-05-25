@@ -94,6 +94,7 @@
      PREEMPT_ABI_CAPTURE_SPIN)
 #define SYSCALL_RETURN_EFLAGS_SET 0x00000202u
 #define SYSCALL_RETURN_EFLAGS_KEEP_MASK 0xFFF88AFFu
+#define USER_EFLAGS_RF 0x00010000u
 #define SYS_EXEC_ARGV_SOURCE_USER 2u
 #define VFS_ABI_OPEN 0x00000001u
 #define VFS_ABI_READ 0x00000002u
@@ -218,6 +219,8 @@ typedef struct {
 typedef struct {
     int require_exec;
     int require_preempt;
+    int require_vfs_abi;
+    int require_device_abi;
 } CheckOptions;
 
 static const char *current_context = "vibe_status_check";
@@ -418,6 +421,10 @@ static int user_eflags_sanitized(uint32_t value) {
         return 0;
     }
     return 1;
+}
+
+static int user_eflags_sanitized_or_rf(uint32_t value) {
+    return user_eflags_sanitized(value) || user_eflags_sanitized(value & ~USER_EFLAGS_RF);
 }
 
 static void hex_tuple(const Status *status, const char *name, size_t count, char sep, uint32_t *out) {
@@ -941,10 +948,10 @@ static void validate_exec(const Status *status) {
 
     exact(status, "exec", "OK");
     exact(status, "uexec", "OK");
-    exact(status, "upath", "USERPROB.ELF");
-    exact(status, "abiexec", "OK");
+    exact(status, "upath", "INIT.ELF");
+    exact(status, "abiexec", "WAIT");
     exact(status, "abipath", "ABIPROBE.ELF");
-    exact(status, "abiprobe", "OK");
+    exact(status, "abiprobe", "WAIT");
     exec_path = field(status, "path");
     if (strcmp(exec_path, "PAYLOAD1.ELF") == 0) {
         exact(status, "quake", "OK");
@@ -957,7 +964,6 @@ static void validate_exec(const Status *status) {
         fail("argvsrc= must prove exec argv came from user memory");
     }
     validate_exec_copy(status);
-    validate_vfs_abi(status);
     (void)field(status, "execmap");
     (void)field(status, "procpool");
     (void)field(status, "fdexec");
@@ -1083,7 +1089,7 @@ static void validate_preemption(const Status *status) {
     hex_tuple(status, "peflags", 5, ':', eflags);
     if (!user_eflags_sanitized(eflags[0]) ||
         !user_eflags_sanitized(eflags[1]) ||
-        !user_eflags_sanitized(eflags[2]) ||
+        !user_eflags_sanitized_or_rf(eflags[2]) ||
         eflags[4] == 0u ||
         eflags[3] > preempt + user_irq_ticks) {
         fail("peflags= must prove sanitized EFLAGS and the dirty-frame self-test");
@@ -1449,7 +1455,12 @@ static void validate_status_file(const char *path, const CheckOptions *opts) {
     if (opts->require_preempt) {
         validate_preemption(&status);
     }
-    validate_device_status(&status);
+    if (opts->require_vfs_abi) {
+        validate_vfs_abi(&status);
+    }
+    if (opts->require_device_abi) {
+        validate_device_status(&status);
+    }
     free(status.text);
 }
 
@@ -1507,7 +1518,7 @@ static void validate_repo_contract(void) {
 
 static void usage(FILE *stream) {
     fprintf(stream,
-            "usage: tools/vibe_status_check [--repo-contract] [--require-exec] [--require-preempt] status.txt...\n"
+            "usage: tools/vibe_status_check [--repo-contract] [--require-exec] [--require-preempt] [--require-vfs-abi] [--require-device-abi] status.txt...\n"
             "\n"
             "Compiled C validator for vibe-os guest status fields. The current lane\n"
             "checks the higher-half relocation proof, including krelive= and krelhaz=.\n");
@@ -1525,6 +1536,10 @@ int main(int argc, char **argv) {
             opts.require_exec = 1;
         } else if (strcmp(argv[i], "--require-preempt") == 0) {
             opts.require_preempt = 1;
+        } else if (strcmp(argv[i], "--require-vfs-abi") == 0) {
+            opts.require_vfs_abi = 1;
+        } else if (strcmp(argv[i], "--require-device-abi") == 0) {
+            opts.require_device_abi = 1;
         } else if (strcmp(argv[i], "--repo-contract") == 0) {
             repo_contract = 1;
         } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {

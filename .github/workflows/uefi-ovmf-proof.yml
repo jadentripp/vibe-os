@@ -100,6 +100,7 @@ jobs:
           build/make_wad_image --inspect build/uefi/uefi-fat16.img > build/uefi-ovmf-proof/dual-image-inspect.txt
           grep -q 'root.*=DOOM1.WAD' build/uefi-ovmf-proof/dual-image-inspect.txt
           grep -q 'root.*=KERNEL.ELF' build/uefi-ovmf-proof/dual-image-inspect.txt
+          grep -q 'root.*=INIT.ELF' build/uefi-ovmf-proof/dual-image-inspect.txt
           grep -q 'root.*=USERPROB.ELF' build/uefi-ovmf-proof/dual-image-inspect.txt
           grep -q 'root.*=PAYLOAD0.ELF' build/uefi-ovmf-proof/dual-image-inspect.txt
 

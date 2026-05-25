@@ -3,11 +3,11 @@
 vibe-os is an assembly-native x86 OS/runtime. It boots a raw disk image, loads
 its own kernel, and runs Ring 3 ELF programs through one process/syscall ABI.
 
-The current proof programs are original Doom and original Quake. They appear on
-the guest launcher screen as Doom and Quake. Internally, the build image stores
-them in generic payload slot files, so the OS process path is not a Doom-only or
-Quake-only executable path. The public process ABI uses generic payload kinds,
-not Doom or Quake process kinds.
+The current verified payloads are original Doom and original Quake. They appear
+on the guest launcher screen as Doom and Quake. Internally, the build image
+stores them in generic payload slot files, so the OS process path is not a
+Doom-only or Quake-only executable path. The public process ABI uses generic
+payload kinds, not Doom or Quake process kinds.
 
 The concrete test is simple:
 
@@ -86,7 +86,7 @@ The vendor trees should stay pristine.
 3. Stage 2 reads `KERNEL.ELF` from FAT16 and enters the kernel.
 4. The kernel sets up memory, interrupts, syscalls, files, input, video, audio,
    and user processes.
-5. Probe ELFs exercise the generic user ABI.
+5. The kernel starts `INIT.ELF`, the NASM guest launcher.
 6. The guest launcher presents Doom and Quake choices through the framebuffer
    and accepts keyboard or mouse selection.
 7. The selected payload ELF starts as a Ring 3 process through the generic
@@ -108,9 +108,9 @@ make ALLOW_LOCAL_VM=0 DOOM_WAD= uefi-loader-object
 git diff --check
 ```
 
-Those checks build the boot image, `KERNEL.ELF`, probe ELFs, `PAYLOAD0.ELF`,
-`PAYLOAD1.ELF`, the host image/status utilities, and the assembly-native guest
-build audit. They do not run local QEMU.
+Those checks build the boot image, `KERNEL.ELF`, `INIT.ELF`, probe ELFs,
+`PAYLOAD0.ELF`, `PAYLOAD1.ELF`, the host image/status utilities, and the
+assembly-native guest build audit. They do not run local QEMU.
 
 With `DOOM_WAD=` empty and `QUAKE_PAK` unset, the local image uses generated
 Doom fixture data and omits a Quake PAK. To build an image with external game
@@ -123,8 +123,9 @@ make DOOM_WAD=/path/to/DOOM1.WAD QUAKE_PAK=/path/to/PAK0.PAK
 ```
 
 The generated image is `build/disk.img`. A normal build places `KERNEL.ELF`,
-`USERPROB.ELF`, `ABIPROBE.ELF`, `PAYLOAD0.ELF`, and `PAYLOAD1.ELF` in the FAT
-root.
+`INIT.ELF`, `USERPROB.ELF`, `ABIPROBE.ELF`, `PAYLOAD0.ELF`, and `PAYLOAD1.ELF`
+in the FAT root. `INIT.ELF` is the default first user program and opens the
+guest launcher; the probe ELFs are test programs packaged in the same image.
 
 The build also has generic data aliases:
 
@@ -134,10 +135,10 @@ make PRIMARY_ASSET=/path/to/DOOM1.WAD SECONDARY_PACKAGE=/path/to/PAK0.PAK
 
 ## Cloud Proofs
 
-The Doom proof lane fetches or accepts `DOOM1.WAD`, validates it, builds a
-temporary disk image, boots vibe-os in QEMU, selects Doom in the guest launcher,
-launches `PAYLOAD0.ELF`, drives scripted input, and uploads status-only proof
-artifacts.
+The Doom proof lane fetches or accepts `DOOM1.WAD`, validates it, builds the
+same launcher-first image shape, boots vibe-os in QEMU, selects Doom in the
+guest launcher, launches `PAYLOAD0.ELF`, drives scripted input, and uploads
+status-only proof artifacts.
 
 ```sh
 gh workflow run real-wad-smoke.yml \
@@ -146,10 +147,10 @@ gh workflow run real-wad-smoke.yml \
   -f expected_sha="$(git rev-parse origin/main)"
 ```
 
-The Quake proof lane fetches or accepts `PAK0.PAK`, validates it, builds a
-temporary disk image, boots vibe-os in QEMU, selects Quake in the guest launcher,
-launches `PAYLOAD1.ELF`, drives scripted input, and uploads status-only proof
-artifacts.
+The Quake proof lane fetches or accepts `PAK0.PAK`, validates it, builds the
+same launcher-first image shape, boots vibe-os in QEMU, selects Quake in the
+guest launcher, launches `PAYLOAD1.ELF`, drives scripted input, and uploads
+status-only proof artifacts.
 
 ```sh
 gh workflow run real-quake-smoke.yml \
@@ -177,9 +178,10 @@ make play
 ```
 
 `make play` downloads and validates the public shareware `DOOM1.WAD` and
-`PAK0.PAK` into `~/.cache/vibe-os`, builds `build/play/disk.img`, and launches
-QEMU. The data stays outside git. Press `1`/`2`, use `W`/`S` and Enter, or
-click a payload choice with the mouse.
+`PAK0.PAK` into `~/.cache/vibe-os`, builds the same launcher-first disk image
+shape used by tests at `build/play/disk.img`, and launches QEMU. The data stays
+outside git. Press `1`/`2`, use `W`/`S` and Enter, or click a payload choice
+with the mouse.
 
 To build the same local play image without launching QEMU:
 

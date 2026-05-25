@@ -8,7 +8,10 @@ EXPECTED_QUAKE_PAK_SHA1="${EXPECTED_QUAKE_PAK_SHA1:-36b42dc7b6313fd9cabc0be8b9e9
 VIBE_PLAY_DATA_DIR="${VIBE_PLAY_DATA_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/vibe-os}"
 PLAY_BUILD_DIR="${PLAY_BUILD_DIR:-build/play}"
 MAKE_BIN="${MAKE:-make}"
+QEMU_BIN="${QEMU:-qemu-system-x86_64}"
 QEMU_EXTRA_ARGS="${QEMU_EXTRA_ARGS:-}"
+VIBE_QEMU_DISPLAY="${VIBE_QEMU_DISPLAY:-auto}"
+VIBE_QEMU_AUDIO="${VIBE_QEMU_AUDIO:-auto}"
 PREPARE_ONLY=0
 
 usage() {
@@ -24,6 +27,12 @@ Environment overrides:
   VIBE_PLAY_DATA_DIR=/path/cache    Cache directory for downloaded game data.
   PLAY_BUILD_DIR=build/play         Build directory for the local play image.
   QEMU_EXTRA_ARGS='...'             Extra arguments passed to QEMU.
+  VIBE_QEMU_DISPLAY=auto|default|none|BACKEND
+                                    Display backend. On macOS, auto uses cocoa
+                                    when available so the native QEMU window is
+                                    explicit instead of backend-dependent.
+  VIBE_QEMU_AUDIO=auto|off|BACKEND  Audio backend. On macOS, auto uses
+                                    coreaudio when available.
 
 Options:
   --prepare-only, --dry-run         Download/cache data and build the image,
@@ -39,6 +48,16 @@ fail_play() {
 
 require_tool() {
   command -v "$1" >/dev/null 2>&1 || fail_play "missing required tool: $1"
+}
+
+qemu_help_has_backend() {
+  local option="$1"
+  local backend="$2"
+
+  ( "$QEMU_BIN" "$option" help 2>&1 || true ) | awk -v backend="$backend" '
+    $1 == backend || $0 == backend { found = 1 }
+    END { exit found ? 0 : 1 }
+  '
 }
 
 sha1_file() {
@@ -233,6 +252,67 @@ prepare_pak() {
   absolute_existing_path "$target"
 }
 
+configure_qemu_display_args() {
+  qemu_display_args=()
+
+  case "$VIBE_QEMU_DISPLAY" in
+    auto)
+      if [ "$(uname -s)" = "Darwin" ] && qemu_help_has_backend "-display" "cocoa"; then
+        qemu_display_args=(-display cocoa)
+      fi
+      ;;
+    default|"")
+      ;;
+    none)
+      qemu_display_args=(-display none)
+      ;;
+    *)
+      qemu_display_args=(-display "$VIBE_QEMU_DISPLAY")
+      ;;
+  esac
+}
+
+configure_qemu_audio_args() {
+  local backend=""
+
+  qemu_audio_args=()
+
+  case "$VIBE_QEMU_AUDIO" in
+    auto)
+      if [ "$(uname -s)" = "Darwin" ] && qemu_help_has_backend "-audiodev" "coreaudio"; then
+        backend="coreaudio"
+      elif qemu_help_has_backend "-audiodev" "pipewire"; then
+        backend="pipewire"
+      elif qemu_help_has_backend "-audiodev" "pa"; then
+        backend="pa"
+      elif qemu_help_has_backend "-audiodev" "alsa"; then
+        backend="alsa"
+      elif qemu_help_has_backend "-audiodev" "none"; then
+        backend="none"
+      fi
+      ;;
+    off|none|"")
+      ;;
+    *)
+      backend="$VIBE_QEMU_AUDIO"
+      ;;
+  esac
+
+  if [ -n "$backend" ]; then
+    qemu_audio_args=(-audiodev "$backend,id=snd0" -device sb16,audiodev=snd0)
+  fi
+}
+
+configure_qemu_extra_args() {
+  qemu_extra_args=()
+
+  if [ -n "$QEMU_EXTRA_ARGS" ]; then
+    # Match the existing Makefile convention: QEMU_EXTRA_ARGS is a simple
+    # whitespace-separated list of extra QEMU arguments.
+    read -r -a qemu_extra_args <<< "$QEMU_EXTRA_ARGS"
+  fi
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --prepare-only|--dry-run)
@@ -255,7 +335,7 @@ for tool in git "$MAKE_BIN" curl od awk wc dd; do
 done
 
 if [ "$PREPARE_ONLY" != "1" ]; then
-  require_tool qemu-system-x86_64
+  require_tool "$QEMU_BIN"
 fi
 
 doom_wad="$(prepare_wad)"
@@ -277,11 +357,25 @@ if [ "$PREPARE_ONLY" = "1" ]; then
   exit 0
 fi
 
+configure_qemu_display_args
+configure_qemu_audio_args
+configure_qemu_extra_args
+
+rm -f "$PLAY_BUILD_DIR/monitor.sock" "$PLAY_BUILD_DIR/qemu.log" "$PLAY_BUILD_DIR/serial.log"
 echo "Starting vibe-os. Pick Doom or Quake from the guest launcher."
-exec "$MAKE_BIN" --no-print-directory \
-  BUILD_DIR="$PLAY_BUILD_DIR" \
-  ALLOW_LOCAL_VM=1 \
-  DOOM_WAD="$doom_wad" \
-  QUAKE_PAK="$quake_pak" \
-  QEMU_EXTRA_ARGS="$QEMU_EXTRA_ARGS" \
-  run
+echo "If the QEMU window stays black, quit it and check $PLAY_BUILD_DIR/serial.log."
+exec "$QEMU_BIN" \
+  -machine pc,accel=tcg \
+  -m 128M \
+  -vga std \
+  -drive "file=$PLAY_BUILD_DIR/disk.img,format=raw,if=ide,index=0,media=disk" \
+  -boot c \
+  "${qemu_display_args[@]}" \
+  -serial "file:$PLAY_BUILD_DIR/serial.log" \
+  -monitor "unix:$PLAY_BUILD_DIR/monitor.sock,server,nowait" \
+  -D "$PLAY_BUILD_DIR/qemu.log" \
+  -d guest_errors \
+  -no-reboot \
+  -no-shutdown \
+  "${qemu_audio_args[@]}" \
+  "${qemu_extra_args[@]}"
