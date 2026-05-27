@@ -1,8 +1,14 @@
 #include <errno.h>
+#include <limits.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
 enum {
     SECTOR_SIZE = 512,
@@ -24,7 +30,10 @@ enum {
     FAT_ATTR_ARCHIVE = 0x20,
     FIXTURE_WAD_SIZE = 1024 * 1024,
     MAX_PRIMARY_WAD_BYTES = 0x00500000,
+    PAK_DIRECTORY_ENTRY_SIZE = 64,
     MIN_OS_CREATED_FILE_CLUSTERS = 4096,
+    DEFAULT_PI4_ASSET_COUNT = 3,
+    DEFAULT_PI4_PALETTE_BYTES = 32,
 };
 
 enum {
@@ -61,6 +70,36 @@ typedef struct {
 } AssetArg;
 
 typedef struct {
+    char name[11];
+    const char* path;
+} RootFileArg;
+
+typedef struct {
+    char file[96];
+    size_t size;
+} ManifestEntry;
+
+typedef struct {
+    char* data;
+    size_t size;
+    size_t cap;
+} TextBuffer;
+
+typedef struct {
+    int enabled;
+    int primary_asset_external;
+    size_t primary_asset_size;
+    int quake_pak_present;
+    size_t quake_pak_size;
+    ManifestEntry* root_elves;
+    size_t root_elf_count;
+    ManifestEntry* root_files;
+    size_t root_file_count;
+    ManifestEntry* assets;
+    size_t asset_count;
+} ProofManifest;
+
+typedef struct {
     int present;
     uint8_t attr;
     uint32_t first_cluster;
@@ -84,7 +123,14 @@ typedef struct {
 static const char USER_PROBE_NAME[] = "USERPROBELF";
 static const char LEGACY_PAYLOAD_ELF_NAME[] = "PAYLOAD0ELF";
 static const char KERNEL_ELF_NAME[] = "KERNEL  ELF";
+static const char PI4_KERNEL8_IMG_NAME[] = "KERNEL8 IMG";
+static const char PI4_CONFIG_TXT_NAME[] = "CONFIG  TXT";
+static const char INIT_ELF_NAME[] = "INIT    ELF";
+static const char ABI_PROBE_ELF_NAME[] = "ABIPROBEELF";
+static const char PAYLOAD1_ELF_NAME[] = "PAYLOAD1ELF";
 static const char PRIMARY_ASSET_WAD_NAME[] = "DOOM1   WAD";
+static const char QUAKE_ID1_DIR_NAME[] = "ID1        ";
+static const char QUAKE_PAK0_NAME[] = "PAK0    PAK";
 static const char DEFAULT_CFG_NAME[] = "DEFAULT CFG";
 static const uint8_t DEFAULT_CFG_CONTENT[] = "screenblocks\t\t11\n";
 static const char PERSISTENCE_CHECKPOINT_NAME[] = "PERSIST CHK";
@@ -92,6 +138,13 @@ static const char SAVE_REQUEST_NAME[] = "SAVEREQ CHK";
 static const char LOAD_REQUEST_NAME[] = "LOADREQ CHK";
 static const char STATE_DIR_NAME[] = "STATE      ";
 static const char PRIMARY_SAVE_SLOT_TEMPLATE_NAME[] = "DOOMSAV DSG";
+static const char PROOF_MANIFEST_PATH[] = "/PROOF/MANIFEST.TXT";
+static const char PROOF_QUAKE_PAK_PATH[] = "/ID1/PAK0.PAK";
+static const char DEFAULT_PI4_ASSET_README_PATH[] = "/ASSETS/README.TXT";
+static const char DEFAULT_PI4_ASSET_MAP_PATH[] = "/ASSETS/MAPS/E1M1.MAP";
+static const char DEFAULT_PI4_ASSET_PALETTE_PATH[] = "/ASSETS/TEXTURES/PAL0.BIN";
+static const uint8_t DEFAULT_PI4_ASSET_README[] = "vibe-os FAT16 one-level asset file\n";
+static const uint8_t DEFAULT_PI4_ASSET_MAP[] = "name=E1M1\nmusic=D_E1M1\n";
 static const char MBR_DISK_ID[] = "VOSD";
 static const char FAT_OEM_NAME[] = "VIBEOS  ";
 static const char FAT_VOLUME_LABEL[] = "VIBEOS WAD ";
@@ -259,7 +312,821 @@ static void format_fat_name(const uint8_t* raw, char out[13])
     out[pos] = 0;
 }
 
-static void inspect_image(const char* path)
+static void text_appendf(TextBuffer* text, const char* fmt, ...)
+{
+    for (;;) {
+        if (!text->data) {
+            text->cap = 512;
+            text->data = (char*)xcalloc(text->cap, 1);
+        }
+        if (text->cap - text->size < 128) {
+            text->cap *= 2;
+            text->data = (char*)xrealloc(text->data, text->cap);
+        }
+
+        va_list ap;
+        va_start(ap, fmt);
+        int written = vsnprintf(text->data + text->size, text->cap - text->size, fmt, ap);
+        va_end(ap);
+        if (written < 0)
+            die("manifest formatting failed");
+        if ((size_t)written < text->cap - text->size) {
+            text->size += (size_t)written;
+            return;
+        }
+
+        text->cap = text->size + (size_t)written + 1;
+        text->data = (char*)xrealloc(text->data, text->cap);
+    }
+}
+
+static void manifest_add_entry(ManifestEntry** entries, size_t* count, const char* file, size_t size)
+{
+    *entries = (ManifestEntry*)xrealloc(*entries, (*count + 1) * sizeof((*entries)[0]));
+    int written = snprintf((*entries)[*count].file, sizeof((*entries)[*count].file), "%s", file);
+    if (written < 0 || (size_t)written >= sizeof((*entries)[*count].file))
+        die("manifest file name is too long");
+    (*entries)[*count].size = size;
+    (*count)++;
+}
+
+static void manifest_note_root_elf(ProofManifest* manifest, const char name[11], size_t size)
+{
+    if (!manifest->enabled)
+        return;
+    char display[13];
+    format_fat_name((const uint8_t*)name, display);
+    manifest_add_entry(&manifest->root_elves, &manifest->root_elf_count, display, size);
+}
+
+static void manifest_note_root_file(ProofManifest* manifest, const char name[11], size_t size)
+{
+    if (!manifest->enabled)
+        return;
+    char display[13];
+    format_fat_name((const uint8_t*)name, display);
+    manifest_add_entry(&manifest->root_files, &manifest->root_file_count, display, size);
+}
+
+static void manifest_note_asset(ProofManifest* manifest, const char* display, size_t size)
+{
+    if (!manifest->enabled)
+        return;
+    manifest_add_entry(&manifest->assets, &manifest->asset_count, display, size);
+}
+
+static const ManifestEntry* manifest_find(const ManifestEntry* entries, size_t count, const char* file)
+{
+    for (size_t i = 0; i < count; i++) {
+        if (strcmp(entries[i].file, file) == 0)
+            return &entries[i];
+    }
+    return NULL;
+}
+
+static void free_proof_manifest(ProofManifest* manifest)
+{
+    free(manifest->root_elves);
+    free(manifest->root_files);
+    free(manifest->assets);
+}
+
+static int inspect_path_has_component(const char* cursor)
+{
+    while (*cursor == '/' || *cursor == '\\')
+        cursor++;
+    return *cursor != '\0';
+}
+
+static int inspect_next_path_component(const char** cursor, char* component, size_t component_size)
+{
+    size_t len = 0;
+
+    while (**cursor == '/' || **cursor == '\\')
+        (*cursor)++;
+    if (!**cursor)
+        return 0;
+    while (**cursor && **cursor != '/' && **cursor != '\\') {
+        if (len + 1 >= component_size)
+            die("inspect path component is too long");
+        component[len++] = **cursor;
+        (*cursor)++;
+    }
+    component[len] = '\0';
+    return 1;
+}
+
+static int inspect_find_entry_in_dir(const Blob* image, const uint8_t* dir, size_t dir_size, const char* component, FatFileInfo* out)
+{
+    (void)image;
+    for (uint32_t i = 0; (size_t)i * 32 + 32 <= dir_size; i++) {
+        const uint8_t* entry = dir + (size_t)i * 32;
+        if (entry[0] == 0)
+            return 0;
+        if (entry[0] == 0xe5 || entry[0] == '.' || entry[11] == 0x0f)
+            continue;
+
+        char name[13];
+        format_fat_name(entry, name);
+        if (strcmp(name, component) != 0)
+            continue;
+
+        memset(out, 0, sizeof(*out));
+        out->present = 1;
+        out->attr = entry[11];
+        out->first_cluster = get_u16(dir, dir_size, (size_t)i * 32 + 26);
+        out->size = get_u32(dir, dir_size, (size_t)i * 32 + 28);
+        return 1;
+    }
+    return 0;
+}
+
+static int inspect_find_path(const Blob* image, const char* path, FatFileInfo* out)
+{
+    const uint8_t* dir = image->data + sector_offset(root_lba());
+    size_t dir_size = ROOT_ENTRIES * 32;
+    const char* cursor = path;
+    char component[64];
+    int saw_component = 0;
+
+    while (inspect_next_path_component(&cursor, component, sizeof(component))) {
+        FatFileInfo info;
+        saw_component = 1;
+        if (!inspect_find_entry_in_dir(image, dir, dir_size, component, &info))
+            return 0;
+        if (!inspect_path_has_component(cursor)) {
+            *out = info;
+            return 1;
+        }
+        if ((info.attr & FAT_ATTR_DIRECTORY) == 0)
+            return 0;
+        if (info.first_cluster < 2 || info.first_cluster > last_data_cluster())
+            die_path(path, "directory has invalid first cluster");
+        dir = image->data + cluster_offset(info.first_cluster);
+        dir_size = cluster_size();
+    }
+
+    return saw_component ? 0 : 0;
+}
+
+static uint16_t inspect_fat_entry(const Blob* image, uint32_t cluster)
+{
+    if (cluster >= FAT_ENTRY_COUNT)
+        die("FAT cluster outside table");
+    const uint8_t* fat = image->data + sector_offset(PARTITION_START + RESERVED_SECTORS);
+    return get_u16(fat, SECTORS_PER_FAT * SECTOR_SIZE, (size_t)cluster * 2);
+}
+
+static Blob inspect_read_file_blob(const Blob* image, const FatFileInfo* info, const char* label)
+{
+    Blob out;
+    out.size = info->size;
+    out.data = (uint8_t*)xcalloc(out.size + 1, 1);
+    if (!out.size)
+        return out;
+    if (info->attr & FAT_ATTR_DIRECTORY)
+        die_path(label, "expected a file, found a directory");
+    if (info->first_cluster < 2 || info->first_cluster > last_data_cluster())
+        die_path(label, "file has invalid first cluster");
+
+    uint32_t cluster = info->first_cluster;
+    size_t copied = 0;
+    uint32_t guard = 0;
+    while (copied < out.size) {
+        if (cluster < 2 || cluster > last_data_cluster() || guard++ > data_cluster_count())
+            die_path(label, "file cluster chain is invalid");
+        size_t chunk = out.size - copied;
+        if (chunk > cluster_size())
+            chunk = cluster_size();
+        memcpy(out.data + copied, image->data + cluster_offset(cluster), chunk);
+        copied += chunk;
+        if (copied >= out.size)
+            break;
+        cluster = inspect_fat_entry(image, cluster);
+        if (cluster >= FAT16_EOC)
+            die_path(label, "file cluster chain ended early");
+    }
+    return out;
+}
+
+static int manifest_get_value(const Blob* manifest, const char* key, char* out, size_t out_size)
+{
+    const char* data = (const char*)manifest->data;
+    size_t key_len = strlen(key);
+    size_t pos = 0;
+
+    while (pos < manifest->size) {
+        size_t line_start = pos;
+        size_t line_end = 0;
+        while (pos < manifest->size && data[pos] != '\n' && data[pos] != '\r')
+            pos++;
+        line_end = pos;
+        while (pos < manifest->size && (data[pos] == '\n' || data[pos] == '\r'))
+            pos++;
+
+        if (line_end > line_start + key_len &&
+            memcmp(data + line_start, key, key_len) == 0 &&
+            data[line_start + key_len] == '=') {
+            size_t value_len = line_end - line_start - key_len - 1;
+            if (value_len + 1 > out_size)
+                die("Pi proof manifest value is too long");
+            memcpy(out, data + line_start + key_len + 1, value_len);
+            out[value_len] = '\0';
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static unsigned long long manifest_require_u64(const Blob* manifest, const char* key)
+{
+    char value[64];
+    char* end = NULL;
+    unsigned long long parsed = 0;
+
+    if (!manifest_get_value(manifest, key, value, sizeof(value)))
+        die("Pi proof manifest is missing a required size field");
+    errno = 0;
+    parsed = strtoull(value, &end, 10);
+    if (errno || !end || *end)
+        die("Pi proof manifest size field is not decimal");
+    return parsed;
+}
+
+static size_t manifest_require_count(const Blob* manifest, const char* key)
+{
+    unsigned long long value = manifest_require_u64(manifest, key);
+    if (value > 256)
+        die("Pi proof manifest count is too large");
+    return (size_t)value;
+}
+
+static void manifest_require_value(const Blob* manifest, const char* key, const char* expected)
+{
+    char value[160];
+
+    if (!manifest_get_value(manifest, key, value, sizeof(value)))
+        die("Pi proof manifest is missing a required field");
+    if (strcmp(value, expected) != 0)
+        die("Pi proof manifest field does not match the boot artifact");
+}
+
+static void manifest_require_file_size(const Blob* manifest, const char* key, uint32_t actual_size)
+{
+    unsigned long long expected_size = manifest_require_u64(manifest, key);
+    if (expected_size != actual_size)
+        die("Pi proof manifest file size does not match the FAT image");
+}
+
+static void manifest_require_u32_value(const Blob* manifest, const char* key, uint32_t expected)
+{
+    unsigned long long actual = manifest_require_u64(manifest, key);
+    if (actual != expected)
+        die("Pi proof manifest numeric field does not match the boot artifact");
+}
+
+static void manifest_require_file_cluster(const Blob* manifest, const char* key, uint32_t actual_cluster)
+{
+    unsigned long long expected_cluster = manifest_require_u64(manifest, key);
+    if (expected_cluster != actual_cluster)
+        die("Pi proof manifest file cluster does not match the FAT image");
+}
+
+static void manifest_require_same_u64(const Blob* manifest, const char* lhs_key, const char* rhs_key)
+{
+    unsigned long long lhs = manifest_require_u64(manifest, lhs_key);
+    unsigned long long rhs = manifest_require_u64(manifest, rhs_key);
+    if (lhs != rhs)
+        die("Pi proof manifest numeric fields disagree");
+}
+
+static void inspect_manifest_print_field(const Blob* manifest, const char* key)
+{
+    char value[160];
+
+    if (!manifest_get_value(manifest, key, value, sizeof(value)))
+        die("Pi proof manifest is missing a command-visible field");
+    printf("%s=%s\n", key, value);
+}
+
+static const char* manifest_asset_kind_for_path(const char* path)
+{
+    if (strcmp(path, PROOF_QUAKE_PAK_PATH) == 0)
+        return "quake-pak0";
+    return "generic-external-asset";
+}
+
+static const char* manifest_asset_repo_state_for_path(const char* path)
+{
+    if (strcmp(path, PROOF_QUAKE_PAK_PATH) == 0)
+        return "outside-repo";
+    return "unchecked";
+}
+
+static void inspect_manifest_require_file(
+    const Blob* image,
+    const Blob* manifest,
+    const char* path,
+    const char* size_key,
+    const char* cluster_key,
+    size_t* checked_files)
+{
+    FatFileInfo info;
+
+    if (!inspect_find_path(image, path, &info))
+        die_path(path, "Pi proof manifest names a file missing from the FAT image");
+    if (info.attr & FAT_ATTR_DIRECTORY)
+        die_path(path, "Pi proof manifest expected a file, found a directory");
+    if (info.size == 0)
+        die_path(path, "Pi proof manifest file is empty");
+    if (size_key)
+        manifest_require_file_size(manifest, size_key, info.size);
+    if (cluster_key)
+        manifest_require_file_cluster(manifest, cluster_key, info.first_cluster);
+
+    printf("manifest_file=%s state=present size=%u cluster=%u\n", path, info.size, info.first_cluster);
+    (*checked_files)++;
+}
+
+static int inspect_manifest_require_indexed_file(
+    const Blob* image,
+    const Blob* manifest,
+    const char* prefix,
+    size_t index,
+    size_t* checked_files)
+{
+    char file_key[64];
+    char size_key[64];
+    char kind_key[64];
+    char source_key[64];
+    char repo_state_key[64];
+    char evidence_key[64];
+    char hardware_proof_key[64];
+    char path[160];
+    int is_quake_pak = 0;
+    int written = snprintf(file_key, sizeof(file_key), "%s.%zu.file", prefix, index);
+    if (written < 0 || (size_t)written >= sizeof(file_key))
+        die("Pi proof manifest key is too long");
+    written = snprintf(size_key, sizeof(size_key), "%s.%zu.size", prefix, index);
+    if (written < 0 || (size_t)written >= sizeof(size_key))
+        die("Pi proof manifest key is too long");
+    if (!manifest_get_value(manifest, file_key, path, sizeof(path)))
+        die("Pi proof manifest is missing an indexed file");
+    written = snprintf(kind_key, sizeof(kind_key), "%s.%zu.kind", prefix, index);
+    if (written < 0 || (size_t)written >= sizeof(kind_key))
+        die("Pi proof manifest key is too long");
+    written = snprintf(source_key, sizeof(source_key), "%s.%zu.source", prefix, index);
+    if (written < 0 || (size_t)written >= sizeof(source_key))
+        die("Pi proof manifest key is too long");
+    written = snprintf(repo_state_key, sizeof(repo_state_key), "%s.%zu.repo_state", prefix, index);
+    if (written < 0 || (size_t)written >= sizeof(repo_state_key))
+        die("Pi proof manifest key is too long");
+    written = snprintf(evidence_key, sizeof(evidence_key), "%s.%zu.evidence", prefix, index);
+    if (written < 0 || (size_t)written >= sizeof(evidence_key))
+        die("Pi proof manifest key is too long");
+    written = snprintf(hardware_proof_key, sizeof(hardware_proof_key), "%s.%zu.hardware_proof", prefix, index);
+    if (written < 0 || (size_t)written >= sizeof(hardware_proof_key))
+        die("Pi proof manifest key is too long");
+
+    manifest_require_value(manifest, kind_key, manifest_asset_kind_for_path(path));
+    manifest_require_value(manifest, source_key, "external-host-input");
+    manifest_require_value(manifest, repo_state_key, manifest_asset_repo_state_for_path(path));
+    manifest_require_value(manifest, evidence_key, "packaged-file-only");
+    manifest_require_value(manifest, hardware_proof_key, "unclaimed");
+    inspect_manifest_require_file(image, manifest, path, size_key, NULL, checked_files);
+    is_quake_pak = strcmp(path, PROOF_QUAKE_PAK_PATH) == 0;
+    inspect_manifest_print_field(manifest, file_key);
+    inspect_manifest_print_field(manifest, kind_key);
+    inspect_manifest_print_field(manifest, source_key);
+    inspect_manifest_print_field(manifest, repo_state_key);
+    inspect_manifest_print_field(manifest, evidence_key);
+    inspect_manifest_print_field(manifest, hardware_proof_key);
+    inspect_manifest_print_field(manifest, size_key);
+    return is_quake_pak;
+}
+
+static void inspect_manifest_require_indexed_sized_file(
+    const Blob* image,
+    const Blob* manifest,
+    const char* prefix,
+    size_t index,
+    size_t* checked_files)
+{
+    char file_key[64];
+    char size_key[64];
+    char path[128];
+    int written = snprintf(file_key, sizeof(file_key), "%s.%zu.file", prefix, index);
+    if (written < 0 || (size_t)written >= sizeof(file_key))
+        die("Pi proof manifest key is too long");
+    written = snprintf(size_key, sizeof(size_key), "%s.%zu.size", prefix, index);
+    if (written < 0 || (size_t)written >= sizeof(size_key))
+        die("Pi proof manifest key is too long");
+    if (!manifest_get_value(manifest, file_key, path, sizeof(path)))
+        die("Pi proof manifest is missing an indexed file");
+
+    inspect_manifest_require_file(image, manifest, path, size_key, NULL, checked_files);
+    inspect_manifest_print_field(manifest, file_key);
+    inspect_manifest_print_field(manifest, size_key);
+}
+
+static void inspect_manifest_require_root_elf_slot(
+    const Blob* manifest,
+    const char* slot,
+    const char* expected_file,
+    const char* expected_state)
+{
+    char key[64];
+    int written = snprintf(key, sizeof(key), "root_elf_slot.%s.file", slot);
+    if (written < 0 || (size_t)written >= sizeof(key))
+        die("Pi proof manifest key is too long");
+    manifest_require_value(manifest, key, expected_file);
+    inspect_manifest_print_field(manifest, key);
+
+    written = snprintf(key, sizeof(key), "root_elf_slot.%s.state", slot);
+    if (written < 0 || (size_t)written >= sizeof(key))
+        die("Pi proof manifest key is too long");
+    manifest_require_value(manifest, key, expected_state);
+    inspect_manifest_print_field(manifest, key);
+}
+
+static void inspect_manifest_check_optional_slot(
+    const Blob* image,
+    const Blob* manifest,
+    size_t index,
+    const char* expected_kind,
+    const char* expected_file,
+    const char* expected_root_slot,
+    size_t* checked_files)
+{
+    char key[64];
+    char state[32];
+    int present = 0;
+    int written = snprintf(key, sizeof(key), "payload_slot.%zu.kind", index);
+    if (written < 0 || (size_t)written >= sizeof(key))
+        die("Pi proof manifest key is too long");
+    manifest_require_value(manifest, key, expected_kind);
+    inspect_manifest_print_field(manifest, key);
+    written = snprintf(key, sizeof(key), "payload_slot.%zu.file", index);
+    if (written < 0 || (size_t)written >= sizeof(key))
+        die("Pi proof manifest key is too long");
+    manifest_require_value(manifest, key, expected_file);
+    inspect_manifest_print_field(manifest, key);
+    written = snprintf(key, sizeof(key), "payload_slot.%zu.root_elf_slot", index);
+    if (written < 0 || (size_t)written >= sizeof(key))
+        die("Pi proof manifest key is too long");
+    manifest_require_value(manifest, key, expected_root_slot);
+    inspect_manifest_print_field(manifest, key);
+    written = snprintf(key, sizeof(key), "payload_slot.%zu.state", index);
+    if (written < 0 || (size_t)written >= sizeof(key))
+        die("Pi proof manifest key is too long");
+    if (!manifest_get_value(manifest, key, state, sizeof(state)))
+        die("Pi proof manifest is missing payload slot state");
+    inspect_manifest_print_field(manifest, key);
+
+    if (strcmp(state, "present") == 0) {
+        present = 1;
+    } else if (strcmp(state, "absent") != 0) {
+        die("Pi proof manifest payload state must be present or absent");
+    }
+    inspect_manifest_require_root_elf_slot(manifest, expected_root_slot, expected_file, state);
+
+    written = snprintf(key, sizeof(key), "payload_slot.%zu.source", index);
+    if (written < 0 || (size_t)written >= sizeof(key))
+        die("Pi proof manifest key is too long");
+    manifest_require_value(manifest, key, present ? "root-elf-input" : "absent");
+    inspect_manifest_print_field(manifest, key);
+    written = snprintf(key, sizeof(key), "payload_slot.%zu.repo_state", index);
+    if (written < 0 || (size_t)written >= sizeof(key))
+        die("Pi proof manifest key is too long");
+    manifest_require_value(manifest, key, present ? "unchecked" : "absent");
+    inspect_manifest_print_field(manifest, key);
+    written = snprintf(key, sizeof(key), "payload_slot.%zu.evidence", index);
+    if (written < 0 || (size_t)written >= sizeof(key))
+        die("Pi proof manifest key is too long");
+    manifest_require_value(manifest, key, present ? "packaged-file-only" : "absent");
+    inspect_manifest_print_field(manifest, key);
+    written = snprintf(key, sizeof(key), "payload_slot.%zu.hardware_proof", index);
+    if (written < 0 || (size_t)written >= sizeof(key))
+        die("Pi proof manifest key is too long");
+    manifest_require_value(manifest, key, "unclaimed");
+    inspect_manifest_print_field(manifest, key);
+    written = snprintf(key, sizeof(key), "payload_slot.%zu.launch_proof", index);
+    if (written < 0 || (size_t)written >= sizeof(key))
+        die("Pi proof manifest key is too long");
+    manifest_require_value(manifest, key, "unclaimed");
+    inspect_manifest_print_field(manifest, key);
+
+    if (present) {
+        char size_key[64];
+        char cluster_key[64];
+        char root_size_key[64];
+        char root_cluster_key[64];
+        written = snprintf(size_key, sizeof(size_key), "payload_slot.%zu.size", index);
+        if (written < 0 || (size_t)written >= sizeof(size_key))
+            die("Pi proof manifest key is too long");
+        written = snprintf(cluster_key, sizeof(cluster_key), "payload_slot.%zu.cluster", index);
+        if (written < 0 || (size_t)written >= sizeof(cluster_key))
+            die("Pi proof manifest key is too long");
+        written = snprintf(root_size_key, sizeof(root_size_key), "root_elf_slot.%s.size", expected_root_slot);
+        if (written < 0 || (size_t)written >= sizeof(root_size_key))
+            die("Pi proof manifest key is too long");
+        written = snprintf(root_cluster_key, sizeof(root_cluster_key), "root_elf_slot.%s.cluster", expected_root_slot);
+        if (written < 0 || (size_t)written >= sizeof(root_cluster_key))
+            die("Pi proof manifest key is too long");
+        inspect_manifest_require_file(image, manifest, expected_file, size_key, cluster_key, checked_files);
+        manifest_require_same_u64(manifest, root_cluster_key, cluster_key);
+        manifest_require_same_u64(manifest, root_size_key, size_key);
+        inspect_manifest_print_field(manifest, root_cluster_key);
+        inspect_manifest_print_field(manifest, root_size_key);
+        inspect_manifest_print_field(manifest, cluster_key);
+        inspect_manifest_print_field(manifest, size_key);
+    } else {
+        FatFileInfo info;
+        if (inspect_find_path(image, expected_file, &info))
+            die_path(expected_file, "Pi proof manifest marks payload absent but file exists");
+        printf("manifest_file=%s state=absent\n", expected_file);
+    }
+}
+
+static void inspect_pi4_manifest(const Blob* image, int require_real_assets)
+{
+    FatFileInfo manifest_info;
+    size_t checked_files = 0;
+    int indexed_quake_pak = 0;
+    int checked_quake_pak = 0;
+    char primary_source[32];
+    char primary_repo_state[32];
+    char quake_state[32];
+
+    if (!inspect_find_path(image, PROOF_MANIFEST_PATH, &manifest_info)) {
+        if (require_real_assets)
+            die("Pi proof manifest is required for real asset proof");
+        return;
+    }
+
+    Blob manifest = inspect_read_file_blob(image, &manifest_info, PROOF_MANIFEST_PATH);
+
+    manifest_require_value(&manifest, "schema", "vibe-os-pi4-image-manifest-v1");
+    manifest_require_value(&manifest, "layout", "vibe-os-pi4-fat16-v1");
+    manifest_require_u32_value(&manifest, "root_lba", root_lba());
+    manifest_require_u32_value(&manifest, "data_lba", data_lba());
+    manifest_require_u32_value(&manifest, "root_entry_count", ROOT_ENTRIES);
+    manifest_require_value(&manifest, "manifest_path", PROOF_MANIFEST_PATH);
+    printf("manifest_path=%s state=present size=%u\n", PROOF_MANIFEST_PATH, manifest_info.size);
+
+    manifest_require_value(&manifest, "kernel_file", "KERNEL8.IMG");
+    inspect_manifest_print_field(&manifest, "kernel_file");
+    inspect_manifest_require_file(image, &manifest, "KERNEL8.IMG", "kernel_size", NULL, &checked_files);
+    manifest_require_value(&manifest, "config_file", "CONFIG.TXT");
+    inspect_manifest_print_field(&manifest, "config_file");
+    inspect_manifest_require_file(image, &manifest, "CONFIG.TXT", "config_size", NULL, &checked_files);
+
+    manifest_require_value(&manifest, "root_elf_slot_count", "4");
+    inspect_manifest_print_field(&manifest, "root_elf_slot_count");
+    manifest_require_value(&manifest, "root_elf_slot.0.file", "INIT.ELF");
+    inspect_manifest_print_field(&manifest, "root_elf_slot.0.file");
+    manifest_require_value(&manifest, "root_elf_slot.0.state", "present");
+    inspect_manifest_print_field(&manifest, "root_elf_slot.0.state");
+    inspect_manifest_require_file(image, &manifest, "INIT.ELF", "root_elf_slot.0.size", "root_elf_slot.0.cluster", &checked_files);
+    inspect_manifest_print_field(&manifest, "root_elf_slot.0.cluster");
+    inspect_manifest_print_field(&manifest, "root_elf_slot.0.size");
+    manifest_require_value(&manifest, "root_elf_slot.1.file", "ABIPROBE.ELF");
+    inspect_manifest_print_field(&manifest, "root_elf_slot.1.file");
+    manifest_require_value(&manifest, "root_elf_slot.1.state", "present");
+    inspect_manifest_print_field(&manifest, "root_elf_slot.1.state");
+    inspect_manifest_require_file(image, &manifest, "ABIPROBE.ELF", "root_elf_slot.1.size", "root_elf_slot.1.cluster", &checked_files);
+    inspect_manifest_print_field(&manifest, "root_elf_slot.1.cluster");
+    inspect_manifest_print_field(&manifest, "root_elf_slot.1.size");
+
+    manifest_require_value(&manifest, "payload_slot_count", "2");
+    inspect_manifest_print_field(&manifest, "payload_slot_count");
+    inspect_manifest_check_optional_slot(image, &manifest, 0, "doom", "PAYLOAD0.ELF", "2", &checked_files);
+    inspect_manifest_check_optional_slot(image, &manifest, 1, "quake", "PAYLOAD1.ELF", "3", &checked_files);
+
+    size_t root_file_count = manifest_require_count(&manifest, "root_file_count");
+    inspect_manifest_print_field(&manifest, "root_file_count");
+    for (size_t i = 0; i < root_file_count; i++)
+        inspect_manifest_require_indexed_sized_file(image, &manifest, "root_file", i, &checked_files);
+
+    size_t root_elf_count = manifest_require_count(&manifest, "root_elf_count");
+    inspect_manifest_print_field(&manifest, "root_elf_count");
+    for (size_t i = 0; i < root_elf_count; i++)
+        inspect_manifest_require_indexed_sized_file(image, &manifest, "root_elf", i, &checked_files);
+
+    manifest_require_value(&manifest, "primary_asset_file", "DOOM1.WAD");
+    manifest_require_value(&manifest, "primary_asset_kind", "doom-wad");
+    manifest_require_value(&manifest, "primary_asset_state", "present");
+    if (!manifest_get_value(&manifest, "primary_asset_source", primary_source, sizeof(primary_source)))
+        die("Pi proof manifest is missing primary WAD source");
+    if (!manifest_get_value(&manifest, "primary_asset_repo_state", primary_repo_state, sizeof(primary_repo_state)))
+        die("Pi proof manifest is missing primary WAD repo state");
+    if (strcmp(primary_source, "external") == 0) {
+        if (strcmp(primary_repo_state, "outside-repo") != 0)
+            die("Pi proof manifest external WAD must be marked outside-repo");
+    } else if (strcmp(primary_source, "generated-fixture") == 0) {
+        if (strcmp(primary_repo_state, "generated-by-builder") != 0)
+            die("Pi proof manifest generated WAD must be marked generated-by-builder");
+    } else {
+        die("Pi proof manifest primary WAD source must be external or generated-fixture");
+    }
+    manifest_require_value(&manifest, "primary_asset_evidence", "packaged-file-only");
+    manifest_require_value(&manifest, "primary_asset_hardware_proof", "unclaimed");
+    inspect_manifest_require_file(image, &manifest, "DOOM1.WAD", "primary_asset_size", NULL, &checked_files);
+    inspect_manifest_print_field(&manifest, "primary_asset_file");
+    inspect_manifest_print_field(&manifest, "primary_asset_kind");
+    inspect_manifest_print_field(&manifest, "primary_asset_state");
+    inspect_manifest_print_field(&manifest, "primary_asset_source");
+    inspect_manifest_print_field(&manifest, "primary_asset_repo_state");
+    inspect_manifest_print_field(&manifest, "primary_asset_evidence");
+    inspect_manifest_print_field(&manifest, "primary_asset_hardware_proof");
+    inspect_manifest_print_field(&manifest, "primary_asset_size");
+    printf(
+        "manifest_asset=DOOM1.WAD kind=doom-wad source=%s repo_state=%s evidence=packaged-file-only hardware_proof=unclaimed state=present\n",
+        primary_source,
+        primary_repo_state);
+
+    manifest_require_value(&manifest, "default_asset_count", "3");
+    manifest_require_value(&manifest, "default_asset.0.file", DEFAULT_PI4_ASSET_README_PATH);
+    inspect_manifest_require_file(image, &manifest, DEFAULT_PI4_ASSET_README_PATH, "default_asset.0.size", NULL, &checked_files);
+    manifest_require_value(&manifest, "default_asset.1.file", DEFAULT_PI4_ASSET_MAP_PATH);
+    inspect_manifest_require_file(image, &manifest, DEFAULT_PI4_ASSET_MAP_PATH, "default_asset.1.size", NULL, &checked_files);
+    manifest_require_value(&manifest, "default_asset.2.file", DEFAULT_PI4_ASSET_PALETTE_PATH);
+    inspect_manifest_require_file(image, &manifest, DEFAULT_PI4_ASSET_PALETTE_PATH, "default_asset.2.size", NULL, &checked_files);
+
+    size_t asset_count = manifest_require_count(&manifest, "asset_count");
+    inspect_manifest_print_field(&manifest, "asset_count");
+    for (size_t i = 0; i < asset_count; i++) {
+        if (inspect_manifest_require_indexed_file(image, &manifest, "asset", i, &checked_files))
+            indexed_quake_pak = 1;
+    }
+
+    manifest_require_value(&manifest, "quake_pak_file", PROOF_QUAKE_PAK_PATH);
+    manifest_require_value(&manifest, "quake_pak_kind", "quake-pak");
+    if (!manifest_get_value(&manifest, "quake_pak_state", quake_state, sizeof(quake_state)))
+        die("Pi proof manifest is missing Quake PAK state");
+    if (strcmp(quake_state, "absent") == 0) {
+        manifest_require_value(&manifest, "quake_pak_source", "absent");
+        manifest_require_value(&manifest, "quake_pak_repo_state", "absent");
+        manifest_require_value(&manifest, "quake_pak_evidence", "absent");
+        manifest_require_value(&manifest, "quake_pak_hardware_proof", "unclaimed");
+        inspect_manifest_print_field(&manifest, "quake_pak_file");
+        inspect_manifest_print_field(&manifest, "quake_pak_kind");
+        inspect_manifest_print_field(&manifest, "quake_pak_state");
+        inspect_manifest_print_field(&manifest, "quake_pak_source");
+        inspect_manifest_print_field(&manifest, "quake_pak_repo_state");
+        inspect_manifest_print_field(&manifest, "quake_pak_evidence");
+        inspect_manifest_print_field(&manifest, "quake_pak_hardware_proof");
+        printf(
+            "manifest_asset=%s kind=quake-pak source=absent repo_state=absent evidence=absent hardware_proof=unclaimed state=absent\n",
+            PROOF_QUAKE_PAK_PATH);
+    } else if (strcmp(quake_state, "present") == 0) {
+        manifest_require_value(&manifest, "quake_pak_source", "external");
+        manifest_require_value(&manifest, "quake_pak_repo_state", "outside-repo");
+        manifest_require_value(&manifest, "quake_pak_evidence", "packaged-file-only");
+        manifest_require_value(&manifest, "quake_pak_hardware_proof", "unclaimed");
+        inspect_manifest_require_file(image, &manifest, PROOF_QUAKE_PAK_PATH, "quake_pak_size", NULL, &checked_files);
+        checked_quake_pak = 1;
+        inspect_manifest_print_field(&manifest, "quake_pak_file");
+        inspect_manifest_print_field(&manifest, "quake_pak_kind");
+        inspect_manifest_print_field(&manifest, "quake_pak_state");
+        inspect_manifest_print_field(&manifest, "quake_pak_source");
+        inspect_manifest_print_field(&manifest, "quake_pak_repo_state");
+        inspect_manifest_print_field(&manifest, "quake_pak_evidence");
+        inspect_manifest_print_field(&manifest, "quake_pak_hardware_proof");
+        inspect_manifest_print_field(&manifest, "quake_pak_size");
+        printf(
+            "manifest_asset=%s kind=quake-pak source=external repo_state=outside-repo evidence=packaged-file-only hardware_proof=unclaimed state=present\n",
+            PROOF_QUAKE_PAK_PATH);
+    } else {
+        die("Pi proof manifest Quake PAK state must be present or absent");
+    }
+
+    manifest_require_value(&manifest, "asset_slot_count", "2");
+    inspect_manifest_print_field(&manifest, "asset_slot_count");
+    manifest_require_value(&manifest, "asset_slot.0.kind", "doom-wad");
+    manifest_require_value(&manifest, "asset_slot.0.file", "DOOM1.WAD");
+    manifest_require_value(&manifest, "asset_slot.0.state", "present");
+    manifest_require_value(&manifest, "asset_slot.0.source", primary_source);
+    manifest_require_value(&manifest, "asset_slot.0.repo_state", primary_repo_state);
+    manifest_require_value(&manifest, "asset_slot.0.evidence", "packaged-file-only");
+    manifest_require_value(&manifest, "asset_slot.0.hardware_proof", "unclaimed");
+    manifest_require_same_u64(&manifest, "asset_slot.0.size", "primary_asset_size");
+    inspect_manifest_print_field(&manifest, "asset_slot.0.kind");
+    inspect_manifest_print_field(&manifest, "asset_slot.0.file");
+    inspect_manifest_print_field(&manifest, "asset_slot.0.state");
+    inspect_manifest_print_field(&manifest, "asset_slot.0.source");
+    inspect_manifest_print_field(&manifest, "asset_slot.0.repo_state");
+    inspect_manifest_print_field(&manifest, "asset_slot.0.evidence");
+    inspect_manifest_print_field(&manifest, "asset_slot.0.hardware_proof");
+    inspect_manifest_print_field(&manifest, "asset_slot.0.size");
+
+    manifest_require_value(&manifest, "asset_slot.1.kind", "quake-pak");
+    manifest_require_value(&manifest, "asset_slot.1.file", PROOF_QUAKE_PAK_PATH);
+    manifest_require_value(&manifest, "asset_slot.1.state", quake_state);
+    manifest_require_value(
+        &manifest,
+        "asset_slot.1.source",
+        strcmp(quake_state, "present") == 0 ? "external" : "absent");
+    manifest_require_value(
+        &manifest,
+        "asset_slot.1.repo_state",
+        strcmp(quake_state, "present") == 0 ? "outside-repo" : "absent");
+    manifest_require_value(
+        &manifest,
+        "asset_slot.1.evidence",
+        strcmp(quake_state, "present") == 0 ? "packaged-file-only" : "absent");
+    manifest_require_value(&manifest, "asset_slot.1.hardware_proof", "unclaimed");
+    if (strcmp(quake_state, "present") == 0)
+        manifest_require_same_u64(&manifest, "asset_slot.1.size", "quake_pak_size");
+    inspect_manifest_print_field(&manifest, "asset_slot.1.kind");
+    inspect_manifest_print_field(&manifest, "asset_slot.1.file");
+    inspect_manifest_print_field(&manifest, "asset_slot.1.state");
+    inspect_manifest_print_field(&manifest, "asset_slot.1.source");
+    inspect_manifest_print_field(&manifest, "asset_slot.1.repo_state");
+    inspect_manifest_print_field(&manifest, "asset_slot.1.evidence");
+    inspect_manifest_print_field(&manifest, "asset_slot.1.hardware_proof");
+    if (strcmp(quake_state, "present") == 0)
+        inspect_manifest_print_field(&manifest, "asset_slot.1.size");
+
+    printf(
+        "manifest_asset_handoff=OK primary_asset_state=present primary_asset_source=%s primary_asset_evidence=packaged-file-only primary_asset_hardware_proof=unclaimed quake_pak_state=%s quake_pak_evidence=%s quake_pak_hardware_proof=unclaimed\n",
+        primary_source,
+        quake_state,
+        strcmp(quake_state, "present") == 0 ? "packaged-file-only" : "absent");
+    if (require_real_assets) {
+        if (strcmp(primary_source, "external") != 0 || strcmp(primary_repo_state, "outside-repo") != 0)
+            die("real Pi asset proof requires an external outside-repo Doom WAD");
+        if (strcmp(quake_state, "present") != 0)
+            die("real Pi asset proof requires an external outside-repo Quake PAK");
+        if (!indexed_quake_pak || !checked_quake_pak)
+            die("real Pi asset proof requires checked_files to include /ID1/PAK0.PAK");
+        printf(
+            "real_asset_manifest=OK primary_asset_source=external primary_asset_repo_state=outside-repo quake_pak_source=external quake_pak_repo_state=outside-repo checked_files_include_pak=true\n");
+    }
+    printf("pi4_manifest=OK checked_files=%zu\n", checked_files);
+    free(manifest.data);
+}
+
+static void inspect_directory(const Blob* image, const char* prefix, uint32_t first_cluster, int depth)
+{
+    if (depth <= 0 || first_cluster < 2 || first_cluster > last_data_cluster())
+        return;
+
+    const uint8_t* dir = image->data + cluster_offset(first_cluster);
+    size_t dir_size = cluster_size();
+    for (uint32_t i = 0; (size_t)i * 32 + 32 <= dir_size; i++) {
+        const uint8_t* entry = dir + (size_t)i * 32;
+        if (entry[0] == 0)
+            break;
+        if (entry[0] == 0xe5 || entry[0] == '.')
+            continue;
+
+        char name[13];
+        char path[160];
+        format_fat_name(entry, name);
+        int written = snprintf(path, sizeof(path), "%s/%s", prefix, name);
+        if (written < 0 || (size_t)written >= sizeof(path))
+            die("inspect path is too long");
+
+        uint32_t cluster = get_u16(dir, dir_size, (size_t)i * 32 + 26);
+        uint32_t size = get_u32(dir, dir_size, (size_t)i * 32 + 28);
+        printf(
+            "path=%s attr=0x%02X cluster=%u size=%u\n",
+            path,
+            entry[11],
+            cluster,
+            size);
+
+        if (entry[11] & FAT_ATTR_DIRECTORY)
+            inspect_directory(image, path, cluster, depth - 1);
+    }
+}
+
+static void inspect_require_file(const Blob* image, const char* path)
+{
+    FatFileInfo info;
+
+    if (!inspect_find_path(image, path, &info))
+        die_path(path, "required FAT file is missing");
+    if (info.attr & FAT_ATTR_DIRECTORY)
+        die_path(path, "required FAT path is a directory");
+    if (info.size == 0)
+        die_path(path, "required FAT file is empty");
+    if (info.first_cluster < 2 || info.first_cluster > last_data_cluster())
+        die_path(path, "required FAT file has invalid first cluster");
+
+    printf("required_file=%s state=present size=%u cluster=%u\n",
+           path,
+           info.size,
+           info.first_cluster);
+}
+
+static void inspect_image(
+    const char* path,
+    int require_real_assets,
+    const char* const* required_files,
+    size_t required_file_count)
 {
     Blob image = read_file(path);
     if (image.size != (size_t)IMAGE_SECTORS * SECTOR_SIZE)
@@ -280,11 +1147,13 @@ static void inspect_image(const char* path)
         die_path(path, "unexpected FAT sectors per cluster");
 
     printf("schema=vibe-os-c-image-inspect-v1\n");
+    printf("image_path=%s\n", path);
     printf("image_size=%zu\n", image.size);
     printf("partition_lba=%u\n", part_lba);
     printf("partition_sectors=%u\n", part_sectors);
     printf("root_lba=%u\n", root_lba());
     printf("data_lba=%u\n", data_lba());
+    printf("root_entry_count=%u\n", ROOT_ENTRIES);
     printf("data_clusters=%u\n", data_cluster_count());
 
     const uint8_t* root = image.data + sector_offset(root_lba());
@@ -303,7 +1172,12 @@ static void inspect_image(const char* path)
             entry[11],
             get_u16(root, ROOT_ENTRIES * 32, i * 32 + 26),
             get_u32(root, ROOT_ENTRIES * 32, i * 32 + 28));
+        if (entry[11] & FAT_ATTR_DIRECTORY)
+            inspect_directory(&image, name, get_u16(root, ROOT_ENTRIES * 32, i * 32 + 26), 3);
     }
+    for (size_t i = 0; i < required_file_count; i++)
+        inspect_require_file(&image, required_files[i]);
+    inspect_pi4_manifest(&image, require_real_assets);
     free(image.data);
 }
 
@@ -787,16 +1661,52 @@ static void root83_from_display(const char* display, char out[11])
     memcpy(out, path[0], 11);
 }
 
+static void root_file83_from_display(const char* display, char out[11])
+{
+    char path[4][11];
+    size_t count = 0;
+    parse_path83(display, path, &count, 4);
+    if (count != 1)
+        die("--root-file must be a root-level 8.3 file name");
+    memcpy(out, path[0], 11);
+}
+
 static int name_eq(const char lhs[11], const char rhs[11])
 {
     return memcmp(lhs, rhs, 11) == 0;
+}
+
+static int asset_path_is_quake_pak0(const char path[][11], size_t count)
+{
+    return count == 2 && name_eq(path[0], QUAKE_ID1_DIR_NAME) && name_eq(path[1], QUAKE_PAK0_NAME);
+}
+
+static int path_is_at_or_under(const char* path, const char* root)
+{
+    size_t root_len = strlen(root);
+    return strcmp(path, root) == 0 || (strncmp(path, root, root_len) == 0 && path[root_len] == '/');
+}
+
+static void reject_repo_local_external_asset(const char* path, const char* label)
+{
+    char cwd[PATH_MAX];
+    char asset[PATH_MAX];
+
+    if (!realpath(".", cwd))
+        die_path(".", strerror(errno));
+    if (!realpath(path, asset))
+        die_path(path, strerror(errno));
+    if (path_is_at_or_under(asset, cwd)) {
+        fprintf(stderr, "make_wad_image: %s: %s must stay outside the repo for Pi proof packaging\n", path, label);
+        exit(1);
+    }
 }
 
 static void reject_protected_root_name(const char name[11])
 {
     if (name_eq(name, PRIMARY_ASSET_WAD_NAME) || name_eq(name, KERNEL_ELF_NAME) ||
         name_eq(name, USER_PROBE_NAME))
-        die("--root-elf tries to replace a protected boot entry");
+        die("root file option tries to replace a protected boot entry");
 }
 
 static uint32_t allocate_cluster_chain(Image* image, uint32_t count, uint32_t* out_chain)
@@ -953,6 +1863,227 @@ static void write_root_file_entry(Image* image, const char name[11], const uint8
     char path[1][11];
     memcpy(path[0], name, 11);
     write_file_path(image, path, 1, data, size, FAT_ATTR_ARCHIVE);
+}
+
+static int root_file_info(Image* image, const char name[11], FatFileInfo* out)
+{
+    uint8_t* root = root_dir(image);
+    uint32_t index = 0;
+    if (!dir_find(root, ROOT_ENTRIES * 32, name, &index))
+        return 0;
+    memset(out, 0, sizeof(*out));
+    out->present = 1;
+    out->attr = root[(size_t)index * 32 + 11];
+    out->first_cluster = entry_cluster(root, ROOT_ENTRIES * 32, index);
+    out->size = get_u32(root, ROOT_ENTRIES * 32, (size_t)index * 32 + 28);
+    return 1;
+}
+
+static int root_file_size(Image* image, const char name[11], uint32_t* out_size)
+{
+    FatFileInfo info;
+    if (!root_file_info(image, name, &info))
+        return 0;
+    *out_size = info.size;
+    return 1;
+}
+
+static void manifest_write_root_elf_slot(TextBuffer* text, Image* image, size_t index, const char name[11])
+{
+    char display[13];
+    FatFileInfo info;
+    int present = root_file_info(image, name, &info);
+
+    format_fat_name((const uint8_t*)name, display);
+    text_appendf(text, "root_elf_slot.%zu.file=%s\n", index, display);
+    text_appendf(text, "root_elf_slot.%zu.state=%s\n", index, present ? "present" : "absent");
+    if (present) {
+        text_appendf(text, "root_elf_slot.%zu.cluster=%u\n", index, info.first_cluster);
+        text_appendf(text, "root_elf_slot.%zu.size=%u\n", index, info.size);
+    }
+}
+
+static void manifest_write_payload_slot(
+    TextBuffer* text,
+    Image* image,
+    size_t index,
+    const char* kind,
+    size_t root_elf_slot,
+    const char name[11])
+{
+    char display[13];
+    FatFileInfo info;
+    int present = root_file_info(image, name, &info);
+
+    format_fat_name((const uint8_t*)name, display);
+    text_appendf(text, "payload_slot.%zu.kind=%s\n", index, kind);
+    text_appendf(text, "payload_slot.%zu.file=%s\n", index, display);
+    text_appendf(text, "payload_slot.%zu.root_elf_slot=%zu\n", index, root_elf_slot);
+    text_appendf(text, "payload_slot.%zu.state=%s\n", index, present ? "present" : "absent");
+    text_appendf(text, "payload_slot.%zu.source=%s\n", index, present ? "root-elf-input" : "absent");
+    text_appendf(text, "payload_slot.%zu.repo_state=%s\n", index, present ? "unchecked" : "absent");
+    text_appendf(text, "payload_slot.%zu.evidence=%s\n", index, present ? "packaged-file-only" : "absent");
+    text_appendf(text, "payload_slot.%zu.hardware_proof=unclaimed\n", index);
+    text_appendf(text, "payload_slot.%zu.launch_proof=unclaimed\n", index);
+    if (present) {
+        text_appendf(text, "payload_slot.%zu.cluster=%u\n", index, info.first_cluster);
+        text_appendf(text, "payload_slot.%zu.size=%u\n", index, info.size);
+    }
+}
+
+static void proof_manifest_require_root_input(
+    const ManifestEntry* entries,
+    size_t entry_count,
+    Image* image,
+    const char name[11],
+    const char* display,
+    const char* kind)
+{
+    if (!manifest_find(entries, entry_count, display)) {
+        fprintf(stderr, "make_wad_image: Pi proof manifest requires %s %s\n", display, kind);
+        exit(1);
+    }
+
+    uint32_t size = 0;
+    if (!root_file_size(image, name, &size) || size == 0) {
+        fprintf(stderr, "make_wad_image: Pi proof manifest %s %s is missing or empty\n", display, kind);
+        exit(1);
+    }
+}
+
+static void proof_manifest_require_root_file(const ProofManifest* manifest, Image* image, const char name[11], const char* display)
+{
+    proof_manifest_require_root_input(manifest->root_files, manifest->root_file_count, image, name, display, "root file");
+}
+
+static void proof_manifest_require_root_elf(const ProofManifest* manifest, Image* image, const char name[11], const char* display)
+{
+    proof_manifest_require_root_input(manifest->root_elves, manifest->root_elf_count, image, name, display, "root ELF");
+}
+
+static void write_proof_manifest(Image* image, const ProofManifest* manifest)
+{
+    if (!manifest->enabled)
+        return;
+
+    proof_manifest_require_root_file(manifest, image, PI4_KERNEL8_IMG_NAME, "KERNEL8.IMG");
+    proof_manifest_require_root_file(manifest, image, PI4_CONFIG_TXT_NAME, "CONFIG.TXT");
+    proof_manifest_require_root_elf(manifest, image, INIT_ELF_NAME, "INIT.ELF");
+    proof_manifest_require_root_elf(manifest, image, ABI_PROBE_ELF_NAME, "ABIPROBE.ELF");
+    proof_manifest_require_root_elf(manifest, image, LEGACY_PAYLOAD_ELF_NAME, "PAYLOAD0.ELF");
+    proof_manifest_require_root_elf(manifest, image, PAYLOAD1_ELF_NAME, "PAYLOAD1.ELF");
+
+    TextBuffer text;
+    memset(&text, 0, sizeof(text));
+    const ManifestEntry* kernel = manifest_find(manifest->root_files, manifest->root_file_count, "KERNEL8.IMG");
+    const ManifestEntry* config = manifest_find(manifest->root_files, manifest->root_file_count, "CONFIG.TXT");
+
+    text_appendf(&text, "schema=vibe-os-pi4-image-manifest-v1\n");
+    text_appendf(&text, "layout=vibe-os-pi4-fat16-v1\n");
+    text_appendf(&text, "root_lba=%u\n", root_lba());
+    text_appendf(&text, "data_lba=%u\n", data_lba());
+    text_appendf(&text, "root_entry_count=%u\n", ROOT_ENTRIES);
+    text_appendf(&text, "manifest_path=%s\n", PROOF_MANIFEST_PATH);
+    if (kernel) {
+        text_appendf(&text, "kernel_file=%s\n", kernel->file);
+        text_appendf(&text, "kernel_size=%zu\n", kernel->size);
+    } else {
+        text_appendf(&text, "kernel_file=absent\n");
+    }
+    if (config) {
+        text_appendf(&text, "config_file=%s\n", config->file);
+        text_appendf(&text, "config_size=%zu\n", config->size);
+    } else {
+        text_appendf(&text, "config_file=absent\n");
+    }
+    text_appendf(&text, "root_elf_slot_count=4\n");
+    manifest_write_root_elf_slot(&text, image, 0, INIT_ELF_NAME);
+    manifest_write_root_elf_slot(&text, image, 1, ABI_PROBE_ELF_NAME);
+    manifest_write_root_elf_slot(&text, image, 2, LEGACY_PAYLOAD_ELF_NAME);
+    manifest_write_root_elf_slot(&text, image, 3, PAYLOAD1_ELF_NAME);
+    text_appendf(&text, "payload_slot_count=2\n");
+    manifest_write_payload_slot(&text, image, 0, "doom", 2, LEGACY_PAYLOAD_ELF_NAME);
+    manifest_write_payload_slot(&text, image, 1, "quake", 3, PAYLOAD1_ELF_NAME);
+    text_appendf(&text, "primary_asset_file=DOOM1.WAD\n");
+    text_appendf(&text, "primary_asset_kind=doom-wad\n");
+    text_appendf(&text, "primary_asset_state=present\n");
+    text_appendf(&text, "primary_asset_source=%s\n", manifest->primary_asset_external ? "external" : "generated-fixture");
+    text_appendf(&text, "primary_asset_repo_state=%s\n", manifest->primary_asset_external ? "outside-repo" : "generated-by-builder");
+    text_appendf(&text, "primary_asset_evidence=packaged-file-only\n");
+    text_appendf(&text, "primary_asset_hardware_proof=unclaimed\n");
+    text_appendf(&text, "primary_asset_size=%zu\n", manifest->primary_asset_size);
+    text_appendf(&text, "asset_slot_count=2\n");
+    text_appendf(&text, "asset_slot.0.kind=doom-wad\n");
+    text_appendf(&text, "asset_slot.0.file=DOOM1.WAD\n");
+    text_appendf(&text, "asset_slot.0.state=present\n");
+    text_appendf(&text, "asset_slot.0.source=%s\n", manifest->primary_asset_external ? "external" : "generated-fixture");
+    text_appendf(&text, "asset_slot.0.repo_state=%s\n", manifest->primary_asset_external ? "outside-repo" : "generated-by-builder");
+    text_appendf(&text, "asset_slot.0.evidence=packaged-file-only\n");
+    text_appendf(&text, "asset_slot.0.hardware_proof=unclaimed\n");
+    text_appendf(&text, "asset_slot.0.size=%zu\n", manifest->primary_asset_size);
+    text_appendf(&text, "asset_slot.1.kind=quake-pak\n");
+    text_appendf(&text, "asset_slot.1.file=%s\n", PROOF_QUAKE_PAK_PATH);
+    text_appendf(&text, "asset_slot.1.state=%s\n", manifest->quake_pak_present ? "present" : "absent");
+    if (manifest->quake_pak_present) {
+        text_appendf(&text, "asset_slot.1.source=external\n");
+        text_appendf(&text, "asset_slot.1.repo_state=outside-repo\n");
+        text_appendf(&text, "asset_slot.1.evidence=packaged-file-only\n");
+        text_appendf(&text, "asset_slot.1.hardware_proof=unclaimed\n");
+        text_appendf(&text, "asset_slot.1.size=%zu\n", manifest->quake_pak_size);
+    } else {
+        text_appendf(&text, "asset_slot.1.source=absent\n");
+        text_appendf(&text, "asset_slot.1.repo_state=absent\n");
+        text_appendf(&text, "asset_slot.1.evidence=absent\n");
+        text_appendf(&text, "asset_slot.1.hardware_proof=unclaimed\n");
+    }
+    text_appendf(&text, "default_asset_count=%u\n", (unsigned)DEFAULT_PI4_ASSET_COUNT);
+    text_appendf(&text, "default_asset.0.file=%s\n", DEFAULT_PI4_ASSET_README_PATH);
+    text_appendf(&text, "default_asset.0.size=%zu\n", sizeof(DEFAULT_PI4_ASSET_README) - 1);
+    text_appendf(&text, "default_asset.1.file=%s\n", DEFAULT_PI4_ASSET_MAP_PATH);
+    text_appendf(&text, "default_asset.1.size=%zu\n", sizeof(DEFAULT_PI4_ASSET_MAP) - 1);
+    text_appendf(&text, "default_asset.2.file=%s\n", DEFAULT_PI4_ASSET_PALETTE_PATH);
+    text_appendf(&text, "default_asset.2.size=%u\n", (unsigned)DEFAULT_PI4_PALETTE_BYTES);
+    text_appendf(&text, "quake_pak_file=%s\n", PROOF_QUAKE_PAK_PATH);
+    text_appendf(&text, "quake_pak_kind=quake-pak\n");
+    text_appendf(&text, "quake_pak_state=%s\n", manifest->quake_pak_present ? "present" : "absent");
+    if (manifest->quake_pak_present) {
+        text_appendf(&text, "quake_pak_source=external\n");
+        text_appendf(&text, "quake_pak_repo_state=outside-repo\n");
+        text_appendf(&text, "quake_pak_evidence=packaged-file-only\n");
+        text_appendf(&text, "quake_pak_hardware_proof=unclaimed\n");
+        text_appendf(&text, "quake_pak_size=%zu\n", manifest->quake_pak_size);
+    } else {
+        text_appendf(&text, "quake_pak_source=absent\n");
+        text_appendf(&text, "quake_pak_repo_state=absent\n");
+        text_appendf(&text, "quake_pak_evidence=absent\n");
+        text_appendf(&text, "quake_pak_hardware_proof=unclaimed\n");
+    }
+    text_appendf(&text, "root_file_count=%zu\n", manifest->root_file_count);
+    for (size_t i = 0; i < manifest->root_file_count; i++) {
+        text_appendf(&text, "root_file.%zu.file=%s\n", i, manifest->root_files[i].file);
+        text_appendf(&text, "root_file.%zu.size=%zu\n", i, manifest->root_files[i].size);
+    }
+    text_appendf(&text, "root_elf_count=%zu\n", manifest->root_elf_count);
+    for (size_t i = 0; i < manifest->root_elf_count; i++) {
+        text_appendf(&text, "root_elf.%zu.file=%s\n", i, manifest->root_elves[i].file);
+        text_appendf(&text, "root_elf.%zu.size=%zu\n", i, manifest->root_elves[i].size);
+    }
+    text_appendf(&text, "asset_count=%zu\n", manifest->asset_count);
+    for (size_t i = 0; i < manifest->asset_count; i++) {
+        text_appendf(&text, "asset.%zu.file=%s\n", i, manifest->assets[i].file);
+        text_appendf(&text, "asset.%zu.kind=%s\n", i, manifest_asset_kind_for_path(manifest->assets[i].file));
+        text_appendf(&text, "asset.%zu.source=external-host-input\n", i);
+        text_appendf(&text, "asset.%zu.repo_state=%s\n", i, manifest_asset_repo_state_for_path(manifest->assets[i].file));
+        text_appendf(&text, "asset.%zu.evidence=packaged-file-only\n", i);
+        text_appendf(&text, "asset.%zu.hardware_proof=unclaimed\n", i);
+        text_appendf(&text, "asset.%zu.size=%zu\n", i, manifest->assets[i].size);
+    }
+
+    char path[4][11];
+    size_t count = 0;
+    parse_path83(PROOF_MANIFEST_PATH, path, &count, 4);
+    write_file_path(image, path, count, (const uint8_t*)text.data, text.size, FAT_ATTR_ARCHIVE | FAT_ATTR_READ_ONLY);
+    free(text.data);
 }
 
 static void write_empty_root_entry(Image* image, const char name[11])
@@ -1209,9 +2340,51 @@ static Blob load_external_wad(const char* path)
     uint32_t lump_count = get_u32(wad.data, wad.size, 4);
     uint32_t directory_offset = get_u32(wad.data, wad.size, 8);
     uint64_t directory_end = (uint64_t)directory_offset + (uint64_t)lump_count * 16;
+    if (lump_count == 0)
+        die_path(path, "WAD has no lumps");
     if (directory_end > wad.size)
         die_path(path, "WAD directory is outside the file");
+    for (uint32_t i = 0; i < lump_count; i++) {
+        size_t entry = (size_t)directory_offset + (size_t)i * 16;
+        uint32_t lump_offset = get_u32(wad.data, wad.size, entry);
+        uint32_t lump_size = get_u32(wad.data, wad.size, entry + 4);
+        uint64_t lump_end = (uint64_t)lump_offset + lump_size;
+        if (lump_size == 0) {
+            if (lump_offset > wad.size)
+                die_path(path, "WAD marker lump points outside the file");
+        } else if (lump_end > wad.size) {
+            die_path(path, "WAD lump data is outside the file");
+        }
+    }
     return wad;
+}
+
+static void validate_quake_pak(const char* path, const Blob* pak)
+{
+    if (pak->size < 12)
+        die_path(path, "too small to be a Quake PAK");
+    if (memcmp(pak->data, "PACK", 4) != 0)
+        die_path(path, "does not start with PACK");
+
+    uint32_t directory_offset = get_u32(pak->data, pak->size, 4);
+    uint32_t directory_size = get_u32(pak->data, pak->size, 8);
+    uint64_t directory_end = (uint64_t)directory_offset + directory_size;
+    if (directory_size == 0 || directory_size % PAK_DIRECTORY_ENTRY_SIZE != 0)
+        die_path(path, "PAK directory size is invalid");
+    if (directory_end > pak->size)
+        die_path(path, "PAK directory is outside the file");
+
+    uint32_t entry_count = directory_size / PAK_DIRECTORY_ENTRY_SIZE;
+    for (uint32_t i = 0; i < entry_count; i++) {
+        size_t entry = (size_t)directory_offset + (size_t)i * PAK_DIRECTORY_ENTRY_SIZE;
+        uint32_t file_offset = get_u32(pak->data, pak->size, entry + 56);
+        uint32_t file_size = get_u32(pak->data, pak->size, entry + 60);
+        uint64_t file_end = (uint64_t)file_offset + file_size;
+        if (pak->data[entry] == 0)
+            die_path(path, "PAK entry has an empty name");
+        if (file_end > pak->size)
+            die_path(path, "PAK entry data is outside the file");
+    }
 }
 
 static void write_mbr_and_bpb(Image* image, const char* stage1_path, const char* stage2_path, const char* kernel_path)
@@ -1272,9 +2445,7 @@ static void write_mbr_and_bpb(Image* image, const char* stage1_path, const char*
 
 static void package_default_assets(Image* image)
 {
-    static const uint8_t readme[] = "vibe-os FAT16 one-level asset file\n";
-    static const uint8_t map[] = "name=E1M1\nmusic=D_E1M1\n";
-    uint8_t pal[32];
+    uint8_t pal[DEFAULT_PI4_PALETTE_BYTES];
     char path[4][11];
     size_t count = 0;
 
@@ -1282,26 +2453,34 @@ static void package_default_assets(Image* image)
     memcpy(state_path[0], STATE_DIR_NAME, 11);
     ensure_directory_path(image, state_path, 1, FAT_ATTR_DIRECTORY);
 
-    parse_path83("/assets/readme.txt", path, &count, 4);
-    write_file_path(image, path, count, readme, sizeof(readme) - 1, FAT_ATTR_ARCHIVE | FAT_ATTR_READ_ONLY);
-    parse_path83("/assets/maps/e1m1.map", path, &count, 4);
-    write_file_path(image, path, count, map, sizeof(map) - 1, FAT_ATTR_ARCHIVE | FAT_ATTR_READ_ONLY);
+    parse_path83(DEFAULT_PI4_ASSET_README_PATH, path, &count, 4);
+    write_file_path(image, path, count, DEFAULT_PI4_ASSET_README, sizeof(DEFAULT_PI4_ASSET_README) - 1, FAT_ATTR_ARCHIVE | FAT_ATTR_READ_ONLY);
+    parse_path83(DEFAULT_PI4_ASSET_MAP_PATH, path, &count, 4);
+    write_file_path(image, path, count, DEFAULT_PI4_ASSET_MAP, sizeof(DEFAULT_PI4_ASSET_MAP) - 1, FAT_ATTR_ARCHIVE | FAT_ATTR_READ_ONLY);
     for (size_t i = 0; i < sizeof(pal); i++)
         pal[i] = (uint8_t)i;
-    parse_path83("/assets/textures/pal0.bin", path, &count, 4);
+    parse_path83(DEFAULT_PI4_ASSET_PALETTE_PATH, path, &count, 4);
     write_file_path(image, path, count, pal, sizeof(pal), FAT_ATTR_ARCHIVE | FAT_ATTR_READ_ONLY);
 }
 
-static void package_extra_asset(Image* image, const char* display, const char* host_path)
+static size_t package_extra_asset(Image* image, const char* display, const char* host_path, int proof_manifest_enabled, int* out_is_quake_pak)
 {
     char path[8][11];
     size_t count = 0;
     parse_path83(display, path, &count, 8);
     if (count < 2)
         die("--asset path must include a directory component");
+    int is_quake_pak = asset_path_is_quake_pak0(path, count);
+    *out_is_quake_pak = is_quake_pak;
+    if (proof_manifest_enabled && is_quake_pak)
+        reject_repo_local_external_asset(host_path, "external Quake PAK");
     Blob data = read_file(host_path);
+    if (is_quake_pak)
+        validate_quake_pak(host_path, &data);
+    size_t size = data.size;
     write_file_path(image, path, count, data.data, data.size, FAT_ATTR_ARCHIVE | FAT_ATTR_READ_ONLY);
     free(data.data);
+    return size;
 }
 
 static void install_bootable_layout(
@@ -1314,17 +2493,29 @@ static void install_bootable_layout(
     const char* legacy_payload_elf_path,
     RootElfArg* root_elves,
     size_t root_elf_count,
+    RootFileArg* root_files,
+    size_t root_file_count,
     AssetArg* assets,
-    size_t asset_count)
+    size_t asset_count,
+    int proof_manifest_enabled)
 {
     if ((stage1_path || stage2_path || kernel_path) && !(stage1_path && stage2_path && kernel_path))
         die("stage1, stage2, and kernel paths must be provided together");
     if (legacy_payload_elf_path && !user_elf_path)
         die("legacy root payload ELF packaging requires a user probe ELF path");
 
+    ProofManifest manifest;
+    memset(&manifest, 0, sizeof(manifest));
+    manifest.enabled = proof_manifest_enabled;
+    manifest.primary_asset_external = primary_asset_wad_path != NULL;
+
     write_mbr_and_bpb(image, stage1_path, stage2_path, kernel_path);
 
+    if (proof_manifest_enabled && primary_asset_wad_path)
+        reject_repo_local_external_asset(primary_asset_wad_path, "external Doom WAD");
+
     Blob primary_asset = primary_asset_wad_path ? load_external_wad(primary_asset_wad_path) : build_generated_wad();
+    manifest.primary_asset_size = primary_asset.size;
     uint32_t primary_asset_clusters = 0;
     uint32_t primary_asset_cluster = write_cluster_chain(image, primary_asset.data, primary_asset.size, &primary_asset_clusters);
     if (primary_asset_cluster != 2)
@@ -1353,13 +2544,29 @@ static void install_bootable_layout(
     for (size_t i = 0; i < root_elf_count; i++) {
         Blob elf = read_file(root_elves[i].path);
         write_root_file_entry(image, root_elves[i].name, elf.data, elf.size);
+        manifest_note_root_elf(&manifest, root_elves[i].name, elf.size);
         free(elf.data);
     }
 
-    package_default_assets(image);
-    for (size_t i = 0; i < asset_count; i++)
-        package_extra_asset(image, assets[i].display, assets[i].path);
+    for (size_t i = 0; i < root_file_count; i++) {
+        Blob file = read_file(root_files[i].path);
+        write_root_file_entry(image, root_files[i].name, file.data, file.size);
+        manifest_note_root_file(&manifest, root_files[i].name, file.size);
+        free(file.data);
+    }
 
+    package_default_assets(image);
+    for (size_t i = 0; i < asset_count; i++) {
+        int is_quake_pak = 0;
+        size_t asset_size = package_extra_asset(image, assets[i].display, assets[i].path, proof_manifest_enabled, &is_quake_pak);
+        if (is_quake_pak) {
+            manifest.quake_pak_present = 1;
+            manifest.quake_pak_size = asset_size;
+        }
+        manifest_note_asset(&manifest, assets[i].display, asset_size);
+    }
+
+    write_proof_manifest(image, &manifest);
     write_root_file_entry(image, DEFAULT_CFG_NAME, DEFAULT_CFG_CONTENT, sizeof(DEFAULT_CFG_CONTENT) - 1);
     for (int slot = 0; slot < 6; slot++) {
         char save_name[11];
@@ -1379,6 +2586,7 @@ static void install_bootable_layout(
         die("FAT16 image does not leave enough OS-created file headroom");
 
     write_fat_copies(image);
+    free_proof_manifest(&manifest);
 }
 
 static void parse_root_elf_arg(const char* arg, RootElfArg* out)
@@ -1393,6 +2601,22 @@ static void parse_root_elf_arg(const char* arg, RootElfArg* out)
     memcpy(display, arg, display_len);
     display[display_len] = 0;
     root83_from_display(display, out->name);
+    reject_protected_root_name(out->name);
+    out->path = eq + 1;
+}
+
+static void parse_root_file_arg(const char* arg, RootFileArg* out)
+{
+    const char* eq = strchr(arg, '=');
+    if (!eq || eq == arg || !eq[1])
+        die("--root-file must be NAME.EXT=PATH");
+    char display[64];
+    size_t display_len = (size_t)(eq - arg);
+    if (display_len >= sizeof(display))
+        die("--root-file display name is too long");
+    memcpy(display, arg, display_len);
+    display[display_len] = 0;
+    root_file83_from_display(display, out->name);
     reject_protected_root_name(out->name);
     out->path = eq + 1;
 }
@@ -1448,7 +2672,8 @@ static void mutate_root_marker(const char* image_path, const char* symbol, const
 
 static void usage(void)
 {
-    die("usage: make_wad_image [--inspect IMAGE] [--primary-asset-wad PATH|--wad PATH] [--root-elf NAME.ELF=PATH] [--asset IMAGE_8.3_PATH=HOST_PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [LEGACY_PAYLOAD_ELF]]]\n"
+    die("usage: make_wad_image [--require-real-assets] [--require-file FAT_PATH] --inspect IMAGE\n"
+        "       make_wad_image [--proof-manifest] [--primary-asset-wad PATH|--wad PATH] [--root-elf NAME.ELF=PATH] [--root-file NAME.EXT=PATH] [--asset IMAGE_8.3_PATH=HOST_PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [LEGACY_PAYLOAD_ELF]]]\n"
         "       make_wad_image --write-root-marker SYMBOL PAYLOAD IMAGE\n"
         "       make_wad_image --delete-root-marker SYMBOL IMAGE\n"
         "       make_wad_image --check-persistence IMAGE [--baseline-image IMAGE] [--reboot-baseline-image IMAGE] [--write-status FILE] [--save-write-status FILE] [--load-status FILE] [--reboot-status FILE] [--require-default] [--require-dynamic-fat-proof] [--require-save-slot N] [--require-save-description N=TEXT]");
@@ -1458,8 +2683,14 @@ int main(int argc, char** argv)
 {
     const char* primary_asset_wad_path = NULL;
     const char* inspect_path = NULL;
+    int proof_manifest_enabled = 0;
+    int require_real_assets = 0;
+    const char** inspect_required_files = NULL;
+    size_t inspect_required_file_count = 0;
     RootElfArg* root_elves = NULL;
     size_t root_elf_count = 0;
+    RootFileArg* root_files = NULL;
+    size_t root_file_count = 0;
     AssetArg* assets = NULL;
     size_t asset_count = 0;
     const char** positional = (const char**)xcalloc((size_t)argc, sizeof(char*));
@@ -1530,10 +2761,21 @@ int main(int argc, char** argv)
             if (++i >= argc)
                 usage();
             primary_asset_wad_path = argv[i];
+        } else if (strcmp(argv[i], "--proof-manifest") == 0) {
+            proof_manifest_enabled = 1;
         } else if (strcmp(argv[i], "--inspect") == 0) {
             if (++i >= argc)
                 usage();
             inspect_path = argv[i];
+        } else if (strcmp(argv[i], "--require-real-assets") == 0) {
+            require_real_assets = 1;
+        } else if (strcmp(argv[i], "--require-file") == 0) {
+            if (++i >= argc)
+                usage();
+            inspect_required_files = (const char**)xrealloc(
+                inspect_required_files,
+                (inspect_required_file_count + 1) * sizeof(inspect_required_files[0]));
+            inspect_required_files[inspect_required_file_count++] = argv[i];
         } else if (strcmp(argv[i], "--root-elf") == 0) {
             if (++i >= argc)
                 usage();
@@ -1544,6 +2786,16 @@ int main(int argc, char** argv)
                     die("duplicate --root-elf entry");
             }
             root_elf_count++;
+        } else if (strcmp(argv[i], "--root-file") == 0) {
+            if (++i >= argc)
+                usage();
+            root_files = (RootFileArg*)xrealloc(root_files, (root_file_count + 1) * sizeof(root_files[0]));
+            parse_root_file_arg(argv[i], &root_files[root_file_count]);
+            for (size_t existing = 0; existing < root_file_count; existing++) {
+                if (name_eq(root_files[existing].name, root_files[root_file_count].name))
+                    die("duplicate --root-file entry");
+            }
+            root_file_count++;
         } else if (strcmp(argv[i], "--asset") == 0) {
             if (++i >= argc)
                 usage();
@@ -1557,14 +2809,18 @@ int main(int argc, char** argv)
     }
 
     if (inspect_path) {
-        if (positional_count || primary_asset_wad_path || root_elf_count || asset_count)
+        if (positional_count || primary_asset_wad_path || proof_manifest_enabled || root_elf_count || root_file_count || asset_count)
             usage();
-        inspect_image(inspect_path);
+        inspect_image(inspect_path, require_real_assets, inspect_required_files, inspect_required_file_count);
+        free(inspect_required_files);
         free(root_elves);
+        free(root_files);
         free(assets);
         free(positional);
         return 0;
     }
+    if (require_real_assets || inspect_required_file_count)
+        usage();
 
     if (!(positional_count == 1 || positional_count == 4 || positional_count == 5 || positional_count == 6))
         usage();
@@ -1572,6 +2828,16 @@ int main(int argc, char** argv)
         for (size_t j = 0; j < i; j++) {
             if (name_eq(root_elves[i].name, root_elves[j].name))
                 die("duplicate --root-elf FAT16 name");
+        }
+    }
+    for (size_t i = 0; i < root_file_count; i++) {
+        for (size_t j = 0; j < i; j++) {
+            if (name_eq(root_files[i].name, root_files[j].name))
+                die("duplicate --root-file FAT16 name");
+        }
+        for (size_t j = 0; j < root_elf_count; j++) {
+            if (name_eq(root_files[i].name, root_elves[j].name))
+                die("--root-file conflicts with --root-elf FAT16 name");
         }
     }
 
@@ -1590,6 +2856,10 @@ int main(int argc, char** argv)
             if (name_eq(root_elves[i].name, LEGACY_PAYLOAD_ELF_NAME))
                 die("legacy payload ELF conflicts with --root-elf");
         }
+        for (size_t i = 0; i < root_file_count; i++) {
+            if (name_eq(root_files[i].name, LEGACY_PAYLOAD_ELF_NAME))
+                die("legacy payload ELF conflicts with --root-file");
+        }
     }
 
     install_bootable_layout(
@@ -1602,12 +2872,17 @@ int main(int argc, char** argv)
         legacy_payload_elf,
         root_elves,
         root_elf_count,
+        root_files,
+        root_file_count,
         assets,
-        asset_count);
+        asset_count,
+        proof_manifest_enabled);
 
     write_file(positional[0], image.data, image.size);
     free(image.data);
     free(root_elves);
+    free(root_files);
+    free(inspect_required_files);
     free(assets);
     free(positional);
     return 0;

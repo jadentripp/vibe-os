@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO="${VIBE_REPO:-}"
 REF="${VIBE_REF:-}"
+PLAY_MODE="${VIBE_PLAY_MODE:-${VIBE_PLAY_KIND:-pi4}}"
 REPO_EXPLICIT=0
 REF_EXPLICIT=0
 CODESPACE_NAME="${CODESPACE_NAME:-}"
@@ -11,6 +12,7 @@ CODESPACE_MACHINE="${CODESPACE_MACHINE:-}"
 IDLE_TIMEOUT="${IDLE_TIMEOUT:-30m}"
 RETENTION_PERIOD="${RETENTION_PERIOD:-1h}"
 NOVNC_PORT="${NOVNC_PORT:-6080}"
+NOVNC_VNC_PATH="${NOVNC_VNC_PATH:-/vnc.html?autoconnect=1&resize=scale}"
 OPEN_BROWSER="${OPEN_BROWSER:-1}"
 CODESPACES_PORT_WAIT_SECONDS="${CODESPACES_PORT_WAIT_SECONDS:-300}"
 CODESPACES_PORT_WAIT_INTERVAL="${CODESPACES_PORT_WAIT_INTERVAL:-5}"
@@ -19,6 +21,7 @@ CODESPACES_READY_WAIT_INTERVAL="${CODESPACES_READY_WAIT_INTERVAL:-5}"
 CODESPACES_SSH_ATTEMPTS="${CODESPACES_SSH_ATTEMPTS:-18}"
 CODESPACES_SSH_RETRY_SECONDS="${CODESPACES_SSH_RETRY_SECONDS:-10}"
 CODESPACES_MIN_INTERACTIVE_CPUS="${CODESPACES_MIN_INTERACTIVE_CPUS:-4}"
+PI4_REMOTE_QEMU_INPUT_ARGS="-M raspi4b,usb=on -device usb-kbd -device usb-mouse"
 MAX_DISPLAY_NAME_LENGTH=48
 RUN_PREFLIGHT_ONLY=0
 PRINT_WEB_URL_ONLY=0
@@ -32,8 +35,10 @@ REMOTE_PLAY_PATHS=(
   "Makefile"
   "tools/play_now_remote.sh"
   "tools/play_now_cloud_shell.sh"
+  "tools/prepare_game_assets.sh"
   "tools/link_elf32.c"
   "tools/make_wad_image.c"
+  "tools/pi4_qemu_command.c"
   "tools/vibe_status_check.c"
 )
 
@@ -48,12 +53,11 @@ usage() {
   cat <<'EOF'
 Usage: tools/play_now_codespaces.sh [options]
 
-Create or reuse a disposable GitHub Codespace, start vibe-os there with
-shareware Doom data through tools/play_now_remote.sh, make noVNC private, and
-print the browser URL.
+Create or reuse a disposable GitHub Codespace, start vibe-os there through
+tools/play_now_remote.sh, make noVNC private, and print/open the browser URL.
 
 This script is safe to run on the Mac: it uses gh to control Codespaces only.
-QEMU, the shareware WAD, disk image, pixels, and raw audio stay inside the
+QEMU, WAD/PAK inputs, disk images, pixels, and raw audio stay inside the
 Codespace. The selected GitHub branch must already contain the devcontainer
 and remote play scripts; local uncommitted launcher edits are never copied.
 
@@ -61,6 +65,12 @@ Options:
   --repo OWNER/REPO       Repository to create the Codespace from.
                           Default: gh repo view for the current checkout.
   --ref BRANCH            Branch/ref to use. Default: current git branch.
+  --pi4                   Boot the Pi 4 hardware-equivalent real-assets
+                          desktop over noVNC. Default.
+                          The remote launcher prints the exact image/kernel
+                          paths, hashes, and visible QEMU argv before launch.
+  --x86                   Boot the legacy x86 Doom image over noVNC.
+  --mode MODE             MODE may be x86 or pi4.
   --codespace NAME        Reuse an existing Codespace instead of creating one.
   --display-name NAME     Display name for a newly created Codespace.
   --machine NAME          Optional Codespaces machine type. If omitted for a
@@ -76,6 +86,11 @@ Options:
                           gh Codespaces API scope.
   --no-open               Do not open the noVNC URL automatically on macOS.
   -h, --help              Show this help.
+
+Environment:
+  NOVNC_VNC_PATH='/vnc.html?autoconnect=1&resize=scale'
+                          noVNC page/options. The default autoconnects and
+                          scales the Pi desktop to the browser window.
 EOF
 }
 
@@ -133,6 +148,7 @@ print_codespace_cleanup_commands() {
   echo "Diagnostics: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh"
   echo "Diagnostics JSON: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh --json"
   echo "Diagnostics watch: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh --watch"
+  echo "Startup log tail: gh codespace ssh -c \"$CODESPACE_NAME\" -- 'tail -n 120 /tmp/vibe-os-play-now.log'"
   echo "Status: gh codespace ssh -c \"$CODESPACE_NAME\" -- /tmp/vibe-os-play-now-diagnostics.sh"
   echo "List ports: gh codespace ports -c \"$CODESPACE_NAME\""
   echo "Inspect machine: gh api /user/codespaces/$CODESPACE_NAME --jq .machine"
@@ -142,6 +158,7 @@ print_codespace_cleanup_commands() {
   echo "Fallback stop: gh codespace ssh -c \"$CODESPACE_NAME\" -- 'if [ -s /tmp/vibe-os-play-now.pid ]; then kill \"\$(cat /tmp/vibe-os-play-now.pid)\"; fi'"
   echo "Delete when done: gh codespace delete -c \"$CODESPACE_NAME\" --force"
   echo "Browser cleanup: GitHub repo > Code > Codespaces > ... > Delete"
+  echo "Artifact hygiene: leave WADs, PAKs, disk images, screenshots, raw audio, and VM logs inside the disposable Codespace."
 }
 
 verify_remote_play_payload() {
@@ -279,11 +296,38 @@ codespaces_create_url() {
 print_inside_codespace_commands() {
   cat <<EOF
 Inside the Codespace terminal:
-  ./tools/play_now_remote.sh --preflight --require-novnc
-  ./tools/play_now_remote.sh --require-novnc
+  ./tools/play_now_remote.sh --$PLAY_MODE --preflight --require-novnc
+  ./tools/play_now_remote.sh --$PLAY_MODE --require-novnc
+
+For Pi mode, the start command prepares the real WAD/PAK desktop image, then
+prints the exact PI4_REAL_ASSET_IMAGE path, handoff file, kernel hash, and
+visible-play QEMU argv before launch. The QEMU input path is:
+  $PI4_REMOTE_QEMU_INPUT_ARGS
+The noVNC canvas is scaled; use browser fullscreen for the zoomed play surface.
+Click the canvas once, then press 1/click Doom or press 2/click Quake. That
+visible session is not a proof gate.
 
 Then open the forwarded private port $NOVNC_PORT URL with this path:
-  /vnc.html?autoconnect=1
+  $NOVNC_VNC_PATH
+EOF
+}
+
+print_pi4_codespaces_handoff() {
+  echo "Pi 4 prepared image: remote launcher builds and boots PI4_REAL_ASSET_IMAGE, then prints its path and sha256."
+  echo "Pi 4 noVNC view: open the private URL in browser fullscreen; resize=scale keeps the guest desktop fitted to the window."
+  echo "Pi 4 focus: click the noVNC canvas once before keyboard or mouse input."
+  echo "Pi 4 launcher: press 1/click Doom or press 2/click Quake inside vibe-os."
+  echo "Pi 4 QEMU input args: $PI4_REMOTE_QEMU_INPUT_ARGS"
+}
+
+print_visible_play_controls() {
+  cat <<'EOF'
+Visible play controls:
+  noVNC focus: click the scaled canvas once before typing or using the mouse.
+  Launcher: 1/click Doom, 2/click Quake, or W/S plus Enter from inside vibe-os.
+  Pi Doom: W/Up forward, S/Down back, A/Left and D/Right turn, Space/Enter/Ctrl or left mouse fires.
+  Pi Quake: WASD moves, arrows look, Ctrl/Enter or left mouse fires, Space/Shift jumps, Escape toggles menu.
+  x86 Doom: arrows move/turn, Ctrl fires, Space uses, Escape opens menu.
 EOF
 }
 
@@ -335,6 +379,34 @@ validate_novnc_port() {
   if [ "$NOVNC_PORT" -lt 1 ] || [ "$NOVNC_PORT" -gt 65535 ]; then
     die "NOVNC_PORT must be between 1 and 65535, got '$NOVNC_PORT'"
   fi
+}
+
+validate_novnc_path() {
+  case "$NOVNC_VNC_PATH" in
+    *$'\n'*|*$'\r'*|*' '*|*'	'*|*\'*)
+      die "NOVNC_VNC_PATH must not contain whitespace or quotes, got '$NOVNC_VNC_PATH'"
+      ;;
+  esac
+  case "$NOVNC_VNC_PATH" in
+    /vnc.html|/vnc.html\?*)
+      ;;
+    /*)
+      die "NOVNC_VNC_PATH must point at /vnc.html with noVNC options, got '$NOVNC_VNC_PATH'"
+      ;;
+    *)
+      die "NOVNC_VNC_PATH must start with /vnc.html, got '$NOVNC_VNC_PATH'"
+      ;;
+  esac
+}
+
+validate_play_mode() {
+  case "$PLAY_MODE" in
+    x86|pi4)
+      ;;
+    *)
+      die "play mode must be x86 or pi4, got '$PLAY_MODE'"
+      ;;
+  esac
 }
 
 validate_positive_integer() {
@@ -496,10 +568,10 @@ novnc_url_from_browse_url() {
       printf "%s\n" "$browse_url"
       ;;
     *\?*)
-      printf "%s/vnc.html?autoconnect=1\n" "${browse_url%%\?*}"
+      printf "%s%s\n" "${browse_url%%\?*}" "$NOVNC_VNC_PATH"
       ;;
     *)
-      printf "%s/vnc.html?autoconnect=1\n" "${browse_url%/}"
+      printf "%s%s\n" "${browse_url%/}" "$NOVNC_VNC_PATH"
       ;;
   esac
 }
@@ -546,6 +618,7 @@ print_preflight_summary() {
   echo "play-now Codespaces preflight OK"
   echo "repo: $REPO"
   echo "ref: $REF"
+  echo "mode: $PLAY_MODE"
   if [ -n "$CODESPACE_NAME" ]; then
     echo "codespace: reuse $CODESPACE_NAME"
   else
@@ -555,6 +628,15 @@ print_preflight_summary() {
   echo "idle timeout: $IDLE_TIMEOUT"
   echo "retention period: $RETENTION_PERIOD"
   echo "noVNC port: $NOVNC_PORT (private)"
+  echo "noVNC browser path: $NOVNC_VNC_PATH"
+  echo "visible display: open noVNC in browser fullscreen; resize=scale keeps the Pi desktop zoomed to the window"
+  echo "launcher controls: click the noVNC canvas first, then press 1/click Doom or press 2/click Quake"
+  print_visible_play_controls
+  if [ "$PLAY_MODE" = "pi4" ]; then
+    echo "guest UX: Pi 4 real-assets launcher desktop with Doom and Quake choices inside vibe-os"
+    echo "guest input: USB keyboard and USB mouse through QEMU/noVNC"
+    print_pi4_codespaces_handoff
+  fi
   echo "machine selection: $MACHINE_SELECTION_SUMMARY"
   echo "machine choices: gh api \"/repos/$REPO/codespaces/machines?ref=$(urlencode "$REF")\" --jq '.machines[] | [.cpus, .name, .display_name] | @tsv'"
   echo "resize existing Codespace: gh codespace edit -c <codespace-name> --machine <4-plus-cpu-machine-name>"
@@ -567,10 +649,11 @@ print_preflight_summary() {
   echo "remote play payload: verified on selected ref"
   echo "git state: $GIT_STATE_SUMMARY"
   echo "local artifact transfer: none (no WADs, disk images, pixels, raw audio, or logs copied to the Mac)"
-  echo "performance caveat: 2-core Codespaces can play Doom but may stutter during builds or noVNC streaming"
-  echo "performance preference: use the selected 4+ CPU machine for interactive Doom when available"
-  echo "remote preflight command: ./tools/play_now_remote.sh --preflight --require-novnc"
-  echo "remote start command: NOVNC_PORT=$NOVNC_PORT nohup ./tools/play_now_remote.sh --require-novnc"
+  echo "proof boundary: Codespaces/noVNC is visible play only; status/workflow gates remain the proof surface"
+  echo "performance caveat: 2-core Codespaces can play but may stutter during builds or noVNC streaming"
+  echo "performance preference: use the selected 4+ CPU machine for interactive play when available"
+  echo "remote preflight command: ./tools/play_now_remote.sh --$PLAY_MODE --preflight --require-novnc"
+  echo "remote start command: NOVNC_PORT=$NOVNC_PORT NOVNC_VNC_PATH='$NOVNC_VNC_PATH' VIBE_PLAY_MODE=$PLAY_MODE nohup ./tools/play_now_remote.sh --$PLAY_MODE --require-novnc"
   echo "remote diagnostics watch command: /tmp/vibe-os-play-now-diagnostics.sh --watch"
   echo "dry-run: Codespace was not created or modified"
   echo "next: run without --dry-run when you are ready to start the disposable remote play session"
@@ -580,12 +663,23 @@ print_web_url_summary() {
   echo "play-now browser Codespaces path"
   echo "repo: $REPO"
   echo "ref: $REF"
+  echo "mode: $PLAY_MODE"
   echo "noVNC port: $NOVNC_PORT (private)"
+  echo "noVNC browser path: $NOVNC_VNC_PATH"
+  echo "visible display: open noVNC in browser fullscreen; resize=scale keeps the Pi desktop zoomed to the window"
+  echo "launcher controls: click the noVNC canvas first, then press 1/click Doom or press 2/click Quake"
+  print_visible_play_controls
+  if [ "$PLAY_MODE" = "pi4" ]; then
+    echo "guest UX: Pi 4 real-assets launcher desktop with Doom and Quake choices inside vibe-os"
+    echo "guest input: USB keyboard and USB mouse through QEMU/noVNC"
+    print_pi4_codespaces_handoff
+  fi
   echo "GitHub repo/ref: verified"
   echo "remote play payload: verified on selected ref"
   echo "local gh Codespaces API: not required for this browser path"
   echo "local gh auth: optional for this browser path"
   echo "local artifact transfer: none (no WADs, disk images, pixels, raw audio, or logs copied to the Mac)"
+  echo "proof boundary: browser-created Codespaces/noVNC is visible play only; status/workflow gates remain the proof surface"
   echo "machine guidance: choose a 4-core+ Codespaces machine in the browser when available; GitHub defaults to the lowest valid machine"
   echo "machine choices after create: gh api \"/repos/$REPO/codespaces/machines?ref=$(urlencode "$REF")\" --jq '.machines[] | [.cpus, .name, .display_name] | @tsv'"
   echo "resize existing Codespace: gh codespace edit -c <codespace-name> --machine <4-plus-cpu-machine-name>"
@@ -620,6 +714,19 @@ fi
 [ -n "$repo_dir" ] || { echo "could not find repo checkout under /workspaces" >&2; exit 1; }
 cd "$repo_dir"
 
+case "${VIBE_PLAY_MODE:-pi4}" in
+  x86)
+    play_mode_arg=--x86
+    ;;
+  pi4)
+    play_mode_arg=--pi4
+    ;;
+  *)
+    echo "invalid VIBE_PLAY_MODE: ${VIBE_PLAY_MODE:-}" >&2
+    exit 2
+    ;;
+esac
+
 if [ -n "${VIBE_PLAY_REF:-}" ]; then
   git fetch --depth=1 origin "$VIBE_PLAY_REF" >/tmp/vibe-os-play-now-fetch.log 2>&1 || {
     echo "remote git fetch failed for the selected play ref; sanitized recent output:" >&2
@@ -630,7 +737,7 @@ if [ -n "${VIBE_PLAY_REF:-}" ]; then
   echo "remote play ref: $(git rev-parse --short HEAD)"
 fi
 
-./tools/play_now_remote.sh --preflight --require-novnc
+./tools/play_now_remote.sh "$play_mode_arg" --preflight --require-novnc
 
 pid_file=/tmp/vibe-os-play-now.pid
 log_file=/tmp/vibe-os-play-now.log
@@ -650,9 +757,10 @@ if [ -s "$pid_file" ] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
 else
   rm -f "$pid_file" "$log_file" "$port_file"
   printf "%s\n" "$current_port" >"$port_file"
-  nohup ./tools/play_now_remote.sh --require-novnc >"$log_file" 2>&1 &
+  nohup ./tools/play_now_remote.sh "$play_mode_arg" --require-novnc >"$log_file" 2>&1 &
   echo "$!" >"$pid_file"
   echo "vibe-os play-now started in this Codespace: pid=$(cat "$pid_file")"
+  echo "remote noVNC readiness: the launcher waits for vnc.html before it prints its noVNC URL"
   sleep 2
   if ! kill -0 "$(cat "$pid_file")" 2>/dev/null; then
     echo "vibe-os play-now exited during startup; recent remote log:" >&2
@@ -674,7 +782,7 @@ run_remote_start() {
   for ((attempt = 1; attempt <= CODESPACES_SSH_ATTEMPTS; attempt++)); do
     : >"$err_file"
     set +e
-    remote_start_payload | gh codespace ssh -c "$CODESPACE_NAME" -- env VIBE_PLAY_REF="$REF" NOVNC_PORT="$NOVNC_PORT" bash -euo pipefail -s > >(sanitize_remote_error) 2> >(sanitize_remote_error | tee "$err_file" >&2)
+    remote_start_payload | gh codespace ssh -c "$CODESPACE_NAME" -- env VIBE_PLAY_REF="$REF" VIBE_PLAY_MODE="$PLAY_MODE" NOVNC_PORT="$NOVNC_PORT" NOVNC_VNC_PATH="$NOVNC_VNC_PATH" bash -euo pipefail -s > >(sanitize_remote_error) 2> >(sanitize_remote_error | tee "$err_file" >&2)
     rc=$?
     set -e
 
@@ -742,6 +850,17 @@ while [ "$#" -gt 0 ]; do
       RETENTION_PERIOD="$2"
       shift
       ;;
+    --x86)
+      PLAY_MODE=x86
+      ;;
+    --pi4)
+      PLAY_MODE=pi4
+      ;;
+    --mode|--kind)
+      [ "$#" -ge 2 ] || die "$1 requires x86 or pi4"
+      PLAY_MODE="$2"
+      shift
+      ;;
     --preflight|--dry-run)
       RUN_PREFLIGHT_ONLY=1
       ;;
@@ -763,7 +882,9 @@ while [ "$#" -gt 0 ]; do
 done
 
 require_tool git
+validate_play_mode
 validate_novnc_port
+validate_novnc_path
 validate_positive_integer CODESPACES_PORT_WAIT_SECONDS "$CODESPACES_PORT_WAIT_SECONDS"
 validate_positive_integer CODESPACES_PORT_WAIT_INTERVAL "$CODESPACES_PORT_WAIT_INTERVAL"
 validate_positive_integer CODESPACES_READY_WAIT_SECONDS "$CODESPACES_READY_WAIT_SECONDS"
@@ -849,11 +970,11 @@ else
 fi
 
 wait_for_codespace_state
-echo "Starting vibe-os Doom inside Codespace '$CODESPACE_NAME'"
+echo "Starting vibe-os $PLAY_MODE play inside Codespace '$CODESPACE_NAME'"
 run_remote_start || exit $?
 
 novnc_browse_url=""
-echo "Waiting up to ${CODESPACES_PORT_WAIT_SECONDS}s for noVNC port $NOVNC_PORT"
+echo "Waiting up to ${CODESPACES_PORT_WAIT_SECONDS}s for noVNC port $NOVNC_PORT and its forwarded browser URL"
 wait_started=$SECONDS
 while [ $((SECONDS - wait_started)) -lt "$CODESPACES_PORT_WAIT_SECONDS" ]; do
   novnc_browse_url="$(
@@ -882,16 +1003,22 @@ if [ -z "$novnc_browse_url" ]; then
   echo "noVNC browse URL was not ready yet."
   echo "List ports: gh codespace ports -c \"$CODESPACE_NAME\""
   echo "Fallback tunnel: gh codespace ports forward $NOVNC_PORT:$NOVNC_PORT -c \"$CODESPACE_NAME\""
-  echo "Then open: http://127.0.0.1:$NOVNC_PORT/vnc.html?autoconnect=1"
+  echo "Then open: http://127.0.0.1:$NOVNC_PORT$NOVNC_VNC_PATH"
   die "noVNC port $NOVNC_PORT did not become available before the timeout; inspect the remote log above"
 fi
 
 novnc_url="$(novnc_url_from_browse_url "$novnc_browse_url")"
-echo "Open Doom noVNC: $novnc_url"
-echo "Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu."
-echo "Human proof tip: click the noVNC canvas before play; keep any notes short and status-only."
-echo "Audio proof tip: VNC is display/input only; do not copy raw audio back to the Mac."
-echo "Performance note: 2-core Codespaces can play Doom, but noVNC may stutter during builds or CPU contention; 4+ CPUs are preferred for interactive play."
+echo "Open vibe-os $PLAY_MODE noVNC: $novnc_url"
+if [ "$PLAY_MODE" = "x86" ]; then
+  echo "Controls: arrows move/turn, Ctrl fires, Space uses, Escape opens menu."
+else
+  print_pi4_codespaces_handoff
+fi
+print_visible_play_controls
+echo "Human handoff tip: click the noVNC canvas before play; keep any notes short and status-only."
+echo "Proof boundary: this is a visible play session, not a replacement for status/workflow proof gates."
+echo "Audio boundary: VNC is display/input only; do not copy raw audio back to the Mac."
+echo "Performance note: 2-core Codespaces can play, but noVNC may stutter during builds or CPU contention; 4+ CPUs are preferred for interactive play."
 echo "Slowdown check: run the Diagnostics command above twice, about 60s apart; it prints only safe process/load and OS status-log lines."
 echo "Slowdown watch: run the Diagnostics watch command above while playing to sample cgroup CPU pressure and status counters over time."
 echo "If status counters keep advancing but 2-core noVNC keeps degrading, recreate on a 4+ CPU Codespace before changing OS runtime code."
