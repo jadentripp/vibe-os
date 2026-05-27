@@ -1,0 +1,226 @@
+name: Pi 4 host check
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      expected_ref:
+        description: Optional branch/ref guard. Set this to the branch you meant to check; the job fails before toolchain install if the selected workflow ref differs.
+        required: false
+        type: string
+      expected_sha:
+        description: Optional exact commit guard. Set this to the commit you meant to check; the job fails before toolchain install if GITHUB_SHA differs.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  pi4-host:
+    name: Pi 4 host/static artifact path
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ALLOW_LOCAL_VM: "0"
+      DOOM_WAD: ""
+      INPUT_EXPECTED_REF: ${{ inputs.expected_ref }}
+      INPUT_EXPECTED_SHA: ${{ inputs.expected_sha }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Confirm selected check ref
+        run: |
+          set -euo pipefail
+
+          if [ -n "${INPUT_EXPECTED_REF:-}" ] && [ "$GITHUB_REF_NAME" != "$INPUT_EXPECTED_REF" ]; then
+            echo "expected_ref '$INPUT_EXPECTED_REF' does not match selected workflow ref '$GITHUB_REF_NAME'." >&2
+            echo "Use the Run workflow branch selector or gh workflow run pi4-host-check.yml --ref '$INPUT_EXPECTED_REF'." >&2
+            exit 1
+          fi
+          if [ -n "${INPUT_EXPECTED_SHA:-}" ] && [ "$GITHUB_SHA" != "$INPUT_EXPECTED_SHA" ]; then
+            echo "expected_sha '$INPUT_EXPECTED_SHA' does not match selected workflow commit '$GITHUB_SHA'." >&2
+            exit 1
+          fi
+
+          echo "Running Pi 4 host/static check on ref '$GITHUB_REF_NAME' at commit '$GITHUB_SHA'."
+
+      - name: Summarize Pi 4 host lane
+        run: |
+          set -euo pipefail
+
+          echo "Pi 4 lane: host/static artifact build and inspection only."
+          echo "Hardware proof: unclaimed."
+          echo "Code gates: all Pi boot/user AArch64 assembly and host validators compile without local VM."
+          echo "User handoff: make pi4-qemu-prep builds and inspects the Pi image, then prints the QEMU argv without executing a VM."
+          echo "Artifact policy: upload status JSON only; no WADs, PAKs, disk images, screenshots, rendered pixels, raw audio, logs, secrets, or one-time codes."
+          {
+            echo "### Pi 4 host check"
+            echo ""
+            echo "- lane: host/static artifact build and inspection only"
+            echo "- Raspberry Pi hardware proof: unclaimed"
+            echo "- local execution guard: \`ALLOW_LOCAL_VM=0\`"
+            echo "- user handoff: \`make pi4-qemu-prep\` prints the QEMU argv after host-only image inspection"
+            echo "- code gates: Pi 4 boot/user assembly objects, user ELFs, and host validator/linker tools"
+            echo "- artifact: \`pi4-host-check-status\`"
+            echo "- artifact policy: status JSON only; no WADs, PAKs, disk images, screenshots, rendered pixels, raw audio, logs, secrets, or one-time codes"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Assert this workflow stays host/static
+        run: |
+          set -euo pipefail
+
+          if grep -nE 'q[e]mu-system|ALLOW_LOCAL_[V]M=1|make[[:space:]].*s[m]oke|run-[h]eadless|make[[:space:]].*r[u]n' .github/workflows/pi4-host-check.yml; then
+            echo "pi4-host-check.yml must not invoke emulator, VM, smoke, or local run proof paths." >&2
+            exit 1
+          fi
+
+      - name: Assert Pi 4 runtime and artifact gates stay wired
+        run: |
+          set -euo pipefail
+
+          for path in \
+            boot/pi4/start.S \
+            boot/pi4/input.S \
+            boot/pi4/storage.S \
+            user/pi4_runtime.h \
+            user/pi4_crt0.S \
+            user/pi4_runtime.S \
+            user/pi4_abi_probe.S \
+            user/pi4_abi_probe.ld \
+            user/pi4_launcher.S \
+            user/pi4_launcher_assets.S \
+            tools/link_aarch64_user_elf.c \
+            tools/link_aarch64_flat.c \
+            tools/pi4_status_evidence.c \
+            tests/fixtures/pi4_status_giccfg_ok.txt \
+            tests/fixtures/pi4_status_timer_irq_ok.txt \
+            tests/fixtures/pi4_status_bad_irq_overclaim.txt; do
+            test -s "$path" || {
+              echo "required Pi 4 runtime or validator source is missing or empty: $path" >&2
+              exit 1
+            }
+          done
+
+          grep -q '^[[:space:]]*make no-python-check$' .github/workflows/pi4-host-check.yml
+          grep -q '^[[:space:]]*make pi4-assembly-source-gate$' .github/workflows/pi4-host-check.yml
+          grep -q '^[[:space:]]*run: make x86-preservation-host-check$' .github/workflows/pi4-host-check.yml
+          grep -q '^[[:space:]]*run: make pi4-code-gates$' .github/workflows/pi4-host-check.yml
+          grep -q '^[[:space:]]*run: make pi4-hw-equivalent-final-gates-policy$' .github/workflows/pi4-host-check.yml
+          grep -q '^[[:space:]]*run: make pi4-host-proof-json$' .github/workflows/pi4-host-check.yml
+          upload_count="$(grep -c 'uses: actions/upload-artifact@v[4]' .github/workflows/pi4-host-check.yml)"
+          if [ "$upload_count" != "1" ]; then
+            echo "pi4-host-check.yml must keep exactly one artifact upload step." >&2
+            exit 1
+          fi
+          grep -q 'name: pi4-host-check-status' .github/workflows/pi4-host-check.yml
+          grep -q 'path: build/pi4-host-proof.json' .github/workflows/pi4-host-check.yml
+          if grep -nEi 'path: .*\.(img|iso|log|txt|png|ppm|bmp|wav|raw|pak|wad)([[:space:]]|$)' .github/workflows/pi4-host-check.yml; then
+            echo "pi4-host-check.yml must not upload images, logs, assets, or raw captures." >&2
+            exit 1
+          fi
+
+      - name: Assert hardware-equivalent workflow evidence contract
+        run: |
+          set -euo pipefail
+
+          workflow=".github/workflows/pi4-hw-equivalent.yml"
+          test -s "$workflow"
+
+          grep -q 'make no-python-check' "$workflow"
+          grep -q 'make pi4-prepared-real-assets-image' "$workflow"
+          grep -q 'make build/pi4_status_evidence' "$workflow"
+          grep -q 'make build/pi4_qemu_command' "$workflow"
+          grep -q 'PI4_HW_EQUIVALENT_IMAGE="$real_asset_image"' "$workflow"
+          grep -q 'qemu_exact_kernel_arg_ok' "$workflow"
+          grep -q 'qemu_command_matches_user_handoff": true' "$workflow"
+          grep -q 'qemu_command_extra_monitor_for_screendump": true' "$workflow"
+          grep -q 'image_sha_before=.*real_asset_image' "$workflow"
+          grep -q 'image_sha_after=.*real_asset_image' "$workflow"
+
+          launch_probe_count="$(grep -c -- '--local-input-framebuffer-s[m]oke 90' "$workflow")"
+          if [ "$launch_probe_count" != "2" ]; then
+            echo "$workflow must keep exactly two launcher framebuffer probes: Doom and Quake." >&2
+            exit 1
+          fi
+          grep -q 'doom_launcher_input="mousebtn=1,mousebtn=0,key=w"' "$workflow"
+          grep -Eq 'quake_launcher_input="mouse=.*mousebtn=1,mousebtn=0,key=s"' "$workflow"
+          grep -q 'doom_launcher_request_present' "$workflow"
+          grep -q 'quake_launcher_request_present' "$workflow"
+          grep -q 'launcher_requests_passed' "$workflow"
+          grep -q 'visible_mouse_keyboard_gate_passed' "$workflow"
+          grep -q 'framebuffer_final_gate_passed' "$workflow"
+          grep -q 'single_artifact_stable' "$workflow"
+          grep -q 'build/vibe_status_check --pi4-final-gates' "$workflow"
+          grep -q 'build/vibe_status_check --pi4-final-gates-single-artifact' "$workflow"
+
+          grep -q 'audio=hardware-unproven' "$workflow"
+          grep -q 'local QEMU captured pi4audio=OK' "$workflow"
+          grep -q '"real_hardware_proof": "unclaimed"' "$workflow"
+          grep -q '"audio_hardware": "unproven"' "$workflow"
+          grep -q '"contains_screenshots": false' "$workflow"
+          grep -q '"contains_pixels": false' "$workflow"
+          grep -q '"contains_framebuffer_hashes": true' "$workflow"
+          grep -q '"contains_raw_audio": false' "$workflow"
+          grep -q '"contains_raw_serial": false' "$workflow"
+
+          upload_count="$(grep -c 'uses: actions/upload-artifact@v[4]' "$workflow")"
+          if [ "$upload_count" != "1" ]; then
+            echo "$workflow must keep exactly one artifact upload step." >&2
+            exit 1
+          fi
+          grep -q 'name: pi4-hw-equivalent-status' "$workflow"
+          grep -q 'path: build/pi4-hw-equivalent/status.json' "$workflow"
+          if grep -nEi 'path: .*\.(img|iso|log|txt|png|ppm|bmp|wav|raw|pak|wad)([[:space:]]|$)' "$workflow"; then
+            echo "$workflow must not upload images, logs, assets, captures, screenshots, pixels, or media." >&2
+            exit 1
+          fi
+
+      - name: Run source guard gates
+        run: |
+          set -euo pipefail
+          make no-python-check
+          make pi4-assembly-source-gate
+
+      - name: Check hardware-equivalent final gate policy
+        run: make pi4-hw-equivalent-final-gates-policy
+
+      - name: Install host toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            clang \
+            lld \
+            llvm \
+            make \
+            nasm \
+            perl
+
+      - name: Build Pi 4 code gates
+        run: make pi4-code-gates
+
+      - name: Run x86 preservation host checks
+        run: make x86-preservation-host-check
+
+      - name: Build Pi 4 kernel8 image through Makefile
+        run: make pi4-kernel8
+
+      - name: Build Pi 4 kernel8 image through standalone script
+        run: sh boot/pi4/build.sh
+
+      - name: Run Pi 4 host artifact check and write status JSON
+        run: make pi4-host-proof-json
+
+      - name: Upload status-only Pi 4 host proof artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pi4-host-check-status
+          if-no-files-found: error
+          path: build/pi4-host-proof.json

@@ -1,0 +1,6 @@
+vibe-status arch=AARCH64 machine=PI4 image=PI4
+pi4sd=WAIT pi4fat=WAIT pi4vfs=WAIT
+pi4audio=WAIT pi4audiohw=NONE pi4audiommio=NONE pi4audiomailbox=WAIT pi4audiocap=NONE pi4audioq=NONE pi4audioabi=NONE
+local_qemu_only=true evidence_class=local-qemu-input-smoke smoke_gate=pi4-local-qemu-input-smoke green_gate=false hardware_proof=unclaimed
+pi4exec=OK path=PAYLOAD0.ELF upath=PAYLOAD0.ELF
+pi4payloadvfs=0000000000000000/00000000464F4F4B/0000000000000001/0000000000000020/0000000000000002/0000000000000001/0000000000000200/0000000000000001/0000000000000001/0000000000000400

@@ -1,5 +1,18 @@
 build/
+build/cache/
+.codex/
 .DS_Store
+# Real game data and generated play caches must stay out of git.
+vibe-os-game-assets/
+game-assets/
+play-assets/
+id1/
+ID1/
+DOOM1.WAD
+doom1.wad
+PAK0.PAK
+pak0.pak
+quakesw-*.tar.gz
 *.wad
 *.WAD
 *.iwad
@@ -93,6 +106,7 @@ pixels/
 *.it
 status*.txt
 status*.bin
+*.capture
 vga*.txt
 vga*.bin
 gfx*.txt

@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PUBLIC_SHAREWARE_WAD_GZ_URL="${PUBLIC_SHAREWARE_WAD_GZ_URL:-https://archive.org/download/wadarchive/DATA/5b.zip/5b%2F2e249b9c5133ec987b3ea77596381dc0d6bc1d%2F5b2e249b9c5133ec987b3ea77596381dc0d6bc1d.wad.gz}"
-PUBLIC_QUAKE_SHAREWARE_URL="${PUBLIC_QUAKE_SHAREWARE_URL:-https://www.libsdl.org/projects/quake/data/quakesw-1.0.6.tar.gz}"
-EXPECTED_WAD_SHA1="${EXPECTED_WAD_SHA1:-5b2e249b9c5133ec987b3ea77596381dc0d6bc1d}"
-EXPECTED_QUAKE_PAK_SHA1="${EXPECTED_QUAKE_PAK_SHA1:-36b42dc7b6313fd9cabc0be8b9e9864840929735}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PREPARE_ASSETS_SH="${PREPARE_ASSETS_SH:-$SCRIPT_DIR/prepare_game_assets.sh}"
 VIBE_PLAY_DATA_DIR="${VIBE_PLAY_DATA_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/vibe-os}"
 PLAY_BUILD_DIR="${PLAY_BUILD_DIR:-build/play}"
 MAKE_BIN="${MAKE:-make}"
@@ -16,6 +14,7 @@ VIBE_QEMU_DISPLAY="${VIBE_QEMU_DISPLAY:-auto}"
 VIBE_QEMU_FULLSCREEN="${VIBE_QEMU_FULLSCREEN:-auto}"
 VIBE_QEMU_ZOOM_TO_FIT="${VIBE_QEMU_ZOOM_TO_FIT:-auto}"
 VIBE_QEMU_AUDIO="${VIBE_QEMU_AUDIO:-auto}"
+PLAY_IMAGE="$PLAY_BUILD_DIR/disk.img"
 PREPARE_ONLY=0
 
 usage() {
@@ -23,12 +22,20 @@ usage() {
 Usage: tools/play_local.sh [--prepare-only]
 
 Prepare public shareware Doom and Quake data outside the repo, build one
-vibe-os disk image with both generic payload slots, and launch the OS launcher.
+ignored vibe-os disk image with both generic payload slots, and launch the OS
+launcher. On macOS, local QEMU execution is disabled by default; use
+--prepare-only for the safe local handoff, or set ALLOW_LOCAL_VM=1 explicitly.
+For the Raspberry Pi 4 desktop/play path, prefer make pi4-qemu-command for the
+exact visible handoff or tools/play_now_codespaces.sh --pi4 for remote noVNC;
+this script is the legacy x86 local launcher.
 
 Environment overrides:
   DOOM_WAD=/path/to/DOOM1.WAD       Use an existing WAD instead of the cache.
   QUAKE_PAK=/path/to/PAK0.PAK       Use an existing PAK instead of the cache.
-  VIBE_PLAY_DATA_DIR=/path/cache    Cache directory for downloaded game data.
+  VIBE_PLAY_DATA_DIR=/path/cache    Outside-repo cache directory passed to the
+                                    reusable asset preparation helper.
+  PREPARE_ASSETS_SH=tools/prepare_game_assets.sh
+                                    Asset helper used for WAD/PAK validation.
   PLAY_BUILD_DIR=build/play         Build directory for the local play image.
   QEMU_EXTRA_ARGS='...'             Extra arguments passed to QEMU.
   VIBE_QEMU_ACCEL=auto|tcg|hvf      CPU accelerator. On Intel macOS, auto
@@ -47,9 +54,24 @@ Environment overrides:
                                     coreaudio when available.
 
 Options:
-  --prepare-only, --dry-run         Download/cache data and build the image,
+  --prepare-only                    Download/cache data and build the image,
                                     but do not launch local QEMU.
+  --dry-run                         Alias for --prepare-only; it still writes
+                                    the ignored play image. For a no-write
+                                    asset check, use prepare_game_assets.sh
+                                    --dry-run.
+  ALLOW_LOCAL_VM=1                  Required to launch QEMU on macOS.
   -h, --help                        Show this help.
+EOF
+}
+
+print_play_controls() {
+  cat <<'EOF'
+Visible play controls:
+  QEMU focus: click the guest window once before typing or using the mouse.
+  Launcher: 1/click Doom, 2/click Quake, or W/S plus Enter from inside vibe-os.
+  Doom: arrows move/turn, Ctrl fires, Space uses, Escape opens menu.
+  Quake: WASD/arrows move, mouse aims, Ctrl or left mouse fires, Space jumps, Escape opens menu.
 EOF
 }
 
@@ -109,198 +131,6 @@ cocoa_display_arg() {
 
   display="$display,zoom-to-fit=$zoom_to_fit,full-screen=$full_screen"
   printf "%s\n" "$display"
-}
-
-sha1_file() {
-  if command -v sha1sum >/dev/null 2>&1; then
-    sha1sum "$1" | awk '{ print $1 }'
-  else
-    shasum -a 1 "$1" | awk '{ print $1 }'
-  fi
-}
-
-file_magic_hex() {
-  od -An -N"$1" -tx1 "$2" | tr -d ' \n'
-}
-
-absolute_existing_path() {
-  local path="$1"
-  local dir
-  local base
-
-  [ -e "$path" ] || return 1
-  dir="$(dirname "$path")"
-  base="$(basename "$path")"
-  dir="$(cd "$dir" && pwd)"
-  printf "%s/%s\n" "$dir" "$base"
-}
-
-repo_root() {
-  git rev-parse --show-toplevel 2>/dev/null || pwd
-}
-
-ensure_outside_repo() {
-  local path="$1"
-  local abs
-  local root
-
-  abs="$(absolute_existing_path "$path")" || return 0
-  root="$(repo_root)"
-  root="$(cd "$root" && pwd)"
-  case "$abs" in
-    "$root"|"$root"/*)
-      fail_play "game data must stay outside the git checkout: $abs"
-      ;;
-  esac
-}
-
-validate_wad_format() {
-  local path="$1"
-  local magic
-
-  [ -s "$path" ] || return 1
-  magic="$(dd if="$path" bs=4 count=1 2>/dev/null || true)"
-  [ "$magic" = "IWAD" ] || [ "$magic" = "PWAD" ] || return 1
-}
-
-validate_wad() {
-  local path="$1"
-  local actual_sha1
-
-  validate_wad_format "$path" || return 1
-  actual_sha1="$(sha1_file "$path")"
-  [ "$actual_sha1" = "$EXPECTED_WAD_SHA1" ] || return 1
-}
-
-validate_pak_format() {
-  local path="$1"
-  local magic
-  local size
-
-  [ -s "$path" ] || return 1
-  magic="$(dd if="$path" bs=4 count=1 2>/dev/null || true)"
-  [ "$magic" = "PACK" ] || return 1
-  size="$(wc -c < "$path" | tr -d ' ')"
-  [ "$size" -gt 1000000 ] || return 1
-}
-
-validate_pak() {
-  local path="$1"
-  local actual_sha1
-
-  validate_pak_format "$path" || return 1
-  actual_sha1="$(sha1_file "$path")"
-  [ "$actual_sha1" = "$EXPECTED_QUAKE_PAK_SHA1" ] || return 1
-}
-
-download_doom_wad() {
-  local target="$1"
-  local tmp
-  local magic2
-  local magic4
-  local member
-
-  tmp="$(mktemp "${TMPDIR:-/tmp}/vibe-os-doom-wad.XXXXXX")"
-  curl --fail --silent --show-error --location "$PUBLIC_SHAREWARE_WAD_GZ_URL" --output "$tmp"
-  magic2="$(file_magic_hex 2 "$tmp")"
-  magic4="$(file_magic_hex 4 "$tmp")"
-
-  if [ "$magic2" = "1f8b" ]; then
-    require_tool gzip
-    gzip -cd "$tmp" > "$target"
-  elif [ "$magic4" = "504b0304" ]; then
-    require_tool unzip
-    member="$(unzip -Z -1 "$tmp" | awk 'toupper($0) ~ /(^|\/)DOOM1[.]WAD$/ { print; exit }')"
-    [ -n "$member" ] || fail_play "zip did not contain DOOM1.WAD"
-    unzip -p "$tmp" "$member" > "$target"
-  elif [ "$magic4" = "49574144" ] || [ "$magic4" = "50574144" ]; then
-    cp "$tmp" "$target"
-  else
-    rm -f "$tmp"
-    fail_play "downloaded Doom data is not a WAD, gzip-compressed WAD, or zip containing DOOM1.WAD"
-  fi
-
-  rm -f "$tmp"
-  validate_wad "$target" || fail_play "downloaded DOOM1.WAD failed validation"
-}
-
-download_quake_pak() {
-  local target="$1"
-  local tmp
-  local magic2
-  local magic4
-  local member
-
-  tmp="$(mktemp "${TMPDIR:-/tmp}/vibe-os-quake-pak.XXXXXX")"
-  curl --fail --silent --show-error --location "$PUBLIC_QUAKE_SHAREWARE_URL" --output "$tmp"
-  magic2="$(file_magic_hex 2 "$tmp")"
-  magic4="$(file_magic_hex 4 "$tmp")"
-
-  if [ "$magic2" = "1f8b" ]; then
-    require_tool gzip
-    if tar -tzf "$tmp" >/dev/null 2>&1; then
-      member="$(tar -tzf "$tmp" | awk 'toupper($0) ~ /(^|\/)PAK0[.]PAK$/ { print; exit }')"
-      [ -n "$member" ] || fail_play "tar archive did not contain PAK0.PAK"
-      tar -xOzf "$tmp" "$member" > "$target"
-    else
-      gzip -cd "$tmp" > "$target"
-    fi
-  elif [ "$magic4" = "504b0304" ]; then
-    require_tool unzip
-    member="$(unzip -Z -1 "$tmp" | awk 'toupper($0) ~ /(^|\/)PAK0[.]PAK$/ { print; exit }')"
-    [ -n "$member" ] || fail_play "zip did not contain PAK0.PAK"
-    unzip -p "$tmp" "$member" > "$target"
-  elif [ "$magic4" = "5041434b" ]; then
-    cp "$tmp" "$target"
-  else
-    rm -f "$tmp"
-    fail_play "downloaded Quake data is not a PACK PAK, gzip-compressed PAK, or archive containing PAK0.PAK"
-  fi
-
-  rm -f "$tmp"
-  validate_pak "$target" || fail_play "downloaded PAK0.PAK failed validation"
-}
-
-prepare_wad() {
-  local target="$VIBE_PLAY_DATA_DIR/DOOM1.WAD"
-
-  if [ -n "${DOOM_WAD:-}" ]; then
-    [ -f "$DOOM_WAD" ] || fail_play "DOOM_WAD does not exist: $DOOM_WAD"
-    ensure_outside_repo "$DOOM_WAD"
-    validate_wad_format "$DOOM_WAD" || fail_play "DOOM_WAD is not a valid IWAD/PWAD file: $DOOM_WAD"
-    absolute_existing_path "$DOOM_WAD"
-    return
-  fi
-
-  mkdir -p "$VIBE_PLAY_DATA_DIR"
-  if ! validate_wad "$target"; then
-    echo "Fetching public shareware DOOM1.WAD into $target" >&2
-    rm -f "$target"
-    download_doom_wad "$target"
-  fi
-  ensure_outside_repo "$target"
-  absolute_existing_path "$target"
-}
-
-prepare_pak() {
-  local target="$VIBE_PLAY_DATA_DIR/PAK0.PAK"
-
-  if [ -n "${QUAKE_PAK:-}" ]; then
-    [ -f "$QUAKE_PAK" ] || fail_play "QUAKE_PAK does not exist: $QUAKE_PAK"
-    ensure_outside_repo "$QUAKE_PAK"
-    validate_pak_format "$QUAKE_PAK" || fail_play "QUAKE_PAK is not a valid Quake PACK file: $QUAKE_PAK"
-    absolute_existing_path "$QUAKE_PAK"
-    return
-  fi
-
-  mkdir -p "$VIBE_PLAY_DATA_DIR"
-  if ! validate_pak "$target"; then
-    echo "Fetching public Quake shareware PAK0.PAK into $target" >&2
-    rm -f "$target"
-    download_quake_pak "$target"
-  fi
-  ensure_outside_repo "$target"
-  absolute_existing_path "$target"
 }
 
 configure_qemu_machine_arg() {
@@ -426,30 +256,49 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-for tool in git "$MAKE_BIN" curl od awk wc dd; do
+if [ "$PREPARE_ONLY" != "1" ] \
+  && [ "$(uname -s)" = "Darwin" ] \
+  && [ "${ALLOW_LOCAL_VM:-0}" != "1" ]; then
+  cat >&2 <<'EOF'
+Local QEMU execution is disabled by default on macOS.
+
+Use --prepare-only to build the ignored local play image without booting a VM,
+or use the remote Pi 4 visible-play path for the fullscreen Doom/Quake desktop:
+  ./tools/play_now_codespaces.sh --pi4 --repo OWNER/REPO --ref BRANCH
+Set ALLOW_LOCAL_VM=1 only when you intentionally want this Mac to launch QEMU.
+EOF
+  exit 1
+fi
+
+for tool in "$MAKE_BIN" sed; do
   require_tool "$tool"
 done
+[ -x "$PREPARE_ASSETS_SH" ] || fail_play "asset helper is not executable: $PREPARE_ASSETS_SH"
 
 if [ "$PREPARE_ONLY" != "1" ]; then
   require_tool "$QEMU_BIN"
 fi
 
-doom_wad="$(prepare_wad)"
-quake_pak="$(prepare_pak)"
+asset_paths="$(VIBE_ASSET_CACHE_DIR="$VIBE_PLAY_DATA_DIR" "$PREPARE_ASSETS_SH" --format paths)"
+doom_wad="$(printf "%s\n" "$asset_paths" | sed -n '1p')"
+quake_pak="$(printf "%s\n" "$asset_paths" | sed -n '2p')"
+[ -n "$doom_wad" ] || fail_play "asset helper did not return a DOOM1.WAD path"
+[ -n "$quake_pak" ] || fail_play "asset helper did not return a PAK0.PAK path"
 
 echo "Using DOOM1.WAD: $doom_wad"
 echo "Using PAK0.PAK: $quake_pak"
 echo "Building vibe-os play image in $PLAY_BUILD_DIR"
-rm -f "$PLAY_BUILD_DIR/disk.img"
+rm -f "$PLAY_IMAGE"
 "$MAKE_BIN" --no-print-directory \
   BUILD_DIR="$PLAY_BUILD_DIR" \
   ALLOW_LOCAL_VM=0 \
   DOOM_WAD="$doom_wad" \
   QUAKE_PAK="$quake_pak" \
   build-only
+test -s "$PLAY_IMAGE" || fail_play "expected build did not produce local play image: $PLAY_IMAGE"
 
 if [ "$PREPARE_ONLY" = "1" ]; then
-  echo "Prepared $PLAY_BUILD_DIR/disk.img without launching local QEMU."
+  echo "Prepared $PLAY_IMAGE without launching local QEMU."
   exit 0
 fi
 
@@ -460,14 +309,20 @@ configure_qemu_machine_arg
 configure_qemu_cpu_args
 
 rm -f "$PLAY_BUILD_DIR/monitor.sock" "$PLAY_BUILD_DIR/qemu.log" "$PLAY_BUILD_DIR/serial.log"
-echo "Starting vibe-os. Pick Doom or Quake from the guest launcher."
+echo "Using exact local play image: $PLAY_IMAGE"
+echo "Starting vibe-os. Click the QEMU window once, then press 1/click Doom or press 2/click Quake from the guest launcher."
+print_play_controls
+if [ "$(uname -s)" = "Darwin" ]; then
+  echo "Local QEMU launch was explicitly enabled with ALLOW_LOCAL_VM=1."
+  echo "Display default: cocoa,zoom-to-fit=on,full-screen=on unless VIBE_QEMU_DISPLAY/FULLSCREEN/ZOOM_TO_FIT override it."
+fi
 echo "If the QEMU window stays black, quit it and check $PLAY_BUILD_DIR/serial.log."
 set -- \
   -machine "$qemu_machine_arg" \
   -m 128M \
   -vga none \
   -device "VGA,vgamem_mb=32,xres=2560,yres=1440" \
-  -drive "file=$PLAY_BUILD_DIR/disk.img,format=raw,if=ide,index=0,media=disk" \
+  -drive "file=$PLAY_IMAGE,format=raw,if=ide,index=0,media=disk" \
   -boot c
 if [ ${#qemu_display_args[@]} -gt 0 ]; then
   set -- "$@" "${qemu_display_args[@]}"

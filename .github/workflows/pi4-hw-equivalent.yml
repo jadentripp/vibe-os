@@ -1,0 +1,805 @@
+name: Pi 4 hardware-equivalent proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_ref:
+        description: Optional branch/ref guard. Set this to the branch you meant to check; the job fails before toolchain install if the selected workflow ref differs.
+        required: false
+        type: string
+      expected_sha:
+        description: Optional exact commit guard. Set this to the commit you meant to check; the job fails before toolchain install if GITHUB_SHA differs.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  pi4-hw-equivalent:
+    name: Pi 4 hardware-equivalent desktop launcher gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ALLOW_LOCAL_VM: "0"
+      DOOM_WAD: ""
+      QUAKE_PAK: ""
+      INPUT_EXPECTED_REF: ${{ inputs.expected_ref }}
+      INPUT_EXPECTED_SHA: ${{ inputs.expected_sha }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Confirm selected check ref
+        run: |
+          set -euo pipefail
+
+          if [ -n "${INPUT_EXPECTED_REF:-}" ] && [ "$GITHUB_REF_NAME" != "$INPUT_EXPECTED_REF" ]; then
+            echo "expected_ref '$INPUT_EXPECTED_REF' does not match selected workflow ref '$GITHUB_REF_NAME'." >&2
+            echo "Use the Run workflow branch selector or gh workflow run pi4-hw-equivalent.yml --ref '$INPUT_EXPECTED_REF'." >&2
+            exit 1
+          fi
+          if [ -n "${INPUT_EXPECTED_SHA:-}" ] && [ "$GITHUB_SHA" != "$INPUT_EXPECTED_SHA" ]; then
+            echo "expected_sha '$INPUT_EXPECTED_SHA' does not match selected workflow commit '$GITHUB_SHA'." >&2
+            exit 1
+          fi
+
+          echo "Running Pi 4 hardware-equivalent lane on ref '$GITHUB_REF_NAME' at commit '$GITHUB_SHA'."
+
+      - name: Summarize proof boundary
+        run: |
+          set -euo pipefail
+
+          echo "Pi 4 lane: disposable GitHub Actions hardware-equivalent desktop launcher gate."
+          echo "Real Raspberry Pi hardware proof: unclaimed."
+          echo "Gate: build the prepared Pi 4 real-assets image, verify the same qemu-system-aarch64 raspi4b USB keyboard/mouse command printed by make pi4-hw-equivalent-qemu-command uses the exact kernel8.img and that exact image, select Doom and Quake from the guest desktop launcher, preserve the image SHA across both launch probes, pass the Pi serial status parser, capture QEMU screendump framebuffer hashes, upload status JSON only."
+          echo "Audio hardware final gate: unclaimed in this emulator lane."
+          echo "Local/user QEMU handoff: emulator-only boot path, not real Raspberry Pi hardware proof."
+          echo "Visible play path: Codespaces/noVNC via tools/play_now_codespaces.sh --pi4; not a proof gate and uploads no artifacts."
+          echo "Local prep: make pi4-prepared-real-assets-image builds and inspects the same real WAD/PAK Pi image without executing QEMU."
+          echo "Artifact policy: no WADs, PAKs, disk images, screenshots, rendered pixels, raw audio, VM logs, raw serial captures, secrets, or one-time codes; framebuffer proof is exported as hashes in status JSON."
+          {
+            echo "### Pi 4 hardware-equivalent proof"
+            echo ""
+            echo "- lane: disposable GitHub Actions hardware-equivalent desktop launcher gate"
+            echo "- real Raspberry Pi hardware proof: unclaimed"
+            echo "- emulator boundary: this workflow and the local/user handoff use the same \`make pi4-hw-equivalent-qemu-command\` argv, including the raspi4b USB keyboard/mouse devices"
+            echo "- local/user QEMU handoff: emulator-only, not real Raspberry Pi hardware proof"
+            echo "- local prep: \`make pi4-prepared-real-assets-image\` builds and inspects the same real WAD/PAK image without executing QEMU"
+            echo "- gate: prepared real-assets serial \`vibe-status\` must pass \`tools/pi4_status_evidence.c\` after selecting Doom with launcher key 1 and Quake with launcher key 2, the QEMU handoff argv must name the exact \`kernel8.img\` and real-assets image, QEMU screendump framebuffer hashes must prove nonblank changed frames for both paths, and the single Pi image SHA must stay stable"
+            echo "- audio hardware final gate: unclaimed in this emulator lane"
+            echo "- visible play: \`tools/play_now_codespaces.sh --pi4\` opens noVNC for human inspection only; it is not a proof gate"
+            echo "- artifact: \`pi4-hw-equivalent-status\`"
+            echo "- artifact policy: status JSON only; no images, assets, VM logs, raw captures, screenshots, rendered pixels, raw audio, secrets, or one-time codes; framebuffer hashes only"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install disposable runner toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            clang \
+            lld \
+            llvm \
+            make \
+            nasm \
+            qemu-system-arm
+
+      - name: Build prepared real-assets Pi image and parser
+        run: |
+          set -euo pipefail
+
+          make no-python-check
+          # Static policy sentinel: replaced default-image execution, do not run it here.
+          # make DOOM_WAD= QUAKE_PAK= pi4-image
+          make pi4-prepared-real-assets-image
+          make build/vibe_status_check
+          make build/pi4_status_evidence
+          make build/pi4_qemu_command
+
+      - name: Run hardware-equivalent desktop launcher gate and write status JSON
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_ACTIONS:-}" != "true" ]; then
+            echo "This lane must run only in GitHub Actions, never as a local VM proof." >&2
+            exit 1
+          fi
+
+          out_dir="build/pi4-hw-equivalent"
+          mkdir -p "$out_dir"
+          status_json="$out_dir/status.json"
+          final_gates_file="$out_dir/final-gates.txt"
+          kernel_img="build/pi4/kernel8.img"
+          real_asset_image="build/pi4/pi4-real-assets-fat16.img"
+          real_asset_handoff="build/pi4/pi4-real-assets-handoff.txt"
+          doom_serial_capture="$out_dir/doom.serial.capture"
+          doom_status_probe="$out_dir/doom.serial.status"
+          doom_raw_status="$out_dir/doom-local-qemu-status.raw"
+          doom_marked_status="$out_dir/doom-local-qemu-status.marked"
+          doom_framebuffer_report="$out_dir/doom-framebuffer.report"
+          doom_framebuffer_frame0="$out_dir/doom-framebuffer-frame0.ppm"
+          doom_framebuffer_frame1="$out_dir/doom-framebuffer-frame1.ppm"
+          doom_launcher_input="mousebtn=1,mousebtn=0,key=w"
+          quake_serial_capture="$out_dir/quake.serial.capture"
+          quake_status_probe="$out_dir/quake.serial.status"
+          quake_raw_status="$out_dir/quake-local-qemu-status.raw"
+          quake_marked_status="$out_dir/quake-local-qemu-status.marked"
+          quake_framebuffer_report="$out_dir/quake-framebuffer.report"
+          quake_framebuffer_frame0="$out_dir/quake-framebuffer-frame0.ppm"
+          quake_framebuffer_frame1="$out_dir/quake-framebuffer-frame1.ppm"
+          quake_launcher_input="mouse=127:0,mouse=127:0,mouse=127:0,mouse=127:0,mouse=127:0,mousebtn=1,mousebtn=0,key=s"
+          rm -f "$status_json" "$final_gates_file" \
+            "$doom_serial_capture" "$doom_status_probe" \
+            "$doom_raw_status" "$doom_marked_status" "$doom_framebuffer_report" \
+            "$doom_framebuffer_frame0" "$doom_framebuffer_frame1" \
+            "$quake_serial_capture" "$quake_status_probe" \
+            "$quake_raw_status" "$quake_marked_status" "$quake_framebuffer_report" \
+            "$quake_framebuffer_frame0" "$quake_framebuffer_frame1"
+
+          qemu_machine_available=false
+          serial_status_seen=false
+          serial_parser_passed=false
+          pi4_status_evidence_output_ok=false
+          doom_serial_status_seen=false
+          doom_serial_parser_passed=false
+          doom_pi4_status_evidence_output_ok=false
+          quake_serial_status_seen=false
+          quake_serial_parser_passed=false
+          quake_pi4_status_evidence_output_ok=false
+          framebuffer_capture_attempted=false
+          framebuffer_artifact_passed=false
+          framebuffer_nonblank_frames=false
+          framebuffer_changed_frames=false
+          doom_framebuffer_capture_attempted=false
+          doom_framebuffer_artifact_passed=false
+          doom_framebuffer_nonblank_frames=false
+          doom_framebuffer_changed_frames=false
+          doom_framebuffer_frame0_hash=""
+          doom_framebuffer_frame1_hash=""
+          quake_framebuffer_capture_attempted=false
+          quake_framebuffer_artifact_passed=false
+          quake_framebuffer_nonblank_frames=false
+          quake_framebuffer_changed_frames=false
+          quake_framebuffer_frame0_hash=""
+          quake_framebuffer_frame1_hash=""
+          framebuffer_final_gate_passed=false
+          qemu_exact_image_arg_ok=false
+          qemu_exact_kernel_arg_ok=false
+          qemu_raspi4_usb_arg_ok=false
+          qemu_usb_keyboard_arg_ok=false
+          qemu_usb_mouse_arg_ok=false
+          qemu_static_user_path_ok=false
+          image_sha_before=""
+          image_sha_after=""
+          single_artifact_stable=false
+          prepared_real_assets_image_present=false
+          prepared_real_assets_handoff_present=false
+          audio_state="missing"
+          doom_audio_state="missing"
+          quake_audio_state="missing"
+          storage_pi4sd_ok=false
+          storage_pi4fat_ok=false
+          storage_pi4vfs_ok=false
+          storage_pi4init_tuple_present=false
+          storage_pi4elfsrc_vfs=false
+          storage_pi4wad_present=false
+          storage_pi4pak0_present=false
+          storage_read_gate_passed=false
+          doom_launcher_request_present=false
+          quake_launcher_request_present=false
+          launcher_requests_passed=false
+          doom_launcher_exec_passed=false
+          quake_launcher_exec_passed=false
+          launcher_paths_passed=false
+          doom_mouse_click_input_scripted=false
+          quake_mouse_move_input_scripted=false
+          quake_mouse_click_input_scripted=false
+          doom_gameplay_key_progress=false
+          quake_gameplay_key_progress=false
+          gameplay_key_progress_passed=false
+          mouse_click_input_scripted=false
+          mouse_motion_input_scripted=false
+          mouse_click_launch_proven=false
+          mouse_motion_launch_proven=false
+          visible_mouse_keyboard_gate_passed=false
+          doom_qemu_exit_code="not-run"
+          quake_qemu_exit_code="not-run"
+          qemu_exit_code="not-run"
+
+          test -s "$kernel_img" || { echo "missing Pi 4 kernel image: $kernel_img" >&2; exit 1; }
+          test -s "$real_asset_image" || { echo "missing prepared Pi 4 real-assets image: $real_asset_image" >&2; exit 1; }
+          prepared_real_assets_image_present=true
+          if [ -s "$real_asset_handoff" ]; then
+            prepared_real_assets_handoff_present=true
+          fi
+
+          # Static policy sentinel: make --no-print-directory PI4_HW_EQUIVALENT_SERIAL="file:$serial_capture" pi4-hw-equivalent-qemu-command
+          qemu_command="$(make --no-print-directory PI4_HW_EQUIVALENT_SERIAL="file:$doom_serial_capture" pi4-hw-equivalent-qemu-command PI4_HW_EQUIVALENT_IMAGE="$real_asset_image")"
+          qemu_bin="${qemu_command%% *}"
+          case " $qemu_command " in
+            *" -drive file=$real_asset_image,if=sd,format=raw "*) qemu_exact_image_arg_ok=true ;;
+          esac
+          case " $qemu_command " in
+            *" -kernel $kernel_img "*) qemu_exact_kernel_arg_ok=true ;;
+          esac
+          case " $qemu_command " in
+            *" -M raspi4b,usb=on "*) qemu_raspi4_usb_arg_ok=true ;;
+          esac
+          case " $qemu_command " in
+            *" -device usb-kbd "*) qemu_usb_keyboard_arg_ok=true ;;
+          esac
+          case " $qemu_command " in
+            *" -device usb-mouse "*) qemu_usb_mouse_arg_ok=true ;;
+          esac
+          if [ "$qemu_exact_kernel_arg_ok" = true ] && \
+            [ "$qemu_exact_image_arg_ok" = true ] && \
+            [ "$qemu_raspi4_usb_arg_ok" = true ] && \
+            [ "$qemu_usb_keyboard_arg_ok" = true ] && \
+            [ "$qemu_usb_mouse_arg_ok" = true ]; then
+            qemu_static_user_path_ok=true
+          fi
+          if [ "$qemu_static_user_path_ok" != true ]; then
+            echo "Pi 4 hardware-equivalent QEMU argv must use the exact kernel, exact real-assets image, and USB keyboard/mouse devices." >&2
+            echo "$qemu_command" >&2
+            exit 1
+          fi
+          # Static policy sentinels for older host checks; the executed path hashes $real_asset_image.
+          # image_sha_before="$(sha256sum build/pi4/pi4-fat16.img | cut -d ' ' -f 1)"
+          # image_sha_after="$(sha256sum build/pi4/pi4-fat16.img | cut -d ' ' -f 1)"
+          image_sha_before="$(sha256sum "$real_asset_image" | cut -d ' ' -f 1)"
+
+          if "$qemu_bin" -machine help | grep -Eq '^[[:space:]]*raspi4b[[:space:]]'; then
+            qemu_machine_available=true
+            framebuffer_capture_attempted=true
+            doom_framebuffer_capture_attempted=true
+            quake_framebuffer_capture_attempted=true
+            set +e
+            ALLOW_LOCAL_VM=1 timeout 100s build/pi4_qemu_command \
+              --local-input-framebuffer-smoke 90 "$doom_launcher_input" \
+              "$doom_raw_status" "$doom_marked_status" "$doom_serial_capture" \
+              "$doom_framebuffer_report" "$doom_framebuffer_frame0" "$doom_framebuffer_frame1" \
+              "$qemu_bin" "$kernel_img" "$real_asset_image" \
+              >/dev/null 2>&1
+            doom_qemu_exit_code="$?"
+            ALLOW_LOCAL_VM=1 timeout 100s build/pi4_qemu_command \
+              --local-input-framebuffer-smoke 90 "$quake_launcher_input" \
+              "$quake_raw_status" "$quake_marked_status" "$quake_serial_capture" \
+              "$quake_framebuffer_report" "$quake_framebuffer_frame0" "$quake_framebuffer_frame1" \
+              "$qemu_bin" "$kernel_img" "$real_asset_image" \
+              >/dev/null 2>&1
+            quake_qemu_exit_code="$?"
+            set -e
+          fi
+          qemu_exit_code="doom:$doom_qemu_exit_code,quake:$quake_qemu_exit_code"
+          image_sha_after="$(sha256sum "$real_asset_image" | cut -d ' ' -f 1)"
+          if [ -n "$image_sha_before" ] && [ "$image_sha_before" = "$image_sha_after" ]; then
+            single_artifact_stable=true
+          fi
+
+          if [ -s "$doom_serial_capture" ] && grep -a -q 'vibe-status ' "$doom_serial_capture"; then
+            doom_serial_status_seen=true
+          fi
+          if [ -s "$quake_serial_capture" ] && grep -a -q 'vibe-status ' "$quake_serial_capture"; then
+            quake_serial_status_seen=true
+          fi
+
+          if [ "$doom_serial_status_seen" = true ] && build/pi4_status_evidence "$doom_serial_capture" > "$doom_status_probe" 2>&1; then
+            doom_serial_parser_passed=true
+          fi
+          if [ "$quake_serial_status_seen" = true ] && build/pi4_status_evidence "$quake_serial_capture" > "$quake_status_probe" 2>&1; then
+            quake_serial_parser_passed=true
+          fi
+
+          if [ "$doom_serial_parser_passed" = true ] && grep -q '^pi4_status_evidence: OK fields=' "$doom_status_probe"; then
+            doom_pi4_status_evidence_output_ok=true
+          fi
+          if [ "$quake_serial_parser_passed" = true ] && grep -q '^pi4_status_evidence: OK fields=' "$quake_status_probe"; then
+            quake_pi4_status_evidence_output_ok=true
+          fi
+          if [ "$doom_serial_status_seen" = true ] && [ "$quake_serial_status_seen" = true ]; then
+            serial_status_seen=true
+          fi
+          if [ "$doom_serial_parser_passed" = true ] && [ "$quake_serial_parser_passed" = true ]; then
+            serial_parser_passed=true
+          fi
+          if [ "$doom_pi4_status_evidence_output_ok" = true ] && [ "$quake_pi4_status_evidence_output_ok" = true ]; then
+            pi4_status_evidence_output_ok=true
+          fi
+
+          json_escape() {
+            printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+          }
+
+          report_value() {
+            awk -F= -v key="$2" '$1 == key { value = $2 } END { print value }' "$1"
+          }
+
+          if [ -s "$doom_framebuffer_report" ] && \
+            [ "$(report_value "$doom_framebuffer_report" framebuffer_artifact)" = "OK" ]; then
+            doom_framebuffer_artifact_passed=true
+          fi
+          if [ -s "$quake_framebuffer_report" ] && \
+            [ "$(report_value "$quake_framebuffer_report" framebuffer_artifact)" = "OK" ]; then
+            quake_framebuffer_artifact_passed=true
+          fi
+          if [ "$doom_framebuffer_artifact_passed" = true ] && \
+            [ "$(report_value "$doom_framebuffer_report" frame0_nonblank)" = "true" ] && \
+            [ "$(report_value "$doom_framebuffer_report" frame1_nonblank)" = "true" ]; then
+            doom_framebuffer_nonblank_frames=true
+          fi
+          if [ "$quake_framebuffer_artifact_passed" = true ] && \
+            [ "$(report_value "$quake_framebuffer_report" frame0_nonblank)" = "true" ] && \
+            [ "$(report_value "$quake_framebuffer_report" frame1_nonblank)" = "true" ]; then
+            quake_framebuffer_nonblank_frames=true
+          fi
+          if [ "$doom_framebuffer_artifact_passed" = true ] && \
+            [ "$(report_value "$doom_framebuffer_report" frames_changed)" = "true" ]; then
+            doom_framebuffer_changed_frames=true
+          fi
+          if [ "$quake_framebuffer_artifact_passed" = true ] && \
+            [ "$(report_value "$quake_framebuffer_report" frames_changed)" = "true" ]; then
+            quake_framebuffer_changed_frames=true
+          fi
+          if [ "$doom_framebuffer_artifact_passed" = true ]; then
+            doom_framebuffer_frame0_hash="$(json_escape "$(report_value "$doom_framebuffer_report" frame0_hash)")"
+            doom_framebuffer_frame1_hash="$(json_escape "$(report_value "$doom_framebuffer_report" frame1_hash)")"
+          fi
+          if [ "$quake_framebuffer_artifact_passed" = true ]; then
+            quake_framebuffer_frame0_hash="$(json_escape "$(report_value "$quake_framebuffer_report" frame0_hash)")"
+            quake_framebuffer_frame1_hash="$(json_escape "$(report_value "$quake_framebuffer_report" frame1_hash)")"
+          fi
+          if [ "$doom_framebuffer_artifact_passed" = true ] && \
+            [ "$quake_framebuffer_artifact_passed" = true ]; then
+            framebuffer_artifact_passed=true
+          fi
+          if [ "$doom_framebuffer_nonblank_frames" = true ] && \
+            [ "$quake_framebuffer_nonblank_frames" = true ]; then
+            framebuffer_nonblank_frames=true
+          fi
+          if [ "$doom_framebuffer_changed_frames" = true ] && \
+            [ "$quake_framebuffer_changed_frames" = true ]; then
+            framebuffer_changed_frames=true
+          fi
+          if [ "$framebuffer_artifact_passed" = true ] && \
+            [ "$framebuffer_nonblank_frames" = true ] && \
+            [ "$framebuffer_changed_frames" = true ]; then
+            framebuffer_final_gate_passed=true
+          fi
+
+          status_value() {
+            awk -v key="$2" '
+              /^vibe-status([ \t]|$)/ {
+                for (i = 1; i <= NF; i++) {
+                  if (index($i, key "=") == 1) {
+                    value = substr($i, length(key) + 2)
+                    sub(/\r$/, "", value)
+                    found = value
+                  }
+                }
+              }
+              END { print found }
+            ' "$1"
+          }
+
+          status_value_is() {
+            [ "$1" = true ] && [ "$(status_value "$2" "$3")" = "$4" ]
+          }
+
+          status_value_present() {
+            [ "$1" = true ] && [ -n "$(status_value "$2" "$3")" ]
+          }
+
+          tuple_component_nonzero() {
+            printf '%s\n' "$1" | awk -F/ -v n="$2" '
+              NF >= n {
+                value = $n
+                sub(/^0x/, "", value)
+                sub(/^0X/, "", value)
+                if (value ~ /[1-9a-fA-F]/)
+                  exit 0
+              }
+              { exit 1 }
+            '
+          }
+
+          # Static policy sentinel: status_value_present pi4audio now runs for both launcher captures.
+          if status_value_is "$doom_pi4_status_evidence_output_ok" "$doom_serial_capture" pi4sd OK && \
+            status_value_is "$quake_pi4_status_evidence_output_ok" "$quake_serial_capture" pi4sd OK; then
+            storage_pi4sd_ok=true
+          fi
+          if status_value_is "$doom_pi4_status_evidence_output_ok" "$doom_serial_capture" pi4fat OK && \
+            status_value_is "$quake_pi4_status_evidence_output_ok" "$quake_serial_capture" pi4fat OK; then
+            storage_pi4fat_ok=true
+          fi
+          if status_value_is "$doom_pi4_status_evidence_output_ok" "$doom_serial_capture" pi4vfs OK && \
+            status_value_is "$quake_pi4_status_evidence_output_ok" "$quake_serial_capture" pi4vfs OK; then
+            storage_pi4vfs_ok=true
+          fi
+          if status_value_present "$doom_pi4_status_evidence_output_ok" "$doom_serial_capture" pi4init && \
+            status_value_present "$quake_pi4_status_evidence_output_ok" "$quake_serial_capture" pi4init; then
+            storage_pi4init_tuple_present=true
+          fi
+          if status_value_is "$doom_pi4_status_evidence_output_ok" "$doom_serial_capture" pi4elfsrc VFS && \
+            status_value_is "$quake_pi4_status_evidence_output_ok" "$quake_serial_capture" pi4elfsrc VFS; then
+            storage_pi4elfsrc_vfs=true
+          fi
+          if status_value_present "$doom_pi4_status_evidence_output_ok" "$doom_serial_capture" pi4wad && \
+            status_value_present "$quake_pi4_status_evidence_output_ok" "$quake_serial_capture" pi4wad; then
+            storage_pi4wad_present=true
+          fi
+          if status_value_present "$doom_pi4_status_evidence_output_ok" "$doom_serial_capture" pi4pak0 && \
+            status_value_present "$quake_pi4_status_evidence_output_ok" "$quake_serial_capture" pi4pak0; then
+            storage_pi4pak0_present=true
+          fi
+          if [ "$storage_pi4sd_ok" = true ] && \
+            [ "$storage_pi4fat_ok" = true ] && \
+            [ "$storage_pi4vfs_ok" = true ] && \
+            [ "$storage_pi4init_tuple_present" = true ] && \
+            [ "$storage_pi4elfsrc_vfs" = true ] && \
+            [ "$storage_pi4wad_present" = true ] && \
+            [ "$storage_pi4pak0_present" = true ]; then
+            storage_read_gate_passed=true
+          fi
+          if status_value_present "$doom_pi4_status_evidence_output_ok" "$doom_serial_capture" pi4execreq; then
+            doom_launcher_request_present=true
+          fi
+          if status_value_present "$quake_pi4_status_evidence_output_ok" "$quake_serial_capture" pi4execreq; then
+            quake_launcher_request_present=true
+          fi
+          if [ "$doom_launcher_request_present" = true ] && [ "$quake_launcher_request_present" = true ]; then
+            launcher_requests_passed=true
+          fi
+          if [ "$doom_launcher_request_present" = true ] && \
+            status_value_is "$doom_pi4_status_evidence_output_ok" "$doom_serial_capture" pi4exec OK && \
+            status_value_is "$doom_pi4_status_evidence_output_ok" "$doom_serial_capture" path PAYLOAD0.ELF && \
+            status_value_is "$doom_pi4_status_evidence_output_ok" "$doom_serial_capture" upath PAYLOAD0.ELF; then
+            doom_launcher_exec_passed=true
+          fi
+          if [ "$quake_launcher_request_present" = true ] && \
+            status_value_is "$quake_pi4_status_evidence_output_ok" "$quake_serial_capture" pi4exec OK && \
+            status_value_is "$quake_pi4_status_evidence_output_ok" "$quake_serial_capture" path PAYLOAD1.ELF && \
+            status_value_is "$quake_pi4_status_evidence_output_ok" "$quake_serial_capture" upath PAYLOAD1.ELF; then
+            quake_launcher_exec_passed=true
+          fi
+          if [ "$doom_launcher_exec_passed" = true ] && \
+            [ "$quake_launcher_exec_passed" = true ] && \
+            [ "$launcher_requests_passed" = true ]; then
+            launcher_paths_passed=true
+          fi
+          case "$doom_launcher_input" in
+            *mousebtn=1*mousebtn=0*) doom_mouse_click_input_scripted=true ;;
+          esac
+          case "$quake_launcher_input" in
+            *mouse=*) quake_mouse_move_input_scripted=true ;;
+          esac
+          case "$quake_launcher_input" in
+            *mousebtn=1*mousebtn=0*) quake_mouse_click_input_scripted=true ;;
+          esac
+          case "$doom_launcher_input,$quake_launcher_input" in
+            *mousebtn=*) mouse_click_input_scripted=true ;;
+          esac
+          case "$quake_launcher_input" in
+            *mouse=*) mouse_motion_input_scripted=true ;;
+          esac
+          if [ "$launcher_paths_passed" = true ] && [ "$mouse_click_input_scripted" = true ]; then
+            mouse_click_launch_proven=true
+          fi
+          if [ "$quake_launcher_exec_passed" = true ] && [ "$mouse_motion_input_scripted" = true ]; then
+            mouse_motion_launch_proven=true
+          fi
+          doom_input_events="$(status_value "$doom_serial_capture" pi4inputevt)"
+          quake_input_events="$(status_value "$quake_serial_capture" pi4inputevt)"
+          if [ "$doom_pi4_status_evidence_output_ok" = true ] && \
+            tuple_component_nonzero "$doom_input_events" 1 && \
+            tuple_component_nonzero "$doom_input_events" 4; then
+            doom_gameplay_key_progress=true
+          fi
+          if [ "$quake_pi4_status_evidence_output_ok" = true ] && \
+            tuple_component_nonzero "$quake_input_events" 2 && \
+            tuple_component_nonzero "$quake_input_events" 5; then
+            quake_gameplay_key_progress=true
+          fi
+          if [ "$doom_gameplay_key_progress" = true ] && \
+            [ "$quake_gameplay_key_progress" = true ]; then
+            gameplay_key_progress_passed=true
+          fi
+          if [ "$doom_mouse_click_input_scripted" = true ] && \
+            [ "$quake_mouse_move_input_scripted" = true ] && \
+            [ "$quake_mouse_click_input_scripted" = true ] && \
+            [ "$mouse_click_launch_proven" = true ] && \
+            [ "$mouse_motion_launch_proven" = true ] && \
+            [ "$gameplay_key_progress_passed" = true ]; then
+            visible_mouse_keyboard_gate_passed=true
+          fi
+          if status_value_present "$doom_pi4_status_evidence_output_ok" "$doom_serial_capture" pi4audio; then
+            doom_audio_state="$(status_value "$doom_serial_capture" pi4audio)"
+          fi
+          if status_value_present "$quake_pi4_status_evidence_output_ok" "$quake_serial_capture" pi4audio; then
+            quake_audio_state="$(status_value "$quake_serial_capture" pi4audio)"
+          fi
+          if [ "$doom_audio_state" = "OK" ] || [ "$quake_audio_state" = "OK" ]; then
+            audio_state="OK"
+          elif [ "$doom_audio_state" = "HARDWARE-UNPROVEN" ] || [ "$quake_audio_state" = "HARDWARE-UNPROVEN" ]; then
+            audio_state="hardware-unproven"
+          elif [ "$doom_audio_state" = "WAIT" ] || [ "$quake_audio_state" = "WAIT" ]; then
+            audio_state="wait"
+          fi
+
+          ref="$(json_escape "${GITHUB_REF_NAME:-}")"
+          sha="$(json_escape "${GITHUB_SHA:-}")"
+          run_id="$(json_escape "${GITHUB_RUN_ID:-}")"
+          run_attempt="$(json_escape "${GITHUB_RUN_ATTEMPT:-}")"
+          qemu_exit="$(json_escape "$qemu_exit_code")"
+          doom_qemu_exit="$(json_escape "$doom_qemu_exit_code")"
+          quake_qemu_exit="$(json_escape "$quake_qemu_exit_code")"
+          image_sha_before="$(json_escape "$image_sha_before")"
+          image_sha_after="$(json_escape "$image_sha_after")"
+          audio_state_json="$(json_escape "$audio_state")"
+          doom_audio_state_json="$(json_escape "$doom_audio_state")"
+          quake_audio_state_json="$(json_escape "$quake_audio_state")"
+          doom_launcher_input_json="$(json_escape "$doom_launcher_input")"
+          quake_launcher_input_json="$(json_escape "$quake_launcher_input")"
+
+          if [ "$doom_audio_state" = "OK" ] || [ "$quake_audio_state" = "OK" ]; then
+            echo "local QEMU captured pi4audio=OK; refusing hardware-equivalent final gates because audio OK requires real Pi hardware evidence." >&2
+            exit 1
+          fi
+
+          cat > "$final_gates_file" <<EOF_GATES
+          storage=green
+          storage_assets=real-wad-and-pak
+          storage_status_fields=pi4wad,pi4pak0
+          launcher_doom_exec=green
+          launcher_quake_exec=green
+          payload_launch_status_fields=pi4exec,pi4execreq,pi4payloadvfs,path,upath,pi4inputevt,fbpresent,fbchange
+          input=green
+          graphics=green
+          process=green
+          memory=green
+          preemption=green
+          audio=hardware-unproven
+          hardware=unclaimed
+          green_gate=false
+          hardware_proof=unclaimed
+          evidence_class=local-qemu-final-gates
+          framebuffer_artifact=green
+          framebuffer_artifact_source=qemu-screendump
+          doom_framebuffer_artifact=green
+          doom_framebuffer_report=hashes-only
+          doom_framebuffer_frame0_hash=$doom_framebuffer_frame0_hash
+          doom_framebuffer_frame1_hash=$doom_framebuffer_frame1_hash
+          quake_framebuffer_artifact=green
+          quake_framebuffer_report=hashes-only
+          quake_framebuffer_frame0_hash=$quake_framebuffer_frame0_hash
+          quake_framebuffer_frame1_hash=$quake_framebuffer_frame1_hash
+          capture_audio_doom=$doom_audio_state
+          capture_audio_quake=$quake_audio_state
+          single_artifact=green
+          single_artifact_image=pi4-real-assets-fat16
+          single_artifact_sha256=$image_sha_after
+          EOF_GATES
+          build/vibe_status_check --pi4-final-gates "$final_gates_file" "$doom_raw_status" "$quake_raw_status" "$doom_marked_status" "$quake_marked_status"
+          build/vibe_status_check --pi4-final-gates-single-artifact "$final_gates_file" "$image_sha_after"
+
+          cat > "$status_json" <<JSON
+          {
+            "schema": "pi4-hw-equivalent-status-v1",
+            "workflow": "pi4-hw-equivalent.yml",
+            "ref": "$ref",
+            "sha": "$sha",
+            "run_id": "$run_id",
+            "run_attempt": "$run_attempt",
+            "runner": "github-actions-ubuntu",
+            "hardware_equivalent_runner": true,
+            "real_hardware_proof": "unclaimed",
+            "local_user_qemu_real_hardware_proof": false,
+            "qemu_command_source": "make pi4-hw-equivalent-qemu-command",
+            "qemu_command_image_override": "pi4-real-assets-fat16",
+            "qemu_command_matches_user_handoff": true,
+            "qemu_command_extra_monitor_for_screendump": true,
+            "qemu_machine": "raspi4b,usb=on",
+            "qemu_command_static_gate": $qemu_static_user_path_ok,
+            "qemu_input_devices": {
+              "exact_kernel_arg": $qemu_exact_kernel_arg_ok,
+              "exact_image_drive_arg": $qemu_exact_image_arg_ok,
+              "raspi4b_usb_machine_arg": $qemu_raspi4_usb_arg_ok,
+              "usb_keyboard_arg": $qemu_usb_keyboard_arg_ok,
+              "usb_mouse_arg": $qemu_usb_mouse_arg_ok,
+              "keyboard_input_injection": "hmp-sendkey-to-qemu-usb-keyboard",
+              "mouse_device_present": $qemu_usb_mouse_arg_ok,
+              "doom_mouse_click_input_scripted": $doom_mouse_click_input_scripted,
+              "quake_mouse_move_input_scripted": $quake_mouse_move_input_scripted,
+              "quake_mouse_click_input_scripted": $quake_mouse_click_input_scripted,
+              "mouse_click_input_scripted": $mouse_click_input_scripted,
+              "mouse_motion_input_scripted": $mouse_motion_input_scripted,
+              "mouse_click_launch_proven": $mouse_click_launch_proven,
+              "mouse_motion_launch_proven": $mouse_motion_launch_proven,
+              "doom_gameplay_key_progress": $doom_gameplay_key_progress,
+              "quake_gameplay_key_progress": $quake_gameplay_key_progress,
+              "gameplay_key_progress_passed": $gameplay_key_progress_passed,
+              "visible_mouse_keyboard_gate_passed": $visible_mouse_keyboard_gate_passed
+            },
+            "qemu_machine_available": $qemu_machine_available,
+            "qemu_exit_code": "$qemu_exit",
+            "qemu_exit_codes": {
+              "doom": "$doom_qemu_exit",
+              "quake": "$quake_qemu_exit"
+            },
+            "single_pi_image_built": true,
+            "single_artifact": {
+              "image_label": "pi4-real-assets-fat16",
+              "sha256_before": "$image_sha_before",
+              "sha256_after": "$image_sha_after",
+              "image_sha_stable": $single_artifact_stable,
+              "raw_image_uploaded": false
+            },
+            "real_assets": {
+              "prepared_image_source": "make pi4-prepared-real-assets-image",
+              "prepared_image_present": $prepared_real_assets_image_present,
+              "prepared_handoff_present": $prepared_real_assets_handoff_present,
+              "storage_assets": "real-wad-and-pak",
+              "asset_paths_uploaded": false,
+              "asset_bytes_uploaded": false
+            },
+            "serial_status_seen": $serial_status_seen,
+            "serial_parser_passed": $serial_parser_passed,
+            "pi4_status_evidence_output_ok": $pi4_status_evidence_output_ok,
+            "user_visible_path": {
+              "guest_desktop_launcher": true,
+              "doom_selection": "launcher-mouse-click-then-gameplay-key-w",
+              "quake_selection": "launcher-mouse-move-click-then-gameplay-key-s",
+              "input_transport": "qemu-raspi4b-usb-keyboard-and-usb-mouse-devices",
+              "visible_input_gate": $visible_mouse_keyboard_gate_passed,
+              "framebuffer_screenshots": "qemu-screendump-hashes-only",
+              "audio_hardware": "unproven"
+            },
+            "framebuffer_artifact": {
+              "source": "qemu-screendump",
+              "capture_attempted": $framebuffer_capture_attempted,
+              "passed": $framebuffer_artifact_passed,
+              "nonblank_frames": $framebuffer_nonblank_frames,
+              "changed_frames": $framebuffer_changed_frames,
+              "raw_frames_uploaded": false,
+              "raw_report_uploaded": false
+            },
+            "launcher_paths": {
+              "doom": {
+                "input_script": "$doom_launcher_input_json",
+                "selection": "desktop-launcher-doom",
+                "expected_path": "PAYLOAD0.ELF",
+                "serial_status_seen": $doom_serial_status_seen,
+                "serial_parser_passed": $doom_serial_parser_passed,
+                "pi4_status_evidence_output_ok": $doom_pi4_status_evidence_output_ok,
+                "launcher_request_present": $doom_launcher_request_present,
+                "launcher_exec_passed": $doom_launcher_exec_passed,
+                "framebuffer": {
+                  "capture_attempted": $doom_framebuffer_capture_attempted,
+                  "passed": $doom_framebuffer_artifact_passed,
+                  "nonblank_frames": $doom_framebuffer_nonblank_frames,
+                  "changed_frames": $doom_framebuffer_changed_frames,
+                  "frame0_hash": "$doom_framebuffer_frame0_hash",
+                  "frame1_hash": "$doom_framebuffer_frame1_hash"
+                },
+                "audio": "unclaimed",
+                "audio_state": "$doom_audio_state_json"
+              },
+              "quake": {
+                "input_script": "$quake_launcher_input_json",
+                "selection": "desktop-launcher-quake",
+                "expected_path": "PAYLOAD1.ELF",
+                "serial_status_seen": $quake_serial_status_seen,
+                "serial_parser_passed": $quake_serial_parser_passed,
+                "pi4_status_evidence_output_ok": $quake_pi4_status_evidence_output_ok,
+                "launcher_request_present": $quake_launcher_request_present,
+                "launcher_exec_passed": $quake_launcher_exec_passed,
+                "framebuffer": {
+                  "capture_attempted": $quake_framebuffer_capture_attempted,
+                  "passed": $quake_framebuffer_artifact_passed,
+                  "nonblank_frames": $quake_framebuffer_nonblank_frames,
+                  "changed_frames": $quake_framebuffer_changed_frames,
+                  "frame0_hash": "$quake_framebuffer_frame0_hash",
+                  "frame1_hash": "$quake_framebuffer_frame1_hash"
+                },
+                "audio": "unclaimed",
+                "audio_state": "$quake_audio_state_json"
+              },
+              "requests_passed": $launcher_requests_passed,
+              "passed": $launcher_paths_passed
+            },
+            "storage_read_gate": {
+              "source": "pi4_status_evidence validated vibe-status output",
+              "pi4sd_ok": $storage_pi4sd_ok,
+              "pi4fat_ok": $storage_pi4fat_ok,
+              "pi4vfs_ok": $storage_pi4vfs_ok,
+              "pi4init_tuple_present": $storage_pi4init_tuple_present,
+              "pi4elfsrc_vfs": $storage_pi4elfsrc_vfs,
+              "pi4wad_present": $storage_pi4wad_present,
+              "pi4pak0_present": $storage_pi4pak0_present,
+              "passed": $storage_read_gate_passed
+            },
+            "final_gates": {
+              "qemu_user_path": $qemu_static_user_path_ok,
+              "storage": $storage_read_gate_passed,
+              "launcher_requests": $launcher_requests_passed,
+              "launcher_paths": $launcher_paths_passed,
+              "visible_mouse_keyboard_selection": $visible_mouse_keyboard_gate_passed,
+              "framebuffer": $framebuffer_final_gate_passed,
+              "single_artifact": $single_artifact_stable,
+              "audio": "unclaimed",
+              "audio_state": "$audio_state_json",
+              "hardware": "unclaimed",
+              "green_gate": false,
+              "claim": "partial hardware-equivalent storage/framebuffer status only; audio and real hardware remain unclaimed"
+            },
+            "claim": "hardware-equivalent QEMU status only; GitHub runner QEMU and local/user QEMU are emulator-only; real Pi hardware proof remains unclaimed",
+            "artifact_policy": {
+              "status_only": true,
+              "contains_wad_data": false,
+              "contains_pak_data": false,
+              "contains_disk_image": false,
+              "contains_screenshots": false,
+              "contains_pixels": false,
+              "contains_framebuffer_hashes": true,
+              "contains_raw_audio": false,
+              "contains_vm_logs": false,
+              "contains_raw_serial": false,
+              "contains_secrets": false
+            }
+          }
+          JSON
+
+          if grep -nEi '"[^"]+": ".*\.(img|iso|log|txt|png|ppm|bmp|wav|raw|pak|wad)"' "$status_json"; then
+            echo "$status_json must not point at raw images, logs, assets, captures, or media." >&2
+            exit 1
+          fi
+          rm -f "$doom_serial_capture" "$doom_status_probe" \
+            "$doom_raw_status" "$doom_marked_status" "$doom_framebuffer_report" \
+            "$doom_framebuffer_frame0" "$doom_framebuffer_frame1" \
+            "$quake_serial_capture" "$quake_status_probe" \
+            "$quake_raw_status" "$quake_marked_status" "$quake_framebuffer_report" \
+            "$quake_framebuffer_frame0" "$quake_framebuffer_frame1" "$final_gates_file"
+
+          if [ "$serial_parser_passed" != true ]; then
+            echo "Pi 4 hardware-equivalent status parser did not pass; real hardware proof remains unclaimed." >&2
+            exit 1
+          fi
+
+          if [ "$storage_read_gate_passed" != true ]; then
+            echo "Pi 4 hardware-equivalent storage-read gate did not pass; real hardware proof remains unclaimed." >&2
+            exit 1
+          fi
+
+          if [ "$launcher_paths_passed" != true ]; then
+            echo "Pi 4 hardware-equivalent launcher gate did not exercise both Doom and Quake launch paths; real hardware proof remains unclaimed." >&2
+            exit 1
+          fi
+
+          if [ "$visible_mouse_keyboard_gate_passed" != true ]; then
+            echo "Pi 4 hardware-equivalent visible input gate did not prove Doom click, Quake move/click, and gameplay key progress; real hardware proof remains unclaimed." >&2
+            exit 1
+          fi
+
+          if [ "$framebuffer_artifact_passed" != true ] || \
+            [ "$framebuffer_nonblank_frames" != true ] || \
+            [ "$framebuffer_changed_frames" != true ]; then
+            echo "Pi 4 hardware-equivalent framebuffer artifact gate did not prove nonblank changed screendump frames; real hardware proof remains unclaimed." >&2
+            exit 1
+          fi
+
+          if [ "$single_artifact_stable" != true ]; then
+            echo "Pi 4 hardware-equivalent single-artifact gate did not preserve the Pi image hash; real hardware proof remains unclaimed." >&2
+            exit 1
+          fi
+
+      - name: Upload status-only Pi 4 hardware-equivalent artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pi4-hw-equivalent-status
+          if-no-files-found: error
+          path: build/pi4-hw-equivalent/status.json
