@@ -1,14 +1,16 @@
 # vibe-os
 
-vibe-os is a from-scratch 32-bit x86 operating system for QEMU's PC hardware
-model. It boots from a raw disk image, loads its own kernel, starts Ring 3 ELF
-programs, and exposes its own syscall ABI for files, memory, time, input,
-video, audio, config, and saves.
+vibe-os is a from-scratch operating system. The playable path on `main` is the
+32-bit x86 QEMU PC build; the next native hardware target is Raspberry Pi 4 as
+an assembly-first AArch64 OS/runtime. It boots from a raw image, loads its own
+kernel, starts Ring 3 ELF programs, and exposes its own syscall ABI for files,
+memory, time, input, video, audio, config, and saves.
 
 The current proof targets are the original id Software Doom and Quake engine
 sources running as vibe-os user programs. They appear as Doom and Quake on the
-guest launcher screen, but the disk image stores them in generic large-payload
-slots. The OS process path is not hard-coded to either game.
+guest launcher screen, and the disk image installs them as app files under
+`/APPS/DOOM/APP.ELF` and `/APPS/QUAKE/APP.ELF`. The old root
+`PAYLOAD0.ELF`/`PAYLOAD1.ELF` slot model is not the supported process path.
 
 This is not Linux running Doom or Quake. It is not Chocolate Doom, doomgeneric,
 SDL, or a desktop wrapper. QEMU provides the emulated PC hardware; vibe-os owns
@@ -81,6 +83,32 @@ A normal image places system and app files in FAT directories:
 Game data formats and compatibility paths still say WAD, PAK, `DOOM1.WAD`, or
 `PAK0.PAK`; those names do not define the OS process path.
 
+## Raspberry Pi 4 Status
+
+The Pi 4 target is native AArch64, not Linux userland and not an emulator
+wrapper. The intended user-facing shape is the same as the x86 desktop build:
+boot one Pi image, show the vibe-os launcher, install apps in `/SYSTEM` and
+`/APPS`, and launch Doom or Quake by app path from inside the OS.
+
+Current `main` status:
+
+- The shared filesystem app layout is in place for the x86 image:
+  `/SYSTEM/INIT.ELF`, `/APPS/INDEX.TXT`, and `/APPS/*/APP.ELF`.
+- The x86 kernel launches Doom and Quake by `/APPS/.../APP.ELF` paths through
+  the guest exec path.
+- The Pi 4 boot/runtime tree is not yet shipped on `main`, so this README does
+  not claim a playable Pi image, Pi QEMU target, or real Pi hardware proof yet.
+- The next Pi work is to add assembly-native AArch64 boot, exceptions,
+  timer/preemption, framebuffer, input, FAT/VFS, and generic app exec against
+  the same `/SYSTEM` and `/APPS` layout.
+
+Pi proof should be hardware or hardware-equivalent evidence: serial boot log,
+framebuffer output, FAT/VFS reads from real WAD/PAK assets and app manifests,
+USB or supported input events, audio capability/status, AArch64 Ring 3 ELF
+launch by path, rendered frames, input-driven gameplay progress, `panic=NONE`,
+`shutdown=NONE`, and honest storage/input/graphics/audio/process/memory/
+preemption gates.
+
 ## Verify
 
 Default host-only checks:
@@ -91,7 +119,7 @@ make ALLOW_LOCAL_VM=0 DOOM_WAD= uefi-loader-object
 git diff --check
 ```
 
-These checks build the image, kernel, launcher, probe ELFs, payload ELFs, host
+These checks build the image, kernel, launcher, probe ELFs, app ELFs, host
 utilities, status validator, and assembly-native guest audit without running
 local QEMU. With `DOOM_WAD=` empty, the test image uses generated Doom fixture
 data; `make play` is the path that fetches playable public data. The guest
@@ -114,8 +142,8 @@ make PRIMARY_ASSET=/path/to/DOOM1.WAD SECONDARY_PACKAGE=/path/to/PAK0.PAK
 ## Verified Behavior
 
 Release proof workflows run in GitHub Actions on disposable QEMU VMs. They
-build a launcher-first image, select a payload from the guest launcher, launch
-it through the same generic process path, drive input, and check guest-emitted
+build a launcher-first image, select an app from the guest launcher, launch it
+through the guest process path, drive input, and check guest-emitted
 status fields.
 
 ```sh
@@ -174,14 +202,14 @@ The vendor trees should stay pristine.
   packaged assets, config files, save files, and file descriptors.
 - **User ABI:** Ring 3 ELF launch, user entry code, syscall wrappers, runtime
   helpers, process status, ABI probes, and the NASM guest launcher.
-- **Payload adapters:** project-owned assembly glue for startup, libc/string
+- **App/game adapters:** project-owned assembly glue for startup, libc/string
   and stdio/math support, input, framebuffer presentation, palette/video
   conversion, audio, persistence, and shutdown.
 - **Devices:** keyboard, mouse, framebuffer/VBE-style presentation, and an
   SB16-style PCM audio path.
 
 Project-owned guest code is assembly-first today: boot paths, kernel,
-user/runtime code, ABI probes, libc compatibility, payload adapters, input,
+user/runtime code, ABI probes, libc compatibility, app/game adapters, input,
 audio, persistence, and startup code are NASM sources. C is used for the
 original engine sources and host utilities. Python is not part of the tracked
 build or proof path.
@@ -189,6 +217,10 @@ build or proof path.
 UEFI support exists as a NASM loader object/PE path, a dual BIOS/UEFI image
 target, and an OVMF cloud proof workflow. Interactive play and the current
 Doom/Quake proof lanes use the BIOS/IDE/QEMU PC route.
+
+Raspberry Pi 4 support is the active native port target, but it is not listed
+as a supported route until the AArch64 boot/runtime code and proof targets are
+present on `main`.
 
 ## Repository Map
 
@@ -206,9 +238,11 @@ Doom/Quake proof lanes use the BIOS/IDE/QEMU PC route.
 
 ## Boundaries
 
-- Supported target: QEMU PC BIOS/IDE/PS2/VBE/SB16-style hardware.
+- Supported target today: QEMU PC BIOS/IDE/PS2/VBE/SB16-style hardware.
+- Target in progress: Raspberry Pi 4 native AArch64 boot/runtime with the same
+  `/SYSTEM` and `/APPS` launcher/app model.
 - Not claimed: arbitrary physical PCs, installers, unknown disks, USB, AHCI,
-  HDA, or a general Unix/POSIX system.
+  HDA, a completed Pi 4 hardware release, or a general Unix/POSIX system.
 - Original Doom and Quake remain original Doom and Quake; vibe-os did not
   rewrite the game engines.
 - Host build/proof utilities are not guest OS code.
