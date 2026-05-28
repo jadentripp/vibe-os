@@ -622,7 +622,7 @@ PROCESS_EXEC_LOAD_ADDR equ 8
 PROCESS_EXEC_MAX_BYTES equ 12
 PROCESS_EXEC_TARGET equ 16
 PROCESS_EXEC_KIND equ 20
-LARGE_PAYLOAD_PROOF_LABEL_COUNT equ 2
+LARGE_PAYLOAD_PROOF_LABEL_COUNT equ 0
 LARGE_PAYLOAD_PROOF_LABEL_ENTRY_BYTES equ 8
 LARGE_PAYLOAD_PROOF_LABEL_NAME83 equ 0
 LARGE_PAYLOAD_PROOF_LABEL_KIND equ 4
@@ -935,6 +935,7 @@ SYS_EXEC_ENVP_SOURCE_USER equ 2
 SYS_EXEC_RESOLVE_NONE equ 0
 SYS_EXEC_RESOLVE_TABLE equ 1
 SYS_EXEC_RESOLVE_GENERIC_ROOT83 equ 2
+SYS_EXEC_RESOLVE_APP_PATH equ 3
 VIBE_USER_ABI_VERSION equ 1
 SYSCALL_TRAP_VECTOR equ 0x80
 SYSCALL_MAX_ARGS equ 3
@@ -14752,11 +14753,6 @@ fat_open_name_is_protected:
     call fat_name_match
     cmp al, 1
     je .protected
-    mov esi, fat_open_name_buffer
-    mov edi, primary_payload_elf_name_83
-    call fat_name_match
-    cmp al, 1
-    je .protected
     clc
     jmp .done
 
@@ -20431,6 +20427,7 @@ process_exec_path:
     mov dword [process_exec_path_ptr], esi
     mov dword [process_exec_target], edi
     mov dword [process_exec_target_kind], USER_KIND_NONE
+    mov byte [process_exec_lookup_depth], 0
     call process_exec_resolve_path
     jnc .resolved
     cmp dword [process_exec_last_error], 0
@@ -20451,8 +20448,7 @@ process_exec_path:
     mov esi, [process_exec_target]
     call process_reuse_exec_target_slot
 
-    mov edi, [process_exec_name83]
-    call fat_find_file
+    call process_exec_find_file
     jnc .fat_found
     mov dword [process_exec_last_error], -ERRNO_ENOENT
     jmp .fail
@@ -20600,7 +20596,10 @@ process_exec_path:
     mov eax, [process_exec_last_resolve_mode]
     mov [process_exec_last_success_mode], eax
     cmp eax, SYS_EXEC_RESOLVE_GENERIC_ROOT83
+    je .generic_success
+    cmp eax, SYS_EXEC_RESOLVE_APP_PATH
     jne .status_success
+.generic_success:
     inc dword [process_exec_generic_successes]
     mov eax, [esi + PROC_PID]
     mov [process_exec_last_generic_pid], eax
@@ -20653,12 +20652,196 @@ process_exec_path:
     pop ebx
     ret
 
+process_exec_find_file:
+    cmp byte [process_exec_lookup_depth], 0
+    je .root_file
+    cmp byte [process_exec_lookup_depth], 1
+    je .one_dir_file
+    cmp byte [process_exec_lookup_depth], 2
+    je .two_dir_file
+    stc
+    ret
+
+.root_file:
+    mov edi, [process_exec_name83]
+    call fat_find_file
+    ret
+
+.one_dir_file:
+    mov edi, process_exec_dir1_name83_buffer
+    call fat_find_root_entry_any
+    jc .fail
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .fail
+    mov ax, [fat_found_first_cluster]
+    cmp ax, 2
+    jb .fail
+    mov edi, [process_exec_name83]
+    call fat_find_subdir_entry
+    ret
+
+.two_dir_file:
+    mov edi, process_exec_dir1_name83_buffer
+    call fat_find_root_entry_any
+    jc .fail
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .fail
+    mov ax, [fat_found_first_cluster]
+    cmp ax, 2
+    jb .fail
+    mov edi, process_exec_dir2_name83_buffer
+    call fat_find_subdir_entry
+    jc .fail
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .fail
+    mov ax, [fat_found_first_cluster]
+    cmp ax, 2
+    jb .fail
+    mov edi, [process_exec_name83]
+    call fat_find_subdir_entry
+    ret
+
+.fail:
+    stc
+    ret
+
+process_exec_copy_name83:
+    push ecx
+    cld
+    mov ecx, 11
+    rep movsb
+    pop ecx
+    ret
+
+process_exec_resolve_app_path:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov esi, [process_exec_path_ptr]
+    cmp esi, 0
+    je .fail
+
+    mov edi, exec_path_boot_user
+    call kernel_streq
+    cmp al, 1
+    je .system_init
+
+    mov edi, exec_path_abi_probe
+    call kernel_streq
+    cmp al, 1
+    je .system_abi_probe
+
+    mov edi, exec_path_primary_payload
+    call kernel_streq
+    cmp al, 1
+    je .doom_app
+
+    mov edi, exec_path_secondary_payload
+    call kernel_streq
+    cmp al, 1
+    je .quake_app
+
+.fail:
+    stc
+    jmp .done
+
+.system_init:
+    mov esi, boot_user_elf_name_83
+    mov edi, process_exec_name83_buffer
+    call process_exec_copy_name83
+    mov esi, system_dir_name_83
+    mov edi, process_exec_dir1_name83_buffer
+    call process_exec_copy_name83
+    mov byte [process_exec_lookup_depth], 1
+    inc dword [process_exec_table_resolves]
+    mov dword [process_exec_last_resolve_mode], SYS_EXEC_RESOLVE_APP_PATH
+    mov dword [process_exec_name83], process_exec_name83_buffer
+    mov dword [process_exec_load_addr], USER_ELF_LOAD_ADDR
+    mov dword [process_exec_max_bytes], USER_ELF_MAX_BYTES
+    mov dword [process_exec_target], process_user_probe
+    mov dword [process_exec_target_kind], USER_KIND_PROBE
+    clc
+    jmp .done
+
+.system_abi_probe:
+    call process_alloc_generic_exec_slot
+    jc .fail
+    mov ebx, esi
+    mov esi, abi_probe_elf_name_83
+    mov edi, process_exec_name83_buffer
+    call process_exec_copy_name83
+    mov esi, system_dir_name_83
+    mov edi, process_exec_dir1_name83_buffer
+    call process_exec_copy_name83
+    mov byte [process_exec_lookup_depth], 1
+    inc dword [process_exec_generic_resolves]
+    mov dword [process_exec_last_resolve_mode], SYS_EXEC_RESOLVE_APP_PATH
+    mov dword [process_exec_name83], process_exec_name83_buffer
+    mov dword [process_exec_load_addr], USER_ELF_LOAD_ADDR
+    mov dword [process_exec_max_bytes], USER_ELF_MAX_BYTES
+    mov [process_exec_target], ebx
+    mov dword [process_exec_target_kind], USER_KIND_GENERIC
+    clc
+    jmp .done
+
+.doom_app:
+    mov eax, USER_KIND_PAYLOAD_PRIMARY
+    jmp .payload_app
+
+.quake_app:
+    mov eax, USER_KIND_PAYLOAD_SECONDARY
+
+.payload_app:
+    mov edx, eax
+    mov esi, app_elf_name_83
+    mov edi, process_exec_name83_buffer
+    call process_exec_copy_name83
+    mov esi, apps_dir_name_83
+    mov edi, process_exec_dir1_name83_buffer
+    call process_exec_copy_name83
+    cmp edx, USER_KIND_PAYLOAD_SECONDARY
+    je .payload_quake_dir
+    mov esi, doom_dir_name_83
+    jmp .payload_dir_ready
+
+.payload_quake_dir:
+    mov esi, quake_dir_name_83
+
+.payload_dir_ready:
+    mov edi, process_exec_dir2_name83_buffer
+    call process_exec_copy_name83
+    mov byte [process_exec_lookup_depth], 2
+    inc dword [process_exec_generic_resolves]
+    mov dword [process_exec_last_resolve_mode], SYS_EXEC_RESOLVE_APP_PATH
+    mov dword [process_exec_name83], process_exec_name83_buffer
+    mov dword [process_exec_load_addr], PAYLOAD_ELF_LOAD_ADDR
+    mov dword [process_exec_max_bytes], PAYLOAD_ELF_MAX_BYTES
+    mov dword [process_exec_target], process_payload
+    mov [process_exec_target_kind], edx
+    clc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
 process_exec_resolve_path:
     push eax
     push ebx
     push ecx
     push esi
     push edi
+
+    call process_exec_resolve_app_path
+    jnc .done
 
     mov ebx, process_exec_table
     mov ecx, PROCESS_EXEC_TABLE_COUNT
@@ -24237,11 +24420,6 @@ syscall_handler:
     call fat_name_match
     cmp al, 1
     je .stat_user_elf
-    mov esi, fat_open_name_buffer
-    mov edi, primary_payload_elf_name_83
-    call fat_name_match
-    cmp al, 1
-    je .stat_primary_payload_elf
     call fat_open_name_marker_index
     jnc .stat_persistence_marker
     mov edi, fat_open_name_buffer
@@ -24278,17 +24456,6 @@ syscall_handler:
 
 .stat_user_elf:
     mov edi, user_elf_name_83
-    call fat_find_file
-    jc .bad_syscall_enoent
-    mov eax, [fat_found_size]
-    mov edx, STAT_MODE_READONLY_REG
-    call stat_fill_user
-    jc .bad_syscall_einval
-    xor eax, eax
-    jmp .return
-
-.stat_primary_payload_elf:
-    mov edi, primary_payload_elf_name_83
     call fat_find_file
     jc .bad_syscall_enoent
     mov eax, [fat_found_size]
@@ -34717,14 +34884,18 @@ cmd_poweroff db "poweroff", 0
 
 primary_asset_name_83 db "DOOM1   WAD"
 boot_user_elf_name_83 db "INIT    ELF"
+abi_probe_elf_name_83 db "ABIPROBEELF"
+app_elf_name_83 db "APP     ELF"
+system_dir_name_83 db "SYSTEM     "
+apps_dir_name_83 db "APPS       "
+doom_dir_name_83 db "DOOM       "
+quake_dir_name_83 db "QUAKE      "
 user_elf_name_83 db "USERPROBELF"
-primary_payload_elf_name_83 db "PAYLOAD0ELF"
-secondary_payload_elf_name_83 db "PAYLOAD1ELF"
-exec_path_primary_payload db "PAYLOAD0.ELF", 0
-exec_path_secondary_payload db "PAYLOAD1.ELF", 0
-exec_path_boot_user db "INIT.ELF", 0
+exec_path_primary_payload db "/APPS/DOOM/APP.ELF", 0
+exec_path_secondary_payload db "/APPS/QUAKE/APP.ELF", 0
+exec_path_boot_user db "/SYSTEM/INIT.ELF", 0
 exec_path_user_probe db "USERPROB.ELF", 0
-exec_path_abi_probe db "ABIPROBE.ELF", 0
+exec_path_abi_probe db "/SYSTEM/ABIPROBE.ELF", 0
 default_cfg_name_83 db "DEFAULT CFG"
 save_slot0_name_83 db "DOOMSAV0DSG"
 save_slot1_name_83 db "DOOMSAV1DSG"
@@ -34765,8 +34936,6 @@ writable_path_len_table dd user_path_default_cfg_end - user_path_default_cfg, us
 writable_capacity_table dd WRITABLE_DEFAULT_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY
 persistence_marker_name_table dd persist_chk_name_83, save_req_name_83, load_req_name_83
 large_payload_proof_label_table:
-    dd primary_payload_elf_name_83, USER_KIND_PAYLOAD_PRIMARY
-    dd secondary_payload_elf_name_83, USER_KIND_PAYLOAD_SECONDARY
 process_exec_table:
     dd exec_path_boot_user, boot_user_elf_name_83, USER_ELF_LOAD_ADDR, USER_ELF_MAX_BYTES, process_user_probe, USER_KIND_PROBE
     dd exec_path_user_probe, user_elf_name_83, USER_ELF_LOAD_ADDR, USER_ELF_MAX_BYTES, process_user_probe, USER_KIND_PROBE
@@ -35572,11 +35741,14 @@ process_exec_copy_last_filesz dd 0
 process_exec_copy_last_memsz dd 0
 process_exec_reject_active_target db 0
 process_exec_target_reusable db 0
+process_exec_lookup_depth db 0
 process_exec_dot_seen db 0
 process_exec_base_len db 0
 process_exec_ext_len db 0
 align 4
 process_exec_name83_buffer times 11 db 0
+process_exec_dir1_name83_buffer times 11 db 0
+process_exec_dir2_name83_buffer times 11 db 0
 align 4
 sys_exec_attempts dd 0
 sys_exec_successes dd 0

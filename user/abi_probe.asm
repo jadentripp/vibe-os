@@ -2470,7 +2470,7 @@ L.str:
 db `/`, 0
 
 L.str.1:
-db `ABIPROBE.ELF`, 0
+db `/SYSTEM/ABIPROBE.ELF`, 0
 
 L.str.2:
 db `PROBE_LAUNCHER=USERPROB`, 0
@@ -2482,7 +2482,7 @@ L.str.4:
 db `USERPROB.ELF`, 0
 
 L.str.5:
-db `PAYLOAD0.ELF`, 0
+db `/APPS/DOOM/APP.ELF`, 0
 
 L.str.6:
 times 1 db 0
@@ -2491,7 +2491,7 @@ L.str.7:
 db `abi probe ok\n`, 0
 
 L.payload1_path:
-db `PAYLOAD1.ELF`, 0
+db `/APPS/QUAKE/APP.ELF`, 0
 
 L__const.prove_generic_file_services.asset_file:
 db `./assets/readme.txt`, 0

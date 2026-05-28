@@ -49,8 +49,8 @@ DOOM_WAD=/absolute/path/to/DOOM1.WAD \
 
 `make play` should open a QEMU window, boot vibe-os, and show a simple launcher
 with Doom and Quake choices. Selecting Doom starts the Doom engine from the
-first large-payload slot. Selecting Quake starts the Quake engine from the
-second large-payload slot.
+installed Doom app directory. Selecting Quake starts the Quake engine from the
+installed Quake app directory.
 
 If the QEMU window opens but never reaches the launcher, quit QEMU and inspect
 `build/play/serial.log`.
@@ -63,23 +63,23 @@ The supported interactive route is the QEMU PC BIOS path:
 2. Stage 1 and Stage 2 load `KERNEL.ELF` from FAT16.
 3. The kernel initializes memory, interrupts, syscalls, storage, input, video,
    audio, and processes.
-4. The kernel starts `INIT.ELF`, the NASM guest launcher.
+4. The kernel starts `/SYSTEM/INIT.ELF`, the NASM guest launcher.
 5. The launcher presents Doom and Quake choices through the framebuffer.
-6. The selected payload starts as a Ring 3 ELF process.
-7. The payload reads external data, renders frames, accepts input, emits audio,
+6. The selected app starts as a Ring 3 ELF process.
+7. The app reads external data, renders frames, accepts input, emits audio,
    and writes config or save data through vibe-os.
 
-A normal image places these files in the FAT root:
+A normal image places system and app files in FAT directories:
 
 - `KERNEL.ELF` - the vibe-os kernel.
-- `INIT.ELF` - the guest launcher.
-- `USERPROB.ELF` and `ABIPROBE.ELF` - guest test programs.
-- `PAYLOAD0.ELF` - the first large payload slot, currently Doom.
-- `PAYLOAD1.ELF` - the second large payload slot, currently Quake.
+- `/SYSTEM/INIT.ELF` - the guest launcher.
+- `USERPROB.ELF` and `/SYSTEM/ABIPROBE.ELF` - guest test programs.
+- `/APPS/INDEX.TXT` - installed app manifest index.
+- `/APPS/DOOM/MANIFEST.TXT` and `/APPS/DOOM/APP.ELF` - Doom.
+- `/APPS/QUAKE/MANIFEST.TXT` and `/APPS/QUAKE/APP.ELF` - Quake.
 
-The slot names are deliberate. Some proof labels, build variables, game data
-formats, and compatibility paths still say Doom, Quake, WAD, PAK, `DOOM1.WAD`,
-or `PAK0.PAK`; those names do not define the OS process path.
+Game data formats and compatibility paths still say WAD, PAK, `DOOM1.WAD`, or
+`PAK0.PAK`; those names do not define the OS process path.
 
 ## Verify
 

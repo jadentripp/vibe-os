@@ -23,7 +23,7 @@ usage() {
 Usage: tools/play_local.sh [--prepare-only]
 
 Prepare public shareware Doom and Quake data outside the repo, build one
-vibe-os disk image with both generic payload slots, and launch the OS launcher.
+vibe-os disk image with installed Doom and Quake apps, and launch the OS launcher.
 
 Environment overrides:
   DOOM_WAD=/path/to/DOOM1.WAD       Use an existing WAD instead of the cache.

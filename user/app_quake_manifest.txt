@@ -1,0 +1,4 @@
+name=QUAKE
+exec=/APPS/QUAKE/APP.ELF
+asset=/ID1/PAK0.PAK
+icon=pak:gfx/conback.lmp

@@ -4242,7 +4242,7 @@ install_bootable_layout:                # @install_bootable_layout
 	callq	read_file
 	movq	%rax, %r14
 	movq	%rdx, %r8
-	leaq	LEGACY_PAYLOAD_ELF_NAME(%rip), %rsi
+	leaq	LEGACY_APP_ELF_NAME(%rip), %rsi
 	movl	$1, %edx
 	movq	40(%rsp), %rdi                  # 8-byte Reload
 	movq	%rax, %rcx
@@ -10277,11 +10277,11 @@ fat83_from_display_component.cold.4:    # @fat83_from_display_component.cold.4
 	.asciz	"duplicate --root-elf FAT16 name"
 	.size	.L.str.20, 32
 
-	.type	LEGACY_PAYLOAD_ELF_NAME,@object # @LEGACY_PAYLOAD_ELF_NAME
+	.type	LEGACY_APP_ELF_NAME,@object # @LEGACY_APP_ELF_NAME
 	.section	.rodata,"a",@progbits
-LEGACY_PAYLOAD_ELF_NAME:
-	.asciz	"PAYLOAD0ELF"
-	.size	LEGACY_PAYLOAD_ELF_NAME, 12
+LEGACY_APP_ELF_NAME:
+	.asciz	"APP     ELF"
+	.size	LEGACY_APP_ELF_NAME, 12
 
 	.type	.L.str.21,@object               # @.str.21
 	.section	.rodata.str1.1,"aMS",@progbits,1
@@ -10401,7 +10401,7 @@ LOAD_REQUEST_NAME:
 
 	.type	.L.str.42,@object               # @.str.42
 .L.str.42:
-	.asciz	"usage: make_wad_image [--inspect IMAGE] [--primary-asset-wad PATH|--wad PATH] [--root-elf NAME.ELF=PATH] [--asset IMAGE_8.3_PATH=HOST_PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [LEGACY_PAYLOAD_ELF]]]\n       make_wad_image --write-root-marker SYMBOL PAYLOAD IMAGE\n       make_wad_image --delete-root-marker SYMBOL IMAGE\n       make_wad_image --check-persistence IMAGE [--baseline-image IMAGE] [--reboot-baseline-image IMAGE] [--write-status FILE] [--save-write-status FILE] [--load-status FILE] [--reboot-status FILE] [--require-default] [--require-dynamic-fat-proof] [--require-save-slot N] [--require-save-description N=TEXT]"
+	.asciz	"usage: make_wad_image [--inspect IMAGE] [--primary-asset-wad PATH|--wad PATH] [--root-elf NAME.ELF=PATH] [--asset IMAGE_8.3_PATH=HOST_PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [LEGACY_APP_ELF]]]\n       make_wad_image --write-root-marker SYMBOL PAYLOAD IMAGE\n       make_wad_image --delete-root-marker SYMBOL IMAGE\n       make_wad_image --check-persistence IMAGE [--baseline-image IMAGE] [--reboot-baseline-image IMAGE] [--write-status FILE] [--save-write-status FILE] [--load-status FILE] [--reboot-status FILE] [--require-default] [--require-dynamic-fat-proof] [--require-save-slot N] [--require-save-description N=TEXT]"
 	.size	.L.str.42, 629
 
 	.type	.L.str.43,@object               # @.str.43
@@ -10860,7 +10860,7 @@ USER_PROBE_NAME:
 
 	.type	.L.str.133,@object              # @.str.133
 .L.str.133:
-	.asciz	"legacy root payload ELF packaging requires a user probe ELF path"
+	.asciz	"legacy positional app ELF packaging requires a user probe ELF path"
 	.size	.L.str.133, 65
 
 	.type	.L.str.134,@object              # @.str.134
@@ -11604,7 +11604,7 @@ STATE_DIR_NAME:
 	.addrsig_sym fat83_from_display_component.cold.2
 	.addrsig_sym fat83_from_display_component.cold.3
 	.addrsig_sym fat83_from_display_component.cold.4
-	.addrsig_sym LEGACY_PAYLOAD_ELF_NAME
+	.addrsig_sym LEGACY_APP_ELF_NAME
 	.addrsig_sym DEFAULT_CFG_NAME
 	.addrsig_sym PRIMARY_ASSET_WAD_NAME
 	.addrsig_sym KERNEL_ELF_NAME

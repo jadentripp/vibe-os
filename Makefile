@@ -96,7 +96,7 @@ VIBE_STATUS_CHECK := $(BUILD_DIR)/vibe_status_check
 DOOM_SRC_DIR := third_party/doom/linuxdoom-1.10
 DOOM_PORT_INCLUDE_DIR := $(C_COMPAT_INCLUDE_ROOT)/doom
 DOOM_PORT_BUILD_DIR := $(BUILD_DIR)/doom
-DOOM_ELF := $(BUILD_DIR)/payload0.elf
+DOOM_ELF := $(BUILD_DIR)/doom-app.elf
 DOOM_SYMBOLS := $(BUILD_DIR)/doom.symbols
 DOOM_BASE := 0x01000000
 DOOM_ORIGINAL_SRCS := $(filter-out $(DOOM_SRC_DIR)/i_%.c,$(wildcard $(DOOM_SRC_DIR)/*.c))
@@ -111,7 +111,7 @@ DOOM_P_SAVEG_CFLAGS := -DP_ArchivePlayers=doom_original_P_ArchivePlayers -DP_UnA
 QUAKE_SRC_DIR := third_party/quake/WinQuake
 QUAKE_PORT_INCLUDE_DIR := $(C_COMPAT_INCLUDE_ROOT)/quake
 QUAKE_PORT_BUILD_DIR := $(BUILD_DIR)/quake
-QUAKE_ELF := $(BUILD_DIR)/payload1.elf
+QUAKE_ELF := $(BUILD_DIR)/quake-app.elf
 QUAKE_SYMBOLS := $(BUILD_DIR)/quake.symbols
 QUAKE_BASE := 0x01000000
 QUAKE_ORIGINAL_SRC_NAMES := \
@@ -144,11 +144,14 @@ STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 163840
 USER_PROBE_ELF_MAX_BYTES := 16384
 USER_ABI_PROBE_ELF_MAX_BYTES := 32768
-INIT_PAYLOAD_ELF_MAX_BYTES := 262144
-LARGE_PAYLOAD_ROOT_ELF_ARGS := --root-elf PAYLOAD0.ELF=$(DOOM_ELF) --root-elf PAYLOAD1.ELF=$(QUAKE_ELF)
+INIT_APP_ELF_MAX_BYTES := 262144
+APP_INDEX_TXT := user/apps_index.txt
+APP_DOOM_MANIFEST_TXT := user/app_doom_manifest.txt
+APP_QUAKE_MANIFEST_TXT := user/app_quake_manifest.txt
+IMAGE_APP_ARGS := --asset /SYSTEM/INIT.ELF=$(USER_LAUNCHER_ELF) --asset /SYSTEM/ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) --asset /APPS/INDEX.TXT=$(APP_INDEX_TXT) --asset /APPS/DOOM/MANIFEST.TXT=$(APP_DOOM_MANIFEST_TXT) --asset /APPS/DOOM/APP.ELF=$(DOOM_ELF) --asset /APPS/QUAKE/MANIFEST.TXT=$(APP_QUAKE_MANIFEST_TXT) --asset /APPS/QUAKE/APP.ELF=$(QUAKE_ELF)
 IMAGE_EXTRA_ROOT_ELF_ARGS ?=
 IMAGE_EXTRA_ROOT_ELF_DEPS ?=
-IMAGE_ROOT_ELF_ARGS := --root-elf INIT.ELF=$(USER_LAUNCHER_ELF) --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) $(LARGE_PAYLOAD_ROOT_ELF_ARGS) $(IMAGE_EXTRA_ROOT_ELF_ARGS)
+IMAGE_ROOT_ELF_ARGS := $(IMAGE_APP_ARGS) $(IMAGE_EXTRA_ROOT_ELF_ARGS)
 
 .PHONY: all build-only test assembly-native-check no-python-check project-c-inventory doom-compile doom-link quake-compile quake-link play play-image run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect status-checker-tool uefi-loader-object uefi-loader-pe uefi-dual-image persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
 
@@ -257,13 +260,13 @@ doom-compile: $(DOOM_ORIGINAL_OBJS)
 	@printf "Compiled %s original Doom source files for freestanding i386.\n" "$$(printf '%s\n' $(DOOM_ORIGINAL_OBJS) | wc -l | tr -d ' ')"
 
 doom-link: $(DOOM_ELF)
-	@printf "Linked freestanding Doom payload slot at %s\n" "$(DOOM_ELF)"
+	@printf "Linked freestanding Doom app ELF at %s\n" "$(DOOM_ELF)"
 
 quake-compile: $(QUAKE_ORIGINAL_OBJS)
 	@printf "Compiled %s original Quake source files for freestanding i386.\n" "$$(printf '%s\n' $(QUAKE_ORIGINAL_OBJS) | wc -l | tr -d ' ')"
 
 quake-link: $(QUAKE_ELF)
-	@printf "Linked freestanding Quake payload slot at %s\n" "$(QUAKE_ELF)"
+	@printf "Linked freestanding Quake app ELF at %s\n" "$(QUAKE_ELF)"
 
 play:
 	@tools/play_local.sh
@@ -360,7 +363,7 @@ uefi-loader-object: $(UEFI_LOADER_OBJ)
 
 uefi-loader-pe: $(UEFI_LOADER_EFI)
 
-$(UEFI_DUAL_IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_LAUNCHER_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(QUAKE_ELF) $(IMAGE_BUILDER) $(UEFI_LOADER_EFI) $(IMAGE_ASSET_DEPS) $(IMAGE_EXTRA_ROOT_ELF_DEPS) | $(UEFI_BUILD_DIR)
+$(UEFI_DUAL_IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_LAUNCHER_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(QUAKE_ELF) $(APP_INDEX_TXT) $(APP_DOOM_MANIFEST_TXT) $(APP_QUAKE_MANIFEST_TXT) $(IMAGE_BUILDER) $(UEFI_LOADER_EFI) $(IMAGE_ASSET_DEPS) $(IMAGE_EXTRA_ROOT_ELF_DEPS) | $(UEFI_BUILD_DIR)
 	@if [ -n "$(PRIMARY_ASSET)" ]; then \
 		$(IMAGE_BUILDER) --primary-asset-wad "$(PRIMARY_ASSET)" $(IMAGE_SECONDARY_PACKAGE_ARGS) --asset EFI/BOOT/BOOTX64.EFI=$(UEFI_LOADER_EFI) --asset VIBEOS/KERNEL.ELF=$(KERNEL_ELF) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
 	else \
@@ -397,7 +400,7 @@ $(USER_LAUNCHER_MAIN_OBJ): $(USER_LAUNCHER_MAIN_ASM_SRC) | $(BUILD_DIR)
 
 $(USER_LAUNCHER_ELF): $(USER_LAUNCHER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_LAUNCHER_OBJ) $(USER_LAUNCHER_MAIN_OBJ) $(LINK_ELF32) | $(BUILD_DIR)
 	$(LINK_ELF32) -o $@ --base 0x00e80000 $(USER_LAUNCHER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_LAUNCHER_OBJ) $(USER_LAUNCHER_MAIN_OBJ)
-	@test $$(wc -c < $@) -le $(INIT_PAYLOAD_ELF_MAX_BYTES) || { echo "init payload ELF exceeds $(INIT_PAYLOAD_ELF_MAX_BYTES) bytes"; exit 1; }
+	@test $$(wc -c < $@) -le $(INIT_APP_ELF_MAX_BYTES) || { echo "init app ELF exceeds $(INIT_APP_ELF_MAX_BYTES) bytes"; exit 1; }
 
 $(DOOM_PORT_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c Makefile $(C_COMPAT_HEADERS_STAMP) | $(DOOM_PORT_BUILD_DIR)
 	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) -c $< -o $@
@@ -452,7 +455,7 @@ $(USER_ABI_PROBE_ELF): $(USER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_ABI_PROBE_OBJ
 	$(LINK_ELF32) -o $@ --base 0x00e80000 $(USER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_LAUNCHER_OBJ) $(USER_ABI_PROBE_OBJ)
 	@test $$(wc -c < $@) -le $(USER_ABI_PROBE_ELF_MAX_BYTES) || { echo "ABI probe ELF exceeds $(USER_ABI_PROBE_ELF_MAX_BYTES) bytes"; exit 1; }
 
-$(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_LAUNCHER_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(QUAKE_ELF) $(IMAGE_BUILDER) $(IMAGE_ASSET_DEPS) $(IMAGE_EXTRA_ROOT_ELF_DEPS)
+$(IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) $(USER_LAUNCHER_ELF) $(USER_ABI_PROBE_ELF) $(DOOM_ELF) $(QUAKE_ELF) $(APP_INDEX_TXT) $(APP_DOOM_MANIFEST_TXT) $(APP_QUAKE_MANIFEST_TXT) $(IMAGE_BUILDER) $(IMAGE_ASSET_DEPS) $(IMAGE_EXTRA_ROOT_ELF_DEPS)
 	@if [ -n "$(PRIMARY_ASSET)" ]; then \
 		$(IMAGE_BUILDER) --primary-asset-wad "$(PRIMARY_ASSET)" $(IMAGE_SECONDARY_PACKAGE_ARGS) $(IMAGE_ROOT_ELF_ARGS) $@ $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF); \
 	else \
@@ -573,9 +576,9 @@ smoke: vm-consent check-tools $(IMAGE)
 	grep -q "wad=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "lmp=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "exec=OK" $(BUILD_DIR)/status.txt; \
-	grep -q "path=PAYLOAD0.ELF" $(BUILD_DIR)/status.txt; \
+	grep -q "path=/APPS/DOOM/APP.ELF" $(BUILD_DIR)/status.txt; \
 	grep -q "uexec=OK" $(BUILD_DIR)/status.txt; \
-	grep -q "upath=INIT.ELF" $(BUILD_DIR)/status.txt; \
+	grep -q "upath=/SYSTEM/INIT.ELF" $(BUILD_DIR)/status.txt; \
 	grep -q "upid=" $(BUILD_DIR)/status.txt; \
 	grep -q "uentry=" $(BUILD_DIR)/status.txt; \
 	grep -q "doom=OK" $(BUILD_DIR)/status.txt; \
@@ -739,7 +742,7 @@ smoke: vm-consent check-tools $(IMAGE)
 		perl -ne '$$ok = 1 if /leveltime=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	fi; \
 	if [ "$(SMOKE_REQUIRE_REAL_WAD_PROOF)" = "1" ]; then \
-		grep -q "path=PAYLOAD0.ELF" $(BUILD_DIR)/status.txt; \
+		grep -q "path=/APPS/DOOM/APP.ELF" $(BUILD_DIR)/status.txt; \
 		grep -q "doomopen=OK" $(BUILD_DIR)/status.txt; \
 		grep -q "doomread=OK" $(BUILD_DIR)/status.txt; \
 		grep -q "gameplay=OK" $(BUILD_DIR)/status.txt; \
@@ -772,7 +775,7 @@ smoke: vm-consent check-tools $(IMAGE)
 quake-status-proof-check:
 	@set -e; \
 	test -s $(BUILD_DIR)/status.txt; \
-	grep -q "path=PAYLOAD1.ELF" $(BUILD_DIR)/status.txt; \
+	grep -q "path=/APPS/QUAKE/APP.ELF" $(BUILD_DIR)/status.txt; \
 	grep -q "quake=OK" $(BUILD_DIR)/status.txt; \
 	grep -q "quakerun=RUN" $(BUILD_DIR)/status.txt; \
 	grep -q "quakeopen=OK" $(BUILD_DIR)/status.txt; \
@@ -789,7 +792,7 @@ quake-status-proof-check:
 	perl -ne '$$ok = 1 if /qframe=([0-9A-F]{8})\/([0-9A-F]{8})/ && hex($$1) > 0 && hex($$2) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	perl -ne '$$ok = 1 if /qinput=([0-9A-F]{8})\// && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	perl -ne '$$ok = 1 if /qaudio=([0-9A-F]{8})\// && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
-	printf "Quake proof status OK: PAYLOAD1.ELF, PAK reads, rendered frames, input, audio, process, memory, preemption, panic, and shutdown gates passed.\n"
+	printf "Quake proof status OK: /APPS/QUAKE/APP.ELF, PAK reads, rendered frames, input, audio, process, memory, preemption, panic, and shutdown gates passed.\n"
 
 vm-status-proof-check:
 	BUILD_DIR="$(abspath $(BUILD_DIR))" HOST_CC="$(HOST_CC)" tools/test_vibe_status_check.sh

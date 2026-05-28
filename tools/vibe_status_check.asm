@@ -1592,7 +1592,7 @@ msg_khabi_bad db "khabi= does not prove the higher-half ABI mask", 0
 msg_khdata_bad db "khdata= does not prove higher-half data bookkeeping", 0
 msg_krelabi_bad db "krelabi= does not prove relocation-directory ABI coverage", 0
 msg_krelive_bad db "krelivep= does not prove the live relocation switch", 0
-msg_path_bad db "path= must be PAYLOAD0.ELF or PAYLOAD1.ELF", 0
+msg_path_bad db "path= must be /APPS/DOOM/APP.ELF or /APPS/QUAKE/APP.ELF", 0
 msg_argvsrc_bad db "argvsrc= must prove user-memory argv", 0
 msg_execcopy_bad db "execcopy= does not prove balanced target-CR3 materialization", 0
 msg_preempt_bad db "preemption proof fields are inconsistent", 0
@@ -1688,10 +1688,10 @@ val_OK db "OK", 0
 val_HIGH db "HIGH", 0
 val_KPMAIN_HIGH db "KPMAIN_HIGH", 0
 val_WAIT db "WAIT", 0
-val_INIT_ELF db "INIT.ELF", 0
-val_ABIPROBE_ELF db "ABIPROBE.ELF", 0
-val_PAYLOAD0_ELF db "PAYLOAD0.ELF", 0
-val_PAYLOAD1_ELF db "PAYLOAD1.ELF", 0
+val_INIT_ELF db "/SYSTEM/INIT.ELF", 0
+val_ABIPROBE_ELF db "/SYSTEM/ABIPROBE.ELF", 0
+val_PAYLOAD0_ELF db "/APPS/DOOM/APP.ELF", 0
+val_PAYLOAD1_ELF db "/APPS/QUAKE/APP.ELF", 0
 val_SB16 db "SB16", 0
 val_NONE db "NONE", 0
 
