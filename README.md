@@ -17,6 +17,21 @@ This is not Linux, SDL, Chocolate Doom, or a desktop wrapper. QEMU provides
 hardware; vibe-os owns the boot path, kernel/runtime code, storage, app
 discovery, syscalls, framebuffer, input, and audio ABI.
 
+## What QEMU Is
+
+QEMU is the computer that vibe-os boots on during local and CI testing.
+`qemu-system-x86_64` emulates a PC. `qemu-system-aarch64 -M raspi4b` emulates
+a Raspberry Pi 4-like machine.
+
+QEMU is not the OS. vibe-os still has to bring its own boot code, kernel,
+drivers, filesystem reads, process model, syscalls, framebuffer rendering,
+input handling, audio path, and app launcher.
+
+When the README says the Pi target works in QEMU, it means the same Pi boot
+image is attached to an emulated Pi 4 and vibe-os runs against emulated Pi
+hardware. That is hardware-equivalent evidence, not a claim that the image has
+already been proven on a physical Raspberry Pi board.
+
 ## Play
 
 Requirements: `make`, `nasm`, `cc`, `git`, `curl`, and QEMU. Use
