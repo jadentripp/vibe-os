@@ -4,99 +4,119 @@ vibe-os is a from-scratch OS that boots its own image, runs Ring 3 ELF apps,
 and exposes its own syscall ABI for files, memory, time, input, video, audio,
 config, and saves.
 
-`main` is currently playable on the 32-bit x86 QEMU PC build. Raspberry Pi 4 is
-the active native port target: assembly-first AArch64 boot/runtime, same
-launcher/app model, no Linux wrapper.
+It has two active targets:
+
+- x86 PC in QEMU: BIOS and UEFI image paths.
+- Raspberry Pi 4 in QEMU: native AArch64 `kernel8.img` plus one FAT boot image.
+
+Both targets show the guest launcher screen, discover apps from `/SYSTEM` and
+`/APPS`, and launch Doom or Quake by generic app path. The games are installed
+apps, not root `PAYLOAD*.ELF` slots.
+
+This is not Linux, SDL, Chocolate Doom, or a desktop wrapper. QEMU provides
+hardware; vibe-os owns the boot path, kernel/runtime code, storage, app
+discovery, syscalls, framebuffer, input, and audio ABI.
 
 ## Play
 
-Requirements: `make`, `nasm`, `cc`, `git`, `curl`, `qemu-system-x86_64`,
-and `qemu-system-aarch64` for Pi 4 local VM runs.
+Requirements: `make`, `nasm`, `cc`, `git`, `curl`, and QEMU. Use
+`qemu-system-x86_64` for x86 and `qemu-system-aarch64` for Pi 4.
+
+Start the x86 PC image:
 
 ```sh
 make play
 ```
 
-This fetches public shareware Doom/Quake data into `~/.cache/vibe-os`, builds
-`build/play/disk.img`, boots vibe-os, and opens the launcher. Pick Doom or
-Quake with `1`/`2`, `W`/`S` plus Enter, or the mouse.
-
-Use your own data:
+Start the Pi 4 image locally:
 
 ```sh
-DOOM_WAD=/absolute/path/to/DOOM1.WAD \
-  QUAKE_PAK=/absolute/path/to/PAK0.PAK \
-  make play
+make ALLOW_LOCAL_VM=1 pi4-local-qemu-live
 ```
 
-WADs, PAKs, disk images, screenshots, raw audio, VM logs, and secrets stay out
-of git.
+Pick Doom with `1` or a click. Pick Quake with `2` or a click. WADs, PAKs,
+disk images, screenshots, raw audio, VM logs, and secrets stay out of git.
+
+Remote visible Pi play is available through noVNC:
+
+```sh
+./tools/play_now_codespaces.sh --pi4 --repo jadentripp/vibe-os --ref main
+```
 
 ## App Layout
 
-The image uses normal FAT paths instead of root `PAYLOAD*.ELF` slots:
+The image installs OS and app files in FAT paths:
 
-- `/SYSTEM/INIT.ELF` - launcher
-- `/SYSTEM/ABIPROBE.ELF` - ABI probe
-- `/APPS/INDEX.TXT` - installed app index
-- `/APPS/DOOM/MANIFEST.TXT`
-- `/APPS/DOOM/APP.ELF`
-- `/APPS/QUAKE/MANIFEST.TXT`
-- `/APPS/QUAKE/APP.ELF`
+```text
+/SYSTEM/INIT.ELF
+/SYSTEM/ABIPROBE.ELF
+/APPS/INDEX.TXT
+/APPS/DOOM/MANIFEST.TXT
+/APPS/DOOM/APP.ELF
+/APPS/QUAKE/MANIFEST.TXT
+/APPS/QUAKE/APP.ELF
+/DOOM1.WAD
+/ID1/PAK0.PAK
+```
 
-Doom and Quake are the first proven apps, not special process paths.
+The launcher reads `/APPS/INDEX.TXT`, opens each app manifest, reads `exec=`,
+and asks the kernel to launch that ELF by path. Doom and Quake are the first
+proven apps, not special kernel cases.
 
 ## Raspberry Pi 4
 
-Pi 4 boots one FAT image through the assembly AArch64 runtime, shows a
-retro-desktop guest launcher screen, discovers `/SYSTEM` and `/APPS`, and
-execs apps by path as generic Ring 3 ELF files.
+The Pi 4 path is assembly-first AArch64: boot, exceptions, syscalls, timer,
+preemption, framebuffer, input, storage, app discovery, runtime ABI, and app
+entry are guest-owned assembly.
 
-```sh
-make ALLOW_LOCAL_VM=1 \
-  DOOM_WAD=/absolute/path/to/DOOM1.WAD \
-  QUAKE_PAK=/absolute/path/to/PAK0.PAK \
-  pi4-local-qemu-live
-```
+The QEMU proof boots one exact Pi image, selects Doom and Quake from the
+launcher, reads app manifests plus real WAD/PAK assets, renders changed frames,
+drives input, reports USB-Audio status, and reaches `panic=NONE` plus
+`shutdown=NONE`.
 
-Local proof targets also cover serial boot, framebuffer output,
-timer/preemption, FAT/VFS app reads, input status, rendered frames,
-USB-Audio PCM in QEMU, `panic=NONE`, and `shutdown=NONE`. Physical Pi hardware
-audio remains unclaimed until tested on a real board.
+Physical Raspberry Pi hardware proof is not claimed yet.
 
 ## Verify
 
-Host-only:
+Host-only checks:
 
 ```sh
 make ALLOW_LOCAL_VM=0 DOOM_WAD= test
+make x86-preservation-host-check
+make pi4-code-gates vm-status-proof-check pi4-status-evidence-check
 git diff --check
+```
+
+Pi 4 QEMU proof with public shareware data:
+
+```sh
+make ALLOW_LOCAL_VM=1 pi4-prepared-real-assets-final-gates
 ```
 
 The status checker is assembly: `tools/vibe_status_check.asm`.
 
-Cloud QEMU proof lanes:
+## Source
 
-```sh
-gh workflow run real-wad-smoke.yml --ref main
-gh workflow run real-quake-smoke.yml --ref main
-```
+- `boot/` - x86 BIOS and UEFI boot assembly.
+- `boot/pi4/` - Pi 4 AArch64 boot/kernel/runtime assembly.
+- `kernel/` - x86 kernel assembly.
+- `user/` - Ring 3 launchers, runtime ABI, probes, and app manifests.
+- `doom_port/` - Doom adapter code.
+- `quake_port/` - Quake adapter code.
+- `third_party/doom/` - pristine id Software Doom source.
+- `third_party/quake/` - pristine id Software Quake source.
+- `tools/` - assembly and shell host tools for images, linking, QEMU, and
+  validation.
 
-Manual cloud play:
-
-```sh
-./tools/play_now_codespaces.sh --repo jadentripp/vibe-os --ref main
-```
+Project-owned guest code is assembly-first. Original game source stays in
+`third_party/`; generated assets and external game data stay out of the repo.
 
 ## Boundaries
 
-Supported today: QEMU PC BIOS/IDE/PS2/VBE/SB16-style hardware.
+- Supported today: QEMU x86 PC and QEMU Raspberry Pi 4.
+- Not claimed: arbitrary physical PCs, installers, unknown disks, completed Pi
+  hardware proof, or a Unix/POSIX-compatible OS.
+- Vendor Doom and Quake trees should stay pristine.
 
-In progress: Raspberry Pi 4 native AArch64.
-
-Not claimed: arbitrary physical PCs, installers, unknown disks, AHCI, HDA,
-completed Pi hardware proof, or a Unix/POSIX-compatible OS.
-
-The vendored Doom and Quake source trees in `third_party/` should stay
-pristine. Project-owned guest code is assembly-first; original game engine C is
-compiled as third-party source.
+This README is the human overview. `make play` is the quickest x86 route;
+`make ALLOW_LOCAL_VM=1 pi4-local-qemu-live` is the quickest Pi route.
