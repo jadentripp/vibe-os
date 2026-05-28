@@ -128,6 +128,7 @@ PI4_LOCAL_QEMU_SECONDS ?= 8
 PI4_LOCAL_QEMU_REAL_ASSET_SECONDS ?= 60
 PI4_LOCAL_QEMU_LIVE_SERIAL ?= stdio
 PI4_LOCAL_QEMU_LIVE_SECONDS ?= 2
+PI4_LOCAL_QEMU_LAUNCHER_SECONDS ?= 30
 PI4_LOCAL_QEMU_DOOM_SECONDS ?= 90
 PI4_LOCAL_QEMU_QUAKE_SECONDS ?= 180
 PI4_LOCAL_QEMU_DOOM_FRAME1_SETTLE_MS ?= 20000
@@ -139,6 +140,11 @@ PI4_QEMU_USB_MOUSE ?= 1
 PI4_LOCAL_QEMU_SERIAL := $(PI4_BUILD_DIR)/local-qemu-serial.txt
 PI4_LOCAL_QEMU_STATUS_RAW := $(PI4_BUILD_DIR)/local-qemu-status-raw.txt
 PI4_LOCAL_QEMU_STATUS := $(PI4_BUILD_DIR)/local-qemu-status.txt
+PI4_LOCAL_QEMU_LAUNCHER_SERIAL := $(PI4_BUILD_DIR)/local-qemu-launcher-serial.txt
+PI4_LOCAL_QEMU_LAUNCHER_STATUS_RAW := $(PI4_BUILD_DIR)/local-qemu-launcher-status-raw.txt
+PI4_LOCAL_QEMU_LAUNCHER_STATUS := $(PI4_BUILD_DIR)/local-qemu-launcher-status.txt
+PI4_LOCAL_QEMU_LAUNCHER_FB_REPORT := $(PI4_BUILD_DIR)/local-qemu-launcher-framebuffer.txt
+PI4_LOCAL_QEMU_LAUNCHER_FB_FRAME0 := $(PI4_BUILD_DIR)/local-qemu-launcher-frame0.ppm
 PI4_LOCAL_QEMU_DOOM_SERIAL := $(PI4_BUILD_DIR)/local-qemu-doom-serial.txt
 PI4_LOCAL_QEMU_DOOM_STATUS_RAW := $(PI4_BUILD_DIR)/local-qemu-doom-status-raw.txt
 PI4_LOCAL_QEMU_DOOM_STATUS := $(PI4_BUILD_DIR)/local-qemu-doom-status.txt
@@ -304,7 +310,7 @@ IMAGE_EXTRA_ROOT_ELF_ARGS ?=
 IMAGE_EXTRA_ROOT_ELF_DEPS ?=
 IMAGE_ROOT_ELF_ARGS := --root-elf INIT.ELF=$(USER_LAUNCHER_ELF) --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) $(IMAGE_EXTRA_ROOT_ELF_ARGS)
 
-.PHONY: all build-only test assembly-native-check no-python-check third-party-pristine-check doom-compile doom-link quake-compile quake-link x86-image-builder-wiring-check x86-uefi-image-builder-wiring-check x86-pi4-real-assets-isolation-check x86-status-proof-check x86-preservation-host-check prepare-real-assets prepare-real-assets-dry-run play play-image run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image pi4-assembly-source-gate pi4-code-gates pi4-kernel8 pi4-user-elves pi4-doom-app pi4-quake-app pi4-quake-engine-app pi4-engine-apps-linked pi4-launcher-state-manifest-check pi4-image pi4-image-inspect pi4-prepared-real-assets-image pi4-prepared-real-assets-final-gates pi4-final-gates-single-artifact-guard pi4-doom-quake-app-image-inspect pi4-qemu-command pi4-qemu-prep pi4-qemu-run pi4-local-qemu-live pi4-local-qemu-live-smoke pi4-local-qemu-smoke pi4-local-qemu-doom-input-smoke pi4-local-qemu-quake-input-smoke pi4-local-qemu-input-smoke pi4-local-qemu-final-gates pi4-local-qemu-real-assets-input-smoke pi4-local-qemu-real-assets-final-gates pi4-hw-equivalent-qemu-args pi4-hw-equivalent-qemu-command pi4-hw-equivalent-run pi4-hw-equivalent-real-assets-qemu-command pi4-hw-equivalent-real-assets-run pi4-hw-equivalent-real-assets-input-smoke pi4-hw-equivalent-real-assets-final-gates pi4-status-evidence-ok-fixture pi4-status-evidence-check pi4-evidence-summary pi4-host-artifact-policy pi4-hw-equivalent-artifact-policy pi4-host-check pi4-host-proof-json persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
+.PHONY: all build-only test assembly-native-check no-python-check third-party-pristine-check doom-compile doom-link quake-compile quake-link x86-image-builder-wiring-check x86-uefi-image-builder-wiring-check x86-pi4-real-assets-isolation-check x86-status-proof-check x86-preservation-host-check prepare-real-assets prepare-real-assets-dry-run play play-image run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image pi4-assembly-source-gate pi4-code-gates pi4-kernel8 pi4-user-elves pi4-doom-app pi4-quake-app pi4-quake-engine-app pi4-engine-apps-linked pi4-launcher-state-manifest-check pi4-image pi4-image-inspect pi4-prepared-real-assets-image pi4-prepared-real-assets-final-gates pi4-final-gates-single-artifact-guard pi4-doom-quake-app-image-inspect pi4-qemu-command pi4-qemu-prep pi4-qemu-run pi4-local-qemu-live pi4-local-qemu-live-smoke pi4-local-qemu-launcher-framebuffer-capture pi4-local-qemu-smoke pi4-local-qemu-doom-input-smoke pi4-local-qemu-quake-input-smoke pi4-local-qemu-input-smoke pi4-local-qemu-final-gates pi4-local-qemu-real-assets-input-smoke pi4-local-qemu-real-assets-final-gates pi4-hw-equivalent-qemu-args pi4-hw-equivalent-qemu-command pi4-hw-equivalent-run pi4-hw-equivalent-real-assets-qemu-command pi4-hw-equivalent-real-assets-run pi4-hw-equivalent-real-assets-input-smoke pi4-hw-equivalent-real-assets-final-gates pi4-status-evidence-ok-fixture pi4-status-evidence-check pi4-evidence-summary pi4-host-artifact-policy pi4-hw-equivalent-artifact-policy pi4-host-check pi4-host-proof-json persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
 .PHONY: pi4-hw-equivalent-final-gates-policy pi4-remote-visible-play-help
 
 all: $(IMAGE)
@@ -1660,6 +1666,7 @@ pi4-qemu-command: $(PI4_QEMU_COMMAND) $(PI4_EXACT_BOOT_IMAGE_DEPS)
 	printf "Verified exact boot image SHA256: %s\n" "$$actual_image_sha"
 	@printf "Not executed. Real Raspberry Pi hardware proof remains unclaimed.\n"
 	@printf "One-command local visible handoff: make ALLOW_LOCAL_VM=1 pi4-local-qemu-live\n"
+	@printf "One-command launcher framebuffer QA capture: make ALLOW_LOCAL_VM=1 pi4-local-qemu-launcher-framebuffer-capture\n"
 	@printf "One-command remote noVNC handoff from this Mac: ./tools/play_now_codespaces.sh --pi4 --repo OWNER/REPO --ref BRANCH\n"
 	@printf "Exact visible QEMU command follows; it is printed only, not executed.\n"
 	@ALLOW_LOCAL_VM=0 PI4_QEMU_USB_KEYBOARD="$(PI4_QEMU_USB_KEYBOARD)" PI4_QEMU_USB_MOUSE="$(PI4_QEMU_USB_MOUSE)" PI4_QEMU_MOUSE_SERIAL="$(PI4_QEMU_MOUSE_SERIAL)" $(PI4_QEMU_COMMAND) --live "$(PI4_HW_EQUIVALENT_QEMU)" "$(PI4_LOCAL_QEMU_LIVE_SERIAL)" "$(PI4_KERNEL8_IMG)" "$(PI4_EXACT_BOOT_IMAGE)"
@@ -1676,6 +1683,7 @@ pi4-qemu-prep: $(PI4_QEMU_COMMAND)
 	@cat "$(PI4_REAL_ASSET_HANDOFF)"
 	@printf "Print the visible handoff again with: make pi4-qemu-command\n"
 	@printf "Boot the visible native QEMU window with: make ALLOW_LOCAL_VM=1 pi4-local-qemu-live\n"
+	@printf "Capture the launcher framebuffer before app launch with: make ALLOW_LOCAL_VM=1 pi4-local-qemu-launcher-framebuffer-capture\n"
 	@printf "Or use remote noVNC from this Mac with: ./tools/play_now_codespaces.sh --pi4 --repo OWNER/REPO --ref BRANCH\n"
 	@printf "Headless hardware-equivalent command source: make pi4-hw-equivalent-qemu-command\n"
 	@printf "Hardware-equivalent CI status JSON: run .github/workflows/pi4-hw-equivalent.yml on the intended ref; it uses the same prepared real-assets image path.\n"
@@ -1799,6 +1807,49 @@ pi4-local-qemu-live-smoke: vm-consent $(PI4_QEMU_COMMAND) pi4-prepared-real-asse
 	@printf "Exact user command: make ALLOW_LOCAL_VM=1 pi4-local-qemu-live\n"
 	@printf "Exact QEMU smoke command follows; real Raspberry Pi hardware proof remains unclaimed.\n"
 	@ALLOW_LOCAL_VM="$(ALLOW_LOCAL_VM)" PI4_QEMU_USB_KEYBOARD="$(PI4_QEMU_USB_KEYBOARD)" PI4_QEMU_USB_MOUSE="$(PI4_QEMU_USB_MOUSE)" PI4_QEMU_MOUSE_SERIAL="$(PI4_QEMU_MOUSE_SERIAL)" $(PI4_QEMU_COMMAND) --live-smoke "$(PI4_LOCAL_QEMU_LIVE_SECONDS)" "$(PI4_HW_EQUIVALENT_QEMU)" "$(PI4_LOCAL_QEMU_LIVE_SERIAL)" "$(PI4_KERNEL8_IMG)" "$(PI4_LOCAL_QEMU_LIVE_IMAGE)"
+
+pi4-local-qemu-launcher-framebuffer-capture: vm-consent $(PI4_QEMU_COMMAND) $(PI4_EXACT_BOOT_IMAGE_DEPS)
+	@command -v "$(PI4_HW_EQUIVALENT_QEMU)" >/dev/null || { echo "missing $(PI4_HW_EQUIVALENT_QEMU)" >&2; exit 127; }
+	@rm -f "$(PI4_LOCAL_QEMU_LAUNCHER_SERIAL)" "$(PI4_LOCAL_QEMU_LAUNCHER_STATUS_RAW)" "$(PI4_LOCAL_QEMU_LAUNCHER_STATUS)" "$(PI4_LOCAL_QEMU_LAUNCHER_FB_REPORT)" "$(PI4_LOCAL_QEMU_LAUNCHER_FB_FRAME0)" "$(PI4_LOCAL_QEMU_IMAGE_SHA_BEFORE)" "$(PI4_LOCAL_QEMU_IMAGE_SHA_AFTER)"
+	@test -s "$(PI4_EXACT_BOOT_IMAGE)" || { echo "missing exact Pi 4 boot image: $(PI4_EXACT_BOOT_IMAGE)" >&2; exit 1; }
+	@test -s "$(PI4_EXACT_BOOT_IMAGE_INSPECT_TXT)" || { echo "missing exact Pi 4 image inspect report: $(PI4_EXACT_BOOT_IMAGE_INSPECT_TXT)" >&2; exit 1; }
+	@shasum -a 256 "$(PI4_EXACT_BOOT_IMAGE)" > "$(PI4_LOCAL_QEMU_IMAGE_SHA_BEFORE)"
+	@printf "Starting local Pi 4 QEMU launcher framebuffer capture from exact image: %s\n" "$(PI4_EXACT_BOOT_IMAGE)"
+	@printf "This captures the desktop launcher before any app launch; real Raspberry Pi hardware proof remains unclaimed.\n"
+	@ALLOW_LOCAL_VM="$(ALLOW_LOCAL_VM)" $(PI4_QEMU_COMMAND) --local-launcher-framebuffer-capture "$(PI4_LOCAL_QEMU_LAUNCHER_SECONDS)" "$(PI4_LOCAL_QEMU_LAUNCHER_STATUS_RAW)" "$(PI4_LOCAL_QEMU_LAUNCHER_STATUS)" "$(PI4_LOCAL_QEMU_LAUNCHER_SERIAL)" "$(PI4_LOCAL_QEMU_LAUNCHER_FB_REPORT)" "$(PI4_LOCAL_QEMU_LAUNCHER_FB_FRAME0)" "$(PI4_HW_EQUIVALENT_QEMU)" "$(PI4_KERNEL8_IMG)" "$(PI4_EXACT_BOOT_IMAGE)"
+	@shasum -a 256 "$(PI4_EXACT_BOOT_IMAGE)" > "$(PI4_LOCAL_QEMU_IMAGE_SHA_AFTER)"
+	@cmp "$(PI4_LOCAL_QEMU_IMAGE_SHA_BEFORE)" "$(PI4_LOCAL_QEMU_IMAGE_SHA_AFTER)"
+	@grep -a -F -q "path=/SYSTEM/INIT.ELF" "$(PI4_LOCAL_QEMU_LAUNCHER_STATUS_RAW)"
+	@grep -a -F -q "upath=/SYSTEM/INIT.ELF" "$(PI4_LOCAL_QEMU_LAUNCHER_STATUS_RAW)"
+	@grep -a -F -q "pi4fb=OK" "$(PI4_LOCAL_QEMU_LAUNCHER_STATUS_RAW)"
+	@grep -a -F -q "pi4vfs=OK" "$(PI4_LOCAL_QEMU_LAUNCHER_STATUS_RAW)"
+	@grep -a -F -q "panic=NONE" "$(PI4_LOCAL_QEMU_LAUNCHER_STATUS_RAW)"
+	@grep -a -F -q "shutdown=NONE" "$(PI4_LOCAL_QEMU_LAUNCHER_STATUS_RAW)"
+	@grep -a -F -q "evidence_class=local-qemu-launcher-framebuffer" "$(PI4_LOCAL_QEMU_LAUNCHER_STATUS)"
+	@grep -a -F -q "smoke_gate=pi4-local-qemu-launcher-framebuffer" "$(PI4_LOCAL_QEMU_LAUNCHER_STATUS)"
+	@grep -a -F -q "hardware_proof=unclaimed" "$(PI4_LOCAL_QEMU_LAUNCHER_STATUS)"
+	@grep -F -q "schema=pi4-launcher-framebuffer-artifact-v1" "$(PI4_LOCAL_QEMU_LAUNCHER_FB_REPORT)"
+	@grep -F -q "app_launch=not-requested" "$(PI4_LOCAL_QEMU_LAUNCHER_FB_REPORT)"
+	@grep -F -q "frame0_nonblank=true" "$(PI4_LOCAL_QEMU_LAUNCHER_FB_REPORT)"
+	@grep -F -q "launcher_framebuffer_artifact=OK" "$(PI4_LOCAL_QEMU_LAUNCHER_FB_REPORT)"
+	@set -e; \
+		image_sha="$$(cut -d ' ' -f 1 "$(PI4_LOCAL_QEMU_IMAGE_SHA_AFTER)")"; \
+		kernel_sha="$$(shasum -a 256 "$(PI4_KERNEL8_IMG)" | cut -d ' ' -f 1)"; \
+		tmp="$(PI4_LOCAL_QEMU_LAUNCHER_FB_REPORT).tmp"; \
+		{ \
+			cat "$(PI4_LOCAL_QEMU_LAUNCHER_FB_REPORT)"; \
+			printf "exact_boot_image=%s\n" "$(PI4_EXACT_BOOT_IMAGE)"; \
+			printf "exact_boot_image_sha256=%s\n" "$$image_sha"; \
+			printf "exact_boot_image_inspect=%s\n" "$(PI4_EXACT_BOOT_IMAGE_INSPECT_TXT)"; \
+			printf "kernel8_image=%s\n" "$(PI4_KERNEL8_IMG)"; \
+			printf "kernel8_sha256=%s\n" "$$kernel_sha"; \
+			printf "single_artifact_sha256_stable=true\n"; \
+			printf "status_raw=%s\n" "$(PI4_LOCAL_QEMU_LAUNCHER_STATUS_RAW)"; \
+			printf "status_marked=%s\n" "$(PI4_LOCAL_QEMU_LAUNCHER_STATUS)"; \
+			printf "serial_capture=%s\n" "$(PI4_LOCAL_QEMU_LAUNCHER_SERIAL)"; \
+		} > "$$tmp"; \
+		mv "$$tmp" "$(PI4_LOCAL_QEMU_LAUNCHER_FB_REPORT)"
+	@printf "Pi 4 launcher framebuffer capture OK: report=%s frame=%s serial=%s\n" "$(PI4_LOCAL_QEMU_LAUNCHER_FB_REPORT)" "$(PI4_LOCAL_QEMU_LAUNCHER_FB_FRAME0)" "$(PI4_LOCAL_QEMU_LAUNCHER_SERIAL)"
 
 pi4-local-qemu-smoke: vm-consent $(PI4_QEMU_COMMAND) $(PI4_IMAGE)
 	@command -v "$(PI4_HW_EQUIVALENT_QEMU)" >/dev/null || { echo "missing $(PI4_HW_EQUIVALENT_QEMU)" >&2; exit 127; }

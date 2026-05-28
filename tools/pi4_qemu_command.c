@@ -57,6 +57,7 @@ static void usage(const char* argv0)
     fprintf(stderr, "       %s --local-smoke SECONDS RAW_STATUS MARKED_STATUS QEMU file:SERIAL KERNEL8_IMG PI4_FAT16_IMAGE\n", argv0);
     fprintf(stderr, "       %s --local-input-smoke SECONDS INPUT RAW_STATUS MARKED_STATUS SERIAL_CAPTURE QEMU KERNEL8_IMG PI4_FAT16_IMAGE\n", argv0);
     fprintf(stderr, "       %s --local-input-framebuffer-smoke SECONDS INPUT RAW_STATUS MARKED_STATUS SERIAL_CAPTURE FRAMEBUFFER_REPORT FRAME0_PPM FRAME1_PPM QEMU KERNEL8_IMG PI4_FAT16_IMAGE\n", argv0);
+    fprintf(stderr, "       %s --local-launcher-framebuffer-capture SECONDS RAW_STATUS MARKED_STATUS SERIAL_CAPTURE FRAMEBUFFER_REPORT FRAME0_PPM QEMU KERNEL8_IMG PI4_FAT16_IMAGE\n", argv0);
     fprintf(stderr, "       %s --framebuffer-artifact-check FRAMEBUFFER_REPORT FRAME0_PPM FRAME1_PPM\n", argv0);
 }
 
@@ -1370,6 +1371,151 @@ static int run_command_with_pipe_input(char* const* cmd, unsigned seconds,
     return 0;
 }
 
+static int run_command_capture_launcher_frame(char* const* cmd, unsigned seconds,
+    const char* serial_capture_path, const char* monitor_path,
+    const char* frame0_path)
+{
+    int to_child[2] = { -1, -1 };
+    int from_child[2] = { -1, -1 };
+    FILE* capture = NULL;
+    pid_t pid = -1;
+    int out_fd = -1;
+    int monitor_fd = -1;
+    int status = 0;
+    int rc = 0;
+    unsigned elapsed_ms = 0;
+    unsigned limit_ms = seconds * 1000u;
+    unsigned launcher_frame_ready_ms = 0;
+    int child_done = 0;
+    int frame0_done = 0;
+    int launcher_frame_armed = 0;
+    int launcher_ready_reported = 0;
+    struct status_line_watch watch;
+
+    memset(&watch, 0, sizeof(watch));
+    unlink(monitor_path);
+    unlink(frame0_path);
+    if (pipe(to_child) != 0 || pipe(from_child) != 0) {
+        fprintf(stderr, "pi4_qemu_command: pipe failed: %s\n", strerror(errno));
+        rc = 2;
+        goto done;
+    }
+    if (set_nonblock(from_child[0]) != 0) {
+        fprintf(stderr, "pi4_qemu_command: failed to configure QEMU stdout pipe\n");
+        rc = 2;
+        goto done;
+    }
+
+    capture = fopen(serial_capture_path, "wb");
+    if (!capture) {
+        fprintf(stderr, "pi4_qemu_command: %s: %s\n", serial_capture_path, strerror(errno));
+        rc = 2;
+        goto done;
+    }
+
+    pid = fork();
+    if (pid < 0) {
+        fprintf(stderr, "pi4_qemu_command: fork failed: %s\n", strerror(errno));
+        rc = 2;
+        goto done;
+    }
+    if (pid == 0) {
+        close(to_child[1]);
+        close(from_child[0]);
+        if (dup2(to_child[0], STDIN_FILENO) < 0 ||
+            dup2(from_child[1], STDOUT_FILENO) < 0)
+            _exit(126);
+        close(to_child[0]);
+        close(from_child[1]);
+        exec_command_or_die(cmd);
+    }
+    close(to_child[0]);
+    to_child[0] = -1;
+    close(from_child[1]);
+    from_child[1] = -1;
+    out_fd = from_child[0];
+    from_child[0] = -1;
+
+    while (elapsed_ms < limit_ms) {
+        pid_t got;
+
+        if (monitor_fd < 0)
+            monitor_fd = connect_monitor_once(monitor_path);
+        if (out_fd >= 0 &&
+            append_available_serial(out_fd, capture, &watch, 0) != 0) {
+            rc = 2;
+            goto done;
+        }
+        if (watch.launcher_ready && !launcher_ready_reported) {
+            fprintf(stderr,
+                "pi4_qemu_command: launcher ready; capturing framebuffer before app launch\n");
+            launcher_ready_reported = 1;
+        }
+        if (monitor_fd >= 0 && watch.launcher_ready &&
+            !launcher_frame_armed) {
+            launcher_frame_ready_ms = elapsed_ms + HMP_LAUNCHER_FRAME_SETTLE_MS;
+            launcher_frame_armed = 1;
+        }
+        if (monitor_fd >= 0 && launcher_frame_armed && !frame0_done &&
+            elapsed_ms >= launcher_frame_ready_ms) {
+            rc = send_screendump_and_wait(monitor_fd, frame0_path);
+            if (rc != 0)
+                goto done;
+            frame0_done = 1;
+            break;
+        }
+
+        got = waitpid(pid, &status, WNOHANG);
+        if (got == pid) {
+            child_done = 1;
+            break;
+        }
+        if (got < 0 && errno != EINTR) {
+            fprintf(stderr, "pi4_qemu_command: waitpid failed: %s\n", strerror(errno));
+            rc = 2;
+            goto done;
+        }
+        sleep_millis(100u);
+        elapsed_ms += 100u;
+    }
+
+done:
+    if (pid > 0 && !child_done)
+        terminate_child(pid);
+    if (out_fd >= 0 && capture) {
+        unsigned drain;
+
+        for (drain = 0; drain < 10u; drain++) {
+            if (append_available_serial(out_fd, capture, NULL, 0) != 0)
+                break;
+            sleep_millis(50u);
+        }
+    }
+    if (to_child[0] >= 0)
+        close(to_child[0]);
+    if (to_child[1] >= 0)
+        close(to_child[1]);
+    if (from_child[0] >= 0)
+        close(from_child[0]);
+    if (from_child[1] >= 0)
+        close(from_child[1]);
+    if (out_fd >= 0)
+        close(out_fd);
+    if (monitor_fd >= 0)
+        close(monitor_fd);
+    if (capture)
+        fclose(capture);
+    unlink(monitor_path);
+    free(watch.ready_status);
+    if (rc == 0 && !frame0_done) {
+        fprintf(stderr,
+            "pi4_qemu_command: launcher framebuffer capture incomplete: launcher_ready=%d frame0=%d\n",
+            watch.launcher_ready, frame0_done);
+        rc = 1;
+    }
+    return rc;
+}
+
 static char* read_file_limited(const char* path, size_t* out_size)
 {
     FILE* file = fopen(path, "rb");
@@ -1696,6 +1842,65 @@ static int validate_framebuffer_artifact(const char* report_path,
     }
     if (frame0.pixel_hash == frame1.pixel_hash) {
         fprintf(stderr, "pi4_qemu_command: framebuffer screendump pixels did not change\n");
+        return 1;
+    }
+    return 0;
+}
+
+static int write_launcher_framebuffer_report(const char* report_path,
+    const char* frame0_path, const struct framebuffer_frame_info* frame0)
+{
+    FILE* out = fopen(report_path, "wb");
+
+    if (!out) {
+        fprintf(stderr, "pi4_qemu_command: %s: %s\n", report_path, strerror(errno));
+        return 2;
+    }
+    fprintf(out, "schema=pi4-launcher-framebuffer-artifact-v1\n");
+    fprintf(out, "source=qemu-screendump\n");
+    fprintf(out, "evidence_class=local-qemu-launcher-framebuffer\n");
+    fprintf(out, "hardware=unclaimed\n");
+    fprintf(out, "green_gate=false\n");
+    fprintf(out, "hardware_proof=unclaimed\n");
+    fprintf(out, "audio=unclaimed\n");
+    fprintf(out, "app_launch=not-requested\n");
+    fprintf(out, "frame_evidence=launcher-ready-nonblank\n");
+    fprintf(out, "frame0_path=%s\n", frame0_path);
+    fprintf(out, "frame0_width=%u\n", frame0->width);
+    fprintf(out, "frame0_height=%u\n", frame0->height);
+    fprintf(out, "frame0_image_bytes=%zu\n", frame0->image_bytes);
+    fprintf(out, "frame0_bytes=%zu\n", frame0->pixel_bytes);
+    fprintf(out, "frame0_hash=%016llx\n", (unsigned long long)frame0->hash);
+    fprintf(out, "frame0_hash_kind=fnv1a64-ppm-image\n");
+    fprintf(out, "frame0_pixel_hash=%016llx\n",
+        (unsigned long long)frame0->pixel_hash);
+    fprintf(out, "frame0_pixel_hash_kind=fnv1a64-rgb-pixels\n");
+    fprintf(out, "frame0_nonblank=%s\n", frame0->nonblank ? "true" : "false");
+    fprintf(out, "launcher_framebuffer_artifact=%s\n",
+        frame0->nonblank ? "OK" : "BAD");
+    fprintf(out, "framebuffer_artifact=%s\n", frame0->nonblank ? "OK" : "BAD");
+    if (fclose(out) != 0) {
+        fprintf(stderr, "pi4_qemu_command: %s: close failed\n", report_path);
+        return 2;
+    }
+    return 0;
+}
+
+static int validate_launcher_framebuffer_artifact(const char* report_path,
+    const char* frame0_path)
+{
+    struct framebuffer_frame_info frame0;
+    int rc;
+
+    memset(&frame0, 0, sizeof(frame0));
+    rc = parse_ppm_frame(frame0_path, &frame0);
+    if (rc != 0)
+        return rc;
+    rc = write_launcher_framebuffer_report(report_path, frame0_path, &frame0);
+    if (rc != 0)
+        return rc;
+    if (!frame0.nonblank) {
+        fprintf(stderr, "pi4_qemu_command: launcher framebuffer screendump must be nonblank\n");
         return 1;
     }
     return 0;
@@ -2147,6 +2352,61 @@ static int run_local_input_smoke(unsigned seconds, const char* input,
     return 0;
 }
 
+static int run_local_launcher_framebuffer_capture(unsigned seconds,
+    const char* raw_status_path, const char* marked_status_path,
+    const char* serial_capture_path, char* const* cmd,
+    const char* monitor_path, const char* framebuffer_report_path,
+    const char* frame0_path)
+{
+    size_t serial_size = 0;
+    char* serial = NULL;
+    char* status = NULL;
+    char last_stage[128] = "";
+    char last_code[128] = "";
+
+    if (!local_vm_allowed()) {
+        fprintf(stderr, "pi4_qemu_command: refusing to execute local VM without ALLOW_LOCAL_VM=1\n");
+        return 1;
+    }
+    if (run_command_capture_launcher_frame(cmd, seconds, serial_capture_path,
+            monitor_path, frame0_path) != 0)
+        return 2;
+
+    if (validate_launcher_framebuffer_artifact(framebuffer_report_path,
+            frame0_path) != 0)
+        return 1;
+
+    serial = read_file_limited(serial_capture_path, &serial_size);
+    if (!serial || serial_size == 0u) {
+        free(serial);
+        fprintf(stderr, "pi4_qemu_command: Pi 4 launcher framebuffer capture produced no serial output\n");
+        return 1;
+    }
+    status = find_last_status_line(serial, last_stage, sizeof(last_stage),
+        last_code, sizeof(last_code));
+    if (!status) {
+        write_no_status(marked_status_path, "local-qemu-launcher-framebuffer",
+            "pi4-local-qemu-launcher-framebuffer", last_stage, last_code);
+        free(serial);
+        return 1;
+    }
+    if (!status_line_reflects_launcher_ready(status)) {
+        fprintf(stderr,
+            "pi4_qemu_command: launcher framebuffer capture ended without launcher-ready status\n");
+        free(status);
+        free(serial);
+        return 1;
+    }
+
+    write_raw_status(raw_status_path, status);
+    write_marked_status(marked_status_path, status,
+        "local-qemu-launcher-framebuffer",
+        "pi4-local-qemu-launcher-framebuffer");
+    free(status);
+    free(serial);
+    return 0;
+}
+
 int main(int argc, char** argv)
 {
     int exec_mode = 0;
@@ -2156,6 +2416,7 @@ int main(int argc, char** argv)
     int local_smoke_mode = 0;
     int local_input_smoke_mode = 0;
     int local_input_framebuffer_smoke_mode = 0;
+    int local_launcher_framebuffer_capture_mode = 0;
     int argi = 1;
     unsigned local_smoke_seconds = 0;
     const char* local_input = NULL;
@@ -2231,6 +2492,46 @@ int main(int argc, char** argv)
         framebuffer_report_path = argv[7];
         frame0_path = argv[8];
         frame1_path = argv[9];
+    } else if (argc > 1 && strcmp(argv[1], "--local-launcher-framebuffer-capture") == 0) {
+        local_launcher_framebuffer_capture_mode = 1;
+        if (argc != 11) {
+            usage(argv[0]);
+            return 2;
+        }
+        local_smoke_seconds = parse_seconds(argv[2]);
+        raw_status_path = argv[3];
+        marked_status_path = argv[4];
+        serial_capture_path = argv[5];
+        framebuffer_report_path = argv[6];
+        frame0_path = argv[7];
+    }
+    if (local_launcher_framebuffer_capture_mode) {
+        char* serial_arg = join_suffix("stdio", "");
+        char* monitor_path = join_suffix(framebuffer_report_path, ".monitor");
+        char* monitor_arg = make_monitor_arg(monitor_path);
+        char* input_argv[4];
+        int rc;
+        int qemu_arg = 8;
+
+        input_argv[0] = argv[qemu_arg];
+        input_argv[1] = serial_arg;
+        input_argv[2] = argv[qemu_arg + 1];
+        input_argv[3] = argv[qemu_arg + 2];
+        require_nonempty_file("kernel8 image", input_argv[2]);
+        require_nonempty_file("Pi 4 FAT16 image", input_argv[3]);
+        drive_arg = make_drive_arg(argv[qemu_arg + 2]);
+        build_command(input_argv, drive_arg, cmd, 0, 1, monitor_arg, &n);
+        print_command(cmd);
+        fflush(stdout);
+        rc = run_local_launcher_framebuffer_capture(local_smoke_seconds,
+            raw_status_path, marked_status_path, serial_capture_path, cmd,
+            monitor_path, framebuffer_report_path, frame0_path);
+        free(monitor_arg);
+        free(monitor_path);
+        free(serial_arg);
+        free(drive_arg);
+        (void)n;
+        return rc;
     }
     if (local_input_smoke_mode || local_input_framebuffer_smoke_mode) {
         char* pipe_base = join_suffix(serial_capture_path, ".pipe");

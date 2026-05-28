@@ -74,6 +74,12 @@ PI4_QEMU_HMP_MONITOR_LOG="$BUILD_DIR/pi4_qemu_hmp_monitor.log"
 PI4_QEMU_HMP_FB_FRAME0="$BUILD_DIR/pi4_qemu_hmp_frame0.ppm"
 PI4_QEMU_HMP_FB_FRAME1="$BUILD_DIR/pi4_qemu_hmp_frame1.ppm"
 PI4_QEMU_HMP_FB_REPORT="$BUILD_DIR/pi4_qemu_hmp_framebuffer_report.txt"
+PI4_QEMU_HMP_LAUNCHER_RAW="$BUILD_DIR/pi4_qemu_hmp_launcher_status_raw.txt"
+PI4_QEMU_HMP_LAUNCHER_MARKED="$BUILD_DIR/pi4_qemu_hmp_launcher_status_marked.txt"
+PI4_QEMU_HMP_LAUNCHER_SERIAL="$BUILD_DIR/pi4_qemu_hmp_launcher_serial.txt"
+PI4_QEMU_HMP_LAUNCHER_STDOUT="$BUILD_DIR/pi4_qemu_hmp_launcher_stdout.txt"
+PI4_QEMU_HMP_LAUNCHER_FB_FRAME0="$BUILD_DIR/pi4_qemu_hmp_launcher_frame0.ppm"
+PI4_QEMU_HMP_LAUNCHER_FB_REPORT="$BUILD_DIR/pi4_qemu_hmp_launcher_framebuffer_report.txt"
 PI4_FB_FRAME0="$BUILD_DIR/pi4_framebuffer_frame0.ppm"
 PI4_FB_FRAME1="$BUILD_DIR/pi4_framebuffer_frame1.ppm"
 PI4_FB_REPORT="$BUILD_DIR/pi4_framebuffer_report.txt"
@@ -457,6 +463,42 @@ int main(int argc, char** argv)
 EOF_QEMU_HMP_FAKE_C
 "$HOST_CC" -std=c99 -Wall -Wextra -Werror -O2 \
   "$PI4_QEMU_HMP_FAKE_C" -o "$PI4_QEMU_HMP_FAKE"
+rm -f "$PI4_QEMU_HMP_LAUNCHER_RAW" "$PI4_QEMU_HMP_LAUNCHER_MARKED" \
+  "$PI4_QEMU_HMP_LAUNCHER_SERIAL" "$PI4_QEMU_HMP_LAUNCHER_STDOUT" \
+  "$PI4_QEMU_HMP_MONITOR_LOG" "$PI4_QEMU_HMP_LAUNCHER_FB_FRAME0" \
+  "$PI4_QEMU_HMP_LAUNCHER_FB_REPORT"
+PI4_QEMU_HMP_MONITOR_LOG="$PI4_QEMU_HMP_MONITOR_LOG" \
+  ALLOW_LOCAL_VM=1 "$PI4_QEMU_COMMAND" \
+  --local-launcher-framebuffer-capture 8 \
+  "$PI4_QEMU_HMP_LAUNCHER_RAW" "$PI4_QEMU_HMP_LAUNCHER_MARKED" \
+  "$PI4_QEMU_HMP_LAUNCHER_SERIAL" "$PI4_QEMU_HMP_LAUNCHER_FB_REPORT" \
+  "$PI4_QEMU_HMP_LAUNCHER_FB_FRAME0" "$PI4_QEMU_HMP_FAKE" \
+  "$BUILD_DIR/fake-kernel8.img" "$BUILD_DIR/fake-pi4-fat16.img" \
+  > "$PI4_QEMU_HMP_LAUNCHER_STDOUT"
+grep -F -q "path=/SYSTEM/INIT.ELF" "$PI4_QEMU_HMP_LAUNCHER_RAW"
+grep -F -q "pi4fb=OK" "$PI4_QEMU_HMP_LAUNCHER_RAW"
+grep -F -q "stale=before-hmp" "$PI4_QEMU_HMP_LAUNCHER_SERIAL"
+if grep -F -q "stale=before-hmp" "$PI4_QEMU_HMP_LAUNCHER_RAW"; then
+  echo "pi4_qemu_command selected stale pre-launcher status for launcher capture" >&2
+  cat "$PI4_QEMU_HMP_LAUNCHER_RAW" >&2
+  exit 1
+fi
+grep -F -q "evidence_class=local-qemu-launcher-framebuffer" "$PI4_QEMU_HMP_LAUNCHER_MARKED"
+grep -F -q "smoke_gate=pi4-local-qemu-launcher-framebuffer" "$PI4_QEMU_HMP_LAUNCHER_MARKED"
+grep -F -q "hardware_proof=unclaimed" "$PI4_QEMU_HMP_LAUNCHER_MARKED"
+grep -F -q "frame0_input_count=0" "$PI4_QEMU_HMP_MONITOR_LOG"
+if grep -F -q "sendkey " "$PI4_QEMU_HMP_MONITOR_LOG"; then
+  echo "pi4_qemu_command sent launcher input during launcher framebuffer capture" >&2
+  cat "$PI4_QEMU_HMP_MONITOR_LOG" >&2
+  exit 1
+fi
+grep -F -q "schema=pi4-launcher-framebuffer-artifact-v1" "$PI4_QEMU_HMP_LAUNCHER_FB_REPORT"
+grep -F -q "app_launch=not-requested" "$PI4_QEMU_HMP_LAUNCHER_FB_REPORT"
+grep -F -q "frame0_nonblank=true" "$PI4_QEMU_HMP_LAUNCHER_FB_REPORT"
+grep -F -q "launcher_framebuffer_artifact=OK" "$PI4_QEMU_HMP_LAUNCHER_FB_REPORT"
+grep -F -q -- "-monitor unix:" "$PI4_QEMU_HMP_LAUNCHER_STDOUT"
+grep -F -q -- "-device usb-kbd" "$PI4_QEMU_HMP_LAUNCHER_STDOUT"
+grep -F -q -- "-device usb-mouse" "$PI4_QEMU_HMP_LAUNCHER_STDOUT"
 rm -f "$PI4_QEMU_HMP_RAW" "$PI4_QEMU_HMP_MARKED" \
   "$PI4_QEMU_HMP_SERIAL" "$PI4_QEMU_HMP_STDOUT" \
   "$PI4_QEMU_HMP_MONITOR_LOG" "$PI4_QEMU_HMP_FB_FRAME0" \
