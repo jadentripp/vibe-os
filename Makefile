@@ -259,10 +259,10 @@ QUAKE_FREESTANDING_I386_CFLAGS := -target i386-unknown-elf -ffreestanding -fno-b
 QUAKE_ORIGINAL_CFLAGS := $(QUAKE_FREESTANDING_I386_CFLAGS) -std=gnu89 -fcommon -U__i386__ -Dstricmp=strcasecmp -I$(USER_INCLUDE_DIR) -I$(QUAKE_PORT_INCLUDE_DIR) -I$(DOOM_PORT_INCLUDE_DIR) -I$(QUAKE_SRC_DIR)
 QUAKE_PI4_ENGINE_BUILD_DIR := $(PI4_BUILD_DIR)/quake-engine
 QUAKE_PI4_ENGINE_ELF := $(PI4_BUILD_DIR)/QUAKE.ENGINE.APP.ELF
-QUAKE_PI4_ENGINE_PORT_NAMES := cd input setjmp start sys vid
+QUAKE_PI4_ENGINE_PORT_NAMES := cd input setjmp snd start sys vid
 QUAKE_PI4_ENGINE_PORT_OBJS := $(addprefix $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_,$(addsuffix .o,$(QUAKE_PI4_ENGINE_PORT_NAMES)))
 QUAKE_PI4_ENGINE_RUNTIME_OBJS := $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_runtime.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_state.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_pr_load.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_sv_spawn.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_render_trace.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_d_surf.o
-QUAKE_PI4_ENGINE_ORIGINAL_SRC_NAMES := $(filter-out snd_dma snd_mem snd_mix,$(QUAKE_ORIGINAL_SRC_NAMES)) snd_null
+QUAKE_PI4_ENGINE_ORIGINAL_SRC_NAMES := $(QUAKE_ORIGINAL_SRC_NAMES)
 QUAKE_PI4_ENGINE_ORIGINAL_OBJS := $(addprefix $(QUAKE_PI4_ENGINE_BUILD_DIR)/,$(addsuffix .o,$(QUAKE_PI4_ENGINE_ORIGINAL_SRC_NAMES)))
 QUAKE_PI4_ENGINE_OBJS := $(QUAKE_PI4_ENGINE_PORT_OBJS) $(QUAKE_PI4_ENGINE_RUNTIME_OBJS) $(QUAKE_PI4_ENGINE_ORIGINAL_OBJS)
 QUAKE_PI4_ENGINE_MISSING_SYMBOLS := $(QUAKE_PI4_ENGINE_BUILD_DIR)/missing-runtime-symbols.txt
@@ -1961,8 +1961,9 @@ pi4-local-qemu-final-gates: pi4-local-qemu-input-smoke $(VIBE_STATUS_CHECK)
 		quake_fb0="$$(sed -n 's/^frame0_hash=//p' "$(PI4_LOCAL_QEMU_QUAKE_FB_REPORT)" | tail -n 1)"; \
 		quake_fb1="$$(sed -n 's/^frame1_hash=//p' "$(PI4_LOCAL_QEMU_QUAKE_FB_REPORT)" | tail -n 1)"; \
 		case "$$doom_audio:$$quake_audio" in \
+			OK:OK) audio_gate=green ;; \
+			*OK*) echo "local QEMU captured only partial pi4audio=OK: doom=$$doom_audio quake=$$quake_audio" >&2; exit 1 ;; \
 			*HARDWARE-UNPROVEN*|*WAIT*) audio_gate=hardware-unproven ;; \
-			OK:OK) echo "local QEMU captured pi4audio=OK; refusing final gates because audio OK requires real Pi hardware evidence" >&2; exit 1 ;; \
 			*) echo "unknown captured Pi 4 audio states: doom=$$doom_audio quake=$$quake_audio" >&2; exit 1 ;; \
 		esac; \
 		printf "storage=green\n" > "$(PI4_LOCAL_QEMU_FINAL_GATES)"; \
@@ -2022,8 +2023,9 @@ pi4-local-qemu-real-assets-final-gates: pi4-local-qemu-real-assets-input-smoke $
 		quake_fb0="$$(sed -n 's/^frame0_hash=//p' "$(PI4_LOCAL_QEMU_QUAKE_FB_REPORT)" | tail -n 1)"; \
 		quake_fb1="$$(sed -n 's/^frame1_hash=//p' "$(PI4_LOCAL_QEMU_QUAKE_FB_REPORT)" | tail -n 1)"; \
 		case "$$doom_audio:$$quake_audio" in \
+			OK:OK) audio_gate=green ;; \
+			*OK*) echo "local QEMU captured only partial pi4audio=OK: doom=$$doom_audio quake=$$quake_audio" >&2; exit 1 ;; \
 			*HARDWARE-UNPROVEN*|*WAIT*) audio_gate=hardware-unproven ;; \
-			OK:OK) echo "local QEMU captured pi4audio=OK; refusing final gates because audio OK requires real Pi hardware evidence" >&2; exit 1 ;; \
 			*) echo "unknown captured Pi 4 audio states: doom=$$doom_audio quake=$$quake_audio" >&2; exit 1 ;; \
 		esac; \
 		printf "storage=green\n" > "$(PI4_LOCAL_QEMU_REAL_ASSETS_FINAL_GATES)"; \

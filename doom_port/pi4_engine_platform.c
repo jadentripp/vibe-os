@@ -21,6 +21,7 @@
 #define PI4_DOOM_ZONE_BYTES (8 * 1024 * 1024)
 #define PI4_DOOM_AUDIO_PROBE_BYTES 64
 #define PI4_DOOM_AUDIO_PROBE_RATE 11025
+#define PI4_DOOM_AUDIO_MUSIC_BYTES 960
 #define PI4_DOOM_INPUT_POLL_BUDGET 32
 #define PI4_DOOM_INPUT_LOAD_POLL_BUDGET 8
 #define PI4_DOOM_INPUT_PRESENT_POLL_BUDGET 4
@@ -43,6 +44,7 @@ static byte pi4_doom_palette[PI4_VIBE_FB_RGB24_PALETTE_BYTES];
 static byte pi4_doom_progress_palette[PI4_VIBE_FB_RGB24_PALETTE_BYTES];
 static byte pi4_doom_progress_frame[SCREENWIDTH * SCREENHEIGHT] __attribute__((aligned(16)));
 static byte pi4_doom_audio_probe_pcm[PI4_DOOM_AUDIO_PROBE_BYTES] __attribute__((aligned(16)));
+static byte pi4_doom_audio_music_pcm[PI4_DOOM_AUDIO_MUSIC_BYTES] __attribute__((aligned(16)));
 static ticcmd_t pi4_empty_ticcmd;
 static doomcom_t pi4_doomcom;
 static int pi4_next_sound_handle = 1;
@@ -60,7 +62,10 @@ static char pi4_doom_progress_console_line[42];
 static int pi4_doom_audio_probe_done;
 static int pi4_doom_audio_pcm_probe_ready;
 static int pi4_doom_audio_started;
+static int pi4_doom_music_playing;
 static pi4_vibe_word_t pi4_doom_audio_handle;
+static pi4_vibe_word_t pi4_doom_audio_sample_rate;
+static pi4_vibe_word_t pi4_doom_audio_music_phase;
 static long pi4_doom_audio_start_result;
 static long pi4_doom_audio_device_info_result;
 static long pi4_doom_audio_ring_info_result;
@@ -300,6 +305,46 @@ static void pi4_doom_audio_prepare_probe_pcm(void)
     }
 }
 
+static void pi4_doom_audio_prepare_music_pcm(void)
+{
+    unsigned long i;
+    pi4_vibe_word_t phase = pi4_doom_audio_music_phase;
+    for (i = 0; i < sizeof(pi4_doom_audio_music_pcm); i += 2) {
+        byte sample;
+        phase += 5;
+        sample = (byte)(72 + ((phase >> 3) & 63) + ((phase >> 8) & 31));
+        pi4_doom_audio_music_pcm[i] = sample;
+        pi4_doom_audio_music_pcm[i + 1] = sample;
+    }
+    pi4_doom_audio_music_phase = phase;
+}
+
+static void pi4_doom_audio_pump_music(void)
+{
+    pi4_vibe_audio_pcm_desc_t desc;
+    pi4_vibe_word_t sample_rate = pi4_doom_audio_sample_rate;
+
+    if (!pi4_doom_music_playing ||
+        !pi4_doom_audio_pcm_probe_ready ||
+        !pi4_doom_audio_handle) {
+        return;
+    }
+    if (!sample_rate)
+        sample_rate = PI4_VIBE_AUDIO_SAMPLE_RATE;
+    pi4_doom_audio_prepare_music_pcm();
+    pi4_doom_audio_init_pcm_desc(
+        &desc,
+        pi4_doom_audio_music_pcm,
+        sizeof(pi4_doom_audio_music_pcm),
+        sample_rate);
+    pi4_doom_audio_write_result =
+        vibe_user_audio_pcm_write_desc(pi4_doom_audio_handle, &desc);
+    pi4_doom_audio_stream_info_result =
+        vibe_user_audio_stream_info(pi4_doom_audio_handle, &pi4_doom_audio_stream_info);
+    pi4_doom_audio_buffered_result =
+        vibe_user_audio_pcm_buffered_bytes(pi4_doom_audio_handle);
+}
+
 static void pi4_doom_audio_probe_abi(void)
 {
     pi4_vibe_audio_pcm_desc_t desc;
@@ -336,6 +381,7 @@ static void pi4_doom_audio_probe_abi(void)
     sample_rate = pi4_doom_audio_ring_info.sample_rate;
     if (!sample_rate)
         sample_rate = PI4_DOOM_AUDIO_PROBE_RATE;
+    pi4_doom_audio_sample_rate = sample_rate;
 
     pi4_doom_audio_init_pcm_desc(&desc, NULL, 0, sample_rate);
     handle = vibe_user_audio_pcm_open(&desc);
@@ -1468,6 +1514,7 @@ void I_InitSound(void)
 
 void I_UpdateSound(void)
 {
+    pi4_doom_audio_pump_music();
 }
 
 void I_SubmitSound(void)
@@ -1476,6 +1523,7 @@ void I_SubmitSound(void)
 
 void I_ShutdownSound(void)
 {
+    pi4_doom_music_playing = 0;
     if (pi4_doom_audio_handle) {
         pi4_doom_audio_close_result = vibe_user_audio_pcm_close(pi4_doom_audio_handle);
         pi4_doom_audio_handle = 0;
@@ -1566,11 +1614,14 @@ void I_PlaySong(int handle, int looping)
 {
     (void)handle;
     (void)looping;
+    if (pi4_doom_audio_pcm_probe_ready)
+        pi4_doom_music_playing = 1;
 }
 
 void I_StopSong(int handle)
 {
     (void)handle;
+    pi4_doom_music_playing = 0;
 }
 
 void I_UnRegisterSong(int handle)

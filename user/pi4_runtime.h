@@ -269,6 +269,7 @@
 #define PI4_VIBE_AUDIO_DEVICE_NONE 0
 #define PI4_VIBE_AUDIO_DEVICE_SB16 1
 #define PI4_VIBE_AUDIO_DEVICE_PI4_PWM 2
+#define PI4_VIBE_AUDIO_DEVICE_PI4_USB 3
 #define PI4_VIBE_AUDIO_FD 0x00004155
 #define PI4_VIBE_IOCTL_AUDIO_DEVICE_INFO 0x00004101
 #define PI4_VIBE_IOCTL_AUDIO_PCM_RING_INFO 0x00004102
@@ -280,10 +281,13 @@
 #define PI4_VIBE_AUDIO_CAP_MMIO_WINDOW 0x00000001
 #define PI4_VIBE_AUDIO_CAP_MAILBOX_CLOCK 0x00000002
 #define PI4_VIBE_AUDIO_CAP_PCM_QUEUE 0x00000004
+#define PI4_VIBE_AUDIO_CAP_USB_AUDIO 0x00000008
 #define PI4_VIBE_AUDIO_CAP_FULL_MASK \
     (PI4_VIBE_AUDIO_CAP_MMIO_WINDOW | \
      PI4_VIBE_AUDIO_CAP_MAILBOX_CLOCK | \
      PI4_VIBE_AUDIO_CAP_PCM_QUEUE)
+#define PI4_VIBE_AUDIO_USB_FULL_MASK \
+    (PI4_VIBE_AUDIO_CAP_USB_AUDIO | PI4_VIBE_AUDIO_CAP_PCM_QUEUE)
 #define PI4_VIBE_AUDIO_CAP_PCM_RING PI4_VIBE_AUDIO_CAP_PCM_QUEUE
 #define PI4_VIBE_AUDIO_DEVICE_START 1
 #define PI4_VIBE_AUDIO_MIXER_START 2
@@ -304,6 +308,12 @@
 #define PI4_VIBE_AUDIO_STREAM_NONE 0
 #define PI4_VIBE_AUDIO_STREAM_PUSH 1
 #define PI4_VIBE_AUDIO_STREAM_PULL 2
+#define PI4_VIBE_AUDIO_HANDLE 1
+#define PI4_VIBE_AUDIO_QUEUE_BYTES 4096
+#define PI4_VIBE_AUDIO_PERIOD_BYTES 512
+#define PI4_VIBE_AUDIO_LOW_WATER_BYTES 512
+#define PI4_VIBE_AUDIO_SAMPLE_RATE 48000
+#define PI4_VIBE_AUDIO_CHANNELS 2
 #define PI4_VIBE_AUDIO_STREAM_FLAG_PULL 0x00000001
 #define PI4_VIBE_AUDIO_STREAM_FLAG_REFILL_PENDING 0x00000002
 #define PI4_VIBE_AUDIO_STREAM_FLAG_ACTIVE 0x00000004
@@ -322,6 +332,11 @@
 #define PI4_VIBE_AUDIO_DEVICE_INFO_BYTES 96
 #define PI4_VIBE_AUDIO_PCM_RING_INFO_BYTES 96
 #define PI4_VIBE_AUDIO_STREAM_INFO_BYTES 96
+#define PI4_VIBE_AUDIO_DESC_SAMPLES_OFFSET 0
+#define PI4_VIBE_AUDIO_DESC_LENGTH_OFFSET 8
+#define PI4_VIBE_AUDIO_DESC_RATE_OFFSET 16
+#define PI4_VIBE_AUDIO_DESC_CHANNELS_OFFSET 24
+#define PI4_VIBE_AUDIO_DESC_FORMAT_OFFSET 32
 #define PI4_VIBE_AUDIO_STREAM_INFO_HANDLE_OFFSET 16
 
 #define PI4_VIBE_USER_ABI_VERSION 1
@@ -1387,19 +1402,24 @@ static inline int pi4_vibe_audio_device_info_has_pcm_queue(
 static inline int pi4_vibe_audio_device_info_is_pi4_device(
     const pi4_vibe_audio_device_info_t* info)
 {
-    return info && info->device_kind == PI4_VIBE_AUDIO_DEVICE_PI4_PWM;
+    return info &&
+        (info->device_kind == PI4_VIBE_AUDIO_DEVICE_PI4_PWM ||
+         info->device_kind == PI4_VIBE_AUDIO_DEVICE_PI4_USB);
 }
 
 static inline int pi4_vibe_audio_device_info_is_playback_ready(
     const pi4_vibe_audio_device_info_t* info)
 {
+    pi4_vibe_word_t required_caps = PI4_VIBE_AUDIO_CAP_FULL_MASK;
+    if (info && info->device_kind == PI4_VIBE_AUDIO_DEVICE_PI4_USB) {
+        required_caps = PI4_VIBE_AUDIO_USB_FULL_MASK;
+    }
     return pi4_vibe_audio_device_info_is_pi4_device(info) &&
         pi4_vibe_audio_device_info_has_pcm_queue(info) &&
         info->sample_rate != 0 &&
         info->channels == 2 &&
         info->format == PI4_VIBE_AUDIO_FORMAT_U8_STEREO &&
-        (info->capabilities & PI4_VIBE_AUDIO_CAP_FULL_MASK) ==
-            PI4_VIBE_AUDIO_CAP_FULL_MASK;
+        (info->capabilities & required_caps) == required_caps;
 }
 
 static inline int pi4_vibe_audio_device_info_is_hardware_unproven(
@@ -1409,7 +1429,8 @@ static inline int pi4_vibe_audio_device_info_is_hardware_unproven(
         info->device_kind != PI4_VIBE_AUDIO_DEVICE_NONE &&
         info->status == PI4_VIBE_AUDIO_DEVICE_STATUS_ABSENT &&
         info->capabilities != 0 &&
-        (info->capabilities & ~PI4_VIBE_AUDIO_CAP_FULL_MASK) == 0;
+        (info->capabilities &
+         ~(PI4_VIBE_AUDIO_CAP_FULL_MASK | PI4_VIBE_AUDIO_CAP_USB_AUDIO)) == 0;
 }
 
 static inline int pi4_vibe_audio_pcm_ring_info_is_ready(

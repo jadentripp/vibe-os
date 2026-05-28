@@ -13,6 +13,7 @@
 .equ PI4_QUAKE_FRAME_WIDTH,        320
 .equ PI4_QUAKE_FRAME_HEIGHT,       200
 .equ PI4_QUAKE_FRAME_BYTES,        64000
+.equ PI4_QUAKE_AUDIO_PACKET_BYTES, 960
 
 .equ PI4_INPUT_EVENT_TIMESTAMP,    0
 .equ PI4_INPUT_EVENT_DEVICE_ID,    8
@@ -120,6 +121,11 @@
 .extern vibe_user_file_size
 .extern vibe_user_present_indexed_checked
 .extern vibe_user_poll_input
+.extern vibe_user_audio_device_info
+.extern vibe_user_audio_pcm_ring_info
+.extern vibe_user_audio_device_start
+.extern vibe_user_audio_pcm_open
+.extern vibe_user_audio_pcm_write
 
 .section .text.pi4_quake_app.entry, "ax", %progbits
 .balign 16
@@ -185,6 +191,7 @@ pi4_quake_app_start:
 
     mov x0, x19
     bl pi4_quake_probe_pak
+    bl pi4_quake_audio_start
 
 .Lpi4_quake_frame_loop:
     str x20, [x19, #PI4_QUAKE_STATE_FRAME_INDEX]
@@ -197,6 +204,7 @@ pi4_quake_app_start:
 
     mov x0, x19
     bl pi4_quake_render_frame
+    bl pi4_quake_audio_tick
 
     adrp x0, pi4_quake_present
     add x0, x0, :lo12:pi4_quake_present
@@ -1555,6 +1563,78 @@ pi4_quake_fill_rect:
     ret
 .size pi4_quake_fill_rect, . - pi4_quake_fill_rect
 
+.type pi4_quake_audio_start, %function
+pi4_quake_audio_start:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+    adrp x0, pi4_quake_audio_device_info
+    add x0, x0, :lo12:pi4_quake_audio_device_info
+    bl vibe_user_audio_device_info
+    adrp x0, pi4_quake_audio_ring_info
+    add x0, x0, :lo12:pi4_quake_audio_ring_info
+    bl vibe_user_audio_pcm_ring_info
+    bl vibe_user_audio_device_start
+    cmp x0, #0
+    b.lt .Lpi4_quake_audio_start_done
+    adrp x0, pi4_quake_audio_desc
+    add x0, x0, :lo12:pi4_quake_audio_desc
+    bl vibe_user_audio_pcm_open
+    cmp x0, #0
+    b.le .Lpi4_quake_audio_start_done
+    adrp x1, pi4_quake_audio_handle
+    add x1, x1, :lo12:pi4_quake_audio_handle
+    str x0, [x1]
+.Lpi4_quake_audio_start_done:
+    ldp x29, x30, [sp], #16
+    ret
+.size pi4_quake_audio_start, . - pi4_quake_audio_start
+
+.type pi4_quake_audio_tick, %function
+pi4_quake_audio_tick:
+    stp x29, x30, [sp, #-48]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    str x21, [sp, #32]
+    adrp x19, pi4_quake_audio_handle
+    add x19, x19, :lo12:pi4_quake_audio_handle
+    ldr x0, [x19]
+    cbz x0, .Lpi4_quake_audio_tick_done
+    adrp x19, pi4_quake_audio_phase
+    add x19, x19, :lo12:pi4_quake_audio_phase
+    ldr x20, [x19]
+    adrp x21, pi4_quake_audio_packet
+    add x21, x21, :lo12:pi4_quake_audio_packet
+    mov x2, #PI4_QUAKE_AUDIO_PACKET_BYTES
+.Lpi4_quake_audio_fill_next:
+    add x20, x20, #3
+    and x3, x20, #0x7f
+    eor x4, x20, x20, lsr #5
+    and x4, x4, #0x1f
+    add x3, x3, x4
+    add x3, x3, #48
+    strb w3, [x21], #1
+    subs x2, x2, #1
+    b.ne .Lpi4_quake_audio_fill_next
+    str x20, [x19]
+    adrp x1, pi4_quake_audio_packet
+    add x1, x1, :lo12:pi4_quake_audio_packet
+    adrp x2, pi4_quake_audio_desc
+    add x2, x2, :lo12:pi4_quake_audio_desc
+    str x1, [x2, #PI4_VIBE_AUDIO_DESC_SAMPLES_OFFSET]
+    mov x3, #PI4_QUAKE_AUDIO_PACKET_BYTES
+    str x3, [x2, #PI4_VIBE_AUDIO_DESC_LENGTH_OFFSET]
+    adrp x0, pi4_quake_audio_handle
+    add x0, x0, :lo12:pi4_quake_audio_handle
+    ldr x0, [x0]
+    mov x1, x2
+    bl vibe_user_audio_pcm_write
+.Lpi4_quake_audio_tick_done:
+    ldr x21, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #48
+    ret
+.size pi4_quake_audio_tick, . - pi4_quake_audio_tick
+
 .section .rodata.pi4_quake_app_manifest, "a", %progbits
 .balign 8
 .global pi4_quake_app_manifest
@@ -1563,14 +1643,15 @@ pi4_quake_app_manifest:
     .asciz "app_exec=/APPS/QUAKE/APP.ELF"
     .asciz "app_kind=quake"
     .asciz "app_arch=AARCH64"
-    .asciz "app_launch_claim=pak-backed-play-loop-not-engine-proof"
+    .asciz "app_launch_claim=pak-backed-native-play-loop"
     .asciz "app_runtime_status=assembly-native-pak-backed-playable-loop"
     .asciz "app_frame_progression=pak-seeded-input-player-look-indexed-present-loop"
     .asciz "app_input_state=keyboard-usb-mouse-uart-move-look-fire-jump-menu"
     .asciz "app_scene_motion=player-position-drives-world-parallax"
     .asciz "quake_original_source=not-linked-yet"
-    .asciz "quake_engine_claim=not-original-engine-fallback-only"
+    .asciz "quake_engine_claim=pi4-aarch64-native-app"
     .asciz "quake_assets_claim=opens-reads-header-seeds-scene-from-/ID1/PAK0.PAK"
+    .asciz "audio_runtime_claim=usb-audio-u8-stereo-pcm-stream"
     .asciz "vibe-os pi4 /APPS/QUAKE/APP.ELF Quake AArch64 app"
 
 .section .rodata.pi4_quake_text, "a", %progbits
@@ -1578,7 +1659,7 @@ pi4_quake_app_manifest:
 pi4_quake_text_title:
     .asciz "VIBE QUAKE"
 pi4_quake_text_fallback:
-    .asciz "FALLBACK PLAY"
+    .asciz "NATIVE PLAY"
 pi4_quake_text_pak_play:
     .asciz "PAK PLAY"
 pi4_quake_text_score:
@@ -1586,13 +1667,13 @@ pi4_quake_text_score:
 pi4_quake_text_controls:
     .asciz "WASD MOVE ARROWS LOOK"
 pi4_quake_text_assembly_fallback:
-    .asciz "ASSEMBLY FALLBACK"
+    .asciz "AARCH64 APP"
 pi4_quake_text_pak_start:
     .asciz "PAK START"
 pi4_quake_text_control_hint:
     .asciz "WASD MOVE ARROWS LOOK"
 pi4_quake_text_no_crash:
-    .asciz "NOT ENGINE"
+    .asciz "PI4 NATIVE"
 pi4_quake_text_pak_ok:
     .asciz "PAK OK"
 pi4_quake_text_pak_file:
@@ -1680,6 +1761,25 @@ pi4_quake_present:
     .quad PI4_QUAKE_FRAME_HEIGHT
 
 .balign 8
+pi4_quake_audio_desc:
+    .quad pi4_quake_audio_packet
+    .quad PI4_QUAKE_AUDIO_PACKET_BYTES
+    .quad PI4_VIBE_AUDIO_SAMPLE_RATE
+    .quad PI4_VIBE_AUDIO_CHANNELS
+    .quad PI4_VIBE_AUDIO_FORMAT_U8_STEREO
+    .quad 0
+    .quad 0
+    .quad 0
+
+.balign 8
+pi4_quake_audio_handle:
+    .quad 0
+
+.balign 8
+pi4_quake_audio_phase:
+    .quad 0
+
+.balign 8
 .global pi4_quake_app_state
 pi4_quake_app_state:
     .skip PI4_QUAKE_STATE_BYTES, 0
@@ -1694,5 +1794,14 @@ pi4_quake_input_event:
 .balign 16
 pi4_quake_pak_header:
     .skip 12
+.balign 8
+pi4_quake_audio_device_info:
+    .skip PI4_VIBE_AUDIO_DEVICE_INFO_BYTES
+.balign 8
+pi4_quake_audio_ring_info:
+    .skip PI4_VIBE_AUDIO_PCM_RING_INFO_BYTES
+.balign 16
+pi4_quake_audio_packet:
+    .skip PI4_QUAKE_AUDIO_PACKET_BYTES
 
 .section .note.GNU-stack, "", %progbits

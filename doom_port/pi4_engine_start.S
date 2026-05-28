@@ -57,7 +57,7 @@ pi4_doom_engine_manifest:
     .asciz "doom_input_claim=wasd-arrows-qe-strafe-tab-menu-mouse"
     .asciz "doom_load_input_claim=keyboard-mouse-posted-during-runtime-wad-read"
     .asciz "doom_present_claim=every-engine-finish-update-with-frame-input-read-status"
-    .asciz "doom_audio_claim=pcm-abi-probe-gated-no-sfx-mix-claim"
+    .asciz "doom_audio_claim=usb-audio-pcm-stream-started-by-doom-music-hooks"
     .asciz "app_launch_claim=engine-entry-visible-progress"
     .asciz "vibe-os pi4 /APPS/DOOM/APP.ELF original Doom engine bridge with runtime WAD reads"
 

@@ -119,6 +119,7 @@ VID_Init:
 .balign 16
 .global VID_Update
 .global pi4_quake_present_assets_ready_frame
+.global pi4_quake_present_audio_ready_frame
 .global pi4_quake_present_engine_ready_frame
 .global pi4_quake_present_heap_error_frame
 .global pi4_quake_present_host_init_frame
@@ -127,6 +128,7 @@ VID_Init:
 .global pi4_quake_present_runtime_error_frame
 .type VID_Update, %function
 .type pi4_quake_present_assets_ready_frame, %function
+.type pi4_quake_present_audio_ready_frame, %function
 .type pi4_quake_present_engine_ready_frame, %function
 .type pi4_quake_present_heap_error_frame, %function
 .type pi4_quake_present_host_init_frame, %function
@@ -137,6 +139,7 @@ VID_Update:
     stp x29, x30, [sp, #-32]!
     mov x29, sp
     str x19, [sp, #16]
+    bl .Lvid_stamp_frame_progress
     adrp x19, quake_present_desc
     add x19, x19, :lo12:quake_present_desc
     mov x0, x19
@@ -173,6 +176,12 @@ pi4_quake_present_assets_ready_frame:
     mov x0, #3
     b .Lvid_present_progress_frame
 .size pi4_quake_present_assets_ready_frame, . - pi4_quake_present_assets_ready_frame
+
+.balign 16
+pi4_quake_present_audio_ready_frame:
+    mov x0, #7
+    b .Lvid_present_progress_frame
+.size pi4_quake_present_audio_ready_frame, . - pi4_quake_present_audio_ready_frame
 
 .balign 16
 pi4_quake_present_engine_ready_frame:
@@ -313,6 +322,41 @@ pi4_quake_present_host_init_frame:
 .Lvid_record_first_engine_frame_done:
     ret
 
+.Lvid_stamp_frame_progress:
+    adrp x9, quake_present_engine_frame_stamp
+    add x9, x9, :lo12:quake_present_engine_frame_stamp
+    ldr x10, [x9]
+    add x10, x10, #1
+    str x10, [x9]
+    and x11, x10, #7
+    add x11, x11, #8
+    and x12, x10, #31
+    add x12, x12, #(BASEWIDTH - 40)
+    adrp x13, vid_buffer
+    add x13, x13, :lo12:vid_buffer
+    mov x14, #BASEWIDTH
+    mul x15, x11, x14
+    add x13, x13, x15
+    add x13, x13, x12
+    and x16, x10, #3
+    add x16, x16, #3
+    strb w16, [x13]
+    add x13, x13, #1
+    add x16, x16, #1
+    and x16, x16, #7
+    cbnz x16, .Lvid_stamp_mid_nonzero
+    mov x16, #7
+.Lvid_stamp_mid_nonzero:
+    strb w16, [x13]
+    add x13, x13, #1
+    add x16, x16, #1
+    and x16, x16, #7
+    cbnz x16, .Lvid_stamp_tail_nonzero
+    mov x16, #6
+.Lvid_stamp_tail_nonzero:
+    strb w16, [x13]
+    ret
+
 .Lvid_progress_palette:
     adrp x9, quake_palette
     add x9, x9, :lo12:quake_palette
@@ -444,6 +488,8 @@ pi4_quake_present_host_init_frame:
     b.eq .Lvid_progress_engine_ready_pixel
     cmp x0, #6
     b.eq .Lvid_progress_host_init_pixel
+    cmp x0, #7
+    b.eq .Lvid_progress_audio_ready_pixel
     b .Lvid_progress_heap_error_pixel
 .Lvid_progress_missing_pixel:
     mov x12, #4
@@ -666,6 +712,42 @@ pi4_quake_present_host_init_frame:
 .Lvid_progress_host_init_border:
     mov x12, #7
     b .Lvid_progress_store_pixel
+.Lvid_progress_audio_ready_pixel:
+    mov x12, #6
+    cmp x10, #10
+    b.lo .Lvid_progress_audio_ready_border
+    cmp x10, #190
+    b.hs .Lvid_progress_audio_ready_border
+    cmp x11, #10
+    b.lo .Lvid_progress_audio_ready_border
+    cmp x11, #310
+    b.hs .Lvid_progress_audio_ready_border
+    cmp x10, #52
+    b.lo .Lvid_progress_store_pixel
+    cmp x10, #146
+    b.hs .Lvid_progress_store_pixel
+    cmp x11, #34
+    b.lo .Lvid_progress_store_pixel
+    cmp x11, #286
+    b.hs .Lvid_progress_store_pixel
+    mov x12, #2
+    cmp x10, #82
+    b.lo .Lvid_progress_store_pixel
+    cmp x10, #118
+    b.hs .Lvid_progress_store_pixel
+    cmp x11, #62
+    b.lo .Lvid_progress_store_pixel
+    cmp x11, #258
+    b.hs .Lvid_progress_store_pixel
+    mov x12, #7
+    lsr x13, x11, #5
+    and x13, x13, #1
+    cbnz x13, .Lvid_progress_store_pixel
+    mov x12, #3
+    b .Lvid_progress_store_pixel
+.Lvid_progress_audio_ready_border:
+    mov x12, #7
+    b .Lvid_progress_store_pixel
 .Lvid_progress_heap_error_pixel:
     mov x12, #4
     cmp x10, #6
@@ -736,6 +818,11 @@ pi4_quake_present_host_init_frame:
     mov x13, #268
     b .Lvid_progress_rail_choose_fill
 .Lvid_progress_rail_check_error:
+    cmp x0, #7
+    b.ne .Lvid_progress_rail_check_real_error
+    mov x13, #208
+    b .Lvid_progress_rail_choose_fill
+.Lvid_progress_rail_check_real_error:
     cmp x0, #1
     b.eq .Lvid_progress_rail_full_error
     cmp x0, #2
@@ -890,6 +977,8 @@ quake_present_host_init_count:
 quake_present_first_engine_frame_count:
     .skip 8
 quake_present_first_engine_frame_fail_count:
+    .skip 8
+quake_present_engine_frame_stamp:
     .skip 8
 
 .section .note.GNU-stack, "", %progbits

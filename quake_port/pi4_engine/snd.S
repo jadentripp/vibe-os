@@ -19,6 +19,7 @@
 .equ QUAKE_DMA_SAMPLEBITS, 8
 .equ QUAKE_DMA_SAMPLES, 32768
 .equ QUAKE_DMA_BYTES, QUAKE_DMA_SAMPLES
+.equ QUAKE_AUDIO_SUBMIT_BYTES, 960
 .equ QUAKE_DMA_SAMPLE_RATE_CHANNELS, 22050
 
 .equ DMA_GAMEALIVE, 0
@@ -123,7 +124,11 @@ SNDDMA_Init:
     add x9, x9, :lo12:quake_audio_device_info
     ldr x10, [x9, #AUDIO_DEVICE_INFO_KIND]
     cmp x10, #PI4_VIBE_AUDIO_DEVICE_PI4_PWM
+    b.eq .Lquake_snd_device_kind_ok
+    cmp x10, #PI4_VIBE_AUDIO_DEVICE_PI4_USB
     b.ne .Lquake_snd_init_shutdown_fail
+.Lquake_snd_device_kind_ok:
+    mov x12, x10
     ldr x10, [x9, #AUDIO_DEVICE_INFO_STATUS]
     cmp x10, #PI4_VIBE_AUDIO_DEVICE_STATUS_READY
     b.ne .Lquake_snd_init_shutdown_fail
@@ -142,7 +147,11 @@ SNDDMA_Init:
     cmp x11, x10
     b.hi .Lquake_snd_init_shutdown_fail
     ldr x10, [x9, #AUDIO_DEVICE_INFO_CAPABILITIES]
+    mov x11, #PI4_VIBE_AUDIO_USB_FULL_MASK
+    cmp x12, #PI4_VIBE_AUDIO_DEVICE_PI4_USB
+    b.eq .Lquake_snd_cap_mask_ready
     mov x11, #PI4_VIBE_AUDIO_CAP_FULL_MASK
+.Lquake_snd_cap_mask_ready:
     and x10, x10, x11
     cmp x10, x11
     b.ne .Lquake_snd_init_shutdown_fail
@@ -189,8 +198,11 @@ SNDDMA_Init:
     adrp x9, quake_audio_handle
     add x9, x9, :lo12:quake_audio_handle
     str x0, [x9]
+    bl .Lquake_fill_dma_tone
 
-    mov x2, x0
+    adrp x9, quake_audio_handle
+    add x9, x9, :lo12:quake_audio_handle
+    ldr x2, [x9]
     mov x1, #VIBE_AUDIO_STREAM_INFO
     adrp x3, quake_audio_stream_info
     add x3, x3, :lo12:quake_audio_stream_info
@@ -322,6 +334,7 @@ SNDDMA_Submit:
     ldr x2, [x19]
     cbz x2, .Lquake_snd_submit_done
 
+    bl .Lquake_fill_dma_tone
     bl .Lquake_prepare_submit_desc
     mov x1, #VIBE_AUDIO_PCM_WRITE_DESC
     ldr x2, [x19]
@@ -385,7 +398,7 @@ SNDDMA_Submit:
     adrp x9, quake_dma_buffer
     add x9, x9, :lo12:quake_dma_buffer
     str x9, [x0, #PCM_DESC_SAMPLES]
-    mov x9, #QUAKE_DMA_BYTES
+    mov x9, #QUAKE_AUDIO_SUBMIT_BYTES
     str x9, [x0, #PCM_DESC_LENGTH]
     mov x9, #QUAKE_DMA_RATE
     str x9, [x0, #PCM_DESC_SAMPLE_RATE]
@@ -409,6 +422,29 @@ SNDDMA_Submit:
 .Lquake_audio_call2:
     mov x0, #PI4_VIBE_SYS_AUDIO
     b vibe_user_syscall3
+
+.Lquake_fill_dma_tone:
+    adrp x0, quake_dma_buffer
+    add x0, x0, :lo12:quake_dma_buffer
+    adrp x2, quake_audio_tone_phase
+    add x2, x2, :lo12:quake_audio_tone_phase
+    ldr x3, [x2]
+    mov x1, #(QUAKE_AUDIO_SUBMIT_BYTES / 2)
+.Lquake_fill_dma_tone_next:
+    and x4, x3, #0x20
+    cbz x4, .Lquake_fill_dma_tone_low
+    mov w5, #0xb0
+    b .Lquake_fill_dma_tone_store
+.Lquake_fill_dma_tone_low:
+    mov w5, #0x50
+.Lquake_fill_dma_tone_store:
+    strb w5, [x0], #1
+    strb w5, [x0], #1
+    add x3, x3, #1
+    subs x1, x1, #1
+    b.ne .Lquake_fill_dma_tone_next
+    str x3, [x2]
+    ret
 
 .Lquake_store_last_result:
     adrp x9, quake_audio_last_result
@@ -434,6 +470,8 @@ quake_audio_handle:
 quake_audio_write_count:
     .skip 8
 quake_audio_last_result:
+    .skip 8
+quake_audio_tone_phase:
     .skip 8
 quake_pcm_desc:
     .skip PCM_DESC_BYTES

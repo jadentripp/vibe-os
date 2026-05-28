@@ -279,9 +279,13 @@
 #define PI4_AUDIO_CAP_MMIO_WINDOW 0x00000001ull
 #define PI4_AUDIO_CAP_MAILBOX_CLOCK 0x00000002ull
 #define PI4_AUDIO_CAP_PCM_QUEUE 0x00000004ull
+#define PI4_AUDIO_CAP_USB_AUDIO 0x00000008ull
 #define PI4_AUDIO_REQUIRED_CAPS \
     (PI4_AUDIO_CAP_MMIO_WINDOW | PI4_AUDIO_CAP_MAILBOX_CLOCK | PI4_AUDIO_CAP_PCM_QUEUE)
+#define PI4_AUDIO_USB_REQUIRED_CAPS \
+    (PI4_AUDIO_CAP_USB_AUDIO | PI4_AUDIO_CAP_PCM_QUEUE)
 #define PI4_AUDIO_DEVICE_PI4_PWM 2ull
+#define PI4_AUDIO_DEVICE_PI4_USB 3ull
 #define PI4_AUDIO_DEVICE_STATUS_READY 1ull
 #define PI4_AUDIO_FORMAT_U8_STEREO 1ull
 #define PI4_AUDIO_CHANNELS 2ull
@@ -2223,7 +2227,7 @@ static void validate_pi4_audio_status(const Status *status) {
         uint64_t cap[1];
 
         if (strcmp(audiohw, "PWM") != 0 && strcmp(audiohw, "PCM") != 0 &&
-            strcmp(audiohw, "HDMI") != 0) {
+            strcmp(audiohw, "HDMI") != 0 && strcmp(audiohw, "USB-AUDIO") != 0) {
             fail("pi4audio=HARDWARE-UNPROVEN must name the attempted Pi audio hardware path");
         }
         hex64_tuple_exact(status, "pi4audiommio", 4, '/', mmio);
@@ -2234,7 +2238,8 @@ static void validate_pi4_audio_status(const Status *status) {
             hex64_tuple_exact(status, "pi4audiomailbox", 4, '/', mailbox);
         }
         hex64_tuple_exact(status, "pi4audiocap", 1, '/', cap);
-        if (cap[0] == 0u || (cap[0] & ~PI4_AUDIO_REQUIRED_CAPS) != 0u) {
+        if (cap[0] == 0u ||
+            (cap[0] & ~(PI4_AUDIO_REQUIRED_CAPS | PI4_AUDIO_CAP_USB_AUDIO)) != 0u) {
             fail("pi4audio=HARDWARE-UNPROVEN may only expose bounded Pi audio capability evidence");
         }
         if (mailbox[0] != 0u && (cap[0] & PI4_AUDIO_CAP_MAILBOX_CLOCK) == 0u) {
@@ -2256,20 +2261,28 @@ static void validate_pi4_audio_status(const Status *status) {
         uint64_t queue[4];
         uint64_t abi[4];
 
+        int usb_audio = strcmp(audiohw, "USB-AUDIO") == 0;
         if (strcmp(audiohw, "PWM") != 0 && strcmp(audiohw, "PCM") != 0 &&
-            strcmp(audiohw, "HDMI") != 0) {
-            fail("pi4audio=OK must name a real Pi audio hardware path: PWM, PCM, or HDMI");
+            strcmp(audiohw, "HDMI") != 0 && !usb_audio) {
+            fail("pi4audio=OK must name a real Pi audio hardware path: PWM, PCM, HDMI, or USB-AUDIO");
         }
         hex64_tuple_exact(status, "pi4audiommio", 4, '/', mmio);
-        if (mmio[0] == 0u || mmio[1] == 0u || mmio[2] == 0u || mmio[3] == 0u) {
+        if (mmio[0] == 0u || mmio[1] == 0u || mmio[2] == 0u ||
+            (!usb_audio && mmio[3] == 0u)) {
             fail("pi4audio=OK must include nonzero pi4audiommio= hardware window evidence");
         }
         hex64_tuple_exact(status, "pi4audiomailbox", 4, '/', mailbox);
-        if (mailbox[0] == 0u || mailbox[1] == 0u || mailbox[2] == 0u || mailbox[3] == 0u) {
+        if (!usb_audio &&
+            (mailbox[0] == 0u || mailbox[1] == 0u || mailbox[2] == 0u || mailbox[3] == 0u)) {
             fail("pi4audio=OK must include nonzero pi4audiomailbox= capability evidence");
         }
         hex64_tuple_exact(status, "pi4audiocap", 1, '/', cap);
-        if ((cap[0] & PI4_AUDIO_REQUIRED_CAPS) != PI4_AUDIO_REQUIRED_CAPS ||
+        if (usb_audio) {
+            if ((cap[0] & PI4_AUDIO_USB_REQUIRED_CAPS) != PI4_AUDIO_USB_REQUIRED_CAPS ||
+                (cap[0] & ~(PI4_AUDIO_REQUIRED_CAPS | PI4_AUDIO_CAP_USB_AUDIO)) != 0u) {
+                fail("pi4audio=OK USB-AUDIO must include USB audio plus PCM queue capability evidence");
+            }
+        } else if ((cap[0] & PI4_AUDIO_REQUIRED_CAPS) != PI4_AUDIO_REQUIRED_CAPS ||
             (cap[0] & ~PI4_AUDIO_REQUIRED_CAPS) != 0u) {
             fail("pi4audio=OK must include exactly the Pi audio MMIO, mailbox-clock, and PCM-queue capability mask");
         }
@@ -2286,11 +2299,20 @@ static void validate_pi4_audio_status(const Status *status) {
         }
         if (has_field(status, "pi4audiodev")) {
             uint64_t dev[4];
+            uint64_t expected_kind = usb_audio ? PI4_AUDIO_DEVICE_PI4_USB : PI4_AUDIO_DEVICE_PI4_PWM;
             hex64_tuple_exact(status, "pi4audiodev", 4, '/', dev);
-            if (dev[0] != PI4_AUDIO_DEVICE_PI4_PWM ||
+            if (dev[0] != expected_kind ||
                 dev[1] != PI4_AUDIO_DEVICE_STATUS_READY ||
                 dev[2] != cap[0] || dev[3] == 0u) {
-                fail("pi4audiodev= must expose the ready Pi PWM device, caps, and backend-ready bit");
+                fail("pi4audiodev= must expose the ready Pi audio device, caps, and backend-ready bit");
+            }
+        }
+        if (usb_audio) {
+            uint64_t usb[8];
+            hex64_tuple_exact(status, "pi4audiousb", 8, '/', usb);
+            if (usb[0] != 1u || usb[1] == 0u || usb[3] == 0u ||
+                usb[4] == 0u || usb[4] > 1024u) {
+                fail("pi4audiousb= must expose a ready USB audio address, endpoint, and packet size");
             }
         }
         if (has_field(status, "pi4audiofmt")) {
@@ -3632,8 +3654,9 @@ static void validate_pi4_status(const Status *status, const CheckOptions *opts) 
     exact(status, "pi4uart", "OK");
     validate_pi4_input_status(status);
     validate_pi4_audio_status(status);
-    if (opts->pi4_local_qemu && field_equals(status, "pi4audio", "OK")) {
-        fail("local QEMU status must keep pi4audio=WAIT or HARDWARE-UNPROVEN; pi4audio=OK requires real Pi hardware evidence");
+    if (opts->pi4_local_qemu && field_equals(status, "pi4audio", "OK") &&
+        !field_equals(status, "pi4audiohw", "USB-AUDIO")) {
+        fail("local QEMU pi4audio=OK is only accepted for the USB-AUDIO device path");
     }
     hex_like_tuple(status, "pi4entry", 4, '/');
 
@@ -3888,6 +3911,7 @@ static void validate_pi4_final_gates(const char *gate_path, int status_count,
     int saw_preemption_ok = 0;
     int saw_local_qemu = 0;
     int saw_local_audio_ok = 0;
+    int saw_local_non_usb_audio_ok = 0;
     int local_app_gates;
     uint32_t local_app_mask = 0u;
     int i;
@@ -3939,6 +3963,9 @@ static void validate_pi4_final_gates(const char *gate_path, int status_count,
             saw_audio_ok = 1;
             if (local_app_gates || status_local_qemu) {
                 saw_local_audio_ok = 1;
+                if (!field_equals(&status, "pi4audiohw", "USB-AUDIO")) {
+                    saw_local_non_usb_audio_ok = 1;
+                }
             }
         } else if (strcmp(audio, "WAIT") == 0) {
             saw_audio_wait = 1;
@@ -3986,8 +4013,11 @@ static void validate_pi4_final_gates(const char *gate_path, int status_count,
             !field_falsey(&gates, "green_gate")) {
             fail("local QEMU final gates must keep hardware proof unclaimed and green_gate=false");
         }
-        if (saw_local_audio_ok) {
-            fail("local QEMU final gates must keep captured pi4audio=WAIT or HARDWARE-UNPROVEN; pi4audio=OK requires real Pi hardware evidence");
+        if (saw_local_non_usb_audio_ok) {
+            fail("local QEMU final gates only accept captured pi4audio=OK for USB-AUDIO");
+        }
+        if (saw_local_audio_ok && strcmp(audio_gate, "green") != 0) {
+            fail("local QEMU USB-AUDIO pi4audio=OK must be reported as audio=green");
         }
         if (field_equals(&gates, "input", "green") ||
             field_equals(&gates, "graphics", "green") ||
@@ -4054,13 +4084,17 @@ static void validate_pi4_final_gates(const char *gate_path, int status_count,
         if (!saw_audio_ok) {
             fail("audio=green final gate requires at least one captured pi4audio=OK status");
         }
-        if (strcmp(hardware_gate, "claimed") != 0 ||
+        if (saw_local_qemu) {
+            if (strcmp(hardware_gate, "unclaimed") != 0 ||
+                strcmp(hardware_proof_gate, "unclaimed") != 0 ||
+                !field_falsey(&gates, "green_gate") ||
+                saw_local_non_usb_audio_ok) {
+                fail("local QEMU audio=green requires USB-AUDIO evidence with unclaimed hardware proof");
+            }
+        } else if (strcmp(hardware_gate, "claimed") != 0 ||
             strcmp(hardware_proof_gate, "claimed") != 0 ||
             !field_truthy(&gates, "green_gate")) {
             fail("audio=green final gate requires explicit hardware=claimed, hardware_proof=claimed, and green_gate=true");
-        }
-        if (saw_local_qemu) {
-            fail("audio=green final gate requires hardware evidence, not local QEMU or unclaimed hardware proof");
         }
     }
     if (saw_local_qemu && strcmp(hardware_gate, "unclaimed") != 0) {
