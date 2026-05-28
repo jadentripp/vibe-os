@@ -95,7 +95,7 @@ These checks build the image, kernel, launcher, probe ELFs, payload ELFs, host
 utilities, status validator, and assembly-native guest audit without running
 local QEMU. With `DOOM_WAD=` empty, the test image uses generated Doom fixture
 data; `make play` is the path that fetches playable public data. The guest
-status contract is validated by `tools/vibe_status_check.c`.
+status contract is validated by `tools/vibe_status_check.asm`.
 
 Build a non-play image with external data:
 

@@ -319,8 +319,7 @@ jobs:
             fi
 
             if [ -z "$failure_stage" ]; then
-              cc -std=c99 -Wall -Wextra -Werror -O2 \
-                tools/vibe_status_check.c -o build/vibe_status_check
+              make status-checker-tool
               build/vibe_status_check \
                 --require-exec \
                 --require-preempt \
