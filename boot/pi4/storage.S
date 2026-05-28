@@ -77,7 +77,7 @@
 .equ PI4_STORAGE_READABLE_FILE_MIN_BYTES, 12
 .equ PI4_STORAGE_APP_RECORD_KIND_BASE,  7
 .equ PI4_STORAGE_APP_RECORD_BYTES,      40
-.equ PI4_STORAGE_APP_RECORD_TABLE_BYTES, 80
+.equ PI4_STORAGE_APP_RECORD_TABLE_BYTES, 160
 .equ PI4_STORAGE_APP_RECORD_DIR_STATUS_OFF, 0
 .equ PI4_STORAGE_APP_RECORD_NAME_OFF,   8
 .equ PI4_STORAGE_APP_RECORD_ELF_STATUS_OFF, 16
@@ -202,6 +202,10 @@ pi4_storage_reset_status:
     adr x0, pi4_storage_status_app0_elf
     str w1, [x0]
     adr x0, pi4_storage_status_app1_elf
+    str w1, [x0]
+    adr x0, pi4_storage_status_app2_elf
+    str w1, [x0]
+    adr x0, pi4_storage_status_app3_elf
     str w1, [x0]
     adr x0, pi4_storage_status_block
     str w1, [x0]
@@ -1362,6 +1366,10 @@ pi4_storage_parse_fat_root:
     str w1, [x0]
     adr x0, pi4_storage_status_app1_elf
     str w1, [x0]
+    adr x0, pi4_storage_status_app2_elf
+    str w1, [x0]
+    adr x0, pi4_storage_status_app3_elf
+    str w1, [x0]
 
     adr x0, pi4_storage_root_values_start
     adr x1, pi4_storage_root_values_end
@@ -2271,6 +2279,16 @@ pi4_storage_app_records:
     .quad pi4_storage_status_app1_elf
     .quad pi4_storage_status_app1_elf_entry_index
     .quad pi4_storage_status_app1_manifest
+    .quad pi4_storage_status_app2_dir
+    .quad pi4_storage_status_app2_dir_name
+    .quad pi4_storage_status_app2_elf
+    .quad pi4_storage_status_app2_elf_entry_index
+    .quad pi4_storage_status_app2_manifest
+    .quad pi4_storage_status_app3_dir
+    .quad pi4_storage_status_app3_dir_name
+    .quad pi4_storage_status_app3_elf
+    .quad pi4_storage_status_app3_elf_entry_index
+    .quad pi4_storage_status_app3_manifest
 pi4_storage_app_records_end:
 .if (pi4_storage_app_records_end - pi4_storage_app_records) != PI4_STORAGE_APP_RECORD_TABLE_BYTES
 .error "PI4 storage app record table size does not match capacity bytes"
@@ -2314,6 +2332,12 @@ pi4_storage_status_app0_elf:
     .word VIBE_PI4_STORAGE_WAIT
 .global pi4_storage_status_app1_elf
 pi4_storage_status_app1_elf:
+    .word VIBE_PI4_STORAGE_WAIT
+.global pi4_storage_status_app2_elf
+pi4_storage_status_app2_elf:
+    .word VIBE_PI4_STORAGE_WAIT
+.global pi4_storage_status_app3_elf
+pi4_storage_status_app3_elf:
     .word VIBE_PI4_STORAGE_WAIT
 .global pi4_storage_status_block
 pi4_storage_status_block:
@@ -2612,6 +2636,54 @@ pi4_storage_status_app1_elf_plan_bytes:
 .global pi4_storage_status_app1_elf_read_count
 pi4_storage_status_app1_elf_read_count:
     .quad 0
+.global pi4_storage_status_app2_elf_entry_index
+pi4_storage_status_app2_elf_entry_index:
+    .quad 0
+.global pi4_storage_status_app2_elf_attr
+pi4_storage_status_app2_elf_attr:
+    .quad 0
+.global pi4_storage_status_app2_elf_cluster
+pi4_storage_status_app2_elf_cluster:
+    .quad 0
+.global pi4_storage_status_app2_elf_size
+pi4_storage_status_app2_elf_size:
+    .quad 0
+.global pi4_storage_status_app2_elf_plan_lba
+pi4_storage_status_app2_elf_plan_lba:
+    .quad 0
+.global pi4_storage_status_app2_elf_plan_sectors
+pi4_storage_status_app2_elf_plan_sectors:
+    .quad 0
+.global pi4_storage_status_app2_elf_plan_bytes
+pi4_storage_status_app2_elf_plan_bytes:
+    .quad 0
+.global pi4_storage_status_app2_elf_read_count
+pi4_storage_status_app2_elf_read_count:
+    .quad 0
+.global pi4_storage_status_app3_elf_entry_index
+pi4_storage_status_app3_elf_entry_index:
+    .quad 0
+.global pi4_storage_status_app3_elf_attr
+pi4_storage_status_app3_elf_attr:
+    .quad 0
+.global pi4_storage_status_app3_elf_cluster
+pi4_storage_status_app3_elf_cluster:
+    .quad 0
+.global pi4_storage_status_app3_elf_size
+pi4_storage_status_app3_elf_size:
+    .quad 0
+.global pi4_storage_status_app3_elf_plan_lba
+pi4_storage_status_app3_elf_plan_lba:
+    .quad 0
+.global pi4_storage_status_app3_elf_plan_sectors
+pi4_storage_status_app3_elf_plan_sectors:
+    .quad 0
+.global pi4_storage_status_app3_elf_plan_bytes
+pi4_storage_status_app3_elf_plan_bytes:
+    .quad 0
+.global pi4_storage_status_app3_elf_read_count
+pi4_storage_status_app3_elf_read_count:
+    .quad 0
 .global pi4_storage_status_kernel8_img
 pi4_storage_status_kernel8_img:
     .quad 0
@@ -2783,6 +2855,46 @@ pi4_storage_status_app1_dir_name:
     .balign 8
 .global pi4_storage_status_app1_manifest
 pi4_storage_status_app1_manifest:
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+.global pi4_storage_status_app2_dir
+pi4_storage_status_app2_dir:
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+.global pi4_storage_status_app2_dir_name
+pi4_storage_status_app2_dir_name:
+    .skip 16
+    .balign 8
+.global pi4_storage_status_app2_manifest
+pi4_storage_status_app2_manifest:
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+.global pi4_storage_status_app3_dir
+pi4_storage_status_app3_dir:
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+.global pi4_storage_status_app3_dir_name
+pi4_storage_status_app3_dir_name:
+    .skip 16
+    .balign 8
+.global pi4_storage_status_app3_manifest
+pi4_storage_status_app3_manifest:
     .quad 0
     .quad 0
     .quad 0

@@ -900,6 +900,8 @@ $(PI4_KERNEL8_IMG): $(PI4_KERNEL_OBJ) $(LINK_AARCH64_FLAT) | $(PI4_BUILD_DIR)
 	@grep -q "symbol=pi4_storage_status_init_elf addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_status_app0_elf addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_status_app1_elf addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app2_elf addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app3_elf addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_status_block addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_status_block_controller addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_status_block_lba addr=" $(PI4_KERNEL8_MAP)
@@ -988,6 +990,22 @@ $(PI4_KERNEL8_IMG): $(PI4_KERNEL_OBJ) $(LINK_AARCH64_FLAT) | $(PI4_BUILD_DIR)
 	@grep -q "symbol=pi4_storage_status_app1_elf_plan_sectors addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_status_app1_elf_plan_bytes addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_status_app1_elf_read_count addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app2_elf_entry_index addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app2_elf_attr addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app2_elf_cluster addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app2_elf_size addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app2_elf_plan_lba addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app2_elf_plan_sectors addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app2_elf_plan_bytes addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app2_elf_read_count addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app3_elf_entry_index addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app3_elf_attr addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app3_elf_cluster addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app3_elf_size addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app3_elf_plan_lba addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app3_elf_plan_sectors addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app3_elf_plan_bytes addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app3_elf_read_count addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_status_words addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_name_init_elf addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_name_app_elf addr=" $(PI4_KERNEL8_MAP)
@@ -1833,8 +1851,8 @@ pi4-local-qemu-doom-input-smoke: vm-consent $(PI4_QEMU_COMMAND) $(VIBE_STATUS_CH
 	@grep -a -F -q "smoke_gate=pi4-local-qemu-input-smoke" "$(PI4_LOCAL_QEMU_DOOM_STATUS)"
 	@grep -a -F -q "hardware_proof=unclaimed" "$(PI4_LOCAL_QEMU_DOOM_STATUS)"
 	@grep -a -F -q "pi4exec=OK" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
-	@grep -a -E -q '(^| )pi4appreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x0*12/0x0*c( |$$)' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
-	@grep -a -E -q '(^| )pi4appvfs=0x0*c/0x0*464f4f4b' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
+	@grep -a -E -q '(^| )pi4appreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x0*12/0x0*e( |$$)' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
+	@grep -a -E -q '(^| )pi4appvfs=0x0*e/0x0*464f4f4b' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -E -q '(^| )pi4inputevt=.*0x0*1' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -F -q "pi4fb=OK" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -E -q '(^| )fbpresent=0x0*[1-9a-fA-F][0-9a-fA-F]*' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
@@ -1863,8 +1881,8 @@ pi4-local-qemu-quake-input-smoke: vm-consent $(PI4_QEMU_COMMAND) $(VIBE_STATUS_C
 	@grep -a -F -q "smoke_gate=pi4-local-qemu-input-smoke" "$(PI4_LOCAL_QEMU_QUAKE_STATUS)"
 	@grep -a -F -q "hardware_proof=unclaimed" "$(PI4_LOCAL_QEMU_QUAKE_STATUS)"
 	@grep -a -F -q "pi4exec=OK" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
-	@grep -a -E -q '(^| )pi4appreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x0*13/0x0*d( |$$)' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
-	@grep -a -E -q '(^| )pi4appvfs=0x0*d/0x0*464f4f4b' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
+	@grep -a -E -q '(^| )pi4appreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x0*13/0x0*f( |$$)' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
+	@grep -a -E -q '(^| )pi4appvfs=0x0*f/0x0*464f4f4b' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@grep -a -E -q '(^| )pi4inputevt=.*0x0*1' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@grep -a -F -q "pi4fb=OK" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@grep -a -E -q '(^| )fbpresent=0x0*[1-9a-fA-F][0-9a-fA-F]*' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
@@ -1939,9 +1957,9 @@ pi4-local-qemu-real-assets-input-smoke: pi4-real-assets-require pi4-engine-apps-
 		grep -a -E -q '(^| )pi4pak0=0x[0-9A-Fa-f]+(/0x[0-9A-Fa-f]+){7}( |$$)' "$$status" || { echo "Pi 4 real-assets smoke missing full pi4pak0 read tuple in $$status" >&2; cat "$$status" >&2; exit 1; }; \
 	done
 	@grep -a -F -q "pi4exec=OK" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
-	@grep -a -E -q '(^| )pi4appreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x0*12/0x0*c( |$$)' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
+	@grep -a -E -q '(^| )pi4appreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x0*12/0x0*e( |$$)' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -F -q "pi4exec=OK" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
-	@grep -a -E -q '(^| )pi4appreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x0*13/0x0*d( |$$)' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
+	@grep -a -E -q '(^| )pi4appreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x0*13/0x0*f( |$$)' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@printf "Pi 4 local QEMU real-assets input smoke OK: full WAD/PAK FAT/VFS reads and Doom/Quake launcher execs validated from captured serial status.\n"
 
 pi4-local-qemu-real-assets-final-gates: pi4-local-qemu-real-assets-input-smoke $(VIBE_STATUS_CHECK)
