@@ -1496,7 +1496,7 @@ pi4-prepared-real-assets-image: tools/prepare_game_assets.sh pi4-engine-apps-lin
 		printf "doom_app_icon=wad:TITLEPIC\n"; \
 		printf "quake_app_manifest=/APPS/QUAKE/APP.TXT\n"; \
 		printf "quake_app_exec=/APPS/QUAKE/APP.ELF\n"; \
-		printf "quake_app_icon=pak:gfx/conback.lmp\n"; \
+		printf "quake_app_icon=pak:gfx/qplaque.lmp\n"; \
 		handoff_inspect_line "manifest_path" "manifest_path=/PROOF/MANIFEST.TXT state=present"; \
 		handoff_inspect_line "manifest_kernel_file" "kernel_file=KERNEL8.IMG"; \
 		handoff_inspect_line "manifest_kernel" "manifest_file=KERNEL8.IMG state=present"; \
@@ -1532,7 +1532,7 @@ pi4-prepared-real-assets-image: tools/prepare_game_assets.sh pi4-engine-apps-lin
 		handoff_inspect_line "manifest_quake_app_launch" "app.1.launch=generic-path-exec"; \
 		handoff_inspect_line "manifest_quake_app_exec_model" "app.1.exec_model=generic-aarch64-el0-elf-by-path"; \
 		handoff_inspect_line "manifest_quake_app_resource" "app.1.resource=/ID1/PAK0.PAK"; \
-		handoff_inspect_line "manifest_quake_app_icon" "app.1.icon=pak:gfx/conback.lmp"; \
+		handoff_inspect_line "manifest_quake_app_icon" "app.1.icon=pak:gfx/qplaque.lmp"; \
 		handoff_inspect_line "manifest_init" "manifest_file=INIT.ELF state=present"; \
 		handoff_inspect_line "manifest_abiprobe" "manifest_file=ABIPROBE.ELF state=present"; \
 		handoff_inspect_line "manifest_doom_wad" "manifest_file=DOOM1.WAD state=present"; \
@@ -2082,12 +2082,12 @@ pi4-image-inspect: $(IMAGE_BUILDER) $(PI4_IMAGE)
 	@grep -F -q "app.1.launch=generic-path-exec" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "app.1.exec_model=generic-aarch64-el0-elf-by-path" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "app.1.resource=/ID1/PAK0.PAK" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app.1.icon=pak:gfx/conback.lmp" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app.1.icon=pak:gfx/qplaque.lmp" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "manifest_file=/APPS/QUAKE/APP.TXT state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "manifest_file=/APPS/QUAKE/APP.ELF state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "app_manifest=/APPS/QUAKE/APP.TXT state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "app_exec=/APPS/QUAKE/APP.ELF state=present model=generic-aarch64-el0-elf-by-path app=quake" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "app_icon=pak:gfx/conback.lmp state=manifest app=quake" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_icon=pak:gfx/qplaque.lmp state=manifest app=quake" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -q "manifest_file=DOOM1.WAD state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -q "manifest_file=/ASSETS/README.TXT state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -q "manifest_file=/ASSETS/MAPS/E1M1.MAP state=present" "$(PI4_IMAGE_INSPECT_TXT)"
@@ -2114,7 +2114,7 @@ pi4-image-inspect: $(IMAGE_BUILDER) $(PI4_IMAGE)
 	@grep -a -q "app.1.manifest=/APPS/QUAKE/APP.TXT" "$(PI4_IMAGE)"
 	@grep -a -q "app.1.exec=/APPS/QUAKE/APP.ELF" "$(PI4_IMAGE)"
 	@grep -a -q "app.1.exec_model=generic-aarch64-el0-elf-by-path" "$(PI4_IMAGE)"
-	@grep -a -q "app.1.icon=pak:gfx/conback.lmp" "$(PI4_IMAGE)"
+	@grep -a -q "app.1.icon=pak:gfx/qplaque.lmp" "$(PI4_IMAGE)"
 	@grep -a -E -q "root_elf_count=2" "$(PI4_IMAGE)"
 	@grep -a -E -q "root_elf\.[0-9]+\.file=INIT\.ELF" "$(PI4_IMAGE)"
 	@grep -a -E -q "root_elf\.[0-9]+\.file=ABIPROBE\.ELF" "$(PI4_IMAGE)"
