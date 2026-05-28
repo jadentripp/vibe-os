@@ -392,7 +392,7 @@ int main(int argc, char** argv)
     write_all_fd(serial_fd,
         "vibe-status arch=AARCH64 machine=PI4 image=PI4 artifact=BAD stale=before-hmp\n");
     write_all_fd(serial_fd,
-        "vibe-status arch=AARCH64 machine=PI4 image=PI4 artifact=OK exec=OK path=INIT.ELF uexec=OK upath=INIT.ELF pi4fb=OK pi4vfs=OK pi4runtime=OK panic=NONE shutdown=NONE\n");
+        "vibe-status arch=AARCH64 machine=PI4 image=PI4 artifact=OK exec=OK path=/SYSTEM/INIT.ELF uexec=OK upath=/SYSTEM/INIT.ELF pi4fb=OK pi4vfs=OK pi4runtime=OK panic=NONE shutdown=NONE\n");
 
     monitor_fd = accept(listen_fd, NULL, NULL);
     if (monitor_fd < 0)
@@ -1271,9 +1271,9 @@ awk '
   }
   /^vibe-status([ \t]|$)/ && !done {
     for (i = 1; i <= NF; i++) {
-      if ($i == "path=INIT.ELF") {
+      if ($i == "path=/SYSTEM/INIT.ELF") {
         $i = "path=/APPS/DOOM/APP.ELF"
-      } else if ($i == "upath=INIT.ELF") {
+      } else if ($i == "upath=/SYSTEM/INIT.ELF") {
         $i = "upath=/APPS/DOOM/APP.ELF"
       }
     }

@@ -581,9 +581,9 @@ static int status_line_reflects_launcher_ready(const char* line)
 {
     return line_has_token_value(line, "pi4runtime=OK") &&
         line_has_token_value(line, "exec=OK") &&
-        line_has_token_value(line, "path=INIT.ELF") &&
+        line_has_token_value(line, "path=/SYSTEM/INIT.ELF") &&
         line_has_token_value(line, "uexec=OK") &&
-        line_has_token_value(line, "upath=INIT.ELF") &&
+        line_has_token_value(line, "upath=/SYSTEM/INIT.ELF") &&
         line_has_token_value(line, "pi4fb=OK") &&
         line_has_token_value(line, "pi4vfs=OK") &&
         line_has_token_value(line, "panic=NONE") &&

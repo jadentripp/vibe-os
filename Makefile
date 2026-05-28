@@ -187,7 +187,7 @@ PI4_APP_DOOM_MANIFEST_TXT := $(APP_DOOM_MANIFEST_TXT)
 PI4_APP_QUAKE_MANIFEST_TXT := $(APP_QUAKE_MANIFEST_TXT)
 PI4_APP_INSTALL_ARGS := --asset /SYSTEM/INIT.ELF=$(PI4_LAUNCHER_ELF) --asset /SYSTEM/ABIPROBE.ELF=$(PI4_ABI_PROBE_ELF) --asset /APPS/INDEX.TXT=$(PI4_APP_INDEX_TXT) --asset /APPS/DOOM/APP.TXT=$(PI4_APP_DOOM_MANIFEST_TXT) --asset /APPS/DOOM/APP.ELF=$(PI4_APP_DOOM_ELF) --asset /APPS/QUAKE/APP.TXT=$(PI4_APP_QUAKE_MANIFEST_TXT) --asset /APPS/QUAKE/APP.ELF=$(PI4_APP_QUAKE_ELF)
 PI4_APP_INSTALL_DEPS := $(PI4_APP_INDEX_TXT) $(PI4_APP_DOOM_MANIFEST_TXT) $(PI4_APP_QUAKE_MANIFEST_TXT) $(PI4_APP_DOOM_ELF) $(PI4_APP_QUAKE_ELF)
-PI4_ROOT_ELF_ARGS := --root-elf INIT.ELF=$(PI4_LAUNCHER_ELF) --root-elf ABIPROBE.ELF=$(PI4_ABI_PROBE_ELF)
+PI4_ROOT_ELF_ARGS :=
 C_RUNTIME_SRC := kernel/c_runtime_probe.asm
 USER_PROBE_ASM_SRC := user/probe.asm
 USER_LAUNCHER_CRT0_ASM_SRC := user/launcher_crt0.asm
@@ -1411,8 +1411,6 @@ pi4-prepared-real-assets-image: tools/prepare_game_assets.sh pi4-engine-apps-lin
 	test -s "$(PI4_REAL_ASSET_IMAGE_INSPECT_TXT)" || { echo "prepared Pi 4 image inspect is missing: $(PI4_REAL_ASSET_IMAGE_INSPECT_TXT)" >&2; exit 1; }; \
 	require_manifest_size "kernel8" "manifest_file=KERNEL8.IMG state=present" "$(PI4_KERNEL8_IMG)"; \
 	require_manifest_size "config" "manifest_file=CONFIG.TXT state=present" "$(PI4_CONFIG_TXT)"; \
-	require_manifest_size "init" "manifest_file=INIT.ELF state=present" "$(PI4_LAUNCHER_ELF)"; \
-	require_manifest_size "abiprobe" "manifest_file=ABIPROBE.ELF state=present" "$(PI4_ABI_PROBE_ELF)"; \
 	require_manifest_size "system_init" "manifest_file=/SYSTEM/INIT.ELF state=present" "$(PI4_LAUNCHER_ELF)"; \
 	require_manifest_size "system_abiprobe" "manifest_file=/SYSTEM/ABIPROBE.ELF state=present" "$(PI4_ABI_PROBE_ELF)"; \
 	require_manifest_size "app_index" "manifest_file=/APPS/INDEX.TXT state=present" "$(PI4_APP_INDEX_TXT)"; \
@@ -1534,8 +1532,6 @@ pi4-prepared-real-assets-image: tools/prepare_game_assets.sh pi4-engine-apps-lin
 		handoff_inspect_line "manifest_quake_app_exec_model" "app.1.exec_model=generic-aarch64-el0-elf-by-path"; \
 		handoff_inspect_line "manifest_quake_app_resource" "app.1.resource=/ID1/PAK0.PAK"; \
 		handoff_inspect_line "manifest_quake_app_icon" "app.1.icon=pak:gfx/conback.lmp"; \
-		handoff_inspect_line "manifest_init" "manifest_file=INIT.ELF state=present"; \
-		handoff_inspect_line "manifest_abiprobe" "manifest_file=ABIPROBE.ELF state=present"; \
 		handoff_inspect_line "manifest_doom_wad" "manifest_file=DOOM1.WAD state=present"; \
 		handoff_inspect_line "manifest_doom_asset" "manifest_asset=DOOM1.WAD kind=doom-wad source=external"; \
 		handoff_inspect_line "manifest_quake_pak" "manifest_file=/ID1/PAK0.PAK state=present"; \
@@ -2049,8 +2045,6 @@ pi4-image-inspect: $(IMAGE_BUILDER) $(PI4_IMAGE)
 	@grep -q "manifest_path=/PROOF/MANIFEST.TXT state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -q "manifest_file=KERNEL8.IMG state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -q "manifest_file=CONFIG.TXT state=present" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -q "manifest_file=INIT.ELF state=present" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -q "manifest_file=ABIPROBE.ELF state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "app_layout=system-init-plus-apps-tree" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "app_discovery_model=vfs-app-index" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "app_launch_model=generic-vfs-path-exec" "$(PI4_IMAGE_INSPECT_TXT)"
@@ -2116,9 +2110,8 @@ pi4-image-inspect: $(IMAGE_BUILDER) $(PI4_IMAGE)
 	@grep -a -q "app.1.exec=/APPS/QUAKE/APP.ELF" "$(PI4_IMAGE)"
 	@grep -a -q "app.1.exec_model=generic-aarch64-el0-elf-by-path" "$(PI4_IMAGE)"
 	@grep -a -q "app.1.icon=pak:gfx/conback.lmp" "$(PI4_IMAGE)"
-	@grep -a -E -q "root_elf_count=2" "$(PI4_IMAGE)"
-	@grep -a -E -q "root_elf\.[0-9]+\.file=INIT\.ELF" "$(PI4_IMAGE)"
-	@grep -a -E -q "root_elf\.[0-9]+\.file=ABIPROBE\.ELF" "$(PI4_IMAGE)"
+	@grep -a -E -q "root_elf_count=0" "$(PI4_IMAGE)"
+	@! grep -a -E -q "root_elf\.[0-9]+\.file=(INIT|ABIPROBE)\.ELF" "$(PI4_IMAGE)"
 	@grep -q "primary_asset_file=DOOM1.WAD" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -q "primary_asset_kind=doom-wad" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -q "primary_asset_state=present" "$(PI4_IMAGE_INSPECT_TXT)"

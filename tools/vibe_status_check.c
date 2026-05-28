@@ -663,7 +663,7 @@ static int status_has_local_qemu_metadata(const Status *status) {
 }
 
 static int is_pi4_user_exec_path(const char *path) {
-    return strcmp(path, "INIT.ELF") == 0 ||
+    return strcmp(path, "/SYSTEM/INIT.ELF") == 0 ||
            strcmp(path, "/APPS/DOOM/APP.ELF") == 0 ||
            strcmp(path, "/APPS/QUAKE/APP.ELF") == 0;
 }
@@ -3088,12 +3088,12 @@ static void validate_pi4_uabi_status(const Status *status) {
             fail("pi4uabi=OK must not rely on boot-embedded pi4elfsrc=EMBEDDED evidence");
         }
         if (strcmp(elfsrc, "VFS") != 0) {
-            fail("pi4uabi=OK requires non-embedded pi4elfsrc=VFS INIT.ELF evidence");
+            fail("pi4uabi=OK requires non-embedded pi4elfsrc=VFS /SYSTEM/INIT.ELF evidence");
         }
         exact(status, "exec", "OK");
         path = field(status, "path");
         if (!is_pi4_user_exec_path(path)) {
-            fail("path= must be INIT.ELF or an installed app executable for pi4uabi=OK");
+            fail("path= must be /SYSTEM/INIT.ELF or an installed app executable for pi4uabi=OK");
         }
         exact(status, "uexec", "OK");
         upath = field(status, "upath");
@@ -3114,17 +3114,17 @@ static void validate_pi4_uabi_status(const Status *status) {
                                             ARRAY_LEN(procpool));
         pidseq_count = hex64_tuple_fields(status, "pidseq", '/', pidseq, ARRAY_LEN(pidseq));
         if (uentry[0] == 0u) {
-            fail("uentry= must prove a nonzero INIT.ELF entry point for pi4uabi=OK");
+            fail("uentry= must prove a nonzero /SYSTEM/INIT.ELF entry point for pi4uabi=OK");
         }
         if (uentry[0] != elfentry[0]) {
-            fail("uentry= must match validated pi4elfentry= INIT.ELF metadata");
+            fail("uentry= must match validated pi4elfentry= /SYSTEM/INIT.ELF metadata");
         }
         if (execsys[0] == 0u || execsys[1] == 0u) {
             fail("execsys= must prove nonzero Pi syscall dispatch and return counters");
         }
         if (pi4ustack[0] == 0u || pi4ustack[1] == 0u || pi4ustack[2] == 0u ||
             pi4ustack[0] >= pi4ustack[1] || pi4ustack[2] > pi4ustack[1] - pi4ustack[0]) {
-            fail("pi4ustack= must prove a bounded nonzero INIT.ELF user stack");
+            fail("pi4ustack= must prove a bounded nonzero /SYSTEM/INIT.ELF user stack");
         }
         if (has_field(status, "pi4ustackv") &&
             (pi4ustackv[0] == 0u || pi4ustackv[2] == 0u ||
@@ -3135,11 +3135,11 @@ static void validate_pi4_uabi_status(const Status *status) {
             fail("pi4ustackv= must prove argv/envp/auxv pointers inside the active user stack");
         }
         if (execmap[0] == 0u || execmap[1] == 0u || execmap[2] == 0u) {
-            fail("execmap= must prove nonzero INIT.ELF mapping address, size, and flags");
+            fail("execmap= must prove nonzero /SYSTEM/INIT.ELF mapping address, size, and flags");
         }
         if (elfload[0] < execmap[0] || elfload[0] - execmap[0] > execmap[1] ||
             elfload[3] > execmap[1] - (elfload[0] - execmap[0])) {
-            fail("execmap= must cover the validated INIT.ELF load segment");
+            fail("execmap= must cover the validated /SYSTEM/INIT.ELF load segment");
         }
         if (ptable[3] == 0u) {
             fail("pi4ptable= must record at least one live table entry for pi4uabi=OK");
