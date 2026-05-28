@@ -32,6 +32,20 @@ image is attached to an emulated Pi 4 and vibe-os runs against emulated Pi
 hardware. That is hardware-equivalent evidence, not a claim that the image has
 already been proven on a physical Raspberry Pi board.
 
+## What Ring 3 Means
+
+Ring 3 is user mode: the low-privilege CPU mode where normal apps run. Ring 0
+is kernel mode, where the OS can touch hardware, memory mappings, interrupts,
+and privileged CPU state.
+
+When vibe-os says Doom and Quake are Ring 3 ELF apps, it means they are not
+linked into the kernel. The kernel loads each app ELF, switches into user mode,
+and the app has to ask the OS for files, framebuffer output, input, audio, and
+time through syscalls.
+
+That is the process boundary: the game is an app running on vibe-os, not kernel
+code with a game loop bolted on.
+
 ## Play
 
 Requirements: `make`, `nasm`, `cc`, `git`, `curl`, and QEMU. Use
