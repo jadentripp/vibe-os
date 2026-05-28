@@ -2,8 +2,8 @@
 
 .arch armv8-a
 
-.equ PI4_LAUNCHER_SLOT_DOOM,        0
-.equ PI4_LAUNCHER_SLOT_QUAKE,       1
+.equ PI4_LAUNCHER_SLOT_APP0,        0
+.equ PI4_LAUNCHER_SLOT_APP1,        1
 .equ PI4_LAUNCHER_SLOT_STATE_ABSENT, 0
 .equ PI4_LAUNCHER_SLOT_STATE_PRESENT, 1
 
@@ -11,34 +11,26 @@
 .balign 8
 .global pi4_launcher_slot_table
 pi4_launcher_slot_table:
-    .quad PI4_LAUNCHER_SLOT_DOOM
-    .quad pi4_launcher_slot_doom_name
+    .quad PI4_LAUNCHER_SLOT_APP0
+    .quad pi4_launcher_slot_app0_name
     .quad 0
     .quad PI4_LAUNCHER_SLOT_STATE_ABSENT
     .quad pi4_launcher_slot_absent_state
-    .quad PI4_LAUNCHER_SLOT_QUAKE
-    .quad pi4_launcher_slot_quake_name
+    .quad PI4_LAUNCHER_SLOT_APP1
+    .quad pi4_launcher_slot_app1_name
     .quad 0
     .quad PI4_LAUNCHER_SLOT_STATE_ABSENT
     .quad pi4_launcher_slot_absent_state
 
 .section .rodata.pi4_launcher_slot_strings, "a", %progbits
 .balign 8
-.global pi4_launcher_slot_doom_name
-pi4_launcher_slot_doom_name:
-    .asciz "DOOM"
+.global pi4_launcher_slot_app0_name
+pi4_launcher_slot_app0_name:
+    .asciz "APP 1"
 
-.global pi4_launcher_slot_quake_name
-pi4_launcher_slot_quake_name:
-    .asciz "QUAKE"
-
-.global pi4_launcher_slot_doom_path
-pi4_launcher_slot_doom_path:
-    .asciz "/APPS/DOOM/APP.ELF"
-
-.global pi4_launcher_slot_quake_path
-pi4_launcher_slot_quake_path:
-    .asciz "/APPS/QUAKE/APP.ELF"
+.global pi4_launcher_slot_app1_name
+pi4_launcher_slot_app1_name:
+    .asciz "APP 2"
 
 .global pi4_launcher_slot_present_state
 pi4_launcher_slot_present_state:
@@ -93,26 +85,6 @@ pi4_launcher_indexed_palette:
 
 .section .rodata.pi4_launcher_label_bits, "a", %progbits
 .balign 4
-	.global pi4_launcher_doom_label_bitmap
-	pi4_launcher_doom_label_bitmap:
-	    .word 0b11110001110001110010001
-	    .word 0b10001010001010001011011
-	    .word 0b10001010001010001010101
-	    .word 0b10001010001010001010101
-	    .word 0b10001010001010001010001
-	    .word 0b10001010001010001010001
-	    .word 0b11110001110001110010001
-
-	.global pi4_launcher_quake_label_bitmap
-	pi4_launcher_quake_label_bitmap:
-	    .word 0b01110010001001110010001011111
-	    .word 0b10001010001010001010010010000
-	    .word 0b10001010001010001010100010000
-	    .word 0b10001010001011111011000011110
-	    .word 0b10101010001010001010100010000
-	    .word 0b10010010001010001010010010000
-	    .word 0b01101001110010001010001011111
-
 .global pi4_launcher_key_1_bitmap
 pi4_launcher_key_1_bitmap:
     .word 0b010
