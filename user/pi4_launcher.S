@@ -94,6 +94,7 @@
 .equ PI4_LAUNCHER_APP_TEXT_BYTES,       2048
 .equ PI4_LAUNCHER_APP_NAME_BYTES,       32
 .equ PI4_LAUNCHER_APP_PATH_BYTES,       PI4_VIBE_EXEC_REQUEST_PATH_MAX_BYTES
+.equ PI4_LAUNCHER_APP_ICON_BYTES,       64
 .equ PI4_LAUNCHER_APP_KEY_BYTES,        32
 .equ PI4_LAUNCHER_APP_COUNT_BYTES,      16
 .equ PI4_LAUNCHER_EXEC_REQUEST_COMPAT_TOKEN_OFFSET, PI4_VIBE_EXEC_REQUEST_COMPAT_TOKEN_OFFSET
@@ -541,6 +542,14 @@ pi4_launcher_reset_app_slots:
     add x0, x0, :lo12:pi4_launcher_app_manifest_paths
     mov x1, #(PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_SLOT_COUNT)
     bl pi4_launcher_zero_buffer
+    adrp x0, pi4_launcher_app_slot_assets
+    add x0, x0, :lo12:pi4_launcher_app_slot_assets
+    mov x1, #(PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_SLOT_COUNT)
+    bl pi4_launcher_zero_buffer
+    adrp x0, pi4_launcher_app_slot_icons
+    add x0, x0, :lo12:pi4_launcher_app_slot_icons
+    mov x1, #(PI4_LAUNCHER_APP_ICON_BYTES * PI4_LAUNCHER_SLOT_COUNT)
+    bl pi4_launcher_zero_buffer
 
     adrp x0, pi4_launcher_app_text_size
     add x0, x0, :lo12:pi4_launcher_app_text_size
@@ -734,6 +743,10 @@ pi4_launcher_load_app_manifest:
     add x25, x25, :lo12:pi4_launcher_app_slot_paths
     lsl x0, x19, #6
     add x25, x25, x0
+    adrp x26, pi4_launcher_app_slot_assets
+    add x26, x26, :lo12:pi4_launcher_app_slot_assets
+    lsl x0, x19, #6
+    add x26, x26, x0
 
     adrp x0, pi4_launcher_app_text_buffer
     add x0, x0, :lo12:pi4_launcher_app_text_buffer
@@ -774,6 +787,26 @@ pi4_launcher_load_app_manifest:
     ldrb w0, [x25]
     cmp w0, #'/'
     b.ne .Lpi4_manifest_done
+
+    adrp x0, pi4_launcher_app_text_buffer
+    add x0, x0, :lo12:pi4_launcher_app_text_buffer
+    mov x1, x23
+    adrp x2, pi4_launcher_key_asset
+    add x2, x2, :lo12:pi4_launcher_key_asset
+    mov x3, x26
+    mov x4, #PI4_LAUNCHER_APP_PATH_BYTES
+    bl pi4_launcher_find_key_value_copy
+
+    adrp x0, pi4_launcher_app_text_buffer
+    add x0, x0, :lo12:pi4_launcher_app_text_buffer
+    mov x1, x23
+    adrp x2, pi4_launcher_key_icon
+    add x2, x2, :lo12:pi4_launcher_key_icon
+    adrp x3, pi4_launcher_app_slot_icons
+    add x3, x3, :lo12:pi4_launcher_app_slot_icons
+    mov x4, #PI4_LAUNCHER_APP_ICON_BYTES
+    madd x3, x19, x4, x3
+    bl pi4_launcher_find_key_value_copy
 
     mov x0, x25
     bl pi4_launcher_check_elf_magic
@@ -4064,6 +4097,7 @@ pi4_launcher_manifest:
     .ascii "app_visible_capacity=2\n"
     .ascii "app_discovery_source=/APPS/INDEX.TXT\n"
     .ascii "app_discovery_runtime=read-app-count-and-indexed-manifest-keys\n"
+    .ascii "app_metadata_runtime=manifest-name-exec-asset-icon\n"
     .ascii "launcher_slot_table_authority=runtime-vfs-app-index\n"
     .ascii "launcher_app_table_authority=runtime-vfs-discovery\n"
     .ascii "launcher_launch_authority=manifest-exec-path\n"
@@ -4145,6 +4179,10 @@ pi4_launcher_key_id:
     .asciz "id="
 pi4_launcher_key_exec:
     .asciz "exec="
+pi4_launcher_key_asset:
+    .asciz "asset="
+pi4_launcher_key_icon:
+    .asciz "icon="
 
 .section .data.pi4_launcher_state, "aw", %progbits
 .balign 8
@@ -4324,6 +4362,14 @@ pi4_launcher_app_slot_names:
 .global pi4_launcher_app_slot_paths
 pi4_launcher_app_slot_paths:
     .skip PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_SLOT_COUNT
+.balign 16
+.global pi4_launcher_app_slot_assets
+pi4_launcher_app_slot_assets:
+    .skip PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_SLOT_COUNT
+.balign 16
+.global pi4_launcher_app_slot_icons
+pi4_launcher_app_slot_icons:
+    .skip PI4_LAUNCHER_APP_ICON_BYTES * PI4_LAUNCHER_SLOT_COUNT
 .balign 16
 .global pi4_launcher_app_manifest_paths
 pi4_launcher_app_manifest_paths:
