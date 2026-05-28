@@ -190,9 +190,9 @@ pi4_storage_reset_status:
     str w1, [x0]
     adr x0, pi4_storage_status_init_elf
     str w1, [x0]
-    adr x0, pi4_storage_status_app_doom_elf
+    adr x0, pi4_storage_status_app0_elf
     str w1, [x0]
-    adr x0, pi4_storage_status_app_quake_elf
+    adr x0, pi4_storage_status_app1_elf
     str w1, [x0]
     adr x0, pi4_storage_status_block
     str w1, [x0]
@@ -1349,9 +1349,9 @@ pi4_storage_parse_fat_root:
     adr x0, pi4_storage_status_init_elf
     ldr w1, =VIBE_PI4_STORAGE_FILE_MISSING
     str w1, [x0]
-    adr x0, pi4_storage_status_app_doom_elf
+    adr x0, pi4_storage_status_app0_elf
     str w1, [x0]
-    adr x0, pi4_storage_status_app_quake_elf
+    adr x0, pi4_storage_status_app1_elf
     str w1, [x0]
 
     adr x0, pi4_storage_root_values_start
@@ -1872,9 +1872,9 @@ pi4_storage_parse_asset_dir:
     cmp x21, #6
     b.eq .Lpi4_storage_asset_dir_kind_apps
     cmp x21, #7
-    b.eq .Lpi4_storage_asset_dir_kind_app_doom
+    b.eq .Lpi4_storage_asset_dir_kind_app0
     cmp x21, #8
-    b.eq .Lpi4_storage_asset_dir_kind_app_quake
+    b.eq .Lpi4_storage_asset_dir_kind_app1
     b .Lpi4_storage_asset_dir_next
 
 .Lpi4_storage_asset_dir_kind_proof:
@@ -2070,54 +2070,54 @@ pi4_storage_parse_asset_dir:
     ldrb w3, [x22]
     cmp w3, #0x2e
     b.eq .Lpi4_storage_asset_dir_next
-    adr x2, pi4_storage_status_app_doom_dir
+    adr x2, pi4_storage_status_app0_dir
     ldr x3, [x2]
     cbz x3, .Lpi4_storage_asset_dir_record_app_slot0_dir
-    adr x2, pi4_storage_status_app_quake_dir
+    adr x2, pi4_storage_status_app1_dir
     ldr x3, [x2]
     cbz x3, .Lpi4_storage_asset_dir_record_app_slot1_dir
     b .Lpi4_storage_asset_dir_next
 
 .Lpi4_storage_asset_dir_record_app_slot0_dir:
     mov x0, x22
-    adr x1, pi4_storage_status_app_doom_dir_name
+    adr x1, pi4_storage_status_app0_dir_name
     bl pi4_storage_copy_short_name
     mov x0, x22
     mov x1, x23
-    adr x2, pi4_storage_status_app_doom_dir
+    adr x2, pi4_storage_status_app0_dir
     bl pi4_storage_record_dirent_metadata4
     add x24, x24, #1
     b .Lpi4_storage_asset_dir_next
 
 .Lpi4_storage_asset_dir_record_app_slot1_dir:
     mov x0, x22
-    adr x1, pi4_storage_status_app_quake_dir_name
+    adr x1, pi4_storage_status_app1_dir_name
     bl pi4_storage_copy_short_name
     mov x0, x22
     mov x1, x23
-    adr x2, pi4_storage_status_app_quake_dir
+    adr x2, pi4_storage_status_app1_dir
     bl pi4_storage_record_dirent_metadata4
     add x24, x24, #1
     b .Lpi4_storage_asset_dir_next
 
-.Lpi4_storage_asset_dir_kind_app_doom:
+.Lpi4_storage_asset_dir_kind_app0:
     tst w0, #PI4_STORAGE_DIRENT_ATTR_DIRECTORY
     b.ne .Lpi4_storage_asset_dir_next
     mov x0, x22
     adr x1, pi4_storage_name_app_elf
     bl pi4_storage_match_short_name
-    cbnz w0, .Lpi4_storage_asset_dir_record_doom_app_elf
+    cbnz w0, .Lpi4_storage_asset_dir_record_app0_elf
     mov x0, x22
     adr x1, pi4_storage_name_app_txt
     bl pi4_storage_match_short_name
-    cbnz w0, .Lpi4_storage_asset_dir_record_doom_app_txt
+    cbnz w0, .Lpi4_storage_asset_dir_record_app0_txt
     b .Lpi4_storage_asset_dir_next
 
-.Lpi4_storage_asset_dir_record_doom_app_elf:
+.Lpi4_storage_asset_dir_record_app0_elf:
     mov x0, x22
     mov x1, x23
-    adr x2, pi4_storage_status_app_doom_elf
-    adr x3, pi4_storage_status_app_doom_elf_entry_index
+    adr x2, pi4_storage_status_app0_elf
+    adr x3, pi4_storage_status_app0_elf_entry_index
     mov x4, x25
     mov x5, x26
     mov x6, x27
@@ -2127,10 +2127,10 @@ pi4_storage_parse_asset_dir:
     add x24, x24, #1
     b .Lpi4_storage_asset_dir_next
 
-.Lpi4_storage_asset_dir_record_doom_app_txt:
+.Lpi4_storage_asset_dir_record_app0_txt:
     mov x0, x22
     mov x1, x23
-    adr x2, pi4_storage_status_app_doom_manifest
+    adr x2, pi4_storage_status_app0_manifest
     mov x4, x25
     mov x5, x26
     mov x6, x27
@@ -2140,24 +2140,24 @@ pi4_storage_parse_asset_dir:
     add x24, x24, #1
     b .Lpi4_storage_asset_dir_next
 
-.Lpi4_storage_asset_dir_kind_app_quake:
+.Lpi4_storage_asset_dir_kind_app1:
     tst w0, #PI4_STORAGE_DIRENT_ATTR_DIRECTORY
     b.ne .Lpi4_storage_asset_dir_next
     mov x0, x22
     adr x1, pi4_storage_name_app_elf
     bl pi4_storage_match_short_name
-    cbnz w0, .Lpi4_storage_asset_dir_record_quake_app_elf
+    cbnz w0, .Lpi4_storage_asset_dir_record_app1_elf
     mov x0, x22
     adr x1, pi4_storage_name_app_txt
     bl pi4_storage_match_short_name
-    cbnz w0, .Lpi4_storage_asset_dir_record_quake_app_txt
+    cbnz w0, .Lpi4_storage_asset_dir_record_app1_txt
     b .Lpi4_storage_asset_dir_next
 
-.Lpi4_storage_asset_dir_record_quake_app_elf:
+.Lpi4_storage_asset_dir_record_app1_elf:
     mov x0, x22
     mov x1, x23
-    adr x2, pi4_storage_status_app_quake_elf
-    adr x3, pi4_storage_status_app_quake_elf_entry_index
+    adr x2, pi4_storage_status_app1_elf
+    adr x3, pi4_storage_status_app1_elf_entry_index
     mov x4, x25
     mov x5, x26
     mov x6, x27
@@ -2167,10 +2167,10 @@ pi4_storage_parse_asset_dir:
     add x24, x24, #1
     b .Lpi4_storage_asset_dir_next
 
-.Lpi4_storage_asset_dir_record_quake_app_txt:
+.Lpi4_storage_asset_dir_record_app1_txt:
     mov x0, x22
     mov x1, x23
-    adr x2, pi4_storage_status_app_quake_manifest
+    adr x2, pi4_storage_status_app1_manifest
     mov x4, x25
     mov x5, x26
     mov x6, x27
@@ -2293,11 +2293,11 @@ pi4_storage_status_root:
 .global pi4_storage_status_init_elf
 pi4_storage_status_init_elf:
     .word VIBE_PI4_STORAGE_WAIT
-.global pi4_storage_status_app_doom_elf
-pi4_storage_status_app_doom_elf:
+.global pi4_storage_status_app0_elf
+pi4_storage_status_app0_elf:
     .word VIBE_PI4_STORAGE_WAIT
-.global pi4_storage_status_app_quake_elf
-pi4_storage_status_app_quake_elf:
+.global pi4_storage_status_app1_elf
+pi4_storage_status_app1_elf:
     .word VIBE_PI4_STORAGE_WAIT
 .global pi4_storage_status_block
 pi4_storage_status_block:
@@ -2548,53 +2548,53 @@ pi4_storage_status_init_elf_plan_bytes:
 .global pi4_storage_status_init_elf_read_count
 pi4_storage_status_init_elf_read_count:
     .quad 0
-.global pi4_storage_status_app_doom_elf_entry_index
-pi4_storage_status_app_doom_elf_entry_index:
+.global pi4_storage_status_app0_elf_entry_index
+pi4_storage_status_app0_elf_entry_index:
     .quad 0
-.global pi4_storage_status_app_doom_elf_attr
-pi4_storage_status_app_doom_elf_attr:
+.global pi4_storage_status_app0_elf_attr
+pi4_storage_status_app0_elf_attr:
     .quad 0
-.global pi4_storage_status_app_doom_elf_cluster
-pi4_storage_status_app_doom_elf_cluster:
+.global pi4_storage_status_app0_elf_cluster
+pi4_storage_status_app0_elf_cluster:
     .quad 0
-.global pi4_storage_status_app_doom_elf_size
-pi4_storage_status_app_doom_elf_size:
+.global pi4_storage_status_app0_elf_size
+pi4_storage_status_app0_elf_size:
     .quad 0
-.global pi4_storage_status_app_doom_elf_plan_lba
-pi4_storage_status_app_doom_elf_plan_lba:
+.global pi4_storage_status_app0_elf_plan_lba
+pi4_storage_status_app0_elf_plan_lba:
     .quad 0
-.global pi4_storage_status_app_doom_elf_plan_sectors
-pi4_storage_status_app_doom_elf_plan_sectors:
+.global pi4_storage_status_app0_elf_plan_sectors
+pi4_storage_status_app0_elf_plan_sectors:
     .quad 0
-.global pi4_storage_status_app_doom_elf_plan_bytes
-pi4_storage_status_app_doom_elf_plan_bytes:
+.global pi4_storage_status_app0_elf_plan_bytes
+pi4_storage_status_app0_elf_plan_bytes:
     .quad 0
-.global pi4_storage_status_app_doom_elf_read_count
-pi4_storage_status_app_doom_elf_read_count:
+.global pi4_storage_status_app0_elf_read_count
+pi4_storage_status_app0_elf_read_count:
     .quad 0
-.global pi4_storage_status_app_quake_elf_entry_index
-pi4_storage_status_app_quake_elf_entry_index:
+.global pi4_storage_status_app1_elf_entry_index
+pi4_storage_status_app1_elf_entry_index:
     .quad 0
-.global pi4_storage_status_app_quake_elf_attr
-pi4_storage_status_app_quake_elf_attr:
+.global pi4_storage_status_app1_elf_attr
+pi4_storage_status_app1_elf_attr:
     .quad 0
-.global pi4_storage_status_app_quake_elf_cluster
-pi4_storage_status_app_quake_elf_cluster:
+.global pi4_storage_status_app1_elf_cluster
+pi4_storage_status_app1_elf_cluster:
     .quad 0
-.global pi4_storage_status_app_quake_elf_size
-pi4_storage_status_app_quake_elf_size:
+.global pi4_storage_status_app1_elf_size
+pi4_storage_status_app1_elf_size:
     .quad 0
-.global pi4_storage_status_app_quake_elf_plan_lba
-pi4_storage_status_app_quake_elf_plan_lba:
+.global pi4_storage_status_app1_elf_plan_lba
+pi4_storage_status_app1_elf_plan_lba:
     .quad 0
-.global pi4_storage_status_app_quake_elf_plan_sectors
-pi4_storage_status_app_quake_elf_plan_sectors:
+.global pi4_storage_status_app1_elf_plan_sectors
+pi4_storage_status_app1_elf_plan_sectors:
     .quad 0
-.global pi4_storage_status_app_quake_elf_plan_bytes
-pi4_storage_status_app_quake_elf_plan_bytes:
+.global pi4_storage_status_app1_elf_plan_bytes
+pi4_storage_status_app1_elf_plan_bytes:
     .quad 0
-.global pi4_storage_status_app_quake_elf_read_count
-pi4_storage_status_app_quake_elf_read_count:
+.global pi4_storage_status_app1_elf_read_count
+pi4_storage_status_app1_elf_read_count:
     .quad 0
 .global pi4_storage_status_kernel8_img
 pi4_storage_status_kernel8_img:
@@ -2732,18 +2732,18 @@ pi4_storage_status_app_index:
     .quad 0
     .quad 0
     .quad 0
-.global pi4_storage_status_app_doom_dir
-pi4_storage_status_app_doom_dir:
+.global pi4_storage_status_app0_dir
+pi4_storage_status_app0_dir:
     .quad 0
     .quad 0
     .quad 0
     .quad 0
-.global pi4_storage_status_app_doom_dir_name
-pi4_storage_status_app_doom_dir_name:
+.global pi4_storage_status_app0_dir_name
+pi4_storage_status_app0_dir_name:
     .skip 16
     .balign 8
-.global pi4_storage_status_app_doom_manifest
-pi4_storage_status_app_doom_manifest:
+.global pi4_storage_status_app0_manifest
+pi4_storage_status_app0_manifest:
     .quad 0
     .quad 0
     .quad 0
@@ -2752,18 +2752,18 @@ pi4_storage_status_app_doom_manifest:
     .quad 0
     .quad 0
     .quad 0
-.global pi4_storage_status_app_quake_dir
-pi4_storage_status_app_quake_dir:
+.global pi4_storage_status_app1_dir
+pi4_storage_status_app1_dir:
     .quad 0
     .quad 0
     .quad 0
     .quad 0
-.global pi4_storage_status_app_quake_dir_name
-pi4_storage_status_app_quake_dir_name:
+.global pi4_storage_status_app1_dir_name
+pi4_storage_status_app1_dir_name:
     .skip 16
     .balign 8
-.global pi4_storage_status_app_quake_manifest
-pi4_storage_status_app_quake_manifest:
+.global pi4_storage_status_app1_manifest
+pi4_storage_status_app1_manifest:
     .quad 0
     .quad 0
     .quad 0
