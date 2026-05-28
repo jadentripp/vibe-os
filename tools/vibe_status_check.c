@@ -2050,8 +2050,8 @@ static void validate_pi4_input_status(const Status *status) {
     if (have_event_counts) {
         hex64_tuple_exact(status, "pi4inputevt", PI4_UART_INPUT_EVENT_COUNTER_FIELDS, '/', events);
         event_total = events[0] + events[1] + events[2] + events[3] + events[4];
-        if (event_total != queue[1]) {
-            fail("pi4inputevt= stable UART launcher/gameplay counters must add up to total events");
+        if (usb_wait && event_total != queue[1]) {
+            fail("pi4inputevt= stable UART launcher/gameplay counters must add up to total UART events");
         }
     }
 

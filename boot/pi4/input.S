@@ -547,12 +547,62 @@ pi4_uart_input_poll:
     and x8, x1, #PI4_INPUT_EVENT_TOKEN_KEY_CODE_MASK
     adr x7, pi4_input_keyboard_last_code
     str x8, [x7]
+    cmp x8, #PI4_INPUT_KEY_PS2_1
+    b.eq .Lpoll_key_count_select_1
+    cmp x8, #PI4_INPUT_KEY_PS2_2
+    b.eq .Lpoll_key_count_select_2
+    cmp x8, #PI4_INPUT_KEY_PS2_ENTER
+    b.eq .Lpoll_key_count_enter
+    cmp x8, #PI4_INPUT_KEY_PS2_SPACE
+    b.eq .Lpoll_key_count_enter
+    cmp x8, #PI4_INPUT_KEY_PS2_W
+    b.eq .Lpoll_key_count_up
+    cmp x8, #PI4_INPUT_KEY_PS2_UP
+    b.eq .Lpoll_key_count_up
+    cmp x8, #PI4_INPUT_KEY_PS2_A
+    b.eq .Lpoll_key_count_up
+    cmp x8, #PI4_INPUT_KEY_PS2_LEFT
+    b.eq .Lpoll_key_count_up
+    cmp x8, #PI4_INPUT_KEY_PS2_S
+    b.eq .Lpoll_key_count_down
+    cmp x8, #PI4_INPUT_KEY_PS2_DOWN
+    b.eq .Lpoll_key_count_down
+    cmp x8, #PI4_INPUT_KEY_PS2_D
+    b.eq .Lpoll_key_count_down
+    cmp x8, #PI4_INPUT_KEY_PS2_RIGHT
+    b.eq .Lpoll_key_count_down
+.Lpoll_key_count_done:
     ubfx x8, x1, #PI4_INPUT_EVENT_TOKEN_KEY_ACTION_SHIFT, #8
     cmp x8, #PI4_INPUT_KEY_PRESSED
     b.eq .Lpoll_record_key_down
     cmp x8, #PI4_INPUT_KEY_RELEASED
     b.eq .Lpoll_record_key_up
     b .Lpoll_event_done
+
+.Lpoll_key_count_select_1:
+    adr x7, pi4_uart_input_select_1_events
+    b .Lpoll_key_increment_event_counter
+
+.Lpoll_key_count_select_2:
+    adr x7, pi4_uart_input_select_2_events
+    b .Lpoll_key_increment_event_counter
+
+.Lpoll_key_count_enter:
+    adr x7, pi4_uart_input_enter_events
+    b .Lpoll_key_increment_event_counter
+
+.Lpoll_key_count_up:
+    adr x7, pi4_uart_input_up_events
+    b .Lpoll_key_increment_event_counter
+
+.Lpoll_key_count_down:
+    adr x7, pi4_uart_input_down_events
+
+.Lpoll_key_increment_event_counter:
+    ldr x11, [x7]
+    add x11, x11, #1
+    str x11, [x7]
+    b .Lpoll_key_count_done
 
 .Lpoll_record_key_down:
     and x0, x1, #PI4_INPUT_EVENT_TOKEN_KEY_CODE_MASK
@@ -561,6 +611,32 @@ pi4_uart_input_poll:
     ldr x8, [x7]
     add x8, x8, #1
     str x8, [x7]
+    adr x7, pi4_input_keyboard_last_code
+    ldr x8, [x7]
+    cmp x8, #PI4_INPUT_KEY_PS2_1
+    b.eq .Lpoll_count_select_1
+    cmp x8, #PI4_INPUT_KEY_PS2_2
+    b.eq .Lpoll_count_select_2
+    cmp x8, #PI4_INPUT_KEY_PS2_ENTER
+    b.eq .Lpoll_count_enter
+    cmp x8, #PI4_INPUT_KEY_PS2_SPACE
+    b.eq .Lpoll_count_enter
+    cmp x8, #PI4_INPUT_KEY_PS2_W
+    b.eq .Lpoll_count_up
+    cmp x8, #PI4_INPUT_KEY_PS2_UP
+    b.eq .Lpoll_count_up
+    cmp x8, #PI4_INPUT_KEY_PS2_A
+    b.eq .Lpoll_count_up
+    cmp x8, #PI4_INPUT_KEY_PS2_LEFT
+    b.eq .Lpoll_count_up
+    cmp x8, #PI4_INPUT_KEY_PS2_S
+    b.eq .Lpoll_count_down
+    cmp x8, #PI4_INPUT_KEY_PS2_DOWN
+    b.eq .Lpoll_count_down
+    cmp x8, #PI4_INPUT_KEY_PS2_D
+    b.eq .Lpoll_count_down
+    cmp x8, #PI4_INPUT_KEY_PS2_RIGHT
+    b.eq .Lpoll_count_down
     b .Lpoll_event_done
 
 .Lpoll_record_key_up:
@@ -568,9 +644,36 @@ pi4_uart_input_poll:
     bl pi4_input_set_key_up
     adr x7, pi4_input_keyboard_down_count
     ldr x8, [x7]
-    cbz x8, .Lpoll_event_done
+    cbz x8, .Lpoll_record_key_up_semantic
     sub x8, x8, #1
     str x8, [x7]
+.Lpoll_record_key_up_semantic:
+    adr x7, pi4_input_keyboard_last_code
+    ldr x8, [x7]
+    cmp x8, #PI4_INPUT_KEY_PS2_1
+    b.eq .Lpoll_count_select_1
+    cmp x8, #PI4_INPUT_KEY_PS2_2
+    b.eq .Lpoll_count_select_2
+    cmp x8, #PI4_INPUT_KEY_PS2_ENTER
+    b.eq .Lpoll_count_enter
+    cmp x8, #PI4_INPUT_KEY_PS2_SPACE
+    b.eq .Lpoll_count_enter
+    cmp x8, #PI4_INPUT_KEY_PS2_W
+    b.eq .Lpoll_count_up
+    cmp x8, #PI4_INPUT_KEY_PS2_UP
+    b.eq .Lpoll_count_up
+    cmp x8, #PI4_INPUT_KEY_PS2_A
+    b.eq .Lpoll_count_up
+    cmp x8, #PI4_INPUT_KEY_PS2_LEFT
+    b.eq .Lpoll_count_up
+    cmp x8, #PI4_INPUT_KEY_PS2_S
+    b.eq .Lpoll_count_down
+    cmp x8, #PI4_INPUT_KEY_PS2_DOWN
+    b.eq .Lpoll_count_down
+    cmp x8, #PI4_INPUT_KEY_PS2_D
+    b.eq .Lpoll_count_down
+    cmp x8, #PI4_INPUT_KEY_PS2_RIGHT
+    b.eq .Lpoll_count_down
     b .Lpoll_event_done
 
 .Lpoll_record_mouse_event:
@@ -584,6 +687,13 @@ pi4_uart_input_poll:
     and x8, x8, #0xff
     adr x7, pi4_uart_input_last_code
     str x8, [x7]
+    tst x8, #1
+    b.eq .Lpoll_mouse_no_left_press
+    adr x7, pi4_uart_input_enter_events
+    ldr x11, [x7]
+    add x11, x11, #1
+    str x11, [x7]
+.Lpoll_mouse_no_left_press:
     adr x7, pi4_input_mouse_packet_count
     ldr x8, [x7]
     add x8, x8, #1

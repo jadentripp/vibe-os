@@ -26,14 +26,16 @@
 .equ PI4_LAUNCHER_CARD_ART_INSET,       24
 .equ PI4_LAUNCHER_CARD_ART_W,           PI4_LAUNCHER_CARD_W - (PI4_LAUNCHER_CARD_ART_INSET * 2)
 .equ PI4_LAUNCHER_CARD_ART_H,           288
-.equ PI4_LAUNCHER_ICON_SIZE,            192
-.equ PI4_LAUNCHER_DOOM_ICON_X,          228
-.equ PI4_LAUNCHER_QUAKE_ICON_X,         860
-.equ PI4_LAUNCHER_ICON_Y,               264
-.equ PI4_LAUNCHER_DOOM_LABEL_X,         234
-.equ PI4_LAUNCHER_QUAKE_LABEL_X,        842
-.equ PI4_LAUNCHER_LABEL_Y,              532
-.equ PI4_LAUNCHER_LABEL_SCALE,          12
+.equ PI4_LAUNCHER_ICON_SIZE,            256
+.equ PI4_LAUNCHER_ICON_DISPLAY_SIZE,    288
+.equ PI4_LAUNCHER_DOOM_ICON_X,          180
+.equ PI4_LAUNCHER_QUAKE_ICON_X,         812
+.equ PI4_LAUNCHER_ICON_Y,               224
+.equ PI4_LAUNCHER_DOOM_LABEL_X,         232
+.equ PI4_LAUNCHER_QUAKE_LABEL_X,        840
+.equ PI4_LAUNCHER_LABEL_Y,              522
+.equ PI4_LAUNCHER_LABEL_H,              7
+.equ PI4_LAUNCHER_LABEL_SCALE,          8
 .equ PI4_LAUNCHER_LAUNCH_BUTTON_X_OFF,  140
 .equ PI4_LAUNCHER_LAUNCH_BUTTON_Y,      PI4_LAUNCHER_CARD_Y + PI4_LAUNCHER_CARD_H - 56
 .equ PI4_LAUNCHER_LAUNCH_BUTTON_W,      272
@@ -1359,12 +1361,18 @@ pi4_launcher_render_frame:
     ldr x6, [x6]
     tbz x6, #PI4_LAUNCHER_SLOT_DOOM, .Lpi4_render_doom_card_art_done
     mov x0, x19
-    mov x1, #PI4_LAUNCHER_DOOM_CARD_X
-    add x1, x1, #PI4_LAUNCHER_CARD_ART_INSET
-    mov x2, #PI4_LAUNCHER_CARD_Y
-    add x2, x2, #PI4_LAUNCHER_CARD_ART_INSET
-    mov x3, #PI4_LAUNCHER_CARD_ART_W
-    mov x4, #PI4_LAUNCHER_CARD_ART_H
+    mov x1, #PI4_LAUNCHER_DOOM_ICON_X
+    mov x2, #PI4_LAUNCHER_ICON_Y
+    mov x3, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    mov x4, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    mov x5, #PI4_COLOR_BLACK
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, #PI4_LAUNCHER_DOOM_ICON_X
+    mov x2, #PI4_LAUNCHER_ICON_Y
+    mov x3, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    mov x4, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
     adrp x5, pi4_launcher_doom_icon_pixels
     add x5, x5, :lo12:pi4_launcher_doom_icon_pixels
     bl pi4_launcher_draw_icon_pixels_rect
@@ -1375,17 +1383,39 @@ pi4_launcher_render_frame:
     ldr x6, [x6]
     tbz x6, #PI4_LAUNCHER_SLOT_QUAKE, .Lpi4_render_quake_card_art_done
     mov x0, x19
-    mov x1, #PI4_LAUNCHER_QUAKE_CARD_X
-    add x1, x1, #PI4_LAUNCHER_CARD_ART_INSET
-    mov x2, #PI4_LAUNCHER_CARD_Y
-    add x2, x2, #PI4_LAUNCHER_CARD_ART_INSET
-    mov x3, #PI4_LAUNCHER_CARD_ART_W
-    mov x4, #PI4_LAUNCHER_CARD_ART_H
+    mov x1, #PI4_LAUNCHER_QUAKE_ICON_X
+    mov x2, #PI4_LAUNCHER_ICON_Y
+    mov x3, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    mov x4, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    mov x5, #PI4_COLOR_BLACK
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, #PI4_LAUNCHER_QUAKE_ICON_X
+    mov x2, #PI4_LAUNCHER_ICON_Y
+    mov x3, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    mov x4, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
     adrp x5, pi4_launcher_quake_icon_pixels
     add x5, x5, :lo12:pi4_launcher_quake_icon_pixels
     bl pi4_launcher_draw_icon_pixels_rect
 
 .Lpi4_render_quake_card_art_done:
+    mov x0, x19
+    mov x1, #PI4_LAUNCHER_DOOM_ICON_X
+    mov x2, #PI4_LAUNCHER_ICON_Y
+    mov x3, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    mov x4, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    mov x5, #PI4_COLOR_DOOM_FIRE
+    bl pi4_launcher_draw_border
+
+    mov x0, x19
+    mov x1, #PI4_LAUNCHER_QUAKE_ICON_X
+    mov x2, #PI4_LAUNCHER_ICON_Y
+    mov x3, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    mov x4, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    mov x5, #PI4_COLOR_QUAKE_GOLD
+    bl pi4_launcher_draw_border
+
     mov x0, x19
     mov x1, #PI4_LAUNCHER_DOOM_CARD_X
     add x1, x1, #PI4_LAUNCHER_CARD_ART_INSET
@@ -1773,11 +1803,9 @@ pi4_launcher_render_frame:
 .Lpi4_render_quake_icon_done:
     mov x0, x19
     mov x1, #PI4_LAUNCHER_DOOM_LABEL_X
-    add x1, x1, #4
     mov x2, #PI4_LAUNCHER_LABEL_Y
-    add x2, x2, #4
-    mov x3, #15
-    mov x4, #5
+    mov x3, #23
+    mov x4, #PI4_LAUNCHER_LABEL_H
     mov x5, #PI4_COLOR_BLACK
     adrp x6, pi4_launcher_doom_label_bitmap
     add x6, x6, :lo12:pi4_launcher_doom_label_bitmap
@@ -1787,8 +1815,8 @@ pi4_launcher_render_frame:
     mov x0, x19
     mov x1, #PI4_LAUNCHER_DOOM_LABEL_X
     mov x2, #PI4_LAUNCHER_LABEL_Y
-    mov x3, #15
-    mov x4, #5
+    mov x3, #23
+    mov x4, #PI4_LAUNCHER_LABEL_H
     mov x5, #PI4_COLOR_TEXT
     adrp x6, pi4_launcher_doom_label_bitmap
     add x6, x6, :lo12:pi4_launcher_doom_label_bitmap
@@ -1797,11 +1825,9 @@ pi4_launcher_render_frame:
 
     mov x0, x19
     mov x1, #PI4_LAUNCHER_QUAKE_LABEL_X
-    add x1, x1, #4
     mov x2, #PI4_LAUNCHER_LABEL_Y
-    add x2, x2, #4
-    mov x3, #19
-    mov x4, #5
+    mov x3, #29
+    mov x4, #PI4_LAUNCHER_LABEL_H
     mov x5, #PI4_COLOR_BLACK
     adrp x6, pi4_launcher_quake_label_bitmap
     add x6, x6, :lo12:pi4_launcher_quake_label_bitmap
@@ -1811,8 +1837,8 @@ pi4_launcher_render_frame:
     mov x0, x19
     mov x1, #PI4_LAUNCHER_QUAKE_LABEL_X
     mov x2, #PI4_LAUNCHER_LABEL_Y
-    mov x3, #19
-    mov x4, #5
+    mov x3, #29
+    mov x4, #PI4_LAUNCHER_LABEL_H
     mov x5, #PI4_COLOR_TEXT
     adrp x6, pi4_launcher_quake_label_bitmap
     add x6, x6, :lo12:pi4_launcher_quake_label_bitmap
@@ -2004,6 +2030,7 @@ pi4_launcher_draw_doom_poster:
     mov x4, x23
     mov x5, #PI4_COLOR_DOOM_DARK
     bl pi4_launcher_fill_rect
+    b .Lpi4_doom_poster_done
 
     mov x0, x19
     mov x1, x20
@@ -2165,6 +2192,7 @@ pi4_launcher_draw_doom_poster:
     mov x5, #PI4_COLOR_HILITE
     bl pi4_launcher_fill_rect
 
+.Lpi4_doom_poster_done:
     ldr x23, [sp, #48]
     ldp x21, x22, [sp, #32]
     ldp x19, x20, [sp, #16]
@@ -2193,6 +2221,7 @@ pi4_launcher_draw_quake_poster:
     mov x4, x23
     mov x5, #PI4_COLOR_QUAKE_DARK
     bl pi4_launcher_fill_rect
+    b .Lpi4_quake_poster_done
 
     mov x0, x19
     mov x1, x20
@@ -2346,6 +2375,7 @@ pi4_launcher_draw_quake_poster:
     mov x5, #PI4_COLOR_QUAKE_GOLD
     bl pi4_launcher_fill_rect
 
+.Lpi4_quake_poster_done:
     ldr x23, [sp, #48]
     ldp x21, x22, [sp, #32]
     ldp x19, x20, [sp, #16]
@@ -2758,6 +2788,7 @@ pi4_launcher_draw_bitmap_scaled:
 .Lpi4_scaled_bitmap_x:
     cmp x28, x22
     b.hs .Lpi4_scaled_bitmap_next_y
+    ldr w8, [x25, x27, lsl #2]
     sub x9, x22, #1
     sub x9, x9, x28
     lsr w10, w8, w9
@@ -3262,10 +3293,11 @@ pi4_launcher_manifest:
     .ascii "launcher_visible_hover_state=cursor-corner-brackets-on-padded-card-hitbox\n"
     .ascii "launcher_visible_launch_affordance=card-play-button-glyph-and-1-2-key-badges\n"
     .ascii "launcher_visible_keyboard_labels=1-2-key-badges-and-enter-button-label\n"
-    .ascii "launcher_visible_art_fallback=full-card-doom-quake-poster-plus-payload-emblem\n"
+    .ascii "launcher_visible_art_fallback=retro-mac-icon-well-with-large-real-asset-icons-and-readable-labels\n"
     .ascii "launcher_visible_layout=1280x720-topbar56-header1216x92-picker1216x504\n"
     .ascii "launcher_visible_card_rects=doom48,192,552,464;quake680,192,552,464\n"
     .ascii "launcher_visible_art_rects=doom72,216,504,288;quake704,216,504,288\n"
+    .ascii "launcher_visible_app_icon_rects=doom180,224,288,288;quake812,224,288,288\n"
     .ascii "launcher_visible_button_rects=doom188,600,272,48;quake820,600,272,48\n"
     .ascii "launcher_visible_key_badges=doom120,600,48,48;quake752,600,48,48\n"
     .ascii "launcher_exec_argv_envp=slot-stable-argv-empty-envp\n"

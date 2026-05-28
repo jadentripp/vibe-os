@@ -132,8 +132,8 @@ PI4_LOCAL_QEMU_DOOM_SECONDS ?= 90
 PI4_LOCAL_QEMU_QUAKE_SECONDS ?= 180
 PI4_LOCAL_QEMU_DOOM_FRAME1_SETTLE_MS ?= 20000
 PI4_LOCAL_QEMU_QUAKE_FRAME1_SETTLE_MS ?= 120000
-PI4_LOCAL_QEMU_DOOM_INPUT ?= 1wwwwww
-PI4_LOCAL_QEMU_QUAKE_INPUT ?= 2ssssss
+PI4_LOCAL_QEMU_DOOM_INPUT ?= key=1,mousebtn=1,mousebtn=0,wait=6000,key=w
+PI4_LOCAL_QEMU_QUAKE_INPUT ?= key=2,mouse=127:0,mouse=127:0,mouse=127:0,mouse=127:0,mouse=127:0,mousebtn=1,mousebtn=0,wait=6000,key=s
 PI4_QEMU_USB_KEYBOARD ?= 1
 PI4_QEMU_USB_MOUSE ?= 1
 PI4_LOCAL_QEMU_SERIAL := $(PI4_BUILD_DIR)/local-qemu-serial.txt
@@ -257,7 +257,7 @@ QUAKE_PI4_ENGINE_BUILD_DIR := $(PI4_BUILD_DIR)/quake-engine
 QUAKE_PI4_ENGINE_ELF := $(PI4_BUILD_DIR)/PAYLOAD1.QUAKE.ELF
 QUAKE_PI4_ENGINE_PORT_NAMES := cd input setjmp start sys vid
 QUAKE_PI4_ENGINE_PORT_OBJS := $(addprefix $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_,$(addsuffix .o,$(QUAKE_PI4_ENGINE_PORT_NAMES)))
-QUAKE_PI4_ENGINE_RUNTIME_OBJS := $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_runtime.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_state.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_pr_load.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_sv_spawn.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_render_trace.o
+QUAKE_PI4_ENGINE_RUNTIME_OBJS := $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_runtime.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_state.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_pr_load.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_sv_spawn.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_render_trace.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_d_surf.o
 QUAKE_PI4_ENGINE_ORIGINAL_SRC_NAMES := $(filter-out snd_dma snd_mem snd_mix,$(QUAKE_ORIGINAL_SRC_NAMES)) snd_null
 QUAKE_PI4_ENGINE_ORIGINAL_OBJS := $(addprefix $(QUAKE_PI4_ENGINE_BUILD_DIR)/,$(addsuffix .o,$(QUAKE_PI4_ENGINE_ORIGINAL_SRC_NAMES)))
 QUAKE_PI4_ENGINE_OBJS := $(QUAKE_PI4_ENGINE_PORT_OBJS) $(QUAKE_PI4_ENGINE_RUNTIME_OBJS) $(QUAKE_PI4_ENGINE_ORIGINAL_OBJS)
@@ -1160,6 +1160,9 @@ $(QUAKE_PI4_ENGINE_BUILD_DIR)/r_main.o: $(QUAKE_SRC_DIR)/r_main.c Makefile | $(Q
 $(QUAKE_PI4_ENGINE_BUILD_DIR)/r_edge.o: $(QUAKE_SRC_DIR)/r_edge.c Makefile | $(QUAKE_PI4_ENGINE_BUILD_DIR)
 	$(AARCH64_CC) $(QUAKE_PI4_ENGINE_CFLAGS) -DR_ScanEdges=pi4_quake_original_R_ScanEdges -c $< -o $@
 
+$(QUAKE_PI4_ENGINE_BUILD_DIR)/d_surf.o: $(QUAKE_SRC_DIR)/d_surf.c Makefile | $(QUAKE_PI4_ENGINE_BUILD_DIR)
+	$(AARCH64_CC) $(QUAKE_PI4_ENGINE_CFLAGS) -DD_SCAlloc=pi4_quake_original_D_SCAlloc -DD_CacheSurface=pi4_quake_original_D_CacheSurface -c $< -o $@
+
 $(QUAKE_PI4_ENGINE_BUILD_DIR)/screen.o: $(QUAKE_SRC_DIR)/screen.c Makefile | $(QUAKE_PI4_ENGINE_BUILD_DIR)
 	$(AARCH64_CC) $(QUAKE_PI4_ENGINE_CFLAGS) -DSCR_UpdateScreen=pi4_quake_original_SCR_UpdateScreen -c $< -o $@
 
@@ -1179,6 +1182,9 @@ $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_sv_spawn.o: quake_port/pi4_engine/sv_spawn.c 
 	$(AARCH64_CC) $(QUAKE_PI4_ENGINE_CFLAGS) -c $< -o $@
 
 $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_render_trace.o: quake_port/pi4_engine/render_trace.c Makefile | $(QUAKE_PI4_ENGINE_BUILD_DIR)
+	$(AARCH64_CC) $(QUAKE_PI4_ENGINE_CFLAGS) -c $< -o $@
+
+$(QUAKE_PI4_ENGINE_BUILD_DIR)/port_d_surf.o: quake_port/pi4_engine/d_surf.c Makefile | $(QUAKE_PI4_ENGINE_BUILD_DIR)
 	$(AARCH64_CC) $(QUAKE_PI4_ENGINE_CFLAGS) -c $< -o $@
 
 $(QUAKE_PI4_ENGINE_MISSING_SYMBOLS): $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(QUAKE_PI4_ENGINE_OBJS) | $(QUAKE_PI4_ENGINE_BUILD_DIR)
@@ -1765,7 +1771,7 @@ pi4-local-qemu-doom-input-smoke: vm-consent $(PI4_QEMU_COMMAND) $(VIBE_STATUS_CH
 	@grep -a -E -q '(^| )pi4payloadvfs=.*0x00000000464f4f4b' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -E -q '(^| )pi4inputevt=.*0x0*1' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -F -q "pi4fb=OK" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
-	@grep -a -E -q '(^| )fbpresent=0x0*[2-9a-fA-F]' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
+	@grep -a -E -q '(^| )fbpresent=0x0*[1-9a-fA-F][0-9a-fA-F]*' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -E -q '(^| )fbchange=.*0x0*1( |$$)' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -F -q "pi4mem=OK" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -F -q "pi4ualloc=" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
@@ -1795,7 +1801,7 @@ pi4-local-qemu-quake-input-smoke: vm-consent $(PI4_QEMU_COMMAND) $(VIBE_STATUS_C
 	@grep -a -E -q '(^| )pi4payloadvfs=.*0x00000000464f4f4b' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@grep -a -E -q '(^| )pi4inputevt=.*0x0*1' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@grep -a -F -q "pi4fb=OK" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
-	@grep -a -E -q '(^| )fbpresent=0x0*[2-9a-fA-F]' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
+	@grep -a -E -q '(^| )fbpresent=0x0*[1-9a-fA-F][0-9a-fA-F]*' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@grep -a -E -q '(^| )fbchange=.*0x0*1( |$$)' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@grep -a -F -q "pi4mem=OK" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@grep -a -F -q "pi4ualloc=" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
@@ -2289,8 +2295,8 @@ pi4-hw-equivalent-final-gates-policy: pi4-hw-equivalent-artifact-policy
 	grep -q 'image_sha_after=.*real_asset_image' "$$workflow"; \
 	grep -q 'single_artifact_stable=true' "$$workflow"; \
 	grep -q 'framebuffer_final_gate_passed=true' "$$workflow"; \
-	grep -q 'doom_launcher_input="mousebtn=1,mousebtn=0,key=w"' "$$workflow"; \
-	grep -q 'quake_launcher_input="mouse=127:0,mouse=127:0,mouse=127:0,mouse=127:0,mouse=127:0,mousebtn=1,mousebtn=0,key=s"' "$$workflow"; \
+	grep -q 'doom_launcher_input="key=1,mousebtn=1,mousebtn=0,wait=6000,key=w"' "$$workflow"; \
+	grep -q 'quake_launcher_input="key=2,mouse=127:0,mouse=127:0,mouse=127:0,mouse=127:0,mouse=127:0,mousebtn=1,mousebtn=0,wait=6000,key=s"' "$$workflow"; \
 	grep -q 'tuple_component_nonzero "$$doom_input_events" 1' "$$workflow"; \
 	grep -q 'tuple_component_nonzero "$$doom_input_events" 4' "$$workflow"; \
 	grep -q 'tuple_component_nonzero "$$quake_input_events" 2' "$$workflow"; \

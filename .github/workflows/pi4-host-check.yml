@@ -149,8 +149,8 @@ jobs:
             echo "$workflow must keep exactly two launcher framebuffer probes: Doom and Quake." >&2
             exit 1
           fi
-          grep -q 'doom_launcher_input="mousebtn=1,mousebtn=0,key=w"' "$workflow"
-          grep -Eq 'quake_launcher_input="mouse=.*mousebtn=1,mousebtn=0,key=s"' "$workflow"
+          grep -q 'doom_launcher_input="key=1,mousebtn=1,mousebtn=0,wait=6000,key=w"' "$workflow"
+          grep -Eq 'quake_launcher_input="key=2,mouse=.*mousebtn=1,mousebtn=0,wait=6000,key=s"' "$workflow"
           grep -q 'doom_launcher_request_present' "$workflow"
           grep -q 'quake_launcher_request_present' "$workflow"
           grep -q 'launcher_requests_passed' "$workflow"
