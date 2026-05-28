@@ -147,6 +147,17 @@ static const char PI4_DOOM_APP_MANIFEST_PATH[] = "/APPS/DOOM/APP.TXT";
 static const char PI4_DOOM_APP_EXEC_PATH[] = "/APPS/DOOM/APP.ELF";
 static const char PI4_QUAKE_APP_MANIFEST_PATH[] = "/APPS/QUAKE/APP.TXT";
 static const char PI4_QUAKE_APP_EXEC_PATH[] = "/APPS/QUAKE/APP.ELF";
+static const char PI4_APP_LAYOUT[] = "system-init-plus-apps-tree";
+static const char PI4_APP_DISCOVERY_MODEL[] = "vfs-app-index";
+static const char PI4_APP_EXEC_MODEL[] = "generic-aarch64-el0-elf-by-path";
+static const char PI4_LEGACY_ROOT_PAYLOADS[] = "compatibility-only";
+static const char PI4_DOOM_APP_NAME[] = "DOOM";
+static const char PI4_QUAKE_APP_NAME[] = "Quake";
+static const char PI4_DOOM_APP_RESOURCE_PATH[] = "/DOOM1.WAD";
+static const char PI4_QUAKE_APP_RESOURCE_PATH[] = "/ID1/PAK0.PAK";
+static const char PI4_DOOM_APP_ICON[] = "wad:TITLEPIC";
+static const char PI4_QUAKE_APP_ICON[] = "pak:gfx/conback.lmp";
+static const char PI4_APP_INPUT[] = "keyboard,mouse";
 static const char DEFAULT_PI4_ASSET_README_PATH[] = "/ASSETS/README.TXT";
 static const char DEFAULT_PI4_ASSET_MAP_PATH[] = "/ASSETS/MAPS/E1M1.MAP";
 static const char DEFAULT_PI4_ASSET_PALETTE_PATH[] = "/ASSETS/TEXTURES/PAL0.BIN";
@@ -663,6 +674,113 @@ static void inspect_manifest_require_file(
     (*checked_files)++;
 }
 
+static void text_manifest_require_value(const Blob* text, const char* path, const char* key, const char* expected)
+{
+    char value[160];
+
+    if (!manifest_get_value(text, key, value, sizeof(value))) {
+        fprintf(stderr, "make_wad_image: %s: missing app manifest field %s\n", path, key);
+        exit(1);
+    }
+    if (strcmp(value, expected) != 0) {
+        fprintf(stderr, "make_wad_image: %s: app manifest field %s does not match image layout\n", path, key);
+        exit(1);
+    }
+}
+
+static Blob inspect_read_text_manifest(const Blob* image, const char* path, FatFileInfo* info)
+{
+    if (!inspect_find_path(image, path, info))
+        die_path(path, "Pi app layout names a file missing from the FAT image");
+    if (info->attr & FAT_ATTR_DIRECTORY)
+        die_path(path, "Pi app layout expected a file, found a directory");
+    if (info->size == 0)
+        die_path(path, "Pi app layout file is empty");
+    return inspect_read_file_blob(image, info, path);
+}
+
+static void inspect_pi4_app_index(const Blob* image)
+{
+    FatFileInfo info;
+    Blob index = inspect_read_text_manifest(image, PI4_APP_INDEX_PATH, &info);
+
+    text_manifest_require_value(&index, PI4_APP_INDEX_PATH, "schema", "vibe-os-app-index-v1");
+    text_manifest_require_value(&index, PI4_APP_INDEX_PATH, "app_count", "2");
+    text_manifest_require_value(&index, PI4_APP_INDEX_PATH, "app.0.id", "doom");
+    text_manifest_require_value(&index, PI4_APP_INDEX_PATH, "app.0.manifest", PI4_DOOM_APP_MANIFEST_PATH);
+    text_manifest_require_value(&index, PI4_APP_INDEX_PATH, "app.1.id", "quake");
+    text_manifest_require_value(&index, PI4_APP_INDEX_PATH, "app.1.manifest", PI4_QUAKE_APP_MANIFEST_PATH);
+    printf(
+        "app_index_manifest=%s state=present schema=vibe-os-app-index-v1 app_count=2 discovery=%s\n",
+        PI4_APP_INDEX_PATH,
+        PI4_APP_DISCOVERY_MODEL);
+    free(index.data);
+}
+
+static void inspect_pi4_app_manifest(
+    const Blob* image,
+    const char* manifest_path,
+    const char* id,
+    const char* name,
+    const char* exec_path,
+    const char* resource_path,
+    const char* icon,
+    int require_resource)
+{
+    FatFileInfo manifest_info;
+    FatFileInfo exec_info;
+    FatFileInfo resource_info;
+    Blob app = inspect_read_text_manifest(image, manifest_path, &manifest_info);
+    int resource_present;
+
+    text_manifest_require_value(&app, manifest_path, "schema", "vibe-os-app-v1");
+    text_manifest_require_value(&app, manifest_path, "id", id);
+    text_manifest_require_value(&app, manifest_path, "name", name);
+    text_manifest_require_value(&app, manifest_path, "exec", exec_path);
+    text_manifest_require_value(&app, manifest_path, "asset", resource_path);
+    text_manifest_require_value(&app, manifest_path, "icon", icon);
+    text_manifest_require_value(&app, manifest_path, "input", PI4_APP_INPUT);
+
+    if (!inspect_find_path(image, exec_path, &exec_info))
+        die_path(exec_path, "Pi app manifest exec target is missing from the FAT image");
+    if ((exec_info.attr & FAT_ATTR_DIRECTORY) || exec_info.size == 0)
+        die_path(exec_path, "Pi app manifest exec target must be a nonempty file");
+
+    resource_present = inspect_find_path(image, resource_path, &resource_info);
+    if (resource_present && ((resource_info.attr & FAT_ATTR_DIRECTORY) || resource_info.size == 0))
+        die_path(resource_path, "Pi app manifest resource must be a nonempty file");
+    if (!resource_present && require_resource)
+        die_path(resource_path, "real Pi app layout requires the manifest resource file");
+
+    printf(
+        "app_manifest=%s state=present id=%s exec=%s icon=%s resource=%s input=%s\n",
+        manifest_path,
+        id,
+        exec_path,
+        icon,
+        resource_path,
+        PI4_APP_INPUT);
+    printf(
+        "app_exec=%s state=present model=%s app=%s size=%u cluster=%u\n",
+        exec_path,
+        PI4_APP_EXEC_MODEL,
+        id,
+        exec_info.size,
+        exec_info.first_cluster);
+    printf("app_icon=%s state=manifest app=%s\n", icon, id);
+    if (resource_present) {
+        printf(
+            "app_resource=%s state=present app=%s source=manifest size=%u cluster=%u\n",
+            resource_path,
+            id,
+            resource_info.size,
+            resource_info.first_cluster);
+    } else {
+        printf("app_resource=%s state=absent app=%s source=manifest\n", resource_path, id);
+    }
+    free(app.data);
+}
+
 static int inspect_manifest_require_indexed_file(
     const Blob* image,
     const Blob* manifest,
@@ -771,6 +889,7 @@ static void inspect_manifest_check_optional_slot(
     const char* expected_kind,
     const char* expected_file,
     const char* expected_root_slot,
+    const char* expected_app_exec,
     size_t* checked_files)
 {
     char key[64];
@@ -829,6 +948,17 @@ static void inspect_manifest_check_optional_slot(
     if (written < 0 || (size_t)written >= sizeof(key))
         die("Pi proof manifest key is too long");
     manifest_require_value(manifest, key, "unclaimed");
+    inspect_manifest_print_field(manifest, key);
+
+    written = snprintf(key, sizeof(key), "payload_slot.%zu.compatibility", index);
+    if (written < 0 || (size_t)written >= sizeof(key))
+        die("Pi proof manifest key is too long");
+    manifest_require_value(manifest, key, "legacy-root-payload");
+    inspect_manifest_print_field(manifest, key);
+    written = snprintf(key, sizeof(key), "payload_slot.%zu.app_exec", index);
+    if (written < 0 || (size_t)written >= sizeof(key))
+        die("Pi proof manifest key is too long");
+    manifest_require_value(manifest, key, expected_app_exec);
     inspect_manifest_print_field(manifest, key);
 
     if (present) {
@@ -915,13 +1045,23 @@ static void inspect_pi4_manifest(const Blob* image, int require_real_assets)
 
     manifest_require_value(&manifest, "payload_slot_count", "2");
     inspect_manifest_print_field(&manifest, "payload_slot_count");
-    inspect_manifest_check_optional_slot(image, &manifest, 0, "doom", "PAYLOAD0.ELF", "2", &checked_files);
-    inspect_manifest_check_optional_slot(image, &manifest, 1, "quake", "PAYLOAD1.ELF", "3", &checked_files);
+    manifest_require_value(&manifest, "legacy_root_payloads", PI4_LEGACY_ROOT_PAYLOADS);
+    inspect_manifest_print_field(&manifest, "legacy_root_payloads");
+    inspect_manifest_check_optional_slot(
+        image, &manifest, 0, "doom", "PAYLOAD0.ELF", "2", PI4_DOOM_APP_EXEC_PATH, &checked_files);
+    inspect_manifest_check_optional_slot(
+        image, &manifest, 1, "quake", "PAYLOAD1.ELF", "3", PI4_QUAKE_APP_EXEC_PATH, &checked_files);
 
     manifest_require_value(&manifest, "app_model_schema", "vibe-os-pi4-app-install-v1");
     inspect_manifest_print_field(&manifest, "app_model_schema");
+    manifest_require_value(&manifest, "app_layout", PI4_APP_LAYOUT);
+    inspect_manifest_print_field(&manifest, "app_layout");
+    manifest_require_value(&manifest, "app_discovery_model", PI4_APP_DISCOVERY_MODEL);
+    inspect_manifest_print_field(&manifest, "app_discovery_model");
     manifest_require_value(&manifest, "app_launch_model", "generic-vfs-path-exec");
     inspect_manifest_print_field(&manifest, "app_launch_model");
+    manifest_require_value(&manifest, "app_exec_model", PI4_APP_EXEC_MODEL);
+    inspect_manifest_print_field(&manifest, "app_exec_model");
     manifest_require_value(&manifest, "system_init", PI4_SYSTEM_INIT_PATH);
     inspect_manifest_print_field(&manifest, "system_init");
     inspect_manifest_require_file(image, &manifest, PI4_SYSTEM_INIT_PATH, "system_init_size", NULL, &checked_files);
@@ -931,10 +1071,13 @@ static void inspect_pi4_manifest(const Blob* image, int require_real_assets)
     manifest_require_value(&manifest, "app_index", PI4_APP_INDEX_PATH);
     inspect_manifest_print_field(&manifest, "app_index");
     inspect_manifest_require_file(image, &manifest, PI4_APP_INDEX_PATH, "app_index_size", NULL, &checked_files);
+    inspect_pi4_app_index(image);
     manifest_require_value(&manifest, "app_count", "2");
     inspect_manifest_print_field(&manifest, "app_count");
     manifest_require_value(&manifest, "app.0.id", "doom");
     inspect_manifest_print_field(&manifest, "app.0.id");
+    manifest_require_value(&manifest, "app.0.name", PI4_DOOM_APP_NAME);
+    inspect_manifest_print_field(&manifest, "app.0.name");
     manifest_require_value(&manifest, "app.0.manifest", PI4_DOOM_APP_MANIFEST_PATH);
     inspect_manifest_print_field(&manifest, "app.0.manifest");
     inspect_manifest_require_file(image, &manifest, PI4_DOOM_APP_MANIFEST_PATH, "app.0.manifest_size", NULL, &checked_files);
@@ -943,8 +1086,25 @@ static void inspect_pi4_manifest(const Blob* image, int require_real_assets)
     inspect_manifest_require_file(image, &manifest, PI4_DOOM_APP_EXEC_PATH, "app.0.exec_size", NULL, &checked_files);
     manifest_require_value(&manifest, "app.0.launch", "generic-path-exec");
     inspect_manifest_print_field(&manifest, "app.0.launch");
+    manifest_require_value(&manifest, "app.0.exec_model", PI4_APP_EXEC_MODEL);
+    inspect_manifest_print_field(&manifest, "app.0.exec_model");
+    manifest_require_value(&manifest, "app.0.resource", PI4_DOOM_APP_RESOURCE_PATH);
+    inspect_manifest_print_field(&manifest, "app.0.resource");
+    manifest_require_value(&manifest, "app.0.icon", PI4_DOOM_APP_ICON);
+    inspect_manifest_print_field(&manifest, "app.0.icon");
+    inspect_pi4_app_manifest(
+        image,
+        PI4_DOOM_APP_MANIFEST_PATH,
+        "doom",
+        PI4_DOOM_APP_NAME,
+        PI4_DOOM_APP_EXEC_PATH,
+        PI4_DOOM_APP_RESOURCE_PATH,
+        PI4_DOOM_APP_ICON,
+        1);
     manifest_require_value(&manifest, "app.1.id", "quake");
     inspect_manifest_print_field(&manifest, "app.1.id");
+    manifest_require_value(&manifest, "app.1.name", PI4_QUAKE_APP_NAME);
+    inspect_manifest_print_field(&manifest, "app.1.name");
     manifest_require_value(&manifest, "app.1.manifest", PI4_QUAKE_APP_MANIFEST_PATH);
     inspect_manifest_print_field(&manifest, "app.1.manifest");
     inspect_manifest_require_file(image, &manifest, PI4_QUAKE_APP_MANIFEST_PATH, "app.1.manifest_size", NULL, &checked_files);
@@ -953,6 +1113,21 @@ static void inspect_pi4_manifest(const Blob* image, int require_real_assets)
     inspect_manifest_require_file(image, &manifest, PI4_QUAKE_APP_EXEC_PATH, "app.1.exec_size", NULL, &checked_files);
     manifest_require_value(&manifest, "app.1.launch", "generic-path-exec");
     inspect_manifest_print_field(&manifest, "app.1.launch");
+    manifest_require_value(&manifest, "app.1.exec_model", PI4_APP_EXEC_MODEL);
+    inspect_manifest_print_field(&manifest, "app.1.exec_model");
+    manifest_require_value(&manifest, "app.1.resource", PI4_QUAKE_APP_RESOURCE_PATH);
+    inspect_manifest_print_field(&manifest, "app.1.resource");
+    manifest_require_value(&manifest, "app.1.icon", PI4_QUAKE_APP_ICON);
+    inspect_manifest_print_field(&manifest, "app.1.icon");
+    inspect_pi4_app_manifest(
+        image,
+        PI4_QUAKE_APP_MANIFEST_PATH,
+        "quake",
+        PI4_QUAKE_APP_NAME,
+        PI4_QUAKE_APP_EXEC_PATH,
+        PI4_QUAKE_APP_RESOURCE_PATH,
+        PI4_QUAKE_APP_ICON,
+        require_real_assets);
 
     size_t root_file_count = manifest_require_count(&manifest, "root_file_count");
     inspect_manifest_print_field(&manifest, "root_file_count");
@@ -1959,7 +2134,8 @@ static void manifest_write_payload_slot(
     size_t index,
     const char* kind,
     size_t root_elf_slot,
-    const char name[11])
+    const char name[11],
+    const char* app_exec_path)
 {
     char display[13];
     FatFileInfo info;
@@ -1975,6 +2151,8 @@ static void manifest_write_payload_slot(
     text_appendf(text, "payload_slot.%zu.evidence=%s\n", index, present ? "packaged-file-only" : "absent");
     text_appendf(text, "payload_slot.%zu.hardware_proof=unclaimed\n", index);
     text_appendf(text, "payload_slot.%zu.launch_proof=unclaimed\n", index);
+    text_appendf(text, "payload_slot.%zu.compatibility=legacy-root-payload\n", index);
+    text_appendf(text, "payload_slot.%zu.app_exec=%s\n", index, app_exec_path);
     if (present) {
         text_appendf(text, "payload_slot.%zu.cluster=%u\n", index, info.first_cluster);
         text_appendf(text, "payload_slot.%zu.size=%u\n", index, info.size);
@@ -2075,27 +2253,37 @@ static void write_proof_manifest(Image* image, const ProofManifest* manifest)
     manifest_write_root_elf_slot(&text, image, 2, LEGACY_PAYLOAD_ELF_NAME);
     manifest_write_root_elf_slot(&text, image, 3, PAYLOAD1_ELF_NAME);
     text_appendf(&text, "payload_slot_count=2\n");
-    manifest_write_payload_slot(&text, image, 0, "doom", 2, LEGACY_PAYLOAD_ELF_NAME);
-    manifest_write_payload_slot(&text, image, 1, "quake", 3, PAYLOAD1_ELF_NAME);
+    text_appendf(&text, "legacy_root_payloads=%s\n", PI4_LEGACY_ROOT_PAYLOADS);
+    manifest_write_payload_slot(&text, image, 0, "doom", 2, LEGACY_PAYLOAD_ELF_NAME, PI4_DOOM_APP_EXEC_PATH);
+    manifest_write_payload_slot(&text, image, 1, "quake", 3, PAYLOAD1_ELF_NAME, PI4_QUAKE_APP_EXEC_PATH);
     text_appendf(&text, "app_model_schema=vibe-os-pi4-app-install-v1\n");
+    text_appendf(&text, "app_layout=%s\n", PI4_APP_LAYOUT);
+    text_appendf(&text, "app_discovery_model=%s\n", PI4_APP_DISCOVERY_MODEL);
     text_appendf(&text, "app_launch_model=generic-vfs-path-exec\n");
+    text_appendf(&text, "app_exec_model=%s\n", PI4_APP_EXEC_MODEL);
     manifest_write_app_file(&text, "system_init", system_init);
     manifest_write_app_file(&text, "system_abiprobe", system_abiprobe);
     manifest_write_app_file(&text, "app_index", app_index);
     text_appendf(&text, "app_count=2\n");
     text_appendf(&text, "app.0.id=doom\n");
-    text_appendf(&text, "app.0.name=DOOM\n");
+    text_appendf(&text, "app.0.name=%s\n", PI4_DOOM_APP_NAME);
     manifest_write_app_file(&text, "app.0.manifest", doom_manifest);
     manifest_write_app_file(&text, "app.0.exec", doom_exec);
     text_appendf(&text, "app.0.launch=generic-path-exec\n");
-    text_appendf(&text, "app.0.asset=/DOOM1.WAD\n");
+    text_appendf(&text, "app.0.exec_model=%s\n", PI4_APP_EXEC_MODEL);
+    text_appendf(&text, "app.0.resource=%s\n", PI4_DOOM_APP_RESOURCE_PATH);
+    text_appendf(&text, "app.0.asset=%s\n", PI4_DOOM_APP_RESOURCE_PATH);
+    text_appendf(&text, "app.0.icon=%s\n", PI4_DOOM_APP_ICON);
     text_appendf(&text, "app.0.hardware_proof=unclaimed\n");
     text_appendf(&text, "app.1.id=quake\n");
-    text_appendf(&text, "app.1.name=Quake\n");
+    text_appendf(&text, "app.1.name=%s\n", PI4_QUAKE_APP_NAME);
     manifest_write_app_file(&text, "app.1.manifest", quake_manifest);
     manifest_write_app_file(&text, "app.1.exec", quake_exec);
     text_appendf(&text, "app.1.launch=generic-path-exec\n");
+    text_appendf(&text, "app.1.exec_model=%s\n", PI4_APP_EXEC_MODEL);
+    text_appendf(&text, "app.1.resource=%s\n", PI4_QUAKE_APP_RESOURCE_PATH);
     text_appendf(&text, "app.1.asset=%s\n", PROOF_QUAKE_PAK_PATH);
+    text_appendf(&text, "app.1.icon=%s\n", PI4_QUAKE_APP_ICON);
     text_appendf(&text, "app.1.hardware_proof=unclaimed\n");
     text_appendf(&text, "primary_asset_file=DOOM1.WAD\n");
     text_appendf(&text, "primary_asset_kind=doom-wad\n");

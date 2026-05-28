@@ -640,52 +640,11 @@ done:
     return ok;
 }
 
-static int read_installed_app_prefix(const char* path, u32 bytes)
-{
-    pi4_vibe_word_t got = 0;
-
-    if (!bytes || bytes > PI4_LAUNCHER_ASSET_BYTES)
-        return 0;
-    if (vibe_user_file_read_at(path, 0, pi4_launcher_asset, bytes, &got) != 0)
-        return 0;
-    return got == bytes;
-}
-
-static int read_installed_app_elf_magic(const char* path)
-{
-    if (!read_installed_app_prefix(path, 4u))
-        return 0;
-    return pi4_launcher_asset[0] == 0x7fu &&
-        pi4_launcher_asset[1] == 'E' &&
-        pi4_launcher_asset[2] == 'L' &&
-        pi4_launcher_asset[3] == 'F';
-}
-
-static void load_installed_app_metadata(void)
-{
-    unsigned long flags = 0;
-
-    if (read_installed_app_prefix(PI4_VIBE_APP_INDEX_PATH, 16u))
-        flags |= PI4_LAUNCHER_APP_INDEX_READY;
-    if (read_installed_app_prefix(PI4_VIBE_DOOM_APP_MANIFEST_PATH, 16u))
-        flags |= PI4_LAUNCHER_APP_DOOM_MANIFEST_READY;
-    if (read_installed_app_elf_magic(PI4_VIBE_DOOM_APP_PATH))
-        flags |= PI4_LAUNCHER_APP_DOOM_EXEC_READY;
-    if (read_installed_app_prefix(PI4_VIBE_QUAKE_APP_MANIFEST_PATH, 16u))
-        flags |= PI4_LAUNCHER_APP_QUAKE_MANIFEST_READY;
-    if (read_installed_app_elf_magic(PI4_VIBE_QUAKE_APP_PATH))
-        flags |= PI4_LAUNCHER_APP_QUAKE_EXEC_READY;
-
-    pi4_launcher_app_discovery_flags = flags;
-}
-
 void pi4_launcher_load_art(void)
 {
     clear_icon(pi4_launcher_doom_icon_pixels);
     clear_icon(pi4_launcher_quake_icon_pixels);
     pi4_launcher_art_flags = 0;
-    pi4_launcher_app_discovery_flags = 0;
-    load_installed_app_metadata();
 
     if (load_doom_icon()) {
         decorate_loaded_icon(

@@ -4,23 +4,26 @@
 
 .equ PI4_LAUNCHER_SLOT_DOOM,        0
 .equ PI4_LAUNCHER_SLOT_QUAKE,       1
+.equ PI4_LAUNCHER_SLOT_STATE_ABSENT, 0
 .equ PI4_LAUNCHER_SLOT_STATE_PRESENT, 1
 
-.section .rodata.pi4_launcher_slots, "a", %progbits
+.section .data.pi4_launcher_slots, "aw", %progbits
 .balign 8
 .global pi4_launcher_slot_table
 pi4_launcher_slot_table:
     .quad PI4_LAUNCHER_SLOT_DOOM
     .quad pi4_launcher_slot_doom_name
-    .quad pi4_launcher_slot_doom_path
-    .quad PI4_LAUNCHER_SLOT_STATE_PRESENT
-    .quad pi4_launcher_slot_present_state
+    .quad 0
+    .quad PI4_LAUNCHER_SLOT_STATE_ABSENT
+    .quad pi4_launcher_slot_absent_state
     .quad PI4_LAUNCHER_SLOT_QUAKE
     .quad pi4_launcher_slot_quake_name
-    .quad pi4_launcher_slot_quake_path
-    .quad PI4_LAUNCHER_SLOT_STATE_PRESENT
-    .quad pi4_launcher_slot_present_state
+    .quad 0
+    .quad PI4_LAUNCHER_SLOT_STATE_ABSENT
+    .quad pi4_launcher_slot_absent_state
 
+.section .rodata.pi4_launcher_slot_strings, "a", %progbits
+.balign 8
 .global pi4_launcher_slot_doom_name
 pi4_launcher_slot_doom_name:
     .asciz "DOOM"
@@ -40,6 +43,10 @@ pi4_launcher_slot_quake_path:
 .global pi4_launcher_slot_present_state
 pi4_launcher_slot_present_state:
     .asciz "present"
+
+.global pi4_launcher_slot_absent_state
+pi4_launcher_slot_absent_state:
+    .asciz "absent"
 
 .section .rodata.pi4_launcher_palette, "a", %progbits
 .balign 4

@@ -1034,7 +1034,7 @@ quake_framebuffer_frame0_hash=3333333333333333
 quake_framebuffer_frame1_hash=4444444444444444
 launcher_doom_exec=green
 launcher_quake_exec=green
-payload_launch_status_fields=pi4exec,pi4execreq,pi4payloadvfs,path,upath,pi4inputevt,fbpresent,fbchange
+app_launch_status_fields=pi4exec,pi4execreq,pi4payloadvfs,path,upath,pi4inputevt,fbpresent,fbchange
 EOF_LOCAL_QEMU_PAYLOAD_GATES_OK
 cat > "$PI4_LOCAL_QEMU_PAYLOAD_DOOM_OK" <<EOF_LOCAL_QEMU_DOOM_OK
 vibe-status arch=AARCH64 machine=PI4 image=PI4

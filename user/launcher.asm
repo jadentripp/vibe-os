@@ -73,6 +73,15 @@ BITS 32
 %define LAUNCHER_ART_PALETTE_BASE 32
 %define LAUNCHER_ART_PALETTE_LEVELS 6
 %define LAUNCHER_ART_PALETTE_STEP 51
+%define LAUNCHER_TEXT_BUFFER_BYTES 4096
+%define LAUNCHER_PATH_MAX_BYTES 128
+%define LAUNCHER_APP_INDEX_READY 0x00000001
+%define LAUNCHER_APP0_MANIFEST_LISTED 0x00000002
+%define LAUNCHER_APP1_MANIFEST_LISTED 0x00000004
+%define LAUNCHER_APP0_MANIFEST_READY 0x00000008
+%define LAUNCHER_APP1_MANIFEST_READY 0x00000010
+%define LAUNCHER_APP0_EXEC_READY 0x00000020
+%define LAUNCHER_APP1_EXEC_READY 0x00000040
 %define WAD_DIR_ENTRY_BYTES 16
 %define PAK_DIR_ENTRY_BYTES 64
 
@@ -85,6 +94,8 @@ extern vibe_user_open
 extern vibe_user_read
 extern vibe_user_lseek
 extern vibe_user_close
+extern vibe_user_file_read_at
+extern vibe_user_file_read_all
 
 section .text
 global vibe_launcher_choose_payload
@@ -137,10 +148,22 @@ vibe_launcher_choose_payload:
 .selected:
     cmp eax, 2
     je .quake
+    test dword [launcher_app_flags], LAUNCHER_APP0_EXEC_READY
+    jz .doom_fallback
+    mov eax, launcher_app0_exec_path
+    jmp .done
+
+.doom_fallback:
     mov eax, payload0_path
     jmp .done
 
 .quake:
+    test dword [launcher_app_flags], LAUNCHER_APP1_EXEC_READY
+    jz .quake_fallback
+    mov eax, launcher_app1_exec_path
+    jmp .done
+
+.quake_fallback:
     mov eax, payload1_path
     jmp .done
 
@@ -578,9 +601,262 @@ launcher_load_art:
     cld
     rep stosb
     mov dword [launcher_art_flags], 0
+    call launcher_load_app_metadata
     call launcher_load_doom_icon
     call launcher_load_quake_icon
     pop edi
+    ret
+
+align 16
+launcher_load_app_metadata:
+    push ebx
+    push esi
+    push edi
+    mov dword [launcher_app_flags], 0
+    mov dword [launcher_app0_manifest_path], 0
+    mov dword [launcher_app1_manifest_path], 0
+    mov dword [launcher_app0_exec_path], 0
+    mov dword [launcher_app1_exec_path], 0
+
+    mov eax, launcher_index_path
+    call launcher_read_text_file
+    test eax, eax
+    jne .done
+    or dword [launcher_app_flags], LAUNCHER_APP_INDEX_READY
+
+    mov esi, [launcher_asset_ptr]
+    mov ecx, [launcher_text_size]
+    mov edi, launcher_app0_manifest_key
+    mov ebx, launcher_app0_manifest_path
+    mov edx, LAUNCHER_PATH_MAX_BYTES
+    call launcher_find_key_value_copy
+    test eax, eax
+    jne .parse_app1_manifest
+    or dword [launcher_app_flags], LAUNCHER_APP0_MANIFEST_LISTED
+
+.parse_app1_manifest:
+    mov esi, [launcher_asset_ptr]
+    mov ecx, [launcher_text_size]
+    mov edi, launcher_app1_manifest_key
+    mov ebx, launcher_app1_manifest_path
+    mov edx, LAUNCHER_PATH_MAX_BYTES
+    call launcher_find_key_value_copy
+    test eax, eax
+    jne .load_app0_manifest
+    or dword [launcher_app_flags], LAUNCHER_APP1_MANIFEST_LISTED
+
+.load_app0_manifest:
+    test dword [launcher_app_flags], LAUNCHER_APP0_MANIFEST_LISTED
+    jz .load_app1_manifest
+    mov eax, launcher_app0_manifest_path
+    call launcher_read_text_file
+    test eax, eax
+    jne .load_app1_manifest
+    or dword [launcher_app_flags], LAUNCHER_APP0_MANIFEST_READY
+    mov esi, [launcher_asset_ptr]
+    mov ecx, [launcher_text_size]
+    mov edi, launcher_exec_key
+    mov ebx, launcher_app0_exec_path
+    mov edx, LAUNCHER_PATH_MAX_BYTES
+    call launcher_find_key_value_copy
+    test eax, eax
+    jne .load_app1_manifest
+    mov eax, launcher_app0_exec_path
+    call launcher_check_elf_magic
+    test eax, eax
+    jne .load_app1_manifest
+    or dword [launcher_app_flags], LAUNCHER_APP0_EXEC_READY
+
+.load_app1_manifest:
+    test dword [launcher_app_flags], LAUNCHER_APP1_MANIFEST_LISTED
+    jz .done
+    mov eax, launcher_app1_manifest_path
+    call launcher_read_text_file
+    test eax, eax
+    jne .done
+    or dword [launcher_app_flags], LAUNCHER_APP1_MANIFEST_READY
+    mov esi, [launcher_asset_ptr]
+    mov ecx, [launcher_text_size]
+    mov edi, launcher_exec_key
+    mov ebx, launcher_app1_exec_path
+    mov edx, LAUNCHER_PATH_MAX_BYTES
+    call launcher_find_key_value_copy
+    test eax, eax
+    jne .done
+    mov eax, launcher_app1_exec_path
+    call launcher_check_elf_magic
+    test eax, eax
+    jne .done
+    or dword [launcher_app_flags], LAUNCHER_APP1_EXEC_READY
+
+.done:
+    pop edi
+    pop esi
+    pop ebx
+    ret
+
+align 16
+launcher_read_text_file:
+    push ebx
+    push ecx
+    push edx
+    push edi
+    push launcher_text_size
+    push LAUNCHER_TEXT_BUFFER_BYTES - 1
+    push dword [launcher_asset_ptr]
+    push eax
+    call vibe_user_file_read_all
+    add esp, 16
+    test eax, eax
+    jne .done
+    mov ecx, [launcher_text_size]
+    cmp ecx, LAUNCHER_TEXT_BUFFER_BYTES
+    jae .too_large
+    mov edi, [launcher_asset_ptr]
+    mov byte [edi + ecx], 0
+    xor eax, eax
+    jmp .done
+
+.too_large:
+    mov eax, -75
+
+.done:
+    pop edi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+align 16
+launcher_check_elf_magic:
+    push ebx
+    push launcher_probe_size
+    push 4
+    push launcher_file_header
+    push 0
+    push eax
+    call vibe_user_file_read_at
+    add esp, 20
+    test eax, eax
+    jne .fail
+    cmp dword [launcher_probe_size], 4
+    jne .fail
+    cmp byte [launcher_file_header + 0], 0x7f
+    jne .fail
+    cmp byte [launcher_file_header + 1], 'E'
+    jne .fail
+    cmp byte [launcher_file_header + 2], 'L'
+    jne .fail
+    cmp byte [launcher_file_header + 3], 'F'
+    jne .fail
+    xor eax, eax
+    jmp .done
+
+.fail:
+    mov eax, -2
+
+.done:
+    pop ebx
+    ret
+
+align 16
+launcher_find_key_value_copy:
+    push ebp
+    mov ebp, esp
+    sub esp, 20
+    push ebx
+    push esi
+    push edi
+    mov [ebp - 4], esi
+    lea eax, [esi + ecx]
+    mov [ebp - 8], eax
+    mov [ebp - 12], edi
+    mov [ebp - 16], ebx
+    mov [ebp - 20], edx
+    cmp edx, 2
+    jb .fail
+
+.scan_line:
+    mov esi, [ebp - 4]
+    cmp esi, [ebp - 8]
+    jae .fail
+    mov al, [esi]
+    cmp al, 10
+    je .advance_one
+    cmp al, 13
+    je .advance_one
+    mov edi, [ebp - 12]
+    mov edx, esi
+
+.compare_key:
+    mov al, [edi]
+    test al, al
+    je .matched_key
+    cmp edx, [ebp - 8]
+    jae .next_line
+    cmp al, [edx]
+    jne .next_line
+    inc edi
+    inc edx
+    jmp .compare_key
+
+.matched_key:
+    mov edi, [ebp - 16]
+    xor ecx, ecx
+
+.copy_value:
+    cmp edx, [ebp - 8]
+    jae .terminate
+    mov al, [edx]
+    test al, al
+    je .terminate
+    cmp al, 10
+    je .terminate
+    cmp al, 13
+    je .terminate
+    mov ebx, [ebp - 20]
+    dec ebx
+    cmp ecx, ebx
+    jae .fail
+    mov [edi + ecx], al
+    inc ecx
+    inc edx
+    jmp .copy_value
+
+.terminate:
+    test ecx, ecx
+    je .fail
+    mov byte [edi + ecx], 0
+    xor eax, eax
+    jmp .done
+
+.next_line:
+    mov esi, [ebp - 4]
+
+.skip_to_eol:
+    cmp esi, [ebp - 8]
+    jae .fail
+    mov al, [esi]
+    inc esi
+    cmp al, 10
+    jne .skip_to_eol
+    mov [ebp - 4], esi
+    jmp .scan_line
+
+.advance_one:
+    inc esi
+    mov [ebp - 4], esi
+    jmp .scan_line
+
+.fail:
+    mov eax, -2
+
+.done:
+    pop edi
+    pop esi
+    pop ebx
+    mov esp, ebp
+    pop ebp
     ret
 
 align 16
@@ -1774,6 +2050,10 @@ launcher_plot_pixel_clipped:
 section .rodata
 payload0_path db `/APPS/DOOM/APP.ELF`, 0
 payload1_path db `/APPS/QUAKE/APP.ELF`, 0
+launcher_index_path db `/APPS/INDEX.TXT`, 0
+launcher_app0_manifest_key db `app.0.manifest=`, 0
+launcher_app1_manifest_key db `app.1.manifest=`, 0
+launcher_exec_key db `exec=`, 0
 launcher_ready_text db `launcher ready\n`, 0
 launcher_doom_wad_path db `DOOM1.WAD`, 0
 launcher_quake_pak_path db `/ID1/PAK0.PAK`, 0
@@ -1866,6 +2146,9 @@ launcher_quake_conback_offset dd 0
 launcher_quake_conback_size dd 0
 launcher_quake_palette_offset dd 0
 launcher_quake_palette_size dd 0
+launcher_app_flags dd 0
+launcher_text_size dd 0
+launcher_probe_size dd 0
 
 section .bss
 align 16
@@ -1875,3 +2158,7 @@ launcher_quake_palette resb PALETTE_BYTES
 launcher_icon0_pixels resb PAYLOAD_ICON_PIXELS
 launcher_icon1_pixels resb PAYLOAD_ICON_PIXELS
 launcher_input_event resb INPUT_EVENT_BYTES
+launcher_app0_manifest_path resb LAUNCHER_PATH_MAX_BYTES
+launcher_app1_manifest_path resb LAUNCHER_PATH_MAX_BYTES
+launcher_app0_exec_path resb LAUNCHER_PATH_MAX_BYTES
+launcher_app1_exec_path resb LAUNCHER_PATH_MAX_BYTES
