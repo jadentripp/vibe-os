@@ -75,14 +75,14 @@
 .equ PI4_STORAGE_DIRENT_ATTR_VOLUME,    0x08
 .equ PI4_STORAGE_DIRENT_ATTR_DIRECTORY, 0x10
 .equ PI4_STORAGE_READABLE_FILE_MIN_BYTES, 12
-.equ PI4_STORAGE_APP_DIR_KIND_BASE,     7
-.equ PI4_STORAGE_APP_SLOT_COUNT,        2
-.equ PI4_STORAGE_APP_SLOT_RECORD_BYTES, 40
-.equ PI4_STORAGE_APP_SLOT_DIR_STATUS_OFF, 0
-.equ PI4_STORAGE_APP_SLOT_NAME_OFF,     8
-.equ PI4_STORAGE_APP_SLOT_ELF_STATUS_OFF, 16
-.equ PI4_STORAGE_APP_SLOT_ELF_ENTRY_OFF, 24
-.equ PI4_STORAGE_APP_SLOT_MANIFEST_OFF, 32
+.equ PI4_STORAGE_APP_RECORD_KIND_BASE,  7
+.equ PI4_STORAGE_APP_RECORD_COUNT,      2
+.equ PI4_STORAGE_APP_RECORD_BYTES,      40
+.equ PI4_STORAGE_APP_RECORD_DIR_STATUS_OFF, 0
+.equ PI4_STORAGE_APP_RECORD_NAME_OFF,   8
+.equ PI4_STORAGE_APP_RECORD_ELF_STATUS_OFF, 16
+.equ PI4_STORAGE_APP_RECORD_ELF_ENTRY_OFF, 24
+.equ PI4_STORAGE_APP_RECORD_MANIFEST_OFF, 32
 
 .macro PI4_STORAGE_LOAD_LE16 dst, base, off, tmp
     ldrb \dst, [\base, #\off]
@@ -1819,7 +1819,7 @@ pi4_storage_record_file_metadata:
 
 // x0 = directory buffer, x1 = directory bytes, x2 = directory kind:
 // 0 = /PROOF, 1 = /ASSETS, 2 = /ASSETS/MAPS, 3 = /ASSETS/TEXTURES, 4 = /ID1,
-// 5 = /SYSTEM, 6 = /APPS, 7..8 = recorded /APPS child slots.
+// 5 = /SYSTEM, 6 = /APPS, 7..8 = recorded /APPS child records.
 // Returns w0 = number of expected entries recorded from the directory buffer.
 .global pi4_storage_parse_asset_dir
 .type pi4_storage_parse_asset_dir, %function
@@ -1879,9 +1879,9 @@ pi4_storage_parse_asset_dir:
     b.eq .Lpi4_storage_asset_dir_kind_system
     cmp x21, #6
     b.eq .Lpi4_storage_asset_dir_kind_apps
-    sub x3, x21, #PI4_STORAGE_APP_DIR_KIND_BASE
-    cmp x3, #PI4_STORAGE_APP_SLOT_COUNT
-    b.lo .Lpi4_storage_asset_dir_kind_app_slot
+    sub x3, x21, #PI4_STORAGE_APP_RECORD_KIND_BASE
+    cmp x3, #PI4_STORAGE_APP_RECORD_COUNT
+    b.lo .Lpi4_storage_asset_dir_kind_app_record
     b .Lpi4_storage_asset_dir_next
 
 .Lpi4_storage_asset_dir_kind_proof:
@@ -2077,7 +2077,7 @@ pi4_storage_parse_asset_dir:
     ldrb w3, [x22]
     cmp w3, #0x2e
     b.eq .Lpi4_storage_asset_dir_next
-    bl pi4_storage_find_free_app_dir_slot
+    bl pi4_storage_find_free_app_dir_record
     cbz x0, .Lpi4_storage_asset_dir_next
     mov x19, x0
     mov x0, x22
@@ -2089,25 +2089,25 @@ pi4_storage_parse_asset_dir:
     add x24, x24, #1
     b .Lpi4_storage_asset_dir_next
 
-.Lpi4_storage_asset_dir_kind_app_slot:
+.Lpi4_storage_asset_dir_kind_app_record:
     tst w0, #PI4_STORAGE_DIRENT_ATTR_DIRECTORY
     b.ne .Lpi4_storage_asset_dir_next
     mov x0, x22
     adr x1, pi4_storage_name_app_elf
     bl pi4_storage_match_short_name
-    cbnz w0, .Lpi4_storage_asset_dir_record_app_slot_elf
+    cbnz w0, .Lpi4_storage_asset_dir_record_app_elf
     mov x0, x22
     adr x1, pi4_storage_name_app_txt
     bl pi4_storage_match_short_name
-    cbnz w0, .Lpi4_storage_asset_dir_record_app_slot_txt
+    cbnz w0, .Lpi4_storage_asset_dir_record_app_txt
     b .Lpi4_storage_asset_dir_next
 
-.Lpi4_storage_asset_dir_record_app_slot_elf:
-    sub x0, x21, #PI4_STORAGE_APP_DIR_KIND_BASE
-    bl pi4_storage_app_slot_record
+.Lpi4_storage_asset_dir_record_app_elf:
+    sub x0, x21, #PI4_STORAGE_APP_RECORD_KIND_BASE
+    bl pi4_storage_app_record
     cbz x0, .Lpi4_storage_asset_dir_next
-    ldr x2, [x0, #PI4_STORAGE_APP_SLOT_ELF_STATUS_OFF]
-    ldr x3, [x0, #PI4_STORAGE_APP_SLOT_ELF_ENTRY_OFF]
+    ldr x2, [x0, #PI4_STORAGE_APP_RECORD_ELF_STATUS_OFF]
+    ldr x3, [x0, #PI4_STORAGE_APP_RECORD_ELF_ENTRY_OFF]
     mov x0, x22
     mov x1, x23
     mov x4, x25
@@ -2119,11 +2119,11 @@ pi4_storage_parse_asset_dir:
     add x24, x24, #1
     b .Lpi4_storage_asset_dir_next
 
-.Lpi4_storage_asset_dir_record_app_slot_txt:
-    sub x0, x21, #PI4_STORAGE_APP_DIR_KIND_BASE
-    bl pi4_storage_app_slot_record
+.Lpi4_storage_asset_dir_record_app_txt:
+    sub x0, x21, #PI4_STORAGE_APP_RECORD_KIND_BASE
+    bl pi4_storage_app_record
     cbz x0, .Lpi4_storage_asset_dir_next
-    ldr x2, [x0, #PI4_STORAGE_APP_SLOT_MANIFEST_OFF]
+    ldr x2, [x0, #PI4_STORAGE_APP_RECORD_MANIFEST_OFF]
     mov x0, x22
     mov x1, x23
     mov x4, x25
@@ -2150,39 +2150,39 @@ pi4_storage_parse_asset_dir:
     ret
 .size pi4_storage_parse_asset_dir, . - pi4_storage_parse_asset_dir
 
-.type pi4_storage_find_free_app_dir_slot, %function
-pi4_storage_find_free_app_dir_slot:
-    adr x2, pi4_storage_app_slot_records
-    mov x3, #PI4_STORAGE_APP_SLOT_COUNT
-.Lpi4_storage_find_free_app_dir_slot_loop:
-    cbz x3, .Lpi4_storage_find_free_app_dir_slot_none
-    ldr x0, [x2, #PI4_STORAGE_APP_SLOT_DIR_STATUS_OFF]
+.type pi4_storage_find_free_app_dir_record, %function
+pi4_storage_find_free_app_dir_record:
+    adr x2, pi4_storage_app_records
+    mov x3, #PI4_STORAGE_APP_RECORD_COUNT
+.Lpi4_storage_find_free_app_dir_record_loop:
+    cbz x3, .Lpi4_storage_find_free_app_dir_record_none
+    ldr x0, [x2, #PI4_STORAGE_APP_RECORD_DIR_STATUS_OFF]
     ldr x4, [x0]
-    cbz x4, .Lpi4_storage_find_free_app_dir_slot_found
-    add x2, x2, #PI4_STORAGE_APP_SLOT_RECORD_BYTES
+    cbz x4, .Lpi4_storage_find_free_app_dir_record_found
+    add x2, x2, #PI4_STORAGE_APP_RECORD_BYTES
     sub x3, x3, #1
-    b .Lpi4_storage_find_free_app_dir_slot_loop
-.Lpi4_storage_find_free_app_dir_slot_found:
-    ldr x1, [x2, #PI4_STORAGE_APP_SLOT_NAME_OFF]
+    b .Lpi4_storage_find_free_app_dir_record_loop
+.Lpi4_storage_find_free_app_dir_record_found:
+    ldr x1, [x2, #PI4_STORAGE_APP_RECORD_NAME_OFF]
     ret
-.Lpi4_storage_find_free_app_dir_slot_none:
+.Lpi4_storage_find_free_app_dir_record_none:
     mov x0, xzr
     mov x1, xzr
     ret
-.size pi4_storage_find_free_app_dir_slot, . - pi4_storage_find_free_app_dir_slot
+.size pi4_storage_find_free_app_dir_record, . - pi4_storage_find_free_app_dir_record
 
-.type pi4_storage_app_slot_record, %function
-pi4_storage_app_slot_record:
-    cmp x0, #PI4_STORAGE_APP_SLOT_COUNT
-    b.hs .Lpi4_storage_app_slot_record_bad
-    adr x2, pi4_storage_app_slot_records
-    mov x1, #PI4_STORAGE_APP_SLOT_RECORD_BYTES
+.type pi4_storage_app_record, %function
+pi4_storage_app_record:
+    cmp x0, #PI4_STORAGE_APP_RECORD_COUNT
+    b.hs .Lpi4_storage_app_record_bad
+    adr x2, pi4_storage_app_records
+    mov x1, #PI4_STORAGE_APP_RECORD_BYTES
     madd x0, x0, x1, x2
     ret
-.Lpi4_storage_app_slot_record_bad:
+.Lpi4_storage_app_record_bad:
     mov x0, xzr
     ret
-.size pi4_storage_app_slot_record, . - pi4_storage_app_slot_record
+.size pi4_storage_app_record, . - pi4_storage_app_record
 
 .type pi4_storage_note_default_asset_file, %function
 pi4_storage_note_default_asset_file:
@@ -2249,7 +2249,7 @@ pi4_storage_name_app_elf:
 pi4_storage_name_app_txt:
     .ascii "APP     TXT"
 .balign 8
-pi4_storage_app_slot_records:
+pi4_storage_app_records:
     .quad pi4_storage_status_app0_dir
     .quad pi4_storage_status_app0_dir_name
     .quad pi4_storage_status_app0_elf

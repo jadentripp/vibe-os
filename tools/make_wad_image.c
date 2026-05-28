@@ -162,6 +162,10 @@ static const char PI4_APP_INDEX_PATH[] = "/APPS/INDEX.TXT";
 static const char PI4_APP_LAYOUT[] = "system-init-plus-apps-tree";
 static const char PI4_APP_DISCOVERY_MODEL[] = "vfs-app-index";
 static const char PI4_APP_EXEC_MODEL[] = "generic-aarch64-el0-elf-by-path";
+static const char PI4_APP_LAUNCH_MODEL[] = "generic-path-exec";
+static const char PI4_APP_LEGACY_PREFIX[] = "app";
+static const char PI4_APP_RECORD_PREFIX[] = "app_record";
+static const char PI4_APP_RECORD_COUNT_KEY[] = "app_record_count";
 static const char DEFAULT_PI4_ASSET_README_PATH[] = "/ASSETS/README.TXT";
 static const char DEFAULT_PI4_ASSET_MAP_PATH[] = "/ASSETS/MAPS/E1M1.MAP";
 static const char DEFAULT_PI4_ASSET_PALETTE_PATH[] = "/ASSETS/TEXTURES/PAL0.BIN";
@@ -820,6 +824,63 @@ static void print_pi4_app_manifest_status(const Pi4AppInstall* app)
     }
 }
 
+static void inspect_manifest_require_app_record_fields(
+    const Blob* manifest,
+    const char* prefix,
+    size_t index,
+    const Pi4AppInstall* app)
+{
+    char key[64];
+
+    manifest_indexed_key(key, sizeof(key), prefix, index, "id");
+    manifest_require_value(manifest, key, app->id);
+    inspect_manifest_print_field(manifest, key);
+    manifest_indexed_key(key, sizeof(key), prefix, index, "name");
+    manifest_require_value(manifest, key, app->name);
+    inspect_manifest_print_field(manifest, key);
+    manifest_indexed_key(key, sizeof(key), prefix, index, "manifest");
+    manifest_require_value(manifest, key, app->manifest_path);
+    inspect_manifest_print_field(manifest, key);
+    manifest_indexed_key(key, sizeof(key), prefix, index, "manifest_size");
+    manifest_require_file_size(manifest, key, app->manifest_info.size);
+    inspect_manifest_print_field(manifest, key);
+    manifest_indexed_key(key, sizeof(key), prefix, index, "exec");
+    manifest_require_value(manifest, key, app->exec_path);
+    inspect_manifest_print_field(manifest, key);
+    manifest_indexed_key(key, sizeof(key), prefix, index, "exec_size");
+    manifest_require_file_size(manifest, key, app->exec_info.size);
+    inspect_manifest_print_field(manifest, key);
+    manifest_indexed_key(key, sizeof(key), prefix, index, "launch");
+    manifest_require_value(manifest, key, PI4_APP_LAUNCH_MODEL);
+    inspect_manifest_print_field(manifest, key);
+    manifest_indexed_key(key, sizeof(key), prefix, index, "exec_model");
+    manifest_require_value(manifest, key, PI4_APP_EXEC_MODEL);
+    inspect_manifest_print_field(manifest, key);
+    manifest_indexed_key(key, sizeof(key), prefix, index, "resource");
+    manifest_require_value(manifest, key, app->asset_path);
+    inspect_manifest_print_field(manifest, key);
+    manifest_indexed_key(key, sizeof(key), prefix, index, "asset");
+    manifest_require_value(manifest, key, app->asset_path);
+    inspect_manifest_print_field(manifest, key);
+    manifest_indexed_key(key, sizeof(key), prefix, index, "icon");
+    manifest_require_value(manifest, key, app->icon);
+    inspect_manifest_print_field(manifest, key);
+    manifest_indexed_key(key, sizeof(key), prefix, index, "hardware_proof");
+    manifest_require_value(manifest, key, "unclaimed");
+    inspect_manifest_print_field(manifest, key);
+    printf(
+        "%s=%zu state=present id=%s manifest=%s exec=%s resource=%s icon=%s launch=%s exec_model=%s\n",
+        prefix,
+        index,
+        app->id,
+        app->manifest_path,
+        app->exec_path,
+        app->asset_path,
+        app->icon,
+        PI4_APP_LAUNCH_MODEL,
+        PI4_APP_EXEC_MODEL);
+}
+
 static int inspect_manifest_require_indexed_file(
     const Blob* image,
     const Blob* manifest,
@@ -965,39 +1026,46 @@ static void inspect_pi4_manifest(const Blob* image, int require_real_assets)
         char key[64];
         char size_key[64];
 
-        manifest_indexed_key(key, sizeof(key), "app", i, "id");
+        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "id");
         manifest_require_value(&manifest, key, app->id);
         inspect_manifest_print_field(&manifest, key);
-        manifest_indexed_key(key, sizeof(key), "app", i, "name");
+        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "name");
         manifest_require_value(&manifest, key, app->name);
         inspect_manifest_print_field(&manifest, key);
-        manifest_indexed_key(key, sizeof(key), "app", i, "manifest");
-        manifest_indexed_key(size_key, sizeof(size_key), "app", i, "manifest_size");
+        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "manifest");
+        manifest_indexed_key(size_key, sizeof(size_key), PI4_APP_LEGACY_PREFIX, i, "manifest_size");
         manifest_require_value(&manifest, key, app->manifest_path);
         inspect_manifest_print_field(&manifest, key);
         inspect_manifest_require_file(image, &manifest, app->manifest_path, size_key, NULL, &checked_files);
-        manifest_indexed_key(key, sizeof(key), "app", i, "exec");
-        manifest_indexed_key(size_key, sizeof(size_key), "app", i, "exec_size");
+        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "exec");
+        manifest_indexed_key(size_key, sizeof(size_key), PI4_APP_LEGACY_PREFIX, i, "exec_size");
         manifest_require_value(&manifest, key, app->exec_path);
         inspect_manifest_print_field(&manifest, key);
         inspect_manifest_require_file(image, &manifest, app->exec_path, size_key, NULL, &checked_files);
-        manifest_indexed_key(key, sizeof(key), "app", i, "launch");
-        manifest_require_value(&manifest, key, "generic-path-exec");
+        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "launch");
+        manifest_require_value(&manifest, key, PI4_APP_LAUNCH_MODEL);
         inspect_manifest_print_field(&manifest, key);
-        manifest_indexed_key(key, sizeof(key), "app", i, "exec_model");
+        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "exec_model");
         manifest_require_value(&manifest, key, PI4_APP_EXEC_MODEL);
         inspect_manifest_print_field(&manifest, key);
-        manifest_indexed_key(key, sizeof(key), "app", i, "resource");
+        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "resource");
         manifest_require_value(&manifest, key, app->asset_path);
         inspect_manifest_print_field(&manifest, key);
-        manifest_indexed_key(key, sizeof(key), "app", i, "asset");
+        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "asset");
         manifest_require_value(&manifest, key, app->asset_path);
         inspect_manifest_print_field(&manifest, key);
-        manifest_indexed_key(key, sizeof(key), "app", i, "icon");
+        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "icon");
         manifest_require_value(&manifest, key, app->icon);
+        inspect_manifest_print_field(&manifest, key);
+        manifest_indexed_key(key, sizeof(key), PI4_APP_LEGACY_PREFIX, i, "hardware_proof");
+        manifest_require_value(&manifest, key, "unclaimed");
         inspect_manifest_print_field(&manifest, key);
         print_pi4_app_manifest_status(app);
     }
+    manifest_require_value(&manifest, PI4_APP_RECORD_COUNT_KEY, app_count_value);
+    inspect_manifest_print_field(&manifest, PI4_APP_RECORD_COUNT_KEY);
+    for (size_t i = 0; i < app_catalog.app_count; i++)
+        inspect_manifest_require_app_record_fields(&manifest, PI4_APP_RECORD_PREFIX, i, &app_catalog.apps[i]);
 
     size_t root_file_count = manifest_require_count(&manifest, "root_file_count");
     inspect_manifest_print_field(&manifest, "root_file_count");
@@ -1977,6 +2045,28 @@ static void manifest_write_app_file(TextBuffer* text, const char* prefix, const 
     text_appendf(text, "%s_size=%zu\n", prefix, entry->size);
 }
 
+static void manifest_write_app_install_fields(
+    TextBuffer* text,
+    const char* prefix,
+    size_t index,
+    const Pi4AppInstall* app,
+    const ManifestEntry* app_manifest,
+    const ManifestEntry* app_exec)
+{
+    text_appendf(text, "%s.%zu.id=%s\n", prefix, index, app->id);
+    text_appendf(text, "%s.%zu.name=%s\n", prefix, index, app->name);
+    text_appendf(text, "%s.%zu.manifest=%s\n", prefix, index, app_manifest->file);
+    text_appendf(text, "%s.%zu.manifest_size=%zu\n", prefix, index, app_manifest->size);
+    text_appendf(text, "%s.%zu.exec=%s\n", prefix, index, app_exec->file);
+    text_appendf(text, "%s.%zu.exec_size=%zu\n", prefix, index, app_exec->size);
+    text_appendf(text, "%s.%zu.launch=%s\n", prefix, index, PI4_APP_LAUNCH_MODEL);
+    text_appendf(text, "%s.%zu.exec_model=%s\n", prefix, index, PI4_APP_EXEC_MODEL);
+    text_appendf(text, "%s.%zu.resource=%s\n", prefix, index, app->asset_path);
+    text_appendf(text, "%s.%zu.asset=%s\n", prefix, index, app->asset_path);
+    text_appendf(text, "%s.%zu.icon=%s\n", prefix, index, app->icon);
+    text_appendf(text, "%s.%zu.hardware_proof=unclaimed\n", prefix, index);
+}
+
 static void write_proof_manifest(Image* image, const ProofManifest* manifest)
 {
     if (!manifest->enabled)
@@ -2032,18 +2122,15 @@ static void write_proof_manifest(Image* image, const ProofManifest* manifest)
         const ManifestEntry* app_manifest = proof_manifest_require_asset(manifest, app->manifest_path);
         const ManifestEntry* app_exec = proof_manifest_require_asset(manifest, app->exec_path);
 
-        text_appendf(&text, "app.%zu.id=%s\n", i, app->id);
-        text_appendf(&text, "app.%zu.name=%s\n", i, app->name);
-        text_appendf(&text, "app.%zu.manifest=%s\n", i, app_manifest->file);
-        text_appendf(&text, "app.%zu.manifest_size=%zu\n", i, app_manifest->size);
-        text_appendf(&text, "app.%zu.exec=%s\n", i, app_exec->file);
-        text_appendf(&text, "app.%zu.exec_size=%zu\n", i, app_exec->size);
-        text_appendf(&text, "app.%zu.launch=generic-path-exec\n", i);
-        text_appendf(&text, "app.%zu.exec_model=%s\n", i, PI4_APP_EXEC_MODEL);
-        text_appendf(&text, "app.%zu.resource=%s\n", i, app->asset_path);
-        text_appendf(&text, "app.%zu.asset=%s\n", i, app->asset_path);
-        text_appendf(&text, "app.%zu.icon=%s\n", i, app->icon);
-        text_appendf(&text, "app.%zu.hardware_proof=unclaimed\n", i);
+        manifest_write_app_install_fields(&text, PI4_APP_LEGACY_PREFIX, i, app, app_manifest, app_exec);
+    }
+    text_appendf(&text, "%s=%zu\n", PI4_APP_RECORD_COUNT_KEY, app_catalog.app_count);
+    for (size_t i = 0; i < app_catalog.app_count; i++) {
+        const Pi4AppInstall* app = &app_catalog.apps[i];
+        const ManifestEntry* app_manifest = proof_manifest_require_asset(manifest, app->manifest_path);
+        const ManifestEntry* app_exec = proof_manifest_require_asset(manifest, app->exec_path);
+
+        manifest_write_app_install_fields(&text, PI4_APP_RECORD_PREFIX, i, app, app_manifest, app_exec);
     }
     text_appendf(&text, "primary_asset_file=DOOM1.WAD\n");
     text_appendf(&text, "primary_asset_kind=doom-wad\n");

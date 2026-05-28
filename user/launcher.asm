@@ -82,6 +82,14 @@ BITS 32
 %define LAUNCHER_APP1_MANIFEST_READY 0x00000010
 %define LAUNCHER_APP0_EXEC_READY 0x00000020
 %define LAUNCHER_APP1_EXEC_READY 0x00000040
+%define LAUNCHER_APP_COUNT 2
+%define LAUNCHER_APP_RECORD_MANIFEST_KEY 0
+%define LAUNCHER_APP_RECORD_MANIFEST_PATH 4
+%define LAUNCHER_APP_RECORD_EXEC_PATH 8
+%define LAUNCHER_APP_RECORD_LISTED_FLAG 12
+%define LAUNCHER_APP_RECORD_MANIFEST_READY_FLAG 16
+%define LAUNCHER_APP_RECORD_EXEC_READY_FLAG 20
+%define LAUNCHER_APP_RECORD_BYTES 24
 %define WAD_DIR_ENTRY_BYTES 16
 %define PAK_DIR_ENTRY_BYTES 64
 
@@ -607,90 +615,104 @@ launcher_load_art:
 
 align 16
 launcher_load_app_metadata:
+    push ebp
     push ebx
     push esi
     push edi
     mov dword [launcher_app_flags], 0
-    mov dword [launcher_app0_manifest_path], 0
-    mov dword [launcher_app1_manifest_path], 0
-    mov dword [launcher_app0_exec_path], 0
-    mov dword [launcher_app1_exec_path], 0
+    mov ebp, launcher_app_records
+    mov edi, LAUNCHER_APP_COUNT
 
+.clear_app_records:
+    test edi, edi
+    jz .read_index
+    mov ebx, [ebp + LAUNCHER_APP_RECORD_MANIFEST_PATH]
+    mov dword [ebx], 0
+    mov ebx, [ebp + LAUNCHER_APP_RECORD_EXEC_PATH]
+    mov dword [ebx], 0
+    add ebp, LAUNCHER_APP_RECORD_BYTES
+    dec edi
+    jmp .clear_app_records
+
+.read_index:
     mov eax, launcher_index_path
     call launcher_read_text_file
     test eax, eax
     jne .done
     or dword [launcher_app_flags], LAUNCHER_APP_INDEX_READY
 
+.parse_index_records:
+    mov ebp, launcher_app_records
+    mov edi, LAUNCHER_APP_COUNT
+
+.parse_index_loop:
+    test edi, edi
+    jz .load_manifest_records
+    push edi
     mov esi, [launcher_asset_ptr]
     mov ecx, [launcher_text_size]
-    mov edi, launcher_app0_manifest_key
-    mov ebx, launcher_app0_manifest_path
+    mov edi, [ebp + LAUNCHER_APP_RECORD_MANIFEST_KEY]
+    mov ebx, [ebp + LAUNCHER_APP_RECORD_MANIFEST_PATH]
     mov edx, LAUNCHER_PATH_MAX_BYTES
     call launcher_find_key_value_copy
+    pop edi
     test eax, eax
-    jne .parse_app1_manifest
-    or dword [launcher_app_flags], LAUNCHER_APP0_MANIFEST_LISTED
+    jne .next_index_record
+    mov eax, [ebp + LAUNCHER_APP_RECORD_LISTED_FLAG]
+    or dword [launcher_app_flags], eax
 
-.parse_app1_manifest:
-    mov esi, [launcher_asset_ptr]
-    mov ecx, [launcher_text_size]
-    mov edi, launcher_app1_manifest_key
-    mov ebx, launcher_app1_manifest_path
-    mov edx, LAUNCHER_PATH_MAX_BYTES
-    call launcher_find_key_value_copy
-    test eax, eax
-    jne .load_app0_manifest
-    or dword [launcher_app_flags], LAUNCHER_APP1_MANIFEST_LISTED
+.next_index_record:
+    add ebp, LAUNCHER_APP_RECORD_BYTES
+    dec edi
+    jmp .parse_index_loop
 
-.load_app0_manifest:
-    test dword [launcher_app_flags], LAUNCHER_APP0_MANIFEST_LISTED
-    jz .load_app1_manifest
-    mov eax, launcher_app0_manifest_path
-    call launcher_read_text_file
-    test eax, eax
-    jne .load_app1_manifest
-    or dword [launcher_app_flags], LAUNCHER_APP0_MANIFEST_READY
-    mov esi, [launcher_asset_ptr]
-    mov ecx, [launcher_text_size]
-    mov edi, launcher_exec_key
-    mov ebx, launcher_app0_exec_path
-    mov edx, LAUNCHER_PATH_MAX_BYTES
-    call launcher_find_key_value_copy
-    test eax, eax
-    jne .load_app1_manifest
-    mov eax, launcher_app0_exec_path
-    call launcher_check_elf_magic
-    test eax, eax
-    jne .load_app1_manifest
-    or dword [launcher_app_flags], LAUNCHER_APP0_EXEC_READY
+.load_manifest_records:
+    mov ebp, launcher_app_records
+    mov edi, LAUNCHER_APP_COUNT
 
-.load_app1_manifest:
-    test dword [launcher_app_flags], LAUNCHER_APP1_MANIFEST_LISTED
+.load_manifest_loop:
+    test edi, edi
     jz .done
-    mov eax, launcher_app1_manifest_path
+    mov eax, [ebp + LAUNCHER_APP_RECORD_LISTED_FLAG]
+    test dword [launcher_app_flags], eax
+    jz .next_manifest_record
+    push edi
+    mov eax, [ebp + LAUNCHER_APP_RECORD_MANIFEST_PATH]
     call launcher_read_text_file
+    pop edi
     test eax, eax
-    jne .done
-    or dword [launcher_app_flags], LAUNCHER_APP1_MANIFEST_READY
+    jne .next_manifest_record
+    mov eax, [ebp + LAUNCHER_APP_RECORD_MANIFEST_READY_FLAG]
+    or dword [launcher_app_flags], eax
+    push edi
     mov esi, [launcher_asset_ptr]
     mov ecx, [launcher_text_size]
     mov edi, launcher_exec_key
-    mov ebx, launcher_app1_exec_path
+    mov ebx, [ebp + LAUNCHER_APP_RECORD_EXEC_PATH]
     mov edx, LAUNCHER_PATH_MAX_BYTES
     call launcher_find_key_value_copy
+    pop edi
     test eax, eax
-    jne .done
-    mov eax, launcher_app1_exec_path
+    jne .next_manifest_record
+    push edi
+    mov eax, [ebp + LAUNCHER_APP_RECORD_EXEC_PATH]
     call launcher_check_elf_magic
+    pop edi
     test eax, eax
-    jne .done
-    or dword [launcher_app_flags], LAUNCHER_APP1_EXEC_READY
+    jne .next_manifest_record
+    mov eax, [ebp + LAUNCHER_APP_RECORD_EXEC_READY_FLAG]
+    or dword [launcher_app_flags], eax
+
+.next_manifest_record:
+    add ebp, LAUNCHER_APP_RECORD_BYTES
+    dec edi
+    jmp .load_manifest_loop
 
 .done:
     pop edi
     pop esi
     pop ebx
+    pop ebp
     ret
 
 align 16
@@ -2050,6 +2072,12 @@ launcher_index_path db `/APPS/INDEX.TXT`, 0
 launcher_app0_manifest_key db `app.0.manifest=`, 0
 launcher_app1_manifest_key db `app.1.manifest=`, 0
 launcher_exec_key db `exec=`, 0
+align 4
+launcher_app_records:
+dd launcher_app0_manifest_key, launcher_app0_manifest_path, launcher_app0_exec_path
+dd LAUNCHER_APP0_MANIFEST_LISTED, LAUNCHER_APP0_MANIFEST_READY, LAUNCHER_APP0_EXEC_READY
+dd launcher_app1_manifest_key, launcher_app1_manifest_path, launcher_app1_exec_path
+dd LAUNCHER_APP1_MANIFEST_LISTED, LAUNCHER_APP1_MANIFEST_READY, LAUNCHER_APP1_EXEC_READY
 launcher_ready_text db `launcher ready\n`, 0
 launcher_doom_wad_path db `DOOM1.WAD`, 0
 launcher_quake_pak_path db `/ID1/PAK0.PAK`, 0

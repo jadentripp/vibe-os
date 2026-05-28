@@ -3,7 +3,7 @@
 #define PI4_LAUNCHER_ICON_SIZE 256u
 #define PI4_LAUNCHER_ICON_PIXELS (PI4_LAUNCHER_ICON_SIZE * PI4_LAUNCHER_ICON_SIZE)
 #define PI4_LAUNCHER_ASSET_BYTES 131072u
-#define PI4_LAUNCHER_SLOT_COUNT 2u
+#define PI4_LAUNCHER_APP_RECORD_COUNT 2u
 #define PI4_LAUNCHER_APP_PATH_BYTES PI4_VIBE_EXEC_REQUEST_PATH_MAX_BYTES
 #define PI4_LAUNCHER_APP_ICON_BYTES 64u
 #define PI4_LAUNCHER_PALETTE_BYTES 768u
@@ -13,13 +13,19 @@
 #define PI4_LAUNCHER_DOOM_TITLEPIC_HEIGHT 200u
 #define PI4_LAUNCHER_DOOM_TITLEPIC_BYTES \
     (PI4_LAUNCHER_DOOM_TITLEPIC_WIDTH * PI4_LAUNCHER_DOOM_TITLEPIC_HEIGHT)
-#define PI4_LAUNCHER_ART_DOOM_APP 0x00000001ul
-#define PI4_LAUNCHER_ART_QUAKE_APP 0x00000002ul
+#define PI4_LAUNCHER_ART_APP_RECORD_0_READY 0x00000001ul
+#define PI4_LAUNCHER_ART_APP_RECORD_1_READY 0x00000002ul
 #define PI4_LAUNCHER_APP_INDEX_READY 0x00000010ul
-#define PI4_LAUNCHER_APP0_MANIFEST_READY 0x00000020ul
-#define PI4_LAUNCHER_APP0_EXEC_READY 0x00000040ul
-#define PI4_LAUNCHER_APP1_MANIFEST_READY 0x00000080ul
-#define PI4_LAUNCHER_APP1_EXEC_READY 0x00000100ul
+#define PI4_LAUNCHER_APP_RECORD_MANIFEST_READY_BASE 0x00000020ul
+#define PI4_LAUNCHER_APP_RECORD_EXEC_READY_BASE 0x00000040ul
+#define PI4_LAUNCHER_APP_RECORD_0_MANIFEST_READY \
+    PI4_LAUNCHER_APP_RECORD_MANIFEST_READY_BASE
+#define PI4_LAUNCHER_APP_RECORD_0_EXEC_READY \
+    PI4_LAUNCHER_APP_RECORD_EXEC_READY_BASE
+#define PI4_LAUNCHER_APP_RECORD_1_MANIFEST_READY \
+    (PI4_LAUNCHER_APP_RECORD_MANIFEST_READY_BASE << 2)
+#define PI4_LAUNCHER_APP_RECORD_1_EXEC_READY \
+    (PI4_LAUNCHER_APP_RECORD_EXEC_READY_BASE << 2)
 #define PI4_LAUNCHER_ART_PALETTE_BASE 32u
 #define PI4_LAUNCHER_ART_PALETTE_LEVELS 6u
 #define PI4_LAUNCHER_COLOR_BLACK 0u
@@ -48,8 +54,8 @@ unsigned long pi4_launcher_art_flags;
 unsigned long pi4_launcher_app_discovery_flags;
 u8 pi4_launcher_doom_icon_pixels[PI4_LAUNCHER_ICON_PIXELS];
 u8 pi4_launcher_quake_icon_pixels[PI4_LAUNCHER_ICON_PIXELS];
-extern u8 pi4_launcher_app_slot_assets[PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_SLOT_COUNT];
-extern u8 pi4_launcher_app_slot_icons[PI4_LAUNCHER_APP_ICON_BYTES * PI4_LAUNCHER_SLOT_COUNT];
+extern u8 pi4_launcher_app_record_assets[PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_APP_RECORD_COUNT];
+extern u8 pi4_launcher_app_record_icons[PI4_LAUNCHER_APP_ICON_BYTES * PI4_LAUNCHER_APP_RECORD_COUNT];
 
 static u8 pi4_launcher_asset[PI4_LAUNCHER_ASSET_BYTES];
 static u8 pi4_launcher_doom_palette[PI4_LAUNCHER_PALETTE_BYTES];
@@ -139,7 +145,7 @@ static void decorate_loaded_icon(u8* icon, u8 accent, u8 glow)
     draw_icon_border(icon, 4u, 4u, PI4_LAUNCHER_ICON_SIZE - 8u, PI4_LAUNCHER_ICON_SIZE - 8u, PI4_LAUNCHER_ICON_BLACK);
 }
 
-static void build_doom_fallback_icon(u8* icon)
+static void build_doom_default_icon(u8* icon)
 {
     for (u32 y = 0; y < PI4_LAUNCHER_ICON_SIZE; y++) {
         for (u32 x = 0; x < PI4_LAUNCHER_ICON_SIZE; x++) {
@@ -182,7 +188,7 @@ static void build_doom_fallback_icon(u8* icon)
     draw_icon_border(icon, 0u, 0u, PI4_LAUNCHER_ICON_SIZE, PI4_LAUNCHER_ICON_SIZE, PI4_LAUNCHER_COLOR_HILITE);
 }
 
-static void build_quake_fallback_icon(u8* icon)
+static void build_quake_default_icon(u8* icon)
 {
     for (u32 y = 0; y < PI4_LAUNCHER_ICON_SIZE; y++) {
         for (u32 x = 0; x < PI4_LAUNCHER_ICON_SIZE; x++) {
@@ -278,12 +284,12 @@ static int str_prefix(const char* value, const char* prefix)
     return 1;
 }
 
-static const char* app_slot_string(const u8* base, u32 slot, u32 stride)
+static const char* app_record_string(const u8* base, u32 record, u32 stride)
 {
     const char* value;
-    if (slot >= PI4_LAUNCHER_SLOT_COUNT)
+    if (record >= PI4_LAUNCHER_APP_RECORD_COUNT)
         return 0;
-    value = (const char*)base + slot * stride;
+    value = (const char*)base + record * stride;
     if (!value[0])
         return 0;
     return value;
@@ -638,20 +644,20 @@ static int load_manifest_icon(u8* icon, const char* asset_path, const char* icon
 
 void pi4_launcher_load_art(void)
 {
-    const char* first_asset = app_slot_string(
-        pi4_launcher_app_slot_assets,
+    const char* record_0_asset = app_record_string(
+        pi4_launcher_app_record_assets,
         0u,
         PI4_LAUNCHER_APP_PATH_BYTES);
-    const char* first_icon = app_slot_string(
-        pi4_launcher_app_slot_icons,
+    const char* record_0_icon = app_record_string(
+        pi4_launcher_app_record_icons,
         0u,
         PI4_LAUNCHER_APP_ICON_BYTES);
-    const char* second_asset = app_slot_string(
-        pi4_launcher_app_slot_assets,
+    const char* record_1_asset = app_record_string(
+        pi4_launcher_app_record_assets,
         1u,
         PI4_LAUNCHER_APP_PATH_BYTES);
-    const char* second_icon = app_slot_string(
-        pi4_launcher_app_slot_icons,
+    const char* record_1_icon = app_record_string(
+        pi4_launcher_app_record_icons,
         1u,
         PI4_LAUNCHER_APP_ICON_BYTES);
 
@@ -659,23 +665,23 @@ void pi4_launcher_load_art(void)
     clear_icon(pi4_launcher_quake_icon_pixels);
     pi4_launcher_art_flags = 0;
 
-    if (load_manifest_icon(pi4_launcher_doom_icon_pixels, first_asset, first_icon)) {
+    if (load_manifest_icon(pi4_launcher_doom_icon_pixels, record_0_asset, record_0_icon)) {
         decorate_loaded_icon(
             pi4_launcher_doom_icon_pixels,
             PI4_LAUNCHER_COLOR_DOOM_FIRE,
             PI4_LAUNCHER_COLOR_HILITE);
     } else {
-        build_doom_fallback_icon(pi4_launcher_doom_icon_pixels);
+        build_doom_default_icon(pi4_launcher_doom_icon_pixels);
     }
-    pi4_launcher_art_flags |= PI4_LAUNCHER_ART_DOOM_APP;
+    pi4_launcher_art_flags |= PI4_LAUNCHER_ART_APP_RECORD_0_READY;
 
-    if (load_manifest_icon(pi4_launcher_quake_icon_pixels, second_asset, second_icon)) {
+    if (load_manifest_icon(pi4_launcher_quake_icon_pixels, record_1_asset, record_1_icon)) {
         decorate_loaded_icon(
             pi4_launcher_quake_icon_pixels,
             PI4_LAUNCHER_COLOR_QUAKE_GOLD,
             PI4_LAUNCHER_COLOR_QUAKE);
     } else {
-        build_quake_fallback_icon(pi4_launcher_quake_icon_pixels);
+        build_quake_default_icon(pi4_launcher_quake_icon_pixels);
     }
-    pi4_launcher_art_flags |= PI4_LAUNCHER_ART_QUAKE_APP;
+    pi4_launcher_art_flags |= PI4_LAUNCHER_ART_APP_RECORD_1_READY;
 }

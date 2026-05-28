@@ -173,7 +173,7 @@ pi4_abi_probe_present:
 pi4_abi_probe_exec_request:
     .quad PI4_VIBE_EXEC_REQUEST_ABI_VERSION
     .quad PI4_VIBE_EXEC_REQUEST_BYTES
-    .quad PI4_VIBE_EXEC_REQUEST_COMPAT_NONE
+    .quad PI4_VIBE_EXEC_REQUEST_RESERVED_NONE
     .quad pi4_abi_probe_doom_app_path
 pi4_abi_probe_exec_argv:
     .quad pi4_abi_probe_doom_app_path
