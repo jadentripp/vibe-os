@@ -441,6 +441,60 @@ static int decode_quake_qpic_icon(u8* icon, const u8* qpic, u32 qpic_size, const
     return 1;
 }
 
+static int overlay_quake_qpic_fit(
+    u8* icon,
+    const u8* qpic,
+    u32 qpic_size,
+    const u8* palette,
+    u32 box_x,
+    u32 box_y,
+    u32 box_w,
+    u32 box_h)
+{
+    if (qpic_size < 8u || !box_w || !box_h)
+        return 0;
+
+    u32 width = load_u32(qpic + 0u);
+    u32 height = load_u32(qpic + 4u);
+    if (!width || !height || width > 1024u || height > 1024u)
+        return 0;
+    if (width > (qpic_size - 8u) / height)
+        return 0;
+
+    u32 target_w = box_w;
+    u32 target_h = (height * target_w) / width;
+    if (!target_h)
+        target_h = 1u;
+    if (target_h > box_h) {
+        target_h = box_h;
+        target_w = (width * target_h) / height;
+        if (!target_w)
+            target_w = 1u;
+    }
+
+    u32 target_x = box_x + ((box_w - target_w) >> 1);
+    u32 target_y = box_y + ((box_h - target_h) >> 1);
+    if (target_x >= PI4_LAUNCHER_ICON_SIZE || target_y >= PI4_LAUNCHER_ICON_SIZE)
+        return 0;
+    if (target_w > PI4_LAUNCHER_ICON_SIZE - target_x)
+        target_w = PI4_LAUNCHER_ICON_SIZE - target_x;
+    if (target_h > PI4_LAUNCHER_ICON_SIZE - target_y)
+        target_h = PI4_LAUNCHER_ICON_SIZE - target_y;
+
+    for (u32 y = 0; y < target_h; y++) {
+        u32 source_y = (y * height) / target_h;
+        for (u32 x = 0; x < target_w; x++) {
+            u32 source_x = (x * width) / target_w;
+            u8 color_index = qpic[8u + source_y * width + source_x];
+            u8 color = palette_to_launcher_color(palette, color_index);
+            if (color != PI4_LAUNCHER_ICON_BLACK)
+                icon[(target_y + y) * PI4_LAUNCHER_ICON_SIZE + target_x + x] = color;
+        }
+    }
+
+    return 1;
+}
+
 static int load_doom_icon(void)
 {
     const char* paths[] = {
@@ -516,13 +570,13 @@ static int load_doom_icon(void)
 
     if (titlepic_offset && seek_abs(fd, titlepic_offset) &&
         read_exact(fd, pi4_launcher_asset, titlepic_size)) {
-        ok = decode_doom_titlepic_icon(
+        ok = decode_doom_patch_icon(
             pi4_launcher_doom_icon_pixels,
             pi4_launcher_asset,
             titlepic_size,
             pi4_launcher_doom_palette);
         if (!ok)
-            ok = decode_doom_patch_icon(
+            ok = decode_doom_titlepic_icon(
                 pi4_launcher_doom_icon_pixels,
                 pi4_launcher_asset,
                 titlepic_size,
@@ -624,6 +678,19 @@ static int load_quake_icon(void)
             pi4_launcher_asset,
             conback_size,
             pi4_launcher_quake_palette);
+    }
+
+    if (ok && qplaque_offset && seek_abs(fd, qplaque_offset) &&
+        read_exact(fd, pi4_launcher_asset, qplaque_size)) {
+        overlay_quake_qpic_fit(
+            pi4_launcher_quake_icon_pixels,
+            pi4_launcher_asset,
+            qplaque_size,
+            pi4_launcher_quake_palette,
+            18u,
+            166u,
+            220u,
+            56u);
     }
 
     if (!ok && qplaque_offset && seek_abs(fd, qplaque_offset) &&
