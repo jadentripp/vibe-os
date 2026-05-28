@@ -31,6 +31,8 @@
 .equ PI4_LAUNCHER_CARD_TITLE_H,         12
 .equ PI4_LAUNCHER_ICON_SIZE,            256
 .equ PI4_LAUNCHER_ICON_DISPLAY_SIZE,    320
+.equ PI4_LAUNCHER_ICON_WELL_PAD,        10
+.equ PI4_LAUNCHER_ICON_DEFAULT_INSET,   (PI4_LAUNCHER_ICON_DISPLAY_SIZE - PI4_LAUNCHER_ICON_SIZE) / 2
 .equ PI4_LAUNCHER_DOOM_ICON_X,          164
 .equ PI4_LAUNCHER_QUAKE_ICON_X,         796
 .equ PI4_LAUNCHER_ICON_Y,               228
@@ -62,6 +64,13 @@
 .equ PI4_LAUNCHER_BUTTON_LABEL_SCALE,   4
 .equ PI4_LAUNCHER_CARD_HIT_PAD_X,       24
 .equ PI4_LAUNCHER_CARD_HIT_PAD_Y,       24
+.equ PI4_LAUNCHER_FOCUS_TAB_W,          16
+.equ PI4_LAUNCHER_FOCUS_TAB_H,          76
+.equ PI4_LAUNCHER_FOCUS_TAB_Y,          PI4_LAUNCHER_CARD_Y + 190
+.equ PI4_LAUNCHER_RESOURCE_PIP_SIZE,    14
+.equ PI4_LAUNCHER_RESOURCE_PIP_Y,       PI4_LAUNCHER_CARD_Y + 12
+.equ PI4_LAUNCHER_RESOURCE_ASSET_PIP_X_OFF, PI4_LAUNCHER_CARD_W - 74
+.equ PI4_LAUNCHER_RESOURCE_ICON_PIP_X_OFF,  PI4_LAUNCHER_CARD_W - 50
 .equ PI4_LAUNCHER_DOOM_HIT_X0,          PI4_LAUNCHER_DOOM_CARD_X - PI4_LAUNCHER_CARD_HIT_PAD_X
 .equ PI4_LAUNCHER_DOOM_HIT_X1,          PI4_LAUNCHER_DOOM_CARD_X + PI4_LAUNCHER_CARD_W + PI4_LAUNCHER_CARD_HIT_PAD_X - 1
 .equ PI4_LAUNCHER_QUAKE_HIT_X0,         PI4_LAUNCHER_QUAKE_CARD_X - PI4_LAUNCHER_CARD_HIT_PAD_X
@@ -816,6 +825,9 @@ pi4_launcher_load_app_manifest:
     ldrb w0, [x25]
     cmp w0, #'/'
     b.ne .Lpi4_manifest_done
+    mov x0, x25
+    bl pi4_launcher_check_app_exec_path
+    cbnz x0, .Lpi4_manifest_done
 
     adrp x0, pi4_launcher_app_text_buffer
     add x0, x0, :lo12:pi4_launcher_app_text_buffer
@@ -953,6 +965,91 @@ pi4_launcher_check_elf_magic:
     ldp x29, x30, [sp], #16
     ret
 .size pi4_launcher_check_elf_magic, . - pi4_launcher_check_elf_magic
+
+.type pi4_launcher_check_app_exec_path, %function
+pi4_launcher_check_app_exec_path:
+    cbz x0, .Lpi4_check_app_exec_path_fail
+    mov x3, x0
+    adrp x4, pi4_launcher_app_exec_prefix
+    add x4, x4, :lo12:pi4_launcher_app_exec_prefix
+
+.Lpi4_check_app_exec_prefix:
+    ldrb w5, [x4], #1
+    cbz w5, .Lpi4_check_app_exec_component
+    ldrb w6, [x3], #1
+    cbz w6, .Lpi4_check_app_exec_path_fail
+    cmp w6, #0x5c
+    b.ne .Lpi4_check_app_exec_prefix_case
+    mov w6, #'/'
+.Lpi4_check_app_exec_prefix_case:
+    cmp w6, #'a'
+    b.lo .Lpi4_check_app_exec_prefix_cmp
+    cmp w6, #'z'
+    b.hi .Lpi4_check_app_exec_prefix_cmp
+    sub w6, w6, #0x20
+.Lpi4_check_app_exec_prefix_cmp:
+    cmp w6, w5
+    b.ne .Lpi4_check_app_exec_path_fail
+    b .Lpi4_check_app_exec_prefix
+
+.Lpi4_check_app_exec_component:
+    mov x7, xzr
+.Lpi4_check_app_exec_component_next:
+    cmp x7, #8
+    b.hs .Lpi4_check_app_exec_component_need_sep
+    ldrb w6, [x3]
+    cbz w6, .Lpi4_check_app_exec_path_fail
+    cmp w6, #'/'
+    b.eq .Lpi4_check_app_exec_component_sep
+    cmp w6, #0x5c
+    b.eq .Lpi4_check_app_exec_component_sep
+    cmp w6, #0x20
+    b.ls .Lpi4_check_app_exec_path_fail
+    add x3, x3, #1
+    add x7, x7, #1
+    b .Lpi4_check_app_exec_component_next
+
+.Lpi4_check_app_exec_component_need_sep:
+    ldrb w6, [x3], #1
+    cmp w6, #'/'
+    b.eq .Lpi4_check_app_exec_leaf_start
+    cmp w6, #0x5c
+    b.eq .Lpi4_check_app_exec_leaf_start
+    b .Lpi4_check_app_exec_path_fail
+
+.Lpi4_check_app_exec_component_sep:
+    cbz x7, .Lpi4_check_app_exec_path_fail
+    add x3, x3, #1
+
+.Lpi4_check_app_exec_leaf_start:
+    adrp x4, pi4_launcher_app_exec_leaf
+    add x4, x4, :lo12:pi4_launcher_app_exec_leaf
+.Lpi4_check_app_exec_leaf:
+    ldrb w5, [x4], #1
+    cbz w5, .Lpi4_check_app_exec_leaf_end
+    ldrb w6, [x3], #1
+    cbz w6, .Lpi4_check_app_exec_path_fail
+    cmp w6, #'a'
+    b.lo .Lpi4_check_app_exec_leaf_cmp
+    cmp w6, #'z'
+    b.hi .Lpi4_check_app_exec_leaf_cmp
+    sub w6, w6, #0x20
+.Lpi4_check_app_exec_leaf_cmp:
+    cmp w6, w5
+    b.ne .Lpi4_check_app_exec_path_fail
+    b .Lpi4_check_app_exec_leaf
+
+.Lpi4_check_app_exec_leaf_end:
+    ldrb w6, [x3]
+    cbnz w6, .Lpi4_check_app_exec_path_fail
+    mov x0, xzr
+    ret
+
+.Lpi4_check_app_exec_path_fail:
+    mov x0, #PI4_VIBE_ENOENT
+    neg x0, x0
+    ret
+.size pi4_launcher_check_app_exec_path, . - pi4_launcher_check_app_exec_path
 
 .type pi4_launcher_find_key_value_copy, %function
 pi4_launcher_find_key_value_copy:
@@ -2793,6 +2890,10 @@ pi4_launcher_draw_card_base:
     bl pi4_launcher_draw_card_titlebar_chrome
 
     mov x0, x19
+    mov x1, x20
+    bl pi4_launcher_draw_card_resource_hints
+
+    mov x0, x19
     mov x1, x21
     add x1, x1, #PI4_LAUNCHER_CARD_CHROME_INSET
     mov x2, #PI4_LAUNCHER_CARD_Y
@@ -2822,6 +2923,26 @@ pi4_launcher_draw_card_base:
     mov x4, #PI4_LAUNCHER_CARD_ART_H
     ldr x9, [x20, #PI4_LAUNCHER_CARD_RECORD_POSTER]
     blr x9
+
+    mov x0, x19
+    mov x1, x22
+    mov x2, #PI4_LAUNCHER_ICON_Y
+    mov x3, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    mov x4, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    mov x5, #PI4_COLOR_PANEL
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x22
+    add x1, x1, #PI4_LAUNCHER_ICON_WELL_PAD
+    mov x2, #PI4_LAUNCHER_ICON_Y
+    add x2, x2, #PI4_LAUNCHER_ICON_WELL_PAD
+    mov x3, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    sub x3, x3, #(PI4_LAUNCHER_ICON_WELL_PAD * 2)
+    mov x4, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    sub x4, x4, #(PI4_LAUNCHER_ICON_WELL_PAD * 2)
+    mov x5, x24
+    bl pi4_launcher_fill_rect
 
     adrp x6, pi4_launcher_art_flags
     add x6, x6, :lo12:pi4_launcher_art_flags
@@ -2898,6 +3019,97 @@ pi4_launcher_draw_card_base:
     ldp x29, x30, [sp], #96
     ret
 .size pi4_launcher_draw_card_base, . - pi4_launcher_draw_card_base
+
+.type pi4_launcher_draw_card_resource_hints, %function
+pi4_launcher_draw_card_resource_hints:
+    stp x29, x30, [sp, #-96]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    stp x21, x22, [sp, #32]
+    stp x23, x24, [sp, #48]
+
+    mov x19, x0
+    mov x20, x1
+    ldr x21, [x20, #PI4_LAUNCHER_CARD_RECORD_INDEX]
+    ldr x22, [x20, #PI4_LAUNCHER_CARD_RECORD_CARD_X]
+    ldr x23, [x20, #PI4_LAUNCHER_CARD_RECORD_ACCENT]
+
+    adrp x24, pi4_launcher_app_record_assets
+    add x24, x24, :lo12:pi4_launcher_app_record_assets
+    mov x5, #PI4_LAUNCHER_APP_PATH_BYTES
+    madd x24, x21, x5, x24
+    ldrb w6, [x24]
+    cbz w6, .Lpi4_resource_hint_icon
+
+    mov x0, x19
+    add x1, x22, #PI4_LAUNCHER_RESOURCE_ASSET_PIP_X_OFF
+    add x1, x1, #2
+    mov x2, #PI4_LAUNCHER_RESOURCE_PIP_Y
+    add x2, x2, #2
+    mov x3, #PI4_LAUNCHER_RESOURCE_PIP_SIZE
+    mov x4, #PI4_LAUNCHER_RESOURCE_PIP_SIZE
+    mov x5, #PI4_COLOR_BLACK
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x22, #PI4_LAUNCHER_RESOURCE_ASSET_PIP_X_OFF
+    mov x2, #PI4_LAUNCHER_RESOURCE_PIP_Y
+    mov x3, #PI4_LAUNCHER_RESOURCE_PIP_SIZE
+    mov x4, #PI4_LAUNCHER_RESOURCE_PIP_SIZE
+    mov x5, #PI4_COLOR_HILITE
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x22, #PI4_LAUNCHER_RESOURCE_ASSET_PIP_X_OFF
+    mov x2, #PI4_LAUNCHER_RESOURCE_PIP_Y
+    mov x3, #PI4_LAUNCHER_RESOURCE_PIP_SIZE
+    mov x4, #PI4_LAUNCHER_RESOURCE_PIP_SIZE
+    mov x5, x23
+    bl pi4_launcher_draw_border
+
+.Lpi4_resource_hint_icon:
+    adrp x24, pi4_launcher_app_record_icons
+    add x24, x24, :lo12:pi4_launcher_app_record_icons
+    mov x5, #PI4_LAUNCHER_APP_ICON_BYTES
+    madd x24, x21, x5, x24
+    ldrb w6, [x24]
+    cbz w6, .Lpi4_resource_hints_done
+
+    mov x0, x19
+    add x1, x22, #PI4_LAUNCHER_RESOURCE_ICON_PIP_X_OFF
+    add x1, x1, #2
+    mov x2, #PI4_LAUNCHER_RESOURCE_PIP_Y
+    add x2, x2, #2
+    mov x3, #PI4_LAUNCHER_RESOURCE_PIP_SIZE
+    mov x4, #PI4_LAUNCHER_RESOURCE_PIP_SIZE
+    mov x5, #PI4_COLOR_BLACK
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x22, #PI4_LAUNCHER_RESOURCE_ICON_PIP_X_OFF
+    mov x2, #PI4_LAUNCHER_RESOURCE_PIP_Y
+    mov x3, #PI4_LAUNCHER_RESOURCE_PIP_SIZE
+    mov x4, #PI4_LAUNCHER_RESOURCE_PIP_SIZE
+    mov x5, x23
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x22, #PI4_LAUNCHER_RESOURCE_ICON_PIP_X_OFF
+    add x1, x1, #4
+    mov x2, #PI4_LAUNCHER_RESOURCE_PIP_Y
+    add x2, x2, #4
+    mov x3, #6
+    mov x4, #6
+    mov x5, #PI4_COLOR_BLACK
+    bl pi4_launcher_fill_rect
+
+.Lpi4_resource_hints_done:
+    ldp x23, x24, [sp, #48]
+    ldp x21, x22, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #96
+    ret
+.size pi4_launcher_draw_card_resource_hints, . - pi4_launcher_draw_card_resource_hints
 
 .type pi4_launcher_draw_card_titlebar_chrome, %function
 pi4_launcher_draw_card_titlebar_chrome:
@@ -3039,6 +3251,88 @@ pi4_launcher_draw_app_record_selected:
     mov x20, x0
     ldr x21, [x20, #PI4_LAUNCHER_CARD_RECORD_CARD_X]
     ldr x22, [x20, #PI4_LAUNCHER_CARD_RECORD_ACCENT]
+
+    mov x0, x19
+    mov x1, x21
+    sub x1, x1, #PI4_LAUNCHER_FOCUS_TAB_W
+    sub x1, x1, #4
+    mov x2, #PI4_LAUNCHER_FOCUS_TAB_Y
+    add x2, x2, #4
+    mov x3, #PI4_LAUNCHER_FOCUS_TAB_W
+    mov x4, #PI4_LAUNCHER_FOCUS_TAB_H
+    mov x5, #PI4_COLOR_BLACK
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x21
+    sub x1, x1, #PI4_LAUNCHER_FOCUS_TAB_W
+    sub x1, x1, #4
+    mov x2, #PI4_LAUNCHER_FOCUS_TAB_Y
+    add x2, x2, #24
+    mov x3, #PI4_LAUNCHER_FOCUS_TAB_W
+    mov x4, #28
+    mov x5, #PI4_COLOR_HILITE
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x21
+    sub x1, x1, #PI4_LAUNCHER_FOCUS_TAB_W
+    sub x1, x1, #8
+    mov x2, #PI4_LAUNCHER_FOCUS_TAB_Y
+    mov x3, #PI4_LAUNCHER_FOCUS_TAB_W
+    mov x4, #PI4_LAUNCHER_FOCUS_TAB_H
+    mov x5, #PI4_COLOR_SELECTED
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x21
+    sub x1, x1, #PI4_LAUNCHER_FOCUS_TAB_W
+    sub x1, x1, #8
+    mov x2, #PI4_LAUNCHER_FOCUS_TAB_Y
+    add x2, x2, #28
+    mov x3, #PI4_LAUNCHER_FOCUS_TAB_W
+    mov x4, #20
+    mov x5, x22
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x21, #PI4_LAUNCHER_CARD_W
+    add x1, x1, #12
+    mov x2, #PI4_LAUNCHER_FOCUS_TAB_Y
+    add x2, x2, #4
+    mov x3, #PI4_LAUNCHER_FOCUS_TAB_W
+    mov x4, #PI4_LAUNCHER_FOCUS_TAB_H
+    mov x5, #PI4_COLOR_BLACK
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x21, #PI4_LAUNCHER_CARD_W
+    add x1, x1, #12
+    mov x2, #PI4_LAUNCHER_FOCUS_TAB_Y
+    add x2, x2, #24
+    mov x3, #PI4_LAUNCHER_FOCUS_TAB_W
+    mov x4, #28
+    mov x5, #PI4_COLOR_HILITE
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x21, #PI4_LAUNCHER_CARD_W
+    add x1, x1, #8
+    mov x2, #PI4_LAUNCHER_FOCUS_TAB_Y
+    mov x3, #PI4_LAUNCHER_FOCUS_TAB_W
+    mov x4, #PI4_LAUNCHER_FOCUS_TAB_H
+    mov x5, #PI4_COLOR_SELECTED
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x21, #PI4_LAUNCHER_CARD_W
+    add x1, x1, #8
+    mov x2, #PI4_LAUNCHER_FOCUS_TAB_Y
+    add x2, x2, #28
+    mov x3, #PI4_LAUNCHER_FOCUS_TAB_W
+    mov x4, #20
+    mov x5, x22
+    bl pi4_launcher_fill_rect
 
     mov x0, x19
     mov x1, x21
@@ -3303,7 +3597,9 @@ pi4_launcher_draw_card_foreground:
 
     mov x0, x19
     mov x1, x23
+    add x1, x1, #PI4_LAUNCHER_ICON_DEFAULT_INSET
     mov x2, #PI4_LAUNCHER_ICON_Y
+    add x2, x2, #PI4_LAUNCHER_ICON_DEFAULT_INSET
     ldr x9, [x20, #PI4_LAUNCHER_CARD_RECORD_ICON_DRAW]
     blr x9
 
@@ -5033,15 +5329,20 @@ pi4_launcher_manifest:
     .ascii "launcher_visible_launch_state=pressed-play-button-before-exec\n"
     .ascii "launcher_visible_failure_return=failed-card-button-stripe\n"
     .ascii "launcher_visible_hover_state=cursor-corner-brackets-on-padded-card-hitbox\n"
+    .ascii "launcher_visible_selection_tabs=side-focus-tabs-on-selected-app-card\n"
     .ascii "launcher_visible_launch_affordance=card-play-button-glyph-and-1-2-key-badges\n"
     .ascii "launcher_visible_keyboard_labels=1-2-key-badges-and-enter-button-label\n"
     .ascii "launcher_visible_app_labels=manifest-name-rendered-with-aarch64-5x7-font\n"
     .ascii "launcher_visible_art_default=retro-mac-icon-well-with-large-real-asset-icons-and-readable-labels\n"
+    .ascii "launcher_visible_icon_well=beveled-320px-window-with-centered-256px-fallback-icons\n"
+    .ascii "launcher_visible_manifest_resource_hints=asset-and-icon-titlebar-pips-from-manifest\n"
     .ascii "launcher_visible_card_chrome=pinstripe-titlebars-close-boxes-accent-slugs\n"
     .ascii "launcher_visible_layout=1280x720-topbar56-header1216x92-picker1216x504\n"
     .ascii "launcher_visible_card_rects=doom48,204,552,464;quake680,204,552,464\n"
     .ascii "launcher_visible_art_rects=doom72,216,504,288;quake704,216,504,288\n"
     .ascii "launcher_visible_app_icon_rects=doom164,228,320,320;quake796,228,320,320\n"
+    .ascii "launcher_visible_default_icon_rects=doom196,260,256,256;quake828,260,256,256\n"
+    .ascii "launcher_visible_resource_hint_rects=doom526,216,14,14;doom550,216,14,14;quake1158,216,14,14;quake1182,216,14,14\n"
     .ascii "launcher_visible_button_rects=doom188,612,272,48;quake820,612,272,48\n"
     .ascii "launcher_visible_key_badges=doom120,612,48,48;quake752,612,48,48\n"
     .ascii "launcher_exec_argv_envp=path-stable-argv-empty-envp\n"
@@ -5064,6 +5365,10 @@ pi4_launcher_manifest:
 .balign 8
 pi4_launcher_app_index_path:
     .asciz "/APPS/INDEX.TXT"
+pi4_launcher_app_exec_prefix:
+    .asciz "/APPS/"
+pi4_launcher_app_exec_leaf:
+    .asciz "APP.ELF"
 pi4_launcher_key_app_count:
     .asciz "app_count="
 pi4_launcher_key_name:

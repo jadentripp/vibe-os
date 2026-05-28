@@ -3887,6 +3887,50 @@ static void validate_pi4_local_framebuffer_artifact_gate(const Status *gates) {
     }
 }
 
+static int gate_has_single_artifact_chain(const Status *gates) {
+    return has_field(gates, "single_artifact_sha256_stable") ||
+           has_field(gates, "single_artifact_doom_sha256_before") ||
+           has_field(gates, "single_artifact_doom_sha256_after") ||
+           has_field(gates, "single_artifact_quake_sha256_before") ||
+           has_field(gates, "single_artifact_quake_sha256_after");
+}
+
+static void validate_pi4_single_artifact_chain(const Status *gates) {
+    static const char *const chain_fields[] = {
+        "single_artifact_doom_sha256_before",
+        "single_artifact_doom_sha256_after",
+        "single_artifact_quake_sha256_before",
+        "single_artifact_quake_sha256_after",
+    };
+    const char *expected;
+    size_t i;
+
+    if (!gate_has_single_artifact_chain(gates)) {
+        return;
+    }
+    exact(gates, "single_artifact", "green");
+    expected = field(gates, "single_artifact_sha256");
+    if (!field_truthy(gates, "single_artifact_sha256_stable")) {
+        fail("single_artifact_sha256_stable= must be true when per-app image hashes are present");
+    }
+    if (!is_sha256_hex(expected)) {
+        fail("single_artifact_sha256= must be exactly 64 hex digits, got %s",
+             expected);
+    }
+    for (i = 0; i < ARRAY_LEN(chain_fields); i++) {
+        const char *value = field(gates, chain_fields[i]);
+
+        if (!is_sha256_hex(value)) {
+            fail("%s= must be exactly 64 hex digits, got %s",
+                 chain_fields[i], value);
+        }
+        if (!sha256_hex_equals(value, expected)) {
+            fail("%s= must match the final single_artifact_sha256= value",
+                 chain_fields[i]);
+        }
+    }
+}
+
 static void validate_pi4_final_gates(const char *gate_path, int status_count,
                                      char **status_paths) {
     Status gates;
@@ -3900,6 +3944,7 @@ static void validate_pi4_final_gates(const char *gate_path, int status_count,
     int require_doom_app;
     int require_quake_app;
     int require_pak0;
+    int require_status_refs = 0;
     int saw_storage_ok = 0;
     int saw_pi4wad = 0;
     int saw_pi4pak0 = 0;
@@ -3912,8 +3957,12 @@ static void validate_pi4_final_gates(const char *gate_path, int status_count,
     int saw_local_qemu = 0;
     int saw_local_audio_ok = 0;
     int saw_local_non_usb_audio_ok = 0;
+    int saw_doom_status_ref = 0;
+    int saw_quake_status_ref = 0;
     int local_app_gates;
     uint32_t local_app_mask = 0u;
+    const char *doom_status_ref = NULL;
+    const char *quake_status_ref = NULL;
     int i;
 
     current_context = gate_path;
@@ -3932,15 +3981,28 @@ static void validate_pi4_final_gates(const char *gate_path, int status_count,
         field_equals(&gates, "storage_assets", "real-wad-and-pak") ||
         (has_field(&gates, "storage_status_fields") &&
          strstr(field(&gates, "storage_status_fields"), "pi4pak0") != NULL);
+    if (local_app_gates &&
+        (has_field(&gates, "doom_status") || has_field(&gates, "quake_status"))) {
+        doom_status_ref = field(&gates, "doom_status");
+        quake_status_ref = field(&gates, "quake_status");
+        require_status_refs = 1;
+    }
+    validate_pi4_single_artifact_chain(&gates);
 
     for (i = 0; i < status_count; i++) {
         Status status;
         const char *audio;
         int status_local_qemu;
+        int doom_status_matches_ref;
+        int quake_status_matches_ref;
 
         current_context = status_paths[i];
         parse_status(&status, status_paths[i]);
         status_local_qemu = status_has_local_qemu_metadata(&status);
+        doom_status_matches_ref =
+            require_status_refs && strcmp(status_paths[i], doom_status_ref) == 0;
+        quake_status_matches_ref =
+            require_status_refs && strcmp(status_paths[i], quake_status_ref) == 0;
         exact(&status, "arch", "AARCH64");
         exact(&status, "machine", "PI4");
         exact(&status, "image", "PI4");
@@ -3995,12 +4057,22 @@ static void validate_pi4_final_gates(const char *gate_path, int status_count,
         }
         if (local_app_gates || status_local_qemu) {
             if (is_pi4_app_capture_candidate(&status, PI4_VIBE_APP_DOOM)) {
-                validate_pi4_local_app_capture(&status, PI4_VIBE_APP_DOOM);
-                local_app_mask |= 0x1u;
+                if (!require_status_refs || doom_status_matches_ref) {
+                    validate_pi4_local_app_capture(&status, PI4_VIBE_APP_DOOM);
+                    local_app_mask |= 0x1u;
+                    if (doom_status_matches_ref) {
+                        saw_doom_status_ref = 1;
+                    }
+                }
             }
             if (is_pi4_app_capture_candidate(&status, PI4_VIBE_APP_QUAKE)) {
-                validate_pi4_local_app_capture(&status, PI4_VIBE_APP_QUAKE);
-                local_app_mask |= 0x2u;
+                if (!require_status_refs || quake_status_matches_ref) {
+                    validate_pi4_local_app_capture(&status, PI4_VIBE_APP_QUAKE);
+                    local_app_mask |= 0x2u;
+                    if (quake_status_matches_ref) {
+                        saw_quake_status_ref = 1;
+                    }
+                }
             }
         }
         free(status.text);
@@ -4028,6 +4100,14 @@ static void validate_pi4_final_gates(const char *gate_path, int status_count,
         }
         if (field_equals(&gates, "graphics", "green")) {
             validate_pi4_local_framebuffer_artifact_gate(&gates);
+        }
+        if (require_status_refs) {
+            if (!saw_doom_status_ref) {
+                fail("doom_status= must point to the captured /APPS/DOOM/APP.ELF status passed to --pi4-final-gates");
+            }
+            if (!saw_quake_status_ref) {
+                fail("quake_status= must point to the captured /APPS/QUAKE/APP.ELF status passed to --pi4-final-gates");
+            }
         }
     }
     if (require_process_green && !saw_process_ok) {
@@ -4127,6 +4207,7 @@ static void validate_pi4_final_gates_single_artifact(const char *gate_path,
         fail("single_artifact_sha256= is stale: final gates have %s but current Pi image is %s",
              gate_sha256, current_sha256);
     }
+    validate_pi4_single_artifact_chain(&gates);
     free(gates.text);
 }
 

@@ -29,6 +29,9 @@ PI4_MEMORY_STATUS_BAD="$BUILD_DIR/pi4_status_memory_summary_bad.txt"
 PI4_FINAL_GATES_LOCAL_QEMU_BAD="$BUILD_DIR/pi4_final_gates_local_qemu_audio_bad.txt"
 PI4_FINAL_GATES_LOCAL_QEMU_AUDIO_OK_BAD="$BUILD_DIR/pi4_final_gates_local_qemu_audio_ok_bad.txt"
 PI4_LOCAL_QEMU_APP_GATES_OK="$BUILD_DIR/pi4_final_gates_local_qemu_app_ok.txt"
+PI4_LOCAL_QEMU_APP_GATES_REF_OK="$BUILD_DIR/pi4_final_gates_local_qemu_app_ref_ok.txt"
+PI4_LOCAL_QEMU_APP_GATES_REF_BAD="$BUILD_DIR/pi4_final_gates_local_qemu_app_ref_bad.txt"
+PI4_LOCAL_QEMU_APP_GATES_SHA_BAD="$BUILD_DIR/pi4_final_gates_local_qemu_app_sha_bad.txt"
 PI4_LOCAL_QEMU_APP_GATES_FB_BAD="$BUILD_DIR/pi4_final_gates_local_qemu_app_fb_bad.txt"
 PI4_LOCAL_QEMU_APP_GATES_FB_UNCHANGED_BAD="$BUILD_DIR/pi4_final_gates_local_qemu_app_fb_unchanged_bad.txt"
 PI4_LOCAL_QEMU_APP_DOOM_OK="$BUILD_DIR/pi4_status_local_qemu_doom_app_ok.txt"
@@ -88,6 +91,7 @@ PI4_SERIAL_LAST_OK="$BUILD_DIR/pi4_status_serial_last_ok.txt"
 PI4_SERIAL_LAST_BAD="$BUILD_DIR/pi4_status_serial_last_bad.txt"
 X86_IMAGE_BUILDER_DRYRUN="$BUILD_DIR/x86_image_builder_dryrun.txt"
 X86_UEFI_IMAGE_BUILDER_DRYRUN="$BUILD_DIR/x86_uefi_image_builder_dryrun.txt"
+X86_APP_CATALOG_BAD_DIR="$BUILD_DIR/x86_app_catalog_bad"
 X86_DOOM_BAD="$BUILD_DIR/vm_status_x86_doom_bad.txt"
 X86_QUAKE_OK="$BUILD_DIR/vm_status_x86_quake_ok.txt"
 X86_QUAKE_BAD="$BUILD_DIR/vm_status_x86_quake_bad.txt"
@@ -113,6 +117,10 @@ if [ "$SCOPE" = "all" ]; then
   "$ROOT/tools/pi4_status_evidence.c" -o "$PI4_EVIDENCE"
 "$HOST_CC" -std=c99 -Wall -Wextra -Werror -O2 \
   "$ROOT/tools/pi4_qemu_command.c" -o "$PI4_QEMU_COMMAND"
+grep -F -q 'PI4_LOCAL_QEMU_DOOM_IMAGE_SHA_BEFORE' "$ROOT/Makefile"
+grep -F -q 'single_artifact_doom_sha256_before' "$ROOT/Makefile"
+grep -F -q 'printf "doom_status=%s' "$ROOT/Makefile"
+grep -F -q 'printf "quake_status=%s' "$ROOT/Makefile"
 
 printf 'P6\n2 1\n255\n\000\000\000\377\000\000' > "$PI4_FB_FRAME0"
 printf 'P6\n2 1\n255\n\000\000\000\000\377\000' > "$PI4_FB_FRAME1"
@@ -674,6 +682,22 @@ trap - EXIT HUP INT TERM
 fi
 
 "$MAKE_CMD" -C "$ROOT" --no-print-directory x86-pi4-real-assets-isolation-check
+"$MAKE_CMD" -C "$ROOT" --no-print-directory x86-app-catalog-contract-check
+rm -rf "$X86_APP_CATALOG_BAD_DIR"
+mkdir -p "$X86_APP_CATALOG_BAD_DIR"
+sed 's/^app_count=2$/app_count=1/' \
+  "$ROOT/user/pi4_apps_index.txt" > "$X86_APP_CATALOG_BAD_DIR/index.txt"
+cp "$ROOT/user/pi4_app_doom.txt" "$X86_APP_CATALOG_BAD_DIR/doom.txt"
+cp "$ROOT/user/pi4_app_quake.txt" "$X86_APP_CATALOG_BAD_DIR/quake.txt"
+if "$MAKE_CMD" -C "$ROOT" --no-print-directory \
+  APP_INDEX_TXT="$X86_APP_CATALOG_BAD_DIR/index.txt" \
+  APP_DOOM_MANIFEST_TXT="$X86_APP_CATALOG_BAD_DIR/doom.txt" \
+  APP_QUAKE_MANIFEST_TXT="$X86_APP_CATALOG_BAD_DIR/quake.txt" \
+  x86-app-catalog-contract-check >/tmp/vibe-x86-app-catalog-bad.out 2>&1; then
+  echo "x86-app-catalog-contract-check accepted an app index with stale app_count" >&2
+  cat /tmp/vibe-x86-app-catalog-bad.out >&2
+  exit 1
+fi
 
 "$MAKE_CMD" -C "$ROOT" --no-print-directory -B -n ALLOW_LOCAL_VM=0 DOOM_WAD= image-builder-inspect > "$X86_IMAGE_BUILDER_DRYRUN"
 for root_elf in INIT.ELF ABIPROBE.ELF
@@ -1123,6 +1147,34 @@ pi4inputevt=0000000000000000/0000000000000001/0000000000000001/0000000000000000/
 panic=NONE shutdown=NONE
 EOF_LOCAL_QEMU_QUAKE_OK
 "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_APP_GATES_OK" "$PI4_LOCAL_QEMU_APP_DOOM_OK" "$PI4_LOCAL_QEMU_APP_QUAKE_OK"
+{
+  cat "$PI4_LOCAL_QEMU_APP_GATES_OK"
+  printf 'doom_status=%s\n' "$PI4_LOCAL_QEMU_APP_DOOM_OK"
+  printf 'quake_status=%s\n' "$PI4_LOCAL_QEMU_APP_QUAKE_OK"
+  printf 'single_artifact=green\n'
+  printf 'single_artifact_image=build/pi4/pi4-fat16.img\n'
+  printf 'single_artifact_sha256=%s\n' "$PI4_SINGLE_ARTIFACT_SHA"
+  printf 'single_artifact_sha256_stable=true\n'
+  printf 'single_artifact_doom_sha256_before=%s\n' "$PI4_SINGLE_ARTIFACT_SHA"
+  printf 'single_artifact_doom_sha256_after=%s\n' "$PI4_SINGLE_ARTIFACT_SHA"
+  printf 'single_artifact_quake_sha256_before=%s\n' "$PI4_SINGLE_ARTIFACT_SHA"
+  printf 'single_artifact_quake_sha256_after=%s\n' "$PI4_SINGLE_ARTIFACT_SHA"
+} > "$PI4_LOCAL_QEMU_APP_GATES_REF_OK"
+"$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_APP_GATES_REF_OK" "$PI4_LOCAL_QEMU_APP_DOOM_OK" "$PI4_LOCAL_QEMU_APP_QUAKE_OK"
+sed "s|doom_status=$PI4_LOCAL_QEMU_APP_DOOM_OK|doom_status=$PI4_LOCAL_QEMU_APP_QUAKE_OK|" \
+  "$PI4_LOCAL_QEMU_APP_GATES_REF_OK" > "$PI4_LOCAL_QEMU_APP_GATES_REF_BAD"
+if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_APP_GATES_REF_BAD" "$PI4_LOCAL_QEMU_APP_DOOM_OK" "$PI4_LOCAL_QEMU_APP_QUAKE_OK" >/tmp/vibe-status-check-final-gates-status-ref-bad.out 2>&1; then
+  echo "vibe_status_check accepted final gates whose doom_status= did not point to the captured Doom app status" >&2
+  cat /tmp/vibe-status-check-final-gates-status-ref-bad.out >&2
+  exit 1
+fi
+sed "s|single_artifact_quake_sha256_after=$PI4_SINGLE_ARTIFACT_SHA|single_artifact_quake_sha256_after=$PI4_SINGLE_ARTIFACT_OTHER_SHA|" \
+  "$PI4_LOCAL_QEMU_APP_GATES_REF_OK" > "$PI4_LOCAL_QEMU_APP_GATES_SHA_BAD"
+if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_APP_GATES_SHA_BAD" "$PI4_LOCAL_QEMU_APP_DOOM_OK" "$PI4_LOCAL_QEMU_APP_QUAKE_OK" >/tmp/vibe-status-check-final-gates-sha-chain-bad.out 2>&1; then
+  echo "vibe_status_check accepted final gates whose per-app single-artifact SHA chain did not match" >&2
+  cat /tmp/vibe-status-check-final-gates-sha-chain-bad.out >&2
+  exit 1
+fi
 sed '/^framebuffer_artifact=/d; /^framebuffer_artifact_source=/d; /^doom_framebuffer_/d; /^quake_framebuffer_/d' \
   "$PI4_LOCAL_QEMU_APP_GATES_OK" > "$PI4_LOCAL_QEMU_APP_GATES_FB_BAD"
 if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_APP_GATES_FB_BAD" "$PI4_LOCAL_QEMU_APP_DOOM_OK" "$PI4_LOCAL_QEMU_APP_QUAKE_OK" >/tmp/vibe-status-check-final-gates-framebuffer-bad.out 2>&1; then
@@ -1624,7 +1676,9 @@ rm -f /tmp/vibe-status-check-final-gates-preempt-bad.out
 rm -f /tmp/vibe-status-check-final-gates-process-bad.out
 rm -f /tmp/vibe-status-check-final-gates-quake-asset-bad.out
 rm -f /tmp/vibe-status-check-final-gates-quake-launch-only-bad.out
+rm -f /tmp/vibe-status-check-final-gates-sha-chain-bad.out
 rm -f /tmp/vibe-status-check-final-gates-shutdown-bad.out
+rm -f /tmp/vibe-status-check-final-gates-status-ref-bad.out
 rm -f /tmp/vibe-status-check-final-gates-storage-pak-bad.out
 rm -f /tmp/vibe-status-check-final-gates-storage-wad-bad.out
 rm -f /tmp/vibe-status-check-launcher-claim-bad.out

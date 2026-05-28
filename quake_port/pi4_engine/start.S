@@ -10,6 +10,7 @@
 .equ QUAKE_PARMS_MEMBASE, 32
 .equ QUAKE_PARMS_MEMSIZE, 40
 .equ QUAKE_ENGINE_AUDIO_PACKET_BYTES, 960
+.equ QUAKE_ENGINE_PREHOST_INPUT_WAIT_MS, 15000
 .equ K_CTRL, 133
 .equ K_SPACE, 32
 .equ K_MOUSE1, 200
@@ -24,6 +25,7 @@
 .extern pi4_quake_begin_default_game
 .extern pi4_quake_force_game_view
 .extern pi4_quake_host_frame
+.extern pi4_quake_note_back_input
 .extern quake_pump_input
 .extern pi4_quake_present_assets_ready_frame
 .extern pi4_quake_present_audio_ready_frame
@@ -40,10 +42,12 @@
 .extern vibe_user_audio_pcm_open
 .extern vibe_user_audio_pcm_ring_info
 .extern vibe_user_audio_pcm_write
+.extern vibe_user_clock_monotonic
 .extern vibe_user_close
 .extern vibe_user_exit
 .extern vibe_user_file_open
 .extern vibe_user_file_size
+.extern vibe_user_poll_input
 .extern VID_Update
 
 .section .text.pi4_quake_engine.start, "ax", %progbits
@@ -68,6 +72,7 @@ pi4_quake_engine_start:
     bl pi4_quake_engine_audio_start
     bl pi4_quake_engine_audio_tick
     bl pi4_quake_present_audio_ready_frame
+    bl pi4_quake_engine_prehost_gameplay_input_window
 
     mov x0, #4
     adrp x1, pi4_quake_engine_argv
@@ -114,6 +119,8 @@ pi4_quake_engine_start:
     add x9, x9, :lo12:key_dest
     str wzr, [x9]
 
+    bl pi4_quake_engine_apply_prehost_gameplay_input
+    bl quake_pump_input
     adrp x9, pi4_quake_engine_frame_seconds
     add x9, x9, :lo12:pi4_quake_engine_frame_seconds
     ldr s0, [x9]
@@ -201,6 +208,111 @@ pi4_quake_engine_install_play_binds:
     ldp x29, x30, [sp], #16
     ret
 .size pi4_quake_engine_install_play_binds, . - pi4_quake_engine_install_play_binds
+
+.balign 16
+.type pi4_quake_engine_prehost_gameplay_input_window, %function
+pi4_quake_engine_prehost_gameplay_input_window:
+    stp x29, x30, [sp, #-176]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+
+    add x0, sp, #48
+    bl vibe_user_clock_monotonic
+    cbnz x0, .Lpi4_quake_engine_prehost_done
+    ldr x19, [sp, #(48 + PI4_VIBE_CLOCK_TIME_MILLISECONDS_OFFSET)]
+    mov x20, xzr
+
+.Lpi4_quake_engine_prehost_poll:
+    add x0, sp, #48
+    bl vibe_user_clock_monotonic
+    cbnz x0, .Lpi4_quake_engine_prehost_done
+    ldr x8, [sp, #(48 + PI4_VIBE_CLOCK_TIME_MILLISECONDS_OFFSET)]
+    sub x8, x8, x19
+    mov x9, #QUAKE_ENGINE_PREHOST_INPUT_WAIT_MS
+    cmp x8, x9
+    b.hs .Lpi4_quake_engine_prehost_done
+
+    add x0, sp, #88
+    bl vibe_user_poll_input
+    cmp x0, #1
+    b.ne .Lpi4_quake_engine_prehost_idle
+    add x0, sp, #88
+    bl pi4_quake_engine_event_is_back_input
+    cbnz x0, .Lpi4_quake_engine_prehost_seen
+
+.Lpi4_quake_engine_prehost_idle:
+    add x20, x20, #1
+    and x8, x20, #0x3f
+    cbnz x8, .Lpi4_quake_engine_prehost_yield
+    bl pi4_quake_engine_audio_tick
+.Lpi4_quake_engine_prehost_yield:
+    yield
+    b .Lpi4_quake_engine_prehost_poll
+
+.Lpi4_quake_engine_prehost_seen:
+    adrp x9, pi4_quake_engine_prehost_back_seen
+    add x9, x9, :lo12:pi4_quake_engine_prehost_back_seen
+    mov x10, #1
+    str x10, [x9]
+    bl pi4_quake_note_back_input
+    bl pi4_quake_engine_audio_tick
+    bl pi4_quake_present_audio_ready_frame
+
+.Lpi4_quake_engine_prehost_done:
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #176
+    ret
+.size pi4_quake_engine_prehost_gameplay_input_window, . - pi4_quake_engine_prehost_gameplay_input_window
+
+.balign 16
+.type pi4_quake_engine_event_is_back_input, %function
+pi4_quake_engine_event_is_back_input:
+    ldr x8, [x0, #PI4_VIBE_INPUT_EVENT_TYPE_OFFSET]
+    cmp x8, #PI4_VIBE_INPUT_EVENT_UART
+    b.eq .Lpi4_quake_engine_event_uart
+    cmp x8, #PI4_VIBE_INPUT_EVENT_KEY
+    b.ne .Lpi4_quake_engine_event_no
+
+    ldr x8, [x0, #PI4_VIBE_INPUT_EVENT_CODE_OFFSET]
+    and x8, x8, #PI4_VIBE_INPUT_KEY_PS2_SET1_SCANCODE_MASK
+    cmp x8, #PI4_VIBE_INPUT_KEY_PS2_SET1_S
+    b.eq .Lpi4_quake_engine_event_yes
+    cmp x8, #PI4_VIBE_INPUT_KEY_PS2_SET1_DOWN
+    b.eq .Lpi4_quake_engine_event_yes
+
+    ldr x8, [x0, #PI4_VIBE_INPUT_EVENT_VALUE1_OFFSET]
+    cmp x8, #PI4_VIBE_INPUT_KEY_USB_HID_USAGE_S
+    b.eq .Lpi4_quake_engine_event_yes
+    cmp x8, #PI4_VIBE_INPUT_KEY_USB_HID_USAGE_DOWN
+    b.eq .Lpi4_quake_engine_event_yes
+    b .Lpi4_quake_engine_event_no
+
+.Lpi4_quake_engine_event_uart:
+    ldr x8, [x0, #PI4_VIBE_INPUT_EVENT_CODE_OFFSET]
+    cmp x8, #PI4_VIBE_UART_EVENT_DOWN
+    b.eq .Lpi4_quake_engine_event_yes
+
+.Lpi4_quake_engine_event_no:
+    mov x0, xzr
+    ret
+
+.Lpi4_quake_engine_event_yes:
+    mov x0, #1
+    ret
+.size pi4_quake_engine_event_is_back_input, . - pi4_quake_engine_event_is_back_input
+
+.balign 16
+.type pi4_quake_engine_apply_prehost_gameplay_input, %function
+pi4_quake_engine_apply_prehost_gameplay_input:
+    adrp x9, pi4_quake_engine_prehost_back_seen
+    add x9, x9, :lo12:pi4_quake_engine_prehost_back_seen
+    ldr x10, [x9]
+    cbz x10, .Lpi4_quake_engine_apply_prehost_done
+    str xzr, [x9]
+    b pi4_quake_note_back_input
+.Lpi4_quake_engine_apply_prehost_done:
+    ret
+.size pi4_quake_engine_apply_prehost_gameplay_input, . - pi4_quake_engine_apply_prehost_gameplay_input
 
 .balign 16
 .type pi4_quake_engine_preflight_assets, %function
@@ -346,12 +458,14 @@ pi4_quake_engine_manifest:
     .asciz "quake_progress_hook=pak-preflight-before-host-init"
     .asciz "quake_progress_hook=assets-ready-frame-after-pak-open"
     .asciz "quake_progress_hook=audio-ready-frame-after-pcm-open"
+    .asciz "quake_input_hook=prehost-bounded-gameplay-input-window-before-host-init"
     .asciz "quake_progress_hook=host-init-frame-after-heap-before-host-init"
     .asciz "quake_progress_hook=missing-pak-frame-on-open-failure"
     .asciz "quake_progress_hook=runtime-error-frame-from-port-runtime-failures"
     .asciz "quake_progress_hook=heap-error-frame-on-malloc-failure"
     .asciz "quake_progress_hook=engine-ready-frame-before-first-host-frame"
     .asciz "quake_progress_hook=first-host-frame-immediate-after-init"
+    .asciz "quake_input_hook=early-gameplay-poll-before-first-host-frame"
     .asciz "quake_progress_hook=first-vid-update-immediate-after-first-host-frame"
     .asciz "quake_progress_hook=first-engine-vid-update-counted"
     .asciz "quake_progress_hook=engine-vid-update-counted-every-frame"
@@ -428,6 +542,10 @@ pi4_quake_engine_audio_handle:
 
 .balign 8
 pi4_quake_engine_audio_phase:
+    .quad 0
+
+.balign 8
+pi4_quake_engine_prehost_back_seen:
     .quad 0
 
 .section .bss.pi4_quake_engine_start, "aw", %nobits

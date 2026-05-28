@@ -87,10 +87,12 @@
 .global IN_Shutdown
 .global IN_Commands
 .global quake_pump_input
+.global pi4_quake_note_back_input
 .type IN_Init, %function
 .type IN_Shutdown, %function
 .type IN_Commands, %function
 .type quake_pump_input, %function
+.type pi4_quake_note_back_input, %function
 IN_Init:
 IN_Shutdown:
     ret
@@ -491,6 +493,15 @@ quake_pump_input:
 .size IN_Shutdown, . - IN_Shutdown
 .size IN_Commands, . - IN_Commands
 .size quake_pump_input, . - quake_pump_input
+
+.balign 16
+pi4_quake_note_back_input:
+    adrp x9, quake_uart_back_ticks
+    add x9, x9, :lo12:quake_uart_back_ticks
+    mov x10, #PI4_INPUT_UART_MOVE_TICKS
+    str x10, [x9]
+    ret
+.size pi4_quake_note_back_input, . - pi4_quake_note_back_input
 
 .balign 16
 .global IN_ClearStates
