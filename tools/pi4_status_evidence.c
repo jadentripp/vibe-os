@@ -14,8 +14,8 @@
 #define PI4_FAT_ATTR_VOLUME_ID 0x08ull
 #define PI4_FAT_ATTR_DIRECTORY 0x10ull
 #define PI4_STORAGE_FILE_STATUS_OK 0x00000000464F4F4Bull
-#define PI4_VIBE_FILE_ASSET_APP_DOOM_ELF 12ull
-#define PI4_VIBE_FILE_ASSET_APP_QUAKE_ELF 13ull
+#define PI4_VIBE_FILE_ASSET_APP_RECORD0_ELF 12ull
+#define PI4_VIBE_FILE_ASSET_APP_RECORD1_ELF 13ull
 #define PI4_STORAGE_ASSET_COVERAGE_WAD 0x00000001ull
 #define PI4_STORAGE_ASSET_COVERAGE_MANIFEST 0x00000002ull
 #define PI4_STORAGE_ASSET_COVERAGE_PAK0 0x00000004ull
@@ -138,8 +138,8 @@ static const char* required_fields[] = {
     "pi4config",
     "pi4init",
     "pi4abiprobe",
-    "pi4appdoom",
-    "pi4appquake",
+    "pi4app0",
+    "pi4app1",
     "pi4manifest",
     "pi4assets",
     "pi4wad",
@@ -823,8 +823,8 @@ static int require_pi4_storage_file_tuple(const char* key, const uint64_t* file,
 
     if (file[4] != expected_lba || file[5] != expected_plan_sectors ||
         file[6] != expected_plan_bytes || file[7] > file[5] ||
-        (file[7] != file[5] && strcmp(key, "pi4appdoom") != 0 &&
-         strcmp(key, "pi4appquake") != 0 && strcmp(key, "pi4manifest") != 0 &&
+        (file[7] != file[5] && strcmp(key, "pi4app0") != 0 &&
+         strcmp(key, "pi4app1") != 0 && strcmp(key, "pi4manifest") != 0 &&
          strcmp(key, "pi4wad") != 0 && strcmp(key, "pi4pak0") != 0)) {
         fprintf(stderr,
             "pi4_status_evidence: %s= read plan/count must prove a completed FAT file read\n",
@@ -1480,8 +1480,8 @@ static int check_storage_status(const Field* fields, size_t count)
         "pi4config",
         "pi4init",
         "pi4abiprobe",
-        "pi4appdoom",
-        "pi4appquake",
+        "pi4app0",
+        "pi4app1",
         "pi4manifest",
         "pi4assets",
         "pi4wad",
@@ -1494,8 +1494,8 @@ static int check_storage_status(const Field* fields, size_t count)
         "pi4config",
         "pi4init",
         "pi4abiprobe",
-        "pi4appdoom",
-        "pi4appquake",
+        "pi4app0",
+        "pi4app1",
         "pi4manifest",
         "pi4assets",
         "pi4wad",
@@ -1594,8 +1594,8 @@ static int check_storage_status(const Field* fields, size_t count)
     ok = require_pi4_storage_root_artifact(fields, count, "pi4abiprobe") && ok;
     if (have_mbr && have_bpb && have_root) {
         ok = require_pi4_storage_file_plan(fields, count, "pi4init", mbr, bpb, root) && ok;
-        ok = require_pi4_storage_file_plan(fields, count, "pi4appdoom", mbr, bpb, root) && ok;
-        ok = require_pi4_storage_file_plan(fields, count, "pi4appquake", mbr, bpb, root) && ok;
+        ok = require_pi4_storage_file_plan(fields, count, "pi4app0", mbr, bpb, root) && ok;
+        ok = require_pi4_storage_file_plan(fields, count, "pi4app1", mbr, bpb, root) && ok;
         ok = require_pi4_storage_file_plan(fields, count, "pi4manifest", mbr, bpb, root) && ok;
         ok = require_pi4_storage_file_plan(fields, count, "pi4wad", mbr, bpb, root) && ok;
     } else {
@@ -1880,9 +1880,10 @@ static int require_pi4_app_vfs_evidence(const Field* fields, size_t count)
     if (!ok)
         return 0;
 
-    if (appvfs[0] != PI4_VIBE_FILE_ASSET_APP_DOOM_ELF &&
-        appvfs[0] != PI4_VIBE_FILE_ASSET_APP_QUAKE_ELF) {
-        fprintf(stderr, "pi4_status_evidence: pi4appvfs= app asset id must be Doom or Quake APP.ELF\n");
+    if (appvfs[0] != PI4_VIBE_FILE_ASSET_APP_RECORD0_ELF &&
+        appvfs[0] != PI4_VIBE_FILE_ASSET_APP_RECORD1_ELF) {
+        fprintf(stderr,
+            "pi4_status_evidence: pi4appvfs= app asset id must be an installed APP.ELF record\n");
         return 0;
     }
     if (appvfs[1] != PI4_STORAGE_FILE_STATUS_OK) {
@@ -1891,7 +1892,7 @@ static int require_pi4_app_vfs_evidence(const Field* fields, size_t count)
         return 0;
     }
 
-    app_key = appvfs[0] == PI4_VIBE_FILE_ASSET_APP_DOOM_ELF ? "pi4appdoom" : "pi4appquake";
+    app_key = appvfs[0] == PI4_VIBE_FILE_ASSET_APP_RECORD0_ELF ? "pi4app0" : "pi4app1";
     if (!parse_hex64_tuple_exact(fields, count, app_key, 8, app_file))
         return 0;
     for (i = 0; i < ARRAY_COUNT(app_file); i++) {

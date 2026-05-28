@@ -39,7 +39,7 @@
 #define PI4_VIBE_FD_ASSET_PALETTE 10
 #define PI4_VIBE_FD_APP_INDEX 11
 /*
- * App descriptors are record ranges, not fixed payload slots. Each discovered
+ * App descriptors are record ranges, not fixed launch slots. Each discovered
  * app record owns one manifest fd and one APP.ELF fd.
  */
 #define PI4_VIBE_APP_RECORD_MANIFEST_FD_FIRST 12
