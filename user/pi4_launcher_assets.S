@@ -2,36 +2,8 @@
 
 .arch armv8-a
 
-.equ PI4_LAUNCHER_APP_RECORD_0,              0
-.equ PI4_LAUNCHER_APP_RECORD_1,              1
-.equ PI4_LAUNCHER_APP_RECORD_STATE_ABSENT,   0
-.equ PI4_LAUNCHER_APP_RECORD_STATE_PRESENT,  1
-
-.section .data.pi4_launcher_app_records, "aw", %progbits
-.balign 8
-.global pi4_launcher_app_record_table
-pi4_launcher_app_record_table:
-    .quad PI4_LAUNCHER_APP_RECORD_0
-    .quad pi4_launcher_app_record_0_name
-    .quad 0
-    .quad PI4_LAUNCHER_APP_RECORD_STATE_ABSENT
-    .quad pi4_launcher_app_record_absent_state
-    .quad PI4_LAUNCHER_APP_RECORD_1
-    .quad pi4_launcher_app_record_1_name
-    .quad 0
-    .quad PI4_LAUNCHER_APP_RECORD_STATE_ABSENT
-    .quad pi4_launcher_app_record_absent_state
-
 .section .rodata.pi4_launcher_app_record_strings, "a", %progbits
 .balign 8
-.global pi4_launcher_app_record_0_name
-pi4_launcher_app_record_0_name:
-    .asciz "APP 1"
-
-.global pi4_launcher_app_record_1_name
-pi4_launcher_app_record_1_name:
-    .asciz "APP 2"
-
 .global pi4_launcher_app_record_present_state
 pi4_launcher_app_record_present_state:
     .asciz "present"

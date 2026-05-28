@@ -259,8 +259,6 @@
 .equ PI4_COLOR_CARD,                    14
 .equ PI4_COLOR_HILITE,                  15
 
-.extern pi4_launcher_app_record_0_name
-.extern pi4_launcher_app_record_1_name
 .extern pi4_launcher_app_record_present_state
 .extern pi4_launcher_app_record_absent_state
 .extern pi4_launcher_key_1_bitmap
@@ -885,15 +883,8 @@ pi4_launcher_app_record_entry_ptr:
 
 .type pi4_launcher_default_name, %function
 pi4_launcher_default_name:
-    cmp x0, #PI4_LAUNCHER_VISIBLE_APP_RECORD_COUNT
-    b.lo .Lpi4_default_name_index_ready
     adrp x0, pi4_launcher_app_record_generic_name
     add x0, x0, :lo12:pi4_launcher_app_record_generic_name
-    ret
-.Lpi4_default_name_index_ready:
-    adrp x1, pi4_launcher_default_app_record_names
-    add x1, x1, :lo12:pi4_launcher_default_app_record_names
-    ldr x0, [x1, x0, lsl #3]
     ret
 .size pi4_launcher_default_name, . - pi4_launcher_default_name
 
@@ -4954,11 +4945,6 @@ pi4_launcher_key_asset:
 pi4_launcher_key_icon:
     .asciz "icon="
 
-.balign 8
-pi4_launcher_default_app_record_names:
-    .quad pi4_launcher_app_record_0_name
-    .quad pi4_launcher_app_record_1_name
-
 pi4_launcher_app_record_generic_name:
     .asciz "APP"
 
@@ -5007,7 +4993,7 @@ pi4_launcher_state:
     .quad PI4_LAUNCHER_APP_RECORD_COUNT
     .quad PI4_LAUNCHER_APP_RECORD_DEFAULT
     .quad pi4_launcher_app_catalog_table
-    .quad pi4_launcher_app_record_0_name
+    .quad pi4_launcher_app_record_generic_name
     .quad 0
     .quad 0
     .quad 0
@@ -5019,7 +5005,7 @@ pi4_launcher_state:
     .quad 0
     .quad PI4_LAUNCHER_APP_RECORD_DEFAULT
     .quad pi4_launcher_app_catalog_table
-    .quad pi4_launcher_app_record_0_name
+    .quad pi4_launcher_app_record_generic_name
     .quad 0
     .quad pi4_launcher_exec_request
     .quad 0
