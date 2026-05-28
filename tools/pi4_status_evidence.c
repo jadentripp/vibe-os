@@ -14,6 +14,8 @@
 #define PI4_FAT_ATTR_VOLUME_ID 0x08ull
 #define PI4_FAT_ATTR_DIRECTORY 0x10ull
 #define PI4_STORAGE_FILE_STATUS_OK 0x00000000464F4F4Bull
+#define PI4_VIBE_FILE_ASSET_APP_DOOM_ELF 12ull
+#define PI4_VIBE_FILE_ASSET_APP_QUAKE_ELF 13ull
 #define PI4_STORAGE_ASSET_COVERAGE_WAD 0x00000001ull
 #define PI4_STORAGE_ASSET_COVERAGE_MANIFEST 0x00000002ull
 #define PI4_STORAGE_ASSET_COVERAGE_PAK0 0x00000004ull
@@ -24,8 +26,8 @@
 #define PI4_EMMC2_LEGACY_BASE 0x7E340000ull
 #define PI4_EMMC2_ARM_BASE 0xFE340000ull
 #define PI4_EMMC2_MIN_REG_SPAN 0x100ull
-#define PI4_VIBE_PAYLOAD_SLOT0 0ull
-#define PI4_VIBE_PAYLOAD_SLOT1 1ull
+#define PI4_VIBE_APP_DOOM 0ull
+#define PI4_VIBE_APP_QUAKE 1ull
 #define PI4_PROC_TABLE_ENTRY_BYTES 64ull
 #define PI4_PROC_CONTEXT_BYTES 64ull
 #define PI4_PROC_CONTEXT_VERSION 1ull
@@ -136,8 +138,8 @@ static const char* required_fields[] = {
     "pi4config",
     "pi4init",
     "pi4abiprobe",
-    "pi4payload0",
-    "pi4payload1",
+    "pi4appdoom",
+    "pi4appquake",
     "pi4manifest",
     "pi4assets",
     "pi4wad",
@@ -761,8 +763,6 @@ static int status_word_equals(const char* value, const char* name, uint64_t word
 static int is_pi4_user_exec_path(const char* path)
 {
     return strcmp(path, "INIT.ELF") == 0 ||
-        strcmp(path, "PAYLOAD0.ELF") == 0 ||
-        strcmp(path, "PAYLOAD1.ELF") == 0 ||
         strcmp(path, "/APPS/DOOM/APP.ELF") == 0 ||
         strcmp(path, "/APPS/QUAKE/APP.ELF") == 0;
 }
@@ -823,8 +823,8 @@ static int require_pi4_storage_file_tuple(const char* key, const uint64_t* file,
 
     if (file[4] != expected_lba || file[5] != expected_plan_sectors ||
         file[6] != expected_plan_bytes || file[7] > file[5] ||
-        (file[7] != file[5] && strcmp(key, "pi4payload0") != 0 &&
-         strcmp(key, "pi4payload1") != 0 && strcmp(key, "pi4manifest") != 0 &&
+        (file[7] != file[5] && strcmp(key, "pi4appdoom") != 0 &&
+         strcmp(key, "pi4appquake") != 0 && strcmp(key, "pi4manifest") != 0 &&
          strcmp(key, "pi4wad") != 0 && strcmp(key, "pi4pak0") != 0)) {
         fprintf(stderr,
             "pi4_status_evidence: %s= read plan/count must prove a completed FAT file read\n",
@@ -1480,8 +1480,8 @@ static int check_storage_status(const Field* fields, size_t count)
         "pi4config",
         "pi4init",
         "pi4abiprobe",
-        "pi4payload0",
-        "pi4payload1",
+        "pi4appdoom",
+        "pi4appquake",
         "pi4manifest",
         "pi4assets",
         "pi4wad",
@@ -1494,8 +1494,8 @@ static int check_storage_status(const Field* fields, size_t count)
         "pi4config",
         "pi4init",
         "pi4abiprobe",
-        "pi4payload0",
-        "pi4payload1",
+        "pi4appdoom",
+        "pi4appquake",
         "pi4manifest",
         "pi4assets",
         "pi4wad",
@@ -1594,8 +1594,8 @@ static int check_storage_status(const Field* fields, size_t count)
     ok = require_pi4_storage_root_artifact(fields, count, "pi4abiprobe") && ok;
     if (have_mbr && have_bpb && have_root) {
         ok = require_pi4_storage_file_plan(fields, count, "pi4init", mbr, bpb, root) && ok;
-        ok = require_pi4_storage_file_plan(fields, count, "pi4payload0", mbr, bpb, root) && ok;
-        ok = require_pi4_storage_file_plan(fields, count, "pi4payload1", mbr, bpb, root) && ok;
+        ok = require_pi4_storage_file_plan(fields, count, "pi4appdoom", mbr, bpb, root) && ok;
+        ok = require_pi4_storage_file_plan(fields, count, "pi4appquake", mbr, bpb, root) && ok;
         ok = require_pi4_storage_file_plan(fields, count, "pi4manifest", mbr, bpb, root) && ok;
         ok = require_pi4_storage_file_plan(fields, count, "pi4wad", mbr, bpb, root) && ok;
     } else {
@@ -1824,14 +1824,14 @@ static int check_runtime_status(const Field* fields, size_t count)
                     strcmp(find_value(fields, count, "pi4exec"), "WAIT") == 0 &&
                     pstat[5] != 0) {
                     fprintf(stderr,
-                        "pi4_status_evidence: pi4exec=WAIT must not claim a payload process launch in pstat=\n");
+                        "pi4_status_evidence: pi4exec=WAIT must not claim an app process launch in pstat=\n");
                     ok = 0;
                 }
                 if (find_value(fields, count, "pi4exec") &&
                     strcmp(find_value(fields, count, "pi4exec"), "OK") == 0 &&
                     (pstat[5] == 0 || ptable[3] < 2)) {
                     fprintf(stderr,
-                        "pi4_status_evidence: pi4exec=OK requires payload PID allocation in pstat=/pi4ptable=\n");
+                        "pi4_status_evidence: pi4exec=OK requires app PID allocation in pstat=/pi4ptable=\n");
                     ok = 0;
                 }
             }
@@ -1861,48 +1861,49 @@ static int check_runtime_status(const Field* fields, size_t count)
     return 0;
 }
 
-static int require_pi4_payload_vfs_evidence(const Field* fields, size_t count)
+static int require_pi4_app_vfs_evidence(const Field* fields, size_t count)
 {
-    uint64_t payloadvfs[10];
-    uint64_t payload_file[8];
+    uint64_t appvfs[10];
+    uint64_t app_file[8];
     uint64_t mbr[6];
     uint64_t bpb[9];
     uint64_t root[4];
-    const char* payload_key = NULL;
+    const char* app_key = NULL;
     size_t i = 0;
     int ok = 1;
 
     ok = require_value(fields, count, "pi4vfs", "OK") && ok;
-    ok = parse_hex64_tuple_exact(fields, count, "pi4payloadvfs", 10, payloadvfs) && ok;
+    ok = parse_hex64_tuple_exact(fields, count, "pi4appvfs", 10, appvfs) && ok;
     ok = parse_hex64_tuple_exact(fields, count, "pi4mbr", 6, mbr) && ok;
     ok = parse_hex64_tuple_exact(fields, count, "pi4bpb", 9, bpb) && ok;
     ok = parse_hex64_tuple_exact(fields, count, "pi4root", 4, root) && ok;
     if (!ok)
         return 0;
 
-    if (payloadvfs[0] != PI4_VIBE_PAYLOAD_SLOT0 && payloadvfs[0] != PI4_VIBE_PAYLOAD_SLOT1) {
-        fprintf(stderr, "pi4_status_evidence: pi4payloadvfs= slot must be PAYLOAD0 or PAYLOAD1\n");
+    if (appvfs[0] != PI4_VIBE_FILE_ASSET_APP_DOOM_ELF &&
+        appvfs[0] != PI4_VIBE_FILE_ASSET_APP_QUAKE_ELF) {
+        fprintf(stderr, "pi4_status_evidence: pi4appvfs= app asset id must be Doom or Quake APP.ELF\n");
         return 0;
     }
-    if (payloadvfs[1] != PI4_STORAGE_FILE_STATUS_OK) {
+    if (appvfs[1] != PI4_STORAGE_FILE_STATUS_OK) {
         fprintf(stderr,
-            "pi4_status_evidence: pi4payloadvfs= must prove the selected payload ELF was present in the Pi VFS\n");
+            "pi4_status_evidence: pi4appvfs= must prove the selected app ELF was present in the Pi VFS\n");
         return 0;
     }
 
-    payload_key = payloadvfs[0] == PI4_VIBE_PAYLOAD_SLOT0 ? "pi4payload0" : "pi4payload1";
-    if (!parse_hex64_tuple_exact(fields, count, payload_key, 8, payload_file))
+    app_key = appvfs[0] == PI4_VIBE_FILE_ASSET_APP_DOOM_ELF ? "pi4appdoom" : "pi4appquake";
+    if (!parse_hex64_tuple_exact(fields, count, app_key, 8, app_file))
         return 0;
-    for (i = 0; i < ARRAY_COUNT(payload_file); i++) {
-        if (payloadvfs[i + 2] != payload_file[i]) {
+    for (i = 0; i < ARRAY_COUNT(app_file); i++) {
+        if (appvfs[i + 2] != app_file[i]) {
             fprintf(stderr,
-                "pi4_status_evidence: pi4payloadvfs= must match the selected %s= full-file read plan\n",
-                payload_key);
+                "pi4_status_evidence: pi4appvfs= must match the selected %s= full-file read plan\n",
+                app_key);
             return 0;
         }
     }
 
-    return require_pi4_storage_file_tuple("pi4payloadvfs", payloadvfs + 2, mbr, bpb, root);
+    return require_pi4_storage_file_tuple("pi4appvfs", appvfs + 2, mbr, bpb, root);
 }
 
 static int check_exec_status(const Field* fields, size_t count)
@@ -1943,12 +1944,10 @@ static int check_exec_status(const Field* fields, size_t count)
                 "pi4_status_evidence: pi4exec=WAIT cannot prove Doom or Quake launch\n");
             ok = 0;
         }
-        if (path && (strcmp(path, "PAYLOAD0.ELF") == 0 ||
-                     strcmp(path, "PAYLOAD1.ELF") == 0 ||
-                     strcmp(path, "/APPS/DOOM/APP.ELF") == 0 ||
+        if (path && (strcmp(path, "/APPS/DOOM/APP.ELF") == 0 ||
                      strcmp(path, "/APPS/QUAKE/APP.ELF") == 0)) {
             fprintf(stderr,
-                "pi4_status_evidence: pi4exec=WAIT cannot claim payload exec path success\n");
+                "pi4_status_evidence: pi4exec=WAIT cannot claim app exec path success\n");
             ok = 0;
         }
         return ok;
@@ -1963,7 +1962,7 @@ static int check_exec_status(const Field* fields, size_t count)
         ok = require_value(fields, count, "pi4uabi", "OK") && ok;
         ok = require_value(fields, count, "pi4runtime", "OK") && ok;
         ok = require_value(fields, count, "pi4mem", "OK") && ok;
-        ok = require_pi4_payload_vfs_evidence(fields, count) && ok;
+        ok = require_pi4_app_vfs_evidence(fields, count) && ok;
         ok = require_value(fields, count, "panic", "NONE") && ok;
         ok = require_value(fields, count, "shutdown", "NONE") && ok;
         return ok;
@@ -1973,17 +1972,23 @@ static int check_exec_status(const Field* fields, size_t count)
     return 0;
 }
 
-static int check_payload_launch_claim(const Field* fields, size_t count)
+static int check_app_launch_claim(const Field* fields, size_t count)
 {
-    const char* claim = find_value(fields, count, "payload_launch_claim");
+    const char* retired_claim = find_value(fields, count, "payload_launch_claim");
+    const char* claim = find_value(fields, count, "app_launch_claim");
 
+    if (retired_claim) {
+        fprintf(stderr,
+            "pi4_status_evidence: payload_launch_claim= is a retired root payload-slot claim\n");
+        return 0;
+    }
     if (!claim)
         return 1;
     if (strcmp(claim, "none") == 0)
         return 1;
 
     fprintf(stderr,
-        "pi4_status_evidence: payload_launch_claim= must remain none until Pi payload exec proof exists\n");
+        "pi4_status_evidence: app_launch_claim= must remain none until Pi app exec proof exists\n");
     return 0;
 }
 
@@ -2028,7 +2033,7 @@ int main(int argc, char** argv)
     ok = check_framebuffer_status(fields, field_count) && ok;
     ok = check_runtime_status(fields, field_count) && ok;
     ok = check_exec_status(fields, field_count) && ok;
-    ok = check_payload_launch_claim(fields, field_count) && ok;
+    ok = check_app_launch_claim(fields, field_count) && ok;
 
     if (ok)
         printf("pi4_status_evidence: OK fields=%zu\n", field_count);

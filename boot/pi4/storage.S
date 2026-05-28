@@ -190,13 +190,9 @@ pi4_storage_reset_status:
     str w1, [x0]
     adr x0, pi4_storage_status_init_elf
     str w1, [x0]
-    adr x0, pi4_storage_status_payload0
+    adr x0, pi4_storage_status_app_doom_elf
     str w1, [x0]
-    adr x0, pi4_storage_status_payload1
-    str w1, [x0]
-    adr x0, pi4_storage_status_root_payload0
-    str w1, [x0]
-    adr x0, pi4_storage_status_root_payload1
+    adr x0, pi4_storage_status_app_quake_elf
     str w1, [x0]
     adr x0, pi4_storage_status_block
     str w1, [x0]
@@ -1353,13 +1349,9 @@ pi4_storage_parse_fat_root:
     adr x0, pi4_storage_status_init_elf
     ldr w1, =VIBE_PI4_STORAGE_FILE_MISSING
     str w1, [x0]
-    adr x0, pi4_storage_status_payload0
+    adr x0, pi4_storage_status_app_doom_elf
     str w1, [x0]
-    adr x0, pi4_storage_status_payload1
-    str w1, [x0]
-    adr x0, pi4_storage_status_root_payload0
-    str w1, [x0]
-    adr x0, pi4_storage_status_root_payload1
+    adr x0, pi4_storage_status_app_quake_elf
     str w1, [x0]
 
     adr x0, pi4_storage_root_values_start
@@ -1467,16 +1459,6 @@ pi4_storage_parse_fat_root:
     cbnz w0, .Lpi4_storage_root_record_init
 
     mov x0, x25
-    adr x1, pi4_storage_name_payload0_elf
-    bl pi4_storage_match_short_name
-    cbnz w0, .Lpi4_storage_root_record_payload0
-
-    mov x0, x25
-    adr x1, pi4_storage_name_payload1_elf
-    bl pi4_storage_match_short_name
-    cbnz w0, .Lpi4_storage_root_record_payload1
-
-    mov x0, x25
     adr x1, pi4_storage_name_kernel8_img
     bl pi4_storage_match_short_name
     cbnz w0, .Lpi4_storage_root_record_kernel8
@@ -1542,46 +1524,6 @@ pi4_storage_parse_fat_root:
     bl pi4_storage_record_file_metadata
     cbz w0, .Lpi4_storage_root_next_entry
     orr x27, x27, #1
-    b .Lpi4_storage_root_next_entry
-
-.Lpi4_storage_root_record_payload0:
-    adr x0, pi4_storage_status_root_payload0
-    ldr w1, [x0]
-    ldr w2, =VIBE_PI4_STORAGE_FILE_OK
-    cmp w1, w2
-    b.eq .Lpi4_storage_root_next_entry
-    mov x0, x25
-    mov x1, x26
-    adr x2, pi4_storage_status_root_payload0
-    adr x3, pi4_storage_status_root_payload0_entry_index
-    mov x4, x28
-    mov x5, x19
-    mov x6, x20
-    adr x7, pi4_storage_status_bpb_cluster_count
-    ldr x7, [x7]
-    bl pi4_storage_record_file_metadata
-    cbz w0, .Lpi4_storage_root_next_entry
-    orr x27, x27, #2
-    b .Lpi4_storage_root_next_entry
-
-.Lpi4_storage_root_record_payload1:
-    adr x0, pi4_storage_status_root_payload1
-    ldr w1, [x0]
-    ldr w2, =VIBE_PI4_STORAGE_FILE_OK
-    cmp w1, w2
-    b.eq .Lpi4_storage_root_next_entry
-    mov x0, x25
-    mov x1, x26
-    adr x2, pi4_storage_status_root_payload1
-    adr x3, pi4_storage_status_root_payload1_entry_index
-    mov x4, x28
-    mov x5, x19
-    mov x6, x20
-    adr x7, pi4_storage_status_bpb_cluster_count
-    ldr x7, [x7]
-    bl pi4_storage_record_file_metadata
-    cbz w0, .Lpi4_storage_root_next_entry
-    orr x27, x27, #4
     b .Lpi4_storage_root_next_entry
 
 .Lpi4_storage_root_record_kernel8:
@@ -2257,10 +2199,6 @@ pi4_storage_note_nested_asset_dir:
 .balign 1
 pi4_storage_name_init_elf:
     .ascii "INIT    ELF"
-pi4_storage_name_payload0_elf:
-    .ascii "PAYLOAD0ELF"
-pi4_storage_name_payload1_elf:
-    .ascii "PAYLOAD1ELF"
 pi4_storage_name_kernel8_img:
     .ascii "KERNEL8 IMG"
 pi4_storage_name_config_txt:
@@ -2339,19 +2277,9 @@ pi4_storage_status_init_elf:
     .word VIBE_PI4_STORAGE_WAIT
 .global pi4_storage_status_app_doom_elf
 pi4_storage_status_app_doom_elf:
-.global pi4_storage_status_payload0
-pi4_storage_status_payload0:
     .word VIBE_PI4_STORAGE_WAIT
 .global pi4_storage_status_app_quake_elf
 pi4_storage_status_app_quake_elf:
-.global pi4_storage_status_payload1
-pi4_storage_status_payload1:
-    .word VIBE_PI4_STORAGE_WAIT
-.global pi4_storage_status_root_payload0
-pi4_storage_status_root_payload0:
-    .word VIBE_PI4_STORAGE_WAIT
-.global pi4_storage_status_root_payload1
-pi4_storage_status_root_payload1:
     .word VIBE_PI4_STORAGE_WAIT
 .global pi4_storage_status_block
 pi4_storage_status_block:
@@ -2602,133 +2530,53 @@ pi4_storage_status_init_elf_plan_bytes:
 .global pi4_storage_status_init_elf_read_count
 pi4_storage_status_init_elf_read_count:
     .quad 0
-.global pi4_storage_status_root_payload0_entry_index
-pi4_storage_status_root_payload0_entry_index:
-    .quad 0
-.global pi4_storage_status_root_payload0_attr
-pi4_storage_status_root_payload0_attr:
-    .quad 0
-.global pi4_storage_status_root_payload0_cluster
-pi4_storage_status_root_payload0_cluster:
-    .quad 0
-.global pi4_storage_status_root_payload0_size
-pi4_storage_status_root_payload0_size:
-    .quad 0
-.global pi4_storage_status_root_payload0_plan_lba
-pi4_storage_status_root_payload0_plan_lba:
-    .quad 0
-.global pi4_storage_status_root_payload0_plan_sectors
-pi4_storage_status_root_payload0_plan_sectors:
-    .quad 0
-.global pi4_storage_status_root_payload0_plan_bytes
-pi4_storage_status_root_payload0_plan_bytes:
-    .quad 0
-.global pi4_storage_status_root_payload0_read_count
-pi4_storage_status_root_payload0_read_count:
-    .quad 0
-.global pi4_storage_status_root_payload1_entry_index
-pi4_storage_status_root_payload1_entry_index:
-    .quad 0
-.global pi4_storage_status_root_payload1_attr
-pi4_storage_status_root_payload1_attr:
-    .quad 0
-.global pi4_storage_status_root_payload1_cluster
-pi4_storage_status_root_payload1_cluster:
-    .quad 0
-.global pi4_storage_status_root_payload1_size
-pi4_storage_status_root_payload1_size:
-    .quad 0
-.global pi4_storage_status_root_payload1_plan_lba
-pi4_storage_status_root_payload1_plan_lba:
-    .quad 0
-.global pi4_storage_status_root_payload1_plan_sectors
-pi4_storage_status_root_payload1_plan_sectors:
-    .quad 0
-.global pi4_storage_status_root_payload1_plan_bytes
-pi4_storage_status_root_payload1_plan_bytes:
-    .quad 0
-.global pi4_storage_status_root_payload1_read_count
-pi4_storage_status_root_payload1_read_count:
-    .quad 0
 .global pi4_storage_status_app_doom_elf_entry_index
 pi4_storage_status_app_doom_elf_entry_index:
-.global pi4_storage_status_payload0_entry_index
-pi4_storage_status_payload0_entry_index:
     .quad 0
 .global pi4_storage_status_app_doom_elf_attr
 pi4_storage_status_app_doom_elf_attr:
-.global pi4_storage_status_payload0_attr
-pi4_storage_status_payload0_attr:
     .quad 0
 .global pi4_storage_status_app_doom_elf_cluster
 pi4_storage_status_app_doom_elf_cluster:
-.global pi4_storage_status_payload0_cluster
-pi4_storage_status_payload0_cluster:
     .quad 0
 .global pi4_storage_status_app_doom_elf_size
 pi4_storage_status_app_doom_elf_size:
-.global pi4_storage_status_payload0_size
-pi4_storage_status_payload0_size:
     .quad 0
 .global pi4_storage_status_app_doom_elf_plan_lba
 pi4_storage_status_app_doom_elf_plan_lba:
-.global pi4_storage_status_payload0_plan_lba
-pi4_storage_status_payload0_plan_lba:
     .quad 0
 .global pi4_storage_status_app_doom_elf_plan_sectors
 pi4_storage_status_app_doom_elf_plan_sectors:
-.global pi4_storage_status_payload0_plan_sectors
-pi4_storage_status_payload0_plan_sectors:
     .quad 0
 .global pi4_storage_status_app_doom_elf_plan_bytes
 pi4_storage_status_app_doom_elf_plan_bytes:
-.global pi4_storage_status_payload0_plan_bytes
-pi4_storage_status_payload0_plan_bytes:
     .quad 0
 .global pi4_storage_status_app_doom_elf_read_count
 pi4_storage_status_app_doom_elf_read_count:
-.global pi4_storage_status_payload0_read_count
-pi4_storage_status_payload0_read_count:
     .quad 0
 .global pi4_storage_status_app_quake_elf_entry_index
 pi4_storage_status_app_quake_elf_entry_index:
-.global pi4_storage_status_payload1_entry_index
-pi4_storage_status_payload1_entry_index:
     .quad 0
 .global pi4_storage_status_app_quake_elf_attr
 pi4_storage_status_app_quake_elf_attr:
-.global pi4_storage_status_payload1_attr
-pi4_storage_status_payload1_attr:
     .quad 0
 .global pi4_storage_status_app_quake_elf_cluster
 pi4_storage_status_app_quake_elf_cluster:
-.global pi4_storage_status_payload1_cluster
-pi4_storage_status_payload1_cluster:
     .quad 0
 .global pi4_storage_status_app_quake_elf_size
 pi4_storage_status_app_quake_elf_size:
-.global pi4_storage_status_payload1_size
-pi4_storage_status_payload1_size:
     .quad 0
 .global pi4_storage_status_app_quake_elf_plan_lba
 pi4_storage_status_app_quake_elf_plan_lba:
-.global pi4_storage_status_payload1_plan_lba
-pi4_storage_status_payload1_plan_lba:
     .quad 0
 .global pi4_storage_status_app_quake_elf_plan_sectors
 pi4_storage_status_app_quake_elf_plan_sectors:
-.global pi4_storage_status_payload1_plan_sectors
-pi4_storage_status_payload1_plan_sectors:
     .quad 0
 .global pi4_storage_status_app_quake_elf_plan_bytes
 pi4_storage_status_app_quake_elf_plan_bytes:
-.global pi4_storage_status_payload1_plan_bytes
-pi4_storage_status_payload1_plan_bytes:
     .quad 0
 .global pi4_storage_status_app_quake_elf_read_count
 pi4_storage_status_app_quake_elf_read_count:
-.global pi4_storage_status_payload1_read_count
-pi4_storage_status_payload1_read_count:
     .quad 0
 .global pi4_storage_status_kernel8_img
 pi4_storage_status_kernel8_img:

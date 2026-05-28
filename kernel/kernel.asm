@@ -577,6 +577,9 @@ FAT_ROOT_CACHE_SECTORS equ 32
 FAT_TABLE_CACHE_SECTORS equ 256
 FAT_ALLOC_MAP_BYTES equ FAT_TABLE_CACHE_SECTORS * 512 / 2
 FAT_CACHE_BYTES equ FAT_TABLE_CACHE_SECTORS * 512 + FAT_ROOT_CACHE_SECTORS * 512 + FAT_ALLOC_MAP_BYTES
+FAT_PATH_MAX_COMPONENTS equ 4
+FAT_PATH_COMPONENT_BYTES equ 11
+FAT_USER_PATH_MAX_BYTES equ 128
 SECTOR_BUFFER_ADDR equ 0x0009b000
 PRIMARY_ASSET_LOAD_ADDR equ 0x00900000
 PRIMARY_ASSET_MAX_BYTES equ 0x00500000
@@ -622,10 +625,6 @@ PROCESS_EXEC_LOAD_ADDR equ 8
 PROCESS_EXEC_MAX_BYTES equ 12
 PROCESS_EXEC_TARGET equ 16
 PROCESS_EXEC_KIND equ 20
-LARGE_PAYLOAD_PROOF_LABEL_COUNT equ 2
-LARGE_PAYLOAD_PROOF_LABEL_ENTRY_BYTES equ 8
-LARGE_PAYLOAD_PROOF_LABEL_NAME83 equ 0
-LARGE_PAYLOAD_PROOF_LABEL_KIND equ 4
 PROC_PID equ 0
 PROC_KIND equ 4
 PROC_STATE equ 8
@@ -14491,6 +14490,235 @@ fat_parse_user_subdir_file83:
     pop ebx
     ret
 
+fat_parse_user_path83:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov eax, [syscall_ptr_arg]
+    mov ebx, FAT_USER_PATH_MAX_BYTES
+    call user_range_validate
+    jc .fail
+    mov edi, fat_path_component_buffer
+    mov al, ' '
+    mov ecx, FAT_PATH_MAX_COMPONENTS * FAT_PATH_COMPONENT_BYTES
+    cld
+    rep stosb
+    mov esi, [syscall_ptr_arg]
+    mov edi, fat_path_component_buffer
+    mov byte [fat_path_component_count], 0
+    mov byte [fat_open_base_len], 0
+    mov byte [fat_open_ext_len], 0
+    mov byte [fat_open_dot_seen], 0
+    mov ecx, FAT_USER_PATH_MAX_BYTES
+
+.skip_prefix:
+    cmp ecx, 0
+    je .fail
+    mov al, [esi]
+    cmp al, '/'
+    je .skip_one_prefix_char
+    cmp al, 0x5c
+    je .skip_one_prefix_char
+    cmp al, '.'
+    jne .char_loop
+    mov al, [esi + 1]
+    cmp al, '/'
+    je .skip_dot_prefix
+    cmp al, 0x5c
+    je .skip_dot_prefix
+    jmp .char_loop
+
+.skip_one_prefix_char:
+    inc esi
+    dec ecx
+    jmp .skip_prefix
+
+.skip_dot_prefix:
+    add esi, 2
+    sub ecx, 2
+    js .fail
+    jmp .skip_prefix
+
+.char_loop:
+    cmp ecx, 0
+    je .fail
+    lodsb
+    dec ecx
+    cmp al, 0
+    je .finish
+    cmp al, '/'
+    je .separator
+    cmp al, 0x5c
+    je .separator
+    cmp al, '.'
+    je .dot
+    cmp al, 'a'
+    jb .validate_char
+    cmp al, 'z'
+    ja .validate_char
+    sub al, 32
+
+.validate_char:
+    cmp al, 'A'
+    jb .check_digit
+    cmp al, 'Z'
+    jbe .store_char
+
+.check_digit:
+    cmp al, '0'
+    jb .check_extra
+    cmp al, '9'
+    jbe .store_char
+
+.check_extra:
+    cmp al, '_'
+    je .store_char
+    cmp al, '-'
+    je .store_char
+    jmp .fail
+
+.dot:
+    cmp byte [fat_open_base_len], 0
+    je .fail
+    cmp byte [fat_open_dot_seen], 0
+    jne .fail
+    mov byte [fat_open_dot_seen], 1
+    jmp .char_loop
+
+.store_char:
+    cmp byte [fat_open_dot_seen], 0
+    jne .store_ext
+    movzx edx, byte [fat_open_base_len]
+    cmp edx, 8
+    jae .fail
+    mov [edi + edx], al
+    inc byte [fat_open_base_len]
+    jmp .char_loop
+
+.store_ext:
+    movzx edx, byte [fat_open_ext_len]
+    cmp edx, 3
+    jae .fail
+    mov [edi + 8 + edx], al
+    inc byte [fat_open_ext_len]
+    jmp .char_loop
+
+.separator:
+    cmp byte [fat_open_base_len], 0
+    je .fail
+    cmp byte [fat_open_dot_seen], 0
+    je .component_ok
+    cmp byte [fat_open_ext_len], 0
+    je .fail
+
+.component_ok:
+    movzx ebx, byte [fat_path_component_count]
+    inc ebx
+    cmp ebx, FAT_PATH_MAX_COMPONENTS
+    jae .fail
+    mov [fat_path_component_count], bl
+    mov eax, ebx
+    shl eax, 3
+    mov edx, ebx
+    shl edx, 1
+    add eax, edx
+    add eax, ebx
+    mov edi, fat_path_component_buffer
+    add edi, eax
+    mov byte [fat_open_base_len], 0
+    mov byte [fat_open_ext_len], 0
+    mov byte [fat_open_dot_seen], 0
+    jmp .char_loop
+
+.finish:
+    cmp byte [fat_open_base_len], 0
+    je .fail
+    cmp byte [fat_open_dot_seen], 0
+    je .finish_component_ok
+    cmp byte [fat_open_ext_len], 0
+    je .fail
+
+.finish_component_ok:
+    inc byte [fat_path_component_count]
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+fat_path_component_ptr:
+    mov eax, ebx
+    shl eax, 3
+    mov edx, ebx
+    shl edx, 1
+    add eax, edx
+    add eax, ebx
+    mov edi, fat_path_component_buffer
+    add edi, eax
+    ret
+
+fat_resolve_user_path_readonly:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    call fat_parse_user_path83
+    jc .fail
+    cmp byte [fat_path_component_count], 0
+    je .fail
+    xor ebx, ebx
+    call fat_path_component_ptr
+    call fat_find_root_entry_any
+    jc .fail
+    cmp byte [fat_path_component_count], 1
+    je .ok
+    mov byte [fat_path_walk_index], 1
+
+.walk:
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .fail
+    mov ax, [fat_found_first_cluster]
+    cmp ax, 2
+    jb .fail
+    movzx ebx, byte [fat_path_walk_index]
+    call fat_path_component_ptr
+    call fat_find_subdir_entry
+    jc .fail
+    inc byte [fat_path_walk_index]
+    mov al, [fat_path_walk_index]
+    cmp al, [fat_path_component_count]
+    jb .walk
+
+.ok:
+    clc
+    jmp .done
+
+.fail:
+    stc
+
+.done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    ret
+
 fat_find_subdir_entry:
     push ebx
     push ecx
@@ -14749,11 +14977,6 @@ fat_open_name_is_protected:
     je .protected
     mov esi, fat_open_name_buffer
     mov edi, user_elf_name_83
-    call fat_name_match
-    cmp al, 1
-    je .protected
-    mov esi, fat_open_name_buffer
-    mov edi, primary_payload_elf_name_83
     call fat_name_match
     cmp al, 1
     je .protected
@@ -20936,8 +21159,6 @@ process_exec_resolve_generic_root83:
     jne .fail
     cmp byte [process_exec_name83_buffer + 10], 'F'
     jne .fail
-    call process_exec_resolve_large_payload_label
-    jnc .done
     call process_alloc_generic_exec_slot
     jc .fail
     inc dword [process_exec_generic_resolves]
@@ -20957,54 +21178,6 @@ process_exec_resolve_generic_root83:
     pop edi
     pop esi
     pop edx
-    pop ecx
-    pop ebx
-    pop eax
-    ret
-
-process_exec_resolve_large_payload_label:
-    push eax
-    push ebx
-    push ecx
-    push esi
-    push edi
-
-    mov ebx, large_payload_proof_label_table
-    mov ecx, LARGE_PAYLOAD_PROOF_LABEL_COUNT
-
-.scan_next:
-    cmp ecx, 0
-    je .not_found
-    push ecx
-    mov esi, process_exec_name83_buffer
-    mov edi, [ebx + LARGE_PAYLOAD_PROOF_LABEL_NAME83]
-    cld
-    call fat_name_match
-    pop ecx
-    cmp al, 1
-    je .found
-    add ebx, LARGE_PAYLOAD_PROOF_LABEL_ENTRY_BYTES
-    dec ecx
-    jmp .scan_next
-
-.found:
-    inc dword [process_exec_generic_resolves]
-    mov dword [process_exec_last_resolve_mode], SYS_EXEC_RESOLVE_GENERIC_ROOT83
-    mov dword [process_exec_name83], process_exec_name83_buffer
-    mov dword [process_exec_load_addr], PAYLOAD_ELF_LOAD_ADDR
-    mov dword [process_exec_max_bytes], PAYLOAD_ELF_MAX_BYTES
-    mov dword [process_exec_target], process_payload
-    mov eax, [ebx + LARGE_PAYLOAD_PROOF_LABEL_KIND]
-    mov [process_exec_target_kind], eax
-    clc
-    jmp .done
-
-.not_found:
-    stc
-
-.done:
-    pop edi
-    pop esi
     pop ecx
     pop ebx
     pop eax
@@ -22846,19 +23019,8 @@ syscall_handler:
     jmp .open_writable_ready
 
 .open_generic_try_subdir_readonly:
-    call fat_parse_user_subdir_file83
+    call fat_resolve_user_path_readonly
     jc .open_generic_parse_root83
-    mov edi, fat_subdir_name_buffer
-    call fat_find_root_entry_any
-    jc .bad_syscall_enoent
-    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
-    jz .bad_syscall_enotdir
-    mov ax, [fat_found_first_cluster]
-    cmp ax, 2
-    jb .bad_syscall_eio
-    mov edi, fat_open_name_buffer
-    call fat_find_subdir_entry
-    jc .bad_syscall_enoent
     test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
     jnz .bad_syscall_eisdir
     test byte [fat_found_attributes], FAT_ATTR_READ_ONLY
@@ -24310,19 +24472,8 @@ syscall_handler:
     mov edi, user_path_primary_asset
     call user_path_equals
     jnc .stat_primary_asset
-    call fat_parse_user_subdir_file83
+    call fat_resolve_user_path_readonly
     jc .stat_parse_root83
-    mov edi, fat_subdir_name_buffer
-    call fat_find_root_entry_any
-    jc .bad_syscall_enoent
-    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
-    jz .bad_syscall_enotdir
-    mov ax, [fat_found_first_cluster]
-    cmp ax, 2
-    jb .bad_syscall_eio
-    mov edi, fat_open_name_buffer
-    call fat_find_subdir_entry
-    jc .bad_syscall_enoent
     mov eax, [fat_found_size]
     call fat_found_mode
     jmp .stat_found_entry
@@ -24340,11 +24491,6 @@ syscall_handler:
     call fat_name_match
     cmp al, 1
     je .stat_user_elf
-    mov esi, fat_open_name_buffer
-    mov edi, primary_payload_elf_name_83
-    call fat_name_match
-    cmp al, 1
-    je .stat_primary_payload_elf
     call fat_open_name_marker_index
     jnc .stat_persistence_marker
     mov edi, fat_open_name_buffer
@@ -24381,17 +24527,6 @@ syscall_handler:
 
 .stat_user_elf:
     mov edi, user_elf_name_83
-    call fat_find_file
-    jc .bad_syscall_enoent
-    mov eax, [fat_found_size]
-    mov edx, STAT_MODE_READONLY_REG
-    call stat_fill_user
-    jc .bad_syscall_einval
-    xor eax, eax
-    jmp .return
-
-.stat_primary_payload_elf:
-    mov edi, primary_payload_elf_name_83
     call fat_find_file
     jc .bad_syscall_enoent
     mov eax, [fat_found_size]
@@ -34821,14 +34956,10 @@ cmd_poweroff db "poweroff", 0
 primary_asset_name_83 db "DOOM1   WAD"
 boot_user_elf_name_83 db "INIT    ELF"
 user_elf_name_83 db "USERPROBELF"
-primary_payload_elf_name_83 db "PAYLOAD0ELF"
-secondary_payload_elf_name_83 db "PAYLOAD1ELF"
 app_elf_name_83 db "APP     ELF"
 apps_dir_name_83 db "APPS       "
 doom_dir_name_83 db "DOOM       "
 quake_dir_name_83 db "QUAKE      "
-exec_path_primary_payload db "PAYLOAD0.ELF", 0
-exec_path_secondary_payload db "PAYLOAD1.ELF", 0
 exec_path_primary_app db "/APPS/DOOM/APP.ELF", 0
 exec_path_secondary_app db "/APPS/QUAKE/APP.ELF", 0
 exec_path_boot_user db "INIT.ELF", 0
@@ -34873,9 +35004,6 @@ writable_path_table dd user_path_default_cfg, user_path_save_slot0, user_path_sa
 writable_path_len_table dd user_path_default_cfg_end - user_path_default_cfg, user_path_save_slot0_end - user_path_save_slot0, user_path_save_slot1_end - user_path_save_slot1, user_path_save_slot2_end - user_path_save_slot2, user_path_save_slot3_end - user_path_save_slot3, user_path_save_slot4_end - user_path_save_slot4, user_path_save_slot5_end - user_path_save_slot5, user_path_savereq_end - user_path_savereq, user_path_loadreq_end - user_path_loadreq
 writable_capacity_table dd WRITABLE_DEFAULT_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_SAVE_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY, WRITABLE_GENERIC_CAPACITY
 persistence_marker_name_table dd persist_chk_name_83, save_req_name_83, load_req_name_83
-large_payload_proof_label_table:
-    dd primary_payload_elf_name_83, USER_KIND_PAYLOAD_PRIMARY
-    dd secondary_payload_elf_name_83, USER_KIND_PAYLOAD_SECONDARY
 process_exec_table:
     dd exec_path_boot_user, boot_user_elf_name_83, USER_ELF_LOAD_ADDR, USER_ELF_MAX_BYTES, process_user_probe, USER_KIND_PROBE
     dd exec_path_user_probe, user_elf_name_83, USER_ELF_LOAD_ADDR, USER_ELF_MAX_BYTES, process_user_probe, USER_KIND_PROBE
@@ -36589,6 +36717,9 @@ fat_open_ext_len db 0
 fat_open_name_buffer times 11 db 0
 fat_subdir_name_buffer times 11 db 0
 fat_path_component_index db 0
+fat_path_component_count db 0
+fat_path_walk_index db 0
+fat_path_component_buffer times FAT_PATH_MAX_COMPONENTS * FAT_PATH_COMPONENT_BYTES db 0
 user_load_segment_count db 0
 payload_load_segment_count db 0
 present_status db 0

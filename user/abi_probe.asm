@@ -51,7 +51,7 @@ extern vibe_user_input_device_status
 extern vibe_user_write_all
 extern vibe_user_report_probe
 extern vibe_user_execv
-extern vibe_launcher_choose_payload
+extern vibe_launcher_choose_app
 section .text
 global user_main
 
@@ -175,18 +175,6 @@ user_main:
     call	root_contains
     test	eax, eax
     je	LBB0_45
-
-    mov	ecx, esi
-    mov	edx, L.str.5
-    call	root_contains
-    test	eax, eax
-    je	LBB0_46
-
-    mov	ecx, esi
-    mov	edx, L.payload1_path
-    call	root_contains
-    test	eax, eax
-    je	LBB0_46
 
     call	prove_generic_file_services
     mov	ecx, eax
@@ -429,7 +417,7 @@ LBB0_54:
     push	-1474621250
     call	vibe_user_report_probe
     add	esp, 8
-    call	vibe_launcher_choose_payload
+    call	vibe_launcher_choose_app
     push	esi
     push	eax
     call	vibe_user_execv
@@ -2481,17 +2469,11 @@ db `ABI_ENV=present`, 0
 L.str.4:
 db `USERPROB.ELF`, 0
 
-L.str.5:
-db `PAYLOAD0.ELF`, 0
-
 L.str.6:
 times 1 db 0
 
 L.str.7:
 db `abi probe ok\n`, 0
-
-L.payload1_path:
-db `PAYLOAD1.ELF`, 0
 
 L__const.prove_generic_file_services.asset_file:
 db `./assets/readme.txt`, 0

@@ -22,7 +22,7 @@ usage() {
 Usage: tools/play_local.sh [--prepare-only]
 
 Prepare public shareware Doom and Quake data outside the repo, build one
-ignored vibe-os disk image with both generic payload slots, and launch the OS
+ignored vibe-os disk image with both installed app directories, and launch the OS
 launcher. On macOS, local QEMU execution is disabled by default; use
 --prepare-only for the safe local handoff, or set ALLOW_LOCAL_VM=1 explicitly.
 For the Raspberry Pi 4 desktop/play path, prefer make pi4-qemu-command for the

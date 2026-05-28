@@ -26,8 +26,6 @@
 #define PI4_VIBE_DISPLAY_FD 1
 #define PI4_VIBE_FD_DOOM1_WAD 3
 #define PI4_VIBE_FD_PAK0_PAK 4
-#define PI4_VIBE_FD_PAYLOAD0_ELF 5
-#define PI4_VIBE_FD_PAYLOAD1_ELF 6
 #define PI4_VIBE_FD_MANIFEST_TXT 7
 #define PI4_VIBE_FD_ASSET_README 8
 #define PI4_VIBE_FD_ASSET_MAP 9
@@ -62,16 +60,24 @@
 #define PI4_VIBE_STAT_SIZE_OFFSET 28
 #define PI4_VIBE_LSEEK_SCRATCH_BYTES 65536
 
-#define PI4_VIBE_PAYLOAD_SLOT0 0
-#define PI4_VIBE_PAYLOAD_SLOT1 1
-#define PI4_VIBE_PAYLOAD_SLOT_COUNT 2
+#define PI4_VIBE_APP_DOOM 0
+#define PI4_VIBE_APP_QUAKE 1
+#define PI4_VIBE_APP_COUNT 2
 #define PI4_VIBE_EXEC_REQUEST_ABI_VERSION 1
 #define PI4_VIBE_EXEC_REQUEST_BYTES 32
 #define PI4_VIBE_EXEC_REQUEST_PATH_MAX_BYTES 64
 #define PI4_VIBE_EXEC_REQUEST_ABI_VERSION_OFFSET 0
 #define PI4_VIBE_EXEC_REQUEST_BYTES_OFFSET 8
-#define PI4_VIBE_EXEC_REQUEST_PAYLOAD_SLOT_OFFSET 16
-#define PI4_VIBE_EXEC_REQUEST_PATH_OFFSET 24
+/*
+ * Exec requests are app-path-first. The word at offset 16 stays reserved so
+ * the ABI remains fixed; callers set it to PI4_VIBE_EXEC_REQUEST_COMPAT_NONE
+ * and provide app_path.
+ */
+#define PI4_VIBE_EXEC_REQUEST_COMPAT_TOKEN_OFFSET 16
+#define PI4_VIBE_EXEC_REQUEST_APP_PATH_OFFSET 24
+#define PI4_VIBE_EXEC_REQUEST_COMPAT_NONE -1
+#define PI4_VIBE_EXEC_REQUEST_PATH_OFFSET \
+    PI4_VIBE_EXEC_REQUEST_APP_PATH_OFFSET
 
 #define PI4_VIBE_INPUT_DEVICE_KEYBOARD 1
 #define PI4_VIBE_INPUT_DEVICE_MOUSE 2
@@ -1185,8 +1191,8 @@ typedef struct pi4_vibe_clock_time {
 typedef struct pi4_vibe_exec_request {
     pi4_vibe_word_t abi_version;
     pi4_vibe_word_t request_bytes;
-    pi4_vibe_word_t payload_slot;
-    const char* path;
+    pi4_vibe_word_t compatibility_token;
+    const char* app_path;
 } pi4_vibe_exec_request_t;
 
 typedef struct pi4_vibe_audio_voice_desc {
@@ -1438,11 +1444,8 @@ long vibe_user_exec_request(
     const pi4_vibe_exec_request_t* request,
     char* const argv[],
     char* const envp[]);
-long vibe_user_execv_payload(
-    pi4_vibe_word_t payload_slot,
-    const char* path,
-    char* const argv[]);
-long vibe_user_execv(const char* path, char* const argv[]);
+long vibe_user_execv_app(const char* app_path, char* const argv[]);
+long vibe_user_execv(const char* app_path, char* const argv[]);
 long vibe_user_fb_get_info(pi4_vibe_fb_info_t* info);
 long vibe_user_fb_can_present_indexed(
     const pi4_vibe_fb_info_t* info,

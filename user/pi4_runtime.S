@@ -533,14 +533,14 @@ vibe_user_file_probe_assets:
     cbz x19, .Lpi4_runtime_asset_probe_done_return
 
     mov x0, x19
-    adrp x1, .Lpi4_runtime_payload0_path
-    add x1, x1, :lo12:.Lpi4_runtime_payload0_path
+    adrp x1, .Lpi4_runtime_doom_app_path
+    add x1, x1, :lo12:.Lpi4_runtime_doom_app_path
     bl .Lpi4_runtime_path_eq16
     cbnz x0, .Lpi4_runtime_probe_doom_wad
 
     mov x0, x19
-    adrp x1, .Lpi4_runtime_payload1_path
-    add x1, x1, :lo12:.Lpi4_runtime_payload1_path
+    adrp x1, .Lpi4_runtime_quake_app_path
+    add x1, x1, :lo12:.Lpi4_runtime_quake_app_path
     bl .Lpi4_runtime_path_eq16
     cbnz x0, .Lpi4_runtime_probe_quake_pak
     b .Lpi4_runtime_asset_probe_done_return
@@ -591,12 +591,13 @@ vibe_user_exit_status:
 
 .balign 16
 .global vibe_user_execv
-.global vibe_user_execv_payload
+.global vibe_user_execv_app
 .global vibe_user_exec_request
 .type vibe_user_execv, %function
-.type vibe_user_execv_payload, %function
+.type vibe_user_execv_app, %function
 .type vibe_user_exec_request, %function
 vibe_user_execv:
+vibe_user_execv_app:
     cbz x0, .Lpi4_runtime_inval
     cbz x1, .Lpi4_runtime_inval
     stp x29, x30, [sp, #-64]!
@@ -604,21 +605,14 @@ vibe_user_execv:
     stp x19, x20, [sp, #16]
     mov x19, x0
     mov x20, x1
-    mov x0, #-1
-    b .Lpi4_runtime_execv_have_slot
-.Lpi4_runtime_execv_slot0:
-    mov x0, #PI4_VIBE_PAYLOAD_SLOT0
-    b .Lpi4_runtime_execv_have_slot
-.Lpi4_runtime_execv_slot1:
-    mov x0, #PI4_VIBE_PAYLOAD_SLOT1
-.Lpi4_runtime_execv_have_slot:
     add x1, sp, #32
-    str x0, [x1, #PI4_VIBE_EXEC_REQUEST_PAYLOAD_SLOT_OFFSET]
+    mov x0, #PI4_VIBE_EXEC_REQUEST_COMPAT_NONE
+    str x0, [x1, #PI4_VIBE_EXEC_REQUEST_COMPAT_TOKEN_OFFSET]
     mov x2, #PI4_VIBE_EXEC_REQUEST_ABI_VERSION
     str x2, [x1, #PI4_VIBE_EXEC_REQUEST_ABI_VERSION_OFFSET]
     mov x2, #PI4_VIBE_EXEC_REQUEST_BYTES
     str x2, [x1, #PI4_VIBE_EXEC_REQUEST_BYTES_OFFSET]
-    str x19, [x1, #PI4_VIBE_EXEC_REQUEST_PATH_OFFSET]
+    str x19, [x1, #PI4_VIBE_EXEC_REQUEST_APP_PATH_OFFSET]
     mov x0, x1
     mov x1, x20
     adrp x2, .Lpi4_runtime_empty_envp
@@ -629,31 +623,7 @@ vibe_user_execv:
     ldp x29, x30, [sp], #64
     ret
 .size vibe_user_execv, . - vibe_user_execv
-vibe_user_execv_payload:
-    cbz x1, .Lpi4_runtime_inval
-    cbz x2, .Lpi4_runtime_inval
-    cmp x0, #PI4_VIBE_PAYLOAD_SLOT_COUNT
-    b.hs .Lpi4_runtime_inval
-    stp x29, x30, [sp, #-64]!
-    mov x29, sp
-    str x19, [sp, #16]
-    mov x19, x2
-    add x3, sp, #32
-    str x0, [x3, #PI4_VIBE_EXEC_REQUEST_PAYLOAD_SLOT_OFFSET]
-    mov x4, #PI4_VIBE_EXEC_REQUEST_ABI_VERSION
-    str x4, [x3, #PI4_VIBE_EXEC_REQUEST_ABI_VERSION_OFFSET]
-    mov x4, #PI4_VIBE_EXEC_REQUEST_BYTES
-    str x4, [x3, #PI4_VIBE_EXEC_REQUEST_BYTES_OFFSET]
-    str x1, [x3, #PI4_VIBE_EXEC_REQUEST_PATH_OFFSET]
-    mov x0, x3
-    mov x1, x19
-    adrp x2, .Lpi4_runtime_empty_envp
-    add x2, x2, :lo12:.Lpi4_runtime_empty_envp
-    bl vibe_user_exec_request
-    ldr x19, [sp, #16]
-    ldp x29, x30, [sp], #64
-    ret
-.size vibe_user_execv_payload, . - vibe_user_execv_payload
+.size vibe_user_execv_app, . - vibe_user_execv_app
 vibe_user_exec_request:
     cbz x0, .Lpi4_runtime_inval
     cbz x1, .Lpi4_runtime_inval
@@ -670,21 +640,7 @@ vibe_user_exec_request:
     ldr x3, [x19, #PI4_VIBE_EXEC_REQUEST_BYTES_OFFSET]
     cmp x3, #PI4_VIBE_EXEC_REQUEST_BYTES
     b.ne .Lpi4_runtime_exec_request_inval
-    ldr x0, [x19, #PI4_VIBE_EXEC_REQUEST_PATH_OFFSET]
-    cbz x0, .Lpi4_runtime_exec_request_inval
-    b .Lpi4_runtime_exec_request_syscall
-
-.Lpi4_runtime_exec_request_slot0:
-    adrp x1, .Lpi4_runtime_payload0_path
-    add x1, x1, :lo12:.Lpi4_runtime_payload0_path
-    bl .Lpi4_runtime_path_suffix_eq
-    cbz x0, .Lpi4_runtime_exec_request_inval
-    b .Lpi4_runtime_exec_request_syscall
-
-.Lpi4_runtime_exec_request_slot1:
-    adrp x1, .Lpi4_runtime_payload1_path
-    add x1, x1, :lo12:.Lpi4_runtime_payload1_path
-    bl .Lpi4_runtime_path_suffix_eq
+    ldr x0, [x19, #PI4_VIBE_EXEC_REQUEST_APP_PATH_OFFSET]
     cbz x0, .Lpi4_runtime_exec_request_inval
 
 .Lpi4_runtime_exec_request_syscall:
@@ -1931,10 +1887,10 @@ vibe_audio_stream_info_ioctl:
 
 .section .rodata.pi4_runtime, "a", %progbits
 .balign 8
-.Lpi4_runtime_payload0_path:
-    .asciz "PAYLOAD0.ELF"
-.Lpi4_runtime_payload1_path:
-    .asciz "PAYLOAD1.ELF"
+.Lpi4_runtime_doom_app_path:
+    .asciz "/APPS/DOOM/APP.ELF"
+.Lpi4_runtime_quake_app_path:
+    .asciz "/APPS/QUAKE/APP.ELF"
 .balign 8
 .Lpi4_runtime_empty_envp:
     .quad 0

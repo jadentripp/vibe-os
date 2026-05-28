@@ -1,6 +1,6 @@
 #include "pi4_runtime.h"
 
-// AArch64 PAYLOAD0.ELF entry for the Pi lane.
+// AArch64 Doom app entry for the Pi lane.
 //
 // This stays honest about not being the original Doom engine, but it is no
 // longer a two-frame scaffold: it runs a live indexed-frame loop and moves the
@@ -49,11 +49,11 @@
 .section .text.pi4_doom.entry, "ax", %progbits
 .balign 16
 .global user_main
-.global pi4_doom_payload_start
+.global pi4_doom_app_start
 .type user_main, %function
-.type pi4_doom_payload_start, %function
+.type pi4_doom_app_start, %function
 user_main:
-pi4_doom_payload_start:
+pi4_doom_app_start:
     stp x29, x30, [sp, #-112]!
     mov x29, sp
     stp x19, x20, [sp, #16]
@@ -62,8 +62,8 @@ pi4_doom_payload_start:
     stp x25, x26, [sp, #64]
     stp x27, x28, [sp, #80]
 
-    adrp x19, pi4_doom_payload_status
-    add x19, x19, :lo12:pi4_doom_payload_status
+    adrp x19, pi4_doom_app_status
+    add x19, x19, :lo12:pi4_doom_app_status
     str x0, [x19, #PI4_DOOM_STATUS_ARGC]
     str x1, [x19, #PI4_DOOM_STATUS_ARGV]
     str x2, [x19, #PI4_DOOM_STATUS_ENVP]
@@ -120,7 +120,7 @@ pi4_doom_payload_start:
     bl pi4_doom_delay
     b .Lpi4_doom_frame_loop
 .size user_main, . - user_main
-.size pi4_doom_payload_start, . - pi4_doom_payload_start
+.size pi4_doom_app_start, . - pi4_doom_app_start
 
 .type pi4_doom_poll_controls, %function
 pi4_doom_poll_controls:
@@ -555,21 +555,20 @@ pi4_doom_delay:
 
 .section .rodata.pi4_doom_manifest, "a", %progbits
 .balign 8
-.global pi4_doom_payload_manifest
-pi4_doom_payload_manifest:
-    .asciz "schema=vibe-os-pi4-doom-payload-v3"
-    .asciz "payload_file=PAYLOAD0.ELF"
-    .asciz "payload_kind=doom"
-    .asciz "payload_arch=AARCH64"
-    .asciz "payload_launch_claim=none"
-    .asciz "vibe-os pi4 PAYLOAD0.ELF Doom AArch64 runtime glue"
+.global pi4_doom_app_manifest
+pi4_doom_app_manifest:
+    .asciz "schema=vibe-os-pi4-doom-app-v3"
+    .asciz "app_exec=/APPS/DOOM/APP.ELF"
+    .asciz "app_kind=doom"
+    .asciz "app_arch=AARCH64"
+    .asciz "app_launch_claim=none"
+    .asciz "vibe-os pi4 /APPS/DOOM/APP.ELF Doom AArch64 runtime glue"
     .asciz "doom_source=third_party/doom/linuxdoom-1.10"
     .asciz "doom_engine_link=not-linked-yet"
-    .asciz "doom_wad_access=not-read-by-payload-yet"
-    .asciz "payload_runtime_claim=assembly-fallback-live-frame-loop-snapshot-and-event-input"
-    .asciz "fallback_role=visible-play-path-when-engine-bridge-unavailable"
+    .asciz "doom_wad_access=not-read-by-app-yet"
+    .asciz "app_runtime_claim=assembly-live-frame-loop-snapshot-and-event-input"
     .asciz "original_engine_claim=none"
-    .asciz "status_schema=pi4-doom-payload-state-v3"
+    .asciz "status_schema=pi4-doom-app-state-v3"
 
 .section .rodata.pi4_doom_palette, "a", %progbits
 .balign 8
@@ -598,10 +597,10 @@ pi4_doom_present:
     .quad PI4_DOOM_FRAME_WIDTH
     .quad PI4_DOOM_FRAME_HEIGHT
 
-.section .data.pi4_doom_payload_status, "aw", %progbits
+.section .data.pi4_doom_app_status, "aw", %progbits
 .balign 8
-.global pi4_doom_payload_status
-pi4_doom_payload_status:
+.global pi4_doom_app_status
+pi4_doom_app_status:
     .quad 0x314d4f4f444950
     .skip PI4_DOOM_STATUS_BYTES - 8, 0
 

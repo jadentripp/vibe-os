@@ -42,8 +42,8 @@ BITS 32
 %define COLOR_WINDOW_EDGE 8
 %define COLOR_DOCK 9
 %define COLOR_DOCK_EDGE 10
-%define COLOR_PAYLOAD0_ICON 11
-%define COLOR_PAYLOAD1_ICON 12
+%define COLOR_DOOM_APP_ICON 11
+%define COLOR_QUAKE_APP_ICON 12
 %define COLOR_SELECTED 13
 %define COLOR_TRAFFIC_RED 14
 %define COLOR_TEXT 15
@@ -56,20 +56,20 @@ BITS 32
 %define DOCK_Y 1000
 %define DOCK_W 1780
 %define DOCK_H 400
-%define PAYLOAD0_HIT_X 635
-%define PAYLOAD0_HIT_Y 1020
-%define PAYLOAD1_HIT_X 1475
-%define PAYLOAD1_HIT_Y 1020
-%define PAYLOAD_HIT_W 470
-%define PAYLOAD_HIT_H 365
-%define PAYLOAD0_ICON_X 740
-%define PAYLOAD0_ICON_Y 1038
-%define PAYLOAD1_ICON_X 1580
-%define PAYLOAD1_ICON_Y 1038
-%define PAYLOAD_ICON_SIZE 240
-%define PAYLOAD_ICON_PIXELS PAYLOAD_ICON_SIZE * PAYLOAD_ICON_SIZE
-%define LAUNCHER_ART_PAYLOAD0 0x00000001
-%define LAUNCHER_ART_PAYLOAD1 0x00000002
+%define DOOM_APP_HIT_X 635
+%define DOOM_APP_HIT_Y 1020
+%define QUAKE_APP_HIT_X 1475
+%define QUAKE_APP_HIT_Y 1020
+%define APP_HIT_W 470
+%define APP_HIT_H 365
+%define DOOM_APP_ICON_X 740
+%define DOOM_APP_ICON_Y 1038
+%define QUAKE_APP_ICON_X 1580
+%define QUAKE_APP_ICON_Y 1038
+%define APP_ICON_SIZE 240
+%define APP_ICON_PIXELS APP_ICON_SIZE * APP_ICON_SIZE
+%define LAUNCHER_ART_DOOM_APP 0x00000001
+%define LAUNCHER_ART_QUAKE_APP 0x00000002
 %define LAUNCHER_ART_PALETTE_BASE 32
 %define LAUNCHER_ART_PALETTE_LEVELS 6
 %define LAUNCHER_ART_PALETTE_STEP 51
@@ -98,10 +98,10 @@ extern vibe_user_file_read_at
 extern vibe_user_file_read_all
 
 section .text
-global vibe_launcher_choose_payload
+global vibe_launcher_choose_app
 
 align 16
-vibe_launcher_choose_payload:
+vibe_launcher_choose_app:
     push ebp
     mov ebp, esp
     push ebx
@@ -149,26 +149,24 @@ vibe_launcher_choose_payload:
     cmp eax, 2
     je .quake
     test dword [launcher_app_flags], LAUNCHER_APP0_EXEC_READY
-    jz .doom_fallback
+    jz .selection_unavailable
     mov eax, launcher_app0_exec_path
-    jmp .done
-
-.doom_fallback:
-    mov eax, payload0_path
     jmp .done
 
 .quake:
     test dword [launcher_app_flags], LAUNCHER_APP1_EXEC_READY
-    jz .quake_fallback
+    jz .selection_unavailable
     mov eax, launcher_app1_exec_path
     jmp .done
 
-.quake_fallback:
-    mov eax, payload1_path
-    jmp .done
+.selection_unavailable:
+    mov dword [launcher_selected], 0
+    call launcher_draw
+    call launcher_present
+    jmp .loop
 
 .fallback:
-    mov eax, payload0_path
+    xor eax, eax
 
 .done:
     pop edi
@@ -231,13 +229,13 @@ launcher_init_palette:
     mov byte [edi + COLOR_DOCK_EDGE * 3 + 1], 139
     mov byte [edi + COLOR_DOCK_EDGE * 3 + 2], 154
 
-    mov byte [edi + COLOR_PAYLOAD0_ICON * 3 + 0], 190
-    mov byte [edi + COLOR_PAYLOAD0_ICON * 3 + 1], 91
-    mov byte [edi + COLOR_PAYLOAD0_ICON * 3 + 2], 54
+    mov byte [edi + COLOR_DOOM_APP_ICON * 3 + 0], 190
+    mov byte [edi + COLOR_DOOM_APP_ICON * 3 + 1], 91
+    mov byte [edi + COLOR_DOOM_APP_ICON * 3 + 2], 54
 
-    mov byte [edi + COLOR_PAYLOAD1_ICON * 3 + 0], 59
-    mov byte [edi + COLOR_PAYLOAD1_ICON * 3 + 1], 116
-    mov byte [edi + COLOR_PAYLOAD1_ICON * 3 + 2], 147
+    mov byte [edi + COLOR_QUAKE_APP_ICON * 3 + 0], 59
+    mov byte [edi + COLOR_QUAKE_APP_ICON * 3 + 1], 116
+    mov byte [edi + COLOR_QUAKE_APP_ICON * 3 + 2], 147
 
     mov byte [edi + COLOR_SELECTED * 3 + 0], 45
     mov byte [edi + COLOR_SELECTED * 3 + 1], 102
@@ -414,14 +412,14 @@ launcher_draw_window:
     mov ebx, WINDOW_Y + 53
     mov ecx, 34
     mov edx, 34
-    mov edi, COLOR_PAYLOAD0_ICON
+    mov edi, COLOR_DOOM_APP_ICON
     call launcher_fill_rect
 
     mov eax, WINDOW_X + 169
     mov ebx, WINDOW_Y + 53
     mov ecx, 34
     mov edx, 34
-    mov edi, COLOR_PAYLOAD1_ICON
+    mov edi, COLOR_QUAKE_APP_ICON
     call launcher_fill_rect
 
     mov eax, 1028
@@ -467,128 +465,128 @@ launcher_draw_dock:
     call launcher_fill_rect
 
     cmp dword [launcher_focus], 1
-    jne .payload0_not_focused
-    mov eax, PAYLOAD0_HIT_X
-    mov ebx, PAYLOAD0_HIT_Y
-    mov ecx, PAYLOAD_HIT_W
-    mov edx, PAYLOAD_HIT_H
+    jne .doom_app_not_focused
+    mov eax, DOOM_APP_HIT_X
+    mov ebx, DOOM_APP_HIT_Y
+    mov ecx, APP_HIT_W
+    mov edx, APP_HIT_H
     mov edi, COLOR_SELECTED
     call launcher_fill_rect
-.payload0_not_focused:
+.doom_app_not_focused:
 
     cmp dword [launcher_focus], 2
-    jne .payload1_not_focused
-    mov eax, PAYLOAD1_HIT_X
-    mov ebx, PAYLOAD1_HIT_Y
-    mov ecx, PAYLOAD_HIT_W
-    mov edx, PAYLOAD_HIT_H
+    jne .quake_app_not_focused
+    mov eax, QUAKE_APP_HIT_X
+    mov ebx, QUAKE_APP_HIT_Y
+    mov ecx, APP_HIT_W
+    mov edx, APP_HIT_H
     mov edi, COLOR_SELECTED
     call launcher_fill_rect
-.payload1_not_focused:
+.quake_app_not_focused:
 
-    call launcher_draw_payload0_icon
-    call launcher_draw_payload1_icon
+    call launcher_draw_doom_app_icon
+    call launcher_draw_quake_app_icon
     ret
 
 align 16
-launcher_draw_payload0_icon:
-    mov eax, PAYLOAD0_ICON_X
-    mov ebx, PAYLOAD0_ICON_Y
-    mov ecx, PAYLOAD_ICON_SIZE
-    mov edx, PAYLOAD_ICON_SIZE
+launcher_draw_doom_app_icon:
+    mov eax, DOOM_APP_ICON_X
+    mov ebx, DOOM_APP_ICON_Y
+    mov ecx, APP_ICON_SIZE
+    mov edx, APP_ICON_SIZE
     mov edi, COLOR_WINDOW_EDGE
     call launcher_fill_rect
 
-    mov eax, PAYLOAD0_ICON_X + 2
-    mov ebx, PAYLOAD0_ICON_Y + 2
-    mov ecx, PAYLOAD_ICON_SIZE - 4
-    mov edx, PAYLOAD_ICON_SIZE - 4
-    mov edi, COLOR_PAYLOAD0_ICON
+    mov eax, DOOM_APP_ICON_X + 2
+    mov ebx, DOOM_APP_ICON_Y + 2
+    mov ecx, APP_ICON_SIZE - 4
+    mov edx, APP_ICON_SIZE - 4
+    mov edi, COLOR_DOOM_APP_ICON
     call launcher_fill_rect
 
-    test dword [launcher_art_flags], LAUNCHER_ART_PAYLOAD0
+    test dword [launcher_art_flags], LAUNCHER_ART_DOOM_APP
     jz .fallback_art
-    mov eax, PAYLOAD0_ICON_X
-    mov ebx, PAYLOAD0_ICON_Y
+    mov eax, DOOM_APP_ICON_X
+    mov ebx, DOOM_APP_ICON_Y
     mov esi, launcher_icon0_pixels
     call launcher_draw_icon_pixels
     jmp .label
 
 .fallback_art:
-    mov eax, PAYLOAD0_ICON_X + 14
-    mov ebx, PAYLOAD0_ICON_Y + 14
+    mov eax, DOOM_APP_ICON_X + 14
+    mov ebx, DOOM_APP_ICON_Y + 14
     mov ecx, 181
     mov edx, 45
     mov edi, COLOR_TRAFFIC_RED
     call launcher_fill_rect
 
-    mov eax, PAYLOAD0_ICON_X + 22
-    mov ebx, PAYLOAD0_ICON_Y + 80
+    mov eax, DOOM_APP_ICON_X + 22
+    mov ebx, DOOM_APP_ICON_Y + 80
     mov ecx, 195
     mov edx, 130
     mov edi, COLOR_WINDOW_EDGE
     call launcher_fill_rect
 
-    mov eax, PAYLOAD0_ICON_X + 85
-    mov ebx, PAYLOAD0_ICON_Y + 101
-    mov esi, launcher_payload0_glyph_text
+    mov eax, DOOM_APP_ICON_X + 85
+    mov ebx, DOOM_APP_ICON_Y + 101
+    mov esi, launcher_doom_app_glyph_text
     call launcher_draw_text
 
 .label:
     mov eax, 716
     mov ebx, 1305
-    mov esi, launcher_payload0_text
+    mov esi, launcher_doom_app_text
     call launcher_draw_text
     ret
 
 align 16
-launcher_draw_payload1_icon:
-    mov eax, PAYLOAD1_ICON_X
-    mov ebx, PAYLOAD1_ICON_Y
-    mov ecx, PAYLOAD_ICON_SIZE
-    mov edx, PAYLOAD_ICON_SIZE
+launcher_draw_quake_app_icon:
+    mov eax, QUAKE_APP_ICON_X
+    mov ebx, QUAKE_APP_ICON_Y
+    mov ecx, APP_ICON_SIZE
+    mov edx, APP_ICON_SIZE
     mov edi, COLOR_WINDOW_EDGE
     call launcher_fill_rect
 
-    mov eax, PAYLOAD1_ICON_X + 2
-    mov ebx, PAYLOAD1_ICON_Y + 2
-    mov ecx, PAYLOAD_ICON_SIZE - 4
-    mov edx, PAYLOAD_ICON_SIZE - 4
-    mov edi, COLOR_PAYLOAD1_ICON
+    mov eax, QUAKE_APP_ICON_X + 2
+    mov ebx, QUAKE_APP_ICON_Y + 2
+    mov ecx, APP_ICON_SIZE - 4
+    mov edx, APP_ICON_SIZE - 4
+    mov edi, COLOR_QUAKE_APP_ICON
     call launcher_fill_rect
 
-    test dword [launcher_art_flags], LAUNCHER_ART_PAYLOAD1
+    test dword [launcher_art_flags], LAUNCHER_ART_QUAKE_APP
     jz .fallback_art
-    mov eax, PAYLOAD1_ICON_X
-    mov ebx, PAYLOAD1_ICON_Y
+    mov eax, QUAKE_APP_ICON_X
+    mov ebx, QUAKE_APP_ICON_Y
     mov esi, launcher_icon1_pixels
     call launcher_draw_icon_pixels
     jmp .label
 
 .fallback_art:
-    mov eax, PAYLOAD1_ICON_X + 18
-    mov ebx, PAYLOAD1_ICON_Y + 14
+    mov eax, QUAKE_APP_ICON_X + 18
+    mov ebx, QUAKE_APP_ICON_Y + 14
     mov ecx, 174
     mov edx, 195
     mov edi, COLOR_DESKTOP_TOP
     call launcher_fill_rect
 
-    mov eax, PAYLOAD1_ICON_X + 90
-    mov ebx, PAYLOAD1_ICON_Y + 85
+    mov eax, QUAKE_APP_ICON_X + 90
+    mov ebx, QUAKE_APP_ICON_Y + 85
     mov ecx, 70
     mov edx, 94
     mov edi, COLOR_WINDOW_EDGE
     call launcher_fill_rect
 
-    mov eax, PAYLOAD1_ICON_X + 85
-    mov ebx, PAYLOAD1_ICON_Y + 101
-    mov esi, launcher_payload1_glyph_text
+    mov eax, QUAKE_APP_ICON_X + 85
+    mov ebx, QUAKE_APP_ICON_Y + 101
+    mov esi, launcher_quake_app_glyph_text
     call launcher_draw_text
 
 .label:
     mov eax, 1520
     mov ebx, 1305
-    mov esi, launcher_payload1_text
+    mov esi, launcher_quake_app_text
     call launcher_draw_text
     ret
 
@@ -596,7 +594,7 @@ align 16
 launcher_load_art:
     push edi
     xor eax, eax
-    mov ecx, PAYLOAD_ICON_PIXELS * 2
+    mov ecx, APP_ICON_PIXELS * 2
     mov edi, launcher_icon0_pixels
     cld
     rep stosb
@@ -1035,7 +1033,7 @@ launcher_load_doom_icon:
     call launcher_decode_doom_patch_icon
     test eax, eax
     jne .close
-    or dword [launcher_art_flags], LAUNCHER_ART_PAYLOAD0
+    or dword [launcher_art_flags], LAUNCHER_ART_DOOM_APP
     jmp .close
 
 .close:
@@ -1096,24 +1094,24 @@ launcher_decode_doom_patch_icon:
     mov dword [launcher_art_dest_y], 0
 
 .dest_y:
-    cmp dword [launcher_art_dest_y], PAYLOAD_ICON_SIZE
+    cmp dword [launcher_art_dest_y], APP_ICON_SIZE
     jae .ok
     mov eax, [launcher_art_dest_y]
     imul eax, [launcher_art_source_span]
     xor edx, edx
-    mov ebx, PAYLOAD_ICON_SIZE
+    mov ebx, APP_ICON_SIZE
     div ebx
     add eax, [launcher_art_source_y_base]
     mov [launcher_art_source_y], eax
     mov dword [launcher_art_dest_x], 0
 
 .dest_x:
-    cmp dword [launcher_art_dest_x], PAYLOAD_ICON_SIZE
+    cmp dword [launcher_art_dest_x], APP_ICON_SIZE
     jae .next_dest_y
     mov eax, [launcher_art_dest_x]
     imul eax, [launcher_art_source_span]
     xor edx, edx
-    mov ebx, PAYLOAD_ICON_SIZE
+    mov ebx, APP_ICON_SIZE
     div ebx
     add eax, [launcher_art_source_x_base]
     mov [launcher_art_source_x], eax
@@ -1126,9 +1124,9 @@ launcher_decode_doom_patch_icon:
     mov cl, [launcher_doom_palette + edx + 2]
     call launcher_rgb_to_art_color
     mov edx, [launcher_art_dest_y]
-    imul edx, PAYLOAD_ICON_SIZE
+    imul edx, APP_ICON_SIZE
     add edx, [launcher_art_dest_x]
-    cmp edx, PAYLOAD_ICON_PIXELS
+    cmp edx, APP_ICON_PIXELS
     jae .advance_dest_x
     mov [launcher_icon0_pixels + edx], cl
 
@@ -1408,7 +1406,7 @@ launcher_load_quake_icon:
     call launcher_decode_quake_qpic_icon
     test eax, eax
     jne .close
-    or dword [launcher_art_flags], LAUNCHER_ART_PAYLOAD1
+    or dword [launcher_art_flags], LAUNCHER_ART_QUAKE_APP
     jmp .close
 
 .close:
@@ -1469,23 +1467,23 @@ launcher_decode_quake_qpic_icon:
 
     mov dword [launcher_art_dest_y], 0
 .dest_y:
-    cmp dword [launcher_art_dest_y], PAYLOAD_ICON_SIZE
+    cmp dword [launcher_art_dest_y], APP_ICON_SIZE
     jae .ok
     mov eax, [launcher_art_dest_y]
     imul eax, [launcher_art_source_span]
     xor edx, edx
-    mov ebx, PAYLOAD_ICON_SIZE
+    mov ebx, APP_ICON_SIZE
     div ebx
     add eax, [launcher_art_source_y_base]
     mov [launcher_art_source_y], eax
     mov dword [launcher_art_dest_x], 0
 .dest_x:
-    cmp dword [launcher_art_dest_x], PAYLOAD_ICON_SIZE
+    cmp dword [launcher_art_dest_x], APP_ICON_SIZE
     jae .next_dest_y
     mov eax, [launcher_art_dest_x]
     imul eax, [launcher_art_source_span]
     xor edx, edx
-    mov ebx, PAYLOAD_ICON_SIZE
+    mov ebx, APP_ICON_SIZE
     div ebx
     add eax, [launcher_art_source_x_base]
     mov [launcher_art_source_x], eax
@@ -1502,9 +1500,9 @@ launcher_decode_quake_qpic_icon:
     mov cl, [launcher_quake_palette + edx + 2]
     call launcher_rgb_to_art_color
     mov edx, [launcher_art_dest_y]
-    imul edx, PAYLOAD_ICON_SIZE
+    imul edx, APP_ICON_SIZE
     add edx, [launcher_art_dest_x]
-    cmp edx, PAYLOAD_ICON_PIXELS
+    cmp edx, APP_ICON_PIXELS
     jae .advance_dest_x
     mov [launcher_icon1_pixels + edx], cl
 
@@ -1575,15 +1573,15 @@ launcher_draw_icon_pixels:
     xor edi, edi
 
 .y:
-    cmp edi, PAYLOAD_ICON_SIZE
+    cmp edi, APP_ICON_SIZE
     jge .done
     xor edx, edx
 .x:
-    cmp edx, PAYLOAD_ICON_SIZE
+    cmp edx, APP_ICON_SIZE
     jge .next_y
     mov esi, [ebp - 12]
     mov eax, edi
-    imul eax, PAYLOAD_ICON_SIZE
+    imul eax, APP_ICON_SIZE
     add eax, edx
     mov cl, [esi + eax]
     test cl, cl
@@ -1751,25 +1749,25 @@ launcher_handle_mouse:
 
 align 16
 launcher_pointer_focus:
-    cmp eax, PAYLOAD0_HIT_X
-    jl .check_payload1
-    cmp eax, PAYLOAD0_HIT_X + PAYLOAD_HIT_W - 1
-    jg .check_payload1
-    cmp ebx, PAYLOAD0_HIT_Y
-    jl .check_payload1
-    cmp ebx, PAYLOAD0_HIT_Y + PAYLOAD_HIT_H - 1
-    jg .check_payload1
+    cmp eax, DOOM_APP_HIT_X
+    jl .check_quake_app
+    cmp eax, DOOM_APP_HIT_X + APP_HIT_W - 1
+    jg .check_quake_app
+    cmp ebx, DOOM_APP_HIT_Y
+    jl .check_quake_app
+    cmp ebx, DOOM_APP_HIT_Y + APP_HIT_H - 1
+    jg .check_quake_app
     mov eax, 1
     ret
 
-.check_payload1:
-    cmp eax, PAYLOAD1_HIT_X
+.check_quake_app:
+    cmp eax, QUAKE_APP_HIT_X
     jl .none
-    cmp eax, PAYLOAD1_HIT_X + PAYLOAD_HIT_W - 1
+    cmp eax, QUAKE_APP_HIT_X + APP_HIT_W - 1
     jg .none
-    cmp ebx, PAYLOAD1_HIT_Y
+    cmp ebx, QUAKE_APP_HIT_Y
     jl .none
-    cmp ebx, PAYLOAD1_HIT_Y + PAYLOAD_HIT_H - 1
+    cmp ebx, QUAKE_APP_HIT_Y + APP_HIT_H - 1
     jg .none
     mov eax, 2
     ret
@@ -2048,8 +2046,6 @@ launcher_plot_pixel_clipped:
     ret
 
 section .rodata
-payload0_path db `/APPS/DOOM/APP.ELF`, 0
-payload1_path db `/APPS/QUAKE/APP.ELF`, 0
 launcher_index_path db `/APPS/INDEX.TXT`, 0
 launcher_app0_manifest_key db `app.0.manifest=`, 0
 launcher_app1_manifest_key db `app.1.manifest=`, 0
@@ -2059,12 +2055,12 @@ launcher_doom_wad_path db `DOOM1.WAD`, 0
 launcher_quake_pak_path db `/ID1/PAK0.PAK`, 0
 launcher_title_text db `VIBE OS`, 0
 launcher_menu_right_text db `RING 3`, 0
-launcher_window_title_text db `PAYLOADS`, 0
+launcher_window_title_text db `APPS`, 0
 launcher_desktop_text db `VIBE DESKTOP`, 0
-launcher_payload0_text db `DOOM`, 0
-launcher_payload1_text db `QUAKE`, 0
-launcher_payload0_glyph_text db `D`, 0
-launcher_payload1_glyph_text db `Q`, 0
+launcher_doom_app_text db `DOOM`, 0
+launcher_quake_app_text db `QUAKE`, 0
+launcher_doom_app_glyph_text db `D`, 0
+launcher_quake_app_glyph_text db `Q`, 0
 
 font_upper:
 db 0x0e,0x11,0x11,0x1f,0x11,0x11,0x11
@@ -2155,8 +2151,8 @@ align 16
 launcher_file_header resb 16
 launcher_doom_palette resb PALETTE_BYTES
 launcher_quake_palette resb PALETTE_BYTES
-launcher_icon0_pixels resb PAYLOAD_ICON_PIXELS
-launcher_icon1_pixels resb PAYLOAD_ICON_PIXELS
+launcher_icon0_pixels resb APP_ICON_PIXELS
+launcher_icon1_pixels resb APP_ICON_PIXELS
 launcher_input_event resb INPUT_EVENT_BYTES
 launcher_app0_manifest_path resb LAUNCHER_PATH_MAX_BYTES
 launcher_app1_manifest_path resb LAUNCHER_PATH_MAX_BYTES

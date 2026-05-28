@@ -456,14 +456,14 @@ jobs:
           fi
           if [ "$doom_launcher_request_present" = true ] && \
             status_value_is "$doom_pi4_status_evidence_output_ok" "$doom_serial_capture" pi4exec OK && \
-            status_value_is "$doom_pi4_status_evidence_output_ok" "$doom_serial_capture" path PAYLOAD0.ELF && \
-            status_value_is "$doom_pi4_status_evidence_output_ok" "$doom_serial_capture" upath PAYLOAD0.ELF; then
+            status_value_is "$doom_pi4_status_evidence_output_ok" "$doom_serial_capture" path /APPS/DOOM/APP.ELF && \
+            status_value_is "$doom_pi4_status_evidence_output_ok" "$doom_serial_capture" upath /APPS/DOOM/APP.ELF; then
             doom_launcher_exec_passed=true
           fi
           if [ "$quake_launcher_request_present" = true ] && \
             status_value_is "$quake_pi4_status_evidence_output_ok" "$quake_serial_capture" pi4exec OK && \
-            status_value_is "$quake_pi4_status_evidence_output_ok" "$quake_serial_capture" path PAYLOAD1.ELF && \
-            status_value_is "$quake_pi4_status_evidence_output_ok" "$quake_serial_capture" upath PAYLOAD1.ELF; then
+            status_value_is "$quake_pi4_status_evidence_output_ok" "$quake_serial_capture" path /APPS/QUAKE/APP.ELF && \
+            status_value_is "$quake_pi4_status_evidence_output_ok" "$quake_serial_capture" upath /APPS/QUAKE/APP.ELF; then
             quake_launcher_exec_passed=true
           fi
           if [ "$doom_launcher_exec_passed" = true ] && \
@@ -556,7 +556,7 @@ jobs:
           storage_status_fields=pi4wad,pi4pak0
           launcher_doom_exec=green
           launcher_quake_exec=green
-          payload_launch_status_fields=pi4exec,pi4execreq,pi4payloadvfs,path,upath,pi4inputevt,fbpresent,fbchange
+          app_launch_status_fields=pi4exec,pi4execreq,pi4appreq,pi4appvfs,path,upath,pi4inputevt,fbpresent,fbchange
           input=green
           graphics=green
           process=green
@@ -671,7 +671,7 @@ jobs:
               "doom": {
                 "input_script": "$doom_launcher_input_json",
                 "selection": "desktop-launcher-doom",
-                "expected_path": "PAYLOAD0.ELF",
+                "expected_path": "/APPS/DOOM/APP.ELF",
                 "serial_status_seen": $doom_serial_status_seen,
                 "serial_parser_passed": $doom_serial_parser_passed,
                 "pi4_status_evidence_output_ok": $doom_pi4_status_evidence_output_ok,
@@ -691,7 +691,7 @@ jobs:
               "quake": {
                 "input_script": "$quake_launcher_input_json",
                 "selection": "desktop-launcher-quake",
-                "expected_path": "PAYLOAD1.ELF",
+                "expected_path": "/APPS/QUAKE/APP.ELF",
                 "serial_status_seen": $quake_serial_status_seen,
                 "serial_parser_passed": $quake_serial_parser_passed,
                 "pi4_status_evidence_output_ok": $quake_pi4_status_evidence_output_ok,

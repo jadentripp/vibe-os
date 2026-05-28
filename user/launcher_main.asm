@@ -1,6 +1,6 @@
 BITS 32
 
-extern vibe_launcher_choose_payload
+extern vibe_launcher_choose_app
 extern vibe_user_execv
 extern vibe_user_write_all
 
@@ -13,8 +13,10 @@ user_main:
     mov ebp, esp
     push ebx
 
-    call vibe_launcher_choose_payload
+    call vibe_launcher_choose_app
     mov ebx, eax
+    test ebx, ebx
+    jz .exec_failed
 
     mov [launcher_argv], ebx
     mov dword [launcher_argv + 4], 0
@@ -23,6 +25,7 @@ user_main:
     call vibe_user_execv
     add esp, 8
 
+.exec_failed:
     push launcher_exec_failed_text
     push 1
     call vibe_user_write_all

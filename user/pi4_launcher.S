@@ -95,6 +95,7 @@
 .equ PI4_LAUNCHER_APP_TEXT_BYTES,       2048
 .equ PI4_LAUNCHER_APP_NAME_BYTES,       32
 .equ PI4_LAUNCHER_APP_PATH_BYTES,       PI4_VIBE_EXEC_REQUEST_PATH_MAX_BYTES
+.equ PI4_LAUNCHER_EXEC_REQUEST_COMPAT_TOKEN_OFFSET, PI4_VIBE_EXEC_REQUEST_COMPAT_TOKEN_OFFSET
 
 .equ PI4_LAUNCHER_PHASE_COLD,           0
 .equ PI4_LAUNCHER_PHASE_FRAME_READY,    1
@@ -145,7 +146,7 @@
 .equ PI4_LAUNCHER_STATE_PRESENT_ERRNO,  328
 .equ PI4_LAUNCHER_STATE_EXEC_REQUEST_ABI, 336
 .equ PI4_LAUNCHER_STATE_EXEC_REQUEST_BYTES, 344
-.equ PI4_LAUNCHER_STATE_EXEC_REQUEST_SLOT, 352
+.equ PI4_LAUNCHER_STATE_EXEC_REQUEST_COMPAT, 352
 .equ PI4_LAUNCHER_STATE_EXEC_REQUEST_PATH, 360
 .equ PI4_LAUNCHER_STATE_EXEC_ARGV,       368
 .equ PI4_LAUNCHER_STATE_EXEC_ATTEMPT_STATE, 376
@@ -240,9 +241,7 @@
 
 .extern pi4_launcher_slot_table
 .extern pi4_launcher_slot_doom_name
-.extern pi4_launcher_slot_doom_path
 .extern pi4_launcher_slot_quake_name
-.extern pi4_launcher_slot_quake_path
 .extern pi4_launcher_slot_present_state
 .extern pi4_launcher_slot_absent_state
 .extern pi4_launcher_doom_label_bitmap
@@ -358,7 +357,7 @@ pi4_launcher_start:
     bl pi4_launcher_render_frame
     bl pi4_launcher_prepare_visible_exec_request
     bl pi4_launcher_present_frame
-    bl pi4_launcher_request_recorded_payload
+    bl pi4_launcher_request_recorded_app
     mov x0, xzr
     mov x1, x19
     bl pi4_launcher_render_frame
@@ -1353,8 +1352,8 @@ pi4_launcher_prepare_visible_exec_request:
     cbz x6, .Lpi4_launcher_prepare_visible_inval
 
     mov x7, #-1
-    str x7, [x1, #PI4_VIBE_EXEC_REQUEST_PAYLOAD_SLOT_OFFSET]
-    str x7, [x0, #PI4_LAUNCHER_STATE_EXEC_REQUEST_SLOT]
+    str x7, [x1, #PI4_LAUNCHER_EXEC_REQUEST_COMPAT_TOKEN_OFFSET]
+    str x7, [x0, #PI4_LAUNCHER_STATE_EXEC_REQUEST_COMPAT]
     str x6, [x1, #PI4_VIBE_EXEC_REQUEST_PATH_OFFSET]
     str x6, [x0, #PI4_LAUNCHER_STATE_EXEC_REQUEST_PATH]
     adrp x7, pi4_launcher_exec_argv
@@ -1371,8 +1370,8 @@ pi4_launcher_prepare_visible_exec_request:
 
 .Lpi4_launcher_prepare_visible_inval:
     mov x8, #-1
-    str x8, [x1, #PI4_VIBE_EXEC_REQUEST_PAYLOAD_SLOT_OFFSET]
-    str x8, [x0, #PI4_LAUNCHER_STATE_EXEC_REQUEST_SLOT]
+    str x8, [x1, #PI4_LAUNCHER_EXEC_REQUEST_COMPAT_TOKEN_OFFSET]
+    str x8, [x0, #PI4_LAUNCHER_STATE_EXEC_REQUEST_COMPAT]
     str xzr, [x1, #PI4_VIBE_EXEC_REQUEST_PATH_OFFSET]
     str xzr, [x0, #PI4_LAUNCHER_STATE_EXEC_REQUEST_PATH]
     adrp x7, pi4_launcher_exec_argv
@@ -1392,8 +1391,8 @@ pi4_launcher_prepare_visible_exec_request:
     ret
 .size pi4_launcher_prepare_visible_exec_request, . - pi4_launcher_prepare_visible_exec_request
 
-.type pi4_launcher_request_recorded_payload, %function
-pi4_launcher_request_recorded_payload:
+.type pi4_launcher_request_recorded_app, %function
+pi4_launcher_request_recorded_app:
     stp x29, x30, [sp, #-64]!
     mov x29, sp
     stp x19, x20, [sp, #16]
@@ -1422,8 +1421,8 @@ pi4_launcher_request_recorded_payload:
     mov x0, #PI4_LAUNCHER_PHASE_SELECTION_READY
     str x0, [x19, #PI4_LAUNCHER_STATE_PHASE]
     mov x0, #-1
-    str x0, [x20, #PI4_VIBE_EXEC_REQUEST_PAYLOAD_SLOT_OFFSET]
-    str x0, [x19, #PI4_LAUNCHER_STATE_EXEC_REQUEST_SLOT]
+    str x0, [x20, #PI4_LAUNCHER_EXEC_REQUEST_COMPAT_TOKEN_OFFSET]
+    str x0, [x19, #PI4_LAUNCHER_STATE_EXEC_REQUEST_COMPAT]
     str xzr, [x20, #PI4_VIBE_EXEC_REQUEST_PATH_OFFSET]
     str xzr, [x19, #PI4_LAUNCHER_STATE_EXEC_REQUEST_PATH]
 
@@ -1442,8 +1441,8 @@ pi4_launcher_request_recorded_payload:
     cbz x22, .Lpi4_launcher_exec_local_inval
 
     mov x0, #-1
-    str x0, [x20, #PI4_VIBE_EXEC_REQUEST_PAYLOAD_SLOT_OFFSET]
-    str x0, [x19, #PI4_LAUNCHER_STATE_EXEC_REQUEST_SLOT]
+    str x0, [x20, #PI4_LAUNCHER_EXEC_REQUEST_COMPAT_TOKEN_OFFSET]
+    str x0, [x19, #PI4_LAUNCHER_STATE_EXEC_REQUEST_COMPAT]
     str x22, [x20, #PI4_VIBE_EXEC_REQUEST_PATH_OFFSET]
     str x22, [x19, #PI4_LAUNCHER_STATE_EXEC_REQUEST_PATH]
 
@@ -1529,7 +1528,7 @@ pi4_launcher_request_recorded_payload:
     ldp x19, x20, [sp, #16]
     ldp x29, x30, [sp], #64
     ret
-.size pi4_launcher_request_recorded_payload, . - pi4_launcher_request_recorded_payload
+.size pi4_launcher_request_recorded_app, . - pi4_launcher_request_recorded_app
 
 .section .text.pi4_launcher.render, "ax", %progbits
 .balign 16
@@ -3767,6 +3766,8 @@ pi4_launcher_manifest:
     .ascii "app_discovery_source=/APPS/INDEX.TXT\n"
     .ascii "app_discovery_runtime=read-index-manifest-slot-table\n"
     .ascii "launcher_slot_table_authority=runtime-vfs-discovery\n"
+    .ascii "launcher_app_table_authority=runtime-vfs-discovery\n"
+    .ascii "launcher_launch_authority=manifest-exec-path\n"
     .ascii "launcher_state_schema=vibe-os-pi4-launcher-state-v2\n"
     .ascii "launcher_state_magic=PI4LAUNC\n"
     .ascii "launcher_state_bytes=392\n"
@@ -3800,7 +3801,7 @@ pi4_launcher_manifest:
     .ascii "launcher_state.exec_attempt_state.3=enosys\n"
     .ascii "launcher_state.exec_attempt_state.4=failed\n"
     .ascii "launcher_state.exec_attempt_state.5=ok\n"
-    .ascii "launcher_exec_enosys_claim=request-recorded-only\n"
+    .ascii "launcher_exec_enosys_claim=request-recorded-app-only\n"
     .ascii "launcher_visible_slot_state=fullscreen-desktop-app-cards\n"
     .ascii "launcher_visible_selected_state=focus-hover-card-and-button\n"
     .ascii "launcher_visible_exec_request=active-click-or-enter-launch\n"
@@ -3915,10 +3916,6 @@ pi4_launcher_exec_request:
 .global pi4_launcher_exec_argv
 pi4_launcher_exec_argv:
     .quad 0
-    .quad 0
-.global pi4_launcher_exec_argv_quake
-pi4_launcher_exec_argv_quake:
-    .quad pi4_launcher_slot_quake_path
     .quad 0
 .global pi4_launcher_exec_envp
 pi4_launcher_exec_envp:

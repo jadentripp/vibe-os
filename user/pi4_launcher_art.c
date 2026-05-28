@@ -10,8 +10,8 @@
 #define PI4_LAUNCHER_DOOM_TITLEPIC_HEIGHT 200u
 #define PI4_LAUNCHER_DOOM_TITLEPIC_BYTES \
     (PI4_LAUNCHER_DOOM_TITLEPIC_WIDTH * PI4_LAUNCHER_DOOM_TITLEPIC_HEIGHT)
-#define PI4_LAUNCHER_ART_PAYLOAD0 0x00000001ul
-#define PI4_LAUNCHER_ART_PAYLOAD1 0x00000002ul
+#define PI4_LAUNCHER_ART_DOOM_APP 0x00000001ul
+#define PI4_LAUNCHER_ART_QUAKE_APP 0x00000002ul
 #define PI4_LAUNCHER_APP_INDEX_READY 0x00000010ul
 #define PI4_LAUNCHER_APP_DOOM_MANIFEST_READY 0x00000020ul
 #define PI4_LAUNCHER_APP_DOOM_EXEC_READY 0x00000040ul
@@ -654,7 +654,7 @@ void pi4_launcher_load_art(void)
     } else {
         build_doom_fallback_icon(pi4_launcher_doom_icon_pixels);
     }
-    pi4_launcher_art_flags |= PI4_LAUNCHER_ART_PAYLOAD0;
+    pi4_launcher_art_flags |= PI4_LAUNCHER_ART_DOOM_APP;
 
     if (load_quake_icon()) {
         decorate_loaded_icon(
@@ -664,5 +664,5 @@ void pi4_launcher_load_art(void)
     } else {
         build_quake_fallback_icon(pi4_launcher_quake_icon_pixels);
     }
-    pi4_launcher_art_flags |= PI4_LAUNCHER_ART_PAYLOAD1;
+    pi4_launcher_art_flags |= PI4_LAUNCHER_ART_QUAKE_APP;
 }

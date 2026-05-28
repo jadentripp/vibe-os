@@ -102,7 +102,7 @@ jobs:
           grep -q 'root.*=KERNEL.ELF' build/uefi-ovmf-proof/dual-image-inspect.txt
           grep -q 'root.*=INIT.ELF' build/uefi-ovmf-proof/dual-image-inspect.txt
           grep -q 'root.*=USERPROB.ELF' build/uefi-ovmf-proof/dual-image-inspect.txt
-          grep -q 'root.*=PAYLOAD0.ELF' build/uefi-ovmf-proof/dual-image-inspect.txt
+          grep -q 'required_file=/APPS/DOOM/APP.ELF state=present' build/uefi-ovmf-proof/dual-image-inspect.txt
 
           cat > build/uefi-ovmf-proof/uefi-esp.json <<JSON
           {
@@ -112,7 +112,7 @@ jobs:
             "boot_file": "EFI/BOOT/BOOTX64.EFI",
             "kernel_file": "VIBEOS/KERNEL.ELF",
             "bios_kernel_file": "KERNEL.ELF",
-            "primary_payload_file": "PAYLOAD0.ELF",
+            "primary_app_file": "/APPS/DOOM/APP.ELF",
             "wad_file": "DOOM1.WAD",
             "artifact_uploaded": false
           }
@@ -246,7 +246,7 @@ jobs:
             "ata_ok": $(status_bool 'ata=OK'),
             "block_partition_mbr": $(status_bool 'blkpart=MBR'),
             "wad_ok": $(status_bool 'wad=OK'),
-            "primary_payload_exec_path_seen": $(status_bool 'path=PAYLOAD0[.]ELF'),
+            "primary_app_exec_path_seen": $(status_bool 'path=/APPS/DOOM/APP[.]ELF'),
             "doom_loaded": $(status_bool 'doom=OK'),
             "doom_run_or_exit": $(status_bool 'doomrun=(RUN|EXIT)'),
             "ata": "$(status_value ata)",
@@ -407,7 +407,7 @@ jobs:
             && grep -q 'ata=OK' "$status" \
             && grep -q 'blkpart=MBR' "$status" \
             && grep -q 'wad=OK' "$status" \
-            && grep -q 'path=PAYLOAD0[.]ELF' "$status" \
+            && grep -q 'path=/APPS/DOOM/APP[.]ELF' "$status" \
             && grep -q 'doom=OK' "$status" \
             && grep -Eq 'doomrun=(RUN|EXIT)' "$status"; then
             guest_storage_proof=true

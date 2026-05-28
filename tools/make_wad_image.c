@@ -121,13 +121,11 @@ typedef struct {
 } PersistenceCheck;
 
 static const char USER_PROBE_NAME[] = "USERPROBELF";
-static const char LEGACY_PAYLOAD_ELF_NAME[] = "PAYLOAD0ELF";
 static const char KERNEL_ELF_NAME[] = "KERNEL  ELF";
 static const char PI4_KERNEL8_IMG_NAME[] = "KERNEL8 IMG";
 static const char PI4_CONFIG_TXT_NAME[] = "CONFIG  TXT";
 static const char INIT_ELF_NAME[] = "INIT    ELF";
 static const char ABI_PROBE_ELF_NAME[] = "ABIPROBEELF";
-static const char PAYLOAD1_ELF_NAME[] = "PAYLOAD1ELF";
 static const char PRIMARY_ASSET_WAD_NAME[] = "DOOM1   WAD";
 static const char QUAKE_ID1_DIR_NAME[] = "ID1        ";
 static const char QUAKE_PAK0_NAME[] = "PAK0    PAK";
@@ -150,7 +148,6 @@ static const char PI4_QUAKE_APP_EXEC_PATH[] = "/APPS/QUAKE/APP.ELF";
 static const char PI4_APP_LAYOUT[] = "system-init-plus-apps-tree";
 static const char PI4_APP_DISCOVERY_MODEL[] = "vfs-app-index";
 static const char PI4_APP_EXEC_MODEL[] = "generic-aarch64-el0-elf-by-path";
-static const char PI4_LEGACY_ROOT_PAYLOADS[] = "compatibility-only";
 static const char PI4_DOOM_APP_NAME[] = "DOOM";
 static const char PI4_QUAKE_APP_NAME[] = "Quake";
 static const char PI4_DOOM_APP_RESOURCE_PATH[] = "/DOOM1.WAD";
@@ -618,14 +615,6 @@ static void manifest_require_file_cluster(const Blob* manifest, const char* key,
         die("Pi proof manifest file cluster does not match the FAT image");
 }
 
-static void manifest_require_same_u64(const Blob* manifest, const char* lhs_key, const char* rhs_key)
-{
-    unsigned long long lhs = manifest_require_u64(manifest, lhs_key);
-    unsigned long long rhs = manifest_require_u64(manifest, rhs_key);
-    if (lhs != rhs)
-        die("Pi proof manifest numeric fields disagree");
-}
-
 static void inspect_manifest_print_field(const Blob* manifest, const char* key)
 {
     char value[160];
@@ -862,137 +851,6 @@ static void inspect_manifest_require_indexed_sized_file(
     inspect_manifest_print_field(manifest, size_key);
 }
 
-static void inspect_manifest_require_root_elf_slot(
-    const Blob* manifest,
-    const char* slot,
-    const char* expected_file,
-    const char* expected_state)
-{
-    char key[64];
-    int written = snprintf(key, sizeof(key), "root_elf_slot.%s.file", slot);
-    if (written < 0 || (size_t)written >= sizeof(key))
-        die("Pi proof manifest key is too long");
-    manifest_require_value(manifest, key, expected_file);
-    inspect_manifest_print_field(manifest, key);
-
-    written = snprintf(key, sizeof(key), "root_elf_slot.%s.state", slot);
-    if (written < 0 || (size_t)written >= sizeof(key))
-        die("Pi proof manifest key is too long");
-    manifest_require_value(manifest, key, expected_state);
-    inspect_manifest_print_field(manifest, key);
-}
-
-static void inspect_manifest_check_optional_slot(
-    const Blob* image,
-    const Blob* manifest,
-    size_t index,
-    const char* expected_kind,
-    const char* expected_file,
-    const char* expected_root_slot,
-    const char* expected_app_exec,
-    size_t* checked_files)
-{
-    char key[64];
-    char state[32];
-    int present = 0;
-    int written = snprintf(key, sizeof(key), "payload_slot.%zu.kind", index);
-    if (written < 0 || (size_t)written >= sizeof(key))
-        die("Pi proof manifest key is too long");
-    manifest_require_value(manifest, key, expected_kind);
-    inspect_manifest_print_field(manifest, key);
-    written = snprintf(key, sizeof(key), "payload_slot.%zu.file", index);
-    if (written < 0 || (size_t)written >= sizeof(key))
-        die("Pi proof manifest key is too long");
-    manifest_require_value(manifest, key, expected_file);
-    inspect_manifest_print_field(manifest, key);
-    written = snprintf(key, sizeof(key), "payload_slot.%zu.root_elf_slot", index);
-    if (written < 0 || (size_t)written >= sizeof(key))
-        die("Pi proof manifest key is too long");
-    manifest_require_value(manifest, key, expected_root_slot);
-    inspect_manifest_print_field(manifest, key);
-    written = snprintf(key, sizeof(key), "payload_slot.%zu.state", index);
-    if (written < 0 || (size_t)written >= sizeof(key))
-        die("Pi proof manifest key is too long");
-    if (!manifest_get_value(manifest, key, state, sizeof(state)))
-        die("Pi proof manifest is missing payload slot state");
-    inspect_manifest_print_field(manifest, key);
-
-    if (strcmp(state, "present") == 0) {
-        present = 1;
-    } else if (strcmp(state, "absent") != 0) {
-        die("Pi proof manifest payload state must be present or absent");
-    }
-    inspect_manifest_require_root_elf_slot(manifest, expected_root_slot, expected_file, state);
-
-    written = snprintf(key, sizeof(key), "payload_slot.%zu.source", index);
-    if (written < 0 || (size_t)written >= sizeof(key))
-        die("Pi proof manifest key is too long");
-    manifest_require_value(manifest, key, present ? "root-elf-input" : "absent");
-    inspect_manifest_print_field(manifest, key);
-    written = snprintf(key, sizeof(key), "payload_slot.%zu.repo_state", index);
-    if (written < 0 || (size_t)written >= sizeof(key))
-        die("Pi proof manifest key is too long");
-    manifest_require_value(manifest, key, present ? "unchecked" : "absent");
-    inspect_manifest_print_field(manifest, key);
-    written = snprintf(key, sizeof(key), "payload_slot.%zu.evidence", index);
-    if (written < 0 || (size_t)written >= sizeof(key))
-        die("Pi proof manifest key is too long");
-    manifest_require_value(manifest, key, present ? "packaged-file-only" : "absent");
-    inspect_manifest_print_field(manifest, key);
-    written = snprintf(key, sizeof(key), "payload_slot.%zu.hardware_proof", index);
-    if (written < 0 || (size_t)written >= sizeof(key))
-        die("Pi proof manifest key is too long");
-    manifest_require_value(manifest, key, "unclaimed");
-    inspect_manifest_print_field(manifest, key);
-    written = snprintf(key, sizeof(key), "payload_slot.%zu.launch_proof", index);
-    if (written < 0 || (size_t)written >= sizeof(key))
-        die("Pi proof manifest key is too long");
-    manifest_require_value(manifest, key, "unclaimed");
-    inspect_manifest_print_field(manifest, key);
-
-    written = snprintf(key, sizeof(key), "payload_slot.%zu.compatibility", index);
-    if (written < 0 || (size_t)written >= sizeof(key))
-        die("Pi proof manifest key is too long");
-    manifest_require_value(manifest, key, "legacy-root-payload");
-    inspect_manifest_print_field(manifest, key);
-    written = snprintf(key, sizeof(key), "payload_slot.%zu.app_exec", index);
-    if (written < 0 || (size_t)written >= sizeof(key))
-        die("Pi proof manifest key is too long");
-    manifest_require_value(manifest, key, expected_app_exec);
-    inspect_manifest_print_field(manifest, key);
-
-    if (present) {
-        char size_key[64];
-        char cluster_key[64];
-        char root_size_key[64];
-        char root_cluster_key[64];
-        written = snprintf(size_key, sizeof(size_key), "payload_slot.%zu.size", index);
-        if (written < 0 || (size_t)written >= sizeof(size_key))
-            die("Pi proof manifest key is too long");
-        written = snprintf(cluster_key, sizeof(cluster_key), "payload_slot.%zu.cluster", index);
-        if (written < 0 || (size_t)written >= sizeof(cluster_key))
-            die("Pi proof manifest key is too long");
-        written = snprintf(root_size_key, sizeof(root_size_key), "root_elf_slot.%s.size", expected_root_slot);
-        if (written < 0 || (size_t)written >= sizeof(root_size_key))
-            die("Pi proof manifest key is too long");
-        written = snprintf(root_cluster_key, sizeof(root_cluster_key), "root_elf_slot.%s.cluster", expected_root_slot);
-        if (written < 0 || (size_t)written >= sizeof(root_cluster_key))
-            die("Pi proof manifest key is too long");
-        inspect_manifest_require_file(image, manifest, expected_file, size_key, cluster_key, checked_files);
-        manifest_require_same_u64(manifest, root_cluster_key, cluster_key);
-        manifest_require_same_u64(manifest, root_size_key, size_key);
-        inspect_manifest_print_field(manifest, root_cluster_key);
-        inspect_manifest_print_field(manifest, root_size_key);
-        inspect_manifest_print_field(manifest, cluster_key);
-        inspect_manifest_print_field(manifest, size_key);
-    } else {
-        FatFileInfo info;
-        if (inspect_find_path(image, expected_file, &info))
-            die_path(expected_file, "Pi proof manifest marks payload absent but file exists");
-        printf("manifest_file=%s state=absent\n", expected_file);
-    }
-}
-
 static void inspect_pi4_manifest(const Blob* image, int require_real_assets)
 {
     FatFileInfo manifest_info;
@@ -1025,32 +883,6 @@ static void inspect_pi4_manifest(const Blob* image, int require_real_assets)
     manifest_require_value(&manifest, "config_file", "CONFIG.TXT");
     inspect_manifest_print_field(&manifest, "config_file");
     inspect_manifest_require_file(image, &manifest, "CONFIG.TXT", "config_size", NULL, &checked_files);
-
-    manifest_require_value(&manifest, "root_elf_slot_count", "4");
-    inspect_manifest_print_field(&manifest, "root_elf_slot_count");
-    manifest_require_value(&manifest, "root_elf_slot.0.file", "INIT.ELF");
-    inspect_manifest_print_field(&manifest, "root_elf_slot.0.file");
-    manifest_require_value(&manifest, "root_elf_slot.0.state", "present");
-    inspect_manifest_print_field(&manifest, "root_elf_slot.0.state");
-    inspect_manifest_require_file(image, &manifest, "INIT.ELF", "root_elf_slot.0.size", "root_elf_slot.0.cluster", &checked_files);
-    inspect_manifest_print_field(&manifest, "root_elf_slot.0.cluster");
-    inspect_manifest_print_field(&manifest, "root_elf_slot.0.size");
-    manifest_require_value(&manifest, "root_elf_slot.1.file", "ABIPROBE.ELF");
-    inspect_manifest_print_field(&manifest, "root_elf_slot.1.file");
-    manifest_require_value(&manifest, "root_elf_slot.1.state", "present");
-    inspect_manifest_print_field(&manifest, "root_elf_slot.1.state");
-    inspect_manifest_require_file(image, &manifest, "ABIPROBE.ELF", "root_elf_slot.1.size", "root_elf_slot.1.cluster", &checked_files);
-    inspect_manifest_print_field(&manifest, "root_elf_slot.1.cluster");
-    inspect_manifest_print_field(&manifest, "root_elf_slot.1.size");
-
-    manifest_require_value(&manifest, "payload_slot_count", "2");
-    inspect_manifest_print_field(&manifest, "payload_slot_count");
-    manifest_require_value(&manifest, "legacy_root_payloads", PI4_LEGACY_ROOT_PAYLOADS);
-    inspect_manifest_print_field(&manifest, "legacy_root_payloads");
-    inspect_manifest_check_optional_slot(
-        image, &manifest, 0, "doom", "PAYLOAD0.ELF", "2", PI4_DOOM_APP_EXEC_PATH, &checked_files);
-    inspect_manifest_check_optional_slot(
-        image, &manifest, 1, "quake", "PAYLOAD1.ELF", "3", PI4_QUAKE_APP_EXEC_PATH, &checked_files);
 
     manifest_require_value(&manifest, "app_model_schema", "vibe-os-pi4-app-install-v1");
     inspect_manifest_print_field(&manifest, "app_model_schema");
@@ -1226,53 +1058,6 @@ static void inspect_pi4_manifest(const Blob* image, int require_real_assets)
     } else {
         die("Pi proof manifest Quake PAK state must be present or absent");
     }
-
-    manifest_require_value(&manifest, "asset_slot_count", "2");
-    inspect_manifest_print_field(&manifest, "asset_slot_count");
-    manifest_require_value(&manifest, "asset_slot.0.kind", "doom-wad");
-    manifest_require_value(&manifest, "asset_slot.0.file", "DOOM1.WAD");
-    manifest_require_value(&manifest, "asset_slot.0.state", "present");
-    manifest_require_value(&manifest, "asset_slot.0.source", primary_source);
-    manifest_require_value(&manifest, "asset_slot.0.repo_state", primary_repo_state);
-    manifest_require_value(&manifest, "asset_slot.0.evidence", "packaged-file-only");
-    manifest_require_value(&manifest, "asset_slot.0.hardware_proof", "unclaimed");
-    manifest_require_same_u64(&manifest, "asset_slot.0.size", "primary_asset_size");
-    inspect_manifest_print_field(&manifest, "asset_slot.0.kind");
-    inspect_manifest_print_field(&manifest, "asset_slot.0.file");
-    inspect_manifest_print_field(&manifest, "asset_slot.0.state");
-    inspect_manifest_print_field(&manifest, "asset_slot.0.source");
-    inspect_manifest_print_field(&manifest, "asset_slot.0.repo_state");
-    inspect_manifest_print_field(&manifest, "asset_slot.0.evidence");
-    inspect_manifest_print_field(&manifest, "asset_slot.0.hardware_proof");
-    inspect_manifest_print_field(&manifest, "asset_slot.0.size");
-
-    manifest_require_value(&manifest, "asset_slot.1.kind", "quake-pak");
-    manifest_require_value(&manifest, "asset_slot.1.file", PROOF_QUAKE_PAK_PATH);
-    manifest_require_value(&manifest, "asset_slot.1.state", quake_state);
-    manifest_require_value(
-        &manifest,
-        "asset_slot.1.source",
-        strcmp(quake_state, "present") == 0 ? "external" : "absent");
-    manifest_require_value(
-        &manifest,
-        "asset_slot.1.repo_state",
-        strcmp(quake_state, "present") == 0 ? "outside-repo" : "absent");
-    manifest_require_value(
-        &manifest,
-        "asset_slot.1.evidence",
-        strcmp(quake_state, "present") == 0 ? "packaged-file-only" : "absent");
-    manifest_require_value(&manifest, "asset_slot.1.hardware_proof", "unclaimed");
-    if (strcmp(quake_state, "present") == 0)
-        manifest_require_same_u64(&manifest, "asset_slot.1.size", "quake_pak_size");
-    inspect_manifest_print_field(&manifest, "asset_slot.1.kind");
-    inspect_manifest_print_field(&manifest, "asset_slot.1.file");
-    inspect_manifest_print_field(&manifest, "asset_slot.1.state");
-    inspect_manifest_print_field(&manifest, "asset_slot.1.source");
-    inspect_manifest_print_field(&manifest, "asset_slot.1.repo_state");
-    inspect_manifest_print_field(&manifest, "asset_slot.1.evidence");
-    inspect_manifest_print_field(&manifest, "asset_slot.1.hardware_proof");
-    if (strcmp(quake_state, "present") == 0)
-        inspect_manifest_print_field(&manifest, "asset_slot.1.size");
 
     printf(
         "manifest_asset_handoff=OK primary_asset_state=present primary_asset_source=%s primary_asset_evidence=packaged-file-only primary_asset_hardware_proof=unclaimed quake_pak_state=%s quake_pak_evidence=%s quake_pak_hardware_proof=unclaimed\n",
@@ -2113,52 +1898,6 @@ static int root_file_size(Image* image, const char name[11], uint32_t* out_size)
     return 1;
 }
 
-static void manifest_write_root_elf_slot(TextBuffer* text, Image* image, size_t index, const char name[11])
-{
-    char display[13];
-    FatFileInfo info;
-    int present = root_file_info(image, name, &info);
-
-    format_fat_name((const uint8_t*)name, display);
-    text_appendf(text, "root_elf_slot.%zu.file=%s\n", index, display);
-    text_appendf(text, "root_elf_slot.%zu.state=%s\n", index, present ? "present" : "absent");
-    if (present) {
-        text_appendf(text, "root_elf_slot.%zu.cluster=%u\n", index, info.first_cluster);
-        text_appendf(text, "root_elf_slot.%zu.size=%u\n", index, info.size);
-    }
-}
-
-static void manifest_write_payload_slot(
-    TextBuffer* text,
-    Image* image,
-    size_t index,
-    const char* kind,
-    size_t root_elf_slot,
-    const char name[11],
-    const char* app_exec_path)
-{
-    char display[13];
-    FatFileInfo info;
-    int present = root_file_info(image, name, &info);
-
-    format_fat_name((const uint8_t*)name, display);
-    text_appendf(text, "payload_slot.%zu.kind=%s\n", index, kind);
-    text_appendf(text, "payload_slot.%zu.file=%s\n", index, display);
-    text_appendf(text, "payload_slot.%zu.root_elf_slot=%zu\n", index, root_elf_slot);
-    text_appendf(text, "payload_slot.%zu.state=%s\n", index, present ? "present" : "absent");
-    text_appendf(text, "payload_slot.%zu.source=%s\n", index, present ? "root-elf-input" : "absent");
-    text_appendf(text, "payload_slot.%zu.repo_state=%s\n", index, present ? "unchecked" : "absent");
-    text_appendf(text, "payload_slot.%zu.evidence=%s\n", index, present ? "packaged-file-only" : "absent");
-    text_appendf(text, "payload_slot.%zu.hardware_proof=unclaimed\n", index);
-    text_appendf(text, "payload_slot.%zu.launch_proof=unclaimed\n", index);
-    text_appendf(text, "payload_slot.%zu.compatibility=legacy-root-payload\n", index);
-    text_appendf(text, "payload_slot.%zu.app_exec=%s\n", index, app_exec_path);
-    if (present) {
-        text_appendf(text, "payload_slot.%zu.cluster=%u\n", index, info.first_cluster);
-        text_appendf(text, "payload_slot.%zu.size=%u\n", index, info.size);
-    }
-}
-
 static void proof_manifest_require_root_input(
     const ManifestEntry* entries,
     size_t entry_count,
@@ -2214,8 +1953,6 @@ static void write_proof_manifest(Image* image, const ProofManifest* manifest)
     proof_manifest_require_root_file(manifest, image, PI4_CONFIG_TXT_NAME, "CONFIG.TXT");
     proof_manifest_require_root_elf(manifest, image, INIT_ELF_NAME, "INIT.ELF");
     proof_manifest_require_root_elf(manifest, image, ABI_PROBE_ELF_NAME, "ABIPROBE.ELF");
-    proof_manifest_require_root_elf(manifest, image, LEGACY_PAYLOAD_ELF_NAME, "PAYLOAD0.ELF");
-    proof_manifest_require_root_elf(manifest, image, PAYLOAD1_ELF_NAME, "PAYLOAD1.ELF");
     const ManifestEntry* system_init = proof_manifest_require_asset(manifest, PI4_SYSTEM_INIT_PATH);
     const ManifestEntry* system_abiprobe = proof_manifest_require_asset(manifest, PI4_SYSTEM_ABIPROBE_PATH);
     const ManifestEntry* app_index = proof_manifest_require_asset(manifest, PI4_APP_INDEX_PATH);
@@ -2247,15 +1984,6 @@ static void write_proof_manifest(Image* image, const ProofManifest* manifest)
     } else {
         text_appendf(&text, "config_file=absent\n");
     }
-    text_appendf(&text, "root_elf_slot_count=4\n");
-    manifest_write_root_elf_slot(&text, image, 0, INIT_ELF_NAME);
-    manifest_write_root_elf_slot(&text, image, 1, ABI_PROBE_ELF_NAME);
-    manifest_write_root_elf_slot(&text, image, 2, LEGACY_PAYLOAD_ELF_NAME);
-    manifest_write_root_elf_slot(&text, image, 3, PAYLOAD1_ELF_NAME);
-    text_appendf(&text, "payload_slot_count=2\n");
-    text_appendf(&text, "legacy_root_payloads=%s\n", PI4_LEGACY_ROOT_PAYLOADS);
-    manifest_write_payload_slot(&text, image, 0, "doom", 2, LEGACY_PAYLOAD_ELF_NAME, PI4_DOOM_APP_EXEC_PATH);
-    manifest_write_payload_slot(&text, image, 1, "quake", 3, PAYLOAD1_ELF_NAME, PI4_QUAKE_APP_EXEC_PATH);
     text_appendf(&text, "app_model_schema=vibe-os-pi4-app-install-v1\n");
     text_appendf(&text, "app_layout=%s\n", PI4_APP_LAYOUT);
     text_appendf(&text, "app_discovery_model=%s\n", PI4_APP_DISCOVERY_MODEL);
@@ -2293,30 +2021,6 @@ static void write_proof_manifest(Image* image, const ProofManifest* manifest)
     text_appendf(&text, "primary_asset_evidence=packaged-file-only\n");
     text_appendf(&text, "primary_asset_hardware_proof=unclaimed\n");
     text_appendf(&text, "primary_asset_size=%zu\n", manifest->primary_asset_size);
-    text_appendf(&text, "asset_slot_count=2\n");
-    text_appendf(&text, "asset_slot.0.kind=doom-wad\n");
-    text_appendf(&text, "asset_slot.0.file=DOOM1.WAD\n");
-    text_appendf(&text, "asset_slot.0.state=present\n");
-    text_appendf(&text, "asset_slot.0.source=%s\n", manifest->primary_asset_external ? "external" : "generated-fixture");
-    text_appendf(&text, "asset_slot.0.repo_state=%s\n", manifest->primary_asset_external ? "outside-repo" : "generated-by-builder");
-    text_appendf(&text, "asset_slot.0.evidence=packaged-file-only\n");
-    text_appendf(&text, "asset_slot.0.hardware_proof=unclaimed\n");
-    text_appendf(&text, "asset_slot.0.size=%zu\n", manifest->primary_asset_size);
-    text_appendf(&text, "asset_slot.1.kind=quake-pak\n");
-    text_appendf(&text, "asset_slot.1.file=%s\n", PROOF_QUAKE_PAK_PATH);
-    text_appendf(&text, "asset_slot.1.state=%s\n", manifest->quake_pak_present ? "present" : "absent");
-    if (manifest->quake_pak_present) {
-        text_appendf(&text, "asset_slot.1.source=external\n");
-        text_appendf(&text, "asset_slot.1.repo_state=outside-repo\n");
-        text_appendf(&text, "asset_slot.1.evidence=packaged-file-only\n");
-        text_appendf(&text, "asset_slot.1.hardware_proof=unclaimed\n");
-        text_appendf(&text, "asset_slot.1.size=%zu\n", manifest->quake_pak_size);
-    } else {
-        text_appendf(&text, "asset_slot.1.source=absent\n");
-        text_appendf(&text, "asset_slot.1.repo_state=absent\n");
-        text_appendf(&text, "asset_slot.1.evidence=absent\n");
-        text_appendf(&text, "asset_slot.1.hardware_proof=unclaimed\n");
-    }
     text_appendf(&text, "default_asset_count=%u\n", (unsigned)DEFAULT_PI4_ASSET_COUNT);
     text_appendf(&text, "default_asset.0.file=%s\n", DEFAULT_PI4_ASSET_README_PATH);
     text_appendf(&text, "default_asset.0.size=%zu\n", sizeof(DEFAULT_PI4_ASSET_README) - 1);
@@ -2876,7 +2580,6 @@ static void install_bootable_layout(
     const char* stage2_path,
     const char* kernel_path,
     const char* user_elf_path,
-    const char* legacy_payload_elf_path,
     RootElfArg* root_elves,
     size_t root_elf_count,
     RootFileArg* root_files,
@@ -2887,8 +2590,6 @@ static void install_bootable_layout(
 {
     if ((stage1_path || stage2_path || kernel_path) && !(stage1_path && stage2_path && kernel_path))
         die("stage1, stage2, and kernel paths must be provided together");
-    if (legacy_payload_elf_path && !user_elf_path)
-        die("legacy root payload ELF packaging requires a user probe ELF path");
 
     ProofManifest manifest;
     memset(&manifest, 0, sizeof(manifest));
@@ -2920,11 +2621,6 @@ static void install_bootable_layout(
         Blob user = read_file(user_elf_path);
         write_root_file_entry(image, USER_PROBE_NAME, user.data, user.size);
         free(user.data);
-        if (legacy_payload_elf_path) {
-            Blob payload = read_file(legacy_payload_elf_path);
-            write_root_file_entry(image, LEGACY_PAYLOAD_ELF_NAME, payload.data, payload.size);
-            free(payload.data);
-        }
     }
 
     for (size_t i = 0; i < root_elf_count; i++) {
@@ -3059,7 +2755,7 @@ static void mutate_root_marker(const char* image_path, const char* symbol, const
 static void usage(void)
 {
     die("usage: make_wad_image [--require-real-assets] [--require-file FAT_PATH] --inspect IMAGE\n"
-        "       make_wad_image [--proof-manifest] [--primary-asset-wad PATH|--wad PATH] [--root-elf NAME.ELF=PATH] [--root-file NAME.EXT=PATH] [--asset IMAGE_8.3_PATH=HOST_PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [LEGACY_PAYLOAD_ELF]]]\n"
+        "       make_wad_image [--proof-manifest] [--primary-asset-wad PATH|--wad PATH] [--root-elf NAME.ELF=PATH] [--root-file NAME.EXT=PATH] [--asset IMAGE_8.3_PATH=HOST_PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF]]\n"
         "       make_wad_image --write-root-marker SYMBOL PAYLOAD IMAGE\n"
         "       make_wad_image --delete-root-marker SYMBOL IMAGE\n"
         "       make_wad_image --check-persistence IMAGE [--baseline-image IMAGE] [--reboot-baseline-image IMAGE] [--write-status FILE] [--save-write-status FILE] [--load-status FILE] [--reboot-status FILE] [--require-default] [--require-dynamic-fat-proof] [--require-save-slot N] [--require-save-description N=TEXT]");
@@ -3236,17 +2932,8 @@ int main(int argc, char** argv)
     const char* stage2 = positional_count >= 4 ? positional[2] : NULL;
     const char* kernel = positional_count >= 4 ? positional[3] : NULL;
     const char* user_elf = positional_count >= 5 ? positional[4] : NULL;
-    const char* legacy_payload_elf = positional_count == 6 ? positional[5] : NULL;
-    if (legacy_payload_elf) {
-        for (size_t i = 0; i < root_elf_count; i++) {
-            if (name_eq(root_elves[i].name, LEGACY_PAYLOAD_ELF_NAME))
-                die("legacy payload ELF conflicts with --root-elf");
-        }
-        for (size_t i = 0; i < root_file_count; i++) {
-            if (name_eq(root_files[i].name, LEGACY_PAYLOAD_ELF_NAME))
-                die("legacy payload ELF conflicts with --root-file");
-        }
-    }
+    if (positional_count > 5)
+        die("bootable image positional inputs are image, stage1, stage2, kernel, and user probe only");
 
     install_bootable_layout(
         &image,
@@ -3255,7 +2942,6 @@ int main(int argc, char** argv)
         stage2,
         kernel,
         user_elf,
-        legacy_payload_elf,
         root_elves,
         root_elf_count,
         root_files,
