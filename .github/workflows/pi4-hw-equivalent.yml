@@ -124,7 +124,7 @@ jobs:
           doom_framebuffer_report="$out_dir/doom-framebuffer.report"
           doom_framebuffer_frame0="$out_dir/doom-framebuffer-frame0.ppm"
           doom_framebuffer_frame1="$out_dir/doom-framebuffer-frame1.ppm"
-          doom_launcher_input="mousebtn=1,mousebtn=0,key=w"
+          doom_launcher_input="key=1,mousebtn=1,mousebtn=0,wait=6000,key=w"
           quake_serial_capture="$out_dir/quake.serial.capture"
           quake_status_probe="$out_dir/quake.serial.status"
           quake_raw_status="$out_dir/quake-local-qemu-status.raw"
@@ -132,7 +132,7 @@ jobs:
           quake_framebuffer_report="$out_dir/quake-framebuffer.report"
           quake_framebuffer_frame0="$out_dir/quake-framebuffer-frame0.ppm"
           quake_framebuffer_frame1="$out_dir/quake-framebuffer-frame1.ppm"
-          quake_launcher_input="mouse=127:0,mouse=127:0,mouse=127:0,mouse=127:0,mouse=127:0,mousebtn=1,mousebtn=0,key=s"
+          quake_launcher_input="key=2,mouse=127:0,mouse=127:0,mouse=127:0,mouse=127:0,mouse=127:0,mousebtn=1,mousebtn=0,wait=6000,key=s"
           rm -f "$status_json" "$final_gates_file" \
             "$doom_serial_capture" "$doom_status_probe" \
             "$doom_raw_status" "$doom_marked_status" "$doom_framebuffer_report" \

@@ -57,9 +57,8 @@ void pi4_quake_begin_default_game(void)
     strcpy(cls.mapstring, pi4_quake_default_map_cmd);
     strcat(cls.mapstring, "\n");
     svs.serverflags = 0;
-    Cvar_SetValue("viewsize", 30);
+    Cvar_SetValue("viewsize", 100);
     Cvar_SetValue("r_drawviewmodel", 0);
-    Cvar_SetValue("r_drawflat", 1);
     pi4_quake_show_stage("pi4 stage spawn start");
     SV_SpawnServer(pi4_quake_default_map_name);
     pi4_quake_show_stage("pi4 stage spawn done");
