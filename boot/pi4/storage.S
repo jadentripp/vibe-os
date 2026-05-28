@@ -1324,7 +1324,7 @@ pi4_storage_parse_fat_bpb:
 // x0 = 512-byte FAT boot sector pointer, x1 = partition base LBA,
 // x2 = caller-provided FAT root directory buffer, x3 = root buffer bytes.
 // Returns w0 = 1 when the root directory buffer was parsed. File-specific
-// status records say whether INIT.ELF, PAYLOAD0.ELF, PAYLOAD1.ELF, and
+// status records say whether INIT.ELF, installed app ELFs/manifests, and
 // boot-packaged asset roots were found. This consumes buffers only; it does
 // not read SD/MMC media.
 .global pi4_storage_parse_fat_root
@@ -1504,6 +1504,16 @@ pi4_storage_parse_fat_root:
     adr x1, pi4_storage_name_id1_dir
     bl pi4_storage_match_short_name
     cbnz w0, .Lpi4_storage_root_record_id1_dir
+
+    mov x0, x25
+    adr x1, pi4_storage_name_system_dir
+    bl pi4_storage_match_short_name
+    cbnz w0, .Lpi4_storage_root_record_system_dir
+
+    mov x0, x25
+    adr x1, pi4_storage_name_apps_dir
+    bl pi4_storage_match_short_name
+    cbnz w0, .Lpi4_storage_root_record_apps_dir
     b .Lpi4_storage_root_next_entry
 
 .Lpi4_storage_root_record_init:
@@ -1634,6 +1644,22 @@ pi4_storage_parse_fat_root:
     adr x2, pi4_storage_status_id1_dir
     bl pi4_storage_record_dirent_metadata4
     orr x27, x27, #512
+    b .Lpi4_storage_root_next_entry
+
+.Lpi4_storage_root_record_system_dir:
+    mov x0, x25
+    mov x1, x26
+    adr x2, pi4_storage_status_system_dir
+    bl pi4_storage_record_dirent_metadata4
+    orr x27, x27, #1024
+    b .Lpi4_storage_root_next_entry
+
+.Lpi4_storage_root_record_apps_dir:
+    mov x0, x25
+    mov x1, x26
+    adr x2, pi4_storage_status_apps_dir
+    bl pi4_storage_record_dirent_metadata4
+    orr x27, x27, #2048
 
 .Lpi4_storage_root_next_entry:
     add x25, x25, #PI4_STORAGE_DIRENT_BYTES
@@ -1819,7 +1845,8 @@ pi4_storage_record_file_metadata:
 .size pi4_storage_record_file_metadata, . - pi4_storage_record_file_metadata
 
 // x0 = directory buffer, x1 = directory bytes, x2 = directory kind:
-// 0 = /PROOF, 1 = /ASSETS, 2 = /ASSETS/MAPS, 3 = /ASSETS/TEXTURES, 4 = /ID1.
+// 0 = /PROOF, 1 = /ASSETS, 2 = /ASSETS/MAPS, 3 = /ASSETS/TEXTURES, 4 = /ID1,
+// 5 = /SYSTEM, 6 = /APPS, 7 = /APPS/DOOM, 8 = /APPS/QUAKE.
 // Returns w0 = number of expected entries recorded from the directory buffer.
 .global pi4_storage_parse_asset_dir
 .type pi4_storage_parse_asset_dir, %function
@@ -1875,6 +1902,14 @@ pi4_storage_parse_asset_dir:
     b.eq .Lpi4_storage_asset_dir_kind_textures
     cmp x21, #4
     b.eq .Lpi4_storage_asset_dir_kind_id1
+    cmp x21, #5
+    b.eq .Lpi4_storage_asset_dir_kind_system
+    cmp x21, #6
+    b.eq .Lpi4_storage_asset_dir_kind_apps
+    cmp x21, #7
+    b.eq .Lpi4_storage_asset_dir_kind_app_doom
+    cmp x21, #8
+    b.eq .Lpi4_storage_asset_dir_kind_app_quake
     b .Lpi4_storage_asset_dir_next
 
 .Lpi4_storage_asset_dir_kind_proof:
@@ -2010,6 +2045,167 @@ pi4_storage_parse_asset_dir:
     orr x1, x1, #4
     str x1, [x0]
     add x24, x24, #1
+    b .Lpi4_storage_asset_dir_next
+
+.Lpi4_storage_asset_dir_kind_system:
+    tst w0, #PI4_STORAGE_DIRENT_ATTR_DIRECTORY
+    b.ne .Lpi4_storage_asset_dir_next
+    mov x0, x22
+    adr x1, pi4_storage_name_init_elf
+    bl pi4_storage_match_short_name
+    cbnz w0, .Lpi4_storage_asset_dir_record_system_init
+    mov x0, x22
+    adr x1, pi4_storage_name_abiprobe_elf
+    bl pi4_storage_match_short_name
+    cbnz w0, .Lpi4_storage_asset_dir_record_system_abiprobe
+    b .Lpi4_storage_asset_dir_next
+
+.Lpi4_storage_asset_dir_record_system_init:
+    mov x0, x22
+    mov x1, x23
+    adr x2, pi4_storage_status_init_elf
+    adr x3, pi4_storage_status_init_elf_entry_index
+    mov x4, x25
+    mov x5, x26
+    mov x6, x27
+    mov x7, x28
+    bl pi4_storage_record_file_metadata
+    cbz w0, .Lpi4_storage_asset_dir_next
+    add x24, x24, #1
+    b .Lpi4_storage_asset_dir_next
+
+.Lpi4_storage_asset_dir_record_system_abiprobe:
+    mov x0, x22
+    mov x1, x23
+    adr x2, pi4_storage_status_system_abiprobe
+    bl pi4_storage_record_dirent_metadata4
+    add x24, x24, #1
+    b .Lpi4_storage_asset_dir_next
+
+.Lpi4_storage_asset_dir_kind_apps:
+    tst w0, #PI4_STORAGE_DIRENT_ATTR_DIRECTORY
+    b.ne .Lpi4_storage_asset_dir_apps_dir
+    mov x0, x22
+    adr x1, pi4_storage_name_index_txt
+    bl pi4_storage_match_short_name
+    cbz w0, .Lpi4_storage_asset_dir_next
+    mov x0, x22
+    mov x1, x23
+    adr x2, pi4_storage_status_app_index
+    mov x4, x25
+    mov x5, x26
+    mov x6, x27
+    mov x7, x28
+    bl pi4_storage_record_file_read_metadata
+    cbz w0, .Lpi4_storage_asset_dir_next
+    add x24, x24, #1
+    b .Lpi4_storage_asset_dir_next
+
+.Lpi4_storage_asset_dir_apps_dir:
+    mov x0, x22
+    adr x1, pi4_storage_name_doom_dir
+    bl pi4_storage_match_short_name
+    cbnz w0, .Lpi4_storage_asset_dir_record_doom_dir
+    mov x0, x22
+    adr x1, pi4_storage_name_quake_dir
+    bl pi4_storage_match_short_name
+    cbnz w0, .Lpi4_storage_asset_dir_record_quake_dir
+    b .Lpi4_storage_asset_dir_next
+
+.Lpi4_storage_asset_dir_record_doom_dir:
+    mov x0, x22
+    mov x1, x23
+    adr x2, pi4_storage_status_app_doom_dir
+    bl pi4_storage_record_dirent_metadata4
+    add x24, x24, #1
+    b .Lpi4_storage_asset_dir_next
+
+.Lpi4_storage_asset_dir_record_quake_dir:
+    mov x0, x22
+    mov x1, x23
+    adr x2, pi4_storage_status_app_quake_dir
+    bl pi4_storage_record_dirent_metadata4
+    add x24, x24, #1
+    b .Lpi4_storage_asset_dir_next
+
+.Lpi4_storage_asset_dir_kind_app_doom:
+    tst w0, #PI4_STORAGE_DIRENT_ATTR_DIRECTORY
+    b.ne .Lpi4_storage_asset_dir_next
+    mov x0, x22
+    adr x1, pi4_storage_name_app_elf
+    bl pi4_storage_match_short_name
+    cbnz w0, .Lpi4_storage_asset_dir_record_doom_app_elf
+    mov x0, x22
+    adr x1, pi4_storage_name_app_txt
+    bl pi4_storage_match_short_name
+    cbnz w0, .Lpi4_storage_asset_dir_record_doom_app_txt
+    b .Lpi4_storage_asset_dir_next
+
+.Lpi4_storage_asset_dir_record_doom_app_elf:
+    mov x0, x22
+    mov x1, x23
+    adr x2, pi4_storage_status_payload0
+    adr x3, pi4_storage_status_payload0_entry_index
+    mov x4, x25
+    mov x5, x26
+    mov x6, x27
+    mov x7, x28
+    bl pi4_storage_record_file_metadata
+    cbz w0, .Lpi4_storage_asset_dir_next
+    add x24, x24, #1
+    b .Lpi4_storage_asset_dir_next
+
+.Lpi4_storage_asset_dir_record_doom_app_txt:
+    mov x0, x22
+    mov x1, x23
+    adr x2, pi4_storage_status_app_doom_manifest
+    mov x4, x25
+    mov x5, x26
+    mov x6, x27
+    mov x7, x28
+    bl pi4_storage_record_file_read_metadata
+    cbz w0, .Lpi4_storage_asset_dir_next
+    add x24, x24, #1
+    b .Lpi4_storage_asset_dir_next
+
+.Lpi4_storage_asset_dir_kind_app_quake:
+    tst w0, #PI4_STORAGE_DIRENT_ATTR_DIRECTORY
+    b.ne .Lpi4_storage_asset_dir_next
+    mov x0, x22
+    adr x1, pi4_storage_name_app_elf
+    bl pi4_storage_match_short_name
+    cbnz w0, .Lpi4_storage_asset_dir_record_quake_app_elf
+    mov x0, x22
+    adr x1, pi4_storage_name_app_txt
+    bl pi4_storage_match_short_name
+    cbnz w0, .Lpi4_storage_asset_dir_record_quake_app_txt
+    b .Lpi4_storage_asset_dir_next
+
+.Lpi4_storage_asset_dir_record_quake_app_elf:
+    mov x0, x22
+    mov x1, x23
+    adr x2, pi4_storage_status_payload1
+    adr x3, pi4_storage_status_payload1_entry_index
+    mov x4, x25
+    mov x5, x26
+    mov x6, x27
+    mov x7, x28
+    bl pi4_storage_record_file_metadata
+    cbz w0, .Lpi4_storage_asset_dir_next
+    add x24, x24, #1
+    b .Lpi4_storage_asset_dir_next
+
+.Lpi4_storage_asset_dir_record_quake_app_txt:
+    mov x0, x22
+    mov x1, x23
+    adr x2, pi4_storage_status_app_quake_manifest
+    mov x4, x25
+    mov x5, x26
+    mov x6, x27
+    mov x7, x28
+    bl pi4_storage_record_file_read_metadata
+    cbz w0, .Lpi4_storage_asset_dir_next
+    add x24, x24, #1
 
 .Lpi4_storage_asset_dir_next:
     add x22, x22, #PI4_STORAGE_DIRENT_BYTES
@@ -2085,6 +2281,20 @@ pi4_storage_name_pal0_bin:
     .ascii "PAL0    BIN"
 pi4_storage_name_pak0_pak:
     .ascii "PAK0    PAK"
+pi4_storage_name_system_dir:
+    .ascii "SYSTEM     "
+pi4_storage_name_apps_dir:
+    .ascii "APPS       "
+pi4_storage_name_index_txt:
+    .ascii "INDEX   TXT"
+pi4_storage_name_doom_dir:
+    .ascii "DOOM       "
+pi4_storage_name_quake_dir:
+    .ascii "QUAKE      "
+pi4_storage_name_app_elf:
+    .ascii "APP     ELF"
+pi4_storage_name_app_txt:
+    .ascii "APP     TXT"
 
 .section .pi4_storage_status, "aw", %progbits
 .balign 8
@@ -2522,6 +2732,66 @@ pi4_storage_status_id1_dir:
     .quad 0
 .global pi4_storage_status_pak0_pak
 pi4_storage_status_pak0_pak:
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+.global pi4_storage_status_system_dir
+pi4_storage_status_system_dir:
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+.global pi4_storage_status_system_abiprobe
+pi4_storage_status_system_abiprobe:
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+.global pi4_storage_status_apps_dir
+pi4_storage_status_apps_dir:
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+.global pi4_storage_status_app_index
+pi4_storage_status_app_index:
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+.global pi4_storage_status_app_doom_dir
+pi4_storage_status_app_doom_dir:
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+.global pi4_storage_status_app_doom_manifest
+pi4_storage_status_app_doom_manifest:
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+.global pi4_storage_status_app_quake_dir
+pi4_storage_status_app_quake_dir:
+    .quad 0
+    .quad 0
+    .quad 0
+    .quad 0
+.global pi4_storage_status_app_quake_manifest
+pi4_storage_status_app_quake_manifest:
     .quad 0
     .quad 0
     .quad 0

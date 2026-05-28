@@ -12,6 +12,11 @@
     (PI4_LAUNCHER_DOOM_TITLEPIC_WIDTH * PI4_LAUNCHER_DOOM_TITLEPIC_HEIGHT)
 #define PI4_LAUNCHER_ART_PAYLOAD0 0x00000001ul
 #define PI4_LAUNCHER_ART_PAYLOAD1 0x00000002ul
+#define PI4_LAUNCHER_APP_INDEX_READY 0x00000010ul
+#define PI4_LAUNCHER_APP_DOOM_MANIFEST_READY 0x00000020ul
+#define PI4_LAUNCHER_APP_DOOM_EXEC_READY 0x00000040ul
+#define PI4_LAUNCHER_APP_QUAKE_MANIFEST_READY 0x00000080ul
+#define PI4_LAUNCHER_APP_QUAKE_EXEC_READY 0x00000100ul
 #define PI4_LAUNCHER_ART_PALETTE_BASE 32u
 #define PI4_LAUNCHER_ART_PALETTE_LEVELS 6u
 #define PI4_LAUNCHER_COLOR_BLACK 0u
@@ -37,6 +42,7 @@ typedef unsigned int u32;
 typedef unsigned long usize;
 
 unsigned long pi4_launcher_art_flags;
+unsigned long pi4_launcher_app_discovery_flags;
 u8 pi4_launcher_doom_icon_pixels[PI4_LAUNCHER_ICON_PIXELS];
 u8 pi4_launcher_quake_icon_pixels[PI4_LAUNCHER_ICON_PIXELS];
 
@@ -268,38 +274,30 @@ static u8 palette_to_launcher_color(const u8* palette, u8 color_index)
     return (u8)(PI4_LAUNCHER_ART_PALETTE_BASE + red * 36u + green * 6u + blue);
 }
 
-static void fit_source_to_icon(
+static void cover_source_for_icon(
     u32 width,
     u32 height,
-    u32* dest_x,
-    u32* dest_y,
-    u32* dest_w,
-    u32* dest_h)
+    u32* source_x,
+    u32* source_y,
+    u32* source_w,
+    u32* source_h)
 {
-    *dest_x = 0;
-    *dest_y = 0;
-    *dest_w = 0;
-    *dest_h = 0;
+    *source_x = 0;
+    *source_y = 0;
+    *source_w = 0;
+    *source_h = 0;
 
     if (!width || !height)
         return;
 
     if (width >= height) {
-        *dest_w = PI4_LAUNCHER_ICON_SIZE;
-        *dest_h = (height * PI4_LAUNCHER_ICON_SIZE + width - 1u) / width;
-        if (!*dest_h)
-            *dest_h = 1u;
-        if (*dest_h > PI4_LAUNCHER_ICON_SIZE)
-            *dest_h = PI4_LAUNCHER_ICON_SIZE;
-        *dest_y = (PI4_LAUNCHER_ICON_SIZE - *dest_h) >> 1;
+        *source_w = height;
+        *source_h = height;
+        *source_x = (width - height) >> 1;
     } else {
-        *dest_h = PI4_LAUNCHER_ICON_SIZE;
-        *dest_w = (width * PI4_LAUNCHER_ICON_SIZE + height - 1u) / height;
-        if (!*dest_w)
-            *dest_w = 1u;
-        if (*dest_w > PI4_LAUNCHER_ICON_SIZE)
-            *dest_w = PI4_LAUNCHER_ICON_SIZE;
-        *dest_x = (PI4_LAUNCHER_ICON_SIZE - *dest_w) >> 1;
+        *source_w = width;
+        *source_h = width;
+        *source_y = (height - width) >> 1;
     }
 }
 
@@ -344,28 +342,29 @@ static int decode_doom_titlepic_icon(u8* icon, const u8* pixels, u32 pixel_size,
     if (pixel_size < PI4_LAUNCHER_DOOM_TITLEPIC_BYTES)
         return 0;
 
-    u32 dest_x;
-    u32 dest_y;
-    u32 dest_w;
-    u32 dest_h;
+    u32 crop_x;
+    u32 crop_y;
+    u32 crop_w;
+    u32 crop_h;
     clear_icon(icon);
-    fit_source_to_icon(
+    cover_source_for_icon(
         PI4_LAUNCHER_DOOM_TITLEPIC_WIDTH,
         PI4_LAUNCHER_DOOM_TITLEPIC_HEIGHT,
-        &dest_x,
-        &dest_y,
-        &dest_w,
-        &dest_h);
-    if (!dest_w || !dest_h)
+        &crop_x,
+        &crop_y,
+        &crop_w,
+        &crop_h);
+    if (!crop_w || !crop_h)
         return 0;
 
-    for (u32 y = 0; y < dest_h; y++) {
-        u32 source_y = (y * PI4_LAUNCHER_DOOM_TITLEPIC_HEIGHT) / dest_h;
-        for (u32 x = 0; x < dest_w; x++) {
-            u32 source_x = (x * PI4_LAUNCHER_DOOM_TITLEPIC_WIDTH) / dest_w;
+    for (u32 y = 0; y < PI4_LAUNCHER_ICON_SIZE; y++) {
+        u32 source_y = crop_y + (y * crop_h) / PI4_LAUNCHER_ICON_SIZE;
+        for (u32 x = 0; x < PI4_LAUNCHER_ICON_SIZE; x++) {
+            u32 source_x = crop_x + (x * crop_w) / PI4_LAUNCHER_ICON_SIZE;
             u32 source_offset = source_y * PI4_LAUNCHER_DOOM_TITLEPIC_WIDTH + source_x;
-            icon[(dest_y + y) * PI4_LAUNCHER_ICON_SIZE + dest_x + x] =
-                palette_to_launcher_color(palette, pixels[source_offset]);
+            icon[y * PI4_LAUNCHER_ICON_SIZE + x] = palette_to_launcher_color(
+                palette,
+                pixels[source_offset]);
         }
     }
 
@@ -384,22 +383,22 @@ static int decode_doom_patch_icon(u8* icon, const u8* patch, u32 patch_size, con
     if (width > (patch_size - 8u) / 4u)
         return 0;
 
-    u32 dest_x;
-    u32 dest_y;
-    u32 dest_w;
-    u32 dest_h;
+    u32 crop_x;
+    u32 crop_y;
+    u32 crop_w;
+    u32 crop_h;
     clear_icon(icon);
-    fit_source_to_icon(width, height, &dest_x, &dest_y, &dest_w, &dest_h);
-    if (!dest_w || !dest_h)
+    cover_source_for_icon(width, height, &crop_x, &crop_y, &crop_w, &crop_h);
+    if (!crop_w || !crop_h)
         return 0;
 
-    for (u32 y = 0; y < dest_h; y++) {
-        u32 source_y = (y * height) / dest_h;
-        for (u32 x = 0; x < dest_w; x++) {
-            u32 source_x = (x * width) / dest_w;
+    for (u32 y = 0; y < PI4_LAUNCHER_ICON_SIZE; y++) {
+        u32 source_y = crop_y + (y * crop_h) / PI4_LAUNCHER_ICON_SIZE;
+        for (u32 x = 0; x < PI4_LAUNCHER_ICON_SIZE; x++) {
+            u32 source_x = crop_x + (x * crop_w) / PI4_LAUNCHER_ICON_SIZE;
             u8 color_index = 0;
             if (doom_patch_sample(patch, patch_size, width, source_x, source_y, &color_index)) {
-                icon[(dest_y + y) * PI4_LAUNCHER_ICON_SIZE + dest_x + x] =
+                icon[y * PI4_LAUNCHER_ICON_SIZE + x] =
                     palette_to_launcher_color(palette, color_index);
             }
         }
@@ -420,21 +419,21 @@ static int decode_quake_qpic_icon(u8* icon, const u8* qpic, u32 qpic_size, const
     if (width > (qpic_size - 8u) / height)
         return 0;
 
-    u32 dest_x;
-    u32 dest_y;
-    u32 dest_w;
-    u32 dest_h;
+    u32 crop_x;
+    u32 crop_y;
+    u32 crop_w;
+    u32 crop_h;
     clear_icon(icon);
-    fit_source_to_icon(width, height, &dest_x, &dest_y, &dest_w, &dest_h);
-    if (!dest_w || !dest_h)
+    cover_source_for_icon(width, height, &crop_x, &crop_y, &crop_w, &crop_h);
+    if (!crop_w || !crop_h)
         return 0;
 
-    for (u32 y = 0; y < dest_h; y++) {
-        u32 source_y = (y * height) / dest_h;
-        for (u32 x = 0; x < dest_w; x++) {
-            u32 source_x = (x * width) / dest_w;
+    for (u32 y = 0; y < PI4_LAUNCHER_ICON_SIZE; y++) {
+        u32 source_y = crop_y + (y * crop_h) / PI4_LAUNCHER_ICON_SIZE;
+        for (u32 x = 0; x < PI4_LAUNCHER_ICON_SIZE; x++) {
+            u32 source_x = crop_x + (x * crop_w) / PI4_LAUNCHER_ICON_SIZE;
             u32 source_offset = 8u + source_y * width + source_x;
-            icon[(dest_y + y) * PI4_LAUNCHER_ICON_SIZE + dest_x + x] =
+            icon[y * PI4_LAUNCHER_ICON_SIZE + x] =
                 palette_to_launcher_color(palette, qpic[source_offset]);
         }
     }
@@ -515,16 +514,7 @@ static int load_doom_icon(void)
         !read_exact(fd, pi4_launcher_doom_palette, PI4_LAUNCHER_PALETTE_BYTES))
         goto done;
 
-    if (doom_logo_offset && seek_abs(fd, doom_logo_offset) &&
-        read_exact(fd, pi4_launcher_asset, doom_logo_size)) {
-        ok = decode_doom_patch_icon(
-            pi4_launcher_doom_icon_pixels,
-            pi4_launcher_asset,
-            doom_logo_size,
-            pi4_launcher_doom_palette);
-    }
-
-    if (!ok && titlepic_offset && seek_abs(fd, titlepic_offset) &&
+    if (titlepic_offset && seek_abs(fd, titlepic_offset) &&
         read_exact(fd, pi4_launcher_asset, titlepic_size)) {
         ok = decode_doom_titlepic_icon(
             pi4_launcher_doom_icon_pixels,
@@ -537,6 +527,15 @@ static int load_doom_icon(void)
                 pi4_launcher_asset,
                 titlepic_size,
                 pi4_launcher_doom_palette);
+    }
+
+    if (!ok && doom_logo_offset && seek_abs(fd, doom_logo_offset) &&
+        read_exact(fd, pi4_launcher_asset, doom_logo_size)) {
+        ok = decode_doom_patch_icon(
+            pi4_launcher_doom_icon_pixels,
+            pi4_launcher_asset,
+            doom_logo_size,
+            pi4_launcher_doom_palette);
     }
 
 done:
@@ -641,11 +640,52 @@ done:
     return ok;
 }
 
+static int read_installed_app_prefix(const char* path, u32 bytes)
+{
+    pi4_vibe_word_t got = 0;
+
+    if (!bytes || bytes > PI4_LAUNCHER_ASSET_BYTES)
+        return 0;
+    if (vibe_user_file_read_at(path, 0, pi4_launcher_asset, bytes, &got) != 0)
+        return 0;
+    return got == bytes;
+}
+
+static int read_installed_app_elf_magic(const char* path)
+{
+    if (!read_installed_app_prefix(path, 4u))
+        return 0;
+    return pi4_launcher_asset[0] == 0x7fu &&
+        pi4_launcher_asset[1] == 'E' &&
+        pi4_launcher_asset[2] == 'L' &&
+        pi4_launcher_asset[3] == 'F';
+}
+
+static void load_installed_app_metadata(void)
+{
+    unsigned long flags = 0;
+
+    if (read_installed_app_prefix(PI4_VIBE_APP_INDEX_PATH, 16u))
+        flags |= PI4_LAUNCHER_APP_INDEX_READY;
+    if (read_installed_app_prefix(PI4_VIBE_DOOM_APP_MANIFEST_PATH, 16u))
+        flags |= PI4_LAUNCHER_APP_DOOM_MANIFEST_READY;
+    if (read_installed_app_elf_magic(PI4_VIBE_DOOM_APP_PATH))
+        flags |= PI4_LAUNCHER_APP_DOOM_EXEC_READY;
+    if (read_installed_app_prefix(PI4_VIBE_QUAKE_APP_MANIFEST_PATH, 16u))
+        flags |= PI4_LAUNCHER_APP_QUAKE_MANIFEST_READY;
+    if (read_installed_app_elf_magic(PI4_VIBE_QUAKE_APP_PATH))
+        flags |= PI4_LAUNCHER_APP_QUAKE_EXEC_READY;
+
+    pi4_launcher_app_discovery_flags = flags;
+}
+
 void pi4_launcher_load_art(void)
 {
     clear_icon(pi4_launcher_doom_icon_pixels);
     clear_icon(pi4_launcher_quake_icon_pixels);
     pi4_launcher_art_flags = 0;
+    pi4_launcher_app_discovery_flags = 0;
+    load_installed_app_metadata();
 
     if (load_doom_icon()) {
         decorate_loaded_icon(

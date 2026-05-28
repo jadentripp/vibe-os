@@ -663,7 +663,9 @@ static int status_has_local_qemu_metadata(const Status *status) {
 static int is_pi4_user_exec_path(const char *path) {
     return strcmp(path, "INIT.ELF") == 0 ||
            strcmp(path, "PAYLOAD0.ELF") == 0 ||
-           strcmp(path, "PAYLOAD1.ELF") == 0;
+           strcmp(path, "PAYLOAD1.ELF") == 0 ||
+           strcmp(path, "/APPS/DOOM/APP.ELF") == 0 ||
+           strcmp(path, "/APPS/QUAKE/APP.ELF") == 0;
 }
 
 static void hex_like_tuple(const Status *status, const char *name, size_t count, char sep) {
@@ -1359,11 +1361,13 @@ static int expected_large_payload_kind_for_path(const Status *status, uint32_t *
         return 0;
     }
     exec_path = field(status, "path");
-    if (strcmp(exec_path, "PAYLOAD0.ELF") == 0) {
+    if (strcmp(exec_path, "PAYLOAD0.ELF") == 0 ||
+        strcmp(exec_path, "/APPS/DOOM/APP.ELF") == 0) {
         *kind = USER_KIND_PAYLOAD_PRIMARY;
         return 1;
     }
-    if (strcmp(exec_path, "PAYLOAD1.ELF") == 0) {
+    if (strcmp(exec_path, "PAYLOAD1.ELF") == 0 ||
+        strcmp(exec_path, "/APPS/QUAKE/APP.ELF") == 0) {
         *kind = USER_KIND_PAYLOAD_SECONDARY;
         return 1;
     }
@@ -1481,12 +1485,14 @@ static void validate_exec(const Status *status) {
     exact(status, "abipath", "ABIPROBE.ELF");
     exact(status, "abiprobe", "WAIT");
     exec_path = field(status, "path");
-    if (strcmp(exec_path, "PAYLOAD1.ELF") == 0) {
+    if (strcmp(exec_path, "PAYLOAD1.ELF") == 0 ||
+        strcmp(exec_path, "/APPS/QUAKE/APP.ELF") == 0) {
         exact(status, "quake", "OK");
-    } else if (strcmp(exec_path, "PAYLOAD0.ELF") == 0) {
+    } else if (strcmp(exec_path, "PAYLOAD0.ELF") == 0 ||
+               strcmp(exec_path, "/APPS/DOOM/APP.ELF") == 0) {
         exact(status, "doom", "OK");
     } else {
-        fail("path= must be PAYLOAD0.ELF or PAYLOAD1.ELF");
+        fail("path= must be a Doom or Quake app executable");
     }
     if (hex_field(status, "argvsrc") != SYS_EXEC_ARGV_SOURCE_USER) {
         fail("argvsrc= must prove exec argv came from user memory");
@@ -3073,7 +3079,7 @@ static void validate_pi4_uabi_status(const Status *status) {
         exact(status, "exec", "OK");
         path = field(status, "path");
         if (!is_pi4_user_exec_path(path)) {
-            fail("path= must be INIT.ELF, PAYLOAD0.ELF, or PAYLOAD1.ELF for pi4uabi=OK");
+            fail("path= must be INIT.ELF or an installed app executable for pi4uabi=OK");
         }
         exact(status, "uexec", "OK");
         upath = field(status, "upath");
@@ -3219,7 +3225,9 @@ static void validate_pi4_exec_status(const Status *status) {
             fail("pi4exec=WAIT cannot prove Doom or Quake gameplay launch");
         }
         if (field_equals(status, "path", "PAYLOAD0.ELF") ||
-            field_equals(status, "path", "PAYLOAD1.ELF")) {
+            field_equals(status, "path", "PAYLOAD1.ELF") ||
+            field_equals(status, "path", "/APPS/DOOM/APP.ELF") ||
+            field_equals(status, "path", "/APPS/QUAKE/APP.ELF")) {
             fail("pi4exec=WAIT cannot claim payload exec path success");
         }
         return;
@@ -3558,10 +3566,10 @@ static void validate_status_file(const char *path, const CheckOptions *opts) {
 
 static const char *pi4_payload_path_for_slot(uint64_t slot) {
     if (slot == PI4_VIBE_PAYLOAD_SLOT0) {
-        return "PAYLOAD0.ELF";
+        return "/APPS/DOOM/APP.ELF";
     }
     if (slot == PI4_VIBE_PAYLOAD_SLOT1) {
-        return "PAYLOAD1.ELF";
+        return "/APPS/QUAKE/APP.ELF";
     }
     (void)slot;
     fail("unknown Pi payload slot");

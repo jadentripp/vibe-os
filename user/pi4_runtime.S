@@ -604,17 +604,8 @@ vibe_user_execv:
     stp x19, x20, [sp, #16]
     mov x19, x0
     mov x20, x1
-    adrp x1, .Lpi4_runtime_payload0_path
-    add x1, x1, :lo12:.Lpi4_runtime_payload0_path
-    bl .Lpi4_runtime_path_suffix_eq
-    cbnz x0, .Lpi4_runtime_execv_slot0
-    mov x0, x19
-    adrp x1, .Lpi4_runtime_payload1_path
-    add x1, x1, :lo12:.Lpi4_runtime_payload1_path
-    bl .Lpi4_runtime_path_suffix_eq
-    cbnz x0, .Lpi4_runtime_execv_slot1
-    mov x0, #-PI4_VIBE_EINVAL
-    b .Lpi4_runtime_execv_done
+    mov x0, #-1
+    b .Lpi4_runtime_execv_have_slot
 .Lpi4_runtime_execv_slot0:
     mov x0, #PI4_VIBE_PAYLOAD_SLOT0
     b .Lpi4_runtime_execv_have_slot
@@ -679,14 +670,9 @@ vibe_user_exec_request:
     ldr x3, [x19, #PI4_VIBE_EXEC_REQUEST_BYTES_OFFSET]
     cmp x3, #PI4_VIBE_EXEC_REQUEST_BYTES
     b.ne .Lpi4_runtime_exec_request_inval
-    ldr x6, [x19, #PI4_VIBE_EXEC_REQUEST_PAYLOAD_SLOT_OFFSET]
     ldr x0, [x19, #PI4_VIBE_EXEC_REQUEST_PATH_OFFSET]
     cbz x0, .Lpi4_runtime_exec_request_inval
-    cmp x6, #PI4_VIBE_PAYLOAD_SLOT0
-    b.eq .Lpi4_runtime_exec_request_slot0
-    cmp x6, #PI4_VIBE_PAYLOAD_SLOT1
-    b.eq .Lpi4_runtime_exec_request_slot1
-    b .Lpi4_runtime_exec_request_inval
+    b .Lpi4_runtime_exec_request_syscall
 
 .Lpi4_runtime_exec_request_slot0:
     adrp x1, .Lpi4_runtime_payload0_path
