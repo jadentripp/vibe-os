@@ -2848,7 +2848,7 @@ static void marker_name_from_symbol(const char* symbol, char out[11])
     }
 }
 
-static void mutate_root_marker(const char* image_path, const char* symbol, const char* payload, int write_marker)
+static void mutate_root_marker(const char* image_path, const char* symbol, const char* app, int write_marker)
 {
     Blob blob = read_file(image_path);
     Image image;
@@ -2864,7 +2864,7 @@ static void mutate_root_marker(const char* image_path, const char* symbol, const
 
     delete_root_file_entry(&image, name);
     if (write_marker)
-        write_root_file_entry(&image, name, (const uint8_t*)payload, strlen(payload));
+        write_root_file_entry(&image, name, (const uint8_t*)app, strlen(app));
 
     write_fat_copies(&image);
     write_file(image_path, image.data, image.size);
@@ -2875,7 +2875,7 @@ static void usage(void)
 {
     die("usage: make_wad_image [--require-real-assets] [--require-file FAT_PATH] --inspect IMAGE\n"
         "       make_wad_image [--proof-manifest] [--primary-asset-wad PATH|--wad PATH] [--root-elf NAME.ELF=PATH] [--root-file NAME.EXT=PATH] [--asset IMAGE_8.3_PATH=HOST_PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF]]\n"
-        "       make_wad_image --write-root-marker SYMBOL PAYLOAD IMAGE\n"
+        "       make_wad_image --write-root-marker SYMBOL APP IMAGE\n"
         "       make_wad_image --delete-root-marker SYMBOL IMAGE\n"
         "       make_wad_image --check-persistence IMAGE [--baseline-image IMAGE] [--reboot-baseline-image IMAGE] [--write-status FILE] [--save-write-status FILE] [--load-status FILE] [--reboot-status FILE] [--require-default] [--require-dynamic-fat-proof] [--require-save-slot N] [--require-save-description N=TEXT]");
 }
