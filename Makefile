@@ -1263,6 +1263,7 @@ pi4-launcher-state-manifest-check: $(PI4_LAUNCHER_STATE_MANIFEST_ELF)
 		"app_visible_capacity=2" \
 		"app_discovery_source=/APPS/INDEX.TXT" \
 		"app_discovery_runtime=read-app-count-and-indexed-manifest-keys" \
+		"app_metadata_runtime=manifest-name-exec-asset-icon" \
 		"launcher_state_schema=vibe-os-pi4-launcher-state-v2" \
 		"launcher_state_magic=PI4LAUNC" \
 		"launcher_state_bytes=392" \
