@@ -635,6 +635,17 @@ do
     exit 1
   fi
 done
+for app_file in /SYSTEM/INIT.ELF /SYSTEM/ABIPROBE.ELF /APPS/INDEX.TXT /APPS/DOOM/APP.TXT /APPS/DOOM/APP.ELF /APPS/QUAKE/APP.TXT /APPS/QUAKE/APP.ELF
+do
+  if ! grep -F -q -- "--asset $app_file=" "$X86_IMAGE_BUILDER_DRYRUN"; then
+    echo "x86 image-builder dry run lost app install wiring for $app_file" >&2
+    exit 1
+  fi
+  if ! grep -F -q -- "--require-file $app_file" "$X86_IMAGE_BUILDER_DRYRUN"; then
+    echo "x86 image-builder inspect dry run stopped requiring app FAT file $app_file" >&2
+    exit 1
+  fi
+done
 grep -F -q -- "make_wad_image" "$X86_IMAGE_BUILDER_DRYRUN"
 grep -F -q -- "disk.img" "$X86_IMAGE_BUILDER_DRYRUN"
 for pi4_marker in build/pi4 KERNEL8.IMG CONFIG.TXT pi4-fat16.img
@@ -657,6 +668,13 @@ for root_elf in INIT.ELF ABIPROBE.ELF PAYLOAD0.ELF PAYLOAD1.ELF
 do
   if ! grep -F -q -- "--root-elf $root_elf=" "$X86_UEFI_IMAGE_BUILDER_DRYRUN"; then
     echo "x86 UEFI image-builder dry run lost root ELF wiring for $root_elf" >&2
+    exit 1
+  fi
+done
+for app_file in /SYSTEM/INIT.ELF /SYSTEM/ABIPROBE.ELF /APPS/INDEX.TXT /APPS/DOOM/APP.TXT /APPS/DOOM/APP.ELF /APPS/QUAKE/APP.TXT /APPS/QUAKE/APP.ELF
+do
+  if ! grep -F -q -- "--asset $app_file=" "$X86_UEFI_IMAGE_BUILDER_DRYRUN"; then
+    echo "x86 UEFI image-builder dry run lost app install wiring for $app_file" >&2
     exit 1
   fi
 done

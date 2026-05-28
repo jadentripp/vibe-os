@@ -614,7 +614,7 @@ PROC_STATE_BLOCKED equ 6
 PROCESS_SLOT_COUNT equ 6
 PROCESS_GENERIC_SLOT_COUNT equ 2
 PROCESS_RECORD_BYTES equ 184
-PROCESS_EXEC_TABLE_COUNT equ 2
+PROCESS_EXEC_TABLE_COUNT equ 4
 PROCESS_EXEC_ENTRY_BYTES equ 24
 PROCESS_EXEC_PATH equ 0
 PROCESS_EXEC_NAME83 equ 4
@@ -841,7 +841,7 @@ SAVELOAD_EVENT_READ equ 0x0002
 SAVELOAD_EVENT_WRITE equ 0x0004
 SAVELOAD_EVENT_CLOSE equ 0x0008
 SAVELOAD_SLOT_SHIFT equ 16
-SYS_EXEC_PATH_MAX equ 16
+SYS_EXEC_PATH_MAX equ 64
 MMAP_PROT_MASK equ 0x0000ffff
 MMAP_FLAGS_SHIFT equ 16
 MMAP_PROT_READ equ 0x00000001
@@ -20451,8 +20451,7 @@ process_exec_path:
     mov esi, [process_exec_target]
     call process_reuse_exec_target_slot
 
-    mov edi, [process_exec_name83]
-    call fat_find_file
+    call process_exec_find_file
     jnc .fat_found
     mov dword [process_exec_last_error], -ERRNO_ENOENT
     jmp .fail
@@ -20651,6 +20650,110 @@ process_exec_path:
     pop edx
     pop ecx
     pop ebx
+    ret
+
+process_exec_find_file:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov eax, [process_exec_name83]
+    cmp eax, app_elf_name_83
+    jne .root_file
+    mov eax, [process_exec_target_kind]
+    cmp eax, USER_KIND_PAYLOAD_PRIMARY
+    je .app_file
+    cmp eax, USER_KIND_PAYLOAD_SECONDARY
+    je .app_file
+
+.root_file:
+    mov edi, [process_exec_name83]
+    call fat_find_file
+    jc .fail
+    jmp .ok
+
+.app_file:
+    call process_exec_find_app_file
+    jc .fail
+
+.ok:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    clc
+    ret
+
+.fail:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    stc
+    ret
+
+process_exec_find_app_file:
+    push eax
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov edi, apps_dir_name_83
+    call fat_find_root_entry_any
+    jc .fail
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .fail
+    mov dx, [fat_found_first_cluster]
+
+    mov eax, [process_exec_target_kind]
+    cmp eax, USER_KIND_PAYLOAD_SECONDARY
+    je .quake_dir
+    mov edi, doom_dir_name_83
+    jmp .find_app_dir
+
+.quake_dir:
+    mov edi, quake_dir_name_83
+
+.find_app_dir:
+    mov ax, dx
+    call fat_find_subdir_entry
+    jc .fail
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jz .fail
+    mov ax, [fat_found_first_cluster]
+    mov edi, app_elf_name_83
+    call fat_find_subdir_entry
+    jc .fail
+    test byte [fat_found_attributes], FAT_ATTR_DIRECTORY
+    jnz .fail
+
+.ok:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    clc
+    ret
+
+.fail:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+    stc
     ret
 
 process_exec_resolve_path:
@@ -34720,8 +34823,14 @@ boot_user_elf_name_83 db "INIT    ELF"
 user_elf_name_83 db "USERPROBELF"
 primary_payload_elf_name_83 db "PAYLOAD0ELF"
 secondary_payload_elf_name_83 db "PAYLOAD1ELF"
+app_elf_name_83 db "APP     ELF"
+apps_dir_name_83 db "APPS       "
+doom_dir_name_83 db "DOOM       "
+quake_dir_name_83 db "QUAKE      "
 exec_path_primary_payload db "PAYLOAD0.ELF", 0
 exec_path_secondary_payload db "PAYLOAD1.ELF", 0
+exec_path_primary_app db "/APPS/DOOM/APP.ELF", 0
+exec_path_secondary_app db "/APPS/QUAKE/APP.ELF", 0
 exec_path_boot_user db "INIT.ELF", 0
 exec_path_user_probe db "USERPROB.ELF", 0
 exec_path_abi_probe db "ABIPROBE.ELF", 0
@@ -34770,6 +34879,8 @@ large_payload_proof_label_table:
 process_exec_table:
     dd exec_path_boot_user, boot_user_elf_name_83, USER_ELF_LOAD_ADDR, USER_ELF_MAX_BYTES, process_user_probe, USER_KIND_PROBE
     dd exec_path_user_probe, user_elf_name_83, USER_ELF_LOAD_ADDR, USER_ELF_MAX_BYTES, process_user_probe, USER_KIND_PROBE
+    dd exec_path_primary_app, app_elf_name_83, PAYLOAD_ELF_LOAD_ADDR, PAYLOAD_ELF_MAX_BYTES, process_payload, USER_KIND_PAYLOAD_PRIMARY
+    dd exec_path_secondary_app, app_elf_name_83, PAYLOAD_ELF_LOAD_ADDR, PAYLOAD_ELF_MAX_BYTES, process_payload, USER_KIND_PAYLOAD_SECONDARY
 user_elf_prefix db "User ELF loader: ", 0
 user_entry_prefix db "User entry: ", 0
 user_flags_prefix db "User syscall flags: ", 0

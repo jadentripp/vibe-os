@@ -1772,8 +1772,8 @@ launcher_plot_pixel_clipped:
     ret
 
 section .rodata
-payload0_path db `PAYLOAD0.ELF`, 0
-payload1_path db `PAYLOAD1.ELF`, 0
+payload0_path db `/APPS/DOOM/APP.ELF`, 0
+payload1_path db `/APPS/QUAKE/APP.ELF`, 0
 launcher_ready_text db `launcher ready\n`, 0
 launcher_doom_wad_path db `DOOM1.WAD`, 0
 launcher_quake_pak_path db `/ID1/PAK0.PAK`, 0
