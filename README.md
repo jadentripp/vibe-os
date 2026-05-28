@@ -7,8 +7,8 @@ video, audio, config, and saves.
 
 The current proof targets are the original id Software Doom and Quake engine
 sources running as vibe-os user programs. They appear as Doom and Quake on the
-guest launcher screen, but the disk image stores them in generic large-payload
-slots. The OS process path is not hard-coded to either game.
+guest launcher screen, and the disk image installs them through the normal app
+filesystem layout. The OS process path is not hard-coded to either game.
 
 This is not Linux running Doom or Quake. It is not Chocolate Doom, doomgeneric,
 SDL, or a desktop wrapper. QEMU provides the emulated PC hardware; vibe-os owns
@@ -48,9 +48,9 @@ DOOM_WAD=/absolute/path/to/DOOM1.WAD \
 ## What You Should See
 
 `make play` should open a QEMU window, boot vibe-os, and show a simple launcher
-with Doom and Quake choices. Selecting Doom starts the Doom engine from the
-first large-payload slot. Selecting Quake starts the Quake engine from the
-second large-payload slot.
+with Doom and Quake choices. Selecting Doom starts the Doom app installed at
+`/APPS/DOOM/APP.ELF`. Selecting Quake starts the Quake app installed at
+`/APPS/QUAKE/APP.ELF`.
 
 If the QEMU window opens but never reaches the launcher, quit QEMU and inspect
 `build/play/serial.log`.
@@ -65,21 +65,22 @@ The supported interactive route is the QEMU PC BIOS path:
    audio, and processes.
 4. The kernel starts `INIT.ELF`, the NASM guest launcher.
 5. The launcher presents Doom and Quake choices through the framebuffer.
-6. The selected payload starts as a Ring 3 ELF process.
-7. The payload reads external data, renders frames, accepts input, emits audio,
-   and writes config or save data through vibe-os.
+6. The selected app starts as a Ring 3 ELF process through a generic exec path.
+7. The app reads external data, renders frames, accepts input, emits audio, and
+   writes config or save data through vibe-os.
 
-A normal image places these files in the FAT root:
+A normal image installs OS files and apps in the FAT filesystem:
 
 - `KERNEL.ELF` - the vibe-os kernel.
-- `INIT.ELF` - the guest launcher.
-- `USERPROB.ELF` and `ABIPROBE.ELF` - guest test programs.
-- `PAYLOAD0.ELF` - the first large payload slot, currently Doom.
-- `PAYLOAD1.ELF` - the second large payload slot, currently Quake.
+- `/SYSTEM/INIT.ELF` - the guest launcher.
+- `/SYSTEM/USERPROB.ELF` and `/SYSTEM/ABIPROBE.ELF` - guest test programs.
+- `/APPS/INDEX.TXT` - installed app index consumed by the launcher.
+- `/APPS/DOOM/APP.TXT` and `/APPS/DOOM/APP.ELF` - Doom metadata and app ELF.
+- `/APPS/QUAKE/APP.TXT` and `/APPS/QUAKE/APP.ELF` - Quake metadata and app ELF.
 
-The slot names are deliberate. Some proof labels, build variables, game data
-formats, and compatibility paths still say Doom, Quake, WAD, PAK, `DOOM1.WAD`,
-or `PAK0.PAK`; those names do not define the OS process path.
+Some proof labels, build variables, game data formats, and compatibility paths
+still say Doom, Quake, WAD, PAK, `DOOM1.WAD`, or `PAK0.PAK`; those names do
+not define the OS process path.
 
 ## Verify
 
@@ -91,7 +92,7 @@ make ALLOW_LOCAL_VM=0 DOOM_WAD= uefi-loader-object
 git diff --check
 ```
 
-These checks build the image, kernel, launcher, probe ELFs, payload ELFs, host
+These checks build the image, kernel, launcher, probe ELFs, app ELFs, host
 utilities, status validator, and assembly-native guest audit without running
 local QEMU. With `DOOM_WAD=` empty, the test image uses generated Doom fixture
 data; `make play` is the path that fetches playable public data. The guest
@@ -114,8 +115,8 @@ make PRIMARY_ASSET=/path/to/DOOM1.WAD SECONDARY_PACKAGE=/path/to/PAK0.PAK
 ## Verified Behavior
 
 Release proof workflows run in GitHub Actions on disposable QEMU VMs. They
-build a launcher-first image, select a payload from the guest launcher, launch
-it through the same generic process path, drive input, and check guest-emitted
+build a launcher-first image, select an app from the guest launcher, launch it
+through the same generic process path, drive input, and check guest-emitted
 status fields.
 
 ```sh

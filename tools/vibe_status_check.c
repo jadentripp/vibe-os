@@ -1587,7 +1587,7 @@ static void validate_preemption(const Status *status) {
         fail("pctx= must be at least the preempt switch count");
     }
     if ((hex_field(status, "pmask") & 0x3u) != 0x3u) {
-        fail("pmask= must prove the large payload and the preempt probe both ran");
+        fail("pmask= must prove the selected app and the preempt probe both ran");
     }
     source_pid = hex_field(status, "pfrom");
     target_pid = hex_field(status, "pto");
@@ -1607,11 +1607,11 @@ static void validate_preemption(const Status *status) {
     hex_tuple(status, "pkind", 2, ':', kinds);
     if (!((is_large_payload_kind(kinds[0]) && kinds[1] == USER_KIND_PREEMPT_PROBE) ||
           (kinds[0] == USER_KIND_PREEMPT_PROBE && is_large_payload_kind(kinds[1])))) {
-        fail("pkind= must switch between a large payload and the preempt probe");
+        fail("pkind= must switch between the selected app and the preempt probe");
     }
     if (expected_large_payload_kind_for_path(status, &expected_payload_kind) &&
         kinds[0] != expected_payload_kind && kinds[1] != expected_payload_kind) {
-        fail("pkind= large payload kind must match selected exec path");
+        fail("pkind= selected app kind must match selected exec path");
     }
     hex_tuple(status, "peip", 2, ':', eips);
     if (!addr_matches_kind(kinds[0], eips[0]) || !addr_matches_kind(kinds[1], eips[1])) {
@@ -1619,10 +1619,10 @@ static void validate_preemption(const Status *status) {
     }
     hex_tuple(status, "pcr3", 2, ':', cr3s);
     if (is_large_payload_kind(kinds[0]) && cr3s[0] != PROC_PAYLOAD_PAGE_DIR_ADDR) {
-        fail("pcr3= large payload slot must use the payload page directory");
+        fail("pcr3= selected app must use the app page directory");
     }
     if (is_large_payload_kind(kinds[1]) && cr3s[1] != PROC_PAYLOAD_PAGE_DIR_ADDR) {
-        fail("pcr3= large payload slot must use the payload page directory");
+        fail("pcr3= selected app must use the app page directory");
     }
     if (kinds[0] == USER_KIND_PREEMPT_PROBE && cr3s[0] != PROC_PREEMPT_PAGE_DIR_ADDR) {
         fail("pcr3= preempt-probe slot must use the preempt page directory");
@@ -3197,12 +3197,6 @@ static void validate_pi4_exec_status(const Status *status) {
         if (has_field(status, "pi4execreq")) {
             fail("pi4execreq= requires pi4exec= state evidence");
         }
-        if (has_field(status, "pi4payloadreq")) {
-            fail("legacy pi4payloadreq= is not valid app exec evidence");
-        }
-        if (has_field(status, "pi4payloadvfs")) {
-            fail("legacy pi4payloadvfs= is not valid app exec evidence");
-        }
         if (has_field(status, "pi4appreq")) {
             fail("pi4appreq= requires pi4exec= state evidence");
         }
@@ -3228,9 +3222,6 @@ static void validate_pi4_exec_status(const Status *status) {
             }
             if (request[4] != neg_errno64(PI4_VIBE_ENOSYS)) {
                 fail("pi4exec=WAIT request evidence must return ENOSYS until the Pi loader exists");
-            }
-            if (has_field(status, "pi4payloadreq") || has_field(status, "pi4payloadvfs")) {
-                fail("legacy pi4payload request/VFS fields are not valid Pi app exec evidence");
             }
         }
         if (has_field(status, "pi4appreq") || has_field(status, "pi4appvfs")) {
@@ -3270,9 +3261,6 @@ static void validate_pi4_exec_status(const Status *status) {
 }
 
 static void validate_pi4_app_launch_claim(const Status *status) {
-    if (has_field(status, "payload_launch_claim")) {
-        fail("payload_launch_claim= is a retired root payload-slot claim");
-    }
     if (!has_field(status, "app_launch_claim")) {
         return;
     }
@@ -4009,7 +3997,6 @@ static void validate_repo_contract(void) {
     forbid_contains(".github/workflows/real-wad-smoke.yml", "check_vm_status_proof");
 
     require_contains(".github/workflows/real-quake-smoke.yml", "launcher-select:2");
-    forbid_contains(".github/workflows/real-quake-smoke.yml", "BOOT_PAYLOAD_QUAKE");
 
     require_contains(".github/workflows/real-wad-soak.yml", "tools/vibe_status_check.c");
     require_contains(".github/workflows/real-wad-soak.yml", "--require-preempt");
