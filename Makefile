@@ -1,6 +1,7 @@
 NASM ?= nasm
 QEMU ?= qemu-system-x86_64
 CLANG ?= clang
+AARCH64_CC ?= clang
 HOST_CC ?= cc
 LLD_LINK ?= lld-link
 HOST_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2
@@ -63,6 +64,12 @@ KERNEL_ELF := $(BUILD_DIR)/kernel.elf
 LINK_ELF32 := $(BUILD_DIR)/link_elf32
 LINK_ELF32_SRC := tools/link_elf32.asm
 LINK_ELF32_OBJ := $(BUILD_DIR)/link_elf32.o
+LINK_AARCH64_FLAT := $(BUILD_DIR)/link_aarch64_flat
+LINK_AARCH64_FLAT_SRC := tools/link_aarch64_flat.$(HOST_NASM_FORMAT).s
+LINK_AARCH64_FLAT_OBJ := $(BUILD_DIR)/link_aarch64_flat.o
+LINK_AARCH64_USER_ELF := $(BUILD_DIR)/link_aarch64_user_elf
+LINK_AARCH64_USER_ELF_SRC := tools/link_aarch64_user_elf.$(HOST_NASM_FORMAT).s
+LINK_AARCH64_USER_ELF_OBJ := $(BUILD_DIR)/link_aarch64_user_elf.o
 USER_CRT0_OBJ := $(BUILD_DIR)/user_crt0.o
 USER_LAUNCHER_CRT0_OBJ := $(BUILD_DIR)/user_launcher_crt0.o
 USER_PROBE_OBJ := $(BUILD_DIR)/user_probe.o
@@ -81,6 +88,64 @@ UEFI_BUILD_DIR := $(BUILD_DIR)/uefi
 UEFI_LOADER_OBJ := $(UEFI_BUILD_DIR)/loader.obj
 UEFI_LOADER_EFI := $(UEFI_BUILD_DIR)/BOOTX64.EFI
 UEFI_DUAL_IMAGE := $(UEFI_BUILD_DIR)/uefi-fat16.img
+PI4_BUILD_DIR := $(BUILD_DIR)/pi4
+PI4_CONFIG_TXT := boot/pi4/config.txt
+PI4_KERNEL_INPUT_OBJ := $(PI4_BUILD_DIR)/pi4-input.o
+PI4_KERNEL_STORAGE_OBJ := $(PI4_BUILD_DIR)/pi4-storage.o
+PI4_KERNEL_AGGREGATE_SRC := $(PI4_BUILD_DIR)/pi4-kernel.S
+PI4_KERNEL_OBJ := $(PI4_BUILD_DIR)/pi4-start.o
+PI4_KERNEL8_IMG := $(PI4_BUILD_DIR)/kernel8.img
+PI4_KERNEL8_MAP := $(PI4_BUILD_DIR)/kernel8.map
+PI4_IMAGE := $(PI4_BUILD_DIR)/pi4-fat16.img
+PI4_IMAGE_INSPECT_TXT := $(PI4_BUILD_DIR)/pi4-image-inspect.txt
+PI4_HW_EQUIVALENT_QEMU ?= qemu-system-aarch64
+PI4_QEMU_DISPLAY ?= $(if $(filter Darwin,$(HOST_UNAME_S)),cocoa,zoom-to-fit=on,none)
+PI4_QEMU_SERIAL ?= stdio
+PI4_QEMU_AUDIO_ID ?= pi4snd
+ifeq ($(HOST_UNAME_S),Darwin)
+PI4_QEMU_AUDIODEV_LIVE ?= coreaudio,id=$(PI4_QEMU_AUDIO_ID)
+else
+PI4_QEMU_AUDIODEV_LIVE ?= wav,id=$(PI4_QEMU_AUDIO_ID),path=$(PI4_BUILD_DIR)/pi4-local-qemu-live-audio.wav
+endif
+PI4_QEMU_AUDIODEV_SMOKE ?= wav,id=$(PI4_QEMU_AUDIO_ID),path=$(PI4_BUILD_DIR)/pi4-local-qemu-audio.wav
+PI4_QEMU_AUDIO_ARGS_LIVE ?= -audiodev $(PI4_QEMU_AUDIODEV_LIVE) -device usb-audio,audiodev=$(PI4_QEMU_AUDIO_ID)
+PI4_QEMU_AUDIO_ARGS_SMOKE ?= -audiodev $(PI4_QEMU_AUDIODEV_SMOKE) -device usb-audio,audiodev=$(PI4_QEMU_AUDIO_ID)
+PI4_QEMU_ARGS := -M raspi4b,usb=on -cpu cortex-a72 -m 2G -kernel $(PI4_KERNEL8_IMG) -drive file=$(PI4_IMAGE),if=sd,format=raw -serial $(PI4_QEMU_SERIAL) -display $(PI4_QEMU_DISPLAY) -device usb-kbd -device usb-mouse $(PI4_QEMU_AUDIO_ARGS_LIVE) -monitor none -no-reboot -no-shutdown
+PI4_LOCAL_QEMU_SMOKE_SECONDS ?= 12
+PI4_LOCAL_QEMU_SELECT_DELAY_SECONDS ?= 6
+PI4_LOCAL_QEMU_SELECT_SETTLE_SECONDS ?= 12
+PI4_LOCAL_QEMU_DOOM_SELECT_PORT ?= 39241
+PI4_LOCAL_QEMU_QUAKE_SELECT_PORT ?= 39242
+PI4_LOCAL_QEMU_SERIAL_LOG := $(PI4_BUILD_DIR)/local-qemu-serial.log
+PI4_LOCAL_QEMU_DOOM_SERIAL_LOG := $(PI4_BUILD_DIR)/local-qemu-doom-uart-select.log
+PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG := $(PI4_BUILD_DIR)/local-qemu-quake-uart-select.log
+PI4_LOCAL_QEMU_FRAMEBUFFER_LOG := $(PI4_BUILD_DIR)/local-qemu-launcher-framebuffer.log
+PI4_LOCAL_QEMU_FRAMEBUFFER_PPM := $(PI4_BUILD_DIR)/local-qemu-launcher-framebuffer.ppm
+PI4_LOCAL_QEMU_MONITOR_SOCK := $(PI4_BUILD_DIR)/local-qemu-monitor.sock
+PI4_BOOT_ASM_SRCS := boot/pi4/start.S boot/pi4/input.S boot/pi4/storage.S
+PI4_USER_ASM_SRCS := user/pi4_crt0.S user/pi4_runtime.S user/pi4_abi_probe.S user/pi4_launcher.S user/pi4_launcher_assets.S user/pi4_launcher_art.S
+PI4_DOOM_ASM_SRCS := doom_port/pi4_start.S
+PI4_QUAKE_ASM_SRCS := quake_port/pi4_app.S
+PI4_ASM_SRCS := $(PI4_BOOT_ASM_SRCS) $(PI4_USER_ASM_SRCS) $(PI4_DOOM_ASM_SRCS) $(PI4_QUAKE_ASM_SRCS)
+PI4_USER_CRT0_OBJ := $(PI4_BUILD_DIR)/pi4-crt0.o
+PI4_USER_RUNTIME_OBJ := $(PI4_BUILD_DIR)/pi4-runtime.o
+PI4_USER_ABI_PROBE_OBJ := $(PI4_BUILD_DIR)/pi4-abi-probe.o
+PI4_USER_LAUNCHER_OBJ := $(PI4_BUILD_DIR)/pi4-launcher.o
+PI4_USER_LAUNCHER_ASSETS_OBJ := $(PI4_BUILD_DIR)/pi4-launcher-assets.o
+PI4_USER_LAUNCHER_ART_OBJ := $(PI4_BUILD_DIR)/pi4-launcher-art.o
+PI4_DOOM_OBJ := $(PI4_BUILD_DIR)/pi4-doom-start.o
+PI4_QUAKE_APP_OBJ := $(PI4_BUILD_DIR)/pi4-quake-app.o
+PI4_ABI_PROBE_ELF := $(PI4_BUILD_DIR)/ABIPROBE.ELF
+PI4_LAUNCHER_ELF := $(PI4_BUILD_DIR)/INIT.ELF
+PI4_DOOM_ELF := $(PI4_BUILD_DIR)/DOOM.APP.ELF
+PI4_QUAKE_ELF := $(PI4_BUILD_DIR)/QUAKE.APP.ELF
+PI4_USER_ELF_MAX_BYTES := 524288
+PI4_AARCH64_USER_FLAGS := --target=aarch64-none-elf -ffreestanding -nostdlib -Wall -Wextra -I. -Iuser
+PI4_APP_INDEX_TXT := user/pi4_apps_index.txt
+PI4_APP_DOOM_MANIFEST_TXT := user/pi4_app_doom.txt
+PI4_APP_QUAKE_MANIFEST_TXT := user/pi4_app_quake.txt
+PI4_APP_RECORD_ARGS := --asset /SYSTEM/INIT.ELF=$(PI4_LAUNCHER_ELF) --asset /SYSTEM/ABIPROBE.ELF=$(PI4_ABI_PROBE_ELF) --asset /APPS/INDEX.TXT=$(PI4_APP_INDEX_TXT) --asset /APPS/DOOM/MANIFEST.TXT=$(PI4_APP_DOOM_MANIFEST_TXT) --asset /APPS/DOOM/APP.ELF=$(PI4_DOOM_ELF) --asset /APPS/QUAKE/MANIFEST.TXT=$(PI4_APP_QUAKE_MANIFEST_TXT) --asset /APPS/QUAKE/APP.ELF=$(PI4_QUAKE_ELF)
+PI4_APP_RECORD_DEPS := $(PI4_APP_INDEX_TXT) $(PI4_APP_DOOM_MANIFEST_TXT) $(PI4_APP_QUAKE_MANIFEST_TXT) $(PI4_DOOM_ELF) $(PI4_QUAKE_ELF)
 PROJECT_C_ALLOWLIST := tools/project_c_allowlist.txt
 C_RUNTIME_SRC := kernel/c_runtime_probe.asm
 USER_PROBE_ASM_SRC := user/probe.asm
@@ -153,7 +218,7 @@ IMAGE_EXTRA_ROOT_ELF_ARGS ?=
 IMAGE_EXTRA_ROOT_ELF_DEPS ?=
 IMAGE_ROOT_ELF_ARGS := $(IMAGE_APP_ARGS) $(IMAGE_EXTRA_ROOT_ELF_ARGS)
 
-.PHONY: all build-only test assembly-native-check no-python-check project-c-inventory doom-compile doom-link quake-compile quake-link play play-image run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect status-checker-tool uefi-loader-object uefi-loader-pe uefi-dual-image persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
+.PHONY: all build-only test assembly-native-check no-python-check project-c-inventory doom-compile doom-link quake-compile quake-link play play-image run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect status-checker-tool uefi-loader-object uefi-loader-pe uefi-dual-image pi4-assembly-source-gate pi4-code-gates pi4-kernel8 pi4-user-elves pi4-doom-app pi4-quake-app pi4-image pi4-image-inspect pi4-qemu-command pi4-local-qemu-live pi4-local-qemu-smoke pi4-local-qemu-launcher-framebuffer pi4-local-qemu-uart-select-doom pi4-local-qemu-uart-select-quake pi4-local-qemu-uart-select-apps persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
 
 all: $(IMAGE)
 
@@ -292,7 +357,7 @@ vm-consent:
 	@if [ "$(ALLOW_LOCAL_VM)" != "1" ]; then \
 		echo "Local QEMU execution is disabled by default."; \
 		echo "Build-only targets are still allowed: make"; \
-		echo "Rerun with ALLOW_LOCAL_VM=1 to use run, run-headless, or smoke."; \
+		echo "Rerun with ALLOW_LOCAL_VM=1 to use run, run-headless, smoke, pi4-local-qemu-live, or pi4-local-qemu-smoke."; \
 		exit 1; \
 	fi
 
@@ -307,6 +372,9 @@ $(QUAKE_PORT_BUILD_DIR):
 
 $(UEFI_BUILD_DIR):
 	@mkdir -p $(UEFI_BUILD_DIR)
+
+$(PI4_BUILD_DIR):
+	@mkdir -p $(PI4_BUILD_DIR)
 
 $(C_COMPAT_HEADERS_STAMP): tools/install_c_compat_headers.sh | $(BUILD_DIR)
 	bash tools/install_c_compat_headers.sh "$(C_COMPAT_INCLUDE_ROOT)"
@@ -329,6 +397,18 @@ $(LINK_ELF32_OBJ): $(LINK_ELF32_SRC) | $(BUILD_DIR)
 	$(NASM) -f $(HOST_NASM_FORMAT) $(HOST_NASM_DEFS) $< -o $@
 
 $(LINK_ELF32): $(LINK_ELF32_OBJ) | $(BUILD_DIR)
+	$(HOST_CC) $< -o $@
+
+$(LINK_AARCH64_FLAT_OBJ): $(LINK_AARCH64_FLAT_SRC) | $(BUILD_DIR)
+	$(HOST_CC) -c $< -o $@
+
+$(LINK_AARCH64_FLAT): $(LINK_AARCH64_FLAT_OBJ) | $(BUILD_DIR)
+	$(HOST_CC) $< -o $@
+
+$(LINK_AARCH64_USER_ELF_OBJ): $(LINK_AARCH64_USER_ELF_SRC) | $(BUILD_DIR)
+	$(HOST_CC) -c $< -o $@
+
+$(LINK_AARCH64_USER_ELF): $(LINK_AARCH64_USER_ELF_OBJ) | $(BUILD_DIR)
 	$(HOST_CC) $< -o $@
 
 $(IMAGE_BUILDER_OBJ): $(IMAGE_BUILDER_SRC) | $(BUILD_DIR)
@@ -372,6 +452,267 @@ $(UEFI_DUAL_IMAGE): $(STAGE1_BIN) $(STAGE2_BIN) $(KERNEL_ELF) $(USER_PROBE_ELF) 
 	@printf "Built dual BIOS/UEFI FAT16 image %s\n" "$@"
 
 uefi-dual-image: $(UEFI_DUAL_IMAGE)
+
+pi4-assembly-source-gate:
+	@set -e; \
+	expected="$$(printf '%s\n' $(PI4_ASM_SRCS) | LC_ALL=C sort)"; \
+	actual="$$( { \
+		find boot/pi4 -type f \( -name '*.S' -o -name '*.s' \) -print 2>/dev/null; \
+		find user -maxdepth 1 -type f \( -name 'pi4_*.S' -o -name 'pi4_*.s' \) -print 2>/dev/null; \
+		find doom_port -maxdepth 1 -type f \( -name 'pi4_*.S' -o -name 'pi4_*.s' \) -print 2>/dev/null; \
+		find quake_port -maxdepth 1 -type f \( -name 'pi4_*.S' -o -name 'pi4_*.s' \) -print 2>/dev/null; \
+	} | LC_ALL=C sort )"; \
+	if [ "$$actual" != "$$expected" ]; then \
+		printf "Pi 4 assembly source wiring is stale.\nExpected:\n%s\nActual:\n%s\n" "$$expected" "$$actual" >&2; \
+		exit 1; \
+	fi; \
+	printf "Pi 4 assembly source gate OK: boot, user, launcher, Doom, and Quake sources are wired.\n"
+
+pi4-code-gates: no-python-check project-c-inventory pi4-assembly-source-gate $(PI4_KERNEL_OBJ) $(PI4_KERNEL_INPUT_OBJ) $(PI4_KERNEL_STORAGE_OBJ) $(PI4_LAUNCHER_ELF) $(PI4_ABI_PROBE_ELF) $(PI4_DOOM_ELF) $(PI4_QUAKE_ELF)
+	@printf "Pi 4 code gates OK: built the assembly kernel object and linked /SYSTEM plus /APPS AArch64 ELFs.\n"
+
+$(PI4_KERNEL_INPUT_OBJ): boot/pi4/input.S Makefile | $(PI4_BUILD_DIR)
+	$(AARCH64_CC) --target=aarch64-none-elf -ffreestanding -nostdlib -Wall -Wextra -c $< -o $@
+
+$(PI4_KERNEL_STORAGE_OBJ): boot/pi4/storage.S Makefile | $(PI4_BUILD_DIR)
+	$(AARCH64_CC) --target=aarch64-none-elf -ffreestanding -nostdlib -Wall -Wextra -c $< -o $@
+
+$(PI4_KERNEL_AGGREGATE_SRC): boot/pi4/start.S boot/pi4/input.S boot/pi4/storage.S Makefile | $(PI4_BUILD_DIR)
+	@{ \
+		printf '.equ PI4_VIBE_DISPLAY_FD, 1\n'; \
+		printf '.equ PI4_VIBE_EINVAL, 22\n'; \
+		printf '.equ PI4_VIBE_INPUT_DEVICE_KEYBOARD, 1\n'; \
+		printf '.equ PI4_VIBE_INPUT_DEVICE_MOUSE, 2\n'; \
+		printf '.equ PI4_VIBE_INPUT_CAP_POLL_EVENT, 0x00000004\n'; \
+		printf '.equ PI4_VIBE_INPUT_CAP_STATUS, 0x00000008\n'; \
+		printf '.equ PI4_VIBE_INPUT_CAP_DEVICE_STATUS, 0x00000010\n'; \
+		printf '.equ PI4_VIBE_FB_BACKEND_XRGB8888_LFB, 2\n'; \
+		printf '.equ PI4_VIBE_FB_CAP_PRESENT_INDEXED, 0x00000001\n'; \
+		printf '.equ PI4_VIBE_FB_CAP_PRESENT_RGB_PALETTE, 0x00000002\n'; \
+		printf '.equ PI4_VIBE_FB_CAP_XRGB8888_LFB, 0x00000004\n'; \
+		printf '.equ PI4_VIBE_FB_CAP_DIRTY_SOURCE_RECT, 0x00000010\n'; \
+		printf '.equ PI4_VIBE_FB_CAP_PRESENT_FULLSCREEN_SCALE, 0x00000020\n'; \
+		printf '.equ PI4_VIBE_FB_FORMAT_INDEX8_RGB24, 1\n'; \
+		printf '.equ PI4_VIBE_FB_RGB24_PALETTE_BYTES, 768\n'; \
+		printf '.equ PI4_VIBE_USER_ABI_VERSION, 1\n'; \
+		printf '.equ PI4_VIBE_INPUT_EVENT_BYTES, 56\n'; \
+		printf '.equ PI4_VIBE_INPUT_STATUS_BYTES, 264\n'; \
+		printf '.equ PI4_VIBE_INPUT_DEVICE_STATUS_BYTES, 128\n'; \
+		printf '.equ PI4_VIBE_FB_INFO_BYTES, 168\n'; \
+		printf '.global msg_status_pi4exec_tuple\n'; \
+		printf '.global pi4_status_pi4exec_sysno\n'; \
+		printf '.global pi4_status_pi4exec_path\n'; \
+		printf '.global pi4_status_pi4exec_argv\n'; \
+		printf '.global pi4_status_pi4exec_envp\n'; \
+		printf '.global pi4_status_pi4exec_result\n'; \
+		printf '.global pi4_status_pi4exec_count\n'; \
+		printf '#include "%s"\n' "$(abspath boot/pi4/start.S)"; \
+		printf '#include "%s"\n' "$(abspath boot/pi4/input.S)"; \
+		printf '#include "%s"\n' "$(abspath boot/pi4/storage.S)"; \
+	} > $@
+
+$(PI4_KERNEL_OBJ): $(PI4_KERNEL_AGGREGATE_SRC) Makefile | $(PI4_BUILD_DIR)
+	$(AARCH64_CC) --target=aarch64-none-elf -ffreestanding -nostdlib -Wall -Wextra -c $(PI4_KERNEL_AGGREGATE_SRC) -o $@
+
+$(PI4_KERNEL8_IMG): $(PI4_KERNEL_OBJ) $(LINK_AARCH64_FLAT) | $(PI4_BUILD_DIR)
+	$(LINK_AARCH64_FLAT) -o $@ --base 0x80000 --map $(PI4_KERNEL8_MAP) $(PI4_KERNEL_OBJ)
+	@grep -a -q "vibe-os pi4" $@
+	@grep -a -q "arch=AARCH64 machine=PI4" $@
+
+pi4-kernel8: $(PI4_KERNEL8_IMG)
+	@printf "Built Raspberry Pi 4 kernel image %s\n" "$(PI4_KERNEL8_IMG)"
+
+$(PI4_USER_CRT0_OBJ): user/pi4_crt0.S user/pi4_runtime.inc Makefile | $(PI4_BUILD_DIR)
+	$(AARCH64_CC) $(PI4_AARCH64_USER_FLAGS) -c $< -o $@
+
+$(PI4_USER_RUNTIME_OBJ): user/pi4_runtime.S user/pi4_runtime.inc Makefile | $(PI4_BUILD_DIR)
+	$(AARCH64_CC) $(PI4_AARCH64_USER_FLAGS) -c $< -o $@
+
+$(PI4_USER_ABI_PROBE_OBJ): user/pi4_abi_probe.S user/pi4_runtime.inc Makefile | $(PI4_BUILD_DIR)
+	$(AARCH64_CC) $(PI4_AARCH64_USER_FLAGS) -c $< -o $@
+
+$(PI4_USER_LAUNCHER_OBJ): user/pi4_launcher.S user/pi4_runtime.inc Makefile | $(PI4_BUILD_DIR)
+	$(AARCH64_CC) $(PI4_AARCH64_USER_FLAGS) -c $< -o $@
+
+$(PI4_USER_LAUNCHER_ASSETS_OBJ): user/pi4_launcher_assets.S user/pi4_runtime.inc Makefile | $(PI4_BUILD_DIR)
+	$(AARCH64_CC) $(PI4_AARCH64_USER_FLAGS) -c $< -o $@
+
+$(PI4_USER_LAUNCHER_ART_OBJ): user/pi4_launcher_art.S user/pi4_runtime.inc Makefile | $(PI4_BUILD_DIR)
+	$(AARCH64_CC) $(PI4_AARCH64_USER_FLAGS) -c $< -o $@
+
+$(PI4_DOOM_OBJ): doom_port/pi4_start.S user/pi4_runtime.inc Makefile | $(PI4_BUILD_DIR)
+	$(AARCH64_CC) $(PI4_AARCH64_USER_FLAGS) -c $< -o $@
+
+$(PI4_QUAKE_APP_OBJ): quake_port/pi4_app.S user/pi4_runtime.inc Makefile | $(PI4_BUILD_DIR)
+	$(AARCH64_CC) $(PI4_AARCH64_USER_FLAGS) -c $< -o $@
+
+$(PI4_ABI_PROBE_ELF): $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_USER_ABI_PROBE_OBJ) $(LINK_AARCH64_USER_ELF) | $(PI4_BUILD_DIR)
+	$(LINK_AARCH64_USER_ELF) -o $@ $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_USER_ABI_PROBE_OBJ)
+	@test $$(wc -c < $@) -le $(PI4_USER_ELF_MAX_BYTES) || { echo "Pi 4 ABI probe ELF exceeds $(PI4_USER_ELF_MAX_BYTES) bytes"; exit 1; }
+
+$(PI4_LAUNCHER_ELF): $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_USER_LAUNCHER_OBJ) $(PI4_USER_LAUNCHER_ASSETS_OBJ) $(PI4_USER_LAUNCHER_ART_OBJ) $(LINK_AARCH64_USER_ELF) | $(PI4_BUILD_DIR)
+	$(LINK_AARCH64_USER_ELF) -o $@ $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_USER_LAUNCHER_OBJ) $(PI4_USER_LAUNCHER_ASSETS_OBJ) $(PI4_USER_LAUNCHER_ART_OBJ)
+	@test $$(wc -c < $@) -le $(PI4_USER_ELF_MAX_BYTES) || { echo "Pi 4 launcher ELF exceeds $(PI4_USER_ELF_MAX_BYTES) bytes"; exit 1; }
+
+$(PI4_DOOM_ELF): $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_DOOM_OBJ) $(LINK_AARCH64_USER_ELF) | $(PI4_BUILD_DIR)
+	$(LINK_AARCH64_USER_ELF) -o $@ $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_DOOM_OBJ)
+	@test $$(wc -c < $@) -le $(PI4_USER_ELF_MAX_BYTES) || { echo "Pi 4 Doom app ELF exceeds $(PI4_USER_ELF_MAX_BYTES) bytes"; exit 1; }
+	@LC_ALL=C strings $@ | grep -F -q "vibe-os pi4 /APPS/DOOM/APP.ELF Doom AArch64 runtime glue"
+
+$(PI4_QUAKE_ELF): $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_QUAKE_APP_OBJ) $(LINK_AARCH64_USER_ELF) | $(PI4_BUILD_DIR)
+	$(LINK_AARCH64_USER_ELF) -o $@ $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_QUAKE_APP_OBJ)
+	@test $$(wc -c < $@) -le $(PI4_USER_ELF_MAX_BYTES) || { echo "Pi 4 Quake app ELF exceeds $(PI4_USER_ELF_MAX_BYTES) bytes"; exit 1; }
+	@LC_ALL=C strings $@ | grep -F -q "vibe-os pi4 /APPS/QUAKE/APP.ELF Quake AArch64 app"
+
+pi4-doom-app: $(PI4_DOOM_ELF)
+	@printf "Built Pi 4 Doom app at %s\n" "$(PI4_DOOM_ELF)"
+
+pi4-quake-app: $(PI4_QUAKE_ELF)
+	@printf "Built Pi 4 Quake app at %s\n" "$(PI4_QUAKE_ELF)"
+
+pi4-user-elves: $(PI4_LAUNCHER_ELF) $(PI4_ABI_PROBE_ELF) $(PI4_DOOM_ELF) $(PI4_QUAKE_ELF)
+	@printf "Built Pi 4 user ELFs: %s, %s, %s, %s\n" "$(PI4_LAUNCHER_ELF)" "$(PI4_ABI_PROBE_ELF)" "$(PI4_DOOM_ELF)" "$(PI4_QUAKE_ELF)"
+
+$(PI4_IMAGE): $(PI4_KERNEL8_IMG) $(PI4_CONFIG_TXT) $(PI4_LAUNCHER_ELF) $(PI4_ABI_PROBE_ELF) $(PI4_APP_RECORD_DEPS) $(IMAGE_BUILDER) $(IMAGE_ASSET_DEPS) | $(PI4_BUILD_DIR)
+	@if [ -n "$(PRIMARY_ASSET)" ]; then \
+		$(IMAGE_BUILDER) --proof-manifest --primary-asset-wad "$(PRIMARY_ASSET)" $(IMAGE_SECONDARY_PACKAGE_ARGS) --root-file KERNEL8.IMG=$(PI4_KERNEL8_IMG) --root-file CONFIG.TXT=$(PI4_CONFIG_TXT) $(PI4_APP_RECORD_ARGS) $@; \
+	else \
+		$(IMAGE_BUILDER) --proof-manifest $(IMAGE_SECONDARY_PACKAGE_ARGS) --root-file KERNEL8.IMG=$(PI4_KERNEL8_IMG) --root-file CONFIG.TXT=$(PI4_CONFIG_TXT) $(PI4_APP_RECORD_ARGS) $@; \
+	fi
+	@printf "Built Raspberry Pi 4 FAT16 image %s with /SYSTEM plus /APPS app installs.\n" "$@"
+
+pi4-image: $(PI4_IMAGE)
+
+pi4-image-inspect: $(IMAGE_BUILDER) $(PI4_IMAGE)
+	$(IMAGE_BUILDER) --inspect "$(PI4_IMAGE)" > "$(PI4_IMAGE_INSPECT_TXT)"
+	@cat "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "manifest_file=KERNEL8.IMG state=present" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "manifest_file=CONFIG.TXT state=present" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "manifest_file=/SYSTEM/INIT.ELF state=present" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "manifest_file=/APPS/INDEX.TXT state=present" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_exec=/APPS/DOOM/APP.ELF state=present model=generic-aarch64-el0-elf-by-path app=doom" "$(PI4_IMAGE_INSPECT_TXT)"
+	@grep -F -q "app_exec=/APPS/QUAKE/APP.ELF state=present model=generic-aarch64-el0-elf-by-path app=quake" "$(PI4_IMAGE_INSPECT_TXT)"
+	@! grep -a -E -q "PAYLOAD[0-9]+\\.ELF" "$(PI4_IMAGE)"
+
+pi4-qemu-command: $(PI4_IMAGE)
+	@printf '%s %s\n' "$(PI4_HW_EQUIVALENT_QEMU)" "$(PI4_QEMU_ARGS)"
+
+pi4-local-qemu-live: vm-consent $(PI4_IMAGE)
+	@command -v "$(PI4_HW_EQUIVALENT_QEMU)" >/dev/null || { echo "missing $(PI4_HW_EQUIVALENT_QEMU)" >&2; exit 127; }
+	@printf "Booting exact Pi 4 image: %s\n" "$(PI4_IMAGE)"
+	@printf "Launcher uses /SYSTEM/INIT.ELF and discovers /APPS/DOOM and /APPS/QUAKE from FAT/VFS manifests.\n"
+	$(PI4_HW_EQUIVALENT_QEMU) $(PI4_QEMU_ARGS)
+
+pi4-local-qemu-smoke: vm-consent $(PI4_IMAGE)
+	@command -v "$(PI4_HW_EQUIVALENT_QEMU)" >/dev/null || { echo "missing $(PI4_HW_EQUIVALENT_QEMU)" >&2; exit 127; }
+	@rm -f "$(PI4_LOCAL_QEMU_SERIAL_LOG)"
+	@printf "Booting exact Pi 4 image headlessly for %s seconds: %s\n" "$(PI4_LOCAL_QEMU_SMOKE_SECONDS)" "$(PI4_IMAGE)"
+	@set -e; \
+	"$(PI4_HW_EQUIVALENT_QEMU)" -M raspi4b,usb=on -cpu cortex-a72 -m 2G -kernel "$(PI4_KERNEL8_IMG)" -drive file="$(PI4_IMAGE)",if=sd,format=raw -serial file:"$(PI4_LOCAL_QEMU_SERIAL_LOG)" -display none -device usb-kbd -device usb-mouse $(PI4_QEMU_AUDIO_ARGS_SMOKE) -monitor none -no-reboot -no-shutdown & \
+	pid=$$!; \
+	sleep "$(PI4_LOCAL_QEMU_SMOKE_SECONDS)"; \
+	if kill -0 "$$pid" >/dev/null 2>&1; then kill "$$pid" >/dev/null 2>&1 || true; fi; \
+	wait "$$pid" >/dev/null 2>&1 || true; \
+	test -s "$(PI4_LOCAL_QEMU_SERIAL_LOG)"; \
+	tail -n 80 "$(PI4_LOCAL_QEMU_SERIAL_LOG)"; \
+	grep -a -F -q "vibe-status arch=AARCH64 machine=PI4" "$(PI4_LOCAL_QEMU_SERIAL_LOG)"
+
+pi4-local-qemu-launcher-framebuffer: vm-consent $(PI4_IMAGE)
+	@command -v "$(PI4_HW_EQUIVALENT_QEMU)" >/dev/null || { echo "missing $(PI4_HW_EQUIVALENT_QEMU)" >&2; exit 127; }
+	@rm -f "$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)" "$(PI4_LOCAL_QEMU_FRAMEBUFFER_PPM)" "$(PI4_LOCAL_QEMU_MONITOR_SOCK)"
+	@printf "Booting exact Pi 4 image and dumping the launcher framebuffer.\n"
+	@set -e; \
+	"$(PI4_HW_EQUIVALENT_QEMU)" -M raspi4b,usb=on -cpu cortex-a72 -m 2G -kernel "$(PI4_KERNEL8_IMG)" -drive file="$(PI4_IMAGE)",if=sd,format=raw -serial file:"$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)" -display vnc=127.0.0.1:8 -device usb-kbd -device usb-mouse $(PI4_QEMU_AUDIO_ARGS_SMOKE) -monitor unix:"$(PI4_LOCAL_QEMU_MONITOR_SOCK)",server,nowait -no-reboot -no-shutdown & \
+	qpid=$$!; \
+	for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
+		test -S "$(PI4_LOCAL_QEMU_MONITOR_SOCK)" && break; \
+		sleep 0.2; \
+	done; \
+	sleep "$(PI4_LOCAL_QEMU_SELECT_DELAY_SECONDS)"; \
+	printf 'screendump %s\nquit\n' "$(PI4_LOCAL_QEMU_FRAMEBUFFER_PPM)" | "$(NC)" -U "$(PI4_LOCAL_QEMU_MONITOR_SOCK)" >/dev/null 2>&1 || true; \
+	wait "$$qpid" >/dev/null 2>&1 || true; \
+	test -s "$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)"; \
+	test -s "$(PI4_LOCAL_QEMU_FRAMEBUFFER_PPM)"; \
+	file "$(PI4_LOCAL_QEMU_FRAMEBUFFER_PPM)"; \
+	grep -a -F -q "exec=OK path=/SYSTEM/INIT.ELF" "$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)"; \
+	grep -a -F -q "fbpresent=" "$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)"; \
+	grep -a -F -q "fbchange=" "$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)"; \
+	grep -a -F -q "pi4runtime=OK" "$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)"; \
+	grep -a -F -q "panic=NONE" "$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)"; \
+	grep -a -F -q "shutdown=NONE" "$(PI4_LOCAL_QEMU_FRAMEBUFFER_LOG)"
+
+pi4-local-qemu-uart-select-doom: vm-consent $(PI4_IMAGE)
+	@command -v "$(PI4_HW_EQUIVALENT_QEMU)" >/dev/null || { echo "missing $(PI4_HW_EQUIVALENT_QEMU)" >&2; exit 127; }
+	@rm -f "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)" "$(PI4_BUILD_DIR)/local-qemu-doom-uart.fifo"
+	@mkfifo "$(PI4_BUILD_DIR)/local-qemu-doom-uart.fifo"
+	@printf "Booting exact Pi 4 image and selecting Doom through the live UART input lane.\n"
+	@set -e; \
+	fifo="$(PI4_BUILD_DIR)/local-qemu-doom-uart.fifo"; \
+	"$(PI4_HW_EQUIVALENT_QEMU)" -M raspi4b,usb=on -cpu cortex-a72 -m 2G -kernel "$(PI4_KERNEL8_IMG)" -drive file="$(PI4_IMAGE)",if=sd,format=raw -serial tcp:127.0.0.1:$(PI4_LOCAL_QEMU_DOOM_SELECT_PORT),server,nowait -display none -device usb-kbd -device usb-mouse $(PI4_QEMU_AUDIO_ARGS_SMOKE) -monitor none -no-reboot -no-shutdown & \
+	qpid=$$!; \
+	sleep 2; \
+	"$(NC)" 127.0.0.1 "$(PI4_LOCAL_QEMU_DOOM_SELECT_PORT)" < "$$fifo" > "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)" & \
+	ncpid=$$!; \
+	exec 3>"$$fifo"; \
+	sleep "$(PI4_LOCAL_QEMU_SELECT_DELAY_SECONDS)"; \
+	printf '1' >&3; \
+	sleep "$(PI4_LOCAL_QEMU_SELECT_SETTLE_SECONDS)"; \
+	exec 3>&-; \
+	kill "$$ncpid" >/dev/null 2>&1 || true; \
+	if kill -0 "$$qpid" >/dev/null 2>&1; then kill "$$qpid" >/dev/null 2>&1 || true; fi; \
+	wait "$$ncpid" >/dev/null 2>&1 || true; \
+	wait "$$qpid" >/dev/null 2>&1 || true; \
+	rm -f "$$fifo"; \
+	grep -a -F -q "path=/APPS/DOOM/APP.ELF" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)"; \
+	grep -a -F -q "pi4exec=OK" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)"; \
+	grep -a -F -q "pi4appvfs=0x000000000000000e/0x00000000464f4f4b" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)"; \
+	grep -a -F -q "pi4preempt=OK" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)"; \
+	grep -a -F -q "pi4audio=OK" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)"; \
+	grep -a -F -q "pi4audiohw=USB-AUDIO" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)"; \
+	grep -a -F -q "panic=NONE" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)"; \
+	grep -a -F -q "shutdown=NONE" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)"; \
+	test -s "$(PI4_BUILD_DIR)/pi4-local-qemu-audio.wav"; \
+	perl -e 'my $$p=shift; open my $$fh,"<:raw",$$p or die $$!; read $$fh,my $$b,-s $$fh; my $$d=substr($$b,44); my $$n=($$d=~tr/\x00\x80//c); die "flat Pi audio capture\n" unless $$n > 0; print "pi4audio_wav_bytes=",length($$b)," pi4audio_wav_nonflat=$$n/",length($$d),"\n";' "$(PI4_BUILD_DIR)/pi4-local-qemu-audio.wav"; \
+	last_status="$$(grep -a "pi4audio=OK" "$(PI4_LOCAL_QEMU_DOOM_SERIAL_LOG)" | tail -n 1)"; \
+	printf '%s\n' "$$last_status" | tr ' ' '\n' | grep -E '^(path|upath|pi4exec|pi4appreq|pi4appvfs|pi4inputevt|fbpresent|fbchange|pi4preempt|pi4mem|pi4vfs|pi4audio|pi4audiohw|pi4audiousb|pi4audioq|pi4audiocount|panic|shutdown)='
+
+pi4-local-qemu-uart-select-quake: vm-consent $(PI4_IMAGE)
+	@command -v "$(PI4_HW_EQUIVALENT_QEMU)" >/dev/null || { echo "missing $(PI4_HW_EQUIVALENT_QEMU)" >&2; exit 127; }
+	@rm -f "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)" "$(PI4_BUILD_DIR)/local-qemu-quake-uart.fifo"
+	@mkfifo "$(PI4_BUILD_DIR)/local-qemu-quake-uart.fifo"
+	@printf "Booting exact Pi 4 image and selecting Quake through the live UART input lane.\n"
+	@set -e; \
+	fifo="$(PI4_BUILD_DIR)/local-qemu-quake-uart.fifo"; \
+	"$(PI4_HW_EQUIVALENT_QEMU)" -M raspi4b,usb=on -cpu cortex-a72 -m 2G -kernel "$(PI4_KERNEL8_IMG)" -drive file="$(PI4_IMAGE)",if=sd,format=raw -serial tcp:127.0.0.1:$(PI4_LOCAL_QEMU_QUAKE_SELECT_PORT),server,nowait -display none -device usb-kbd -device usb-mouse $(PI4_QEMU_AUDIO_ARGS_SMOKE) -monitor none -no-reboot -no-shutdown & \
+	qpid=$$!; \
+	sleep 2; \
+	"$(NC)" 127.0.0.1 "$(PI4_LOCAL_QEMU_QUAKE_SELECT_PORT)" < "$$fifo" > "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)" & \
+	ncpid=$$!; \
+	exec 3>"$$fifo"; \
+	sleep "$(PI4_LOCAL_QEMU_SELECT_DELAY_SECONDS)"; \
+	printf '2' >&3; \
+	sleep "$(PI4_LOCAL_QEMU_SELECT_SETTLE_SECONDS)"; \
+	exec 3>&-; \
+	kill "$$ncpid" >/dev/null 2>&1 || true; \
+	if kill -0 "$$qpid" >/dev/null 2>&1; then kill "$$qpid" >/dev/null 2>&1 || true; fi; \
+	wait "$$ncpid" >/dev/null 2>&1 || true; \
+	wait "$$qpid" >/dev/null 2>&1 || true; \
+	rm -f "$$fifo"; \
+	grep -a -F -q "path=/APPS/QUAKE/APP.ELF" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)"; \
+	grep -a -F -q "pi4exec=OK" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)"; \
+	grep -a -F -q "pi4appvfs=0x000000000000000f/0x00000000464f4f4b" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)"; \
+	grep -a -F -q "pi4preempt=OK" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)"; \
+	grep -a -F -q "pi4audio=OK" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)"; \
+	grep -a -F -q "pi4audiohw=USB-AUDIO" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)"; \
+	grep -a -F -q "panic=NONE" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)"; \
+	grep -a -F -q "shutdown=NONE" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)"; \
+	test -s "$(PI4_BUILD_DIR)/pi4-local-qemu-audio.wav"; \
+	perl -e 'my $$p=shift; open my $$fh,"<:raw",$$p or die $$!; read $$fh,my $$b,-s $$fh; my $$d=substr($$b,44); my $$n=($$d=~tr/\x00\x80//c); die "flat Pi audio capture\n" unless $$n > 0; print "pi4audio_wav_bytes=",length($$b)," pi4audio_wav_nonflat=$$n/",length($$d),"\n";' "$(PI4_BUILD_DIR)/pi4-local-qemu-audio.wav"; \
+	last_status="$$(grep -a "pi4audio=OK" "$(PI4_LOCAL_QEMU_QUAKE_SERIAL_LOG)" | tail -n 1)"; \
+	printf '%s\n' "$$last_status" | tr ' ' '\n' | grep -E '^(path|upath|pi4exec|pi4appreq|pi4appvfs|pi4inputevt|fbpresent|fbchange|pi4preempt|pi4mem|pi4vfs|pi4audio|pi4audiohw|pi4audiousb|pi4audioq|pi4audiocount|panic|shutdown)='
+
+pi4-local-qemu-uart-select-apps: pi4-local-qemu-uart-select-doom pi4-local-qemu-uart-select-quake
+	@printf "Pi 4 QEMU app selection OK for Doom and Quake through the live UART input lane.\n"
 
 $(KERNEL_ELF): $(KERNEL_OBJ) $(C_RUNTIME_OBJ) $(LINK_ELF32) | $(BUILD_DIR)
 	$(LINK_ELF32) -o $@ --base 0x10000 $(KERNEL_OBJ) $(C_RUNTIME_OBJ)

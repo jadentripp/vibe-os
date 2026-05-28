@@ -10,8 +10,8 @@ launcher/app model, no Linux wrapper.
 
 ## Play
 
-Requirements: `make`, `nasm`, `cc`, `git`, `curl`, and
-`qemu-system-x86_64`.
+Requirements: `make`, `nasm`, `cc`, `git`, `curl`, `qemu-system-x86_64`,
+and `qemu-system-aarch64` for Pi 4 local VM runs.
 
 ```sh
 make play
@@ -48,17 +48,21 @@ Doom and Quake are the first proven apps, not special process paths.
 
 ## Raspberry Pi 4
 
-Pi 4 is not claimed playable on `main` yet.
+Pi 4 boots one FAT image through the assembly AArch64 runtime, shows a
+retro-desktop guest launcher screen, discovers `/SYSTEM` and `/APPS`, and
+execs apps by path as generic Ring 3 ELF files.
 
-Target shape:
+```sh
+make ALLOW_LOCAL_VM=1 \
+  DOOM_WAD=/absolute/path/to/DOOM1.WAD \
+  QUAKE_PAK=/absolute/path/to/PAK0.PAK \
+  pi4-local-qemu-live
+```
 
-- Boot one Pi image natively on Raspberry Pi 4.
-- Show the same vibe-os launcher.
-- Discover apps from `/SYSTEM` and `/APPS`.
-- Launch Doom and Quake by generic AArch64 Ring 3 ELF exec path.
-- Prove serial boot, framebuffer output, timer/preemption, FAT/VFS app and
-  asset reads, input, audio status, rendered frames, gameplay progress,
-  `panic=NONE`, `shutdown=NONE`, and honest final gates.
+Local proof targets also cover serial boot, framebuffer output,
+timer/preemption, FAT/VFS app reads, input status, rendered frames,
+USB-Audio PCM in QEMU, `panic=NONE`, and `shutdown=NONE`. Physical Pi hardware
+audio remains unclaimed until tested on a real board.
 
 ## Verify
 
@@ -68,6 +72,8 @@ Host-only:
 make ALLOW_LOCAL_VM=0 DOOM_WAD= test
 git diff --check
 ```
+
+The status checker is assembly: `tools/vibe_status_check.asm`.
 
 Cloud QEMU proof lanes:
 

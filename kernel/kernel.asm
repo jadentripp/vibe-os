@@ -841,7 +841,7 @@ SAVELOAD_EVENT_READ equ 0x0002
 SAVELOAD_EVENT_WRITE equ 0x0004
 SAVELOAD_EVENT_CLOSE equ 0x0008
 SAVELOAD_SLOT_SHIFT equ 16
-SYS_EXEC_PATH_MAX equ 16
+SYS_EXEC_PATH_MAX equ 64
 MMAP_PROT_MASK equ 0x0000ffff
 MMAP_FLAGS_SHIFT equ 16
 MMAP_PROT_READ equ 0x00000001
@@ -21650,20 +21650,20 @@ user_probe_run:
     mov word [user_probe_cs], 0
     mov word [user_probe_ss], 0
 
-    mov edi, boot_user_elf_name_83
-    call fat_find_file
-    jc .use_probe_boot_path
     mov esi, exec_path_boot_user
-    jmp .boot_path_ready
+    mov [boot_user_exec_path_ptr], esi
+    xor edi, edi
+    call process_exec_path
+    jnc .boot_exec_ready
 
 .use_probe_boot_path:
     mov esi, exec_path_user_probe
-
-.boot_path_ready:
     mov [boot_user_exec_path_ptr], esi
     xor edi, edi
     call process_exec_path
     jc .fail
+
+.boot_exec_ready:
     mov byte [boot_user_exec_status], 1
     mov eax, [process_user_probe + PROC_PID]
     mov [boot_user_exec_pid], eax
