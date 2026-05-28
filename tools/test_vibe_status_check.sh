@@ -108,6 +108,8 @@ if [ "$SCOPE" = "all" ]; then
 
 printf 'P6\n2 1\n255\n\000\000\000\377\000\000' > "$PI4_FB_FRAME0"
 printf 'P6\n2 1\n255\n\000\000\000\000\377\000' > "$PI4_FB_FRAME1"
+printf 'fake-kernel8\n' > "$BUILD_DIR/fake-kernel8.img"
+printf 'fake-pi4-fat16\n' > "$BUILD_DIR/fake-pi4-fat16.img"
 "$PI4_QEMU_COMMAND" --framebuffer-artifact-check \
   "$PI4_FB_REPORT" "$PI4_FB_FRAME0" "$PI4_FB_FRAME1"
 grep -F -q "schema=pi4-framebuffer-artifact-v1" "$PI4_FB_REPORT"
@@ -140,15 +142,23 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$serial" in
+  stdio)
+    pipe_base=""
+    ;;
   pipe:*) pipe_base="${serial#pipe:}" ;;
   *) echo "fake qemu missing pipe serial" >&2; exit 2 ;;
 esac
 
-exec 3>"$pipe_base.out"
-exec 4<"$pipe_base.in"
+if [ "$serial" = "stdio" ]; then
+  exec 3>&1
+  exec 4<&0
+else
+  exec 3>"$pipe_base.out"
+  exec 4<"$pipe_base.in"
+fi
 printf '%s\n' 'vibe-status arch=AARCH64 machine=PI4 image=PI4 artifact=BAD stale=before-input' >&3
 scripted_input="$(dd bs=1 count=2 <&4 2>/dev/null || true)"
-printf 'vibe-status arch=AARCH64 machine=PI4 image=PI4 artifact=OK post_input=OK scripted_input=%s path=PAYLOAD0.ELF pi4exec=OK pi4inputevt=0x1/0x0/0x0/0x1/0x0 pi4payloadvfs=0x0/0x464f4f4b pi4userfile=0x7/0x4/0x0/0x1/0x3/0x4006b4/0x0/0x10/0x10/0x0000000044415749/0x1/0x1/0x1 fbchange=0x1/0x2/0x1/0x1 pi4runtime=OK panic=NONE shutdown=NONE\n' "$scripted_input" >&3
+printf 'vibe-status arch=AARCH64 machine=PI4 image=PI4 artifact=OK post_input=OK scripted_input=%s path=/APPS/DOOM/APP.ELF pi4exec=OK pi4inputevt=0x1/0x0/0x0/0x1/0x0 pi4payloadvfs=0x0/0x464f4f4b pi4userfile=0x0000000000000007/0x4/0x0/0x1/0x3/0x4006b4/0x0/0x10/0x10/0x0000000044415749/0x1/0x1/0x1 fbchange=0x1/0x2/0x1/0x1 pi4runtime=OK panic=NONE shutdown=NONE\n' "$scripted_input" >&3
 sleep 20
 EOF_QEMU_EARLY_FAKE
 chmod +x "$PI4_QEMU_EARLY_FAKE"
@@ -209,8 +219,10 @@ static void copy_checked(char* out, size_t out_size, const char* text)
     memcpy(out, text, len + 1u);
 }
 
-static void serial_pipe_paths(const char* arg, char* out_path, size_t out_size)
+static int serial_pipe_paths(const char* arg, char* out_path, size_t out_size)
 {
+    if (strcmp(arg, "stdio") == 0)
+        return 1;
     if (strncmp(arg, "pipe:", 5) != 0 || !arg[5]) {
         fprintf(stderr, "fake qemu missing pipe serial\n");
         exit(2);
@@ -219,6 +231,7 @@ static void serial_pipe_paths(const char* arg, char* out_path, size_t out_size)
         fprintf(stderr, "fake qemu serial path too long\n");
         exit(2);
     }
+    return 0;
 }
 
 static void monitor_socket_path(const char* arg, char* out, size_t out_size)
@@ -321,6 +334,7 @@ int main(int argc, char** argv)
     int listen_fd;
     int monitor_fd;
     int serial_fd;
+    int serial_stdio;
     int frame_count = 0;
     int input_count = 0;
     int saw_key_1 = 0;
@@ -347,7 +361,7 @@ int main(int argc, char** argv)
         fprintf(stderr, "fake qemu missing serial, monitor, or log path\n");
         return 2;
     }
-    serial_pipe_paths(serial_arg, serial_out_path, sizeof(serial_out_path));
+    serial_stdio = serial_pipe_paths(serial_arg, serial_out_path, sizeof(serial_out_path));
     monitor_socket_path(monitor_arg, monitor_path, sizeof(monitor_path));
 
     log = fopen(log_path, "wb");
@@ -370,11 +384,13 @@ int main(int argc, char** argv)
     if (listen(listen_fd, 1) != 0)
         die("listen");
 
-    serial_fd = open(serial_out_path, O_WRONLY);
+    serial_fd = serial_stdio ? dup(STDOUT_FILENO) : open(serial_out_path, O_WRONLY);
     if (serial_fd < 0)
         die("open serial out");
     write_all_fd(serial_fd,
         "vibe-status arch=AARCH64 machine=PI4 image=PI4 artifact=BAD stale=before-hmp\n");
+    write_all_fd(serial_fd,
+        "vibe-status arch=AARCH64 machine=PI4 image=PI4 artifact=OK exec=OK path=INIT.ELF uexec=OK upath=INIT.ELF pi4fb=OK pi4vfs=OK pi4runtime=OK panic=NONE shutdown=NONE\n");
 
     monitor_fd = accept(listen_fd, NULL, NULL);
     if (monitor_fd < 0)
@@ -418,7 +434,7 @@ int main(int argc, char** argv)
         if (!wrote_status && saw_key_1 && saw_key_w && saw_mouse_move &&
             saw_mouse_down && saw_mouse_up) {
             write_all_fd(serial_fd,
-                "vibe-status arch=AARCH64 machine=PI4 image=PI4 artifact=OK hmp_input=OK path=PAYLOAD0.ELF upath=PAYLOAD0.ELF pi4exec=OK pi4inputevt=0x1/0x0/0x1/0x1/0x0 pi4payloadvfs=0x0/0x464f4f4b pi4userfile=0x7/0x4/0x0/0x1/0x3/0x4006b4/0x0/0x10/0x10/0x0000000044415749/0x1/0x1/0x1 fbchange=0x1/0x2/0x1/0x1 pi4runtime=OK panic=NONE shutdown=NONE\n");
+                "vibe-status arch=AARCH64 machine=PI4 image=PI4 artifact=OK hmp_input=OK path=/APPS/DOOM/APP.ELF upath=/APPS/DOOM/APP.ELF pi4exec=OK pi4inputevt=0x1/0x0/0x1/0x1/0x0 pi4payloadvfs=0x0/0x464f4f4b pi4userfile=0x0000000000000007/0x4/0x0/0x1/0x3/0x4006b4/0x0/0x10/0x10/0x0000000044415749/0x1/0x1/0x1 fbchange=0x1/0x2/0x1/0x1 pi4runtime=OK panic=NONE shutdown=NONE\n");
             wrote_status = 1;
         }
     }
@@ -451,8 +467,8 @@ if grep -F -q "stale=before-hmp" "$PI4_QEMU_HMP_RAW"; then
   exit 1
 fi
 grep -F -q "frame0_input_count=0" "$PI4_QEMU_HMP_MONITOR_LOG"
-grep -F -q "sendkey 1 80" "$PI4_QEMU_HMP_MONITOR_LOG"
-grep -F -q "sendkey w 80" "$PI4_QEMU_HMP_MONITOR_LOG"
+grep -F -q "sendkey 1 750" "$PI4_QEMU_HMP_MONITOR_LOG"
+grep -F -q "sendkey w 750" "$PI4_QEMU_HMP_MONITOR_LOG"
 grep -F -q "mouse_move 12 -5" "$PI4_QEMU_HMP_MONITOR_LOG"
 grep -F -q "mouse_button 1" "$PI4_QEMU_HMP_MONITOR_LOG"
 grep -F -q "mouse_button 0" "$PI4_QEMU_HMP_MONITOR_LOG"
@@ -1009,7 +1025,7 @@ pi4audio=WAIT pi4audiohw=NONE pi4audiommio=NONE pi4audiomailbox=WAIT pi4audiocap
 local_qemu_only=true evidence_class=local-qemu-input-smoke smoke_gate=pi4-local-qemu-input-smoke green_gate=false hardware_proof=unclaimed
 pi4irq=OK pi4timer=OK irqctl=GIC pi4gic=0000000000000001/0000000000000001/000000000000001E/000000000000001E clocksrc=ARMTMR clockhz=000000000337F980 clocktick=00000000000851EB clockirq=000000000000001E ticks=0000000000000001
 pi4mem=OK pi4kmap=0000000000080000/00000000000B0000/0000000000098000/0000000000099000 pi4stack=00000000000A0000/00000000000A4000/00000000000A4000/00000000000A5000 pi4umem=0000000000083000/0000000000083100/0000000000083040/0000000000000100 pi4ualloc=0000000000083000/0000000000083100/0000000000000100/00000000000A4000/00000000000A5000/0000000000001000/000000000000000F/0000000000000002 pi4fbmap=0000000001000000/0000000000300000/0000000000000A00/0000000000000020 pi4ptable=00000000000A5000/0000000000000004/0000000000000040/0000000000000002
-pi4svc=OK pi4uabi=OK pi4elf=OK pi4elfsrc=VFS exec=OK path=PAYLOAD0.ELF uexec=OK upath=PAYLOAD0.ELF pi4elfentry=0000000000084000 pi4elfphdr=0000000000084040/0000000000000038/0000000000000001 pi4elfload=0000000000084000/0000000000084000/0000000000002000/0000000000002000/0000000000000005/0000000000001000 uentry=0000000000084000 execsys=0000000000000001/0000000000000001 pi4ustack=00000000000A3000/00000000000A4000/0000000000001000/0000000000000001 execmap=0000000000084000/0000000000002000/0000000000000005 pstat=0000000000000002/0000000000000003/0000000000000002/0000000000000002/0000000000000001/0000000000000001 procpool=0000000000000002/0000000000000004 pidseq=0000000000000002/0000000000000003 pi4runtime=OK
+pi4svc=OK pi4uabi=OK pi4elf=OK pi4elfsrc=VFS exec=OK path=/APPS/DOOM/APP.ELF uexec=OK upath=/APPS/DOOM/APP.ELF pi4elfentry=0000000000084000 pi4elfphdr=0000000000084040/0000000000000038/0000000000000001 pi4elfload=0000000000084000/0000000000084000/0000000000002000/0000000000002000/0000000000000005/0000000000001000 uentry=0000000000084000 execsys=0000000000000001/0000000000000001 pi4ustack=00000000000A3000/00000000000A4000/0000000000001000/0000000000000001 execmap=0000000000084000/0000000000002000/0000000000000005 pstat=0000000000000002/0000000000000003/0000000000000002/0000000000000002/0000000000000001/0000000000000001 procpool=0000000000000002/0000000000000004 pidseq=0000000000000002/0000000000000003 pi4runtime=OK
 preempt=0000000000000001 pirq=0000000000000001 pctx=0000000000000001 pfrom=0000000000000002 pto=0000000000000001 pi4preempt=OK pi4ctx=00000000000A5100/0000000000000040/0000000000000001/0000000000000001/0000000000000002/0000000000084000/00000000000A3000/00000000000003C0/0000000000000003 pi4sched=0000000000000001/0000000000000001/0000000000000000/0000000000000001/0000000000000001/0000000000000002
 pi4exec=OK pi4execreq=0000000000000010/0000000000086000/0000000000086080/0000000000000000/0000000000000000/0000000000000001
 pi4payloadvfs=0000000000000000/00000000464F4F4B/0000000000000001/0000000000000020/0000000000000002/0000000000000001/0000000000000200/0000000000000001/0000000000000001/0000000000000400
@@ -1025,7 +1041,7 @@ pi4audio=WAIT pi4audiohw=NONE pi4audiommio=NONE pi4audiomailbox=WAIT pi4audiocap
 local_qemu_only=true evidence_class=local-qemu-input-smoke smoke_gate=pi4-local-qemu-input-smoke green_gate=false hardware_proof=unclaimed
 pi4irq=OK pi4timer=OK irqctl=GIC pi4gic=0000000000000001/0000000000000001/000000000000001E/000000000000001E clocksrc=ARMTMR clockhz=000000000337F980 clocktick=00000000000851EB clockirq=000000000000001E ticks=0000000000000001
 pi4mem=OK pi4kmap=0000000000080000/00000000000B0000/0000000000098000/0000000000099000 pi4stack=00000000000A0000/00000000000A4000/00000000000A4000/00000000000A5000 pi4umem=0000000000083000/0000000000083100/0000000000083040/0000000000000100 pi4ualloc=0000000000083000/0000000000083100/0000000000000100/00000000000A4000/00000000000A5000/0000000000001000/000000000000000F/0000000000000002 pi4fbmap=0000000001000000/0000000000300000/0000000000000A00/0000000000000020 pi4ptable=00000000000A5000/0000000000000004/0000000000000040/0000000000000002
-pi4svc=OK pi4uabi=OK pi4elf=OK pi4elfsrc=VFS exec=OK path=PAYLOAD1.ELF uexec=OK upath=PAYLOAD1.ELF pi4elfentry=0000000000084000 pi4elfphdr=0000000000084040/0000000000000038/0000000000000001 pi4elfload=0000000000084000/0000000000084000/0000000000002000/0000000000002000/0000000000000005/0000000000001000 uentry=0000000000084000 execsys=0000000000000001/0000000000000001 pi4ustack=00000000000A3000/00000000000A4000/0000000000001000/0000000000000001 execmap=0000000000084000/0000000000002000/0000000000000005 pstat=0000000000000002/0000000000000003/0000000000000002/0000000000000002/0000000000000001/0000000000000001 procpool=0000000000000002/0000000000000004 pidseq=0000000000000002/0000000000000003 pi4runtime=OK
+pi4svc=OK pi4uabi=OK pi4elf=OK pi4elfsrc=VFS exec=OK path=/APPS/QUAKE/APP.ELF uexec=OK upath=/APPS/QUAKE/APP.ELF pi4elfentry=0000000000084000 pi4elfphdr=0000000000084040/0000000000000038/0000000000000001 pi4elfload=0000000000084000/0000000000084000/0000000000002000/0000000000002000/0000000000000005/0000000000001000 uentry=0000000000084000 execsys=0000000000000001/0000000000000001 pi4ustack=00000000000A3000/00000000000A4000/0000000000001000/0000000000000001 execmap=0000000000084000/0000000000002000/0000000000000005 pstat=0000000000000002/0000000000000003/0000000000000002/0000000000000002/0000000000000001/0000000000000001 procpool=0000000000000002/0000000000000004 pidseq=0000000000000002/0000000000000003 pi4runtime=OK
 preempt=0000000000000001 pirq=0000000000000001 pctx=0000000000000001 pfrom=0000000000000002 pto=0000000000000001 pi4preempt=OK pi4ctx=00000000000A5100/0000000000000040/0000000000000001/0000000000000001/0000000000000002/0000000000084000/00000000000A3000/00000000000003C0/0000000000000003 pi4sched=0000000000000001/0000000000000001/0000000000000000/0000000000000001/0000000000000001/0000000000000002
 pi4exec=OK pi4execreq=0000000000000010/0000000000086000/0000000000086080/0000000000000000/0000000000000000/0000000000000001
 pi4payloadvfs=0000000000000001/00000000464F4F4B/0000000000000001/0000000000000020/0000000000000002/0000000000000001/0000000000000200/0000000000000001/0000000000000001/0000000000000400

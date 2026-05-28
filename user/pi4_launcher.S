@@ -20,22 +20,22 @@
 .equ PI4_LAUNCHER_DOCK_H,               504
 .equ PI4_LAUNCHER_DOOM_CARD_X,          48
 .equ PI4_LAUNCHER_QUAKE_CARD_X,         680
-.equ PI4_LAUNCHER_CARD_Y,               192
+.equ PI4_LAUNCHER_CARD_Y,               204
 .equ PI4_LAUNCHER_CARD_W,               552
 .equ PI4_LAUNCHER_CARD_H,               464
 .equ PI4_LAUNCHER_CARD_ART_INSET,       24
 .equ PI4_LAUNCHER_CARD_ART_W,           PI4_LAUNCHER_CARD_W - (PI4_LAUNCHER_CARD_ART_INSET * 2)
-.equ PI4_LAUNCHER_CARD_ART_H,           288
+.equ PI4_LAUNCHER_CARD_ART_H,           336
 .equ PI4_LAUNCHER_ICON_SIZE,            256
-.equ PI4_LAUNCHER_ICON_DISPLAY_SIZE,    288
-.equ PI4_LAUNCHER_DOOM_ICON_X,          180
-.equ PI4_LAUNCHER_QUAKE_ICON_X,         812
-.equ PI4_LAUNCHER_ICON_Y,               224
-.equ PI4_LAUNCHER_DOOM_LABEL_X,         232
-.equ PI4_LAUNCHER_QUAKE_LABEL_X,        840
-.equ PI4_LAUNCHER_LABEL_Y,              522
+.equ PI4_LAUNCHER_ICON_DISPLAY_SIZE,    320
+.equ PI4_LAUNCHER_DOOM_ICON_X,          164
+.equ PI4_LAUNCHER_QUAKE_ICON_X,         796
+.equ PI4_LAUNCHER_ICON_Y,               228
+.equ PI4_LAUNCHER_DOOM_LABEL_X,         244
+.equ PI4_LAUNCHER_QUAKE_LABEL_X,        854
+.equ PI4_LAUNCHER_LABEL_Y,              556
 .equ PI4_LAUNCHER_LABEL_H,              7
-.equ PI4_LAUNCHER_LABEL_SCALE,          8
+.equ PI4_LAUNCHER_LABEL_SCALE,          7
 .equ PI4_LAUNCHER_LAUNCH_BUTTON_X_OFF,  140
 .equ PI4_LAUNCHER_LAUNCH_BUTTON_Y,      PI4_LAUNCHER_CARD_Y + PI4_LAUNCHER_CARD_H - 56
 .equ PI4_LAUNCHER_LAUNCH_BUTTON_W,      272
@@ -894,8 +894,9 @@ pi4_launcher_prepare_visible_exec_request:
     ldr x6, [x4, #PI4_LAUNCHER_SLOT_PATH]
     cbz x6, .Lpi4_launcher_prepare_visible_inval
 
-    str x2, [x1, #PI4_VIBE_EXEC_REQUEST_PAYLOAD_SLOT_OFFSET]
-    str x2, [x0, #PI4_LAUNCHER_STATE_EXEC_REQUEST_SLOT]
+    mov x7, #-1
+    str x7, [x1, #PI4_VIBE_EXEC_REQUEST_PAYLOAD_SLOT_OFFSET]
+    str x7, [x0, #PI4_LAUNCHER_STATE_EXEC_REQUEST_SLOT]
     str x6, [x1, #PI4_VIBE_EXEC_REQUEST_PATH_OFFSET]
     str x6, [x0, #PI4_LAUNCHER_STATE_EXEC_REQUEST_PATH]
     adrp x7, pi4_launcher_exec_argv
@@ -982,8 +983,9 @@ pi4_launcher_request_recorded_payload:
     ldr x22, [x22, #PI4_LAUNCHER_SLOT_PATH]
     cbz x22, .Lpi4_launcher_exec_local_inval
 
-    str x21, [x20, #PI4_VIBE_EXEC_REQUEST_PAYLOAD_SLOT_OFFSET]
-    str x21, [x19, #PI4_LAUNCHER_STATE_EXEC_REQUEST_SLOT]
+    mov x0, #-1
+    str x0, [x20, #PI4_VIBE_EXEC_REQUEST_PAYLOAD_SLOT_OFFSET]
+    str x0, [x19, #PI4_LAUNCHER_STATE_EXEC_REQUEST_SLOT]
     str x22, [x20, #PI4_VIBE_EXEC_REQUEST_PATH_OFFSET]
     str x22, [x19, #PI4_LAUNCHER_STATE_EXEC_REQUEST_PATH]
 
@@ -1273,6 +1275,58 @@ pi4_launcher_render_frame:
     mov x4, #PI4_LAUNCHER_DOCK_H
     mov x5, #PI4_COLOR_BORDER
     bl pi4_launcher_draw_border
+
+    mov x0, x19
+    mov x1, #PI4_LAUNCHER_DOCK_X
+    add x1, x1, #8
+    mov x2, #PI4_LAUNCHER_DOCK_Y
+    add x2, x2, #8
+    mov x3, #PI4_LAUNCHER_DOCK_W
+    sub x3, x3, #16
+    mov x4, #4
+    mov x5, #PI4_COLOR_HILITE
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, #PI4_LAUNCHER_DOCK_X
+    add x1, x1, #8
+    mov x2, #PI4_LAUNCHER_DOCK_Y
+    add x2, x2, #18
+    mov x3, #PI4_LAUNCHER_DOCK_W
+    sub x3, x3, #16
+    mov x4, #2
+    mov x5, #PI4_COLOR_BORDER
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, #PI4_LAUNCHER_DOCK_X
+    add x1, x1, #32
+    mov x2, #PI4_LAUNCHER_DOCK_Y
+    add x2, x2, #8
+    mov x3, #16
+    mov x4, #16
+    mov x5, #PI4_COLOR_DOOM_FIRE
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, #PI4_LAUNCHER_DOCK_X
+    add x1, x1, #56
+    mov x2, #PI4_LAUNCHER_DOCK_Y
+    add x2, x2, #8
+    mov x3, #16
+    mov x4, #16
+    mov x5, #PI4_COLOR_HILITE
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, #PI4_LAUNCHER_DOCK_X
+    add x1, x1, #80
+    mov x2, #PI4_LAUNCHER_DOCK_Y
+    add x2, x2, #8
+    mov x3, #16
+    mov x4, #16
+    mov x5, #PI4_COLOR_QUAKE_GOLD
+    bl pi4_launcher_fill_rect
 
     mov x0, x19
     mov x1, #56
@@ -3243,14 +3297,16 @@ pi4_launcher_draw_cursor:
 .balign 8
 .global pi4_launcher_manifest
 pi4_launcher_manifest:
-    .ascii "schema=vibe-os-pi4-launcher-slots-v1\n"
-    .ascii "payload_slot_count=2\n"
-    .ascii "payload_slot.0.kind=doom\n"
-    .ascii "payload_slot.0.file=PAYLOAD0.ELF\n"
-    .ascii "payload_slot.0.state=present\n"
-    .ascii "payload_slot.1.kind=quake\n"
-    .ascii "payload_slot.1.file=PAYLOAD1.ELF\n"
-    .ascii "payload_slot.1.state=present\n"
+    .ascii "schema=vibe-os-pi4-launcher-apps-v1\n"
+    .ascii "app_model=manifest-vfs-exec\n"
+    .ascii "app_count=2\n"
+    .ascii "app.0.id=doom\n"
+    .ascii "app.0.exec=/APPS/DOOM/APP.ELF\n"
+    .ascii "app.0.manifest=/APPS/DOOM/APP.TXT\n"
+    .ascii "app.1.id=quake\n"
+    .ascii "app.1.exec=/APPS/QUAKE/APP.ELF\n"
+    .ascii "app.1.manifest=/APPS/QUAKE/APP.TXT\n"
+    .ascii "app_discovery_source=/APPS/INDEX.TXT\n"
     .ascii "launcher_state_schema=vibe-os-pi4-launcher-state-v2\n"
     .ascii "launcher_state_magic=PI4LAUNC\n"
     .ascii "launcher_state_bytes=392\n"
@@ -3295,12 +3351,12 @@ pi4_launcher_manifest:
     .ascii "launcher_visible_keyboard_labels=1-2-key-badges-and-enter-button-label\n"
     .ascii "launcher_visible_art_fallback=retro-mac-icon-well-with-large-real-asset-icons-and-readable-labels\n"
     .ascii "launcher_visible_layout=1280x720-topbar56-header1216x92-picker1216x504\n"
-    .ascii "launcher_visible_card_rects=doom48,192,552,464;quake680,192,552,464\n"
+    .ascii "launcher_visible_card_rects=doom48,204,552,464;quake680,204,552,464\n"
     .ascii "launcher_visible_art_rects=doom72,216,504,288;quake704,216,504,288\n"
-    .ascii "launcher_visible_app_icon_rects=doom180,224,288,288;quake812,224,288,288\n"
-    .ascii "launcher_visible_button_rects=doom188,600,272,48;quake820,600,272,48\n"
-    .ascii "launcher_visible_key_badges=doom120,600,48,48;quake752,600,48,48\n"
-    .ascii "launcher_exec_argv_envp=slot-stable-argv-empty-envp\n"
+    .ascii "launcher_visible_app_icon_rects=doom164,228,320,320;quake796,228,320,320\n"
+    .ascii "launcher_visible_button_rects=doom188,612,272,48;quake820,612,272,48\n"
+    .ascii "launcher_visible_key_badges=doom120,612,48,48;quake752,612,48,48\n"
+    .ascii "launcher_exec_argv_envp=path-stable-argv-empty-envp\n"
     .ascii "launcher_frame_evidence_schema=vibe-os-pi4-frame-evidence-v1\n"
     .ascii "launcher_frame_evidence.source=fbinfo-after-present\n"
     .ascii "launcher_frame_evidence.symbol.fbinfo=pi4_launcher_fbinfo\n"
@@ -3314,7 +3370,7 @@ pi4_launcher_manifest:
     .ascii "launcher_cursor_start=doom-play-button-center\n"
     .ascii "launcher_mouse_hitbox.doom=x24,y168,w600,h512\n"
     .ascii "launcher_mouse_hitbox.quake=x656,y168,w600,h512\n"
-    .ascii "payload_launch_claim=exec-syscall\n"
+    .ascii "app_launch_claim=generic-path-exec-syscall\n"
     .byte 0
 
 .section .data.pi4_launcher_state, "aw", %progbits
@@ -3365,7 +3421,7 @@ pi4_launcher_state:
     .quad 0
     .quad PI4_VIBE_EXEC_REQUEST_ABI_VERSION
     .quad PI4_VIBE_EXEC_REQUEST_BYTES
-    .quad PI4_LAUNCHER_SLOT_DOOM
+    .quad -1
     .quad pi4_launcher_slot_doom_path
     .quad pi4_launcher_exec_argv
     .quad PI4_LAUNCHER_EXEC_ATTEMPT_IDLE
@@ -3378,7 +3434,7 @@ pi4_launcher_state_end:
 pi4_launcher_exec_request:
     .quad PI4_VIBE_EXEC_REQUEST_ABI_VERSION
     .quad PI4_VIBE_EXEC_REQUEST_BYTES
-    .quad PI4_LAUNCHER_SLOT_DOOM
+    .quad -1
     .quad pi4_launcher_slot_doom_path
 
 .balign 8

@@ -31,11 +31,11 @@ pi4_launcher_slot_quake_name:
 
 .global pi4_launcher_slot_doom_path
 pi4_launcher_slot_doom_path:
-    .asciz "PAYLOAD0.ELF"
+    .asciz "/APPS/DOOM/APP.ELF"
 
 .global pi4_launcher_slot_quake_path
 pi4_launcher_slot_quake_path:
-    .asciz "PAYLOAD1.ELF"
+    .asciz "/APPS/QUAKE/APP.ELF"
 
 .global pi4_launcher_slot_present_state
 pi4_launcher_slot_present_state:

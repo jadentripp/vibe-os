@@ -762,7 +762,9 @@ static int is_pi4_user_exec_path(const char* path)
 {
     return strcmp(path, "INIT.ELF") == 0 ||
         strcmp(path, "PAYLOAD0.ELF") == 0 ||
-        strcmp(path, "PAYLOAD1.ELF") == 0;
+        strcmp(path, "PAYLOAD1.ELF") == 0 ||
+        strcmp(path, "/APPS/DOOM/APP.ELF") == 0 ||
+        strcmp(path, "/APPS/QUAKE/APP.ELF") == 0;
 }
 
 static int require_tuple_nonzero_fields(const Field* fields, size_t count, const char* key,
@@ -1765,7 +1767,7 @@ static int check_runtime_status(const Field* fields, size_t count)
         ok = require_value(fields, count, "exec", "OK") && ok;
         if (!path || !is_pi4_user_exec_path(path)) {
             fprintf(stderr,
-                "pi4_status_evidence: path= must be INIT.ELF, PAYLOAD0.ELF, or PAYLOAD1.ELF\n");
+                "pi4_status_evidence: path= must be INIT.ELF or an installed app executable\n");
             ok = 0;
         }
         ok = require_value(fields, count, "uexec", "OK") && ok;
@@ -1942,7 +1944,9 @@ static int check_exec_status(const Field* fields, size_t count)
             ok = 0;
         }
         if (path && (strcmp(path, "PAYLOAD0.ELF") == 0 ||
-                     strcmp(path, "PAYLOAD1.ELF") == 0)) {
+                     strcmp(path, "PAYLOAD1.ELF") == 0 ||
+                     strcmp(path, "/APPS/DOOM/APP.ELF") == 0 ||
+                     strcmp(path, "/APPS/QUAKE/APP.ELF") == 0)) {
             fprintf(stderr,
                 "pi4_status_evidence: pi4exec=WAIT cannot claim payload exec path success\n");
             ok = 0;

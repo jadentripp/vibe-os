@@ -1,0 +1,7 @@
+schema=vibe-os-app-v1
+id=doom
+name=DOOM
+exec=/APPS/DOOM/APP.ELF
+asset=/DOOM1.WAD
+icon=wad:TITLEPIC
+input=keyboard,mouse

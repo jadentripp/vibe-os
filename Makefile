@@ -179,6 +179,9 @@ PI4_QUAKE_ELF := $(PI4_BUILD_DIR)/PAYLOAD1.ELF
 PI4_LAUNCHER_STATE_MANIFEST_ELF ?= $(PI4_LAUNCHER_ELF)
 PI4_PAYLOAD0_ELF ?= $(PI4_DOOM_ELF)
 PI4_PAYLOAD1_ELF ?= $(PI4_QUAKE_ELF)
+PI4_APP_INDEX_TXT := user/pi4_apps_index.txt
+PI4_APP_DOOM_MANIFEST_TXT := user/pi4_app_doom.txt
+PI4_APP_QUAKE_MANIFEST_TXT := user/pi4_app_quake.txt
 PI4_PAYLOAD_ROOT_ELF_ARGS :=
 PI4_PAYLOAD_ELF_DEPS :=
 ifneq ($(strip $(PI4_PAYLOAD0_ELF)),)
@@ -189,6 +192,8 @@ ifneq ($(strip $(PI4_PAYLOAD1_ELF)),)
 PI4_PAYLOAD_ROOT_ELF_ARGS += --root-elf PAYLOAD1.ELF=$(PI4_PAYLOAD1_ELF)
 PI4_PAYLOAD_ELF_DEPS += $(PI4_PAYLOAD1_ELF)
 endif
+PI4_APP_INSTALL_ARGS := --asset /SYSTEM/INIT.ELF=$(PI4_LAUNCHER_ELF) --asset /SYSTEM/ABIPROBE.ELF=$(PI4_ABI_PROBE_ELF) --asset /APPS/INDEX.TXT=$(PI4_APP_INDEX_TXT) --asset /APPS/DOOM/APP.TXT=$(PI4_APP_DOOM_MANIFEST_TXT) --asset /APPS/DOOM/APP.ELF=$(PI4_PAYLOAD0_ELF) --asset /APPS/QUAKE/APP.TXT=$(PI4_APP_QUAKE_MANIFEST_TXT) --asset /APPS/QUAKE/APP.ELF=$(PI4_PAYLOAD1_ELF)
+PI4_APP_INSTALL_DEPS := $(PI4_APP_INDEX_TXT) $(PI4_APP_DOOM_MANIFEST_TXT) $(PI4_APP_QUAKE_MANIFEST_TXT) $(PI4_PAYLOAD_ELF_DEPS)
 PI4_ROOT_ELF_ARGS := --root-elf INIT.ELF=$(PI4_LAUNCHER_ELF) --root-elf ABIPROBE.ELF=$(PI4_ABI_PROBE_ELF) $(PI4_PAYLOAD_ROOT_ELF_ARGS)
 C_RUNTIME_SRC := kernel/c_runtime_probe.asm
 USER_PROBE_ASM_SRC := user/probe.asm
@@ -1246,14 +1251,16 @@ pi4-launcher-state-manifest-check: $(PI4_LAUNCHER_STATE_MANIFEST_ELF)
 		}; \
 	}; \
 	for line in \
-		"schema=vibe-os-pi4-launcher-slots-v1" \
-		"payload_slot_count=2" \
-		"payload_slot.0.kind=doom" \
-		"payload_slot.0.file=PAYLOAD0.ELF" \
-		"payload_slot.0.state=present" \
-		"payload_slot.1.kind=quake" \
-		"payload_slot.1.file=PAYLOAD1.ELF" \
-		"payload_slot.1.state=present" \
+		"schema=vibe-os-pi4-launcher-apps-v1" \
+		"app_model=manifest-vfs-exec" \
+		"app_count=2" \
+		"app.0.id=doom" \
+		"app.0.exec=/APPS/DOOM/APP.ELF" \
+		"app.0.manifest=/APPS/DOOM/APP.TXT" \
+		"app.1.id=quake" \
+		"app.1.exec=/APPS/QUAKE/APP.ELF" \
+		"app.1.manifest=/APPS/QUAKE/APP.TXT" \
+		"app_discovery_source=/APPS/INDEX.TXT" \
 		"launcher_state_schema=vibe-os-pi4-launcher-state-v2" \
 		"launcher_state_magic=PI4LAUNC" \
 		"launcher_state_bytes=392" \
@@ -1268,32 +1275,32 @@ pi4-launcher-state-manifest-check: $(PI4_LAUNCHER_STATE_MANIFEST_ELF)
 		"launcher_state.offset.exec_request_path=360" \
 		"launcher_state.offset.exec_attempt_state=376" \
 		"launcher_state.offset.exec_request_count=384" \
-		"payload_launch_claim=exec-syscall"; do \
+		"app_launch_claim=generic-path-exec-syscall"; do \
 		require_line "$$line"; \
 	done; \
-	claim_count="$$(printf '%s\n' "$$manifest" | grep -E -c '^payload_launch_claim=' || true)"; \
+	claim_count="$$(printf '%s\n' "$$manifest" | grep -E -c '^app_launch_claim=' || true)"; \
 	if [ "$$claim_count" != "1" ]; then \
-		printf "Pi 4 launcher state manifest must contain exactly one payload_launch_claim= line, got %s\n" "$$claim_count" >&2; \
+		printf "Pi 4 launcher state manifest must contain exactly one app_launch_claim= line, got %s\n" "$$claim_count" >&2; \
 		exit 1; \
 	fi; \
-	if printf '%s\n' "$$manifest" | grep -E -x 'payload_slot\.[01]\.state=absent' >/dev/null; then \
-		printf "Pi 4 launcher manifest must show desktop payload slots as present for the playable picker.\n" >&2; \
+	if printf '%s\n' "$$manifest" | grep -E -x 'app\.[01]\.state=absent' >/dev/null; then \
+		printf "Pi 4 launcher manifest must show desktop apps as present for the playable picker.\n" >&2; \
 		exit 1; \
 	fi; \
-	if printf '%s\n' "$$manifest" | grep -E -x 'payload_launch_claim=none' >/dev/null; then \
+	if printf '%s\n' "$$manifest" | grep -E -x 'app_launch_claim=none' >/dev/null; then \
 		printf "Pi 4 launcher manifest must expose the exec syscall launch path used by the desktop picker.\n" >&2; \
 		exit 1; \
 	fi; \
-	printf "Pi 4 launcher state manifest OK: %s carries desktop payload launch metadata.\n" "$(PI4_LAUNCHER_STATE_MANIFEST_ELF)"
+	printf "Pi 4 launcher state manifest OK: %s carries desktop app launch metadata.\n" "$(PI4_LAUNCHER_STATE_MANIFEST_ELF)"
 
 pi4-user-elves: $(PI4_LAUNCHER_ELF) $(PI4_ABI_PROBE_ELF) $(PI4_DOOM_ELF) $(PI4_QUAKE_ELF) pi4-launcher-state-manifest-check
 	@printf "Built Raspberry Pi 4 AArch64 user ELFs %s, %s, %s, and %s\n" "$(PI4_LAUNCHER_ELF)" "$(PI4_ABI_PROBE_ELF)" "$(PI4_DOOM_ELF)" "$(PI4_QUAKE_ELF)"
 
-$(PI4_IMAGE): $(PI4_KERNEL8_IMG) $(PI4_CONFIG_TXT) $(PI4_LAUNCHER_ELF) $(PI4_ABI_PROBE_ELF) $(IMAGE_BUILDER) $(IMAGE_ASSET_DEPS) $(PI4_PAYLOAD_ELF_DEPS) FORCE | $(PI4_BUILD_DIR)
+$(PI4_IMAGE): $(PI4_KERNEL8_IMG) $(PI4_CONFIG_TXT) $(PI4_LAUNCHER_ELF) $(PI4_ABI_PROBE_ELF) $(IMAGE_BUILDER) $(IMAGE_ASSET_DEPS) $(PI4_APP_INSTALL_DEPS) FORCE | $(PI4_BUILD_DIR)
 	@if [ -n "$(PRIMARY_ASSET)" ]; then \
-		$(IMAGE_BUILDER) --proof-manifest --primary-asset-wad "$(PRIMARY_ASSET)" $(IMAGE_SECONDARY_PACKAGE_ARGS) --root-file KERNEL8.IMG=$(PI4_KERNEL8_IMG) --root-file CONFIG.TXT=$(PI4_CONFIG_TXT) $(PI4_ROOT_ELF_ARGS) $@; \
+		$(IMAGE_BUILDER) --proof-manifest --primary-asset-wad "$(PRIMARY_ASSET)" $(IMAGE_SECONDARY_PACKAGE_ARGS) --root-file KERNEL8.IMG=$(PI4_KERNEL8_IMG) --root-file CONFIG.TXT=$(PI4_CONFIG_TXT) $(PI4_ROOT_ELF_ARGS) $(PI4_APP_INSTALL_ARGS) $@; \
 	else \
-		$(IMAGE_BUILDER) --proof-manifest $(IMAGE_SECONDARY_PACKAGE_ARGS) --root-file KERNEL8.IMG=$(PI4_KERNEL8_IMG) --root-file CONFIG.TXT=$(PI4_CONFIG_TXT) $(PI4_ROOT_ELF_ARGS) $@; \
+		$(IMAGE_BUILDER) --proof-manifest $(IMAGE_SECONDARY_PACKAGE_ARGS) --root-file KERNEL8.IMG=$(PI4_KERNEL8_IMG) --root-file CONFIG.TXT=$(PI4_CONFIG_TXT) $(PI4_ROOT_ELF_ARGS) $(PI4_APP_INSTALL_ARGS) $@; \
 	fi
 	@printf "Built Raspberry Pi 4 FAT16 image %s\n" "$@"
 
@@ -1767,7 +1774,7 @@ pi4-local-qemu-doom-input-smoke: vm-consent $(PI4_QEMU_COMMAND) $(VIBE_STATUS_CH
 	@grep -a -F -q "smoke_gate=pi4-local-qemu-input-smoke" "$(PI4_LOCAL_QEMU_DOOM_STATUS)"
 	@grep -a -F -q "hardware_proof=unclaimed" "$(PI4_LOCAL_QEMU_DOOM_STATUS)"
 	@grep -a -F -q "pi4exec=OK" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
-	@grep -a -E -q '(^| )pi4payloadreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x0*/' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
+	@grep -a -E -q '(^| )pi4payloadreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x[0-9a-fA-F]+/0x0*( |$$)' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -E -q '(^| )pi4payloadvfs=.*0x00000000464f4f4b' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -E -q '(^| )pi4inputevt=.*0x0*1' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -F -q "pi4fb=OK" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
@@ -1797,7 +1804,7 @@ pi4-local-qemu-quake-input-smoke: vm-consent $(PI4_QEMU_COMMAND) $(VIBE_STATUS_C
 	@grep -a -F -q "smoke_gate=pi4-local-qemu-input-smoke" "$(PI4_LOCAL_QEMU_QUAKE_STATUS)"
 	@grep -a -F -q "hardware_proof=unclaimed" "$(PI4_LOCAL_QEMU_QUAKE_STATUS)"
 	@grep -a -F -q "pi4exec=OK" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
-	@grep -a -E -q '(^| )pi4payloadreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x0*1/' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
+	@grep -a -E -q '(^| )pi4payloadreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x[0-9a-fA-F]+/0x0*1( |$$)' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@grep -a -E -q '(^| )pi4payloadvfs=.*0x00000000464f4f4b' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@grep -a -E -q '(^| )pi4inputevt=.*0x0*1' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@grep -a -F -q "pi4fb=OK" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
@@ -1873,9 +1880,9 @@ pi4-local-qemu-real-assets-input-smoke: pi4-real-assets-require pi4-engine-paylo
 		grep -a -E -q '(^| )pi4pak0=0x[0-9A-Fa-f]+(/0x[0-9A-Fa-f]+){7}( |$$)' "$$status" || { echo "Pi 4 real-assets smoke missing full pi4pak0 read tuple in $$status" >&2; cat "$$status" >&2; exit 1; }; \
 	done
 	@grep -a -F -q "pi4exec=OK" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
-	@grep -a -E -q '(^| )pi4payloadreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x0*/' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
+	@grep -a -E -q '(^| )pi4payloadreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x[0-9a-fA-F]+/0x0*( |$$)' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -F -q "pi4exec=OK" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
-	@grep -a -E -q '(^| )pi4payloadreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x0*1/' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
+	@grep -a -E -q '(^| )pi4payloadreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x[0-9a-fA-F]+/0x0*1( |$$)' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@printf "Pi 4 local QEMU real-assets input smoke OK: full WAD/PAK FAT/VFS reads and Doom/Quake launcher execs validated from captured serial status.\n"
 
 pi4-local-qemu-real-assets-final-gates: pi4-local-qemu-real-assets-input-smoke $(VIBE_STATUS_CHECK)
