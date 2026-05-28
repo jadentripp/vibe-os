@@ -162,7 +162,7 @@
 .equ PI4_START_STORAGE_ASSET_DIR_SYSTEM, 5
 .equ PI4_START_STORAGE_ASSET_DIR_APPS,   6
 .equ PI4_START_STORAGE_ASSET_DIR_APP_BASE, 7
-.equ PI4_START_STORAGE_ASSET_DIR_APP_COUNT, 2
+.equ PI4_START_STORAGE_ASSET_DIR_APP_COUNT, 4
 
 .equ PI4_VIBE_SVC_IMM,                  0x80
 .equ PI4_VIBE_SYS_READ,                 0
@@ -193,9 +193,9 @@
 .equ PI4_VIBE_FD_ASSET_PALETTE,         10
 .equ PI4_VIBE_FD_APP_INDEX,             11
 .equ PI4_VIBE_FD_APP_MANIFEST_BASE, 12
-.equ PI4_VIBE_FD_APP_MANIFEST_COUNT, 2
-.equ PI4_VIBE_FD_APP_ELF_BASE,      14
-.equ PI4_VIBE_FD_APP_ELF_COUNT,     2
+.equ PI4_VIBE_FD_APP_MANIFEST_COUNT, 4
+.equ PI4_VIBE_FD_APP_ELF_BASE,      16
+.equ PI4_VIBE_FD_APP_ELF_COUNT,     4
 .equ PI4_VIBE_ENOENT,                   2
 .equ PI4_VIBE_EBADF,                    9
 .equ PI4_VIBE_EINVAL,                   22
@@ -214,9 +214,9 @@
 .equ PI4_VIBE_FILE_ASSET_PAL0_BIN,      8
 .equ PI4_VIBE_FILE_ASSET_APP_INDEX,     9
 .equ PI4_VIBE_FILE_ASSET_APP_MANIFEST_BASE, 10
-.equ PI4_VIBE_FILE_ASSET_APP_MANIFEST_COUNT, 2
-.equ PI4_VIBE_FILE_ASSET_APP_ELF_BASE, 12
-.equ PI4_VIBE_FILE_ASSET_APP_ELF_COUNT, 2
+.equ PI4_VIBE_FILE_ASSET_APP_MANIFEST_COUNT, 4
+.equ PI4_VIBE_FILE_ASSET_APP_ELF_BASE, 14
+.equ PI4_VIBE_FILE_ASSET_APP_ELF_COUNT, 4
 .equ PI4_VIBE_STAT_BYTES,               44
 .equ PI4_VIBE_STAT_MODE_OFFSET,         8
 .equ PI4_VIBE_STAT_SIZE_OFFSET,         28
@@ -236,7 +236,7 @@
 .equ PI4_VIBE_APP_RECORD_DIR_STATUS, 56
 .equ PI4_VIBE_APP_RECORD_STATUS_LABEL, 64
 .equ PI4_VIBE_APP_RECORD_BYTES,     72
-.equ PI4_VIBE_APP_RECORD_TABLE_BYTES, 144
+.equ PI4_VIBE_APP_RECORD_TABLE_BYTES, 288
 .equ PI4_VIBE_APP_RECORD_COUNT,     PI4_VIBE_APP_RECORD_TABLE_BYTES / PI4_VIBE_APP_RECORD_BYTES
 .equ PI4_VIBE_EXEC_REQUEST_ABI_VERSION, 1
 .equ PI4_VIBE_EXEC_REQUEST_BYTES,       32
@@ -12494,6 +12494,10 @@ msg_status_pi4app_record0:
     .asciz " pi4app0="
 msg_status_pi4app_record1:
     .asciz " pi4app1="
+msg_status_pi4app_record2:
+    .asciz " pi4app2="
+msg_status_pi4app_record3:
+    .asciz " pi4app3="
 msg_status_pi4manifest:
     .asciz " pi4manifest="
 msg_status_pi4assets:
@@ -12582,6 +12586,24 @@ pi4_app_file_record_table:
     .quad pi4_storage_status_app1_elf_read_count
     .quad pi4_storage_status_app1_dir
     .quad msg_status_pi4app_record1
+    .quad pi4_storage_status_app2_dir_name
+    .quad pi4_storage_status_app2_elf_entry_index
+    .quad pi4_status_pi4userfile_app2_elf_offset
+    .quad pi4_storage_status_app2_manifest
+    .quad pi4_status_pi4userfile_app2_manifest_offset
+    .quad pi4_storage_status_app2_elf
+    .quad pi4_storage_status_app2_elf_read_count
+    .quad pi4_storage_status_app2_dir
+    .quad msg_status_pi4app_record2
+    .quad pi4_storage_status_app3_dir_name
+    .quad pi4_storage_status_app3_elf_entry_index
+    .quad pi4_status_pi4userfile_app3_elf_offset
+    .quad pi4_storage_status_app3_manifest
+    .quad pi4_status_pi4userfile_app3_manifest_offset
+    .quad pi4_storage_status_app3_elf
+    .quad pi4_storage_status_app3_elf_read_count
+    .quad pi4_storage_status_app3_dir
+    .quad msg_status_pi4app_record3
 pi4_app_file_record_table_end:
 .if (pi4_app_file_record_table_end - pi4_app_file_record_table) != PI4_VIBE_APP_RECORD_TABLE_BYTES
 .error "PI4 app file record table size does not match capacity bytes"
@@ -13011,9 +13033,17 @@ pi4_status_pi4userfile_app_record0_offset:
     .quad 0
 pi4_status_pi4userfile_app_record1_offset:
     .quad 0
+pi4_status_pi4userfile_app_record2_offset:
+    .quad 0
+pi4_status_pi4userfile_app_record3_offset:
+    .quad 0
 pi4_status_pi4userfile_app0_elf_offset:
     .quad 0
 pi4_status_pi4userfile_app1_elf_offset:
+    .quad 0
+pi4_status_pi4userfile_app2_elf_offset:
+    .quad 0
+pi4_status_pi4userfile_app3_elf_offset:
     .quad 0
 pi4_status_pi4userfile_manifest_offset:
     .quad 0
@@ -13028,6 +13058,10 @@ pi4_status_pi4userfile_app_index_offset:
 pi4_status_pi4userfile_app0_manifest_offset:
     .quad 0
 pi4_status_pi4userfile_app1_manifest_offset:
+    .quad 0
+pi4_status_pi4userfile_app2_manifest_offset:
+    .quad 0
+pi4_status_pi4userfile_app3_manifest_offset:
     .quad 0
 pi4_status_pi4userfile_proof_latched:
     .quad 0
