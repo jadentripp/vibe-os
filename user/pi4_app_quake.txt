@@ -3,5 +3,5 @@ id=quake
 name=Quake
 exec=/APPS/QUAKE/APP.ELF
 asset=/ID1/PAK0.PAK
-icon=pak:gfx/qplaque.lmp
+icon=pak:gfx/conback.lmp
 input=keyboard,mouse
