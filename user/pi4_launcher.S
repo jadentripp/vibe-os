@@ -31,11 +31,12 @@
 .equ PI4_LAUNCHER_DOOM_ICON_X,          164
 .equ PI4_LAUNCHER_QUAKE_ICON_X,         796
 .equ PI4_LAUNCHER_ICON_Y,               228
-.equ PI4_LAUNCHER_DOOM_LABEL_X,         244
-.equ PI4_LAUNCHER_QUAKE_LABEL_X,        854
 .equ PI4_LAUNCHER_LABEL_Y,              556
 .equ PI4_LAUNCHER_LABEL_H,              7
 .equ PI4_LAUNCHER_LABEL_SCALE,          7
+.equ PI4_LAUNCHER_LABEL_GLYPH_W,        5
+.equ PI4_LAUNCHER_LABEL_ADVANCE,        6
+.equ PI4_LAUNCHER_APP_LABEL_MAX_CHARS,  16
 .equ PI4_LAUNCHER_LAUNCH_BUTTON_X_OFF,  140
 .equ PI4_LAUNCHER_LAUNCH_BUTTON_Y,      PI4_LAUNCHER_CARD_Y + PI4_LAUNCHER_CARD_H - 56
 .equ PI4_LAUNCHER_LAUNCH_BUTTON_W,      272
@@ -76,8 +77,8 @@
 .equ PI4_LAUNCHER_CURSOR_MAX_Y,         PI4_LAUNCHER_FRAME_HEIGHT - PI4_LAUNCHER_CURSOR_DRAW_H - 1
 
 .equ PI4_LAUNCHER_SLOT_COUNT,           2
-.equ PI4_LAUNCHER_SLOT_DOOM,            0
-.equ PI4_LAUNCHER_SLOT_QUAKE,           1
+.equ PI4_LAUNCHER_SLOT_APP0,            0
+.equ PI4_LAUNCHER_SLOT_APP1,            1
 .equ PI4_LAUNCHER_SLOT_NONE,            PI4_LAUNCHER_SLOT_COUNT
 .equ PI4_LAUNCHER_SLOT_BYTES,           40
 .equ PI4_LAUNCHER_SLOT_NAME,            8
@@ -240,12 +241,10 @@
 .equ PI4_COLOR_HILITE,                  15
 
 .extern pi4_launcher_slot_table
-.extern pi4_launcher_slot_doom_name
-.extern pi4_launcher_slot_quake_name
+.extern pi4_launcher_slot_app0_name
+.extern pi4_launcher_slot_app1_name
 .extern pi4_launcher_slot_present_state
 .extern pi4_launcher_slot_absent_state
-.extern pi4_launcher_doom_label_bitmap
-.extern pi4_launcher_quake_label_bitmap
 .extern pi4_launcher_key_1_bitmap
 .extern pi4_launcher_key_2_bitmap
 .extern pi4_launcher_enter_label_bitmap
@@ -272,7 +271,7 @@ user_main:
 pi4_launcher_start:
     bl pi4_launcher_discover_apps
     bl pi4_launcher_load_art
-    mov x19, #PI4_LAUNCHER_SLOT_DOOM
+    mov x19, #PI4_LAUNCHER_SLOT_APP0
     bl pi4_launcher_reset_desktop_state
 
     mov x0, xzr
@@ -395,7 +394,7 @@ pi4_launcher_reset_desktop_state:
     str x1, [x0]
     adrp x0, pi4_launcher_hover_slot
     add x0, x0, :lo12:pi4_launcher_hover_slot
-    mov x2, #PI4_LAUNCHER_SLOT_DOOM
+    mov x2, #PI4_LAUNCHER_SLOT_APP0
     str x2, [x0]
     adrp x0, pi4_launcher_failed_slot
     add x0, x0, :lo12:pi4_launcher_failed_slot
@@ -561,10 +560,10 @@ pi4_launcher_reset_app_slots:
 
     adrp x19, pi4_launcher_slot_table
     add x19, x19, :lo12:pi4_launcher_slot_table
-    mov x0, #PI4_LAUNCHER_SLOT_DOOM
+    mov x0, #PI4_LAUNCHER_SLOT_APP0
     str x0, [x19]
-    adrp x0, pi4_launcher_slot_doom_name
-    add x0, x0, :lo12:pi4_launcher_slot_doom_name
+    adrp x0, pi4_launcher_slot_app0_name
+    add x0, x0, :lo12:pi4_launcher_slot_app0_name
     str x0, [x19, #PI4_LAUNCHER_SLOT_NAME]
     str xzr, [x19, #PI4_LAUNCHER_SLOT_PATH]
     mov x0, #PI4_LAUNCHER_SLOT_STATE_ABSENT
@@ -574,10 +573,10 @@ pi4_launcher_reset_app_slots:
     str x0, [x19, #PI4_LAUNCHER_SLOT_STATE_TEXT]
 
     add x19, x19, #PI4_LAUNCHER_SLOT_BYTES
-    mov x0, #PI4_LAUNCHER_SLOT_QUAKE
+    mov x0, #PI4_LAUNCHER_SLOT_APP1
     str x0, [x19]
-    adrp x0, pi4_launcher_slot_quake_name
-    add x0, x0, :lo12:pi4_launcher_slot_quake_name
+    adrp x0, pi4_launcher_slot_app1_name
+    add x0, x0, :lo12:pi4_launcher_slot_app1_name
     str x0, [x19, #PI4_LAUNCHER_SLOT_NAME]
     str xzr, [x19, #PI4_LAUNCHER_SLOT_PATH]
     mov x0, #PI4_LAUNCHER_SLOT_STATE_ABSENT
@@ -808,14 +807,14 @@ pi4_launcher_or_discovery_flag_x21:
 
 .type pi4_launcher_default_name, %function
 pi4_launcher_default_name:
-    cmp x0, #PI4_LAUNCHER_SLOT_QUAKE
+    cmp x0, #PI4_LAUNCHER_SLOT_APP1
     b.eq .Lpi4_default_name_quake
-    adrp x0, pi4_launcher_slot_doom_name
-    add x0, x0, :lo12:pi4_launcher_slot_doom_name
+    adrp x0, pi4_launcher_slot_app0_name
+    add x0, x0, :lo12:pi4_launcher_slot_app0_name
     ret
 .Lpi4_default_name_quake:
-    adrp x0, pi4_launcher_slot_quake_name
-    add x0, x0, :lo12:pi4_launcher_slot_quake_name
+    adrp x0, pi4_launcher_slot_app1_name
+    add x0, x0, :lo12:pi4_launcher_slot_app1_name
     ret
 .size pi4_launcher_default_name, . - pi4_launcher_default_name
 
@@ -1234,22 +1233,22 @@ pi4_launcher_apply_input_event:
     b .Lpi4_input_done
 
 .Lpi4_input_move_doom:
-    mov x9, #PI4_LAUNCHER_SLOT_DOOM
+    mov x9, #PI4_LAUNCHER_SLOT_APP0
     mov x10, #PI4_LAUNCHER_INPUT_ACTION_MOVED
     b .Lpi4_input_done
 
 .Lpi4_input_move_quake:
-    mov x9, #PI4_LAUNCHER_SLOT_QUAKE
+    mov x9, #PI4_LAUNCHER_SLOT_APP1
     mov x10, #PI4_LAUNCHER_INPUT_ACTION_MOVED
     b .Lpi4_input_done
 
 .Lpi4_input_record_doom:
-    mov x9, #PI4_LAUNCHER_SLOT_DOOM
+    mov x9, #PI4_LAUNCHER_SLOT_APP0
     mov x10, #PI4_LAUNCHER_INPUT_ACTION_RECORD
     b .Lpi4_input_done
 
 .Lpi4_input_record_quake:
-    mov x9, #PI4_LAUNCHER_SLOT_QUAKE
+    mov x9, #PI4_LAUNCHER_SLOT_APP1
     mov x10, #PI4_LAUNCHER_INPUT_ACTION_RECORD
     b .Lpi4_input_done
 
@@ -1400,7 +1399,7 @@ pi4_launcher_pointer_focus:
     ldr x2, =PI4_LAUNCHER_CARD_HIT_Y1
     cmp x1, x2
     b.gt .Lpi4_pointer_check_quake
-    mov x0, #PI4_LAUNCHER_SLOT_DOOM
+    mov x0, #PI4_LAUNCHER_SLOT_APP0
     ret
 
 .Lpi4_pointer_check_quake:
@@ -1414,7 +1413,7 @@ pi4_launcher_pointer_focus:
     ldr x2, =PI4_LAUNCHER_CARD_HIT_Y1
     cmp x1, x2
     b.gt .Lpi4_pointer_none
-    mov x0, #PI4_LAUNCHER_SLOT_QUAKE
+    mov x0, #PI4_LAUNCHER_SLOT_APP1
     ret
 
 .Lpi4_pointer_none:
@@ -2005,7 +2004,7 @@ pi4_launcher_render_frame:
     adrp x6, pi4_launcher_art_flags
     add x6, x6, :lo12:pi4_launcher_art_flags
     ldr x6, [x6]
-    tbz x6, #PI4_LAUNCHER_SLOT_DOOM, .Lpi4_render_doom_card_art_done
+    tbz x6, #PI4_LAUNCHER_SLOT_APP0, .Lpi4_render_doom_card_art_done
     mov x0, x19
     mov x1, #PI4_LAUNCHER_DOOM_ICON_X
     mov x2, #PI4_LAUNCHER_ICON_Y
@@ -2027,7 +2026,7 @@ pi4_launcher_render_frame:
     adrp x6, pi4_launcher_art_flags
     add x6, x6, :lo12:pi4_launcher_art_flags
     ldr x6, [x6]
-    tbz x6, #PI4_LAUNCHER_SLOT_QUAKE, .Lpi4_render_quake_card_art_done
+    tbz x6, #PI4_LAUNCHER_SLOT_APP1, .Lpi4_render_quake_card_art_done
     mov x0, x19
     mov x1, #PI4_LAUNCHER_QUAKE_ICON_X
     mov x2, #PI4_LAUNCHER_ICON_Y
@@ -2114,7 +2113,7 @@ pi4_launcher_render_frame:
     mov x5, #PI4_COLOR_BORDER
     bl pi4_launcher_draw_border
 
-    cmp x20, #PI4_LAUNCHER_SLOT_QUAKE
+    cmp x20, #PI4_LAUNCHER_SLOT_APP1
     b.eq .Lpi4_render_select_quake
 
     mov x0, x19
@@ -2231,9 +2230,9 @@ pi4_launcher_render_frame:
     adrp x21, pi4_launcher_hover_slot
     add x21, x21, :lo12:pi4_launcher_hover_slot
     ldr x21, [x21]
-    cmp x21, #PI4_LAUNCHER_SLOT_DOOM
+    cmp x21, #PI4_LAUNCHER_SLOT_APP0
     b.eq .Lpi4_render_hover_doom
-    cmp x21, #PI4_LAUNCHER_SLOT_QUAKE
+    cmp x21, #PI4_LAUNCHER_SLOT_APP1
     b.eq .Lpi4_render_hover_quake
     b .Lpi4_render_hover_done
 
@@ -2254,9 +2253,9 @@ pi4_launcher_render_frame:
     adrp x21, pi4_launcher_active_slot
     add x21, x21, :lo12:pi4_launcher_active_slot
     ldr x21, [x21]
-    cmp x21, #PI4_LAUNCHER_SLOT_DOOM
+    cmp x21, #PI4_LAUNCHER_SLOT_APP0
     b.eq .Lpi4_render_active_doom
-    cmp x21, #PI4_LAUNCHER_SLOT_QUAKE
+    cmp x21, #PI4_LAUNCHER_SLOT_APP1
     b.eq .Lpi4_render_active_quake
     b .Lpi4_render_active_done
 
@@ -2343,9 +2342,9 @@ pi4_launcher_render_frame:
     adrp x21, pi4_launcher_failed_slot
     add x21, x21, :lo12:pi4_launcher_failed_slot
     ldr x21, [x21]
-    cmp x21, #PI4_LAUNCHER_SLOT_DOOM
+    cmp x21, #PI4_LAUNCHER_SLOT_APP0
     b.eq .Lpi4_render_failed_doom
-    cmp x21, #PI4_LAUNCHER_SLOT_QUAKE
+    cmp x21, #PI4_LAUNCHER_SLOT_APP1
     b.eq .Lpi4_render_failed_quake
     b .Lpi4_render_failed_done
 
@@ -2430,7 +2429,7 @@ pi4_launcher_render_frame:
     adrp x9, pi4_launcher_art_flags
     add x9, x9, :lo12:pi4_launcher_art_flags
     ldr x9, [x9]
-    tbnz x9, #PI4_LAUNCHER_SLOT_DOOM, .Lpi4_render_doom_icon_done
+    tbnz x9, #PI4_LAUNCHER_SLOT_APP0, .Lpi4_render_doom_icon_done
     mov x0, x19
     mov x1, #PI4_LAUNCHER_DOOM_ICON_X
     mov x2, #PI4_LAUNCHER_ICON_Y
@@ -2440,7 +2439,7 @@ pi4_launcher_render_frame:
     adrp x9, pi4_launcher_art_flags
     add x9, x9, :lo12:pi4_launcher_art_flags
     ldr x9, [x9]
-    tbnz x9, #PI4_LAUNCHER_SLOT_QUAKE, .Lpi4_render_quake_icon_done
+    tbnz x9, #PI4_LAUNCHER_SLOT_APP1, .Lpi4_render_quake_icon_done
     mov x0, x19
     mov x1, #PI4_LAUNCHER_QUAKE_ICON_X
     mov x2, #PI4_LAUNCHER_ICON_Y
@@ -2448,48 +2447,28 @@ pi4_launcher_render_frame:
 
 .Lpi4_render_quake_icon_done:
     mov x0, x19
-    mov x1, #PI4_LAUNCHER_DOOM_LABEL_X
-    mov x2, #PI4_LAUNCHER_LABEL_Y
-    mov x3, #23
-    mov x4, #PI4_LAUNCHER_LABEL_H
-    mov x5, #PI4_COLOR_BLACK
-    adrp x6, pi4_launcher_doom_label_bitmap
-    add x6, x6, :lo12:pi4_launcher_doom_label_bitmap
-    mov x7, #PI4_LAUNCHER_LABEL_SCALE
-    bl pi4_launcher_draw_bitmap_scaled
+    mov x1, #PI4_LAUNCHER_SLOT_APP0
+    mov x2, #PI4_LAUNCHER_DOOM_CARD_X
+    mov x3, #PI4_COLOR_BLACK
+    bl pi4_launcher_draw_app_label
 
     mov x0, x19
-    mov x1, #PI4_LAUNCHER_DOOM_LABEL_X
-    mov x2, #PI4_LAUNCHER_LABEL_Y
-    mov x3, #23
-    mov x4, #PI4_LAUNCHER_LABEL_H
-    mov x5, #PI4_COLOR_TEXT
-    adrp x6, pi4_launcher_doom_label_bitmap
-    add x6, x6, :lo12:pi4_launcher_doom_label_bitmap
-    mov x7, #PI4_LAUNCHER_LABEL_SCALE
-    bl pi4_launcher_draw_bitmap_scaled
+    mov x1, #PI4_LAUNCHER_SLOT_APP0
+    mov x2, #PI4_LAUNCHER_DOOM_CARD_X
+    mov x3, #PI4_COLOR_TEXT
+    bl pi4_launcher_draw_app_label
 
     mov x0, x19
-    mov x1, #PI4_LAUNCHER_QUAKE_LABEL_X
-    mov x2, #PI4_LAUNCHER_LABEL_Y
-    mov x3, #29
-    mov x4, #PI4_LAUNCHER_LABEL_H
-    mov x5, #PI4_COLOR_BLACK
-    adrp x6, pi4_launcher_quake_label_bitmap
-    add x6, x6, :lo12:pi4_launcher_quake_label_bitmap
-    mov x7, #PI4_LAUNCHER_LABEL_SCALE
-    bl pi4_launcher_draw_bitmap_scaled
+    mov x1, #PI4_LAUNCHER_SLOT_APP1
+    mov x2, #PI4_LAUNCHER_QUAKE_CARD_X
+    mov x3, #PI4_COLOR_BLACK
+    bl pi4_launcher_draw_app_label
 
     mov x0, x19
-    mov x1, #PI4_LAUNCHER_QUAKE_LABEL_X
-    mov x2, #PI4_LAUNCHER_LABEL_Y
-    mov x3, #29
-    mov x4, #PI4_LAUNCHER_LABEL_H
-    mov x5, #PI4_COLOR_TEXT
-    adrp x6, pi4_launcher_quake_label_bitmap
-    add x6, x6, :lo12:pi4_launcher_quake_label_bitmap
-    mov x7, #PI4_LAUNCHER_LABEL_SCALE
-    bl pi4_launcher_draw_bitmap_scaled
+    mov x1, #PI4_LAUNCHER_SLOT_APP1
+    mov x2, #PI4_LAUNCHER_QUAKE_CARD_X
+    mov x3, #PI4_COLOR_TEXT
+    bl pi4_launcher_draw_app_label
 
     mov x0, x19
     bl pi4_launcher_draw_cursor
@@ -3569,7 +3548,7 @@ pi4_launcher_draw_doom_icon:
     adrp x9, pi4_launcher_art_flags
     add x9, x9, :lo12:pi4_launcher_art_flags
     ldr x9, [x9]
-    tbz x9, #PI4_LAUNCHER_SLOT_DOOM, .Lpi4_doom_icon_fallback
+    tbz x9, #PI4_LAUNCHER_SLOT_APP0, .Lpi4_doom_icon_fallback
 
     mov x0, x19
     mov x1, x20
@@ -3736,7 +3715,7 @@ pi4_launcher_draw_quake_icon:
     adrp x9, pi4_launcher_art_flags
     add x9, x9, :lo12:pi4_launcher_art_flags
     ldr x9, [x9]
-    tbz x9, #PI4_LAUNCHER_SLOT_QUAKE, .Lpi4_quake_icon_fallback
+    tbz x9, #PI4_LAUNCHER_SLOT_APP1, .Lpi4_quake_icon_fallback
 
     mov x0, x19
     mov x1, x20
@@ -3842,6 +3821,155 @@ pi4_launcher_draw_quake_icon:
     ret
 .size pi4_launcher_draw_quake_icon, . - pi4_launcher_draw_quake_icon
 
+.type pi4_launcher_slot_name_ptr, %function
+pi4_launcher_slot_name_ptr:
+    cmp x0, #PI4_LAUNCHER_SLOT_COUNT
+    b.hs .Lpi4_slot_name_default
+    adrp x1, pi4_launcher_slot_table
+    add x1, x1, :lo12:pi4_launcher_slot_table
+    mov x2, #PI4_LAUNCHER_SLOT_BYTES
+    madd x1, x0, x2, x1
+    ldr x0, [x1, #PI4_LAUNCHER_SLOT_NAME]
+    cbnz x0, .Lpi4_slot_name_done
+.Lpi4_slot_name_default:
+    adrp x0, pi4_launcher_slot_app0_name
+    add x0, x0, :lo12:pi4_launcher_slot_app0_name
+.Lpi4_slot_name_done:
+    ret
+.size pi4_launcher_slot_name_ptr, . - pi4_launcher_slot_name_ptr
+
+.type pi4_launcher_measure_app_label, %function
+pi4_launcher_measure_app_label:
+    stp x29, x30, [sp, #-32]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+
+    mov x19, x0
+    mov x20, xzr
+
+.Lpi4_measure_label_next:
+    cmp x20, #PI4_LAUNCHER_APP_LABEL_MAX_CHARS
+    b.hs .Lpi4_measure_label_done
+    ldrb w1, [x19, x20]
+    cbz w1, .Lpi4_measure_label_done
+    add x20, x20, #1
+    b .Lpi4_measure_label_next
+
+.Lpi4_measure_label_done:
+    cbnz x20, .Lpi4_measure_label_nonempty
+    mov x0, xzr
+    b .Lpi4_measure_label_return
+
+.Lpi4_measure_label_nonempty:
+    mov x0, #PI4_LAUNCHER_LABEL_ADVANCE
+    mul x0, x20, x0
+    sub x0, x0, #1
+    mov x1, #PI4_LAUNCHER_LABEL_SCALE
+    mul x0, x0, x1
+
+.Lpi4_measure_label_return:
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #32
+    ret
+.size pi4_launcher_measure_app_label, . - pi4_launcher_measure_app_label
+
+.type pi4_launcher_glyph_5x7, %function
+pi4_launcher_glyph_5x7:
+    cmp w0, #'a'
+    b.lo .Lpi4_glyph_check_upper
+    cmp w0, #'z'
+    b.hi .Lpi4_glyph_check_upper
+    sub w0, w0, #32
+
+.Lpi4_glyph_check_upper:
+    cmp w0, #'A'
+    b.lo .Lpi4_glyph_check_digit
+    cmp w0, #'Z'
+    b.hi .Lpi4_glyph_check_digit
+    sub x2, x0, #'A'
+    adrp x1, pi4_launcher_font_alpha_5x7
+    add x1, x1, :lo12:pi4_launcher_font_alpha_5x7
+    mov x3, #(PI4_LAUNCHER_LABEL_H * 4)
+    madd x0, x2, x3, x1
+    ret
+
+.Lpi4_glyph_check_digit:
+    cmp w0, #'0'
+    b.lo .Lpi4_glyph_missing
+    cmp w0, #'9'
+    b.hi .Lpi4_glyph_missing
+    sub x2, x0, #'0'
+    adrp x1, pi4_launcher_font_digit_5x7
+    add x1, x1, :lo12:pi4_launcher_font_digit_5x7
+    mov x3, #(PI4_LAUNCHER_LABEL_H * 4)
+    madd x0, x2, x3, x1
+    ret
+
+.Lpi4_glyph_missing:
+    mov x0, xzr
+    ret
+.size pi4_launcher_glyph_5x7, . - pi4_launcher_glyph_5x7
+
+.type pi4_launcher_draw_app_label, %function
+pi4_launcher_draw_app_label:
+    stp x29, x30, [sp, #-112]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    stp x21, x22, [sp, #32]
+    stp x23, x24, [sp, #48]
+    stp x25, x26, [sp, #64]
+    stp x27, x28, [sp, #80]
+
+    mov x19, x0
+    mov x20, x1
+    mov x21, x2
+    mov x22, x3
+
+    mov x0, x20
+    bl pi4_launcher_slot_name_ptr
+    mov x23, x0
+
+    mov x0, x23
+    bl pi4_launcher_measure_app_label
+    mov x24, x0
+    add x25, x21, #(PI4_LAUNCHER_CARD_W / 2)
+    lsr x24, x24, #1
+    sub x25, x25, x24
+    mov x26, xzr
+
+.Lpi4_draw_label_next:
+    cmp x26, #PI4_LAUNCHER_APP_LABEL_MAX_CHARS
+    b.hs .Lpi4_draw_label_done
+    ldrb w0, [x23, x26]
+    cbz w0, .Lpi4_draw_label_done
+    bl pi4_launcher_glyph_5x7
+    cbz x0, .Lpi4_draw_label_advance
+
+    mov x6, x0
+    mov x0, x19
+    mov x1, x25
+    mov x2, #PI4_LAUNCHER_LABEL_Y
+    mov x3, #PI4_LAUNCHER_LABEL_GLYPH_W
+    mov x4, #PI4_LAUNCHER_LABEL_H
+    mov x5, x22
+    mov x7, #PI4_LAUNCHER_LABEL_SCALE
+    bl pi4_launcher_draw_bitmap_scaled
+
+.Lpi4_draw_label_advance:
+    add x25, x25, #(PI4_LAUNCHER_LABEL_ADVANCE * PI4_LAUNCHER_LABEL_SCALE)
+    add x26, x26, #1
+    b .Lpi4_draw_label_next
+
+.Lpi4_draw_label_done:
+    ldp x27, x28, [sp, #80]
+    ldp x25, x26, [sp, #64]
+    ldp x23, x24, [sp, #48]
+    ldp x21, x22, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #112
+    ret
+.size pi4_launcher_draw_app_label, . - pi4_launcher_draw_app_label
+
 .type pi4_launcher_draw_cursor, %function
 pi4_launcher_draw_cursor:
     stp x29, x30, [sp, #-64]!
@@ -3886,6 +4014,47 @@ pi4_launcher_draw_cursor:
 .size pi4_launcher_draw_cursor, . - pi4_launcher_draw_cursor
 
 .section .rodata.pi4_launcher_manifest, "a", %progbits
+.balign 8
+pi4_launcher_font_alpha_5x7:
+    .word 0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001
+    .word 0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110
+    .word 0b01111, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b01111
+    .word 0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110
+    .word 0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111
+    .word 0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000
+    .word 0b01111, 0b10000, 0b10000, 0b10111, 0b10001, 0b10001, 0b01111
+    .word 0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001
+    .word 0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111
+    .word 0b00111, 0b00010, 0b00010, 0b00010, 0b10010, 0b10010, 0b01100
+    .word 0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001
+    .word 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111
+    .word 0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001
+    .word 0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001
+    .word 0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110
+    .word 0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000
+    .word 0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101
+    .word 0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001
+    .word 0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110
+    .word 0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100
+    .word 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110
+    .word 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b01010, 0b00100
+    .word 0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b11011, 0b10001
+    .word 0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001
+    .word 0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100
+    .word 0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111
+
+pi4_launcher_font_digit_5x7:
+    .word 0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110
+    .word 0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110
+    .word 0b11110, 0b00001, 0b00001, 0b01110, 0b10000, 0b10000, 0b11111
+    .word 0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110
+    .word 0b10010, 0b10010, 0b10010, 0b11111, 0b00010, 0b00010, 0b00010
+    .word 0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110
+    .word 0b01110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110
+    .word 0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000
+    .word 0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110
+    .word 0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110
+
 .balign 8
 .global pi4_launcher_manifest
 pi4_launcher_manifest:
@@ -3940,6 +4109,7 @@ pi4_launcher_manifest:
     .ascii "launcher_visible_hover_state=cursor-corner-brackets-on-padded-card-hitbox\n"
     .ascii "launcher_visible_launch_affordance=card-play-button-glyph-and-1-2-key-badges\n"
     .ascii "launcher_visible_keyboard_labels=1-2-key-badges-and-enter-button-label\n"
+    .ascii "launcher_visible_app_labels=manifest-name-rendered-with-aarch64-5x7-font\n"
     .ascii "launcher_visible_art_fallback=retro-mac-icon-well-with-large-real-asset-icons-and-readable-labels\n"
     .ascii "launcher_visible_layout=1280x720-topbar56-header1216x92-picker1216x504\n"
     .ascii "launcher_visible_card_rects=doom48,204,552,464;quake680,204,552,464\n"
@@ -3988,9 +4158,9 @@ pi4_launcher_state:
     .quad PI4_LAUNCHER_FRAME_STRIDE
     .quad PI4_LAUNCHER_FRAME_BYTES
     .quad PI4_LAUNCHER_SLOT_COUNT
-    .quad PI4_LAUNCHER_SLOT_DOOM
+    .quad PI4_LAUNCHER_SLOT_APP0
     .quad pi4_launcher_slot_table
-    .quad pi4_launcher_slot_doom_name
+    .quad pi4_launcher_slot_app0_name
     .quad 0
     .quad 0
     .quad 0
@@ -4000,9 +4170,9 @@ pi4_launcher_state:
     .quad 0
     .quad 0
     .quad 0
-    .quad PI4_LAUNCHER_SLOT_DOOM
+    .quad PI4_LAUNCHER_SLOT_APP0
     .quad pi4_launcher_slot_table
-    .quad pi4_launcher_slot_doom_name
+    .quad pi4_launcher_slot_app0_name
     .quad 0
     .quad pi4_launcher_exec_request
     .quad 0
@@ -4064,7 +4234,7 @@ pi4_launcher_active_slot:
     .quad PI4_LAUNCHER_SLOT_NONE
 .global pi4_launcher_hover_slot
 pi4_launcher_hover_slot:
-    .quad PI4_LAUNCHER_SLOT_DOOM
+    .quad PI4_LAUNCHER_SLOT_APP0
 .global pi4_launcher_failed_slot
 pi4_launcher_failed_slot:
     .quad PI4_LAUNCHER_SLOT_NONE
