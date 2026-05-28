@@ -28,17 +28,17 @@ PI4_PROCESS_STATUS_BAD="$BUILD_DIR/pi4_status_process_summary_bad.txt"
 PI4_MEMORY_STATUS_BAD="$BUILD_DIR/pi4_status_memory_summary_bad.txt"
 PI4_FINAL_GATES_LOCAL_QEMU_BAD="$BUILD_DIR/pi4_final_gates_local_qemu_audio_bad.txt"
 PI4_FINAL_GATES_LOCAL_QEMU_AUDIO_OK_BAD="$BUILD_DIR/pi4_final_gates_local_qemu_audio_ok_bad.txt"
-PI4_LOCAL_QEMU_PAYLOAD_GATES_OK="$BUILD_DIR/pi4_final_gates_local_qemu_payload_ok.txt"
-PI4_LOCAL_QEMU_PAYLOAD_GATES_FB_BAD="$BUILD_DIR/pi4_final_gates_local_qemu_payload_fb_bad.txt"
-PI4_LOCAL_QEMU_PAYLOAD_GATES_FB_UNCHANGED_BAD="$BUILD_DIR/pi4_final_gates_local_qemu_payload_fb_unchanged_bad.txt"
-PI4_LOCAL_QEMU_PAYLOAD_DOOM_OK="$BUILD_DIR/pi4_status_local_qemu_doom_payload_ok.txt"
-PI4_LOCAL_QEMU_PAYLOAD_QUAKE_OK="$BUILD_DIR/pi4_status_local_qemu_quake_payload_ok.txt"
-PI4_LOCAL_QEMU_PAYLOAD_DOOM_ASSET_BAD="$BUILD_DIR/pi4_status_local_qemu_doom_payload_asset_bad.txt"
-PI4_LOCAL_QEMU_PAYLOAD_QUAKE_ASSET_BAD="$BUILD_DIR/pi4_status_local_qemu_quake_payload_asset_bad.txt"
-PI4_LOCAL_QEMU_PAYLOAD_CLICK_BAD="$BUILD_DIR/pi4_status_local_qemu_payload_click_bad.txt"
-PI4_LOCAL_QEMU_PAYLOAD_FRAME_BAD="$BUILD_DIR/pi4_status_local_qemu_payload_frame_bad.txt"
-PI4_LOCAL_QEMU_PAYLOAD_PANIC_BAD="$BUILD_DIR/pi4_status_local_qemu_payload_panic_bad.txt"
-PI4_LOCAL_QEMU_PAYLOAD_SHUTDOWN_BAD="$BUILD_DIR/pi4_status_local_qemu_payload_shutdown_bad.txt"
+PI4_LOCAL_QEMU_APP_GATES_OK="$BUILD_DIR/pi4_final_gates_local_qemu_app_ok.txt"
+PI4_LOCAL_QEMU_APP_GATES_FB_BAD="$BUILD_DIR/pi4_final_gates_local_qemu_app_fb_bad.txt"
+PI4_LOCAL_QEMU_APP_GATES_FB_UNCHANGED_BAD="$BUILD_DIR/pi4_final_gates_local_qemu_app_fb_unchanged_bad.txt"
+PI4_LOCAL_QEMU_APP_DOOM_OK="$BUILD_DIR/pi4_status_local_qemu_doom_app_ok.txt"
+PI4_LOCAL_QEMU_APP_QUAKE_OK="$BUILD_DIR/pi4_status_local_qemu_quake_app_ok.txt"
+PI4_LOCAL_QEMU_APP_DOOM_ASSET_BAD="$BUILD_DIR/pi4_status_local_qemu_doom_app_asset_bad.txt"
+PI4_LOCAL_QEMU_APP_QUAKE_ASSET_BAD="$BUILD_DIR/pi4_status_local_qemu_quake_app_asset_bad.txt"
+PI4_LOCAL_QEMU_APP_CLICK_BAD="$BUILD_DIR/pi4_status_local_qemu_app_click_bad.txt"
+PI4_LOCAL_QEMU_APP_FRAME_BAD="$BUILD_DIR/pi4_status_local_qemu_app_frame_bad.txt"
+PI4_LOCAL_QEMU_APP_PANIC_BAD="$BUILD_DIR/pi4_status_local_qemu_app_panic_bad.txt"
+PI4_LOCAL_QEMU_APP_SHUTDOWN_BAD="$BUILD_DIR/pi4_status_local_qemu_app_shutdown_bad.txt"
 PI4_LOCAL_QEMU_DOOM_LAUNCH_ONLY_BAD="$ROOT/tests/fixtures/pi4_status_bad_local_qemu_doom_launch_only.txt"
 PI4_LOCAL_QEMU_QUAKE_LAUNCH_ONLY_BAD="$ROOT/tests/fixtures/pi4_status_bad_local_qemu_quake_launch_only.txt"
 PI4_FINAL_GATES_ASSETS_OK="$BUILD_DIR/pi4_final_gates_real_assets_ok.txt"
@@ -51,7 +51,9 @@ PI4_STORAGE_PAK_CLAIM_BAD="$BUILD_DIR/pi4_status_storage_pak_claim_bad.txt"
 PI4_STORAGE_WAD_PAK_OK="$BUILD_DIR/pi4_status_storage_wad_pak_ok.txt"
 PI4_STORAGE_WAD_ZERO_BAD="$BUILD_DIR/pi4_status_storage_zero_wad_bad.txt"
 PI4_STORAGE_PAK_ZERO_BAD="$BUILD_DIR/pi4_status_storage_zero_pak_bad.txt"
-PI4_EXEC_PAYLOAD_VFS_BAD="$BUILD_DIR/pi4_status_exec_payload_vfs_bad.txt"
+PI4_EXEC_APP_VFS_OK="$BUILD_DIR/pi4_status_exec_app_vfs_ok.txt"
+PI4_EXEC_APP_VFS_MISMATCH_BAD="$BUILD_DIR/pi4_status_exec_app_vfs_mismatch_bad.txt"
+PI4_EXEC_APP_VFS_MISSING_BAD="$BUILD_DIR/pi4_status_exec_app_vfs_missing_bad.txt"
 PI4_INPUT_LIVE_OK="$BUILD_DIR/pi4_status_input_live_ok.txt"
 PI4_INPUT_LIVE_SCRIPTED_BAD="$BUILD_DIR/pi4_status_input_live_scripted_bad.txt"
 PI4_QEMU_EARLY_FAKE="$BUILD_DIR/pi4_qemu_fake_status_after_input.sh"
@@ -158,7 +160,7 @@ else
 fi
 printf '%s\n' 'vibe-status arch=AARCH64 machine=PI4 image=PI4 artifact=BAD stale=before-input' >&3
 scripted_input="$(dd bs=1 count=2 <&4 2>/dev/null || true)"
-printf 'vibe-status arch=AARCH64 machine=PI4 image=PI4 artifact=OK post_input=OK scripted_input=%s path=/APPS/DOOM/APP.ELF pi4exec=OK pi4inputevt=0x1/0x0/0x0/0x1/0x0 pi4payloadvfs=0x0/0x464f4f4b pi4userfile=0x0000000000000007/0x4/0x0/0x1/0x3/0x4006b4/0x0/0x10/0x10/0x0000000044415749/0x1/0x1/0x1 fbchange=0x1/0x2/0x1/0x1 pi4runtime=OK panic=NONE shutdown=NONE\n' "$scripted_input" >&3
+printf 'vibe-status arch=AARCH64 machine=PI4 image=PI4 artifact=OK post_input=OK scripted_input=%s path=/APPS/DOOM/APP.ELF pi4exec=OK pi4inputevt=0x1/0x0/0x0/0x1/0x0 pi4appvfs=0xC/0x464f4f4b pi4userfile=0x0000000000000007/0x4/0x0/0x1/0x3/0x4006b4/0x0/0x10/0x10/0x0000000044415749/0x1/0x1/0x1 fbchange=0x1/0x2/0x1/0x1 pi4runtime=OK panic=NONE shutdown=NONE\n' "$scripted_input" >&3
 sleep 20
 EOF_QEMU_EARLY_FAKE
 chmod +x "$PI4_QEMU_EARLY_FAKE"
@@ -434,7 +436,7 @@ int main(int argc, char** argv)
         if (!wrote_status && saw_key_1 && saw_key_w && saw_mouse_move &&
             saw_mouse_down && saw_mouse_up) {
             write_all_fd(serial_fd,
-                "vibe-status arch=AARCH64 machine=PI4 image=PI4 artifact=OK hmp_input=OK path=/APPS/DOOM/APP.ELF upath=/APPS/DOOM/APP.ELF pi4exec=OK pi4inputevt=0x1/0x0/0x1/0x1/0x0 pi4payloadvfs=0x0/0x464f4f4b pi4userfile=0x0000000000000007/0x4/0x0/0x1/0x3/0x4006b4/0x0/0x10/0x10/0x0000000044415749/0x1/0x1/0x1 fbchange=0x1/0x2/0x1/0x1 pi4runtime=OK panic=NONE shutdown=NONE\n");
+                "vibe-status arch=AARCH64 machine=PI4 image=PI4 artifact=OK hmp_input=OK path=/APPS/DOOM/APP.ELF upath=/APPS/DOOM/APP.ELF pi4exec=OK pi4inputevt=0x1/0x0/0x1/0x1/0x0 pi4appvfs=0xC/0x464f4f4b pi4userfile=0x0000000000000007/0x4/0x0/0x1/0x3/0x4006b4/0x0/0x10/0x10/0x0000000044415749/0x1/0x1/0x1 fbchange=0x1/0x2/0x1/0x1 pi4runtime=OK panic=NONE shutdown=NONE\n");
             wrote_status = 1;
         }
     }
@@ -596,7 +598,7 @@ touch \
   "$GUARD_TMP/boot/pi4/storage.S" \
   "$GUARD_TMP/doom_port/pi4_engine_start.S" \
   "$GUARD_TMP/doom_port/pi4_start.S" \
-  "$GUARD_TMP/quake_port/pi4_payload.S" \
+  "$GUARD_TMP/quake_port/pi4_app.S" \
   "$GUARD_TMP/user/pi4_crt0.S" \
   "$GUARD_TMP/user/pi4_runtime.S" \
   "$GUARD_TMP/user/pi4_abi_probe.S" \
@@ -624,7 +626,7 @@ fi
 "$MAKE_CMD" -C "$ROOT" --no-print-directory x86-pi4-real-assets-isolation-check
 
 "$MAKE_CMD" -C "$ROOT" --no-print-directory -B -n ALLOW_LOCAL_VM=0 DOOM_WAD= image-builder-inspect > "$X86_IMAGE_BUILDER_DRYRUN"
-for root_elf in INIT.ELF ABIPROBE.ELF PAYLOAD0.ELF PAYLOAD1.ELF
+for root_elf in INIT.ELF ABIPROBE.ELF
 do
   if ! grep -F -q -- "--root-elf $root_elf=" "$X86_IMAGE_BUILDER_DRYRUN"; then
     echo "x86 image-builder dry run lost root ELF wiring for $root_elf" >&2
@@ -664,7 +666,7 @@ do
     exit 1
   fi
 done
-for root_elf in INIT.ELF ABIPROBE.ELF PAYLOAD0.ELF PAYLOAD1.ELF
+for root_elf in INIT.ELF ABIPROBE.ELF
 do
   if ! grep -F -q -- "--root-elf $root_elf=" "$X86_UEFI_IMAGE_BUILDER_DRYRUN"; then
     echo "x86 UEFI image-builder dry run lost root ELF wiring for $root_elf" >&2
@@ -692,24 +694,24 @@ done
 sed 's|doom=OK|quake=OK|' \
   "$ROOT/tests/fixtures/vm_status_krelhaz_ok.txt" > "$X86_DOOM_BAD"
 if "$CHECKER" --require-exec --require-preempt "$X86_DOOM_BAD" >/tmp/vibe-status-check-x86-doom-bad.out 2>&1; then
-  echo "vibe_status_check accepted PAYLOAD0.ELF status without doom=OK" >&2
+  echo "vibe_status_check accepted Doom app status without doom=OK" >&2
   cat /tmp/vibe-status-check-x86-doom-bad.out >&2
   exit 1
 fi
-sed 's|path=PAYLOAD0\.ELF|path=PAYLOAD1.ELF|; s|doom=OK|quake=OK|; s|pkind=00000002:00000003|pkind=00000005:00000003|' \
+sed 's|path=/APPS/DOOM/APP\.ELF|path=/APPS/QUAKE/APP.ELF|; s|doom=OK|quake=OK|; s|pkind=00000002:00000003|pkind=00000005:00000003|' \
   "$ROOT/tests/fixtures/vm_status_krelhaz_ok.txt" > "$X86_QUAKE_OK"
 "$CHECKER" --require-exec --require-preempt "$X86_QUAKE_OK"
-sed 's|path=PAYLOAD0\.ELF|path=PAYLOAD1.ELF|; s|doom=OK|quake=OK|' \
+sed 's|path=/APPS/DOOM/APP\.ELF|path=/APPS/QUAKE/APP.ELF|; s|doom=OK|quake=OK|' \
   "$ROOT/tests/fixtures/vm_status_krelhaz_ok.txt" > "$X86_QUAKE_KIND_BAD"
 if "$CHECKER" --require-exec --require-preempt "$X86_QUAKE_KIND_BAD" >/tmp/vibe-status-check-x86-quake-kind-bad.out 2>&1; then
-  echo "vibe_status_check accepted PAYLOAD1.ELF status with the PAYLOAD0 large-payload kind" >&2
+  echo "vibe_status_check accepted Quake app status with the Doom app process kind" >&2
   cat /tmp/vibe-status-check-x86-quake-kind-bad.out >&2
   exit 1
 fi
-sed 's|path=PAYLOAD0\.ELF|path=PAYLOAD1.ELF|' \
+sed 's|path=/APPS/DOOM/APP\.ELF|path=/APPS/QUAKE/APP.ELF|' \
   "$ROOT/tests/fixtures/vm_status_krelhaz_ok.txt" > "$X86_QUAKE_BAD"
 if "$CHECKER" --require-exec --require-preempt "$X86_QUAKE_BAD" >/tmp/vibe-status-check-x86-quake-bad.out 2>&1; then
-  echo "vibe_status_check accepted PAYLOAD1.ELF status without quake=OK" >&2
+  echo "vibe_status_check accepted Quake app status without quake=OK" >&2
   cat /tmp/vibe-status-check-x86-quake-bad.out >&2
   exit 1
 fi
@@ -723,11 +725,11 @@ if [ "$SCOPE" = "all" ]; then
 "$PI4_EVIDENCE" "$PI4_HW_OK"
 "$MAKE_CMD" -C "$ROOT" --no-print-directory pi4-launcher-state-manifest-check
 cp "$PI4_HW_OK" "$PI4_CLAIM_OK"
-if ! grep -q 'payload_launch_claim=' "$PI4_CLAIM_OK"; then
+if ! grep -q 'app_launch_claim=' "$PI4_CLAIM_OK"; then
   awk '
     BEGIN { done = 0 }
     /^vibe-status([ \t]|$)/ && !done {
-      print $0 " payload_launch_claim=none"
+      print $0 " app_launch_claim=none"
       done = 1
       next
     }
@@ -738,13 +740,13 @@ if ! grep -q 'payload_launch_claim=' "$PI4_CLAIM_OK"; then
 fi
 "$CHECKER" "$PI4_CLAIM_OK"
 "$PI4_EVIDENCE" "$PI4_CLAIM_OK"
-if grep -q 'payload_launch_claim=' "$PI4_HW_OK"; then
-  sed 's/payload_launch_claim=[^[:space:]]*/payload_launch_claim=doom/' "$PI4_HW_OK" > "$PI4_CLAIM_BAD"
+if grep -q 'app_launch_claim=' "$PI4_HW_OK"; then
+  sed 's/app_launch_claim=[^[:space:]]*/app_launch_claim=doom/' "$PI4_HW_OK" > "$PI4_CLAIM_BAD"
 else
   awk '
     BEGIN { done = 0 }
     /^vibe-status([ \t]|$)/ && !done {
-      print $0 " payload_launch_claim=doom"
+      print $0 " app_launch_claim=doom"
       done = 1
       next
     }
@@ -753,12 +755,12 @@ else
   ' "$PI4_HW_OK" > "$PI4_CLAIM_BAD"
 fi
 if "$CHECKER" "$PI4_CLAIM_BAD" >/tmp/vibe-status-check-launcher-claim-bad.out 2>&1; then
-  echo "vibe_status_check accepted a Pi 4 payload launch overclaim" >&2
+  echo "vibe_status_check accepted a Pi 4 app launch overclaim" >&2
   cat /tmp/vibe-status-check-launcher-claim-bad.out >&2
   exit 1
 fi
 if "$PI4_EVIDENCE" "$PI4_CLAIM_BAD" >/tmp/pi4-status-evidence-launcher-claim-bad.out 2>&1; then
-  echo "pi4_status_evidence accepted a Pi 4 payload launch overclaim" >&2
+  echo "pi4_status_evidence accepted a Pi 4 app launch overclaim" >&2
   cat /tmp/pi4-status-evidence-launcher-claim-bad.out >&2
   exit 1
 fi
@@ -1010,7 +1012,7 @@ if "$CHECKER" --pi4-final-gates "$PI4_FINAL_GATES_LOCAL_QEMU_AUDIO_OK_BAD" "$PI4
   cat /tmp/vibe-status-check-final-gates-local-qemu-audio-ok-bad.out >&2
   exit 1
 fi
-cat > "$PI4_LOCAL_QEMU_PAYLOAD_GATES_OK" <<EOF_LOCAL_QEMU_PAYLOAD_GATES_OK
+cat > "$PI4_LOCAL_QEMU_APP_GATES_OK" <<EOF_LOCAL_QEMU_APP_GATES_OK
 storage=wait
 input=green
 graphics=green
@@ -1034,9 +1036,9 @@ quake_framebuffer_frame0_hash=3333333333333333
 quake_framebuffer_frame1_hash=4444444444444444
 launcher_doom_exec=green
 launcher_quake_exec=green
-app_launch_status_fields=pi4exec,pi4execreq,pi4payloadvfs,path,upath,pi4inputevt,fbpresent,fbchange
-EOF_LOCAL_QEMU_PAYLOAD_GATES_OK
-cat > "$PI4_LOCAL_QEMU_PAYLOAD_DOOM_OK" <<EOF_LOCAL_QEMU_DOOM_OK
+app_launch_status_fields=pi4exec,pi4execreq,pi4appreq,pi4appvfs,path,upath,pi4inputevt,fbpresent,fbchange
+EOF_LOCAL_QEMU_APP_GATES_OK
+cat > "$PI4_LOCAL_QEMU_APP_DOOM_OK" <<EOF_LOCAL_QEMU_DOOM_OK
 vibe-status arch=AARCH64 machine=PI4 image=PI4
 pi4sd=WAIT pi4fat=WAIT pi4vfs=WAIT
 pi4audio=WAIT pi4audiohw=NONE pi4audiommio=NONE pi4audiomailbox=WAIT pi4audiocap=NONE pi4audioq=NONE pi4audioabi=NONE
@@ -1046,13 +1048,14 @@ pi4mem=OK pi4kmap=0000000000080000/00000000000B0000/0000000000098000/00000000000
 pi4svc=OK pi4uabi=OK pi4elf=OK pi4elfsrc=VFS exec=OK path=/APPS/DOOM/APP.ELF uexec=OK upath=/APPS/DOOM/APP.ELF pi4elfentry=0000000000084000 pi4elfphdr=0000000000084040/0000000000000038/0000000000000001 pi4elfload=0000000000084000/0000000000084000/0000000000002000/0000000000002000/0000000000000005/0000000000001000 uentry=0000000000084000 execsys=0000000000000001/0000000000000001 pi4ustack=00000000000A3000/00000000000A4000/0000000000001000/0000000000000001 execmap=0000000000084000/0000000000002000/0000000000000005 pstat=0000000000000002/0000000000000003/0000000000000002/0000000000000002/0000000000000001/0000000000000001 procpool=0000000000000002/0000000000000004 pidseq=0000000000000002/0000000000000003 pi4runtime=OK
 preempt=0000000000000001 pirq=0000000000000001 pctx=0000000000000001 pfrom=0000000000000002 pto=0000000000000001 pi4preempt=OK pi4ctx=00000000000A5100/0000000000000040/0000000000000001/0000000000000001/0000000000000002/0000000000084000/00000000000A3000/00000000000003C0/0000000000000003 pi4sched=0000000000000001/0000000000000001/0000000000000000/0000000000000001/0000000000000001/0000000000000002
 pi4exec=OK pi4execreq=0000000000000010/0000000000086000/0000000000086080/0000000000000000/0000000000000000/0000000000000001
-pi4payloadvfs=0000000000000000/00000000464F4F4B/0000000000000001/0000000000000020/0000000000000002/0000000000000001/0000000000000200/0000000000000001/0000000000000001/0000000000000400
+pi4appreq=0000000000086000/0000000000000001/0000000000000020/0000000000086080/0000000000000012/000000000000000C
+pi4appvfs=000000000000000C/00000000464F4F4B/0000000000000001/0000000000000020/0000000000000002/0000000000000001/0000000000000200/0000000000000001/0000000000000001/0000000000000400
 pi4userfile=0000000000000007/0000000000000004/0000000000000000/0000000000000001/0000000000000003/0000000000001000/0000000000000000/0000000000000010/0000000000000010/0000000044415749/0000000000000001/0000000000000001/0000000000000001
 pi4fb=OK fbpresent=0000000000000002/0000000000000010/00000000CAFEBABE/00000000FACEB00C fbchange=0000000000000000/00000000FACEB00C/0000000000000001/0000000000000001
 pi4inputevt=0000000000000001/0000000000000000/0000000000000001/0000000000000001/0000000000000000
 panic=NONE shutdown=NONE
 EOF_LOCAL_QEMU_DOOM_OK
-cat > "$PI4_LOCAL_QEMU_PAYLOAD_QUAKE_OK" <<EOF_LOCAL_QEMU_QUAKE_OK
+cat > "$PI4_LOCAL_QEMU_APP_QUAKE_OK" <<EOF_LOCAL_QEMU_QUAKE_OK
 vibe-status arch=AARCH64 machine=PI4 image=PI4
 pi4sd=WAIT pi4fat=WAIT pi4vfs=WAIT
 pi4audio=WAIT pi4audiohw=NONE pi4audiommio=NONE pi4audiomailbox=WAIT pi4audiocap=NONE pi4audioq=NONE pi4audioabi=NONE
@@ -1062,74 +1065,75 @@ pi4mem=OK pi4kmap=0000000000080000/00000000000B0000/0000000000098000/00000000000
 pi4svc=OK pi4uabi=OK pi4elf=OK pi4elfsrc=VFS exec=OK path=/APPS/QUAKE/APP.ELF uexec=OK upath=/APPS/QUAKE/APP.ELF pi4elfentry=0000000000084000 pi4elfphdr=0000000000084040/0000000000000038/0000000000000001 pi4elfload=0000000000084000/0000000000084000/0000000000002000/0000000000002000/0000000000000005/0000000000001000 uentry=0000000000084000 execsys=0000000000000001/0000000000000001 pi4ustack=00000000000A3000/00000000000A4000/0000000000001000/0000000000000001 execmap=0000000000084000/0000000000002000/0000000000000005 pstat=0000000000000002/0000000000000003/0000000000000002/0000000000000002/0000000000000001/0000000000000001 procpool=0000000000000002/0000000000000004 pidseq=0000000000000002/0000000000000003 pi4runtime=OK
 preempt=0000000000000001 pirq=0000000000000001 pctx=0000000000000001 pfrom=0000000000000002 pto=0000000000000001 pi4preempt=OK pi4ctx=00000000000A5100/0000000000000040/0000000000000001/0000000000000001/0000000000000002/0000000000084000/00000000000A3000/00000000000003C0/0000000000000003 pi4sched=0000000000000001/0000000000000001/0000000000000000/0000000000000001/0000000000000001/0000000000000002
 pi4exec=OK pi4execreq=0000000000000010/0000000000086000/0000000000086080/0000000000000000/0000000000000000/0000000000000001
-pi4payloadvfs=0000000000000001/00000000464F4F4B/0000000000000001/0000000000000020/0000000000000002/0000000000000001/0000000000000200/0000000000000001/0000000000000001/0000000000000400
+pi4appreq=0000000000086000/0000000000000001/0000000000000020/0000000000086080/0000000000000013/000000000000000D
+pi4appvfs=000000000000000D/00000000464F4F4B/0000000000000001/0000000000000020/0000000000000002/0000000000000001/0000000000000200/0000000000000001/0000000000000001/0000000000000400
 pi4userfile=0000000000000007/0000000000000004/0000000000000001/0000000000000002/0000000000000004/0000000000200000/0000000000000000/0000000000000010/0000000000000010/000000004B434150/0000000000000001/0000000000000001/0000000000000001
 pi4fb=OK fbpresent=0000000000000002/0000000000000010/00000000CAFEBABE/00000000FACEB00C fbchange=0000000000000000/00000000FACEB00C/0000000000000001/0000000000000001
 pi4inputevt=0000000000000000/0000000000000001/0000000000000001/0000000000000000/0000000000000001
 panic=NONE shutdown=NONE
 EOF_LOCAL_QEMU_QUAKE_OK
-"$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_PAYLOAD_GATES_OK" "$PI4_LOCAL_QEMU_PAYLOAD_DOOM_OK" "$PI4_LOCAL_QEMU_PAYLOAD_QUAKE_OK"
+"$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_APP_GATES_OK" "$PI4_LOCAL_QEMU_APP_DOOM_OK" "$PI4_LOCAL_QEMU_APP_QUAKE_OK"
 sed '/^framebuffer_artifact=/d; /^framebuffer_artifact_source=/d; /^doom_framebuffer_/d; /^quake_framebuffer_/d' \
-  "$PI4_LOCAL_QEMU_PAYLOAD_GATES_OK" > "$PI4_LOCAL_QEMU_PAYLOAD_GATES_FB_BAD"
-if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_PAYLOAD_GATES_FB_BAD" "$PI4_LOCAL_QEMU_PAYLOAD_DOOM_OK" "$PI4_LOCAL_QEMU_PAYLOAD_QUAKE_OK" >/tmp/vibe-status-check-final-gates-framebuffer-bad.out 2>&1; then
+  "$PI4_LOCAL_QEMU_APP_GATES_OK" > "$PI4_LOCAL_QEMU_APP_GATES_FB_BAD"
+if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_APP_GATES_FB_BAD" "$PI4_LOCAL_QEMU_APP_DOOM_OK" "$PI4_LOCAL_QEMU_APP_QUAKE_OK" >/tmp/vibe-status-check-final-gates-framebuffer-bad.out 2>&1; then
   echo "vibe_status_check accepted local QEMU graphics=green final gates without framebuffer hash artifacts" >&2
   cat /tmp/vibe-status-check-final-gates-framebuffer-bad.out >&2
   exit 1
 fi
 sed 's/doom_framebuffer_frame1_hash=2222222222222222/doom_framebuffer_frame1_hash=1111111111111111/' \
-  "$PI4_LOCAL_QEMU_PAYLOAD_GATES_OK" > "$PI4_LOCAL_QEMU_PAYLOAD_GATES_FB_UNCHANGED_BAD"
-if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_PAYLOAD_GATES_FB_UNCHANGED_BAD" "$PI4_LOCAL_QEMU_PAYLOAD_DOOM_OK" "$PI4_LOCAL_QEMU_PAYLOAD_QUAKE_OK" >/tmp/vibe-status-check-final-gates-framebuffer-unchanged-bad.out 2>&1; then
+  "$PI4_LOCAL_QEMU_APP_GATES_OK" > "$PI4_LOCAL_QEMU_APP_GATES_FB_UNCHANGED_BAD"
+if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_APP_GATES_FB_UNCHANGED_BAD" "$PI4_LOCAL_QEMU_APP_DOOM_OK" "$PI4_LOCAL_QEMU_APP_QUAKE_OK" >/tmp/vibe-status-check-final-gates-framebuffer-unchanged-bad.out 2>&1; then
   echo "vibe_status_check accepted unchanged local QEMU framebuffer artifact hashes" >&2
   cat /tmp/vibe-status-check-final-gates-framebuffer-unchanged-bad.out >&2
   exit 1
 fi
-if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_PAYLOAD_GATES_OK" "$PI4_LOCAL_QEMU_DOOM_LAUNCH_ONLY_BAD" "$PI4_LOCAL_QEMU_PAYLOAD_QUAKE_OK" >/tmp/vibe-status-check-final-gates-doom-launch-only-bad.out 2>&1; then
-  echo "vibe_status_check accepted Pi 4 Doom local QEMU payload proof from ELF launch alone" >&2
+if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_APP_GATES_OK" "$PI4_LOCAL_QEMU_DOOM_LAUNCH_ONLY_BAD" "$PI4_LOCAL_QEMU_APP_QUAKE_OK" >/tmp/vibe-status-check-final-gates-doom-launch-only-bad.out 2>&1; then
+  echo "vibe_status_check accepted Pi 4 Doom local QEMU app proof from ELF launch alone" >&2
   cat /tmp/vibe-status-check-final-gates-doom-launch-only-bad.out >&2
   exit 1
 fi
-if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_PAYLOAD_GATES_OK" "$PI4_LOCAL_QEMU_PAYLOAD_DOOM_OK" "$PI4_LOCAL_QEMU_QUAKE_LAUNCH_ONLY_BAD" >/tmp/vibe-status-check-final-gates-quake-launch-only-bad.out 2>&1; then
-  echo "vibe_status_check accepted Pi 4 Quake local QEMU payload proof without input progress" >&2
+if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_APP_GATES_OK" "$PI4_LOCAL_QEMU_APP_DOOM_OK" "$PI4_LOCAL_QEMU_QUAKE_LAUNCH_ONLY_BAD" >/tmp/vibe-status-check-final-gates-quake-launch-only-bad.out 2>&1; then
+  echo "vibe_status_check accepted Pi 4 Quake local QEMU app proof without input progress" >&2
   cat /tmp/vibe-status-check-final-gates-quake-launch-only-bad.out >&2
   exit 1
 fi
 sed 's|pi4inputevt=0000000000000001/0000000000000000/0000000000000001/0000000000000001/0000000000000000|pi4inputevt=0000000000000001/0000000000000000/0000000000000000/0000000000000001/0000000000000000|' \
-  "$PI4_LOCAL_QEMU_PAYLOAD_DOOM_OK" > "$PI4_LOCAL_QEMU_PAYLOAD_CLICK_BAD"
-if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_PAYLOAD_GATES_OK" "$PI4_LOCAL_QEMU_PAYLOAD_CLICK_BAD" "$PI4_LOCAL_QEMU_PAYLOAD_QUAKE_OK" >/tmp/vibe-status-check-final-gates-click-bad.out 2>&1; then
-  echo "vibe_status_check accepted Pi 4 payload gameplay proof without mouse/click launcher input" >&2
+  "$PI4_LOCAL_QEMU_APP_DOOM_OK" > "$PI4_LOCAL_QEMU_APP_CLICK_BAD"
+if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_APP_GATES_OK" "$PI4_LOCAL_QEMU_APP_CLICK_BAD" "$PI4_LOCAL_QEMU_APP_QUAKE_OK" >/tmp/vibe-status-check-final-gates-click-bad.out 2>&1; then
+  echo "vibe_status_check accepted Pi 4 app gameplay proof without mouse/click launcher input" >&2
   cat /tmp/vibe-status-check-final-gates-click-bad.out >&2
   exit 1
 fi
-sed '/^pi4userfile=/d' "$PI4_LOCAL_QEMU_PAYLOAD_DOOM_OK" > "$PI4_LOCAL_QEMU_PAYLOAD_DOOM_ASSET_BAD"
-if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_PAYLOAD_GATES_OK" "$PI4_LOCAL_QEMU_PAYLOAD_DOOM_ASSET_BAD" "$PI4_LOCAL_QEMU_PAYLOAD_QUAKE_OK" >/tmp/vibe-status-check-final-gates-doom-asset-bad.out 2>&1; then
-  echo "vibe_status_check accepted Pi 4 Doom payload gameplay proof without real WAD VFS read evidence" >&2
+sed '/^pi4userfile=/d' "$PI4_LOCAL_QEMU_APP_DOOM_OK" > "$PI4_LOCAL_QEMU_APP_DOOM_ASSET_BAD"
+if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_APP_GATES_OK" "$PI4_LOCAL_QEMU_APP_DOOM_ASSET_BAD" "$PI4_LOCAL_QEMU_APP_QUAKE_OK" >/tmp/vibe-status-check-final-gates-doom-asset-bad.out 2>&1; then
+  echo "vibe_status_check accepted Pi 4 Doom app gameplay proof without real WAD VFS read evidence" >&2
   cat /tmp/vibe-status-check-final-gates-doom-asset-bad.out >&2
   exit 1
 fi
-sed '/^pi4userfile=/d' "$PI4_LOCAL_QEMU_PAYLOAD_QUAKE_OK" > "$PI4_LOCAL_QEMU_PAYLOAD_QUAKE_ASSET_BAD"
-if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_PAYLOAD_GATES_OK" "$PI4_LOCAL_QEMU_PAYLOAD_DOOM_OK" "$PI4_LOCAL_QEMU_PAYLOAD_QUAKE_ASSET_BAD" >/tmp/vibe-status-check-final-gates-quake-asset-bad.out 2>&1; then
-  echo "vibe_status_check accepted Pi 4 Quake payload gameplay proof without real PAK VFS read evidence" >&2
+sed '/^pi4userfile=/d' "$PI4_LOCAL_QEMU_APP_QUAKE_OK" > "$PI4_LOCAL_QEMU_APP_QUAKE_ASSET_BAD"
+if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_APP_GATES_OK" "$PI4_LOCAL_QEMU_APP_DOOM_OK" "$PI4_LOCAL_QEMU_APP_QUAKE_ASSET_BAD" >/tmp/vibe-status-check-final-gates-quake-asset-bad.out 2>&1; then
+  echo "vibe_status_check accepted Pi 4 Quake app gameplay proof without real PAK VFS read evidence" >&2
   cat /tmp/vibe-status-check-final-gates-quake-asset-bad.out >&2
   exit 1
 fi
 sed 's|fbchange=0000000000000000/00000000FACEB00C/0000000000000001/0000000000000001|fbchange=00000000FACEB00C/00000000FACEB00C/0000000000000001/0000000000000001|' \
-  "$PI4_LOCAL_QEMU_PAYLOAD_DOOM_OK" > "$PI4_LOCAL_QEMU_PAYLOAD_FRAME_BAD"
-if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_PAYLOAD_GATES_OK" "$PI4_LOCAL_QEMU_PAYLOAD_FRAME_BAD" "$PI4_LOCAL_QEMU_PAYLOAD_QUAKE_OK" >/tmp/vibe-status-check-final-gates-frame-progress-bad.out 2>&1; then
-  echo "vibe_status_check accepted Pi 4 payload gameplay proof without rendered frame progress" >&2
+  "$PI4_LOCAL_QEMU_APP_DOOM_OK" > "$PI4_LOCAL_QEMU_APP_FRAME_BAD"
+if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_APP_GATES_OK" "$PI4_LOCAL_QEMU_APP_FRAME_BAD" "$PI4_LOCAL_QEMU_APP_QUAKE_OK" >/tmp/vibe-status-check-final-gates-frame-progress-bad.out 2>&1; then
+  echo "vibe_status_check accepted Pi 4 app gameplay proof without rendered frame progress" >&2
   cat /tmp/vibe-status-check-final-gates-frame-progress-bad.out >&2
   exit 1
 fi
 sed 's|panic=NONE shutdown=NONE|panic=ASSERT shutdown=NONE|' \
-  "$PI4_LOCAL_QEMU_PAYLOAD_DOOM_OK" > "$PI4_LOCAL_QEMU_PAYLOAD_PANIC_BAD"
-if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_PAYLOAD_GATES_OK" "$PI4_LOCAL_QEMU_PAYLOAD_PANIC_BAD" "$PI4_LOCAL_QEMU_PAYLOAD_QUAKE_OK" >/tmp/vibe-status-check-final-gates-panic-bad.out 2>&1; then
-  echo "vibe_status_check accepted Pi 4 payload gameplay proof with panic!=NONE" >&2
+  "$PI4_LOCAL_QEMU_APP_DOOM_OK" > "$PI4_LOCAL_QEMU_APP_PANIC_BAD"
+if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_APP_GATES_OK" "$PI4_LOCAL_QEMU_APP_PANIC_BAD" "$PI4_LOCAL_QEMU_APP_QUAKE_OK" >/tmp/vibe-status-check-final-gates-panic-bad.out 2>&1; then
+  echo "vibe_status_check accepted Pi 4 app gameplay proof with panic!=NONE" >&2
   cat /tmp/vibe-status-check-final-gates-panic-bad.out >&2
   exit 1
 fi
 sed 's|panic=NONE shutdown=NONE|panic=NONE shutdown=REBOOT|' \
-  "$PI4_LOCAL_QEMU_PAYLOAD_DOOM_OK" > "$PI4_LOCAL_QEMU_PAYLOAD_SHUTDOWN_BAD"
-if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_PAYLOAD_GATES_OK" "$PI4_LOCAL_QEMU_PAYLOAD_SHUTDOWN_BAD" "$PI4_LOCAL_QEMU_PAYLOAD_QUAKE_OK" >/tmp/vibe-status-check-final-gates-shutdown-bad.out 2>&1; then
-  echo "vibe_status_check accepted Pi 4 payload gameplay proof with shutdown!=NONE" >&2
+  "$PI4_LOCAL_QEMU_APP_DOOM_OK" > "$PI4_LOCAL_QEMU_APP_SHUTDOWN_BAD"
+if "$CHECKER" --pi4-final-gates "$PI4_LOCAL_QEMU_APP_GATES_OK" "$PI4_LOCAL_QEMU_APP_SHUTDOWN_BAD" "$PI4_LOCAL_QEMU_APP_QUAKE_OK" >/tmp/vibe-status-check-final-gates-shutdown-bad.out 2>&1; then
+  echo "vibe_status_check accepted Pi 4 app gameplay proof with shutdown!=NONE" >&2
   cat /tmp/vibe-status-check-final-gates-shutdown-bad.out >&2
   exit 1
 fi
@@ -1260,23 +1264,43 @@ if "$PI4_EVIDENCE" "$PI4_STORAGE_PAK_CLAIM_BAD" >/tmp/pi4-status-evidence-storag
   exit 1
 fi
 awk '
-  BEGIN { done = 0 }
+  BEGIN {
+    done = 0
+    appreq = "0000000000086000/0000000000000001/0000000000000020/0000000000086080/0000000000000012/000000000000000C"
+    appvfs = "000000000000000C/00000000464F4F4B/0000000000002000/0000000000000020/0000000000000003/0000000000010000/0000000000000908/0000000000000080/0000000000010000/0000000000000080"
+  }
   /^vibe-status([ \t]|$)/ && !done {
-    print $0 " pi4exec=OK pi4execreq=0000000000000010/0000000000086000/0000000000086080/0000000000000000/0000000000000000/0000000000000001 pi4payloadreq=0000000000086000/0000000000000001/0000000000000020/0000000000000000/0000000000086100/0000000000000000"
+    for (i = 1; i <= NF; i++) {
+      if ($i == "path=INIT.ELF") {
+        $i = "path=/APPS/DOOM/APP.ELF"
+      } else if ($i == "upath=INIT.ELF") {
+        $i = "upath=/APPS/DOOM/APP.ELF"
+      }
+    }
+    print $0 " pi4exec=OK pi4execreq=0000000000000010/0000000000086000/0000000000086080/0000000000000000/0000000000000000/0000000000000001 pi4appreq=" appreq " pi4appvfs=" appvfs
     done = 1
     next
   }
   { print }
   END { if (!done) exit 1 }
-' "$PI4_HW_OK" > "$PI4_EXEC_PAYLOAD_VFS_BAD"
-if "$CHECKER" "$PI4_EXEC_PAYLOAD_VFS_BAD" >/tmp/vibe-status-check-exec-payload-vfs-bad.out 2>&1; then
-  echo "vibe_status_check accepted Pi 4 exec OK without a payload ELF VFS read" >&2
-  cat /tmp/vibe-status-check-exec-payload-vfs-bad.out >&2
+' "$PI4_HW_OK" > "$PI4_EXEC_APP_VFS_OK"
+"$CHECKER" "$PI4_EXEC_APP_VFS_OK"
+sed 's|pi4appvfs=[^[:space:]]*|pi4appvfs=000000000000000D/00000000464F4F4B/0000000000002000/0000000000000020/0000000000000003/0000000000010000/0000000000000908/0000000000000080/0000000000010000/0000000000000080|' \
+  "$PI4_EXEC_APP_VFS_OK" > "$PI4_EXEC_APP_VFS_MISMATCH_BAD"
+if "$CHECKER" "$PI4_EXEC_APP_VFS_MISMATCH_BAD" >/tmp/vibe-status-check-exec-app-vfs-mismatch-bad.out 2>&1; then
+  echo "vibe_status_check accepted Pi 4 /APPS launch proof with mismatched app VFS evidence" >&2
+  cat /tmp/vibe-status-check-exec-app-vfs-mismatch-bad.out >&2
   exit 1
 fi
-if "$PI4_EVIDENCE" "$PI4_EXEC_PAYLOAD_VFS_BAD" >/tmp/pi4-status-evidence-exec-payload-vfs-bad.out 2>&1; then
-  echo "pi4_status_evidence accepted Pi 4 exec OK without a payload ELF VFS read" >&2
-  cat /tmp/pi4-status-evidence-exec-payload-vfs-bad.out >&2
+sed 's| pi4appvfs=[^[:space:]]*||' "$PI4_EXEC_APP_VFS_OK" > "$PI4_EXEC_APP_VFS_MISSING_BAD"
+if "$CHECKER" "$PI4_EXEC_APP_VFS_MISSING_BAD" >/tmp/vibe-status-check-exec-app-vfs-missing-bad.out 2>&1; then
+  echo "vibe_status_check accepted Pi 4 exec OK without an app ELF VFS read" >&2
+  cat /tmp/vibe-status-check-exec-app-vfs-missing-bad.out >&2
+  exit 1
+fi
+if "$PI4_EVIDENCE" "$PI4_EXEC_APP_VFS_MISSING_BAD" >/tmp/pi4-status-evidence-exec-app-vfs-missing-bad.out 2>&1; then
+  echo "pi4_status_evidence accepted Pi 4 exec OK without an app ELF VFS read" >&2
+  cat /tmp/pi4-status-evidence-exec-app-vfs-missing-bad.out >&2
   exit 1
 fi
 awk '
@@ -1566,8 +1590,9 @@ rm -f /tmp/vibe-status-check-single-artifact-bad.out
 rm -f /tmp/vibe-status-check-storage-missing-wad-bad.out
 rm -f /tmp/vibe-status-check-storage-overclaim-bad.out
 rm -f /tmp/vibe-status-check-storage-pak-claim-bad.out
-rm -f /tmp/pi4-status-evidence-exec-payload-vfs-bad.out
-rm -f /tmp/vibe-status-check-exec-payload-vfs-bad.out
+rm -f /tmp/pi4-status-evidence-exec-app-vfs-missing-bad.out
+rm -f /tmp/vibe-status-check-exec-app-vfs-mismatch-bad.out
+rm -f /tmp/vibe-status-check-exec-app-vfs-missing-bad.out
 rm -f /tmp/vibe-status-check-x86-doom-bad.out
 rm -f /tmp/vibe-status-check-x86-quake-bad.out
 rm -f /tmp/vibe-status-check-x86-quake-kind-bad.out

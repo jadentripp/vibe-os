@@ -48,9 +48,9 @@ pi4_doom_engine_start:
 .global pi4_doom_engine_manifest
 pi4_doom_engine_manifest:
     .asciz "schema=vibe-os-pi4-doom-engine-bridge-v1"
-    .asciz "payload_file=PAYLOAD0.ELF"
-    .asciz "payload_kind=doom"
-    .asciz "payload_arch=AARCH64"
+    .asciz "app_exec=/APPS/DOOM/APP.ELF"
+    .asciz "app_kind=doom"
+    .asciz "app_arch=AARCH64"
     .asciz "doom_source=third_party/doom/linuxdoom-1.10"
     .asciz "doom_engine_link=linked-runtime-progress-real-frame-input"
     .asciz "doom_wad_access=pi4-file-open-size-chunked-runtime-read-abi-input-polled-counters"
@@ -58,12 +58,12 @@ pi4_doom_engine_manifest:
     .asciz "doom_load_input_claim=keyboard-mouse-posted-during-runtime-wad-read"
     .asciz "doom_present_claim=every-engine-finish-update-with-frame-input-read-status"
     .asciz "doom_audio_claim=pcm-abi-probe-gated-no-sfx-mix-claim"
-    .asciz "payload_launch_claim=engine-entry-visible-progress"
-    .asciz "vibe-os pi4 PAYLOAD0.ELF original Doom engine bridge with runtime WAD reads"
+    .asciz "app_launch_claim=engine-entry-visible-progress"
+    .asciz "vibe-os pi4 /APPS/DOOM/APP.ELF original Doom engine bridge with runtime WAD reads"
 
 .balign 8
 pi4_doom_engine_arg0:
-    .asciz "PAYLOAD0.ELF"
+    .asciz "/APPS/DOOM/APP.ELF"
 pi4_doom_engine_arg_warp:
     .asciz "-warp"
 pi4_doom_engine_arg_episode:

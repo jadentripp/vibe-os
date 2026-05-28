@@ -173,13 +173,13 @@ pi4_abi_probe_present:
 pi4_abi_probe_exec_request:
     .quad PI4_VIBE_EXEC_REQUEST_ABI_VERSION
     .quad PI4_VIBE_EXEC_REQUEST_BYTES
-    .quad PI4_VIBE_PAYLOAD_SLOT0
-    .quad pi4_abi_probe_payload0_path
+    .quad PI4_VIBE_EXEC_REQUEST_COMPAT_NONE
+    .quad pi4_abi_probe_doom_app_path
 pi4_abi_probe_exec_argv:
-    .quad pi4_abi_probe_payload0_path
+    .quad pi4_abi_probe_doom_app_path
     .quad 0
-pi4_abi_probe_payload0_path:
-    .asciz "PAYLOAD0.ELF"
+pi4_abi_probe_doom_app_path:
+    .asciz "/APPS/DOOM/APP.ELF"
     .balign 8
 
 .section .data.pi4_abi_probe_status, "aw", %progbits

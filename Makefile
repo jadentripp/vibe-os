@@ -161,7 +161,7 @@ PI4_BOOT_ASM_SRCS := boot/pi4/start.S boot/pi4/input.S boot/pi4/storage.S
 PI4_USER_ASM_SRCS := user/pi4_crt0.S user/pi4_runtime.S user/pi4_abi_probe.S user/pi4_launcher.S user/pi4_launcher_assets.S
 PI4_DOOM_OPTIONAL_ASM_SRCS := $(wildcard doom_port/pi4_engine_start.S)
 PI4_DOOM_ASM_SRCS := doom_port/pi4_start.S $(PI4_DOOM_OPTIONAL_ASM_SRCS)
-PI4_QUAKE_ASM_SRCS := quake_port/pi4_payload.S
+PI4_QUAKE_ASM_SRCS := quake_port/pi4_app.S
 PI4_ASM_SRCS := $(PI4_BOOT_ASM_SRCS) $(PI4_USER_ASM_SRCS) $(PI4_DOOM_ASM_SRCS) $(PI4_QUAKE_ASM_SRCS)
 PI4_USER_CRT0_OBJ := $(PI4_BUILD_DIR)/pi4-crt0.o
 PI4_USER_RUNTIME_OBJ := $(PI4_BUILD_DIR)/pi4-runtime.o
@@ -170,34 +170,24 @@ PI4_USER_LAUNCHER_OBJ := $(PI4_BUILD_DIR)/pi4-launcher.o
 PI4_USER_LAUNCHER_ASSETS_OBJ := $(PI4_BUILD_DIR)/pi4-launcher-assets.o
 PI4_USER_LAUNCHER_ART_OBJ := $(PI4_BUILD_DIR)/pi4-launcher-art.o
 PI4_DOOM_OBJ := $(PI4_BUILD_DIR)/pi4-doom-start.o
-PI4_QUAKE_PAYLOAD_OBJ := $(PI4_BUILD_DIR)/pi4-quake-payload.o
-PI4_USER_OBJS := $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_USER_ABI_PROBE_OBJ) $(PI4_USER_LAUNCHER_OBJ) $(PI4_USER_LAUNCHER_ASSETS_OBJ) $(PI4_USER_LAUNCHER_ART_OBJ) $(PI4_DOOM_OBJ) $(PI4_QUAKE_PAYLOAD_OBJ)
+PI4_QUAKE_APP_OBJ := $(PI4_BUILD_DIR)/pi4-quake-app.o
+PI4_USER_OBJS := $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_USER_ABI_PROBE_OBJ) $(PI4_USER_LAUNCHER_OBJ) $(PI4_USER_LAUNCHER_ASSETS_OBJ) $(PI4_USER_LAUNCHER_ART_OBJ) $(PI4_DOOM_OBJ) $(PI4_QUAKE_APP_OBJ)
 PI4_ABI_PROBE_ELF := $(PI4_BUILD_DIR)/ABIPROBE.ELF
 PI4_LAUNCHER_ELF := $(PI4_BUILD_DIR)/INIT.ELF
-PI4_DOOM_ELF := $(PI4_BUILD_DIR)/PAYLOAD0.ELF
-PI4_QUAKE_ELF := $(PI4_BUILD_DIR)/PAYLOAD1.ELF
+PI4_DOOM_ELF := $(PI4_BUILD_DIR)/DOOM.APP.ELF
+PI4_QUAKE_ELF := $(PI4_BUILD_DIR)/QUAKE.APP.ELF
 PI4_LAUNCHER_STATE_MANIFEST_ELF ?= $(PI4_LAUNCHER_ELF)
-PI4_PAYLOAD0_ELF ?= $(PI4_DOOM_ELF)
-PI4_PAYLOAD1_ELF ?= $(PI4_QUAKE_ELF)
+PI4_APP_DOOM_ELF ?= $(PI4_DOOM_ELF)
+PI4_APP_QUAKE_ELF ?= $(PI4_QUAKE_ELF)
 APP_INDEX_TXT := user/pi4_apps_index.txt
 APP_DOOM_MANIFEST_TXT := user/pi4_app_doom.txt
 APP_QUAKE_MANIFEST_TXT := user/pi4_app_quake.txt
 PI4_APP_INDEX_TXT := $(APP_INDEX_TXT)
 PI4_APP_DOOM_MANIFEST_TXT := $(APP_DOOM_MANIFEST_TXT)
 PI4_APP_QUAKE_MANIFEST_TXT := $(APP_QUAKE_MANIFEST_TXT)
-PI4_PAYLOAD_ROOT_ELF_ARGS :=
-PI4_PAYLOAD_ELF_DEPS :=
-ifneq ($(strip $(PI4_PAYLOAD0_ELF)),)
-PI4_PAYLOAD_ROOT_ELF_ARGS += --root-elf PAYLOAD0.ELF=$(PI4_PAYLOAD0_ELF)
-PI4_PAYLOAD_ELF_DEPS += $(PI4_PAYLOAD0_ELF)
-endif
-ifneq ($(strip $(PI4_PAYLOAD1_ELF)),)
-PI4_PAYLOAD_ROOT_ELF_ARGS += --root-elf PAYLOAD1.ELF=$(PI4_PAYLOAD1_ELF)
-PI4_PAYLOAD_ELF_DEPS += $(PI4_PAYLOAD1_ELF)
-endif
-PI4_APP_INSTALL_ARGS := --asset /SYSTEM/INIT.ELF=$(PI4_LAUNCHER_ELF) --asset /SYSTEM/ABIPROBE.ELF=$(PI4_ABI_PROBE_ELF) --asset /APPS/INDEX.TXT=$(PI4_APP_INDEX_TXT) --asset /APPS/DOOM/APP.TXT=$(PI4_APP_DOOM_MANIFEST_TXT) --asset /APPS/DOOM/APP.ELF=$(PI4_PAYLOAD0_ELF) --asset /APPS/QUAKE/APP.TXT=$(PI4_APP_QUAKE_MANIFEST_TXT) --asset /APPS/QUAKE/APP.ELF=$(PI4_PAYLOAD1_ELF)
-PI4_APP_INSTALL_DEPS := $(PI4_APP_INDEX_TXT) $(PI4_APP_DOOM_MANIFEST_TXT) $(PI4_APP_QUAKE_MANIFEST_TXT) $(PI4_PAYLOAD_ELF_DEPS)
-PI4_ROOT_ELF_ARGS := --root-elf INIT.ELF=$(PI4_LAUNCHER_ELF) --root-elf ABIPROBE.ELF=$(PI4_ABI_PROBE_ELF) $(PI4_PAYLOAD_ROOT_ELF_ARGS)
+PI4_APP_INSTALL_ARGS := --asset /SYSTEM/INIT.ELF=$(PI4_LAUNCHER_ELF) --asset /SYSTEM/ABIPROBE.ELF=$(PI4_ABI_PROBE_ELF) --asset /APPS/INDEX.TXT=$(PI4_APP_INDEX_TXT) --asset /APPS/DOOM/APP.TXT=$(PI4_APP_DOOM_MANIFEST_TXT) --asset /APPS/DOOM/APP.ELF=$(PI4_APP_DOOM_ELF) --asset /APPS/QUAKE/APP.TXT=$(PI4_APP_QUAKE_MANIFEST_TXT) --asset /APPS/QUAKE/APP.ELF=$(PI4_APP_QUAKE_ELF)
+PI4_APP_INSTALL_DEPS := $(PI4_APP_INDEX_TXT) $(PI4_APP_DOOM_MANIFEST_TXT) $(PI4_APP_QUAKE_MANIFEST_TXT) $(PI4_APP_DOOM_ELF) $(PI4_APP_QUAKE_ELF)
+PI4_ROOT_ELF_ARGS := --root-elf INIT.ELF=$(PI4_LAUNCHER_ELF) --root-elf ABIPROBE.ELF=$(PI4_ABI_PROBE_ELF)
 C_RUNTIME_SRC := kernel/c_runtime_probe.asm
 USER_PROBE_ASM_SRC := user/probe.asm
 USER_LAUNCHER_CRT0_ASM_SRC := user/launcher_crt0.asm
@@ -216,7 +206,7 @@ PI4_QEMU_COMMAND_SRC := tools/pi4_qemu_command.c
 DOOM_SRC_DIR := third_party/doom/linuxdoom-1.10
 DOOM_PORT_INCLUDE_DIR := doom_port/include
 DOOM_PORT_BUILD_DIR := $(BUILD_DIR)/doom
-DOOM_ELF := $(BUILD_DIR)/payload0.elf
+DOOM_ELF := $(BUILD_DIR)/doom.app.elf
 DOOM_SYMBOLS := $(BUILD_DIR)/doom.symbols
 DOOM_BASE := 0x01000000
 DOOM_ORIGINAL_SRCS := $(filter-out $(DOOM_SRC_DIR)/i_%.c,$(wildcard $(DOOM_SRC_DIR)/*.c))
@@ -229,7 +219,7 @@ DOOM_ORIGINAL_CFLAGS := $(FREESTANDING_I386_CFLAGS) -std=gnu89 -DNORMALUNIX -DLI
 DOOM_G_GAME_CFLAGS := -DG_BuildTiccmd=doom_original_G_BuildTiccmd -DG_Ticker=doom_original_G_Ticker
 DOOM_P_SAVEG_CFLAGS := -DP_ArchivePlayers=doom_original_P_ArchivePlayers -DP_UnArchivePlayers=doom_original_P_UnArchivePlayers -DP_ArchiveWorld=doom_original_P_ArchiveWorld -DP_UnArchiveWorld=doom_original_P_UnArchiveWorld -DP_ArchiveThinkers=doom_original_P_ArchiveThinkers -DP_UnArchiveThinkers=doom_original_P_UnArchiveThinkers -DP_ArchiveSpecials=doom_original_P_ArchiveSpecials -DP_UnArchiveSpecials=doom_original_P_UnArchiveSpecials
 PI4_DOOM_ENGINE_BUILD_DIR := $(PI4_BUILD_DIR)/doom-engine
-PI4_DOOM_ENGINE_ELF := $(PI4_BUILD_DIR)/PAYLOAD0.DOOM.ELF
+PI4_DOOM_ENGINE_ELF := $(PI4_BUILD_DIR)/DOOM.ENGINE.APP.ELF
 PI4_DOOM_ENGINE_MISSING_SYMBOLS := $(PI4_DOOM_ENGINE_BUILD_DIR)/missing-symbols.txt
 PI4_DOOM_ENGINE_LINK_REPORT := $(PI4_DOOM_ENGINE_BUILD_DIR)/link-report.txt
 PI4_DOOM_ENGINE_START_OBJ := $(PI4_DOOM_ENGINE_BUILD_DIR)/pi4_engine_start.o
@@ -244,7 +234,7 @@ PI4_DOOM_ENGINE_PORT_CFLAGS := $(PI4_AARCH64_ENGINE_CFLAGS) -O2 -std=gnu99 -Iuse
 QUAKE_SRC_DIR := third_party/quake/WinQuake
 QUAKE_PORT_INCLUDE_DIR := quake_port/include
 QUAKE_PORT_BUILD_DIR := $(BUILD_DIR)/quake
-QUAKE_ELF := $(BUILD_DIR)/payload1.elf
+QUAKE_ELF := $(BUILD_DIR)/quake.app.elf
 QUAKE_SYMBOLS := $(BUILD_DIR)/quake.symbols
 QUAKE_BASE := 0x01000000
 QUAKE_ORIGINAL_SRC_NAMES := \
@@ -262,7 +252,7 @@ QUAKE_PORT_OBJS := $(QUAKE_PORT_ASM_SRCS:quake_port/%.asm=$(QUAKE_PORT_BUILD_DIR
 QUAKE_FREESTANDING_I386_CFLAGS := -target i386-unknown-elf -ffreestanding -fno-builtin -fno-strict-aliasing -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m32 -march=i386 -mno-sse -mno-mmx -O2
 QUAKE_ORIGINAL_CFLAGS := $(QUAKE_FREESTANDING_I386_CFLAGS) -std=gnu89 -fcommon -U__i386__ -Dstricmp=strcasecmp -I$(USER_INCLUDE_DIR) -I$(QUAKE_PORT_INCLUDE_DIR) -I$(DOOM_PORT_INCLUDE_DIR) -I$(QUAKE_SRC_DIR)
 QUAKE_PI4_ENGINE_BUILD_DIR := $(PI4_BUILD_DIR)/quake-engine
-QUAKE_PI4_ENGINE_ELF := $(PI4_BUILD_DIR)/PAYLOAD1.QUAKE.ELF
+QUAKE_PI4_ENGINE_ELF := $(PI4_BUILD_DIR)/QUAKE.ENGINE.APP.ELF
 QUAKE_PI4_ENGINE_PORT_NAMES := cd input setjmp start sys vid
 QUAKE_PI4_ENGINE_PORT_OBJS := $(addprefix $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_,$(addsuffix .o,$(QUAKE_PI4_ENGINE_PORT_NAMES)))
 QUAKE_PI4_ENGINE_RUNTIME_OBJS := $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_runtime.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_state.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_pr_load.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_sv_spawn.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_render_trace.o $(QUAKE_PI4_ENGINE_BUILD_DIR)/port_d_surf.o
@@ -300,23 +290,21 @@ STAGE2_MAX_BYTES := 8192
 KERNEL_ELF_MAX_BYTES := 163840
 USER_PROBE_ELF_MAX_BYTES := 16384
 USER_ABI_PROBE_ELF_MAX_BYTES := 32768
-INIT_PAYLOAD_ELF_MAX_BYTES := 262144
+INIT_APP_ELF_MAX_BYTES := 262144
 PI4_USER_ELF_MAX_BYTES := 262144
 PI4_AARCH64_USER_FLAGS := --target=aarch64-none-elf -ffreestanding -nostdlib -Wall -Wextra -Iuser -Iuser/include
 PI4_AARCH64_USER_CFLAGS := $(PI4_AARCH64_USER_FLAGS) -O2 -mstrict-align -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-pic -fno-vectorize -fno-slp-vectorize
-LARGE_PAYLOAD_ROOT_ELF_ARGS := --root-elf PAYLOAD0.ELF=$(DOOM_ELF) --root-elf PAYLOAD1.ELF=$(QUAKE_ELF)
 X86_APP_INSTALL_ARGS := --asset /SYSTEM/INIT.ELF=$(USER_LAUNCHER_ELF) --asset /SYSTEM/ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) --asset /APPS/INDEX.TXT=$(APP_INDEX_TXT) --asset /APPS/DOOM/APP.TXT=$(APP_DOOM_MANIFEST_TXT) --asset /APPS/DOOM/APP.ELF=$(DOOM_ELF) --asset /APPS/QUAKE/APP.TXT=$(APP_QUAKE_MANIFEST_TXT) --asset /APPS/QUAKE/APP.ELF=$(QUAKE_ELF)
 X86_APP_INSTALL_DEPS := $(APP_INDEX_TXT) $(APP_DOOM_MANIFEST_TXT) $(APP_QUAKE_MANIFEST_TXT)
 X86_CORE_ROOT_ELFS := INIT.ELF ABIPROBE.ELF
-X86_LARGE_PAYLOAD_ROOT_ELFS := PAYLOAD0.ELF PAYLOAD1.ELF
-X86_REQUIRED_ROOT_ELFS := $(X86_CORE_ROOT_ELFS) $(X86_LARGE_PAYLOAD_ROOT_ELFS)
+X86_REQUIRED_ROOT_ELFS := $(X86_CORE_ROOT_ELFS)
 X86_REQUIRED_APP_FILES := /SYSTEM/INIT.ELF /SYSTEM/ABIPROBE.ELF /APPS/INDEX.TXT /APPS/DOOM/APP.TXT /APPS/DOOM/APP.ELF /APPS/QUAKE/APP.TXT /APPS/QUAKE/APP.ELF
 IMAGE_INSPECT_REQUIRED_FILE_ARGS := $(foreach root_elf,$(X86_REQUIRED_ROOT_ELFS),--require-file $(root_elf)) $(foreach app_file,$(X86_REQUIRED_APP_FILES),--require-file $(app_file))
 IMAGE_EXTRA_ROOT_ELF_ARGS ?=
 IMAGE_EXTRA_ROOT_ELF_DEPS ?=
-IMAGE_ROOT_ELF_ARGS := --root-elf INIT.ELF=$(USER_LAUNCHER_ELF) --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) $(LARGE_PAYLOAD_ROOT_ELF_ARGS) $(IMAGE_EXTRA_ROOT_ELF_ARGS)
+IMAGE_ROOT_ELF_ARGS := --root-elf INIT.ELF=$(USER_LAUNCHER_ELF) --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) $(IMAGE_EXTRA_ROOT_ELF_ARGS)
 
-.PHONY: all build-only test assembly-native-check no-python-check third-party-pristine-check doom-compile doom-link quake-compile quake-link x86-image-builder-wiring-check x86-uefi-image-builder-wiring-check x86-pi4-real-assets-isolation-check x86-status-proof-check x86-preservation-host-check prepare-real-assets prepare-real-assets-dry-run play play-image run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image pi4-assembly-source-gate pi4-code-gates pi4-kernel8 pi4-user-elves pi4-doom-payload pi4-quake-payload pi4-quake-engine-payload pi4-engine-payloads-linked pi4-launcher-state-manifest-check pi4-image pi4-image-inspect pi4-prepared-real-assets-image pi4-prepared-real-assets-final-gates pi4-final-gates-single-artifact-guard pi4-doom-quake-payload-image-inspect pi4-qemu-command pi4-qemu-prep pi4-qemu-run pi4-local-qemu-live pi4-local-qemu-live-smoke pi4-local-qemu-smoke pi4-local-qemu-doom-input-smoke pi4-local-qemu-quake-input-smoke pi4-local-qemu-input-smoke pi4-local-qemu-final-gates pi4-local-qemu-real-assets-input-smoke pi4-local-qemu-real-assets-final-gates pi4-hw-equivalent-qemu-args pi4-hw-equivalent-qemu-command pi4-hw-equivalent-run pi4-hw-equivalent-real-assets-qemu-command pi4-hw-equivalent-real-assets-run pi4-hw-equivalent-real-assets-input-smoke pi4-hw-equivalent-real-assets-final-gates pi4-status-evidence-ok-fixture pi4-status-evidence-check pi4-evidence-summary pi4-host-artifact-policy pi4-hw-equivalent-artifact-policy pi4-host-check pi4-host-proof-json persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
+.PHONY: all build-only test assembly-native-check no-python-check third-party-pristine-check doom-compile doom-link quake-compile quake-link x86-image-builder-wiring-check x86-uefi-image-builder-wiring-check x86-pi4-real-assets-isolation-check x86-status-proof-check x86-preservation-host-check prepare-real-assets prepare-real-assets-dry-run play play-image run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image pi4-assembly-source-gate pi4-code-gates pi4-kernel8 pi4-user-elves pi4-doom-app pi4-quake-app pi4-quake-engine-app pi4-engine-apps-linked pi4-launcher-state-manifest-check pi4-image pi4-image-inspect pi4-prepared-real-assets-image pi4-prepared-real-assets-final-gates pi4-final-gates-single-artifact-guard pi4-doom-quake-app-image-inspect pi4-qemu-command pi4-qemu-prep pi4-qemu-run pi4-local-qemu-live pi4-local-qemu-live-smoke pi4-local-qemu-smoke pi4-local-qemu-doom-input-smoke pi4-local-qemu-quake-input-smoke pi4-local-qemu-input-smoke pi4-local-qemu-final-gates pi4-local-qemu-real-assets-input-smoke pi4-local-qemu-real-assets-final-gates pi4-hw-equivalent-qemu-args pi4-hw-equivalent-qemu-command pi4-hw-equivalent-run pi4-hw-equivalent-real-assets-qemu-command pi4-hw-equivalent-real-assets-run pi4-hw-equivalent-real-assets-input-smoke pi4-hw-equivalent-real-assets-final-gates pi4-status-evidence-ok-fixture pi4-status-evidence-check pi4-evidence-summary pi4-host-artifact-policy pi4-hw-equivalent-artifact-policy pi4-host-check pi4-host-proof-json persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
 .PHONY: pi4-hw-equivalent-final-gates-policy pi4-remote-visible-play-help
 
 all: $(IMAGE)
@@ -420,13 +408,13 @@ doom-compile: $(DOOM_ORIGINAL_OBJS)
 	@printf "Compiled %s original Doom source files for freestanding i386.\n" "$$(printf '%s\n' $(DOOM_ORIGINAL_OBJS) | wc -l | tr -d ' ')"
 
 doom-link: $(DOOM_ELF)
-	@printf "Linked freestanding Doom payload slot at %s\n" "$(DOOM_ELF)"
+	@printf "Linked freestanding Doom app ELF at %s\n" "$(DOOM_ELF)"
 
 quake-compile: $(QUAKE_ORIGINAL_OBJS)
 	@printf "Compiled %s original Quake source files for freestanding i386.\n" "$$(printf '%s\n' $(QUAKE_ORIGINAL_OBJS) | wc -l | tr -d ' ')"
 
 quake-link: $(QUAKE_ELF)
-	@printf "Linked freestanding Quake payload slot at %s\n" "$(QUAKE_ELF)"
+	@printf "Linked freestanding Quake app ELF at %s\n" "$(QUAKE_ELF)"
 
 prepare-real-assets:
 	@printf "Preparing public shareware WAD/PAK into external cache: %s\n" "$(REAL_ASSET_CACHE_DIR)"
@@ -528,8 +516,6 @@ image-builder-inspect: $(IMAGE_BUILDER) $(IMAGE)
 	@grep -E -q "root\[[0-9]+\]=DOOM1\.WAD attr=0x20 cluster=[0-9]+ size=[1-9][0-9]*" "$(IMAGE_INSPECT_TXT)"
 	@grep -E -q "root\[[0-9]+\]=INIT\.ELF attr=0x20 cluster=[0-9]+ size=[1-9][0-9]*" "$(IMAGE_INSPECT_TXT)"
 	@grep -E -q "root\[[0-9]+\]=ABIPROBE\.ELF attr=0x20 cluster=[0-9]+ size=[1-9][0-9]*" "$(IMAGE_INSPECT_TXT)"
-	@grep -E -q "root\[[0-9]+\]=PAYLOAD0\.ELF attr=0x20 cluster=[0-9]+ size=[1-9][0-9]*" "$(IMAGE_INSPECT_TXT)"
-	@grep -E -q "root\[[0-9]+\]=PAYLOAD1\.ELF attr=0x20 cluster=[0-9]+ size=[1-9][0-9]*" "$(IMAGE_INSPECT_TXT)"
 	@grep -E -q "root\[[0-9]+\]=KERNEL\.ELF attr=0x20 cluster=[0-9]+ size=[1-9][0-9]*" "$(IMAGE_INSPECT_TXT)"
 	@grep -E -q "root\[[0-9]+\]=USERPROB\.ELF attr=0x20 cluster=[0-9]+ size=[1-9][0-9]*" "$(IMAGE_INSPECT_TXT)"
 	@for root_elf in $(X86_REQUIRED_ROOT_ELFS); do \
@@ -555,17 +541,13 @@ x86-image-builder-wiring-check:
 			exit 1; \
 		}; \
 	done; \
-	printf '%s\n' "$$args" | grep -F -q -- "$(LARGE_PAYLOAD_ROOT_ELF_ARGS)" || { \
-		printf "x86 image builder wiring lost the large-payload root ELF args.\n" >&2; \
-		exit 1; \
-	}; \
 	for app_file in $(X86_REQUIRED_APP_FILES); do \
 		printf '%s\n' "$$app_args" | grep -F -q -- "--asset $$app_file=" || { \
 			printf "x86 image builder app install wiring is missing %s\n" "$$app_file" >&2; \
 			exit 1; \
 		}; \
 	done; \
-	printf "x86 image builder wiring OK: BIOS image keeps legacy root ELFs and installs /SYSTEM plus /APPS.\n"
+	printf "x86 image builder wiring OK: BIOS image installs /SYSTEM plus /APPS app files only.\n"
 
 x86-uefi-image-builder-wiring-check: | $(BUILD_DIR)
 	@set -e; \
@@ -576,8 +558,6 @@ x86-uefi-image-builder-wiring-check: | $(BUILD_DIR)
 		"--asset VIBEOS/KERNEL.ELF=$(KERNEL_ELF)" \
 		"--root-elf INIT.ELF=$(USER_LAUNCHER_ELF)" \
 		"--root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF)" \
-		"--root-elf PAYLOAD0.ELF=$(DOOM_ELF)" \
-		"--root-elf PAYLOAD1.ELF=$(QUAKE_ELF)" \
 		"--asset /SYSTEM/INIT.ELF=$(USER_LAUNCHER_ELF)" \
 		"--asset /SYSTEM/ABIPROBE.ELF=$(USER_ABI_PROBE_ELF)" \
 		"--asset /APPS/INDEX.TXT=$(APP_INDEX_TXT)" \
@@ -590,7 +570,7 @@ x86-uefi-image-builder-wiring-check: | $(BUILD_DIR)
 			exit 1; \
 		}; \
 		done; \
-	printf "x86 UEFI image builder wiring OK: dual image keeps loader, kernel, legacy root ELFs, and /APPS install tree.\n"
+	printf "x86 UEFI image builder wiring OK: dual image keeps loader, kernel, bootstrap root ELFs, and /APPS install tree.\n"
 
 x86-pi4-real-assets-isolation-check:
 	@set -e; \
@@ -610,8 +590,8 @@ x86-pi4-real-assets-isolation-check:
 				;; \
 		esac; \
 	done; \
-	real_assets_block="$$(awk '/^pi4-real-assets-require:/{seen=1} /^pi4-doom-quake-payload-image-inspect:/{seen=0} seen {print}' Makefile)"; \
-	bad_refs="$$(printf '%s\n' "$$real_assets_block" | grep -E 'IMAGE_ROOT_ELF_ARGS|UEFI_|STAGE1|STAGE2|KERNEL_ELF|USER_PROBE_ELF|USER_LAUNCHER_ELF|USER_ABI_PROBE_ELF|DOOM_ELF|QUAKE_ELF|DOOM_SRC_DIR|QUAKE_SRC_DIR|third_party' || true)"; \
+	real_assets_block="$$(awk '/^pi4-real-assets-require:/{seen=1} /^pi4-doom-quake-app-image-inspect:/{seen=0} seen {print}' Makefile)"; \
+	bad_refs="$$(printf '%s\n' "$$real_assets_block" | grep -E 'IMAGE_ROOT_ELF_ARGS|UEFI_|STAGE1|STAGE2|[$$][(](KERNEL_ELF|USER_PROBE_ELF|USER_LAUNCHER_ELF|USER_ABI_PROBE_ELF|DOOM_ELF|QUAKE_ELF)[)]|DOOM_SRC_DIR|QUAKE_SRC_DIR|third_party' || true)"; \
 	if [ -n "$$bad_refs" ]; then \
 		printf "Pi 4 real-assets targets must not reference x86 image wiring or third_party sources:\n%s\n" "$$bad_refs" >&2; \
 		exit 1; \
@@ -622,7 +602,7 @@ x86-status-proof-check:
 	BUILD_DIR="$(abspath $(BUILD_DIR))" HOST_CC="$(HOST_CC)" VIBE_STATUS_CHECK_SCOPE=x86 tools/test_vibe_status_check.sh
 
 x86-preservation-host-check: x86-image-builder-wiring-check x86-uefi-image-builder-wiring-check x86-pi4-real-assets-isolation-check image-builder-inspect uefi-loader-object doom-link quake-link x86-status-proof-check
-	@printf "x86 preservation host check OK: BIOS image-builder, UEFI image wiring, UEFI loader object, Doom slot, Quake slot, and status-proof validators are wired without local VM.\n"
+	@printf "x86 preservation host check OK: BIOS image-builder, UEFI image wiring, UEFI loader object, Doom app, Quake app, and status-proof validators are wired without local VM.\n"
 
 $(UEFI_LOADER_OBJ): boot/uefi/loader.asm | $(UEFI_BUILD_DIR)
 	$(NASM) -f win64 $< -o $@
@@ -666,7 +646,7 @@ pi4-assembly-source-gate:
 	printf "Pi 4 assembly source gate OK: all boot/user/Doom/Quake Pi sources are wired.\n"
 
 pi4-code-gates: no-python-check third-party-pristine-check pi4-assembly-source-gate $(PI4_KERNEL_OBJ) $(PI4_KERNEL_OBJS) $(PI4_USER_OBJS) $(PI4_LAUNCHER_ELF) $(PI4_ABI_PROBE_ELF) $(PI4_DOOM_ELF) $(PI4_QUAKE_ELF) pi4-launcher-state-manifest-check
-	@printf "Pi 4 code gates OK: compiled all Pi assembly sources and linked INIT.ELF/ABIPROBE.ELF/PAYLOAD0.ELF/PAYLOAD1.ELF.\n"
+	@printf "Pi 4 code gates OK: compiled all Pi assembly sources and linked INIT.ELF/ABIPROBE.ELF plus Doom/Quake app ELFs.\n"
 
 $(PI4_KERNEL_INPUT_OBJ): boot/pi4/input.S | $(PI4_BUILD_DIR)
 	$(AARCH64_CC) --target=aarch64-none-elf -ffreestanding -nostdlib -Wall -Wextra -c $< -o $@
@@ -918,8 +898,8 @@ $(PI4_KERNEL8_IMG): $(PI4_KERNEL_OBJ) $(LINK_AARCH64_FLAT) | $(PI4_BUILD_DIR)
 	@grep -q "symbol=pi4_storage_status_fat_type addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_status_root addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_status_init_elf addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload0 addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload1 addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_doom_elf addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_quake_elf addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_status_block addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_status_block_controller addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_status_block_lba addr=" $(PI4_KERNEL8_MAP)
@@ -992,26 +972,26 @@ $(PI4_KERNEL8_IMG): $(PI4_KERNEL_OBJ) $(LINK_AARCH64_FLAT) | $(PI4_BUILD_DIR)
 	@grep -q "symbol=pi4_storage_status_init_elf_plan_sectors addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_status_init_elf_plan_bytes addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_status_init_elf_read_count addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload0_entry_index addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload0_attr addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload0_cluster addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload0_size addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload0_plan_lba addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload0_plan_sectors addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload0_plan_bytes addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload0_read_count addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload1_entry_index addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload1_attr addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload1_cluster addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload1_size addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload1_plan_lba addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload1_plan_sectors addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload1_plan_bytes addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_status_payload1_read_count addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_doom_elf_entry_index addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_doom_elf_attr addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_doom_elf_cluster addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_doom_elf_size addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_doom_elf_plan_lba addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_doom_elf_plan_sectors addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_doom_elf_plan_bytes addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_doom_elf_read_count addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_quake_elf_entry_index addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_quake_elf_attr addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_quake_elf_cluster addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_quake_elf_size addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_quake_elf_plan_lba addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_quake_elf_plan_sectors addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_quake_elf_plan_bytes addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_status_app_quake_elf_read_count addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_status_words addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_name_init_elf addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_name_payload0_elf addr=" $(PI4_KERNEL8_MAP)
-	@grep -q "symbol=pi4_storage_name_payload1_elf addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_name_app_elf addr=" $(PI4_KERNEL8_MAP)
+	@grep -q "symbol=pi4_storage_name_app_txt addr=" $(PI4_KERNEL8_MAP)
 	@grep -q "symbol=pi4_storage_block_scratch addr=" $(PI4_KERNEL8_MAP)
 	@grep -Eq "\.equ[[:space:]]+PI4_GICD_CTLR,[[:space:]]+0x000" boot/pi4/start.S
 	@grep -Eq "\.equ[[:space:]]+PI4_GICD_TYPER,[[:space:]]+0x004" boot/pi4/start.S
@@ -1097,7 +1077,7 @@ $(PI4_USER_LAUNCHER_ART_OBJ): user/pi4_launcher_art.c user/pi4_runtime.h Makefil
 $(PI4_DOOM_OBJ): doom_port/pi4_start.S user/pi4_runtime.h | $(PI4_BUILD_DIR)
 	$(AARCH64_CC) $(PI4_AARCH64_USER_FLAGS) -c $< -o $@
 
-$(PI4_QUAKE_PAYLOAD_OBJ): quake_port/pi4_payload.S user/pi4_runtime.h | $(PI4_BUILD_DIR)
+$(PI4_QUAKE_APP_OBJ): quake_port/pi4_app.S user/pi4_runtime.h | $(PI4_BUILD_DIR)
 	$(AARCH64_CC) $(PI4_AARCH64_USER_FLAGS) -c $< -o $@
 
 $(PI4_ABI_PROBE_ELF): $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_USER_ABI_PROBE_OBJ) $(LINK_AARCH64_USER_ELF) | $(PI4_BUILD_DIR)
@@ -1110,16 +1090,16 @@ $(PI4_LAUNCHER_ELF): $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_USER_LAU
 
 $(PI4_DOOM_ELF): $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_DOOM_OBJ) $(LINK_AARCH64_USER_ELF) | $(PI4_BUILD_DIR)
 	$(LINK_AARCH64_USER_ELF) -o $@ $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_DOOM_OBJ)
-	@test $$(wc -c < $@) -le $(PI4_USER_ELF_MAX_BYTES) || { echo "Pi 4 Doom payload ELF exceeds $(PI4_USER_ELF_MAX_BYTES) bytes"; exit 1; }
-	@LC_ALL=C strings $@ | grep -F -q "vibe-os pi4 PAYLOAD0.ELF Doom AArch64 runtime glue"
+	@test $$(wc -c < $@) -le $(PI4_USER_ELF_MAX_BYTES) || { echo "Pi 4 Doom app ELF exceeds $(PI4_USER_ELF_MAX_BYTES) bytes"; exit 1; }
+	@LC_ALL=C strings $@ | grep -F -q "vibe-os pi4 /APPS/DOOM/APP.ELF Doom AArch64 runtime glue"
 
-$(PI4_QUAKE_ELF): $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_QUAKE_PAYLOAD_OBJ) $(LINK_AARCH64_USER_ELF) | $(PI4_BUILD_DIR)
-	$(LINK_AARCH64_USER_ELF) -o $@ $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_QUAKE_PAYLOAD_OBJ)
-	@test $$(wc -c < $@) -le $(PI4_USER_ELF_MAX_BYTES) || { echo "Pi 4 Quake payload ELF exceeds $(PI4_USER_ELF_MAX_BYTES) bytes"; exit 1; }
-	@LC_ALL=C strings $@ | grep -F -q "vibe-os pi4 PAYLOAD1.ELF Quake AArch64 payload"
+$(PI4_QUAKE_ELF): $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_QUAKE_APP_OBJ) $(LINK_AARCH64_USER_ELF) | $(PI4_BUILD_DIR)
+	$(LINK_AARCH64_USER_ELF) -o $@ $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(PI4_QUAKE_APP_OBJ)
+	@test $$(wc -c < $@) -le $(PI4_USER_ELF_MAX_BYTES) || { echo "Pi 4 Quake app ELF exceeds $(PI4_USER_ELF_MAX_BYTES) bytes"; exit 1; }
+	@LC_ALL=C strings $@ | grep -F -q "vibe-os pi4 /APPS/QUAKE/APP.ELF Quake AArch64 app"
 
-pi4-quake-payload: $(PI4_QUAKE_ELF)
-	@printf "Built Raspberry Pi 4 AArch64 Quake payload %s; launch and hardware proof remain unclaimed.\n" "$(PI4_QUAKE_ELF)"
+pi4-quake-app: $(PI4_QUAKE_ELF)
+	@printf "Built Raspberry Pi 4 AArch64 Quake app %s; launch and hardware proof remain unclaimed.\n" "$(PI4_QUAKE_ELF)"
 
 $(PI4_DOOM_ENGINE_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c Makefile | $(PI4_DOOM_ENGINE_BUILD_DIR)
 	$(AARCH64_CC) $(PI4_DOOM_ENGINE_ORIGINAL_CFLAGS) -c $< -o $@
@@ -1155,9 +1135,9 @@ $(PI4_DOOM_ENGINE_LINK_REPORT): $(PI4_DOOM_ENGINE_MISSING_SYMBOLS) $(LINK_AARCH6
 		else \
 			if $(LINK_AARCH64_USER_ELF) -o "$(PI4_DOOM_ENGINE_ELF)" $(PI4_DOOM_ENGINE_OBJS) > "$(PI4_DOOM_ENGINE_BUILD_DIR)/linker.stdout" 2> "$(PI4_DOOM_ENGINE_BUILD_DIR)/linker.stderr"; then \
 				printf "status=linked\n"; \
-				printf "payload=%s\n" "$(PI4_DOOM_ENGINE_ELF)"; \
-				printf "payload_bytes=%s\n" "$$(wc -c < "$(PI4_DOOM_ENGINE_ELF)" | tr -d ' ')"; \
-				printf "smallest_next_runtime_abi_gap=package PI4_PAYLOAD0_ELF=%s and prove VFS WAD reads on Pi runtime\n" "$(PI4_DOOM_ENGINE_ELF)"; \
+				printf "app=%s\n" "$(PI4_DOOM_ENGINE_ELF)"; \
+				printf "app_bytes=%s\n" "$$(wc -c < "$(PI4_DOOM_ENGINE_ELF)" | tr -d ' ')"; \
+			printf "smallest_next_runtime_abi_gap=package PI4_APP_DOOM_ELF=%s and prove VFS WAD reads on Pi runtime\n" "$(PI4_DOOM_ENGINE_ELF)"; \
 			else \
 				printf "status=linker-failed\n"; \
 				printf "linker_stderr=%s\n" "$(PI4_DOOM_ENGINE_BUILD_DIR)/linker.stderr"; \
@@ -1167,7 +1147,7 @@ $(PI4_DOOM_ENGINE_LINK_REPORT): $(PI4_DOOM_ENGINE_MISSING_SYMBOLS) $(LINK_AARCH6
 		fi; \
 	} > "$@"
 
-pi4-doom-payload: $(PI4_DOOM_ENGINE_LINK_REPORT)
+pi4-doom-app: $(PI4_DOOM_ENGINE_LINK_REPORT)
 	@cat "$(PI4_DOOM_ENGINE_LINK_REPORT)"
 
 $(QUAKE_PI4_ENGINE_BUILD_DIR)/%.o: $(QUAKE_SRC_DIR)/%.c Makefile | $(QUAKE_PI4_ENGINE_BUILD_DIR)
@@ -1238,14 +1218,14 @@ $(QUAKE_PI4_ENGINE_LINK_REPORT): $(QUAKE_PI4_ENGINE_MISSING_SYMBOLS) $(LINK_AARC
 		printf "missing_symbol_count=%s\n" "$$missing_count"; \
 		if [ "$$missing_count" != "0" ]; then \
 			printf "status=missing-symbols\n"; \
-			printf "smallest_next_runtime_abi_gap=provide the missing AArch64 libc/math/stdio symbols and real Pi file-size/read semantics before attempting a PAYLOAD1 engine ELF link\n"; \
+			printf "smallest_next_runtime_abi_gap=provide the missing AArch64 libc/math/stdio symbols and real Pi file-size/read semantics before attempting a Quake app ELF link\n"; \
 			sed 's/^/missing_symbol=/' "$(QUAKE_PI4_ENGINE_MISSING_SYMBOLS)"; \
 		else \
 			if $(LINK_AARCH64_USER_ELF) -o "$(QUAKE_PI4_ENGINE_ELF)" $(PI4_USER_CRT0_OBJ) $(PI4_USER_RUNTIME_OBJ) $(QUAKE_PI4_ENGINE_OBJS) > "$(QUAKE_PI4_ENGINE_BUILD_DIR)/linker.stdout" 2> "$(QUAKE_PI4_ENGINE_BUILD_DIR)/linker.stderr"; then \
 				printf "status=linked\n"; \
-				printf "payload=%s\n" "$(QUAKE_PI4_ENGINE_ELF)"; \
-				printf "payload_bytes=%s\n" "$$(wc -c < "$(QUAKE_PI4_ENGINE_ELF)" | tr -d ' ')"; \
-				printf "smallest_next_runtime_abi_gap=package PI4_PAYLOAD1_ELF=%s and prove VFS PAK reads on Pi runtime\n" "$(QUAKE_PI4_ENGINE_ELF)"; \
+				printf "app=%s\n" "$(QUAKE_PI4_ENGINE_ELF)"; \
+				printf "app_bytes=%s\n" "$$(wc -c < "$(QUAKE_PI4_ENGINE_ELF)" | tr -d ' ')"; \
+				printf "smallest_next_runtime_abi_gap=package PI4_APP_QUAKE_ELF=%s and prove VFS PAK reads on Pi runtime\n" "$(QUAKE_PI4_ENGINE_ELF)"; \
 			else \
 				printf "status=linker-failed\n"; \
 				printf "linker_stderr=%s\n" "$(QUAKE_PI4_ENGINE_BUILD_DIR)/linker.stderr"; \
@@ -1255,16 +1235,16 @@ $(QUAKE_PI4_ENGINE_LINK_REPORT): $(QUAKE_PI4_ENGINE_MISSING_SYMBOLS) $(LINK_AARC
 		fi; \
 	} > "$@"
 
-pi4-quake-engine-payload: $(QUAKE_PI4_ENGINE_LINK_REPORT)
+pi4-quake-engine-app: $(QUAKE_PI4_ENGINE_LINK_REPORT)
 	@cat "$(QUAKE_PI4_ENGINE_LINK_REPORT)"
 
-pi4-engine-payloads-linked: pi4-doom-payload pi4-quake-engine-payload
+pi4-engine-apps-linked: pi4-doom-app pi4-quake-engine-app
 	@set -e; \
-	grep -q '^status=linked$$' "$(PI4_DOOM_ENGINE_LINK_REPORT)" || { echo "Pi 4 Doom engine payload is not linked; refusing to package a non-playable live image." >&2; exit 1; }; \
-	test -s "$(PI4_DOOM_ENGINE_ELF)" || { echo "missing linked Pi 4 Doom engine payload: $(PI4_DOOM_ENGINE_ELF)" >&2; exit 1; }; \
-	grep -q '^status=linked$$' "$(QUAKE_PI4_ENGINE_LINK_REPORT)" || { echo "Pi 4 Quake engine payload is not linked; refusing to package a non-playable live image." >&2; exit 1; }; \
-	test -s "$(QUAKE_PI4_ENGINE_ELF)" || { echo "missing linked Pi 4 Quake engine payload: $(QUAKE_PI4_ENGINE_ELF)" >&2; exit 1; }; \
-	printf "Pi 4 engine payloads linked for live image: %s -> PAYLOAD0.ELF, %s -> PAYLOAD1.ELF\n" "$(PI4_DOOM_ENGINE_ELF)" "$(QUAKE_PI4_ENGINE_ELF)"
+	grep -q '^status=linked$$' "$(PI4_DOOM_ENGINE_LINK_REPORT)" || { echo "Pi 4 Doom engine app is not linked; refusing to package a non-playable live image." >&2; exit 1; }; \
+	test -s "$(PI4_DOOM_ENGINE_ELF)" || { echo "missing linked Pi 4 Doom engine app: $(PI4_DOOM_ENGINE_ELF)" >&2; exit 1; }; \
+	grep -q '^status=linked$$' "$(QUAKE_PI4_ENGINE_LINK_REPORT)" || { echo "Pi 4 Quake engine app is not linked; refusing to package a non-playable live image." >&2; exit 1; }; \
+	test -s "$(QUAKE_PI4_ENGINE_ELF)" || { echo "missing linked Pi 4 Quake engine app: $(QUAKE_PI4_ENGINE_ELF)" >&2; exit 1; }; \
+	printf "Pi 4 engine app_exec ELFs linked for live image: %s -> /APPS/DOOM/APP.ELF, %s -> /APPS/QUAKE/APP.ELF.\n" "$(PI4_DOOM_ENGINE_ELF)" "$(QUAKE_PI4_ENGINE_ELF)"
 
 pi4-launcher-state-manifest-check: $(PI4_LAUNCHER_STATE_MANIFEST_ELF)
 	@set -e; \
@@ -1328,7 +1308,7 @@ $(PI4_IMAGE): $(PI4_KERNEL8_IMG) $(PI4_CONFIG_TXT) $(PI4_LAUNCHER_ELF) $(PI4_ABI
 	else \
 		$(IMAGE_BUILDER) --proof-manifest $(IMAGE_SECONDARY_PACKAGE_ARGS) --root-file KERNEL8.IMG=$(PI4_KERNEL8_IMG) --root-file CONFIG.TXT=$(PI4_CONFIG_TXT) $(PI4_ROOT_ELF_ARGS) $(PI4_APP_INSTALL_ARGS) $@; \
 	fi
-	@printf "Built Raspberry Pi 4 FAT16 image %s\n" "$@"
+	@printf "Built Raspberry Pi 4 FAT16 image %s with /SYSTEM plus /APPS app_exec paths only.\n" "$@"
 
 pi4-image: $(PI4_IMAGE)
 
@@ -1345,11 +1325,11 @@ pi4-real-assets-require:
 
 pi4-real-assets-image: pi4-real-assets-require
 	$(MAKE) --no-print-directory DOOM_WAD="$(PI4_REAL_DOOM_WAD)" QUAKE_PAK="$(PI4_REAL_QUAKE_PAK)" PRIMARY_ASSET="$(PI4_REAL_DOOM_WAD)" SECONDARY_PACKAGE="$(PI4_REAL_QUAKE_PAK)" PI4_REQUIRE_REAL_ASSETS=1 pi4-image-inspect
-	@printf "Pi 4 real-assets image ready: %s installs /SYSTEM/INIT.ELF plus /APPS manifests/APP.ELF files, with external DOOM1.WAD and /ID1/PAK0.PAK inputs; root PAYLOAD*.ELF entries are compatibility only.\n" "$(PI4_IMAGE)"
+	@printf "Pi 4 real-assets image ready: %s installs /SYSTEM/INIT.ELF plus /APPS manifests/APP.ELF files, with external DOOM1.WAD and /ID1/PAK0.PAK inputs.\n" "$(PI4_IMAGE)"
 
 pi4-real-assets-image-inspect: pi4-real-assets-image
 
-pi4-prepared-real-assets-image: tools/prepare_game_assets.sh pi4-engine-payloads-linked
+pi4-prepared-real-assets-image: tools/prepare_game_assets.sh pi4-engine-apps-linked
 	@set -e; \
 	sha256_file() { \
 		if command -v sha256sum >/dev/null 2>&1; then \
@@ -1426,7 +1406,7 @@ pi4-prepared-real-assets-image: tools/prepare_game_assets.sh pi4-engine-payloads
 	test -n "$$doom_wad" || { echo "prepare helper did not return DOOM_WAD" >&2; exit 1; }; \
 	test -n "$$quake_pak" || { echo "prepare helper did not return QUAKE_PAK" >&2; exit 1; }; \
 	printf "Packaging exact Pi 4 image from DOOM_WAD=%s and QUAKE_PAK=%s\n" "$$doom_wad" "$$quake_pak" >&2; \
-	if ! $(REAL_ASSET_SUBBUILD) --no-print-directory DOOM_WAD="$$doom_wad" QUAKE_PAK="$$quake_pak" PI4_PAYLOAD0_ELF="$(PI4_DOOM_ENGINE_ELF)" PI4_PAYLOAD1_ELF="$(QUAKE_PI4_ENGINE_ELF)" PI4_IMAGE="$(PI4_REAL_ASSET_IMAGE)" PI4_IMAGE_INSPECT_TXT="$(PI4_REAL_ASSET_IMAGE_INSPECT_TXT)" pi4-real-assets-image; then \
+	if ! $(REAL_ASSET_SUBBUILD) --no-print-directory DOOM_WAD="$$doom_wad" QUAKE_PAK="$$quake_pak" PI4_APP_DOOM_ELF="$(PI4_DOOM_ENGINE_ELF)" PI4_APP_QUAKE_ELF="$(QUAKE_PI4_ENGINE_ELF)" PI4_IMAGE="$(PI4_REAL_ASSET_IMAGE)" PI4_IMAGE_INSPECT_TXT="$(PI4_REAL_ASSET_IMAGE_INSPECT_TXT)" pi4-real-assets-image; then \
 		rm -f "$(PI4_REAL_ASSET_IMAGE)" "$(PI4_REAL_ASSET_IMAGE_INSPECT_TXT)" "$(PI4_REAL_ASSET_HANDOFF)"; \
 		exit 1; \
 	fi; \
@@ -1441,8 +1421,6 @@ pi4-prepared-real-assets-image: tools/prepare_game_assets.sh pi4-engine-payloads
 	require_manifest_size "app_index" "manifest_file=/APPS/INDEX.TXT state=present" "$(PI4_APP_INDEX_TXT)"; \
 	require_manifest_size "doom_app_manifest" "manifest_file=/APPS/DOOM/APP.TXT state=present" "$(PI4_APP_DOOM_MANIFEST_TXT)"; \
 	require_manifest_size "quake_app_manifest" "manifest_file=/APPS/QUAKE/APP.TXT state=present" "$(PI4_APP_QUAKE_MANIFEST_TXT)"; \
-	require_manifest_size "payload0" "manifest_file=PAYLOAD0.ELF state=present" "$(PI4_DOOM_ENGINE_ELF)"; \
-	require_manifest_size "payload1" "manifest_file=PAYLOAD1.ELF state=present" "$(QUAKE_PI4_ENGINE_ELF)"; \
 	require_manifest_size "doom_app_exec" "manifest_file=/APPS/DOOM/APP.ELF state=present" "$(PI4_DOOM_ENGINE_ELF)"; \
 	require_manifest_size "quake_app_exec" "manifest_file=/APPS/QUAKE/APP.ELF state=present" "$(QUAKE_PI4_ENGINE_ELF)"; \
 	require_manifest_size "doom_wad" "manifest_file=DOOM1.WAD state=present" "$$doom_wad"; \
@@ -1452,15 +1430,15 @@ pi4-prepared-real-assets-image: tools/prepare_game_assets.sh pi4-engine-payloads
 	done; \
 	image_sha="$$(sha256_file "$(PI4_REAL_ASSET_IMAGE)")"; \
 	kernel_sha="$$(sha256_file "$(PI4_KERNEL8_IMG)")"; \
-	payload0_sha="$$(sha256_file "$(PI4_DOOM_ENGINE_ELF)")"; \
-	payload1_sha="$$(sha256_file "$(QUAKE_PI4_ENGINE_ELF)")"; \
+	doom_app_exec_sha="$$(sha256_file "$(PI4_DOOM_ENGINE_ELF)")"; \
+	quake_app_exec_sha="$$(sha256_file "$(QUAKE_PI4_ENGINE_ELF)")"; \
 	inspect_sha="$$(sha256_file "$(PI4_REAL_ASSET_IMAGE_INSPECT_TXT)")"; \
 	doom_sha="$$(sha1_file "$$doom_wad")"; \
 	quake_sha="$$(sha1_file "$$quake_pak")"; \
 	image_abs="$$(abs_path "$(PI4_REAL_ASSET_IMAGE)")"; \
 	kernel_abs="$$(abs_path "$(PI4_KERNEL8_IMG)")"; \
-	payload0_abs="$$(abs_path "$(PI4_DOOM_ENGINE_ELF)")"; \
-	payload1_abs="$$(abs_path "$(QUAKE_PI4_ENGINE_ELF)")"; \
+	doom_app_exec_abs="$$(abs_path "$(PI4_DOOM_ENGINE_ELF)")"; \
+	quake_app_exec_abs="$$(abs_path "$(QUAKE_PI4_ENGINE_ELF)")"; \
 	inspect_abs="$$(abs_path "$(PI4_REAL_ASSET_IMAGE_INSPECT_TXT)")"; \
 	handoff_abs="$$(abs_path "$(PI4_REAL_ASSET_HANDOFF)")"; \
 	doom_repo_state="$$(asset_repo_state "$$doom_wad")"; \
@@ -1483,16 +1461,16 @@ pi4-prepared-real-assets-image: tools/prepare_game_assets.sh pi4-engine-payloads
 		printf "kernel_sha256=%s\n" "$$kernel_sha"; \
 		printf "kernel_size=%s\n" "$$(file_size "$(PI4_KERNEL8_IMG)")"; \
 		printf "kernel_git_ignored=yes\n"; \
-		printf "payload0=%s\n" "$(PI4_DOOM_ENGINE_ELF)"; \
-		printf "payload0_abs=%s\n" "$$payload0_abs"; \
-		printf "payload0_sha256=%s\n" "$$payload0_sha"; \
-		printf "payload0_size=%s\n" "$$(file_size "$(PI4_DOOM_ENGINE_ELF)")"; \
-		printf "payload0_git_ignored=yes\n"; \
-		printf "payload1=%s\n" "$(QUAKE_PI4_ENGINE_ELF)"; \
-		printf "payload1_abs=%s\n" "$$payload1_abs"; \
-		printf "payload1_sha256=%s\n" "$$payload1_sha"; \
-		printf "payload1_size=%s\n" "$$(file_size "$(QUAKE_PI4_ENGINE_ELF)")"; \
-		printf "payload1_git_ignored=yes\n"; \
+		printf "doom_app_exec_source=%s\n" "$(PI4_DOOM_ENGINE_ELF)"; \
+		printf "doom_app_exec_source_abs=%s\n" "$$doom_app_exec_abs"; \
+		printf "doom_app_exec_sha256=%s\n" "$$doom_app_exec_sha"; \
+		printf "doom_app_exec_size=%s\n" "$$(file_size "$(PI4_DOOM_ENGINE_ELF)")"; \
+		printf "doom_app_exec_git_ignored=yes\n"; \
+		printf "quake_app_exec_source=%s\n" "$(QUAKE_PI4_ENGINE_ELF)"; \
+		printf "quake_app_exec_source_abs=%s\n" "$$quake_app_exec_abs"; \
+		printf "quake_app_exec_sha256=%s\n" "$$quake_app_exec_sha"; \
+		printf "quake_app_exec_size=%s\n" "$$(file_size "$(QUAKE_PI4_ENGINE_ELF)")"; \
+		printf "quake_app_exec_git_ignored=yes\n"; \
 		printf "inspect=%s\n" "$(PI4_REAL_ASSET_IMAGE_INSPECT_TXT)"; \
 		printf "inspect_abs=%s\n" "$$inspect_abs"; \
 		printf "inspect_sha256=%s\n" "$$inspect_sha"; \
@@ -1523,7 +1501,6 @@ pi4-prepared-real-assets-image: tools/prepare_game_assets.sh pi4-engine-payloads
 		printf "quake_app_manifest=/APPS/QUAKE/APP.TXT\n"; \
 		printf "quake_app_exec=/APPS/QUAKE/APP.ELF\n"; \
 		printf "quake_app_icon=pak:gfx/conback.lmp\n"; \
-		printf "legacy_root_payloads=compatibility-only\n"; \
 		handoff_inspect_line "manifest_path" "manifest_path=/PROOF/MANIFEST.TXT state=present"; \
 		handoff_inspect_line "manifest_kernel_file" "kernel_file=KERNEL8.IMG"; \
 		handoff_inspect_line "manifest_kernel" "manifest_file=KERNEL8.IMG state=present"; \
@@ -1560,23 +1537,8 @@ pi4-prepared-real-assets-image: tools/prepare_game_assets.sh pi4-engine-payloads
 		handoff_inspect_line "manifest_quake_app_exec_model" "app.1.exec_model=generic-aarch64-el0-elf-by-path"; \
 		handoff_inspect_line "manifest_quake_app_resource" "app.1.resource=/ID1/PAK0.PAK"; \
 		handoff_inspect_line "manifest_quake_app_icon" "app.1.icon=pak:gfx/conback.lmp"; \
-		handoff_inspect_line "manifest_init_slot_file" "root_elf_slot.0.file=INIT.ELF"; \
-		handoff_inspect_line "manifest_init_slot_state" "root_elf_slot.0.state=present"; \
 		handoff_inspect_line "manifest_init" "manifest_file=INIT.ELF state=present"; \
-		handoff_inspect_line "manifest_abiprobe_slot_file" "root_elf_slot.1.file=ABIPROBE.ELF"; \
-		handoff_inspect_line "manifest_abiprobe_slot_state" "root_elf_slot.1.state=present"; \
 		handoff_inspect_line "manifest_abiprobe" "manifest_file=ABIPROBE.ELF state=present"; \
-		handoff_inspect_line "manifest_payload0_slot_file" "root_elf_slot.2.file=PAYLOAD0.ELF"; \
-		handoff_inspect_line "manifest_payload0_slot_state" "root_elf_slot.2.state=present"; \
-		handoff_inspect_line "manifest_payload0" "manifest_file=PAYLOAD0.ELF state=present"; \
-		handoff_inspect_line "manifest_payload0_compatibility" "payload_slot.0.compatibility=legacy-root-payload"; \
-		handoff_inspect_line "manifest_payload0_app_exec" "payload_slot.0.app_exec=/APPS/DOOM/APP.ELF"; \
-		handoff_inspect_line "manifest_payload1_slot_file" "root_elf_slot.3.file=PAYLOAD1.ELF"; \
-		handoff_inspect_line "manifest_payload1_slot_state" "root_elf_slot.3.state=present"; \
-		handoff_inspect_line "manifest_payload1" "manifest_file=PAYLOAD1.ELF state=present"; \
-		handoff_inspect_line "manifest_payload1_compatibility" "payload_slot.1.compatibility=legacy-root-payload"; \
-		handoff_inspect_line "manifest_payload1_app_exec" "payload_slot.1.app_exec=/APPS/QUAKE/APP.ELF"; \
-		handoff_inspect_line "manifest_legacy_root_payloads" "legacy_root_payloads=compatibility-only"; \
 		handoff_inspect_line "manifest_doom_wad" "manifest_file=DOOM1.WAD state=present"; \
 		handoff_inspect_line "manifest_doom_asset" "manifest_asset=DOOM1.WAD kind=doom-wad source=external"; \
 		handoff_inspect_line "manifest_quake_pak" "manifest_file=/ID1/PAK0.PAK state=present"; \
@@ -1587,8 +1549,8 @@ pi4-prepared-real-assets-image: tools/prepare_game_assets.sh pi4-engine-payloads
 		printf "manifest_config_size_matches_file=yes\n"; \
 		printf "manifest_init_size_matches_file=yes\n"; \
 		printf "manifest_abiprobe_size_matches_file=yes\n"; \
-		printf "manifest_payload0_size_matches_file=yes\n"; \
-		printf "manifest_payload1_size_matches_file=yes\n"; \
+		printf "manifest_doom_app_exec_size_matches_file=yes\n"; \
+		printf "manifest_quake_app_exec_size_matches_file=yes\n"; \
 		printf "manifest_doom_wad_size_matches_file=yes\n"; \
 		printf "manifest_quake_pak_size_matches_file=yes\n"; \
 		printf "exact_boot_image=%s\n" "$(PI4_REAL_ASSET_IMAGE)"; \
@@ -1621,7 +1583,7 @@ pi4-prepared-real-assets-image: tools/prepare_game_assets.sh pi4-engine-payloads
 	printf "Pi 4 real-assets handoff ready; local QEMU was not started.\n"; \
 	cat "$(PI4_REAL_ASSET_HANDOFF)"
 
-pi4-prepared-real-assets-final-gates: tools/prepare_game_assets.sh pi4-engine-payloads-linked
+pi4-prepared-real-assets-final-gates: tools/prepare_game_assets.sh pi4-engine-apps-linked
 	@set -e; \
 	printf "Preparing Pi 4 real WAD/PAK inputs with external cache: %s\n" "$(REAL_ASSET_CACHE_DIR)" >&2; \
 	asset_paths="$$(VIBE_ASSET_CACHE_DIR="$(REAL_ASSET_CACHE_DIR)" tools/prepare_game_assets.sh --format paths)"; \
@@ -1630,7 +1592,7 @@ pi4-prepared-real-assets-final-gates: tools/prepare_game_assets.sh pi4-engine-pa
 	test -n "$$doom_wad" || { echo "prepare helper did not return DOOM_WAD" >&2; exit 1; }; \
 	test -n "$$quake_pak" || { echo "prepare helper did not return QUAKE_PAK" >&2; exit 1; }; \
 	printf "Packaging exact Pi 4 final-gates image from DOOM_WAD=%s and QUAKE_PAK=%s\n" "$$doom_wad" "$$quake_pak" >&2; \
-		$(REAL_ASSET_SUBBUILD) --no-print-directory DOOM_WAD="$$doom_wad" QUAKE_PAK="$$quake_pak" PI4_PAYLOAD0_ELF="$(PI4_DOOM_ENGINE_ELF)" PI4_PAYLOAD1_ELF="$(QUAKE_PI4_ENGINE_ELF)" PI4_REAL_ASSET_PROOF_IMAGE="$(PI4_REAL_ASSET_PROOF_IMAGE)" PI4_REAL_ASSET_PROOF_IMAGE_INSPECT_TXT="$(PI4_REAL_ASSET_PROOF_IMAGE_INSPECT_TXT)" ALLOW_LOCAL_VM="$(ALLOW_LOCAL_VM)" PI4_LOCAL_QEMU_REAL_ASSET_SECONDS="$(PI4_LOCAL_QEMU_REAL_ASSET_SECONDS)" pi4-local-qemu-real-assets-final-gates
+		$(REAL_ASSET_SUBBUILD) --no-print-directory DOOM_WAD="$$doom_wad" QUAKE_PAK="$$quake_pak" PI4_APP_DOOM_ELF="$(PI4_DOOM_ENGINE_ELF)" PI4_APP_QUAKE_ELF="$(QUAKE_PI4_ENGINE_ELF)" PI4_REAL_ASSET_PROOF_IMAGE="$(PI4_REAL_ASSET_PROOF_IMAGE)" PI4_REAL_ASSET_PROOF_IMAGE_INSPECT_TXT="$(PI4_REAL_ASSET_PROOF_IMAGE_INSPECT_TXT)" ALLOW_LOCAL_VM="$(ALLOW_LOCAL_VM)" PI4_LOCAL_QEMU_REAL_ASSET_SECONDS="$(PI4_LOCAL_QEMU_REAL_ASSET_SECONDS)" pi4-local-qemu-real-assets-final-gates
 
 pi4-final-gates-single-artifact-guard: $(VIBE_STATUS_CHECK)
 	@set -e; \
@@ -1644,9 +1606,9 @@ pi4-final-gates-single-artifact-guard: $(VIBE_STATUS_CHECK)
 	$(VIBE_STATUS_CHECK) --pi4-final-gates-single-artifact "$$gates" "$$current_sha"; \
 	printf "Pi 4 final gates single-artifact guard OK: %s matches %s\n" "$$gates" "$(PI4_IMAGE)"
 
-pi4-doom-quake-payload-image-inspect: $(PI4_DOOM_ELF) $(PI4_QUAKE_ELF)
-	@printf "Packaging Pi AArch64 Doom and Quake payload ELFs into Pi 4 image slots; Pi launch and hardware proof remain unclaimed.\n"
-	$(MAKE) --no-print-directory PI4_PAYLOAD0_ELF="$(PI4_DOOM_ELF)" PI4_PAYLOAD1_ELF="$(PI4_QUAKE_ELF)" pi4-image-inspect
+pi4-doom-quake-app-image-inspect: $(PI4_DOOM_ELF) $(PI4_QUAKE_ELF)
+	@printf "Packaging Pi AArch64 Doom and Quake app ELFs into Pi 4 app directories; Pi launch and hardware proof remain unclaimed.\n"
+	$(MAKE) --no-print-directory PI4_APP_DOOM_ELF="$(PI4_DOOM_ELF)" PI4_APP_QUAKE_ELF="$(PI4_QUAKE_ELF)" pi4-image-inspect
 
 pi4-qemu-command: $(PI4_QEMU_COMMAND) $(PI4_EXACT_BOOT_IMAGE_DEPS)
 	@printf "Pi 4 exact boot image path: %s\n" "$(PI4_EXACT_BOOT_IMAGE)"
@@ -1668,6 +1630,10 @@ pi4-qemu-command: $(PI4_QEMU_COMMAND) $(PI4_EXACT_BOOT_IMAGE_DEPS)
 	handoff_kernel="$$(handoff_field kernel)"; \
 	handoff_kernel_sha="$$(handoff_field kernel_sha256)"; \
 	handoff_drive_arg="$$(handoff_field qemu_drive_arg)"; \
+	handoff_doom_app_exec="$$(handoff_field doom_app_exec)"; \
+	handoff_quake_app_exec="$$(handoff_field quake_app_exec)"; \
+	handoff_doom_app_exec_source="$$(handoff_field doom_app_exec_source)"; \
+	handoff_quake_app_exec_source="$$(handoff_field quake_app_exec_source)"; \
 	test "$$handoff_image" = "$(PI4_EXACT_BOOT_IMAGE)" || { echo "prepared Pi 4 handoff image path is stale: $$handoff_image != $(PI4_EXACT_BOOT_IMAGE)" >&2; exit 1; }; \
 	test "$$handoff_exact_image" = "$(PI4_EXACT_BOOT_IMAGE)" || { echo "prepared Pi 4 exact boot image path is stale: $$handoff_exact_image != $(PI4_EXACT_BOOT_IMAGE)" >&2; exit 1; }; \
 	test "$$handoff_image_sha" = "$$actual_image_sha" || { echo "prepared Pi 4 handoff image SHA is stale: $$handoff_image_sha != $$actual_image_sha" >&2; exit 1; }; \
@@ -1675,6 +1641,10 @@ pi4-qemu-command: $(PI4_QEMU_COMMAND) $(PI4_EXACT_BOOT_IMAGE_DEPS)
 	test "$$handoff_kernel" = "$(PI4_KERNEL8_IMG)" || { echo "prepared Pi 4 handoff kernel path is stale: $$handoff_kernel != $(PI4_KERNEL8_IMG)" >&2; exit 1; }; \
 	test "$$handoff_kernel_sha" = "$$actual_kernel_sha" || { echo "prepared Pi 4 handoff kernel SHA is stale: $$handoff_kernel_sha != $$actual_kernel_sha" >&2; exit 1; }; \
 	test "$$handoff_drive_arg" = "file=$(PI4_EXACT_BOOT_IMAGE),if=sd,format=raw" || { echo "prepared Pi 4 handoff QEMU drive arg is stale: $$handoff_drive_arg" >&2; exit 1; }; \
+	test "$$handoff_doom_app_exec" = "/APPS/DOOM/APP.ELF" || { echo "prepared Pi 4 handoff Doom app_exec is stale: $$handoff_doom_app_exec" >&2; exit 1; }; \
+	test "$$handoff_quake_app_exec" = "/APPS/QUAKE/APP.ELF" || { echo "prepared Pi 4 handoff Quake app_exec is stale: $$handoff_quake_app_exec" >&2; exit 1; }; \
+	test "$$handoff_doom_app_exec_source" = "$(PI4_DOOM_ENGINE_ELF)" || { echo "prepared Pi 4 handoff Doom app_exec source is stale: $$handoff_doom_app_exec_source" >&2; exit 1; }; \
+	test "$$handoff_quake_app_exec_source" = "$(QUAKE_PI4_ENGINE_ELF)" || { echo "prepared Pi 4 handoff Quake app_exec source is stale: $$handoff_quake_app_exec_source" >&2; exit 1; }; \
 	printf "Prepared handoff file for exact boot image: %s\n" "$(PI4_REAL_ASSET_HANDOFF)"; \
 	printf "Verified exact boot image SHA256: %s\n" "$$actual_image_sha"
 	@printf "Not executed. Real Raspberry Pi hardware proof remains unclaimed.\n"
@@ -1745,6 +1715,10 @@ pi4-local-qemu-live: $(PI4_QEMU_COMMAND)
 	handoff_kernel="$$(handoff_field kernel)"; \
 	handoff_kernel_sha="$$(handoff_field kernel_sha256)"; \
 	handoff_drive_arg="$$(handoff_field qemu_drive_arg)"; \
+	handoff_doom_app_exec="$$(handoff_field doom_app_exec)"; \
+	handoff_quake_app_exec="$$(handoff_field quake_app_exec)"; \
+	handoff_doom_app_exec_source="$$(handoff_field doom_app_exec_source)"; \
+	handoff_quake_app_exec_source="$$(handoff_field quake_app_exec_source)"; \
 	test "$$handoff_image" = "$(PI4_LOCAL_QEMU_LIVE_IMAGE)" || { echo "prepared Pi 4 live handoff image path is stale: $$handoff_image != $(PI4_LOCAL_QEMU_LIVE_IMAGE)" >&2; exit 1; }; \
 	test "$$handoff_exact_image" = "$(PI4_LOCAL_QEMU_LIVE_IMAGE)" || { echo "prepared Pi 4 live exact image path is stale: $$handoff_exact_image != $(PI4_LOCAL_QEMU_LIVE_IMAGE)" >&2; exit 1; }; \
 	test "$$handoff_image_sha" = "$$actual_image_sha" || { echo "prepared Pi 4 live handoff image SHA is stale: $$handoff_image_sha != $$actual_image_sha" >&2; exit 1; }; \
@@ -1752,8 +1726,18 @@ pi4-local-qemu-live: $(PI4_QEMU_COMMAND)
 	test "$$handoff_kernel" = "$(PI4_KERNEL8_IMG)" || { echo "prepared Pi 4 live handoff kernel path is stale: $$handoff_kernel != $(PI4_KERNEL8_IMG)" >&2; exit 1; }; \
 	test "$$handoff_kernel_sha" = "$$actual_kernel_sha" || { echo "prepared Pi 4 live handoff kernel SHA is stale: $$handoff_kernel_sha != $$actual_kernel_sha" >&2; exit 1; }; \
 	test "$$handoff_drive_arg" = "file=$(PI4_LOCAL_QEMU_LIVE_IMAGE),if=sd,format=raw" || { echo "prepared Pi 4 live handoff QEMU drive arg is stale: $$handoff_drive_arg" >&2; exit 1; }; \
+	test "$$handoff_doom_app_exec" = "/APPS/DOOM/APP.ELF" || { echo "prepared Pi 4 live handoff Doom app_exec is stale: $$handoff_doom_app_exec" >&2; exit 1; }; \
+	test "$$handoff_quake_app_exec" = "/APPS/QUAKE/APP.ELF" || { echo "prepared Pi 4 live handoff Quake app_exec is stale: $$handoff_quake_app_exec" >&2; exit 1; }; \
+	test "$$handoff_doom_app_exec_source" = "$(PI4_DOOM_ENGINE_ELF)" || { echo "prepared Pi 4 live handoff Doom app_exec source is stale: $$handoff_doom_app_exec_source" >&2; exit 1; }; \
+	test "$$handoff_quake_app_exec_source" = "$(QUAKE_PI4_ENGINE_ELF)" || { echo "prepared Pi 4 live handoff Quake app_exec source is stale: $$handoff_quake_app_exec_source" >&2; exit 1; }; \
 	printf "Pi 4 live image handoff verified: %s sha256=%s\n" "$(PI4_LOCAL_QEMU_LIVE_IMAGE)" "$$actual_image_sha"; \
 	for line in \
+		"app_layout=/SYSTEM/INIT.ELF,/APPS/INDEX.TXT,/APPS/<APP>/APP.TXT,/APPS/<APP>/APP.ELF" \
+		"app_discovery_model=vfs-app-index" \
+		"app_launch_model=generic-vfs-path-exec" \
+		"app_exec_model=generic-aarch64-el0-elf-by-path" \
+		"doom_app_exec=/APPS/DOOM/APP.ELF" \
+		"quake_app_exec=/APPS/QUAKE/APP.ELF" \
 		"qemu_boot_target=pi4-local-qemu-live" \
 		"qemu_user_command=make ALLOW_LOCAL_VM=1 pi4-local-qemu-live" \
 		"launcher_select_doom=press-1-or-click-Doom" \
@@ -1761,8 +1745,8 @@ pi4-local-qemu-live: $(PI4_QEMU_COMMAND)
 		"hardware_proof=unclaimed"; do \
 		grep -F -x -q "$$line" "$(PI4_REAL_ASSET_HANDOFF)" || { echo "prepared Pi 4 live handoff missing: $$line" >&2; exit 1; }; \
 	done; \
-	grep -E -q '^payload0=.*PAYLOAD0\.DOOM\.ELF$$' "$(PI4_REAL_ASSET_HANDOFF)" || { echo "prepared Pi 4 live handoff missing Doom engine payload path" >&2; exit 1; }; \
-	grep -E -q '^payload1=.*PAYLOAD1\.QUAKE\.ELF$$' "$(PI4_REAL_ASSET_HANDOFF)" || { echo "prepared Pi 4 live handoff missing Quake engine payload path" >&2; exit 1; }; \
+	grep -E -q '^doom_app_exec_source=.*DOOM\.ENGINE\.APP\.ELF$$' "$(PI4_REAL_ASSET_HANDOFF)" || { echo "prepared Pi 4 live handoff missing Doom app_exec source path" >&2; exit 1; }; \
+	grep -E -q '^quake_app_exec_source=.*QUAKE\.ENGINE\.APP\.ELF$$' "$(PI4_REAL_ASSET_HANDOFF)" || { echo "prepared Pi 4 live handoff missing Quake app_exec source path" >&2; exit 1; }; \
 	if [ "$(ALLOW_LOCAL_VM)" = "1" ]; then \
 			printf "Using freshly prepared and inspected Pi 4 real WAD/PAK image: %s\n" "$(PI4_LOCAL_QEMU_LIVE_IMAGE)"; \
 			printf "Starting local Pi 4 QEMU fullscreen/zoomed play target.\n"; \
@@ -1774,10 +1758,10 @@ pi4-local-qemu-live: $(PI4_QEMU_COMMAND)
 	fi
 	@if [ "$(ALLOW_LOCAL_VM)" = "1" ]; then \
 			printf "Prepared handoff summary: %s\n" "$(PI4_REAL_ASSET_HANDOFF)"; \
-			grep -E '^(image_abs|image_sha256|exact_boot_image_abs|exact_boot_image_sha256|kernel_abs|kernel_sha256|doom_wad_sha1|quake_pak_sha1|qemu_display|qemu_input|launcher_select_doom|launcher_select_quake|hardware_proof)=' "$(PI4_REAL_ASSET_HANDOFF)" || true; \
+			grep -E '^(image_abs|image_sha256|exact_boot_image_abs|exact_boot_image_sha256|kernel_abs|kernel_sha256|doom_app_exec|doom_app_exec_source|quake_app_exec|quake_app_exec_source|doom_wad_sha1|quake_pak_sha1|qemu_display|qemu_input|launcher_select_doom|launcher_select_quake|hardware_proof)=' "$(PI4_REAL_ASSET_HANDOFF)" || true; \
 	elif [ -s "$(PI4_REAL_ASSET_HANDOFF)" ]; then \
 			printf "Prepared handoff summary: %s\n" "$(PI4_REAL_ASSET_HANDOFF)"; \
-			grep -E '^(image_abs|image_sha256|exact_boot_image_abs|exact_boot_image_sha256|kernel_abs|kernel_sha256|doom_wad_sha1|quake_pak_sha1|qemu_display|qemu_input|launcher_select_doom|launcher_select_quake|hardware_proof)=' "$(PI4_REAL_ASSET_HANDOFF)" || true; \
+			grep -E '^(image_abs|image_sha256|exact_boot_image_abs|exact_boot_image_sha256|kernel_abs|kernel_sha256|doom_app_exec|doom_app_exec_source|quake_app_exec|quake_app_exec_source|doom_wad_sha1|quake_pak_sha1|qemu_display|qemu_input|launcher_select_doom|launcher_select_quake|hardware_proof)=' "$(PI4_REAL_ASSET_HANDOFF)" || true; \
 	else \
 			printf "No prepared handoff file yet; prepare it separately with: make pi4-prepared-real-assets-image\n"; \
 	fi
@@ -1856,8 +1840,8 @@ pi4-local-qemu-doom-input-smoke: vm-consent $(PI4_QEMU_COMMAND) $(VIBE_STATUS_CH
 	@grep -a -F -q "smoke_gate=pi4-local-qemu-input-smoke" "$(PI4_LOCAL_QEMU_DOOM_STATUS)"
 	@grep -a -F -q "hardware_proof=unclaimed" "$(PI4_LOCAL_QEMU_DOOM_STATUS)"
 	@grep -a -F -q "pi4exec=OK" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
-	@grep -a -E -q '(^| )pi4payloadreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x[0-9a-fA-F]+/0x0*( |$$)' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
-	@grep -a -E -q '(^| )pi4payloadvfs=.*0x00000000464f4f4b' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
+	@grep -a -E -q '(^| )pi4appreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x0*12/0x0*c( |$$)' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
+	@grep -a -E -q '(^| )pi4appvfs=0x0*c/0x0*464f4f4b' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -E -q '(^| )pi4inputevt=.*0x0*1' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -F -q "pi4fb=OK" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -E -q '(^| )fbpresent=0x0*[1-9a-fA-F][0-9a-fA-F]*' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
@@ -1886,8 +1870,8 @@ pi4-local-qemu-quake-input-smoke: vm-consent $(PI4_QEMU_COMMAND) $(VIBE_STATUS_C
 	@grep -a -F -q "smoke_gate=pi4-local-qemu-input-smoke" "$(PI4_LOCAL_QEMU_QUAKE_STATUS)"
 	@grep -a -F -q "hardware_proof=unclaimed" "$(PI4_LOCAL_QEMU_QUAKE_STATUS)"
 	@grep -a -F -q "pi4exec=OK" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
-	@grep -a -E -q '(^| )pi4payloadreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x[0-9a-fA-F]+/0x0*1( |$$)' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
-	@grep -a -E -q '(^| )pi4payloadvfs=.*0x00000000464f4f4b' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
+	@grep -a -E -q '(^| )pi4appreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x0*13/0x0*d( |$$)' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
+	@grep -a -E -q '(^| )pi4appvfs=0x0*d/0x0*464f4f4b' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@grep -a -E -q '(^| )pi4inputevt=.*0x0*1' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@grep -a -F -q "pi4fb=OK" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@grep -a -E -q '(^| )fbpresent=0x0*[1-9a-fA-F][0-9a-fA-F]*' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
@@ -1953,8 +1937,8 @@ pi4-local-qemu-final-gates: pi4-local-qemu-input-smoke $(VIBE_STATUS_CHECK)
 	@$(VIBE_STATUS_CHECK) --pi4-final-gates "$(PI4_LOCAL_QEMU_FINAL_GATES)" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)" "$(PI4_LOCAL_QEMU_DOOM_STATUS)" "$(PI4_LOCAL_QEMU_QUAKE_STATUS)"
 	@cat "$(PI4_LOCAL_QEMU_FINAL_GATES)"
 
-pi4-local-qemu-real-assets-input-smoke: pi4-real-assets-require pi4-engine-payloads-linked
-	@$(MAKE) --no-print-directory ALLOW_LOCAL_VM="$(ALLOW_LOCAL_VM)" DOOM_WAD="$(PI4_REAL_DOOM_WAD)" QUAKE_PAK="$(PI4_REAL_QUAKE_PAK)" PRIMARY_ASSET="$(PI4_REAL_DOOM_WAD)" SECONDARY_PACKAGE="$(PI4_REAL_QUAKE_PAK)" PI4_PAYLOAD0_ELF="$(PI4_DOOM_ENGINE_ELF)" PI4_PAYLOAD1_ELF="$(QUAKE_PI4_ENGINE_ELF)" PI4_IMAGE="$(PI4_REAL_ASSET_PROOF_IMAGE)" PI4_IMAGE_INSPECT_TXT="$(PI4_REAL_ASSET_PROOF_IMAGE_INSPECT_TXT)" PI4_REQUIRE_REAL_ASSETS=1 PI4_LOCAL_QEMU_SECONDS="$(PI4_LOCAL_QEMU_REAL_ASSET_SECONDS)" pi4-local-qemu-input-smoke
+pi4-local-qemu-real-assets-input-smoke: pi4-real-assets-require pi4-engine-apps-linked
+	@$(MAKE) --no-print-directory ALLOW_LOCAL_VM="$(ALLOW_LOCAL_VM)" DOOM_WAD="$(PI4_REAL_DOOM_WAD)" QUAKE_PAK="$(PI4_REAL_QUAKE_PAK)" PRIMARY_ASSET="$(PI4_REAL_DOOM_WAD)" SECONDARY_PACKAGE="$(PI4_REAL_QUAKE_PAK)" PI4_APP_DOOM_ELF="$(PI4_DOOM_ENGINE_ELF)" PI4_APP_QUAKE_ELF="$(QUAKE_PI4_ENGINE_ELF)" PI4_IMAGE="$(PI4_REAL_ASSET_PROOF_IMAGE)" PI4_IMAGE_INSPECT_TXT="$(PI4_REAL_ASSET_PROOF_IMAGE_INSPECT_TXT)" PI4_REQUIRE_REAL_ASSETS=1 PI4_LOCAL_QEMU_SECONDS="$(PI4_LOCAL_QEMU_REAL_ASSET_SECONDS)" pi4-local-qemu-input-smoke
 	@set -e; \
 	for status in "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"; do \
 		grep -a -F -q "pi4vfs=OK" "$$status" || { echo "Pi 4 real-assets smoke missing pi4vfs=OK in $$status" >&2; cat "$$status" >&2; exit 1; }; \
@@ -1962,9 +1946,9 @@ pi4-local-qemu-real-assets-input-smoke: pi4-real-assets-require pi4-engine-paylo
 		grep -a -E -q '(^| )pi4pak0=0x[0-9A-Fa-f]+(/0x[0-9A-Fa-f]+){7}( |$$)' "$$status" || { echo "Pi 4 real-assets smoke missing full pi4pak0 read tuple in $$status" >&2; cat "$$status" >&2; exit 1; }; \
 	done
 	@grep -a -F -q "pi4exec=OK" "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
-	@grep -a -E -q '(^| )pi4payloadreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x[0-9a-fA-F]+/0x0*( |$$)' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
+	@grep -a -E -q '(^| )pi4appreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x0*12/0x0*c( |$$)' "$(PI4_LOCAL_QEMU_DOOM_STATUS_RAW)"
 	@grep -a -F -q "pi4exec=OK" "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
-	@grep -a -E -q '(^| )pi4payloadreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x[0-9a-fA-F]+/0x0*1( |$$)' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
+	@grep -a -E -q '(^| )pi4appreq=0x[0-9a-fA-F]+/0x0*1/0x0*20/0x[0-9a-fA-F]+/0x0*13/0x0*d( |$$)' "$(PI4_LOCAL_QEMU_QUAKE_STATUS_RAW)"
 	@printf "Pi 4 local QEMU real-assets input smoke OK: full WAD/PAK FAT/VFS reads and Doom/Quake launcher execs validated from captured serial status.\n"
 
 pi4-local-qemu-real-assets-final-gates: pi4-local-qemu-real-assets-input-smoke $(VIBE_STATUS_CHECK)
@@ -2034,7 +2018,7 @@ pi4-hw-equivalent-real-assets-input-smoke: $(PI4_HW_EQUIVALENT_REAL_ASSET_IMAGE_
 	quake_pak="$$(printf "%s\n" "$$asset_paths" | sed -n '2p')"; \
 	test -n "$$doom_wad" || { echo "prepare helper did not return DOOM_WAD" >&2; exit 1; }; \
 	test -n "$$quake_pak" || { echo "prepare helper did not return QUAKE_PAK" >&2; exit 1; }; \
-	$(REAL_ASSET_SUBBUILD) --no-print-directory ALLOW_LOCAL_VM="$(ALLOW_LOCAL_VM)" DOOM_WAD="$$doom_wad" QUAKE_PAK="$$quake_pak" PI4_REAL_ASSET_PROOF_IMAGE="$(PI4_HW_EQUIVALENT_REAL_ASSET_IMAGE)" PI4_REAL_ASSET_PROOF_IMAGE_INSPECT_TXT="$(PI4_HW_EQUIVALENT_REAL_ASSET_IMAGE_INSPECT_TXT)" PI4_PAYLOAD0_ELF="$(PI4_DOOM_ENGINE_ELF)" PI4_PAYLOAD1_ELF="$(QUAKE_PI4_ENGINE_ELF)" PI4_LOCAL_QEMU_REAL_ASSET_SECONDS="$(PI4_HW_EQUIVALENT_REAL_ASSET_SECONDS)" pi4-local-qemu-real-assets-input-smoke
+	$(REAL_ASSET_SUBBUILD) --no-print-directory ALLOW_LOCAL_VM="$(ALLOW_LOCAL_VM)" DOOM_WAD="$$doom_wad" QUAKE_PAK="$$quake_pak" PI4_REAL_ASSET_PROOF_IMAGE="$(PI4_HW_EQUIVALENT_REAL_ASSET_IMAGE)" PI4_REAL_ASSET_PROOF_IMAGE_INSPECT_TXT="$(PI4_HW_EQUIVALENT_REAL_ASSET_IMAGE_INSPECT_TXT)" PI4_APP_DOOM_ELF="$(PI4_DOOM_ENGINE_ELF)" PI4_APP_QUAKE_ELF="$(QUAKE_PI4_ENGINE_ELF)" PI4_LOCAL_QEMU_REAL_ASSET_SECONDS="$(PI4_HW_EQUIVALENT_REAL_ASSET_SECONDS)" pi4-local-qemu-real-assets-input-smoke
 
 pi4-hw-equivalent-real-assets-final-gates: $(PI4_HW_EQUIVALENT_REAL_ASSET_IMAGE_DEPS)
 	@$(MAKE) --no-print-directory ALLOW_LOCAL_VM="$(ALLOW_LOCAL_VM)" PI4_REAL_ASSET_PROOF_IMAGE="$(PI4_HW_EQUIVALENT_REAL_ASSET_IMAGE)" PI4_REAL_ASSET_PROOF_IMAGE_INSPECT_TXT="$(PI4_HW_EQUIVALENT_REAL_ASSET_IMAGE_INSPECT_TXT)" PI4_LOCAL_QEMU_REAL_ASSET_SECONDS="$(PI4_HW_EQUIVALENT_REAL_ASSET_SECONDS)" pi4-prepared-real-assets-final-gates
@@ -2108,7 +2092,6 @@ pi4-image-inspect: $(IMAGE_BUILDER) $(PI4_IMAGE)
 	@grep -F -q "app_manifest=/APPS/QUAKE/APP.TXT state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "app_exec=/APPS/QUAKE/APP.ELF state=present model=generic-aarch64-el0-elf-by-path app=quake" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -F -q "app_icon=pak:gfx/conback.lmp state=manifest app=quake" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -F -q "legacy_root_payloads=compatibility-only" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -q "manifest_file=DOOM1.WAD state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -q "manifest_file=/ASSETS/README.TXT state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -q "manifest_file=/ASSETS/MAPS/E1M1.MAP state=present" "$(PI4_IMAGE_INSPECT_TXT)"
@@ -2136,76 +2119,15 @@ pi4-image-inspect: $(IMAGE_BUILDER) $(PI4_IMAGE)
 	@grep -a -q "app.1.exec=/APPS/QUAKE/APP.ELF" "$(PI4_IMAGE)"
 	@grep -a -q "app.1.exec_model=generic-aarch64-el0-elf-by-path" "$(PI4_IMAGE)"
 	@grep -a -q "app.1.icon=pak:gfx/conback.lmp" "$(PI4_IMAGE)"
-	@grep -a -q "legacy_root_payloads=compatibility-only" "$(PI4_IMAGE)"
-	@grep -a -q "root_elf_slot.0.file=INIT.ELF" "$(PI4_IMAGE)"
-	@grep -a -q "root_elf_slot.0.state=present" "$(PI4_IMAGE)"
-	@grep -a -q "root_elf_slot.1.file=ABIPROBE.ELF" "$(PI4_IMAGE)"
-	@grep -a -q "root_elf_slot.1.state=present" "$(PI4_IMAGE)"
-	@grep -a -q "root_elf_slot.2.file=PAYLOAD0.ELF" "$(PI4_IMAGE)"
-	@grep -a -q "root_elf_slot.3.file=PAYLOAD1.ELF" "$(PI4_IMAGE)"
-	@grep -a -E -q "root_elf_count=[2-4]" "$(PI4_IMAGE)"
+	@grep -a -E -q "root_elf_count=2" "$(PI4_IMAGE)"
 	@grep -a -E -q "root_elf\.[0-9]+\.file=INIT\.ELF" "$(PI4_IMAGE)"
 	@grep -a -E -q "root_elf\.[0-9]+\.file=ABIPROBE\.ELF" "$(PI4_IMAGE)"
-	@grep -a -q "payload_slot_count=2" "$(PI4_IMAGE)"
-	@grep -a -q "payload_slot.0.kind=doom" "$(PI4_IMAGE)"
-	@grep -a -q "payload_slot.0.file=PAYLOAD0.ELF" "$(PI4_IMAGE)"
-	@grep -a -q "payload_slot.0.root_elf_slot=2" "$(PI4_IMAGE)"
-	@grep -a -q "payload_slot.0.hardware_proof=unclaimed" "$(PI4_IMAGE)"
-	@grep -a -q "payload_slot.0.launch_proof=unclaimed" "$(PI4_IMAGE)"
-	@grep -a -q "payload_slot.0.compatibility=legacy-root-payload" "$(PI4_IMAGE)"
-	@grep -a -q "payload_slot.0.app_exec=/APPS/DOOM/APP.ELF" "$(PI4_IMAGE)"
-	@grep -a -q "payload_slot.1.kind=quake" "$(PI4_IMAGE)"
-	@grep -a -q "payload_slot.1.file=PAYLOAD1.ELF" "$(PI4_IMAGE)"
-	@grep -a -q "payload_slot.1.root_elf_slot=3" "$(PI4_IMAGE)"
-	@grep -a -q "payload_slot.1.hardware_proof=unclaimed" "$(PI4_IMAGE)"
-	@grep -a -q "payload_slot.1.launch_proof=unclaimed" "$(PI4_IMAGE)"
-	@grep -a -q "payload_slot.1.compatibility=legacy-root-payload" "$(PI4_IMAGE)"
-	@grep -a -q "payload_slot.1.app_exec=/APPS/QUAKE/APP.ELF" "$(PI4_IMAGE)"
-	@if [ -n "$(PI4_PAYLOAD0_ELF)" ]; then \
-		grep -a -q "root_elf_slot.2.state=present" "$(PI4_IMAGE)"; \
-		grep -a -E -q "root_elf_slot.2.size=[1-9][0-9]*" "$(PI4_IMAGE)"; \
-		grep -a -E -q "root_elf\.[0-9]+\.file=PAYLOAD0\.ELF" "$(PI4_IMAGE)"; \
-		grep -a -q "payload_slot.0.state=present" "$(PI4_IMAGE)"; \
-		grep -a -q "payload_slot.0.source=root-elf-input" "$(PI4_IMAGE)"; \
-		grep -a -q "payload_slot.0.repo_state=unchecked" "$(PI4_IMAGE)"; \
-		grep -a -q "payload_slot.0.evidence=packaged-file-only" "$(PI4_IMAGE)"; \
-		grep -a -E -q "payload_slot.0.size=[1-9][0-9]*" "$(PI4_IMAGE)"; \
-	else \
-		grep -a -q "root_elf_slot.2.state=absent" "$(PI4_IMAGE)"; \
-		grep -a -q "payload_slot.0.state=absent" "$(PI4_IMAGE)"; \
-		grep -a -q "payload_slot.0.source=absent" "$(PI4_IMAGE)"; \
-		grep -a -q "payload_slot.0.repo_state=absent" "$(PI4_IMAGE)"; \
-		grep -a -q "payload_slot.0.evidence=absent" "$(PI4_IMAGE)"; \
-	fi
-	@if [ -n "$(PI4_PAYLOAD1_ELF)" ]; then \
-		grep -a -q "root_elf_slot.3.state=present" "$(PI4_IMAGE)"; \
-		grep -a -E -q "root_elf_slot.3.size=[1-9][0-9]*" "$(PI4_IMAGE)"; \
-		grep -a -E -q "root_elf\.[0-9]+\.file=PAYLOAD1\.ELF" "$(PI4_IMAGE)"; \
-		grep -a -q "payload_slot.1.state=present" "$(PI4_IMAGE)"; \
-		grep -a -q "payload_slot.1.source=root-elf-input" "$(PI4_IMAGE)"; \
-		grep -a -q "payload_slot.1.repo_state=unchecked" "$(PI4_IMAGE)"; \
-		grep -a -q "payload_slot.1.evidence=packaged-file-only" "$(PI4_IMAGE)"; \
-		grep -a -E -q "payload_slot.1.size=[1-9][0-9]*" "$(PI4_IMAGE)"; \
-	else \
-		grep -a -q "root_elf_slot.3.state=absent" "$(PI4_IMAGE)"; \
-		grep -a -q "payload_slot.1.state=absent" "$(PI4_IMAGE)"; \
-		grep -a -q "payload_slot.1.source=absent" "$(PI4_IMAGE)"; \
-		grep -a -q "payload_slot.1.repo_state=absent" "$(PI4_IMAGE)"; \
-		grep -a -q "payload_slot.1.evidence=absent" "$(PI4_IMAGE)"; \
-	fi
 	@grep -q "primary_asset_file=DOOM1.WAD" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -q "primary_asset_kind=doom-wad" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -q "primary_asset_state=present" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -q "primary_asset_evidence=packaged-file-only" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -q "primary_asset_hardware_proof=unclaimed" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -E -q "primary_asset_size=[1-9][0-9]*" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -q "asset_slot_count=2" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -q "asset_slot.0.kind=doom-wad" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -q "asset_slot.0.file=DOOM1.WAD" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -q "asset_slot.0.state=present" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -q "asset_slot.0.evidence=packaged-file-only" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -q "asset_slot.0.hardware_proof=unclaimed" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -E -q "asset_slot.0.size=[1-9][0-9]*" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -a -q "default_asset_count=3" "$(PI4_IMAGE)"
 	@grep -a -q "default_asset.0.file=/ASSETS/README.TXT" "$(PI4_IMAGE)"
 	@grep -a -E -q "default_asset.0.size=[1-9][0-9]*" "$(PI4_IMAGE)"
@@ -2216,31 +2138,19 @@ pi4-image-inspect: $(IMAGE_BUILDER) $(PI4_IMAGE)
 	@if [ -n "$(PRIMARY_ASSET)" ]; then \
 		grep -q "primary_asset_source=external" "$(PI4_IMAGE_INSPECT_TXT)"; \
 		grep -q "primary_asset_repo_state=outside-repo" "$(PI4_IMAGE_INSPECT_TXT)"; \
-		grep -q "asset_slot.0.source=external" "$(PI4_IMAGE_INSPECT_TXT)"; \
-		grep -q "asset_slot.0.repo_state=outside-repo" "$(PI4_IMAGE_INSPECT_TXT)"; \
 	else \
 		grep -q "primary_asset_source=generated-fixture" "$(PI4_IMAGE_INSPECT_TXT)"; \
 		grep -q "primary_asset_repo_state=generated-by-builder" "$(PI4_IMAGE_INSPECT_TXT)"; \
-		grep -q "asset_slot.0.source=generated-fixture" "$(PI4_IMAGE_INSPECT_TXT)"; \
-		grep -q "asset_slot.0.repo_state=generated-by-builder" "$(PI4_IMAGE_INSPECT_TXT)"; \
 	fi
 	@grep -q "quake_pak_file=/ID1/PAK0.PAK" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -q "quake_pak_kind=quake-pak" "$(PI4_IMAGE_INSPECT_TXT)"
 	@grep -q "quake_pak_hardware_proof=unclaimed" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -q "asset_slot.1.kind=quake-pak" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -q "asset_slot.1.file=/ID1/PAK0.PAK" "$(PI4_IMAGE_INSPECT_TXT)"
-	@grep -q "asset_slot.1.hardware_proof=unclaimed" "$(PI4_IMAGE_INSPECT_TXT)"
 	@if [ -n "$(SECONDARY_PACKAGE)" ]; then \
 		grep -q "quake_pak_state=present" "$(PI4_IMAGE_INSPECT_TXT)"; \
 		grep -q "quake_pak_source=external" "$(PI4_IMAGE_INSPECT_TXT)"; \
 		grep -q "quake_pak_repo_state=outside-repo" "$(PI4_IMAGE_INSPECT_TXT)"; \
 		grep -q "quake_pak_evidence=packaged-file-only" "$(PI4_IMAGE_INSPECT_TXT)"; \
 		grep -E -q "quake_pak_size=[1-9][0-9]*" "$(PI4_IMAGE_INSPECT_TXT)"; \
-		grep -q "asset_slot.1.state=present" "$(PI4_IMAGE_INSPECT_TXT)"; \
-		grep -q "asset_slot.1.source=external" "$(PI4_IMAGE_INSPECT_TXT)"; \
-		grep -q "asset_slot.1.repo_state=outside-repo" "$(PI4_IMAGE_INSPECT_TXT)"; \
-		grep -q "asset_slot.1.evidence=packaged-file-only" "$(PI4_IMAGE_INSPECT_TXT)"; \
-		grep -E -q "asset_slot.1.size=[1-9][0-9]*" "$(PI4_IMAGE_INSPECT_TXT)"; \
 		grep -q "asset_count=1" "$(PI4_IMAGE_INSPECT_TXT)"; \
 		grep -q "asset.0.file=/ID1/PAK0.PAK" "$(PI4_IMAGE_INSPECT_TXT)"; \
 		grep -q "asset.0.kind=quake-pak0" "$(PI4_IMAGE_INSPECT_TXT)"; \
@@ -2254,10 +2164,6 @@ pi4-image-inspect: $(IMAGE_BUILDER) $(PI4_IMAGE)
 		grep -q "quake_pak_source=absent" "$(PI4_IMAGE_INSPECT_TXT)"; \
 		grep -q "quake_pak_repo_state=absent" "$(PI4_IMAGE_INSPECT_TXT)"; \
 		grep -q "quake_pak_evidence=absent" "$(PI4_IMAGE_INSPECT_TXT)"; \
-		grep -q "asset_slot.1.state=absent" "$(PI4_IMAGE_INSPECT_TXT)"; \
-		grep -q "asset_slot.1.source=absent" "$(PI4_IMAGE_INSPECT_TXT)"; \
-		grep -q "asset_slot.1.repo_state=absent" "$(PI4_IMAGE_INSPECT_TXT)"; \
-		grep -q "asset_slot.1.evidence=absent" "$(PI4_IMAGE_INSPECT_TXT)"; \
 		grep -q "asset_count=0" "$(PI4_IMAGE_INSPECT_TXT)"; \
 		grep -F -q "app_resource=/ID1/PAK0.PAK state=absent app=quake" "$(PI4_IMAGE_INSPECT_TXT)"; \
 		! grep -q "quake_pak_source=external" "$(PI4_IMAGE_INSPECT_TXT)"; \
@@ -2265,8 +2171,8 @@ pi4-image-inspect: $(IMAGE_BUILDER) $(PI4_IMAGE)
 
 $(PI4_STATUS_EVIDENCE_OK): Makefile tests/fixtures/pi4_status_hardware_evidence_ok.txt FORCE | $(PI4_BUILD_DIR)
 	@cp tests/fixtures/pi4_status_hardware_evidence_ok.txt $@
-	@if ! grep -q 'payload_launch_claim=' $@; then \
-		awk 'BEGIN { done = 0 } /^vibe-status([ \t]|$$)/ && !done { print $$0 " payload_launch_claim=none"; done = 1; next } { print } END { if (!done) exit 1 }' $@ > $@.tmp; \
+	@if ! grep -q 'app_launch_claim=' $@; then \
+		awk 'BEGIN { done = 0 } /^vibe-status([ \t]|$$)/ && !done { print $$0 " app_launch_claim=none"; done = 1; next } { print } END { if (!done) exit 1 }' $@ > $@.tmp; \
 		mv $@.tmp $@; \
 	fi
 
@@ -2389,7 +2295,8 @@ pi4-hw-equivalent-artifact-policy:
 	grep -q '^pi4-hw-equivalent-run:' "$$makefile"; \
 	grep -q '^pi4-hw-equivalent-real-assets-final-gates:' "$$makefile"; \
 	grep -q 'prepared Pi 4 exact handoff drift' "$$makefile"; \
-	grep -q 'manifest_payload0_size_matches_file=yes' "$$makefile"; \
+	grep -q 'manifest_doom_app_exec_size_matches_file=yes' "$$makefile"; \
+	grep -q 'manifest_quake_app_exec_size_matches_file=yes' "$$makefile"; \
 	grep -q 'Rerun with ALLOW_LOCAL_VM=1 to boot the local/user QEMU emulator' "$$makefile"; \
 	grep -q 'q[e]mu-system-aarch64' "$$workflow"; \
 	grep -q 'G[I]THUB_ACTIONS' "$$workflow"; \
@@ -2452,7 +2359,7 @@ pi4-hw-equivalent-final-gates-policy: pi4-hw-equivalent-artifact-policy
 	grep -q 'tuple_component_nonzero "$$quake_input_events" 5' "$$workflow"; \
 	grep -q 'visible_mouse_keyboard_gate_passed=true' "$$workflow"; \
 	grep -q '"visible_mouse_keyboard_selection": $$visible_mouse_keyboard_gate_passed' "$$workflow"; \
-	grep -q 'payload_launch_status_fields=pi4exec,pi4execreq,pi4payloadvfs,path,upath,pi4inputevt,fbpresent,fbchange' "$$workflow"; \
+	grep -q 'app_launch_status_fields=pi4exec,pi4execreq,pi4appreq,pi4appvfs,path,upath,pi4inputevt,fbpresent,fbchange' "$$workflow"; \
 	grep -q 'audio=hardware-unproven' "$$workflow"; \
 	grep -q 'audio_state="missing"' "$$workflow"; \
 	grep -q 'status_value_present pi4audio' "$$workflow"; \
@@ -2567,9 +2474,9 @@ pi4-host-proof-json: pi4-host-check
 		printf '    "pi4_image_inspected": true,\n'; \
 		printf '    "x86_bios_image_builder_inspected": true,\n'; \
 		printf '    "x86_uefi_loader_object_built": true,\n'; \
-		printf '    "x86_doom_payload_slot_linked": true,\n'; \
-		printf '    "x86_quake_payload_slot_linked": true,\n'; \
-		printf '    "x86_large_payload_root_elves_wired": true,\n'; \
+		printf '    "x86_doom_app_elf_linked": true,\n'; \
+		printf '    "x86_quake_app_elf_linked": true,\n'; \
+		printf '    "x86_app_tree_elves_wired": true,\n'; \
 		printf '    "pi4_host_validators_compile": true,\n'; \
 		printf '    "pi4_status_evidence_fixtures": true,\n'; \
 		printf '    "artifact_upload_status_json_only": true,\n'; \
@@ -2637,7 +2544,7 @@ $(USER_LAUNCHER_MAIN_OBJ): $(USER_LAUNCHER_MAIN_ASM_SRC) | $(BUILD_DIR)
 
 $(USER_LAUNCHER_ELF): $(USER_LAUNCHER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_LAUNCHER_OBJ) $(USER_LAUNCHER_MAIN_OBJ) $(LINK_ELF32) | $(BUILD_DIR)
 	$(LINK_ELF32) -o $@ --base 0x00e80000 $(USER_LAUNCHER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_LAUNCHER_OBJ) $(USER_LAUNCHER_MAIN_OBJ)
-	@test $$(wc -c < $@) -le $(INIT_PAYLOAD_ELF_MAX_BYTES) || { echo "init payload ELF exceeds $(INIT_PAYLOAD_ELF_MAX_BYTES) bytes"; exit 1; }
+	@test $$(wc -c < $@) -le $(INIT_APP_ELF_MAX_BYTES) || { echo "init app ELF exceeds $(INIT_APP_ELF_MAX_BYTES) bytes"; exit 1; }
 
 $(DOOM_PORT_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c Makefile | $(DOOM_PORT_BUILD_DIR)
 	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) -c $< -o $@
@@ -3007,7 +2914,7 @@ smoke: vm-consent check-tools $(IMAGE)
 	perl -ne '$$ok = 1 if /heap=OK free=([0-9A-F]{8})/ && hex($$1) >= 0x00700000; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	perl -ne '$$ok = 1 if /ticks=([0-9A-F]{8})/ && hex($$1) > 0; END { exit($$ok ? 0 : 1) }' $(BUILD_DIR)/status.txt; \
 	trap - EXIT; \
-	printf "Smoke boot OK: protected-mode kernel status, Ring 3 probe, primary payload ELF load, indexed-frame present, and PIT ticks verified in cloud VM memory.\n"
+	printf "Smoke boot OK: protected-mode kernel status, Ring 3 probe, primary app ELF load, indexed-frame present, and PIT ticks verified in cloud VM memory.\n"
 
 quake-status-proof-check:
 	@set -e; \

@@ -1,10 +1,10 @@
 #include "pi4_runtime.h"
 
-// Native AArch64 Quake play payload for the Pi lane.
+// Native AArch64 Quake app for the Pi lane.
 //
 // This still does not claim the original Quake engine is linked, but it is no
 // longer just a slot scaffold: it opens the Quake PAK, consumes the runtime
-// input queue, updates a payload-owned arena/crosshair state from keyboard,
+// input queue, updates an app-owned arena/crosshair state from keyboard,
 // mouse, and UART events, and continuously presents changed indexed frames
 // through the Pi framebuffer ABI.
 
@@ -121,14 +121,14 @@
 .extern vibe_user_present_indexed_checked
 .extern vibe_user_poll_input
 
-.section .text.pi4_quake_payload.entry, "ax", %progbits
+.section .text.pi4_quake_app.entry, "ax", %progbits
 .balign 16
 .global user_main
-.global pi4_quake_payload_start
+.global pi4_quake_app_start
 .type user_main, %function
-.type pi4_quake_payload_start, %function
+.type pi4_quake_app_start, %function
 user_main:
-pi4_quake_payload_start:
+pi4_quake_app_start:
     stp x29, x30, [sp, #-112]!
     mov x29, sp
     stp x19, x20, [sp, #16]
@@ -137,8 +137,8 @@ pi4_quake_payload_start:
     stp x25, x26, [sp, #64]
     stp x27, x28, [sp, #80]
 
-    adrp x19, pi4_quake_payload_state
-    add x19, x19, :lo12:pi4_quake_payload_state
+    adrp x19, pi4_quake_app_state
+    add x19, x19, :lo12:pi4_quake_app_state
     movz x9, #0x4159
     movk x9, #0x5150, lsl #16
     movk x9, #0x4b45, lsl #32
@@ -222,7 +222,7 @@ pi4_quake_payload_start:
     ldp x29, x30, [sp], #112
     ret
 .size user_main, . - user_main
-.size pi4_quake_payload_start, . - pi4_quake_payload_start
+.size pi4_quake_app_start, . - pi4_quake_app_start
 
 .type pi4_quake_probe_pak, %function
 pi4_quake_probe_pak:
@@ -1555,24 +1555,23 @@ pi4_quake_fill_rect:
     ret
 .size pi4_quake_fill_rect, . - pi4_quake_fill_rect
 
-.section .rodata.pi4_quake_payload_manifest, "a", %progbits
+.section .rodata.pi4_quake_app_manifest, "a", %progbits
 .balign 8
-.global pi4_quake_payload_manifest
-pi4_quake_payload_manifest:
-    .asciz "schema=vibe-os-pi4-quake-payload-v1"
-    .asciz "payload_file=PAYLOAD1.ELF"
-    .asciz "payload_kind=quake"
-    .asciz "payload_arch=AARCH64"
-    .asciz "payload_launch_claim=pak-backed-play-loop-not-engine-proof"
-    .asciz "payload_runtime_status=assembly-native-pak-backed-playable-loop"
-    .asciz "payload_frame_progression=pak-seeded-input-player-look-indexed-present-loop"
-    .asciz "payload_input_state=keyboard-usb-mouse-uart-move-look-fire-jump-menu"
-    .asciz "payload_scene_motion=player-position-drives-world-parallax"
+.global pi4_quake_app_manifest
+pi4_quake_app_manifest:
+    .asciz "schema=vibe-os-pi4-quake-app-v1"
+    .asciz "app_exec=/APPS/QUAKE/APP.ELF"
+    .asciz "app_kind=quake"
+    .asciz "app_arch=AARCH64"
+    .asciz "app_launch_claim=pak-backed-play-loop-not-engine-proof"
+    .asciz "app_runtime_status=assembly-native-pak-backed-playable-loop"
+    .asciz "app_frame_progression=pak-seeded-input-player-look-indexed-present-loop"
+    .asciz "app_input_state=keyboard-usb-mouse-uart-move-look-fire-jump-menu"
+    .asciz "app_scene_motion=player-position-drives-world-parallax"
     .asciz "quake_original_source=not-linked-yet"
     .asciz "quake_engine_claim=not-original-engine-fallback-only"
     .asciz "quake_assets_claim=opens-reads-header-seeds-scene-from-/ID1/PAK0.PAK"
-    .asciz "fallback_role=visible-play-path-when-engine-bridge-unavailable"
-    .asciz "vibe-os pi4 PAYLOAD1.ELF Quake AArch64 payload"
+    .asciz "vibe-os pi4 /APPS/QUAKE/APP.ELF Quake AArch64 app"
 
 .section .rodata.pi4_quake_text, "a", %progbits
 .balign 8
@@ -1672,7 +1671,7 @@ pi4_quake_palette:
     .byte 0x18, 0x18, 0x1c
     .endr
 
-.section .data.pi4_quake_payload, "aw", %progbits
+.section .data.pi4_quake_app, "aw", %progbits
 .balign 8
 pi4_quake_present:
     .quad pi4_quake_frame
@@ -1681,11 +1680,11 @@ pi4_quake_present:
     .quad PI4_QUAKE_FRAME_HEIGHT
 
 .balign 8
-.global pi4_quake_payload_state
-pi4_quake_payload_state:
+.global pi4_quake_app_state
+pi4_quake_app_state:
     .skip PI4_QUAKE_STATE_BYTES, 0
 
-.section .bss.pi4_quake_payload, "aw", %nobits
+.section .bss.pi4_quake_app, "aw", %nobits
 .balign 16
 pi4_quake_frame:
     .skip PI4_QUAKE_FRAME_BYTES

@@ -1,6 +1,6 @@
 #include "pi4_runtime.h"
 
-// Entry glue for the experimental Pi 4 Quake engine payload bridge.
+// Entry glue for the experimental Pi 4 Quake engine app bridge.
 //
 // This deliberately calls the original WinQuake Host_Init/Host_Frame path and
 // relies on the Pi runtime ABI for VFS assets, input, video, audio, and ticks.
@@ -209,9 +209,9 @@ pi4_quake_engine_preflight_assets:
 .global pi4_quake_engine_manifest
 pi4_quake_engine_manifest:
     .asciz "schema=vibe-os-pi4-quake-engine-bridge-v1"
-    .asciz "payload_file=PAYLOAD1.ELF"
-    .asciz "payload_kind=quake"
-    .asciz "payload_arch=AARCH64"
+    .asciz "app_exec=/APPS/QUAKE/APP.ELF"
+    .asciz "app_kind=quake"
+    .asciz "app_arch=AARCH64"
     .asciz "quake_original_source=compiled-aarch64"
     .asciz "quake_engine_hook=original-engine-runtime-bridge"
     .asciz "quake_asset_path=/ID1/PAK0.PAK"

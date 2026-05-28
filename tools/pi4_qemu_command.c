@@ -508,13 +508,11 @@ static int line_has_pi4_user_file_full_ops(const char* line)
 
 static int line_has_pi4_user_file_selected_asset_magic(const char* line)
 {
-    if (strstr(line, "path=PAYLOAD1.ELF") || strstr(line, "upath=PAYLOAD1.ELF") ||
-        strstr(line, "path=/APPS/QUAKE/APP.ELF") ||
+    if (strstr(line, "path=/APPS/QUAKE/APP.ELF") ||
         strstr(line, "upath=/APPS/QUAKE/APP.ELF"))
         return line_pi4userfile_has_magic(line, "0x000000004b434150") ||
             line_pi4userfile_has_magic(line, "0x000000004B434150");
-    if (strstr(line, "path=PAYLOAD0.ELF") || strstr(line, "upath=PAYLOAD0.ELF") ||
-        strstr(line, "path=/APPS/DOOM/APP.ELF") ||
+    if (strstr(line, "path=/APPS/DOOM/APP.ELF") ||
         strstr(line, "upath=/APPS/DOOM/APP.ELF"))
         return line_pi4userfile_has_magic(line, "0x0000000044415749") ||
             line_pi4userfile_has_magic(line, "0x0000000044415750");
@@ -566,11 +564,9 @@ static int line_fbchange_proves_changed_frame(const char* line)
 static int status_line_reflects_scripted_input(const char* line)
 {
     return line_has_token_value(line, "pi4exec=OK") &&
-        (strstr(line, "path=PAYLOAD") != NULL ||
-            strstr(line, "path=/APPS/") != NULL ||
-            field_has_nonzero_hex(line, "pi4payloadreq")) &&
+        strstr(line, "path=/APPS/") != NULL &&
         field_has_nonzero_hex(line, "pi4inputevt") &&
-        field_has_nonzero_hex(line, "pi4payloadvfs") &&
+        field_has_nonzero_hex(line, "pi4appvfs") &&
         (line_has_pi4_user_file_full_ops(line) ||
             line_has_pi4_app_exec_path(line)) &&
         (line_has_pi4_user_file_selected_asset_magic(line) ||
