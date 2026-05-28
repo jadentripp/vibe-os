@@ -466,7 +466,7 @@ static int decode_quake_qpic_icon(u8* icon, const u8* qpic, u32 qpic_size, const
     return 1;
 }
 
-static int load_wad_icon(const char* wad_path, const char* icon_spec)
+static int load_wad_icon(u8* icon, const char* wad_path, const char* icon_spec)
 {
     const char* icon_name;
     u8 header[12];
@@ -475,7 +475,7 @@ static int load_wad_icon(const char* wad_path, const char* icon_spec)
     u32 playpal_offset = 0;
     usize file_size = 0;
 
-    if (!wad_path || !icon_spec || !str_prefix(icon_spec, "wad:"))
+    if (!icon || !wad_path || !icon_spec || !str_prefix(icon_spec, "wad:"))
         return 0;
     icon_name = icon_spec + 4;
     if (!icon_name[0])
@@ -531,13 +531,13 @@ static int load_wad_icon(const char* wad_path, const char* icon_spec)
     if (seek_abs(fd, icon_offset) &&
         read_exact(fd, pi4_launcher_asset, icon_size)) {
         ok = decode_doom_patch_icon(
-            pi4_launcher_doom_icon_pixels,
+            icon,
             pi4_launcher_asset,
             icon_size,
             pi4_launcher_doom_palette);
         if (!ok)
             ok = decode_doom_titlepic_icon(
-                pi4_launcher_doom_icon_pixels,
+                icon,
                 pi4_launcher_asset,
                 icon_size,
                 pi4_launcher_doom_palette);
@@ -548,7 +548,7 @@ done:
     return ok;
 }
 
-static int load_pak_icon(const char* pak_path, const char* icon_spec)
+static int load_pak_icon(u8* icon, const char* pak_path, const char* icon_spec)
 {
     const char* icon_name;
     u8 header[12];
@@ -557,7 +557,7 @@ static int load_pak_icon(const char* pak_path, const char* icon_spec)
     u32 palette_offset = 0;
     usize file_size = 0;
 
-    if (!pak_path || !icon_spec || !str_prefix(icon_spec, "pak:"))
+    if (!icon || !pak_path || !icon_spec || !str_prefix(icon_spec, "pak:"))
         return 0;
     icon_name = icon_spec + 4;
     if (!icon_name[0])
@@ -614,7 +614,7 @@ static int load_pak_icon(const char* pak_path, const char* icon_spec)
     if (seek_abs(fd, icon_offset) &&
         read_exact(fd, pi4_launcher_asset, icon_size)) {
         ok = decode_quake_qpic_icon(
-            pi4_launcher_quake_icon_pixels,
+            icon,
             pi4_launcher_asset,
             icon_size,
             pi4_launcher_quake_palette);
@@ -623,6 +623,17 @@ static int load_pak_icon(const char* pak_path, const char* icon_spec)
 done:
     vibe_user_close(fd);
     return ok;
+}
+
+static int load_manifest_icon(u8* icon, const char* asset_path, const char* icon_spec)
+{
+    if (!icon_spec)
+        return 0;
+    if (str_prefix(icon_spec, "wad:"))
+        return load_wad_icon(icon, asset_path, icon_spec);
+    if (str_prefix(icon_spec, "pak:"))
+        return load_pak_icon(icon, asset_path, icon_spec);
+    return 0;
 }
 
 void pi4_launcher_load_art(void)
@@ -648,7 +659,7 @@ void pi4_launcher_load_art(void)
     clear_icon(pi4_launcher_quake_icon_pixels);
     pi4_launcher_art_flags = 0;
 
-    if (load_wad_icon(first_asset, first_icon)) {
+    if (load_manifest_icon(pi4_launcher_doom_icon_pixels, first_asset, first_icon)) {
         decorate_loaded_icon(
             pi4_launcher_doom_icon_pixels,
             PI4_LAUNCHER_COLOR_DOOM_FIRE,
@@ -658,7 +669,7 @@ void pi4_launcher_load_art(void)
     }
     pi4_launcher_art_flags |= PI4_LAUNCHER_ART_DOOM_APP;
 
-    if (load_pak_icon(second_asset, second_icon)) {
+    if (load_manifest_icon(pi4_launcher_quake_icon_pixels, second_asset, second_icon)) {
         decorate_loaded_icon(
             pi4_launcher_quake_icon_pixels,
             PI4_LAUNCHER_COLOR_QUAKE_GOLD,
