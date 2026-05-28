@@ -3826,10 +3826,10 @@ static void validate_pi4_final_gates(const char *gate_path, int status_count,
         fail("preemption=green final gate requires captured pi4preempt=OK switch status fields");
     }
     if (require_doom_payload && (local_payload_mask & 0x1u) == 0u) {
-        fail("launcher_doom_exec=green requires captured PAYLOAD0.ELF launch status fields");
+        fail("launcher_doom_exec=green requires captured /APPS/DOOM/APP.ELF launch status fields");
     }
     if (require_quake_payload && (local_payload_mask & 0x2u) == 0u) {
-        fail("launcher_quake_exec=green requires captured PAYLOAD1.ELF launch status fields");
+        fail("launcher_quake_exec=green requires captured /APPS/QUAKE/APP.ELF launch status fields");
     }
     if (strcmp(storage_gate, "green") == 0) {
         if (!saw_storage_ok || !saw_pi4wad) {

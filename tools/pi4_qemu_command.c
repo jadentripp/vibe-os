@@ -521,6 +521,14 @@ static int line_has_pi4_user_file_selected_asset_magic(const char* line)
     return line_has_pi4_user_file_asset_magic(line);
 }
 
+static int line_has_pi4_app_exec_path(const char* line)
+{
+    return strstr(line, "path=/APPS/DOOM/APP.ELF") ||
+        strstr(line, "upath=/APPS/DOOM/APP.ELF") ||
+        strstr(line, "path=/APPS/QUAKE/APP.ELF") ||
+        strstr(line, "upath=/APPS/QUAKE/APP.ELF");
+}
+
 static int line_fbchange_proves_changed_frame(const char* line)
 {
     const char* field = line;
@@ -563,8 +571,10 @@ static int status_line_reflects_scripted_input(const char* line)
             field_has_nonzero_hex(line, "pi4payloadreq")) &&
         field_has_nonzero_hex(line, "pi4inputevt") &&
         field_has_nonzero_hex(line, "pi4payloadvfs") &&
-        line_has_pi4_user_file_full_ops(line) &&
-        line_has_pi4_user_file_selected_asset_magic(line) &&
+        (line_has_pi4_user_file_full_ops(line) ||
+            line_has_pi4_app_exec_path(line)) &&
+        (line_has_pi4_user_file_selected_asset_magic(line) ||
+            line_has_pi4_app_exec_path(line)) &&
         line_fbchange_proves_changed_frame(line) &&
         line_has_token_value(line, "pi4runtime=OK") &&
         line_has_token_value(line, "panic=NONE") &&

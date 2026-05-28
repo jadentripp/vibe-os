@@ -84,6 +84,17 @@
 .equ PI4_LAUNCHER_SLOT_PATH,            16
 .equ PI4_LAUNCHER_SLOT_STATE,           24
 .equ PI4_LAUNCHER_SLOT_STATE_TEXT,      32
+.equ PI4_LAUNCHER_SLOT_STATE_ABSENT,    0
+.equ PI4_LAUNCHER_SLOT_STATE_PRESENT,   1
+
+.equ PI4_LAUNCHER_APP_INDEX_READY,      0x00000010
+.equ PI4_LAUNCHER_APP_DOOM_MANIFEST_READY, 0x00000020
+.equ PI4_LAUNCHER_APP_DOOM_EXEC_READY,  0x00000040
+.equ PI4_LAUNCHER_APP_QUAKE_MANIFEST_READY, 0x00000080
+.equ PI4_LAUNCHER_APP_QUAKE_EXEC_READY, 0x00000100
+.equ PI4_LAUNCHER_APP_TEXT_BYTES,       2048
+.equ PI4_LAUNCHER_APP_NAME_BYTES,       32
+.equ PI4_LAUNCHER_APP_PATH_BYTES,       PI4_VIBE_EXEC_REQUEST_PATH_MAX_BYTES
 
 .equ PI4_LAUNCHER_PHASE_COLD,           0
 .equ PI4_LAUNCHER_PHASE_FRAME_READY,    1
@@ -230,6 +241,10 @@
 .extern pi4_launcher_slot_table
 .extern pi4_launcher_slot_doom_name
 .extern pi4_launcher_slot_doom_path
+.extern pi4_launcher_slot_quake_name
+.extern pi4_launcher_slot_quake_path
+.extern pi4_launcher_slot_present_state
+.extern pi4_launcher_slot_absent_state
 .extern pi4_launcher_doom_label_bitmap
 .extern pi4_launcher_quake_label_bitmap
 .extern pi4_launcher_key_1_bitmap
@@ -239,12 +254,14 @@
 .extern pi4_launcher_indexed_palette
 .extern pi4_launcher_load_art
 .extern pi4_launcher_art_flags
+.extern pi4_launcher_app_discovery_flags
 .extern pi4_launcher_doom_icon_pixels
 .extern pi4_launcher_quake_icon_pixels
 .extern vibe_user_present_indexed
 .extern vibe_user_fb_get_info
 .extern vibe_user_poll_input
 .extern vibe_user_exec_request
+.extern vibe_user_file_read_at
 
 .section .text.pi4_launcher.entry, "ax", %progbits
 .balign 16
@@ -254,6 +271,7 @@
 .type pi4_launcher_start, %function
 user_main:
 pi4_launcher_start:
+    bl pi4_launcher_discover_apps
     bl pi4_launcher_load_art
     mov x19, #PI4_LAUNCHER_SLOT_DOOM
     bl pi4_launcher_reset_desktop_state
@@ -399,6 +417,446 @@ pi4_launcher_reset_desktop_state:
     str xzr, [x0, #PI4_LAUNCHER_STATE_PRESENT_ERRNO]
     ret
 .size pi4_launcher_reset_desktop_state, . - pi4_launcher_reset_desktop_state
+
+.type pi4_launcher_discover_apps, %function
+pi4_launcher_discover_apps:
+    stp x29, x30, [sp, #-64]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    stp x21, x22, [sp, #32]
+    stp x23, x24, [sp, #48]
+
+    bl pi4_launcher_reset_app_slots
+
+    adrp x0, pi4_launcher_app_index_path
+    add x0, x0, :lo12:pi4_launcher_app_index_path
+    mov x1, xzr
+    adrp x2, pi4_launcher_app_text_buffer
+    add x2, x2, :lo12:pi4_launcher_app_text_buffer
+    mov x3, #PI4_LAUNCHER_APP_TEXT_BYTES
+    adrp x4, pi4_launcher_app_text_size
+    add x4, x4, :lo12:pi4_launcher_app_text_size
+    bl vibe_user_file_read_at
+    cbnz x0, .Lpi4_discover_done
+
+    adrp x20, pi4_launcher_app_text_size
+    add x20, x20, :lo12:pi4_launcher_app_text_size
+    ldr x20, [x20]
+    cbz x20, .Lpi4_discover_done
+
+    adrp x19, pi4_launcher_app_discovery_flags
+    add x19, x19, :lo12:pi4_launcher_app_discovery_flags
+    mov x21, #PI4_LAUNCHER_APP_INDEX_READY
+    str x21, [x19]
+
+    adrp x0, pi4_launcher_app_text_buffer
+    add x0, x0, :lo12:pi4_launcher_app_text_buffer
+    mov x1, x20
+    adrp x2, pi4_launcher_key_app0_manifest
+    add x2, x2, :lo12:pi4_launcher_key_app0_manifest
+    adrp x3, pi4_launcher_app_manifest_paths
+    add x3, x3, :lo12:pi4_launcher_app_manifest_paths
+    mov x4, #PI4_LAUNCHER_APP_PATH_BYTES
+    bl pi4_launcher_find_key_value_copy
+
+    adrp x0, pi4_launcher_app_text_buffer
+    add x0, x0, :lo12:pi4_launcher_app_text_buffer
+    mov x1, x20
+    adrp x2, pi4_launcher_key_app1_manifest
+    add x2, x2, :lo12:pi4_launcher_key_app1_manifest
+    adrp x3, pi4_launcher_app_manifest_paths
+    add x3, x3, :lo12:pi4_launcher_app_manifest_paths
+    add x3, x3, #PI4_LAUNCHER_APP_PATH_BYTES
+    mov x4, #PI4_LAUNCHER_APP_PATH_BYTES
+    bl pi4_launcher_find_key_value_copy
+
+    mov x0, #PI4_LAUNCHER_SLOT_DOOM
+    adrp x1, pi4_launcher_app_manifest_paths
+    add x1, x1, :lo12:pi4_launcher_app_manifest_paths
+    mov x2, #PI4_LAUNCHER_APP_DOOM_MANIFEST_READY
+    mov x3, #PI4_LAUNCHER_APP_DOOM_EXEC_READY
+    bl pi4_launcher_load_app_manifest
+
+    mov x0, #PI4_LAUNCHER_SLOT_QUAKE
+    adrp x1, pi4_launcher_app_manifest_paths
+    add x1, x1, :lo12:pi4_launcher_app_manifest_paths
+    add x1, x1, #PI4_LAUNCHER_APP_PATH_BYTES
+    mov x2, #PI4_LAUNCHER_APP_QUAKE_MANIFEST_READY
+    mov x3, #PI4_LAUNCHER_APP_QUAKE_EXEC_READY
+    bl pi4_launcher_load_app_manifest
+
+.Lpi4_discover_done:
+    ldp x23, x24, [sp, #48]
+    ldp x21, x22, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #64
+    ret
+.size pi4_launcher_discover_apps, . - pi4_launcher_discover_apps
+
+.type pi4_launcher_reset_app_slots, %function
+pi4_launcher_reset_app_slots:
+    stp x29, x30, [sp, #-32]!
+    mov x29, sp
+    str x19, [sp, #16]
+
+    adrp x0, pi4_launcher_app_slot_names
+    add x0, x0, :lo12:pi4_launcher_app_slot_names
+    mov x1, #(PI4_LAUNCHER_APP_NAME_BYTES * PI4_LAUNCHER_SLOT_COUNT)
+    bl pi4_launcher_zero_buffer
+    adrp x0, pi4_launcher_app_slot_paths
+    add x0, x0, :lo12:pi4_launcher_app_slot_paths
+    mov x1, #(PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_SLOT_COUNT)
+    bl pi4_launcher_zero_buffer
+    adrp x0, pi4_launcher_app_manifest_paths
+    add x0, x0, :lo12:pi4_launcher_app_manifest_paths
+    mov x1, #(PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_SLOT_COUNT)
+    bl pi4_launcher_zero_buffer
+
+    adrp x0, pi4_launcher_app_text_size
+    add x0, x0, :lo12:pi4_launcher_app_text_size
+    str xzr, [x0]
+    adrp x0, pi4_launcher_app_read_size
+    add x0, x0, :lo12:pi4_launcher_app_read_size
+    str xzr, [x0]
+    adrp x0, pi4_launcher_app_discovery_flags
+    add x0, x0, :lo12:pi4_launcher_app_discovery_flags
+    str xzr, [x0]
+    adrp x0, pi4_launcher_app_discovered_count
+    add x0, x0, :lo12:pi4_launcher_app_discovered_count
+    str xzr, [x0]
+
+    adrp x19, pi4_launcher_slot_table
+    add x19, x19, :lo12:pi4_launcher_slot_table
+    mov x0, #PI4_LAUNCHER_SLOT_DOOM
+    str x0, [x19]
+    adrp x0, pi4_launcher_slot_doom_name
+    add x0, x0, :lo12:pi4_launcher_slot_doom_name
+    str x0, [x19, #PI4_LAUNCHER_SLOT_NAME]
+    str xzr, [x19, #PI4_LAUNCHER_SLOT_PATH]
+    mov x0, #PI4_LAUNCHER_SLOT_STATE_ABSENT
+    str x0, [x19, #PI4_LAUNCHER_SLOT_STATE]
+    adrp x0, pi4_launcher_slot_absent_state
+    add x0, x0, :lo12:pi4_launcher_slot_absent_state
+    str x0, [x19, #PI4_LAUNCHER_SLOT_STATE_TEXT]
+
+    add x19, x19, #PI4_LAUNCHER_SLOT_BYTES
+    mov x0, #PI4_LAUNCHER_SLOT_QUAKE
+    str x0, [x19]
+    adrp x0, pi4_launcher_slot_quake_name
+    add x0, x0, :lo12:pi4_launcher_slot_quake_name
+    str x0, [x19, #PI4_LAUNCHER_SLOT_NAME]
+    str xzr, [x19, #PI4_LAUNCHER_SLOT_PATH]
+    mov x0, #PI4_LAUNCHER_SLOT_STATE_ABSENT
+    str x0, [x19, #PI4_LAUNCHER_SLOT_STATE]
+    adrp x0, pi4_launcher_slot_absent_state
+    add x0, x0, :lo12:pi4_launcher_slot_absent_state
+    str x0, [x19, #PI4_LAUNCHER_SLOT_STATE_TEXT]
+
+    ldr x19, [sp, #16]
+    ldp x29, x30, [sp], #32
+    ret
+.size pi4_launcher_reset_app_slots, . - pi4_launcher_reset_app_slots
+
+.type pi4_launcher_load_app_manifest, %function
+pi4_launcher_load_app_manifest:
+    stp x29, x30, [sp, #-96]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    stp x21, x22, [sp, #32]
+    stp x23, x24, [sp, #48]
+    stp x25, x26, [sp, #64]
+
+    mov x19, x0
+    mov x20, x1
+    mov x21, x2
+    mov x22, x3
+
+    cmp x19, #PI4_LAUNCHER_SLOT_COUNT
+    b.hs .Lpi4_manifest_done
+    cbz x20, .Lpi4_manifest_done
+    ldrb w0, [x20]
+    cbz w0, .Lpi4_manifest_done
+
+    mov x0, x20
+    mov x1, xzr
+    adrp x2, pi4_launcher_app_text_buffer
+    add x2, x2, :lo12:pi4_launcher_app_text_buffer
+    mov x3, #PI4_LAUNCHER_APP_TEXT_BYTES
+    adrp x4, pi4_launcher_app_text_size
+    add x4, x4, :lo12:pi4_launcher_app_text_size
+    bl vibe_user_file_read_at
+    cbnz x0, .Lpi4_manifest_done
+    adrp x23, pi4_launcher_app_text_size
+    add x23, x23, :lo12:pi4_launcher_app_text_size
+    ldr x23, [x23]
+    cbz x23, .Lpi4_manifest_done
+
+    bl pi4_launcher_or_discovery_flag_x21
+
+    adrp x24, pi4_launcher_app_slot_names
+    add x24, x24, :lo12:pi4_launcher_app_slot_names
+    lsl x0, x19, #5
+    add x24, x24, x0
+    adrp x25, pi4_launcher_app_slot_paths
+    add x25, x25, :lo12:pi4_launcher_app_slot_paths
+    lsl x0, x19, #6
+    add x25, x25, x0
+
+    adrp x0, pi4_launcher_app_text_buffer
+    add x0, x0, :lo12:pi4_launcher_app_text_buffer
+    mov x1, x23
+    adrp x2, pi4_launcher_key_name
+    add x2, x2, :lo12:pi4_launcher_key_name
+    mov x3, x24
+    mov x4, #PI4_LAUNCHER_APP_NAME_BYTES
+    bl pi4_launcher_find_key_value_copy
+    cbz x0, .Lpi4_manifest_name_ready
+
+    adrp x0, pi4_launcher_app_text_buffer
+    add x0, x0, :lo12:pi4_launcher_app_text_buffer
+    mov x1, x23
+    adrp x2, pi4_launcher_key_id
+    add x2, x2, :lo12:pi4_launcher_key_id
+    mov x3, x24
+    mov x4, #PI4_LAUNCHER_APP_NAME_BYTES
+    bl pi4_launcher_find_key_value_copy
+
+.Lpi4_manifest_name_ready:
+    ldrb w0, [x24]
+    cbnz w0, .Lpi4_manifest_have_name
+    mov x0, x19
+    bl pi4_launcher_default_name
+    mov x24, x0
+.Lpi4_manifest_have_name:
+
+    adrp x0, pi4_launcher_app_text_buffer
+    add x0, x0, :lo12:pi4_launcher_app_text_buffer
+    mov x1, x23
+    adrp x2, pi4_launcher_key_exec
+    add x2, x2, :lo12:pi4_launcher_key_exec
+    mov x3, x25
+    mov x4, #PI4_LAUNCHER_APP_PATH_BYTES
+    bl pi4_launcher_find_key_value_copy
+    cbnz x0, .Lpi4_manifest_done
+    ldrb w0, [x25]
+    cmp w0, #'/'
+    b.ne .Lpi4_manifest_done
+
+    mov x0, x25
+    bl pi4_launcher_check_elf_magic
+    cbnz x0, .Lpi4_manifest_done
+
+    mov x21, x22
+    bl pi4_launcher_or_discovery_flag_x21
+    mov x0, x19
+    mov x1, x24
+    mov x2, x25
+    bl pi4_launcher_mark_slot_present
+
+.Lpi4_manifest_done:
+    ldp x25, x26, [sp, #64]
+    ldp x23, x24, [sp, #48]
+    ldp x21, x22, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #96
+    ret
+.size pi4_launcher_load_app_manifest, . - pi4_launcher_load_app_manifest
+
+.type pi4_launcher_or_discovery_flag_x21, %function
+pi4_launcher_or_discovery_flag_x21:
+    adrp x0, pi4_launcher_app_discovery_flags
+    add x0, x0, :lo12:pi4_launcher_app_discovery_flags
+    ldr x1, [x0]
+    orr x1, x1, x21
+    str x1, [x0]
+    ret
+.size pi4_launcher_or_discovery_flag_x21, . - pi4_launcher_or_discovery_flag_x21
+
+.type pi4_launcher_default_name, %function
+pi4_launcher_default_name:
+    cmp x0, #PI4_LAUNCHER_SLOT_QUAKE
+    b.eq .Lpi4_default_name_quake
+    adrp x0, pi4_launcher_slot_doom_name
+    add x0, x0, :lo12:pi4_launcher_slot_doom_name
+    ret
+.Lpi4_default_name_quake:
+    adrp x0, pi4_launcher_slot_quake_name
+    add x0, x0, :lo12:pi4_launcher_slot_quake_name
+    ret
+.size pi4_launcher_default_name, . - pi4_launcher_default_name
+
+.type pi4_launcher_mark_slot_present, %function
+pi4_launcher_mark_slot_present:
+    cmp x0, #PI4_LAUNCHER_SLOT_COUNT
+    b.hs .Lpi4_mark_slot_done
+    adrp x3, pi4_launcher_slot_table
+    add x3, x3, :lo12:pi4_launcher_slot_table
+    mov x4, #PI4_LAUNCHER_SLOT_BYTES
+    madd x3, x0, x4, x3
+    str x0, [x3]
+    str x1, [x3, #PI4_LAUNCHER_SLOT_NAME]
+    str x2, [x3, #PI4_LAUNCHER_SLOT_PATH]
+    mov x4, #PI4_LAUNCHER_SLOT_STATE_PRESENT
+    str x4, [x3, #PI4_LAUNCHER_SLOT_STATE]
+    adrp x4, pi4_launcher_slot_present_state
+    add x4, x4, :lo12:pi4_launcher_slot_present_state
+    str x4, [x3, #PI4_LAUNCHER_SLOT_STATE_TEXT]
+    adrp x3, pi4_launcher_app_discovered_count
+    add x3, x3, :lo12:pi4_launcher_app_discovered_count
+    ldr x4, [x3]
+    add x4, x4, #1
+    str x4, [x3]
+.Lpi4_mark_slot_done:
+    ret
+.size pi4_launcher_mark_slot_present, . - pi4_launcher_mark_slot_present
+
+.type pi4_launcher_check_elf_magic, %function
+pi4_launcher_check_elf_magic:
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+    mov x1, xzr
+    adrp x2, pi4_launcher_app_magic_buffer
+    add x2, x2, :lo12:pi4_launcher_app_magic_buffer
+    mov x3, #4
+    adrp x4, pi4_launcher_app_read_size
+    add x4, x4, :lo12:pi4_launcher_app_read_size
+    bl vibe_user_file_read_at
+    cbnz x0, .Lpi4_check_elf_fail
+    adrp x1, pi4_launcher_app_read_size
+    add x1, x1, :lo12:pi4_launcher_app_read_size
+    ldr x1, [x1]
+    cmp x1, #4
+    b.ne .Lpi4_check_elf_fail
+    adrp x1, pi4_launcher_app_magic_buffer
+    add x1, x1, :lo12:pi4_launcher_app_magic_buffer
+    ldrb w2, [x1]
+    cmp w2, #0x7f
+    b.ne .Lpi4_check_elf_fail
+    ldrb w2, [x1, #1]
+    cmp w2, #'E'
+    b.ne .Lpi4_check_elf_fail
+    ldrb w2, [x1, #2]
+    cmp w2, #'L'
+    b.ne .Lpi4_check_elf_fail
+    ldrb w2, [x1, #3]
+    cmp w2, #'F'
+    b.ne .Lpi4_check_elf_fail
+    mov x0, xzr
+    b .Lpi4_check_elf_done
+.Lpi4_check_elf_fail:
+    mov x0, #PI4_VIBE_ENOENT
+    neg x0, x0
+.Lpi4_check_elf_done:
+    ldp x29, x30, [sp], #16
+    ret
+.size pi4_launcher_check_elf_magic, . - pi4_launcher_check_elf_magic
+
+.type pi4_launcher_find_key_value_copy, %function
+pi4_launcher_find_key_value_copy:
+    stp x29, x30, [sp, #-96]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    stp x21, x22, [sp, #32]
+    stp x23, x24, [sp, #48]
+    stp x25, x26, [sp, #64]
+    stp x27, x28, [sp, #80]
+
+    mov x19, x0
+    add x20, x0, x1
+    mov x21, x2
+    mov x22, x3
+    mov x23, x4
+    cmp x23, #2
+    b.lo .Lpi4_find_fail
+    cbz x19, .Lpi4_find_fail
+    cbz x21, .Lpi4_find_fail
+    cbz x22, .Lpi4_find_fail
+    mov x24, x19
+
+.Lpi4_find_line:
+    cmp x24, x20
+    b.hs .Lpi4_find_fail
+    ldrb w0, [x24]
+    cmp w0, #10
+    b.eq .Lpi4_find_advance_one
+    cmp w0, #13
+    b.eq .Lpi4_find_advance_one
+    cmp w0, #'#'
+    b.eq .Lpi4_find_skip_line
+    mov x25, x24
+    mov x26, x21
+
+.Lpi4_find_compare_key:
+    ldrb w0, [x26], #1
+    cbz w0, .Lpi4_find_matched
+    cmp x25, x20
+    b.hs .Lpi4_find_skip_line
+    ldrb w1, [x25], #1
+    cmp w1, w0
+    b.ne .Lpi4_find_skip_line
+    b .Lpi4_find_compare_key
+
+.Lpi4_find_matched:
+    mov x27, xzr
+    sub x28, x23, #1
+
+.Lpi4_find_copy_value:
+    cmp x25, x20
+    b.hs .Lpi4_find_terminate
+    ldrb w0, [x25], #1
+    cbz w0, .Lpi4_find_terminate
+    cmp w0, #10
+    b.eq .Lpi4_find_terminate
+    cmp w0, #13
+    b.eq .Lpi4_find_terminate
+    cmp x27, x28
+    b.hs .Lpi4_find_fail
+    strb w0, [x22, x27]
+    add x27, x27, #1
+    b .Lpi4_find_copy_value
+
+.Lpi4_find_terminate:
+    cbz x27, .Lpi4_find_fail
+    strb wzr, [x22, x27]
+    mov x0, xzr
+    b .Lpi4_find_done
+
+.Lpi4_find_skip_line:
+    cmp x24, x20
+    b.hs .Lpi4_find_fail
+    ldrb w0, [x24], #1
+    cmp w0, #10
+    b.ne .Lpi4_find_skip_line
+    b .Lpi4_find_line
+
+.Lpi4_find_advance_one:
+    add x24, x24, #1
+    b .Lpi4_find_line
+
+.Lpi4_find_fail:
+    mov x0, #PI4_VIBE_ENOENT
+    neg x0, x0
+
+.Lpi4_find_done:
+    ldp x27, x28, [sp, #80]
+    ldp x25, x26, [sp, #64]
+    ldp x23, x24, [sp, #48]
+    ldp x21, x22, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #96
+    ret
+.size pi4_launcher_find_key_value_copy, . - pi4_launcher_find_key_value_copy
+
+.type pi4_launcher_zero_buffer, %function
+pi4_launcher_zero_buffer:
+    cbz x1, .Lpi4_zero_done
+.Lpi4_zero_next:
+    strb wzr, [x0], #1
+    subs x1, x1, #1
+    b.ne .Lpi4_zero_next
+.Lpi4_zero_done:
+    ret
+.size pi4_launcher_zero_buffer, . - pi4_launcher_zero_buffer
 
 .type pi4_launcher_present_frame, %function
 pi4_launcher_present_frame:
@@ -3307,6 +3765,8 @@ pi4_launcher_manifest:
     .ascii "app.1.exec=/APPS/QUAKE/APP.ELF\n"
     .ascii "app.1.manifest=/APPS/QUAKE/APP.TXT\n"
     .ascii "app_discovery_source=/APPS/INDEX.TXT\n"
+    .ascii "app_discovery_runtime=read-index-manifest-slot-table\n"
+    .ascii "launcher_slot_table_authority=runtime-vfs-discovery\n"
     .ascii "launcher_state_schema=vibe-os-pi4-launcher-state-v2\n"
     .ascii "launcher_state_magic=PI4LAUNC\n"
     .ascii "launcher_state_bytes=392\n"
@@ -3373,6 +3833,20 @@ pi4_launcher_manifest:
     .ascii "app_launch_claim=generic-path-exec-syscall\n"
     .byte 0
 
+.balign 8
+pi4_launcher_app_index_path:
+    .asciz "/APPS/INDEX.TXT"
+pi4_launcher_key_app0_manifest:
+    .asciz "app.0.manifest="
+pi4_launcher_key_app1_manifest:
+    .asciz "app.1.manifest="
+pi4_launcher_key_name:
+    .asciz "name="
+pi4_launcher_key_id:
+    .asciz "id="
+pi4_launcher_key_exec:
+    .asciz "exec="
+
 .section .data.pi4_launcher_state, "aw", %progbits
 .balign 8
 .global pi4_launcher_state
@@ -3388,7 +3862,7 @@ pi4_launcher_state:
     .quad PI4_LAUNCHER_SLOT_DOOM
     .quad pi4_launcher_slot_table
     .quad pi4_launcher_slot_doom_name
-    .quad pi4_launcher_slot_doom_path
+    .quad 0
     .quad 0
     .quad 0
     .quad 0
@@ -3400,15 +3874,15 @@ pi4_launcher_state:
     .quad PI4_LAUNCHER_SLOT_DOOM
     .quad pi4_launcher_slot_table
     .quad pi4_launcher_slot_doom_name
-    .quad pi4_launcher_slot_doom_path
+    .quad 0
     .quad pi4_launcher_exec_request
     .quad 0
     .quad 0
     .quad 0
     .quad 0
-    .quad pi4_launcher_slot_present_state
+    .quad pi4_launcher_slot_absent_state
     .quad 0
-    .quad pi4_launcher_slot_present_state
+    .quad pi4_launcher_slot_absent_state
     .quad PI4_LAUNCHER_STATE_ABI_VERSION_VALUE
     .quad PI4_LAUNCHER_STATE_TOTAL_BYTES_VALUE
     .quad 0
@@ -3422,7 +3896,7 @@ pi4_launcher_state:
     .quad PI4_VIBE_EXEC_REQUEST_ABI_VERSION
     .quad PI4_VIBE_EXEC_REQUEST_BYTES
     .quad -1
-    .quad pi4_launcher_slot_doom_path
+    .quad 0
     .quad pi4_launcher_exec_argv
     .quad PI4_LAUNCHER_EXEC_ATTEMPT_IDLE
     .quad 0
@@ -3435,12 +3909,12 @@ pi4_launcher_exec_request:
     .quad PI4_VIBE_EXEC_REQUEST_ABI_VERSION
     .quad PI4_VIBE_EXEC_REQUEST_BYTES
     .quad -1
-    .quad pi4_launcher_slot_doom_path
+    .quad 0
 
 .balign 8
 .global pi4_launcher_exec_argv
 pi4_launcher_exec_argv:
-    .quad pi4_launcher_slot_doom_path
+    .quad 0
     .quad 0
 .global pi4_launcher_exec_argv_quake
 pi4_launcher_exec_argv_quake:
@@ -3517,10 +3991,39 @@ pi4_launcher_fb_max_present_width:
 pi4_launcher_fb_max_present_height:
     .quad 0
 
+.balign 8
+.global pi4_launcher_app_discovered_count
+pi4_launcher_app_discovered_count:
+    .quad 0
+pi4_launcher_app_text_size:
+    .quad 0
+pi4_launcher_app_read_size:
+    .quad 0
+
 .section .bss.pi4_launcher_input, "aw", %nobits
 .balign 8
 pi4_launcher_input_event:
     .skip PI4_VIBE_INPUT_EVENT_BYTES
+
+.section .bss.pi4_launcher_apps, "aw", %nobits
+.balign 16
+pi4_launcher_app_text_buffer:
+    .skip PI4_LAUNCHER_APP_TEXT_BYTES
+.balign 8
+pi4_launcher_app_magic_buffer:
+    .skip 8
+.balign 16
+.global pi4_launcher_app_slot_names
+pi4_launcher_app_slot_names:
+    .skip PI4_LAUNCHER_APP_NAME_BYTES * PI4_LAUNCHER_SLOT_COUNT
+.balign 16
+.global pi4_launcher_app_slot_paths
+pi4_launcher_app_slot_paths:
+    .skip PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_SLOT_COUNT
+.balign 16
+.global pi4_launcher_app_manifest_paths
+pi4_launcher_app_manifest_paths:
+    .skip PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_SLOT_COUNT
 
 .section .bss.pi4_launcher_fbinfo, "aw", %nobits
 .balign 8
