@@ -161,32 +161,32 @@ print_codespace_cleanup_commands() {
   echo "Artifact hygiene: leave WADs, PAKs, disk images, screenshots, raw audio, and VM logs inside the disposable Codespace."
 }
 
-verify_remote_play_payload() {
+verify_remote_play_ref() {
   local path
-  local payload_tmp
+  local ref_tmp
   local remote_url
   local missing=()
 
-  payload_tmp="$(mktemp -d "${TMPDIR:-/tmp}/vibe-os-play-now-payload.XXXXXX")" || die "could not create temporary payload check directory"
+  ref_tmp="$(mktemp -d "${TMPDIR:-/tmp}/vibe-os-play-now-ref.XXXXXX")" || die "could not create temporary ref check directory"
   remote_url="https://github.com/${REPO}.git"
 
   (
-    cd "$payload_tmp"
+    cd "$ref_tmp"
     git init -q
     git remote add origin "$remote_url"
     GIT_TERMINAL_PROMPT=0 git fetch --depth=1 --filter=blob:none origin "refs/heads/$REF" >/dev/null 2>&1
   ) || {
-    rm -rf "$payload_tmp"
-    die "could not fetch GitHub branch '$REF' from '$REPO' for play-now payload verification"
+    rm -rf "$ref_tmp"
+    die "could not fetch GitHub branch '$REF' from '$REPO' for play-now ref verification"
   }
 
   for path in "${REMOTE_PLAY_PATHS[@]}"; do
-    if ! (cd "$payload_tmp" && git cat-file -e "FETCH_HEAD:$path" >/dev/null 2>&1); then
+    if ! (cd "$ref_tmp" && git cat-file -e "FETCH_HEAD:$path" >/dev/null 2>&1); then
       missing+=("$path")
     fi
   done
 
-  rm -rf "$payload_tmp"
+  rm -rf "$ref_tmp"
   if [ "${#missing[@]}" -gt 0 ]; then
     die "GitHub branch '$REF' in '$REPO' is missing required play-now path '${missing[0]}'; push the devcontainer, remote play launcher, and WAD prep helpers before starting Codespaces"
   fi
@@ -646,7 +646,7 @@ print_preflight_summary() {
   echo "browser open: $OPEN_BROWSER"
   echo "GitHub Codespaces API: accessible"
   echo "GitHub repo/ref: verified"
-  echo "remote play payload: verified on selected ref"
+  echo "remote play ref: verified on selected ref"
   echo "git state: $GIT_STATE_SUMMARY"
   echo "local artifact transfer: none (no WADs, disk images, pixels, raw audio, or logs copied to the Mac)"
   echo "proof boundary: Codespaces/noVNC is visible play only; status/workflow gates remain the proof surface"
@@ -675,7 +675,7 @@ print_web_url_summary() {
     print_pi4_codespaces_handoff
   fi
   echo "GitHub repo/ref: verified"
-  echo "remote play payload: verified on selected ref"
+  echo "remote play ref: verified on selected ref"
   echo "local gh Codespaces API: not required for this browser path"
   echo "local gh auth: optional for this browser path"
   echo "local artifact transfer: none (no WADs, disk images, pixels, raw audio, or logs copied to the Mac)"
@@ -690,7 +690,7 @@ print_web_url_summary() {
   echo "dry-run: Codespace was not created or modified"
 }
 
-remote_start_payload() {
+remote_start_script() {
   cat <<'REMOTE'
 repo_dir="${VIBE_CODESPACE_REPO_DIR:-}"
 redact_remote_stream() {
@@ -782,7 +782,7 @@ run_remote_start() {
   for ((attempt = 1; attempt <= CODESPACES_SSH_ATTEMPTS; attempt++)); do
     : >"$err_file"
     set +e
-    remote_start_payload | gh codespace ssh -c "$CODESPACE_NAME" -- env VIBE_PLAY_REF="$REF" VIBE_PLAY_MODE="$PLAY_MODE" NOVNC_PORT="$NOVNC_PORT" NOVNC_VNC_PATH="$NOVNC_VNC_PATH" bash -euo pipefail -s > >(sanitize_remote_error) 2> >(sanitize_remote_error | tee "$err_file" >&2)
+    remote_start_script | gh codespace ssh -c "$CODESPACE_NAME" -- env VIBE_PLAY_REF="$REF" VIBE_PLAY_MODE="$PLAY_MODE" NOVNC_PORT="$NOVNC_PORT" NOVNC_VNC_PATH="$NOVNC_VNC_PATH" bash -euo pipefail -s > >(sanitize_remote_error) 2> >(sanitize_remote_error | tee "$err_file" >&2)
     rc=$?
     set -e
 
@@ -800,7 +800,7 @@ run_remote_start() {
 
     {
       echo "Could not start play-now over Codespaces SSH after attempt $attempt/$CODESPACES_SSH_ATTEMPTS."
-      echo "The remote command is passed over stdin to bash -euo pipefail -s; the launcher does not run a shell payload via bash -lc, does not print remote env, and filters token-shaped output."
+      echo "The remote command is passed over stdin to bash -euo pipefail -s; the launcher does not use bash -lc, does not print remote env, and filters token-shaped output."
       print_codespace_cleanup_commands
     } >&2
     rm -f "$err_file"
@@ -911,7 +911,7 @@ else
 fi
 
 verify_github_remote_ref
-verify_remote_play_payload
+verify_remote_play_ref
 
 if [ "$PRINT_WEB_URL_ONLY" = "1" ]; then
   print_web_url_summary

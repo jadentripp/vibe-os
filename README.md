@@ -175,14 +175,14 @@ The vendor trees should stay pristine.
   packaged assets, config files, save files, and file descriptors.
 - **User ABI:** Ring 3 ELF launch, user entry code, syscall wrappers, runtime
   helpers, process status, ABI probes, and the NASM guest launcher.
-- **Payload adapters:** project-owned assembly glue for startup, libc/string
+- **App adapters:** project-owned assembly glue for startup, libc/string
   and stdio/math support, input, framebuffer presentation, palette/video
   conversion, audio, persistence, and shutdown.
 - **Devices:** keyboard, mouse, framebuffer/VBE-style presentation, and an
   SB16-style PCM audio path.
 
 Project-owned guest code is assembly-first today: boot paths, kernel,
-user/runtime code, ABI probes, libc compatibility, payload adapters, input,
+user/runtime code, ABI probes, libc compatibility, app adapters, input,
 audio, persistence, and startup code are NASM sources. C is used for the
 original engine sources and host utilities. Python is not part of the tracked
 build or proof path.

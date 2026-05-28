@@ -1,42 +1,54 @@
-// Read-only slot metadata and indexed artwork for the AArch64 Pi 4 launcher.
+// Read-only app-record metadata and indexed artwork for the AArch64 Pi 4 launcher.
 
 .arch armv8-a
 
-.equ PI4_LAUNCHER_SLOT_APP0,        0
-.equ PI4_LAUNCHER_SLOT_APP1,        1
+.equ PI4_LAUNCHER_APP_RECORD_0,     0
+.equ PI4_LAUNCHER_APP_RECORD_1,     1
+.equ PI4_LAUNCHER_SLOT_APP0,        PI4_LAUNCHER_APP_RECORD_0
+.equ PI4_LAUNCHER_SLOT_APP1,        PI4_LAUNCHER_APP_RECORD_1
 .equ PI4_LAUNCHER_SLOT_STATE_ABSENT, 0
 .equ PI4_LAUNCHER_SLOT_STATE_PRESENT, 1
 
 .section .data.pi4_launcher_slots, "aw", %progbits
 .balign 8
+.global pi4_launcher_app_record_table
 .global pi4_launcher_slot_table
+pi4_launcher_app_record_table:
 pi4_launcher_slot_table:
-    .quad PI4_LAUNCHER_SLOT_APP0
-    .quad pi4_launcher_slot_app0_name
+    .quad PI4_LAUNCHER_APP_RECORD_0
+    .quad pi4_launcher_app_record_0_name
     .quad 0
     .quad PI4_LAUNCHER_SLOT_STATE_ABSENT
-    .quad pi4_launcher_slot_absent_state
-    .quad PI4_LAUNCHER_SLOT_APP1
-    .quad pi4_launcher_slot_app1_name
+    .quad pi4_launcher_app_record_absent_state
+    .quad PI4_LAUNCHER_APP_RECORD_1
+    .quad pi4_launcher_app_record_1_name
     .quad 0
     .quad PI4_LAUNCHER_SLOT_STATE_ABSENT
-    .quad pi4_launcher_slot_absent_state
+    .quad pi4_launcher_app_record_absent_state
 
 .section .rodata.pi4_launcher_slot_strings, "a", %progbits
 .balign 8
+.global pi4_launcher_app_record_0_name
 .global pi4_launcher_slot_app0_name
+pi4_launcher_app_record_0_name:
 pi4_launcher_slot_app0_name:
     .asciz "APP 1"
 
+.global pi4_launcher_app_record_1_name
 .global pi4_launcher_slot_app1_name
+pi4_launcher_app_record_1_name:
 pi4_launcher_slot_app1_name:
     .asciz "APP 2"
 
+.global pi4_launcher_app_record_present_state
 .global pi4_launcher_slot_present_state
+pi4_launcher_app_record_present_state:
 pi4_launcher_slot_present_state:
     .asciz "present"
 
+.global pi4_launcher_app_record_absent_state
 .global pi4_launcher_slot_absent_state
+pi4_launcher_app_record_absent_state:
 pi4_launcher_slot_absent_state:
     .asciz "absent"
 

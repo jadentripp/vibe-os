@@ -4621,11 +4621,11 @@ pi4_uart_write_storage_vfs_file_tuples:
     adr x1, pi4_storage_status_system_abiprobe
     mov x2, #4
     bl pi4_uart_write_storage_named_tuple
-    adr x0, msg_status_pi4appdoom
+    adr x0, msg_status_pi4app_record0
     adr x1, pi4_storage_status_app0_elf_entry_index
     mov x2, #8
     bl pi4_uart_write_storage_named_tuple
-    adr x0, msg_status_pi4appquake
+    adr x0, msg_status_pi4app_record1
     adr x1, pi4_storage_status_app1_elf_entry_index
     mov x2, #8
     bl pi4_uart_write_storage_named_tuple
@@ -12415,9 +12415,9 @@ msg_status_pi4init:
     .asciz " pi4init="
 msg_status_pi4abiprobe:
     .asciz " pi4abiprobe="
-msg_status_pi4appdoom:
+msg_status_pi4app_record0:
     .asciz " pi4appdoom="
-msg_status_pi4appquake:
+msg_status_pi4app_record1:
     .asciz " pi4appquake="
 msg_status_pi4manifest:
     .asciz " pi4manifest="
@@ -12924,9 +12924,9 @@ pi4_status_pi4userfile_doom_offset:
     .quad 0
 pi4_status_pi4userfile_pak_offset:
     .quad 0
-pi4_status_pi4userfile_appdoom_offset:
+pi4_status_pi4userfile_app_record0_offset:
     .quad 0
-pi4_status_pi4userfile_appquake_offset:
+pi4_status_pi4userfile_app_record1_offset:
     .quad 0
 pi4_status_pi4userfile_app0_elf_offset:
     .quad 0
