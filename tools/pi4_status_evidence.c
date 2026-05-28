@@ -1974,14 +1974,8 @@ static int check_exec_status(const Field* fields, size_t count)
 
 static int check_app_launch_claim(const Field* fields, size_t count)
 {
-    const char* retired_claim = find_value(fields, count, "payload_launch_claim");
     const char* claim = find_value(fields, count, "app_launch_claim");
 
-    if (retired_claim) {
-        fprintf(stderr,
-            "pi4_status_evidence: payload_launch_claim= is a retired root payload-slot claim\n");
-        return 0;
-    }
     if (!claim)
         return 1;
     if (strcmp(claim, "none") == 0)
