@@ -2833,7 +2833,7 @@ LBB0_293:
 	callq	_read_file
 	movq	%rax, %rbx
 	movq	%rdx, %r8
-	leaq	_LEGACY_PAYLOAD_ELF_NAME(%rip), %rsi
+	leaq	_LEGACY_APP_ELF_NAME(%rip), %rsi
 	leaq	-135296(%rbp), %rdi
 	movl	$1, %edx
 	movq	%rax, %rcx
@@ -8141,8 +8141,8 @@ L_.str.20:                              ## @.str.20
 	.asciz	"duplicate --root-elf FAT16 name"
 
 	.section	__TEXT,__const
-_LEGACY_PAYLOAD_ELF_NAME:               ## @LEGACY_PAYLOAD_ELF_NAME
-	.asciz	"PAYLOAD0ELF"
+_LEGACY_APP_ELF_NAME:               ## @LEGACY_APP_ELF_NAME
+	.asciz	"APP     ELF"
 
 	.section	__TEXT,__cstring,cstring_literals
 L_.str.21:                              ## @.str.21
@@ -8224,7 +8224,7 @@ L_.str.41:                              ## @.str.41
 	.asciz	"write past end"
 
 L_.str.42:                              ## @.str.42
-	.asciz	"usage: make_wad_image [--inspect IMAGE] [--primary-asset-wad PATH|--wad PATH] [--root-elf NAME.ELF=PATH] [--asset IMAGE_8.3_PATH=HOST_PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [LEGACY_PAYLOAD_ELF]]]\n       make_wad_image --write-root-marker SYMBOL PAYLOAD IMAGE\n       make_wad_image --delete-root-marker SYMBOL IMAGE\n       make_wad_image --check-persistence IMAGE [--baseline-image IMAGE] [--reboot-baseline-image IMAGE] [--write-status FILE] [--save-write-status FILE] [--load-status FILE] [--reboot-status FILE] [--require-default] [--require-dynamic-fat-proof] [--require-save-slot N] [--require-save-description N=TEXT]"
+	.asciz	"usage: make_wad_image [--inspect IMAGE] [--primary-asset-wad PATH|--wad PATH] [--root-elf NAME.ELF=PATH] [--asset IMAGE_8.3_PATH=HOST_PATH] OUTPUT [STAGE1 STAGE2 KERNEL [USER_ELF [LEGACY_APP_ELF]]]\n       make_wad_image --write-root-marker SYMBOL PAYLOAD IMAGE\n       make_wad_image --delete-root-marker SYMBOL IMAGE\n       make_wad_image --check-persistence IMAGE [--baseline-image IMAGE] [--reboot-baseline-image IMAGE] [--write-status FILE] [--save-write-status FILE] [--load-status FILE] [--reboot-status FILE] [--require-default] [--require-dynamic-fat-proof] [--require-save-slot N] [--require-save-description N=TEXT]"
 
 L_.str.43:                              ## @.str.43
 	.asciz	"--require-save-slot expects slot 0..5"
@@ -8501,7 +8501,7 @@ L_.str.132:                             ## @.str.132
 	.asciz	"stage1, stage2, and kernel paths must be provided together"
 
 L_.str.133:                             ## @.str.133
-	.asciz	"legacy root payload ELF packaging requires a user probe ELF path"
+	.asciz	"legacy positional app ELF packaging requires a user probe ELF path"
 
 L_.str.134:                             ## @.str.134
 	.asciz	"primary WAD asset (DOOM1.WAD) must start at cluster 2"

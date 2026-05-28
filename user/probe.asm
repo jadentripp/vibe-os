@@ -1112,7 +1112,7 @@ section .rodata.str1.1 progbits alloc noexec nowrite align=1
 L__const.user_main.hello:
 db `user C probe\n`, 0
 L__const.user_main.abi_probe_path:
-db `ABIPROBE.ELF`, 0
+db `/SYSTEM/ABIPROBE.ELF`, 0
 L__const.user_main.asset_readme_path:
 db `/ASSETS/README.TXT`, 0
 L__const.user_main.asset_deep_path:

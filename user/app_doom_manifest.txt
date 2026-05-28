@@ -1,0 +1,4 @@
+name=DOOM
+exec=/APPS/DOOM/APP.ELF
+asset=/DOOM1.WAD
+icon=wad:TITLEPIC
