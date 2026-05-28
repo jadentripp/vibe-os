@@ -1,0 +1,8 @@
+schema=vibe-os-app-index-v1
+model=manifest-vfs-exec
+discovery=app-index-manifest-paths
+app_count=2
+app.0.id=doom
+app.0.manifest=/APPS/DOOM/MANIFEST.TXT
+app.1.id=quake
+app.1.manifest=/APPS/QUAKE/MANIFEST.TXT
