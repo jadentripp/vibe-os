@@ -25,6 +25,8 @@
 
 #define PI4_VIBE_APP_RECORD_FIRST 0
 #define PI4_VIBE_APP_RECORD_COUNT 2
+#define PI4_VIBE_APP_RECORD_CAPACITY PI4_VIBE_APP_RECORD_COUNT
+#define PI4_VIBE_VISIBLE_APP_RECORD_COUNT 2
 #define PI4_VIBE_APP_RECORD_LIMIT \
     (PI4_VIBE_APP_RECORD_FIRST + PI4_VIBE_APP_RECORD_COUNT)
 #define PI4_VIBE_APP_RECORD_NONE PI4_VIBE_APP_RECORD_LIMIT
@@ -39,6 +41,10 @@
 
 #if PI4_VIBE_APP_RECORD_COUNT < 2
 #error "Pi 4 app-record ABI must preserve the Doom and Quake proof records"
+#endif
+
+#if PI4_VIBE_APP_RECORD_COUNT < PI4_VIBE_VISIBLE_APP_RECORD_COUNT
+#error "Pi 4 visible app records must fit inside app-record capacity"
 #endif
 
 #define PI4_VIBE_DISPLAY_FD 1

@@ -51,7 +51,7 @@ enum {
 };
 
 enum {
-    VIBE_EXEC_PATH_MAX = 16,
+    VIBE_EXEC_PATH_MAX = 64,
     VIBE_EXEC_ARG_MAX = 8,
     VIBE_EXEC_ARG_STR_MAX = 64,
     VIBE_EXEC_ENV_MAX = 8,
