@@ -2789,6 +2789,11 @@ pi4_launcher_draw_card_base:
 
     mov x0, x19
     mov x1, x21
+    mov x2, x23
+    bl pi4_launcher_draw_card_titlebar_chrome
+
+    mov x0, x19
+    mov x1, x21
     add x1, x1, #PI4_LAUNCHER_CARD_CHROME_INSET
     mov x2, #PI4_LAUNCHER_CARD_Y
     add x2, x2, #PI4_LAUNCHER_CARD_TITLE_Y_OFF + PI4_LAUNCHER_CARD_TITLE_H + 2
@@ -2893,6 +2898,132 @@ pi4_launcher_draw_card_base:
     ldp x29, x30, [sp], #96
     ret
 .size pi4_launcher_draw_card_base, . - pi4_launcher_draw_card_base
+
+.type pi4_launcher_draw_card_titlebar_chrome, %function
+pi4_launcher_draw_card_titlebar_chrome:
+    stp x29, x30, [sp, #-80]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    stp x21, x22, [sp, #32]
+
+    mov x19, x0
+    mov x20, x1
+    mov x21, x2
+
+    mov x0, x19
+    add x1, x20, #26
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #13
+    mov x3, #14
+    mov x4, #14
+    mov x5, #PI4_COLOR_BLACK
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x20, #24
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #11
+    mov x3, #14
+    mov x4, #14
+    mov x5, #PI4_COLOR_PANEL
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x20, #24
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #11
+    mov x3, #14
+    mov x4, #14
+    mov x5, #PI4_COLOR_BORDER
+    bl pi4_launcher_draw_border
+
+    mov x0, x19
+    add x1, x20, #24
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #11
+    mov x3, #14
+    mov x4, #14
+    mov x5, #PI4_COLOR_HILITE
+    mov x6, #PI4_COLOR_BLACK
+    bl pi4_launcher_draw_bevel
+
+    mov x0, x19
+    add x1, x20, #28
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #15
+    mov x3, #6
+    mov x4, #6
+    mov x5, x21
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x20, #56
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #12
+    mov x3, #160
+    mov x4, #2
+    mov x5, #PI4_COLOR_HILITE
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x20, #336
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #12
+    mov x3, #160
+    mov x4, #2
+    mov x5, #PI4_COLOR_HILITE
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x20, #56
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #16
+    mov x3, #160
+    mov x4, #2
+    mov x5, #PI4_COLOR_BORDER
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x20, #336
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #16
+    mov x3, #160
+    mov x4, #2
+    mov x5, #PI4_COLOR_BORDER
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x20, #56
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #20
+    mov x3, #160
+    mov x4, #2
+    mov x5, #PI4_COLOR_HILITE
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x20, #336
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #20
+    mov x3, #160
+    mov x4, #2
+    mov x5, #PI4_COLOR_HILITE
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x20, #236
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #14
+    mov x3, #80
+    mov x4, #6
+    mov x5, x21
+    bl pi4_launcher_fill_rect
+
+    ldp x21, x22, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #80
+    ret
+.size pi4_launcher_draw_card_titlebar_chrome, . - pi4_launcher_draw_card_titlebar_chrome
 
 .type pi4_launcher_draw_app_record_selected, %function
 pi4_launcher_draw_app_record_selected:
@@ -4906,6 +5037,7 @@ pi4_launcher_manifest:
     .ascii "launcher_visible_keyboard_labels=1-2-key-badges-and-enter-button-label\n"
     .ascii "launcher_visible_app_labels=manifest-name-rendered-with-aarch64-5x7-font\n"
     .ascii "launcher_visible_art_default=retro-mac-icon-well-with-large-real-asset-icons-and-readable-labels\n"
+    .ascii "launcher_visible_card_chrome=pinstripe-titlebars-close-boxes-accent-slugs\n"
     .ascii "launcher_visible_layout=1280x720-topbar56-header1216x92-picker1216x504\n"
     .ascii "launcher_visible_card_rects=doom48,204,552,464;quake680,204,552,464\n"
     .ascii "launcher_visible_art_rects=doom72,216,504,288;quake704,216,504,288\n"
