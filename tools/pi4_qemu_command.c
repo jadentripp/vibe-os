@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <signal.h>
 #include <stdio.h>
@@ -1715,17 +1716,24 @@ static int connect_monitor_once(const char* monitor_path)
 {
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     struct sockaddr_un addr;
+    size_t path_len;
+    socklen_t addr_len;
 
     if (fd < 0)
         return -1;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    if (strlen(monitor_path) >= sizeof(addr.sun_path)) {
+    path_len = strlen(monitor_path);
+    if (path_len >= sizeof(addr.sun_path)) {
         close(fd);
         return -1;
     }
     strcpy(addr.sun_path, monitor_path);
-    if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) != 0) {
+    addr_len = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + path_len + 1u);
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    addr.sun_len = (unsigned char)addr_len;
+#endif
+    if (connect(fd, (struct sockaddr*)&addr, addr_len) != 0) {
         close(fd);
         return -1;
     }
