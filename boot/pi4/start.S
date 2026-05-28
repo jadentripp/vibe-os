@@ -12416,9 +12416,9 @@ msg_status_pi4init:
 msg_status_pi4abiprobe:
     .asciz " pi4abiprobe="
 msg_status_pi4app_record0:
-    .asciz " pi4appdoom="
+    .asciz " pi4app0="
 msg_status_pi4app_record1:
-    .asciz " pi4appquake="
+    .asciz " pi4app1="
 msg_status_pi4manifest:
     .asciz " pi4manifest="
 msg_status_pi4assets:

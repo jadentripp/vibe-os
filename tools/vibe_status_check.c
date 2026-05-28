@@ -256,8 +256,8 @@
 #define PI4_VIBE_FB_RGB24_PALETTE_BYTES 768ull
 #define PI4_VIBE_APP_DOOM 0ull
 #define PI4_VIBE_APP_QUAKE 1ull
-#define PI4_VIBE_FILE_ASSET_APP_DOOM_ELF 12ull
-#define PI4_VIBE_FILE_ASSET_APP_QUAKE_ELF 13ull
+#define PI4_VIBE_FILE_ASSET_APP_RECORD0_ELF 12ull
+#define PI4_VIBE_FILE_ASSET_APP_RECORD1_ELF 13ull
 #define PI4_VIBE_FD_DOOM1_WAD 3ull
 #define PI4_VIBE_FD_PAK0_PAK 4ull
 #define PI4_VIBE_ENOENT 2ull
@@ -670,11 +670,11 @@ static int is_pi4_user_exec_path(const char *path) {
 
 static int pi4_app_id_for_path(const char *path, uint64_t *app_id) {
     if (strcmp(path, "/APPS/DOOM/APP.ELF") == 0) {
-        *app_id = PI4_VIBE_FILE_ASSET_APP_DOOM_ELF;
+        *app_id = PI4_VIBE_FILE_ASSET_APP_RECORD0_ELF;
         return 1;
     }
     if (strcmp(path, "/APPS/QUAKE/APP.ELF") == 0) {
-        *app_id = PI4_VIBE_FILE_ASSET_APP_QUAKE_ELF;
+        *app_id = PI4_VIBE_FILE_ASSET_APP_RECORD1_ELF;
         return 1;
     }
     return 0;
@@ -682,10 +682,10 @@ static int pi4_app_id_for_path(const char *path, uint64_t *app_id) {
 
 static uint64_t pi4_app_asset_for_id(uint64_t app_id) {
     if (app_id == PI4_VIBE_APP_DOOM) {
-        return PI4_VIBE_FILE_ASSET_APP_DOOM_ELF;
+        return PI4_VIBE_FILE_ASSET_APP_RECORD0_ELF;
     }
     if (app_id == PI4_VIBE_APP_QUAKE) {
-        return PI4_VIBE_FILE_ASSET_APP_QUAKE_ELF;
+        return PI4_VIBE_FILE_ASSET_APP_RECORD1_ELF;
     }
     fail("unknown Pi app id");
     return 0;
@@ -2389,8 +2389,8 @@ static void validate_pi4_storage_file_tuple(const uint64_t *mbr, const uint64_t 
         strcmp(name, "pi4pak0") != 0) {
         fail("%s= read count cannot exceed the planned first-cluster read", name);
     }
-    if (file[7] != file[5] && strcmp(name, "pi4appdoom") != 0 &&
-        strcmp(name, "pi4appquake") != 0 && strcmp(name, "pi4manifest") != 0 &&
+    if (file[7] != file[5] && strcmp(name, "pi4app0") != 0 &&
+        strcmp(name, "pi4app1") != 0 && strcmp(name, "pi4manifest") != 0 &&
         strcmp(name, "pi4wad") != 0 && strcmp(name, "pi4pak0") != 0) {
         fail("%s= read count must prove the full planned first-cluster read completed", name);
     }
@@ -2719,8 +2719,8 @@ static void validate_pi4_storage_status(const Status *status) {
         "pi4config",
         "pi4init",
         "pi4abiprobe",
-        "pi4appdoom",
-        "pi4appquake",
+        "pi4app0",
+        "pi4app1",
         "pi4manifest",
         "pi4assets",
         "pi4wad",
@@ -2733,8 +2733,8 @@ static void validate_pi4_storage_status(const Status *status) {
         "pi4config",
         "pi4init",
         "pi4abiprobe",
-        "pi4appdoom",
-        "pi4appquake",
+        "pi4app0",
+        "pi4app1",
         "pi4manifest",
         "pi4assets",
         "pi4wad",
@@ -2781,8 +2781,8 @@ static void validate_pi4_storage_status(const Status *status) {
     }
     if (strcmp(vfs, "OK") == 0) {
         validate_pi4_storage_file_evidence(status, mbr, bpb, root, "pi4init");
-        validate_pi4_storage_file_evidence(status, mbr, bpb, root, "pi4appdoom");
-        validate_pi4_storage_file_evidence(status, mbr, bpb, root, "pi4appquake");
+        validate_pi4_storage_file_evidence(status, mbr, bpb, root, "pi4app0");
+        validate_pi4_storage_file_evidence(status, mbr, bpb, root, "pi4app1");
         validate_pi4_storage_asset_evidence(status, mbr, bpb, root);
         return;
     }
