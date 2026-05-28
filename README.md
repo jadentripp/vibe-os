@@ -17,34 +17,19 @@ This is not Linux, SDL, Chocolate Doom, or a desktop wrapper. QEMU provides
 hardware; vibe-os owns the boot path, kernel/runtime code, storage, app
 discovery, syscalls, framebuffer, input, and audio ABI.
 
-## What QEMU Is
+## Glossary
 
-QEMU is the computer that vibe-os boots on during local and CI testing.
-`qemu-system-x86_64` emulates a PC. `qemu-system-aarch64 -M raspi4b` emulates
-a Raspberry Pi 4-like machine.
-
-QEMU is not the OS. vibe-os still has to bring its own boot code, kernel,
-drivers, filesystem reads, process model, syscalls, framebuffer rendering,
-input handling, audio path, and app launcher.
-
-When the README says the Pi target works in QEMU, it means the same Pi boot
-image is attached to an emulated Pi 4 and vibe-os runs against emulated Pi
-hardware. That is hardware-equivalent evidence, not a claim that the image has
-already been proven on a physical Raspberry Pi board.
-
-## What Ring 3 Means
-
-Ring 3 is user mode: the low-privilege CPU mode where normal apps run. Ring 0
-is kernel mode, where the OS can touch hardware, memory mappings, interrupts,
-and privileged CPU state.
-
-When vibe-os says Doom and Quake are Ring 3 ELF apps, it means they are not
-linked into the kernel. The kernel loads each app ELF, switches into user mode,
-and the app has to ask the OS for files, framebuffer output, input, audio, and
-time through syscalls.
-
-That is the process boundary: the game is an app running on vibe-os, not kernel
-code with a game loop bolted on.
+- QEMU: the emulated computer vibe-os boots on during local and CI testing.
+  QEMU is not the OS; vibe-os still brings its own boot code, kernel, drivers,
+  files, processes, syscalls, framebuffer, input, audio path, and launcher.
+- Ring 0: kernel mode, where the OS can touch hardware, memory mappings,
+  interrupts, and privileged CPU state.
+- Ring 3: user mode, where normal apps run. Doom and Quake are Ring 3 ELF apps,
+  which means the kernel loads them, switches into user mode, and they ask the
+  OS for files, framebuffer output, input, audio, and time through syscalls.
+- ELF: the executable file format vibe-os loads for user apps.
+- Hardware-equivalent Pi proof: the same Pi boot image is attached to an
+  emulated Pi 4 in QEMU. That is not the same as physical Raspberry Pi proof.
 
 ## Play
 
