@@ -161,8 +161,8 @@
 .equ PI4_START_STORAGE_ASSET_DIR_ID1,    4
 .equ PI4_START_STORAGE_ASSET_DIR_SYSTEM, 5
 .equ PI4_START_STORAGE_ASSET_DIR_APPS,   6
-.equ PI4_START_STORAGE_ASSET_DIR_APP_DOOM, 7
-.equ PI4_START_STORAGE_ASSET_DIR_APP_QUAKE, 8
+.equ PI4_START_STORAGE_ASSET_DIR_APP0, 7
+.equ PI4_START_STORAGE_ASSET_DIR_APP1, 8
 
 .equ PI4_VIBE_SVC_IMM,                  0x80
 .equ PI4_VIBE_SYS_READ,                 0
@@ -192,10 +192,10 @@
 .equ PI4_VIBE_FD_ASSET_MAP,             9
 .equ PI4_VIBE_FD_ASSET_PALETTE,         10
 .equ PI4_VIBE_FD_APP_INDEX,             11
-.equ PI4_VIBE_FD_APP_DOOM_MANIFEST,     12
-.equ PI4_VIBE_FD_APP_QUAKE_MANIFEST,    13
-.equ PI4_VIBE_FD_APP_DOOM_ELF,          14
-.equ PI4_VIBE_FD_APP_QUAKE_ELF,         15
+.equ PI4_VIBE_FD_APP0_MANIFEST,     12
+.equ PI4_VIBE_FD_APP1_MANIFEST,    13
+.equ PI4_VIBE_FD_APP0_ELF,          14
+.equ PI4_VIBE_FD_APP1_ELF,         15
 .equ PI4_VIBE_ENOENT,                   2
 .equ PI4_VIBE_EBADF,                    9
 .equ PI4_VIBE_EINVAL,                   22
@@ -213,10 +213,10 @@
 .equ PI4_VIBE_FILE_ASSET_E1M1_MAP,      7
 .equ PI4_VIBE_FILE_ASSET_PAL0_BIN,      8
 .equ PI4_VIBE_FILE_ASSET_APP_INDEX,     9
-.equ PI4_VIBE_FILE_ASSET_APP_DOOM_MANIFEST, 10
-.equ PI4_VIBE_FILE_ASSET_APP_QUAKE_MANIFEST, 11
-.equ PI4_VIBE_FILE_ASSET_APP_DOOM_ELF,  12
-.equ PI4_VIBE_FILE_ASSET_APP_QUAKE_ELF, 13
+.equ PI4_VIBE_FILE_ASSET_APP0_MANIFEST, 10
+.equ PI4_VIBE_FILE_ASSET_APP1_MANIFEST, 11
+.equ PI4_VIBE_FILE_ASSET_APP0_ELF,  12
+.equ PI4_VIBE_FILE_ASSET_APP1_ELF, 13
 .equ PI4_VIBE_STAT_BYTES,               44
 .equ PI4_VIBE_STAT_MODE_OFFSET,         8
 .equ PI4_VIBE_STAT_SIZE_OFFSET,         28
@@ -225,8 +225,8 @@
 .equ PI4_VIBE_SEEK_SET,                 0
 .equ PI4_VIBE_SEEK_CUR,                 1
 .equ PI4_VIBE_SEEK_END,                 2
-.equ PI4_VIBE_APP_DOOM,            0
-.equ PI4_VIBE_APP_QUAKE,            1
+.equ PI4_VIBE_APP_SLOT0,            0
+.equ PI4_VIBE_APP_SLOT1,            1
 .equ PI4_VIBE_EXEC_REQUEST_ABI_VERSION, 1
 .equ PI4_VIBE_EXEC_REQUEST_BYTES,       32
 .equ PI4_VIBE_EXEC_REQUEST_PATH_MAX_BYTES, 64
@@ -452,8 +452,8 @@
 .equ PI4_PROC_STATE_FAULTED,            6
 .equ PI4_PROC_KIND_EL0_PROBE,           1
 .equ PI4_PROC_KIND_INIT,                2
-.equ PI4_PROC_KIND_APP_DOOM,            3
-.equ PI4_PROC_KIND_APP_QUAKE,            4
+.equ PI4_PROC_KIND_APP0,            3
+.equ PI4_PROC_KIND_APP1,            4
 .equ PI4_PROC_PID_INIT,                 1
 .equ PI4_PROC_PID_NEXT_INIT,            2
 .equ PI4_PROC_PID_APP_FIRST,        2
@@ -2098,14 +2098,14 @@ pi4_build_nonembedded_user_stack:
     cbz x6, .Lpi4_nonembedded_stack_have_argv0
     adr x6, pi4_status_pi4appreq_matched_asset
     ldr x6, [x6]
-    cmp x6, #PI4_VIBE_FILE_ASSET_APP_DOOM_ELF
-    b.ne .Lpi4_nonembedded_stack_check_app_quake_argv0
-    adr x5, pi4_app_doom_elf_path_string
+    cmp x6, #PI4_VIBE_FILE_ASSET_APP0_ELF
+    b.ne .Lpi4_nonembedded_stack_check_app1_argv0
+    adr x5, pi4_app0_default_elf_path_string
     b .Lpi4_nonembedded_stack_have_argv0
-.Lpi4_nonembedded_stack_check_app_quake_argv0:
-    cmp x6, #PI4_VIBE_FILE_ASSET_APP_QUAKE_ELF
+.Lpi4_nonembedded_stack_check_app1_argv0:
+    cmp x6, #PI4_VIBE_FILE_ASSET_APP1_ELF
     b.ne .Lpi4_nonembedded_stack_have_argv0
-    adr x5, pi4_app_quake_elf_path_string
+    adr x5, pi4_app1_default_elf_path_string
     b .Lpi4_nonembedded_stack_have_argv0
 .Lpi4_nonembedded_stack_have_argv0:
     str x5, [x4], #8
@@ -2293,9 +2293,9 @@ pi4_record_nonembedded_app_launch:
     ldr w3, =VIBE_PI4_STATUS_PI4ELF_OK
     str w3, [x2]
 
-    cmp x9, #PI4_VIBE_APP_QUAKE
-    mov x5, #PI4_PROC_KIND_APP_DOOM
-    mov x6, #PI4_PROC_KIND_APP_QUAKE
+    cmp x9, #PI4_VIBE_APP_SLOT1
+    mov x5, #PI4_PROC_KIND_APP0
+    mov x6, #PI4_PROC_KIND_APP1
     csel x5, x6, x5, eq
 
     adr x12, pi4_status_proc_current_pid
@@ -2487,12 +2487,12 @@ pi4_exec_app_from_vfs:
     mov x27, x1
 
     cbnz x20, .Lpi4_exec_app_source_read_count
-    cmp x19, #PI4_VIBE_APP_QUAKE
-    b.eq .Lpi4_exec_app_quake_read_count
-    adr x25, pi4_storage_status_app_doom_elf_read_count
+    cmp x19, #PI4_VIBE_APP_SLOT1
+    b.eq .Lpi4_exec_app1_read_count
+    adr x25, pi4_storage_status_app0_elf_read_count
     b .Lpi4_exec_app_have_read_count
-.Lpi4_exec_app_quake_read_count:
-    adr x25, pi4_storage_status_app_quake_elf_read_count
+.Lpi4_exec_app1_read_count:
+    adr x25, pi4_storage_status_app1_elf_read_count
     b .Lpi4_exec_app_have_read_count
 .Lpi4_exec_app_source_read_count:
     mov x25, x20
@@ -2700,11 +2700,11 @@ pi4_prepare_storage_handoff:
     adr x0, pi4_storage_status_apps_dir
     mov x1, #PI4_START_STORAGE_ASSET_DIR_APPS
     bl pi4_prepare_storage_scan_dir_cluster
-    adr x0, pi4_storage_status_app_doom_dir
-    mov x1, #PI4_START_STORAGE_ASSET_DIR_APP_DOOM
+    adr x0, pi4_storage_status_app0_dir
+    mov x1, #PI4_START_STORAGE_ASSET_DIR_APP0
     bl pi4_prepare_storage_scan_dir_cluster
-    adr x0, pi4_storage_status_app_quake_dir
-    mov x1, #PI4_START_STORAGE_ASSET_DIR_APP_QUAKE
+    adr x0, pi4_storage_status_app1_dir
+    mov x1, #PI4_START_STORAGE_ASSET_DIR_APP1
     bl pi4_prepare_storage_scan_dir_cluster
 
     adr x0, pi4_storage_status_init_elf
@@ -2759,13 +2759,13 @@ pi4_prepare_storage_handoff:
     adr x1, pi4_el0_stack_top
     str x1, [x0]
 
-    adr x0, pi4_storage_status_app_doom_elf
+    adr x0, pi4_storage_status_app0_elf
     ldr w1, [x0]
     ldr w2, =PI4_START_STORAGE_FILE_OK
     cmp w1, w2
     b.ne .Lpi4_prepare_storage_handoff_done
 
-    adr x0, pi4_storage_status_app_quake_elf
+    adr x0, pi4_storage_status_app1_elf
     ldr w1, [x0]
     ldr w2, =PI4_START_STORAGE_FILE_OK
     cmp w1, w2
@@ -2777,13 +2777,13 @@ pi4_prepare_storage_handoff:
     cmp w1, w2
     b.ne .Lpi4_prepare_storage_handoff_done
 
-    adr x0, pi4_storage_status_app_doom_manifest
+    adr x0, pi4_storage_status_app0_manifest
     ldr w1, [x0]
     ldr w2, =PI4_START_STORAGE_FILE_OK
     cmp w1, w2
     b.ne .Lpi4_prepare_storage_handoff_done
 
-    adr x0, pi4_storage_status_app_quake_manifest
+    adr x0, pi4_storage_status_app1_manifest
     ldr w1, [x0]
     ldr w2, =PI4_START_STORAGE_FILE_OK
     cmp w1, w2
@@ -3196,9 +3196,9 @@ pi4_write_uart_input_event:
     cbz x4, .Lpi4_write_uart_key_input_device_ready
     adr x6, pi4_status_pi4ctx_kind
     ldr x6, [x6]
-    cmp x6, #PI4_PROC_KIND_APP_DOOM
+    cmp x6, #PI4_PROC_KIND_APP0
     b.eq .Lpi4_write_uart_key_input_usb_device
-    cmp x6, #PI4_PROC_KIND_APP_QUAKE
+    cmp x6, #PI4_PROC_KIND_APP1
     b.ne .Lpi4_write_uart_key_input_device_ready
 .Lpi4_write_uart_key_input_usb_device:
     mov x5, #PI4_VIBE_INPUT_DEVICE_USB
@@ -3346,9 +3346,9 @@ pi4_write_uart_mouse_input_event:
     mov x7, #PI4_VIBE_INPUT_SOURCE_USB_HID_MOUSE
     adr x8, pi4_status_pi4ctx_kind
     ldr x8, [x8]
-    cmp x8, #PI4_PROC_KIND_APP_DOOM
+    cmp x8, #PI4_PROC_KIND_APP0
     b.eq .Lpi4_write_uart_mouse_usb_device
-    cmp x8, #PI4_PROC_KIND_APP_QUAKE
+    cmp x8, #PI4_PROC_KIND_APP1
     b.ne .Lpi4_write_uart_mouse_source_ready
 .Lpi4_write_uart_mouse_usb_device:
     mov x6, #PI4_VIBE_INPUT_DEVICE_USB
@@ -4598,11 +4598,11 @@ pi4_uart_write_storage_vfs_file_tuples:
     mov x2, #4
     bl pi4_uart_write_storage_named_tuple
     adr x0, msg_status_pi4appdoom
-    adr x1, pi4_storage_status_app_doom_elf_entry_index
+    adr x1, pi4_storage_status_app0_elf_entry_index
     mov x2, #8
     bl pi4_uart_write_storage_named_tuple
     adr x0, msg_status_pi4appquake
-    adr x1, pi4_storage_status_app_quake_elf_entry_index
+    adr x1, pi4_storage_status_app1_elf_entry_index
     mov x2, #8
     bl pi4_uart_write_storage_named_tuple
     adr x0, msg_status_pi4manifest
@@ -5546,23 +5546,23 @@ pi4_uart_write_uabi_tuple:
     cbnz x1, .Lpi4_uart_write_uabi_ok_init
     adr x0, pi4_status_pi4appreq_matched_asset
     ldr x1, [x0]
-    cmp x1, #PI4_VIBE_FILE_ASSET_APP_DOOM_ELF
-    b.eq .Lpi4_uart_write_uabi_ok_appdoom
-    cmp x1, #PI4_VIBE_FILE_ASSET_APP_QUAKE_ELF
-    b.eq .Lpi4_uart_write_uabi_ok_appquake
+    cmp x1, #PI4_VIBE_FILE_ASSET_APP0_ELF
+    b.eq .Lpi4_uart_write_uabi_ok_app0
+    cmp x1, #PI4_VIBE_FILE_ASSET_APP1_ELF
+    b.eq .Lpi4_uart_write_uabi_ok_app1
 
 .Lpi4_uart_write_uabi_ok_init:
     adr x0, msg_status_pi4uabi_ok
     bl pi4_uart_write_string
     b .Lpi4_uart_write_uabi_ok_entry
 
-.Lpi4_uart_write_uabi_ok_appdoom:
-    adr x0, msg_status_pi4uabi_ok_appdoom
+.Lpi4_uart_write_uabi_ok_app0:
+    adr x0, msg_status_pi4uabi_ok_app0
     bl pi4_uart_write_string
     b .Lpi4_uart_write_uabi_ok_entry
 
-.Lpi4_uart_write_uabi_ok_appquake:
-    adr x0, msg_status_pi4uabi_ok_appquake
+.Lpi4_uart_write_uabi_ok_app1:
+    adr x0, msg_status_pi4uabi_ok_app1
     bl pi4_uart_write_string
 
 .Lpi4_uart_write_uabi_ok_entry:
@@ -9720,29 +9720,29 @@ pi4_user_file_lookup_path:
     str x19, [sp, #16]
     mov x19, x0
 
-    adr x1, pi4_storage_status_app_doom_dir_name
+    adr x1, pi4_storage_status_app0_dir_name
     adr x2, pi4_app_elf_leaf_string
     bl pi4_kernel_el0_app_path_match
-    cbnz x0, .Lpi4_user_file_lookup_path_app_doom_elf
+    cbnz x0, .Lpi4_user_file_lookup_path_app0_elf
     mov x0, x19
-    adr x1, pi4_storage_status_app_quake_dir_name
+    adr x1, pi4_storage_status_app1_dir_name
     adr x2, pi4_app_elf_leaf_string
     bl pi4_kernel_el0_app_path_match
-    cbnz x0, .Lpi4_user_file_lookup_path_app_quake_elf
+    cbnz x0, .Lpi4_user_file_lookup_path_app1_elf
     mov x0, x19
     adr x1, pi4_app_index_path_string
     bl pi4_kernel_el0_asset_suffix_eq16
     cbnz x0, .Lpi4_user_file_lookup_path_app_index
     mov x0, x19
-    adr x1, pi4_storage_status_app_doom_dir_name
+    adr x1, pi4_storage_status_app0_dir_name
     adr x2, pi4_app_manifest_leaf_string
     bl pi4_kernel_el0_app_path_match
-    cbnz x0, .Lpi4_user_file_lookup_path_app_doom_manifest
+    cbnz x0, .Lpi4_user_file_lookup_path_app0_manifest
     mov x0, x19
-    adr x1, pi4_storage_status_app_quake_dir_name
+    adr x1, pi4_storage_status_app1_dir_name
     adr x2, pi4_app_manifest_leaf_string
     bl pi4_kernel_el0_app_path_match
-    cbnz x0, .Lpi4_user_file_lookup_path_app_quake_manifest
+    cbnz x0, .Lpi4_user_file_lookup_path_app1_manifest
     mov x0, x19
     adr x1, pi4_user_file_doom1_path
     bl pi4_kernel_el0_asset_suffix_eq16
@@ -9769,17 +9769,17 @@ pi4_user_file_lookup_path:
     cbnz x0, .Lpi4_user_file_lookup_path_palette
     b .Lpi4_user_file_lookup_none
 
-.Lpi4_user_file_lookup_path_app_doom_elf:
-    adr x0, pi4_storage_status_app_doom_elf_entry_index
-    mov x1, #PI4_VIBE_FILE_ASSET_APP_DOOM_ELF
-    adr x2, pi4_status_pi4userfile_app_doom_elf_offset
-    mov x3, #PI4_VIBE_FD_APP_DOOM_ELF
+.Lpi4_user_file_lookup_path_app0_elf:
+    adr x0, pi4_storage_status_app0_elf_entry_index
+    mov x1, #PI4_VIBE_FILE_ASSET_APP0_ELF
+    adr x2, pi4_status_pi4userfile_app0_elf_offset
+    mov x3, #PI4_VIBE_FD_APP0_ELF
     b .Lpi4_user_file_lookup_path_done
-.Lpi4_user_file_lookup_path_app_quake_elf:
-    adr x0, pi4_storage_status_app_quake_elf_entry_index
-    mov x1, #PI4_VIBE_FILE_ASSET_APP_QUAKE_ELF
-    adr x2, pi4_status_pi4userfile_app_quake_elf_offset
-    mov x3, #PI4_VIBE_FD_APP_QUAKE_ELF
+.Lpi4_user_file_lookup_path_app1_elf:
+    adr x0, pi4_storage_status_app1_elf_entry_index
+    mov x1, #PI4_VIBE_FILE_ASSET_APP1_ELF
+    adr x2, pi4_status_pi4userfile_app1_elf_offset
+    mov x3, #PI4_VIBE_FD_APP1_ELF
     b .Lpi4_user_file_lookup_path_done
 .Lpi4_user_file_lookup_path_doom:
     adr x0, pi4_storage_status_doom1_wad
@@ -9823,17 +9823,17 @@ pi4_user_file_lookup_path:
     adr x2, pi4_status_pi4userfile_app_index_offset
     mov x3, #PI4_VIBE_FD_APP_INDEX
     b .Lpi4_user_file_lookup_path_done
-.Lpi4_user_file_lookup_path_app_doom_manifest:
-    adr x0, pi4_storage_status_app_doom_manifest
-    mov x1, #PI4_VIBE_FILE_ASSET_APP_DOOM_MANIFEST
-    adr x2, pi4_status_pi4userfile_app_doom_manifest_offset
-    mov x3, #PI4_VIBE_FD_APP_DOOM_MANIFEST
+.Lpi4_user_file_lookup_path_app0_manifest:
+    adr x0, pi4_storage_status_app0_manifest
+    mov x1, #PI4_VIBE_FILE_ASSET_APP0_MANIFEST
+    adr x2, pi4_status_pi4userfile_app0_manifest_offset
+    mov x3, #PI4_VIBE_FD_APP0_MANIFEST
     b .Lpi4_user_file_lookup_path_done
-.Lpi4_user_file_lookup_path_app_quake_manifest:
-    adr x0, pi4_storage_status_app_quake_manifest
-    mov x1, #PI4_VIBE_FILE_ASSET_APP_QUAKE_MANIFEST
-    adr x2, pi4_status_pi4userfile_app_quake_manifest_offset
-    mov x3, #PI4_VIBE_FD_APP_QUAKE_MANIFEST
+.Lpi4_user_file_lookup_path_app1_manifest:
+    adr x0, pi4_storage_status_app1_manifest
+    mov x1, #PI4_VIBE_FILE_ASSET_APP1_MANIFEST
+    adr x2, pi4_status_pi4userfile_app1_manifest_offset
+    mov x3, #PI4_VIBE_FD_APP1_MANIFEST
     b .Lpi4_user_file_lookup_path_done
 
 .Lpi4_user_file_lookup_none:
@@ -9864,14 +9864,14 @@ pi4_user_file_lookup_fd:
     b.eq .Lpi4_user_file_lookup_fd_palette
     cmp x0, #PI4_VIBE_FD_APP_INDEX
     b.eq .Lpi4_user_file_lookup_fd_app_index
-    cmp x0, #PI4_VIBE_FD_APP_DOOM_MANIFEST
-    b.eq .Lpi4_user_file_lookup_fd_app_doom_manifest
-    cmp x0, #PI4_VIBE_FD_APP_QUAKE_MANIFEST
-    b.eq .Lpi4_user_file_lookup_fd_app_quake_manifest
-    cmp x0, #PI4_VIBE_FD_APP_DOOM_ELF
-    b.eq .Lpi4_user_file_lookup_fd_app_doom_elf
-    cmp x0, #PI4_VIBE_FD_APP_QUAKE_ELF
-    b.eq .Lpi4_user_file_lookup_fd_app_quake_elf
+    cmp x0, #PI4_VIBE_FD_APP0_MANIFEST
+    b.eq .Lpi4_user_file_lookup_fd_app0_manifest
+    cmp x0, #PI4_VIBE_FD_APP1_MANIFEST
+    b.eq .Lpi4_user_file_lookup_fd_app1_manifest
+    cmp x0, #PI4_VIBE_FD_APP0_ELF
+    b.eq .Lpi4_user_file_lookup_fd_app0_elf
+    cmp x0, #PI4_VIBE_FD_APP1_ELF
+    b.eq .Lpi4_user_file_lookup_fd_app1_elf
     mov x0, xzr
     mov x1, xzr
     mov x2, xzr
@@ -9919,29 +9919,29 @@ pi4_user_file_lookup_fd:
     adr x2, pi4_status_pi4userfile_app_index_offset
     mov x3, #PI4_VIBE_FD_APP_INDEX
     ret
-.Lpi4_user_file_lookup_fd_app_doom_manifest:
-    adr x0, pi4_storage_status_app_doom_manifest
-    mov x1, #PI4_VIBE_FILE_ASSET_APP_DOOM_MANIFEST
-    adr x2, pi4_status_pi4userfile_app_doom_manifest_offset
-    mov x3, #PI4_VIBE_FD_APP_DOOM_MANIFEST
+.Lpi4_user_file_lookup_fd_app0_manifest:
+    adr x0, pi4_storage_status_app0_manifest
+    mov x1, #PI4_VIBE_FILE_ASSET_APP0_MANIFEST
+    adr x2, pi4_status_pi4userfile_app0_manifest_offset
+    mov x3, #PI4_VIBE_FD_APP0_MANIFEST
     ret
-.Lpi4_user_file_lookup_fd_app_quake_manifest:
-    adr x0, pi4_storage_status_app_quake_manifest
-    mov x1, #PI4_VIBE_FILE_ASSET_APP_QUAKE_MANIFEST
-    adr x2, pi4_status_pi4userfile_app_quake_manifest_offset
-    mov x3, #PI4_VIBE_FD_APP_QUAKE_MANIFEST
+.Lpi4_user_file_lookup_fd_app1_manifest:
+    adr x0, pi4_storage_status_app1_manifest
+    mov x1, #PI4_VIBE_FILE_ASSET_APP1_MANIFEST
+    adr x2, pi4_status_pi4userfile_app1_manifest_offset
+    mov x3, #PI4_VIBE_FD_APP1_MANIFEST
     ret
-.Lpi4_user_file_lookup_fd_app_doom_elf:
-    adr x0, pi4_storage_status_app_doom_elf_entry_index
-    mov x1, #PI4_VIBE_FILE_ASSET_APP_DOOM_ELF
-    adr x2, pi4_status_pi4userfile_app_doom_elf_offset
-    mov x3, #PI4_VIBE_FD_APP_DOOM_ELF
+.Lpi4_user_file_lookup_fd_app0_elf:
+    adr x0, pi4_storage_status_app0_elf_entry_index
+    mov x1, #PI4_VIBE_FILE_ASSET_APP0_ELF
+    adr x2, pi4_status_pi4userfile_app0_elf_offset
+    mov x3, #PI4_VIBE_FD_APP0_ELF
     ret
-.Lpi4_user_file_lookup_fd_app_quake_elf:
-    adr x0, pi4_storage_status_app_quake_elf_entry_index
-    mov x1, #PI4_VIBE_FILE_ASSET_APP_QUAKE_ELF
-    adr x2, pi4_status_pi4userfile_app_quake_elf_offset
-    mov x3, #PI4_VIBE_FD_APP_QUAKE_ELF
+.Lpi4_user_file_lookup_fd_app1_elf:
+    adr x0, pi4_storage_status_app1_elf_entry_index
+    mov x1, #PI4_VIBE_FILE_ASSET_APP1_ELF
+    adr x2, pi4_status_pi4userfile_app1_elf_offset
+    mov x3, #PI4_VIBE_FD_APP1_ELF
     ret
 .size pi4_user_file_lookup_fd, . - pi4_user_file_lookup_fd
 
@@ -10544,7 +10544,7 @@ pi4_el1_lower_aarch64_sync_exception:
     adr x10, pi4_status_pi4userfile_slot
     adr x11, pi4_status_pi4appreq_matched_asset
     ldr x11, [x11]
-    cmp x11, #PI4_VIBE_FILE_ASSET_APP_QUAKE_ELF
+    cmp x11, #PI4_VIBE_FILE_ASSET_APP1_ELF
     cset x11, eq
     str x11, [x10]
     adr x10, pi4_status_pi4userfile_asset
@@ -10596,7 +10596,7 @@ pi4_el1_lower_aarch64_sync_exception:
     adr x10, pi4_status_pi4userfile_slot
     adr x11, pi4_status_pi4appreq_matched_asset
     ldr x11, [x11]
-    cmp x11, #PI4_VIBE_FILE_ASSET_APP_QUAKE_ELF
+    cmp x11, #PI4_VIBE_FILE_ASSET_APP1_ELF
     cset x11, eq
     str x11, [x10]
     ldr x0, [sp]
@@ -10785,7 +10785,7 @@ pi4_lower_el_svc_runtime_file_fstat:
     adr x10, pi4_status_pi4userfile_slot
     adr x11, pi4_status_pi4appreq_matched_asset
     ldr x11, [x11]
-    cmp x11, #PI4_VIBE_FILE_ASSET_APP_QUAKE_ELF
+    cmp x11, #PI4_VIBE_FILE_ASSET_APP1_ELF
     cset x11, eq
     str x11, [x10]
     ldr x19, [sp]
@@ -10966,9 +10966,9 @@ pi4_lower_el_svc_runtime_file_fstat:
     ldr x12, [x10]
     adr x10, pi4_status_pi4userfile_asset
     ldr x13, [x10]
-    cmp x12, #PI4_VIBE_APP_DOOM
+    cmp x12, #PI4_VIBE_APP_SLOT0
     b.eq .Lpi4_lower_el_svc_runtime_file_result_slot0
-    cmp x12, #PI4_VIBE_APP_QUAKE
+    cmp x12, #PI4_VIBE_APP_SLOT1
     b.eq .Lpi4_lower_el_svc_runtime_file_result_slot1
     b .Lpi4_lower_el_svc_runtime_return
 .Lpi4_lower_el_svc_runtime_file_result_slot0:
@@ -11150,24 +11150,24 @@ pi4_lower_el_svc_runtime_file_fstat:
     mov x0, x13
     bl pi4_user_file_lookup_path
     cbz x0, .Lpi4_lower_el_svc_runtime_exec_inval
-    cmp x1, #PI4_VIBE_FILE_ASSET_APP_DOOM_ELF
-    b.eq .Lpi4_lower_el_svc_runtime_exec_app_doom_path
-    cmp x1, #PI4_VIBE_FILE_ASSET_APP_QUAKE_ELF
-    b.eq .Lpi4_lower_el_svc_runtime_exec_app_quake_path
+    cmp x1, #PI4_VIBE_FILE_ASSET_APP0_ELF
+    b.eq .Lpi4_lower_el_svc_runtime_exec_app0_path
+    cmp x1, #PI4_VIBE_FILE_ASSET_APP1_ELF
+    b.eq .Lpi4_lower_el_svc_runtime_exec_app1_path
     b .Lpi4_lower_el_svc_runtime_exec_inval
 
-.Lpi4_lower_el_svc_runtime_exec_app_doom_path:
-    mov x12, #PI4_VIBE_APP_DOOM
-    mov x14, #PI4_VIBE_FILE_ASSET_APP_DOOM_ELF
-    adr x6, pi4_storage_status_app_doom_elf
-    adr x7, pi4_storage_status_app_doom_elf_entry_index
+.Lpi4_lower_el_svc_runtime_exec_app0_path:
+    mov x12, #PI4_VIBE_APP_SLOT0
+    mov x14, #PI4_VIBE_FILE_ASSET_APP0_ELF
+    adr x6, pi4_storage_status_app0_elf
+    adr x7, pi4_storage_status_app0_elf_entry_index
     b .Lpi4_lower_el_svc_runtime_exec_have_app_meta
 
-.Lpi4_lower_el_svc_runtime_exec_app_quake_path:
-    mov x12, #PI4_VIBE_APP_QUAKE
-    mov x14, #PI4_VIBE_FILE_ASSET_APP_QUAKE_ELF
-    adr x6, pi4_storage_status_app_quake_elf
-    adr x7, pi4_storage_status_app_quake_elf_entry_index
+.Lpi4_lower_el_svc_runtime_exec_app1_path:
+    mov x12, #PI4_VIBE_APP_SLOT1
+    mov x14, #PI4_VIBE_FILE_ASSET_APP1_ELF
+    adr x6, pi4_storage_status_app1_elf
+    adr x7, pi4_storage_status_app1_elf_entry_index
 .Lpi4_lower_el_svc_runtime_exec_have_app_meta:
     adr x10, pi4_status_pi4appreq_matched_asset
     str x14, [x10]
@@ -11528,9 +11528,9 @@ pi4_lower_el_svc_runtime_file_fstat:
     adr x10, pi4_status_last
     ldr w11, =VIBE_PI4_STATUS_VECTOR_HIT
     str w11, [x10]
-    cmp x17, #PI4_PROC_KIND_APP_DOOM
+    cmp x17, #PI4_PROC_KIND_APP0
     b.eq .Lpi4_lower_el_svc_runtime_exit_app_return
-    cmp x17, #PI4_PROC_KIND_APP_QUAKE
+    cmp x17, #PI4_PROC_KIND_APP1
     b.eq .Lpi4_lower_el_svc_runtime_exit_app_return
     adr x10, pi4_status_el0_return_el1
     ldr x10, [x10]
@@ -12156,9 +12156,9 @@ msg_status_elf_tuple:
     .asciz " pi4uabi=WAIT pi4elf=OK pi4elfsrc=EMBEDDED pi4elfprobe="
 msg_status_pi4uabi_ok:
     .asciz " pi4uabi=OK exec=OK path=INIT.ELF uexec=OK upath=INIT.ELF uentry="
-msg_status_pi4uabi_ok_appdoom:
+msg_status_pi4uabi_ok_app0:
     .asciz " pi4uabi=OK exec=OK path=/APPS/DOOM/APP.ELF uexec=OK upath=/APPS/DOOM/APP.ELF uentry="
-msg_status_pi4uabi_ok_appquake:
+msg_status_pi4uabi_ok_app1:
     .asciz " pi4uabi=OK exec=OK path=/APPS/QUAKE/APP.ELF uexec=OK upath=/APPS/QUAKE/APP.ELF uentry="
 msg_status_execsys_tuple:
     .asciz " execsys="
@@ -12300,9 +12300,9 @@ msg_status_panic:
     .asciz " panic="
 msg_status_shutdown_none:
     .asciz " shutdown=NONE\r\n"
-pi4_app_doom_elf_path_string:
+pi4_app0_default_elf_path_string:
     .asciz "/APPS/DOOM/APP.ELF"
-pi4_app_quake_elf_path_string:
+pi4_app1_default_elf_path_string:
     .asciz "/APPS/QUAKE/APP.ELF"
 pi4_apps_path_prefix_string:
     .asciz "/APPS/"
@@ -12734,9 +12734,9 @@ pi4_status_pi4userfile_appdoom_offset:
     .quad 0
 pi4_status_pi4userfile_appquake_offset:
     .quad 0
-pi4_status_pi4userfile_app_doom_elf_offset:
+pi4_status_pi4userfile_app0_elf_offset:
     .quad 0
-pi4_status_pi4userfile_app_quake_elf_offset:
+pi4_status_pi4userfile_app1_elf_offset:
     .quad 0
 pi4_status_pi4userfile_manifest_offset:
     .quad 0
@@ -12748,9 +12748,9 @@ pi4_status_pi4userfile_palette_offset:
     .quad 0
 pi4_status_pi4userfile_app_index_offset:
     .quad 0
-pi4_status_pi4userfile_app_doom_manifest_offset:
+pi4_status_pi4userfile_app0_manifest_offset:
     .quad 0
-pi4_status_pi4userfile_app_quake_manifest_offset:
+pi4_status_pi4userfile_app1_manifest_offset:
     .quad 0
 pi4_status_pi4userfile_proof_latched:
     .quad 0
