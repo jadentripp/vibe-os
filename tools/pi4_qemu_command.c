@@ -235,6 +235,26 @@ static int live_usb_mouse_enabled(void)
     return env_flag_enabled("PI4_QEMU_USB_MOUSE", 1);
 }
 
+static int pi4_usb_audio_enabled(void)
+{
+    return env_flag_enabled("PI4_QEMU_USB_AUDIO", 1);
+}
+
+static const char* pi4_qemu_audio_backend(void)
+{
+    const char* env = getenv("PI4_QEMU_AUDIODEV");
+
+    if (env && env[0])
+        return env;
+#ifdef __APPLE__
+    return "coreaudio,id=pi4snd";
+#elif defined(__linux__)
+    return "pa,id=pi4snd";
+#else
+    return "none,id=pi4snd";
+#endif
+}
+
 static int input_smoke_visible_display_enabled(void)
 {
     return env_flag_enabled("PI4_QEMU_INPUT_SMOKE_DISPLAY", 0);
@@ -277,6 +297,7 @@ static void build_command(char* const* argv, char* drive_arg, char** cmd,
     int mouse_serial = visible_display && live_mouse_serial_enabled(usb_mouse);
     int usb_keyboard = force_usb_input ? live_usb_keyboard_enabled() :
         (visible_display && live_usb_keyboard_enabled());
+    int usb_audio = usb_input && pi4_usb_audio_enabled();
 
     cmd[n++] = argv[0];
     cmd[n++] = "-accel";
@@ -311,6 +332,12 @@ static void build_command(char* const* argv, char* drive_arg, char** cmd,
     if (usb_mouse) {
         cmd[n++] = "-device";
         cmd[n++] = "usb-mouse";
+    }
+    if (usb_audio) {
+        cmd[n++] = "-audiodev";
+        cmd[n++] = (char*)pi4_qemu_audio_backend();
+        cmd[n++] = "-device";
+        cmd[n++] = "usb-audio,audiodev=pi4snd";
     }
     cmd[n++] = "-monitor";
     cmd[n++] = monitor_arg ? (char*)monitor_arg : "none";
@@ -2427,7 +2454,7 @@ int main(int argc, char** argv)
     const char* frame0_path = NULL;
     const char* frame1_path = NULL;
     char* drive_arg;
-    char* cmd[36];
+    char* cmd[48];
     int n = 0;
 
     if (argc > 1 && strcmp(argv[1], "--framebuffer-artifact-check") == 0) {

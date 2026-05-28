@@ -317,13 +317,16 @@
 .equ PI4_VIBE_AUDIO_CAP_MMIO_WINDOW,    0x00000001
 .equ PI4_VIBE_AUDIO_CAP_MAILBOX_CLOCK,  0x00000002
 .equ PI4_VIBE_AUDIO_CAP_PCM_QUEUE,      0x00000004
+.equ PI4_VIBE_AUDIO_CAP_USB_AUDIO,      0x00000008
 .equ PI4_VIBE_AUDIO_CAP_FULL_MASK,      PI4_VIBE_AUDIO_CAP_MMIO_WINDOW | PI4_VIBE_AUDIO_CAP_MAILBOX_CLOCK | PI4_VIBE_AUDIO_CAP_PCM_QUEUE
+.equ PI4_VIBE_AUDIO_USB_FULL_MASK,      PI4_VIBE_AUDIO_CAP_USB_AUDIO | PI4_VIBE_AUDIO_CAP_PCM_QUEUE
 .equ PI4_VIBE_AUDIO_ABI_DEVICE_STATUS,  0x00000001
 .equ PI4_VIBE_AUDIO_ABI_QUEUE_STATUS,   0x00000002
 .equ PI4_VIBE_AUDIO_ABI_CAP_STATUS,     0x00000004
 .equ PI4_VIBE_AUDIO_ABI_FULL_MASK,      PI4_VIBE_AUDIO_ABI_DEVICE_STATUS | PI4_VIBE_AUDIO_ABI_QUEUE_STATUS | PI4_VIBE_AUDIO_ABI_CAP_STATUS
 .equ PI4_VIBE_AUDIO_DEVICE_NONE,        0
 .equ PI4_VIBE_AUDIO_DEVICE_PI4_PWM,     2
+.equ PI4_VIBE_AUDIO_DEVICE_PI4_USB,     3
 .equ PI4_VIBE_AUDIO_DEVICE_STATUS_NONE, 0
 .equ PI4_VIBE_AUDIO_DEVICE_STATUS_READY, 1
 .equ PI4_VIBE_AUDIO_DEVICE_STATUS_ABSENT, 2
@@ -589,6 +592,7 @@ _start:
     bl pi4_uart_write_string
     ldr x16, =pi4_uart_input_init
     blr x16
+    bl pi4_audio_try_promote_hardware_backend
     ldr x16, =pi4_uart_input_poll
     blr x16
     adr x0, msg_stage_input
@@ -4077,11 +4081,26 @@ pi4_uart_write_audio_status_tuple:
 .Lpi4_uart_write_audio_pwm_wait:
     bl pi4_audio_status_can_claim_ok
     mov x19, x0
+    adr x0, pi4_audio_status_usb_ready
+    ldr x1, [x0]
+    cbz x1, .Lpi4_uart_write_audio_pwm_prefix
+    cbz x19, .Lpi4_uart_write_audio_unproven_prefix
+    adr x0, msg_status_pi4audio_ok_usb
+    bl pi4_uart_write_string
+    b .Lpi4_uart_write_audio_hw_fields
+.Lpi4_uart_write_audio_pwm_prefix:
     cbz x19, .Lpi4_uart_write_audio_unproven_prefix
     adr x0, msg_status_pi4audio_ok_pwm
     bl pi4_uart_write_string
     b .Lpi4_uart_write_audio_hw_fields
 .Lpi4_uart_write_audio_unproven_prefix:
+    adr x0, pi4_audio_status_usb_ready
+    ldr x1, [x0]
+    cbz x1, .Lpi4_uart_write_audio_unproven_pwm_prefix
+    adr x0, msg_status_pi4audio_wait_usb
+    bl pi4_uart_write_string
+    b .Lpi4_uart_write_audio_hw_fields
+.Lpi4_uart_write_audio_unproven_pwm_prefix:
     adr x0, msg_status_pi4audio_wait_pwm
     bl pi4_uart_write_string
 .Lpi4_uart_write_audio_hw_fields:
@@ -4128,6 +4147,47 @@ pi4_uart_write_audio_status_tuple:
     adr x0, msg_status_pi4audio_cap
     bl pi4_uart_write_string
     adr x0, pi4_audio_status_caps
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+
+    adr x0, msg_status_pi4audio_usb
+    bl pi4_uart_write_string
+    adr x0, pi4_audio_status_usb_ready
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_audio_status_usb_addr
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_audio_status_usb_interface
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_audio_status_usb_endpoint
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_audio_status_usb_mps
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_audio_status_usb_packets
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_audio_status_usb_bytes
+    ldr x0, [x0]
+    bl pi4_uart_write_hex64
+    adr x0, msg_status_slash
+    bl pi4_uart_write_string
+    adr x0, pi4_audio_status_usb_last_hcint
     ldr x0, [x0]
     bl pi4_uart_write_hex64
 
@@ -4183,7 +4243,14 @@ pi4_uart_write_audio_status_tuple:
 
     adr x0, msg_status_pi4audiodev
     bl pi4_uart_write_string
+    adr x0, pi4_audio_status_usb_ready
+    ldr x0, [x0]
+    cbz x0, .Lpi4_uart_write_audio_device_pwm
+    mov x0, #PI4_VIBE_AUDIO_DEVICE_PI4_USB
+    b .Lpi4_uart_write_audio_device_kind
+.Lpi4_uart_write_audio_device_pwm:
     mov x0, #PI4_VIBE_AUDIO_DEVICE_PI4_PWM
+.Lpi4_uart_write_audio_device_kind:
     bl pi4_uart_write_hex64
     adr x0, msg_status_slash
     bl pi4_uart_write_string
@@ -7844,6 +7911,20 @@ pi4_audio_init_status:
 
 .type pi4_audio_backend_ready, %function
 pi4_audio_backend_ready:
+    adr x0, pi4_audio_status_abi_backend_ready
+    ldr x0, [x0]
+    cbz x0, .Lpi4_audio_backend_not_ready
+    adr x0, pi4_audio_status_usb_ready
+    ldr x0, [x0]
+    cbz x0, .Lpi4_audio_backend_check_pwm
+    adr x0, pi4_audio_status_caps
+    ldr x0, [x0]
+    mov x1, #PI4_VIBE_AUDIO_USB_FULL_MASK
+    and x0, x0, x1
+    cmp x0, x1
+    b.eq .Lpi4_audio_backend_ready
+
+.Lpi4_audio_backend_check_pwm:
     adr x0, pi4_audio_status_mmio_ready
     ldr x0, [x0]
     cbz x0, .Lpi4_audio_backend_not_ready
@@ -7856,9 +7937,7 @@ pi4_audio_backend_ready:
     and x0, x0, x1
     cmp x0, x1
     b.ne .Lpi4_audio_backend_not_ready
-    adr x0, pi4_audio_status_abi_backend_ready
-    ldr x0, [x0]
-    cbz x0, .Lpi4_audio_backend_not_ready
+.Lpi4_audio_backend_ready:
     mov x0, #1
     ret
 .Lpi4_audio_backend_not_ready:
@@ -7895,7 +7974,40 @@ pi4_audio_status_can_claim_ok:
 
 .type pi4_audio_try_promote_hardware_backend, %function
 pi4_audio_try_promote_hardware_backend:
-    // MMIO/mailbox discovery is not a playable backend by itself.
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+    ldr x16, =pi4_usb_audio_snapshot
+    blr x16
+    cbz x0, .Lpi4_audio_promote_done
+
+    adr x8, pi4_audio_status_usb_ready
+    str x0, [x8]
+    adr x8, pi4_audio_status_usb_addr
+    str x1, [x8]
+    adr x8, pi4_audio_status_usb_interface
+    str x2, [x8]
+    adr x8, pi4_audio_status_usb_endpoint
+    str x3, [x8]
+    adr x8, pi4_audio_status_usb_mps
+    str x4, [x8]
+    adr x8, pi4_audio_status_usb_packets
+    str x5, [x8]
+    adr x8, pi4_audio_status_usb_bytes
+    str x6, [x8]
+    adr x8, pi4_audio_status_usb_last_hcint
+    str x7, [x8]
+
+    adr x8, pi4_audio_status_caps
+    ldr x9, [x8]
+    orr x9, x9, #PI4_VIBE_AUDIO_CAP_USB_AUDIO
+    orr x9, x9, #PI4_VIBE_AUDIO_CAP_PCM_QUEUE
+    str x9, [x8]
+    adr x8, pi4_audio_status_abi_backend_ready
+    mov x9, #1
+    str x9, [x8]
+
+.Lpi4_audio_promote_done:
+    ldp x29, x30, [sp], #16
     ret
 .size pi4_audio_try_promote_hardware_backend, . - pi4_audio_try_promote_hardware_backend
 
@@ -7978,6 +8090,7 @@ pi4_audio_syscall_dispatch:
     mov x20, x1
     mov x21, x2
     bl pi4_audio_record_abi_command
+    bl pi4_audio_try_promote_hardware_backend
 
     cmp x19, #PI4_VIBE_AUDIO_DEVICE_START
     b.eq .Lpi4_audio_cmd_device_start
@@ -8140,6 +8253,12 @@ pi4_audio_syscall_dispatch:
     sub x4, x4, x3
     cmp x23, x4
     csel x24, x23, x4, lo
+    mov x0, x22
+    mov x1, x24
+    ldr x16, =pi4_usb_audio_write_u8_stereo
+    blr x16
+    cmp x0, x24
+    csel x24, x0, x24, lo
     add x3, x3, x24
     str x3, [x2]
     adr x2, pi4_audio_pcm_write_offset
@@ -8163,6 +8282,9 @@ pi4_audio_syscall_dispatch:
     add x4, x4, x3
     str x4, [x2]
 .Lpi4_audio_cmd_pcm_write_done:
+    adr x2, pi4_audio_pcm_queued_bytes
+    str xzr, [x2]
+    bl pi4_audio_try_promote_hardware_backend
     adr x2, pi4_audio_pcm_lifecycle
     mov x3, #PI4_VIBE_AUDIO_PCM_LIFECYCLE_WRITTEN
     str x3, [x2]
@@ -8259,6 +8381,12 @@ pi4_audio_write_device_info:
     adr x0, pi4_audio_status_caps
     ldr x21, [x0]
     cbz x20, .Lpi4_audio_write_info_no_device
+    adr x0, pi4_audio_status_usb_ready
+    ldr x0, [x0]
+    cbz x0, .Lpi4_audio_write_info_pwm_kind
+    mov x0, #PI4_VIBE_AUDIO_DEVICE_PI4_USB
+    b .Lpi4_audio_write_info_kind_ready
+.Lpi4_audio_write_info_pwm_kind:
     mov x0, #PI4_VIBE_AUDIO_DEVICE_PI4_PWM
     b .Lpi4_audio_write_info_kind_ready
 .Lpi4_audio_write_info_no_device:
@@ -11631,11 +11759,13 @@ pi4_lower_el_svc_runtime_file_fstat:
     mov x1, x0
     mov x0, x19
     bl pi4_write_uart_input_event
+    bl pi4_uart_write_status_line
     mov x9, #1
     b .Lpi4_lower_el_svc_runtime_return
 .Lpi4_lower_el_svc_runtime_poll_mouse:
     mov x0, x19
     bl pi4_write_uart_mouse_input_event
+    bl pi4_uart_write_status_line
     mov x9, #1
     b .Lpi4_lower_el_svc_runtime_return
 .Lpi4_lower_el_svc_runtime_poll_none:
@@ -12524,10 +12654,16 @@ msg_status_pi4audio_wait_pwm:
     .asciz " pi4audio=HARDWARE-UNPROVEN pi4audiohw=PWM pi4audiommio="
 msg_status_pi4audio_ok_pwm:
     .asciz " pi4audio=OK pi4audiohw=PWM pi4audiommio="
+msg_status_pi4audio_wait_usb:
+    .asciz " pi4audio=HARDWARE-UNPROVEN pi4audiohw=USB-AUDIO pi4audiommio="
+msg_status_pi4audio_ok_usb:
+    .asciz " pi4audio=OK pi4audiohw=USB-AUDIO pi4audiommio="
 msg_status_pi4audio_mailbox:
     .asciz " pi4audiomailbox="
 msg_status_pi4audio_cap:
     .asciz " pi4audiocap="
+msg_status_pi4audio_usb:
+    .asciz " pi4audiousb="
 msg_status_pi4audio_queue_none:
     .asciz " pi4audioq=NONE"
 msg_status_pi4audio_queue:
@@ -12853,6 +12989,22 @@ pi4_audio_status_last_command:
 pi4_audio_status_last_result:
     .quad 0
 pi4_audio_status_playback_start_count:
+    .quad 0
+pi4_audio_status_usb_ready:
+    .quad 0
+pi4_audio_status_usb_addr:
+    .quad 0
+pi4_audio_status_usb_interface:
+    .quad 0
+pi4_audio_status_usb_endpoint:
+    .quad 0
+pi4_audio_status_usb_mps:
+    .quad 0
+pi4_audio_status_usb_packets:
+    .quad 0
+pi4_audio_status_usb_bytes:
+    .quad 0
+pi4_audio_status_usb_last_hcint:
     .quad 0
 pi4_audio_pcm_stream_handle:
     .quad 0

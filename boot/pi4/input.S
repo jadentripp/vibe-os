@@ -58,6 +58,7 @@
 .equ PI4_DWC2_HCTSIZ_PKTCNT_SHIFT,      19
 .equ PI4_DWC2_HCTSIZ_PID_SHIFT,         29
 .equ PI4_DWC2_EPTYPE_CONTROL,           0
+.equ PI4_DWC2_EPTYPE_ISOCHRONOUS,       1
 .equ PI4_DWC2_EPTYPE_INTERRUPT,         3
 .equ PI4_DWC2_PID_DATA0,                0
 .equ PI4_DWC2_PID_DATA1,                2
@@ -73,9 +74,11 @@
 .equ PI4_USB_DEVICE_ADDR_HUB,           1
 .equ PI4_USB_DEVICE_ADDR_HID0,          2
 .equ PI4_USB_DEVICE_ADDR_HID1,          3
+.equ PI4_USB_DEVICE_ADDR_AUDIO,         4
 .equ PI4_USB_DEVICE_KIND_UNKNOWN,       0
 .equ PI4_USB_DEVICE_KIND_KEYBOARD,      1
 .equ PI4_USB_DEVICE_KIND_MOUSE,         2
+.equ PI4_USB_DEVICE_KIND_AUDIO,         3
 .equ PI4_USB_HID_CAP_KEYBOARD,          0x01
 .equ PI4_USB_HID_CAP_MOUSE,             0x02
 .equ PI4_USB_DESCRIPTOR_TYPE_DEVICE,     1
@@ -86,12 +89,19 @@
 .equ PI4_USB_ENDPOINT_DIR_IN,            0x80
 .equ PI4_USB_ENDPOINT_NUMBER_MASK,       0x0f
 .equ PI4_USB_ENDPOINT_TRANSFER_MASK,     0x03
+.equ PI4_USB_ENDPOINT_TRANSFER_ISOCHRONOUS, 1
 .equ PI4_USB_ENDPOINT_TRANSFER_INTERRUPT, 3
 .equ PI4_USB_DEVICE_CLASS_HUB,           9
+.equ PI4_USB_AUDIO_INTERFACE_CLASS,      1
+.equ PI4_USB_AUDIO_STREAMING_SUBCLASS,   2
 .equ PI4_USB_HID_INTERFACE_CLASS,        3
 .equ PI4_USB_HID_BOOT_SUBCLASS,          1
 .equ PI4_USB_HID_BOOT_KEYBOARD,          1
 .equ PI4_USB_HID_BOOT_MOUSE,             2
+.equ PI4_USB_AUDIO_ALT_ACTIVE,           1
+.equ PI4_USB_AUDIO_U8_INPUT_PACKET_BYTES, 96
+.equ PI4_USB_AUDIO_S16_PACKET_BYTES,     192
+.equ PI4_USB_AUDIO_MPS_MAX,              192
 .equ PI4_USB_HUB_MAX_PORTS,              8
 .equ PI4_USB_HUB_REQ_GET_STATUS,         0
 .equ PI4_USB_HUB_REQ_SET_FEATURE,        3
@@ -106,6 +116,7 @@
 .equ PI4_USB_STATUS_PORT,               2
 .equ PI4_USB_STATUS_ADDR,               3
 .equ PI4_USB_STATUS_HID,                4
+.equ PI4_USB_STATUS_AUDIO,              5
 
 .equ PI4_UART_INPUT_QUEUE_SIZE,         8
 .equ PI4_UART_INPUT_QUEUE_MASK,         PI4_UART_INPUT_QUEUE_SIZE - 1
@@ -825,6 +836,9 @@ pi4_usb_input_init:
     strb w1, [x0]
     adr x0, pi4_usb_mouse_addr
     strb w1, [x0]
+    adr x0, pi4_usb_audio_addr
+    mov w1, #PI4_USB_DEVICE_ADDR_AUDIO
+    strb w1, [x0]
     adr x0, pi4_usb_hub_ports
     strb wzr, [x0]
     adr x0, pi4_usb_addr0_ep0_mps
@@ -835,6 +849,8 @@ pi4_usb_input_init:
     adr x0, pi4_usb_addr2_ep0_mps
     strb w1, [x0]
     adr x0, pi4_usb_addr3_ep0_mps
+    strb w1, [x0]
+    adr x0, pi4_usb_addr4_ep0_mps
     strb w1, [x0]
     adr x0, pi4_usb_keyboard_ep_num
     mov w1, #1
@@ -860,6 +876,30 @@ pi4_usb_input_init:
     adr x0, pi4_usb_mouse_next_pid
     mov w1, #PI4_DWC2_PID_DATA0
     strb w1, [x0]
+    adr x0, pi4_usb_audio_ready
+    strb wzr, [x0]
+    adr x0, pi4_usb_audio_interface_num
+    mov w1, #1
+    strb w1, [x0]
+    adr x0, pi4_usb_audio_ep_num
+    mov w1, #1
+    strb w1, [x0]
+    adr x0, pi4_usb_audio_mps
+    mov w1, #PI4_USB_AUDIO_S16_PACKET_BYTES
+    strb w1, [x0]
+    adr x0, pi4_usb_audio_next_pid
+    mov w1, #PI4_DWC2_PID_DATA0
+    strb w1, [x0]
+    adr x0, pi4_usb_audio_last_hcint
+    str xzr, [x0]
+    adr x0, pi4_usb_audio_transfer_count
+    str xzr, [x0]
+    adr x0, pi4_usb_audio_transfer_bytes
+    str xzr, [x0]
+    adr x0, pi4_usb_audio_last_input_bytes
+    str xzr, [x0]
+    adr x0, pi4_usb_audio_interface_set_count
+    str xzr, [x0]
     adr x0, pi4_usb_pending_key_token
     str xzr, [x0]
     adr x0, pi4_usb_pending_head
@@ -958,6 +998,26 @@ pi4_usb_input_init:
     b .Lusb_probe_stage_done
 
 .Lusb_probe_direct_hid:
+    mov x0, #PI4_USB_DEVICE_ADDR_HUB
+    bl pi4_usb_probe_audio_kind
+    cbz w0, .Lusb_probe_direct_hid_check
+    mov x0, #PI4_USB_DEVICE_ADDR_HUB
+    bl pi4_usb_set_config_for_addr
+    cbz w0, .Lusb_probe_direct_audio_fail
+    mov x0, #PI4_USB_DEVICE_ADDR_HUB
+    bl pi4_usb_configure_audio_interface
+    cbz w0, .Lusb_init_done
+    adr x0, pi4_usb_status_stage
+    mov w1, #PI4_USB_STATUS_AUDIO
+    strb w1, [x0]
+    b .Lusb_probe_stage_done
+
+.Lusb_probe_direct_audio_fail:
+    adr x0, pi4_usb_audio_ready
+    strb wzr, [x0]
+    b .Lusb_init_done
+
+.Lusb_probe_direct_hid_check:
     mov x0, #PI4_USB_DEVICE_ADDR_HUB
     bl pi4_usb_probe_hid_kind
     cbz w0, .Lusb_probe_stage_done
@@ -1158,6 +1218,8 @@ pi4_usb_control_ep0_mps:
     b.eq .Lusb_ep0_mps_addr2
     cmp w0, #3
     b.eq .Lusb_ep0_mps_addr3
+    cmp w0, #4
+    b.eq .Lusb_ep0_mps_addr4
     mov w0, #PI4_USB_EP0_MPS_DEFAULT
     ret
 .Lusb_ep0_mps_addr0:
@@ -1171,6 +1233,9 @@ pi4_usb_control_ep0_mps:
     b .Lusb_ep0_mps_load
 .Lusb_ep0_mps_addr3:
     adr x1, pi4_usb_addr3_ep0_mps
+    b .Lusb_ep0_mps_load
+.Lusb_ep0_mps_addr4:
+    adr x1, pi4_usb_addr4_ep0_mps
 .Lusb_ep0_mps_load:
     ldrb w0, [x1]
     cbnz w0, .Lusb_ep0_mps_done
@@ -1202,6 +1267,8 @@ pi4_usb_store_addr_ep0_mps:
     b.eq .Lusb_store_ep0_mps_addr2
     cmp w0, #3
     b.eq .Lusb_store_ep0_mps_addr3
+    cmp w0, #4
+    b.eq .Lusb_store_ep0_mps_addr4
     ret
 .Lusb_store_ep0_mps_addr0:
     adr x2, pi4_usb_addr0_ep0_mps
@@ -1214,6 +1281,9 @@ pi4_usb_store_addr_ep0_mps:
     b .Lusb_store_ep0_mps_write
 .Lusb_store_ep0_mps_addr3:
     adr x2, pi4_usb_addr3_ep0_mps
+    b .Lusb_store_ep0_mps_write
+.Lusb_store_ep0_mps_addr4:
+    adr x2, pi4_usb_addr4_ep0_mps
 .Lusb_store_ep0_mps_write:
     strb w1, [x2]
     ret
@@ -1443,7 +1513,7 @@ pi4_usb_enumerate_hub:
 .Lusb_enumerate_hub_port_loop:
     cmp x19, x20
     b.hi .Lusb_enumerate_hub_configure
-    cmp x21, #PI4_USB_DEVICE_ADDR_HID1
+    cmp x21, #PI4_USB_DEVICE_ADDR_AUDIO
     b.hi .Lusb_enumerate_hub_configure
 
     mov x0, x19
@@ -1496,10 +1566,31 @@ pi4_usb_enumerate_hub:
     b.eq .Lusb_enumerate_hub_assigned_next
 
     mov x0, x21
+    bl pi4_usb_probe_audio_kind
+    cbnz w0, .Lusb_enumerate_hub_configure_audio
+
+    mov x0, x21
     bl pi4_usb_probe_hid_kind
     cbz w0, .Lusb_enumerate_hub_assigned_next
     mov x0, x21
     bl pi4_usb_set_config_for_addr
+    b .Lusb_enumerate_hub_assigned_next
+
+.Lusb_enumerate_hub_configure_audio:
+    mov x0, x21
+    bl pi4_usb_set_config_for_addr
+    cbz w0, .Lusb_enumerate_hub_audio_config_fail
+    mov x0, x21
+    bl pi4_usb_configure_audio_interface
+    cbz w0, .Lusb_enumerate_hub_assigned_next
+    adr x0, pi4_usb_status_stage
+    mov w1, #PI4_USB_STATUS_AUDIO
+    strb w1, [x0]
+    b .Lusb_enumerate_hub_assigned_next
+
+.Lusb_enumerate_hub_audio_config_fail:
+    adr x0, pi4_usb_audio_ready
+    strb wzr, [x0]
 
 .Lusb_enumerate_hub_assigned_next:
     add x21, x21, #1
@@ -1891,6 +1982,197 @@ pi4_usb_probe_hid_kind:
     ldr x30, [sp], #16
     ret
 .size pi4_usb_probe_hid_kind, . - pi4_usb_probe_hid_kind
+
+.type pi4_usb_probe_audio_kind, %function
+pi4_usb_probe_audio_kind:
+    str x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
+    stp x23, x24, [sp, #-16]!
+    mov x21, x0
+    adr x0, pi4_usb_audio_ready
+    ldrb w0, [x0]
+    cbnz w0, .Lusb_audio_probe_none
+
+    adr x19, pi4_usb_config_descriptor
+    mov x0, x19
+    mov x1, #(PI4_USB_CONFIG_DESCRIPTOR_BYTES / 8)
+.Lusb_audio_probe_clear_descriptor:
+    str xzr, [x0], #8
+    subs x1, x1, #1
+    b.ne .Lusb_audio_probe_clear_descriptor
+
+    mov x0, x21
+    mov x1, #0x80
+    mov x2, #6
+    mov x3, #0x0200
+    mov x4, #0
+    mov x5, #9
+    mov x6, x19
+    bl pi4_usb_control_in
+    cbz w0, .Lusb_audio_probe_none
+
+    ldrb w8, [x19]
+    cmp w8, #9
+    b.lo .Lusb_audio_probe_none
+    ldrb w8, [x19, #1]
+    cmp w8, #PI4_USB_DESCRIPTOR_TYPE_CONFIGURATION
+    b.ne .Lusb_audio_probe_none
+    ldrb w12, [x19, #5]
+    cbz w12, .Lusb_audio_probe_keep_default_config
+    adr x13, pi4_usb_config_value
+    strb w12, [x13]
+.Lusb_audio_probe_keep_default_config:
+    ldrb w8, [x19, #2]
+    ldrb w9, [x19, #3]
+    orr w8, w8, w9, lsl #8
+    mov w9, #PI4_USB_CONFIG_DESCRIPTOR_BYTES
+    cmp w8, w9
+    csel w8, w8, w9, lo
+    cmp w8, #9
+    b.hs .Lusb_audio_probe_length_ready
+    mov w8, #9
+.Lusb_audio_probe_length_ready:
+    uxtw x20, w8
+
+    mov x0, x21
+    mov x1, #0x80
+    mov x2, #6
+    mov x3, #0x0200
+    mov x4, #0
+    mov x5, x20
+    mov x6, x19
+    bl pi4_usb_control_in
+    cbz w0, .Lusb_audio_probe_none
+
+    ldrb w2, [x19]
+    cmp w2, #9
+    b.lo .Lusb_audio_probe_none
+    ldrb w2, [x19, #1]
+    cmp w2, #PI4_USB_DESCRIPTOR_TYPE_CONFIGURATION
+    b.ne .Lusb_audio_probe_none
+
+    add x20, x19, x20
+    mov x10, x19
+    mov w22, #0
+    mov w23, #0
+.Lusb_audio_probe_next_descriptor:
+    add x7, x10, #2
+    cmp x7, x20
+    b.hi .Lusb_audio_probe_none
+    ldrb w2, [x10]
+    cmp w2, #2
+    b.lo .Lusb_audio_probe_none
+    add x7, x10, x2
+    cmp x7, x20
+    b.hi .Lusb_audio_probe_none
+    ldrb w3, [x10, #1]
+    cmp w3, #PI4_USB_DESCRIPTOR_TYPE_INTERFACE
+    b.eq .Lusb_audio_probe_interface
+    cmp w3, #PI4_USB_DESCRIPTOR_TYPE_ENDPOINT
+    b.eq .Lusb_audio_probe_endpoint
+    b .Lusb_audio_probe_advance
+
+.Lusb_audio_probe_interface:
+    mov w22, #0
+    cmp w2, #9
+    b.lo .Lusb_audio_probe_advance
+    ldrb w4, [x10, #5]
+    cmp w4, #PI4_USB_AUDIO_INTERFACE_CLASS
+    b.ne .Lusb_audio_probe_advance
+    ldrb w4, [x10, #6]
+    cmp w4, #PI4_USB_AUDIO_STREAMING_SUBCLASS
+    b.ne .Lusb_audio_probe_advance
+    ldrb w4, [x10, #3]
+    cmp w4, #PI4_USB_AUDIO_ALT_ACTIVE
+    b.ne .Lusb_audio_probe_advance
+    ldrb w23, [x10, #2]
+    mov w22, #1
+    b .Lusb_audio_probe_advance
+
+.Lusb_audio_probe_endpoint:
+    cbz w22, .Lusb_audio_probe_advance
+    cmp w2, #7
+    b.lo .Lusb_audio_probe_advance
+    ldrb w4, [x10, #2]
+    tbnz w4, #7, .Lusb_audio_probe_advance
+    and w5, w4, #PI4_USB_ENDPOINT_NUMBER_MASK
+    cbz w5, .Lusb_audio_probe_advance
+    ldrb w6, [x10, #3]
+    and w6, w6, #PI4_USB_ENDPOINT_TRANSFER_MASK
+    cmp w6, #PI4_USB_ENDPOINT_TRANSFER_ISOCHRONOUS
+    b.ne .Lusb_audio_probe_advance
+    ldrb w6, [x10, #4]
+    ldrb w7, [x10, #5]
+    orr w6, w6, w7, lsl #8
+    and w6, w6, #0x7ff
+    cbnz w6, .Lusb_audio_probe_mps_nonzero
+    mov w6, #PI4_USB_AUDIO_S16_PACKET_BYTES
+.Lusb_audio_probe_mps_nonzero:
+    mov w7, #PI4_USB_AUDIO_MPS_MAX
+    cmp w6, w7
+    csel w6, w6, w7, lo
+    adr x7, pi4_usb_audio_addr
+    strb w21, [x7]
+    adr x7, pi4_usb_audio_interface_num
+    strb w23, [x7]
+    adr x7, pi4_usb_audio_ep_num
+    strb w5, [x7]
+    adr x7, pi4_usb_audio_mps
+    strb w6, [x7]
+    adr x7, pi4_usb_audio_next_pid
+    mov w6, #PI4_DWC2_PID_DATA0
+    strb w6, [x7]
+    adr x7, pi4_usb_audio_ready
+    mov w6, #1
+    strb w6, [x7]
+    mov w0, #1
+    b .Lusb_audio_probe_done
+
+.Lusb_audio_probe_advance:
+    add x10, x10, x2
+    b .Lusb_audio_probe_next_descriptor
+
+.Lusb_audio_probe_none:
+    mov w0, #0
+
+.Lusb_audio_probe_done:
+    ldp x23, x24, [sp], #16
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ldr x30, [sp], #16
+    ret
+.size pi4_usb_probe_audio_kind, . - pi4_usb_probe_audio_kind
+
+.type pi4_usb_configure_audio_interface, %function
+pi4_usb_configure_audio_interface:
+    str x30, [sp, #-16]!
+    mov x9, x0
+    adr x5, pi4_usb_audio_interface_num
+    ldrb w4, [x5]
+    mov x0, x9
+    mov x1, #0x01
+    mov x2, #0x0b
+    mov x3, #PI4_USB_AUDIO_ALT_ACTIVE
+    bl pi4_usb_control_no_data
+    cbz w0, .Lusb_audio_configure_fail
+    adr x1, pi4_usb_audio_interface_set_count
+    ldr x2, [x1]
+    add x2, x2, #1
+    str x2, [x1]
+    adr x1, pi4_usb_audio_ready
+    mov w2, #1
+    strb w2, [x1]
+    mov w0, #1
+    b .Lusb_audio_configure_done
+.Lusb_audio_configure_fail:
+    adr x1, pi4_usb_audio_ready
+    strb wzr, [x1]
+    mov w0, #0
+.Lusb_audio_configure_done:
+    ldr x30, [sp], #16
+    ret
+.size pi4_usb_configure_audio_interface, . - pi4_usb_configure_audio_interface
 
 .type pi4_usb_input_poll, %function
 pi4_usb_input_poll:
@@ -2628,6 +2910,124 @@ pi4_usb_wait_halt:
     ret
 .size pi4_usb_wait_halt, . - pi4_usb_wait_halt
 
+.global pi4_usb_audio_snapshot
+.type pi4_usb_audio_snapshot, %function
+pi4_usb_audio_snapshot:
+    adr x8, pi4_usb_audio_ready
+    ldrb w0, [x8]
+    adr x8, pi4_usb_audio_addr
+    ldrb w1, [x8]
+    adr x8, pi4_usb_audio_interface_num
+    ldrb w2, [x8]
+    adr x8, pi4_usb_audio_ep_num
+    ldrb w3, [x8]
+    adr x8, pi4_usb_audio_mps
+    ldrb w4, [x8]
+    adr x8, pi4_usb_audio_transfer_count
+    ldr x5, [x8]
+    adr x8, pi4_usb_audio_transfer_bytes
+    ldr x6, [x8]
+    adr x8, pi4_usb_audio_last_hcint
+    ldr x7, [x8]
+    ret
+.size pi4_usb_audio_snapshot, . - pi4_usb_audio_snapshot
+
+.global pi4_usb_audio_write_u8_stereo
+.type pi4_usb_audio_write_u8_stereo, %function
+pi4_usb_audio_write_u8_stereo:
+    str x30, [sp, #-16]!
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
+    stp x23, x24, [sp, #-16]!
+    stp x25, x26, [sp, #-16]!
+    stp x27, x28, [sp, #-16]!
+    mov x19, x0
+    mov x20, x1
+    mov x24, xzr
+
+    adr x8, pi4_usb_audio_ready
+    ldrb w8, [x8]
+    cbz w8, .Lusb_audio_write_done
+    cbz x19, .Lusb_audio_write_done
+    cmp x20, #2
+    b.lo .Lusb_audio_write_done
+
+    adr x8, pi4_usb_audio_mps
+    ldrb w22, [x8]
+    cbnz w22, .Lusb_audio_write_have_mps
+    mov w22, #PI4_USB_AUDIO_S16_PACKET_BYTES
+.Lusb_audio_write_have_mps:
+    uxtw x22, w22
+    lsr x28, x22, #1
+    cbnz x28, .Lusb_audio_write_packet_loop
+    mov x28, #PI4_USB_AUDIO_U8_INPUT_PACKET_BYTES
+
+.Lusb_audio_write_packet_loop:
+    cmp x20, #2
+    b.lo .Lusb_audio_write_done
+    mov x23, #PI4_USB_AUDIO_U8_INPUT_PACKET_BYTES
+    cmp x20, x23
+    csel x23, x20, x23, lo
+    cmp x23, x28
+    csel x23, x23, x28, lo
+    bic x23, x23, #1
+    cbz x23, .Lusb_audio_write_done
+
+    adr x25, pi4_usb_audio_packet
+    mov x26, x19
+    mov x27, x23
+.Lusb_audio_write_convert_next:
+    ldrb w8, [x26], #1
+    sub w8, w8, #128
+    lsl w8, w8, #8
+    strh w8, [x25], #2
+    subs x27, x27, #1
+    b.ne .Lusb_audio_write_convert_next
+
+    adr x8, pi4_usb_audio_addr
+    ldrb w0, [x8]
+    adr x8, pi4_usb_audio_ep_num
+    ldrb w1, [x8]
+    mov x2, #0
+    mov x3, #PI4_DWC2_EPTYPE_ISOCHRONOUS
+    mov x4, x22
+    mov x5, #PI4_DWC2_PID_DATA0
+    lsl x6, x23, #1
+    adr x7, pi4_usb_audio_packet
+    bl pi4_usb_hc_transfer
+
+    adr x8, pi4_usb_audio_last_hcint
+    uxtw x9, w0
+    str x9, [x8]
+    tbz w0, #PI4_DWC2_HCINT_XFERCOMPL, .Lusb_audio_write_done
+
+    adr x8, pi4_usb_audio_transfer_count
+    ldr x9, [x8]
+    add x9, x9, #1
+    str x9, [x8]
+    adr x8, pi4_usb_audio_transfer_bytes
+    ldr x9, [x8]
+    add x9, x9, x6
+    str x9, [x8]
+    adr x8, pi4_usb_audio_last_input_bytes
+    str x23, [x8]
+
+    add x24, x24, x23
+    add x19, x19, x23
+    sub x20, x20, x23
+    b .Lusb_audio_write_packet_loop
+
+.Lusb_audio_write_done:
+    mov x0, x24
+    ldp x27, x28, [sp], #16
+    ldp x25, x26, [sp], #16
+    ldp x23, x24, [sp], #16
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ldr x30, [sp], #16
+    ret
+.size pi4_usb_audio_write_u8_stereo, . - pi4_usb_audio_write_u8_stereo
+
 .type pi4_uart_input_pop, %function
 pi4_uart_input_pop:
     adr x0, pi4_uart_input_head
@@ -2944,6 +3344,8 @@ pi4_usb_addr2_ep0_mps:
     .skip 1
 pi4_usb_addr3_ep0_mps:
     .skip 1
+pi4_usb_addr4_ep0_mps:
+    .skip 1
 pi4_usb_keyboard_interface_num:
     .skip 1
 pi4_usb_mouse_interface_num:
@@ -2964,7 +3366,29 @@ pi4_usb_keyboard_next_pid:
     .skip 1
 pi4_usb_mouse_next_pid:
     .skip 1
+pi4_usb_audio_ready:
+    .skip 1
+pi4_usb_audio_addr:
+    .skip 1
+pi4_usb_audio_interface_num:
+    .skip 1
+pi4_usb_audio_ep_num:
+    .skip 1
+pi4_usb_audio_mps:
+    .skip 1
+pi4_usb_audio_next_pid:
+    .skip 1
     .balign 8
+pi4_usb_audio_last_hcint:
+    .quad 0
+pi4_usb_audio_transfer_count:
+    .quad 0
+pi4_usb_audio_transfer_bytes:
+    .quad 0
+pi4_usb_audio_last_input_bytes:
+    .quad 0
+pi4_usb_audio_interface_set_count:
+    .quad 0
 pi4_usb_pending_key_token:
     .quad 0
 pi4_usb_pending_head:
@@ -2985,6 +3409,9 @@ pi4_usb_setup_packet:
     .balign 8
 pi4_usb_hid_report:
     .skip 8
+    .balign 8
+pi4_usb_audio_packet:
+    .skip PI4_USB_AUDIO_S16_PACKET_BYTES
     .balign 8
 pi4_usb_device_descriptor:
     .skip 24

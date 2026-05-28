@@ -48,8 +48,11 @@
 #define PI4_AUDIO_CAP_MMIO_WINDOW 0x00000001ull
 #define PI4_AUDIO_CAP_MAILBOX_CLOCK 0x00000002ull
 #define PI4_AUDIO_CAP_PCM_QUEUE 0x00000004ull
+#define PI4_AUDIO_CAP_USB_AUDIO 0x00000008ull
 #define PI4_AUDIO_REQUIRED_CAPS \
     (PI4_AUDIO_CAP_MMIO_WINDOW | PI4_AUDIO_CAP_MAILBOX_CLOCK | PI4_AUDIO_CAP_PCM_QUEUE)
+#define PI4_AUDIO_USB_REQUIRED_CAPS \
+    (PI4_AUDIO_CAP_USB_AUDIO | PI4_AUDIO_CAP_PCM_QUEUE)
 #define PI4_AUDIO_ABI_DEVICE_STATUS 0x00000001ull
 #define PI4_AUDIO_ABI_QUEUE_STATUS 0x00000002ull
 #define PI4_AUDIO_ABI_CAP_STATUS 0x00000004ull
@@ -1219,15 +1222,17 @@ static int check_audio_status(const Field* fields, size_t count)
         uint64_t cap[1];
         uint64_t audioq_fields[4];
         uint64_t audioabi[4];
+        int usb_audio = strcmp(audiohw, "USB-AUDIO") == 0;
 
         if (strcmp(audiohw, "PWM") != 0 && strcmp(audiohw, "PCM") != 0 &&
-            strcmp(audiohw, "HDMI") != 0) {
+            strcmp(audiohw, "HDMI") != 0 && !usb_audio) {
             fprintf(stderr,
-                "pi4_status_evidence: pi4audio=OK must name PWM, PCM, or HDMI audio hardware\n");
+                "pi4_status_evidence: pi4audio=OK must name PWM, PCM, HDMI, or USB-AUDIO hardware\n");
             ok = 0;
         }
         if (parse_hex64_tuple_exact(fields, count, "pi4audiommio", 4, mmio)) {
-            if (mmio[0] == 0 || mmio[1] == 0 || mmio[2] == 0 || mmio[3] == 0) {
+            if (mmio[0] == 0 || mmio[1] == 0 || mmio[2] == 0 ||
+                (!usb_audio && mmio[3] == 0)) {
                 fprintf(stderr,
                     "pi4_status_evidence: pi4audio=OK must include nonzero pi4audiommio= hardware window evidence\n");
                 ok = 0;
@@ -1236,8 +1241,9 @@ static int check_audio_status(const Field* fields, size_t count)
             ok = 0;
         }
         if (parse_hex64_tuple_exact(fields, count, "pi4audiomailbox", 4, mailbox)) {
-            if (mailbox[0] == 0 || mailbox[1] == 0 || mailbox[2] == 0 ||
-                mailbox[3] == 0) {
+            if (!usb_audio &&
+                (mailbox[0] == 0 || mailbox[1] == 0 || mailbox[2] == 0 ||
+                 mailbox[3] == 0)) {
                 fprintf(stderr,
                     "pi4_status_evidence: pi4audio=OK must include nonzero pi4audiomailbox= capability evidence\n");
                 ok = 0;
@@ -1247,11 +1253,31 @@ static int check_audio_status(const Field* fields, size_t count)
         }
         if (!parse_hex64_tuple_exact(fields, count, "pi4audiocap", 1, cap)) {
             ok = 0;
+        } else if (usb_audio) {
+            if ((cap[0] & PI4_AUDIO_USB_REQUIRED_CAPS) != PI4_AUDIO_USB_REQUIRED_CAPS ||
+                (cap[0] & ~(PI4_AUDIO_REQUIRED_CAPS | PI4_AUDIO_CAP_USB_AUDIO)) != 0) {
+                fprintf(stderr,
+                    "pi4_status_evidence: pi4audio=OK USB-AUDIO must include USB audio plus PCM queue capability evidence\n");
+                ok = 0;
+            }
         } else if ((cap[0] & PI4_AUDIO_REQUIRED_CAPS) != PI4_AUDIO_REQUIRED_CAPS ||
                    (cap[0] & ~PI4_AUDIO_REQUIRED_CAPS) != 0) {
             fprintf(stderr,
                 "pi4_status_evidence: pi4audio=OK must include exactly the Pi audio MMIO, mailbox-clock, and PCM-queue capability mask\n");
             ok = 0;
+        }
+        if (usb_audio) {
+            uint64_t usb[8];
+            if (parse_hex64_tuple_exact(fields, count, "pi4audiousb", 8, usb)) {
+                if (usb[0] != 1 || usb[1] == 0 || usb[3] == 0 ||
+                    usb[4] == 0 || usb[4] > 1024) {
+                    fprintf(stderr,
+                        "pi4_status_evidence: pi4audiousb= must expose a ready USB audio endpoint\n");
+                    ok = 0;
+                }
+            } else {
+                ok = 0;
+            }
         }
         if (parse_hex64_tuple_exact(fields, count, "pi4audioq", 4, audioq_fields)) {
             if (audioq_fields[0] == 0 || audioq_fields[1] == 0 ||
