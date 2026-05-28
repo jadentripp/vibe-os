@@ -1373,11 +1373,11 @@ static int addr_matches_kind(uint32_t kind, uint32_t addr) {
     return 0;
 }
 
-static int is_large_payload_kind(uint32_t kind) {
+static int is_large_app_kind(uint32_t kind) {
     return kind == USER_KIND_PAYLOAD_PRIMARY || kind == USER_KIND_PAYLOAD_SECONDARY;
 }
 
-static int expected_large_payload_kind_for_path(const Status *status, uint32_t *kind) {
+static int expected_large_app_kind_for_path(const Status *status, uint32_t *kind) {
     const char *exec_path;
 
     if (!has_field(status, "path")) {
@@ -1511,7 +1511,7 @@ static void validate_exec(const Status *status) {
     } else if (strcmp(exec_path, "/APPS/DOOM/APP.ELF") == 0) {
         exact(status, "doom", "OK");
     } else {
-        fail("path= must be a Doom or Quake app executable");
+        fail("path= must be an installed /APPS/.../APP.ELF executable");
     }
     if (hex_field(status, "argvsrc") != SYS_EXEC_ARGV_SOURCE_USER) {
         fail("argvsrc= must prove exec argv came from user memory");
@@ -1546,7 +1546,7 @@ static void validate_preemption(const Status *status) {
     uint32_t segs[4];
     uint32_t eflags[5];
     uint32_t preemptabi[5];
-    uint32_t expected_payload_kind;
+    uint32_t expected_app_kind;
 
     preempt = hex_field(status, "preempt");
     if (preempt == 0u) {
@@ -1605,12 +1605,12 @@ static void validate_preemption(const Status *status) {
     }
 
     hex_tuple(status, "pkind", 2, ':', kinds);
-    if (!((is_large_payload_kind(kinds[0]) && kinds[1] == USER_KIND_PREEMPT_PROBE) ||
-          (kinds[0] == USER_KIND_PREEMPT_PROBE && is_large_payload_kind(kinds[1])))) {
+    if (!((is_large_app_kind(kinds[0]) && kinds[1] == USER_KIND_PREEMPT_PROBE) ||
+          (kinds[0] == USER_KIND_PREEMPT_PROBE && is_large_app_kind(kinds[1])))) {
         fail("pkind= must switch between the selected app and the preempt probe");
     }
-    if (expected_large_payload_kind_for_path(status, &expected_payload_kind) &&
-        kinds[0] != expected_payload_kind && kinds[1] != expected_payload_kind) {
+    if (expected_large_app_kind_for_path(status, &expected_app_kind) &&
+        kinds[0] != expected_app_kind && kinds[1] != expected_app_kind) {
         fail("pkind= selected app kind must match selected exec path");
     }
     hex_tuple(status, "peip", 2, ':', eips);
@@ -1618,10 +1618,10 @@ static void validate_preemption(const Status *status) {
         fail("peip= must contain user EIPs matching pkind=");
     }
     hex_tuple(status, "pcr3", 2, ':', cr3s);
-    if (is_large_payload_kind(kinds[0]) && cr3s[0] != PROC_PAYLOAD_PAGE_DIR_ADDR) {
+    if (is_large_app_kind(kinds[0]) && cr3s[0] != PROC_PAYLOAD_PAGE_DIR_ADDR) {
         fail("pcr3= selected app must use the app page directory");
     }
-    if (is_large_payload_kind(kinds[1]) && cr3s[1] != PROC_PAYLOAD_PAGE_DIR_ADDR) {
+    if (is_large_app_kind(kinds[1]) && cr3s[1] != PROC_PAYLOAD_PAGE_DIR_ADDR) {
         fail("pcr3= selected app must use the app page directory");
     }
     if (kinds[0] == USER_KIND_PREEMPT_PROBE && cr3s[0] != PROC_PREEMPT_PAGE_DIR_ADDR) {

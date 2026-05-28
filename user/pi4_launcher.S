@@ -26,6 +26,9 @@
 .equ PI4_LAUNCHER_CARD_ART_INSET,       24
 .equ PI4_LAUNCHER_CARD_ART_W,           PI4_LAUNCHER_CARD_W - (PI4_LAUNCHER_CARD_ART_INSET * 2)
 .equ PI4_LAUNCHER_CARD_ART_H,           336
+.equ PI4_LAUNCHER_CARD_CHROME_INSET,    16
+.equ PI4_LAUNCHER_CARD_TITLE_Y_OFF,     10
+.equ PI4_LAUNCHER_CARD_TITLE_H,         12
 .equ PI4_LAUNCHER_ICON_SIZE,            256
 .equ PI4_LAUNCHER_ICON_DISPLAY_SIZE,    320
 .equ PI4_LAUNCHER_DOOM_ICON_X,          164
@@ -77,8 +80,11 @@
 .equ PI4_LAUNCHER_CURSOR_MAX_Y,         PI4_LAUNCHER_FRAME_HEIGHT - PI4_LAUNCHER_CURSOR_DRAW_H - 1
 
 .equ PI4_LAUNCHER_SLOT_COUNT,           2
-.equ PI4_LAUNCHER_SLOT_APP0,            0
-.equ PI4_LAUNCHER_SLOT_APP1,            1
+.equ PI4_LAUNCHER_SLOT_FIRST,           0
+.equ PI4_LAUNCHER_SLOT_SECOND,          1
+.equ PI4_LAUNCHER_SLOT_DEFAULT,         PI4_LAUNCHER_SLOT_FIRST
+.equ PI4_LAUNCHER_SLOT_APP0,            PI4_LAUNCHER_SLOT_FIRST
+.equ PI4_LAUNCHER_SLOT_APP1,            PI4_LAUNCHER_SLOT_SECOND
 .equ PI4_LAUNCHER_SLOT_NONE,            PI4_LAUNCHER_SLOT_COUNT
 .equ PI4_LAUNCHER_SLOT_BYTES,           40
 .equ PI4_LAUNCHER_SLOT_NAME,            8
@@ -242,8 +248,8 @@
 .equ PI4_COLOR_HILITE,                  15
 
 .extern pi4_launcher_slot_table
-.extern pi4_launcher_slot_app0_name
-.extern pi4_launcher_slot_app1_name
+.extern pi4_launcher_app_record_0_name
+.extern pi4_launcher_app_record_1_name
 .extern pi4_launcher_slot_present_state
 .extern pi4_launcher_slot_absent_state
 .extern pi4_launcher_key_1_bitmap
@@ -272,7 +278,7 @@ user_main:
 pi4_launcher_start:
     bl pi4_launcher_discover_apps
     bl pi4_launcher_load_art
-    mov x19, #PI4_LAUNCHER_SLOT_APP0
+    mov x19, #PI4_LAUNCHER_SLOT_DEFAULT
     bl pi4_launcher_reset_desktop_state
 
     mov x0, xzr
@@ -389,17 +395,17 @@ pi4_launcher_reset_desktop_state:
     adrp x0, pi4_launcher_mouse_buttons
     add x0, x0, :lo12:pi4_launcher_mouse_buttons
     str xzr, [x0]
-    adrp x0, pi4_launcher_active_slot
-    add x0, x0, :lo12:pi4_launcher_active_slot
-    mov x1, #PI4_LAUNCHER_SLOT_NONE
+    adrp x2, pi4_launcher_desktop_slot_defaults
+    add x2, x2, :lo12:pi4_launcher_desktop_slot_defaults
+    adrp x3, pi4_launcher_desktop_slot_defaults_end
+    add x3, x3, :lo12:pi4_launcher_desktop_slot_defaults_end
+.Lpi4_reset_desktop_slot_next:
+    cmp x2, x3
+    b.hs .Lpi4_reset_desktop_slots_done
+    ldp x0, x1, [x2], #16
     str x1, [x0]
-    adrp x0, pi4_launcher_hover_slot
-    add x0, x0, :lo12:pi4_launcher_hover_slot
-    mov x2, #PI4_LAUNCHER_SLOT_APP0
-    str x2, [x0]
-    adrp x0, pi4_launcher_failed_slot
-    add x0, x0, :lo12:pi4_launcher_failed_slot
-    str x1, [x0]
+    b .Lpi4_reset_desktop_slot_next
+.Lpi4_reset_desktop_slots_done:
     adrp x0, pi4_launcher_present_status
     add x0, x0, :lo12:pi4_launcher_present_status
     str xzr, [x0]
@@ -526,9 +532,10 @@ pi4_launcher_discover_apps:
 
 .type pi4_launcher_reset_app_slots, %function
 pi4_launcher_reset_app_slots:
-    stp x29, x30, [sp, #-32]!
+    stp x29, x30, [sp, #-48]!
     mov x29, sp
-    str x19, [sp, #16]
+    stp x19, x20, [sp, #16]
+    stp x21, x22, [sp, #32]
 
     adrp x0, pi4_launcher_app_slot_names
     add x0, x0, :lo12:pi4_launcher_app_slot_names
@@ -569,33 +576,30 @@ pi4_launcher_reset_app_slots:
 
     adrp x19, pi4_launcher_slot_table
     add x19, x19, :lo12:pi4_launcher_slot_table
-    mov x0, #PI4_LAUNCHER_SLOT_APP0
-    str x0, [x19]
-    adrp x0, pi4_launcher_slot_app0_name
-    add x0, x0, :lo12:pi4_launcher_slot_app0_name
+    adrp x20, pi4_launcher_default_app_slot_names
+    add x20, x20, :lo12:pi4_launcher_default_app_slot_names
+    adrp x21, pi4_launcher_slot_absent_state
+    add x21, x21, :lo12:pi4_launcher_slot_absent_state
+    mov x22, xzr
+
+.Lpi4_reset_app_slot_next:
+    cmp x22, #PI4_LAUNCHER_SLOT_COUNT
+    b.hs .Lpi4_reset_app_slots_done
+    str x22, [x19]
+    ldr x0, [x20, x22, lsl #3]
     str x0, [x19, #PI4_LAUNCHER_SLOT_NAME]
     str xzr, [x19, #PI4_LAUNCHER_SLOT_PATH]
     mov x0, #PI4_LAUNCHER_SLOT_STATE_ABSENT
     str x0, [x19, #PI4_LAUNCHER_SLOT_STATE]
-    adrp x0, pi4_launcher_slot_absent_state
-    add x0, x0, :lo12:pi4_launcher_slot_absent_state
-    str x0, [x19, #PI4_LAUNCHER_SLOT_STATE_TEXT]
-
+    str x21, [x19, #PI4_LAUNCHER_SLOT_STATE_TEXT]
     add x19, x19, #PI4_LAUNCHER_SLOT_BYTES
-    mov x0, #PI4_LAUNCHER_SLOT_APP1
-    str x0, [x19]
-    adrp x0, pi4_launcher_slot_app1_name
-    add x0, x0, :lo12:pi4_launcher_slot_app1_name
-    str x0, [x19, #PI4_LAUNCHER_SLOT_NAME]
-    str xzr, [x19, #PI4_LAUNCHER_SLOT_PATH]
-    mov x0, #PI4_LAUNCHER_SLOT_STATE_ABSENT
-    str x0, [x19, #PI4_LAUNCHER_SLOT_STATE]
-    adrp x0, pi4_launcher_slot_absent_state
-    add x0, x0, :lo12:pi4_launcher_slot_absent_state
-    str x0, [x19, #PI4_LAUNCHER_SLOT_STATE_TEXT]
+    add x22, x22, #1
+    b .Lpi4_reset_app_slot_next
 
-    ldr x19, [sp, #16]
-    ldp x29, x30, [sp], #32
+.Lpi4_reset_app_slots_done:
+    ldp x21, x22, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #48
     ret
 .size pi4_launcher_reset_app_slots, . - pi4_launcher_reset_app_slots
 
@@ -838,16 +842,29 @@ pi4_launcher_or_discovery_flag_x21:
     ret
 .size pi4_launcher_or_discovery_flag_x21, . - pi4_launcher_or_discovery_flag_x21
 
+.type pi4_launcher_slot_entry_ptr, %function
+pi4_launcher_slot_entry_ptr:
+    cmp x0, #PI4_LAUNCHER_SLOT_COUNT
+    b.hs .Lpi4_slot_entry_invalid
+    adrp x1, pi4_launcher_slot_table
+    add x1, x1, :lo12:pi4_launcher_slot_table
+    mov x2, #PI4_LAUNCHER_SLOT_BYTES
+    madd x0, x0, x2, x1
+    ret
+.Lpi4_slot_entry_invalid:
+    mov x0, xzr
+    ret
+.size pi4_launcher_slot_entry_ptr, . - pi4_launcher_slot_entry_ptr
+
 .type pi4_launcher_default_name, %function
 pi4_launcher_default_name:
-    cmp x0, #PI4_LAUNCHER_SLOT_APP1
-    b.eq .Lpi4_default_name_quake
-    adrp x0, pi4_launcher_slot_app0_name
-    add x0, x0, :lo12:pi4_launcher_slot_app0_name
-    ret
-.Lpi4_default_name_quake:
-    adrp x0, pi4_launcher_slot_app1_name
-    add x0, x0, :lo12:pi4_launcher_slot_app1_name
+    cmp x0, #PI4_LAUNCHER_SLOT_COUNT
+    b.lo .Lpi4_default_name_index_ready
+    mov x0, #PI4_LAUNCHER_SLOT_DEFAULT
+.Lpi4_default_name_index_ready:
+    adrp x1, pi4_launcher_default_app_slot_names
+    add x1, x1, :lo12:pi4_launcher_default_app_slot_names
+    ldr x0, [x1, x0, lsl #3]
     ret
 .size pi4_launcher_default_name, . - pi4_launcher_default_name
 
@@ -1456,35 +1473,55 @@ pi4_launcher_pointer_focus:
 
 .type pi4_launcher_record_selection, %function
 pi4_launcher_record_selection:
-    adrp x1, pi4_launcher_state
-    add x1, x1, :lo12:pi4_launcher_state
+    stp x29, x30, [sp, #-32]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+
+    mov x19, x0
+    adrp x20, pi4_launcher_state
+    add x20, x20, :lo12:pi4_launcher_state
     mov x2, #PI4_LAUNCHER_PHASE_SELECTION_READY
-    str x2, [x1, #PI4_LAUNCHER_STATE_PHASE]
-    str x0, [x1, #PI4_LAUNCHER_STATE_RECORD_INDEX]
+    str x2, [x20, #PI4_LAUNCHER_STATE_PHASE]
+    str x19, [x20, #PI4_LAUNCHER_STATE_RECORD_INDEX]
     adrp x4, pi4_launcher_active_slot
     add x4, x4, :lo12:pi4_launcher_active_slot
-    str x0, [x4]
+    str x19, [x4]
     adrp x4, pi4_launcher_failed_slot
     add x4, x4, :lo12:pi4_launcher_failed_slot
     mov x3, #PI4_LAUNCHER_SLOT_NONE
     str x3, [x4]
 
-    adrp x2, pi4_launcher_slot_table
-    add x2, x2, :lo12:pi4_launcher_slot_table
-    mov x3, #PI4_LAUNCHER_SLOT_BYTES
-    madd x2, x0, x3, x2
-    str x2, [x1, #PI4_LAUNCHER_STATE_RECORD_SLOT]
+    mov x0, x19
+    bl pi4_launcher_slot_entry_ptr
+    cbz x0, .Lpi4_record_selection_invalid
+
+    mov x2, x0
+    str x2, [x20, #PI4_LAUNCHER_STATE_RECORD_SLOT]
     ldr x3, [x2, #PI4_LAUNCHER_SLOT_NAME]
-    str x3, [x1, #PI4_LAUNCHER_STATE_RECORD_NAME]
+    str x3, [x20, #PI4_LAUNCHER_STATE_RECORD_NAME]
     ldr x3, [x2, #PI4_LAUNCHER_SLOT_PATH]
-    str x3, [x1, #PI4_LAUNCHER_STATE_RECORD_PATH]
+    str x3, [x20, #PI4_LAUNCHER_STATE_RECORD_PATH]
     ldr x3, [x2, #PI4_LAUNCHER_SLOT_STATE]
-    str x3, [x1, #PI4_LAUNCHER_STATE_RECORD_STATE]
+    str x3, [x20, #PI4_LAUNCHER_STATE_RECORD_STATE]
     ldr x3, [x2, #PI4_LAUNCHER_SLOT_STATE_TEXT]
-    str x3, [x1, #PI4_LAUNCHER_STATE_RECORD_STATE_TEXT]
-    ldr x3, [x1, #PI4_LAUNCHER_STATE_RECORD_COUNT]
+    str x3, [x20, #PI4_LAUNCHER_STATE_RECORD_STATE_TEXT]
+    b .Lpi4_record_selection_count
+
+.Lpi4_record_selection_invalid:
+    str xzr, [x20, #PI4_LAUNCHER_STATE_RECORD_SLOT]
+    str xzr, [x20, #PI4_LAUNCHER_STATE_RECORD_NAME]
+    str xzr, [x20, #PI4_LAUNCHER_STATE_RECORD_PATH]
+    str xzr, [x20, #PI4_LAUNCHER_STATE_RECORD_STATE]
+    adrp x3, pi4_launcher_slot_absent_state
+    add x3, x3, :lo12:pi4_launcher_slot_absent_state
+    str x3, [x20, #PI4_LAUNCHER_STATE_RECORD_STATE_TEXT]
+
+.Lpi4_record_selection_count:
+    ldr x3, [x20, #PI4_LAUNCHER_STATE_RECORD_COUNT]
     add x3, x3, #1
-    str x3, [x1, #PI4_LAUNCHER_STATE_RECORD_COUNT]
+    str x3, [x20, #PI4_LAUNCHER_STATE_RECORD_COUNT]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #32
     ret
 .size pi4_launcher_record_selection, . - pi4_launcher_record_selection
 
@@ -1827,6 +1864,15 @@ pi4_launcher_render_frame:
     bl pi4_launcher_draw_border
 
     mov x0, x19
+    mov x1, #PI4_LAUNCHER_WINDOW_X
+    mov x2, #PI4_LAUNCHER_WINDOW_Y
+    mov x3, #PI4_LAUNCHER_WINDOW_W
+    mov x4, #PI4_LAUNCHER_WINDOW_H
+    mov x5, #PI4_COLOR_HILITE
+    mov x6, #PI4_COLOR_BLACK
+    bl pi4_launcher_draw_bevel
+
+    mov x0, x19
     mov x1, #64
     mov x2, #96
     mov x3, #1152
@@ -1902,6 +1948,15 @@ pi4_launcher_render_frame:
 
     mov x0, x19
     mov x1, #PI4_LAUNCHER_DOCK_X
+    mov x2, #PI4_LAUNCHER_DOCK_Y
+    mov x3, #PI4_LAUNCHER_DOCK_W
+    mov x4, #PI4_LAUNCHER_DOCK_H
+    mov x5, #PI4_COLOR_HILITE
+    mov x6, #PI4_COLOR_BLACK
+    bl pi4_launcher_draw_bevel
+
+    mov x0, x19
+    mov x1, #PI4_LAUNCHER_DOCK_X
     add x1, x1, #8
     mov x2, #PI4_LAUNCHER_DOCK_Y
     add x2, x2, #8
@@ -1961,6 +2016,22 @@ pi4_launcher_render_frame:
     bl pi4_launcher_fill_rect
 
     mov x0, x19
+    mov x1, #640
+    mov x2, #208
+    mov x3, #2
+    mov x4, #424
+    mov x5, #PI4_COLOR_BORDER
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, #644
+    mov x2, #208
+    mov x3, #2
+    mov x4, #424
+    mov x5, #PI4_COLOR_HILITE
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
     mov x1, #PI4_LAUNCHER_DOOM_CARD_X
     add x1, x1, #10
     mov x2, #PI4_LAUNCHER_CARD_Y
@@ -1994,6 +2065,50 @@ pi4_launcher_render_frame:
     mov x3, #PI4_LAUNCHER_CARD_W
     mov x4, #PI4_LAUNCHER_CARD_H
     mov x5, #PI4_COLOR_CARD
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, #PI4_LAUNCHER_DOOM_CARD_X
+    add x1, x1, #PI4_LAUNCHER_CARD_CHROME_INSET
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #PI4_LAUNCHER_CARD_TITLE_Y_OFF
+    mov x3, #PI4_LAUNCHER_CARD_W
+    sub x3, x3, #(PI4_LAUNCHER_CARD_CHROME_INSET * 2)
+    mov x4, #PI4_LAUNCHER_CARD_TITLE_H
+    mov x5, #PI4_COLOR_PANEL
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, #PI4_LAUNCHER_QUAKE_CARD_X
+    add x1, x1, #PI4_LAUNCHER_CARD_CHROME_INSET
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #PI4_LAUNCHER_CARD_TITLE_Y_OFF
+    mov x3, #PI4_LAUNCHER_CARD_W
+    sub x3, x3, #(PI4_LAUNCHER_CARD_CHROME_INSET * 2)
+    mov x4, #PI4_LAUNCHER_CARD_TITLE_H
+    mov x5, #PI4_COLOR_PANEL
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, #PI4_LAUNCHER_DOOM_CARD_X
+    add x1, x1, #PI4_LAUNCHER_CARD_CHROME_INSET
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #PI4_LAUNCHER_CARD_TITLE_Y_OFF + PI4_LAUNCHER_CARD_TITLE_H + 2
+    mov x3, #PI4_LAUNCHER_CARD_W
+    sub x3, x3, #(PI4_LAUNCHER_CARD_CHROME_INSET * 2)
+    mov x4, #2
+    mov x5, #PI4_COLOR_BORDER
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, #PI4_LAUNCHER_QUAKE_CARD_X
+    add x1, x1, #PI4_LAUNCHER_CARD_CHROME_INSET
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #PI4_LAUNCHER_CARD_TITLE_Y_OFF + PI4_LAUNCHER_CARD_TITLE_H + 2
+    mov x3, #PI4_LAUNCHER_CARD_W
+    sub x3, x3, #(PI4_LAUNCHER_CARD_CHROME_INSET * 2)
+    mov x4, #2
+    mov x5, #PI4_COLOR_BORDER
     bl pi4_launcher_fill_rect
 
     mov x0, x19
@@ -2139,12 +2254,30 @@ pi4_launcher_render_frame:
     bl pi4_launcher_draw_border
 
     mov x0, x19
+    mov x1, #PI4_LAUNCHER_DOOM_CARD_X
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    mov x3, #PI4_LAUNCHER_CARD_W
+    mov x4, #PI4_LAUNCHER_CARD_H
+    mov x5, #PI4_COLOR_HILITE
+    mov x6, #PI4_COLOR_BLACK
+    bl pi4_launcher_draw_bevel
+
+    mov x0, x19
     mov x1, #PI4_LAUNCHER_QUAKE_CARD_X
     mov x2, #PI4_LAUNCHER_CARD_Y
     mov x3, #PI4_LAUNCHER_CARD_W
     mov x4, #PI4_LAUNCHER_CARD_H
     mov x5, #PI4_COLOR_BORDER
     bl pi4_launcher_draw_border
+
+    mov x0, x19
+    mov x1, #PI4_LAUNCHER_QUAKE_CARD_X
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    mov x3, #PI4_LAUNCHER_CARD_W
+    mov x4, #PI4_LAUNCHER_CARD_H
+    mov x5, #PI4_COLOR_HILITE
+    mov x6, #PI4_COLOR_BLACK
+    bl pi4_launcher_draw_bevel
 
     cmp x20, #PI4_LAUNCHER_SLOT_APP1
     b.eq .Lpi4_render_select_quake
@@ -2667,6 +2800,68 @@ pi4_launcher_draw_border:
     ret
 .size pi4_launcher_draw_border, . - pi4_launcher_draw_border
 
+.type pi4_launcher_draw_bevel, %function
+pi4_launcher_draw_bevel:
+    stp x29, x30, [sp, #-96]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    stp x21, x22, [sp, #32]
+    stp x23, x24, [sp, #48]
+    str x25, [sp, #64]
+    mov x19, x0
+    mov x20, x1
+    mov x21, x2
+    mov x22, x3
+    mov x23, x4
+    mov x24, x5
+    mov x25, x6
+
+    mov x0, x19
+    add x1, x20, #1
+    add x2, x21, #1
+    mov x3, x22
+    sub x3, x3, #2
+    mov x4, #2
+    mov x5, x24
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x20, #1
+    add x2, x21, #1
+    mov x3, #2
+    mov x4, x23
+    sub x4, x4, #2
+    mov x5, x24
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x20, #1
+    add x2, x21, x23
+    sub x2, x2, #3
+    mov x3, x22
+    sub x3, x3, #2
+    mov x4, #2
+    mov x5, x25
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    add x1, x20, x22
+    sub x1, x1, #3
+    add x2, x21, #1
+    mov x3, #2
+    mov x4, x23
+    sub x4, x4, #2
+    mov x5, x25
+    bl pi4_launcher_fill_rect
+
+    ldr x25, [sp, #64]
+    ldp x23, x24, [sp, #48]
+    ldp x21, x22, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #96
+    ret
+.size pi4_launcher_draw_bevel, . - pi4_launcher_draw_bevel
+
 .type pi4_launcher_draw_doom_poster, %function
 pi4_launcher_draw_doom_poster:
     stp x29, x30, [sp, #-80]!
@@ -3177,6 +3372,15 @@ pi4_launcher_draw_key_badge:
 
     mov x0, x19
     add x1, x20, #PI4_LAUNCHER_KEY_BADGE_X_OFF
+    mov x2, #PI4_LAUNCHER_KEY_BADGE_Y
+    mov x3, #PI4_LAUNCHER_KEY_BADGE_W
+    mov x4, #PI4_LAUNCHER_KEY_BADGE_H
+    mov x5, x22
+    mov x6, #PI4_COLOR_BLACK
+    bl pi4_launcher_draw_bevel
+
+    mov x0, x19
+    add x1, x20, #PI4_LAUNCHER_KEY_BADGE_X_OFF
     add x1, x1, #PI4_LAUNCHER_KEY_BADGE_DIGIT_X_OFF
     add x1, x1, #3
     mov x2, #PI4_LAUNCHER_KEY_BADGE_Y
@@ -3258,6 +3462,15 @@ pi4_launcher_draw_launch_button:
     mov x4, #PI4_LAUNCHER_LAUNCH_BUTTON_H
     mov x5, x23
     bl pi4_launcher_draw_border
+
+    mov x0, x19
+    add x1, x20, #PI4_LAUNCHER_LAUNCH_BUTTON_X_OFF
+    mov x2, #PI4_LAUNCHER_LAUNCH_BUTTON_Y
+    mov x3, #PI4_LAUNCHER_LAUNCH_BUTTON_W
+    mov x4, #PI4_LAUNCHER_LAUNCH_BUTTON_H
+    mov x5, x21
+    mov x6, #PI4_COLOR_BLACK
+    bl pi4_launcher_draw_bevel
 
     mov x0, x19
     add x1, x20, #PI4_LAUNCHER_LAUNCH_BUTTON_X_OFF
@@ -3856,18 +4069,20 @@ pi4_launcher_draw_quake_icon:
 
 .type pi4_launcher_slot_name_ptr, %function
 pi4_launcher_slot_name_ptr:
-    cmp x0, #PI4_LAUNCHER_SLOT_COUNT
-    b.hs .Lpi4_slot_name_default
-    adrp x1, pi4_launcher_slot_table
-    add x1, x1, :lo12:pi4_launcher_slot_table
-    mov x2, #PI4_LAUNCHER_SLOT_BYTES
-    madd x1, x0, x2, x1
-    ldr x0, [x1, #PI4_LAUNCHER_SLOT_NAME]
+    stp x29, x30, [sp, #-32]!
+    mov x29, sp
+    str x19, [sp, #16]
+    mov x19, x0
+    bl pi4_launcher_slot_entry_ptr
+    cbz x0, .Lpi4_slot_name_default
+    ldr x0, [x0, #PI4_LAUNCHER_SLOT_NAME]
     cbnz x0, .Lpi4_slot_name_done
 .Lpi4_slot_name_default:
-    adrp x0, pi4_launcher_slot_app0_name
-    add x0, x0, :lo12:pi4_launcher_slot_app0_name
+    mov x0, x19
+    bl pi4_launcher_default_name
 .Lpi4_slot_name_done:
+    ldr x19, [sp, #16]
+    ldp x29, x30, [sp], #32
     ret
 .size pi4_launcher_slot_name_ptr, . - pi4_launcher_slot_name_ptr
 
@@ -4184,6 +4399,21 @@ pi4_launcher_key_asset:
 pi4_launcher_key_icon:
     .asciz "icon="
 
+.balign 8
+pi4_launcher_default_app_slot_names:
+    .quad pi4_launcher_app_record_0_name
+    .quad pi4_launcher_app_record_1_name
+
+.balign 8
+pi4_launcher_desktop_slot_defaults:
+    .quad pi4_launcher_active_slot
+    .quad PI4_LAUNCHER_SLOT_NONE
+    .quad pi4_launcher_hover_slot
+    .quad PI4_LAUNCHER_SLOT_DEFAULT
+    .quad pi4_launcher_failed_slot
+    .quad PI4_LAUNCHER_SLOT_NONE
+pi4_launcher_desktop_slot_defaults_end:
+
 .section .data.pi4_launcher_state, "aw", %progbits
 .balign 8
 .global pi4_launcher_state
@@ -4196,9 +4426,9 @@ pi4_launcher_state:
     .quad PI4_LAUNCHER_FRAME_STRIDE
     .quad PI4_LAUNCHER_FRAME_BYTES
     .quad PI4_LAUNCHER_SLOT_COUNT
-    .quad PI4_LAUNCHER_SLOT_APP0
+    .quad PI4_LAUNCHER_SLOT_DEFAULT
     .quad pi4_launcher_slot_table
-    .quad pi4_launcher_slot_app0_name
+    .quad pi4_launcher_app_record_0_name
     .quad 0
     .quad 0
     .quad 0
@@ -4208,9 +4438,9 @@ pi4_launcher_state:
     .quad 0
     .quad 0
     .quad 0
-    .quad PI4_LAUNCHER_SLOT_APP0
+    .quad PI4_LAUNCHER_SLOT_DEFAULT
     .quad pi4_launcher_slot_table
-    .quad pi4_launcher_slot_app0_name
+    .quad pi4_launcher_app_record_0_name
     .quad 0
     .quad pi4_launcher_exec_request
     .quad 0
@@ -4272,7 +4502,7 @@ pi4_launcher_active_slot:
     .quad PI4_LAUNCHER_SLOT_NONE
 .global pi4_launcher_hover_slot
 pi4_launcher_hover_slot:
-    .quad PI4_LAUNCHER_SLOT_APP0
+    .quad PI4_LAUNCHER_SLOT_DEFAULT
 .global pi4_launcher_failed_slot
 pi4_launcher_failed_slot:
     .quad PI4_LAUNCHER_SLOT_NONE
