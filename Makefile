@@ -1259,14 +1259,10 @@ pi4-launcher-state-manifest-check: $(PI4_LAUNCHER_STATE_MANIFEST_ELF)
 	for line in \
 		"schema=vibe-os-pi4-launcher-apps-v1" \
 		"app_model=manifest-vfs-exec" \
-		"app_count=2" \
-		"app.0.id=doom" \
-		"app.0.exec=/APPS/DOOM/APP.ELF" \
-		"app.0.manifest=/APPS/DOOM/APP.TXT" \
-		"app.1.id=quake" \
-		"app.1.exec=/APPS/QUAKE/APP.ELF" \
-		"app.1.manifest=/APPS/QUAKE/APP.TXT" \
+		"app_index_schema=vibe-os-app-index-v1" \
+		"app_visible_capacity=2" \
 		"app_discovery_source=/APPS/INDEX.TXT" \
+		"app_discovery_runtime=read-app-count-and-indexed-manifest-keys" \
 		"launcher_state_schema=vibe-os-pi4-launcher-state-v2" \
 		"launcher_state_magic=PI4LAUNC" \
 		"launcher_state_bytes=392" \
@@ -1277,7 +1273,7 @@ pi4-launcher-state-manifest-check: $(PI4_LAUNCHER_STATE_MANIFEST_ELF)
 		"launcher_state.offset.move_count=304" \
 		"launcher_state.offset.record_action_count=312" \
 		"launcher_state.offset.present_status=320" \
-		"launcher_state.offset.exec_request_slot=352" \
+		"launcher_state.offset.exec_request_compat=352" \
 		"launcher_state.offset.exec_request_path=360" \
 		"launcher_state.offset.exec_attempt_state=376" \
 		"launcher_state.offset.exec_request_count=384" \
