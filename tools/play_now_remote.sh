@@ -327,16 +327,6 @@ if [ "$NOVNC_PORT" -eq "$VNC_PORT" ]; then
   fail_remote "NOVNC_PORT and VNC_DISPLAY both map to 127.0.0.1:$NOVNC_PORT; choose different ports"
 fi
 
-if [ "$(uname -s)" = "Darwin" ] && [ "${ALLOW_LOCAL_VM:-0}" != "1" ]; then
-  cat >&2 <<'EOF'
-Refusing to run QEMU on macOS.
-
-Use this script inside a disposable remote Linux host, GitHub Codespace, or
-cloud VM. The supported play-now path keeps QEMU off the local Mac.
-EOF
-  exit 1
-fi
-
 for tool in make nasm clang qemu-system-x86_64 curl; do
   require_tool "$tool"
 done

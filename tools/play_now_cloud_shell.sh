@@ -20,11 +20,6 @@ repo="${VIBE_REPO:-jadentripp/vibe-os}"
 ref="${VIBE_REF:-main}"
 workdir="${VIBE_WORKDIR:-/tmp/vibe-os-cloud-play}"
 
-if [ "$(uname -s)" = "Darwin" ] && [ "${ALLOW_LOCAL_VM:-0}" != "1" ]; then
-  echo "Refusing to run QEMU on macOS; use a disposable Linux host." >&2
-  exit 1
-fi
-
 if command -v apt-get >/dev/null 2>&1; then
   sudo apt-get update
   sudo apt-get install -y --no-install-recommends \
