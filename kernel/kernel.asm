@@ -30,7 +30,7 @@ VGA_ROWS equ 25
 VGA_ATTR equ 0x0f
 SMOKE_STATUS_ADDR equ 0x00040000
 SMOKE_STATUS_BYTES equ 131072
-PAYLOAD_PRIMARY_STDOUT_LOG_BYTES equ 32
+APP_PRIMARY_STDOUT_LOG_BYTES equ 32
 KEY_QUEUE_SIZE equ 32
 KEY_QUEUE_MASK equ KEY_QUEUE_SIZE - 1
 KEY_EVENT_DOWN equ 0x00000100
@@ -434,7 +434,7 @@ KERNEL_STACK_TOP equ 0x00070000
 PROC_KERNEL_PROCESS_STACK_TOP equ 0x00070000
 PROC_USER_PROBE_KERNEL_STACK_TOP equ 0x00071000
 PROC_PREEMPT_PROBE_KERNEL_STACK_TOP equ 0x00072000
-PROC_PAYLOAD_KERNEL_STACK_TOP equ 0x00073000
+PROC_APP_KERNEL_STACK_TOP equ 0x00073000
 PROC_GENERIC0_KERNEL_STACK_TOP equ 0x00074000
 PROC_GENERIC1_KERNEL_STACK_TOP equ 0x00075000
 PIT_INPUT_HZ equ 1193182
@@ -476,12 +476,12 @@ KERNEL_HIGHER_HALF_PDE_INDEX equ KERNEL_HIGHER_HALF_BASE >> 22
 FB_PAGE_TABLE_ADDR equ 0x0009c000
 PROC_PROBE_PAGE_DIR_ADDR equ 0x00080000
 PROC_PROBE_PDE3_TABLE_ADDR equ 0x00081000
-PROC_PAYLOAD_PAGE_DIR_ADDR equ 0x00082000
+PROC_APP_PAGE_DIR_ADDR equ 0x00082000
 PROC_PREEMPT_PAGE_DIR_ADDR equ 0x00083000
-PROC_PAYLOAD_PDE4_TABLE_ADDR equ 0x00084000
-PROC_PAYLOAD_PDE5_TABLE_ADDR equ 0x00085000
-PROC_PAYLOAD_PDE6_TABLE_ADDR equ 0x00086000
-PROC_PAYLOAD_PDE7_TABLE_ADDR equ 0x00087000
+PROC_APP_PDE4_TABLE_ADDR equ 0x00084000
+PROC_APP_PDE5_TABLE_ADDR equ 0x00085000
+PROC_APP_PDE6_TABLE_ADDR equ 0x00086000
+PROC_APP_PDE7_TABLE_ADDR equ 0x00087000
 PROC_PREEMPT_PDE3_TABLE_ADDR equ 0x00088000
 PROC_GENERIC0_PAGE_DIR_ADDR equ 0x00089000
 PROC_GENERIC0_PDE3_TABLE_ADDR equ 0x0008a000
@@ -589,23 +589,23 @@ FAT_ALLOC_MAP_ADDR equ FAT_ROOT_CACHE_ADDR + FAT_ROOT_CACHE_SECTORS * 512
 fat_table_cache equ FAT_TABLE_CACHE_ADDR
 fat_root_cache equ FAT_ROOT_CACHE_ADDR
 fat_alloc_map equ FAT_ALLOC_MAP_ADDR
-PAYLOAD_ELF_LOAD_ADDR equ 0x01000000
-PAYLOAD_ELF_LIMIT equ 0x02000000
-PAYLOAD_ELF_MAX_BYTES equ PAYLOAD_ELF_LIMIT - PAYLOAD_ELF_LOAD_ADDR
-PAYLOAD_USER_BASE equ PAYLOAD_ELF_LOAD_ADDR
-PAYLOAD_USER_HEAP_START equ 0x01900000
-PAYLOAD_USER_HEAP_END equ 0x01f00000
-PAYLOAD_USER_STACK_BOTTOM equ PAYLOAD_USER_HEAP_END
-PAYLOAD_USER_STACK_TOP equ PAYLOAD_ELF_LIMIT
-PAYLOAD_USER_END equ PAYLOAD_ELF_LIMIT
-PAYLOAD_HEAP_PAGE_COUNT equ (PAYLOAD_USER_HEAP_END - PAYLOAD_USER_HEAP_START) / PAGE_SIZE
-PAYLOAD_HEAP_BITMAP_BYTES equ (PAYLOAD_HEAP_PAGE_COUNT + 7) / 8
+APP_ELF_LOAD_ADDR equ 0x01000000
+APP_ELF_LIMIT equ 0x02000000
+APP_ELF_MAX_BYTES equ APP_ELF_LIMIT - APP_ELF_LOAD_ADDR
+APP_USER_BASE equ APP_ELF_LOAD_ADDR
+APP_USER_HEAP_START equ 0x01900000
+APP_USER_HEAP_END equ 0x01f00000
+APP_USER_STACK_BOTTOM equ APP_USER_HEAP_END
+APP_USER_STACK_TOP equ APP_ELF_LIMIT
+APP_USER_END equ APP_ELF_LIMIT
+APP_HEAP_PAGE_COUNT equ (APP_USER_HEAP_END - APP_USER_HEAP_START) / PAGE_SIZE
+APP_HEAP_BITMAP_BYTES equ (APP_HEAP_PAGE_COUNT + 7) / 8
 USER_KIND_NONE equ 0
 USER_KIND_PROBE equ 1
-USER_KIND_PAYLOAD_PRIMARY equ 2
+USER_KIND_APP_PRIMARY equ 2
 USER_KIND_PREEMPT_PROBE equ 3
 USER_KIND_GENERIC equ 4
-USER_KIND_PAYLOAD_SECONDARY equ 5
+USER_KIND_APP_SECONDARY equ 5
 USER_KIND_COUNT equ 6
 PROC_STATE_UNUSED equ 0
 PROC_STATE_READY equ 1
@@ -829,7 +829,7 @@ PROCESS_STATUS_BRK equ 52
 PROCESS_STATUS_SCHEDULER_TICKS equ 56
 PROCESS_STATUS_SCHEDULER_ROUNDS equ 60
 PLAYABLE_STATUS_FLAG equ 0x80000000
-PAYLOAD_INIT_STATUS_FLAG equ 0x40000000
+APP_INIT_STATUS_FLAG equ 0x40000000
 SAVELOAD_STATUS_FLAG equ 0x20000000
 SAVEACTION_STATUS_FLAG equ 0x10000000
 SAVEACTION_STREAM_EVENT equ 0x0080
@@ -988,17 +988,17 @@ PANIC_UNHANDLED_EXCEPTION equ 1
 FAULT_SOURCE_NONE equ 0
 FAULT_SOURCE_EXPECTED equ 1
 FAULT_SOURCE_USER equ 2
-FAULT_SOURCE_PAYLOAD_PRIMARY equ 3
+FAULT_SOURCE_APP_PRIMARY equ 3
 FAULT_SOURCE_KERNEL equ 4
-FAULT_SOURCE_PAYLOAD_SECONDARY equ 5
+FAULT_SOURCE_APP_SECONDARY equ 5
 FAULT_MODE_NONE equ 0
 FAULT_MODE_USER equ 1
 FAULT_MODE_KERNEL equ 2
-PAYLOAD_SECONDARY_STATUS_KIND_MASK equ 0xff000000
-PAYLOAD_SECONDARY_STATUS_INIT equ 0x51000000
-PAYLOAD_SECONDARY_STATUS_FRAME equ 0x52000000
-PAYLOAD_SECONDARY_STATUS_INPUT equ 0x53000000
-PAYLOAD_SECONDARY_STATUS_AUDIO equ 0x54000000
+APP_SECONDARY_STATUS_KIND_MASK equ 0xff000000
+APP_SECONDARY_STATUS_INIT equ 0x51000000
+APP_SECONDARY_STATUS_FRAME equ 0x52000000
+APP_SECONDARY_STATUS_INPUT equ 0x53000000
+APP_SECONDARY_STATUS_AUDIO equ 0x54000000
 PF_ACCESS_NONE equ 0
 PF_ACCESS_READ equ 1
 PF_ACCESS_WRITE equ 2
@@ -1422,32 +1422,32 @@ SHUTDOWN_PROOF_DELAY_SECONDS equ 20
 
 SC_LSHIFT equ 0x2a
 SC_RSHIFT equ 0x36
-PAYLOAD_KEY_RIGHTARROW equ 0xae
-PAYLOAD_KEY_LEFTARROW equ 0xac
-PAYLOAD_KEY_UPARROW equ 0xad
-PAYLOAD_KEY_DOWNARROW equ 0xaf
-PAYLOAD_KEY_ESCAPE equ 27
-PAYLOAD_KEY_ENTER equ 13
-PAYLOAD_KEY_TAB equ 9
-PAYLOAD_KEY_F1 equ 0xbb
-PAYLOAD_KEY_F2 equ 0xbc
-PAYLOAD_KEY_F3 equ 0xbd
-PAYLOAD_KEY_F4 equ 0xbe
-PAYLOAD_KEY_F5 equ 0xbf
-PAYLOAD_KEY_F6 equ 0xc0
-PAYLOAD_KEY_F7 equ 0xc1
-PAYLOAD_KEY_F8 equ 0xc2
-PAYLOAD_KEY_F9 equ 0xc3
-PAYLOAD_KEY_F10 equ 0xc4
-PAYLOAD_KEY_F11 equ 0xd7
-PAYLOAD_KEY_F12 equ 0xd8
-PAYLOAD_KEY_BACKSPACE equ 127
-PAYLOAD_KEY_PAUSE equ 0xff
-PAYLOAD_KEY_EQUALS equ 0x3d
-PAYLOAD_KEY_MINUS equ 0x2d
-PAYLOAD_KEY_RSHIFT equ 0xb6
-PAYLOAD_KEY_RCTRL equ 0x9d
-PAYLOAD_KEY_RALT equ 0xb8
+APP_KEY_RIGHTARROW equ 0xae
+APP_KEY_LEFTARROW equ 0xac
+APP_KEY_UPARROW equ 0xad
+APP_KEY_DOWNARROW equ 0xaf
+APP_KEY_ESCAPE equ 27
+APP_KEY_ENTER equ 13
+APP_KEY_TAB equ 9
+APP_KEY_F1 equ 0xbb
+APP_KEY_F2 equ 0xbc
+APP_KEY_F3 equ 0xbd
+APP_KEY_F4 equ 0xbe
+APP_KEY_F5 equ 0xbf
+APP_KEY_F6 equ 0xc0
+APP_KEY_F7 equ 0xc1
+APP_KEY_F8 equ 0xc2
+APP_KEY_F9 equ 0xc3
+APP_KEY_F10 equ 0xc4
+APP_KEY_F11 equ 0xd7
+APP_KEY_F12 equ 0xd8
+APP_KEY_BACKSPACE equ 127
+APP_KEY_PAUSE equ 0xff
+APP_KEY_EQUALS equ 0x3d
+APP_KEY_MINUS equ 0x2d
+APP_KEY_RSHIFT equ 0xb6
+APP_KEY_RCTRL equ 0x9d
+APP_KEY_RALT equ 0xb8
 
 start:
     cli
@@ -1547,9 +1547,9 @@ user_probe_finished:
     mov ss, ax
     call kernel_switch_main_stack_and_return
     call process_return_to_kernel
-    call process_boot_launch_payload
+    call process_boot_launch_app
 
-payload_user_finished:
+app_user_finished:
     mov ax, DATA_SEG
     mov ds, ax
     mov es, ax
@@ -1561,7 +1561,7 @@ payload_user_finished:
     call clear_screen
     mov esi, banner
     call print_string
-    call draw_primary_payload_status
+    call draw_primary_app_status
     call draw_heap_status
     call draw_timer_status
     call write_smoke_status
@@ -2058,83 +2058,83 @@ handle_command:
     call print_dec
     call newline
 
-    mov esi, primary_payload_elf_prefix
+    mov esi, primary_app_elf_prefix
     call print_string
-    cmp dword [payload_exec_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
-    je .primary_payload_elf_ok
+    cmp dword [app_exec_status + USER_KIND_APP_PRIMARY * 4], 1
+    je .primary_app_elf_ok
     mov esi, fail_text
     call print_string
     jmp .primary_asset_load_address
 
-.primary_payload_elf_ok:
+.primary_app_elf_ok:
     mov esi, ok_text
     call print_string
 
-    mov esi, primary_payload_elf_size_prefix
+    mov esi, primary_app_elf_size_prefix
     call print_string
-    mov eax, [payload_exec_size + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov eax, [app_exec_size + USER_KIND_APP_PRIMARY * 4]
     call print_dec
     mov esi, bytes_suffix
     call print_string
 
-    mov esi, primary_payload_elf_cluster_prefix
+    mov esi, primary_app_elf_cluster_prefix
     call print_string
-    mov eax, [payload_exec_first_cluster + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov eax, [app_exec_first_cluster + USER_KIND_APP_PRIMARY * 4]
     call print_dec
     call newline
 
-    mov esi, primary_payload_elf_load_prefix
+    mov esi, primary_app_elf_load_prefix
     call print_string
-    cmp dword [payload_exec_load_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
-    je .primary_payload_elf_load_ok
+    cmp dword [app_exec_load_status + USER_KIND_APP_PRIMARY * 4], 1
+    je .primary_app_elf_load_ok
     mov esi, fail_text
     call print_string
     jmp .primary_asset_load_address
 
-.primary_payload_elf_load_ok:
+.primary_app_elf_load_ok:
     mov esi, ok_text
     call print_string
 
-    mov esi, primary_payload_elf_parse_prefix
+    mov esi, primary_app_elf_parse_prefix
     call print_string
-    cmp dword [payload_exec_parse_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
-    je .primary_payload_elf_parse_ok
+    cmp dword [app_exec_parse_status + USER_KIND_APP_PRIMARY * 4], 1
+    je .primary_app_elf_parse_ok
     mov esi, fail_text
     call print_string
     jmp .primary_asset_load_address
 
-.primary_payload_elf_parse_ok:
+.primary_app_elf_parse_ok:
     mov esi, ok_text
     call print_string
 
-    mov esi, primary_payload_elf_entry_prefix
+    mov esi, primary_app_elf_entry_prefix
     call print_string
-    mov eax, [payload_exec_entry + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov eax, [app_exec_entry + USER_KIND_APP_PRIMARY * 4]
     call print_hex32
     call newline
 
-    mov esi, primary_payload_elf_mem_prefix
+    mov esi, primary_app_elf_mem_prefix
     call print_string
-    mov eax, [payload_exec_segment_memsz + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov eax, [app_exec_segment_memsz + USER_KIND_APP_PRIMARY * 4]
     call print_dec
     mov esi, bytes_suffix
     call print_string
 
-    mov esi, primary_payload_elf_end_prefix
+    mov esi, primary_app_elf_end_prefix
     call print_string
-    mov eax, [payload_exec_segment_end + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov eax, [app_exec_segment_end + USER_KIND_APP_PRIMARY * 4]
     call print_hex32
     call newline
 
-    mov esi, payload_user_window_prefix
+    mov esi, app_user_window_prefix
     call print_string
-    cmp byte [payload_user_window_status], 1
-    je .payload_user_window_ok
+    cmp byte [app_user_window_status], 1
+    je .app_user_window_ok
     mov esi, fail_text
     call print_string
     jmp .primary_asset_load_address
 
-.payload_user_window_ok:
+.app_user_window_ok:
     mov esi, ok_text
     call print_string
 
@@ -3504,7 +3504,7 @@ mmio_install_process_dirs:
     mov [edi + edx * 4], ebx
     mov edi, PROC_PREEMPT_PAGE_DIR_ADDR
     mov [edi + edx * 4], ebx
-    mov edi, PROC_PAYLOAD_PAGE_DIR_ADDR
+    mov edi, PROC_APP_PAGE_DIR_ADDR
     mov [edi + edx * 4], ebx
     mov edi, PROC_GENERIC0_PAGE_DIR_ADDR
     mov [edi + edx * 4], ebx
@@ -5687,7 +5687,7 @@ kernel_relocation_dir_validate:
     je .fail
     cmp eax, PROC_PROBE_PAGE_DIR_ADDR
     je .fail
-    cmp eax, PROC_PAYLOAD_PAGE_DIR_ADDR
+    cmp eax, PROC_APP_PAGE_DIR_ADDR
     je .fail
     cmp eax, PROC_PREEMPT_PAGE_DIR_ADDR
     je .fail
@@ -6476,7 +6476,7 @@ kernel_persistent_alias_install_process_dirs:
     or dword [kernel_persistent_alias_dir_mask], 0x00000002
     mov [PROC_PREEMPT_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)], eax
     or dword [kernel_persistent_alias_dir_mask], 0x00000004
-    mov [PROC_PAYLOAD_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)], eax
+    mov [PROC_APP_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)], eax
     or dword [kernel_persistent_alias_dir_mask], 0x00000008
     mov [PROC_GENERIC0_PAGE_DIR_ADDR + (KERNEL_HIGHER_HALF_PDE_INDEX * 4)], eax
     or dword [kernel_persistent_alias_dir_mask], 0x00000010
@@ -6623,7 +6623,7 @@ framebuffer_install_process_dirs:
     mov [edi + eax * 4], ebx
     mov edi, PROC_PREEMPT_PAGE_DIR_ADDR
     mov [edi + eax * 4], ebx
-    mov edi, PROC_PAYLOAD_PAGE_DIR_ADDR
+    mov edi, PROC_APP_PAGE_DIR_ADDR
     mov [edi + eax * 4], ebx
     mov edi, PROC_GENERIC0_PAGE_DIR_ADDR
     mov [edi + eax * 4], ebx
@@ -6748,7 +6748,7 @@ process_vm_init_page_spaces:
     rep movsd
 
     mov esi, PAGING_DIR_ADDR
-    mov edi, PROC_PAYLOAD_PAGE_DIR_ADDR
+    mov edi, PROC_APP_PAGE_DIR_ADDR
     mov ecx, 1024
     cld
     rep movsd
@@ -6854,45 +6854,45 @@ process_vm_init_page_spaces:
     call vmm_clear_process_guard_page
 
     mov esi, PAGING_TABLES_ADDR + (4 * PAGE_SIZE)
-    mov edi, PROC_PAYLOAD_PDE4_TABLE_ADDR
+    mov edi, PROC_APP_PDE4_TABLE_ADDR
     mov ecx, 1024
     cld
     rep movsd
-    mov dword [PROC_PAYLOAD_PAGE_DIR_ADDR + (4 * 4)], PROC_PAYLOAD_PDE4_TABLE_ADDR | PTE_USER_FLAGS
+    mov dword [PROC_APP_PAGE_DIR_ADDR + (4 * 4)], PROC_APP_PDE4_TABLE_ADDR | PTE_USER_FLAGS
 
     mov esi, PAGING_TABLES_ADDR + (5 * PAGE_SIZE)
-    mov edi, PROC_PAYLOAD_PDE5_TABLE_ADDR
+    mov edi, PROC_APP_PDE5_TABLE_ADDR
     mov ecx, 1024
     cld
     rep movsd
-    mov dword [PROC_PAYLOAD_PAGE_DIR_ADDR + (5 * 4)], PROC_PAYLOAD_PDE5_TABLE_ADDR | PTE_USER_FLAGS
+    mov dword [PROC_APP_PAGE_DIR_ADDR + (5 * 4)], PROC_APP_PDE5_TABLE_ADDR | PTE_USER_FLAGS
 
     mov esi, PAGING_TABLES_ADDR + (6 * PAGE_SIZE)
-    mov edi, PROC_PAYLOAD_PDE6_TABLE_ADDR
+    mov edi, PROC_APP_PDE6_TABLE_ADDR
     mov ecx, 1024
     cld
     rep movsd
-    mov dword [PROC_PAYLOAD_PAGE_DIR_ADDR + (6 * 4)], PROC_PAYLOAD_PDE6_TABLE_ADDR | PTE_USER_FLAGS
+    mov dword [PROC_APP_PAGE_DIR_ADDR + (6 * 4)], PROC_APP_PDE6_TABLE_ADDR | PTE_USER_FLAGS
 
     mov esi, PAGING_TABLES_ADDR + (7 * PAGE_SIZE)
-    mov edi, PROC_PAYLOAD_PDE7_TABLE_ADDR
+    mov edi, PROC_APP_PDE7_TABLE_ADDR
     mov ecx, 1024
     cld
     rep movsd
-    mov dword [PROC_PAYLOAD_PAGE_DIR_ADDR + (7 * 4)], PROC_PAYLOAD_PDE7_TABLE_ADDR | PTE_USER_FLAGS
+    mov dword [PROC_APP_PAGE_DIR_ADDR + (7 * 4)], PROC_APP_PDE7_TABLE_ADDR | PTE_USER_FLAGS
 
-    mov ebx, PROC_PAYLOAD_PAGE_DIR_ADDR
-    mov eax, PAYLOAD_USER_BASE
-    mov edx, PAYLOAD_USER_HEAP_START
+    mov ebx, PROC_APP_PAGE_DIR_ADDR
+    mov eax, APP_USER_BASE
+    mov edx, APP_USER_HEAP_START
     call vmm_mark_process_user_range
-    mov eax, PAYLOAD_USER_STACK_BOTTOM
-    mov edx, PAYLOAD_USER_STACK_TOP
+    mov eax, APP_USER_STACK_BOTTOM
+    mov edx, APP_USER_STACK_TOP
     call vmm_mark_process_user_range
-    mov eax, PAYLOAD_USER_BASE - PAGE_SIZE
+    mov eax, APP_USER_BASE - PAGE_SIZE
     call vmm_clear_process_guard_page
-    mov eax, PAYLOAD_USER_STACK_BOTTOM
+    mov eax, APP_USER_STACK_BOTTOM
     call vmm_clear_process_guard_page
-    mov eax, PAYLOAD_USER_STACK_TOP
+    mov eax, APP_USER_STACK_TOP
     call vmm_clear_process_guard_page
 
     call vmm_probe_user_guard_pages
@@ -7065,12 +7065,12 @@ vmm_probe_user_guard_pages:
     mov eax, USER_HEAP_END
     call vmm_probe_absent_guard_page
 
-    mov ebx, PROC_PAYLOAD_PAGE_DIR_ADDR
-    mov eax, PAYLOAD_USER_BASE - PAGE_SIZE
+    mov ebx, PROC_APP_PAGE_DIR_ADDR
+    mov eax, APP_USER_BASE - PAGE_SIZE
     call vmm_probe_absent_guard_page
-    mov eax, PAYLOAD_USER_STACK_BOTTOM
+    mov eax, APP_USER_STACK_BOTTOM
     call vmm_probe_absent_guard_page
-    mov eax, PAYLOAD_USER_STACK_TOP
+    mov eax, APP_USER_STACK_TOP
     call vmm_probe_absent_guard_page
 
     popad
@@ -7269,15 +7269,15 @@ pmm_init:
     mov ecx, 1
     call pmm_reserve_pages
 
-    mov eax, PAYLOAD_USER_BASE - PAGE_SIZE
+    mov eax, APP_USER_BASE - PAGE_SIZE
     mov ecx, 1
     call pmm_reserve_pages
 
-    mov eax, PAYLOAD_USER_BASE
-    mov ecx, (PAYLOAD_USER_END - PAYLOAD_USER_BASE) / PAGE_SIZE
+    mov eax, APP_USER_BASE
+    mov ecx, (APP_USER_END - APP_USER_BASE) / PAGE_SIZE
     call pmm_reserve_pages
 
-    mov eax, PAYLOAD_USER_STACK_TOP
+    mov eax, APP_USER_STACK_TOP
     mov ecx, 1
     call pmm_reserve_pages
 
@@ -8806,13 +8806,13 @@ audio_init:
     mov byte [audio_status], 0
     mov byte [sb16_major_version], 0
     mov byte [sb16_minor_version], 0
-    mov dword [payload_primary_audio_call_count], 0
-    mov dword [payload_primary_audio_start_count], 0
-    mov dword [payload_primary_audio_stop_count], 0
-    mov dword [payload_primary_audio_update_count], 0
-    mov dword [payload_primary_audio_last_command], 0
-    mov dword [payload_primary_audio_last_handle], 0
-    mov dword [payload_primary_audio_last_packed], 0
+    mov dword [app_primary_audio_call_count], 0
+    mov dword [app_primary_audio_start_count], 0
+    mov dword [app_primary_audio_stop_count], 0
+    mov dword [app_primary_audio_update_count], 0
+    mov dword [app_primary_audio_last_command], 0
+    mov dword [app_primary_audio_last_handle], 0
+    mov dword [app_primary_audio_last_packed], 0
     mov dword [sb16_sfx_voice_start_count], 0
     mov dword [sb16_sfx_voice_stop_count], 0
     mov dword [sb16_sfx_voice_update_count], 0
@@ -11592,10 +11592,10 @@ storage_init:
     mov byte [primary_package_parse_status], 0
     mov byte [user_elf_status], 0
     mov byte [user_elf_parse_status], 0
-    mov byte [payload_elf_status], 0
-    mov byte [payload_elf_load_status], 0
-    mov byte [payload_elf_parse_status], 0
-    call payload_exec_reset_all
+    mov byte [app_elf_status], 0
+    mov byte [app_elf_load_status], 0
+    mov byte [app_elf_parse_status], 0
+    call app_exec_reset_all
     mov dword [ata_last_lba], 0
     mov dword [ata_last_op], ATA_OP_NONE
     mov dword [ata_wait_phase], ATA_WAIT_IDLE
@@ -11709,12 +11709,12 @@ storage_init:
     mov dword [user_elf_size], 0
     mov dword [user_elf_sectors_read], 0
     mov dword [user_entry_addr], 0
-    mov dword [payload_elf_size], 0
-    mov dword [payload_elf_sectors_read], 0
-    mov dword [payload_entry_addr], 0
-    mov dword [payload_segment_filesz], 0
-    mov dword [payload_segment_memsz], 0
-    mov dword [payload_segment_end], 0
+    mov dword [app_elf_size], 0
+    mov dword [app_elf_sectors_read], 0
+    mov dword [app_entry_addr], 0
+    mov dword [app_segment_filesz], 0
+    mov dword [app_segment_memsz], 0
+    mov dword [app_segment_end], 0
     mov ecx, USER_FD_COUNT
     xor ebx, ebx
 
@@ -11752,8 +11752,8 @@ storage_init:
     mov dword [persistence_marker_sizes + ebx * 4], 0
     inc ebx
     loop .clear_persistence_markers
-    mov byte [payload_user_window_status], 0
-    mov word [payload_elf_first_cluster], 0
+    mov byte [app_user_window_status], 0
+    mov word [app_elf_first_cluster], 0
     mov dword [current_pid], 0
     mov dword [current_process_ptr], 0
     mov dword [current_user_base], 0
@@ -11814,8 +11814,8 @@ storage_init:
     mov dword [fault_user_contained_count], 0
     mov dword [fault_kernel_panic_count], 0
     call user_io_reset_all
-    call payload_lifecycle_reset_all
-    call payload_telemetry_reset_all
+    call app_lifecycle_reset_all
+    call app_telemetry_reset_all
     mov dword [save_slot_io_flags], 0
     mov dword [save_slot_io_slot], 0xffffffff
     mov dword [save_slot_io_open_count], 0
@@ -11864,59 +11864,59 @@ storage_init:
     mov dword [framebuffer_generic_last_op], 0
     mov dword [framebuffer_generic_last_source], 0
     mov dword [framebuffer_generic_last_kind], 0
-    mov byte [payload_primary_gameplay_status], 0
-    mov dword [payload_primary_gameplay_report_count], 0
-    mov dword [payload_primary_game_state_packed], 0
-    mov dword [payload_primary_game_state], 0
-    mov dword [payload_primary_game_episode], 0
-    mov dword [payload_primary_game_map], 0
-    mov dword [payload_primary_game_map_pair], 0
-    mov dword [payload_primary_game_flags], 0
-    mov dword [payload_primary_game_tic], 0
-    mov dword [payload_primary_level_time], 0
-    mov dword [payload_primary_player_flags], 0
-    mov dword [payload_primary_player_buttons], 0
-    mov dword [payload_primary_game_action], 0
-    mov dword [payload_primary_player_x], 0
-    mov dword [payload_primary_player_y], 0
-    mov dword [payload_primary_player_origin_set], 0
-    mov dword [payload_primary_player_origin_x], 0
-    mov dword [payload_primary_player_origin_y], 0
-    mov dword [payload_primary_player_delta], 0
-    mov dword [payload_primary_player_cmd], 0
-    mov dword [payload_primary_player_angle], 0
-    mov dword [payload_primary_player_angle_origin_set], 0
-    mov dword [payload_primary_player_origin_angle], 0
-    mov dword [payload_primary_player_angle_delta], 0
-    mov dword [payload_primary_player_ammo], 0
-    mov dword [payload_primary_player_refire], 0
-    mov dword [payload_primary_player_weapon], 0
-    mov dword [payload_secondary_package_magic_seen], 0
-    mov dword [payload_secondary_gameplay_status], 0
-    mov dword [payload_secondary_frame_report_count], 0
-    mov dword [payload_secondary_frame_count], 0
-    mov dword [payload_secondary_server_active], 0
-    mov dword [payload_secondary_input_events], 0
-    mov dword [payload_secondary_input_buttons], 0
-    mov dword [payload_secondary_audio_writes], 0
-    mov dword [payload_secondary_audio_handle], 0
-    mov dword [payload_primary_key_down_seen], 0
-    mov dword [payload_primary_key_last_event], 0
-    mov dword [payload_primary_mouse_event_count], 0
-    mov dword [payload_primary_mouse_buttons_seen], 0
-    mov dword [payload_primary_mouse_delta_x], 0
-    mov dword [payload_primary_mouse_delta_y], 0
-    mov dword [payload_primary_mouse_last_event], 0
-    mov dword [payload_primary_audio_call_count], 0
-    mov dword [payload_primary_audio_start_count], 0
-    mov dword [payload_primary_audio_stop_count], 0
-    mov dword [payload_primary_audio_update_count], 0
-    mov dword [payload_primary_audio_last_command], 0
-    mov dword [payload_primary_audio_last_handle], 0
-    mov dword [payload_primary_audio_last_packed], 0
-    mov dword [payload_primary_asset_magic_seen], 0
-    mov dword [payload_primary_stdout_log_len], 0
-    mov byte [payload_primary_stdout_log_buffer], 0
+    mov byte [app_primary_gameplay_status], 0
+    mov dword [app_primary_gameplay_report_count], 0
+    mov dword [app_primary_game_state_packed], 0
+    mov dword [app_primary_game_state], 0
+    mov dword [app_primary_game_episode], 0
+    mov dword [app_primary_game_map], 0
+    mov dword [app_primary_game_map_pair], 0
+    mov dword [app_primary_game_flags], 0
+    mov dword [app_primary_game_tic], 0
+    mov dword [app_primary_level_time], 0
+    mov dword [app_primary_player_flags], 0
+    mov dword [app_primary_player_buttons], 0
+    mov dword [app_primary_game_action], 0
+    mov dword [app_primary_player_x], 0
+    mov dword [app_primary_player_y], 0
+    mov dword [app_primary_player_origin_set], 0
+    mov dword [app_primary_player_origin_x], 0
+    mov dword [app_primary_player_origin_y], 0
+    mov dword [app_primary_player_delta], 0
+    mov dword [app_primary_player_cmd], 0
+    mov dword [app_primary_player_angle], 0
+    mov dword [app_primary_player_angle_origin_set], 0
+    mov dword [app_primary_player_origin_angle], 0
+    mov dword [app_primary_player_angle_delta], 0
+    mov dword [app_primary_player_ammo], 0
+    mov dword [app_primary_player_refire], 0
+    mov dword [app_primary_player_weapon], 0
+    mov dword [app_secondary_package_magic_seen], 0
+    mov dword [app_secondary_gameplay_status], 0
+    mov dword [app_secondary_frame_report_count], 0
+    mov dword [app_secondary_frame_count], 0
+    mov dword [app_secondary_server_active], 0
+    mov dword [app_secondary_input_events], 0
+    mov dword [app_secondary_input_buttons], 0
+    mov dword [app_secondary_audio_writes], 0
+    mov dword [app_secondary_audio_handle], 0
+    mov dword [app_primary_key_down_seen], 0
+    mov dword [app_primary_key_last_event], 0
+    mov dword [app_primary_mouse_event_count], 0
+    mov dword [app_primary_mouse_buttons_seen], 0
+    mov dword [app_primary_mouse_delta_x], 0
+    mov dword [app_primary_mouse_delta_y], 0
+    mov dword [app_primary_mouse_last_event], 0
+    mov dword [app_primary_audio_call_count], 0
+    mov dword [app_primary_audio_start_count], 0
+    mov dword [app_primary_audio_stop_count], 0
+    mov dword [app_primary_audio_update_count], 0
+    mov dword [app_primary_audio_last_command], 0
+    mov dword [app_primary_audio_last_handle], 0
+    mov dword [app_primary_audio_last_packed], 0
+    mov dword [app_primary_asset_magic_seen], 0
+    mov dword [app_primary_stdout_log_len], 0
+    mov byte [app_primary_stdout_log_buffer], 0
     mov byte [present_status], 0
     mov dword [present_frame_arg], 0
     mov dword [present_palette_arg], 0
@@ -17468,9 +17468,9 @@ readonly_file_read:
     mov edx, [edi]
     cmp edx, 0x4b434150
     jne .readonly_maybe_primary_asset
-    cmp dword [payload_secondary_package_magic_seen], 0
+    cmp dword [app_secondary_package_magic_seen], 0
     jne .readonly_maybe_primary_asset
-    mov [payload_secondary_package_magic_seen], edx
+    mov [app_secondary_package_magic_seen], edx
 
 .readonly_maybe_primary_asset:
     call readonly_fd_is_primary_asset_file
@@ -17482,9 +17482,9 @@ readonly_file_read:
     mov edi, [file_io_user_ptr]
     mov edx, [edi]
     mov [user_primary_asset_magic_seen], edx
-    cmp dword [payload_primary_asset_magic_seen], 0
+    cmp dword [app_primary_asset_magic_seen], 0
     jne .return_done
-    mov [payload_primary_asset_magic_seen], edx
+    mov [app_primary_asset_magic_seen], edx
 
 .return_done:
     mov eax, [file_io_done]
@@ -18126,8 +18126,8 @@ scheduler_init:
     call process_reset_user_probe
     mov esi, process_preempt_probe
     call process_reset_preempt_probe
-    mov esi, process_payload
-    call process_reset_payload
+    mov esi, process_app
+    call process_reset_app
     mov esi, process_generic0
     call process_reset_generic_unused
     mov esi, process_generic1
@@ -18167,11 +18167,11 @@ process_seed_wait_reap_probe_child:
     pop eax
     ret
 
-process_reset_payload:
+process_reset_app:
     call process_reset_accounting
     mov dword [esi + PROC_KIND], USER_KIND_GENERIC
     mov dword [esi + PROC_STATE], PROC_STATE_READY
-    mov dword [esi + PROC_BRK], PAYLOAD_USER_HEAP_START
+    mov dword [esi + PROC_BRK], APP_USER_HEAP_START
     mov dword [esi + PROC_ENTRY], 0
     ret
 
@@ -18622,10 +18622,10 @@ process_is_user_exec_target:
     clc
     ret
 
-user_kind_is_large_payload:
-    cmp eax, USER_KIND_PAYLOAD_PRIMARY
+user_kind_is_large_app:
+    cmp eax, USER_KIND_APP_PRIMARY
     je .yes
-    cmp eax, USER_KIND_PAYLOAD_SECONDARY
+    cmp eax, USER_KIND_APP_SECONDARY
     je .yes
     stc
     ret
@@ -18634,20 +18634,20 @@ user_kind_is_large_payload:
     clc
     ret
 
-payload_kind_to_fault_source:
-    cmp eax, USER_KIND_PAYLOAD_PRIMARY
-    je .primary_payload
-    cmp eax, USER_KIND_PAYLOAD_SECONDARY
-    je .secondary_payload
+app_kind_to_fault_source:
+    cmp eax, USER_KIND_APP_PRIMARY
+    je .primary_app
+    cmp eax, USER_KIND_APP_SECONDARY
+    je .secondary_app
     mov eax, FAULT_SOURCE_USER
     ret
 
-.primary_payload:
-    mov eax, FAULT_SOURCE_PAYLOAD_PRIMARY
+.primary_app:
+    mov eax, FAULT_SOURCE_APP_PRIMARY
     ret
 
-.secondary_payload:
-    mov eax, FAULT_SOURCE_PAYLOAD_SECONDARY
+.secondary_app:
+    mov eax, FAULT_SOURCE_APP_SECONDARY
     ret
 
 process_alloc_generic_exec_slot:
@@ -19264,7 +19264,7 @@ process_fpu_context_for_ptr:
     je .slot1
     cmp edx, process_preempt_probe
     je .slot2
-    cmp edx, process_payload
+    cmp edx, process_app
     je .slot3
     cmp edx, process_generic0
     je .slot4
@@ -19946,23 +19946,23 @@ scheduler_tick:
     mov eax, [esi + PROC_KERNEL_STACK_TOP]
     mov [scheduler_last_preempt_to_kstack], eax
     mov eax, [scheduler_last_preempt_from_kind]
-    call user_kind_is_large_payload
-    jc .check_preempt_probe_to_payload
+    call user_kind_is_large_app
+    jc .check_preempt_probe_to_app
 
-.check_payload_to_preempt_probe:
+.check_app_to_preempt_probe:
     cmp dword [scheduler_last_preempt_to_kind], USER_KIND_PREEMPT_PROBE
     jne .pair_mask_done
     or dword [scheduler_preempt_pair_mask], 0x1
     jmp .pair_mask_done
 
-.check_preempt_probe_to_payload:
+.check_preempt_probe_to_app:
     cmp eax, USER_KIND_PREEMPT_PROBE
     jne .pair_mask_done
     mov eax, [scheduler_last_preempt_to_kind]
-    call user_kind_is_large_payload
+    call user_kind_is_large_app
     jc .pair_mask_done
 
-.preempt_probe_to_payload:
+.preempt_probe_to_app:
     or dword [scheduler_preempt_pair_mask], 0x2
 
 .pair_mask_done:
@@ -20625,15 +20625,15 @@ scheduler_preempt_self_test:
     call process_reset_user_probe
     mov esi, process_preempt_probe
     call process_reset_preempt_probe
-    mov esi, process_payload
-    call process_reset_payload
+    mov esi, process_app
+    call process_reset_app
     popad
     ret
 
-process_boot_launch_payload:
+process_boot_launch_app:
     cmp dword [sys_exec_successes], 0
     jne .done
-    mov dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 4
+    mov dword [app_lifecycle_run_status + USER_KIND_APP_PRIMARY * 4], 4
 
 .done:
     ret
@@ -20686,37 +20686,37 @@ process_exec_path:
     mov eax, [fat_found_size]
     mov [process_exec_size], eax
 
-    cmp dword [process_exec_target], process_payload
-    je near .bind_large_payload_artifact
+    cmp dword [process_exec_target], process_app
+    je near .bind_large_app_artifact
     mov eax, [process_exec_target]
     call process_is_user_exec_target
     jnc near .bind_user_artifact
     jmp near .reserve
 
-.bind_large_payload_artifact:
+.bind_large_app_artifact:
     mov ax, [process_exec_first_cluster]
-    mov [payload_elf_first_cluster], ax
+    mov [app_elf_first_cluster], ax
     mov eax, [process_exec_size]
-    mov [payload_elf_size], eax
-    mov byte [payload_elf_status], 1
-    mov byte [payload_elf_load_status], 0
-    mov byte [payload_elf_parse_status], 0
+    mov [app_elf_size], eax
+    mov byte [app_elf_status], 1
+    mov byte [app_elf_load_status], 0
+    mov byte [app_elf_parse_status], 0
     mov ax, [process_exec_first_cluster]
     movzx edx, ax
-    mov eax, payload_exec_first_cluster
-    call payload_exec_store_target
+    mov eax, app_exec_first_cluster
+    call app_exec_store_target
     mov eax, [process_exec_size]
     mov edx, eax
-    mov eax, payload_exec_size
-    call payload_exec_store_target
+    mov eax, app_exec_size
+    call app_exec_store_target
     mov edx, 1
-    mov eax, payload_exec_status
-    call payload_exec_store_target
+    mov eax, app_exec_status
+    call app_exec_store_target
     xor edx, edx
-    mov eax, payload_exec_load_status
-    call payload_exec_store_target
-    mov eax, payload_exec_parse_status
-    call payload_exec_store_target
+    mov eax, app_exec_load_status
+    call app_exec_store_target
+    mov eax, app_exec_parse_status
+    call app_exec_store_target
     jmp near .reserve
 
 .bind_user_artifact:
@@ -20763,23 +20763,23 @@ process_exec_path:
     cmp dword [esi], ELF_MAGIC
     jne .load_fail_restore_cr3
 
-    cmp dword [process_exec_target], process_payload
-    je .loaded_payload
+    cmp dword [process_exec_target], process_app
+    je .loaded_app
     mov eax, [process_exec_target]
     call process_is_user_exec_target
     jnc .loaded_user_probe
     jmp .unsupported_restore_cr3
 
-.loaded_payload:
+.loaded_app:
     mov eax, [process_exec_sectors_read]
-    mov [payload_elf_sectors_read], eax
-    mov byte [payload_elf_load_status], 1
+    mov [app_elf_sectors_read], eax
+    mov byte [app_elf_load_status], 1
     mov edx, eax
-    mov eax, payload_exec_sectors_read
-    call payload_exec_store_target
+    mov eax, app_exec_sectors_read
+    call app_exec_store_target
     mov edx, 1
-    mov eax, payload_exec_load_status
-    call payload_exec_store_target
+    mov eax, app_exec_load_status
+    call app_exec_store_target
     jmp .prepare
 
 .loaded_user_probe:
@@ -20841,19 +20841,19 @@ process_exec_path:
 
 .load_fail:
     mov dword [process_exec_last_error], -ERRNO_EIO
-    cmp dword [process_exec_target], process_payload
-    je .load_fail_payload
+    cmp dword [process_exec_target], process_app
+    je .load_fail_app
     mov eax, [process_exec_target]
     call process_is_user_exec_target
     jc .fail
     mov byte [user_elf_status], 2
     jmp .fail
 
-.load_fail_payload:
-    mov byte [payload_elf_load_status], 2
+.load_fail_app:
+    mov byte [app_elf_load_status], 2
     mov edx, 2
-    mov eax, payload_exec_load_status
-    call payload_exec_store_target
+    mov eax, app_exec_load_status
+    call app_exec_store_target
 
 .fail:
     mov esi, [process_exec_target]
@@ -20887,9 +20887,9 @@ process_exec_find_file:
     cmp eax, app_elf_name_83
     jne .root_file
     mov eax, [process_exec_target_kind]
-    cmp eax, USER_KIND_PAYLOAD_PRIMARY
+    cmp eax, USER_KIND_APP_PRIMARY
     je .app_file
-    cmp eax, USER_KIND_PAYLOAD_SECONDARY
+    cmp eax, USER_KIND_APP_SECONDARY
     je .app_file
 
 .root_file:
@@ -20938,7 +20938,7 @@ process_exec_find_app_file:
     mov dx, [fat_found_first_cluster]
 
     mov eax, [process_exec_target_kind]
-    cmp eax, USER_KIND_PAYLOAD_SECONDARY
+    cmp eax, USER_KIND_APP_SECONDARY
     je .quake_dir
     mov edi, doom_dir_name_83
     jmp .find_app_dir
@@ -21184,37 +21184,37 @@ process_exec_resolve_generic_root83:
     ret
 
 process_exec_prepare_elf_image:
-    cmp dword [process_exec_target], process_payload
-    je .prepare_payload
+    cmp dword [process_exec_target], process_app
+    je .prepare_app
     mov eax, [process_exec_target]
     call process_is_user_exec_target
     jnc .prepare_user_probe
     jmp .fail
 
-.prepare_payload:
+.prepare_app:
     xor edx, edx
-    mov eax, payload_exec_parse_status
-    call payload_exec_store_target
-    call payload_elf_prepare
+    mov eax, app_exec_parse_status
+    call app_exec_store_target
+    call app_elf_prepare
     jc .fail
-    mov eax, [payload_entry_addr]
+    mov eax, [app_entry_addr]
     mov edx, eax
-    mov eax, payload_exec_entry
-    call payload_exec_store_target
-    mov eax, [payload_segment_memsz]
+    mov eax, app_exec_entry
+    call app_exec_store_target
+    mov eax, [app_segment_memsz]
     mov edx, eax
-    mov eax, payload_exec_segment_memsz
-    call payload_exec_store_target
-    mov eax, [payload_segment_end]
+    mov eax, app_exec_segment_memsz
+    call app_exec_store_target
+    mov eax, [app_segment_end]
     mov edx, eax
-    mov eax, payload_exec_segment_end
-    call payload_exec_store_target
+    mov eax, app_exec_segment_end
+    call app_exec_store_target
     mov edx, 1
-    mov eax, payload_exec_parse_status
-    call payload_exec_store_target
+    mov eax, app_exec_parse_status
+    call app_exec_store_target
 
-.prepare_payload_entry:
-    mov eax, [payload_entry_addr]
+.prepare_app_entry:
+    mov eax, [app_entry_addr]
     mov [process_exec_entry], eax
     clc
     ret
@@ -21228,11 +21228,11 @@ process_exec_prepare_elf_image:
     ret
 
 .fail:
-    cmp dword [process_exec_target], process_payload
+    cmp dword [process_exec_target], process_app
     jne .fail_status_ready
     mov edx, 2
-    mov eax, payload_exec_parse_status
-    call payload_exec_store_target
+    mov eax, app_exec_parse_status
+    call app_exec_store_target
 
 .fail_status_ready:
     stc
@@ -21257,15 +21257,15 @@ process_exec_handoff_current:
     cmp dword [process_exec_entry], 0
     je .eio
 
-    cmp esi, process_payload
-    je .reset_payload_target
+    cmp esi, process_app
+    je .reset_app_target
     mov eax, esi
     call process_is_user_exec_target
     jnc .reset_user_probe_target
     jmp .einval
 
-.reset_payload_target:
-    call process_reset_payload
+.reset_app_target:
+    call process_reset_app
     mov eax, [process_exec_target_kind]
     cmp eax, USER_KIND_NONE
     jne .reset_large_kind_ready
@@ -21275,44 +21275,44 @@ process_exec_handoff_current:
     mov [esi + PROC_KIND], eax
     mov eax, [process_exec_entry]
     mov [esi + PROC_ENTRY], eax
-    cmp dword [process_exec_target_kind], USER_KIND_PAYLOAD_PRIMARY
-    je .reset_primary_payload_status
-    cmp dword [process_exec_target_kind], USER_KIND_PAYLOAD_SECONDARY
-    je .reset_secondary_payload_status
+    cmp dword [process_exec_target_kind], USER_KIND_APP_PRIMARY
+    je .reset_primary_app_status
+    cmp dword [process_exec_target_kind], USER_KIND_APP_SECONDARY
+    je .reset_secondary_app_status
     mov eax, USER_KIND_GENERIC
-    call payload_lifecycle_start_kind
+    call app_lifecycle_start_kind
     call clear_fault_record
     mov eax, USER_KIND_GENERIC
     call user_io_reset_kind
     jmp .seed_context
 
-.reset_primary_payload_status:
-    mov eax, USER_KIND_PAYLOAD_PRIMARY
-    call payload_lifecycle_start_kind
+.reset_primary_app_status:
+    mov eax, USER_KIND_APP_PRIMARY
+    call app_lifecycle_start_kind
     call clear_fault_record
-    mov eax, USER_KIND_PAYLOAD_PRIMARY
+    mov eax, USER_KIND_APP_PRIMARY
     call user_io_reset_kind
-    mov dword [payload_primary_stdout_log_len], 0
-    mov byte [payload_primary_stdout_log_buffer], 0
+    mov dword [app_primary_stdout_log_len], 0
+    mov byte [app_primary_stdout_log_buffer], 0
     jmp .seed_context
 
-.reset_secondary_payload_status:
-    mov eax, USER_KIND_PAYLOAD_SECONDARY
-    call payload_lifecycle_start_kind
-    mov eax, USER_KIND_PAYLOAD_SECONDARY
-    call payload_telemetry_reset_kind
+.reset_secondary_app_status:
+    mov eax, USER_KIND_APP_SECONDARY
+    call app_lifecycle_start_kind
+    mov eax, USER_KIND_APP_SECONDARY
+    call app_telemetry_reset_kind
     call clear_fault_record
-    mov eax, USER_KIND_PAYLOAD_SECONDARY
+    mov eax, USER_KIND_APP_SECONDARY
     call user_io_reset_kind
-    mov dword [payload_secondary_package_magic_seen], 0
-    mov dword [payload_secondary_frame_report_count], 0
-    mov dword [payload_secondary_frame_count], 0
-    mov dword [payload_secondary_server_active], 0
-    mov dword [payload_secondary_gameplay_status], 0
-    mov dword [payload_secondary_input_events], 0
-    mov dword [payload_secondary_input_buttons], 0
-    mov dword [payload_secondary_audio_writes], 0
-    mov dword [payload_secondary_audio_handle], 0
+    mov dword [app_secondary_package_magic_seen], 0
+    mov dword [app_secondary_frame_report_count], 0
+    mov dword [app_secondary_frame_count], 0
+    mov dword [app_secondary_server_active], 0
+    mov dword [app_secondary_gameplay_status], 0
+    mov dword [app_secondary_input_events], 0
+    mov dword [app_secondary_input_buttons], 0
+    mov dword [app_secondary_audio_writes], 0
+    mov dword [app_secondary_audio_handle], 0
     jmp .seed_context
 
 .reset_user_probe_target:
@@ -21350,7 +21350,7 @@ process_exec_handoff_current:
     call keyboard_reset_queue
     call mouse_reset_queue
     call process_seed_initial_user_context
-    cmp esi, process_payload
+    cmp esi, process_app
     jne .activate_target
     call scheduler_prepare_live_preempt_probe
 
@@ -22022,23 +22022,23 @@ user_elf_prepare:
     stc
     ret
 
-payload_elf_prepare:
-    mov byte [payload_elf_parse_status], 0
-    mov byte [payload_load_segment_count], 0
-    mov dword [payload_entry_addr], 0
-    mov dword [payload_segment_source], 0
-    mov dword [payload_segment_dest], 0
-    mov dword [payload_segment_filesz], 0
-    mov dword [payload_segment_memsz], 0
-    mov dword [payload_segment_end], 0
-    mov byte [payload_user_window_status], 0
+app_elf_prepare:
+    mov byte [app_elf_parse_status], 0
+    mov byte [app_load_segment_count], 0
+    mov dword [app_entry_addr], 0
+    mov dword [app_segment_source], 0
+    mov dword [app_segment_dest], 0
+    mov dword [app_segment_filesz], 0
+    mov dword [app_segment_memsz], 0
+    mov dword [app_segment_end], 0
+    mov byte [app_user_window_status], 0
 
-    cmp byte [payload_elf_load_status], 1
+    cmp byte [app_elf_load_status], 1
     jne .fail
-    cmp dword [payload_elf_size], 52
+    cmp dword [app_elf_size], 52
     jb .fail
 
-    mov esi, PAYLOAD_ELF_LOAD_ADDR
+    mov esi, APP_ELF_LOAD_ADDR
     cmp dword [esi], ELF_MAGIC
     jne .fail
     cmp byte [esi + 4], ELFCLASS32
@@ -22065,15 +22065,15 @@ payload_elf_prepare:
     shl edx, 5
     add ebx, edx
     jc .fail
-    cmp ebx, [payload_elf_size]
+    cmp ebx, [app_elf_size]
     ja .fail
 
     mov eax, [esi + 24]
-    mov [payload_entry_addr], eax
+    mov [app_entry_addr], eax
 
     mov eax, [esi + 28]
     push ecx
-    add eax, PAYLOAD_ELF_LOAD_ADDR
+    add eax, APP_ELF_LOAD_ADDR
     mov esi, eax
     mov edi, elf_phdr_scratch
     mov ecx, [esp]
@@ -22081,13 +22081,13 @@ payload_elf_prepare:
     cld
     rep movsb
     pop ecx
-    mov dword [payload_phdr_ptr], elf_phdr_scratch
-    mov [payload_phdr_remaining], ecx
+    mov dword [app_phdr_ptr], elf_phdr_scratch
+    mov [app_phdr_remaining], ecx
 
 .phdr_loop:
-    cmp dword [payload_phdr_remaining], 0
+    cmp dword [app_phdr_remaining], 0
     je .segments_done
-    mov esi, [payload_phdr_ptr]
+    mov esi, [app_phdr_ptr]
     cmp dword [esi], PT_LOAD
     jne .next_phdr
 
@@ -22097,14 +22097,14 @@ payload_elf_prepare:
 
     mov edx, [esi + 16]
     test edx, edx
-    jz .payload_file_span_ok
+    jz .app_file_span_ok
     mov eax, [esi + 4]
     add eax, edx
     jc .fail
-    cmp eax, [payload_elf_size]
+    cmp eax, [app_elf_size]
     ja .fail
 
-.payload_file_span_ok:
+.app_file_span_ok:
 
     mov eax, [esi + 12]
     test eax, eax
@@ -22112,45 +22112,45 @@ payload_elf_prepare:
     mov eax, [esi + 8]
 
 .have_destination:
-    mov [payload_segment_dest], eax
-    cmp eax, PAYLOAD_ELF_LOAD_ADDR
+    mov [app_segment_dest], eax
+    cmp eax, APP_ELF_LOAD_ADDR
     jb .fail
     mov ebx, eax
     add ebx, [esi + 20]
     jc .fail
-    cmp ebx, PAYLOAD_ELF_LIMIT
+    cmp ebx, APP_ELF_LIMIT
     ja .fail
-    cmp ebx, PAYLOAD_USER_HEAP_START
+    cmp ebx, APP_USER_HEAP_START
     ja .fail
-    cmp ebx, [payload_segment_end]
-    jbe .payload_segment_end_ok
-    mov [payload_segment_end], ebx
+    cmp ebx, [app_segment_end]
+    jbe .app_segment_end_ok
+    mov [app_segment_end], ebx
 
-.payload_segment_end_ok:
+.app_segment_end_ok:
 
     mov eax, [esi + 4]
-    add eax, PAYLOAD_ELF_LOAD_ADDR
+    add eax, APP_ELF_LOAD_ADDR
     jc .fail
-    mov ebx, [payload_segment_dest]
+    mov ebx, [app_segment_dest]
     cmp ebx, eax
     ja .fail
-    mov [payload_segment_source], eax
+    mov [app_segment_source], eax
 
     mov eax, [esi + 16]
-    mov [payload_segment_filesz], eax
+    mov [app_segment_filesz], eax
     mov eax, [esi + 20]
-    mov [payload_segment_memsz], eax
+    mov [app_segment_memsz], eax
     mov eax, [esi + ELF_PH_FLAGS]
-    mov [payload_segment_flags], eax
+    mov [app_segment_flags], eax
 
     inc dword [process_exec_copy_segment_count]
-    mov eax, [payload_segment_source]
+    mov eax, [app_segment_source]
     mov [process_exec_copy_last_source], eax
-    mov eax, [payload_segment_dest]
+    mov eax, [app_segment_dest]
     mov [process_exec_copy_last_dest], eax
-    mov eax, [payload_segment_filesz]
+    mov eax, [app_segment_filesz]
     mov [process_exec_copy_last_filesz], eax
-    mov eax, [payload_segment_memsz]
+    mov eax, [app_segment_memsz]
     mov [process_exec_copy_last_memsz], eax
 
     pushfd
@@ -22161,33 +22161,33 @@ payload_elf_prepare:
     mov [process_exec_copy_last_target_cr3], eax
     mov ebx, [process_exec_target]
     cmp ebx, 0
-    je .payload_copy_address_space_ready
+    je .app_copy_address_space_ready
     mov eax, [ebx + PROC_PAGE_DIR]
     test eax, eax
-    jz .payload_copy_address_space_ready
+    jz .app_copy_address_space_ready
     mov [process_exec_copy_last_target_cr3], eax
     mov edx, [process_exec_load_old_cr3]
     test edx, edx
-    jz .payload_copy_cr3_status_ready
+    jz .app_copy_cr3_status_ready
     cmp edx, eax
-    je .payload_copy_cr3_status_ready
+    je .app_copy_cr3_status_ready
     cmp dword [process_exec_load_target_cr3], eax
-    jne .payload_copy_cr3_status_ready
+    jne .app_copy_cr3_status_ready
     mov [process_exec_copy_last_old_cr3], edx
 
-.payload_copy_cr3_status_ready:
+.app_copy_cr3_status_ready:
     inc dword [process_exec_copy_cr3_switches]
     mov cr3, eax
 
-.payload_copy_address_space_ready:
-    mov esi, [payload_segment_source]
-    mov edi, [payload_segment_dest]
-    mov ecx, [payload_segment_filesz]
+.app_copy_address_space_ready:
+    mov esi, [app_segment_source]
+    mov edi, [app_segment_dest]
+    mov ecx, [app_segment_filesz]
     cld
     rep movsb
 
-    mov ecx, [payload_segment_memsz]
-    sub ecx, [payload_segment_filesz]
+    mov ecx, [app_segment_memsz]
+    sub ecx, [app_segment_filesz]
     xor eax, eax
     rep stosb
     pop eax
@@ -22195,56 +22195,56 @@ payload_elf_prepare:
     inc dword [process_exec_copy_cr3_restores]
     popfd
 
-    mov eax, [payload_segment_dest]
+    mov eax, [app_segment_dest]
     and eax, 0xfffff000
-    mov edx, [payload_segment_dest]
-    add edx, [payload_segment_memsz]
+    mov edx, [app_segment_dest]
+    add edx, [app_segment_memsz]
     add edx, PAGE_SIZE - 1
     and edx, 0xfffff000
-    mov ebx, PROC_PAYLOAD_PAGE_DIR_ADDR
-    test dword [payload_segment_flags], ELF_PF_W
-    jz .mark_payload_segment_read
+    mov ebx, PROC_APP_PAGE_DIR_ADDR
+    test dword [app_segment_flags], ELF_PF_W
+    jz .mark_app_segment_read
     call vmm_mark_process_user_write_range
-    jmp .payload_segment_permissions_done
+    jmp .app_segment_permissions_done
 
-.mark_payload_segment_read:
+.mark_app_segment_read:
     call vmm_mark_process_user_read_range
 
-.payload_segment_permissions_done:
-    inc byte [payload_load_segment_count]
+.app_segment_permissions_done:
+    inc byte [app_load_segment_count]
 
 .next_phdr:
-    add dword [payload_phdr_ptr], 32
-    dec dword [payload_phdr_remaining]
+    add dword [app_phdr_ptr], 32
+    dec dword [app_phdr_remaining]
     jmp .phdr_loop
 
 .segments_done:
-    cmp byte [payload_load_segment_count], 0
+    cmp byte [app_load_segment_count], 0
     je .fail
-    mov eax, [payload_entry_addr]
-    cmp eax, PAYLOAD_ELF_LOAD_ADDR
+    mov eax, [app_entry_addr]
+    cmp eax, APP_ELF_LOAD_ADDR
     jb .fail
-    cmp eax, [payload_segment_end]
+    cmp eax, [app_segment_end]
     jae .fail
-    mov eax, [payload_segment_end]
-    sub eax, PAYLOAD_ELF_LOAD_ADDR
-    mov [payload_segment_memsz], eax
-    mov byte [payload_user_window_status], 1
-    mov byte [payload_elf_parse_status], 1
+    mov eax, [app_segment_end]
+    sub eax, APP_ELF_LOAD_ADDR
+    mov [app_segment_memsz], eax
+    mov byte [app_user_window_status], 1
+    mov byte [app_elf_parse_status], 1
     clc
     ret
 
 .fail:
-    mov byte [payload_elf_parse_status], 2
+    mov byte [app_elf_parse_status], 2
     stc
     ret
 
-payload_exec_reset_all:
+app_exec_reset_all:
     push eax
     push ecx
     push edi
-    mov edi, payload_exec_table
-    mov ecx, (payload_exec_table_end - payload_exec_table) / 4
+    mov edi, app_exec_table
+    mov ecx, (app_exec_table_end - app_exec_table) / 4
     xor eax, eax
     cld
     rep stosd
@@ -22253,7 +22253,7 @@ payload_exec_reset_all:
     pop eax
     ret
 
-payload_exec_store_target:
+app_exec_store_target:
     push eax
     push ebx
     mov ebx, [process_exec_target_kind]
@@ -22267,12 +22267,12 @@ payload_exec_store_target:
     pop eax
     ret
 
-payload_lifecycle_reset_all:
+app_lifecycle_reset_all:
     push eax
     push ecx
     push edi
-    mov edi, payload_lifecycle_table
-    mov ecx, (payload_lifecycle_table_end - payload_lifecycle_table) / 4
+    mov edi, app_lifecycle_table
+    mov ecx, (app_lifecycle_table_end - app_lifecycle_table) / 4
     xor eax, eax
     cld
     rep stosd
@@ -22281,41 +22281,41 @@ payload_lifecycle_reset_all:
     pop eax
     ret
 
-payload_lifecycle_start_kind:
+app_lifecycle_start_kind:
     push eax
     push ebx
     cmp eax, USER_KIND_COUNT
     jae .done
     mov ebx, eax
     shl ebx, 2
-    mov dword [payload_lifecycle_run_status + ebx], 1
-    mov dword [payload_lifecycle_exit_code + ebx], 0
-    mov dword [payload_lifecycle_fault_addr + ebx], 0
-    mov dword [payload_lifecycle_fault_eip + ebx], 0
-    mov dword [payload_lifecycle_fault_vector + ebx], 0
-    mov dword [payload_lifecycle_fault_error + ebx], 0
+    mov dword [app_lifecycle_run_status + ebx], 1
+    mov dword [app_lifecycle_exit_code + ebx], 0
+    mov dword [app_lifecycle_fault_addr + ebx], 0
+    mov dword [app_lifecycle_fault_eip + ebx], 0
+    mov dword [app_lifecycle_fault_vector + ebx], 0
+    mov dword [app_lifecycle_fault_error + ebx], 0
 
 .done:
     pop ebx
     pop eax
     ret
 
-payload_lifecycle_exit_kind:
+app_lifecycle_exit_kind:
     push eax
     push ebx
     cmp eax, USER_KIND_COUNT
     jae .done
     mov ebx, eax
     shl ebx, 2
-    mov [payload_lifecycle_exit_code + ebx], edx
-    mov dword [payload_lifecycle_run_status + ebx], 2
+    mov [app_lifecycle_exit_code + ebx], edx
+    mov dword [app_lifecycle_run_status + ebx], 2
 
 .done:
     pop ebx
     pop eax
     ret
 
-payload_lifecycle_fault_kind:
+app_lifecycle_fault_kind:
     push eax
     push ebx
     push edx
@@ -22323,16 +22323,16 @@ payload_lifecycle_fault_kind:
     jae .done
     mov ebx, eax
     shl ebx, 2
-    inc dword [payload_lifecycle_fault_count + ebx]
-    mov dword [payload_lifecycle_run_status + ebx], 3
+    inc dword [app_lifecycle_fault_count + ebx]
+    mov dword [app_lifecycle_run_status + ebx], 3
     mov edx, [fault_cr2]
-    mov [payload_lifecycle_fault_addr + ebx], edx
+    mov [app_lifecycle_fault_addr + ebx], edx
     mov edx, [fault_eip]
-    mov [payload_lifecycle_fault_eip + ebx], edx
+    mov [app_lifecycle_fault_eip + ebx], edx
     mov edx, [fault_vector]
-    mov [payload_lifecycle_fault_vector + ebx], edx
+    mov [app_lifecycle_fault_vector + ebx], edx
     mov edx, [fault_error]
-    mov [payload_lifecycle_fault_error + ebx], edx
+    mov [app_lifecycle_fault_error + ebx], edx
 
 .done:
     pop edx
@@ -22340,12 +22340,12 @@ payload_lifecycle_fault_kind:
     pop eax
     ret
 
-payload_telemetry_reset_all:
+app_telemetry_reset_all:
     push eax
     push ecx
     push edi
-    mov edi, payload_telemetry_table
-    mov ecx, (payload_telemetry_table_end - payload_telemetry_table) / 4
+    mov edi, app_telemetry_table
+    mov ecx, (app_telemetry_table_end - app_telemetry_table) / 4
     xor eax, eax
     cld
     rep stosd
@@ -22354,23 +22354,23 @@ payload_telemetry_reset_all:
     pop eax
     ret
 
-payload_telemetry_reset_kind:
+app_telemetry_reset_kind:
     push eax
     push ebx
     cmp eax, USER_KIND_COUNT
     jae .done
     mov ebx, eax
     shl ebx, 2
-    mov dword [payload_telemetry_present_count + ebx], 0
-    mov dword [payload_telemetry_init_flags + ebx], 0
-    mov dword [payload_telemetry_init_report_count + ebx], 0
+    mov dword [app_telemetry_present_count + ebx], 0
+    mov dword [app_telemetry_init_flags + ebx], 0
+    mov dword [app_telemetry_init_report_count + ebx], 0
 
 .done:
     pop ebx
     pop eax
     ret
 
-payload_telemetry_increment_current:
+app_telemetry_increment_current:
     push eax
     push ebx
     movzx ebx, byte [current_user_kind]
@@ -22676,9 +22676,9 @@ syscall_handler:
     je .write_done
     lodsb
     call put_char
-    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
+    cmp byte [current_user_kind], USER_KIND_APP_PRIMARY
     jne .write_skip_capture
-    call payload_primary_stdout_log_char
+    call app_primary_stdout_log_char
 
 .write_skip_capture:
     dec ecx
@@ -23141,9 +23141,9 @@ syscall_handler:
     mov edi, [syscall_ptr_arg]
     mov edx, [edi]
     mov [user_primary_asset_magic_seen], edx
-    cmp dword [payload_primary_asset_magic_seen], 0
+    cmp dword [app_primary_asset_magic_seen], 0
     jne .read_done
-    mov [payload_primary_asset_magic_seen], edx
+    mov [app_primary_asset_magic_seen], edx
 
 .read_done:
     cmp eax, 0
@@ -23267,8 +23267,8 @@ syscall_handler:
 .present_success:
     mov eax, FRAMEBUFFER_PRESENT_SOURCE_SYS
     call framebuffer_record_present_success
-    mov eax, payload_telemetry_present_count
-    call payload_telemetry_increment_current
+    mov eax, app_telemetry_present_count
+    call app_telemetry_increment_current
     xor eax, eax
     jmp .return
 
@@ -23283,10 +23283,10 @@ syscall_handler:
     inc ebx
     and ebx, KEY_QUEUE_MASK
     mov [key_event_tail], ebx
-    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
+    cmp byte [current_user_kind], USER_KIND_APP_PRIMARY
     jne .poll_key_return
-    call payload_primary_record_key_event
-    inc dword [payload_primary_key_event_count]
+    call app_primary_record_key_event
+    inc dword [app_primary_key_event_count]
 
 .poll_key_return:
     popfd
@@ -23308,10 +23308,10 @@ syscall_handler:
     inc ebx
     and ebx, MOUSE_QUEUE_MASK
     mov [mouse_event_tail], ebx
-    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
+    cmp byte [current_user_kind], USER_KIND_APP_PRIMARY
     jne .poll_mouse_return
-    call payload_primary_record_mouse_event
-    inc dword [payload_primary_mouse_event_count]
+    call app_primary_record_mouse_event
+    inc dword [app_primary_mouse_event_count]
 
 .poll_mouse_return:
     popfd
@@ -23364,9 +23364,9 @@ syscall_handler:
     inc dword [input_mouse_poll_count]
 
 .poll_input_count_done:
-    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
+    cmp byte [current_user_kind], USER_KIND_APP_PRIMARY
     jne .poll_input_return_one
-    call payload_primary_record_input_event
+    call app_primary_record_input_event
 
 .poll_input_return_one:
     mov eax, INPUT_ABI_POLL_EVENT
@@ -23829,12 +23829,12 @@ syscall_handler:
     jmp .return
 
 .audio:
-    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
+    cmp byte [current_user_kind], USER_KIND_APP_PRIMARY
     jne .audio_dispatch
-    inc dword [payload_primary_audio_call_count]
-    mov [payload_primary_audio_last_command], ebx
-    mov [payload_primary_audio_last_handle], ecx
-    mov [payload_primary_audio_last_packed], edx
+    inc dword [app_primary_audio_call_count]
+    mov [app_primary_audio_last_command], ebx
+    mov [app_primary_audio_last_handle], ecx
+    mov [app_primary_audio_last_packed], edx
 
 .audio_dispatch:
     call .audio_note_generic_abi
@@ -23877,9 +23877,9 @@ syscall_handler:
     jmp .audio_status
 
 .audio_start_sfx:
-    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
+    cmp byte [current_user_kind], USER_KIND_APP_PRIMARY
     jne .audio_start_counted
-    inc dword [payload_primary_audio_start_count]
+    inc dword [app_primary_audio_start_count]
 
 .audio_start_counted:
     mov [audio_sfx_handle_arg], ecx
@@ -23889,9 +23889,9 @@ syscall_handler:
     jmp .audio_status
 
 .audio_stop_sfx:
-    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
+    cmp byte [current_user_kind], USER_KIND_APP_PRIMARY
     jne .audio_stop_counted
-    inc dword [payload_primary_audio_stop_count]
+    inc dword [app_primary_audio_stop_count]
 
 .audio_stop_counted:
     mov [audio_sfx_handle_arg], ecx
@@ -23899,9 +23899,9 @@ syscall_handler:
     jmp .audio_status
 
 .audio_update_sfx:
-    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
+    cmp byte [current_user_kind], USER_KIND_APP_PRIMARY
     jne .audio_update_counted
-    inc dword [payload_primary_audio_update_count]
+    inc dword [app_primary_audio_update_count]
 
 .audio_update_counted:
     mov [audio_sfx_handle_arg], ecx
@@ -24137,58 +24137,58 @@ syscall_handler:
     ret
 
 .gameplay_status:
-    cmp byte [current_user_kind], USER_KIND_PAYLOAD_SECONDARY
-    je .payload_secondary_gameplay_status
-    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
+    cmp byte [current_user_kind], USER_KIND_APP_SECONDARY
+    je .app_secondary_gameplay_status
+    cmp byte [current_user_kind], USER_KIND_APP_PRIMARY
     jne .gameplay_return
-    test ebx, PAYLOAD_INIT_STATUS_FLAG
-    jnz .payload_init_status
+    test ebx, APP_INIT_STATUS_FLAG
+    jnz .app_init_status
     test ebx, SAVELOAD_STATUS_FLAG
     jnz .save_slot_io_status
     test ebx, SAVEACTION_STATUS_FLAG
     jnz .save_action_status
     test ebx, PLAYABLE_STATUS_FLAG
     jnz .playable_status
-    inc dword [payload_primary_gameplay_report_count]
-    mov [payload_primary_game_state_packed], ebx
+    inc dword [app_primary_gameplay_report_count]
+    mov [app_primary_game_state_packed], ebx
     mov eax, ebx
     and eax, 0xff
-    mov [payload_primary_game_state], eax
+    mov [app_primary_game_state], eax
     mov eax, ebx
     shr eax, 8
     and eax, 0xff
-    mov [payload_primary_game_episode], eax
+    mov [app_primary_game_episode], eax
     mov eax, ebx
     shr eax, 16
     and eax, 0xff
-    mov [payload_primary_game_map], eax
+    mov [app_primary_game_map], eax
     mov eax, ebx
     shr eax, 24
-    mov [payload_primary_game_flags], eax
-    mov eax, [payload_primary_game_episode]
+    mov [app_primary_game_flags], eax
+    mov eax, [app_primary_game_episode]
     shl eax, 8
-    or eax, [payload_primary_game_map]
-    mov [payload_primary_game_map_pair], eax
-    mov [payload_primary_game_tic], ecx
-    mov [payload_primary_level_time], edx
-    cmp dword [payload_primary_game_state], 0
+    or eax, [app_primary_game_map]
+    mov [app_primary_game_map_pair], eax
+    mov [app_primary_game_tic], ecx
+    mov [app_primary_level_time], edx
+    cmp dword [app_primary_game_state], 0
     jne .gameplay_return
-    cmp dword [payload_primary_game_episode], 0
+    cmp dword [app_primary_game_episode], 0
     je .gameplay_return
-    cmp dword [payload_primary_game_map], 0
+    cmp dword [app_primary_game_map], 0
     je .gameplay_return
     cmp ecx, 0
     je .gameplay_return
     cmp edx, 0
     je .gameplay_return
-    mov byte [payload_primary_gameplay_status], 1
+    mov byte [app_primary_gameplay_status], 1
     jmp .gameplay_return
 
-.payload_init_status:
+.app_init_status:
     mov eax, ebx
     and eax, 0x0000ffff
-    or [payload_telemetry_init_flags + USER_KIND_PAYLOAD_PRIMARY * 4], eax
-    inc dword [payload_telemetry_init_report_count + USER_KIND_PAYLOAD_PRIMARY * 4]
+    or [app_telemetry_init_flags + USER_KIND_APP_PRIMARY * 4], eax
+    inc dword [app_telemetry_init_report_count + USER_KIND_APP_PRIMARY * 4]
     jmp .gameplay_return
 
 .save_slot_io_status:
@@ -24277,112 +24277,112 @@ syscall_handler:
 .playable_status:
     mov eax, ebx
     and eax, 0x0000ffff
-    mov [payload_primary_player_flags], eax
+    mov [app_primary_player_flags], eax
     mov eax, ebx
     shr eax, 16
     and eax, 0xff
-    mov [payload_primary_player_buttons], eax
+    mov [app_primary_player_buttons], eax
     mov eax, ebx
     shr eax, 24
     and eax, 0x7f
-    mov [payload_primary_game_action], eax
-    mov [payload_primary_player_x], ecx
-    mov [payload_primary_player_y], edx
-    cmp dword [payload_primary_player_origin_set], 0
+    mov [app_primary_game_action], eax
+    mov [app_primary_player_x], ecx
+    mov [app_primary_player_y], edx
+    cmp dword [app_primary_player_origin_set], 0
     jne .playable_delta
-    mov dword [payload_primary_player_origin_set], 1
-    mov [payload_primary_player_origin_x], ecx
-    mov [payload_primary_player_origin_y], edx
+    mov dword [app_primary_player_origin_set], 1
+    mov [app_primary_player_origin_x], ecx
+    mov [app_primary_player_origin_y], edx
 
 .playable_delta:
     mov eax, ecx
-    sub eax, [payload_primary_player_origin_x]
+    sub eax, [app_primary_player_origin_x]
     jns .playable_dx_ok
     neg eax
 
 .playable_dx_ok:
     mov esi, eax
     mov eax, edx
-    sub eax, [payload_primary_player_origin_y]
+    sub eax, [app_primary_player_origin_y]
     jns .playable_dy_ok
     neg eax
 
 .playable_dy_ok:
     add eax, esi
-    cmp eax, [payload_primary_player_delta]
+    cmp eax, [app_primary_player_delta]
     jbe .gameplay_return
-    mov [payload_primary_player_delta], eax
+    mov [app_primary_player_delta], eax
     jmp .gameplay_return
 
 .player_detail_status:
-    cmp byte [current_user_kind], USER_KIND_PAYLOAD_PRIMARY
+    cmp byte [current_user_kind], USER_KIND_APP_PRIMARY
     jne .gameplay_return
-    mov [payload_primary_player_cmd], ebx
-    mov [payload_primary_player_angle], ecx
+    mov [app_primary_player_cmd], ebx
+    mov [app_primary_player_angle], ecx
     mov eax, edx
     and eax, 0x0000ffff
-    mov [payload_primary_player_ammo], eax
+    mov [app_primary_player_ammo], eax
     mov eax, edx
     shr eax, 16
     and eax, 0xff
-    mov [payload_primary_player_refire], eax
+    mov [app_primary_player_refire], eax
     mov eax, edx
     shr eax, 24
     and eax, 0xff
-    mov [payload_primary_player_weapon], eax
-    cmp dword [payload_primary_player_angle_origin_set], 0
+    mov [app_primary_player_weapon], eax
+    cmp dword [app_primary_player_angle_origin_set], 0
     jne .player_angle_delta
-    mov dword [payload_primary_player_angle_origin_set], 1
-    mov [payload_primary_player_origin_angle], ecx
+    mov dword [app_primary_player_angle_origin_set], 1
+    mov [app_primary_player_origin_angle], ecx
 
 .player_angle_delta:
     mov eax, ecx
-    xor eax, [payload_primary_player_origin_angle]
-    or [payload_primary_player_angle_delta], eax
+    xor eax, [app_primary_player_origin_angle]
+    or [app_primary_player_angle_delta], eax
     jmp .gameplay_return
 
-.payload_secondary_gameplay_status:
+.app_secondary_gameplay_status:
     mov eax, ebx
-    and eax, PAYLOAD_SECONDARY_STATUS_KIND_MASK
-    cmp eax, PAYLOAD_SECONDARY_STATUS_INIT
-    je .secondary_payload_init_status
-    cmp eax, PAYLOAD_SECONDARY_STATUS_FRAME
-    je .secondary_payload_frame_status
-    cmp eax, PAYLOAD_SECONDARY_STATUS_INPUT
-    je .secondary_payload_input_status
-    cmp eax, PAYLOAD_SECONDARY_STATUS_AUDIO
-    je .secondary_payload_audio_status
+    and eax, APP_SECONDARY_STATUS_KIND_MASK
+    cmp eax, APP_SECONDARY_STATUS_INIT
+    je .secondary_app_init_status
+    cmp eax, APP_SECONDARY_STATUS_FRAME
+    je .secondary_app_frame_status
+    cmp eax, APP_SECONDARY_STATUS_INPUT
+    je .secondary_app_input_status
+    cmp eax, APP_SECONDARY_STATUS_AUDIO
+    je .secondary_app_audio_status
     jmp .gameplay_return
 
-.secondary_payload_init_status:
+.secondary_app_init_status:
     mov eax, ebx
     and eax, 0x0000ffff
-    or [payload_telemetry_init_flags + USER_KIND_PAYLOAD_SECONDARY * 4], eax
-    inc dword [payload_telemetry_init_report_count + USER_KIND_PAYLOAD_SECONDARY * 4]
+    or [app_telemetry_init_flags + USER_KIND_APP_SECONDARY * 4], eax
+    inc dword [app_telemetry_init_report_count + USER_KIND_APP_SECONDARY * 4]
     jmp .gameplay_return
 
-.secondary_payload_frame_status:
-    inc dword [payload_secondary_frame_report_count]
-    mov [payload_secondary_frame_count], ecx
+.secondary_app_frame_status:
+    inc dword [app_secondary_frame_report_count]
+    mov [app_secondary_frame_count], ecx
     mov eax, ebx
     shr eax, 8
     and eax, 0x000000ff
-    mov [payload_secondary_server_active], eax
+    mov [app_secondary_server_active], eax
     cmp ecx, 0
     je .gameplay_return
     cmp eax, 0
     je .gameplay_return
-    mov dword [payload_secondary_gameplay_status], 1
+    mov dword [app_secondary_gameplay_status], 1
     jmp .gameplay_return
 
-.secondary_payload_input_status:
-    mov [payload_secondary_input_events], ecx
-    mov [payload_secondary_input_buttons], edx
+.secondary_app_input_status:
+    mov [app_secondary_input_events], ecx
+    mov [app_secondary_input_buttons], edx
     jmp .gameplay_return
 
-.secondary_payload_audio_status:
-    mov [payload_secondary_audio_writes], ecx
-    mov [payload_secondary_audio_handle], edx
+.secondary_app_audio_status:
+    mov [app_secondary_audio_writes], ecx
+    mov [app_secondary_audio_handle], edx
     jmp .gameplay_return
 
 .gameplay_return:
@@ -24954,8 +24954,8 @@ syscall_handler:
 .ioctl_present_success:
     mov eax, FRAMEBUFFER_PRESENT_SOURCE_IOCTL
     call framebuffer_record_present_success
-    mov eax, payload_telemetry_present_count
-    call payload_telemetry_increment_current
+    mov eax, app_telemetry_present_count
+    call app_telemetry_increment_current
     xor eax, eax
     jmp .return
 
@@ -25213,8 +25213,8 @@ syscall_handler:
 
 .exit:
     movzx eax, byte [current_user_kind]
-    call user_kind_is_large_payload
-    jnc .payload_exit
+    call user_kind_is_large_app
+    jnc .app_exit
     mov esi, [current_process_ptr]
     cmp esi, 0
     je .user_exit_to_kernel
@@ -25242,9 +25242,9 @@ syscall_handler:
     call kernel_switch_main_stack_and_return
     jmp user_probe_finished
 
-.payload_exit:
+.app_exit:
     mov edx, ebx
-    call payload_lifecycle_exit_kind
+    call app_lifecycle_exit_kind
     call process_mark_current_exited
     mov ax, DATA_SEG
     mov ds, ax
@@ -25253,7 +25253,7 @@ syscall_handler:
     mov gs, ax
     mov ss, ax
     call kernel_switch_main_stack_and_return
-    jmp payload_user_finished
+    jmp app_user_finished
 
 .return:
     call syscall_sanitize_return_frame
@@ -25735,7 +25735,7 @@ user_range_pages_present:
     popad
     ret
 
-payload_primary_stdout_log_char:
+app_primary_stdout_log_char:
     push eax
     push ebx
     push ecx
@@ -25758,25 +25758,25 @@ payload_primary_stdout_log_char:
 
 .have_char:
     mov bl, al
-    mov eax, [payload_primary_stdout_log_len]
-    cmp eax, PAYLOAD_PRIMARY_STDOUT_LOG_BYTES - 1
+    mov eax, [app_primary_stdout_log_len]
+    cmp eax, APP_PRIMARY_STDOUT_LOG_BYTES - 1
     jb .append
 
-    mov esi, payload_primary_stdout_log_buffer + 1
-    mov edi, payload_primary_stdout_log_buffer
-    mov ecx, PAYLOAD_PRIMARY_STDOUT_LOG_BYTES - 2
+    mov esi, app_primary_stdout_log_buffer + 1
+    mov edi, app_primary_stdout_log_buffer
+    mov ecx, APP_PRIMARY_STDOUT_LOG_BYTES - 2
     cld
     rep movsb
-    mov byte [payload_primary_stdout_log_buffer + PAYLOAD_PRIMARY_STDOUT_LOG_BYTES - 2], bl
-    mov byte [payload_primary_stdout_log_buffer + PAYLOAD_PRIMARY_STDOUT_LOG_BYTES - 1], 0
+    mov byte [app_primary_stdout_log_buffer + APP_PRIMARY_STDOUT_LOG_BYTES - 2], bl
+    mov byte [app_primary_stdout_log_buffer + APP_PRIMARY_STDOUT_LOG_BYTES - 1], 0
     jmp .done
 
 .append:
-    mov edi, payload_primary_stdout_log_buffer
+    mov edi, app_primary_stdout_log_buffer
     add edi, eax
     mov [edi], bl
     inc eax
-    mov [payload_primary_stdout_log_len], eax
+    mov [app_primary_stdout_log_len], eax
     mov byte [edi + 1], 0
 
 .done:
@@ -26484,10 +26484,10 @@ input_reset_queue:
     mov dword [input_mouse_delta_y_total], 0
     mov dword [input_last_event_device], 0
     mov dword [input_last_event_type], 0
-    mov dword [payload_primary_input_event_count], 0
-    mov dword [payload_primary_input_last_timestamp], 0
-    mov dword [payload_primary_input_last_device], 0
-    mov dword [payload_primary_input_last_type], 0
+    mov dword [app_primary_input_event_count], 0
+    mov dword [app_primary_input_last_timestamp], 0
+    mov dword [app_primary_input_last_device], 0
+    mov dword [app_primary_input_last_type], 0
     ret
 
 keyboard_reset_queue:
@@ -26495,9 +26495,9 @@ keyboard_reset_queue:
     mov dword [key_event_tail], 0
     mov dword [keyboard_irq_count], 0
     mov dword [keyboard_event_count], 0
-    mov dword [payload_primary_key_event_count], 0
-    mov dword [payload_primary_key_down_seen], 0
-    mov dword [payload_primary_key_last_event], 0
+    mov dword [app_primary_key_event_count], 0
+    mov dword [app_primary_key_down_seen], 0
+    mov dword [app_primary_key_last_event], 0
     mov byte [keyboard_status], INPUT_DEVICE_STATUS_READY
     mov byte [keyboard_extended], 0
     mov byte [keyboard_e1_skip_remaining], 0
@@ -26541,7 +26541,7 @@ keyboard_queue_scancode:
 
 .queue_generic:
     call input_queue_key_event
-    call keyboard_translate_payload_key
+    call keyboard_translate_app_key
 
 .queue:
     call keyboard_queue_event
@@ -26570,7 +26570,7 @@ keyboard_queue_scancode:
     pop eax
     ret
 
-keyboard_translate_payload_key:
+keyboard_translate_app_key:
     push ebx
 
     mov bl, al
@@ -26578,7 +26578,7 @@ keyboard_translate_payload_key:
     jnz .extended
     movzx ebx, bl
     and ebx, VIBE_INPUT_KEY_PS2_SET1_SCANCODE_MASK
-    mov al, [payload_keycode_map + ebx]
+    mov al, [app_keycode_map + ebx]
     jmp .done
 
 .extended:
@@ -26603,35 +26603,35 @@ keyboard_translate_payload_key:
     jmp .done
 
 .ext_up:
-    mov al, PAYLOAD_KEY_UPARROW
+    mov al, APP_KEY_UPARROW
     jmp .done
 
 .ext_down:
-    mov al, PAYLOAD_KEY_DOWNARROW
+    mov al, APP_KEY_DOWNARROW
     jmp .done
 
 .ext_left:
-    mov al, PAYLOAD_KEY_LEFTARROW
+    mov al, APP_KEY_LEFTARROW
     jmp .done
 
 .ext_right:
-    mov al, PAYLOAD_KEY_RIGHTARROW
+    mov al, APP_KEY_RIGHTARROW
     jmp .done
 
 .ext_enter:
-    mov al, PAYLOAD_KEY_ENTER
+    mov al, APP_KEY_ENTER
     jmp .done
 
 .ext_ctrl:
-    mov al, PAYLOAD_KEY_RCTRL
+    mov al, APP_KEY_RCTRL
     jmp .done
 
 .ext_alt:
-    mov al, PAYLOAD_KEY_RALT
+    mov al, APP_KEY_RALT
     jmp .done
 
 .ext_backspace:
-    mov al, PAYLOAD_KEY_BACKSPACE
+    mov al, APP_KEY_BACKSPACE
 
 .done:
     pop ebx
@@ -26894,11 +26894,11 @@ mouse_reset_queue:
     mov dword [mouse_irq_count], 0
     mov dword [mouse_packet_count], 0
     mov dword [mouse_sync_loss_count], 0
-    mov dword [payload_primary_mouse_event_count], 0
-    mov dword [payload_primary_mouse_buttons_seen], 0
-    mov dword [payload_primary_mouse_delta_x], 0
-    mov dword [payload_primary_mouse_delta_y], 0
-    mov dword [payload_primary_mouse_last_event], 0
+    mov dword [app_primary_mouse_event_count], 0
+    mov dword [app_primary_mouse_buttons_seen], 0
+    mov dword [app_primary_mouse_delta_x], 0
+    mov dword [app_primary_mouse_delta_y], 0
+    mov dword [app_primary_mouse_last_event], 0
     mov byte [mouse_packet_index], 0
     mov byte [mouse_packet0], 0
     mov byte [mouse_packet1], 0
@@ -27035,79 +27035,79 @@ mouse_queue_event:
     pop ebx
     ret
 
-payload_primary_record_key_event:
+app_primary_record_key_event:
     push eax
     push ebx
 
-    mov [payload_primary_key_last_event], eax
+    mov [app_primary_key_last_event], eax
     test eax, KEY_EVENT_DOWN
     jz .done
     mov ebx, eax
     and ebx, 0xff
-    cmp bl, PAYLOAD_KEY_UPARROW
+    cmp bl, APP_KEY_UPARROW
     je .seen_up
-    cmp bl, PAYLOAD_KEY_DOWNARROW
+    cmp bl, APP_KEY_DOWNARROW
     je .seen_down
-    cmp bl, PAYLOAD_KEY_LEFTARROW
+    cmp bl, APP_KEY_LEFTARROW
     je .seen_left
-    cmp bl, PAYLOAD_KEY_RIGHTARROW
+    cmp bl, APP_KEY_RIGHTARROW
     je .seen_right
-    cmp bl, PAYLOAD_KEY_RCTRL
+    cmp bl, APP_KEY_RCTRL
     je .seen_fire
     cmp bl, 32
     je .seen_use
-    cmp bl, PAYLOAD_KEY_ESCAPE
+    cmp bl, APP_KEY_ESCAPE
     je .seen_menu
-    cmp bl, PAYLOAD_KEY_ENTER
+    cmp bl, APP_KEY_ENTER
     je .seen_enter
     jmp .done
 
 .seen_up:
-    or dword [payload_primary_key_down_seen], KEY_PROOF_UP
+    or dword [app_primary_key_down_seen], KEY_PROOF_UP
     jmp .done
 
 .seen_down:
-    or dword [payload_primary_key_down_seen], KEY_PROOF_DOWN
+    or dword [app_primary_key_down_seen], KEY_PROOF_DOWN
     jmp .done
 
 .seen_left:
-    or dword [payload_primary_key_down_seen], KEY_PROOF_LEFT
+    or dword [app_primary_key_down_seen], KEY_PROOF_LEFT
     jmp .done
 
 .seen_right:
-    or dword [payload_primary_key_down_seen], KEY_PROOF_RIGHT
+    or dword [app_primary_key_down_seen], KEY_PROOF_RIGHT
     jmp .done
 
 .seen_fire:
-    or dword [payload_primary_key_down_seen], KEY_PROOF_FIRE
+    or dword [app_primary_key_down_seen], KEY_PROOF_FIRE
     jmp .done
 
 .seen_use:
-    or dword [payload_primary_key_down_seen], KEY_PROOF_USE
+    or dword [app_primary_key_down_seen], KEY_PROOF_USE
     jmp .done
 
 .seen_menu:
-    or dword [payload_primary_key_down_seen], KEY_PROOF_MENU
+    or dword [app_primary_key_down_seen], KEY_PROOF_MENU
     jmp .done
 
 .seen_enter:
-    or dword [payload_primary_key_down_seen], KEY_PROOF_ENTER
+    or dword [app_primary_key_down_seen], KEY_PROOF_ENTER
 
 .done:
     pop ebx
     pop eax
     ret
 
-payload_primary_record_mouse_event:
+app_primary_record_mouse_event:
     push eax
     push ebx
     push edx
 
-    mov [payload_primary_mouse_last_event], eax
+    mov [app_primary_mouse_last_event], eax
 
     mov ebx, eax
     and ebx, 0x07
-    or dword [payload_primary_mouse_buttons_seen], ebx
+    or dword [app_primary_mouse_buttons_seen], ebx
 
     mov ebx, eax
     shr ebx, 8
@@ -27117,7 +27117,7 @@ payload_primary_record_mouse_event:
     neg ebx
 
 .dx_positive:
-    add dword [payload_primary_mouse_delta_x], ebx
+    add dword [app_primary_mouse_delta_x], ebx
 
     mov ebx, eax
     shr ebx, 16
@@ -27127,25 +27127,25 @@ payload_primary_record_mouse_event:
     neg ebx
 
 .dy_positive:
-    add dword [payload_primary_mouse_delta_y], ebx
+    add dword [app_primary_mouse_delta_y], ebx
 
     pop edx
     pop ebx
     pop eax
     ret
 
-payload_primary_record_input_event:
+app_primary_record_input_event:
     push eax
     push ebx
     push ecx
 
-    inc dword [payload_primary_input_event_count]
+    inc dword [app_primary_input_event_count]
     mov eax, [esi + VIBE_INPUT_EVENT_TIMESTAMP]
-    mov [payload_primary_input_last_timestamp], eax
+    mov [app_primary_input_last_timestamp], eax
     mov eax, [esi + VIBE_INPUT_EVENT_DEVICE_ID]
-    mov [payload_primary_input_last_device], eax
+    mov [app_primary_input_last_device], eax
     mov eax, [esi + VIBE_INPUT_EVENT_TYPE]
-    mov [payload_primary_input_last_type], eax
+    mov [app_primary_input_last_type], eax
     cmp eax, VIBE_INPUT_EVENT_KEY
     je .key
     cmp eax, VIBE_INPUT_EVENT_MOUSE_PACKET
@@ -27157,7 +27157,7 @@ payload_primary_record_input_event:
     and eax, 0xff
     test eax, eax
     jz .done
-    call keyboard_translate_payload_key
+    call keyboard_translate_app_key
     test al, al
     jz .done
     movzx eax, al
@@ -27167,8 +27167,8 @@ payload_primary_record_input_event:
     or eax, KEY_EVENT_DOWN
 
 .key_have_packed:
-    call payload_primary_record_key_event
-    inc dword [payload_primary_key_event_count]
+    call app_primary_record_key_event
+    inc dword [app_primary_key_event_count]
     jmp .done
 
 .mouse_packet:
@@ -27183,8 +27183,8 @@ payload_primary_record_input_event:
     shl ebx, 16
     or eax, ebx
     or eax, MOUSE_EVENT_VALID
-    call payload_primary_record_mouse_event
-    inc dword [payload_primary_mouse_event_count]
+    call app_primary_record_mouse_event
+    inc dword [app_primary_mouse_event_count]
 
 .done:
     pop ecx
@@ -27496,8 +27496,8 @@ exception_common:
     test eax, 3
     jz .kernel_panic
     movzx eax, byte [current_user_kind]
-    call user_kind_is_large_payload
-    jnc payload_user_fault
+    call user_kind_is_large_app
+    jnc app_user_fault
     jmp user_process_fault
 
 .kernel_panic:
@@ -27705,7 +27705,7 @@ panic_dump_fault:
     call print_hex32
     mov al, '/'
     call put_char
-    mov eax, [payload_lifecycle_fault_count + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov eax, [app_lifecycle_fault_count + USER_KIND_APP_PRIMARY * 4]
     call print_hex32
     mov al, '/'
     call put_char
@@ -27843,12 +27843,12 @@ fault_source_to_string:
     je .expected
     cmp eax, FAULT_SOURCE_USER
     je .user
-    cmp eax, FAULT_SOURCE_PAYLOAD_PRIMARY
-    je .primary_payload
+    cmp eax, FAULT_SOURCE_APP_PRIMARY
+    je .primary_app
     cmp eax, FAULT_SOURCE_KERNEL
     je .kernel
-    cmp eax, FAULT_SOURCE_PAYLOAD_SECONDARY
-    je .secondary_payload
+    cmp eax, FAULT_SOURCE_APP_SECONDARY
+    je .secondary_app
     mov esi, smoke_none_text
     ret
 
@@ -27860,12 +27860,12 @@ fault_source_to_string:
     mov esi, smoke_fault_user_text
     ret
 
-.primary_payload:
-    mov esi, smoke_fault_primary_payload_text
+.primary_app:
+    mov esi, smoke_fault_primary_app_text
     ret
 
-.secondary_payload:
-    mov esi, smoke_fault_secondary_payload_text
+.secondary_app:
+    mov esi, smoke_fault_secondary_app_text
     ret
 
 .kernel:
@@ -27908,14 +27908,14 @@ user_process_fault:
     call kernel_switch_main_stack_and_return
     jmp user_probe_finished
 
-payload_user_fault:
+app_user_fault:
     push eax
-    call payload_kind_to_fault_source
+    call app_kind_to_fault_source
     mov [fault_source], eax
     pop eax
     mov dword [fault_mode], FAULT_MODE_USER
     mov dword [fault_contained], 1
-    call payload_lifecycle_fault_kind
+    call app_lifecycle_fault_kind
     call process_mark_current_faulted
     mov ax, DATA_SEG
     mov ds, ax
@@ -27924,7 +27924,7 @@ payload_user_fault:
     mov gs, ax
     mov ss, ax
     call kernel_switch_main_stack_and_return
-    jmp payload_user_finished
+    jmp app_user_finished
 
 irq_timer:
     IRQ_ENTER
@@ -28648,158 +28648,158 @@ write_smoke_status:
     mov al, ' '
     stosb
 
-    mov esi, smoke_primary_payload_text
+    mov esi, smoke_primary_app_text
     call smoke_copy_string
-    cmp dword [payload_exec_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
-    jne .primary_payload_fail
-    cmp dword [payload_exec_load_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
-    jne .primary_payload_fail
-    cmp dword [payload_exec_parse_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
-    jne .primary_payload_fail
-    cmp byte [payload_load_segment_count], 0
-    je .primary_payload_fail
-    cmp byte [payload_user_window_status], 1
-    jne .primary_payload_fail
+    cmp dword [app_exec_status + USER_KIND_APP_PRIMARY * 4], 1
+    jne .primary_app_fail
+    cmp dword [app_exec_load_status + USER_KIND_APP_PRIMARY * 4], 1
+    jne .primary_app_fail
+    cmp dword [app_exec_parse_status + USER_KIND_APP_PRIMARY * 4], 1
+    jne .primary_app_fail
+    cmp byte [app_load_segment_count], 0
+    je .primary_app_fail
+    cmp byte [app_user_window_status], 1
+    jne .primary_app_fail
     mov esi, smoke_ok_text
-    jmp .primary_payload_write
+    jmp .primary_app_write
 
-.primary_payload_fail:
+.primary_app_fail:
     mov esi, smoke_fail_text
 
-.primary_payload_write:
+.primary_app_write:
     call smoke_copy_string
 
     mov esi, smoke_doomrun_text
     call smoke_copy_string
-    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
-    je .primary_payload_run_running
-    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 2
-    je .primary_payload_run_exited
-    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 3
-    je .primary_payload_run_faulted
-    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 4
-    je .primary_payload_run_failed
+    cmp dword [app_lifecycle_run_status + USER_KIND_APP_PRIMARY * 4], 1
+    je .primary_app_run_running
+    cmp dword [app_lifecycle_run_status + USER_KIND_APP_PRIMARY * 4], 2
+    je .primary_app_run_exited
+    cmp dword [app_lifecycle_run_status + USER_KIND_APP_PRIMARY * 4], 3
+    je .primary_app_run_faulted
+    cmp dword [app_lifecycle_run_status + USER_KIND_APP_PRIMARY * 4], 4
+    je .primary_app_run_failed
     mov esi, smoke_wait_text
-    jmp .primary_payload_run_write
+    jmp .primary_app_run_write
 
-.primary_payload_run_running:
+.primary_app_run_running:
     mov esi, smoke_run_text
-    jmp .primary_payload_run_write
+    jmp .primary_app_run_write
 
-.primary_payload_run_exited:
+.primary_app_run_exited:
     mov esi, smoke_exit_text
-    jmp .primary_payload_run_write
+    jmp .primary_app_run_write
 
-.primary_payload_run_faulted:
+.primary_app_run_faulted:
     mov esi, smoke_fault_text
-    jmp .primary_payload_run_write
+    jmp .primary_app_run_write
 
-.primary_payload_run_failed:
+.primary_app_run_failed:
     mov esi, smoke_fail_text
 
-.primary_payload_run_write:
+.primary_app_run_write:
     call smoke_copy_string
 
     mov esi, smoke_doomexit_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_exit_code + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [app_lifecycle_exit_code + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomfault_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_fault_addr + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [app_lifecycle_fault_addr + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomfaultip_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_fault_eip + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [app_lifecycle_fault_eip + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomfaultv_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_fault_vector + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [app_lifecycle_fault_vector + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomfaulterr_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_fault_error + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [app_lifecycle_fault_error + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
 
-    mov esi, smoke_secondary_payload_text
+    mov esi, smoke_secondary_app_text
     call smoke_copy_string
-    cmp dword [payload_exec_status + USER_KIND_PAYLOAD_SECONDARY * 4], 1
-    jne .secondary_payload_not_ok
-    cmp dword [payload_exec_load_status + USER_KIND_PAYLOAD_SECONDARY * 4], 1
-    jne .secondary_payload_not_ok
-    cmp dword [payload_exec_parse_status + USER_KIND_PAYLOAD_SECONDARY * 4], 1
-    jne .secondary_payload_not_ok
+    cmp dword [app_exec_status + USER_KIND_APP_SECONDARY * 4], 1
+    jne .secondary_app_not_ok
+    cmp dword [app_exec_load_status + USER_KIND_APP_SECONDARY * 4], 1
+    jne .secondary_app_not_ok
+    cmp dword [app_exec_parse_status + USER_KIND_APP_SECONDARY * 4], 1
+    jne .secondary_app_not_ok
     mov esi, smoke_ok_text
-    jmp .secondary_payload_write
+    jmp .secondary_app_write
 
-.secondary_payload_not_ok:
-    cmp dword [payload_exec_status + USER_KIND_PAYLOAD_SECONDARY * 4], 0
-    jne .secondary_payload_fail
-    cmp dword [payload_exec_load_status + USER_KIND_PAYLOAD_SECONDARY * 4], 0
-    jne .secondary_payload_fail
-    cmp dword [payload_exec_parse_status + USER_KIND_PAYLOAD_SECONDARY * 4], 0
-    jne .secondary_payload_fail
+.secondary_app_not_ok:
+    cmp dword [app_exec_status + USER_KIND_APP_SECONDARY * 4], 0
+    jne .secondary_app_fail
+    cmp dword [app_exec_load_status + USER_KIND_APP_SECONDARY * 4], 0
+    jne .secondary_app_fail
+    cmp dword [app_exec_parse_status + USER_KIND_APP_SECONDARY * 4], 0
+    jne .secondary_app_fail
     mov esi, smoke_wait_text
-    jmp .secondary_payload_write
+    jmp .secondary_app_write
 
-.secondary_payload_fail:
+.secondary_app_fail:
     mov esi, smoke_fail_text
 
-.secondary_payload_write:
+.secondary_app_write:
     call smoke_copy_string
 
     mov esi, smoke_quakerun_text
     call smoke_copy_string
-    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_SECONDARY * 4], 1
-    je .secondary_payload_run_running
-    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_SECONDARY * 4], 2
-    je .secondary_payload_run_exited
-    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_SECONDARY * 4], 3
-    je .secondary_payload_run_faulted
+    cmp dword [app_lifecycle_run_status + USER_KIND_APP_SECONDARY * 4], 1
+    je .secondary_app_run_running
+    cmp dword [app_lifecycle_run_status + USER_KIND_APP_SECONDARY * 4], 2
+    je .secondary_app_run_exited
+    cmp dword [app_lifecycle_run_status + USER_KIND_APP_SECONDARY * 4], 3
+    je .secondary_app_run_faulted
     mov esi, smoke_wait_text
-    jmp .secondary_payload_run_write
+    jmp .secondary_app_run_write
 
-.secondary_payload_run_running:
+.secondary_app_run_running:
     mov esi, smoke_run_text
-    jmp .secondary_payload_run_write
+    jmp .secondary_app_run_write
 
-.secondary_payload_run_exited:
+.secondary_app_run_exited:
     mov esi, smoke_exit_text
-    jmp .secondary_payload_run_write
+    jmp .secondary_app_run_write
 
-.secondary_payload_run_faulted:
+.secondary_app_run_faulted:
     mov esi, smoke_fault_text
 
-.secondary_payload_run_write:
+.secondary_app_run_write:
     call smoke_copy_string
 
     mov esi, smoke_quakeexit_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_exit_code + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [app_lifecycle_exit_code + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakefault_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_fault_addr + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [app_lifecycle_fault_addr + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakefaultip_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_fault_eip + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [app_lifecycle_fault_eip + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakefaultv_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_fault_vector + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [app_lifecycle_fault_vector + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakefaulterr_text
     call smoke_copy_string
-    mov edx, [payload_lifecycle_fault_error + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [app_lifecycle_fault_error + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_faultframe_text
@@ -28917,7 +28917,7 @@ write_smoke_status:
     call smoke_write_hex32
     mov edx, [fault_user_contained_count]
     call smoke_write_slash_hex32
-    mov edx, [payload_lifecycle_fault_count + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [app_lifecycle_fault_count + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_slash_hex32
     mov edx, [fault_kernel_panic_count]
     call smoke_write_slash_hex32
@@ -29330,7 +29330,7 @@ write_smoke_status:
 
     mov esi, smoke_doomopen_text
     call smoke_copy_string
-    cmp dword [user_io_open_count + USER_KIND_PAYLOAD_PRIMARY * 4], 0
+    cmp dword [user_io_open_count + USER_KIND_APP_PRIMARY * 4], 0
     je .doomopen_fail
     mov esi, smoke_ok_text
     jmp .doomopen_write
@@ -29343,9 +29343,9 @@ write_smoke_status:
 
     mov esi, smoke_doomread_text
     call smoke_copy_string
-    cmp dword [user_io_read_count + USER_KIND_PAYLOAD_PRIMARY * 4], 0
+    cmp dword [user_io_read_count + USER_KIND_APP_PRIMARY * 4], 0
     je .doomread_fail
-    cmp dword [payload_primary_asset_magic_seen], 0x44415749
+    cmp dword [app_primary_asset_magic_seen], 0x44415749
     jne .doomread_fail
     mov esi, smoke_ok_text
     jmp .doomread_write
@@ -29358,63 +29358,63 @@ write_smoke_status:
 
     mov esi, smoke_doomwrite_text
     call smoke_copy_string
-    mov edx, [user_io_write_count + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [user_io_write_count + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomseek_text
     call smoke_copy_string
-    mov edx, [user_io_lseek_count + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [user_io_lseek_count + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_primary_asset_text
     call smoke_copy_string
-    mov edx, [user_io_open_count + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [user_io_open_count + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [user_io_read_count + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [user_io_read_count + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [user_io_lseek_count + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [user_io_lseek_count + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [payload_primary_asset_magic_seen]
+    mov edx, [app_primary_asset_magic_seen]
     call smoke_write_hex32
 
     mov esi, smoke_doomclose_text
     call smoke_copy_string
-    mov edx, [user_io_close_count + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [user_io_close_count + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomsbrk_text
     call smoke_copy_string
-    mov edx, [user_io_sbrk_count + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [user_io_sbrk_count + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomerr_text
     call smoke_copy_string
-    mov edx, [user_io_error_count + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [user_io_error_count + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doomerrno_text
     call smoke_copy_string
-    mov edx, [user_io_last_error + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [user_io_last_error + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_doommode_text
     call smoke_copy_string
-    mov edx, [user_io_last_open_flags + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [user_io_last_open_flags + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
     mov al, ':'
     stosb
-    mov edx, [user_io_last_open_mode + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [user_io_last_open_mode + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakeopen_text
     call smoke_copy_string
-    cmp dword [user_io_open_count + USER_KIND_PAYLOAD_SECONDARY * 4], 0
+    cmp dword [user_io_open_count + USER_KIND_APP_SECONDARY * 4], 0
     je .quakeopen_fail
     mov esi, smoke_ok_text
     jmp .quakeopen_write
@@ -29427,9 +29427,9 @@ write_smoke_status:
 
     mov esi, smoke_quakeread_text
     call smoke_copy_string
-    cmp dword [user_io_read_count + USER_KIND_PAYLOAD_SECONDARY * 4], 0
+    cmp dword [user_io_read_count + USER_KIND_APP_SECONDARY * 4], 0
     je .quakeread_fail
-    cmp dword [payload_secondary_package_magic_seen], 0x4b434150
+    cmp dword [app_secondary_package_magic_seen], 0x4b434150
     jne .quakeread_fail
     mov esi, smoke_ok_text
     jmp .quakeread_write
@@ -29442,58 +29442,58 @@ write_smoke_status:
 
     mov esi, smoke_quakewrite_text
     call smoke_copy_string
-    mov edx, [user_io_write_count + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [user_io_write_count + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakeseek_text
     call smoke_copy_string
-    mov edx, [user_io_lseek_count + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [user_io_lseek_count + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakepak_text
     call smoke_copy_string
-    mov edx, [user_io_open_count + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [user_io_open_count + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [user_io_read_count + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [user_io_read_count + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [user_io_lseek_count + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [user_io_lseek_count + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [payload_secondary_package_magic_seen]
+    mov edx, [app_secondary_package_magic_seen]
     call smoke_write_hex32
 
     mov esi, smoke_quakeclose_text
     call smoke_copy_string
-    mov edx, [user_io_close_count + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [user_io_close_count + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakesbrk_text
     call smoke_copy_string
-    mov edx, [user_io_sbrk_count + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [user_io_sbrk_count + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakeerr_text
     call smoke_copy_string
-    mov edx, [user_io_error_count + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [user_io_error_count + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakeerrno_text
     call smoke_copy_string
-    mov edx, [user_io_last_error + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [user_io_last_error + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakemode_text
     call smoke_copy_string
-    mov edx, [user_io_last_open_flags + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [user_io_last_open_flags + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
     mov al, ':'
     stosb
-    mov edx, [user_io_last_open_mode + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [user_io_last_open_mode + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_save_slot_text
@@ -29969,9 +29969,9 @@ write_smoke_status:
 
     mov esi, smoke_doomlog_text
     call smoke_copy_string
-    cmp byte [payload_primary_stdout_log_buffer], 0
+    cmp byte [app_primary_stdout_log_buffer], 0
     je .doomlog_empty
-    mov esi, payload_primary_stdout_log_buffer
+    mov esi, app_primary_stdout_log_buffer
     jmp .doomlog_write
 
 .doomlog_empty:
@@ -29982,7 +29982,7 @@ write_smoke_status:
 
     mov esi, smoke_doompresent_text
     call smoke_copy_string
-    mov edx, [payload_telemetry_present_count + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [app_telemetry_present_count + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
     mov esi, smoke_fbpresent_text
     call smoke_copy_string
@@ -30143,30 +30143,30 @@ write_smoke_status:
 
     mov esi, smoke_doominit_text
     call smoke_copy_string
-    mov edx, [payload_telemetry_init_flags + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [app_telemetry_init_flags + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [payload_telemetry_init_report_count + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [app_telemetry_init_report_count + USER_KIND_APP_PRIMARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakepresent_text
     call smoke_copy_string
-    mov edx, [payload_telemetry_present_count + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [app_telemetry_present_count + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakeinit_text
     call smoke_copy_string
-    mov edx, [payload_telemetry_init_flags + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [app_telemetry_init_flags + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [payload_telemetry_init_report_count + USER_KIND_PAYLOAD_SECONDARY * 4]
+    mov edx, [app_telemetry_init_report_count + USER_KIND_APP_SECONDARY * 4]
     call smoke_write_hex32
 
     mov esi, smoke_quakegame_text
     call smoke_copy_string
-    cmp dword [payload_secondary_gameplay_status], 1
+    cmp dword [app_secondary_gameplay_status], 1
     je .quakegame_ok
     mov esi, smoke_wait_text
     jmp .quakegame_write
@@ -30179,39 +30179,39 @@ write_smoke_status:
 
     mov esi, smoke_qstate_text
     call smoke_copy_string
-    mov edx, [payload_secondary_server_active]
+    mov edx, [app_secondary_server_active]
     call smoke_write_hex32
 
     mov esi, smoke_qframe_text
     call smoke_copy_string
-    mov edx, [payload_secondary_frame_count]
+    mov edx, [app_secondary_frame_count]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [payload_secondary_frame_report_count]
+    mov edx, [app_secondary_frame_report_count]
     call smoke_write_hex32
 
     mov esi, smoke_qinput_text
     call smoke_copy_string
-    mov edx, [payload_secondary_input_events]
+    mov edx, [app_secondary_input_events]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [payload_secondary_input_buttons]
+    mov edx, [app_secondary_input_buttons]
     call smoke_write_hex32
 
     mov esi, smoke_qaudio_text
     call smoke_copy_string
-    mov edx, [payload_secondary_audio_writes]
+    mov edx, [app_secondary_audio_writes]
     call smoke_write_hex32
     mov al, '/'
     stosb
-    mov edx, [payload_secondary_audio_handle]
+    mov edx, [app_secondary_audio_handle]
     call smoke_write_hex32
 
     mov esi, smoke_gameplay_text
     call smoke_copy_string
-    cmp byte [payload_primary_gameplay_status], 1
+    cmp byte [app_primary_gameplay_status], 1
     je .gameplay_ok
     mov esi, smoke_wait_text
     jmp .gameplay_write
@@ -30224,22 +30224,22 @@ write_smoke_status:
 
     mov esi, smoke_gstate_text
     call smoke_copy_string
-    mov edx, [payload_primary_game_state]
+    mov edx, [app_primary_game_state]
     call smoke_write_hex32
 
     mov esi, smoke_gmap_text
     call smoke_copy_string
-    mov edx, [payload_primary_game_map_pair]
+    mov edx, [app_primary_game_map_pair]
     call smoke_write_hex32
 
     mov esi, smoke_gtic_text
     call smoke_copy_string
-    mov edx, [payload_primary_game_tic]
+    mov edx, [app_primary_game_tic]
     call smoke_write_hex32
 
     mov esi, smoke_leveltime_text
     call smoke_copy_string
-    mov edx, [payload_primary_level_time]
+    mov edx, [app_primary_level_time]
     call smoke_write_hex32
 
     mov esi, smoke_doomtick_text
@@ -30774,71 +30774,71 @@ write_smoke_status:
 
     mov esi, smoke_gflags_text
     call smoke_copy_string
-    mov edx, [payload_primary_game_flags]
+    mov edx, [app_primary_game_flags]
     call smoke_write_hex32
 
     mov esi, smoke_gaction_text
     call smoke_copy_string
-    mov edx, [payload_primary_game_action]
+    mov edx, [app_primary_game_action]
     call smoke_write_hex32
 
     mov esi, smoke_pflags_text
     call smoke_copy_string
-    mov edx, [payload_primary_player_flags]
+    mov edx, [app_primary_player_flags]
     call smoke_write_hex32
 
     mov esi, smoke_pbuttons_text
     call smoke_copy_string
-    mov edx, [payload_primary_player_buttons]
+    mov edx, [app_primary_player_buttons]
     call smoke_write_hex32
 
     mov esi, smoke_ppos_text
     call smoke_copy_string
-    mov edx, [payload_primary_player_x]
+    mov edx, [app_primary_player_x]
     call smoke_write_hex32
     mov al, ':'
     stosb
-    mov edx, [payload_primary_player_y]
+    mov edx, [app_primary_player_y]
     call smoke_write_hex32
 
     mov esi, smoke_pdelta_text
     call smoke_copy_string
-    mov edx, [payload_primary_player_delta]
+    mov edx, [app_primary_player_delta]
     call smoke_write_hex32
 
     mov esi, smoke_pcmd_text
     call smoke_copy_string
-    mov edx, [payload_primary_player_cmd]
+    mov edx, [app_primary_player_cmd]
     call smoke_write_hex32
 
     mov esi, smoke_pangle_text
     call smoke_copy_string
-    mov edx, [payload_primary_player_angle]
+    mov edx, [app_primary_player_angle]
     call smoke_write_hex32
 
     mov esi, smoke_pangledelta_text
     call smoke_copy_string
-    mov edx, [payload_primary_player_angle_delta]
+    mov edx, [app_primary_player_angle_delta]
     call smoke_write_hex32
 
     mov esi, smoke_pammo_text
     call smoke_copy_string
-    mov edx, [payload_primary_player_ammo]
+    mov edx, [app_primary_player_ammo]
     call smoke_write_hex32
 
     mov esi, smoke_prefire_text
     call smoke_copy_string
-    mov edx, [payload_primary_player_refire]
+    mov edx, [app_primary_player_refire]
     call smoke_write_hex32
 
     mov esi, smoke_pweapon_text
     call smoke_copy_string
-    mov edx, [payload_primary_player_weapon]
+    mov edx, [app_primary_player_weapon]
     call smoke_write_hex32
 
     mov esi, smoke_doomsound_text
     call smoke_copy_string
-    mov edx, [payload_primary_audio_call_count]
+    mov edx, [app_primary_audio_call_count]
     call smoke_write_hex32
 
     mov esi, smoke_sfxmix_text
@@ -31468,20 +31468,20 @@ write_smoke_status:
 
     mov esi, smoke_inputpoll_text
     call smoke_copy_string
-    mov edx, [payload_primary_input_event_count]
+    mov edx, [app_primary_input_event_count]
     call smoke_write_hex32
 
     mov esi, smoke_inputlast_text
     call smoke_copy_string
-    mov edx, [payload_primary_input_last_timestamp]
+    mov edx, [app_primary_input_last_timestamp]
     call smoke_write_hex32
     mov al, ':'
     stosb
-    mov edx, [payload_primary_input_last_device]
+    mov edx, [app_primary_input_last_device]
     call smoke_write_hex32
     mov al, ':'
     stosb
-    mov edx, [payload_primary_input_last_type]
+    mov edx, [app_primary_input_last_type]
     call smoke_write_hex32
 
     mov esi, smoke_keyirq_text
@@ -31496,17 +31496,17 @@ write_smoke_status:
 
     mov esi, smoke_keypoll_text
     call smoke_copy_string
-    mov edx, [payload_primary_key_event_count]
+    mov edx, [app_primary_key_event_count]
     call smoke_write_hex32
 
     mov esi, smoke_keyseen_text
     call smoke_copy_string
-    mov edx, [payload_primary_key_down_seen]
+    mov edx, [app_primary_key_down_seen]
     call smoke_write_hex32
 
     mov esi, smoke_keylast_text
     call smoke_copy_string
-    mov edx, [payload_primary_key_last_event]
+    mov edx, [app_primary_key_last_event]
     call smoke_write_hex32
 
     mov esi, smoke_mouse_text
@@ -31534,21 +31534,21 @@ write_smoke_status:
 
     mov esi, smoke_mousepoll_text
     call smoke_copy_string
-    mov edx, [payload_primary_mouse_event_count]
+    mov edx, [app_primary_mouse_event_count]
     call smoke_write_hex32
 
     mov esi, smoke_mousebtn_text
     call smoke_copy_string
-    mov edx, [payload_primary_mouse_buttons_seen]
+    mov edx, [app_primary_mouse_buttons_seen]
     call smoke_write_hex32
 
     mov esi, smoke_mousedelta_text
     call smoke_copy_string
-    mov edx, [payload_primary_mouse_delta_x]
+    mov edx, [app_primary_mouse_delta_x]
     call smoke_write_hex32
     mov al, ':'
     stosb
-    mov edx, [payload_primary_mouse_delta_y]
+    mov edx, [app_primary_mouse_delta_y]
     call smoke_write_hex32
 
     mov esi, smoke_pci_text
@@ -33217,22 +33217,22 @@ write_smoke_status:
     jmp .user_write
 
 .user_fail:
-    cmp dword [payload_exec_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
+    cmp dword [app_exec_status + USER_KIND_APP_PRIMARY * 4], 1
     jne .user_fail_text
-    cmp dword [payload_exec_load_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
+    cmp dword [app_exec_load_status + USER_KIND_APP_PRIMARY * 4], 1
     jne .user_fail_text
-    cmp dword [payload_exec_parse_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
+    cmp dword [app_exec_parse_status + USER_KIND_APP_PRIMARY * 4], 1
     jne .user_fail_text
     cmp byte [process_exec_status], 1
     jne .user_fail_text
-    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
+    cmp dword [app_lifecycle_run_status + USER_KIND_APP_PRIMARY * 4], 1
     je .user_check_live_doom
-    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 2
+    cmp dword [app_lifecycle_run_status + USER_KIND_APP_PRIMARY * 4], 2
     je .user_ok_from_doom
     jmp .user_fail_text
 
 .user_check_live_doom:
-    mov eax, [process_payload + PROC_STATE]
+    mov eax, [process_app + PROC_STATE]
     cmp eax, PROC_STATE_READY
     je .user_ok_from_doom
     cmp eax, PROC_STATE_RUNNING
@@ -33358,7 +33358,7 @@ smoke_write_slash_hex32:
     stosb
     jmp smoke_write_hex32
 
-draw_primary_payload_status:
+draw_primary_app_status:
     push eax
     push ebx
     push ecx
@@ -33376,28 +33376,28 @@ draw_primary_payload_status:
     loop .clear_row
 
     mov edi, VGA_BUFFER + ((VGA_ROWS - 3) * VGA_COLS * 2)
-    mov esi, primary_payload_status_label
+    mov esi, primary_app_status_label
     call draw_status_string
-    cmp dword [payload_exec_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
+    cmp dword [app_exec_status + USER_KIND_APP_PRIMARY * 4], 1
     jne .fail
-    cmp dword [payload_exec_load_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
+    cmp dword [app_exec_load_status + USER_KIND_APP_PRIMARY * 4], 1
     jne .fail
-    cmp dword [payload_exec_parse_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
+    cmp dword [app_exec_parse_status + USER_KIND_APP_PRIMARY * 4], 1
     jne .fail
-    cmp byte [payload_load_segment_count], 0
+    cmp byte [app_load_segment_count], 0
     je .fail
-    cmp byte [payload_user_window_status], 1
+    cmp byte [app_user_window_status], 1
     jne .fail
 
     mov esi, ok_status_text
     call draw_status_string
-    mov esi, primary_payload_status_entry_label
+    mov esi, primary_app_status_entry_label
     call draw_status_string
-    mov edx, [payload_exec_entry + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [app_exec_entry + USER_KIND_APP_PRIMARY * 4]
     call draw_status_hex32
-    mov esi, primary_payload_status_mem_label
+    mov esi, primary_app_status_mem_label
     call draw_status_string
-    mov edx, [payload_exec_segment_memsz + USER_KIND_PAYLOAD_PRIMARY * 4]
+    mov edx, [app_exec_segment_memsz + USER_KIND_APP_PRIMARY * 4]
     call draw_status_hex32
     mov esi, gfx_status_label
     call draw_status_string
@@ -33520,22 +33520,22 @@ draw_heap_status:
     je .user_ok
 
 .user_fail:
-    cmp dword [payload_exec_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
+    cmp dword [app_exec_status + USER_KIND_APP_PRIMARY * 4], 1
     jne .user_fail_text
-    cmp dword [payload_exec_load_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
+    cmp dword [app_exec_load_status + USER_KIND_APP_PRIMARY * 4], 1
     jne .user_fail_text
-    cmp dword [payload_exec_parse_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
+    cmp dword [app_exec_parse_status + USER_KIND_APP_PRIMARY * 4], 1
     jne .user_fail_text
     cmp byte [process_exec_status], 1
     jne .user_fail_text
-    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 1
+    cmp dword [app_lifecycle_run_status + USER_KIND_APP_PRIMARY * 4], 1
     je .user_check_live_doom
-    cmp dword [payload_lifecycle_run_status + USER_KIND_PAYLOAD_PRIMARY * 4], 2
+    cmp dword [app_lifecycle_run_status + USER_KIND_APP_PRIMARY * 4], 2
     je .user_ok_from_doom
     jmp .user_fail_text
 
 .user_check_live_doom:
-    mov eax, [process_payload + PROC_STATE]
+    mov eax, [process_app + PROC_STATE]
     cmp eax, PROC_STATE_READY
     je .user_ok_from_doom
     cmp eax, PROC_STATE_RUNNING
@@ -34348,15 +34348,15 @@ primary_palette_prefix db "PLAYPAL offset: ", 0
 primary_colormap_prefix db "COLORMAP offset: ", 0
 package_member_size_mid db " size=", 0
 primary_asset_cluster_prefix db "Primary asset first cluster: ", 0
-primary_payload_elf_prefix db "Primary payload ELF FAT entry: ", 0
-primary_payload_elf_size_prefix db "Primary payload ELF size: ", 0
-primary_payload_elf_cluster_prefix db "Primary payload ELF first cluster: ", 0
-primary_payload_elf_load_prefix db "Primary payload ELF load: ", 0
-primary_payload_elf_parse_prefix db "Primary payload ELF parser: ", 0
-primary_payload_elf_entry_prefix db "Primary payload ELF entry: ", 0
-primary_payload_elf_mem_prefix db "Primary payload ELF segment bytes: ", 0
-primary_payload_elf_end_prefix db "Primary payload ELF segment end: ", 0
-payload_user_window_prefix db "Payload user window: ", 0
+primary_app_elf_prefix db "Primary app ELF FAT entry: ", 0
+primary_app_elf_size_prefix db "Primary app ELF size: ", 0
+primary_app_elf_cluster_prefix db "Primary app ELF first cluster: ", 0
+primary_app_elf_load_prefix db "Primary app ELF load: ", 0
+primary_app_elf_parse_prefix db "Primary app ELF parser: ", 0
+primary_app_elf_entry_prefix db "Primary app ELF entry: ", 0
+primary_app_elf_mem_prefix db "Primary app ELF segment bytes: ", 0
+primary_app_elf_end_prefix db "Primary app ELF segment end: ", 0
+app_user_window_prefix db "App user window: ", 0
 process_exec_prefix db "Process exec: ", 0
 process_exec_path_prefix db "Exec path: ", 0
 process_exec_syscall_prefix db "Exec syscall attempts/success/failure/handoff/scheduled/rollback: ", 0
@@ -34374,9 +34374,9 @@ c_status_label db " c=", 0
 user_status_label db " usr=", 0
 primary_asset_status_label db " wad=", 0
 package_member_status_label db " lmp=", 0
-primary_payload_status_label db "doom=", 0
-primary_payload_status_entry_label db " entry=", 0
-primary_payload_status_mem_label db " mem=", 0
+primary_app_status_label db "doom=", 0
+primary_app_status_entry_label db " entry=", 0
+primary_app_status_mem_label db " mem=", 0
 gfx_status_label db " gfx=", 0
 uefi_marker_prefix db "VIBEKERN step=uefi-entry status=", 0
 uefi_marker_ip_text db " ip=0x", 0
@@ -34432,14 +34432,14 @@ smoke_pwait_text db " wait=", 0
 smoke_waitseed_text db " waitseed=", 0
 smoke_fork_text db " fork=", 0
 smoke_vmreap_text db " vmreap=", 0
-smoke_primary_payload_text db "doom=", 0
+smoke_primary_app_text db "doom=", 0
 smoke_doomrun_text db " doomrun=", 0
 smoke_doomexit_text db " doomexit=", 0
 smoke_doomfault_text db " doomfault=", 0
 smoke_doomfaultip_text db " doomfaultip=", 0
 smoke_doomfaultv_text db " doomfaultv=", 0
 smoke_doomfaulterr_text db " doomfaulterr=", 0
-smoke_secondary_payload_text db " quake=", 0
+smoke_secondary_app_text db " quake=", 0
 smoke_quakerun_text db " quakerun=", 0
 smoke_quakeexit_text db " quakeexit=", 0
 smoke_quakefault_text db " quakefault=", 0
@@ -34901,8 +34901,8 @@ smoke_pull_text db "PULL", 0
 smoke_kexc_text db "KEXC", 0
 smoke_expect_text db "EXPECT", 0
 smoke_fault_user_text db "USER", 0
-smoke_fault_primary_payload_text db "DOOM", 0
-smoke_fault_secondary_payload_text db "QUAKE", 0
+smoke_fault_primary_app_text db "DOOM", 0
+smoke_fault_secondary_app_text db "QUAKE", 0
 smoke_fault_kernel_text db "KERNEL", 0
 smoke_halt_text db "HALT", 0
 smoke_reboot_text db "REBOOT", 0
@@ -35007,8 +35007,8 @@ persistence_marker_name_table dd persist_chk_name_83, save_req_name_83, load_req
 process_exec_table:
     dd exec_path_boot_user, boot_user_elf_name_83, USER_ELF_LOAD_ADDR, USER_ELF_MAX_BYTES, process_user_probe, USER_KIND_PROBE
     dd exec_path_user_probe, user_elf_name_83, USER_ELF_LOAD_ADDR, USER_ELF_MAX_BYTES, process_user_probe, USER_KIND_PROBE
-    dd exec_path_primary_app, app_elf_name_83, PAYLOAD_ELF_LOAD_ADDR, PAYLOAD_ELF_MAX_BYTES, process_payload, USER_KIND_PAYLOAD_PRIMARY
-    dd exec_path_secondary_app, app_elf_name_83, PAYLOAD_ELF_LOAD_ADDR, PAYLOAD_ELF_MAX_BYTES, process_payload, USER_KIND_PAYLOAD_SECONDARY
+    dd exec_path_primary_app, app_elf_name_83, APP_ELF_LOAD_ADDR, APP_ELF_MAX_BYTES, process_app, USER_KIND_APP_PRIMARY
+    dd exec_path_secondary_app, app_elf_name_83, APP_ELF_LOAD_ADDR, APP_ELF_MAX_BYTES, process_app, USER_KIND_APP_SECONDARY
 user_elf_prefix db "User ELF loader: ", 0
 user_entry_prefix db "User entry: ", 0
 user_flags_prefix db "User syscall flags: ", 0
@@ -35061,32 +35061,32 @@ keymap_shift:
     db ' '
     times 128 - ($ - keymap_shift) db 0
 
-payload_keycode_map:
-    times 0x01 - ($ - payload_keycode_map) db 0
-    db PAYLOAD_KEY_ESCAPE
+app_keycode_map:
+    times 0x01 - ($ - app_keycode_map) db 0
+    db APP_KEY_ESCAPE
     db '1','2','3','4','5','6','7','8','9','0'
-    db PAYLOAD_KEY_MINUS, PAYLOAD_KEY_EQUALS, PAYLOAD_KEY_BACKSPACE, PAYLOAD_KEY_TAB
+    db APP_KEY_MINUS, APP_KEY_EQUALS, APP_KEY_BACKSPACE, APP_KEY_TAB
     db 'q','w','e','r','t','y','u','i','o','p'
-    db '[',']',PAYLOAD_KEY_ENTER,PAYLOAD_KEY_RCTRL
+    db '[',']',APP_KEY_ENTER,APP_KEY_RCTRL
     db 'a','s','d','f','g','h','j','k','l'
-    db ';',39,'`',PAYLOAD_KEY_RSHIFT,92
+    db ';',39,'`',APP_KEY_RSHIFT,92
     db 'z','x','c','v','b','n','m'
-    db ',','.','/',PAYLOAD_KEY_RSHIFT
-    times 0x38 - ($ - payload_keycode_map) db 0
-    db PAYLOAD_KEY_RALT
+    db ',','.','/',APP_KEY_RSHIFT
+    times 0x38 - ($ - app_keycode_map) db 0
+    db APP_KEY_RALT
     db ' '
-    times 0x3b - ($ - payload_keycode_map) db 0
-    db PAYLOAD_KEY_F1,PAYLOAD_KEY_F2,PAYLOAD_KEY_F3,PAYLOAD_KEY_F4,PAYLOAD_KEY_F5
-    db PAYLOAD_KEY_F6,PAYLOAD_KEY_F7,PAYLOAD_KEY_F8,PAYLOAD_KEY_F9,PAYLOAD_KEY_F10
-    times 0x48 - ($ - payload_keycode_map) db 0
-    db PAYLOAD_KEY_UPARROW
-    times 0x4a - ($ - payload_keycode_map) db 0
-    db PAYLOAD_KEY_MINUS,PAYLOAD_KEY_LEFTARROW,0,PAYLOAD_KEY_RIGHTARROW,PAYLOAD_KEY_EQUALS,0,PAYLOAD_KEY_DOWNARROW
-    times 0x53 - ($ - payload_keycode_map) db 0
-    db PAYLOAD_KEY_BACKSPACE
-    times 0x57 - ($ - payload_keycode_map) db 0
-    db PAYLOAD_KEY_F11,PAYLOAD_KEY_F12
-    times 128 - ($ - payload_keycode_map) db 0
+    times 0x3b - ($ - app_keycode_map) db 0
+    db APP_KEY_F1,APP_KEY_F2,APP_KEY_F3,APP_KEY_F4,APP_KEY_F5
+    db APP_KEY_F6,APP_KEY_F7,APP_KEY_F8,APP_KEY_F9,APP_KEY_F10
+    times 0x48 - ($ - app_keycode_map) db 0
+    db APP_KEY_UPARROW
+    times 0x4a - ($ - app_keycode_map) db 0
+    db APP_KEY_MINUS,APP_KEY_LEFTARROW,0,APP_KEY_RIGHTARROW,APP_KEY_EQUALS,0,APP_KEY_DOWNARROW
+    times 0x53 - ($ - app_keycode_map) db 0
+    db APP_KEY_BACKSPACE
+    times 0x57 - ($ - app_keycode_map) db 0
+    db APP_KEY_F11,APP_KEY_F12
+    times 128 - ($ - app_keycode_map) db 0
 
 cursor_row dd 0
 cursor_col dd 0
@@ -35187,10 +35187,10 @@ user_elf_parse_status db 0
 boot_user_exec_status db 0
 abi_probe_status db 0
 abi_probe_exec_status db 0
-payload_elf_status db 0
-payload_elf_load_status db 0
-payload_elf_parse_status db 0
-payload_user_window_status db 0
+app_elf_status db 0
+app_elf_load_status db 0
+app_elf_parse_status db 0
+app_user_window_status db 0
 process_exec_status db 0
 current_user_kind db 0
 ata_status db 0
@@ -35202,10 +35202,10 @@ process_user_probe_vm_regions:
     dd USER_CODE_ADDR, USER_STACK_BOTTOM, VM_REGION_USER | VM_REGION_READ | VM_REGION_WRITE | VM_REGION_EXEC
     dd USER_HEAP_START, USER_HEAP_END, VM_REGION_USER | VM_REGION_HEAP | VM_REGION_READ | VM_REGION_WRITE
     dd USER_STACK_BOTTOM, USER_STACK_TOP, VM_REGION_USER | VM_REGION_READ | VM_REGION_WRITE
-process_payload_vm_regions:
-    dd PAYLOAD_USER_BASE, PAYLOAD_USER_HEAP_START, VM_REGION_USER | VM_REGION_READ | VM_REGION_WRITE | VM_REGION_EXEC
-    dd PAYLOAD_USER_HEAP_START, PAYLOAD_USER_HEAP_END, VM_REGION_USER | VM_REGION_HEAP | VM_REGION_READ | VM_REGION_WRITE
-    dd PAYLOAD_USER_STACK_BOTTOM, PAYLOAD_USER_STACK_TOP, VM_REGION_USER | VM_REGION_READ | VM_REGION_WRITE
+process_app_vm_regions:
+    dd APP_USER_BASE, APP_USER_HEAP_START, VM_REGION_USER | VM_REGION_READ | VM_REGION_WRITE | VM_REGION_EXEC
+    dd APP_USER_HEAP_START, APP_USER_HEAP_END, VM_REGION_USER | VM_REGION_HEAP | VM_REGION_READ | VM_REGION_WRITE
+    dd APP_USER_STACK_BOTTOM, APP_USER_STACK_TOP, VM_REGION_USER | VM_REGION_READ | VM_REGION_WRITE
 process_table:
 process_kernel:
     dd 0, USER_KIND_NONE, PROC_STATE_READY
@@ -35234,15 +35234,15 @@ process_preempt_probe:
     dd PROC_PREEMPT_PAGE_DIR_ADDR, process_user_probe_vm_regions, 3, 0, PROC_PREEMPT_PROBE_KERNEL_STACK_TOP
     dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
     dd process_preempt_probe_heap_bitmap, USER_HEAP_PAGE_COUNT
-process_payload:
+process_app:
     dd 2, USER_KIND_GENERIC, PROC_STATE_READY
-    dd PAYLOAD_USER_BASE, PAYLOAD_USER_END, PAYLOAD_USER_HEAP_START, PAYLOAD_USER_HEAP_START, PAYLOAD_USER_HEAP_END
-    dd PAYLOAD_USER_STACK_BOTTOM, PAYLOAD_USER_STACK_TOP, 0
+    dd APP_USER_BASE, APP_USER_END, APP_USER_HEAP_START, APP_USER_HEAP_START, APP_USER_HEAP_END
+    dd APP_USER_STACK_BOTTOM, APP_USER_STACK_TOP, 0
     times 16 dd 0
     dd 0, 0, 0, 0
-    dd PROC_PAYLOAD_PAGE_DIR_ADDR, process_payload_vm_regions, 3, 0, PROC_PAYLOAD_KERNEL_STACK_TOP
+    dd PROC_APP_PAGE_DIR_ADDR, process_app_vm_regions, 3, 0, PROC_APP_KERNEL_STACK_TOP
     dd 0xffffffff, 0, 0, 0, 0, 0, 0, 0
-    dd process_payload_heap_bitmap, PAYLOAD_HEAP_PAGE_COUNT
+    dd process_app_heap_bitmap, APP_HEAP_PAGE_COUNT
 process_generic0:
     dd 0xffffffff, USER_KIND_GENERIC, PROC_STATE_UNUSED
     dd USER_CODE_ADDR, USER_HEAP_END, USER_HEAP_START, USER_HEAP_START, USER_HEAP_END
@@ -35266,7 +35266,7 @@ process_generic_exec_slots:
 align 4
 process_user_probe_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
 process_preempt_probe_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
-process_payload_heap_bitmap times PAYLOAD_HEAP_BITMAP_BYTES db 0
+process_app_heap_bitmap times APP_HEAP_BITMAP_BYTES db 0
 process_generic0_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
 process_generic1_heap_bitmap times USER_HEAP_BITMAP_BYTES db 0
 align 4
@@ -35758,17 +35758,17 @@ user_entry_addr dd 0
 boot_user_exec_path_ptr dd 0
 boot_user_exec_pid dd 0xffffffff
 boot_user_exec_entry dd 0
-payload_elf_size dd 0
-payload_elf_sectors_read dd 0
-payload_entry_addr dd 0
-payload_segment_source dd 0
-payload_segment_dest dd 0
-payload_segment_filesz dd 0
-payload_segment_memsz dd 0
-payload_segment_end dd 0
-payload_segment_flags dd 0
-payload_phdr_ptr dd 0
-payload_phdr_remaining dd 0
+app_elf_size dd 0
+app_elf_sectors_read dd 0
+app_entry_addr dd 0
+app_segment_source dd 0
+app_segment_dest dd 0
+app_segment_filesz dd 0
+app_segment_memsz dd 0
+app_segment_end dd 0
+app_segment_flags dd 0
+app_phdr_ptr dd 0
+app_phdr_remaining dd 0
 user_phdr_ptr dd 0
 user_phdr_remaining dd 0
 elf_phdr_scratch times ELF_MAX_PHDRS * ELF_PHDR_SIZE db 0
@@ -36223,31 +36223,31 @@ process_exit_resumed_pid dd 0xffffffff
 process_exit_child_ptr dd 0
 fd_fork_parent_pid dd 0xffffffff
 fd_fork_child_pid dd 0xffffffff
-payload_exec_table:
-payload_exec_status times USER_KIND_COUNT dd 0
-payload_exec_load_status times USER_KIND_COUNT dd 0
-payload_exec_parse_status times USER_KIND_COUNT dd 0
-payload_exec_size times USER_KIND_COUNT dd 0
-payload_exec_sectors_read times USER_KIND_COUNT dd 0
-payload_exec_entry times USER_KIND_COUNT dd 0
-payload_exec_segment_memsz times USER_KIND_COUNT dd 0
-payload_exec_segment_end times USER_KIND_COUNT dd 0
-payload_exec_first_cluster times USER_KIND_COUNT dd 0
-payload_exec_table_end:
-payload_lifecycle_table:
-payload_lifecycle_run_status times USER_KIND_COUNT dd 0
-payload_lifecycle_exit_code times USER_KIND_COUNT dd 0
-payload_lifecycle_fault_addr times USER_KIND_COUNT dd 0
-payload_lifecycle_fault_eip times USER_KIND_COUNT dd 0
-payload_lifecycle_fault_vector times USER_KIND_COUNT dd 0
-payload_lifecycle_fault_error times USER_KIND_COUNT dd 0
-payload_lifecycle_fault_count times USER_KIND_COUNT dd 0
-payload_lifecycle_table_end:
-payload_telemetry_table:
-payload_telemetry_present_count times USER_KIND_COUNT dd 0
-payload_telemetry_init_flags times USER_KIND_COUNT dd 0
-payload_telemetry_init_report_count times USER_KIND_COUNT dd 0
-payload_telemetry_table_end:
+app_exec_table:
+app_exec_status times USER_KIND_COUNT dd 0
+app_exec_load_status times USER_KIND_COUNT dd 0
+app_exec_parse_status times USER_KIND_COUNT dd 0
+app_exec_size times USER_KIND_COUNT dd 0
+app_exec_sectors_read times USER_KIND_COUNT dd 0
+app_exec_entry times USER_KIND_COUNT dd 0
+app_exec_segment_memsz times USER_KIND_COUNT dd 0
+app_exec_segment_end times USER_KIND_COUNT dd 0
+app_exec_first_cluster times USER_KIND_COUNT dd 0
+app_exec_table_end:
+app_lifecycle_table:
+app_lifecycle_run_status times USER_KIND_COUNT dd 0
+app_lifecycle_exit_code times USER_KIND_COUNT dd 0
+app_lifecycle_fault_addr times USER_KIND_COUNT dd 0
+app_lifecycle_fault_eip times USER_KIND_COUNT dd 0
+app_lifecycle_fault_vector times USER_KIND_COUNT dd 0
+app_lifecycle_fault_error times USER_KIND_COUNT dd 0
+app_lifecycle_fault_count times USER_KIND_COUNT dd 0
+app_lifecycle_table_end:
+app_telemetry_table:
+app_telemetry_present_count times USER_KIND_COUNT dd 0
+app_telemetry_init_flags times USER_KIND_COUNT dd 0
+app_telemetry_init_report_count times USER_KIND_COUNT dd 0
+app_telemetry_table_end:
 user_io_table:
 user_io_last_syscall times USER_KIND_COUNT dd 0
 user_io_open_count times USER_KIND_COUNT dd 0
@@ -36324,61 +36324,61 @@ framebuffer_source_palette_entries dd FB_PRESENT_PALETTE_ENTRIES
 framebuffer_source_palette_entry_bytes dd FB_PRESENT_PALETTE_ENTRY_BYTES
 framebuffer_source_frame_bytes dd FB_PRESENT_FRAME_BYTES
 framebuffer_source_palette_bytes dd FB_PRESENT_PALETTE_BYTES
-payload_primary_input_event_count dd 0
-payload_primary_input_last_timestamp dd 0
-payload_primary_input_last_device dd 0
-payload_primary_input_last_type dd 0
-payload_primary_key_event_count dd 0
-payload_primary_key_down_seen dd 0
-payload_primary_key_last_event dd 0
-payload_primary_mouse_event_count dd 0
-payload_primary_mouse_buttons_seen dd 0
-payload_primary_mouse_delta_x dd 0
-payload_primary_mouse_delta_y dd 0
-payload_primary_mouse_last_event dd 0
-payload_primary_gameplay_status dd 0
-payload_primary_gameplay_report_count dd 0
-payload_primary_game_state_packed dd 0
-payload_primary_game_state dd 0
-payload_primary_game_episode dd 0
-payload_primary_game_map dd 0
-payload_primary_game_map_pair dd 0
-payload_primary_game_flags dd 0
-payload_primary_game_tic dd 0
-payload_primary_level_time dd 0
-payload_primary_player_flags dd 0
-payload_primary_player_buttons dd 0
-payload_primary_game_action dd 0
-payload_primary_player_x dd 0
-payload_primary_player_y dd 0
-payload_primary_player_origin_set dd 0
-payload_primary_player_origin_x dd 0
-payload_primary_player_origin_y dd 0
-payload_primary_player_delta dd 0
-payload_primary_player_cmd dd 0
-payload_primary_player_angle dd 0
-payload_primary_player_angle_origin_set dd 0
-payload_primary_player_origin_angle dd 0
-payload_primary_player_angle_delta dd 0
-payload_primary_player_ammo dd 0
-payload_primary_player_refire dd 0
-payload_primary_player_weapon dd 0
-payload_secondary_package_magic_seen dd 0
-payload_secondary_gameplay_status dd 0
-payload_secondary_frame_report_count dd 0
-payload_secondary_frame_count dd 0
-payload_secondary_server_active dd 0
-payload_secondary_input_events dd 0
-payload_secondary_input_buttons dd 0
-payload_secondary_audio_writes dd 0
-payload_secondary_audio_handle dd 0
-payload_primary_audio_call_count dd 0
-payload_primary_audio_start_count dd 0
-payload_primary_audio_stop_count dd 0
-payload_primary_audio_update_count dd 0
-payload_primary_audio_last_command dd 0
-payload_primary_audio_last_handle dd 0
-payload_primary_audio_last_packed dd 0
+app_primary_input_event_count dd 0
+app_primary_input_last_timestamp dd 0
+app_primary_input_last_device dd 0
+app_primary_input_last_type dd 0
+app_primary_key_event_count dd 0
+app_primary_key_down_seen dd 0
+app_primary_key_last_event dd 0
+app_primary_mouse_event_count dd 0
+app_primary_mouse_buttons_seen dd 0
+app_primary_mouse_delta_x dd 0
+app_primary_mouse_delta_y dd 0
+app_primary_mouse_last_event dd 0
+app_primary_gameplay_status dd 0
+app_primary_gameplay_report_count dd 0
+app_primary_game_state_packed dd 0
+app_primary_game_state dd 0
+app_primary_game_episode dd 0
+app_primary_game_map dd 0
+app_primary_game_map_pair dd 0
+app_primary_game_flags dd 0
+app_primary_game_tic dd 0
+app_primary_level_time dd 0
+app_primary_player_flags dd 0
+app_primary_player_buttons dd 0
+app_primary_game_action dd 0
+app_primary_player_x dd 0
+app_primary_player_y dd 0
+app_primary_player_origin_set dd 0
+app_primary_player_origin_x dd 0
+app_primary_player_origin_y dd 0
+app_primary_player_delta dd 0
+app_primary_player_cmd dd 0
+app_primary_player_angle dd 0
+app_primary_player_angle_origin_set dd 0
+app_primary_player_origin_angle dd 0
+app_primary_player_angle_delta dd 0
+app_primary_player_ammo dd 0
+app_primary_player_refire dd 0
+app_primary_player_weapon dd 0
+app_secondary_package_magic_seen dd 0
+app_secondary_gameplay_status dd 0
+app_secondary_frame_report_count dd 0
+app_secondary_frame_count dd 0
+app_secondary_server_active dd 0
+app_secondary_input_events dd 0
+app_secondary_input_buttons dd 0
+app_secondary_audio_writes dd 0
+app_secondary_audio_handle dd 0
+app_primary_audio_call_count dd 0
+app_primary_audio_start_count dd 0
+app_primary_audio_stop_count dd 0
+app_primary_audio_update_count dd 0
+app_primary_audio_last_command dd 0
+app_primary_audio_last_handle dd 0
+app_primary_audio_last_packed dd 0
 sb16_sfx_voice_start_count dd 0
 sb16_sfx_voice_stop_count dd 0
 sb16_sfx_voice_update_count dd 0
@@ -36389,8 +36389,8 @@ sb16_sfx_output_bytes dd 0
 sb16_sfx_last_id dd 0
 sb16_sfx_last_rate dd 0
 sb16_sfx_last_length dd 0
-payload_primary_asset_magic_seen dd 0
-payload_primary_stdout_log_len dd 0
+app_primary_asset_magic_seen dd 0
+app_primary_stdout_log_len dd 0
 input_event_head dd 0
 input_event_tail dd 0
 input_event_count dd 0
@@ -36694,7 +36694,7 @@ fat_list_dir_cluster dw 0
 fat_parent_dir_cluster dw 0
 primary_asset_first_cluster dw 0
 user_elf_first_cluster dw 0
-payload_elf_first_cluster dw 0
+app_elf_first_cluster dw 0
 fat_mut_value dw 0
 fat_new_cluster dw 0
 fat_free_next_cluster dw 0
@@ -36721,7 +36721,7 @@ fat_path_component_count db 0
 fat_path_walk_index db 0
 fat_path_component_buffer times FAT_PATH_MAX_COMPONENTS * FAT_PATH_COMPONENT_BYTES db 0
 user_load_segment_count db 0
-payload_load_segment_count db 0
+app_load_segment_count db 0
 present_status db 0
 video_backend db 0
 framebuffer_status db 0
@@ -36730,7 +36730,7 @@ shift_down db 0
 keyboard_extended db 0
 writable_status times WRITABLE_FILE_COUNT db 0
 persistence_marker_status times PERSISTENCE_MARKER_COUNT db 0
-payload_primary_stdout_log_buffer times PAYLOAD_PRIMARY_STDOUT_LOG_BYTES db 0
+app_primary_stdout_log_buffer times APP_PRIMARY_STDOUT_LOG_BYTES db 0
 input_event_queue times INPUT_EVENT_QUEUE_SIZE * VIBE_INPUT_EVENT_DWORDS dd 0
 key_event_queue times KEY_QUEUE_SIZE dd 0
 mouse_event_queue times MOUSE_QUEUE_SIZE dd 0

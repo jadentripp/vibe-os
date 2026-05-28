@@ -432,24 +432,24 @@ LBB0_85:
 	je	LBB0_119
 align 16
 LBB0_88:
-	cmp	al, byte [ecx + L__const.user_main.asset_payload]
+	cmp	al, byte [ecx + L__const.user_main.asset_app]
 	jne	LBB0_120
 	movzx	eax, byte [ecx + user_main.readback+1]
 	inc	ecx
 	test	al, al
 	jne	LBB0_88
-	lea	ecx, [ecx + L__const.user_main.asset_payload]
+	lea	ecx, [ecx + L__const.user_main.asset_app]
 	xor	eax, eax
 	jmp	LBB0_121
 LBB0_118:
 	xor	ecx, ecx
 	jmp	LBB0_95
 LBB0_119:
-	mov	ecx, L__const.user_main.asset_payload
+	mov	ecx, L__const.user_main.asset_app
 	xor	eax, eax
 	jmp	LBB0_121
 LBB0_120:
-	lea	ecx, [ecx + L__const.user_main.asset_payload]
+	lea	ecx, [ecx + L__const.user_main.asset_app]
 LBB0_121:
 	cmp	al, byte [ecx]
 	jne	LBB0_93
@@ -1117,11 +1117,11 @@ L__const.user_main.asset_readme_path:
 db `/ASSETS/README.TXT`, 0
 L__const.user_main.asset_deep_path:
 db `/ASSETS/SUB/README.TXT`, 0
-L__const.user_main.asset_payload:
+L__const.user_main.asset_app:
 db `vibe-os FAT16 one-level asset file\n`, 0
 L__const.user_main.default_path:
 db `DEFAULT.CFG`, 0
-L__const.user_main.writable_payload:
+L__const.user_main.writable_app:
 db `persist-ok\n`, 0
 L.str:
 db `PROBE_LAUNCHER=USERPROB`, 0

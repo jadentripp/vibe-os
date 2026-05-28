@@ -2490,7 +2490,7 @@ db `./state/session.dat`, 0
 L__const.prove_generic_file_services.asset_expected:
 db `vibe-os FAT16 one-level asset file\n`, 0
 
-L__const.prove_generic_file_services.state_payload:
+L__const.prove_generic_file_services.state_app:
 db `abi-fs-state\n`, 0
 
 L.str.8:

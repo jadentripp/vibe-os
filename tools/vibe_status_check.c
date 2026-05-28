@@ -41,7 +41,7 @@
      KERNEL_HIGH_ABI_HIGH_DATA_WRITE)
 #define PAGING_DIR_ADDR 0x00090000u
 #define PROC_PROBE_PAGE_DIR_ADDR 0x00080000u
-#define PROC_PAYLOAD_PAGE_DIR_ADDR 0x00082000u
+#define PROC_APP_PAGE_DIR_ADDR 0x00082000u
 #define PROC_PREEMPT_PAGE_DIR_ADDR 0x00083000u
 #define PROC_GENERIC0_PAGE_DIR_ADDR 0x00089000u
 #define PROC_GENERIC1_PAGE_DIR_ADDR 0x0008B000u
@@ -70,13 +70,13 @@
      KERNEL_RELOC_ABI_STACK_XLAT | KERNEL_RELOC_ABI_LOW_XLAT_ABSENT | \
      KERNEL_RELOC_ABI_LIVE_CR3_SWITCH | KERNEL_RELOC_ABI_HIGH_DATA_WRITE | \
      KERNEL_RELOC_ABI_LOW_RETURN_BLOCKED | KERNEL_RELOC_ABI_RETURN_CR3_RESTORED)
-#define USER_KIND_PAYLOAD_PRIMARY 2u
+#define USER_KIND_APP_PRIMARY 2u
 #define USER_KIND_PREEMPT_PROBE 3u
-#define USER_KIND_PAYLOAD_SECONDARY 5u
+#define USER_KIND_APP_SECONDARY 5u
 #define USER_CODE_SEG 0x1Bu
 #define USER_DATA_SEG 0x23u
-#define PAYLOAD_USER_BASE 0x01000000u
-#define PAYLOAD_USER_STACK_TOP 0x02000000u
+#define APP_USER_BASE 0x01000000u
+#define APP_USER_STACK_TOP 0x02000000u
 #define PROBE_USER_BASE 0x00E80000u
 #define PROBE_USER_END 0x00F00000u
 #define SCHEDULER_QUANTUM_TICKS 5u
@@ -1045,7 +1045,7 @@ static void in_range(uint32_t value, uint32_t start, uint32_t end, const char *n
 static int fixed_bootstrap_page_dir(uint32_t cr3) {
     return cr3 == PAGING_DIR_ADDR ||
            cr3 == PROC_PROBE_PAGE_DIR_ADDR ||
-           cr3 == PROC_PAYLOAD_PAGE_DIR_ADDR ||
+           cr3 == PROC_APP_PAGE_DIR_ADDR ||
            cr3 == PROC_PREEMPT_PAGE_DIR_ADDR ||
            cr3 == PROC_GENERIC0_PAGE_DIR_ADDR ||
            cr3 == PROC_GENERIC1_PAGE_DIR_ADDR;
@@ -1053,7 +1053,7 @@ static int fixed_bootstrap_page_dir(uint32_t cr3) {
 
 static int process_page_dir(uint32_t cr3) {
     return cr3 == PROC_PROBE_PAGE_DIR_ADDR ||
-           cr3 == PROC_PAYLOAD_PAGE_DIR_ADDR ||
+           cr3 == PROC_APP_PAGE_DIR_ADDR ||
            cr3 == PROC_PREEMPT_PAGE_DIR_ADDR ||
            cr3 == PROC_GENERIC0_PAGE_DIR_ADDR ||
            cr3 == PROC_GENERIC1_PAGE_DIR_ADDR;
@@ -1397,8 +1397,8 @@ static void validate_kernel_relocation(const Status *status) {
 }
 
 static int addr_matches_kind(uint32_t kind, uint32_t addr) {
-    if (kind == USER_KIND_PAYLOAD_PRIMARY || kind == USER_KIND_PAYLOAD_SECONDARY) {
-        return addr >= PAYLOAD_USER_BASE && addr < PAYLOAD_USER_STACK_TOP;
+    if (kind == USER_KIND_APP_PRIMARY || kind == USER_KIND_APP_SECONDARY) {
+        return addr >= APP_USER_BASE && addr < APP_USER_STACK_TOP;
     }
     if (kind == USER_KIND_PREEMPT_PROBE) {
         return addr >= PROBE_USER_BASE && addr < PROBE_USER_END;
@@ -1407,7 +1407,7 @@ static int addr_matches_kind(uint32_t kind, uint32_t addr) {
 }
 
 static int is_large_app_kind(uint32_t kind) {
-    return kind == USER_KIND_PAYLOAD_PRIMARY || kind == USER_KIND_PAYLOAD_SECONDARY;
+    return kind == USER_KIND_APP_PRIMARY || kind == USER_KIND_APP_SECONDARY;
 }
 
 static int expected_large_app_kind_for_path(const Status *status, uint32_t *kind) {
@@ -1418,11 +1418,11 @@ static int expected_large_app_kind_for_path(const Status *status, uint32_t *kind
     }
     exec_path = field(status, "path");
     if (strcmp(exec_path, "/APPS/DOOM/APP.ELF") == 0) {
-        *kind = USER_KIND_PAYLOAD_PRIMARY;
+        *kind = USER_KIND_APP_PRIMARY;
         return 1;
     }
     if (strcmp(exec_path, "/APPS/QUAKE/APP.ELF") == 0) {
-        *kind = USER_KIND_PAYLOAD_SECONDARY;
+        *kind = USER_KIND_APP_SECONDARY;
         return 1;
     }
     return 0;
@@ -1430,12 +1430,12 @@ static int expected_large_app_kind_for_path(const Status *status, uint32_t *kind
 
 static int exec_copy_source_ok(uint32_t addr) {
     return (addr >= USER_ELF_LOAD_ADDR && addr < USER_ELF_LOAD_ADDR + USER_ELF_MAX_BYTES) ||
-           (addr >= PAYLOAD_USER_BASE && addr < PAYLOAD_USER_STACK_TOP);
+           (addr >= APP_USER_BASE && addr < APP_USER_STACK_TOP);
 }
 
 static int exec_copy_destination_ok(uint32_t addr) {
     return (addr >= PROBE_USER_BASE && addr < PROBE_USER_END) ||
-           (addr >= PAYLOAD_USER_BASE && addr < PAYLOAD_USER_STACK_TOP);
+           (addr >= APP_USER_BASE && addr < APP_USER_STACK_TOP);
 }
 
 static void validate_exec_copy(const Status *status) {
@@ -1651,10 +1651,10 @@ static void validate_preemption(const Status *status) {
         fail("peip= must contain user EIPs matching pkind=");
     }
     hex_tuple(status, "pcr3", 2, ':', cr3s);
-    if (is_large_app_kind(kinds[0]) && cr3s[0] != PROC_PAYLOAD_PAGE_DIR_ADDR) {
+    if (is_large_app_kind(kinds[0]) && cr3s[0] != PROC_APP_PAGE_DIR_ADDR) {
         fail("pcr3= selected app must use the app page directory");
     }
-    if (is_large_app_kind(kinds[1]) && cr3s[1] != PROC_PAYLOAD_PAGE_DIR_ADDR) {
+    if (is_large_app_kind(kinds[1]) && cr3s[1] != PROC_APP_PAGE_DIR_ADDR) {
         fail("pcr3= selected app must use the app page directory");
     }
     if (kinds[0] == USER_KIND_PREEMPT_PROBE && cr3s[0] != PROC_PREEMPT_PAGE_DIR_ADDR) {
