@@ -29,6 +29,17 @@
     (PI4_VIBE_APP_RECORD_FIRST + PI4_VIBE_APP_RECORD_COUNT)
 #define PI4_VIBE_APP_RECORD_NONE PI4_VIBE_APP_RECORD_LIMIT
 #define PI4_VIBE_APP_COUNT PI4_VIBE_APP_RECORD_COUNT
+#define PI4_VIBE_APP_RECORD_0 PI4_VIBE_APP_RECORD_FIRST
+#define PI4_VIBE_APP_RECORD_1 (PI4_VIBE_APP_RECORD_FIRST + 1)
+#define PI4_VIBE_INSTALLED_APP_RECORD_FIRST PI4_VIBE_APP_RECORD_FIRST
+#define PI4_VIBE_INSTALLED_APP_RECORD_COUNT PI4_VIBE_APP_RECORD_COUNT
+#define PI4_VIBE_INSTALLED_APP_RECORD_LIMIT PI4_VIBE_APP_RECORD_LIMIT
+#define PI4_VIBE_INSTALLED_APP_RECORD_NONE PI4_VIBE_APP_RECORD_NONE
+#define PI4_VIBE_INSTALLED_APP_COUNT PI4_VIBE_INSTALLED_APP_RECORD_COUNT
+
+#if PI4_VIBE_APP_RECORD_COUNT < 2
+#error "Pi 4 app-record ABI must preserve the Doom and Quake proof records"
+#endif
 
 #define PI4_VIBE_DISPLAY_FD 1
 #define PI4_VIBE_FD_DOOM1_WAD 3
@@ -39,8 +50,8 @@
 #define PI4_VIBE_FD_ASSET_PALETTE 10
 #define PI4_VIBE_FD_APP_INDEX 11
 /*
- * App descriptors are record ranges, not fixed launch slots. Each discovered
- * app record owns one manifest fd and one APP.ELF fd.
+ * App descriptors are VFS records, not fixed launch table positions. Each
+ * discovered app record owns one manifest fd and one APP.ELF fd.
  */
 #define PI4_VIBE_APP_RECORD_MANIFEST_FD_FIRST 12
 #define PI4_VIBE_APP_RECORD_MANIFEST_FD_COUNT PI4_VIBE_APP_RECORD_COUNT
@@ -62,11 +73,24 @@
     PI4_VIBE_APP_RECORD_MANIFEST_FD_COUNT
 #define PI4_VIBE_FD_APP_ELF_BASE PI4_VIBE_APP_RECORD_ELF_FD_FIRST
 #define PI4_VIBE_FD_APP_ELF_COUNT PI4_VIBE_APP_RECORD_ELF_FD_COUNT
+#define PI4_VIBE_APP_RECORD_INDEX(record) \
+    ((record) - PI4_VIBE_APP_RECORD_FIRST)
+#define PI4_VIBE_APP_RECORD_MANIFEST_FD(record) \
+    (PI4_VIBE_APP_RECORD_MANIFEST_FD_FIRST + \
+     PI4_VIBE_APP_RECORD_INDEX(record))
+#define PI4_VIBE_APP_RECORD_ELF_FD(record) \
+    (PI4_VIBE_APP_RECORD_ELF_FD_FIRST + PI4_VIBE_APP_RECORD_INDEX(record))
 #define PI4_VIBE_APP_INDEX_PATH "/APPS/INDEX.TXT"
 #define PI4_VIBE_DOOM_APP_MANIFEST_PATH "/APPS/DOOM/APP.TXT"
 #define PI4_VIBE_DOOM_APP_PATH "/APPS/DOOM/APP.ELF"
 #define PI4_VIBE_QUAKE_APP_MANIFEST_PATH "/APPS/QUAKE/APP.TXT"
 #define PI4_VIBE_QUAKE_APP_PATH "/APPS/QUAKE/APP.ELF"
+#define PI4_VIBE_APP_RECORD_0_MANIFEST_PATH \
+    PI4_VIBE_DOOM_APP_MANIFEST_PATH
+#define PI4_VIBE_APP_RECORD_0_EXEC_PATH PI4_VIBE_DOOM_APP_PATH
+#define PI4_VIBE_APP_RECORD_1_MANIFEST_PATH \
+    PI4_VIBE_QUAKE_APP_MANIFEST_PATH
+#define PI4_VIBE_APP_RECORD_1_EXEC_PATH PI4_VIBE_QUAKE_APP_PATH
 #define PI4_VIBE_QUAKE_PAK0_PATH "/ID1/PAK0.PAK"
 #define PI4_VIBE_IOCTL_FBINFO 0x00005601
 #define PI4_VIBE_IOCTL_PRESENT_INDEXED 0x00005602
@@ -95,13 +119,12 @@
 #define PI4_VIBE_EXEC_REQUEST_ABI_VERSION_OFFSET 0
 #define PI4_VIBE_EXEC_REQUEST_BYTES_OFFSET 8
 /*
- * Exec requests are app-path-first. The word at offset 16 stays reserved so
- * the ABI remains fixed; callers set it to PI4_VIBE_EXEC_REQUEST_COMPAT_NONE
- * and provide app_path.
+ * Exec requests are app-path-first. The word at offset 16 is reserved and
+ * must be set to PI4_VIBE_EXEC_REQUEST_RESERVED_NONE.
  */
-#define PI4_VIBE_EXEC_REQUEST_COMPAT_TOKEN_OFFSET 16
+#define PI4_VIBE_EXEC_REQUEST_RESERVED_OFFSET 16
 #define PI4_VIBE_EXEC_REQUEST_APP_PATH_OFFSET 24
-#define PI4_VIBE_EXEC_REQUEST_COMPAT_NONE -1
+#define PI4_VIBE_EXEC_REQUEST_RESERVED_NONE -1
 #define PI4_VIBE_EXEC_REQUEST_PATH_OFFSET \
     PI4_VIBE_EXEC_REQUEST_APP_PATH_OFFSET
 
@@ -443,6 +466,39 @@ typedef unsigned long pi4_vibe_word_t;
 typedef long pi4_vibe_sword_t;
 
 struct stat;
+
+static inline int pi4_vibe_app_record_is_installed(
+    pi4_vibe_word_t record)
+{
+    return record >= PI4_VIBE_INSTALLED_APP_RECORD_FIRST &&
+        record < PI4_VIBE_INSTALLED_APP_RECORD_LIMIT;
+}
+
+static inline pi4_vibe_word_t pi4_vibe_app_record_index(
+    pi4_vibe_word_t record)
+{
+    return record - PI4_VIBE_INSTALLED_APP_RECORD_FIRST;
+}
+
+static inline int pi4_vibe_app_record_manifest_fd_checked(
+    pi4_vibe_word_t record,
+    pi4_vibe_word_t* out_fd)
+{
+    if (!out_fd || !pi4_vibe_app_record_is_installed(record))
+        return 0;
+    *out_fd = PI4_VIBE_APP_RECORD_MANIFEST_FD(record);
+    return 1;
+}
+
+static inline int pi4_vibe_app_record_elf_fd_checked(
+    pi4_vibe_word_t record,
+    pi4_vibe_word_t* out_fd)
+{
+    if (!out_fd || !pi4_vibe_app_record_is_installed(record))
+        return 0;
+    *out_fd = PI4_VIBE_APP_RECORD_ELF_FD(record);
+    return 1;
+}
 
 typedef struct pi4_vibe_input_event {
     pi4_vibe_word_t timestamp;
@@ -1217,7 +1273,7 @@ typedef struct pi4_vibe_clock_time {
 typedef struct pi4_vibe_exec_request {
     pi4_vibe_word_t abi_version;
     pi4_vibe_word_t request_bytes;
-    pi4_vibe_word_t compatibility_token;
+    pi4_vibe_word_t reserved0;
     const char* app_path;
 } pi4_vibe_exec_request_t;
 

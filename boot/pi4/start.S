@@ -233,13 +233,15 @@
 .equ PI4_VIBE_APP_RECORD_MANIFEST_OFFSET, 32
 .equ PI4_VIBE_APP_RECORD_ELF_STATUS, 40
 .equ PI4_VIBE_APP_RECORD_ELF_READ_COUNT, 48
-.equ PI4_VIBE_APP_RECORD_BYTES,     56
+.equ PI4_VIBE_APP_RECORD_DIR_STATUS, 56
+.equ PI4_VIBE_APP_RECORD_STATUS_LABEL, 64
+.equ PI4_VIBE_APP_RECORD_BYTES,     72
 .equ PI4_VIBE_EXEC_REQUEST_ABI_VERSION, 1
 .equ PI4_VIBE_EXEC_REQUEST_BYTES,       32
 .equ PI4_VIBE_EXEC_REQUEST_PATH_MAX_BYTES, 64
 .equ PI4_VIBE_EXEC_REQUEST_ABI_VERSION_OFFSET, 0
 .equ PI4_VIBE_EXEC_REQUEST_BYTES_OFFSET, 8
-.equ PI4_VIBE_EXEC_REQUEST_COMPAT_TOKEN_OFFSET, 16
+.equ PI4_VIBE_EXEC_REQUEST_RESERVED_OFFSET, 16
 .equ PI4_VIBE_EXEC_REQUEST_PATH_OFFSET, 24
 .equ PI4_VIBE_INPUT_DEVICE_KEYBOARD,    1
 .equ PI4_VIBE_INPUT_DEVICE_MOUSE,       2
@@ -2720,12 +2722,7 @@ pi4_prepare_storage_handoff:
     adr x0, pi4_storage_status_apps_dir
     mov x1, #PI4_START_STORAGE_ASSET_DIR_APPS
     bl pi4_prepare_storage_scan_dir_cluster
-    adr x0, pi4_storage_status_app0_dir
-    mov x1, #PI4_START_STORAGE_ASSET_DIR_APP_BASE
-    bl pi4_prepare_storage_scan_dir_cluster
-    adr x0, pi4_storage_status_app1_dir
-    mov x1, #(PI4_START_STORAGE_ASSET_DIR_APP_BASE + 1)
-    bl pi4_prepare_storage_scan_dir_cluster
+    bl pi4_prepare_storage_scan_app_dirs
 
     adr x0, pi4_storage_status_init_elf
     ldr w1, [x0]
@@ -2779,17 +2776,9 @@ pi4_prepare_storage_handoff:
     adr x1, pi4_el0_stack_top
     str x1, [x0]
 
-    adr x0, pi4_storage_status_app0_elf
-    ldr w1, [x0]
-    ldr w2, =PI4_START_STORAGE_FILE_OK
-    cmp w1, w2
-    b.ne .Lpi4_prepare_storage_handoff_done
-
-    adr x0, pi4_storage_status_app1_elf
-    ldr w1, [x0]
-    ldr w2, =PI4_START_STORAGE_FILE_OK
-    cmp w1, w2
-    b.ne .Lpi4_prepare_storage_handoff_done
+    mov x0, #PI4_VIBE_APP_RECORD_ELF_STATUS
+    bl pi4_app_records_have_file_status
+    cbz x0, .Lpi4_prepare_storage_handoff_done
 
     adr x0, pi4_storage_status_app_index
     ldr w1, [x0]
@@ -2797,17 +2786,9 @@ pi4_prepare_storage_handoff:
     cmp w1, w2
     b.ne .Lpi4_prepare_storage_handoff_done
 
-    adr x0, pi4_storage_status_app0_manifest
-    ldr w1, [x0]
-    ldr w2, =PI4_START_STORAGE_FILE_OK
-    cmp w1, w2
-    b.ne .Lpi4_prepare_storage_handoff_done
-
-    adr x0, pi4_storage_status_app1_manifest
-    ldr w1, [x0]
-    ldr w2, =PI4_START_STORAGE_FILE_OK
-    cmp w1, w2
-    b.ne .Lpi4_prepare_storage_handoff_done
+    mov x0, #PI4_VIBE_APP_RECORD_MANIFEST_META
+    bl pi4_app_records_have_file_status
+    cbz x0, .Lpi4_prepare_storage_handoff_done
 
     adr x0, pi4_storage_status_doom1_wad
     ldr w1, [x0]
@@ -2849,6 +2830,57 @@ pi4_prepare_storage_handoff:
     ldp x29, x30, [sp], #96
     ret
 .size pi4_prepare_storage_handoff, . - pi4_prepare_storage_handoff
+
+.type pi4_prepare_storage_scan_app_dirs, %function
+pi4_prepare_storage_scan_app_dirs:
+    stp x29, x30, [sp, #-32]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+
+    adr x19, pi4_app_file_record_table
+    mov x20, xzr
+.Lpi4_prepare_storage_scan_app_dirs_next:
+    cmp x20, #PI4_VIBE_APP_RECORD_COUNT
+    b.hs .Lpi4_prepare_storage_scan_app_dirs_done
+    ldr x0, [x19, #PI4_VIBE_APP_RECORD_DIR_STATUS]
+    mov x1, #PI4_START_STORAGE_ASSET_DIR_APP_BASE
+    add x1, x1, x20
+    bl pi4_prepare_storage_scan_dir_cluster
+    add x19, x19, #PI4_VIBE_APP_RECORD_BYTES
+    add x20, x20, #1
+    b .Lpi4_prepare_storage_scan_app_dirs_next
+
+.Lpi4_prepare_storage_scan_app_dirs_done:
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #32
+    ret
+.size pi4_prepare_storage_scan_app_dirs, . - pi4_prepare_storage_scan_app_dirs
+
+.type pi4_app_records_have_file_status, %function
+pi4_app_records_have_file_status:
+    mov x1, x0
+    adr x2, pi4_app_file_record_table
+    mov x3, xzr
+    ldr w6, =PI4_START_STORAGE_FILE_OK
+.Lpi4_app_records_have_file_status_next:
+    cmp x3, #PI4_VIBE_APP_RECORD_COUNT
+    b.hs .Lpi4_app_records_have_file_status_ok
+    add x4, x2, x1
+    ldr x4, [x4]
+    ldr w5, [x4]
+    cmp w5, w6
+    b.ne .Lpi4_app_records_have_file_status_bad
+    add x2, x2, #PI4_VIBE_APP_RECORD_BYTES
+    add x3, x3, #1
+    b .Lpi4_app_records_have_file_status_next
+
+.Lpi4_app_records_have_file_status_ok:
+    mov x0, #1
+    ret
+.Lpi4_app_records_have_file_status_bad:
+    mov x0, xzr
+    ret
+.size pi4_app_records_have_file_status, . - pi4_app_records_have_file_status
 
 .type pi4_prepare_storage_scan_dir_cluster, %function
 pi4_prepare_storage_scan_dir_cluster:
@@ -4621,14 +4653,7 @@ pi4_uart_write_storage_vfs_file_tuples:
     adr x1, pi4_storage_status_system_abiprobe
     mov x2, #4
     bl pi4_uart_write_storage_named_tuple
-    adr x0, msg_status_pi4app_record0
-    adr x1, pi4_storage_status_app0_elf_entry_index
-    mov x2, #8
-    bl pi4_uart_write_storage_named_tuple
-    adr x0, msg_status_pi4app_record1
-    adr x1, pi4_storage_status_app1_elf_entry_index
-    mov x2, #8
-    bl pi4_uart_write_storage_named_tuple
+    bl pi4_uart_write_storage_app_record_tuples
     adr x0, msg_status_pi4manifest
     adr x1, pi4_storage_status_manifest_txt
     mov x2, #8
@@ -4674,6 +4699,31 @@ pi4_uart_write_storage_vfs_file_tuples:
     ldp x29, x30, [sp], #16
     ret
 .size pi4_uart_write_storage_vfs_file_tuples, . - pi4_uart_write_storage_vfs_file_tuples
+
+.type pi4_uart_write_storage_app_record_tuples, %function
+pi4_uart_write_storage_app_record_tuples:
+    stp x29, x30, [sp, #-32]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+
+    adr x19, pi4_app_file_record_table
+    mov x20, xzr
+.Lpi4_uart_write_storage_app_record_tuples_next:
+    cmp x20, #PI4_VIBE_APP_RECORD_COUNT
+    b.hs .Lpi4_uart_write_storage_app_record_tuples_done
+    ldr x0, [x19, #PI4_VIBE_APP_RECORD_STATUS_LABEL]
+    ldr x1, [x19, #PI4_VIBE_APP_RECORD_ELF_META]
+    mov x2, #8
+    bl pi4_uart_write_storage_named_tuple
+    add x19, x19, #PI4_VIBE_APP_RECORD_BYTES
+    add x20, x20, #1
+    b .Lpi4_uart_write_storage_app_record_tuples_next
+
+.Lpi4_uart_write_storage_app_record_tuples_done:
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #32
+    ret
+.size pi4_uart_write_storage_app_record_tuples, . - pi4_uart_write_storage_app_record_tuples
 
 .type pi4_uart_write_storage_block_status, %function
 pi4_uart_write_storage_block_status:
@@ -12496,6 +12546,8 @@ pi4_app_file_record_table:
     .quad pi4_status_pi4userfile_app0_manifest_offset
     .quad pi4_storage_status_app0_elf
     .quad pi4_storage_status_app0_elf_read_count
+    .quad pi4_storage_status_app0_dir
+    .quad msg_status_pi4app_record0
     .quad pi4_storage_status_app1_dir_name
     .quad pi4_storage_status_app1_elf_entry_index
     .quad pi4_status_pi4userfile_app1_elf_offset
@@ -12503,6 +12555,8 @@ pi4_app_file_record_table:
     .quad pi4_status_pi4userfile_app1_manifest_offset
     .quad pi4_storage_status_app1_elf
     .quad pi4_storage_status_app1_elf_read_count
+    .quad pi4_storage_status_app1_dir
+    .quad msg_status_pi4app_record1
 pi4_user_file_doom1_path:
     .asciz "DOOM1.WAD"
 pi4_user_file_pak0_path:

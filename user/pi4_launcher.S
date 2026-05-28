@@ -79,20 +79,31 @@
 .equ PI4_LAUNCHER_CURSOR_MAX_X,         PI4_LAUNCHER_FRAME_WIDTH - PI4_LAUNCHER_CURSOR_DRAW_W - 1
 .equ PI4_LAUNCHER_CURSOR_MAX_Y,         PI4_LAUNCHER_FRAME_HEIGHT - PI4_LAUNCHER_CURSOR_DRAW_H - 1
 
-.equ PI4_LAUNCHER_SLOT_COUNT,           2
-.equ PI4_LAUNCHER_SLOT_FIRST,           0
-.equ PI4_LAUNCHER_SLOT_SECOND,          1
-.equ PI4_LAUNCHER_SLOT_DEFAULT,         PI4_LAUNCHER_SLOT_FIRST
-.equ PI4_LAUNCHER_SLOT_APP0,            PI4_LAUNCHER_SLOT_FIRST
-.equ PI4_LAUNCHER_SLOT_APP1,            PI4_LAUNCHER_SLOT_SECOND
-.equ PI4_LAUNCHER_SLOT_NONE,            PI4_LAUNCHER_SLOT_COUNT
-.equ PI4_LAUNCHER_SLOT_BYTES,           40
-.equ PI4_LAUNCHER_SLOT_NAME,            8
-.equ PI4_LAUNCHER_SLOT_PATH,            16
-.equ PI4_LAUNCHER_SLOT_STATE,           24
-.equ PI4_LAUNCHER_SLOT_STATE_TEXT,      32
-.equ PI4_LAUNCHER_SLOT_STATE_ABSENT,    0
-.equ PI4_LAUNCHER_SLOT_STATE_PRESENT,   1
+.equ PI4_LAUNCHER_APP_RECORD_COUNT,           2
+.equ PI4_LAUNCHER_APP_RECORD_FIRST,           0
+.equ PI4_LAUNCHER_APP_RECORD_SECOND,          1
+.equ PI4_LAUNCHER_APP_RECORD_DEFAULT,         PI4_LAUNCHER_APP_RECORD_FIRST
+.equ PI4_LAUNCHER_APP_RECORD_0,            PI4_LAUNCHER_APP_RECORD_FIRST
+.equ PI4_LAUNCHER_APP_RECORD_1,            PI4_LAUNCHER_APP_RECORD_SECOND
+.equ PI4_LAUNCHER_APP_RECORD_NONE,            PI4_LAUNCHER_APP_RECORD_COUNT
+.equ PI4_LAUNCHER_APP_RECORD_BYTES,           40
+.equ PI4_LAUNCHER_APP_RECORD_NAME,            8
+.equ PI4_LAUNCHER_APP_RECORD_PATH,            16
+.equ PI4_LAUNCHER_APP_RECORD_STATE,           24
+.equ PI4_LAUNCHER_APP_RECORD_STATE_TEXT,      32
+.equ PI4_LAUNCHER_APP_RECORD_STATE_ABSENT,    0
+.equ PI4_LAUNCHER_APP_RECORD_STATE_PRESENT,   1
+
+.equ PI4_LAUNCHER_CARD_RECORD_INDEX,      0
+.equ PI4_LAUNCHER_CARD_RECORD_CARD_X,    8
+.equ PI4_LAUNCHER_CARD_RECORD_ICON_X,    16
+.equ PI4_LAUNCHER_CARD_RECORD_ACCENT,    24
+.equ PI4_LAUNCHER_CARD_RECORD_DARK,      32
+.equ PI4_LAUNCHER_CARD_RECORD_POSTER,    40
+.equ PI4_LAUNCHER_CARD_RECORD_ICON_DRAW, 48
+.equ PI4_LAUNCHER_CARD_RECORD_KEY_BITMAP, 56
+.equ PI4_LAUNCHER_CARD_RECORD_ICON_PIXELS, 64
+.equ PI4_LAUNCHER_CARD_RECORD_BYTES,     72
 
 .equ PI4_LAUNCHER_APP_INDEX_READY,      0x00000010
 .equ PI4_LAUNCHER_APP_MANIFEST_READY_BASE, 0x00000020
@@ -103,7 +114,7 @@
 .equ PI4_LAUNCHER_APP_ICON_BYTES,       64
 .equ PI4_LAUNCHER_APP_KEY_BYTES,        32
 .equ PI4_LAUNCHER_APP_COUNT_BYTES,      16
-.equ PI4_LAUNCHER_EXEC_REQUEST_COMPAT_TOKEN_OFFSET, PI4_VIBE_EXEC_REQUEST_COMPAT_TOKEN_OFFSET
+.equ PI4_LAUNCHER_EXEC_REQUEST_RESERVED_OFFSET, PI4_VIBE_EXEC_REQUEST_RESERVED_OFFSET
 
 .equ PI4_LAUNCHER_PHASE_COLD,           0
 .equ PI4_LAUNCHER_PHASE_FRAME_READY,    1
@@ -117,9 +128,9 @@
 .equ PI4_LAUNCHER_STATE_HEIGHT,         32
 .equ PI4_LAUNCHER_STATE_STRIDE,         40
 .equ PI4_LAUNCHER_STATE_BYTES,          48
-.equ PI4_LAUNCHER_STATE_SLOT_COUNT,     56
+.equ PI4_LAUNCHER_STATE_APP_RECORD_COUNT,     56
 .equ PI4_LAUNCHER_STATE_SELECTED_INDEX, 64
-.equ PI4_LAUNCHER_STATE_SELECTED_SLOT,  72
+.equ PI4_LAUNCHER_STATE_SELECTED_APP_RECORD,  72
 .equ PI4_LAUNCHER_STATE_SELECTED_NAME,  80
 .equ PI4_LAUNCHER_STATE_SELECTED_PATH,  88
 .equ PI4_LAUNCHER_STATE_RENDER_COUNT,   96
@@ -131,7 +142,7 @@
 .equ PI4_LAUNCHER_STATE_CHANGE_COUNT,   144
 .equ PI4_LAUNCHER_STATE_RECORD_COUNT,   152
 .equ PI4_LAUNCHER_STATE_RECORD_INDEX,   160
-.equ PI4_LAUNCHER_STATE_RECORD_SLOT,    168
+.equ PI4_LAUNCHER_STATE_RECORD_ENTRY,    168
 .equ PI4_LAUNCHER_STATE_RECORD_NAME,    176
 .equ PI4_LAUNCHER_STATE_RECORD_PATH,    184
 .equ PI4_LAUNCHER_STATE_EXEC_REQUEST,   192
@@ -154,7 +165,7 @@
 .equ PI4_LAUNCHER_STATE_PRESENT_ERRNO,  328
 .equ PI4_LAUNCHER_STATE_EXEC_REQUEST_ABI, 336
 .equ PI4_LAUNCHER_STATE_EXEC_REQUEST_BYTES, 344
-.equ PI4_LAUNCHER_STATE_EXEC_REQUEST_COMPAT, 352
+.equ PI4_LAUNCHER_STATE_EXEC_REQUEST_RESERVED, 352
 .equ PI4_LAUNCHER_STATE_EXEC_REQUEST_PATH, 360
 .equ PI4_LAUNCHER_STATE_EXEC_ARGV,       368
 .equ PI4_LAUNCHER_STATE_EXEC_ATTEMPT_STATE, 376
@@ -247,11 +258,11 @@
 .equ PI4_COLOR_CARD,                    14
 .equ PI4_COLOR_HILITE,                  15
 
-.extern pi4_launcher_slot_table
+.extern pi4_launcher_app_record_table
 .extern pi4_launcher_app_record_0_name
 .extern pi4_launcher_app_record_1_name
-.extern pi4_launcher_slot_present_state
-.extern pi4_launcher_slot_absent_state
+.extern pi4_launcher_app_record_present_state
+.extern pi4_launcher_app_record_absent_state
 .extern pi4_launcher_key_1_bitmap
 .extern pi4_launcher_key_2_bitmap
 .extern pi4_launcher_enter_label_bitmap
@@ -278,7 +289,7 @@ user_main:
 pi4_launcher_start:
     bl pi4_launcher_discover_apps
     bl pi4_launcher_load_art
-    mov x19, #PI4_LAUNCHER_SLOT_DEFAULT
+    mov x19, #PI4_LAUNCHER_APP_RECORD_DEFAULT
     bl pi4_launcher_reset_desktop_state
 
     mov x0, xzr
@@ -344,9 +355,9 @@ pi4_launcher_start:
     b.eq .Lpi4_launcher_record_action
     cmp x20, #PI4_LAUNCHER_INPUT_ACTION_MOVED
     b.ne .Lpi4_launcher_render_non_record
-    adrp x22, pi4_launcher_failed_slot
-    add x22, x22, :lo12:pi4_launcher_failed_slot
-    mov x23, #PI4_LAUNCHER_SLOT_NONE
+    adrp x22, pi4_launcher_failed_app_record
+    add x22, x22, :lo12:pi4_launcher_failed_app_record
+    mov x23, #PI4_LAUNCHER_APP_RECORD_NONE
     str x23, [x22]
 
 .Lpi4_launcher_render_non_record:
@@ -395,17 +406,17 @@ pi4_launcher_reset_desktop_state:
     adrp x0, pi4_launcher_mouse_buttons
     add x0, x0, :lo12:pi4_launcher_mouse_buttons
     str xzr, [x0]
-    adrp x2, pi4_launcher_desktop_slot_defaults
-    add x2, x2, :lo12:pi4_launcher_desktop_slot_defaults
-    adrp x3, pi4_launcher_desktop_slot_defaults_end
-    add x3, x3, :lo12:pi4_launcher_desktop_slot_defaults_end
-.Lpi4_reset_desktop_slot_next:
+    adrp x2, pi4_launcher_desktop_app_record_defaults
+    add x2, x2, :lo12:pi4_launcher_desktop_app_record_defaults
+    adrp x3, pi4_launcher_desktop_app_record_defaults_end
+    add x3, x3, :lo12:pi4_launcher_desktop_app_record_defaults_end
+.Lpi4_reset_desktop_app_record_next:
     cmp x2, x3
-    b.hs .Lpi4_reset_desktop_slots_done
+    b.hs .Lpi4_reset_desktop_app_records_done
     ldp x0, x1, [x2], #16
     str x1, [x0]
-    b .Lpi4_reset_desktop_slot_next
-.Lpi4_reset_desktop_slots_done:
+    b .Lpi4_reset_desktop_app_record_next
+.Lpi4_reset_desktop_app_records_done:
     adrp x0, pi4_launcher_present_status
     add x0, x0, :lo12:pi4_launcher_present_status
     str xzr, [x0]
@@ -432,7 +443,7 @@ pi4_launcher_discover_apps:
     stp x23, x24, [sp, #48]
     stp x25, x26, [sp, #64]
 
-    bl pi4_launcher_reset_app_slots
+    bl pi4_launcher_reset_app_records
 
     adrp x0, pi4_launcher_app_index_path
     add x0, x0, :lo12:pi4_launcher_app_index_path
@@ -464,9 +475,9 @@ pi4_launcher_discover_apps:
     add x0, x0, :lo12:pi4_launcher_app_index_count
     str x21, [x0]
     cbz x21, .Lpi4_discover_done
-    cmp x21, #PI4_LAUNCHER_SLOT_COUNT
+    cmp x21, #PI4_LAUNCHER_APP_RECORD_COUNT
     b.ls .Lpi4_discover_count_ready
-    mov x21, #PI4_LAUNCHER_SLOT_COUNT
+    mov x21, #PI4_LAUNCHER_APP_RECORD_COUNT
 
 .Lpi4_discover_count_ready:
     adrp x23, pi4_launcher_app_manifest_paths
@@ -530,32 +541,32 @@ pi4_launcher_discover_apps:
     ret
 .size pi4_launcher_discover_apps, . - pi4_launcher_discover_apps
 
-.type pi4_launcher_reset_app_slots, %function
-pi4_launcher_reset_app_slots:
+.type pi4_launcher_reset_app_records, %function
+pi4_launcher_reset_app_records:
     stp x29, x30, [sp, #-48]!
     mov x29, sp
     stp x19, x20, [sp, #16]
     stp x21, x22, [sp, #32]
 
-    adrp x0, pi4_launcher_app_slot_names
-    add x0, x0, :lo12:pi4_launcher_app_slot_names
-    mov x1, #(PI4_LAUNCHER_APP_NAME_BYTES * PI4_LAUNCHER_SLOT_COUNT)
+    adrp x0, pi4_launcher_app_record_names
+    add x0, x0, :lo12:pi4_launcher_app_record_names
+    mov x1, #(PI4_LAUNCHER_APP_NAME_BYTES * PI4_LAUNCHER_APP_RECORD_COUNT)
     bl pi4_launcher_zero_buffer
-    adrp x0, pi4_launcher_app_slot_paths
-    add x0, x0, :lo12:pi4_launcher_app_slot_paths
-    mov x1, #(PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_SLOT_COUNT)
+    adrp x0, pi4_launcher_app_record_paths
+    add x0, x0, :lo12:pi4_launcher_app_record_paths
+    mov x1, #(PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_APP_RECORD_COUNT)
     bl pi4_launcher_zero_buffer
     adrp x0, pi4_launcher_app_manifest_paths
     add x0, x0, :lo12:pi4_launcher_app_manifest_paths
-    mov x1, #(PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_SLOT_COUNT)
+    mov x1, #(PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_APP_RECORD_COUNT)
     bl pi4_launcher_zero_buffer
-    adrp x0, pi4_launcher_app_slot_assets
-    add x0, x0, :lo12:pi4_launcher_app_slot_assets
-    mov x1, #(PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_SLOT_COUNT)
+    adrp x0, pi4_launcher_app_record_assets
+    add x0, x0, :lo12:pi4_launcher_app_record_assets
+    mov x1, #(PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_APP_RECORD_COUNT)
     bl pi4_launcher_zero_buffer
-    adrp x0, pi4_launcher_app_slot_icons
-    add x0, x0, :lo12:pi4_launcher_app_slot_icons
-    mov x1, #(PI4_LAUNCHER_APP_ICON_BYTES * PI4_LAUNCHER_SLOT_COUNT)
+    adrp x0, pi4_launcher_app_record_icons
+    add x0, x0, :lo12:pi4_launcher_app_record_icons
+    mov x1, #(PI4_LAUNCHER_APP_ICON_BYTES * PI4_LAUNCHER_APP_RECORD_COUNT)
     bl pi4_launcher_zero_buffer
 
     adrp x0, pi4_launcher_app_text_size
@@ -574,34 +585,34 @@ pi4_launcher_reset_app_slots:
     add x0, x0, :lo12:pi4_launcher_app_index_count
     str xzr, [x0]
 
-    adrp x19, pi4_launcher_slot_table
-    add x19, x19, :lo12:pi4_launcher_slot_table
-    adrp x20, pi4_launcher_default_app_slot_names
-    add x20, x20, :lo12:pi4_launcher_default_app_slot_names
-    adrp x21, pi4_launcher_slot_absent_state
-    add x21, x21, :lo12:pi4_launcher_slot_absent_state
+    adrp x19, pi4_launcher_app_record_table
+    add x19, x19, :lo12:pi4_launcher_app_record_table
+    adrp x20, pi4_launcher_default_app_record_names
+    add x20, x20, :lo12:pi4_launcher_default_app_record_names
+    adrp x21, pi4_launcher_app_record_absent_state
+    add x21, x21, :lo12:pi4_launcher_app_record_absent_state
     mov x22, xzr
 
-.Lpi4_reset_app_slot_next:
-    cmp x22, #PI4_LAUNCHER_SLOT_COUNT
-    b.hs .Lpi4_reset_app_slots_done
+.Lpi4_reset_app_record_next:
+    cmp x22, #PI4_LAUNCHER_APP_RECORD_COUNT
+    b.hs .Lpi4_reset_app_records_done
     str x22, [x19]
     ldr x0, [x20, x22, lsl #3]
-    str x0, [x19, #PI4_LAUNCHER_SLOT_NAME]
-    str xzr, [x19, #PI4_LAUNCHER_SLOT_PATH]
-    mov x0, #PI4_LAUNCHER_SLOT_STATE_ABSENT
-    str x0, [x19, #PI4_LAUNCHER_SLOT_STATE]
-    str x21, [x19, #PI4_LAUNCHER_SLOT_STATE_TEXT]
-    add x19, x19, #PI4_LAUNCHER_SLOT_BYTES
+    str x0, [x19, #PI4_LAUNCHER_APP_RECORD_NAME]
+    str xzr, [x19, #PI4_LAUNCHER_APP_RECORD_PATH]
+    mov x0, #PI4_LAUNCHER_APP_RECORD_STATE_ABSENT
+    str x0, [x19, #PI4_LAUNCHER_APP_RECORD_STATE]
+    str x21, [x19, #PI4_LAUNCHER_APP_RECORD_STATE_TEXT]
+    add x19, x19, #PI4_LAUNCHER_APP_RECORD_BYTES
     add x22, x22, #1
-    b .Lpi4_reset_app_slot_next
+    b .Lpi4_reset_app_record_next
 
-.Lpi4_reset_app_slots_done:
+.Lpi4_reset_app_records_done:
     ldp x21, x22, [sp, #32]
     ldp x19, x20, [sp, #16]
     ldp x29, x30, [sp], #48
     ret
-.size pi4_launcher_reset_app_slots, . - pi4_launcher_reset_app_slots
+.size pi4_launcher_reset_app_records, . - pi4_launcher_reset_app_records
 
 .type pi4_launcher_read_app_count, %function
 pi4_launcher_read_app_count:
@@ -717,7 +728,7 @@ pi4_launcher_load_app_manifest:
     mov x21, x2
     mov x22, x3
 
-    cmp x19, #PI4_LAUNCHER_SLOT_COUNT
+    cmp x19, #PI4_LAUNCHER_APP_RECORD_COUNT
     b.hs .Lpi4_manifest_done
     cbz x20, .Lpi4_manifest_done
     ldrb w0, [x20]
@@ -739,16 +750,16 @@ pi4_launcher_load_app_manifest:
 
     bl pi4_launcher_or_discovery_flag_x21
 
-    adrp x24, pi4_launcher_app_slot_names
-    add x24, x24, :lo12:pi4_launcher_app_slot_names
+    adrp x24, pi4_launcher_app_record_names
+    add x24, x24, :lo12:pi4_launcher_app_record_names
     lsl x0, x19, #5
     add x24, x24, x0
-    adrp x25, pi4_launcher_app_slot_paths
-    add x25, x25, :lo12:pi4_launcher_app_slot_paths
+    adrp x25, pi4_launcher_app_record_paths
+    add x25, x25, :lo12:pi4_launcher_app_record_paths
     lsl x0, x19, #6
     add x25, x25, x0
-    adrp x26, pi4_launcher_app_slot_assets
-    add x26, x26, :lo12:pi4_launcher_app_slot_assets
+    adrp x26, pi4_launcher_app_record_assets
+    add x26, x26, :lo12:pi4_launcher_app_record_assets
     lsl x0, x19, #6
     add x26, x26, x0
 
@@ -806,8 +817,8 @@ pi4_launcher_load_app_manifest:
     mov x1, x23
     adrp x2, pi4_launcher_key_icon
     add x2, x2, :lo12:pi4_launcher_key_icon
-    adrp x3, pi4_launcher_app_slot_icons
-    add x3, x3, :lo12:pi4_launcher_app_slot_icons
+    adrp x3, pi4_launcher_app_record_icons
+    add x3, x3, :lo12:pi4_launcher_app_record_icons
     mov x4, #PI4_LAUNCHER_APP_ICON_BYTES
     madd x3, x19, x4, x3
     bl pi4_launcher_find_key_value_copy
@@ -821,7 +832,7 @@ pi4_launcher_load_app_manifest:
     mov x0, x19
     mov x1, x24
     mov x2, x25
-    bl pi4_launcher_mark_slot_present
+    bl pi4_launcher_mark_app_record_present
 
 .Lpi4_manifest_done:
     ldp x25, x26, [sp, #64]
@@ -842,56 +853,56 @@ pi4_launcher_or_discovery_flag_x21:
     ret
 .size pi4_launcher_or_discovery_flag_x21, . - pi4_launcher_or_discovery_flag_x21
 
-.type pi4_launcher_slot_entry_ptr, %function
-pi4_launcher_slot_entry_ptr:
-    cmp x0, #PI4_LAUNCHER_SLOT_COUNT
-    b.hs .Lpi4_slot_entry_invalid
-    adrp x1, pi4_launcher_slot_table
-    add x1, x1, :lo12:pi4_launcher_slot_table
-    mov x2, #PI4_LAUNCHER_SLOT_BYTES
+.type pi4_launcher_app_record_entry_ptr, %function
+pi4_launcher_app_record_entry_ptr:
+    cmp x0, #PI4_LAUNCHER_APP_RECORD_COUNT
+    b.hs .Lpi4_app_record_entry_invalid
+    adrp x1, pi4_launcher_app_record_table
+    add x1, x1, :lo12:pi4_launcher_app_record_table
+    mov x2, #PI4_LAUNCHER_APP_RECORD_BYTES
     madd x0, x0, x2, x1
     ret
-.Lpi4_slot_entry_invalid:
+.Lpi4_app_record_entry_invalid:
     mov x0, xzr
     ret
-.size pi4_launcher_slot_entry_ptr, . - pi4_launcher_slot_entry_ptr
+.size pi4_launcher_app_record_entry_ptr, . - pi4_launcher_app_record_entry_ptr
 
 .type pi4_launcher_default_name, %function
 pi4_launcher_default_name:
-    cmp x0, #PI4_LAUNCHER_SLOT_COUNT
+    cmp x0, #PI4_LAUNCHER_APP_RECORD_COUNT
     b.lo .Lpi4_default_name_index_ready
-    mov x0, #PI4_LAUNCHER_SLOT_DEFAULT
+    mov x0, #PI4_LAUNCHER_APP_RECORD_DEFAULT
 .Lpi4_default_name_index_ready:
-    adrp x1, pi4_launcher_default_app_slot_names
-    add x1, x1, :lo12:pi4_launcher_default_app_slot_names
+    adrp x1, pi4_launcher_default_app_record_names
+    add x1, x1, :lo12:pi4_launcher_default_app_record_names
     ldr x0, [x1, x0, lsl #3]
     ret
 .size pi4_launcher_default_name, . - pi4_launcher_default_name
 
-.type pi4_launcher_mark_slot_present, %function
-pi4_launcher_mark_slot_present:
-    cmp x0, #PI4_LAUNCHER_SLOT_COUNT
-    b.hs .Lpi4_mark_slot_done
-    adrp x3, pi4_launcher_slot_table
-    add x3, x3, :lo12:pi4_launcher_slot_table
-    mov x4, #PI4_LAUNCHER_SLOT_BYTES
+.type pi4_launcher_mark_app_record_present, %function
+pi4_launcher_mark_app_record_present:
+    cmp x0, #PI4_LAUNCHER_APP_RECORD_COUNT
+    b.hs .Lpi4_mark_app_record_done
+    adrp x3, pi4_launcher_app_record_table
+    add x3, x3, :lo12:pi4_launcher_app_record_table
+    mov x4, #PI4_LAUNCHER_APP_RECORD_BYTES
     madd x3, x0, x4, x3
     str x0, [x3]
-    str x1, [x3, #PI4_LAUNCHER_SLOT_NAME]
-    str x2, [x3, #PI4_LAUNCHER_SLOT_PATH]
-    mov x4, #PI4_LAUNCHER_SLOT_STATE_PRESENT
-    str x4, [x3, #PI4_LAUNCHER_SLOT_STATE]
-    adrp x4, pi4_launcher_slot_present_state
-    add x4, x4, :lo12:pi4_launcher_slot_present_state
-    str x4, [x3, #PI4_LAUNCHER_SLOT_STATE_TEXT]
+    str x1, [x3, #PI4_LAUNCHER_APP_RECORD_NAME]
+    str x2, [x3, #PI4_LAUNCHER_APP_RECORD_PATH]
+    mov x4, #PI4_LAUNCHER_APP_RECORD_STATE_PRESENT
+    str x4, [x3, #PI4_LAUNCHER_APP_RECORD_STATE]
+    adrp x4, pi4_launcher_app_record_present_state
+    add x4, x4, :lo12:pi4_launcher_app_record_present_state
+    str x4, [x3, #PI4_LAUNCHER_APP_RECORD_STATE_TEXT]
     adrp x3, pi4_launcher_app_discovered_count
     add x3, x3, :lo12:pi4_launcher_app_discovered_count
     ldr x4, [x3]
     add x4, x4, #1
     str x4, [x3]
-.Lpi4_mark_slot_done:
+.Lpi4_mark_app_record_done:
     ret
-.size pi4_launcher_mark_slot_present, . - pi4_launcher_mark_slot_present
+.size pi4_launcher_mark_app_record_present, . - pi4_launcher_mark_app_record_present
 
 .type pi4_launcher_check_elf_magic, %function
 pi4_launcher_check_elf_magic:
@@ -1283,22 +1294,22 @@ pi4_launcher_apply_input_event:
     b .Lpi4_input_done
 
 .Lpi4_input_move_doom:
-    mov x9, #PI4_LAUNCHER_SLOT_APP0
+    mov x9, #PI4_LAUNCHER_APP_RECORD_0
     mov x10, #PI4_LAUNCHER_INPUT_ACTION_MOVED
     b .Lpi4_input_done
 
 .Lpi4_input_move_quake:
-    mov x9, #PI4_LAUNCHER_SLOT_APP1
+    mov x9, #PI4_LAUNCHER_APP_RECORD_1
     mov x10, #PI4_LAUNCHER_INPUT_ACTION_MOVED
     b .Lpi4_input_done
 
 .Lpi4_input_record_doom:
-    mov x9, #PI4_LAUNCHER_SLOT_APP0
+    mov x9, #PI4_LAUNCHER_APP_RECORD_0
     mov x10, #PI4_LAUNCHER_INPUT_ACTION_RECORD
     b .Lpi4_input_done
 
 .Lpi4_input_record_quake:
-    mov x9, #PI4_LAUNCHER_SLOT_APP1
+    mov x9, #PI4_LAUNCHER_APP_RECORD_1
     mov x10, #PI4_LAUNCHER_INPUT_ACTION_RECORD
     b .Lpi4_input_done
 
@@ -1345,8 +1356,8 @@ pi4_launcher_apply_mouse_event:
     mov x1, x23
     bl pi4_launcher_pointer_focus
     mov x9, x0
-    adrp x15, pi4_launcher_hover_slot
-    add x15, x15, :lo12:pi4_launcher_hover_slot
+    adrp x15, pi4_launcher_hover_app_record
+    add x15, x15, :lo12:pi4_launcher_hover_app_record
     str x9, [x15]
 
     ldr x10, [x19, #PI4_INPUT_EVENT_CODE]
@@ -1356,17 +1367,17 @@ pi4_launcher_apply_mouse_event:
     str x10, [x11]
     eor x13, x10, x12
 
-    adrp x14, pi4_launcher_active_slot
-    add x14, x14, :lo12:pi4_launcher_active_slot
+    adrp x14, pi4_launcher_active_app_record
+    add x14, x14, :lo12:pi4_launcher_active_app_record
     tst x10, #PI4_INPUT_MOUSE_BUTTON_LEFT
     b.eq .Lpi4_mouse_clear_active
-    cmp x9, #PI4_LAUNCHER_SLOT_COUNT
+    cmp x9, #PI4_LAUNCHER_APP_RECORD_COUNT
     b.hs .Lpi4_mouse_clear_active
     str x9, [x14]
     b .Lpi4_mouse_active_ready
 
 .Lpi4_mouse_clear_active:
-    mov x15, #PI4_LAUNCHER_SLOT_NONE
+    mov x15, #PI4_LAUNCHER_APP_RECORD_NONE
     str x15, [x14]
 
 .Lpi4_mouse_active_ready:
@@ -1374,14 +1385,14 @@ pi4_launcher_apply_mouse_event:
     b.eq .Lpi4_mouse_focus
     tst x12, #PI4_INPUT_MOUSE_BUTTON_LEFT
     b.ne .Lpi4_mouse_focus
-    cmp x9, #PI4_LAUNCHER_SLOT_COUNT
+    cmp x9, #PI4_LAUNCHER_APP_RECORD_COUNT
     b.hs .Lpi4_mouse_focus
     mov x20, x9
     mov x21, #PI4_LAUNCHER_INPUT_ACTION_RECORD
     b .Lpi4_mouse_done
 
 .Lpi4_mouse_focus:
-    cmp x9, #PI4_LAUNCHER_SLOT_COUNT
+    cmp x9, #PI4_LAUNCHER_APP_RECORD_COUNT
     b.hs .Lpi4_mouse_motion
     cmp x9, x20
     b.eq .Lpi4_mouse_motion
@@ -1439,35 +1450,37 @@ pi4_launcher_clip_cursor_y:
 
 .type pi4_launcher_pointer_focus, %function
 pi4_launcher_pointer_focus:
-    cmp x0, #PI4_LAUNCHER_DOOM_HIT_X0
-    b.lt .Lpi4_pointer_check_quake
-    ldr x2, =PI4_LAUNCHER_DOOM_HIT_X1
-    cmp x0, x2
-    b.gt .Lpi4_pointer_check_quake
     cmp x1, #PI4_LAUNCHER_CARD_HIT_Y0
-    b.lt .Lpi4_pointer_check_quake
+    b.lt .Lpi4_pointer_none
     ldr x2, =PI4_LAUNCHER_CARD_HIT_Y1
     cmp x1, x2
-    b.gt .Lpi4_pointer_check_quake
-    mov x0, #PI4_LAUNCHER_SLOT_APP0
+    b.gt .Lpi4_pointer_none
+
+    adrp x4, pi4_launcher_card_records
+    add x4, x4, :lo12:pi4_launcher_card_records
+    mov x5, xzr
+
+.Lpi4_pointer_record_loop:
+    cmp x5, #PI4_LAUNCHER_APP_RECORD_COUNT
+    b.hs .Lpi4_pointer_none
+    ldr x6, [x4, #PI4_LAUNCHER_CARD_RECORD_CARD_X]
+    sub x7, x6, #PI4_LAUNCHER_CARD_HIT_PAD_X
+    cmp x0, x7
+    b.lt .Lpi4_pointer_next_record
+    add x7, x6, #PI4_LAUNCHER_CARD_W
+    add x7, x7, #(PI4_LAUNCHER_CARD_HIT_PAD_X - 1)
+    cmp x0, x7
+    b.gt .Lpi4_pointer_next_record
+    ldr x0, [x4, #PI4_LAUNCHER_CARD_RECORD_INDEX]
     ret
 
-.Lpi4_pointer_check_quake:
-    cmp x0, #PI4_LAUNCHER_QUAKE_HIT_X0
-    b.lt .Lpi4_pointer_none
-    ldr x2, =PI4_LAUNCHER_QUAKE_HIT_X1
-    cmp x0, x2
-    b.gt .Lpi4_pointer_none
-    cmp x1, #PI4_LAUNCHER_CARD_HIT_Y0
-    b.lt .Lpi4_pointer_none
-    ldr x2, =PI4_LAUNCHER_CARD_HIT_Y1
-    cmp x1, x2
-    b.gt .Lpi4_pointer_none
-    mov x0, #PI4_LAUNCHER_SLOT_APP1
-    ret
+.Lpi4_pointer_next_record:
+    add x5, x5, #1
+    add x4, x4, #PI4_LAUNCHER_CARD_RECORD_BYTES
+    b .Lpi4_pointer_record_loop
 
 .Lpi4_pointer_none:
-    mov x0, #PI4_LAUNCHER_SLOT_COUNT
+    mov x0, #PI4_LAUNCHER_APP_RECORD_COUNT
     ret
 .size pi4_launcher_pointer_focus, . - pi4_launcher_pointer_focus
 
@@ -1483,37 +1496,37 @@ pi4_launcher_record_selection:
     mov x2, #PI4_LAUNCHER_PHASE_SELECTION_READY
     str x2, [x20, #PI4_LAUNCHER_STATE_PHASE]
     str x19, [x20, #PI4_LAUNCHER_STATE_RECORD_INDEX]
-    adrp x4, pi4_launcher_active_slot
-    add x4, x4, :lo12:pi4_launcher_active_slot
+    adrp x4, pi4_launcher_active_app_record
+    add x4, x4, :lo12:pi4_launcher_active_app_record
     str x19, [x4]
-    adrp x4, pi4_launcher_failed_slot
-    add x4, x4, :lo12:pi4_launcher_failed_slot
-    mov x3, #PI4_LAUNCHER_SLOT_NONE
+    adrp x4, pi4_launcher_failed_app_record
+    add x4, x4, :lo12:pi4_launcher_failed_app_record
+    mov x3, #PI4_LAUNCHER_APP_RECORD_NONE
     str x3, [x4]
 
     mov x0, x19
-    bl pi4_launcher_slot_entry_ptr
+    bl pi4_launcher_app_record_entry_ptr
     cbz x0, .Lpi4_record_selection_invalid
 
     mov x2, x0
-    str x2, [x20, #PI4_LAUNCHER_STATE_RECORD_SLOT]
-    ldr x3, [x2, #PI4_LAUNCHER_SLOT_NAME]
+    str x2, [x20, #PI4_LAUNCHER_STATE_RECORD_ENTRY]
+    ldr x3, [x2, #PI4_LAUNCHER_APP_RECORD_NAME]
     str x3, [x20, #PI4_LAUNCHER_STATE_RECORD_NAME]
-    ldr x3, [x2, #PI4_LAUNCHER_SLOT_PATH]
+    ldr x3, [x2, #PI4_LAUNCHER_APP_RECORD_PATH]
     str x3, [x20, #PI4_LAUNCHER_STATE_RECORD_PATH]
-    ldr x3, [x2, #PI4_LAUNCHER_SLOT_STATE]
+    ldr x3, [x2, #PI4_LAUNCHER_APP_RECORD_STATE]
     str x3, [x20, #PI4_LAUNCHER_STATE_RECORD_STATE]
-    ldr x3, [x2, #PI4_LAUNCHER_SLOT_STATE_TEXT]
+    ldr x3, [x2, #PI4_LAUNCHER_APP_RECORD_STATE_TEXT]
     str x3, [x20, #PI4_LAUNCHER_STATE_RECORD_STATE_TEXT]
     b .Lpi4_record_selection_count
 
 .Lpi4_record_selection_invalid:
-    str xzr, [x20, #PI4_LAUNCHER_STATE_RECORD_SLOT]
+    str xzr, [x20, #PI4_LAUNCHER_STATE_RECORD_ENTRY]
     str xzr, [x20, #PI4_LAUNCHER_STATE_RECORD_NAME]
     str xzr, [x20, #PI4_LAUNCHER_STATE_RECORD_PATH]
     str xzr, [x20, #PI4_LAUNCHER_STATE_RECORD_STATE]
-    adrp x3, pi4_launcher_slot_absent_state
-    add x3, x3, :lo12:pi4_launcher_slot_absent_state
+    adrp x3, pi4_launcher_app_record_absent_state
+    add x3, x3, :lo12:pi4_launcher_app_record_absent_state
     str x3, [x20, #PI4_LAUNCHER_STATE_RECORD_STATE_TEXT]
 
 .Lpi4_record_selection_count:
@@ -1542,22 +1555,22 @@ pi4_launcher_prepare_visible_exec_request:
     str xzr, [x0, #PI4_LAUNCHER_STATE_EXEC_ERRNO]
 
     ldr x2, [x0, #PI4_LAUNCHER_STATE_RECORD_INDEX]
-    cmp x2, #PI4_LAUNCHER_SLOT_COUNT
+    cmp x2, #PI4_LAUNCHER_APP_RECORD_COUNT
     b.hs .Lpi4_launcher_prepare_visible_inval
 
-    adrp x4, pi4_launcher_slot_table
-    add x4, x4, :lo12:pi4_launcher_slot_table
-    mov x3, #PI4_LAUNCHER_SLOT_BYTES
+    adrp x4, pi4_launcher_app_record_table
+    add x4, x4, :lo12:pi4_launcher_app_record_table
+    mov x3, #PI4_LAUNCHER_APP_RECORD_BYTES
     madd x4, x2, x3, x4
     ldr x5, [x4]
     cmp x5, x2
     b.ne .Lpi4_launcher_prepare_visible_inval
-    ldr x6, [x4, #PI4_LAUNCHER_SLOT_PATH]
+    ldr x6, [x4, #PI4_LAUNCHER_APP_RECORD_PATH]
     cbz x6, .Lpi4_launcher_prepare_visible_inval
 
     mov x7, #-1
-    str x7, [x1, #PI4_LAUNCHER_EXEC_REQUEST_COMPAT_TOKEN_OFFSET]
-    str x7, [x0, #PI4_LAUNCHER_STATE_EXEC_REQUEST_COMPAT]
+    str x7, [x1, #PI4_LAUNCHER_EXEC_REQUEST_RESERVED_OFFSET]
+    str x7, [x0, #PI4_LAUNCHER_STATE_EXEC_REQUEST_RESERVED]
     str x6, [x1, #PI4_VIBE_EXEC_REQUEST_PATH_OFFSET]
     str x6, [x0, #PI4_LAUNCHER_STATE_EXEC_REQUEST_PATH]
     adrp x7, pi4_launcher_exec_argv
@@ -1574,8 +1587,8 @@ pi4_launcher_prepare_visible_exec_request:
 
 .Lpi4_launcher_prepare_visible_inval:
     mov x8, #-1
-    str x8, [x1, #PI4_LAUNCHER_EXEC_REQUEST_COMPAT_TOKEN_OFFSET]
-    str x8, [x0, #PI4_LAUNCHER_STATE_EXEC_REQUEST_COMPAT]
+    str x8, [x1, #PI4_LAUNCHER_EXEC_REQUEST_RESERVED_OFFSET]
+    str x8, [x0, #PI4_LAUNCHER_STATE_EXEC_REQUEST_RESERVED]
     str xzr, [x1, #PI4_VIBE_EXEC_REQUEST_PATH_OFFSET]
     str xzr, [x0, #PI4_LAUNCHER_STATE_EXEC_REQUEST_PATH]
     adrp x7, pi4_launcher_exec_argv
@@ -1625,28 +1638,28 @@ pi4_launcher_request_recorded_app:
     mov x0, #PI4_LAUNCHER_PHASE_SELECTION_READY
     str x0, [x19, #PI4_LAUNCHER_STATE_PHASE]
     mov x0, #-1
-    str x0, [x20, #PI4_LAUNCHER_EXEC_REQUEST_COMPAT_TOKEN_OFFSET]
-    str x0, [x19, #PI4_LAUNCHER_STATE_EXEC_REQUEST_COMPAT]
+    str x0, [x20, #PI4_LAUNCHER_EXEC_REQUEST_RESERVED_OFFSET]
+    str x0, [x19, #PI4_LAUNCHER_STATE_EXEC_REQUEST_RESERVED]
     str xzr, [x20, #PI4_VIBE_EXEC_REQUEST_PATH_OFFSET]
     str xzr, [x19, #PI4_LAUNCHER_STATE_EXEC_REQUEST_PATH]
 
     ldr x21, [x19, #PI4_LAUNCHER_STATE_RECORD_INDEX]
-    cmp x21, #PI4_LAUNCHER_SLOT_COUNT
+    cmp x21, #PI4_LAUNCHER_APP_RECORD_COUNT
     b.hs .Lpi4_launcher_exec_local_inval
 
-    adrp x22, pi4_launcher_slot_table
-    add x22, x22, :lo12:pi4_launcher_slot_table
-    mov x0, #PI4_LAUNCHER_SLOT_BYTES
+    adrp x22, pi4_launcher_app_record_table
+    add x22, x22, :lo12:pi4_launcher_app_record_table
+    mov x0, #PI4_LAUNCHER_APP_RECORD_BYTES
     madd x22, x21, x0, x22
     ldr x0, [x22]
     cmp x0, x21
     b.ne .Lpi4_launcher_exec_local_inval
-    ldr x22, [x22, #PI4_LAUNCHER_SLOT_PATH]
+    ldr x22, [x22, #PI4_LAUNCHER_APP_RECORD_PATH]
     cbz x22, .Lpi4_launcher_exec_local_inval
 
     mov x0, #-1
-    str x0, [x20, #PI4_LAUNCHER_EXEC_REQUEST_COMPAT_TOKEN_OFFSET]
-    str x0, [x19, #PI4_LAUNCHER_STATE_EXEC_REQUEST_COMPAT]
+    str x0, [x20, #PI4_LAUNCHER_EXEC_REQUEST_RESERVED_OFFSET]
+    str x0, [x19, #PI4_LAUNCHER_STATE_EXEC_REQUEST_RESERVED]
     str x22, [x20, #PI4_VIBE_EXEC_REQUEST_PATH_OFFSET]
     str x22, [x19, #PI4_LAUNCHER_STATE_EXEC_REQUEST_PATH]
 
@@ -1693,12 +1706,12 @@ pi4_launcher_request_recorded_app:
     b .Lpi4_launcher_exec_returned_failure
 
 .Lpi4_launcher_exec_returned_failure:
-    adrp x2, pi4_launcher_active_slot
-    add x2, x2, :lo12:pi4_launcher_active_slot
-    mov x3, #PI4_LAUNCHER_SLOT_NONE
+    adrp x2, pi4_launcher_active_app_record
+    add x2, x2, :lo12:pi4_launcher_active_app_record
+    mov x3, #PI4_LAUNCHER_APP_RECORD_NONE
     str x3, [x2]
-    adrp x2, pi4_launcher_failed_slot
-    add x2, x2, :lo12:pi4_launcher_failed_slot
+    adrp x2, pi4_launcher_failed_app_record
+    add x2, x2, :lo12:pi4_launcher_failed_app_record
     ldr x3, [x19, #PI4_LAUNCHER_STATE_RECORD_INDEX]
     str x3, [x2]
 
@@ -1714,12 +1727,12 @@ pi4_launcher_request_recorded_app:
 
 .Lpi4_launcher_exec_local_inval:
     mov x21, #-PI4_VIBE_EINVAL
-    adrp x2, pi4_launcher_active_slot
-    add x2, x2, :lo12:pi4_launcher_active_slot
-    mov x3, #PI4_LAUNCHER_SLOT_NONE
+    adrp x2, pi4_launcher_active_app_record
+    add x2, x2, :lo12:pi4_launcher_active_app_record
+    mov x3, #PI4_LAUNCHER_APP_RECORD_NONE
     str x3, [x2]
-    adrp x2, pi4_launcher_failed_slot
-    add x2, x2, :lo12:pi4_launcher_failed_slot
+    adrp x2, pi4_launcher_failed_app_record
+    add x2, x2, :lo12:pi4_launcher_failed_app_record
     ldr x3, [x19, #PI4_LAUNCHER_STATE_RECORD_INDEX]
     str x3, [x2]
     ldr x0, [x19, #PI4_LAUNCHER_STATE_EXEC_COUNT]
@@ -1751,7 +1764,7 @@ pi4_launcher_render_frame:
 
 .Lpi4_render_have_frame:
     mov x19, x0
-    cmp x1, #PI4_LAUNCHER_SLOT_COUNT
+    cmp x1, #PI4_LAUNCHER_APP_RECORD_COUNT
     csel x20, xzr, x1, hs
 
     mov x0, x19
@@ -2032,6 +2045,35 @@ pi4_launcher_render_frame:
     bl pi4_launcher_fill_rect
 
     mov x0, x19
+    bl pi4_launcher_render_card_bases
+
+    mov x0, x19
+    mov x1, x20
+    bl pi4_launcher_draw_app_record_selected
+
+    adrp x21, pi4_launcher_hover_app_record
+    add x21, x21, :lo12:pi4_launcher_hover_app_record
+    ldr x1, [x21]
+    mov x0, x19
+    bl pi4_launcher_draw_app_record_hover
+
+    adrp x21, pi4_launcher_active_app_record
+    add x21, x21, :lo12:pi4_launcher_active_app_record
+    ldr x1, [x21]
+    mov x0, x19
+    bl pi4_launcher_draw_app_record_active
+
+    adrp x21, pi4_launcher_failed_app_record
+    add x21, x21, :lo12:pi4_launcher_failed_app_record
+    ldr x1, [x21]
+    mov x0, x19
+    bl pi4_launcher_draw_app_record_failed
+
+    mov x0, x19
+    bl pi4_launcher_render_card_foregrounds
+    b .Lpi4_render_cards_done
+
+    mov x0, x19
     mov x1, #PI4_LAUNCHER_DOOM_CARD_X
     add x1, x1, #10
     mov x2, #PI4_LAUNCHER_CARD_Y
@@ -2152,7 +2194,7 @@ pi4_launcher_render_frame:
     adrp x6, pi4_launcher_art_flags
     add x6, x6, :lo12:pi4_launcher_art_flags
     ldr x6, [x6]
-    tbz x6, #PI4_LAUNCHER_SLOT_APP0, .Lpi4_render_doom_card_art_done
+    tbz x6, #PI4_LAUNCHER_APP_RECORD_0, .Lpi4_render_doom_card_art_done
     mov x0, x19
     mov x1, #PI4_LAUNCHER_DOOM_ICON_X
     mov x2, #PI4_LAUNCHER_ICON_Y
@@ -2174,7 +2216,7 @@ pi4_launcher_render_frame:
     adrp x6, pi4_launcher_art_flags
     add x6, x6, :lo12:pi4_launcher_art_flags
     ldr x6, [x6]
-    tbz x6, #PI4_LAUNCHER_SLOT_APP1, .Lpi4_render_quake_card_art_done
+    tbz x6, #PI4_LAUNCHER_APP_RECORD_1, .Lpi4_render_quake_card_art_done
     mov x0, x19
     mov x1, #PI4_LAUNCHER_QUAKE_ICON_X
     mov x2, #PI4_LAUNCHER_ICON_Y
@@ -2279,7 +2321,7 @@ pi4_launcher_render_frame:
     mov x6, #PI4_COLOR_BLACK
     bl pi4_launcher_draw_bevel
 
-    cmp x20, #PI4_LAUNCHER_SLOT_APP1
+    cmp x20, #PI4_LAUNCHER_APP_RECORD_1
     b.eq .Lpi4_render_select_quake
 
     mov x0, x19
@@ -2393,12 +2435,12 @@ pi4_launcher_render_frame:
     bl pi4_launcher_draw_launch_button
 
 .Lpi4_render_selected_done:
-    adrp x21, pi4_launcher_hover_slot
-    add x21, x21, :lo12:pi4_launcher_hover_slot
+    adrp x21, pi4_launcher_hover_app_record
+    add x21, x21, :lo12:pi4_launcher_hover_app_record
     ldr x21, [x21]
-    cmp x21, #PI4_LAUNCHER_SLOT_APP0
+    cmp x21, #PI4_LAUNCHER_APP_RECORD_0
     b.eq .Lpi4_render_hover_doom
-    cmp x21, #PI4_LAUNCHER_SLOT_APP1
+    cmp x21, #PI4_LAUNCHER_APP_RECORD_1
     b.eq .Lpi4_render_hover_quake
     b .Lpi4_render_hover_done
 
@@ -2416,12 +2458,12 @@ pi4_launcher_render_frame:
     bl pi4_launcher_draw_hover_brackets
 
 .Lpi4_render_hover_done:
-    adrp x21, pi4_launcher_active_slot
-    add x21, x21, :lo12:pi4_launcher_active_slot
+    adrp x21, pi4_launcher_active_app_record
+    add x21, x21, :lo12:pi4_launcher_active_app_record
     ldr x21, [x21]
-    cmp x21, #PI4_LAUNCHER_SLOT_APP0
+    cmp x21, #PI4_LAUNCHER_APP_RECORD_0
     b.eq .Lpi4_render_active_doom
-    cmp x21, #PI4_LAUNCHER_SLOT_APP1
+    cmp x21, #PI4_LAUNCHER_APP_RECORD_1
     b.eq .Lpi4_render_active_quake
     b .Lpi4_render_active_done
 
@@ -2505,12 +2547,12 @@ pi4_launcher_render_frame:
     bl pi4_launcher_draw_launch_button
 
 .Lpi4_render_active_done:
-    adrp x21, pi4_launcher_failed_slot
-    add x21, x21, :lo12:pi4_launcher_failed_slot
+    adrp x21, pi4_launcher_failed_app_record
+    add x21, x21, :lo12:pi4_launcher_failed_app_record
     ldr x21, [x21]
-    cmp x21, #PI4_LAUNCHER_SLOT_APP0
+    cmp x21, #PI4_LAUNCHER_APP_RECORD_0
     b.eq .Lpi4_render_failed_doom
-    cmp x21, #PI4_LAUNCHER_SLOT_APP1
+    cmp x21, #PI4_LAUNCHER_APP_RECORD_1
     b.eq .Lpi4_render_failed_quake
     b .Lpi4_render_failed_done
 
@@ -2595,7 +2637,7 @@ pi4_launcher_render_frame:
     adrp x9, pi4_launcher_art_flags
     add x9, x9, :lo12:pi4_launcher_art_flags
     ldr x9, [x9]
-    tbnz x9, #PI4_LAUNCHER_SLOT_APP0, .Lpi4_render_doom_icon_done
+    tbnz x9, #PI4_LAUNCHER_APP_RECORD_0, .Lpi4_render_doom_icon_done
     mov x0, x19
     mov x1, #PI4_LAUNCHER_DOOM_ICON_X
     mov x2, #PI4_LAUNCHER_ICON_Y
@@ -2605,7 +2647,7 @@ pi4_launcher_render_frame:
     adrp x9, pi4_launcher_art_flags
     add x9, x9, :lo12:pi4_launcher_art_flags
     ldr x9, [x9]
-    tbnz x9, #PI4_LAUNCHER_SLOT_APP1, .Lpi4_render_quake_icon_done
+    tbnz x9, #PI4_LAUNCHER_APP_RECORD_1, .Lpi4_render_quake_icon_done
     mov x0, x19
     mov x1, #PI4_LAUNCHER_QUAKE_ICON_X
     mov x2, #PI4_LAUNCHER_ICON_Y
@@ -2613,29 +2655,30 @@ pi4_launcher_render_frame:
 
 .Lpi4_render_quake_icon_done:
     mov x0, x19
-    mov x1, #PI4_LAUNCHER_SLOT_APP0
+    mov x1, #PI4_LAUNCHER_APP_RECORD_0
     mov x2, #PI4_LAUNCHER_DOOM_CARD_X
     mov x3, #PI4_COLOR_BLACK
     bl pi4_launcher_draw_app_label
 
     mov x0, x19
-    mov x1, #PI4_LAUNCHER_SLOT_APP0
+    mov x1, #PI4_LAUNCHER_APP_RECORD_0
     mov x2, #PI4_LAUNCHER_DOOM_CARD_X
     mov x3, #PI4_COLOR_TEXT
     bl pi4_launcher_draw_app_label
 
     mov x0, x19
-    mov x1, #PI4_LAUNCHER_SLOT_APP1
+    mov x1, #PI4_LAUNCHER_APP_RECORD_1
     mov x2, #PI4_LAUNCHER_QUAKE_CARD_X
     mov x3, #PI4_COLOR_BLACK
     bl pi4_launcher_draw_app_label
 
     mov x0, x19
-    mov x1, #PI4_LAUNCHER_SLOT_APP1
+    mov x1, #PI4_LAUNCHER_APP_RECORD_1
     mov x2, #PI4_LAUNCHER_QUAKE_CARD_X
     mov x3, #PI4_COLOR_TEXT
     bl pi4_launcher_draw_app_label
 
+.Lpi4_render_cards_done:
     mov x0, x19
     bl pi4_launcher_draw_cursor
 
@@ -2647,6 +2690,502 @@ pi4_launcher_render_frame:
     ldp x29, x30, [sp], #80
     ret
 .size pi4_launcher_render_frame, . - pi4_launcher_render_frame
+
+.type pi4_launcher_card_record_ptr, %function
+pi4_launcher_card_record_ptr:
+    cmp x0, #PI4_LAUNCHER_APP_RECORD_COUNT
+    b.hs .Lpi4_card_record_ptr_none
+    adrp x1, pi4_launcher_card_records
+    add x1, x1, :lo12:pi4_launcher_card_records
+    mov x2, #PI4_LAUNCHER_CARD_RECORD_BYTES
+    madd x0, x0, x2, x1
+    ret
+.Lpi4_card_record_ptr_none:
+    mov x0, xzr
+    ret
+.size pi4_launcher_card_record_ptr, . - pi4_launcher_card_record_ptr
+
+.type pi4_launcher_render_card_bases, %function
+pi4_launcher_render_card_bases:
+    stp x29, x30, [sp, #-64]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    str x21, [sp, #32]
+
+    mov x19, x0
+    adrp x20, pi4_launcher_card_records
+    add x20, x20, :lo12:pi4_launcher_card_records
+    mov x21, xzr
+
+.Lpi4_render_card_bases_loop:
+    cmp x21, #PI4_LAUNCHER_APP_RECORD_COUNT
+    b.hs .Lpi4_render_card_bases_done
+    mov x0, x19
+    mov x1, x20
+    bl pi4_launcher_draw_card_base
+    add x20, x20, #PI4_LAUNCHER_CARD_RECORD_BYTES
+    add x21, x21, #1
+    b .Lpi4_render_card_bases_loop
+
+.Lpi4_render_card_bases_done:
+    ldr x21, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #64
+    ret
+.size pi4_launcher_render_card_bases, . - pi4_launcher_render_card_bases
+
+.type pi4_launcher_draw_card_base, %function
+pi4_launcher_draw_card_base:
+    stp x29, x30, [sp, #-96]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    stp x21, x22, [sp, #32]
+    stp x23, x24, [sp, #48]
+
+    mov x19, x0
+    mov x20, x1
+    ldr x21, [x20, #PI4_LAUNCHER_CARD_RECORD_CARD_X]
+    ldr x22, [x20, #PI4_LAUNCHER_CARD_RECORD_ICON_X]
+    ldr x23, [x20, #PI4_LAUNCHER_CARD_RECORD_ACCENT]
+    ldr x24, [x20, #PI4_LAUNCHER_CARD_RECORD_DARK]
+
+    mov x0, x19
+    mov x1, x21
+    add x1, x1, #10
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #12
+    mov x3, #PI4_LAUNCHER_CARD_W
+    mov x4, #PI4_LAUNCHER_CARD_H
+    mov x5, #PI4_COLOR_BLACK
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x21
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    mov x3, #PI4_LAUNCHER_CARD_W
+    mov x4, #PI4_LAUNCHER_CARD_H
+    mov x5, #PI4_COLOR_CARD
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x21
+    add x1, x1, #PI4_LAUNCHER_CARD_CHROME_INSET
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #PI4_LAUNCHER_CARD_TITLE_Y_OFF
+    mov x3, #PI4_LAUNCHER_CARD_W
+    sub x3, x3, #(PI4_LAUNCHER_CARD_CHROME_INSET * 2)
+    mov x4, #PI4_LAUNCHER_CARD_TITLE_H
+    mov x5, #PI4_COLOR_PANEL
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x21
+    add x1, x1, #PI4_LAUNCHER_CARD_CHROME_INSET
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #PI4_LAUNCHER_CARD_TITLE_Y_OFF + PI4_LAUNCHER_CARD_TITLE_H + 2
+    mov x3, #PI4_LAUNCHER_CARD_W
+    sub x3, x3, #(PI4_LAUNCHER_CARD_CHROME_INSET * 2)
+    mov x4, #2
+    mov x5, #PI4_COLOR_BORDER
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x21
+    add x1, x1, #PI4_LAUNCHER_CARD_ART_INSET
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #PI4_LAUNCHER_CARD_ART_INSET
+    mov x3, #PI4_LAUNCHER_CARD_ART_W
+    mov x4, #PI4_LAUNCHER_CARD_ART_H
+    mov x5, x24
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x21
+    add x1, x1, #PI4_LAUNCHER_CARD_ART_INSET
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #PI4_LAUNCHER_CARD_ART_INSET
+    mov x3, #PI4_LAUNCHER_CARD_ART_W
+    mov x4, #PI4_LAUNCHER_CARD_ART_H
+    ldr x9, [x20, #PI4_LAUNCHER_CARD_RECORD_POSTER]
+    blr x9
+
+    adrp x6, pi4_launcher_art_flags
+    add x6, x6, :lo12:pi4_launcher_art_flags
+    ldr x6, [x6]
+    ldr x7, [x20, #PI4_LAUNCHER_CARD_RECORD_INDEX]
+    mov x8, #1
+    lsl x8, x8, x7
+    tst x6, x8
+    b.eq .Lpi4_draw_card_base_art_done
+
+    mov x0, x19
+    mov x1, x22
+    mov x2, #PI4_LAUNCHER_ICON_Y
+    mov x3, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    mov x4, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    mov x5, #PI4_COLOR_BLACK
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x22
+    mov x2, #PI4_LAUNCHER_ICON_Y
+    mov x3, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    mov x4, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    ldr x5, [x20, #PI4_LAUNCHER_CARD_RECORD_ICON_PIXELS]
+    bl pi4_launcher_draw_icon_pixels_rect
+
+.Lpi4_draw_card_base_art_done:
+    mov x0, x19
+    mov x1, x22
+    mov x2, #PI4_LAUNCHER_ICON_Y
+    mov x3, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    mov x4, #PI4_LAUNCHER_ICON_DISPLAY_SIZE
+    mov x5, x23
+    bl pi4_launcher_draw_border
+
+    mov x0, x19
+    mov x1, x21
+    add x1, x1, #PI4_LAUNCHER_CARD_ART_INSET
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #PI4_LAUNCHER_CARD_ART_INSET
+    mov x3, #PI4_LAUNCHER_CARD_ART_W
+    mov x4, #PI4_LAUNCHER_CARD_ART_H
+    mov x5, #PI4_COLOR_BORDER
+    bl pi4_launcher_draw_border
+
+    mov x0, x19
+    mov x1, x21
+    mov x2, x23
+    mov x3, #PI4_COLOR_BG1
+    mov x4, #PI4_COLOR_BORDER
+    mov x5, x23
+    bl pi4_launcher_draw_launch_button
+
+    mov x0, x19
+    mov x1, x21
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    mov x3, #PI4_LAUNCHER_CARD_W
+    mov x4, #PI4_LAUNCHER_CARD_H
+    mov x5, #PI4_COLOR_BORDER
+    bl pi4_launcher_draw_border
+
+    mov x0, x19
+    mov x1, x21
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    mov x3, #PI4_LAUNCHER_CARD_W
+    mov x4, #PI4_LAUNCHER_CARD_H
+    mov x5, #PI4_COLOR_HILITE
+    mov x6, #PI4_COLOR_BLACK
+    bl pi4_launcher_draw_bevel
+
+    ldp x23, x24, [sp, #48]
+    ldp x21, x22, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #96
+    ret
+.size pi4_launcher_draw_card_base, . - pi4_launcher_draw_card_base
+
+.type pi4_launcher_draw_app_record_selected, %function
+pi4_launcher_draw_app_record_selected:
+    stp x29, x30, [sp, #-80]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    stp x21, x22, [sp, #32]
+
+    mov x19, x0
+    mov x0, x1
+    bl pi4_launcher_card_record_ptr
+    cbz x0, .Lpi4_draw_app_record_selected_done
+    mov x20, x0
+    ldr x21, [x20, #PI4_LAUNCHER_CARD_RECORD_CARD_X]
+    ldr x22, [x20, #PI4_LAUNCHER_CARD_RECORD_ACCENT]
+
+    mov x0, x19
+    mov x1, x21
+    sub x1, x1, #8
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    sub x2, x2, #8
+    mov x3, #PI4_LAUNCHER_CARD_W
+    add x3, x3, #16
+    mov x4, #PI4_LAUNCHER_CARD_H
+    add x4, x4, #16
+    mov x5, #PI4_COLOR_SELECTED
+    bl pi4_launcher_draw_border
+
+    mov x0, x19
+    mov x1, x21
+    sub x1, x1, #4
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    sub x2, x2, #4
+    mov x3, #PI4_LAUNCHER_CARD_W
+    add x3, x3, #8
+    mov x4, #PI4_LAUNCHER_CARD_H
+    add x4, x4, #8
+    mov x5, #PI4_COLOR_HILITE
+    bl pi4_launcher_draw_border
+
+    mov x0, x19
+    mov x1, x21
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    mov x3, #PI4_LAUNCHER_CARD_W
+    mov x4, #14
+    mov x5, #PI4_COLOR_SELECTED
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x21
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    mov x3, #14
+    mov x4, #PI4_LAUNCHER_CARD_H
+    mov x5, #PI4_COLOR_SELECTED
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x21
+    add x1, x1, #32
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #PI4_LAUNCHER_CARD_H - 72
+    mov x3, #PI4_LAUNCHER_CARD_W
+    sub x3, x3, #64
+    mov x4, #16
+    mov x5, #PI4_COLOR_HILITE
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x21
+    mov x2, x22
+    mov x3, #PI4_COLOR_PANEL
+    mov x4, #PI4_COLOR_HILITE
+    mov x5, #PI4_COLOR_HILITE
+    bl pi4_launcher_draw_launch_button
+
+.Lpi4_draw_app_record_selected_done:
+    ldp x21, x22, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #80
+    ret
+.size pi4_launcher_draw_app_record_selected, . - pi4_launcher_draw_app_record_selected
+
+.type pi4_launcher_draw_app_record_hover, %function
+pi4_launcher_draw_app_record_hover:
+    stp x29, x30, [sp, #-64]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+
+    mov x19, x0
+    mov x0, x1
+    bl pi4_launcher_card_record_ptr
+    cbz x0, .Lpi4_draw_app_record_hover_done
+    mov x20, x0
+    mov x0, x19
+    ldr x1, [x20, #PI4_LAUNCHER_CARD_RECORD_CARD_X]
+    mov x2, #PI4_COLOR_TEXT
+    bl pi4_launcher_draw_hover_brackets
+
+.Lpi4_draw_app_record_hover_done:
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #64
+    ret
+.size pi4_launcher_draw_app_record_hover, . - pi4_launcher_draw_app_record_hover
+
+.type pi4_launcher_draw_app_record_active, %function
+pi4_launcher_draw_app_record_active:
+    stp x29, x30, [sp, #-80]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    str x21, [sp, #32]
+
+    mov x19, x0
+    mov x0, x1
+    bl pi4_launcher_card_record_ptr
+    cbz x0, .Lpi4_draw_app_record_active_done
+    mov x20, x0
+    ldr x21, [x20, #PI4_LAUNCHER_CARD_RECORD_CARD_X]
+
+    mov x0, x19
+    mov x1, x21
+    add x1, x1, #16
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #16
+    mov x3, #PI4_LAUNCHER_CARD_W
+    sub x3, x3, #32
+    mov x4, #24
+    mov x5, #PI4_COLOR_HILITE
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x21
+    add x1, x1, #16
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #PI4_LAUNCHER_CARD_H - 48
+    mov x3, #PI4_LAUNCHER_CARD_W
+    sub x3, x3, #32
+    mov x4, #32
+    mov x5, #PI4_COLOR_HILITE
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x21
+    add x1, x1, #40
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #PI4_LAUNCHER_CARD_H - 36
+    mov x3, #PI4_LAUNCHER_CARD_W
+    sub x3, x3, #80
+    mov x4, #8
+    mov x5, #PI4_COLOR_SELECTED
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x21
+    mov x2, #PI4_COLOR_SELECTED
+    mov x3, #PI4_COLOR_HILITE
+    mov x4, #PI4_COLOR_SELECTED
+    mov x5, #PI4_COLOR_BLACK
+    bl pi4_launcher_draw_launch_button
+
+.Lpi4_draw_app_record_active_done:
+    ldr x21, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #80
+    ret
+.size pi4_launcher_draw_app_record_active, . - pi4_launcher_draw_app_record_active
+
+.type pi4_launcher_draw_app_record_failed, %function
+pi4_launcher_draw_app_record_failed:
+    stp x29, x30, [sp, #-80]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    str x21, [sp, #32]
+
+    mov x19, x0
+    mov x0, x1
+    bl pi4_launcher_card_record_ptr
+    cbz x0, .Lpi4_draw_app_record_failed_done
+    mov x20, x0
+    ldr x21, [x20, #PI4_LAUNCHER_CARD_RECORD_CARD_X]
+
+    mov x0, x19
+    mov x1, x21
+    add x1, x1, #16
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #PI4_LAUNCHER_CARD_H - 92
+    mov x3, #PI4_LAUNCHER_CARD_W
+    sub x3, x3, #32
+    mov x4, #36
+    mov x5, #PI4_COLOR_DOOM_FIRE
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x21
+    add x1, x1, #40
+    mov x2, #PI4_LAUNCHER_CARD_Y
+    add x2, x2, #PI4_LAUNCHER_CARD_H - 80
+    mov x3, #PI4_LAUNCHER_CARD_W
+    sub x3, x3, #80
+    mov x4, #12
+    mov x5, #PI4_COLOR_BLACK
+    bl pi4_launcher_fill_rect
+
+    mov x0, x19
+    mov x1, x21
+    mov x2, #PI4_COLOR_DOOM_FIRE
+    mov x3, #PI4_COLOR_DOOM_FIRE
+    mov x4, #PI4_COLOR_BLACK
+    mov x5, #PI4_COLOR_BLACK
+    bl pi4_launcher_draw_launch_button
+
+.Lpi4_draw_app_record_failed_done:
+    ldr x21, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #80
+    ret
+.size pi4_launcher_draw_app_record_failed, . - pi4_launcher_draw_app_record_failed
+
+.type pi4_launcher_render_card_foregrounds, %function
+pi4_launcher_render_card_foregrounds:
+    stp x29, x30, [sp, #-64]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    str x21, [sp, #32]
+
+    mov x19, x0
+    adrp x20, pi4_launcher_card_records
+    add x20, x20, :lo12:pi4_launcher_card_records
+    mov x21, xzr
+
+.Lpi4_render_card_foregrounds_loop:
+    cmp x21, #PI4_LAUNCHER_APP_RECORD_COUNT
+    b.hs .Lpi4_render_card_foregrounds_done
+    mov x0, x19
+    mov x1, x20
+    bl pi4_launcher_draw_card_foreground
+    add x20, x20, #PI4_LAUNCHER_CARD_RECORD_BYTES
+    add x21, x21, #1
+    b .Lpi4_render_card_foregrounds_loop
+
+.Lpi4_render_card_foregrounds_done:
+    ldr x21, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #64
+    ret
+.size pi4_launcher_render_card_foregrounds, . - pi4_launcher_render_card_foregrounds
+
+.type pi4_launcher_draw_card_foreground, %function
+pi4_launcher_draw_card_foreground:
+    stp x29, x30, [sp, #-96]!
+    mov x29, sp
+    stp x19, x20, [sp, #16]
+    stp x21, x22, [sp, #32]
+    stp x23, x24, [sp, #48]
+
+    mov x19, x0
+    mov x20, x1
+    ldr x21, [x20, #PI4_LAUNCHER_CARD_RECORD_INDEX]
+    ldr x22, [x20, #PI4_LAUNCHER_CARD_RECORD_CARD_X]
+    ldr x23, [x20, #PI4_LAUNCHER_CARD_RECORD_ICON_X]
+    ldr x24, [x20, #PI4_LAUNCHER_CARD_RECORD_ACCENT]
+
+    mov x0, x19
+    mov x1, x22
+    mov x2, x24
+    mov x3, #PI4_COLOR_HILITE
+    mov x4, #PI4_COLOR_BLACK
+    ldr x5, [x20, #PI4_LAUNCHER_CARD_RECORD_KEY_BITMAP]
+    bl pi4_launcher_draw_key_badge
+
+    adrp x9, pi4_launcher_art_flags
+    add x9, x9, :lo12:pi4_launcher_art_flags
+    ldr x9, [x9]
+    mov x10, #1
+    lsl x10, x10, x21
+    tst x9, x10
+    b.ne .Lpi4_draw_card_foreground_icon_done
+
+    mov x0, x19
+    mov x1, x23
+    mov x2, #PI4_LAUNCHER_ICON_Y
+    ldr x9, [x20, #PI4_LAUNCHER_CARD_RECORD_ICON_DRAW]
+    blr x9
+
+.Lpi4_draw_card_foreground_icon_done:
+    mov x0, x19
+    mov x1, x21
+    mov x2, x22
+    mov x3, #PI4_COLOR_BLACK
+    bl pi4_launcher_draw_app_label
+
+    mov x0, x19
+    mov x1, x21
+    mov x2, x22
+    mov x3, #PI4_COLOR_TEXT
+    bl pi4_launcher_draw_app_label
+
+    ldp x23, x24, [sp, #48]
+    ldp x21, x22, [sp, #32]
+    ldp x19, x20, [sp, #16]
+    ldp x29, x30, [sp], #96
+    ret
+.size pi4_launcher_draw_card_foreground, . - pi4_launcher_draw_card_foreground
 
 .type pi4_launcher_store_state, %function
 pi4_launcher_store_state:
@@ -2663,22 +3202,22 @@ pi4_launcher_store_state:
     str x22, [x21, #PI4_LAUNCHER_STATE_STRIDE]
     ldr x22, =PI4_LAUNCHER_FRAME_BYTES
     str x22, [x21, #PI4_LAUNCHER_STATE_BYTES]
-    mov x22, #PI4_LAUNCHER_SLOT_COUNT
-    str x22, [x21, #PI4_LAUNCHER_STATE_SLOT_COUNT]
+    mov x22, #PI4_LAUNCHER_APP_RECORD_COUNT
+    str x22, [x21, #PI4_LAUNCHER_STATE_APP_RECORD_COUNT]
     str x20, [x21, #PI4_LAUNCHER_STATE_SELECTED_INDEX]
 
-    adrp x22, pi4_launcher_slot_table
-    add x22, x22, :lo12:pi4_launcher_slot_table
-    mov x23, #PI4_LAUNCHER_SLOT_BYTES
+    adrp x22, pi4_launcher_app_record_table
+    add x22, x22, :lo12:pi4_launcher_app_record_table
+    mov x23, #PI4_LAUNCHER_APP_RECORD_BYTES
     madd x22, x20, x23, x22
-    str x22, [x21, #PI4_LAUNCHER_STATE_SELECTED_SLOT]
-    ldr x23, [x22, #PI4_LAUNCHER_SLOT_NAME]
+    str x22, [x21, #PI4_LAUNCHER_STATE_SELECTED_APP_RECORD]
+    ldr x23, [x22, #PI4_LAUNCHER_APP_RECORD_NAME]
     str x23, [x21, #PI4_LAUNCHER_STATE_SELECTED_NAME]
-    ldr x23, [x22, #PI4_LAUNCHER_SLOT_PATH]
+    ldr x23, [x22, #PI4_LAUNCHER_APP_RECORD_PATH]
     str x23, [x21, #PI4_LAUNCHER_STATE_SELECTED_PATH]
-    ldr x23, [x22, #PI4_LAUNCHER_SLOT_STATE]
+    ldr x23, [x22, #PI4_LAUNCHER_APP_RECORD_STATE]
     str x23, [x21, #PI4_LAUNCHER_STATE_SELECTED_STATE]
-    ldr x23, [x22, #PI4_LAUNCHER_SLOT_STATE_TEXT]
+    ldr x23, [x22, #PI4_LAUNCHER_APP_RECORD_STATE_TEXT]
     str x23, [x21, #PI4_LAUNCHER_STATE_SELECTED_STATE_TEXT]
     ldr x23, [x21, #PI4_LAUNCHER_STATE_RENDER_COUNT]
     add x23, x23, #1
@@ -3794,7 +4333,7 @@ pi4_launcher_draw_doom_icon:
     adrp x9, pi4_launcher_art_flags
     add x9, x9, :lo12:pi4_launcher_art_flags
     ldr x9, [x9]
-    tbz x9, #PI4_LAUNCHER_SLOT_APP0, .Lpi4_doom_icon_fallback
+    tbz x9, #PI4_LAUNCHER_APP_RECORD_0, .Lpi4_doom_icon_default_art
 
     mov x0, x19
     mov x1, x20
@@ -3812,7 +4351,7 @@ pi4_launcher_draw_doom_icon:
     bl pi4_launcher_draw_border
     b .Lpi4_doom_icon_done
 
-.Lpi4_doom_icon_fallback:
+.Lpi4_doom_icon_default_art:
     mov x0, x19
     add x1, x20, #20
     add x2, x21, #20
@@ -3961,7 +4500,7 @@ pi4_launcher_draw_quake_icon:
     adrp x9, pi4_launcher_art_flags
     add x9, x9, :lo12:pi4_launcher_art_flags
     ldr x9, [x9]
-    tbz x9, #PI4_LAUNCHER_SLOT_APP1, .Lpi4_quake_icon_fallback
+    tbz x9, #PI4_LAUNCHER_APP_RECORD_1, .Lpi4_quake_icon_default_art
 
     mov x0, x19
     mov x1, x20
@@ -3979,7 +4518,7 @@ pi4_launcher_draw_quake_icon:
     bl pi4_launcher_draw_border
     b .Lpi4_quake_icon_done
 
-.Lpi4_quake_icon_fallback:
+.Lpi4_quake_icon_default_art:
     mov x0, x19
     add x1, x20, #24
     add x2, x21, #24
@@ -4067,24 +4606,24 @@ pi4_launcher_draw_quake_icon:
     ret
 .size pi4_launcher_draw_quake_icon, . - pi4_launcher_draw_quake_icon
 
-.type pi4_launcher_slot_name_ptr, %function
-pi4_launcher_slot_name_ptr:
+.type pi4_launcher_app_record_name_ptr, %function
+pi4_launcher_app_record_name_ptr:
     stp x29, x30, [sp, #-32]!
     mov x29, sp
     str x19, [sp, #16]
     mov x19, x0
-    bl pi4_launcher_slot_entry_ptr
-    cbz x0, .Lpi4_slot_name_default
-    ldr x0, [x0, #PI4_LAUNCHER_SLOT_NAME]
-    cbnz x0, .Lpi4_slot_name_done
-.Lpi4_slot_name_default:
+    bl pi4_launcher_app_record_entry_ptr
+    cbz x0, .Lpi4_app_record_name_default
+    ldr x0, [x0, #PI4_LAUNCHER_APP_RECORD_NAME]
+    cbnz x0, .Lpi4_app_record_name_done
+.Lpi4_app_record_name_default:
     mov x0, x19
     bl pi4_launcher_default_name
-.Lpi4_slot_name_done:
+.Lpi4_app_record_name_done:
     ldr x19, [sp, #16]
     ldp x29, x30, [sp], #32
     ret
-.size pi4_launcher_slot_name_ptr, . - pi4_launcher_slot_name_ptr
+.size pi4_launcher_app_record_name_ptr, . - pi4_launcher_app_record_name_ptr
 
 .type pi4_launcher_measure_app_label, %function
 pi4_launcher_measure_app_label:
@@ -4174,7 +4713,7 @@ pi4_launcher_draw_app_label:
     mov x22, x3
 
     mov x0, x20
-    bl pi4_launcher_slot_name_ptr
+    bl pi4_launcher_app_record_name_ptr
     mov x23, x0
 
     mov x0, x23
@@ -4313,7 +4852,7 @@ pi4_launcher_manifest:
     .ascii "app_discovery_source=/APPS/INDEX.TXT\n"
     .ascii "app_discovery_runtime=read-app-count-and-indexed-manifest-keys\n"
     .ascii "app_metadata_runtime=manifest-name-exec-asset-icon\n"
-    .ascii "launcher_slot_table_authority=runtime-vfs-app-index\n"
+    .ascii "launcher_app_record_table_authority=runtime-vfs-app-index\n"
     .ascii "launcher_app_table_authority=runtime-vfs-discovery\n"
     .ascii "launcher_launch_authority=manifest-exec-path\n"
     .ascii "launcher_state_schema=vibe-os-pi4-launcher-state-v2\n"
@@ -4338,7 +4877,7 @@ pi4_launcher_manifest:
     .ascii "launcher_state.offset.exec_count=216\n"
     .ascii "launcher_state.offset.exec_request_abi=336\n"
     .ascii "launcher_state.offset.exec_request_bytes=344\n"
-    .ascii "launcher_state.offset.exec_request_compat=352\n"
+    .ascii "launcher_state.offset.exec_request_reserved=352\n"
     .ascii "launcher_state.offset.exec_request_path=360\n"
     .ascii "launcher_state.offset.exec_argv=368\n"
     .ascii "launcher_state.offset.exec_attempt_state=376\n"
@@ -4350,7 +4889,7 @@ pi4_launcher_manifest:
     .ascii "launcher_state.exec_attempt_state.4=failed\n"
     .ascii "launcher_state.exec_attempt_state.5=ok\n"
     .ascii "launcher_exec_enosys_claim=request-recorded-app-only\n"
-    .ascii "launcher_visible_slot_state=fullscreen-desktop-app-cards\n"
+    .ascii "launcher_visible_app_record_state=fullscreen-desktop-app-cards\n"
     .ascii "launcher_visible_selected_state=focus-hover-card-and-button\n"
     .ascii "launcher_visible_exec_request=active-click-or-enter-launch\n"
     .ascii "launcher_visible_launch_state=pressed-play-button-before-exec\n"
@@ -4359,7 +4898,7 @@ pi4_launcher_manifest:
     .ascii "launcher_visible_launch_affordance=card-play-button-glyph-and-1-2-key-badges\n"
     .ascii "launcher_visible_keyboard_labels=1-2-key-badges-and-enter-button-label\n"
     .ascii "launcher_visible_app_labels=manifest-name-rendered-with-aarch64-5x7-font\n"
-    .ascii "launcher_visible_art_fallback=retro-mac-icon-well-with-large-real-asset-icons-and-readable-labels\n"
+    .ascii "launcher_visible_art_default=retro-mac-icon-well-with-large-real-asset-icons-and-readable-labels\n"
     .ascii "launcher_visible_layout=1280x720-topbar56-header1216x92-picker1216x504\n"
     .ascii "launcher_visible_card_rects=doom48,204,552,464;quake680,204,552,464\n"
     .ascii "launcher_visible_art_rects=doom72,216,504,288;quake704,216,504,288\n"
@@ -4376,7 +4915,7 @@ pi4_launcher_manifest:
     .ascii "launcher_input_lane=keyboard-mouse-uart\n"
     .ascii "launcher_input_events=click/enter/space/arrows/wasd/1/2-select/usb-hid\n"
     .ascii "launcher_mouse_policy=hover-focus-padded-card-left-press-launch\n"
-    .ascii "launcher_mouse_press_policy=left-press-edge-inside-hitbox-records-slot\n"
+    .ascii "launcher_mouse_press_policy=left-press-edge-inside-hitbox-records\n"
     .ascii "launcher_cursor_start=doom-play-button-center\n"
     .ascii "launcher_mouse_hitbox.doom=x24,y168,w600,h512\n"
     .ascii "launcher_mouse_hitbox.quake=x656,y168,w600,h512\n"
@@ -4400,19 +4939,40 @@ pi4_launcher_key_icon:
     .asciz "icon="
 
 .balign 8
-pi4_launcher_default_app_slot_names:
+pi4_launcher_default_app_record_names:
     .quad pi4_launcher_app_record_0_name
     .quad pi4_launcher_app_record_1_name
 
 .balign 8
-pi4_launcher_desktop_slot_defaults:
-    .quad pi4_launcher_active_slot
-    .quad PI4_LAUNCHER_SLOT_NONE
-    .quad pi4_launcher_hover_slot
-    .quad PI4_LAUNCHER_SLOT_DEFAULT
-    .quad pi4_launcher_failed_slot
-    .quad PI4_LAUNCHER_SLOT_NONE
-pi4_launcher_desktop_slot_defaults_end:
+pi4_launcher_card_records:
+    .quad PI4_LAUNCHER_APP_RECORD_0
+    .quad PI4_LAUNCHER_DOOM_CARD_X
+    .quad PI4_LAUNCHER_DOOM_ICON_X
+    .quad PI4_COLOR_DOOM_FIRE
+    .quad PI4_COLOR_DOOM_DARK
+    .quad pi4_launcher_draw_doom_poster
+    .quad pi4_launcher_draw_doom_icon
+    .quad pi4_launcher_key_1_bitmap
+    .quad pi4_launcher_doom_icon_pixels
+    .quad PI4_LAUNCHER_APP_RECORD_1
+    .quad PI4_LAUNCHER_QUAKE_CARD_X
+    .quad PI4_LAUNCHER_QUAKE_ICON_X
+    .quad PI4_COLOR_QUAKE_GOLD
+    .quad PI4_COLOR_QUAKE_DARK
+    .quad pi4_launcher_draw_quake_poster
+    .quad pi4_launcher_draw_quake_icon
+    .quad pi4_launcher_key_2_bitmap
+    .quad pi4_launcher_quake_icon_pixels
+
+.balign 8
+pi4_launcher_desktop_app_record_defaults:
+    .quad pi4_launcher_active_app_record
+    .quad PI4_LAUNCHER_APP_RECORD_NONE
+    .quad pi4_launcher_hover_app_record
+    .quad PI4_LAUNCHER_APP_RECORD_DEFAULT
+    .quad pi4_launcher_failed_app_record
+    .quad PI4_LAUNCHER_APP_RECORD_NONE
+pi4_launcher_desktop_app_record_defaults_end:
 
 .section .data.pi4_launcher_state, "aw", %progbits
 .balign 8
@@ -4425,9 +4985,9 @@ pi4_launcher_state:
     .quad PI4_LAUNCHER_FRAME_HEIGHT
     .quad PI4_LAUNCHER_FRAME_STRIDE
     .quad PI4_LAUNCHER_FRAME_BYTES
-    .quad PI4_LAUNCHER_SLOT_COUNT
-    .quad PI4_LAUNCHER_SLOT_DEFAULT
-    .quad pi4_launcher_slot_table
+    .quad PI4_LAUNCHER_APP_RECORD_COUNT
+    .quad PI4_LAUNCHER_APP_RECORD_DEFAULT
+    .quad pi4_launcher_app_record_table
     .quad pi4_launcher_app_record_0_name
     .quad 0
     .quad 0
@@ -4438,8 +4998,8 @@ pi4_launcher_state:
     .quad 0
     .quad 0
     .quad 0
-    .quad PI4_LAUNCHER_SLOT_DEFAULT
-    .quad pi4_launcher_slot_table
+    .quad PI4_LAUNCHER_APP_RECORD_DEFAULT
+    .quad pi4_launcher_app_record_table
     .quad pi4_launcher_app_record_0_name
     .quad 0
     .quad pi4_launcher_exec_request
@@ -4447,9 +5007,9 @@ pi4_launcher_state:
     .quad 0
     .quad 0
     .quad 0
-    .quad pi4_launcher_slot_absent_state
+    .quad pi4_launcher_app_record_absent_state
     .quad 0
-    .quad pi4_launcher_slot_absent_state
+    .quad pi4_launcher_app_record_absent_state
     .quad PI4_LAUNCHER_STATE_ABI_VERSION_VALUE
     .quad PI4_LAUNCHER_STATE_TOTAL_BYTES_VALUE
     .quad 0
@@ -4497,15 +5057,15 @@ pi4_launcher_cursor_y:
 .global pi4_launcher_mouse_buttons
 pi4_launcher_mouse_buttons:
     .quad 0
-.global pi4_launcher_active_slot
-pi4_launcher_active_slot:
-    .quad PI4_LAUNCHER_SLOT_NONE
-.global pi4_launcher_hover_slot
-pi4_launcher_hover_slot:
-    .quad PI4_LAUNCHER_SLOT_DEFAULT
-.global pi4_launcher_failed_slot
-pi4_launcher_failed_slot:
-    .quad PI4_LAUNCHER_SLOT_NONE
+.global pi4_launcher_active_app_record
+pi4_launcher_active_app_record:
+    .quad PI4_LAUNCHER_APP_RECORD_NONE
+.global pi4_launcher_hover_app_record
+pi4_launcher_hover_app_record:
+    .quad PI4_LAUNCHER_APP_RECORD_DEFAULT
+.global pi4_launcher_failed_app_record
+pi4_launcher_failed_app_record:
+    .quad PI4_LAUNCHER_APP_RECORD_NONE
 
 .balign 8
 .global pi4_launcher_present
@@ -4585,25 +5145,25 @@ pi4_launcher_app_index_key_buffer:
 pi4_launcher_app_count_value:
     .skip PI4_LAUNCHER_APP_COUNT_BYTES
 .balign 16
-.global pi4_launcher_app_slot_names
-pi4_launcher_app_slot_names:
-    .skip PI4_LAUNCHER_APP_NAME_BYTES * PI4_LAUNCHER_SLOT_COUNT
+.global pi4_launcher_app_record_names
+pi4_launcher_app_record_names:
+    .skip PI4_LAUNCHER_APP_NAME_BYTES * PI4_LAUNCHER_APP_RECORD_COUNT
 .balign 16
-.global pi4_launcher_app_slot_paths
-pi4_launcher_app_slot_paths:
-    .skip PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_SLOT_COUNT
+.global pi4_launcher_app_record_paths
+pi4_launcher_app_record_paths:
+    .skip PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_APP_RECORD_COUNT
 .balign 16
-.global pi4_launcher_app_slot_assets
-pi4_launcher_app_slot_assets:
-    .skip PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_SLOT_COUNT
+.global pi4_launcher_app_record_assets
+pi4_launcher_app_record_assets:
+    .skip PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_APP_RECORD_COUNT
 .balign 16
-.global pi4_launcher_app_slot_icons
-pi4_launcher_app_slot_icons:
-    .skip PI4_LAUNCHER_APP_ICON_BYTES * PI4_LAUNCHER_SLOT_COUNT
+.global pi4_launcher_app_record_icons
+pi4_launcher_app_record_icons:
+    .skip PI4_LAUNCHER_APP_ICON_BYTES * PI4_LAUNCHER_APP_RECORD_COUNT
 .balign 16
 .global pi4_launcher_app_manifest_paths
 pi4_launcher_app_manifest_paths:
-    .skip PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_SLOT_COUNT
+    .skip PI4_LAUNCHER_APP_PATH_BYTES * PI4_LAUNCHER_APP_RECORD_COUNT
 
 .section .bss.pi4_launcher_fbinfo, "aw", %nobits
 .balign 8

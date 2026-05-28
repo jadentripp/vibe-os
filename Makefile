@@ -185,8 +185,8 @@ APP_QUAKE_MANIFEST_TXT := user/pi4_app_quake.txt
 PI4_APP_INDEX_TXT := $(APP_INDEX_TXT)
 PI4_APP_DOOM_MANIFEST_TXT := $(APP_DOOM_MANIFEST_TXT)
 PI4_APP_QUAKE_MANIFEST_TXT := $(APP_QUAKE_MANIFEST_TXT)
-PI4_APP_INSTALL_ARGS := --asset /SYSTEM/INIT.ELF=$(PI4_LAUNCHER_ELF) --asset /SYSTEM/ABIPROBE.ELF=$(PI4_ABI_PROBE_ELF) --asset /APPS/INDEX.TXT=$(PI4_APP_INDEX_TXT) --asset /APPS/DOOM/APP.TXT=$(PI4_APP_DOOM_MANIFEST_TXT) --asset /APPS/DOOM/APP.ELF=$(PI4_APP_DOOM_ELF) --asset /APPS/QUAKE/APP.TXT=$(PI4_APP_QUAKE_MANIFEST_TXT) --asset /APPS/QUAKE/APP.ELF=$(PI4_APP_QUAKE_ELF)
-PI4_APP_INSTALL_DEPS := $(PI4_APP_INDEX_TXT) $(PI4_APP_DOOM_MANIFEST_TXT) $(PI4_APP_QUAKE_MANIFEST_TXT) $(PI4_APP_DOOM_ELF) $(PI4_APP_QUAKE_ELF)
+PI4_APP_RECORD_ARGS := --asset /SYSTEM/INIT.ELF=$(PI4_LAUNCHER_ELF) --asset /SYSTEM/ABIPROBE.ELF=$(PI4_ABI_PROBE_ELF) --asset /APPS/INDEX.TXT=$(PI4_APP_INDEX_TXT) --asset /APPS/DOOM/APP.TXT=$(PI4_APP_DOOM_MANIFEST_TXT) --asset /APPS/DOOM/APP.ELF=$(PI4_APP_DOOM_ELF) --asset /APPS/QUAKE/APP.TXT=$(PI4_APP_QUAKE_MANIFEST_TXT) --asset /APPS/QUAKE/APP.ELF=$(PI4_APP_QUAKE_ELF)
+PI4_APP_RECORD_DEPS := $(PI4_APP_INDEX_TXT) $(PI4_APP_DOOM_MANIFEST_TXT) $(PI4_APP_QUAKE_MANIFEST_TXT) $(PI4_APP_DOOM_ELF) $(PI4_APP_QUAKE_ELF)
 PI4_ROOT_ELF_ARGS :=
 C_RUNTIME_SRC := kernel/c_runtime_probe.asm
 USER_PROBE_ASM_SRC := user/probe.asm
@@ -1274,7 +1274,7 @@ pi4-launcher-state-manifest-check: $(PI4_LAUNCHER_STATE_MANIFEST_ELF)
 		"launcher_state.offset.move_count=304" \
 		"launcher_state.offset.record_action_count=312" \
 		"launcher_state.offset.present_status=320" \
-		"launcher_state.offset.exec_request_compat=352" \
+		"launcher_state.offset.exec_request_reserved=352" \
 		"launcher_state.offset.exec_request_path=360" \
 		"launcher_state.offset.exec_attempt_state=376" \
 		"launcher_state.offset.exec_request_count=384" \
@@ -1299,11 +1299,11 @@ pi4-launcher-state-manifest-check: $(PI4_LAUNCHER_STATE_MANIFEST_ELF)
 pi4-user-elves: $(PI4_LAUNCHER_ELF) $(PI4_ABI_PROBE_ELF) $(PI4_DOOM_ELF) $(PI4_QUAKE_ELF) pi4-launcher-state-manifest-check
 	@printf "Built Raspberry Pi 4 AArch64 user ELFs %s, %s, %s, and %s\n" "$(PI4_LAUNCHER_ELF)" "$(PI4_ABI_PROBE_ELF)" "$(PI4_DOOM_ELF)" "$(PI4_QUAKE_ELF)"
 
-$(PI4_IMAGE): $(PI4_KERNEL8_IMG) $(PI4_CONFIG_TXT) $(PI4_LAUNCHER_ELF) $(PI4_ABI_PROBE_ELF) $(IMAGE_BUILDER) $(IMAGE_ASSET_DEPS) $(PI4_APP_INSTALL_DEPS) FORCE | $(PI4_BUILD_DIR)
+$(PI4_IMAGE): $(PI4_KERNEL8_IMG) $(PI4_CONFIG_TXT) $(PI4_LAUNCHER_ELF) $(PI4_ABI_PROBE_ELF) $(IMAGE_BUILDER) $(IMAGE_ASSET_DEPS) $(PI4_APP_RECORD_DEPS) FORCE | $(PI4_BUILD_DIR)
 	@if [ -n "$(PRIMARY_ASSET)" ]; then \
-		$(IMAGE_BUILDER) --proof-manifest --primary-asset-wad "$(PRIMARY_ASSET)" $(IMAGE_SECONDARY_PACKAGE_ARGS) --root-file KERNEL8.IMG=$(PI4_KERNEL8_IMG) --root-file CONFIG.TXT=$(PI4_CONFIG_TXT) $(PI4_ROOT_ELF_ARGS) $(PI4_APP_INSTALL_ARGS) $@; \
+		$(IMAGE_BUILDER) --proof-manifest --primary-asset-wad "$(PRIMARY_ASSET)" $(IMAGE_SECONDARY_PACKAGE_ARGS) --root-file KERNEL8.IMG=$(PI4_KERNEL8_IMG) --root-file CONFIG.TXT=$(PI4_CONFIG_TXT) $(PI4_ROOT_ELF_ARGS) $(PI4_APP_RECORD_ARGS) $@; \
 	else \
-		$(IMAGE_BUILDER) --proof-manifest $(IMAGE_SECONDARY_PACKAGE_ARGS) --root-file KERNEL8.IMG=$(PI4_KERNEL8_IMG) --root-file CONFIG.TXT=$(PI4_CONFIG_TXT) $(PI4_ROOT_ELF_ARGS) $(PI4_APP_INSTALL_ARGS) $@; \
+		$(IMAGE_BUILDER) --proof-manifest $(IMAGE_SECONDARY_PACKAGE_ARGS) --root-file KERNEL8.IMG=$(PI4_KERNEL8_IMG) --root-file CONFIG.TXT=$(PI4_CONFIG_TXT) $(PI4_ROOT_ELF_ARGS) $(PI4_APP_RECORD_ARGS) $@; \
 	fi
 	@printf "Built Raspberry Pi 4 FAT16 image %s with /SYSTEM plus /APPS app_exec paths only.\n" "$@"
 

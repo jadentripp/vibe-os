@@ -662,32 +662,65 @@ static int status_has_local_qemu_metadata(const Status *status) {
            field_equals(status, "hardware_proof", "unclaimed");
 }
 
-static int is_pi4_user_exec_path(const char *path) {
-    return strcmp(path, "/SYSTEM/INIT.ELF") == 0 ||
-           strcmp(path, "/APPS/DOOM/APP.ELF") == 0 ||
-           strcmp(path, "/APPS/QUAKE/APP.ELF") == 0;
+static int is_pi4_installed_app_path(const char *path) {
+    static const char prefix[] = "/APPS/";
+    static const char suffix[] = "/APP.ELF";
+    size_t prefix_len = sizeof(prefix) - 1u;
+    size_t suffix_len = sizeof(suffix) - 1u;
+    size_t path_len = strlen(path);
+    const char *name;
+    const char *name_end;
+
+    if (strncmp(path, prefix, prefix_len) != 0 || path_len <= prefix_len + suffix_len ||
+        strcmp(path + path_len - suffix_len, suffix) != 0) {
+        return 0;
+    }
+
+    name = path + prefix_len;
+    name_end = path + path_len - suffix_len;
+    for (; name < name_end; name++) {
+        if (*name == '/') {
+            return 0;
+        }
+    }
+    return 1;
 }
 
-static int pi4_app_id_for_path(const char *path, uint64_t *app_id) {
+static int is_pi4_user_exec_path(const char *path) {
+    return strcmp(path, "/SYSTEM/INIT.ELF") == 0 ||
+           is_pi4_installed_app_path(path);
+}
+
+static const char *pi4_installed_app_record_key(uint64_t app_record) {
+    if (app_record == PI4_VIBE_FILE_ASSET_APP_RECORD0_ELF) {
+        return "pi4app0";
+    }
+    if (app_record == PI4_VIBE_FILE_ASSET_APP_RECORD1_ELF) {
+        return "pi4app1";
+    }
+    return NULL;
+}
+
+static int pi4_first_app_record_for_path(const char *path, uint64_t *app_record) {
     if (strcmp(path, "/APPS/DOOM/APP.ELF") == 0) {
-        *app_id = PI4_VIBE_FILE_ASSET_APP_RECORD0_ELF;
+        *app_record = PI4_VIBE_FILE_ASSET_APP_RECORD0_ELF;
         return 1;
     }
     if (strcmp(path, "/APPS/QUAKE/APP.ELF") == 0) {
-        *app_id = PI4_VIBE_FILE_ASSET_APP_RECORD1_ELF;
+        *app_record = PI4_VIBE_FILE_ASSET_APP_RECORD1_ELF;
         return 1;
     }
     return 0;
 }
 
-static uint64_t pi4_app_asset_for_id(uint64_t app_id) {
+static uint64_t pi4_app_record_for_first_app_id(uint64_t app_id) {
     if (app_id == PI4_VIBE_APP_DOOM) {
         return PI4_VIBE_FILE_ASSET_APP_RECORD0_ELF;
     }
     if (app_id == PI4_VIBE_APP_QUAKE) {
         return PI4_VIBE_FILE_ASSET_APP_RECORD1_ELF;
     }
-    fail("unknown Pi app id");
+    fail("unknown Pi first-app id");
     return 0;
 }
 
@@ -2405,30 +2438,45 @@ static void validate_pi4_storage_file_evidence(const Status *status, const uint6
     validate_pi4_storage_file_tuple(mbr, bpb, root, name, file);
 }
 
-static void validate_pi4_app_vfs_evidence(const Status *status) {
+static void validate_pi4_app_vfs_evidence(const Status *status, uint64_t app_record) {
     uint64_t appvfs[10];
     uint64_t mbr[6];
     uint64_t bpb[9];
     uint64_t root[4];
-    uint64_t app_id;
+    const char *app_key;
     const char *path = field(status, "path");
 
-    if (!pi4_app_id_for_path(path, &app_id)) {
+    if (!is_pi4_installed_app_path(path)) {
         fail("path= must be an installed /APPS/.../APP.ELF executable for pi4appvfs=");
+    }
+    app_key = pi4_installed_app_record_key(app_record);
+    if (!app_key) {
+        fail("pi4appvfs= requires an installed app record selected by pi4appreq=");
     }
 
     exact(status, "pi4vfs", "OK");
     hex64_tuple_exact(status, "pi4appvfs", 10, '/', appvfs);
-    if (appvfs[0] != app_id) {
-        fail("pi4appvfs= app id must match the selected /APPS path");
+    if (appvfs[0] != app_record) {
+        fail("pi4appvfs= installed app record must match pi4appreq=");
     }
     if (appvfs[1] != PI4_STORAGE_FILE_STATUS_OK) {
-        fail("pi4appvfs= must prove the selected /APPS executable was present in the Pi VFS");
+        fail("pi4appvfs= must prove the selected installed app record was present in the Pi VFS");
     }
 
     validate_pi4_storage_mbr(status, mbr);
     validate_pi4_storage_fat_evidence(status, mbr, bpb, root);
     validate_pi4_storage_file_tuple(mbr, bpb, root, "pi4appvfs", appvfs + 2u);
+    {
+        uint64_t file[8];
+        size_t i;
+
+        hex64_tuple_exact(status, app_key, 8, '/', file);
+        for (i = 0; i < ARRAY_LEN(file); i++) {
+            if (appvfs[i + 2u] != file[i]) {
+                fail("pi4appvfs= must match the selected installed app record read plan");
+            }
+        }
+    }
 }
 
 static void validate_pi4_user_file_status(const Status *status) {
@@ -2482,11 +2530,11 @@ static void validate_pi4_user_file_status(const Status *status) {
         fail("pi4userfile= successful app asset proof must include open, size, and read");
     }
     if (file[2] != PI4_VIBE_APP_DOOM && file[2] != PI4_VIBE_APP_QUAKE) {
-        fail("pi4userfile= must record the selected app id");
+        fail("pi4userfile= must record the selected first app id");
     }
     if ((file[3] == PI4_USER_FILE_ASSET_DOOM1_WAD && file[2] != PI4_VIBE_APP_DOOM) ||
         (file[3] == PI4_USER_FILE_ASSET_PAK0_PAK && file[2] != PI4_VIBE_APP_QUAKE)) {
-        fail("pi4userfile= app id must match the expected Doom/Quake asset");
+        fail("pi4userfile= first app id must match the expected Doom/Quake asset");
     }
     if (file[5] == 0u || file[7] == 0u || file[8] == 0u || file[8] > file[7]) {
         fail("pi4userfile= successful read must expose nonzero size/request/result");
@@ -3191,7 +3239,7 @@ static void validate_pi4_exec_status(const Status *status) {
     const char *exec;
     const char *path;
     uint64_t request[6];
-    uint64_t app_id;
+    uint64_t app_record;
 
     if (!has_field(status, "pi4exec")) {
         if (has_field(status, "pi4execreq")) {
@@ -3204,7 +3252,7 @@ static void validate_pi4_exec_status(const Status *status) {
             fail("pi4appvfs= requires pi4exec=OK state evidence");
         }
         if (field_equals(status, "doom", "OK") || field_equals(status, "quake", "OK")) {
-            fail("Pi Doom/Quake proof requires pi4exec=OK launch evidence");
+            fail("Pi first installed Doom/Quake app proof requires pi4exec=OK launch evidence");
         }
         return;
     }
@@ -3228,10 +3276,9 @@ static void validate_pi4_exec_status(const Status *status) {
             fail("pi4exec=WAIT cannot claim app-path request or VFS launch evidence");
         }
         if (field_equals(status, "doom", "OK") || field_equals(status, "quake", "OK")) {
-            fail("pi4exec=WAIT cannot prove Doom or Quake gameplay launch");
+            fail("pi4exec=WAIT cannot prove first installed Doom/Quake app gameplay launch");
         }
-        if (field_equals(status, "path", "/APPS/DOOM/APP.ELF") ||
-            field_equals(status, "path", "/APPS/QUAKE/APP.ELF")) {
+        if (has_field(status, "path") && is_pi4_installed_app_path(field(status, "path"))) {
             fail("pi4exec=WAIT cannot claim app exec path success");
         }
         return;
@@ -3245,13 +3292,11 @@ static void validate_pi4_exec_status(const Status *status) {
         exact(status, "pi4runtime", "OK");
         exact(status, "pi4mem", "OK");
         path = field(status, "path");
-        if (pi4_app_id_for_path(path, &app_id)) {
-            (void)app_id;
-            (void)validate_pi4_app_request_evidence(status, request);
-            validate_pi4_app_vfs_evidence(status);
-        } else {
+        if (!is_pi4_installed_app_path(path)) {
             fail("pi4exec=OK must launch an installed /APPS/.../APP.ELF path");
         }
+        app_record = validate_pi4_app_request_evidence(status, request);
+        validate_pi4_app_vfs_evidence(status, app_record);
         exact(status, "panic", "NONE");
         exact(status, "shutdown", "NONE");
         return;
@@ -3384,11 +3429,11 @@ static void validate_pi4_runtime_status(const Status *status) {
 static uint64_t validate_pi4_app_request_evidence(const Status *status,
                                                   const uint64_t *request) {
     uint64_t app_request[6];
-    uint64_t app_id;
+    uint64_t first_app_record;
     const char *path = field(status, "path");
     uint64_t path_bytes = (uint64_t)strlen(path);
 
-    if (!pi4_app_id_for_path(path, &app_id)) {
+    if (!is_pi4_installed_app_path(path)) {
         fail("path= must be an installed /APPS/.../APP.ELF executable for pi4appreq=");
     }
 
@@ -3406,10 +3451,14 @@ static uint64_t validate_pi4_app_request_evidence(const Status *status,
     if (app_request[4] != path_bytes) {
         fail("pi4appreq= path byte count must match the selected /APPS path");
     }
-    if (app_request[5] != app_id) {
-        fail("pi4appreq= matched app id must agree with the selected /APPS path");
+    if (!pi4_installed_app_record_key(app_request[5])) {
+        fail("pi4appreq= matched app record must name an installed APP.ELF record");
     }
-    return app_id;
+    if (pi4_first_app_record_for_path(path, &first_app_record) &&
+        app_request[5] != first_app_record) {
+        fail("pi4appreq= matched app record must agree with the first installed app path");
+    }
+    return app_request[5];
 }
 
 static void validate_pi4_framebuffer_status(const Status *status) {
@@ -3614,7 +3663,7 @@ static const char *pi4_app_path_for_id(uint64_t app_id) {
         return "/APPS/QUAKE/APP.ELF";
     }
     (void)app_id;
-    fail("unknown Pi app id");
+    fail("unknown Pi first-app id");
     return "";
 }
 
@@ -3630,7 +3679,7 @@ static void validate_pi4_local_app_capture(const Status *status, uint64_t app_id
     uint64_t change[4];
     uint64_t events[PI4_UART_INPUT_EVENT_COUNTER_FIELDS];
     const char *path = pi4_app_path_for_id(app_id);
-    uint64_t app_asset = pi4_app_asset_for_id(app_id);
+    uint64_t app_record = pi4_app_record_for_first_app_id(app_id);
 
     exact(status, "pi4exec", "OK");
     exact(status, "path", path);
@@ -3639,12 +3688,12 @@ static void validate_pi4_local_app_capture(const Status *status, uint64_t app_id
     if (execreq[0] != PI4_VIBE_SYS_EXEC || execreq[4] != 0u || execreq[5] == 0u) {
         fail("pi4execreq= must prove a successful captured Pi app exec syscall");
     }
-    if (validate_pi4_app_request_evidence(status, execreq) != app_asset) {
-        fail("pi4appreq= matched app asset must match the captured Pi app path");
+    if (validate_pi4_app_request_evidence(status, execreq) != app_record) {
+        fail("pi4appreq= matched app record must match the captured first app path");
     }
     hex64_tuple_exact(status, "pi4appvfs", 10, '/', appvfs);
-    if (appvfs[0] != app_asset || appvfs[1] != PI4_STORAGE_FILE_STATUS_OK) {
-        fail("pi4appvfs= must prove the selected Pi app executable was read from VFS");
+    if (appvfs[0] != app_record || appvfs[1] != PI4_STORAGE_FILE_STATUS_OK) {
+        fail("pi4appvfs= must prove the selected installed app record was read from VFS");
     }
     if (appvfs[2] == 0u || appvfs[3] == 0u || appvfs[4] == 0u ||
         appvfs[5] == 0u || appvfs[6] == 0u || appvfs[7] == 0u ||
