@@ -144,8 +144,6 @@ static const char USER_PROBE_NAME[] = "USERPROBELF";
 static const char KERNEL_ELF_NAME[] = "KERNEL  ELF";
 static const char PI4_KERNEL8_IMG_NAME[] = "KERNEL8 IMG";
 static const char PI4_CONFIG_TXT_NAME[] = "CONFIG  TXT";
-static const char INIT_ELF_NAME[] = "INIT    ELF";
-static const char ABI_PROBE_ELF_NAME[] = "ABIPROBEELF";
 static const char PRIMARY_ASSET_WAD_NAME[] = "DOOM1   WAD";
 static const char QUAKE_ID1_DIR_NAME[] = "ID1        ";
 static const char QUAKE_PAK0_NAME[] = "PAK0    PAK";
@@ -1963,11 +1961,6 @@ static void proof_manifest_require_root_file(const ProofManifest* manifest, Imag
     proof_manifest_require_root_input(manifest->root_files, manifest->root_file_count, image, name, display, "root file");
 }
 
-static void proof_manifest_require_root_elf(const ProofManifest* manifest, Image* image, const char name[11], const char* display)
-{
-    proof_manifest_require_root_input(manifest->root_elves, manifest->root_elf_count, image, name, display, "root ELF");
-}
-
 static const ManifestEntry* proof_manifest_require_asset(const ProofManifest* manifest, const char* display)
 {
     const ManifestEntry* entry = manifest_find(manifest->assets, manifest->asset_count, display);
@@ -1991,8 +1984,10 @@ static void write_proof_manifest(Image* image, const ProofManifest* manifest)
 
     proof_manifest_require_root_file(manifest, image, PI4_KERNEL8_IMG_NAME, "KERNEL8.IMG");
     proof_manifest_require_root_file(manifest, image, PI4_CONFIG_TXT_NAME, "CONFIG.TXT");
-    proof_manifest_require_root_elf(manifest, image, INIT_ELF_NAME, "INIT.ELF");
-    proof_manifest_require_root_elf(manifest, image, ABI_PROBE_ELF_NAME, "ABIPROBE.ELF");
+    if (manifest->root_elf_count != 0) {
+        fprintf(stderr, "make_wad_image: Pi proof manifest requires system ELFs under /SYSTEM, not root ELF fallbacks\n");
+        exit(1);
+    }
     const ManifestEntry* system_init = proof_manifest_require_asset(manifest, PI4_SYSTEM_INIT_PATH);
     const ManifestEntry* system_abiprobe = proof_manifest_require_asset(manifest, PI4_SYSTEM_ABIPROBE_PATH);
     const ManifestEntry* app_index = proof_manifest_require_asset(manifest, PI4_APP_INDEX_PATH);

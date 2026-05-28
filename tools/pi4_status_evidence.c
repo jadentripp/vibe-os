@@ -762,7 +762,7 @@ static int status_word_equals(const char* value, const char* name, uint64_t word
 
 static int is_pi4_user_exec_path(const char* path)
 {
-    return strcmp(path, "INIT.ELF") == 0 ||
+    return strcmp(path, "/SYSTEM/INIT.ELF") == 0 ||
         strcmp(path, "/APPS/DOOM/APP.ELF") == 0 ||
         strcmp(path, "/APPS/QUAKE/APP.ELF") == 0;
 }
@@ -1767,7 +1767,7 @@ static int check_runtime_status(const Field* fields, size_t count)
         ok = require_value(fields, count, "exec", "OK") && ok;
         if (!path || !is_pi4_user_exec_path(path)) {
             fprintf(stderr,
-                "pi4_status_evidence: path= must be INIT.ELF or an installed app executable\n");
+                "pi4_status_evidence: path= must be /SYSTEM/INIT.ELF or an installed app executable\n");
             ok = 0;
         }
         ok = require_value(fields, count, "uexec", "OK") && ok;

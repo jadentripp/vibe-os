@@ -4612,7 +4612,7 @@ pi4_uart_write_storage_vfs_file_tuples:
     mov x2, #8
     bl pi4_uart_write_storage_named_tuple
     adr x0, msg_status_pi4abiprobe
-    adr x1, pi4_storage_status_abiprobe_elf
+    adr x1, pi4_storage_status_system_abiprobe
     mov x2, #4
     bl pi4_uart_write_storage_named_tuple
     adr x0, msg_status_pi4appdoom
@@ -8816,6 +8816,7 @@ pi4_present_indexed_frame:
     lsr x16, x16, #1
 
 .Lpi4_present_view_ready:
+    mov x19, xzr
     adr x2, pi4_status_fb_view_x
     str x15, [x2]
     adr x2, pi4_status_fb_view_y
@@ -8913,6 +8914,10 @@ pi4_present_indexed_frame:
     orr w14, w14, w9
     cmp x28, xzr
     csel w12, w14, w12, eq
+    cbnz x19, .Lpi4_present_fullscreen_sample_ready
+    cbz w12, .Lpi4_present_fullscreen_sample_ready
+    uxtw x19, w12
+.Lpi4_present_fullscreen_sample_ready:
     str w12, [x5], #4
     add x29, x29, x12
     add x29, x29, x29, lsl #5
@@ -8959,6 +8964,10 @@ pi4_present_indexed_frame:
     orr w14, w14, w9
     cmp x28, xzr
     csel w12, w14, w12, eq
+    cbnz x19, .Lpi4_present_stretch_sample_ready
+    cbz w12, .Lpi4_present_stretch_sample_ready
+    uxtw x19, w12
+.Lpi4_present_stretch_sample_ready:
     add x29, x29, x12
     add x29, x29, x29, lsl #5
     eor x29, x29, x0
@@ -9016,6 +9025,10 @@ pi4_present_indexed_frame:
     orr w14, w14, w9
     cmp x28, xzr
     csel w12, w14, w12, eq
+    cbnz x19, .Lpi4_present_scaled_sample_ready
+    cbz w12, .Lpi4_present_scaled_sample_ready
+    uxtw x19, w12
+.Lpi4_present_scaled_sample_ready:
     add x29, x29, x12
     add x29, x29, x29, lsl #5
     eor x29, x29, x0
@@ -9047,11 +9060,17 @@ pi4_present_indexed_frame:
     add x0, x0, x15, lsl #2
     ldr w1, [x0]
 
-    adr x2, pi4_status_fb_write
     uxtw x3, w12
+    cbz x19, .Lpi4_present_write_sample_ready
+    mov x3, x19
+.Lpi4_present_write_sample_ready:
+    adr x2, pi4_status_fb_write
     str x3, [x2]
-    adr x2, pi4_status_fb_sample
     uxtw x3, w1
+    cbnz x3, .Lpi4_present_read_sample_ready
+    mov x3, x19
+.Lpi4_present_read_sample_ready:
+    adr x2, pi4_status_fb_sample
     str x3, [x2]
 
     adr x2, pi4_status_fb_frame_hash
@@ -11818,7 +11837,7 @@ pi4_embedded_user_argv0_string:
     .asciz "ABIPROBE.ELF"
 .balign 8
 pi4_nonembedded_user_argv0_string:
-    .asciz "INIT.ELF"
+    .asciz "/SYSTEM/INIT.ELF"
 .balign 16
 .type pi4_el0_preempt_idle, %function
 pi4_el0_preempt_idle:
@@ -12234,7 +12253,7 @@ msg_status_pi4uartrx:
 msg_status_elf_tuple:
     .asciz " pi4uabi=WAIT pi4elf=OK pi4elfsrc=EMBEDDED pi4elfprobe="
 msg_status_pi4uabi_ok:
-    .asciz " pi4uabi=OK exec=OK path=INIT.ELF uexec=OK upath=INIT.ELF uentry="
+    .asciz " pi4uabi=OK exec=OK path=/SYSTEM/INIT.ELF uexec=OK upath=/SYSTEM/INIT.ELF uentry="
 msg_status_pi4uabi_ok_path_prefix:
     .asciz " pi4uabi=OK exec=OK path="
 msg_status_pi4uabi_ok_upath_prefix:
