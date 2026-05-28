@@ -30,11 +30,13 @@ REMOTE_PLAY_PATHS=(
   ".devcontainer/Dockerfile"
   ".devcontainer/play-now-welcome.sh"
   "Makefile"
+  "tools/install_c_compat_headers.sh"
   "tools/play_now_remote.sh"
   "tools/play_now_cloud_shell.sh"
-  "tools/link_elf32.c"
-  "tools/make_wad_image.c"
-  "tools/vibe_status_check.c"
+  "tools/link_elf32.asm"
+  "tools/make_wad_image.elf64.s"
+  "tools/make_wad_image.macho64.s"
+  "tools/vibe_status_check.asm"
 )
 
 if [ -n "${VIBE_REPO:-}" ]; then

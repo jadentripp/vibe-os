@@ -4,6 +4,9 @@ CLANG ?= clang
 HOST_CC ?= cc
 LLD_LINK ?= lld-link
 HOST_CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2
+HOST_UNAME_S := $(shell uname -s)
+HOST_NASM_FORMAT ?= $(if $(filter Darwin,$(HOST_UNAME_S)),macho64,elf64)
+HOST_NASM_DEFS ?= $(if $(filter Darwin,$(HOST_UNAME_S)),-D MACHO64,)
 NC ?= nc
 KERNEL_EXTRA_NASMFLAGS ?=
 USER_ABI_PROBE_NASMFLAGS ?=
@@ -49,6 +52,8 @@ PERSISTENCE_REQUIRE_DYNAMIC_FAT_PROOF ?= 0
 AHCI_STATUS ?=
 
 BUILD_DIR := build
+C_COMPAT_INCLUDE_ROOT := $(BUILD_DIR)/c_compat
+C_COMPAT_HEADERS_STAMP := $(C_COMPAT_INCLUDE_ROOT)/.headers.stamp
 STAGE2_LBA ?= 1
 STAGE1_BIN := $(BUILD_DIR)/stage1.bin
 STAGE2_BIN := $(BUILD_DIR)/stage2.bin
@@ -56,6 +61,8 @@ KERNEL_OBJ := $(BUILD_DIR)/kernel.o
 C_RUNTIME_OBJ := $(BUILD_DIR)/c_runtime_probe.o
 KERNEL_ELF := $(BUILD_DIR)/kernel.elf
 LINK_ELF32 := $(BUILD_DIR)/link_elf32
+LINK_ELF32_SRC := tools/link_elf32.asm
+LINK_ELF32_OBJ := $(BUILD_DIR)/link_elf32.o
 USER_CRT0_OBJ := $(BUILD_DIR)/user_crt0.o
 USER_LAUNCHER_CRT0_OBJ := $(BUILD_DIR)/user_launcher_crt0.o
 USER_PROBE_OBJ := $(BUILD_DIR)/user_probe.o
@@ -68,10 +75,13 @@ USER_ABI_PROBE_ELF := $(BUILD_DIR)/abi_probe.elf
 USER_LAUNCHER_ELF := $(BUILD_DIR)/launcher.elf
 IMAGE := $(BUILD_DIR)/disk.img
 IMAGE_BUILDER := $(BUILD_DIR)/make_wad_image
+IMAGE_BUILDER_SRC := $(if $(filter Darwin,$(HOST_UNAME_S)),tools/make_wad_image.macho64.s,tools/make_wad_image.elf64.s)
+IMAGE_BUILDER_OBJ := $(BUILD_DIR)/make_wad_image.o
 UEFI_BUILD_DIR := $(BUILD_DIR)/uefi
 UEFI_LOADER_OBJ := $(UEFI_BUILD_DIR)/loader.obj
 UEFI_LOADER_EFI := $(UEFI_BUILD_DIR)/BOOTX64.EFI
 UEFI_DUAL_IMAGE := $(UEFI_BUILD_DIR)/uefi-fat16.img
+PROJECT_C_ALLOWLIST := tools/project_c_allowlist.txt
 C_RUNTIME_SRC := kernel/c_runtime_probe.asm
 USER_PROBE_ASM_SRC := user/probe.asm
 USER_LAUNCHER_CRT0_ASM_SRC := user/launcher_crt0.asm
@@ -80,10 +90,11 @@ USER_RUNTIME_ASM_SRC := user/runtime.asm
 USER_LAUNCHER_ASM_SRC := user/launcher.asm
 USER_LAUNCHER_MAIN_ASM_SRC := user/launcher_main.asm
 USER_LIBC_ASM_SRC := user/libc.asm
-USER_INCLUDE_DIR := user/include
-VIBE_STATUS_CHECK_SRC := tools/vibe_status_check.c
+VIBE_STATUS_CHECK_SRC := tools/vibe_status_check.asm
+VIBE_STATUS_CHECK_OBJ := $(BUILD_DIR)/vibe_status_check.o
+VIBE_STATUS_CHECK := $(BUILD_DIR)/vibe_status_check
 DOOM_SRC_DIR := third_party/doom/linuxdoom-1.10
-DOOM_PORT_INCLUDE_DIR := doom_port/include
+DOOM_PORT_INCLUDE_DIR := $(C_COMPAT_INCLUDE_ROOT)/doom
 DOOM_PORT_BUILD_DIR := $(BUILD_DIR)/doom
 DOOM_ELF := $(BUILD_DIR)/payload0.elf
 DOOM_SYMBOLS := $(BUILD_DIR)/doom.symbols
@@ -94,11 +105,11 @@ DOOM_PORT_ASM_SRCS := doom_port/input.asm doom_port/music.asm doom_port/platform
 DOOM_USER_LIBC_OBJ := $(DOOM_PORT_BUILD_DIR)/user_libc.o
 DOOM_PORT_OBJS := $(DOOM_PORT_ASM_SRCS:doom_port/%.asm=$(DOOM_PORT_BUILD_DIR)/port_%.o) $(DOOM_USER_LIBC_OBJ)
 FREESTANDING_I386_CFLAGS := -target i386-unknown-elf -ffreestanding -fno-builtin -fno-strict-aliasing -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m32 -march=i386 -mno-sse -mno-mmx -msoft-float -O2
-DOOM_ORIGINAL_CFLAGS := $(FREESTANDING_I386_CFLAGS) -std=gnu89 -DNORMALUNIX -DLINUX -I$(USER_INCLUDE_DIR) -I$(DOOM_PORT_INCLUDE_DIR) -I$(DOOM_SRC_DIR)
+DOOM_ORIGINAL_CFLAGS := $(FREESTANDING_I386_CFLAGS) -std=gnu89 -DNORMALUNIX -DLINUX -I$(DOOM_PORT_INCLUDE_DIR) -I$(DOOM_SRC_DIR)
 DOOM_G_GAME_CFLAGS := -DG_BuildTiccmd=doom_original_G_BuildTiccmd -DG_Ticker=doom_original_G_Ticker
 DOOM_P_SAVEG_CFLAGS := -DP_ArchivePlayers=doom_original_P_ArchivePlayers -DP_UnArchivePlayers=doom_original_P_UnArchivePlayers -DP_ArchiveWorld=doom_original_P_ArchiveWorld -DP_UnArchiveWorld=doom_original_P_UnArchiveWorld -DP_ArchiveThinkers=doom_original_P_ArchiveThinkers -DP_UnArchiveThinkers=doom_original_P_UnArchiveThinkers -DP_ArchiveSpecials=doom_original_P_ArchiveSpecials -DP_UnArchiveSpecials=doom_original_P_UnArchiveSpecials
 QUAKE_SRC_DIR := third_party/quake/WinQuake
-QUAKE_PORT_INCLUDE_DIR := quake_port/include
+QUAKE_PORT_INCLUDE_DIR := $(C_COMPAT_INCLUDE_ROOT)/quake
 QUAKE_PORT_BUILD_DIR := $(BUILD_DIR)/quake
 QUAKE_ELF := $(BUILD_DIR)/payload1.elf
 QUAKE_SYMBOLS := $(BUILD_DIR)/quake.symbols
@@ -116,7 +127,7 @@ QUAKE_PORT_ASM_SRCS := quake_port/cd.asm quake_port/input.asm quake_port/math.as
 QUAKE_USER_LIBC_OBJ := $(QUAKE_PORT_BUILD_DIR)/user_libc.o
 QUAKE_PORT_OBJS := $(QUAKE_PORT_ASM_SRCS:quake_port/%.asm=$(QUAKE_PORT_BUILD_DIR)/port_%.o) $(QUAKE_USER_LIBC_OBJ)
 QUAKE_FREESTANDING_I386_CFLAGS := -target i386-unknown-elf -ffreestanding -fno-builtin -fno-strict-aliasing -fno-stack-protector -fno-pic -fno-asynchronous-unwind-tables -fno-unwind-tables -m32 -march=i386 -mno-sse -mno-mmx -O2
-QUAKE_ORIGINAL_CFLAGS := $(QUAKE_FREESTANDING_I386_CFLAGS) -std=gnu89 -fcommon -U__i386__ -Dstricmp=strcasecmp -I$(USER_INCLUDE_DIR) -I$(QUAKE_PORT_INCLUDE_DIR) -I$(DOOM_PORT_INCLUDE_DIR) -I$(QUAKE_SRC_DIR)
+QUAKE_ORIGINAL_CFLAGS := $(QUAKE_FREESTANDING_I386_CFLAGS) -std=gnu89 -fcommon -U__i386__ -Dstricmp=strcasecmp -I$(QUAKE_PORT_INCLUDE_DIR) -I$(DOOM_PORT_INCLUDE_DIR) -I$(QUAKE_SRC_DIR)
 IMAGE_SECONDARY_PACKAGE_ARGS :=
 ifneq ($(strip $(SECONDARY_PACKAGE)),)
 IMAGE_SECONDARY_PACKAGE_ARGS := --asset /ID1/PAK0.PAK=$(SECONDARY_PACKAGE)
@@ -139,15 +150,15 @@ IMAGE_EXTRA_ROOT_ELF_ARGS ?=
 IMAGE_EXTRA_ROOT_ELF_DEPS ?=
 IMAGE_ROOT_ELF_ARGS := --root-elf INIT.ELF=$(USER_LAUNCHER_ELF) --root-elf ABIPROBE.ELF=$(USER_ABI_PROBE_ELF) $(LARGE_PAYLOAD_ROOT_ELF_ARGS) $(IMAGE_EXTRA_ROOT_ELF_ARGS)
 
-.PHONY: all build-only test assembly-native-check no-python-check doom-compile doom-link quake-compile quake-link play play-image run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect uefi-loader-object uefi-loader-pe uefi-dual-image persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
+.PHONY: all build-only test assembly-native-check no-python-check project-c-inventory doom-compile doom-link quake-compile quake-link play play-image run run-headless smoke quake-status-proof-check playability-host-check image-builder-tool image-builder-inspect status-checker-tool uefi-loader-object uefi-loader-pe uefi-dual-image persistence-image-check clean check-tools vm-consent vm-status-proof-check FORCE
 
 all: $(IMAGE)
 
 build-only: $(IMAGE) doom-link quake-link
 	@printf "Build-only check OK: %s, %s, %s, %s, and %s are present.\n" "$(IMAGE)" "$(USER_LAUNCHER_ELF)" "$(DOOM_ELF)" "$(QUAKE_ELF)" "$(USER_ABI_PROBE_ELF)"
 
-test: no-python-check $(IMAGE) doom-link quake-link vm-status-proof-check assembly-native-check
-	@printf "Assembly-first host checks OK: image build, Doom link, guest status validator, and assembly-native guest build audit passed.\n"
+test: no-python-check project-c-inventory $(IMAGE) doom-link quake-link vm-status-proof-check assembly-native-check
+	@printf "Assembly-first host checks OK: image build, Doom link, guest status validator, project C inventory, and assembly-native guest build audit passed.\n"
 
 no-python-check:
 	@set -e; \
@@ -157,6 +168,29 @@ no-python-check:
 		exit 1; \
 	fi; \
 	printf "No tracked Python in the vibe-os build/proof path.\n"
+
+project-c-inventory:
+	@set -e; \
+	mkdir -p "$(BUILD_DIR)"; \
+	actual="$(BUILD_DIR)/project-c-actual.txt"; \
+	allow="$(BUILD_DIR)/project-c-allowlist.txt"; \
+	find . -type f \( -name '*.c' -o -name '*.h' \) \
+		-not -path './.git/*' \
+		-not -path './build/*' \
+		-not -path './third_party/*' \
+		-print | sed 's#^\./##' | sort > "$$actual"; \
+	sed '/^[[:space:]]*$$/d' "$(PROJECT_C_ALLOWLIST)" | sort > "$$allow"; \
+	if ! diff -u "$$allow" "$$actual"; then \
+		echo "project C/header inventory drifted; update $(PROJECT_C_ALLOWLIST) intentionally" >&2; \
+		exit 1; \
+	fi; \
+	count="$$(wc -l < "$$actual" | tr -d ' ')"; \
+	if [ -s "$$actual" ]; then \
+		lines="$$(xargs wc -l < "$$actual" | awk 'END { print $$1 }')"; \
+	else \
+		lines=0; \
+	fi; \
+	printf "Project C/header inventory OK: %s files, %s lines remain outside third_party.\n" "$$count" "$$lines"
 
 assembly-native-check:
 	@set -e; \
@@ -271,6 +305,10 @@ $(QUAKE_PORT_BUILD_DIR):
 $(UEFI_BUILD_DIR):
 	@mkdir -p $(UEFI_BUILD_DIR)
 
+$(C_COMPAT_HEADERS_STAMP): tools/install_c_compat_headers.sh | $(BUILD_DIR)
+	bash tools/install_c_compat_headers.sh "$(C_COMPAT_INCLUDE_ROOT)"
+	touch $@
+
 $(STAGE1_BIN): boot/stage1.asm | $(BUILD_DIR)
 	$(NASM) -f bin $< -o $@
 
@@ -284,13 +322,27 @@ $(KERNEL_OBJ): kernel/kernel.asm | $(BUILD_DIR)
 $(C_RUNTIME_OBJ): $(C_RUNTIME_SRC) | $(BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
 
-$(LINK_ELF32): tools/link_elf32.c | $(BUILD_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) $< -o $@
+$(LINK_ELF32_OBJ): $(LINK_ELF32_SRC) | $(BUILD_DIR)
+	$(NASM) -f $(HOST_NASM_FORMAT) $(HOST_NASM_DEFS) $< -o $@
 
-$(IMAGE_BUILDER): tools/make_wad_image.c | $(BUILD_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) $< -o $@
+$(LINK_ELF32): $(LINK_ELF32_OBJ) | $(BUILD_DIR)
+	$(HOST_CC) $< -o $@
+
+$(IMAGE_BUILDER_OBJ): $(IMAGE_BUILDER_SRC) | $(BUILD_DIR)
+	$(HOST_CC) -c $< -o $@
+
+$(IMAGE_BUILDER): $(IMAGE_BUILDER_OBJ) | $(BUILD_DIR)
+	$(HOST_CC) $< -o $@
 
 image-builder-tool: $(IMAGE_BUILDER)
+
+$(VIBE_STATUS_CHECK_OBJ): $(VIBE_STATUS_CHECK_SRC) | $(BUILD_DIR)
+	$(NASM) -f $(HOST_NASM_FORMAT) $(HOST_NASM_DEFS) $< -o $@
+
+$(VIBE_STATUS_CHECK): $(VIBE_STATUS_CHECK_OBJ) | $(BUILD_DIR)
+	$(HOST_CC) $< -o $@
+
+status-checker-tool: $(VIBE_STATUS_CHECK)
 
 image-builder-inspect: $(IMAGE_BUILDER) $(IMAGE)
 	$(IMAGE_BUILDER) --inspect "$(IMAGE)"
@@ -331,10 +383,10 @@ $(USER_LAUNCHER_CRT0_OBJ): $(USER_LAUNCHER_CRT0_ASM_SRC) | $(BUILD_DIR)
 $(USER_PROBE_OBJ): $(USER_PROBE_ASM_SRC) | $(BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
 
-$(USER_ABI_PROBE_OBJ): $(USER_ABI_PROBE_ASM_SRC) user/runtime.h user/include/vibe_os.h FORCE | $(BUILD_DIR)
+$(USER_ABI_PROBE_OBJ): $(USER_ABI_PROBE_ASM_SRC) FORCE | $(BUILD_DIR)
 	$(NASM) -f elf32 $(USER_ABI_PROBE_NASMFLAGS) $< -o $@
 
-$(USER_RUNTIME_OBJ): $(USER_RUNTIME_ASM_SRC) user/runtime.h user/include/vibe_os.h | $(BUILD_DIR)
+$(USER_RUNTIME_OBJ): $(USER_RUNTIME_ASM_SRC) | $(BUILD_DIR)
 	$(NASM) -f elf32 $< -o $@
 
 $(USER_LAUNCHER_OBJ): $(USER_LAUNCHER_ASM_SRC) | $(BUILD_DIR)
@@ -347,13 +399,13 @@ $(USER_LAUNCHER_ELF): $(USER_LAUNCHER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_LAUNC
 	$(LINK_ELF32) -o $@ --base 0x00e80000 $(USER_LAUNCHER_CRT0_OBJ) $(USER_RUNTIME_OBJ) $(USER_LAUNCHER_OBJ) $(USER_LAUNCHER_MAIN_OBJ)
 	@test $$(wc -c < $@) -le $(INIT_PAYLOAD_ELF_MAX_BYTES) || { echo "init payload ELF exceeds $(INIT_PAYLOAD_ELF_MAX_BYTES) bytes"; exit 1; }
 
-$(DOOM_PORT_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c Makefile | $(DOOM_PORT_BUILD_DIR)
+$(DOOM_PORT_BUILD_DIR)/%.o: $(DOOM_SRC_DIR)/%.c Makefile $(C_COMPAT_HEADERS_STAMP) | $(DOOM_PORT_BUILD_DIR)
 	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) -c $< -o $@
 
-$(DOOM_PORT_BUILD_DIR)/g_game.o: $(DOOM_SRC_DIR)/g_game.c Makefile | $(DOOM_PORT_BUILD_DIR)
+$(DOOM_PORT_BUILD_DIR)/g_game.o: $(DOOM_SRC_DIR)/g_game.c Makefile $(C_COMPAT_HEADERS_STAMP) | $(DOOM_PORT_BUILD_DIR)
 	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) $(DOOM_G_GAME_CFLAGS) -c $< -o $@
 
-$(DOOM_PORT_BUILD_DIR)/p_saveg.o: $(DOOM_SRC_DIR)/p_saveg.c Makefile | $(DOOM_PORT_BUILD_DIR)
+$(DOOM_PORT_BUILD_DIR)/p_saveg.o: $(DOOM_SRC_DIR)/p_saveg.c Makefile $(C_COMPAT_HEADERS_STAMP) | $(DOOM_PORT_BUILD_DIR)
 	$(CLANG) $(DOOM_ORIGINAL_CFLAGS) $(DOOM_P_SAVEG_CFLAGS) -c $< -o $@
 
 $(DOOM_PORT_BUILD_DIR)/port_input.o: doom_port/input.asm Makefile | $(DOOM_PORT_BUILD_DIR)
@@ -380,7 +432,7 @@ $(DOOM_PORT_BUILD_DIR)/port_%.o: doom_port/%.asm Makefile | $(DOOM_PORT_BUILD_DI
 $(DOOM_ELF): $(DOOM_ORIGINAL_OBJS) $(DOOM_PORT_OBJS) $(LINK_ELF32) | $(BUILD_DIR)
 	$(LINK_ELF32) -o $@ --base $(DOOM_BASE) --map $(DOOM_SYMBOLS) $(DOOM_ORIGINAL_OBJS) $(DOOM_PORT_OBJS)
 
-$(QUAKE_PORT_BUILD_DIR)/%.o: $(QUAKE_SRC_DIR)/%.c Makefile | $(QUAKE_PORT_BUILD_DIR)
+$(QUAKE_PORT_BUILD_DIR)/%.o: $(QUAKE_SRC_DIR)/%.c Makefile $(C_COMPAT_HEADERS_STAMP) | $(QUAKE_PORT_BUILD_DIR)
 	$(CLANG) $(QUAKE_ORIGINAL_CFLAGS) -c $< -o $@
 
 $(QUAKE_PORT_BUILD_DIR)/port_%.o: quake_port/%.asm Makefile | $(QUAKE_PORT_BUILD_DIR)
